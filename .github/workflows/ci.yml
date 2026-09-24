@@ -36,9 +36,15 @@ jobs:
             exit 1
           fi
 
-      - name: Selene lint
+      # Game code gets the plain roblox std; only tests/ may use TestEZ globals (tests/selene.toml). Audit-001 L5.
+      # Two steps, not `a && b`, so a src/ lint error never hides tests/ lint errors.
+      - name: Selene lint (src, roblox std)
         if: success() || failure()
-        run: selene src tests
+        run: selene src
+
+      - name: Selene lint (tests, roblox + TestEZ std)
+        if: success() || failure()
+        run: selene --config tests/selene.toml tests
 
       - name: StyLua format check
         if: success() || failure()

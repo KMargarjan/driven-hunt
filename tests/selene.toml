@@ -1,0 +1,3 @@
+# Selene lint config for tests/ only: roblox + TestEZ globals (testez.yml at the repo root).
+# Run from the repo root: selene --config tests/selene.toml tests
+std = "roblox+testez"

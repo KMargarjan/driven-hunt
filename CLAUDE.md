@@ -286,7 +286,7 @@ Before mapping all of ServerStorage (2026-09-24 ~20:00), its only child was the 
 | Rojo Studio plugin | 7.7.0 | `rojo plugin install`, built from the pinned CLI, installed to `%LOCALAPPDATA%\Roblox\Plugins\RojoManagedPlugin.rbxm`. The Creator Store Rojo plugin must stay disabled. |
 | Wally | 0.3.2 | `rokit.toml` (exact) |
 | StyLua | 2.5.2 | `rokit.toml` (exact). Config: `stylua.toml` |
-| selene | 0.31.0 | `rokit.toml` (exact). Config: `selene.toml` + `testez.yml` |
+| selene | 0.31.0 | `rokit.toml` (exact). Config: `selene.toml` (src, roblox only) and `tests/selene.toml` (tests, roblox + `testez.yml`) |
 | luau-lsp | 1.70.0 | `rokit.toml` (exact). Editor language server, not used in CI yet |
 | TestEZ | 0.4.1 | `wally.lock` (exact). `wally.toml` allows any compatible 0.4.x. Archived upstream |
 | Rokit itself | 1.2.0 | **Not pinned.** Installed by hand. CI uses the latest via `setup-rokit` |
@@ -302,7 +302,8 @@ After cloning: `rokit install`, then `wally install`. After changing the Rojo ve
 is the docstring of `tools/studio_mcp.py`.** It is the single source of truth. Update it with any
 change to the test system, and don't restate it elsewhere.
 
-- **Lint and format (also in CI):** `selene src tests` and `stylua --check src tests`
+- **Lint and format (also in CI):** `selene src`, `selene --config tests/selene.toml tests` (test globals
+  are a lint error in `src/`), and `stylua --check src tests`
   (`stylua src tests` fixes formatting). `mkdir -p build && rojo build -o build/place.rbxl` checks the
   project builds (Rojo does not create `build/`).
 - **Tests:** Studio open on the DEV place in **Edit** mode, Rojo connected, work committed:
