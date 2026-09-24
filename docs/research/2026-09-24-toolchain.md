@@ -88,6 +88,7 @@ Date: 2026-09-24 · Author: Builder · Task 1 (round 2 revision after Reviewer F
 | Failing spec makes the run exit non-zero | 100% | A deliberate `expect(1).to.equal(2)` gave `[tests] FAIL: 2 passed, 1 failed` and exit 1. Removing it gave PASS and exit 0: pass |
 | Back-to-back runs give the correct result | 3/3 | 3/3 after the fix below: pass |
 | Negative cases caught (round 2) | 6/6 | All caught: failing assertion (FAIL, exit 1); syntax-error spec (`[tests] ERROR`, exit 1); spec throws on load (`ERROR`, exit 1); Studio in Play (REFUSED, exit 2); normal playtest (no tests ran); stale token (no tests ran) |
+| Negative cases caught (round 3) | 15/15 | 12 harness cases, all exit 1: itSKIP, describeSKIP, SKIP(), itFOCUS, describeFOCUS, FOCUS(), spec in `src/shared` (synced, not run), spec in `tools/` (not synced), `.json` synced file (cannot compare), failing assertion, throws on load, ghost spec only in Studio. Plus 3 gate cases: normal playtest and stale token run no tests; Play refused with exit 2 |
 | CI fails on build, lint or format error | 100% | Build: the missing `build/` dir failed [run 36031124887](https://github.com/KMargarjan/driven-hunt/actions/runs/36031124887). Lint + format: probe commit 202e09e failed both steps in [run 36031342566](https://github.com/KMargarjan/driven-hunt/actions/runs/36031342566). The revert went green: pass |
 | Tests executing in live games | 0 | Guarded by `RunService:IsStudio()` (not verified in a live server) |
 
@@ -99,3 +100,24 @@ identical output, and the second run timed out. The same design could also repor
 run's result as a false PASS. Fix: TestRunner also writes the summary to the
 `ServerStorage` attribute `TestSummary`, and the harness polls it in the **Server** DataModel, which
 only exists for the current play session.
+
+## Round 3 revision (Reviewer FAIL on PR #1)
+
+- **Skips and focus fail the run.** TestEZ counts `SKIP()`, `itSKIP` and `describeSKIP`, and every test
+  left out by `FOCUS()`, `itFOCUS` or `describeFOCUS`, in `skippedCount`. The runner reports FAIL when
+  `skippedCount > 0`, and the harness checks it again.
+- **Specs are found repo-wide and matched by name.** The harness collects every `*.spec.*` file from
+  `git ls-files --cached --others --exclude-standard`. That is the repo as git sees it: git-ignored
+  `DevPackages/` holds TestEZ's own 29 specs, which are not ours. Each file is mapped to its Studio
+  instance through the sourcemap. It must be synced, and the runner's list of spec full names must
+  equal that set exactly. A count comparison could hide one missing spec plus one extra.
+- **Every synced file is compared, or the run fails.** `rojo sourcemap --include-non-scripts` lists all
+  synced instances. Each must exist in Studio with the same ClassName:
+  - scripts: Source
+  - `.txt`: StringValue.Value
+  - `.project.json`: structure only (the instance checks)
+
+  Any other file type fails as "cannot compare" until a comparison is added.
+- **Rojo deletes unknown instances on Connect, not during live sync** (probe test, CLAUDE.md). The
+  Rojo-owned containers are disk-only by design (rule 3). The deletion must be documented, because a
+  Studio-made instance seems safe until the next Connect.

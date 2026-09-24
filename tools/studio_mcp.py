@@ -32,7 +32,6 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = os.path.join(REPO, "default.project.json")
 TOKEN_FILE = os.path.join(REPO, "tests", "sync-token.txt")
-SPEC_DIR = os.path.join(REPO, "tests", "specs")
 
 # Read-only Luau queries. Keep every query here, as a constant, and read-only.
 QUERY_PLACE_ID = "return tostring(game.PlaceId)"
@@ -41,16 +40,22 @@ local v = game:GetService("ServerStorage"):FindFirstChild("TestSyncToken")
 return if v and v:IsA("StringValue") then v.Value else "<missing>"
 """
 QUERY_REPORT = 'return game:GetService("ServerStorage"):GetAttribute("TestReport") or ""'
-QUERY_SOURCES = """
+QUERY_NODES = """
 local HttpService = game:GetService("HttpService")
 local paths = HttpService:JSONDecode(%s)
 local out = {}
-for _, path in paths do
+for i, path in paths do
 	local inst = game
 	for _, name in path do
 		inst = inst and inst:FindFirstChild(name)
 	end
-	out[table.concat(path, ".")] = if inst and inst:IsA("LuaSourceContainer") then inst.Source else false
+	out[i] = if inst
+		then {
+			className = inst.ClassName,
+			source = if inst:IsA("LuaSourceContainer") then inst.Source else nil,
+			value = if inst:IsA("StringValue") then inst.Value else nil,
+		}
+		else { missing = true }
 end
 return HttpService:JSONEncode(out)
 """
@@ -139,29 +144,81 @@ def expected_place_id():
     return str(ids[0])
 
 
-def spec_files_on_disk():
+def spec_files_in_repo():
+    """Every *.spec.* file anywhere in the repo: tracked files plus untracked, non-ignored ones.
+
+    Git-ignored folders (DevPackages/, Packages/) are third-party code, and their own specs are not ours.
+    """
+    out = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        capture_output=True, text=True, check=True, cwd=REPO,
+    ).stdout
     return sorted(
-        os.path.relpath(p, REPO)
-        for ext in ("luau", "lua")
-        for p in glob.glob(os.path.join(SPEC_DIR, "**", f"*.spec.{ext}"), recursive=True)
+        f for f in out.splitlines()
+        if ".spec." in os.path.basename(f) and os.path.exists(os.path.join(REPO, f))
     )
 
 
-def synced_scripts():
-    """(instance path, file path) for every script Rojo syncs, from `rojo sourcemap`."""
+def synced_nodes():
+    """Every instance Rojo syncs (scripts and non-scripts) from `rojo sourcemap --include-non-scripts`.
+
+    Returns [(instance path list, className, [file paths relative to REPO, forward slashes])].
+    """
     rojo = shutil.which("rojo") or os.path.expanduser(r"~\.rokit\bin\rojo.exe")
-    out = subprocess.run([rojo, "sourcemap", PROJECT], capture_output=True, text=True, check=True, cwd=REPO).stdout
-    pairs = []
+    out = subprocess.run(
+        [rojo, "sourcemap", PROJECT, "--include-non-scripts"],
+        capture_output=True, text=True, check=True, cwd=REPO,
+    ).stdout
+    nodes = []
 
     def walk(node, path):
-        files = [f for f in node.get("filePaths", []) if f.endswith((".luau", ".lua"))]
-        if files and node["className"] in ("Script", "LocalScript", "ModuleScript"):
-            pairs.append((path, os.path.join(REPO, files[0])))
+        if path:  # skip the DataModel root itself
+            files = [f.replace("\\", "/") for f in node.get("filePaths", [])]
+            nodes.append((path, node["className"], files))
         for child in node.get("children", []):
             walk(child, path + [child["name"]])
 
     walk(json.loads(out), [])
-    return pairs
+    return nodes
+
+
+def read_disk(rel):
+    with open(os.path.join(REPO, rel), encoding="utf-8", newline="") as f:
+        return f.read().replace("\r\n", "\n")
+
+
+def compare_synced(studio, nodes):
+    """Compare every synced instance and file with Studio. Returns a list of problems (empty = match).
+
+    Every instance must exist with the same ClassName. Every file must be comparable:
+      *.project.json      structure only, covered by the instance/ClassName check of every node
+      *.luau / *.lua      script Source, byte-for-byte (line endings normalised)
+      *.txt               StringValue.Value, byte-for-byte
+    Any other file type is a problem ("cannot compare"), never silently skipped.
+    """
+    payload = json.dumps(json.dumps([p for p, _, _ in nodes]))
+    remote = json.loads(studio.query("Edit", QUERY_NODES % payload))
+    problems = []
+    for (path, class_name, files), got in zip(nodes, remote):
+        name = ".".join(path)
+        if got.get("missing"):
+            problems.append(f"{name}: missing in Studio")
+            continue
+        if got["className"] != class_name:
+            problems.append(f"{name}: ClassName {got['className']} in Studio, {class_name} expected")
+            continue
+        for rel in files:
+            if rel.endswith(".project.json"):
+                continue
+            if rel.endswith((".luau", ".lua")) and got.get("source") is not None:
+                if got["source"].replace("\r\n", "\n") != read_disk(rel):
+                    problems.append(f"{name}: Source differs from {rel}")
+            elif rel.endswith(".txt") and got.get("value") is not None:
+                if got["value"].replace("\r\n", "\n") != read_disk(rel):
+                    problems.append(f"{name}: Value differs from {rel}")
+            else:
+                problems.append(f"{name}: cannot compare {rel} (unsupported file type; add a comparison)")
+    return problems
 
 
 def write_token(value):
@@ -210,20 +267,17 @@ def run_test(studio):
             print("[harness] is `rojo serve` running and the Rojo plugin connected?")
             return 1
 
-        pairs = synced_scripts()
-        payload = json.dumps(json.dumps([p for p, _ in pairs]))
-        sources = json.loads(studio.query("Edit", QUERY_SOURCES % payload))
-        mismatched = []
-        for path, file in pairs:
-            with open(file, encoding="utf-8", newline="") as f:
-                disk = f.read().replace("\r\n", "\n")
-            studio_src = sources.get(".".join(path))
-            if studio_src is False or studio_src is None or studio_src.replace("\r\n", "\n") != disk:
-                mismatched.append(".".join(path))
-        check(f"All {len(pairs)} synced scripts match disk byte-for-byte", not mismatched, ", ".join(mismatched[:5]))
+        nodes = synced_nodes()
+        n_files = sum(len(f) for _, _, f in nodes)
+        problems = compare_synced(studio, nodes)
+        check(f"All {len(nodes)} synced instances and {n_files} files match disk", not problems, "; ".join(problems[:5]))
 
-        specs = spec_files_on_disk()
-        print(f"[harness] {len(specs)} spec file(s) on disk: {', '.join(specs)}")
+        spec_files = spec_files_in_repo()
+        file_to_instance = {f: ".".join(p) for p, _, files in nodes for f in files}
+        expected_specs = {file_to_instance[f]: f for f in spec_files if f in file_to_instance}
+        unsynced = [f for f in spec_files if f not in file_to_instance]
+        print(f"[harness] {len(spec_files)} *.spec.* file(s) in repo: {', '.join(spec_files)}")
+        check("Every *.spec.* file in the repo is synced into Studio", not unsynced, ", ".join(unsynced))
 
         print("[harness] Play")
         studio.set_play(True)
@@ -243,12 +297,17 @@ def run_test(studio):
     report = json.loads(raw)
     check("Report carries this run's token", report["token"] == token, report["token"])
     check("Report comes from the DEV place", str(report["placeId"]) == place, str(report["placeId"]))
-    check("Runner found every spec file on disk", report["specCount"] == len(specs),
-          f"{report['specCount']} in Studio vs {len(specs)} on disk")
+    ran = set(report.get("specs", []))
+    not_run = sorted(f for inst, f in expected_specs.items() if inst not in ran)
+    not_in_repo = sorted(ran - set(expected_specs))
+    check("Runner ran every *.spec.* file in the repo", not not_run and not unsynced,
+          ", ".join(not_run + unsynced) or f"{len(ran)} ran")
+    check("Runner ran nothing that is not a *.spec.* file in the repo", not not_in_repo, ", ".join(not_in_repo))
     check("Runner status is PASS", report["status"] == "PASS", report["status"] + " " + report.get("message", ""))
     check("At least one test passed", report["successCount"] > 0, str(report["successCount"]))
     check("No failures", report["failureCount"] == 0, str(report["failureCount"]))
     check("No TestEZ errors", report["errorCount"] == 0, str(report["errorCount"]))
+    check("No skipped tests (SKIP/FOCUS)", report["skippedCount"] == 0, str(report["skippedCount"]))
 
     closed, ok = wait_for(lambda: studio.query("Edit", QUERY_TOKEN), lambda v: v == "", 15)
     check("Gate closed afterwards (token cleared in Studio)", ok, repr(closed))

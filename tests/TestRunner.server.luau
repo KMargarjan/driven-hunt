@@ -29,6 +29,7 @@ local report = {
 	token = token,
 	placeId = game.PlaceId,
 	specCount = 0,
+	specs = {}, -- full names of every spec module found; the harness matches these to *.spec.* files on disk
 	successCount = 0,
 	failureCount = 0,
 	skippedCount = 0,
@@ -71,6 +72,7 @@ end
 for _, module in testsFolder:GetDescendants() do
 	if module:IsA("ModuleScript") and string.match(module.Name, "%.spec$") then
 		report.specCount += 1
+		table.insert(report.specs, module:GetFullName())
 		local ok, err = pcall(require, module)
 		if not ok then
 			report.message = string.format("failed to load %s: %s", module:GetFullName(), tostring(err))
@@ -96,8 +98,11 @@ report.failureCount = results.failureCount
 report.skippedCount = results.skippedCount
 report.errorCount = #results.errors
 -- Zero passing tests is a failure: it means nothing ran, not that everything is fine.
+-- Any skipped test is a failure too: SKIP/itSKIP/describeSKIP skip tests directly, and
+-- FOCUS/itFOCUS/describeFOCUS skip every unfocused test. Neither may reach main.
 report.status = if results.failureCount == 0
 		and report.errorCount == 0
+		and results.skippedCount == 0
 		and results.successCount > 0
 	then "PASS"
 	else "FAIL"
