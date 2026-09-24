@@ -102,8 +102,8 @@ for non-scripts). To keep a Studio-built object, save it to disk first
 **DEV place check.** Before the first Connect (2026-09-24 ~18:36 local), a read-only query at ~18:30
 listed all four containers (ServerScriptService, ReplicatedStorage, StarterPlayerScripts,
 ServerStorage) as **empty**. Only Workspace had children. So the first Connect had nothing to delete.
-Version History (last published 18:26 local, before any Connect) could not be read by tools, and
-Karen checks it by hand. See TASKS.md for the result.
+Karen confirmed the place was brand new and she added nothing to those containers. A Version
+History check was not needed (TASKS.md #4: not applicable).
 
 File naming (Rojo): `Name.server.luau` = Script, `Name.client.luau` = LocalScript,
 `Name.luau` = ModuleScript, folder with `init.luau` = ModuleScript with children.

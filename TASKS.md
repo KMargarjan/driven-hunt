@@ -7,7 +7,7 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 | 1 | Project setup: Rojo, git, TestEZ, docs skeleton, prove the sync loop | awaiting review | Round 1: Reviewer FAIL. Round 2 (PR #1): fixes plus CI, branch workflow, definition of done, PLAYTEST.md. Reviewer FAIL on PR #1. Round 3: 3 blocking + 2 should-fix items, plus public-repo hygiene |
 | 2 | Strip test code at publish (TestRunner, Tests, DevPackages, TestSyncToken) | todo, before first public release | Accepted for now, see CLAUDE.md "Test code ships with the place" |
 | 3 | Run `luau-lsp analyze` in CI (type checking) | todo | luau-lsp is pinned but not wired into CI. Needs a sourcemap and Roblox type definitions in CI |
-| 4 | Karen: check DEV place Version History around the first Connect | **waiting on Karen** | Tools cannot read Version History. Clicks are in the round-3 report. Record the result here |
+| 4 | Karen: check DEV place Version History around the first Connect | closed: not applicable | Not applicable: the place was empty at the first Connect. It was brand new, a read-only query at ~18:30 found all Rojo-owned containers empty, and Karen added nothing to them before Connect (~18:36). The click path I gave (Studio → File → Version History) was wrong: Studio's File menu has no Version History |
 
 ## Review log
 
@@ -16,7 +16,7 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 | # | Item | Disposition |
 |---|---|---|
 | 1 | Skipped tests must fail the run (itSKIP/describeSKIP/SKIP/itFOCUS gave PASS) | Fixed in the runner (`skippedCount > 0` gives FAIL) and the harness ("No skipped tests" check). Verified: itSKIP, describeSKIP, SKIP(), itFOCUS, describeFOCUS and FOCUS() each fail the run |
-| 2 | Round-1 item 7 dropped: document that Rojo **deletes** Studio-created instances; check Version History around the first Connect | Documented (CLAUDE.md "Rojo DELETES…", with the docs quote and a live-sync probe test). Pre-Connect evidence: all Rojo-owned containers were empty at ~18:30, before the first Connect at ~18:36. Version History is Task 4, waiting on Karen |
+| 2 | Round-1 item 7 dropped: document that Rojo **deletes** Studio-created instances; check Version History around the first Connect | Documented (CLAUDE.md "Rojo DELETES…", with the docs quote and a live-sync probe test). Pre-Connect evidence: all Rojo-owned containers were empty at ~18:30, before the first Connect at ~18:36. Task 4 (Version History) closed as not applicable: the place was empty at the first Connect |
 | 3 | CLAUDE.md line 35 falsely said branch protection enforces the Reviewer/merge rules | Reworded: the ruleset enforces PR + CI only. Reviewer sign-off and who merges are policy |
 | 4 (should fix) | Find specs anywhere in the repo (`*.spec.*`) | Fixed: `git ls-files` (tracked + untracked, non-ignored). Every spec must be synced and run, matched by name, not count. Archived example renamed so it no longer matches |
 | 5 (should fix) | Fail on any synced file the harness cannot compare | Fixed: `rojo sourcemap --include-non-scripts`. Every instance must exist with the right ClassName. Scripts are compared by Source and `.txt` by Value; `.project.json` is structural; anything else fails |
