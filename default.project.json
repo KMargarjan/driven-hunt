@@ -1,5 +1,6 @@
 {
   "name": "DrivenHunt",
+  "servePlaceIds": [136410205938347],
   "tree": {
     "$className": "DataModel",
     "ServerScriptService": {
@@ -18,10 +19,13 @@
     },
     "ServerStorage": {
       "DevPackages": {
-        "$path": "DevPackages"
+        "$path": { "optional": "DevPackages" }
       },
       "Tests": {
         "$path": "tests/specs"
+      },
+      "TestSyncToken": {
+        "$path": { "optional": "tests/sync-token.txt" }
       }
     }
   }

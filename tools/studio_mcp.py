@@ -1,28 +1,59 @@
-"""Drive a running Roblox Studio from the command line via Studio's built-in MCP server.
+"""Test harness: drive a running Roblox Studio via Studio's built-in MCP server.
 
 Pattern: minimal stdio JSON-RPC MCP client (https://modelcontextprotocol.io/specification)
 talking to StudioMCP.exe, which ships with Roblox Studio (Assistant settings -> MCP server).
 Note: docs/research/2026-09-24-toolchain.md
 
-Requires: Studio open with a place, MCP server enabled in Studio's Assistant settings.
+Requires: Studio open on the DEV place, MCP server enabled, Rojo plugin connected to `rojo serve`.
 
 Usage:
-  python tools/studio_mcp.py state            # edit/play mode
-  python tools/studio_mcp.py play | stop      # start/stop a playtest
-  python tools/studio_mcp.py console          # print Studio Output
-  python tools/studio_mcp.py luau FILE [Edit|Server|Client]  # run Luau, print result
-  python tools/studio_mcp.py test             # play, wait for TestRunner summary, stop; exit 1 on FAIL
-  python tools/studio_mcp.py call TOOL '{json args}'
+  python tools/studio_mcp.py test      # full checked test run (see run_test); exit 0 only on PASS
+  python tools/studio_mcp.py state     # print Studio mode (read-only)
+  python tools/studio_mcp.py console   # print Studio Output (read-only)
+  python tools/studio_mcp.py stop      # stop a playtest (recovery)
+
+Safety: this tool never writes to the DataModel. It only sends the constant, read-only Luau
+queries defined in this file (QUERY_*). There is deliberately no command for arbitrary Luau or
+arbitrary MCP tools. The only thing it writes is the git-ignored file tests/sync-token.txt,
+which Rojo syncs into ServerStorage.TestSyncToken.
 """
 
 import glob
 import json
 import os
 import queue
+import secrets
+import shutil
 import subprocess
 import sys
 import threading
 import time
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT = os.path.join(REPO, "default.project.json")
+TOKEN_FILE = os.path.join(REPO, "tests", "sync-token.txt")
+SPEC_DIR = os.path.join(REPO, "tests", "specs")
+
+# Read-only Luau queries. Keep every query here, as a constant, and read-only.
+QUERY_PLACE_ID = "return tostring(game.PlaceId)"
+QUERY_TOKEN = """
+local v = game:GetService("ServerStorage"):FindFirstChild("TestSyncToken")
+return if v and v:IsA("StringValue") then v.Value else "<missing>"
+"""
+QUERY_REPORT = 'return game:GetService("ServerStorage"):GetAttribute("TestReport") or ""'
+QUERY_SOURCES = """
+local HttpService = game:GetService("HttpService")
+local paths = HttpService:JSONDecode(%s)
+local out = {}
+for _, path in paths do
+	local inst = game
+	for _, name in path do
+		inst = inst and inst:FindFirstChild(name)
+	end
+	out[table.concat(path, ".")] = if inst and inst:IsA("LuaSourceContainer") then inst.Source else false
+end
+return HttpService:JSONEncode(out)
+"""
 
 
 def find_exe():
@@ -44,12 +75,12 @@ class Studio:
         self._rpc("initialize", {
             "protocolVersion": "2025-03-26",
             "capabilities": {},
-            "clientInfo": {"name": "driven-hunt-tools", "version": "0.1.0"},
+            "clientInfo": {"name": "driven-hunt-tools", "version": "0.2.0"},
         })
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
         # Studio polls localhost:13469 roughly every 5s, so wait for it to attach.
         for _ in range(20):
-            if '"studios":[]' not in self.call("list_roblox_studios"):
+            if '"studios":[]' not in self._call("list_roblox_studios"):
                 return
             time.sleep(1)
         sys.exit("No Studio connected. Is a place open and the MCP server enabled in Assistant settings?")
@@ -72,71 +103,178 @@ class Studio:
                     raise RuntimeError(msg["error"])
                 return msg["result"]
 
-    def call(self, tool, args=None):
+    def _call(self, tool, args=None):
         result = self._rpc("tools/call", {"name": tool, "arguments": args or {}})
         text = "\n".join(c.get("text", "") for c in result.get("content", []))
         if result.get("isError"):
             raise RuntimeError(f"{tool}: {text}")
         return text
 
+    # The only operations this harness exposes.
+    def mode(self):
+        state = self._call("get_studio_state")
+        for line in state.splitlines():
+            if "Current Studio Mode:" in line:
+                return line.split(":", 1)[1].strip()
+        return state
+
+    def console(self):
+        return self._call("get_console_output")
+
+    def set_play(self, playing):
+        return self._call("start_stop_play", {"is_start": playing})
+
+    def query(self, datamodel, code):
+        return self._call("execute_luau", {"datamodel_type": datamodel, "code": code})
+
     def close(self):
         self.proc.kill()
 
 
-SUMMARY_LUAU = 'return game:GetService("ServerStorage"):GetAttribute("TestSummary") or ""'
+def expected_place_id():
+    with open(PROJECT, encoding="utf-8") as f:
+        ids = json.load(f).get("servePlaceIds") or []
+    if len(ids) != 1:
+        sys.exit("default.project.json must list exactly one servePlaceIds entry")
+    return str(ids[0])
 
 
-def run_tests(studio, timeout=60):
-    """Play, wait for TestRunner's summary, stop. Returns (summary, console output of this run).
+def spec_files_on_disk():
+    return sorted(
+        os.path.relpath(p, REPO)
+        for ext in ("luau", "lua")
+        for p in glob.glob(os.path.join(SPEC_DIR, "**", f"*.spec.{ext}"), recursive=True)
+    )
 
-    The summary is read from ServerStorage's "TestSummary" attribute in the Server DataModel, which
-    only exists for this play session. The Output log is not used for this because Studio clears
-    it on Play, so it can still show the previous run's lines.
-    """
-    studio.call("start_stop_play", {"is_start": True})
+
+def synced_scripts():
+    """(instance path, file path) for every script Rojo syncs, from `rojo sourcemap`."""
+    rojo = shutil.which("rojo") or os.path.expanduser(r"~\.rokit\bin\rojo.exe")
+    out = subprocess.run([rojo, "sourcemap", PROJECT], capture_output=True, text=True, check=True, cwd=REPO).stdout
+    pairs = []
+
+    def walk(node, path):
+        files = [f for f in node.get("filePaths", []) if f.endswith((".luau", ".lua"))]
+        if files and node["className"] in ("Script", "LocalScript", "ModuleScript"):
+            pairs.append((path, os.path.join(REPO, files[0])))
+        for child in node.get("children", []):
+            walk(child, path + [child["name"]])
+
+    walk(json.loads(out), [])
+    return pairs
+
+
+def write_token(value):
+    with open(TOKEN_FILE, "w", encoding="utf-8", newline="") as f:
+        f.write(value)
+
+
+def wait_for(fn, predicate, timeout, interval=0.5):
+    deadline = time.time() + timeout
+    value = None
+    while time.time() < deadline:
+        try:
+            value = fn()
+        except RuntimeError:
+            value = None
+        if value is not None and predicate(value):
+            return value, True
+        time.sleep(interval)
+    return value, False
+
+
+def run_test(studio):
+    checks = []
+
+    def check(name, ok, detail=""):
+        checks.append(ok)
+        print(("  ok   " if ok else "  FAIL ") + name + (f"  ({detail})" if detail else ""))
+        return ok
+
+    print("[harness] preflight")
+    mode = studio.mode()
+    if not check("Studio is in Edit mode before the run", mode == "Edit", mode):
+        print("[harness] REFUSED: stop the playtest first (python tools/studio_mcp.py stop)")
+        return 2
+
+    place = expected_place_id()
+    actual_place = studio.query("Edit", QUERY_PLACE_ID)
+    if not check("Studio has the DEV place open", actual_place == place, f"{actual_place} vs {place}"):
+        return 1
+
+    token = f"{secrets.token_hex(8)}:{int(time.time())}"
+    write_token(token)
     try:
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            try:
-                summary = studio.call("execute_luau", {"datamodel_type": "Server", "code": SUMMARY_LUAU})
-            except RuntimeError:
-                summary = ""  # Server DataModel not up yet
-            if summary.startswith("[tests] "):
-                return summary, studio.call("get_console_output")
-            time.sleep(1)
-        raise TimeoutError("TestRunner did not report within %ss" % timeout)
+        seen, ok = wait_for(lambda: studio.query("Edit", QUERY_TOKEN), lambda v: v == token, 15)
+        if not check("Rojo synced the fresh token from disk", ok, f"Studio has {seen!r}"):
+            print("[harness] is `rojo serve` running and the Rojo plugin connected?")
+            return 1
+
+        pairs = synced_scripts()
+        payload = json.dumps(json.dumps([p for p, _ in pairs]))
+        sources = json.loads(studio.query("Edit", QUERY_SOURCES % payload))
+        mismatched = []
+        for path, file in pairs:
+            with open(file, encoding="utf-8", newline="") as f:
+                disk = f.read().replace("\r\n", "\n")
+            studio_src = sources.get(".".join(path))
+            if studio_src is False or studio_src is None or studio_src.replace("\r\n", "\n") != disk:
+                mismatched.append(".".join(path))
+        check(f"All {len(pairs)} synced scripts match disk byte-for-byte", not mismatched, ", ".join(mismatched[:5]))
+
+        specs = spec_files_on_disk()
+        print(f"[harness] {len(specs)} spec file(s) on disk: {', '.join(specs)}")
+
+        print("[harness] Play")
+        studio.set_play(True)
+        try:
+            raw, ok = wait_for(lambda: studio.query("Server", QUERY_REPORT), lambda v: v != "", 60, 1)
+            output = studio.console()
+        finally:
+            studio.set_play(False)
     finally:
-        studio.call("start_stop_play", {"is_start": False})
+        write_token("")  # close the gate so Karen's playtests do not run tests
+
+    print("----- Studio Output -----")
+    print(output)
+    print("-------------------------")
+    if not check("TestRunner reported within 60 s", ok):
+        return 1
+    report = json.loads(raw)
+    check("Report carries this run's token", report["token"] == token, report["token"])
+    check("Report comes from the DEV place", str(report["placeId"]) == place, str(report["placeId"]))
+    check("Runner found every spec file on disk", report["specCount"] == len(specs),
+          f"{report['specCount']} in Studio vs {len(specs)} on disk")
+    check("Runner status is PASS", report["status"] == "PASS", report["status"] + " " + report.get("message", ""))
+    check("At least one test passed", report["successCount"] > 0, str(report["successCount"]))
+    check("No failures", report["failureCount"] == 0, str(report["failureCount"]))
+    check("No TestEZ errors", report["errorCount"] == 0, str(report["errorCount"]))
+
+    closed, ok = wait_for(lambda: studio.query("Edit", QUERY_TOKEN), lambda v: v == "", 15)
+    check("Gate closed afterwards (token cleared in Studio)", ok, repr(closed))
+
+    passed = all(checks)
+    print(f"[harness] {'PASS' if passed else 'FAIL'}: {sum(checks)}/{len(checks)} checks")
+    return 0 if passed else 1
 
 
 def main(argv):
-    if len(argv) < 2:
+    if len(argv) != 2 or argv[1] not in ("test", "state", "console", "stop"):
         sys.exit(__doc__)
-    cmd = argv[1]
     studio = Studio()
     try:
+        cmd = argv[1]
+        if cmd == "test":
+            return run_test(studio)
         if cmd == "state":
-            print(studio.call("get_studio_state"))
-        elif cmd in ("play", "stop"):
-            print(studio.call("start_stop_play", {"is_start": cmd == "play"}))
+            print(studio.mode())
         elif cmd == "console":
-            print(studio.call("get_console_output"))
-        elif cmd == "luau":
-            code = open(argv[2], encoding="utf-8").read()
-            dm = argv[3] if len(argv) > 3 else "Edit"
-            print(studio.call("execute_luau", {"datamodel_type": dm, "code": code}))
-        elif cmd == "test":
-            summary, out = run_tests(studio)
-            print(out)
-            print("summary (from Server DataModel):", summary)
-            return 0 if summary.startswith("[tests] PASS") else 1
-        elif cmd == "call":
-            print(studio.call(argv[2], json.loads(argv[3]) if len(argv) > 3 else {}))
-        else:
-            sys.exit(__doc__)
+            print(studio.console())
+        elif cmd == "stop":
+            print(studio.set_play(False))
+        return 0
     finally:
         studio.close()
-    return 0
 
 
 if __name__ == "__main__":

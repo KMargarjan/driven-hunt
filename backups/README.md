@@ -11,3 +11,4 @@ Rule 7: never delete. Archive here with a note instead.
 | Date | File | Was | Why archived |
 |---|---|---|---|
 | 2026-09-24 | `2026-09-24_gitignore-node-template.txt` | Repo-root `.gitignore` (GitHub's Node.js template, from the initial commit) | Replaced by a Roblox/Rojo `.gitignore` in Task 1 |
+| 2026-09-24 | `2026-09-24_example.spec.luau.txt` | `tests/specs/example.spec.luau` (placeholder TestEZ spec: `1 + 1 == 2`) | Reviewer: replace with a real sync assertion. Now `tests/specs/sync.spec.luau`. Renamed to `.txt` so nothing loads it. |

@@ -1,0 +1,2 @@
+# Selene lint config. Pattern: selene "roblox" std + TestEZ globals (https://kampfkarren.github.io/selene/).
+std = "roblox+testez"
