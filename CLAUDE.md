@@ -71,7 +71,9 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
    tree.
 4. Write `REVIEW_REQUEST.md` (increment `Round:`; `Code commit:` = the commit the harness line names),
    and commit **only** that file. The script shows the Reviewer that nothing else changed after the
-   tested commit.
+   tested commit. **Write it fresh for each task** — describe the final state, never a round-by-round
+   history — and **cite files and symbols, not line numbers**, because every later commit moves the
+   lines (Director decision 2026-09-24, after Task 11 spent rounds 3 and 4 on stale citations).
 5. Run `tools/review.sh`. **Commit `REVIEW_RESULT.md` either way**: the next run needs a clean tree,
    and it counts the round from that file's trailer. On findings, fix and go back to 4 (the next
    request must say `Round: N+1`). On `PASS`, continue.

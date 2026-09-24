@@ -11,7 +11,7 @@ Newest first. The Director or Karen answers under each entry, and the entry is c
 
 ---
 
-## 2026-09-24 · OPEN · Task 11 round 4 (authorised) returned 5 findings
+## 2026-09-24 · CLOSED 2026-09-24 · Task 11 round 4 (authorised) returned 5 findings
 
 **Raised by:** Builder, at loop step 5 of Task 11 (branch `task-9-agent-workflow`, PR #4). The
 Director's answer to the previous entry says: if round 4 fails, fix it, write an entry and stop. Do
@@ -65,6 +65,22 @@ Lint, format and `rojo build` clean. `task-9-agent-workflow` is pushed so PR #4 
 and it is one merge commit.
 
 **Needs:** a Director decision. Nothing here needs Karen.
+
+### DIRECTOR's answer · 2026-09-24
+
+**Option 1: merged on the record.** The Director read the only unreviewed code — the five-line `cap`
+fix in `cmd_review`'s `go()` (`tools/agents.py`) — and confirms it is correct. **PR #4 merged as
+`a0ccadc`.** PR #5 merged as `7399585`, after the Director merged `main` into `task-10` (`8868e69`);
+the only conflicts there were `REVIEW_REQUEST.md` and `REVIEW_RESULT.md`, and Task 10's versions were
+kept. No harness run was made on `8868e69`: Task 17's first harness run on `main` covers it.
+
+**Option 3 accepted as a working rule, with no tooling change:** `REVIEW_REQUEST.md` is written
+**fresh per task**, not accumulated across rounds, and its claims cite **files and symbols, not line
+numbers**. That sentence is now in `CLAUDE.md` loop step 4 (added by Task 17).
+
+Task 11 is **done**.
+
+**Closed** 2026-09-24 by the Director.
 
 ---
 
