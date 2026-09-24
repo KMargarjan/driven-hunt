@@ -75,8 +75,11 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
 5. Run `tools/review.sh`. **Commit `REVIEW_RESULT.md` either way**: the next run needs a clean tree,
    and it counts the round from that file's trailer. On findings, fix and go back to 4 (the next
    request must say `Round: N+1`). On `PASS`, continue.
-6. Run `tools/architect.sh audit` **once per task** (not once per round). If `ARCH_RESULT.md` lists
-   must-fix items, fix them and go back to 4. Everything else goes into `TASKS.md`.
+6. Architect audit — **every ~5 tasks, not every task** (`ROADMAP.md` speed rule 3; Director decision
+   2026-09-24). When the Director calls for one, run `tools/architect.sh audit` once, after the
+   review passes. An item is must-fix only if it blocks the next game task and the audit names that
+   task (speed rule 2); fix those and go back to 4. Everything else goes into `TASKS.md` under
+   "before release". When no audit is due, say so in the report.
 7. Report to the Director: the definition-of-done checklist, the commit and PR link, and how many
    review rounds it took.
 
@@ -86,7 +89,15 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
   trailer has gone missing from a file whose git history had one. So the count cannot be raised,
   skipped or reset from the request, or by restoring the placeholder. It is **not** tamper-proof: a
   Builder can still commit a hand-written trailer, or rewrite history. See "What is enforced and
-  what is policy"
+  what is policy".
+
+  **One extra round, by Director authorisation only.** `MAX_ROUNDS` stays 3. The Director may
+  authorise a single extra round when the last round's findings were documentation-only. The Builder
+  then runs that one review with `DIRECTOR_MAX_ROUNDS=<n>` in the environment
+  (`DIRECTOR_MAX_ROUNDS=4 powershell -ExecutionPolicy Bypass -File tools/review.ps1`). It may **only**
+  be set when `ESCALATE.md` records that authorisation for **that task and that round**, it may only
+  raise the cap, and it is never committed. A failing authorised round is an `ESCALATE.md` entry, not
+  a request for another one
 - you believe a Reviewer or Architect finding is factually wrong (write the evidence)
 - a design, feel or taste decision is needed
 - **a human action is needed** (Rojo **Connect**, the Studio MCP toggle, Studio not in Edit mode,
@@ -117,7 +128,8 @@ clean, committed tree. Raw session output goes to `.agent-logs/` (git-ignored).
 
 **Every script call is a separate paid Claude session**: typically several minutes and several
 dollars. The script prints each session's cost into the result file's trailer.
-- Run `tools/architect.sh audit` once per task, after the review passes, never once per round.
+- Run `tools/architect.sh audit` only when the Director calls for one (every ~5 tasks), after the
+  review passes, never once per round.
 - Run `design` only for a new system.
 - Batch everything for a round into one `REVIEW_REQUEST.md`. A round is one review call.
 

@@ -11,7 +11,7 @@ Newest first. The Director or Karen answers under each entry, and the entry is c
 
 ---
 
-## 2026-09-24 · OPEN · Task 11 reached round 3; the script refuses a fourth
+## 2026-09-24 · CLOSED 2026-09-24 · Task 11 reached round 3; the script refuses a fourth
 
 **Raised by:** Builder, at loop step 5 of Task 11 (branch `task-9-agent-workflow`, PR #4).
 
@@ -27,7 +27,7 @@ things, and every finding was fixed.
 All ten findings are fixed and committed. The round-3 two are fixed in the commit that carries this
 entry; claim 19 now matches `tools/agents.py:28-31` and `CLAUDE.md:87-88`.
 
-**Why I stopped.** `tools/review.sh` refuses `Round: 4` (`MAX_ROUNDS = 3`, `tools/agents.py:49`), and
+**Why I stopped.** `tools/review.sh` refuses `Round: 4` (`MAX_ROUNDS = 3`, `tools/agents.py:52`), and
 the round is now counted from the committed `REVIEW_RESULT.md` trailer, so I cannot reset it — that is
 the hardening round 2 asked for, and going around it is exactly what `CLAUDE.md` "What is enforced and
 what is policy" forbids. So there is no way for me to obtain a `PASS` on the fixed commit. Per the
@@ -67,6 +67,27 @@ script should count that, not total rounds — but changing it is a workflow cha
 task of its own, not here.
 
 **Needs:** a Director decision. Nothing here needs Karen.
+
+### DIRECTOR's answer · 2026-09-24
+
+**Option 1: one more review round (round 4) is authorised, for Task 11 only.**
+
+- **Mechanism, kept minimal.** `tools/agents.py` reads an optional environment variable
+  `DIRECTOR_MAX_ROUNDS` (integer, default `MAX_ROUNDS` = 3). It may be set **only** when this file
+  records a Director authorisation for that task and that round. Round 4 of Task 11 is that
+  authorisation. The change itself goes into the round-4 review.
+- **Standing decision.** `MAX_ROUNDS` stays 3. The Director may authorise **one** extra round when the
+  last round's findings were documentation-only; otherwise escalate as now. The round counting is
+  **not** to be reworked — tooling is frozen (`ROADMAP.md` speed rule 1). This closes the Builder's
+  "Also needed" question at the end of the entry: no, the script keeps counting total rounds.
+- **No Architect audit for Task 11.** New speed rule (`ROADMAP.md` on `main`, PR #7): audits run every
+  ~5 tasks, not per task. Loop step 6 is skipped for this task by Director decision, and `TASKS.md`
+  row 11 records that.
+- **Accepted:** the merge gate naming the reviewed **code commit** and allowing only loop paperwork
+  after it. Good call.
+- If round 4 fails: fix it, write an `ESCALATE.md` entry and stop. Do **not** ask for round 5.
+
+**Closed** 2026-09-24 by the Director.
 
 ---
 

@@ -25,6 +25,9 @@ REVIEW_REQUEST.md must equal the round in the committed REVIEW_RESULT.md trailer
 a PASS, or when there is no verdict yet). The trailer is written only by `trailer()` here, so the
 Builder cannot raise or skip the round from REVIEW_REQUEST.md, and deleting the trailer is caught by
 `last_committed_review()`, which looks back over the file's git history.
+The cap is `MAX_ROUNDS` (3), or `DIRECTOR_MAX_ROUNDS` when the Director has authorised one more round
+in ESCALATE.md for that task. It is an environment variable, so it cannot be committed by accident,
+it may only raise the cap, and the run prints it.
 **What is still policy, not enforcement:** nothing stops a Builder committing a hand-written trailer
 (the Builder owns the repo and the commits), and `git rebase`/`--force` could drop the history the
 look-back reads. audit-002 must-fix #5 (Task 12) is about exactly that: the verdict files must be
@@ -53,6 +56,25 @@ AGENT_TIMEOUT_S = 3600
 
 class Refused(Exception):
     pass
+
+
+def max_rounds():
+    """MAX_ROUNDS, or the Director's one-off override in DIRECTOR_MAX_ROUNDS.
+
+    Set only for a run the Director has authorised in ESCALATE.md for that task and round
+    (CLAUDE.md "Stop rules"). It is an environment variable, not a file, so it cannot be committed
+    by accident and does not survive the run."""
+    raw = os.environ.get("DIRECTOR_MAX_ROUNDS")
+    if raw is None or not raw.strip():
+        return MAX_ROUNDS
+    if not re.fullmatch(r"[0-9]{1,2}", raw.strip()):
+        raise Refused(f"DIRECTOR_MAX_ROUNDS must be a small integer; got {raw!r}")
+    n = int(raw.strip())
+    if n < MAX_ROUNDS:
+        raise Refused(f"DIRECTOR_MAX_ROUNDS={n} is below MAX_ROUNDS={MAX_ROUNDS}; it may only raise the cap")
+    print(f"[agents] DIRECTOR_MAX_ROUNDS={n} (default {MAX_ROUNDS}); "
+          "ESCALATE.md must record the Director's authorisation for this task and round", flush=True)
+    return n
 
 
 def run(cmd, cwd=REPO, check=True):
@@ -286,8 +308,9 @@ def cmd_review():
             + (f"round {prev_rnd} ({prev_verdict})" if prev_rnd else "not a verdict this script wrote")
             + f", so this run must be `Round: {expected}`. The round is counted from the verdict "
               "file, not from the request, so it cannot be raised or skipped here.")
-    if rnd > MAX_ROUNDS:
-        raise Refused(f"round {rnd} > {MAX_ROUNDS}: stop rule. Write ESCALATE.md instead of another review")
+    cap = max_rounds()
+    if rnd > cap:
+        raise Refused(f"round {rnd} > {cap}: stop rule. Write ESCALATE.md instead of another review")
     base = base.group(1)
     git("rev-parse", "--verify", base + "^{commit}")
 
