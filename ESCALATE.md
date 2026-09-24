@@ -10,6 +10,61 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-09-24 · OPEN · Task 18 reached round 3; the script refuses a fourth
+
+**Raised by:** Builder, at loop step 5 of Task 18 (branch `task-18-boar-ai`, stacked on
+`task-17-test-area`). Overnight, no-Studio mode.
+
+**Result.** Three review rounds, 16 findings, all fixed. Round 3's four are fixed in the commit that
+carries this entry. `tools/review.sh` refuses `Round: 4` (`MAX_ROUNDS = 3`) and the round count is
+taken from the committed verdict, so I cannot get a `PASS` on the fixed commit.
+
+| Round | Commit | Findings | Of which real defects in code or specs |
+|---|---|---|---|
+| 1 | `ad35852` | 6 | 3: `Path.Blocked` documented but not implemented (and a `Path` rebuilt per request); the anti-stuck turn was dead code; `boar_body.spec` would have failed on its first run because it measured the spawn drop as walking speed |
+| 2 | `732c74a` | 6 | 4: the anti-stuck fix still did nothing (the slew undid it); the new stuck test was vacuous; the landing guard was vacuous; **and a real gameplay bug — an idle boar could despawn itself as "escaped" with no driver anywhere, because `spawnPoint` was 130 studs from the exit line while `HOME_RADIUS` is 120** |
+| 3 | `e821aa4` | 4 | 2: the control case for the stuck test was vacuous (the control boar ran over the exit line and went `GONE` on tick 64, so the window measured nothing); the reaction assertion was 0.5 s where the design specifies 0.25 s, which would have hidden a doubling of `SENSE_INTERVAL` |
+
+**What this says about the work, honestly.** The anti-stuck behaviour took three attempts and its
+tests took three. Two of my three "fixes" for it did not work, and I asserted in writing that each
+one did. The same claim about who constructs a `Brain` was wrong in all three rounds. None of this
+would have been caught by lint, and **none of it can be caught by running anything, because nothing
+in this task has ever executed** — `rojo serve` is down until Karen presses Connect. The Reviewer is
+currently the only thing standing between this code and the game.
+
+**What is now unreviewed.** Round 3's four fixes: the control-case rewrite (the boar now circles at
+radius 30 instead of running off the map, and the test asserts it is still alive), the 0.25 s
+reaction bound, the research-note addendum §3 rewritten to record all four departures from the
+design rather than two, and claim 1 in `REVIEW_REQUEST.md`.
+
+**State.** Code commit `4fa3db2bfc92c6521e13d44799e8e48ead9b888a`, clean tree. `selene src`, `selene --config tests/selene.toml tests`,
+`stylua --check src tests` and `rojo build -o build/place.rbxl` all pass — the commands CI runs.
+**No harness run, no screenshot, nothing executed.** Branch pushed; no PR opened (the Director does
+that).
+
+**Options for the Director.**
+1. **One authorised round 4** (`DIRECTOR_MAX_ROUNDS=4`), as for Task 11. Round 3's findings were two
+   vacuous tests and two documentation bounds — not the "documentation-only" case your standing rule
+   names, since a vacuous test is a defect. Cost ~$2.50.
+2. **Merge on the record**, accepting that the last four fixes are unreviewed. I would not recommend
+   this here: unlike Task 11, the unreviewed changes are *test* changes, and the pattern of this task
+   is that my test fixes have been wrong more often than my code.
+3. **Hold Task 18 until Karen connects Studio (~09:00), then run the harness first and review after.**
+   Everything blocking is the same blocker: nothing has run. A harness run would settle more than a
+   fourth reading would — in particular the `LinearVelocity` plane setup, the `Path.Blocked` index
+   arithmetic and whether either spec even loads.
+
+**Builder's recommendation: option 3, then option 1 if the harness turns up nothing.** The cheapest
+real information available is a single harness run at 09:00, and it costs nothing but Karen's click.
+A fourth reading of code that has never executed has clearly diminishing returns — rounds 2 and 3
+each found that my *previous* fix was wrong, which is exactly what running it would have told me in
+seconds.
+
+**Needs:** a Director decision. Karen's Connect click is already requested in the Task 17 entry
+below; nothing further is needed from her for this.
+
+---
+
 ## 2026-09-24 · OPEN · NEEDS KAREN · `rojo serve` crashed; Task 17 cannot be tested
 
 **Raised by:** Builder, at loop step 3 of Task 17 (branch `task-17-test-area`, code commit

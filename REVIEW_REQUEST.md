@@ -62,14 +62,15 @@ Each names a file and a symbol. No line numbers (CLAUDE.md loop step 4).
 1. **One owner for boar state in production, and `Body` is private to it.**
    `src/server/Boar/init.luau` is the only file that calls `Body.create`, `Body.drive`,
    `Body.destroy` or `Body.ensureFolder`, and `Runtime:spawn` is the only production caller of
-   `Brain.new`. Verify: `grep -rn "Body\.\|Brain\.new" src tests`. Outside `init.luau` the hits
-   are the **definitions** in `Body.luau` and `Brain.luau` plus exactly one call:
-   `tests/server/boar_brain.spec.luau` calls
-   `Brain.new(CONFIG, FIELD, START, Random.new(...))` through the `Boar.Brain` export, which exists
-   so the pure state machine can be tested without a world. **Round 1's finding 5 was right that the
-   old wording ("the only thing that constructs a `Brain`") was false** — the spec constructs one
-   too, and it is `Runtime:spawn`, not `newRuntime`, that does so in production.
-   `GAME_DESIGN.md` has the matching owner row.
+   `Brain.new`. Verify: `grep -rn "Brain\.new" src tests` returns four lines — the definition in
+   `Brain.luau`, the production call in `init.luau`'s `Runtime:spawn`, and **two** calls in
+   `tests/server/boar_brain.spec.luau`: the `newBrain` helper, which uses the spec's own `FIELD`,
+   and "never despawns while idling at the real spawn point", which deliberately uses the
+   production `CONFIG.field` and `CONFIG.spawnPoint`. Both go through the `Boar.Brain` export, which
+   exists so the pure state machine can be tested without a world. `grep -rn "Body\." src tests`
+   adds only the definitions in `Body.luau`. **This claim has now been wrong in all three rounds**
+   (findings 5, 3 and 2): first "the only thing that constructs a `Brain`", then "exactly one call".
+   `GAME_DESIGN.md`'s owner row was corrected in round 2 to match.
 2. **Nothing but this system writes in Workspace, and it never deletes anything it did not create.**
    `Body.ensureFolder` returns an existing folder untouched or makes one; `Body.destroy` destroys
    only the Part it made and never the folder; `Runtime:destroy` destroys only its own boars.
