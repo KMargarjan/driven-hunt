@@ -11,6 +11,53 @@ Newest first. The Director or Karen answers under each entry, and the entry is c
 
 ---
 
+## 2026-09-24 · OPEN · NEEDS KAREN · `rojo serve` is down; no task can be harness-tested
+
+**Raised by:** Builder, during Task 20 (branch `task-20-map-research`).
+
+`rojo serve` crashed on 2026-09-24 during Task 17 and has not run since: no `rojo.exe`, nothing
+listening on port 34872. It is the known Rojo 7.7.0 watched-file panic, and on that occasion **a
+large branch switch alone was enough** — `git switch main && git pull` across 59 commits, no test, no
+deletion. Studio itself is still open on the DEV place in **Edit** mode and its MCP server still
+answers; only Rojo is down.
+
+Per the overnight rules I have not restarted it, and restarting alone would not be enough: the Rojo
+plugin's **Connect** button cannot be clicked by any tool.
+
+**Why this entry is repeated on this branch.** The same entry exists on `task-17-test-area`,
+`task-18-boar-ai` and `task-19-shotgun-design`, but none of those is merged, so anything cut from
+`main` — including this branch — has no record of why no task can produce a harness line. Task 19's
+review round 1 caught me citing it from a branch where it did not exist. **The claim and the record
+have to live in the same place**, so it is written here too. When the branches merge, these copies
+collapse into one.
+
+### Exact clicks for Karen, in order
+
+1. Open a terminal (PowerShell or Git Bash) in the repository folder
+   (`C:\Users\karen\Desktop\driven-hunt`).
+2. Run, and leave the window open:
+
+   ```
+   rojo serve default.project.json
+   ```
+
+   It should print that it is serving on `localhost:34872`. If `rojo` is not found, run
+   `rokit install` first.
+3. In Roblox Studio, with **Driven Hunt DEV** open in **Edit** mode: the **Plugins** tab → **Rojo**
+   → **Connect**.
+4. Rojo may show a confirmation dialog listing instances it will remove. It should name nothing
+   outside the Rojo-owned containers. **Do not accept anything that names `Workspace.Baseplate` or
+   `Workspace.SpawnLocation`** — those are yours and must stay (rule 7).
+5. Nothing else.
+
+**What is waiting on those clicks.** Task 17 (test arena) and Task 18 (boar AI) have never been
+executed at all — no harness run, no screenshot. Tasks 19 and 20 are documents only and need nothing
+from Studio, but they cannot cite a harness line either, which is why both say N/A and point here.
+
+**Needs:** Karen's clicks. Nothing here needs the Director.
+
+---
+
 ## 2026-09-24 · OPEN · Task 11 round 4 (authorised) returned 5 findings
 
 **Raised by:** Builder, at loop step 5 of Task 11 (branch `task-9-agent-workflow`, PR #4). The
