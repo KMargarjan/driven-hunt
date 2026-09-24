@@ -63,8 +63,11 @@ judgement or a playtest.
 1. Read `TASKS.md` and the task you were given.
 2. **New system?** Run `tools/architect.sh design <system>` and build to that design. If you disagree
    with the design, write `ESCALATE.md` and stop.
-3. Build. One task, nothing extra. Commit.
-4. Write `REVIEW_REQUEST.md` (increment `Round:`), and commit it.
+3. Build. One task, nothing extra. Commit (this is the **code commit**), then run the harness on the clean
+   tree.
+4. Write `REVIEW_REQUEST.md` (increment `Round:`; `Code commit:` = the commit the harness line names),
+   and commit **only** that file. The script shows the Reviewer that nothing else changed after the
+   tested commit.
 5. Run `tools/review.sh`. On findings, fix and go back to 4. On `PASS`, commit `REVIEW_RESULT.md` and
    continue.
 6. Run `tools/architect.sh audit` **once per task** (not once per round). If `ARCH_RESULT.md` lists

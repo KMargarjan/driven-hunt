@@ -28,7 +28,9 @@ in the change. You are not the author. Assume every claim is false until the rep
 - **What you cannot check.** Some claims need Roblox Studio (the harness, playtests). You cannot
   run those. For such a claim:
   - check that the pasted evidence is consistent: the `[harness] ... @ <sha>` line must name the
-    commit under review, with "(clean tree)"
+    `Code commit:` in REVIEW_REQUEST.md, with "(clean tree)". Then check
+    `.agent-evidence/request-only-diff.txt` says that only REVIEW_REQUEST.md changed between that commit
+    and the commit under review
   - check that the code could produce it
   - if the evidence is missing, stale or inconsistent, that is a finding
 - **In scope:** correctness bugs, claims not backed by the code, gaps against the task statement,

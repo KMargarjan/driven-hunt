@@ -46,7 +46,14 @@ class Refused(Exception):
 
 def run(cmd, cwd=REPO, check=True):
     env = dict(os.environ, PATH=ROKIT_BIN + os.pathsep + os.environ.get("PATH", ""))
-    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
+    # Windows does not search env["PATH"] for the executable, so resolve it explicitly.
+    exe = shutil.which(cmd[0], path=env["PATH"])
+    if not exe:
+        if check:
+            raise Refused(f"`{cmd[0]}` not found on PATH (is Rokit installed? `rokit install`)")
+        return subprocess.CompletedProcess(cmd, 127, "", f"`{cmd[0]}` not found on PATH\n")
+    r = subprocess.run([exe, *cmd[1:]], cwd=cwd, capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", env=env)
     if check and r.returncode != 0:
         raise Refused(f"{' '.join(cmd)} failed ({r.returncode}): {r.stderr.strip()[:500]}")
     return r
@@ -73,7 +80,7 @@ def tool_output(cmd, cwd):
     return f"$ {' '.join(cmd)}\n(exit {r.returncode})\n{r.stdout}{r.stderr}"
 
 
-def build_evidence(wt, base=None):
+def build_evidence(wt, base=None, code_commit=None):
     """Precompute everything the agent would otherwise have to run. Keep the lint/build commands in step
     with .github/workflows/ci.yml."""
     ev = os.path.join(wt, ".agent-evidence")
@@ -91,6 +98,16 @@ def build_evidence(wt, base=None):
         "sourcemap.json": run(["rojo", "sourcemap", "default.project.json", "--include-non-scripts"],
                               cwd=wt, check=False).stdout,
     }
+    if code_commit:
+        changed = git("diff", "--name-only", f"{code_commit}..HEAD", cwd=wt).split()
+        ok = changed in ([], ["REVIEW_REQUEST.md"])
+        lines = [f"Code commit (tested by the harness): {code_commit}",
+                 f"Commit under review: {head}",
+                 f"Files changed between them: {changed or 'none'}",
+                 "OK: only REVIEW_REQUEST.md differs, so a harness line for the code commit applies to HEAD." if ok
+                 else "NOT OK: more than REVIEW_REQUEST.md changed after the tested commit. The harness line does "
+                      "NOT cover HEAD. That is a finding."]
+        files["request-only-diff.txt"] = "\n".join(lines) + "\n"
     if base:
         files["log.txt"] = git("log", "--stat", f"{base}..HEAD", cwd=wt)
         files["changed-files.txt"] = git("diff", "--name-status", f"{base}...HEAD", cwd=wt)
@@ -191,8 +208,13 @@ def cmd_review():
         req = f.read()
     rnd = re.search(r"^Round:\s*(\d+)", req, re.M)
     base = re.search(r"^Base:\s*`?([^`\s]+)`?", req, re.M)
+    code = re.search(r"^Code commit:\s*`?([0-9a-f]{7,40})`?", req, re.M)
     if not rnd or not base:
-        raise Refused("REVIEW_REQUEST.md needs `Round: N` and `Base: <commit>` lines")
+        raise Refused("REVIEW_REQUEST.md needs `Round: N`, `Base: <commit>` and `Code commit: <sha>` lines")
+    if not code:
+        raise Refused("REVIEW_REQUEST.md needs a `Code commit: <sha>` line (the commit the harness tested)")
+    code = code.group(1)
+    git("rev-parse", "--verify", code + "^{commit}")
     rnd = int(rnd.group(1))
     if rnd > MAX_ROUNDS:
         raise Refused(f"round {rnd} > {MAX_ROUNDS}: stop rule. Write ESCALATE.md instead of another review")
@@ -201,7 +223,7 @@ def cmd_review():
 
     def go():
         with Worktree() as wt:
-            build_evidence(wt, base)
+            build_evidence(wt, base, code)
             task = (f"Review commit `{head}` (round {rnd} of max {MAX_ROUNDS}) against base `{base}`.\n"
                     "Read `REVIEW_REQUEST.md`, then `.agent-evidence/INDEX.md`.")
             return run_agent("reviewer", "docs/REVIEWER_PROMPT.md", task, wt)
