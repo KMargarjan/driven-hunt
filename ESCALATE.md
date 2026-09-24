@@ -10,6 +10,82 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-09-24 · OPEN · NEEDS KAREN · `rojo serve` crashed; Task 17 cannot be tested
+
+**Raised by:** Builder, at loop step 3 of Task 17 (branch `task-17-test-area`, code commit
+`48169db`). Overnight run, Karen asleep.
+
+**What happened.** The Task 17 code is written and committed. The harness then failed at check 3:
+
+```
+  FAIL Rojo synced the fresh token from disk  (Studio has '')
+[harness] `rojo serve` is NOT running (crashed?). Known Rojo 7.7.0 bug ...
+[harness] FAIL: 3/4 checks @ 48169db32effaa1d4b8f0995dbf7df106f0d8f46 (clean tree)
+```
+
+Confirmed independently: `tasklist` shows no `rojo.exe`, nothing is listening on port 34872, and
+`curl http://localhost:34872/api/rojo` returns nothing. Studio is still open on the DEV place in
+**Edit** mode and the MCP server still answers, so only Rojo is down.
+
+**Why.** Almost certainly the known Rojo 7.7.0 crash already in `CLAUDE.md` ("Known Rojo 7.7.0
+crash": it panics when a watched file or folder disappears before it processes the event,
+[#1309](https://github.com/rojo-rbx/rojo/issues/1309),
+[#1321](https://github.com/rojo-rbx/rojo/issues/1321)). Rojo was alive at the start of this run — two
+`rojo.exe` processes, and a read-only MCP probe worked. It died across
+`git switch main && git pull` (59 commits) and `git switch -c task-17-test-area`, which deleted and
+rewrote many watched files at once. **New data point for that note: a large branch switch is enough to
+crash it**, not only a test deleting a folder. `CLAUDE.md` currently says to stop `rojo serve` before
+switching branches; this run shows why, and the Task 17 dispatch forbade stopping it. Worth folding
+into `CLAUDE.md` on the next task.
+
+**Why I stopped rather than fixing it.** Two overnight rules, both explicit: never stop or restart
+`rojo serve`, and if Rojo is down write a NEEDS KAREN entry and stop. Restarting it would not be
+enough anyway — the Rojo plugin's **Connect** button cannot be clicked by any tool, so Karen has to
+press it before the harness can run again.
+
+### Exact clicks for Karen, in order
+
+1. Open a terminal (PowerShell or Git Bash) in `C:\Users\karen\Desktop\driven-hunt`.
+2. Run, and leave the window open:
+
+   ```
+   rojo serve default.project.json
+   ```
+
+   It should print that it is serving on `localhost:34872`. If `rojo` is not found, run
+   `rokit install` first.
+3. In Roblox Studio, with **Driven Hunt DEV** open in **Edit** mode: the **Plugins** tab → **Rojo** →
+   **Connect**.
+4. Rojo may show a confirmation dialog listing instances it will remove. It is expected to list
+   nothing outside the Rojo-owned containers. **Do not accept anything that names
+   `Workspace.Baseplate` or `Workspace.SpawnLocation`** — those are yours and must stay (rule 7).
+5. Nothing else. The Builder takes it from there on the next run.
+
+**State of the work.** Branch `task-17-test-area`, code commit `48169db`, pushed. Clean tree.
+`selene src`, `selene --config tests/selene.toml tests`, `stylua --check src tests` and
+`rojo build -o build/place.rbxl` all pass locally (the same commands CI runs). **Not run:** the
+harness, the Reviewer, and the screenshot — all three need Rojo connected. Nothing in this task has
+been executed in Studio, so nothing about it is verified beyond lint and build.
+
+**Also found, read-only, before Rojo died** (useful whoever picks this up):
+- `Workspace` already holds a default **Baseplate** (`Part`, 2048×16×2048 at y = -8, so its top face
+  is at **y = 0**) and a default **SpawnLocation** (12×1×12 at (0, 0.5, 0)). Both anchored, both Studio
+  content, both left alone (rule 7, and the dispatch says to report them).
+- That means two things the Director should look at once the arena can actually be seen:
+  1. **The arena's ground surface is also at y = 0, so it is coplanar with the Baseplate's top over
+     the whole 400×400 footprint.** That usually z-fights. I have not seen it — no screenshot was
+     possible — so I am not claiming it does or does not.
+  2. **Two SpawnLocations** will exist during Play: the default one at the origin and the arena's
+     `ArenaSpawn` near the south edge. Roblox picks between them, so spawning will be inconsistent.
+- `screen_capture` **is** available over MCP (`capture_id` + `studio_id`, optional `camera_position` /
+  `look_at_position`), so rule 5 is satisfiable in Edit mode. The arena is built at server start, so
+  it only exists during Play; whether `screen_capture` returns the Play viewport is untested.
+
+**Needs:** Karen's clicks above. Then the Builder reruns the harness, the review loop, and the
+screenshot.
+
+---
+
 
 ## 2026-09-24 · CLOSED 2026-09-24 · Task 11 round 4 (authorised) returned 5 findings
 
