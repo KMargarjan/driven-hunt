@@ -38,6 +38,11 @@ Date: 2026-09-24 · Author: Builder · Task 1 (round 2 revision after Reviewer F
 
 ## Pattern adopted and why
 
+> **Current behaviour is described only in the `tools/studio_mcp.py` docstring** (single source of truth
+> since round 4). The sections below are the decision record, as dated. Lines marked *(superseded)* no
+> longer describe the code.
+
+
 - **Sync: Rojo 7.7.0** (source 1). It is the standard, the Rojo plugin was already installed, and
   one-way sync enforces rule 3: disk is the only writer for the Rojo-owned services. Argon was
   rejected because two-way sync lets Studio edits write back, which breaks single ownership.
@@ -58,22 +63,22 @@ Date: 2026-09-24 · Author: Builder · Task 1 (round 2 revision after Reviewer F
   `TestBootstrap.lua:57` requires them unprotected), then calls
   `TestBootstrap:run({ServerStorage.Tests}, TextReporter)`, all under pcall. Status: `ERROR` on any
   load or run exception; `FAIL` if failures > 0, `#results.errors` > 0, or passes == 0; else `PASS`.
-  It prints `[tests] ...` and writes a JSON report (token, placeId, specCount, counts, status) to the
+  It prints `[tests] ...` and writes a JSON report (token, placeId, specCount, counts, status) to the *(superseded: report fields and location, see the docstring)*
   `ServerStorage.TestReport` attribute. Tests run in the real Play server: the player's path (rule 6).
 - **Gate + provenance (invented; nothing found to borrow):** the harness writes
   `<16 hex>:<unix time>` to git-ignored `tests/sync-token.txt`. Rojo syncs it to
   `ServerStorage.TestSyncToken` (optional path). The runner runs only if the token is under 120 s
   old. The harness then checks:
   - the token reached Studio (so Rojo is live)
-  - every script from `rojo sourcemap` has a Studio Source byte-identical to disk
+  - every script from `rojo sourcemap` has a Studio Source byte-identical to disk *(superseded: every synced instance and file, round 3/4)*
   - the report echoes this run's token and the PlaceId from `servePlaceIds`
-  - the runner's spec count equals the spec files on disk
+  - the runner's spec count equals the spec files on disk *(superseded: matched by name, round 3)*
 
   It clears the token afterwards. Reason for inventing: TestEZ and Rojo have no run-provenance
   mechanism, and the MCP server has no "run tests" tool.
 - **Automation: Studio built-in MCP** (source 12), through `tools/studio_mcp.py`, a small stdio
   JSON-RPC client. Chosen over run-in-roblox (stale, Edit mode only) and the archived Rust MCP server.
-  **Invented:** the ~280-line client script. Reason: no maintained CLI MCP client existed in the repo's
+  **Invented:** the ~280-line client script *(superseded: ~600 lines after round 4)*. Reason: no maintained CLI MCP client existed in the repo's
   toolchain, and pulling in an MCP SDK for 4 calls is heavier than the script. Round 2: it exposes only
   `test`, `state`, `console` and `stop`, and sends only constant read-only Luau queries. It refuses unless
   Studio is in Edit mode.
@@ -98,7 +103,7 @@ The first `studio_mcp.py test` read the result from the Output log by diffing it
 before Play. Studio **clears Output on each Play**, so the diff was empty whenever two runs printed
 identical output, and the second run timed out. The same design could also report the previous
 run's result as a false PASS. Fix: TestRunner also writes the summary to the
-`ServerStorage` attribute `TestSummary`, and the harness polls it in the **Server** DataModel, which
+`ServerStorage` attribute `TestSummary` *(superseded: the attribute is now `TestReport`, a JSON report; see the docstring)*, and the harness polls it in the **Server** DataModel, which
 only exists for the current play session.
 
 ## Round 3 revision (Reviewer FAIL on PR #1)
@@ -121,3 +126,36 @@ only exists for the current play session.
 - **Rojo deletes unknown instances on Connect, not during live sync** (probe test, CLAUDE.md). The
   Rojo-owned containers are disk-only by design (rule 3). The deletion must be documented, because a
   Studio-made instance seems safe until the next Connect.
+
+## Round 4 revision (Task 5, architecture audit-001 M1–M4)
+
+- **All script-capable containers are on disk (M1).** Added StarterGui, StarterPack,
+  StarterCharacterScripts and ReplicatedFirst. All four were verified empty first. Workspace and
+  ServerStorage stay Studio-edited for non-script content. A new harness query lists every
+  LuaSourceContainer in the DataModel and fails on any the sourcemap does not account for, including
+  extra same-named copies (partly audit R2).
+- **Non-script files (M2).** `.model.json` and `.meta.json` are compared: ClassName, plain JSON
+  properties and attributes, children. Typed values fail as "cannot compare" until needed.
+  `.rbxm`/`.rbxmx` are banned (harness + CI): a binary blob can't be reviewed or compared, and
+  dropping it is cheaper than supporting it (audit-001).
+- **Client path (M3).** TestKit (one implementation) is shared by a server runner and a client runner.
+  Client specs run in the real player client, and the harness reads the client report from the
+  Client DataModel (StudioMCP `execute_luau` accepts `Client`, verified 2026-09-24). Real input
+  (StudioMCP `user_keyboard_input` / `user_mouse_input`) and play-time screenshots (`screen_capture`
+  is edit-time only) are not wired yet. They are blocking Tasks 6 and 7. To reach the client, test
+  code moved to ReplicatedStorage and now replicates to clients (accepted; stripped at publish, Task 2).
+- **Commit-bound evidence (M4).** The final line carries the full HEAD sha and clean/dirty state. A
+  dirty-tree PASS exits 3.
+- **Harness faults found and fixed this round (rule 6):**
+  - JSON embedded in a Luau long string broke when the JSON ended in `]`. Now wrapped in newlines, and
+    non-ASCII names survive (audit L3).
+  - StudioMCP truncates tool results at ~100 KB. The Source comparison is now batched (8 instances per
+    query), and a truncated result fails loudly.
+  - A harness exception printed a traceback. It is now a `[harness] FAIL: harness error` line.
+- **Rojo 7.7.0 crash** when a watched folder disappears (open issues rojo-rbx/rojo#1309, #1321).
+  The harness now says whether `rojo serve` is down when the token fails to sync.
+
+| Target | Value | Measured 2026-09-24 |
+|---|---|---|
+| Round-4 cases caught | 8/8 | valid `.model.json` and `.meta.json` pass. Caught: `.rbxm` banned, typed property, `ignoreUnknownInstances`, failing client spec, script in Workspace, attribute changed in Studio |
+| Round-3 regression matrix | 12/12 | all still exit 1 after the restructure |

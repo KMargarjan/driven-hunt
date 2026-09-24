@@ -5,11 +5,26 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 | # | Task | Status | Notes |
 |---|---|---|---|
 | 1 | Project setup: Rojo, git, TestEZ, docs skeleton, prove the sync loop | awaiting review | Round 1: Reviewer FAIL. Round 2 (PR #1): fixes plus CI, branch workflow, definition of done, PLAYTEST.md. Reviewer FAIL on PR #1. Round 3: 3 blocking + 2 should-fix items, plus public-repo hygiene |
-| 2 | Strip test code at publish (TestRunner, Tests, DevPackages, TestSyncToken) | todo, before first public release | Accepted for now, see CLAUDE.md "Test code ships with the place" |
+| 2 | Strip test code at publish, and archive the scaffolding specs | todo, before first public release | **Strip list:** TestRunner, ClientTestRunner, TestKit, Tests, ClientTests, DevPackages, TestSyncToken, **SyncCheck** (a test fixture in `src/server` that runs in every live server; audit-001 R1). Since Task 5, TestKit, ClientTests, DevPackages and TestSyncToken replicate to clients. **Archive (rule 7)** `src/server/SyncCheck.server.luau` and `tests/server/sync.spec.luau` when the first real server game spec lands, and `tests/client/client_env.spec.luau` when the first real client spec lands. The harness already checks what they check (audit-001 R1). See CLAUDE.md "Test code ships with the place" |
 | 3 | Run `luau-lsp analyze` in CI (type checking) | todo | luau-lsp is pinned but not wired into CI. Needs a sourcemap and Roblox type definitions in CI |
 | 4 | Karen: check DEV place Version History around the first Connect | closed: not applicable | Not applicable: the place was empty at the first Connect. It was brand new, a read-only query at ~18:30 found all Rojo-owned containers empty, and Karen added nothing to them before Connect (~18:36). The click path I gave (Studio → File → Version History) was wrong: Studio's File menu has no Version History |
+| 5 | Architecture audit-001 must-fix M1–M4 plus doc drift | awaiting review | Stacked PR on PR #1. See the review log below |
+| 6 | **BLOCKING before any input-driven client code:** drive real input from the harness | todo | StudioMCP has `user_keyboard_input` / `user_mouse_input` for the Client DataModel, but the harness does not call them. Client specs can assert camera/input/cursor/UI **state** today, but cannot simulate a player pressing keys or moving the mouse. Needs: a scenario format (input steps, then assertions), gated like the specs |
+| 7 | **BLOCKING before any visual client code (UI, HUD, cursor art):** play-time screenshots | todo | StudioMCP's `screen_capture` is edit-time only, so rule 5 cannot be met for play-time visuals by tools. Needs: find a capture path, or make Karen's screenshot the evidence (policy) |
+| 8 | Audit-001 fix-before-release and log-only items | todo | R2 is partly done (same-named siblings now fail). R3 = Task 3. L1 is done (docstring is the single source). L3 non-ASCII is fixed. Open: L2, L4, L5 (test globals allowed in `src/`), L6, L7, L8, L9 (owner table rows) |
 
 ## Review log
+
+### Task 5: architecture audit-001 must-fix (round 1)
+
+| Item | Disposition |
+|---|---|
+| M1 all script containers on disk | StarterGui, StarterPack, StarterCharacterScripts and ReplicatedFirst are mapped (`src/startergui`, `src/starterpack`, `src/startercharacter`, `src/replicatedfirst`). A read-only query found all four empty, and no script anywhere outside Rojo paths, **before** mapping. New harness check: any LuaSourceContainer in the DataModel not in the sourcemap fails (verified with a Workspace script). CLAUDE.md: nothing script-like is ever created in Studio. The check caught 16 orphan TestEZ scripts left in `ServerStorage.DevPackages` by the mapping move. They were verified identical to disk and removed from the place (with the orphan `ServerStorage.TestSyncToken`) |
+| M2 file types | `.model.json` (ClassName, plain properties/attributes, children recursively) and `.meta.json` (properties/attributes; `ignoreUnknownInstances` refused) compared. **`.rbxm`/`.rbxmx` banned** in the harness and in CI. Typed property values fail as "cannot compare". Verified: valid model.json and meta.json pass; rbxm, typed value, ignoreUnknownInstances and an attribute changed in Studio each fail |
+| M3 client test path | Client specs (`tests/client`) run in the player's client via ClientTestRunner. The harness reads the client report from the Client DataModel and checks it like the server one. Verified with a failing client spec. **Cannot yet:** drive real input (Task 6) or take play-time screenshots (Task 7). Both are logged as blocking |
+| M4 PASS names its commit | The final line is `[harness] PASS: n/m checks @ <full sha> (clean tree)`. A dirty tree gives exit 3 and "DIRTY TREE - NOT valid evidence" with the paths listed. HEAD is re-checked at the end |
+| Doc drift | The `tools/studio_mcp.py` docstring is the single source of truth. CLAUDE.md keeps commands and a pointer. Research note: superseded text marked, round-4 section added. INDEX updated |
+| Audit file placement | It was swept into PR #1 by my blind `git add -A` (1ed9127). It was removed from PR #1 with `git rm --cached` (f53b043) and committed alone on `audit-001` (PR #2). CLAUDE.md now requires explicit staging |
 
 ### Task 1, round 2 on PR #1 → Reviewer FAIL: disposition (round 3)
 

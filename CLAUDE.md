@@ -28,25 +28,33 @@ Roles: **Builder** implements, **Reviewer** signs off, **Karen** owns the game a
 
 ## Git workflow: branch + pull request, never push to main
 
-1. `git switch main && git pull`, then `git switch -c task-<n>-<short-name>`.
-2. Commit on the branch. Push the branch: `git push -u origin <branch>`.
-3. Open a pull request into `main`. CI (`.github/workflows/ci.yml`) must be green.
+1. `git switch main && git pull`, then `git switch -c task-<n>-<short-name>`. A task that builds on an
+   unmerged PR branches from that PR's branch and targets it (a stacked PR).
+2. Stage **explicit paths** (`git add <paths>`), then read `git status` and `git diff --cached` before
+   every commit. Never commit with a blind `git add -A`: untracked files (another role's docs, for
+   example) get swept in. That happened on 2026-09-24 with `docs/architecture/audit-001.md`.
+3. Push the branch (`git push -u origin <branch>`) and open a pull request. CI
+   (`.github/workflows/ci.yml`) must be green.
 4. The Reviewer reviews the PR. Karen merges after sign-off. The Builder never merges and never
    pushes to `main`.
+5. Record Karen's playtest feedback in `PLAYTEST.md` in the same PR round.
+6. **Stop `rojo serve` before switching branches** (or re-Connect afterwards). A branch switch while
+   Rojo is live left Studio out of sync on 2026-09-24 (`ServerStorage.Tests` came out empty). The
+   harness catches this, but it wastes a run.
 
 **What is enforced and what is policy.** The GitHub ruleset on `main` *enforces* only two things:
 changes arrive through a pull request, and the `Build and lint` CI check passes. It does **not** enforce
 Reviewer sign-off (approvals are set to 0, and the Reviewer has no GitHub account), who merges, or
 that the Builder never merges. The Builder's credentials could merge a green PR. Those three are
 **policy**: rule 10 plus this section. The Builder follows them, and the Reviewer checks them.
-5. Record Karen's playtest feedback in `PLAYTEST.md` in the same PR round.
 
 ## Definition of done
 
 Paste this, filled in, at the end of every task report. Each box is checked, or marked N/A with a reason.
 
 ```
-- [ ] Tests pass: `python tools/studio_mcp.py test` → "[harness] PASS: n/n checks" (paste the line)
+- [ ] Tests pass: `python tools/studio_mcp.py test` → paste the final line. It must read
+      "[harness] PASS: n/n checks @ <sha> (clean tree)" with <sha> = the PR head commit
 - [ ] CI green on the PR (link to the run)
 - [ ] Screenshot inspected (rule 5), or N/A: <reason>
 - [ ] Docs updated: TASKS.md, GAME_DESIGN.md owners, research note/INDEX, PLAYTEST.md, CLAUDE.md as needed
@@ -56,37 +64,59 @@ Paste this, filled in, at the end of every task report. Each box is checked, or 
 
 ## Layout
 
+Every container that can hold a script is Rojo-owned and fed from disk. **Nothing script-like
+(Script, LocalScript, ModuleScript) is ever created in Studio.** The harness fails if a script exists
+anywhere Rojo does not manage, including Workspace, ServerStorage and Lighting.
+
 | Disk | Studio | Notes |
 |---|---|---|
-| `src/server/` | `ServerScriptService` | Rojo-owned. **Rojo deletes anything created here in Studio** (see below) |
-| `src/client/` | `StarterPlayer.StarterPlayerScripts` | Rojo-owned. **Rojo deletes anything created here in Studio** |
-| `src/shared/` | `ReplicatedStorage` | Rojo-owned. **Rojo deletes anything created here in Studio** |
-| `tests/specs/` | `ServerStorage.Tests` | TestEZ specs, `*.spec.luau` |
-| `tests/TestRunner.server.luau` | `ServerScriptService.TestRunner` | Runs specs only when the harness opens the gate |
-| `tests/sync-token.txt` (git-ignored, optional) | `ServerStorage.TestSyncToken` | Written only by the harness |
-| `DevPackages/` (git-ignored, optional) | `ServerStorage.DevPackages` | From `wally install` |
+| `src/server/` | `ServerScriptService` | Rojo-owned |
+| `src/shared/` | `ReplicatedStorage` | Rojo-owned. Modules shared by server and client |
+| `src/client/` | `StarterPlayer.StarterPlayerScripts` | Rojo-owned |
+| `src/startercharacter/` | `StarterPlayer.StarterCharacterScripts` | Rojo-owned |
+| `src/startergui/` | `StarterGui` | Rojo-owned. ScreenGuis as `.model.json` plus their LocalScripts |
+| `src/starterpack/` | `StarterPack` | Rojo-owned. Tools as folders (`init.meta.json` or `.model.json` plus scripts) |
+| `src/replicatedfirst/` | `ReplicatedFirst` | Rojo-owned |
+| `tests/server/` | `ServerStorage.Tests` | Server TestEZ specs, `*.spec.luau` |
+| `tests/client/` | `ReplicatedStorage.ClientTests` | Client TestEZ specs (run in the player's client) |
+| `tests/TestKit.luau` | `ReplicatedStorage.TestKit` | The one test gate and runner implementation |
+| `tests/TestRunner.server.luau` | `ServerScriptService.TestRunner` | Server runner |
+| `tests/ClientTestRunner.client.luau` | `StarterPlayerScripts.ClientTestRunner` | Client runner |
+| `tests/sync-token.txt` (git-ignored, optional) | `ReplicatedStorage.TestSyncToken` | Written only by the harness |
+| `DevPackages/` (git-ignored, optional) | `ReplicatedStorage.DevPackages` | TestEZ, from `wally install` |
 | `assets/source/`, `assets/ready/` | none | Raw vs import-ready art |
 | `backups/` | none | Archived files plus notes |
-| `docs/research/` | none | Research notes plus `INDEX.md` |
-| `tools/` | none | Test harness (Studio MCP client) |
+| `docs/` | none | `research/` (notes plus INDEX), `architecture/` (Architect audits) |
+| `tools/` | none | Test harness |
 
-Everything outside those Rojo-owned paths (Workspace, Lighting, and so on) is edited in Studio and
-saved with the place.
+Workspace (the map), Lighting, Terrain and other non-script content are edited in Studio and saved
+with the place. They must contain no scripts.
+
+### File types in Rojo-owned paths
+
+| File | Becomes | Harness compares |
+|---|---|---|
+| `Name.server.luau` / `Name.client.luau` / `Name.luau` | Script / LocalScript / ModuleScript | Source |
+| folder with `init.luau` (or `init.server.luau` / `init.client.luau`) | that script, with children | Source |
+| `Name.model.json` | any instance tree (RemoteEvent, ScreenGui, Tool…) | ClassName, properties, attributes, children |
+| `Name.meta.json` / `init.meta.json` | properties and attributes of a script or folder | properties, attributes |
+| `Name.txt` | StringValue | Value |
+| **`.rbxm` / `.rbxmx`** | **BANNED** | binary, unreviewable in a PR. CI and the harness both fail on it |
+
+Properties and attributes must be plain JSON values (string, number, bool) until the harness learns
+typed values (`{"Vector3": [...]}` and so on). Until then it fails such a value as "cannot compare",
+and never skips it. `ignoreUnknownInstances` in a meta file is refused: it would let Studio-made
+instances survive.
 
 ### Rojo DELETES Studio-created instances in Rojo-owned containers
 
 Every project node with a `$path` defaults to `$ignoreUnknownInstances: false`: "whether instances
 that Rojo doesn't know about should be deleted" ([Rojo project format](https://rojo.space/docs/v7/project-format/)).
-That makes these containers **disk-only**:
+Every container in the Layout table above is therefore **disk-only**. Anything created in Studio inside
+one of them that has no file on disk is **deleted, not overwritten**, and not moved anywhere.
+`ServerStorage` itself has no `$path`, so its non-Rojo children are left alone.
 
-- `ServerScriptService`, `ReplicatedStorage`, `StarterPlayer.StarterPlayerScripts`
-- `ServerStorage.Tests`, `ServerStorage.DevPackages`, `ServerStorage.TestSyncToken`
-
-Anything created in Studio inside them (a script, a folder, a model, a RemoteEvent) that has no file
-on disk is **deleted, not overwritten**, and not moved anywhere. `ServerStorage` itself has no `$path`,
-so its other children are left alone.
-
-**When it happens** (tested 2026-09-24 with a probe Folder in each of the three services, Rojo 7.7.0):
+**When it happens** (tested 2026-09-24 with a probe Folder in each of three services, Rojo 7.7.0):
 
 - **Not during live sync.** The probes survived 5 s idle, a new file added to the same folder, and
   that file's removal.
@@ -95,18 +125,17 @@ so its other children are left alone.
   lists the removals before you accept.
 
 So a Studio-made instance can seem safe for a whole session and then vanish at the next Connect.
-Rule: create anything in these containers **on disk** (a `.luau` file, or `*.model.json` / `.rbxm`
-for non-scripts). To keep a Studio-built object, save it to disk first
-(right-click → Save to File → put it under `src/`).
+To keep a Studio-built object, export it as `.model.json` under `src/` (never `.rbxm`).
 
-**DEV place check.** Before the first Connect (2026-09-24 ~18:36 local), a read-only query at ~18:30
-listed all four containers (ServerScriptService, ReplicatedStorage, StarterPlayerScripts,
-ServerStorage) as **empty**. Only Workspace had children. So the first Connect had nothing to delete.
-Karen confirmed the place was brand new and she added nothing to those containers. A Version
-History check was not needed (TASKS.md #4: not applicable).
+**Instances outside the Rojo-owned containers are not cleaned up.** When a mapping moves (for
+example DevPackages moved from ServerStorage to ReplicatedStorage on 2026-09-24), the old copy stays
+behind as an orphan. The harness's "no script outside Rojo-managed paths" check caught exactly that.
+The 16 orphan TestEZ scripts were verified identical to disk, then removed (TASKS.md, Task 5).
 
-File naming (Rojo): `Name.server.luau` = Script, `Name.client.luau` = LocalScript,
-`Name.luau` = ModuleScript, folder with `init.luau` = ModuleScript with children.
+**DEV place checks.** Before the first Connect (2026-09-24 ~18:36 local), all of ServerScriptService,
+ReplicatedStorage, StarterPlayerScripts and ServerStorage were empty. Before mapping them
+(2026-09-24 ~19:30), StarterGui, StarterPack, StarterCharacterScripts and ReplicatedFirst were empty,
+and no script existed anywhere outside Rojo paths. Karen confirmed she added nothing to them.
 
 ## Toolchain: what is pinned and what is not
 
@@ -128,53 +157,45 @@ After cloning: `rokit install`, then `wally install`. After changing the Rojo ve
 
 ## Run / test
 
+**The full description of the test system (gate, runners, report format, every check, exit codes)
+is the docstring of `tools/studio_mcp.py`.** It is the single source of truth. Update it with any
+change to the test system, and don't restate it elsewhere.
+
 - **Lint and format (also in CI):** `selene src tests` and `stylua --check src tests`
-  (`stylua src tests` fixes formatting). `mkdir -p build && rojo build -o build/place.rbxl` checks the project builds (Rojo does not create `build/`).
-- **Tests:** with Studio open on the DEV place in **Edit** mode and Rojo connected:
-  `python tools/studio_mcp.py test`. It:
-  1. refuses unless Studio is in Edit mode (exit 2)
-  2. asserts the open place's PlaceId
-  3. writes a fresh token to `tests/sync-token.txt` and waits for Rojo to sync it
-  4. checks every synced instance (from `rojo sourcemap --include-non-scripts`) exists with the right
-     ClassName, and every synced file matches:
-     - scripts: Source byte-for-byte
-     - `.txt`: StringValue.Value
-     - `*.project.json`: structure
-
-     Any other file type fails as "cannot compare" and is never skipped.
-  5. finds every `*.spec.*` file anywhere in the repo (tracked plus untracked, non-ignored files; the
-     git-ignored `DevPackages/` holds TestEZ's own specs, which are not ours) and fails if one is not
-     synced
-  6. presses Play and reads the runner's JSON report from the Server DataModel
-  7. asserts:
-     - the token and the PlaceId
-     - the runner ran exactly the repo's spec files, no more and no fewer
-     - PASS, more than 0 passed, 0 failed, 0 errors, **0 skipped** (any SKIP or FOCUS variant fails
-       the run)
-  8. stops Play, clears the token, and checks the gate closed
-
-  Exit 0 only on PASS.
-- **Karen's playtests do not run tests.** TestRunner runs only in Studio, and only with a token under
-  120 s old. Only the harness writes one, and it clears it afterwards.
-- **Harness safety:** `tools/studio_mcp.py` exposes only `test`, `state`, `console` and `stop`. It has
-  no arbitrary-Luau or arbitrary-tool command. Its only `execute_luau` calls are constant, read-only
-  queries defined in the file (`QUERY_*`). New queries must stay read-only.
-  It needs Studio → Assistant settings → MCP server enabled.
+  (`stylua src tests` fixes formatting). `mkdir -p build && rojo build -o build/place.rbxl` checks the
+  project builds (Rojo does not create `build/`).
+- **Tests:** Studio open on the DEV place in **Edit** mode, Rojo connected, work committed:
+  `python tools/studio_mcp.py test`.
+  - Exit 0 means PASS on a clean tree. 1 means FAIL. 2 means REFUSED (Studio not in Edit mode).
+    3 means PASS on a dirty tree, which is **not valid evidence**.
+  - The final line names the commit it tested.
+- **Other harness commands:** `state`, `console`, `stop` (read-only / recovery). It needs Studio →
+  Assistant settings → MCP server enabled.
+- **Karen's playtests do not run tests.** The runners need a harness token under 120 s old.
+- **Client code** (camera, input, cursor, UI) is tested by client specs in `tests/client/`, which run
+  in the player's client. Driving real input and play-time screenshots are **not** wired yet. That is
+  a blocking task (TASKS.md) before any input-driven or visual client code.
 - The Rojo plugin's **Connect** button cannot be clicked by tools. Karen presses it once per Studio
   session, and again whenever `rojo serve` restarts (for example after `default.project.json` changes,
   which the running server does not reload).
+- **Known Rojo 7.7.0 crash.** `rojo serve` panics when a watched file or folder disappears before
+  Rojo processes the event ([#1309](https://github.com/rojo-rbx/rojo/issues/1309),
+  [#1321](https://github.com/rojo-rbx/rojo/issues/1321); fix PR #1319 open). It crashed on
+  2026-09-24 when a test deleted a whole folder at once. Deleting files one at a time, with a
+  pause, then the empty folder, did not crash. If the harness says "`rojo serve` is NOT running",
+  restart it and have Karen press Connect.
 
 ## Test code ships with the place
 
-While Rojo is connected, `ServerScriptService.TestRunner`, `ServerStorage.Tests`,
-`ServerStorage.DevPackages` and (between runs, empty) `ServerStorage.TestSyncToken` are part of the
-place, and **they are published with it**. This is accepted for now:
+While Rojo is connected, all test objects are part of the place and **are published with it**:
+TestRunner, ClientTestRunner, TestKit, Tests, ClientTests, DevPackages (TestEZ) and TestSyncToken
+(empty between runs), plus `SyncCheck`, a test fixture in `src/server`.
 
-- all of them live in server-only containers and never replicate to clients
-- the runner returns immediately outside Studio (`RunService:IsStudio()`)
-- inside Studio it also needs a fresh harness token
+**Since Task 5, TestKit, ClientTests, DevPackages and TestSyncToken are in ReplicatedStorage, so
+they replicate to every client.** Players can read this test code. It holds no secrets and is inert
+outside Studio (`RunService:IsStudio()` plus a fresh token), so this is accepted for now.
 
-Before the first public release, add a publish step that strips them. That is logged in `TASKS.md`.
+Before the first public release, a publish step must strip them (TASKS.md, Task 2).
 
 ## Public repository: never commit secrets
 
