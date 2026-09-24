@@ -1,5 +1,6 @@
 {
   "name": "DrivenHunt",
+  "servePlaceIds": [136410205938347],
   "tree": {
     "$className": "DataModel",
     "ServerScriptService": {
@@ -9,19 +10,44 @@
       }
     },
     "ReplicatedStorage": {
-      "$path": "src/shared"
+      "$path": "src/shared",
+      "DevPackages": {
+        "$path": { "optional": "DevPackages" }
+      },
+      "TestKit": {
+        "$path": "tests/TestKit.luau"
+      },
+      "ClientTests": {
+        "$path": "tests/client"
+      },
+      "TestSyncToken": {
+        "$path": { "optional": "tests/sync-token.txt" }
+      }
+    },
+    "ReplicatedFirst": {
+      "$path": "src/replicatedfirst"
+    },
+    "StarterGui": {
+      "$path": "src/startergui"
+    },
+    "StarterPack": {
+      "$path": "src/starterpack"
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
-        "$path": "src/client"
+        "$path": "src/client",
+        "ClientTestRunner": {
+          "$path": "tests/ClientTestRunner.client.luau"
+        }
+      },
+      "StarterCharacterScripts": {
+        "$path": "src/startercharacter"
       }
     },
     "ServerStorage": {
-      "DevPackages": {
-        "$path": "DevPackages"
-      },
+      "$path": "src/serverstorage",
       "Tests": {
-        "$path": "tests/specs"
+        "$path": "tests/server"
       }
     }
   }

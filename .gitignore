@@ -27,3 +27,30 @@ desktop.ini
 
 # Python caches from tools/
 __pycache__/
+
+# Harness sync token (written by tools/studio_mcp.py, synced to ReplicatedStorage.TestSyncToken)
+/tests/sync-token.txt
+
+
+# Secrets: never commit (public repo, see CLAUDE.md "Public repository")
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+id_ed25519*
+*.keystore
+secrets/
+.secrets/
+*.secret
+*.secrets
+credentials*.json
+service-account*.json
+*.cookie
+.ROBLOSECURITY*
+.npmrc
+.pypirc
