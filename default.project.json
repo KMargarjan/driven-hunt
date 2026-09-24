@@ -45,6 +45,7 @@
       }
     },
     "ServerStorage": {
+      "$path": "src/serverstorage",
       "Tests": {
         "$path": "tests/server"
       }

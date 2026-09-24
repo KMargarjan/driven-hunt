@@ -29,7 +29,8 @@ jobs:
       - name: No binary models in synced paths (.rbxm/.rbxmx are banned)
         if: success() || failure()
         run: |
-          if rojo sourcemap default.project.json --include-non-scripts | grep -E -i '\.rbxmx?"'; then
+          set -o pipefail
+          if rojo sourcemap default.project.json --include-non-scripts | grep -o -E -i '"[^"]*\.rbxmx?"'; then
             echo "::error::.rbxm/.rbxmx files are banned in Rojo-synced paths (binary, unreviewable). Use .model.json."
             exit 1
           fi

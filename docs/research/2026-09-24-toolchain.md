@@ -67,7 +67,7 @@ Date: 2026-09-24 · Author: Builder · Task 1 (round 2 revision after Reviewer F
   `ServerStorage.TestReport` attribute. Tests run in the real Play server: the player's path (rule 6).
 - **Gate + provenance (invented; nothing found to borrow):** the harness writes
   `<16 hex>:<unix time>` to git-ignored `tests/sync-token.txt`. Rojo syncs it to
-  `ServerStorage.TestSyncToken` (optional path). The runner runs only if the token is under 120 s
+  `ServerStorage.TestSyncToken` *(superseded: `ReplicatedStorage.TestSyncToken` since round 4)* (optional path). The runner runs only if the token is under 120 s
   old. The harness then checks:
   - the token reached Studio (so Rojo is live)
   - every script from `rojo sourcemap` has a Studio Source byte-identical to disk *(superseded: every synced instance and file, round 3/4)*
@@ -159,3 +159,5 @@ only exists for the current play session.
 |---|---|---|
 | Round-4 cases caught | 8/8 | valid `.model.json` and `.meta.json` pass. Caught: `.rbxm` banned, typed property, `ignoreUnknownInstances`, failing client spec, script in Workspace, attribute changed in Studio |
 | Round-3 regression matrix | 12/12 | all still exit 1 after the restructure |
+| Dirty tree is flagged, not passed | exit 3 | Both positive cases ran on a dirty tree: `PASS ... (DIRTY TREE (14 paths) - NOT valid evidence)`, exit 3. The clean-tree run at 20e136b gave exit 0 |
+| Reviewer-agent findings (review loop) | 8/8 fixed | 2 blocking (ignored files, DevPackages not tied to the commit), 6 should-fix. See the TASKS.md review log |

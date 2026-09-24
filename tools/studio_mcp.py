@@ -12,6 +12,7 @@ Usage:
   python tools/studio_mcp.py state     # print Studio mode (read-only)
   python tools/studio_mcp.py console   # print Studio Output (read-only)
   python tools/studio_mcp.py stop      # stop a playtest (recovery)
+  python tools/studio_mcp.py manifest  # after `wally install`: rewrite devpackages.sha256 (commit it)
 
 Exit codes of `test`: 0 PASS on a clean tree · 1 FAIL · 2 REFUSED (Studio not in Edit mode) ·
 3 PASS on a dirty tree (flagged: not valid evidence).
@@ -39,15 +40,21 @@ What `test` checks, in order (each is one "ok"/"FAIL" line)
      ClassName, and has no same-named sibling. Every synced file is compared:
        *.luau / *.lua   script Source, byte-for-byte (line endings normalised)
        *.txt            StringValue.Value
-       *.model.json     ClassName, properties, attributes and children, recursively
+       *.model.json     ClassName, properties, attributes and children, recursively; a Script,
+                        LocalScript or ModuleScript inside one is refused (scripts are .luau files)
        *.meta.json      properties and attributes of the instance; "ignoreUnknownInstances" is refused
-       *.project.json   structure only (covered by the instance checks)
+       default.project.json  structure (instance checks); $properties/$attributes are refused
+       nested *.project.json refused, except third-party ones under DevPackages/
        *.rbxm / *.rbxmx BANNED: binary, unreviewable in a PR, cannot be compared
        anything else    "cannot compare" -> FAIL, never skipped
-     Properties/attributes are compared when their JSON value is a plain string/number/bool; a typed
+     Properties/attributes are compared when their JSON value is a plain string/number/bool (integers
+     exactly, other numbers to float32 precision); a typed
      value ({"Vector3": ...}) fails as "cannot compare" until a comparison is added.
+     No synced file may be git-ignored (it would be tested but could never make the tree dirty).
+     DevPackages/ (git-ignored TestEZ, which counts the passes) must match the committed
+     devpackages.sha256 (which also pins the wally.lock hash).
   5. No script (LuaSourceContainer) exists anywhere in the DataModel outside the sourcemap: nothing
-     script-like may be created in Studio.
+     script-like may be created in Studio. Every service must be readable by that scan.
   6. Every *.spec.* file in the repo (git ls-files: tracked + untracked, non-ignored) is synced into
      ServerStorage.Tests (server) or ReplicatedStorage.ClientTests (client).
   7. Play. Both reports arrive; each carries this run's token and the DEV PlaceId; each runner ran
@@ -69,6 +76,7 @@ Safety
 """
 
 import glob
+import hashlib
 import json
 import math
 import os
@@ -278,7 +286,7 @@ def expected_place_id():
     with open(PROJECT, encoding="utf-8") as f:
         ids = json.load(f).get("servePlaceIds") or []
     if len(ids) != 1:
-        sys.exit("default.project.json must list exactly one servePlaceIds entry")
+        raise RuntimeError("default.project.json must list exactly one servePlaceIds entry")
     return str(ids[0])
 
 
@@ -312,6 +320,67 @@ def synced_nodes():
     return nodes
 
 
+def project_refusals():
+    """$properties/$attributes in default.project.json are not compared, so they are refused."""
+    with open(PROJECT, encoding="utf-8") as f:
+        tree = json.load(f)["tree"]
+    problems = []
+
+    def walk(node, path):
+        for key in ("$properties", "$attributes"):
+            if key in node:
+                problems.append(f"{'.'.join(path) or 'DataModel'}: {key} in default.project.json is not compared "
+                                "(put it in a .meta.json instead)")
+        for name, child in node.items():
+            if not name.startswith("$") and isinstance(child, dict):
+                walk(child, path + [name])
+
+    walk(tree, [])
+    return problems
+
+
+def ignored_synced_files(nodes):
+    """Synced files that git ignores: they would be tested but can never make the tree dirty."""
+    files = sorted({f for _, _, fs in nodes for f in fs
+                    if f != "tests/sync-token.txt" and not f.startswith("DevPackages/")})
+    # NUL-separated bytes: text mode on Windows turns "\n" into "\r\n", which breaks name patterns like *.key
+    r = subprocess.run(["git", "check-ignore", "-z", "--stdin"], input="\0".join(files).encode("utf-8"),
+                       capture_output=True, cwd=REPO)
+    return [p for p in r.stdout.decode("utf-8").split("\0") if p]
+
+
+DEVPACKAGES_MANIFEST = os.path.join(REPO, "devpackages.sha256")
+
+
+def sha256(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def devpackages_manifest():
+    """Lines: 'wally.lock <sha>' then '<sha>  <path>' for every file under DevPackages/, sorted."""
+    lines = [f"wally.lock {sha256(os.path.join(REPO, 'wally.lock'))}"]
+    root = os.path.join(REPO, "DevPackages")
+    for dirpath, _, filenames in os.walk(root):
+        for fn in filenames:
+            full = os.path.join(dirpath, fn)
+            lines.append(f"{sha256(full)}  {os.path.relpath(full, REPO).replace(os.sep, '/')}")
+    return [lines[0]] + sorted(lines[1:])
+
+
+def devpackages_problems():
+    """DevPackages (TestEZ, which counts passes) is git-ignored; tie it to the commit via devpackages.sha256."""
+    if not os.path.exists(DEVPACKAGES_MANIFEST):
+        return ["devpackages.sha256 missing (run `python tools/studio_mcp.py manifest` after `wally install`)"]
+    with open(DEVPACKAGES_MANIFEST, encoding="utf-8") as f:
+        committed = [l for l in f.read().splitlines() if l.strip()]
+    current = devpackages_manifest()
+    if committed[:1] != current[:1]:
+        return ["wally.lock changed since devpackages.sha256 was written (run `wally install`, then `manifest`)"]
+    diff = sorted(set(committed) ^ set(current))
+    return [f"DevPackages differ from devpackages.sha256: {len(diff)} line(s), e.g. {diff[0][-80:]}"] if diff else []
+
+
 def read_disk(rel):
     with open(os.path.join(REPO, rel), encoding="utf-8", newline="") as f:
         return f.read().replace("\r\n", "\n")
@@ -330,7 +399,9 @@ def same_value(expected, got):
     if isinstance(expected, bool) or got["t"] == "boolean":
         return isinstance(expected, bool) and got["t"] == "boolean" and expected == got["v"]
     if isinstance(expected, (int, float)) and got["t"] == "number":
-        return math.isclose(expected, got["v"], rel_tol=1e-5, abs_tol=1e-5)  # float32 properties
+        if float(expected).is_integer() and float(got["v"]).is_integer():
+            return float(expected) == float(got["v"])  # attributes, IntValues, counts: exact
+        return math.isclose(expected, got["v"], rel_tol=1e-6, abs_tol=1e-12)  # float32 properties
     return isinstance(expected, str) and str(got["v"]) == expected
 
 
@@ -343,7 +414,10 @@ def expectations_for(path, files, problems):
         if low.endswith((".rbxm", ".rbxmx")):
             problems.append(f"{name}: {rel} is BANNED (binary model; use .model.json)")
         elif low.endswith(".project.json"):
-            pass
+            if rel.startswith("DevPackages/"):
+                pass  # third-party package project; DevPackages are checked against devpackages.sha256
+            elif rel != "default.project.json":
+                problems.append(f"{name}: nested project file {rel} is not supported (not compared)")
         elif low.endswith((".luau", ".lua")):
             requests.append((path, {"kind": "source", "file": rel}))
         elif low.endswith(".txt"):
@@ -360,6 +434,9 @@ def expectations_for(path, files, problems):
                 props = model.get("properties", model.get("Properties", {}))
                 attrs = model.get("attributes", model.get("Attributes", {}))
                 cls = model.get("className", model.get("ClassName"))
+                if cls in ("Script", "LocalScript", "ModuleScript"):
+                    problems.append(f"{'.'.join(mpath)}: {rel} defines a {cls}; scripts must be .luau files "
+                                    "(linted, formatted, reviewable), never Source inside .model.json")
                 requests.append((mpath, {"kind": "props", "file": rel, "className": cls,
                                          "props": props, "attrs": attrs}))
                 for child in model.get("children", model.get("Children", [])):
@@ -388,6 +465,8 @@ def compare_synced(studio, nodes):
     for i in range(0, len(wanted), 8):
         remote += json.loads(studio.query("Edit", QUERY_NODES % luau_json(wanted[i:i + 8])))
 
+    if len(remote) != len(requests):
+        raise RuntimeError(f"Studio answered {len(remote)} of {len(requests)} node queries")
     for (path, spec), got in zip(requests, remote):
         name = ".".join(path)
         if got.get("missing"):
@@ -507,10 +586,17 @@ def run_test(studio):
         check(f"All {len(nodes)} synced instances and {n_files} files match disk", not problems,
               "; ".join(problems[:5]) + (f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""))
 
+        problems = project_refusals()
+        check("default.project.json has no uncompared $properties/$attributes", not problems, "; ".join(problems))
+        ignored = ignored_synced_files(nodes)
+        check("No synced file is git-ignored (all tested code is in the commit or shows as dirty)", not ignored,
+              ", ".join(ignored[:8]))
+        problems = devpackages_problems()
+        check("DevPackages (TestEZ) match the committed devpackages.sha256", not problems, "; ".join(problems))
+
         extra, unreadable = unmanaged_scripts(studio, nodes)
         check("No script exists outside Rojo-managed paths", not extra, ", ".join(extra[:8]))
-        if unreadable:
-            print(f"[harness] note: services not readable by the query: {', '.join(unreadable)}")
+        check("Every service was readable by the script scan", not unreadable, ", ".join(unreadable))
 
         spec_files = spec_files_in_repo()
         file_to_path = {f: tuple(p) for p, _, files in nodes for f in files}
@@ -568,8 +654,13 @@ def run_test(studio):
 
 
 def main(argv):
-    if len(argv) != 2 or argv[1] not in ("test", "state", "console", "stop"):
+    if len(argv) != 2 or argv[1] not in ("test", "state", "console", "stop", "manifest"):
         sys.exit(__doc__)
+    if argv[1] == "manifest":
+        with open(DEVPACKAGES_MANIFEST, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(devpackages_manifest()) + "\n")
+        print(f"wrote {DEVPACKAGES_MANIFEST}")
+        return 0
     studio = Studio()
     try:
         cmd = argv[1]
@@ -577,7 +668,11 @@ def main(argv):
             try:
                 return run_test(studio)
             except Exception as e:  # a harness fault is a FAIL, never a silent traceback (rule 6)
-                print(f"[harness] FAIL: harness error: {type(e).__name__}: {e}")
+                try:
+                    sha = git_state()[0]
+                except Exception:
+                    sha = "<unknown sha>"
+                print(f"[harness] FAIL: harness error @ {sha}: {type(e).__name__}: {e}")
                 return 1
         if cmd == "state":
             print(studio.mode())

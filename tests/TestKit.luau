@@ -26,7 +26,7 @@ function TestKit.openToken(): string?
 end
 
 -- Runs every *.spec ModuleScript under specsFolder and returns the report table.
--- side is "server" or "client"; it is echoed in the report and the [tests] line.
+-- side is "server" or "client"; it is echoed in the report and the [tests:<side>] line.
 function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	local report = {
 		side = side,

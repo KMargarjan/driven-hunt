@@ -64,9 +64,11 @@ Paste this, filled in, at the end of every task report. Each box is checked, or 
 
 ## Layout
 
-Every container that can hold a script is Rojo-owned and fed from disk. **Nothing script-like
-(Script, LocalScript, ModuleScript) is ever created in Studio.** The harness fails if a script exists
-anywhere Rojo does not manage, including Workspace, ServerStorage and Lighting.
+Every container **where game scripts belong** is Rojo-owned and fed from disk: the table below,
+including all of ServerStorage. Workspace, Lighting and the other services are **not** mapped. They
+hold Studio-edited, non-script content, and scripts there are **forbidden**, not mapped.
+**Nothing script-like (Script, LocalScript, ModuleScript) is ever created in Studio.** The harness
+fails if a script exists anywhere Rojo does not manage.
 
 | Disk | Studio | Notes |
 |---|---|---|
@@ -74,9 +76,10 @@ anywhere Rojo does not manage, including Workspace, ServerStorage and Lighting.
 | `src/shared/` | `ReplicatedStorage` | Rojo-owned. Modules shared by server and client |
 | `src/client/` | `StarterPlayer.StarterPlayerScripts` | Rojo-owned |
 | `src/startercharacter/` | `StarterPlayer.StarterCharacterScripts` | Rojo-owned |
-| `src/startergui/` | `StarterGui` | Rojo-owned. ScreenGuis as `.model.json` plus their LocalScripts |
-| `src/starterpack/` | `StarterPack` | Rojo-owned. Tools as folders (`init.meta.json` or `.model.json` plus scripts) |
+| `src/startergui/` | `StarterGui` | Rojo-owned. A ScreenGui is a folder with `init.meta.json` (`"className": "ScreenGui"`) holding `.model.json` UI and `.client.luau` scripts |
+| `src/starterpack/` | `StarterPack` | Rojo-owned. A Tool is a folder with `init.meta.json` (`"className": "Tool"`) holding its parts (`.model.json`) and scripts (`.luau`) |
 | `src/replicatedfirst/` | `ReplicatedFirst` | Rojo-owned |
+| `src/serverstorage/` | `ServerStorage` | Rojo-owned. Server-only templates (for example animal models with AI scripts), never replicated to clients |
 | `tests/server/` | `ServerStorage.Tests` | Server TestEZ specs, `*.spec.luau` |
 | `tests/client/` | `ReplicatedStorage.ClientTests` | Client TestEZ specs (run in the player's client) |
 | `tests/TestKit.luau` | `ReplicatedStorage.TestKit` | The one test gate and runner implementation |
@@ -98,8 +101,10 @@ with the place. They must contain no scripts.
 |---|---|---|
 | `Name.server.luau` / `Name.client.luau` / `Name.luau` | Script / LocalScript / ModuleScript | Source |
 | folder with `init.luau` (or `init.server.luau` / `init.client.luau`) | that script, with children | Source |
-| `Name.model.json` | any instance tree (RemoteEvent, ScreenGui, Tool…) | ClassName, properties, attributes, children |
-| `Name.meta.json` / `init.meta.json` | properties and attributes of a script or folder | properties, attributes |
+| `Name.model.json` | any non-script instance tree (RemoteEvent, Frame, Part…). **No Script/LocalScript/ModuleScript inside**: refused, because scripts must be linted `.luau` files | ClassName, properties, attributes, children |
+| `Name.meta.json` | properties and attributes of the script `Name.*.luau` | properties, attributes |
+| `init.meta.json` | properties, attributes and `className` of the folder it sits in | properties, attributes |
+| nested `*.project.json`, `$properties`/`$attributes` in `default.project.json` | refused (not compared). Use `.meta.json` | none |
 | `Name.txt` | StringValue | Value |
 | **`.rbxm` / `.rbxmx`** | **BANNED** | binary, unreviewable in a PR. CI and the harness both fail on it |
 
@@ -113,8 +118,9 @@ instances survive.
 Every project node with a `$path` defaults to `$ignoreUnknownInstances: false`: "whether instances
 that Rojo doesn't know about should be deleted" ([Rojo project format](https://rojo.space/docs/v7/project-format/)).
 Every container in the Layout table above is therefore **disk-only**. Anything created in Studio inside
-one of them that has no file on disk is **deleted, not overwritten**, and not moved anywhere.
-`ServerStorage` itself has no `$path`, so its non-Rojo children are left alone.
+one of them that has no file on disk is **deleted, not overwritten**, and not moved anywhere. That
+includes ServerStorage (fully mapped since Task 5): a model built there in Studio is deleted at the
+next Connect unless it is exported to `src/serverstorage/` as `.model.json`.
 
 **When it happens** (tested 2026-09-24 with a probe Folder in each of three services, Rojo 7.7.0):
 
@@ -127,15 +133,16 @@ one of them that has no file on disk is **deleted, not overwritten**, and not mo
 So a Studio-made instance can seem safe for a whole session and then vanish at the next Connect.
 To keep a Studio-built object, export it as `.model.json` under `src/` (never `.rbxm`).
 
-**Instances outside the Rojo-owned containers are not cleaned up.** When a mapping moves (for
-example DevPackages moved from ServerStorage to ReplicatedStorage on 2026-09-24), the old copy stays
-behind as an orphan. The harness's "no script outside Rojo-managed paths" check caught exactly that.
+**Instances outside the Rojo-owned containers are not cleaned up.** When a mapping moves out of a
+container Rojo does not own, the old copy stays behind as an orphan. For example, on 2026-09-24
+DevPackages moved from ServerStorage to ReplicatedStorage, before ServerStorage was mapped. The harness's "no script outside Rojo-managed paths" check caught exactly that.
 The 16 orphan TestEZ scripts were verified identical to disk, then removed (TASKS.md, Task 5).
 
 **DEV place checks.** Before the first Connect (2026-09-24 ~18:36 local), all of ServerScriptService,
 ReplicatedStorage, StarterPlayerScripts and ServerStorage were empty. Before mapping them
 (2026-09-24 ~19:30), StarterGui, StarterPack, StarterCharacterScripts and ReplicatedFirst were empty,
 and no script existed anywhere outside Rojo paths. Karen confirmed she added nothing to them.
+Before mapping all of ServerStorage (2026-09-24 ~20:00), its only child was the Rojo-owned `Tests`.
 
 ## Toolchain: what is pinned and what is not
 
