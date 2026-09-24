@@ -1,8 +1,6 @@
-1. `tools/studio_mcp.py:398` + `:504` — typed property values ("cannot compare") make any positioned `.model.json` part fail the harness, so the grey-box core loop (boar, shotgun Tool, drive line) has no legal way to put geometry on disk.
-2. `tools/studio_mcp.py:174` + `:519` — the unmanaged-instance scan covers only `LuaSourceContainer`, so a Studio-created non-script instance in a Rojo-owned container passes the harness and is deleted at the next Connect.
-3. `tools/agents.py:1` — the four-agent script, now the gate on everything reaching Karen, has no research note and no external sources (rules 1, 2, 9); `docs/research/INDEX.md:7` lists only the toolchain note.
-4. `tools/agents.py:259` — audit mode tells the Architect to read earlier audits, but `docs/architecture/` is absent at this commit and `tools/agents.py:266` precomputes no prior audit or git log, so `TASKS.md:14`'s open items L2/L4/L6–L9 exist in no reachable file.
-5. `ARCH_RESULT.md:1` — a Builder-written `NONE` in a file whose own line 4 says only `tools/architect.sh` writes it; no check ties either verdict file to the commit being merged, and `tools/agents.py:248` lets a dirty-tree audit write an unqualified verdict.
+1. Scope/Director: `TASKS.md:12` marks Task 6 (harness-driven input) **BLOCKING before any input-driven client code**, and every shotgun trigger is client input — either land Task 6 first (smallest unblock in §11.1) or waive it in writing for the three shotgun actions.
+2. Scope/Director: `ROADMAP.md:55` puts "first-person aim" in task 1.4, but the camera has no owner (`GAME_DESIGN.md:24`) — confirm the split in §3.3 (this task ships hipfire on the default camera, ADS and viewmodel move to a camera task), or run `tools/architect.sh design camera` before the shotgun is built.
+3. Scope/Director: the boar work is unreachable from this branch — `docs/research/2026-09-24-shotgun.md:7` and `:179` cite `docs/research/2026-09-24-boar-ai.md` and "Task 18", neither of which exists here (`.agent-evidence/ls-files.txt:27-29`, `TASKS.md:5-22` stops at 16) — so I cannot guarantee one writer for the damage entry point in §6.3 until that design is visible to the Architect.
 
 ---
-ARCHITECT verdict on commit `24fd22a78d69be95484b3e4b0368c5734fd9af3f` (audit -> docs\architecture\audit-002.md) · 2026-09-24 18:47 UTC · session cost $2.53, 50 turns · written by tools/agents.py
+ARCHITECT verdict on commit `003dc0a1e0b3e24c07edea8053374e6bc2211fcb` (design shotgun -> docs\design\shotgun.md) · 2026-09-24 21:05 UTC · session cost $2.07, 29 turns · written by tools/agents.py
