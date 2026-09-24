@@ -1,8 +1,10 @@
 # CLAUDE.md: Driven Hunt
 
+Read docs/PROJECT_CONTEXT.md before your first task in a session.
+
 Roblox game. Code lives on disk and is synced into Studio by Rojo. Place: **Driven Hunt DEV**
 (PlaceId 136410205938347, enforced by `servePlaceIds` in `default.project.json`).
-Roles: **Builder** implements, **Reviewer** signs off, **Karen** owns the game and playtests.
+Five roles: Director, Builder, Architect, Reviewer, Karen. See **Four-agent workflow** below.
 
 ## Rules
 
@@ -16,15 +18,91 @@ Roles: **Builder** implements, **Reviewer** signs off, **Karen** owns the game a
 
    Add it to `docs/research/INDEX.md`. Only then write code.
 2. **BORROW BEFORE BUILDING.** Inventing something needs a written reason, kept in the research note.
-3. **ONE OWNER PER SYSTEM.** Anything drawn, the camera, input, state: exactly one writer, named in
-   the *System owners* table in `GAME_DESIGN.md`.
+3. **ONE OWNER PER SYSTEM.** Anything drawn, the camera, input, state: exactly one writer. The
+   Architect decides the owner in `docs/design/<system>.md`. The *System owners* table in
+   `GAME_DESIGN.md` mirrors those designs.
 4. **ONE TASK PER ROUND.** Small and testable, then stop. Tasks live in `TASKS.md`.
 5. **VISUAL CHANGES NEED A SCREENSHOT** that you inspected yourself.
 6. **TEST THE PLAYER'S PATH, not the harness.** Harness faults are bugs: report them.
 7. **NEVER DELETE.** Archive with a note (see `backups/README.md`).
 8. **REPORT HONESTLY** what you could not verify and what you got wrong.
 9. **CODE COMMENTS** carry the pattern name, source links and the research note file.
-10. **Nothing reaches Karen until the Reviewer has signed it off.**
+10. **Nothing reaches Karen until the Reviewer has signed it off**: `REVIEW_RESULT.md` line 1 is
+    `PASS` for the commit in the report.
+
+## Four-agent workflow
+
+### Roles
+
+| Role | Owns | Writes | Never |
+|---|---|---|---|
+| **DIRECTOR** | the roadmap; dispatches tasks | `ROADMAP.md`, `TASKS.md`, `PLAN_NOTES.md` | writes code |
+| **BUILDER** (Claude, this file's reader) | implementation | the only writer of code in `src/`, `tests/`, `tools/`. Also `REVIEW_REQUEST.md`, `ESCALATE.md`, research notes, `CLAUDE.md`, and the status of its current task in `TASKS.md` | writes designs or verdicts |
+| **ARCHITECT** (`tools/architect.sh`) | structure, system owners, interfaces | `docs/design/`, `docs/architecture/`, `ARCH_RESULT.md` (through the script) | touches code (read-only) |
+| **REVIEWER** (`tools/review.sh`) | verifying claims | `REVIEW_RESULT.md` (through the script) | touches code (read-only) |
+| **KAREN** | the game | plays it, decides anything about feel or design, merges PRs, `PLAYTEST.md` feedback | |
+
+The Director may be Karen or a Director agent. The Builder accepts tasks from either, in exactly the
+same way, and addresses reports to the Director. A report says plainly when something needs Karen's
+judgement or a playtest.
+
+### Files the roles talk through
+
+| File | Written by | Purpose |
+|---|---|---|
+| `TASKS.md` | Director (queue, priority); Builder (its current task's status, and non-must-fix audit items under the task) | the queue and status, one task at a time |
+| `docs/design/<system>.md` | Architect | the design, written **before** a new system is built |
+| `REVIEW_REQUEST.md` | Builder | what changed, commit and base, numbered claims, how to verify each, what could not be verified, `Round: N` |
+| `REVIEW_RESULT.md` | Reviewer | `PASS` on line 1, or a numbered list of findings |
+| `ARCH_RESULT.md` | Architect | `PASS`, or a numbered list (design: blocking open decisions; audit: must-fix items) |
+| `ESCALATE.md` | anyone | for the Director and Karen: a disagreement, a 3rd failed round, a decision needed |
+| `PLAYTEST.md` | Builder, transcribing Karen | Karen's feedback after playing |
+
+### The loop, for every task (no questions to Karen)
+
+1. Read `TASKS.md` and the task you were given.
+2. **New system?** Run `tools/architect.sh design <system>` and build to that design. If you disagree
+   with the design, write `ESCALATE.md` and stop.
+3. Build. One task, nothing extra. Commit.
+4. Write `REVIEW_REQUEST.md` (increment `Round:`), and commit it.
+5. Run `tools/review.sh`. On findings, fix and go back to 4. On `PASS`, commit `REVIEW_RESULT.md` and
+   continue.
+6. Run `tools/architect.sh audit` **once per task** (not once per round). If `ARCH_RESULT.md` lists
+   must-fix items, fix them and go back to 4. Everything else goes into `TASKS.md`.
+7. Report to the Director: the definition-of-done checklist, the commit and PR link, and how many
+   review rounds it took.
+
+**Stop rules.** Write `ESCALATE.md` and stop when:
+- the same item fails 3 rounds (`tools/review.sh` refuses `Round: 4`)
+- you believe a Reviewer or Architect finding is factually wrong (write the evidence)
+- a design, feel or taste decision is needed
+
+### The agent scripts
+
+- `tools/review.sh` and `tools/review.ps1` spawn the Reviewer.
+- `tools/architect.sh design <system>`, `tools/architect.sh audit` and their `.ps1` twins spawn the
+  Architect.
+- The wrappers are thin. `tools/agents.py` holds the logic, and its docstring describes it.
+- On this PC, run the PowerShell versions as `powershell -ExecutionPolicy Bypass -File tools/review.ps1`,
+  because the local execution policy blocks unsigned scripts.
+
+Each call spawns a fresh headless `claude -p` session. It is read-only by construction:
+- exactly the Read, Grep and Glob tools
+- a throwaway git worktree of the commit under review
+- precomputed evidence in `.agent-evidence/`
+- the script writes the result files, not the agent
+- nothing is written if the repo changed during the run
+
+The prompts are `docs/REVIEWER_PROMPT.md` and `docs/ARCHITECT_PROMPT.md`. `tools/review.sh` requires a
+clean, committed tree. Raw session output goes to `.agent-logs/` (git-ignored).
+
+### Costs
+
+**Every script call is a separate paid Claude session**: typically several minutes and several
+dollars. The script prints each session's cost into the result file's trailer.
+- Run `tools/architect.sh audit` once per task, after the review passes, never once per round.
+- Run `design` only for a new system.
+- Batch everything for a round into one `REVIEW_REQUEST.md`. A round is one review call.
 
 ## Git workflow: branch + pull request, never push to main
 
@@ -58,7 +136,9 @@ Paste this, filled in, at the end of every task report. Each box is checked, or 
 - [ ] CI green on the PR (link to the run)
 - [ ] Screenshot inspected (rule 5), or N/A: <reason>
 - [ ] Docs updated: TASKS.md, GAME_DESIGN.md owners, research note/INDEX, PLAYTEST.md, CLAUDE.md as needed
-- [ ] Reviewer signed off (by whom / where), or "pending"
+- [ ] Reviewer: REVIEW_RESULT.md line 1 = PASS for <sha>. Review rounds: N
+- [ ] Architect audit: ARCH_RESULT.md = PASS (or must-fix fixed); other items in TASKS.md
+- [ ] Needs Karen: <playtest / feel / design decision>, or "nothing"
 - [ ] Commit + PR link
 ```
 

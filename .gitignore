@@ -54,3 +54,6 @@ service-account*.json
 .ROBLOSECURITY*
 .npmrc
 .pypirc
+
+# Raw agent session output (tools/agents.py)
+/.agent-logs/
