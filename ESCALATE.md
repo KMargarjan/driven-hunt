@@ -36,8 +36,13 @@ and nothing was merged.
 
 **What is and is not verified.**
 - Verified: the harness passes 24/24 on a clean tree at every code commit
-  (`6378a07`, `9fe442c`, `b32ac5f`); lint, format and `rojo build` are clean; the round-count logic
-  was exercised by hand across six states (see `REVIEW_REQUEST.md` claim 25).
+  (`6378a07`, `9fe442c`, `b32ac5f`, and the final `be9d045`:
+  `[harness] PASS: 24/24 checks @ be9d0453ac84a48b5f8c759901e95d239c0c34b6 (clean tree)`); lint,
+  format and `rojo build` are clean; the round-count logic was exercised by hand across six states
+  (see `REVIEW_REQUEST.md` claim 25).
+- `be9d045` is after round 3's review. It adds `ESCALATE.md` to the merge gate's paperwork list in
+  `CLAUDE.md` git-workflow step 4, which had omitted it — so this PR would have failed the gate it
+  introduces. One line, unreviewed, and listed here because it is.
 - Not verified: **there is no Reviewer `PASS` for this branch.** The last verdict is round 3 with two
   findings, and the fix for them is unreviewed.
 
