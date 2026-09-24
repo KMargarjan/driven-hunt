@@ -10,10 +10,10 @@ Updated 2026-09-24.
 | Step | What | State |
 |---|---|---|
 | 0.1 | Task 1: setup (PR #1, `task-1-review-fixes`) | Reviewer re-review pending, then Karen merges |
-| 0.2 | Audit-001 on its own (PR #2, `audit-001`) | Karen merges (docs only) |
-| 0.3 | Task 5: audit-001 must-fix M1–M4 (stacked on PR #1) | Built (`20e136b`), review pending |
-| 0.4 | Automate the agent loop: `tools/review.ps1`, `tools/architect.ps1`, stop files `ESCALATE.md` / `NEEDS_KAREN.md`. Director dispatches the Builder headless | Next; its proof run reviews Task 5 |
-| 0.5 | `docs/PROJECT_CONTEXT.md`: shared context every agent reads | After 0.4 |
+| 0.2 | Audit-001 on its own (PR #2, `audit-001`) | Reviewer pending, then Karen merges (docs only) |
+| 0.3 | Task 5: audit-001 must-fix M1–M4 (PR #3, stacked on PR #1) | Built (`20e136b`), review pending |
+| 0.4 | Task 9: four-agent workflow (`tools/review.*`, `tools/architect.*`, agent prompts, `docs/PROJECT_CONTEXT.md`, roles in CLAUDE.md), stacked on PR #3 | Builder working (`task-9-agent-workflow`) |
+| 0.5 | Director dispatches the Builder headless (`claude -p`); add a `NEEDS_KAREN.md` stop file for human actions (Rojo Connect) | After 0.4 merges |
 
 ## Milestone 1: is it fun? (grey boxes, no art)
 
