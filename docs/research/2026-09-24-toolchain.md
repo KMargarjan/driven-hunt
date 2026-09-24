@@ -88,7 +88,7 @@ Date: 2026-09-24 · Author: Builder · Task 1 (round 2 revision after Reviewer F
 | Failing spec makes the run exit non-zero | 100% | A deliberate `expect(1).to.equal(2)` gave `[tests] FAIL: 2 passed, 1 failed` and exit 1. Removing it gave PASS and exit 0: pass |
 | Back-to-back runs give the correct result | 3/3 | 3/3 after the fix below: pass |
 | Negative cases caught (round 2) | 6/6 | All caught: failing assertion (FAIL, exit 1); syntax-error spec (`[tests] ERROR`, exit 1); spec throws on load (`ERROR`, exit 1); Studio in Play (REFUSED, exit 2); normal playtest (no tests ran); stale token (no tests ran) |
-| CI fails on lint or format error | 100% | Measured on PR, see TASKS.md / PR |
+| CI fails on build, lint or format error | 100% | Build: the missing `build/` dir failed [run 36031124887](https://github.com/KMargarjan/driven-hunt/actions/runs/36031124887). Lint + format: probe commit 202e09e failed both steps in [run 36031342566](https://github.com/KMargarjan/driven-hunt/actions/runs/36031342566). The revert went green: pass |
 | Tests executing in live games | 0 | Guarded by `RunService:IsStudio()` (not verified in a live server) |
 
 ## Harness bug found and fixed (rule 6)
