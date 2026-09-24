@@ -317,7 +317,10 @@ def cmd_review():
     def go():
         with Worktree() as wt:
             build_evidence(wt, base, code)
-            task = (f"Review commit `{head}` (round {rnd} of max {MAX_ROUNDS}) against base `{base}`.\n"
+            # The effective cap, not MAX_ROUNDS: the agent must be told the cap in force, which the
+            # Director's DIRECTOR_MAX_ROUNDS may have raised (review round 4, finding 3).
+            raised = "" if cap == MAX_ROUNDS else f" (default {MAX_ROUNDS}, raised by the Director)"
+            task = (f"Review commit `{head}` (round {rnd} of max {cap}{raised}) against base `{base}`.\n"
                     "Read `REVIEW_REQUEST.md`, then `.agent-evidence/INDEX.md`.")
             return run_agent("reviewer", "docs/REVIEWER_PROMPT.md", task, wt)
 

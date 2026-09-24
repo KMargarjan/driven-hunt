@@ -124,7 +124,8 @@ findings; claims 24–25 the two round-2 findings; claims 26–31 the round-4 ch
     section lists Tasks 11–16, and its standing decision (a must-fix item outside the current task's
     change becomes its own task) is the answer to the conflict the entry raised.
 16. **`TASKS.md` carries Tasks 11–16 in the Director's order, and Task 10 is `done`.** How to
-    verify: the `TASKS.md` table rows 10–16. Row 16 is marked **blocked** on Karen's map decision.
+    verify: the `TASKS.md` table rows 10–16. Row 16 is **unblocked and not next** since `8d0d06b`
+    (Karen chose map option C); claim 30 covers rows 11–16 as they now stand.
 17. **The change adds no Luau code and no script outside Rojo-managed paths.** How to verify:
     `.agent-evidence/changed-files.txt` — no file under `src/` or `tests/` changes; the only new
     executables are `tools/*.sh`, `tools/*.ps1` and `tools/agents.py`, which `default.project.json`
@@ -158,10 +159,13 @@ Fixed in `9fe442c`. The finding numbers are round 1's.
     tree is safe because `tools/agents.py:278-280` has already refused a dirty tree. Round 2's two
     findings hardened this further: see claims 24 and 25.
     **This run is the live proof:** the committed `REVIEW_RESULT.md` is round 3 with findings
-    (the trailer on commit `c36b22e` says round 3), so `previous_review()` returns
-    `(3, FINDINGS)`, `expected` is 4, and `MAX_ROUNDS` refuses it. That is why this change is
-    escalated rather than reviewed a fourth time — see `ESCALATE.md`. Rounds 2 and 3 were each
-    accepted only because the committed verdict named the round before it.
+    (the trailer on commit `c36b22e` says round 3), so `previous_review()` returns `(3, FINDINGS)`
+    and `expected` is 4. `expected` is checked against `cap = max_rounds()`
+    (`tools/agents.py:311-313`), not against `MAX_ROUNDS`, and this run was accepted because the
+    Director's `DIRECTOR_MAX_ROUNDS=4` raised that cap — see claim 26. Under the default cap of 3 it
+    would have been refused, which is what produced the escalation whose answer authorised this
+    round. Rounds 2 and 3 were each accepted only because the committed verdict named the round
+    before them.
     `CLAUDE.md` loop step 5 now tells the Builder to commit `REVIEW_RESULT.md` on findings too,
     which the round count depends on.
 20. **Finding 3 — more than one task in the round, with no record of the Director's instruction.**
@@ -255,8 +259,11 @@ authorised one extra round and made three decisions, which `8d0d06b` implements.
     `CLAUDE.md` loop step 6, rewritten so that an item is must-fix only if it blocks the next game
     task and the audit names it (`ROADMAP.md` speed rules 2 and 3), and the "Costs" bullet, which no
     longer says "once per task". `TASKS.md` row 11 records that the step-6 audit is skipped by
-    Director decision. **No `tools/architect.sh audit` was run for Task 11**, and `ARCH_RESULT.md` is
-    untouched on this branch.
+    Director decision. **No `tools/architect.sh audit` was run for Task 11.** `ARCH_RESULT.md` has
+    not changed since Task 9's commit `2958ab5`, which created it with the Builder-written `NONE`
+    placeholder (`.agent-evidence/changed-files.txt` shows it as added against the base, because the
+    base is `main`, where the file does not exist). That placeholder is audit-002 must-fix #5,
+    Task 12, "before release".
 30. **`TASKS.md` matches the Director's queue decisions.** How to verify: rows 12-15 are
     **before release** ("Not next", `ROADMAP.md` speed rule 1: tooling is frozen after Task 11);
     row 16 is "unblocked, not next" and records that Karen chose **map option C** - the map is built
@@ -264,6 +271,13 @@ authorised one extra round and made three decisions, which `8d0d06b` implements.
     (`ROADMAP.md` Milestone 2, and the v1 scope row "One small map ... built by a map generator
     through MCP"), so the harness must compare typed values on those templates, and an Architect
     design comes first. Row 11 is "awaiting review (round 4)".
+31a. **The Reviewer is told the cap actually in force.** Round 4's finding 3: the task text said
+    "round 4 of max 3" because it used `MAX_ROUNDS` while the check used `cap = max_rounds()`. Fixed:
+    `cmd_review`'s `go()` now builds the text from `cap`, and says "(default 3, raised by the
+    Director)" when the two differ (`tools/agents.py:317-324`). The `DIRECTOR_MAX_ROUNDS` notice at
+    `tools/agents.py:75-76` goes only to stdout and `.agent-logs/`, which the agent never sees, so
+    the task text was the only place it could learn the cap. **This claim is unreviewed** — see
+    `ESCALATE.md`.
 31. **`main` is merged in, so the branch has `ROADMAP.md`.** How to verify: `bc1f27b` is a merge
     commit of `origin/main` (PR #7) and adds only `ROADMAP.md`; `.agent-evidence/log.txt`. No rebase,
     no force push.

@@ -11,6 +11,56 @@ Newest first. The Director or Karen answers under each entry, and the entry is c
 
 ---
 
+## 2026-09-24 · OPEN · Task 11 round 4 (authorised) returned 5 findings
+
+**Raised by:** Builder, at loop step 5 of Task 11 (branch `task-9-agent-workflow`, PR #4). The
+Director's answer to the previous entry says: if round 4 fails, fix it, write an entry and stop. Do
+not ask for round 5. That is what this is.
+
+**Result.** Round 4 ran with `DIRECTOR_MAX_ROUNDS=4` (the notice is in the run log and in
+`.agent-logs/`), reviewed `d624930`, and returned **5 findings**. All five are fixed in the commit
+that carries this entry. **None of them is unreviewed policy or design; four are stale text.**
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Claim 19's "live proof" still described round 3's outcome ("`MAX_ROUNDS` refuses it ... escalated rather than reviewed a fourth time") while this *was* the fourth review | Rewritten: `expected` is 4, checked against `cap = max_rounds()`, and the run was accepted because `DIRECTOR_MAX_ROUNDS=4` raised the cap |
+| 2 | Claim 16 still said `TASKS.md` row 16 is "blocked on Karen's map decision"; `8d0d06b` had unblocked it and claim 30 said so | Claim 16 corrected to "unblocked and not next" |
+| 3 | **A real bug in `8d0d06b`.** `cmd_review` checked `cap = max_rounds()` but told the agent "round 4 of max `MAX_ROUNDS`" — so this session was told "round 4 of max 3". The `DIRECTOR_MAX_ROUNDS` notice goes only to stdout, which the agent never sees | `go()` now builds the task text from `cap`, and says "(default 3, raised by the Director)" when they differ (`tools/agents.py:317-324`) |
+| 4 | `ESCALATE.md:28` still pointed at `tools/agents.py:28-31` and `CLAUDE.md:87-88`; `8d0d06b` moved both, and updated the identical references in `REVIEW_REQUEST.md` but not here | Updated to `tools/agents.py:31-34` and `CLAUDE.md:90-91` |
+| 5 | Claim 29 said `ARCH_RESULT.md` is "untouched on this branch"; the evidence shows Task 9's `2958ab5` created it with the Builder-written `NONE` placeholder | Reworded to what is checkable: no audit ran for Task 11, and the file has not changed since `2958ab5` |
+
+**What is now unreviewed.** The fixes above, and only them. Four are text in `REVIEW_REQUEST.md` and
+`ESCALATE.md`. One is five lines of `tools/agents.py` (finding 3), added as claim 31a in
+`REVIEW_REQUEST.md` and marked there as unreviewed.
+
+**My own record, honestly.** Four of the five findings are the same class of mistake I made in
+round 3: I edited some copies of a cross-reference or a claim and missed others. Rounds 3 and 4 have
+now both been spent almost entirely on that. The mechanical cause is that `REVIEW_REQUEST.md`
+accumulates claims across rounds, each carrying line numbers that every later commit invalidates.
+
+**Options for the Director.**
+1. **Merge on the record.** Rounds 1–4 found 15 items; all 15 are fixed. The only unreviewed code is
+   finding 3's five lines, which make the Reviewer's own prompt honest and cannot affect the game.
+   This breaks rule 10, so it needs a written Director decision.
+2. **One more authorised round** (`DIRECTOR_MAX_ROUNDS=5`). Your answer to the last entry says not to
+   ask for this, so I am not asking; I list it only because it is the option that ends with a real
+   `PASS`. Cost: about $1.50–$2.00.
+3. **Drop the accumulated claims.** Rewrite `REVIEW_REQUEST.md` for the final commit only — no
+   round-by-round history, no line numbers that a later commit can invalidate — and review that.
+   This removes the cause of rounds 3 and 4 but is still a review round.
+
+**Builder's recommendation: option 1.** The residual risk is five lines that only change what the
+Reviewer is told about its own round cap. Option 3 is the right shape for future tasks: if you want
+it as a standing rule, `REVIEW_REQUEST.md` should describe the final state and cite symbols, not line
+numbers. That is a `CLAUDE.md` change and tooling is frozen, so it is yours to decide, not mine.
+
+**Also for the record:** `tools/architect.sh audit` was **not** run for Task 11, per your decision.
+Nothing on this branch has been seen by the Architect.
+
+**Needs:** a Director decision. Nothing here needs Karen.
+
+---
+
 ## 2026-09-24 · CLOSED 2026-09-24 · Task 11 reached round 3; the script refuses a fourth
 
 **Raised by:** Builder, at loop step 5 of Task 11 (branch `task-9-agent-workflow`, PR #4).
@@ -25,7 +75,7 @@ things, and every finding was fixed.
 | 3 | `c36b22e` | 2 findings | both stale sentences in `REVIEW_REQUEST.md` claim 19, which I failed to update when I updated claims 24–25: it still said "the committed `REVIEW_RESULT.md` is round 1" and "which only this script writes". **No finding against the code.** |
 
 All ten findings are fixed and committed. The round-3 two are fixed in the commit that carries this
-entry; claim 19 now matches `tools/agents.py:28-31` and `CLAUDE.md:87-88`.
+entry; claim 19 now matches `tools/agents.py:31-34` and `CLAUDE.md:90-91`.
 
 **Why I stopped.** `tools/review.sh` refuses `Round: 4` (`MAX_ROUNDS = 3`, `tools/agents.py:52`), and
 the round is now counted from the committed `REVIEW_RESULT.md` trailer, so I cannot reset it — that is
