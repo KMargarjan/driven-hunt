@@ -22,6 +22,55 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 | 16 | audit-002 #1: typed property values (Vector3, CFrame, Color3…) in the harness | unblocked, not next | **Blocker resolved: Karen chose map option C** — the map is built by a map generator in code, run in Edit mode through Studio MCP, with templates on disk (`ROADMAP.md`, Milestone 2). So the harness must compare typed values on the templates. Needs an Architect design first. Not next: it lands with the map generator, before any positioned geometry |
 | 19 | **ROADMAP 1.4, docs only:** shotgun research note and Architect design — viewmodel, third-to-first-person aim, hit detection, break action, the numbers | awaiting review | Branch `task-19-shotgun-design`, from `main`. **No game code.** `docs/research/2026-09-24-shotgun.md` (9 sources) and `docs/design/shotgun.md`. **`ARCH_RESULT.md` = 3 blocking open decisions, all Director scope calls** (waive Task 6 for three inputs or land it first; whether ADS + viewmodel stay in 1.4 or move to a camera task; which system owns the damage entry point). They block the **code**, not this docs task. Owner rows for the weapon are drafted in the design §12 and go into `GAME_DESIGN.md` when the code lands, not now. **Three defects in the Architect-owned files, found in review and NOT fixed** (rule 3: the Builder never edits `docs/design/` or `ARCH_RESULT.md`) — (a) design §9 states the slug cone as a half-angle while the buckshot row beside it is a full angle, and §11.1 consumes a half-angle, so a config built from §9 as written gives a cone at 2× or 0.5×; (b) `ARCH_RESULT.md` item 1 points at §11.1 where it means §11.3; (c) three of the design's four `docs/PROJECT_CONTEXT.md` citations are off by two lines. **Fix these when the design is regenerated**, which it needs anyway once the boar branches are merged and the Architect can see them (`ARCH_RESULT.md` item 3). See `ESCALATE.md`, "Task 19 round 2", **closed 2026-09-24**. **Director decisions:** Task 19 is accepted as documents only and **the design is not built from until the Architect regenerates it** after Tasks 17/18 merge — that regeneration fixes the cone-unit defect and names the damage entry point owner. **Task 6 lands before the shotgun build, no waiver.** The shotgun ships first on the default camera with no ADS and no viewmodel; **third-to-first-person aim is its own camera task with its own design, right after**, because Karen wants it in v1 |
 | — | **Find out why the Reviewer's `docs/PROJECT_CONTEXT.md` line numbers were two lines off** (Task 19 rounds 1 and 2) | **before release** | The Director checked `git show 009c20e:docs/PROJECT_CONTEXT.md`: the quotes are at 34, 32, 32-33, 30-31, as the Builder said; the Reviewer reported them uniformly +2. Either `tools/agents.py`'s evidence copy differs from the commit under review — which would be a harness fault worth fixing at once (rule 6) — or the agent miscounted. Not urgent: the working rule is already that `REVIEW_REQUEST.md` cites **files and symbols, not line numbers** (`CLAUDE.md` loop step 4) |
+| 20 | **ROADMAP Milestone 2, docs only:** map generator research note | **escalated** (round 2) | Branch `task-20-map-research`, from `main`. **Scope is the Director's**, transcribed verbatim below under "Director dispatches": **no code, no Architect design** — research only. `docs/research/2026-09-24-map-generator.md`, 13 sources. Key finding: **Studio's heightmap/colormap import is UI-only and unreachable from code or MCP**, so the generator computes its own heightfield. Ends with the smallest first generator task: a 512x512 stud slice that proves voxel writes, `math.noise`, **whether CollectionService tags survive a save and reopen**, and Edit-mode `screen_capture` as rule-5 evidence. **Rounds 1-2 found 6 and 5 items; all 11 are fixed, but round 2's five are unreviewed** - the dispatch allowed two rounds - see `ESCALATE.md`, "Task 20 round 2" |
+
+## Director dispatches, transcribed by the Builder
+
+CLAUDE.md gives the Builder this one right in `TASKS.md`: a Director dispatch that arrived outside
+the repo, transcribed verbatim and marked as the Director's. Newest first.
+
+### Task 20 · 2026-09-24 · NO-STUDIO MODE
+
+This is the authority for "research only, no code, no Architect design", and for accepting the task
+with no harness line (review round 1, finding 6).
+
+> NO-STUDIO MODE: rojo serve is down until Karen connects at ~09:00. Do not start rojo, do not use
+> Studio.
+>
+> TASK 20: map generator research note only (ROADMAP Milestone 2). NO code. Docs only.
+> Branch task-20-map-research from origin/main.
+>
+> Karen's decision (map option C): the map is built by a map generator, code on disk, run in Edit
+> mode through the Studio MCP server, verified with Edit-mode screenshots and by Karen walking it.
+> Assets: Creator Store first, Meshy (Karen makes models) where nothing fits. One small v1 map:
+> European farmland and woods (fields, hedgerows, spruce and birch stands, tracks, a bog), a drive
+> area, a shooter line along a wood edge.
+>
+> Research note docs/research/<date>-map-generator.md per rule 1, 3+ sources with licence and
+> maintenance:
+> - procedural terrain on Roblox (Terrain:FillBlock/FillRegion/WriteVoxels, noise-based
+>   heightfields), and whether Studio's heightmap/colormap import can be driven from code or MCP
+>   (state plainly if it cannot)
+> - open-source Roblox terrain/map generators or community modules worth borrowing
+> - placing vegetation and props at scale (instancing, part counts, StreamingEnabled, performance
+>   targets for 10-16 players, mobile)
+> - how the code finds gameplay markers (CollectionService tags) so the map carries no scripts
+> - free-licence asset sources: Creator Store rules/licensing for trees, fences, rocks; Meshy ->
+>   Roblox import (mesh triangle limits, texture limits, upload via Open Cloud with the API key only
+>   in an environment variable)
+> - a backup step ("Save to File" or equivalent) before each rebuild, outside the repo
+> - the numeric targets: map size in studs, max part/mesh count, memory, load time
+> End with the adopted pattern and the smallest first generator task.
+>
+> Short review loop on the doc (tools/review.sh, max 2 rounds). Push. Do not open a PR.
+> REPORT to the Director, short: the adopted pattern, the numbers, what needs Karen (taste, assets),
+> checklist. Then stop.
+
+**Builder's note.** "3+ sources" is the floor; the note has 11. No Architect design was run, because
+the dispatch did not ask for one — so **whoever builds the generator needs
+`tools/architect.sh design map-generator` first**. This note is input to that design, not a
+substitute: it assigns no owners, and rule 3 gives that call to the Architect.
+
 
 ## Review log
 
