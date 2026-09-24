@@ -1,0 +1,28 @@
+{
+  "name": "DrivenHunt",
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": {
+      "$path": "src/server",
+      "TestRunner": {
+        "$path": "tests/TestRunner.server.luau"
+      }
+    },
+    "ReplicatedStorage": {
+      "$path": "src/shared"
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "$path": "src/client"
+      }
+    },
+    "ServerStorage": {
+      "DevPackages": {
+        "$path": "DevPackages"
+      },
+      "Tests": {
+        "$path": "tests/specs"
+      }
+    }
+  }
+}
