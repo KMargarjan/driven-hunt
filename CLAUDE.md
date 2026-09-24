@@ -27,8 +27,9 @@ Five roles: Director, Builder, Architect, Reviewer, Karen. See **Four-agent work
 7. **NEVER DELETE.** Archive with a note (see `backups/README.md`).
 8. **REPORT HONESTLY** what you could not verify and what you got wrong.
 9. **CODE COMMENTS** carry the pattern name, source links and the research note file.
-10. **Nothing reaches Karen until the Reviewer has signed it off**: `REVIEW_RESULT.md` line 1 is
-    `PASS` for the commit in the report.
+10. **Nothing is merged until the Reviewer has signed it off**: `REVIEW_RESULT.md` line 1 is
+    `PASS` for the PR head commit. The Director merges; the Builder never merges (see
+    **Git workflow**).
 
 ## Four-agent workflow
 
@@ -36,15 +37,18 @@ Five roles: Director, Builder, Architect, Reviewer, Karen. See **Four-agent work
 
 | Role | Owns | Writes | Never |
 |---|---|---|---|
-| **DIRECTOR** | the roadmap; dispatches tasks | `ROADMAP.md`, `TASKS.md`, `PLAN_NOTES.md` | writes code |
+| **DIRECTOR** | the roadmap; dispatches tasks; **git and GitHub**: retargets and merges PRs | `ROADMAP.md`, `TASKS.md`, `PLAN_NOTES.md` | writes code |
 | **BUILDER** (Claude, this file's reader) | implementation | the only writer of code in `src/`, `tests/`, `tools/`. Also `REVIEW_REQUEST.md`, `ESCALATE.md`, research notes, `CLAUDE.md`, and the status of its current task in `TASKS.md` | writes designs or verdicts |
 | **ARCHITECT** (`tools/architect.sh`) | structure, system owners, interfaces | `docs/design/`, `docs/architecture/`, `ARCH_RESULT.md` (through the script) | touches code (read-only) |
 | **REVIEWER** (`tools/review.sh`) | verifying claims | `REVIEW_RESULT.md` (through the script) | touches code (read-only) |
-| **KAREN** | the game | plays it, decides anything about feel or design, merges PRs, `PLAYTEST.md` feedback | |
+| **KAREN** | the game | plays it, decides anything about feel or design, `PLAYTEST.md` feedback, and does the clicks no tool can do (Rojo **Connect**, the Studio MCP toggle, Studio itself) | |
 
 The Director may be Karen or a Director agent. The Builder accepts tasks from either, in exactly the
 same way, and addresses reports to the Director. A report says plainly when something needs Karen's
 judgement or a playtest.
+
+Karen handed all git and GitHub work to the Director on 2026-09-24: the Director retargets and merges
+PRs. Karen no longer merges. The Builder still never merges and never pushes to `main`.
 
 ### Files the roles talk through
 
@@ -55,7 +59,7 @@ judgement or a playtest.
 | `REVIEW_REQUEST.md` | Builder | what changed, commit and base, numbered claims, how to verify each, what could not be verified, `Round: N` |
 | `REVIEW_RESULT.md` | Reviewer | `PASS` on line 1, or a numbered list of findings |
 | `ARCH_RESULT.md` | Architect | `PASS`, or a numbered list (design: blocking open decisions; audit: must-fix items) |
-| `ESCALATE.md` | anyone | for the Director and Karen: a disagreement, a 3rd failed round, a decision needed |
+| `ESCALATE.md` | anyone | for the Director and Karen: a disagreement, a 3rd failed round, a decision needed, or a **`NEEDS KAREN`** entry (a click only Karen can make) |
 | `PLAYTEST.md` | Builder, transcribing Karen | Karen's feedback after playing |
 
 ### The loop, for every task (no questions to Karen)
@@ -79,6 +83,10 @@ judgement or a playtest.
 - the same item fails 3 rounds (`tools/review.sh` refuses `Round: 4`)
 - you believe a Reviewer or Architect finding is factually wrong (write the evidence)
 - a design, feel or taste decision is needed
+- **a human action is needed** (Rojo **Connect**, the Studio MCP toggle, Studio not in Edit mode,
+  anything only Karen can click) and you cannot do it yourself. Write the entry headed
+  **`NEEDS KAREN`**, list the **exact clicks** in order, and stop. Do not work around it, and do not
+  report a harness result you could not produce.
 
 ### The agent scripts
 
@@ -116,8 +124,14 @@ dollars. The script prints each session's cost into the result file's trailer.
    example) get swept in. That happened on 2026-09-24 with `docs/architecture/audit-001.md`.
 3. Push the branch (`git push -u origin <branch>`) and open a pull request. CI
    (`.github/workflows/ci.yml`) must be green.
-4. The Reviewer reviews the PR. Karen merges after sign-off. The Builder never merges and never
-   pushes to `main`.
+4. The Reviewer reviews the PR. **The Director retargets and merges it**, and only when all three
+   hold:
+   - `REVIEW_RESULT.md` line 1 is `PASS` and its trailer names the **PR head commit**,
+   - CI (`.github/workflows/ci.yml`) is green on that head commit,
+   - a clean-tree harness PASS names that same commit
+     (`[harness] PASS: n/n checks @ <sha> (clean tree)`).
+
+   The Builder never merges and never pushes to `main`. Karen no longer merges.
 5. Record Karen's playtest feedback in `PLAYTEST.md` in the same PR round.
 6. **Stop `rojo serve` before switching branches** (or re-Connect afterwards). A branch switch while
    Rojo is live left Studio out of sync on 2026-09-24 (`ServerStorage.Tests` came out empty). The
@@ -125,9 +139,10 @@ dollars. The script prints each session's cost into the result file's trailer.
 
 **What is enforced and what is policy.** The GitHub ruleset on `main` *enforces* only two things:
 changes arrive through a pull request, and the `Build and lint` CI check passes. It does **not** enforce
-Reviewer sign-off (approvals are set to 0, and the Reviewer has no GitHub account), who merges, or
-that the Builder never merges. The Builder's credentials could merge a green PR. Those three are
-**policy**: rule 10 plus this section. The Builder follows them, and the Reviewer checks them.
+Reviewer sign-off (approvals are set to 0, and the Reviewer has no GitHub account), the harness-PASS
+condition, who merges, or that the Builder never merges. The Builder's credentials could merge a green
+PR. All of those are **policy**: rule 10 plus this section. The Builder follows them, the Director
+checks them before merging, and the Reviewer checks them in the review.
 
 ## Definition of done
 
@@ -141,7 +156,7 @@ Paste this, filled in, at the end of every task report. Each box is checked, or 
 - [ ] Docs updated: TASKS.md, GAME_DESIGN.md owners, research note/INDEX, PLAYTEST.md, CLAUDE.md as needed
 - [ ] Reviewer: REVIEW_RESULT.md line 1 = PASS for <sha>. Review rounds: N
 - [ ] Architect audit: ARCH_RESULT.md = PASS (or must-fix fixed); other items in TASKS.md
-- [ ] Needs Karen: <playtest / feel / design decision>, or "nothing"
+- [ ] Needs Karen: <playtest / feel / design decision / a click only she can make>, or "nothing"
 - [ ] Commit + PR link
 ```
 
