@@ -1,0 +1,35 @@
+# CI: build the place with Rojo, lint with selene, check formatting with StyLua.
+# Pattern: rokit-pinned toolchain in GitHub Actions (https://github.com/CompeyDev/setup-rokit).
+# Note: docs/research/2026-09-24-toolchain.md
+# Tests need a running Studio and do not run here (see CLAUDE.md, "Run / test").
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-lint:
+    name: Build and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Installs the exact tool versions pinned in rokit.toml.
+      - uses: CompeyDev/setup-rokit@v0.2.1
+
+      - name: Rojo build
+        # rojo build does not create missing output directories.
+        run: mkdir -p build && rojo build default.project.json --output build/place.rbxl
+
+      # Lint and format run even if an earlier step failed, so one run reports every problem.
+      - name: Selene lint
+        if: success() || failure()
+        run: selene src tests
+
+      - name: StyLua format check
+        if: success() || failure()
+        run: stylua --check src tests
