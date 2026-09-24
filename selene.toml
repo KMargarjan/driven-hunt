@@ -1,2 +1,4 @@
-# Selene lint config. Pattern: selene "roblox" std + TestEZ globals (https://kampfkarren.github.io/selene/).
-std = "roblox+testez"
+# Selene lint config for game code (src/). Pattern: selene "roblox" std (https://kampfkarren.github.io/selene/).
+# Test-only globals (describe, it, expect, SKIP, FOCUS...) are deliberately NOT allowed here: game code
+# must never reference TestEZ. Tests use tests/selene.toml (roblox+testez). Audit-001 L5.
+std = "roblox"
