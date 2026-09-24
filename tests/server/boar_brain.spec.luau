@@ -202,6 +202,32 @@ return function()
 			expect(turned).to.equal(true)
 		end)
 
+		it("turns when it is stuck against something", function()
+			-- A boar that is fleeing but has not moved for STUCK_TIME twice over must change the
+			-- direction it actually outputs. The bug this covers was a 90-degree turn written onto
+			-- an internal heading that never reached the output (review round 1, finding 2).
+			local brain = newBrain(5)
+			local threat = threatAt(0, 30)
+			local pinned = START
+			local before, after = nil, nil
+			local turned = false
+			for _ = 1, math.ceil(CONFIG.STUCK_TIME * 3 / DT) do
+				local intent = brain:step(DT, obs(pinned, threat))
+				after = intent.facing
+				if before and after then
+					local delta = math.abs(
+						math.atan2(before.X * after.Z - before.Z * after.X, before.X * after.X + before.Z * after.Z)
+					)
+					if delta > 1e-6 then
+						turned = true
+					end
+				end
+				before = after
+			end
+			expect(brain:state()).to.equal("FLEE")
+			expect(turned).to.equal(true)
+		end)
+
 		it("never accelerates faster than ACCEL", function()
 			local brain = newBrain()
 			local threat = threatAt(0, 30)

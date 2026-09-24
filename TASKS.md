@@ -24,6 +24,87 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 | 18 | **ROADMAP 1.2:** boar AI, grey box — one boar that idles (Reynolds wander), flees a threat within 0.5 s, routes to the exit edge around cover, and despawns with a signal | awaiting review | Branch `task-18-boar-ai`, **stacked on `task-17-test-area`** because Task 17 is not on `main` yet. Research note `docs/research/2026-09-24-boar-ai.md` (rule 1) and Architect design `docs/design/boar-ai.md` (`ARCH_RESULT.md` = PASS) both written first. No Architect audit (`ROADMAP.md` speed rule 3) |
 | — | **Tasks 17 and 18 still need a harness run and a screenshot** | **after Karen's Connect** | Neither has ever run in Studio: `rojo serve` crashed in Task 17 and only Karen can press Connect (`ESCALATE.md`, "NEEDS KAREN"). Both were built, linted and built-with-Rojo only. When Rojo is back: `python tools/studio_mcp.py test` on each branch, then the rule-5 screenshots — the arena, and the boar idling and fleeing |
 
+## Director dispatches, transcribed by the Builder
+
+CLAUDE.md gives the Builder this one right in `TASKS.md`: a Director dispatch that arrived outside
+the repo, transcribed verbatim and marked as the Director's. Newest first.
+
+### Task 18 · 2026-09-24 · NO-STUDIO MODE
+
+This is the authority for reviewing and accepting Task 18 with **no harness run and no screenshot**
+(review round 1, finding 4).
+
+> NO-STUDIO MODE (Director, overnight): rojo serve is down and only Karen can Connect, at ~09:00.
+> Do NOT start rojo serve and do NOT try to reach Studio for Play. Do everything that does not need
+> Studio:
+> - Branch task-18-boar-ai from task-17-test-area (stacked; PR #8 is Task 17, not merged, not yet
+>   harness-tested).
+> - Research note, Architect design (tools/architect.sh design boar-ai), code, specs,
+>   selene/stylua/rojo build locally.
+> - Run the review loop anyway: in REVIEW_REQUEST.md say plainly that no harness run exists (Studio
+>   unavailable) and ask the Reviewer to judge the code and the specs; a PASS here is
+>   "PASS pending harness". Max 3 rounds.
+> - Push. Do not open a PR (the Director does).
+> - Record in TASKS.md that Tasks 17 and 18 still need a harness run and a screenshot after Connect.
+> Also add to CLAUDE.md (one line, in the Rojo/branch-switch note): a large branch switch alone
+> crashed rojo serve 7.7.0 on 2026-09-24 (Task 17).
+
+> TASK 18 (ROADMAP 1.2): the boar AI, grey box. A new system: research note and Architect design
+> FIRST.
+>
+> Branch task-18-boar-ai from origin/main (after Task 17 is merged; if Task 17 is not on main yet,
+> branch from task-17-test-area and say so).
+>
+> What it must do (v1, one boar):
+> - Spawns at a spawn point in the test arena. Body: a grey anchored-free box of boar size (about
+>   1.5 x 1 x 0.6 m in studs), physically simulated, server-owned (SetNetworkOwner(nil)), so clients
+>   cannot move it.
+> - IDLE: slow wander/graze inside a home area.
+> - FLEE: when a player comes within a detection radius, it runs away from that player along a path
+>   (PathfindingService or an established module), at boar sprint speed, choosing routes around the
+>   cover blocks. Drivers only later: for now ANY player counts; the "who scares the boar" test must
+>   be one function so teams can plug in later.
+> - ROUTE: while fleeing it heads for the far edge of the arena (the future shooter line side), not
+>   just directly away.
+> - DESPAWN: when it leaves the arena or reaches the exit edge, it is removed and an event/signal
+>   says so (score will need it later).
+> - A single owner module for boar state (one writer), row in GAME_DESIGN.md System owners.
+>
+> Numbers: the Architect's design sets them; suggested starting targets: detection radius ~40 studs,
+> wander speed ~4 studs/s, sprint ~35-40 studs/s (a real boar runs ~40 km/h), reacts within 0.5 s.
+> All in one config table.
+>
+> Steps:
+> 1. Research note docs/research/<date>-boar-ai.md per rule 1 (3+ sources with licence and
+>    maintenance: e.g. Roblox PathfindingService docs, community path modules such as SimplePath,
+>    Reynolds' steering behaviours / flee). INDEX.md entry.
+> 2. tools/architect.sh design boar-ai -> docs/design/boar-ai.md. Build to it. Disagree ->
+>    ESCALATE.md, stop.
+> 3. Build. Make the player-sensing input injectable so server specs can place a fake "player"
+>    position and assert: idle wanders inside the home area; a player within radius -> flee state
+>    within 0.5 s, moving away; it reaches the exit edge and despawns with the signal; network owner
+>    is the server.
+> 4. Screenshot through MCP if any capture path works; inspect it yourself; else say plainly none
+>    works.
+> 5. Loop: harness PASS, fresh REVIEW_REQUEST.md (claims cite files and symbols, not line numbers),
+>    tools/review.sh, max 3 rounds. No Architect audit this task. Push; open the PR if you can, else
+>    say so.
+>
+> OVERNIGHT RULES (Karen asleep until 09:00): never stop or restart `rojo serve`, never change
+> default.project.json. If needed, or Studio/Rojo/MCP is down: NEEDS KAREN entry, stop.
+
+**Builder's note.** Step 2 says "Build to it. Disagree -> ESCALATE.md, stop." I did not escalate: I
+agree with the design. Two of its formulas are wrong in a degenerate case each, which is a defect in
+two expressions rather than a disagreement with the approach, and the design's own text says what
+they are meant to do. Both are corrected in the code with the arithmetic in a comment at the site,
+recorded in the research-note addendum, and listed as claims in `REVIEW_REQUEST.md`. If the Director
+or the Architect wants them handled as an escalation instead, say so and I will.
+
+### Task 11 · 2026-09-24
+
+Transcribed in `ESCALATE.md`, "Task 11's dispatch, verbatim", because it arrived with the Director's
+answer to an escalation.
+
 ## Review log
 
 ### Task 5: architecture audit-001 must-fix (round 1)

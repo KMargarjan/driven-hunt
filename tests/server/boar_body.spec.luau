@@ -50,6 +50,8 @@ return function()
 
 		testRoot.Parent = Workspace
 
+		local production = Boar.defaultWorld(FIELD)
+
 		local world
 		world = {
 			field = FIELD,
@@ -71,7 +73,8 @@ return function()
 				params.FilterDescendantsInstances = if world.folder then { world.folder } else {}
 				return Workspace:Raycast(from, direction.Unit * length, params) ~= nil
 			end,
-			requestPath = Boar.defaultWorld(FIELD).requestPath,
+			requestPath = production.requestPath,
+			releasePath = production.releasePath,
 		}
 		return world
 	end
@@ -126,7 +129,16 @@ return function()
 		end)
 
 		it("idles slowly and stays on the plate when nothing threatens it", function()
-			-- Sample for 2 s: it must stay IDLE, stay inside the bounds and never reach sprint speed.
+			-- The boar spawns SPAWN_CLEARANCE above the plate and the mover leaves Y to gravity, so
+			-- for the first few frames the ASSEMBLY speed is the drop, not the walk: 0.5 studs at
+			-- Roblox's 196.2 studs/s^2 peaks near 14 studs/s. Measuring the assembly speed here
+			-- would fail for a reason this test is not about (review round 1, finding 3). Let it
+			-- land first, then measure the FLAT speed, which is what "idles slowly" means.
+			local landed = waitUntil(2, function()
+				return math.abs(handle.part.AssemblyLinearVelocity.Y) < 1
+			end)
+			expect(landed).to.equal(true)
+
 			local fastest = 0
 			local deadline = os.clock() + 2
 			while os.clock() < deadline do
@@ -134,7 +146,8 @@ return function()
 				expect(handle.state()).to.equal("IDLE")
 				expect(math.abs(position.X) <= FIELD.bounds.maxX).to.equal(true)
 				expect(position.Z > FIELD.exitZ).to.equal(true)
-				fastest = math.max(fastest, handle.part.AssemblyLinearVelocity.Magnitude)
+				local velocity = handle.part.AssemblyLinearVelocity
+				fastest = math.max(fastest, Vector3.new(velocity.X, 0, velocity.Z).Magnitude)
 				task.wait()
 			end
 			expect(fastest <= CONFIG.WANDER_SPEED * 2).to.equal(true)
@@ -175,6 +188,9 @@ return function()
 			expect(stats.despawned).to.equal(1)
 			expect(stats.pathRequests > 0).to.equal(true)
 			expect(stats.pathFailures).to.equal(0)
+			-- One Path object per boar, reused: more requests than boars proves it was not
+			-- recreated per call by accident.
+			expect(stats.pathRequests >= stats.spawned).to.equal(true)
 		end)
 	end)
 end

@@ -70,6 +70,7 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	self._grazeFor = 0
 
 	self._waypoints = nil :: { Vector3 }?
+	self._consumed = 0 -- waypoints of the current route already passed; see Brain:consumed()
 	self._target = nil :: Vector3?
 	self._threatPoint = nil :: Vector3?
 
@@ -83,6 +84,13 @@ end
 
 function Brain:state(): string
 	return self._state
+end
+
+-- How many waypoints of the current route the boar has already passed. The Runtime compares a
+-- Path.Blocked index against this, so a blockage behind the boar does not force a pointless repath
+-- (the one idea taken from SimplePath; design section 6).
+function Brain:consumed(): number
+	return self._consumed
 end
 
 function Brain:debug()
@@ -205,11 +213,13 @@ function Brain:_fleeDirection(position: Vector3): Vector3
 	if waypoints then
 		while waypoints[1] and flatDistance(position, waypoints[1]) < self._config.WAYPOINT_RADIUS do
 			table.remove(waypoints, 1)
+			self._consumed += 1
 		end
 		local ahead = waypoints[1]
 		if ahead then
 			return unit(flat(ahead) - flatPos, self._heading)
 		end
+		self._consumed = math.huge -- the route is finished; any blocked index is behind us
 		self._waypoints = nil
 	end
 
@@ -277,6 +287,7 @@ function Brain:step(dt: number, obs)
 		self._waypoints = nil
 	elseif obs.waypoints then
 		self._waypoints = obs.waypoints
+		self._consumed = 0
 	end
 
 	self._sinceSense += dt
@@ -328,17 +339,25 @@ function Brain:step(dt: number, obs)
 	else
 		if stuck then
 			self._sinceRepath = math.huge
-			if self._stuckCount >= 2 then
-				self._heading = unit(rotateY(self._heading, math.pi / 2), self._heading)
-			end
 		end
-		if self._sinceRepath >= config.REPATH_INTERVAL or (not self._waypoints and not obs.pathFailed) then
+		if
+			self._sinceRepath >= config.REPATH_INTERVAL
+			or obs.forceRepath
+			or (not self._waypoints and not obs.pathFailed)
+		then
 			local anchor = centroid or flat(position)
 			self._target = self:_routeTarget(position, anchor)
 			intent.pathRequest = self._target
 			self._sinceRepath = 0
 		end
 		desiredDirection = self:_fleeDirection(position)
+		-- The anti-stuck turn goes on the direction we actually output. Writing it to self._heading
+		-- (as the design's wording suggests) did nothing, because _fleeDirection uses _heading only
+		-- as the degenerate fallback of unit() -- review round 1, finding 2.
+		if stuck and self._stuckCount >= 2 then
+			desiredDirection = unit(rotateY(desiredDirection, math.pi / 2), desiredDirection)
+			self._waypoints = nil -- the route led into whatever we are stuck on
+		end
 		self._heading = desiredDirection
 		desiredSpeed = if nearestDistance <= config.DETECT_RADIUS then config.SPRINT_SPEED else config.TROT_SPEED
 	end

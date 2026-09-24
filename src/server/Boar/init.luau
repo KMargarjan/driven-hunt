@@ -83,18 +83,20 @@ Boar.CONFIG = {
 	BOUNDS_SLACK = 10,
 	FALL_LIMIT = 50,
 
+	-- Pathfinding agent. Tunables, not structure: they decide whether the navmesh will route a
+	-- 2 x 3 x 5.5 body past the cover blocks (review round 1, finding 6).
+	AGENT = {
+		AgentRadius = 2,
+		AgentHeight = 3,
+		AgentCanJump = false,
+		AgentCanClimb = false,
+	},
+
 	-- The one function that decides who scares a boar (design section 4). v1: every player.
 	-- Milestone 1.7 replaces the body with `player.Team == Teams.Drivers` and touches nothing else.
 	isThreat = function(_player: Player): boolean
 		return true
 	end,
-}
-
-local AGENT_PARAMETERS = {
-	AgentRadius = 2,
-	AgentHeight = 3,
-	AgentCanJump = false,
-	AgentCanClimb = false,
 }
 
 -- Production implementations of everything the Runtime needs from the world. A spec passes its own.
@@ -103,6 +105,8 @@ function Boar.defaultWorld(field)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = {}
+	local paths = {} -- agentId -> Path, one per boar, created once
+	local blockedListeners = {} -- agentId -> the Runtime's onBlocked for that boar
 
 	local world
 	world = {
@@ -134,11 +138,26 @@ function Boar.defaultWorld(field)
 			return Workspace:Raycast(from, direction.Unit * length, params) ~= nil
 		end,
 
-		-- Never called from inside a step: ComputeAsync yields. `done` is invoked on a later frame
-		-- and the Runtime hands the result to the Brain on the next tick.
-		requestPath = function(from: Vector3, to: Vector3, done)
+		-- One Path object per agent, created once and reused, with Path.Blocked connected to it
+		-- (design section 6). Never called from inside a step: ComputeAsync yields. `done` is
+		-- invoked on a later frame and the Runtime hands the result to the Brain on the next tick.
+		-- `onBlocked(blockedWaypointIdx)` fires whenever the engine finds the computed route
+		-- obstructed; the Runtime decides whether that index is still ahead of the boar.
+		requestPath = function(agentId: string, from: Vector3, to: Vector3, done, onBlocked)
+			local path = paths[agentId]
+			if not path then
+				path = PathfindingService:CreatePath(config.AGENT)
+				paths[agentId] = path
+				path.Blocked:Connect(function(blockedWaypointIdx)
+					local listener = blockedListeners[agentId]
+					if listener then
+						listener(blockedWaypointIdx)
+					end
+				end)
+			end
+			blockedListeners[agentId] = onBlocked
+
 			task.spawn(function()
-				local path = PathfindingService:CreatePath(AGENT_PARAMETERS)
 				local ok = pcall(function()
 					path:ComputeAsync(from, to)
 				end)
@@ -154,6 +173,12 @@ function Boar.defaultWorld(field)
 				end
 				done(if #points > 0 then points else nil)
 			end)
+		end,
+
+		-- Called when a boar despawns, so its Path object and listener are not kept alive.
+		releasePath = function(agentId: string)
+			paths[agentId] = nil
+			blockedListeners[agentId] = nil
 		end,
 	}
 	return world
@@ -176,7 +201,7 @@ function Boar.newRuntime(world)
 	self._signal = Instance.new("BindableEvent")
 	self._connection = nil
 	self._destroyed = false
-	self._stats = { pathRequests = 0, pathFailures = 0, spawned = 0, despawned = 0 }
+	self._stats = { pathRequests = 0, pathFailures = 0, pathBlocked = 0, spawned = 0, despawned = 0 }
 
 	self.Despawned = self._signal.Event
 
@@ -233,6 +258,7 @@ function Runtime:spawn(position: Vector3?)
 		pending = false, -- a path request is in flight
 		waypoints = nil,
 		pathFailed = false,
+		forceRepath = false, -- set by the world's Path.Blocked listener
 		bornAt = os.clock(),
 	})
 	self._stats.spawned += 1
@@ -246,7 +272,7 @@ function Runtime:_requestPath(entry, to: Vector3)
 	entry.pending = true
 	self._stats.pathRequests += 1
 	local from = Body.position(entry.body)
-	self._world.requestPath(from, to, function(points)
+	self._world.requestPath(entry.id, from, to, function(points)
 		entry.pending = false
 		if entry.dead then
 			return -- a late reply for a despawned boar
@@ -259,6 +285,18 @@ function Runtime:_requestPath(entry, to: Vector3)
 			entry.pathFailed = true
 			self._stats.pathFailures += 1
 		end
+	end, function(blockedWaypointIdx)
+		-- Repath only when the obstruction is still ahead of the boar. A blockage it has already
+		-- driven past is not worth a ComputeAsync (design section 6). The Brain counts how many
+		-- waypoints it has passed; the engine's index is 1-based over the whole route, and our
+		-- list dropped waypoint 1, so the boar's next waypoint is index consumed + 2.
+		if entry.dead then
+			return
+		end
+		if blockedWaypointIdx >= entry.brain:consumed() + 2 then
+			entry.forceRepath = true
+			self._stats.pathBlocked += 1
+		end
 	end)
 end
 
@@ -266,6 +304,9 @@ function Runtime:_despawn(entry, index: number, reason: string, position: Vector
 	entry.dead = true
 	Body.destroy(entry.body)
 	table.remove(self._boars, index)
+	if self._world.releasePath then
+		self._world.releasePath(entry.id)
+	end
 	self._stats.despawned += 1
 	self._signal:Fire({
 		id = entry.id,
@@ -296,6 +337,8 @@ function Runtime:step(dt: number)
 		entry.waypoints = nil -- the Brain takes ownership of the list it is handed
 		local pathFailed = entry.pathFailed
 		entry.pathFailed = false
+		local forceRepath = entry.forceRepath
+		entry.forceRepath = false
 
 		local intent = entry.brain:step(dt, {
 			position = position,
@@ -304,6 +347,7 @@ function Runtime:step(dt: number)
 			waypoints = waypoints,
 			pathFailed = pathFailed,
 			blockedAhead = blockedAhead,
+			forceRepath = forceRepath,
 		})
 
 		if intent.despawn then
@@ -346,6 +390,9 @@ function Runtime:destroy()
 	for _, entry in ipairs(self._boars) do
 		entry.dead = true
 		Body.destroy(entry.body)
+		if self._world.releasePath then
+			self._world.releasePath(entry.id)
+		end
 	end
 	table.clear(self._boars)
 	self._signal:Destroy()
