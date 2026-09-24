@@ -2,16 +2,17 @@
 
 Written by the Builder for `tools/review.sh`. The format is below; the script parses the first three lines.
 
-Round: 1
+Round: 2
 Base: `7399585`
-Code commit: `fba85c8c091e8143c5bd865367d32aac2fb03d4a`
+Code commit: `00df9666e6af9e36872d7f6bc696546696071c36`
 
 ## Task
 
 TASKS.md #20, ROADMAP Milestone 2: **map generator research note only. No code, no Architect
 design** — the Director dispatched research only this time.
 
-The change is one new document plus two table rows. There is no `src/`, no `tests/`, no `tools/`.
+The change is one new document plus edits to three existing ones. There is no `src/`, no `tests/`,
+no `tools/`.
 **What is worth your time is whether the note is true and usable**, and in particular whether its
 central negative finding is right, because the whole adopted pattern turns on it.
 
@@ -27,7 +28,8 @@ anyway.
 |---|---|
 | `docs/research/2026-09-24-map-generator.md` | the note: 10 sources with licence and maintenance, the numbers and their derivation, the pattern adopted, the smallest first generator task, what needs Karen |
 | `docs/research/INDEX.md` | its row |
-| `TASKS.md` | row 20 |
+| `TASKS.md` | row 20, and the Director's Task 20 dispatch transcribed verbatim |
+| `ESCALATE.md` | the `NEEDS KAREN · rojo serve is down` entry, written on this branch — see claim 15 |
 
 ## Claims
 
@@ -40,9 +42,9 @@ Files and symbols, not line numbers (CLAUDE.md loop step 4).
    `search_asset`, `screen_capture`, `generate_*`, `start_stop_play`, `user_*_input`,
    `get_console_output`, …) contains nothing that drives the Terrain Editor. The note draws the
    consequence rather than hedging: the generator computes its own heightfield.
-2. **Rule 1 is met in substance: 10 sources, each with a licence and a maintenance status, and each
+2. **Rule 1 is met in substance: 11 sources, each with a licence and a maintenance status, and each
    with what it does well *and badly for this system*.** Verify: the note's "Sources", headings 1–10.
-   First-party Roblox docs (CC BY 4.0) for 1, 2, 3, 4, 5, 9 (the API half) and 10; MIT for
+   First-party Roblox docs (CC BY 4.0) for 1, 2, 3, 4, 5, 9 (the API half), 10 and 11; MIT for
    RTerrainGenerator; DevForum posts cited as figures only for 6 and the mesh limits; and **an
    explicit "could not confirm"** for the Creator Store Terms, which returned HTTP 403.
 3. **Rule 2 is met: three rejections, each with a written reason.** The Terrain Editor's Import and
@@ -92,18 +94,72 @@ Files and symbols, not line numbers (CLAUDE.md loop step 4).
     on a phone, and the map does not exist." 2048 studs = 573 m at 1 stud = 0.28 m; the part budgets
     trace to source 6; the mesh limits (21,000 triangles, 1024 × 1024 textures) are Roblox's hard
     import limits; the drive length, post spacing, memory and load-time rows are marked feel/target.
-12. **The note ends with the smallest first generator task, as the Director asked, and that task is
-    chosen to answer the note's own open questions.** Verify: "The smallest first generator task" — a
-    512 × 512 stud slice, two materials, one hedgerow, 50 trees from one asset id, four tagged
-    markers, then save-reopen-confirm. The bullets under it map one-to-one onto the things sources 2,
-    4 and 10 could not settle.
+12. **The note ends with the smallest first generator task, and each of its five bullets names
+    where the question comes from.** Round 1's finding 4 was right that "one-to-one onto sources 2, 4
+    and 10" was false. Verify: "The smallest first generator task" — a 512 × 512 stud slice, two
+    materials, one hedgerow, 50 trees from one asset id, four tagged markers, then
+    save-reopen-confirm. The five bullets trace to: **§2** (`WriteVoxels` region size and whether
+    `resolution` 4 is the only value); **§11 and pattern point 2** (what `math.noise` returns and
+    whether it is stable — the assumption the seed story rests on); **§4** (do tags survive a save);
+    **`TASKS.md` row 7**, not a source (whether Edit-mode `screen_capture` is rule-5 evidence — Task 7
+    is unsolved for *play-time* screenshots, and this generator runs in Edit mode); and **§6** (what
+    50 trees cost, so the 3,000-tree budget can be multiplied out).
+12a. **The seed mechanism is stated properly, and the assumption under it is named.** Round 1's
+    finding 1 was right: `math.noise` takes **no seed**, so the old text ("it seeds its own
+    `Random`") answered nothing about the heightfield. Verify: pattern point 2 — the seed becomes a
+    **coordinate offset** into the fixed noise field, `Random.new(seed)` drives everything discrete,
+    and the note says outright that reproducibility rests on `math.noise` being stable across
+    sessions and engine versions, **which the documentation does not promise**, with the fallback
+    named (a small seeded noise implementation on disk).
+12b. **The maths library is now a numbered source.** Round 1's finding 2 was right that the whole
+    heightfield rested on a page the note never named. Verify: source 11 — URL, licence (first-party,
+    CC BY 4.0), maintenance, the confirmed signature `math.noise(x, y, z): number`, and the "Bad"
+    that the page gives the signature **and nothing else**.
 13. **It notices that Milestone 2 may be the first visual work in this project that can meet rule 5
     without Karen.** The generator runs in **Edit** mode, and `screen_capture` over MCP is Edit-mode
     only — which is exactly why it is useless for Task 7's play-time problem and potentially useful
     here. Verify: "The smallest first generator task", fourth bullet.
-14. **Nothing in `src/`, `tests/` or `tools/` changed.** Lint, format and `rojo build` were run
+15. **`ESCALATE.md` gains the `NEEDS KAREN` entry for `rojo serve`, on this branch, and it asserts
+    only what I checked.** Round 1's finding 5 was right that it was in the change but in no claim.
+    It states: `rojo serve` has been down since Task 17 (no `rojo.exe`, nothing on port 34872);
+    Studio is still in Edit mode and its MCP server answers, so only Rojo is down; the exact clicks
+    for Karen in order; that Tasks 17 and 18 have **never been executed at all**; and **why the entry
+    is repeated here** — the copies on `task-17`, `task-18` and `task-19` are unmerged, so `main` had
+    no record, and Task 19's round 1 caught me citing it from a branch where it did not exist.
+    Verify: `ESCALATE.md`, the first entry. The process claims (rojo down, Studio up) are ones I
+    re-checked in this session; you cannot verify those from the repo, and they are listed under
+    "Could not verify".
+16. **Nothing in `src/`, `tests/` or `tools/` changed.** Lint, format and `rojo build` were run
     anyway and pass: `.agent-evidence/lint-selene.txt`, `lint-stylua.txt`, `rojo-build.txt`.
     `GAME_DESIGN.md` is untouched — there is no system yet, so there is no owner to record.
+
+## Round 2: the six round-1 findings
+
+All six were right. Four were in the note or `TASKS.md` and are fixed in the code commit; two were in
+this request and are fixed above.
+
+17. **Finding 1 — the determinism story did not work.** The sharpest finding of the six, and it
+    caught a real muddle rather than a typo: `math.noise` has no seed parameter, so seeding a
+    `Random` said nothing about the heightfield, while pattern point 2 promised "one `seed` number
+    reproduces the map exactly". Fixed as claim 12a.
+18. **Finding 2 — the maths library was a source in everything but name.** Fixed as claim 12b.
+19. **Finding 3 — three sets of broken section references.** All three were wrong in the same way:
+    pointing at a source number when meaning a section, or at the wrong source. The backup step is
+    §10 (it was §6, twice), the part budgets are in "Numeric targets" (they were §9, twice), and the
+    `math.noise` bullet now points at §11 and pattern point 2. In a note whose only value is being
+    usable by the next Builder, these matter more than their size suggests.
+20. **Finding 4 — claim 12's "one-to-one" was false.** Fixed above; each bullet now names its source,
+    including the one that traces to `TASKS.md` row 7 rather than to any source.
+21. **Finding 5 — `ESCALATE.md` was in the change but in no claim, and the summary said "two table
+    rows".** Both fixed: it is in the table, the summary is corrected, and claim 15 states what the
+    entry asserts. The irony is not lost: this task's whole point was to avoid Task 19's mistake of
+    citing that entry without it existing, and I wrote the entry but then left it out of the change
+    list.
+22. **Finding 6 — the Director's dispatch was paraphrased, not transcribed.** Fixed: `TASKS.md` now
+    has a "Director dispatches, transcribed by the Builder" section with the Task 20 dispatch
+    verbatim, and row 20 cites it instead of asserting the scope in my own voice. That is also where
+    "no Architect design was run" is on the record, with the note that whoever builds the generator
+    needs `tools/architect.sh design map-generator` first.
 
 ## Harness
 
@@ -141,3 +197,10 @@ before writing the claim. Lint, format and `rojo build` are clean and unchanged 
 - **No Architect design exists for this system.** The dispatch was research only. Whoever builds the
   generator needs `tools/architect.sh design map-generator` first — the note is input to that, not a
   substitute for it, and it does not assign owners.
+- **The `ESCALATE.md` entry's process claims are not checkable from the repo.** That `rojo serve` is
+  down and Studio is still in Edit mode are things I verified in this session (no `rojo.exe`, nothing
+  on port 34872) and wrote down; the repo cannot confirm them.
+- **Four of round 1's six findings were mine to have caught.** The broken section references and the
+  unnamed source are exactly the "stated it and did not check it against the thing it cites" failure
+  that Task 19 spent two rounds on. The determinism muddle (finding 1) is worse than a citation slip,
+  because it would have been copied into a design.
