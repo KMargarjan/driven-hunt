@@ -3,46 +3,70 @@
 Owner: Director (the only writer). Order of work, one task at a time. Task detail lives in `TASKS.md`,
 playtest feedback in `PLAYTEST.md`, design and taste decisions with Karen.
 
-Updated 2026-09-24.
+Updated 2026-09-24. Target: **Milestone 1 in ~1–2 weeks, public v1 in ~4–6 weeks.**
+
+## Speed rules (Director, 2026-09-24)
+
+1. **Tooling is frozen after Task 11.** Process improvements go to "before release" unless they block
+   the next game task.
+2. **An audit item is must-fix only if it blocks the next game task,** and the audit names that task.
+   Everything else is queued for "before release".
+3. **Architect:** a design when a new system starts, and an audit every ~5 tasks, not after every task.
+4. **Reviewer:** every task. Anything outside the task goes to `TASKS.md`, not into the round.
+5. **One whole system per task** (for example the boar AI: idle, flee, route, despawn).
+6. **Borrow before generating:** Creator Store assets and Roblox terrain tools first; Meshy where
+   nothing fits.
+7. **Merge after review; playtest after.** Playtest findings become new tasks. Feel-critical tasks
+   (shooting, camera) wait for Karen's OK before merging.
+8. **One playtest session per day.** The Director batches what Karen must check. Every gameplay task
+   report ends with "Karen: check this" (3–5 concrete things).
+
+## v1 scope (Karen, 2026-09-24)
+
+| In v1 | Later (v1.1+) |
+|---|---|
+| Wild boar, AI only | roe deer, fox, rabbit |
+| Drivers and shooters, equal teams, drivers push on foot | AI dogs |
+| Break-action shotgun, slugs and buckshot | other guns |
+| Hit zones: head/chest instant; body and legs wound, boar runs on | blood trail and tracking |
+| Safety penalty, simple: frozen at a tree until the drive ends | a funnier version |
+| One small map (European farmland and woods), built by a map generator through MCP | more maps |
+| A few on-screen hints | full tutorial |
+| Free to play | cosmetics shop |
 
 ## Now: finish the scaffolding
 
 | Step | What | State |
 |---|---|---|
-| 0.1 | Task 1: setup (PR #1, `task-1-review-fixes`) | Reviewer re-review pending, then Karen merges |
-| 0.2 | Audit-001 on its own (PR #2, `audit-001`) | Reviewer pending, then Karen merges (docs only) |
-| 0.3 | Task 5: audit-001 must-fix M1–M4 (PR #3, stacked on PR #1) | Built (`20e136b`), review pending |
-| 0.4 | Task 9: four-agent workflow (`tools/review.*`, `tools/architect.*`, agent prompts, `docs/PROJECT_CONTEXT.md`, roles in CLAUDE.md), stacked on PR #3 | Builder working (`task-9-agent-workflow`) |
-| 0.5 | Director dispatches the Builder headless (`claude -p`); add a `NEEDS_KAREN.md` stop file for human actions (Rojo Connect) | After 0.4 merges |
+| 0.1 | Tasks 1, 5 and audit-001 | Merged to main |
+| 0.2 | Task 9: four-agent workflow (PR #4) + Task 11: review Task 9 through the loop, Director merges, NEEDS KAREN stop | Builder working (dispatched headless) |
+| 0.3 | Task 10: test globals are a lint error (PR #5) | Reviewed PASS; merge after PR #4 |
+| — | Tasks 12–15 (audit-002 workflow items) | Moved to "before release" |
 
-## Milestone 1: is it fun? (grey boxes, no art)
+## Milestone 1: is it fun? (grey boxes, no art) — ~1–2 weeks
 
-Exit test: Karen and one other player play it, and Karen says it's fun. If it isn't, fix it here.
+Exit test: Karen and a second player play it, and Karen says it's fun. If it isn't, change it here.
 
 | Step | What | Depends on |
 |---|---|---|
-| 1.1 | Flat test area, 400×400 studs, a few blocks as cover | 0.4 |
-| 1.2 | One boar AI: idles, flees when a driver comes near, runs a route, despawns. Architect designs first | 1.1 |
-| 1.3 | Harness drives real input (Task 6) | 0.4 |
-| 1.4 | Play-time screenshot evidence (Task 7). **Needs Karen's decision:** tool capture, or Karen's screenshot as evidence | 0.4 |
-| 1.5 | Shotgun: break action, two shells, reload, slug and buckshot; third person, first-person aim | 1.3, 1.4 |
-| 1.6 | Hit zones: head/chest instant, body short run, legs long run, blood trail | 1.2, 1.5 |
-| 1.7 | Score: points per boar by shot quality | 1.6 |
-| 1.8 | Teams (equal drivers and shooters), 10-minute drive, score screen | 1.7 |
-| 1.9 | **Karen playtests with a second player** | 1.8 |
+| 1.1 | Grey-box test area, 400×400 studs, a few blocks as cover | 0.2 |
+| 1.2 | Boar AI: idles, flees from drivers, runs a route, despawns. Architect designs first | 1.1 |
+| 1.3 | Harness drives real input (Task 6) and play-time screenshots or Karen's screenshot as evidence (Task 7) | 0.2 |
+| 1.4 | Shotgun: break action, two shells, reload, slug and buckshot; third person, first-person aim | 1.3 |
+| 1.5 | Hit zones and wounded running | 1.2, 1.4 |
+| 1.6 | Multiplayer test path: the harness runs 2+ players | 1.3 |
+| 1.7 | Teams, 10-minute drive, points per boar, score screen, frozen-at-a-tree penalty | 1.5, 1.6 |
+| 1.8 | **Karen playtests with a second player** | 1.7 |
 
-The boar AI (server-side, testable by server specs) goes before the shotgun, because camera, input
-and visual client code are blocked on 1.3 and 1.4.
+## Milestone 2: the world — ~2 weeks
+Map-generator research note, then the generator (terrain, woods, fields, posts and drive-line markers
+by tag), Creator Store and Meshy assets through an upload tool (Open Cloud key only in an environment
+variable, never in the repo), boar model and animation, sound, light. A "Save to File" copy of the
+place outside the repo before every map rebuild.
 
-## Milestone 2: the real hunt
-Dogs, the safety rule (tied to a tree), the drive line and posts, several boars with real behaviour,
-the match loop with several drives.
-
-## Milestone 3: the world
-Farmland-and-woods map, sound, animation, the boar model, light.
-
-## Milestone 4: release
-Menu, cosmetics shop, tutorial, strip test code (Task 2), publish to LIVE.
+## Milestone 3: release — ~1–2 weeks
+On-screen hints, several boars, a match loop with several drives, strip test code (Task 2), the
+"before release" queue, publish to LIVE.
 
 ## Out of v1
-Other species (roe deer, fox, rabbit), several maps, weapon unlocks that change power, weather.
+See the scope table. Weather, weapon unlocks, several maps.
