@@ -156,7 +156,10 @@ function Brain:_outcome(position: Vector3): string?
 	local bounds = field.bounds
 	local slack = config.BOUNDS_SLACK
 
-	if position.Z <= field.exitZ then
+	-- "escaped" is a FLEE outcome. An idle boar that wanders over the line has not escaped anything,
+	-- and deleting it would lose the only boar in the grey box with no driver anywhere near
+	-- (review round 2, finding 6). Leaving the arena outright is still outOfBounds in any state.
+	if self._state == "FLEE" and position.Z <= field.exitZ then
 		return "escaped"
 	end
 	if
@@ -328,6 +331,7 @@ function Brain:step(dt: number, obs)
 	local stuck = self:_updateStuck(dt, position)
 
 	local desiredDirection, desiredSpeed
+	local stuckTurn = nil :: number?
 	if self._state == "IDLE" then
 		if self._grazeFor > 0 then
 			self._grazeFor -= dt
@@ -351,11 +355,13 @@ function Brain:step(dt: number, obs)
 			self._sinceRepath = 0
 		end
 		desiredDirection = self:_fleeDirection(position)
-		-- The anti-stuck turn goes on the direction we actually output. Writing it to self._heading
-		-- (as the design's wording suggests) did nothing, because _fleeDirection uses _heading only
-		-- as the degenerate fallback of unit() -- review round 1, finding 2.
 		if stuck and self._stuckCount >= 2 then
-			desiredDirection = unit(rotateY(desiredDirection, math.pi / 2), desiredDirection)
+			-- Turning `desiredDirection` was still not enough: the slew below moves the output by at
+			-- most TURN_RATE * dt (~3.8 degrees at 60 Hz) and the next tick recomputes it, so the
+			-- boar kept pushing into the obstruction (review round 2, finding 1). The offset is
+			-- applied to self._desired itself, after the slew, so it persists; the slew then pulls
+			-- it back toward the route over ~pi/2 / TURN_RATE ~ 0.4 s, which is the sidestep.
+			stuckTurn = if self._rng:NextNumber() < 0.5 then -math.pi / 2 else math.pi / 2
 			self._waypoints = nil -- the route led into whatever we are stuck on
 		end
 		self._heading = desiredDirection
@@ -365,6 +371,9 @@ function Brain:step(dt: number, obs)
 	-- Turn rate and acceleration limit the SETPOINT, not the physics, so both are assertable with no
 	-- physics at all (design section 5).
 	self._desired = slew(self._desired, unit(desiredDirection, self._desired), config.TURN_RATE * dt)
+	if stuckTurn then
+		self._desired = unit(rotateY(self._desired, stuckTurn), self._desired)
+	end
 	local maxStep = config.ACCEL * dt
 	self._speed += math.clamp(desiredSpeed - self._speed, -maxStep, maxStep)
 

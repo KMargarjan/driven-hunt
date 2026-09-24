@@ -77,7 +77,10 @@ Boar.CONFIG = {
 		exitZ = -190, -- the far edge, the future shooter line
 		groundY = 0,
 	},
-	spawnPoint = Vector3.new(-40, 0, -60),
+	-- 210 studs from exitZ, comfortably beyond HOME_RADIUS + the wander tolerance, so an idle
+	-- boar cannot drift onto the exit line (review round 2, finding 6). Clear of PillarMid at
+	-- (40, -40) and WallWest at (-60, -100) in the Task 17 arena.
+	spawnPoint = Vector3.new(-40, 0, 20),
 	maxBoars = 4, -- a guard, not a feature; production spawns one
 
 	BOUNDS_SLACK = 10,

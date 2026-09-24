@@ -202,30 +202,53 @@ return function()
 			expect(turned).to.equal(true)
 		end)
 
-		it("turns when it is stuck against something", function()
-			-- A boar that is fleeing but has not moved for STUCK_TIME twice over must change the
-			-- direction it actually outputs. The bug this covers was a 90-degree turn written onto
-			-- an internal heading that never reached the output (review round 1, finding 2).
-			local brain = newBrain(5)
+		-- Largest single-tick change of the output direction over `ticks` steps, with the boar's
+		-- position supplied by `positionAt`. The ordinary slew can only ever produce TURN_RATE * DT,
+		-- so anything much larger can only have come from the anti-stuck turn.
+		local function biggestTurn(seed: number, ticks: number, positionAt: (number) -> Vector3)
+			local brain = newBrain(seed)
 			local threat = threatAt(0, 30)
-			local pinned = START
-			local before, after = nil, nil
-			local turned = false
-			for _ = 1, math.ceil(CONFIG.STUCK_TIME * 3 / DT) do
-				local intent = brain:step(DT, obs(pinned, threat))
-				after = intent.facing
-				if before and after then
-					local delta = math.abs(
-						math.atan2(before.X * after.Z - before.Z * after.X, before.X * after.X + before.Z * after.Z)
+			local previous, biggest = nil, 0
+			for tick = 1, ticks do
+				local intent = brain:step(DT, obs(positionAt(tick), threat))
+				local facing = intent.facing
+				if previous and facing then
+					biggest = math.max(
+						biggest,
+						math.abs(
+							math.atan2(
+								previous.X * facing.Z - previous.Z * facing.X,
+								previous.X * facing.X + previous.Z * facing.Z
+							)
+						)
 					)
-					if delta > 1e-6 then
-						turned = true
-					end
 				end
-				before = after
+				previous = facing
 			end
+			return biggest, brain
+		end
+
+		it("turns hard when it is stuck against something", function()
+			-- Round 1 wrote this turn onto an internal heading (dead); round 2 wrote it onto a local
+			-- that the slew immediately overrode (a 3.8-degree nudge). It has to survive to the output,
+			-- so assert the MAGNITUDE: only the stuck branch can move the facing further in one tick
+			-- than TURN_RATE * DT (review round 2, findings 1 and 2).
+			local ticks = math.ceil(CONFIG.STUCK_TIME * 3 / DT)
+			local pinned, brain = biggestTurn(5, ticks, function()
+				return START -- never moves: stuck
+			end)
 			expect(brain:state()).to.equal("FLEE")
-			expect(turned).to.equal(true)
+			expect(pinned > 1).to.equal(true) -- radians; the turn is pi/2
+		end)
+
+		it("does not turn hard when it is moving freely", function()
+			-- The control for the test above: same threat and seed, but a boar that is covering ground.
+			-- The stuck branch never fires, so the output may only slew.
+			local ticks = math.ceil(CONFIG.STUCK_TIME * 3 / DT)
+			local moving = biggestTurn(5, ticks, function(tick)
+				return Vector3.new(0, 0, -CONFIG.STUCK_DIST * tick) -- well over STUCK_DIST per tick
+			end)
+			expect(moving <= CONFIG.TURN_RATE * DT + 1e-6).to.equal(true)
 		end)
 
 		it("never accelerates faster than ACCEL", function()
@@ -283,18 +306,48 @@ return function()
 	end)
 
 	describe("boar brain: despawn", function()
-		it("reports escaped exactly once when it crosses the exit line", function()
+		it("reports escaped exactly once when a fleeing boar crosses the exit line", function()
 			local brain = newBrain()
+			-- Get it fleeing first: "escaped" is a FLEE outcome (review round 2, finding 6).
+			local threat = threatAt(0, 30)
+			for _ = 1, 30 do
+				brain:step(DT, obs(START, threat))
+			end
+			expect(brain:state()).to.equal("FLEE")
+
 			local past = Vector3.new(0, 0, FIELD.exitZ - 1)
-			local first = brain:step(DT, obs(past, {}))
+			local first = brain:step(DT, obs(past, threat))
 			expect(first.despawn).to.equal(true)
 			expect(first.reason).to.equal("escaped")
 			expect(first.state).to.equal("GONE")
 
-			local second = brain:step(DT, obs(past, {}))
+			local second = brain:step(DT, obs(past, threat))
 			expect(second.despawn).to.equal(false)
 			expect(second.state).to.equal("GONE")
 			expect(second.targetVelocity.Magnitude).to.equal(0)
+		end)
+
+		it("does not despawn an idle boar that drifts over the exit line", function()
+			local brain = newBrain()
+			local past = Vector3.new(0, 0, FIELD.exitZ - 1)
+			local intent = brain:step(DT, obs(past, {}))
+			expect(intent.despawn).to.equal(false)
+			expect(brain:state()).to.equal("IDLE")
+		end)
+
+		it("never despawns while idling at the real spawn point in the real arena", function()
+			-- The production numbers, not this spec's: CONFIG.spawnPoint inside CONFIG.field. An
+			-- idle wander must not reach the exit line, or the grey box loses its only boar before a
+			-- driver ever arrives (review round 2, finding 6).
+			local spawn = CONFIG.spawnPoint
+			local brain = Brain.new(CONFIG, CONFIG.field, spawn, Random.new(9))
+			local position = spawn
+			for _ = 1, math.ceil(120 / DT) do
+				local intent = brain:step(DT, obs(position, {}))
+				expect(intent.despawn).to.equal(false)
+				position += intent.targetVelocity * DT
+			end
+			expect(brain:state()).to.equal("IDLE")
 		end)
 
 		it("reports outOfBounds when it leaves the arena sideways", function()

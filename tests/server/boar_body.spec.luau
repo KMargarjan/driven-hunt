@@ -134,8 +134,15 @@ return function()
 			-- Roblox's 196.2 studs/s^2 peaks near 14 studs/s. Measuring the assembly speed here
 			-- would fail for a reason this test is not about (review round 1, finding 3). Let it
 			-- land first, then measure the FLAT speed, which is what "idles slowly" means.
-			local landed = waitUntil(2, function()
-				return math.abs(handle.part.AssemblyLinearVelocity.Y) < 1
+			-- waitUntil evaluates its predicate before the first yield, and a part created this tick
+			-- has zero velocity, so "|velocity.Y| < 1" was true immediately and asserted nothing
+			-- (review round 2, finding 5). Wait a frame, then wait for it to be RESTING on the
+			-- plate, which is a positive condition it cannot satisfy in mid-air.
+			task.wait()
+			local restY = GROUND_Y + CONFIG.BODY_SIZE.Y / 2
+			local landed = waitUntil(3, function()
+				local part = handle.part
+				return math.abs(part.Position.Y - restY) < 0.6 and math.abs(part.AssemblyLinearVelocity.Y) < 1
 			end)
 			expect(landed).to.equal(true)
 
@@ -150,7 +157,7 @@ return function()
 				fastest = math.max(fastest, Vector3.new(velocity.X, 0, velocity.Z).Magnitude)
 				task.wait()
 			end
-			expect(fastest <= CONFIG.WANDER_SPEED * 2).to.equal(true)
+			expect(fastest <= CONFIG.WANDER_SPEED * 1.5).to.equal(true) -- the design's figure
 		end)
 
 		it("sprints away from a threat within 1 s, and stays upright", function()
@@ -166,6 +173,18 @@ return function()
 			expect(took <= 1.0).to.equal(true)
 			expect(handle.state()).to.equal("FLEE")
 			expect(upright).to.equal(true)
+
+			-- The design also requires that the simulated body actually gets away, not merely that
+			-- it is moving fast (review round 2, finding 4). Flat distance, since the drop is Y.
+			local function flatGap()
+				local p = handle.position()
+				return (Vector3.new(p.X, 0, p.Z) - Vector3.new(threatPosition.X, 0, threatPosition.Z)).Magnitude
+			end
+			local gapBefore = flatGap()
+			local grew = waitUntil(3, function()
+				return handle.part.Parent == nil or flatGap() - gapBefore >= 20
+			end)
+			expect(grew).to.equal(true)
 		end)
 
 		it("despawns once when it reaches the exit edge, and says so", function()
