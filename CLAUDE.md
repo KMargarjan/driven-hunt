@@ -91,7 +91,7 @@ After cloning: `rokit install`, then `wally install`. After changing the Rojo ve
 ## Run / test
 
 - **Lint and format (also in CI):** `selene src tests` and `stylua --check src tests`
-  (`stylua src tests` fixes formatting). `rojo build -o build/place.rbxl` checks the project builds.
+  (`stylua src tests` fixes formatting). `mkdir -p build && rojo build -o build/place.rbxl` checks the project builds (Rojo does not create `build/`).
 - **Tests:** with Studio open on the DEV place in **Edit** mode and Rojo connected:
   `python tools/studio_mcp.py test`. It:
   1. refuses unless Studio is in Edit mode (exit 2)

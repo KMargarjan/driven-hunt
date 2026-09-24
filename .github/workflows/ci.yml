@@ -22,7 +22,8 @@ jobs:
       - uses: CompeyDev/setup-rokit@v0.2.1
 
       - name: Rojo build
-        run: rojo build default.project.json --output build/place.rbxl
+        # rojo build does not create missing output directories.
+        run: mkdir -p build && rojo build default.project.json --output build/place.rbxl
 
       - name: Selene lint
         run: selene src tests
