@@ -11,6 +11,150 @@ Newest first. The Director or Karen answers under each entry, and the entry is c
 
 ---
 
+## 2026-09-24 · CLOSED 2026-09-24 · Task 19 round 2: a Reviewer finding I believe is factually
+wrong, and a contradiction I may not fix myself
+
+**Raised by:** Builder, at loop step 5 of Task 19 (branch `task-19-shotgun-design`, code commit
+`0f5627f`). Two separate things, both from review round 2 — the Director's limit for this task.
+
+### 1. Round 2's finding 1 is factually wrong, and the evidence is reproducible
+
+The finding says my addendum's `docs/PROJECT_CONTEXT.md` line numbers "are all wrong", and that of the
+design's four citations only `:592` is "genuinely wrong".
+
+Checked three independent ways at commit `009c20e`, on a clean tree — `awk` over the working tree,
+`grep -n` over the working tree, and `grep -n` over `git show HEAD:docs/PROJECT_CONTEXT.md`. All three
+agree:
+
+| Quote | Actually at | Round 2 says | Design cites | Verdict on the design |
+|---|---|---|---|---|
+| "Two systems wrote the creature's position" | **34** | 36 | `:36` | wrong |
+| "Three scripts set the mouse cursor" | **32** | 34 | `:33-34` | wrong |
+| "one predicate answered two unrelated questions" | **32-33** | 34-35 | `:34-35` | wrong |
+| "a visibility audit ignored parent visibility …" | **30-31** | 32-33 | `:30-31` | **correct** |
+
+Round 2's numbers are uniformly **two lines later** than the file reads, which inverts its conclusion:
+`:592` is the **only correct** design citation, not the only wrong one. My addendum's numbers
+(`:34`, `:32`, `:32-34`, `:29-31`) were correct or contained the quote; they are now exact.
+
+I cannot explain the offset. The Reviewer reads a `git worktree` of the same commit, which should be
+byte-identical, and `docs/PROJECT_CONTEXT.md` is 48 lines of ASCII with no BOM and has not been
+touched by this branch. **If the Reviewer's worktree really does differ from the commit, that is a
+harness fault and far more important than this task** (rule 6). Someone with Studio down but git
+working should run `git show 009c20e:docs/PROJECT_CONTEXT.md | grep -n` and compare.
+
+Round 1's finding 10 was wrong the same way on two of its four replacements, and **I copied it into
+the addendum instead of checking it** — which is how a wrong correction got two rounds of life. That
+is my error, and it is the reason `CLAUDE.md` has the "you believe a finding is factually wrong" stop
+rule at all.
+
+### 2. The note and the design contradict each other on the slug cone, and I may not fix it
+
+`docs/design/shotgun.md` §9: "Slug cone | 0.16° **half-angle**". The note: "**0.16° full cone**
+(0.08° half-angle)", with the arithmetic. The buckshot row beside it in §9 is a **full** angle, and
+§11.1 specs the pattern as "within the configured **half-angle** of the aim". So a `ShotgunConfig`
+built from §9 as written produces a cone at 2× or 0.5×. Round 2's finding 4 is right that this ships
+two documents disagreeing on a load-bearing number.
+
+Rule 3 gives `docs/design/` and `ARCH_RESULT.md` to the Architect and the Builder never edits them, so
+I have recorded all three design defects in `TASKS.md` row 19 and in the note's addendum rather than
+touching the files. Round 2 asked for either a regeneration or this entry; this is the entry.
+
+**Options for the Director.**
+1. **Re-run `tools/architect.ps1 design shotgun`** on the corrected note. ~$2 and a few minutes. It
+   would fix all three defects at once and re-derive its own citations — but it returns an
+   **unreviewed** design, and this task has no rounds left to check it.
+2. **Accept the documents as they are**, with the three defects recorded in `TASKS.md` row 19, and
+   regenerate the design when the boar branches are merged — which it needs anyway, because
+   `ARCH_RESULT.md` item 3 says the Architect could not see them and therefore cannot guarantee one
+   writer for the damage entry point.
+3. Waive the two-round limit for one more review round.
+
+**Builder's recommendation: option 2.** The design has to be regenerated once the boar work is
+visible regardless, and doing it twice costs two sessions to fix three citation-level defects that
+are already written down where the next Builder will read them. Nothing is blocked in the meantime:
+Task 1.4's code is blocked on Director decisions 13.1–13.3 anyway.
+
+**Needs:** a Director decision on 2, and someone to sanity-check 1 — if the Reviewer's worktree
+differs from the commit, that is a harness bug.
+
+### DIRECTOR's answer · 2026-09-24
+
+**1. The Builder is right about the line numbers.** The Director checked
+`git show 009c20e:docs/PROJECT_CONTEXT.md`: the quotes are at **34, 32, 32-33 and 30-31**, exactly as
+the Builder reported. **Round 2's finding 1 was wrong by two lines**, and not fixing it was correct.
+Why the Reviewer's numbers were off — an evidence copy that differs from the commit, or a miscount —
+is logged as a **before release** item in `TASKS.md`. The working rule already covers the practical
+risk: `REVIEW_REQUEST.md` cites **files and symbols, not line numbers** (`CLAUDE.md` loop step 4).
+
+**2. Task 19 is accepted on the record**, as documents only. **The shotgun design will be
+REGENERATED by the Architect once Tasks 17 and 18 are merged**, and that regeneration fixes the
+half-angle / full-cone unit defect and names the damage entry point owner. **Until then the design is
+not built from.** So the Builder's recommendation (option 2) is taken, and the three design defects
+recorded in `TASKS.md` row 19 are the handover list for that regeneration.
+
+**3. The Architect's three blocking decisions are answered:**
+- **(a) Task 6 lands BEFORE the shotgun build. No waiver.** The smallest version is the one the
+  design proposes: one scenario, one key, one client spec.
+- **(b) Accepted:** the shotgun first ships on the **default camera, with no ADS and no viewmodel**.
+  Third-person-to-first-person aim comes as **its own camera task with its own design, right after**,
+  because Karen wants it in v1. So the design's §3.3 cut stands, and it is a sequencing decision, not
+  a scope cut.
+- **(c) The damage entry point owner is decided in the regenerated design** (see 2).
+
+**4. Karen's five feel questions keep their defaults** until her playtest.
+
+**Closed** 2026-09-24 by the Director.
+
+**Still open, and not part of this entry:** the `NEEDS KAREN · rojo serve is down` entry below.
+Karen has not connected yet, so Tasks 17, 18 and 19 still have no harness run.
+
+---
+
+## 2026-09-24 · OPEN · NEEDS KAREN · `rojo serve` is down; no task can be harness-tested
+
+**Raised by:** Builder, during Task 19 (branch `task-19-shotgun-design`).
+
+`rojo serve` crashed on 2026-09-24 during Task 17 and has not run since: no `rojo.exe`, nothing
+listening on port 34872. It is the known Rojo 7.7.0 watched-file panic, and on that occasion **a large
+branch switch alone was enough** — `git switch main && git pull` across 59 commits, no test, no
+deletion. Studio itself is still open on the DEV place in **Edit** mode and its MCP server still
+answers; only Rojo is down.
+
+Per the overnight rules I have not restarted it, and restarting alone would not be enough: the Rojo
+plugin's **Connect** button cannot be clicked by any tool.
+
+**This entry exists on this branch because it was missing here.** Tasks 17 and 18 carry the same
+entry, but they are on unmerged branches, so on `main` and on anything cut from it there was no record
+of why no task has a harness line — which review round 1 of this task caught (finding 1). The harness
+claim and the record must live in the same place.
+
+### Exact clicks for Karen, in order
+
+1. Open a terminal (PowerShell or Git Bash) in `C:\Users\karen\Desktop\driven-hunt`.
+2. Run, and leave the window open:
+
+   ```
+   rojo serve default.project.json
+   ```
+
+   It should print that it is serving on `localhost:34872`. If `rojo` is not found, run
+   `rokit install` first.
+3. In Roblox Studio, with **Driven Hunt DEV** open in **Edit** mode: the **Plugins** tab → **Rojo**
+   → **Connect**.
+4. Rojo may show a confirmation dialog listing instances it will remove. It should name nothing
+   outside the Rojo-owned containers. **Do not accept anything that names `Workspace.Baseplate` or
+   `Workspace.SpawnLocation`** — those are yours and must stay (rule 7).
+5. Nothing else.
+
+**What is waiting on those clicks.** Task 17 (test arena) and Task 18 (boar AI) have never been
+executed at all — no harness run, no screenshot. Task 19 is documents only and needs nothing from
+Studio, but it cannot cite a harness line either, which is why it says N/A and points here.
+
+**Needs:** Karen's clicks. Nothing here needs the Director.
+
+---
+
 ## 2026-09-24 · OPEN · Task 11 round 4 (authorised) returned 5 findings
 
 **Raised by:** Builder, at loop step 5 of Task 11 (branch `task-9-agent-workflow`, PR #4). The
