@@ -47,10 +47,11 @@ What `test` checks, in order (each is one "ok"/"FAIL" line)
        nested *.project.json refused, except third-party ones under DevPackages/
        *.rbxm / *.rbxmx BANNED: binary, unreviewable in a PR, cannot be compared
        anything else    "cannot compare" -> FAIL, never skipped
-     Properties/attributes are compared when their JSON value is a plain string/number/bool (integers
-     exactly, other numbers to float32 precision); a typed
+     Properties/attributes are compared when their JSON value is a plain string/number/bool (attributes
+     exactly; properties exactly or as their float32 rounding); a typed
      value ({"Vector3": ...}) fails as "cannot compare" until a comparison is added.
-     No synced file may be git-ignored (it would be tested but could never make the tree dirty).
+     No synced file may be git-ignored or outside the repo (it would be tested but could never make the
+     tree dirty).
      DevPackages/ (git-ignored TestEZ, which counts the passes) must match the committed
      devpackages.sha256 (which also pins the wally.lock hash).
   5. No script (LuaSourceContainer) exists anywhere in the DataModel outside the sourcemap: nothing
@@ -78,11 +79,11 @@ Safety
 import glob
 import hashlib
 import json
-import math
 import os
 import queue
 import secrets
 import shutil
+import struct
 import subprocess
 import sys
 import threading
@@ -340,13 +341,19 @@ def project_refusals():
 
 
 def ignored_synced_files(nodes):
-    """Synced files that git ignores: they would be tested but can never make the tree dirty."""
+    """Synced files outside git's view: git-ignored, or outside the repo. Either would be tested but could
+    never make the tree dirty (and would escape lint), so each one fails the run."""
     files = sorted({f for _, _, fs in nodes for f in fs
                     if f != "tests/sync-token.txt" and not f.startswith("DevPackages/")})
+    root = os.path.realpath(REPO) + os.sep
+    outside = [f for f in files if os.path.isabs(f) or not os.path.realpath(os.path.join(REPO, f)).startswith(root)]
+    inside = [f for f in files if f not in outside]
     # NUL-separated bytes: text mode on Windows turns "\n" into "\r\n", which breaks name patterns like *.key
-    r = subprocess.run(["git", "check-ignore", "-z", "--stdin"], input="\0".join(files).encode("utf-8"),
+    r = subprocess.run(["git", "check-ignore", "-z", "--stdin"], input="\0".join(inside).encode("utf-8"),
                        capture_output=True, cwd=REPO)
-    return [p for p in r.stdout.decode("utf-8").split("\0") if p]
+    if r.returncode not in (0, 1):  # 0 = some ignored, 1 = none ignored, anything else = git failed
+        raise RuntimeError(f"git check-ignore failed ({r.returncode}): {r.stderr.decode(errors='replace').strip()}")
+    return [f + " (outside the repo)" for f in outside] + [p for p in r.stdout.decode("utf-8").split("\0") if p]
 
 
 DEVPACKAGES_MANIFEST = os.path.join(REPO, "devpackages.sha256")
@@ -392,16 +399,21 @@ def is_plain(v):
     return isinstance(v, (str, bool, int, float))
 
 
-def same_value(expected, got):
-    """Compare a plain JSON value from disk with an encoded Studio value {t, v}."""
+def same_value(expected, got, float32=False):
+    """Compare a plain JSON value from disk with an encoded Studio value {t, v}.
+
+    Numbers: attributes are doubles, so they must be equal exactly. Properties may be float32, so they
+    match if Studio holds the value exactly or holds its float32 rounding (nothing looser).
+    """
     if got["t"] in ("error", "nil"):
         return False
     if isinstance(expected, bool) or got["t"] == "boolean":
         return isinstance(expected, bool) and got["t"] == "boolean" and expected == got["v"]
     if isinstance(expected, (int, float)) and got["t"] == "number":
-        if float(expected).is_integer() and float(got["v"]).is_integer():
-            return float(expected) == float(got["v"])  # attributes, IntValues, counts: exact
-        return math.isclose(expected, got["v"], rel_tol=1e-6, abs_tol=1e-12)  # float32 properties
+        value = float(got["v"])
+        if value == float(expected):
+            return True
+        return float32 and value == struct.unpack("f", struct.pack("f", float(expected)))[0]
     return isinstance(expected, str) and str(got["v"]) == expected
 
 
@@ -490,7 +502,7 @@ def compare_synced(studio, nodes):
                     if not is_plain(expected):
                         problems.append(f"{name}: cannot compare {group[:-1]} {key} in {spec['file']} "
                                         "(typed value; add a comparison)")
-                    elif not same_value(expected, got[group][key]):
+                    elif not same_value(expected, got[group][key], float32=(group == "props")):
                         problems.append(f"{name}: {group[:-1]} {key} is {got[group][key]['v']!r} in Studio, "
                                         f"{expected!r} in {spec['file']}")
     return problems
@@ -589,7 +601,7 @@ def run_test(studio):
         problems = project_refusals()
         check("default.project.json has no uncompared $properties/$attributes", not problems, "; ".join(problems))
         ignored = ignored_synced_files(nodes)
-        check("No synced file is git-ignored (all tested code is in the commit or shows as dirty)", not ignored,
+        check("No synced file is git-ignored or outside the repo (all tested code is in the commit or shows as dirty)", not ignored,
               ", ".join(ignored[:8]))
         problems = devpackages_problems()
         check("DevPackages (TestEZ) match the committed devpackages.sha256", not problems, "; ".join(problems))
