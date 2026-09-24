@@ -2,9 +2,9 @@
 
 Written by the Builder for `tools/review.sh`. The format is below; the script parses the first three lines.
 
-Round: 1
+Round: 2
 Base: `e81eb4d`
-Code commit: `8a6edd05a3e03e7de4485c9282e406c51b4d16f3`
+Code commit: `7b1fe873d94615806a058e30c0f54d21170dc60a`
 
 ## Task
 
@@ -14,7 +14,10 @@ routes to the exit edge around cover, and despawns with a signal. The first AI i
 **Please read this first: there is no harness run, and there cannot be one.** `rojo serve` crashed
 during Task 17 and only Karen can press Connect, which she will do at ~09:00 (`ESCALATE.md`,
 "NEEDS KAREN · `rojo serve` crashed"). The Director dispatched this task in "no-Studio mode" and
-asked explicitly that the review go ahead anyway and judge **the code and the specs**. So:
+asked explicitly that the review go ahead anyway and judge **the code and the specs**. Round 1's
+finding 4 was right that nothing in the repo said so: **both dispatches are now transcribed verbatim
+in `TASKS.md`, section "Director dispatches, transcribed by the Builder"**, which is where CLAUDE.md
+puts a dispatch that arrived outside the repo. So:
 
 - **A `PASS` here means "PASS pending harness"**, not "this works". Nothing in this task has ever
   executed — not the module, not either spec.
@@ -56,11 +59,17 @@ Task 17 is not on `main` yet, so the diff is Task 18 only.
 
 Each names a file and a symbol. No line numbers (CLAUDE.md loop step 4).
 
-1. **One owner for boar state, and `Brain`/`Body` are private to it.** `Boar.newRuntime` in
-   `src/server/Boar/init.luau` is the only thing that constructs a `Brain` or calls `Body.create`,
-   `Body.drive` or `Body.destroy`. Verify: `grep -rn "Body\.\|Brain\.new" src tests` — outside
-   `init.luau` the only hits are `Boar.Brain` (the deliberate export, used by `boar_brain.spec`) and
-   comments. `GAME_DESIGN.md` has the matching row.
+1. **One owner for boar state in production, and `Body` is private to it.**
+   `src/server/Boar/init.luau` is the only file that calls `Body.create`, `Body.drive`,
+   `Body.destroy` or `Body.ensureFolder`, and `Runtime:spawn` is the only production caller of
+   `Brain.new`. Verify: `grep -rn "Body\.\|Brain\.new" src tests`. Outside `init.luau` the hits
+   are the **definitions** in `Body.luau` and `Brain.luau` plus exactly one call:
+   `tests/server/boar_brain.spec.luau` calls
+   `Brain.new(CONFIG, FIELD, START, Random.new(...))` through the `Boar.Brain` export, which exists
+   so the pure state machine can be tested without a world. **Round 1's finding 5 was right that the
+   old wording ("the only thing that constructs a `Brain`") was false** — the spec constructs one
+   too, and it is `Runtime:spawn`, not `newRuntime`, that does so in production.
+   `GAME_DESIGN.md` has the matching owner row.
 2. **Nothing but this system writes in Workspace, and it never deletes anything it did not create.**
    `Body.ensureFolder` returns an existing folder untouched or makes one; `Body.destroy` destroys
    only the Part it made and never the folder; `Runtime:destroy` destroys only its own boars.
@@ -75,10 +84,13 @@ Each names a file and a symbol. No line numbers (CLAUDE.md loop step 4).
    `_sinceSense` and senses every `CONFIG.SENSE_INTERVAL` (0.2 s), so the worst case is 0.2 s plus
    one frame against the Director's 0.5 s. `boar_brain.spec`, "enters FLEE within 0.5 s…", asserts it
    against its own `REACTION_LIMIT = 0.5` constant, not against `CONFIG`.
-5. **The threat test is exactly one function.** `CONFIG.isThreat(player)` in `src/server/Boar/init.luau`,
-   called only by `defaultWorld().threats`. `Brain` never sees a `Player`: it gets
-   `{ id, position }` records. Verify: `grep -rn "isThreat\|Players" src` — `Players` appears only in
-   `init.luau`'s `defaultWorld`.
+5. **The threat test is exactly one function.** `CONFIG.isThreat(player)` in
+   `src/server/Boar/init.luau`, called only by `defaultWorld().threats`. `Brain` never sees a
+   `Player`: it gets `{ id, position }` records, so a spec can place a fake threat as a `Vector3`.
+   Verify: `grep -rn "isThreat\|Players" src` — the hits are the module-level
+   `local Players = game:GetService("Players")` at the top of `init.luau`, its single use inside
+   `defaultWorld().threats`, and the `CONFIG.isThreat` definition and that one call. **Round 1's
+   finding 5 was right** that "appears only in `defaultWorld`" was wrong about the service line.
 6. **The route heads for the exit line, not just away.** `Brain._routeTarget` always returns
    `Vector3.new(targetX, field.groundY, field.exitZ)`. `boar_brain.spec` asserts `target.Z` equals the
    exit line, that `targetX` is inside the bounds minus `EDGE_MARGIN`, and that it is on the opposite
@@ -125,9 +137,15 @@ Each names a file and a symbol. No line numbers (CLAUDE.md loop step 4).
     `SPRINT_SPEED = 38` is physically right rather than a compromise; the body is
     `Vector3.new(2, 3, 5.5)`. Addendum §1. **The design's URL for that source
     (`/docs/art/modeling/roblox-units`) is a 404**; the working one is in the addendum table.
-15. **Every number is in one table.** `Boar.CONFIG` in `src/server/Boar/init.luau`. Verify: no numeric
-    literal outside it in `Brain.luau` or `Body.luau` except `0`, `1`, `2`, `1e-6` and the
-    `math.pi / 2` stuck-turn, all of which are structural rather than tunable.
+15. **Every *tunable* number is in one table**, `Boar.CONFIG` in `src/server/Boar/init.luau`.
+    Round 1's finding 6 was right on both counts: the old claim's exception list missed the `0.5`
+    coin-flip in `Brain._senseIdle`, and `AGENT_PARAMETERS` sat outside `CONFIG` although the agent
+    radius and height are exactly the sort of thing that decides whether the navmesh will route a
+    2 × 3 × 5.5 body past the cover blocks. **`CONFIG.AGENT` now holds them.** What remains outside
+    `CONFIG` in `Brain.luau` and `Body.luau` is structural, not tunable: `0`, `1`, `2` and `1e-6`
+    (axis components, halves, and the degenerate-vector epsilon), `0.5` for an even coin flip, and
+    `math.pi / 2` for the right-angle stuck turn. The comment above `CONFIG` says "tunable", not
+    "every number".
 16. **No client code, no RemoteEvent, no `Humanoid`, no per-frame `CFrame` write.** Verify:
     `grep -rn "Remote\|Humanoid\|LocalPlayer" src/server/Boar src/server/BoarBoot.server.luau`
     matches exactly one line, the comment on `CONFIG.TROT_SPEED` explaining why it must exceed the
@@ -141,6 +159,43 @@ Each names a file and a symbol. No line numbers (CLAUDE.md loop step 4).
     is documented in CLAUDE.md's file-types table and `rojo build` accepts it, but no other folder
     module exists in the repo, so this is the first exercise of it. The design names the fallback
     (three flat files) if Rojo or the harness mishandles it.
+
+## Round 2: the six round-1 findings
+
+Fixed in `7b1fe87`. All six were right; three were defects in this task's code and specs.
+
+19. **Finding 1 — `Path.Blocked` was documented but not implemented, and a `Path` was created per
+    request.** Both true, and the header comment in `src/server/Boar/init.luau` asserted the
+    behaviour, which makes it a rule-9 violation as well as a gap against the design. Fixed for real
+    rather than by deleting the sentence: `defaultWorld` keeps `paths[agentId]`, creates each boar's
+    `Path` once, connects `Path.Blocked` once, and forwards `blockedWaypointIdx` to the Runtime's
+    listener. `Runtime:_requestPath`'s `onBlocked` forces a repath **only when the blocked index is
+    still ahead of the boar** — `blockedWaypointIdx >= entry.brain:consumed() + 2`, because our
+    waypoint list drops the engine's waypoint 1. `Brain:consumed()` and `Brain._consumed` exist for
+    that comparison and nothing else; `Runtime:stats().pathBlocked` counts the repaths it caused;
+    `world.releasePath(agentId)` drops the `Path` and the listener on despawn and in
+    `Runtime:destroy`. **This is the largest change since round 1 and none of it has run.**
+20. **Finding 2 — the anti-stuck turn was dead code.** Correct, and the diagnosis was exact: it was
+    written to `Brain._heading`, which `_fleeDirection` reads only as the degenerate fallback of
+    `unit()`, so in the pinned-against-cover case it exists for, the value was never used. The turn
+    now goes on the direction the Brain actually returns, and the stale route is dropped with it
+    (a route that leads into the obstruction is worth discarding). `boar_brain.spec`, "turns when it
+    is stuck against something", drives a boar whose position never changes for three times
+    `STUCK_TIME` and asserts the output direction changes — the assertion that was missing.
+21. **Finding 3 — `boar_body.spec` would have failed on its first run for the wrong reason.**
+    Correct, and the arithmetic in the finding is right: the boar spawns `SPAWN_CLEARANCE` = 0.5
+    studs clear, the mover leaves Y to gravity, and a 0.5-stud drop at 196.2 studs/s² peaks near
+    14 studs/s — against an assertion of `WANDER_SPEED * 2` = 8. The spec now waits for the body to
+    land (`|velocity.Y| < 1`) and then measures the **flat XZ** speed, which is what "idles slowly"
+    means. This is the rule-6 case: a harness fault would have been reported as a game bug.
+22. **Finding 4 — the no-harness, no-screenshot authority had no record in the repo.** Correct.
+    `TASKS.md` now has a "Director dispatches, transcribed by the Builder" section holding **both**
+    dispatches verbatim, marked as the Director's, as CLAUDE.md's BUILDER row allows. It also
+    records that I did not escalate over the two design formula errors, and why, so that decision is
+    on the record rather than implied.
+23. **Findings 5 and 6 — claims 1, 5 and 15 were false as written.** All three corrected above, and
+    each now says what round 1 found rather than quietly changing. The agent parameters moved into
+    `CONFIG.AGENT`.
 
 ## Harness
 
@@ -169,6 +224,11 @@ clicks. `TASKS.md` records that **Tasks 17 and 18 both still owe a harness run a
   speed and up to 8 s for the despawn. Those are guesses about physics I have not watched.
 - **Source 10 (Buckland, *Programming Game AI by Example*) is not verified online.** I have no copy.
   It is cited for a pattern that sources 1 and 3 already carry, so nothing rests on it alone.
+- **The round-1 fixes have not run either**, and finding 1's fix is the biggest single piece of
+  untested logic in the task: the `Path` cache, the `Blocked` connection and the `consumed() + 2`
+  index comparison are all reasoning about an engine event I have never seen fire. If the off-by-one
+  is wrong in either direction the symptom is mild — a repath too many or too few — but it is
+  unverified, and `stats().pathBlocked` is there so it can be checked when Studio is back.
 - **CI status.** No `gh` on this machine. The Director checks it.
 - **`Brain:debug()` is used by the spec's probe assertion.** It is a debug accessor being leaned on
   as a test seam; if you think that is the wrong shape, say so — it would be cheap to change now.
