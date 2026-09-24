@@ -3,7 +3,7 @@
 -- Note: docs/research/2026-09-24-toolchain.md
 -- The harness (tools/studio_mcp.py) also compares every synced script's Source with disk before Play.
 local ServerScriptService = game:GetService("ServerScriptService")
-local ServerStorage = game:GetService("ServerStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local DEV_PLACE_ID = 136410205938347 -- default.project.json servePlaceIds
 
@@ -14,7 +14,7 @@ return function()
 		end)
 
 		it("delivered the harness sync token from tests/sync-token.txt", function()
-			local tokenValue = ServerStorage:FindFirstChild("TestSyncToken")
+			local tokenValue = ReplicatedStorage:FindFirstChild("TestSyncToken")
 			expect(tokenValue).to.be.ok()
 			expect(tokenValue.ClassName).to.equal("StringValue")
 			expect(string.match(tokenValue.Value, "^%x+:%d+$")).to.be.ok()
