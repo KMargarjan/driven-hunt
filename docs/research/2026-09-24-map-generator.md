@@ -64,10 +64,9 @@ Three consequences that shape everything below:
   biomes, blending, caves, biome size and a **seed**.
 - **Bad, and this is the decisive finding for this task:** both are **Studio UI plugin features**.
   The documentation contains **no scripting API for importing a heightmap or colormap**, and the
-  Studio MCP server exposes no tool for them either (its tool list is `execute_luau`,
-  `insert_asset`, `search_asset`, `screen_capture`, `generate_*`, `run/stop play`, input, console —
-  nothing that drives the Terrain Editor). Community threads asking to automate multi-heightmap
-  imports find no API answer.
+  Studio MCP server exposes no tool for them either — see **§12** for where that tool list comes
+  from and how far it can be trusted, and for the community threads that ask for exactly this
+  automation and get no API answer.
   **So: heightmap import is not available to this project's generator.** It would be a manual Karen
   click, with a PNG that lives outside the repo and cannot be reviewed as a diff — which is exactly
   what map option C was chosen to avoid. **The generator therefore computes its own heightfield in
@@ -161,10 +160,15 @@ Three consequences that shape everything below:
 - `AssetService`: <https://create.roblox.com/docs/reference/engine/classes/AssetService>
 - Licence: first-party docs for the APIs; the mesh-limit figures are community/vendor pages.
   Maintenance: the APIs are current; the limit pages are recent but secondary.
-- **Good:** the limits are knowable up front. A **MeshPart caps at 21,000 triangles** (UGC
-  accessories at 10,000), and **no single texture map may exceed 1024 × 1024** — diffuse, normal,
-  roughness and metallic alike. An import over the limit **fails at import with an error** rather
-  than degrading quietly, which is the good kind of failure. Upload can be automated: Open Cloud's
+- **Good:** the limits appear knowable up front. A **MeshPart is reported to cap at 21,000
+  triangles** (UGC accessories at 10,000), with **no single texture map above 1024 × 1024** —
+  diffuse, normal, roughness and metallic alike — and an import over the limit is reported to
+  **fail at import with an error** rather than degrade quietly, which would be the good kind of
+  failure.
+- **Bad, and it must be said where the numbers are used:** every one of those figures is from a
+  **DevForum thread or a vendor page**, not from Roblox documentation. I did not find a first-party
+  page stating them. They are the best available and they are probably right, but they are the same
+  class of evidence as the part counts in §6 and the numbers table labels them so. Upload can be automated: Open Cloud's
   Assets API takes `POST https://apis.roblox.com/assets/v1/assets` with the key in an **`x-api-key`
   header**, with an API key scoped to **assets / read and write**; `AssetService.CreateAssetAsync`
   and `CreateMeshPartAsync` exist in-engine and require the `AssetCreateUpdate` capability.
@@ -196,11 +200,44 @@ Three consequences that shape everything below:
   Maintenance: actively maintained.
 - **Good:** Roblox ships a Perlin noise function in the standard library, so the generator needs no
   noise dependency at all. Confirmed signature: `math.noise(x: number, y: number, z: number): number`.
-- **Bad, and it is why §12 below is written the way it is:** the reference page gives **the signature
-  and nothing else** — no algorithm, no output range, no statement that it is deterministic across
+- **Bad, and it is why "The smallest first generator task" below is written the way it is:** the
+  reference page gives **the signature and nothing else** — no algorithm, no output range, no statement that it is deterministic across
   sessions or engine versions, and **no seed parameter**. Every one of those matters to a generator
   whose whole promise is reproducibility, and none of them can be cited. The first generator task
   measures them.
+
+### 12. The Studio MCP tool list, and the community asking for scripted heightmap import
+- **The tool list is a first-hand observation, not a document.** On 2026-09-24, during Task 17, I
+  called `tools/list` on the running StudioMCP server through the harness's own MCP client and it
+  returned: `character_navigation`, `execute_luau`, `generate_material`, `generate_mesh`,
+  `generate_procedural_model`, `generate_texture`, `get_console_output`, `get_studio_state`,
+  `http_get`, `insert_asset`, `inspect_instance`, `list_roblox_studios`, `multi_edit`,
+  `screen_capture`, `script_grep`, `script_read`, `script_search`, `search_asset`, `segment_mesh`,
+  `skill`, `start_stop_play`, `store_image`, `subagent`, `upload_image`, `user_keyboard_input`,
+  `user_mouse_input`, `wait_job_finished`. **That is the whole list, enumerated, not sampled** — which
+  is what lets the absence of a Terrain-Editor tool be stated as an absence rather than a guess.
+- Licence / maintenance: **not applicable — it is not a published source.** StudioMCP ships with
+  Roblox Studio, which auto-updates and is **not pinned** (CLAUDE.md's toolchain table), so the list
+  can change under us without notice. **It is also not reproducible from this repository**: the
+  in-repo record is partial — `docs/research/2026-09-24-toolchain.md` names only
+  `start_stop_play`, `get_console_output`, `execute_luau` and `screen_capture`, and
+  `tools/studio_mcp.py` deliberately wraps only the first three, because the harness is built to be
+  read-only by construction. Anyone re-checking this must call `tools/list` themselves.
+- **Good:** it settles the question the Director asked to be answered plainly. **Bad:** it is a
+  point-in-time observation of an unpinned dependency, and the first generator task should re-check
+  it rather than trust this line.
+
+### 13. Community requests for scripted heightmap import — the corroboration
+- <https://devforum.roblox.com/t/is-there-any-way-to-import-terrain-from-multiple-heightmaps-automatically/2184196>
+  · <https://devforum.roblox.com/t/terrain-heightmap-import/58469>
+  · <https://devforum.roblox.com/t/smooth-terrain-heightmapcolormap-importer-release/295883>
+- Licence: forum posts, cited as corroboration only. Maintenance: community threads, not a spec.
+- **Good:** developers asking precisely "can I import many heightmaps automatically?" get no API
+  answer — only UI workflows and third-party plugins. That is weak evidence on its own but it agrees
+  with §3 and §12, and three independent kinds of evidence pointing the same way is why the note
+  states the conclusion without hedging.
+- **Bad:** absence of an answer on a forum is not proof an API does not exist. The load-bearing
+  evidence is §3 (the documentation) and §12 (the enumerated tool list); this is corroboration.
 
 ## Numeric targets
 
@@ -216,7 +253,7 @@ Derived at 1 stud = 0.28 m. These are **targets to be measured against**, not me
 | **Total parts/meshes in the place** | **≤ 20,000** | Community guidance is <50,000 visible for desktop and ~20,000 for mobile (source 6). With streaming at 1024 studs a player sees a fraction of the map, so 20,000 total is a deliberately conservative ceiling for a v1 that must run on a phone |
 | **Visible parts at any moment** | **≤ 8,000** | Well inside the mobile figure, leaving headroom for 16 players' characters, a shotgun each and the boar |
 | **Trees** | ~**3,000** across all stands, 1 MeshPart each | Inside the part budget with room to spare. Spruce and birch: 2 species × 3 variants is enough visual variety at hunting distances |
-| **Mesh budget per prop** | **≤ 21,000 triangles**, textures **≤ 1024 × 1024** | Roblox's hard import limits (§9). Trees should be **far** under: a background conifer wants hundreds of triangles, not thousands, at 3,000 instances |
+| **Mesh budget per prop** | **≤ 21,000 triangles**, textures **≤ 1024 × 1024** | **Community/vendor figures, not first-party** (§9): the DevForum and a vendor page give these as the import limits, and I found no Roblox documentation page stating them. Treat them as a ceiling to confirm at the first import, not as a specification. Trees should be **far** under either way: a background conifer wants hundreds of triangles, not thousands, at 3,000 instances |
 | **Client memory** | **≤ 1.5 GB** on a mid phone | A target, not a measurement. Mobile clients crash on memory with streaming (§5), so this is the number to watch first |
 | **Join-to-playable** | **≤ 15 s** on a mid phone | A target. Streaming means the whole map need not load, so this should be achievable; it must be measured |
 | **Generator run time** | no limit | It runs at edit time through MCP. Slow is fine; correct and repeatable is not optional |
