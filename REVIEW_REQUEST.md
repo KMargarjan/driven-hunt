@@ -2,9 +2,9 @@
 
 Written by the Builder for `tools/review.sh`. The format is below; the script parses the first three lines.
 
-Round: 2
+Round: 3
 Base: `e81eb4d`
-Code commit: `7b1fe873d94615806a058e30c0f54d21170dc60a`
+Code commit: `b181bd3afc603db309472a0abb391dae9b641e52`
 
 ## Task
 
@@ -197,6 +197,53 @@ Fixed in `7b1fe87`. All six were right; three were defects in this task's code a
     each now says what round 1 found rather than quietly changing. The agent parameters moved into
     `CONFIG.AGENT`.
 
+## Round 3: the six round-2 findings
+
+Fixed in `b181bd3`. All six were right. Three were defects I had already been told about once and
+fixed badly, which is the honest headline of this round.
+
+24. **Finding 1 — the anti-stuck turn still could not change the boar's course.** Right, and my
+    round-1 fix was only half a fix: I moved the rotation from `Brain._heading` to the local
+    `desiredDirection`, and the very next statement, `self._desired = slew(...)`, limits the output
+    to `TURN_RATE * dt` — 3.8° at 60 Hz — after which the next tick recomputes it. The offset now
+    goes on `self._desired` **after** the slew, so it survives; the slew then pulls it back toward
+    the route over ~`pi/2 / TURN_RATE` ≈ 0.4 s, which is the sidestep. The sign is drawn from the
+    injected `Random`, so it stays deterministic.
+25. **Finding 2 — the new stuck test was vacuous.** Right, and the proof given was exact: it passed
+    with the whole branch deleted, because `intent.facing` slews toward the flee direction every
+    tick from a random starting heading, so "changed by more than 1e-6" was true on tick 2, long
+    before `_stuckCount` could reach 2. It now measures the **largest single-tick turn**, which only
+    the stuck branch can push past `TURN_RATE * DT`, and there is a **control case**: the same seed
+    and threat with a boar that is covering ground must produce no turn larger than the slew allows.
+    The pair fails if the branch is deleted *and* fails if the branch fires when it should not.
+26. **Finding 3 — the `GAME_DESIGN.md` owner row contradicted the code.** Right, and it is the same
+    sentence round 1's finding 5 made me fix in claim 1 while I left the table alone. The row now
+    says `Body` is private and `Brain` is deliberately exported for `boar_brain.spec`.
+27. **Finding 4 — two undeclared deviations from the design's live-spec list.** Right on both.
+    The idle bound is back to the design's `WANDER_SPEED * 1.5` (I had written `* 2` while quoting
+    the design's own figure in the round-1 fix, which is worse than not quoting it). And the sprint
+    test now asserts what the design actually requires — that the **simulated body gets away**, flat
+    distance to the threat growing by ≥ 20 studs — not merely that it is moving fast. Before this,
+    nothing in the task asserted on a physical body that the boar escapes anything.
+28. **Finding 5 — the landing guard was vacuous.** Right. `waitUntil` evaluates its predicate before
+    its first `task.wait()`, a part created that tick has zero velocity, and nothing between
+    `runtime:spawn()` and the guard yields, so `|velocity.Y| < 1` was true immediately. It now waits
+    a frame and then waits for a **positive** condition the boar cannot satisfy in mid-air: resting
+    within 0.6 studs of `groundY + BODY_SIZE.Y / 2` with `|velocity.Y| < 1`.
+29. **Finding 6 — the production boar could despawn itself while idling.** This is the one real
+    gameplay bug in the task and I would not have found it. `_outcome` ran in every state, so any
+    position past `exitZ` reported `escaped`; `spawnPoint` was 130 studs from the exit line while
+    `HOME_RADIUS` is 120 and the wander spec tolerates 140. The grey box would have lost its only
+    boar before a driver arrived. Two changes, because either alone is thin: `escaped` is now a
+    **FLEE** outcome (leaving the arena is still `outOfBounds` in any state), and `spawnPoint` moved
+    to `Vector3.new(-40, 0, 20)`, 210 studs from the exit and clear of `PillarMid` and `WallWest`.
+    `boar_brain.spec` now has the assertion the finding asked for — an idle boar at the **real**
+    `CONFIG.spawnPoint` in the **real** `CONFIG.field` never despawns over 120 simulated seconds —
+    plus one that an idle boar sitting past the exit line is not despawned.
+
+**This is round 3, the last the script accepts.** If anything remains, I fix it, write `ESCALATE.md`
+and stop, per CLAUDE.md's stop rule.
+
 ## Harness
 
 **N/A — Studio is unreachable.** `rojo serve` crashed during Task 17 (the known Rojo 7.7.0 bug, on a
@@ -229,6 +276,11 @@ clicks. `TASKS.md` records that **Tasks 17 and 18 both still owe a harness run a
   index comparison are all reasoning about an engine event I have never seen fire. If the off-by-one
   is wrong in either direction the symptom is mild — a repath too many or too few — but it is
   unverified, and `stats().pathBlocked` is there so it can be checked when Studio is back.
+- **Rounds 1 and 2 each found a fix of mine that did not work.** The anti-stuck turn took three
+  attempts and the tests for it took two. Everything in this task is still unexecuted, so the same
+  class of error may well survive in the parts no Reviewer happened to trace by hand — most likely
+  the `Path.Blocked` index arithmetic and the `LinearVelocity` plane setup, neither of which any
+  amount of reading can settle.
 - **CI status.** No `gh` on this machine. The Director checks it.
 - **`Brain:debug()` is used by the spec's probe assertion.** It is a debug accessor being leaned on
   as a test seam; if you think that is the wrong shape, say so — it would be cheap to change now.
