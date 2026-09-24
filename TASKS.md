@@ -20,7 +20,55 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 | 14 | audit-002 #3: research note for `tools/agents.py` (rules 1, 2, 9) | **before release** | Not next. `ROADMAP.md` speed rule 1 |
 | 15 | audit-002 #2: detect Studio-made **non-script** instances in Rojo-owned containers | **before release** | Not next. `ROADMAP.md` speed rule 1. The unmanaged scan checks only scripts today |
 | 16 | audit-002 #1: typed property values (Vector3, CFrame, Color3…) in the harness | unblocked, not next | **Blocker resolved: Karen chose map option C** — the map is built by a map generator in code, run in Edit mode through Studio MCP, with templates on disk (`ROADMAP.md`, Milestone 2). So the harness must compare typed values on the templates. Needs an Architect design first. Not next: it lands with the map generator, before any positioned geometry |
-| 20 | **ROADMAP Milestone 2, docs only:** map generator research note | awaiting review | Branch `task-20-map-research`, from `main`. **No code, no Architect design** (the Director dispatched research only). `docs/research/2026-09-24-map-generator.md`, 10 sources. Key finding: **Studio's heightmap/colormap import is UI-only and unreachable from code or MCP**, so the generator computes its own heightfield. Ends with the smallest first generator task: a 512x512 stud slice that proves voxel writes, `math.noise`, **whether CollectionService tags survive a save and reopen**, and Edit-mode `screen_capture` as rule-5 evidence |
+| 20 | **ROADMAP Milestone 2, docs only:** map generator research note | awaiting review | Branch `task-20-map-research`, from `main`. **Scope is the Director's**, transcribed verbatim below under "Director dispatches": **no code, no Architect design** — research only. `docs/research/2026-09-24-map-generator.md`, 11 sources. Key finding: **Studio's heightmap/colormap import is UI-only and unreachable from code or MCP**, so the generator computes its own heightfield. Ends with the smallest first generator task: a 512x512 stud slice that proves voxel writes, `math.noise`, **whether CollectionService tags survive a save and reopen**, and Edit-mode `screen_capture` as rule-5 evidence |
+
+## Director dispatches, transcribed by the Builder
+
+CLAUDE.md gives the Builder this one right in `TASKS.md`: a Director dispatch that arrived outside
+the repo, transcribed verbatim and marked as the Director's. Newest first.
+
+### Task 20 · 2026-09-24 · NO-STUDIO MODE
+
+This is the authority for "research only, no code, no Architect design", and for accepting the task
+with no harness line (review round 1, finding 6).
+
+> NO-STUDIO MODE: rojo serve is down until Karen connects at ~09:00. Do not start rojo, do not use
+> Studio.
+>
+> TASK 20: map generator research note only (ROADMAP Milestone 2). NO code. Docs only.
+> Branch task-20-map-research from origin/main.
+>
+> Karen's decision (map option C): the map is built by a map generator, code on disk, run in Edit
+> mode through the Studio MCP server, verified with Edit-mode screenshots and by Karen walking it.
+> Assets: Creator Store first, Meshy (Karen makes models) where nothing fits. One small v1 map:
+> European farmland and woods (fields, hedgerows, spruce and birch stands, tracks, a bog), a drive
+> area, a shooter line along a wood edge.
+>
+> Research note docs/research/<date>-map-generator.md per rule 1, 3+ sources with licence and
+> maintenance:
+> - procedural terrain on Roblox (Terrain:FillBlock/FillRegion/WriteVoxels, noise-based
+>   heightfields), and whether Studio's heightmap/colormap import can be driven from code or MCP
+>   (state plainly if it cannot)
+> - open-source Roblox terrain/map generators or community modules worth borrowing
+> - placing vegetation and props at scale (instancing, part counts, StreamingEnabled, performance
+>   targets for 10-16 players, mobile)
+> - how the code finds gameplay markers (CollectionService tags) so the map carries no scripts
+> - free-licence asset sources: Creator Store rules/licensing for trees, fences, rocks; Meshy ->
+>   Roblox import (mesh triangle limits, texture limits, upload via Open Cloud with the API key only
+>   in an environment variable)
+> - a backup step ("Save to File" or equivalent) before each rebuild, outside the repo
+> - the numeric targets: map size in studs, max part/mesh count, memory, load time
+> End with the adopted pattern and the smallest first generator task.
+>
+> Short review loop on the doc (tools/review.sh, max 2 rounds). Push. Do not open a PR.
+> REPORT to the Director, short: the adopted pattern, the numbers, what needs Karen (taste, assets),
+> checklist. Then stop.
+
+**Builder's note.** "3+ sources" is the floor; the note has 11. No Architect design was run, because
+the dispatch did not ask for one — so **whoever builds the generator needs
+`tools/architect.sh design map-generator` first**. This note is input to that design, not a
+substitute: it assigns no owners, and rule 3 gives that call to the Architect.
+
 
 ## Review log
 

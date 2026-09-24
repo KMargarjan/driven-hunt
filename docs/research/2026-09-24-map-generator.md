@@ -23,7 +23,7 @@ Three consequences that shape everything below:
 2. **The map carries no scripts** (CLAUDE.md: nothing script-like is ever created in Studio, and
    Workspace is not Rojo-mapped). Gameplay code has to find its own landmarks — hence tags, §4.
 3. **Generation is destructive and hard to undo.** A rebuild replaces terrain and props wholesale.
-   That makes the backup step (§6) part of the system, not a nicety.
+   That makes the backup step (§10) part of the system, not a nicety.
 
 ## Sources
 
@@ -50,7 +50,7 @@ Three consequences that shape everything below:
   and `Terrain:SetMaterialColor(material, value)`. **`WriteVoxels` is the one that matters**: it
   takes a materials grid *and an occupancy grid*, which is what makes smooth, non-blocky ground
   possible from a heightfield. `Clear()` gives the generator a clean slate, and it is also the reason
-  §6 exists.
+  §10 exists.
 - **Bad:** the reference page shows `resolution` as `4` in its examples but **does not state that 4
   is the only supported value**, nor any size cap on a `ReadVoxels`/`WriteVoxels` region. Both are
   things the first generator task must **measure and write down**, not assume. Terrain is also a
@@ -111,10 +111,10 @@ Three consequences that shape everything below:
   <https://devforum.roblox.com/t/streamingenabled-maximum-distance-or-part-count/504827>
 - Licence: forum posts, cited as figures only. Maintenance: community threads, not a living spec.
 - **Good:** the only concrete figures available — keep **visible** parts under ~**50,000** for smooth
-  performance on most devices, and **mobile struggles past ~20,000 visible parts**. That is the
-  budget §9 is built from.
+  performance on most devices, and **mobile struggles past ~20,000 visible parts**. That is where
+  the part budgets in **"Numeric targets"** below come from.
 - **Bad:** these are rules of thumb from developers, not measurements of *this* map on *this* device
-  set. They are a starting budget to be replaced by measurement (§9), not a specification.
+  set. They are a starting budget to be replaced by measurement, not a specification.
 
 ### 7. RTerrainGenerator — the closest open-source Roblox terrain generator
 - <https://github.com/TheArturZh/RTerrainGenerator>
@@ -190,6 +190,18 @@ Three consequences that shape everything below:
   `backups/README.md` gets a note pointing at wherever Karen keeps them; the files themselves never
   come near git.
 
+### 11. `math.noise` — the noise function the heightfield is made of
+- <https://create.roblox.com/docs/reference/engine/libraries/math>
+- Licence: first-party documentation (creator-docs is CC BY 4.0); the function ships with the engine.
+  Maintenance: actively maintained.
+- **Good:** Roblox ships a Perlin noise function in the standard library, so the generator needs no
+  noise dependency at all. Confirmed signature: `math.noise(x: number, y: number, z: number): number`.
+- **Bad, and it is why §12 below is written the way it is:** the reference page gives **the signature
+  and nothing else** — no algorithm, no output range, no statement that it is deterministic across
+  sessions or engine versions, and **no seed parameter**. Every one of those matters to a generator
+  whose whole promise is reproducibility, and none of them can be cited. The first generator task
+  measures them.
+
 ## Numeric targets
 
 Derived at 1 stud = 0.28 m. These are **targets to be measured against**, not measurements.
@@ -219,14 +231,29 @@ driven through the Studio MCP server, with assets referenced by id and never com
 
 1. **Heightfield in Luau, not an imported PNG.** Forced by §3: heightmap import is Studio-UI-only and
    unreachable from code or MCP. The generator computes a heightfield from `math.noise` — Roblox's
-   built-in Perlin — with **domain warping**, the technique RTerrainGenerator documents (§7), and
-   writes it with `Terrain:WriteVoxels`, which takes occupancy as well as material and so gives
-   smooth ground rather than steps. **`math.noise`'s exact range and determinism guarantees are not
-   documented on the maths-library page** (I checked), so the generator must not assume: it seeds its
-   own `Random` and the first task records what `math.noise` actually returns.
-2. **Seeded and deterministic.** One `seed` number in a config table reproduces the map exactly. That
-   is what makes a generated map reviewable as a diff: the repo holds the seed and the rules, not the
-   geometry. It is also what makes a regression visible — the same seed must give the same map.
+   built-in Perlin (§11) — with **domain warping**, the technique RTerrainGenerator documents (§7),
+   and writes it with `Terrain:WriteVoxels`, which takes occupancy as well as material and so gives
+   smooth ground rather than steps.
+2. **Seeded and deterministic — and here is how the seed actually reaches the terrain**, because
+   `math.noise` has **no seed parameter** (§11). Two distinct mechanisms, and conflating them is a
+   mistake this note made in its first draft:
+   - **Terrain shape:** the seed is turned into a large **coordinate offset** into the noise field,
+     `math.noise((x + offsetX) * frequency, (z + offsetZ) * frequency)`. Different seeds sample
+     different parts of the same fixed field, which is the standard way to "seed" an unseedable
+     noise function. The field itself is whatever the engine implements, identical for every seed.
+   - **Everything discrete** — which trees, where props sit, hedgerow gaps — comes from
+     `Random.new(seed)`, which *is* seedable and documented.
+
+   So one `seed` number in a config table reproduces the map exactly **provided `math.noise` is
+   stable across sessions and engine versions, which the documentation does not promise** (§11).
+   That is the single biggest unproven assumption in this note, and it is the first thing the first
+   generator task measures: generate twice from the same seed and compare. If `math.noise` turns out
+   not to be stable, the fallback is a small seeded noise implementation on disk — more code, but
+   then reproducibility is ours rather than borrowed.
+
+   Reproducibility is what makes a generated map reviewable as a diff: the repo holds the seed and
+   the rules, not the geometry. It is also what makes a regression visible — the same seed must give
+   the same map.
 3. **Layers, each independent and re-runnable:** ground height → materials (field, track, bog) →
    hedgerows → tree stands → props → **markers**. Each layer is a pure function of the seed and the
    layers before it, so one can be re-run without rebuilding the world.
@@ -264,15 +291,16 @@ Not "the map". One vertical slice that proves every risky link, and nothing else
 It is small, and it answers every question this note could not:
 
 - does `WriteVoxels` accept the region size we want, and is `resolution` 4 the only value? (§2)
-- what does `math.noise` actually return, and is it stable across runs? (§10, pattern 1)
+- what does `math.noise` actually return, and **is it stable across runs and engine versions**?
+  (§11, and pattern point 2 — this is the assumption the whole seed story rests on)
 - **do `CollectionService` tags survive a save and reopen?** (§4 — if not, the marker scheme dies
   and this is the cheapest possible place to find out)
 - does an Edit-mode `screen_capture` through MCP give evidence good enough for rule 5? (Task 7 is
   unsolved for *play-time* screenshots, but this generator runs in **Edit** mode, where
   `screen_capture` does work — so Milestone 2 may be the first visual work in this project that can
   meet rule 5 without Karen)
-- how many parts and how much memory do 50 trees actually cost, so the 3,000-tree budget can be
-  checked by multiplication rather than hope?
+- how many parts and how much memory do 50 trees actually cost (§6's budgets), so the 3,000-tree
+  figure can be checked by multiplication rather than hope?
 
 Everything else — the bog, spruce/birch variety, the full 2048-stud map, Meshy uploads, Open Cloud —
 waits until that slice is on screen and Karen has walked it.
