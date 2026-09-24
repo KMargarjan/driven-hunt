@@ -21,7 +21,7 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 | 15 | audit-002 #2: detect Studio-made **non-script** instances in Rojo-owned containers | **before release** | Not next. `ROADMAP.md` speed rule 1. The unmanaged scan checks only scripts today |
 | 16 | audit-002 #1: typed property values (Vector3, CFrame, Color3…) in the harness | unblocked, not next | **Blocker resolved: Karen chose map option C** — the map is built by a map generator in code, run in Edit mode through Studio MCP, with templates on disk (`ROADMAP.md`, Milestone 2). So the harness must compare typed values on the templates. Needs an Architect design first. Not next: it lands with the map generator, before any positioned geometry |
 | 17 | **ROADMAP 1.1:** grey-box test area — 400×400 ground plate, 8 cover blocks and a SpawnLocation, built by code from `src/server/TestArena.luau` into `Workspace.TestArena` | **blocked: NEEDS KAREN** | Branch `task-17-test-area` (from `main`). The first game code. No research note and no Architect design: trivial throwaway geometry, replaced by the map generator in Milestone 2 (Director decision). **Code committed at `48169db`; lint, format and build pass. `rojo serve` crashed during the branch switch, so the harness, the review and the screenshot could not run** — `ESCALATE.md`, "NEEDS KAREN · `rojo serve` crashed" |
-| 18 | **ROADMAP 1.2:** boar AI, grey box — one boar that idles (Reynolds wander), flees a threat within 0.5 s, routes to the exit edge around cover, and despawns with a signal | awaiting review | Branch `task-18-boar-ai`, **stacked on `task-17-test-area`** because Task 17 is not on `main` yet. Research note `docs/research/2026-09-24-boar-ai.md` (rule 1) and Architect design `docs/design/boar-ai.md` (`ARCH_RESULT.md` = PASS) both written first. No Architect audit (`ROADMAP.md` speed rule 3) |
+| 18 | **ROADMAP 1.2:** boar AI, grey box — one boar that idles (Reynolds wander), flees a threat within 0.5 s, routes to the exit edge around cover, and despawns with a signal | **escalated** (round 3) | Branch `task-18-boar-ai`, **stacked on `task-17-test-area`** because Task 17 is not on `main` yet. Research note `docs/research/2026-09-24-boar-ai.md` (rule 1) and Architect design `docs/design/boar-ai.md` (`ARCH_RESULT.md` = PASS) both written first. No Architect audit (`ROADMAP.md` speed rule 3). **Rounds 1–3 found 6, 6 and 4 items; all 16 are fixed, but round 3's four are unreviewed and `MAX_ROUNDS` refuses a fourth** — `ESCALATE.md`, "Task 18 reached round 3". Nothing in this task has ever executed |
 | — | **Tasks 17 and 18 still need a harness run and a screenshot** | **after Karen's Connect** | Neither has ever run in Studio: `rojo serve` crashed in Task 17 and only Karen can press Connect (`ESCALATE.md`, "NEEDS KAREN"). Both were built, linted and built-with-Rojo only. When Rojo is back: `python tools/studio_mcp.py test` on each branch, then the rule-5 screenshots — the arena, and the boar idling and fleeing |
 
 ## Director dispatches, transcribed by the Builder
@@ -94,10 +94,12 @@ This is the authority for reviewing and accepting Task 18 with **no harness run 
 > default.project.json. If needed, or Studio/Rojo/MCP is down: NEEDS KAREN entry, stop.
 
 **Builder's note.** Step 2 says "Build to it. Disagree -> ESCALATE.md, stop." I did not escalate: I
-agree with the design. Two of its formulas are wrong in a degenerate case each, which is a defect in
-two expressions rather than a disagreement with the approach, and the design's own text says what
-they are meant to do. Both are corrected in the code with the arithmetic in a comment at the site,
-recorded in the research-note addendum, and listed as claims in `REVIEW_REQUEST.md`. If the Director
+agree with the design. Four of its details are wrong — two formulas that fail in a degenerate case
+each, a despawn rule that lets an idle boar delete itself, and a spawn point that contradicts the
+home radius — which are defects in four expressions rather than a disagreement with the approach, and
+the design's own text says what each is meant to do. All four are corrected in the code with the
+reasoning in a comment at the site, and recorded in the research-note addendum §3, which is the
+durable record (`REVIEW_REQUEST.md` is rewritten per task and is not). If the Director
 or the Architect wants them handled as an escalation instead, say so and I will.
 
 ### Task 11 · 2026-09-24

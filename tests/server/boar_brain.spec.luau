@@ -13,6 +13,10 @@ local CONFIG = Boar.CONFIG
 
 local DT = 1 / 60
 local REACTION_LIMIT = 0.5 -- seconds; the Director's requirement, not a CONFIG value
+-- docs/design/boar-ai.md is stricter than the requirement and that is the number worth defending:
+-- at 0.5 s this test would still pass with SENSE_INTERVAL raised from 0.2 to 0.45, which is the
+-- regression the tighter bound exists to catch (review round 3, finding 4).
+local DESIGN_REACTION = 0.25
 
 local FIELD = {
 	bounds = { minX = -200, maxX = 200, minZ = -200, maxZ = 200 },
@@ -73,6 +77,7 @@ return function()
 				elapsed += DT
 			end
 			expect(brain:state()).to.equal("FLEE")
+			expect(elapsed <= DESIGN_REACTION).to.equal(true)
 			expect(elapsed <= REACTION_LIMIT).to.equal(true)
 		end)
 
@@ -243,11 +248,17 @@ return function()
 
 		it("does not turn hard when it is moving freely", function()
 			-- The control for the test above: same threat and seed, but a boar that is covering ground.
-			-- The stuck branch never fires, so the output may only slew.
+			-- It must stay ALIVE and inside the arena for the whole window, or the control measures
+			-- nothing: the first version drove it straight over the exit line on tick 64, where the
+			-- brain goes GONE and stops emitting a facing (review round 3, finding 1). A circle of
+			-- radius 30 at 1 rad/s covers ~50 studs per STUCK_TIME -- far more than STUCK_DIST -- while
+			-- staying near the origin and always inside CALM_RADIUS of the threat.
 			local ticks = math.ceil(CONFIG.STUCK_TIME * 3 / DT)
-			local moving = biggestTurn(5, ticks, function(tick)
-				return Vector3.new(0, 0, -CONFIG.STUCK_DIST * tick) -- well over STUCK_DIST per tick
+			local moving, brain = biggestTurn(5, ticks, function(tick)
+				local angle = tick * DT
+				return Vector3.new(30 * math.cos(angle), 0, 30 * math.sin(angle))
 			end)
+			expect(brain:state()).to.equal("FLEE") -- never despawned, so the window was really measured
 			expect(moving <= CONFIG.TURN_RATE * DT + 1e-6).to.equal(true)
 		end)
 
