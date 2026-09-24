@@ -139,8 +139,8 @@ dollars. The script prints each session's cost into the result file's trailer.
      commit only in `REVIEW_REQUEST.md`,
    - CI (`.github/workflows/ci.yml`) is green on the PR head,
    - **between the code commit and the PR head, only paperwork changed**: `REVIEW_REQUEST.md`,
-     `REVIEW_RESULT.md`, `ARCH_RESULT.md`, `docs/architecture/audit-NNN.md` and the task's status
-     row in `TASKS.md`. `git diff --name-only <code commit>..<head>` shows it.
+     `REVIEW_RESULT.md`, `ARCH_RESULT.md`, `docs/architecture/audit-NNN.md`, `ESCALATE.md` and the
+     task's status row in `TASKS.md`. `git diff --name-only <code commit>..<head>` shows it.
 
    The head is necessarily ahead of the reviewed commit, because steps 5 and 6 commit the verdict
    files afterwards. That is why the gate is written against the code commit and bounds what may
