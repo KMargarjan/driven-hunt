@@ -285,7 +285,7 @@ def cmd_review():
             f"`Round: {rnd}` in REVIEW_REQUEST.md, but the committed REVIEW_RESULT.md is "
             + (f"round {prev_rnd} ({prev_verdict})" if prev_rnd else "not a verdict this script wrote")
             + f", so this run must be `Round: {expected}`. The round is counted from the verdict "
-              "file, not from the request, so the 3-round stop rule cannot be reset by hand.")
+              "file, not from the request, so it cannot be raised or skipped here.")
     if rnd > MAX_ROUNDS:
         raise Refused(f"round {rnd} > {MAX_ROUNDS}: stop rule. Write ESCALATE.md instead of another review")
     base = base.group(1)
