@@ -13,7 +13,8 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 | 7 | **BLOCKING before any visual client code (UI, HUD, cursor art):** play-time screenshots | todo | StudioMCP's `screen_capture` is edit-time only, so rule 5 cannot be met for play-time visuals by tools. Needs: find a capture path, or make Karen's screenshot the evidence (policy) |
 | 8 | Audit-001 fix-before-release and log-only items | todo | R2 is partly done (same-named siblings now fail). R3 = Task 3. L1 is done (docstring is the single source). L3 non-ASCII is fixed. L5 is fixed by Task 10. Open: L2, L4, L6, L7, L8, L9 (owner table rows) |
 | 9 | Four-agent workflow: roles, communication files, `tools/review` and `tools/architect` scripts, PROJECT_CONTEXT | awaiting review | Stacked on PR #3 (branch `task-9-agent-workflow`). From here on, TASKS.md queue and priority belong to the Director. The Builder updates only its current task's status and files non-must-fix audit items |
-| 10 | Proof of the loop: audit-001 L5, test-only globals (`describe`, `expect`, `SKIP`…) must be a lint error in `src/` | in progress | Branch `task-10-lint-test-globals`, stacked on `task-9-agent-workflow`. Small real change, run through the full loop (review, then one audit) |
+| 10 | Proof of the loop: audit-001 L5, test-only globals (`describe`, `expect`, `SKIP`…) must be a lint error in `src/` | done, pending Director on audit | Branch `task-10-lint-test-globals`, stacked on `task-9-agent-workflow`. Review: PASS in 2 rounds. Audit-002: 5 must-fix items, all outside this task's change; **escalated** (ESCALATE.md 2026-09-24) |
+| 11–15 | **Proposed by the Builder, awaiting the Director** (ESCALATE.md): audit-002 must-fix items 1–5 as separate tasks, before any game code | proposed | See `docs/architecture/audit-002.md` "Must fix now". Audit-002's "Fix before release" and "Log only" items are also unscheduled |
 
 ## Review log
 
