@@ -25,8 +25,11 @@ jobs:
         # rojo build does not create missing output directories.
         run: mkdir -p build && rojo build default.project.json --output build/place.rbxl
 
+      # Lint and format run even if an earlier step failed, so one run reports every problem.
       - name: Selene lint
+        if: success() || failure()
         run: selene src tests
 
       - name: StyLua format check
+        if: success() || failure()
         run: stylua --check src tests
