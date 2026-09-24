@@ -64,3 +64,33 @@ queued as its own task in `TASKS.md` and listed in the Builder's report. It is n
 is not fixed in the current task. Must-fix items **inside** the change are fixed as the loop says.
 
 **Closed** 2026-09-24 by the Director. No open escalations remain.
+
+#### Task 11's dispatch, verbatim (transcribed by the Builder, 2026-09-24)
+
+The Director dispatched Task 11 in the same message, outside the repo. Its scope is more than
+"review Task 9", so it is recorded here rather than inferred from a Builder-written `TASKS.md` row
+(review round 1, finding 3):
+
+> TASK 11: Task 9 (the four-agent workflow, PR #4) never went through the loop itself. Do that now.
+> 1. Work on branch task-9-agent-workflow (PR #4). First merge origin/main into it (a merge, not a
+>    rebase; no force pushes) so it is current with main.
+> 2. Also in this task, update CLAUDE.md to the new policy: the Director (agent) retargets and merges
+>    PRs after Reviewer PASS on the PR head, green CI and a clean-tree harness PASS naming that
+>    commit; Karen no longer merges; the Builder still never merges. Update the KAREN and DIRECTOR
+>    rows and the git-workflow section to match. Also add the stop case "a human action is needed
+>    (Rojo Connect, Studio MCP toggle, anything only Karen can click)": write it in ESCALATE.md headed
+>    "NEEDS KAREN" with the exact clicks, then stop.
+> 3. Run the loop on the whole Task 9 change (git diff origin/main...HEAD) plus the edits above:
+>    REVIEW_REQUEST.md, tools/review.sh, fix, repeat until PASS. Then one Architect audit; handle its
+>    items per the standing decision above.
+> 4. Push task-9-agent-workflow. Then merge task-9-agent-workflow into task-10-lint-test-globals
+>    (merge, no rebase) and push, so PR #5 stays current. Put the ESCALATE.md answer and TASKS.md rows
+>    on whichever branch lands first (task-9), not only on task-10.
+> 5. If Studio is not in Edit mode, Rojo is not connected, or the MCP server is off, and you cannot
+>    fix it yourself: NEEDS KAREN entry, stop.
+
+**Builder's note on item 2.** "Reviewer PASS on the PR head" as written cannot hold: loop steps 5 and
+6 commit `REVIEW_RESULT.md`, `ARCH_RESULT.md` and the audit document *after* the reviewed commit, so
+the head always moves past it (review round 1, finding 1). The gate in `CLAUDE.md` git-workflow step 4
+therefore names the **code commit** and bounds what may follow it (paperwork only). Same intent,
+satisfiable. Flagged to the Director in the Task 11 report.

@@ -20,6 +20,10 @@ How read-only is enforced (tested 2026-09-24, Claude Code 2.1.270). Each layer c
 Because the agent cannot run commands, this script precomputes tool output (diff, log, lint, build,
 sourcemap) into `.agent-evidence/` inside the worktree.
 
+The 3-round stop rule is enforced, not self-reported: `Round: N` in REVIEW_REQUEST.md must equal the
+round in the committed REVIEW_RESULT.md trailer plus one (or 1 after a PASS, or when there is no
+verdict yet). Only this script writes that trailer, so the count cannot be reset by hand.
+
 Exit codes: 0 PASS, 1 findings (numbered list), 2 refused or error (nothing written).
 Each call is one paid Claude session: see CLAUDE.md "Costs".
 """
@@ -125,7 +129,9 @@ def build_evidence(wt, base=None, code_commit=None):
 # ------------------------------------------------------------------ agent
 
 def run_agent(role, prompt_file, task_text, wt):
-    with open(os.path.join(REPO, prompt_file), encoding="utf-8") as f:
+    # From the worktree, not REPO: the prompt must come from the commit under review, so that an
+    # uncommitted edit cannot drive the session (review round 1, finding 4).
+    with open(os.path.join(wt, prompt_file), encoding="utf-8") as f:
         prompt = f.read().split("\n---\n", 1)[-1]  # drop the file's own header
     prompt += "\n\n## This run\n" + task_text + "\n"
     claude = shutil.which("claude")
@@ -162,6 +168,28 @@ def verdict_of(result_text, name):
     if re.match(r"^\s*1\.\s", first):
         return "FINDINGS"
     raise Refused(f"{name} line 1 must be `PASS` or start with `1.`; got: {first[:120]!r}")
+
+
+TRAILER_RE = re.compile(r"^REVIEWER verdict on commit `([0-9a-f]{40})` \(round (\d+)\)", re.M)
+
+
+def previous_review():
+    """(round, verdict) of the REVIEW_RESULT.md this script last wrote, or (None, None).
+
+    Read from the working tree, which `cmd_review` has already proved clean, so it is the committed
+    file. The trailer is written only by `trailer()`, so the Builder cannot raise the round by
+    editing REVIEW_REQUEST.md (review round 1, finding 2)."""
+    path = os.path.join(REPO, "REVIEW_RESULT.md")
+    if not os.path.exists(path):
+        return None, None
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    m = TRAILER_RE.search(text)
+    if not m:
+        return None, None  # the placeholder, or a file this script never wrote
+    body = text[:m.start()]
+    first = next((l for l in body.splitlines() if l.strip()), "")
+    return int(m.group(2)), ("PASS" if first.strip() == "PASS" else "FINDINGS")
 
 
 # ------------------------------------------------------------------ worktree
@@ -216,6 +244,14 @@ def cmd_review():
     code = code.group(1)
     git("rev-parse", "--verify", code + "^{commit}")
     rnd = int(rnd.group(1))
+    prev_rnd, prev_verdict = previous_review()
+    expected = 1 if prev_rnd is None or prev_verdict == "PASS" else prev_rnd + 1
+    if rnd != expected:
+        raise Refused(
+            f"`Round: {rnd}` in REVIEW_REQUEST.md, but the committed REVIEW_RESULT.md is "
+            + (f"round {prev_rnd} ({prev_verdict})" if prev_rnd else "not a verdict this script wrote")
+            + f", so this run must be `Round: {expected}`. The round is counted from the verdict "
+              "file, not from the request, so the 3-round stop rule cannot be reset by hand.")
     if rnd > MAX_ROUNDS:
         raise Refused(f"round {rnd} > {MAX_ROUNDS}: stop rule. Write ESCALATE.md instead of another review")
     base = base.group(1)
