@@ -81,9 +81,12 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
    review rounds it took.
 
 **Stop rules.** Write `ESCALATE.md` and stop when:
-- the same item fails 3 rounds. `tools/review.sh` refuses `Round: 4`, and it counts the round from
-  the committed `REVIEW_RESULT.md` trailer (which only the script writes), not from
-  `REVIEW_REQUEST.md`, so the count cannot be reset by hand
+- the same item fails 3 rounds. `tools/review.sh` refuses `Round: 4`, counting the round from the
+  committed `REVIEW_RESULT.md` trailer rather than from `REVIEW_REQUEST.md`, and refusing when that
+  trailer has gone missing from a file whose git history had one. So the count cannot be raised,
+  skipped or reset from the request, or by restoring the placeholder. It is **not** tamper-proof: a
+  Builder can still commit a hand-written trailer, or rewrite history. See "What is enforced and
+  what is policy"
 - you believe a Reviewer or Architect finding is factually wrong (write the evidence)
 - a design, feel or taste decision is needed
 - **a human action is needed** (Rojo **Connect**, the Studio MCP toggle, Studio not in Edit mode,
@@ -156,6 +159,12 @@ Reviewer sign-off (approvals are set to 0, and the Reviewer has no GitHub accoun
 condition, who merges, or that the Builder never merges. The Builder's credentials could merge a green
 PR. All of those are **policy**: rule 10 plus this section. The Builder follows them, the Director
 checks them before merging, and the Reviewer checks them in the review.
+
+The **round count** is in between. `tools/agents.py` takes it from the committed `REVIEW_RESULT.md`
+trailer and refuses a request that raises, skips or resets it, including by restoring the `NONE`
+placeholder. But the Builder writes the repo's commits, so a hand-written trailer, or a history
+rewrite, would still get past it. Until audit-002 must-fix #5 (Task 12) makes the verdict files
+writable only by the scripts, the last step of the stop rule is policy too.
 
 ## Definition of done
 
