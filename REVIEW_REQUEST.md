@@ -126,16 +126,26 @@ Fixed in `9fe442c`. The finding numbers are round 1's.
     the definition of done now say "code commit" too. The gate is satisfiable for this very PR: see
     the Harness section below.
 19. **Finding 2 — the 3-round stop rule was self-reported.** Agreed. Fix: the round is now taken from
-    the committed `REVIEW_RESULT.md` trailer, which only this script writes. How to verify:
+    the committed `REVIEW_RESULT.md` trailer, which `trailer()` writes, instead of from the
+    Builder-written `REVIEW_REQUEST.md`, so it cannot be raised, skipped or reset from the request
+    (round 2 added the look-back that also catches deleting the trailer). It is **not** tamper-proof:
+    the Builder writes the repo's commits, so a hand-written trailer or a history rewrite still gets
+    past it, and the verdict files stay protected by policy alone until audit-002 must-fix #5
+    (Task 12). That is exactly what `tools/agents.py:28-31` and `CLAUDE.md:87-88` say; this claim
+    said "only this script writes" until round 3's finding 2. How to verify:
     `previous_review` (`tools/agents.py:196-206`) and `parse_trailer` (`tools/agents.py:183-193`)
     read `TRAILER_RE` (`tools/agents.py:180`) and the verdict from the body above it; `cmd_review`
     (`tools/agents.py:274-290`) requires `Round: N` == previous round + 1, or 1 when the previous
     verdict was `PASS` or there is no verdict yet, and refuses otherwise. Reading from the working
     tree is safe because `tools/agents.py:256-258` has already refused a dirty tree. Round 2's two
     findings hardened this further: see claims 24 and 25.
-    **This run is the live proof:** the committed `REVIEW_RESULT.md` is round 1 with findings, so the
-    script accepts only `Round: 2`. `CLAUDE.md` loop step 5 now tells the Builder to commit
-    `REVIEW_RESULT.md` on findings too, which the round count depends on.
+    **This run is the live proof:** the committed `REVIEW_RESULT.md` is round 3 with findings
+    (the trailer on commit `c36b22e` says round 3), so `previous_review()` returns
+    `(3, FINDINGS)`, `expected` is 4, and `MAX_ROUNDS` refuses it. That is why this change is
+    escalated rather than reviewed a fourth time — see `ESCALATE.md`. Rounds 2 and 3 were each
+    accepted only because the committed verdict named the round before it.
+    `CLAUDE.md` loop step 5 now tells the Builder to commit `REVIEW_RESULT.md` on findings too,
+    which the round count depends on.
 20. **Finding 3 — more than one task in the round, with no record of the Director's instruction.**
     The Reviewer is right that the repo held no record. The two policy edits *were* dispatched by the
     Director as part of Task 11. Fix: the dispatch is transcribed verbatim in `ESCALATE.md`
@@ -201,9 +211,10 @@ Run on this branch at the code commit `b32ac5f` (exit 0). Only `REVIEW_REQUEST.m
 see `.agent-evidence/request-only-diff.txt`. Round 1 ran the same harness at `6378a07` and round 2 at
 `9fe442c`, both 24/24.
 
-**This round is the last one the script will accept.** `REVIEW_RESULT.md` is committed at round 2, so
-`tools/review.sh` takes only `Round: 3`; a fourth would be refused and would become an `ESCALATE.md`
-entry.
+**Round 3 was the last one the script accepted.** It returned two findings, both about stale text in
+this file (claim 19), not about the code. They are fixed above. A fourth round is refused by
+`MAX_ROUNDS`, so this change is escalated to the Director: see `ESCALATE.md`, entry
+"2026-09-24 · Task 11 reached round 3".
 
 ## Could not verify
 
