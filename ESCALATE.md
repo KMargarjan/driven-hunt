@@ -57,6 +57,13 @@ numbers. That is a `CLAUDE.md` change and tooling is frozen, so it is yours to d
 **Also for the record:** `tools/architect.sh audit` was **not** run for Task 11, per your decision.
 Nothing on this branch has been seen by the Architect.
 
+**State.** Code commit `3da8fb8`, clean-tree harness PASS:
+`[harness] PASS: 24/24 checks @ 3da8fb89100d8d7357e58ea73df1317051ff9d20 (clean tree)`.
+Lint, format and `rojo build` clean. `task-9-agent-workflow` is pushed so PR #4 shows this state.
+**`task-9` was NOT merged into `task-10-lint-test-globals`**: your dispatch gated that on a round-4
+`PASS`, and there is none. PR #5 therefore still sits on the round-3 state of its base. Say the word
+and it is one merge commit.
+
 **Needs:** a Director decision. Nothing here needs Karen.
 
 ---
