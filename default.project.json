@@ -10,22 +10,44 @@
       }
     },
     "ReplicatedStorage": {
-      "$path": "src/shared"
-    },
-    "StarterPlayer": {
-      "StarterPlayerScripts": {
-        "$path": "src/client"
-      }
-    },
-    "ServerStorage": {
+      "$path": "src/shared",
       "DevPackages": {
         "$path": { "optional": "DevPackages" }
       },
-      "Tests": {
-        "$path": "tests/specs"
+      "TestKit": {
+        "$path": "tests/TestKit.luau"
+      },
+      "ClientTests": {
+        "$path": "tests/client"
       },
       "TestSyncToken": {
         "$path": { "optional": "tests/sync-token.txt" }
+      }
+    },
+    "ReplicatedFirst": {
+      "$path": "src/replicatedfirst"
+    },
+    "StarterGui": {
+      "$path": "src/startergui"
+    },
+    "StarterPack": {
+      "$path": "src/starterpack"
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "$path": "src/client",
+        "ClientTestRunner": {
+          "$path": "tests/ClientTestRunner.client.luau"
+        }
+      },
+      "StarterCharacterScripts": {
+        "$path": "src/startercharacter"
+      }
+    },
+    "ServerStorage": {
+      "$path": "src/serverstorage",
+      "Tests": {
+        "$path": "tests/server"
       }
     }
   }

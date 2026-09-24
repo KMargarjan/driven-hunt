@@ -26,6 +26,16 @@ jobs:
         run: mkdir -p build && rojo build default.project.json --output build/place.rbxl
 
       # Lint and format run even if an earlier step failed, so one run reports every problem.
+      - name: No binary models in synced paths (.rbxm/.rbxmx are banned)
+        if: success() || failure()
+        run: |
+          # Write the sourcemap first: a failing `rojo sourcemap` must fail this step, not silently skip the grep.
+          rojo sourcemap default.project.json --include-non-scripts > sourcemap.json
+          if grep -o -E -i '"[^"]*\.rbxmx?"' sourcemap.json; then
+            echo "::error::.rbxm/.rbxmx files are banned in Rojo-synced paths (binary, unreviewable). Use .model.json."
+            exit 1
+          fi
+
       - name: Selene lint
         if: success() || failure()
         run: selene src tests
