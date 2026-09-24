@@ -413,7 +413,10 @@ def same_value(expected, got, float32=False):
         value = float(got["v"])
         if value == float(expected):
             return True
-        return float32 and value == struct.unpack("f", struct.pack("f", float(expected)))[0]
+        try:
+            return float32 and value == struct.unpack("f", struct.pack("f", float(expected)))[0]
+        except OverflowError:  # beyond float32 range: cannot be a float32 rounding, so it is a mismatch
+            return False
     return isinstance(expected, str) and str(got["v"]) == expected
 
 
