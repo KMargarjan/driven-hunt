@@ -165,7 +165,9 @@ dollars. The script prints each session's cost into the result file's trailer.
 5. Record Karen's playtest feedback in `PLAYTEST.md` in the same PR round.
 6. **Stop `rojo serve` before switching branches** (or re-Connect afterwards). A branch switch while
    Rojo is live left Studio out of sync on 2026-09-24 (`ServerStorage.Tests` came out empty). The
-   harness catches this, but it wastes a run.
+   harness catches this, but it wastes a run. **Worse: on 2026-09-24 (Task 17) a large branch switch
+   alone crashed `rojo serve` 7.7.0** — no test, no deletion, just `git switch main && git pull`
+   (59 commits) — and recovering it needs Karen's Connect click, so the run stops.
 
 **What is enforced and what is policy.** The GitHub ruleset on `main` *enforces* only two things:
 changes arrive through a pull request, and the `Build and lint` CI check passes. It does **not** enforce
