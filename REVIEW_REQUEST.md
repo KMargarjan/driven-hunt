@@ -26,7 +26,7 @@ anyway.
 
 | File | What it is |
 |---|---|
-| `docs/research/2026-09-24-map-generator.md` | the note: 10 sources with licence and maintenance, the numbers and their derivation, the pattern adopted, the smallest first generator task, what needs Karen |
+| `docs/research/2026-09-24-map-generator.md` | the note: **13** sources with licence and maintenance, the numbers and their derivation, the pattern adopted, the smallest first generator task, what needs Karen |
 | `docs/research/INDEX.md` | its row |
 | `TASKS.md` | row 20, and the Director's Task 20 dispatch transcribed verbatim |
 | `ESCALATE.md` | the `NEEDS KAREN · rojo serve is down` entry, written on this branch — see claim 15 |
@@ -42,11 +42,14 @@ Files and symbols, not line numbers (CLAUDE.md loop step 4).
    `search_asset`, `screen_capture`, `generate_*`, `start_stop_play`, `user_*_input`,
    `get_console_output`, …) contains nothing that drives the Terrain Editor. The note draws the
    consequence rather than hedging: the generator computes its own heightfield.
-2. **Rule 1 is met in substance: 11 sources, each with a licence and a maintenance status, and each
-   with what it does well *and badly for this system*.** Verify: the note's "Sources", headings 1–10.
-   First-party Roblox docs (CC BY 4.0) for 1, 2, 3, 4, 5, 9 (the API half), 10 and 11; MIT for
-   RTerrainGenerator; DevForum posts cited as figures only for 6 and the mesh limits; and **an
-   explicit "could not confirm"** for the Creator Store Terms, which returned HTTP 403.
+2. **Rule 1 is met in substance: 13 sources, each with a licence and a maintenance status, and each
+   with what it does well *and badly for this system*.** Verify: the note's "Sources",
+   headings **1–13**, in that order. First-party Roblox docs (CC BY 4.0) for 1, 2, 3, 4, 5, 9 (the
+   API half), 10 and 11; MIT for RTerrainGenerator (7); DevForum posts cited as figures or
+   corroboration only for 6, 13 and the mesh limits in 9; **an explicit "could not confirm"** for
+   the Creator Store Terms (8), which returned HTTP 403; and **§12, which is not a published source
+   at all** — a first-hand `tools/list` call against the Studio MCP server, labelled as such, with
+   "licence / maintenance: not applicable" and the caveat that StudioMCP is unpinned.
 3. **Rule 2 is met: three rejections, each with a written reason.** The Terrain Editor's Import and
    Generate tools (unreachable from code, and their state is UI state, not a file);
    RTerrainGenerator's *code* (MIT and worth reading for domain warping, but it does not use Roblox
@@ -161,10 +164,39 @@ this request and are fixed above.
     "no Architect design was run" is on the record, with the note that whoever builds the generator
     needs `tools/architect.sh design map-generator` first.
 
+## Round 2's five findings
+
+All five were right. Three were in the note and are fixed in the code commit; two were in this
+request and are fixed above. **Round 2 is the Director's limit for this task, so there is no round 3
+and these fixes are unreviewed** — `ESCALATE.md` has the entry.
+
+23. **Finding 1 — my fix for round 1's broken references introduced a new broken reference.** I
+    pointed source 11 at a "§12" that did not exist. Fixed, and this time **I audited every section
+    reference in the file programmatically** against the actual headings rather than fixing only the
+    ones I was handed: 13 headings, zero unresolved references. The sections are also back in
+    numeric order, which they were not after the insert.
+24. **Finding 4 — the decisive finding rested on two unnamed sources.** The strongest of the five.
+    The claim that Studio's heightmap import is unreachable leaned on an MCP tool list and some
+    community threads, neither of them a numbered source, and the request then made an exhaustiveness
+    claim off a list I had printed with an ellipsis. Both are now sources: **§12** records the tool
+    list as what it is — a first-hand `tools/list` call made during Task 17, fully enumerated, with
+    "not a published source", "StudioMCP is unpinned and can change under us" and "the in-repo record
+    is partial" said out loud — and **§13** links the three community threads as corroboration while
+    stating that absence of a forum answer proves nothing. The load-bearing evidence is §3.
+25. **Finding 5 — the mesh limits were dressed up as first-party.** The numbers table said "Roblox's
+    hard import limits" while §9 itself said the figures come from a DevForum thread and a vendor
+    page. Fixed where they are used, the same way §6's part counts are.
+26. **Finding 2 — the source count was wrong in two more places than the one I fixed.** Fixed above;
+    it is 13 now, and claim 2's verification pointer says 1–13 rather than excluding the sources
+    added to answer earlier findings.
+27. **Finding 3 — the "two table rows" summary survived in the Harness section.** I corrected one
+    copy and missed the other, which is the same class of miss as finding 1. Fixed above.
+
 ## Harness
 
-**N/A — no code, and Studio is unreachable.** Nothing in this change executes: one markdown document
-and two table rows. `rojo serve` has been down since Task 17; the record with the exact clicks is
+**N/A — no code, and Studio is unreachable.** Nothing in this change executes: it is four markdown
+files — one new note, plus `ESCALATE.md` (a 47-line entry), `TASKS.md` (row 20 and a ~45-line
+transcribed-dispatch section) and one `INDEX.md` row. `rojo serve` has been down since Task 17; the record with the exact clicks is
 `ESCALATE.md`, "NEEDS KAREN · `rojo serve` is down; no task can be harness-tested". **I wrote that
 entry on this branch as part of this task**, because this branch is cut from `main` and the copies on
 `task-17`, `task-18` and `task-19` are all unmerged — so `main` had no record of it. Task 19's review
@@ -202,5 +234,11 @@ before writing the claim. Lint, format and `rojo build` are clean and unchanged 
   on port 34872) and wrote down; the repo cannot confirm them.
 - **Four of round 1's six findings were mine to have caught.** The broken section references and the
   unnamed source are exactly the "stated it and did not check it against the thing it cites" failure
-  that Task 19 spent two rounds on. The determinism muddle (finding 1) is worse than a citation slip,
-  because it would have been copied into a design.
+  that Task 19 spent two rounds on. The determinism muddle (round 1, finding 1) is worse than a
+  citation slip, because it would have been copied into a design.
+- **Round 2 then found that two of my round-1 fixes were themselves wrong** — a new broken section
+  reference inside the fix for broken section references, and a count corrected in one place but not
+  two others. Across Tasks 19 and 20 that is now a consistent pattern: **I fix the instance I am
+  shown rather than the class.** The audit in item 23 is the first time I checked the class
+  mechanically, and it is what I should have done in round 1.
+- **These round-2 fixes are unreviewed.** Two rounds was the Director's limit; see `ESCALATE.md`.

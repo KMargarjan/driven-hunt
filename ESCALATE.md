@@ -11,6 +11,57 @@ Newest first. The Director or Karen answers under each entry, and the entry is c
 
 ---
 
+## 2026-09-24 · OPEN · Task 20 round 2 returned 5 findings; the Director's limit was two rounds
+
+**Raised by:** Builder, at loop step 5 of Task 20 (branch `task-20-map-research`, code commit
+`6cd9a84`). Documents only.
+
+**Result.** Two review rounds, 11 findings, all fixed. Round 2's five are fixed in the commit that
+carries this entry, and **they are unreviewed**: the dispatch said "max 2 rounds", and unlike
+`MAX_ROUNDS` that is a Director instruction rather than something the script enforces, so I have
+stopped rather than run a third.
+
+| Round | Commit | Findings | What they were |
+|---|---|---|---|
+| 1 | `fba85c8` | 6 | the seed/determinism story did not work (`math.noise` has no seed, so seeding a `Random` answered nothing); the maths library was a source in everything but name; three broken section references; a false "one-to-one" claim; `ESCALATE.md` in the change but in no claim; the Director's dispatch paraphrased rather than transcribed |
+| 2 | `41e9069` | 5 | **a new broken section reference inside my fix for the broken section references**; the source count corrected in one place and not two others; the "two table rows" summary corrected in one copy and not the other; the decisive finding resting on two unnamed sources (the MCP tool list, the community threads); the mesh limits presented as first-party when §9 itself calls them community/vendor figures |
+
+**What this says about the work.** Round 1's finding 1 was the valuable one — it caught a real muddle
+that would have been copied into a design, not a citation slip. But the pattern across Tasks 19 and
+20 is now unmistakable: **I fix the instance I am shown rather than the class.** Round 2 found that
+two of my round-1 fixes were themselves wrong in exactly the way the originals were. The one thing
+that worked was mechanical: for round 2 I audited *every* section reference in the file against the
+actual headings programmatically — 13 headings, zero unresolved — instead of hand-fixing the three I
+was handed. That check should have existed in round 1.
+
+**State.** Code commit `6cd9a84`, clean tree. The note has 13 sources, every section reference
+resolves, the Director's dispatch is transcribed verbatim in `TASKS.md`, and the `NEEDS KAREN` entry
+for `rojo serve` is on this branch. Lint, format and `rojo build` pass — unchanged by this task,
+which touches no code. **No harness run** (nothing executes; Rojo is down), **no screenshot**
+(nothing visual), **no Architect design** (the dispatch was research only).
+
+**Options for the Director.**
+1. **Accept on the record.** The five unreviewed fixes are: one section reference, one source count
+   in two places, one summary sentence, two sources promoted from prose to numbered entries, and one
+   "these figures are community, not first-party" label. None changes a conclusion or a number; the
+   note's findings and targets are the same before and after.
+2. **One authorised round 3.** ~$1.60. It would confirm the fixes, and on this task's record it
+   would probably find something — rounds 1 and 2 both did.
+3. **Regenerate nothing.** There is no design to regenerate here; the Architect was not run, by
+   dispatch.
+
+**Builder's recommendation: option 1, with one caveat.** The note is input to a future
+`tools/architect.sh design map-generator`, not something built from directly, and the Architect will
+read it with fresh eyes. The caveat is that I would not describe this note as *verified* — see the
+long "Could not verify" list in `REVIEW_REQUEST.md`, of which the largest items are that
+`math.noise`'s stability is undocumented and unmeasured, that `CollectionService` tag persistence is
+unconfirmed, and that every number in the targets table is arithmetic rather than measurement.
+
+**Needs:** a Director decision. Nothing here needs Karen beyond the Connect clicks already requested
+in the `NEEDS KAREN` entry below.
+
+---
+
 ## 2026-09-24 · OPEN · NEEDS KAREN · `rojo serve` is down; no task can be harness-tested
 
 **Raised by:** Builder, during Task 20 (branch `task-20-map-research`).
