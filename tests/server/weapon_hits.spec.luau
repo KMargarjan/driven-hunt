@@ -207,7 +207,7 @@ return function()
 			-- WHEN this ran is half of the evidence for tests/client/hit_marker.spec, which waits for
 			-- these very markers: a driver receives no others, so "the wire is broken" and "the
 			-- server had not got here yet" look identical from that side without this (Task 36).
-			TestKit.note(string.format("weapon_hits: marked %s", table.concat(names, ", ")))
+			TestKit.note(string.format("weapon_hits: marked %s at %.1f s", table.concat(names, ", "), os.clock()))
 		end)
 
 		it("says nothing to a shooter who is not a Player", function()
