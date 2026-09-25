@@ -69,9 +69,17 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
    with the design, write `ESCALATE.md` and stop.
 3. Build. One task, nothing extra. Commit (this is the **code commit**), then run the harness on the clean
    tree.
-4. Write `REVIEW_REQUEST.md` (increment `Round:`; `Code commit:` = the commit the harness line names),
-   and commit **only** that file. The script shows the Reviewer that nothing else changed after the
-   tested commit. **Write it fresh for each task** — describe the final state, never a round-by-round
+4. Write `REVIEW_REQUEST.md` (increment `Round:`; `Code commit:` = the commit the harness line names)
+   and commit it. **After the code commit, commit nothing but the paperwork the merge gate allows**
+   (git workflow step 4: `REVIEW_REQUEST.md`, `REVIEW_RESULT.md`, `ARCH_RESULT.md`,
+   `docs/architecture/audit-NNN.md`, `ESCALATE.md` and the task's status row in `TASKS.md`).
+   `.agent-evidence/request-only-diff.txt` checks the strictest case only — that **nothing but
+   `REVIEW_REQUEST.md`** changed — so it prints "NOT OK" whenever any other paperwork was committed,
+   which is allowed. When it does, the Reviewer's job is to confirm from
+   `.agent-evidence/changed-files.txt` and the log that the extra files are all on that list and that
+   no `src/`, `tests/` or `tools/` file moved after the tested commit; if one did, the harness line
+   does not cover HEAD and that **is** a finding (review round 4, finding 9: the two rules
+   contradicted each other). **Write it fresh for each task** — describe the final state, never a round-by-round
    history — and **cite files and symbols, not line numbers**, because every later commit moves the
    lines (Director decision 2026-09-24, after Task 11 spent rounds 3 and 4 on stale citations).
 5. Run `tools/review.sh`. **Commit `REVIEW_RESULT.md` either way**: the next run needs a clean tree,
