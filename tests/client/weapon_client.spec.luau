@@ -322,11 +322,13 @@ return function()
 			expect(down.cameraType).to.equal(up.cameraType)
 			expect(down.fov).to.equal(up.fov)
 			expect(down.subject).to.equal(up.subject)
-			if down.offset and up.offset then
-				local drift = (up.offset - down.offset).Magnitude
-				print(string.format("[weapon_client] camera drift across the aim hold: %.3f studs", drift))
-				expect(drift <= Shotgun.CONFIG.CAMERA_DRIFT_TOLERANCE).to.equal(true)
-			end
+			-- Both samples must exist, or the measurement silently disappears while the test still
+			-- passes (round 1 note).
+			expect(down.offset).to.be.ok()
+			expect(up.offset).to.be.ok()
+			local drift = (up.offset - down.offset).Magnitude
+			print(string.format("[weapon_client] camera drift across the aim hold: %.3f studs", drift))
+			expect(drift <= Shotgun.CONFIG.CAMERA_DRIFT_TOLERANCE).to.equal(true)
 		end)
 	end)
 
@@ -364,7 +366,11 @@ return function()
 				expect(armFrame.BackgroundTransparency < 1).to.equal(true)
 			end
 
-			-- Parent visibility, which is what a "visible = true" audit misses.
+			-- Reachability to the DataModel: an orphaned GUI tree is invisible however true its
+			-- Visible properties are. The GuiObject branch is what would catch a hidden ancestor if
+			-- the tree ever gains one; today the only ancestors are the ScreenGui and the PlayerGui,
+			-- whose Enabled and Parent are checked above (round 1 note: the comment here used to
+			-- claim more than the loop does).
 			local node = crosshair.Parent
 			while node and node ~= game do
 				if node:IsA("GuiObject") then

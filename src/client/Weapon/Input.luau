@@ -116,10 +116,18 @@ local function unbind()
 	end
 end
 
+local watched: { [Instance]: boolean } = {}
+
 local function watchTool(tool: Instance)
 	if not tool:IsA("Tool") or tool.Name ~= "Shotgun" then
 		return
 	end
+	-- The Tool moves between the Backpack and the character every time it is equipped, and both
+	-- containers report it as a new child. Bind its events once (round 1 note).
+	if watched[tool] then
+		return
+	end
+	watched[tool] = true
 	table.insert(connections, tool.Equipped:Connect(bind))
 	table.insert(connections, tool.Unequipped:Connect(unbind))
 	if tool.Parent == Players.LocalPlayer.Character then

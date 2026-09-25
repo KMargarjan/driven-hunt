@@ -155,21 +155,29 @@ return function()
 		it("patterns and groups 1000 shots in under 500 ms", function()
 			local rng = Random.new(7)
 			local aim = Vector3.new(0, 0, -1)
+			-- A real target: with instance = nil, targetOf returns on its first check and `group`
+			-- does nothing, so the budget measured only Pattern.directions (round 1 note).
+			local target = Instance.new("Part")
+			target:SetAttribute("Damageable", true)
+			target:SetAttribute("HitZone", "body")
 			local started = os.clock()
 			for _ = 1, 1000 do
 				local directions = Pattern.directions("Buck", aim, rng, CONFIG)
 				local impacts = {}
 				for index, direction in ipairs(directions) do
 					impacts[index] = {
-						instance = nil,
+						instance = target,
 						position = direction * 10,
 						normal = direction,
 						distance = 10,
 					}
 				end
-				Hits.group(nil :: any, impacts, "Buck", 0)
+				local reports = Hits.group(nil :: any, impacts, "Buck", 0)
+				expect(#reports).to.equal(1)
 			end
-			expect(os.clock() - started < 0.5).to.equal(true)
+			local elapsed = os.clock() - started
+			target:Destroy()
+			expect(elapsed < 0.5).to.equal(true)
 		end)
 	end)
 end

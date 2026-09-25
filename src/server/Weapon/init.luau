@@ -56,7 +56,7 @@ local CONFIG = Shotgun.CONFIG
 local registry = Registry.new()
 local tools: { [Player]: Tool } = {}
 local connections: { [Player]: { RBXScriptConnection } } = {}
-local lastPublish: { [Player]: number } = {}
+local toolWatchers: { [Player]: RBXScriptConnection } = {}
 local stats = { shots = 0, reports = 0, rateDropped = 0, badRequests = 0, granted = 0, revoked = 0 }
 
 local hitSignal = Instance.new("BindableEvent")
@@ -65,6 +65,7 @@ Weapon.HitReported = hitSignal.Event
 Weapon.SafetyViolated = safetySignal.Event
 
 local started = false
+local remotes = nil -- resolved once in start(); Shotgun.remotes() is five WaitForChild calls
 local rng = Random.new()
 local castFn: Shotgun.CastFn = Cast.world
 local driveLineProvider: Shotgun.DriveLineProvider? = nil
@@ -104,9 +105,8 @@ local function publish(player: Player, state: WeaponState, force: boolean?)
 			return
 		end
 	end
-	lastPublish[player] = now
-	local remotes = Shotgun.remotes()
-	remotes.StateChanged:FireClient(player, Shotgun.snapshot(state, now))
+	local channel = remotes or Shotgun.remotes()
+	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now))
 end
 
 local function setState(player: Player, state: WeaponState)
@@ -128,10 +128,13 @@ local function watchEquipped(player: Player, tool: Tool)
 			publish(player, next, true)
 		end
 	end
-	local list = connections[player]
-	if list then
-		table.insert(list, tool:GetPropertyChangedSignal("Parent"):Connect(sync))
+	-- One watcher per player: grant() runs again on every respawn, and the old Tool's connection
+	-- would otherwise live until the player left (round 1 note).
+	local previous = toolWatchers[player]
+	if previous then
+		previous:Disconnect()
 	end
+	toolWatchers[player] = tool:GetPropertyChangedSignal("Parent"):Connect(sync)
 	sync()
 end
 
@@ -176,7 +179,10 @@ end
 function Weapon.forget(player: Player)
 	Weapon.revoke(player)
 	registry:forget(player)
-	lastPublish[player] = nil
+	if toolWatchers[player] then
+		toolWatchers[player]:Disconnect()
+		toolWatchers[player] = nil
+	end
 	for _, connection in ipairs(connections[player] or {}) do
 		connection:Disconnect()
 	end
@@ -275,7 +281,8 @@ local function onFireRequest(player: Player, req: any)
 	for _, impact in ipairs(impacts) do
 		table.insert(points, impact.position)
 	end
-	Shotgun.remotes().ShotFired:FireAllClients({
+	local channel = remotes or Shotgun.remotes()
+	channel.ShotFired:FireAllClients({
 		shooterUserId = player.UserId,
 		muzzle = muzzle,
 		impacts = points,
@@ -298,7 +305,10 @@ local function runReload(player: Player, epoch: number)
 			return -- the player respawned, was revoked, or left: abandon the sequence
 		end
 		local next, reason = StateMachine.apply(state, { kind = step.kind }, os.clock())
-		if reason and step.kind ~= "Load" then
+		-- An empty pocket is the ONE rejection this sequence walks past: closing a gun with one
+		-- shell, or none, is correct. Any other reason means the world moved under it (round 1
+		-- note), so it stops and republishes rather than closing a gun the player did not ask for.
+		if reason and not (step.kind == "Load" and reason == "no-reserve") then
 			publish(player, state)
 			return
 		end
@@ -363,7 +373,7 @@ function Weapon.start()
 	assert(not started, "Weapon.start() called twice")
 	started = true
 
-	local remotes = Shotgun.remotes()
+	remotes = Shotgun.remotes()
 	remotes.FireRequest.OnServerEvent:Connect(onFireRequest)
 	remotes.ActionRequest.OnServerEvent:Connect(onActionRequest)
 

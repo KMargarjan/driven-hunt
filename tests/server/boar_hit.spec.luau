@@ -116,7 +116,12 @@ return function()
 	end)
 
 	describe("the boar's teardown", function()
-		it("leaves no signal behind when the runtime is destroyed", function()
+		-- Round 1, finding 1: the first version of this counted BindableEvent descendants of the
+		-- spec's own folder. The runtime's signals are never parented, so that count was 0 before
+		-- destroy(), after destroy(), and with the destroy call deleted -- a test that could not
+		-- fail, guarding the one line it existed for. A connection is the observable: Destroy()
+		-- disconnects every listener, so this goes red the moment _hitSignal:Destroy() is removed.
+		it("destroys both signals, so every listener is disconnected", function()
 			local testRoot = Instance.new("Folder")
 			testRoot.Name = "BoarHitTeardownSpec"
 			testRoot.Parent = Workspace
@@ -136,15 +141,15 @@ return function()
 				end,
 				releasePath = function() end,
 			})
+			local onHit = runtime.Hit:Connect(function() end)
+			local onDespawn = runtime.Despawned:Connect(function() end)
+			expect(onHit.Connected).to.equal(true)
+			expect(onDespawn.Connected).to.equal(true)
+
 			runtime:destroy()
-			expect(#testRoot:GetDescendants() > 0).to.equal(true) -- the folder itself survives
-			local bindables = 0
-			for _, descendant in ipairs(testRoot:GetDescendants()) do
-				if descendant:IsA("BindableEvent") then
-					bindables += 1
-				end
-			end
-			expect(bindables).to.equal(0)
+
+			expect(onHit.Connected).to.equal(false)
+			expect(onDespawn.Connected).to.equal(false)
 			testRoot:Destroy()
 		end)
 	end)
