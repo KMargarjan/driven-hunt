@@ -10,7 +10,7 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
-## 2026-09-24 · OPEN · Task 18 reached round 3; the script refuses a fourth
+## 2026-09-24 · CLOSED 2026-09-25 · Task 18 reached round 3; the script refuses a fourth
 
 **Raised by:** Builder, at loop step 5 of Task 18 (branch `task-18-boar-ai`, stacked on
 `task-17-test-area`). Overnight, no-Studio mode.
@@ -63,9 +63,28 @@ seconds.
 **Needs:** a Director decision. Karen's Connect click is already requested in the Task 17 entry
 below; nothing further is needed from her for this.
 
+### DIRECTOR's answer · 2026-09-25
+
+**Option 3, then option 1: harness first, then review with real evidence.** Karen connected on the
+morning of 2026-09-25, so the cheapest information became available and was taken first.
+`DIRECTOR_MAX_ROUNDS=5` is authorised **for this run only** — up to two more rounds on the combined
+Task 17 + Task 18 change, which is now one unit on `task-18-boar-ai`.
+
+**The Director was right that a harness run would settle more than a fourth reading.** It did. The
+first real run gave **35 passed, 3 failed, 3 errors**, and all three failures were things no amount
+of re-reading had found:
+
+| Failure | What it actually was |
+|---|---|
+| `boar_body` "used real pathfinding" — `pathFailures` 31, expected 0 | **The spec asserted the wrong thing.** `Enum.PathStatus.NoPath` on the spec's own plate floating at y = 500. An Edit-mode probe settled it: the same agent parameters at y = 0 return `Success` with 54 waypoints from `CONFIG.spawnPoint` to the exit line. Pathfinding works where the game plays |
+| `boar_brain` "never accelerates faster than ACCEL" | **A tolerance tighter than float32 can be.** Measured overshoot 1.9e-6 against a 1e-6 tolerance |
+| `boar_brain` "never turns faster than TURN_RATE" | **Two of my own tests contradicted each other.** Both held the boar at a fixed position for 300 steps; standing still for 2 × `STUCK_TIME` is by definition stuck, so the anti-stuck branch turned it 90° in one tick — the very behaviour the neighbouring test asserts |
+
+**Closed** 2026-09-25 by the Director.
+
 ---
 
-## 2026-09-24 · OPEN · NEEDS KAREN · `rojo serve` crashed; Task 17 cannot be tested
+## 2026-09-24 · CLOSED 2026-09-25 · NEEDS KAREN · `rojo serve` crashed; Task 17 cannot be tested
 
 **Raised by:** Builder, at loop step 3 of Task 17 (branch `task-17-test-area`, code commit
 `48169db`). Overnight run, Karen asleep.
@@ -138,6 +157,20 @@ been executed in Studio, so nothing about it is verified beyond lint and build.
 
 **Needs:** Karen's clicks above. Then the Builder reruns the harness, the review loop, and the
 screenshot.
+
+### RESOLVED · 2026-09-25
+
+Karen connected on the morning of 2026-09-25: the Director started
+`rojo serve default.project.json` and Karen pressed **Connect**. Two `rojo.exe` processes are up,
+Studio is on the DEV place in **Edit** mode and answering over MCP, and the harness has run green on
+this branch — `[harness] PASS: 24/24 checks @ fbe1d6049da35f75675d532ee77d0c4f6992a235 (clean tree)`,
+43 tests across five spec files.
+
+**Tasks 17 and 18 have now been executed**, and rule 5 is met for both: three play-time screenshots
+were captured through MCP and inspected (see `TASKS.md` rows 17 and 18 for what they showed).
+Task 19's and Task 20's documents still cite no harness line, correctly — they contain no code.
+
+**Closed** 2026-09-25.
 
 ---
 
