@@ -47,11 +47,21 @@ function Hardware.build(): Tool
 end
 
 -- The Backpack is where a Tool waits; the character is where it is held.
-function Hardware.give(tool: Tool, player: Player)
-	local backpack = player:FindFirstChildOfClass("Backpack")
-	if backpack then
-		tool.Parent = backpack
+-- Puts the tool in the player's Backpack, and SAYS WHETHER IT LANDED.
+--
+-- The Backpack is re-created with every character, so at the instant CharacterAdded fires it can be
+-- a moment away from existing. It used to be looked up once and the tool silently left parented to
+-- nil if it was missing -- which is how a two-player drive left both players gunless for a whole
+-- session (Task 34, measured in a live Clients-and-Servers test: the drive said SHOOTER, the
+-- Backpack was empty and no Tool existed anywhere in the place). Waiting a few seconds for it costs
+-- nothing on the path that already has one.
+function Hardware.give(tool: Tool, player: Player): boolean
+	local backpack = player:FindFirstChildOfClass("Backpack") or player:WaitForChild("Backpack", 5)
+	if not backpack then
+		return false
 	end
+	tool.Parent = backpack
+	return true
 end
 
 function Hardware.equip(tool: Tool, player: Player)

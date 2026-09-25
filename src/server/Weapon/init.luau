@@ -58,8 +58,17 @@ local registry = Registry.new()
 local tools: { [Player]: Tool } = {}
 local connections: { [Player]: { RBXScriptConnection } } = {}
 local toolWatchers: { [Player]: RBXScriptConnection } = {}
-local stats =
-	{ shots = 0, reports = 0, rateDropped = 0, badRequests = 0, granted = 0, revoked = 0, emptySwaps = 0, markers = 0 }
+local stats = {
+	shots = 0,
+	reports = 0,
+	rateDropped = 0,
+	badRequests = 0,
+	granted = 0,
+	grantsMissed = 0, -- a tool built for a player with no Backpack: nothing recorded, tried again later
+	revoked = 0,
+	emptySwaps = 0,
+	markers = 0,
+}
 
 local hitSignal = Instance.new("BindableEvent")
 local safetySignal = Instance.new("BindableEvent")
@@ -102,13 +111,30 @@ local function mayArm(player: Player): boolean
 	return CONFIG.shouldArm(player)
 end
 
+-- Does this player HOLD a gun, rather than: is one recorded against their name? A Tool goes with
+-- the character it is equipped on, so a respawn -- which the drive performs on every placement --
+-- destroys it, and a Tool that never reached a Backpack is parented to nil from the start. Either
+-- way the record is stale, and believing it leaves the player unarmed for the rest of the drive
+-- with nothing ever re-granting (Task 34).
+local function holdsTool(player: Player): boolean
+	local tool = tools[player]
+	if tool == nil then
+		return false
+	end
+	if tool.Parent == nil then
+		tools[player] = nil
+		return false
+	end
+	return true
+end
+
 -- Re-evaluate now, and grant or revoke to match. The drive calls this when a team is assigned after
 -- the character already spawned -- the join-mid-drive race -- and the weapon still does the writing.
 function Weapon.refreshArming(player: Player)
 	local allowed = mayArm(player)
-	if allowed and not tools[player] then
+	if allowed and not holdsTool(player) then
 		Weapon.grant(player)
-	elseif not allowed and tools[player] then
+	elseif not allowed and holdsTool(player) then
 		Weapon.revoke(player)
 	end
 end
@@ -202,9 +228,16 @@ function Weapon.grant(player: Player): Tool
 	setState(player, state)
 
 	local tool = Hardware.build()
-	tools[player] = tool
 	connections[player] = connections[player] or {}
-	Hardware.give(tool, player)
+	if not Hardware.give(tool, player) then
+		-- No Backpack even after waiting: the player is leaving, or the character never came. Record
+		-- NOTHING, so the next refreshArming tries again instead of counting a tool that is parented
+		-- to nil (Task 34: that is what left a two-player drive's shooter without a gun).
+		Hardware.destroy(tool)
+		stats.grantsMissed += 1
+		return tool
+	end
+	tools[player] = tool
 	watchEquipped(player, tool)
 	if CONFIG.AUTO_EQUIP then
 		Hardware.equip(tool, player)

@@ -75,6 +75,42 @@ return function()
 			end
 		end)
 
+		it("gave the shooters a gun they are actually holding, not one on a list", function()
+			-- THE ASSERTION THIS SUITE DID NOT HAVE, and the one that would have caught what a
+			-- two-player run found (Task 34): mayCarryWeapon said SHOOTER for a player whose Backpack
+			-- was empty and for whom no Tool existed anywhere in the place. The policy was right and
+			-- the player was unarmed for the whole drive -- because a Tool built while the Backpack
+			-- was a moment from existing was parented to nil and still recorded as granted.
+			-- True at every player count, which is what lets it run in both harness modes.
+			for _, player in ipairs(Players:GetPlayers()) do
+				expect(waitUntil(20, function()
+					return player.Team ~= nil
+				end)).to.equal(true)
+				local function holdsGun(): boolean
+					local backpack = player:FindFirstChildOfClass("Backpack")
+					if backpack and backpack:FindFirstChildOfClass("Tool") then
+						return true
+					end
+					local character = player.Character
+					return character ~= nil and character:FindFirstChildOfClass("Tool") ~= nil
+				end
+				local expected = Match.mayCarryWeapon(player)
+				local held = waitUntil(if expected then 20 else 1, function()
+					return holdsGun() == expected
+				end)
+				print(
+					string.format(
+						"[match_live] %s (%s) may carry: %s, holds a gun: %s",
+						player.Name,
+						player.Team.Name,
+						tostring(expected),
+						tostring(holdsGun())
+					)
+				)
+				expect(held).to.equal(true)
+			end
+		end)
+
 		it("reads the arena's tagged markers, and has a drive line pointing at the drivers", function()
 			local line = Match.driveLine()
 			expect(line).to.be.ok()

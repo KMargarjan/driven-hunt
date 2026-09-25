@@ -241,19 +241,27 @@ return function()
 		end)
 
 		it("carried the scenario's gap: a waited step arrives later than an unwaited one", function()
-			local waited, unwaited = nil, nil
+			local waited, gaps = nil, {}
 			for index = 2, #matched do
 				local gap = matched[index].at - matched[index - 1].at
 				if expected[index].gapBefore then
 					waited = { want = expected[index].gapBefore, got = gap }
 				else
-					unwaited = math.max(unwaited or 0, gap)
+					table.insert(gaps, gap)
 				end
 			end
 			expect(waited).to.be.ok()
 			-- The harness sleeps this gap, so it can only ever be longer, never shorter, than asked.
 			expect(waited.got >= waited.want * GAP_TOLERANCE).to.equal(true)
-			expect(waited.got > (unwaited or 0)).to.equal(true)
+			-- AGAINST THE TYPICAL UNWAITED GAP, not the largest one (Task 34). In a two-player local
+			-- test this client is a background window rendering at about 15 fps, and one scheduling
+			-- hitch between two unwaited steps is enough to beat a deliberate 0.3 s gap -- which
+			-- would fail a claim that is still true of the replay. The median says what the claim
+			-- means: a gap the scenario asked for stands out from ordinary step-to-step spacing.
+			table.sort(gaps)
+			local typical = if #gaps > 0 then gaps[math.ceil(#gaps / 2)] else 0
+			print(string.format("[input_driving] waited %.3f s vs typical %.3f s", waited.got, typical))
+			expect(waited.got > typical).to.equal(true)
 		end)
 
 		it("recorded the events in the scenario's order", function()
