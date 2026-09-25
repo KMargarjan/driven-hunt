@@ -193,6 +193,12 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
        `Players.LocalPlayer.Name` (Player1, Player2), and the server returns nil for it.
        In Edit mode the Edit DataModel answers IsServer() AND IsClient() true, which is why this
        probe is only ever run against the processes a Start added.
+
+       STILL LOADING IS NOT A FAULT. A Start registers all three processes with StudioMCP before
+       they can answer anything, so "Place is not open", "Target is not reachable" and "... is not
+       available" are retried against a test process until that step's deadline (60 s to classify,
+       15 s for a console) and reported if they outlast it. Run 3 (2026-09-25) crashed the whole
+       mode on the first of those; no call against a test process raises now.
     3. Each client is asked which team its LocalPlayer is on, and the input scenarios are replayed
        into the SHOOTER's client. With two players the drive makes one of them a Driver, and a
        Driver carries no gun at all (DRIVERS_MAY_SHOOT is false), so the weapon and staged-shot
@@ -1160,6 +1166,41 @@ START_CLICKS = """
 """
 
 
+LOADING_ERRORS = ("place is not open", "not reachable", "is not available", "no datamodel")
+
+
+def still_loading(error):
+    """True for what a test process answers while it is still opening the place.
+
+    A Start makes three processes register with StudioMCP BEFORE they can answer anything: run 3
+    (2026-09-25) crashed with "get_studio_state: Place is not open" the moment the first client was
+    asked, because that call sat outside the retry. Against a test process these are not faults,
+    they are "not yet" -- and the wrong DataModel of a process answers the same way forever, which
+    is why the caller still needs its own deadline."""
+    text = str(error).lower()
+    return any(hint in text for hint in LOADING_ERRORS)
+
+
+def process_call(call, timeout=60, interval=1, default=None):
+    """Make a StudioMCP call against a TEST PROCESS, waiting out "still loading". -> (value, why).
+
+    `why` is "" on success and the last error otherwise, so every caller reports instead of
+    crashing (rule 6). Anything that is NOT a loading error is raised: a real fault must not be
+    slept through for a minute."""
+    deadline = time.time() + timeout
+    last = ""
+    while True:
+        try:
+            return call(), ""
+        except RuntimeError as e:
+            if not still_loading(e):
+                raise
+            last = str(e).split("(")[0].strip()
+        if time.time() >= deadline:
+            return default, last
+        time.sleep(interval)
+
+
 def focused_datamodel(studio, studio_id=None):
     """The DataModel this instance actually hosts, as get_studio_state's last line names it.
 
@@ -1170,20 +1211,27 @@ def focused_datamodel(studio, studio_id=None):
     return ""
 
 
-def probe_role(studio, studio_id, timeout=20):
+def probe_role(studio, studio_id, timeout=60):
     """(role, player, datamodel, why) for one test process, MEASURED rather than advertised.
 
     Task 34, probed live with a 2-player test running: all three processes report
     "Available DataModels: Client, Server", so classifying on that line makes every one of them a
     server (Karen's first test2 run: "a SECOND server DataModel" twice, "0 client(s)"). Exactly ONE
     of the two is reachable per process -- execute_luau against the other raises "Target is not
-    reachable" -- so this runs QUERY_ROLE and lets RunService:IsServer() say which it is. The
-    retries are for a process that is still loading when the three windows first register."""
+    reachable" -- so this runs QUERY_ROLE and lets RunService:IsServer() say which it is.
+
+    EVERY call here is inside the retry, including the get_studio_state that reads the focused
+    line: a process registers with StudioMCP before it can answer, and run 3 crashed on exactly
+    that ("Place is not open", 2026-09-25). Nothing in classification raises."""
     deadline = time.time() + timeout
     while True:
         errors = []
-        order = [dm for dm in (focused_datamodel(studio, studio_id), "Server", "Client")
-                 if dm in ("Server", "Client")]
+        try:
+            focused = focused_datamodel(studio, studio_id)
+        except RuntimeError as e:
+            focused = ""  # still opening its place; try both DataModels and come back round
+            errors.append(f"state: {str(e).split('(')[0].strip()}")
+        order = [dm for dm in (focused, "Server", "Client") if dm in ("Server", "Client")]
         for datamodel in dict.fromkeys(order):
             try:
                 answer = studio.query(datamodel, QUERY_ROLE, studio_id=studio_id)
@@ -1362,7 +1410,12 @@ def run_test2(studio, wait_seconds=180):
                 lambda v: v != "", 120, 1)
             if ok:
                 reports[name] = json.loads(raw)
-            consoles[name] = studio.console(studio_id=studio_id)
+            # The console is read from the same still-loading (or already closed) process, so it
+            # gets the same treatment: a missing console is a note in the output, never a crash
+            # that skips end_session.
+            console, why = process_call(lambda: studio.console(studio_id=studio_id), timeout=15)
+            consoles[name] = console if not why else f"(no console from this process: {why})"
+
     finally:
         write_token("")  # close the gate so Karen's playtests do not run tests
 
