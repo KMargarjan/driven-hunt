@@ -1,9 +1,16 @@
 """Spawns the REVIEWER and ARCHITECT as fresh, headless, read-only Claude sessions.
 
 Entry points (thin wrappers around this file):
-  tools/review.sh    | tools/review.ps1                  -> python tools/agents.py review
-  tools/architect.sh | tools/architect.ps1 design <sys>  -> python tools/agents.py architect design <sys>
-  tools/architect.sh | tools/architect.ps1 audit         -> python tools/agents.py architect audit
+  tools/review.sh    | tools/review.ps1 [N]                       -> python tools/agents.py review [N]
+  tools/architect.sh | tools/architect.ps1 design <sys> --task N  -> agents.py architect design <sys> --task N
+  tools/architect.sh | tools/architect.ps1 audit --task N         -> agents.py architect audit --task N
+
+Every file of the loop lives in ONE FOLDER PER TASK (Task 21): `reviews/task-<N>/REQUEST.md`,
+`RESULT.md` and `ARCH_RESULT.md`. Branches therefore stop conflicting on the same root files, and -
+the point of the change - **the round count is per task**: a merged task whose last verdict was
+FINDINGS can no longer block the next task's round 1 (the fault Task 22 hit, ESCALATE.md 2026-09-25).
+The task number comes from the `Task: N` line in the request and must match its folder. With no
+argument, `review` takes the most recently committed `reviews/task-*/REQUEST.md`.
 
 Pattern: headless `claude -p` agents with a hard read-only sandbox, and the result written by this
 script, never by the agent. Workflow: CLAUDE.md "Four-agent workflow".
@@ -20,14 +27,20 @@ How read-only is enforced (tested 2026-09-24, Claude Code 2.1.270). Each layer c
 Because the agent cannot run commands, this script precomputes tool output (diff, log, lint, build,
 sourcemap) into `.agent-evidence/` inside the worktree.
 
-The 3-round stop rule is counted from the verdict, not from the request: `Round: N` in
-REVIEW_REQUEST.md must equal the round in the committed REVIEW_RESULT.md trailer plus one (or 1 after
-a PASS, or when there is no verdict yet). The trailer is written only by `trailer()` here, so the
-Builder cannot raise or skip the round from REVIEW_REQUEST.md, and deleting the trailer is caught by
-`last_committed_review()`, which looks back over the file's git history.
+The 3-round stop rule is counted from the verdict, not from the request, and **within one task**:
+`Round: N` in `reviews/task-<N>/REQUEST.md` must equal the round in that task's committed `RESULT.md`
+trailer plus one (or 1 when the task has no verdict yet, which is every task's first round - no
+DIRECTOR_MAX_ROUNDS needed). The trailer is written only by `trailer()` here, so the Builder cannot
+raise or skip the round from the request, and deleting the trailer is caught by
+`last_committed_review()`, which looks back over that one file's git history.
 The cap is `MAX_ROUNDS` (3), or `DIRECTOR_MAX_ROUNDS` when the Director has authorised one more round
 in ESCALATE.md for that task. It is an environment variable, so it cannot be committed by accident,
 it may only raise the cap, and the run prints it.
+
+**Harness before review** (Task 21): a change that touches `src/`, `tests/` or `tools/` is refused
+unless the request pastes a harness line `[harness] PASS: n/m checks @ <code commit> (clean tree)`
+naming that request's `Code commit:`. Task 18 was reviewed three times before its code had ever run;
+that cannot happen again. Docs-only changes are exempt.
 **What is still policy, not enforcement:** nothing stops a Builder committing a hand-written trailer
 (the Builder owns the repo and the commits), and `git rebase`/`--force` could drop the history the
 look-back reads. audit-002 must-fix #5 (Task 12) is about exactly that: the verdict files must be
@@ -50,7 +63,10 @@ import tempfile
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROKIT_BIN = os.path.expanduser(os.path.join("~", ".rokit", "bin"))
 MAX_ROUNDS = 3
-HISTORY_SCAN = 50  # commits of REVIEW_RESULT.md history the round check looks back over
+HISTORY_SCAN = 50  # commits of one task's RESULT.md history the round check looks back over
+REVIEWS = "reviews"  # reviews/task-<N>/{REQUEST,RESULT,ARCH_RESULT}.md
+# A change touching any of these must show a harness PASS before it may be reviewed.
+CODE_PATHS = ("src/", "tests/", "tools/")
 AGENT_TIMEOUT_S = 3600
 
 
@@ -133,14 +149,17 @@ def build_evidence(wt, base=None, code_commit=None):
     }
     if code_commit:
         changed = git("diff", "--name-only", f"{code_commit}..HEAD", cwd=wt).split()
-        ok = changed in ([], ["REVIEW_REQUEST.md"])
+        extra = [f for f in changed if not is_paperwork(f)]
         lines = [f"Code commit (tested by the harness): {code_commit}",
                  f"Commit under review: {head}",
                  f"Files changed between them: {changed or 'none'}",
-                 "OK: only REVIEW_REQUEST.md differs, so a harness line for the code commit applies to HEAD." if ok
-                 else "NOT OK: more than REVIEW_REQUEST.md changed after the tested commit. The harness line does "
-                      "NOT cover HEAD. That is a finding."]
-        files["request-only-diff.txt"] = "\n".join(lines) + "\n"
+                 f"Not paperwork: {extra or 'none'}",
+                 "OK: only the loop's own paperwork changed after the tested commit, so the harness line for the "
+                 "code commit applies to HEAD (CLAUDE.md git workflow step 4 lists what may follow it)."
+                 if not extra else
+                 "NOT OK: a file that is not paperwork changed after the tested commit, so the harness line does "
+                 "NOT cover HEAD. That is a finding."]
+        files["paperwork-after-code-commit.txt"] = "\n".join(lines) + "\n"
     if base:
         files["log.txt"] = git("log", "--stat", f"{base}..HEAD", cwd=wt)
         files["changed-files.txt"] = git("diff", "--name-status", f"{base}...HEAD", cwd=wt)
@@ -215,30 +234,102 @@ def parse_trailer(text):
     return int(m.group(2)), ("PASS" if first.strip() == "PASS" else "FINDINGS")
 
 
-def previous_review():
-    """(round, verdict) of the REVIEW_RESULT.md this script last wrote, or (None, None).
+def task_rel(task, name):
+    """The repo-relative path of one of a task's loop files, in git's spelling (forward slashes)."""
+    return f"{REVIEWS}/task-{task}/{name}"
+
+
+def is_paperwork(path):
+    """True for the loop's own files, the only ones that may change after the code commit
+    (CLAUDE.md git workflow step 4): anything under `reviews/`, the escalation, queue and playtest
+    files, and an Architect audit."""
+    path = path.replace("\\", "/")
+    return (path.startswith(REVIEWS + "/")
+            or path in ("ESCALATE.md", "TASKS.md", "PLAYTEST.md")
+            or re.fullmatch(r"docs/architecture/audit-\d{3}\.md", path) is not None)
+
+
+def resolve_task(explicit=None):
+    """(task number, request path) for this run.
+
+    `explicit` (the optional CLI argument) wins. Otherwise the most recently **committed**
+    `reviews/task-*/REQUEST.md`: `cmd_review` has already proved the tree clean, so the current
+    task's request is committed. The filesystem is a fallback for a shallow clone."""
+    if explicit is not None:
+        if not re.fullmatch(r"[0-9]{1,4}", str(explicit)):
+            raise Refused(f"task number must be digits; got {explicit!r}")
+        task = int(explicit)
+        if not os.path.exists(os.path.join(REPO, task_rel(task, "REQUEST.md"))):
+            raise Refused(f"no {task_rel(task, 'REQUEST.md')}")
+        return task, task_rel(task, "REQUEST.md")
+    for path in git("log", "--format=", "--name-only", f"-{HISTORY_SCAN}", "--", REVIEWS).split():
+        m = re.fullmatch(rf"{REVIEWS}/task-(\d+)/REQUEST\.md", path.replace("\\", "/"))
+        if m and os.path.exists(os.path.join(REPO, path)):
+            return int(m.group(1)), path
+    found = [int(m.group(1))
+             for d in glob.glob(os.path.join(REPO, REVIEWS, "task-*", "REQUEST.md"))
+             if (m := re.search(r"task-(\d+)", d.replace("\\", "/")))]
+    if not found:
+        raise Refused(f"no {REVIEWS}/task-<N>/REQUEST.md found. Write the request first "
+                      "(CLAUDE.md, the loop, step 4)")
+    return max(found), task_rel(max(found), "REQUEST.md")
+
+
+def previous_review(task):
+    """(round, verdict) of the RESULT.md this script last wrote **for this task**, or (None, None).
 
     Read from the working tree, which `cmd_review` has already proved clean, so it is the committed
     file. The trailer is written only by `trailer()`, so the Builder cannot raise or skip the round
-    by editing REVIEW_REQUEST.md (review round 1, finding 2)."""
-    path = os.path.join(REPO, "REVIEW_RESULT.md")
+    by editing the request (review round 1, finding 2). Per task since Task 21: another task's
+    verdict, merged or not, says nothing about this one."""
+    path = os.path.join(REPO, task_rel(task, "RESULT.md"))
     if not os.path.exists(path):
         return None, None
     with open(path, encoding="utf-8") as f:
         return parse_trailer(f.read())
 
 
-def last_committed_review():
-    """(sha, round, verdict) of the newest commit whose REVIEW_RESULT.md carries a trailer.
+def last_committed_review(task):
+    """(sha, round, verdict) of the newest commit whose RESULT.md **for this task** has a trailer.
 
-    `previous_review()` alone cannot see that the file *lost* its trailer: replacing it with the
-    placeholder would silently reset the round to 1 (review round 2, finding 1). This looks back."""
-    for sha in git("log", "--format=%H", f"-{HISTORY_SCAN}", "--", "REVIEW_RESULT.md").split():
-        text = run(["git", "show", f"{sha}:REVIEW_RESULT.md"], check=False).stdout
+    `previous_review()` alone cannot see that the file *lost* its trailer: deleting it or replacing
+    it with a placeholder would silently reset the round to 1 (review round 2, finding 1). This
+    looks back over that one file's history."""
+    rel = task_rel(task, "RESULT.md")
+    for sha in git("log", "--format=%H", f"-{HISTORY_SCAN}", "--", rel).split():
+        text = run(["git", "show", f"{sha}:{rel}"], check=False).stdout
         rnd, verdict = parse_trailer(text)
         if rnd is not None:
             return sha, rnd, verdict
     return None, None, None
+
+
+HARNESS_RE = re.compile(r"\[harness\]\s+PASS:\s*\d+/\d+\s+checks\s+@\s*([0-9a-f]{7,40})\s*\(clean tree\)")
+
+
+def harness_gate(req, code_full, base, head):
+    """Harness before review (Task 21).
+
+    A change that touches src/, tests/ or tools/ may not be reviewed until it has RUN: the request
+    must paste the harness's own PASS line for its `Code commit:`, on a clean tree. Task 18 was
+    reviewed three times before any of its code had executed, and the first real run then failed
+    three specs. Docs-only changes are exempt: the harness says nothing about them."""
+    changed = [f for f in git("diff", "--name-only", f"{base}...{head}").split()
+               if f.replace("\\", "/").startswith(CODE_PATHS)]
+    if not changed:
+        print("[agents] docs-only change: no harness line required", flush=True)
+        return
+    for m in HARNESS_RE.finditer(req):
+        if code_full.startswith(m.group(1)):
+            print(f"[agents] harness line found for the code commit ({len(changed)} code file(s) changed)",
+                  flush=True)
+            return
+    roots = sorted({f.replace("\\", "/").split("/")[0] + "/" for f in changed})
+    raise Refused(
+        f"this change touches {', '.join(roots)} ({len(changed)} file(s)), so it must have RUN before it "
+        f"is reviewed. Paste the harness's own line for the code commit into the request:\n"
+        f"  [harness] PASS: n/m checks @ {code_full} (clean tree)\n"
+        "Run `python tools/studio_mcp.py test` on the clean tree first. Docs-only changes are exempt.")
 
 
 # ------------------------------------------------------------------ worktree
@@ -274,45 +365,51 @@ def trailer(role, head, extra, cost, turns):
 
 # ------------------------------------------------------------------ commands
 
-def cmd_review():
+def cmd_review(task_arg=None):
     head, dirty = repo_state()
     if dirty.strip():
-        raise Refused("working tree is dirty: commit the change and REVIEW_REQUEST.md first\n" + dirty)
-    path = os.path.join(REPO, "REVIEW_REQUEST.md")
-    if not os.path.exists(path):
-        raise Refused("REVIEW_REQUEST.md missing")
+        raise Refused("working tree is dirty: commit the change and the request first\n" + dirty)
+    task, rel = resolve_task(task_arg)
+    path = os.path.join(REPO, rel)
     with open(path, encoding="utf-8") as f:
         req = f.read()
+    print(f"[agents] task {task}: reviewing against {rel}", flush=True)
+
+    declared = re.search(r"^Task:\s*(\d+)", req, re.M)
+    if not declared:
+        raise Refused(f"{rel} needs a `Task: N` line (CLAUDE.md, the loop, step 4)")
+    if int(declared.group(1)) != task:
+        raise Refused(f"{rel} says `Task: {declared.group(1)}` but sits in task-{task}/. "
+                      "The folder and the line must agree.")
     rnd = re.search(r"^Round:\s*(\d+)", req, re.M)
     base = re.search(r"^Base:\s*`?([^`\s]+)`?", req, re.M)
     code = re.search(r"^Code commit:\s*`?([0-9a-f]{7,40})`?", req, re.M)
     if not rnd or not base:
-        raise Refused("REVIEW_REQUEST.md needs `Round: N`, `Base: <commit>` and `Code commit: <sha>` lines")
+        raise Refused(f"{rel} needs `Task: N`, `Round: N`, `Base: <commit>` and `Code commit: <sha>` lines")
     if not code:
-        raise Refused("REVIEW_REQUEST.md needs a `Code commit: <sha>` line (the commit the harness tested)")
-    code = code.group(1)
-    git("rev-parse", "--verify", code + "^{commit}")
+        raise Refused(f"{rel} needs a `Code commit: <sha>` line (the commit the harness tested)")
+    code = git("rev-parse", "--verify", code.group(1) + "^{commit}").strip()
     rnd = int(rnd.group(1))
-    prev_rnd, prev_verdict = previous_review()
+    prev_rnd, prev_verdict = previous_review(task)
     if prev_rnd is None:
-        sha, h_rnd, h_verdict = last_committed_review()
+        sha, h_rnd, h_verdict = last_committed_review(task)
         if sha:
             raise Refused(
-                f"REVIEW_RESULT.md carries no verdict trailer, but commit {sha[:12]} recorded round "
-                f"{h_rnd} ({h_verdict}). The round count cannot be reset by restoring the "
-                "placeholder. Restore that verdict file, or escalate.")
+                f"{task_rel(task, 'RESULT.md')} carries no verdict trailer, but commit {sha[:12]} "
+                f"recorded round {h_rnd} ({h_verdict}) for this task. The round count cannot be reset "
+                "by deleting or replacing that file. Restore it, or escalate.")
     expected = 1 if prev_rnd is None or prev_verdict == "PASS" else prev_rnd + 1
     if rnd != expected:
         raise Refused(
-            f"`Round: {rnd}` in REVIEW_REQUEST.md, but the committed REVIEW_RESULT.md is "
+            f"`Round: {rnd}` in {rel}, but this task's committed RESULT.md is "
             + (f"round {prev_rnd} ({prev_verdict})" if prev_rnd else "not a verdict this script wrote")
-            + f", so this run must be `Round: {expected}`. The round is counted from the verdict "
-              "file, not from the request, so it cannot be raised or skipped here.")
+            + f", so this run must be `Round: {expected}`. The round is counted from the verdict file of "
+              "THIS task, not from the request, so it cannot be raised or skipped here.")
     cap = max_rounds()
     if rnd > cap:
         raise Refused(f"round {rnd} > {cap}: stop rule. Write ESCALATE.md instead of another review")
-    base = base.group(1)
-    git("rev-parse", "--verify", base + "^{commit}")
+    base = git("rev-parse", "--verify", base.group(1) + "^{commit}").strip()
+    harness_gate(req, code, base, head)
 
     def go():
         with Worktree() as wt:
@@ -320,15 +417,18 @@ def cmd_review():
             # The effective cap, not MAX_ROUNDS: the agent must be told the cap in force, which the
             # Director's DIRECTOR_MAX_ROUNDS may have raised (review round 4, finding 3).
             raised = "" if cap == MAX_ROUNDS else f" (default {MAX_ROUNDS}, raised by the Director)"
-            task = (f"Review commit `{head}` (round {rnd} of max {cap}{raised}) against base `{base}`.\n"
-                    "Read `REVIEW_REQUEST.md`, then `.agent-evidence/INDEX.md`.")
-            return run_agent("reviewer", "docs/REVIEWER_PROMPT.md", task, wt)
+            task_text = (f"Review commit `{head}` for **task {task}**, round {rnd} of max {cap}{raised}, "
+                         f"against base `{base}`.\n"
+                         f"Read `{rel}` (the Builder's request), then `.agent-evidence/INDEX.md`.\n"
+                         f"Your verdict is written to `{task_rel(task, 'RESULT.md')}`.")
+            return run_agent("reviewer", "docs/REVIEWER_PROMPT.md", task_text, wt)
 
     text, cost, turns = guarded(go)
     result = block(text, "REVIEW_RESULT")
     v = verdict_of(result, "REVIEW_RESULT")
-    write(os.path.join(REPO, "REVIEW_RESULT.md"), result + trailer("REVIEWER", head, f" (round {rnd})", cost, turns))
-    print(f"[agents] REVIEWER: {v} (round {rnd}); wrote REVIEW_RESULT.md")
+    out = task_rel(task, "RESULT.md")
+    write(os.path.join(REPO, out), result + trailer("REVIEWER", head, f" (round {rnd})", cost, turns))
+    print(f"[agents] REVIEWER: {v} (task {task}, round {rnd}); wrote {out}")
     return 0 if v == "PASS" else 1
 
 
@@ -339,45 +439,74 @@ def next_audit_number():
     return max(nums, default=0) + 1
 
 
-def cmd_architect(mode, system=None):
+def cmd_architect(mode, task, system=None):
     head, dirty = repo_state()
     if dirty.strip():
         print("[agents] note: working tree is dirty; the Architect sees committed HEAD only", flush=True)
+    if not re.fullmatch(r"[0-9]{1,4}", str(task or "")):
+        raise Refused("usage: architect design <system> --task N | architect audit --task N")
+    task = int(task)
     if mode == "design":
         if not system or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", system):
-            raise Refused("usage: architect design <system>  (lower-case, digits, dashes)")
+            raise Refused("usage: architect design <system> --task N  (system: lower-case, digits, dashes)")
         target = os.path.join("docs", "design", f"{system}.md")
-        task = (f"Mode: **design `{system}`**. Write the design for `{target}`.\n"
-                f"Existing design (if any) is at `{target}` in the worktree.")
+        task_text = (f"Mode: **design `{system}`** for task {task}. Write the design for `{target}`.\n"
+                     f"Existing design (if any) is at `{target}` in the worktree.")
     elif mode == "audit":
         n = next_audit_number()
         target = os.path.join("docs", "architecture", f"audit-{n:03d}.md")
-        task = (f"Mode: **audit**. Your document is `{target}` (Architecture audit {n:03d}) of commit `{head}`.\n"
-                "Earlier audits live in `docs/architecture/` or git history; do not repeat items already fixed.")
+        task_text = (f"Mode: **audit** for task {task}. Your document is `{target}` (Architecture audit "
+                     f"{n:03d}) of commit `{head}`.\n"
+                     "Earlier audits live in `docs/architecture/` or git history; do not repeat items "
+                     "already fixed.")
     else:
-        raise Refused("usage: architect design <system> | architect audit")
+        raise Refused("usage: architect design <system> --task N | architect audit --task N")
 
     def go():
         with Worktree() as wt:
             build_evidence(wt)
-            return run_agent("architect", "docs/ARCHITECT_PROMPT.md", task + "\nRead `.agent-evidence/INDEX.md`.", wt)
+            return run_agent("architect", "docs/ARCHITECT_PROMPT.md",
+                             task_text + "\nRead `.agent-evidence/INDEX.md`.", wt)
 
     text, cost, turns = guarded(go)
     result, doc = block(text, "ARCH_RESULT"), block(text, "DOCUMENT")
     v = verdict_of(result, "ARCH_RESULT")
+    out = task_rel(task, "ARCH_RESULT.md")
     write(os.path.join(REPO, target), doc + "\n")
-    write(os.path.join(REPO, "ARCH_RESULT.md"),
+    write(os.path.join(REPO, out),
           result + trailer("ARCHITECT", head, f" ({mode}{' ' + system if system else ''} -> {target})", cost, turns))
-    print(f"[agents] ARCHITECT: {v}; wrote {target} and ARCH_RESULT.md")
+    print(f"[agents] ARCHITECT: {v}; wrote {target} and {out}")
     return 0 if v == "PASS" else 1
+
+
+def take_task_flag(args):
+    """Pull `--task N` (or `--task=N`) out of an argument list. Returns (N or None, rest)."""
+    rest, task = [], None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--task" and i + 1 < len(args):
+            task, i = args[i + 1], i + 2
+            continue
+        if a.startswith("--task="):
+            task, i = a.split("=", 1)[1], i + 1
+            continue
+        rest.append(a)
+        i += 1
+    return task, rest
 
 
 def main(argv):
     try:
-        if argv[1:2] == ["review"] and len(argv) == 2:
-            return cmd_review()
-        if argv[1:2] == ["architect"] and len(argv) >= 3:
-            return cmd_architect(argv[2], argv[3] if len(argv) > 3 else None)
+        args = argv[1:]
+        if args[:1] == ["review"]:
+            task, rest = take_task_flag(args[1:])
+            if len(rest) > 1:
+                raise Refused("usage: review [N]  (or review --task N)")
+            return cmd_review(task if task is not None else (rest[0] if rest else None))
+        if args[:1] == ["architect"] and len(args) >= 2:
+            task, rest = take_task_flag(args[1:])
+            return cmd_architect(rest[0], task, rest[1] if len(rest) > 1 else None)
         print(__doc__)
         return 2
     except Refused as e:

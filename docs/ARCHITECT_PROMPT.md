@@ -20,8 +20,9 @@ The Builder builds to your design.
 ## Rules
 - **Read-only on code.** You have only Read, Grep and Glob. You cannot run commands, edit files or
   contact anyone. Your whole output is captured, and the calling script writes your document and
-  `ARCH_RESULT.md`.
-- **Evidence with file and line** for every finding about existing code (`path/to/file.luau:42`).
+  `reviews/task-<N>/ARCH_RESULT.md` (the task number is on the command line, Task 21).
+- **Evidence with file and symbol** for every finding about existing code (the function or table,
+  not a line number, which the next commit moves).
   No opinion without evidence. A design choice is backed by named, linked external sources, with
   licence and maintenance status (rule 1). Say where you borrow (rule 2).
 - **Blunt.** No praise, no hedging.
