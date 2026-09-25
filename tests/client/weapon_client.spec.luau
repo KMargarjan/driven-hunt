@@ -14,12 +14,19 @@
 -- first run here fired twice where the design expected one shot and a "busy" rejection. So no
 -- assertion in this spec depends on two inputs arriving close together: the barrel delay is proved
 -- deterministically in tests/server/weapon_state.spec.luau instead, and everything below is written
--- to hold whatever the replay's pacing turns out to be. What the scenario still pins is the
--- opposite property -- that a second Reload and a Fire arriving WITHIN the 2 s reload window are
--- both refused -- which only needs its inputs to be early, not close.
+-- to hold whatever the replay's pacing turns out to be.
+--
+-- Measured on the second run: a step costs roughly a second of wall time on top of its own `wait`,
+-- so an input cannot be placed reliably INSIDE the 2.0 s reload window either -- a second R sent
+-- 300 ms after the first arrived after the reload had finished and started a legitimate second one.
+-- So the two "rejected while busy" properties are proved where they can be proved exactly, in
+-- tests/server/weapon_state.spec.luau ("rejects a second shot inside the barrel delay" and "never
+-- lets a second break in"), and this spec asserts what the channel really can: that the inputs
+-- arrive, in order, and that the state they produce is the state the design says.
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/shotgun.md (sections 13.2, 13.3)
 local ContextActionService = game:GetService("ContextActionService")
+local GuiService = game:GetService("GuiService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -223,14 +230,14 @@ return function()
 			expect(state.loaded[2]).to.equal("Slug")
 			expect(state.selected).to.equal(1)
 			expect(state.ammo).to.equal("Buck")
-			-- ONE reload of two shells, though R was pressed twice: the second R arrived while the
-			-- action was open and the reducer refused it. That is feel default 2, end to end.
+			-- One reload of exactly two shells: 24 - 2. The uninterruptible property behind it is
+			-- asserted exactly in weapon_state.spec; see the note at the top of this file.
 			expect(state.reserve).to.equal(22)
 		end)
 
-		it("fired exactly twice: an empty gun and an open action both refused a click", function()
-			-- Four clicks were sent: two into a loaded gun, one into a gun with both barrels spent,
-			-- and one during the reload. Only the first two may spend a barrel.
+		it("fired exactly twice: an empty gun refused the third click", function()
+			-- Three clicks were sent: two into a loaded gun and one into a gun with both barrels
+			-- spent. Only the first two may spend a barrel -- no phantom shot.
 			local rises = 0
 			local previous = 0
 			for _, entry in ipairs(log) do
@@ -339,8 +346,23 @@ return function()
 			end
 			expect(node).to.equal(game)
 
-			local centre = crosshair.AbsolutePosition + crosshair.AbsoluteSize / 2
+			-- AbsolutePosition does NOT account for IgnoreGuiInset, so a GUI that ignores the inset
+			-- reports positions shifted by it (measured: 36 px in Y on this screen). Add it back
+			-- before comparing with the viewport's own centre.
+			local inset = GuiService:GetGuiInset()
+			local centre = crosshair.AbsolutePosition + crosshair.AbsoluteSize / 2 + inset
 			local viewport = Workspace.CurrentCamera.ViewportSize / 2
+			print(
+				string.format(
+					"[weapon_client] crosshair centre %.1f,%.1f vs viewport centre %.1f,%.1f (inset %.0f,%.0f)",
+					centre.X,
+					centre.Y,
+					viewport.X,
+					viewport.Y,
+					inset.X,
+					inset.Y
+				)
+			)
 			expect((centre - viewport).Magnitude <= 2).to.equal(true)
 		end)
 
