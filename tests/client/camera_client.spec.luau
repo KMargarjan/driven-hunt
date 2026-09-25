@@ -7,6 +7,7 @@
 -- StarterPlayerScripts, which is a template (docs/design/shotgun.md section 3.2).
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/camera.md (sections 9.2, 9.3)
+local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -14,6 +15,7 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("InputReady"))
+local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -127,7 +129,31 @@ return function()
 	-- claim rested on counters a fake had moved. It now runs while the PRODUCTION source installed
 	-- by CameraBoot is still the only one, and asserts a DELTA taken here.
 	describe("the harness-driven aim", function()
+		-- ROLE-AWARE (TASKS.md row 34a). The aim action is bound by PlayerScripts.Weapon.Input on
+		-- Tool.Equipped and unbound on Unequipped, so a DRIVER -- who is never given a Tool, because
+		-- `Match.CONFIG.DRIVERS_MAY_SHOOT` is false -- has no aim action at all and a replayed right
+		-- mouse button reaches nothing. That is a rule, not an excuse, and it is asserted rather
+		-- than skipped.
+		it("cannot be aimed at all by a driver, who has no gun to aim", function()
+			if Role.isShooter() then
+				return
+			end
+			local before = Camera.stats()
+			local bound = ContextActionService:GetAllBoundActionInfo()
+			for name in pairs(bound) do
+				expect(string.sub(name, 1, 18)).never.to.equal("DrivenHunt.Weapon.")
+			end
+			-- The whole replay reaches this client too (both clients get the same steps since Task
+			-- 36), so this really is "the right mouse button arrived and did nothing".
+			task.wait(5)
+			expect(Camera.stats().aimEnters).to.equal(before.aimEnters)
+			expect(Camera.getMode()).never.to.equal("Aiming")
+		end)
+
 		it("entered and left Aiming from the real right mouse button", function()
+			if Role.isDriver() then
+				return -- asserted above, the other way round
+			end
 			local before = Camera.stats()
 			local baselineEnters, baselineExits = before.aimEnters, before.aimExits
 			local baselineHistory = #Camera.modeHistory()
@@ -250,6 +276,22 @@ return function()
 		end)
 
 		it("shows a viewmodel that is really on screen, and unparents it afterwards", function()
+			if Role.isDriver() then
+				-- The viewmodel is a clone of the Tool's Handle (docs/design/camera.md section 7), so
+				-- a driver aiming an empty pair of hands must get NO viewmodel -- not an empty Model,
+				-- and not somebody else's gun.
+				fake.aiming = true
+				expect(waitUntil(2, function()
+					return Camera.getBlend() >= 1
+				end)).to.equal(true)
+				expect(Camera.Viewmodel.current()).to.equal(nil)
+				expect(Camera.stats().viewmodelParented).to.equal(false)
+				fake.aiming = false
+				expect(waitUntil(2, function()
+					return Camera.getBlend() <= 0
+				end)).to.equal(true)
+				return
+			end
 			fake.aiming = true
 			expect(waitUntil(2, function()
 				return Camera.getBlend() >= 1

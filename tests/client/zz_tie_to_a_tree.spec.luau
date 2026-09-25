@@ -38,7 +38,9 @@ local Hud = require(scripts:WaitForChild("Hud"))
 local Match = require(scripts:WaitForChild("Match"))
 
 local CUE_ACTION = "DrivenHunt.Test.TieCue"
-local CUE_TIMEOUT = 150 -- this scenario is the last of five and the whole replay is about a minute
+-- The last of five scenarios, and since Task 36 `test2` sends every step to BOTH clients, so the
+-- replay takes about twice as long there as the ~60 s it takes with one.
+local CUE_TIMEOUT = 240
 local TIE_TIMEOUT = 25 -- from the cue to the snapshot saying so
 local STAND_BEHIND = 25 -- studs behind the driver, so the shot cannot stop in something else
 local DOWN_THE_DRIVE = 200 -- studs up +Z, for the one-player shot at nobody

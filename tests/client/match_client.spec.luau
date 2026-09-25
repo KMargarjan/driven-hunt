@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -144,8 +145,12 @@ return function()
 			print("[match_client] drive bar: " .. text)
 			expect(string.find(text, "DRIVE %d") ~= nil).to.equal(true)
 			expect(string.find(text, "nil") == nil).to.equal(true)
-			-- The player is a Shooter in a one-player drive (Director decision F).
-			expect(string.find(text, "SHOOTER") ~= nil).to.equal(true)
+			-- THE BADGE IS THIS PLAYER'S OWN. With one player that is SHOOTER (Director decision F);
+			-- in a two-player run one client is the DRIVER and its badge must say so, in its own
+			-- team colour. Asserting "SHOOTER" for everybody was a one-player claim inside a suite
+			-- the two-player run has to pass (TASKS.md row 34a).
+			expect(string.find(text, Role.badge()) ~= nil).to.equal(true)
+			expect(Role.badge()).to.equal(if Match.myTeam() == "Drivers" then "DRIVER" else "SHOOTER")
 			local phase = Match.phase()
 			if phase == "Running" or phase == "Assigning" or phase == "Scoring" then
 				expect(string.find(text, "%d+:%d%d") ~= nil).to.equal(true)

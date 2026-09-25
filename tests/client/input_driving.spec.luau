@@ -28,7 +28,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
 local ACTION_NAME = "DrivenHunt.Test.InputProbe"
-local ARRIVE_TIMEOUT = 25 -- seconds to wait for the harness's replay; it starts within ~2 s
+-- Seconds to wait for the harness's replay; it starts within ~2 s of the ready handshake. Raised
+-- from 25 in Task 36: `test2` sends every step to both clients, so each one costs two calls.
+local ARRIVE_TIMEOUT = 45
 -- The harness sleeps the scenario's gap in Python, so the gap the client sees can only be LONGER than
 -- asked. The tolerance is for clock skew between that sleep and os.clock() here, nothing more.
 local GAP_TOLERANCE = 0.6

@@ -36,6 +36,13 @@ Moving parts
       two-player run cannot put the token in the place its processes start from (see `test2`), so it
       arrives after they are up. Outside Studio it returns nil immediately. A playtest still runs no
       tests -- nothing writes a token during one.
+  tests/client/Role.luau -> ReplicatedStorage.ClientTests.Role
+      Which team THIS client's player is on, resolved once at require time and shared by every client
+      spec. Since Task 36 each spec asserts what is true for its player's ROLE -- a shooter's claims,
+      or a driver's own (no Tool, no weapon actions bound, no crosshair, never staged, badge DRIVER)
+      -- so a two-player run can require PASS from both clients instead of printing one of them.
+      It is resolved BEFORE InputReady publishes the ready attribute, so the replay can never start
+      against a client that does not yet know what it is.
   tests/client/input_scenarios.txt -> ReplicatedStorage.ClientTests.input_scenarios (StringValue)
       The input scenarios (Task 6). JSON in a .txt because a .txt is a StringValue this harness already
       compares byte-for-byte, so the scenario the client reads is provably the file on disk, and no new
@@ -104,11 +111,14 @@ Driving real player input (Task 6), step 7a of `test`
           {"device": "wait", "ms": <0..10000>}]}]}
 
   Replay, during Play, after the runners have started:
-    1. Wait (<= 20 s) for LocalPlayer's `readyAttribute` to carry THIS run's token. The client spec
-       sets it after it has bound its listeners, so a replay can never race the bindings, and a stale
-       attribute from an earlier run is not mistaken for this one.
-    2. For a scenario with a `stage` block, stage it first (below). In `test2` the replay goes to
-       the SHOOTER's client only, named by its studio_id: a driver carries no gun.
+    1. Wait (<= 60 s, and for EVERY client in a 2-player run) for LocalPlayer's `readyAttribute` to
+       carry THIS run's token. The client spec sets it after it has bound its listeners AND after
+       ClientTests.Role has resolved its team, so a replay can never race the bindings and never
+       reaches a client that does not yet know its role; a stale attribute from an earlier run is not
+       mistaken for this one.
+    2. For a scenario with a `stage` block, stage it first (below). In `test2` the STEPS go to BOTH
+       clients, in the same order (Task 36), and the `stage` goes to the SHOOTER's client only: it
+       pivots the character, and two characters staged onto the same boar is a scrum.
     3. Send the steps in order through StudioMCP's user_keyboard_input / user_mouse_input against the
        Client DataModel. Consecutive steps for the same device go in ONE call, so StudioMCP keeps their
        order and spacing; a `wait` step flushes the batch and is slept in Python, so a gap spans devices.
@@ -144,8 +154,8 @@ Staging a scenario (Task 30): putting the player somewhere useful, pointing at s
   and then, because a step the replay sends but the spec cannot recognise is a hole in the evidence.
   Gated exactly like the specs: replay happens only inside `test`, only during its own Play, and the
   spec only listens when TestKit's token gate is open.
-  What a scenario CANNOT express: a second player (that is `test2`, and its replay reaches one
-  client only); touch and gamepad input; typing text (StudioMCP has textInput, the
+  What a scenario CANNOT express: DIFFERENT input per player (that is `test2`, and it sends the same
+  steps to both clients); touch and gamepad input; typing text (StudioMCP has textInput, the
   format does not); a hold measured in frames rather than milliseconds; input aimed at a specific
   instance (StudioMCP's instance_path is not used); and anything after the client report is written.
   A `stage` block cannot follow a moving target: it places and aims ONCE, before the steps. A spec
@@ -228,19 +238,21 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
        15 s for a console) and reported if they outlast it. Run 3 (2026-09-25) crashed the whole
        mode on the first of those; no call against a test process raises now.
     3. Each client is asked which team its LocalPlayer is on. THEN the gate is opened (above) and
-       the input scenarios are replayed into the SHOOTER's client -- in that order, because the
-       client specs start the moment the token lands and input_driving.spec gives the replay 25 s
-       to arrive; a 45-second team query must not be inside that budget.
-       WHY THE SHOOTER: with two players the drive makes one of them a Driver, and a Driver carries
-       no gun at all (DRIVERS_MAY_SHOOT is false), so the weapon and staged-shot specs cannot pass
-       there whatever is replayed -- list order has nothing to do with it. The driver's report is
-       printed as an OBSERVATION, never as a passing check.
+       the input scenarios are replayed into BOTH clients -- in that order, because the client specs
+       start the moment the token lands and input_driving.spec gives the replay 25 s to arrive; a
+       45-second team query must not be inside that budget.
+       WHY BOTH, SINCE TASK 36: with two players the drive makes one of them a Driver, and a Driver
+       carries no gun at all (DRIVERS_MAY_SHOOT is false). Sending him nothing meant 23 of his 67
+       specs failed by construction and his whole report had to be printed as an observation. He now
+       gets the same steps -- they cost him nothing, because none of the weapon's actions is bound
+       without a Tool -- and ClientTests.Role lets each spec assert the driver's half of the rule.
+       WHICH CLIENT IS THE SHOOTER still matters for the `stage`, which moves a character.
     4. All three reports (the server, the shooter's client, the driver's client) are polled
        TOGETHER against one deadline of REPORT_WINDOW_2P seconds, and each is announced with how
-       long it took. Read one after another, a slow client is only waited for once the previous
+       long it took. ALL THREE ARE CHECKED since Task 36. Read one after another, a slow client is
+       only waited for once the previous
        one's window has run out: in run 5 both clients had in fact reported, and the sequential
-       reads had given up first. A two-player client suite is slower than a one-player one anyway,
-       because the driver carries no gun and its weapon specs spend their timeouts failing.
+       reads had given up first.
     Starting it WITHOUT Karen: the Director has
     driven-hunt-runs/press-f7.ps1 (on Karen's Desktop), which brings the DEV Studio window to
     the front and posts F7 to it (Karen's F7 is bound to Server and Clients with 2 players). This
@@ -252,10 +264,8 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
        token reached the server process and replicated to both clients; each runner reported inside
        the window; each report carries a
        token it minted (the disk one, in case a copy carried it, or the injected one -- nothing
-       else) and the DEV PlaceId; the server and the SHOOTER's client are PASS with 0
-       (the DRIVER's report is never checked, and its absence is a note, not a failure)
-       failed/errors/skipped; the server ran tests/server/match_teams.spec; and it ran every server
-       spec file in the repo. The driver's report is printed, never checked.
+       else) and the DEV PlaceId; ALL THREE reports are PASS with 0 failed/errors/skipped; the server
+       ran tests/server/match_teams.spec; and it ran every server spec file in the repo.
     6. It stops each test instance and, if any remain, says to press Cleanup.
   Final line: "[harness2] PASS|FAIL: n/m checks @ <full HEAD sha> (clean tree | DIRTY TREE ...)".
   A [harness2] line is NOT a substitute for a [harness] line as PR evidence: this mode runs none of
@@ -400,8 +410,9 @@ QUERY_ROLE = (
     "local lp = Players.LocalPlayer "
     'return (if RS:IsServer() then "server" else "client") .. "|" .. tostring(lp and lp.Name)'
 )
-# Which team the drive put this client's player on. Used to pick WHICH client gets the input
-# replay in a 2-player run: the driver carries no gun, so the weapon specs belong to the shooter.
+# Which team the drive put this client's player on. Both clients get the input replay since Task 36;
+# this picks which one gets the `stage`, which moves a character -- and it is the shooter, because
+# the staged scenario is a shot at a boar and a driver carries no gun.
 QUERY_MY_TEAM = (
     'local p = game:GetService("Players").LocalPlayer '
     "local t = p and p.Team "
@@ -1030,15 +1041,32 @@ def scenario_batches(steps):
     return batches
 
 
-def replay_input(studio, data, token, check, studio_id=None):
-    """Replay every scenario into the running Play client. Adds two checks per run (three with a
-    `stage`). `studio_id` names WHICH client in a 2-player run; None means "the only one"."""
+def replay_input(studio, data, token, check, studio_id=None, mirror_ids=()):
+    """Replay every scenario into the running Play client(s). Adds two checks per run (three with a
+    `stage`). `studio_id` names WHICH client in a 2-player run; None means "the only one".
+
+    `mirror_ids` are the OTHER clients that get the same steps, in the same order, in the same call
+    batch -- but no `stage`. Task 36: with two players the driver used to receive no input at all, so
+    every input-driven spec on his client failed by construction and `test2` could only print his
+    report as an observation. The steps cost him nothing (he holds no Tool, so the weapon keys do
+    nothing) and they let his half of the suite assert what IS true of a driver. The STAGE stays on
+    one client: it pivots the character, and two characters staged onto the same boar is a scrum."""
     ready_attr = data.get("readyAttribute", "InputProbeReady")
     if not re.fullmatch(r"[A-Za-z0-9_]{1,100}", ready_attr):
         raise RuntimeError(f"readyAttribute must be a plain identifier; got {ready_attr!r}")
-    seen, ok = wait_for(lambda: studio.query("Client", QUERY_READY % ready_attr, studio_id=studio_id),
-                        lambda v: v == token, 20, 0.5)
-    if not check("[input] the client bound its listeners and published this run's token", ok, repr(seen)):
+    targets = [studio_id] + [i for i in mirror_ids if i != studio_id]
+    # EVERY target must be listening before ANY step is sent: a replay into a client that has not
+    # bound its listeners proves nothing there and cannot be repeated. 60 s, not 20: since Task 36 a
+    # client resolves its own team (ClientTests.Role) before it publishes this, so the handshake now
+    # waits for the drive to assign teams -- which in a one-player `test` happens during Play.
+    not_ready = []
+    for target in targets:
+        seen, ok = wait_for(lambda: studio.query("Client", QUERY_READY % ready_attr, studio_id=target),
+                            lambda v: v == token, 60, 0.5)
+        if not ok:
+            not_ready.append(f"{(target or 'client')[:8]}: {seen!r}")
+    if not check("[input] the client bound its listeners and published this run's token",
+                 not not_ready, "; ".join(not_ready) if not_ready else repr(token)):
         return
     sent, problems, staged = 0, [], []
     for scenario in data["scenarios"]:
@@ -1057,16 +1085,17 @@ def replay_input(studio, data, token, check, studio_id=None):
             if device == "wait":
                 time.sleep(payload)
                 continue
-            try:
-                studio.send_input(device, payload, studio_id=studio_id)
-                sent += len(payload)
-            except Exception as e:
-                # Not just RuntimeError: _rpc raises queue.Empty when StudioMCP stops answering, and a
-                # hung input call must fail this check, not the whole run (review round 1).
-                problems.append(f"{scenario.get('name')}: {type(e).__name__}: {e}")
+            for target in targets:
+                try:
+                    studio.send_input(device, payload, studio_id=target)
+                    sent += len(payload)
+                except Exception as e:
+                    # Not just RuntimeError: _rpc raises queue.Empty when StudioMCP stops answering,
+                    # and a hung input call must fail this check, not the whole run (review round 1).
+                    problems.append(f"{scenario.get('name')}: {type(e).__name__}: {e}")
     names = ", ".join(str(s.get("name")) for s in data["scenarios"])
     check(f"[input] replayed every step of {len(data['scenarios'])} scenario(s)", not problems,
-          "; ".join(problems) if problems else f"{sent} steps sent ({names})")
+          "; ".join(problems) if problems else f"{sent} steps sent to {len(targets)} client(s) ({names})")
     if staged:
         # A separate check, because a scenario staged into thin air would still send every step and
         # pass the line above while its spec asserted on nothing.
@@ -1358,9 +1387,9 @@ def end_session(studio, before):
         print(f"[harness2] {len(left)} test Studio(s) still open: press Cleanup in the Test tab.")
 
 
-# A two-player client suite is slower than a one-player one: the driver carries no gun, so its
-# weapon specs spend their own timeouts failing rather than passing. Run 5 measured both clients
-# finishing after the old sequential 120 s reads had given up.
+# A two-player client suite is slower than a one-player one: the same replay is sent to two clients,
+# so every step costs two calls. Run 5 measured both clients finishing after the old sequential
+# 120 s reads had given up; this window is one deadline for all three reports.
 REPORT_WINDOW_2P = 420
 
 
@@ -1518,7 +1547,9 @@ def run_test2(studio, wait_seconds=180):
         if scenarios is None:
             print("[harness2] no tests/client/input_scenarios.txt: nothing to replay")
         else:
-            replay_input(studio, scenarios, token, check, studio_id=shooter)
+            # BOTH clients, one stage. See replay_input: the driver's half of the suite is only
+            # assertable if his client receives the same input the shooter's does.
+            replay_input(studio, scenarios, token, check, studio_id=shooter, mirror_ids=[other])
 
         # ALL THREE AT ONCE, against ONE deadline. Read one after another, each with its own
         # window, a slow client is waited for only after the previous one has run its window out:
@@ -1560,15 +1591,10 @@ def run_test2(studio, wait_seconds=180):
     for name in ("server", "shooter", "driver"):
         report = reports.get(name)
         if report is None:
-            # THE DRIVER'S REPORT IS AN OBSERVATION, including when it does not come. Its suite is
-            # the slow one -- every input-driven spec waits its whole budget out for a replay that
-            # is never coming to a client with no gun -- and run 7 had it still running at 300 s.
-            # Failing the run over a report nothing is checked against would be failing on the one
-            # thing this mode deliberately does not claim.
-            if name == "driver":
-                print(f"  note   [driver] did not report within {REPORT_WINDOW_2P} s (no gun, no "
-                      "replay: its suite waits out every input budget)")
-                continue
+            # ALL THREE ARE CHECKED SINCE TASK 36. The driver's used to be an observation because his
+            # client got no replay and no gun, so 23 of his 67 specs failed by construction; the
+            # specs are role-aware now (ClientTests.Role) and he receives the same input the shooter
+            # does, so his report is evidence like any other -- and a missing one is a failure.
             check(f"[{name}] runner reported within {REPORT_WINDOW_2P} s", False)
             continue
         # EITHER token this run minted: the one written to disk before the click (a copy that
@@ -1579,16 +1605,11 @@ def run_test2(studio, wait_seconds=180):
         check(f"[{name}] report comes from the DEV place", str(report["placeId"]) == place, str(report["placeId"]))
         summary = (f"{report['successCount']} passed, {report['failureCount']} failed, "
                    f"{report['errorCount']} errors, {report['skippedCount']} skipped")
-        if name == "driver":
-            # An OBSERVATION, not a check. The driver's client carries no gun and got no replay, so
-            # its weapon and staged-shot specs cannot pass -- that is the game's rule, not a defect.
-            print(f"  note   [driver] {report['status']}: {summary} (no gun, and no input replayed here)")
-        else:
-            check(f"[{name}] status PASS", report["status"] == "PASS",
-                  report["status"] + " " + report.get("message", ""))
-            check(f"[{name}] > 0 passed, 0 failed, 0 errors, 0 skipped",
-                  report["successCount"] > 0 and report["failureCount"] == 0
-                  and report["errorCount"] == 0 and report["skippedCount"] == 0, summary)
+        check(f"[{name}] status PASS", report["status"] == "PASS",
+              report["status"] + " " + report.get("message", ""))
+        check(f"[{name}] > 0 passed, 0 failed, 0 errors, 0 skipped",
+              report["successCount"] > 0 and report["failureCount"] == 0
+              and report["errorCount"] == 0 and report["skippedCount"] == 0, summary)
 
     server_report = reports.get("server")
     if server_report:

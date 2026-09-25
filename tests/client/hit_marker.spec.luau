@@ -18,16 +18,29 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
 local Hud = require(scripts:WaitForChild("Hud"))
 
+-- How long to wait for the SERVER's marker. It was 30 s, and that was a claim about the shooter
+-- dressed up as a claim about the wire: a shooter also receives a marker for every shot he lands, so
+-- his window is satisfied within seconds of his first hit, while a DRIVER receives only the one
+-- tests/server/weapon_hits.spec sends -- and that fires wherever the SERVER suite happens to have
+-- reached, which in a two-player run was after this window had closed (Task 36, measured from the
+-- Task 35 run: the driver was the only report that failed here). The listener below has been
+-- collecting since require time, so waiting longer costs a passing run nothing at all.
+local SERVER_MARKER_TIMEOUT = 150
+
 local CONFIG = Shotgun.CONFIG
 
 -- Counted from the real remote, alongside the Hud's own listener. This spec never fires it.
 local received = {}
+local startedAt = os.clock()
+local firstAt: number? = nil
 Shotgun.remotes().HitMarker.OnClientEvent:Connect(function(payload)
+	firstAt = firstAt or os.clock()
 	table.insert(received, payload)
 end)
 
@@ -55,12 +68,20 @@ return function()
 			-- weapon_hits.spec calls Weapon.markHit on the server during this same run. If the wire
 			-- is broken -- a missing RemoteEvent, a FireClient that never happens, a Hud that never
 			-- connects -- nothing arrives and this is red.
-			local arrived = waitUntil(30, function()
+			local arrived = waitUntil(SERVER_MARKER_TIMEOUT, function()
 				return #received > 0
 			end)
-			if not arrived then
-				print("[hit_marker] no server-sent marker arrived in 30 s")
-			end
+			-- A NOTE, not a print: a two-player session's console comes back truncated and takes the
+			-- numbers that explain a failure with it (Task 34). This one says whether the wire was
+			-- broken or merely slower than the window.
+			TestKit.note(
+				string.format(
+					"hit_marker: %d marker(s), first at %+.1f s from suite start, waited %.1f s",
+					#received,
+					if firstAt then firstAt - startedAt else -1,
+					os.clock() - startedAt
+				)
+			)
 			expect(arrived).to.equal(true)
 			expect(type(received[1])).to.equal("table")
 			expect(received[1].kind).to.be.ok()
