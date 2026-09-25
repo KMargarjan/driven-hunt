@@ -2,7 +2,7 @@
 
 Written by the Builder for `tools/review.sh`. The format is below; the script parses the first three lines.
 
-Round: 1
+Round: 6
 Base: `358a430`
 Code commit: `d265cab396b2a23b61c620fe9e6594f23b925211`
 
@@ -16,7 +16,14 @@ Karen's first playtest. Two things, both of them defects the Task 17 and 18 scre
 2. The boar reads near-black from the side. Find the cause and fix it, with one number or one
    property in the boar's config.
 
-`Base:` is `main` at `358a430`, where Tasks 17 and 18 merged. This is a new task, so `Round: 1`.
+`Base:` is `main` at `358a430`, where Tasks 17 and 18 merged. This is a **new task**, and its first
+and only review round — but the round counter has no task boundary, so it continues the number from
+Tasks 17+18's round 5 `FINDINGS` verdict on `main`. The Director authorised `Round: 6` with
+`DIRECTOR_MAX_ROUNDS=6` for Task 22 only (`ESCALATE.md`, 2026-09-25, closed); the real fix is Task 21,
+next. **Read this as round 1 of Task 22**: nothing in this document has been reviewed before.
+
+Director policy for this round: only a finding that makes the game, a test, an owner boundary or
+security wrong is blocking. Wording, citation and paperwork findings are notes.
 
 ## Process
 

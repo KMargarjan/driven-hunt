@@ -10,7 +10,7 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
-## 2026-09-25 · OPEN · Task 22 cannot be reviewed: the round counter has no task boundary
+## 2026-09-25 · CLOSED 2026-09-25 · Task 22 cannot be reviewed: the round counter has no task boundary
 
 **Raised by:** Builder, at loop step 5 of Task 22 (branch `task-22-playtest-ready`, code commit
 `d265cab396b2a23b61c620fe9e6594f23b925211`, harness `PASS: 24/24 ... (clean tree)` on it).
@@ -53,6 +53,27 @@ harness-green and pushed, and **unreviewed**.
    comments and docs), and let the fix land with the next task.
 
 My recommendation is 2, with 1 to unblock Task 22 in the same breath.
+
+**Director's answer, 2026-09-25 (transcribed verbatim by the Builder from the dispatch):**
+
+> DIRECTOR DECISION on the ESCALATE.md entry (review gate refuses round 1 after Tasks 17+18 merged on
+> FINDINGS):
+> - For Task 22 only: DIRECTOR_MAX_ROUNDS=6 and `Round: 6` are authorised (one review round). Record
+>   this under the entry.
+> - The real fix (per-task review files, round count per task) is Task 21, next. Do not change
+>   tools/agents.py in Task 22.
+> - Accepted: ServerStorage has a $path, so the Archive folder will go at the next Connect;
+>   backups/2026-09-25_workspace-defaults.md is the rule-7 record. Good catch.
+>
+> Run the one review round now (policy: only real defects block; notes do not). If only notes: record
+> PASS-with-notes as the Director's call in ESCALATE.md, close the entry, push. If a real defect: fix,
+> harness, and with DIRECTOR_MAX_ROUNDS=7 one more round, then stop regardless.
+
+**So:** this is the authorisation `tools/agents.py` requires, for **Task 22, round 6** (which is Task
+22's first round). `DIRECTOR_MAX_ROUNDS` is set in the environment for that run only and is never
+committed. `tools/agents.py` is untouched; the counter fix is Task 21. Entry **closed**; the outcome
+of the round is recorded below.
+
 
 ---
 ## 2026-09-25 · CLOSED 2026-09-25 · Tasks 17+18: round 5 was the last authorised round, and it found 4 things
