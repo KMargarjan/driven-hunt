@@ -10,6 +10,41 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-09-25 · NEEDS KAREN · Task 34: the 2-player harness mode needs one click to be exercised
+
+**Raised by:** Builder, Task 34 (branch `task-34-harness-2p`). **Nothing is blocked**: the mode is
+built, the one-player harness is green with it, and the 2-player spec runs in both modes. What is
+missing is the only thing no tool here can do.
+
+**Why it needs you.** StudioMCP's `start_stop_play` takes `is_start` and `studio_id` and **nothing
+else** -- there is no player count anywhere in its tool schema -- so the harness cannot start a
+Clients-and-Servers test. Everything after the click is the mode's own work.
+
+**The clicks, and the one command, in this order:**
+
+1. In a terminal in the repo folder, start the mode FIRST:
+
+   ```
+   python tools/studio_mcp.py test2
+   ```
+
+   It writes the gate token, prints these clicks, and then waits up to 180 s for the test windows.
+
+2. In Studio, on **Driven Hunt DEV**: **Test** tab -> **Clients and Servers** -> **Players: 2** ->
+   **Start**. Do it within **120 seconds** of step 1: a local test copies the place as it stands when
+   Start is pressed, and the runners refuse a token older than that.
+3. Leave the three windows alone. The mode reads them: it finds which is the server and which are
+   the clients, replays the input scenarios into the first client, and collects all three reports.
+4. When it says so, press **Cleanup** in the Test tab.
+5. Paste the final `[harness2] ...` line under this entry, and the `[match_teams]` line from the
+   server output just above it (it prints each player's name and team).
+
+**What the answer decides.** If it passes, ROADMAP 1.6 is closed and a two-player check is one
+command away from then on. If a report is empty, the token window was missed -- just run it again.
+If the studios are found but the classification is wrong, that is a real finding and the mode prints
+what it saw.
+
+---
 ## 2026-09-25 · CLOSED 2026-09-25 · Task 30: is a 2-player harness run possible at all?
 
 **ANSWERED — yes, it is possible.** Karen ran Test -> Clients and Servers with 2 players and
