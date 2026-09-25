@@ -9,8 +9,8 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 | 3 | Run `luau-lsp analyze` in CI (type checking) | todo | luau-lsp is pinned but not wired into CI. Needs a sourcemap and Roblox type definitions in CI |
 | 4 | Karen: check DEV place Version History around the first Connect | closed: not applicable | Not applicable: the place was empty at the first Connect. It was brand new, a read-only query at ~18:30 found all Rojo-owned containers empty, and Karen added nothing to them before Connect (~18:36). The click path I gave (Studio → File → Version History) was wrong: Studio's File menu has no Version History |
 | 5 | Architecture audit-001 must-fix M1–M4 plus doc drift | done (merged 2026-09-24, PR #3/#6) | Stacked PR on PR #1. See the review log below |
-| 6 | **BLOCKING before any input-driven client code:** drive real input from the harness | todo | StudioMCP has `user_keyboard_input` / `user_mouse_input` for the Client DataModel, but the harness does not call them. Client specs can assert camera/input/cursor/UI **state** today, but cannot simulate a player pressing keys or moving the mouse. Needs: a scenario format (input steps, then assertions), gated like the specs |
-| 7 | Play-time screenshots | **mostly resolved (Director, 2026-09-25)** | Play-time `screen_capture` works (Tasks 17+18 used it). Left: `tools/studio_mcp.py` `Studio._call` drops image blocks, so captures cannot be saved by the harness yet. Small; do it with the next visual task |
+| 6 | **BLOCKING before any input-driven client code:** drive real input from the harness | **awaiting review** | Branch `task-6-input-driving`, from `main` (`a7e4745`). Done to the shape `docs/design/shotgun.md` §13.3 asks for. **One scenario file** `tests/client/input_scenarios.txt` (JSON in a `.txt`, so Rojo makes it a `StringValue` the harness already compares byte-for-byte and no `default.project.json` change is needed - that would need a Rojo restart and Karen's Connect): steps are `keyboard` (`keyDown`/`keyUp`/`keyPress`), `mouse` (`moveTo`/`mouseButtonDown`/`mouseButtonUp`/`mouseButtonClick`) and `wait` (ms). **One harness step** (`replay_input` in `tools/studio_mcp.py`, step 7a): it waits for the client to publish this run's token on `LocalPlayer` (the ready handshake, so a replay can never race the bindings), then sends consecutive same-device steps in one StudioMCP call and sleeps the gaps in Python. **One client spec** `tests/client/input_driving.spec.luau` binds `ContextActionService` (keys + MouseButton1) and `UserInputService` (mouse movement) and asserts arrival, the down/up pair, the CAS and UIS sources, the order, and that the 700 ms gap is visible and larger than any unwaited gap. Addendum in `docs/research/2026-09-24-toolchain.md`. **Cannot express:** touch, gamepad, `textInput`, frame-counted holds, input aimed at an instance, anything after the client report |
+| 7 | Play-time screenshots | **closed 2026-09-25 (Task 6)** | `Studio._call` joins text blocks and dropped the image, so nothing could be saved. `Studio.capture()` reads the image block and `python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z]` writes it to `.screenshots/` (git-ignored). Verified in **Edit** (correctly empty: since Task 22 `Workspace` holds only `Camera` and `Terrain`) and during **Play** (the arena plate as a full square) |
 | 8 | Audit-001 fix-before-release and log-only items | todo | R2 is partly done (same-named siblings now fail). R3 = Task 3. L1 is done (docstring is the single source). L3 non-ASCII is fixed. L5 is fixed by Task 10. Open: L2, L4, L6, L7, L8, L9 (owner table rows) |
 | 9 | Four-agent workflow: roles, communication files, `tools/review` and `tools/architect` scripts, PROJECT_CONTEXT | awaiting review | PR #4 (branch `task-9-agent-workflow`), now targeting `main`. From here on, TASKS.md queue and priority belong to the Director. The Builder updates only its current task's status and files non-must-fix audit items. **Never went through the loop itself: Task 11 does that** |
 | 10 | Proof of the loop: audit-001 L5, test-only globals (`describe`, `expect`, `SKIP`…) must be a lint error in `src/` | done | Branch `task-10-lint-test-globals` (PR #5), stacked on `task-9-agent-workflow`. Review: PASS in 2 rounds. Audit-002 returned 5 must-fix items, all outside this task's change; the Director closed the escalation and queued them as Tasks 12–16 |
@@ -34,6 +34,35 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 
 CLAUDE.md gives the Builder this one right in `TASKS.md`: a Director dispatch that arrived outside
 the repo, transcribed verbatim and marked as the Director's. Newest first.
+
+### Task 6 · 2026-09-25
+
+> TASK 6 (blocking before the shotgun build): the harness drives real player input. Smallest version,
+> exactly as the regenerated shotgun design (Task 23, docs/design/shotgun.md on its branch or main)
+> says "Task 6 must prove first".
+> Branch: git switch -c task-6-input-driving
+> - One scenario file (for example tests/input-scenarios.json): a few steps (press/hold/release a key,
+>   move/click the mouse) then which client spec to run.
+> - One harness step that replays it during Play through StudioMCP's user_keyboard_input /
+>   user_mouse_input, gated like the specs.
+> - One client spec that proves the input arrived through the real path a player uses
+>   (UserInputService / ContextActionService event seen by a LocalScript), not by calling the handler
+>   directly.
+> - Keep the harness docstring the single source of truth; update it.
+> - Also: `tools/studio_mcp.py` Studio._call drops image blocks. Make captures saveable to a
+>   git-ignored folder (small), so rule-5 screenshots can be saved as evidence. This closes TASKS row 7.
+> Research: a short addendum to the toolchain note is enough (it is harness work on an already-researched
+> tool).
+> Loop: harness PASS on a clean tree, reviews/task-6/REQUEST.md, tools/review.sh 6, notes never block,
+> max 2 rounds. Push. No PR.
+
+**Builder's note.** Two deviations, both to avoid a `default.project.json` change (which the running
+`rojo serve` does not reload, so it would need a restart and Karen's Connect click): the scenario file
+is `tests/client/input_scenarios.txt` rather than `tests/input-scenarios.json` - it must be readable by
+**both** the harness and the client, and a `.txt` under the already-mapped `tests/client/` becomes a
+`StringValue` the harness compares byte-for-byte; and the spec binds its own listeners rather than a
+separate probe `LocalScript`, which would have needed a new mapping. The spec still runs in the real
+client and only sees input the engine delivers.
 
 ### Task 21 · 2026-09-25
 
