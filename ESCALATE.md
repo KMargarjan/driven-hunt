@@ -10,7 +10,7 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
-## 2026-09-25 · OPEN · Tasks 17+18: round 5 was the last authorised round, and it found 4 things
+## 2026-09-25 · CLOSED 2026-09-25 · Tasks 17+18: round 5 was the last authorised round, and it found 4 things
 
 **Raised by:** Builder, at loop step 5 of the combined Tasks 17+18 (branch `task-18-boar-ai`, code
 commit `b6cf3dec736347f65c42ad3d05129d302389349a`).
@@ -67,7 +67,9 @@ two `SpawnLocation`s during Play.
 
 ---
 
-## 2026-09-25 · OPEN · FOR THE DIRECTOR · play-time `screen_capture` works; `TASKS.md` row 7 is wrong
+**Director decision 2026-09-25:** merged on the record. The Director read the only unreviewed code change after round 5 (`Boar.defaultWorld`: records "success: no waypoints" in the path-problem counter and returns nil, as before); it changes diagnostics, not behaviour. The harness PASS at `b6cf3de` stands.
+
+## 2026-09-25 · CLOSED 2026-09-25 · FOR THE DIRECTOR · play-time `screen_capture` works; `TASKS.md` row 7 is wrong
 
 **Raised by:** Builder, during the Tasks 17+18 harness run (branch `task-18-boar-ai`). This is not a
 blocker — it **unblocks** something, and the queue is the Director's to edit, not mine (`CLAUDE.md`
@@ -108,6 +110,8 @@ and keeping the image blocks returns the JPEG.
 here needs Karen.
 
 ---
+
+**Director decision 2026-09-25:** agreed. TASKS.md row 7 is updated: play-time capture works; the remaining work is making `tools/studio_mcp.py` keep image blocks so the harness can save captures.
 
 ## 2026-09-24 · CLOSED 2026-09-25 · Task 18 reached round 3; the script refuses a fourth
 
@@ -215,6 +219,189 @@ into `CLAUDE.md` on the next task.
 `rojo serve`, and if Rojo is down write a NEEDS KAREN entry and stop. Restarting it would not be
 enough anyway — the Rojo plugin's **Connect** button cannot be clicked by any tool, so Karen has to
 press it before the harness can run again.
+## 2026-09-24 · CLOSED 2026-09-24 · Task 20 round 2 returned 5 findings; the Director's limit was two rounds
+
+**Director decision (2026-09-24 ~23:50):** option 1, accepted on the record. The five unreviewed fixes are wording and source labelling; none changes a conclusion or a number. The Architect reads the note fresh when it designs the map generator. Merged by the Director with main (paperwork conflicts resolved by keeping both sides).
+
+**Raised by:** Builder, at loop step 5 of Task 20 (branch `task-20-map-research`, code commit
+`6cd9a84`). Documents only.
+
+**Result.** Two review rounds, 11 findings, all fixed. Round 2's five are fixed in the commit that
+carries this entry, and **they are unreviewed**: the dispatch said "max 2 rounds", and unlike
+`MAX_ROUNDS` that is a Director instruction rather than something the script enforces, so I have
+stopped rather than run a third.
+
+| Round | Commit | Findings | What they were |
+|---|---|---|---|
+| 1 | `fba85c8` | 6 | the seed/determinism story did not work (`math.noise` has no seed, so seeding a `Random` answered nothing); the maths library was a source in everything but name; three broken section references; a false "one-to-one" claim; `ESCALATE.md` in the change but in no claim; the Director's dispatch paraphrased rather than transcribed |
+| 2 | `41e9069` | 5 | **a new broken section reference inside my fix for the broken section references**; the source count corrected in one place and not two others; the "two table rows" summary corrected in one copy and not the other; the decisive finding resting on two unnamed sources (the MCP tool list, the community threads); the mesh limits presented as first-party when §9 itself calls them community/vendor figures |
+
+**What this says about the work.** Round 1's finding 1 was the valuable one — it caught a real muddle
+that would have been copied into a design, not a citation slip. But the pattern across Tasks 19 and
+20 is now unmistakable: **I fix the instance I am shown rather than the class.** Round 2 found that
+two of my round-1 fixes were themselves wrong in exactly the way the originals were. The one thing
+that worked was mechanical: for round 2 I audited *every* section reference in the file against the
+actual headings programmatically — 13 headings, zero unresolved — instead of hand-fixing the three I
+was handed. That check should have existed in round 1.
+
+**State.** Code commit `6cd9a84`, clean tree. The note has 13 sources, every section reference
+resolves, the Director's dispatch is transcribed verbatim in `TASKS.md`, and the `NEEDS KAREN` entry
+for `rojo serve` is on this branch. Lint, format and `rojo build` pass — unchanged by this task,
+which touches no code. **No harness run** (nothing executes; Rojo is down), **no screenshot**
+(nothing visual), **no Architect design** (the dispatch was research only).
+
+**Options for the Director.**
+1. **Accept on the record.** The five unreviewed fixes are: one section reference, one source count
+   in two places, one summary sentence, two sources promoted from prose to numbered entries, and one
+   "these figures are community, not first-party" label. None changes a conclusion or a number; the
+   note's findings and targets are the same before and after.
+2. **One authorised round 3.** ~$1.60. It would confirm the fixes, and on this task's record it
+   would probably find something — rounds 1 and 2 both did.
+3. **Regenerate nothing.** There is no design to regenerate here; the Architect was not run, by
+   dispatch.
+
+**Builder's recommendation: option 1, with one caveat.** The note is input to a future
+`tools/architect.sh design map-generator`, not something built from directly, and the Architect will
+read it with fresh eyes. The caveat is that I would not describe this note as *verified* — see the
+long "Could not verify" list in `REVIEW_REQUEST.md`, of which the largest items are that
+`math.noise`'s stability is undocumented and unmeasured, that `CollectionService` tag persistence is
+unconfirmed, and that every number in the targets table is arithmetic rather than measurement.
+
+**Needs:** a Director decision. Nothing here needs Karen beyond the Connect clicks already requested
+in the `NEEDS KAREN` entry below.
+## 2026-09-24 · CLOSED 2026-09-24 · Task 19 round 2: a Reviewer finding I believe is factually
+wrong, and a contradiction I may not fix myself
+
+**Raised by:** Builder, at loop step 5 of Task 19 (branch `task-19-shotgun-design`, code commit
+`0f5627f`). Two separate things, both from review round 2 — the Director's limit for this task.
+
+### 1. Round 2's finding 1 is factually wrong, and the evidence is reproducible
+
+The finding says my addendum's `docs/PROJECT_CONTEXT.md` line numbers "are all wrong", and that of the
+design's four citations only `:592` is "genuinely wrong".
+
+Checked three independent ways at commit `009c20e`, on a clean tree — `awk` over the working tree,
+`grep -n` over the working tree, and `grep -n` over `git show HEAD:docs/PROJECT_CONTEXT.md`. All three
+agree:
+
+| Quote | Actually at | Round 2 says | Design cites | Verdict on the design |
+|---|---|---|---|---|
+| "Two systems wrote the creature's position" | **34** | 36 | `:36` | wrong |
+| "Three scripts set the mouse cursor" | **32** | 34 | `:33-34` | wrong |
+| "one predicate answered two unrelated questions" | **32-33** | 34-35 | `:34-35` | wrong |
+| "a visibility audit ignored parent visibility …" | **30-31** | 32-33 | `:30-31` | **correct** |
+
+Round 2's numbers are uniformly **two lines later** than the file reads, which inverts its conclusion:
+`:592` is the **only correct** design citation, not the only wrong one. My addendum's numbers
+(`:34`, `:32`, `:32-34`, `:29-31`) were correct or contained the quote; they are now exact.
+
+I cannot explain the offset. The Reviewer reads a `git worktree` of the same commit, which should be
+byte-identical, and `docs/PROJECT_CONTEXT.md` is 48 lines of ASCII with no BOM and has not been
+touched by this branch. **If the Reviewer's worktree really does differ from the commit, that is a
+harness fault and far more important than this task** (rule 6). Someone with Studio down but git
+working should run `git show 009c20e:docs/PROJECT_CONTEXT.md | grep -n` and compare.
+
+Round 1's finding 10 was wrong the same way on two of its four replacements, and **I copied it into
+the addendum instead of checking it** — which is how a wrong correction got two rounds of life. That
+is my error, and it is the reason `CLAUDE.md` has the "you believe a finding is factually wrong" stop
+rule at all.
+
+### 2. The note and the design contradict each other on the slug cone, and I may not fix it
+
+`docs/design/shotgun.md` §9: "Slug cone | 0.16° **half-angle**". The note: "**0.16° full cone**
+(0.08° half-angle)", with the arithmetic. The buckshot row beside it in §9 is a **full** angle, and
+§11.1 specs the pattern as "within the configured **half-angle** of the aim". So a `ShotgunConfig`
+built from §9 as written produces a cone at 2× or 0.5×. Round 2's finding 4 is right that this ships
+two documents disagreeing on a load-bearing number.
+
+Rule 3 gives `docs/design/` and `ARCH_RESULT.md` to the Architect and the Builder never edits them, so
+I have recorded all three design defects in `TASKS.md` row 19 and in the note's addendum rather than
+touching the files. Round 2 asked for either a regeneration or this entry; this is the entry.
+
+**Options for the Director.**
+1. **Re-run `tools/architect.ps1 design shotgun`** on the corrected note. ~$2 and a few minutes. It
+   would fix all three defects at once and re-derive its own citations — but it returns an
+   **unreviewed** design, and this task has no rounds left to check it.
+2. **Accept the documents as they are**, with the three defects recorded in `TASKS.md` row 19, and
+   regenerate the design when the boar branches are merged — which it needs anyway, because
+   `ARCH_RESULT.md` item 3 says the Architect could not see them and therefore cannot guarantee one
+   writer for the damage entry point.
+3. Waive the two-round limit for one more review round.
+
+**Builder's recommendation: option 2.** The design has to be regenerated once the boar work is
+visible regardless, and doing it twice costs two sessions to fix three citation-level defects that
+are already written down where the next Builder will read them. Nothing is blocked in the meantime:
+Task 1.4's code is blocked on Director decisions 13.1–13.3 anyway.
+
+**Needs:** a Director decision on 2, and someone to sanity-check 1 — if the Reviewer's worktree
+differs from the commit, that is a harness bug.
+
+### DIRECTOR's answer · 2026-09-24
+
+**1. The Builder is right about the line numbers.** The Director checked
+`git show 009c20e:docs/PROJECT_CONTEXT.md`: the quotes are at **34, 32, 32-33 and 30-31**, exactly as
+the Builder reported. **Round 2's finding 1 was wrong by two lines**, and not fixing it was correct.
+Why the Reviewer's numbers were off — an evidence copy that differs from the commit, or a miscount —
+is logged as a **before release** item in `TASKS.md`. The working rule already covers the practical
+risk: `REVIEW_REQUEST.md` cites **files and symbols, not line numbers** (`CLAUDE.md` loop step 4).
+
+**2. Task 19 is accepted on the record**, as documents only. **The shotgun design will be
+REGENERATED by the Architect once Tasks 17 and 18 are merged**, and that regeneration fixes the
+half-angle / full-cone unit defect and names the damage entry point owner. **Until then the design is
+not built from.** So the Builder's recommendation (option 2) is taken, and the three design defects
+recorded in `TASKS.md` row 19 are the handover list for that regeneration.
+
+**3. The Architect's three blocking decisions are answered:**
+- **(a) Task 6 lands BEFORE the shotgun build. No waiver.** The smallest version is the one the
+  design proposes: one scenario, one key, one client spec.
+- **(b) Accepted:** the shotgun first ships on the **default camera, with no ADS and no viewmodel**.
+  Third-person-to-first-person aim comes as **its own camera task with its own design, right after**,
+  because Karen wants it in v1. So the design's §3.3 cut stands, and it is a sequencing decision, not
+  a scope cut.
+- **(c) The damage entry point owner is decided in the regenerated design** (see 2).
+
+**4. Karen's five feel questions keep their defaults** until her playtest.
+
+**Closed** 2026-09-24 by the Director.
+
+**Still open, and not part of this entry:** the `NEEDS KAREN · rojo serve is down` entry below.
+Karen has not connected yet, so Tasks 17, 18 and 19 still have no harness run.
+
+---
+
+## 2026-09-24 · CLOSED 2026-09-25 · NEEDS KAREN · `rojo serve` is down; no task can be harness-tested
+
+**Raised by:** Builder, during Task 20 (branch `task-20-map-research`).
+
+`rojo serve` crashed on 2026-09-24 during Task 17 and has not run since: no `rojo.exe`, nothing
+listening on port 34872. It is the known Rojo 7.7.0 watched-file panic, and on that occasion **a
+large branch switch alone was enough** — `git switch main && git pull` across 59 commits, no test, no
+**Raised by:** Builder, during Task 19 (branch `task-19-shotgun-design`).
+
+`rojo serve` crashed on 2026-09-24 during Task 17 and has not run since: no `rojo.exe`, nothing
+listening on port 34872. It is the known Rojo 7.7.0 watched-file panic, and on that occasion **a large
+branch switch alone was enough** — `git switch main && git pull` across 59 commits, no test, no
+deletion. Studio itself is still open on the DEV place in **Edit** mode and its MCP server still
+answers; only Rojo is down.
+
+Per the overnight rules I have not restarted it, and restarting alone would not be enough: the Rojo
+plugin's **Connect** button cannot be clicked by any tool.
+
+**Why this entry is repeated on this branch.** The same entry exists on `task-17-test-area`,
+`task-18-boar-ai` and `task-19-shotgun-design`, but none of those is merged, so anything cut from
+`main` — including this branch — has no record of why no task can produce a harness line. Task 19's
+review round 1 caught me citing it from a branch where it did not exist. **The claim and the record
+have to live in the same place**, so it is written here too. When the branches merge, these copies
+collapse into one.
+
+### Exact clicks for Karen, in order
+
+1. Open a terminal (PowerShell or Git Bash) in the repository folder
+   (`C:\Users\karen\Desktop\driven-hunt`).
+**This entry exists on this branch because it was missing here.** Tasks 17 and 18 carry the same
+entry, but they are on unmerged branches, so on `main` and on anything cut from it there was no record
+of why no task has a harness line — which review round 1 of this task caught (finding 1). The harness
+claim and the record must live in the same place.
 
 ### Exact clicks for Karen, in order
 
@@ -277,77 +464,23 @@ Task 19's and Task 20's documents still cite no harness line, correctly — they
 
 ---
 
+**Closed by the Director 2026-09-25:** same outage as the Task 17 entry; Karen pressed Connect in the morning.
 
 ## 2026-09-24 · CLOSED 2026-09-24 · Task 11 round 4 (authorised) returned 5 findings
+3. In Roblox Studio, with **Driven Hunt DEV** open in **Edit** mode: the **Plugins** tab → **Rojo**
+   → **Connect**.
+4. Rojo may show a confirmation dialog listing instances it will remove. It should name nothing
+   outside the Rojo-owned containers. **Do not accept anything that names `Workspace.Baseplate` or
+   `Workspace.SpawnLocation`** — those are yours and must stay (rule 7).
+5. Nothing else.
 
-**Raised by:** Builder, at loop step 5 of Task 11 (branch `task-9-agent-workflow`, PR #4). The
-Director's answer to the previous entry says: if round 4 fails, fix it, write an entry and stop. Do
-not ask for round 5. That is what this is.
+**What is waiting on those clicks.** Task 17 (test arena) and Task 18 (boar AI) have never been
+executed at all — no harness run, no screenshot. Tasks 19 and 20 are documents only and need nothing
+from Studio, but they cannot cite a harness line either, which is why both say N/A and point here.
+executed at all — no harness run, no screenshot. Task 19 is documents only and needs nothing from
+Studio, but it cannot cite a harness line either, which is why it says N/A and points here.
 
-**Result.** Round 4 ran with `DIRECTOR_MAX_ROUNDS=4` (the notice is in the run log and in
-`.agent-logs/`), reviewed `d624930`, and returned **5 findings**. All five are fixed in the commit
-that carries this entry. **None of them is unreviewed policy or design; four are stale text.**
-
-| # | Finding | Fix |
-|---|---|---|
-| 1 | Claim 19's "live proof" still described round 3's outcome ("`MAX_ROUNDS` refuses it ... escalated rather than reviewed a fourth time") while this *was* the fourth review | Rewritten: `expected` is 4, checked against `cap = max_rounds()`, and the run was accepted because `DIRECTOR_MAX_ROUNDS=4` raised the cap |
-| 2 | Claim 16 still said `TASKS.md` row 16 is "blocked on Karen's map decision"; `8d0d06b` had unblocked it and claim 30 said so | Claim 16 corrected to "unblocked and not next" |
-| 3 | **A real bug in `8d0d06b`.** `cmd_review` checked `cap = max_rounds()` but told the agent "round 4 of max `MAX_ROUNDS`" — so this session was told "round 4 of max 3". The `DIRECTOR_MAX_ROUNDS` notice goes only to stdout, which the agent never sees | `go()` now builds the task text from `cap`, and says "(default 3, raised by the Director)" when they differ (`tools/agents.py:317-324`) |
-| 4 | `ESCALATE.md:28` still pointed at `tools/agents.py:28-31` and `CLAUDE.md:87-88`; `8d0d06b` moved both, and updated the identical references in `REVIEW_REQUEST.md` but not here | Updated to `tools/agents.py:31-34` and `CLAUDE.md:90-91` |
-| 5 | Claim 29 said `ARCH_RESULT.md` is "untouched on this branch"; the evidence shows Task 9's `2958ab5` created it with the Builder-written `NONE` placeholder | Reworded to what is checkable: no audit ran for Task 11, and the file has not changed since `2958ab5` |
-
-**What is now unreviewed.** The fixes above, and only them. Four are text in `REVIEW_REQUEST.md` and
-`ESCALATE.md`. One is five lines of `tools/agents.py` (finding 3), added as claim 31a in
-`REVIEW_REQUEST.md` and marked there as unreviewed.
-
-**My own record, honestly.** Four of the five findings are the same class of mistake I made in
-round 3: I edited some copies of a cross-reference or a claim and missed others. Rounds 3 and 4 have
-now both been spent almost entirely on that. The mechanical cause is that `REVIEW_REQUEST.md`
-accumulates claims across rounds, each carrying line numbers that every later commit invalidates.
-
-**Options for the Director.**
-1. **Merge on the record.** Rounds 1–4 found 15 items; all 15 are fixed. The only unreviewed code is
-   finding 3's five lines, which make the Reviewer's own prompt honest and cannot affect the game.
-   This breaks rule 10, so it needs a written Director decision.
-2. **One more authorised round** (`DIRECTOR_MAX_ROUNDS=5`). Your answer to the last entry says not to
-   ask for this, so I am not asking; I list it only because it is the option that ends with a real
-   `PASS`. Cost: about $1.50–$2.00.
-3. **Drop the accumulated claims.** Rewrite `REVIEW_REQUEST.md` for the final commit only — no
-   round-by-round history, no line numbers that a later commit can invalidate — and review that.
-   This removes the cause of rounds 3 and 4 but is still a review round.
-
-**Builder's recommendation: option 1.** The residual risk is five lines that only change what the
-Reviewer is told about its own round cap. Option 3 is the right shape for future tasks: if you want
-it as a standing rule, `REVIEW_REQUEST.md` should describe the final state and cite symbols, not line
-numbers. That is a `CLAUDE.md` change and tooling is frozen, so it is yours to decide, not mine.
-
-**Also for the record:** `tools/architect.sh audit` was **not** run for Task 11, per your decision.
-Nothing on this branch has been seen by the Architect.
-
-**State.** Code commit `3da8fb8`, clean-tree harness PASS:
-`[harness] PASS: 24/24 checks @ 3da8fb89100d8d7357e58ea73df1317051ff9d20 (clean tree)`.
-Lint, format and `rojo build` clean. `task-9-agent-workflow` is pushed so PR #4 shows this state.
-**`task-9` was NOT merged into `task-10-lint-test-globals`**: your dispatch gated that on a round-4
-`PASS`, and there is none. PR #5 therefore still sits on the round-3 state of its base. Say the word
-and it is one merge commit.
-
-**Needs:** a Director decision. Nothing here needs Karen.
-
-### DIRECTOR's answer · 2026-09-24
-
-**Option 1: merged on the record.** The Director read the only unreviewed code — the five-line `cap`
-fix in `cmd_review`'s `go()` (`tools/agents.py`) — and confirms it is correct. **PR #4 merged as
-`a0ccadc`.** PR #5 merged as `7399585`, after the Director merged `main` into `task-10` (`8868e69`);
-the only conflicts there were `REVIEW_REQUEST.md` and `REVIEW_RESULT.md`, and Task 10's versions were
-kept. No harness run was made on `8868e69`: Task 17's first harness run on `main` covers it.
-
-**Option 3 accepted as a working rule, with no tooling change:** `REVIEW_REQUEST.md` is written
-**fresh per task**, not accumulated across rounds, and its claims cite **files and symbols, not line
-numbers**. That sentence is now in `CLAUDE.md` loop step 4 (added by Task 17).
-
-Task 11 is **done**.
-
-**Closed** 2026-09-24 by the Director.
+**Needs:** Karen's clicks. Nothing here needs the Director.
 
 ---
 

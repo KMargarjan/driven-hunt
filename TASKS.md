@@ -8,9 +8,9 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 | 2 | Strip test code at publish, and archive the scaffolding specs | todo, before first public release | **Strip list:** TestRunner, ClientTestRunner, TestKit, Tests, ClientTests, DevPackages, TestSyncToken, **SyncCheck** (a test fixture in `src/server` that runs in every live server; audit-001 R1). Since Task 5, TestKit, ClientTests, DevPackages and TestSyncToken replicate to clients. **Archive (rule 7)** `src/server/SyncCheck.server.luau` and `tests/server/sync.spec.luau` when the first real server game spec lands, and `tests/client/client_env.spec.luau` when the first real client spec lands. The harness already checks what they check (audit-001 R1). See CLAUDE.md "Test code ships with the place" |
 | 3 | Run `luau-lsp analyze` in CI (type checking) | todo | luau-lsp is pinned but not wired into CI. Needs a sourcemap and Roblox type definitions in CI |
 | 4 | Karen: check DEV place Version History around the first Connect | closed: not applicable | Not applicable: the place was empty at the first Connect. It was brand new, a read-only query at ~18:30 found all Rojo-owned containers empty, and Karen added nothing to them before Connect (~18:36). The click path I gave (Studio → File → Version History) was wrong: Studio's File menu has no Version History |
-| 5 | Architecture audit-001 must-fix M1–M4 plus doc drift | awaiting review | Stacked PR on PR #1. See the review log below |
+| 5 | Architecture audit-001 must-fix M1–M4 plus doc drift | done (merged 2026-09-24, PR #3/#6) | Stacked PR on PR #1. See the review log below |
 | 6 | **BLOCKING before any input-driven client code:** drive real input from the harness | todo | StudioMCP has `user_keyboard_input` / `user_mouse_input` for the Client DataModel, but the harness does not call them. Client specs can assert camera/input/cursor/UI **state** today, but cannot simulate a player pressing keys or moving the mouse. Needs: a scenario format (input steps, then assertions), gated like the specs |
-| 7 | **BLOCKING before any visual client code (UI, HUD, cursor art):** play-time screenshots | todo | StudioMCP's `screen_capture` is edit-time only, so rule 5 cannot be met for play-time visuals by tools. Needs: find a capture path, or make Karen's screenshot the evidence (policy) |
+| 7 | Play-time screenshots | **mostly resolved (Director, 2026-09-25)** | Play-time `screen_capture` works (Tasks 17+18 used it). Left: `tools/studio_mcp.py` `Studio._call` drops image blocks, so captures cannot be saved by the harness yet. Small; do it with the next visual task |
 | 8 | Audit-001 fix-before-release and log-only items | todo | R2 is partly done (same-named siblings now fail). R3 = Task 3. L1 is done (docstring is the single source). L3 non-ASCII is fixed. L5 is fixed by Task 10. Open: L2, L4, L6, L7, L8, L9 (owner table rows) |
 | 9 | Four-agent workflow: roles, communication files, `tools/review` and `tools/architect` scripts, PROJECT_CONTEXT | awaiting review | PR #4 (branch `task-9-agent-workflow`), now targeting `main`. From here on, TASKS.md queue and priority belong to the Director. The Builder updates only its current task's status and files non-must-fix audit items. **Never went through the loop itself: Task 11 does that** |
 | 10 | Proof of the loop: audit-001 L5, test-only globals (`describe`, `expect`, `SKIP`…) must be a lint error in `src/` | done | Branch `task-10-lint-test-globals` (PR #5), stacked on `task-9-agent-workflow`. Review: PASS in 2 rounds. Audit-002 returned 5 must-fix items, all outside this task's change; the Director closed the escalation and queued them as Tasks 12–16 |
@@ -23,6 +23,9 @@ One task per round (rule 4). Status: `todo` → `in progress` → `awaiting revi
 | 17 | **ROADMAP 1.1:** grey-box test area — 400×400 ground plate, 8 cover blocks and a SpawnLocation, built by code from `src/server/TestArena.luau` into `Workspace.TestArena` | awaiting review (with 18; rounds 4-5 done, escalated) | Branch `task-17-test-area` (from `main`). The first game code. No research note and no Architect design: trivial throwaway geometry, replaced by the map generator in Milestone 2 (Director decision). **Code committed at `48169db`; lint, format and build pass. `rojo serve` crashed during the branch switch, so the harness, the review and the screenshot could not run** — `ESCALATE.md`, "NEEDS KAREN · `rojo serve` crashed". **RAN 2026-09-25**, and the arena is correct in the harness: the 400×400 plate, its surface at y = 0, 8 anchored blocks inside it and one SpawnLocation on it all assert green. **But it is visibly wrong on screen.** Three play-time screenshots, inspected: the plate's top face is coplanar with the default `Workspace.Baseplate` (2048×16×2048, top also at y = 0) and **loses the depth test over half its area — the 400×400 square renders as a TRIANGLE**, split along the quad's diagonal, with the Baseplate showing through the other half. Two captures 1.5 s apart are identical, so it is **stable, not flickering** — which is worse, not better. **Karen's call** (the Builder must not touch Studio content): delete `Workspace.Baseplate`, or say the word and the arena's surface moves off y = 0 by a fraction of a stud, which is one number in `TestArena.LAYOUT`. **Also confirmed: two SpawnLocations exist during Play** — the arena's `ArenaSpawn` at z = +170 and the default one at the origin, both visible in the wide shot |
 | 18 | **ROADMAP 1.2:** boar AI, grey box — one boar that idles (Reynolds wander), flees a threat within 0.5 s, routes to the exit edge around cover, and despawns with a signal | awaiting review (with 17; rounds 4-5 done, escalated) | Branch `task-18-boar-ai`, **stacked on `task-17-test-area`** because Task 17 is not on `main` yet. Research note `docs/research/2026-09-24-boar-ai.md` (rule 1) and Architect design `docs/design/boar-ai.md` (`ARCH_RESULT.md` = PASS) both written first. No Architect audit (`ROADMAP.md` speed rule 3). **Rounds 1–3 found 6, 6 and 4 items; all 16 are fixed, but round 3's four are unreviewed and `MAX_ROUNDS` refuses a fourth** — `ESCALATE.md`, "Task 18 reached round 3". Nothing in this task has ever executed. **RAN 2026-09-25.** Harness `PASS: 24/24 @ fe21a0d (clean tree)` on the code commit, 39 server + 4 client tests (`fbe1d60` was the first green run; three code commits followed it). The first run failed 3: two were my own specs (a tolerance tighter than float32 can be, and two tests that held the boar still long enough to trip the anti-stuck branch they neighbour), one was the spec asserting a property of Roblox's navmesh rather than of this code. **Screenshots, inspected:** the boar exists, rests at y ≈ 1.5 as designed, wanders while idle, and is recognisably a 2×3×5.5 box — but **its sides read almost black**; only the top face shows the intended `Color3.fromRGB(90, 80, 70)`. One number for Karen if she wants it lighter |
 | — | ~~Tasks 17 and 18 still need a harness run and a screenshot~~ | **done 2026-09-25** | Karen connected, and both ran: `[harness] PASS: 24/24 checks @ <code commit> (clean tree)`, 43 assertions across five spec files, plus three play-time screenshots captured through MCP and inspected. See rows 17 and 18, and `ESCALATE.md` ("NEEDS KAREN · `rojo serve` crashed", closed 2026-09-25). Kept rather than deleted (rule 7) |
+| 19 | **ROADMAP 1.4, docs only:** shotgun research note and Architect design — viewmodel, third-to-first-person aim, hit detection, break action, the numbers | awaiting review | Branch `task-19-shotgun-design`, from `main`. **No game code.** `docs/research/2026-09-24-shotgun.md` (9 sources) and `docs/design/shotgun.md`. **`ARCH_RESULT.md` = 3 blocking open decisions, all Director scope calls** (waive Task 6 for three inputs or land it first; whether ADS + viewmodel stay in 1.4 or move to a camera task; which system owns the damage entry point). They block the **code**, not this docs task. Owner rows for the weapon are drafted in the design §12 and go into `GAME_DESIGN.md` when the code lands, not now. **Three defects in the Architect-owned files, found in review and NOT fixed** (rule 3: the Builder never edits `docs/design/` or `ARCH_RESULT.md`) — (a) design §9 states the slug cone as a half-angle while the buckshot row beside it is a full angle, and §11.1 consumes a half-angle, so a config built from §9 as written gives a cone at 2× or 0.5×; (b) `ARCH_RESULT.md` item 1 points at §11.1 where it means §11.3; (c) three of the design's four `docs/PROJECT_CONTEXT.md` citations are off by two lines. **Fix these when the design is regenerated**, which it needs anyway once the boar branches are merged and the Architect can see them (`ARCH_RESULT.md` item 3). See `ESCALATE.md`, "Task 19 round 2", **closed 2026-09-24**. **Director decisions:** Task 19 is accepted as documents only and **the design is not built from until the Architect regenerates it** after Tasks 17/18 merge — that regeneration fixes the cone-unit defect and names the damage entry point owner. **Task 6 lands before the shotgun build, no waiver.** The shotgun ships first on the default camera with no ADS and no viewmodel; **third-to-first-person aim is its own camera task with its own design, right after**, because Karen wants it in v1 |
+| — | **Find out why the Reviewer's `docs/PROJECT_CONTEXT.md` line numbers were two lines off** (Task 19 rounds 1 and 2) | **before release** | The Director checked `git show 009c20e:docs/PROJECT_CONTEXT.md`: the quotes are at 34, 32, 32-33, 30-31, as the Builder said; the Reviewer reported them uniformly +2. Either `tools/agents.py`'s evidence copy differs from the commit under review — which would be a harness fault worth fixing at once (rule 6) — or the agent miscounted. Not urgent: the working rule is already that `REVIEW_REQUEST.md` cites **files and symbols, not line numbers** (`CLAUDE.md` loop step 4) |
+| 20 | **ROADMAP Milestone 2, docs only:** map generator research note | **escalated** (round 2) | Branch `task-20-map-research`, from `main`. **Scope is the Director's**, transcribed verbatim below under "Director dispatches": **no code, no Architect design** — research only. `docs/research/2026-09-24-map-generator.md`, 13 sources. Key finding: **Studio's heightmap/colormap import is UI-only and unreachable from code or MCP**, so the generator computes its own heightfield. Ends with the smallest first generator task: a 512x512 stud slice that proves voxel writes, `math.noise`, **whether CollectionService tags survive a save and reopen**, and Edit-mode `screen_capture` as rule-5 evidence. **Rounds 1-2 found 6 and 5 items; all 11 are fixed, but round 2's five are unreviewed** - the dispatch allowed two rounds - see `ESCALATE.md`, "Task 20 round 2" |
 
 ## Director dispatches, transcribed by the Builder
 
@@ -106,6 +109,48 @@ or the Architect wants them handled as an escalation instead, say so and I will.
 
 Transcribed in `ESCALATE.md`, "Task 11's dispatch, verbatim", because it arrived with the Director's
 answer to an escalation.
+### Task 20 · 2026-09-24 · NO-STUDIO MODE
+
+This is the authority for "research only, no code, no Architect design", and for accepting the task
+with no harness line (review round 1, finding 6).
+
+> NO-STUDIO MODE: rojo serve is down until Karen connects at ~09:00. Do not start rojo, do not use
+> Studio.
+>
+> TASK 20: map generator research note only (ROADMAP Milestone 2). NO code. Docs only.
+> Branch task-20-map-research from origin/main.
+>
+> Karen's decision (map option C): the map is built by a map generator, code on disk, run in Edit
+> mode through the Studio MCP server, verified with Edit-mode screenshots and by Karen walking it.
+> Assets: Creator Store first, Meshy (Karen makes models) where nothing fits. One small v1 map:
+> European farmland and woods (fields, hedgerows, spruce and birch stands, tracks, a bog), a drive
+> area, a shooter line along a wood edge.
+>
+> Research note docs/research/<date>-map-generator.md per rule 1, 3+ sources with licence and
+> maintenance:
+> - procedural terrain on Roblox (Terrain:FillBlock/FillRegion/WriteVoxels, noise-based
+>   heightfields), and whether Studio's heightmap/colormap import can be driven from code or MCP
+>   (state plainly if it cannot)
+> - open-source Roblox terrain/map generators or community modules worth borrowing
+> - placing vegetation and props at scale (instancing, part counts, StreamingEnabled, performance
+>   targets for 10-16 players, mobile)
+> - how the code finds gameplay markers (CollectionService tags) so the map carries no scripts
+> - free-licence asset sources: Creator Store rules/licensing for trees, fences, rocks; Meshy ->
+>   Roblox import (mesh triangle limits, texture limits, upload via Open Cloud with the API key only
+>   in an environment variable)
+> - a backup step ("Save to File" or equivalent) before each rebuild, outside the repo
+> - the numeric targets: map size in studs, max part/mesh count, memory, load time
+> End with the adopted pattern and the smallest first generator task.
+>
+> Short review loop on the doc (tools/review.sh, max 2 rounds). Push. Do not open a PR.
+> REPORT to the Director, short: the adopted pattern, the numbers, what needs Karen (taste, assets),
+> checklist. Then stop.
+
+**Builder's note.** "3+ sources" is the floor; the note has 11. No Architect design was run, because
+the dispatch did not ask for one — so **whoever builds the generator needs
+`tools/architect.sh design map-generator` first**. This note is input to that design, not a
+substitute: it assigns no owners, and rule 3 gives that call to the Architect.
+
 
 ## Review log
 
