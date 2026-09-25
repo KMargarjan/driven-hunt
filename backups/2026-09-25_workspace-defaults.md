@@ -22,7 +22,7 @@ date and reason. Workspace afterwards holds only `Camera` and `Terrain` (plus `T
 `ServerStorage.Archive` at the **next Connect**, and Karen should accept: this file, not that
 folder, is the lasting record. Nothing in the game reads either instance.
 
-## What they were, exactly (read from the place before the move)
+## What they were (read from the place before the move)
 
 `Workspace.Baseplate` — `Part`
 
@@ -34,7 +34,7 @@ folder, is the lasting record. Nothing in the game reads either instance.
 | Locked | `true` |
 | Color | `0.356863, 0.356863, 0.356863` = `Color3.fromRGB(91, 91, 91)` |
 | Material | `Enum.Material.Plastic` |
-| Children | one `Texture` (the Studio default baseplate grid) |
+| Children | one `Texture`, below |
 
 `Workspace.SpawnLocation` — `SpawnLocation`
 
@@ -48,7 +48,35 @@ folder, is the lasting record. Nothing in the game reads either instance.
 | Enabled | `true` |
 | Duration | `0` |
 | Neutral | `true` |
-| Children | one `Decal` (the Studio default spawn decal) |
+| Children | one `Decal`, below |
 
-Both are Studio's stock new-place instances: an identical pair comes with any new Baseplate place,
-so restoring them needs no file — recreate a `Part` and a `SpawnLocation` with the values above.
+`Workspace.Baseplate.Texture` — `Texture` (the stock baseplate grid)
+
+| Property | Value |
+|---|---|
+| Texture | `rbxassetid://6372755229` |
+| Face | `Enum.NormalId.Top` |
+| StudsPerTileU / StudsPerTileV | `8` / `8` |
+| OffsetStudsU / OffsetStudsV | `0` / `0` |
+| Transparency | `0.8` |
+| Color3 | `0, 0, 0` |
+| ZIndex | `1` |
+
+`Workspace.SpawnLocation.Decal` — `Decal` (the stock spawn decal)
+
+| Property | Value |
+|---|---|
+| Texture | `rbxasset://textures/SpawnLocation.png` |
+| Face | `Enum.NormalId.Top` |
+| Transparency | `0` |
+| Color3 | `1, 1, 1` |
+| ZIndex | `1` |
+
+These are the identifying properties of Studio's stock new-place instances — the ones that decide
+what you get back, not every property the classes have. An identical pair comes with any new
+Baseplate place, so restoring them needs no file: recreate a `Part` and a `SpawnLocation` with the
+values above and give each its child.
+
+The four child-property rows were read from `ServerStorage.Archive` on 2026-09-25 and added in Task
+21, after the Task 22 review noted that the record said "every property" while listing the children
+as counts only.

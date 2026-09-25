@@ -27,9 +27,10 @@ Five roles: Director, Builder, Architect, Reviewer, Karen. See **Four-agent work
 7. **NEVER DELETE.** Archive with a note (see `backups/README.md`).
 8. **REPORT HONESTLY** what you could not verify and what you got wrong.
 9. **CODE COMMENTS** carry the pattern name, source links and the research note file.
-10. **Nothing is merged until the Reviewer has signed it off**: `REVIEW_RESULT.md` line 1 is
-    `PASS` for the PR's code commit. The Director merges; the Builder never merges (see
-    **Git workflow** step 4 for the exact gate).
+10. **Nothing is merged until the Reviewer has signed it off**: `reviews/task-<N>/RESULT.md`
+    line 1 is `PASS` for the PR's code commit. `PASS` with notes under it **is** a pass: since
+    Task 21 only a finding that makes the game, a test, an owner boundary or security wrong is
+    blocking. The Director merges; the Builder never merges (see **Git workflow** step 4).
 
 ## Four-agent workflow
 
@@ -38,9 +39,9 @@ Five roles: Director, Builder, Architect, Reviewer, Karen. See **Four-agent work
 | Role | Owns | Writes | Never |
 |---|---|---|---|
 | **DIRECTOR** | the roadmap; dispatches tasks; **git and GitHub**: retargets and merges PRs | `ROADMAP.md`, `TASKS.md`, `PLAN_NOTES.md` | writes code |
-| **BUILDER** (Claude, this file's reader) | implementation | the only writer of code in `src/`, `tests/`, `tools/`. Also `REVIEW_REQUEST.md`, `ESCALATE.md`, research notes, `CLAUDE.md`, and in `TASKS.md` the status of its current task plus any Director dispatch that arrived outside the repo, transcribed verbatim and marked as the Director's | writes designs or verdicts |
-| **ARCHITECT** (`tools/architect.sh`) | structure, system owners, interfaces | `docs/design/`, `docs/architecture/`, `ARCH_RESULT.md` (through the script) | touches code (read-only) |
-| **REVIEWER** (`tools/review.sh`) | verifying claims | `REVIEW_RESULT.md` (through the script) | touches code (read-only) |
+| **BUILDER** (Claude, this file's reader) | implementation | the only writer of code in `src/`, `tests/`, `tools/`. Also `reviews/task-<N>/REQUEST.md`, `ESCALATE.md`, research notes, `CLAUDE.md`, and in `TASKS.md` the status of its current task plus any Director dispatch that arrived outside the repo, transcribed verbatim and marked as the Director's | writes designs or verdicts |
+| **ARCHITECT** (`tools/architect.sh`) | structure, system owners, interfaces | `docs/design/`, `docs/architecture/`, `reviews/task-<N>/ARCH_RESULT.md` (through the script) | touches code (read-only) |
+| **REVIEWER** (`tools/review.sh`) | verifying claims | `reviews/task-<N>/RESULT.md` (through the script) | touches code (read-only) |
 | **KAREN** | the game | plays it, decides anything about feel or design, `PLAYTEST.md` feedback, and does the clicks no tool can do (Rojo **Connect**, the Studio MCP toggle, Studio itself) | merges PRs (handed to the Director on 2026-09-24) |
 
 The Director may be Karen or a Director agent. The Builder accepts tasks from either, in exactly the
@@ -56,9 +57,9 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
 |---|---|---|
 | `TASKS.md` | Director (queue, priority); Builder (its current task's status, non-must-fix audit items under the task, and a Director dispatch that arrived outside the repo, transcribed verbatim and marked as the Director's) | the queue and status, one task at a time |
 | `docs/design/<system>.md` | Architect | the design, written **before** a new system is built |
-| `REVIEW_REQUEST.md` | Builder | what changed, commit and base, numbered claims, how to verify each, what could not be verified, `Round: N` |
-| `REVIEW_RESULT.md` | Reviewer | `PASS` on line 1, or a numbered list of findings |
-| `ARCH_RESULT.md` | Architect | `PASS`, or a numbered list (design: blocking open decisions; audit: must-fix items) |
+| `reviews/task-<N>/REQUEST.md` | Builder | **one page.** What changed, `Task: N`, `Round: N`, `Base:`, `Code commit:`, at most 10 claims with how to verify each, and what could not be verified |
+| `reviews/task-<N>/RESULT.md` | Reviewer | `PASS` on line 1, or a numbered list of **blocking** findings. Notes go under `## Notes (non-blocking)` and never block |
+| `reviews/task-<N>/ARCH_RESULT.md` | Architect | `PASS`, or a numbered list (design: blocking open decisions; audit: must-fix items) |
 | `ESCALATE.md` | anyone | for the Director and Karen: a disagreement, a 3rd failed round, a decision needed, or a **`NEEDS KAREN`** entry (a click only Karen can make) |
 | `PLAYTEST.md` | Builder, transcribing Karen | Karen's feedback after playing |
 
@@ -68,23 +69,25 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
 2. **New system?** Run `tools/architect.sh design <system>` and build to that design. If you disagree
    with the design, write `ESCALATE.md` and stop.
 3. Build. One task, nothing extra. Commit (this is the **code commit**), then run the harness on the clean
-   tree.
-4. Write `REVIEW_REQUEST.md` (increment `Round:`; `Code commit:` = the commit the harness line names)
-   and commit it. **After the code commit, commit nothing but the paperwork the merge gate allows**
-   (git workflow step 4: `REVIEW_REQUEST.md`, `REVIEW_RESULT.md`, `ARCH_RESULT.md`,
-   `docs/architecture/audit-NNN.md`, `ESCALATE.md` and the task's status row in `TASKS.md`).
-   `.agent-evidence/request-only-diff.txt` checks the strictest case only — that **nothing but
-   `REVIEW_REQUEST.md`** changed — so it prints "NOT OK" whenever any other paperwork was committed,
-   which is allowed. When it does, the Reviewer's job is to confirm from
-   `.agent-evidence/changed-files.txt` and the log that the extra files are all on that list and that
-   no `src/`, `tests/` or `tools/` file moved after the tested commit; if one did, the harness line
-   does not cover HEAD and that **is** a finding (review round 4, finding 9: the two rules
-   contradicted each other). **Write it fresh for each task** — describe the final state, never a round-by-round
-   history — and **cite files and symbols, not line numbers**, because every later commit moves the
-   lines (Director decision 2026-09-24, after Task 11 spent rounds 3 and 4 on stale citations).
-5. Run `tools/review.sh`. **Commit `REVIEW_RESULT.md` either way**: the next run needs a clean tree,
-   and it counts the round from that file's trailer. On findings, fix and go back to 4 (the next
-   request must say `Round: N+1`). On `PASS`, continue.
+   tree. **Harness before review** (Task 21): a change touching `src/`, `tests/` or `tools/` cannot
+   be reviewed until it has run — `tools/review.sh` refuses it unless the request pastes the harness
+   PASS line for the code commit. Docs-only tasks are exempt.
+4. Write `reviews/task-<N>/REQUEST.md` (increment `Round:`; `Code commit:` = the commit the harness
+   line names) and commit it. **One page: `Task: N`, `Round: N`, `Base:`, `Code commit:`, at most 10
+   claims, each with how to verify it.** Cite **files and symbols, never line numbers** (every later
+   commit moves them; Director decision 2026-09-24, after Task 11 spent rounds 3 and 4 on stale
+   citations), and **write it fresh for each task** — the final state, never a round-by-round history.
+   **After the code commit, commit nothing but the paperwork the merge gate allows** (git workflow
+   step 4: anything under `reviews/`, `ESCALATE.md`, `PLAYTEST.md`, `docs/architecture/audit-NNN.md`
+   and the task's status row in `TASKS.md`). `.agent-evidence/paperwork-after-code-commit.txt` lists
+   exactly what changed after the tested commit and whether any of it is not paperwork; if something
+   is, the harness line does not cover HEAD and that **is** a blocking finding.
+5. Run `tools/review.sh` (add the task number if more than one task's request is in the tree).
+   **Commit `reviews/task-<N>/RESULT.md` either way**: the next run needs a clean tree, and it counts
+   the round from that file's trailer — **this task's file only**, so another task's verdict, merged
+   or not, can never block this one. On blocking findings, fix and go back to 4 (the next request
+   says `Round: N+1`). On `PASS`, continue: notes under a `PASS` are queued in `TASKS.md`, not fixed
+   in another round. **A docs-only task gets one round**, and notes never hold it up.
 6. Architect audit — **every ~5 tasks, not every task** (`ROADMAP.md` speed rule 3; Director decision
    2026-09-24). When the Director calls for one, run `tools/architect.sh audit` once, after the
    review passes. An item is must-fix only if it blocks the next game task and the audit names that
@@ -95,9 +98,12 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
 
 **Stop rules.** Write `ESCALATE.md` and stop when:
 - the same item fails 3 rounds. `tools/review.sh` refuses `Round: 4`, counting the round from the
-  committed `REVIEW_RESULT.md` trailer rather than from `REVIEW_REQUEST.md`, and refusing when that
+  committed `reviews/task-<N>/RESULT.md` trailer rather than from the request, and refusing when that
   trailer has gone missing from a file whose git history had one. So the count cannot be raised,
-  skipped or reset from the request, or by restoring the placeholder. It is **not** tamper-proof: a
+  skipped or reset from the request, or by deleting the verdict. The count is **per task** (Task 21):
+  every task's first round is `Round: 1` and needs no authorisation, whatever the previous task's
+  verdict was — Task 22 could not be reviewed at all because the old global counter had no task
+  boundary (`ESCALATE.md`, 2026-09-25). It is **not** tamper-proof: a
   Builder can still commit a hand-written trailer, or rewrite history. See "What is enforced and
   what is policy".
 
@@ -117,9 +123,10 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
 
 ### The agent scripts
 
-- `tools/review.sh` and `tools/review.ps1` spawn the Reviewer.
-- `tools/architect.sh design <system>`, `tools/architect.sh audit` and their `.ps1` twins spawn the
-  Architect.
+- `tools/review.sh [N]` and `tools/review.ps1 [N]` spawn the Reviewer. With no argument the task is
+  the most recently committed `reviews/task-*/REQUEST.md`, and its `Task: N` line must match its folder.
+- `tools/architect.sh design <system> --task <N>`, `tools/architect.sh audit --task <N>` and their
+  `.ps1` twins spawn the Architect. `--task` says which `reviews/task-<N>/` the verdict goes in.
 - The wrappers are thin. `tools/agents.py` holds the logic, and its docstring describes it.
 - On this PC, run the PowerShell versions as `powershell -ExecutionPolicy Bypass -File tools/review.ps1`,
   because the local execution policy blocks unsigned scripts.
@@ -141,7 +148,7 @@ dollars. The script prints each session's cost into the result file's trailer.
 - Run `tools/architect.sh audit` only when the Director calls for one (every ~5 tasks), after the
   review passes, never once per round.
 - Run `design` only for a new system.
-- Batch everything for a round into one `REVIEW_REQUEST.md`. A round is one review call.
+- Batch everything for a round into one `reviews/task-<N>/REQUEST.md`. A round is one review call.
 
 ## Git workflow: branch + pull request, never push to main
 
@@ -153,16 +160,17 @@ dollars. The script prints each session's cost into the result file's trailer.
 3. Push the branch (`git push -u origin <branch>`) and open a pull request. CI
    (`.github/workflows/ci.yml`) must be green.
 4. The Reviewer reviews the PR. **The Director retargets and merges it**, and only when all four
-   hold. The **code commit** is the `Code commit:` of the final `REVIEW_REQUEST.md`: the last commit
-   in the PR that changed anything but the loop's own paperwork.
+   hold. The **code commit** is the `Code commit:` of the final `reviews/task-<N>/REQUEST.md`: the
+   last commit in the PR that changed anything but the loop's own paperwork.
    - a clean-tree harness PASS names the code commit
      (`[harness] PASS: n/n checks @ <code commit> (clean tree)`),
-   - `REVIEW_RESULT.md` line 1 is `PASS`, and its trailer names a commit that differs from the code
-     commit only in `REVIEW_REQUEST.md`,
+   - `reviews/task-<N>/RESULT.md` line 1 is `PASS` (notes under it do not block), and its trailer
+     names a commit that differs from the code commit only in paperwork,
    - CI (`.github/workflows/ci.yml`) is green on the PR head,
-   - **between the code commit and the PR head, only paperwork changed**: `REVIEW_REQUEST.md`,
-     `REVIEW_RESULT.md`, `ARCH_RESULT.md`, `docs/architecture/audit-NNN.md`, `ESCALATE.md` and the
-     task's status row in `TASKS.md`. `git diff --name-only <code commit>..<head>` shows it.
+   - **between the code commit and the PR head, only paperwork changed**: anything under `reviews/`,
+     `ESCALATE.md`, `PLAYTEST.md`, `docs/architecture/audit-NNN.md` and the task's status row in
+     `TASKS.md`. `git diff --name-only <code commit>..<head>` shows it, and so does
+     `.agent-evidence/paperwork-after-code-commit.txt`.
 
    The head is necessarily ahead of the reviewed commit, because steps 5 and 6 commit the verdict
    files afterwards. That is why the gate is written against the code commit and bounds what may
@@ -184,9 +192,11 @@ condition, who merges, or that the Builder never merges. The Builder's credentia
 PR. All of those are **policy**: rule 10 plus this section. The Builder follows them, the Director
 checks them before merging, and the Reviewer checks them in the review.
 
-The **round count** is in between. `tools/agents.py` takes it from the committed `REVIEW_RESULT.md`
-trailer and refuses a request that raises, skips or resets it, including by restoring the `NONE`
-placeholder. But the Builder writes the repo's commits, so a hand-written trailer, or a history
+The **round count** is in between. `tools/agents.py` takes it from the committed
+`reviews/task-<N>/RESULT.md` trailer of that task and refuses a request that raises, skips or resets
+it, including by deleting the file. So is **harness before review**: a change touching `src/`,
+`tests/` or `tools/` is refused until the request pastes the harness's own PASS line for the code
+commit. But the Builder writes the repo's commits, so a hand-written trailer, or a history
 rewrite, would still get past it. Until audit-002 must-fix #5 (Task 12) makes the verdict files
 writable only by the scripts, the last step of the stop rule is policy too.
 
@@ -197,13 +207,14 @@ Paste this, filled in, at the end of every task report. Each box is checked, or 
 ```
 - [ ] Tests pass: `python tools/studio_mcp.py test` → paste the final line. It must read
       "[harness] PASS: n/n checks @ <sha> (clean tree)" with <sha> = the PR's **code commit**
-      (the `Code commit:` of the final REVIEW_REQUEST.md), and only paperwork after it (git
+      (the `Code commit:` of the final reviews/task-<N>/REQUEST.md), and only paperwork after it (git
       workflow step 4)
 - [ ] CI green on the PR (link to the run)
 - [ ] Screenshot inspected (rule 5), or N/A: <reason>
 - [ ] Docs updated: TASKS.md, GAME_DESIGN.md owners, research note/INDEX, PLAYTEST.md, CLAUDE.md as needed
-- [ ] Reviewer: REVIEW_RESULT.md line 1 = PASS for <sha>. Review rounds: N
-- [ ] Architect audit: ARCH_RESULT.md = PASS (or must-fix fixed); other items in TASKS.md
+- [ ] Reviewer: reviews/task-<N>/RESULT.md line 1 = PASS for <sha> (notes, if any, queued in
+      TASKS.md). Review rounds: N
+- [ ] Architect audit: reviews/task-<N>/ARCH_RESULT.md = PASS (or must-fix fixed); other items in TASKS.md
 - [ ] Needs Karen: <playtest / feel / design decision / a click only she can make>, or "nothing"
 - [ ] Commit + PR link
 ```
@@ -234,6 +245,7 @@ fails if a script exists anywhere Rojo does not manage.
 | `tests/sync-token.txt` (git-ignored, optional) | `ReplicatedStorage.TestSyncToken` | Written only by the harness |
 | `DevPackages/` (git-ignored, optional) | `ReplicatedStorage.DevPackages` | TestEZ, from `wally install` |
 | `assets/source/`, `assets/ready/` | none | Raw vs import-ready art |
+| `reviews/task-<N>/` | none | One folder per task: `REQUEST.md` (Builder), `RESULT.md` (Reviewer), `ARCH_RESULT.md` (Architect). Per task so branches never conflict and the round count has a boundary (Task 21) |
 | `backups/` | none | Archived files plus notes |
 | `docs/` | none | `PROJECT_CONTEXT.md` (who, the game, why the rules exist), `research/` (notes plus INDEX), `design/` (Architect system designs), `architecture/` (Architect audits), `REVIEWER_PROMPT.md` and `ARCHITECT_PROMPT.md` (the two agent prompts) |
 | `tools/` | none | `studio_mcp.py` (test harness); `agents.py` plus `review.sh`/`review.ps1`/`architect.sh`/`architect.ps1` (the Reviewer and Architect gate) |
