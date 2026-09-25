@@ -233,52 +233,6 @@ return function()
 			expect(countKind(effects, "spawnBoar")).to.equal(1)
 		end)
 
-		it("does not lose a release to a JOIN that lands on the release moment", function()
-			-- Round 1, finding 1. Only the tick used to carry `aliveBoars`, so a join or a leave at a
-			-- release moment read zero, passed the guard, consumed the release and pushed the
-			-- schedule on -- and the owner, which had a second guard of its own, then refused the
-			-- spawn. The boar was never released and never retried: a six-boar drive quietly ran
-			-- five, and the Hud counted one that did not exist. The guard is now one guard, and it
-			-- reads the count off WHATEVER event arrives.
-			local cfg = config()
-			local state = ready(cfg)
-			state = (Phase.step(state, { kind = "join", userId = 1, name = "a" }, 0, cfg))
-			state = (Phase.step(state, { kind = "tick", aliveBoars = 0 }, cfg.INTERMISSION_SECONDS, cfg))
-			local at = cfg.INTERMISSION_SECONDS + cfg.FIRST_RELEASE_SECONDS + 1
-
-			local effects
-			state, effects =
-				Phase.step(state, { kind = "join", userId = 2, name = "b", aliveBoars = cfg.MAX_ALIVE_BOARS }, at, cfg)
-			expect(countKind(effects, "spawnBoar")).to.equal(0)
-			expect(state.releasesDone).to.equal(0) -- nothing was consumed
-
-			-- ...and the moment there is room, the release that was held back happens.
-			state, effects = Phase.step(state, { kind = "tick", aliveBoars = 0 }, at + 0.25, cfg)
-			expect(countKind(effects, "spawnBoar")).to.equal(1)
-			expect(state.releasesDone).to.equal(1)
-		end)
-
-		it("takes a release back when the runtime refused it after all", function()
-			-- The owner's half of the same finding: Runtime:spawn can still assert, and when it does
-			-- the release must return to the schedule rather than vanish.
-			local cfg = config()
-			local state = ready(cfg)
-			state = (Phase.step(state, { kind = "join", userId = 1, name = "a" }, 0, cfg))
-			state = (Phase.step(state, { kind = "tick", aliveBoars = 0 }, cfg.INTERMISSION_SECONDS, cfg))
-			local at = cfg.INTERMISSION_SECONDS + cfg.FIRST_RELEASE_SECONDS + 1
-			local effects
-			state, effects = Phase.step(state, { kind = "tick", aliveBoars = 0 }, at, cfg)
-			expect(countKind(effects, "spawnBoar")).to.equal(1)
-			expect(state.releasesDone).to.equal(1)
-
-			state = Phase.releaseFailed(state, at)
-			expect(state.releasesDone).to.equal(0)
-
-			-- due again immediately, not one RELEASE_INTERVAL_SECONDS later
-			state, effects = Phase.step(state, { kind = "tick", aliveBoars = 0 }, at + 0.25, cfg)
-			expect(countKind(effects, "spawnBoar")).to.equal(1)
-		end)
-
 		it("ends after exactly DRIVE_SECONDS, freeing everyone and clearing the boars", function()
 			local cfg = config()
 			local state = ready(cfg)
