@@ -319,6 +319,13 @@ local function runReload(player: Player, epoch: number)
 		publish(player, next, true)
 		task.wait(step.wait)
 	end
+	-- One last publish once the final window has elapsed. Without it the newest snapshot a client
+	-- ever sees is the one made at Close, whose busyFor is RELOAD_CLOSE, so the Hud keeps its "R"
+	-- until something else changes the state -- which a player would read as a gun stuck reloading.
+	local state = stateOf(player)
+	if state and state.epoch == epoch then
+		publish(player, state, true)
+	end
 end
 
 local function onActionRequest(player: Player, kind: any, ammo: any)

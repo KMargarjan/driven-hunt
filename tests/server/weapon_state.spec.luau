@@ -104,7 +104,9 @@ return function()
 			expect(two.barrels[1]).to.equal("Live")
 			expect(two.barrels[2]).to.equal("Live")
 			expect(two.loaded[1]).to.equal("Slug")
-			expect(two.reserve.Slug).to.equal(22)
+			-- 24, minus the two loaded here, plus the ONE unfired shell Break returned (the other
+			-- barrel was spent by the Fire above): 23. Karen, 2026-09-25.
+			expect(two.reserve.Slug).to.equal(23)
 
 			local full, closeReason = StateMachine.apply(two, { kind = "Load" }, 4)
 			expect(closeReason).to.equal("barrel-full")

@@ -171,7 +171,8 @@ return function()
 			end)).to.equal(true)
 			local state = Weapon.get()
 			expect(type(state.equipped)).to.equal("boolean")
-			expect(type(state.reserve)).to.equal("number")
+			expect(type(state.reserve)).to.equal("table") -- one pocket per ammo type
+			expect(type(state.reserve.Slug)).to.equal("number")
 			expect(state.busyUntil).to.equal(nil) -- a server-only field
 			expect(function()
 				(state :: any).reserve = 0
@@ -450,7 +451,8 @@ return function()
 
 			local after = Weapon.get()
 			expect(after.open).to.equal(before.open)
-			expect(after.reserve).to.equal(before.reserve)
+			expect(after.reserve.Slug).to.equal(before.reserve.Slug)
+			expect(after.reserve.Buck).to.equal(before.reserve.Buck)
 			expect(after.ammo).to.equal(before.ammo)
 			expect(after.barrels[1]).to.equal(before.barrels[1])
 			expect(after.barrels[2]).to.equal(before.barrels[2])
