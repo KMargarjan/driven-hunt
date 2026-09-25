@@ -40,8 +40,13 @@ local Config = {
 	OCCLUSION_PAD_STUDS = 0.5, -- pull in short of the surface the ray found
 
 	-- the viewmodel
-	VIEWMODEL_HIP_OFFSET = CFrame.new(0.9, -0.9, -1.2), -- blend 0: low and right, mostly off-screen
-	VIEWMODEL_AIM_OFFSET = CFrame.new(0, -0.22, -0.9), -- blend 1: barrel under the view line
+	-- Measured on screen, not derived: the Handle is 4.4 studs long and pivots at its CENTRE, so at
+	-- the design's -0.9 the rear half sat behind the near plane and the barrel entered from the
+	-- bottom-right corner. Pushed forward so the whole gun is in front of the camera and the barrel
+	-- runs under the view line. Karen's dial (docs/design/camera.md section 8: "the screenshot and
+	-- Karen decide it").
+	VIEWMODEL_HIP_OFFSET = CFrame.new(1.2, -1.2, -2.8), -- blend 0: low and right, mostly off-screen
+	VIEWMODEL_AIM_OFFSET = CFrame.new(0, -0.6, -3.4), -- blend 1: barrel under the view line
 	VIEWMODEL_SHOW_BLEND = 0.02, -- below it the viewmodel is UNPARENTED, not merely invisible
 	BODY_HIDE_BLEND = 0.60, -- above it the local body gets LocalTransparencyModifier = 1
 

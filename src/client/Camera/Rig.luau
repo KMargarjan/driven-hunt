@@ -137,10 +137,11 @@ function Rig.setLocalBodyHidden(hidden: boolean)
 		hiddenNow = nil
 		table.clear(hiddenParts)
 		for _, part in ipairs(character:GetDescendants()) do
-			-- The Tool's Handle is deliberately excluded: the real gun keeps being drawn in third
-			-- person, and in first person the viewmodel is a separate clone under the camera.
-			local isBody = (part:IsA("BasePart") and part.Name ~= "Handle") or part:IsA("Decal")
-			if isBody then
+			-- EVERYTHING the local character is wearing or holding, the Tool included. Two
+			-- screenshots taught this: with accessories excluded the hair hung across the top of
+			-- the ADS view, and with the Tool excluded the real gun was drawn beside the viewmodel
+			-- clone -- two shotguns on screen at once. In first person the viewmodel IS the gun.
+			if part:IsA("BasePart") or part:IsA("Decal") then
 				table.insert(hiddenParts, part)
 			end
 		end
