@@ -29,3 +29,13 @@ Task 28, next). Read `docs/design/hit-zones.md` (kill/escape events), `docs/desi
 - ROADMAP 1.6: what the harness needs to test with 2+ players (Studio "Clients and Servers" local
   test) — the smallest harness change, or state plainly what cannot be automated and needs Karen.
 - Tests, failure modes, and what Karen checks in the Milestone 1 playtest with a second player.
+
+## Director decisions on the design's §14 (2026-09-25, after the Architect's PASS)
+- A: split — 1.7a the drive runs, 1.7b safety penalty + score screen.
+- B: yes, archive `BoarBoot.server.luau` into `MatchBoot` (rule 7: archive, not delete).
+- C: one small harness task (after hit zones) covering both this §12.6 probe (2+ players) and
+  hit-zones §14 D (place a character, aim the camera).
+- D, E, G, H: agreed as written.
+- F: `MIN_PLAYERS = 1` during Milestone 1 so Karen (and the harness) can run a drive alone: a solo
+  player is a shooter. Raise to 2 before release (logged in ROADMAP Milestone 3).
+- Karen's feel items 1–8 keep their defaults until the two-player playtest.
