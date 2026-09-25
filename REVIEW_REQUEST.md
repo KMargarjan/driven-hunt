@@ -2,243 +2,244 @@
 
 Written by the Builder for `tools/review.sh`. The format is below; the script parses the first three lines.
 
-Round: 2
+Round: 5
 Base: `7399585`
-Code commit: `00df9666e6af9e36872d7f6bc696546696071c36`
+Code commit: `b6cf3dec736347f65c42ad3d05129d302389349a`
 
 ## Task
 
-TASKS.md #20, ROADMAP Milestone 2: **map generator research note only. No code, no Architect
-design** — the Director dispatched research only this time.
+**Tasks 17 and 18 together, as one unit** (Director decision 2026-09-25, `ESCALATE.md`): the
+grey-box test arena (ROADMAP 1.1) and the boar AI (ROADMAP 1.2). `Base:` is `origin/main`, so the
+diff is both tasks.
 
-The change is one new document plus edits to three existing ones. There is no `src/`, no `tests/`,
-no `tools/`.
-**What is worth your time is whether the note is true and usable**, and in particular whether its
-central negative finding is right, because the whole adopted pattern turns on it.
+`Round: 5` continues Task 18's count. Rounds 1–3 reviewed the boar with **nothing ever executed**,
+because `rojo serve` was down. Karen connected Studio on 2026-09-25, and rounds 4 and 5 were the
+first with real evidence. `DIRECTOR_MAX_ROUNDS=5` was authorised for this run only, so **round 5 was
+the last**: this document records its outcome for the Director, and `ESCALATE.md` carries what is
+left unreviewed.
 
-**No harness run, and none is possible.** `rojo serve` has been down since Task 17 and only Karen can
-press Connect. The record with the exact clicks is `ESCALATE.md`, "NEEDS KAREN · `rojo serve` is
-down; no task can be harness-tested" — **on this branch**, because a previous round of Task 19 caught
-me citing that entry when it existed only on unmerged branches. Nothing in this task executes
-anyway.
+## Process
+
+1. Research note (rule 1) `docs/research/2026-09-24-boar-ai.md`, then Architect design
+   `docs/design/boar-ai.md` (`ARCH_RESULT.md` = `PASS`), then the code. Task 17 has neither by
+   Director decision: throwaway geometry, replaced by the Milestone 2 map generator.
+2. Three review rounds with no execution. Then the harness **seven times** across rounds 4–5, the
+   last on the code commit.
+3. No Architect audit (`ROADMAP.md` speed rule 3).
 
 ## What changed
 
 | File | What it is |
 |---|---|
-| `docs/research/2026-09-24-map-generator.md` | the note: **13** sources with licence and maintenance, the numbers and their derivation, the pattern adopted, the smallest first generator task, what needs Karen |
-| `docs/research/INDEX.md` | its row |
-| `TASKS.md` | row 20, and the Director's Task 20 dispatch transcribed verbatim |
-| `ESCALATE.md` | the `NEEDS KAREN · rojo serve is down` entry, written on this branch — see claim 15 |
+| `src/server/TestArena.luau` | Task 17. One module owns `Workspace.TestArena`; all dimensions in one `LAYOUT` table |
+| `src/server/ArenaBoot.server.luau` | its boot line |
+| `src/server/Boar/Brain.luau` | the boar's decisions. Pure |
+| `src/server/Boar/Body.luau` | the only writer of boar Instances |
+| `src/server/Boar/init.luau` | the owner: `CONFIG`, `defaultWorld`, `newRuntime`, the Heartbeat loop |
+| `src/server/BoarBoot.server.luau` | its boot line, plus one assertion about the arena |
+| `tests/server/test_arena.spec.luau` | 4 assertions on the arena |
+| `tests/server/boar_brain.spec.luau` | 24 assertions, no physics |
+| `tests/server/boar_body.spec.luau` | 8 assertions: one real simulated boar, plus a real-arena routing check |
+| `GAME_DESIGN.md` | two owner rows |
+| `docs/research/2026-09-24-boar-ai.md` | the note (mine), with the addendum rewritten now everything has run |
+| `docs/design/boar-ai.md`, `ARCH_RESULT.md` | the Architect's, untouched by me |
+| `TASKS.md`, `ESCALATE.md`, `CLAUDE.md` | paperwork; `CLAUDE.md` gains the branch-switch/rojo line and the step-4 reconciliation |
 
 ## Claims
 
-Files and symbols, not line numbers (CLAUDE.md loop step 4).
+Files and symbols, not line numbers. **One continuous numbering** — round 5's finding 3 was right
+that reusing numbers made every cross-reference here ambiguous.
 
-1. **The central finding is that Studio's heightmap/colormap import cannot be driven from code or
-   MCP, and the note states it plainly as the Director asked.** Verify: the note's source 3. The
-   Terrain Editor page describes Import and Generate as Studio UI tools and documents **no scripting
-   API** for either; the Studio MCP server's tool list (`execute_luau`, `insert_asset`,
-   `search_asset`, `screen_capture`, `generate_*`, `start_stop_play`, `user_*_input`,
-   `get_console_output`, …) contains nothing that drives the Terrain Editor. The note draws the
-   consequence rather than hedging: the generator computes its own heightfield.
-2. **Rule 1 is met in substance: 13 sources, each with a licence and a maintenance status, and each
-   with what it does well *and badly for this system*.** Verify: the note's "Sources",
-   headings **1–13**, in that order. First-party Roblox docs (CC BY 4.0) for 1, 2, 3, 4, 5, 9 (the
-   API half), 10 and 11; MIT for RTerrainGenerator (7); DevForum posts cited as figures or
-   corroboration only for 6, 13 and the mesh limits in 9; **an explicit "could not confirm"** for
-   the Creator Store Terms (8), which returned HTTP 403; and **§12, which is not a published source
-   at all** — a first-hand `tools/list` call against the Studio MCP server, labelled as such, with
-   "licence / maintenance: not applicable" and the caveat that StudioMCP is unpinned.
-3. **Rule 2 is met: three rejections, each with a written reason.** The Terrain Editor's Import and
-   Generate tools (unreachable from code, and their state is UI state, not a file);
-   RTerrainGenerator's *code* (MIT and worth reading for domain warping, but it does not use Roblox
-   Terrain and shows no recent activity); and heightmap PNGs as the source of truth (not reviewable
-   as a diff, which is the point of map option C). Verify: the note's "Pattern adopted, and why",
-   final paragraph, and sources 3 and 7.
-4. **Nothing is invented, and the note says what the only project-specific part is.** Noise
-   heightfields with domain warping, voxel writes, tag markers, id-referenced assets and seeded
-   generation are all standard; only the layer order and the tag vocabulary are ours, and those are
-   naming decisions. Verify: "Pattern adopted", the "Nothing here is invented" paragraph.
-5. **The map carries no scripts, and the note gives the mechanism.** `CollectionService` tags
-   (`AddTag`, `GetTagged`, `GetInstanceAddedSignal`) with an agreed vocabulary — `BoarSpawn`,
-   `DriveStart`, `ShooterPost`, `DriveLine`. Verify: source 4 and pattern point 4. The note also
-   names why this is the seam that makes the grey-box arena and the real map interchangeable to the
-   boar and the shotgun.
-6. **The note does not assert that tags survive a save, and makes confirming it the first task's
-   job.** This is the one that would silently sink the whole marker scheme. Verify: source 4's "Bad"
-   — the reference page does not say whether tags are serialised, so the note refuses to assert it
-   from memory — and "The smallest first generator task", which lists it as the question to answer
-   cheapest.
-7. **Streaming numbers come from the docs where they exist and from the community where they do
-   not, and the note says which is which.** `StreamingMinRadius` 64 and `StreamingTargetRadius` 1024
-   with Roblox's own recommendation to keep them, `StreamingIntegrityMode.PauseOutsideLoadedArea`,
-   `ModelStreamingBehavior.Improved`, and the four per-model `StreamingMode` values — all first-party
-   (source 5). The ~50,000 desktop / ~20,000 mobile visible-part figures are DevForum rules of thumb
-   and are labelled as such (source 6).
-8. **The public-repo licence hazard is identified and turned into two rules.** The Creator Store
-   licence is **use-on-Roblox**, not a redistribution grant, so: never commit a Creator Store asset
-   (the repo stores the **asset id**), and keep a provenance manifest so a later licence or
-   moderation question is answerable. Verify: source 8. The note also says plainly that a free model
-   whose uploader did not own the work is a live hazard and that ids get moderated away.
-9. **The Open Cloud key discipline is stated because the docs do not state it.** The Assets API page
-   gives the `x-api-key` header and the assets read/write scope but says nothing about secrecy; the
-   note makes the key an **environment variable**, never a file, never a commit, and requires the
-   upload tool to fail loudly when it is unset. Verify: source 9's "Bad". It also catches that meshes
-   are "not available for updating", so a changed mesh is a **new id** and the manifest must be
-   versioned.
-10. **The backup step is specified as a `NEEDS KAREN` click, with the reason.** `File → Save to File`
-    to a dated `.rbxl` **outside** the repository, before every rebuild, because Workspace is not
-    Rojo-mapped and so has no git history behind it, and because `.rbxm`/`.rbxmx` are already banned
-    here as unreviewable binaries. Verify: source 10 and pattern point 6.
-11. **Every number is derived at a stated scale or labelled a target, and the note says outright
-    that none of them is measured.** Verify: the note's "Numeric targets" table and the sentence
-    immediately after it — "**Every one of these is unverified.** Nothing in this project has yet run
-    on a phone, and the map does not exist." 2048 studs = 573 m at 1 stud = 0.28 m; the part budgets
-    trace to source 6; the mesh limits (21,000 triangles, 1024 × 1024 textures) are Roblox's hard
-    import limits; the drive length, post spacing, memory and load-time rows are marked feel/target.
-12. **The note ends with the smallest first generator task, and each of its five bullets names
-    where the question comes from.** Round 1's finding 4 was right that "one-to-one onto sources 2, 4
-    and 10" was false. Verify: "The smallest first generator task" — a 512 × 512 stud slice, two
-    materials, one hedgerow, 50 trees from one asset id, four tagged markers, then
-    save-reopen-confirm. The five bullets trace to: **§2** (`WriteVoxels` region size and whether
-    `resolution` 4 is the only value); **§11 and pattern point 2** (what `math.noise` returns and
-    whether it is stable — the assumption the seed story rests on); **§4** (do tags survive a save);
-    **`TASKS.md` row 7**, not a source (whether Edit-mode `screen_capture` is rule-5 evidence — Task 7
-    is unsolved for *play-time* screenshots, and this generator runs in Edit mode); and **§6** (what
-    50 trees cost, so the 3,000-tree budget can be multiplied out).
-12a. **The seed mechanism is stated properly, and the assumption under it is named.** Round 1's
-    finding 1 was right: `math.noise` takes **no seed**, so the old text ("it seeds its own
-    `Random`") answered nothing about the heightfield. Verify: pattern point 2 — the seed becomes a
-    **coordinate offset** into the fixed noise field, `Random.new(seed)` drives everything discrete,
-    and the note says outright that reproducibility rests on `math.noise` being stable across
-    sessions and engine versions, **which the documentation does not promise**, with the fallback
-    named (a small seeded noise implementation on disk).
-12b. **The maths library is now a numbered source.** Round 1's finding 2 was right that the whole
-    heightfield rested on a page the note never named. Verify: source 11 — URL, licence (first-party,
-    CC BY 4.0), maintenance, the confirmed signature `math.noise(x, y, z): number`, and the "Bad"
-    that the page gives the signature **and nothing else**.
-13. **It notices that Milestone 2 may be the first visual work in this project that can meet rule 5
-    without Karen.** The generator runs in **Edit** mode, and `screen_capture` over MCP is Edit-mode
-    only — which is exactly why it is useless for Task 7's play-time problem and potentially useful
-    here. Verify: "The smallest first generator task", fourth bullet.
-15. **`ESCALATE.md` gains the `NEEDS KAREN` entry for `rojo serve`, on this branch, and it asserts
-    only what I checked.** Round 1's finding 5 was right that it was in the change but in no claim.
-    It states: `rojo serve` has been down since Task 17 (no `rojo.exe`, nothing on port 34872);
-    Studio is still in Edit mode and its MCP server answers, so only Rojo is down; the exact clicks
-    for Karen in order; that Tasks 17 and 18 have **never been executed at all**; and **why the entry
-    is repeated here** — the copies on `task-17`, `task-18` and `task-19` are unmerged, so `main` had
-    no record, and Task 19's round 1 caught me citing it from a branch where it did not exist.
-    Verify: `ESCALATE.md`, the first entry. The process claims (rojo down, Studio up) are ones I
-    re-checked in this session; you cannot verify those from the repo, and they are listed under
-    "Could not verify".
-16. **Nothing in `src/`, `tests/` or `tools/` changed.** Lint, format and `rojo build` were run
-    anyway and pass: `.agent-evidence/lint-selene.txt`, `lint-stylua.txt`, `rojo-build.txt`.
-    `GAME_DESIGN.md` is untouched — there is no system yet, so there is no owner to record.
+### It runs
 
-## Round 2: the six round-1 findings
+1. **The harness passes on a clean tree at the code commit.**
+   `[harness] PASS: 24/24 checks @ b6cf3dec736347f65c42ad3d05129d302389349a (clean tree)`, **39 server + 4 client assertions across
+   5 spec files** (sync 3, test_arena 4, boar_brain 24, boar_body 8). See `## Harness`.
+2. **The arena is right, as measured.** `test_arena.spec` asserts on what a player meets in
+   `Workspace`, with its own copy of the numbers: one folder; a 400 × 400 ground plate whose top
+   surface is at y = 0 and which is centred; 6–10 anchored blocks whose **whole footprint** is on the
+   plate and which stand on it; exactly one `SpawnLocation` on the ground inside the plate.
+3. **The boar is right, as measured.** `boar_body.spec` spawns one real physically-simulated boar and
+   asserts through the public interface only: exactly one unanchored Part in the runtime's folder;
+   `GetNetworkOwner() == nil`; a `LinearVelocity` and an `AlignOrientation`; it lands and idles below
+   `WANDER_SPEED * 1.5` flat; on a threat it reaches half sprint speed within 1 s, stays upright
+   (`UpVector.Y > 0.9`) and **grows the flat gap by ≥ 20 studs**; it despawns exactly once as
+   `escaped` and the `Despawned` record carries `id`, `reason`, `position` and `aliveFor`.
 
-All six were right. Four were in the note or `TASKS.md` and are fixed in the code commit; two were in
-this request and are fixed above.
+### What running it found
 
-17. **Finding 1 — the determinism story did not work.** The sharpest finding of the six, and it
-    caught a real muddle rather than a typo: `math.noise` has no seed parameter, so seeding a
-    `Random` said nothing about the heightfield, while pattern point 2 promised "one `seed` number
-    reproduces the map exactly". Fixed as claim 12a.
-18. **Finding 2 — the maths library was a source in everything but name.** Fixed as claim 12b.
-19. **Finding 3 — three sets of broken section references.** All three were wrong in the same way:
-    pointing at a source number when meaning a section, or at the wrong source. The backup step is
-    §10 (it was §6, twice), the part budgets are in "Numeric targets" (they were §9, twice), and the
-    `math.noise` bullet now points at §11 and pattern point 2. In a note whose only value is being
-    usable by the next Builder, these matter more than their size suggests.
-20. **Finding 4 — claim 12's "one-to-one" was false.** Fixed above; each bullet now names its source,
-    including the one that traces to `TASKS.md` row 7 rather than to any source.
-21. **Finding 5 — `ESCALATE.md` was in the change but in no claim, and the summary said "two table
-    rows".** Both fixed: it is in the table, the summary is corrected, and claim 15 states what the
-    entry asserts. The irony is not lost: this task's whole point was to avoid Task 19's mistake of
-    citing that entry without it existing, and I wrote the entry but then left it out of the change
-    list.
-22. **Finding 6 — the Director's dispatch was paraphrased, not transcribed.** Fixed: `TASKS.md` now
-    has a "Director dispatches, transcribed by the Builder" section with the Task 20 dispatch
-    verbatim, and row 20 cites it instead of asserting the scope in my own voice. That is also where
-    "no Architect design was run" is on the record, with the note that whoever builds the generator
-    needs `tools/architect.sh design map-generator` first.
+4. **Two `boar_brain` tests contradicted a feature they neighbour.** Both held the boar at a **fixed
+   position for 300 steps**. Standing still for 2 × `STUCK_TIME` is by definition stuck, so the
+   anti-stuck branch turned it 90° in one tick — exactly what the neighbouring "turns hard when it is
+   stuck" test asserts. Fixed by one shared `worstDeltas` helper that **circles** the boar, so it is
+   never stuck and never despawns, and by measuring the **worst** delta over the run rather than
+   asserting per step. Verify: `worstDeltas` in `boar_brain.spec` and its two callers.
+5. **The 1e-6 tolerance was tighter than float32 arithmetic can be.** Measured: worst acceleration
+   overshoot **1.9e-6**, worst turn overshoot **3.8e-8**; `Vector3` components are float32. Fixed by
+   one `EPSILON` = 1e-4 — ~50× the worst measured, ~10⁴× tighter than the quantities under test —
+   applied to **every assertion that bounds a measured quantity against a `CONFIG` limit**. Verify:
+   `EPSILON` in `boar_brain.spec` and its four uses. **One tolerance is deliberately tighter:** the
+   determinism test's `1e-9`, because two brains with the same seed are bit-identical, so it asserts
+   determinism rather than bounding a physical quantity and float32 error does not enter. Round 5's
+   finding 4 was right that "every arithmetic assertion" was false; the reason is now at that line.
+6. **The pathfinding assertion was asserting a property of Roblox's navmesh, not of this code.**
+   `pathFailures == 0` failed with 31, then 36 of 37. Instrumenting `requestPath` gave the reason:
+   `Enum.PathStatus.NoPath`, on the spec's own plate floating at y = 500 in an otherwise empty
+   region. An Edit-mode probe with the same `CONFIG.AGENT` parameters:
 
-## Round 2's five findings
+   | from → to | status | waypoints |
+   |---|---|---|
+   | (0,0,0) → (0,0,−190) | `Success` | 53 |
+   | (0,**1.5**,0) → (0,0,−190) | `Success` | 53 |
+   | `CONFIG.spawnPoint` → exit line | `Success` | 54 |
+   | (0,**500**,30) → (0,500,−40) | `NoPath` | 0 |
 
-All five were right. Three were in the note and are fixed in the code commit; two were in this
-request and are fixed above. **Round 2 is the Director's limit for this task, so there is no round 3
-and these fixes are unreviewed** — `ESCALATE.md` has the entry.
+   **Round 4's finding 1 was right that this table proves less than I claimed.** It was taken in
+   **Edit** mode, where no server script has run, so `Workspace.TestArena` did not exist and the
+   first three rows were measured over the bare default Baseplate — 54 waypoints for a 210-stud route
+   is a straight line, i.e. `WallWest` was not in the navmesh, because the arena was not there. The
+   table shows only what it was taken for: pathfinding works at y = 0 and not at y = 500.
+7. **So the arena test was rewritten to prove the thing that matters, and now does.** It waits for
+   `Workspace.TestArena`, requires `WallWest` to exist, then requires the route from
+   `CONFIG.spawnPoint` to the exit line to **leave the straight line by more than 15 studs** and to
+   put no waypoint inside the wall's footprint. Measured green: **`arena route: 57 waypoints, max
+   lateral 22.5`** — the boar routes *around* an 80-stud wall. A straight line cannot pass this.
+8. **Every unanswerable request is counted, not just the last.** `lastPathProblem` was a single
+   overwritten slot, so a rarer failure was discarded by the next `NoPath`.
+   `defaultWorld().pathProblems()` now returns reason → count, and the plate test asserts **every**
+   reason is `NoPath`. Round 5's finding 1 then caught a **second** hole in it: a `ComputeAsync` that
+   returns `Success` with no waypoint past index 1 also produces the silent straight-line fallback,
+   and was recorded nowhere. It is now counted as `"success: no waypoints"`, which is what makes
+   claim 9's invariant rest on containment rather than on coincidence.
+9. **Two counters that look alike count different things, and the spec says which.** Asserting
+   `counted == stats.pathFailures` failed 37 vs 36 — the assertion was wrong, not the code.
+   `pathProblems` is the **world's** tally of every request it could not answer with usable
+   waypoints; `stats.pathFailures` is the **runtime's** tally of those that reached a **live** boar,
+   and `Runtime:_requestPath` deliberately drops a reply whose boar has already despawned
+   (`entry.dead`). The world records a superset, so the invariant is `world >= runtime`, and that is
+   what it asserts, with the reason written at the assertion.
 
-23. **Finding 1 — my fix for round 1's broken references introduced a new broken reference.** I
-    pointed source 11 at a "§12" that did not exist. Fixed, and this time **I audited every section
-    reference in the file programmatically** against the actual headings rather than fixing only the
-    ones I was handed: 13 headings, zero unresolved references. The sections are also back in
-    numeric order, which they were not after the insert.
-24. **Finding 4 — the decisive finding rested on two unnamed sources.** The strongest of the five.
-    The claim that Studio's heightmap import is unreachable leaned on an MCP tool list and some
-    community threads, neither of them a numbered source, and the request then made an exhaustiveness
-    claim off a list I had printed with an ellipsis. Both are now sources: **§12** records the tool
-    list as what it is — a first-hand `tools/list` call made during Task 17, fully enumerated, with
-    "not a published source", "StudioMCP is unpinned and can change under us" and "the in-repo record
-    is partial" said out loud — and **§13** links the three community threads as corroboration while
-    stating that absence of a forum answer proves nothing. The load-bearing evidence is §3.
-25. **Finding 5 — the mesh limits were dressed up as first-party.** The numbers table said "Roblox's
-    hard import limits" while §9 itself said the figures come from a DevForum thread and a vendor
-    page. Fixed where they are used, the same way §6's part counts are.
-26. **Finding 2 — the source count was wrong in two more places than the one I fixed.** Fixed above;
-    it is 13 now, and claim 2's verification pointer says 1–13 rather than excluding the sources
-    added to answer earlier findings.
-27. **Finding 3 — the "two table rows" summary survived in the Harness section.** I corrected one
-    copy and missed the other, which is the same class of miss as finding 1. Fixed above.
+### Ownership and structure
+
+10. **One owner each, and the private parts are private in production.** `TestArena` is the only
+    writer of `Workspace.TestArena`; `Boar` is the only writer of `Workspace.Boars` and the only
+    production caller of `Brain.new`, `Body.create`, `Body.drive`, `Body.destroy` and
+    `Body.ensureFolder`. Verify: `grep -rn "Brain\.new\|Body\." src tests` — outside `init.luau` the
+    hits are the definitions in `Brain.luau`/`Body.luau` plus **two** calls in `boar_brain.spec`
+    through the deliberate `Boar.Brain` export. `GAME_DESIGN.md` has both rows and says so.
+11. **`Brain` is pure.** No `game:GetService`, no `task.`, no `Instance`, no `os.`; the only
+    randomness is the injected `Random`. Verify:
+    `grep -n "game:\|Instance\|task\.\|os\." src/server/Boar/Brain.luau` matches only line 1, the
+    header comment's own word "Instances".
+12. **Neither system touches Studio content.** Verify:
+    `grep -rn "Baseplate\|SpawnLocation" src` returns exactly three lines, all in `TestArena.luau`:
+    two header comments and one `Instance.new("SpawnLocation")` creating **its own** `ArenaSpawn`.
+    No code reads or writes either default.
+13. **`BoarBoot` fails loudly if the arena changes.** It asserts `TestArena.LAYOUT.ground.span` and
+    `.top` against `Boar.CONFIG.field` and names the file to edit. `Boar` never requires
+    `TestArena`: the rectangle is data.
+14. **The threat test is one function.** `CONFIG.isThreat(player)`, called only by
+    `defaultWorld().threats`. `Brain` never sees a `Player` — it gets `{ id, position }` records,
+    which is what lets a spec place a fake threat as a `Vector3`.
+
+### Rule 5
+
+15. **Three play-time screenshots were captured through MCP and I inspected them.** See
+    `## Screenshots`, including one thing that is green in the tests and wrong on screen.
+
+## Round 5: what rounds 4 and 5 found
+
+Thirteen findings across the two rounds, all right. Listed as bullets, not numbers, so nothing
+collides with the claims above.
+
+- **Round-4 finding 1 — the "real arena" test was testing the default Baseplate.** The sharpest of
+  the thirteen. It never waited for `Workspace.TestArena` and never checked it existed, so it ran
+  before `ArenaBoot` had built anything — and the 54 waypoints for a 210-stud route *said so*, a
+  straight line with no detour, which I read past. Claims 6 and 7.
+- **Round-4 finding 2, then round-5 finding 1 — the diagnostic had two holes.** One overwritten
+  "last reason" slot, and then a whole failure class (`Success` with no usable waypoints) recorded
+  nowhere. Claim 8. Fixing the first immediately exposed the counter mismatch in claim 9.
+- **Round-4 findings 3 and 4 — the durable record.** The fifth departure from the design (dropping
+  `pathFailures == 0`) was only in this file, which is rewritten per task; and the note's addendum
+  §4, "what I could not measure", was three-quarters false now that everything has run. Both fixed
+  in `docs/research/2026-09-24-boar-ai.md`.
+- **Round-4 finding 5 — `TASKS.md` contradicted itself** after my own paperwork commit. Closed,
+  struck through rather than deleted (rule 7).
+- **Round-4 finding 6 — a correction to a BLOCKING queue row was sitting only in this file.**
+  Play-time `screen_capture` **works**; row 7 says it cannot. Now an `ESCALATE.md` entry for the
+  Director, naming the cause: `studio_mcp.Studio._call` joins only `text` content blocks, so an
+  image-only reply comes back empty and I read that as "unavailable during Play".
+- **Round-4 findings 7 and 8, round-5 findings 3 and 4 — four false statements in this file.**
+  "20 assertions" where there are 24; "`Runtime:destroy` never exercised" when `afterAll` calls it;
+  six claim numbers used twice; and "every arithmetic assertion" when one tolerance is deliberately
+  tighter. All fixed above.
+- **Round-4 finding 9 — `CLAUDE.md` contradicted itself**, and the mechanical check was red because
+  of it. Fixed in loop step 4; see `## Harness`.
+- **Round-5 finding 2 — the durable record named a superseded harness sha.** `TASKS.md` row 18 and
+  the `ESCALATE.md` closure both cited `fbe1d60`, the *first* green run, while three code commits
+  followed it. Both now name the code commit.
 
 ## Harness
 
-**N/A — no code, and Studio is unreachable.** Nothing in this change executes: it is four markdown
-files — one new note, plus `ESCALATE.md` (a 47-line entry), `TASKS.md` (row 20 and a ~45-line
-transcribed-dispatch section) and one `INDEX.md` row. `rojo serve` has been down since Task 17; the record with the exact clicks is
-`ESCALATE.md`, "NEEDS KAREN · `rojo serve` is down; no task can be harness-tested". **I wrote that
-entry on this branch as part of this task**, because this branch is cut from `main` and the copies on
-`task-17`, `task-18` and `task-19` are all unmerged — so `main` had no record of it. Task 19's review
-round 1 caught me citing that entry from a branch where it did not exist, and I checked this time
-before writing the claim. Lint, format and `rojo build` are clean and unchanged by this task.
+```
+[harness] PASS: 24/24 checks @ b6cf3dec736347f65c42ad3d05129d302389349a (clean tree)
+```
+
+Run 2026-09-25 on this branch, exit 0. `[tests:server] PASS: 39 passed, 0 failed, 0 skipped,
+0 errors, 4 spec files`; `[tests:client] PASS: 4 passed, …, 1 spec files`.
+
+**On `.agent-evidence/request-only-diff.txt`:** it may read "NOT OK". Round 4's finding 9 was right
+that `CLAUDE.md` contradicted itself here — loop step 4 said "commit **only** `REVIEW_REQUEST.md`"
+while git-workflow step 4 permits the whole paperwork set, and round 4's own findings 5 and 6
+*required* commits to `TASKS.md` and `ESCALATE.md`. I own `CLAUDE.md` and have reconciled it: step 4
+now states the allowed set once and says the evidence file checks the strictest case, so "NOT OK"
+means "check the list", not "fail". **What to check:** every file between the code commit and HEAD is
+on that list, and **no `src/`, `tests/` or `tools/` file moved after the code commit** —
+`.agent-evidence/changed-files.txt` and `log.txt` show it. If one did, the harness line does not
+cover HEAD and that is a finding.
+
+## Screenshots (rule 5)
+
+Captured during **Play** through `screen_capture`, at several camera positions, and **inspected**.
+A correction worth recording: my first attempt reported "capture returned empty" — that was my own
+client discarding the image, because `studio_mcp.Studio._call` joins only `text` content blocks.
+The raw RPC returns a JPEG. **Play-time capture works**, which contradicts `TASKS.md` row 7 and is
+now an `ESCALATE.md` entry for the Director.
+
+- **The boar is real and behaves.** It rests at y ≈ 1.5 (`groundY + BODY_SIZE.Y/2`), wanders while
+  idle, and reads as a 2 × 3 × 5.5 box. **Its sides read almost black**; only the top face shows the
+  intended `Color3.fromRGB(90, 80, 70)`. Not a bug — a colour choice for Karen.
+- **The arena's cover blocks and spawn pad are all there**, and the low walls and tall pillars are
+  distinguishable at distance, which is what they are for.
+- **The floor is wrong, and no test can see it.** The arena's ground plate is coplanar with
+  `Workspace.Baseplate` (2048 × 16 × 2048, top also at y = 0) and **loses the depth test over half
+  its area**: the 400 × 400 square renders as a **triangle**, split along the quad's diagonal, with
+  the Baseplate showing through the other half. Two captures 1.5 s apart differ only where the boar
+  moved — the diagonal is identical — so it is **stable, not flickering**. I did not fix it: the fix
+  is either Karen deleting `Workspace.Baseplate` (Studio content, hers) or moving the arena's surface
+  off y = 0, which changes a contract the boar depends on. Recorded in `TASKS.md` row 17.
+- **Two `SpawnLocation`s exist during Play** — the arena's `ArenaSpawn` at z = +170 and the default
+  at the origin — confirmed by a scene query (`spawns: 2`) and visually. Karen's call.
 
 ## Could not verify
 
-- **The Creator Store Terms.** <https://en.help.roblox.com/hc/en-us/articles/21308223046932> returned
-  **HTTP 403** to me, so I have **not read the primary licence text**. Source 8 rests on the
-  `create.roblox.com` docs page's summary of it. The two rules the note draws (never commit an
-  asset; keep a manifest) are conservative and hold under any reading, but **if you can reach the
-  Terms and they say something different, that is a finding**.
-- **`math.noise`'s range and determinism.** The maths-library reference gives the signature
-  `math.noise(x, y, z): number` and **nothing else** — no algorithm, no range, no determinism
-  guarantee. The note says so and makes it a question for the first task rather than assuming the
-  usual −1..1.
-- **Whether `resolution` may be anything but 4, and any `ReadVoxels`/`WriteVoxels` region cap.** The
-  `Terrain` page uses 4 in examples and states neither. Flagged in source 2 and in the first task.
-- **Whether `CollectionService` tags are serialised into the place file.** Not stated on the
-  reference page. See claim 6 — this is the highest-consequence unknown in the note.
-- **RTerrainGenerator's maintenance status.** MIT, ~45 commits, no archive notice, but I could not
-  establish a last-commit date, so the note treats it as unmaintained until proven otherwise rather
-  than claiming either way.
-- **Every number in the "Numeric targets" table.** They are arithmetic and budgets, not measurements.
-  Nothing in this project has run on a phone; the map does not exist; the 3,000-tree and 20,000-part
-  figures are budgets to be checked by multiplying what 50 trees actually cost.
-- **The part-count figures are DevForum rules of thumb**, not Roblox specifications, and not
-  measurements of this map on these devices.
-- **No Architect design exists for this system.** The dispatch was research only. Whoever builds the
-  generator needs `tools/architect.sh design map-generator` first — the note is input to that, not a
-  substitute for it, and it does not assign owners.
-- **The `ESCALATE.md` entry's process claims are not checkable from the repo.** That `rojo serve` is
-  down and Studio is still in Edit mode are things I verified in this session (no `rojo.exe`, nothing
-  on port 34872) and wrote down; the repo cannot confirm them.
-- **Four of round 1's six findings were mine to have caught.** The broken section references and the
-  unnamed source are exactly the "stated it and did not check it against the thing it cites" failure
-  that Task 19 spent two rounds on. The determinism muddle (round 1, finding 1) is worse than a
-  citation slip, because it would have been copied into a design.
-- **Round 2 then found that two of my round-1 fixes were themselves wrong** — a new broken section
-  reference inside the fix for broken section references, and a count corrected in one place but not
-  two others. Across Tasks 19 and 20 that is now a consistent pattern: **I fix the instance I am
-  shown rather than the class.** The audit in item 23 is the first time I checked the class
-  mechanically, and it is what I should have done in round 1.
-- **These round-2 fixes are unreviewed.** Two rounds was the Director's limit; see `ESCALATE.md`.
+- **`Path.Blocked` has never fired.** The `consumed() + 2` index arithmetic in
+  `Runtime:_requestPath`'s `onBlocked` is unexercised: the plate returns `NoPath`, and in the arena
+  no threat ever appeared, so no boar pathed under load. `stats().pathBlocked` exists for when it
+  does.
+- **No real player has ever been a threat.** Every threat in every test is an injected
+  `{ id, position }` record, so `CONFIG.isThreat` → `Players:GetPlayers()` →
+  `character.PrimaryPart` is unexecuted.
+- **`Runtime:destroy` runs but is never asserted on** — `afterAll` calls it, so the green run proves
+  only that it does not throw. **`maxBoars` is never exercised at all.**
+- **The screenshots are mine, not Karen's**, and "the sides look almost black" is my judgement of a
+  JPEG, not a measurement.
+- **Whether the floor artefact matters in play** — it is a rendering artefact; parts, collisions and
+  pathfinding all behave. I only saw it from high oblique angles and never from eye height.
+- **The arena route test depends on Roblox's navmesh having picked up runtime-created parts.** It
+  passes with 22.5 studs of detour today; it waits up to 5 s for the arena and 10 s for the path,
+  which are guesses, not measurements. On a slower machine it could fail for timing rather than for
+  a regression.
+- **The round-5 fixes are unreviewed.** Round 5 was the last authorised round. `ESCALATE.md` says
+  what they are.
+- **CI** is unchecked: no `gh` on this machine.
