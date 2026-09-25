@@ -40,6 +40,12 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 	part.Material = Enum.Material.SmoothPlastic
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
+	-- What the weapon reads to know this is a target and which zone was hit (shotgun design
+	-- section 6.4). Boar-owned data the boar publishes about itself: Body is still the only writer
+	-- of boar Instances, and the weapon only reads. ROADMAP 1.5 splits the box into parts, each
+	-- carrying its own HitZone, and nothing in the weapon changes.
+	part:SetAttribute("Damageable", true)
+	part:SetAttribute("HitZone", "body")
 	part.Anchored = false
 	part.CanCollide = true
 	part.CFrame = CFrame.new(position)

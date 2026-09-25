@@ -24,7 +24,6 @@
 -- Note: docs/research/2026-09-24-toolchain.md (addendum: driving real input)
 local ContextActionService = game:GetService("ContextActionService")
 local HttpService = game:GetService("HttpService")
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
@@ -34,7 +33,7 @@ local ARRIVE_TIMEOUT = 25 -- seconds to wait for the harness's replay; it starts
 -- asked. The tolerance is for clock skew between that sleep and os.clock() here, nothing more.
 local GAP_TOLERANCE = 0.6
 
-local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("InputReady"))
 
 -- Every event the engine delivered, in arrival order. `source` says which real path carried it.
 local log = {}
@@ -99,13 +98,12 @@ local connections = {
 	end),
 }
 
--- The handshake. The harness polls this attribute on the Client DataModel and replays only once it
--- carries THIS run's token, so the replay can never race the bindings above, and a stale attribute
--- from an earlier run cannot be mistaken for this one. LocalPlayer attributes set on the client do
--- not replicate; only the harness reads it.
-local token = TestKit.openToken()
-if token and scenarios then
-	Players.LocalPlayer:SetAttribute(scenarios.readyAttribute or "InputProbeReady", token)
+-- The handshake. The harness replays only once the attribute carries THIS run's token, so the replay
+-- can never race the bindings above. Since Task 24 there is more than one client spec binding input,
+-- so the attribute is written by ONE rendezvous module when EVERY expected spec is ready, never by a
+-- spec itself (docs/design/shotgun.md section 13.3).
+if scenarios then
+	InputReady.ready("input_driving")
 end
 
 -- What the scenario's steps must produce, in order: {source, phase, name} plus, for a `wait` step,

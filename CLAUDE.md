@@ -60,6 +60,7 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
 | `reviews/task-<N>/REQUEST.md` | Builder | **one page.** What changed, `Task: N`, `Round: N`, `Base:`, `Code commit:`, at most 10 claims with how to verify each, and what could not be verified |
 | `reviews/task-<N>/RESULT.md` | Reviewer | `PASS` on line 1, or a numbered list of **blocking** findings. Notes go under `## Notes (non-blocking)` and never block |
 | `reviews/task-<N>/ARCH_RESULT.md` | Architect | `PASS`, or a numbered list (design: blocking open decisions; audit: must-fix items) |
+| `reviews/task-<N>/BRIEF.md` | Builder, carrying the Director | **optional.** The input to an Architect *design* run: decisions already taken, and what the design must contain. `docs/ARCHITECT_PROMPT.md` tells the Architect to read it first when it exists, and it overrides anything older in `docs/`, `TASKS.md` or an earlier design. Written before the run, committed, then `tools/architect.sh design <system> --task <N>` |
 | `ESCALATE.md` | anyone | for the Director and Karen: a disagreement, a 3rd failed round, a decision needed, or a **`NEEDS KAREN`** entry (a click only Karen can make) |
 | `PLAYTEST.md` | Builder, transcribing Karen | Karen's feedback after playing |
 
