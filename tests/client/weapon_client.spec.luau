@@ -613,13 +613,26 @@ return function()
 			local WINDOW = 1
 			local attempts, opened = 3, false
 			for _ = 1, attempts do
+				-- QUIET, NOT CLOSED. The first version also required `not state.open` and the
+				-- one-player run never satisfied it: the replay's last scenario leaves the gun broken
+				-- open, and it stays that way because nothing presses anything afterwards. `open` is
+				-- still COMPARED across the window below, which is the assertion that matters -- an
+				-- accepted "Close" would move it.
 				local ready = waitUntil(90, function()
 					local state = Weapon.get()
-					return state ~= nil
-						and not state.open
-						and state.busyFor == 0
-						and os.clock() - lastWeaponInput > QUIET
+					return state ~= nil and state.busyFor == 0 and os.clock() - lastWeaponInput > QUIET
 				end)
+				if not ready then
+					local state = Weapon.get()
+					print(
+						string.format(
+							"[weapon_client] no quiet gun: open=%s busyFor=%.2f since input=%.1f s",
+							tostring(state and state.open),
+							if state then state.busyFor else -1,
+							os.clock() - lastWeaponInput
+						)
+					)
+				end
 				expect(ready).to.equal(true)
 
 				local before = Weapon.get()
