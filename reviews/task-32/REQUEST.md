@@ -1,15 +1,15 @@
 # Task 32 — the drive runs
 
 Task: 32
-Round: 1
+Round: 2
 Base: `339933a`
-Code commit: `63edba1f3311358713ce5ab3e9603c470dabf14b`
+Code commit: `36700135a34fbdb62044bbbffc4d6e9ce4e5b10e`
 
 ```
-[harness] PASS: 27/27 checks @ 63edba1f3311358713ce5ab3e9603c470dabf14b (clean tree)
+[harness] PASS: 27/27 checks @ 36700135a34fbdb62044bbbffc4d6e9ce4e5b10e (clean tree)
 ```
 
-224 server and 58 client `it` blocks across 22 spec files (`main` had 162 and 51).
+226 server and 58 client `it` blocks across 22 spec files (`main` had 162 and 51).
 
 ## Task
 
@@ -17,7 +17,7 @@ ROADMAP 1.7a, built to `docs/design/drive.md` with the Director's decisions in
 `reviews/task-29/BRIEF.md`. Scope: the phase machine, teams, the 10-minute timer, six boars per
 drive, points, and the posts and drive line as tagged markers. `SAFETY_ENABLED` and
 `SCOREBOARD_ENABLED` exist and are **false** — the penalty and the score screen are 1.7b.
-**Every deviation from the design is in `reviews/task-32/DESIGN_DELTA.md`**, eight of them, and
+**Every deviation from the design is in `reviews/task-32/DESIGN_DELTA.md`**, nine of them, and
 claims 2, 7 and 9 below are the three that change behaviour rather than shape.
 
 ## Claims
@@ -72,26 +72,46 @@ claims 2, 7 and 9 below are the three that change behaviour rather than shape.
    **first** boar release could land after the input replay had finished, leaving Task 30's staged
    shot with nothing to aim at; the first release is now exact.
 
-8. **The drive decides when a boar exists, and still never touches one.** `BoarBoot.server.luau` is
+8. **Round 1's blocking finding was real, and the fix removes the second guard rather than
+   patching it.** Two guards read different data: the pure machine read `event.aliveBoars`, which
+   only the **tick** filled in, so a join or a leave landing on a release moment saw zero, consumed
+   the release and pushed the schedule on — and the owner's own guard then refused the spawn. The
+   boar was never released and never retried: a six-boar drive quietly ran five and the Hud counted
+   one that did not exist. Now **every** event the owner dispatches carries the live count (one place,
+   `dispatch`), the owner has no guard of its own, and when `Runtime:spawn` still refuses — it
+   asserts at `maxBoars` — the release is handed **back** through `Phase.releaseFailed` and is due
+   again immediately. Two specs, one per half: a join at a release moment with the runtime full
+   consumes nothing and the release still happens on the next tick; and a returned release is due at
+   once rather than one interval later.
+
+9. **The drive decides when a boar exists, and still never touches one.** `BoarBoot.server.luau` is
    archived (rule 7, `backups/` with a note) and its three jobs are in `MatchBoot`, the one
    composition root. The Match releases six boars on a schedule, holds a release back instead of
    dropping it when the runtime is full, and clears the drive's boars at the end — through
    `Runtime:clear()`, which is new on the boar's own owner because the Match may not destroy a boar
    Instance. `Boar.CONFIG.maxBoars` is 8, because a carcass occupies a slot for two minutes.
 
-9. **`match_live.spec` asserts the drive that is actually running**, not a stub world: `Match` is a
+10. **`match_live.spec` asserts the drive that is actually running**, not a stub world: `Match` is a
    singleton that `MatchBoot` has started, and a spec that stopped production to run a stub would
    leave the client specs reading a Hud fed by nothing. It checks that the drive left `Waiting`, that
    both `Team`s exist with `AutoAssignable = false` (the page does not state its default, so it is set
    explicitly and asserted), that the player is a Shooter and may carry a weapon, that the drive line
    points at the drivers, that the snapshot is frozen to its rows, and that `killSignalMissing == 0`.
 
-10. **The client is a replica with no setter and nothing inbound.** `PlayerScripts.Match` subscribes
+11. **The client is a replica with no setter and nothing inbound.** `PlayerScripts.Match` subscribes
     to the two server→client remotes and freezes what arrives; `match_client.spec` asserts there are
     **exactly two** remotes in `Drive.Remotes` and both are `RemoteEvent`s, that the snapshot and its
     rows throw on a write, that `secondsLeft()` matches `phaseEndsAt - GetServerTimeNow()` and is
     never negative, and that the drive bar is really on screen — every ancestor present and visible,
     the `ScreenGui` enabled — with a text that never renders a `nil`.
+
+12. **The harness changed too, and round 1 was right that no claim covered it.**
+    `tools/studio_mcp.py`: the `stage` step now **waits up to 60 s for its target**, because the
+    boars belong to the drive and none exists until the match releases one (~40 s in); and the client
+    report window went from 90 s to 120 s for the same reason. `tests/client/input_scenarios.txt`:
+    the `shoot-the-boar` scenario gained a reload and two more clicks, so a missed shot at a running
+    animal is not the end of the evidence. Both are in the docstring, which is the single source of
+    truth for the test system.
 
 ## Screenshots, inspected (rule 5)
 
@@ -123,6 +143,10 @@ at again in 1.7b.
 - **`execute_luau` cannot see the live Match** (the same module-cache limit Task 30 measured), so the
   screenshot script's `Match.phase()` read `Waiting` while the real drive was `Running`. Everything I
   claim from the screenshots comes from the Hud and from real Instances.
+- **A duplicated spec block passed the review's own gate once.** The round-2 patch script ran
+  twice after a bad anchor in an unrelated file, so `match_phase.spec` carried both new tests twice;
+  TestEZ reported that as an error rather than as two passes, which is how it surfaced. Removed, and
+  the harness is green on one copy of each.
 - **The 600-second drive has never run to `Scoring` in a live session** — a harness Play session is
   about two minutes. `Running → Scoring → Assigning`, the swap and the second drive are proved in
   simulated time only.
