@@ -86,6 +86,10 @@ player.
 - `Match.CONFIG.SAFETY_ENABLED` and `Drive.CONFIG.SCOREBOARD_ENABLED` are now `true`; `TIE_SECONDS`
   is implemented (through the pure `Penalty.expired`) even though `TIE_UNTIL_DRIVE_END = true` makes
   it dead in Karen's build, because a config number nothing reads is a lie in a table.
+- `ROPE_THICKNESS` is 0.3 studs, not the design's 0.2 (§11.4). A 0.2-stud cylinder at the distances
+  the arena's pillars sit at is a hairline; this is the same "check it on screen" dial as the colour,
+  and the screenshot is where it was checked. Added after the round-1 review pointed out that the
+  list below named the colour and not the thickness.
 - `ROPE_COLOR` is `RGB(170, 130, 85)`, not the design's `RGB(120, 90, 60)`. The design's own note said
   to check it on screen because `Boar.CONFIG.BODY_COLOR` and `Shotgun.CONFIG.HANDLE_COLOR` both read
   near-black at first try; this was raised for the same reason before the first run, and the
