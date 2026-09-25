@@ -155,9 +155,12 @@ return function()
 		-- a driver carries no gun (`DRIVERS_MAY_SHOOT = false`), so there is nothing for him to fire
 		-- and the stage would put two characters in the same place. The driver's branch is not a
 		-- skip -- it asserts the rule: he is never staged, and nothing of his ever lands.
-		it("staged nobody on this client, because a driver has no gun to fire", function()
+		it("staged this client only if it is the shooter's -- a driver has no gun to fire", function()
 			if Role.isShooter() then
-				expect(Role.isDriver()).to.equal(false)
+				-- The shooter's half of this pair is the next two `it`s; here, only that the harness and
+				-- this spec agree on who he is.
+				expect(player.Team).to.be.ok()
+				expect(player.Team.Name).to.equal("Shooters")
 				return
 			end
 			-- Give the whole replay time to finish before claiming nothing arrived.

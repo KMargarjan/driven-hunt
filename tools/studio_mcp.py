@@ -199,8 +199,8 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
 
   SO THE DISK TOKEN IS CLEARED BEFORE THE CLICK, deliberately. A carried token is worse than none:
   the suites then start the instant the windows open, 20-40 s before this mode has classified the
-  processes and can replay input into the shooter, and every input-driven client spec counts its
-  own 25 s from where TestEZ reaches it -- run 5 lost 14 specs on the shooter exactly that way. A
+  processes and can replay input into the clients, and every input-driven client spec counts its own
+  budget from where TestEZ reaches it -- run 5 lost 14 specs on the shooter exactly that way. A
   fresh token is still written first and checked (that is the proof Rojo is live and caught up,
   as in `test`), then cleared, then Karen clicks. TestKit.awaitToken keeps both runners waiting.
 
@@ -239,8 +239,8 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
        mode on the first of those; no call against a test process raises now.
     3. Each client is asked which team its LocalPlayer is on. THEN the gate is opened (above) and
        the input scenarios are replayed into BOTH clients -- in that order, because the client specs
-       start the moment the token lands and input_driving.spec gives the replay 25 s to arrive; a
-       45-second team query must not be inside that budget.
+       start the moment the token lands and input_driving.spec gives the replay ARRIVE_TIMEOUT (45 s)
+       to arrive; a 45-second team query must not be inside that budget.
        WHY BOTH, SINCE TASK 36: with two players the drive makes one of them a Driver, and a Driver
        carries no gun at all (DRIVERS_MAY_SHOOT is false). Sending him nothing meant 23 of his 67
        specs failed by construction and his whole report had to be printed as an observation. He now
@@ -1085,10 +1085,10 @@ def replay_input(studio, data, token, check, studio_id=None, mirror_ids=()):
             if device == "wait":
                 time.sleep(payload)
                 continue
+            sent += len(payload)  # steps in the scenario, not calls made: two clients share one step
             for target in targets:
                 try:
                     studio.send_input(device, payload, studio_id=target)
-                    sent += len(payload)
                 except Exception as e:
                     # Not just RuntimeError: _rpc raises queue.Empty when StudioMCP stops answering,
                     # and a hung input call must fail this check, not the whole run (review round 1).
@@ -1554,8 +1554,8 @@ def run_test2(studio, wait_seconds=180):
         # ALL THREE AT ONCE, against ONE deadline. Read one after another, each with its own
         # window, a slow client is waited for only after the previous one has run its window out:
         # in run 5 both clients HAD reported -- the reads had simply given up first, one after the
-        # other. A two-player client suite is also slower than a one-player one, because the
-        # driver's weapon specs spend their timeouts failing, so the window is REPORT_WINDOW_2P.
+        # other. A two-player client suite is also slower than a one-player one, because the same
+        # replay is sent to two clients, so the window is REPORT_WINDOW_2P.
         pending = {"server": (server, "server"), "shooter": (shooter, "client"),
                    "driver": (other, "client")}
         started_reading = time.time()

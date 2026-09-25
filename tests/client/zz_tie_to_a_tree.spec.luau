@@ -19,7 +19,10 @@
 --     asserts that nothing happens. That is not a weaker test -- it is the case the design rejected
 --     an earlier rule for: a shooter on a post faces the drive, so if "inside the 45-degree cone"
 --     were the verdict, this shot would tie everybody in the first minute (design section 8.1).
---   * A DRIVER's client (test2, printed as an observation): carries no gun, and asserts that.
+--   * A DRIVER's client (test2, checked like any other since Task 36): carries no gun, and asserts
+--     that. The replay reaches him too, so the cue key arrives -- and `onCue` deliberately does
+--     nothing on a client that is not the shooter, so this spec never touches a driver's camera
+--     while camera_client.spec is asserting about it.
 --
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/drive.md (sections 8.1, 8.2, 8.3, 8.4, 9.3)
@@ -29,6 +32,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("InputReady"))
+local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local player = Players.LocalPlayer
@@ -93,7 +97,10 @@ end
 -- StudioMCP refuses a click with no established mouse position: "Either x and y, instance_path, or a
 -- prior action that establishes mouse position is required", measured 2026-09-25.)
 local function onCue(_name: string, state: Enum.UserInputState)
-	if state ~= Enum.UserInputState.Begin or cuedAt then
+	if state ~= Enum.UserInputState.Begin or cuedAt or Role.isDriver() then
+		-- Since Task 36 the replay reaches BOTH clients, so this key arrives on the driver's too --
+		-- and there it must do nothing at all: this spec has no claim to a driver's camera, and
+		-- camera_client.spec is asserting about that camera at the same moment.
 		return Enum.ContextActionResult.Pass
 	end
 	cuedAt = os.clock()
@@ -150,11 +157,11 @@ end
 
 return function()
 	describe("a real shot down the drive line", function()
-		-- THE REPLAY ONLY EVER REACHES THE SHOOTER (tools/studio_mcp.py: a driver carries no gun), so a
-		-- driver's client must not wait for a cue that cannot arrive. MEASURED, and it is the reason
-		-- this is a function and not a plain wait: two 150-second waits on the driver's client pushed
-		-- its whole suite past the harness's 420-second report window, and a report that never arrives
-		-- is one the run cannot even print as an observation (Task 34's half of the client suite).
+		-- A DRIVER IS NEVER CUED -- `onCue` ignores him on purpose -- so his client must not wait for
+		-- one. MEASURED, and it is the reason this is a function and not a plain wait: two 150-second
+		-- waits on the driver's client pushed its whole suite past the harness's 420-second report
+		-- window, and a report that never arrives is one the run cannot even check (Task 34's half of
+		-- the client suite).
 		local function cued(): boolean
 			expect(waitUntil(20, function()
 				return Match.myTeam() ~= nil

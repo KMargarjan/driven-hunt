@@ -9,6 +9,10 @@
 --      arrives here and draws. The server end is weapon_hits.spec, which calls Weapon.markHit during
 --      the same Play session; this spec waits for it. Neither side can fake it: the client cannot
 --      fire a server -> client remote, and the server cannot draw.
+--      ARRIVAL IS THE SHOOTER'S CLAIM ONLY, since Task 36: the server sends once, wherever its own
+--      suite has got to, and a client hears it only if its listener already exists. The shooter is
+--      immune to that race by accident (he also gets one for every shot he lands); a driver is not,
+--      and the first `it` below says exactly what he asserts instead.
 --   2. THE DRAWING. Colour, kind and the timeout, driven through Hud.onHitMarker -- the exact
 --      function the remote is bound to.
 --

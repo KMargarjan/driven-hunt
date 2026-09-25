@@ -115,6 +115,19 @@ end
 
 ContextActionService:BindAction(CUE_ACTION, onCue, false, Enum.KeyCode.Q)
 
+-- WHEN THE REPLAY LAST TOUCHED THIS GUN. The exploit window below has to be quiet to mean anything:
+-- its whole claim is "the server did nothing", and a legitimate reload arriving inside it looks
+-- exactly like the server acting on a forged `Break`. There is no way to tell those apart from the
+-- state, so the window is opened only when none of the weapon's own inputs has arrived for a while --
+-- and thrown away and retried if one arrives while it is open. `Pass`, like every probe here, so
+-- nothing a player does is swallowed.
+local QUIET_ACTION = "DrivenHunt.Test.WeaponQuiet"
+local lastWeaponInput = 0
+ContextActionService:BindAction(QUIET_ACTION, function()
+	lastWeaponInput = os.clock()
+	return Enum.ContextActionResult.Pass
+end, false, Enum.KeyCode.R, Enum.KeyCode.X, Enum.UserInputType.MouseButton1, Enum.UserInputType.MouseButton2)
+
 -- Park the Tool in the Backpack BEFORE signalling ready, and that is not optional: CONFIG.AUTO_EQUIP
 -- is true (Karen's playtest should start with the gun in hand), so without this the gun is in the
 -- character while Task 6's `key-mouse-order` scenario sends MouseButton1 and R -- and it was: the
@@ -565,18 +578,10 @@ return function()
 
 	describe("the exploit path", function()
 		it("ignores every request a client must not be able to make", function()
-			-- THIS WINDOW ASSUMES NOBODY RE-ARMS THIS PLAYER while it is open, and that assumption
-			-- is worth stating: a snapshot deliberately carries no epoch (weapon_state.spec asserts
-			-- it), so a fresh weapon handed out mid-window is indistinguishable here from an exploit
-			-- that refilled the pockets. What keeps it true is that the only thing that re-arms a
-			-- player is a change of answer -- and the arming sweep never re-grants a player who is
-			-- correctly armed (weapon_rearm.spec). A spec that revoked this gun mid-session broke
-			-- exactly this window, and was withdrawn (Task 34).
-			local before = Weapon.get()
 			if Role.isDriver() then
 				-- The sharper version of the same claim: a driver has no state at all, and firing
 				-- every request a client can fire must not conjure him one.
-				expect(before).to.equal(nil)
+				expect(Weapon.get()).to.equal(nil)
 				local channel = Shotgun.remotes()
 				for _, bad in ipairs({ "Break", "Load", "Close", "Fire", "", 42 }) do
 					channel.ActionRequest:FireServer(bad)
@@ -589,56 +594,77 @@ return function()
 				expect(backpack and backpack:FindFirstChildOfClass("Tool")).to.equal(nil)
 				return
 			end
-			expect(before).to.be.ok()
-			local remotes = Shotgun.remotes()
-			-- The reducer's own primitives, which Validator.checkRequest does not accept at all.
-			for _, bad in ipairs({ "Break", "Load", "Close", "Fire", "", 42 }) do
-				remotes.ActionRequest:FireServer(bad)
-			end
-			remotes.ActionRequest:FireServer({})
-			remotes.ActionRequest:FireServer("SelectAmmo", "Grenade")
-			remotes.FireRequest:FireServer("not a table")
-			remotes.FireRequest:FireServer({ origin = "x", direction = Vector3.zero })
-			task.wait(1)
 
-			local after = Weapon.get()
-
-			-- A CONSERVATION LAW, NOT A FROZEN SNAPSHOT (Task 36). "Nothing changed in that second"
-			-- was only ever true while no legitimate action was in flight, and the comment above
-			-- says so -- but it is not this spec's to guarantee: the replay is one stream of input
-			-- for the whole session, and in the two-player run (where every step is sent to two
-			-- clients, so the replay takes twice as long) the LAST scenario's reload landed inside
-			-- this window and spent two shells. That is the gun working, and it failed this test.
+			-- THE ASSERTIONS ARE THE STRICT ONES, AND THE WINDOW IS WHAT WAS MADE ROBUST (Task 36,
+			-- round 1 finding 1). The first attempt at this replaced "nothing changed" with a
+			-- conservation law -- reserves never grow, no barrel loads unpaid -- and that was WRONG
+			-- in the one case the test exists for: Validator.checkRequest is the whitelist that
+			-- makes the reducer's primitives unreachable, so without it a forged "Break" runs the
+			-- whole Break -> Load -> Load -> Close cycle, and a second later the reserves and the
+			-- barrels are back where they started. The exploit would have passed.
 			--
-			-- What an exploit would actually do is break one of these, and a legitimate reload
-			-- cannot: shells are never created, the ammo kind stays one of the two that exist, and
-			-- no barrel is loaded that a shell was not spent on.
-			local function shells(state)
-				return (state.reserve.Slug or 0) + (state.reserve.Buck or 0)
-			end
-			local function live(state)
-				local n = 0
-				for _, barrel in ipairs(state.barrels) do
-					if barrel == "Live" then
-						n += 1
-					end
+			-- What was actually flaky was the WINDOW: the replay is one stream of input for the
+			-- session, it got twice as long when Task 36 started sending it to both clients, and a
+			-- legitimate reload landed inside. A legitimate reload and an accepted "Break" are
+			-- indistinguishable from the state, so the window is opened only on a quiet gun with no
+			-- weapon input for QUIET seconds, and is DISCARDED AND RETRIED if any arrives while it
+			-- is open. A real exploit reproduces on every attempt; a replayed keypress does not.
+			local QUIET = 1.5
+			local WINDOW = 1
+			local attempts, opened = 3, false
+			for _ = 1, attempts do
+				local ready = waitUntil(90, function()
+					local state = Weapon.get()
+					return state ~= nil
+						and not state.open
+						and state.busyFor == 0
+						and os.clock() - lastWeaponInput > QUIET
+				end)
+				expect(ready).to.equal(true)
+
+				local before = Weapon.get()
+				expect(before).to.be.ok()
+				local remotes = Shotgun.remotes()
+				-- The reducer's own primitives, which Validator.checkRequest does not accept at all.
+				for _, bad in ipairs({ "Break", "Load", "Close", "Fire", "", 42 }) do
+					remotes.ActionRequest:FireServer(bad)
 				end
-				return n
+				remotes.ActionRequest:FireServer({})
+				remotes.ActionRequest:FireServer("SelectAmmo", "Grenade")
+				remotes.FireRequest:FireServer("not a table")
+				remotes.FireRequest:FireServer({ origin = "x", direction = Vector3.zero })
+				task.wait(WINDOW)
+
+				if os.clock() - lastWeaponInput > QUIET + WINDOW then
+					-- Nothing of the player's own arrived between the quiet check and now, so
+					-- anything that moved was the server acting on one of those requests.
+					local after = Weapon.get()
+					expect(after.open).to.equal(before.open)
+					expect(after.reserve.Slug).to.equal(before.reserve.Slug)
+					expect(after.reserve.Buck).to.equal(before.reserve.Buck)
+					expect(after.ammo).to.equal(before.ammo)
+					expect(after.barrels[1]).to.equal(before.barrels[1])
+					expect(after.barrels[2]).to.equal(before.barrels[2])
+					expect(after.loaded[1]).to.equal(before.loaded[1])
+					expect(after.loaded[2]).to.equal(before.loaded[2])
+					expect(after.busyFor).to.equal(0) -- an accepted "Break" would be mid-cycle here
+					expect(after.busyUntil).to.equal(nil) -- still a snapshot, not the server's state
+					opened = true
+					break
+				end
 			end
-			expect(after.reserve.Slug <= before.reserve.Slug).to.equal(true)
-			expect(after.reserve.Buck <= before.reserve.Buck).to.equal(true)
-			expect(after.ammo == "Slug" or after.ammo == "Buck").to.equal(true) -- never "Grenade"
-			expect(#after.barrels).to.equal(#before.barrels)
-			-- Barrels can only fill by spending shells. A free reload is the exploit this is for.
-			expect(live(after) - live(before) <= shells(before) - shells(after)).to.equal(true)
-			expect(after.busyUntil).to.equal(nil) -- still a snapshot, not the server's state
+			-- Not "give up quietly": if the replay never stops touching this gun, this spec asserted
+			-- nothing and must say so.
+			expect(opened).to.equal(true)
 		end)
 	end)
 
 	describe("cleanup", function()
 		it("unbinds the cue key", function()
 			ContextActionService:UnbindAction(CUE_ACTION)
+			ContextActionService:UnbindAction(QUIET_ACTION)
 			expect(ContextActionService:GetAllBoundActionInfo()[CUE_ACTION]).to.equal(nil)
+			expect(ContextActionService:GetAllBoundActionInfo()[QUIET_ACTION]).to.equal(nil)
 		end)
 	end)
 end

@@ -134,8 +134,12 @@ return function()
 		-- `Match.CONFIG.DRIVERS_MAY_SHOOT` is false -- has no aim action at all and a replayed right
 		-- mouse button reaches nothing. That is a rule, not an excuse, and it is asserted rather
 		-- than skipped.
-		it("cannot be aimed at all by a driver, who has no gun to aim", function()
+		it("is bound to a gun: a shooter has the aim action, a driver has none at all", function()
 			if Role.isShooter() then
+				-- A shooter's aim action is bound on Tool.Equipped, which weapon_client.spec's cue does,
+				-- and the next `it` is what proves a replayed button reaches it.
+				expect(Role.isDriver()).to.equal(false)
+				expect(player.Team and player.Team.Name).to.equal("Shooters")
 				return
 			end
 			local before = Camera.stats()
