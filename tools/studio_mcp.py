@@ -1181,6 +1181,8 @@ def run_test(studio):
         # itself to whoever reads this output, and it is worth most when the run failed.
         for note in (reports.get(side) or {}).get("notes", []):
             print(f"  note   [{side}] {note}")
+        for failure in (reports.get(side) or {}).get("failures", []):
+            print(f"  failed [{side}] {failure.splitlines()[0][:200]}")
     for side in ("server", "client"):
         report = reports.get(side)
         if not check(f"[{side}] runner reported within 120 s", report is not None):
@@ -1531,6 +1533,8 @@ def run_test2(studio, wait_seconds=180):
     for name in ("server", "shooter", "driver"):
         for note in (reports.get(name) or {}).get("notes", []):
             print(f"  note   [{name}] {note}")
+        for failure in (reports.get(name) or {}).get("failures", []):
+            print(f"  failed [{name}] {failure.splitlines()[0][:200]}")
 
     for name in ("server", "shooter", "driver"):
         report = reports.get(name)

@@ -76,6 +76,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 		placeId = game.PlaceId,
 		specs = {}, -- full names of every spec module found; the harness matches these to *.spec.* files
 		notes = notes, -- whatever the specs asked the harness to see (TestKit.note)
+		failures = {}, -- the first few failure messages, so a truncated console cannot hide them
 		successCount = 0,
 		failureCount = 0,
 		skippedCount = 0,
@@ -136,6 +137,16 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	end
 
 	local results = resultsOrErr
+	-- THE FAILURES THEMSELVES, in the report. Studio's console comes back truncated from a long
+	-- session and takes the failure list with it: a two-player run said "13 failed" and nothing
+	-- about which 13 (Task 34). Five is enough to name the spec and the line; the console still has
+	-- the rest when it survives.
+	for index, failure in ipairs(results.errors) do
+		if index > 5 then
+			break
+		end
+		table.insert(report.failures, string.sub(tostring(failure), 1, 400))
+	end
 	report.successCount = results.successCount
 	report.failureCount = results.failureCount
 	report.skippedCount = results.skippedCount
