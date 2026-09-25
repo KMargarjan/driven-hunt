@@ -10,6 +10,51 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-09-25 · OPEN · Task 22 cannot be reviewed: the round counter has no task boundary
+
+**Raised by:** Builder, at loop step 5 of Task 22 (branch `task-22-playtest-ready`, code commit
+`d265cab396b2a23b61c620fe9e6594f23b925211`, harness `PASS: 24/24 ... (clean tree)` on it).
+
+**What happened.** `powershell -ExecutionPolicy Bypass -File tools/review.ps1` refused, verbatim:
+
+```
+[agents] REFUSED: `Round: 1` in REVIEW_REQUEST.md, but the committed REVIEW_RESULT.md is round 5
+(FINDINGS), so this run must be `Round: 6`. The round is counted from the verdict file, not from the
+request, so it cannot be raised or skipped here.
+```
+
+`Round: 6` would then hit the next check, `round 6 > 3: stop rule`.
+
+**Why it is stuck.** `tools/agents.py` `cmd_review` computes
+`expected = 1 if prev_rnd is None or prev_verdict == "PASS" else prev_rnd + 1`. The count restarts
+only after a **PASS**. Tasks 17 and 18 ended on `FINDINGS` at round 5 and were merged anyway by
+Director decision (the escalation above), so the verdict file on `main` says round 5 FINDINGS. Every
+task branched from `main` from now on inherits that: round 1 is refused as too low and round 6 as too
+high. This is not specific to Task 22 — **no task can be reviewed until it is resolved.**
+
+CLAUDE.md counts rounds **per task** ("The loop, for every task ... increment `Round:`"); the script
+counts them globally. That gap is the bug (rule 6: a harness fault is a bug and gets reported).
+
+**What I did not do.** I did not touch `tools/agents.py`, and I did not set `DIRECTOR_MAX_ROUNDS`.
+The Builder does not edit the gate that constrains it, and CLAUDE.md allows that variable only when
+this file records the Director's authorisation for that task and that round. So Task 22 is built,
+harness-green and pushed, and **unreviewed**.
+
+**What the Director can choose.**
+1. **One-off:** authorise here, for Task 22 round 6 only, and I re-run with
+   `DIRECTOR_MAX_ROUNDS=6` and `Round: 6` in `REVIEW_REQUEST.md`. Unblocks this task; every later
+   task hits the same wall one round higher.
+2. **Fix the counter** (a Builder task of its own, reviewed like any other): restart the count at 1
+   when the commit named in the committed `REVIEW_RESULT.md` trailer is an **ancestor of this
+   request's `Base:`** — that is, when the verdict belongs to work already merged into the base this
+   task branches from. It cannot be gamed by the Builder: resetting would require getting the
+   failing commit merged first, and only the Director merges.
+3. **Accept Task 22 unreviewed** on the harness evidence and the diff (one config constant plus
+   comments and docs), and let the fix land with the next task.
+
+My recommendation is 2, with 1 to unblock Task 22 in the same breath.
+
+---
 ## 2026-09-25 · CLOSED 2026-09-25 · Tasks 17+18: round 5 was the last authorised round, and it found 4 things
 
 **Raised by:** Builder, at loop step 5 of the combined Tasks 17+18 (branch `task-18-boar-ai`, code
