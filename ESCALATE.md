@@ -10,6 +10,63 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-09-25 · OPEN · Tasks 17+18: round 5 was the last authorised round, and it found 4 things
+
+**Raised by:** Builder, at loop step 5 of the combined Tasks 17+18 (branch `task-18-boar-ai`, code
+commit `b6cf3dec736347f65c42ad3d05129d302389349a`).
+
+**Result.** `DIRECTOR_MAX_ROUNDS=5` authorised two rounds with real evidence. Both were used.
+Round 4 returned **9** findings, round 5 returned **4**; all 13 are fixed, and **round 5's four are
+unreviewed** because there is no round 6.
+
+| Round | Commit | Findings | The one that mattered |
+|---|---|---|---|
+| 4 | `4432292` | 9 | **The "real arena" pathfinding test was testing the default Baseplate.** It never waited for `Workspace.TestArena`, so it ran before `ArenaBoot` had built anything — and its own output said so: 54 waypoints for a 210-stud route is a straight line with no detour, which I read past |
+| 5 | `36b7c19` | 4 | **A whole failure class the diagnostic could not see.** `ComputeAsync` returning `Success` with no waypoint past where the boar already stands is counted as a failure by the Runtime, produces exactly the silent straight-line fallback the diagnostic exists to catch, and was recorded nowhere |
+
+**What is unreviewed.** Round 5's four fixes:
+1. `pathProblems` now counts `"success: no waypoints"` (about 10 lines in
+   `Boar.defaultWorld().requestPath`), which is what makes the `world >= runtime` invariant rest on
+   containment rather than coincidence.
+2. A comment at the determinism test explaining why its `1e-9` is deliberately tighter than
+   `EPSILON`.
+3. `TASKS.md` row 18 and this file's Task-18 closure now name the reviewed code commit instead of
+   `fbe1d60`, the first green run.
+4. `REVIEW_REQUEST.md` rewritten fresh with one continuous claim numbering.
+
+**Everything is green on the reviewed commit:**
+`[harness] PASS: 24/24 checks @ b6cf3dec736347f65c42ad3d05129d302389349a (clean tree)` — 39 server
+and 4 client assertions across five spec files. Lint, format and `rojo build` clean. Rule 5 met:
+play-time screenshots captured and inspected.
+
+**What these two rounds bought, plainly.** Rounds 1–3 reviewed this code with nothing ever executed
+and passed over all of it: a test measuring the wrong world, a diagnostic with two blind spots, two
+tests contradicting a feature they sat beside, and a tolerance tighter than float32. **Running it
+once found three of those in ninety seconds.** The order the Director chose — harness first, then
+review — is the reason this branch is worth merging.
+
+**Options for the Director.**
+1. **Accept on the record and merge.** The four unreviewed fixes are small, all of them make a
+   diagnostic or a comment more honest rather than changing behaviour, and the full harness is green
+   on the commit that contains them.
+2. **One more authorised round** (`DIRECTOR_MAX_ROUNDS=6`), ~$2.80. On this branch's record it would
+   probably find something — rounds 4 and 5 both did, and round 5 found a hole in a round-4 fix.
+3. **Merge and queue the residue.** What is genuinely untested is listed in
+   `REVIEW_REQUEST.md` "Could not verify" and in the research note's addendum §4: `Path.Blocked` has
+   never fired, no real player has ever been a threat, `maxBoars` is never reached.
+
+**Builder's recommendation: option 1, then option 3's residue as a queued task.** The remaining risk
+is not in the code that was reviewed twice with evidence; it is in the paths nothing has exercised,
+and a sixth reading will not reach those. A playtest with Karen and a second player will.
+
+**Two things need Karen, both recorded in `TASKS.md` rows 17 and 18 and neither mine to change:**
+the arena floor rendering as a triangle because it is coplanar with `Workspace.Baseplate`, and the
+two `SpawnLocation`s during Play.
+
+**Needs:** a Director decision. Karen's two calls are separate and not blocking this merge.
+
+---
+
 ## 2026-09-25 · OPEN · FOR THE DIRECTOR · play-time `screen_capture` works; `TASKS.md` row 7 is wrong
 
 **Raised by:** Builder, during the Tasks 17+18 harness run (branch `task-18-boar-ai`). This is not a
