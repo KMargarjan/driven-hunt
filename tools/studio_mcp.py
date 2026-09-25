@@ -1368,7 +1368,9 @@ def describe_failure(text):
     message = re.sub(r"^.*?TestRunner:\d+: ", "", message)
     where = next((line for line in lines[1:]
                   if ".spec:" in line and ("ClientTests" in line or "Tests." in line)), "")
-    return (f"{where.split('.')[-1]} " if where else "") + message[:200]
+    if where:
+        where = re.sub(r"^.*?(ClientTests|Tests)\.", "", where)
+    return (f"{where} " if where else "") + message[:200]
 
 
 def run_test2(studio, wait_seconds=180):
