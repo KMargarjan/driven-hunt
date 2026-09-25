@@ -66,9 +66,21 @@ end
 -- Parents, poses or unparents the viewmodel for this frame. Below VIEWMODEL_SHOW_BLEND it is
 -- UNPARENTED, not merely invisible, so a leak is visible on screen rather than hiding as a
 -- transparent part (design section 10).
+local cachedHandle: BasePart? = nil
+local lastSourceCheck = 0
+
 function Viewmodel.update(camCFrame: CFrame, blend: number, config)
 	local cam = Workspace.CurrentCamera
-	local handle = if source then source() else nil
+	-- The source walks the character for a Tool, so it is asked four times a second rather than
+	-- every frame (the pose below is what has to be per frame, and it is one PivotTo).
+	local now = os.clock()
+	if source and (now - lastSourceCheck > 0.25 or (cachedHandle and not cachedHandle.Parent)) then
+		lastSourceCheck = now
+		cachedHandle = source()
+	elseif not source then
+		cachedHandle = nil
+	end
+	local handle = cachedHandle
 
 	if not cam or not handle or blend < config.VIEWMODEL_SHOW_BLEND then
 		if model then
