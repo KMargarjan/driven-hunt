@@ -28,3 +28,11 @@ this until Milestone 1 is closed by Karen's two-player playtest.
   values and what the harness must learn to compare, or why placement by code avoids it.
 - Numbers: map size, part/mesh budgets, streaming, and which are Karen's taste values.
 - The smallest first build task (the 512 × 512 slice), then the order of the rest.
+
+## Director decisions on the design's §15 (2026-09-25, after the Architect's PASS)
+- A: allowed. `tools/mapgen.py` is game work for Karen's map option C, not a process improvement;
+  the tooling freeze does not apply to it.
+- B: agreed. TASKS row 16 stays "before release"; the Builder corrects its note in the first M2 task.
+- C: agreed. M2.6 (streaming) is its own task with a full harness run and a playtest.
+- D: agreed. Flatten spawn pads in terrain; the boar stays untouched.
+- Karen's taste items 1–6 keep their defaults until she walks the first slice.
