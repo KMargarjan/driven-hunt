@@ -10,6 +10,48 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-09-25 · OPEN · FOR THE DIRECTOR · play-time `screen_capture` works; `TASKS.md` row 7 is wrong
+
+**Raised by:** Builder, during the Tasks 17+18 harness run (branch `task-18-boar-ai`). This is not a
+blocker — it **unblocks** something, and the queue is the Director's to edit, not mine (`CLAUDE.md`
+Roles), so it comes here rather than into row 7.
+
+**`TASKS.md` row 7 says:** "**BLOCKING before any visual client code (UI, HUD, cursor art):**
+play-time screenshots | todo | StudioMCP's `screen_capture` is edit-time only, so rule 5 cannot be
+met for play-time visuals by tools."
+
+**That is wrong, and it has been wrong since Task 5.** `screen_capture` **does** work during Play. I
+captured three play-time screenshots of the arena and the boar through MCP on 2026-09-25, inspected
+them, and they are the rule-5 evidence for both tasks.
+
+**The cause of the mistake was mine, in `tools/studio_mcp.py`.** `Studio._call` builds its return
+value as
+
+```python
+text = "\n".join(c.get("text", "") for c in result.get("content", []))
+```
+
+— it joins **only the `text` content blocks**. `screen_capture` returns an **image** block
+(`mimeType: image/jpeg`, base64), and no text at all, so `_call` returns an empty string. My first
+attempt read that empty string as "capture is unavailable during Play". Calling `tools/call` directly
+and keeping the image blocks returns the JPEG.
+
+**What follows, for the Director to decide:**
+1. **Row 7 is not blocking any more**, at least not for this reason. Whether it closes or becomes
+   "wire capture into the harness" is a queue decision.
+2. **A harness change would make this routine**, and it is small: one `capture` command that calls
+   `screen_capture` and writes the image to a file. But `ROADMAP.md` speed rule 1 freezes tooling
+   after Task 11, so I have not written it. Today's captures were taken by a throwaway script in the
+   scratchpad, which means **rule 5 currently costs a hand-written script each time**.
+3. **The `_call` text-only join is a latent trap for any future image-returning tool** (`store_image`,
+   `generate_texture`, `generate_mesh` are all in the MCP tool list). Worth a one-line comment in
+   `studio_mcp.py` at minimum, which is also a tooling change.
+
+**Needs:** a Director decision on row 7 and on whether the harness gets a `capture` command. Nothing
+here needs Karen.
+
+---
+
 ## 2026-09-24 · CLOSED 2026-09-25 · Task 18 reached round 3; the script refuses a fourth
 
 **Raised by:** Builder, at loop step 5 of Task 18 (branch `task-18-boar-ai`, stacked on
