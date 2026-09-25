@@ -8,11 +8,12 @@ Note: docs/research/2026-09-24-toolchain.md
 Requires: Studio open on the DEV place in Edit mode, MCP server enabled, Rojo plugin connected.
 
 Usage:
-  python tools/studio_mcp.py test      # full checked run; exit 0 only on a clean-tree PASS
-  python tools/studio_mcp.py state     # print Studio mode (read-only)
-  python tools/studio_mcp.py console   # print Studio Output (read-only)
-  python tools/studio_mcp.py stop      # stop a playtest (recovery)
-  python tools/studio_mcp.py manifest  # after `wally install`: rewrite devpackages.sha256 (commit it)
+  python tools/studio_mcp.py test           # full checked run; exit 0 only on a clean-tree PASS
+  python tools/studio_mcp.py state          # print Studio mode (read-only)
+  python tools/studio_mcp.py console        # print Studio Output (read-only)
+  python tools/studio_mcp.py stop           # stop a playtest (recovery)
+  python tools/studio_mcp.py manifest       # after `wally install`: rewrite devpackages.sha256 (commit it)
+  python tools/studio_mcp.py capture <name> [x,y,z] [x,y,z]   # save a screenshot as rule-5 evidence
 
 Exit codes of `test`: 0 PASS on a clean tree · 1 FAIL · 2 REFUSED (Studio not in Edit mode) ·
 3 PASS on a dirty tree (flagged: not valid evidence).
@@ -28,6 +29,10 @@ Moving parts
   tests/sync-token.txt (git-ignored) -> ReplicatedStorage.TestSyncToken
       Gate. Runners run only in Studio and only if the token "<16 hex>:<unix time>" is < 120 s old.
       Only this harness writes it, and it clears it after every run, so Karen's playtests run no tests.
+  tests/client/input_scenarios.txt -> ReplicatedStorage.ClientTests.input_scenarios (StringValue)
+      The input scenarios (Task 6). JSON in a .txt because a .txt is a StringValue this harness already
+      compares byte-for-byte, so the scenario the client reads is provably the file on disk, and no new
+      Rojo mapping (a default.project.json change needs a Rojo restart and Karen's Connect) is needed.
   Report (JSON): side, token, placeId, specs (full names), successCount, failureCount, skippedCount,
       errorCount, status (PASS | FAIL | ERROR), message. Runner status is PASS only if 0 failed, 0 errors,
       0 skipped (any SKIP/FOCUS variant fails) and > 0 passed; a spec that fails to load is ERROR.
@@ -61,26 +66,66 @@ What `test` checks, in order (each is one "ok"/"FAIL" line)
   7. Play. Both reports arrive; each carries this run's token and the DEV PlaceId; each runner ran
      exactly the spec files of its side (matched by name); each status is PASS with > 0 passed,
      0 failed, 0 errors, 0 skipped.
+  7a. While Play runs: replay every scenario in tests/client/input_scenarios.txt (see below). Two
+     checks per run: the client was ready for it, and every step was sent.
   8. Stop. The token is cleared and the gate is seen closed in Studio.
   9. Final line: "[harness] PASS|FAIL: n/m checks @ <full HEAD sha> (clean tree | DIRTY TREE ...)".
      A PASS is evidence for a PR only if the sha equals the PR head and the tree is clean.
 
+Driving real player input (Task 6), step 7a of `test`
+  One scenario file, one harness step, one client spec. The file is tests/client/input_scenarios.txt:
+
+    {"version": 1, "readyAttribute": "InputProbeReady", "scenarios": [
+       {"name": ..., "spec": ..., "steps": [
+          {"device": "keyboard", "action": "keyDown"|"keyUp"|"keyPress", "key": "<Enum.KeyCode name>"},
+          {"device": "mouse", "action": "moveTo", "x": <px>, "y": <px>},
+          {"device": "mouse", "action": "mouseButtonDown"|"mouseButtonUp"|"mouseButtonClick",
+                              "button": "left"|"right"},
+          {"device": "wait", "ms": <0..10000>}]}]}
+
+  Replay, during Play, after the runners have started:
+    1. Wait (<= 20 s) for LocalPlayer's `readyAttribute` to carry THIS run's token. The client spec
+       sets it after it has bound its listeners, so a replay can never race the bindings, and a stale
+       attribute from an earlier run is not mistaken for this one.
+    2. Send the steps in order through StudioMCP's user_keyboard_input / user_mouse_input against the
+       Client DataModel. Consecutive steps for the same device go in ONE call, so StudioMCP keeps their
+       order and spacing; a `wait` step flushes the batch and is slept in Python, so a gap spans devices.
+  Every step is validated when the file is read, before Play: an unknown device or action, a missing
+  key or button, a non-numeric moveTo or a `wait` outside StudioMCP's 0..10000 ms fails the run there
+  and then, because a step the replay sends but the spec cannot recognise is a hole in the evidence.
+  Gated exactly like the specs: replay happens only inside `test`, only during its own Play, and the
+  spec only listens when TestKit's token gate is open.
+  What a scenario CANNOT express: touch and gamepad input; typing text (StudioMCP has textInput, the
+  format does not); a hold measured in frames rather than milliseconds; input aimed at a specific
+  instance (StudioMCP's instance_path is not used); and anything after the client report is written.
+  A missing scenario file is not a failure: the step is skipped and says so.
+
+Screenshots as evidence (Task 7)
+  `capture <name> [camera x,y,z] [look-at x,y,z]` saves StudioMCP's screen_capture image to
+  .screenshots/<UTC stamp>-<name>.png (git-ignored) and prints the path. Studio._call keeps text blocks
+  only, which is why captures could not be saved before; Studio.capture() reads the image block.
+  It works in Edit and during Play (Tasks 17, 18 and 22 captured Play this way), and it is a separate
+  command, not part of `test`: the Builder inspects the image and says what it shows (rule 5).
+
 Client-side testing (camera, input, cursor, UI)
-  Client specs run inside the real player client and can assert camera, input, cursor and UI state.
-  Not yet wired: driving real input (StudioMCP's user_keyboard_input / user_mouse_input exist but the
-  harness does not call them), and play-time screenshots (StudioMCP's screen_capture is edit-time
-  only). Both are logged in TASKS.md as blocking before input-driven or visual client code.
+  Client specs run inside the real player client and can assert camera, input, cursor and UI state,
+  and -- since Task 6 -- can be driven by real keyboard and mouse input replayed by the harness.
 
 Safety
-  The harness only writes tests/sync-token.txt. Its Luau is read-only: constant queries, or queries
-  templated with JSON data (QUERY_*). There is no command for arbitrary Luau or arbitrary MCP tools.
+  The harness writes tests/sync-token.txt, and .screenshots/ when `capture` is asked for. Its Luau is
+  read-only: constant queries, or queries templated with JSON data (QUERY_*). There is no command for
+  arbitrary Luau or arbitrary MCP tools. The input replay sends only what the scenario file lists, and
+  only into the Play session this harness started.
 """
 
+import base64
+import datetime
 import glob
 import hashlib
 import json
 import os
 import queue
+import re
 import secrets
 import shutil
 import struct
@@ -93,6 +138,8 @@ import urllib.request
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = os.path.join(REPO, "default.project.json")
 TOKEN_FILE = os.path.join(REPO, "tests", "sync-token.txt")
+SCENARIO_FILE = os.path.join(REPO, "tests", "client", "input_scenarios.txt")
+SCREENSHOT_DIR = os.path.join(REPO, ".screenshots")
 SPEC_ROOTS = {"server": ("ServerStorage", "Tests"), "client": ("ReplicatedStorage", "ClientTests")}
 
 # Read-only Luau queries. Keep every query here, read-only. Templated ones take JSON via luau_json().
@@ -101,6 +148,10 @@ QUERY_TOKEN = """
 local v = game:GetService("ReplicatedStorage"):FindFirstChild("TestSyncToken")
 return if v and v:IsA("StringValue") then v.Value else "<missing>"
 """
+# The client spec sets this after binding its listeners, so the replay cannot race them. The attribute
+# name is a Luau string literal, not luau_json's JSON-in-a-long-bracket: that would ask Studio for an
+# attribute whose name includes the quote characters, and every read would come back empty.
+QUERY_READY = 'local p = game:GetService("Players").LocalPlayer return p and p:GetAttribute("%s") or ""'
 QUERY_REPORT = {
     "server": 'return game:GetService("ServerStorage"):GetAttribute("TestReport") or ""',
     "client": 'local p = game:GetService("Players").LocalPlayer return p and p:GetAttribute("TestReport") or ""',
@@ -267,6 +318,31 @@ class Studio:
 
     def query(self, datamodel, code):
         return self._call("execute_luau", {"datamodel_type": datamodel, "code": code})
+
+    def send_input(self, device, actions):
+        """Replay one batch of real input into the Play client. `device` is "keyboard" or "mouse"."""
+        tool = "user_keyboard_input" if device == "keyboard" else "user_mouse_input"
+        return self._call(tool, {"datamodel_type": "Client", "actions": actions})
+
+    def capture(self, path, camera=None, look_at=None):
+        """Save StudioMCP's screen_capture image to `path`. Returns the path, or None with the text.
+
+        _call() joins text blocks and drops the image, which is why captures could not be saved
+        (TASKS.md Task 7). This reads the image block instead."""
+        args = {"capture_id": f"DrivenHunt_{os.path.basename(path)}"}
+        if camera and look_at:
+            args["camera_position"], args["look_at_position"] = list(camera), list(look_at)
+        result = self._rpc("tools/call", {"name": "screen_capture", "arguments": args})
+        text = "\n".join(c.get("text", "") for c in result.get("content", []) if c.get("type") == "text")
+        if result.get("isError"):
+            raise RuntimeError(f"screen_capture: {text}")
+        for part in result.get("content", []):
+            if part.get("type") == "image" and part.get("data"):
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "wb") as f:
+                    f.write(base64.b64decode(part["data"]))
+                return path, text
+        return None, text
 
     def close(self):
         self.proc.kill()
@@ -546,6 +622,127 @@ def wait_for(fn, predicate, timeout, interval=0.5):
     return value, False
 
 
+STEP_ACTIONS = {
+    "keyboard": {"keyDown", "keyUp", "keyPress"},
+    "mouse": {"moveTo", "mouseButtonDown", "mouseButtonUp", "mouseButtonClick"},
+}
+
+
+def check_step(where, step):
+    """Refuse a step the replay cannot send faithfully, before Play starts rather than during it."""
+    device, action = step.get("device"), step.get("action")
+    if device == "wait":
+        ms = step.get("ms")
+        if not isinstance(ms, (int, float)) or not 0 <= ms <= 10000:
+            raise RuntimeError(f"{where}: wait needs `ms` between 0 and 10000 (StudioMCP's range); got {ms!r}")
+        return
+    if device not in STEP_ACTIONS:
+        raise RuntimeError(f"{where}: unknown device {device!r} (keyboard, mouse or wait)")
+    if action not in STEP_ACTIONS[device]:
+        raise RuntimeError(f"{where}: {device} cannot {action!r} ({', '.join(sorted(STEP_ACTIONS[device]))})")
+    if device == "keyboard" and not isinstance(step.get("key"), str):
+        raise RuntimeError(f"{where}: {action} needs `key` (an Enum.KeyCode name)")
+    if action.startswith("mouseButton") and step.get("button") not in ("left", "right"):
+        raise RuntimeError(f"{where}: {action} needs `button` \"left\" or \"right\"; got {step.get('button')!r}")
+    if action == "moveTo" and not all(isinstance(step.get(k), (int, float)) for k in ("x", "y")):
+        raise RuntimeError(f"{where}: moveTo needs numeric `x` and `y`")
+
+
+def load_scenarios():
+    """The scenario file, or None if there is none. A bad file is an error, a missing one is not.
+
+    Every step is checked here, at the top of the run: a step the replay would send but the client
+    spec could not recognise is a silent hole in the evidence, so it fails loudly and early."""
+    if not os.path.exists(SCENARIO_FILE):
+        return None
+    with open(SCENARIO_FILE, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data.get("scenarios"), list) or not data["scenarios"]:
+        raise RuntimeError("input_scenarios.txt has no `scenarios` list")
+    for scenario in data["scenarios"]:
+        for index, step in enumerate(scenario.get("steps") or [], start=1):
+            check_step(f"scenario {scenario.get('name')!r} step {index}", step)
+    return data
+
+
+def scenario_batches(steps):
+    """Group steps into ("keyboard"|"mouse", actions) batches and ("wait", seconds) pauses.
+
+    Consecutive steps for one device travel in a single StudioMCP call, so their order and spacing are
+    the tool's to keep. A `wait` ends the batch and is slept here, so a gap can span two devices.
+
+    The mouse position is per call, not per session: StudioMCP refuses a button action whose call does
+    not establish a position ("Either x and y, instance_path, or a prior action that establishes mouse
+    position is required"), so the last position seen is carried into every later mouse action. Found
+    by running it: putting the scenario's `wait` between the move and the click split them into two
+    calls and the second was refused."""
+    batches, current, device, last_xy = [], [], None, None
+
+    def flush():
+        nonlocal current, device
+        if current:
+            batches.append((device, current))
+        current, device = [], None
+
+    for step in steps:
+        kind = step.get("device")
+        if kind == "wait":
+            flush()
+            batches.append(("wait", (step.get("ms") or 0) / 1000.0))
+        elif kind == "keyboard":
+            if device != "keyboard":
+                flush()
+            device = "keyboard"
+            action = {"action": step["action"]}
+            if step.get("key"):
+                action["key_code"] = step["key"]
+            current.append(action)
+        elif kind == "mouse":
+            if device != "mouse":
+                flush()
+            device = "mouse"
+            action = {"action": step["action"]}
+            if step.get("button") is not None:
+                action["mouse_button"] = step["button"]
+            if step.get("x") is not None and step.get("y") is not None:
+                action["x"], action["y"] = step["x"], step["y"]
+                last_xy = (step["x"], step["y"])
+            elif last_xy:
+                action["x"], action["y"] = last_xy
+            current.append(action)
+        else:
+            raise RuntimeError(f"unknown scenario device {kind!r}")
+    flush()
+    return batches
+
+
+def replay_input(studio, data, token, check):
+    """Replay every scenario into the running Play client. Adds two checks per run."""
+    ready_attr = data.get("readyAttribute", "InputProbeReady")
+    if not re.fullmatch(r"[A-Za-z0-9_]{1,100}", ready_attr):
+        raise RuntimeError(f"readyAttribute must be a plain identifier; got {ready_attr!r}")
+    seen, ok = wait_for(lambda: studio.query("Client", QUERY_READY % ready_attr),
+                        lambda v: v == token, 20, 0.5)
+    if not check("[input] the client bound its listeners and published this run's token", ok, repr(seen)):
+        return
+    sent, problems = 0, []
+    for scenario in data["scenarios"]:
+        for device, payload in scenario_batches(scenario.get("steps", [])):
+            if device == "wait":
+                time.sleep(payload)
+                continue
+            try:
+                studio.send_input(device, payload)
+                sent += len(payload)
+            except Exception as e:
+                # Not just RuntimeError: _rpc raises queue.Empty when StudioMCP stops answering, and a
+                # hung input call must fail this check, not the whole run (review round 1).
+                problems.append(f"{scenario.get('name')}: {type(e).__name__}: {e}")
+    names = ", ".join(str(s.get("name")) for s in data["scenarios"])
+    check(f"[input] replayed every step of {len(data['scenarios'])} scenario(s)", not problems,
+          "; ".join(problems) if problems else f"{sent} steps sent ({names})")
+
+
 def run_test(studio):
     checks = []
 
@@ -580,6 +777,8 @@ def run_test(studio):
     actual_place = studio.query("Edit", QUERY_PLACE_ID)
     if not check("Studio has the DEV place open", actual_place == place, f"{actual_place} vs {place}"):
         return verdict()
+
+    scenarios = load_scenarios()
 
     token = f"{secrets.token_hex(8)}:{int(time.time())}"
     write_token(token)
@@ -631,6 +830,10 @@ def run_test(studio):
         print("[harness] Play")
         studio.set_play(True)
         try:
+            if scenarios is None:
+                print("[harness] no tests/client/input_scenarios.txt: nothing to replay")
+            else:
+                replay_input(studio, scenarios, token, check)
             for side in ("server", "client"):
                 raw, ok = wait_for(lambda: studio.query(side.capitalize(), QUERY_REPORT[side]), lambda v: v != "", 60, 1)
                 if ok:
@@ -668,9 +871,20 @@ def run_test(studio):
     return verdict()
 
 
+def parse_vector(text):
+    parts = [float(v) for v in text.replace(" ", "").split(",")]
+    if len(parts) != 3:
+        raise ValueError(f"expected x,y,z; got {text!r}")
+    return parts
+
+
 def main(argv):
-    if len(argv) != 2 or argv[1] not in ("test", "state", "console", "stop", "manifest"):
+    if len(argv) < 2 or argv[1] not in ("test", "state", "console", "stop", "manifest", "capture"):
         sys.exit(__doc__)
+    if argv[1] != "capture" and len(argv) != 2:
+        sys.exit(__doc__)
+    if argv[1] == "capture" and not 3 <= len(argv) <= 5:
+        sys.exit("usage: python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z]")
     if argv[1] == "manifest":
         with open(DEVPACKAGES_MANIFEST, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(devpackages_manifest()) + "\n")
@@ -689,6 +903,21 @@ def main(argv):
                     sha = "<unknown sha>"
                 print(f"[harness] FAIL: harness error @ {sha}: {type(e).__name__}: {e}")
                 return 1
+        if cmd == "capture":
+            name = re.sub(r"[^A-Za-z0-9_.-]", "-", argv[2])
+            stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            path = os.path.join(SCREENSHOT_DIR, f"{stamp}-{name}.png")
+            camera = parse_vector(argv[3]) if len(argv) > 3 else None
+            look_at = parse_vector(argv[4]) if len(argv) > 4 else None
+            if (camera is None) != (look_at is None):
+                sys.exit("give both a camera and a look-at position, or neither")
+            saved, text = studio.capture(path, camera, look_at)
+            if not saved:
+                print(f"[capture] no image came back: {text}")
+                return 1
+            print(f"[capture] wrote {os.path.relpath(saved, REPO)} (mode: {studio.mode()}). "
+                  "Look at it before you claim what it shows (rule 5).")
+            return 0
         if cmd == "state":
             print(studio.mode())
         elif cmd == "console":

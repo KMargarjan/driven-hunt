@@ -339,8 +339,14 @@ change to the test system, and don't restate it elsewhere.
   Assistant settings → MCP server enabled.
 - **Karen's playtests do not run tests.** The runners need a harness token under 120 s old.
 - **Client code** (camera, input, cursor, UI) is tested by client specs in `tests/client/`, which run
-  in the player's client. Driving real input and play-time screenshots are **not** wired yet. That is
-  a blocking task (TASKS.md) before any input-driven or visual client code.
+  in the player's client. Since Task 6 the harness also **drives real input**: the scenario file
+  `tests/client/input_scenarios.txt` (keys, mouse buttons, mouse moves and gaps) is replayed into the
+  Play client through StudioMCP, gated exactly like the specs, and a client spec asserts on what
+  `ContextActionService` and `UserInputService` delivered. The format, what it cannot express, and
+  the ready handshake are in the `tools/studio_mcp.py` docstring.
+- **Screenshots as evidence (rule 5):** `python tools/studio_mcp.py capture <name> [camera x,y,z]
+  [look-at x,y,z]` saves the image to `.screenshots/` (git-ignored), in Edit or during Play. Look at
+  it before claiming what it shows.
 - The Rojo plugin's **Connect** button cannot be clicked by tools. Karen presses it once per Studio
   session, and again whenever `rojo serve` restarts (for example after `default.project.json` changes,
   which the running server does not reload).

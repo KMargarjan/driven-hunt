@@ -161,3 +161,81 @@ only exists for the current play session.
 | Round-3 regression matrix | 12/12 | all still exit 1 after the restructure |
 | Dirty tree is flagged, not passed | exit 3 | Both positive cases ran on a dirty tree: `PASS ... (DIRTY TREE (14 paths) - NOT valid evidence)`, exit 3. The clean-tree run at 20e136b gave exit 0 |
 | Reviewer-agent findings (review loop) | 8/8 fixed | 2 blocking (ignored files, DevPackages not tied to the commit), 6 should-fix. See the TASKS.md review log |
+
+## Addendum, 2026-09-25 (Task 6): driving real player input, and saving screenshots
+
+An addendum rather than a new note (Director's call): this is more of an already-researched tool,
+StudioMCP, not a new system.
+
+### What it must do
+
+Replay a player's real input — a key, a mouse button, a gap between them — into a running Play
+session, so a client spec can assert on what the engine delivered. `docs/design/shotgun.md` §13.3
+sets the bar: a key down and up, a mouse button down and up, and two inputs in sequence with an
+observable gap. Everything the shotgun's client code will do starts as one of those three.
+
+### Sources
+
+1. **StudioMCP's own tool schemas** (`user_keyboard_input`, `user_mouse_input`, `screen_capture`),
+   read live from the running server with `tools/list`. Ships with Roblox Studio 0.740.x; no licence
+   of its own, and no public documentation of these three tools that I could find — the schema *is*
+   the documentation. Good: an ordered `actions` list per call, with `wait` steps in milliseconds, so
+   one call keeps its own order and spacing. Bad: `datamodel_type` is `Client`-only, so nothing can
+   be driven in Edit mode, and there is no acknowledgement that the game *received* anything — the
+   only proof is what the client records.
+2. **`ContextActionService`** <https://create.roblox.com/docs/reference/engine/classes/ContextActionService>
+   (Roblox, maintained). Good: `BindAction` takes key codes *and* `Enum.UserInputType.MouseButton1`
+   in one binding, and the handler is given the `InputObject`, so one listener covers both devices;
+   it is also what the shotgun design binds, so the test exercises the production path. Bad: it
+   cannot bind mouse movement at all.
+3. **`UserInputService`** <https://create.roblox.com/docs/reference/engine/classes/UserInputService>
+   (Roblox, maintained). Good: `InputBegan`/`InputEnded`/`InputChanged` see everything, including
+   `MouseMovement`. Bad: it sees everything — including the window-focus event that the very first
+   run recorded, which is why the spec matches its expected sequence *in order* and ignores the rest.
+4. **TestEZ** <https://roblox.github.io/testez/> (Apache-2.0, archived upstream), already adopted.
+
+### Pattern adopted, and why
+
+**Record-then-assert with a ready handshake**, borrowed from the way the harness already gates the
+runners with a token rather than inventing a second channel:
+
+- the client spec binds its listeners at *require* time and publishes the run's token on
+  `LocalPlayer` as an attribute;
+- the harness polls that attribute and replays only when it carries **this** run's token;
+- the spec waits for the events and asserts over the recorded log.
+
+The first version had no handshake in mind at all, and the first run proved why it was needed for a
+different reason than expected: the replay went out and **nothing** arrived, because the attribute
+query asked for an attribute whose name included the JSON quote characters. A handshake that fails
+loudly ("the client bound its listeners and published this run's token") turned a silent 0-of-7
+match into a one-line diagnosis.
+
+The scenario lives in **one file read by both sides** — `tests/client/input_scenarios.txt`, JSON in a
+`.txt` so Rojo makes it a `StringValue` the harness already compares byte-for-byte. So the client
+provably reads the file on disk, and no new Rojo mapping is needed (a `default.project.json` change
+needs a Rojo restart, which needs Karen's Connect click).
+
+### Numeric targets
+
+| Target | Value | Measured 2026-09-25 |
+|---|---|---|
+| Steps a scenario can send | the whole file in one pass | 6 steps (2 keyboard batches, 1 mouse batch, 1 gap) sent per run |
+| Ready handshake | < 20 s, or the run fails that check | the attribute was there on the first poll (~0.5 s) |
+| Replayed gap, as seen by the client | ≥ 0.6 × the scenario's `ms`, and longer than any unwaited gap | 700 ms asked; the spec's gap assertion passes every run |
+| Client assertions unlocked | 7 | `input_driving.spec`: 11 client assertions in total with `client_env` |
+| Harness checks added | 2 | "[input] the client bound its listeners…", "[input] replayed every step…" |
+
+### What this does **not** do
+
+Touch and gamepad; `textInput`; holds measured in frames; input aimed at an instance
+(StudioMCP's `instance_path`); anything after the client's report is written. A scenario also cannot
+assert anything itself — it describes input, and the spec owns the expectations it derives from it.
+
+### Screenshots (Task 7)
+
+`Studio._call` joined the text blocks of a tool result and dropped the image, so a capture could
+never be saved. `Studio.capture()` reads the image block and writes it to `.screenshots/`
+(git-ignored); `python tools/studio_mcp.py capture <name> [camera] [look-at]` is the command.
+Verified on 2026-09-25 in **Edit** (empty grey: since Task 22 `Workspace` holds only `Camera` and
+`Terrain`, and the arena is built at run time — so that is the correct picture) and during **Play**
+(the 400×400 arena plate, rendering as a full square).
