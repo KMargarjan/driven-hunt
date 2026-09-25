@@ -92,6 +92,33 @@ local function onCue(_name: string, state: Enum.UserInputState)
 end
 
 ContextActionService:BindAction(CUE_ACTION, onCue, false, Enum.KeyCode.Q)
+
+-- Park the Tool in the Backpack BEFORE signalling ready, and that is not optional: CONFIG.AUTO_EQUIP
+-- is true (Karen's playtest should start with the gun in hand), so without this the gun is in the
+-- character while Task 6's `key-mouse-order` scenario sends MouseButton1 and R -- and it was: the
+-- third run fired a shot and ran a whole reload before this scenario began. Unequipping unbinds the
+-- weapon's own actions (Tool.Unequipped), so scenario 1's clicks reach nothing, and the cue key puts
+-- it back. This is the spec's arrangement; nothing asserted afterwards depends on it.
+local function parkTool(): boolean
+	local deadline = os.clock() + 15
+	repeat
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local backpack = player:FindFirstChildOfClass("Backpack")
+		local held = character and character:FindFirstChild("Shotgun")
+		if humanoid and held then
+			humanoid:UnequipTools()
+			return true
+		end
+		if backpack and backpack:FindFirstChild("Shotgun") then
+			return true -- already parked
+		end
+		task.wait(0.1)
+	until os.clock() > deadline
+	return false
+end
+
+local parked = parkTool()
 InputReady.ready("weapon_client")
 
 local function waitUntil(seconds: number, predicate: () -> boolean): boolean
@@ -183,6 +210,7 @@ return function()
 					break
 				end
 			end
+			expect(parked).to.equal(true) -- the arrangement above actually happened
 			expect(sawFull).to.equal(true)
 			expect(equippedAt).to.be.ok()
 		end)
