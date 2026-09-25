@@ -1182,7 +1182,7 @@ def run_test(studio):
         for note in (reports.get(side) or {}).get("notes", []):
             print(f"  note   [{side}] {note}")
         for failure in (reports.get(side) or {}).get("failures", []):
-            print(f"  failed [{side}] {failure.splitlines()[0][:200]}")
+            print(f"  failed [{side}] {describe_failure(failure)}")
     for side in ("server", "client"):
         report = reports.get(side)
         if not check(f"[{side}] runner reported within 120 s", report is not None):
@@ -1356,6 +1356,19 @@ def end_session(studio, before):
 # weapon specs spend their own timeouts failing rather than passing. Run 5 measured both clients
 # finishing after the old sequential 120 s reads had given up.
 REPORT_WINDOW_2P = 420
+
+
+def describe_failure(text):
+    """One line naming the spec and the line, and what went wrong.
+
+    A TestEZ failure is a message plus a stack, and the only part that says WHICH spec broke is the
+    first frame inside tests/ -- so both are kept and everything between them is dropped."""
+    lines = [line.strip() for line in str(text).splitlines() if line.strip()]
+    message = lines[0] if lines else str(text)
+    message = re.sub(r"^.*?TestRunner:\d+: ", "", message)
+    where = next((line for line in lines[1:]
+                  if ".spec:" in line and ("ClientTests" in line or "Tests." in line)), "")
+    return (f"{where.split('.')[-1]} " if where else "") + message[:200]
 
 
 def run_test2(studio, wait_seconds=180):
@@ -1534,7 +1547,7 @@ def run_test2(studio, wait_seconds=180):
         for note in (reports.get(name) or {}).get("notes", []):
             print(f"  note   [{name}] {note}")
         for failure in (reports.get(name) or {}).get("failures", []):
-            print(f"  failed [{name}] {failure.splitlines()[0][:200]}")
+            print(f"  failed [{name}] {describe_failure(failure)}")
 
     for name in ("server", "shooter", "driver"):
         report = reports.get(name)
