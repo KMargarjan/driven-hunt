@@ -516,34 +516,27 @@ return function()
 
 	describe("the exploit path", function()
 		it("ignores every request a client must not be able to make", function()
-			-- WITHIN ONE EPOCH. The server may hand this player a whole new weapon while the bad
-			-- requests are in flight -- a respawn, a drive placement, the arming sweep -- and a full
-			-- magazine afterwards would look exactly like an exploit that worked. A new epoch is the
-			-- server saying "different gun", so the window is taken again rather than believed
-			-- (Task 34). Three tries; never stable is a failure, not a pass.
-			local before, after
-			local stable = false
-			for _ = 1, 3 do
-				before = Weapon.get()
-				expect(before).to.be.ok()
-				local remotes = Shotgun.remotes()
-				-- The reducer's own primitives, which Validator.checkRequest does not accept at all.
-				for _, bad in ipairs({ "Break", "Load", "Close", "Fire", "", 42 }) do
-					remotes.ActionRequest:FireServer(bad)
-				end
-				remotes.ActionRequest:FireServer({})
-				remotes.ActionRequest:FireServer("SelectAmmo", "Grenade")
-				remotes.FireRequest:FireServer("not a table")
-				remotes.FireRequest:FireServer({ origin = "x", direction = Vector3.zero })
-				task.wait(1)
-
-				after = Weapon.get()
-				if after.epoch == before.epoch then
-					stable = true
-					break
-				end
+			-- THIS WINDOW ASSUMES NOBODY RE-ARMS THIS PLAYER while it is open, and that assumption
+			-- is worth stating: a snapshot deliberately carries no epoch (weapon_state.spec asserts
+			-- it), so a fresh weapon handed out mid-window is indistinguishable here from an exploit
+			-- that refilled the pockets. What keeps it true is that the only thing that re-arms a
+			-- player is a change of answer -- and the arming sweep never re-grants a player who is
+			-- correctly armed (weapon_rearm.spec). A spec that revoked this gun mid-session broke
+			-- exactly this window, and was withdrawn (Task 34).
+			local before = Weapon.get()
+			expect(before).to.be.ok()
+			local remotes = Shotgun.remotes()
+			-- The reducer's own primitives, which Validator.checkRequest does not accept at all.
+			for _, bad in ipairs({ "Break", "Load", "Close", "Fire", "", 42 }) do
+				remotes.ActionRequest:FireServer(bad)
 			end
-			expect(stable).to.equal(true)
+			remotes.ActionRequest:FireServer({})
+			remotes.ActionRequest:FireServer("SelectAmmo", "Grenade")
+			remotes.FireRequest:FireServer("not a table")
+			remotes.FireRequest:FireServer({ origin = "x", direction = Vector3.zero })
+			task.wait(1)
+
+			local after = Weapon.get()
 			expect(after.open).to.equal(before.open)
 			expect(after.reserve.Slug).to.equal(before.reserve.Slug)
 			expect(after.reserve.Buck).to.equal(before.reserve.Buck)
