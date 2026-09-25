@@ -96,7 +96,7 @@ Driving real player input (Task 6), step 7a of `test`
        sets it after it has bound its listeners, so a replay can never race the bindings, and a stale
        attribute from an earlier run is not mistaken for this one.
     2. For a scenario with a `stage` block, stage it first (below). In `test2` the replay goes to
-       the FIRST client only, named by its studio_id.
+       the SHOOTER's client only, named by its studio_id: a driver carries no gun.
     3. Send the steps in order through StudioMCP's user_keyboard_input / user_mouse_input against the
        Client DataModel. Consecutive steps for the same device go in ONE call, so StudioMCP keeps their
        order and spacing; a `wait` step flushes the batch and is slept in Python, so a gap spans devices.
@@ -175,18 +175,36 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
   What it does after the click:
     1. `list_roblox_studios` before and after, so the test's instances are identified BY IDENTITY --
        the edit Studio, and anything else Karen has open, is excluded because it was there before.
-    2. `get_studio_state` per new instance: the one offering a Server DataModel is the server, the
-       two offering Client are the clients. Every later call names its `studio_id`.
+    2. Each new instance is ASKED what it is, by running QUERY_ROLE in it. Every later call names
+       its `studio_id`.
+
+       THE REAL PER-PROCESS SHAPE, probed live on 2026-09-25 with a 2-player test running (the
+       three windows open, Karen's hands off):
+         - the editor        : mode Edit, DataModels "Edit",           focused Edit
+         - the server process: mode Play, DataModels "Client, Server", focused Server
+         - each client       : mode Play, DataModels "Client, Server", focused Client
+       So `get_studio_state`'s "Available DataModels" line does NOT distinguish a test process:
+       all three offer both, and classifying on it makes all three servers -- which is exactly how
+       Karen's first `test2` run failed ("a SECOND server DataModel" twice, "0 client(s)").
+       What IS true per process: only ONE of the two DataModels is reachable -- `execute_luau`
+       against the other raises "Target is not reachable" -- and "Focused DataModel in the viewport"
+       names the reachable one. The mode uses that line only to choose which to try first, and
+       decides on `RunService:IsServer()` from inside the process; a client also returns its
+       `Players.LocalPlayer.Name` (Player1, Player2), and the server returns nil for it.
+       In Edit mode the Edit DataModel answers IsServer() AND IsClient() true, which is why this
+       probe is only ever run against the processes a Start added.
     3. Each client is asked which team its LocalPlayer is on, and the input scenarios are replayed
        into the SHOOTER's client. With two players the drive makes one of them a Driver, and a
        Driver carries no gun at all (DRIVERS_MAY_SHOOT is false), so the weapon and staged-shot
        specs cannot pass there whatever is replayed -- list order has nothing to do with it. The
        driver's report is printed as an OBSERVATION, never as a passing check.
-    4. Three reports are read (server, client 1, client 2), each from its own instance.
-    5. Checks: one server and exactly two clients were found; each runner reported within 120 s;
-       each report carries this run's token and the DEV PlaceId; the server and client 1 are PASS
-       with 0 failed/errors/skipped; the server ran tests/server/match_teams.spec; and it ran every
-       server spec file in the repo.
+    4. Three reports are read (the server, the shooter's client, the driver's client), each from
+       its own instance.
+    5. Checks: three NEW studios appeared; one server and exactly two clients were found; one client
+       is on the Shooters team; each runner reported within 120 s; each report carries this run's
+       token and the DEV PlaceId; the server and the SHOOTER's client are PASS with 0
+       failed/errors/skipped; the server ran tests/server/match_teams.spec; and it ran every server
+       spec file in the repo. The driver's report is printed, never checked.
     6. It stops each test instance and, if any remain, says to press Cleanup.
   Final line: "[harness2] PASS|FAIL: n/m checks @ <full HEAD sha> (clean tree | DIRTY TREE ...)".
   A [harness2] line is NOT a substitute for a [harness] line as PR evidence: this mode runs none of
@@ -311,6 +329,17 @@ return string.format(
 """
 # Which team the drive put this client's player on. Used to pick WHICH client gets the input
 # replay in a 2-player run: the driver carries no gun, so the weapon specs belong to the shooter.
+QUERY_ROLE = (
+    # WHAT a test process is, MEASURED by running code in it. get_studio_state cannot answer this:
+    # every process of a local test advertises "Available DataModels: Client, Server" (Task 34,
+    # probed live on 2026-09-25 with all three windows open), so reading that line classifies all
+    # three as servers. Only one of the two DataModels is actually reachable per process, and it is
+    # the one this query answers from.
+    'local RS = game:GetService("RunService") '
+    'local Players = game:GetService("Players") '
+    "local lp = Players.LocalPlayer "
+    'return (if RS:IsServer() then "server" else "client") .. "|" .. tostring(lp and lp.Name)'
+)
 QUERY_MY_TEAM = (
     'local p = game:GetService("Players").LocalPlayer '
     "local t = p and p.Team "
@@ -1131,28 +1160,73 @@ START_CLICKS = """
 """
 
 
+def focused_datamodel(studio, studio_id=None):
+    """The DataModel this instance actually hosts, as get_studio_state's last line names it.
+
+    A HINT for which DataModel to try first, never the answer: probe_role decides."""
+    for line in studio.state_of(studio_id).splitlines():
+        if "Focused DataModel in the viewport:" in line:
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def probe_role(studio, studio_id, timeout=20):
+    """(role, player, datamodel, why) for one test process, MEASURED rather than advertised.
+
+    Task 34, probed live with a 2-player test running: all three processes report
+    "Available DataModels: Client, Server", so classifying on that line makes every one of them a
+    server (Karen's first test2 run: "a SECOND server DataModel" twice, "0 client(s)"). Exactly ONE
+    of the two is reachable per process -- execute_luau against the other raises "Target is not
+    reachable" -- so this runs QUERY_ROLE and lets RunService:IsServer() say which it is. The
+    retries are for a process that is still loading when the three windows first register."""
+    deadline = time.time() + timeout
+    while True:
+        errors = []
+        order = [dm for dm in (focused_datamodel(studio, studio_id), "Server", "Client")
+                 if dm in ("Server", "Client")]
+        for datamodel in dict.fromkeys(order):
+            try:
+                answer = studio.query(datamodel, QUERY_ROLE, studio_id=studio_id)
+            except RuntimeError as e:
+                errors.append(f"{datamodel}: {str(e).split('(')[0].strip()}")
+                continue
+            role, _, player = answer.strip().partition("|")
+            if role in ("server", "client"):
+                return role, player, datamodel, ""
+            errors.append(f"{datamodel}: {answer.strip()[:60]!r}")
+        if time.time() >= deadline:
+            return None, "", "", "; ".join(errors) or "no DataModel answered"
+        time.sleep(1)
+
+
 def classify_studios(studio, before):
     """Split the studios a local test added into (server_id, [client_ids], [unknown_ids]).
 
     `before` is the listing from before the test started, so the edit Studio -- and anything else
-    Karen happens to have open -- is excluded by identity rather than by name."""
+    Karen happens to have open -- is excluded by identity rather than by name. WHICH of them is the
+    server is then asked of each process itself (probe_role), because what they advertise does not
+    distinguish them."""
     known = {s["id"] for s in before}
     server, clients, unknown = None, [], []
     for entry in studio.studio_list():
         if entry["id"] in known:
             continue
-        kinds = studio.datamodels(entry["id"])
-        if "Server" in kinds:
+        studio_id = entry["id"]
+        role, player, datamodel, why = probe_role(studio, studio_id)
+        named = f", LocalPlayer {player}" if player and player != "nil" else ""
+        print(f"[harness2] {studio_id[:8]}: "
+              + (f"{role} (DataModel {datamodel}{named})" if role else f"unclassified ({why})"))
+        if role == "server":
             if server is None:
-                server = entry["id"]
+                server = studio_id
             else:
-                # A second Server-offering instance is not something to shrug off: the mode would be
-                # reading reports from whichever it happened to see first.
-                unknown.append(f'{entry["id"][:8]} (a SECOND server DataModel)')
-        elif "Client" in kinds:
-            clients.append(entry["id"])
+                # A second process that answers as a server is not something to shrug off: the mode
+                # would be reading reports from whichever it happened to see first.
+                unknown.append(f"{studio_id[:8]} (a SECOND server process)")
+        elif role == "client":
+            clients.append(studio_id)
         else:
-            unknown.append(f'{entry["id"][:8]} {sorted(kinds)}')
+            unknown.append(f"{studio_id[:8]} ({why})")
     return server, clients, unknown
 
 
