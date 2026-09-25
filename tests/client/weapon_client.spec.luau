@@ -258,13 +258,26 @@ return function()
 		end)
 
 		it("runs the whole scenario and ends where the design says", function()
+			-- THE STATE THE SCENARIO ENDED ON, captured when it ended -- not the newest one the gun
+			-- ever published. The server may hand this player a fresh weapon later in the session
+			-- for reasons that have nothing to do with the scenario (a respawn, a drive placement,
+			-- the arming sweep), and a full magazine minutes afterwards is not this claim being
+			-- wrong. Task 30 turned two session-wide claims into window claims for the same reason;
+			-- Task 34 found this one the same way, through a spec that respawned the player.
+			local endState = nil
 			local finished = waitUntil(RUN_TIMEOUT, function()
 				local state = last()
-				return state ~= nil
+				if
+					state ~= nil
 					and state.ammo == "Buck"
 					and state.loaded[1] == "Buck"
 					and state.busyFor == 0
 					and #aimEvents >= 2
+				then
+					endState = state
+					return true
+				end
+				return false
 			end)
 			if not finished then
 				local state = last()
@@ -281,8 +294,7 @@ return function()
 			end
 			expect(finished).to.equal(true)
 
-			local entries = ownLog()
-			local state = entries[#entries] and entries[#entries].state
+			local state = endState
 			expect(state).to.be.ok()
 			print(
 				string.format(
