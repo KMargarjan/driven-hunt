@@ -559,8 +559,12 @@ function Runtime:step(dt: number)
 		-- ceiling for exactly that case, and it lives in Wound.advance with the rest of the model.
 		local moved = (position - entry.lastPosition) * Vector3.new(1, 0, 1)
 		entry.lastPosition = position
-		local collapse
-		entry.wound, collapse = Wound.advance(entry.wound, moved.Magnitude, dt, config.WOUND)
+		local collapse = false
+		if not entry.body.collapsed then
+			-- A carcass has nothing left to run out, and advancing it would allocate and re-freeze a
+			-- wound state 60 times a second for the whole CARCASS_SECONDS (review round 1, note 6).
+			entry.wound, collapse = Wound.advance(entry.wound, moved.Magnitude, dt, config.WOUND)
+		end
 
 		local blockedAhead = false
 		if self._world.probe then

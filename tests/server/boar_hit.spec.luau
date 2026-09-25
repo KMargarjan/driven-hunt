@@ -160,7 +160,9 @@ return function()
 			end)).to.equal(true)
 			local reaction = os.clock() - started
 			print(string.format("[boar_hit] reacted in %.0f ms", reaction * 1000))
-			expect(reaction < 0.2).to.equal(true)
+			-- 0.2 s would be exactly SENSE_INTERVAL, so a sense-gated reaction would still pass it
+			-- (review round 1, note 4). This is a few Heartbeat ticks, measured at 2 ms.
+			expect(reaction < 0.1).to.equal(true)
 			expect(handle.state()).to.equal("FLEE")
 
 			-- And it runs AWAY from the shot, using the route code that already existed.

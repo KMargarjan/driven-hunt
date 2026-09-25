@@ -167,8 +167,9 @@ return function()
 			end
 		end)
 
-		-- THE ASSERTION THAT MATTERS. Nine directions, every one of them a real ray from outside the
-		-- boar. Shrink a zone part back inside the trunk and these go red.
+		-- THE ASSERTION THAT MATTERS. Twelve directions, every one of them a real ray from outside
+		-- the boar (the design asks for nine at least). Shrink a zone part back inside the trunk and
+		-- these go red.
 		it("is reachable by a real ray: head from the front, both sides and above", function()
 			-- -Z is the boar's front.
 			expect((zoneAt(Vector3.new(0, 0.5, -3.5), Vector3.new(0, 0, -1), 20))).to.equal("head")

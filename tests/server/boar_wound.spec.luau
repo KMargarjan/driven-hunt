@@ -378,7 +378,11 @@ return function()
 			end
 			expect(live.BLEED_OUT_MAX_SECONDS).to.equal(WOUND.BLEED_OUT_MAX_SECONDS)
 			expect(live.LIMP_SCALE).to.equal(WOUND.LIMP_SCALE)
+			expect(live.WOUND_SPEED_START).to.equal(WOUND.WOUND_SPEED_START)
 			expect(live.WOUND_SPEED_END).to.equal(WOUND.WOUND_SPEED_END)
+			expect(live.BOLT_SECONDS).to.equal(WOUND.BOLT_SECONDS)
+			expect(live.BOLT_KICK).to.equal(WOUND.BOLT_KICK)
+			expect(live.CARCASS_SECONDS).to.equal(WOUND.CARCASS_SECONDS)
 		end)
 	end)
 end

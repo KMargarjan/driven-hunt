@@ -1,6 +1,7 @@
 --!strict
 -- Weapon: the owner of every player's authoritative weapon state, of every granted Tool, and of the
--- four RemoteEvents (CLAUDE.md rule 3). It writes no boar state -- it publishes HitReported and the
+-- five RemoteEvents (CLAUDE.md rule 3; the fifth, HitMarker, arrived with Milestone 1.5's hit
+-- marker: one way, server -> the shooter, and the Hud is what draws it). It writes no boar state -- it publishes HitReported and the
 -- boar's own owner decides what a hit means (docs/design/shotgun.md section 6) -- and it writes no
 -- camera: the client reads workspace.CurrentCamera.CFrame for the aim ray and nothing more.
 --

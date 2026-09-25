@@ -28,7 +28,7 @@
 -- THE ZONE PARTS PROTRUDE, AND THAT IS THE WHOLE TRICK. A ray returns the nearest surface, so zone
 -- parts nested inside the trunk would never be hit: every shot would report `body`, and a spec that
 -- called takeHit with zone = "head" directly would pass while no player could ever produce a head
--- shot. tests/server/boar_zones.spec.luau fires nine real rays from outside for exactly that reason.
+-- shot. tests/server/boar_zones.spec.luau fires twelve real rays from outside for that reason.
 --
 -- Design: docs/design/boar-ai.md (section 6), docs/design/hit-zones.md (sections 4, 7)
 -- Note:   docs/research/2026-09-24-boar-ai.md, docs/research/2026-09-25-hit-zones.md
