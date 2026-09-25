@@ -669,8 +669,14 @@ def scenario_batches(steps):
     """Group steps into ("keyboard"|"mouse", actions) batches and ("wait", seconds) pauses.
 
     Consecutive steps for one device travel in a single StudioMCP call, so their order and spacing are
-    the tool's to keep. A `wait` ends the batch and is slept here, so a gap can span two devices."""
-    batches, current, device = [], [], None
+    the tool's to keep. A `wait` ends the batch and is slept here, so a gap can span two devices.
+
+    The mouse position is per call, not per session: StudioMCP refuses a button action whose call does
+    not establish a position ("Either x and y, instance_path, or a prior action that establishes mouse
+    position is required"), so the last position seen is carried into every later mouse action. Found
+    by running it: putting the scenario's `wait` between the move and the click split them into two
+    calls and the second was refused."""
+    batches, current, device, last_xy = [], [], None, None
 
     def flush():
         nonlocal current, device
@@ -696,9 +702,13 @@ def scenario_batches(steps):
                 flush()
             device = "mouse"
             action = {"action": step["action"]}
-            for src, dst in (("x", "x"), ("y", "y"), ("button", "mouse_button")):
-                if step.get(src) is not None:
-                    action[dst] = step[src]
+            if step.get("button") is not None:
+                action["mouse_button"] = step["button"]
+            if step.get("x") is not None and step.get("y") is not None:
+                action["x"], action["y"] = step["x"], step["y"]
+                last_xy = (step["x"], step["y"])
+            elif last_xy:
+                action["x"], action["y"] = last_xy
             current.append(action)
         else:
             raise RuntimeError(f"unknown scenario device {kind!r}")
