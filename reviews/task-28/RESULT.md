@@ -1,0 +1,13 @@
+PASS
+
+## Notes (non-blocking)
+- `GAME_DESIGN.md`, "Shotgun numbers" row — still reads "with `ReplicatedStorage.Shotgun.Remotes` holding the **four** RemoteEvents". This change added the fifth (`Remotes.model.json` now lists `HitMarker`), and the same count was corrected in the weapon's own header this round but not here. One word.
+- `src/server/Boar/init.luau` `Runtime:takeHit` — `from = Body.position(entry.body) + payload.normal * 10` is the one number in the new code that is not in `CONFIG`, against claim 9's "No magic number anywhere else". A named `WOUND.NORMAL_BACKOFF` would make the claim literally true.
+- `src/server/Boar/init.luau` `Runtime:takeHit`, the `zoneHits` tally — it keys straight off `payload.zones`/`record.zone`, so the `{ zone = "nose" }` call in `boar_hit.spec` creates a `zoneHits.nose` bucket while `Wound.apply` charges the damage to `body`. `stats().zoneHits` therefore no longer partitions by the four real zones (`unknownZoneHits` does catch it). Folding an unknown name onto the fallback key, as `Wound.apply`'s `charge` already does, would keep the two consistent.
+- `src/server/Boar/Wound.luau` `speedScale` — `local ratio = if state.flightStuds > 0 then ... else 1` means a chest-mortal boar (flight 0) reports the fully-bled-out `WOUND_SPEED_END` before it has run a stud. Unobservable today, because `advance` collapses it on the next tick, but the fallback reads as the opposite of what it means.
+- `src/server/Boar/Wound.luau` `killRecord` — takes a fifth `config` argument that `docs/design/hit-zones.md` §8.2's signature (`killRecord(state, id, position, aliveFor)`) does not have. It is needed for `instant`, and it is an undeclared deviation; worth carrying into the next regeneration alongside the already-queued `KillRecord.flightStuds` naming (28a(c)).
+- `TASKS.md` — rows 28 and 28a are separated from the table above them by a blank line, so they render as a second, header-less table. Row 26's status cell was also rewritten in this branch, which is another task's row (`CLAUDE.md`, Roles: the Builder owns "its current task's status row"), even though the Director's dispatch asked for the playtest record that motivated it.
+- `docs/design/hit-zones.md` §12.5's `fire-at-boar` scenario is still not in `tests/client/input_scenarios.txt`. Round 1 asked for "queue or declare"; the request now does both (28a(a)), and the design itself says the scenario would assert the weapon's state rather than a boar hit, so nothing is lost. Recorded here only so the queued item is not lost.
+
+---
+REVIEWER verdict on commit `2cd26b9c68add6d1482b872ddc368dcf405ada53` (round 2) · 2026-09-25 11:45 UTC · session cost $5.07, 47 turns · written by tools/agents.py

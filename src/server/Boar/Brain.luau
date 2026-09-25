@@ -9,8 +9,19 @@
 --   Roblox PathfindingService (the route itself is fetched by init.luau, never here)
 --     https://create.roblox.com/docs/characters/pathfinding
 --
--- Design: docs/design/boar-ai.md (sections 4, 5, 7)
--- Note:   docs/research/2026-09-24-boar-ai.md
+-- Since Milestone 1.5 it has five states, not three. WOUNDED is FLEE with exactly three
+-- differences and no fourth: it never calms down (a mortally wounded animal does not go back to
+-- grazing), its speed setpoint is scaled by the wound, and it is counting the studs it has run. Where
+-- it runs -- the route to the exit line, the sideways bias away from the threat, the waypoints, the
+-- Reynolds fallback, the stuck sidestep -- is the same code called from the same place. DOWN is the
+-- carcass: speed zero, no path, and a countdown to the existing despawn path.
+--
+-- It is told a SEVERITY and a direction, never a damage number and never a zone table, so it cannot
+-- be made to disagree with Boar.Wound: it does not hold a copy of the model. `collapse` arrives as a
+-- boolean for the same reason.
+--
+-- Design: docs/design/boar-ai.md (sections 4, 5, 7), docs/design/hit-zones.md (section 6)
+-- Note:   docs/research/2026-09-24-boar-ai.md, docs/research/2026-09-25-hit-zones.md
 
 local Brain = {}
 Brain.__index = Brain
@@ -68,6 +79,12 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	self._sinceRepath = math.huge
 	self._sinceCalm = 0
 	self._grazeFor = 0
+
+	-- being shot (hit-zones design section 6.2)
+	self._boltFor = 0 -- seconds of "run whatever the threats say", counted down with dt
+	self._lastShotPoint = nil :: Vector3?
+	self._carcassFor = 0
+	self._downedReported = false
 
 	self._waypoints = nil :: { Vector3 }?
 	self._consumed = 0 -- waypoints of the current route already passed; see Brain:consumed()
@@ -159,7 +176,10 @@ function Brain:_outcome(position: Vector3): string?
 	-- "escaped" is a FLEE outcome. An idle boar that wanders over the line has not escaped anything,
 	-- and deleting it would lose the only boar in the grey box with no driver anywhere near
 	-- (review round 2, finding 6). Leaving the arena outright is still outOfBounds in any state.
-	if self._state == "FLEE" and position.Z <= field.exitZ then
+	-- WOUNDED escapes exactly as FLEE does: a boar that gets over the line while dying is the
+	-- brief's "an escaped wounded boar is also an event", and 1.7 -- not this system -- decides
+	-- whether that is a penalty, a partial score or nothing.
+	if (self._state == "FLEE" or self._state == "WOUNDED") and position.Z <= field.exitZ then
 		return "escaped"
 	end
 	if
@@ -253,6 +273,50 @@ function Brain:_updateStuck(dt: number, position: Vector3): boolean
 	return true
 end
 
+-- The reaction to one hit. Called from the top of step(), before the sense gate.
+function Brain:_reactToHit(event)
+	if self._state == "GONE" or self._state == "DOWN" then
+		return -- a hit on a carcass changes nothing and never re-animates it
+	end
+	local config = self._config
+	local wound = config.WOUND
+
+	if event.from then
+		self._lastShotPoint = flat(event.from)
+	end
+
+	if event.severity == "lethal" then
+		self:_collapse()
+		return
+	end
+
+	if event.severity == "mortal" then
+		self._state = "WOUNDED"
+	elseif self._state == "IDLE" then
+		self._state = "FLEE"
+	end
+
+	-- BOLT. The one documented bypass of the ACCEL ramp in the whole system: a shot animal does not
+	-- accelerate over 0.63 s. It is an assignment, once per hit, not a new rule.
+	self._boltFor = wound.BOLT_SECONDS
+	self._grazeFor = 0
+	self._sinceCalm = 0
+	self._sinceRepath = math.huge -- path immediately, as the IDLE->FLEE transition already does
+	self._speed = math.max(self._speed, config.SPRINT_SPEED * wound.BOLT_KICK)
+end
+
+-- It has run out of blood or out of time. Entered from any live state, once.
+function Brain:_collapse()
+	if self._state == "GONE" or self._state == "DOWN" then
+		return
+	end
+	self._state = "DOWN"
+	self._speed = 0
+	self._waypoints = nil
+	self._target = nil
+	self._carcassFor = self._config.WOUND.CARCASS_SECONDS
+end
+
 function Brain:step(dt: number, obs)
 	local config = self._config
 	dt = math.clamp(dt, 0, config.DT_CLAMP)
@@ -264,6 +328,7 @@ function Brain:step(dt: number, obs)
 		pathRequest = nil :: Vector3?,
 		despawn = false,
 		reason = nil :: string?,
+		downed = false, -- true exactly once, on the tick the boar collapses
 	}
 
 	if self._state == "GONE" then
@@ -286,6 +351,39 @@ function Brain:step(dt: number, obs)
 		return intent
 	end
 
+	-- HITS ARE HANDLED HERE, before the sense gate and before everything else but the despawn
+	-- check (hit-zones design section 6.2). A reaction that waited for the next sense tick would be
+	-- up to SENSE_INTERVAL late, and being late is indistinguishable from nothing having happened.
+	if obs.hitEvents then
+		for _, event in ipairs(obs.hitEvents) do
+			self:_reactToHit(event)
+		end
+	end
+	if obs.wound and obs.wound.collapse then
+		self:_collapse()
+	end
+	self._boltFor = math.max(0, self._boltFor - dt)
+
+	if self._state == "DOWN" then
+		self._speed = 0
+		intent.state = "DOWN"
+		intent.targetVelocity = Vector3.zero
+		if not self._downedReported then
+			self._downedReported = true
+			intent.downed = true -- the Runtime collapses the body and publishes the kill
+		end
+		self._carcassFor -= dt
+		if self._carcassFor <= 0 and not self._despawned then
+			-- Reuses the despawn path that already exists, Body.destroy and Despawned included.
+			self._despawned = true
+			self._state = "GONE"
+			intent.state = "GONE"
+			intent.despawn = true
+			intent.reason = "killed"
+		end
+		return intent
+	end
+
 	if obs.pathFailed then
 		self._waypoints = nil
 	elseif obs.waypoints then
@@ -302,6 +400,12 @@ function Brain:step(dt: number, obs)
 
 	local centroid, nearestDistance = self:_threatInfo(position, obs.threats)
 	self._threatPoint = centroid
+	-- While bolting, the shot point IS the threat, even when the shooter is 200 studs away and would
+	-- never have registered as one. That is what makes the existing route code run the boar away
+	-- from whoever shot it, with no new rule (hit-zones design section 6.2 item 5).
+	if not self._threatPoint and self._boltFor > 0 then
+		self._threatPoint = self._lastShotPoint
+	end
 
 	if sensing then
 		if self._state == "IDLE" then
@@ -313,6 +417,10 @@ function Brain:step(dt: number, obs)
 			else
 				self:_senseIdle(position, obs)
 			end
+		elseif self._state == "WOUNDED" or self._boltFor > 0 then
+			-- A WOUNDED boar NEVER returns to IDLE, and a bolting one does not calm mid-bolt. The
+			-- difference between a fleeing boar and a wounded one is the wound, not the timer.
+			self._sinceCalm = 0
 		else
 			if nearestDistance > config.CALM_RADIUS then
 				self._sinceCalm += config.SENSE_INTERVAL
@@ -349,7 +457,7 @@ function Brain:step(dt: number, obs)
 			or obs.forceRepath
 			or (not self._waypoints and not obs.pathFailed)
 		then
-			local anchor = centroid or flat(position)
+			local anchor = centroid or self._threatPoint or flat(position)
 			self._target = self:_routeTarget(position, anchor)
 			intent.pathRequest = self._target
 			self._sinceRepath = 0
@@ -365,7 +473,14 @@ function Brain:step(dt: number, obs)
 			self._waypoints = nil -- the route led into whatever we are stuck on
 		end
 		self._heading = desiredDirection
-		desiredSpeed = if nearestDistance <= config.DETECT_RADIUS then config.SPRINT_SPEED else config.TROT_SPEED
+		local threatened = nearestDistance <= config.DETECT_RADIUS or self._boltFor > 0
+		desiredSpeed = if threatened then config.SPRINT_SPEED else config.TROT_SPEED
+		-- The wound scales the SETPOINT, never the physics (hit-zones design section 5.5): bleeding
+		-- out ramps it down over the flight and a leg hit multiplies a limp on top. The ACCEL ramp
+		-- below still applies, so a wounded boar slows the way it accelerates.
+		if obs.wound and obs.wound.speedScale then
+			desiredSpeed *= obs.wound.speedScale
+		end
 	end
 
 	-- Turn rate and acceleration limit the SETPOINT, not the physics, so both are assertable with no

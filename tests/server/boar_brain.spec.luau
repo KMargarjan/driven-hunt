@@ -400,6 +400,212 @@ return function()
 		end)
 	end)
 
+	-- Milestone 1.5: being shot. The Brain is told a SEVERITY and a direction, never a damage number,
+	-- so everything here is about the REACTION -- and the reaction is what Karen's playtest asked
+	-- for ("I cannot tell if I hit anything"). The model itself is boar_wound.spec.
+	-- Design: docs/design/hit-zones.md (sections 6, 12.2)
+	describe("boar brain: being shot", function()
+		local WOUND = CONFIG.WOUND
+
+		local function hitEvent(severity: string, from: Vector3?)
+			return { severity = severity, zone = "body", from = from }
+		end
+
+		-- One step carrying hit events, with no threat anywhere in the world.
+		local function shoot(brain, severity: string, from: Vector3?, position: Vector3?)
+			return brain:step(DT, obs(position or START, {}, { hitEvents = { hitEvent(severity, from) } }))
+		end
+
+		it("drops on a lethal hit, on the SAME tick, and never moves again", function()
+			local brain = newBrain()
+			local intent = shoot(brain, "lethal")
+			expect(brain:state()).to.equal("DOWN")
+			expect(intent.downed).to.equal(true)
+			expect(intent.targetVelocity.Magnitude).to.equal(0)
+
+			-- downed is true EXACTLY once: a kill counted twice is a bug that looks like a cheat.
+			for _ = 1, 120 do
+				local later = brain:step(DT, obs(START, {}))
+				expect(later.downed).to.equal(false)
+				expect(later.targetVelocity.Magnitude).to.equal(0)
+			end
+		end)
+
+		it("does not drop on a grazing hit, and is still running five seconds later", function()
+			local brain = newBrain()
+			local intent = shoot(brain, "grazed")
+			expect(intent.downed).to.equal(false)
+			expect(brain:state()).to.equal("FLEE")
+			for _ = 1, 300 do
+				brain:step(DT, obs(START, {}))
+			end
+			expect(brain:state()).never.to.equal("DOWN")
+		end)
+
+		it("reacts within ONE tick and skips the acceleration ramp, with no threat anywhere", function()
+			local brain = newBrain()
+			-- Sense first, so the boar is settled in IDLE and the sense accumulator has just reset:
+			-- a reaction that waited for the next sense tick would be up to SENSE_INTERVAL late.
+			brain:step(DT, obs(START, {}))
+			expect(brain:state()).to.equal("IDLE")
+
+			local intent = shoot(brain, "grazed", Vector3.new(0, 0, 40))
+			expect(intent.state).never.to.equal("IDLE")
+			local floor = CONFIG.SPRINT_SPEED * WOUND.BOLT_KICK * 0.9
+			expect(intent.targetVelocity.Magnitude >= floor).to.equal(true)
+		end)
+
+		it("bolts AWAY from the shot, with no threat to run from", function()
+			local brain = newBrain()
+			local shot = Vector3.new(0, 0, 40)
+			local position = START
+			shoot(brain, "grazed", shot, position)
+			local before = flatDistance(position, shot)
+			for _ = 1, 30 do
+				local intent = brain:step(DT, obs(position, {}, { hitEvents = {} }))
+				position += intent.targetVelocity * DT
+			end
+			expect(flatDistance(position, shot) > before).to.equal(true)
+		end)
+
+		it("stays WOUNDED: a mortally wounded animal does not go back to grazing", function()
+			local brain = newBrain()
+			shoot(brain, "mortal")
+			expect(brain:state()).to.equal("WOUNDED")
+			-- 30 s with no threat within CALM_RADIUS. A FLEE boar calms in CALM_TIME, which the
+			-- existing "returns to IDLE" test asserts -- so the two together prove the difference is
+			-- the wound and not the timer.
+			for _ = 1, 1800 do
+				brain:step(DT, obs(START, {}))
+			end
+			expect(brain:state()).to.equal("WOUNDED")
+		end)
+
+		it("still routes to the exit line while wounded, using the FLEE rule unchanged", function()
+			local brain = newBrain()
+			shoot(brain, "mortal", Vector3.new(0, 0, 40))
+			local request = nil
+			for _ = 1, 60 do
+				local intent = brain:step(DT, obs(START, {}))
+				request = intent.pathRequest or request
+			end
+			expect(request).to.be.ok()
+			expect(request.Z).to.equal(FIELD.exitZ)
+			expect(request.X >= FIELD.bounds.minX + CONFIG.EDGE_MARGIN).to.equal(true)
+			expect(request.X <= FIELD.bounds.maxX - CONFIG.EDGE_MARGIN).to.equal(true)
+		end)
+
+		it("scales the speed setpoint by the wound, and still respects the ACCEL ramp", function()
+			local function steadySpeed(scale: number?): number
+				local brain = newBrain()
+				local threat = threatAt(10, 0) -- inside DETECT_RADIUS, so it sprints
+				local extra = if scale then { wound = { severity = "mortal", speedScale = scale } } else nil
+				local last, speed = 0, 0
+				for _ = 1, 600 do
+					local intent = brain:step(DT, obs(START, threat, extra))
+					speed = intent.targetVelocity.Magnitude
+					-- The ramp is bypassed exactly once, on a hit tick; there is no hit here.
+					expect(speed - last <= CONFIG.ACCEL * DT + EPSILON).to.equal(true)
+					last = speed
+				end
+				return speed
+			end
+
+			local full = steadySpeed(nil)
+			local half = steadySpeed(0.5)
+			expect(math.abs(full - CONFIG.SPRINT_SPEED) < 0.5).to.equal(true)
+			expect(math.abs(half - full / 2) < 0.5).to.equal(true)
+		end)
+
+		it("collapses when the wound says so, once, and then holds still", function()
+			local brain = newBrain()
+			shoot(brain, "mortal")
+			for _ = 1, 60 do
+				brain:step(DT, obs(START, {}))
+			end
+			expect(brain:state()).to.equal("WOUNDED")
+
+			local collapse = brain:step(DT, obs(START, {}, { wound = { severity = "mortal", collapse = true } }))
+			expect(brain:state()).to.equal("DOWN")
+			expect(collapse.downed).to.equal(true)
+			local after = brain:step(DT, obs(START, {}, { wound = { severity = "mortal", collapse = true } }))
+			expect(after.downed).to.equal(false)
+			expect(after.targetVelocity.Magnitude).to.equal(0)
+		end)
+
+		it("becomes a carcass for CARCASS_SECONDS, then despawns once as killed", function()
+			local brain = newBrain()
+			shoot(brain, "lethal")
+
+			local ticks = math.floor(WOUND.CARCASS_SECONDS / DT) - 10
+			for _ = 1, ticks do
+				local intent = brain:step(DT, obs(START, {}))
+				expect(intent.despawn).to.equal(false) -- the carcass IS the point: it stays
+			end
+
+			local despawns, reason = 0, nil
+			for _ = 1, 120 do
+				local intent = brain:step(DT, obs(START, {}))
+				if intent.despawn then
+					despawns += 1
+					reason = intent.reason
+				end
+			end
+			expect(despawns).to.equal(1)
+			expect(reason).to.equal("killed")
+			expect(brain:state()).to.equal("GONE")
+		end)
+
+		it("reports a WOUNDED boar over the exit line as an escape, not a kill", function()
+			local brain = newBrain()
+			shoot(brain, "mortal")
+			expect(brain:state()).to.equal("WOUNDED")
+			local outside = Vector3.new(0, 0, FIELD.exitZ - 1)
+			local intent = brain:step(DT, obs(outside, {}))
+			expect(intent.despawn).to.equal(true)
+			expect(intent.reason).to.equal("escaped")
+			expect(brain:step(DT, obs(outside, {})).despawn).to.equal(false) -- reported exactly once
+		end)
+
+		it("ignores hits once it is down or gone, and never re-animates", function()
+			local brain = newBrain()
+			shoot(brain, "lethal")
+			expect(brain:state()).to.equal("DOWN")
+			local intent = shoot(brain, "mortal", Vector3.new(0, 0, 40))
+			expect(brain:state()).to.equal("DOWN")
+			expect(intent.downed).to.equal(false)
+			expect(intent.targetVelocity.Magnitude).to.equal(0)
+		end)
+
+		it("takes the most severe of several hits in one observation", function()
+			local brain = newBrain()
+			brain:step(
+				DT,
+				obs(START, {}, { hitEvents = { hitEvent("grazed"), hitEvent("lethal"), hitEvent("grazed") } })
+			)
+			expect(brain:state()).to.equal("DOWN")
+		end)
+
+		it("is still deterministic, and a hitch still cannot skip the whole flight", function()
+			local a, b = newBrain(77), newBrain(77)
+			for index = 1, 200 do
+				local events = if index % 50 == 0 then { hitEvent("grazed", Vector3.new(0, 0, 40)) } else {}
+				local ia = a:step(DT, obs(START, {}, { hitEvents = events }))
+				local ib = b:step(DT, obs(START, {}, { hitEvents = events }))
+				expect(ia.state).to.equal(ib.state)
+				expect((ia.targetVelocity - ib.targetVelocity).Magnitude < 1e-9).to.equal(true)
+			end
+
+			-- dt is clamped, in DOWN as everywhere else: one 5-second hitch must not delete a carcass
+			-- that should have lain there for two minutes.
+			local brain = newBrain()
+			shoot(brain, "lethal")
+			for _ = 1, 10 do
+				expect(brain:step(5, obs(START, {})).despawn).to.equal(false)
+			end
+		end)
+	end)
+
 	describe("boar brain: determinism and cost", function()
 		it("gives identical intents for the same seed", function()
 			local a, b = newBrain(42), newBrain(42)
