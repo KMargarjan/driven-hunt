@@ -5,6 +5,8 @@
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+
 local DEV_PLACE_ID = 136410205938347 -- default.project.json servePlaceIds
 
 return function()
@@ -18,6 +20,15 @@ return function()
 			expect(tokenValue).to.be.ok()
 			expect(tokenValue.ClassName).to.equal("StringValue")
 			expect(string.match(tokenValue.Value, "^%x+:%d+$")).to.be.ok()
+		end)
+
+		it("opens the gate for the token this run is using, without waiting for it", function()
+			-- awaitToken is what both runners call (Task 34): with a valid token already present it
+			-- returns immediately, which is every one-player run. That this spec is running at all
+			-- is the proof it returned a token; this pins the value it returns.
+			local tokenValue = ReplicatedStorage:FindFirstChild("TestSyncToken")
+			expect(TestKit.awaitToken(0)).to.equal(tokenValue.Value)
+			expect(TestKit.openToken()).to.equal(tokenValue.Value)
 		end)
 
 		it("delivered src/server/SyncCheck.server.luau and the server ran it", function()

@@ -7,7 +7,10 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
-local token = TestKit.openToken()
+-- awaitToken, not openToken: a two-player run cannot put the token in the place these processes
+-- start from, so it arrives after they are up (tools/studio_mcp.py docstring, `test2`). The gate is
+-- the same one -- Studio, and a token under 120 s old -- so a playtest still runs no tests.
+local token = TestKit.awaitToken()
 if not token then
 	return
 end

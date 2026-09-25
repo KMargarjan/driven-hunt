@@ -31,6 +31,11 @@ Moving parts
   tests/sync-token.txt (git-ignored) -> ReplicatedStorage.TestSyncToken
       Gate. Runners run only in Studio and only if the token "<16 hex>:<unix time>" is < 120 s old.
       Only this harness writes it, and it clears it after every run, so Karen's playtests run no tests.
+      Both runners call TestKit.awaitToken(), which applies that same gate but WAITS up to
+      TestKit.TOKEN_WAIT (60 s) for a token to appear instead of deciding once at startup: a
+      two-player run cannot put the token in the place its processes start from (see `test2`), so it
+      arrives after they are up. Outside Studio it returns nil immediately. A playtest still runs no
+      tests -- nothing writes a token during one.
   tests/client/input_scenarios.txt -> ReplicatedStorage.ClientTests.input_scenarios (StringValue)
       The input scenarios (Task 6). JSON in a .txt because a .txt is a StringValue this harness already
       compares byte-for-byte, so the scenario the client reads is provably the file on disk, and no new
@@ -168,9 +173,19 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
   mode prints those clicks and waits up to 180 s for the windows to appear. If nobody presses it,
   the run says so plainly and claims nothing.
 
-  ORDER MATTERS, and it is the whole trick: a local test copies the place as it stands when Start is
-  pressed, so the sync token is written FIRST and Karen starts the test inside its 120-second life.
-  A token written afterwards never reaches those processes and every runner refuses.
+  WHAT THE COPIED PLACE CARRIES, and what it does not. Measured on 2026-09-25 with all three
+  windows open (run 4): every script in the server and both clients was the Rojo-synced one, down to
+  a spec file created minutes earlier and never published -- but ReplicatedStorage.TestSyncToken was
+  there with an EMPTY value while the editor held a fresh token, and writing a token to disk
+  mid-session left all three untouched (Rojo patches the editor only). So the processes get the
+  scripts but not the gate, and a token written before the click cannot open it.
+
+  THE HARNESS THEREFORE OPENS THE GATE ITSELF, after the processes exist: it mints a fresh token,
+  sets ReplicatedStorage.TestSyncToken.Value on the SERVER through execute_luau, and ordinary
+  replication carries the StringValue to both clients. The runners are still listening because
+  TestKit.awaitToken waits TOKEN_WAIT (60 s) for it, and the gate they then apply is the same one as
+  ever. The token written to disk at the start of the run is only the proof that Rojo is live and
+  caught up, exactly as in `test`; it is cleared afterwards like every run's.
 
   What it does after the click:
     1. `list_roblox_studios` before and after, so the test's instances are identified BY IDENTITY --
@@ -199,15 +214,18 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
        available" are retried against a test process until that step's deadline (60 s to classify,
        15 s for a console) and reported if they outlast it. Run 3 (2026-09-25) crashed the whole
        mode on the first of those; no call against a test process raises now.
-    3. Each client is asked which team its LocalPlayer is on, and the input scenarios are replayed
-       into the SHOOTER's client. With two players the drive makes one of them a Driver, and a
+    3. Each client is asked which team its LocalPlayer is on. THEN the gate is opened (above) and
+       the input scenarios are replayed into the SHOOTER's client -- in that order, because the
+       client specs start the moment the token lands and input_driving.spec gives the replay 25 s to
+       arrive; a 45-second team query must not be inside that budget. With two players the drive makes one of them a Driver, and a
        Driver carries no gun at all (DRIVERS_MAY_SHOOT is false), so the weapon and staged-shot
        specs cannot pass there whatever is replayed -- list order has nothing to do with it. The
        driver's report is printed as an OBSERVATION, never as a passing check.
     4. Three reports are read (the server, the shooter's client, the driver's client), each from
        its own instance.
     5. Checks: three NEW studios appeared; one server and exactly two clients were found; one client
-       is on the Shooters team; each runner reported within 120 s; each report carries this run's
+       is on the Shooters team; the gate token reached the server process and replicated to both
+       clients; each runner reported within 120 s; each report carries this run's
        token and the DEV PlaceId; the server and the SHOOTER's client are PASS with 0
        failed/errors/skipped; the server ran tests/server/match_teams.spec; and it ran every server
        spec file in the repo. The driver's report is printed, never checked.
@@ -335,6 +353,15 @@ return string.format(
 """
 # Which team the drive put this client's player on. Used to pick WHICH client gets the input
 # replay in a 2-player run: the driver carries no gun, so the weapon specs belong to the shooter.
+QUERY_SET_TOKEN = """
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local value = ReplicatedStorage:FindFirstChild("TestSyncToken")
+if not value or not value:IsA("StringValue") then
+	return "MISSING"
+end
+value.Value = %s
+return value.Value
+"""
 QUERY_ROLE = (
     # WHAT a test process is, MEASURED by running code in it. get_studio_state cannot answer this:
     # every process of a local test advertises "Available DataModels: Client, Server" (Task 34,
@@ -1161,8 +1188,8 @@ START_CLICKS = """
 [harness2]   2. Leave the windows alone; this mode reads them.
 [harness2]   3. When it says so, press Cleanup in the Test tab.
 [harness2]
-[harness2] The gate token is valid for {seconds} s from now: start the test inside that window, or the
-[harness2] runners will refuse to run and every report will be empty.
+[harness2] Take your time: this mode waits {seconds} s for the windows and opens the gate itself once
+[harness2] they are up, so the click is not racing a token any more.
 """
 
 
@@ -1341,10 +1368,10 @@ def run_test2(studio, wait_seconds=180):
     spec_files = spec_files_in_repo()
     server_specs = {f for f in spec_files if f.startswith("tests/server/")}
 
-    # THE TOKEN GOES FIRST, and that ordering is the whole trick: a local test copies the place as it
-    # stands when Start is pressed, so a token written afterwards never reaches those processes and
-    # every runner refuses (TestKit's gate). It is written here and Karen presses Start inside its
-    # 120-second life.
+    # This token proves Rojo is live and caught up, exactly as in `test`. It does NOT open the gate
+    # in the test processes: the place they start from carries the StringValue with an empty value
+    # (measured, run 4 -- see the injection below), so the token that actually opens it is minted
+    # after they exist and written straight into the server process.
     token = f"{secrets.token_hex(8)}:{int(time.time())}"
     write_token(token)
     reports, consoles = {}, {}
@@ -1353,7 +1380,7 @@ def run_test2(studio, wait_seconds=180):
         if not check("Rojo synced the fresh token from disk", ok, f"Studio has {seen!r}"):
             return verdict()
 
-        print(START_CLICKS.format(seconds=120))
+        print(START_CLICKS.format(seconds=wait_seconds))
         known = {s["id"] for s in before}
 
         def new_studios():
@@ -1394,6 +1421,27 @@ def run_test2(studio, wait_seconds=180):
         if shooter is None:
             shooter = clients[0]  # keep going and report what happens, rather than stopping here
         other = next(i for i in clients if i != shooter)
+
+        # THE TOKEN GOES INTO THE PROCESS, because it is not in the place the process started
+        # from. Measured on 2026-09-25 with all three windows open (run 4): the editor held a fresh
+        # token, the copy the server and both clients were running carried the same StringValue with
+        # an EMPTY value, and Rojo does not patch a test process afterwards -- a token written to
+        # disk mid-session never reached them. Every script in those processes WAS the Rojo-synced
+        # one, so it is the value of a property, not the sync, that the copy leaves behind.
+        # So: mint a fresh token now (the disk one is minutes old by this point), set it on the
+        # SERVER, and let ordinary replication carry the StringValue to both clients. The runners are
+        # waiting for exactly this (TestKit.awaitToken, TOKEN_WAIT = 60 s), and the gate they apply
+        # is unchanged -- Studio, and a token under 120 s old.
+        token = f"{secrets.token_hex(8)}:{int(time.time())}"
+        set_token = studio.query("Server", QUERY_SET_TOKEN % json.dumps(token), studio_id=server)
+        if not check("The gate token reached the server process", set_token == token, set_token):
+            end_session(studio, before)
+            return verdict()
+        for studio_id in clients:
+            seen, ok = wait_for(lambda: studio.query("Client", QUERY_TOKEN, studio_id=studio_id),
+                                lambda v: v == token, 20, 1)
+            check(f"[{'shooter' if studio_id == shooter else 'driver'}] the token replicated to the "
+                  "client", ok, f"client has {seen!r}")
 
         if scenarios is None:
             print("[harness2] no tests/client/input_scenarios.txt: nothing to replay")

@@ -11,6 +11,15 @@ local TestKit = {}
 -- Seconds a harness token stays valid. Stale tokens (for example after a harness crash) never open the gate.
 TestKit.TOKEN_MAX_AGE = 120
 
+-- Seconds a runner waits for the harness to open the gate before giving up (Task 34).
+-- A one-player `test` writes the token BEFORE Play, so the wait is over on the first check. A local
+-- Clients-and-Servers test cannot work that way: measured on 2026-09-25, the place those processes
+-- start from carries every Rojo-synced SCRIPT but NOT the token StringValue's value (it was empty in
+-- all three processes while the editor held a fresh token), and Rojo does not patch them afterwards.
+-- So the harness writes the token INTO the running server process instead, and the runners have to
+-- still be listening when it lands.
+TestKit.TOKEN_WAIT = 60
+
 -- Returns the fresh harness token, or nil if tests must not run (not Studio, no token, or stale token).
 function TestKit.openToken(): string?
 	if not RunService:IsStudio() then
@@ -23,6 +32,26 @@ function TestKit.openToken(): string?
 		return nil
 	end
 	return token
+end
+
+-- Waits up to `timeout` seconds (default TOKEN_WAIT) for a token that opens the gate, and returns it
+-- or nil. The GATE ITSELF IS UNCHANGED and just as strict: Studio only, and a token under
+-- TOKEN_MAX_AGE seconds old. This only changes WHEN it is read -- once at startup could never see a
+-- token that a two-player run can only deliver after the processes exist. Outside Studio it returns
+-- nil at once, so a published place never waits.
+function TestKit.awaitToken(timeout: number?): string?
+	if not RunService:IsStudio() then
+		return nil
+	end
+	local deadline = os.clock() + (timeout or TestKit.TOKEN_WAIT)
+	repeat
+		local token = TestKit.openToken()
+		if token then
+			return token
+		end
+		task.wait(0.5)
+	until os.clock() >= deadline
+	return TestKit.openToken()
 end
 
 -- Runs every *.spec ModuleScript under specsFolder and returns the report table.
