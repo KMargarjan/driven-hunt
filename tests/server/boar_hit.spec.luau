@@ -230,6 +230,12 @@ return function()
 			expect(mover.Enabled).to.equal(false)
 			expect(upright.Enabled).to.equal(false)
 
+			-- It TOPPLED. A dead boar standing to attention is what the first carcass screenshot
+			-- showed, and it is the difference between "dropped" and "paused".
+			expect(waitUntil(3, function()
+				return math.abs(handle.part.CFrame.UpVector.Y) < 0.5
+			end)).to.equal(true)
+
 			-- Nothing may kill it twice: 1.7 must not be able to count two kills for one animal.
 			expect(runtime:takeHit(handle.part, { zone = "head", ammo = "Slug", pellets = 1, at = 0 })).to.equal(false)
 			expect(runtime:stats().hits).to.equal(1)

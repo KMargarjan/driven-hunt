@@ -245,7 +245,14 @@ function Body.collapse(handle, config)
 	part:SetAttribute("Damageable", false)
 	part:SetAttribute("Carcass", true)
 	-- CanCollide stays true, so the carcass lies on the ground instead of falling through it.
-	part:ApplyAngularImpulse(part.CFrame.RightVector * config.COLLAPSE_ANGULAR_IMPULSE)
+	--
+	-- The topple. ONE CFrame write, at the moment of death -- not the per-frame CFrame writing the
+	-- design forbids (boar-ai design section 6), and not the design's ApplyAngularImpulse either,
+	-- which was measured here and either does nothing or launches the animal (the number is in
+	-- Boar.CONFIG.WOUND.COLLAPSE_ROLL_DEG, with the measurements). Rolling the body past its tipping
+	-- angle lets GRAVITY lay it on its side, which is the visible difference between "dropped" and
+	-- "paused" that this step exists for.
+	part.CFrame = part.CFrame * CFrame.Angles(0, 0, math.rad(config.COLLAPSE_ROLL_DEG))
 end
 
 -- Destroys the Part (its Attachment, constraints and zone parts go with it). It never destroys the

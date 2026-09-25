@@ -152,7 +152,16 @@ Boar.CONFIG = {
 		FLASH_COLOR = Color3.fromRGB(190, 40, 40),
 		FLASH_SECONDS = 0.25, -- 15 frames: long enough to read, short enough not to look like state
 		CARCASS_SECONDS = 120,
-		COLLAPSE_ANGULAR_IMPULSE = 1200, -- one nudge, so it falls on a side instead of balancing
+		-- MEASURED, 2026-09-25, and it replaces the design's COLLAPSE_ANGULAR_IMPULSE = 1200, which
+		-- does not work. A 2 x 3 x 5.5 boar weighs 23.1. Probed in Play against a body moving at a
+		-- sprint, as a killed boar is: an impulse of 1200 does NOTHING (up stays 1.00, and the first
+		-- carcass screenshot was a box standing to attention); 2000 still does not topple it; 3500
+		-- topples it but throws it 9 studs into the air, and 12000 launched the real boar to y = 87 at
+		-- 161 studs/s. Setting AssemblyAngularVelocity directly does not topple it at any rate up to
+		-- 12 rad/s. What works is gravity: a 2-wide, 3-tall box tips at atan(1/1.5) = 33.7 degrees, so
+		-- rolling the carcass past that angle at the moment it dies makes it fall over on its own --
+		-- measured peak height 0.2 studs, final UpVector.Y = 0.00, i.e. lying on its side.
+		COLLAPSE_ROLL_DEG = 45, -- comfortably past the 33.7-degree tipping angle
 	},
 
 	-- Pathfinding agent. Tunables, not structure: they decide whether the navmesh will route a
