@@ -109,6 +109,24 @@ return function()
 			expect(state.blend).to.equal(0) -- the blend decays even while dead
 		end)
 
+		it("takes no look input while dead", function()
+			-- Design section 4.1: Dead is "no orbit, no input". Round 1, finding 4 was that only
+			-- Loading suppressed the look, so a dead player could still swing the view.
+			local dt = 1 / 60
+			local state = Mode.step(Mode.initial(Config), input(), dt, Config)
+			state = Mode.step(state, input({ lookDelta = Vector2.new(200, 50) }), dt, Config)
+			local aliveYaw, alivePitch = state.yawDeg, state.pitchDeg
+			expect(aliveYaw ~= 0).to.equal(true) -- the look works while alive
+
+			local dead = input({ alive = false, lookDelta = Vector2.new(400, 120) })
+			state = Mode.step(state, dead, dt, Config)
+			expect(state.mode).to.equal("Dead")
+			expect(state.yawDeg).to.equal(aliveYaw)
+			expect(state.pitchDeg).to.equal(alivePitch)
+			state = run(state, dead, dt, 0.5)
+			expect(state.yawDeg).to.equal(aliveYaw)
+		end)
+
 		it("goes Loading whenever the character is gone, from every other mode", function()
 			local dt = 1 / 60
 			local gone = input({ hasCharacter = false })

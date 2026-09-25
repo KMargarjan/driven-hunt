@@ -99,7 +99,9 @@ function Mode.step(state: State, input: StepInput, dt: number, config): State
 	local scale = Mode.sensitivityScale(fovFor(state.blend, config), config)
 	local yaw = state.yawDeg
 	local pitch = state.pitchDeg
-	if mode ~= "Loading" then
+	-- No look input while Loading OR Dead (design section 4.1: Dead is "no orbit, no input"). Round
+	-- 1, finding 4: only Loading was suppressed, so a dead player could still swing the view.
+	if mode ~= "Loading" and mode ~= "Dead" then
 		yaw = wrapDeg(yaw - input.lookDelta.X * config.SENSITIVITY_DEG_PER_PIXEL * scale)
 		pitch = math.clamp(
 			pitch - input.lookDelta.Y * config.SENSITIVITY_DEG_PER_PIXEL * scale,

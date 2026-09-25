@@ -107,10 +107,54 @@ return function()
 		end)
 	end)
 
+	-- FIRST, and that ordering is the test. Round 1, finding 1: this used to run after the
+	-- fake-source tests, which left their fake installed and had already moved aimEnters/aimExits --
+	-- so it passed with the aim-hold scenario deleted, and the "real right mouse drove the camera"
+	-- claim rested on counters a fake had moved. It now runs while the PRODUCTION source installed
+	-- by CameraBoot is still the only one, and asserts a DELTA taken here.
+	describe("the harness-driven aim", function()
+		it("entered and left Aiming from the real right mouse button", function()
+			local before = Camera.stats()
+			local baselineEnters, baselineExits = before.aimEnters, before.aimExits
+			local baselineHistory = #Camera.modeHistory()
+			print(
+				string.format(
+					"[camera_client] baseline before the replay: enters=%d exits=%d history=%d",
+					baselineEnters,
+					baselineExits,
+					baselineHistory
+				)
+			)
+
+			local entered = waitUntil(60, function()
+				return Camera.stats().aimEnters > baselineEnters
+			end)
+			if not entered then
+				print("[camera_client] the replayed right mouse never reached the weapon's aim action")
+			end
+			expect(entered).to.equal(true)
+			expect(waitUntil(20, function()
+				return Camera.stats().aimExits > baselineExits
+			end)).to.equal(true)
+
+			local history = Camera.modeHistory()
+			print("[camera_client] mode history: " .. table.concat(history, ","))
+			local sawAimingAfterBaseline = false
+			for index = baselineHistory + 1, #history do
+				if history[index] == "Aiming" then
+					sawAimingAfterBaseline = true
+				end
+			end
+			expect(sawAimingAfterBaseline).to.equal(true)
+		end)
+	end)
+
 	describe("the aim path", function()
 		local fake = { aiming = false }
+		local production = nil
 
 		beforeEach(function()
+			production = production or Camera.getAimSource()
 			Camera.setAimSource({
 				isAiming = function()
 					return fake.aiming
@@ -121,6 +165,12 @@ return function()
 		afterEach(function()
 			fake.aiming = false
 			waitFrames(30)
+		end)
+
+		afterAll(function()
+			-- Put back what CameraBoot installed. A test that leaves a fake in place makes every
+			-- later assertion about the real aim path meaningless (round 1, finding 1).
+			Camera.setAimSource(production)
 		end)
 
 		it("zooms to the eye and back, on the real camera", function()
@@ -150,6 +200,9 @@ return function()
 			end)).to.equal(true)
 
 			local model = Camera.Viewmodel.current()
+			-- Unconditional (round 1, note): wrapping this in `if model then` meant the whole block
+			-- passed when no viewmodel was ever built.
+			expect(model).to.be.ok()
 			if model then
 				expect(model:IsA("Model")).to.equal(true)
 				expect(model.Parent).to.equal(Workspace.CurrentCamera)
@@ -174,10 +227,6 @@ return function()
 					node = node.Parent
 				end
 				expect(node).to.equal(game)
-			else
-				-- No Tool in hand in this run: say so rather than passing quietly.
-				print("[camera_client] no viewmodel: no Tool handle in the character to clone")
-				expect(Camera.stats().viewmodelParented).to.equal(false)
 			end
 
 			fake.aiming = false
@@ -246,27 +295,6 @@ return function()
 			expect(Camera.Cursor.isFree()).to.equal(false)
 			expect(UserInputService.MouseBehavior).to.equal(Enum.MouseBehavior.LockCenter)
 			expect(Camera.Cursor.stats().reasserts).to.equal(0)
-		end)
-	end)
-
-	describe("the harness-driven aim", function()
-		it("entered and left Aiming from the real right mouse button", function()
-			-- The replay holds the right mouse button, which is the weapon's own
-			-- DrivenHunt.Weapon.Aim binding. This asserts over the owner's history from boot, so it
-			-- does not depend on when TestEZ happened to start.
-			local entered = waitUntil(45, function()
-				return Camera.stats().aimEnters >= 1
-			end)
-			local history = table.concat(Camera.modeHistory(), ",")
-			print("[camera_client] mode history: " .. history)
-			if not entered then
-				print("[camera_client] the replayed right mouse never reached the weapon's aim action")
-			end
-			expect(entered).to.equal(true)
-			expect(waitUntil(20, function()
-				return Camera.stats().aimExits >= 1
-			end)).to.equal(true)
-			expect(string.find(history, "Aiming") ~= nil).to.equal(true)
 		end)
 	end)
 end

@@ -337,23 +337,36 @@ return function()
 			expect(Weapon.Input.isAiming()).to.equal(false)
 		end)
 
-		-- The brief's requirement, in the strongest form that is TRUE: the stock PlayerModule is the
-		-- camera's live writer and moves it every frame to follow the character, so a byte-identical
-		-- CFrame would be asserting a property of Roblox's camera script, not of this weapon.
-		-- CameraType and FieldOfView are what the stock camera leaves alone and an ADS would not.
-		it("never touched the camera while aiming", function()
+		-- REWRITTEN in Task 26 (round 1, finding 2). This used to assert that the camera did not
+		-- move across the aim hold -- which, with the camera system built, asserts the OPPOSITE of
+		-- what aiming is for, and could only pass while the camera was deaf to the aim button. What
+		-- the weapon actually owes is that IT never writes the camera, and the camera's own
+		-- foreign-write detector is the mechanical proof: Rig.apply records what it wrote and counts
+		-- any value it did not set, so a write from anywhere else -- this weapon included -- shows
+		-- up there (docs/design/camera.md section 10.1).
+		it("never writes the camera itself", function()
 			expect(#cameraSamples).to.equal(2)
-			local down, up = cameraSamples[1], cameraSamples[2]
-			expect(down.cameraType).to.equal(up.cameraType)
-			expect(down.fov).to.equal(up.fov)
-			expect(down.subject).to.equal(up.subject)
-			-- Both samples must exist, or the measurement silently disappears while the test still
-			-- passes (round 1 note).
-			expect(down.offset).to.be.ok()
-			expect(up.offset).to.be.ok()
-			local drift = (up.offset - down.offset).Magnitude
-			print(string.format("[weapon_client] camera drift across the aim hold: %.3f studs", drift))
-			expect(drift <= Shotgun.CONFIG.CAMERA_DRIFT_TOLERANCE).to.equal(true)
+			local cameraModule = scripts:FindFirstChild("Camera")
+			if not cameraModule then
+				-- No camera system in the place: the old evidence is the best available, and the
+				-- stock camera is then the only other writer.
+				print("[weapon_client] no camera system; asserting the camera did not change instead")
+				expect(cameraSamples[1].fov).to.equal(cameraSamples[2].fov)
+				return
+			end
+			local CameraSystem = require(cameraModule)
+			local stats = CameraSystem.stats()
+			print(
+				string.format(
+					"[weapon_client] camera foreign writes: %d over %d frames",
+					stats.foreignCameraWrites,
+					stats.frames
+				)
+			)
+			expect(stats.foreignCameraWrites).to.equal(0)
+			-- And the aim request did reach the camera, which is what makes the zero meaningful:
+			-- the camera moved, and only the camera moved it.
+			expect(stats.aimEnters >= 1).to.equal(true)
 		end)
 	end)
 

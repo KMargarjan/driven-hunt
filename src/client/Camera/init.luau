@@ -87,6 +87,12 @@ function Camera.setAimSource(source: AimSource?)
 	aimSource = source
 end
 
+-- So a spec can put back what CameraBoot installed rather than rebuilding the adapter, which would
+-- duplicate production logic in a test (round 1, finding 1).
+function Camera.getAimSource(): AimSource?
+	return aimSource
+end
+
 function Camera.stats()
 	local out = table.clone(stats)
 	out.foreignCameraWrites = Rig.stats().foreignCameraWrites
@@ -106,13 +112,19 @@ local function characterParts()
 	local character = Players.LocalPlayer.Character
 	if character ~= cachedCharacter then
 		cachedCharacter = character
-		cachedRoot = if character then character:FindFirstChild("HumanoidRootPart") :: BasePart? else nil
-		cachedHumanoid = if character then character:FindFirstChildOfClass("Humanoid") else nil
+		cachedRoot, cachedHumanoid = nil, nil
 	end
-	if cachedRoot and not cachedRoot.Parent then
-		-- The part was removed under us (a respawn in flight): fall back to Loading rather than
-		-- holding a dead reference.
-		cachedRoot = if character then character:FindFirstChild("HumanoidRootPart") :: BasePart? else nil
+	-- Keep looking while either is missing. Round 1, finding 3: caching them once meant a character
+	-- whose root or humanoid had not replicated on the first frame left the camera in Loading for
+	-- that whole life -- and Loading is a transient state by design (section 4.1). The lookup costs
+	-- a frame only while they are absent, and the stale-part case re-resolves the same way.
+	if character then
+		if not cachedRoot or not cachedRoot.Parent then
+			cachedRoot = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		end
+		if not cachedHumanoid or not cachedHumanoid.Parent then
+			cachedHumanoid = character:FindFirstChildOfClass("Humanoid")
+		end
 	end
 	return cachedCharacter, cachedRoot, cachedHumanoid
 end
@@ -142,7 +154,11 @@ local function update(dt: number)
 		signal:Fire(state.mode, state.blend)
 	end
 
-	if root then
+	if state.mode == "Dead" then
+		-- Design section 4.1: the camera HOLDS its position, the viewmodel goes immediately, and no
+		-- input moves it. Nothing is applied, so whatever Rig last wrote stays on screen.
+		Viewmodel.clear()
+	elseif root then
 		local pivot, desired, fov = Mode.cameraCFrame(root.CFrame, state, Config)
 		local position = Rig.occlude(pivot, desired.Position, Config)
 		local applied = CFrame.lookAt(position, position + desired.LookVector)
