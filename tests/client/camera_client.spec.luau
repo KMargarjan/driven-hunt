@@ -260,6 +260,12 @@ return function()
 			expect(calls - before <= 12).to.equal(true) -- and not more
 
 			hit = Vector3.zero -- switch the fake cast on
+			-- In third person only: while the replay holds the aim button the camera is already at
+			-- the eye, ~0.4 studs from the pivot, and an occluder 4 studs away has nothing to pull
+			-- in. Measured 0.40 on the run that taught this.
+			expect(waitUntil(10, function()
+				return Camera.getMode() == "Third" and Camera.getBlend() <= 0
+			end)).to.equal(true)
 			waitFrames(5)
 			local root = rootPart()
 			expect(root).to.be.ok()
