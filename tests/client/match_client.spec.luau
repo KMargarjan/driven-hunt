@@ -70,11 +70,13 @@ return function()
 			expect(function()
 				(snapshot :: any).phase = "Running"
 			end).to.throw()
-			if snapshot.rows[1] then
-				expect(function()
-					snapshot.rows[1].points = 999
-				end).to.throw()
-			end
+			-- Not `if rows[1] then`: a guard like that turns into an assertion that quietly tests
+			-- nothing the day the board is empty. PlayerAdded puts this player on the board, so a
+			-- row is certain, and that is asserted first.
+			expect(#snapshot.rows >= 1).to.equal(true)
+			expect(function()
+				snapshot.rows[1].points = 999
+			end).to.throw()
 		end)
 
 		it("counts down locally from the server's timestamp, and never goes negative", function()

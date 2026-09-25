@@ -320,12 +320,11 @@ local function applySpawnBoar(position: Vector3?)
 	if not (world and world.boars) then
 		return
 	end
-	if boarsAlive() >= Match.CONFIG.MAX_ALIVE_BOARS then
-		stats.releasesDeferred += 1
-		return
-	end
-	-- Runtime:spawn ASSERTS at maxBoars, and an assert inside the Heartbeat step would kill the
-	-- step rather than the spawn, so this checks before it calls (design section 6.3).
+	-- NO SECOND GUARD. Phase.maybeRelease already decided, on the same live count this owner gives
+	-- it; a second check here is what dropped releases in round 1. Runtime:spawn still ASSERTS at
+	-- maxBoars and an assert inside the Heartbeat step would kill the step rather than the spawn, so
+	-- the call is wrapped -- and a refusal HANDS THE RELEASE BACK, so it is retried on the next step
+	-- instead of vanishing (design section 6.3: deferred, not dropped).
 	local ok = pcall(function()
 		world.boars:spawn(position)
 	end)
@@ -333,6 +332,8 @@ local function applySpawnBoar(position: Vector3?)
 		stats.releases += 1
 	else
 		stats.releasesDeferred += 1
+		state = Phase.releaseFailed(state, now())
+		snapshotCache = nil
 	end
 end
 
@@ -382,7 +383,14 @@ local function dispatch(event)
 	local before = state.phase
 	local driveBefore = state.driveNumber
 	local effects
-	state, effects = Phase.step(state, event, now(), Match.CONFIG)
+	-- EVERY event carries the live boar count, not just the tick. The release guard lives in the
+	-- pure machine and reads this; a join or a leave that arrives at a release moment must see the
+	-- same world a tick would (round 1, finding 1).
+	local filled = table.clone(event)
+	if filled.aliveBoars == nil then
+		filled.aliveBoars = boarsAlive()
+	end
+	state, effects = Phase.step(state, filled, now(), Match.CONFIG)
 	snapshotCache = nil
 	applyEffects(effects)
 	if state.phase ~= before then
@@ -414,7 +422,7 @@ end
 function Match.driverThreats()
 	return Body.driverPositions(function(player)
 		return state.assignment[player.UserId]
-	end)
+	end, playersService())
 end
 
 function Match.driveLine()

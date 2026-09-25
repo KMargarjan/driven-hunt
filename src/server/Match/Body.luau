@@ -157,9 +157,9 @@ end
 -- Every live player, as the boar's world wants them: only DRIVERS scare boars, which is the
 -- mechanic -- a shooter standing on a post must not push the boar back into the wood before it
 -- reaches the line.
-function Body.driverPositions(teamOf: (Player) -> TeamName?): { { id: string, position: Vector3 } }
+function Body.driverPositions(teamOf: (Player) -> TeamName?, service: any?): { { id: string, position: Vector3 } }
 	local out = {}
-	for _, player in ipairs(Players:GetPlayers()) do
+	for _, player in ipairs((service or Players):GetPlayers()) do
 		if teamOf(player) == "Drivers" then
 			local character = player.Character
 			local root = character and character.PrimaryPart

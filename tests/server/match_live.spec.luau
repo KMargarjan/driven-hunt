@@ -90,11 +90,10 @@ return function()
 			expect(function()
 				(snapshot :: any).phase = "Running"
 			end).to.throw()
-			if snapshot.rows[1] then
-				expect(function()
-					snapshot.rows[1].points = 999
-				end).to.throw()
-			end
+			expect(#snapshot.rows >= 1).to.equal(true) -- PlayerAdded made one, so this cannot vanish
+			expect(function()
+				snapshot.rows[1].points = 999
+			end).to.throw()
 		end)
 
 		it("keys everything by userId, and holds one entry for one player", function()

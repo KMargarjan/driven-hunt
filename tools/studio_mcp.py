@@ -215,7 +215,7 @@ local stage = HttpService:JSONDecode(%s)
 -- WAIT for a target rather than failing on the first look: since the drive owns the boars
 -- (Milestone 1.7a) the folder is empty until the match releases one, which is a real part of the
 -- game's timing and not a fault.
-local deadline = os.clock() + 40
+local deadline = os.clock() + 60
 local target = nil
 repeat
     local folder = Workspace:FindFirstChild(stage.targetFolder)
@@ -225,7 +225,7 @@ repeat
     end
 until target or os.clock() > deadline
 if not target then
-    return "no BasePart inside Workspace." .. tostring(stage.targetFolder) .. " after 40 s"
+    return "no BasePart inside Workspace." .. tostring(stage.targetFolder) .. " after 60 s"
 end
 local player = Players.LocalPlayer
 local character = player and player.Character

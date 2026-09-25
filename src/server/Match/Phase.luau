@@ -213,7 +213,15 @@ end
 
 -- The release schedule: BOARS_PER_DRIVE boars, the first after FIRST_RELEASE_SECONDS and the rest
 -- every RELEASE_INTERVAL_SECONDS, each jittered. A release is HELD BACK, never dropped, when the
--- runtime is at its limit -- the owner counts that as releasesDeferred and the next step retries.
+-- runtime is at its limit.
+--
+-- THIS IS THE ONLY GUARD, and round 1 found out why that matters: the owner used to check the live
+-- boar count as well, and the two disagreed. `event.aliveBoars` was filled in only on the tick, so a
+-- join or a leave landing on a release moment read zero, passed here, incremented releasesDone and
+-- pushed nextReleaseAt forward -- and then the owner refused the spawn. The boar was never released
+-- and never retried: a six-boar drive quietly ran five, and the Hud counted one that did not exist.
+-- The owner now fills aliveBoars on EVERY event and has no guard of its own; when the runtime still
+-- refuses a spawn it hands the release back through Phase.releaseFailed.
 local function maybeRelease(state: State, effects: { Effect }, now: number, event: Event, config)
 	if state.releasesDone >= config.BOARS_PER_DRIVE or now < state.nextReleaseAt then
 		return
@@ -229,6 +237,18 @@ local function maybeRelease(state: State, effects: { Effect }, now: number, even
 	state.nextReleaseAt = now
 		+ config.RELEASE_INTERVAL_SECONDS
 		+ Phase.jitter(state.seed + state.driveNumber, state.releasesDone + 1, config.RELEASE_JITTER_SECONDS)
+end
+
+-- The owner could not perform a release this machine committed to. Give it back: releasesDone goes
+-- down and the next release is due now, so it is retried on the next step rather than lost.
+function Phase.releaseFailed(state: State, now: number): State
+	if state.releasesDone <= 0 then
+		return state
+	end
+	local next_ = copy(state)
+	next_.releasesDone -= 1
+	next_.nextReleaseAt = now
+	return freezeState(next_)
 end
 
 function Phase.step(state: State, event: Event, now: number, config): (State, { Effect })
