@@ -27,6 +27,11 @@ For the Architect, at the next `design shotgun` run. The Builder never edits `do
    its `R` until something else moved the state — a gun that looks stuck reloading. Found by running
    the X change.
 
-6. **§13.3's scenario** remains three clicks and one `R` rather than five and two (measured: a
+6. **§13.3 is stale in four places, not one** (the review found the other three): the scenario row
+   `| X | SelectAmmo | ammo flips to "Buck", loaded unchanged |`; assertion 1's `reserve == 24` and
+   assertion 4's "`reserve` ends at 22", which are scalars where `reserve` is now a table per type;
+   and assertion 6's `loaded == {"Slug","Slug"}` with "SelectAmmo did not rewrite loaded shells" —
+   the committed spec now asserts the opposite, `loaded == {"Buck","Buck"}`. Also: the scenario
+   remains three clicks and one `R` rather than five and two (measured: a
    replayed step costs ~1 s, so nothing can be placed reliably inside a 0.25 s or 2.0 s window), and
    `X` now needs 2.6 s of scenario after it. Carried from the round-1 note.
