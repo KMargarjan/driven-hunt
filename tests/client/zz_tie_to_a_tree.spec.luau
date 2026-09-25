@@ -148,28 +148,41 @@ end
 
 return function()
 	describe("a real shot down the drive line", function()
-		it("was cued by the harness, so this spec's own scenario really ran", function()
-			expect(waitUntil(CUE_TIMEOUT, function()
-				return cuedAt ~= nil
-			end)).to.equal(true)
-			TestKit.note(
-				string.format(
-					"zz_tie: %s team=%s players=%d staged=%s",
-					player.Name,
-					tostring(Match.myTeam()),
-					#Players:GetPlayers(),
-					tostring(stagedDistance)
-				)
-			)
-		end)
-
-		it("ties the shooter to a tree when a driver was in its path, or nobody when none was", function()
-			expect(waitUntil(CUE_TIMEOUT, function()
-				return cuedAt ~= nil
-			end)).to.equal(true)
+		-- THE REPLAY ONLY EVER REACHES THE SHOOTER (tools/studio_mcp.py: a driver carries no gun), so a
+		-- driver's client must not wait for a cue that cannot arrive. MEASURED, and it is the reason
+		-- this is a function and not a plain wait: two 150-second waits on the driver's client pushed
+		-- its whole suite past the harness's 420-second report window, and a report that never arrives
+		-- is one the run cannot even print as an observation (Task 34's half of the client suite).
+		local function cued(): boolean
 			expect(waitUntil(20, function()
 				return Match.myTeam() ~= nil
 			end)).to.equal(true)
+			if Match.myTeam() ~= "Shooters" then
+				return false
+			end
+			return waitUntil(CUE_TIMEOUT, function()
+				return cuedAt ~= nil
+			end)
+		end
+
+		it("was cued by the harness, so this spec's own scenario really ran", function()
+			local shooter = cued()
+			TestKit.note(
+				string.format(
+					"zz_tie: %s team=%s players=%d staged=%s cued=%s",
+					player.Name,
+					tostring(Match.myTeam()),
+					#Players:GetPlayers(),
+					tostring(stagedDistance),
+					tostring(shooter)
+				)
+			)
+			-- A shooter must have been cued; a driver is never cued and that is the rule, not a miss.
+			expect(shooter).to.equal(Match.myTeam() == "Shooters")
+		end)
+
+		it("ties the shooter to a tree when a driver was in its path, or nobody when none was", function()
+			expect(cued()).to.equal(Match.myTeam() == "Shooters")
 
 			if Match.myTeam() ~= "Shooters" then
 				-- A DRIVER's client. It carries no gun (DRIVERS_MAY_SHOOT is false), so it cannot
