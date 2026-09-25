@@ -8,8 +8,10 @@
 -- CanQuery = false on every part, and it is not optional: workspace.CurrentCamera is a child of
 -- Workspace, so a client raycast -- including this system's own occlusion cast -- can hit a part
 -- parented to the camera. The symptom would be a camera glued 1.2 studs behind the head.
---   Viewmodel pattern: https://devforum.roblox.com/t/how-to-make-a-viewmodel/1234567 (research
---   source 4 of docs/research/2026-09-24-shotgun.md; the idea, not the code)
+--   Viewmodel pattern, the technique only and no code copied:
+--   https://devforum.roblox.com/t/fps-using-viewmodels-the-improved-version-parts-2-out-of-3/1129877
+--   (rokoblox5, 2021; source 4 of docs/research/2026-09-24-shotgun.md and section 7 D of the camera
+--   design). That post uses the deprecated SetPrimaryPartCFrame; this uses PivotTo.
 --
 -- Design: docs/design/camera.md (sections 3.2, 5.5)
 local Workspace = game:GetService("Workspace")
@@ -29,8 +31,11 @@ function Viewmodel.setSource(fn: (() -> BasePart?)?)
 	end
 end
 
+-- Nil unless the viewmodel is actually in the camera (design section 9.2 item 6). The clone is kept
+-- behind this so it is not rebuilt every time the player dips out of aim, but "is there a viewmodel"
+-- means "is one on screen".
 function Viewmodel.current(): Model?
-	return model
+	return if model and model.Parent then model else nil
 end
 
 function Viewmodel.clear()
