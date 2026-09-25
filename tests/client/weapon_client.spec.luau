@@ -203,7 +203,7 @@ return function()
 					and state.barrels[1] == "Live"
 					and state.barrels[2] == "Live"
 					and state.loaded[1] == "Slug"
-					and state.reserve == 24
+					and state.reserve.Slug == 24
 					and state.selected == 1
 				then
 					sawFull = true
@@ -218,16 +218,20 @@ return function()
 		it("runs the whole scenario and ends where the design says", function()
 			local finished = waitUntil(RUN_TIMEOUT, function()
 				local state = last()
-				return state ~= nil and state.ammo == "Buck" and state.busyFor == 0 and #aimEvents >= 2
+				return state ~= nil
+					and state.ammo == "Buck"
+					and state.loaded[1] == "Buck"
+					and state.busyFor == 0
+					and #aimEvents >= 2
 			end)
 			if not finished then
 				local state = last()
 				print(
 					string.format(
-						"[weapon_client] %d snapshots; last: ammo=%s reserve=%s busyFor=%.2f aims=%d",
+						"[weapon_client] %d snapshots; last: ammo=%s slug=%s busyFor=%.2f aims=%d",
 						#log,
 						tostring(state and state.ammo),
-						tostring(state and state.reserve),
+						tostring(state and state.reserve and state.reserve.Slug),
 						(state and state.busyFor) or -1,
 						#aimEvents
 					)
@@ -238,14 +242,15 @@ return function()
 			local state = last()
 			print(
 				string.format(
-					"[weapon_client] end state: barrels=%s/%s loaded=%s/%s selected=%d ammo=%s reserve=%d open=%s",
+					"[weapon_client] end state: barrels=%s/%s loaded=%s/%s selected=%d ammo=%s slug=%d buck=%d open=%s",
 					state.barrels[1],
 					state.barrels[2],
 					state.loaded[1],
 					state.loaded[2],
 					state.selected,
 					state.ammo,
-					state.reserve,
+					state.reserve.Slug,
+					state.reserve.Buck,
 					tostring(state.open)
 				)
 			)
@@ -253,14 +258,15 @@ return function()
 			expect(state.open).to.equal(false)
 			expect(state.barrels[1]).to.equal("Live")
 			expect(state.barrels[2]).to.equal("Live")
-			-- SelectAmmo changes the NEXT load only: the shells in the barrels are still slugs.
-			expect(state.loaded[1]).to.equal("Slug")
-			expect(state.loaded[2]).to.equal("Slug")
+			-- X now SWAPS the gun (Karen, 2026-09-25): the two slugs went back into the slug pocket
+			-- and two buckshot came out of the buck pocket, so the gun holds buckshot.
+			expect(state.loaded[1]).to.equal("Buck")
+			expect(state.loaded[2]).to.equal("Buck")
 			expect(state.selected).to.equal(1)
 			expect(state.ammo).to.equal("Buck")
-			-- One reload of exactly two shells: 24 - 2. The uninterruptible property behind it is
-			-- asserted exactly in weapon_state.spec; see the note at the top of this file.
-			expect(state.reserve).to.equal(22)
+			-- Slug: 24 - 2 for the R reload, + 2 returned when X broke the action open. Buck: -2.
+			expect(state.reserve.Slug).to.equal(24)
+			expect(state.reserve.Buck).to.equal(22)
 		end)
 
 		it("fired exactly twice: an empty gun refused the third click", function()
@@ -292,6 +298,24 @@ return function()
 				end
 			end
 			expect(sawSwitch).to.equal(true)
+		end)
+
+		it("swapped the gun to buckshot, through a reload it showed as busy", function()
+			-- Karen's change: X is not a label swap, it breaks the gun open and reloads it. So a
+			-- snapshot must exist where the ammo is already Buck and the barrels are NOT yet loaded
+			-- with it -- the open action mid-swap.
+			local sawSwapInProgress, sawSwapDone = false, false
+			for _, entry in ipairs(log) do
+				local state = entry.state
+				if state.ammo == "Buck" and state.loaded[1] ~= "Buck" then
+					sawSwapInProgress = true
+				end
+				if state.ammo == "Buck" and state.loaded[1] == "Buck" and state.loaded[2] == "Buck" then
+					sawSwapDone = true
+				end
+			end
+			expect(sawSwapInProgress).to.equal(true)
+			expect(sawSwapDone).to.equal(true)
 		end)
 
 		it("showed the reload as busy while it ran", function()
@@ -403,7 +427,9 @@ return function()
 		it("reads out the barrels, the ammo and the reserve", function()
 			local text = Hud.readoutText()
 			print("[weapon_client] readout: " .. text)
-			expect(string.match(text, "^[%[%*%-x%]]+ [A-Z]+ %d+ ?R?$")).to.be.ok()
+			-- glyphs, ammo, the pocket for that ammo, an optional " R" while busy, and an optional
+			-- one-line notice such as "NO BUCK" (Karen, 2026-09-25).
+			expect(string.match(text, "^[%[%*%-x%]]+ [A-Z]+ %d+[ A-Z]*$")).to.be.ok()
 		end)
 	end)
 

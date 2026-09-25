@@ -57,7 +57,7 @@ local registry = Registry.new()
 local tools: { [Player]: Tool } = {}
 local connections: { [Player]: { RBXScriptConnection } } = {}
 local toolWatchers: { [Player]: RBXScriptConnection } = {}
-local stats = { shots = 0, reports = 0, rateDropped = 0, badRequests = 0, granted = 0, revoked = 0 }
+local stats = { shots = 0, reports = 0, rateDropped = 0, badRequests = 0, granted = 0, revoked = 0, emptySwaps = 0 }
 
 local hitSignal = Instance.new("BindableEvent")
 local safetySignal = Instance.new("BindableEvent")
@@ -96,7 +96,7 @@ function Weapon.getSnapshot(player: Player): Shotgun.WeaponSnapshot?
 end
 
 -- Publishing is rate-limited per player, so a spammer cannot make the server flood its own client.
-local function publish(player: Player, state: WeaponState, force: boolean?)
+local function publish(player: Player, state: WeaponState, force: boolean?, notice: string?)
 	local now = os.clock()
 	if not force then
 		local allowed, bucket = Limits.allow(registry:bucket(player, "state"), now, CONFIG.STATE_RATE_LIMIT)
@@ -106,7 +106,7 @@ local function publish(player: Player, state: WeaponState, force: boolean?)
 		end
 	end
 	local channel = remotes or Shotgun.remotes()
-	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now))
+	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now, notice))
 end
 
 local function setState(player: Player, state: WeaponState)
@@ -292,6 +292,9 @@ end
 
 -- Break/Load/Close are never reachable from here: Validator.checkRequest accepts only "Reload" and
 -- "SelectAmmo" (defect d). The reload sequence below is the only caller of the primitives.
+-- Break -> Load -> Load -> Close, the 2.0 s window both R and X run through. Uninterruptibility is
+-- the reducer's, not a flag: from the first Break until Close, a second Reload is refused "is-open"
+-- and every Fire is refused "is-open" (design section 5.5).
 local function runReload(player: Player, epoch: number)
 	local steps = {
 		{ kind = "Break" :: Shotgun.ActionKind, wait = CONFIG.RELOAD_BREAK },
@@ -339,10 +342,24 @@ local function onActionRequest(player: Player, kind: any, ammo: any)
 		return
 	end
 
+	-- X, since Karen's playtest of 2026-09-25: switching the type RELOADS to it. Break returns the
+	-- unfired shells of the old type to their own pocket, two of the new type go in, and the gun
+	-- closes -- the same 2.0 s uninterruptible window as R, and no firing during it. An empty pocket
+	-- of the new type does nothing at all, and says so on the Hud.
 	if kind == "SelectAmmo" then
-		local next = StateMachine.apply(state, { kind = "SelectAmmo", ammo = ammo }, now)
-		setState(player, next)
-		publish(player, next, true)
+		if not state.equipped or state.open or now < state.busyUntil then
+			publish(player, state)
+			return
+		end
+		if (state.reserve[ammo] or 0) <= 0 then
+			stats.emptySwaps += 1
+			publish(player, state, true, "NO " .. string.upper(ammo))
+			return
+		end
+		local swapped = StateMachine.apply(state, { kind = "SelectAmmo", ammo = ammo }, now)
+		setState(player, swapped)
+		publish(player, swapped, true)
+		task.spawn(runReload, player, swapped.epoch)
 		return
 	end
 

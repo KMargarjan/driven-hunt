@@ -31,7 +31,7 @@
 				{ "device": "keyboard", "action": "keyPress", "key": "R" },
 				{ "device": "wait", "ms": 3000 },
 				{ "device": "keyboard", "action": "keyPress", "key": "X" },
-				{ "device": "wait", "ms": 600 },
+				{ "device": "wait", "ms": 2600 },
 				{ "device": "mouse", "action": "mouseButtonDown", "button": "right" },
 				{ "device": "wait", "ms": 500 },
 				{ "device": "mouse", "action": "mouseButtonUp", "button": "right" },

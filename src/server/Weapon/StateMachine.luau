@@ -26,6 +26,8 @@ function StateMachine.initial(config): WeaponState
 		barrels[index] = "Live"
 		loaded[index] = config.INITIAL_AMMO
 	end
+	-- A copy: CONFIG.START_RESERVE is deep-frozen, and this one is about to be spent.
+	local reserve = table.clone(config.START_RESERVE)
 	return Shotgun.deepFreeze({
 		equipped = false,
 		open = false,
@@ -33,7 +35,7 @@ function StateMachine.initial(config): WeaponState
 		loaded = loaded,
 		selected = 1,
 		ammo = config.INITIAL_AMMO,
-		reserve = config.START_RESERVE,
+		reserve = reserve,
 		busyUntil = 0,
 		epoch = 0,
 	})
@@ -44,6 +46,7 @@ local function draft(state: WeaponState)
 	local copy = table.clone(state) :: any
 	copy.barrels = table.clone(state.barrels)
 	copy.loaded = table.clone(state.loaded)
+	copy.reserve = table.clone(state.reserve)
 	return copy
 end
 
@@ -109,6 +112,13 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number): (W
 		local next = draft(state)
 		next.open = true
 		for index = 1, #next.barrels do
+			-- Breaking the action ejects what is in it. An UNFIRED shell goes back into its own
+			-- pocket (Karen, 2026-09-25: "the unfired shells of the old type go back to the
+			-- reserve"); a spent case is gone. One rule, in the one place that owns the action.
+			local loadedKind = next.loaded[index]
+			if next.barrels[index] == "Live" and loadedKind ~= "None" then
+				next.reserve[loadedKind] = (next.reserve[loadedKind] or 0) + 1
+			end
 			next.barrels[index] = "Empty"
 			next.loaded[index] = "None"
 		end
@@ -118,7 +128,7 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number): (W
 		if not state.open then
 			return state, "is-closed"
 		end
-		if state.reserve <= 0 then
+		if (state.reserve[state.ammo] or 0) <= 0 then
 			return state, "no-reserve"
 		end
 		local target = nil
@@ -134,7 +144,7 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number): (W
 		local next = draft(state)
 		next.barrels[target] = "Live"
 		next.loaded[target] = state.ammo
-		next.reserve = state.reserve - 1
+		next.reserve[state.ammo] = next.reserve[state.ammo] - 1
 		next.busyUntil = now + config.RELOAD_SHELL
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "Close" then
@@ -152,7 +162,9 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number): (W
 			return state, "bad-action"
 		end
 		local next = draft(state)
-		-- Only the NEXT load's kind. Shells already in the barrels are never rewritten.
+		-- The kind the next Load inserts. Since Karen's playtest the owner follows this with a full
+		-- Break/Load/Load/Close, so pressing X really does change what is IN the gun -- but this
+		-- primitive still does one thing only.
 		next.ammo = ammo
 		return Shotgun.deepFreeze(next), nil
 	end

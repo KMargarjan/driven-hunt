@@ -29,7 +29,9 @@ export type WeaponState = {
 	loaded: { AmmoLoad },
 	selected: number,
 	ammo: AmmoKind,
-	reserve: number,
+	-- Shells are carried PER TYPE (Karen, 2026-09-25): X switches type and reloads to it, and "no
+	-- reserve of the new type" has to mean something.
+	reserve: { [string]: number },
 	busyUntil: number,
 	epoch: number,
 }
@@ -41,8 +43,9 @@ export type WeaponSnapshot = {
 	loaded: { AmmoLoad },
 	selected: number,
 	ammo: AmmoKind,
-	reserve: number,
+	reserve: { [string]: number },
 	busyFor: number,
+	notice: string?, -- one short line for the Hud ("NO BUCK"); nil most of the time
 }
 
 export type ActionKind = "Fire" | "Break" | "Load" | "Close" | "SelectAmmo"
@@ -95,7 +98,7 @@ end
 
 -- The one converter from server state to what crosses the wire: a deadline becomes a duration,
 -- because os.clock() on the server means nothing on a client (design section 5.1).
-function Shotgun.snapshot(state: WeaponState, now: number): WeaponSnapshot
+function Shotgun.snapshot(state: WeaponState, now: number, notice: string?): WeaponSnapshot
 	return Shotgun.deepFreeze({
 		equipped = state.equipped,
 		open = state.open,
@@ -103,8 +106,9 @@ function Shotgun.snapshot(state: WeaponState, now: number): WeaponSnapshot
 		loaded = table.clone(state.loaded),
 		selected = state.selected,
 		ammo = state.ammo,
-		reserve = state.reserve,
+		reserve = table.clone(state.reserve),
 		busyFor = math.max(0, state.busyUntil - now),
+		notice = notice,
 	})
 end
 
@@ -137,7 +141,9 @@ Shotgun.CONFIG = {
 	RELOAD_CLOSE = 0.6,
 	RELOAD_TOTAL = 2.0, -- BREAK + 2 * SHELL + CLOSE; weapon_state.spec asserts the sum
 
-	START_RESERVE = 24,
+	-- Per ammo type, and 24 of each is ~12 reloads of that type in a 10-minute drive. One pocket
+	-- per type is what makes X ("switch and reload to it") refusable when that pocket is empty.
+	START_RESERVE = { Slug = 24, Buck = 24 },
 	INITIAL_AMMO = "Slug" :: AmmoKind,
 	AUTO_EQUIP = true, -- a grey-box playtest should not start by hunting for the hotbar
 

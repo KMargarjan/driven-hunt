@@ -139,7 +139,11 @@ local function textFor(state: Shotgun.WeaponSnapshot): string
 		glyphs ..= if index == state.selected then "[" .. glyph .. "]" else glyph
 	end
 	local busyMark = if state.busyFor > 0 then " R" else ""
-	return string.format("%s %s %d%s", glyphs, string.upper(state.ammo), state.reserve, busyMark)
+	-- Shells are carried per type, so the count shown is the pocket the next load comes from, and
+	-- the server's one-line notice ("NO BUCK") is what tells the player why X did nothing.
+	local pocket = state.reserve[state.ammo] or 0
+	local notice = if state.notice then " " .. state.notice else ""
+	return string.format("%s %s %d%s%s", glyphs, string.upper(state.ammo), pocket, busyMark, notice)
 end
 
 local function render(Weapon)
