@@ -174,18 +174,24 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
   the run says so plainly and claims nothing.
 
   WHAT THE COPIED PLACE CARRIES, and what it does not. Measured on 2026-09-25 with all three
-  windows open (run 4): every script in the server and both clients was the Rojo-synced one, down to
-  a spec file created minutes earlier and never published -- but ReplicatedStorage.TestSyncToken was
-  there with an EMPTY value while the editor held a fresh token, and writing a token to disk
-  mid-session left all three untouched (Rojo patches the editor only). So the processes get the
-  scripts but not the gate, and a token written before the click cannot open it.
+  windows open: every script in the server and both clients was the Rojo-synced one, down to a spec
+  file created minutes earlier and never published, and Rojo does not patch those processes
+  afterwards (a token written to disk mid-session left all three untouched -- Rojo patches the
+  editor only). Whether the token StringValue's VALUE comes across is a coin toss: run 4 found it
+  empty in all three while the editor held a fresh token, run 5 found it carried.
 
-  THE HARNESS THEREFORE OPENS THE GATE ITSELF, after the processes exist: it mints a fresh token,
+  SO THE DISK TOKEN IS CLEARED BEFORE THE CLICK, deliberately. A carried token is worse than none:
+  the suites then start the instant the windows open, 20-40 s before this mode has classified the
+  processes and can replay input into the shooter, and every input-driven client spec counts its
+  own 25 s from where TestEZ reaches it -- run 5 lost 14 specs on the shooter exactly that way. A
+  fresh token is still written first and checked (that is the proof Rojo is live and caught up,
+  as in `test`), then cleared, then Karen clicks. TestKit.awaitToken keeps both runners waiting.
+
+  THE HARNESS OPENS THE GATE ITSELF, when it is ready to drive the run: it mints a fresh token,
   sets ReplicatedStorage.TestSyncToken.Value on the SERVER through execute_luau, and ordinary
   replication carries the StringValue to both clients. The runners are still listening because
   TestKit.awaitToken waits TOKEN_WAIT (60 s) for it, and the gate they then apply is the same one as
-  ever. The token written to disk at the start of the run is only the proof that Rojo is live and
-  caught up, exactly as in `test`; it is cleared afterwards like every run's.
+  ever. Both tokens the run minted are accepted in a report; nothing else is.
 
   What it does after the click:
     1. `list_roblox_studios` before and after, so the test's instances are identified BY IDENTITY --
@@ -216,17 +222,24 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
        mode on the first of those; no call against a test process raises now.
     3. Each client is asked which team its LocalPlayer is on. THEN the gate is opened (above) and
        the input scenarios are replayed into the SHOOTER's client -- in that order, because the
-       client specs start the moment the token lands and input_driving.spec gives the replay 25 s to
-       arrive; a 45-second team query must not be inside that budget. With two players the drive makes one of them a Driver, and a
-       Driver carries no gun at all (DRIVERS_MAY_SHOOT is false), so the weapon and staged-shot
-       specs cannot pass there whatever is replayed -- list order has nothing to do with it. The
-       driver's report is printed as an OBSERVATION, never as a passing check.
-    4. Three reports are read (the server, the shooter's client, the driver's client), each from
-       its own instance.
-    5. Checks: three NEW studios appeared; one server and exactly two clients were found; one client
-       is on the Shooters team; the gate token reached the server process and replicated to both
-       clients; each runner reported within 120 s; each report carries this run's
-       token and the DEV PlaceId; the server and the SHOOTER's client are PASS with 0
+       client specs start the moment the token lands and input_driving.spec gives the replay 25 s
+       to arrive; a 45-second team query must not be inside that budget.
+       WHY THE SHOOTER: with two players the drive makes one of them a Driver, and a Driver carries
+       no gun at all (DRIVERS_MAY_SHOOT is false), so the weapon and staged-shot specs cannot pass
+       there whatever is replayed -- list order has nothing to do with it. The driver's report is
+       printed as an OBSERVATION, never as a passing check.
+    4. All three reports (the server, the shooter's client, the driver's client) are polled
+       TOGETHER against one deadline of REPORT_WINDOW_2P seconds, and each is announced with how
+       long it took. Read one after another, a slow client is only waited for once the previous
+       one's window has run out: in run 5 both clients had in fact reported, and the sequential
+       reads had given up first. A two-player client suite is slower than a one-player one anyway,
+       because the driver carries no gun and its weapon specs spend their timeouts failing.
+    5. Checks: three NEW studios appeared; the gate was shut again before the copy was taken; one
+       server and exactly two clients were found; one client is on the Shooters team; the gate
+       token reached the server process and replicated to both clients; each runner reported inside
+       the window; each report carries a
+       token it minted (the disk one, in case a copy carried it, or the injected one -- nothing
+       else) and the DEV PlaceId; the server and the SHOOTER's client are PASS with 0
        failed/errors/skipped; the server ran tests/server/match_teams.spec; and it ran every server
        spec file in the repo. The driver's report is printed, never checked.
     6. It stops each test instance and, if any remain, says to press Cleanup.
@@ -1322,6 +1335,12 @@ def end_session(studio, before):
         print(f"[harness2] {len(left)} test Studio(s) still open: press Cleanup in the Test tab.")
 
 
+# A two-player client suite is slower than a one-player one: the driver carries no gun, so its
+# weapon specs spend their own timeouts failing rather than passing. Run 5 measured both clients
+# finishing after the old sequential 120 s reads had given up.
+REPORT_WINDOW_2P = 300
+
+
 def run_test2(studio, wait_seconds=180):
     """Run the gated specs in a local 2-player test: one server DataModel, two client DataModels.
 
@@ -1379,6 +1398,20 @@ def run_test2(studio, wait_seconds=180):
         seen, ok = wait_for(lambda: studio.query("Edit", QUERY_TOKEN), lambda v: v == token, 15)
         if not check("Rojo synced the fresh token from disk", ok, f"Studio has {seen!r}"):
             return verdict()
+        minted = [token]
+
+        # AND NOW THE DISK TOKEN IS CLEARED, BEFORE the click. Whether the copy a local test takes
+        # carries the token turned out to be a coin toss (run 4: empty, run 5: carried), and a
+        # carried token is WORSE than none: the suites then start the instant the windows open,
+        # which is 20-40 s before this mode has classified the processes and can replay input into
+        # the shooter -- and every input-driven client spec counts its own 25 s from where TestEZ
+        # reaches it. Run 5 lost 14 specs on the shooter that way. With an empty token the copy
+        # cannot open the gate, TestKit.awaitToken keeps both runners waiting, and the suites start
+        # when this mode injects the real token: one second before the replay, not a minute.
+        write_token("")
+        seen, ok = wait_for(lambda: studio.query("Edit", QUERY_TOKEN), lambda v: v == "", 15)
+        if not check("The gate is shut again before the copy is taken", ok, f"Studio has {seen!r}"):
+            return verdict()
 
         print(START_CLICKS.format(seconds=wait_seconds))
         known = {s["id"] for s in before}
@@ -1433,6 +1466,7 @@ def run_test2(studio, wait_seconds=180):
         # waiting for exactly this (TestKit.awaitToken, TOKEN_WAIT = 60 s), and the gate they apply
         # is unchanged -- Studio, and a token under 120 s old.
         token = f"{secrets.token_hex(8)}:{int(time.time())}"
+        minted.append(token)
         set_token = studio.query("Server", QUERY_SET_TOKEN % json.dumps(token), studio_id=server)
         if not check("The gate token reached the server process", set_token == token, set_token):
             end_session(studio, before)
@@ -1448,16 +1482,28 @@ def run_test2(studio, wait_seconds=180):
         else:
             replay_input(studio, scenarios, token, check, studio_id=shooter)
 
-        for name, studio_id, side in (
-            ("server", server, "server"),
-            ("shooter", shooter, "client"),
-            ("driver", other, "client"),
-        ):
-            raw, ok = wait_for(
-                lambda: studio.query(side.capitalize(), QUERY_REPORT[side], studio_id=studio_id),
-                lambda v: v != "", 120, 1)
-            if ok:
-                reports[name] = json.loads(raw)
+        # ALL THREE AT ONCE, against ONE deadline. Read one after another, each with its own
+        # window, a slow client is waited for only after the previous one has run its window out:
+        # in run 5 both clients HAD reported -- the reads had simply given up first, one after the
+        # other. A two-player client suite is also slower than a one-player one, because the
+        # driver's weapon specs spend their timeouts failing, so the window is REPORT_WINDOW_2P.
+        pending = {"server": (server, "server"), "shooter": (shooter, "client"),
+                   "driver": (other, "client")}
+        started_reading = time.time()
+        deadline = started_reading + REPORT_WINDOW_2P
+        while pending and time.time() < deadline:
+            for name, (studio_id, side) in list(pending.items()):
+                raw, why = process_call(
+                    lambda: studio.query(side.capitalize(), QUERY_REPORT[side], studio_id=studio_id),
+                    timeout=0, default="")
+                if raw:
+                    reports[name] = json.loads(raw)
+                    print(f"[harness2] {name} reported after {int(time.time() - started_reading)} s")
+                    del pending[name]
+            if pending:
+                time.sleep(2)
+
+        for name, studio_id in (("server", server), ("shooter", shooter), ("driver", other)):
             # The console is read from the same still-loading (or already closed) process, so it
             # gets the same treatment: a missing console is a note in the output, never a crash
             # that skips end_session.
@@ -1469,9 +1515,13 @@ def run_test2(studio, wait_seconds=180):
 
     for name in ("server", "shooter", "driver"):
         report = reports.get(name)
-        if not check(f"[{name}] runner reported within 120 s", report is not None):
+        if not check(f"[{name}] runner reported within {REPORT_WINDOW_2P} s", report is not None):
             continue
-        check(f"[{name}] report carries this run's token", report["token"] == token, report["token"])
+        # EITHER token this run minted: the one written to disk before the click (a copy that
+        # carries it opens the gate by itself) or the one injected afterwards. Nothing else -- a
+        # token from an earlier run, or from a playtest, still fails.
+        check(f"[{name}] report carries a token this run minted", report["token"] in minted,
+              report["token"])
         check(f"[{name}] report comes from the DEV place", str(report["placeId"]) == place, str(report["placeId"]))
         summary = (f"{report['successCount']} passed, {report['failureCount']} failed, "
                    f"{report['errorCount']} errors, {report['skippedCount']} skipped")
