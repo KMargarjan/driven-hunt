@@ -235,9 +235,12 @@ function Boar.newRuntime(world)
 	self._signal = Instance.new("BindableEvent")
 	self._connection = nil
 	self._destroyed = false
-	self._stats = { pathRequests = 0, pathFailures = 0, pathBlocked = 0, spawned = 0, despawned = 0 }
+	self._stats =
+		{ pathRequests = 0, pathFailures = 0, pathBlocked = 0, spawned = 0, despawned = 0, hits = 0, pelletsTaken = 0 }
 
 	self.Despawned = self._signal.Event
+	self._hitSignal = Instance.new("BindableEvent")
+	self.Hit = self._hitSignal.Event
 
 	self._folder = Body.ensureFolder(world.parent, world.folderName)
 	world.folder = self._folder
@@ -250,6 +253,38 @@ end
 
 function Runtime:stats()
 	return table.clone(self._stats)
+end
+
+-- The ONE way a hit enters this system (shotgun design section 6.2). The weapon publishes
+-- HitReported; BoarBoot -- the composition root that already knows both systems -- calls this.
+-- Neither owner requires the other.
+--
+-- v1 counts and publishes, and changes nothing else: hit zones, wounds and the boar's reaction are
+-- ROADMAP 1.5, and boar_hit.spec asserts that a hit does not move the boar in this milestone.
+-- Returns false for a part that is not one of this runtime's live boars, so the caller needs no
+-- filtering of its own.
+function Runtime:takeHit(part: BasePart, hit): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.body.part == part then
+			if entry.dead then
+				return false
+			end
+			self._stats.hits += 1
+			self._stats.pelletsTaken += (if type(hit) == "table" and type(hit.pellets) == "number"
+				then hit.pellets
+				else 1)
+			entry.lastHit = hit
+			self._hitSignal:Fire({
+				id = entry.id,
+				zone = if type(hit) == "table" then hit.zone else nil,
+				ammo = if type(hit) == "table" then hit.ammo else nil,
+				pellets = if type(hit) == "table" then hit.pellets else nil,
+				at = if type(hit) == "table" then hit.at else nil,
+			})
+			return true
+		end
+	end
+	return false
 end
 
 function Runtime:boars()
@@ -430,6 +465,7 @@ function Runtime:destroy()
 	end
 	table.clear(self._boars)
 	self._signal:Destroy()
+	self._hitSignal:Destroy()
 end
 
 return Boar
