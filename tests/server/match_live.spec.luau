@@ -58,14 +58,21 @@ return function()
 			expect(shooters.AutoAssignable).to.equal(false)
 		end)
 
-		it("put the player on a team, and it is the SHOOTERS, so they keep a gun", function()
-			local player = Players:GetPlayers()[1]
-			expect(waitUntil(20, function()
-				return player.Team ~= nil
-			end)).to.equal(true)
-			print(string.format("[match_live] %s is on %s in phase %s", player.Name, player.Team.Name, Match.phase()))
-			expect(player.Team.Name).to.equal("Shooters")
-			expect(Match.mayCarryWeapon(player)).to.equal(true)
+		it("put every player on a team, and armed exactly the shooters", function()
+			-- PLAYER-COUNT AWARE, because this same suite runs in the two-player mode (Task 34): with
+			-- two players one of them is a DRIVER, and `GetPlayers()[1]` was as likely to be the
+			-- driver as the shooter -- an assertion that was true only of a one-player session inside
+			-- the suite the 2-player run requires to be green. Who is a Shooter with one player is
+			-- tests/server/match_teams.spec's business now.
+			for _, player in ipairs(Players:GetPlayers()) do
+				expect(waitUntil(20, function()
+					return player.Team ~= nil
+				end)).to.equal(true)
+				print(
+					string.format("[match_live] %s is on %s in phase %s", player.Name, player.Team.Name, Match.phase())
+				)
+				expect(Match.mayCarryWeapon(player)).to.equal(player.Team.Name == "Shooters")
+			end
 		end)
 
 		it("reads the arena's tagged markers, and has a drive line pointing at the drivers", function()

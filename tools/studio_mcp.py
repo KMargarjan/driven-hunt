@@ -177,10 +177,11 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
        the edit Studio, and anything else Karen has open, is excluded because it was there before.
     2. `get_studio_state` per new instance: the one offering a Server DataModel is the server, the
        two offering Client are the clients. Every later call names its `studio_id`.
-    3. The input scenarios are replayed into CLIENT 1 only: they are written for one player (a cue
-       key, one gun, one staged shot), so client 2 has nothing to react to. Client 2's report is
-       therefore printed as an OBSERVATION, never as a passing check -- its input-driven specs fail
-       in this mode by construction, and saying so is cheaper than pretending otherwise.
+    3. Each client is asked which team its LocalPlayer is on, and the input scenarios are replayed
+       into the SHOOTER's client. With two players the drive makes one of them a Driver, and a
+       Driver carries no gun at all (DRIVERS_MAY_SHOOT is false), so the weapon and staged-shot
+       specs cannot pass there whatever is replayed -- list order has nothing to do with it. The
+       driver's report is printed as an OBSERVATION, never as a passing check.
     4. Three reports are read (server, client 1, client 2), each from its own instance.
     5. Checks: one server and exactly two clients were found; each runner reported within 120 s;
        each report carries this run's token and the DEV PlaceId; the server and client 1 are PASS
@@ -188,6 +189,9 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
        server spec file in the repo.
     6. It stops each test instance and, if any remain, says to press Cleanup.
   Final line: "[harness2] PASS|FAIL: n/m checks @ <full HEAD sha> (clean tree | DIRTY TREE ...)".
+  A [harness2] line is NOT a substitute for a [harness] line as PR evidence: this mode runs none of
+  `test`'s checks 4-6 (disk-vs-Studio comparison, no-script-outside-Rojo, spec placement). It is an
+  extra run, never the merge gate's.
 
   The 2-player assertion itself is tests/server/match_teams.spec.luau, and it is written to be true
   for WHATEVER number of players is present, so it runs in both modes: with one player it asserts
@@ -305,6 +309,13 @@ return string.format(
     math.floor((target.Position - character:GetPivot().Position).Magnitude)
 )
 """
+# Which team the drive put this client's player on. Used to pick WHICH client gets the input
+# replay in a 2-player run: the driver carries no gun, so the weapon specs belong to the shooter.
+QUERY_MY_TEAM = (
+    'local p = game:GetService("Players").LocalPlayer '
+    "local t = p and p.Team "
+    'return if t then t.Name else ""'
+)
 QUERY_REPORT = {
     "server": 'return game:GetService("ServerStorage"):GetAttribute("TestReport") or ""',
     "client": 'local p = game:GetService("Players").LocalPlayer return p and p:GetAttribute("TestReport") or ""',
@@ -1132,12 +1143,34 @@ def classify_studios(studio, before):
             continue
         kinds = studio.datamodels(entry["id"])
         if "Server" in kinds:
-            server = entry["id"] if server is None else server
+            if server is None:
+                server = entry["id"]
+            else:
+                # A second Server-offering instance is not something to shrug off: the mode would be
+                # reading reports from whichever it happened to see first.
+                unknown.append(f'{entry["id"][:8]} (a SECOND server DataModel)')
         elif "Client" in kinds:
             clients.append(entry["id"])
         else:
             unknown.append(f'{entry["id"][:8]} {sorted(kinds)}')
     return server, clients, unknown
+
+
+def end_session(studio, before):
+    """Stop every instance the test added, and say plainly what is left. Called on every path out of
+    run_test2 that got as far as starting one, so Karen is never left with three windows and no
+    instruction."""
+    known = {s["id"] for s in before}
+    for entry in studio.studio_list():
+        if entry["id"] in known:
+            continue
+        try:
+            studio.set_play(False, studio_id=entry["id"])
+        except Exception as e:
+            print(f"[harness2] could not stop {entry['id'][:8]}: {type(e).__name__}: {e}")
+    left = [s for s in studio.studio_list() if s["id"] not in known]
+    if left:
+        print(f"[harness2] {len(left)} test Studio(s) still open: press Cleanup in the Test tab.")
 
 
 def run_test2(studio, wait_seconds=180):
@@ -1199,9 +1232,18 @@ def run_test2(studio, wait_seconds=180):
             return verdict()
 
         print(START_CLICKS.format(seconds=120))
-        found, ok = wait_for(lambda: studio.studio_list(), lambda v: len(v) >= 3, wait_seconds, 2)
+        known = {s["id"] for s in before}
+
+        def new_studios():
+            return [s for s in studio.studio_list() if s["id"] not in known]
+
+        # THREE NEW instances, not "three in total": a local test adds a server and two clients, and
+        # waiting for a total of three is satisfied by two of them -- the classification would then
+        # run against a half-registered test, find one client, and fail a run Karen had started
+        # correctly (round 1, finding 1).
+        found, ok = wait_for(new_studios, lambda v: len(v) >= 3, wait_seconds, 2)
         if not check(f"A 2-player local test appeared within {wait_seconds} s", ok,
-                     f"{len(found)} studio(s): " + "; ".join(s["name"] for s in found)):
+                     f"{len(found)} new studio(s) beside the editor"):
             print("[harness2] NEEDS KAREN: nobody pressed Start. Nothing was run and nothing is claimed.")
             return verdict()
 
@@ -1210,19 +1252,36 @@ def run_test2(studio, wait_seconds=180):
         check("Found exactly two client DataModels", len(clients) == 2,
               f"{len(clients)} client(s)" + ("; unclassified: " + ", ".join(unknown) if unknown else ""))
         if server is None or len(clients) != 2:
+            end_session(studio, before)
             return verdict()
         print(f"[harness2] server {server[:8]}, clients {', '.join(c[:8] for c in clients)}")
 
-        # The input replay drives the FIRST client only: the scenarios are written for one player
-        # (a cue key, one gun, one staged shot), so client 2's input-driven specs have nothing to
-        # react to. That is reported below as an observation, never as a passing check.
-        if scenarios is not None:
-            replay_input(studio, scenarios, token, check, studio_id=clients[0])
+        # WHICH client gets the replay is not a matter of list order. With two players the drive
+        # makes one of them a Driver, and a Driver carries no gun at all (DRIVERS_MAY_SHOOT is
+        # false), so the weapon and staged-shot specs cannot pass in that client whatever is
+        # replayed into it. Ask each client who it is, and drive the SHOOTER's (round 1, finding 2).
+        teams = {}
+        for studio_id in clients:
+            team, _ = wait_for(lambda: studio.query("Client", QUERY_MY_TEAM, studio_id=studio_id),
+                               lambda v: v != "", 45, 1)
+            teams[studio_id] = team
+        print("[harness2] client teams: " + ", ".join(f"{i[:8]}={teams[i] or '?'}" for i in clients))
+        shooter = next((i for i in clients if teams[i] == "Shooters"), None)
+        check("One client is on the Shooters team", shooter is not None,
+              ", ".join(f"{i[:8]}={teams[i] or 'no team'}" for i in clients))
+        if shooter is None:
+            shooter = clients[0]  # keep going and report what happens, rather than stopping here
+        other = next(i for i in clients if i != shooter)
+
+        if scenarios is None:
+            print("[harness2] no tests/client/input_scenarios.txt: nothing to replay")
+        else:
+            replay_input(studio, scenarios, token, check, studio_id=shooter)
 
         for name, studio_id, side in (
             ("server", server, "server"),
-            ("client1", clients[0], "client"),
-            ("client2", clients[1], "client"),
+            ("shooter", shooter, "client"),
+            ("driver", other, "client"),
         ):
             raw, ok = wait_for(
                 lambda: studio.query(side.capitalize(), QUERY_REPORT[side], studio_id=studio_id),
@@ -1233,7 +1292,7 @@ def run_test2(studio, wait_seconds=180):
     finally:
         write_token("")  # close the gate so Karen's playtests do not run tests
 
-    for name in ("server", "client1", "client2"):
+    for name in ("server", "shooter", "driver"):
         report = reports.get(name)
         if not check(f"[{name}] runner reported within 120 s", report is not None):
             continue
@@ -1241,10 +1300,10 @@ def run_test2(studio, wait_seconds=180):
         check(f"[{name}] report comes from the DEV place", str(report["placeId"]) == place, str(report["placeId"]))
         summary = (f"{report['successCount']} passed, {report['failureCount']} failed, "
                    f"{report['errorCount']} errors, {report['skippedCount']} skipped")
-        if name == "client2":
-            # An OBSERVATION, not a check: the scenarios were replayed into client 1, so client 2's
-            # input-driven specs (the weapon cue, the staged shot) have nothing to react to.
-            print(f"  note   [client2] {report['status']}: {summary} (no input was replayed into this client)")
+        if name == "driver":
+            # An OBSERVATION, not a check. The driver's client carries no gun and got no replay, so
+            # its weapon and staged-shot specs cannot pass -- that is the game's rule, not a defect.
+            print(f"  note   [driver] {report['status']}: {summary} (no gun, and no input replayed here)")
         else:
             check(f"[{name}] status PASS", report["status"] == "PASS",
                   report["status"] + " " + report.get("message", ""))
@@ -1257,21 +1316,21 @@ def run_test2(studio, wait_seconds=180):
         ran = set(server_report.get("specs", []))
         check("The 2-player team spec ran on the server", "ServerStorage.Tests.match_teams.spec" in ran,
               ", ".join(sorted(ran)) if "ServerStorage.Tests.match_teams.spec" not in ran else "")
-        check("Every server spec file in the repo ran", len(ran) == len(server_specs),
-              f"{len(ran)} ran, {len(server_specs)} on disk")
+        # BY NAME, as `test` does: comparing counts lets a renamed spec plus a stale one pass.
+        wanted = {"ServerStorage.Tests." + os.path.basename(f)[: -len(".luau")] for f in server_specs}
+        not_run = sorted(wanted - ran)
+        not_in_repo = sorted(ran - wanted)
+        check("The server ran exactly the repo's server spec files", not not_run and not not_in_repo,
+              "not run: " + ", ".join(not_run) + "; not in repo: " + ", ".join(not_in_repo)
+              if (not_run or not_in_repo) else f"{len(ran)} ran")
 
-    print("----- server Output -----")
-    print(consoles.get("server", ""))
-    print("-------------------------")
+    for name in ("server", "shooter", "driver"):
+        if consoles.get(name):
+            print(f"----- {name} Output -----")
+            print(consoles[name])
+            print("-" * 25)
 
-    for studio_id in ([server] if server else []) + clients:
-        try:
-            studio.set_play(False, studio_id=studio_id)
-        except Exception as e:
-            print(f"[harness2] could not stop {studio_id[:8]}: {type(e).__name__}: {e}")
-    left = [s for s in studio.studio_list() if s["id"] not in {x["id"] for x in before}]
-    if left:
-        print(f"[harness2] {len(left)} test Studio(s) still open: press Cleanup in the Test tab.")
+    end_session(studio, before)
     return verdict()
 
 

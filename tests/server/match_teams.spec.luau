@@ -14,7 +14,6 @@
 -- Design: docs/design/drive.md (sections 5.1, 5.2, 12.6)
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
-local Teams = game:GetService("Teams")
 
 local Match = require(ServerScriptService:WaitForChild("Match"))
 
@@ -105,14 +104,6 @@ return function()
 				-- A shooter carries a gun and a driver does not: DRIVERS_MAY_SHOOT is false, and
 				-- that is the whole difference between the two roles in 1.7a.
 				expect(Match.mayCarryWeapon(player)).to.equal(player.Team.Name == "Shooters")
-			end
-		end)
-
-		it("has both teams in the Teams service, with Roblox assigning nobody", function()
-			for _, name in ipairs({ "Drivers", "Shooters" }) do
-				local team = Teams:FindFirstChild(name)
-				expect(team).to.be.ok()
-				expect(team.AutoAssignable).to.equal(false)
 			end
 		end)
 	end)
