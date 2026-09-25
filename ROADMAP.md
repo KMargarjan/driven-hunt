@@ -3,7 +3,7 @@
 Owner: Director (the only writer). Order of work, one task at a time. Task detail lives in `TASKS.md`,
 playtest feedback in `PLAYTEST.md`, design and taste decisions with Karen.
 
-Updated 2026-09-24. Target: **Milestone 1 in ~1–2 weeks, public v1 in ~4–6 weeks.**
+Updated 2026-09-25. Target: **Milestone 1 in ~1–2 weeks, public v1 in ~4–6 weeks.**
 
 ## Speed rules (Director, 2026-09-24)
 
@@ -39,8 +39,7 @@ Updated 2026-09-24. Target: **Milestone 1 in ~1–2 weeks, public v1 in ~4–6 w
 | Step | What | State |
 |---|---|---|
 | 0.1 | Tasks 1, 5 and audit-001 | Merged to main |
-| 0.2 | Task 9: four-agent workflow (PR #4) + Task 11: review Task 9 through the loop, Director merges, NEEDS KAREN stop | Builder working (dispatched headless) |
-| 0.3 | Task 10: test globals are a lint error (PR #5) | Reviewed PASS; merge after PR #4 |
+| 0.2 | Tasks 9, 10, 11, 21: agent workflow, Director merges, review trimmed (blocking vs notes, harness before review, per-task review files) | Merged |
 | — | Tasks 12–15 (audit-002 workflow items) | Moved to "before release" |
 
 ## Milestone 1: is it fun? (grey boxes, no art) — ~1–2 weeks
@@ -49,10 +48,11 @@ Exit test: Karen and a second player play it, and Karen says it's fun. If it isn
 
 | Step | What | Depends on |
 |---|---|---|
-| 1.1 | Grey-box test area, 400×400 studs, a few blocks as cover | 0.2 |
-| 1.2 | Boar AI: idles, flees from drivers, runs a route, despawns. Architect designs first | 1.1 |
-| 1.3 | Harness drives real input (Task 6) and play-time screenshots or Karen's screenshot as evidence (Task 7) | 0.2 |
-| 1.4 | Shotgun: break action, two shells, reload, slug and buckshot; third person, first-person aim | 1.3 |
+| 1.1 | Grey-box test area, 400×400 studs, a few blocks as cover | **Done** (Tasks 17, 22; Karen accepted 2026-09-25) |
+| 1.2 | Boar AI: idles, flees from drivers, runs a route, despawns. Architect designs first | **Done** (Task 18; Karen accepted 2026-09-25) |
+| 1.3 | Harness drives real input (Task 6); play-time screenshots work (Task 7), saving them lands with Task 6 | In progress (Task 6) |
+| 1.4 | Shotgun on the default camera: break action, two shells, reload, slug and buckshot, hits reach the boar (`docs/design/shotgun.md`, re-run first for the Task 23a notes) | 1.3 |
+| 1.4b | Camera: third person, first-person aim (ADS) and viewmodel, one camera owner, own design | 1.4 |
 | 1.5 | Hit zones and wounded running | 1.2, 1.4 |
 | 1.6 | Multiplayer test path: the harness runs 2+ players | 1.3 |
 | 1.7 | Teams, 10-minute drive, points per boar, score screen, frozen-at-a-tree penalty | 1.5, 1.6 |
