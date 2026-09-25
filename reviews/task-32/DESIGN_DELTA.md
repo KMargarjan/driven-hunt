@@ -68,6 +68,16 @@ would get a dead module — the teardown would break the thing it is supposed to
 §4.4 requires a mid-drive joiner to be placed **without moving anyone already playing**, which the
 no-argument effect cannot express.
 
+## 6b. A joiner during `Assigning` is put on the smaller team immediately
+
+**Design:** §4.4, a joiner in `Assigning` is "assigned with everybody else".
+**Built:** a joiner in `Assigning` **or** `Running` takes the smaller team on arrival.
+
+`Assigning` assigns once, on entry (§4.1), so "with everybody else" has already happened by the time
+a joiner arrives one second later; the alternative is a player standing teamless and unarmed for the
+rest of the intermission. The sizes balance either way, because the smaller team is exactly where a
+balanced split wants one more. Raised by the round-1 review, which was right that it was undeclared.
+
 ## 7. What 1.7a does not build at all (the Director's split, design §14 item A)
 
 `Penalty.luau`, the tie/rope/`Workspace.DriveMarkers` half of `Match.Body`, the `SafetyViolated`
