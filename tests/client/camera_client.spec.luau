@@ -126,15 +126,30 @@ return function()
 				)
 			)
 
-			local entered = waitUntil(60, function()
+			-- TWO holds are replayed in a run: the weapon scenario's, then the camera's own
+			-- `aim-hold`. Round 2's note: waiting for the first delta was satisfied by the weapon
+			-- scenario, so deleting `aim-hold` would not have failed this. Wait for BOTH.
+			local first = waitUntil(60, function()
 				return Camera.stats().aimEnters > baselineEnters
 			end)
-			if not entered then
-				print("[camera_client] the replayed right mouse never reached the weapon's aim action")
+			if not first then
+				print("[camera_client] no replayed right mouse reached the weapon's aim action at all")
 			end
-			expect(entered).to.equal(true)
+			expect(first).to.equal(true)
 			expect(waitUntil(20, function()
 				return Camera.stats().aimExits > baselineExits
+			end)).to.equal(true)
+
+			local afterFirst = Camera.stats()
+			local second = waitUntil(60, function()
+				return Camera.stats().aimEnters > afterFirst.aimEnters
+			end)
+			if not second then
+				print("[camera_client] the aim-hold scenario's own right mouse never arrived")
+			end
+			expect(second).to.equal(true)
+			expect(waitUntil(20, function()
+				return Camera.stats().aimExits > afterFirst.aimExits
 			end)).to.equal(true)
 
 			local history = Camera.modeHistory()

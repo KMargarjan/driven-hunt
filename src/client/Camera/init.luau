@@ -164,9 +164,13 @@ local function update(dt: number)
 		local applied = CFrame.lookAt(position, position + desired.LookVector)
 		Rig.apply(applied, fov)
 		stats.maxDistanceFromRoot = math.max(stats.maxDistanceFromRoot, (position - root.Position).Magnitude)
-		Rig.setLocalBodyHidden(state.blend > Config.BODY_HIDE_BLEND)
 		Viewmodel.update(applied, state.blend, Config)
 	end
+
+	-- Every frame, whatever the mode. Round 2, finding 2: this used to live inside the `elseif root`
+	-- branch, so a player who died while aimed stayed invisible to themselves until they respawned --
+	-- a frozen ADS camera looking at a body nobody had told to come back.
+	Rig.setLocalBodyHidden(state.mode ~= "Dead" and state.blend > Config.BODY_HIDE_BLEND)
 
 	Cursor.apply()
 	stats.frames += 1

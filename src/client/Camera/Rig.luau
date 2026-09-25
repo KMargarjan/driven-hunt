@@ -25,6 +25,7 @@ local foreignCameraWrites = 0
 local warned = false
 local cameras = nil -- the stock camera controller, kept so release() can re-enable it
 local stockDisabled = false
+local watcher: RBXScriptConnection? = nil
 local castFn: ((Vector3, Vector3) -> Vector3?)? = nil
 
 local function currentCamera(): Camera?
@@ -42,29 +43,45 @@ end
 -- else writes the camera is the foreign-write detector below, which the client spec asserts is zero
 -- -- the design (section 10.1) already says that detector is what matters, precisely because
 -- GetCameras() is thinly documented and Roblox-controlled.
+-- Disables the stock cameras if this place has a PlayerModule. Never yields.
+local function disableStockCameras(module: Instance): (boolean, string?)
+	local ok, err = pcall(function()
+		cameras = require(module :: ModuleScript):GetCameras()
+		cameras:Disable()
+	end)
+	stockDisabled = ok
+	return ok, if ok then nil else tostring(err)
+end
+
 function Rig.acquire(): (boolean, string?)
 	local cam = currentCamera()
 	if not cam then
 		return false, "no CurrentCamera"
 	end
 
-	local ok, err = pcall(function()
-		local scripts = Players.LocalPlayer:WaitForChild("PlayerScripts", 10)
-		-- WaitForChild, not FindFirstChild: the engine inserts PlayerModule into PlayerScripts at
-		-- spawn, and the camera boots early enough to miss it (measured: the first run of this task
-		-- reported "PlayerModule missing" and ran with the stock camera still enabled).
-		local module = scripts and scripts:WaitForChild("PlayerModule", 10)
-		if not module then
-			error("PlayerScripts.PlayerModule missing", 0)
-		end
-		cameras = require(module :: ModuleScript):GetCameras()
-		cameras:Disable()
-	end)
-
+	-- TAKE THE CAMERA FIRST, and never yield on this path. Round 2, finding 1: this used to
+	-- WaitForChild("PlayerModule", 10) BEFORE setting CameraType, and since this place has no
+	-- PlayerModule at all the full 10 s elapsed on every boot and every respawn -- ten seconds in
+	-- which nothing was bound, the cursor was not locked and the view did not follow the character.
 	cam.CameraType = Enum.CameraType.Scriptable
-	stockDisabled = ok
-	-- The camera is ours either way; the reason travels with it so the caller can say so out loud.
-	return true, if ok then nil else tostring(err)
+
+	local scripts = Players.LocalPlayer:FindFirstChild("PlayerScripts")
+	local module = scripts and scripts:FindFirstChild("PlayerModule")
+	if module then
+		local ok, err = disableStockCameras(module)
+		return true, if ok then nil else tostring(err)
+	end
+
+	-- Not there now. Watch for it off the boot path, so a module that appears later is still
+	-- disabled and this call still returns immediately.
+	if scripts and not watcher then
+		watcher = scripts.ChildAdded:Connect(function(child: Instance)
+			if child.Name == "PlayerModule" then
+				disableStockCameras(child)
+			end
+		end)
+	end
+	return true, "no PlayerScripts.PlayerModule yet (watching for one)"
 end
 
 -- Whether the stock PlayerModule cameras were found and disabled. False in a place that has no
@@ -84,6 +101,11 @@ function Rig.release()
 		end)
 		cameras = nil
 	end
+	if watcher then
+		watcher:Disconnect()
+		watcher = nil
+	end
+	stockDisabled = false
 	lastCFrame, lastFov = nil, nil
 end
 
