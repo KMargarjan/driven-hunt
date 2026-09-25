@@ -37,6 +37,18 @@
 				{ "device": "mouse", "action": "mouseButtonUp", "button": "right" },
 				{ "device": "wait", "ms": 800 }
 			]
+		},
+		{
+			"name": "aim-hold",
+			"spec": "ClientTests.camera_client.spec",
+			"steps": [
+				{ "device": "mouse", "action": "moveTo", "x": 400, "y": 300 },
+				{ "device": "wait", "ms": 200 },
+				{ "device": "mouse", "action": "mouseButtonDown", "button": "right" },
+				{ "device": "wait", "ms": 900 },
+				{ "device": "mouse", "action": "mouseButtonUp", "button": "right" },
+				{ "device": "wait", "ms": 600 }
+			]
 		}
 	]
 }

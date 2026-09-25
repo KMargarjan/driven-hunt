@@ -12,7 +12,7 @@
 --   GuiObject   https://create.roblox.com/docs/reference/engine/classes/GuiObject
 --   UIStroke    https://create.roblox.com/docs/reference/engine/classes/UIStroke
 --
--- Design: docs/design/shotgun.md (sections 3.4, 5.6)
+-- Design: docs/design/shotgun.md (sections 3.4, 5.6), docs/design/camera.md (section 6.2)
 -- Note:   docs/research/2026-09-24-shotgun.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -146,11 +146,15 @@ local function textFor(state: Shotgun.WeaponSnapshot): string
 	return string.format("%s %s %d%s%s", glyphs, string.upper(state.ammo), pocket, busyMark, notice)
 end
 
-local function render(Weapon)
+local function render(Weapon, CameraSystem)
 	local state = Weapon.get()
 	local config = Shotgun.CONFIG
 	if crosshair then
-		crosshair.Visible = config.CROSSHAIR_ENABLED and state ~= nil and state.equipped
+		-- Hidden while aiming: in ADS the gun's own line is the aiming reference, and leaving a
+		-- hipfire cross on top of it is the double-reticle mistake (camera design section 6.2). The
+		-- Hud asks the CAMERA, which is the state, not the weapon's aim flag, which is the request.
+		local aiming = CameraSystem ~= nil and CameraSystem.getMode() == "Aiming"
+		crosshair.Visible = config.CROSSHAIR_ENABLED and state ~= nil and state.equipped and not aiming
 	end
 	if readout then
 		readout.Text = if state then textFor(state) else ""
@@ -164,15 +168,25 @@ function Hud.start()
 	started = true
 
 	local player = Players.LocalPlayer
-	local Weapon = require(player:WaitForChild("PlayerScripts"):WaitForChild("Weapon"))
+	local scripts = player:WaitForChild("PlayerScripts")
+	local Weapon = require(scripts:WaitForChild("Weapon"))
+	-- The camera may not exist (it is its own task); the Hud works without it and simply never
+	-- hides the crosshair for aiming. One-way: the camera has no reference to the Hud.
+	local cameraModule = scripts:FindFirstChild("Camera")
+	local CameraSystem = if cameraModule then require(cameraModule) else nil
 
 	gui = build();
 	(gui :: ScreenGui).Parent = player:WaitForChild("PlayerGui")
 
 	Weapon.Changed:Connect(function()
-		render(Weapon)
+		render(Weapon, CameraSystem)
 	end)
-	render(Weapon)
+	if CameraSystem then
+		CameraSystem.Changed:Connect(function()
+			render(Weapon, CameraSystem)
+		end)
+	end
+	render(Weapon, CameraSystem)
 end
 
 return Hud
