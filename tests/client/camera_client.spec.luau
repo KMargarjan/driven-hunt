@@ -49,14 +49,22 @@ end
 
 return function()
 	describe("the camera owns the camera", function()
-		it("took it from the stock PlayerModule and holds it", function()
+		it("holds the camera, and says whether a stock module had to be disabled", function()
 			expect(waitUntil(20, function()
 				return Camera.getMode() ~= "Loading"
 			end)).to.equal(true)
 			local acquired, reason = Camera.acquired()
-			if not acquired then
-				print("[camera_client] Rig.acquire failed: " .. tostring(reason))
-			end
+			-- This place has no PlayerScripts.PlayerModule at all (measured 2026-09-25), so the
+			-- disable step is a no-op here and says so rather than failing. Whether anything else
+			-- writes the camera is the next test, and that is the assertion that matters.
+			print(
+				string.format(
+					"[camera_client] acquired=%s stockCamerasDisabled=%s reason=%s",
+					tostring(acquired),
+					tostring(Camera.Rig.stockCamerasDisabled()),
+					tostring(reason)
+				)
+			)
 			expect(acquired).to.equal(true)
 			expect(Workspace.CurrentCamera.CameraType).to.equal(Enum.CameraType.Scriptable)
 		end)

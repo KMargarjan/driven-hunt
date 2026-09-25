@@ -24,14 +24,24 @@ local lastFov: number? = nil
 local foreignCameraWrites = 0
 local warned = false
 local cameras = nil -- the stock camera controller, kept so release() can re-enable it
+local stockDisabled = false
 local castFn: ((Vector3, Vector3) -> Vector3?)? = nil
 
 local function currentCamera(): Camera?
 	return Workspace.CurrentCamera
 end
 
--- Disables the stock cameras and takes the camera. Re-run on every CharacterAdded: the engine
--- restores CameraType on respawn, and re-asserting is cheaper than a camera that silently reverts.
+-- Takes the camera, and disables the stock cameras if this place has a PlayerModule to disable.
+-- Re-run on every CharacterAdded: the engine restores CameraType on respawn, and re-asserting is
+-- cheaper than a camera that silently reverts.
+--
+-- MEASURED, 2026-09-25: this place has NO Players.LocalPlayer.PlayerScripts.PlayerModule at all --
+-- PlayerScripts during Play holds only our own modules plus RbxCharacterSounds. So `ok` means "the
+-- camera is ours" (CameraType is Scriptable and nothing errored), and disabling the stock module is
+-- a belt-and-braces step reported separately by stockCamerasDisabled(). The real proof that nothing
+-- else writes the camera is the foreign-write detector below, which the client spec asserts is zero
+-- -- the design (section 10.1) already says that detector is what matters, precisely because
+-- GetCameras() is thinly documented and Roblox-controlled.
 function Rig.acquire(): (boolean, string?)
 	local cam = currentCamera()
 	if not cam then
@@ -52,11 +62,15 @@ function Rig.acquire(): (boolean, string?)
 	end)
 
 	cam.CameraType = Enum.CameraType.Scriptable
-	if not ok then
-		-- Loud, and not fatal: the foreign-write detector below catches the consequence anyway.
-		return false, tostring(err)
-	end
-	return true, nil
+	stockDisabled = ok
+	-- The camera is ours either way; the reason travels with it so the caller can say so out loud.
+	return true, if ok then nil else tostring(err)
+end
+
+-- Whether the stock PlayerModule cameras were found and disabled. False in a place that has no
+-- PlayerModule, which is not an error: see the header.
+function Rig.stockCamerasDisabled(): boolean
+	return stockDisabled
 end
 
 function Rig.release()

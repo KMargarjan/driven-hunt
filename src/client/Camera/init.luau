@@ -148,8 +148,11 @@ function Camera.start()
 
 	acquired, acquireReason = Rig.acquire()
 	if not acquired then
-		-- Loud, and not fatal: the foreign-write detector catches the consequence either way.
-		warn("[camera] could not take the camera from the stock PlayerModule: " .. tostring(acquireReason))
+		warn("[camera] could not take the camera: " .. tostring(acquireReason))
+	elseif acquireReason then
+		-- The camera is ours, but there was no stock module to disable. Loud, because if one ever
+		-- appears it becomes a second writer -- which stats().foreignCameraWrites then catches.
+		warn("[camera] no stock PlayerModule to disable (" .. acquireReason .. "); the camera is still ours")
 	end
 	Cursor.start()
 
