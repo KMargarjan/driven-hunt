@@ -239,3 +239,72 @@ never be saved. `Studio.capture()` reads the image block and writes it to `.scre
 Verified on 2026-09-25 in **Edit** (empty grey: since Task 22 `Workspace` holds only `Camera` and
 `Terrain`, and the arena is built at run time — so that is the correct picture) and during **Play**
 (the 400×400 arena plate, rendering as a full square).
+
+## Addendum, 2026-09-25 (Task 30): two players, staging a shot, and two harness bugs
+
+### 1. Can StudioMCP run a test with 2+ players? No — and here is the evidence, not an opinion
+
+`docs/design/drive.md` §12.6 asked for one command's output. I asked the server itself instead: the
+MCP `tools/list` response is the authoritative description of every tool StudioMCP exposes, and it
+answers the question outright. StudioMCP exposes **28 tools**. The four that matter:
+
+| Tool | What its schema says |
+|---|---|
+| `start_stop_play` | `{is_start: boolean, studio_id: string}` — **no player count**. Studio's "Clients and Servers" local test cannot be asked for from here |
+| `execute_luau` | `datamodel_type` is an enum of exactly `Edit`, `Client`, `Server` — **no index**, so a second client inside one Studio is not addressable |
+| `user_mouse_input` / `user_keyboard_input` | the same three-value `datamodel_type` |
+| `list_roblox_studios` | returns `{id, name}` per connected Studio: *"Several instances are commonly open at once, so every tool call must include a `studio_id`"* |
+
+So a 2-player run is **not possible today**, exactly as the design predicted. But the design did not
+have the last row, and it changes what "closed" means: **every** tool takes a `studio_id`, and a
+local multi-client test starts extra Studio *processes*. If those register with StudioMCP, they are
+addressable as separate `studio_id`s and a 2-player harness becomes a real possibility rather than a
+dead end. Whether they register cannot be answered without a human starting such a test, because
+`start_stop_play` cannot start one.
+
+**What was added:** `python tools/studio_mcp.py studios`, one read-only command that prints the
+listing. With one Studio open it prints exactly one entry:
+
+```
+{"studios":[{"id":"015c8c47-...","name":"Driven Hunt DEV (placeId: 136410205938347)"}]}
+```
+
+`ESCALATE.md` carries the **NEEDS KAREN** entry with the exact clicks: start a 2-client local test,
+run that one command, and the answer is in the output. Nothing else in this repo depends on it.
+
+### 2. Staging a scenario: placing the player and pointing the camera (hit-zones design §14 D)
+
+A replayed click fires wherever the camera already looks, and the harness cannot aim — the camera's
+yaw is mouse-driven and under `MouseBehavior = LockCenter` StudioMCP's `moveTo` delivers no usable
+delta. So there had never been an end-to-end "shoot the thing in front of you" test. A scenario may
+now carry a `stage` block; the format and the rules are in the `tools/studio_mcp.py` docstring. Two
+things are worth keeping here:
+
+- **`execute_luau` has its own module cache, measured twice.** During Play, a `require()` of
+  `PlayerScripts.Camera` through `execute_luau` reports `mode=Loading frames=0` while the real camera
+  is `Scriptable` at FOV 70 and the live module has run thousands of frames. The harness therefore
+  **cannot call a live module's functions at all** — only Instances are shared. That is why the
+  camera owner exposes `LookAtRequest`, a `BindableFunction`, and why the stage invokes it rather
+  than calling `Camera.lookAt`. The owner still does the writing: `workspace.CurrentCamera` has one
+  writer in the repo, and the client spec asserts the foreign-write counter does not move across a
+  staged aim.
+- **Aiming the pivot is not aiming the camera.** The camera sits 12 studs behind the pivot and 2.2
+  to the right, so the angles that point the *character* at a target leave the camera 3.97° off at 20
+  studs — wide enough to miss a boar. `Mode.anglesToward` iterates (take the camera position the
+  current angles give, aim from there, repeat): six passes land inside 0.02°, and it is pure, so the
+  server spec checks it with no client.
+
+### 3. Two harness bugs this task found and fixed (rule 6)
+
+- **A batch of eight big files truncated Studio's reply and failed the whole run** as
+  `JSONDecodeError: Unterminated string ... char 94110`. StudioMCP cuts a tool result at roughly
+  100 KB, and each node's reply carries the file's whole Source. The comparison now **splits a batch
+  whose reply will not parse** and retries, down to a single instance, which then fails loudly with
+  its name and the size.
+- **A `%` in a templated query is a format placeholder.** `QUERY_STAGE` ended with a `string.format`
+  whose `%s` collided with the `%` templating, so every stage raised `TypeError` in Python before
+  Studio saw it. What makes this worth writing down is what happened next: **the run went green
+  anyway, twice** — a stray click from an earlier scenario hit the wandering boar and produced the
+  hit marker the new spec was waiting for. The stage's own check caught it; the spec did not. The
+  spec now counts only the markers that arrive **after** the stage, so the shot it asserts is the
+  shot it fired.

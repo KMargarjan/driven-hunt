@@ -49,6 +49,19 @@
 				{ "device": "mouse", "action": "mouseButtonUp", "button": "right" },
 				{ "device": "wait", "ms": 600 }
 			]
+		},
+		{
+			"name": "shoot-the-boar",
+			"spec": "ClientTests.shoot_boar.spec",
+			"stage": { "targetFolder": "Boars", "offsetStuds": [0, 1.5, 22] },
+			"steps": [
+				{ "device": "mouse", "action": "moveTo", "x": 400, "y": 300 },
+				{ "device": "wait", "ms": 700 },
+				{ "device": "mouse", "action": "mouseButtonClick", "button": "left" },
+				{ "device": "wait", "ms": 900 },
+				{ "device": "mouse", "action": "mouseButtonClick", "button": "left" },
+				{ "device": "wait", "ms": 900 }
+			]
 		}
 	]
 }

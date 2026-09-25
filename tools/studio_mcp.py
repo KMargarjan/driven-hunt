@@ -12,6 +12,7 @@ Usage:
   python tools/studio_mcp.py state          # print Studio mode (read-only)
   python tools/studio_mcp.py console        # print Studio Output (read-only)
   python tools/studio_mcp.py stop           # stop a playtest (recovery)
+  python tools/studio_mcp.py studios        # list the Studio instances StudioMCP can see (read-only)
   python tools/studio_mcp.py manifest       # after `wally install`: rewrite devpackages.sha256 (commit it)
   python tools/studio_mcp.py capture <name> [x,y,z] [x,y,z]   # save a screenshot as rule-5 evidence
 
@@ -56,7 +57,8 @@ What `test` checks, in order (each is one "ok"/"FAIL" line)
      exactly; properties exactly or as their float32 rounding); a typed
      value ({"Vector3": ...}) fails as "cannot compare" until a comparison is added.
      No synced file may be git-ignored or outside the repo (it would be tested but could never make the
-     tree dirty).
+     tree dirty). Studio's answers are fetched in batches and a batch whose reply StudioMCP truncated
+     (~100 KB) is split and retried, down to a single instance, which then fails loudly.
      DevPackages/ (git-ignored TestEZ, which counts the passes) must match the committed
      devpackages.sha256 (which also pins the wally.lock hash).
   5. No script (LuaSourceContainer) exists anywhere in the DataModel outside the sourcemap: nothing
@@ -76,7 +78,10 @@ Driving real player input (Task 6), step 7a of `test`
   One scenario file, one harness step, one client spec. The file is tests/client/input_scenarios.txt:
 
     {"version": 1, "readyAttribute": "InputProbeReady", "scenarios": [
-       {"name": ..., "spec": ..., "steps": [
+       {"name": ..., "spec": ...,
+        "stage": {"targetFolder": "<a folder under Workspace>",   -- optional; see "Staging" below
+                  "offsetStuds": [x, y, z]},
+        "steps": [
           {"device": "keyboard", "action": "keyDown"|"keyUp"|"keyPress", "key": "<Enum.KeyCode name>"},
           {"device": "mouse", "action": "moveTo", "x": <px>, "y": <px>},
           {"device": "mouse", "action": "mouseButtonDown"|"mouseButtonUp"|"mouseButtonClick",
@@ -87,9 +92,33 @@ Driving real player input (Task 6), step 7a of `test`
     1. Wait (<= 20 s) for LocalPlayer's `readyAttribute` to carry THIS run's token. The client spec
        sets it after it has bound its listeners, so a replay can never race the bindings, and a stale
        attribute from an earlier run is not mistaken for this one.
-    2. Send the steps in order through StudioMCP's user_keyboard_input / user_mouse_input against the
+    2. For a scenario with a `stage` block, stage it first (below).
+    3. Send the steps in order through StudioMCP's user_keyboard_input / user_mouse_input against the
        Client DataModel. Consecutive steps for the same device go in ONE call, so StudioMCP keeps their
        order and spacing; a `wait` step flushes the batch and is slept in Python, so a gap spans devices.
+
+Staging a scenario (Task 30): putting the player somewhere useful, pointing at something
+  A replayed click fires wherever the camera is already looking, and the harness cannot aim: the
+  camera's yaw is mouse-driven and under MouseBehavior = LockCenter StudioMCP's moveTo delivers no
+  usable InputObject.Delta (docs/design/camera.md 9.3). So a scenario may carry a `stage` block, which
+  the replay runs against the Client DataModel immediately before that scenario's steps:
+    * it finds the FIRST BasePart inside Workspace.<targetFolder> -- the target;
+    * it moves the player's character to target.Position + offsetStuds (PivotTo: the client owns its
+      own character, so this is the character's own writer);
+    * it sets the LocalPlayer attribute `StagedTarget` to the target's full name, so a spec can
+      tell that its scenario has been staged (tests/client/shoot_boar.spec waits for it before it
+      starts tracking the target, so it never fights another spec for the camera);
+    * it asks the CAMERA OWNER to aim at the target, by invoking the BindableFunction
+      PlayerScripts.Camera.LookAtRequest. It never writes workspace.CurrentCamera: Camera.Rig is the
+      only writer of that in the whole repo (docs/design/camera.md 3.1), and Camera.lookAt is the
+      owner's own API.
+      The invoke exists BECAUSE execute_luau has its own module cache: a require() through it returns
+      a FRESH copy of the module, which reports mode=Loading and frames=0 while the live camera is
+      Scriptable at FOV 70 (measured 2026-09-25, and again in Task 26). A module function call through
+      execute_luau would therefore aim a camera nobody is looking through. An Instance is shared.
+  One check per run: every staged scenario reported success. A stage that cannot find its target, its
+  character or the camera's request function FAILS the run -- a scenario staged into thin air would
+  otherwise send its clicks at nothing and still be reported as replayed.
   Every step is validated when the file is read, before Play: an unknown device or action, a missing
   key or button, a non-numeric moveTo or a `wait` outside StudioMCP's 0..10000 ms fails the run there
   and then, because a step the replay sends but the spec cannot recognise is a hole in the evidence.
@@ -98,6 +127,25 @@ Driving real player input (Task 6), step 7a of `test`
   What a scenario CANNOT express: touch and gamepad input; typing text (StudioMCP has textInput, the
   format does not); a hold measured in frames rather than milliseconds; input aimed at a specific
   instance (StudioMCP's instance_path is not used); and anything after the client report is written.
+  A `stage` block cannot follow a moving target: it places and aims ONCE, before the steps. A spec
+  that needs to stay on a moving target keeps calling Camera.lookAt itself (tests/client/shoot_boar.spec).
+
+More than one player: what StudioMCP can and cannot do (Task 30, measured 2026-09-25)
+  Asked of the server itself, through the MCP tools/list response -- the authoritative description of
+  every tool and argument it exposes:
+    * start_stop_play takes `is_start` and `studio_id`. There is NO player-count argument, so this
+      harness cannot ask for Studio's "Clients and Servers" local test.
+    * execute_luau, user_mouse_input, user_keyboard_input and search_game_tree all take
+      `datamodel_type` as an enum of exactly "Edit", "Client", "Server". There is no index, so a
+      SECOND client inside one Studio is not addressable for a query, an input or a report -- and
+      QUERY_REPORT["client"] reads Players.LocalPlayer, which is singular by construction.
+    * EVERY tool takes a `studio_id`, and list_roblox_studios returns {id, name} per connected Studio
+      ("Several instances are commonly open at once"). That is the one open route to two players: a
+      local multi-client test starts extra Studio processes, and IF they register with StudioMCP they
+      would be addressable as separate studio_ids.
+  So: a 2-player run is NOT possible today, and the open route cannot be evaluated without a human
+  starting a 2-client test. `python tools/studio_mcp.py studios` prints the listing, which is the one
+  command that answers it; ESCALATE.md carries the NEEDS KAREN entry with the exact clicks.
   A missing scenario file is not a failure: the step is skipped and says so.
 
 Screenshots as evidence (Task 7)
@@ -152,6 +200,55 @@ return if v and v:IsA("StringValue") then v.Value else "<missing>"
 # name is a Luau string literal, not luau_json's JSON-in-a-long-bracket: that would ask Studio for an
 # attribute whose name includes the quote characters, and every read would come back empty.
 QUERY_READY = 'local p = game:GetService("Players").LocalPlayer return p and p:GetAttribute("%s") or ""'
+# Staging (Task 30): place the character in front of a target and ask the CAMERA OWNER to aim at it.
+# Templated with the scenario's own `stage` block as JSON. It writes two things and only two: the
+# character's pivot (the client owns its own character) and, through the owner's request function,
+# the camera's yaw and pitch. workspace.CurrentCamera is never touched here -- Camera.Rig is its only
+# writer in the repo, and reaching the live module any other way is impossible because execute_luau
+# has its own module cache (a require() through it reports a fresh module: mode=Loading, frames=0).
+QUERY_STAGE = """
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
+local stage = HttpService:JSONDecode(%s)
+local folder = Workspace:FindFirstChild(stage.targetFolder)
+local target = folder and folder:FindFirstChildWhichIsA("BasePart")
+if not target then
+    return "no BasePart inside Workspace." .. tostring(stage.targetFolder)
+end
+local player = Players.LocalPlayer
+local character = player and player.Character
+if not character then
+    return "no character to place"
+end
+
+local offset = Vector3.new(stage.offsetStuds[1], stage.offsetStuds[2], stage.offsetStuds[3])
+character:PivotTo(CFrame.new(target.Position + offset))
+
+local scripts = player:FindFirstChild("PlayerScripts")
+local camera = scripts and scripts:FindFirstChild("Camera")
+local request = camera and camera:FindFirstChild("LookAtRequest")
+if not request then
+    return "placed, but PlayerScripts.Camera.LookAtRequest is missing: nothing aimed"
+end
+if not request:Invoke(target.Position.X, target.Position.Y, target.Position.Z) then
+    return "placed, but the camera owner refused to aim (no character root yet?)"
+end
+-- So a spec knows its scenario has been staged, without guessing from the player's position. The
+-- harness is the only writer of this attribute, exactly as the client spec is the only writer of the
+-- ready attribute it reads.
+player:SetAttribute("StagedTarget", target:GetFullName())
+-- Doubled %%: this whole query is templated with the stage block through Python's %% operator, so a
+-- lone %%s here is a second placeholder and the format call raises before Studio ever sees it. It
+-- did, and the run went green anyway because a stray click from an earlier scenario happened to hit
+-- the boar -- the stage check caught it, the spec did not.
+return string.format(
+    "staged on %%s, %%d studs away",
+    target:GetFullName(),
+    math.floor((target.Position - character:GetPivot().Position).Magnitude)
+)
+"""
 QUERY_REPORT = {
     "server": 'return game:GetService("ServerStorage"):GetAttribute("TestReport") or ""',
     "client": 'local p = game:GetService("Players").LocalPlayer return p and p:GetAttribute("TestReport") or ""',
@@ -303,6 +400,10 @@ class Studio:
         return text
 
     # The only operations this harness exposes.
+    def studios(self):
+        """Every Studio instance StudioMCP can see, raw. Read-only (Task 30)."""
+        return self._call("list_roblox_studios")
+
     def mode(self):
         state = self._call("get_studio_state")
         for line in state.splitlines():
@@ -551,10 +652,24 @@ def compare_synced(studio, nodes):
         attrs = [a for a, v in spec.get("attrs", {}).items() if is_plain(v)]
         wanted.append({"path": path, "props": props, "attrs": attrs})
     # StudioMCP truncates tool results at roughly 100 KB, and each result carries full script Sources,
-    # so query in small batches. A truncated result fails loudly as a JSON error, never passes.
+    # so query in small batches. A truncated result is never mistaken for a match: it fails to parse,
+    # and then the batch is SPLIT and retried, down to one node -- eight big spec files in one batch
+    # blew the limit and failed the whole run as a JSONDecodeError (measured, Task 30).
+    def fetch(batch):
+        text = studio.query("Edit", QUERY_NODES % luau_json(batch))
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            if len(batch) == 1:
+                raise RuntimeError(
+                    f"Studio's answer for {'.'.join(batch[0]['path'])} was truncated at {len(text)} chars: "
+                    "one instance is too big for a single StudioMCP result")
+            half = len(batch) // 2
+            return fetch(batch[:half]) + fetch(batch[half:])
+
     remote = []
     for i in range(0, len(wanted), 8):
-        remote += json.loads(studio.query("Edit", QUERY_NODES % luau_json(wanted[i:i + 8])))
+        remote += fetch(wanted[i:i + 8])
 
     if len(remote) != len(requests):
         raise RuntimeError(f"Studio answered {len(remote)} of {len(requests)} node queries")
@@ -648,6 +763,21 @@ def check_step(where, step):
         raise RuntimeError(f"{where}: moveTo needs numeric `x` and `y`")
 
 
+def check_stage(where, stage):
+    """Refuse a stage block the replay could not run, before Play rather than during it."""
+    if not isinstance(stage, dict):
+        raise RuntimeError(f"{where}: `stage` must be an object")
+    folder = stage.get("targetFolder")
+    if not isinstance(folder, str) or not re.fullmatch(r"[A-Za-z0-9_]{1,64}", folder):
+        raise RuntimeError(f"{where}: stage.targetFolder must be a plain instance name; got {folder!r}")
+    offset = stage.get("offsetStuds")
+    if not isinstance(offset, list) or len(offset) != 3 or not all(isinstance(v, (int, float)) for v in offset):
+        raise RuntimeError(f"{where}: stage.offsetStuds must be three numbers; got {offset!r}")
+    extra = set(stage) - {"targetFolder", "offsetStuds"}
+    if extra:
+        raise RuntimeError(f"{where}: stage has unknown key(s) {sorted(extra)}")
+
+
 def load_scenarios():
     """The scenario file, or None if there is none. A bad file is an error, a missing one is not.
 
@@ -660,6 +790,8 @@ def load_scenarios():
     if not isinstance(data.get("scenarios"), list) or not data["scenarios"]:
         raise RuntimeError("input_scenarios.txt has no `scenarios` list")
     for scenario in data["scenarios"]:
+        if scenario.get("stage") is not None:
+            check_stage(f"scenario {scenario.get('name')!r}", scenario["stage"])
         for index, step in enumerate(scenario.get("steps") or [], start=1):
             check_step(f"scenario {scenario.get('name')!r} step {index}", step)
     return data
@@ -725,8 +857,19 @@ def replay_input(studio, data, token, check):
                         lambda v: v == token, 20, 0.5)
     if not check("[input] the client bound its listeners and published this run's token", ok, repr(seen)):
         return
-    sent, problems = 0, []
+    sent, problems, staged = 0, [], []
     for scenario in data["scenarios"]:
+        stage = scenario.get("stage")
+        if stage:
+            # Before the steps, never after: a click is only worth sending once the player is standing
+            # where the scenario needs them and the camera owner has been asked to look at the target.
+            try:
+                result = studio.query("Client", QUERY_STAGE % luau_json(stage)).strip()
+            except Exception as e:
+                result = f"{type(e).__name__}: {e}"
+            staged.append(f"{scenario.get('name')}: {result}")
+            if not result.startswith("staged on "):
+                problems.append(f"{scenario.get('name')}: stage failed ({result})")
         for device, payload in scenario_batches(scenario.get("steps", [])):
             if device == "wait":
                 time.sleep(payload)
@@ -741,6 +884,12 @@ def replay_input(studio, data, token, check):
     names = ", ".join(str(s.get("name")) for s in data["scenarios"])
     check(f"[input] replayed every step of {len(data['scenarios'])} scenario(s)", not problems,
           "; ".join(problems) if problems else f"{sent} steps sent ({names})")
+    if staged:
+        # A separate check, because a scenario staged into thin air would still send every step and
+        # pass the line above while its spec asserted on nothing.
+        failed = [s for s in staged if ": staged on " not in s]
+        check(f"[input] staged {len(staged)} scenario(s) (placed + aimed)", not failed,
+              "; ".join(failed) if failed else "; ".join(staged))
 
 
 def run_test(studio):
@@ -835,7 +984,9 @@ def run_test(studio):
             else:
                 replay_input(studio, scenarios, token, check)
             for side in ("server", "client"):
-                raw, ok = wait_for(lambda: studio.query(side.capitalize(), QUERY_REPORT[side]), lambda v: v != "", 60, 1)
+                # 90 s, not 60: since Task 30 a client spec waits for its scenario to be STAGED, so
+                # the client suite cannot finish before the replay does, and the replay is ~40 s.
+                raw, ok = wait_for(lambda: studio.query(side.capitalize(), QUERY_REPORT[side]), lambda v: v != "", 90, 1)
                 if ok:
                     reports[side] = json.loads(raw)
             output = studio.console()
@@ -849,7 +1000,7 @@ def run_test(studio):
     print("-------------------------")
     for side in ("server", "client"):
         report = reports.get(side)
-        if not check(f"[{side}] runner reported within 60 s", report is not None):
+        if not check(f"[{side}] runner reported within 90 s", report is not None):
             continue
         check(f"[{side}] report carries this run's token", report["token"] == token, report["token"])
         check(f"[{side}] report comes from the DEV place", str(report["placeId"]) == place, str(report["placeId"]))
@@ -879,7 +1030,7 @@ def parse_vector(text):
 
 
 def main(argv):
-    if len(argv) < 2 or argv[1] not in ("test", "state", "console", "stop", "manifest", "capture"):
+    if len(argv) < 2 or argv[1] not in ("test", "state", "console", "stop", "manifest", "capture", "studios"):
         sys.exit(__doc__)
     if argv[1] != "capture" and len(argv) != 2:
         sys.exit(__doc__)
@@ -918,7 +1069,12 @@ def main(argv):
             print(f"[capture] wrote {os.path.relpath(saved, REPO)} (mode: {studio.mode()}). "
                   "Look at it before you claim what it shows (rule 5).")
             return 0
-        if cmd == "state":
+        if cmd == "studios":
+            # The one command that answers "can this harness ever drive two players?" (Task 30).
+            # A 2-client local test starts extra Studio processes; if they register with StudioMCP
+            # they appear here with their own ids, and every tool takes a studio_id.
+            print(studio.studios())
+        elif cmd == "state":
             print(studio.mode())
         elif cmd == "console":
             print(studio.console())

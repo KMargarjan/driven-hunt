@@ -160,6 +160,44 @@ function Mode.cameraCFrame(rootCFrame: CFrame, state: State, config): (Vector3, 
 	return pivot, CFrame.lookAt(position, position + look.LookVector), fovFor(state.blend, config)
 end
 
+-- The yaw and pitch that point the CAMERA at `point`, for a character at `rootCFrame`.
+--
+-- Not one line of trigonometry, because the camera does not sit at the pivot: it sits a boom behind
+-- it and over the right shoulder, and both of those move when the angles change. Aiming the PIVOT at
+-- a target 20 studs away leaves the camera pointing about 6 degrees off -- wide enough to miss a
+-- 2-stud boar. So this iterates: take the camera position the current angles produce, aim from
+-- THERE, repeat. Each pass divides the error by about four -- MEASURED: aiming the pivot at a target
+-- 20 studs away leaves the camera 3.97 degrees off, four passes leave 0.08 -- so it runs six, which
+-- is still nothing (it happens once, when a shot is staged) and lands inside a hundredth of a degree.
+-- It is pure, so tests/server/camera_mode.spec.luau checks it with no client at all.
+--
+-- Used by Camera.lookAt, which the harness invokes to stage a scenario on a target
+-- (tools/studio_mcp.py, the `stage` step), and by nothing else today.
+function Mode.anglesToward(state: State, rootCFrame: CFrame, point: Vector3, config): State
+	local result = state
+	for _ = 1, 6 do
+		local _, desired = Mode.cameraCFrame(rootCFrame, result, config)
+		local to = point - desired.Position
+		if to.Magnitude < 1e-3 then
+			break -- the target is where the camera already is; leave the angles alone
+		end
+		local direction = to.Unit
+		-- The inverse of cameraCFrame's own convention: LookVector is
+		-- (-sin(yaw)cos(pitch), sin(pitch), -cos(yaw)cos(pitch)).
+		local pitch =
+			math.clamp(math.deg(math.asin(math.clamp(direction.Y, -1, 1))), config.PITCH_MIN_DEG, config.PITCH_MAX_DEG)
+		local yaw = wrapDeg(math.deg(math.atan2(-direction.X, -direction.Z)))
+		result = table.freeze({
+			mode = result.mode,
+			blend = result.blend,
+			yawDeg = yaw,
+			pitchDeg = pitch,
+			sinceModeChange = result.sinceModeChange,
+		})
+	end
+	return result
+end
+
 -- Where the viewmodel sits, relative to the camera, for a given EASED blend.
 function Mode.viewmodelOffset(easedBlend: number, config): CFrame
 	return config.VIEWMODEL_HIP_OFFSET:Lerp(config.VIEWMODEL_AIM_OFFSET, math.clamp(easedBlend, 0, 1))

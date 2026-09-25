@@ -10,6 +10,37 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-09-25 · NEEDS KAREN · Task 30: is a 2-player harness run possible at all?
+
+**Raised by:** Builder, Task 30 (branch `task-30-harness-multiplayer`). **Nothing is blocked**: the
+task is complete without this, and the answer only decides whether ROADMAP 1.6's automation is worth
+a future task or should be closed.
+
+**What is already known** (measured, `docs/research/2026-09-24-toolchain.md`, Task 30 addendum):
+StudioMCP's `start_stop_play` takes no player count, and `execute_luau`'s `datamodel_type` is an enum
+of `Edit` / `Client` / `Server` with no index — so one Studio cannot host a second addressable
+client. **But every tool takes a `studio_id`**, and `list_roblox_studios` says "several instances are
+commonly open at once". A local multi-client test starts extra Studio *processes*. If they register
+with StudioMCP, a 2-player harness is possible; if they do not, 1.6's automation is closed for good.
+
+**The exact clicks, once:**
+
+1. In Studio, on **Driven Hunt DEV**, open the **Test** tab.
+2. In the **Clients and Servers** group, set **Players** to **2**, leave the rest alone, and press
+   **Start**. Two extra client windows open.
+3. While they are running, in a terminal in `C:\Users\karen\Desktop\driven-hunt`, run exactly:
+
+   ```
+   python tools/studio_mcp.py studios
+   ```
+
+4. Paste the output under this entry. One line of JSON is the whole answer: if it lists **three or
+   more** studios, a 2-player harness is feasible and deserves a task; if it lists **one**, it is not
+   possible with this tool and `ROADMAP.md` 1.6 should say so.
+5. Press **Cleanup** in the Test tab to close the extra windows.
+
+**Note:** the harness's own tests do not run during that check, and nothing needs to be committed.
+The MCP server must be on (Studio → Assistant settings), which it already is.
 ## 2026-09-25 · CLOSED 2026-09-25 · Task 22 cannot be reviewed: the round counter has no task boundary
 
 **Raised by:** Builder, at loop step 5 of Task 22 (branch `task-22-playtest-ready`, code commit

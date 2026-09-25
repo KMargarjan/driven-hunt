@@ -13,7 +13,11 @@
 --   LocalTransparencyModifier       https://create.roblox.com/docs/reference/engine/classes/BasePart
 --   PlayerModule:GetCameras():Disable()  https://create.roblox.com/docs/reference/engine/classes/PlayerScripts
 --
+-- The foreign-write detector below compares the WHOLE CFrame -- position and orientation -- plus the
+-- field of view, which is what docs/design/camera.md section 10.1 always said it did.
+--
 -- Design: docs/design/camera.md (sections 3.1, 5.3, 10.1)
+-- Audit:  docs/architecture/audit-003.md (must-fix 2)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
@@ -116,7 +120,16 @@ function Rig.apply(cf: CFrame, fovDeg: number)
 		return
 	end
 	if lastCFrame and lastFov then
+		-- POSITION, ORIENTATION and field of view. Audit-003 must-fix 2: this compared position and
+		-- FOV only, so a second writer that turned the view without moving the camera -- a look-at
+		-- tween, a plugin, any future client system setting a CFrame with the same position -- read
+		-- as zero, and both specs that rest on this counter went green on evidence that could not
+		-- see the case they exist for. Two basis vectors, because LookVector alone misses a roll.
+		-- CameraType and CameraSubject are deliberately NOT compared: the engine restores both on
+		-- respawn, so either would count the engine as a foreign writer every life (audit-003).
 		local drifted = (cam.CFrame.Position - lastCFrame.Position).Magnitude > 1e-3
+			or (cam.CFrame.LookVector - lastCFrame.LookVector).Magnitude > 1e-3
+			or (cam.CFrame.RightVector - lastCFrame.RightVector).Magnitude > 1e-3
 			or math.abs(cam.FieldOfView - lastFov) > 1e-3
 		if drifted then
 			foreignCameraWrites += 1
@@ -124,10 +137,13 @@ function Rig.apply(cf: CFrame, fovDeg: number)
 				warned = true
 				warn(
 					string.format(
-						"[camera] something else wrote CurrentCamera: %s fov %.2f, expected %s fov %.2f",
+						"[camera] something else wrote CurrentCamera: %s look %s fov %.2f,"
+							.. " expected %s look %s fov %.2f",
 						tostring(cam.CFrame.Position),
+						tostring(cam.CFrame.LookVector),
 						cam.FieldOfView,
 						tostring(lastCFrame.Position),
+						tostring(lastCFrame.LookVector),
 						lastFov
 					)
 				)

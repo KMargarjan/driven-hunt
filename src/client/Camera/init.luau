@@ -49,6 +49,7 @@ local aimSource: AimSource? = nil
 local started = false
 local connections: { RBXScriptConnection } = {}
 local acquired, acquireReason = false, nil :: string?
+local lookAtRequest: BindableFunction? = nil
 
 local signal = Instance.new("BindableEvent")
 Camera.Changed = signal.Event
@@ -58,6 +59,7 @@ local stats = {
 	cursorReasserts = 0,
 	maxDistanceFromRoot = 0,
 	maxUpdateMs = 0,
+	totalUpdateMs = 0,
 	viewmodelParented = false,
 	aimEnters = 0,
 	aimExits = 0,
@@ -95,6 +97,11 @@ end
 
 function Camera.stats()
 	local out = table.clone(stats)
+	-- The budget (design section 8.2) is what this costs every frame, so the AVERAGE is the number
+	-- that means it. The max is kept and reported, but one 0.4 ms frame while Studio is compiling a
+	-- spec file is a hitch in the session, not a camera that costs too much: Task 26's own runs
+	-- measured maxima between 0.22 and 0.34 ms for identical code.
+	out.avgUpdateMs = if stats.frames > 0 then stats.totalUpdateMs / stats.frames else 0
 	out.foreignCameraWrites = Rig.stats().foreignCameraWrites
 	out.cursorReasserts = Cursor.stats().reasserts
 	out.viewmodelParented = Viewmodel.isParented()
@@ -127,6 +134,21 @@ local function characterParts()
 		end
 	end
 	return cachedCharacter, cachedRoot, cachedHumanoid
+end
+
+-- Point the camera at a world position, through the state machine, as if the player had turned to
+-- it. Returns false when there is no character to turn yet. The OWNER writes; the caller asks.
+--
+-- It exists so a test can aim: the camera's yaw comes from mouse movement, and under
+-- MouseBehavior = LockCenter the harness cannot deliver usable deltas (design section 9.3), which is
+-- why there has never been an end-to-end "shoot the thing you are looking at" assertion.
+function Camera.lookAt(point: Vector3): boolean
+	local _, root = characterParts()
+	if not root then
+		return false
+	end
+	state = Mode.anglesToward(state, root.CFrame, point, Config)
+	return true
 end
 
 local function update(dt: number)
@@ -174,7 +196,9 @@ local function update(dt: number)
 
 	Cursor.apply()
 	stats.frames += 1
-	stats.maxUpdateMs = math.max(stats.maxUpdateMs, (os.clock() - startedAt) * 1000)
+	local tookMs = (os.clock() - startedAt) * 1000
+	stats.maxUpdateMs = math.max(stats.maxUpdateMs, tookMs)
+	stats.totalUpdateMs += tookMs
 end
 
 function Camera.start()
@@ -210,6 +234,21 @@ function Camera.start()
 		end)
 	)
 
+	-- The harness's only way in. execute_luau has its OWN module cache -- measured 2026-09-25: a
+	-- require() through it reports mode=Loading and frames=0 while the live camera is Scriptable at
+	-- FOV 70 -- so it cannot call this module's functions at all. An Instance is shared, so the
+	-- request crosses on one. This is a REQUEST, exactly as Cursor.requestFree is: the owner still
+	-- does the writing, and workspace.CurrentCamera still has one writer in the whole repo.
+	lookAtRequest = Instance.new("BindableFunction")
+	lookAtRequest.Name = "LookAtRequest"
+	lookAtRequest.OnInvoke = function(x: any, y: any, z: any)
+		if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
+			return false
+		end
+		return Camera.lookAt(Vector3.new(x, y, z))
+	end
+	lookAtRequest.Parent = script
+
 	RunService:BindToRenderStep(Config.RENDER_STEP_NAME, Enum.RenderPriority.Camera.Value, update)
 end
 
@@ -223,6 +262,10 @@ function Camera.stop()
 		connection:Disconnect()
 	end
 	table.clear(connections)
+	if lookAtRequest then
+		lookAtRequest:Destroy()
+		lookAtRequest = nil
+	end
 	Viewmodel.clear()
 	Rig.setLocalBodyHidden(false)
 	Rig.release()
