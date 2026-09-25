@@ -67,6 +67,7 @@ local stats = {
 	grantsMissed = 0, -- a tool built for a player with no Backpack: nothing recorded, tried again later
 	revoked = 0,
 	armingRepairs = 0, -- a sweep found a player who should be holding a gun and was not
+	armingSweeps = 0, -- passes of the sweep below: 0 in a running server means it is not running
 	emptySwaps = 0,
 	markers = 0,
 }
@@ -158,13 +159,25 @@ local function holdsTool(player: Player): boolean
 	return true
 end
 
+-- The whole arming decision, as a pure function of the two facts it depends on. Exported so it can
+-- be asserted without taking a live player's gun away: a spec that did that broke three client
+-- specs, which were right to complain (Task 34).
+function Weapon.armingAction(allowed: boolean, holding: boolean): string?
+	if allowed and not holding then
+		return "grant"
+	elseif not allowed and holding then
+		return "revoke"
+	end
+	return nil
+end
+
 -- Re-evaluate now, and grant or revoke to match. The drive calls this when a team is assigned after
 -- the character already spawned -- the join-mid-drive race -- and the weapon still does the writing.
 function Weapon.refreshArming(player: Player)
-	local allowed = mayArm(player)
-	if allowed and not holdsTool(player) then
+	local action = Weapon.armingAction(mayArm(player), holdsTool(player))
+	if action == "grant" then
 		Weapon.grant(player)
-	elseif not allowed and holdsTool(player) then
+	elseif action == "revoke" then
 		Weapon.revoke(player)
 	end
 end
@@ -541,6 +554,7 @@ function Weapon.start()
 	task.spawn(function()
 		while true do
 			task.wait(ARMING_SWEEP_SECONDS)
+			stats.armingSweeps += 1
 			for _, player in ipairs(Players:GetPlayers()) do
 				local wanted = mayArm(player)
 				if wanted and not holdsTool(player) then
