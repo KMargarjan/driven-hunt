@@ -110,7 +110,7 @@ function Boar.defaultWorld(field)
 	params.FilterDescendantsInstances = {}
 	local paths = {} -- agentId -> Path, one per boar, created once
 	local blockedListeners = {} -- agentId -> the Runtime's onBlocked for that boar
-	local lastPathProblem = nil :: string? -- the most recent ComputeAsync failure reason
+	local pathProblems = {} -- reason -> count, EVERY ComputeAsync failure, not just the last
 
 	local world
 	world = {
@@ -169,7 +169,8 @@ function Boar.defaultWorld(field)
 					-- Record WHY, not just that it failed. A permanent silent fallback to
 					-- straight-line flee is the failure mode this exists to make visible, and
 					-- "it failed" is not enough to act on (Task 18 harness run 1).
-					lastPathProblem = if ok then tostring(path.Status) else "error: " .. tostring(err)
+					local reason = if ok then tostring(path.Status) else "error: " .. tostring(err)
+					pathProblems[reason] = (pathProblems[reason] or 0) + 1
 					done(nil)
 					return
 				end
@@ -183,10 +184,12 @@ function Boar.defaultWorld(field)
 			end)
 		end,
 
-		-- The most recent reason a path request failed, or nil if none has. Read by specs and by
-		-- anyone diagnosing a silent fallback; it is a diagnostic, not state the Brain uses.
-		lastPathProblem = function(): string?
-			return lastPathProblem
+		-- Every distinct reason a path request has failed, with a count for each. A single "last
+		-- reason" slot hid any failure but the final one (review round 4, finding 2), which matters
+		-- precisely when the interesting failure is the rare one. A diagnostic, not state the Brain
+		-- uses.
+		pathProblems = function(): { [string]: number }
+			return table.clone(pathProblems)
 		end,
 
 		-- Called when a boar despawns, so its Path object and listener are not kept alive.

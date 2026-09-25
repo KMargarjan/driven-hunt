@@ -75,7 +75,7 @@ return function()
 			end,
 			requestPath = production.requestPath,
 			releasePath = production.releasePath,
-			lastPathProblem = production.lastPathProblem,
+			pathProblems = production.pathProblems,
 		}
 		return world
 	end
@@ -223,24 +223,34 @@ return function()
 			-- the tests above - on the Reynolds fallback alone. If a failure ever arrives with a
 			-- reason other than NoPath, that is new and this fails.
 			if stats.pathFailures > 0 then
-				local problem = world.lastPathProblem and world.lastPathProblem() or "unknown"
-				print(
-					string.format(
-						"[boar_body] %d of %d path requests failed on the spec plate; last: %s",
-						stats.pathFailures,
-						stats.pathRequests,
-						tostring(problem)
-					)
-				)
-				expect(problem).to.equal(tostring(Enum.PathStatus.NoPath))
+				-- EVERY distinct reason, not just the last: with 36 failures a single rare pcall
+				-- error would otherwise be discarded by the next NoPath (review round 4, finding 2).
+				-- NoPath is the one reason this plate is expected to produce; any other is new.
+				local counted = 0
+				for reason, count in pairs(world.pathProblems()) do
+					print(string.format("[boar_body] spec plate: %d x %s", count, reason))
+					expect(reason).to.equal(tostring(Enum.PathStatus.NoPath))
+					counted += count
+				end
+				expect(counted).to.equal(stats.pathFailures)
 			end
 		end)
 
-		it("can route across the REAL arena, which is where the game plays", function()
-			-- The assertion the one above cannot make. Production's field is at y = 0 on the Task 17
-			-- arena, and this is the check that would catch the navmesh genuinely being unusable for
-			-- a 2 x 3 x 5.5 agent - the case that would silently reduce every boar to straight-line
-			-- flight (rule 6: test the player's path).
+		it("routes AROUND the arena's cover, not straight over the Baseplate", function()
+			-- Round 4, finding 1: the first version of this test never waited for the arena and never
+			-- checked it was there, so it could pass over the default Baseplate alone - and did. 54
+			-- waypoints for a 210-stud route is a straight line, which means WallWest was not in the
+			-- navmesh at all, and a route that does not detour proves nothing about routing around
+			-- cover - which is the whole reason the boar paths instead of running straight.
+			local arena = nil
+			local appeared = waitUntil(5, function()
+				arena = Workspace:FindFirstChild("TestArena")
+				return arena ~= nil
+			end)
+			expect(appeared).to.equal(true)
+			local wall = arena:FindFirstChild("WallWest")
+			expect(wall).to.be.ok()
+
 			local production = Boar.defaultWorld()
 			local field = CONFIG.field
 			local from = CONFIG.spawnPoint + Vector3.new(0, CONFIG.BODY_SIZE.Y / 2, 0)
@@ -250,21 +260,30 @@ return function()
 			production.requestPath("arena-probe", from, to, function(points)
 				replied, waypoints = true, points
 			end, function() end)
-
 			local got = waitUntil(10, function()
 				return replied
 			end)
 			expect(got).to.equal(true)
 			if not waypoints then
-				print(
-					string.format(
-						"[boar_body] arena path failed: %s",
-						tostring(production.lastPathProblem() or "unknown")
-					)
-				)
+				for reason, count in pairs(production.pathProblems()) do
+					print(string.format("[boar_body] arena path failed: %d x %s", count, reason))
+				end
 			end
 			expect(waypoints).to.be.ok()
 			expect(#waypoints > 0).to.equal(true)
+
+			-- The route runs from x = spawnPoint.X straight at WallWest (80 studs wide, centred on
+			-- x = -60, lying across z = -100), so a real navmesh route has to leave that line to get
+			-- past either end of it. A straight line does not.
+			local lateral = 0
+			for _, point in ipairs(waypoints) do
+				lateral = math.max(lateral, math.abs(point.X - from.X))
+				local insideX = math.abs(point.X - wall.Position.X) <= wall.Size.X / 2
+				local insideZ = math.abs(point.Z - wall.Position.Z) <= wall.Size.Z / 2
+				expect(insideX and insideZ).to.equal(false) -- never routed through the wall itself
+			end
+			print(string.format("[boar_body] arena route: %d waypoints, max lateral %.1f", #waypoints, lateral))
+			expect(lateral > 15).to.equal(true)
 			production.releasePath("arena-probe")
 		end)
 	end)
