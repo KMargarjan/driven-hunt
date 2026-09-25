@@ -1,12 +1,12 @@
 # Task 28 — hit zones, wounds and the hit marker
 
 Task: 28
-Round: 1
+Round: 2
 Base: `a8fde68`
-Code commit: `1f0642bb963ae62ff6037b3023cec6ffa2fa9129`
+Code commit: `47fc9482da66a88593ecd101e1254ffd991a17b5`
 
 ```
-[harness] PASS: 26/26 checks @ 1f0642bb963ae62ff6037b3023cec6ffa2fa9129 (clean tree)
+[harness] PASS: 26/26 checks @ 47fc9482da66a88593ecd101e1254ffd991a17b5 (clean tree)
 ```
 
 156 server and 44 client `it` blocks across 16 spec files (`main` had 96 and 37).
@@ -21,7 +21,7 @@ character and aims the camera) is **queued, not built** — see claim 8.
 ## Claims
 
 1. **The zones are reachable by real rays, and that is the assertion that matters.**
-   `boar_zones.spec` fires **twelve** rays from outside a live boar, in its own frame, and reads the
+   `boar_zones.spec` fires **twelve** rays (the design asks for nine) from outside a live boar, in its own frame, and reads the
    zone back through the **weapon's** `Hits.targetOf`: head from the front, both flanks and above;
    chest from both flanks and above; legs low on a flank and at the rear; body at both mid-flanks and
    the rear above the hams. Nest a zone part inside the trunk (design §4.1's trap — a ray returns the
@@ -101,12 +101,41 @@ character and aims the camera) is **queued, not built** — see claim 8.
     `efd = 1.14·M^0.73` and `mfd = 4.92·M^0.73` give **100 and 429 studs** at 80 kg against
     `FLIGHT.body = 120` and `FLIGHT.legs = 420`.
 
+## Screenshots, inspected (rule 5)
+
+Round 1's blocking finding was that two visual changes shipped with nothing said about what is on
+screen. The captures existed; the request did not describe them. All six are in `.screenshots/`:
+
+- **`task28-boar-zones-live-2`** — a live boar broadside at ~17 studs. It reads as **one animal with
+  a front**, not four boxes: the tan trunk, a pink head block standing proud at the front, a pink
+  chest band behind the shoulder, and a darker tan band along the bottom third for the legs. Every
+  tint is distinct from `BODY_COLOR` and from the near-white plate, so the `ZONE_TINT` decision
+  (design §12.6 shot 1) reads correctly on screen. No albedo trap this time.
+- **`task28-boar-front-2`** — the same boar head-on (it had to be waited for: the camera's yaw is
+  fixed, so a front view means waiting until the boar faces the player). The head block is centred
+  and clearly in front of the body; the legs band shows below it.
+- **`task28-boar-zones-front`** and **`task28-hit-reaction`**, ~1 s apart from the same place: the
+  boar standing broadside at 45 studs, then much smaller and further away, side-on and running. That
+  is the bolt.
+- **`task28-carcass-zones`** — the carcass **lying on its side** on the ground, head block and chest
+  band visible along it. This is the shot that caught claim 6: the first version of it showed the
+  same boar standing bolt upright.
+- **`task28-hit-marker-kill`** and **`task28-hit-marker-hit`** — the marker on screen, centred on the
+  crosshair: four **red** diagonal ticks for a kill, four **white** ones for a hit. Legible at a
+  glance and clearly different from each other and from the crosshair.
+
+**The marker screenshots are staged and the staging matters**: a marker lasts 0.15 s (hit) or 0.45 s
+(kill) and a capture round trip is about a second, so a server-side loop re-fired the **real**
+server → shooter event every 0.08 s while the captures were taken. What is on screen is the real Hud
+drawing a real `HitMarker` event; only the repetition is artificial.
+
+**The flash was not photographed at all.** It lasts `FLASH_SECONDS = 0.25`, and I did not attempt a
+capture rather than imply one. The property change is asserted instead (`boar_hit.spec`: it flashes,
+it puts each part's own colour back, the zone tint survives).
+
 ## What I could not verify
 
 - **Karen has not played it.** Every feel value is the design's default, `ZONE_TINT` included.
-- **The flash could not be photographed.** It lasts `FLASH_SECONDS = 0.25`; one capture round trip is
-  about a second. The property change is asserted in `boar_hit.spec` (flash on, own colours back,
-  zone tint intact) and the capture was not attempted rather than implied.
 - **Every screenshot of a shot is staged**, because the harness cannot aim (design §12.5, and D is
   queued): a scratchpad script teleports the character and has the **client** compute a direction and
   fire the **real** `FireRequest` remote. Validation, the cast, the pellets, `takeHit`, the wound
@@ -119,3 +148,14 @@ character and aims the camera) is **queued, not built** — see claim 8.
   rear above the hams instead.
 - **`unknownZoneHits` counts hits, not pellets** (the design names neither), and `zoneHits` counts
   **pellets** per zone so that it sums to `pelletsTaken`.
+- **Design §12.5's `fire-at-boar` input scenario was not added**, and round 1 was right that the
+  deviation went undeclared. It is a near-duplicate of the committed `weapon-fire-reload-ammo`
+  scenario, and the design itself says it would assert the weapon's own state and **not** that a boar
+  was hit, so nothing is lost — but it is a deviation, and it is now queued as Task 28a.
+- **Round 1's other notes are fixed, not queued**, except where noted: twelve rays (three comments
+  said nine), five RemoteEvents in the weapon's header, a carcass no longer re-freezing a wound state
+  60 times a second for two minutes, a live reaction bound of 0.1 s instead of exactly
+  `SENSE_INTERVAL`, and four more config numbers in the loop-closing comparison. Queued as **Task
+  28a**: the `fire-at-boar` scenario, the cross-report ordering in `hit_marker.spec`, and
+  `KillRecord.flightStuds` carrying the distance run while `WoundState.flightStuds` means the target
+  distance — the design's naming, worth fixing before 1.7 consumes the record.
