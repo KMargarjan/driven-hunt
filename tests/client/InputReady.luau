@@ -19,7 +19,7 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local InputReady = {}
 
 InputReady.ATTRIBUTE = "InputProbeReady" -- must equal the scenario file's `readyAttribute`
-InputReady.EXPECTED = { "input_driving", "weapon_client" }
+InputReady.EXPECTED = { "input_driving", "weapon_client", "camera_client" }
 
 local done = {}
 
