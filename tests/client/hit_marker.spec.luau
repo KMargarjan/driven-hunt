@@ -70,14 +70,16 @@ return function()
 			-- is broken -- a missing RemoteEvent, a FireClient that never happens, a Hud that never
 			-- connects -- nothing arrives and this is red.
 			--
-			-- THE SHOOTER'S CLAIM, AND ONLY HIS, AND THE REASON IS A MEASUREMENT I CANNOT EXPLAIN
-			-- (Task 36, and TASKS.md row 36a). In a Studio "Clients and Servers" local test the
-			-- server marked BOTH players -- its own note says so and its counter asserts it -- and
-			-- the second client received nothing, in two separate runs, while every FireAllClients
-			-- payload (MatchState, MatchEvent) reached it in the same sessions. So a driver waits
-			-- for a marker that measurably does not come, and asserting it here would fail a run for
-			-- something neither this spec nor the weapon owns. The note below records the number
-			-- every run, so the day it changes, it is visible.
+			-- THE SHOOTER'S CLAIM, AND ONLY HIS, BECAUSE THE OTHER HALF IS A START-ORDER RACE
+			-- (Task 36, TASKS.md row 36a). weapon_hits.spec sends its markers ONCE, wherever the
+			-- server's suite has got to; a client only hears them if its own listener already
+			-- exists. The shooter is immune by accident -- he also receives one for every shot he
+			-- lands, all session -- but a DRIVER receives nothing else at all, so on a run where his
+			-- client starts after the send he is told about a broken wire that is not broken.
+			-- MEASURED, and it is why this is written this way rather than with a longer window: in
+			-- one two-player run he received 0 in 174 s, and in the next, with the same code on both
+			-- sides, 2 within 14 s of his suite starting. A window cannot fix an event that was
+			-- already over. The note below records the number every run.
 			local arrived = waitUntil(if Role.isShooter() then SERVER_MARKER_TIMEOUT else 5, function()
 				return #received > 0
 			end)
@@ -95,8 +97,8 @@ return function()
 			if Role.isDriver() then
 				-- What IS asserted for a driver: the remote exists on his client and the Hud is
 				-- listening to it (the next `it`), and the whole drawing path works (the describe
-				-- below drives Hud.onHitMarker, the exact function the remote is bound to). If a
-				-- marker did arrive, it must still be a well-formed one.
+				-- below drives Hud.onHitMarker, the exact function the remote is bound to). And if
+				-- a marker did arrive -- it usually does -- it must be a well-formed one.
 				expect(Shotgun.remotes().HitMarker:IsA("RemoteEvent")).to.equal(true)
 				if #received > 0 then
 					expect(type(received[1])).to.equal("table")
