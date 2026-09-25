@@ -10,7 +10,15 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
-## 2026-09-25 · NEEDS KAREN · Task 30: is a 2-player harness run possible at all?
+## 2026-09-25 · CLOSED 2026-09-25 · Task 30: is a 2-player harness run possible at all?
+
+**ANSWERED — yes, it is possible.** Karen ran Test -> Clients and Servers with 2 players and
+`python tools/studio_mcp.py studios` listed **FOUR** studios: the DEV edit Studio
+("Driven Hunt DEV (placeId: 136410205938347)") plus three unnamed ones - the local server and
+the two clients. So the extra Studio processes DO register with StudioMCP and every tool takes a
+`studio_id`, which is the route a 2-player harness would use. The Director has queued
+**"harness runs specs with 2 players"** as its own task (`TASKS.md` row 33); it is not part of
+Task 32. Reported by the Director, 2026-09-25.
 
 **Raised by:** Builder, Task 30 (branch `task-30-harness-multiplayer`). **Nothing is blocked**: the
 task is complete without this, and the answer only decides whether ROADMAP 1.6's automation is worth
