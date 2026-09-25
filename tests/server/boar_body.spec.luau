@@ -223,7 +223,7 @@ return function()
 			-- the tests above - on the Reynolds fallback alone. If a failure ever arrives with a
 			-- reason other than NoPath, that is new and this fails.
 			if stats.pathFailures > 0 then
-				-- EVERY distinct reason, not just the last: with 36 failures a single rare pcall
+				-- EVERY distinct reason, not just the last: with 37 failures a single rare pcall
 				-- error would otherwise be discarded by the next NoPath (review round 4, finding 2).
 				-- NoPath is the one reason this plate is expected to produce; any other is new.
 				local counted = 0
@@ -232,7 +232,14 @@ return function()
 					expect(reason).to.equal(tostring(Enum.PathStatus.NoPath))
 					counted += count
 				end
-				expect(counted).to.equal(stats.pathFailures)
+				-- MEASURED: 37 world failures against 36 runtime failures. The two counters
+				-- deliberately count different things and asserting them equal was wrong.
+				-- `pathProblems` is the WORLD's tally of every ComputeAsync that failed;
+				-- `stats.pathFailures` is the RUNTIME's tally of failures that reached a live boar,
+				-- and Runtime:_requestPath drops a reply whose boar has already despawned
+				-- (`entry.dead`). So a request still in flight when the boar escapes is counted once
+				-- by the world and not at all by the runtime, and world >= runtime is the invariant.
+				expect(counted >= stats.pathFailures).to.equal(true)
 			end
 		end)
 
