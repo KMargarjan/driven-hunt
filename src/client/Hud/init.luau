@@ -1,7 +1,8 @@
 --!strict
 -- PlayerScripts.Hud: THE OWNER OF ANYTHING DRAWN (CLAUDE.md rule 3, GAME_DESIGN.md "UI / anything
 -- drawn", which this system fills). It is the only writer of PlayerGui.HunterHud and everything in
--- it: the crosshair, one barrel/ammo readout, and -- since Milestone 1.5 -- the hit marker.
+-- it: the crosshair, one barrel/ammo readout, the hit marker, and -- since Milestone 1.7a -- the
+-- drive bar and the event feed.
 --
 -- THE HIT MARKER is Karen's playtest answered ("I cannot tell whether I hit"): a short white tick on
 -- a confirmed hit, a longer red one on a kill. The server tells the shooter alone, one way, over
@@ -22,7 +23,9 @@
 -- Note:   docs/research/2026-09-24-shotgun.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
+local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Hud = {}
@@ -34,6 +37,10 @@ local hitMark: Frame? = nil
 local hitKind: string? = nil
 local hitToken = 0 -- so a second hit during the first mark's life cannot hide it early
 local markerConnection: RBXScriptConnection? = nil
+local driveBar: TextLabel? = nil
+local feedFrame: Frame? = nil -- kept for the client spec's ancestor walk
+local feedLines: { TextLabel } = {}
+local feedEntries: { { text: string, at: number } } = {}
 local started = false
 
 function Hud.gui(): ScreenGui?
@@ -46,6 +53,28 @@ end
 
 function Hud.readoutText(): string
 	return if readout then readout.Text else ""
+end
+
+function Hud.driveBarText(): string
+	return if driveBar then driveBar.Text else ""
+end
+
+function Hud.isDriveBarVisible(): boolean
+	return driveBar ~= nil and driveBar.Visible
+end
+
+function Hud.feed(): Frame?
+	return feedFrame
+end
+
+function Hud.feedText(): { string }
+	local out = {}
+	for _, line in ipairs(feedLines) do
+		if line.Visible and line.Text ~= "" then
+			table.insert(out, line.Text)
+		end
+	end
+	return out
 end
 
 function Hud.isHitMarkVisible(): boolean
@@ -165,6 +194,55 @@ local function build(): ScreenGui
 		diagonal.Rotation = corner.rotation
 	end
 
+	-- The drive bar, top centre: MM:SS, the phase while it is not Running, the team badge and how
+	-- many boars are left. One line, because a grey box needs the numbers and not a dashboard.
+	local bar = Instance.new("TextLabel")
+	bar.Name = "DriveBar"
+	bar.BackgroundTransparency = 1
+	bar.Font = Enum.Font.Code
+	bar.TextSize = Drive.CONFIG.BAR_TEXT_SIZE
+	bar.TextColor3 = Drive.CONFIG.TEXT_COLOR
+	bar.AnchorPoint = Vector2.new(0.5, 0)
+	bar.Position = UDim2.new(0.5, 0, 0, Drive.CONFIG.BAR_TOP_OFFSET)
+	bar.Size = UDim2.fromOffset(520, 26)
+	bar.Text = ""
+	bar.Visible = false
+	local barStroke = Instance.new("UIStroke")
+	barStroke.Thickness = 1
+	barStroke.Color = Color3.new(0, 0, 0)
+	barStroke.Parent = bar
+	bar.Parent = screen
+
+	-- The event feed, bottom left: the last few things that happened, each fading on its own.
+	local feed = Instance.new("Frame")
+	feed.Name = "Feed"
+	feed.BackgroundTransparency = 1
+	feed.AnchorPoint = Vector2.new(0, 1)
+	feed.Position = UDim2.new(0, Drive.CONFIG.FEED_LEFT_OFFSET, 1, -Drive.CONFIG.FEED_BOTTOM_OFFSET)
+	feed.Size = UDim2.fromOffset(420, Drive.CONFIG.FEED_LINES * 20)
+	feed.Parent = screen
+
+	table.clear(feedLines)
+	for index = 1, Drive.CONFIG.FEED_LINES do
+		local line = Instance.new("TextLabel")
+		line.Name = string.format("Line%d", index)
+		line.BackgroundTransparency = 1
+		line.Font = Enum.Font.Code
+		line.TextSize = Drive.CONFIG.FEED_TEXT_SIZE
+		line.TextColor3 = Drive.CONFIG.TEXT_COLOR
+		line.TextXAlignment = Enum.TextXAlignment.Left
+		line.Position = UDim2.fromOffset(0, (index - 1) * 20)
+		line.Size = UDim2.fromOffset(420, 20)
+		line.Text = ""
+		line.Visible = false
+		local lineStroke = Instance.new("UIStroke")
+		lineStroke.Thickness = 1
+		lineStroke.Color = Color3.new(0, 0, 0)
+		lineStroke.Parent = line
+		line.Parent = feed
+		table.insert(feedLines, line)
+	end
+
 	local label = Instance.new("TextLabel")
 	label.Name = "Readout"
 	label.BackgroundTransparency = 1
@@ -185,6 +263,8 @@ local function build(): ScreenGui
 	crosshair = container
 	readout = label
 	hitMark = mark
+	driveBar = bar
+	feedFrame = feed
 	return screen
 end
 
@@ -242,6 +322,82 @@ local function textFor(state: Shotgun.WeaponSnapshot): string
 	return string.format("%s %s %d%s%s", glyphs, string.upper(state.ammo), pocket, busyMark, notice)
 end
 
+local function clockText(seconds: number): string
+	local whole = math.max(0, math.floor(seconds))
+	return string.format("%d:%02d", math.floor(whole / 60), whole % 60)
+end
+
+-- The bar's whole content. `MatchSystem` may be nil -- the Hud works with no drive at all, exactly
+-- as it works with no camera -- and then the bar is simply hidden.
+local function renderDrive(MatchSystem)
+	local bar = driveBar
+	if not bar then
+		return
+	end
+	local snapshot = if MatchSystem then MatchSystem.get() else nil
+	if not snapshot then
+		bar.Visible = false
+		bar.Text = ""
+		return
+	end
+
+	local team = MatchSystem.myTeam()
+	local badge = if team == "Drivers" then "DRIVER" elseif team == "Shooters" then "SHOOTER" else ""
+	bar.TextColor3 = if team == "Drivers"
+		then Drive.CONFIG.DRIVER_COLOR
+		elseif team == "Shooters" then Drive.CONFIG.SHOOTER_COLOR
+		else Drive.CONFIG.TEXT_COLOR
+
+	local phase = snapshot.phase
+	local pieces = { string.format("DRIVE %d", snapshot.driveNumber) }
+	if phase == "Running" then
+		table.insert(pieces, clockText(MatchSystem.secondsLeft()))
+		table.insert(pieces, string.format("BOARS %d", snapshot.boarsLeft))
+	elseif phase == "Waiting" then
+		-- WHY it is waiting, in the words the server used: "players", or the missing tag names.
+		table.insert(pieces, "WAITING " .. table.concat(snapshot.waitingFor, ","))
+	else
+		table.insert(pieces, string.upper(phase))
+		table.insert(pieces, clockText(MatchSystem.secondsLeft()))
+	end
+	if badge ~= "" then
+		table.insert(pieces, badge)
+	end
+	bar.Text = table.concat(pieces, "   ")
+	bar.Visible = true
+end
+
+local function feedTextFor(entry): string
+	local who = entry.name or (if entry.userId then tostring(entry.userId) else "")
+	if entry.kind == "kill" then
+		return string.format("%s  BOAR  %s", who, tostring(entry.zone or "?"))
+	elseif entry.kind == "escape" then
+		return "a boar got away"
+	elseif entry.kind == "violation" then
+		return string.format("%s tied to a tree", who)
+	elseif entry.kind == "join" then
+		return string.format("%s joined", who)
+	elseif entry.kind == "leave" then
+		return string.format("%s left", who)
+	end
+	return tostring(entry.text or entry.kind)
+end
+
+local function renderFeed(atClock: number)
+	local cutoff = atClock - Drive.CONFIG.FEED_SECONDS
+	while #feedEntries > 0 and feedEntries[1].at < cutoff do
+		table.remove(feedEntries, 1)
+	end
+	while #feedEntries > Drive.CONFIG.FEED_LINES do
+		table.remove(feedEntries, 1)
+	end
+	for index, line in ipairs(feedLines) do
+		local entry = feedEntries[index]
+		line.Text = if entry then entry.text else ""
+		line.Visible = entry ~= nil
+	end
+end
+
 local function render(Weapon, CameraSystem)
 	local state = Weapon.get()
 	local config = Shotgun.CONFIG
@@ -270,12 +426,40 @@ function Hud.start()
 	-- hides the crosshair for aiming. One-way: the camera has no reference to the Hud.
 	local cameraModule = scripts:FindFirstChild("Camera")
 	local CameraSystem = if cameraModule then require(cameraModule) else nil
+	-- The drive may not exist (it is its own system, and 1.7a is the first task that ships it); the
+	-- Hud works without it and simply draws no bar. One-way: the match has no reference to the Hud.
+	local matchModule = scripts:FindFirstChild("Match")
+	local MatchSystem = if matchModule then require(matchModule) else nil
 
 	gui = build();
 	(gui :: ScreenGui).Parent = player:WaitForChild("PlayerGui")
 
 	-- One way: the server tells this client that something of theirs landed. The Hud never fires it.
 	markerConnection = Shotgun.remotes().HitMarker.OnClientEvent:Connect(Hud.onHitMarker)
+
+	if MatchSystem then
+		MatchSystem.Changed:Connect(function()
+			renderDrive(MatchSystem)
+		end)
+		MatchSystem.Feed:Connect(function(entry)
+			table.insert(feedEntries, { text = feedTextFor(entry), at = os.clock() })
+			renderFeed(os.clock())
+		end)
+		-- The timer is the one thing that has to be redrawn without an event, because it counts
+		-- down locally from a server timestamp (docs/design/drive.md section 9.1). Once a second,
+		-- not once a frame: the text only changes that often.
+		local sinceTick = 0
+		RunService.Heartbeat:Connect(function(dt)
+			sinceTick += dt
+			if sinceTick < 0.25 then
+				return
+			end
+			sinceTick = 0
+			renderDrive(MatchSystem)
+			renderFeed(os.clock())
+		end)
+		renderDrive(MatchSystem)
+	end
 
 	Weapon.Changed:Connect(function()
 		render(Weapon, CameraSystem)

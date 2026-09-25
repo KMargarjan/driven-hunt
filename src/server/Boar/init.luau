@@ -93,7 +93,11 @@ Boar.CONFIG = {
 	-- boar cannot drift onto the exit line (review round 2, finding 6). Clear of PillarMid at
 	-- (40, -40) and WallWest at (-60, -100) in the Task 17 arena.
 	spawnPoint = Vector3.new(-40, 0, 20),
-	maxBoars = 4, -- a guard, not a feature; production spawns one
+	-- A guard, not a feature. Raised from 4 in Milestone 1.7a: a killed boar stays in the list
+	-- for CARCASS_SECONDS = 120 and counts against this, so four kills inside two minutes would
+	-- stop a drive dead (docs/design/drive.md section 6.3). The drive's own MAX_ALIVE_BOARS = 4
+	-- counts only boars that are neither DOWN nor GONE.
+	maxBoars = 8,
 
 	BOUNDS_SLACK = 10,
 	FALL_LIMIT = 50,
@@ -427,6 +431,17 @@ function Runtime:takeHit(part: BasePart, hit): boolean
 		end
 	end
 	return false
+end
+
+-- Removes every live boar, through the same despawn path a boar takes when it leaves the field:
+-- Body.destroy, releasePath, the Despawned signal. Added in Milestone 1.7a because the DRIVE decides
+-- when a boar exists (docs/design/drive.md section 6.3) and the Match may not touch a boar Instance
+-- itself -- so the request comes here, to the owner. Carcasses go too: the drive is over.
+function Runtime:clear(reason: string?)
+	for index = #self._boars, 1, -1 do
+		local entry = self._boars[index]
+		self:_despawn(entry, index, reason or "cleared", Body.position(entry.body))
+	end
 end
 
 function Runtime:boars()

@@ -71,6 +71,11 @@ local remotes = nil -- resolved once in start(); Shotgun.remotes() is five WaitF
 local rng = Random.new()
 local castFn: Shotgun.CastFn = Cast.world
 local driveLineProvider: Shotgun.DriveLineProvider? = nil
+-- Injected by the drive at the composition root (docs/design/drive.md section 8.5). The THIRD
+-- injected provider on this owner, beside setCast and setDriveLineProvider -- the established idiom,
+-- not a new mechanism. nil restores Shotgun.CONFIG.shouldArm, which is what a server with no Match
+-- uses, so every tests/server/weapon_*.spec.luau is untouched.
+local armingPolicy: ((Player) -> boolean)? = nil
 
 function Weapon.setCast(cast: Shotgun.CastFn?)
 	castFn = cast or Cast.world
@@ -78,6 +83,34 @@ end
 
 function Weapon.setDriveLineProvider(provider: Shotgun.DriveLineProvider?)
 	driveLineProvider = provider
+end
+
+function Weapon.setArmingPolicy(policy: ((Player) -> boolean)?)
+	armingPolicy = policy
+end
+
+local function mayArm(player: Player): boolean
+	if armingPolicy then
+		local ok, allowed = pcall(armingPolicy, player)
+		-- A policy that errors must not leave a player permanently unarmed AND must not silently
+		-- arm everybody: fall back to the weapon's own default, which is what a server with no
+		-- Match uses anyway.
+		if ok then
+			return allowed == true
+		end
+	end
+	return CONFIG.shouldArm(player)
+end
+
+-- Re-evaluate now, and grant or revoke to match. The drive calls this when a team is assigned after
+-- the character already spawned -- the join-mid-drive race -- and the weapon still does the writing.
+function Weapon.refreshArming(player: Player)
+	local allowed = mayArm(player)
+	if allowed and not tools[player] then
+		Weapon.grant(player)
+	elseif not allowed and tools[player] then
+		Weapon.revoke(player)
+	end
 end
 
 function Weapon.stats()
@@ -404,7 +437,7 @@ end
 local function watchPlayer(player: Player)
 	connections[player] = connections[player] or {}
 	local function onCharacter()
-		if CONFIG.shouldArm(player) then
+		if mayArm(player) then
 			Weapon.grant(player)
 		end
 	end

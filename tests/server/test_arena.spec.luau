@@ -2,7 +2,11 @@
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- It checks what a player would meet in Workspace, not the module's own constants, so the numbers
 -- below are written out independently of src/server/TestArena.luau (CLAUDE.md rule 6).
+local CollectionService = game:GetService("CollectionService")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
+
+local TestArena = require(ServerScriptService:WaitForChild("TestArena"))
 
 local FOLDER_NAME = "TestArena"
 local GROUND_SPAN = 400 -- studs, X and Z
@@ -84,6 +88,85 @@ return function()
 			expect(math.abs((spawnPad.Position.Y - spawnPad.Size.Y / 2) - GROUND_TOP) < EPSILON).to.equal(true)
 			expect(math.abs(spawnPad.Position.X) + spawnPad.Size.X / 2 <= HALF_SPAN).to.equal(true)
 			expect(math.abs(spawnPad.Position.Z) + spawnPad.Size.Z / 2 <= HALF_SPAN).to.equal(true)
+		end)
+	end)
+
+	-- Milestone 1.7a: the drive's gameplay markers. The TAG is the contract -- Match.Markers asks
+	-- CollectionService and never looks at a name -- and this repo's harness compares attributes but
+	-- NOT tags, so this spec is the only proof they are there at all.
+	-- Design: docs/design/drive.md (sections 6.1, 12.5)
+	describe("the drive's markers", function()
+		local function tagged(tag: string): { BasePart }
+			local out = {}
+			for _, instance in ipairs(CollectionService:GetTagged(tag)) do
+				if instance:IsA("BasePart") and instance:IsDescendantOf(Workspace) then
+					table.insert(out, instance)
+				end
+			end
+			return out
+		end
+
+		it("places eight posts, one line, one driver start, four boar spawns and four trees", function()
+			expect(waitForArena()).to.be.ok()
+			expect(#tagged("DrivenHunt.ShooterPost")).to.equal(8)
+			expect(#tagged("DrivenHunt.DriveLine")).to.equal(1)
+			expect(#tagged("DrivenHunt.DriverStart")).to.equal(1)
+			expect(#tagged("DrivenHunt.BoarSpawn")).to.equal(4)
+			expect(#tagged("DrivenHunt.Tree")).to.equal(4)
+		end)
+
+		it("points the drive line AT THE DRIVERS, which is the direction the safety rule reads", function()
+			-- One assertion, and it is the difference between the rule firing on the right shots and
+			-- on exactly the wrong ones. A part's LookVector is its -Z face.
+			local line = tagged("DrivenHunt.DriveLine")[1]
+			expect(line).to.be.ok()
+			expect(line.CFrame.LookVector.Z > 0.99).to.equal(true)
+			expect(math.abs(line.Position.Z - -150) < EPSILON).to.equal(true)
+		end)
+
+		it("spaces the posts 40 studs apart, inside the plate and in front of the exit line", function()
+			local posts = tagged("DrivenHunt.ShooterPost")
+			table.sort(posts, function(a, b)
+				return a.Position.X < b.Position.X
+			end)
+			for index, post in ipairs(posts) do
+				-- inside the ground plate
+				expect(math.abs(post.Position.X) + post.Size.X / 2 <= HALF_SPAN).to.equal(true)
+				expect(math.abs(post.Position.Z) + post.Size.Z / 2 <= HALF_SPAN).to.equal(true)
+				-- strictly between the boar's exit line (-190) and the driver start (+170), so a
+				-- boar that beats the line still has room to leave
+				expect(post.Position.Z > -190 and post.Position.Z < 170).to.equal(true)
+				if index > 1 then
+					local gap = post.Position.X - posts[index - 1].Position.X
+					expect(math.abs(gap - 40) < EPSILON).to.equal(true)
+				end
+			end
+		end)
+
+		it("puts the boar spawns beyond the posts, where a drive starts from", function()
+			local posts = tagged("DrivenHunt.ShooterPost")
+			local spawns = tagged("DrivenHunt.BoarSpawn")
+			local start = tagged("DrivenHunt.DriverStart")[1]
+			for _, spawnPart in ipairs(spawns) do
+				expect(spawnPart.Position.Z > posts[1].Position.Z).to.equal(true)
+				expect(spawnPart.Position.Z < start.Position.Z).to.equal(true)
+			end
+		end)
+
+		it("re-uses the corner pillars as trees rather than building more", function()
+			local trees = tagged("DrivenHunt.Tree")
+			for _, tree in ipairs(trees) do
+				expect(string.sub(tree.Name, 1, 6)).to.equal("Pillar")
+			end
+		end)
+
+		it("tags nothing twice, however often the arena is built", function()
+			-- TestArena.build is idempotent by contract (its own header says so); a second call must
+			-- not produce a second set of tags, or Markers would see two drive lines and refuse to
+			-- start a drive at all.
+			local before = #tagged("DrivenHunt.ShooterPost")
+			TestArena.build()
+			expect(#tagged("DrivenHunt.ShooterPost")).to.equal(before)
 		end)
 	end)
 end
