@@ -3,95 +3,105 @@
 Task: 6
 Round: 1
 Base: `a7e4745`
-Code commit: `043fc7b8b27bfa80c3bb2c4d1e97229471bf1893`
+Code commit: `1b0e8fa1ccc1381cb9e02f3858c52109cdbedab9`
 
 ```
-[harness] PASS: 26/26 checks @ 043fc7b8b27bfa80c3bb2c4d1e97229471bf1893 (clean tree)
+[harness] PASS: 26/26 checks @ 1b0e8fa1ccc1381cb9e02f3858c52109cdbedab9 (clean tree)
 ```
+
+**This is the SECOND review of Task 6**, and the last: the dispatch allows two rounds. It says
+`Round: 1` because `tools/agents.py` restarts the count after a `PASS` (`expected = 1 if prev_rnd is
+None or prev_verdict == "PASS"`), and the first review passed with nine notes. I fixed the notes
+rather than queueing them, which moved `tests/` and `tools/` after the reviewed commit, so the merge
+gate needs this commit reviewed. The counter's blind spot — a re-review after a `PASS` cannot be
+numbered 2 — is recorded for the Director in `TASKS.md` under Task 21a.
 
 ## Task
 
-Director, 2026-09-25 (verbatim in `TASKS.md`): the smallest version of harness-driven input, exactly
-as `docs/design/shotgun.md` §13.3 asks for — a key down and up, a mouse button down and up, and two
-inputs in sequence with an observable gap — plus making captures saveable, which closes row 7.
-Blocking before the shotgun build.
+Director, 2026-09-25 (verbatim in `TASKS.md`): the smallest version of harness-driven input — a key
+down and up, a mouse button down and up, and two inputs in sequence with an observable gap — plus
+saveable captures, closing row 7. Blocking before the shotgun build.
 
 ## What changed
 
 | File | What |
 |---|---|
-| `tests/client/input_scenarios.txt` | **new.** The scenario, JSON in a `.txt` |
-| `tests/client/input_driving.spec.luau` | **new.** Binds CAS + UIS, records, asserts |
-| `tools/studio_mcp.py` | `replay_input`, `scenario_batches`, `load_scenarios`, `Studio.send_input`, `Studio.capture`, the `capture` command, and the docstring |
-| `.gitignore`, `CLAUDE.md`, `docs/research/2026-09-24-toolchain.md`, `TASKS.md` | `.screenshots/`, the two Run/test bullets, the research addendum, rows 6 and 7 plus the dispatch |
+| `tests/client/input_scenarios.txt` | **new.** The scenario: JSON in a `.txt` |
+| `tests/client/input_driving.spec.luau` | **new.** Binds CAS + UIS, records what the engine delivers, asserts |
+| `tools/studio_mcp.py` | `load_scenarios`, `check_step`, `scenario_batches`, `replay_input`, `Studio.send_input`, `Studio.capture`, the `capture` command, the docstring |
+| `.gitignore`, `CLAUDE.md`, `docs/research/2026-09-24-toolchain.md`, `docs/research/INDEX.md`, `TASKS.md` | `.screenshots/`, two Run/test bullets, the research addendum and its INDEX row, rows 6 and 7 plus the dispatch |
 
 ## Claims
 
-1. **It ran, and the input arrived.** The harness line above is a clean-tree PASS on the code commit,
-   with 26 checks (24 before, plus `[input] the client bound its listeners and published this run's
-   token` and `[input] replayed every step of 1 scenario(s) (6 steps sent)`), and 11 client assertions
-   where there were 4. **Verify:** the two new `check(...)` calls in `replay_input`.
+1. **It ran.** The harness line above is a clean-tree PASS on the code commit: 26 checks (24 before,
+   plus `[input] the client bound its listeners…` and `[input] replayed every step…`), 39 server and
+   11 client assertions where the client had 4.
 
-2. **The input came through the path a player's input takes.** `input_driving.spec.luau` binds
-   `ContextActionService:BindAction` over `Enum.KeyCode.F`, `Enum.KeyCode.R` and
-   `Enum.UserInputType.MouseButton1`, and connects `UserInputService.InputBegan/InputEnded/
-   InputChanged`. Every assertion is over `log`, which only those engine callbacks write — `record` is
-   called from nowhere else, and no test calls a handler. **Verify:** grep `record(` in that file.
+2. **The input arrives through the path a player's input takes.** The spec binds
+   `ContextActionService:BindAction` over `F`, `R`, `MouseButton1` and `MouseButton2`, and connects
+   `UserInputService.InputBegan/InputEnded/InputChanged`. Every assertion reads `log`, which only
+   those engine callbacks write — `record(` appears nowhere else, and nothing calls a handler.
 
-3. **The three things §13.3 asks for are each asserted.** `saw the key press and release as separate
-   events` (one `Begin`, one `End` for `F`); `saw the mouse button through ContextActionService, and
-   the move through UserInputService` (two CAS `MouseButton1` events, at least one UIS
-   `MouseMovement`); `carried the scenario's gap` — the gap around the scenario's `wait` step is
-   ≥ 0.6 × the requested 700 ms **and** strictly larger than every unwaited gap in the same run.
+3. **The three things the design asks for are each asserted:** the key's press and release as separate
+   events; the mouse button through CAS and the move through UIS; and the scenario's 700 ms gap, which
+   must be ≥ 0.6 × asked **and** strictly larger than every unwaited gap in the same run. Order is
+   asserted too, field by field, by `matchInOrder` against `expectedFrom`.
 
-4. **The order is asserted, not just the arrival.** `matchInOrder` walks the recorded log once,
-   consuming expectations in sequence, so the events must occur in the scenario's order; the last
-   assertion then compares each matched entry field by field against `expectedFrom(steps)`.
+4. **One scenario file, read by both sides.** `load_scenarios` reads
+   `tests/client/input_scenarios.txt` from disk; the spec reads the same bytes as
+   `ReplicatedStorage.ClientTests.input_scenarios` and derives its expectations with `expectedFrom`.
+   It is a `.txt` holding JSON because Rojo makes a `.txt` a `StringValue` the harness already compares
+   byte-for-byte — so the client provably reads the file on disk — and because any other shape needs a
+   `default.project.json` mapping, which the running `rojo serve` does not reload (a restart, and
+   Karen's Connect click).
 
-5. **The scenario is one file, read by both sides.** The harness reads
-   `tests/client/input_scenarios.txt` from disk (`load_scenarios`); the spec reads the same file as
-   `ReplicatedStorage.ClientTests.input_scenarios` and derives its expectations from it
-   (`expectedFrom`). Nothing is duplicated between them: change the steps and both sides follow.
+5. **A step neither side understands cannot pass silently.** `check_step` refuses an unknown device or
+   action, a missing `key` or `button`, a non-numeric `moveTo`, or a `wait` outside StudioMCP's
+   0..10000 ms — at load time, before Play. `expectedFrom` returns errors for the same cases and the
+   first `it` asserts there are none. I checked the five refusals directly against the committed
+   module.
 
-6. **A `.txt` holding JSON, on purpose.** Rojo maps a `.txt` to a `StringValue`, which the harness
-   already compares byte-for-byte (docstring, "What `test` checks", step 4), so the client provably
-   reads the file on disk. The alternative — a `.json` or a probe `LocalScript` — needs a new
-   `default.project.json` mapping, which the running `rojo serve` does not reload: a restart, and
-   Karen's Connect click. Recorded as a Builder's note under the dispatch in `TASKS.md`.
+6. **The replay cannot race the bindings.** The spec binds in its module body (required before TestEZ
+   runs) and publishes `TestKit.openToken()` on `LocalPlayer`; `replay_input` waits up to 20 s for that
+   attribute to equal **this run's** token before sending. The first run of this task sent everything
+   into a client that recorded nothing, because the attribute-name query was built with `luau_json` and
+   asked for a name containing quote characters; the handshake check is what named it in one line.
 
-7. **The replay cannot race the bindings.** The spec binds at require time (module body, before TestEZ
-   runs) and then publishes `TestKit.openToken()` on `LocalPlayer` under the scenario's
-   `readyAttribute`; `replay_input` waits up to 20 s for that attribute to equal **this run's** token
-   before sending anything, so a stale attribute cannot be mistaken for a fresh one. **This was found
-   by running it:** the first run sent all six steps into a client that recorded nothing, because
-   `QUERY_READY` was built with `luau_json`, which asks for an attribute whose name includes the JSON
-   quote characters. The fix is a plain Luau literal plus an identifier check on the name.
+7. **The mouse position is per call, not per session.** Moving the scenario's `wait` between the move
+   and the click split them into two `user_mouse_input` calls and StudioMCP refused the second
+   ("Either x and y, instance_path, or a prior action that establishes mouse position is required").
+   `scenario_batches` now carries the last position into every later mouse action. Found by running it,
+   not by reading.
 
 8. **Gated exactly like the specs.** The replay happens only inside `test`, only between that run's
-   `set_play(True)` and `set_play(False)`, and only after a token handshake; the spec only listens
-   because the gated runner required it. Karen's playtests neither replay nor record.
+   `set_play(True)` and `set_play(False)`, and only after the token handshake; the spec listens only
+   because the gated runner required it. Karen's playtests neither replay nor record. A failing or
+   hung StudioMCP call fails the `[input]` check — `except Exception`, because `_rpc` raises
+   `queue.Empty` — rather than aborting the run.
 
-9. **Captures can be saved (row 7).** `Studio._call` joins text blocks and drops the image, which is
-   why no capture could be saved. `Studio.capture` reads the image block and writes it;
-   `python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z]` saves to
-   `.screenshots/<UTC stamp>-<name>.png`, now git-ignored. Run three times on 2026-09-25: twice in
-   **Edit** (correctly empty grey — since Task 22 `Workspace` holds only `Camera` and `Terrain`, and
-   the arena is built at run time) and once during **Play**, where I looked at the file and saw the
-   400×400 arena plate as a full square. It is a separate command, not part of `test`.
+9. **Captures can be saved (row 7).** `Studio._call` joins text blocks and dropped the image.
+   `Studio.capture` reads the image block; `python tools/studio_mcp.py capture <name> [camera x,y,z]
+   [look-at x,y,z]` writes `.screenshots/<UTC stamp>-<name>.png`, git-ignored. Run three times on
+   2026-09-25: twice in **Edit** (correctly empty grey — `Workspace` holds only `Camera` and `Terrain`
+   since Task 22, and the arena is built at run time) and once during **Play**, where I opened the file
+   and saw the 400×400 plate as a full square.
 
-10. **The docstring is still the single source of truth.** It gained the scenario format, the replay
-    sequence, what a scenario **cannot** express, step 7a, the capture command and the safety note;
-    `CLAUDE.md` points at it in two bullets rather than restating it. The research addendum in
-    `docs/research/2026-09-24-toolchain.md` holds the sources, the pattern and the measurements.
+10. **The docstring stays the single source of truth**, with the scenario format, the replay sequence,
+    the validation rule, what a scenario **cannot** express, step 7a, the capture command and the
+    safety note. `CLAUDE.md` points at it; the research addendum holds the sources, the pattern and the
+    measurements, and `INDEX.md`'s toolchain row names it.
 
 ## What I could not verify
 
-- **Whether a scenario step reaches a client that is not focused, or in a different Studio layout.**
-  Every run here had Studio open on this machine with the place in the foreground.
-- **Holds measured in frames, touch, gamepad, `textInput`, and `instance_path`-targeted input.** The
-  format cannot express them and the harness does not send them; listed in the docstring.
-- **An unexplained one-off:** the very first run of this session (before the handshake fix, on a dirty
-  tree) reported `[server] 38 passed, 1 failed, 1 errors` in the boar specs. The three runs after it,
-  including the clean-tree PASS above, were 39/39 with no server failure, and nothing in this change
-  touches `src/`. I could not recover which assertion it was, so I am reporting it rather than
-  explaining it (rule 8).
+- **Input into an unfocused or differently sized Studio window.** Every run had this Studio in the
+  foreground on this machine.
+- **Touch, gamepad, `textInput`, frame-counted holds, `instance_path` targeting.** Not expressible and
+  not sent; `mouseButtonClick` and `"button": "right"` are validated and mapped on both sides but no
+  committed scenario sends them.
+- **A stray human mouse move** satisfies a `MouseMovement` expectation as well as the replayed one.
+  The two CAS button events still pin the run to the replay, and the scenario now puts its `wait`
+  after the move so an early stray move can only lengthen the waited gap. Written at `matchInOrder`.
+- **An unexplained one-off:** the first run of this session (before the handshake fix, dirty tree)
+  reported `[server] 38 passed, 1 failed, 1 errors` in the boar specs. Every run since — five,
+  including three clean-tree PASSes — was 39/39, and nothing here touches `src/`. Reported rather than
+  explained (rule 8).
