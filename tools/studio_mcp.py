@@ -234,12 +234,19 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
        one's window has run out: in run 5 both clients had in fact reported, and the sequential
        reads had given up first. A two-player client suite is slower than a one-player one anyway,
        because the driver carries no gun and its weapon specs spend their timeouts failing.
+    Starting it WITHOUT Karen: the Director has
+    driven-hunt-runs/press-f7.ps1 (on Karen's Desktop), which brings the DEV Studio window to
+    the front and posts F7 to it (Karen's F7 is bound to Server and Clients with 2 players). This
+    mode does not call it -- the Director will wire that up -- but that is how the click can be made
+    without a human.
+
     5. Checks: three NEW studios appeared; the gate was shut again before the copy was taken; one
        server and exactly two clients were found; one client is on the Shooters team; the gate
        token reached the server process and replicated to both clients; each runner reported inside
        the window; each report carries a
        token it minted (the disk one, in case a copy carried it, or the injected one -- nothing
        else) and the DEV PlaceId; the server and the SHOOTER's client are PASS with 0
+       (the DRIVER's report is never checked, and its absence is a note, not a failure)
        failed/errors/skipped; the server ran tests/server/match_teams.spec; and it ran every server
        spec file in the repo. The driver's report is printed, never checked.
     6. It stops each test instance and, if any remain, says to press Cleanup.
@@ -1338,7 +1345,7 @@ def end_session(studio, before):
 # A two-player client suite is slower than a one-player one: the driver carries no gun, so its
 # weapon specs spend their own timeouts failing rather than passing. Run 5 measured both clients
 # finishing after the old sequential 120 s reads had given up.
-REPORT_WINDOW_2P = 300
+REPORT_WINDOW_2P = 420
 
 
 def run_test2(studio, wait_seconds=180):
@@ -1515,7 +1522,17 @@ def run_test2(studio, wait_seconds=180):
 
     for name in ("server", "shooter", "driver"):
         report = reports.get(name)
-        if not check(f"[{name}] runner reported within {REPORT_WINDOW_2P} s", report is not None):
+        if report is None:
+            # THE DRIVER'S REPORT IS AN OBSERVATION, including when it does not come. Its suite is
+            # the slow one -- every input-driven spec waits its whole budget out for a replay that
+            # is never coming to a client with no gun -- and run 7 had it still running at 300 s.
+            # Failing the run over a report nothing is checked against would be failing on the one
+            # thing this mode deliberately does not claim.
+            if name == "driver":
+                print(f"  note   [driver] did not report within {REPORT_WINDOW_2P} s (no gun, no "
+                      "replay: its suite waits out every input budget)")
+                continue
+            check(f"[{name}] runner reported within {REPORT_WINDOW_2P} s", False)
             continue
         # EITHER token this run minted: the one written to disk before the click (a copy that
         # carries it opens the gate by itself) or the one injected afterwards. Nothing else -- a

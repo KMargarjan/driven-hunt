@@ -111,6 +111,26 @@ local function mayArm(player: Player): boolean
 	return CONFIG.shouldArm(player)
 end
 
+-- A Tool belongs to whatever it is parented to, and a respawn destroys both: the Backpack it is
+-- sitting in AND the character it is equipped on. MEASURED in a two-player drive (Task 34): the
+-- drive places players by respawning them (Match.Body.place -> LoadCharacter), the grant lands in
+-- the Backpack that respawn is about to replace, and the gun dies with it a frame later. Without
+-- this the record outlives the Tool, refreshArming believes the player is armed, and nobody is
+-- ever granted anything again -- a Shooter walked a whole ten-minute drive with empty hands.
+local function watchTool(player: Player, tool: Tool)
+	local connection: RBXScriptConnection
+	connection = tool.AncestryChanged:Connect(function()
+		if tool.Parent ~= nil then
+			return -- equipping moves it Backpack -> Character; that is not losing it
+		end
+		if tools[player] == tool then
+			tools[player] = nil
+		end
+		connection:Disconnect()
+	end)
+	table.insert(connections[player], connection)
+end
+
 -- Does this player HOLD a gun, rather than: is one recorded against their name? A Tool goes with
 -- the character it is equipped on, so a respawn -- which the drive performs on every placement --
 -- destroys it, and a Tool that never reached a Backpack is parented to nil from the start. Either
@@ -229,6 +249,7 @@ function Weapon.grant(player: Player): Tool
 
 	local tool = Hardware.build()
 	connections[player] = connections[player] or {}
+	watchTool(player, tool)
 	if not Hardware.give(tool, player) then
 		-- No Backpack even after waiting: the player is leaving, or the character never came. Record
 		-- NOTHING, so the next refreshArming tries again instead of counting a tool that is parented
@@ -475,6 +496,18 @@ local function watchPlayer(player: Player)
 		end
 	end
 	table.insert(connections[player], player.CharacterAdded:Connect(onCharacter))
+	-- A NEW BACKPACK IS A NEW CHANCE. A respawn replaces it, and whichever order the engine
+	-- delivers CharacterAdded and the new Backpack in, this is the moment a player who lost their
+	-- gun with the old one can be given another (Task 34). refreshArming grants only if they are
+	-- allowed one and are not already holding it, so this is idempotent.
+	table.insert(
+		connections[player],
+		player.ChildAdded:Connect(function(child)
+			if child:IsA("Backpack") then
+				Weapon.refreshArming(player)
+			end
+		end)
+	)
 	if player.Character then
 		onCharacter()
 	end
