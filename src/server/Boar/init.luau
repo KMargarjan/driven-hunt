@@ -65,7 +65,15 @@ Boar.CONFIG = {
 
 	-- the body
 	BODY_SIZE = Vector3.new(2, 3, 5.5), -- width, height, length; a Part's LookVector is its -Z
-	BODY_COLOR = Color3.fromRGB(90, 80, 70),
+	-- Albedo, not the colour you see. The cause of the near-black sides in the Task 18 screenshots
+	-- was this number, not the material: a face turned away from the sun is lit by the place's
+	-- Lighting.Ambient / OutdoorAmbient, both left at the default RGB(70, 70, 70) = 0.275, so
+	-- RGB(90, 80, 70) rendered at roughly RGB(25, 22, 19) on the shaded sides while the arena floor
+	-- (RGB(150, 150, 150)) stayed near-white. Raised, and raised in saturation too, because the
+	-- bluish sky ambient washes the hue out of a shaded face: measured on screen at this value
+	-- (Task 22), the lit sides read warm sand and the shaded sides a warm grey-brown, both clearly
+	-- against the floor from all four sides. Karen's dial.
+	BODY_COLOR = Color3.fromRGB(198, 158, 110),
 	MAX_FORCE = 6000,
 	MAX_TORQUE = 20000,
 	ALIGN_RESPONSIVENESS = 25,

@@ -12,8 +12,11 @@
 -- replaced by the map generator in Milestone 2. Director decision, Task 17.
 --
 -- Owner (rule 3): this module is the only writer of Workspace.TestArena. See GAME_DESIGN.md
--- "System owners". It never touches anything else in Workspace, and never deletes (rule 7): the
--- place's default Baseplate and SpawnLocation are left exactly as they are.
+-- "System owners". It never touches anything else in Workspace, and never deletes (rule 7).
+-- Since Task 22 the arena is the only thing in Workspace: Karen had the place's default Baseplate
+-- and SpawnLocation moved into ServerStorage.Archive (not deleted), because the Baseplate's top
+-- face is coplanar with this plate's and z-fought, and a second spawn made spawning random.
+-- Record: backups/2026-09-25_workspace-defaults.md.
 
 local Workspace = game:GetService("Workspace")
 

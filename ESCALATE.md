@@ -10,6 +10,103 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-09-25 · CLOSED 2026-09-25 · Task 22 cannot be reviewed: the round counter has no task boundary
+
+**Raised by:** Builder, at loop step 5 of Task 22 (branch `task-22-playtest-ready`, code commit
+`d265cab396b2a23b61c620fe9e6594f23b925211`, harness `PASS: 24/24 ... (clean tree)` on it).
+
+**What happened.** `powershell -ExecutionPolicy Bypass -File tools/review.ps1` refused, verbatim:
+
+```
+[agents] REFUSED: `Round: 1` in REVIEW_REQUEST.md, but the committed REVIEW_RESULT.md is round 5
+(FINDINGS), so this run must be `Round: 6`. The round is counted from the verdict file, not from the
+request, so it cannot be raised or skipped here.
+```
+
+`Round: 6` would then hit the next check, `round 6 > 3: stop rule`.
+
+**Why it is stuck.** `tools/agents.py` `cmd_review` computes
+`expected = 1 if prev_rnd is None or prev_verdict == "PASS" else prev_rnd + 1`. The count restarts
+only after a **PASS**. Tasks 17 and 18 ended on `FINDINGS` at round 5 and were merged anyway by
+Director decision (the escalation above), so the verdict file on `main` says round 5 FINDINGS. Every
+task branched from `main` from now on inherits that: round 1 is refused as too low and round 6 as too
+high. This is not specific to Task 22 — **no task can be reviewed until it is resolved.**
+
+CLAUDE.md counts rounds **per task** ("The loop, for every task ... increment `Round:`"); the script
+counts them globally. That gap is the bug (rule 6: a harness fault is a bug and gets reported).
+
+**What I did not do.** I did not touch `tools/agents.py`, and I did not set `DIRECTOR_MAX_ROUNDS`.
+The Builder does not edit the gate that constrains it, and CLAUDE.md allows that variable only when
+this file records the Director's authorisation for that task and that round. So Task 22 is built,
+harness-green and pushed, and **unreviewed**.
+
+**What the Director can choose.**
+1. **One-off:** authorise here, for Task 22 round 6 only, and I re-run with
+   `DIRECTOR_MAX_ROUNDS=6` and `Round: 6` in `REVIEW_REQUEST.md`. Unblocks this task; every later
+   task hits the same wall one round higher.
+2. **Fix the counter** (a Builder task of its own, reviewed like any other): restart the count at 1
+   when the commit named in the committed `REVIEW_RESULT.md` trailer is an **ancestor of this
+   request's `Base:`** — that is, when the verdict belongs to work already merged into the base this
+   task branches from. It cannot be gamed by the Builder: resetting would require getting the
+   failing commit merged first, and only the Director merges.
+3. **Accept Task 22 unreviewed** on the harness evidence and the diff (one config constant plus
+   comments and docs), and let the fix land with the next task.
+
+My recommendation is 2, with 1 to unblock Task 22 in the same breath.
+
+**Director's answer, 2026-09-25 (transcribed verbatim by the Builder from the dispatch):**
+
+> DIRECTOR DECISION on the ESCALATE.md entry (review gate refuses round 1 after Tasks 17+18 merged on
+> FINDINGS):
+> - For Task 22 only: DIRECTOR_MAX_ROUNDS=6 and `Round: 6` are authorised (one review round). Record
+>   this under the entry.
+> - The real fix (per-task review files, round count per task) is Task 21, next. Do not change
+>   tools/agents.py in Task 22.
+> - Accepted: ServerStorage has a $path, so the Archive folder will go at the next Connect;
+>   backups/2026-09-25_workspace-defaults.md is the rule-7 record. Good catch.
+>
+> Run the one review round now (policy: only real defects block; notes do not). If only notes: record
+> PASS-with-notes as the Director's call in ESCALATE.md, close the entry, push. If a real defect: fix,
+> harness, and with DIRECTOR_MAX_ROUNDS=7 one more round, then stop regardless.
+
+**So:** this is the authorisation `tools/agents.py` requires, for **Task 22, round 6** (which is Task
+22's first round). `DIRECTOR_MAX_ROUNDS` is set in the environment for that run only and is never
+committed. `tools/agents.py` is untouched; the counter fix is Task 21. Entry **closed**; the outcome
+of the round is recorded below.
+
+**Outcome of the authorised round (round 6 = Task 22's round 1), 2026-09-25.** `REVIEW_RESULT.md`
+line 1 is not `PASS`: the Reviewer returned **4 findings**, and **none of them is blocking under the
+Director's policy for this round** (only a finding that makes the game, a test, an owner boundary or
+security wrong blocks). All four are about documents:
+
+| # | What | Disposition |
+|---|---|---|
+| 1 | `docs/research/2026-09-24-boar-ai.md` §4 still says, in the present tense, that the plate is coplanar with the default `Baseplate`; and claim 9 named 2 of the 3 stale mentions in `docs/design/boar-ai.md` | **Accurate. Not fixed here** — the research note is not on the merge gate's list of files that may change after the code commit (git workflow step 4), so fixing it now would put the harness PASS and this review out of date. Queued below |
+| 2 | `TASKS.md` row 17 still poses "delete the Baseplate?" as Karen's open call and says two SpawnLocations exist | **Accurate, and not the Builder's row.** The Reviewer's own alternative applies: the Builder may write only its current task's status row, so row 17 is the Director's to close or strike through |
+| 3 | `backups/2026-09-25_workspace-defaults.md` claims "every property ... recreated from it alone", but records the `Texture` and `Decal` children as counts only | **Accurate. Not fixed here** (same gate reason). The missing data is preserved verbatim below so it cannot be lost at Karen's next Connect, when Rojo removes `ServerStorage.Archive` |
+| 4 | The request had no screenshot description a reviewer could read, for a change whose whole purpose is visual (rule 5) | **Fixed**: `REVIEW_REQUEST.md` now carries a `## Screenshots, inspected` section with all five views. `REVIEW_REQUEST.md` is on the gate's list, so this changes nothing about the evidence |
+
+**The data finding 3 asks for, read from the place on 2026-09-25 before it can be lost** (both
+children are still in `ServerStorage.Archive`; Rojo removes that folder at the next Connect):
+
+- `Baseplate.Texture` — `Texture` `rbxassetid://6372755229`, `Face` `Top`, `StudsPerTileU` 8,
+  `StudsPerTileV` 8, `OffsetStudsU` 0, `OffsetStudsV` 0, `Transparency` 0.8, `Color3` `0, 0, 0`,
+  `ZIndex` 1.
+- `SpawnLocation.Decal` — `Texture` `rbxasset://textures/SpawnLocation.png`, `Face` `Top`,
+  `Transparency` 0, `Color3` `1, 1, 1`, `ZIndex` 1.
+
+**Queued for the next task** (Task 21, or wherever the Director puts them): findings 1 and 3 — correct
+the research note's §4 sentence, name all three stale mentions in the Architect design for its next
+regeneration, and fold the two child-property lines above into
+`backups/2026-09-25_workspace-defaults.md`, retitling that section to what it is. Finding 2 is the
+Director's row 17.
+
+There is **no round 7**: the Director authorised one more round only if a real defect appeared, and
+none did.
+
+
+
+---
 ## 2026-09-25 · CLOSED 2026-09-25 · Tasks 17+18: round 5 was the last authorised round, and it found 4 things
 
 **Raised by:** Builder, at loop step 5 of the combined Tasks 17+18 (branch `task-18-boar-ai`, code
