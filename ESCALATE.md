@@ -74,6 +74,37 @@ My recommendation is 2, with 1 to unblock Task 22 in the same breath.
 committed. `tools/agents.py` is untouched; the counter fix is Task 21. Entry **closed**; the outcome
 of the round is recorded below.
 
+**Outcome of the authorised round (round 6 = Task 22's round 1), 2026-09-25.** `REVIEW_RESULT.md`
+line 1 is not `PASS`: the Reviewer returned **4 findings**, and **none of them is blocking under the
+Director's policy for this round** (only a finding that makes the game, a test, an owner boundary or
+security wrong blocks). All four are about documents:
+
+| # | What | Disposition |
+|---|---|---|
+| 1 | `docs/research/2026-09-24-boar-ai.md` §4 still says, in the present tense, that the plate is coplanar with the default `Baseplate`; and claim 9 named 2 of the 3 stale mentions in `docs/design/boar-ai.md` | **Accurate. Not fixed here** — the research note is not on the merge gate's list of files that may change after the code commit (git workflow step 4), so fixing it now would put the harness PASS and this review out of date. Queued below |
+| 2 | `TASKS.md` row 17 still poses "delete the Baseplate?" as Karen's open call and says two SpawnLocations exist | **Accurate, and not the Builder's row.** The Reviewer's own alternative applies: the Builder may write only its current task's status row, so row 17 is the Director's to close or strike through |
+| 3 | `backups/2026-09-25_workspace-defaults.md` claims "every property ... recreated from it alone", but records the `Texture` and `Decal` children as counts only | **Accurate. Not fixed here** (same gate reason). The missing data is preserved verbatim below so it cannot be lost at Karen's next Connect, when Rojo removes `ServerStorage.Archive` |
+| 4 | The request had no screenshot description a reviewer could read, for a change whose whole purpose is visual (rule 5) | **Fixed**: `REVIEW_REQUEST.md` now carries a `## Screenshots, inspected` section with all five views. `REVIEW_REQUEST.md` is on the gate's list, so this changes nothing about the evidence |
+
+**The data finding 3 asks for, read from the place on 2026-09-25 before it can be lost** (both
+children are still in `ServerStorage.Archive`; Rojo removes that folder at the next Connect):
+
+- `Baseplate.Texture` — `Texture` `rbxassetid://6372755229`, `Face` `Top`, `StudsPerTileU` 8,
+  `StudsPerTileV` 8, `OffsetStudsU` 0, `OffsetStudsV` 0, `Transparency` 0.8, `Color3` `0, 0, 0`,
+  `ZIndex` 1.
+- `SpawnLocation.Decal` — `Texture` `rbxasset://textures/SpawnLocation.png`, `Face` `Top`,
+  `Transparency` 0, `Color3` `1, 1, 1`, `ZIndex` 1.
+
+**Queued for the next task** (Task 21, or wherever the Director puts them): findings 1 and 3 — correct
+the research note's §4 sentence, name all three stale mentions in the Architect design for its next
+regeneration, and fold the two child-property lines above into
+`backups/2026-09-25_workspace-defaults.md`, retitling that section to what it is. Finding 2 is the
+Director's row 17.
+
+There is **no round 7**: the Director authorised one more round only if a real defect appeared, and
+none did.
+
+
 
 ---
 ## 2026-09-25 · CLOSED 2026-09-25 · Tasks 17+18: round 5 was the last authorised round, and it found 4 things

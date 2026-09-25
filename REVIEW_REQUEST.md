@@ -107,3 +107,32 @@ archive record.
     the move exists only in the open Studio session — it is a `NEEDS KAREN` line in the report, as the
     dispatch directed, not an escalation. And the play-time screenshots are described and were
     inspected by me, but they are not in the repo, so the Reviewer cannot see them.
+
+## Screenshots, inspected (added after round 6, finding 4 — unreviewed)
+
+Five play-time captures through Studio MCP `screen_capture` (the harness's `Studio._call` drops image
+blocks, TASKS.md row 7, so they were taken directly), each with an explicit `camera_position` and
+`look_at_position`, all from the final code commit. I opened and looked at every one.
+
+1. **The floor, camera (0, 520, 430) → (0, 0, 0).** The 400x400 plate is a **complete square** in
+   perspective: four straight edges, four corners, one continuous surface. No diagonal seam, no
+   half-plate, nothing showing through it — the Task 17 triangle is gone, and so is the Baseplate that
+   caused it. All 8 cover blocks stand on it (4 corner pillars, 3 walls, 1 mid pillar). Beyond the
+   plate's edges there is empty grey void, which is correct now that Workspace holds nothing else.
+2. **The spawn, camera (0, 40, 235) → (0, 0, 170).** **One** spawn pad, the 12x12x1 `ArenaSpawn`, with
+   the player character standing on it casting a shadow onto the plate. Nothing at the origin. The
+   boar is visible far up the field as a small tan block, plainly a different colour from the grey
+   walls.
+3. **The boar, sunlit long side, 13 studs out at eye height.** A 2 x 3 x 5.5 box reading warm sand,
+   with its shadow on the floor.
+4. **The boar, shaded long side, same distance.** The face reads a warm grey-brown, roughly
+   `RGB(140, 130, 105)` on screen — clearly darker than the near-white floor but nowhere near black,
+   and still warm. This is the view that was ~`RGB(25, 22, 19)` in Task 18.
+5. **The boar, narrow front face.** Warm sand, same as the lit side. So all four vertical faces read
+   as a visible warm colour.
+
+The rejected first attempt, `RGB(214, 186, 150)`, was judged on the same two boar views before this
+one: clearly visible, but the lit faces washed to near-white cream and the shaded face lost its hue,
+which is why the final value is darker and more saturated.
+
+The images are not in the repo, so the Reviewer cannot see them; this description is what I saw.
