@@ -1,95 +1,80 @@
-# Task 24 — the shotgun on the default camera
+# Task 24 — the shotgun on the default camera, after Karen's playtest
 
 Task: 24
-Round: 2
+Round: 1
 Base: `bb674dc`
-Code commit: `110d869b94cc90e31713b24e857bc21eced4ab7b`
+Code commit: `b764131db9e84cd5a3fee5290e9071ee6d1ec45a`
 
 ```
-[harness] PASS: 26/26 checks @ 110d869b94cc90e31713b24e857bc21eced4ab7b (clean tree)
+[harness] PASS: 26/26 checks @ b764131db9e84cd5a3fee5290e9071ee6d1ec45a (clean tree)
 ```
 
-79 server assertions across 8 spec files and 26 client assertions across 3 (main had 39 and 11). The
-last commit that changed anything but paperwork is `57f5964`; `110d869` adds only
-`reviews/task-24/RESULT.md`, and the harness line above covers both.
+82 server assertions across 8 spec files and 27 client across 3. Only paperwork follows the code
+commit (`PLAYTEST.md`, `TASKS.md` row 24, `reviews/task-24/`).
+
+**Round numbering:** this is the task's **third** review. It says `Round: 1` because `tools/agents.py`
+restarts the count after a `PASS` (`expected = 1 if prev_verdict == "PASS"`), and rounds 1 and 2 both
+passed — the blind spot recorded as `TASKS.md` 21a(h). Nothing is being reset: both earlier verdicts
+are in this folder's git history.
 
 ## Task
 
-Director, 2026-09-25: fix the design's six known defects, then build its scope — a Tool on spawn,
-fire, barrel select, a 2.0 s uninterruptible reload, slug/buckshot that loads only when open,
-server-authoritative hits, `Runtime:takeHit` with zone `"body"`, the Hud crosshair, and the
-`GAME_DESIGN.md` owner rows. Default camera: nothing writes `workspace.CurrentCamera`.
-**Feel-critical: not to be merged until Karen has played it.**
+Karen played it on 2026-09-25 (`PLAYTEST.md`) and changed one feel default. Director's dispatch:
+**X must switch the ammo type AND reload to it** — break open, the unfired shells of the old type go
+back to the reserve, load two of the new type, close; the same uninterruptible 2.0 s window as `R`;
+no firing during it; every X press does it; and if there is no reserve of the new type, X does
+nothing and the Hud says so. Her other checks passed; hit feel is deferred to after 1.4b and 1.5.
 
 ## Claims
 
-1. **Round 1's blocking finding is fixed, and the fix is the point of the test.**
-   `boar_hit.spec`'s teardown test counted `BindableEvent` descendants of its own folder — but the
-   runtime never parents its signals, so it read 0 before `destroy()`, after it, and with
-   `_hitSignal:Destroy()` deleted. It now holds a connection to `runtime.Hit` and `runtime.Despawned`,
-   asserts both are `Connected`, destroys, and asserts both are not. Delete the destroy line and it
-   goes red.
+1. **X swaps the gun, and the pure reducer owns every part of it.** The owner's `ActionRequest`
+   handler applies `SelectAmmo` and then runs the same `runReload` sequence `R` uses
+   (`Break → Load → Load → Close`). Uninterruptibility is unchanged and still the reducer's: `Break`
+   and `Fire` both require `open == false`.
 
-2. **Six of round 1's twelve notes are fixed in the same round**, because each was a real defect
-   rather than wording: `runReload` walked past **every** `Load` rejection and now continues only
-   through `"no-reserve"`; `Shotgun.remotes()` is resolved once in `start()`; the unread `lastPublish`
-   table is gone; one Tool-Parent watcher per player instead of one per respawn, and the client binds
-   a Tool's `Equipped`/`Unequipped` once instead of once per move between Backpack and character;
-   `weapon_shot`'s cost budget grouped nothing (every impact had `instance = nil`) and now hits a real
-   `Damageable` part and asserts the report; the camera-drift measurement could silently vanish and is
-   now asserted to exist. The remaining six are queued in `TASKS.md` row 24a.
+2. **Unfired shells come back, and that is a property of `Break`, not of X.** `StateMachine.apply`'s
+   `Break` branch returns each `Live` barrel's shell to the pocket of its own type; a spent case is
+   gone. `weapon_state.spec` asserts both cases (two live slugs → 26, one live and one spent → 25),
+   and `R` keeps a live shell for the same reason.
 
-3. **The design was re-run first** (`reviews/task-24/BRIEF.md` → `ARCH_RESULT.md` = `PASS`), and its
-   §2.1 fixes the six Task 23 defects. The code is built to that document.
+3. **Shells are carried per type**, because "no reserve of the new type" has to be refusable:
+   `CONFIG.START_RESERVE = { Slug = 24, Buck = 24 }` and `WeaponState.reserve` is a table keyed by
+   `AmmoKind`. 24 of each is my number, not Karen's — one dial for the Director.
 
-4. **The cast seam carries the shooter** (defect a): `CastFn` is `(origin, direction, ignore)`,
-   `Cast.world` is the only `Workspace:Raycast` in `src/server/Weapon/`, and `onFireRequest` builds one
-   ignore list per shot and gives it to the camera ray **and** every pellet. `weapon_hits.spec` counts
-   the casts, checks each got the same list unmodified, and proves the list reaches
-   `FilterDescendantsInstances` against a real part.
+4. **An empty pocket does nothing and says so.** The owner refuses the swap before touching state,
+   counts it in `stats().emptySwaps`, and publishes a snapshot carrying `notice = "NO BUCK"`; the Hud
+   appends it to the readout. `Shotgun.snapshot` carries `notice` only when given one.
 
-5. **Freezing is deep** (b), **the per-player lifecycle is closed and tested** (c: `Weapon.forget` →
-   `Registry:forget`, exercised with a stand-in key), **a client reaches only `Reload` and
-   `SelectAmmo`** (d: `Validator.checkRequest`, asserted in a server spec by list and in the client
-   spec over the real remote), **the safety arc uses the muzzle direction** (e), and **the spread spec
-   is seeded and bounded** (f: `Buck` only, 9,000 directions, max/mean literals).
+5. **The Hud shows the pocket the next load comes from**, not a single pool: `textFor` reads
+   `state.reserve[state.ammo]`. Format: `glyphs AMMO <count>[ R][ NOTICE]`.
 
-6. **The boar seam is one function on the boar's own owner.** `Body.create` publishes `Damageable`
-   and `HitZone`; `Runtime:takeHit` counts, fires `Runtime.Hit`, and changes nothing else; `BoarBoot`
-   wires `Weapon.HitReported` to it. `boar_hit.spec` asserts the attributes, the counters, the signal,
-   the refusal of a foreign part, and **that a hit does not move the boar** — which is what keeps
-   1.5's reaction out of 1.4.
+6. **Running it found a bug a player would have seen.** Nothing published when the reload's final
+   window elapsed, so the newest snapshot a client ever held was the one made at `Close`, whose
+   `busyFor` is `RELOAD_CLOSE` — the Hud kept its `R` until the next state change, a gun that looks
+   stuck reloading. `runReload` now publishes once more after its last wait, guarded by `epoch`.
 
-7. **Nothing writes the camera.** `Input.luau` reads `CurrentCamera.CFrame` and assigns nothing;
-   `weapon_client.spec` samples at both aim edges — `CameraType`, `FieldOfView` and `CameraSubject`
-   identical, measured drift printed **0.000 studs**.
+7. **The harness drove the new behaviour end to end.** The scenario gives X its 2.6 s; the client
+   spec asserts a snapshot exists mid-swap (`ammo == "Buck"` while the barrels are not yet loaded with
+   it) **and** one where the swap is done, and the end state is `Live/Live`, `loaded Buck/Buck`,
+   `selected 1`, `ammo Buck`, `reserve.Slug 24` (two returned), `reserve.Buck 22`.
 
-8. **It was driven through the real input path.** The `weapon-fire-reload-ammo` scenario sends the
-   cue, three clicks, one `R`, one `X` and an aim hold; the spec asserts exactly **two** shots (the
-   third click hit an empty gun), automatic barrel select, `busyFor > 0` during the reload, and the end
-   state `Live/Live, Slug/Slug, selected 1, ammo Buck, reserve 22`. The crosshair check walks every
-   ancestor for reachability and compares the centre with the viewport (479.0,287.5 both).
+8. **Three server tests were added and one corrected**: shells returned on `Break`; the whole swap
+   sequence pocket by pocket; a type the player has none of (`"no-reserve"`); and the
+   fired-then-reloaded case is now 23, not 22, because one live shell came back.
 
-9. **Four measurements contradicted the design and the code follows the measurements** (rule 6): a
-   replayed step costs ~1 s, so no client assertion depends on two inputs landing inside a 0.25 s or
-   2.0 s window — both rejections are proved exactly in `weapon_state.spec`; `AbsolutePosition` ignores
-   `IgnoreGuiInset`; `AUTO_EQUIP = true` let Task 6's scenario fire the gun, so the spec parks the Tool
-   before signalling ready; and `HANDLE_COLOR` `RGB(70, 55, 45)` read near-black on screen — the Task 22
-   albedo trap — and is now `RGB(190, 145, 95)`.
+9. **The design is stale on this point and I did not edit it** (rule 3). The six deltas are written
+   for the Architect in `reviews/task-24/DESIGN_DELTA.md`, and `TASKS.md` row 24 points at it.
 
-10. **Screenshots (rule 5), five, inspected by me:** the gun in hand with the crosshair centred and
-    `[*]* SLUG 24`; a close side view showing the barrel pointing **away** from the player; a slug
-    impact **on the boar** (orange marker on its flank, impact position inside the body volume); the
-    near-black handle that made me change the colour; and the re-check afterwards, where the gun reads
-    as a warm brown object in the hand.
+10. **Screenshot (rule 5), inspected:** mid-swap the readout reads `[-]- BUCK 24 R` — action open,
+    both barrels empty, the type already BUCK, the buck pocket not yet spent, busy — and after it
+    `[*]* BUCK 22`. Pressing X again returns to `[*]* SLUG 24`, so a swap back costs nothing.
 
 ## What I could not verify
 
-- **Karen has not played it.** Every feel number is a default.
-- **`execute_luau` has its own module cache**, so `Weapon.stats()` read through it returns a fresh
-  module's zeros. Screenshot evidence therefore rests on the Hud readout and the effect Instances.
-  Worth knowing before someone trusts that call (rule 6).
-- **No tracer screenshot**: it lives 0.06 s and an MCP call costs ~1 s.
-- **The design is now stale on the scenario** (it still describes five clicks and two `R`s). The
-  Builder may not edit `docs/design/` (rule 3), so it is queued in `TASKS.md` row 24a for the next
-  regeneration, together with the other five round-1 notes.
+- **Karen has not played the new X.** This is her change implemented, not her approval of it.
+- **The empty-pocket path is proved in the reducer and in the owner's code, not on screen**: the
+  scenario cannot drain 24 shells of a type inside a harness run, so no run exercises `"NO BUCK"`
+  end to end. `Shotgun.snapshot`'s `notice` and the Hud's rendering of it are asserted; the owner's
+  refusal is not.
+- **`stats().emptySwaps`** is written but never read by a test, for the same reason.
+- **24 of each type** is a number I chose. If she wants 24 total, or 16/8, it is one line.
