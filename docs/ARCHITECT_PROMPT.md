@@ -32,6 +32,11 @@ The Builder builds to your design.
   and harness faults are the failures to design out. Every system gets exactly one writer, named.
 
 ## Mode: design `<system>`
+
+**If `reviews/task-<N>/BRIEF.md` exists for this run's task number, read it first and design to it.**
+It is the Director's and Karen's input for this design — decisions already taken, and what this
+document must contain. It overrides anything older in `docs/`, `TASKS.md` or an earlier design.
+
 Write `docs/design/<system>.md`. It must cover:
 - what the system must do, and what it must not do
 - its owner (the one module that writes its state) and its location on disk
