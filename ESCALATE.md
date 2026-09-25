@@ -10,7 +10,7 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
-## 2026-09-25 · NEEDS KAREN · Task 34: the 2-player harness mode needs one click to be exercised
+## 2026-09-25 · CLOSED 2026-09-25 · NEEDS KAREN · Task 34: the 2-player harness mode needs one click to be exercised
 
 **Raised by:** Builder, Task 34 (branch `task-34-harness-2p`). **Nothing is blocked**: the mode is
 built, the one-player harness is green with it, and the 2-player spec runs in both modes. What is
@@ -31,13 +31,28 @@ Clients-and-Servers test. Everything after the click is the mode's own work.
    It writes the gate token, prints these clicks, and then waits up to 180 s for the test windows.
 
 2. In Studio, on **Driven Hunt DEV**: **Test** tab -> **Clients and Servers** -> **Players: 2** ->
-   **Start**. Do it within **120 seconds** of step 1: a local test copies the place as it stands when
-   Start is pressed, and the runners refuse a token older than that.
+   **Start**, within the **180 s** the mode waits. It no longer races a token: the disk token is
+   cleared before the click and a fresh one is written into the running server afterwards, which is
+   why there is no 120-second rule here any more.
 3. Leave the three windows alone. The mode reads them: it finds which is the server and which are
-   the clients, replays the input scenarios into the first client, and collects all three reports.
+   the clients, asks each client which team it is on, replays the input scenarios into the
+   **shooter's** client, and collects all three reports.
 4. When it says so, press **Cleanup** in the Test tab.
 5. Paste the final `[harness2] ...` line under this entry, and the `[match_teams]` line from the
    server output just above it (it prints each player's name and team).
+
+**CLOSED 2026-09-25.** The Director can now start and end the session himself
+(`driven-hunt-runs/studio-key.ps1 F7` / `EndSession`), so this needs nobody's hands. Nine runs were
+made; the last is the confirmation at `166bd33`:
+
+```
+[harness2] PASS: 28/28 checks @ 166bd334e576a84f324c5ca093e56af22ccb286b (clean tree)
+[match_teams] 2 player(s): Player1=Shooters, Player2=Drivers | drivers=1 shooters=1 phase=Running
+```
+
+Server 234 passed / 0 failed, the shooter's client 58 / 0, the driver's report printed as an
+observation. The runs also found the game bug Task 34 fixed: with two players the Shooter carried no
+gun at all, for a whole drive.
 
 **What the answer decides.** If it passes, ROADMAP 1.6 is closed and a two-player check is one
 command away from then on. If a report is empty, the token window was missed -- just run it again.
