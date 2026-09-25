@@ -180,9 +180,12 @@ end
 local function enterRunning(state: State, effects: { Effect }, now: number, config)
 	state.phase = "Running"
 	state.phaseEndsAt = now + config.DRIVE_SECONDS
-	state.nextReleaseAt = now
-		+ config.FIRST_RELEASE_SECONDS
-		+ Phase.jitter(state.seed + state.driveNumber, 1, config.RELEASE_JITTER_SECONDS)
+	-- The FIRST release is exact; only the rhythm after it is jittered. The drive starts on time,
+	-- which is both truer to "the drivers are walking now" and the difference between a harness run
+	-- that can stage a shot at a boar and one that cannot: with the first release jittered by up to
+	-- 15 s either way, the only boar in the session arrived after the replay had finished
+	-- (measured, twice). reviews/task-32/DESIGN_DELTA.md records it.
+	state.nextReleaseAt = now + config.FIRST_RELEASE_SECONDS
 	feed(effects, { kind = "phase", text = "Drive on", at = now })
 	table.insert(effects, { kind = "broadcast" })
 end

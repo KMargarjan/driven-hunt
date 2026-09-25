@@ -17,6 +17,10 @@
 --     DETECT_RADIUS. A stage that aims once cannot follow an animal at 28 studs/s.
 --
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
+-- SINCE MILESTONE 1.7a THE BOARS BELONG TO THE DRIVE: none exists until the match releases the
+-- first one, about FIRST_RELEASE_SECONDS into a drive, so the stage may find Workspace.Boars empty
+-- and the harness waits for a target rather than failing on the first look.
+--
 -- Design: docs/design/hit-zones.md (section 14 item D), docs/design/camera.md (section 9.3)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -145,7 +149,7 @@ return function()
 			-- the last scenario -- and MEASURED, the whole replay takes about 50 s, so 40 s was not
 			-- enough and this test failed while the shot itself landed. The harness waits 90 s for
 			-- the client report AFTER the replay, so waiting here costs the run nothing.
-			expect(waitUntil(70, function()
+			expect(waitUntil(45, function()
 				return latchedAt ~= nil
 			end)).to.equal(true)
 			print(
@@ -162,7 +166,7 @@ return function()
 		end)
 
 		it("hit it: the server confirmed a hit on a damageable target and told this client", function()
-			local arrived = waitUntil(20, function()
+			local arrived = waitUntil(16, function()
 				return #markers > 0
 			end)
 			if not arrived then

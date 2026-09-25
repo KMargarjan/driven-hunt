@@ -115,6 +115,8 @@ local tied: { [number]: boolean } = {} -- 1.7b; always empty in this milestone
 local pushCredit: { [string]: { [number]: number } } = {} -- boarId -> userId -> last time near
 local accumulator = 0
 local sinceSample = 0
+local sinceMarkers = 0
+local markersStale = false
 local lastBroadcast = -math.huge
 local snapshotCache: any = nil
 
@@ -385,6 +387,10 @@ local function dispatch(event)
 	applyEffects(effects)
 	if state.phase ~= before then
 		if state.phase == "Assigning" then
+			-- A map rebuilt in Edit between drives is picked up without a server restart (design
+			-- section 6.2). Read on the NEXT step, never from inside dispatch: readMarkers dispatches
+			-- an event of its own, and a dispatch inside a dispatch would apply effects out of order.
+			markersStale = true
 			stats.drives += 1
 			board = Score.new() -- scores are per drive
 			for userId, name in pairs(names) do
@@ -529,6 +535,18 @@ function Match:step(dt: number)
 	end
 	accumulator += dt
 	sinceSample += dt
+
+	-- MEASURED, and it is the reason this is here at all: ArenaBoot and MatchBoot are two Scripts in
+	-- ServerScriptService with no defined order, so Match.start can run BEFORE the arena exists. It
+	-- did, on one harness run in three: the markers came back empty, the drive sat in Waiting for the
+	-- whole session, nobody was armed and five specs went red for a reason none of them owned.
+	-- Re-reading while Waiting costs five GetTagged calls a second and closes the race for good.
+	sinceMarkers += dt
+	if (state.phase == "Waiting" or markersStale) and sinceMarkers >= 1 then
+		sinceMarkers = 0
+		markersStale = false
+		readMarkers()
+	end
 	local interval = 1 / Match.CONFIG.MATCH_STEP_HZ
 	if sinceSample >= 1 / Match.CONFIG.PUSH_SAMPLE_HZ then
 		sinceSample = 0

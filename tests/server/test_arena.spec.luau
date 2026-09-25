@@ -53,7 +53,22 @@ return function()
 			local folder = waitForArena()
 			local blocks = {}
 			for _, child in ipairs(folder:GetChildren()) do
-				if child:IsA("BasePart") and child.Name ~= "Ground" and not child:IsA("SpawnLocation") then
+				-- COVER blocks only. Since Milestone 1.7a the same folder also holds the drive's
+				-- fourteen tagged markers (posts, line, driver start, boar spawns), and counting
+				-- those as cover made this test fail for a reason that has nothing to do with cover.
+				-- NOT by "has any tag": the four corner pillars are cover AND are tagged
+				-- DrivenHunt.Tree, so excluding everything tagged took four real blocks out and the
+				-- count fell through the floor instead of through the ceiling.
+				local isMarker = CollectionService:HasTag(child, "DrivenHunt.ShooterPost")
+					or CollectionService:HasTag(child, "DrivenHunt.DriveLine")
+					or CollectionService:HasTag(child, "DrivenHunt.DriverStart")
+					or CollectionService:HasTag(child, "DrivenHunt.BoarSpawn")
+				if
+					child:IsA("BasePart")
+					and child.Name ~= "Ground"
+					and not child:IsA("SpawnLocation")
+					and not isMarker
+				then
 					table.insert(blocks, child)
 				end
 			end

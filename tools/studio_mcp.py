@@ -212,10 +212,20 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 local stage = HttpService:JSONDecode(%s)
-local folder = Workspace:FindFirstChild(stage.targetFolder)
-local target = folder and folder:FindFirstChildWhichIsA("BasePart")
+-- WAIT for a target rather than failing on the first look: since the drive owns the boars
+-- (Milestone 1.7a) the folder is empty until the match releases one, which is a real part of the
+-- game's timing and not a fault.
+local deadline = os.clock() + 40
+local target = nil
+repeat
+    local folder = Workspace:FindFirstChild(stage.targetFolder)
+    target = folder and folder:FindFirstChildWhichIsA("BasePart")
+    if not target then
+        task.wait(0.25)
+    end
+until target or os.clock() > deadline
 if not target then
-    return "no BasePart inside Workspace." .. tostring(stage.targetFolder)
+    return "no BasePart inside Workspace." .. tostring(stage.targetFolder) .. " after 40 s"
 end
 local player = Players.LocalPlayer
 local character = player and player.Character
@@ -984,9 +994,10 @@ def run_test(studio):
             else:
                 replay_input(studio, scenarios, token, check)
             for side in ("server", "client"):
-                # 90 s, not 60: since Task 30 a client spec waits for its scenario to be STAGED, so
-                # the client suite cannot finish before the replay does, and the replay is ~40 s.
-                raw, ok = wait_for(lambda: studio.query(side.capitalize(), QUERY_REPORT[side]), lambda v: v != "", 90, 1)
+                # 120 s: a client spec waits for its scenario to be STAGED (Task 30), so the client
+                # suite cannot finish before the replay does, and since Task 32 the stage itself may
+                # wait for the drive to release a boar. Measured: the replay is ~50 s.
+                raw, ok = wait_for(lambda: studio.query(side.capitalize(), QUERY_REPORT[side]), lambda v: v != "", 120, 1)
                 if ok:
                     reports[side] = json.loads(raw)
             output = studio.console()
@@ -1000,7 +1011,7 @@ def run_test(studio):
     print("-------------------------")
     for side in ("server", "client"):
         report = reports.get(side)
-        if not check(f"[{side}] runner reported within 90 s", report is not None):
+        if not check(f"[{side}] runner reported within 120 s", report is not None):
             continue
         check(f"[{side}] report carries this run's token", report["token"] == token, report["token"])
         check(f"[{side}] report comes from the DEV place", str(report["placeId"]) == place, str(report["placeId"]))
