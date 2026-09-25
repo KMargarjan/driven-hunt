@@ -85,6 +85,11 @@ end
 -- replays, and this spec must be moving and aiming BEFORE the click arrives -- so the scenario opens
 -- with one key, exactly as weapon_client.spec's Q does. It also means this spec touches the camera
 -- only inside its own scenario, so it never fights shoot_boar.spec for it.
+--
+-- (The scenario's `moveTo` right after the cue is not aiming -- under MouseBehavior = LockCenter
+-- StudioMCP's moveTo delivers no usable delta, docs/design/camera.md 9.3. It is there because
+-- StudioMCP refuses a click with no established mouse position: "Either x and y, instance_path, or a
+-- prior action that establishes mouse position is required", measured 2026-09-25.)
 local function onCue(_name: string, state: Enum.UserInputState)
 	if state ~= Enum.UserInputState.Begin or cuedAt then
 		return Enum.ContextActionResult.Pass
