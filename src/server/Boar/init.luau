@@ -22,10 +22,14 @@ local Workspace = game:GetService("Workspace")
 
 local Brain = require(script.Brain)
 local Body = require(script.Body)
+local Wound = require(script.Wound)
 
 local Boar = {}
 
 Boar.Brain = Brain
+-- The pure damage model, exported for specs exactly as Brain is, and for the same reason: it must be
+-- drivable with no world (hit-zones design section 3.2).
+Boar.Wound = Wound
 
 -- Every number the system has. Derived at 1 stud = 0.28 m (Roblox units), so a 40 km/h boar is
 -- 11.1 m/s = 39.7 studs/s, and a 1.5 m x 0.9 m x 0.5 m boar is 5.5 x 3 x 2 studs. The research note
@@ -93,6 +97,63 @@ Boar.CONFIG = {
 
 	BOUNDS_SLACK = 10,
 	FALL_LIMIT = 50,
+
+	-- HIT ZONES (hit-zones design section 4.2). Three parts welded to the trunk, each PROTRUDING
+	-- past the surface a pellet can arrive from, because a ray returns the nearest surface and a
+	-- nested part would never be hit. The trunk itself stays HitZone = "body", so belly, flank, rear
+	-- and brisket -- whatever no zone part covers -- are the default zone. Local coordinates: the
+	-- trunk is 2 x 3 x 5.5 and its -Z is the boar's front.
+	ZONES = {
+		ORDER = { "head", "chest", "legs" }, -- creation order; also the order specs walk them in
+		ZONE_TINT = true, -- Karen's dial: a grey-box teaching aid, off when the model arrives
+		PROTRUSION = 0.06, -- studs every zone part stands proud by, so the ray meets it first
+		head = {
+			part = "ZoneHead",
+			size = Vector3.new(1.2, 1.2, 1.4),
+			offset = Vector3.new(0, 0.5, -3.2), -- 1.15 studs proud of the front face
+			tint = Color3.fromRGB(206, 120, 120),
+		},
+		chest = {
+			part = "ZoneChest",
+			size = Vector3.new(2.12, 2.01, 1.7),
+			offset = Vector3.new(0, 0.555, -1.6), -- heart/lungs behind the shoulder
+			tint = Color3.fromRGB(198, 150, 150),
+		},
+		legs = {
+			part = "ZoneLegs",
+			size = Vector3.new(2.12, 1.0, 5.4),
+			offset = Vector3.new(0, -1.0, 0.15), -- the bottom third, the whole length, past the rear
+			tint = Color3.fromRGB(150, 128, 104),
+		},
+	},
+
+	-- THE WOUND MODEL (hit-zones design sections 5 and 11.2). Two quantities per zone: damage decides
+	-- WHETHER the boar dies, flight decides HOW FAR it gets first. Every one of these is Karen's feel
+	-- value except COLLAPSE_ANGULAR_IMPULSE, which is physics.
+	WOUND = {
+		LETHAL = 100,
+		MORTAL = 50,
+		DAMAGE = {
+			head = { Slug = 100, Pellet = 34 }, -- a slug kills; 3 pellets kill
+			chest = { Slug = 100, Pellet = 25 }, -- a slug kills; 2 pellets are already mortal
+			body = { Slug = 55, Pellet = 11 }, -- one slug is mortal; 5 pellets are
+			legs = { Slug = 30, Pellet = 6 }, -- one slug is NOT enough: "several hits needed"
+		},
+		-- Studs run before collapsing, from the worst zone hit. Validated against Stokke et al.
+		-- (2018): efd = 1.14*M^0.73 m and mfd = 4.92*M^0.73 m give 100 and 429 studs at 80 kg
+		-- (docs/research/2026-09-25-hit-zones.md source C).
+		FLIGHT = { head = 0, chest = 0, body = 120, legs = 420 },
+		BLEED_OUT_MAX_SECONDS = 25, -- ceiling: a wounded boar wedged against a wall still dies
+		WOUND_SPEED_START = 1.0,
+		WOUND_SPEED_END = 0.45, -- 38 -> 17 studs/s across the flight
+		LIMP_SCALE = 0.75, -- 28.5 studs/s: still faster than a player's 16, so it is catchable
+		BOLT_SECONDS = 3.0, -- sprint away from the shot point whatever the threats say
+		BOLT_KICK = 0.8, -- the setpoint jumps to 0.8 x sprint on the hit tick: the one ACCEL bypass
+		FLASH_COLOR = Color3.fromRGB(190, 40, 40),
+		FLASH_SECONDS = 0.25, -- 15 frames: long enough to read, short enough not to look like state
+		CARCASS_SECONDS = 120,
+		COLLAPSE_ANGULAR_IMPULSE = 1200, -- one nudge, so it falls on a side instead of balancing
+	},
 
 	-- Pathfinding agent. Tunables, not structure: they decide whether the navmesh will route a
 	-- 2 x 3 x 5.5 body past the cover blocks (review round 1, finding 6).
@@ -235,12 +296,31 @@ function Boar.newRuntime(world)
 	self._signal = Instance.new("BindableEvent")
 	self._connection = nil
 	self._destroyed = false
-	self._stats =
-		{ pathRequests = 0, pathFailures = 0, pathBlocked = 0, spawned = 0, despawned = 0, hits = 0, pelletsTaken = 0 }
+	self._stats = {
+		pathRequests = 0,
+		pathFailures = 0,
+		pathBlocked = 0,
+		spawned = 0,
+		despawned = 0,
+		hits = 0,
+		pelletsTaken = 0,
+		damageTaken = 0,
+		downed = 0, -- Downed fired: the animal died
+		killed = 0, -- its carcass was removed; downed - killed is how many carcasses are lying about
+		escapedWounded = 0, -- crossed the exit line carrying damage
+		zoneHits = {}, -- PELLETS per zone, so it sums to pelletsTaken
+		unknownZoneHits = 0, -- hits carrying a zone no DAMAGE row knows: an attribute typo, not free
+		tallylessHits = 0, -- hits with no per-pellet tally, charged at the dominant zone
+	}
 
 	self.Despawned = self._signal.Event
 	self._hitSignal = Instance.new("BindableEvent")
 	self.Hit = self._hitSignal.Event
+	-- Downed and Despawned are two events on purpose: 1.7 must be able to award a kill at the moment
+	-- the boar dies, not CARCASS_SECONDS later, and the body leaving the world is a different fact
+	-- from the animal dying (hit-zones design section 8.3).
+	self._downedSignal = Instance.new("BindableEvent")
+	self.Downed = self._downedSignal.Event
 
 	self._folder = Body.ensureFolder(world.parent, world.folderName)
 	world.folder = self._folder
@@ -252,34 +332,87 @@ function Runtime:folder(): Folder
 end
 
 function Runtime:stats()
-	return table.clone(self._stats)
+	local out = table.clone(self._stats)
+	out.zoneHits = table.clone(self._stats.zoneHits) -- table.clone is shallow; this is a counter, not state
+	return out
+end
+
+-- A copy of one boar's wound state, or nil. There is no setter: takeHit and step are the only
+-- writers (hit-zones design section 3.3).
+function Runtime:woundOf(id: string)
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return table.clone(entry.wound)
+		end
+	end
+	return nil
 end
 
 -- The ONE way a hit enters this system (shotgun design section 6.2). The weapon publishes
 -- HitReported; BoarBoot -- the composition root that already knows both systems -- calls this.
 -- Neither owner requires the other.
 --
--- v1 counts and publishes, and changes nothing else: hit zones, wounds and the boar's reaction are
--- ROADMAP 1.5, and boar_hit.spec asserts that a hit does not move the boar in this milestone.
--- Returns false for a part that is not one of this runtime's live boars, so the caller needs no
--- filtering of its own.
+-- Since Milestone 1.5 it also charges the damage. The MODEL is Boar.Wound and is pure; this
+-- function is the only place a wound state is stored, the Brain is told a severity and a direction
+-- and never a number, and Body does the flashing. Returns false for a part that is not one of this
+-- runtime's live boars, and for a boar that is already down -- so a carcass cannot be killed twice
+-- and 1.7 cannot double-count a kill.
 function Runtime:takeHit(part: BasePart, hit): boolean
 	for _, entry in ipairs(self._boars) do
 		if entry.body.part == part then
-			if entry.dead then
+			local state = entry.brain:state()
+			if entry.dead or state == "DOWN" or state == "GONE" then
 				return false
 			end
+
+			local wound = self._config.WOUND
+			local payload = if type(hit) == "table" then hit else {}
+			local nextWound, severity = Wound.apply(entry.wound, payload, wound)
+			local record = nextWound.wounds[#nextWound.wounds]
+			entry.wound = nextWound
+			entry.lastHit = payload
+
 			self._stats.hits += 1
-			self._stats.pelletsTaken += (if type(hit) == "table" and type(hit.pellets) == "number"
-				then hit.pellets
-				else 1)
-			entry.lastHit = hit
+			self._stats.pelletsTaken += record.pellets
+			self._stats.damageTaken += record.damage
+			if record.tallyless then
+				self._stats.tallylessHits += 1
+			end
+			if record.unknownPellets > 0 then
+				self._stats.unknownZoneHits += 1
+			end
+			local zoneHits = self._stats.zoneHits
+			if type(payload.zones) == "table" and next(payload.zones) ~= nil then
+				for zone, count in pairs(payload.zones) do
+					zoneHits[zone] = (zoneHits[zone] or 0) + count
+				end
+			else
+				local zone = record.zone
+				zoneHits[zone] = (zoneHits[zone] or 0) + record.pellets
+			end
+
+			Body.setFlash(entry.body, wound.FLASH_SECONDS)
+
+			-- Where the shot came from, for the bolt. The shooter's position when the caller knows
+			-- it; otherwise a point out along the impact normal, which faces back toward whoever
+			-- fired. Either way it is a hint, and the Brain runs away from it rather than at it.
+			local from = payload.shooterPosition
+			if not from and typeof(payload.normal) == "Vector3" then
+				from = Body.position(entry.body) + payload.normal * 10
+			end
+			table.insert(entry.hitEvents, { severity = severity, zone = record.zone, from = from })
+
 			self._hitSignal:Fire({
 				id = entry.id,
-				zone = if type(hit) == "table" then hit.zone else nil,
-				ammo = if type(hit) == "table" then hit.ammo else nil,
-				pellets = if type(hit) == "table" then hit.pellets else nil,
-				at = if type(hit) == "table" then hit.at else nil,
+				zone = record.zone,
+				zones = payload.zones,
+				ammo = record.ammo,
+				pellets = record.pellets,
+				damage = record.damage,
+				severity = severity,
+				distance = record.distance,
+				shooterUserId = record.shooterUserId,
+				at = record.at,
 			})
 			return true
 		end
@@ -328,6 +461,9 @@ function Runtime:spawn(position: Vector3?)
 		waypoints = nil,
 		pathFailed = false,
 		forceRepath = false, -- set by the world's Path.Blocked listener
+		wound = Wound.new(), -- the ONE wound state, written only by takeHit and step
+		hitEvents = {}, -- hits since the last step; handed to the Brain and cleared
+		lastPosition = at,
 		bornAt = os.clock(),
 	})
 	self._stats.spawned += 1
@@ -377,11 +513,23 @@ function Runtime:_despawn(entry, index: number, reason: string, position: Vector
 		self._world.releasePath(entry.id)
 	end
 	self._stats.despawned += 1
+	if reason == "killed" then
+		self._stats.killed += 1
+	elseif reason == "escaped" and entry.wound.damage > 0 then
+		self._stats.escapedWounded += 1
+	end
+	-- The existing four fields keep their names and meanings; the wound is additive, so a listener
+	-- written against the Milestone 1.2 payload still works (hit-zones design section 2.2).
 	self._signal:Fire({
 		id = entry.id,
 		reason = reason,
 		position = position,
 		aliveFor = os.clock() - entry.bornAt,
+		wounded = entry.wound.damage > 0,
+		mortallyWounded = entry.wound.severity == "mortal" or entry.wound.severity == "lethal",
+		damage = entry.wound.damage,
+		wounds = entry.wound.wounds,
+		contributors = entry.wound.contributors,
 	})
 end
 
@@ -397,6 +545,14 @@ function Runtime:step(dt: number)
 		local position = Body.position(entry.body)
 		local facing = entry.body.part.CFrame.LookVector
 
+		-- A mortal wound runs out over the distance the boar ACTUALLY covers, not over a timer, so
+		-- a boar held against a wall does not bleed out at full speed. BLEED_OUT_MAX_SECONDS is the
+		-- ceiling for exactly that case, and it lives in Wound.advance with the rest of the model.
+		local moved = (position - entry.lastPosition) * Vector3.new(1, 0, 1)
+		entry.lastPosition = position
+		local collapse
+		entry.wound, collapse = Wound.advance(entry.wound, moved.Magnitude, dt, config.WOUND)
+
 		local blockedAhead = false
 		if self._world.probe then
 			blockedAhead = self._world.probe(position, facing, config.PROBE_LENGTH)
@@ -409,6 +565,9 @@ function Runtime:step(dt: number)
 		local forceRepath = entry.forceRepath
 		entry.forceRepath = false
 
+		local hitEvents = entry.hitEvents
+		entry.hitEvents = {}
+
 		local intent = entry.brain:step(dt, {
 			position = position,
 			velocity = Body.velocity(entry.body),
@@ -417,11 +576,29 @@ function Runtime:step(dt: number)
 			pathFailed = pathFailed,
 			blockedAhead = blockedAhead,
 			forceRepath = forceRepath,
+			hitEvents = hitEvents,
+			wound = {
+				severity = entry.wound.severity,
+				speedScale = Wound.speedScale(entry.wound, config.WOUND),
+				collapse = collapse,
+			},
 		})
+
+		if intent.downed then
+			-- Exactly once per boar: the Brain reports `downed` on the tick it enters DOWN and never
+			-- again, so the kill cannot be published twice.
+			self._stats.downed += 1
+			Body.collapse(entry.body, config.WOUND)
+			self._downedSignal:Fire(
+				Wound.killRecord(entry.wound, entry.id, position, os.clock() - entry.bornAt, config.WOUND)
+			)
+		end
+
+		Body.stepFlash(entry.body, dt, config.WOUND)
 
 		if intent.despawn then
 			self:_despawn(entry, index, intent.reason or "outOfBounds", position)
-		else
+		elseif not entry.body.collapsed then
 			Body.drive(entry.body, intent.targetVelocity, intent.facing)
 			if intent.pathRequest then
 				self:_requestPath(entry, intent.pathRequest)
@@ -466,6 +643,7 @@ function Runtime:destroy()
 	table.clear(self._boars)
 	self._signal:Destroy()
 	self._hitSignal:Destroy()
+	self._downedSignal:Destroy()
 end
 
 return Boar

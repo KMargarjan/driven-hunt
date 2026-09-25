@@ -5,6 +5,7 @@
 -- "filter out the shooter's character" could not be implemented at all.
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/shotgun.md (sections 5.3, 5.5, 13.1)
+local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
@@ -182,6 +183,32 @@ return function()
 			local origin = Vector3.new(0, 500, 20)
 			expect(Cast.world(origin, Vector3.new(0, 0, -40), { target })).to.equal(nil)
 			expect(Cast.world(origin, Vector3.new(0, 0, -40), { folder })).to.equal(nil)
+		end)
+	end)
+
+	-- Milestone 1.5, Director decision C: the shooter is told that something landed. The weapon owns
+	-- the one-way remote and knows nothing about boars; the BOAR's runtime is what turns a hit into a
+	-- kill, through BoarBoot. The drawing is the Hud's and is proved in tests/client/hit_marker.spec,
+	-- which waits for the markers this test sends -- so the two halves of the wire are asserted on
+	-- the two sides that actually own them.
+	describe("the marker sent to the shooter", function()
+		it("fires the one-way remote at a real player and counts it", function()
+			local players = Players:GetPlayers()
+			expect(#players > 0).to.equal(true) -- a Play session always has the local player
+			local before = Weapon.stats().markers
+			for _, player in ipairs(players) do
+				Weapon.markHit(player, "hit", "chest")
+				Weapon.markHit(player, "kill", "head")
+			end
+			expect(Weapon.stats().markers).to.equal(before + 2 * #players)
+		end)
+
+		it("says nothing to a shooter who is not a Player", function()
+			-- A player can leave between the cast and the report, and a spec can pass a stand-in.
+			local before = Weapon.stats().markers
+			Weapon.markHit(nil :: any, "hit")
+			Weapon.markHit({ Name = "not a player" } :: any, "hit")
+			expect(Weapon.stats().markers).to.equal(before)
 		end)
 	end)
 end

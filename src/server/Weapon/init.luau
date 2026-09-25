@@ -57,7 +57,8 @@ local registry = Registry.new()
 local tools: { [Player]: Tool } = {}
 local connections: { [Player]: { RBXScriptConnection } } = {}
 local toolWatchers: { [Player]: RBXScriptConnection } = {}
-local stats = { shots = 0, reports = 0, rateDropped = 0, badRequests = 0, granted = 0, revoked = 0, emptySwaps = 0 }
+local stats =
+	{ shots = 0, reports = 0, rateDropped = 0, badRequests = 0, granted = 0, revoked = 0, emptySwaps = 0, markers = 0 }
 
 local hitSignal = Instance.new("BindableEvent")
 local safetySignal = Instance.new("BindableEvent")
@@ -80,6 +81,23 @@ end
 
 function Weapon.stats()
 	return table.clone(stats)
+end
+
+-- Tells ONE player that something of theirs landed. One way, server -> that client only, and it
+-- carries no state: the Hud decides what to draw and the weapon never draws anything (rule 3).
+--
+-- The weapon does not know what a boar is and does not learn here: it sends "hit" because its own
+-- cast found a damageable target, and BoarBoot -- the composition root that already knows both
+-- systems -- calls this again with "kill" when the BOAR's runtime says the animal died. That is the
+-- same direction the damage seam already runs in (design section 6.3), so neither owner grows a
+-- reference to the other.
+function Weapon.markHit(player: Player, kind: string?, zone: string?)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then
+		return -- a spec's stand-in shooter, or a player who left mid-shot
+	end
+	local channel = remotes or Shotgun.remotes()
+	stats.markers += 1
+	channel.HitMarker:FireClient(player, { kind = kind or "hit", zone = zone, at = os.clock() })
 end
 
 function Weapon.trackedPlayers(): number
@@ -265,6 +283,8 @@ local function onFireRequest(player: Player, req: any)
 	stats.reports += #reports
 	for _, report in ipairs(reports) do
 		hitSignal:Fire(report)
+		-- One marker per (shot, target), not one per pellet: nine pellets on one boar is one hit.
+		Weapon.markHit(player, "hit", report.zone)
 	end
 
 	if driveLineProvider then

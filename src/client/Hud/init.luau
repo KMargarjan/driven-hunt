@@ -1,7 +1,13 @@
 --!strict
 -- PlayerScripts.Hud: THE OWNER OF ANYTHING DRAWN (CLAUDE.md rule 3, GAME_DESIGN.md "UI / anything
 -- drawn", which this system fills). It is the only writer of PlayerGui.HunterHud and everything in
--- it: in this task the crosshair and one barrel/ammo readout, and nothing else.
+-- it: the crosshair, one barrel/ammo readout, and -- since Milestone 1.5 -- the hit marker.
+--
+-- THE HIT MARKER is Karen's playtest answered ("I cannot tell whether I hit"): a short white tick on
+-- a confirmed hit, a longer red one on a kill. The server tells the shooter alone, one way, over
+-- Shotgun.Remotes.HitMarker; the weapon owns that remote and fires it when its own cast confirmed a
+-- damageable target, and the BOAR's runtime -- through BoarBoot -- is what turns a hit into a kill.
+-- Nothing about it is decided here: this module only draws.
 --
 -- THE DEPENDENCY DIRECTION IS ONE-WAY AND IT IS THE POINT. The Hud READS PlayerScripts.Weapon and
 -- is never called by it; the weapon has no reference to the Hud and does not know it exists. The
@@ -24,6 +30,10 @@ local Hud = {}
 local gui: ScreenGui? = nil
 local crosshair: Frame? = nil
 local readout: TextLabel? = nil
+local hitMark: Frame? = nil
+local hitKind: string? = nil
+local hitToken = 0 -- so a second hit during the first mark's life cannot hide it early
+local markerConnection: RBXScriptConnection? = nil
 local started = false
 
 function Hud.gui(): ScreenGui?
@@ -36,6 +46,20 @@ end
 
 function Hud.readoutText(): string
 	return if readout then readout.Text else ""
+end
+
+function Hud.isHitMarkVisible(): boolean
+	return hitMark ~= nil and hitMark.Visible
+end
+
+-- "hit", "kill", or nil when nothing is showing.
+function Hud.hitMarkKind(): string?
+	return hitKind
+end
+
+-- Whether this Hud is actually listening to the server's one-way marker remote.
+function Hud.hitMarkerConnected(): boolean
+	return markerConnection ~= nil and markerConnection.Connected
 end
 
 local function arm(parent: Frame, name: string, size: UDim2, anchor: Vector2, position: UDim2, color: Color3)
@@ -108,6 +132,39 @@ local function build(): ScreenGui
 		config.CROSSHAIR_COLOR
 	)
 
+	-- The hit marker: four diagonal arms around the centre, hidden until something lands. It is a
+	-- sibling of the crosshair and not a child, because it must still show in ADS, where the
+	-- crosshair is deliberately hidden (camera design section 6.2).
+	local mark = Instance.new("Frame")
+	mark.Name = "HitMark"
+	mark.BackgroundTransparency = 1
+	mark.Size = UDim2.fromOffset(
+		2 * (config.HIT_MARK_GAP_PX + config.HIT_MARK_ARM_PX),
+		2 * (config.HIT_MARK_GAP_PX + config.HIT_MARK_ARM_PX)
+	)
+	mark.AnchorPoint = Vector2.new(0.5, 0.5)
+	mark.Position = UDim2.fromScale(0.5, 0.5)
+	mark.Visible = false
+	mark.Parent = screen
+
+	local reach = config.HIT_MARK_GAP_PX + config.HIT_MARK_ARM_PX / 2
+	for _, corner in ipairs({
+		{ name = "TopLeft", x = -reach, y = -reach, rotation = 45 },
+		{ name = "TopRight", x = reach, y = -reach, rotation = -45 },
+		{ name = "BottomLeft", x = -reach, y = reach, rotation = -45 },
+		{ name = "BottomRight", x = reach, y = reach, rotation = 45 },
+	}) do
+		local diagonal = arm(
+			mark,
+			corner.name,
+			UDim2.fromOffset(config.HIT_MARK_THICK_PX, config.HIT_MARK_ARM_PX),
+			Vector2.new(0.5, 0.5),
+			UDim2.new(0.5, corner.x, 0.5, corner.y),
+			config.HIT_MARK_COLOR
+		)
+		diagonal.Rotation = corner.rotation
+	end
+
 	local label = Instance.new("TextLabel")
 	label.Name = "Readout"
 	label.BackgroundTransparency = 1
@@ -127,7 +184,46 @@ local function build(): ScreenGui
 
 	crosshair = container
 	readout = label
+	hitMark = mark
 	return screen
+end
+
+-- Shows the marker for its own lifetime. The ONE writer of the marker's colour and visibility.
+-- `kind` is "kill" or anything else, which means "hit": an unknown payload must still draw
+-- something, because a marker that silently does nothing is the failure this exists to fix.
+function Hud.showHitMark(kind: string?)
+	local mark = hitMark
+	if not mark or not Shotgun.CONFIG.HIT_MARK_ENABLED then
+		return
+	end
+	local config = Shotgun.CONFIG
+	local kill = kind == "kill"
+	hitKind = if kill then "kill" else "hit"
+
+	for _, child in ipairs(mark:GetChildren()) do
+		if child:IsA("Frame") then
+			child.BackgroundColor3 = if kill then config.HIT_MARK_KILL_COLOR else config.HIT_MARK_COLOR
+		end
+	end
+	mark.Visible = true
+
+	hitToken += 1
+	local token = hitToken
+	task.delay(if kill then config.HIT_MARK_KILL_SECONDS else config.HIT_MARK_SECONDS, function()
+		if token ~= hitToken then
+			return -- a later hit owns the marker now
+		end
+		hitKind = nil
+		if hitMark then
+			hitMark.Visible = false
+		end
+	end)
+end
+
+-- What the server's remote is bound to. It is a named function rather than an inline closure so a
+-- client spec can drive exactly the code path the wire drives.
+function Hud.onHitMarker(payload: any)
+	Hud.showHitMark(if type(payload) == "table" then payload.kind else nil)
 end
 
 -- `[*]* SLUG 24`: barrel glyphs (* Live, x Spent, - Empty) with the selected barrel in brackets,
@@ -177,6 +273,9 @@ function Hud.start()
 
 	gui = build();
 	(gui :: ScreenGui).Parent = player:WaitForChild("PlayerGui")
+
+	-- One way: the server tells this client that something of theirs landed. The Hud never fires it.
+	markerConnection = Shotgun.remotes().HitMarker.OnClientEvent:Connect(Hud.onHitMarker)
 
 	Weapon.Changed:Connect(function()
 		render(Weapon, CameraSystem)

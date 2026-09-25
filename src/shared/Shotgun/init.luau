@@ -120,6 +120,9 @@ function Shotgun.remotes()
 		ActionRequest = folder:WaitForChild("ActionRequest") :: RemoteEvent,
 		StateChanged = folder:WaitForChild("StateChanged") :: RemoteEvent,
 		ShotFired = folder:WaitForChild("ShotFired") :: RemoteEvent,
+		-- One way, server -> the shooter alone: "your pellets landed on something", and "it died".
+		-- The client never fires it (hit-zones design section 14, Director item C).
+		HitMarker = folder:WaitForChild("HitMarker") :: RemoteEvent,
 	}
 end
 
@@ -175,6 +178,18 @@ Shotgun.CONFIG = {
 	EFFECT_MAX_PER_SHOT = 24, -- a hard cap, so a bug cannot flood Workspace
 
 	-- the Hud
+	-- The hit marker (Director decision, 2026-09-25, on hit-zones design section 14 item C): Karen's
+	-- playtest said she could not tell whether she was hitting anything. A short tick on a confirmed
+	-- hit, a longer red one on a kill. No sound yet. Karen's dials.
+	HIT_MARK_ENABLED = true,
+	HIT_MARK_ARM_PX = 9,
+	HIT_MARK_GAP_PX = 6,
+	HIT_MARK_THICK_PX = 2,
+	HIT_MARK_COLOR = Color3.fromRGB(255, 255, 255),
+	HIT_MARK_KILL_COLOR = Color3.fromRGB(235, 70, 55),
+	HIT_MARK_SECONDS = 0.15,
+	HIT_MARK_KILL_SECONDS = 0.45,
+
 	CROSSHAIR_ENABLED = true,
 	CROSSHAIR_ARM_PX = 8,
 	CROSSHAIR_GAP_PX = 5,

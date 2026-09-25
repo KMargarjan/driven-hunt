@@ -4,6 +4,7 @@
 		{ "name": "FireRequest", "className": "RemoteEvent" },
 		{ "name": "ActionRequest", "className": "RemoteEvent" },
 		{ "name": "StateChanged", "className": "RemoteEvent" },
-		{ "name": "ShotFired", "className": "RemoteEvent" }
+		{ "name": "ShotFired", "className": "RemoteEvent" },
+		{ "name": "HitMarker", "className": "RemoteEvent" }
 	]
 }
