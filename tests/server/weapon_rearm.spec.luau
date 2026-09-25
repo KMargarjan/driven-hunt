@@ -122,6 +122,43 @@ return function()
 			expect(armed).to.equal(true)
 		end)
 
+		it("comes back when the answer changes between two edges, which is what stranded a drive", function()
+			local player = nil
+			for _, candidate in ipairs(Players:GetPlayers()) do
+				if Match.mayCarryWeapon(candidate) then
+					player = candidate
+					break
+				end
+			end
+			if not player then
+				return -- everybody here is a driver
+			end
+
+			-- THE EXACT SHAPE OF THE TWO-PLAYER BUG, with none of its timing luck. Every grant in
+			-- this system is edge-triggered: the drive's transitions and the player's CharacterAdded.
+			-- Here the player loses the gun while the answer is "no" -- a drive mid-transition -- and
+			-- the answer turns to "yes" with NO edge behind it. Nothing in the old code ever asked
+			-- again, and the player stood in the whole drive empty-handed.
+			Weapon.setArmingPolicy(function()
+				return false
+			end)
+			Weapon.refreshArming(player)
+			expect(holdsGun(player)).to.equal(false)
+			Weapon.setArmingPolicy(Match.mayCarryWeapon) -- what MatchBoot installs: the drive decides
+
+			local armed = waitUntil(REARM_TIMEOUT, function()
+				return holdsGun(player) -- no refreshArming here ON PURPOSE: only a sweep can do this
+			end)
+			TestKit.note(
+				string.format(
+					"weapon_rearm: after an edge with nobody listening, holds=%s | %s",
+					tostring(armed),
+					counters()
+				)
+			)
+			expect(armed).to.equal(true)
+		end)
+
 		it("comes back after the gun is taken away mid-drive, which is what a revoke leaves behind", function()
 			local player = nil
 			for _, candidate in ipairs(Players:GetPlayers()) do

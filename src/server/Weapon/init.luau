@@ -66,9 +66,19 @@ local stats = {
 	granted = 0,
 	grantsMissed = 0, -- a tool built for a player with no Backpack: nothing recorded, tried again later
 	revoked = 0,
+	armingRepairs = 0, -- a sweep found a player who should be holding a gun and was not
 	emptySwaps = 0,
 	markers = 0,
 }
+
+-- Seconds between arming sweeps. EDGE-TRIGGERED ARMING MISSES, and a miss is permanent: the drive
+-- calls refreshArming on its own transitions and the weapon grants on CharacterAdded, so if the
+-- answer to "may this player carry a gun" changes between two edges -- or a grant lands in the
+-- Backpack a placement is about to destroy while the drive is still mid-transition -- nothing asks
+-- again and the player stands in a whole drive empty-handed. Measured in a two-player drive, twice,
+-- with mayCarryWeapon saying the shooter was armed (Task 34). The sweep is the level: it asks the
+-- same question the same way, grants nothing a refreshArming would not, and costs one table scan.
+local ARMING_SWEEP_SECONDS = 2
 
 local hitSignal = Instance.new("BindableEvent")
 local safetySignal = Instance.new("BindableEvent")
@@ -525,6 +535,21 @@ function Weapon.start()
 		watchPlayer(player)
 	end
 	Players.PlayerAdded:Connect(watchPlayer)
+
+	-- The sweep (above). It is the only thing here that is not edge-driven, and it exists because
+	-- every edge in this system has now been seen to miss.
+	task.spawn(function()
+		while true do
+			task.wait(ARMING_SWEEP_SECONDS)
+			for _, player in ipairs(Players:GetPlayers()) do
+				local wanted = mayArm(player)
+				if wanted and not holdsTool(player) then
+					stats.armingRepairs += 1
+				end
+				pcall(Weapon.refreshArming, player)
+			end
+		end
+	end)
 	Players.PlayerRemoving:Connect(function(player)
 		Weapon.forget(player)
 	end)
