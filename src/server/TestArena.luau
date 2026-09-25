@@ -18,6 +18,7 @@
 -- face is coplanar with this plate's and z-fought, and a second spawn made spawning random.
 -- Record: backups/2026-09-25_workspace-defaults.md.
 
+local CollectionService = game:GetService("CollectionService")
 local Workspace = game:GetService("Workspace")
 
 -- Every dimension of the arena is here. Positions are the centre in X/Z; Y is derived, so every
@@ -50,6 +51,45 @@ local LAYOUT = {
 
 	-- Near the south edge, looking back across the area.
 	spawn = { name = "ArenaSpawn", size = Vector3.new(12, 1, 12), x = 0, z = 170 },
+
+	-- THE DRIVE'S GAMEPLAY MARKERS (docs/design/drive.md section 6.1), tagged rather than named:
+	-- ServerScriptService.Match.Markers asks CollectionService for them and never looks at a name,
+	-- so the Milestone 2 map generator can place the same tags anywhere and nothing else changes.
+	-- Laid out against Boar.CONFIG.field: the exit line is z = -190, so the shooter line sits 40
+	-- studs in front of it and a boar that beats the line runs on behind the shooters rather than
+	-- vanishing in their faces.
+	drive = {
+		postCount = 8,
+		postSpacing = 40, -- x = -140 .. +140
+		postZ = -150,
+		postSize = Vector3.new(4, 6, 4),
+		postColor = Color3.fromRGB(120, 95, 70),
+
+		lineZ = -150,
+		lineSize = Vector3.new(320, 1, 1),
+		lineColor = Color3.fromRGB(200, 170, 90),
+
+		driverStartZ = 170,
+		driverStartSize = Vector3.new(120, 1, 12),
+		driverStartColor = Color3.fromRGB(110, 140, 110),
+
+		boarSpawnZ = 120,
+		boarSpawnX = { -120, -40, 40, 120 },
+		boarSpawnSize = Vector3.new(6, 1, 6),
+		boarSpawnColor = Color3.fromRGB(150, 130, 110),
+
+		-- The four corner pillars are re-used as the trees a punished shooter is tied to (1.7b).
+		-- Tagged, not moved: nothing here creates a second pillar.
+		treeBlocks = { "PillarNW", "PillarNE", "PillarSW", "PillarSE" },
+
+		tags = {
+			post = "DrivenHunt.ShooterPost",
+			line = "DrivenHunt.DriveLine",
+			driverStart = "DrivenHunt.DriverStart",
+			boarSpawn = "DrivenHunt.BoarSpawn",
+			tree = "DrivenHunt.Tree",
+		},
+	},
 }
 
 local TestArena = {}
@@ -68,6 +108,66 @@ local function makePart(name, size, position, color, parent)
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = parent
 	return part
+end
+
+-- The drive's markers. Every one is tagged, and the tag is the contract -- the names are for a
+-- human reading the explorer. The drive LINE is the one that has to be built with a CFrame rather
+-- than a Position: its LookVector must point at the DRIVERS (+Z), because that is the direction the
+-- weapon's SafetyArc measures against, and a line pointing the wrong way would make the safety rule
+-- fire on exactly the wrong shots. tests/server/test_arena.spec.luau asserts it.
+local function buildDriveMarkers(folder: Folder, built: { [string]: BasePart })
+	local ground = LAYOUT.ground
+	local drive = LAYOUT.drive
+
+	for index = 1, drive.postCount do
+		local x = (index - (drive.postCount + 1) / 2) * drive.postSpacing
+		local post = makePart(
+			string.format("ShooterPost%d", index),
+			drive.postSize,
+			Vector3.new(x, ground.top + drive.postSize.Y / 2, drive.postZ),
+			drive.postColor,
+			folder
+		)
+		CollectionService:AddTag(post, drive.tags.post)
+	end
+
+	local line = makePart(
+		"DriveLine",
+		drive.lineSize,
+		Vector3.new(0, ground.top + drive.lineSize.Y / 2, drive.lineZ),
+		drive.lineColor,
+		folder
+	)
+	local at = line.Position
+	line.CFrame = CFrame.lookAt(at, at + Vector3.new(0, 0, 1)) -- LookVector -> +Z, toward the drivers
+	CollectionService:AddTag(line, drive.tags.line)
+
+	local start = makePart(
+		"DriverStart",
+		drive.driverStartSize,
+		Vector3.new(0, ground.top + drive.driverStartSize.Y / 2, drive.driverStartZ),
+		drive.driverStartColor,
+		folder
+	)
+	CollectionService:AddTag(start, drive.tags.driverStart)
+
+	for index, x in ipairs(drive.boarSpawnX) do
+		local spawnPart = makePart(
+			string.format("BoarSpawn%d", index),
+			drive.boarSpawnSize,
+			Vector3.new(x, ground.top + drive.boarSpawnSize.Y / 2, drive.boarSpawnZ),
+			drive.boarSpawnColor,
+			folder
+		)
+		CollectionService:AddTag(spawnPart, drive.tags.boarSpawn)
+	end
+
+	for _, name in ipairs(drive.treeBlocks) do
+		local pillar = built[name]
+		if pillar then
+			CollectionService:AddTag(pillar, drive.tags.tree)
+		end
+	end
 end
 
 -- Builds the arena under `parent` (default Workspace) and returns the folder. Idempotent: if the
@@ -93,8 +193,9 @@ function TestArena.build(parent)
 		folder
 	)
 
+	local built = {}
 	for _, block in ipairs(LAYOUT.blocks) do
-		makePart(
+		built[block.name] = makePart(
 			block.name,
 			block.size,
 			Vector3.new(block.x, ground.top + block.size.Y / 2, block.z),
@@ -102,6 +203,8 @@ function TestArena.build(parent)
 			folder
 		)
 	end
+
+	buildDriveMarkers(folder, built)
 
 	local spawnPad = Instance.new("SpawnLocation")
 	spawnPad.Name = LAYOUT.spawn.name
