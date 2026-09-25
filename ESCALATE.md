@@ -205,7 +205,11 @@ screenshot.
 Karen connected on the morning of 2026-09-25: the Director started
 `rojo serve default.project.json` and Karen pressed **Connect**. Two `rojo.exe` processes are up,
 Studio is on the DEV place in **Edit** mode and answering over MCP, and the harness has run green on
-this branch — `[harness] PASS: 24/24 checks @ fbe1d6049da35f75675d532ee77d0c4f6992a235 (clean tree)`,
+this branch. The first green run was
+`[harness] PASS: 24/24 checks @ fbe1d6049da35f75675d532ee77d0c4f6992a235 (clean tree)`;
+review rounds 4 and 5 then changed code three more times, and the line that covers the
+reviewed commit is
+`[harness] PASS: 24/24 checks @ fe21a0df30dc60e4d873157b1bd4821173b36b80 (clean tree)`,
 43 tests across five spec files.
 
 **Tasks 17 and 18 have now been executed**, and rule 5 is met for both: three play-time screenshots

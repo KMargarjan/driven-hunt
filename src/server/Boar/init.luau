@@ -180,7 +180,16 @@ function Boar.defaultWorld(field)
 						table.insert(points, waypoint.Position)
 					end
 				end
-				done(if #points > 0 then points else nil)
+				if #points == 0 then
+					-- Success with nothing usable past where we already stand. The Runtime counts this
+					-- as a failure, so the world must record it too, or the diagnostic has a blind spot
+					-- exactly where the silent straight-line fallback lives (review round 5, finding 1).
+					local reason = "success: no waypoints"
+					pathProblems[reason] = (pathProblems[reason] or 0) + 1
+					done(nil)
+					return
+				end
+				done(points)
 			end)
 		end,
 

@@ -234,11 +234,13 @@ return function()
 				end
 				-- MEASURED: 37 world failures against 36 runtime failures. The two counters
 				-- deliberately count different things and asserting them equal was wrong.
-				-- `pathProblems` is the WORLD's tally of every ComputeAsync that failed;
-				-- `stats.pathFailures` is the RUNTIME's tally of failures that reached a live boar,
-				-- and Runtime:_requestPath drops a reply whose boar has already despawned
-				-- (`entry.dead`). So a request still in flight when the boar escapes is counted once
-				-- by the world and not at all by the runtime, and world >= runtime is the invariant.
+				-- `pathProblems` is the WORLD's tally of every request it could not answer with
+				-- usable waypoints - a failed ComputeAsync, OR a Success carrying nothing past where
+				-- the boar already stands (review round 5, finding 1: that second class produces the
+				-- silent straight-line fallback and used to be recorded nowhere).
+				-- `stats.pathFailures` is the RUNTIME's tally of those that reached a LIVE boar, and
+				-- Runtime:_requestPath drops a reply whose boar has already despawned (`entry.dead`).
+				-- The world therefore records a superset: world >= runtime is the invariant.
 				expect(counted >= stats.pathFailures).to.equal(true)
 			end
 		end)

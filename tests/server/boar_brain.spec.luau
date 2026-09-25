@@ -408,6 +408,10 @@ return function()
 				local ia = a:step(DT, obs(START, threat))
 				local ib = b:step(DT, obs(START, threat))
 				expect(ia.state).to.equal(ib.state)
+				-- Tighter than EPSILON on purpose, and not for the same reason: two brains with the
+				-- same seed execute the same operations on the same values, so their outputs are
+				-- bit-identical. This asserts determinism, not a bound on a physical quantity, so
+				-- float32 representation error does not enter (review round 5, finding 4).
 				expect((ia.targetVelocity - ib.targetVelocity).Magnitude < 1e-9).to.equal(true)
 			end
 		end)
