@@ -35,6 +35,7 @@ end
 
 return function()
 	local testRoot, runtime, threatPosition, records, disconnect
+	local world
 
 	local function buildWorld()
 		testRoot = Instance.new("Folder")
@@ -52,7 +53,6 @@ return function()
 
 		local production = Boar.defaultWorld(FIELD)
 
-		local world
 		world = {
 			field = FIELD,
 			parent = testRoot,
@@ -75,6 +75,7 @@ return function()
 			end,
 			requestPath = production.requestPath,
 			releasePath = production.releasePath,
+			lastPathProblem = production.lastPathProblem,
 		}
 		return world
 	end
@@ -206,6 +207,18 @@ return function()
 			expect(stats.spawned).to.equal(1)
 			expect(stats.despawned).to.equal(1)
 			expect(stats.pathRequests > 0).to.equal(true)
+			-- Diagnostic first: if pathfinding failed, say WHY in the output before asserting, so a
+			-- failing run names the PathStatus instead of just a count (Task 18 harness run 1).
+			if stats.pathFailures > 0 then
+				print(
+					string.format(
+						"[boar_body] %d of %d path requests failed; last problem: %s",
+						stats.pathFailures,
+						stats.pathRequests,
+						tostring(world.lastPathProblem and world.lastPathProblem() or "unknown")
+					)
+				)
+			end
 			expect(stats.pathFailures).to.equal(0)
 			-- One Path object per boar, reused: more requests than boars proves it was not
 			-- recreated per call by accident.

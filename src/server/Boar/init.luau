@@ -110,6 +110,7 @@ function Boar.defaultWorld(field)
 	params.FilterDescendantsInstances = {}
 	local paths = {} -- agentId -> Path, one per boar, created once
 	local blockedListeners = {} -- agentId -> the Runtime's onBlocked for that boar
+	local lastPathProblem = nil :: string? -- the most recent ComputeAsync failure reason
 
 	local world
 	world = {
@@ -161,10 +162,14 @@ function Boar.defaultWorld(field)
 			blockedListeners[agentId] = onBlocked
 
 			task.spawn(function()
-				local ok = pcall(function()
+				local ok, err = pcall(function()
 					path:ComputeAsync(from, to)
 				end)
 				if not ok or path.Status ~= Enum.PathStatus.Success then
+					-- Record WHY, not just that it failed. A permanent silent fallback to
+					-- straight-line flee is the failure mode this exists to make visible, and
+					-- "it failed" is not enough to act on (Task 18 harness run 1).
+					lastPathProblem = if ok then tostring(path.Status) else "error: " .. tostring(err)
 					done(nil)
 					return
 				end
@@ -176,6 +181,12 @@ function Boar.defaultWorld(field)
 				end
 				done(if #points > 0 then points else nil)
 			end)
+		end,
+
+		-- The most recent reason a path request failed, or nil if none has. Read by specs and by
+		-- anyone diagnosing a silent fallback; it is a diagnostic, not state the Brain uses.
+		lastPathProblem = function(): string?
+			return lastPathProblem
 		end,
 
 		-- Called when a boar despawns, so its Path object and listener are not kept alive.
