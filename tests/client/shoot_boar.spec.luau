@@ -1,0 +1,197 @@
+-- shoot_boar.spec: the end-to-end assertion the harness could not make until now.
+--
+-- A real replayed mouse click, from the harness, through ContextActionService, through the client
+-- weapon, over FireRequest, through the server's validator, cast and pellets, onto a REAL boar's
+-- zone part, back through HitReported and the boar's own runtime, and home as the shooter's hit
+-- marker. Nothing in that chain is stubbed. Until Task 30 it could not be written, for one reason:
+-- the harness cannot aim. The camera's yaw comes from mouse movement, and under
+-- MouseBehavior = LockCenter StudioMCP's moveTo delivers no usable delta
+-- (docs/design/camera.md section 9.3), so a replayed click fired wherever the camera happened to
+-- point -- which was never at the boar.
+--
+-- Two halves, and they are deliberately different:
+--   * THE HARNESS places the character and takes the first aim, through the `stage` block on the
+--     scenario (tools/studio_mcp.py) and the camera owner's own LookAtRequest. Delete the stage and
+--     the player stands wherever they spawned, a hundred studs away, and this spec goes red.
+--   * THIS SPEC keeps the aim on the boar, because the boar RUNS as soon as a player appears within
+--     DETECT_RADIUS. A stage that aims once cannot follow an animal at 28 studs/s.
+--
+-- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
+-- Design: docs/design/hit-zones.md (section 14 item D), docs/design/camera.md (section 9.3)
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("InputReady"))
+
+local player = Players.LocalPlayer
+local scripts = player:WaitForChild("PlayerScripts")
+local Camera = require(scripts:WaitForChild("Camera"))
+
+-- Set by the harness's stage step, and by nothing else. Tracking starts when it appears, so this
+-- spec never fights another spec for the camera: before the stage it does not touch it at all.
+local STAGE_ATTRIBUTE = "StagedTarget"
+local TRACK_SECONDS = 15
+local AIM_HEIGHT = 0.4 -- studs above the trunk's centre: the chest band, not the legs
+
+local markers = {}
+local latchedAt: number? = nil
+local stagedDistance: number? = nil
+
+-- ONLY the markers that arrive after the stage. A stray pellet from an earlier scenario hitting a
+-- wandering boar would otherwise satisfy this spec without the staged shot doing anything -- and it
+-- did, twice, while the stage itself was broken: the run went green on a coincidence both times.
+Shotgun.remotes().HitMarker.OnClientEvent:Connect(function(payload)
+	if latchedAt then
+		table.insert(markers, payload)
+	end
+end)
+
+local function boarPart(): BasePart?
+	local folder = Workspace:FindFirstChild("Boars")
+	local part = folder and folder:FindFirstChildWhichIsA("BasePart")
+	return part
+end
+
+local function rootPart(): BasePart?
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	return if root and root:IsA("BasePart") then root else nil
+end
+
+-- Keeps the camera on the boar through the OWNER's API. It never writes workspace.CurrentCamera --
+-- the camera's own foreign-write detector would count it if it did, and weapon_client.spec asserts
+-- that counter does not move.
+local tracking = RunService.RenderStepped:Connect(function()
+	if not latchedAt then
+		local staged = player:GetAttribute(STAGE_ATTRIBUTE)
+		if type(staged) == "string" and staged ~= "" then
+			latchedAt = os.clock()
+			local boar, root = boarPart(), rootPart()
+			stagedDistance = if boar and root then (boar.Position - root.Position).Magnitude else nil
+		end
+		return
+	end
+	if #markers > 0 or os.clock() - latchedAt > TRACK_SECONDS then
+		return -- the shot landed, or the window closed: give the camera back
+	end
+	local boar = boarPart()
+	if boar then
+		Camera.lookAt(boar.Position + Vector3.new(0, AIM_HEIGHT, 0))
+	end
+end)
+
+InputReady.ready("shoot_boar")
+
+local function waitUntil(seconds: number, predicate: () -> boolean): boolean
+	local deadline = os.clock() + seconds
+	while os.clock() < deadline do
+		if predicate() then
+			return true
+		end
+		task.wait(0.05)
+	end
+	return predicate()
+end
+
+return function()
+	describe("the look-at request the harness stages through", function()
+		-- These run at the start of the suite, while the replay is still on its first scenario and
+		-- long before the stage: nothing is tracking yet, so nothing is fighting for the camera.
+		it("is an Instance, because execute_luau cannot reach this module", function()
+			-- MEASURED 2026-09-25: a require() through execute_luau returns a FRESH module, which
+			-- reports mode=Loading and frames=0 while the live camera is Scriptable at FOV 70. The
+			-- harness therefore cannot call Camera.lookAt; it invokes this, and the OWNER writes.
+			local request = scripts:WaitForChild("Camera"):FindFirstChild("LookAtRequest")
+			expect(request).to.be.ok()
+			expect(request:IsA("BindableFunction")).to.equal(true)
+		end)
+
+		it("turns the real camera onto a point, without anyone writing the camera", function()
+			expect(waitUntil(20, function()
+				return Camera.getMode() ~= "Loading" and rootPart() ~= nil
+			end)).to.equal(true)
+			local root = rootPart()
+			local before = Camera.stats().foreignCameraWrites
+			local request = scripts:WaitForChild("Camera"):FindFirstChild("LookAtRequest")
+
+			-- 60 studs out and 8 up, square to the character: nowhere the camera already points.
+			local target = root.Position + Vector3.new(60, 8, 0)
+			expect(request:Invoke(target.X, target.Y, target.Z)).to.equal(true)
+			RunService.RenderStepped:Wait()
+			RunService.RenderStepped:Wait()
+
+			local cam = Workspace.CurrentCamera
+			local dot = cam.CFrame.LookVector:Dot((target - cam.CFrame.Position).Unit)
+			print(
+				string.format("[shoot_boar] look-at error: %.2f degrees", math.deg(math.acos(math.clamp(dot, -1, 1))))
+			)
+			expect(dot > 0.999).to.equal(true) -- within about 2.5 degrees
+			-- The owner did it. If the request had written the camera itself, this would rise.
+			expect(Camera.stats().foreignCameraWrites).to.equal(before)
+		end)
+
+		it("refuses a request that is not three numbers", function()
+			local request = scripts:WaitForChild("Camera"):FindFirstChild("LookAtRequest")
+			expect(request:Invoke("over", "there", nil)).to.equal(false)
+		end)
+	end)
+
+	describe("a replayed click at a real boar", function()
+		it("was staged by the harness: the player is standing next to the boar", function()
+			-- The specs run WHILE the replay does, so this really is a wait for the harness to reach
+			-- the last scenario -- and MEASURED, the whole replay takes about 50 s, so 40 s was not
+			-- enough and this test failed while the shot itself landed. The harness waits 90 s for
+			-- the client report AFTER the replay, so waiting here costs the run nothing.
+			expect(waitUntil(70, function()
+				return latchedAt ~= nil
+			end)).to.equal(true)
+			print(
+				string.format(
+					"[shoot_boar] staged on %s, %.0f studs away",
+					tostring(player:GetAttribute(STAGE_ATTRIBUTE)),
+					stagedDistance or -1
+				)
+			)
+			-- The stage places the character at the scenario's offset. Far enough away and the shot
+			-- is a lottery; this is the number the scenario asks for, with room for one frame of
+			-- the boar's own movement.
+			expect(stagedDistance ~= nil and stagedDistance < 40).to.equal(true)
+		end)
+
+		it("hit it: the server confirmed a hit on a damageable target and told this client", function()
+			local arrived = waitUntil(20, function()
+				return #markers > 0
+			end)
+			if not arrived then
+				local boar = boarPart()
+				print(
+					string.format(
+						"[shoot_boar] no hit marker: boar %s, camera mode %s",
+						if boar then "still there" else "GONE",
+						Camera.getMode()
+					)
+				)
+			end
+			expect(arrived).to.equal(true)
+			expect(type(markers[1])).to.equal("table")
+			-- The zone is whatever the pellets found; that it is one of the boar's is the point.
+			print(
+				string.format(
+					"[shoot_boar] marker: kind=%s zone=%s",
+					tostring(markers[1].kind),
+					tostring(markers[1].zone)
+				)
+			)
+			expect(markers[1].kind == "hit" or markers[1].kind == "kill").to.equal(true)
+		end)
+
+		afterAll(function()
+			if tracking.Connected then
+				tracking:Disconnect()
+			end
+		end)
+	end)
+end

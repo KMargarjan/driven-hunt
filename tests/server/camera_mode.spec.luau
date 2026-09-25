@@ -225,4 +225,104 @@ return function()
 			expect(os.clock() - started < 0.1).to.equal(true)
 		end)
 	end)
+
+	-- Task 30: the angles that point the CAMERA at a target. It is what makes an end-to-end
+	-- "shoot the thing you are looking at" test possible at all, because the harness cannot aim.
+	-- Design: docs/design/hit-zones.md section 14 item D.
+	describe("aiming at a point", function()
+		local function errorDegrees(rootCFrame: CFrame, target: Vector3, state): number
+			local _, desired = Mode.cameraCFrame(rootCFrame, state, Config)
+			local dot = desired.LookVector:Dot((target - desired.Position).Unit)
+			return math.deg(math.acos(math.clamp(dot, -1, 1)))
+		end
+
+		it("points the CAMERA at the target, not the character", function()
+			local root = CFrame.new(0, 3, 0)
+			for _, target in ipairs({
+				Vector3.new(0, 3, -40),
+				Vector3.new(25, 3, 25),
+				Vector3.new(-60, 12, -10),
+				Vector3.new(0, 3, 30),
+			}) do
+				local aimed = Mode.anglesToward(Mode.initial(Config), root, target, Config)
+				local err = errorDegrees(root, target, aimed)
+				-- Six passes; four left 0.08 degrees on this geometry, which is where the number in
+				-- Mode.anglesToward comes from.
+				expect(err < 0.02).to.equal(true)
+			end
+		end)
+
+		it("earns its iteration: aiming the pivot alone would miss", function()
+			-- The camera sits THIRD_DISTANCE_STUDS behind the pivot and SHOULDER_STUDS.X to its
+			-- right, so the naive angles -- the ones that point the pivot at the target -- leave the
+			-- camera pointing degrees away. This is the test that says the loop is not decoration.
+			local root = CFrame.new(0, 3, 0)
+			local target = Vector3.new(0, 3, -20)
+			local pivot = root.Position + Vector3.new(0, Config.PIVOT_HEIGHT_STUDS, 0)
+			local direction = (target - pivot).Unit
+			local naive = table.freeze({
+				mode = "Third",
+				blend = 0,
+				yawDeg = math.deg(math.atan2(-direction.X, -direction.Z)),
+				pitchDeg = math.deg(math.asin(direction.Y)),
+				sinceModeChange = 0,
+			})
+			local naiveError = errorDegrees(root, target, naive)
+			local aimedError = errorDegrees(root, target, Mode.anglesToward(Mode.initial(Config), root, target, Config))
+			print(string.format("[camera_mode] aim error: naive %.2f deg, iterated %.4f deg", naiveError, aimedError))
+			expect(naiveError > 3).to.equal(true)
+			expect(aimedError < 0.02).to.equal(true)
+		end)
+
+		it("cannot centre a target INSIDE the boom, and says so by staying finite", function()
+			-- The camera orbits the pivot at THIRD_DISTANCE_STUDS. A target nearer than that is
+			-- inside the orbit, so no yaw and pitch put it in the middle of the screen -- turning
+			-- toward it moves the camera away from it. MEASURED: the iteration oscillates there
+			-- instead of converging (four passes left 0.08 degrees at 20 studs and several degrees
+			-- at 8). What it must never do is return NaN or an unclamped angle, and that is what is
+			-- asserted; aiming at something you are standing on is not a shot anyone takes.
+			local root = CFrame.new(0, 3, 0)
+			local near = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(3, 3, 8), Config)
+			expect(near.yawDeg == near.yawDeg).to.equal(true) -- not NaN
+			expect(near.pitchDeg == near.pitchDeg).to.equal(true)
+			expect(near.yawDeg > -180 and near.yawDeg <= 180).to.equal(true)
+			expect(near.pitchDeg >= -72 and near.pitchDeg <= 78).to.equal(true)
+		end)
+
+		it("clamps the pitch and wraps the yaw, like every other angle in this module", function()
+			local root = CFrame.new(0, 3, 0)
+			local up = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(0, 400, 0), Config)
+			expect(up.pitchDeg <= 78).to.equal(true) -- PITCH_MAX_DEG
+			local down = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(0, -400, 0), Config)
+			expect(down.pitchDeg >= -72).to.equal(true) -- PITCH_MIN_DEG
+
+			-- Straight behind the character is yaw 180, which must come back as 180, not -180 or 540.
+			local behind = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(0, 3, 40), Config)
+			expect(behind.yawDeg > -180 and behind.yawDeg <= 180).to.equal(true)
+		end)
+
+		it("keeps the mode and the blend, and returns a frozen state", function()
+			local aiming = Mode.step(
+				Mode.step(Mode.initial(Config), input(), 1 / 60, Config),
+				input({ aiming = true }),
+				1 / 60,
+				Config
+			)
+			local aimed = Mode.anglesToward(aiming, CFrame.new(0, 3, 0), Vector3.new(0, 3, -30), Config)
+			expect(aimed.mode).to.equal(aiming.mode)
+			expect(aimed.blend).to.equal(aiming.blend)
+			expect(function()
+				aimed.yawDeg = 0
+			end).to.throw()
+		end)
+
+		it("leaves the angles alone when the target is where the camera already is", function()
+			local root = CFrame.new(0, 3, 0)
+			local state = Mode.initial(Config)
+			local _, desired = Mode.cameraCFrame(root, state, Config)
+			local aimed = Mode.anglesToward(state, root, desired.Position, Config)
+			expect(aimed.yawDeg).to.equal(state.yawDeg)
+			expect(aimed.pitchDeg).to.equal(state.pitchDeg)
+		end)
+	end)
 end

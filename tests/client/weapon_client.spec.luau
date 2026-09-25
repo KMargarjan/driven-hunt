@@ -44,6 +44,27 @@ local Hud = require(scripts:WaitForChild("Hud"))
 
 -- Every snapshot the server published, in order, with the client clock that received it.
 local log = {}
+-- ...and how much of it belongs to THIS scenario. Task 30 added `shoot-the-boar`, which fires the
+-- same gun later in the same Play session, so "exactly two shots" and "it ends here" are claims
+-- about a window, not about the session. The window closes when the harness stages the next
+-- scenario -- the one event that says another scenario has taken the gun (tools/studio_mcp.py, the
+-- `stage` step, which sets this attribute and nothing else does).
+local ownLogEntries: number? = nil
+player:GetAttributeChangedSignal("StagedTarget"):Connect(function()
+	ownLogEntries = ownLogEntries or #log
+end)
+
+-- The log as it stood when this spec's own scenario ended.
+local function ownLog()
+	if not ownLogEntries then
+		return log
+	end
+	local out = {}
+	for index = 1, ownLogEntries do
+		out[index] = log[index]
+	end
+	return out
+end
 local aimEvents = {}
 local cameraSamples = {}
 local equippedAt = nil
@@ -142,8 +163,14 @@ local function spentCount(state): number
 	return n
 end
 
+-- The last snapshot of THIS spec's own scenario. While its scenario is the one running, that is
+-- simply the last snapshot; once the harness stages the next one, the window is frozen. Task 30:
+-- `shoot-the-boar` fires the same gun afterwards, so the session's last snapshot had busyFor = 0.25
+-- from someone else's shot and "the scenario ended where the design says" timed out waiting for a
+-- state it had already reached.
 local function last()
-	return if #log > 0 then log[#log].state else nil
+	local entries = ownLog()
+	return if #entries > 0 then entries[#entries].state else nil
 end
 
 return function()
@@ -189,6 +216,20 @@ return function()
 	end)
 
 	describe("the harness-driven weapon", function()
+		-- The camera's foreign-write counter, as it stood when this describe started. Task 30 made
+		-- the detector see rotation-only writes, and camera_client.spec now performs one deliberately
+		-- to prove the detector works -- so a session TOTAL of zero is no longer the right claim.
+		-- The claim that matters is this one: while the weapon was being driven, nothing but the
+		-- camera wrote the camera.
+		local foreignBefore = 0
+
+		beforeAll(function()
+			local cameraModule = scripts:FindFirstChild("Camera")
+			if cameraModule then
+				foreignBefore = require(cameraModule).stats().foreignCameraWrites
+			end
+		end)
+
 		it("equips on the cue and starts full", function()
 			expect(waitUntil(RUN_TIMEOUT, function()
 				local state = Weapon.get()
@@ -240,7 +281,9 @@ return function()
 			end
 			expect(finished).to.equal(true)
 
-			local state = last()
+			local entries = ownLog()
+			local state = entries[#entries] and entries[#entries].state
+			expect(state).to.be.ok()
 			print(
 				string.format(
 					"[weapon_client] end state: barrels=%s/%s loaded=%s/%s selected=%d ammo=%s slug=%d buck=%d open=%s",
@@ -273,16 +316,24 @@ return function()
 		it("fired exactly twice: an empty gun refused the third click", function()
 			-- Three clicks were sent: two into a loaded gun and one into a gun with both barrels
 			-- spent. Only the first two may spend a barrel -- no phantom shot.
+			local entries = ownLog()
 			local rises = 0
 			local previous = 0
-			for _, entry in ipairs(log) do
+			for _, entry in ipairs(entries) do
 				local spent = spentCount(entry.state)
 				if spent > previous then
 					rises += 1
 				end
 				previous = spent
 			end
-			print(string.format("[weapon_client] shots seen: %d over %d snapshots", rises, #log))
+			print(
+				string.format(
+					"[weapon_client] shots seen: %d over %d snapshots (%d in the session)",
+					rises,
+					#entries,
+					#log
+				)
+			)
 			expect(rises).to.equal(2)
 		end)
 
@@ -361,12 +412,13 @@ return function()
 			local stats = CameraSystem.stats()
 			print(
 				string.format(
-					"[weapon_client] camera foreign writes: %d over %d frames",
+					"[weapon_client] camera foreign writes: %d (from %d) over %d frames",
 					stats.foreignCameraWrites,
+					foreignBefore,
 					stats.frames
 				)
 			)
-			expect(stats.foreignCameraWrites).to.equal(0)
+			expect(stats.foreignCameraWrites - foreignBefore).to.equal(0)
 			-- And the aim request did reach the camera, which is what makes the zero meaningful:
 			-- the camera moved, and only the camera moved it.
 			expect(stats.aimEnters >= 1).to.equal(true)
