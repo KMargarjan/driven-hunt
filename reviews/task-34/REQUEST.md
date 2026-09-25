@@ -1,7 +1,7 @@
 # Task 34 — running the specs with two players
 
 Task: 34
-Round: 3
+Round: 1
 Base: `2545891`
 Code commit: `166bd334e576a84f324c5ca093e56af22ccb286b`
 
@@ -12,8 +12,9 @@ Code commit: `166bd334e576a84f324c5ca093e56af22ccb286b`
 
 One player: 234 server and 58 client `it` blocks (`main` had 226 and 58). Two players (the Director
 ran it, 2026-09-25): server 234 passed / 0 failed, the **shooter's** client 58 / 0, the driver's
-client printed as an observation. This request is written fresh for the whole change since `main`;
-rounds 1 and 2 reviewed an earlier shape of it.
+client printed as an observation. This request is written fresh for the whole change since `main`.
+It is `Round: 1` because the last verdict on this task was a PASS, which closes a count; the two
+rounds before it reviewed an earlier shape of the same branch, and everything they blocked is fixed.
 
 ## Task
 
