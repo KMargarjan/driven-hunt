@@ -18,8 +18,10 @@
 --   Markers read-only: the CollectionService tags
 --   Body    the only writer of teams and of where a character stands
 --
--- MILESTONE 1.7a. SAFETY_ENABLED and SCOREBOARD_ENABLED are false: the penalty and the score screen
--- are 1.7b (design section 0, Director decision A). Everything they need is here and dark.
+-- MILESTONE 1.7b turned both switches on: SAFETY_ENABLED ties a shooter who fires at a driver to a
+-- tree for the rest of the drive, and Drive.CONFIG.SCOREBOARD_ENABLED shows the score screen. The
+-- penalty adds one pure module (Penalty) and two effects (`freeze`, `release`); nothing else about
+-- the machine changed.
 --
 -- Design: docs/design/drive.md
 -- Note:   docs/research/2026-09-25-drive.md
@@ -32,6 +34,7 @@ local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 
 local Body = require(script.Body)
 local Markers = require(script.Markers)
+local Penalty = require(script.Penalty)
 local Phase = require(script.Phase)
 local Roster = require(script.Roster)
 local Score = require(script.Score)
@@ -43,6 +46,7 @@ Match.Phase = Phase
 Match.Roster = Roster
 Match.Score = Score
 Match.Markers = Markers
+Match.Penalty = Penalty
 Match.Body = Body
 
 -- Every number the drive has. K marks Karen's feel values. No magic number anywhere else in this
@@ -86,8 +90,21 @@ Match.CONFIG = {
 	},
 	PUSH_SAMPLE_HZ = 2,
 
-	-- the safety rule: 1.7b. The switch exists so the Hud and the score are written once.
-	SAFETY_ENABLED = false,
+	-- the safety rule (design section 11.4). Karen's rule as written: tied to a tree until the drive
+	-- ends, visible to everyone, announced in the feed.
+	SAFETY_ENABLED = true,
+	SAFETY_MISS_STUDS = 12, -- K, ~3.4 m: a shot that passes within three metres of a person is a shot at them
+	SAFETY_RANGE_STUDS = 330, -- Shotgun.CONFIG.RANGE_STUDS.Slug; past it nothing arrives
+	-- The depth of a person, added to where the shot stopped. See Penalty.judge: without it a shot
+	-- that HITS a driver stops on his surface, a stud in front of his root, and would be judged
+	-- harmless. reviews/task-35/DESIGN_DELTA.md.
+	SAFETY_BODY_STUDS = 4,
+	SAFETY_GRACE_SECONDS = 0, -- K, no grace: the rule is the rule from the first second
+	TIE_UNTIL_DRIVE_END = true, -- K, Karen's rule as written
+	TIE_SECONDS = 60, -- K, used only when the flag above is false (Penalty.expired)
+	TIE_GAP_STUDS = 2.5, -- K, studs from the trunk's SURFACE, on the side the offender came from
+	ROPE_COLOR = Color3.fromRGB(170, 130, 85), -- K, checked on screen: see the note in Body
+	ROPE_THICKNESS = 0.3,
 
 	-- the wire (design section 11.5)
 	STATE_MIN_INTERVAL = 0.25,
@@ -111,7 +128,11 @@ local heartbeat: RBXScriptConnection? = nil
 local remotes: any = nil
 
 local names: { [number]: string } = {} -- userId -> name, for the feed and the board
-local tied: { [number]: boolean } = {} -- 1.7b; always empty in this milestone
+-- Who is tied, and to what. THE ONE TRUTH about it: mayCarryWeapon reads it, the snapshot reports it
+-- and the release effect empties it. The pure machine does not track it -- two writers of one fact is
+-- the failure docs/PROJECT_CONTEXT.md names three times.
+local tied: { [number]: { tree: BasePart, at: number } } = {}
+local characterWatch: { [number]: RBXScriptConnection } = {}
 local pushCredit: { [string]: { [number]: number } } = {} -- boarId -> userId -> last time near
 local accumulator = 0
 local sinceSample = 0
@@ -132,6 +153,9 @@ local stats = {
 	killSignalMissing = 0,
 	broadcasts = 0,
 	ties = 0,
+	tiesWithoutAnchor = 0,
+	violations = 0,
+	safetySignalMissing = 0,
 }
 
 local phaseSignal = Instance.new("BindableEvent")
@@ -155,6 +179,12 @@ function Match.trackedPlayers(): number
 		n += 1
 	end
 	return n
+end
+
+-- Is this player tied to a tree right now? The one public reader of `tied`, so a spec and the
+-- weapon's arming policy ask the same question of the same table.
+function Match.isTied(userId: number): boolean
+	return tied[userId] ~= nil
 end
 
 local function now(): number
@@ -255,6 +285,19 @@ end
 -- ----------------------------------------------------------------------------------- the effects
 -- The pure machine says what must happen; this is the only place any of it is done.
 
+-- Where a player is standing, or nil. Read-only.
+local function characterPosition(player: Player): Vector3?
+	local character = player.Character
+	local root = character and character.PrimaryPart
+	return if root then root.Position else nil
+end
+
+local function refreshArmingFor(player: Player)
+	if world and world.weapon and world.weapon.refreshArming then
+		world.weapon.refreshArming(player)
+	end
+end
+
 local function applyAssignTeams(assignment)
 	for userId, team in pairs(assignment) do
 		local player = playersService():GetPlayerByUserId(userId)
@@ -305,13 +348,10 @@ local function applyPlace(userIds: { number }?)
 end
 
 local function applyRefreshArming(userIds: { number }?)
-	if not (world and world.weapon and world.weapon.refreshArming) then
-		return
-	end
 	for _, userId in ipairs(userIds or {}) do
 		local player = playersService():GetPlayerByUserId(userId)
 		if player then
-			world.weapon.refreshArming(player)
+			refreshArmingFor(player)
 		end
 	end
 end
@@ -347,8 +387,56 @@ local function applyClearBoars()
 	table.clear(pushCredit)
 end
 
+-- One tie. The owner has already decided (the phase is Running, this shooter was not tied, the grace
+-- is over and Penalty.judge said yes); this performs it, through Body, which is the only writer of a
+-- character's position and of Workspace.DriveMarkers.
+local function applyFreeze(userId: number)
+	local player = playersService():GetPlayerByUserId(userId)
+	if not player then
+		return
+	end
+	-- The POINTS penalty lands either way: the shot was a violation whether or not the map gave us
+	-- anything to tie him to. Only the tie itself needs an anchor.
+	board = Score.violation(board, userId, Match.CONFIG)
+	stats.violations += 1
+
+	local tree = if markerSet then Body.anchorFor(markerSet, characterPosition(player)) else nil
+	if not tree then
+		-- Never a nil CFrame, which would silently teleport him to the origin (design section 8.4).
+		stats.tiesWithoutAnchor += 1
+		snapshotCache = nil
+		return
+	end
+	if not Body.tie(player, tree, Match.CONFIG) then
+		stats.tiesWithoutAnchor += 1
+		snapshotCache = nil
+		return
+	end
+	tied[userId] = { tree = tree, at = now() }
+	stats.ties += 1
+	snapshotCache = nil -- the tie is part of the snapshot the broadcast effect is about to send
+	-- The weapon still decides and still writes: mayCarryWeapon now says no, so the Tool goes.
+	refreshArmingFor(player)
+	punishedSignal:Fire(userId, Penalty.REASON)
+end
+
+local function untie(userId: number)
+	tied[userId] = nil
+	snapshotCache = nil
+	local player = playersService():GetPlayerByUserId(userId)
+	if player then
+		Body.untie(player)
+		refreshArmingFor(player)
+	else
+		Body.forget(userId)
+	end
+end
+
+-- The end of a drive frees everybody, which is what TIE_UNTIL_DRIVE_END means.
 local function applyRelease()
-	-- 1.7b: nobody is ever tied while SAFETY_ENABLED is false, so this frees an empty set.
+	for userId in pairs(tied) do
+		untie(userId)
+	end
 	table.clear(tied)
 end
 
@@ -365,6 +453,8 @@ local function applyEffects(effects)
 			applySpawnBoar(effect.position)
 		elseif kind == "clearBoars" then
 			applyClearBoars()
+		elseif kind == "freeze" then
+			applyFreeze(effect.userId)
 		elseif kind == "release" then
 			applyRelease()
 		elseif kind == "feed" then
@@ -442,6 +532,58 @@ function Match.mayCarryWeapon(player: Player): boolean
 		return true
 	end
 	return team == "Drivers" and Match.CONFIG.DRIVERS_MAY_SHOOT
+end
+
+-- ------------------------------------------------------------------------------ the safety rule
+
+-- Every live DRIVER, as Penalty.judge wants them. driverThreats keys by a string because that is the
+-- shape the boar's world wants; this is the same read, keyed by number.
+local function driverPositions(): { Penalty.DriverPos }
+	local out = {}
+	for _, driver in ipairs(Match.driverThreats()) do
+		local userId = tonumber(driver.id)
+		if userId then
+			table.insert(out, { userId = userId, position = driver.position })
+		end
+	end
+	return out
+end
+
+-- THE WEAPON PUBLISHED A SHOT INTO THE DRIVE; this decides whether it endangered anybody. Four
+-- questions, and only the last one is Penalty's: is the drive live, is this shooter already tied, is
+-- the grace over, and did the shot pass close to a driver (design section 8.3).
+--
+-- The weapon's 45-degree arc has already filtered the shot -- that is why this is called at all -- and
+-- taking that cone as the verdict would tie everybody in the first minute, because a shooter on a post
+-- faces the drive.
+local function onSafetyViolation(player: Player, aim: Vector3, muzzle: Vector3, stopAt: number?)
+	if not Match.CONFIG.SAFETY_ENABLED then
+		return
+	end
+	if not Phase.isLive(state) then
+		return -- no penalty outside the drive; shooting in Scoring is possible and pointless
+	end
+	if tied[player.UserId] then
+		return -- already tied: a second violation changes nothing and fires Punished once
+	end
+	local at = now()
+	-- The drive's own start, derived rather than stored: phaseEndsAt is the only clock in this system.
+	local driveStartedAt = state.phaseEndsAt - Match.CONFIG.DRIVE_SECONDS
+	if at - driveStartedAt < Match.CONFIG.SAFETY_GRACE_SECONDS then
+		return
+	end
+	local shot: Penalty.Shot = {
+		userId = player.UserId,
+		muzzle = muzzle,
+		aim = aim,
+		stopAt = stopAt or Match.CONFIG.SAFETY_RANGE_STUDS,
+		at = at,
+	}
+	local guilty = Penalty.judge(shot, driverPositions(), Match.CONFIG)
+	if not guilty then
+		return
+	end
+	dispatch({ kind = "violation", userId = player.UserId, name = player.Name, at = at })
 end
 
 -- Distance sampling, twice a second: which DRIVERS were near which boar, so a kill can pay the
@@ -555,6 +697,22 @@ function Match:step(dt: number)
 		markersStale = false
 		readMarkers()
 	end
+	-- TIE_SECONDS, and only when TIE_UNTIL_DRIVE_END is false. With Karen's value (true) Penalty.expired
+	-- is always false and this loop never frees anybody -- the drive's `release` effect does.
+	if not Match.CONFIG.TIE_UNTIL_DRIVE_END and next(tied) ~= nil then
+		local at = now()
+		local freed = false
+		for userId, record in pairs(tied) do
+			if Penalty.expired(record.at, at, Match.CONFIG) then
+				untie(userId)
+				freed = true
+			end
+		end
+		if freed then
+			broadcast(false)
+		end
+	end
+
 	local interval = 1 / Match.CONFIG.MATCH_STEP_HZ
 	if sinceSample >= 1 / Match.CONFIG.PUSH_SAMPLE_HZ then
 		sinceSample = 0
@@ -570,9 +728,31 @@ function Match:step(dt: number)
 	end
 end
 
+-- A TIED PLAYER WHO RESPAWNS MUST NOT WALK AWAY FREE. Nothing damages players (shotgun design
+-- section 15 item C), but the Reset button exists, and "press Escape, Reset, and the penalty is over"
+-- is not a penalty. The tie is re-applied to the new character, at the same tree.
+local function watchCharacter(player: Player)
+	characterWatch[player.UserId] = player.CharacterAdded:Connect(function(character)
+		local record = tied[player.UserId]
+		if not record then
+			return
+		end
+		task.spawn(function()
+			if not character.PrimaryPart then
+				character:GetPropertyChangedSignal("PrimaryPart"):Wait()
+			end
+			if tied[player.UserId] == record and record.tree.Parent then
+				Body.tie(player, record.tree, Match.CONFIG)
+				refreshArmingFor(player)
+			end
+		end)
+	end)
+end
+
 local function watchPlayer(player: Player)
 	names[player.UserId] = player.Name
 	board = Score.join(board, player.UserId, player.Name, state.assignment[player.UserId])
+	watchCharacter(player)
 	dispatch({ kind = "join", userId = player.UserId, name = player.Name })
 end
 
@@ -580,7 +760,16 @@ end
 function Match.forget(player: Player)
 	local userId = player.UserId
 	names[userId] = nil
-	tied[userId] = nil
+	if tied[userId] then
+		-- The rope outlives nobody: the Instance goes with the player (design section 4.4).
+		untie(userId)
+	end
+	Body.forget(userId)
+	local watch = characterWatch[userId]
+	if watch then
+		watch:Disconnect()
+		characterWatch[userId] = nil
+	end
 	board = Score.leave(board, userId)
 	for _, credit in pairs(pushCredit) do
 		credit[userId] = nil
@@ -596,6 +785,7 @@ function Match.start(injected)
 	board = Score.new()
 	table.clear(names)
 	table.clear(tied)
+	table.clear(characterWatch)
 	table.clear(pushCredit)
 	snapshotCache = nil
 
@@ -618,6 +808,16 @@ function Match.start(injected)
 		if world.boars.Despawned then
 			table.insert(connections, world.boars.Despawned:Connect(onDespawned))
 		end
+	end
+
+	-- The weapon publishes a shot that went into the drive; this owner decides what it costs. The
+	-- weapon writes nothing about the penalty and knows nothing about it (design section 8.2).
+	if world.weapon and world.weapon.SafetyViolated then
+		table.insert(connections, world.weapon.SafetyViolated:Connect(onSafetyViolation))
+	elseif Match.CONFIG.SAFETY_ENABLED then
+		-- A number in the harness report, not a safety rule that silently never fires.
+		stats.safetySignalMissing += 1
+		warn("[match] the weapon has no SafetyViolated signal: the safety rule cannot fire")
 	end
 
 	local service = playersService()
@@ -644,6 +844,7 @@ function Match.stop()
 		return
 	end
 	started = false
+	applyRelease() -- nobody stays frozen because a spec stopped the match
 	if heartbeat then
 		heartbeat:Disconnect()
 		heartbeat = nil
@@ -652,6 +853,10 @@ function Match.stop()
 		connection:Disconnect()
 	end
 	table.clear(connections)
+	for userId, watch in pairs(characterWatch) do
+		watch:Disconnect()
+		characterWatch[userId] = nil
+	end
 	world = nil
 	remotes = nil
 	markerSet = nil

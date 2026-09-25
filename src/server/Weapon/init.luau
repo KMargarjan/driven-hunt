@@ -86,6 +86,9 @@ local ARMING_SWEEP_SECONDS = 2
 local hitSignal = Instance.new("BindableEvent")
 local safetySignal = Instance.new("BindableEvent")
 Weapon.HitReported = hitSignal.Event
+-- (player, aim: Vector3 unit, muzzle: Vector3, stopAt: number) -- stopAt is studs from the muzzle to
+-- where the shot stopped, or the ammo's range when it hit nothing. The drive needs it to tell a shot
+-- that went past a driver from one that stopped in the boar in front of him (Task 35).
 Weapon.SafetyViolated = safetySignal.Event
 
 local started = false
@@ -420,7 +423,17 @@ local function onFireRequest(player: Player, req: any)
 		local line = driveLineProvider()
 		-- `aim`, not the camera direction: a published violation must match where the pellets went.
 		if line and SafetyArc.isForbidden(aim, line, CONFIG.SAFETY_ARC_HALF_DEG) then
-			safetySignal:Fire(player, aim, muzzle)
+			-- HOW FAR THE SHOT GOT, which is the fourth argument the drive needs (Task 35): without
+			-- it a clean kill on a boar 30 studs away ties the shooter because a driver stood 80
+			-- studs behind it, in line -- the pellets never got near him.
+			--
+			-- It is the distance from the muzzle to the AIM POINT, not `report.nearest` as
+			-- docs/design/drive.md section 8.2 proposed (reviews/task-35/DESIGN_DELTA.md): with
+			-- buckshot the nearest impact of a nine-pellet pattern is whichever pellet clipped the
+			-- ground first, which at long range is a few studs out and would mask every violation.
+			-- The aim point is where the shot was actually going.
+			local stopAt = if aimImpact then (aimPoint - muzzle).Magnitude else range
+			safetySignal:Fire(player, aim, muzzle, stopAt)
 		end
 	end
 

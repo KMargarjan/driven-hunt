@@ -46,10 +46,26 @@ return function()
 		end)
 
 		it("keeps the shared config frozen to its nested tables", function()
-			expect(Drive.CONFIG.SCOREBOARD_ENABLED).to.equal(false) -- 1.7b
+			expect(Drive.CONFIG.SCOREBOARD_ENABLED).to.equal(true) -- 1.7b: the score screen is built
 			expect(function()
 				(Drive.CONFIG :: any).FEED_LINES = 99
 			end).to.throw()
+		end)
+
+		it("carries no rule number, which is the reason the two configs are separate", function()
+			-- A client that knows the safety numbers can dodge the rule by eye, so they live in
+			-- Match.CONFIG on the server and are never replicated (design section 3.4). This is the
+			-- assertion that keeps them there.
+			for _, field in ipairs({
+				"SAFETY_MISS_STUDS",
+				"SAFETY_RANGE_STUDS",
+				"SAFETY_BODY_STUDS",
+				"TIE_SECONDS",
+				"DRIVE_SECONDS",
+				"POINTS",
+			}) do
+				expect((Drive.CONFIG :: any)[field]).to.equal(nil)
+			end
 		end)
 	end)
 
@@ -94,7 +110,6 @@ return function()
 				return Match.myTeam() ~= nil
 			end)).to.equal(true)
 			expect(Match.myTeam()).to.equal(player.Team and player.Team.Name)
-			expect(Match.isTied()).to.equal(false) -- nobody can be tied: the safety rule is 1.7b
 		end)
 	end)
 
@@ -135,6 +150,155 @@ return function()
 			if phase == "Running" or phase == "Assigning" or phase == "Scoring" then
 				expect(string.find(text, "%d+:%d%d") ~= nil).to.equal(true)
 			end
+		end)
+	end)
+
+	describe("the score screen", function()
+		-- A DRIVE IS 600 SECONDS, so no harness run reaches the Scoring phase and the panel is never
+		-- shown by the wire inside a test. The Hud's renderScore is public for exactly this (it says
+		-- so in its header): this hands it the snapshot the server WOULD send and then checks the
+		-- screen, which is the only way to make the design's visibility assertion (section 12.7 item
+		-- 4) at all. The screenshot is separate evidence and is not replaced by this.
+		local LIVE = {
+			phase = "Running",
+			phaseEndsAt = 0,
+			driveNumber = 3,
+			boarsReleased = 2,
+			boarsLeft = 4,
+			waitingFor = {},
+			rows = {},
+			tied = {},
+		}
+
+		local function scoring()
+			local snapshot = table.clone(LIVE)
+			snapshot.phase = "Scoring"
+			snapshot.rows = {
+				{
+					userId = player.UserId,
+					name = player.Name,
+					team = "Shooters",
+					points = 180,
+					kills = 2,
+					assists = 0,
+					pushes = 0,
+					violations = 0,
+					left = false,
+				},
+				{
+					userId = player.UserId + 1,
+					name = "Mila",
+					team = "Drivers",
+					points = 25,
+					kills = 0,
+					assists = 0,
+					pushes = 1,
+					violations = 0,
+					left = false,
+				},
+			}
+			return Drive.deepFreeze(snapshot)
+		end
+
+		-- Whatever this describe did, put the real snapshot back: another spec may read the Hud after
+		-- it, and the Heartbeat would fix it within 0.25 s anyway -- but "would" is not a test.
+		afterAll(function()
+			Hud.renderScore(Match.get(), Match.secondsLeft())
+			Hud.renderTied(Match.isTied())
+		end)
+
+		it("is hidden while the drive is running", function()
+			Hud.renderScore(LIVE, 120)
+			expect(Hud.isScorePanelVisible()).to.equal(false)
+			expect(#Hud.scoreRowText()).to.equal(0)
+			-- ...and the bar is the thing on screen instead.
+			expect(Hud.isDriveBarVisible()).to.equal(true)
+		end)
+
+		it("is really on screen in Scoring: every ancestor present and visible", function()
+			Hud.renderScore(scoring(), 12)
+			expect(Hud.isScorePanelVisible()).to.equal(true)
+
+			local panel = Hud.scorePanel()
+			expect(panel).to.be.ok()
+			-- The ancestor walk, not just `Visible`: "a visibility audit ignored parent visibility and
+			-- certified a blank screen twice" (docs/PROJECT_CONTEXT.md).
+			local node: Instance? = panel
+			while node and node ~= game do
+				if node:IsA("GuiObject") then
+					expect(node.Visible).to.equal(true)
+				elseif node:IsA("ScreenGui") then
+					expect(node.Enabled).to.equal(true)
+				end
+				node = node.Parent
+			end
+			expect(node).to.equal(game)
+			-- ...and it is not a fully transparent panel drawing invisible text on nothing.
+			expect(panel.BackgroundTransparency < 1).to.equal(true)
+		end)
+
+		it("shows this drive's points, one row per player, mine highlighted", function()
+			Hud.renderScore(scoring(), 12)
+			local rows = Hud.scoreRowText()
+			print("[match_client] score row 1: " .. (rows[1] or "<none>"))
+			expect(#rows).to.equal(2)
+			expect(string.find(rows[1], player.Name, 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[1], "180", 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[1], "SHOOTER", 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[2], "Mila", 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[2], "DRIVER", 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[1], "nil", 1, true) == nil).to.equal(true)
+
+			local panel = Hud.scorePanel()
+			local mine = panel:FindFirstChild("Row1")
+			local theirs = panel:FindFirstChild("Row2")
+			expect(mine.TextColor3).to.equal(Drive.CONFIG.SCORE_HIGHLIGHT_COLOR)
+			expect(theirs.TextColor3).to.equal(Drive.CONFIG.TEXT_COLOR)
+
+			expect(string.find(Hud.scoreTitleText(), "DRIVE 3", 1, true) ~= nil).to.equal(true)
+			expect(Hud.scoreFooterText()).to.equal("NEXT DRIVE IN 12")
+		end)
+
+		it("clears the board when the next drive starts, so nothing stale flashes", function()
+			Hud.renderScore(scoring(), 12)
+			expect(#Hud.scoreRowText()).to.equal(2)
+			Hud.renderScore(LIVE, 500)
+			expect(#Hud.scoreRowText()).to.equal(0)
+			expect(Hud.isScorePanelVisible()).to.equal(false)
+		end)
+	end)
+
+	describe("the tied banner", function()
+		afterAll(function()
+			Hud.renderTied(Match.isTied())
+		end)
+
+		it("is hidden while nobody has broken the rule", function()
+			Hud.renderTied(false)
+			expect(Hud.isTiedBannerVisible()).to.equal(false)
+			expect(Hud.tiedBannerText()).to.equal("")
+		end)
+
+		it("says what you did, on screen, when it is you", function()
+			Hud.renderTied(true)
+			expect(Hud.isTiedBannerVisible()).to.equal(true)
+			local text = Hud.tiedBannerText()
+			print("[match_client] tied banner: " .. text)
+			expect(string.find(text, "TIED TO A TREE", 1, true) ~= nil).to.equal(true)
+			-- ASCII only, like everything else drawn in this repo.
+			expect(string.match(text, "^[%w%s%p]+$") ~= nil).to.equal(true)
+
+			local banner = Hud.tiedBanner()
+			local node: Instance? = banner
+			while node and node ~= game do
+				if node:IsA("GuiObject") then
+					expect(node.Visible).to.equal(true)
+				elseif node:IsA("ScreenGui") then
+					expect(node.Enabled).to.equal(true)
+				end
+				node = node.Parent
+			end
+			expect(node).to.equal(game)
 		end)
 	end)
 end

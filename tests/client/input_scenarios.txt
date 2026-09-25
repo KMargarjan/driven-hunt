@@ -68,6 +68,21 @@
 				{ "device": "mouse", "action": "mouseButtonClick", "button": "left" },
 				{ "device": "wait", "ms": 900 }
 			]
+		},
+		{
+			"name": "tie-the-driver",
+			"spec": "ClientTests.zz_tie_to_a_tree.spec",
+			"steps": [
+				{ "device": "wait", "ms": 9000 },
+				{ "device": "keyboard", "action": "keyPress", "key": "T" },
+				{ "device": "wait", "ms": 1200 },
+				{ "device": "keyboard", "action": "keyPress", "key": "R" },
+				{ "device": "wait", "ms": 2600 },
+				{ "device": "mouse", "action": "mouseButtonClick", "button": "left" },
+				{ "device": "wait", "ms": 1200 },
+				{ "device": "mouse", "action": "mouseButtonClick", "button": "left" },
+				{ "device": "wait", "ms": 1200 }
+			]
 		}
 	]
 }

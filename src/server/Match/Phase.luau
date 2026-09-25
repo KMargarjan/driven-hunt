@@ -55,6 +55,7 @@ export type Event = {
 export type Effect = {
 	kind: string,
 	assignment: { [number]: TeamName }?,
+	userId: number?, -- "freeze": the one player to tie to a tree
 	userIds: { number }?,
 	position: Vector3?,
 	entry: any?,
@@ -294,6 +295,12 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		end
 	elseif kind == "violation" and event.userId then
 		if Phase.isLive(next_) then
+			-- FREEZE BEFORE FEED AND BROADCAST, and the order is load-bearing: the owner's `tied` set
+			-- is what the snapshot reports, so a broadcast applied before the tie would announce the
+			-- violation and show nobody tied for up to STATE_MIN_INTERVAL. The owner has already
+			-- decided (phase is Running, this shooter is not tied yet, the grace is over, and
+			-- Penalty.judge said yes); this machine only says what must now happen.
+			table.insert(effects, { kind = "freeze", userId = event.userId })
 			feed(effects, { kind = "violation", userId = event.userId, name = event.name, at = now })
 			table.insert(effects, { kind = "broadcast" })
 		end

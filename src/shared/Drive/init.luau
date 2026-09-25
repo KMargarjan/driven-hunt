@@ -79,9 +79,9 @@ end
 
 -- Layout and colours for the Hud ONLY. Every rule number is the server's (see the header).
 Drive.CONFIG = {
-	-- 1.7b switches. They exist now so the Hud is written once and the panel stays dark until the
-	-- score screen is built (design section 0, Director decision A).
-	SCOREBOARD_ENABLED = false,
+	-- MILESTONE 1.7b: the score screen is built, so the switch is on. It is still a switch, because
+	-- "is the scoreboard in the way" is a Karen feel question she can answer with one boolean.
+	SCOREBOARD_ENABLED = true,
 
 	FEED_LINES = 5,
 	FEED_SECONDS = 8,
@@ -91,6 +91,24 @@ Drive.CONFIG = {
 	FEED_TEXT_SIZE = 16,
 	FEED_LEFT_OFFSET = 16,
 	FEED_BOTTOM_OFFSET = 16,
+
+	-- The score screen (design section 9.3 item 3). Layout only: the POINTS are the server's, and the
+	-- panel renders whatever rows arrive in the snapshot.
+	SCORE_PANEL_WIDTH = 480,
+	SCORE_ROW_HEIGHT = 22,
+	SCORE_TITLE_SIZE = 22,
+	SCORE_TEXT_SIZE = 16,
+	SCORE_ROWS_MAX = 16, -- Match.CONFIG.MAX_PLAYERS; more rows than players can exist is harmless
+	SCORE_PANEL_COLOR = Color3.fromRGB(16, 18, 20),
+	SCORE_PANEL_TRANSPARENCY = 0.25,
+	SCORE_HIGHLIGHT_COLOR = Color3.fromRGB(255, 232, 150), -- your own row
+
+	-- The tied banner (design section 9.3 item 4), for the local player only. ASCII, like everything
+	-- else drawn in this repo, and it says WHY -- the penalty is also the teaching mechanism.
+	TIED_TEXT = "TIED TO A TREE - you fired toward the drive",
+	TIED_TEXT_SIZE = 24,
+	TIED_COLOR = Color3.fromRGB(255, 95, 75),
+	TIED_TOP_OFFSET = 44, -- just under the drive bar
 
 	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
 	DRIVER_COLOR = Color3.fromRGB(90, 150, 255), -- Bright blue, the Drivers team colour
