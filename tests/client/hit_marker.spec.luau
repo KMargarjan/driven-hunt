@@ -69,7 +69,7 @@ end
 
 return function()
 	describe("the marker the server sends", function()
-		it("reaches this client, from the server, over the real remote", function()
+		it("reaches a shooter from the server over the real remote; a driver keeps the wire", function()
 			-- weapon_hits.spec calls Weapon.markHit on the server during this same run. If the wire
 			-- is broken -- a missing RemoteEvent, a FireClient that never happens, a Hud that never
 			-- connects -- nothing arrives and this is red.

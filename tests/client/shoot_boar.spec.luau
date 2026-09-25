@@ -157,8 +157,8 @@ return function()
 		-- skip -- it asserts the rule: he is never staged, and nothing of his ever lands.
 		it("staged this client only if it is the shooter's -- a driver has no gun to fire", function()
 			if Role.isShooter() then
-				-- The shooter's half of this pair is the next two `it`s; here, only that the harness and
-				-- this spec agree on who he is.
+				-- The shooter's half of this pair is the next two `it`s; here, only that the role this
+				-- file branches on is the drive's own and not this spec's idea of it.
 				expect(player.Team).to.be.ok()
 				expect(player.Team.Name).to.equal("Shooters")
 				return

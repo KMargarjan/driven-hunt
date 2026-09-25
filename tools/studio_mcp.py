@@ -200,7 +200,8 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
   SO THE DISK TOKEN IS CLEARED BEFORE THE CLICK, deliberately. A carried token is worse than none:
   the suites then start the instant the windows open, 20-40 s before this mode has classified the
   processes and can replay input into the clients, and every input-driven client spec counts its own
-  budget from where TestEZ reaches it -- run 5 lost 14 specs on the shooter exactly that way. A
+  budget (input_driving's ARRIVE_TIMEOUT is 45 s) from where TestEZ reaches it -- run 5 lost 14 specs
+  on the shooter exactly that way. A
   fresh token is still written first and checked (that is the proof Rojo is live and caught up,
   as in `test`), then cleared, then Karen clicks. TestKit.awaitToken keeps both runners waiting.
 

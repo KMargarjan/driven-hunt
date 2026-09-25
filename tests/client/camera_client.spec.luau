@@ -137,8 +137,8 @@ return function()
 		it("is bound to a gun: a shooter has the aim action, a driver has none at all", function()
 			if Role.isShooter() then
 				-- A shooter's aim action is bound on Tool.Equipped, which weapon_client.spec's cue does,
-				-- and the next `it` is what proves a replayed button reaches it.
-				expect(Role.isDriver()).to.equal(false)
+				-- and the next `it` is what proves a replayed button reaches it. What is worth
+				-- asserting here is that the role this whole file branches on is the drive's own.
 				expect(player.Team and player.Team.Name).to.equal("Shooters")
 				return
 			end

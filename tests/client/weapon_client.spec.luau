@@ -612,27 +612,42 @@ return function()
 			local QUIET = 1.5
 			local WINDOW = 1
 			local attempts, opened = 3, false
+
+			-- "NO ACTION IS STILL RUNNING", which neither obvious spelling says. `state.busyFor` is a
+			-- number the SERVER computed when it published, and the replica never ticks it down -- a
+			-- session's last snapshot reads busyFor = 0.25 for ever. The elapsed time since that
+			-- snapshot arrived is the real test, and this spec already records it per snapshot.
+			local function stillBusy(): boolean
+				local newest = log[#log]
+				return newest ~= nil and os.clock() - newest.at < newest.state.busyFor
+			end
+
 			for _ = 1, attempts do
-				-- QUIET MEANS "NO ACTION IS STILL RUNNING", and neither of the two obvious
-				-- conditions says that, which cost two runs to find out. `not state.open` is never
-				-- satisfied at all: the replay's last scenario leaves the gun broken open and nothing
-				-- presses anything afterwards. And `state.busyFor == 0` is a number the SERVER
-				-- computed when it published, and the replica does not tick it down -- the last
-				-- snapshot of a session says busyFor = 0.25 for ever. So the elapsed time is measured
-				-- here, against the moment that snapshot arrived. `open` is still COMPARED across the
-				-- window below, which is the assertion that matters: an accepted "Close" moves it.
-				local function stillBusy(): boolean
-					local newest = log[#log]
-					return newest ~= nil and os.clock() - newest.at < newest.state.busyFor
-				end
-				local ready = waitUntil(90, function()
-					return Weapon.get() ~= nil and not stillBusy() and os.clock() - lastWeaponInput > QUIET
+				-- THE WINDOW MUST OPEN ON A GUN THESE REQUESTS COULD ACTUALLY MOVE (round 2, finding
+				-- 1). src/server/Weapon/init.luau's onActionRequest returns at
+				-- `if not state.equipped or state.open or now < state.busyUntil then ... end` --
+				-- BEFORE Validator.checkRequest is consulted -- so on an unequipped, broken-open or
+				-- busy gun every forged primitive is refused by that guard and this test would be
+				-- green with the whitelist deleted. Requiring equipped-and-closed-and-idle is what
+				-- makes the whitelist the only thing standing between "Break" and a reload cycle.
+				--
+				-- (Round 1's version dropped `not open` after a failing run, on the reading that the
+				-- replay leaves the gun broken open. That was wrong: the failing run's own print said
+				-- `open=false busyFor=0.25`, so what never came true was the stale busyFor above.)
+				local ready = waitUntil(45, function()
+					local state = Weapon.get()
+					return state ~= nil
+						and state.equipped
+						and not state.open
+						and not stillBusy()
+						and os.clock() - lastWeaponInput > QUIET
 				end)
 				if not ready then
 					local state = Weapon.get()
 					print(
 						string.format(
-							"[weapon_client] no quiet gun: open=%s busyFor=%.2f since input=%.1f s",
+							"[weapon_client] no quiet gun to test: equipped=%s open=%s busyFor=%.2f since input=%.1f s",
+							tostring(state and state.equipped),
 							tostring(state and state.open),
 							if state then state.busyFor else -1,
 							os.clock() - lastWeaponInput
@@ -655,8 +670,10 @@ return function()
 				task.wait(WINDOW)
 
 				if os.clock() - lastWeaponInput > QUIET + WINDOW then
-					-- Nothing of the player's own arrived between the quiet check and now, so
-					-- anything that moved was the server acting on one of those requests.
+					-- Nothing of the player's own arrived between the quiet check and now, and the gun
+					-- was equipped, closed and idle when the requests went out -- so the server's own
+					-- state guard refused none of them, and anything that moved was the whitelist
+					-- failing to.
 					local after = Weapon.get()
 					expect(after.open).to.equal(before.open)
 					expect(after.reserve.Slug).to.equal(before.reserve.Slug)

@@ -203,10 +203,13 @@ return function()
 			local took = os.clock() - sinceFlee
 			print(string.format("[boar_body] reached half sprint in %d frame(s), %.2f s", frames, took))
 			expect(reached).to.equal(true)
-			-- The design's number, in the unit the design meant it: 1.0 s at 60 Hz is 60 frames, and
-			-- the allowance is 60 more so a throttled tick cannot decide the verdict. `took` is
-			-- printed rather than asserted, because on a stalled machine it measures the machine.
-			expect(frames <= 120).to.equal(true)
+			-- THE DESIGN'S NUMBER, WITH NO TOLERANCE ADDED, in the unit that makes a tolerance
+			-- unnecessary: "within 1.0 s of first sensing" is 60 frames at 60 Hz, and a frame is a
+			-- simulation step whether the machine is idle or not. The first version allowed 120 --
+			-- twice the design -- which put the spec and the design out of step for no reason once
+			-- the clock was out of the measurement. `took` is printed, not asserted: on a stalled
+			-- machine it measures the machine.
+			expect(frames <= 60).to.equal(true)
 			expect(handle.state()).to.equal("FLEE")
 			expect(upright).to.equal(true)
 
