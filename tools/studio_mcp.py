@@ -9,6 +9,7 @@ Requires: Studio open on the DEV place in Edit mode, MCP server enabled, Rojo pl
 
 Usage:
   python tools/studio_mcp.py test           # full checked run; exit 0 only on a clean-tree PASS
+  python tools/studio_mcp.py test2          # the same specs in a 2-player local test (Karen starts it)
   python tools/studio_mcp.py state          # print Studio mode (read-only)
   python tools/studio_mcp.py console        # print Studio Output (read-only)
   python tools/studio_mcp.py stop           # stop a playtest (recovery)
@@ -16,8 +17,8 @@ Usage:
   python tools/studio_mcp.py manifest       # after `wally install`: rewrite devpackages.sha256 (commit it)
   python tools/studio_mcp.py capture <name> [x,y,z] [x,y,z]   # save a screenshot as rule-5 evidence
 
-Exit codes of `test`: 0 PASS on a clean tree · 1 FAIL · 2 REFUSED (Studio not in Edit mode) ·
-3 PASS on a dirty tree (flagged: not valid evidence).
+Exit codes of `test` and `test2`: 0 PASS on a clean tree · 1 FAIL · 2 REFUSED (Studio not in Edit
+mode) · 3 PASS on a dirty tree (flagged: not valid evidence).
 
 Moving parts
   tests/TestKit.luau -> ReplicatedStorage.TestKit
@@ -65,9 +66,11 @@ What `test` checks, in order (each is one "ok"/"FAIL" line)
      script-like may be created in Studio. Every service must be readable by that scan.
   6. Every *.spec.* file in the repo (git ls-files: tracked + untracked, non-ignored) is synced into
      ServerStorage.Tests (server) or ReplicatedStorage.ClientTests (client).
-  7. Play. Both reports arrive; each carries this run's token and the DEV PlaceId; each runner ran
-     exactly the spec files of its side (matched by name); each status is PASS with > 0 passed,
-     0 failed, 0 errors, 0 skipped.
+  7. Play. Both reports arrive WITHIN 120 s of the replay finishing; each carries this run's token
+     and the DEV PlaceId; each runner ran exactly the spec files of its side (matched by name); each
+     status is PASS with > 0 passed, 0 failed, 0 errors, 0 skipped. (120 s, not 60: a client spec
+     waits for its scenario to be staged, so the client suite cannot finish before the replay does,
+     and the replay is ~50 s.)
   7a. While Play runs: replay every scenario in tests/client/input_scenarios.txt (see below). Two
      checks per run: the client was ready for it, and every step was sent.
   8. Stop. The token is cleared and the gate is seen closed in Studio.
@@ -92,7 +95,8 @@ Driving real player input (Task 6), step 7a of `test`
     1. Wait (<= 20 s) for LocalPlayer's `readyAttribute` to carry THIS run's token. The client spec
        sets it after it has bound its listeners, so a replay can never race the bindings, and a stale
        attribute from an earlier run is not mistaken for this one.
-    2. For a scenario with a `stage` block, stage it first (below).
+    2. For a scenario with a `stage` block, stage it first (below). In `test2` the replay goes to
+       the FIRST client only, named by its studio_id.
     3. Send the steps in order through StudioMCP's user_keyboard_input / user_mouse_input against the
        Client DataModel. Consecutive steps for the same device go in ONE call, so StudioMCP keeps their
        order and spacing; a `wait` step flushes the batch and is slept in Python, so a gap spans devices.
@@ -102,7 +106,11 @@ Staging a scenario (Task 30): putting the player somewhere useful, pointing at s
   camera's yaw is mouse-driven and under MouseBehavior = LockCenter StudioMCP's moveTo delivers no
   usable InputObject.Delta (docs/design/camera.md 9.3). So a scenario may carry a `stage` block, which
   the replay runs against the Client DataModel immediately before that scenario's steps:
-    * it finds the FIRST BasePart inside Workspace.<targetFolder> -- the target;
+    * it WAITS up to 60 s for the first BasePart inside Workspace.<targetFolder> -- the target.
+      It waits rather than failing on the first look because since Milestone 1.7a the boars belong
+      to the drive: none exists until the match releases one, about INTERMISSION_SECONDS +
+      FIRST_RELEASE_SECONDS (~40 s) into a session, which is a real part of the game's timing and
+      not a fault;
     * it moves the player's character to target.Position + offsetStuds (PivotTo: the client owns its
       own character, so this is the character's own writer);
     * it sets the LocalPlayer attribute `StagedTarget` to the target's full name, so a spec can
@@ -124,7 +132,8 @@ Staging a scenario (Task 30): putting the player somewhere useful, pointing at s
   and then, because a step the replay sends but the spec cannot recognise is a hole in the evidence.
   Gated exactly like the specs: replay happens only inside `test`, only during its own Play, and the
   spec only listens when TestKit's token gate is open.
-  What a scenario CANNOT express: touch and gamepad input; typing text (StudioMCP has textInput, the
+  What a scenario CANNOT express: a second player (that is `test2`, and its replay reaches one
+  client only); touch and gamepad input; typing text (StudioMCP has textInput, the
   format does not); a hold measured in frames rather than milliseconds; input aimed at a specific
   instance (StudioMCP's instance_path is not used); and anything after the client report is written.
   A `stage` block cannot follow a moving target: it places and aims ONCE, before the steps. A spec
@@ -147,6 +156,43 @@ More than one player: what StudioMCP can and cannot do (Task 30, measured 2026-0
   starting a 2-client test. `python tools/studio_mcp.py studios` prints the listing, which is the one
   command that answers it; ESCALATE.md carries the NEEDS KAREN entry with the exact clicks.
   A missing scenario file is not a failure: the step is skipped and says so.
+
+Two players: `test2` (Task 34, ROADMAP 1.6)
+  What it is: the SAME gate, the SAME runners and the SAME specs as `test`, read from three Studio
+  instances instead of one. `test` is untouched and stays the default; nothing in the place, and no
+  spec, knows which mode it is running under.
+
+  WHAT STUDIOMCP CANNOT DO, measured from its own tools/list: `start_stop_play` takes `is_start` and
+  `studio_id` and nothing else, so there is NO way to ask for a player count. This mode therefore
+  cannot start the test; Karen presses Test -> Clients and Servers -> Players: 2 -> Start, and the
+  mode prints those clicks and waits up to 180 s for the windows to appear. If nobody presses it,
+  the run says so plainly and claims nothing.
+
+  ORDER MATTERS, and it is the whole trick: a local test copies the place as it stands when Start is
+  pressed, so the sync token is written FIRST and Karen starts the test inside its 120-second life.
+  A token written afterwards never reaches those processes and every runner refuses.
+
+  What it does after the click:
+    1. `list_roblox_studios` before and after, so the test's instances are identified BY IDENTITY --
+       the edit Studio, and anything else Karen has open, is excluded because it was there before.
+    2. `get_studio_state` per new instance: the one offering a Server DataModel is the server, the
+       two offering Client are the clients. Every later call names its `studio_id`.
+    3. The input scenarios are replayed into CLIENT 1 only: they are written for one player (a cue
+       key, one gun, one staged shot), so client 2 has nothing to react to. Client 2's report is
+       therefore printed as an OBSERVATION, never as a passing check -- its input-driven specs fail
+       in this mode by construction, and saying so is cheaper than pretending otherwise.
+    4. Three reports are read (server, client 1, client 2), each from its own instance.
+    5. Checks: one server and exactly two clients were found; each runner reported within 120 s;
+       each report carries this run's token and the DEV PlaceId; the server and client 1 are PASS
+       with 0 failed/errors/skipped; the server ran tests/server/match_teams.spec; and it ran every
+       server spec file in the repo.
+    6. It stops each test instance and, if any remain, says to press Cleanup.
+  Final line: "[harness2] PASS|FAIL: n/m checks @ <full HEAD sha> (clean tree | DIRTY TREE ...)".
+
+  The 2-player assertion itself is tests/server/match_teams.spec.luau, and it is written to be true
+  for WHATEVER number of players is present, so it runs in both modes: with one player it asserts
+  Director decision F (the lone player is a Shooter and is armed); with two, that both are assigned,
+  that the teams are 1 and 1, and that only the shooter may carry a gun.
 
 Screenshots as evidence (Task 7)
   `capture <name> [camera x,y,z] [look-at x,y,z]` saves StudioMCP's screen_capture image to
@@ -402,8 +448,14 @@ class Studio:
                     raise RuntimeError(msg["error"])
                 return msg["result"]
 
-    def _call(self, tool, args=None):
-        result = self._rpc("tools/call", {"name": tool, "arguments": args or {}})
+    def _call(self, tool, args=None, studio_id=None):
+        arguments = dict(args or {})
+        if studio_id:
+            # Every StudioMCP tool takes a studio_id, and with one Studio connected it may be left
+            # out. With a local 2-player test running there are FOUR (Task 34), so every call that
+            # must land somewhere particular names it.
+            arguments["studio_id"] = studio_id
+        result = self._rpc("tools/call", {"name": tool, "arguments": arguments})
         text = "\n".join(c.get("text", "") for c in result.get("content", []))
         if result.get("isError"):
             raise RuntimeError(f"{tool}: {text}")
@@ -414,26 +466,44 @@ class Studio:
         """Every Studio instance StudioMCP can see, raw. Read-only (Task 30)."""
         return self._call("list_roblox_studios")
 
-    def mode(self):
-        state = self._call("get_studio_state")
+    def studio_list(self):
+        """[{id, name}], parsed. A local 2-player test adds three (server + two clients)."""
+        try:
+            return json.loads(self.studios()).get("studios", [])
+        except json.JSONDecodeError:
+            return []
+
+    def state_of(self, studio_id=None):
+        """The raw get_studio_state text for one instance: its mode and its DataModels."""
+        return self._call("get_studio_state", studio_id=studio_id)
+
+    def datamodels(self, studio_id=None):
+        """The DataModel types one Studio instance offers, e.g. {"Edit"} or {"Client"}."""
+        for line in self.state_of(studio_id).splitlines():
+            if "Available DataModels:" in line:
+                return {p.strip() for p in line.split(":", 1)[1].split(",") if p.strip()}
+        return set()
+
+    def mode(self, studio_id=None):
+        state = self.state_of(studio_id)
         for line in state.splitlines():
             if "Current Studio Mode:" in line:
                 return line.split(":", 1)[1].strip()
         return state
 
-    def console(self):
-        return self._call("get_console_output")
+    def console(self, studio_id=None):
+        return self._call("get_console_output", studio_id=studio_id)
 
-    def set_play(self, playing):
-        return self._call("start_stop_play", {"is_start": playing})
+    def set_play(self, playing, studio_id=None):
+        return self._call("start_stop_play", {"is_start": playing}, studio_id=studio_id)
 
-    def query(self, datamodel, code):
-        return self._call("execute_luau", {"datamodel_type": datamodel, "code": code})
+    def query(self, datamodel, code, studio_id=None):
+        return self._call("execute_luau", {"datamodel_type": datamodel, "code": code}, studio_id=studio_id)
 
-    def send_input(self, device, actions):
+    def send_input(self, device, actions, studio_id=None):
         """Replay one batch of real input into the Play client. `device` is "keyboard" or "mouse"."""
         tool = "user_keyboard_input" if device == "keyboard" else "user_mouse_input"
-        return self._call(tool, {"datamodel_type": "Client", "actions": actions})
+        return self._call(tool, {"datamodel_type": "Client", "actions": actions}, studio_id=studio_id)
 
     def capture(self, path, camera=None, look_at=None):
         """Save StudioMCP's screen_capture image to `path`. Returns the path, or None with the text.
@@ -858,12 +928,13 @@ def scenario_batches(steps):
     return batches
 
 
-def replay_input(studio, data, token, check):
-    """Replay every scenario into the running Play client. Adds two checks per run."""
+def replay_input(studio, data, token, check, studio_id=None):
+    """Replay every scenario into the running Play client. Adds two checks per run (three with a
+    `stage`). `studio_id` names WHICH client in a 2-player run; None means "the only one"."""
     ready_attr = data.get("readyAttribute", "InputProbeReady")
     if not re.fullmatch(r"[A-Za-z0-9_]{1,100}", ready_attr):
         raise RuntimeError(f"readyAttribute must be a plain identifier; got {ready_attr!r}")
-    seen, ok = wait_for(lambda: studio.query("Client", QUERY_READY % ready_attr),
+    seen, ok = wait_for(lambda: studio.query("Client", QUERY_READY % ready_attr, studio_id=studio_id),
                         lambda v: v == token, 20, 0.5)
     if not check("[input] the client bound its listeners and published this run's token", ok, repr(seen)):
         return
@@ -874,7 +945,7 @@ def replay_input(studio, data, token, check):
             # Before the steps, never after: a click is only worth sending once the player is standing
             # where the scenario needs them and the camera owner has been asked to look at the target.
             try:
-                result = studio.query("Client", QUERY_STAGE % luau_json(stage)).strip()
+                result = studio.query("Client", QUERY_STAGE % luau_json(stage), studio_id=studio_id).strip()
             except Exception as e:
                 result = f"{type(e).__name__}: {e}"
             staged.append(f"{scenario.get('name')}: {result}")
@@ -885,7 +956,7 @@ def replay_input(studio, data, token, check):
                 time.sleep(payload)
                 continue
             try:
-                studio.send_input(device, payload)
+                studio.send_input(device, payload, studio_id=studio_id)
                 sent += len(payload)
             except Exception as e:
                 # Not just RuntimeError: _rpc raises queue.Empty when StudioMCP stops answering, and a
@@ -1033,6 +1104,177 @@ def run_test(studio):
     return verdict()
 
 
+# ---------------------------------------------------------------- two players (Task 34)
+
+START_CLICKS = """
+[harness2] NEEDS KAREN, once, in Studio -- StudioMCP CANNOT start this test itself:
+[harness2]   start_stop_play takes `is_start` and `studio_id` and NOTHING else, so there is no way
+[harness2]   to ask for a player count. Everything after the click is this mode's own work.
+[harness2]
+[harness2]   1. Test tab -> Clients and Servers -> Players: 2 -> Start.
+[harness2]   2. Leave the windows alone; this mode reads them.
+[harness2]   3. When it says so, press Cleanup in the Test tab.
+[harness2]
+[harness2] The gate token is valid for {seconds} s from now: start the test inside that window, or the
+[harness2] runners will refuse to run and every report will be empty.
+"""
+
+
+def classify_studios(studio, before):
+    """Split the studios a local test added into (server_id, [client_ids], [unknown_ids]).
+
+    `before` is the listing from before the test started, so the edit Studio -- and anything else
+    Karen happens to have open -- is excluded by identity rather than by name."""
+    known = {s["id"] for s in before}
+    server, clients, unknown = None, [], []
+    for entry in studio.studio_list():
+        if entry["id"] in known:
+            continue
+        kinds = studio.datamodels(entry["id"])
+        if "Server" in kinds:
+            server = entry["id"] if server is None else server
+        elif "Client" in kinds:
+            clients.append(entry["id"])
+        else:
+            unknown.append(f'{entry["id"][:8]} {sorted(kinds)}')
+    return server, clients, unknown
+
+
+def run_test2(studio, wait_seconds=180):
+    """Run the gated specs in a local 2-player test: one server DataModel, two client DataModels.
+
+    The one-player `test` is untouched and stays the default. This mode adds nothing to the place and
+    changes no spec: the same TestKit gate, the same runners, the same reports -- read from three
+    Studio instances instead of one."""
+    checks = []
+
+    def check(name, ok, detail=""):
+        checks.append(ok)
+        print(("  ok   " if ok else "  FAIL ") + name + (f"  ({detail})" if detail else ""))
+        return ok
+
+    def verdict(code=None):
+        sha_end, dirty_end = git_state()
+        check("HEAD unchanged during the run", sha_end == sha, f"{sha[:12]} -> {sha_end[:12]}")
+        dirty = dirty_start or dirty_end
+        passed = all(checks) and code is None
+        tree = "clean tree" if not dirty else f"DIRTY TREE ({len(set(dirty_start + dirty_end))} paths) - NOT valid evidence"
+        print(f"[harness2] {'PASS' if passed else 'FAIL'}: {sum(checks)}/{len(checks)} checks @ {sha} ({tree})")
+        if dirty:
+            for line in sorted(set(dirty_start + dirty_end))[:10]:
+                print("    dirty: " + line)
+        return code if code is not None else (1 if not passed else (3 if dirty else 0))
+
+    sha, dirty_start = git_state()
+    print(f"[harness2] two-player run @ {sha} ({'clean' if not dirty_start else 'DIRTY'} tree)")
+
+    mode = studio.mode()
+    if not check("Studio is in Edit mode before the run", mode == "Edit", mode):
+        print("[harness2] REFUSED: stop the playtest first (python tools/studio_mcp.py stop)")
+        return verdict(2)
+
+    place = expected_place_id()
+    actual_place = studio.query("Edit", QUERY_PLACE_ID)
+    if not check("Studio has the DEV place open", actual_place == place, f"{actual_place} vs {place}"):
+        return verdict()
+
+    before = studio.studio_list()
+    check("One Studio instance before the test starts", len(before) == 1,
+          "; ".join(f'{s["name"]}' for s in before))
+
+    scenarios = load_scenarios()
+    spec_files = spec_files_in_repo()
+    server_specs = {f for f in spec_files if f.startswith("tests/server/")}
+
+    # THE TOKEN GOES FIRST, and that ordering is the whole trick: a local test copies the place as it
+    # stands when Start is pressed, so a token written afterwards never reaches those processes and
+    # every runner refuses (TestKit's gate). It is written here and Karen presses Start inside its
+    # 120-second life.
+    token = f"{secrets.token_hex(8)}:{int(time.time())}"
+    write_token(token)
+    reports, consoles = {}, {}
+    try:
+        seen, ok = wait_for(lambda: studio.query("Edit", QUERY_TOKEN), lambda v: v == token, 15)
+        if not check("Rojo synced the fresh token from disk", ok, f"Studio has {seen!r}"):
+            return verdict()
+
+        print(START_CLICKS.format(seconds=120))
+        found, ok = wait_for(lambda: studio.studio_list(), lambda v: len(v) >= 3, wait_seconds, 2)
+        if not check(f"A 2-player local test appeared within {wait_seconds} s", ok,
+                     f"{len(found)} studio(s): " + "; ".join(s["name"] for s in found)):
+            print("[harness2] NEEDS KAREN: nobody pressed Start. Nothing was run and nothing is claimed.")
+            return verdict()
+
+        server, clients, unknown = classify_studios(studio, before)
+        check("Found one server DataModel", server is not None, ", ".join(unknown))
+        check("Found exactly two client DataModels", len(clients) == 2,
+              f"{len(clients)} client(s)" + ("; unclassified: " + ", ".join(unknown) if unknown else ""))
+        if server is None or len(clients) != 2:
+            return verdict()
+        print(f"[harness2] server {server[:8]}, clients {', '.join(c[:8] for c in clients)}")
+
+        # The input replay drives the FIRST client only: the scenarios are written for one player
+        # (a cue key, one gun, one staged shot), so client 2's input-driven specs have nothing to
+        # react to. That is reported below as an observation, never as a passing check.
+        if scenarios is not None:
+            replay_input(studio, scenarios, token, check, studio_id=clients[0])
+
+        for name, studio_id, side in (
+            ("server", server, "server"),
+            ("client1", clients[0], "client"),
+            ("client2", clients[1], "client"),
+        ):
+            raw, ok = wait_for(
+                lambda: studio.query(side.capitalize(), QUERY_REPORT[side], studio_id=studio_id),
+                lambda v: v != "", 120, 1)
+            if ok:
+                reports[name] = json.loads(raw)
+            consoles[name] = studio.console(studio_id=studio_id)
+    finally:
+        write_token("")  # close the gate so Karen's playtests do not run tests
+
+    for name in ("server", "client1", "client2"):
+        report = reports.get(name)
+        if not check(f"[{name}] runner reported within 120 s", report is not None):
+            continue
+        check(f"[{name}] report carries this run's token", report["token"] == token, report["token"])
+        check(f"[{name}] report comes from the DEV place", str(report["placeId"]) == place, str(report["placeId"]))
+        summary = (f"{report['successCount']} passed, {report['failureCount']} failed, "
+                   f"{report['errorCount']} errors, {report['skippedCount']} skipped")
+        if name == "client2":
+            # An OBSERVATION, not a check: the scenarios were replayed into client 1, so client 2's
+            # input-driven specs (the weapon cue, the staged shot) have nothing to react to.
+            print(f"  note   [client2] {report['status']}: {summary} (no input was replayed into this client)")
+        else:
+            check(f"[{name}] status PASS", report["status"] == "PASS",
+                  report["status"] + " " + report.get("message", ""))
+            check(f"[{name}] > 0 passed, 0 failed, 0 errors, 0 skipped",
+                  report["successCount"] > 0 and report["failureCount"] == 0
+                  and report["errorCount"] == 0 and report["skippedCount"] == 0, summary)
+
+    server_report = reports.get("server")
+    if server_report:
+        ran = set(server_report.get("specs", []))
+        check("The 2-player team spec ran on the server", "ServerStorage.Tests.match_teams.spec" in ran,
+              ", ".join(sorted(ran)) if "ServerStorage.Tests.match_teams.spec" not in ran else "")
+        check("Every server spec file in the repo ran", len(ran) == len(server_specs),
+              f"{len(ran)} ran, {len(server_specs)} on disk")
+
+    print("----- server Output -----")
+    print(consoles.get("server", ""))
+    print("-------------------------")
+
+    for studio_id in ([server] if server else []) + clients:
+        try:
+            studio.set_play(False, studio_id=studio_id)
+        except Exception as e:
+            print(f"[harness2] could not stop {studio_id[:8]}: {type(e).__name__}: {e}")
+    left = [s for s in studio.studio_list() if s["id"] not in {x["id"] for x in before}]
+    if left:
+        print(f"[harness2] {len(left)} test Studio(s) still open: press Cleanup in the Test tab.")
+    return verdict()
+
+
 def parse_vector(text):
     parts = [float(v) for v in text.replace(" ", "").split(",")]
     if len(parts) != 3:
@@ -1041,7 +1283,8 @@ def parse_vector(text):
 
 
 def main(argv):
-    if len(argv) < 2 or argv[1] not in ("test", "state", "console", "stop", "manifest", "capture", "studios"):
+    if len(argv) < 2 or argv[1] not in (
+            "test", "test2", "state", "console", "stop", "manifest", "capture", "studios"):
         sys.exit(__doc__)
     if argv[1] != "capture" and len(argv) != 2:
         sys.exit(__doc__)
@@ -1055,6 +1298,12 @@ def main(argv):
     studio = Studio()
     try:
         cmd = argv[1]
+        if cmd == "test2":
+            try:
+                return run_test2(studio)
+            except Exception as e:  # a harness fault is a FAIL, never a silent traceback (rule 6)
+                print(f"[harness2] FAIL: {type(e).__name__}: {e}")
+                return 1
         if cmd == "test":
             try:
                 return run_test(studio)
