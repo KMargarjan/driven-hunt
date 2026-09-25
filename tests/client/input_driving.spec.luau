@@ -1,9 +1,10 @@
 -- input_driving.spec: proves the harness can drive REAL player input, and that it arrives through the
 -- path a player's input takes -- ContextActionService and UserInputService events delivered by the
 -- engine to client code -- not by calling a handler directly. This is TASKS.md Task 6, and its shape
--- is what docs/design/shotgun.md section 13.3 ("Task 6 - exactly what the smallest version must
--- prove") asks for: a key down and up, a mouse button down and up, and two inputs in sequence with an
--- observable gap between them.
+-- is what the regenerated shotgun design asks for: a key down and up, a mouse button down and up, and
+-- two inputs in sequence with an observable gap between them. That is section 13.3 ("Task 6 - exactly
+-- what the smallest version must prove") of the Task 23 regeneration, on branch
+-- task-23-shotgun-design-v2; in the Task 19 design still on main the same unblock is section 11.3.
 --
 -- Pattern: record-then-assert. The module body (which TestKit requires before TestEZ runs) binds the
 -- listeners and publishes a "ready" attribute; the harness waits for that attribute, replays
@@ -29,7 +30,9 @@ local UserInputService = game:GetService("UserInputService")
 
 local ACTION_NAME = "DrivenHunt.Test.InputProbe"
 local ARRIVE_TIMEOUT = 25 -- seconds to wait for the harness's replay; it starts within ~2 s
-local GAP_TOLERANCE = 0.6 -- a replayed gap may be shortened by at most this fraction (never lengthened)
+-- The harness sleeps the scenario's gap in Python, so the gap the client sees can only be LONGER than
+-- asked. The tolerance is for clock skew between that sleep and os.clock() here, nothing more.
+local GAP_TOLERANCE = 0.6
 
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
@@ -78,7 +81,8 @@ ContextActionService:BindAction(
 	false,
 	Enum.KeyCode.F,
 	Enum.KeyCode.R,
-	Enum.UserInputType.MouseButton1
+	Enum.UserInputType.MouseButton1,
+	Enum.UserInputType.MouseButton2
 )
 
 local connections = {
@@ -105,44 +109,49 @@ if token and scenarios then
 end
 
 -- What the scenario's steps must produce, in order: {source, phase, name} plus, for a `wait` step,
--- the gap that must be visible between the events on either side of it.
+-- the gap that must be visible between the events on either side of it. A step this does not
+-- understand is an ERROR, never a skip: the harness would still send it, and a silently skipped step
+-- means the spec proves less than the file says it does (review round 1).
 local function expectedFrom(steps)
-	local expected = {}
+	local expected, errors = {}, {}
 	local pendingGap = nil
 	local function push(source, phase, name)
 		table.insert(expected, { source = source, phase = phase, name = name, gapBefore = pendingGap })
 		pendingGap = nil
 	end
-	for _, step in ipairs(steps) do
-		if step.device == "keyboard" then
-			if step.action == "keyDown" then
-				push("cas", "Begin", step.key)
-			elseif step.action == "keyUp" then
-				push("cas", "End", step.key)
-			elseif step.action == "keyPress" then
-				push("cas", "Begin", step.key)
-				push("cas", "End", step.key)
-			end
-		elseif step.device == "mouse" then
-			if step.action == "moveTo" then
-				push("uis", "Change", "MouseMovement")
-			elseif step.action == "mouseButtonDown" then
-				push("cas", "Begin", "MouseButton1")
-			elseif step.action == "mouseButtonUp" then
-				push("cas", "End", "MouseButton1")
-			elseif step.action == "mouseButtonClick" then
-				push("cas", "Begin", "MouseButton1")
-				push("cas", "End", "MouseButton1")
-			end
+	for index, step in ipairs(steps) do
+		local button = if step.button == "right" then "MouseButton2" else "MouseButton1"
+		if step.device == "keyboard" and step.action == "keyDown" then
+			push("cas", "Begin", step.key)
+		elseif step.device == "keyboard" and step.action == "keyUp" then
+			push("cas", "End", step.key)
+		elseif step.device == "keyboard" and step.action == "keyPress" then
+			push("cas", "Begin", step.key)
+			push("cas", "End", step.key)
+		elseif step.device == "mouse" and step.action == "moveTo" then
+			push("uis", "Change", "MouseMovement")
+		elseif step.device == "mouse" and step.action == "mouseButtonDown" then
+			push("cas", "Begin", button)
+		elseif step.device == "mouse" and step.action == "mouseButtonUp" then
+			push("cas", "End", button)
+		elseif step.device == "mouse" and step.action == "mouseButtonClick" then
+			push("cas", "Begin", button)
+			push("cas", "End", button)
 		elseif step.device == "wait" then
 			pendingGap = (step.ms or 0) / 1000
+		else
+			table.insert(errors, string.format("step %d: %s/%s", index, tostring(step.device), tostring(step.action)))
 		end
 	end
-	return expected
+	return expected, errors
 end
 
 -- The recorded events that match `expected`, in order, ignoring anything else the engine delivered
 -- (the player's own mouse, a stray key). Returns the matched entries, shortest prefix first.
+-- A real mouse move by whoever is at the machine satisfies a `MouseMovement` expectation as well as
+-- the replayed one does (review round 1). The two CAS button events still pin the run to the replay,
+-- and the scenario puts its `wait` AFTER the move precisely so that an early stray move can only make
+-- the waited gap longer, never shorter.
 local function matchInOrder(expected)
 	local matched, at = {}, 1
 	for _, entry in ipairs(log) do
@@ -169,13 +178,20 @@ end
 return function()
 	describe("harness-driven input", function()
 		local scenario = scenarios and scenarios.scenarios and scenarios.scenarios[1]
-		local expected = if scenario then expectedFrom(scenario.steps) else {}
+		local expected, stepErrors = {}, {}
+		if scenario then
+			expected, stepErrors = expectedFrom(scenario.steps)
+		end
 		local matched = {}
 
-		it("has a scenario on disk, synced to the client", function()
+		it("has a scenario on disk, synced to the client, and understands every step in it", function()
 			expect(scenarioError).to.equal(nil)
 			expect(scenario).to.be.ok()
 			expect(#expected > 0).to.equal(true)
+			if #stepErrors > 0 then
+				print("[input_driving] steps this spec does not understand: " .. table.concat(stepErrors, ", "))
+			end
+			expect(#stepErrors).to.equal(0)
 		end)
 
 		it("sees every step of the scenario arrive", function()

@@ -8,8 +8,8 @@
 			"steps": [
 				{ "device": "keyboard", "action": "keyDown", "key": "F" },
 				{ "device": "keyboard", "action": "keyUp", "key": "F" },
-				{ "device": "wait", "ms": 700 },
 				{ "device": "mouse", "action": "moveTo", "x": 250, "y": 250 },
+				{ "device": "wait", "ms": 700 },
 				{ "device": "mouse", "action": "mouseButtonDown", "button": "left" },
 				{ "device": "mouse", "action": "mouseButtonUp", "button": "left" },
 				{ "device": "keyboard", "action": "keyPress", "key": "R" }

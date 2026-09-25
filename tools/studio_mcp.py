@@ -90,6 +90,9 @@ Driving real player input (Task 6), step 7a of `test`
     2. Send the steps in order through StudioMCP's user_keyboard_input / user_mouse_input against the
        Client DataModel. Consecutive steps for the same device go in ONE call, so StudioMCP keeps their
        order and spacing; a `wait` step flushes the batch and is slept in Python, so a gap spans devices.
+  Every step is validated when the file is read, before Play: an unknown device or action, a missing
+  key or button, a non-numeric moveTo or a `wait` outside StudioMCP's 0..10000 ms fails the run there
+  and then, because a step the replay sends but the spec cannot recognise is a hole in the evidence.
   Gated exactly like the specs: replay happens only inside `test`, only during its own Play, and the
   spec only listens when TestKit's token gate is open.
   What a scenario CANNOT express: touch and gamepad input; typing text (StudioMCP has textInput, the
@@ -619,14 +622,46 @@ def wait_for(fn, predicate, timeout, interval=0.5):
     return value, False
 
 
+STEP_ACTIONS = {
+    "keyboard": {"keyDown", "keyUp", "keyPress"},
+    "mouse": {"moveTo", "mouseButtonDown", "mouseButtonUp", "mouseButtonClick"},
+}
+
+
+def check_step(where, step):
+    """Refuse a step the replay cannot send faithfully, before Play starts rather than during it."""
+    device, action = step.get("device"), step.get("action")
+    if device == "wait":
+        ms = step.get("ms")
+        if not isinstance(ms, (int, float)) or not 0 <= ms <= 10000:
+            raise RuntimeError(f"{where}: wait needs `ms` between 0 and 10000 (StudioMCP's range); got {ms!r}")
+        return
+    if device not in STEP_ACTIONS:
+        raise RuntimeError(f"{where}: unknown device {device!r} (keyboard, mouse or wait)")
+    if action not in STEP_ACTIONS[device]:
+        raise RuntimeError(f"{where}: {device} cannot {action!r} ({', '.join(sorted(STEP_ACTIONS[device]))})")
+    if device == "keyboard" and not isinstance(step.get("key"), str):
+        raise RuntimeError(f"{where}: {action} needs `key` (an Enum.KeyCode name)")
+    if action.startswith("mouseButton") and step.get("button") not in ("left", "right"):
+        raise RuntimeError(f"{where}: {action} needs `button` \"left\" or \"right\"; got {step.get('button')!r}")
+    if action == "moveTo" and not all(isinstance(step.get(k), (int, float)) for k in ("x", "y")):
+        raise RuntimeError(f"{where}: moveTo needs numeric `x` and `y`")
+
+
 def load_scenarios():
-    """The scenario file, or None if there is none. A bad file is an error, a missing one is not."""
+    """The scenario file, or None if there is none. A bad file is an error, a missing one is not.
+
+    Every step is checked here, at the top of the run: a step the replay would send but the client
+    spec could not recognise is a silent hole in the evidence, so it fails loudly and early."""
     if not os.path.exists(SCENARIO_FILE):
         return None
     with open(SCENARIO_FILE, encoding="utf-8") as f:
         data = json.load(f)
-    if not isinstance(data.get("scenarios"), list):
+    if not isinstance(data.get("scenarios"), list) or not data["scenarios"]:
         raise RuntimeError("input_scenarios.txt has no `scenarios` list")
+    for scenario in data["scenarios"]:
+        for index, step in enumerate(scenario.get("steps") or [], start=1):
+            check_step(f"scenario {scenario.get('name')!r} step {index}", step)
     return data
 
 
@@ -689,8 +724,10 @@ def replay_input(studio, data, token, check):
             try:
                 studio.send_input(device, payload)
                 sent += len(payload)
-            except RuntimeError as e:
-                problems.append(f"{scenario.get('name')}: {e}")
+            except Exception as e:
+                # Not just RuntimeError: _rpc raises queue.Empty when StudioMCP stops answering, and a
+                # hung input call must fail this check, not the whole run (review round 1).
+                problems.append(f"{scenario.get('name')}: {type(e).__name__}: {e}")
     names = ", ".join(str(s.get("name")) for s in data["scenarios"])
     check(f"[input] replayed every step of {len(data['scenarios'])} scenario(s)", not problems,
           "; ".join(problems) if problems else f"{sent} steps sent ({names})")
