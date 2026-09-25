@@ -8,6 +8,15 @@
 -- The Tool is equipped on a CUE KEY (Q) rather than before the replay: Task 6's own scenario sends
 -- MouseButton1 and R, which are fire and reload, so a gun in the hand during that scenario would
 -- spend a barrel before this one started (docs/design/shotgun.md section 13.3).
+--
+-- MEASURED, AND IT CONTRADICTS THE DESIGN (section 2.3 item 3): consecutive steps inside ONE
+-- StudioMCP call are NOT sub-frame. Two batched clicks landed more than BARREL_DELAY apart, so the
+-- first run here fired twice where the design expected one shot and a "busy" rejection. So no
+-- assertion in this spec depends on two inputs arriving close together: the barrel delay is proved
+-- deterministically in tests/server/weapon_state.spec.luau instead, and everything below is written
+-- to hold whatever the replay's pacing turns out to be. What the scenario still pins is the
+-- opposite property -- that a second Reload and a Fire arriving WITHIN the 2 s reload window are
+-- both refused -- which only needs its inputs to be early, not close.
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/shotgun.md (sections 13.2, 13.3)
 local ContextActionService = game:GetService("ContextActionService")
@@ -150,12 +159,24 @@ return function()
 				local state = Weapon.get()
 				return state ~= nil and state.equipped
 			end)).to.equal(true)
-			local state = Weapon.get()
-			expect(state.barrels[1]).to.equal("Live")
-			expect(state.barrels[2]).to.equal("Live")
-			expect(state.loaded[1]).to.equal("Slug")
-			expect(state.reserve).to.equal(24)
-			expect(state.selected).to.equal(1)
+			-- Over the LOG, not over Weapon.get(): by the time a later `it` runs, the scenario has
+			-- moved on, and "it started full" is a claim about the beginning.
+			local sawFull = false
+			for _, entry in ipairs(log) do
+				local state = entry.state
+				if
+					state.equipped
+					and state.barrels[1] == "Live"
+					and state.barrels[2] == "Live"
+					and state.loaded[1] == "Slug"
+					and state.reserve == 24
+					and state.selected == 1
+				then
+					sawFull = true
+					break
+				end
+			end
+			expect(sawFull).to.equal(true)
 			expect(equippedAt).to.be.ok()
 		end)
 
@@ -180,6 +201,19 @@ return function()
 			expect(finished).to.equal(true)
 
 			local state = last()
+			print(
+				string.format(
+					"[weapon_client] end state: barrels=%s/%s loaded=%s/%s selected=%d ammo=%s reserve=%d open=%s",
+					state.barrels[1],
+					state.barrels[2],
+					state.loaded[1],
+					state.loaded[2],
+					state.selected,
+					state.ammo,
+					state.reserve,
+					tostring(state.open)
+				)
+			)
 			expect(state.equipped).to.equal(true)
 			expect(state.open).to.equal(false)
 			expect(state.barrels[1]).to.equal("Live")
@@ -189,10 +223,14 @@ return function()
 			expect(state.loaded[2]).to.equal("Slug")
 			expect(state.selected).to.equal(1)
 			expect(state.ammo).to.equal("Buck")
-			expect(state.reserve).to.equal(22) -- ONE reload of two shells, though R was pressed twice
+			-- ONE reload of two shells, though R was pressed twice: the second R arrived while the
+			-- action was open and the reducer refused it. That is feel default 2, end to end.
+			expect(state.reserve).to.equal(22)
 		end)
 
-		it("fired exactly twice: the barrel delay, the empty gun and the open action all refused", function()
+		it("fired exactly twice: an empty gun and an open action both refused a click", function()
+			-- Four clicks were sent: two into a loaded gun, one into a gun with both barrels spent,
+			-- and one during the reload. Only the first two may spend a barrel.
 			local rises = 0
 			local previous = 0
 			for _, entry in ipairs(log) do
@@ -202,6 +240,7 @@ return function()
 				end
 				previous = spent
 			end
+			print(string.format("[weapon_client] shots seen: %d over %d snapshots", rises, #log))
 			expect(rises).to.equal(2)
 		end)
 
@@ -258,9 +297,21 @@ return function()
 
 	describe("the crosshair", function()
 		it("is really on screen: every ancestor present and visible, centred on the viewport", function()
-			expect(waitUntil(RUN_TIMEOUT, function()
+			local visible = waitUntil(RUN_TIMEOUT, function()
 				return Hud.isCrosshairVisible()
-			end)).to.equal(true)
+			end)
+			if not visible then
+				local state = Weapon.get()
+				print(
+					string.format(
+						"[weapon_client] crosshair not visible: gui=%s equipped=%s enabled=%s",
+						tostring(Hud.gui() ~= nil),
+						tostring(state and state.equipped),
+						tostring(Shotgun.CONFIG.CROSSHAIR_ENABLED)
+					)
+				)
+			end
+			expect(visible).to.equal(true)
 
 			local gui = Hud.gui()
 			expect(gui).to.be.ok()
