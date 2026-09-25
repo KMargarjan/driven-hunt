@@ -154,7 +154,11 @@ Shotgun.CONFIG = {
 
 	-- the hardware
 	HANDLE_SIZE = Vector3.new(0.4, 0.5, 4.4), -- 4.4 studs ~ 1.23 m
-	HANDLE_COLOR = Color3.fromRGB(70, 55, 45), -- grey-box wood-brown. Karen's dial.
+	-- Grey-box wood-brown, and the design said to check it on screen. I did: RGB(70, 55, 45) read
+	-- near-black in the Play screenshot against the arena's near-white floor -- the same albedo x
+	-- ambient trap Task 22 fixed for the boar (an unlit face gets Lighting.Ambient alone, 0.275
+	-- here). Raised so the gun reads as a warm brown object in the hand. Karen's dial.
+	HANDLE_COLOR = Color3.fromRGB(190, 145, 95),
 	GRIP = CFrame.new(0, 0, 1.4), -- the Handle's -Z is the muzzle, so the barrel points away
 	MUZZLE_OFFSET = Vector3.new(0, 0, -2.2), -- half of HANDLE_SIZE.Z: the barrel tip
 
