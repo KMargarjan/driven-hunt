@@ -30,3 +30,12 @@ until Karen hands over her first models.
 - Tests and screenshots that prove a model looks right (the old project's "measured correct, looked
   wrong": purple untextured legs, a backwards knife) — rule 5 applies.
 - The smallest first task (one model end to end).
+
+## Director decisions on the design's §16 (2026-09-25 night, after the Architect's PASS)
+- A: two tasks (7a upload/manifest, 7b boar model swap).
+- B: allowed — `tools/assets.py` and the CI steps are game/asset work enforcing a public-repo licence
+  rule, not process improvement.
+- C: agreed, row 16 stays "before release"; correct its note once.
+- D: agreed, regenerate the map design when M2.7d starts.
+- E: agreed — research note first in 7a; the Reviewer checks citations against the note.
+- Karen items 1–6 go to her in the morning report (the Meshy licence first: it gates publishing).
