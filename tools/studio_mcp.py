@@ -40,9 +40,12 @@ Moving parts
       The input scenarios (Task 6). JSON in a .txt because a .txt is a StringValue this harness already
       compares byte-for-byte, so the scenario the client reads is provably the file on disk, and no new
       Rojo mapping (a default.project.json change needs a Rojo restart and Karen's Connect) is needed.
-  Report (JSON): side, token, placeId, specs (full names), successCount, failureCount, skippedCount,
+  Report (JSON): side, token, placeId, specs (full names), notes, successCount, failureCount, skippedCount,
       errorCount, status (PASS | FAIL | ERROR), message. Runner status is PASS only if 0 failed, 0 errors,
       0 skipped (any SKIP/FOCUS variant fails) and > 0 passed; a spec that fails to load is ERROR.
+      `notes` is whatever the specs handed to TestKit.note: numbers that explain a failure, printed
+      by both `test` and `test2` under "----- <side> notes -----". They ride in the report because a
+      long session's console comes back truncated and loses everything but its tail (Task 34).
 
 What `test` checks, in order (each is one "ok"/"FAIL" line)
   1. Git: records HEAD and whether the tree is dirty (`git status --porcelain`), again at the end.
@@ -1174,6 +1177,11 @@ def run_test(studio):
     print(output)
     print("-------------------------")
     for side in ("server", "client"):
+        # NOTES BEFORE CHECKS, and outside the pass/fail branches: a note is a spec explaining
+        # itself to whoever reads this output, and it is worth most when the run failed.
+        for note in (reports.get(side) or {}).get("notes", []):
+            print(f"  note   [{side}] {note}")
+    for side in ("server", "client"):
         report = reports.get(side)
         if not check(f"[{side}] runner reported within 120 s", report is not None):
             continue
@@ -1519,6 +1527,10 @@ def run_test2(studio, wait_seconds=180):
 
     finally:
         write_token("")  # close the gate so Karen's playtests do not run tests
+
+    for name in ("server", "shooter", "driver"):
+        for note in (reports.get(name) or {}).get("notes", []):
+            print(f"  note   [{name}] {note}")
 
     for name in ("server", "shooter", "driver"):
         report = reports.get(name)

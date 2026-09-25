@@ -54,6 +54,19 @@ function TestKit.awaitToken(timeout: number?): string?
 	return TestKit.openToken()
 end
 
+-- Notes a spec wants the HARNESS to see, whatever happens to the console.
+--
+-- Studio's console comes back truncated from a long session -- every two-player run so far lost the
+-- head of it, which is where a print from the middle of a suite lives (Task 34). A note goes into
+-- the report instead, which is JSON on an attribute the harness reads whole, so the numbers that
+-- explain a failure arrive with the failure.
+local notes: { string } = {}
+
+function TestKit.note(text: string)
+	table.insert(notes, text)
+	print("[note] " .. text)
+end
+
 -- Runs every *.spec ModuleScript under specsFolder and returns the report table.
 -- side is "server" or "client"; it is echoed in the report and the [tests:<side>] line.
 function TestKit.run(side: string, token: string, specsFolder: Instance?)
@@ -62,6 +75,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 		token = token,
 		placeId = game.PlaceId,
 		specs = {}, -- full names of every spec module found; the harness matches these to *.spec.* files
+		notes = notes, -- whatever the specs asked the harness to see (TestKit.note)
 		successCount = 0,
 		failureCount = 0,
 		skippedCount = 0,

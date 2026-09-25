@@ -16,6 +16,8 @@ local Teams = game:GetService("Teams")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
+local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
+local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Markers = Match.Markers
 
 local function waitUntil(timeout: number, predicate: () -> boolean): boolean
@@ -98,13 +100,21 @@ return function()
 				local held = waitUntil(if expected then 20 else 1, function()
 					return holdsGun() == expected
 				end)
-				print(
+				-- A NOTE, not a print: this is the assertion a two-player run keeps failing, and the
+				-- console it printed into came back truncated every time (Task 34). The weapon's own
+				-- counters say WHICH failure it is -- never granted, granted and lost, or revoked
+				-- and never granted again -- and they now arrive with the failure.
+				local stats = Weapon.stats()
+				TestKit.note(
 					string.format(
-						"[match_live] %s (%s) may carry: %s, holds a gun: %s",
+						"match_live: %s (%s) may carry=%s holds=%s | weapon granted=%d grantsMissed=%d revoked=%d",
 						player.Name,
 						player.Team.Name,
 						tostring(expected),
-						tostring(holdsGun())
+						tostring(holdsGun()),
+						stats.granted,
+						stats.grantsMissed,
+						stats.revoked
 					)
 				)
 				expect(held).to.equal(true)
