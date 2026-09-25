@@ -12,9 +12,12 @@ local Brain = Boar.Brain
 local CONFIG = Boar.CONFIG
 
 local DT = 1 / 60
--- Vector3 components are float32, so a magnitude near 38 carries ~4e-6 of representation error.
--- 1e-6 was tighter than the arithmetic can be and tripped on rounding (Task 18 harness run 1).
-local EPSILON = 1e-3
+-- Vector3 components are float32, so a magnitude near SPRINT_SPEED carries a few parts in 1e-7 of
+-- representation error; 1e-6 was tighter than the arithmetic can be and tripped on it (Task 18
+-- harness run 1). MEASURED in harness run 2: worst acceleration overshoot 1.9e-6, worst turn
+-- overshoot 3.8e-8. 1e-4 is ~50x the worst measured and still ~10000x tighter than the quantities
+-- under test, so it catches a real regression while ignoring float32 noise.
+local EPSILON = 1e-4
 local REACTION_LIMIT = 0.5 -- seconds; the Director's requirement, not a CONFIG value
 -- docs/design/boar-ai.md is stricter than the requirement and that is the number worth defending:
 -- at 0.5 s this test would still pass with SENSE_INTERVAL raised from 0.2 to 0.45, which is the
@@ -303,14 +306,12 @@ return function()
 
 		it("never accelerates faster than ACCEL", function()
 			local worstAccel, _, brain = worstDeltas(2, 300)
-			print(string.format("[boar_brain] worst accel %.9f vs limit %.9f", worstAccel, CONFIG.ACCEL * DT))
 			expect(brain:state()).to.equal("FLEE")
 			expect(worstAccel <= CONFIG.ACCEL * DT + EPSILON).to.equal(true)
 		end)
 
 		it("never turns faster than TURN_RATE", function()
 			local _, worstTurn, brain = worstDeltas(2, 300)
-			print(string.format("[boar_brain] worst turn %.9f vs limit %.9f", worstTurn, CONFIG.TURN_RATE * DT))
 			expect(brain:state()).to.equal("FLEE")
 			expect(worstTurn <= CONFIG.TURN_RATE * DT + EPSILON).to.equal(true)
 		end)

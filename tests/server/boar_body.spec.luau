@@ -202,27 +202,70 @@ return function()
 			expect(#runtime:boars()).to.equal(0)
 		end)
 
-		it("used real pathfinding, not a silent permanent fallback", function()
+		it("asked for real paths, and escaped even though this plate has no navmesh", function()
 			local stats = runtime:stats()
 			expect(stats.spawned).to.equal(1)
 			expect(stats.despawned).to.equal(1)
 			expect(stats.pathRequests > 0).to.equal(true)
-			-- Diagnostic first: if pathfinding failed, say WHY in the output before asserting, so a
-			-- failing run names the PathStatus instead of just a count (Task 18 harness run 1).
-			if stats.pathFailures > 0 then
-				print(
-					string.format(
-						"[boar_body] %d of %d path requests failed; last problem: %s",
-						stats.pathFailures,
-						stats.pathRequests,
-						tostring(world.lastPathProblem and world.lastPathProblem() or "unknown")
-					)
-				)
-			end
-			expect(stats.pathFailures).to.equal(0)
 			-- One Path object per boar, reused: more requests than boars proves it was not
 			-- recreated per call by accident.
 			expect(stats.pathRequests >= stats.spawned).to.equal(true)
+
+			-- MEASURED, Task 18 harness runs 1-2: on this spec's own plate almost every
+			-- ComputeAsync returns Enum.PathStatus.NoPath. That is a fact about Roblox's navmesh on
+			-- a small platform floating at y = 500 in an otherwise empty region, NOT about this
+			-- code: an Edit-mode probe of the same agent parameters at y = 0 returns Success with
+			-- 54 waypoints from CONFIG.spawnPoint to the exit line, and the test below asserts that
+			-- in the real field. So asserting pathFailures == 0 here asserted the wrong thing.
+			--
+			-- What this spec CAN prove, and does, is the property that matters when a path fails:
+			-- the boar does not freeze. It sprinted, it got away, and it despawned as "escaped" -
+			-- the tests above - on the Reynolds fallback alone. If a failure ever arrives with a
+			-- reason other than NoPath, that is new and this fails.
+			if stats.pathFailures > 0 then
+				local problem = world.lastPathProblem and world.lastPathProblem() or "unknown"
+				print(
+					string.format(
+						"[boar_body] %d of %d path requests failed on the spec plate; last: %s",
+						stats.pathFailures,
+						stats.pathRequests,
+						tostring(problem)
+					)
+				)
+				expect(problem).to.equal(tostring(Enum.PathStatus.NoPath))
+			end
+		end)
+
+		it("can route across the REAL arena, which is where the game plays", function()
+			-- The assertion the one above cannot make. Production's field is at y = 0 on the Task 17
+			-- arena, and this is the check that would catch the navmesh genuinely being unusable for
+			-- a 2 x 3 x 5.5 agent - the case that would silently reduce every boar to straight-line
+			-- flight (rule 6: test the player's path).
+			local production = Boar.defaultWorld()
+			local field = CONFIG.field
+			local from = CONFIG.spawnPoint + Vector3.new(0, CONFIG.BODY_SIZE.Y / 2, 0)
+			local to = Vector3.new(CONFIG.spawnPoint.X, field.groundY, field.exitZ)
+
+			local replied, waypoints = false, nil
+			production.requestPath("arena-probe", from, to, function(points)
+				replied, waypoints = true, points
+			end, function() end)
+
+			local got = waitUntil(10, function()
+				return replied
+			end)
+			expect(got).to.equal(true)
+			if not waypoints then
+				print(
+					string.format(
+						"[boar_body] arena path failed: %s",
+						tostring(production.lastPathProblem() or "unknown")
+					)
+				)
+			end
+			expect(waypoints).to.be.ok()
+			expect(#waypoints > 0).to.equal(true)
+			production.releasePath("arena-probe")
 		end)
 	end)
 end
