@@ -16,6 +16,8 @@ local Teams = game:GetService("Teams")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
+local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
+local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Markers = Match.Markers
 
 local function waitUntil(timeout: number, predicate: () -> boolean): boolean
@@ -58,14 +60,65 @@ return function()
 			expect(shooters.AutoAssignable).to.equal(false)
 		end)
 
-		it("put the player on a team, and it is the SHOOTERS, so they keep a gun", function()
-			local player = Players:GetPlayers()[1]
-			expect(waitUntil(20, function()
-				return player.Team ~= nil
-			end)).to.equal(true)
-			print(string.format("[match_live] %s is on %s in phase %s", player.Name, player.Team.Name, Match.phase()))
-			expect(player.Team.Name).to.equal("Shooters")
-			expect(Match.mayCarryWeapon(player)).to.equal(true)
+		it("put every player on a team, and armed exactly the shooters", function()
+			-- PLAYER-COUNT AWARE, because this same suite runs in the two-player mode (Task 34): with
+			-- two players one of them is a DRIVER, and `GetPlayers()[1]` was as likely to be the
+			-- driver as the shooter -- an assertion that was true only of a one-player session inside
+			-- the suite the 2-player run requires to be green. Who is a Shooter with one player is
+			-- tests/server/match_teams.spec's business now.
+			for _, player in ipairs(Players:GetPlayers()) do
+				expect(waitUntil(20, function()
+					return player.Team ~= nil
+				end)).to.equal(true)
+				print(
+					string.format("[match_live] %s is on %s in phase %s", player.Name, player.Team.Name, Match.phase())
+				)
+				expect(Match.mayCarryWeapon(player)).to.equal(player.Team.Name == "Shooters")
+			end
+		end)
+
+		it("gave the shooters a gun they are actually holding, not one on a list", function()
+			-- THE ASSERTION THIS SUITE DID NOT HAVE, and the one that would have caught what a
+			-- two-player run found (Task 34): mayCarryWeapon said SHOOTER for a player whose Backpack
+			-- was empty and for whom no Tool existed anywhere in the place. The policy was right and
+			-- the player was unarmed for the whole drive -- because a Tool built while the Backpack
+			-- was a moment from existing was parented to nil and still recorded as granted.
+			-- True at every player count, which is what lets it run in both harness modes.
+			for _, player in ipairs(Players:GetPlayers()) do
+				expect(waitUntil(20, function()
+					return player.Team ~= nil
+				end)).to.equal(true)
+				local function holdsGun(): boolean
+					local backpack = player:FindFirstChildOfClass("Backpack")
+					if backpack and backpack:FindFirstChildOfClass("Tool") then
+						return true
+					end
+					local character = player.Character
+					return character ~= nil and character:FindFirstChildOfClass("Tool") ~= nil
+				end
+				local expected = Match.mayCarryWeapon(player)
+				local held = waitUntil(if expected then 20 else 1, function()
+					return holdsGun() == expected
+				end)
+				-- A NOTE, not a print: this is the assertion a two-player run keeps failing, and the
+				-- console it printed into came back truncated every time (Task 34). The weapon's own
+				-- counters say WHICH failure it is -- never granted, granted and lost, or revoked
+				-- and never granted again -- and they now arrive with the failure.
+				local stats = Weapon.stats()
+				TestKit.note(
+					string.format(
+						"match_live: %s (%s) may carry=%s holds=%s | weapon granted=%d grantsMissed=%d revoked=%d",
+						player.Name,
+						player.Team.Name,
+						tostring(expected),
+						tostring(holdsGun()),
+						stats.granted,
+						stats.grantsMissed,
+						stats.revoked
+					)
+				)
+				expect(held).to.equal(true)
+			end
 		end)
 
 		it("reads the arena's tagged markers, and has a drive line pointing at the drivers", function()

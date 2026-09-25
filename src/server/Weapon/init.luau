@@ -58,8 +58,30 @@ local registry = Registry.new()
 local tools: { [Player]: Tool } = {}
 local connections: { [Player]: { RBXScriptConnection } } = {}
 local toolWatchers: { [Player]: RBXScriptConnection } = {}
-local stats =
-	{ shots = 0, reports = 0, rateDropped = 0, badRequests = 0, granted = 0, revoked = 0, emptySwaps = 0, markers = 0 }
+-- One per player: the connection that notices the granted Tool being destroyed (Task 34).
+local toolLifeWatchers: { [Player]: RBXScriptConnection } = {}
+local stats = {
+	shots = 0,
+	reports = 0,
+	rateDropped = 0,
+	badRequests = 0,
+	granted = 0,
+	grantsMissed = 0, -- a tool built for a player with no Backpack: nothing recorded, tried again later
+	revoked = 0,
+	armingRepairs = 0, -- a sweep found a player who should be holding a gun and was not
+	armingSweeps = 0, -- passes of the sweep below: 0 in a running server means it is not running
+	emptySwaps = 0,
+	markers = 0,
+}
+
+-- Seconds between arming sweeps. EDGE-TRIGGERED ARMING MISSES, and a miss is permanent: the drive
+-- calls refreshArming on its own transitions and the weapon grants on CharacterAdded, so if the
+-- answer to "may this player carry a gun" changes between two edges -- or a grant lands in the
+-- Backpack a placement is about to destroy while the drive is still mid-transition -- nothing asks
+-- again and the player stands in a whole drive empty-handed. Measured in a two-player drive, twice,
+-- with mayCarryWeapon saying the shooter was armed (Task 34). The sweep is the level: it asks the
+-- same question the same way, grants nothing a refreshArming would not, and costs one table scan.
+local ARMING_SWEEP_SECONDS = 2
 
 local hitSignal = Instance.new("BindableEvent")
 local safetySignal = Instance.new("BindableEvent")
@@ -102,13 +124,65 @@ local function mayArm(player: Player): boolean
 	return CONFIG.shouldArm(player)
 end
 
+-- A Tool belongs to whatever it is parented to, and a respawn destroys both: the Backpack it is
+-- sitting in AND the character it is equipped on. MEASURED in a two-player drive (Task 34): the
+-- drive places players by respawning them (Match.Body.place -> LoadCharacter), the grant lands in
+-- the Backpack that respawn is about to replace, and the gun dies with it a frame later. Without
+-- this the record outlives the Tool, refreshArming believes the player is armed, and nobody is
+-- ever granted anything again -- a Shooter walked a whole ten-minute drive with empty hands.
+local function watchTool(player: Player, tool: Tool)
+	-- ONE per player, replaced at each grant rather than appended: a player who is granted every few
+	-- seconds would otherwise leave a dead connection behind every time, for the whole session.
+	local previous = toolLifeWatchers[player]
+	if previous then
+		previous:Disconnect()
+	end
+	toolLifeWatchers[player] = tool.AncestryChanged:Connect(function()
+		if tool.Parent ~= nil then
+			return -- equipping moves it Backpack -> Character; that is not losing it
+		end
+		if tools[player] == tool then
+			tools[player] = nil
+		end
+	end)
+end
+
+-- Does this player HOLD a gun, rather than: is one recorded against their name? A Tool goes with
+-- the character it is equipped on, so a respawn -- which the drive performs on every placement --
+-- destroys it, and a Tool that never reached a Backpack is parented to nil from the start. Either
+-- way the record is stale, and believing it leaves the player unarmed for the rest of the drive
+-- with nothing ever re-granting (Task 34).
+local function holdsTool(player: Player): boolean
+	local tool = tools[player]
+	if tool == nil then
+		return false
+	end
+	if tool.Parent == nil then
+		tools[player] = nil
+		return false
+	end
+	return true
+end
+
+-- The whole arming decision, as a pure function of the two facts it depends on. Exported so it can
+-- be asserted without taking a live player's gun away: a spec that did that broke three client
+-- specs, which were right to complain (Task 34).
+function Weapon.armingAction(allowed: boolean, holding: boolean): string?
+	if allowed and not holding then
+		return "grant"
+	elseif not allowed and holding then
+		return "revoke"
+	end
+	return nil
+end
+
 -- Re-evaluate now, and grant or revoke to match. The drive calls this when a team is assigned after
 -- the character already spawned -- the join-mid-drive race -- and the weapon still does the writing.
 function Weapon.refreshArming(player: Player)
-	local allowed = mayArm(player)
-	if allowed and not tools[player] then
+	local action = Weapon.armingAction(mayArm(player), holdsTool(player))
+	if action == "grant" then
 		Weapon.grant(player)
-	elseif not allowed and tools[player] then
+	elseif action == "revoke" then
 		Weapon.revoke(player)
 	end
 end
@@ -190,7 +264,7 @@ local function watchEquipped(player: Player, tool: Tool)
 	sync()
 end
 
-function Weapon.grant(player: Player): Tool
+function Weapon.grant(player: Player): Tool?
 	Hardware.destroy(tools[player])
 	local previous = stateOf(player)
 	local state = StateMachine.initial(CONFIG)
@@ -201,10 +275,27 @@ function Weapon.grant(player: Player): Tool
 	end
 	setState(player, state)
 
+	-- ONE TOOL PER PLAYER, enforced. A stray Shotgun -- one this owner lost track of, or one a
+	-- caller produced while an older grant was in flight -- would survive a revoke, because revoke
+	-- destroys the RECORDED tool. Nothing between build and the record below yields, so no second
+	-- grant can start inside this one.
+	for _, stray in Hardware.toolsOf(player) do
+		Hardware.destroy(stray)
+	end
+
 	local tool = Hardware.build()
-	tools[player] = tool
 	connections[player] = connections[player] or {}
-	Hardware.give(tool, player)
+	if not Hardware.give(tool, player) then
+		-- No Backpack at this instant: the character is still coming, or the player is leaving.
+		-- Record NOTHING and return nil, so the next refreshArming tries again instead of counting
+		-- a tool that is parented to nil (Task 34: that is what left a two-player drive's shooter
+		-- without a gun). The Backpack hook in watchPlayer fires when it does arrive.
+		Hardware.destroy(tool)
+		stats.grantsMissed += 1
+		return nil
+	end
+	tools[player] = tool
+	watchTool(player, tool)
 	watchEquipped(player, tool)
 	if CONFIG.AUTO_EQUIP then
 		Hardware.equip(tool, player)
@@ -234,6 +325,10 @@ function Weapon.forget(player: Player)
 	if toolWatchers[player] then
 		toolWatchers[player]:Disconnect()
 		toolWatchers[player] = nil
+	end
+	if toolLifeWatchers[player] then
+		toolLifeWatchers[player]:Disconnect()
+		toolLifeWatchers[player] = nil
 	end
 	for _, connection in ipairs(connections[player] or {}) do
 		connection:Disconnect()
@@ -442,6 +537,18 @@ local function watchPlayer(player: Player)
 		end
 	end
 	table.insert(connections[player], player.CharacterAdded:Connect(onCharacter))
+	-- A NEW BACKPACK IS A NEW CHANCE. A respawn replaces it, and whichever order the engine
+	-- delivers CharacterAdded and the new Backpack in, this is the moment a player who lost their
+	-- gun with the old one can be given another (Task 34). refreshArming grants only if they are
+	-- allowed one and are not already holding it, so this is idempotent.
+	table.insert(
+		connections[player],
+		player.ChildAdded:Connect(function(child)
+			if child:IsA("Backpack") then
+				Weapon.refreshArming(player)
+			end
+		end)
+	)
 	if player.Character then
 		onCharacter()
 	end
@@ -459,6 +566,22 @@ function Weapon.start()
 		watchPlayer(player)
 	end
 	Players.PlayerAdded:Connect(watchPlayer)
+
+	-- The sweep (above). It is the only thing here that is not edge-driven, and it exists because
+	-- every edge in this system has now been seen to miss.
+	task.spawn(function()
+		while true do
+			task.wait(ARMING_SWEEP_SECONDS)
+			stats.armingSweeps += 1
+			for _, player in ipairs(Players:GetPlayers()) do
+				local wanted = mayArm(player)
+				if wanted and not holdsTool(player) then
+					stats.armingRepairs += 1
+				end
+				pcall(Weapon.refreshArming, player)
+			end
+		end
+	end)
 	Players.PlayerRemoving:Connect(function(player)
 		Weapon.forget(player)
 	end)

@@ -11,6 +11,15 @@ local TestKit = {}
 -- Seconds a harness token stays valid. Stale tokens (for example after a harness crash) never open the gate.
 TestKit.TOKEN_MAX_AGE = 120
 
+-- Seconds a runner waits for the harness to open the gate before giving up (Task 34).
+-- A one-player `test` writes the token BEFORE Play, so the wait is over on the first check. A local
+-- Clients-and-Servers test cannot work that way: measured on 2026-09-25, the place those processes
+-- start from carries every Rojo-synced SCRIPT but NOT the token StringValue's value (it was empty in
+-- all three processes while the editor held a fresh token), and Rojo does not patch them afterwards.
+-- So the harness writes the token INTO the running server process instead, and the runners have to
+-- still be listening when it lands.
+TestKit.TOKEN_WAIT = 60
+
 -- Returns the fresh harness token, or nil if tests must not run (not Studio, no token, or stale token).
 function TestKit.openToken(): string?
 	if not RunService:IsStudio() then
@@ -25,6 +34,39 @@ function TestKit.openToken(): string?
 	return token
 end
 
+-- Waits up to `timeout` seconds (default TOKEN_WAIT) for a token that opens the gate, and returns it
+-- or nil. The GATE ITSELF IS UNCHANGED and just as strict: Studio only, and a token under
+-- TOKEN_MAX_AGE seconds old. This only changes WHEN it is read -- once at startup could never see a
+-- token that a two-player run can only deliver after the processes exist. Outside Studio it returns
+-- nil at once, so a published place never waits.
+function TestKit.awaitToken(timeout: number?): string?
+	if not RunService:IsStudio() then
+		return nil
+	end
+	local deadline = os.clock() + (timeout or TestKit.TOKEN_WAIT)
+	repeat
+		local token = TestKit.openToken()
+		if token then
+			return token
+		end
+		task.wait(0.5)
+	until os.clock() >= deadline
+	return TestKit.openToken()
+end
+
+-- Notes a spec wants the HARNESS to see, whatever happens to the console.
+--
+-- Studio's console comes back truncated from a long session -- every two-player run so far lost the
+-- head of it, which is where a print from the middle of a suite lives (Task 34). A note goes into
+-- the report instead, which is JSON on an attribute the harness reads whole, so the numbers that
+-- explain a failure arrive with the failure.
+local notes: { string } = {}
+
+function TestKit.note(text: string)
+	table.insert(notes, text)
+	print("[note] " .. text)
+end
+
 -- Runs every *.spec ModuleScript under specsFolder and returns the report table.
 -- side is "server" or "client"; it is echoed in the report and the [tests:<side>] line.
 function TestKit.run(side: string, token: string, specsFolder: Instance?)
@@ -33,6 +75,8 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 		token = token,
 		placeId = game.PlaceId,
 		specs = {}, -- full names of every spec module found; the harness matches these to *.spec.* files
+		notes = notes, -- whatever the specs asked the harness to see (TestKit.note)
+		failures = {}, -- the first few failure messages, so a truncated console cannot hide them
 		successCount = 0,
 		failureCount = 0,
 		skippedCount = 0,
@@ -93,6 +137,16 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	end
 
 	local results = resultsOrErr
+	-- THE FAILURES THEMSELVES, in the report. Studio's console comes back truncated from a long
+	-- session and takes the failure list with it: a two-player run said "13 failed" and nothing
+	-- about which 13 (Task 34). Five is enough to name the spec and the line; the console still has
+	-- the rest when it survives.
+	for index, failure in ipairs(results.errors) do
+		if index > 5 then
+			break
+		end
+		table.insert(report.failures, string.sub(tostring(failure), 1, 400))
+	end
 	report.successCount = results.successCount
 	report.failureCount = results.failureCount
 	report.skippedCount = results.skippedCount

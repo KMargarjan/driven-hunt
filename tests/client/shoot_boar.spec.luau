@@ -37,6 +37,9 @@ local Camera = require(scripts:WaitForChild("Camera"))
 -- Set by the harness's stage step, and by nothing else. Tracking starts when it appears, so this
 -- spec never fights another spec for the camera: before the stage it does not touch it at all.
 local STAGE_ATTRIBUTE = "StagedTarget"
+-- Seconds to wait for the harness to stage this scenario. It is the LAST of four, and the whole
+-- replay takes about 50 s from wherever it starts, which is not tied to where this suite starts.
+local STAGE_TIMEOUT = 120
 local TRACK_SECONDS = 15
 local AIM_HEIGHT = 0.4 -- studs above the trunk's centre: the chest band, not the legs
 
@@ -147,9 +150,16 @@ return function()
 		it("was staged by the harness: the player is standing next to the boar", function()
 			-- The specs run WHILE the replay does, so this really is a wait for the harness to reach
 			-- the last scenario -- and MEASURED, the whole replay takes about 50 s, so 40 s was not
-			-- enough and this test failed while the shot itself landed. The harness waits 90 s for
-			-- the client report AFTER the replay, so waiting here costs the run nothing.
-			expect(waitUntil(45, function()
+			-- enough and this test failed while the shot itself landed. The harness waits for the
+			-- client report long after the replay, so waiting here costs the run nothing.
+			--
+			-- WHY IT IS THIS LONG (Task 34): the budget starts where TestEZ reaches this `it`, and
+			-- the thing it waits for happens at a fixed point in the replay -- so the margin is
+			-- however long the specs before this one took, which is NOT the same in the one-player
+			-- and two-player modes. In `test2` the replay does not even begin until the harness has
+			-- classified three processes and opened the gate. A budget that assumes "the replay
+			-- starts when the suite starts" is the assumption, and this is the fix for it.
+			expect(waitUntil(STAGE_TIMEOUT, function()
 				return latchedAt ~= nil
 			end)).to.equal(true)
 			print(
