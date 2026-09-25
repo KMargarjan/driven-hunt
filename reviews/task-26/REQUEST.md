@@ -1,15 +1,15 @@
 # Task 26 — the camera
 
 Task: 26
-Round: 1
+Round: 2
 Base: `cf431ba`
-Code commit: `630b4a98212c4dc8de1e4c303a85ee54e1a51f3a`
+Code commit: `61a58874de032586a2826f5f815f034eb2d0ae07`
 
 ```
-[harness] PASS: 26/26 checks @ 630b4a98212c4dc8de1e4c303a85ee54e1a51f3a (clean tree)
+[harness] PASS: 26/26 checks @ 61a58874de032586a2826f5f815f034eb2d0ae07 (clean tree)
 ```
 
-95 server and 37 client `it` blocks across 13 spec files (main had 82 and 27).
+96 server and 37 client `it` blocks across 13 spec files (main had 82 and 27).
 
 ## Task
 
@@ -46,21 +46,31 @@ Feel values stay the design's defaults. **Feel-critical: not mergeable until Kar
    clamp in `Mode.cameraCFrame`; both specs assert it, and the live session measured a maximum of
    **12.57 studs** against the shotgun's `CAMERA_ORIGIN_TOLERANCE = 30`.
 
-6. **The real right mouse button drove the real camera.** A new `aim-hold` input scenario (the first
-   to send `"button": "right"`, which closes Task 6a note (g)) produced the mode history
-   `Loading,Third,Aiming,Third,Aiming,Third`; the spec asserts `aimEnters >= 1` and `aimExits >= 1`
-   from the owner's own counters, recorded from boot.
+6. **The real right mouse button drove the real camera — and round 1 proved that my round-1 claim
+   of this was false.** That test ran after the fake-source tests, which never restored the
+   production source and had already moved the counters, so it passed with the `aim-hold` scenario
+   deleted. It now runs **first**, while `CameraBoot`'s source is the only one installed, records a
+   baseline and asserts a **delta**: this run printed `baseline ... enters=0 exits=0 history=2` and
+   then `Loading,Third,Aiming,Third`. The `Aiming` in that history came from the replayed button and
+   nothing else. The fake-source describe restores the production source in `afterAll`, through a new
+   `Camera.getAimSource()`.
 
 7. **The viewmodel is proved on screen, not merely existing**: its `Parent` is
    `workspace.CurrentCamera`, every part has `Transparency < 1`, `LocalTransparencyModifier < 1` and
    `CanQuery == false`, and the ancestor chain is walked to the DataModel. Not aiming → unparented,
    and `stats().viewmodelParented` is false.
 
-8. **The weapon's own camera assertion still passes** (`weapon_client.spec`, "never touched the
-   camera while aiming"): `CameraType`, `FieldOfView` and `CameraSubject` identical across the aim
-   hold, drift 0.000 studs. Nothing in `src/client/Weapon/` or `src/client/Hud/` assigns the camera.
+8. **The weapon's camera assertion was rewritten, because with this task it asserted the opposite
+   of aiming.** "The camera did not move across an aim hold" could only pass while the camera was deaf
+   to the button. It now asserts what the weapon actually owes — that it never writes the camera —
+   through the camera's own detector (`foreignCameraWrites == 0` over **501** frames) plus
+   `aimEnters >= 1`, so the zero means something. Two other specs assumed they owned the only aim in
+   the run and now assert their own edges.
 
-9. **Two deviations from the design, both measured, both reported here.** (a) **This place has no
+9. **Three deviations from the design, all measured, all reported here.** (c) **`Dead` now matches
+   the design and did not before**: round 1 found that look input was suppressed only for `Loading`
+   and the viewmodel waited for the blend, where §4.1 says "no orbit, no input" and an immediate
+   clear. Fixed, with a server assertion. (a) **This place has no
    `PlayerScripts.PlayerModule` at all** — Play-time `PlayerScripts` holds only our modules plus
    `RbxCharacterSounds` — so `GetCameras():Disable()` cannot run. `Rig.acquire` now means "the camera
    is ours" and reports the stock-module step separately (`stockCamerasDisabled()` = false, warned
@@ -86,5 +96,11 @@ Feel values stay the design's defaults. **Feel-critical: not mergeable until Kar
 - **`execute_luau` has its own module cache**, so reading `Camera.getMode()` through it returns a
   fresh module's `Loading`. Every screenshot reading above came from real Instances (FOV,
   `CameraType`, crosshair `Visible`, the viewmodel's presence under the camera).
+- **The `aim-hold` scenario has no equip step**, unlike the design's §9.3 version: the Tool is
+  already equipped by then (`AUTO_EQUIP`, and the previous scenario parks and re-equips it), and a
+  number-key press reaching the CoreGui backpack is exactly what the design lists as unverified. It
+  worked without one.
+- **"The first scenario to send `button: right`" was wrong** in the round-1 request: the weapon
+  scenario already did. Task 6a note (g) was already closed.
 - **`VIEWMODEL_*_OFFSET` are the two values I changed from the design's** after looking at the
   screen, which is what the design says to do with them. They are Karen's to set.
