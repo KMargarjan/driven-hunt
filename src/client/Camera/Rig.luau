@@ -40,7 +40,10 @@ function Rig.acquire(): (boolean, string?)
 
 	local ok, err = pcall(function()
 		local scripts = Players.LocalPlayer:WaitForChild("PlayerScripts", 10)
-		local module = scripts and scripts:FindFirstChild("PlayerModule")
+		-- WaitForChild, not FindFirstChild: the engine inserts PlayerModule into PlayerScripts at
+		-- spawn, and the camera boots early enough to miss it (measured: the first run of this task
+		-- reported "PlayerModule missing" and ran with the stock camera still enabled).
+		local module = scripts and scripts:WaitForChild("PlayerModule", 10)
 		if not module then
 			error("PlayerScripts.PlayerModule missing", 0)
 		end
@@ -102,19 +105,39 @@ end
 
 -- The local character only, and only its own parts: LocalTransparencyModifier is client-side, so no
 -- other player sees any of this.
+--
+-- The parts are cached per character and written ONLY when the flag changes. A GetDescendants walk
+-- every frame was most of the first measurement's 0.8 ms (the budget is 0.3 ms, design section 8.2).
+local hiddenParts: { Instance } = {}
+local hiddenFor: Model? = nil
+local hiddenNow: boolean? = nil
+
 function Rig.setLocalBodyHidden(hidden: boolean)
 	local character = Players.LocalPlayer.Character
 	if not character then
+		hiddenFor, hiddenNow = nil, nil
 		return
 	end
-	local value = if hidden then 1 else 0
-	for _, part in ipairs(character:GetDescendants()) do
-		-- The Tool's Handle is deliberately excluded: the real gun keeps being drawn in third
-		-- person, and in first person the viewmodel is a separate clone under the camera.
-		local isBody = (part:IsA("BasePart") and part.Name ~= "Handle") or part:IsA("Decal")
-		if isBody then
-			part.LocalTransparencyModifier = value
+	if hiddenFor ~= character then
+		hiddenFor = character
+		hiddenNow = nil
+		table.clear(hiddenParts)
+		for _, part in ipairs(character:GetDescendants()) do
+			-- The Tool's Handle is deliberately excluded: the real gun keeps being drawn in third
+			-- person, and in first person the viewmodel is a separate clone under the camera.
+			local isBody = (part:IsA("BasePart") and part.Name ~= "Handle") or part:IsA("Decal")
+			if isBody then
+				table.insert(hiddenParts, part)
+			end
 		end
+	end
+	if hiddenNow == hidden then
+		return
+	end
+	hiddenNow = hidden
+	local value = if hidden then 1 else 0
+	for _, part in ipairs(hiddenParts) do
+		(part :: any).LocalTransparencyModifier = value
 	end
 end
 
