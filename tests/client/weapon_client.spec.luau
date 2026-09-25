@@ -613,14 +613,20 @@ return function()
 			local WINDOW = 1
 			local attempts, opened = 3, false
 			for _ = 1, attempts do
-				-- QUIET, NOT CLOSED. The first version also required `not state.open` and the
-				-- one-player run never satisfied it: the replay's last scenario leaves the gun broken
-				-- open, and it stays that way because nothing presses anything afterwards. `open` is
-				-- still COMPARED across the window below, which is the assertion that matters -- an
-				-- accepted "Close" would move it.
+				-- QUIET MEANS "NO ACTION IS STILL RUNNING", and neither of the two obvious
+				-- conditions says that, which cost two runs to find out. `not state.open` is never
+				-- satisfied at all: the replay's last scenario leaves the gun broken open and nothing
+				-- presses anything afterwards. And `state.busyFor == 0` is a number the SERVER
+				-- computed when it published, and the replica does not tick it down -- the last
+				-- snapshot of a session says busyFor = 0.25 for ever. So the elapsed time is measured
+				-- here, against the moment that snapshot arrived. `open` is still COMPARED across the
+				-- window below, which is the assertion that matters: an accepted "Close" moves it.
+				local function stillBusy(): boolean
+					local newest = log[#log]
+					return newest ~= nil and os.clock() - newest.at < newest.state.busyFor
+				end
 				local ready = waitUntil(90, function()
-					local state = Weapon.get()
-					return state ~= nil and state.busyFor == 0 and os.clock() - lastWeaponInput > QUIET
+					return Weapon.get() ~= nil and not stillBusy() and os.clock() - lastWeaponInput > QUIET
 				end)
 				if not ready then
 					local state = Weapon.get()
@@ -660,7 +666,9 @@ return function()
 					expect(after.barrels[2]).to.equal(before.barrels[2])
 					expect(after.loaded[1]).to.equal(before.loaded[1])
 					expect(after.loaded[2]).to.equal(before.loaded[2])
-					expect(after.busyFor).to.equal(0) -- an accepted "Break" would be mid-cycle here
+					-- An accepted "Break" would be mid-cycle here, so the gun would have published a
+					-- snapshot with an unfinished action in it.
+					expect(stillBusy()).to.equal(false)
 					expect(after.busyUntil).to.equal(nil) -- still a snapshot, not the server's state
 					opened = true
 					break
