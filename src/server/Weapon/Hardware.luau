@@ -18,10 +18,13 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Hardware = {}
 
+-- The name every granted Tool carries. One per player, so it is also how a stray one is found.
+Hardware.TOOL_NAME = "Shotgun"
+
 function Hardware.build(): Tool
 	local config = Shotgun.CONFIG
 	local tool = Instance.new("Tool")
-	tool.Name = "Shotgun"
+	tool.Name = Hardware.TOOL_NAME
 	tool.RequiresHandle = true
 	tool.CanBeDropped = false
 	tool.Grip = config.GRIP
@@ -49,19 +52,36 @@ end
 -- The Backpack is where a Tool waits; the character is where it is held.
 -- Puts the tool in the player's Backpack, and SAYS WHETHER IT LANDED.
 --
--- The Backpack is re-created with every character, so at the instant CharacterAdded fires it can be
--- a moment away from existing. It used to be looked up once and the tool silently left parented to
--- nil if it was missing -- which is how a two-player drive left both players gunless for a whole
--- session (Task 34, measured in a live Clients-and-Servers test: the drive said SHOOTER, the
--- Backpack was empty and no Tool existed anywhere in the place). Waiting a few seconds for it costs
--- nothing on the path that already has one.
+-- IT NEVER YIELDS, and that is a requirement, not an implementation detail. It waited for the
+-- Backpack for a while (Task 34) and that wait made the grant interleavable: while it was parked
+-- the player held no tool, so every other caller -- the Backpack hook the wait was waiting for, and
+-- the arming sweep -- decided to grant one too, and a player ended up with two Tools, only one of
+-- them recorded. The same yield also parked the drive's Heartbeat step, which applies refreshArming
+-- synchronously. A Backpack that is not there yet is covered by the hook that fires when it
+-- arrives, which is what it is for.
 function Hardware.give(tool: Tool, player: Player): boolean
-	local backpack = player:FindFirstChildOfClass("Backpack") or player:WaitForChild("Backpack", 5)
+	local backpack = player:FindFirstChildOfClass("Backpack")
 	if not backpack then
 		return false
 	end
 	tool.Parent = backpack
 	return true
+end
+
+-- Every Tool of ours this player is carrying, Backpack and character both. Arming is one-tool-per
+-- -player, and this is how that is enforced rather than assumed.
+function Hardware.toolsOf(player: Player): { Tool }
+	local found = {}
+	for _, container in { player:FindFirstChildOfClass("Backpack"), player.Character } do
+		if container then
+			for _, child in container:GetChildren() do
+				if child:IsA("Tool") and child.Name == Hardware.TOOL_NAME then
+					table.insert(found, child)
+				end
+			end
+		end
+	end
+	return found
 end
 
 function Hardware.equip(tool: Tool, player: Player)

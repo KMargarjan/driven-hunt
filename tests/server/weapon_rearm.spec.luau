@@ -17,7 +17,7 @@
 -- is the spec a two-player run actually fails.
 --
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
--- Design: docs/design/shotgun.md (section 8.5), docs/design/drive.md (section 8.5)
+-- Design: docs/design/drive.md (section 8.5), and the deltas in reviews/task-34/DESIGN_DELTA.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -28,13 +28,14 @@ local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 
 local SWEEP_OBSERVATION = 6 -- seconds: the sweep runs every 2, so this sees at least two passes
 
-local function holdsGun(player: Player): boolean
+local function gunOf(player: Player): Tool?
 	local backpack = player:FindFirstChildOfClass("Backpack")
-	if backpack and backpack:FindFirstChildOfClass("Tool") then
-		return true
+	local tool = backpack and backpack:FindFirstChildOfClass("Tool")
+	if tool then
+		return tool
 	end
 	local character = player.Character
-	return character ~= nil and character:FindFirstChildOfClass("Tool") ~= nil
+	return character and character:FindFirstChildOfClass("Tool")
 end
 
 return function()
@@ -73,16 +74,21 @@ return function()
 			-- The sweep asks the question refreshArming asks, so the steady state must be steady:
 			-- nobody is re-granted while they are holding what they should hold. A sweep that
 			-- churned would break the client's scenario one snapshot at a time.
+			--
+			-- THE SAME TOOL, not an unchanged counter: a drive that places players during these six
+			-- seconds grants legitimately, and counting grants would fail this spec for something it
+			-- does not own. The identity of the gun in the player's hands is the claim.
 			local rows = {}
 			for _, player in ipairs(Players:GetPlayers()) do
 				local mayCarry = Match.mayCarryWeapon(player)
-				local held = holdsGun(player)
-				table.insert(rows, string.format("%s may=%s holds=%s", player.Name, tostring(mayCarry), tostring(held)))
-				if mayCarry and held then
-					local grantsBefore = Weapon.stats().granted
+				local gun = gunOf(player)
+				table.insert(
+					rows,
+					string.format("%s may=%s holds=%s", player.Name, tostring(mayCarry), tostring(gun ~= nil))
+				)
+				if mayCarry and gun then
 					task.wait(SWEEP_OBSERVATION)
-					expect(holdsGun(player)).to.equal(true)
-					expect(Weapon.stats().granted).to.equal(grantsBefore)
+					expect(gunOf(player)).to.equal(gun)
 				end
 			end
 			TestKit.note("weapon_rearm: steady state " .. table.concat(rows, "; "))

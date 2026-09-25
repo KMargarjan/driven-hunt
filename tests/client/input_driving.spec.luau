@@ -258,8 +258,11 @@ return function()
 			-- hitch between two unwaited steps is enough to beat a deliberate 0.3 s gap -- which
 			-- would fail a claim that is still true of the replay. The median says what the claim
 			-- means: a gap the scenario asked for stands out from ordinary step-to-step spacing.
+			-- A scenario with no unwaited step has nothing to compare against, and 0 would make the
+			-- comparison below trivially true. That is a broken scenario, not a passing test.
+			expect(#gaps > 0).to.equal(true)
 			table.sort(gaps)
-			local typical = if #gaps > 0 then gaps[math.ceil(#gaps / 2)] else 0
+			local typical = gaps[math.ceil(#gaps / 2)]
 			print(string.format("[input_driving] waited %.3f s vs typical %.3f s", waited.got, typical))
 			expect(waited.got > typical).to.equal(true)
 		end)

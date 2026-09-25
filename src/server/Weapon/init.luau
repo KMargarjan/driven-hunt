@@ -58,6 +58,8 @@ local registry = Registry.new()
 local tools: { [Player]: Tool } = {}
 local connections: { [Player]: { RBXScriptConnection } } = {}
 local toolWatchers: { [Player]: RBXScriptConnection } = {}
+-- One per player: the connection that notices the granted Tool being destroyed (Task 34).
+local toolLifeWatchers: { [Player]: RBXScriptConnection } = {}
 local stats = {
 	shots = 0,
 	reports = 0,
@@ -129,17 +131,20 @@ end
 -- this the record outlives the Tool, refreshArming believes the player is armed, and nobody is
 -- ever granted anything again -- a Shooter walked a whole ten-minute drive with empty hands.
 local function watchTool(player: Player, tool: Tool)
-	local connection: RBXScriptConnection
-	connection = tool.AncestryChanged:Connect(function()
+	-- ONE per player, replaced at each grant rather than appended: a player who is granted every few
+	-- seconds would otherwise leave a dead connection behind every time, for the whole session.
+	local previous = toolLifeWatchers[player]
+	if previous then
+		previous:Disconnect()
+	end
+	toolLifeWatchers[player] = tool.AncestryChanged:Connect(function()
 		if tool.Parent ~= nil then
 			return -- equipping moves it Backpack -> Character; that is not losing it
 		end
 		if tools[player] == tool then
 			tools[player] = nil
 		end
-		connection:Disconnect()
 	end)
-	table.insert(connections[player], connection)
 end
 
 -- Does this player HOLD a gun, rather than: is one recorded against their name? A Tool goes with
@@ -259,7 +264,7 @@ local function watchEquipped(player: Player, tool: Tool)
 	sync()
 end
 
-function Weapon.grant(player: Player): Tool
+function Weapon.grant(player: Player): Tool?
 	Hardware.destroy(tools[player])
 	local previous = stateOf(player)
 	local state = StateMachine.initial(CONFIG)
@@ -270,18 +275,27 @@ function Weapon.grant(player: Player): Tool
 	end
 	setState(player, state)
 
+	-- ONE TOOL PER PLAYER, enforced. A stray Shotgun -- one this owner lost track of, or one a
+	-- caller produced while an older grant was in flight -- would survive a revoke, because revoke
+	-- destroys the RECORDED tool. Nothing between build and the record below yields, so no second
+	-- grant can start inside this one.
+	for _, stray in Hardware.toolsOf(player) do
+		Hardware.destroy(stray)
+	end
+
 	local tool = Hardware.build()
 	connections[player] = connections[player] or {}
-	watchTool(player, tool)
 	if not Hardware.give(tool, player) then
-		-- No Backpack even after waiting: the player is leaving, or the character never came. Record
-		-- NOTHING, so the next refreshArming tries again instead of counting a tool that is parented
-		-- to nil (Task 34: that is what left a two-player drive's shooter without a gun).
+		-- No Backpack at this instant: the character is still coming, or the player is leaving.
+		-- Record NOTHING and return nil, so the next refreshArming tries again instead of counting
+		-- a tool that is parented to nil (Task 34: that is what left a two-player drive's shooter
+		-- without a gun). The Backpack hook in watchPlayer fires when it does arrive.
 		Hardware.destroy(tool)
 		stats.grantsMissed += 1
-		return tool
+		return nil
 	end
 	tools[player] = tool
+	watchTool(player, tool)
 	watchEquipped(player, tool)
 	if CONFIG.AUTO_EQUIP then
 		Hardware.equip(tool, player)
@@ -311,6 +325,10 @@ function Weapon.forget(player: Player)
 	if toolWatchers[player] then
 		toolWatchers[player]:Disconnect()
 		toolWatchers[player] = nil
+	end
+	if toolLifeWatchers[player] then
+		toolLifeWatchers[player]:Disconnect()
+		toolLifeWatchers[player] = nil
 	end
 	for _, connection in ipairs(connections[player] or {}) do
 		connection:Disconnect()

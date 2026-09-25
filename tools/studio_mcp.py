@@ -43,6 +43,10 @@ Moving parts
   Report (JSON): side, token, placeId, specs (full names), notes, successCount, failureCount, skippedCount,
       errorCount, status (PASS | FAIL | ERROR), message. Runner status is PASS only if 0 failed, 0 errors,
       0 skipped (any SKIP/FOCUS variant fails) and > 0 passed; a spec that fails to load is ERROR.
+      TestKit.awaitToken waits up to TOKEN_WAIT for a token instead of reading once, so the gate is
+      open for a runner that started up to a minute before the token arrives. The rule is unchanged
+      -- Studio, and a token under 120 s old -- and a playtest still runs no tests because nothing
+      writes a token during one, which is now what that claim rests on.
       `notes` is whatever the specs handed to TestKit.note: numbers that explain a failure, printed
       by both `test` and `test2` under "----- <side> notes -----". They ride in the report because a
       long session's console comes back truncated and loses everything but its tail (Task 34).
@@ -374,8 +378,8 @@ return string.format(
     math.floor((target.Position - character:GetPivot().Position).Magnitude)
 )
 """
-# Which team the drive put this client's player on. Used to pick WHICH client gets the input
-# replay in a 2-player run: the driver carries no gun, so the weapon specs belong to the shooter.
+# Opens the gate inside a RUNNING test process: the place those processes start from does not
+# reliably carry the token (see the `test2` section), so it is set on the server and replicates.
 QUERY_SET_TOKEN = """
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local value = ReplicatedStorage:FindFirstChild("TestSyncToken")
@@ -396,6 +400,8 @@ QUERY_ROLE = (
     "local lp = Players.LocalPlayer "
     'return (if RS:IsServer() then "server" else "client") .. "|" .. tostring(lp and lp.Name)'
 )
+# Which team the drive put this client's player on. Used to pick WHICH client gets the input
+# replay in a 2-player run: the driver carries no gun, so the weapon specs belong to the shooter.
 QUERY_MY_TEAM = (
     'local p = game:GetService("Players").LocalPlayer '
     "local t = p and p.Team "
