@@ -41,6 +41,8 @@ with StudioMCP, a 2-player harness is possible; if they do not, 1.6's automation
 
 **Note:** the harness's own tests do not run during that check, and nothing needs to be committed.
 The MCP server must be on (Studio → Assistant settings), which it already is.
+
+---
 ## 2026-09-25 · CLOSED 2026-09-25 · Task 22 cannot be reviewed: the round counter has no task boundary
 
 **Raised by:** Builder, at loop step 5 of Task 22 (branch `task-22-playtest-ready`, code commit
