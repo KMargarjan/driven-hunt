@@ -1,0 +1,11 @@
+{
+  "key": "shotgun.handle",
+  "version": 1,
+  "kind": "meshpart",
+  "prompt": "A side-by-side break-action double-barrelled shotgun in a classic Italian style, closed, seen as one solid object. Warm walnut stock and forend with a straight comb and fine chequering, a silver-grey engraved action with light scroll engraving, blued barrels, a slim rib and a single bead front sight. Clean and restrained rather than ornate, with no text, no lettering, no logo, no maker mark and no serial number anywhere on the model. Realistic materials, neutral even lighting, no scene, no background.",
+  "references": [],
+  "sizeMetres": [0.112, 0.14, 1.232],
+  "targetTris": 4000,
+  "texturePx": 2048,
+  "notes": "Karen, 2026-09-26: classic Italian, walnut stock, engraved silver action, NO logo or brand text, not overly detailed. Deliberately no brand name in the prompt: a generated maker mark would be somebody's trade dress. sizeMetres is Shotgun.CONFIG.HANDLE_SIZE (0.4, 0.5, 4.4 studs) at 1 stud = 0.28 m."
+}

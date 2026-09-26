@@ -66,6 +66,10 @@ service-account*.json
 # Asset pipeline run records (docs/design/asset-pipeline.md 7.2): file names and ids, not repo content.
 /.assets/
 
+# Any local scratch tools/meshy.py might leave. Its real output lives OUTSIDE the repo by
+# refusal (ASSET_DROP_DIR and MESHY_RUN_DIR are rejected if they resolve inside it); this is a net.
+/.meshy/
+
 # Screenshots saved by `python tools/studio_mcp.py capture` (rule-5 evidence, not repo content)
 /.screenshots/
 
