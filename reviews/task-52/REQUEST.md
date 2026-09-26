@@ -4,18 +4,21 @@ Task: 52
 Round: 1
 Base: `4ee25d2` (`main`, with Task 50 merged as PR #47). This branch started from `edc3136` and
 `origin/main` is **merged into it** at `a519cfe` — a merge, no rebase, no force push.
-Code commit: `a519cfec628e85967ef9bbf67d1d4d144892b1b0` (the merge) — the `[harness]` line below
-names it, it is the last commit that changed `src/`, `tests/` or `tools/`, and only this request
-changes after it.
+Code commit: `75720a77a2ae9e30554c8d000ee28c694dc13539` — both harness lines below name it. It is a
+PAPERWORK commit: the last commit that changed `src/`, `tests/` or `tools/` is the merge `a519cfe`,
+and `git diff --name-only a519cfe..75720a7` is `TASKS.md` and this file. Naming the later commit is
+what CLAUDE.md git workflow step 4 allows and prefers, and it only narrows what the evidence covers.
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 30/30 checks @ a519cfec628e85967ef9bbf67d1d4d144892b1b0 (clean tree)
+    [harness] PASS: 30/30 checks @ 75720a77a2ae9e30554c8d000ee28c694dc13539 (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me:
 
-    <the [harness2] PASS line goes here. Both lines must name the SAME commit for tools/agents.py,
-     so once test2 has run at the branch head I re-run `test` there and repoint both.>
+    [harness2] PASS: 32/32 checks @ 75720a77a2ae9e30554c8d000ee28c694dc13539 (clean tree)
+
+Two players: server 327, shooter 84, driver 78. **One intermittent failure is disclosed below**
+(`boar_body.spec`, a spec this task does not touch) — see "What I could not verify".
 
 **Round 1's two-player run found a real defect of mine and it is fixed here.** At `ab4380c` every
 spec PASSED on all three sides (server 327, shooter 81, driver 75) and the harness then died:
@@ -162,6 +165,22 @@ measurement 2 is the Director's `test2`, and until it is green that half is infe
     mutation: un-scoping `send_input_many` fails `every argument builder asks _scoped: 4 vs 5`.
     Verify: `Studio._scoped` and its three call sites; `selftest`'s block 9b.
 
+## An intermittent failure, disclosed
+
+The first `test` run at this commit **FAILED 28/30**: `boar_body.spec:264`,
+`expect(gained).to.equal(true)` — the boar had not gained its 20 studs inside the travel budget.
+The immediate re-run of the same commit on the same clean tree **passed 30/30**, and so did the run
+at `a519cfe` before the paperwork and the Director's `[harness2]` 32/32. Four runs of this tree,
+three green.
+
+`boar_body.spec` is not touched by this task, the assertion is a wall-clock physics one under harness
+load (the spec's own neighbours carry comments about exactly that — "under harness load it is not
+obviously enough"), and nothing in the flags system runs during it. **I am not claiming it is
+harmless**: an intermittent server spec is a real problem for a merge gate that trusts one run, and
+it is queued as Task 52a. I did not keep the run's `[boar_body] gained … studs` line, so I cannot say
+how close it came — that is my mistake, and the next occurrence should be captured with the console
+output intact.
+
 ## What I could not verify
 
 - **No `[harness2]` for this commit yet.** The run at `ab4380c` proved the flags system itself —
@@ -171,8 +190,8 @@ measurement 2 is the Director's `test2`, and until it is green that half is infe
 - **The scoping fix is proved against a fake transport, not against four Studios.** It is nine
   `selftest` cases now, and CI runs them, but the multi-Studio refusal itself needs four Studios and
   is the `test2` run.
-- **The merge has not had a two-player run.** Task 50's speed work and Task 52's guards have each
-  passed `test2` separately, never together.
+- **`boar_body.spec:264` failed once and passed three times on this tree** (above). The green line
+  is real, but one run is thinner evidence than it looks for that spec.
 - **`flags live` was not run.** It needs a running Play session, which is the Director's `test2` or a
   playtest. `set`, `clear`, the table and both refusals were driven by hand; `live` was not.
 - **"A published place ignores `DHFlag_*`" is proved only through the injected parameter.** No
