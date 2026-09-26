@@ -486,12 +486,15 @@ return function()
 					end
 				end
 			end
-			-- And the map's field is the design's section 12 corridor, not whatever the code drifted to.
-			expect(b.minX).to.equal(-340)
-			expect(b.maxX).to.equal(340)
-			expect(b.minZ).to.equal(-800)
+			-- And the map's field is the design's section 15.1 corridor, not whatever the code drifted
+			-- to. These are the M2.8a numbers: 1,240 studs wide, to hold a 1,120-stud shooter line at
+			-- Karen's 45 m spacing, with the exit 120 studs PAST the road so a boar that beats the
+			-- line crosses the gravel and is gone.
+			expect(b.minX).to.equal(-620)
+			expect(b.maxX).to.equal(620)
+			expect(b.minZ).to.equal(-880)
 			expect(b.maxZ).to.equal(800)
-			expect(c.FIELD.exitZ).to.equal(-760)
+			expect(c.FIELD.exitZ).to.equal(-820)
 			expect(c.FIELD.exitZ < c.WORLD.lineZ).to.equal(true) -- the exit is BEHIND the shooter line
 		end)
 
