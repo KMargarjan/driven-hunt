@@ -64,6 +64,19 @@ Flags.DEFAULTS = {
 		expires = "2026-12-31",
 		why = "A tied player stays tied until the drive ends. OFF frees him after TIE_SECONDS.",
 	} :: FlagRow,
+	BOAR_SOUNDERS = {
+		default = false,
+		-- The owner NAMED here is the module that will read it at its boundary
+		-- (`Match.CONFIG.SOUNDER.ENABLED`) when the drive learns to release a sounder. THAT IS THE
+		-- NEXT TASK (Director decision J: the sounder exists first, the drive releases it second),
+		-- so today nothing reads this row and turning it on changes nothing a player can see. It is
+		-- declared now because the Director asked for the flag to exist with the behaviour, and
+		-- because a row born OFF is what lets the behaviour merge dark.
+		owner = "ServerScriptService.Match",
+		born = "2026-09-26 task 60 (the sounder itself; the release is task 61)",
+		expires = "2026-10-17", -- 20 days: inside the 21-day ceiling (feature-flags.md section 12)
+		why = "Boars come as a mix of singles and sounders of 2-5. OFF releases one boar per release, as today.",
+	} :: FlagRow,
 }
 
 -- deepFreeze, REQUIRED and not copied: table.freeze is shallow, and this repo has already paid for

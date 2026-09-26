@@ -376,4 +376,352 @@ return function()
 			production.releasePath("arena-probe")
 		end)
 	end)
+	-- ONE REAL SOUNDER OF FIVE, physically simulated, through the public interface only.
+	--
+	-- Its own plate, its own runtime and its own threat, torn down in afterAll -- exactly as the
+	-- block above does. IT SITS AT y = 1500, not the design's 500: the runtime above is still alive
+	-- while this block runs (its beforeAll wraps the file), and two herds of boars sharing one
+	-- patch of Workspace would be a physics interaction nobody wrote.
+	--
+	-- Design: docs/design/drive.md ("boar_body.spec.luau -- CHANGED, live: one real sounder of five")
+	describe("boar sounder, live", function()
+		local SOUNDER_Y = 1500
+		-- A BIGGER field than the block above, and that is the point: one boar crossing a short line
+		-- is what THAT block tests, while the sounder has to still EXIST after three seconds of
+		-- sprinting, a six-second scatter and the four seconds the break rule takes -- and a boar
+		-- that crosses `exitZ` has escaped and is despawned.
+		--
+		-- 380 studs from the release to the line, MEASURED rather than chosen: at 1,100 studs every
+		-- single ComputeAsync came back `NoPath` (29 of 29, 2026-09-26), so the leader asked again
+		-- every frame and the path budget read 29 in 3 s. The arena the other specs use is 400
+		-- studs across and routes fine, so this one is sized like it.
+		local SOUNDER_SPAN = 600
+		local SOUNDER_FIELD = {
+			bounds = { minX = -250, maxX = 250, minZ = -250, maxZ = 250 },
+			exitZ = -220,
+			groundY = SOUNDER_Y,
+		}
+		local CENTER = Vector3.new(0, SOUNDER_Y, 160)
+		local SETTINGS = CONFIG.SOUNDER
+
+		local root, herd, herdWorld, herdThreat, herdRecords, stop
+		-- WHO ASKED. `stats().pathRequests` is a total, and the invariant this block is here to
+		-- prove is about WHICH boar asks: one route per sounder, whatever its size. The spec owns
+		-- the world, so counting them here is the one honest way to attribute them.
+		local pathCalls = {}
+
+		local function spread(handles): number
+			local worst = 0
+			for i = 1, #handles do
+				for j = i + 1, #handles do
+					local a, b = handles[i].position(), handles[j].position()
+					worst = math.max(worst, (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude)
+				end
+			end
+			return worst
+		end
+
+		local function live(handles)
+			local out = {}
+			for _, handle in ipairs(handles) do
+				local state = handle.state()
+				if state ~= "DOWN" and state ~= "GONE" and handle.part.Parent then
+					table.insert(out, handle)
+				end
+			end
+			return out
+		end
+
+		local function handleOf(handles, id: string?)
+			for _, handle in ipairs(handles) do
+				if handle.id == id then
+					return handle
+				end
+			end
+			return nil
+		end
+
+		beforeAll(function()
+			herdThreat = nil
+			herdRecords = {}
+			pathCalls = {}
+
+			root = Instance.new("Folder")
+			root.Name = "BoarSounderSpec"
+			local plate = Instance.new("Part")
+			plate.Name = "Plate"
+			plate.Size = Vector3.new(SOUNDER_SPAN, 4, SOUNDER_SPAN)
+			plate.Position = Vector3.new(0, SOUNDER_Y - 2, 0)
+			plate.Anchored = true
+			plate.TopSurface = Enum.SurfaceType.Smooth
+			plate.Parent = root
+			root.Parent = Workspace
+
+			local production = Boar.defaultWorld(SOUNDER_FIELD)
+			herdWorld = {
+				field = SOUNDER_FIELD,
+				parent = root,
+				folderName = "Boars",
+				rng = Random.new(5),
+				threats = function()
+					if not herdThreat then
+						return {}
+					end
+					return { { id = "herd-spec", position = herdThreat } }
+				end,
+				probe = function(from: Vector3, direction: Vector3, length: number): boolean
+					if direction.Magnitude < 1e-6 then
+						return false
+					end
+					local params = RaycastParams.new()
+					params.FilterType = Enum.RaycastFilterType.Exclude
+					params.FilterDescendantsInstances = if herdWorld.folder then { herdWorld.folder } else {}
+					return Workspace:Raycast(from, direction.Unit * length, params) ~= nil
+				end,
+				requestPath = function(agentId: string, from: Vector3, to: Vector3, done, onBlocked)
+					pathCalls[agentId] = (pathCalls[agentId] or 0) + 1
+					return production.requestPath(agentId, from, to, done, onBlocked)
+				end,
+				releasePath = production.releasePath,
+				pathProblems = production.pathProblems,
+			}
+			herd = Boar.newRuntime(herdWorld)
+			herd.Despawned:Connect(function(record)
+				table.insert(herdRecords, record)
+			end)
+			stop = herd:run()
+		end)
+
+		afterAll(function()
+			if stop then
+				stop()
+			end
+			if herd then
+				herd:destroy()
+			end
+			if root then
+				root:Destroy()
+			end
+		end)
+
+		local group = nil
+
+		it("spawns exactly five, on a ring inside the pad, as one sounder with one leader", function()
+			group = herd:spawnSounder(CENTER, 5, 14)
+			expect(#group).to.equal(5)
+			for _, handle in ipairs(group) do
+				local at = handle.position()
+				expect((Vector3.new(at.X, 0, at.Z) - Vector3.new(CENTER.X, 0, CENTER.Z)).Magnitude <= 14).to.equal(true)
+			end
+			-- No two members share a footprint: five on a ring of 10 stand ~11.8 studs apart.
+			for i = 1, #group do
+				for j = i + 1, #group do
+					local a, b = group[i].position(), group[j].position()
+					expect((a - b).Magnitude >= CONFIG.BODY_SIZE.X).to.equal(true)
+				end
+			end
+			local sounders = herd:sounders()
+			expect(#sounders).to.equal(1)
+			expect(#sounders[1].memberIds).to.equal(5)
+			expect(sounders[1].leaderId).to.be.ok()
+			expect(herd:sounderOf(group[1].id)).to.be.ok()
+			expect(herd:stats().soundersSpawned).to.equal(1)
+		end)
+
+		it("creates NOTHING when the whole sounder does not fit", function()
+			-- capacity() is 8 and five are already standing, so three slots are left.
+			expect(herd:capacity() - herd:count()).to.equal(3)
+			local refused = herd:spawnSounder(CENTER, 5, 14)
+			expect(#refused).to.equal(0)
+			expect(herd:count()).to.equal(5)
+			expect(#herd:sounders()).to.equal(1)
+		end)
+
+		it("a size of one is a lone boar, with no sounder record", function()
+			local single = herd:spawnSounder(CENTER + Vector3.new(30, 0, 0), 1, 14)
+			expect(#single).to.equal(1)
+			expect(herd:sounderOf(single[1].id)).to.equal(nil)
+			expect(#herd:sounders()).to.equal(1)
+			-- ...and shooting it changes nothing about the sounder standing beside it.
+			herd:takeHit(single[1].part, { ammo = "Slug", zone = "head", pellets = 1 })
+			expect(herd:stats().scatters).to.equal(0)
+			expect(#herd:sounders()).to.equal(1)
+		end)
+
+		it("runs as a group when a driver appears: together, moving, and upright", function()
+			local before = herd:stats()
+			herdThreat = CENTER + Vector3.new(0, 0, 25) -- behind them, pushing toward the exit line
+			local fast = 0
+			local upright = true
+			local together = true
+			local leaderId = herd:sounders()[1].leaderId
+
+			-- ~3 seconds of the boars' OWN frames, so a slow machine takes longer and asserts the
+			-- same thing (the reason the second waiter exists, above).
+			stepUntil(180, function()
+				local members = live(group)
+				local leader = handleOf(members, leaderId)
+				for _, handle in ipairs(members) do
+					upright = upright and handle.part.CFrame.UpVector.Y > 0.9
+					local velocity = handle.part.AssemblyLinearVelocity
+					fast = math.max(fast, Vector3.new(velocity.X, 0, velocity.Z).Magnitude)
+					if leader then
+						local a, b = handle.position(), leader.position()
+						together = together
+							and (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude
+								<= SETTINGS.BREAK_STUDS
+					end
+				end
+				return false
+			end)
+
+			expect(upright).to.equal(true)
+			expect(together).to.equal(true)
+			expect(fast >= 0.4 * CONFIG.SPRINT_SPEED).to.equal(true)
+
+			-- ONE ROUTE PER SOUNDER: five members fleeing for three seconds, and only the leader
+			-- asks. Per-member pathing lands near 30 (design, "one route per sounder").
+			local after = herd:stats()
+			local askers, total = {}, 0
+			for agentId, count in pairs(pathCalls) do
+				table.insert(askers, string.format("%s x%d", agentId, count))
+				total += count
+			end
+			table.sort(askers)
+			-- ONLY THE LEADER ASKED. This is the invariant, not the total: five members each asking
+			-- could also each be routed through a different gate in a hedge, which splits the
+			-- sounder in two. The message carries the evidence, because a bare `false` here would
+			-- say nothing about which boar broke it.
+			if pathCalls[leaderId] == nil or total ~= pathCalls[leaderId] then
+				error(
+					string.format(
+						"one route per sounder: leader %s, but the askers were %s",
+						tostring(leaderId),
+						table.concat(askers, ", ")
+					),
+					0
+				)
+			end
+			-- ...and the leader itself did not run away with it: REPATH_INTERVAL is 0.5 s, and
+			-- Path.Blocked can force one more when a herd-mate stands on the route.
+			if total > 12 then
+				local why = {}
+				for reason, count in pairs(herdWorld.pathProblems()) do
+					table.insert(why, string.format("%dx %s", count, reason))
+				end
+				table.sort(why)
+				error(
+					string.format(
+						"the leader asked %d times in 3 s (%d failed, %d blocked%s), over the budget of 12",
+						total,
+						after.pathFailures - before.pathFailures,
+						after.pathBlocked - before.pathBlocked,
+						if #why > 0 then "; " .. table.concat(why, ", ") else ""
+					),
+					0
+				)
+			end
+			expect(after.pathFailures).to.equal(0)
+		end)
+
+		it("promotes a new leader and scatters when the leader is shot dead", function()
+			local leaderId = herd:sounders()[1].leaderId
+			local leader = handleOf(group, leaderId)
+			expect(leader).to.be.ok()
+
+			local before = spread(live(group))
+			expect(herd:takeHit(leader.part, { ammo = "Slug", zone = "head", pellets = 1 })).to.equal(true)
+			expect(herd:stats().scatters >= 1).to.equal(true)
+			RunService.Heartbeat:Wait()
+			RunService.Heartbeat:Wait()
+
+			local view = herd:sounders()[1]
+			expect(view).to.be.ok()
+			expect(view.leaderId).never.to.equal(leaderId)
+			expect(herd:stats().leaderPromotions).to.equal(1)
+			expect(view.scatterFor > 0).to.equal(true)
+			-- A dead member is out of the sounder (LEAVE_ON_MORTAL), carcass and all.
+			expect(#view.memberIds).to.equal(4)
+
+			stepUntil(120, function()
+				return false
+			end)
+			expect(spread(live(group)) > before).to.equal(true)
+		end)
+
+		it("drops a member that has been too far away for too long", function()
+			local view = herd:sounders()[1]
+			local strayId = view.memberIds[#view.memberIds]
+			local stray = handleOf(group, strayId)
+			expect(stray).to.be.ok()
+			local before = herd:stats().membersLeft
+			local members = #view.memberIds
+
+			-- The WORLD moves it, not the runtime: BREAK_STUDS is 60, so the far corner of the plate
+			-- is outside it. (The design drags it with a threat instead; that spends BREAK_SECONDS
+			-- of running on top of the four this already waits, for the same assertion.)
+			local elapsed = 0
+			while elapsed < SETTINGS.BREAK_SECONDS + 1.5 do
+				stray.part.CFrame = CFrame.new(Vector3.new(-200, SOUNDER_Y + CONFIG.BODY_SIZE.Y / 2, 200))
+				stray.part.AssemblyLinearVelocity = Vector3.zero
+				elapsed += RunService.Heartbeat:Wait()
+			end
+
+			expect(herd:sounderOf(strayId)).to.equal(nil)
+			expect(herd:stats().membersLeft > before).to.equal(true)
+			expect(#herd:sounders()[1].memberIds).to.equal(members - 1)
+		end)
+
+		it("takes a mortally wounded member out, and the last one dissolves the sounder", function()
+			-- One slug to the body is 55 damage against MORTAL = 50: mortal, not lethal -- so the
+			-- animal is still alive and still running, and it leaves the sounder because a dying
+			-- animal cannot hold formation and the group would otherwise crawl to the line at its
+			-- speed (LEAVE_ON_MORTAL).
+			local view = herd:sounders()[1]
+			local members = #view.memberIds
+			expect(members >= 2).to.equal(true)
+			local victimId = view.memberIds[#view.memberIds]
+			local victim = handleOf(group, victimId)
+			expect(victim).to.be.ok()
+			expect(herd:takeHit(victim.part, { ammo = "Slug", zone = "body", pellets = 1 })).to.equal(true)
+			RunService.Heartbeat:Wait()
+			RunService.Heartbeat:Wait()
+			expect(herd:sounderOf(victimId)).to.equal(nil)
+
+			if members - 1 >= 2 then
+				-- Still a group: take the next one out too, down to the last animal.
+				local remaining = herd:sounders()[1]
+				expect(#remaining.memberIds).to.equal(members - 1)
+				local nextId = remaining.memberIds[#remaining.memberIds]
+				expect(herd:takeHit(handleOf(group, nextId).part, { ammo = "Slug", zone = "body", pellets = 1 })).to.equal(
+					true
+				)
+				RunService.Heartbeat:Wait()
+				RunService.Heartbeat:Wait()
+			end
+
+			-- ONE ANIMAL IS NOT A SOUNDER: it dissolves, and the survivor is a lone boar with no
+			-- per-step group work left.
+			expect(#herd:sounders()).to.equal(0)
+			expect(herd:stats().soundersDissolved).to.equal(1)
+		end)
+
+		it("clear() removes a whole sounder through the existing despawn path", function()
+			herdThreat = nil
+			herd:clear("specOver")
+			RunService.Heartbeat:Wait()
+			expect(herd:count()).to.equal(0)
+			expect(#herd:sounders()).to.equal(0)
+
+			local fresh = herd:spawnSounder(CENTER, 5, 14)
+			expect(#fresh).to.equal(5)
+			expect(#herd:sounders()).to.equal(1)
+			local before = #herdRecords
+			herd:clear("driveOver")
+			RunService.Heartbeat:Wait()
+			expect(#herdRecords - before).to.equal(5)
+			expect(#herd:sounders()).to.equal(0)
+			expect(herd:count()).to.equal(0)
+		end)
+	end)
 end

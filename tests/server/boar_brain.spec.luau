@@ -633,4 +633,35 @@ return function()
 			expect(os.clock() - started < 0.1).to.equal(true)
 		end)
 	end)
+	-- THE LONE BOAR'S PATH IS UNTOUCHED BY THE SOUNDER (design, "boar_brain.spec.luau -- CHANGED").
+	-- Every other spec in this file drives `obs.sounder == nil` and still passes, which is half of
+	-- the claim; this is the other half, and it is the one that could rot silently.
+	describe("boar brain: sounders change nothing for a lone boar or a leader", function()
+		it("a LEADER decides exactly what a lone boar decides, step for step", function()
+			local lone, leader = newBrain(3), newBrain(3)
+			-- A leader with a follower right behind it: the neighbour, the centroid and the slot are
+			-- all present in the observation, and none of them may reach a decision.
+			local asLeader = {
+				isLeader = true,
+				slot = 1,
+				scattering = false,
+				leaderState = nil,
+				leader = nil,
+				centroid = Vector3.new(0, 0, 6),
+				neighbours = { { position = Vector3.new(0, 0, 12), velocity = Vector3.new(0, 0, -20) } },
+			}
+
+			for step = 1, 600 do
+				local where = Vector3.new(0, 0, step * 0.05)
+				local threats = if step > 120 then threatAt(0, 60) else {}
+				local alone = lone:step(DT, obs(where, threats))
+				local leading = leader:step(DT, obs(where, threats, { sounder = asLeader }))
+				expect(leading.state).to.equal(alone.state)
+				expect((leading.targetVelocity - alone.targetVelocity).Magnitude).to.equal(0)
+				expect(tostring(leading.pathRequest)).to.equal(tostring(alone.pathRequest))
+				expect(tostring(leading.facing)).to.equal(tostring(alone.facing))
+			end
+			expect(lone:state()).to.equal(leader:state())
+		end)
+	end)
 end

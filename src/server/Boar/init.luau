@@ -66,6 +66,18 @@ Boar.CONFIG = {
 	EDGE_MARGIN = 20,
 	STUCK_DIST = 3,
 	STUCK_TIME = 2,
+	-- WHERE A ROUTE STARTS, and it is NOT where the boar stands. MEASURED 2026-09-26 (Task 60), in
+	-- this place, with the boar's own AGENT settings: `ComputeAsync` from the centre of an
+	-- unanchored, collidable, boar-sized body returns **NoPath** -- one body or five, 10 studs
+	-- apart or 20. Six studs ahead of it returns a 95-waypoint route over the same ground. The
+	-- start point is inside the body, so the navmesh has no node there; Roblox's own NPCs are
+	-- Humanoid characters, which pathfinding ignores, and a bare Part is not.
+	--
+	-- This was measured because the sounder's live spec asserts the leader's path budget and found
+	-- 23 of 25 requests failing. It is NOT a sounder defect: it is every boar, since Milestone 1.2,
+	-- quietly falling back to the straight-line Reynolds flee that exists for exactly this case.
+	-- BODY_SIZE.Z/2 = 2.75 plus AgentRadius = 2 is 4.75; 6 clears it with a margin.
+	PATH_START_AHEAD = 6,
 
 	-- the body
 	BODY_SIZE = Vector3.new(2, 3, 5.5), -- width, height, length; a Part's LookVector is its -Z
@@ -180,6 +192,55 @@ Boar.CONFIG = {
 		AgentHeight = 3,
 		AgentCanJump = false,
 		AgentCanClimb = false,
+	},
+
+	-- THE SOUNDER (a group of boars; German Rotte). Every number here is the behaviour half --
+	-- how a sounder stands, follows, spreads and breaks. How BIG a release is and how often is the
+	-- drive's half and lives in Match.CONFIG.SOUNDER, which this task does not build.
+	--
+	-- Design: docs/design/drive.md ("the sounder's behaviour, and who writes it", and "the sounder
+	-- numbers") -- normative for sounders until docs/design/boar-ai.md is regenerated.
+	-- Note:   docs/research/2026-09-25-drive.md (Addendum 2)
+	-- Pattern: Reynolds leader following + boids separation/cohesion/alignment, blended into the
+	-- setpoint this Brain already slews and ramps. https://www.red3d.com/cwr/steer/gdc99/ and
+	-- https://www.red3d.com/cwr/boids/ -- technique taken, no code.
+	SOUNDER = {
+		SPAWN_RING_STUDS = 10, -- 5 on a ring of 10 stand 11.8 studs apart with a 5.5-long body
+		PAD_MARGIN_STUDS = 4, -- clamped inside spawnRadius - 4, so it is 10 at a pad radius of 14 and of 30
+		SLOT_BACK_STUDS = 9, -- ~1.6 body lengths behind the leader. Karen's dial
+		SLOT_SIDE_STUDS = 7, -- two abreast, clear of each other. Karen's dial
+		-- The wedge, in the LEADER'S frame: +X is its right, +Z is BEHIND it. ~18 studs wide, well
+		-- inside a 96-stud hedge gate (map-generator.md section 15.1), so a sounder goes through a
+		-- gate without any code that knows a gate exists.
+		FORMATION = {
+			[2] = Vector3.new(-7, 0, 9),
+			[3] = Vector3.new(7, 0, 9),
+			[4] = Vector3.new(-3.5, 0, 18),
+			[5] = Vector3.new(3.5, 0, 18),
+		},
+		COLUMN_SPACING_STUDS = 9, -- single file: slot i -> (0, 0, (i-1) * 9)
+		COLUMN_LATCH_SECONDS = 1.5, -- how long blockedAhead holds the column after the probe clears
+		SLOT_TOLERANCE_STUDS = 5, -- inside it, cohesion is 0 (arrival) and the speed matches the leader
+		NEIGHBOUR_STUDS = 25, -- the boids neighbourhood: a boid only sees flockmates within a radius
+		SEPARATION_STUDS = 7, -- 1.3 body lengths; below it, push apart
+		COHESION = 1.0,
+		-- SEPARATION DOMINATES, and this is THIS BUILD'S decision, not Reynolds': the boids page
+		-- states no hierarchy among the three rules (Addendum 2 corrects the design on that). The
+		-- reason is local: five CanCollide bodies of ~23 mass driven at MAX_FORCE = 6000
+		-- interpenetrating is a physics fight, not a graphical artefact.
+		SEPARATION = 1.6,
+		ALIGNMENT = 0.4,
+		FLEE_WEIGHT = 0.8,
+		IDLE_COHESION = 0.5, -- a grazing sounder is a loose group, not a wedge. Karen's dial
+		IDLE_SPREAD_STUDS = 18, -- ...and only past this does an idle member close up at all
+		CATCHUP = 1.15, -- while out of position, capped at SPRINT_SPEED
+		BREAK_STUDS = 60, -- 1.5 x DETECT_RADIUS. Karen's dial
+		BREAK_SECONDS = 4, -- ...for this long, and then it is a lone boar. Karen's dial
+		SCATTER_SECONDS = 6, -- the sounder breaks up at the shot. Karen's dial
+		SCATTER_SEPARATION = 3.0, -- they spread while scattering
+		SCATTER_ON_HIT = true, -- ANY hit, not only a kill. Karen's dial
+		LEAVE_ON_MORTAL = true, -- a mortally wounded animal drops out of the sounder. Karen's dial
+		LEADER_PATHS_ONLY = true, -- one ComputeAsync per sounder (design, "one route per sounder")
 	},
 
 	-- The one function that decides who scares a boar (design section 4). v1: every player.
@@ -311,6 +372,11 @@ function Boar.newRuntime(world)
 	self._rng = world.rng or Random.new()
 	self._boars = {}
 	self._nextId = 0
+	-- THE SOUNDERS, and this list is the only place a group exists. The Brain holds no reference to
+	-- another boar and Body knows nothing about groups, so "who is in a sounder, who leads it and
+	-- how long it is scattering" has exactly one writer (CLAUDE.md rule 3).
+	self._sounders = {}
+	self._nextSounderId = 0
 	self._signal = Instance.new("BindableEvent")
 	self._connection = nil
 	self._destroyed = false
@@ -329,6 +395,11 @@ function Boar.newRuntime(world)
 		zoneHits = {}, -- PELLETS per zone, so it sums to pelletsTaken
 		unknownZoneHits = 0, -- hits carrying a zone no DAMAGE row knows: an attribute typo, not free
 		tallylessHits = 0, -- hits with no per-pellet tally, charged at the dominant zone
+		soundersSpawned = 0,
+		soundersDissolved = 0, -- fell to one member (or none): the survivor is a lone boar again
+		leaderPromotions = 0,
+		membersLeft = 0, -- left ALIVE: mortally wounded, or too far for too long. A despawn is not one
+		scatters = 0, -- a hit on any member latches the whole sounder's scatter
 	}
 
 	self.Despawned = self._signal.Event
@@ -419,6 +490,15 @@ function Runtime:takeHit(part: BasePart, hit): boolean
 				tally(record.zone, record.pellets)
 			end
 
+			-- THE SOUNDER BREAKS UP AT THE SHOT (SCATTER_ON_HIT): any hit on any member, not only a
+			-- kill. A real sounder scatters, and it also stops a group from queueing up in front of
+			-- one barrel. The latch is here rather than in the step because a hit is the event.
+			local sounder = self:_sounderRecord(entry.sounderId)
+			if sounder and self._config.SOUNDER.SCATTER_ON_HIT then
+				sounder.scatterFor = self._config.SOUNDER.SCATTER_SECONDS
+				self._stats.scatters += 1
+			end
+
 			Body.setFlash(entry.body, wound.FLASH_SECONDS)
 
 			-- Where the shot came from, for the bolt. The shooter's position when the caller knows
@@ -457,6 +537,9 @@ function Runtime:clear(reason: string?)
 		local entry = self._boars[index]
 		self:_despawn(entry, index, reason or "cleared", Body.position(entry.body))
 	end
+	-- ...and no sounder is left behind. This is NOT counted as a dissolve: the drive is over, and a
+	-- counter that moves when the world is torn down cannot be used to ask how the drive went.
+	table.clear(self._sounders)
 end
 
 function Runtime:boars()
@@ -465,6 +548,340 @@ function Runtime:boars()
 		table.insert(out, entry.handle)
 	end
 	return out
+end
+
+-- ---------------------------------------------------------------- sounders
+--
+-- Design: docs/design/drive.md ("the boar runtime's sounder interface"). Every function below
+-- returns a COPY: there is no setter, and the drive never reads any of them in production -- they
+-- exist for specs, for diagnostics, and for the step's own bookkeeping.
+
+local function flatOf(v: Vector3): Vector3
+	return Vector3.new(v.X, 0, v.Z)
+end
+
+function Runtime:_sounderRecord(id: string?)
+	if id == nil then
+		return nil
+	end
+	for _, record in ipairs(self._sounders) do
+		if record.id == id then
+			return record
+		end
+	end
+	return nil
+end
+
+function Runtime:_entryById(id: string?)
+	if id == nil then
+		return nil
+	end
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return entry
+		end
+	end
+	return nil
+end
+
+-- The member nearest the exit line leads, tie-broken by id: the animal at the front leads, and it
+-- is one line and deterministic. `promoted` is false the first time (a spawn is not a promotion).
+function Runtime:_chooseLeader(record, promoted: boolean)
+	local best, bestKey = nil, nil
+	for _, id in ipairs(record.memberIds) do
+		local entry = self:_entryById(id)
+		if entry then
+			local key = math.abs(Body.position(entry.body).Z - self._field.exitZ)
+			if best == nil or key < bestKey or (key == bestKey and entry.id < best.id) then
+				best, bestKey = entry, key
+			end
+		end
+	end
+	if best == nil then
+		record.leaderId = nil
+		return
+	end
+	-- SLOTS STAY DISTINCT: the new leader takes slot 1 and hands its own slot to whoever held 1.
+	-- Two members sharing a slot would steer at the same point in the formation, which is the one
+	-- way a wedge turns into a collision.
+	local vacated = best.slot
+	if vacated ~= nil and vacated ~= 1 then
+		for _, id in ipairs(record.memberIds) do
+			local other = self:_entryById(id)
+			if other and other.id ~= best.id and other.slot == 1 then
+				other.slot = vacated
+			end
+		end
+	end
+	record.leaderId = best.id
+	best.slot = 1
+	if promoted then
+		self._stats.leaderPromotions += 1
+	end
+end
+
+-- Takes one member out of a sounder while it is still ALIVE (a despawn is handled by the
+-- bookkeeping instead). The boar keeps running as a lone boar: obs.sounder is nil from the next
+-- step, so every existing code path applies to it unchanged.
+function Runtime:_leaveSounder(record, entry, counted: boolean)
+	entry.sounderId = nil
+	entry.slot = nil
+	entry.awayFor = 0
+	if counted then
+		self._stats.membersLeft += 1
+	end
+	if record.leaderId == entry.id then
+		record.leaderId = nil
+	end
+end
+
+-- Per step, before any boar is asked to decide anything: membership, the leader, the scatter timer,
+-- the two ways a live member leaves, and the dissolve. Nothing here touches a Brain or a Body.
+function Runtime:_stepSounders(dt: number, snapshot)
+	local sounderConfig = self._config.SOUNDER
+	for index = #self._sounders, 1, -1 do
+		local record = self._sounders[index]
+		record.scatterFor = math.max(0, record.scatterFor - dt)
+
+		-- MEMBERSHIP IS REBUILT FROM THE BOARS, never edited in two places: a boar that despawned
+		-- (escaped, out of bounds, carcass timed out) is simply not in the list any more.
+		local members = {}
+		for _, entry in ipairs(self._boars) do
+			if entry.sounderId == record.id then
+				table.insert(members, entry)
+			end
+		end
+
+		-- LEAVE_ON_MORTAL: a dying animal cannot hold formation, and if the group matched its speed
+		-- the whole sounder would crawl to the line.
+		if sounderConfig.LEAVE_ON_MORTAL then
+			for position = #members, 1, -1 do
+				local entry = members[position]
+				local severity = entry.wound.severity
+				if severity == "mortal" or severity == "lethal" then
+					self:_leaveSounder(record, entry, true)
+					table.remove(members, position)
+				end
+			end
+		end
+
+		local leader = nil
+		for _, entry in ipairs(members) do
+			if entry.id == record.leaderId then
+				leader = entry
+			end
+		end
+
+		-- TOO FAR FOR TOO LONG, counted with dt and reset on coming back inside. There is no
+		-- re-forming rule: a member that left never rejoins (design, "a member leaves in exactly
+		-- four ways").
+		if leader then
+			local leaderAt = flatOf(snapshot[leader.id] and snapshot[leader.id].position or Body.position(leader.body))
+			for position = #members, 1, -1 do
+				local entry = members[position]
+				if entry.id ~= leader.id then
+					local at = snapshot[entry.id] and snapshot[entry.id].position or Body.position(entry.body)
+					if (flatOf(at) - leaderAt).Magnitude > sounderConfig.BREAK_STUDS then
+						entry.awayFor += dt
+						if entry.awayFor >= sounderConfig.BREAK_SECONDS then
+							self:_leaveSounder(record, entry, true)
+							table.remove(members, position)
+						end
+					else
+						entry.awayFor = 0
+					end
+				end
+			end
+		end
+
+		record.memberIds = {}
+		for _, entry in ipairs(members) do
+			table.insert(record.memberIds, entry.id)
+		end
+
+		if #members <= 1 then
+			-- DISSOLVED. One animal is not a sounder, and the survivor has no per-step group work
+			-- left. A sounder crossing the line dissolves itself this way for free.
+			for _, entry in ipairs(members) do
+				self:_leaveSounder(record, entry, false)
+			end
+			table.remove(self._sounders, index)
+			self._stats.soundersDissolved += 1
+		elseif leader == nil then
+			self:_chooseLeader(record, true)
+		end
+	end
+end
+
+-- ONE OBSERVATION per member per step, or nil for a lone boar. Everything in it is a plain value:
+-- the Brain decides with data and never reaches into another boar (design, the ownership table).
+function Runtime:_sounderObs(entry, snapshot)
+	local record = self:_sounderRecord(entry.sounderId)
+	if record == nil then
+		return nil
+	end
+	local sounderConfig = self._config.SOUNDER
+	local mine = snapshot[entry.id]
+	if mine == nil then
+		return nil
+	end
+	local at = flatOf(mine.position)
+	local scattering = record.scatterFor > 0
+	local isLeader = record.leaderId == entry.id
+
+	local sum, count = Vector3.zero, 0
+	local neighbours = {}
+	for _, id in ipairs(record.memberIds) do
+		local sample = snapshot[id]
+		if sample then
+			sum += flatOf(sample.position)
+			count += 1
+			if id ~= entry.id and (flatOf(sample.position) - at).Magnitude <= sounderConfig.NEIGHBOUR_STUDS then
+				-- The boids neighbourhood (https://www.red3d.com/cwr/boids/): a member only sees
+				-- flockmates within a radius, which is what keeps this O(n^2) over n <= 5.
+				table.insert(neighbours, { position = sample.position, velocity = sample.velocity })
+			end
+		end
+	end
+
+	-- WHILE SCATTERING THERE IS NO LEADER, for everybody: cohesion and alignment have nothing to
+	-- point at, and each member runs its own route with the existing Reynolds fallback.
+	local leader, leaderState = nil, nil
+	if not isLeader and not scattering then
+		local leaderEntry = self:_entryById(record.leaderId)
+		local sample = leaderEntry and snapshot[leaderEntry.id]
+		if leaderEntry and sample then
+			leaderState = leaderEntry.brain:state()
+			leader = {
+				position = sample.position,
+				velocity = sample.velocity,
+				facing = sample.facing,
+				speed = flatOf(sample.velocity).Magnitude,
+			}
+		end
+	end
+
+	return {
+		isLeader = isLeader,
+		slot = entry.slot or 1,
+		scattering = scattering,
+		leaderState = leaderState,
+		leader = leader,
+		centroid = if count > 0 then sum / count else at,
+		neighbours = neighbours,
+	}
+end
+
+-- A COPY of one sounder, in the order the design names: leader first, then by slot.
+function Runtime:_sounderView(record)
+	local ordered = {}
+	for _, id in ipairs(record.memberIds) do
+		local entry = self:_entryById(id)
+		table.insert(ordered, { id = id, slot = (entry and entry.slot) or math.huge })
+	end
+	table.sort(ordered, function(a, b)
+		if a.slot == b.slot then
+			return a.id < b.id
+		end
+		return a.slot < b.slot
+	end)
+	local memberIds = {}
+	for _, row in ipairs(ordered) do
+		table.insert(memberIds, row.id)
+	end
+	return {
+		id = record.id,
+		leaderId = record.leaderId,
+		memberIds = memberIds,
+		scatterFor = record.scatterFor,
+		bornAt = record.bornAt,
+	}
+end
+
+function Runtime:sounders()
+	local out = {}
+	for _, record in ipairs(self._sounders) do
+		table.insert(out, self:_sounderView(record))
+	end
+	return out
+end
+
+function Runtime:sounderOf(boarId: string)
+	local entry = self:_entryById(boarId)
+	local record = entry and self:_sounderRecord(entry.sounderId)
+	if record == nil then
+		return nil
+	end
+	return self:_sounderView(record)
+end
+
+-- The drive's pre-check reads these two rather than guessing at this module's internals: a release
+-- is held back by the PURE machine before it is ever attempted, because Runtime:spawn asserts and
+-- an assert inside the Heartbeat step kills the step, not the spawn (design section 6.3, hazard 1).
+function Runtime:capacity(): number
+	return self._config.maxBoars
+end
+
+function Runtime:count(): number
+	return #self._boars -- carcasses included: they hold a slot for CARCASS_SECONDS
+end
+
+-- ALL OR NOTHING: it creates the whole sounder or nothing at all, so a half sounder cannot exist
+-- and the drive's budget arithmetic can never disagree with the world. A size of 1 is exactly
+-- Runtime:spawn and creates NO sounder record -- which is why the flag-OFF world has no group code
+-- running anywhere: obs.sounder is nil and every existing path applies unchanged.
+function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
+	assert(not self._destroyed, "Boar runtime is destroyed")
+	size = math.floor(tonumber(size) or 0)
+	if size < 1 or #self._boars + size > self._config.maxBoars then
+		return {}
+	end
+	if size == 1 then
+		return { self:spawn(center) }
+	end
+
+	local config = self._config
+	local sounderConfig = config.SOUNDER
+	-- The ring is clamped inside the pad the MAP guarantees, because Runtime:spawn overwrites the
+	-- caller's Y with groundY + BODY_SIZE.Y/2 + SPAWN_CLEARANCE: a member placed on a slope off the
+	-- pad would be spawned inside a hill (docs/design/map-generator.md section 11).
+	local radius = math.max(
+		config.BODY_SIZE.Z,
+		math.min(
+			sounderConfig.SPAWN_RING_STUDS,
+			(maxSpread or sounderConfig.SPAWN_RING_STUDS) - sounderConfig.PAD_MARGIN_STUDS
+		)
+	)
+	-- The phase is from the runtime's own Random, so two releases at one marker do not stand in the
+	-- same footprints.
+	local phase = self._rng:NextNumber(0, math.pi * 2)
+
+	self._nextSounderId += 1
+	local record = {
+		id = string.format("Sounder%d", self._nextSounderId),
+		leaderId = nil :: string?,
+		memberIds = {},
+		scatterFor = 0,
+		bornAt = os.clock(),
+	}
+
+	local handles = {}
+	for index = 1, size do
+		local angle = phase + (index - 1) * (math.pi * 2 / size)
+		local at = center + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+		local handle = self:spawn(at)
+		local entry = self._boars[#self._boars]
+		entry.sounderId = record.id
+		entry.slot = index
+		entry.awayFor = 0
+		table.insert(record.memberIds, entry.id)
+		table.insert(handles, handle)
+	end
+
+	table.insert(self._sounders, record)
+	self._stats.soundersSpawned += 1
+	self:_chooseLeader(record, false)
+	return handles
 end
 
 function Runtime:spawn(position: Vector3?)
@@ -504,6 +921,10 @@ function Runtime:spawn(position: Vector3?)
 		hitEvents = {}, -- hits since the last step; handed to the Brain and cleared
 		lastPosition = at,
 		bornAt = os.clock(),
+		lastPathAt = 0, -- when this boar last asked for a route; the forced-repath cooldown reads it
+		-- sounderId and slot stay nil for a lone boar, which is what makes obs.sounder nil and
+		-- every existing code path apply to it unchanged.
+		awayFor = 0,
 	})
 	self._stats.spawned += 1
 	return handle
@@ -514,8 +935,16 @@ function Runtime:_requestPath(entry, to: Vector3)
 		return
 	end
 	entry.pending = true
+	entry.lastPathAt = os.clock()
 	self._stats.pathRequests += 1
 	local from = Body.position(entry.body)
+	-- ...AHEAD OF THE BODY, never from inside it (see PATH_START_AHEAD). The boar is already going
+	-- this way, and the first waypoint it follows is ahead of it in any case.
+	local facing = entry.body.part.CFrame.LookVector
+	local ahead = Vector3.new(facing.X, 0, facing.Z)
+	if ahead.Magnitude > 1e-6 then
+		from += ahead.Unit * self._config.PATH_START_AHEAD
+	end
 	self._world.requestPath(entry.id, from, to, function(points)
 		entry.pending = false
 		if entry.dead then
@@ -538,8 +967,16 @@ function Runtime:_requestPath(entry, to: Vector3)
 			return
 		end
 		if blockedWaypointIdx >= entry.brain:consumed() + 2 then
-			entry.forceRepath = true
 			self._stats.pathBlocked += 1
+			-- AT MOST ONE FORCED REPATH PER REPATH_INTERVAL, measured 2026-09-26 (Task 60): a
+			-- sounder's leader asked for 29 routes in 3 seconds against the design's budget of 12,
+			-- because its own herd-mates stand on its route and Path.Blocked fires again every time
+			-- one of them moves. A blockage found INSIDE that window buys nothing -- the Brain's own
+			-- repath is at most REPATH_INTERVAL away and will see the same obstruction -- so this
+			-- only removes churn. It applies to a lone boar too, where it is the same improvement.
+			if os.clock() - (entry.lastPathAt or 0) >= self._config.REPATH_INTERVAL then
+				entry.forceRepath = true
+			end
 		end
 	end)
 end
@@ -579,10 +1016,27 @@ function Runtime:step(dt: number)
 	local config = self._config
 	local threats = self._world.threats()
 
+	-- ONE SNAPSHOT FIRST. A sounder is about where its members are THIS tick: assembling the
+	-- observations inside the loop below would let one member see a neighbour before it moved and
+	-- another after, which is a formation that depends on the order of a list. It also reads each
+	-- body's position and velocity once instead of twice.
+	local snapshot = {}
+	for _, entry in ipairs(self._boars) do
+		snapshot[entry.id] = {
+			position = Body.position(entry.body),
+			velocity = Body.velocity(entry.body),
+			facing = entry.body.part.CFrame.LookVector,
+		}
+	end
+	if #self._sounders > 0 then
+		self:_stepSounders(dt, snapshot)
+	end
+
 	for index = #self._boars, 1, -1 do
 		local entry = self._boars[index]
-		local position = Body.position(entry.body)
-		local facing = entry.body.part.CFrame.LookVector
+		local sample = snapshot[entry.id]
+		local position = if sample then sample.position else Body.position(entry.body)
+		local facing = if sample then sample.facing else entry.body.part.CFrame.LookVector
 
 		-- A mortal wound runs out over the distance the boar ACTUALLY covers, not over a timer, so
 		-- a boar held against a wall does not bleed out at full speed. BLEED_OUT_MAX_SECONDS is the
@@ -613,8 +1067,11 @@ function Runtime:step(dt: number)
 
 		local intent = entry.brain:step(dt, {
 			position = position,
-			velocity = Body.velocity(entry.body),
+			velocity = if sample then sample.velocity else Body.velocity(entry.body),
 			threats = threats,
+			-- nil for a lone boar, and then the Brain runs exactly the code it ran before this
+			-- task. Plain values only: the Brain never holds a reference to another boar.
+			sounder = self:_sounderObs(entry, snapshot),
 			waypoints = waypoints,
 			pathFailed = pathFailed,
 			blockedAhead = blockedAhead,
@@ -684,6 +1141,7 @@ function Runtime:destroy()
 		end
 	end
 	table.clear(self._boars)
+	table.clear(self._sounders)
 	self._signal:Destroy()
 	self._hitSignal:Destroy()
 	self._downedSignal:Destroy()

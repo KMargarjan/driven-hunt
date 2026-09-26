@@ -95,6 +95,11 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	self._stuckTime = 0
 	self._stuckCount = 0
 
+	-- THE COLUMN LATCH (the sounder). `blockedAhead` is momentary -- a probe that clears on the next
+	-- frame would flip the formation back and forth between a wedge and a file -- so the column is
+	-- held for COLUMN_LATCH_SECONDS after the probe last fired.
+	self._columnFor = 0
+
 	self._despawned = false
 	return self
 end
@@ -252,6 +257,122 @@ function Brain:_fleeDirection(position: Vector3): Vector3
 	return unit(away + toTarget, away)
 end
 
+-- ---------------------------------------------------------------- the sounder
+--
+-- A FOLLOWER's steering, and nothing here runs for a lone boar or for a leader: `obs.sounder` is
+-- nil for the first and `isLeader` for the second, so the leader is today's code, unchanged, which
+-- is what makes the flag-OFF world provably today's world.
+--
+-- Pattern: Reynolds leader following (the target is "a point offset slightly behind the leader")
+-- plus the boids terms, combined as a weighted sum -- "compute each of the component steering
+-- behaviors and sum them together, possibly with a weighting factor for each".
+--   https://www.red3d.com/cwr/steer/gdc99/  ·  https://www.red3d.com/cwr/boids/
+-- Design: docs/design/drive.md ("the sounder's behaviour, and who writes it")
+-- Note:   docs/research/2026-09-25-drive.md (Addendum 2)
+
+-- The point this follower is steering AT, in the leader's frame: +X is the leader's right and +Z is
+-- BEHIND it. A latched column turns the wedge into single file at COLUMN_SPACING_STUDS.
+function Brain:_slotPoint(sounder): Vector3
+	local settings = self._config.SOUNDER
+	local leader = sounder.leader
+	local forward = unit(flat(leader.facing or leader.velocity or Vector3.zero), Vector3.new(0, 0, 1))
+	-- The sign here only mirrors the wedge left-to-right; the formation is symmetric, so which
+	-- member stands on which side is not a decision this has to get "right".
+	local right = Vector3.new(forward.Z, 0, -forward.X)
+	local slot = math.max(sounder.slot or 2, 2)
+	local column = Vector3.new(0, 0, (slot - 1) * settings.COLUMN_SPACING_STUDS)
+	local offset = if self._columnFor > 0 then column else (settings.FORMATION[slot] or column)
+	return flat(leader.position) - forward * offset.Z + right * offset.X
+end
+
+-- The four terms of the blend. Separation is the boids 1/r repulsion with a floor at zero, so a
+-- neighbour past SEPARATION_STUDS contributes nothing at all, and it is weighted to dominate --
+-- five CanCollide bodies at MAX_FORCE = 6000 pushing through each other is a physics fight.
+function Brain:_sounderDirection(position: Vector3, obs): Vector3
+	local settings = self._config.SOUNDER
+	local sounder = obs.sounder
+	local flatPos = flat(position)
+	local fleeDirection = self:_fleeDirection(position)
+
+	local separation = Vector3.zero
+	for _, neighbour in ipairs(sounder.neighbours or {}) do
+		local away = flatPos - flat(neighbour.position)
+		local distance = away.Magnitude
+		if distance > 1e-6 then
+			local push = (settings.SEPARATION_STUDS / math.max(distance, 1)) - 1
+			if push > 0 then
+				separation += unit(away, self._heading) * push
+			end
+		end
+	end
+	local separationWeight = settings.SEPARATION * (if sounder.scattering then settings.SCATTER_SEPARATION else 1)
+	local blended = separation * separationWeight + fleeDirection * settings.FLEE_WEIGHT
+
+	-- WHILE SCATTERING THERE IS NOTHING TO COHERE TO: the member runs its own flee direction with
+	-- separation tripled, which is the sounder breaking up at the shot.
+	if not sounder.scattering and sounder.leader then
+		local toSlot = flat(self:_slotPoint(sounder)) - flatPos
+		-- ARRIVAL: zero inside the tolerance, or the follower oscillates on the spot.
+		if toSlot.Magnitude > settings.SLOT_TOLERANCE_STUDS then
+			blended += unit(toSlot, self._heading) * settings.COHESION
+		end
+		local alignTo = flat(sounder.leader.velocity or Vector3.zero)
+		if alignTo.Magnitude < 1e-6 then
+			alignTo = flat(sounder.leader.facing or Vector3.zero)
+		end
+		if alignTo.Magnitude > 1e-6 then
+			blended += unit(alignTo, fleeDirection) * settings.ALIGNMENT
+		end
+	end
+
+	return unit(blended, fleeDirection)
+end
+
+-- A grazing sounder stays a loose group rather than marching in a wedge: past IDLE_SPREAD_STUDS a
+-- member leans back toward the centroid, and it always pushes off a neighbour that is too close.
+function Brain:_idleSounderDirection(position: Vector3, obs): Vector3
+	local settings = self._config.SOUNDER
+	local sounder = obs.sounder
+	local flatPos = flat(position)
+	local blended = self._heading
+
+	local separation = Vector3.zero
+	for _, neighbour in ipairs(sounder.neighbours or {}) do
+		local away = flatPos - flat(neighbour.position)
+		local distance = away.Magnitude
+		if distance > 1e-6 then
+			local push = (settings.SEPARATION_STUDS / math.max(distance, 1)) - 1
+			if push > 0 then
+				separation += unit(away, self._heading) * push
+			end
+		end
+	end
+	blended += separation * settings.SEPARATION
+
+	if not sounder.scattering then
+		local toCentroid = flat(sounder.centroid or flatPos) - flatPos
+		if toCentroid.Magnitude > settings.IDLE_SPREAD_STUDS then
+			blended += unit(toCentroid, self._heading) * settings.IDLE_COHESION
+		end
+	end
+	return unit(blended, self._heading)
+end
+
+-- The leader's speed, so the sounder does not concertina, with a catch-up while out of position.
+--
+-- THE DESIGN'S FLOOR OF TROT_SPEED/2 IS NOT IMPLEMENTED, and this is the one deliberate deviation
+-- in this task: it cannot coexist with the design's own test "never exceeds leader.speed x CATCHUP"
+-- when the leader is standing still, and whenever the leader is moving faster than the floor the
+-- floor can never bind anyway. A follower matching a stopped leader is the herd behaviour.
+function Brain:_followerSpeed(position: Vector3, obs): number
+	local config = self._config
+	local settings = config.SOUNDER
+	local leader = obs.sounder.leader
+	local toSlot = flat(self:_slotPoint(obs.sounder)) - flat(position)
+	local catchup = if toSlot.Magnitude > settings.SLOT_TOLERANCE_STUDS then settings.CATCHUP else 1
+	return math.min((leader.speed or 0) * catchup, config.SPRINT_SPEED)
+end
+
 function Brain:_updateStuck(dt: number, position: Vector3): boolean
 	if self._speed <= 0 then
 		self._stuckFrom = flat(position)
@@ -363,6 +484,12 @@ function Brain:step(dt: number, obs)
 		self:_collapse()
 	end
 	self._boltFor = math.max(0, self._boltFor - dt)
+	-- The column latch is ticked for every boar and SET only for a follower, so a lone boar's
+	-- timers are untouched by this task.
+	self._columnFor = math.max(0, self._columnFor - dt)
+	if obs.sounder and not obs.sounder.isLeader and obs.blockedAhead and self._config.SOUNDER then
+		self._columnFor = self._config.SOUNDER.COLUMN_LATCH_SECONDS
+	end
 
 	if self._state == "DOWN" then
 		self._speed = 0
@@ -407,9 +534,18 @@ function Brain:step(dt: number, obs)
 		self._threatPoint = self._lastShotPoint
 	end
 
+	-- The sounder, as data. nil for a lone boar and for every existing spec, and `isLeader` for the
+	-- animal at the front -- which is why the leader runs exactly the code it ran before.
+	local sounder = obs.sounder
+	local follower = sounder ~= nil and not sounder.isLeader
+
 	if sensing then
 		if self._state == "IDLE" then
-			if nearestDistance <= config.DETECT_RADIUS then
+			-- HERD PANIC. A sounder bolts as one animal: without this rule the first contact tears
+			-- the group in half, because only the members with the driver inside their own
+			-- DETECT_RADIUS would run.
+			local leaderPanicked = follower and (sounder.leaderState == "FLEE" or sounder.leaderState == "WOUNDED")
+			if nearestDistance <= config.DETECT_RADIUS or leaderPanicked then
 				self._state = "FLEE"
 				self._sinceCalm = 0
 				self._sinceRepath = math.huge -- path immediately
@@ -424,7 +560,11 @@ function Brain:step(dt: number, obs)
 		else
 			if nearestDistance > config.CALM_RADIUS then
 				self._sinceCalm += config.SENSE_INTERVAL
-				if self._sinceCalm >= config.CALM_TIME then
+				-- HERD CALM, the reverse of the panic rule: a follower settles only when its own
+				-- timer has run AND the leader has settled. While scattering there is no leader,
+				-- and then the timer alone decides, as it does for a lone boar.
+				local leaderCalm = (not follower) or sounder.leaderState == nil or sounder.leaderState == "IDLE"
+				if self._sinceCalm >= config.CALM_TIME and leaderCalm then
 					self._state = "IDLE"
 					self._home = flat(position)
 					self._waypoints = nil
@@ -447,7 +587,7 @@ function Brain:step(dt: number, obs)
 		else
 			desiredSpeed = config.WANDER_SPEED
 		end
-		desiredDirection = self._heading
+		desiredDirection = if follower then self:_idleSounderDirection(position, obs) else self._heading
 	else
 		if stuck then
 			self._sinceRepath = math.huge
@@ -459,10 +599,18 @@ function Brain:step(dt: number, obs)
 		then
 			local anchor = centroid or self._threatPoint or flat(position)
 			self._target = self:_routeTarget(position, anchor)
-			intent.pathRequest = self._target
+			-- LEADER_PATHS_ONLY: one ComputeAsync per sounder, whatever its size. Five members each
+			-- asking could also each be routed through a DIFFERENT gate in a hedge, which splits the
+			-- sounder in two -- so this is an invariant, not an optimisation. The one exception is a
+			-- follower the stuck detector has reported twice, because the alternative is a member
+			-- wedged behind a trunk that the sidestep alone does not clear.
+			local mayPath = not follower or not config.SOUNDER.LEADER_PATHS_ONLY or (stuck and self._stuckCount >= 2)
+			if mayPath then
+				intent.pathRequest = self._target
+			end
 			self._sinceRepath = 0
 		end
-		desiredDirection = self:_fleeDirection(position)
+		desiredDirection = if follower then self:_sounderDirection(position, obs) else self:_fleeDirection(position)
 		if stuck and self._stuckCount >= 2 then
 			-- Turning `desiredDirection` was still not enough: the slew below moves the output by at
 			-- most TURN_RATE * dt (~3.8 degrees at 60 Hz) and the next tick recomputes it, so the
@@ -475,6 +623,12 @@ function Brain:step(dt: number, obs)
 		self._heading = desiredDirection
 		local threatened = nearestDistance <= config.DETECT_RADIUS or self._boltFor > 0
 		desiredSpeed = if threatened then config.SPRINT_SPEED else config.TROT_SPEED
+		-- A FOLLOWER MATCHES ITS LEADER instead of deciding for itself, so the sounder does not
+		-- concertina. With no leader -- scattering, or promoted away this tick -- the rule above
+		-- applies, which is the lone boar's rule.
+		if follower and sounder.leader and not sounder.scattering then
+			desiredSpeed = self:_followerSpeed(position, obs)
+		end
 		-- The wound scales the SETPOINT, never the physics (hit-zones design section 5.5): bleeding
 		-- out ramps it down over the flight and a leg hit multiplies a limp on top. The ACCEL ramp
 		-- below still applies, so a wounded boar slows the way it accelerates.
