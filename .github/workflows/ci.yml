@@ -66,6 +66,11 @@ jobs:
       # selftest runs first: it proves each rule still catches its shape and still allows the
       # GitHub noreply address and the <repo>/<assets-dir>/<runs-dir> placeholders. A scan that
       # passes because a pattern silently stopped matching is worse than no scan.
+      - name: Asset-prep tool loads and its recipe is valid JSON (no Blender in CI)
+        # The real selftest drives headless Blender and cannot run here; this catches the cheap
+        # half -- the module imports, the default recipe parses, and `prep` refuses a bad request.
+        run: python3 tools/asset_prep.py recipe > /dev/null
+
       - name: Privacy and secret scan (local paths, emails, secret shapes)
         if: success() || failure()
         run: |
