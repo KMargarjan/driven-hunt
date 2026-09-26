@@ -35,6 +35,7 @@ local Workspace = game:GetService("Workspace")
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local MapGen = require(ServerStorage:WaitForChild("MapGen"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 -- The placing step's own rejection predicate, so the scatter tests below assert what the generator
 -- actually does rather than a copy of it.
 local Props = require(ServerStorage.MapGen:WaitForChild("Props"))
@@ -845,23 +846,46 @@ return function()
 			return Props.rejectTree(x, z, config())
 		end
 
-		it("places the wood it promises, in the same places twice", function()
+		-- The whole wood, block by block, exactly as MapGen.runStep builds it.
+		local function wood(c, seed: number)
+			local out = {}
+			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
+				for _, point in ipairs(MapGen.Scatter.trees(c, seed, block, reject)) do
+					table.insert(out, point)
+				end
+			end
+			return out
+		end
+
+		it("places the same wood twice, and a different one for a different seed", function()
 			local c = config()
-			local first = MapGen.Scatter.trees(c, SEED, reject)
-			local second = MapGen.Scatter.trees(c, SEED, reject)
-			expect(#first).to.equal(c.WORLD.treeCount)
+			local first, second = wood(c, SEED), wood(c, SEED)
+			expect(#first > 0).to.equal(true)
 			expect(#second).to.equal(#first)
 			for index, point in ipairs(first) do
 				expect(point.x).to.equal(second[index].x)
 				expect(point.z).to.equal(second[index].z)
 			end
+			local other = wood(c, SEED + 1)
+			local same = 0
+			for index, point in ipairs(first) do
+				if other[index] and point.x == other[index].x and point.z == other[index].z then
+					same += 1
+				end
+			end
+			expect(same < #first / 2).to.equal(true)
 		end)
 
-		it("puts no tree in the corridor, on a track, in the bog or in a hedge", function()
+		it("fills the drive with wood and still leaves the ground the game uses clear", function()
 			local c = config()
-			for _, point in ipairs(MapGen.Scatter.trees(c, SEED, reject)) do
-				if MapGen.Layout.inCorridor(point.x, point.z, c) then
-					error(string.format("a tree at (%.0f, %.0f) is in the drive corridor", point.x, point.z), 0)
+			local points = wood(c, SEED)
+			local inCorridor = 0
+			for _, point in ipairs(points) do
+				-- THE CORRIDOR IS THE WOOD NOW (M2.8b): what must stay clear is the ground the game
+				-- stands things on, and each of these is a separate error message so a failure says
+				-- which rule broke.
+				if MapGen.Layout.onBench(point.x, point.z, c) then
+					error(string.format("a tree at (%.0f, %.0f) stands on the road", point.x, point.z), 0)
 				end
 				if MapGen.Layout.onTrack(point.x, point.z, c) then
 					error(string.format("a tree at (%.0f, %.0f) is on a track", point.x, point.z), 0)
@@ -869,37 +893,272 @@ return function()
 				if MapGen.Layout.bogDepth(point.x, point.z, c) > 0 then
 					error(string.format("a tree at (%.0f, %.0f) is in the bog", point.x, point.z), 0)
 				end
+				if MapGen.Layout.inField(point.x, point.z, c) then
+					error(string.format("a tree at (%.0f, %.0f) is in a field", point.x, point.z), 0)
+				end
 				if MapGen.Layout.distanceToHedge(point.x, point.z, c) < c.SCATTER_CLEARANCE then
 					error(string.format("a tree at (%.0f, %.0f) stands in a hedgerow", point.x, point.z), 0)
 				end
+				for _, pad in ipairs(MapGen.Layout.pads(c)) do
+					local away = (Vector3.new(point.x, 0, point.z) - Vector3.new(pad.x, 0, pad.z)).Magnitude
+					if away <= c.SPAWN_PAD.radius then
+						error(string.format("a tree at (%.0f, %.0f) is on a boar spawn pad", point.x, point.z), 0)
+					end
+				end
 				expect(point.x >= c.WORLD.treeArea.minX and point.x <= c.WORLD.treeArea.maxX).to.equal(true)
 				expect(point.z >= c.WORLD.treeArea.minZ and point.z <= c.WORLD.treeArea.maxZ).to.equal(true)
-			end
-		end)
-
-		it("makes a different wood for a different seed", function()
-			local c = config()
-			local a = MapGen.Scatter.trees(c, SEED, reject)
-			local b = MapGen.Scatter.trees(c, SEED + 1, reject)
-			local same = 0
-			for index, point in ipairs(a) do
-				if b[index] and point.x == b[index].x and point.z == b[index].z then
-					same += 1
+				if MapGen.Layout.inCorridor(point.x, point.z, c) then
+					inCorridor += 1
 				end
 			end
-			expect(same < #a / 2).to.equal(true)
+			-- ...and the drive is not a bare lane: this is the whole point of M2.8b.
+			expect(inCorridor > 500).to.equal(true)
+			TestKit.note(string.format("wood: %d trees, %d of them inside the drive corridor", #points, inCorridor))
 		end)
 
-		it("spreads the trees instead of stacking them in the first rows", function()
+		it("keeps the wood inside the part budget, measured rather than asked for", function()
 			local c = config()
-			local points = MapGen.Scatter.trees(c, SEED, reject)
-			local minZ, maxZ = math.huge, -math.huge
-			for _, point in ipairs(points) do
-				minZ, maxZ = math.min(minZ, point.z), math.max(maxZ, point.z)
+			local points = wood(c, SEED)
+			expect(#points <= Map.BUDGET.trees).to.equal(true)
+			-- ...and it is a WOOD, not a copse: the estimate in design section 7.2 is ~2,925.
+			expect(#points > 1500).to.equal(true)
+		end)
+
+		it("is denser where the shooter looks than in the backdrop", function()
+			-- The tiers exist to put the wood where the player's eye is (design section 7.2), and a
+			-- density function nobody measures is a comment. Counted per 10,000 studs.
+			local c = config()
+			local dense, backdrop = 0, 0
+			for _, point in ipairs(wood(c, SEED)) do
+				if
+					math.abs(point.z - c.WORLD.lineZ) <= c.TREE_DENSITY.denseBandStuds
+					and math.abs(point.x) <= c.TREE_DENSITY.denseHalfWidth
+				then
+					dense += 1
+				elseif not MapGen.Layout.inCorridor(point.x, point.z, c) then
+					backdrop += 1
+				end
 			end
-			-- The candidates are generated row by row, so taking the first N would give a stripe.
-			-- Half the map's depth is a low bar deliberately: it fails a stripe and passes a wood.
-			expect(maxZ - minZ > c.SIZE_STUDS / 2).to.equal(true)
+			local denseArea = (2 * c.TREE_DENSITY.denseHalfWidth) * (2 * c.TREE_DENSITY.denseBandStuds)
+			local backdropArea = c.SIZE_STUDS * c.SIZE_STUDS - denseArea
+			local densePer10k = dense / denseArea * 10000
+			local backdropPer10k = backdrop / backdropArea * 10000
+			TestKit.note(
+				string.format(
+					"wood density: %.2f trees/10k studs in the band, %.2f in the backdrop",
+					densePer10k,
+					backdropPer10k
+				)
+			)
+			expect(densePer10k > backdropPer10k * 2).to.equal(true)
+		end)
+
+		it("keeps every trunk far enough apart for the boar to walk between them", function()
+			-- DESIGN SECTION 7.3, WHICH IS THE ARGUMENT THIS WHOLE TASK RESTS ON: a jittered grid
+			-- guarantees `spacing * (1 - jitter)` between neighbouring cells, so 22 * 0.5 = 11 studs,
+			-- minus two half-trunks of the widest species (oak, 5) leaves 6 studs of clear gap against
+			-- the boar's AgentRadius = 2, which needs 4. Measured over several seeds, not argued.
+			local c = config()
+			local guaranteed = c.TREE_SPACING * (1 - c.SCATTER_JITTER)
+			local widest = 0
+			for _, row in ipairs(c.SPECIES) do
+				widest = math.max(widest, row.trunk.X, row.trunk.Z)
+			end
+			local worst = math.huge
+			for seed = SEED, SEED + 4 do
+				local points = wood(c, seed)
+				-- Bucketed by cell, so this is O(n) rather than O(n^2) over ~3,000 points: two points
+				-- closer than `guaranteed` must share a bucket or be in a neighbouring one.
+				local buckets = {}
+				local function keyOf(x, z)
+					return string.format("%d:%d", math.floor(x / guaranteed), math.floor(z / guaranteed))
+				end
+				for _, point in ipairs(points) do
+					local key = keyOf(point.x, point.z)
+					buckets[key] = buckets[key] or {}
+					table.insert(buckets[key], point)
+				end
+				for _, point in ipairs(points) do
+					local cx, cz = math.floor(point.x / guaranteed), math.floor(point.z / guaranteed)
+					for dx = -1, 1 do
+						for dz = -1, 1 do
+							for _, other in ipairs(buckets[string.format("%d:%d", cx + dx, cz + dz)] or {}) do
+								if other ~= point then
+									local away = math.sqrt((other.x - point.x) ^ 2 + (other.z - point.z) ^ 2)
+									worst = math.min(worst, away)
+								end
+							end
+						end
+					end
+				end
+			end
+			TestKit.note(
+				string.format(
+					"wood: closest two trunks over 5 seeds are %.2f studs apart "
+						.. "(guaranteed %.1f, widest trunk %.1f)",
+					worst,
+					guaranteed,
+					widest
+				)
+			)
+			expect(worst >= guaranteed - 1e-6).to.equal(true)
+			-- ...and the clear gap really is wider than the boar's agent.
+			expect(worst - widest > 2 * 2).to.equal(true) -- AgentRadius = 2
+		end)
+
+		it("plants Karen's four species, in her proportions, with alder in the wet", function()
+			local c = config()
+			local counts = { spruce = 0, birch = 0, oak = 0, alder = 0 }
+			local total = 0
+			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
+				for _, point in ipairs(MapGen.Scatter.trees(c, SEED, block, reject)) do
+					local y = MapGen.Height.at(point.x, point.z, SEED, c)
+					local species = MapGen.Scatter.speciesAt(point.x, point.z, SEED, c, y)
+					expect(counts[species]).to.be.ok() -- one of the four, never a fifth
+					counts[species] += 1
+					total += 1
+				end
+			end
+			TestKit.note(
+				string.format(
+					"species: spruce %d, birch %d, oak %d, alder %d of %d",
+					counts.spruce,
+					counts.birch,
+					counts.oak,
+					counts.alder,
+					total
+				)
+			)
+			for _, row in ipairs(c.SPECIES) do
+				local share = counts[row.name] / total
+				-- A CLUMPED field is not a shuffled bag, so the tolerance is wide on purpose: what is
+				-- asserted is that every species is really there in roughly its share, not that the
+				-- noise field is uniform.
+				expect(share > row.share * 0.4).to.equal(true)
+				expect(share < row.share * 1.8).to.equal(true)
+			end
+			-- WET GROUND IS ALDER, whatever the field says: a spruce in a bog reads as a mistake. Four
+			-- points around the bog, because `speciesAt` no longer takes a key to steer it with.
+			local bog = c.WORLD.bog
+			for _, offset in ipairs({ Vector2.new(10, 0), Vector2.new(-10, 0), Vector2.new(0, 14), Vector2.new(0, -14) }) do
+				expect(MapGen.Scatter.speciesAt(bog.x + offset.X, bog.z + offset.Y, SEED, c, -20)).to.equal("alder")
+			end
+		end)
+
+		-- ONE NUMBER, ONE QUESTION (review round 1, and PROJECT_CONTEXT's "one predicate answered two
+		-- unrelated questions"). The species used to be decided by the number that decided whether the
+		-- tree exists at all: every candidate accepted where the density is 0.42 (the drive) or 0.14
+		-- (the backdrop) has a key below SPECIES_CLUMP_STRENGTH, so `speciesAt` always returned the
+		-- clump's leader and every clump outside the dense band was a pure monoculture.
+		--
+		-- THE MARGINAL SHARES SURVIVE THAT BUG -- the leader is itself drawn by share -- which is why
+		-- the share assertion above passed while about half the wood was wrong, and why this spec
+		-- measures the mix INSIDE a clump as well as the shares, in EACH density tier.
+		it("draws the species independently of the density, so the mix is the same in a thin wood", function()
+			local c = config()
+			local strength = c.SPECIES_CLUMP_STRENGTH
+			-- The share of trees that are NOT their clump's leader, derived rather than guessed: a tree
+			-- takes the leader with probability `strength`, and otherwise draws from the same shares --
+			-- which returns the leader again with the leader's own share. So the expected share is
+			-- (1 - strength) * (1 - sum of share^2) = 0.35 * 0.715 = 0.2503 with Karen's four numbers,
+			-- and it is the SAME NUMBER in every tier, because the draw has nothing to do with density.
+			local sumSquares = 0
+			for _, row in ipairs(c.SPECIES) do
+				sumSquares += row.share * row.share
+			end
+			local expected = (1 - strength) * (1 - sumSquares)
+
+			local tiers =
+				{ thin = { total = 0, other = 0, counts = {} }, dense = { total = 0, other = 0, counts = {} } }
+			local wet = 0
+			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
+				for _, point in ipairs(MapGen.Scatter.trees(c, SEED, block, reject)) do
+					local y = MapGen.Height.at(point.x, point.z, SEED, c)
+					if y < c.SPECIES_WET_DEPTH then
+						-- The wet rule overrides the clump, so a bog tree says nothing about the mix.
+						wet += 1
+					else
+						local tier = tiers.dense
+						if MapGen.Layout.treeDensity(point.x, point.z, c) < strength then
+							tier = tiers.thin
+						end
+						local species = MapGen.Scatter.speciesAt(point.x, point.z, SEED, c, y)
+						local leader = MapGen.Scatter.clumpLeaderAt(point.x, point.z, SEED, c)
+						tier.total += 1
+						tier.counts[species] = (tier.counts[species] or 0) + 1
+						if species ~= leader then
+							tier.other += 1
+						end
+					end
+				end
+			end
+
+			TestKit.note(
+				string.format(
+					"species mix: thin tier %d trees, %.3f are not their clump's leader; "
+						.. "dense tier %d trees, %.3f; expected %.3f; %d wet (forced alder, excluded)",
+					tiers.thin.total,
+					tiers.thin.other / math.max(tiers.thin.total, 1),
+					tiers.dense.total,
+					tiers.dense.other / math.max(tiers.dense.total, 1),
+					expected,
+					wet
+				)
+			)
+			for _, name in ipairs({ "thin", "dense" }) do
+				local tier = tiers[name]
+				local shares = {}
+				for _, row in ipairs(c.SPECIES) do
+					table.insert(
+						shares,
+						string.format("%s %.3f", row.name, (tier.counts[row.name] or 0) / math.max(tier.total, 1))
+					)
+				end
+				TestKit.note(string.format("  %s tier shares: %s", name, table.concat(shares, ", ")))
+			end
+
+			for _, name in ipairs({ "thin", "dense" }) do
+				local tier = tiers[name]
+				-- Both tiers have to exist at all, or "they agree" is a claim about nothing.
+				expect(tier.total > 500).to.equal(true)
+				-- TOLERANCE, STATED: +/- 0.08 of the derived 0.2503. Each tree's draw is independent,
+				-- so with over 1,000 trees a tier the standard error is under 0.015 -- but WHICH
+				-- species leads each clump is drawn too, and a wood of about 59 clumps of 260 studs can
+				-- be led by spruce (share 0.40, so 0.35 * 0.60 = 0.21 expected) or by alder (0.15, so
+				-- 0.2975) more often than its share. 0.08 covers that; the bug this catches makes the
+				-- thin tier exactly 0.
+				local other = tier.other / tier.total
+				expect(other > expected - 0.08).to.equal(true)
+				expect(other < expected + 0.08).to.equal(true)
+				-- And every species is really there, in roughly its share, in THIS tier -- not only in
+				-- the wood as a whole, which is what the assertion above measures. The band is wide for
+				-- the same reason: a clumped field of 59 clumps is not a shuffled bag of 2,700 trees.
+				for _, row in ipairs(c.SPECIES) do
+					local share = (tier.counts[row.name] or 0) / tier.total
+					expect(share > row.share * 0.4).to.equal(true)
+					expect(share < row.share * 1.8).to.equal(true)
+				end
+			end
+			-- THE INVARIANT THE BUG BROKE, in one line: how thick the wood is does not decide how mixed
+			-- it is. With the acceptance key re-used, this is 0.25 against 0.
+			local thin = tiers.thin.other / tiers.thin.total
+			local dense = tiers.dense.other / tiers.dense.total
+			expect(math.abs(thin - dense) < 0.08).to.equal(true)
+		end)
+
+		it("puts brush in the wood and nowhere else", function()
+			local c = config()
+			local total = 0
+			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
+				for _, point in ipairs(MapGen.Scatter.brush(c, SEED, block, reject)) do
+					total += 1
+					if MapGen.Layout.onBench(point.x, point.z, c) or MapGen.Layout.inField(point.x, point.z, c) then
+						error(string.format("brush at (%.0f, %.0f) is on the road or in a field", point.x, point.z), 0)
+					end
+				end
+			end
+			expect(total <= Map.BUDGET.brush).to.equal(true)
+			expect(total > c.BRUSH.count / 2).to.equal(true)
 		end)
 	end)
 

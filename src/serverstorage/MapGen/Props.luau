@@ -38,10 +38,16 @@ local function propsFolder(root: Instance): Folder
 	return made
 end
 
-local function folder(parent: Instance, name: string): Folder
+-- `fresh` defaults to TRUE: a step rebuilds its folder rather than adding to it, which is what
+-- makes re-running a step idempotent. THE WOOD IS THE EXCEPTION (M2.8b): it is built in four
+-- quadrant steps, so the first clears and the other three append -- and the first build of this
+-- shape ended with only the last quadrant in the world, because every step wiped the one before it.
+local function folder(parent: Instance, name: string, fresh: boolean?): Folder
 	local existing = parent:FindFirstChild(name)
-	if existing then
-		existing:Destroy() -- idempotence: the folder is rebuilt, never added to
+	if existing and fresh ~= false then
+		existing:Destroy()
+	elseif existing then
+		return existing :: Folder
 	end
 	local made = Instance.new("Folder")
 	made.Name = name
@@ -208,8 +214,28 @@ end
 -- placed a PROXY, so a caller can report `proxyUsed` for what was actually proxied. The wood and the
 -- tie trees both come through here: two builders would drift, and a tie tree that is not the same
 -- object as a wood tree is a bug waiting for M2.3.
-function Props.placeTree(template: Instance?, parent: Instance, name: string, point, y: number, config): boolean
-	local trunk, crown = config.TREE_PROXY.trunk, config.TREE_PROXY.crown
+function Props.speciesRow(config, name: string?)
+	if name then
+		for _, row in ipairs(config.SPECIES) do
+			if row.name == name then
+				return row
+			end
+		end
+	end
+	return config.TREE_PROXY -- the tie trees, which are placed on purpose and are not of the wood
+end
+
+function Props.placeTree(
+	template: Instance?,
+	parent: Instance,
+	name: string,
+	point,
+	y: number,
+	config,
+	species: string?
+): boolean
+	local row = Props.speciesRow(config, species)
+	local trunk, crown = row.trunk, row.crown
 	if template then
 		placed(
 			template,
@@ -227,64 +253,110 @@ function Props.placeTree(template: Instance?, parent: Instance, name: string, po
 	local model = Instance.new("Model")
 	model.Name = name
 	model.Parent = parent
-	local stem = part(
-		"Trunk",
-		trunk,
-		Vector3.new(point.x, y + trunk.Y / 2, point.z),
-		Color3.fromRGB(78, 62, 46),
-		Enum.Material.Wood,
-		model
-	)
-	part(
-		"Crown",
-		crown,
-		Vector3.new(point.x, y + trunk.Y + crown.Y / 2 - 3, point.z),
-		config.PROXY_COLOR.tree,
-		Enum.Material.Grass,
-		model
-	)
+	local stem =
+		part("Trunk", trunk, Vector3.new(point.x, y + trunk.Y / 2, point.z), row.trunkColor, Enum.Material.Wood, model)
+	-- THE CROWN'S TOP IS THE SPECIES' HEIGHT, which is the number docs/design/asset-pipeline.md
+	-- section 12.1 will build the mesh to -- so the grey box teaches the truth about how tall this
+	-- tree is. It is then pulled down if that would leave it floating above its own trunk.
+	local top = math.min(y + row.height - crown.Y / 2, y + trunk.Y + crown.Y / 2 - config.CROWN_MIN_OVERLAP)
+	local canopy = part("Crown", crown, Vector3.new(point.x, top, point.z), row.crownColor, Enum.Material.Grass, model)
+	-- THE CANOPY DOES NOT BLOCK THE GROUND GAME (design section 7.1): the navmesh and the boar see
+	-- trunks only, so a wooded drive is still walkable -- while a shot into the canopy still stops in
+	-- the canopy, because CanQuery stays true.
+	canopy.CanCollide = false
 	model.PrimaryPart = stem
 	return true
 end
 
--- WHERE A TREE MAY NOT STAND. The corridor is the drive; a track is a track; the bog is wet; and a
--- trunk inside a hedgerow is the cosmetic fault review round 3 of Task 43 found on the slice's flank
--- (row 43a(o)). One predicate, used by the placing step AND by the spec, so they cannot disagree.
+-- WHERE A TREE MAY NOT STAND, and since M2.8b there is exactly ONE source for it:
+-- `Layout.treeDensity` returns 0 in every such place -- a field, a bench and its verge, a track, the
+-- bog, a hedge line's clearance, a spawn pad -- so the placing step and this predicate cannot
+-- disagree about the wood, which is what two copies of the rule always end up doing.
+--
+-- THE CORRIDOR IS NO LONGER A REASON. Until M2.8b nothing could stand in the drive at all, which is
+-- what made the drive a bare lane through a decorated backdrop; the wood is the drive now, and what
+-- keeps it walkable is the sampler's guaranteed 11-stud separation against the boar's 4-stud need
+-- (design section 7.3), measured by the walkability spec and by `MapGen.reachability`.
 function Props.rejectTree(x: number, z: number, config): boolean
-	return Layout.inCorridor(x, z, config)
-		-- A BENCH, by the same predicate the hedge uses (round 2, finding 1's class). The road runs
-		-- to x = +/-900 and the corridor stops at +/-620, so `inCorridor` left a 280-stud stretch of
-		-- gravel at each end that a trunk could be scattered onto -- about one tree today and ~7 at
-		-- M2.8b's density. The corridor rule stays: it is a different question and it goes first.
-		or Layout.onBench(x, z, config)
-		or Layout.onTrack(x, z, config)
-		or Layout.bogDepth(x, z, config) > 0
-		or Layout.distanceToHedge(x, z, config) < config.SCATTER_CLEARANCE
+	return Layout.treeDensity(x, z, config) <= 0
 end
 
--- The wood: `WORLD.treeCount` trees, each a Model of trunk plus crown so the screenshots answer
+-- The wood, ONE BLOCK at a time: each tree a Model of trunk plus crown so the screenshots answer
 -- "does this read as woods or as poles" (design section 13.3). Each is a PROXY while there is no
 -- asset id, and a proxy is the same footprint and height as the model that replaces it.
-function Props.trees(root: Instance, seed: number, config): (number, { string }, string?)
+function Props.trees(
+	root: Instance,
+	seed: number,
+	config,
+	block,
+	startIndex: number,
+	fresh: boolean?
+): (number, { string }, string?, { [string]: number })
 	local template, why = Props.template(Assets.KEY.treeSpruce, root)
+	local counts: { [string]: number } = {}
 	if why then
-		return 0, {}, why
+		return 0, {}, why, counts
 	end
-	local parent = folder(propsFolder(root), "Trees")
+	local parent = folder(propsFolder(root), "Trees", fresh)
 	local pads = Layout.pads(config)
-	local points = Scatter.trees(config, seed, function(x, z)
+	local points = Scatter.trees(config, seed, block, function(x, z)
 		return Props.rejectTree(x, z, config)
 	end)
 	local proxied = 0
+	local keys: { [string]: boolean } = {}
 	for index, point in ipairs(points) do
 		local y = Height.atFlattened(point.x, point.z, seed, config, pads, Layout.bogDepth)
-		-- Zero-padded, so the lexicographic order the digest and `trunks` sort by IS the placement
-		-- order: "Tree10" sorts before "Tree2" and a diff would then name a shuffle, not a move.
-		if Props.placeTree(template, parent, string.format("Tree%03d", index), point, y, config) then
+		local species = Scatter.speciesAt(point.x, point.z, seed, config, y)
+		counts[species] = (counts[species] or 0) + 1
+		-- Zero-padded and CONTINUED ACROSS BLOCKS, so the lexicographic order the digest and `trunks`
+		-- sort by IS the placement order: "Tree10" sorts before "Tree2" and a diff would then name a
+		-- shuffle, not a move.
+		local name = string.format("Tree%04d", startIndex + index)
+		if Props.placeTree(template, parent, name, point, y, config, species) then
 			proxied += 1
+			keys[Assets.KEY.treeSpruce] = true
 		end
 	end
-	return #points, (if proxied > 0 then { Assets.KEY.treeSpruce } else {}), nil
+	local used: { string } = {}
+	for key in pairs(keys) do
+		table.insert(used, key)
+	end
+	return #points, used, nil, counts
+end
+
+-- BRUSH: low cover that hides a boar and blocks nothing (design section 7.4). One quadrant per step,
+-- the same four blocks the wood uses, so a slow step names a quarter of the map rather than "props".
+function Props.brush(
+	root: Instance,
+	seed: number,
+	config,
+	block,
+	startIndex: number,
+	fresh: boolean?
+): (number, string?)
+	local parent = folder(propsFolder(root), "Brush", fresh)
+	local pads = Layout.pads(config)
+	local points = Scatter.brush(config, seed, block, function(x, z)
+		-- Brush lives in the WOOD: everywhere a tree could stand, plus nowhere a tree could not.
+		return Props.rejectTree(x, z, config)
+	end)
+	local brush = config.BRUSH
+	for index, point in ipairs(points) do
+		local y = Height.atFlattened(point.x, point.z, seed, config, pads, Layout.bogDepth)
+		local bush = part(
+			string.format("Brush%04d", startIndex + index),
+			brush.size,
+			Vector3.new(point.x, y + brush.size.Y / 2 - brush.sink, point.z),
+			brush.color,
+			Enum.Material.LeafyGrass,
+			parent
+		)
+		-- NEITHER COLLIDABLE NOR QUERYABLE: a bush that stops a slug is an invisible wall a shooter
+		-- cannot see the reason for, and a bush that stops a driver is worse. Cover for the eye.
+		bush.CanCollide = false
+		bush.CanQuery = false
+	end
+	return #points, nil
 end
 
 -- The taggable part of every tree in one folder, in the order Props placed them, for Markers to tag
