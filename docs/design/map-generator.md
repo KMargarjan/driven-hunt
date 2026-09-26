@@ -1,110 +1,52 @@
-# Design: map-generator (the v1 map, built by code at edit time)
+# Design: map-generator (v3 — the drive runs through a wood, and the line stands on a forest road)
 
-System: `map-generator` — the Luau code that writes the v1 map (terrain, fields, hedgerows, tree
-stands, tracks, a bog, the drive corridor and every gameplay marker) into the DEV place at **edit
-time**, and the tool that invokes it. `ROADMAP.md` Milestone 2.
+System: `map-generator` — the Luau that writes the v1 map (terrain, the forest road, the wood, fields,
+hedge banks, the bog and every gameplay marker) into the DEV place at **edit time**, plus the tool that
+invokes it. `ROADMAP.md` Milestone 2.
 
-**Task 42: a regeneration of the Task 33 design against `docs/research/2026-09-26-asset-pipeline.md`
-(Task 39) and the regenerated `docs/design/asset-pipeline.md` (Task 40).** The Task 33 design is
-superseded by this file in full; it stays in git history (rule 7).
+**Task 54: a revision of the Task 42 design (v2) against `reviews/task-54/BRIEF.md`** — Karen's
+reference images and her decisions of 2026-09-26. The brief overrides anything older in `docs/`,
+`TASKS.md` and the earlier design. The Task 42 file is superseded **in full** by this one; it stays in
+git history (rule 7).
 
 Architect, 2026-09-26, read-only session: Read, Grep, Glob only. **No Studio, no network, no engine.**
 Evidence precomputed in `.agent-evidence/` (`INDEX.md`), commit
-`beb44a0a43930c3282fd7462ca8166f4928f888e`, branch `task-42-map-design-v2`.
+`c95a3cf9dca71067d2291d11fcbe1cad83290992`. Every claim about existing code below names a **file and a
+symbol**, never a line number.
 
-Inputs, in precedence order: `reviews/task-42/BRIEF.md` (the Director's, and it overrides anything
-older), `docs/research/2026-09-26-asset-pipeline.md` (**the source of truth for every asset, licence
-and limit claim**), `docs/design/asset-pipeline.md` (Task 40), `reviews/task-33/BRIEF.md` (the
-Director's decisions of 2026-09-25, kept and restated in §17), `docs/research/2026-09-24-map-generator.md`
-(rule 1, 13 sources), `docs/design/drive.md` (the marker contract), the code at this commit, `CLAUDE.md`,
-`ROADMAP.md`, `GAME_DESIGN.md`, `TASKS.md`, `docs/PROJECT_CONTEXT.md`.
+Inputs, in precedence order: `reviews/task-54/BRIEF.md`; the code as built and merged
+(`src/serverstorage/MapGen/`, `src/shared/Map/init.luau`, `tools/mapgen.py`,
+`tests/server/map_contract.spec.luau`); `docs/design/drive.md`; `docs/design/asset-pipeline.md`;
+`docs/design/meshy-tool.md`; `docs/design/feature-flags.md`; `docs/research/2026-09-24-map-generator.md`;
+`docs/research/2026-09-26-asset-pipeline.md`; `TASKS.md` rows 43a–48a (the queue this design has to
+answer); `CLAUDE.md`; `ROADMAP.md`; `GAME_DESIGN.md`; `docs/PROJECT_CONTEXT.md`.
 
-**Nothing here is built until Milestone 1 is closed by Karen's two-player playtest**
-(`reviews/task-33/BRIEF.md`). This document exists so that when it starts, it starts from a design.
-
-**Test of this document:** a Builder can build M2.1 from it without asking a question. Every owner is
-named, every interface is written out, every number is here with its basis, and every human action is
-in one place (§17 and §14.4).
-
-**What changed against Task 33, in one paragraph.** Five things. (1) Task 39 read the pages: a free
-Creator Store model the experience owner does not own is loadable by **no script route at all**
-(`AssetService.AllowInsertFreeAssets` is `RobloxScriptSecurity` on read *and* write), so Task 33's §8.2
-is wrong and §8 here is rewritten around what an Edit-time generator can and cannot insert. (2) The
-asset manifest is **not** `MapGen.Assets` any more: it is `ServerStorage.Assets`, owned by the
-asset pipeline (`docs/design/asset-pipeline.md` §2.3), and `MapGen.Props` asks `Assets.Loader` for a
-template instead of inserting one itself. (3) The mesh limit is **20,000 triangles and is first-party**;
-1024 px is **our** texture budget, not a platform limit; the licence basis of every asset is now a
-recorded enum with a CI gate. (4) The backup rule is unchanged in intent and sharper in mechanism: §7.3
-says exactly what `tools/mapgen.py` accepts as a backup, and why an unverifiable "I saved it" is
-refused. (5) Task 33's cross-references were broken — §7.3, §8.4, §9.2, §12.1 and §13.x were cited
-under numbers the document did not have, and the **spawn-pad section it cited seven times did not
-exist**. It exists here, as §6, and every reference in this file was checked against its own headings.
+**Test of this document:** a Builder can build task M2.8a from it without asking a question. Every
+owner is named, every interface is written out, every number is here with its basis, every human action
+is in §18 and §20.
 
 ---
 
-## 0. Seven facts this design is built on, stated first because they decide everything
+## 0. What changed against v2, in one page
 
-1. **The harness is read-only by construction and must stay that way.** `tools/studio_mcp.py`'s
-   docstring, "Safety": *"Its Luau is read-only: constant queries, or queries templated with JSON data
-   (QUERY_*). There is no command for arbitrary Luau or arbitrary MCP tools."* A generator is the
-   opposite of that. **The generator is invoked by a second, separate tool, `tools/mapgen.py`** (§7),
-   which imports `studio_mcp.py`'s `Studio` class and its `luau_json`, `git_state`,
-   `expected_place_id`, `find_exe`, `synced_nodes` and `compare_synced` helpers rather than copying
-   them. `studio_mcp.py` gains no subcommand, no write path and no new MCP tool. If a later task is
-   tempted to add `python tools/studio_mcp.py generate`, that is a design violation: the file that
-   decides whether a PR may be reviewed must not also be the file that can rewrite the world.
+Karen's decisions, from the brief, and what each costs:
 
-2. **`execute_luau` has its own module cache, and a `require()` through it returns a fresh copy of the
-   module** — measured twice, 2026-09-25 and again in Task 26, and recorded in `tools/studio_mcp.py`'s
-   docstring ("Staging a scenario"). So **no generator state may survive between MCP calls**: not a
-   plan, not a memo table, and — new in this version — **not `Assets.Loader`'s template cache** (§8.4).
-   Every step is a pure function of `(seed, stepIndex)` and the world as it already stands (§5.4).
-   This is not a nuisance; it is what forces the generator to be reproducible, which is the whole
-   point of map option C.
+| Karen's decision | The change |
+|---|---|
+| The shooter line runs **along a forest road** through the woods, not along a field edge | The drive line marker **is** the road's centreline; the road is a flat, gravel **bench** cut into the heightfield by `Height`, 16 studs wide, running the map's width (§6.3, §9) |
+| Shooters stand **on the road**, **40–80 m apart** | `postSpacing` 80 → **160 studs** (45 m, inside her range). 8 posts now span 1,120 studs, so the drive corridor widens from x ± 340 to **x ± 620** (§15.1) |
+| Boars **cross the road** from the driven side to the far side; some come out between two shooters | `exitZ` −760 → **−820**, 120 studs past the road, and `corridor.minZ` −800 → **−880**, so the flee target is in the **far wood** and the crossing is what a shooter sees (§9.2) |
+| The drivers push **through the woods** | `Props.rejectTree` (`src/serverstorage/MapGen/Props.luau`) currently rejects **every** point inside the corridor. That rule is **deleted**: trees now grow in the drive, at a density that is provably walkable for the boar's own agent (§7.2, §7.3) |
+| Autumn: orange/brown/yellow deciduous, green spruce | A terrain **palette** step (`Ground.applyPalette`), four species with autumn crown colours, and leaf-litter ground (§8) |
+| Only oak, birch, black alder, spruce | Four tree keys and one species field; alder biased to wet ground (§7.1) |
+| Boars come as singles **and groups of 2–5** | Map side only: the boar-spawn pad grows from radius 14 to **30** so a sounder spawns on flat ground. The group logic is **`docs/design/drive.md`**'s, and §11 states exactly what the map guarantees it |
+| Shooters wear an **orange hat**, drivers an **orange vest** | New, and it is **not** this system's: the owner is `Match.Body` (§10), merged OFF |
 
-3. **Workspace is not Rojo-mapped.** `default.project.json`'s tree maps `ServerScriptService`,
-   `ReplicatedStorage`, `ReplicatedFirst`, `StarterGui`, `StarterPack`, `StarterPlayer.*` and
-   `ServerStorage`, and **nothing else** — no `Workspace`, no `Lighting`, no `Terrain`. So the
-   generated map is **not in git and has no rollback but a place-file backup**. What is in git is the
-   **seed, the code and the digest** (§7.6). The harness never sees generated geometry: its
-   disk-vs-Studio comparison walks the Rojo sourcemap (`compare_synced`, `synced_nodes`) and its
-   unmanaged scan looks for `LuaSourceContainer` only (`unmanaged_scripts`). That last point is a trap,
-   not a comfort — §8.7.
-
-4. **A boar is a physics body on a horizontal velocity plane, and it spawns at a fixed Y, at a
-   position the map supplies.** `src/server/Boar/Body.luau`, `Body.create`, builds a `LinearVelocity`
-   with `VelocityConstraintMode = Plane` and tangent axes X and Z, so gravity, not code, puts the boar
-   on the ground — terrain relief is fine for *walking*. But `src/server/Boar/init.luau`,
-   `Runtime:spawn`, overwrites the caller's Y:
-   `at = Vector3.new(at.X, self._field.groundY + config.BODY_SIZE.Y / 2 + config.SPAWN_CLEARANCE, at.Z)`
-   (`SPAWN_CLEARANCE = 0.5`), and `src/server/Boar/Brain.luau`, `Brain:_outcome`, despawns a boar as
-   `outOfBounds` below `field.groundY - config.FALL_LIMIT` (`FALL_LIMIT = 50`). The X and Z it is given
-   come from the map: `src/server/Match/init.luau` calls `world.boars:spawn(position)` with a position
-   out of `Markers.read`'s `boarSpawns`, which is a tagged part's `Position`. **So the generator must
-   deliver a flat pad under every marker the game stands something on, or boars spawn inside hills**
-   (§6). This design solves it entirely on the generator's side, with **no change to
-   `ServerScriptService.Boar`** — the Director's decision D in `reviews/task-33/BRIEF.md`.
-
-5. **The same is true of players.** `src/server/Match/Body.luau`, `Body.placementFor`, puts a shooter
-   at `post.Position + Vector3.new(0, post.Size.Y / 2 + config.STAND_HEIGHT_STUDS, 0)`
-   (`STAND_HEIGHT_STUDS = 3.5`, `src/server/Match/init.luau`, `Match.CONFIG`) and a driver across the
-   `DriverStart` part's X extent. A post part floating over a slope, or buried in one, is a player
-   dropped into a hill. §6 covers posts and the driver start as well as boar spawns.
-
-6. **A free Creator Store model that the experience owner does not own cannot be loaded by any script,
-   ever.** `AssetService.AllowInsertFreeAssets` is Access ReadOnly with **`RobloxScriptSecurity` on
-   read *and* write**, and `InsertService:LoadAsset` requires the asset be *"created or owned by the
-   game creator"*, *"shared by the asset owner"* or *"owned by Roblox"*
-   (`docs/research/2026-09-26-asset-pipeline.md` sources 6 and 8, delta D9). Task 33's §8.2 made
-   `InsertService:LoadAsset` the primary route for Creator Store props. That is wrong, and §8 is
-   rebuilt on the two routes that actually exist at edit time.
-
-7. **The map is baked, so "loading" and "shipping" are the same moment.** The generator inserts an
-   asset **once, at edit time**, and what it leaves behind is saved into the place. There is no
-   run-time load of a map prop at all. Two consequences: the run-time ownership rules in fact 6 apply
-   to the *generator's* insert, not to the game; and the **licence gate that matters is `mayShip`**, not
-   `mayUpload` — a prop baked into a published place is published (`docs/design/asset-pipeline.md`
-   §4.5). §8.5 puts that check in the generator, where it can actually fire.
+Three defects and eight queued notes in the built code are answered here rather than left to drift
+(§19.2): the post pads that merged into one flattened strip (`TASKS.md` row 45a(d)) are gone, because
+the posts now stand on the road bench; the 9.5-stud drop onto a `CanCollide = false` post
+(row 43a(l), audit-004 F9) is fixed by a 1-stud post marker; and reachability now paths to five points
+along the line instead of its centre (row 44a(e)).
 
 ---
 
@@ -112,154 +54,171 @@ exist**. It exists here, as §6, and every reference in this file was checked ag
 
 ### 1.1 Must do
 
-1. **Build one small v1 map**: European farmland and woods — fields, hedgerows, spruce and birch
-   stands, tracks, a bog — with a drive area and a shooter line along a wood edge (Karen,
-   `reviews/task-33/BRIEF.md`).
-2. **Run at edit time only**, through the Studio MCP server, from code on disk. Never at run time,
-   never in a live server, never during Play.
-3. **Be reproducible from a seed**: the same commit and the same seed give the same map, provable by a
-   digest (§7.6).
-4. **Place every gameplay marker as a tagged, script-free instance** that `docs/design/drive.md`'s
-   `Match.Markers` already reads (§4.3), on **flat ground** (§6).
-5. **Reference every art asset by key through `ServerStorage.Assets`** — never by file, never by a bare
-   id in this system's own code, never by a binary in the repo (§8).
-6. **Refuse to bake an asset whose licence basis does not permit shipping**, and say which key and
-   which basis (§8.5).
-7. **Be undoable**: a machine-checked backup condition before every destructive run (§7.3), and
-   `MapGen.clear()` as the in-place reset.
-8. **Be checkable by machine**: a server spec that the required tags exist, are geometrically sane and
-   are **reachable by the boar's own pathfinding agent** (§14.1); a client spec (§14.2); named
-   Edit-mode screenshots for rule 5 (§14.3).
-9. **Replace `Workspace.TestArena` with no overlap** — never two grounds, decided by one committed
-   fact (§10).
-10. **Cost the harness nothing**: no `default.project.json` change (so no extra Karen Connect click),
-    no new Wally package, no `.rbxm`, no typed value in a `.model.json` (§9).
+1. **Build one v1 map: a mixed wood with a forest road through it**, with fields on the flanks — the
+   drive corridor in the wood, the shooter line on the road, the boars' escape in the far wood
+   (`reviews/task-54/BRIEF.md`).
+2. **Run at edit time only**, through StudioMCP, from code on disk. Never at run time, never in a live
+   server, never during Play.
+3. **Be reproducible from a seed**: the same commit and seed give the same map, digest-proved
+   (`MapGen.digest`, `tools/mapgen.py verify`).
+4. **Place every gameplay marker as a tagged, script-free, inert instance** that
+   `src/server/Match/Markers.luau`, `Markers.read`, already reads — on ground that is **exactly
+   `GROUND_Y`** (§6.4).
+5. **Leave the drive walkable for the boar's own agent** (`Boar.CONFIG.AGENT` in
+   `src/server/Boar/init.luau`: `AgentRadius = 2`, `AgentCanJump = false`), now that the drive is
+   wooded — proved geometrically (§7.3) and empirically by `MapGen.reachability`.
+6. **Look like autumn**, by palette and species, not by one recoloured material (§8).
+7. **Reference every art asset by key**, never by file, never by a bare id outside the manifest, never
+   by a binary in the repo (§12).
+8. **Be undoable**: the machine-checked backup condition in `tools/mapgen.py` before any destructive
+   run, and `MapGen.clear()` as the in-place reset — which now also **restores the terrain palette**
+   (§8.4).
+9. **Be checkable by machine**: server specs (§16.1), a client spec (§16.2), eight named Edit-mode
+   screenshots (§16.3).
+10. **Cost the harness nothing**: no `default.project.json` change (so no extra Karen **Connect**
+    click), no new Wally package, no `.rbxm`, no typed value in a `.model.json`.
 
 ### 1.2 Must not
 
 Each row is a named failure from `docs/PROJECT_CONTEXT.md`, a boundary an existing owner drew, or a
-documented engine fact the Task 39 note established.
+documented engine fact.
 
 | Prohibition | Why | Whose job instead |
 |---|---|---|
-| Never run at run time. No `.server.luau`, no `.client.luau`, no `init.server.luau` anywhere under the generator | "Invented foundations": a map that rebuilds itself on every server start is a second writer of the world that nobody can see | `tools/mapgen.py`, at edit time, by hand |
-| Never be `require`d by any runtime script | the runtime must not depend on a build tool. §14.1 check 9 asserts `ServerStorage.MapGen` contains only ModuleScripts, so nothing can autorun | game code requires `ReplicatedStorage.Map` (§4) and `ServerStorage.Assets` (§8.2) |
-| Never own the asset manifest | `docs/design/asset-pipeline.md` §2.3: leaving it in `MapGen` forces either a runtime `require` of a build tool or a second copy of the ids | `ServerStorage.Assets`, which `MapGen` requires and never writes |
-| Never call `InsertService:LoadAsset` or `AssetService:CreateMeshPartAsync` itself | one id→Instance seam in the repo (`docs/design/asset-pipeline.md` §2.1) | `Assets.Loader`, with the cache container this system nominates (§8.4) |
-| Never write a script, or bake an asset that contains one | `CLAUDE.md`: *"Nothing script-like (Script, LocalScript, ModuleScript) is ever created in Studio"*, and the harness's unmanaged-script check fails **every run from then on** if one exists outside the sourcemap | §8.7: the template is refused, the key falls back to a proxy, and the step fails with the id and the script's name |
-| Never bake a key whose licence basis has `mayShip == false` | fact 7. A baked prop is a published prop | §8.5; `Assets.BASES`, and Karen's decision on the Meshy plan (`docs/design/asset-pipeline.md` §16 Karen 1) |
-| Never write `Workspace.TestArena`, `Workspace.Boars`, `Workspace.WeaponEffects` or the drive's per-player Instances | four named owners: `ServerScriptService.TestArena` (`src/server/TestArena.luau` header), `ServerScriptService.Boar`, `PlayerScripts.Weapon.Effects`, `Match.Body` (`docs/design/drive.md` §6.4) | those owners |
-| Never write `Boar.CONFIG`, `Shotgun.CONFIG`, `Match.CONFIG` or any runtime state | one writer per system | their owners; the map **publishes** its rectangle and the boar's config is checked against it (§11) |
-| Never touch `Lighting`, `SoundService`, `Teams` or any player | art, sound and the match are other tasks; `Match.Body` is the only writer of `Teams` and of player characters (`docs/design/drive.md` §3.2). Also: because the generator never writes `Lighting`, a rebuild cannot destroy it, which is what makes §7.3's census check sound | Milestone 2's art task; `Match.Body` |
-| Never create a `Water` terrain material in v1 | water changes buoyancy and swimming, and the boar's mover is a horizontal-plane `LinearVelocity` (`src/server/Boar/Body.luau`, `Body.create`) that was never designed to swim. The bog is `Mud` and a dip, not a pond | a v1.1 task, with its own boar work |
-| Never commit a Creator Store or Meshy binary, a `.rbxm`, a `.rbxmx` or a `.rbxl` | `CLAUDE.md` bans the first four outright; the Creator Store grant is *"a license to use the asset in Roblox Studio and in Experiences on the Services"* and a public git repo is not "the Services" (§12 source 10); the place file is worse (§12 source 6) | ids in `ServerStorage.Assets`; backups outside the repo |
-| Never add a subcommand, a write path or an MCP tool to `tools/studio_mcp.py` | fact 1 | `tools/mapgen.py` |
-| Never post keystrokes to Studio, and never claim a save happened | `tools/mapgen.py` cannot verify a menu action, and an unverifiable claim in a tool's output is the false-PASS shape this project has already paid for (`docs/PROJECT_CONTEXT.md`: *"The agent verified its own work with numbers and never looked"*) | §7.4: the tool prints the action and the proof is a reopen |
-| Never delete a file to make a map (rule 7) | rule 7 | `MapGen.clear()` destroys *generated runtime instances*, which are not files; disk files are archived to `backups/` |
+| Never run at run time. No `.server.luau` / `.client.luau` / `init.server.luau` anywhere under the generator | a map that rebuilds itself on server start is a second writer of the world that nobody can see | `tools/mapgen.py`, at edit time, by hand |
+| Never be `require`d by a runtime script | the runtime must not depend on a build tool. `MapGen.verifyContract` asserts every descendant of `ServerStorage.MapGen` is a `ModuleScript`, so nothing can autorun | game code requires `ReplicatedStorage.Map` |
+| Never write a script, or bake an asset containing one | `CLAUDE.md`: nothing script-like is ever created in Studio, and one surviving `Script` under Workspace fails the harness's unmanaged-script scan **every run from then on** | `Props.scriptIn` refuses the template, the key falls back to a proxy, and the step fails with the id and the script's name (`src/serverstorage/MapGen/Props.luau`, `Props.template`) |
+| Never write `Workspace.TestArena`, `Workspace.Boars`, `Workspace.WeaponEffects`, `Workspace.DriveMarkers` or any player | four named owners: `ServerScriptService.TestArena`, `ServerScriptService.Boar`, `PlayerScripts.Weapon.Effects`, `Match.Body` (`src/server/Match/Body.luau`, `Body.driveMarkers`) | those owners |
+| Never write `Boar.CONFIG`, `Shotgun.CONFIG`, `Match.CONFIG` or any runtime state | one writer per system | their owners. The map **publishes** its rectangle; `Boar.CONFIG.field` is changed by the boar's owner at the M2.5 switch |
+| Never turn streaming on as a side effect of a build | audit-004 F4 / row 43a(f): the step is inert today only because the contract happens to match the place | `MapGen.Settings`, `Settings.MAY_WRITE = false` until M2.6, which **refuses and reports** (`src/serverstorage/MapGen/Settings.luau`, `Settings.apply`) |
+| Never create a `Water` terrain material in v1 | the boar's mover is a horizontal-plane `LinearVelocity` (`src/server/Boar/Body.luau`, `Body.create`) that was never designed to swim. The bog is `Mud` and a dip | a v1.1 task with its own boar work |
+| Never put a **collidable** obstacle across the drive without a proved gap | the hedgerow wall that survived two review rounds in Task 43 (row 43a(k)) | §7.3's geometry plus `MapGen.reachability` (§16.4) |
+| Never make a marker shootable, walkable or collidable | `src/server/Weapon/Cast.luau` builds `RaycastParams` with an Exclude filter and **no `RespectCanCollide`**, so a `CanCollide = false` part still stops a pellet: `CanQuery = false` is the load-bearing one (`Markers.place` already does this) | `MapGen.Markers` |
+| Never decide a player's clothing, team or position | `Match.Body` is the only writer of a player's character (`src/server/Match/Body.luau` header) | §10 |
+| Never write `Lighting`, `SoundService`, `Teams` | art, sound and the match are other tasks; and because the generator never writes `Lighting`, a rebuild cannot destroy it, which is what makes `tools/mapgen.py`'s census sound | Milestone 2's art task |
+| Never add a subcommand, a write path or an MCP tool to `tools/studio_mcp.py` | *"Its Luau is read-only"* (`tools/studio_mcp.py` docstring, "Safety"). The file that decides whether a PR may be reviewed must not also be the file that can rewrite the world | `tools/mapgen.py` |
+| Never claim a save happened | `tools/mapgen.py` cannot observe a Studio menu action, and an unverifiable claim in a tool's output is the false-PASS shape this project has already paid for | the tool prints the action; the proof is a reopen plus `mapgen.py contract` |
+| Never commit a Creator Store, Meshy or place binary (`.rbxm`, `.rbxmx`, `.rbxl`) | `CLAUDE.md` bans the first two outright; the Creator Store grant is a licence to use the asset *"in Roblox Studio and in Experiences on the Services"*, and a public git repo is neither | ids in the manifest; backups outside the repo |
 
 **One predicate answers one question.** `Map.EXPECTED_WORLD` says which world the committed code
 expects. It does not say whether the arena should be built, whether streaming is on, whether an asset
-is loadable, or whether the map is any good. Those are the contract's own fields (§4.1),
-`Assets.BASES` (§8.5), and Karen.
+is loadable, or whether the map is any good.
 
 ---
 
 ## 2. Ownership
 
-Rule 3: exactly one writer per system, named here, mirrored into `GAME_DESIGN.md` when the code lands.
+Rule 3: exactly one writer per system, named here, mirrored in `GAME_DESIGN.md`.
 
-### 2.1 The owner table (paste into `GAME_DESIGN.md` with the first map task)
+### 2.1 The owner table
+
+`GAME_DESIGN.md` already carries the first three rows (its map-contract, generated-map and
+player-placement rows). This revision **amends** them rather than adding new systems: the amendments
+are listed in §19.1.
 
 | System | Owner (the only writer) | Location on disk → Studio |
 |---|---|---|
-| **The map contract**: tag names, the drive rectangle, the expected world, the pad, streaming and budget numbers. Frozen data, **no runtime writer at all** | `ReplicatedStorage.Map` — nothing writes it; the Builder edits the file, git records it | `src/shared/Map/init.luau` → `ReplicatedStorage.Map` |
-| **The map generator**: `Terrain`, `Workspace.DrivenHuntMap` and everything in it, and the `Workspace` streaming properties. **Edit time only** | `ServerStorage.MapGen` — and within it exactly four modules touch the world: `Ground` (Terrain), `Props` (`…Map.Props`), `Markers` (`…Map.Markers` and every `CollectionService:AddTag` in the map), `Settings` (the Workspace streaming properties) | `src/serverstorage/MapGen/` → `ServerStorage.MapGen` |
-| **The asset manifest, the licence policy and the one id→Instance seam** | **not this system: `ServerStorage.Assets` / `Assets.Loader`** (`docs/design/asset-pipeline.md` §2.1). `MapGen` requires it, nominates its cache container, and writes nothing in it | `src/serverstorage/Assets/` |
-| **The generator invoker**: the one write path into Studio | `tools/mapgen.py`. The only thing in the repo that sends a mutating `execute_luau`, and the only caller of StudioMCP's `insert_asset` | `tools/mapgen.py` |
-| **The markers the game reads** (`DrivenHunt.*` tags) | **at edit time:** `MapGen.Markers` in the generated map, `ServerScriptService.TestArena` in the grey box — never both (§10). **At run time: nobody writes them.** `Match.Markers` reads them (`docs/design/drive.md` §6.2) | as above |
-| World geometry: test arena | **unchanged:** `ServerScriptService.TestArena`, booted by `ArenaBoot`, which gains one early return (§10.2) | `src/server/TestArena.luau` |
+| **The map contract**: tag names, the drive rectangle, the expected world, the road, the pad, the palette, streaming and budget numbers. Frozen data, **no runtime writer at all** | `ReplicatedStorage.Map` — nothing writes it; the Builder edits the file and git records it | `src/shared/Map/init.luau` |
+| **The map generator**: `Terrain` (voxels **and material colours**), `Workspace.DrivenHuntMap` and everything in it, and `Workspace.StreamingEnabled` | `ServerStorage.MapGen`, and within it exactly four modules touch the world: `Ground` (Terrain and the palette), `Props` (`…Map.Props`), `Markers` (`…Map.Markers` and every `CollectionService:AddTag` in the map), `Settings` (the streaming property) | `src/serverstorage/MapGen/` |
+| **The generator invoker**: the one write path into Studio | `tools/mapgen.py` — the only thing in the repo that sends a mutating `execute_luau` | `tools/mapgen.py` |
+| **The markers the game reads** (`DrivenHunt.*` tags) | **at edit time:** `MapGen.Markers` in the generated map, `ServerScriptService.TestArena` in the grey box — never both (§17). **At run time: nobody writes them**; `Match.Markers` reads them | as above |
+| **A player's hunting outfit** (the orange hat and vest, §10) | **`ServerScriptService.Match` → `Match.Body`**, which is already the only writer of a player's team, character placement and tie. **Not the map, not the Hud, not the client** | `src/server/Match/Body.luau` |
+| **The asset manifest and the one id→Instance seam** | `ServerStorage.Assets` once M2.7a lands (`docs/design/asset-pipeline.md` §2.1). **Until then `MapGen.Assets` holds it**, with the key grammar already identical, and `MapGen` must not grow a second copy (§12.2) | `src/serverstorage/MapGen/Assets.luau` → `src/serverstorage/Assets/` |
+| World geometry: test arena | **unchanged:** `ServerScriptService.TestArena`, booted by `ArenaBoot`, which gains one early return at M2.5 | `src/server/TestArena.luau` |
 
 ### 2.2 The modules inside `ServerStorage.MapGen`
 
-`init.luau` plus siblings — the shape `src/server/Boar/`, `src/server/Weapon/` and `src/server/Match/`
-already prove green. **Nothing happens on `require`**, the same rule `src/server/Boar/init.luau`
-states in its header.
+As built, plus this revision's changes. **Nothing happens on require**, with one recorded clause:
+`Contract.luau` clones the contract script in Edit so a run cannot read a stale one (its own header
+records the measurement). `Contract` was an addition to the v2 module list, reported as row 43a(e);
+**it is folded in here** (43a(e) closed).
 
-| Module | Is | Never |
-|---|---|---|
-| `init.luau` | **the entry point**: `VERSION`, `CONFIG`, `steps`, `runStep`, `clear`, `digest`, `census`, `verifyContract`. Holds no state between calls (fact 2) | decides a layout rule itself; writes a voxel; requires `Assets.Loader` (only `Props` does) |
-| `Config.luau` | **pure data**: every number in §13, frozen with `Shotgun.deepFreeze` (`src/shared/Shotgun/init.luau`, `Shotgun.deepFreeze`) — **required, not copied**, because `table.freeze` is shallow and this repo has paid for that once (`TASKS.md` row 23a(b)) | anything else |
-| `Height.luau` | **pure**: `Height.at(x, z, seed, config) -> number`, domain-warped `math.noise`, **including the pad flattening** (§6.2). The single source of ground height, called by `Ground`, `Props`, `Markers` and the digest, so nothing can disagree about where the ground is | touches Terrain, Instances, services or `Random` |
-| `Layout.luau` | **pure**: the corridor, the shooter line, the post positions, the driver start, the boar spawns, the tie trees, the hedgerow polylines, the stand polygons, the track splines, the bog disc and **the pad list `Height` reads** — all plain tables of numbers | as above |
-| `Scatter.luau` | **pure**: seeded placement (jittered grid, Poisson-ish) inside a polygon, rejecting the corridor, the tracks, the bog and every pad | as above |
-| `Digest.luau` | **pure**: a canonical string digest of a plan plus a terrain sample set (§7.6) | as above |
-| `Ground.luau` | **the only writer of `Terrain` in the repo**: one tile per call, `Terrain:WriteVoxels` | reads or writes any Instance |
-| `Props.luau` | **the only writer of `Workspace.DrivenHuntMap.Props`**: `withTemplates` (§8.4), clone, anchor, size, and the proxy fallback | writes Terrain or a marker; calls an insert API itself |
-| `Markers.luau` | **the only writer of `Workspace.DrivenHuntMap.Markers`** and the only caller of `CollectionService:AddTag` in the generated map | writes Terrain or a prop |
-| `Settings.luau` | **the only writer of `Workspace.StreamingEnabled`, `StreamingMinRadius`, `StreamingTargetRadius`, `StreamingIntegrityMode`, `ModelStreamingBehavior`** | writes anything else |
+| Module | Is | Changes in this revision | Never |
+|---|---|---|---|
+| `init.luau` | the entry point: `VERSION`, `CONFIG`, `steps`, `runStep`, `clear`, `digest`, `markerDigest`, `builtSeed`, `census` inputs, `reachability`, `expectedCounts`, `verifyContract` | `VERSION` reads `Map.GENERATOR` (closes row 44a(f)); a `palette` step; tree and brush **block** steps; `reachability` paths to five points | decides a layout rule itself; writes a voxel |
+| `Contract.luau` | how the generator reaches `ReplicatedStorage.Map`, fresh in Edit | — | anything else |
+| `Config.luau` | pure data: every number in §15, deep-frozen with `Shotgun.deepFreeze` (**required, not copied**: `table.freeze` is shallow and this repo has paid for that once, `TASKS.md` row 23a(b)) | the whole §15 table | anything else |
+| `Height.luau` | pure: `Height.at`, `Height.atFlattened`, `Height.corridorFalloff`, `Height.offset` | **new**: `Height.benchHeight`, `Height.benchBand`, `Height.edgeFloor`; `atFlattened` applies benches after pads | touches Terrain, Instances, services or `Random` |
+| `Layout.luau` | pure: tiles, pads, markers, tie trees, hedge lines, gates' spans, tracks, bog, corridor tests | **new**: `Layout.benches`, `Layout.onRoad`, `Layout.inField`, `Layout.treeBlocks`, `Layout.treeDensity`; `Layout.pads` returns the four boar spawns only | as above |
+| `Scatter.luau` | pure: the seeded half of every placement | **new**: `Scatter.speciesAt`, `Scatter.weighted` (accept a candidate against a density weight and its own drawn key), `Scatter.brush` | as above |
+| `Digest.luau` | pure: the canonical digest of a plan plus terrain samples | takes the **palette** as a third input, so a hand-changed material colour shows in the digest | as above |
+| `Ground.luau` | **the only writer of `Terrain` in the repo**: `writeTile`, `paintTrack`, `sampleRow`, `cells`, `clear` | **new**: `Ground.applyPalette`, `Ground.readPalette`, `Ground.resetPalette`; `surfaceMaterial` gains the road and field cases | reads or writes any Instance |
+| `Props.luau` | **the only writer of `…Map.Props`**: `template`, `hedge`, `placeTree`, `trees`, `tieTrees`, `trunks`, `rejectTree`, `clearAssets` | per-species proxies; `trees` takes a **block**; **new** `Props.brush`; `rejectTree` no longer rejects the corridor and does reject the benches | writes Terrain or a marker; calls an insert API other than through `Props.template` |
+| `Markers.luau` | **the only writer of `…Map.Markers`** and the only caller of `CollectionService:AddTag` in the map | post marker size; the drive line's span | writes Terrain or a prop |
+| `Settings.luau` | **the only writer of `Workspace.StreamingEnabled`**, refusing while `MAY_WRITE == false` | — | writes anything else |
+| `Assets.luau` | the manifest, empty on purpose, until M2.7a moves it | four tree keys plus `prop.brush.a` (§12.1) | grow a second copy of an id |
 
-`Height`, `Layout`, `Scatter` and `Digest` are exported as `MapGen.Height`, `MapGen.Layout`… for
-specs, exactly as `src/server/Boar/init.luau` exports `Boar.Brain`, and for the same reason: the pure
-core must be drivable with no Studio, no Terrain and no assets. **That is what lets a server spec test
-the generator's maths in the ordinary harness run, while the generator itself never runs there.**
+`Height`, `Layout`, `Scatter`, `Digest` and `Assets` stay exported on `MapGen` (`MapGen.Height`, …), for
+the reason `src/server/Boar/init.luau` exports `Boar.Brain`: **the pure core must be drivable in the
+ordinary harness run, with no Studio, no Terrain and no asset, while the generator itself never runs
+there.**
 
-There is no `MapGen.Assets`. It was in the Task 33 design and it is deleted
-(`docs/design/asset-pipeline.md` §15 D1).
-
-### 2.3 What `MapGen` may require, and in which direction
+### 2.3 What may require what
 
 ```
-ServerStorage.MapGen  ──requires──►  ServerStorage.Assets        (data + BASES + Loader)
-ServerStorage.MapGen  ──requires──►  ReplicatedStorage.Map       (tags, field, budgets)
-ServerStorage.Assets  ──requires──►  nothing in MapGen           (asserted, §14.1 check 12)
-runtime scripts       ──require───►  ReplicatedStorage.Map, ServerStorage.Assets
+ServerStorage.MapGen  ──requires──►  MapGen.Contract ──►  ReplicatedStorage.Map
+ServerStorage.MapGen  ──requires──►  MapGen.Assets   (→ ServerStorage.Assets at M2.7a)
+runtime scripts       ──require───►  ReplicatedStorage.Map
 runtime scripts       ──NEVER─────►  ServerStorage.MapGen
+MapGen.reachability   ──requires──►  ServerScriptService.Boar, at EDIT TIME ONLY, inside a pcall
 ```
 
-`src/serverstorage/` and `src/shared/` are already mapped (`default.project.json`), so every file this
-design adds lands under an existing mapping: **no `default.project.json` change, no Rojo restart, no
-extra Karen Connect click.**
+The last line is as built (`MapGen.reachability` requires `Boar` for `Boar.CONFIG.AGENT`) and is
+deliberate: the check must use the **real** agent, and it runs only from `tools/mapgen.py`.
+
+`src/serverstorage/` and `src/shared/` are already `$path`-mapped, so **no `default.project.json`
+change and no extra Karen Connect click.**
 
 ---
 
-## 3. Where a run happens, in one picture
+## 3. The world, in plan and in section
 
 ```
- disk (git)                    tools/mapgen.py                  Studio, Edit mode
- ──────────                    ───────────────                  ─────────────────
- src/serverstorage/MapGen/ ──Rojo──────────────────────────────► ServerStorage.MapGen  (ModuleScripts)
- src/serverstorage/Assets/ ──Rojo──────────────────────────────► ServerStorage.Assets  (ids, licences)
- src/shared/Map/init.luau  ──Rojo──────────────────────────────► ReplicatedStorage.Map (the contract)
-                                │
-                                │ 0. REFUSE (§7.2): dirty tree / not Edit / wrong PlaceId /
-                                │    Studio's MapGen+Assets+Map source != disk / no accepted backup
-                                │ 1. execute_luau  MapGen.clear()
-                                │ 2. execute_luau  MapGen.runStep(i, seed)   x N   ──► Terrain
-                                │    (one call per step; no state survives a call)  ──► Workspace.DrivenHuntMap
-                                │    a props step: insert_asset (only if §8.3 route B is needed)
-                                │ 3. execute_luau  MapGen.digest()
-                                │ 4. capture x 6  ──► .screenshots/
-                                ▼
-                       .mapgen/<utc>-<seed>.json (git-ignored run log)
-                       "[mapgen] OK: 271/271 steps @ <sha> seed=7 digest=<hash> (clean tree)"
-                                │
-                                ▼  SAVE REQUIRED (§7.4): Karen File -> Save to Roblox, or the
-                                   Director posts Alt+Shift+S to the Studio window. No tool here
-                                   can verify it; the proof is a reopen plus `mapgen.py contract`.
-                       the place now carries the map
+ PLAN (x across, z up the page; 2048 x 2048 studs, origin at the centre)
+
+            x=-1024      -620            0            +620       +1024
+   z=+1024   ┌───────────────────────────────────────────────────────┐
+             │ field   │        wood (backdrop, sparse)      │ field │
+   z=+800    │ ........│═══════ assembly track (bench) ══════│.......│   corridor.maxZ
+   z=+700    │         │   ▪ DriverStart, 8 drivers over 1120 studs  │
+             │         │                                    │       │
+   z=+600    │  hedge  │   ● ● ● ●  BoarSpawn x4 (pads r=30) │       │
+             │  bank   │                                    │       │
+   z=+300    │═════════╪════ hedge bank, 2 gates in the drive ═══════│
+             │  x=-760 │        THE WOOD the drivers push   │ x=+760│
+             │         │        through (1,400 studs)       │       │
+   z=-440    │         │        density rises toward the road│       │
+   z=-700  ══╪═════════╪══ THE FOREST ROAD ══════════════════╪═══════╪══ gravel bench, 16 studs
+             │     ▲ 8 posts on the road, 160 studs apart, span 1,120 (x=±80,±240,±400,±560)
+   z=-745    │         │   † 12 tie trees, behind the line   │       │
+   z=-820    │         │   exitZ: the boar has crossed and is gone   │
+   z=-880    │  bog    │        far wood (thinner)          │       │   corridor.minZ
+   z=-1024   └───────────────────────────────────────────────────────┘
+
+ SECTION across the road (z), at one x
+
+        wood floor          verge   ROAD   verge          wood floor
+   ~~~~~~~~~~~~~~~~~~~~~~~\        ┌──────┐        /~~~~~~~~~~~~~~~~~~~~
+    relief +/-16 in corridor \_____│ flat │_____ /   relief eased to +/-6
+    (eased to +/-6 within 120)     │ y=0  │          within BENCH_BAND
+                              24   └──────┘   24
+                             verge   16 wide   verge
 ```
+
+The whole point of the section: **everything the game stands a player or a boar on is at exactly
+`GROUND_Y = 0`** — the road bench, the assembly bench and the four spawn pads — so
+`Boar.CONFIG.field.groundY` needs no change at the M2.5 switch, and `Match.Body.placementFor`'s
+`STAND_HEIGHT_STUDS` arithmetic lands on ground rather than in a hole.
 
 ---
 
 ## 4. The map contract — `ReplicatedStorage.Map`
 
-`src/shared/Map/init.luau`, deep-frozen with `Shotgun.deepFreeze`. Tiny, data only, no behaviour. It
-is **shared** rather than server-only for the reason `src/shared/Shotgun/` is: one file, one `require`
-path, and the Hud may want the map's name later. It replicates a handful of numbers and no secret and
-no asset id — ids stay in `ServerStorage.Assets`, server-side, for the reason
-`docs/design/asset-pipeline.md` §2.3 gives.
+`src/shared/Map/init.luau`, deep-frozen with `Shotgun.deepFreeze`. Data only, no behaviour, no runtime
+writer. Shared rather than server-only for the reason `src/shared/Shotgun/` is: one file, one require
+path. It carries no asset id and no secret.
 
-### 4.1 The fields
+### 4.1 The fields (additions and changes marked)
 
 ```luau
 export type FieldRect = {
@@ -268,584 +227,932 @@ export type FieldRect = {
     groundY: number,
 }
 
-Map.VERSION          = "v1"
-Map.EXPECTED_WORLD   = "arena"        -- or "map:v1"; THE switch, §10. One committed fact.
-Map.SEED             = 0              -- the seed the committed map was built from; 0 while "arena"
-Map.DIGEST           = ""             -- the digest that seed produced; "" while "arena"
+Map.VERSION        = "v1"
+Map.GENERATOR      = "m2.8-road-autumn"   -- NEW. MapGen.VERSION reads this; one home, one diff.
+                                          -- Closes TASKS.md row 44a(f) by deleting the second copy.
+Map.EXPECTED_WORLD = "arena"              -- THE SWITCH (§17). One committed fact.
+Map.SEED           = 0                    -- the seed the committed map was built from; 0 while "arena"
+Map.DIGEST         = ""                   -- the digest that seed produced; "" while "arena"
 
-Map.FIELD: FieldRect                  -- the DRIVE rectangle, not the whole map. Must equal
-                                      -- Boar.CONFIG.field, asserted by §14.1 check 7.
-Map.SIZE_STUDS       = 2048           -- the whole map, square, centred on the origin
-Map.TAGS = {
-    shooterPost = "DrivenHunt.ShooterPost",
-    driveLine   = "DrivenHunt.DriveLine",
-    driverStart = "DrivenHunt.DriverStart",
-    boarSpawn   = "DrivenHunt.BoarSpawn",
-    tree        = "DrivenHunt.Tree",
-}
-Map.EXPECTED_COUNTS  = { shooterPost = 8, driveLine = 1, driverStart = 1, boarSpawn = 4, tree = 12 }
-Map.STREAMING        = { enabled = false, minRadius = 64, targetRadius = 1024,
-                         integrityMode = "PauseOutsideLoadedArea", modelBehavior = "Improved" }
-Map.BUDGET           = { parts = 20000, visibleParts = 8000, trees = 3000 }
-Map.PAD              = { boarSpawnRadius = 14, postRadius = 10, driverStartHalf = Vector2.new(72, 18),
-                         blend = 24, tolerance = 0.75 }   -- §6
-Map.CORRIDOR_RELIEF  = 16             -- studs, +/- , inside Map.FIELD.bounds (§6.3)
+Map.FIELD: FieldRect                      -- the world EXPECTED_WORLD names. Must equal
+                                          -- Boar.CONFIG.field (asserted). Arena numbers until M2.5,
+                                          -- then §15.1's corridor.
+Map.SIZE_STUDS     = 2048
+Map.TAGS           = { shooterPost = "DrivenHunt.ShooterPost", driveLine = "DrivenHunt.DriveLine",
+                       driverStart = "DrivenHunt.DriverStart", boarSpawn = "DrivenHunt.BoarSpawn",
+                       tree = "DrivenHunt.Tree" }                      -- unchanged: five strings, one home
+Map.EXPECTED_COUNTS= { shooterPost = 8, driveLine = 1, driverStart = 1, boarSpawn = 4, tree = 4 }
+                                          -- the ARENA's counts while EXPECTED_WORLD is "arena";
+                                          -- tree becomes 12 at the switch
+Map.STREAMING      = { enabled = true, minRadius = 64, targetRadius = 1024,
+                       integrityMode = "PauseOutsideLoadedArea", modelBehavior = "Improved",
+                       scriptable = { "StreamingEnabled" } }           -- unchanged, and measured
+Map.BUDGET         = { parts = 20000, visibleParts = 8000, trees = 3000,
+                       brush = 600, hedgeParts = 400 }                 -- CHANGED: two new ceilings
+Map.SPAWN_PAD      = { radius = 30, blend = 40, tolerance = 0.75 }     -- CHANGED: radius 14 -> 30 (a sounder)
+Map.ROAD           = { z = -700, halfWidth = 8, verge = 24,            -- NEW (§6.3)
+                       from = -900, to = 900 }
+Map.ASSEMBLY       = { z = 700, halfWidth = 5, verge = 20,             -- NEW: the drivers' track
+                       from = -700, to = 700 }
+Map.PALETTE        = { litter = Color3.fromRGB(150, 108, 62),          -- NEW (§8)
+                       rough  = Color3.fromRGB(126, 122, 78),
+                       road   = Color3.fromRGB(152, 146, 132),
+                       bog    = Color3.fromRGB(96, 82, 62) }
+Map.PALETTE_DEFAULT= { … }   -- NEW, and MEASURED before it is written (§8.4, measurement N1):
+                             -- Terrain:GetMaterialColor for the four materials on a place nobody has
+                             -- recoloured. This is what MapGen.clear restores. Do not guess it.
 ```
 
-### 4.2 The tag vocabulary has one home now
+`Map.SPAWN_PAD.blend = 40` is **adopted here as the design's number** — it is the value the build
+measured and committed in Task 45 against the v2 design's 24, because a 16-stud drop eased over 24
+studs produced a 22.5° ring around every pad against a 15° ceiling. `TASKS.md` row 45a(a) asked the
+Architect to move the number or explain the conflict: **the number moves.** The relief stays Karen's
+taste value; the blend is not one.
 
-`docs/design/drive.md` §6.1 defines the five `DrivenHunt.*` tags. The strings exist **twice in code
-today**: `src/server/TestArena.luau`, `LAYOUT.drive.tags`, and `src/server/Match/Markers.luau`,
-`Markers.TAGS`. `MapGen.Markers` would be the third. That is not a second *writer*, but it is three
-copies of one fact, and a typo in one produces a silent empty `GetTagged` — the "two correct pieces of
-code disagreeing" shape, which `Markers.luau`'s own header already warns about (*"A TAG IS A STRING
-WITH NO SCHEMA, so a typo yields an empty list and a silently dead rule"*).
+### 4.2 The tag vocabulary has one home, and that is unchanged
 
-**Decision: `Map.TAGS` is the one home for the strings.** `MapGen.Markers` writes from there,
-`Match.Markers` reads from there, `TestArena` tags from there. Cost: one `require` in each. The swap is
-a small change inside each owner's own file and belongs to the first map task — listed in §11 as a
-cross-system change, not a blocker.
+`Map.TAGS` is the one home for the five strings; `MapGen.Markers` writes from there
+(`Markers.place`), `src/server/Match/Markers.luau` reads from there, `src/server/TestArena.luau` tags
+from there. Row 43a(h) notes `tests/server/test_arena.spec.luau` still spells them literally: leave it,
+and **comment it as deliberate** — a spec that re-derives the contract from the contract checks
+nothing.
 
 ### 4.3 What the markers are, physically
 
-Every marker is an **`Anchored`, `CanCollide = false`, `CanQuery = false`, `Transparency = 1` `Part`**
-under `Workspace.DrivenHuntMap.Markers`, named for its kind and index (`ShooterPost1`…`ShooterPost8`),
-sized as `docs/design/drive.md` §6.1 specifies, and tagged. Invisible and inert: a marker that can be
-shot, walked into or collided with is a gameplay object pretending to be metadata.
+Every marker is an **`Anchored`, `CanCollide = false`, `CanQuery = false`, `CanTouch = false`,
+`Transparency = 1` `Part`** under `Workspace.DrivenHuntMap.Markers`, named for its kind and index, and
+tagged. This is as built (`Markers.place`) and it is load-bearing, for the reason that module's header
+records: `Weapon.Cast` sets no `RespectCanCollide`, so a 1,240-stud invisible drive line with
+`CanQuery = true` would eat shots.
 
-Two shapes are load-bearing and are not the generator's choice:
+Three shapes are not the generator's choice:
 
-- **The drive line is exactly one part**, `size = (560, 1, 1)` at the line's z, and its
-  `CFrame.LookVector` points at **+Z, toward the drivers**. `src/server/Match/Markers.luau` publishes
-  `normal = lines[1].CFrame.LookVector`, `src/server/Weapon/SafetyArc.luau` consumes it, and two
-  tagged lines make `complete = false`. Build it with `CFrame.lookAt`, as
-  `src/server/TestArena.luau`'s `buildDriveMarkers` does.
-- **A shooter post is a part a character is put down on top of**, because
-  `src/server/Match/Body.luau`, `Body.placementFor`, adds `post.Size.Y / 2 + STAND_HEIGHT_STUDS`.
-  So a post is a **visible, solid** part (a low platform, `CanQuery = true`, `CanCollide = true`,
-  `Transparency = 0`) standing on its own flat pad with its base at `groundY` — the one marker kind
-  that is real geometry rather than metadata, and the reason §6 covers posts.
-
-`DrivenHunt.Tree` is the other exception: it goes on **≤ 12 real trunk parts near the shooter line**,
-chosen by `Layout`, because it is the tie-up anchor (`docs/design/drive.md` §8.4) and a player tied to
-a spruce 900 studs away is a teleport. **The forest's other ~2,988 trees are not tagged** —
-`Match.Markers` would otherwise return 3,000 parts for a nearest-tree search that runs on every
-violation.
+- **The drive line is exactly one part**, now `size = (1240, 1, 1)` — the corridor's full width — at
+  `z = Map.ROAD.z`, built with `CFrame.lookAt(position, position + Vector3.zAxis)` so its
+  `LookVector` points at **+Z, the drivers**. `src/server/Match/Markers.luau`, `Markers.read`,
+  publishes `normal = line.CFrame.LookVector`; `src/server/Weapon/SafetyArc.luau` consumes it; two
+  tagged lines make `complete = false` and the drive sits in `Waiting` for ever.
+- **A shooter post is a part a character is put down on top of.** `src/server/Match/Body.luau`,
+  `Body.placementFor`, returns `post.Position + (0, post.Size.Y / 2 + STAND_HEIGHT_STUDS, 0)` with
+  `STAND_HEIGHT_STUDS = 3.5`. With the v2 post size of `(4, 6, 4)` that is **ground + 9.5 studs** over
+  a part that does not collide — the drop named in row 43a(l) and audit-004 F9. **The post marker
+  becomes `(6, 1, 6)`**, centred at `GROUND_Y + 0.5`, so the stand point is ground + 4.5 and a
+  character's root lands about a stud above where it stands. Karen confirms it by standing on one
+  (§18, §20).
+- **`DrivenHunt.Tree` goes on the 12 placed tie trees only**, behind the line at `z = -745`
+  (`Layout.tieTreePoints`, `Props.tieTrees`, `Markers.tagTieTrees`). The wood's other ~2,900 trunks are
+  **not tagged**: `Body.anchorFor` scans every tagged tree on every violation, and a 3,000-part scan
+  per violation is a different bug.
 
 ---
 
 ## 5. The generator's public interface
 
-Types are Luau annotations. `luau-lsp analyze` is not in CI (`TASKS.md` row 3), so they document and
-help the editor; they are not a gate.
-
-### 5.1 The entry points
+Declared **as built**, with this revision's changes marked. This section replaces the v2 declarations
+that had drifted — rows 45a(g), 47a(f) and 48a(d) all report the same class of defect (a design
+declaring an old signature), and they are closed here.
 
 ```luau
-export type StepSpec = {
-    index: number,            -- 1-based, stable for a given (seed, config)
-    kind: "clear" | "terrain" | "hedgerow" | "stand" | "track" | "bog" | "props" | "markers" | "settings",
-    label: string,            -- "terrain tile 7/16 (x=-256..-128, z=0..128)"
-    assetKeys: { string },    -- which manifest keys this step needs; {} for a pure-geometry step
-    estimatedMs: number,
-}
+export type StepSpec  = { index: number, kind: string, label: string, estimatedMs: number }
 
 export type StepReport = {
     index: number, kind: string, label: string,
     ok: boolean, message: string?,
     voxelsWritten: number?, partsCreated: number?,
-    assetsUsed: { string }?,          -- keys whose real template was baked
-    proxiesUsed: { [string]: number }?, -- key -> count, where a grey proxy stood in (§8.6)
-    assetProblems: { [string]: string }?, -- key -> "no-row" | "licence-blocked" | "contains-script"
-                                          --        | "insert-failed" | "quarantined" | "not-staged"
+    proxyUsed: { string }?,
     elapsedMs: number,
 }
 
-MapGen.VERSION: string
-MapGen.CONFIG: Config                       -- frozen
-MapGen.steps(seed: number): { StepSpec }     -- pure; the plan of the whole run, no side effect
-MapGen.runStep(index: number, seed: number): StepReport   -- performs exactly one step
-MapGen.clear(): { removed: number, terrainCleared: boolean }
-MapGen.digest(): { digest: string, markerDigest: string, parts: number, samples: number,
-                   seed: number, version: string }
-MapGen.census(): Census                      -- READ-ONLY. §7.3: what a run could destroy
-MapGen.verifyContract(): { ok: boolean, findings: { string }, counts: { [string]: number } }
-MapGen.retag(): { tagged: number }           -- only exists if measurement B says tags do not persist
-```
+export type Reach = { from: string, to: string, status: string, waypoints: number }  -- `to` is NEW
 
-Every one returns a plain table. `tools/mapgen.py` wraps the call in `HttpService:JSONEncode`, so an
-MCP reply is machine-readable and lands in the run log verbatim — the same discipline
-`tools/studio_mcp.py` uses for the test report (`QUERY_REPORT`, `luau_json`).
-
-### 5.2 The layer order, which is also the step order
-
-Each layer is a pure function of the seed and the layers before it, so one can be re-run alone
-(`docs/research/2026-09-24-map-generator.md`, pattern point 3):
-
-1. **clear** — `Terrain:Clear()`, destroy `Workspace.DrivenHuntMap`. One step.
-2. **terrain** — `Ground.writeTile(tx, tz, seed)`, one step per tile: height → occupancy → material
-   (`Grass` field, `LeafyGrass` rough edges, `Ground` track, `Mud` bog). 16 tiles for the 512 slice,
-   256 for the full map (§13.2).
-3. **hedgerow** — `Props.hedge(line, seed)`, one step per hedgerow polyline.
-4. **stand** — `Props.stand(polygon, seed)`, one step per tree stand.
-5. **track** — `Ground.paintTrack(spline)` (material only; the height was flattened in 2).
-6. **bog** — `Ground.paintBog(disc)`, plus reeds.
-7. **props** — fences, gates, stones, the high seats.
-8. **markers** — `Markers.place(layout)`. Last of the world layers, so a marker is never orphaned by a
-   later step, and the posts stand on pads the terrain step already flattened.
-9. **settings** — `Settings.apply(Map.STREAMING)`. Deliberately last: a streaming change during
-   generation would make the rest of the run fight the engine. Inert while
-   `Map.STREAMING.enabled == false` (M2.6).
-
-### 5.3 The heightfield
-
-`Height.at(x, z, seed, config)` — the technique read out of **RTerrainGenerator** (§12 source 5) and
-implemented from scratch on `math.noise`:
-
-```
-w  = warp * (noise(x*wf + ox, z*wf + oz), noise(x*wf + ox + 313.7, z*wf + oz + 71.3))
-h  = Σ_{o=1..OCTAVES} amp_o * noise((x + w.x + ox) * f_o, (z + w.y + oz) * f_o)
-h  = h * RELIEF                          -- studs
-h  = h * corridorFalloff(x, z)           -- 1 outside the corridor, -> CORRIDOR_RELIEF/RELIEF inside
-h  = flattenPads(h, x, z, layout.pads)   -- §6.2, LAST, so nothing can undo it
-return groundY + h
-```
-
-**The seed reaches the noise as a coordinate offset** (`ox`, `oz` from `Random.new(seed)`), because
-`math.noise` has no seed parameter (§12 source 2). Everything discrete (which tree, where, hedgerow
-gaps) comes from `Random.new(seed * 1000 + LAYER_ID)`, **one RNG per layer**, never a shared sequence:
-with one shared sequence a step's output would depend on which steps ran before it in that MCP call,
-and fact 2 means that is not knowable.
-
-### 5.4 Statelessness, restated as a rule the Builder can check
-
-> A step may read: its arguments, `MapGen.CONFIG`, `ReplicatedStorage.Map`, `ServerStorage.Assets`,
-> the pure modules, and the world as it currently stands. A step may not read: a module upvalue
-> written by an earlier step, a cached plan, a memo table, **an `Assets.Loader` cache entry from an
-> earlier call**, or `Workspace` for anything but its own idempotence check.
-
-Every world-writing step is **idempotent**: re-running step 7 destroys and rebuilds
-`…Map.Props.Hedge3`, it does not add a second one. That is how a failed step is retried, and it is the
-property that makes `--step` useful.
-
----
-
-## 6. Flat pads and the height band — the geometry the game's existing code requires
-
-This is the section the Task 33 design cited seven times and did not contain. It is the Director's
-decision D (`reviews/task-33/BRIEF.md`): **flatten the pads in terrain; the boar stays untouched.**
-
-### 6.1 Why, with the code that forces it
-
-| Fact | Evidence | What breaks without a pad |
-|---|---|---|
-| A boar's spawn Y is `field.groundY + BODY_SIZE.Y/2 + SPAWN_CLEARANCE`, whatever the caller passed | `src/server/Boar/init.luau`, `Runtime:spawn` | a `BoarSpawn` marker on ground 12 studs high spawns the boar 12 studs **inside the hill**; on ground 12 studs low it drops |
-| The spawn X and Z come from a tagged marker's `Position` | `src/server/Match/init.luua`'s `world.boars:spawn(position)`, fed by `Markers.read`'s `boarSpawns` | the generator, not the boar, decides whether that point is flat |
-| A boar below `groundY - FALL_LIMIT` (50) despawns as `outOfBounds` | `src/server/Boar/Brain.luau`, `Brain:_outcome`; `Boar.CONFIG.FALL_LIMIT` | relief deeper than 50 studs inside the field deletes boars silently |
-| A shooter is placed at `post.Position + (0, post.Size.Y/2 + 3.5, 0)` | `src/server/Match/Body.luau`, `Body.placementFor`; `Match.CONFIG.STAND_HEIGHT_STUDS` | a post part hovering over a slope drops the player; a buried one embeds them |
-| Drivers spread across the `DriverStart` part's X extent | same function, the `Drivers` branch | a 144-stud strip across a slope spawns half the team in the air |
-
-### 6.2 The rule
-
-A **pad** is a disc or rectangle where `Height.at` returns exactly `groundY`, with a smooth blend to
-the noise height over `Map.PAD.blend` studs. `Layout` emits the pad list; `Height.flattenPads` applies
-it **last**, so no later term can reintroduce a slope:
-
-```
-for each pad:
-    d = distance from (x, z) to the pad's edge      -- 0 inside
-    if d <= 0            then return groundY
-    if d <  blend        then h = h * smoothstep(d / blend)
-```
-
-Pads, from `Layout`:
-
-| Pad | Shape | Number |
-|---|---|---|
-| boar spawn | disc, radius `PAD.boarSpawnRadius` | 4 |
-| shooter post | disc, radius `PAD.postRadius` | 8 |
-| driver start | rectangle, half-extents `PAD.driverStartHalf` | 1 |
-
-`Scatter` rejects every pad plus its blend ring, so no tree grows out of a spawn point, and
-`Ground.paintTrack` / `paintBog` may paint material over a pad but may never change its height.
-
-### 6.3 The corridor band
-
-Inside `Map.FIELD.bounds` the relief is scaled to `Map.CORRIDOR_RELIEF = 16` studs
-(`corridorFalloff`, §5.3), against `± 40` for the rest of the map. Two reasons, both numeric: 16 is far
-inside `FALL_LIMIT = 50`, so terrain can never despawn a boar; and a 16-stud band over 1,600 studs of
-drive is a gentle field rather than a valley the boar's `LinearVelocity` plane has to climb.
-
-### 6.4 What is asserted, and where
-
-- §14.1 check 4: every `BoarSpawn` marker's `Position.Y` is within `Map.PAD.tolerance` (0.75) of
-  `Map.FIELD.groundY`. This is the check that stops a boar spawning inside a hill, and it fails on the
-  *marker*, which is the thing the game reads.
-- §14.1 check 4b: every `ShooterPost` part's **bottom face** is within `tolerance` of `groundY`, and the
-  `DriverStart` part's four corners likewise.
-- §14.1 check 10: 64 downward rays across the corridor all hit `Workspace.Terrain` inside the corridor
-  band.
-- A pure spec on `MapGen.Height`: `Height.at` at each pad centre equals `groundY` exactly, and at
-  `blend + 1` studs outside a pad it equals the unflattened height — so the blend cannot silently
-  swallow the whole map, which a bug in `smoothstep` would do.
-
----
-
-## 7. Invoking a run: `tools/mapgen.py`
-
-Allowed past `ROADMAP.md` speed rule 1 by the Director: *"A: allowed. `tools/mapgen.py` is game work
-for Karen's map option C, not a process improvement; the tooling freeze does not apply to it"*
-(`reviews/task-33/BRIEF.md`).
-
-### 7.1 Commands
-
-```
-python tools/mapgen.py plan     [--seed N]                   # read-only: the steps and the plan
-python tools/mapgen.py census                                # read-only: what a run could destroy (§7.3)
-python tools/mapgen.py build    --seed N --backup <accepted>  # clear, then every step, in order
-python tools/mapgen.py step  <i,j,k> --seed N --backup <accepted>
-python tools/mapgen.py clear    --backup <accepted>           # Terrain:Clear() + destroy the map root
-python tools/mapgen.py verify   --seed N --backup <accepted>  # build, digest, clear, build, digest, compare
-python tools/mapgen.py digest                                # read-only
-python tools/mapgen.py contract                              # read-only: MapGen.verifyContract()
-python tools/mapgen.py shots                                 # read-only: the six named captures (§14.3)
-```
-
-Exit codes, deliberately the harness's shape: **0** done · **1** a step failed · **2** REFUSED.
-
-### 7.2 What it refuses, before it touches anything
-
-Every one is a `REFUSED` (exit 2) with the reason printed. A generator that runs anyway is how a place
-gets destroyed.
-
-1. **Studio not in Edit mode**, or `game.PlaceId != servePlaceIds[0]` — reuse `Studio.mode()` and
-   `expected_place_id()` from `tools/studio_mcp.py`.
-2. **A dirty tree** for any mutating command (`git_state()`): a map built from uncommitted code cannot
-   be reproduced from a commit, and *"PASS on a dirty tree is not valid evidence"* is already this
-   project's rule (`tools/studio_mcp.py`, exit code 3).
-3. **Studio's copy of the code differs from disk.** Read the `Source` of every
-   `ServerStorage.MapGen.*`, `ServerStorage.Assets.*` and `ReplicatedStorage.Map` script and compare
-   byte-for-byte with line endings normalised — the comparison `compare_synced` makes. Catches "Rojo is
-   not connected" and "Karen has not pressed Connect since the last edit", which would otherwise build
-   yesterday's map from today's seed. **`Assets` is in this list now:** building from a stale manifest
-   would bake an id the commit does not name.
-4. **No accepted backup** — §7.3.
-5. **`--seed` missing** on `build`/`verify`. There is no default seed: an unnamed seed is an
-   unreproducible map.
-6. **A required asset key is missing from `Assets.ROWS` *and* proxies are disabled.** Proxies are on by
-   default (§8.6), so this fires only when a task deliberately demands the real thing.
-
-### 7.3 The backup rule, and exactly what the refusal accepts
-
-The brief asks for this explicitly, so here is the whole reasoning, not just the rule.
-
-**What a run can destroy.** Only two things, because §1.2 forbids the rest: the global `Terrain`
-(`MapGen.clear` calls `Terrain:Clear()`), and `Workspace.DrivenHuntMap`. It never writes `Lighting`,
-`SoundService`, `ServerStorage`, `ReplicatedStorage` or any player. Everything in a Rojo-owned
-container is on disk and in git by construction.
-
-**What cannot be automated.** `File → Save to File` writes the `.rbxl` that is the only rollback
-Workspace has (§12 source 6). There is **no tool route to it**: StudioMCP's enumerated tool list
-(`docs/research/2026-09-24-map-generator.md` §12) has no save tool, and the Director's key-posting
-route — the mechanism recorded in `tools/studio_mcp.py`'s docstring under *"Starting it WITHOUT
-Karen"*, a PowerShell script outside the repo that brings the DEV Studio window to the front and posts
-a key to it — can press **Alt+Shift+S (Save to Roblox)** but has no shortcut for Save to File
-(`reviews/task-42/BRIEF.md`). Save to Roblox is not a backup anyway: it *overwrites* the place with
-the current state.
-
-**So `--backup` accepts exactly two things, and one of them needs no human:**
-
-| Form | Accepted when | Checked by |
-|---|---|---|
-| `--backup <path>.rbxl` | the file exists, is **outside the repository**, is non-empty, and was modified within `BACKUP_MAX_AGE_HOURS = 6` | `os.stat` plus a repo-root containment test. Karen's `File → Save to File`, a `NEEDS KAREN` click |
-| `--backup census` | `MapGen.census()` proves the place holds **nothing a run could destroy that is not reproducible from committed code plus a seed** — see below | the tool, with one read-only MCP call. **No human** |
-
-```luau
-export type Census = {
-    workspaceChildren: { { name: string, className: string } },  -- every child of Workspace
-    unknownChildren: { string },     -- not in { Camera, Terrain, DrivenHuntMap, TestArena }
-    terrainOccupiedRegions: number,  -- count of non-empty sample regions on the digest lattice
-    terrainDigest: string,           -- the terrain half of §7.6's digest
-    mapRootExists: boolean,
-    scriptsUnderWorkspace: number,   -- must be 0 (§8.7)
+MapGen.VERSION = Map.GENERATOR                 -- CHANGED: read, not typed (row 44a(f))
+MapGen.CONFIG: Config                          -- frozen
+MapGen.steps(seed: number): { StepSpec }        -- pure; the whole plan, no side effect
+MapGen.runStep(index: number, seed: number): StepReport
+MapGen.clear(): { removed: number, terrainCleared: boolean, cellsAfter: number, cellsBefore: number,
+                  paletteRestored: boolean }    -- `paletteRestored` is NEW (§8.4)
+MapGen.builtSeed(): number?
+MapGen.digest(): { digest: string, parts: number, samples: number, seed: number?, version: string }
+MapGen.markerDigest(): string                   -- its reader is the M2.5 committed-digest check
+MapGen.reachability(): { ok: boolean, findings: { string }, results: { Reach } }
+MapGen.expectedCounts(): { [string]: number }
+MapGen.verifyContract(): {
+    ok: boolean, findings: { string }, counts: { [string]: number },
+    streaming: { [string]: string }, markerDigest: string, seed: number?,
+    palette: { [string]: string },               -- NEW: what the place's terrain colours actually are
 }
 ```
 
-`--backup census` is accepted when **all** of:
+**One correction the Builder must make while here** (rows 45a(c), 47a(d), 48a(c), three reviews
+running): `verifyContract`'s `root == nil` early return omits `streaming`, `markerDigest`, `seed` and
+now `palette` against its own declared type. Either the early return fills every field, or the type
+declares them optional. **Fill them** — a caller that reads `result.markerDigest` on a missing map
+should get `""`, not a `--!strict` lie.
 
-1. `unknownChildren` is empty. Anything else in `Workspace` is hand-made content with no home on disk,
-   and a rebuild is not allowed to proceed on a guess about it. (At this commit that set is exactly
-   `Camera` and `Terrain`: `TASKS.md` row 22 moved the default `Baseplate` and `SpawnLocation` into
-   `ServerStorage.Archive`, and `src/server/TestArena.luau`'s header records that the arena is the only
-   other thing in Workspace.)
-2. either `terrainOccupiedRegions == 0` (nothing sculpted), or `terrainDigest` equals the terrain half
-   of the committed `Map.DIGEST` — i.e. the terrain that exists is this repo's own output from
-   `Map.SEED` and can be rebuilt by `build --seed <Map.SEED>`.
-3. `scriptsUnderWorkspace == 0`.
+### 5.1 The step order, which is also the layer order
 
-**Why that is sound, stated as the claim it is:** if the only things a run can destroy are (a) nothing
-and (b) something a committed seed reproduces, then a place file protects nothing the repository does
-not already hold. The moment either stops being true — Karen sculpts a hill, drags in a model, keeps a
-prototype in Workspace — condition 1 or 2 fails, the tool refuses, and the `.rbxl` becomes mandatory
-again. **The refusal is the safety mechanism, not the backup.**
+Each layer is a pure function of the seed and the layers before it, so one can be re-run alone.
 
-**And what it refuses to accept, deliberately:** any flag that asserts a save or a backup happened
-without evidence — `--backup roblox`, `--saved`, `--i-saved-it`. `tools/mapgen.py` cannot observe a
-Studio menu action or a cloud version, and a tool that prints OK on an unverifiable attestation is the
-exact failure `docs/PROJECT_CONTEXT.md` opens with. If Roblox's own version history is later shown to
-be a usable rollback for this place, that is a new, cited accepted form — **not verified here, and this
-design does not rely on it.**
-
-### 7.4 Persisting the result, and what proves it
-
-An unsaved map dies with the Studio session. The save is **not** part of the run, and `mapgen.py` never
-posts a keystroke (§1.2). After a successful run the tool prints:
-
-```
-SAVE REQUIRED: the map exists only in this Studio session.
-  Karen:        File -> Save to Roblox
-  the Director: post Alt+Shift+S to the DEV Studio window (the press-F7 mechanism,
-                tools/studio_mcp.py docstring, "Starting it WITHOUT Karen"; the script is outside the repo)
-PROOF: reopen the place, then `python tools/mapgen.py contract`. Nothing here can verify a save.
-```
-
-That reopen-and-`contract` is the same action as **measurement B** (§14.5): it answers "did the save
-happen" and "do `CollectionService` tags survive a save and a reopen" in one pass.
-
-### 7.5 Chunking, timeouts and progress
-
-One MCP call per step, `Studio._rpc(..., timeout=MAPGEN_CALL_TIMEOUT)` with
-`MAPGEN_CALL_TIMEOUT = 180` s against a per-step design target of ≤ 60 s (§13.3). Reasons, in order:
-
-- `_rpc`'s default timeout is 120 s (`tools/studio_mcp.py`, `Studio._rpc(self, method, params,
-  timeout=120)`), and a whole-map run in one call would exceed it. Whether StudioMCP has its own
-  ceiling is **unverified**; chunking makes the question moot.
-- A failed tile names itself. A single 20-minute call that returns "error" names nothing.
-- Fact 2 forbids carrying state across calls anyway, so the chunk boundary is free.
-
-Every `StepReport` is printed as it lands and appended to `.mapgen/<utc>-<seed>.json` (git-ignored; new
-`.gitignore` entry). The final line is the one the Builder pastes into `reviews/task-<N>/REQUEST.md`:
-
-```
-[mapgen] OK: 271/271 steps @ <full HEAD sha> seed=7 digest=<64 hex> (clean tree)
-```
-
-It is **not** a harness line and never substitutes for one (`CLAUDE.md`, git workflow step 4).
-
-### 7.6 Reproducibility: the digest
-
-`MapGen.digest()` returns two hex strings over a **canonical** serialisation:
-
-- `markerDigest` — every instance under `Workspace.DrivenHuntMap.Markers`, sorted by full name, as
-  `name|ClassName|x|y|z|sx|sy|sz` with each number rounded to 0.01, plus every tag on every tagged
-  instance, sorted.
-- `digest` — `markerDigest`, plus the same serialisation for `…Map.Props`, plus
-  `DIGEST_TERRAIN_SAMPLES = 4096` terrain occupancy/material samples on a fixed 64 × 64 lattice (read
-  with `Terrain:ReadVoxels`, one region per row), occupancy rounded to 0.01.
-
-`python tools/mapgen.py verify --seed N` builds, digests, clears, builds again and compares. **A
-mismatch is the answer to the research note's biggest open question** — whether `math.noise` is stable
-within a session and across engine versions (§12 source 2). If it is not, the fallback is named there:
-a small seeded value-noise implementation in `Height.luau`, ~40 lines, which makes reproducibility ours
-rather than borrowed. That branch is a measurement, not a decision, so it blocks nobody.
-
-The digest of the accepted map is committed as `Map.DIGEST`, and §14.1 check 11 asserts the live
-`markerDigest` still matches its committed half (not the full terrain digest, which is too slow for a
-spec). That is the guard against a hand edit in Studio silently becoming the map — and it is the same
-number `--backup census` condition 2 leans on.
-
-### 7.7 Recovery
-
-There is no Ctrl+Z. `ChangeHistoryService` is plugin-security and whether `execute_luau` can reach it
-is **unverified**; this design does not rely on it. Three routes, in order of use:
-
-1. `python tools/mapgen.py build --seed <same>` — rebuild, deterministic, no human.
-2. `python tools/mapgen.py clear` — back to an empty world, then flip `Map.EXPECTED_WORLD` to
-   `"arena"` and the grey box returns at the next server start (§10).
-3. Karen opens the `.rbxl` — the only route that recovers anything the generator did not make, and the
-   only reason §7.3's first form exists.
-
----
-
-## 8. Assets at edit time — rewritten for D9
-
-### 8.1 What Task 39 changed
-
-Task 33 §8.2 said: *"Primary route: `InsertService:LoadAsset(id)` from the generator's own Luau"*, for
-Creator Store props. `docs/research/2026-09-26-asset-pipeline.md` D9 killed that for anything Karen
-does not own: `LoadAsset` requires the asset be *"created or owned by the game creator"*, *"shared by
-the asset owner"* or *"owned by Roblox"*; the documented escape is
-`AssetService:LoadAssetAsync` **with `AssetService.AllowInsertFreeAssets`**, and that property is
-Access ReadOnly with **`RobloxScriptSecurity` on read *and* write**. No script can set it. There is no
-workaround and there is no measurement that will produce one.
-
-What survives, and it is most of the plan: **Karen's own uploads are fine by construction.** Everything
-`tools/assets.py` puts on her account satisfies *"created or owned by the game creator"*
-(`docs/design/asset-pipeline.md` §5.5 route A). The narrowing is only about models she did not make.
-
-### 8.2 The manifest is not this system's
-
-`ServerStorage.Assets` owns the ids, the licence bases and the loader
-(`docs/design/asset-pipeline.md` §2.1). `MapGen` **requires** it and writes nothing in it. The reason
-is in that design's §2.3 and it is a real defect in Task 33: the generator may not be required by a
-runtime script (§1.2), `Boar.Body` is a runtime script that needs an id, so a manifest inside `MapGen`
-forces either a runtime `require` of a build tool or a second copy of the ids.
-
-`MapGen` uses exactly these, all read-only: `Assets.byKey(key)`, `Assets.BASES`, `Assets.budget(key)`,
-`Assets.KEYS`, `Assets.keysFor("map")`, and `Assets.Loader`.
-
-### 8.3 The two insertion routes at edit time, and which is which
-
-| Route | Mechanism | For | Reproducible from git? |
+| # | Kind | Count | What |
 |---|---|---|---|
-| **A — primary** | `Assets.Loader.preload{…}` → `InsertService:LoadAsset(row.modelId)` inside a `pcall`, into the container this system nominates | **every asset Karen owns**: her Meshy uploads (`meshy-paid-owned`, `meshy-free-ccby`), her own work, a **purchased** Creator Store asset, a free one whose creator ticked share, anything Roblox owns | **Yes.** id + seed + code |
-| **B — named fallback, unverified** | `tools/mapgen.py` calls StudioMCP's `insert_asset` into `Workspace.DrivenHuntMap.Staging` **before** the step that needs the key; `Props` finds the template there by key name and treats it exactly like A's | a **licensed** model that route A cannot load: in practice a shared-free or purchased Store model whose route-A load fails, and nothing else | **Partly.** The insert is a tool call, not Luau; the run log records the id, and the step fails loudly if the staged template is absent (`not-staged`) |
+| 1 | `clear` | 1 | `Terrain:Clear()`, destroy `Workspace.DrivenHuntMap`, **restore the palette**, and fail loudly if cells remain (as built, audit-004 must-fix 1) |
+| 2 | `palette` | 1 | **NEW.** `Ground.applyPalette(Map.PALETTE)`. Second, so every later screenshot shows the intended colours |
+| 3 | `terrain` | 256 | `Ground.writeTile` — one 128 × 128 tile: height → occupancy → material. The road bench, the assembly bench, the pads, the bog dip and the field/wood material split all resolve here, per column |
+| 4 | `hedgerow` | 3 | `Props.hedge` — one line per step, gates cut where it crosses the corridor |
+| 5 | `track` | 1 | `Ground.paintTrack` — the flank field track, **material only** |
+| 6 | `trees` | 16 | **NEW shape.** `Props.trees(root, seed, config, block)` — one 512 × 512 block per step, its own folder, idempotent |
+| 7 | `brush` | 4 | **NEW.** `Props.brush` — low cover, one quadrant per step |
+| 8 | `stand` | 1 | `Props.tieTrees` — the 12 placed tie trees |
+| 9 | `markers` | 1 | `Markers.place` + `Markers.tagTieTrees`. Last of the world layers, so no marker is orphaned and the posts stand on a bench the terrain step already flattened |
+| 10 | `settings` | 1 | `Settings.apply(Map.STREAMING)` — refuses while `MAY_WRITE == false` and says so |
 
-`insert_asset` is in StudioMCP's enumerated tool list
-(`docs/research/2026-09-24-map-generator.md` §12) and has **never been called by this repo** — the
-harness is read-only by construction. Whether it can place a model the place's owner does not own, and
-whether it works in Edit mode at all, is **measurement M5** (§14.5). `tools/mapgen.py` reaches it
-through `Studio._call("insert_asset", …)` in one adapter function, because `tools/studio_mcp.py` must
-not grow a public write path (§1.2); that is a deliberate use of a private method and it is the only
-one.
+**285 steps.** There is no bog step, and there never was one: the bog is a dip and a material, both
+decided per column by `Layout.bogDepth` (as built, and the reason is in `MapGen.steps`).
 
-**Route C, for completeness, is not a route:** Karen inserts a model by hand in Studio and the
-generator adopts it from `…Map.Staging`. Mechanically identical to B without the tool call. It costs a
-click per rebuild and it is the last resort, not a plan. Exporting such a model to
-`src/serverstorage/` as `.model.json` is the *other* last resort and it needs `TASKS.md` row 16 (§9).
+### 5.2 Statelessness, restated as a rule the Builder can check
 
-### 8.4 Templates live for one MCP call, not one run
+> A step may read: its arguments, `MapGen.CONFIG`, the contract through `MapGen.Contract`, the pure
+> modules, and the world as it stands. A step may **not** read a module upvalue written by an earlier
+> step, a cached plan, a memo table, or `Workspace` for anything but its own idempotence.
 
-Task 33 said "insert once per run". **Fact 2 makes that impossible**: `execute_luau` hands every call a
-fresh copy of every module, so `Assets.Loader`'s cache table is empty at the start of every step. The
-correct unit is the **call**:
-
-```luau
--- Props.luau
-function Props.withTemplates(keys: { string }, stepIndex: number, fn: (get: (string) -> Instance?) -> ())
-    local staging = Instance.new("Folder")          -- …Map.Staging.Step<i>, created here
-    staging.Name = string.format("Step%d", stepIndex)
-    staging.Parent = stagingRoot()                  -- Workspace.DrivenHuntMap.Staging
-    Assets.Loader.setCacheParent(staging)           -- NOT ServerStorage.AssetCache: see below
-    local reports = Assets.Loader.preload(keys)     -- yields; edit time, so that is fine
-    fn(function(key) return Assets.Loader.template(key) end)
-    Assets.Loader.clear()                           -- destroys only what it created (rule 7)
-    Assets.Loader.setCacheParent(nil)
-    staging:Destroy()                               -- nothing survives the call
-end
-```
-
-Three properties that are not tidiness:
-
-- **`setCacheParent` must point into `Workspace`, never `ServerStorage`.** `ServerStorage` and
-  `ReplicatedStorage` are fully Rojo-owned and default to `$ignoreUnknownInstances: false`, so a
-  template cached there is **deleted at Karen's next Connect** (`CLAUDE.md`, "Rojo DELETES
-  Studio-created instances in Rojo-owned containers"). The Loader's default
-  `ServerStorage.AssetCache` is correct at run time and wrong at edit time; this is why its interface
-  takes a container (`docs/design/asset-pipeline.md` §6.8).
-- **The staging folder is destroyed inside the same call.** A template left in Workspace renders, gets
-  screenshotted, and ends up in the digest.
-- **Cost, named:** one insert per key per step instead of per run. At edit time that is acceptable and
-  it is not optional. §13.3 budgets it.
-
-### 8.5 The licence gate, in the generator, where it can fire
-
-Fact 7: baking is shipping. So before `Props` uses a real template for a key:
-
-```luau
-local row = Assets.byKey(key)
-if not row then                                     -- proxy, report "no-row"
-elseif not Assets.BASES[row.licence.basis].mayShip then  -- proxy, report "licence-blocked"
-else ... use the template ...
-```
-
-Two consequences worth stating plainly rather than discovering:
-
-- `Assets.BASES["meshy-free-ccby"].mayShip` defaults to **false** (`docs/design/asset-pipeline.md`
-  §4.5). So **until Karen answers the Meshy-plan question, every free-plan Meshy prop is a grey
-  proxy** and the step says so. That blocks **M2.3**, not M2.1 or M2.2, and it is her one-boolean
-  decision, not the Architect's.
-- The Loader's own refusals (`quarantined`, `contains-script`, `insert-failed`) stay where they are; this
-  gate is additional and stricter, because `mayUpload` is not `mayShip`.
-
-### 8.6 No id yet? A grey-box proxy, not a blocked task
-
-If `Assets.byKey` returns `nil`, or the licence gate refuses, or the insert fails, `Props` places a
-**proxy**: an `Anchored` `Part` of `row.sizeStuds`' footprint and height (or the config's proxy size
-for a key with no row at all), in the key's proxy colour, `CanCollide` as the real prop would be. The
-step reports `proxiesUsed[key]`.
-
-**The whole map is therefore buildable and walkable today**, with no asset ids and no decisions from
-anyone, and each id later replaces one proxy with no code change. This is Milestone 1's own method
-applied to the world, and `docs/design/asset-pipeline.md` §5.3 already mirrors it for game models.
-
-Proxy colours are picked for the Task 22 albedo trap: at the place's default ambient an unlit face
-renders at roughly 0.275 × albedo (`src/server/Boar/init.luau`, the `BODY_COLOR` comment), so a proxy
-at RGB(60, 70, 50) reads black on screen and **looks like a hole in the map**. Proxy albedo is never
-below RGB(120, 120, 120) on any channel-max.
-
-### 8.7 A template containing a script is refused, not stripped
-
-`Assets.Loader` walks a template for `LuaSourceContainer` descendants before the first clone and
-refuses it with `contains-script` (`docs/design/asset-pipeline.md` §5.4). For a **route B** staged
-template the Loader never saw it, so **`Props` performs the same walk itself** on anything it finds in
-`…Map.Staging`, destroys it, proxies the key and fails the step with the id and the script's name.
-
-This is not paranoia. Free models routinely carry scripts, and one surviving `Script` under Workspace
-makes the harness's unmanaged-script check fail **every run from then on**
-(`tools/studio_mcp.py`, `unmanaged_scripts`). Refusing rather than stripping is deliberate: a stripped
-model is half-functional in ways nobody looks for, and the right answer is a different asset.
-
-### 8.8 Which props are Creator Store, as of this document
-
-`docs/design/asset-pipeline.md` §16 Karen 3 and its Director item A: *"treat 'the map's small props are
-Creator Store where they fit' as withdrawn"* until measurement M5, and **Meshy for everything in the
-per-key budget table**. This design adopts that. `ROADMAP.md` speed rule 6 ("Creator Store assets
-first") is therefore **narrowed by evidence, not by preference**: a free Store model is licensed *and*
-script-loadable only if one flag was ticked by its creator (`docs/research/2026-09-26-asset-pipeline.md`
-sources 8, 14 and 15), and that is the Director's call to record.
+Every world-writing step is **idempotent**: re-running the trees step for block 7 destroys and rebuilds
+`…Map.Props.Trees.Block07`; it does not add a second wood. That is what makes `mapgen.py step` a usable
+retry.
 
 ---
 
-## 9. The typed-value question (`TASKS.md` row 16), answered
+## 6. The ground
 
-**The map generator does not need the harness to learn typed values, and this design deliberately
-keeps it that way.** Row 16's note assumed "templates on disk"; there are none.
+### 6.1 The heightfield (unchanged in technique)
 
-| Thing you might put on disk | Where it goes instead | Why |
+`Height.at(x, z, seed, config, bogDepth?)` — domain-warped fractal noise on `math.noise`, with the
+seed entering as a **coordinate offset** because `math.noise` takes no seed. Pattern borrowed from
+RTerrainGenerator (§14 source 4); the code is ours (`Height.offset`, `fbm`, `Height.at`).
+
+### 6.2 The three masks, in the order they apply
+
+```
+h  = fbm(warped x, warped z) * RELIEF
+h  = h * corridorFalloff(x, z)      -- 1 outside; CORRIDOR_RELIEF/RELIEF inside; 90-stud ease  [as built]
+h  = h * benchBand(x, z)            -- NEW: BENCH_RELIEF/RELIEF within BENCH_BAND of a bench
+h  = max(h, edgeFloor(x, z))        -- NEW: a floor, not an addition, so the voxel band is unchanged
+h  = benchOrPad(h, x, z)            -- NEW order: pads, then benches; a bench WINS over a pad
+```
+
+- **`benchBand`** eases the relief down to `BENCH_RELIEF = 6` studs within `BENCH_BAND = 120` studs of
+  a bench centreline, smoothstepped. Its only job is to keep the verge shallow: 6 studs over the
+  24-stud verge is `atan(6/24) = 14.0°`, inside `CORRIDOR_MAX_SLOPE_DEG = 15`. Without it, the
+  corridor's ±16 studs against a flat road gives 33.7°, which the slope spec would (correctly) fail.
+- **`edgeFloor`** raises the outer ring of the map so a player on the road does not look at a void:
+  it is a **floor** (`max`), rising smoothly to `EDGE_MAX_Y = 44` studs in the outer 100 studs, and it
+  is **suppressed within `BENCH_BAND` of a bench**, so the road runs off the map flat and the edge is
+  hidden by trees instead of by a ridge. A floor rather than a sum keeps the maximum height at 44,
+  inside the measured voxel band `BAND_Y = {-48, +48}`, so the tile size that measurement A proved
+  (128 × 128 × 96 studs at resolution 4) **does not change**.
+
+### 6.3 Benches: the road, and the drivers' assembly track
+
+A **bench** is a flat strip at exactly `GROUND_Y`, eased into the terrain over `verge` studs on each
+side, and tapered over 60 studs at each end. `Layout.benches(config)` returns both:
+
+| Bench | Axis | At | Half-width | Verge | From → to | Material | Why |
+|---|---|---|---|---|---|---|---|
+| the forest road | along x | `z = -700` | 8 (16 studs = 4.5 m) | 24 | −900 → +900 | `road` (gravel) | Karen: the line stands on a ride through the woods |
+| the assembly track | along x | `z = +700` | 5 (10 studs) | 20 | −700 → +700 | `road` | the drivers form up on a track at the wood edge and walk in; it also flattens the `DriverStart` strip, which spans 1,120 studs and could not be a disc pad |
+
+`Height.benchHeight` returns `GROUND_Y` inside a bench and the eased value in the verge.
+**The road is level, not contour-following** — a simplification, marked K: a real forest road
+undulates, and the cost of a longitudinal profile is that every post, and the contract's
+`tolerance = 0.75` check, stops being a comparison against one number. If Karen wants the undulation,
+it is `ROAD_RELIEF` in `Config` plus a contract check against `Height.benchHeight(x)` instead of
+against `GROUND_Y`, and it is **not** in v1.
+
+### 6.4 Pads: four, not thirteen
+
+`Layout.pads(config)` returns **only the four boar spawns**, radius `Map.SPAWN_PAD.radius = 30`. The
+eight post pads and the driver-start rectangle are gone, because the posts and the driver start now
+stand on benches. Two consequences worth naming:
+
+- **Row 45a(d) is closed by construction.** At blend 40 the v2 post pads (radius 10 + blend 40 = 54,
+  spacing 80) merged into one flattened strip along the line. There is now a road there, deliberately,
+   and the strip *is* the feature instead of an artefact nobody chose.
+- **The spawn pads grew for the sounders.** Radius 30 covers a group of five spawned inside it
+  (§11), and the nearest two pads are 300 studs apart, so pads never overlap and
+  `Height.atFlattened`'s nearest-pad rule (as built) never has to arbitrate.
+
+### 6.5 What is asserted about the ground, and where
+
+- `tests/server/map_contract.spec.luau`: every `DrivenHunt.BoarSpawn`'s `Position.Y` within
+  `Map.SPAWN_PAD.tolerance` of `Map.FIELD.groundY`; every `ShooterPost`'s **bottom face**
+  (`Position.Y - Size.Y/2`) and the `DriverStart` part's four corners likewise (§16.1).
+- A pure spec on `Height`: `atFlattened` equals `GROUND_Y` **exactly** at each pad centre and at 200
+  sampled points on each bench centreline; at `verge + 1` studs outside a bench it equals the
+  unflattened height — so a bug in the easing cannot silently flatten the map.
+- The slope spec over **three seeds** (closing row 45a(e)), with a **lower bound** as well as the
+  ceiling (closing row 45a(b): the v2 relief-band assertions were arithmetic identities of `Height.at`
+  and would have passed on a dead-flat map).
+
+---
+
+## 7. The wood
+
+### 7.1 Four species, one field, autumn crowns
+
+Karen's four, and nothing else: **oak, birch, black alder, spruce**.
+
+`Scatter.speciesAt(x, z, seed, config)` is pure and deterministic: a low-frequency `math.noise` field
+(`SPECIES_FREQUENCY = 1/260`, so clumps read at about 70 m) chooses a band, and the candidate's own
+drawn key picks inside it. Two forced cases, because they are what makes a European wood legible:
+
+- **alder where it is wet**: `Layout.bogDepth(x, z) > 0` or `Height.at(x, z) < -6` (a hollow) → alder,
+  whatever the field says. Black alder is a wet-ground tree; a spruce in a bog reads as a mistake.
+- **spruce in clumps**: the field's spruce band is contiguous by construction, so the drive crosses
+  dark blocks of spruce and light stands of birch, which is the cover the boar needs.
+
+| Species | Share (K) | Proxy trunk (w,h,d) | Proxy crown (w,h,d) | Total | Trunk colour | Crown colour (autumn) |
+|---|---|---|---|---|---|---|
+| spruce | 0.40 | 3, 30, 3 | 14, 44, 14 | 71 studs (20 m) | RGB(78, 62, 46) | **RGB(95, 132, 96)** — green, and above the albedo floor |
+| birch | 0.25 | 2.5, 34, 2.5 | 18, 32, 18 | 64 studs (18 m) | RGB(225, 222, 210) | RGB(215, 180, 70) — yellow |
+| oak | 0.20 | 5, 28, 5 | 32, 38, 32 | 64 studs (18 m) | RGB(96, 78, 58) | RGB(170, 105, 45) — orange-brown |
+| alder | 0.15 | 3, 26, 3 | 13, 30, 13 | 57 studs (16 m) | RGB(84, 72, 60) | RGB(140, 130, 60) — dull yellow-green |
+
+**The albedo trap is why these numbers are this bright.** At the place's default ambient an unlit face
+renders at roughly 0.275 × albedo — the measurement recorded in `src/server/Boar/init.luau`'s
+`BODY_COLOR` comment and in `TASKS.md` row 22, which turned RGB(90, 80, 70) into near-black. **No proxy
+colour is below 120 on its channel maximum**, spruce included. A wood that reads as a black hole is the
+screen this project has already paid for.
+
+The proxy heights are also a **correction**: the v2 proxy was `trunk (3, 22, 3)` + `crown (11, 12, 11)`
+— a 22-stud, 6-metre tree — while `docs/design/asset-pipeline.md` §12.1 plans meshes at 14 × **71** ×
+14 studs. A grey box whose replacement is three times its height teaches the wrong thing about the map,
+and `map-stand.png` reading "two green lollipops" (row 43a(a)) is partly that.
+
+**Crowns do not block the ground game.** Trunk: `CanCollide = true`, `CanQuery = true`. Crown:
+`CanCollide = false`, `CanQuery = true`. So the navmesh and the boar see trunks only, a shot into the
+canopy stops in the canopy, and the sightline at a shooter's eye height (about 5 studs) is **trunks and
+brush**, which is what makes a wooded drive shootable at all.
+
+### 7.2 Density in three tiers, because a real stem count does not fit the budget
+
+Honest arithmetic first. At 1 stud = 0.28 m, one hectare is 127,551 studs². A managed European wood
+carries 400–800 stems/ha, which over this map's ~4 M studs² of wood would be **12,000–25,000 stems**.
+`Map.BUDGET.trees = 3000` (and a proxy tree is two parts). **v1 does not model a real stem count**, and
+saying so here is cheaper than discovering it in a screenshot.
+
+So the density is tiered by where the player actually is. `Layout.treeDensity(x, z, config)` returns a
+weight in 0…1, and `Scatter.weighted` accepts a candidate when its own drawn key is below the weight —
+deterministic, and independent of which cells were rejected before it (the property
+`Scatter.jitteredGrid` already protects by drawing all three numbers for every cell).
+
+| Tier | Where | Weight | Estimated trees |
+|---|---|---|---|
+| dense | within 260 studs of the road, `|x| <= 700` | **1.00** | ~1,320 |
+| drive | the rest of the corridor | **0.42** | ~1,215 |
+| backdrop | everything else that is not field, bench, track, bog or pad | **0.14** | ~390 |
+| none | fields, benches + verges, tracks, the bog, pads + margin, within `SCATTER_CLEARANCE` of a hedge line | 0 | 0 |
+
+Base candidate grid: `TREE_SPACING = 22` studs, `SCATTER_JITTER = 0.5`. Estimated total **~2,925**,
+against the 3,000 budget. **The estimate is mine, from areas; the Builder measures the real number and
+the step fails loudly if it exceeds `Map.BUDGET.trees`** — a build that quietly overruns the part budget
+is how a place gets slow without a diff to blame.
+
+### 7.3 Why the wooded drive is still walkable, argued before it is measured
+
+This is the one place where this revision could break the game, because `Props.rejectTree`'s corridor
+rejection was the guarantee that nothing stood in the drive, and it is being deleted.
+
+1. **Minimum separation is a property of the sampler, not of luck.** A jittered grid displaces each
+   candidate by at most `±jitter·spacing/2` **inside its own cell**, so two candidates in neighbouring
+   cells are at least `spacing·(1 − jitter)` apart along that axis: `22 × 0.5 = 11 studs`. Diagonal
+   neighbours are further (≥ 15.6). Dropping candidates by weight only increases gaps.
+2. **The widest trunk is oak at 5 studs.** Worst case clear gap between two trunks:
+   `11 − 2.5 − 2.5 = 6 studs`.
+3. **The boar needs 4.** `Boar.CONFIG.AGENT` is `AgentRadius = 2` (`src/server/Boar/init.luau`), so
+   6 > 4 everywhere, with `AgentCanJump = false` and `AgentCanClimb = false` respected.
+4. **A spec asserts 1–3 rather than trusting them**: over 20 seeds, the minimum pairwise distance among
+   every placed tree point in the corridor is ≥ `TREE_SPACING × (1 − SCATTER_JITTER)`, and the count
+   per 10,000 studs² never exceeds the dense tier's rate. Pure, no world, runs in the ordinary harness.
+5. **`MapGen.reachability` is the empirical gate**, and it is now stronger: five targets along the line
+   instead of its centre (§16.4), which closes row 44a(e).
+
+`jitter` is **0.5, not the built 0.9**, for exactly this reason: at 0.9 the guaranteed gap is 2.2 studs
+and step 3 fails. That is a number changed by an argument, not by taste.
+
+### 7.4 Brush: cover that hides a boar and blocks nothing
+
+`Props.brush` places low cover — `prop.brush.a`, proxy `(10, 5, 10)`, colour RGB(122, 104, 64) — at
+`BRUSH_COUNT = 500` (K), on its own grid, in the wood only, in four quadrant steps.
+
+**`CanCollide = false` and `CanQuery = false`.** A bush that stops a slug is an invisible wall to a
+shooter who cannot see why the shot vanished, and a bush that stops a driver is worse. Brush is
+**visual cover only** in v1: it breaks the sightline down the drive so a boar is not visible for 700
+studs, and it is Karen's call whether cover should ever eat a shot (§20).
+
+### 7.5 Hedges shrink to three lines, and the gate machinery keeps a reader
+
+The hedge network becomes **three lines, 6,144 studs, ~250 parts**:
+
+| Line | Crosses the corridor? | Why it exists |
 |---|---|---|
-| Prop templates (`Part`/`MeshPart` with `Size`, `Color`, `CFrame`) | **nowhere**: props are `Instance.new` in `Props.luau`, or a clone of a template the Loader made from an id | a `.model.json` carrying a `Vector3` fails the harness as "cannot compare" (`tools/studio_mcp.py`, `is_plain`/`same_value`), and an asset binary is banned outright |
-| The map's numbers (sizes, offsets, colours) | `Config.luau` and `src/shared/Map/init.luau`, plain Luau | Luau has `Vector3` and `Color3` natively, selene and StyLua lint it, the harness compares the **source byte-for-byte**, and a diff of a number is readable in a PR |
-| Asset ids and provenance | `src/serverstorage/Assets/init.luau` (not this system, §8.2) | same |
-| Marker positions | computed by `Layout.luau` from the corridor numbers | a hand-written coordinate table is what goes stale when the corridor moves |
+| `hedgeX = -760` and `hedgeX = +760` (along z) | **no** (corridor is x ± 620) | the wood/field boundary on each flank: what makes the fields read as fields |
+| `hedgeZ = +300` (along x) | **yes** → 2 seeded gates inside the corridor | an old field boundary inside the wood — they exist in European woods, and it gives the drive one interior feature the boar must funnel through |
 
-**One case does need row 16, and D9 created it:** a free Creator Store model whose creator did **not**
-tick share cannot be loaded by any script, so the only way to keep one is to insert it in Studio by
-hand and export it as `.model.json` — typed values. §8.3 route C. **The recommendation is to avoid the
-case, not to unblock row 16 for it.**
+This closes `TASKS.md` row 44a(a) by the second of the two options that row offered: the v2 design asked
+for ≤ 6,000 studs of hedge and the M2.2 network needed 10,240. **The network shrinks**; the row's budget
+stands, with 6,144 studs and a ≤ 400-part ceiling in `Map.BUDGET.hedgeParts`.
 
-**Recommendation to the Director, unchanged and already agreed (`reviews/task-33/BRIEF.md` decision B):
-row 16 stays under "before release", and its "lands with the map generator" note is wrong.** It is
-still a real hole in the harness — audit-002 #1 stands — it is simply not this system's blocker.
+It also keeps `Layout.corridorSpan`, `Scatter.hedgeGates` and `Layout.widestGap` alive with a **real
+reader** — dropping the last crossing line would leave three tested pure functions with no caller,
+which is the row-43a(m) smell, and would retire the one mechanism that already caught a wall across the
+drive.
+
+### 7.6 Fields, the bog, and the flank track
+
+- **Fields stay, on the flanks**: `x ∈ [760, 1024]` and `x ∈ [-1024, -760]`, `z ∈ [-400, 800]`
+  (`Layout.inField`). Material `rough` (autumn grass/stubble). They are the reason this is European
+  farmland-and-woods rather than a forest tile, they are visible from the assembly track, and they cost
+  nothing but a material test.
+- **The bog moves out of the way**: `x = -820, z = -300, radius 120, depth 6`, `Mud`, still outside the
+  corridor (`minX = -620`), with alder around it by §7.1's rule. Row 44a(c) — "it reads as a grey mud
+  flat, not wet ground" — stays open and is Karen's, because `Water` is forbidden in v1 (§1.2).
+- **One flank track**, along z at `x = 880`, half-width 5, **material only** (`Ground.paintTrack`), so
+  the field has a farm track in it. The v2 tracks at `x = -250` and `z = 430` are gone: one crossed the
+  drive, and the drive is now a wood with a road in it.
 
 ---
 
-## 10. Replacing `Workspace.TestArena` cleanly
+## 8. Autumn: the palette
 
-### 10.1 The hazard, precisely
+### 8.1 What can actually be coloured
 
-`src/server/ArenaBoot.server.luau` calls `TestArena.build()` at **every server start**, and
-`TestArena.build` is idempotent only against its own folder — it knows nothing about a generated map.
-Left alone, the first Play after the map lands puts a 400 × 400 grey plate with its top at y = 0
-(`LAYOUT.ground`), eight concrete blocks and a second `SpawnLocation` (`LAYOUT.spawn`, `ArenaSpawn`) in
-the middle of the farmland — **and a second full set of the five `DrivenHunt.*` tags**
-(`buildDriveMarkers`), which is worse than the geometry: `Match.Markers` would see two drive lines and
-report `complete = false`, so the drive would sit in `Waiting` for ever. That is Task 17's z-fighting
-bug with better scenery and a dead match.
+Roblox terrain has no leaf-litter material. The lever is **per-material colour**, one global table for
+the whole place, and the materials in play are the four `Config.MATERIAL` already uses:
 
-### 10.2 The switch: one committed fact, read by two readers, written by nobody at run time
+| Role | Material | Autumn colour (`Map.PALETTE`) | Where |
+|---|---|---|---|
+| `litter` | `LeafyGrass` | RGB(150, 108, 62) | the forest floor — the wood's default |
+| `rough` | `Grass` | RGB(126, 122, 78) | steep ground, clearings, the flank fields |
+| `road` | `Ground` | RGB(152, 146, 132) | the road bench, the assembly bench, the flank track |
+| `bog` | `Mud` | RGB(96, 82, 62) | the bog |
 
-`Map.EXPECTED_WORLD` is `"arena"` or `"map:v1"`.
+`Ground.surfaceMaterial` gains two cases in front of its existing slope test: **bench → `road`**, and
+**`Layout.inField` → `rough`**. Everything else in the wood is `litter`, and a steep column is `rough`
+(as built, `ROUGH_SLOPE = 0.3`).
+
+### 8.2 The owner, and why it is this one
+
+Terrain material colour is global state with no container, exactly like the voxels. `MapGen.Ground` is
+already **the only writer of `Terrain` in the repo** (`Ground.writeTile`, `Ground.clear`), so it takes
+the palette too: `Ground.applyPalette(palette)`, `Ground.readPalette()`, `Ground.resetPalette(default)`.
+No second writer, anywhere, ever.
+
+### 8.3 The measurement this rests on, and the fallback if it fails
+
+**Not verified in this session** (read-only, no engine): that `Terrain:SetMaterialColor` /
+`GetMaterialColor` are callable from `execute_luau` in Edit, that the colours are saved with the place,
+and that they replicate to a client. **Measurement N1** (§16.5) settles all three, and the research note
+records it (rule 1).
+
+**Named fallback, so the task cannot stall:** if the API is unreachable or the colours do not persist,
+the palette degrades to a **material-choice** table — pick the material whose *default* colour is
+nearest each role (`Ground` for litter, `Grass` for rough, `Slate` for the road, `Mud` for the bog) —
+and `Map.PALETTE` becomes that table. The design's shape does not change; one function becomes a
+mapping instead of four writes.
+
+### 8.4 `clear` must restore the palette, and the spec must catch it if it does not
+
+A palette outlives `Terrain:Clear()` if nothing restores it. That matters because while
+`Map.EXPECTED_WORLD == "arena"` the harness asserts the place holds **no** generated world
+(`Ground.cells() == 0`, audit-004 must-fix 1) — and an autumn palette left behind after a `clear` is
+exactly the "world nobody chose" that audit found. So:
+
+- `MapGen.clear` calls `Ground.resetPalette(Map.PALETTE_DEFAULT)` and returns
+  `paletteRestored: boolean`, measured by reading the colours back — never asserted as a literal.
+- `tests/server/map_contract.spec.luau` asserts, **in the arena branch**, that every material's colour
+  equals `Map.PALETTE_DEFAULT`; and **in the map branch**, that it equals `Map.PALETTE`.
+- `MapGen.digest` includes the palette in its canonical text (`Digest.of(entries, samples, round,
+  palette)`), so a hand-edited colour changes the digest instead of silently becoming the map.
+
+---
+
+## 9. Markers on the road
+
+### 9.1 The eight posts
+
+`Layout.markers` keeps its shape; the numbers change. Post `i` sits at
+`x = (i − (postCount + 1) / 2) × postSpacing`, `z = Map.ROAD.z`:
+
+```
+x = -560  -400  -240  -80  +80  +240  +400  +560      (8 posts, 160 studs apart, span 1,120)
+```
+
+160 studs is **45 m**, inside Karen's 40–80 m, and it is her value to move
+(`Config.WORLD.postSpacing`, marked K). 8 posts serve 16 players at an equal split. Marker size
+`(6, 1, 6)` at `GROUND_Y + 0.5` (§4.3), on the road bench, so every post's bottom face is at
+`GROUND_Y` and the contract check has one number to compare.
+
+### 9.2 The line, the crossing, and the exit
+
+- **`DriveLine`**: one part, `(1240, 1, 1)`, at `z = -700`, `LookVector` → +Z. The road **is** the drive
+  line; there is no second concept.
+- **`exitZ = -820`**: the boar's flee target is 120 studs **past** the road, in the far wood. So a boar
+  that beats the line crosses the gravel in front of a shooter and disappears into trees — which is
+  what Karen's references show, and what makes a missed crossing feel like a miss rather than a
+  despawn. `corridor.minZ = -880` keeps the exit inside the rectangle
+  (`src/server/Boar/Brain.luau`, `Brain:_outcome`, despawns on the exit edge).
+- **Between two shooters**: nothing in the map arranges this. It is what falls out of a boar fleeing to
+  the exit from wherever the drivers pushed it, across a line whose posts are 160 studs apart. The
+  crossing is `map-crossing` in §16.3, and Karen judges it.
+
+### 9.3 The driver start
+
+`z = +700`, on the assembly bench, part `(1120, 1, 20)`, so `Body.placementFor`'s driver branch spreads
+eight drivers over 1,116 studs — about 140 studs (39 m) apart, a real driving line rather than a
+huddle. `Map.ASSEMBLY` flattens it.
+
+### 9.4 The tie trees
+
+12, at `z = -745`, evenly over the 1,120-stud span (`Layout.tieTreePoints`, as built). They are now
+**behind the shooters in the far wood**, which is where a punished shooter should be put: within sight
+of the post they left, out of everyone's line of fire, and never between a shooter and the drive.
+`Body.anchorFor` picks the nearest, so nobody is tied more than ~100 studs from where they stood.
+
+---
+
+## 10. Outfits: an orange hat and an orange vest
+
+The brief's item 3. This is **not** the map generator's, and it gets an owner here so it never gets two.
+
+### 10.1 Owner
+
+**`ServerScriptService.Match` → `Match.Body`** (`src/server/Match/Body.luau`). It is already the only
+writer of a player's team (`Body.setTeam`), of where their character stands (`Body.place`,
+`Body.placementFor`) and of what is attached to it (`Body.tie` writes `WalkSpeed`, anchors the root and
+builds the rope). An outfit is one more thing written onto the character at the same moment, by the
+same module, on the same signal. **Not the Hud** (it draws the screen, not the world), **not the
+client** (a client-drawn outfit is per-client and cannot be trusted or screenshotted on the server),
+**not the map**.
+
+### 10.2 The grey-box version, exactly
+
+On the `CharacterAdded` handler `Body.place` already connects (before `LoadCharacter`, which is the
+whole point of that function), and again on a re-tie:
+
+```luau
+-- src/server/Match/Body.luau
+Body.OUTFIT_NAME = "HuntOutfit"                  -- one folder per character; destroyed and rebuilt
+
+function Body.dressFor(team: TeamName?, config): { { name: string, limb: string,
+                                                     size: Vector3, offset: Vector3,
+                                                     color: Color3 } }
+    -- PURE. "Shooters" -> one hat on the Head; "Drivers" -> one vest on the UpperTorso.
+    -- A spec calls this with a table and asserts both branches; nothing here touches an Instance.
+
+function Body.dress(character: Model?, team: TeamName?, config): boolean
+    -- Destroys any existing HuntOutfit folder, then for each row in dressFor:
+    --   Part: Anchored = false, Massless = true, CanCollide = false, CanQuery = false,
+    --         CastShadow = false, Color = row.color, welded to the limb with a WeldConstraint.
+    -- Returns false when the character or a limb is missing, so the owner counts a miss
+    -- rather than believing a change it did not make (the Body.tie discipline).
+```
+
+| Role | Part | Size (studs) | Attached to | Colour |
+|---|---|---|---|---|
+| Shooter | `Hat` (a flat cylinder) | 2.2 × 0.6 × 2.2, +0.8 above the Head's centre | `Head` | **RGB(255, 112, 0)** hunter orange |
+| Driver | `Vest` (a thin box) | 2.2 × 1.6 × 1.3, on the torso front | `UpperTorso` (fallback `Torso`) | **RGB(255, 112, 0)** |
+
+Four properties that are not tidiness:
+
+1. **`CanQuery = false`.** A hat or vest that stops a pellet changes what the shot hit, which feeds
+   `Match.Penalty` through the weapon's report (`src/server/Match/Penalty.luau`, `Penalty.judge`, uses
+   the shot's own reach and line). The outfit must be invisible to every ray in the game.
+2. **`Massless = true`, not anchored.** `Body.tie` anchors the *root*; an anchored hat would pin the
+   character's head to the world.
+3. **Cosmetic only, and never a source of truth.** Karen's brief says the safety rule "can use them to
+   read who is where": that is the **player's** reading. `Penalty.judge` keeps deciding from teams
+   (`Body.teamOf`), because two representations of one fact is this project's named failure mode.
+4. **The team colours already exist and stay**: `Body.TEAM_COLORS` is `Bright orange` for Shooters and
+   `Bright blue` for Drivers. The outfit is additional, and orange-on-both is deliberate — in the field
+   both sides wear safety orange; the Hud's badge and the team colour are what say which side you are.
+
+### 10.3 It merges OFF
+
+Per the brief, and per `docs/design/feature-flags.md`:
+
+- **If `ReplicatedStorage.Flags` exists** when this task is built (`src/shared/Flags/init.luau` is
+  **not** in the tree at this commit — `.agent-evidence/ls-files.txt`): one row,
+  `ORANGE_OUTFITS`, `default = false`, `owner = "ServerScriptService.Match"`, and `Match.CONFIG` reads
+  it once at require time, which is the only permitted shape (`feature-flags.md` §10).
+- **If it does not**: `Match.CONFIG.OUTFITS_ENABLED = false`, the existing pseudo-flag pattern that
+  `feature-flags.md` §14 item 4 explicitly leaves in place beside `Match.CONFIG.DRIVERS_MAY_SHOOT`.
+
+Either way `Body.dressFor` takes the boolean as an argument, so **both states are testable with nothing
+to restore** (`feature-flags.md` §13.3).
+
+`docs/design/drive.md` must mirror this section at its next regeneration — it owns `Match.CONFIG` and
+`Match.Body`'s contract. Named as a delta in §19.1 rather than left to be discovered.
+
+---
+
+## 11. What the drive needs from the map for sounders — and what it does not get here
+
+The brief's item 2 (groups of 2–5, leader-follower or boids, the config numbers, the feature flag) is
+**`docs/design/drive.md`**'s and `docs/design/boar-ai.md`'s, not this file's. What the map guarantees,
+so that design can be written against something:
+
+1. **Four `DrivenHunt.BoarSpawn` markers**, at `z = +600`, `x = ±150, ±450`, each on a **flat disc of
+   radius `Map.SPAWN_PAD.radius = 30`** at exactly `GROUND_Y`. A group spawned anywhere inside that
+   disc stands on level ground.
+2. **The pad is the contract for a group's spread.** `docs/design/drive.md` must keep every member's
+   spawn position within `Map.SPAWN_PAD.radius` of the marker — at 30 studs that is five boars at
+   ~12-stud spacing with room. Outside it, `src/server/Boar/init.luau`, `Runtime:spawn`, overwrites the
+   caller's Y with `field.groundY + BODY_SIZE.Y/2 + SPAWN_CLEARANCE`, and a member placed on a slope is
+   spawned **inside a hill** — the fact §6 exists for.
+3. **Clearance from trunks.** `Layout.treeDensity` returns 0 inside a pad plus a 6-stud margin, so no
+   group member is spawned inside a tree.
+4. **`MAX_ALIVE_BOARS` is the drive's number, and `Boar.CONFIG.maxBoars = 8` is the boar's guard**
+   (`docs/design/drive.md` §6.3). A group of five plus a 120-second carcass is a real pressure on both;
+   the map does not decide it, and the map does not need more than four spawn markers to support it —
+   a sounder is one release at one marker, not four.
+5. **Nothing about a group is in the map's digest, contract or specs.** If a later drive design wants
+   eight spawn markers instead of four, that is `Config.WORLD.boarSpawnX`, `Map.EXPECTED_COUNTS` and one
+   line in the contract spec.
+
+---
+
+## 12. Assets and proxies
+
+### 12.1 The keys
+
+`MapGen.Assets.KEY` grows from two to six. The grammar and the first three names are
+`docs/design/asset-pipeline.md` §12.1's exactly, so no key is renamed when the manifest moves:
+
+```luau
+Assets.KEY = table.freeze({
+    treeSpruce = "tree.spruce.a",
+    treeBirch  = "tree.birch.a",
+    treeOak    = "tree.oak.a",
+    treeAlder  = "tree.alder.a",   -- NEW: not yet in asset-pipeline §12.1 (§19.1 delta A2)
+    hedge      = "hedge.mixed.a",
+    brush      = "prop.brush.a",   -- NEW (§19.1 delta A2)
+})
+```
+
+`Assets.ROWS` stays **empty**, and that is a state and not a hole: `Props.template` returns `nil`, and
+every placing step draws a proxy of the right footprint (`Props.placeTree`, `placed`). **The whole map
+is buildable and walkable today with no asset id and no decision from anyone**, and each id later
+replaces one proxy with no code change.
+
+### 12.2 The manifest's owner, and the one thing not to do
+
+`docs/design/asset-pipeline.md` §2.1 puts the manifest, the licence bases and the single id→Instance
+seam in `ServerStorage.Assets`, and its §2.3 explains why it may not live in `MapGen`: a runtime script
+(`Boar.Body`) needs an id, and a manifest inside a build tool forces either a runtime require of that
+tool or a second copy of the ids.
+
+**The built code kept `MapGen.Assets`** (`src/serverstorage/MapGen/Assets.luau`), because M2.7a has not
+landed. That is accepted as a temporary state with one rule: **`MapGen.Assets` is the only copy.** When
+M2.7a lands, `MapGen.Props` moves onto `Assets.Loader` (`asset-pipeline.md` §6.8, M2.7d) and
+`MapGen.Assets` is archived under `backups/` with a note (rule 7). No task may add a second id table
+anywhere in the meantime.
+
+### 12.3 The licence gate stays, and it fires on baking
+
+Baking **is** shipping: a prop baked into the place is published with it. So before a real template is
+used, the key's licence basis must permit shipping (`asset-pipeline.md` §4.5). While the manifest is
+`MapGen.Assets`, the row carries `licenceNote` and `source` and the gate is: **no row without a
+resolved licence, and a blocked row proxies and says which key and which basis.** Karen's Meshy-plan
+answer still decides whether free-plan Meshy output may ship (`asset-pipeline.md` §16 Karen 1) — it
+gates M2.3, not this revision.
+
+---
+
+## 13. What this system reads and writes across other systems
+
+| Direction | What | The other side's owner | Evidence |
+|---|---|---|---|
+| **writes** | `Terrain` voxels **and material colours** | `MapGen.Ground` — the repo's only Terrain writer | `src/serverstorage/MapGen/Ground.luau`, `Ground.writeTile`, `Ground.clear`; §8.2 |
+| **writes** | `Workspace.DrivenHuntMap` and every descendant | `MapGen.Props`, `MapGen.Markers` | `Props.trees`, `Markers.place` |
+| **writes** | `Workspace.StreamingEnabled` | `MapGen.Settings`, refusing while `MAY_WRITE == false` | `Settings.apply` |
+| **writes** | `CollectionService` tags on map instances, at edit time | `MapGen.Markers` | `Markers.place`, `Markers.tagTieTrees` |
+| **reads** | `Map.TAGS`, `Map.FIELD`, `Map.SPAWN_PAD`, `Map.ROAD`, `Map.ASSEMBLY`, `Map.PALETTE`, `Map.STREAMING`, `Map.BUDGET`, `Map.GENERATOR` | nobody writes them at run time | `src/shared/Map/init.luau`; reached through `MapGen.Contract` |
+| **reads** | `Boar.CONFIG.AGENT`, at **edit time only**, inside a pcall | `ServerScriptService.Boar` | `MapGen.reachability` |
+| **is read by** | the five `DrivenHunt.*` tags, at run time | `Match.Markers` (`Markers.read`), which validates, reports what is missing and keeps the match in `Waiting` | `src/server/Match/Markers.luau` |
+| **is read by** | the ground, by the boar's pathfinding | `ServerScriptService.Boar` — `Boar.defaultWorld`'s `requestPath` | `src/server/Boar/init.luau` |
+| **is read by** | the ground, the trunks and the crowns, by the shotgun's rays | `ServerScriptService.Weapon` — `Weapon.Cast` is that system's only `Workspace:Raycast` caller | `src/server/Weapon/Cast.luau` |
+| **is read by** | post parts and the driver start, when a character is placed | `Match.Body` | `Body.placementFor`, `Body.place` |
+| **is read by** | tagged trees, when a shooter is tied | `Match.Body` | `Body.anchorFor`, `Body.tiePointFor` |
+| **constrains** | `Boar.CONFIG.field` must equal `Map.FIELD` | `ServerScriptService.Boar` owns the change, at M2.5 | `tests/server/map_contract.spec.luau` asserts the equality |
+| **hands over** | the orange outfits | **`Match.Body`** (§10), not this system | `src/server/Match/Body.luau` |
+| **hands over** | sounders: sizes, spacing, leader-follower, scatter-on-shot, the flag | **`docs/design/drive.md`** and `docs/design/boar-ai.md` (§11) | `reviews/task-54/BRIEF.md` item 2 |
+
+**Nothing else.** No change to `src/server/Boar/Brain.luau`, `Body.luau` or `Wound.luau`; no change to
+any weapon, camera or Hud module; no change to `tools/studio_mcp.py`; no change to
+`default.project.json`.
+
+---
+
+## 14. External sources
+
+**How each was read, because this repo has three recorded cases of a design citing a page that said
+something else** (`TASKS.md` row 26a; `docs/research/INDEX.md`):
+
+- **This session had no network.** Nothing below was fetched by me.
+- Sources 1–3 and 5–6 are quoted from repo research notes whose sessions did have network, and those
+  notes are their citation of record. Where a note and this file differ, **the note is right**.
+- **Source 4 and the two API members in source 1 marked "unfetched" are the Builder's to confirm before
+  code** (rule 1, and they are measurements N1 and N2 in §16.5).
+
+### 1. Roblox `Terrain` — voxels, and material colour
+<https://create.roblox.com/docs/reference/engine/classes/Terrain>
+Licence: first-party documentation (creator-docs source is CC BY 4.0); the API ships with the engine.
+Maintenance: actively maintained.
+**Good:** `WriteVoxels(region, resolution, materials, occupancy)` takes occupancy as well as material,
+which is what makes smooth ground from a heightfield rather than steps; `ReadVoxels` gives the digest a
+cheap canonical sample; `CountCells` is the only number that can tell a 6.3 M-voxel heightfield from an
+empty world (audit-004 must-fix 1); `Clear()` is the reset.
+**Bad:** the page showed `resolution = 4` throughout without saying it was the only legal value — the
+build measured it (`"Resolution has to be 4"`, recorded in `Config.luau`) — and gives **no** region
+size cap, which is why the tile is a conservative 128 × 128 × 96. **And `SetMaterialColor` /
+`GetMaterialColor` were not fetched in this session**: their availability, persistence and replication
+are measurement N1, with §8.3's fallback if the answer is no.
+**Adopted:** `WriteVoxels` per tile at resolution 4 with `Region3:ExpandToGrid(4)`; the palette through
+one owner; `CountCells` as the proof a build ran.
+
+### 2. Roblox `math.noise`
+<https://create.roblox.com/docs/reference/engine/libraries/math>
+Licence: first-party (CC BY 4.0 docs). Maintenance: actively maintained.
+**Good:** Perlin noise in the standard library, so the generator needs no dependency at all.
+**Bad:** no output range, no determinism promise across sessions or engine versions, and **no seed
+parameter** — the largest unproven assumption in the system.
+**Adopted:** `math.noise` with a seed-derived coordinate offset (`Height.offset`), plus
+`mapgen.py verify` as the standing check that it is stable, plus the named fallback of a small seeded
+value-noise function in `Height.luau`. The species field (§7.1) uses the same function at a low
+frequency, which costs nothing new.
+
+### 3. Roblox `PathfindingService`
+<https://create.roblox.com/docs/characters/pathfinding>
+Licence: first-party. Maintenance: actively maintained. Already the boar's source of record
+(`src/server/Boar/init.luau` header).
+**Good:** `CreatePath(agentParams)` + `ComputeAsync` gives a **machine verdict on whether the wooded
+drive is playable for the boar**, using the boar's own `AgentRadius = 2`, `AgentCanJump = false`. That
+verdict is what makes §7's deletion of the corridor rejection safe to ship.
+**Bad:** no documented maximum walkable slope and no slope field in the agent params, so
+`CORRIDOR_MAX_SLOPE_DEG = 15` is a **conservative target, not a derived limit**; and the build measured
+that Studio rebuilds its navmesh in the background (`Success` after 1 s, `NoPath` after 5), which is why
+`REACH_SETTLE_SECONDS = 6` exists. Whether ~3,000 collidable trunks slow `ComputeAsync` materially is
+**measurement N2**.
+**Adopted:** the reachability check as the empirical gate, now to five points along the line; the
+geometric argument in §7.3 as the thing that has to be true anyway.
+
+### 4. Red Blob Games — "Making maps with noise functions" (Amit Patel)
+<https://www.redblobgames.com/maps/terrain-from-noise/>
+Licence: an article, © Amit Patel, free to read, code snippets published for reuse (not a package
+licence). Maintenance: long-lived and revised; the canonical reference on the technique.
+**Not fetched this session** — cited from knowledge, and the Builder records it in the research note
+with a fetched quote (rule 1) before writing `Height.benchBand` or `Scatter.speciesAt`.
+**Good:** it is the standard treatment of **shaping noise with a separate mask** (`elevation × mask`),
+which is exactly the shape of the three masks in §6.2, and of using **a second, low-frequency noise
+field to choose biomes** rather than deriving them from elevation — which is precisely the species field.
+**Bad:** 2D tile-map oriented; nothing about voxels, nothing about Roblox, and nothing about guaranteeing
+a *traversable* result, which is the property this map actually has to have.
+**Adopted:** mask-multiplication for the corridor and bench bands; a `max()` floor for the map edge; a
+separate low-frequency field for species. **Invented here:** the **bench** (a flat strip at a fixed
+height with an eased verge and a tapered end) — no source I can cite does a road in Roblox voxel
+terrain, and the reason to invent rather than borrow is written in §6.3: everything the game stands on
+must be at exactly one height, which no general terrain technique gives you.
+
+### 5. Instance streaming
+<https://create.roblox.com/docs/workspace/streaming>
+Licence: first-party. Maintenance: actively maintained.
+**Good:** gives the defaults the contract adopts verbatim, with Roblox's own reasoning.
+**Bad:** the build measured that **four of the five properties are not reachable from Luau at all**
+(`Settings.apply` reports them as unreachable) and that `StreamingEnabled` was **already true** in the
+DEV place — so M2.6 is a Karen click plus a playtest, not a line of code, and the design's old
+"streaming is off until M2.6" assumption was wrong. `src/shared/Map/init.luau`'s `Map.STREAMING` comment
+is the record.
+**Adopted:** the documented numbers as the values M2.6 sets by hand; `Settings.MAY_WRITE = false` until
+then.
+
+### 6. The driven hunt itself — Deutscher Jagdverband, plus Karen's references
+DJV driven-hunt guidance, fetched and quoted in `docs/research/2026-09-25-drive.md` §2/§2b (that note is
+the citation of record).
+Licence: the association's own publication. Maintenance: a live page, updated.
+**Good:** it is primary on the two things the geometry has to respect — the rule is *"in the direction
+of fellow hunters"* rather than a cone (which is why `Penalty.judge` is a line test, not an arc), and
+the neighbour rule comes with a number: *"Der Schusswinkel zum Nachbarn muss grösser als 30 Grad
+sein"*. At 160-stud spacing on a straight road, a boar crossing 40 studs in front of a shooter sits at
+about 14° to the neighbour's stand — **so this geometry makes the v1.1 neighbour rule
+(`TASKS.md` row 35a) matter, and Karen should know that before she likes the spacing.**
+**Bad:** it is safety guidance, not map geometry: it gives no road width, no stand spacing in metres and
+no stem density. **Those come from Karen's reference images**, described in `reviews/task-54/BRIEF.md`
+and not otherwise verifiable by me: *mixed deciduous/coniferous forest, autumn leaf litter, a
+gravel/earth forest road, shooters ~40–80 m apart.* This design treats the brief as the authority for
+them and says so.
+**Adopted:** the road, the 45 m spacing, the autumn palette, the four species, and the orange outfits —
+all from Karen, all marked K where she may move them.
+
+**Also considered and rejected, so they are not re-proposed:** Studio's Terrain Editor Import and
+Generate (UI-only, unreachable from code or MCP, and their state is not a file); heightmap PNGs as the
+source of truth (unreviewable as a diff, which is what the code-generated map exists to avoid); real
+stem density (§7.2: 12,000–25,000 parts against a 20,000-part whole-place budget); `Water` for the bog
+(§1.2); a `SurfaceGui` numbering each post (a second drawer of UI — the Hud is the UI owner); brush that
+blocks shot (§7.4, Karen's call, not a default).
+
+---
+
+## 15. Numeric targets
+
+**K** = Karen's taste value: a number she changes after walking it, not a measurement.
+Derived at **1 stud = 0.28 m** (`docs/research/2026-09-24-map-generator.md` §1).
+
+### 15.1 The world
+
+| Quantity | Value | K? | Basis |
+|---|---|---|---|
+| Map size | **2048 × 2048 studs** (573 m), centred on the origin | | unchanged; ~2 × `StreamingTargetRadius` |
+| `GROUND_Y` | **0** | | matches `Boar.CONFIG.field.groundY`, so the switch needs no boar change |
+| Relief, whole map | **± 40 studs** | K | gentle; inside `Boar.CONFIG.FALL_LIMIT = 50` |
+| Relief in the corridor (`CORRIDOR_RELIEF`) | **± 16 studs** | K | as built |
+| Relief within `BENCH_BAND` of a bench (`BENCH_RELIEF`) | **± 6 studs** | | **NEW**: 6 studs over a 24-stud verge is 14.0°, inside the 15° ceiling |
+| `BENCH_BAND` | **120 studs** | | **NEW**; smoothstepped |
+| `EDGE_MAX_Y` / edge band | **44 studs / outer 100 studs**, as a floor, suppressed near a bench | | **NEW**; 44 < `BAND_Y.max = 48`, so the measured tile size is unchanged |
+| `CORRIDOR_MAX_SLOPE_DEG` | **15°** | | conservative (§14 source 3); measured over **3 seeds** by the slope spec |
+| Drive corridor | x ∈ **[−620, +620]**, z ∈ **[−880, +800]** | | **CHANGED**: 1,240 studs wide (347 m), to hold a 1,120-stud shooter line |
+| `exitZ` | **−820** | | **CHANGED**: 120 studs past the road — the boar crosses and is gone |
+| Drive length (start → line) | **1,400 studs** (392 m) | K | unchanged; ~88 s at a default `WalkSpeed` of 16 |
+| The forest road | z = **−700**, half-width **8** (16 studs = 4.5 m), verge **24**, x ∈ [−900, 900] | K | Karen's reference: a gravel/earth ride |
+| The assembly track | z = **+700**, half-width **5**, verge **20**, x ∈ [−700, 700] | | flattens the 1,120-stud `DriverStart` |
+| Shooter posts | **8**, spacing **160 studs** (45 m), span **1,120** | K | Karen: 40–80 m. `Config.WORLD.postSpacing` |
+| Post marker | **6 × 1 × 6**, centre at `GROUND_Y + 0.5` | | **CHANGED** from 4 × 6 × 4: closes the 9.5-stud drop (row 43a(l), audit-004 F9) |
+| Drive line part | **1240 × 1 × 1** at z = −700, `LookVector` → **+Z** | | the corridor's full width |
+| Driver start | part **1120 × 1 × 20** at z = +700 | | ~140 studs per driver at 8 |
+| Boar spawns | **4**, z = **+600**, x = **−450, −150, +150, +450** | K | widened with the corridor |
+| Spawn pad | radius **30**, blend **40**, tolerance **0.75** | | **CHANGED** radius (a sounder, §11); blend 40 is the measured value now adopted (row 45a(a)) |
+| Tie trees | **12**, z = **−745**, span **1,120** | | behind the line, in the far wood |
+| Fields | x ∈ ±[760, 1024], z ∈ [−400, +800] | K | the flanks stay farmland |
+| Hedge lines | **3**: along z at x = ±760; along x at z = +300 (**2 gates**, 96 studs each) | K | 6,144 studs, ~250 parts (closes row 44a(a)) |
+| Flank track | along z at x = **880**, half-width **5**, material only | | |
+| Bog | x = **−820**, z = **−300**, radius **120**, depth **6**, `Mud`, **no Water** | K | outside the corridor |
+
+### 15.2 The wood
+
+| Quantity | Value | K? | Basis |
+|---|---|---|---|
+| Tree candidate spacing / jitter | **22 studs / 0.5** | | jitter 0.5 is forced by §7.3: it gives an 11-stud minimum separation and a 6-stud clear gap against `AgentRadius = 2` |
+| Density weights (dense / drive / backdrop) | **1.00 / 0.42 / 0.14** | K | §7.2; the single biggest lever on "does this read as a wood" |
+| Dense band | within **260 studs** of the road, \|x\| ≤ 700 | K | where the shooter's eye actually is |
+| Trees placed | **~2,925 estimated**, hard ceiling `Map.BUDGET.trees = 3000` | | the estimate is from areas; **the Builder measures it and the step fails over budget** |
+| Species mix | spruce **0.40**, birch **0.25**, oak **0.20**, alder **0.15** | K | Karen's four species |
+| Species clump frequency | **1/260 studs⁻¹** | K | clumps read at ~70 m |
+| Alder rule | forced where `bogDepth > 0` or ground < −6 | | black alder is a wet-ground tree |
+| Tree heights | spruce **71**, birch **64**, oak **64**, alder **57** studs | | matches `asset-pipeline.md` §12.1's `sizeStuds`, so the proxy teaches the truth |
+| Trunk / crown physics | trunk `CanCollide` **true**, `CanQuery` **true**; crown `CanCollide` **false**, `CanQuery` **true** | | §7.1: the navmesh sees trunks, the canopy still stops a shot |
+| Brush | **500**, proxy 10 × 5 × 10, `CanCollide`/`CanQuery` **false** | K | cover for the eye only (§7.4) |
+| Hedge segment | **24 studs**, part 24 × 7 × 3 | | as built; 24 keeps the part count inside 400 |
+| Proxy albedo floor | **no channel maximum below 120** | | the Task 22 albedo measurement |
+| Total parts | **≈ 6,650** of `Map.BUDGET.parts = 20000` | | 2,925 × 2 + 500 + 250 + 24 + 14 |
+| Visible parts at once | target **≤ 8,000** | | streaming target radius 1,024 |
+
+### 15.3 The generator and the run
+
+| Quantity | Target | Basis |
+|---|---|---|
+| Voxel resolution | **4** | **measured**: 8 and 2 are both refused, `"Resolution has to be 4"` |
+| Tile per `WriteVoxels` | **128 × 128 × 96 studs** = 24,576 voxels | measured as accepted; unchanged, which is why `EDGE_MAX_Y` is a floor and not a sum |
+| Steps per build | **285** (1 clear, 1 palette, 256 terrain, 3 hedgerow, 1 track, 16 trees, 4 brush, 1 stand, 1 markers, 1 settings) | §5.1 |
+| Per-step wall clock | **≤ 60 s**, hard timeout `MAPGEN_CALL_TIMEOUT = 180 s` | `Studio._rpc` defaults to 120 s (`tools/studio_mcp.py`) |
+| Full build | **≤ 25 min** | 256 tiles at ~4 s dominate; edit time, so slow is fine and unrepeatable is not |
+| Tree block | **512 × 512 studs**, ~180 trees, ~360 parts, ≤ 10 s | one step per block, idempotent, retryable |
+| Determinism | **identical digest** from two builds at one seed | hard requirement; `mapgen.py verify` fails otherwise |
+| `DIGEST_TERRAIN_SAMPLES` | 4,096 (64 × 64), round 100, **plus the palette** | §8.4 |
+| `REACH_SETTLE_SECONDS` | **6** | measured: the navmesh lags the map by ~5 s |
+| Reachability computes | **5 froms × 5 targets = 25** | §16.4; closes row 44a(e) |
+| `BACKUP_MAX_AGE_HOURS` | 6 | as built |
+
+---
+
+## 16. How it is tested
+
+### 16.1 Server specs
+
+`tests/server/map_contract.spec.luau` runs in the ordinary harness Play session and asserts **the world
+the committed contract names**, so neither branch is empty (as built). Checks 1–13 stay; these change or
+are added:
+
+1. *(unchanged)* exactly one of `Workspace.TestArena` / `Workspace.DrivenHuntMap` exists — the one
+   `Map.EXPECTED_WORLD` names — and `Ground.cells()` is 0 in the arena branch, > 0 in the map branch
+   (audit-004 must-fix 1). Row 47a(c): read it through **`Ground.cells()`**, the one function that
+   answers that question, not `Workspace.Terrain:CountCells()` again.
+2. *(unchanged)* every tag resolves to exactly `Map.EXPECTED_COUNTS`, inside the named world's root.
+3. *(unchanged)* exactly one `DrivenHunt.DriveLine`, `LookVector:Dot(Vector3.zAxis) > 0.99`.
+4. **CHANGED.** Every `BoarSpawn`'s `Position.Y` within `Map.SPAWN_PAD.tolerance` of
+   `Map.FIELD.groundY`; **4b** every `ShooterPost`'s bottom face and the `DriverStart` part's four
+   corners likewise; **4c NEW** every post's `|z − Map.ROAD.z| <= Map.ROAD.halfWidth` — a post off the
+   road is a shooter standing in the wood.
+5. **NEW.** `Terrain:GetMaterialColor` for the four palette materials equals `Map.PALETTE_DEFAULT` in
+   the arena branch and `Map.PALETTE` in the map branch (§8.4).
+6. *(unchanged)* no `LuaSourceContainer` under the named world root.
+7. *(unchanged)* `Boar.CONFIG.field` deep-equals `Map.FIELD`.
+8. *(map branch)* part count ≤ `Map.BUDGET.parts`; **NEW** trees ≤ `Map.BUDGET.trees`, brush ≤
+   `Map.BUDGET.brush`, hedge parts ≤ `Map.BUDGET.hedgeParts`, **and each ≥ half its budget** so an
+   empty wood fails instead of passing.
+9. *(unchanged)* every descendant of `ServerStorage.MapGen` is a `ModuleScript`.
+10. **NEW.** `MapGen.VERSION == Map.GENERATOR` (row 44a(f)).
+11. *(map branch, M2.5)* the live `markerDigest` equals the committed half.
+
+**The pure specs, which need no world and run in both branches** — this is where most of the new
+geometry is actually proved:
+
+| Spec | Asserts |
+|---|---|
+| `Height` | pads exactly `GROUND_Y` at centre; **benches exactly `GROUND_Y` at 200 points on each centreline**; at `verge + 1` outside a bench the unflattened height returns; `edgeFloor` never exceeds `EDGE_MAX_Y`; determinism for a fixed seed |
+| slope | over **three seeds**, on a 20-stud lattice across the corridor, the worst slope **< 15°** *and* **> 0.02°** (the lower bound closes row 45a(b): the v2 assertions were identities that a flat map would pass) |
+| `Layout` | marker counts and spacing; the road's span covers every post; `inField` and the benches do not overlap; `treeBlocks` tile the map exactly once |
+| `Scatter` (walkability) | over **20 seeds**: minimum pairwise distance among corridor trees ≥ `TREE_SPACING × (1 − SCATTER_JITTER)`; no tree inside a bench, verge, pad + margin, track, bog or hedge clearance; density per 10,000 studs² never above the dense tier's rate (§7.3) |
+| `Scatter.speciesAt` | the mix is within ±25 % of the configured shares for the committed seed; **every** tree in the bog's radius is alder; the four species are the only outputs |
+| hedges | each corridor-crossing line leaves a gap ≥ `gateStuds − segmentStuds` (`Layout.widestGap`), measured from the segments actually placed |
+| `Digest` | stable for a fixed input; **changes when a palette colour changes** (§8.4) |
+
+### 16.2 Client spec — `tests/client/map_client.spec.luau`
+
+1. `Workspace.StreamingEnabled == Map.STREAMING.enabled`.
+2. The local character is standing on something: a downward ray from the root hits within 12 studs.
+   (A character in the void measures fine — this project shipped "measured correct, looked wrong".)
+3. `RequestStreamAroundAsync(driveLinePoint)` returns within 10 s and the `DrivenHunt.DriveLine` part is
+   non-nil on the client afterwards.
+4. **NEW, and honestly bounded:** the palette the client sees equals the palette the server does — *if*
+   measurement N1 says material colours replicate. If they do not, this assertion is **removed and the
+   fact recorded**, not weakened into something that passes either way.
+
+### 16.3 Screenshots (rule 5) — `python tools/mapgen.py shots`
+
+Eight named Edit-mode captures through `Studio.capture`. The v2 names were written for a field-edge map
+and three of them no longer answer anything (row 43a(c) already flagged the drift); these replace them.
+**The Builder inspects each and says what it shows.**
+
+| Name | Camera → look-at | Answers |
+|---|---|---|
+| `map-wide` | (0, 1100, 1500) → (0, 0, −200) | is there a map, does it read as wood-with-fields, is the road visible as a line through it |
+| `map-road` | (−500, 6, −700) → (500, 6, −700) | **the shot this revision exists for**: standing on the road, do the posts read at 160-stud spacing, is the gravel gravel |
+| `map-post` | (−80, 6, −700) → (−80, 4, −300) | a shooter's view into the drive: how far can he see, how much of the frame is trunk |
+| `map-crossing` | (0, 4, −540) → (0, 3, −780) | a boar's-eye crossing between the two middle posts: is the road a real gap in the wood |
+| `map-drive` | (0, 6, 600) → (0, 4, 100) | a driver's view into the wood from the assembly track |
+| `map-autumn` | (0, 3, −640) → (30, 0, −680) | the colours at eye level: leaf litter, four species, brush |
+| `map-bog` | (−820, 40, −140) → (−820, 0, −300) | the bog, and whether it is a feature or an annoyance |
+| `map-edge` | (600, 8, −700) → (1024, 6, −700) | does the map's edge read as a void where the road leaves it (§6.2) |
+
+**A proxy map is still a rule-5 subject.** Row 43a(a) and row 44a(b) — "two green lollipops", "green
+boxes on stalks" — were honest readings of a 22-stud grey-box tree. With §7.1's heights and colours the
+same screenshots should read as a wood; if they do not, **that is the finding**, and it is Karen's to
+judge, not a number's.
+
+### 16.4 `tools/mapgen.py` — unchanged in shape, two changes in substance
+
+Commands, refusals (dirty tree, not Edit, wrong `PlaceId`, Studio's copy ≠ disk, no accepted backup,
+orphan terrain), `--backup census`, the run log and the `[mapgen] OK:` line are **as built** and
+unchanged. Two changes:
+
+1. **`reachability` paths to five points along the drive line** — both ends (x = ±560), both quarter
+   points (x = ±280) and the centre — from each of the four boar spawns and the driver start. Row
+   44a(e): a boar that can reach the centre but not one end used to pass. `Reach` gains a `to` field.
+2. **`shots`** takes §16.3's eight names.
+
+The `[mapgen]` line is **not** a harness line and never substitutes for one (`CLAUDE.md`, git workflow
+step 4). Row 43a(p): the docstring must name both `build`'s and `verify`'s final lines.
+
+### 16.5 What the harness cannot do here, stated rather than discovered
+
+- **It cannot judge whether the wood reads as an autumn European wood, or whether 45 m between posts
+  feels like a hunting line.** Only Karen can.
+- **It cannot run the generator**, by design: `tools/studio_mcp.py` is read-only by construction, and
+  `tools/mapgen.py` is invoked by hand.
+- **It cannot save the place**, and neither can `mapgen.py`. There is **no tool route to
+  `File → Save to File`** at all, which is why the backup rule has two accepted forms.
+- **It still cannot prove tags survive a save and a reopen** (measurement B, open since Task 43: it
+  needs a Save to File and a reopen, which are clicks no tool here can make).
+- **`test2` is not evidence for the map itself** — the map changes nothing about two players — **but it
+  is required for the outfit task** (§10), which touches `src/` and is visible on a second player's
+  screen.
+- **No input scenario is added.** The map takes no input; a scenario here would test the harness.
+
+### 16.6 The measurements this revision needs written down (rules 1, 6, 8)
+
+| # | Measurement | If the answer is no |
+|---|---|---|
+| **N1** | `Terrain:SetMaterialColor` / `GetMaterialColor` from `execute_luau` in Edit; do the colours persist in the place; do they replicate to a client | §8.3's material-choice fallback; and drop §16.2 check 4 rather than weaken it |
+| **N2** | `ComputeAsync` cost and result with ~3,000 collidable trunks in the world (against the empty-corridor baseline the build already has) | lower the dense tier's weight, or make trunks non-collidable below crown height and rely on `Body`'s own avoidance — **a `TASKS.md` row, not a silent tweak** |
+| **N3** | The real tree, brush and part counts at the committed seed, and the build's wall clock | §15.2's estimate is corrected in `Config` and in the numbers table |
+| **N4** | The worst corridor slope over three seeds at `BENCH_RELIEF = 6`, verge 24 | raise the verge or lower `BENCH_RELIEF`; both are one number |
+| **N5** | Standing on a post: the actual drop, and whether a shooter sees the drive over the brush | `STAND_HEIGHT_STUDS` is `Match.CONFIG`'s, so this is a report to the drive's owner, not a map change |
+| **B** | *(still open from Task 43)* do `CollectionService` tags and terrain survive a save and a reopen | fallback B: markers found by folder and name; the only module that changes is `Match.Markers`. **Never ship tags and names both** |
+
+---
+
+## 17. The M2.5 switch — unchanged in shape, new numbers
+
+`Map.EXPECTED_WORLD` is `"arena"` or `"map:v1"`: one committed string, read by
+`tests/server/map_contract.spec.luau` today and by `ArenaBoot` from M2.5.
 
 ```luau
 -- src/server/ArenaBoot.server.luau, in full after the change
@@ -859,525 +1166,198 @@ end
 require(ServerScriptService:WaitForChild("TestArena")).build()
 ```
 
-Four properties worth naming:
+It cannot be half-on; it does not sniff `Workspace` (a predicate like that lies the moment a run
+half-finishes); `TestArena` keeps its owner and its file while it is still the rollback. **`"arena"` is
+only a rollback once the terrain is cleared too** — audit-004's point, and `mapgen.py clear` plus
+`MapGen.clear`'s measured `cellsAfter` are what make it one. **And now the palette as well** (§8.4).
 
-- **It cannot be half-on.** One string, in git, in a diff.
-- **It does not sniff Workspace.** "Is there a map?" answered by looking for a folder is a predicate
-  that lies the moment a run half-finishes.
-- **`TestArena` keeps its owner and its file.** Nothing is archived while the arena is still the
-  rollback (§7.7 route 2).
-- **The spec cannot go green by accident**, because §14.1 asserts the world the *committed contract*
-  names and that the other one is absent — there is no branch where nothing is checked.
+The order, with every human action in it:
 
-### 10.3 The order of the switch, with every human action in it
-
-1. **Backup:** `--backup census` if §7.3's conditions hold (no human), otherwise Karen's
-   `File → Save to File` outside the repo (`NEEDS KAREN`).
+1. Backup: `--backup census` if its conditions hold (no human), else Karen's `File → Save to File`
+   outside the repo (`NEEDS KAREN`).
 2. `python tools/mapgen.py build --seed <N> --backup <accepted>`.
-3. `python tools/mapgen.py contract` and `shots`; the Builder inspects the six images (rule 5).
-4. **Save:** Karen `File → Save to Roblox`, or the Director posts Alt+Shift+S (§7.4).
-5. Reopen the place; `python tools/mapgen.py contract` again. **This is measurement B** (§14.5): do
-   tags and terrain survive a save and a reopen?
-6. The code commit flips `Map.EXPECTED_WORLD` to `"map:v1"`, sets `Map.SEED` and `Map.DIGEST`, sets
-   `Map.FIELD` to the drive rectangle (§13.1), and updates `Boar.CONFIG.field` to the same numbers — a
-   data change inside `ServerScriptService.Boar`'s own file, by its owner.
-7. Harness run. §14.1 now takes the map branch.
-8. Karen walks it (the feel gate; nothing here can judge it).
-9. **Only after Karen accepts:** a separate task archives `src/server/TestArena.luau`,
+3. `contract`, `reach`, `shots`; the Builder inspects all eight images.
+4. Save: Karen `File → Save to Roblox`, or the Director posts Alt+Shift+S. **Nothing here can verify
+   it.**
+5. Reopen; `contract` again — this is measurement B.
+6. The code commit sets `Map.EXPECTED_WORLD = "map:v1"`, `Map.SEED`, `Map.DIGEST`,
+   `Map.EXPECTED_COUNTS.tree = 12`, `Map.FIELD` = §15.1's corridor (x ± 620, z −880…+800,
+   `exitZ = -820`, `groundY = 0`), **and `Boar.CONFIG.field` to the same numbers** — a data change
+   inside `ServerScriptService.Boar`'s own file, by its owner.
+7. Harness run (`test` **and** `test2`: the change touches `src/`).
+8. **Karen walks it.** The feel gate; nothing here can judge it.
+9. Only after Karen accepts: a separate task archives `src/server/TestArena.luau`,
    `src/server/ArenaBoot.server.luau` and `tests/server/test_arena.spec.luau` to `backups/` with a note
    (rule 7), and removes the early return with them.
 
 ---
 
-## 11. What this system reads from and writes to other systems
+## 18. Build order, and what Karen checks
 
-| Direction | What | The other side's owner | Evidence |
+One task per round (rule 4), smallest first, each one reviewable and green on its own. `EXPECTED_WORLD`
+stays `"arena"` until M2.8e, so **none of these changes what a player stands in** — they merge on the
+strength of the harness and the screenshots.
+
+| # | Task | Scope | Evidence |
 |---|---|---|---|
-| **writes** | `Terrain` (global) | none existed; **this design gives Terrain its first owner: `MapGen.Ground`** | `Terrain` is a single global object with no notion of ownership (§12 source 1) |
-| **writes** | `Workspace.DrivenHuntMap` and every descendant | `MapGen` (`Props`, `Markers`) | this design |
-| **writes** | `Workspace.StreamingEnabled` and the four streaming properties | `MapGen.Settings`; no other writer in the repo | grep: no occurrence in `src/` at this commit |
-| **writes** | `CollectionService` tags on map instances, at edit time | `MapGen.Markers` | `docs/design/drive.md` §6.1 |
-| **reads** | `Map.TAGS`, `Map.FIELD`, `Map.PAD`, `Map.STREAMING`, `Map.BUDGET` | nobody writes them at run time | §4 |
-| **reads** | `Assets.byKey`, `Assets.BASES`, `Assets.budget`, `Assets.KEYS` | `ServerStorage.Assets` (data, no runtime writer) | `docs/design/asset-pipeline.md` §4.2 |
-| **calls** | `Assets.Loader.setCacheParent` / `preload` / `template` / `clear`, at **edit time only** | `ServerStorage.Assets.Loader` — the only caller of `InsertService:LoadAsset` in the repo | `docs/design/asset-pipeline.md` §2.1, §6.8 |
-| **is read by** | the five `DrivenHunt.*` tags, at run time | `Match.Markers` (`Markers.read`), which validates and reports what is missing and keeps the match in `Waiting` if the map is incomplete | `src/server/Match/Markers.luau` |
-| **is read by** | the ground, by the boar's pathfinding | `ServerScriptService.Boar` — `Boar.defaultWorld`'s `requestPath` uses `PathfindingService:CreatePath(config.AGENT)` | `src/server/Boar/init.luau` |
-| **is read by** | the ground and the trees, by the shotgun's rays | `ServerScriptService.Weapon` — `Weapon.Cast` is the only caller of `Workspace:Raycast` in that system | `src/server/Weapon/Cast.luau` |
-| **is read by** | post parts and the driver start, when a character is placed | `Match.Body` (`Body.placementFor`, `Body.place`) | `src/server/Match/Body.luau` |
-| **constrains** | `Boar.CONFIG.field` must equal `Map.FIELD` | `ServerScriptService.Boar` owns the change; §14.1 check 7 asserts the equality | `src/server/Boar/init.luau`, `Boar.CONFIG.field` |
-| **cross-system change** | `Match.Markers` (`Markers.TAGS`) and `TestArena` (`LAYOUT.drive.tags`) take their tag strings from `Map.TAGS` | their own owners, in their own files | §4.2 |
-| **cross-system change** | `ArenaBoot` gains the early return | `ServerScriptService.TestArena`'s owner | §10.2 |
+| **M2.8a** | **The road and the corridor** | `Map` (`GENERATOR`, `ROAD`, `ASSEMBLY`, `PALETTE`, `PALETTE_DEFAULT`, `SPAWN_PAD`, `BUDGET`), `Config` (§15.1), `Height` (`benchHeight`, `benchBand`, `edgeFloor`), `Layout` (`benches`, `onRoad`, `inField`, pads → 4), `Ground` (palette + road/field material cases), `Markers` (post size, line span), `Digest` (palette), `init` (palette step, `VERSION`, `clear`'s `paletteRestored`, `verifyContract`'s early return), `mapgen.py` (shots, reachability targets), the specs above. **No new props.** | build + `verify` (same digest twice), `reach`, `contract`, `map-wide` / `map-road` / `map-post` / `map-edge` inspected; measurements N1, N4 |
+| **M2.8b** | **The wood** | species table and per-species proxies, `Scatter.speciesAt` / `weighted`, `Layout.treeDensity` / `treeBlocks`, `Props.trees(block)`, `Props.brush`, `rejectTree` rewritten, the hedge network shrunk to 3 lines, the walkability and species specs | the tree/brush/part counts (N3), the wall clock, `reach` green at five targets (N2), `map-drive` / `map-crossing` / `map-autumn` / `map-stand` inspected |
+| **M2.8c** | **Line furniture and the fields** (v2's M2.4 content) | stakes beside each post; a **high seat as scenery** near 4 posts (`prop.highseat`, a proxy — the shooter still stands on the road in v1); a barrier at each end of the road; two log piles on the verge; a fence and a gate on the field boundaries; reeds at the bog | the same shots plus one new close view; all proxies |
+| **M2.8d** | **The outfits** (§10) | `Match.Body.dressFor` / `dress`, the flag or `Match.CONFIG.OUTFITS_ENABLED = false`, `GAME_DESIGN.md`'s placement row amended, server specs for both branches, a client spec that the outfit is `CanQuery = false` | **`test` + `test2`** (it touches `src/`), and a two-player screenshot with one of each role in frame |
+| **M2.8e** | **The switch** (§17) | `EXPECTED_WORLD`, `SEED`, `DIGEST`, `FIELD`, `EXPECTED_COUNTS`, `Boar.CONFIG.field`, `ArenaBoot`'s early return, the spec's map branch | Karen walks it |
+| M2.3 / M2.7d | **Real trees** — the four species from Karen's Meshy ids, through `Assets.Loader`; `MapGen.Props` moves onto it | `asset-pipeline.md` §14 M2.7d | measurement D (cost of 50 trees); Karen's Meshy-plan answer gates it, not the generator |
+| M2.6 | **Streaming on**, alone, with a playtest | `Settings.MAY_WRITE = true`, the four Studio-panel values set by hand (Karen), the client spec's assertions | a full harness re-run plus a playtest |
 
-**Nothing else.** In particular: no change to `src/server/Boar/Brain.luau`, `Body.luau` or
-`Wound.luau`; no change to any weapon, camera, Hud or Match module beyond the tag-string swap; no
-change to `tools/studio_mcp.py`; no change to `default.project.json`.
+### 18.1 What Karen checks in her next playtest (3–5 things, per `ROADMAP.md` speed rule 8)
 
----
-
-## 12. External sources
-
-Eleven. **Honesty about how each was read**, because this repo has three recorded cases of a design
-citing a page that said something else (`docs/research/INDEX.md`; `TASKS.md` row 26a):
-
-- **This session had no network.** Nothing below was fetched by me.
-- Sources 1–7 are quoted from `docs/research/2026-09-24-map-generator.md`, whose session did have
-  network (it records an HTTP 403 where a fetch failed). That note is their citation of record.
-- Sources 8–11 are quoted from `docs/research/2026-09-26-asset-pipeline.md`, which **fetched every one
-  live on 2026-09-26** and is their citation of record. Where this section and that note differ, **the
-  note is right**.
-
-### 1. Roblox `Terrain` — the voxel API the ground is written through
-<https://create.roblox.com/docs/reference/engine/classes/Terrain>
-Licence: first-party documentation (creator-docs is CC BY 4.0); the API ships with the engine.
-Maintenance: actively maintained.
-**Good:** `WriteVoxels(region, resolution, materials, occupancy)` takes occupancy as well as material,
-which is what makes smooth ground from a heightfield rather than steps; `ReadVoxels` gives the digest
-(§7.6) a cheap canonical sample; `Clear()` gives `MapGen.clear` its reset.
-**Bad:** the page shows `resolution` as `4` throughout but **does not state that 4 is the only
-supported value**, and gives **no size cap** for a `WriteVoxels` region. Both are measurement A
-(§14.5); the tile size in §13.2 is a conservative guess until then.
-**Adopted:** `WriteVoxels` per tile, resolution 4, `Region3` aligned with `ExpandToGrid(4)`.
-
-### 2. Roblox `math.noise` — the noise the heightfield is made of
-<https://create.roblox.com/docs/reference/engine/libraries/math>
-Licence: first-party (CC BY 4.0 docs); ships with the engine. Maintenance: actively maintained.
-**Good:** Perlin noise in the standard library, so the generator needs no dependency at all.
-**Bad:** the page gives the signature and nothing else — no output range, no determinism promise across
-sessions or engine versions, and **no seed parameter**. That is the single largest unproven assumption
-in the whole system.
-**Adopted:** `math.noise` with a seed-derived coordinate offset, plus `verify` (§7.6) as the standing
-check that it is stable, plus a named fallback to a seeded value-noise function on disk.
-
-### 3. `CollectionService` — how script-free geometry is found by code
-<https://create.roblox.com/docs/reference/engine/classes/CollectionService>
-Licence: first-party. Maintenance: actively maintained.
-**Good:** `AddTag`/`GetTagged`/`GetInstanceAddedSignal` is the standard Roblox answer to "the map
-carries no scripts", and `src/server/Match/Markers.luau` already consumes it in production.
-**Bad:** the page does **not** say tags are serialised into the place file, and gives no limit on tag
-count. The Studio Tag Editor implies persistence; this design does not assert it from implication —
-measurement B (§14.5) settles it with a save and a reopen, and names fallback B (markers by folder and
-name) if it fails.
-**Adopted:** tags as the only marker mechanism, with the vocabulary in `Map.TAGS`.
-
-### 4. Instance streaming — the budget the map is built against
-<https://create.roblox.com/docs/workspace/streaming>
-Licence: first-party. Maintenance: actively maintained.
-**Good:** gives the defaults this design adopts verbatim — `StreamingMinRadius` 64,
-`StreamingTargetRadius` 1024, `StreamingIntegrityMode = PauseOutsideLoadedArea`,
-`ModelStreamingBehavior = Improved` — with Roblox's own reasoning for each, and per-model
-`StreamingMode` (`Persistent`) as the way to keep the markers loaded for everybody.
-**Bad:** warns that local-only property changes are lost when an instance streams out and back in,
-which is a live trap for anything the client decorates; and mobile clients are reported to run out of
-memory as content streams *in*. Turning streaming on changes client behaviour for every existing
-system, which is why it is **its own build task with a full harness re-run** (§16, and the Director's
-decision C).
-**Adopted:** the documented defaults, applied by `MapGen.Settings` as the last step, behind
-`Map.STREAMING.enabled`.
-
-### 5. RTerrainGenerator — the closest open-source Roblox terrain generator
-<https://github.com/TheArturZh/RTerrainGenerator>
-Licence: **MIT** (a closed derivative is permitted). Maintenance: **~45 commits, no visible recent
-activity, no archive notice — treat as unmaintained**.
-**Good:** it documents exactly the technique adopted here — *exponentially distributed Perlin noise
-with domain warping* — and domain warping is what stops noise terrain from looking like noise.
-**Bad:** it does **not** use Roblox `Terrain`; it builds its own geometry, with its own world model for
-rivers and forests. Vendoring it would mean fighting that model forever.
-**Adopted: the technique, not a line of the code** — the domain-warp form in §5.3. Rule 2: this is
-borrowing, and where it is borrowed from goes in the header of `Height.luau`.
-
-### 6. Rojo project format, and Roblox place files — why the map is not in git
-<https://rojo.space/docs/v7/project-format/> · <https://create.roblox.com/docs/projects/place-files>
-Licence: Rojo is MIT, its docs are the project's own; the place-files page is first-party.
-Maintenance: both actively maintained; the Rojo CLI is pinned at 7.7.0 in `rokit.toml`.
-**Good:** the project-format page states that every `$path` node defaults to
-`$ignoreUnknownInstances: false` — *"whether instances that Rojo doesn't know about should be
-deleted"*. That single sentence is why §8.4 refuses to cache templates in `ServerStorage` and why the
-map lives in `Workspace`. The place-files page gives `File → Save to File` as the only whole-place
-rollback (§7.3).
-**Bad:** Rojo's page describes what Rojo does, not when — `CLAUDE.md`'s own 2026-09-24 probe found the
-deletion happens at the next **Connect**, not during live sync, so a Studio-made instance can look
-safe for a whole session and then vanish. And Save to File is a menu click no tool can make, which is
-the entire reason §7.3 exists.
-**Adopted:** Workspace as the only home for generated content; per-call staging; the two-form backup
-rule.
-
-### 7. Roblox pathfinding — the reachability the map must guarantee
-<https://create.roblox.com/docs/characters/pathfinding>
-Licence: first-party. Maintenance: actively maintained. Already the boar's source of record
-(`src/server/Boar/init.luau` header).
-**Good:** `PathfindingService:CreatePath(agentParams)` + `ComputeAsync` gives a spec a **machine
-verdict on whether the map is playable for the boar**, using the boar's own `Boar.CONFIG.AGENT`
-(`AgentRadius = 2`, `AgentHeight = 3`, `AgentCanJump = false`, `AgentCanClimb = false`). That is the
-check `reviews/task-33/BRIEF.md` asks for, and it costs nothing to run.
-**Bad:** no documented maximum walkable slope for the navmesh could be cited, and there is no slope
-field in the agent params. So `CORRIDOR_MAX_SLOPE_DEG` in §13.1 is a **conservative target, not a
-derived limit**, and the reachability spec is what actually proves the corridor.
-**Adopted:** `CORRIDOR_MAX_SLOPE_DEG = 15`, and §14.1 check 5 as the real gate.
-
-### 8. Mesh specifications — the triangle limit, corrected
-<https://create.roblox.com/docs/art/modeling/specifications>
-Licence: CC BY 4.0 docs source. Maintenance: active (the docs repo was pushed 2026-09-25).
-**Good:** one unambiguous first-party sentence: **_"Individual meshes can not exceed 20,000
-triangles."_** Also *"A vertex can not be influenced by more than 4 bones or joints"*.
-**Bad:** it is the *only* number on the page — no texture resolution, no stud size, nothing about
-pivots or units. It cannot validate any per-prop budget; only measurement D can.
-**Adopted:** `MESH_TRI_LIMIT = 20,000`, **first-party**, replacing Task 33's *"≤ 21,000 triangles,
-community/vendor"* (§15 C1).
-
-### 9. Texture specifications — what 1024 actually is
-<https://create.roblox.com/docs/art/modeling/texture-specifications>
-Licence: CC BY 4.0 docs source. Maintenance: active.
-**Good:** **_"Roblox supports up to 4096x4096 pixel texture resolutions (4K)."_** and a
-recommendation table by object scale: 256² for a 5 × 5-stud object, 512² for 10 × 10, **1024² for
-20 × 20** — which is where a tree, a high seat and the boar sit.
-**Bad:** *"Roblox supports up to 1024x1024 pixel spaces for texture maps"* appears in the **UV**
-section and means UV space, not an upload cap. A careless read turns a recommendation into a limit —
-which is exactly what Task 33 and the 2026-09-24 research note did.
-**Adopted:** `TEXTURE_MAX_PX = 1024` as **our budget, matching Roblox's recommendation**; the platform
-limits are 4096² generally and 8000² for a Decal/Image upload (§15 C2).
-
-### 10. `InsertService` and `AssetService` — the D9 pair
-<https://create.roblox.com/docs/reference/engine/classes/InsertService> ·
-<https://create.roblox.com/docs/reference/engine/classes/AssetService.md> (the raw source carries the
-security metadata the rendered page hides)
-Licence: CC BY 4.0 docs source. Maintenance: active.
-**Good:** `LoadAsset` *"fetches an asset given its ID and returns a Model containing the asset"*, with
-the ownership list spelled out, so **route A is exactly right for everything Karen owns**. The raw
-`AssetService` page gives what settles the rest: `AllowInsertFreeAssets` is Access ReadOnly with
-**`RobloxScriptSecurity` on read *and* write**.
-**Bad:** *"To load assets which do not meet the above criteria, such as free Models published on the
-Store, you must use `AssetService:LoadAssetAsync()` and enable `AssetService.AllowInsertFreeAssets`"* —
-a wall, not a door, since no script can set that property. Neither page says `LoadAsset` errors rather
-than returning `nil` (that is community knowledge, hence the `pcall`), and neither says anything about
-Edit mode, which is measurement C.
-**Adopted:** §8.3's two routes, and the deletion of Task 33 §8.2's Creator Store plan.
-
-### 11. Creator Store Terms and the Roblox Creator Terms — the licence text, finally read
-<https://en.help.roblox.com/hc/en-us/articles/21308223046932-Creator-Store-Terms> (HTML is **HTTP
-403** to tools; readable at
-`https://en.help.roblox.com/api/v2/help_center/en-us/articles/21308223046932.json`) ·
-Roblox User and Creator Terms, article 115004647846, same route
-Licence: Roblox's own terms documents. Maintenance: both updated 2026-09-22.
-**Good:** **_"By purchasing assets on the Creator Store, User is granted a license to use the asset in
-Roblox Studio and in Experiences on the Services consistent with the Roblox User and Creator
-Terms."_** Both rules the 2026-09-24 note derived now stand on primary evidence: **never commit a
-Creator Store asset**, and **record provenance per row**.
-**Bad:** the grant is written for **purchased** assets. A *free* one is licensed only if its creator
-agreed to share it — the same flag that decides whether any script can load it (source 10). A public
-git repo is not "the Services".
-**Adopted:** `ServerStorage.Assets`' licence basis enum as the gate (§8.5), and §8.8's narrowing.
-
-**Also considered and rejected, so they are not re-proposed:** Studio's Terrain Editor Import and
-Generate (`docs/research/2026-09-24-map-generator.md` §3 — UI-only, unreachable from code or MCP, and
-their state is not a file); heightmap PNGs as the source of truth (unreviewable as a diff, which is
-what map option C exists to avoid); a heightmap plugin from the Creator Store (a Karen click per
-import, plus a third-party dependency in the critical path); setting `AllowInsertFreeAssets` from code
-(impossible, source 10); caching templates in `ServerStorage` (deleted at the next Connect, source 6);
-a `--saved` flag or any other unverifiable backup attestation (§7.3).
+1. **Stand on a post and look down the road.** Do the eight posts at 45 m read as a hunting line, or as
+   a firing range? Too close, or too far? (`Config.WORLD.postSpacing`.)
+2. **Stand on a post and look into the drive.** Can you see far enough to shoot, or is it a wall of
+   trunks? How often does a shot hit a tree instead of the boar — and is that right? (density weights,
+   §15.2.)
+3. **Walk the drive from the assembly track to the road.** Is the wood dark enough to hide a boar and
+   open enough to walk? Does the hedge bank at z = +300 help or annoy?
+4. **Look at the colours at eye level.** Leaf litter, orange oak, yellow birch, green spruce — autumn,
+   or mud?
+5. **The drop when you spawn on a post**, and the bog: feature or annoyance?
 
 ---
 
-## 13. Numeric targets
+## 19. Deltas and dispositions
 
-**K** = Karen's taste value: a number she changes after walking it, not a measurement.
-Derived at **1 stud = 0.28 m** (`docs/research/2026-09-24-map-generator.md` §1).
-Karen's taste items keep their defaults until she walks the first slice
-(`reviews/task-33/BRIEF.md`).
+### 19.1 Corrections this design imposes on other documents
 
-### 13.1 The world
+**A — Architect-owned (mine; done here or named for the next regeneration):**
 
-| Quantity | Value | K? | Basis |
-|---|---|---|---|
-| Map size | **2048 × 2048 studs** (573 × 573 m), centred on the origin | | research note; ~2× `StreamingTargetRadius`, so streaming is actually exercised |
-| Reference ground plane `groundY` | **0** | | matches `Boar.CONFIG.field.groundY`, so fact 4 needs no boar change |
-| Relief, whole map | **± 40 studs** (± 11 m) | K | gentle farmland; inside `FALL_LIMIT = 50` |
-| Relief inside the corridor (`Map.CORRIDOR_RELIEF`) | **± 16 studs** | K | §6.3 |
-| `CORRIDOR_MAX_SLOPE_DEG` | **15°** | | conservative; §12 source 7 — the reachability spec is the real gate |
-| Drive corridor | x ∈ **[−340, +340]**, z ∈ **[−800, +800]** | | 680 studs wide (190 m) |
-| `Map.FIELD.bounds` | minX −340, maxX +340, minZ −800, maxZ +800 | | must equal `Boar.CONFIG.field.bounds` |
-| `Map.FIELD.exitZ` | **−760** | | 60 studs behind the line, so a boar that beats the line disappears behind the shooters rather than in their faces (the shape `src/server/TestArena.luau`'s `LAYOUT.drive` uses at 40 studs in the 400-stud arena) |
-| Drive length (start → line) | **1400 studs** (390 m) | K | research note's target, unchanged |
-| Shooter line | z = **−700**, along a wood edge; **8 posts**, spacing **80 studs** (22 m), span 560 studs | K | 8 posts serves 16 players. The research note said 60 studs; at 8 posts that is a 420-stud span and reads as a firing range. `Config.LINE.postSpacing` |
-| Post part | **12 × 1 × 12 studs**, solid, visible, base at `groundY` | K | §4.3: a character is put down 3.5 studs above its top face |
-| Driver start | z = **+700**, part **144 × 1 × 36**, spread over x ± 120 | K | `Body.placementFor` spreads drivers across its X extent |
-| Boar spawns | **4**, z = **+600**, x = −240, −80, +80, +240 | K | `docs/design/drive.md` §6.3 releases boars round-robin with jitter |
-| Drive line part | **560 × 1 × 1** at z = −700, `LookVector` → **+Z** | | `Markers.read` publishes its `LookVector` as the normal; `SafetyArc` consumes it |
-| Tie trees (`DrivenHunt.Tree`) | **12**, within 120 studs of the line | | §4.3 |
-| `Map.PAD` | boar spawn radius **14**, post radius **10**, driver start half-extents **(72, 18)**, blend **24**, tolerance **0.75** | | §6.2 |
-| Bog | one disc, radius **120**, depth **6**, `Mud`; **no Water material** | K | §1.2 |
-| Fields | 300–500 studs a side, a hedge on most boundaries | K | the biggest single lever on "does it read as European farmland" |
+- **A1.** This file replaces `docs/design/map-generator.md` (Task 42) **in full**.
+- **A2. `docs/design/asset-pipeline.md` needs three additions at its next regeneration**, from this
+  design: a `tree.alder.a` row in §12.1 (sizeStuds 14 × 57 × 14, ≤ 900 tris, 512², Automatic, ≤ 700
+  instances) and a `prop.brush.a` row (10 × 5 × 10, ≤ 300 tris, 512², ≤ 600 instances); the tree
+  instance ceilings re-split for four species inside `Map.BUDGET.trees = 3000`
+  (spruce ≤ 1,200, birch ≤ 750, oak ≤ 600, alder ≤ 450); and its §6.8 "once per run" is once **per
+  step**, in a staging folder destroyed inside the same call.
+- **A3. `docs/design/drive.md` needs two sections at its next regeneration:** the sounder release
+  (the brief's item 2 — sizes, mix, spacing, leader-follower, scatter-on-shot, the flag, and the
+  spawn-pad contract in §11), and the outfit rows this design assigns to `Match.Body` (§10). Its §6.1
+  marker table also still carries the **arena's** coordinates, which are now three worlds out of date.
+- **A4. `docs/design/boar-ai.md`:** a sounder is the first thing that makes one boar's behaviour depend
+  on another's; whichever pattern drive.md adopts, the Brain's threat/flee sections have to name where a
+  neighbour enters. Not this file's.
 
-### 13.2 Budgets — **corrected against Task 39**
+**B — the Builder's, in files the Architect never edits:**
 
-| Quantity | Target | Basis |
-|---|---|---|
-| Terrain voxel resolution | **4 studs** | the value the `Terrain` docs use throughout; whether any other is accepted is measurement A |
-| Vertical terrain band | y ∈ **[−48, +48]**, 24 voxel layers | covers ± 40 relief with margin |
-| Tile per `WriteVoxels` call | **128 × 128 studs** = 32 × 32 × 24 = **24,576 voxels** | conservative against the undocumented region cap; 256 tiles for the full map, 16 for the 512 slice |
-| Total parts and meshes in the place (`Map.BUDGET.parts`) | **≤ 20,000** | community guidance: <50,000 visible on desktop, ~20,000 on mobile (`docs/research/2026-09-24-map-generator.md` §6). **Community, not first-party** |
-| Visible parts at any moment | **≤ 8,000** | leaves headroom for 16 characters, 16 shotguns and 8 boars (`Boar.CONFIG.maxBoars = 8`) |
-| Trees (`Map.BUDGET.trees`) | **≤ 3,000**, 1 MeshPart each | split **1,800 spruce / 900 birch / 300 oak**, matching `docs/design/asset-pipeline.md` §12.1's per-key instance ceilings exactly |
-| Tree variety | **three keys** (`tree.spruce.a`, `tree.birch.a`, `tree.oak.a`) with per-instance **scale and yaw jitter** | corrected: Task 33 said "2 species × 3 variants", but the manifest has one key per species and *"rows are appended, never edited"* — a new variant is a new key and a new row, i.e. Karen's work, not the generator's |
-| Triangles per mesh | **≤ 20,000, and that is the engine's hard limit** — first-party: *"Individual meshes can not exceed 20,000 triangles."* Our budgets sit far inside it: spruce/birch **900**, oak **1,200**, high seat **1,500** | §12 source 8; `docs/design/asset-pipeline.md` §12.1 owns the per-key column. **Replaces Task 33's "≤ 21,000, community/vendor"** |
-| Texture per prop | **≤ 1024 × 1024, which is OUR budget**, matching Roblox's recommendation for a 20-stud object; trees and props target **512²**. Platform limits: **4096²** generally, **8000²** for a Decal/Image upload | §12 source 9. **Replaces Task 33's "textures ≤ 1024 × 1024" presented as a limit** |
-| Hedgerow segments | ≤ **500** parts (one per ~12 studs, ≤ 6,000 studs of hedge) | inside the part budget with room |
-| Client memory | **≤ 1.5 GB** on a mid phone | a target, never measured on this project |
-| Join-to-playable | **≤ 15 s** on a mid phone | a target, never measured |
+- **B1. The citation rule, so this drift stops.** Six code comments cite `docs/design/map-generator.md`
+  "section 7.3" for the spawn pads, and that section has not existed in two regenerations
+  (rows 45a(g), 47a(f), 48a(d) report the same class three reviews running). **From here on, a code
+  comment cites the design by heading text, not by number** — `-- Design: docs/design/map-generator.md
+  ("Benches: the road, and the drivers' assembly track")`. The old → new map for the citations in the
+  tree today: pads → **§6.4**; assets → **§12**; the switch → **§17**; the numbers table → **§15**; the
+  spec checks → **§16.1**; the measurements → **§16.6**; the build order → **§18**; the module list →
+  **§2.2**; the step order → **§5.1**; the digest → **§5**/§8.4.
+- **B2. `docs/research/2026-09-24-map-generator.md`** still carries the four corrections Task 39 named
+  (21,000 → 20,000 triangles and first-party; 1024 px is ours, not a platform limit; "a changed mesh is
+  a new id" is half wrong; the licence text is now read) **plus** the new note this revision needs:
+  measurements N1–N5 and B (rule 1 — the note comes before the code).
+- **B3. `GAME_DESIGN.md`**: the generated-map row gains "and the terrain material palette"; the
+  map-contract row gains the road, palette and generator-version fields; the player-placement row gains
+  "and the hunting outfit" when M2.8d lands.
+- **B4. `.gitignore`** already covers `/.mapgen/`, `/.agent-evidence/` and `/.assets/`; nothing new.
+- **B5. `TASKS.md` row 16** (typed property values) stays under "before release": this design puts no
+  positioned geometry on disk, and that was the Director's decision already.
 
-### 13.3 The generator itself
+### 19.2 The queued map notes, and what this design does with each
 
-| Quantity | Target | Basis |
-|---|---|---|
-| Per-step wall clock | **≤ 60 s**, hard timeout `MAPGEN_CALL_TIMEOUT = 180` s | `Studio._rpc` defaults to 120 s (`tools/studio_mcp.py`) |
-| Full 2048 build | **≤ 20 min** | edit time; slow is fine, unrepeatable is not |
-| 512 × 512 slice (M2.1) | **≤ 3 min** | so the first task iterates |
-| Asset inserts per step | **one per key used by that step** (fact 2, §8.4), budget **≤ 6 keys per step**, `PRELOAD_BUDGET_S = 15` per call | `docs/design/asset-pipeline.md` §12.2 owns the loader numbers |
-| Determinism | **identical digest** from two builds at the same seed | hard requirement, not a target — `verify` fails otherwise |
-| `DIGEST_TERRAIN_SAMPLES` | 4,096 (64 × 64) | enough to catch a shifted heightfield, cheap enough to run every time |
-| `BACKUP_MAX_AGE_HOURS` | 6 | §7.3 |
-
----
-
-## 14. How it is tested
-
-### 14.1 Server spec — `tests/server/map_contract.spec.luau`
-
-Runs in the ordinary harness Play session. It asserts **the world the committed contract names**, so
-neither branch is empty and there is no path where it passes by finding nothing.
-
-1. `Map.EXPECTED_WORLD` is `"arena"` or `"map:<id>"`, and **exactly one** of `Workspace.TestArena` /
-   `Workspace.DrivenHuntMap` exists — the one it names.
-2. Every tag in `Map.TAGS` resolves to exactly `Map.EXPECTED_COUNTS` instances, all inside the named
-   world's root. (This is also the check that would catch §10.1's double tag set.)
-3. Exactly one `DrivenHunt.DriveLine`; its `CFrame.LookVector:Dot(Vector3.zAxis) > 0.99`, so the normal
-   points at the drivers — the meaning `src/server/Weapon/SafetyArc.luau` and
-   `src/server/Match/Markers.luau` both depend on.
-4. **Pads.** Every `DrivenHunt.BoarSpawn` is inside `Map.FIELD.bounds` and its `Position.Y` is within
-   `Map.PAD.tolerance` of `Map.FIELD.groundY`. **4b:** every `ShooterPost`'s bottom face
-   (`Position.Y - Size.Y/2`) and all four corners of the `DriverStart` part likewise. §6.4.
-5. **Reachability**: for every `BoarSpawn`, and for the `DriverStart`,
-   `PathfindingService:CreatePath(Boar.CONFIG.AGENT):ComputeAsync(from, driveLinePoint)` returns
-   `Enum.PathStatus.Success` with ≥ 2 waypoints. This uses the boar's **own** agent params, so it
-   asserts the map is playable for the actual animal. (`ComputeAsync` yields; TestEZ runs each `it` in
-   a coroutine, so this is fine, but it is the slow check here — budget ~5 computations.)
-6. No `LuaSourceContainer` anywhere under the named world root. The harness's unmanaged scan covers the
-   whole DataModel already; this one **names the cause** when a model brings a script in (§8.7).
-7. `Boar.CONFIG.field` deep-equals `Map.FIELD`.
-8. *(map branch)* `#root:GetDescendants() <= Map.BUDGET.parts`.
-9. `ServerStorage.MapGen` exists and **every descendant is a `ModuleScript`** — nothing in the
-   generator can autorun (§1.2).
-10. *(map branch)* 64 downward rays on a lattice across the corridor, from `groundY + 200`: each hits
-    `Workspace.Terrain`, and every hit Y is inside `± Map.CORRIDOR_RELIEF`.
-11. *(map branch)* `markerDigest` recomputed from the live markers equals the committed value — a hand
-    edit in Studio fails the harness instead of becoming the map.
-12. **`ServerStorage.Assets` does not reference `MapGen`** (a source scan of the manifest's own
-    `Source` for the string `MapGen`), so the dependency direction in §2.3 cannot invert silently.
-13. *(map branch)* Every key any step declares in `StepSpec.assetKeys` either resolves through
-    `Assets.byKey` **with `mayShip == true`**, or is recorded in the run log as a proxy. A baked prop
-    with a blocked licence fails here (§8.5).
-
-Plus the pure specs, which need no world at all and run in every branch: `MapGen.Height` (pads, blend,
-corridor falloff, determinism for a fixed seed), `MapGen.Layout` (counts, spacing, pads cover every
-marker), `MapGen.Scatter` (nothing inside a pad, the corridor, a track or the bog),
-`MapGen.Digest` (stable for a fixed input, changes for a moved part).
-
-### 14.2 Client spec — `tests/client/map_client.spec.luau`
-
-No branch: every expectation comes from the contract, so the same assertions hold in both worlds.
-
-1. `Workspace.StreamingEnabled == Map.STREAMING.enabled`, and when enabled, the four radius/mode
-   properties match `Map.STREAMING`.
-2. The local character is standing on something: a downward ray from the root hits within 12 studs.
-   (The previous project shipped "measured correct, looked wrong"; a character in the void measures
-   fine.)
-3. `Players.LocalPlayer:RequestStreamAroundAsync(driveLinePoint)` returns within 10 s and the
-   `DrivenHunt.DriveLine` part is non-nil on the client afterwards — the client can actually see the
-   place it is told to shoot toward.
-
-### 14.3 Screenshots (rule 5) — `python tools/mapgen.py shots`
-
-Six named Edit-mode captures with explicit camera and look-at, through `Studio.capture`
-(`tools/studio_mcp.py`; Task 7 closed 2026-09-25, and Edit-mode capture is the case it was verified
-in). The Builder inspects each and says what it shows:
-
-| Name | Camera → look-at | Answers |
-|---|---|---|
-| `map-wide` | (0, 900, 1400) → (0, 0, 0) | is there a map at all, and is it farmland-shaped |
-| `map-line` | (0, 60, −560) → (0, 0, −760) | the shooter line along the wood edge, 8 posts on flat pads |
-| `map-corridor` | (0, 40, 700) → (0, 0, −700) | the drive, from the drivers' eye height |
-| `map-hedge` | (−200, 20, 200) → (100, 0, 200) | hedgerows and field edges at eye height |
-| `map-stand` | (300, 20, −400) → (300, 0, −600) | a spruce stand: does it read as woods or as poles |
-| `map-bog` | (−260, 30, −100) → (−260, 0, −220) | the bog, and whether it is a feature or an annoyance |
-
-**A proxy map is still a rule-5 subject.** Grey boxes on grey terrain is exactly the screen that hid
-this project's worst bugs, so §8.6's minimum proxy albedo is what makes these six images readable at
-all.
-
-### 14.4 What the harness cannot do here, stated rather than discovered
-
-- **It cannot judge whether the farmland reads as European farmland.** Only Karen can.
-- **It cannot run the generator**, by design (fact 1). `tools/mapgen.py` is invoked by hand and its
-  `[mapgen] OK:` line is pasted into the review request as evidence, alongside — never instead of —
-  the harness line.
-- **It cannot save the place**, and neither can `mapgen.py` (§7.4). The Director can post Alt+Shift+S;
-  nothing here can verify the result.
-- **There is no tool route to `File → Save to File` at all**, which is why §7.3 has two accepted forms
-  instead of one.
-- **It cannot prove tags survive a save and reopen** inside one run — that needs a reopen
-  (measurement B).
-- **`test2` is not evidence for this system.** A `[harness2]` line runs none of `test`'s checks 4–6
-  (`tools/studio_mcp.py`), and the map changes nothing about two players.
-- **No input scenario is added.** The map takes no input; a scenario here would test the harness.
-
-### 14.5 The measurements the first map tasks must make and write down (rule 8)
-
-- **A. `WriteVoxels`**: does it accept a 128 × 128 × 96-stud region? Is `resolution` 4 the only
-  accepted value? Record both; correct §13.2's tile row.
-- **B. Tags and terrain across a save and a reopen** (§10.3 step 5). If tags do **not** survive:
-  fallback B is markers found by **folder and name** under `Workspace.DrivenHuntMap.Markers`, and the
-  only module in the repo that changes is `Match.Markers`. Do **not** ship tags and attributes both:
-  two representations of one fact is this project's named failure mode.
-- **C. Writes through `execute_luau` in Edit mode** — step 0 of M2.1 is a one-liner that creates an
-  empty Folder and reads it back. StudioMCP exposes `insert_asset`, `multi_edit` and
-  `generate_procedural_model`, so the server is certainly not read-only, but `execute_luau`
-  specifically has only ever been used read-only here. If it cannot write, the whole invocation route
-  changes and that is an `ESCALATE.md` entry, not a workaround.
-- **D. Cost of 50 trees**: parts, triangles and the place's memory before and after, so the 3,000-tree
-  budget is checked by multiplication rather than hope. This is also the only check that can validate
-  `docs/design/asset-pipeline.md` §12.1's per-key triangle figures (its own §12.1 says so).
-- **E. `InsertService:LoadAsset` in Edit mode**, for an id **Karen owns**: does route A work at all
-  from `execute_luau`? This is the one that decides whether M2.3 needs route B.
-- **M5. Are free Creator Store models flagged *shared by the asset owner*?** — the fact D9 turns on,
-  and the only thing that could reopen §8.8. Needs an engine and a real asset id. `insert_asset`'s
-  behaviour for a non-owned free model is the second half of the same measurement. **Neither blocks
-  anything in M2.1–M2.4**, because proxies do not need ids.
+| Row | Disposition |
+|---|---|
+| 43a(a), 43a(b), 44a(b) — proxies read as lollipops; no fields | **answered**: §7.1's real heights and autumn colours, §7.6's flank fields, §8's palette. Karen still judges the result |
+| 43a(c) — the six shot names are stale | **closed**: §16.3's eight names |
+| 43a(e) — `MapGen.Contract` is not in the design | **closed**: §2.2 |
+| 43a(f), audit-004 F4 — the settings step could make M2.6's change | **adopted**: `Settings.MAY_WRITE = false`, §1.2 and §5.1 |
+| 43a(l), audit-004 F9 — 9.5-stud drop onto a non-colliding post | **closed**: §4.3's 6 × 1 × 6 post on the road bench; Karen confirms (N5) |
+| 43a(m), 43a(g) — functions with no caller | `Settings.current` and `verifyContract`'s `palette` have readers; `markerDigest`'s reader is M2.5 check 11, named in §16.1 |
+| 43a(h) — the arena spec spells the tags literally | **keep, and comment as deliberate** (§4.2) |
+| 43a(o) — a tree can stand inside a hedge | **closed**: `rejectTree` keeps the hedge clearance, and §16.1's scatter spec asserts it over 20 seeds |
+| 44a(a) — 10,240 studs of hedge against a 6,000 row | **closed**: the network shrinks to 6,144 studs (§7.5) |
+| 44a(e) — reachability paths to the line's centre only | **closed**: five targets (§16.4) |
+| 44a(f) — `MapGen.VERSION` is a hand-typed string | **closed**: `VERSION = Map.GENERATOR`, asserted (§16.1 check 10) |
+| 44a(g) — `CORRIDOR_MAX_SLOPE_DEG` had no reader | already fixed in Task 45; **strengthened** to three seeds with a lower bound (§16.1) |
+| 45a(a) — `SPAWN_PAD.blend` 40 against the design's 24 | **adopted**: 40 is the design's number now (§4.1) |
+| 45a(b) — relief-band assertions are identities | **closed**: the lower bound (§16.1) |
+| 45a(c), 47a(d), 48a(c) — `verifyContract`'s early return omits declared fields | **closed**: §5 says fill every field |
+| 45a(d) — post pads merged into one strip | **closed by construction**: there is a road there now (§6.4) |
+| 45a(e) — the slope spec runs two seeds | **closed**: three (§15.1, §16.1) |
+| 45a(g), 47a(f), 48a(d) — the design's stale signatures and section numbers | **closed**: §5 declares what is built; §19.1 B1 changes how comments cite |
+| 47a(c) — the terrain check bypasses `Ground.cells()` | **closed**: §16.1 check 1 |
+| audit-004 F3 — `digest` reported seed 0 | already fixed (`MapGen.builtSeed`); §5 declares `seed: number?` as built |
+| audit-004 F10 — the pad spec omitted `bogDepth` | already fixed; §16.1 keeps it |
+| 44a(c), 44a(d) — the bog reads dry; one material per field | **Karen's** (§20); crop variety is in no milestone and stays that way for v1 |
 
 ---
 
-## 15. Corrections this design carries into other documents
+## 20. Open decisions
 
-Named so they are not discovered in review. **A–B are this Architect's own files and are done here;
-C–F are the Builder's, in files the Architect never edits.**
-
-- **A. This file replaces `docs/design/map-generator.md` (Task 33) in full.** Its `MapGen.Assets`
-  module is deleted (§2.1), its §8.2 Creator Store route is deleted (§8.1), and its broken
-  cross-references are gone: Task 33 cited **§7.3** (spawn pads, which did not exist — now §6),
-  **§8.4**, **§9.2**, **§11**, **§12.1** and **§13.x** under numbers its own headings did not carry.
-  Every reference in this file points at a heading in this file.
-- **B. `docs/design/asset-pipeline.md` (Task 40) needs one correction at its next regeneration, from
-  this design:** its §6.8 says `MapGen.Props` inserts *"once per run"*. Under fact 2 a run is N MCP
-  calls with a fresh module copy each time, so the unit is **once per step, in a staging folder
-  destroyed inside the same call** (§8.4). Everything else that design says about the Loader, the
-  cache container, proxies and script refusal stands unchanged.
-- **C. `docs/research/2026-09-24-map-generator.md` needs four corrections** — the four Task 39 named
-  as belonging here (`docs/research/2026-09-26-asset-pipeline.md`, "For the Director"):
-  1. **§9's 21,000 triangles.** The limit is **20,000** and it **is first-party**:
-     *"Individual meshes can not exceed 20,000 triangles."* Correct the value, the label and the
-     numbers table's "community/vendor" basis.
-  2. **§9's "no single texture map above 1024 × 1024"** is not a limit. Platform limits are **4096²**
-     generally and **8000²** for a Decal/Image upload; 1024 is Roblox's **recommendation** for a
-     20-stud object and **our** budget.
-  3. **§9's "a changed mesh is a new asset id"** is half wrong. *"Currently, you can only update the
-     asset content for .fbx files. The update creates a new version."* — an FBX **Model** updates in
-     place as a new version; a **Decal/Image** and a **Mesh** are not updatable at all, so a changed
-     texture *is* a new id.
-  4. **§8's "I have not read the primary licence text"** can be closed: the Creator Store Terms were
-     read on 2026-09-26 via `https://en.help.roblox.com/api/v2/help_center/en-us/articles/<id>.json`
-     (the HTML is HTTP 403 to every tool here). Record that route so the next session does not lose
-     another page to a 403.
-  **One small Builder docs task, not a regeneration.** Worth doing before M2.3 so the tree budgets are
-  read off corrected numbers.
-- **D. `.gitignore`** gains `/.mapgen/`.
-- **E. `GAME_DESIGN.md`** gains §2.1's owner rows when the first map task lands (rule 3: the table
-  mirrors the designs), and its arena row is amended when §10's switch flips.
-- **F. `TASKS.md` row 16**'s note (*"it lands with the map generator, before any positioned
-  geometry"*) is wrong and stays wrong until someone corrects it (§9). The Director already agreed
-  (`reviews/task-33/BRIEF.md` decision B).
-
----
-
-## 16. Build order
-
-### M2.1 — the smallest first task: a 512 × 512 slice
-
-Scope, and nothing else: `src/shared/Map/init.luau` (the contract), `src/serverstorage/MapGen/`
-(`init`, `Config`, `Height`, `Layout`, `Scatter`, `Digest`, `Ground`, `Props`, `Markers`),
-`tools/mapgen.py`, `tests/server/map_contract.spec.luau` (arena branch — the slice is **not** the world
-yet, so `Map.EXPECTED_WORLD` stays `"arena"`), the pure specs, and measurements A, B, C, D.
-
-The slice: a noise heightfield written as voxel terrain in two materials (grass field, dirt track), one
-hedgerow line, 50 trees **as proxies** (§8.6), the pads under all 13 markers, and the five tagged
-markers. Then `verify` (same seed twice → same digest), six screenshots, save, reopen, `contract`.
-
-**It is buildable today, with no asset ids, no `ServerStorage.Assets` and no decisions from anyone** —
-`Props` takes `Assets` as an optional dependency and proxies everything when it is absent, which is
-also how its spec runs.
-
-### Then, one task each
-
-| # | Task | Depends on | Notes |
-|---|---|---|---|
-| M2.2 | The full 2048 heightfield: fields, hedgerow network, tracks, the bog, the corridor band, every pad | M2.1 (measurement A) | still proxies |
-| M2.3 | Tree stands: 1,800 spruce / 900 birch / 300 oak from **Karen's own uploaded ids**, through `Assets.Loader` | M2.2; `ServerStorage.Assets` exists (M2.7a/b); **Karen's Meshy-plan answer** (§8.5) | measurements D and E decide whether 3,000 survives and whether route A works in Edit |
-| M2.4 | Props and the line's furniture: fences, gates, stones, high seats; the 12 tie trees; the post parts as real geometry | M2.3 | |
-| M2.5 | **The switch** (§10): `Map.EXPECTED_WORLD = "map:v1"`, `Boar.CONFIG.field`, `ArenaBoot`'s early return, the map branch of the spec, Karen walks it | M2.4, and Milestone 1 merged | the feel gate |
-| M2.6 | Streaming on: `Map.STREAMING.enabled = true`, `MapGen.Settings`, the client spec's radius assertions, **a full harness re-run and a playtest** | M2.5 | its own task, alone — the Director's decision C |
-| M2.7 | Archive `TestArena`, `ArenaBoot`, `test_arena.spec` to `backups/` with a note (rule 7) | **Karen has accepted the map** | until then the arena is the rollback |
-
-Task 33's M2.7 ("the Open Cloud upload tool") is **not here**: it is the asset pipeline's own
-Milestone 2.7 (`docs/design/asset-pipeline.md` §14), which supersedes it.
-
----
-
-## 17. Open decisions
-
-**None of these blocks building M2.1.** Each has a working default, in the config or in this document,
+**None of these blocks building M2.8a.** Each has a working default, in `Config` or in this document,
 changeable by one value.
 
 ### Already decided, recorded so they are not reopened
 
-`reviews/task-33/BRIEF.md`, the Director, 2026-09-25: **A** `tools/mapgen.py` is allowed, the tooling
-freeze does not apply; **B** `TASKS.md` row 16 stays "before release" and its note is corrected by the
-Builder; **C** M2.6 (streaming) is its own task with a full harness run and a playtest; **D** spawn
-pads are flattened in terrain and the boar stays untouched. Karen's taste items keep their defaults
-until she walks the first slice.
+`reviews/task-54/BRIEF.md`, Karen and the Director, 2026-09-26: the line is on a **forest road**; boars
+**cross** it; **autumn**; **four species**; boars come as **singles and groups of 2–5**; shooters wear an
+**orange hat**, drivers an **orange vest**. Earlier and still standing (`reviews/task-33/BRIEF.md`):
+`tools/mapgen.py` is allowed past the tooling freeze; `TASKS.md` row 16 stays "before release";
+**M2.6 (streaming) is its own task with a full harness run and a playtest**; **spawn pads are flattened
+in terrain and the boar stays untouched**.
 
-### For Karen (feel, taste and licence — nobody else can answer)
+### For Karen (feel and taste — nobody else can answer)
 
-1. **Post spacing: 80 studs, 8 posts, a 560-stud line.** The research note said 60. Walk it and say
-   whether it reads as a hunting line or a firing range. `Config.LINE.postSpacing`.
-2. **Field size and hedgerow density.** Default: fields of 300–500 studs a side, a hedge on most
-   boundaries. The single biggest lever on "does it read as European farmland".
-3. **How dark the spruce stands are, and how thick.** Default: 3,000 trees, stands of 40–120 studs
-   across. A dark stand hides boar; too dark and shooters see nothing.
-4. **The bog: feature or annoyance?** Default: one 120-stud disc of mud, 6 studs deep, off the main
-   corridor. `Config.BOG.enabled` turns it off in one word.
-5. **The Meshy plan** — and this one has a deadline the others do not. While
-   `Assets.BASES["meshy-free-ccby"].mayShip` is `false`, **every free-plan Meshy prop bakes as a grey
-   proxy** (§8.5) and M2.3 cannot deliver a wood. The recommendation is
-   `docs/design/asset-pipeline.md` §16 Karen 1's: a paid plan for anything that ships. **Not legal
-   advice.**
-6. **The clicks per rebuild.** With `--backup census` (§7.3) a rebuild of an empty-or-reproducible
-   place needs **no human at all** except the save, which the Director can now post. With hand-made
-   content in the place it needs `File → Save to File` first, and there is no tool route to it.
+1. **Post spacing: 160 studs (45 m), 8 posts, a 1,120-stud line.** Her reference said 40–80 m; this is
+   the low end, because the map is 2,048 studs wide and 80 m spacing would need a 2,000-stud line.
+   Walk it. **And note §14 source 6: at this spacing the DJV's 30° neighbour rule bites** — a boar
+   crossing 40 studs in front of a shooter is about 14° off his neighbour's stand, which makes
+   `TASKS.md` row 35a (the v1.1 neighbour rule) a real rule rather than a nicety.
+2. **How dark and how thick the wood is** — density 1.00 / 0.42 / 0.14, and 500 brush. The single
+   biggest lever on whether the drive is fun: too thin and the boar has nowhere to hide, too thick and
+   the shooter's shot hits a trunk every time.
+3. **Should cover ever stop a shot?** Brush is decoration in v1 (`CanQuery = false`, §7.4). Trunks and
+   crowns do stop shot. If a pellet stopped by a bush feels right, that is one property.
+4. **The road**: 16 studs wide and dead level. Wider, narrower, or should it roll with the ground
+   (§6.3, a v1.1 cost)?
+5. **The autumn palette**: four colours in `Map.PALETTE`, and four crown colours in §7.1. Numbers she
+   changes after looking.
+6. **Do the flank fields stay?** Default yes, two of them (§7.6). They are what keeps "European
+   farmland and woods" true and they are 10 minutes to delete.
+7. **The bog** — still a grey mud flat, because `Water` is forbidden in v1 (row 44a(c)).
+   `Config.WORLD.bog` turns it off in one word.
+8. **The outfits**: an orange hat and an orange vest, as flat grey-box parts (§10.2). Shape, size and
+   whether both teams should be orange at all.
+9. **The Meshy plan** — unchanged, and it gates M2.3, not this revision: while free-plan Meshy output
+   may not ship, every tree bakes as a proxy. **Not legal advice.**
 
 ### For the Director (scope)
 
-A. **The backup rule is now two-form (§7.3), and the second form is machine-checked rather than
-   human-attested.** Recommendation: accept it, and say in the dispatch that `--backup census` is
-   allowed for M2.1 and M2.2 (where the place is empty and the map is reproducible), so the first
-   slices can iterate headless. The `.rbxl` stays mandatory the moment the census is not clean.
+A. **The corridor widens from 680 to 1,240 studs to hold a 45 m shooter line, and the map stays 2,048
+   studs.** That leaves ~400 studs of wood on each flank and 1,400 studs of drive. **Recommendation:
+   accept.** Growing the map to 2,560 would cost 400 terrain tiles instead of 256 (~+60 % build time)
+   and buys backdrop, not gameplay. If Karen wants 80 m spacing, the map must grow, and that is a
+   separate decision with a measured cost.
 
-B. **Who presses the save, and with what.** §7.4 names two routes and `mapgen.py` performs neither.
-   The key-posting script lives outside the repo and only the `press-F7` sibling is recorded
-   (`tools/studio_mcp.py` docstring). Recommendation: the Director owns the Alt+Shift+S route and says
-   so in the dispatch, and the Builder's report always ends with the reopen-plus-`contract` proof
-   rather than a claim that the place was saved.
+B. **Five tasks before the switch (M2.8a–e), not one.** The wood, the road, the furniture and the
+   outfits are four different kinds of change with four different kinds of evidence, and rule 4 is one
+   task per round. **Recommendation: dispatch M2.8a alone**, and read N1 and N4 before dispatching
+   M2.8b.
 
-C. **Creator Store props are withdrawn until M5** (§8.8), which narrows `ROADMAP.md` speed rule 6
-   ("Creator Store assets first"). Recommendation: confirm the narrowing in `ROADMAP.md`, and dispatch
-   M5 with M2.4 rather than blocking on it.
+C. **The outfit task is the first thing in a while that needs `test2`** (it touches `src/` and is only
+   visible with two players). **Recommendation:** dispatch M2.8d when a two-player slot exists, not
+   before.
 
-D. **M2.3 is gated on Karen's Meshy answer, not on the generator** (§8.5). Recommendation: either get
-   the answer before M2.3 is dispatched, or dispatch M2.3 explicitly as "proxies, with the real ids to
-   follow", so nobody discovers the grey wood in a screenshot review.
+D. **`MapGen.Assets` stays the manifest until M2.7a**, with the key grammar already matching
+   `asset-pipeline.md` (§12.2). **Recommendation: confirm**, and forbid a second id table anywhere in
+   the meantime.
+
+E. **The species and brush keys need rows in `asset-pipeline.md` §12.1** (§19.1 A2). That file is
+   Architect-owned; **recommendation:** fold them in at its next regeneration rather than spending a
+   design run on it now — nothing is blocked, because `Assets.ROWS` is empty and every key proxies.
+
+F. **Measurement N2 (pathfinding cost with ~3,000 trunks) could send M2.8b back.** If it does, the
+   answer is a density number or non-collidable trunks below crown height, and **either is a `TASKS.md`
+   row with a measurement attached, not a quiet tweak.**

@@ -22,3 +22,13 @@ Deliver:
 3. Outfits: owner and the simplest grey-box version (coloured parts) until the models arrive.
 4. The task order for the Builder and what Karen checks in her next playtest.
 No local absolute Windows paths.
+
+## Director decisions on the design's section 20 (2026-09-26, after the Architect's PASS)
+- A: accepted — corridor 1,240 studs, map stays 2,048; 45 m post spacing (Karen may ask for more; then
+  the map grows as a separate, measured decision).
+- B: accepted — M2.8a–e as five tasks; dispatch M2.8a alone first.
+- C: accepted — M2.8d (outfits) runs test2; the Director can run 2-player tests unattended now.
+- D: confirmed — MapGen.Assets is the only id table until M2.7a; no second one anywhere.
+- E: agreed — species/brush rows fold into asset-pipeline.md at its next regeneration.
+- F: agreed — an N2 fallback is a TASKS row with a measurement, never a quiet tweak.
+- Group behaviour (sounders) is designed in docs/design/drive.md by a separate Architect run (Task 57).
