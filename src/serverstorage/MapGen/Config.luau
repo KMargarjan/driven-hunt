@@ -349,8 +349,12 @@ Config.FURNITURE = {
 	stake = {
 		offsetX = 5, -- studs either side of the post's centre
 		offsetZ = -4, -- behind the centreline, on the far-wood side
-		size = Vector3.new(0.6, 8, 0.6),
-		capSize = Vector3.new(1.2, 1.5, 1.2),
+		-- MEASURED, NOT GUESSED (rule 5). The first build made the stake 8 studs with a
+		-- 1.2 x 1.5 cap, and the screenshot from the road showed one orange speck at 70 studs and
+		-- almost nothing at 160 -- which is the distance the question is actually about. A 2.4-stud
+		-- cube on a 9-stud stake reads as a clear orange mark at the next stand along.
+		size = Vector3.new(0.6, 9, 0.6),
+		capSize = Vector3.new(2.4, 2.4, 2.4),
 		color = Color3.fromRGB(168, 146, 112), -- peeled softwood
 		capColor = Color3.fromRGB(232, 108, 28), -- K, hunter orange: the same signal as the outfits
 	},
