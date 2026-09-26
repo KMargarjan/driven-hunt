@@ -18,15 +18,22 @@
 -- Design: docs/design/drive.md (sections 6.1, 6.2)
 -- Note:   docs/research/2026-09-25-drive.md
 local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
 
 local Markers = {}
 
+-- THE STRINGS LIVE IN THE CONTRACT (`src/shared/Map/init.luau`, Map.TAGS), not here: before Task 43
+-- "DrivenHunt.ShooterPost" was written out in TestArena, in this file and in the map generator --
+-- three copies of one fact, where a typo yields an empty list and a silently dead rule. The key names
+-- stay this module's own, because they are what the drive calls the things it reads.
 Markers.TAGS = table.freeze({
-	post = "DrivenHunt.ShooterPost",
-	line = "DrivenHunt.DriveLine",
-	driverStart = "DrivenHunt.DriverStart",
-	boarSpawn = "DrivenHunt.BoarSpawn",
-	tree = "DrivenHunt.Tree",
+	post = Map.TAGS.shooterPost,
+	line = Map.TAGS.driveLine,
+	driverStart = Map.TAGS.driverStart,
+	boarSpawn = Map.TAGS.boarSpawn,
+	tree = Map.TAGS.tree,
 })
 
 export type DriveLine = { position: Vector3, normal: Vector3 }

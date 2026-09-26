@@ -1,0 +1,155 @@
+--!strict
+-- MapGen.Ground: THE ONLY WRITER OF `Terrain` IN THE REPO (design section 2.2). One tile per call.
+-- It reads no Instance and writes none; it asks `Height` where the ground is and `Layout` what is on
+-- it, so nothing here can disagree with the props or the markers about the shape of the world.
+--
+--   Terrain:WriteVoxels  https://create.roblox.com/docs/reference/engine/classes/Terrain#WriteVoxels
+--   Terrain:ReadVoxels   https://create.roblox.com/docs/reference/engine/classes/Terrain#ReadVoxels
+--   Region3:ExpandToGrid https://create.roblox.com/docs/reference/engine/datatypes/Region3
+--
+-- MEASURED 2026-09-26 (design section 13.5 measurement A, an Edit-mode execute_luau probe):
+--   * a 128 x 128 x 96-stud region at resolution 4 is accepted -- 32 x 24 x 32 = 24,576 voxels;
+--   * resolution 8 and resolution 2 are BOTH refused, with "Resolution has to be 4".
+-- So the tile size is a choice and the resolution is not one. The occupancy arrays are indexed
+-- [x][y][z], 1-based, in the region's own order.
+--
+-- Design: docs/design/map-generator.md (sections 2.2, 5.2)
+local Workspace = game:GetService("Workspace")
+
+local Height = require(script.Parent:WaitForChild("Height"))
+local Layout = require(script.Parent:WaitForChild("Layout"))
+
+local Ground = {}
+
+local AIR = Enum.Material.Air
+
+local function regionFor(minX: number, minZ: number, config): Region3
+	return Region3.new(
+		Vector3.new(minX, config.BAND_Y.min, minZ),
+		Vector3.new(minX + config.TILE_STUDS, config.BAND_Y.max, minZ + config.TILE_STUDS)
+	):ExpandToGrid(config.VOXEL)
+end
+
+-- LeafyGrass where the ground is steep, Grass where it is not: the field reads as pasture and the
+-- broken ground reads as rough, from one number instead of a second noise field. Called ONCE PER
+-- COLUMN, not once per voxel: at 24,576 voxels a tile and ~6 math.noise calls a height, per-voxel
+-- would be about 600,000 noise evaluations for a tile that needs 3,000.
+local function surfaceMaterial(x: number, z: number, h: number, seed: number, config, pads): Enum.Material
+	if Layout.onTrack(x, z, config) then
+		return config.MATERIAL.track
+	end
+	local v = config.VOXEL
+	local dx = math.abs(Height.atFlattened(x + v, z, seed, config, pads) - h) / v
+	local dz = math.abs(Height.atFlattened(x, z + v, seed, config, pads) - h) / v
+	if math.max(dx, dz) > config.ROUGH_SLOPE then
+		return config.MATERIAL.rough
+	end
+	return config.MATERIAL.field
+end
+
+-- One tile. IDEMPOTENT: it writes every voxel of its region from the heightfield, so re-running it
+-- produces the same tile whatever was there before (design section 5.4).
+function Ground.writeTile(tile, seed: number, config): number
+	local pads = Layout.pads(config)
+	local region = regionFor(tile.minX, tile.minZ, config)
+	local size = region.Size
+	local min = region.CFrame.Position - size / 2
+	local v = config.VOXEL
+	local nx, ny, nz = size.X / v, size.Y / v, size.Z / v
+	local materials, occupancies = {}, {}
+	for i = 1, nx do
+		materials[i], occupancies[i] = {}, {}
+		for j = 1, ny do
+			materials[i][j], occupancies[i][j] = {}, {}
+		end
+	end
+	for i = 1, nx do
+		local x = min.X + (i - 0.5) * v
+		for k = 1, nz do
+			local z = min.Z + (k - 0.5) * v
+			local h = Height.atFlattened(x, z, seed, config, pads)
+			local material = surfaceMaterial(x, z, h, seed, config, pads)
+			for j = 1, ny do
+				local bottom = min.Y + (j - 1) * v
+				local occupancy = math.clamp((h - bottom) / v, 0, 1)
+				materials[i][j][k] = if occupancy > 0 then material else AIR
+				occupancies[i][j][k] = occupancy
+			end
+		end
+	end
+	Workspace.Terrain:WriteVoxels(region, v, materials, occupancies)
+	return nx * ny * nz
+end
+
+-- The dirt track: MATERIAL ONLY. Its height was already flattened into the heightfield by step 2, so
+-- this pass can never disagree with the ground it paints (design section 5.2 layer 5). Painting the
+-- whole solid column rather than the top voxel keeps the pass a pure read-then-write with no surface
+-- search: 12 studs of track is never seen from the side. It takes no seed, because the track's
+-- POSITION is a layout fact and its HEIGHT was already decided by step 2 -- there is nothing random
+-- left to draw.
+function Ground.paintTrack(config): number
+	local slice = config.SLICE
+	local half = config.SLICE_STUDS / 2
+	local region = Region3.new(
+		Vector3.new(-half, config.BAND_Y.min, slice.trackZ - slice.trackHalfWidth),
+		Vector3.new(half, config.BAND_Y.max, slice.trackZ + slice.trackHalfWidth)
+	):ExpandToGrid(config.VOXEL)
+	local v = config.VOXEL
+	local materials, occupancies = Workspace.Terrain:ReadVoxels(region, v)
+	local min = region.CFrame.Position - region.Size / 2
+	local painted = 0
+	local nx, ny, nz = region.Size.X / v, region.Size.Y / v, region.Size.Z / v
+	for i = 1, nx do
+		local x = min.X + (i - 0.5) * v
+		for k = 1, nz do
+			local z = min.Z + (k - 0.5) * v
+			if Layout.onTrack(x, z, config) then
+				for j = 1, ny do
+					if occupancies[i][j][k] > 0 and materials[i][j][k] ~= AIR then
+						materials[i][j][k] = config.MATERIAL.track
+						painted += 1
+					end
+				end
+			end
+		end
+	end
+	Workspace.Terrain:WriteVoxels(region, v, materials, occupancies)
+	return painted
+end
+
+-- One downward height sample per column, for the digest: occupancy summed through the band plus the
+-- material of the topmost solid voxel. One ReadVoxels per row (design section 6.4).
+function Ground.sampleRow(
+	z: number,
+	samplesPerRow: number,
+	config
+): { { x: number, z: number, occupancy: number, material: string } }
+	local half = config.SLICE_STUDS / 2
+	local v = config.VOXEL
+	local region =
+		Region3.new(Vector3.new(-half, config.BAND_Y.min, z - v / 2), Vector3.new(half, config.BAND_Y.max, z + v / 2))
+			:ExpandToGrid(v)
+	local materials, occupancies = Workspace.Terrain:ReadVoxels(region, v)
+	local min = region.CFrame.Position - region.Size / 2
+	local nx, ny = region.Size.X / v, region.Size.Y / v
+	local stride = math.max(1, math.floor(nx / samplesPerRow))
+	local out = {}
+	for i = 1, nx, stride do
+		local total, top = 0, "Air"
+		for j = 1, ny do
+			local occupancy = occupancies[i][j][1]
+			total += occupancy
+			if occupancy > 0 then
+				top = materials[i][j][1].Name
+			end
+		end
+		table.insert(out, { x = min.X + (i - 0.5) * v, z = z, occupancy = total, material = top })
+	end
+	return out
+end
+
+function Ground.clear()
+	Workspace.Terrain:Clear()
+end
+
+return Ground

@@ -60,3 +60,6 @@ service-account*.json
 
 # Screenshots saved by `python tools/studio_mcp.py capture` (rule-5 evidence, not repo content)
 /.screenshots/
+
+# Map generator run logs (tools/mapgen.py, one JSON per run; evidence, not repo content)
+/.mapgen/
