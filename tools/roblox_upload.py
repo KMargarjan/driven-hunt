@@ -32,9 +32,10 @@ Usage:
 Exit codes, the harness's shape: 0 done - 1 the upload failed - 2 REFUSED before anything was sent.
 
 WHAT IT REFUSES, BEFORE ANY BYTE LEAVES THE PROCESS:
-  1. No key.
+  1. No key -- except for `--dry-run`, which sends nothing and therefore needs none.
   2. No `--karen-ok`, or one that does not carry a date AND words.
-  3. No model file in the folder, or a file whose extension Roblox does not list for the asset type.
+  3. An asset type this tool does not implement (it is **Model only**), no model file in the folder,
+     or a file whose extension Roblox does not list for that type.
   4. A file over 20 MB -- the guide's *"up to 20 MB"* per call.
   5. The same bytes twice: if the file's sha256 is already in the manifest, it refuses and names the
      asset id it already has. `--again` is how a deliberate re-upload says it means it.
@@ -73,12 +74,18 @@ CREATOR_USER_ID = "8167651842"
 
 MAX_FILE_BYTES = 20 * 1024 * 1024  # the guide's "up to 20 MB" per call
 
-# From the Assets guide's own table, for assetType Model. Nothing else is offered, because an
-# extension this tool guesses a content type for is an extension Roblox has not agreed to.
+# From the Assets guide's own table, KEYED BY ASSET TYPE. Nothing else is offered, because an
+# extension this tool guesses a content type for is an extension Roblox has not agreed to -- and the
+# table is per type because it has to be: with one flat Model-only table, `--type Decal --file
+# model.fbx` was accepted and sent as `model/fbx` (review round 1). The guide lists Decal/Image,
+# Audio, Video and Animation too; this tool implements **Model only**, and says so by refusing the
+# rest rather than by a sentence in a docstring nobody runs.
 CONTENT_TYPES = {
-    ".fbx": "model/fbx",
-    ".glb": "model/gltf-binary",
-    ".gltf": "model/gltf+json",
+    "Model": {
+        ".fbx": "model/fbx",
+        ".glb": "model/gltf-binary",
+        ".gltf": "model/gltf+json",
+    },
 }
 # The order a prepared folder is searched in. FBX first: it is what the guide's own example uploads,
 # it is the only format the guide says can later be UPDATED in place ("Currently, you can only update
@@ -133,7 +140,12 @@ def check_karen_ok(text):
     return text.strip()
 
 
-def find_model(folder, wanted=None):
+def find_model(folder, wanted=None, asset_type="Model"):
+    allowed = CONTENT_TYPES.get(asset_type)
+    if allowed is None:
+        raise Refused("this tool uploads %s only; Roblox's Assets API has more types and each needs "
+                      "its own formats, limits and updatability rules"
+                      % " and ".join(sorted(CONTENT_TYPES)))
     if not os.path.isdir(folder):
         raise Refused("no such folder: the prepared asset directory")
     if wanted:
@@ -148,16 +160,16 @@ def find_model(folder, wanted=None):
         else:
             raise Refused("no model.fbx / model.glb / model.gltf in the prepared folder")
     extension = os.path.splitext(path)[1].lower()
-    if extension not in CONTENT_TYPES:
-        raise Refused("Roblox does not list %s for assetType Model (%s)"
-                      % (extension, ", ".join(sorted(CONTENT_TYPES))))
+    if extension not in allowed:
+        raise Refused("Roblox does not list %s for assetType %s (%s)"
+                      % (extension, asset_type, ", ".join(sorted(allowed))))
     size = os.path.getsize(path)
     if size > MAX_FILE_BYTES:
         raise Refused("%s is %.1f MiB; the Assets API takes up to 20 MB per call"
                       % (os.path.basename(path), size / (1 << 20)))
     if size == 0:
         raise Refused("%s is empty" % os.path.basename(path))
-    return path, CONTENT_TYPES[extension], size
+    return path, allowed[extension], size
 
 
 def digest_of(path):
@@ -276,12 +288,12 @@ def poll(operation_path, key, sender, budget=POLL_BUDGET_S, gap=POLL_GAP_S, slee
     return False, payload, time.time() - started, polls
 
 
-def upload(folder, name, description, karen_ok, key, sender=send, asset_type="Model",
+def upload(folder, name, description, karen_ok, key=None, sender=send, asset_type="Model",
            wanted=None, again=False, dry_run=False, budget=POLL_BUDGET_S, gap=POLL_GAP_S,
            sleep=time.sleep):
     """The whole run. Raises Refused before anything is sent."""
     karen_ok = check_karen_ok(karen_ok)
-    path, content_type, size = find_model(folder, wanted)
+    path, content_type, size = find_model(folder, wanted, asset_type)
     sha = digest_of(path)
     seen = already_uploaded(sha)
     if seen and not again:
@@ -304,6 +316,10 @@ def upload(folder, name, description, karen_ok, key, sender=send, asset_type="Mo
         say("DRY RUN: nothing was sent")
         return {"dryRun": True, "request": request_json, "sha256": sha,
                 "file": os.path.basename(path), "bytes": size}
+    # THE KEY IS READ HERE, NOT BEFORE: a dry run sends nothing, so it has no business demanding a
+    # password -- it should work on a machine that has never held one (review round 1, note).
+    if key is None:
+        key = read_key()
 
     with open(path, "rb") as handle:
         body, body_type = multipart(request_json, handle.read(), os.path.basename(path), content_type)
@@ -353,8 +369,7 @@ def upload(folder, name, description, karen_ok, key, sender=send, asset_type="Mo
 # ---------------------------------------------------------------- commands
 
 def command_upload(args):
-    key = read_key()
-    row = upload(args.folder, args.name, args.description, args.karen_ok, key,
+    row = upload(args.folder, args.name, args.description, args.karen_ok, key=None,
                  asset_type=args.type, wanted=args.file, again=args.again, dry_run=args.dry_run,
                  budget=args.timeout)
     if row.get("dryRun"):
@@ -395,7 +410,7 @@ def command_selftest(_args):
             ok(name, expect in str(why), str(why)[:110])
 
     import tempfile
-    global MANIFEST
+    global MANIFEST, read_key
     real_manifest = MANIFEST
     with tempfile.TemporaryDirectory(prefix="dh-upload-") as tmp:
         MANIFEST = os.path.join(tmp, "uploads.json")
@@ -416,8 +431,16 @@ def command_selftest(_args):
            check_karen_ok("2026-09-26 the shotgun as prepared by Task 72").startswith("2026"))
         refuses("it refuses a folder with no model",
                 lambda: find_model(tmp), "no model.fbx")
+        # A REAL FILE, BECAUSE THE POINT IS THE EXTENSION. Round 1 asked for a `model.obj` that did
+        # not exist, so `find_model` refused at the missing-file branch and the check passed for the
+        # wrong reason -- the extension guard was never run, and deleting it left the selftest green.
+        # The file is written first so the run reaches the guard the check is named after.
+        with open(os.path.join(folder, "model.obj"), "wb") as handle:
+            handle.write(b"v 0 0 0" + b"\n")
         refuses("it refuses an extension Roblox does not list",
-                lambda: find_model(folder, "model.obj"), "no model.obj")
+                lambda: find_model(folder, "model.obj"), "does not list")
+        refuses("it refuses an asset type it does not implement",
+                lambda: find_model(folder, "model.fbx", "Decal"), "uploads Model only")
         big = os.path.join(folder, "big.fbx")
         with open(big, "wb") as handle:
             handle.seek(MAX_FILE_BYTES + 1)
@@ -426,12 +449,33 @@ def command_selftest(_args):
                 lambda: find_model(folder, "big.fbx"), "up to 20 MB")
         os.remove(big)
 
+        # ---- THE KEY'S OWN REFUSAL, with both places it looks stubbed out. Round 1 had no check
+        # for this at all, so "no key" was claimed as a proved refusal and was not one.
+        real_environ, real_run = os.environ, subprocess.run
+        try:
+            os.environ = {}
+
+            def no_registry(*_args, **_kwargs):
+                class Empty:
+                    stdout = ""
+                return Empty()
+
+            subprocess.run = no_registry
+            refuses("it refuses when the key is in neither place",
+                    read_key, "no ROBLOX_OPEN_CLOUD_KEY")
+            os.environ = {KEY_ENV: "a-key-from-the-environment"}
+            ok("it takes the key from the environment when it is there",
+               read_key() == "a-key-from-the-environment")
+        finally:
+            os.environ, subprocess.run = real_environ, real_run
+
         path, content_type, size = find_model(folder)
         ok("it picks the FBX and its documented content type",
            os.path.basename(path) == "model.fbx" and content_type == "model/fbx", content_type)
 
         # ---- the request the guide describes
-        body, body_type = multipart({"assetType": "Model"}, b"xx", "model.fbx", "model/fbx")
+        body, body_type = multipart({"assetType": "Model"}, b"xx", "model.fbx",
+                                    CONTENT_TYPES["Model"][".fbx"])
         ok("the body carries both named parts",
            b'name="request"' in body and b'name="fileContent"' in body)
         ok("the body declares the file's content type", b"model/fbx" in body)
@@ -501,6 +545,22 @@ def command_selftest(_args):
         dry = upload(folder, "dry", "x", "2026-09-26 a dry run of the fixture", SECRET,
                      sender=fake, again=True, dry_run=True)
         ok("a dry run sends nothing", len(sent) == before and dry.get("dryRun") is True)
+        # AND IT NEEDS NO KEY: `key=None` with the reader replaced by something that would blow up
+        # proves the dry run never asks for one, which is the whole point of the change.
+        real_read_key = read_key
+
+        def explode():
+            raise AssertionError("a dry run must not read the key")
+
+        read_key = explode
+        try:
+            dry_no_key = upload(folder, "dry", "x", "2026-09-26 a dry run with no key at all",
+                                key=None, sender=fake, again=True, dry_run=True)
+            ok("a dry run needs no key", dry_no_key.get("dryRun") is True)
+        except AssertionError as why:
+            ok("a dry run needs no key", False, str(why))
+        finally:
+            read_key = real_read_key
 
         # ---- an HTTP failure is a failure, not a silent success
         def refuser(url, method, key, body=None, content_type=None, timeout=120):
