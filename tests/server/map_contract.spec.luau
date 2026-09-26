@@ -39,6 +39,23 @@ local MapGen = require(ServerStorage:WaitForChild("MapGen"))
 -- actually does rather than a copy of it.
 local Props = require(ServerStorage.MapGen:WaitForChild("Props"))
 
+-- ONE SHAPE FOR THE DIGEST'S FIXTURES, at file scope. The palette spec added in round 2 hand-rolled a
+-- second entry table (`path`/`class`) and a second sample (`y`), while `Digest` reads `name`/
+-- `className` and `occupancy` -- so it threw inside `string.format` instead of asserting anything,
+-- and the harness caught it twice. A fixture that names the generator's own fields is worth exactly
+-- one copy in this file.
+local function digestEntry(name: string, x: number, y: number)
+	return {
+		name = name,
+		className = "Part",
+		position = Vector3.new(x, y, 2),
+		size = Vector3.new(4, 4, 4),
+		tags = { Map.TAGS.tree },
+	}
+end
+
+local DIGEST_SAMPLES = { { x = 0, z = 0, occupancy = 1, material = "Grass" } }
+
 local ARENA_ROOT = "TestArena"
 local MAP_ROOT = "DrivenHuntMap"
 local SEED = 7 -- any seed: the claims below are about determinism, not about one map
@@ -337,21 +354,13 @@ return function()
 			-- Round 1 claimed "a hand-edited colour changes the digest" and nothing ran the fourth
 			-- argument at all: every digest spec passed three, so `paletteText(nil)` returned "".
 			-- A recolour is a change to the map that the voxels and the markers cannot see.
-			local function entry(name: string, y: number)
-				return {
-					name = name,
-					className = "Part",
-					position = Vector3.new(0, y, 0),
-					size = Vector3.one,
-					tags = {},
-				}
-			end
-			local samples = { { x = 0, z = 0, y = 1, material = "Grass" } }
-			local autumn = MapGen.Digest.of({ entry("A", 0) }, samples, 100, Map.PALETTE)
-			local defaults = MapGen.Digest.of({ entry("A", 0) }, samples, 100, Map.PALETTE_DEFAULT)
+			local one = { digestEntry("A", 0, 1) }
+			local samples = DIGEST_SAMPLES
+			local autumn = MapGen.Digest.of(one, samples, 100, Map.PALETTE)
+			local defaults = MapGen.Digest.of(one, samples, 100, Map.PALETTE_DEFAULT)
 			expect(autumn).never.to.equal(defaults)
 			-- ...the same palette twice is the same digest,
-			expect(MapGen.Digest.of({ entry("A", 0) }, samples, 100, Map.PALETTE)).to.equal(autumn)
+			expect(MapGen.Digest.of(one, samples, 100, Map.PALETTE)).to.equal(autumn)
 			-- ...ONE channel of ONE role is enough to move it,
 			local nudged = {
 				litter = Color3.fromRGB(151, 108, 62),
@@ -359,9 +368,9 @@ return function()
 				road = Map.PALETTE.road,
 				bog = Map.PALETTE.bog,
 			}
-			expect(MapGen.Digest.of({ entry("A", 0) }, samples, 100, nudged)).never.to.equal(autumn)
+			expect(MapGen.Digest.of(one, samples, 100, nudged)).never.to.equal(autumn)
 			-- ...and no palette at all is a third, distinct answer rather than a silent match.
-			expect(MapGen.Digest.of({ entry("A", 0) }, samples, 100)).never.to.equal(autumn)
+			expect(MapGen.Digest.of(one, samples, 100)).never.to.equal(autumn)
 			-- The text itself is sorted and 8-bit, so two runs agree.
 			expect(MapGen.Digest.paletteText(Map.PALETTE)).to.equal(
 				"bog=96,82,62|litter=150,108,62|road=152,146,132|rough=126,122,78"
@@ -896,21 +905,11 @@ return function()
 
 	describe("the generator's digest", function()
 		local function entry(name, x)
-			return {
-				name = name,
-				className = "Part",
-				position = Vector3.new(x, 1, 2),
-				size = Vector3.new(4, 4, 4),
-				tags = { Map.TAGS.tree },
-			}
+			return digestEntry(name, x, 1)
 		end
 
 		it("is 64 hex characters, of which the marker half is the first 32", function()
-			local digest = MapGen.Digest.of(
-				{ entry("A", 0) },
-				{ { x = 0, z = 0, occupancy = 1, material = "Grass" } },
-				100
-			)
+			local digest = MapGen.Digest.of({ entry("A", 0) }, DIGEST_SAMPLES, 100)
 			expect(#digest).to.equal(64)
 			expect(string.match(digest, "^[0-9a-f]+$")).to.be.ok()
 			expect(MapGen.Digest.markerHalf(digest)).to.equal(string.sub(digest, 1, 32))
@@ -918,7 +917,7 @@ return function()
 		end)
 
 		it("is the same for the same map and different for a moved part", function()
-			local samples = { { x = 0, z = 0, occupancy = 1, material = "Grass" } }
+			local samples = DIGEST_SAMPLES
 			local a = MapGen.Digest.of({ entry("A", 0), entry("B", 10) }, samples, 100)
 			local b = MapGen.Digest.of({ entry("A", 0), entry("B", 10) }, samples, 100)
 			expect(a).to.equal(b)
@@ -933,7 +932,7 @@ return function()
 		end)
 
 		it("ignores a difference finer than the rounding, so float noise is not a mismatch", function()
-			local samples = { { x = 0, z = 0, occupancy = 1, material = "Grass" } }
+			local samples = DIGEST_SAMPLES
 			local a = MapGen.Digest.of({ entry("A", 1) }, samples, 100)
 			expect(MapGen.Digest.of({ entry("A", 1.000001) }, samples, 100)).to.equal(a)
 		end)
