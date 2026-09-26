@@ -6,7 +6,7 @@ until Karen hands over her first models.
 ## Inputs and decisions
 - Karen makes models in Meshy (texture on, remesh inside Meshy to the target triangle count, FBX
   export) — boar, break-action shotgun, hunter's high seat, spruce/birch/oak; she drops the files in
-  `C:\Users\karen\Desktop\driven-hunt-assets\` (outside the repo; the repo is public).
+  `<assets-dir>` (outside the repo; the repo is public).
 - Borrow first: Creator Store assets where they fit (licence: use on Roblox, not redistributable —
   never committed). `docs/research/2026-09-24-map-generator.md` and `docs/design/map-generator.md`
   (assets by id with a manifest, never committed binaries; `.rbxm` is banned).

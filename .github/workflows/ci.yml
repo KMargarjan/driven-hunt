@@ -49,3 +49,13 @@ jobs:
       - name: StyLua format check
         if: success() || failure()
         run: stylua --check src tests
+
+      # The repo is public (CLAUDE.md, "Public repository: never commit secrets"). Task 49.
+      # selftest runs first: it proves each rule still catches its shape and still allows the
+      # GitHub noreply address and the <repo>/<assets-dir>/<runs-dir> placeholders. A scan that
+      # passes because a pattern silently stopped matching is worse than no scan.
+      - name: Privacy and secret scan (local paths, emails, secret shapes)
+        if: success() || failure()
+        run: |
+          python3 tools/privacy_scan.py selftest
+          python3 tools/privacy_scan.py scan

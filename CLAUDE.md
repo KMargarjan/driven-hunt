@@ -273,7 +273,7 @@ fails if a script exists anywhere Rojo does not manage.
 | `reviews/task-<N>/` | none | One folder per task: `REQUEST.md` (Builder), `RESULT.md` (Reviewer), `ARCH_RESULT.md` (Architect). Per task so branches never conflict and the round count has a boundary (Task 21) |
 | `backups/` | none | Archived files plus notes |
 | `docs/` | none | `PROJECT_CONTEXT.md` (who, the game, why the rules exist), `research/` (notes plus INDEX), `design/` (Architect system designs), `architecture/` (Architect audits), `REVIEWER_PROMPT.md` and `ARCHITECT_PROMPT.md` (the two agent prompts) |
-| `tools/` | none | `studio_mcp.py` (test harness); `agents.py` plus `review.sh`/`review.ps1`/`architect.sh`/`architect.ps1` (the Reviewer and Architect gate) |
+| `tools/` | none | `studio_mcp.py` (test harness); `agents.py` plus `review.sh`/`review.ps1`/`architect.sh`/`architect.ps1` (the Reviewer and Architect gate); `privacy_scan.py` (the public-repo scan CI runs) |
 
 Workspace (the map), Lighting, Terrain and other non-script content are edited in Studio and saved
 with the place. They must contain no scripts.
@@ -404,6 +404,20 @@ The repo is **public**. Never commit:
 - private keys (`*.pem`, `*.key`) or credential JSON
 - personal data (real emails; use the GitHub noreply address)
 
+- **CI checks it, since Task 49 (2026-09-26).** `python tools/privacy_scan.py scan` reads every
+  tracked text file and fails on a local absolute user path (`C:\Users\<name>\...`,
+  `/c/Users/<name>/...`, `/home/<name>/...`), on an email address that is not the GitHub noreply
+  form, and on a secret shape (private key header, `.ROBLOSECURITY` cookie value, AWS / GitHub /
+  Slack / `sk-` key, webhook URL, `api_key = "<20+ characters>"`). `selftest` runs first in the same
+  CI step and proves each rule still catches its shape and still allows what must stay legal.
+  Placeholders are the fix for a path: `<repo>`, `<assets-dir>`, `<runs-dir>`, or any segment
+  beginning `<`, `%`, `$`, `{` or `...`. The tool's docstring is its documentation.
+- **History is not rewritten, and will not be (Director decision, 2026-09-26).** Task 49 scrubbed the
+  local paths from the working tree only. The repo has been public since it was created, so a
+  rewrite would not un-publish anything, and it would break every PR, commit and review link already
+  recorded in `TASKS.md`, `ESCALATE.md` and `reviews/`. What the old commits leak is one Windows
+  account name in a path — no secret, no credential, no personal data beyond a first name the
+  `README` carries anyway. A real secret is different: revoke or rotate it first (below).
 - `.gitignore` covers the common file names (`.env*`, keys, certificates, credential files), but it
   is a safety net, not a check. Read `git diff --cached` before every commit.
 - Secrets needed at runtime go in Roblox Secrets Store / GitHub Actions secrets, never in the repo.
