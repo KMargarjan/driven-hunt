@@ -118,6 +118,19 @@ return HttpService:JSONEncode(out)
 """
 
 
+def parse_json(body):
+    """The JSON value inside StudioMCP's reply text, which may carry a line of its own around it.
+
+    raw_decode from the FIRST bracket of either kind: taking the first "{" would start inside an
+    array's first element and then fail as "extra data", which is what it did on the first run.
+    """
+    candidates = [i for i in (body.find("{"), body.find("[")) if i >= 0]
+    if not candidates:
+        raise RuntimeError(f"no JSON in Studio's reply: {body[:400]}")
+    value, _ = json.JSONDecoder().raw_decode(body[min(candidates):])
+    return value
+
+
 def call(studio, expression):
     """Run one MapGen expression in the Edit DataModel and parse its JSON reply."""
     text = studio._rpc(
@@ -131,22 +144,11 @@ def call(studio, expression):
     body = "\n".join(c.get("text", "") for c in text.get("content", []))
     if text.get("isError"):
         raise RuntimeError(f"execute_luau: {body}")
-    # StudioMCP wraps the returned string; find the JSON inside it.
-    start = body.find("{")
-    if start < 0:
-        start = body.find("[")
-    if start < 0:
-        raise RuntimeError(f"no JSON in Studio's reply: {body[:400]}")
-    end = max(body.rfind("}"), body.rfind("]"))
-    return json.loads(body[start:end + 1])
+    return parse_json(body)
 
 
 def census(studio):
-    text = studio.query("Edit", CENSUS)
-    start, end = text.find("["), text.rfind("]")
-    if start < 0 or end < 0:
-        raise RuntimeError(f"no JSON in Studio's census reply: {text[:400]}")
-    return json.loads(text[start:end + 1])
+    return parse_json(studio.query("Edit", CENSUS))
 
 
 # ---------------------------------------------------------------- the refusals
