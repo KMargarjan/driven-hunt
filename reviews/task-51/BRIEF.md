@@ -18,3 +18,11 @@ Constraints:
 Give: owner, API, the Studio override mechanism and its guard, the harness interaction, how a flag is
 retired, and a worked example using an existing feature (e.g. the tie penalty's TIE_UNTIL_DRIVE_END).
 No local absolute Windows paths.
+
+## Director decisions on the design's §14 (2026-09-26)
+- 2: agreed — an expired flag FAILS the harness.
+- 3: agreed — MAX_FLAGS = 12.
+- 4: agreed — existing pseudo-flags stay; exactly one migration (§10).
+- 5: agreed — TASKS row 2's strip list gains clearing every ServerStorage `DHFlag_*` attribute.
+- §15 items 1-2 are the Builder's FIRST measurements (attribute replication; Edit-mode attribute
+  reaching a Play / two-client server). If they fail, use the named fallback and report it.
