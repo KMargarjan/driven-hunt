@@ -134,7 +134,7 @@ Config.WORLD = {
 	-- which is Karen's call to make while walking it, not one to prejudge by putting it in her way.
 	bog = { x = -820, z = -300, radius = 120, depth = 6 },
 
-	-- THE BENCHES (design section 6.3). A bench is flat at exactly GROUND_Y, eased into the terrain
+	-- THE BENCHES (design section 6.3), GEOMETRY FROM THE CONTRACT. A bench is flat at GROUND_Y, eased
 	-- over `verge` studs each side and tapered over `taper` studs at each end. Everything the game
 	-- stands a player or a boar on is at GROUND_Y -- the road, the assembly track and the four spawn
 	-- pads -- so Boar.CONFIG.field.groundY needs no change at the M2.5 switch.
@@ -142,25 +142,31 @@ Config.WORLD = {
 	-- The road is LEVEL, not contour-following. Marked K and named as a simplification: a real forest
 	-- road undulates, and the cost of a longitudinal profile is that every post, and the contract's
 	-- tolerance check, stops being a comparison against one number (design section 6.3).
+	-- READ FROM THE CONTRACT, not copied (round 2 finding 2). `Map.ROAD` and `Map.ASSEMBLY` are the
+	-- one source; this table adds only what the contract does not carry -- a name, the axis, and the
+	-- end taper, which are generator business rather than contract. Round 1 re-declared all five
+	-- numbers here, so the road's geometry lived in two places with nothing checking they agreed --
+	-- the very duplication `Config.SPAWN_PAD = Map.SPAWN_PAD` above exists to avoid, and the one
+	-- claim 7 said it was closing for `MapGen.VERSION`. `map_contract.spec` asserts the derivation.
 	benches = {
 		{
 			name = "road",
 			axis = "x", -- runs along x, at a constant z
-			at = -700,
-			halfWidth = 8, -- 16 studs = 4.5 m of gravel
-			verge = 24,
-			from = -900,
-			to = 900,
+			at = Map.ROAD.z,
+			halfWidth = Map.ROAD.halfWidth,
+			verge = Map.ROAD.verge,
+			from = Map.ROAD.from,
+			to = Map.ROAD.to,
 			taper = 60,
 		},
 		{
 			name = "assembly",
 			axis = "x",
-			at = 700,
-			halfWidth = 5, -- 10 studs
-			verge = 20,
-			from = -700,
-			to = 700,
+			at = Map.ASSEMBLY.z,
+			halfWidth = Map.ASSEMBLY.halfWidth,
+			verge = Map.ASSEMBLY.verge,
+			from = Map.ASSEMBLY.from,
+			to = Map.ASSEMBLY.to,
 			taper = 60,
 		},
 	},

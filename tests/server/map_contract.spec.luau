@@ -115,6 +115,45 @@ return function()
 			end
 		end)
 
+		it("leaves the terrain palette at the contract's colours for the world it names", function()
+			-- Round 2, finding 3, and design section 16.1 check 5. The palette is GLOBAL STATE WITH
+			-- NO CONTAINER and it SURVIVES Terrain:Clear() -- measured, N1 -- so an autumn palette
+			-- left behind after a teardown is exactly the "world nobody chose" audit-004 must-fix 1
+			-- was about: the voxels are gone, every other check passes, and the place is still orange.
+			--
+			-- Read from the ENGINE, never from the table that wrote it.
+			local want = if Map.EXPECTED_WORLD == "arena" then Map.PALETTE_DEFAULT else Map.PALETTE
+			local got = MapGen.Ground.readPalette(MapGen.CONFIG)
+			for role, colour in pairs(want) do
+				local now = got[role]
+				expect(now).to.be.ok()
+				local dr = math.abs(math.round(now.R * 255) - math.round(colour.R * 255))
+				local dg = math.abs(math.round(now.G * 255) - math.round(colour.G * 255))
+				local db = math.abs(math.round(now.B * 255) - math.round(colour.B * 255))
+				if math.max(dr, dg, db) > 0 then
+					error(
+						string.format(
+							"the %s material is (%d, %d, %d) but the %s world wants (%d, %d, %d). "
+								.. "Run `python tools/mapgen.py clear --backup census`.",
+							role,
+							math.round(now.R * 255),
+							math.round(now.G * 255),
+							math.round(now.B * 255),
+							Map.EXPECTED_WORLD,
+							math.round(colour.R * 255),
+							math.round(colour.G * 255),
+							math.round(colour.B * 255)
+						),
+						0
+					)
+				end
+			end
+			-- And the two tables are genuinely different, or the assertion above is vacuous.
+			expect(MapGen.Digest.paletteText(Map.PALETTE)).never.to.equal(
+				MapGen.Digest.paletteText(Map.PALETTE_DEFAULT)
+			)
+		end)
+
 		it("resolves every tag to exactly the expected count, all inside the named world", function()
 			local root = waitForRoot(namedRootName())
 			for kind, tag in pairs(Map.TAGS) do
@@ -261,23 +300,94 @@ return function()
 
 		it("stays inside the relief band, and flatter inside the drive corridor", function()
 			local c = config()
-			local worst, worstCorridor = 0, 0
+			local worst, worstCorridor, worstInland = 0, 0, 0
 			-- THE WHOLE MAP, not just the middle: at 2048 studs a +/- 250 sample is entirely inside the
 			-- drive corridor, so `worst` and `worstCorridor` were the same number and the whole-map
 			-- relief bound could not fail (review round 1 of Task 44).
-			for x = -1000, 1000, 50 do
-				for z = -1000, 1000, 50 do
+			--
+			-- AND IT NOW SAMPLES TO +/-1024, THE REAL EDGE (round 2, finding 5). At +/-1000 the outer
+			-- ring sat 24 studs inside the map, where `edgeFloor` reads 37.6 -- 2.4 studs under
+			-- RELIEF = 40 by sampling luck alone. The rim genuinely reaches EDGE_MAX_Y = 44 at the
+			-- boundary, so the old assertion was false of the map and true only of the lattice.
+			local half = c.SIZE_STUDS / 2
+			for x = -half, half, 32 do
+				for z = -half, half, 32 do
 					local h = math.abs(MapGen.Height.at(x, z, SEED, c) - c.GROUND_Y)
 					worst = math.max(worst, h)
 					if MapGen.Layout.inCorridor(x, z, c) then
 						worstCorridor = math.max(worstCorridor, h)
 					end
+					-- Away from the rim the noise alone must stay inside RELIEF: that is the number
+					-- Karen owns, and the edge floor must not be allowed to hide a change to it.
+					if math.min(half - math.abs(x), half - math.abs(z)) > c.EDGE_BAND then
+						worstInland = math.max(worstInland, h)
+					end
 				end
 			end
-			expect(worst <= c.RELIEF).to.equal(true)
+			expect(worstInland <= c.RELIEF).to.equal(true)
+			expect(worst <= math.max(c.RELIEF, c.EDGE_MAX_Y)).to.equal(true)
 			expect(worstCorridor <= c.CORRIDOR_RELIEF).to.equal(true)
 			-- Well inside the boar's fall limit, which is what makes this terrain safe for it.
 			expect(worst < 50).to.equal(true)
+			-- ...and the rim really is raised, or `worst <= EDGE_MAX_Y` is a bound on nothing.
+			expect(worst > c.RELIEF).to.equal(true)
+		end)
+
+		it("changes the digest when a palette colour changes", function()
+			-- Round 1 claimed "a hand-edited colour changes the digest" and nothing ran the fourth
+			-- argument at all: every digest spec passed three, so `paletteText(nil)` returned "".
+			-- A recolour is a change to the map that the voxels and the markers cannot see.
+			local function entry(name: string, y: number)
+				return { path = name, class = "Part", position = Vector3.new(0, y, 0), size = Vector3.one, tags = {} }
+			end
+			local samples = { { x = 0, z = 0, y = 1, material = "Grass" } }
+			local autumn = MapGen.Digest.of({ entry("A", 0) }, samples, 100, Map.PALETTE)
+			local defaults = MapGen.Digest.of({ entry("A", 0) }, samples, 100, Map.PALETTE_DEFAULT)
+			expect(autumn).never.to.equal(defaults)
+			-- ...the same palette twice is the same digest,
+			expect(MapGen.Digest.of({ entry("A", 0) }, samples, 100, Map.PALETTE)).to.equal(autumn)
+			-- ...ONE channel of ONE role is enough to move it,
+			local nudged = {
+				litter = Color3.fromRGB(151, 108, 62),
+				rough = Map.PALETTE.rough,
+				road = Map.PALETTE.road,
+				bog = Map.PALETTE.bog,
+			}
+			expect(MapGen.Digest.of({ entry("A", 0) }, samples, 100, nudged)).never.to.equal(autumn)
+			-- ...and no palette at all is a third, distinct answer rather than a silent match.
+			expect(MapGen.Digest.of({ entry("A", 0) }, samples, 100)).never.to.equal(autumn)
+			-- The text itself is sorted and 8-bit, so two runs agree.
+			expect(MapGen.Digest.paletteText(Map.PALETTE)).to.equal(
+				"bog=96,82,62|litter=150,108,62|road=152,146,132|rough=126,122,78"
+			)
+		end)
+
+		it("has one generator version, in one place", function()
+			-- Claim 7 said row 44a(f) was closed by `MapGen.VERSION = Map.GENERATOR`; nothing asserted
+			-- it, so a second copy could come back without a failing test (design 16.1 check 10).
+			expect(MapGen.VERSION).to.equal(Map.GENERATOR)
+			expect(type(Map.GENERATOR)).to.equal("string")
+			expect(#Map.GENERATOR > 0).to.equal(true)
+		end)
+
+		it("derives every bench from the contract, never from a second copy", function()
+			-- Round 2, finding 2: Map.ROAD/Map.ASSEMBLY were added to the contract and read by
+			-- nothing, while Config re-declared the same five numbers. This is what makes the
+			-- contract the source rather than a comment claiming it is.
+			local c = config()
+			local byName = {}
+			for _, bench in ipairs(c.WORLD.benches) do
+				byName[bench.name] = bench
+			end
+			for name, contract in pairs({ road = Map.ROAD, assembly = Map.ASSEMBLY }) do
+				local bench = byName[name]
+				expect(bench).to.be.ok()
+				expect(bench.at).to.equal(contract.z)
+				expect(bench.halfWidth).to.equal(contract.halfWidth)
+				expect(bench.verge).to.equal(contract.verge)
+				expect(bench.from).to.equal(contract.from)
+				expect(bench.to).to.equal(contract.to)
+			end
 		end)
 
 		it("keeps the drive corridor under the design's slope ceiling", function()
@@ -326,6 +436,27 @@ return function()
 			end
 			-- And it is not trivially flat, or the assertion above would be worth nothing.
 			expect(worst > 0.02).to.equal(true)
+		end)
+
+		it("never lifts the edge floor above EDGE_MAX_Y, anywhere", function()
+			-- Design section 16.1's Height row, and the reason EDGE_MAX_Y is 44 rather than 48: the
+			-- voxel band BAND_Y is {-48, +48}, and the tile size measurement A proved depends on the
+			-- terrain fitting inside it. A floor that overshot would silently change the tiling.
+			local c = config()
+			local half = c.SIZE_STUDS / 2
+			local worst = -math.huge
+			for x = -half, half, 16 do
+				for z = -half, half, 16 do
+					local floor = MapGen.Height.edgeFloor(x, z, c)
+					if floor > -math.huge then
+						worst = math.max(worst, floor)
+					end
+				end
+			end
+			expect(worst <= c.GROUND_Y + c.EDGE_MAX_Y).to.equal(true)
+			expect(worst <= c.BAND_Y.max).to.equal(true)
+			-- and it does rise, or the bound above is vacuous
+			expect(worst > c.GROUND_Y + c.EDGE_MAX_Y * 0.9).to.equal(true)
 		end)
 
 		it("keeps the road and the assembly track flat at exactly GROUND_Y", function()

@@ -196,6 +196,17 @@ end
 -- spec's "exactly one world" check looked at a folder name -- so deleting `Workspace.DrivenHuntMap`
 -- in the Explorer left 6.3 M voxels in the place and every check still said PASS, with the arena
 -- buried in a hillside (audit-004 must-fix 1).
+function Ground.cells(): number
+	return Workspace.Terrain:CountCells()
+end
+
+-- Clears the terrain and REPORTS WHAT IS LEFT. The caller decides what to do about it; this function
+-- never claims success it did not measure.
+function Ground.clear(): number
+	Workspace.Terrain:Clear()
+	return Ground.cells()
+end
+
 -- ---------------------------------------------------------------- the palette
 --
 -- Terrain material colour is GLOBAL STATE WITH NO CONTAINER, exactly like the voxels -- so it belongs
@@ -206,17 +217,22 @@ end
 -- Edit, the values read back exactly, they SURVIVE Terrain:Clear(), and they replicate to a client.
 -- The design's material-choice fallback is therefore not taken and no code for it exists.
 
-local PALETTE_MATERIAL = {
-	litter = Enum.Material.LeafyGrass,
-	rough = Enum.Material.Grass,
-	road = Enum.Material.Ground,
-	bog = Enum.Material.Mud,
-}
+-- DERIVED FROM Config.MATERIAL, never re-declared (round 2's note, and the same class as the
+-- inversion the screenshot caught): the palette's `road` role is the material Config calls `track`,
+-- and two tables naming the same material differently is how they end up disagreeing.
+local function paletteMaterials(config)
+	return {
+		litter = config.MATERIAL.litter,
+		rough = config.MATERIAL.rough,
+		road = config.MATERIAL.track,
+		bog = config.MATERIAL.bog,
+	}
+end
 
 -- Write one palette table. Returns how many materials were set.
-function Ground.applyPalette(palette): number
+function Ground.applyPalette(palette, config): number
 	local written = 0
-	for role, material in pairs(PALETTE_MATERIAL) do
+	for role, material in pairs(paletteMaterials(config)) do
 		local colour = palette[role]
 		if colour ~= nil then
 			workspace.Terrain:SetMaterialColor(material, colour)
@@ -228,9 +244,9 @@ end
 
 -- What the place currently carries, as the same role -> Color3 shape. READ BACK, never assumed:
 -- `clear` reports whether the restore worked by comparing this against what it asked for.
-function Ground.readPalette()
+function Ground.readPalette(config)
 	local out = {}
-	for role, material in pairs(PALETTE_MATERIAL) do
+	for role, material in pairs(paletteMaterials(config)) do
 		out[role] = workspace.Terrain:GetMaterialColor(material)
 	end
 	return out
@@ -239,9 +255,9 @@ end
 -- Put the place back the way a place nobody has recoloured looks. A palette outlives Terrain:Clear()
 -- -- that is measured, not assumed -- so without this an autumn palette would survive every teardown
 -- and become "a world nobody chose" (audit-004 must-fix 1).
-function Ground.resetPalette(default): boolean
-	Ground.applyPalette(default)
-	local got = Ground.readPalette()
+function Ground.resetPalette(default, config): boolean
+	Ground.applyPalette(default, config)
+	local got = Ground.readPalette(config)
 	for role, colour in pairs(default) do
 		local now = got[role]
 		if now == nil then
@@ -257,17 +273,6 @@ function Ground.resetPalette(default): boolean
 		end
 	end
 	return true
-end
-
-function Ground.cells(): number
-	return Workspace.Terrain:CountCells()
-end
-
--- Clears the terrain and REPORTS WHAT IS LEFT. The caller decides what to do about it; this function
--- never claims success it did not measure.
-function Ground.clear(): number
-	Workspace.Terrain:Clear()
-	return Ground.cells()
 end
 
 return Ground

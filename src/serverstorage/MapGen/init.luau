@@ -53,6 +53,9 @@ MapGen.Height = Height
 MapGen.Layout = Layout
 MapGen.Scatter = Scatter
 MapGen.Digest = Digest
+-- Exported so map_contract.spec can READ THE PALETTE OFF THE ENGINE (round 2, finding 3). The spec
+-- must not re-derive the four materials itself: that is the duplication the inverted roles came from.
+MapGen.Ground = Ground
 MapGen.Assets = Assets
 
 export type StepSpec = { index: number, kind: string, label: string, estimatedMs: number }
@@ -188,7 +191,7 @@ function MapGen.clear(): {
 	-- THE PALETTE OUTLIVES Terrain:Clear() -- measured, not assumed (measurement N1) -- so a teardown
 	-- that did not restore it would leave an autumn place behind while the contract still says the
 	-- world is the arena. `resetPalette` READS THE COLOURS BACK and reports; it never claims.
-	local paletteRestored = Ground.resetPalette(Map.PALETTE_DEFAULT)
+	local paletteRestored = Ground.resetPalette(Map.PALETTE_DEFAULT, Config)
 	return {
 		removed = removed,
 		terrainCleared = after == 0,
@@ -269,8 +272,8 @@ function MapGen.runStep(index: number, seed: number): StepReport
 			message = string.format("removed %d instances, %d terrain cell(s)", result.removed, result.cellsBefore),
 		})
 	elseif spec.kind == "palette" then
-		local written = Ground.applyPalette(Map.PALETTE)
-		local got = Ground.readPalette()
+		local written = Ground.applyPalette(Map.PALETTE, Config)
+		local got = Ground.readPalette(Config)
 		-- READ BACK. The whole point of measurement N1 was that nobody should assert a colour they
 		-- did not check, and the digest carries this palette, so a silent failure here would make
 		-- every later digest describe a place that does not exist.
@@ -406,7 +409,7 @@ function MapGen.digest(): { digest: string, parts: number, samples: number, seed
 		end
 	end
 	return {
-		digest = Digest.of(digestEntries(root), samples, Config.DIGEST_ROUND, Ground.readPalette()),
+		digest = Digest.of(digestEntries(root), samples, Config.DIGEST_ROUND, Ground.readPalette(Config)),
 		parts = partsUnder(root),
 		samples = #samples,
 		-- The seed THIS MAP was built from, read off the root, not the contract's `Map.SEED` -- which
@@ -594,6 +597,79 @@ function MapGen.verifyContract(): {
 				)
 			)
 		end
+	end
+
+	-- EVERY SHOOTER POST STANDS ON THE ROAD, AT GROUND (round 2, finding 4; design 6.5 and 16.1
+	-- checks 4b/4c). Round 1's comment in Layout.markers claimed the post's bottom face was "the one
+	-- number the contract checks" and nothing checked it at all -- so the 9.5-stud drop this task
+	-- says it closed (row 43a(l), audit-004 F9) was held closed by nothing.
+	for _, post in ipairs(taggedInside(root, Map.TAGS.shooterPost)) do
+		local bottom = post.Position.Y - post.Size.Y / 2
+		if math.abs(bottom - Config.FIELD.groundY) > Map.SPAWN_PAD.tolerance then
+			table.insert(
+				findings,
+				string.format(
+					"%s's bottom face is at y=%.2f, more than %.2f studs from groundY",
+					post.Name,
+					bottom,
+					Map.SPAWN_PAD.tolerance
+				)
+			)
+		end
+		-- ...and ON THE GRAVEL, not merely at the right height beside it.
+		if math.abs(post.Position.Z - Map.ROAD.z) > Map.ROAD.halfWidth then
+			table.insert(
+				findings,
+				string.format(
+					"%s is %.1f studs off the road centreline, past halfWidth %d",
+					post.Name,
+					math.abs(post.Position.Z - Map.ROAD.z),
+					Map.ROAD.halfWidth
+				)
+			)
+		end
+	end
+
+	-- The driver start's FOUR CORNERS, not its centre: it is 1,120 studs wide, so a centre that
+	-- happens to be at ground says nothing about the strip eight drivers actually stand on.
+	for _, start in ipairs(taggedInside(root, Map.TAGS.driverStart)) do
+		local half = start.Size / 2
+		for _, corner in ipairs({
+			Vector3.new(-half.X, -half.Y, -half.Z),
+			Vector3.new(half.X, -half.Y, -half.Z),
+			Vector3.new(-half.X, -half.Y, half.Z),
+			Vector3.new(half.X, -half.Y, half.Z),
+		}) do
+			local y = (start.CFrame * CFrame.new(corner)).Position.Y
+			if math.abs(y - Config.FIELD.groundY) > Map.SPAWN_PAD.tolerance then
+				table.insert(findings, string.format("%s has a corner at y=%.2f, off groundY", start.Name, y))
+				break
+			end
+		end
+	end
+
+	-- NOTHING COLLIDABLE STANDS ON THE ROAD, along its WHOLE length (round 2, finding 1). A hedge
+	-- line crossing it left a 7-stud wall across the gravel that every other check was blind to,
+	-- because no check looked at the road at all. This walks it end to end.
+	local blockers: { string } = {}
+	for _, part in ipairs(root:GetDescendants()) do
+		if part:IsA("BasePart") and part.CanCollide then
+			local dz = math.abs(part.Position.Z - Map.ROAD.z)
+			local onRoad = part.Position.X >= Map.ROAD.from and part.Position.X <= Map.ROAD.to
+			if onRoad and dz <= Map.ROAD.halfWidth + Map.ROAD.verge then
+				table.insert(blockers, string.format("%s at (%.0f, %.0f)", part.Name, part.Position.X, part.Position.Z))
+			end
+		end
+	end
+	if #blockers > 0 then
+		table.insert(
+			findings,
+			string.format(
+				"%d collidable part(s) stand on the road or its verge: %s",
+				#blockers,
+				table.concat(blockers, ", ", 1, math.min(#blockers, 5))
+			)
+		)
 	end
 
 	for _, descendant in ipairs(root:GetDescendants()) do

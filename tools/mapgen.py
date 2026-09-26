@@ -469,6 +469,18 @@ def command_verify(studio, args, sha):
         if not print_reach(reach):
             print(f"[mapgen] FAILED: the map is reproducible but not walkable @ {sha} seed={args.seed}")
             return 1
+        # AND IS THE ROAD CLEAR, END TO END? (round 2, finding 1.) Reachability pathfinds to the
+        # line and a 7-stud hedge wall across the gravel at x = +/-760 did not stop a single route --
+        # the navmesh simply went round it. Only a check that walks the road itself sees it.
+        contract = call(studio, "MapGen.verifyContract()")
+        if contract.get("error"):
+            print(f"[mapgen] FAILED: the contract check could not run: {contract['error']}")
+            return 1
+        if not contract.get("ok"):
+            print("[mapgen] FAILED: the map is reproducible and walkable but breaks its contract:")
+            for finding in contract.get("findings", []):
+                print("  - " + finding)
+            return 1
         print(f"[mapgen] OK: same seed twice, same digest @ {sha} seed={args.seed} digest={first['digest']} (clean tree)")
         return 0
     print("[mapgen] MISMATCH: the same seed produced two different maps.")

@@ -75,6 +75,33 @@ function Layout.onRoad(x: number, z: number, config): boolean
 	return false
 end
 
+-- TRUE ANYWHERE A BENCH OWNS THE GROUND -- the gravel AND its verge, plus `pad` studs of clearance.
+--
+-- ROUND 2, FINDING 1, and it is the CLASS rather than the instance. A hedge line at x = +/-760 runs
+-- the full depth of the map, the corridor stops at +/-620, so `crossesCorridor` was false, so no gate
+-- was cut -- and two collidable 7-stud hedge segments stood across the forest road at each end. The
+-- road is 1,800 studs long and the corridor only 1,240, so "is it in the corridor" was never the
+-- right question for a bench. Anything that PLACES something asks this instead: `hedgeSegments` skips
+-- a segment, `rejectTree` rejects a point, and `map_contract.spec` walks the whole road proving
+-- nothing collidable stands on it.
+function Layout.onBench(x: number, z: number, config, pad: number?): boolean
+	local clearance = pad or 0
+	for _, bench in ipairs(config.WORLD.benches) do
+		local along, across
+		if bench.axis == "x" then
+			along, across = x, math.abs(z - bench.at)
+		else
+			along, across = z, math.abs(x - bench.at)
+		end
+		local width = bench.halfWidth + bench.verge + clearance
+		-- The taper counts: the bench still owns the ground where it runs out.
+		if across <= width and along >= bench.from - bench.taper and along <= bench.to + bench.taper then
+			return true
+		end
+	end
+	return false
+end
+
 -- The flank farmland: outside it, and off the benches, the ground is forest floor. This is what turns
 -- "wood everywhere" into "a wood with fields at its edges", which is what Karen's references show.
 function Layout.inField(x: number, z: number, config): boolean
@@ -210,12 +237,20 @@ function Layout.hedgeSegments(line: Line, gates: { number }, config): { Point }
 				break
 			end
 		end
+		local x, z
+		if line.axis == "x" then
+			x, z = along, line.at
+		else
+			x, z = line.at, along
+		end
+		-- A BENCH IS A GATE NOBODY HAS TO CUT (round 2, finding 1). A hedge segment on the road is a
+		-- collidable wall across the one strip the whole revision exists to keep open; half a
+		-- segment's length of clearance keeps the part itself off the verge, not just its centre.
+		if Layout.onBench(x, z, config, config.HEDGE.segmentStuds / 2) then
+			blocked = true
+		end
 		if not blocked then
-			if line.axis == "x" then
-				table.insert(out, { x = along, z = line.at })
-			else
-				table.insert(out, { x = line.at, z = along })
-			end
+			table.insert(out, { x = x, z = z })
 		end
 	end
 	return out
