@@ -901,7 +901,7 @@ return function()
 				end
 				for _, pad in ipairs(MapGen.Layout.pads(c)) do
 					local away = (Vector3.new(point.x, 0, point.z) - Vector3.new(pad.x, 0, pad.z)).Magnitude
-					if away <= pad.radius then
+					if away <= c.SPAWN_PAD.radius then
 						error(string.format("a tree at (%.0f, %.0f) is on a boar spawn pad", point.x, point.z), 0)
 					end
 				end

@@ -129,8 +129,11 @@ function Layout.treeDensity(x: number, z: number, config): number
 	if Layout.distanceToHedge(x, z, config) < config.SCATTER_CLEARANCE then
 		return 0
 	end
+	-- A PAD'S SIZE IS THE CONTRACT'S, not the pad list's: `Layout.pads` is four positions, and how
+	-- wide the flat ground around one is belongs to Map.SPAWN_PAD (Config.SPAWN_PAD reads it).
+	local clear = config.SPAWN_PAD.radius + config.SPAWN_PAD.blend
 	for _, pad in ipairs(Layout.pads(config)) do
-		if (Vector3.new(x, 0, z) - Vector3.new(pad.x, 0, pad.z)).Magnitude <= pad.radius + pad.blend then
+		if (Vector3.new(x, 0, z) - Vector3.new(pad.x, 0, pad.z)).Magnitude <= clear then
 			return 0 -- a boar is released onto flat, clear ground
 		end
 	end
