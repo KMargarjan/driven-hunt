@@ -29,3 +29,10 @@ The design must give:
 - The ASSET agent's brief (its own prompt file, like docs/REVIEWER_PROMPT.md), and the CLAUDE.md role row.
 - The smallest first task: one model (the boar) end to end up to Karen's preview OK.
 No local absolute Windows paths.
+
+## Director decisions on the design's section 16 (2026-09-26, after the Architect's PASS)
+- A: agreed — the ASSET agent does NOT upload; the Director runs `tools/assets.py upload` only after
+  Karen's explicit OK on that model.
+- B: agreed — the ASSET agent prints the manifest row; the Builder commits it.
+- C: agreed — boar target 6,000 triangles; 18,000 is REMESH_CEILING; raised later if Karen says so.
+- Karen items 1-5 go to Karen (2: training use of output — default accept, recorded; she decides).
