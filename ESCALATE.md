@@ -86,7 +86,7 @@ with StudioMCP, a 2-player harness is possible; if they do not, 1.6's automation
 1. In Studio, on **Driven Hunt DEV**, open the **Test** tab.
 2. In the **Clients and Servers** group, set **Players** to **2**, leave the rest alone, and press
    **Start**. Two extra client windows open.
-3. While they are running, in a terminal in `C:\Users\karen\Desktop\driven-hunt`, run exactly:
+3. While they are running, in a terminal in the repository folder (`<repo>`), run exactly:
 
    ```
    python tools/studio_mcp.py studios
@@ -585,7 +585,7 @@ collapse into one.
 ### Exact clicks for Karen, in order
 
 1. Open a terminal (PowerShell or Git Bash) in the repository folder
-   (`C:\Users\karen\Desktop\driven-hunt`).
+   (`<repo>`).
 **This entry exists on this branch because it was missing here.** Tasks 17 and 18 carry the same
 entry, but they are on unmerged branches, so on `main` and on anything cut from it there was no record
 of why no task has a harness line — which review round 1 of this task caught (finding 1). The harness
@@ -593,7 +593,7 @@ claim and the record must live in the same place.
 
 ### Exact clicks for Karen, in order
 
-1. Open a terminal (PowerShell or Git Bash) in `C:\Users\karen\Desktop\driven-hunt`.
+1. Open a terminal (PowerShell or Git Bash) in the repository folder (`<repo>`).
 2. Run, and leave the window open:
 
    ```
