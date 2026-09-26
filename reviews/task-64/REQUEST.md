@@ -65,7 +65,8 @@ The run was stranded — `refine` refused it and `resume` refused it — and is 
    where a task may exist that this tool cannot name, so a retry would pay twice and the line sends
    the operator to the dashboard instead. A ceiling still refuses before any of this and writes
    nothing. Verify: `fail_terminal`, `poll_and_finish`'s `done and not ok` branch, `start_task`'s
-   no-id branch; `grep -n 'state.*=.*"failed"' tools/meshy.py` is one line, inside `fail_terminal`.
+   no-id branch. `grep -n 'state.*=.*"failed"' tools/meshy.py` gives five hits: one in
+   `fail_terminal`, and four inside `selftest`, which builds failed records by hand as fixtures.
 
 7. **One POST path for all three phases.** `cmd_preview` carried its own copy of `start_task`, which
    is why the defect existed in two places; it now calls `start_task` with its own retry command
