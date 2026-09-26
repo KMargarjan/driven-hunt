@@ -386,9 +386,15 @@ return function()
 	-- Design: docs/design/drive.md ("boar_body.spec.luau -- CHANGED, live: one real sounder of five")
 	describe("boar sounder, live", function()
 		local SOUNDER_Y = 1500
+		-- A BIG field, and that is the point: the block above uses a 120-stud plate because ONE boar
+		-- crossing a short line is what it is testing. Here the sounder has to still EXIST after
+		-- three seconds of sprinting, a six-second scatter and the four seconds the break rule
+		-- takes -- and a boar that crosses `exitZ` has escaped and is despawned. At 1,100 studs it
+		-- would take ~28 s of trotting to reach the line, so nothing escapes while this block runs.
+		local SOUNDER_SPAN = 1200
 		local SOUNDER_FIELD = {
-			bounds = { minX = -55, maxX = 55, minZ = -55, maxZ = 55 },
-			exitZ = -40,
+			bounds = { minX = -500, maxX = 500, minZ = -500, maxZ = 500 },
+			exitZ = -480,
 			groundY = SOUNDER_Y,
 		}
 		local CENTER = Vector3.new(0, SOUNDER_Y, 25)
@@ -435,7 +441,7 @@ return function()
 			root.Name = "BoarSounderSpec"
 			local plate = Instance.new("Part")
 			plate.Name = "Plate"
-			plate.Size = Vector3.new(PLATE_SPAN, 4, PLATE_SPAN)
+			plate.Size = Vector3.new(SOUNDER_SPAN, 4, SOUNDER_SPAN)
 			plate.Position = Vector3.new(0, SOUNDER_Y - 2, 0)
 			plate.Anchored = true
 			plate.TopSurface = Enum.SurfaceType.Smooth
@@ -616,17 +622,36 @@ return function()
 			expect(#herd:sounders()[1].memberIds).to.equal(members - 1)
 		end)
 
-		it("takes a mortally wounded member out of the sounder, and dissolves the last one", function()
+		it("takes a mortally wounded member out, and the last one dissolves the sounder", function()
+			-- One slug to the body is 55 damage against MORTAL = 50: mortal, not lethal -- so the
+			-- animal is still alive and still running, and it leaves the sounder because a dying
+			-- animal cannot hold formation and the group would otherwise crawl to the line at its
+			-- speed (LEAVE_ON_MORTAL).
 			local view = herd:sounders()[1]
+			local members = #view.memberIds
+			expect(members >= 2).to.equal(true)
 			local victimId = view.memberIds[#view.memberIds]
 			local victim = handleOf(group, victimId)
 			expect(victim).to.be.ok()
-			-- One slug to the body is 55 damage against MORTAL = 50: mortal, not lethal.
 			expect(herd:takeHit(victim.part, { ammo = "Slug", zone = "body", pellets = 1 })).to.equal(true)
 			RunService.Heartbeat:Wait()
 			RunService.Heartbeat:Wait()
 			expect(herd:sounderOf(victimId)).to.equal(nil)
-			-- ...which left one member, and one animal is not a sounder.
+
+			if members - 1 >= 2 then
+				-- Still a group: take the next one out too, down to the last animal.
+				local remaining = herd:sounders()[1]
+				expect(#remaining.memberIds).to.equal(members - 1)
+				local nextId = remaining.memberIds[#remaining.memberIds]
+				expect(herd:takeHit(handleOf(group, nextId).part, { ammo = "Slug", zone = "body", pellets = 1 })).to.equal(
+					true
+				)
+				RunService.Heartbeat:Wait()
+				RunService.Heartbeat:Wait()
+			end
+
+			-- ONE ANIMAL IS NOT A SOUNDER: it dissolves, and the survivor is a lone boar with no
+			-- per-step group work left.
 			expect(#herd:sounders()).to.equal(0)
 			expect(herd:stats().soundersDissolved).to.equal(1)
 		end)
