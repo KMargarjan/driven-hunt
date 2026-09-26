@@ -3,14 +3,17 @@
 Task: 71
 Round: 1
 Base: `main` (`07022aa`)
-Code commit: `51ff5769e6665498eb5dc88ad1798ff7c1279cb4`
+Code commit: `3371f7d480797d5d86efa6f7f5f30f5f550c656b`
 
 ```
-[harness] PASS: 30/30 checks @ 51ff5769e6665498eb5dc88ad1798ff7c1279cb4 (clean tree)
+[harness] PASS: 30/30 checks @ 3371f7d480797d5d86efa6f7f5f30f5f550c656b (clean tree)
+[harness2] PASS: 32/32 checks @ 3371f7d480797d5d86efa6f7f5f30f5f550c656b (clean tree)
 ```
 
-*(the `[harness2]` line for this same commit is the Director's run; this request is updated with it
-before the review.)*
+Both lines are the Director's runs at this branch's head. The head is the request's own commit, so it
+is at or after every commit that touched `src/` or `tests/` (the last was `7ed846f`) and the only
+things between them are paperwork: `reviews/task-67/ASSET_RESULT.md`, `TASKS.md` rows 71/71a and this
+file. The Builder's own clean-tree `[harness] PASS: 30/30 @ 51ff576` covers the same code.
 
 **What changed.** The shotgun's grey box becomes a side-by-side built from Parts — Director decision
 after two Meshy text-to-3D previews (40 credits) both came back over-unders. 389 server specs (383
@@ -95,13 +98,16 @@ Asset agent's inspection of the boar GLB, committed verbatim. Privacy scan PASS,
 
 ## Not verified
 
-- **`test2`** — the Director's run; this request is updated with the `[harness2]` line before the
-  review.
-- **Nobody has held this gun in a two-player session**, and nobody has fired at another player's gun
-  to confirm the slug passes through it. Claim 5 is asserted on the built part's `CanQuery`, not on a
-  ray's path.
+- **`test2` was run by the Director, not by me** — the `[harness2]` line above is his, at this head.
+- **Nobody has fired at another player's gun** to confirm a slug passes through it. Claim 5 is
+  asserted on the built part's `CanQuery`, not on a ray's path. Two players have now each held one
+  (the Director's `test2` above), but no spec on either side shoots at the other's weapon.
 - **The colours are a first pick**, Karen's to change (`Shotgun.CONFIG.LOOK`). Under the arena's flat
   lighting the barrels read light grey from some angles and properly blued from others.
 - **No screenshot shows the gun from directly in front of the muzzle.** The two-bores-side-by-side
   claim rests on the ADS sight picture, which is the same pair seen from the breech end.
+- **The ADS camera sits behind the stock**, so the stock's top face fills the lower screen while the
+  bores and the bead read correctly above it. The Director looked at both screens and queued that as
+  **71a(b)** — a camera/viewmodel feel item for Karen's playtest (`VIEWMODEL_AIM_OFFSET` is the
+  camera's dial), not this task.
 - **Whether Karen likes it** is a playtest question, not this task's.
