@@ -36,7 +36,7 @@ Map.VERSION = "v1"
 -- THE GENERATOR'S OWN VERSION, and its ONE home (M2.8a). MapGen.VERSION reads this instead of
 -- carrying a second copy, which closes TASKS.md row 44a(f): two strings for one fact is how a
 -- digest and a build end up disagreeing about which generator made the map.
-Map.GENERATOR = "m2.8-road-autumn"
+Map.GENERATOR = "m2.8c-road-furniture"
 
 -- THE SWITCH (design section 9). "arena" or "map:v1". Milestone 2.1 builds the 512-stud slice as an
 -- EDIT-TIME artefact and does not make it the world: the grey box is still what a player stands in,
@@ -95,7 +95,10 @@ Map.STREAMING = {
 
 -- CHANGED at M2.8a: two new ceilings, because the wood now grows INSIDE the drive corridor and a
 -- runaway scatter is the one way this map could stop being playable.
-Map.BUDGET = { parts = 20000, visibleParts = 8000, trees = 3000, brush = 600, hedgeParts = 400 }
+-- M2.8c adds `furniture`: the road's stakes, high seats, barriers, log piles, fence and reeds are
+-- ~130 parts, and a ceiling here is what turns "somebody added a prop loop" into a failed step with
+-- a number in it rather than a place that quietly got slower.
+Map.BUDGET = { parts = 20000, visibleParts = 8000, trees = 3000, brush = 600, hedgeParts = 400, furniture = 250 }
 
 -- THE FOREST ROAD (design section 6.3). Karen's decision: the shooter line runs along a ride through
 -- the woods, not along a field edge. The road's centreline IS the drive line -- there is no second

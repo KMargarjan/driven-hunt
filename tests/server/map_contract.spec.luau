@@ -1146,6 +1146,132 @@ return function()
 			expect(math.abs(thin - dense) < 0.08).to.equal(true)
 		end)
 
+		-- ---- M2.8c: THE ROAD'S FURNITURE ------------------------------------------------------
+		--
+		-- The design's section 18 M2.8c row is the list: stakes beside each post, a high seat as
+		-- scenery near four of them, a barrier at each end of the road, two log piles on the verge,
+		-- a fence and a gate on a field boundary, reeds at the bog. `Layout.furniture` is pure, so
+		-- all of that is assertable without building a map.
+		it("puts a stake either side of every stand, behind the line and never in front of it", function()
+			local c = config()
+			local pieces = MapGen.Layout.furniture(c)
+			local byPost: { [number]: number } = {}
+			for _, piece in ipairs(pieces) do
+				if piece.kind == "stake" then
+					-- BEHIND THE CENTRELINE. The drive is at +z; a stake in front of a shooter is
+					-- something between him and what he is shooting at.
+					expect(piece.z < c.WORLD.lineZ).to.equal(true)
+					local index = tonumber(string.match(piece.name, "^Stake(%d+)")) or 0
+					byPost[index] = (byPost[index] or 0) + 1
+					local postX = (index - (c.WORLD.postCount + 1) / 2) * c.WORLD.postSpacing
+					expect(math.abs(math.abs(piece.x - postX) - c.FURNITURE.stake.offsetX) < 1e-6).to.equal(true)
+				end
+			end
+			for index = 1, c.WORLD.postCount do
+				expect(byPost[index]).to.equal(2)
+			end
+			-- AND EACH ONE IS CAPPED IN ORANGE, which is the whole point of row 58a(a): every tagged
+			-- marker is Transparency = 1, so before this nothing on the road could be SEEN.
+			local caps = 0
+			for _, piece in ipairs(pieces) do
+				if piece.kind == "stakeCap" then
+					caps += 1
+					expect(piece.color).to.equal(c.FURNITURE.stake.capColor)
+					expect(piece.base >= c.FURNITURE.stake.size.Y - 1e-6).to.equal(true)
+				end
+			end
+			expect(caps).to.equal(c.WORLD.postCount * 2)
+		end)
+
+		it("stands four high seats off the verge, each in its own clearing", function()
+			local c = config()
+			local seats = MapGen.Layout.highSeats(c)
+			expect(#seats).to.equal(#c.FURNITURE.highSeat.atPosts)
+			local edge = Map.ROAD.halfWidth + Map.ROAD.verge
+			for _, seat in ipairs(seats) do
+				-- PAST THE VERGE, in the far wood: a high seat on the gravel would be in the way of
+				-- the one flat strip the shooters walk.
+				expect(math.abs(seat.z - c.WORLD.lineZ) > edge).to.equal(true)
+				-- ...AND THE WOOD IS KEPT OUT OF IT, or a 15-stud tower is built inside a spruce.
+				expect(MapGen.Layout.treeDensity(seat.x, seat.z, c)).to.equal(0)
+				local r = c.FURNITURE.highSeat.clearRadius
+				expect(MapGen.Layout.treeDensity(seat.x + r - 1, seat.z, c)).to.equal(0)
+				-- and the clearing is a clearing, not the whole wood
+				expect(MapGen.Layout.treeDensity(seat.x + r + 30, seat.z, c) > 0).to.equal(true)
+			end
+		end)
+
+		it("puts the fence, its gate and the reeds where they belong", function()
+			local c = config()
+			local pieces = MapGen.Layout.furniture(c)
+			local fence, gates, reeds = 0, 0, 0
+			for _, piece in ipairs(pieces) do
+				if piece.kind == "fencePost" or piece.kind == "fenceRail" or piece.kind == "gate" then
+					fence += 1
+					-- IN THE FIELD, and far outside the drive corridor: nothing a boar or a driver
+					-- can ever have to get round.
+					expect(math.abs(piece.x) > c.WORLD.corridor.maxX).to.equal(true)
+					expect(MapGen.Layout.inField(piece.x, piece.z, c)).to.equal(true)
+					if piece.kind == "gate" then
+						gates += 1
+					end
+				elseif piece.kind == "reed" then
+					reeds += 1
+					local away = math.sqrt((piece.x - c.WORLD.bog.x) ^ 2 + (piece.z - c.WORLD.bog.z) ^ 2)
+					-- ON THE RIM: inside the bog's radius, and not in the middle of it.
+					expect(away <= c.WORLD.bog.radius).to.equal(true)
+					expect(away >= c.WORLD.bog.radius - c.FURNITURE.reeds.inset - c.FURNITURE.reeds.jitter).to.equal(
+						true
+					)
+				end
+			end
+			-- THE TRACK PASSES THROUGH THE GATE: the gap is where the farm track crosses the line.
+			local track = c.WORLD.tracks[1]
+			expect(track.at > c.FURNITURE.fence.gateFromX and track.at < c.FURNITURE.fence.gateToX).to.equal(true)
+			expect(gates).to.equal(1)
+			expect(fence > 10).to.equal(true)
+			expect(reeds).to.equal(c.FURNITURE.reeds.count)
+		end)
+
+		it("builds every piece of furniture, and not one of them collides", function()
+			local c = config()
+			local pieces = MapGen.Layout.furniture(c)
+			expect(#pieces <= Map.BUDGET.furniture).to.equal(true)
+			-- BUILT FOR REAL, into a throwaway root: `Props.furniture` is where CanCollide is
+			-- decided, so asserting the list would assert the wrong half of the rule.
+			local root = Instance.new("Folder")
+			local ok, count, _keys, why = pcall(function()
+				return Props.furniture(root, SEED, c)
+			end)
+			expect(ok).to.equal(true)
+			expect(why).to.equal(nil)
+			local parts = 0
+			local nearRoad = 0
+			for _, descendant in ipairs(root:GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					parts += 1
+					-- THE RULE THE CONTRACT ENFORCES ON THE BUILT MAP (MapGen.verifyContract): no
+					-- collidable part within halfWidth + verge of the road, over its whole length.
+					-- Half this layer stands inside that envelope on purpose, so the layer does not
+					-- collide at all.
+					expect(descendant.CanCollide).to.equal(false)
+					local dz = math.abs(descendant.Position.Z - Map.ROAD.z)
+					if
+						dz <= Map.ROAD.halfWidth + Map.ROAD.verge
+						and descendant.Position.X >= Map.ROAD.from
+						and descendant.Position.X <= Map.ROAD.to
+					then
+						nearRoad += 1
+					end
+				end
+			end
+			expect(count).to.equal(parts)
+			-- ...and the assertion above is about something: the stakes, the barriers and one log
+			-- pile really do stand inside the envelope the contract walks.
+			expect(nearRoad > 30).to.equal(true)
+			root:Destroy()
+		end)
+
 		it("puts brush in the wood and nowhere else", function()
 			local c = config()
 			local total = 0

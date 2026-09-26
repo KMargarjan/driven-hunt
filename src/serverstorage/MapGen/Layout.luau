@@ -137,6 +137,15 @@ function Layout.treeDensity(x: number, z: number, config): number
 			return 0 -- a boar is released onto flat, clear ground
 		end
 	end
+	-- A HIGH SEAT STANDS IN ITS OWN CLEARING (M2.8c). It sits 40 studs behind the road, which is
+	-- inside the DENSE band, so without this a 15-stud tower would be built inside a spruce -- and
+	-- the answer "look at the screenshot" is only useful if the thing is not inside a tree.
+	local seatClear = config.FURNITURE.highSeat.clearRadius
+	for _, seat in ipairs(Layout.highSeats(config)) do
+		if (Vector3.new(x, 0, z) - Vector3.new(seat.x, 0, seat.z)).Magnitude <= seatClear then
+			return 0
+		end
+	end
 
 	local density = config.TREE_DENSITY
 	if math.abs(z - config.WORLD.lineZ) <= density.denseBandStuds and math.abs(x) <= density.denseHalfWidth then
@@ -221,6 +230,289 @@ function Layout.tieTreePoints(config): { Point }
 		local t = if world.tieTrees == 1 then 0.5 else (index - 1) / (world.tieTrees - 1)
 		table.insert(out, { x = -world.tieTreeSpan / 2 + t * world.tieTreeSpan, z = world.tieTreeZ })
 	end
+	return out
+end
+
+-- ---------------------------------------------------------------- the road's furniture (M2.8c)
+
+export type Piece = {
+	kind: string, -- what it is, for the counts and for a spec to group by
+	name: string, -- unique inside the Furniture folder
+	x: number,
+	z: number,
+	size: Vector3,
+	base: number, -- the bottom face, in studs above the ground at (anchorX, anchorZ)
+	anchorX: number, -- where the GROUND is sampled: one height per object, so a high seat's four
+	anchorZ: number, -- legs and its platform stand on one plane instead of following the terrain
+	color: Color3,
+	material: Enum.Material,
+}
+
+-- WHERE THE FOUR HIGH SEATS STAND. Its own function because `Layout.treeDensity` needs it for every
+-- candidate in the wood and must not build the whole furniture list to find out.
+function Layout.highSeats(config): { Point }
+	local world, seat = config.WORLD, config.FURNITURE.highSeat
+	local out: { Point } = {}
+	for _, index in ipairs(seat.atPosts) do
+		local x = (index - (world.postCount + 1) / 2) * world.postSpacing
+		table.insert(out, { x = x, z = world.lineZ + seat.offsetZ })
+	end
+	return out
+end
+
+-- EVERY PIECE OF FURNITURE, AS DATA (design 18, the M2.8c row). Pure, so a spec can assert what the
+-- road carries without building a map, and so `Props.furniture` decides nothing -- it is handed a
+-- list and it builds it, the same division `Props.hedge` already has.
+--
+-- DETERMINISTIC WITHOUT A SEED. The reeds' jitter is modular arithmetic on the clump index rather
+-- than a draw, because the one flat hash in this project lives in `Scatter`, `Scatter` requires
+-- `Layout`, and a second require the other way is a cycle. Scenery on a bog rim does not need a
+-- statistically good hash; it needs to be the same every build, and this is.
+function Layout.furniture(config): { Piece }
+	local world = config.WORLD
+	local f = config.FURNITURE
+	local out: { Piece } = {}
+	local function add(piece: Piece)
+		table.insert(out, piece)
+	end
+
+	-- 1. TWO STAKES PER STAND, and the orange cap on top of each (row 58a(a): the posts have to be
+	-- visible from the road, and every tagged marker is Transparency = 1 by design).
+	for index = 1, world.postCount do
+		local postX = (index - (world.postCount + 1) / 2) * world.postSpacing
+		local z = world.lineZ + f.stake.offsetZ
+		for _, side in ipairs({ -1, 1 }) do
+			local x = postX + side * f.stake.offsetX
+			local suffix = if side < 0 then "L" else "R"
+			add({
+				kind = "stake",
+				name = string.format("Stake%d%s", index, suffix),
+				x = x,
+				z = z,
+				size = f.stake.size,
+				base = 0,
+				anchorX = x,
+				anchorZ = z,
+				color = f.stake.color,
+				material = Enum.Material.Wood,
+			})
+			add({
+				kind = "stakeCap",
+				name = string.format("Stake%d%sCap", index, suffix),
+				x = x,
+				z = z,
+				size = f.stake.capSize,
+				base = f.stake.size.Y,
+				anchorX = x,
+				anchorZ = z,
+				color = f.stake.capColor,
+				material = Enum.Material.SmoothPlastic,
+			})
+		end
+	end
+
+	-- 2. FOUR HIGH SEATS: four legs, a deck, a rail across the back and a roof. Scenery: nobody
+	-- stands on it in v1, and nothing here is collidable.
+	for seatIndex, seat in ipairs(Layout.highSeats(config)) do
+		local half = f.highSeat.legSpan / 2
+		local legTop = f.highSeat.legSize.Y
+		for legIndex, corner in ipairs({
+			{ dx = -half, dz = -half },
+			{ dx = half, dz = -half },
+			{ dx = -half, dz = half },
+			{ dx = half, dz = half },
+		}) do
+			add({
+				kind = "highSeatLeg",
+				name = string.format("HighSeat%dLeg%d", seatIndex, legIndex),
+				x = seat.x + corner.dx,
+				z = seat.z + corner.dz,
+				size = f.highSeat.legSize,
+				base = 0,
+				anchorX = seat.x,
+				anchorZ = seat.z,
+				color = f.highSeat.color,
+				material = Enum.Material.Wood,
+			})
+		end
+		add({
+			kind = "highSeatDeck",
+			name = string.format("HighSeat%dDeck", seatIndex),
+			x = seat.x,
+			z = seat.z,
+			size = f.highSeat.platform,
+			base = legTop,
+			anchorX = seat.x,
+			anchorZ = seat.z,
+			color = f.highSeat.deckColor,
+			material = Enum.Material.WoodPlanks,
+		})
+		add({
+			kind = "highSeatRail",
+			name = string.format("HighSeat%dRail", seatIndex),
+			x = seat.x,
+			-- The rail is across the DRIVE side, so the seat reads as facing the wood it watches.
+			z = seat.z + f.highSeat.platform.Z / 2,
+			size = f.highSeat.rail,
+			base = legTop + f.highSeat.platform.Y,
+			anchorX = seat.x,
+			anchorZ = seat.z,
+			color = f.highSeat.color,
+			material = Enum.Material.Wood,
+		})
+		add({
+			kind = "highSeatRoof",
+			name = string.format("HighSeat%dRoof", seatIndex),
+			x = seat.x,
+			z = seat.z,
+			size = f.highSeat.roof,
+			base = legTop + f.highSeat.platform.Y + f.highSeat.rail.Y,
+			anchorX = seat.x,
+			anchorZ = seat.z,
+			color = f.highSeat.color,
+			material = Enum.Material.WoodPlanks,
+		})
+	end
+
+	-- 3. A BARRIER ACROSS EACH END OF THE ROAD: two uprights and a boom, on the flat bench inside
+	-- the road's own ends, so it stands on gravel rather than among trunks.
+	local road = Layout.benches(config)[1]
+	for endIndex, endX in ipairs({ road.from + f.barrier.inset, road.to - f.barrier.inset }) do
+		for _, side in ipairs({ -1, 1 }) do
+			add({
+				kind = "barrierPost",
+				name = string.format("Barrier%dPost%s", endIndex, if side < 0 then "L" else "R"),
+				x = endX,
+				z = world.lineZ + side * f.barrier.postOffsetZ,
+				size = f.barrier.post,
+				base = 0,
+				anchorX = endX,
+				anchorZ = world.lineZ,
+				color = f.barrier.color,
+				material = Enum.Material.Metal,
+			})
+		end
+		add({
+			kind = "barrierBoom",
+			name = string.format("Barrier%dBoom", endIndex),
+			x = endX,
+			z = world.lineZ,
+			size = f.barrier.boom,
+			base = f.barrier.boomBase,
+			anchorX = endX,
+			anchorZ = world.lineZ,
+			color = f.barrier.bandColor,
+			material = Enum.Material.SmoothPlastic,
+		})
+	end
+
+	-- 4. TWO LOG PILES ON THE VERGE, stacked 3 + 2, their long axis along the road.
+	for pileIndex, pile in ipairs(f.logPile.at) do
+		local z = world.lineZ + pile.side * f.logPile.offsetZ
+		local log = f.logPile.log
+		-- 3 + 2 + 1, the way a forester stacks them, and 6.6 studs tall so it reads from the road.
+		local rows = { { -log.Z, 0, log.Z }, { -log.Z / 2, log.Z / 2 }, { 0 } }
+		local logIndex = 0
+		for row, offsets in ipairs(rows) do
+			for _, dz in ipairs(offsets) do
+				logIndex += 1
+				add({
+					kind = "log",
+					name = string.format("LogPile%d_%d", pileIndex, logIndex),
+					x = pile.x,
+					z = z + dz,
+					size = log,
+					base = (row - 1) * log.Y,
+					anchorX = pile.x,
+					anchorZ = z,
+					color = if row == 1 then f.logPile.color else f.logPile.endColor,
+					material = Enum.Material.Wood,
+				})
+			end
+		end
+	end
+
+	-- 5. A FENCE ALONG A FIELD BOUNDARY, WITH A GATE where the farm track passes through it. The
+	-- gate stands OPEN, swung back on its hinge post along +z, because a closed gate across the
+	-- track would say the track goes nowhere.
+	local fence = f.fence
+	local x = fence.fromX
+	while x <= fence.toX + 1e-6 do
+		if not (x > fence.gateFromX and x < fence.gateToX) then
+			add({
+				kind = "fencePost",
+				name = string.format("FencePost%d", math.floor((x - fence.fromX) / fence.spacing) + 1),
+				x = x,
+				z = fence.z,
+				size = fence.post,
+				base = 0,
+				anchorX = x,
+				anchorZ = fence.z,
+				color = fence.color,
+				material = Enum.Material.Wood,
+			})
+		end
+		x += fence.spacing
+	end
+	local span = fence.fromX
+	local railIndex = 0
+	while span + fence.spacing <= fence.toX + 1e-6 do
+		local middle = span + fence.spacing / 2
+		if not (middle > fence.gateFromX and middle < fence.gateToX) then
+			for heightIndex, height in ipairs(fence.railHeights) do
+				railIndex += 1
+				add({
+					kind = "fenceRail",
+					name = string.format("FenceRail%d_%d", railIndex, heightIndex),
+					x = middle,
+					z = fence.z,
+					size = fence.rail,
+					base = height - fence.rail.Y / 2,
+					anchorX = middle,
+					anchorZ = fence.z,
+					color = fence.color,
+					material = Enum.Material.Wood,
+				})
+			end
+		end
+		span += fence.spacing
+	end
+	add({
+		kind = "gate",
+		name = "FieldGate",
+		x = fence.gateFromX + 1,
+		z = fence.z + fence.gate.Z / 2,
+		size = fence.gate,
+		base = 0.4,
+		anchorX = fence.gateFromX,
+		anchorZ = fence.z,
+		color = fence.gateColor,
+		material = Enum.Material.Wood,
+	})
+
+	-- 6. REEDS ON THE BOG'S RIM.
+	local bog, reeds = world.bog, f.reeds
+	for index = 1, reeds.count do
+		local angle = (index - 1) / reeds.count * math.pi * 2
+		-- Deterministic, and it is arithmetic rather than a draw: see the note above the function.
+		local wobble = ((index * 37) % (reeds.jitter * 2 + 1)) - reeds.jitter
+		local radius = bog.radius - reeds.inset + wobble
+		local rx = bog.x + math.cos(angle) * radius
+		local rz = bog.z + math.sin(angle) * radius
+		add({
+			kind = "reed",
+			name = string.format("Reeds%02d", index),
+			x = rx,
+			z = rz,
+			size = reeds.size,
+			base = -reeds.sink,
+			anchorX = rx,
+			anchorZ = rz,
+			color = reeds.color,
+			material = Enum.Material.Grass,
+		})
+	end
+
 	return out
 end
 

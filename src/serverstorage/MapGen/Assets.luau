@@ -36,6 +36,10 @@ export type AssetRow = {
 Assets.KEY = table.freeze({
 	treeSpruce = "tree.spruce.a",
 	hedge = "hedge.mixed.a",
+	-- M2.8c: the high seat behind four of the stands. Design section 18 names the key; until a row
+	-- exists `Props.furniture` builds the seven-box proxy, and when one does the model replaces the
+	-- WHOLE proxy rather than one box of it.
+	highSeat = "prop.highseat",
 })
 
 Assets.ROWS = {} :: { AssetRow }
