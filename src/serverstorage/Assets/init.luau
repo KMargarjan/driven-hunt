@@ -1,5 +1,9 @@
 --!strict
--- Assets: THE ASSET MANIFEST. Pure data and pure lookups: no service, no Instance, no yield.
+-- Assets: THE ASSET MANIFEST. Pure data and pure lookups: it creates no Instance, holds no
+-- state, never yields, and nothing in it touches the world. It DOES require
+-- `ReplicatedStorage.Shotgun` -- for `deepFreeze` and for the one number the gun's size is
+-- derived from -- so "no service" would be a lie: `game:GetService` is called once, at require
+-- time, for a module (review round 1, note).
 --
 -- THIS IS THE ONE SOURCE OF ASSET IDS (docs/design/asset-pipeline.md section 2.1, section 4). It has
 -- NO RUN-TIME WRITER AT ALL: the Builder edits this file from what `tools/roblox_upload.py` printed

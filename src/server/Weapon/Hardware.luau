@@ -163,6 +163,15 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 		weld.C0 = pose
 		weld.Parent = handle
 	elseif model:IsA("Model") then
+		-- THE CONSUMER SETS THE SIZE, FOR A MODEL TOO (design 6.1). A Model has no Size, so the
+		-- equivalent is a uniform scale onto the row's target length -- without this the `model`
+		-- branch was the one path that shipped whatever the exporter happened to choose.
+		local _, natural = model:GetBoundingBox()
+		local longest = math.max(natural.X, natural.Y, natural.Z)
+		local target = math.max(size.X, size.Y, size.Z)
+		if longest > 0 and target > 0 then
+			model:ScaleTo(target / longest)
+		end
 		model:PivotTo(handle.CFrame * pose)
 		model.Parent = handle
 		for _, part in ipairs(model:GetDescendants()) do
@@ -174,6 +183,22 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 				weld.Parent = handle
 			end
 		end
+	else
+		-- NEITHER, SO WEAR THE GREY BOX. Returning true here left the clone unparented and the
+		-- player holding an empty Handle with no parts gun behind it (review round 1, note): the
+		-- one shape this whole seam exists to make impossible.
+		model:Destroy()
+		if not warned then
+			warned = true
+			warn(
+				string.format(
+					"[Weapon] the %s template is a %s, which cannot be worn; wearing the " .. "grey box",
+					Hardware.ASSET_KEY,
+					template.ClassName
+				)
+			)
+		end
+		return false
 	end
 	return true
 end

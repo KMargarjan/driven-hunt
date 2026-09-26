@@ -40,10 +40,21 @@ local function fakeAsset(meshParts: number, withScript: boolean?, size: Vector3?
 	return container
 end
 
+-- THE ORDER OF THESE TWO LINES IS THE WHOLE POINT, and round 1 had them the wrong way round.
+--
+-- `Loader.clear()` destroys the templates it is holding and, when no cache parent is set, the live
+-- `ServerStorage.AssetCache` too. Round 1 called `clear()` BEFORE `setCacheParent`, so every case in
+-- this file destroyed the real shotgun template that `WeaponBoot` had preloaded -- and nothing put
+-- it back, so the running server wore the grey box for the rest of the session and any screenshot
+-- taken afterwards was of the fallback gun. That is exactly the failure
+-- `Hardware.getTemplateProvider` was added to prevent, defeated one line higher up.
+--
+-- So: nominate the throwaway container FIRST. From that moment `clear()` can only reach what this
+-- spec created. `restoreLive` at the end of the file puts the real template back.
 local function withLoader(insert, body)
 	local cacheFolder = Instance.new("Folder")
-	Loader.clear()
 	Loader.setCacheParent(cacheFolder)
+	Loader.clear()
 	Loader.setInsert(insert)
 	local ok, why = pcall(body)
 	Loader.clear()
@@ -186,6 +197,34 @@ return function()
 			end
 		end)
 
+		it("gives up on a load that never returns, and says timeout", function()
+			-- A BOOT THAT WAITS ON THE NETWORK IS A GAME THAT DOES NOT START (design 5.2). The
+			-- insert here never returns -- the shape of a moderation queue, a dead endpoint or a
+			-- Studio with no network -- and `preload` must still come back, with a reason.
+			local started = os.clock()
+			withLoader(function()
+				while true do
+					task.wait(0.1)
+				end
+			end, function()
+				local report = Loader.preload({ Hardware.ASSET_KEY })[1]
+				expect(report.ok).to.equal(false)
+				expect(report.reason).to.equal("timeout")
+				expect(Loader.template(Hardware.ASSET_KEY)).to.equal(nil)
+			end)
+			local waited = os.clock() - started
+			-- It gave up at the bound rather than hanging the suite: generous, because the harness
+			-- runs under load, but far below "forever".
+			expect(waited < Loader.CONFIG.LOAD_TIMEOUT_S + 8).to.equal(true)
+			TestKit.note(
+				string.format(
+					"loader timeout: gave up after %.1f s (bound %.0f s)",
+					waited,
+					Loader.CONFIG.LOAD_TIMEOUT_S
+				)
+			)
+		end)
+
 		it("refuses a key it has no row for, and never throws for it", function()
 			withLoader(function()
 				error("the insert must not even be attempted for an unknown key", 0)
@@ -194,6 +233,52 @@ return function()
 				expect(report.ok).to.equal(false)
 				expect(report.reason).to.equal("no-row")
 			end)
+		end)
+	end)
+
+	describe("the live server after this file has run", function()
+		it("still holds the real template, so the session does not end on the grey box", function()
+			-- THE SPEC PUTS THE WORLD BACK. Every case above worked in its own container, so the
+			-- live cache was never touched -- but `preload` is the only thing that fills it, and if
+			-- anything here ever drops it again this check is what says so, in the run, rather than
+			-- in a screenshot three tasks later.
+			local template = Loader.template(Hardware.ASSET_KEY)
+			if template == nil then
+				-- Not necessarily this file's doing: a server where the real LoadAsset failed at
+				-- boot has none either. Re-run the real load once and report what happened.
+				local report = Loader.preload({ Hardware.ASSET_KEY })[1]
+				template = Loader.template(Hardware.ASSET_KEY)
+				TestKit.note(
+					string.format(
+						"live template was missing; re-preload ok=%s reason=%s",
+						tostring(report.ok),
+						tostring(report.reason)
+					)
+				)
+			end
+			local stats = Loader.stats()
+			TestKit.note(
+				string.format(
+					"live loader after the specs: template=%s loaded=%d failed=%d proxies=%d",
+					if template then template.ClassName else "nil",
+					stats.loaded,
+					stats.failed,
+					stats.proxies
+				)
+			)
+			-- The Tool a player gets right now is the thing this asserts, not the cache directly.
+			local tool = Hardware.build()
+			local handle = tool:FindFirstChild("Handle") :: BasePart
+			local wearing = handle:FindFirstChild("Model") ~= nil
+			local partsGun = handle:FindFirstChild("BarrelLeft") ~= nil
+			tool:Destroy()
+			-- One or the other, never neither: a Handle with nothing on it is the gunless case.
+			expect(wearing or partsGun).to.equal(true)
+			TestKit.note(
+				if wearing
+					then "the live server is wearing Karen's mesh"
+					else "the live server is wearing the parts gun"
+			)
 		end)
 	end)
 

@@ -34,6 +34,15 @@ Loader.CONFIG = table.freeze({
 	-- The template's measured bounding box must match the row's `naturalSizeStuds` aspect within
 	-- this, or the row is describing a different mesh than the one that arrived (design 6.1).
 	ASPECT_TOLERANCE = 0.05,
+	-- BOTH OF THESE EXIST BECAUSE A BOOT THAT WAITS ON THE NETWORK IS A GAME THAT DOES NOT START.
+	-- Design 5.2: "preload is bounded by PRELOAD_BUDGET_S. Past it, boot CONTINUES with whatever
+	-- loaded and warns. A boot that blocks on a moderation queue is a game that will not start."
+	-- `LoadAsset` yields and has no documented rate limit, no documented timeout and no cancel, so
+	-- the only bound available is to stop WAITING for it: the load runs in its own thread and this
+	-- one gives up at the deadline with reason "timeout". The abandoned thread may still finish --
+	-- if it does, `adopt` takes the template, so a slow load is late rather than lost.
+	LOAD_TIMEOUT_S = 10, -- one key
+	PRELOAD_BUDGET_S = 20, -- the whole call, however many keys
 })
 
 export type LoadReport = {
@@ -42,7 +51,7 @@ export type LoadReport = {
 	modelId: number?,
 	ok: boolean,
 	reason: string?, -- "no-row" | "insert-failed" | "contains-script" | "no-meshpart"
-	-- | "multi-meshpart" | "aspect"
+	-- | "multi-meshpart" | "aspect" | "timeout"
 	route: string?,
 	meshParts: number?,
 	naturalSizeStuds: Vector3?,
@@ -112,18 +121,19 @@ local function meshPartsIn(container: Instance): { MeshPart }
 end
 
 local function aspectOf(size: Vector3): (number, number)
-	local longest = math.max(size.X, size.Y, size.Z)
+	-- SORT ALL THREE, do not try to remove "the longest one" by value. The first version dropped
+	-- every axis EQUAL to the longest, so a cube (or any mesh whose two longest axes tie) came back
+	-- as (0, thin) and failed the aspect check for arithmetic reasons rather than for shape --
+	-- which is also why round 1's (100, 100, 100) test case passed (review round 1, note).
+	local axes = { size.X, size.Y, size.Z }
+	table.sort(axes, function(a, b)
+		return a > b
+	end)
+	local longest = axes[1]
 	if longest <= 0 then
 		return 0, 0
 	end
-	local rest = {}
-	for _, value in ipairs({ size.X, size.Y, size.Z }) do
-		if value ~= longest or #rest > 1 then
-			table.insert(rest, value)
-		end
-	end
-	table.sort(rest)
-	return (rest[2] or 0) / longest, (rest[1] or 0) / longest
+	return axes[2] / longest, axes[3] / longest
 end
 
 local function finish(report: LoadReport): LoadReport
@@ -137,7 +147,43 @@ local function finish(report: LoadReport): LoadReport
 	return report
 end
 
--- ONE KEY. Yields. Returns the report and caches the template on success.
+-- How much of the whole `preload` budget is left. Set by `preload`, so one slow key cannot eat the
+-- budget of the keys behind it.
+local preloadDeadline: number? = nil
+
+local function budgetLeft(): number
+	if preloadDeadline == nil then
+		return Loader.CONFIG.LOAD_TIMEOUT_S
+	end
+	return math.max(preloadDeadline - os.clock(), 0)
+end
+
+-- A LATE ARRIVAL IS LATE, NOT LOST. If a load we stopped waiting for finishes afterwards and the
+-- key is still empty, take it: the next Tool built wears the mesh instead of the grey box.
+local function adopt(key: string, row, container: Instance)
+	local parts = {}
+	if container:IsA("MeshPart") then
+		table.insert(parts, container)
+	end
+	for _, descendant in ipairs(container:GetDescendants()) do
+		if descendant:IsA("MeshPart") then
+			table.insert(parts, descendant)
+		end
+	end
+	if row.kind == "meshpart" and #parts ~= 1 then
+		container:Destroy()
+		return
+	end
+	local template: Instance = if row.kind == "meshpart" then parts[1] else container
+	template.Parent = cache()
+	if template ~= container then
+		container:Destroy()
+	end
+	templates[key] = template
+	lastReasons[key] = "late"
+end
+
+-- ONE KEY. Yields, but never for longer than the budget. Caches the template on success.
 local function loadOne(key: string): LoadReport
 	local started = os.clock()
 	counters.requested += 1
@@ -166,7 +212,46 @@ local function loadOne(key: string): LoadReport
 			end)
 			return if ok then result else nil
 		end
-	local container = insert(row.modelId)
+
+	-- THE WAIT IS BOUNDED, THE CALL IS NOT -- because it cannot be. `LoadAsset` yields and Roblox
+	-- gives no way to cancel it, so the load runs in its own thread and THIS thread stops waiting at
+	-- the deadline. Nothing is left half-applied: a late arrival is adopted below if the key is
+	-- still empty, and otherwise destroyed.
+	local done, container = false, nil :: Instance?
+	task.spawn(function()
+		local result = insert(row.modelId)
+		if done then
+			-- We already gave up on it. Take it if nothing else filled the slot; never leave an
+			-- orphan Instance parented into the world.
+			if result then
+				if templates[key] == nil then
+					adopt(key, row, result)
+				else
+					result:Destroy()
+				end
+			end
+			return
+		end
+		container = result
+		done = true
+	end)
+
+	local deadline = os.clock() + math.min(Loader.CONFIG.LOAD_TIMEOUT_S, budgetLeft())
+	while not done and os.clock() < deadline do
+		task.wait(0.05)
+	end
+	if not done then
+		done = true -- tells the loader thread it is on its own
+		return finish({
+			key = key,
+			ok = false,
+			reason = "timeout",
+			version = row.version,
+			modelId = row.modelId,
+			route = "insert",
+			elapsedMs = elapsed(),
+		})
+	end
 	if container == nil then
 		return finish({
 			key = key,
@@ -278,12 +363,18 @@ local function loadOne(key: string): LoadReport
 	})
 end
 
--- YIELDS. A boot script only, once per server.
+-- YIELDS, BUT NEVER PAST THE BUDGET. A boot script only, once per server.
+--
+-- Design 5.2: past `PRELOAD_BUDGET_S` boot CONTINUES with whatever loaded and warns. So the budget
+-- is a deadline for the WHOLE call, and a key reached after it is refused as `timeout` without even
+-- starting -- otherwise one stalled key would spend the budget of every key behind it.
 function Loader.preload(keys: { string }): { LoadReport }
+	preloadDeadline = os.clock() + Loader.CONFIG.PRELOAD_BUDGET_S
 	local out = {}
 	for _, key in ipairs(keys) do
 		table.insert(out, loadOne(key))
 	end
+	preloadDeadline = nil
 	return out
 end
 
@@ -319,6 +410,10 @@ function Loader.clear()
 	reports = {}
 	lastReasons = {}
 	counters = { requested = 0, loaded = 0, failed = 0, refusedScripts = 0, proxies = 0 }
+	-- ONLY WHAT IT CREATED (rule 7). When a caller nominated a cache container, that container is
+	-- the caller's and this must not remove it -- and the same goes the other way: a spec that sets
+	-- its own parent BEFORE clearing cannot destroy the live server's cache. That is exactly what
+	-- round 1's spec did (review finding 3), and the order is the whole fix.
 	local existing = if cacheParent then nil else ServerStorage:FindFirstChild(Loader.CONFIG.CACHE_NAME)
 	if existing then
 		existing:Destroy()

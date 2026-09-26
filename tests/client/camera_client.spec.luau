@@ -323,6 +323,74 @@ return function()
 			expect(math.abs(Workspace.CurrentCamera.FieldOfView - Config.FOV_THIRD_DEG) < 0.01).to.equal(true)
 		end)
 
+		it("keeps the appearance of the gun it clones, and still strips everything else", function()
+			-- THE ONE CLIENT-VISIBLE CHANGE OF TASK 74, AND IT WAS ASSERTED BY NOTHING (review
+			-- round 1, finding 2). Karen's uploaded shotgun is a MeshPart carrying its PBR maps on a
+			-- SurfaceAppearance child; the clone's sweep used to destroy every child that was not an
+			-- Attachment, so the FIRST-PERSON gun would have lost its maps while the third-person
+			-- gun kept them -- visible only in ADS, only to the player holding it.
+			--
+			-- Driven by injection rather than by whatever the server happened to load, so it says
+			-- the same thing on a machine where the asset does not load at all.
+			local source = Instance.new("Part")
+			source.Name = "Handle"
+			source.Size = Vector3.new(0.4, 0.5, 4.4)
+			source.Transparency = 1
+			local keep = {
+				Instance.new("SurfaceAppearance"),
+				Instance.new("Texture"),
+				Instance.new("Decal"),
+				Instance.new("Attachment"),
+			}
+			local strip = { Instance.new("Weld"), Instance.new("Sound"), Instance.new("Folder") }
+			for _, child in ipairs(keep) do
+				child.Parent = source
+			end
+			for _, child in ipairs(strip) do
+				child.Parent = source
+			end
+			-- a welded visible piece, so the clone has something to show as well as something to keep
+			local piece = Instance.new("Part")
+			piece.Name = "BarrelLeft"
+			piece.Size = Vector3.new(0.17, 0.17, 2.7)
+			piece.Parent = source
+			local pieceSkin = Instance.new("SurfaceAppearance")
+			pieceSkin.Parent = piece
+
+			local was = Camera.Viewmodel.current()
+			Camera.Viewmodel.setSource(function()
+				return source
+			end)
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), 1, Config)
+			local model = Camera.Viewmodel.current()
+			expect(model).to.be.ok()
+			local clone = (model :: Model).PrimaryPart :: BasePart
+			expect(clone).to.be.ok()
+
+			local kept = {}
+			for _, child in ipairs((clone :: Instance):GetChildren()) do
+				kept[child.ClassName] = (kept[child.ClassName] or 0) + 1
+			end
+			-- WHAT MUST SURVIVE: the appearance, and the attachment the muzzle rides on.
+			expect(kept.SurfaceAppearance).to.equal(1)
+			expect(kept.Texture).to.equal(1)
+			expect(kept.Decal).to.equal(1)
+			expect(kept.Attachment).to.equal(1)
+			-- WHAT MUST NOT: a weld would be simulated under the camera, a sound would play twice.
+			expect(kept.Weld).to.equal(nil)
+			expect(kept.Sound).to.equal(nil)
+			expect(kept.Folder).to.equal(nil)
+			-- ...and the appearance of a welded PIECE survives too, not just the root's.
+			local clonedPiece = (clone :: Instance):FindFirstChild("BarrelLeft")
+			expect(clonedPiece).to.be.ok()
+			expect((clonedPiece :: Instance):FindFirstChildOfClass("SurfaceAppearance")).to.be.ok()
+
+			Camera.Viewmodel.setSource(nil)
+			Camera.Viewmodel.clear()
+			source:Destroy()
+			expect(was == nil or true).to.equal(true)
+		end)
+
 		it("shows a viewmodel that is really on screen, and unparents it afterwards", function()
 			if Role.isDriver() then
 				-- The viewmodel is a clone of the Tool's Handle (docs/design/camera.md section 7), so
