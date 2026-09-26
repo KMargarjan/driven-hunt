@@ -11,6 +11,7 @@ Usage:
   python tools/studio_mcp.py test           # full checked run; exit 0 only on a clean-tree PASS
   python tools/studio_mcp.py test2          # the same specs in a 2-player local test (Karen starts it)
   python tools/studio_mcp.py selftest       # NO Studio: prove the concurrency helpers (CI runs this)
+  (stdout is line buffered, so a run's lines appear live even when it is piped to a log)
   python tools/studio_mcp.py state          # print Studio mode (read-only)
   python tools/studio_mcp.py console        # print Studio Output (read-only)
   python tools/studio_mcp.py stop           # stop a playtest (recovery)
@@ -2280,5 +2281,10 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.stdout.reconfigure(encoding="utf-8")
+    # LINE BUFFERED, always. Piped to a file or a log, Python buffers stdout in 8 KiB blocks, so a
+    # run that waits three minutes for a click showed nothing at all until it was over -- and the
+    # one line the Director waits for before pressing F7 ("the gate is shut again") arrived with
+    # everything else at the end. `python -u` does this from outside; doing it here means the mode
+    # is live however it is started (Task 50).
+    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
     sys.exit(main(sys.argv))

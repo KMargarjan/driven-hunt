@@ -51,6 +51,13 @@ local Config = {
 	BODY_HIDE_BLEND = 0.60, -- above it the local body gets LocalTransparencyModifier = 1
 
 	-- names and switches
+	-- How close a RENDERED frame must be to a Camera.lookAt request before the owner counts it as
+	-- landed (stats().lookAtLanded). DELIBERATELY LOOSER than what the spec that waits on it then
+	-- asserts (0.999, about 2.5 degrees): this says "the request reached the screen", not "the aim is
+	-- good", so the spec's own measurement of Workspace.CurrentCamera stays a real assertion and not
+	-- a restatement of this one. 0.99 is about 8.1 degrees. Task 50.
+	LOOK_AT_LANDED_DOT = 0.99,
+
 	RENDER_STEP_NAME = "DrivenHunt.Camera", -- the reserved prefix; grep finds every binding we own
 	CURSOR_LOCKED_DEFAULT = true, -- MouseBehavior = LockCenter when no requestFree tag is out
 	FREE_CURSOR_ON_DEATH = false, -- v1 has no death UI; the hook exists
