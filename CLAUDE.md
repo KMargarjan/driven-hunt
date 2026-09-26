@@ -273,7 +273,7 @@ fails if a script exists anywhere Rojo does not manage.
 | `reviews/task-<N>/` | none | One folder per task: `REQUEST.md` (Builder), `RESULT.md` (Reviewer), `ARCH_RESULT.md` (Architect). Per task so branches never conflict and the round count has a boundary (Task 21) |
 | `backups/` | none | Archived files plus notes |
 | `docs/` | none | `PROJECT_CONTEXT.md` (who, the game, why the rules exist), `research/` (notes plus INDEX), `design/` (Architect system designs), `architecture/` (Architect audits), `REVIEWER_PROMPT.md` and `ARCHITECT_PROMPT.md` (the two agent prompts) |
-| `tools/` | none | `studio_mcp.py` (test harness); `agents.py` plus `review.sh`/`review.ps1`/`architect.sh`/`architect.ps1` (the Reviewer and Architect gate); `privacy_scan.py` (the public-repo scan CI runs) |
+| `tools/` | none | `studio_mcp.py` (test harness, and the one owner of the `DHFlag_*` overrides); `agents.py` plus `review.sh`/`review.ps1`/`architect.sh`/`architect.ps1` (the Reviewer and Architect gate); `privacy_scan.py` (the public-repo scan CI runs); `flags.py` (the Director's playtest switch, a thin wrapper over `studio_mcp.py flags`) |
 
 Workspace (the map), Lighting, Terrain and other non-script content are edited in Studio and saved
 with the place. They must contain no scripts.
@@ -394,6 +394,34 @@ they replicate to every client.** Players can read this test code. It holds no s
 outside Studio (`RunService:IsStudio()` plus a fresh token), so this is accepted for now.
 
 Before the first public release, a publish step must strip them (TASKS.md, Task 2).
+
+## Feature flags: merge dark, switch on for a playtest, flip the default in git
+
+Feel-critical work (shooting, camera, penalty, the map switch) used to wait for Karen's playtest
+before merging, so ten PRs stacked on one unmerged PR. Since Task 52 it does not have to.
+
+- **A new feel-critical path is born OFF** as a row in `src/shared/Flags/init.luau`
+  (`default = false`, plus `owner`, `born`, `expires` **within 21 days**, and a one-line `why`), and
+  merges as soon as the Reviewer passes it and CI is green. **No playtest in the merge gate.**
+- **The owner reads it once, at its boundary**, and passes the value inward:
+  `TIE_UNTIL_DRIVE_END = Flags.isOn("TIE_UNTIL_DRIVE_END")` in `Match.CONFIG` is the only permitted
+  shape. A flagged path must be reachable **by parameter as well as by flag**, or its two states
+  cannot be tested while the flag sits at one of them.
+- **The Director switches it on for a playtest without a commit:**
+  `python tools/flags.py set <NAME> on` in **Edit** mode, `python tools/flags.py` to see it,
+  then start the session and `python tools/flags.py live` to confirm what it resolved. The override
+  is an attribute on `ServerStorage`, never a file, so the git tree stays clean.
+- **`python tools/flags.py clear` before the next harness run.** `test` and `test2` both **refuse**
+  to start while any override is set (they do not silently reset it: that would destroy a playtest
+  setup and hide that the run was almost made against the wrong build) and print the clear line.
+- **Karen's OK flips the default** in a later three-line commit, which needs `test` and `test2` like
+  any `src/` change. Retiring a flag deletes the losing branch, archives it under `backups/` with a
+  note (rule 7) and removes the row.
+- **An `expires` date in the past fails `tests/server/flags.spec.luau`**, which fails the harness,
+  which blocks the merge gate. Moving the date costs one line, so it can never actually block a
+  task -- it can only force someone to say the flag still has a reason to exist.
+
+Design: `docs/design/feature-flags.md`. Note: `docs/research/2026-09-26-feature-flags.md`.
 
 ## Public repository: never commit secrets
 
