@@ -3,19 +3,21 @@
 Task: 47
 Round: 1
 Base: `1478854` (task-45-hygiene; stacked on 44, 43, 41, 38, 36 and 35, none merged)
-Code commit: `PENDING` — this request's own commit, which is what both harness lines name (CLAUDE.md
-git workflow step 4, as Task 45 rewrote it). The last commit that changed `src/`, `tests/` or `tools/`
-is `3531708`.
+Code commit: `61841d29a34f9faa38ccdee6bdf2cc9752594b44` — this request's own commit, which is what
+both harness lines name (CLAUDE.md git workflow step 4, as Task 45 rewrote it). The last commit that
+changed `src/`, `tests/` or `tools/` is `3531708`, and only this fill-in changed after it.
 
 Harness, clean tree, one player:
 
-    HARNESS1_LINE
+    [harness] PASS: 27/27 checks @ 61841d29a34f9faa38ccdee6bdf2cc9752594b44 (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me:
 
-    HARNESS2_LINE
+    [harness2] PASS: 30/30 checks @ 61841d29a34f9faa38ccdee6bdf2cc9752594b44 (clean tree)
 
-303 server specs (302 before this task), 73 client (70 before).
+303 server specs (302 before this task), 73 shooter-client and 67 driver-client (70 and 64 before).
+The Director recorded `CountCells() = 0` before the two-player run, which is claim 10's check made
+by a second pair of hands.
 
 ## What changed
 
