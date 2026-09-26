@@ -30,8 +30,8 @@ local function regionFor(minX: number, minZ: number, config): Region3
 	):ExpandToGrid(config.VOXEL)
 end
 
--- LeafyGrass where the ground is steep, Grass where it is not: the field reads as pasture and the
--- broken ground reads as rough, from one number instead of a second noise field. Called ONCE PER
+-- Leaf litter everywhere in the wood; gravel on the benches and tracks; Grass on the steep columns
+-- and on the flank farmland; Mud in the bog. One slope number instead of a second noise field. Called ONCE PER
 -- COLUMN, not once per voxel: at 24,576 voxels a tile and ~6 math.noise calls a height, per-voxel
 -- would be about 600,000 noise evaluations for a tile that needs 3,000.
 local function surfaceMaterial(x: number, z: number, h: number, seed: number, config, pads): Enum.Material
@@ -58,9 +58,10 @@ local function surfaceMaterial(x: number, z: number, h: number, seed: number, co
 	if math.max(dx, dz) > config.ROUGH_SLOPE then
 		return config.MATERIAL.rough
 	end
-	-- M2.8a: the map's default is now the FOREST FLOOR, not pasture. `field` is LeafyGrass, which the
-	-- palette recolours to leaf litter; `rough` is Grass, which stays the greener flank material.
-	return config.MATERIAL.field
+	-- THE WOOD'S DEFAULT IS LEAF LITTER. Everything that is not bog, bench, track, field or a steep
+	-- column is forest floor -- which is what makes the map read as a wood rather than as a meadow
+	-- with trees on it (design section 8.1).
+	return config.MATERIAL.litter
 end
 
 -- One tile. IDEMPOTENT: it writes every voxel of its region from the heightfield, so re-running it

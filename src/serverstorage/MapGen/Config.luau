@@ -188,10 +188,19 @@ Config.SCATTER_CLEARANCE = 14 -- studs a tree keeps from a HEDGE LINE; a track a
 
 -- Four materials and no Water: the design's section 1.2 rule. A bog is Mud, because water a player
 -- can drown in is a different feature with its own rules.
+-- THE FOUR ROLES, and they are named for what the PALETTE calls them (Map.PALETTE), because the two
+-- tables have to agree about which material carries which colour.
+--
+-- M2.8a INVERTED THESE, and the screenshot is what caught it. Before this the default return was
+-- `Grass` and the steep return was `LeafyGrass`, so the autumn palette painted the whole forest floor
+-- with the olive "rough" colour and put the orange leaf litter on the steep rim -- a map that was
+-- correctly generated, correctly digested, and read as a dry summer meadow. `map-wide` and
+-- `map-autumn` showed it at once. Design section 8.1: litter is LeafyGrass and is "the forest floor
+-- -- the wood's default"; rough is Grass and is "steep ground, clearings, the flank fields".
 Config.MATERIAL = {
-	field = Enum.Material.Grass,
-	rough = Enum.Material.LeafyGrass,
-	track = Enum.Material.Ground,
+	litter = Enum.Material.LeafyGrass, -- the wood's default, recoloured to leaf litter
+	rough = Enum.Material.Grass, -- steep ground, clearings and the flank fields
+	track = Enum.Material.Ground, -- the road and assembly benches, and the dirt tracks
 	bog = Enum.Material.Mud,
 }
 
