@@ -17,7 +17,7 @@ Usage
     python tools/meshy.py status [<run-id>]    local records, plus one GET per live task
     python tools/meshy.py approve <run-id> --by karen [--note "..."]
     python tools/meshy.py refine <run-id> [--dry-run]     REFUSED without an approval; 2K PBR
-    python tools/meshy.py remesh <run-id> [--target N]    topology=triangle, target_polycount
+    python tools/meshy.py remesh <run-id> [--target N] [--dry-run]  triangles, target_polycount
     python tools/meshy.py fetch <run-id>                  download the FBX and the maps NOW, validate
     python tools/meshy.py resume <run-id>      continue an interrupted poll, or collect a run
                                                a STOPPED line left unresolved
@@ -35,9 +35,18 @@ again for a human to look at the finished, textured model before anything is upl
 THE LAST LINE IS ALWAYS MACHINE-READABLE, prefix `[meshy]`: OK / PENDING / STOPPED / FAILED /
 REFUSED. It is what the ASSET agent pastes into its report and what a Reviewer checks, exactly as
 `[harness]` is. STOPPED is the one that costs money if it is ignored: the task is paid for and the
-run is still collectable, so that line ends with the exact `resume` command to run. FAILED is
-terminal -- the Meshy task came back FAILED or CANCELED, a ceiling stopped the run, or no task was
-ever created -- and nothing can be collected from it.
+run is still collectable, so that line ends with the exact command that collects it -- `resume` when
+the task must be re-polled, `fetch` when the bytes must be downloaded again. FAILED is terminal for
+the Meshy side of the run -- the task came back FAILED or CANCELED, a ceiling stopped it, or no task
+was ever created -- with one exception, which the line always names: a `fetch` whose files landed and
+then broke a local check keeps the files and says whether the way out is `remesh --target <lower>` or
+a new brief version.
+
+NOTHING IS "DONE" UNTIL IT DELIVERED WHAT WAS PAID FOR (Task 62, review round 1). One guard,
+`deliver`, is the only place in this file that writes a "ready" state: it checks what the step OWED
+on disk (DELIVERABLES), that nothing which was offered failed to download, and every local check
+there is. So no paid step can call itself finished on an empty folder, and a run that is paid for but
+incomplete is always left in a state some command takes -- the command its own line names.
 
 THE KEY. Read once, from os.environ, else from HKCU\Environment (a shell started before Karen made
 the variable does not have it). NEVER printed, logged, put in an exception, or written to a run
@@ -64,6 +73,7 @@ one program here that holds a secret (note, "Borrowed, not invented").
 
 import argparse
 import datetime
+import fnmatch
 import hashlib
 import json
 import os
@@ -159,6 +169,22 @@ LICENCE = {
     "quotedFrom": "https://www.meshy.ai/terms-of-use",
     "readOn": "2026-09-26",
     "evidence": "Karen's statement 2026-09-26, plus a working API key (no API call can prove a plan)",
+}
+
+# WHAT EACH PAID STEP OWES ON DISK, and the ONE table `deliver` reads (Task 62, review round 1
+# findings 1 and 2). A step whose money bought bytes is not "done" until the bytes are here: the
+# preview is paid for the image Karen's yes is given to, and the REFINE is paid for the PBR maps --
+# which is why `fetch` owes a map as well as the FBX. A pattern means AT LEAST ONE match, so
+# `texture_*.png` is exactly the check whose absence let a fetch with no texture at all exit 0 and
+# invite Karen to look. `refine` and `remesh` owe nothing on disk (the maps are minted by `fetch`,
+# from fresh URLs), so their rows are empty and what still stops them is an offered download that
+# failed. Each row is (pattern, what to call it in a line a human reads).
+DELIVERABLES = {
+    "preview": (("preview.png", "preview.png"),),
+    "refine": (),
+    "remesh": (),
+    "fetch": (("model.fbx", "model.fbx"),
+              ("texture_*.png", "any PBR map at all (texture_*.png), which the refine paid for")),
 }
 
 PHASES = ("preview", "refine", "remesh")
@@ -713,6 +739,13 @@ def require_state(record, wanted):
         raise Refused(f"run is {record.get('state')}, not {wanted}")
 
 
+def require_state_in(record, wanted, extra=""):
+    """The same refusal, by name, for a door that has more than one legal state (Task 62)."""
+    if record.get("state") not in wanted:
+        raise Refused(f"run is {record.get('state')}, not {' or '.join(wanted)}"
+                      + (f" ({extra})" if extra else ""))
+
+
 def phase_of(record):
     """The phase the run's newest task belongs to. `preview` for a record written before Task 62."""
     tasks = record.get("tasks") or []
@@ -721,17 +754,22 @@ def phase_of(record):
     return tasks[-1].get("phase") or "preview"
 
 
-def stop_resumable(record, what, fix):
+def stop_resumable(record, what, fix, command="resume"):
     """Stop, keep the run collectable, and print the exact command that collects it.
 
     Exit 1, because something did go wrong -- but the record stays in a state `resume` accepts, so
     the credits are not stranded. The line's last sentence is always the command to run: the ASSET
-    agent pastes this into its report and the next session acts on it (design section 8)."""
+    agent pastes this into its report and the next session acts on it (design section 8).
+
+    `command` IS THE ROUTE OUT, and it has to be one that works (Task 62, review round 1 finding 2):
+    `resume` re-polls the task, and after a `fetch` that landed too little, or landed wrong bytes, it
+    is `fetch` itself -- which re-polls AND downloads again. Both are accepted from the state written
+    here: it is in RESUMABLE_STATES, and `cmd_fetch` takes `remesh-unresolved` too."""
     record["state"] = f"{phase_of(record)}-unresolved"
     save_run(record)
     expiry = expiry_line(record)
     print(f"[meshy] STOPPED: {record['runId']} {what}. {fix} "
-          f"Run: python tools/meshy.py resume {record['runId']}"
+          f"Run: python tools/meshy.py {command} {record['runId']}"
           + (f" ({expiry})" if expiry else ""))
     return 1
 
@@ -752,6 +790,106 @@ def expiry_line(record, now=None):
     if hours <= EXPIRY_WARN_H:
         return f"EXPIRES IN {int(hours)}h"
     return f"expires {stamp(latest)}"
+
+
+class Problem:
+    """One failed local check, and the ROUTE out of it (Task 62, review round 1 finding 2).
+
+    A check with no route is how a paid run gets stranded: `fetch` used to write `state = "fetched"`
+    before it looked at the problems, and then no command in the tool -- not `resume`, not `fetch`,
+    not `remesh` -- would take that state, including for the one failure the code itself calls
+    re-fetchable. So every problem now says which command answers it:
+
+    - `refetch`: the bytes on disk are missing or wrong. `fetch` re-polls the task ids, mints fresh
+      signed URLs and downloads again. The run is left in `<phase>-unresolved`, never `fetched`.
+    - `remesh`: the bytes are what Meshy sent and the GEOMETRY is what is wrong. The way out is the
+      replacement task MAX_TASKS_PER_RUN budgets: `remesh <run> --target <lower>`.
+    - `brief`: everything paid for IS on disk and what it breaks is a number somebody wrote. No
+      command can fix that, and the line says so rather than offering one that does nothing."""
+
+    ROUTES = ("refetch", "remesh", "brief")
+    __slots__ = ("text", "route")
+
+    def __init__(self, text, route):
+        assert route in Problem.ROUTES, route
+        self.text, self.route = text, route
+
+    def __repr__(self):
+        return f"{self.route}: {self.text}"
+
+
+def missing_deliverables(names, required):
+    """The labels of the required patterns that nothing on disk satisfies (a pattern = at least one)."""
+    return [label for pattern, label in required
+            if not any(fnmatch.fnmatchcase(name, pattern) for name in names)]
+
+
+def deliver(record, folder, entry, step, undownloaded, ready_state, fix, command="resume",
+            validate=None):
+    """THE ONE GUARD BETWEEN A PAID STEP AND THE WORD "DONE" (Task 62, review round 1).
+
+    Every paid step goes through this, and a "ready" state is assigned NOWHERE else in the file, so
+    the next command cannot reopen the class the Reviewer found twice in one task: a step that did
+    not deliver what was paid for is never "done", and a run that is paid for but incomplete is
+    always left in a state some command takes -- the command the printed line names.
+
+    Three things are checked in this order, because a broken download makes every later judgement
+    about the model worthless: what the step OWED (DELIVERABLES) is on disk; nothing that was
+    offered failed to download (`undownloaded`); and, when `validate` is given, every local check
+    passed. Returns None when the run advanced to `ready_state` and the caller may print its own OK
+    line, or the exit code of a stop."""
+    on_disk = [artefact["name"] for artefact in entry.get("artefacts", [])
+               if os.path.isfile(os.path.join(folder, artefact["name"]))]
+    missing = missing_deliverables(on_disk, DELIVERABLES[step]) + list(undownloaded)
+    credits = entry.get("credits")
+    spent = f"credits={credits if credits is not None else 'unknown'}"
+    if missing:
+        # PAID FOR, NOT COLLECTED (Task 59's class, now the only copy of it). The task SUCCEEDED and
+        # the credits are gone; a signed URL, or a response that carried no URL for something this
+        # step owed, is what went wrong -- and a re-poll mints new ones until the 3-day expiry.
+        return stop_resumable(
+            record,
+            f"SUCCEEDED and its credits are spent, but {', '.join(sorted(set(missing)))} did not "
+            f"reach disk ({spent})",
+            fix, command=command)
+
+    problems = list(validate(record, folder, entry)) if validate else []
+    if validate is not None:
+        record["validation"] = {"ok": not problems, "problems": [p.text for p in problems],
+                               "at": stamp()}
+        save_run(record)
+    if problems:
+        for problem in problems:
+            print("[meshy]   - " + problem.text)
+        routes = {problem.route for problem in problems}
+        # ONE ROUTE, THE STRONGEST PRESENT: re-download before anything is concluded about the
+        # model, and re-cut the geometry before a human is asked to rewrite a brief.
+        if "refetch" in routes:
+            return stop_resumable(
+                record,
+                f"landed {len(on_disk)} file(s) but {len(problems)} local check(s) failed, and at "
+                f"least one is a BROKEN DOWNLOAD rather than a bad model ({spent})",
+                "The bytes on disk are wrong; fetching again re-polls the same task ids, mints "
+                "fresh URLs and downloads them again, until the 3-day expiry.",
+                command="fetch")
+        record["state"] = ready_state
+        save_run(record)
+        if "remesh" in routes:
+            print(f"[meshy] FAILED: {record['runId']} landed {len(on_disk)} file(s) and "
+                  f"{len(problems)} local check(s) failed; the files are kept in "
+                  f"<runs-dir>/{record['runId']} and the GEOMETRY is what is wrong -- re-cut it: "
+                  f"python tools/meshy.py remesh {record['runId']} --target <below "
+                  f"{record.get('trisDeclared')}> (the replacement task MAX_TASKS_PER_RUN budgets)")
+        else:
+            print(f"[meshy] FAILED: {record['runId']} landed {len(on_disk)} file(s) and "
+                  f"{len(problems)} local check(s) failed; everything paid for IS in "
+                  f"<runs-dir>/{record['runId']}, and what it breaks is a number somebody wrote -- "
+                  "no command can fix that: write a new brief version, or ask Karen to accept it")
+        return 1
+
+    record["state"] = ready_state
+    save_run(record)
+    return None
 
 
 # ---------------------------------------------------------------- commands
@@ -1005,17 +1143,26 @@ def finish_refine(record, key, task):
     record["totals"]["tasks"] = len(record["tasks"])
     credits = entry.get("credits")
 
+    undownloaded = []
     url = task.get("thumbnail_url")
     if url:
         try:
             store(entry, folder, "refine.png", download(url))
         except Failed as error:
             print(redact(f"[meshy] note: refine.png did not download ({error})", key))
+            # OFFERED AND FAILED IS THE SAME CLASS AS THE PREVIEW'S GLB (review round 1 finding 1):
+            # paid for, not collected, and re-fetchable by a re-poll. A response that carried no
+            # thumbnail URL at all is a note, because there is nothing to fetch and the refine owes
+            # nothing on disk -- DELIVERABLES["refine"] is empty and says so.
+            undownloaded.append("refine.png")
     else:
         print("[meshy] note: the refine response carried no thumbnail URL")
 
-    record["state"] = "refine-ready"
-    save_run(record)
+    stopped = deliver(record, folder, entry, "refine", undownloaded, "refine-ready",
+                      "The download URLs are signed and short-lived; resuming re-polls the same "
+                      "task id and mints new ones, until the 3-day expiry.")
+    if stopped is not None:
+        return stopped
     print(f"[meshy] OK: refine {record['key']} v{record['version']} run={record['runId']} "
           f"credits={credits if credits is not None else 'unknown'} ({expiry_line(record)}) -- "
           f"next: python tools/meshy.py remesh {record['runId']}")
@@ -1026,11 +1173,18 @@ def finish_remesh(record, key, task):
     """Remeshed. Nothing is on disk yet, and the next command is the one that matters."""
     _ = (key, task)
     entry = record["tasks"][-1]
+    folder = os.path.join(runs_dir(), record["runId"])
     record["totals"]["credits"] = sum(t.get("credits") or 0 for t in record["tasks"])
     record["totals"]["tasks"] = len(record["tasks"])
     credits = entry.get("credits")
-    record["state"] = "remesh-ready"
-    save_run(record)
+    # THROUGH THE SAME GUARD AS EVERY OTHER PAID STEP, even though this one owes nothing on disk:
+    # `remesh-ready` is written in `deliver` or nowhere, so a later edit cannot mark a step done
+    # without the check (review round 1). A `resume` of a fetch that stopped comes back through
+    # here, and the artefacts the stopped fetch DID land stay on the entry.
+    stopped = deliver(record, folder, entry, "remesh", [], "remesh-ready",
+                      "The model is still at Meshy until the 3-day expiry.")
+    if stopped is not None:
+        return stopped
     # THE 3-DAY CLOCK IS THE WHOLE RISK HERE: the model exists only at Meshy until `fetch` runs.
     print(f"[meshy] OK: remesh {record['key']} v{record['version']} run={record['runId']} "
           f"tris={record.get('trisDeclared')} "
@@ -1048,60 +1202,38 @@ def finish_preview(record, key, task):
     model_urls = task.get("model_urls") or {}
     if isinstance(model_urls, dict) and model_urls.get("glb"):
         wanted.append(("preview.glb", model_urls["glb"]))
-    # A RE-DOWNLOAD REPLACES, it does not append: `resume` re-polls a SUCCEEDED task and comes back
-    # through here, and two entries for one file would make the record say the run produced two
-    # artefacts (Task 59).
-    names = {name for name, _url in wanted}
-    entry["artefacts"] = [a for a in entry.get("artefacts", []) if a.get("name") not in names]
     undownloaded = []
     for name, url in wanted:
         if not url:
             print(f"[meshy] note: the response carried no URL for {name}")
             continue
         try:
-            blob = download(url)
+            # A RE-DOWNLOAD REPLACES, it does not append: `resume` re-polls a SUCCEEDED task and
+            # comes back through here, and two entries for one file would make the record say the
+            # run produced two artefacts (Task 59). `store` owns that rule for every step now.
+            store(entry, folder, name, download(url))
         except Failed as error:
             print(redact(f"[meshy] note: {name} did not download ({error})", key))
             undownloaded.append(name)
-            continue
-        with open(os.path.join(folder, name), "wb") as handle:
-            handle.write(blob)
-        entry["artefacts"].append({"name": name, "sha256": hashlib.sha256(blob).hexdigest(),
-                                   "bytes": len(blob)})
     record["totals"]["credits"] = sum(t.get("credits") or 0 for t in record["tasks"])
     record["totals"]["tasks"] = len(record["tasks"])
     credits = entry.get("credits")
 
     # THE IMAGE IS THE POINT OF THIS PHASE, so "preview-ready" is claimed only when it is ON DISK
-    # (Task 55b). Before this, a missing thumbnail URL or a failed download printed a note and then
+    # (Task 55b). Before that, a missing thumbnail URL or a failed download printed a note and then
     # told the ASSET agent to Read a path that does not exist -- and the agent is instructed to
     # describe what it sees, so the next thing in the chain was either a crash or an invention.
-    written = {artefact["name"] for artefact in entry.get("artefacts", [])}
-    on_disk = os.path.isfile(os.path.join(folder, "preview.png"))
-    # AND THE RUN STAYS COLLECTABLE (Task 59 finding 2). The task SUCCEEDED and the credits are
-    # spent; a signed URL is the only thing that failed, and `resume` mints fresh ones by polling
-    # the same task id. Calling this `failed` locked the operator out of an asset already paid for,
-    # while the line printed here told them to re-poll -- which the tool then refused.
-    if "preview.png" not in written or not on_disk:
-        missing = [name for name, _url in wanted if name not in written] or ["preview.png"]
-        return stop_resumable(
-            record,
-            f"SUCCEEDED and its credits are spent, but {', '.join(missing)} did not reach disk "
-            f"(credits={credits if credits is not None else 'unknown'})",
-            "The download URLs are signed and short-lived; resuming re-polls the same task id and "
-            "mints new ones, until the 3-day expiry.")
-    # The GLB is the artefact Task B needs, so a failed GLB download is the same class: paid for,
-    # not collected. A response that carried no GLB URL at all is a note, not a stop -- there is
-    # nothing to re-fetch, and the preview image is what this phase is for.
-    if undownloaded:
-        return stop_resumable(
-            record,
-            f"SUCCEEDED, but {', '.join(undownloaded)} did not download "
-            f"(credits={credits if credits is not None else 'unknown'})",
-            "The preview image is on disk; the rest can be re-fetched until the 3-day expiry.")
-
-    record["state"] = "preview-ready"
-    save_run(record)
+    # AND THE RUN STAYS COLLECTABLE (Task 59 finding 2): the task SUCCEEDED and the credits are
+    # spent, a signed URL is the only thing that failed, and `resume` mints fresh ones by polling
+    # the same task id. Calling it `failed` locked the operator out of an asset already paid for.
+    # BOTH OF THOSE RULES NOW LIVE IN `deliver`, which every paid step goes through (Task 62 review
+    # round 1): DELIVERABLES["preview"] is the image, and `undownloaded` covers the GLB -- the
+    # artefact Task B needs, so a failed GLB download is the same class.
+    stopped = deliver(record, folder, entry, "preview", undownloaded, "preview-ready",
+                      "The download URLs are signed and short-lived; resuming re-polls the same "
+                      "task id and mints new ones, until the 3-day expiry.")
+    if stopped is not None:
+        return stopped
     print(f"[meshy] the preview image is <runs-dir>/{record['runId']}/preview.png -- LOOK AT IT "
           "(rule 5), then ask Karen")
     print(f"[meshy] OK: preview {record['key']} v{record['version']} run={record['runId']} "
@@ -1283,7 +1415,14 @@ def cmd_remesh(args):
     key, _source, why = read_key()
     if not key and not args.dry_run:
         raise Refused("MESHY_API_KEY is not set" + (f" ({why})" if why else ""))
-    require_state(record, "refine-ready")
+    # THE ORDINARY DOOR IS `refine-ready`. A FETCHED RUN WHOSE LOCAL CHECKS FAILED comes back
+    # through here too (review round 1 finding 2): when the geometry is what was wrong, the route
+    # the FAILED line names is the replacement task MAX_TASKS_PER_RUN was sized for. A fetched run
+    # that PASSED its checks is still refused by name -- re-cutting it would spend credits for
+    # nothing -- and `check_ceilings` below is what stops this from becoming a loop.
+    if not (record.get("state") == "fetched"
+            and (record.get("validation") or {}).get("ok") is False):
+        require_state(record, "refine-ready")
     if expiry_line(record) == "EXPIRED":
         record["state"] = "expired"
         save_run(record)
@@ -1310,7 +1449,11 @@ def cmd_remesh(args):
 
 
 def validate_fetched(record, folder, entry):
-    """Everything that can honestly be checked locally. Returns a list of problems, possibly empty.
+    """Everything that can honestly be checked locally. Returns a list of `Problem`, possibly empty.
+
+    EVERY PROBLEM CARRIES ITS ROUTE OUT (Task 62, review round 1 finding 2), because `deliver` has
+    to decide from these whether the run is re-fetchable, re-cuttable, or a human's to judge -- and
+    a problem with no route was exactly how a paid run got stranded in `fetched`.
 
     WHAT IS NOT CHECKED, said plainly (design section 7.3): the triangle count. There is no honest
     local count without an FBX parser, and a hand-written FBX parser is one of the three named
@@ -1321,38 +1464,60 @@ def validate_fetched(record, folder, entry):
 
     fbx = written.get("model.fbx")
     if fbx is None:
-        problems.append("model.fbx is missing: it is the one file the pipeline promotes")
+        problems.append(Problem("model.fbx is missing: it is the one file the pipeline promotes",
+                                "refetch"))
     else:
         if fbx["bytes"] <= 0:
-            problems.append("model.fbx is empty")
+            problems.append(Problem("model.fbx is empty", "refetch"))
         if fbx["bytes"] > MAX_FILE_BYTES:
-            problems.append(f"model.fbx is {fbx['bytes']} bytes, over Roblox's per-call "
-                            f"{MAX_FILE_BYTES}")
+            # THE BYTES ARE WHAT MESHY SENT and the model is too heavy for Roblox: downloading it
+            # again produces the same file. Fewer triangles is the only thing that shrinks it.
+            problems.append(Problem(f"model.fbx is {fbx['bytes']} bytes, over Roblox's per-call "
+                                    f"{MAX_FILE_BYTES}", "remesh"))
 
     budget = (record.get("brief") or {}).get("texturePx") or TEXTURE_PX_DEFAULT
     for name, artefact in sorted(written.items()):
         path = os.path.join(folder, name)
         if not os.path.isfile(path):
-            problems.append(f"{name} is in the record but not on disk")
+            problems.append(Problem(f"{name} is in the record but not on disk", "refetch"))
             continue
         with open(path, "rb") as handle:
             blob = handle.read()
         # A TRUNCATED DOWNLOAD IS THE 3-DAY TRAP'S CRUELLEST FORM: the file exists, the run looks
         # finished, and the bytes are wrong. The hash is of what was downloaded; this re-reads.
         if hashlib.sha256(blob).hexdigest() != artefact["sha256"]:
-            problems.append(f"{name} on disk does not match the sha256 that was downloaded")
+            problems.append(Problem(f"{name} on disk does not match the sha256 that was downloaded",
+                                    "refetch"))
         if name.endswith(".png"):
             try:
                 width, height = png_size(blob)
             except Failed as error:
-                problems.append(f"{name}: {error}")
+                # A PNG WHOSE HEADER WILL NOT READ is a half-arrived download far more often than
+                # it is a file Meshy got wrong, so the route is the one that downloads it again.
+                problems.append(Problem(f"{name}: {error}", "refetch"))
                 continue
             if width > budget or height > budget:
-                problems.append(f"{name} is {width}x{height}, over the brief's texturePx {budget}")
+                # NOTHING IS BROKEN HERE: the maps arrived and they are bigger than the brief said
+                # to ask for. No command changes that -- `texturePx` is a written number.
+                problems.append(Problem(f"{name} is {width}x{height}, over the brief's texturePx "
+                                        f"{budget}", "brief"))
 
     if not record.get("trisDeclared"):
-        problems.append("trisDeclared is missing: the remesh target was never recorded")
+        problems.append(Problem("trisDeclared is missing: the remesh target was never recorded",
+                                "remesh"))
     return problems
+
+
+def texture_set(task):
+    """The first PBR map set in a task response, whichever of Meshy's two shapes it uses.
+
+    `texture_urls` is a dict in some of Meshy's examples and a LIST of map sets (one per material)
+    in others, so both are read rather than assumed. Several materials means only the first set is
+    fetched, which is queued as 62a."""
+    urls = task.get("texture_urls") or {}
+    if isinstance(urls, list):
+        urls = urls[0] if urls and isinstance(urls[0], dict) else {}
+    return urls if isinstance(urls, dict) else {}
 
 
 def cmd_fetch(args):
@@ -1360,7 +1525,11 @@ def cmd_fetch(args):
     key, _source, why = read_key()
     if not key:
         raise Refused("MESHY_API_KEY is not set" + (f" ({why})" if why else ""))
-    require_state(record, "remesh-ready")
+    # TWO DOORS, BOTH PAID FOR (review round 1 finding 2). `remesh-ready` is the ordinary one;
+    # `remesh-unresolved` is a fetch that already ran and landed too little, or landed bytes that
+    # did not match their hash -- and re-fetching is exactly what mints fresh URLs and downloads
+    # them again. So the command every STOPPED line here names is one this command accepts.
+    require_state_in(record, ("remesh-ready", "remesh-unresolved"))
     if expiry_line(record) == "EXPIRED":
         record["state"] = "expired"
         save_run(record)
@@ -1381,23 +1550,49 @@ def cmd_fetch(args):
             "The model is still at Meshy until the 3-day expiry.")
     inner = (parsed or {}).get("result")
     task = inner if isinstance(inner, dict) else (parsed or {})
+    # SUCCEEDED, OR THERE IS NOTHING TO DOWNLOAD YET. `remesh-unresolved` also covers a poll that
+    # gave up while the task was still running at Meshy, and "no URL in the response" would be the
+    # wrong thing to say about a task that has not finished. `resume` is the route for that one.
+    state, done, succeeded, message = read_status(task)
+    if not (done and succeeded):
+        return stop_resumable(
+            record,
+            f"is {state} at Meshy, so there is nothing to download yet"
+            + (f" -- {message}" if message else ""),
+            "Poll it to the end first; the credits are already spent and the task keeps running.")
 
     folder = os.path.join(runs_dir(), record["runId"])
     os.makedirs(folder, exist_ok=True)
     model_urls = task.get("model_urls") or {}
-    texture_urls = task.get("texture_urls") or {}
-    # `texture_urls` is a list of map sets in Meshy's own examples (one per material), so both
-    # shapes are read rather than assumed.
-    if isinstance(texture_urls, list):
-        texture_urls = texture_urls[0] if texture_urls and isinstance(texture_urls[0], dict) else {}
+    maps, source = texture_set(task), "remesh"
+    if not maps:
+        # THE MAPS BELONG TO THE REFINE, WHICH IS WHAT WAS PAID FOR THEM (review round 1 finding 1).
+        # docs/research/2026-09-26-meshy.md source 3 records that the remesh response carries
+        # `model_urls` and no statistics field; it never quotes `texture_urls` for that endpoint, so
+        # an empty set here is the DOCUMENTED case rather than a fault. The refine task's response
+        # is the one that documents the maps, and re-polling it is a GET, which costs no credits.
+        refine = task_of(record, "refine")
+        if refine and refine.get("taskId"):
+            refine_path = (ENDPOINTS[refine.get("endpoint") or "text-to-3d"] + "/"
+                           + refine["taskId"])
+            r_status, r_parsed, r_raw = request("GET", refine_path, key)
+            if r_status == 200:
+                r_inner = (r_parsed or {}).get("result")
+                maps = texture_set(r_inner if isinstance(r_inner, dict) else (r_parsed or {}))
+                source = "refine"
+            else:
+                print(redact("[meshy] note: the refine task could not be re-polled for map URLs -- "
+                             + describe_http_failure(r_status, r_parsed, r_raw, key), key))
+    if maps:
+        print(f"[meshy] note: the PBR maps come from the {source} task's response")
 
     wanted = []
     for name, field in MODEL_FILES:
         if isinstance(model_urls, dict) and model_urls.get(field):
             wanted.append((name, model_urls[field]))
     for field in TEXTURE_FILES:
-        if isinstance(texture_urls, dict) and texture_urls.get(field):
-            wanted.append((f"texture_{field}.png", texture_urls[field]))
+        if maps.get(field):
+            wanted.append((f"texture_{field}.png", maps[field]))
 
     undownloaded = []
     for name, url in wanted:
@@ -1410,27 +1605,17 @@ def cmd_fetch(args):
     record["totals"]["credits"] = sum(t.get("credits") or 0 for t in record["tasks"])
     save_run(record)
 
+    # THE ONE GUARD, and the second stop point is behind it: `fetched` is written only when the FBX
+    # and at least one PBR map are on disk, nothing that was offered failed, and every local check
+    # passed (review round 1 finding 1 -- a fetch that landed no map at all used to exit 0 and
+    # invite Karen to look at a model the refine had just been paid to texture).
+    stopped = deliver(record, folder, entry, "fetch", undownloaded, "fetched",
+                      "The download URLs are signed and short-lived; fetching again re-polls the "
+                      "same task ids and mints new ones, until the 3-day expiry.",
+                      command="fetch", validate=validate_fetched)
+    if stopped is not None:
+        return stopped
     written = {artefact["name"] for artefact in entry.get("artefacts", [])}
-    if "model.fbx" not in written:
-        missing = ", ".join(undownloaded) or "model.fbx (no URL in the response)"
-        return stop_resumable(
-            record,
-            f"is remeshed and paid for, but {missing} did not reach disk",
-            "The download URLs are signed and short-lived; resuming or fetching again re-polls the "
-            "same task id and mints new ones, until the 3-day expiry.")
-
-    problems = validate_fetched(record, folder, entry)
-    record["validation"] = {"ok": not problems, "problems": problems, "at": stamp()}
-    record["state"] = "fetched"
-    save_run(record)
-
-    if problems:
-        for problem in problems:
-            print("[meshy]   - " + problem)
-        print(f"[meshy] FAILED: {record['runId']} fetched {len(written)} file(s) but "
-              f"{len(problems)} local check(s) failed; the files are in "
-              f"<runs-dir>/{record['runId']} and the credits are spent")
-        return 1
 
     # THE SECOND STOP POINT (design section 3). Everything after this -- a sidecar, an upload, a
     # MeshPart -- waits for a human to look at the model. This tool cannot upload anything: it
@@ -2047,6 +2232,25 @@ def selftest():
             save_run(fresh, fresh=True)
             return fresh
 
+        def fetchable_run(run_id):
+            """A run previewed, refined AND remeshed: the state `fetch` opens on.
+
+            Every task is stamped yesterday, for `approved_run`'s reason: MAX_TASKS_PER_DAY counts
+            tasks by createdAt across every run in the sandbox, and 25 h old is still far inside the
+            72 h expiry."""
+            fresh = approved_run(run_id, state="remesh-ready")
+            yesterday = fresh["tasks"][0]["createdAt"]
+            for phase, task_id, endpoint, credits in (("refine", "ref-x", "text-to-3d", 10),
+                                                      ("remesh", "rem-x", "remesh", 2)):
+                fresh["tasks"].append({"phase": phase, "taskId": task_id, "endpoint": endpoint,
+                                       "status": "SUCCEEDED", "createdAt": yesterday,
+                                       "finishedAt": yesterday, "credits": credits,
+                                       "creditsSource": "api", "artefacts": []})
+            fresh["trisDeclared"] = 6000
+            fresh["totals"] = {"tasks": 3, "credits": 17}
+            save_run(fresh)
+            return fresh
+
         # REFINE IS REFUSED WITHOUT KAREN'S OK, and it says which state it is in.
         waiting = approved_run("boar.body_v1-20260101T0010Z", state="preview-ready")
         # THROUGH --dry-run, deliberately: the state gate is checked BEFORE the request is built,
@@ -2160,8 +2364,111 @@ def selftest():
         ok("...leaves the run resumable rather than failed",
            load_run(noFbx["runId"])["state"] == "remesh-unresolved",
            load_run(noFbx["runId"])["state"])
-        ok("...and says exactly what to run", "resume " + noFbx["runId"] in saidNoFbx,
-           saidNoFbx.strip())
+        ok("...and says exactly what to run -- the command that DOWNLOADS it again",
+           "fetch " + noFbx["runId"] in saidNoFbx, saidNoFbx.strip())
+        # AND THAT COMMAND IS ACCEPTED FROM THE STATE THE STOP LEFT (round 1 finding 2). A line that
+        # names a command the tool then refuses is how a paid run got stranded, so the route is
+        # walked here rather than described: `fetch` again, with a response that carries everything.
+        globals()["request"], globals()["download"] = fetchFake, sized_download
+        try:
+            code, saidAgain = step2(lambda: cmd_fetch(Args(run_id=noFbx["runId"])))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("fetching again from remesh-unresolved collects the run", code == 0, saidAgain.strip())
+        ok("...and it reaches fetched then", load_run(noFbx["runId"])["state"] == "fetched",
+           load_run(noFbx["runId"])["state"])
+
+        # NO PBR MAP AT ALL, which is what the refine was paid for: the fetch that used to exit 0,
+        # print the second stop point and invite Karen to look (round 1 finding 1).
+        noMaps = fetchable_run("boar.body_v1-20260101T0016Z")
+        noMapsFake, noMapsSeen = fake_post_then_succeed(
+            model_urls={"fbx": "https://example.invalid/m.fbx"})
+        globals()["request"], globals()["download"] = noMapsFake, sized_download
+        try:
+            code, saidNoMaps = step2(lambda: cmd_fetch(Args(run_id=noMaps["runId"])))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a fetch that lands no PBR map at all exits 1", code == 1, saidNoMaps.strip())
+        ok("...and is NOT called fetched",
+           load_run(noMaps["runId"])["state"] == "remesh-unresolved",
+           load_run(noMaps["runId"])["state"])
+        ok("...and does NOT invite a human to look at it",
+           "LOOK AT IT" not in saidNoMaps, saidNoMaps.strip())
+        ok("...and names the maps in the line", "texture_*.png" in saidNoMaps, saidNoMaps.strip())
+        # AND IT ASKED THE REFINE FOR THEM FIRST. The research note's source 3 quotes `model_urls`
+        # and no statistics for the remesh response and never quotes `texture_urls` there, so the
+        # task that was paid for the maps is the one to re-poll -- a GET, which costs nothing.
+        ok("...having re-polled the REFINE task for the map URLs",
+           f"GET {ENDPOINTS['text-to-3d']}/ref-x" in noMapsSeen["paths"],
+           "; ".join(noMapsSeen["paths"]))
+
+        # THE DOCUMENTED SHAPE, end to end: the remesh answers model_urls, the refine answers the
+        # maps -- as a LIST of map sets, which is the other shape Meshy's examples show.
+        split = fetchable_run("boar.body_v1-20260101T0017Z")
+        seenSplit = {"paths": []}
+
+        def fake_split(method, path, _key, body=None, timeout=HTTP_TIMEOUT_S):
+            seenSplit["paths"].append(f"{method} {path}")
+            if ENDPOINTS["remesh"] in path:
+                return 200, {"result": {"status": "SUCCEEDED", "consumed_credits": 2,
+                                        "model_urls": {"fbx": "https://example.invalid/m.fbx"}}}, ""
+            return 200, {"result": {
+                "status": "SUCCEEDED", "consumed_credits": 10,
+                "texture_urls": [{"base_color": "https://example.invalid/b.png",
+                                  "normal": "https://example.invalid/n.png"}]}}, ""
+
+        globals()["request"], globals()["download"] = fake_split, sized_download
+        try:
+            code, saidSplit = step2(lambda: cmd_fetch(Args(run_id=split["runId"])))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a remesh response with no texture_urls still lands the maps, from the refine",
+           code == 0, saidSplit.strip())
+        for name in ("model.fbx", "texture_base_color.png", "texture_normal.png"):
+            ok(f"...{name} is on disk", os.path.isfile(os.path.join(sandbox, split["runId"], name)))
+        ok("...and the line says which task the maps came from",
+           "maps come from the refine" in saidSplit, saidSplit.strip())
+        ok("...and only then is it fetched", load_run(split["runId"])["state"] == "fetched",
+           load_run(split["runId"])["state"])
+
+        # A TASK THAT HAS NOT FINISHED is not a missing URL. `remesh-unresolved` also covers a poll
+        # that gave up while the task was still running, and `fetch` takes that state now.
+        unfinished = fetchable_run("boar.body_v1-20260101T0018Z")
+        unfinished["state"] = "remesh-unresolved"
+        save_run(unfinished)
+
+        def fake_in_progress(_method, _path, _key, body=None, timeout=HTTP_TIMEOUT_S):
+            return 200, {"result": {"status": "IN_PROGRESS", "progress": 40}}, ""
+
+        globals()["request"] = fake_in_progress
+        try:
+            code, saidUnfinished = step2(lambda: cmd_fetch(Args(run_id=unfinished["runId"])))
+        finally:
+            globals()["request"] = real_request
+        ok("fetching a task that has not finished exits 1", code == 1, saidUnfinished.strip())
+        ok("...and says it is IN_PROGRESS instead of inventing a missing URL",
+           "IN_PROGRESS" in saidUnfinished, saidUnfinished.strip())
+        ok("...and names resume, which polls it to the end",
+           "resume " + unfinished["runId"] in saidUnfinished, saidUnfinished.strip())
+
+        # THE REFINE'S THUMBNAIL, offered and failed, is the preview GLB's class: paid for, not
+        # collected. It used to print a note and call the run refine-ready.
+        thumb = approved_run("boar.body_v1-20260101T0019Z")
+        thumbFake, _thumbSeen = fake_post_then_succeed()
+        globals()["request"], globals()["download"] = thumbFake, fake_download_fails
+        try:
+            code, saidThumb = step2(lambda: cmd_refine(Args(run_id=thumb["runId"], dry_run=False)))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a refine whose thumbnail download fails exits 1", code == 1, saidThumb.strip())
+        ok("...and stays collectable as refine-unresolved",
+           load_run(thumb["runId"])["state"] == "refine-unresolved",
+           load_run(thumb["runId"])["state"])
+        code, saidThumbAgain = collect(thumb["runId"], fake_download)
+        ok("resume collects that refine afterwards", code == 0, saidThumbAgain.strip())
+        ok("...and only then is it refine-ready",
+           load_run(thumb["runId"])["state"] == "refine-ready",
+           load_run(thumb["runId"])["state"])
 
         # THE LOCAL VALIDATION BITES: a 4096 map against a 2048 brief, and an oversized FBX.
         oversize = approved_run("boar.body_v1-20260101T0014Z", state="remesh-ready")
@@ -2190,15 +2497,46 @@ def selftest():
         ok("...names the oversized FBX", "over Roblox's per-call" in problems, problems)
         ok("...and does NOT invite a human to look at it",
            "LOOK AT IT" not in saidBig, saidBig.strip())
+        # AND THE ROUTE OUT IS A COMMAND THAT WORKS (round 1 finding 2): the bytes are what Meshy
+        # sent and the geometry is what is wrong, so the way out is the replacement task
+        # MAX_TASKS_PER_RUN was sized for. Asserted through --dry-run, so the door is proven without
+        # anything being sent; a fetched run that PASSED its checks is refused by the loop below.
+        ok("...and the line names the remesh that re-cuts it",
+           "remesh " + oversize["runId"] in saidBig, saidBig.strip())
+        code, saidRecut = step2(lambda: cmd_remesh(Args(run_id=oversize["runId"], target=4000,
+                                                       dry_run=True)))
+        ok("a fetched run whose local checks failed can be re-cut", code == 0, saidRecut.strip())
+        ok("...at the lower target that was asked for", '"target_polycount": 4000' in saidRecut,
+           saidRecut.strip())
 
-        # A TRUNCATED FILE ON DISK is the 3-day trap's cruellest form: the run looks finished.
+        # A TRUNCATED FILE ON DISK is the 3-day trap's cruellest form: the run looks finished, and
+        # this is the failure the code itself calls re-fetchable while no command took the state it
+        # was left in (round 1 finding 2).
         truncated = load_run(chain["runId"])
-        with open(os.path.join(sandbox, truncated["runId"], "model.fbx"), "wb") as handle:
+        folderT = os.path.join(sandbox, truncated["runId"])
+        with open(os.path.join(folderT, "model.fbx"), "wb") as handle:
             handle.write(b"half")
-        problems = validate_fetched(truncated, os.path.join(sandbox, truncated["runId"]),
-                                    truncated["tasks"][-1])
+        problems = validate_fetched(truncated, folderT, truncated["tasks"][-1])
         ok("a file that does not match its recorded sha256 is caught",
-           any("sha256" in problem for problem in problems), str(problems))
+           any("sha256" in problem.text for problem in problems), str(problems))
+        ok("...and it is routed to the command that downloads it again",
+           all(problem.route == "refetch" for problem in problems), str(problems))
+        # THROUGH THE GUARD, over those real bytes on disk: `deliver` is what decides, so the case
+        # is the fix rather than a claim about one validator.
+        truncated["state"] = "remesh-ready"
+        save_run(truncated)
+        code, saidTrunc = say(lambda: deliver(truncated, folderT, truncated["tasks"][-1], "fetch",
+                                              [], "fetched", "unused", command="fetch",
+                                              validate=validate_fetched))
+        ok("a truncated download exits 1", code == 1, saidTrunc.strip())
+        ok("...and is NOT left in fetched, which no command takes",
+           load_run(truncated["runId"])["state"] == "remesh-unresolved",
+           load_run(truncated["runId"])["state"])
+        ok("...in a state `resume` accepts as well",
+           load_run(truncated["runId"])["state"] in RESUMABLE_STATES,
+           load_run(truncated["runId"])["state"])
+        ok("...and the line names fetch, which re-polls and downloads again",
+           "fetch " + truncated["runId"] in saidTrunc, saidTrunc.strip())
 
         # A REFINE THAT CANNOT BE POLLED stays collectable, and `resume` continues the REFINE.
         stalled = approved_run("boar.body_v1-20260101T0015Z")
