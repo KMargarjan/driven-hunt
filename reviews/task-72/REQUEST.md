@@ -1,102 +1,102 @@
 # Task 72 — an asset-prep tool (headless Blender), first used on Karen's own shotgun
 
 Task: 72
-Round: 1
-Base: `main` (`c995574`)
-Code commit: `5b732923c5b9a4a41df4c17b19ac8bc4575e4b77`
+Round: 2
+Base: `main` (`c995574`, which is the Task 71 merge — `git merge-base --is-ancestor origin/main HEAD`
+is true, so the diff against main is tools-only and nothing under `src/` or `tests/` appears in it)
+Code commit: `2006fb7a92a021035636879d05cbf0f86a695885`
 
 ```
-[harness] PASS: 30/30 checks @ 5b732923c5b9a4a41df4c17b19ac8bc4575e4b77 (clean tree)
+[harness] PASS: 30/30 checks @ 2006fb7a92a021035636879d05cbf0f86a695885 (clean tree)
 ```
 
-**`test2`: N/A.** Nothing under `src/`, `tests/client/` or `tools/studio_mcp.py` changed — this is
-`tools/` plus docs plus one CI step (git workflow step 4's exemption for tools outside the harness).
+**`test2`: N/A.** `git diff --name-only origin/main..HEAD` is `.github/workflows/ci.yml`, `TASKS.md`,
+two research files, this request and the two tool files. Nothing under `src/`, `tests/client/` or
+`tools/studio_mcp.py`.
 
-**What changed.** New `tools/asset_prep.py` and `tools/asset_prep_blender.py`, new
-`docs/research/2026-09-26-asset-prep.md` (+ `INDEX.md`), one CI smoke step, `TASKS.md` rows 72/72a.
-**No `src/`, no `tests/`, nothing uploaded, no network call, no credit spent.**
+**Round 1 shipped a real defect and my report described what I meant to build rather than the
+picture.** The Director looked at the renders; I had not, properly. This round found the cause,
+fixed it, and built the checks that make it fail in the tool instead of in his eye.
 
-**The run on Karen's gun:** `<assets-dir>/prepped/shotgun_sxs-20260926T211709Z/` — `recipe.json`,
-`report.json`, three corrected textures, four renders, `model.fbx`, `model.glb`, and the untouched
-copy of her input under `source/`.
+**The run to look at:** `<assets-dir>/prepped/shotgun_sxs_r2-20260926T213701Z/` — and it now
+contains `source_*.png` (the untouched model) beside `render_*.png` (the prepped one), at the same
+four cameras.
 
 ## Claims
 
-1. **Research before implementation (rule 1).** Five sources with licence and maintenance status.
-   Roblox's limits are quoted, not remembered: *"Individual meshes can not exceed 20,000 triangles"*,
-   *"up to 4096x4096 pixel texture resolutions"*, metalness and roughness *"Single Channel Grayscale
-   (8-bit)"*. **The Blender manual's command-line page renders to a fetcher as a navigation tree,
-   twice**, so `--background` / `--python` / `--` was **measured** here instead — along with Blender
-   5.2.1 LTS, numpy 2.3.4 bundled, and only `BLENDER_EEVEE` available in this build. The note says
-   which claims are quoted and which are measured.
+1. **The defect was the region masks being applied upside down, and it was found by bisection.**
+   `image_array` flips the image so row 0 is the top — which is what the classifier samples with —
+   and `rasterise` indexed the mask with the UV **v** coordinate directly. So every region's mask was
+   the **vertical mirror** of the pixels it then edited: the barrels' near-black was painted onto
+   whatever wood texels sat at the mirrored position and the walnut onto the barrels. One line,
+   `uv[:, 1] = 1.0 - uv[:, 1]`, with the reason written beside it.
 
-2. **The licence split is deliberate and is the reason there are two files.**
-   `tools/asset_prep.py` never imports `bpy` — it spawns a process — and carries the repository's
-   terms. `tools/asset_prep_blender.py` runs inside Blender and carries an SPDX
-   **GPL-2.0-or-later** header, which is what the Blender Foundation asks of a published script
-   written for Blender. That the repo itself has no LICENSE file is queued as 72a(a), not decided
-   here. Verify: grep both files for `import bpy`.
+2. **Every colour still reported dead on target while the gun was in camouflage**, because the
+   median was measured through the same mirrored mask. The numbers agreed with each other and with
+   nothing in the world — `docs/PROJECT_CONTEXT.md`'s "things measured correct and looked wrong".
 
-3. **It never modifies the input, and it proves it rather than promising it.** The input folder is
-   copied into the output's `source/` and Blender only ever reads the copy; the driver hashes every
-   input file before and after and **fails the run** if anything changed or appeared. This exists
-   because Blender's FBX importer extracts embedded textures into a `.fbm` folder *next to the file
-   it reads* — on this model it happened not to, which is not a guarantee. Verify: `prep()` in
-   `asset_prep.py`, and mutation 1 below.
+3. **It was not the decimation, and that is measured, not argued.** With **no decimation at all**
+   the damage was identical: 2.00× the source's edge density, against 1.92× when decimated. Both
+   runs are in the evidence (`diag-decimate-…`, `diag-nodecimate-…`). With the mask fixed, a
+   6,000-triangle run is clean too (`diag-dec6k-…`, 0.60–0.98×).
 
-4. **The triangle count is measured, and checked by an independent second count.** The Blender side
-   measures the evaluated mesh; the driver then parses the exported **GLB's own index accessors**
-   (`glb_triangles`, stdlib only, different process, different code) and the selftest asserts the two
-   agree. Karen's gun: **19,325 → 5,999** against a 6,000 target.
+4. **Four new checks catch this class in the tool.** (a) The untouched source is rendered at the same
+   four cameras every run. (b) An **edge-density ratio** compares prepped against source per view and
+   warns past 1.25 — round 1 measured 1.92, this round measures **0.37–0.88**. (c) Each region's
+   colour is **sampled back through the mesh** — a different route from the mask that wrote it — and
+   reported as `surface`; drift over 45/255 is a warning and a selftest failure. (d) The region map's
+   **speckle** is measured and smoothed.
 
-5. **Regions are decided by position AND colour, because neither alone can work.** The barrels and
-   the action are both neutral grey in one atlas, so colour alone merges them; the forend sits under
-   the barrels and shares their span, so position alone merges it with them. The rule is: woody
-   colour wins anywhere, otherwise forward of `actionStartT` is barrel and behind it is action.
-   `actionStartT = 0.62` is the 486 Parallelo's own published barrel fraction (28 in of 45 in), the
-   same number `src/server/Weapon/Shape.luau` is built from. Karen's gun split 2,481 / 1,971 / 1,547.
+5. **The surface check is mutation-proved against the exact defect.** Restoring the flipped line
+   makes the selftest fail with `the barrel surface really shows the colour it was given (shows
+   RGB(203, 203, 205), asked RGB(26, 28, 34), drift 177)`. The fixture had to change for it to bite:
+   its UVs are packed into half the atlas, because a symmetric layout cannot see a mirrored mask.
 
-6. **Which end is the muzzle is measured, not assumed** — the shallower end of the model's own
-   slices — and the report says which end it picked, so a reversed model is visible rather than
-   silently colour-swapped.
+6. **Three more defects of the same family, each fixed at the class.** Region classification sampled
+   **one texel** at a triangle's centroid, so a dark grain streak made a stock face read as metal —
+   it is the median of seven samples per triangle now, then smoothed by neighbour majority. The
+   per-region roughness and metallic were **painted into the shared maps** through triangle-shaped
+   masks, which with the albedo untouched measured 1.4× on its own — they are **material values**
+   now, one material per region, and the maps are copied out unchanged. Masks are **feathered**, so a
+   region boundary is a ramp rather than a step.
 
-7. **The correction keeps the detail by construction, and the tool measures what it achieved.** Each
-   region's masked pixels move in HSV so the region's median lands on a target while every pixel
-   keeps its relation to it; grain and engraving are variation around the median. Targets are sRGB
-   triples sampled from Karen's own reference photographs and converted to scene-linear.
-   **Asked → got:** barrel RGB(34,35,37) → **(37,37,37)**; action RGB(172,172,172) →
-   **(172,172,172)**; wood RGB(112,80,69) → **(116,83,72)**.
+7. **Blued steel, with the two numbers the right way round.** RGB(26, 28, 34) — the p25 of Karen's
+   photo, cooled six points of blue — with **metallic 0.30 and roughness 0.55**. Round 1 had 0.55 /
+   0.30, which is a mirror. Action RGB(172, 172, 172), metallic 0.45, roughness 0.42. Wood
+   RGB(112, 80, 69) with the source grain kept: the levels mapping that clipped it into shards is
+   gone, the median moves and each pixel keeps its relation to it.
 
-8. **Three bugs found by looking, not by reading (rule 5), each fixed with its reason in the code.**
-   (a) The first four renders were **pure black** — the lighting function was written and never
-   called, and my "file is bigger than 2 KB" check passed them. (b) The colour targets were sRGB
-   numbers applied to Blender's **linear** float pixels, so the gun came back chrome and orange.
-   (c) `metallic = 1.0` made every surface a mirror of the preview room, so a dark albedo rendered
-   white and a bright one rendered black. Each is now a named constant with the measurement beside
-   it.
+8. **No decimation by default.** Roblox's *"Individual meshes can not exceed 20,000 triangles"* and
+   this model arrives at **19,325** — already legal. At 6,000, photographed and compared side by
+   side, the wrist of the stock facets and the barrel/forend join grows black wedges, because a
+   decimated face straddling two regions can only take one region's colour. `--target N` still
+   decimates on request and the report says which happened. A genuinely cheap low-poly wants the bake
+   route (72a).
 
-9. **The selftest is offline and does not need Karen's model: 39 checks, two fixtures.** One fixture
-   is neutral (only the position rule can split it) and one is woody (only the colour rule can), so
-   neither result depends on where the unwrapper happened to put an island. It also proves the four
-   refusals — inside the repo, a non-empty output, no FBX, a non-GLB handed to the GLB reader.
+9. **What the four final renders actually show, looked at.** Side: near-black blued barrels with a
+   soft sheen and no mirror, a silver action and trigger guard, a smooth medium-walnut stock and
+   splinter forend with visible grain. Muzzle: **two bores side by side**, bright-rimmed, on a dark
+   barrel block. Top: two parallel black tubes with the rib between them, silver breech, walnut
+   tapering to the butt. Three-quarter: the same, and the closest to Karen's reference photo of
+   anything this project has produced. **What is still wrong:** small black wedges remain where the
+   barrels meet the forend, at both triangle counts — a face on a region boundary takes one region's
+   colour, and the fix is to snap region boundaries to UV islands or geometry seams (72a).
 
-10. **Four mutations, each applied, the selftest run, then restored** (`git status` is clean):
-    writing a file into the input → `THE INPUT FOLDER CHANGED during the run (MUTATION.txt)`;
-    echoing the triangle target instead of measuring → the GLB cross-check fails (`GLB says 300,
-    report says 307`); skipping the lights → all four renders fail `is lit, not a black screen`
-    (`spread 0.0039, subjectFraction 0.0`); collapsing every face into one region → five checks fail.
+10. **Measured colours, both routes agreeing.** barrel asked RGB(26,28,34) → wrote RGB(34,34,34) →
+    surface shows RGB(34,34,34), drift 8. action asked RGB(172,172,172) → wrote → surface
+    RGB(171,171,171), drift 1. wood asked RGB(112,80,69) → wrote RGB(112,80,69) → surface
+    RGB(110,80,70), drift 2. Selftest **45 checks**; mutations re-run this round: the upside-down
+    mask, the echoed triangle count, the skipped lights and the touched input all still fail it.
 
 ## Not verified
 
-- **Nothing has been imported into Studio and nothing uploaded.** Karen's explicit OK is needed
-  first. Every number here — triangles, map sizes, colours — is measured outside the engine, and row
-  67a(b) (nobody has imported a `.glb` into Studio) is still open.
-- **The wood still reads as hard-edged dark shards rather than grain.** The median is on target, but
-  Meshy bakes near-black angular figure into the base colour and no per-pixel correction turns that
-  into walnut — 72a(b), and the fix is a different texture, not another knob.
-- **The preview's top view blows out to chrome** on glossy cylinders lit from above; judge colour
-  from the side and three-quarter renders (72a(c)).
-- **The full selftest cannot run in CI** — there is no Blender on the runner — so CI gets a smoke
-  step that loads the module and parses the default recipe (72a(e)).
-- **Only one model has been through it.** Region names are the shotgun's and are hard-coded in the
-  Blender side (72a(f)).
+- **Nothing imported into Studio, nothing uploaded.** Karen's OK is needed first; every number is
+  measured outside the engine and row 67a(b) is still open.
+- **The edge-density ratio is not asserted on the selftest fixtures**, only measured — the fixture is
+  a 2-unit bar whose two regions meet along its length, so a real boundary dominates a 240-pixel
+  frame. It is asserted by warning on real runs, and the surface check is what the selftest asserts.
+- **The black wedges at the barrel/forend join are still there** (claim 9), smaller at 19,325 than at
+  6,000 but present in both.
+- **The full selftest cannot run in CI** (no Blender on the runner).
+- **Only one model has been through this.** The region names are the shotgun's, hard-coded in the
+  Blender side.
