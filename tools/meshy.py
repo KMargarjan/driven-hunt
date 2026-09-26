@@ -209,6 +209,13 @@ REQUEST_FIELDS = {
 # downstream -- which is recorded on the run and printed, never pretended about (queued as 64a).
 TEXTURE_RESOLUTION = {2048: "2k", 4096: "4k", 8192: "8k"}
 
+# ROBLOX'S OWN CEILING, quoted: "Roblox supports up to 4096x4096 pixel texture resolutions (4K)"
+# (create.roblox.com/docs/art/modeling/texture-specifications, read 2026-09-26; note D14). A map
+# BIGGER than the brief asked for but inside this is a brief overrun, not a platform one -- so it is
+# a NOTE beside the model a human is about to look at, not a failure that strands a paid run
+# (Director decision, Task 67: report them, resize nothing). Over this it is a real problem.
+MAX_TEXTURE_PX = 4096
+
 TEXTURE_PX_DEFAULT = 2048  # refine's `texture_resolution` IS a parameter (note D3)
 # The sizes Roblox and the asset pipeline between them make sensible: 1024 is
 # `asset-pipeline` 12.2's budget for an ordinary key, 2048 the hero keys' (design 15 Director D),
@@ -991,9 +998,12 @@ class Problem:
     - `remesh`: the bytes are what Meshy sent and the GEOMETRY is what is wrong. The way out is the
       replacement task MAX_TASKS_PER_RUN budgets: `remesh <run> --target <lower>`.
     - `brief`: everything paid for IS on disk and what it breaks is a number somebody wrote. No
-      command can fix that, and the line says so rather than offering one that does nothing."""
+      command can fix that, and the line says so rather than offering one that does nothing.
+    - `note`: nothing is wrong enough to stop for, and somebody still has to be told. It is printed
+      beside the model at the second stop point and kept on the record, and it does not fail the
+      run (Task 67)."""
 
-    ROUTES = ("refetch", "remesh", "brief")
+    ROUTES = ("refetch", "remesh", "brief", "note")
     __slots__ = ("text", "route")
 
     def __init__(self, text, route):
@@ -1039,11 +1049,17 @@ def deliver(record, folder, entry, step, undownloaded, ready_state, fix, command
     spent = f"credits={credits if credits is not None else 'unknown'}"
 
     # EVERYTHING THAT LANDED IS CHECKED, even when something else did not land at all.
-    problems = list(validate(record, folder, entry)) if validate else []
+    found = list(validate(record, folder, entry)) if validate else []
+    # A NOTE IS NOT A FAULT (Task 67): it is printed, it is kept on the record, and it does not stop
+    # the run. Everything else is a problem with a route out.
+    notes = [one for one in found if one.route == "note"]
+    problems = [one for one in found if one.route != "note"]
     if validate is not None:
         record["validation"] = {"ok": not problems, "problems": [p.text for p in problems],
-                               "at": stamp()}
+                               "notes": [n.text for n in notes], "at": stamp()}
         save_run(record)
+    for one in notes:
+        print("[meshy] note: " + one.text)
     for problem in problems:
         print("[meshy]   - " + problem.text)
 
@@ -1746,11 +1762,19 @@ def validate_fetched(record, folder, entry):
                 # it is a file Meshy got wrong, so the route is the one that downloads it again.
                 problems.append(Problem(f"{name}: {error}", "refetch"))
                 continue
-            if width > budget or height > budget:
-                # NOTHING IS BROKEN HERE: the maps arrived and they are bigger than the brief said
-                # to ask for. No command changes that -- `texturePx` is a written number.
+            if width > MAX_TEXTURE_PX or height > MAX_TEXTURE_PX:
+                # OVER THE PLATFORM'S OWN LIMIT: this one does stop the run, because nothing
+                # downstream can use it.
+                problems.append(Problem(f"{name} is {width}x{height}, over Roblox's documented "
+                                        f"{MAX_TEXTURE_PX} (note D14)", "brief"))
+            elif width > budget or height > budget:
+                # NOTHING IS BROKEN HERE: the maps arrived, they are inside what Roblox supports,
+                # and they are bigger than the brief said to ask for. Reported and never resized
+                # (Director decision, Task 67) -- resizing a map this tool did not make is how a
+                # budget stops meaning anything, and `promote` is where a resize would belong.
                 problems.append(Problem(f"{name} is {width}x{height}, over the brief's texturePx "
-                                        f"{budget}", "brief"))
+                                        f"{budget} (inside Roblox's {MAX_TEXTURE_PX}: a note, not a "
+                                        f"fault)", "note"))
 
     if not record.get("trisDeclared"):
         problems.append(Problem("trisDeclared is missing: the remesh target was never recorded",
@@ -1873,9 +1897,12 @@ def cmd_fetch(args):
     # THE FILE THE LINE NAMES IS THE FILE THAT IS THERE (Task 67). This said `model.fbx` while
     # DELIVERABLES required one, and both were wrong about a remeshed run at once -- a stop point
     # that sends a human to a path that does not exist is the ASSET agent's next invention.
+    notes = (record.get("validation") or {}).get("notes") or []
     print(f"[meshy] the model is <runs-dir>/{record['runId']}/{DELIVERABLE_MODEL} with "
           f"{len(written)} file(s) beside it -- OPEN IT AND LOOK AT IT (rule 5), then ask Karen. "
-          "Nothing is uploaded until she says yes.")
+          "Nothing is uploaded until she says yes."
+          + (f" {len(notes)} note(s) above: nothing stops the run, and somebody should read them."
+             if notes else ""))
     print(f"[meshy] OK: fetch {record['key']} v{record['version']} run={record['runId']} "
           f"tris={record.get('trisDeclared')} files={len(written)} "
           f"credits={record['totals']['credits']} ({expiry_line(record)})")
@@ -2786,7 +2813,11 @@ def selftest():
            (load_run(oversize["runId"]).get("validation") or {}).get("ok") is False,
            str(load_run(oversize["runId"]).get("validation")))
         problems = " ".join((load_run(oversize["runId"]).get("validation") or {}).get("problems", []))
-        ok("...names the oversized texture", "4096x4096" in problems, problems)
+        notes = " ".join((load_run(oversize["runId"]).get("validation") or {}).get("notes", []))
+        # A 4096 MAP AGAINST A 2048 BRIEF IS A NOTE, NOT A FAULT (Task 67): it is inside Roblox's
+        # documented 4096 (D14), so it overruns the brief and nothing else. Reported, never resized.
+        ok("...notes the oversized texture rather than failing on it",
+           "4096x4096" in notes and "4096x4096" not in problems, notes + " | " + problems)
         ok("...names the oversized FBX", "over Roblox's per-call" in problems, problems)
         ok("...and does NOT invite a human to look at it",
            "LOOK AT IT" not in saidBig, saidBig.strip())
@@ -2986,15 +3017,38 @@ def selftest():
         ok("a fetch missing its model still reports the maps it DID land", code == 1,
            saidBoth.strip())
         ok("...naming the oversized map", "4096x4096" in saidBoth, saidBoth.strip())
+        ok("...as a note", "[meshy] note: texture_base_color.png is 4096x4096" in saidBoth,
+           saidBoth.strip())
         ok("...and the missing model in the same run of the command",
            "model.glb" in saidBoth, saidBoth.strip())
-        ok("...and both are on the record, not just the stop",
-           (load_run(bothWrong["runId"]).get("validation") or {}).get("ok") is False
-           and any("4096" in text
-                   for text in (load_run(bothWrong["runId"]).get("validation") or {}).get("problems", [])),
+        ok("...and it is on the record, not just in the stop line",
+           any("4096" in text
+               for text in (load_run(bothWrong["runId"]).get("validation") or {}).get("notes", [])),
            str(load_run(bothWrong["runId"]).get("validation")))
         ok("...and the run stays collectable", load_run(bothWrong["runId"])["state"] == "remesh-unresolved",
            load_run(bothWrong["runId"])["state"])
+
+        # OVER ROBLOX'S OWN LIMIT IS A DIFFERENT ANSWER: that one nothing downstream can use, so it
+        # is a problem with a route rather than a note.
+        huge = fetchable_run("boar.body_v1-20260101T0028Z")
+        hugeFake, _hugeSeen = fake_post_then_succeed(
+            model_urls={"glb": "https://example.invalid/m.glb"},
+            texture_urls={"base_color": "https://example.invalid/b.png"})
+
+        def huge_download(url):
+            if url.endswith(".png"):
+                return fake_png(8192, 8192)
+            return b"GLB-ish bytes " * 16
+
+        globals()["request"], globals()["download"] = hugeFake, huge_download
+        try:
+            code, saidHuge = step2(lambda: cmd_fetch(Args(run_id=huge["runId"])))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a map over Roblox's own 4096 fails the fetch", code == 1, saidHuge.strip())
+        ok("...names the platform limit, not the brief", "over Roblox's documented 4096" in saidHuge,
+           saidHuge.strip())
+        ok("...and does NOT invite a human to look", "LOOK AT IT" not in saidHuge, saidHuge.strip())
 
         # REVIVE: the narrowest possible undo, for a run the OLD build marked failed this way --
         # which is the shape on disk today: state `failed`, one SUCCEEDED preview, no `failureKind`.
