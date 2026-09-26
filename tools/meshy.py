@@ -42,6 +42,19 @@ came back FAILED or CANCELED, or a response this tool cannot read (where a task 
 cannot name). Calling a 400 `failed` is what stranded a 20-credit preview run behind two refusals;
 `revive` is the narrow, logged undo for a record written by that build.
 
+THE DELIVERABLE IS THE REMESHED GLB (Task 67). `target_formats` defaults to `["glb"]` (note D13),
+so a remesh asked for nothing else answers with a GLB and no FBX -- which stopped a 35-credit run
+twice with "model.fbx did not reach disk". `DELIVERABLE_MODEL` is the one name for what `fetch`
+requires, validates and points a human at, the remesh now ASKS for the format it wants, and the
+model is never taken from the refine task: the maps are (the refine was paid for them), the model is
+not, because the refine's is the high-poly one the remesh exists to replace.
+
+BOTH QUESTIONS ARE ANSWERED EVERY TIME. "Did everything paid for land" and "is what landed usable"
+are different questions, and `deliver` used to return on the first and never ask the second -- so a
+fetch that could not find its model said nothing about the four maps it HAD landed, two of them
+4096 against a brief asking for 2048. Validation runs over everything that landed, always, and the
+problems are printed whether or not something else is missing.
+
 EVERY REQUEST FIELD HAS ITS DOCUMENTED TYPE IN ONE TABLE, `REQUEST_FIELDS`, checked before the body
 leaves its builder and again inside `request`. `texture_resolution` is a STRING -- "2k", "4k" or
 "8k" (note D12) -- and sending the pixel count cost a 400 and a stranded run. The selftest's frozen
@@ -140,10 +153,17 @@ REMESH_MIN, REMESH_MAX = 100, 300000  # Meshy's documented range, quoted in the 
 # Roblox's documented per-call cap for an uploaded file (docs/design/asset-pipeline.md section 12.2).
 # The FBX is what gets uploaded, so this is the number that decides whether a run can be delivered.
 MAX_FILE_BYTES = 20 * 1024 * 1024
-# What `fetch` pulls, in the order it tries them. The FBX is the ONE the pipeline promotes
-# (asset-pipeline section 7.3 item 3 accepts .fbx and .png and refuses the rest); the others are
-# kept because rule 7 says keep what was produced, and because a GLB is what a human can open.
-MODEL_FILES = (("model.fbx", "fbx"), ("model.glb", "glb"), ("model.obj", "obj"))
+# What `fetch` pulls, in the order it tries them, FROM THE REMESH TASK'S RESPONSE AND NOTHING
+# ELSE. Whatever the remesh produced is what ships; the refine's model is the high-poly one the
+# remesh exists to replace, so falling back to it would deliver the opposite of what was asked for
+# (Director decision, Task 67).
+MODEL_FILES = (("model.glb", "glb"), ("model.fbx", "fbx"), ("model.obj", "obj"))
+# THE ONE FILE A RUN IS FOR. `target_formats` defaults to `["glb"]` (research note D13), so a
+# remesh asked for nothing else answers with a GLB and no FBX -- which is what stopped
+# `boar.body_v1-20260926T1501Z` twice with "model.fbx did not reach disk" after 35 credits. Roblox's
+# 3D Importer takes glTF, and .glb is its binary form (Director decision, Task 67; the deviation
+# from asset-pipeline 7.3's ".fbx and .png" accept-list is queued as 67a).
+DELIVERABLE_MODEL = "model.glb"
 # Meshy's PBR set (note item 3). `base_color` is the only map v1 promotes -- a SurfaceAppearance
 # cannot be assembled at run time -- and the rest are kept beside it in the run folder.
 TEXTURE_FILES = ("base_color", "metallic", "normal", "roughness", "emission")
@@ -180,6 +200,7 @@ REQUEST_FIELDS = {
     "image_url": (str, None),
     "image_urls": (list, None),
     "input_task_id": (str, None),
+    "target_formats": (list, None),
 }
 
 # The refine's texture sizes as the API SPELLS them, and the pixels each one means. There is no 1k:
@@ -187,6 +208,13 @@ REQUEST_FIELDS = {
 # tree.oak_v1 asks for) is refined at the smallest size the API has and must be downscaled
 # downstream -- which is recorded on the run and printed, never pretended about (queued as 64a).
 TEXTURE_RESOLUTION = {2048: "2k", 4096: "4k", 8192: "8k"}
+
+# ROBLOX'S OWN CEILING, quoted: "Roblox supports up to 4096x4096 pixel texture resolutions (4K)"
+# (create.roblox.com/docs/art/modeling/texture-specifications, read 2026-09-26; note D14). A map
+# BIGGER than the brief asked for but inside this is a brief overrun, not a platform one -- so it is
+# a NOTE beside the model a human is about to look at, not a failure that strands a paid run
+# (Director decision, Task 67: report them, resize nothing). Over this it is a real problem.
+MAX_TEXTURE_PX = 4096
 
 TEXTURE_PX_DEFAULT = 2048  # refine's `texture_resolution` IS a parameter (note D3)
 # The sizes Roblox and the asset pipeline between them make sensible: 1024 is
@@ -233,7 +261,7 @@ DELIVERABLES = {
     "preview": (("preview.png", "preview.png"),),
     "refine": (),
     "remesh": (),
-    "fetch": (("model.fbx", "model.fbx"),
+    "fetch": ((DELIVERABLE_MODEL, DELIVERABLE_MODEL + " (the remeshed model)"),
               ("texture_*.png", "any PBR map at all (texture_*.png), which the refine paid for")),
 }
 
@@ -578,6 +606,12 @@ def build_remesh_request(record, target):
         "input_task_id": source["taskId"],
         "target_polycount": target,
         "topology": "triangle",
+        # ASKED FOR, NOT ASSUMED (Task 67). `target_formats` defaults to `["glb"]` (note D13) and
+        # that default is exactly what `boar.body_v1-20260926T1501Z` got -- a response with a GLB
+        # and no FBX, which `fetch` then called a missing deliverable twice. The default is now the
+        # request: what ships is what was asked for, and a reader of this body can see which file
+        # the run is for. Adding "fbx" here is one word and one paid remesh, and it is 67a.
+        "target_formats": ["glb"],
     })
 
 
@@ -964,9 +998,12 @@ class Problem:
     - `remesh`: the bytes are what Meshy sent and the GEOMETRY is what is wrong. The way out is the
       replacement task MAX_TASKS_PER_RUN budgets: `remesh <run> --target <lower>`.
     - `brief`: everything paid for IS on disk and what it breaks is a number somebody wrote. No
-      command can fix that, and the line says so rather than offering one that does nothing."""
+      command can fix that, and the line says so rather than offering one that does nothing.
+    - `note`: nothing is wrong enough to stop for, and somebody still has to be told. It is printed
+      beside the model at the second stop point and kept on the record, and it does not fail the
+      run (Task 67)."""
 
-    ROUTES = ("refetch", "remesh", "brief")
+    ROUTES = ("refetch", "remesh", "brief", "note")
     __slots__ = ("text", "route")
 
     def __init__(self, text, route):
@@ -992,34 +1029,53 @@ def deliver(record, folder, entry, step, undownloaded, ready_state, fix, command
     not deliver what was paid for is never "done", and a run that is paid for but incomplete is
     always left in a state some command takes -- the command the printed line names.
 
-    Three things are checked in this order, because a broken download makes every later judgement
-    about the model worthless: what the step OWED (DELIVERABLES) is on disk; nothing that was
-    offered failed to download (`undownloaded`); and, when `validate` is given, every local check
-    passed. Returns None when the run advanced to `ready_state` and the caller may print its own OK
-    line, or the exit code of a stop."""
+    Two questions, and they are DIFFERENT questions: did everything that was paid for land
+    (DELIVERABLES plus `undownloaded`), and is what landed usable (`validate`). Both are answered
+    EVERY TIME, and the answers are printed together.
+
+    THE ORDER USED TO HIDE HALF THE ANSWER (Task 67). This returned at the missing-deliverable
+    branch before `validate` ran, so a fetch that could not find its model reported one line and
+    said nothing about the four maps it HAD landed -- two of which were 4096 against a brief asking
+    for 2048. An operator fixed the first fault, paid for another fetch, and met the second. Whether
+    a run can be finished and whether what it holds is right are not the same question, and neither
+    of them is a reason to leave the other unanswered.
+
+    Returns None when the run advanced to `ready_state` and the caller may print its own OK line, or
+    the exit code of a stop."""
     on_disk = [artefact["name"] for artefact in entry.get("artefacts", [])
                if os.path.isfile(os.path.join(folder, artefact["name"]))]
     missing = missing_deliverables(on_disk, DELIVERABLES[step]) + list(undownloaded)
     credits = entry.get("credits")
     spent = f"credits={credits if credits is not None else 'unknown'}"
+
+    # EVERYTHING THAT LANDED IS CHECKED, even when something else did not land at all.
+    found = list(validate(record, folder, entry)) if validate else []
+    # A NOTE IS NOT A FAULT (Task 67): it is printed, it is kept on the record, and it does not stop
+    # the run. Everything else is a problem with a route out.
+    notes = [one for one in found if one.route == "note"]
+    problems = [one for one in found if one.route != "note"]
+    if validate is not None:
+        record["validation"] = {"ok": not problems, "problems": [p.text for p in problems],
+                               "notes": [n.text for n in notes], "at": stamp()}
+        save_run(record)
+    for one in notes:
+        print("[meshy] note: " + one.text)
+    for problem in problems:
+        print("[meshy]   - " + problem.text)
+
     if missing:
         # PAID FOR, NOT COLLECTED (Task 59's class, now the only copy of it). The task SUCCEEDED and
         # the credits are gone; a signed URL, or a response that carried no URL for something this
         # step owed, is what went wrong -- and a re-poll mints new ones until the 3-day expiry.
+        checks = (f"; {len(problems)} local check(s) also failed on what DID land"
+                  if problems else "")
         return stop_resumable(
             record,
             f"SUCCEEDED and its credits are spent, but {', '.join(sorted(set(missing)))} did not "
-            f"reach disk ({spent})",
+            f"reach disk ({spent}){checks}",
             fix, command=command)
 
-    problems = list(validate(record, folder, entry)) if validate else []
-    if validate is not None:
-        record["validation"] = {"ok": not problems, "problems": [p.text for p in problems],
-                               "at": stamp()}
-        save_run(record)
     if problems:
-        for problem in problems:
-            print("[meshy]   - " + problem.text)
         routes = {problem.route for problem in problems}
         # ONE ROUTE, THE STRONGEST PRESENT: re-download before anything is concluded about the
         # model, and re-cut the geometry before a human is asked to rewrite a brief.
@@ -1669,18 +1725,17 @@ def validate_fetched(record, folder, entry):
     problems = []
     written = {artefact["name"]: artefact for artefact in entry.get("artefacts", [])}
 
-    fbx = written.get("model.fbx")
-    if fbx is None:
-        problems.append(Problem("model.fbx is missing: it is the one file the pipeline promotes",
-                                "refetch"))
-    else:
-        if fbx["bytes"] <= 0:
-            problems.append(Problem("model.fbx is empty", "refetch"))
-        if fbx["bytes"] > MAX_FILE_BYTES:
+    # WHETHER THE MODEL LANDED IS `DELIVERABLES`' QUESTION, not this function's (Task 67): two
+    # checks for one fact is how they drift apart. This one judges what IS here.
+    model = written.get(DELIVERABLE_MODEL)
+    if model is not None:
+        if model["bytes"] <= 0:
+            problems.append(Problem(DELIVERABLE_MODEL + " is empty", "refetch"))
+        if model["bytes"] > MAX_FILE_BYTES:
             # THE BYTES ARE WHAT MESHY SENT and the model is too heavy for Roblox: downloading it
             # again produces the same file. Fewer triangles is the only thing that shrinks it.
-            problems.append(Problem(f"model.fbx is {fbx['bytes']} bytes, over Roblox's per-call "
-                                    f"{MAX_FILE_BYTES}", "remesh"))
+            problems.append(Problem(f"{DELIVERABLE_MODEL} is {model['bytes']} bytes, over Roblox's "
+                                    f"per-call {MAX_FILE_BYTES}", "remesh"))
 
     # WHAT WAS ASKED FOR, not what the brief wishes for (Task 64): Meshy has no 1k, so a 1024
     # brief's maps come back at 2048 and calling them oversized would strand a run that did exactly
@@ -1707,11 +1762,19 @@ def validate_fetched(record, folder, entry):
                 # it is a file Meshy got wrong, so the route is the one that downloads it again.
                 problems.append(Problem(f"{name}: {error}", "refetch"))
                 continue
-            if width > budget or height > budget:
-                # NOTHING IS BROKEN HERE: the maps arrived and they are bigger than the brief said
-                # to ask for. No command changes that -- `texturePx` is a written number.
+            if width > MAX_TEXTURE_PX or height > MAX_TEXTURE_PX:
+                # OVER THE PLATFORM'S OWN LIMIT: this one does stop the run, because nothing
+                # downstream can use it.
+                problems.append(Problem(f"{name} is {width}x{height}, over Roblox's documented "
+                                        f"{MAX_TEXTURE_PX} (note D14)", "brief"))
+            elif width > budget or height > budget:
+                # NOTHING IS BROKEN HERE: the maps arrived, they are inside what Roblox supports,
+                # and they are bigger than the brief said to ask for. Reported and never resized
+                # (Director decision, Task 67) -- resizing a map this tool did not make is how a
+                # budget stops meaning anything, and `promote` is where a resize would belong.
                 problems.append(Problem(f"{name} is {width}x{height}, over the brief's texturePx "
-                                        f"{budget}", "brief"))
+                                        f"{budget} (inside Roblox's {MAX_TEXTURE_PX}: a note, not a "
+                                        f"fault)", "note"))
 
     if not record.get("trisDeclared"):
         problems.append(Problem("trisDeclared is missing: the remesh target was never recorded",
@@ -1736,11 +1799,16 @@ def cmd_fetch(args):
     key, _source, why = read_key()
     if not key:
         raise Refused("MESHY_API_KEY is not set" + (f" ({why})" if why else ""))
-    # TWO DOORS, BOTH PAID FOR (review round 1 finding 2). `remesh-ready` is the ordinary one;
-    # `remesh-unresolved` is a fetch that already ran and landed too little, or landed bytes that
-    # did not match their hash -- and re-fetching is exactly what mints fresh URLs and downloads
-    # them again. So the command every STOPPED line here names is one this command accepts.
-    require_state_in(record, ("remesh-ready", "remesh-unresolved"))
+    # THREE DOORS, ALL PAID FOR. `remesh-ready` is the ordinary one; `remesh-unresolved` is a fetch
+    # that already ran and landed too little, or landed bytes that did not match their hash -- and
+    # re-fetching is exactly what mints fresh URLs and downloads them again (Task 62 review round 1
+    # finding 2). The third is a `fetched` run whose stored verdict says something is WRONG (Task
+    # 67): a verdict is a judgement, and a judgement made by an older build has to be re-makeable or
+    # the run is stuck with it. Re-fetching costs no credits, rewrites every file and re-runs every
+    # check; a fetched run whose verdict is OK is still refused, because there is nothing to do.
+    if not (record.get("state") == "fetched"
+            and (record.get("validation") or {}).get("ok") is False):
+        require_state_in(record, ("remesh-ready", "remesh-unresolved"))
     if expiry_line(record) == "EXPIRED":
         record["state"] = "expired"
         save_run(record)
@@ -1831,9 +1899,15 @@ def cmd_fetch(args):
     # THE SECOND STOP POINT (design section 3). Everything after this -- a sidecar, an upload, a
     # MeshPart -- waits for a human to look at the model. This tool cannot upload anything: it
     # contains no Roblox endpoint at all.
-    print(f"[meshy] the model is <runs-dir>/{record['runId']}/model.fbx with "
+    # THE FILE THE LINE NAMES IS THE FILE THAT IS THERE (Task 67). This said `model.fbx` while
+    # DELIVERABLES required one, and both were wrong about a remeshed run at once -- a stop point
+    # that sends a human to a path that does not exist is the ASSET agent's next invention.
+    notes = (record.get("validation") or {}).get("notes") or []
+    print(f"[meshy] the model is <runs-dir>/{record['runId']}/{DELIVERABLE_MODEL} with "
           f"{len(written)} file(s) beside it -- OPEN IT AND LOOK AT IT (rule 5), then ask Karen. "
-          "Nothing is uploaded until she says yes.")
+          "Nothing is uploaded until she says yes."
+          + (f" {len(notes)} note(s) above: nothing stops the run, and somebody should read them."
+             if notes else ""))
     print(f"[meshy] OK: fetch {record['key']} v{record['version']} run={record['runId']} "
           f"tris={record.get('trisDeclared')} files={len(written)} "
           f"credits={record['totals']['credits']} ({expiry_line(record)})")
@@ -2138,7 +2212,8 @@ def selftest():
     # THE REFINE'S TASK, NOT THE PREVIEW'S: remeshing the preview would throw away the textures
     # that were just paid for.
     ok("remesh takes the REFINED task as its input",
-       remeshBody == {"input_task_id": "ref-1", "target_polycount": 6000, "topology": "triangle"},
+       remeshBody == {"input_task_id": "ref-1", "target_polycount": 6000, "topology": "triangle",
+                      "target_formats": ["glb"]},
        json.dumps(remeshBody, sort_keys=True))
 
     ok("the target comes from the brief", resolve_target(remeshRecord, None) == 6000)
@@ -2580,6 +2655,8 @@ def selftest():
         ok("fetch exits 0", code == 0, saidFetch.strip())
         ok("...reaches fetched", load_run(chain["runId"])["state"] == "fetched",
            load_run(chain["runId"])["state"])
+        # BOTH MODELS LAND HERE, because a remesh CAN be asked for both -- which is the case that
+        # proves the requirement is the GLB rather than "whatever came".
         for name in ("model.fbx", "model.glb", "texture_base_color.png", "texture_normal.png"):
             ok(f"...{name} is on disk", os.path.isfile(os.path.join(sandbox, chain["runId"], name)))
         artefacts = {a["name"]: a for a in (load_run(chain["runId"])["tasks"][-1].get("artefacts") or [])}
@@ -2593,20 +2670,22 @@ def selftest():
         ok("...and it stops for a human to look",
            "LOOK AT IT" in saidFetch and "until she says yes" in saidFetch, saidFetch.strip())
 
-        # NO FBX: paid for, not collected -- so the run stays collectable rather than `failed`.
+        # NO MODEL AT ALL: paid for, not collected -- so the run stays collectable rather than
+        # `failed`. THE DELIVERABLE IS THE GLB (Task 67): `target_formats` defaults to ["glb"], so a
+        # response with only an FBX in it is a remesh whose model did not arrive.
         noFbx = approved_run("boar.body_v1-20260101T0013Z", state="remesh-ready")
         noFbx["tasks"].append({"phase": "remesh", "taskId": "rem-1", "endpoint": "remesh",
                                "status": "SUCCEEDED", "createdAt": stamp(), "finishedAt": stamp(),
                                "credits": 2, "creditsSource": "api", "artefacts": []})
         noFbx["trisDeclared"] = 6000
         save_run(noFbx)
-        emptyFake, _ = fake_post_then_succeed(model_urls={"glb": "https://example.invalid/m.glb"})
+        emptyFake, _ = fake_post_then_succeed(model_urls={"obj": "https://example.invalid/m.obj"})
         globals()["request"], globals()["download"] = emptyFake, sized_download
         try:
             code, saidNoFbx = step2(lambda: cmd_fetch(Args(run_id=noFbx["runId"])))
         finally:
             globals()["request"], globals()["download"] = real_request, real_download
-        ok("a fetch with no FBX exits 1", code == 1, str(code))
+        ok("a fetch with no model.glb exits 1", code == 1, str(code))
         ok("...leaves the run resumable rather than failed",
            load_run(noFbx["runId"])["state"] == "remesh-unresolved",
            load_run(noFbx["runId"])["state"])
@@ -2628,7 +2707,7 @@ def selftest():
         # print the second stop point and invite Karen to look (round 1 finding 1).
         noMaps = fetchable_run("boar.body_v1-20260101T0016Z")
         noMapsFake, noMapsSeen = fake_post_then_succeed(
-            model_urls={"fbx": "https://example.invalid/m.fbx"})
+            model_urls={"glb": "https://example.invalid/m.glb"})
         globals()["request"], globals()["download"] = noMapsFake, sized_download
         try:
             code, saidNoMaps = step2(lambda: cmd_fetch(Args(run_id=noMaps["runId"])))
@@ -2657,7 +2736,7 @@ def selftest():
             seenSplit["paths"].append(f"{method} {path}")
             if ENDPOINTS["remesh"] in path:
                 return 200, {"result": {"status": "SUCCEEDED", "consumed_credits": 2,
-                                        "model_urls": {"fbx": "https://example.invalid/m.fbx"}}}, ""
+                                        "model_urls": {"glb": "https://example.invalid/m.glb"}}}, ""
             return 200, {"result": {
                 "status": "SUCCEEDED", "consumed_credits": 10,
                 "texture_urls": [{"base_color": "https://example.invalid/b.png",
@@ -2670,7 +2749,7 @@ def selftest():
             globals()["request"], globals()["download"] = real_request, real_download
         ok("a remesh response with no texture_urls still lands the maps, from the refine",
            code == 0, saidSplit.strip())
-        for name in ("model.fbx", "texture_base_color.png", "texture_normal.png"):
+        for name in ("model.glb", "texture_base_color.png", "texture_normal.png"):
             ok(f"...{name} is on disk", os.path.isfile(os.path.join(sandbox, split["runId"], name)))
         ok("...and the line says which task the maps came from",
            "maps come from the refine" in saidSplit, saidSplit.strip())
@@ -2739,7 +2818,11 @@ def selftest():
            (load_run(oversize["runId"]).get("validation") or {}).get("ok") is False,
            str(load_run(oversize["runId"]).get("validation")))
         problems = " ".join((load_run(oversize["runId"]).get("validation") or {}).get("problems", []))
-        ok("...names the oversized texture", "4096x4096" in problems, problems)
+        notes = " ".join((load_run(oversize["runId"]).get("validation") or {}).get("notes", []))
+        # A 4096 MAP AGAINST A 2048 BRIEF IS A NOTE, NOT A FAULT (Task 67): it is inside Roblox's
+        # documented 4096 (D14), so it overruns the brief and nothing else. Reported, never resized.
+        ok("...notes the oversized texture rather than failing on it",
+           "4096x4096" in notes and "4096x4096" not in problems, notes + " | " + problems)
         ok("...names the oversized FBX", "over Roblox's per-call" in problems, problems)
         ok("...and does NOT invite a human to look at it",
            "LOOK AT IT" not in saidBig, saidBig.strip())
@@ -2760,7 +2843,7 @@ def selftest():
         # was left in (round 1 finding 2).
         truncated = load_run(chain["runId"])
         folderT = os.path.join(sandbox, truncated["runId"])
-        with open(os.path.join(folderT, "model.fbx"), "wb") as handle:
+        with open(os.path.join(folderT, DELIVERABLE_MODEL), "wb") as handle:
             handle.write(b"half")
         problems = validate_fetched(truncated, folderT, truncated["tasks"][-1])
         ok("a file that does not match its recorded sha256 is caught",
@@ -2858,6 +2941,140 @@ def selftest():
         ok("...so refining again works", code == 0, saidAgain.strip())
         ok("...and it reaches refine-ready", load_run(rejected["runId"])["state"] == "refine-ready",
            load_run(rejected["runId"])["state"])
+
+        # ---- TASK 67: THE GLB IS THE DELIVERABLE, AND EVERY CHECK RUNS -----------------------
+        #
+        # The Asset agent's real run: refine and remesh both SUCCEEDED, 35 credits spent, and
+        # `fetch` stopped twice on "model.fbx did not reach disk" -- because `target_formats`
+        # defaults to ["glb"] (note D13) and the remesh answered with a GLB and no FBX.
+        glbOnly = fetchable_run("boar.body_v1-20260101T0025Z")
+        glbFake, _glbSeen = fake_post_then_succeed(
+            model_urls={"glb": "https://example.invalid/m.glb"},
+            texture_urls={"base_color": "https://example.invalid/b.png",
+                          "normal": "https://example.invalid/n.png"})
+        globals()["request"], globals()["download"] = glbFake, sized_download
+        try:
+            code, saidGlb = step2(lambda: cmd_fetch(Args(run_id=glbOnly["runId"])))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a remesh that answers a GLB and no FBX finishes", code == 0, saidGlb.strip())
+        ok("...reaches fetched", load_run(glbOnly["runId"])["state"] == "fetched",
+           load_run(glbOnly["runId"])["state"])
+        ok("...with the GLB on disk",
+           os.path.isfile(os.path.join(sandbox, glbOnly["runId"], "model.glb")))
+        ok("...and the stop-point line names the GLB, not an FBX",
+           "model.glb" in saidGlb and "model.fbx" not in saidGlb, saidGlb.strip())
+        # AND IT NEVER TAKES THE REFINE'S MODEL. The refine's is the high-poly one the remesh exists
+        # to replace, so a fallback to it would deliver the opposite of what was asked for.
+        ok("...and no fallback to the refine's model was fetched",
+           not os.path.isfile(os.path.join(sandbox, glbOnly["runId"], "model.fbx")))
+
+        # THE MODEL COMES FROM THE REMESH OR FROM NOWHERE (Director decision, Task 67). The maps
+        # fall back to the refine because that is the task that was paid for them; the MODEL must
+        # not, because the refine's is the high-poly one the remesh exists to replace. Here the
+        # remesh answers with no model at all and the refine offers a full set: the maps land, the
+        # model does not, and the run stops rather than shipping the wrong geometry.
+        noModel = fetchable_run("boar.body_v1-20260101T0027Z")
+        seenNoModel = {"paths": []}
+
+        def fake_refine_has_everything(method, path, _key, body=None, timeout=HTTP_TIMEOUT_S):
+            seenNoModel["paths"].append(f"{method} {path}")
+            if ENDPOINTS["remesh"] in path:
+                return 200, {"result": {"status": "SUCCEEDED", "consumed_credits": 2}}, ""
+            return 200, {"result": {
+                "status": "SUCCEEDED", "consumed_credits": 10,
+                "model_urls": {"fbx": "https://example.invalid/refine.fbx",
+                               "glb": "https://example.invalid/refine.glb"},
+                "texture_urls": {"base_color": "https://example.invalid/b.png"}}}, ""
+
+        globals()["request"], globals()["download"] = fake_refine_has_everything, sized_download
+        try:
+            code, saidNoModel = step2(lambda: cmd_fetch(Args(run_id=noModel["runId"])))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a remesh with no model at all stops", code == 1, saidNoModel.strip())
+        ok("...and takes NO model from the refine",
+           not os.path.isfile(os.path.join(sandbox, noModel["runId"], "model.glb"))
+           and not os.path.isfile(os.path.join(sandbox, noModel["runId"], "model.fbx")),
+           str(sorted(os.listdir(os.path.join(sandbox, noModel["runId"])))))
+        ok("...while the MAPS still come from the refine, which was paid for them",
+           os.path.isfile(os.path.join(sandbox, noModel["runId"], "texture_base_color.png")),
+           str(sorted(os.listdir(os.path.join(sandbox, noModel["runId"])))))
+
+        # EVERY CHECK RUNS, EVEN WHEN A DELIVERABLE IS MISSING (Task 67 defect 2). The real run
+        # landed four maps, two of them 4096 against a brief asking for 2048, and said nothing about
+        # them for two fetches because `deliver` returned at the missing-model branch first.
+        bothWrong = fetchable_run("boar.body_v1-20260101T0026Z")
+        bothFake, _bothSeen = fake_post_then_succeed(
+            model_urls={"obj": "https://example.invalid/m.obj"},
+            texture_urls={"base_color": "https://example.invalid/b.png"})
+
+        def oversized_download(url):
+            if url.endswith(".png"):
+                return fake_png(4096, 4096)
+            return b"OBJ-ish bytes " * 16
+
+        globals()["request"], globals()["download"] = bothFake, oversized_download
+        try:
+            code, saidBoth = step2(lambda: cmd_fetch(Args(run_id=bothWrong["runId"])))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a fetch missing its model still reports the maps it DID land", code == 1,
+           saidBoth.strip())
+        ok("...naming the oversized map", "4096x4096" in saidBoth, saidBoth.strip())
+        ok("...as a note", "[meshy] note: texture_base_color.png is 4096x4096" in saidBoth,
+           saidBoth.strip())
+        ok("...and the missing model in the same run of the command",
+           "model.glb" in saidBoth, saidBoth.strip())
+        ok("...and it is on the record, not just in the stop line",
+           any("4096" in text
+               for text in (load_run(bothWrong["runId"]).get("validation") or {}).get("notes", [])),
+           str(load_run(bothWrong["runId"]).get("validation")))
+        ok("...and the run stays collectable", load_run(bothWrong["runId"])["state"] == "remesh-unresolved",
+           load_run(bothWrong["runId"])["state"])
+
+        # A STORED VERDICT CAN BE RE-MADE (Task 67). The real run reached `fetched` with a verdict
+        # an older build wrote, and no command would take it: `fetch` refused the state and `remesh`
+        # would have spent credits re-cutting geometry that was never the problem.
+        stale = load_run(glbOnly["runId"])
+        stale["validation"] = {"ok": False, "problems": ["a verdict an older build wrote"],
+                               "notes": [], "at": stamp()}
+        save_run(stale)
+        globals()["request"], globals()["download"] = glbFake, sized_download
+        try:
+            code, saidStale = step2(lambda: cmd_fetch(Args(run_id=stale["runId"])))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a fetched run whose verdict says something is wrong can be fetched again", code == 0,
+           saidStale.strip())
+        ok("...and the verdict is re-made",
+           (load_run(stale["runId"]).get("validation") or {}).get("ok") is True,
+           str(load_run(stale["runId"]).get("validation")))
+        said = refusal(lambda: cmd_fetch(Args(run_id=stale["runId"])), "fetch a finished run")
+        ok("...while a fetched run that PASSED is still refused, by name",
+           "fetched" in said and "remesh-ready" in said, said)
+
+        # OVER ROBLOX'S OWN LIMIT IS A DIFFERENT ANSWER: that one nothing downstream can use, so it
+        # is a problem with a route rather than a note.
+        huge = fetchable_run("boar.body_v1-20260101T0028Z")
+        hugeFake, _hugeSeen = fake_post_then_succeed(
+            model_urls={"glb": "https://example.invalid/m.glb"},
+            texture_urls={"base_color": "https://example.invalid/b.png"})
+
+        def huge_download(url):
+            if url.endswith(".png"):
+                return fake_png(8192, 8192)
+            return b"GLB-ish bytes " * 16
+
+        globals()["request"], globals()["download"] = hugeFake, huge_download
+        try:
+            code, saidHuge = step2(lambda: cmd_fetch(Args(run_id=huge["runId"])))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a map over Roblox's own 4096 fails the fetch", code == 1, saidHuge.strip())
+        ok("...names the platform limit, not the brief", "over Roblox's documented 4096" in saidHuge,
+           saidHuge.strip())
+        ok("...and does NOT invite a human to look", "LOOK AT IT" not in saidHuge, saidHuge.strip())
 
         # REVIVE: the narrowest possible undo, for a run the OLD build marked failed this way --
         # which is the shape on disk today: state `failed`, one SUCCEEDED preview, no `failureKind`.
