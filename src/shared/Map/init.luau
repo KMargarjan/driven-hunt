@@ -33,6 +33,11 @@ export type FieldRect = {
 
 Map.VERSION = "v1"
 
+-- THE GENERATOR'S OWN VERSION, and its ONE home (M2.8a). MapGen.VERSION reads this instead of
+-- carrying a second copy, which closes TASKS.md row 44a(f): two strings for one fact is how a
+-- digest and a build end up disagreeing about which generator made the map.
+Map.GENERATOR = "m2.8-road-autumn"
+
 -- THE SWITCH (design section 9). "arena" or "map:v1". Milestone 2.1 builds the 512-stud slice as an
 -- EDIT-TIME artefact and does not make it the world: the grey box is still what a player stands in,
 -- still the rollback, and still what every existing spec is written against. M2.5 flips this, sets
@@ -88,7 +93,45 @@ Map.STREAMING = {
 	scriptable = { "StreamingEnabled" },
 }
 
-Map.BUDGET = { parts = 20000, visibleParts = 8000, trees = 3000 }
+-- CHANGED at M2.8a: two new ceilings, because the wood now grows INSIDE the drive corridor and a
+-- runaway scatter is the one way this map could stop being playable.
+Map.BUDGET = { parts = 20000, visibleParts = 8000, trees = 3000, brush = 600, hedgeParts = 400 }
+
+-- THE FOREST ROAD (design section 6.3). Karen's decision: the shooter line runs along a ride through
+-- the woods, not along a field edge. The road's centreline IS the drive line -- there is no second
+-- concept -- and it is a flat bench at exactly `groundY`, so every post's bottom face is at ground.
+Map.ROAD = { z = -700, halfWidth = 8, verge = 24, from = -900, to = 900 }
+
+-- The drivers' assembly track: they form up on it at the wood edge and walk in. It also flattens the
+-- 1,120-stud DriverStart strip, which spans too far to be a disc pad.
+Map.ASSEMBLY = { z = 700, halfWidth = 5, verge = 20, from = -700, to = 700 }
+
+-- AUTUMN (design section 8). Roblox terrain has no leaf-litter material, so the lever is per-material
+-- colour -- one global table for the whole place. These four are the materials MapGen.Config.MATERIAL
+-- already uses.
+Map.PALETTE = {
+	litter = Color3.fromRGB(150, 108, 62), -- LeafyGrass: the forest floor, the wood's default
+	rough = Color3.fromRGB(126, 122, 78), -- Grass: steep ground, clearings, the flank fields
+	road = Color3.fromRGB(152, 146, 132), -- Ground: the road bench, the assembly bench, the track
+	bog = Color3.fromRGB(96, 82, 62), -- Mud: the bog
+}
+
+-- MEASURED, NOT GUESSED (design section 8.4, measurement N1; 2026-09-26, Studio 0.740.x, DEV place
+-- with 0 terrain cells and no prior recolour). This is what MapGen.clear restores, and what
+-- map_contract.spec asserts in the arena branch -- so an autumn palette left behind after a `clear`
+-- is caught rather than becoming "a world nobody chose" (audit-004 must-fix 1).
+--
+-- The same measurement also settled the three things the design could not verify: SetMaterialColor
+-- and GetMaterialColor ARE callable through execute_luau in Edit; the colours SURVIVE Terrain:Clear()
+-- (which is exactly why `clear` has to restore them); and they DO replicate to a client, so
+-- map_client.spec's colour check stands rather than being dropped. The section 8.3 material-choice
+-- fallback is therefore NOT taken, and no code for it exists.
+Map.PALETTE_DEFAULT = {
+	litter = Color3.fromRGB(106, 134, 64),
+	rough = Color3.fromRGB(111, 126, 62),
+	road = Color3.fromRGB(140, 130, 104),
+	bog = Color3.fromRGB(121, 112, 98),
+}
 
 -- Where a spawn pad is flattened, so a boar is never released inside a hill (design section 7.3).
 --
@@ -104,7 +147,10 @@ Map.BUDGET = { parts = 20000, visibleParts = 8000, trees = 3000 }
 --
 -- 40 with the relief unchanged, because the relief is Karen's taste value for how rolling the corridor
 -- is and the blend is not. The deviation from design section 7.3 is queued for the Architect.
-Map.SPAWN_PAD = { radius = 14, blend = 40, tolerance = 0.75 }
+-- RADIUS 14 -> 30 at M2.8a: a sounder of up to five boars spawns inside one pad, so the flat disc has
+-- to hold the group. The nearest two pads are 300 studs apart, so pads never overlap and
+-- Height.atFlattened's nearest-pad rule never has to arbitrate.
+Map.SPAWN_PAD = { radius = 30, blend = 40, tolerance = 0.75 }
 
 Shotgun.deepFreeze(Map)
 
