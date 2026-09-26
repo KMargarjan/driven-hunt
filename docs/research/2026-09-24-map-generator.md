@@ -448,6 +448,55 @@ samples**, so this says `math.noise` is stable within a session and the whole pi
 deterministic. **Across engine versions it is still unverified** — that needs a Studio update to
 happen, and the named fallback (a seeded value-noise implementation inside `Height.luau`) is unchanged.
 
+## Measurements, Milestone 2.2 (Task 44, 2026-09-26)
+
+### G. Pathfinding runs in an EDIT session, and the navmesh lags behind the map
+
+    BoarSpawn1..4: ok=true status=Enum.PathStatus.Success waypoints=88..99   (the M2.1 slice)
+
+`PathfindingService:CreatePath(...):ComputeAsync(...)` works through `execute_luau` in Edit mode. That
+is what lets `MapGen.reachability` -- and therefore `python tools/mapgen.py verify` -- walk the
+GENERATED map with the boar's own agent parameters, which no harness spec can do while
+`Map.EXPECTED_WORLD` is `"arena"` (TASKS.md row 43a(k)).
+
+**But the navmesh is rebuilt in the background, and a check that races it lies.** A 560 x 30 x 8 wall
+dropped across the drive corridor answered:
+
+    wait=1s   status=Enum.PathStatus.Success     <- the map as it WAS
+    wait=5s   status=Enum.PathStatus.NoPath      <- the map as it IS
+    wait=15s  status=Enum.PathStatus.NoPath
+
+So `Config.REACH_SETTLE_SECONDS = 6`, and `MapGen.reachability` waits before it asks.
+
+**The check bites.** On the full 2048 map, all five routes pass; with one wall across the corridor's
+gates, all five fail; with the wall removed, all five pass again, same waypoint counts:
+
+    BoarSpawn1..4, DriverStart: Success, 339..370 waypoints
+    (walled)                    NoPath, 0 waypoints, 5 findings
+    (wall removed)              Success, 339..370 waypoints
+
+### H. What the full map costs
+
+    268 steps, 1,238 parts, 4,096 terrain samples
+    400 hedge segments (76 + 76 + 76 + 86 + 86), inside the design's 500-part hedge budget
+    400 trees x 2 parts + 12 tie trees x 2 parts + 14 markers = 1,238
+    256 terrain tiles x 24,576 voxels = 6,291,456 voxels written
+    two dirt tracks: 18,039 and 18,059 voxels repainted
+    build wall clock: about 5 minutes, inside the design's 20-minute target
+
+**The design's hedge LENGTH row is exceeded and its PART row is not.** Section 12 asks for
+"<= 500 parts (one per ~12 studs, <= 6,000 studs of hedge)"; the network M2.2 needs is five lines of
+2,048 studs = 10,240 studs, which at the 12-stud segment the row assumes would be 853 parts. The
+segments are 24 studs instead, so it is 400 parts. Fewer, bigger boxes is the right trade while the
+hedge is a proxy; when real hedge meshes arrive in M2.3 the segment length is one number to change.
+
+### The reproducibility question, at full size
+
+    [mapgen] build 1: digest=dbf6aef43044b14612770da0ff13917a6306aab68f49658c776e2698f6097fce parts=1238
+    [mapgen] build 2: digest=dbf6aef43044b14612770da0ff13917a6306aab68f49658c776e2698f6097fce parts=1238
+
+Same seed, same 1,238 instances and same 4,096 terrain samples, twice, across a full clear and rebuild.
+
 ## What needs Karen
 
 1. **Taste, and only she can judge it:** does the farmland read as *European* farmland? Field sizes,
