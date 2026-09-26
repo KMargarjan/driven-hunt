@@ -98,6 +98,11 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	}
 
 	local function finish()
+		-- THE SEAM CLOSES WITH THE RUN (audit-004 F5). `activeToken` is what `Match.advanceForTests`
+		-- asks "is a gated test run in progress"; leaving it set after the last spec left the drive's
+		-- clock seam open for the rest of the session, in a Studio session a human is about to play in.
+		-- Every exit from `run` goes through here, including the early returns above.
+		activeToken = nil
 		local line = if report.status == "ERROR"
 			then string.format("[tests:%s] ERROR: %s", side, report.message)
 			else string.format(

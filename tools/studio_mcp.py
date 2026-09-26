@@ -467,6 +467,18 @@ QUERY_MY_TEAM = (
     "local t = p and p.Team "
     'return if t then t.Name else ""'
 )
+# THE DRIVE-CLOCK SEAM, asked of the server after its run finished (audit-004 F5). `activeToken` is
+# what `Match.advanceForTests` asks "is a gated test run in progress"; if TestKit leaves it set, the
+# seam stays open for the rest of a Studio session a human is about to play in. Every exit from
+# `TestKit.run` clears it, and this is the check that says so.
+QUERY_SEAM = (
+    'local kit = game:GetService("ReplicatedStorage"):FindFirstChild("TestKit") '
+    'if not kit then return "no TestKit" end '
+    "local ok, TestKit = pcall(require, kit) "
+    'if not ok then return "TestKit did not load" end '
+    'return if TestKit.activeToken() == nil then "closed" else "OPEN"'
+)
+
 QUERY_REPORT = {
     "server": 'return game:GetService("ServerStorage"):GetAttribute("TestReport") or ""',
     "client": 'local p = game:GetService("Players").LocalPlayer return p and p:GetAttribute("TestReport") or ""',
@@ -1299,6 +1311,9 @@ def run_test(studio):
                                 timeout=10)
                 if pending:
                     time.sleep(1)
+            # While the Play session is still up: once it stops there is no Server datamodel to ask.
+            seam, _why = process_call(
+                lambda: studio.query("Server", QUERY_SEAM), timeout=15, default="no answer")
             output = studio.console()
         finally:
             studio.set_play(False)
@@ -1336,6 +1351,7 @@ def run_test(studio):
 
     closed, ok = wait_for(lambda: studio.query("Edit", QUERY_TOKEN), lambda v: v == "", 15)
     check("Gate closed afterwards (token cleared in Studio)", ok, repr(closed))
+    check("the drive-clock seam closed when the run finished", seam == "closed", seam)
     return verdict()
 
 
