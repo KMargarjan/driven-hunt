@@ -1013,7 +1013,7 @@ return function()
 			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
 				for _, point in ipairs(MapGen.Scatter.trees(c, SEED, block, reject)) do
 					local y = MapGen.Height.at(point.x, point.z, SEED, c)
-					local species = MapGen.Scatter.speciesAt(point.x, point.z, (point :: any).key or 0, SEED, c, y)
+					local species = MapGen.Scatter.speciesAt(point.x, point.z, SEED, c, y)
 					expect(counts[species]).to.be.ok() -- one of the four, never a fifth
 					counts[species] += 1
 					total += 1
@@ -1037,10 +1037,113 @@ return function()
 				expect(share > row.share * 0.4).to.equal(true)
 				expect(share < row.share * 1.8).to.equal(true)
 			end
-			-- WET GROUND IS ALDER, whatever the field says: a spruce in a bog reads as a mistake.
+			-- WET GROUND IS ALDER, whatever the field says: a spruce in a bog reads as a mistake. Four
+			-- points around the bog, because `speciesAt` no longer takes a key to steer it with.
 			local bog = c.WORLD.bog
-			expect(MapGen.Scatter.speciesAt(bog.x + 10, bog.z, 0.99, SEED, c, -20)).to.equal("alder")
-			expect(MapGen.Scatter.speciesAt(bog.x - 10, bog.z, 0.01, SEED, c, -20)).to.equal("alder")
+			for _, offset in ipairs({ Vector2.new(10, 0), Vector2.new(-10, 0), Vector2.new(0, 14), Vector2.new(0, -14) }) do
+				expect(MapGen.Scatter.speciesAt(bog.x + offset.X, bog.z + offset.Y, SEED, c, -20)).to.equal("alder")
+			end
+		end)
+
+		-- ONE NUMBER, ONE QUESTION (review round 1, and PROJECT_CONTEXT's "one predicate answered two
+		-- unrelated questions"). The species used to be decided by the number that decided whether the
+		-- tree exists at all: every candidate accepted where the density is 0.42 (the drive) or 0.14
+		-- (the backdrop) has a key below SPECIES_CLUMP_STRENGTH, so `speciesAt` always returned the
+		-- clump's leader and every clump outside the dense band was a pure monoculture.
+		--
+		-- THE MARGINAL SHARES SURVIVE THAT BUG -- the leader is itself drawn by share -- which is why
+		-- the share assertion above passed while about half the wood was wrong, and why this spec
+		-- measures the mix INSIDE a clump as well as the shares, in EACH density tier.
+		it("draws the species independently of the density, so the mix is the same in a thin wood", function()
+			local c = config()
+			local strength = c.SPECIES_CLUMP_STRENGTH
+			-- The share of trees that are NOT their clump's leader, derived rather than guessed: a tree
+			-- takes the leader with probability `strength`, and otherwise draws from the same shares --
+			-- which returns the leader again with the leader's own share. So the expected share is
+			-- (1 - strength) * (1 - sum of share^2) = 0.35 * 0.715 = 0.2503 with Karen's four numbers,
+			-- and it is the SAME NUMBER in every tier, because the draw has nothing to do with density.
+			local sumSquares = 0
+			for _, row in ipairs(c.SPECIES) do
+				sumSquares += row.share * row.share
+			end
+			local expected = (1 - strength) * (1 - sumSquares)
+
+			local tiers =
+				{ thin = { total = 0, other = 0, counts = {} }, dense = { total = 0, other = 0, counts = {} } }
+			local wet = 0
+			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
+				for _, point in ipairs(MapGen.Scatter.trees(c, SEED, block, reject)) do
+					local y = MapGen.Height.at(point.x, point.z, SEED, c)
+					if y < c.SPECIES_WET_DEPTH then
+						-- The wet rule overrides the clump, so a bog tree says nothing about the mix.
+						wet += 1
+					else
+						local tier = tiers.dense
+						if MapGen.Layout.treeDensity(point.x, point.z, c) < strength then
+							tier = tiers.thin
+						end
+						local species = MapGen.Scatter.speciesAt(point.x, point.z, SEED, c, y)
+						local leader = MapGen.Scatter.clumpLeaderAt(point.x, point.z, SEED, c)
+						tier.total += 1
+						tier.counts[species] = (tier.counts[species] or 0) + 1
+						if species ~= leader then
+							tier.other += 1
+						end
+					end
+				end
+			end
+
+			TestKit.note(
+				string.format(
+					"species mix: thin tier %d trees, %.3f are not their clump's leader; "
+						.. "dense tier %d trees, %.3f; expected %.3f; %d wet (forced alder, excluded)",
+					tiers.thin.total,
+					tiers.thin.other / math.max(tiers.thin.total, 1),
+					tiers.dense.total,
+					tiers.dense.other / math.max(tiers.dense.total, 1),
+					expected,
+					wet
+				)
+			)
+			for _, name in ipairs({ "thin", "dense" }) do
+				local tier = tiers[name]
+				local shares = {}
+				for _, row in ipairs(c.SPECIES) do
+					table.insert(
+						shares,
+						string.format("%s %.3f", row.name, (tier.counts[row.name] or 0) / math.max(tier.total, 1))
+					)
+				end
+				TestKit.note(string.format("  %s tier shares: %s", name, table.concat(shares, ", ")))
+			end
+
+			for _, name in ipairs({ "thin", "dense" }) do
+				local tier = tiers[name]
+				-- Both tiers have to exist at all, or "they agree" is a claim about nothing.
+				expect(tier.total > 500).to.equal(true)
+				-- TOLERANCE, STATED: +/- 0.08 of the derived 0.2503. Each tree's draw is independent,
+				-- so with over 1,000 trees a tier the standard error is under 0.015 -- but WHICH
+				-- species leads each clump is drawn too, and a wood of about 59 clumps of 260 studs can
+				-- be led by spruce (share 0.40, so 0.35 * 0.60 = 0.21 expected) or by alder (0.15, so
+				-- 0.2975) more often than its share. 0.08 covers that; the bug this catches makes the
+				-- thin tier exactly 0.
+				local other = tier.other / tier.total
+				expect(other > expected - 0.08).to.equal(true)
+				expect(other < expected + 0.08).to.equal(true)
+				-- And every species is really there, in roughly its share, in THIS tier -- not only in
+				-- the wood as a whole, which is what the assertion above measures. The band is wide for
+				-- the same reason: a clumped field of 59 clumps is not a shuffled bag of 2,700 trees.
+				for _, row in ipairs(c.SPECIES) do
+					local share = (tier.counts[row.name] or 0) / tier.total
+					expect(share > row.share * 0.4).to.equal(true)
+					expect(share < row.share * 1.8).to.equal(true)
+				end
+			end
+			-- THE INVARIANT THE BUG BROKE, in one line: how thick the wood is does not decide how mixed
+			-- it is. With the acceptance key re-used, this is 0.25 against 0.
+			local thin = tiers.thin.other / tiers.thin.total
+			local dense = tiers.dense.other / tiers.dense.total
+			expect(math.abs(thin - dense) < 0.08).to.equal(true)
 		end)
 
 		it("puts brush in the wood and nowhere else", function()

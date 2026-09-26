@@ -306,7 +306,7 @@ function Props.trees(
 	local keys: { [string]: boolean } = {}
 	for index, point in ipairs(points) do
 		local y = Height.atFlattened(point.x, point.z, seed, config, pads, Layout.bogDepth)
-		local species = Scatter.speciesAt(point.x, point.z, (point :: any).key or 0, seed, config, y)
+		local species = Scatter.speciesAt(point.x, point.z, seed, config, y)
 		counts[species] = (counts[species] or 0) + 1
 		-- Zero-padded and CONTINUED ACROSS BLOCKS, so the lexicographic order the digest and `trunks`
 		-- sort by IS the placement order: "Tree10" sorts before "Tree2" and a diff would then name a

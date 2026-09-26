@@ -12,8 +12,19 @@
 -- takes its seed as an argument, which is what the module table's "never Random" row protects
 -- against -- unseeded randomness. `Height.luau` needs no discrete choice and so uses none at all.
 --
--- It takes `reject` as an ARGUMENT rather than requiring Layout, so this file needs no `script`, no
--- require and no Studio: a server spec drives it directly (design section 2.2's last paragraph).
+-- ONE NUMBER ANSWERS ONE QUESTION (Task 63, review round 1). The acceptance draw decides whether a
+-- candidate becomes a tree and NOTHING else: it never leaves `weighted`, and the species question
+-- draws its own number, from the point's position, through `Scatter.pointKey`. Re-using the
+-- acceptance key for the species -- which this module did -- made the species depend on the DENSITY:
+-- every candidate accepted where the weight is 0.42 (the drive) or 0.14 (the backdrop) has a key
+-- below SPECIES_CLUMP_STRENGTH = 0.65, so `speciesAt` always returned the clump's leader there and
+-- every clump outside the dense band was a pure monoculture over about half the wood. That is the
+-- previous project's named killer -- "one predicate answered two unrelated questions"
+-- (docs/PROJECT_CONTEXT.md) -- and the fix is a separate number per question, not a wider tolerance.
+--
+-- `Scatter.trees` requires Layout for the density weight; every other function takes what it needs as
+-- an ARGUMENT (`weight`, `reject`, `rng`), so a server spec drives them directly with no Studio
+-- (design section 2.2's last paragraph).
 --
 --   Random  https://create.roblox.com/docs/reference/engine/datatypes/Random
 --   Jittered grid / Poisson disc: the technique read out of RTerrainGenerator's scatter pass
@@ -116,7 +127,8 @@ end
 --  2. WET GROUND FORCES ALDER, whatever the field says. Black alder is a wet-ground tree; a spruce
 --     standing in a bog reads as a mistake to anyone who has walked a European wood.
 --
--- `key` is the candidate's own drawn number, so two trees in one clump can still differ.
+-- Which tree stands inside a clump comes from that tree's own `pointKey`, so two trees in one clump
+-- can differ -- and NOT from the number that decided the tree exists at all.
 local function pickByShare(species, u: number): string
 	local running = 0
 	for _, row in ipairs(species) do
@@ -128,25 +140,39 @@ local function pickByShare(species, u: number): string
 	return species[#species].name
 end
 
--- A CLUMP'S OWN NUMBER: a hash of the clump's integer coordinates, which is uniform in 0..1 and the
--- same for every tree in that clump. The first build of this used `math.noise` for the choice and
--- MEASURED 230 birch to 195 spruce to 3 oak in one quadrant, against Karen's 0.25 / 0.40 / 0.20 --
--- because a noise field is bell-shaped around its middle, so the middle band of a share table wins.
--- A hash is flat, so the shares below are the shares she asked for.
-local function clumpHash(a: number, b: number, seed: number): number
-	local h = (a * 374761393 + b * 668265263 + seed * 2654435761) % 2147483647
+-- A FLAT HASH OF THREE INTEGERS, uniform in 0..1 and pure. The first build of the species choice used
+-- `math.noise` and MEASURED 230 birch to 195 spruce to 3 oak in one quadrant, against Karen's
+-- 0.25 / 0.40 / 0.20 -- because a noise field is bell-shaped around its middle, so the middle band of
+-- a share table wins. A hash is flat, so the shares below are the shares she asked for. Measured with
+-- this map's own inputs before it was used for a second question (Task 63): 200,000 points land
+-- 10.03 / 9.97 / 9.99 / 9.96 / 10.00 / 10.05 / 9.98 / 10.00 / 10.01 / 10.01 per cent in the ten
+-- deciles, and pickByShare over them returns 39.95 / 25.08 / 19.96 / 15.02 against 40 / 25 / 20 / 15.
+local function hash01(a: number, b: number, c: number): number
+	local h = (a * 374761393 + b * 668265263 + c * 2654435761) % 2147483647
 	h = (h * 1274126177) % 2147483647
 	return h / 2147483647
 end
 
-function Scatter.speciesAt(x: number, z: number, key: number, seed: number, config, groundY: number?): string
-	local species = config.SPECIES
-	-- WET GROUND IS ALDER, whatever the clump says: black alder is a wet-ground tree, and a spruce
-	-- standing in a bog reads as a mistake to anyone who has walked a European wood.
-	if groundY ~= nil and groundY < config.SPECIES_WET_DEPTH then
-		return "alder"
-	end
+-- ONE STREAM PER PER-TREE QUESTION, the same rule as LAYER above and for the same reason: a number
+-- drawn for one decision must not decide a second one. The CLUMP's number is `hash01(clumpX, clumpZ,
+-- seed)` -- the clump's own coordinates, so every tree in a clump gets the same one -- and a TREE's
+-- number comes from `pointKey`, which folds a stream id into the seed, so a later per-tree question
+-- (a lean, a trunk size) can have its own number without moving the species.
+Scatter.STREAM = table.freeze({ species = 1 })
 
+-- THE POINT'S OWN NUMBER for one question, taken from WHERE IT IS rather than from when it was drawn.
+-- Uniform in 0..1, pure, and independent of the acceptance draw -- which is the whole point: how thick
+-- the wood is at a spot must not decide which tree stands there. The position enters at 1/16 of a
+-- stud, and the closest two trunks anywhere in this map are over 11 studs apart (`map_contract.spec`
+-- measures it over five seeds), so no two trees can share a key.
+function Scatter.pointKey(x: number, z: number, seed: number, stream: number): number
+	return hash01(math.floor(x * 16), math.floor(z * 16), seed * 31 + stream * 7919)
+end
+
+-- WHICH SPECIES LEADS THE CLUMP THIS POINT IS IN. Exposed because it is the answer to a question of
+-- its own -- "which clump is this" -- and because a spec cannot measure the mix INSIDE a clump
+-- without it (`map_contract.spec`, "the species mix does not depend on how thick the wood is").
+function Scatter.clumpLeaderAt(x: number, z: number, seed: number, config): string
 	-- The clump is a block of SPECIES_CLUMP_STUDS, its edges pushed about by the noise field so the
 	-- wood does not read as a chessboard. The field decides WHERE the boundary is; the hash decides
 	-- WHICH species the clump is, and that is what keeps the shares honest.
@@ -155,10 +181,25 @@ function Scatter.speciesAt(x: number, z: number, key: number, seed: number, conf
 	local clump = config.SPECIES_CLUMP_STUDS
 	local bx = math.floor((x + wobble) / clump)
 	local bz = math.floor((z + wobble) / clump)
-	local leader = pickByShare(species, clumpHash(bx, bz, seed))
+	return pickByShare(config.SPECIES, hash01(bx, bz, seed))
+end
+
+-- NO `key` PARAMETER, deliberately (Task 63, review round 1): the species question draws its own
+-- number here, from the point's position, so no caller can hand it a number that was drawn to answer
+-- something else. That is the whole of the fix -- the signature is what makes it stay fixed.
+function Scatter.speciesAt(x: number, z: number, seed: number, config, groundY: number?): string
+	local species = config.SPECIES
+	-- WET GROUND IS ALDER, whatever the clump says: black alder is a wet-ground tree, and a spruce
+	-- standing in a bog reads as a mistake to anyone who has walked a European wood.
+	if groundY ~= nil and groundY < config.SPECIES_WET_DEPTH then
+		return "alder"
+	end
+
+	local leader = Scatter.clumpLeaderAt(x, z, seed, config)
 
 	-- Most of a clump is its leader; the rest is drawn from the same shares, so a stand of spruce
 	-- has birch in it and the MARGINAL share of every species is still Karen's number.
+	local key = Scatter.pointKey(x, z, seed, Scatter.STREAM.species)
 	if key < config.SPECIES_CLUMP_STRENGTH then
 		return leader
 	end
@@ -170,6 +211,11 @@ end
 -- drawn key is below it. Each cell draws all three numbers before any test, so a rejected cell never
 -- shifts the draws of the cells after it -- the property `jitteredGrid` already protects, and the
 -- reason the density can be a function of position without making the count depend on the order.
+--
+-- THE KEY DOES NOT LEAVE THIS FUNCTION (Task 63, review round 1). It answered "does this tree exist",
+-- it was compared against the weight, and it is finished: a point is a POSITION. Storing it on the
+-- point is how the species came to be decided by the density, so the only way to make that mistake
+-- unrepeatable is for the number not to be there.
 function Scatter.weighted(
 	area: Area,
 	spacing: number,
@@ -189,7 +235,7 @@ function Scatter.weighted(
 			local x = area.minX + (col + 0.5) * spacing + dx
 			local z = area.minZ + (row + 0.5) * spacing + dz
 			if not (reject and reject(x, z)) and key < weight(x, z) then
-				table.insert(out, { x = x, z = z, key = key } :: any)
+				table.insert(out, { x = x, z = z })
 			end
 		end
 	end
