@@ -3,19 +3,20 @@
 Task: 45
 Round: 1
 Base: `56b2768` (task-44-map-full; stacked on 43, 41, 38, 36 and 35, none merged)
-Code commit: `PENDING` — this request's own commit, which is what both harness lines will name. The
-one-player line below is pasted after that commit exists; the two-player line arrives from the
-Director, who runs `test2` at the branch head. That sequence is exactly what claim 1 writes down.
+Code commit: `12e49a4ed2c655b12e6a741a7466e43ea93c2204` — this request's own commit, which is what
+both harness lines name. It is after the last commit that changed `src/`, `tests/` or `tools/`
+(`5be36cf`), and only this fill-in changed after it. That sequence is exactly what claim 1 writes down,
+and this is the first request written to it.
 
 Harness, clean tree, one player:
 
-    HARNESS1_LINE
+    [harness] PASS: 27/27 checks @ 12e49a4ed2c655b12e6a741a7466e43ea93c2204 (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me:
 
-    HARNESS2_LINE
+    [harness2] PASS: 30/30 checks @ 12e49a4ed2c655b12e6a741a7466e43ea93c2204 (clean tree)
 
-302 server specs (301 before this task), 70 client.
+302 server specs (301 before this task), 70 shooter-client, 64 driver-client.
 
 Generator, clean tree, same seed twice, and walkable, at `5be36cf` (the terrain change below):
 
