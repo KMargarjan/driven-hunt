@@ -601,7 +601,21 @@ return function()
 			-- ...and the leader itself did not run away with it: REPATH_INTERVAL is 0.5 s, and
 			-- Path.Blocked can force one more when a herd-mate stands on the route.
 			if total > 12 then
-				error(string.format("the leader asked %d times in 3 s, over the budget of 12", total), 0)
+				local why = {}
+				for reason, count in pairs(herdWorld.pathProblems()) do
+					table.insert(why, string.format("%dx %s", count, reason))
+				end
+				table.sort(why)
+				error(
+					string.format(
+						"the leader asked %d times in 3 s (%d failed, %d blocked%s), over the budget of 12",
+						total,
+						after.pathFailures - before.pathFailures,
+						after.pathBlocked - before.pathBlocked,
+						if #why > 0 then "; " .. table.concat(why, ", ") else ""
+					),
+					0
+				)
 			end
 			expect(after.pathFailures).to.equal(0)
 		end)
