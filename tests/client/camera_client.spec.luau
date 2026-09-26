@@ -454,15 +454,26 @@ return function()
 			probe.CanQuery = false
 			probe.Parent = character
 
-			-- Wait for the deferred DescendantAdded, re-asserting the flag as the camera lowers it.
+			-- Wait for the deferred DescendantAdded, re-asserting the flag as the camera lowers it --
+			-- and READ IN THE SAME BREATH AS THE WRITE. The first version of this loop read after the
+			-- `task.wait()`, which is always just after a `Camera.step` that set the flag from the real
+			-- aim blend and wrote every listed part back to 0: it could never see a 1, and said so.
+			local hidden = false
 			local deadline = os.clock() + 3
-			while os.clock() < deadline and probe.LocalTransparencyModifier ~= 1 do
+			while os.clock() < deadline do
 				Camera.Rig.setLocalBodyHidden(true)
+				if probe.LocalTransparencyModifier == 1 then
+					hidden = true
+					break
+				end
 				task.wait()
 			end
-			expect(probe.LocalTransparencyModifier).to.equal(1)
+			expect(hidden).to.equal(true)
 
-			-- Out of the character, exactly as the Tool reparents to the Backpack on unequip.
+			-- Out of the character while hidden, exactly as the Tool reparents to the Backpack when the
+			-- player unequips mid-aim. Nothing writes this part after it leaves the list, so reading it
+			-- at any later moment is safe -- which is the whole defect: without the restore it stays at
+			-- 1 for the rest of the life.
 			probe.Parent = Workspace
 			deadline = os.clock() + 3
 			while os.clock() < deadline and probe.LocalTransparencyModifier ~= 0 do
