@@ -44,6 +44,10 @@ export type MarkerSet = {
 	lineParts: number,
 	driverStart: BasePart?,
 	boarSpawns: { Vector3 },
+	-- How far from a boar spawn the MAP guarantees flat ground. The drive passes it to the boar
+	-- runtime so a sounder's ring is spread only where a member cannot be spawned inside a hill
+	-- (docs/design/drive.md, "spacing at the spawn -- and the pad is the contract").
+	spawnRadius: number,
 	trees: { BasePart },
 	complete: boolean,
 	missing: { string },
@@ -112,6 +116,9 @@ function Markers.read(service: any?): MarkerSet
 		lineParts = #lines,
 		driverStart = starts[1],
 		boarSpawns = table.freeze(boarSpawns),
+		-- FROM THE CONTRACT, not a number of this module's own: Director decision I, build against
+		-- Map.SPAWN_PAD and let whoever widens the pad change one number there.
+		spawnRadius = Map.SPAWN_PAD.radius,
 		trees = table.freeze(trees),
 		complete = #missing == 0,
 		missing = table.freeze(missing),
