@@ -3,19 +3,30 @@
 Task: 48
 Round: 1
 Base: `5a17776` (task-47-audit004; stacked on 45, 44, 43, 41, 38, 36 and 35, none merged)
-Code commit: `PENDING` — this request's own commit, which is what both harness lines name (CLAUDE.md
-git workflow step 4). The last commit that changed `src/`, `tests/` or `tools/` is `163ed7c`.
+Code commit: `7adcb754041f88ec154f92df36189a9546c6f9bc` — this request's own commit, which is what
+both harness lines name (CLAUDE.md git workflow step 4). The last commit that changed `src/`, `tests/`
+or `tools/` is `163ed7c`, and only this fill-in changed after it.
 
 Harness, clean tree, one player:
 
-    HARNESS1_LINE
+    [harness] PASS: 28/28 checks @ 7adcb754041f88ec154f92df36189a9546c6f9bc (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me:
 
-    HARNESS2_LINE
+    [harness2] PASS: 30/30 checks @ 7adcb754041f88ec154f92df36189a9546c6f9bc (clean tree)
 
-307 server specs (303 before this task), 74 client. **28 harness checks, not 27**: the drive-clock
-seam is one of them now.
+307 server specs (303 before this task), 74 shooter-client, 68 driver-client. **28 harness checks, not
+27**: the drive-clock seam is one of them now.
+
+**AND THE RUN BEFORE IT FAILED, at the same commit.** The Director ran `test2` twice at `7adcb75`:
+
+    run 1:  [harness2] FAIL: 28/30 — shooter 73 passed / 1 failed
+            weapon_client.spec:246  Weapon.Input.watchedTools() <= 1   (the 24a(c) watcher-leak test)
+    run 2:  [harness2] PASS: 30/30 checks @ 7adcb754041f88ec154f92df36189a9546c6f9bc (clean tree)
+
+That test is **intermittent**, it is not one this task touched, and the PASS above is therefore a pass
+with a known flake behind it. What I believe causes it is claim 11; it is queued as row 48a, not fixed,
+because the dispatch says so and because a guess dressed as a fix is worse than a queued diagnosis.
 
 ## What changed
 
@@ -92,6 +103,23 @@ run with the fix removed and the failure is quoted.
    argument is worth: at the bog's centre, omitting it is wrong by exactly `bog.depth` studs, and
    outside the bog it changes nothing.
 
+11. **The intermittent failure, diagnosed but not fixed.** `it("listens to ONE Tool, however many
+    the session has destroyed")` asserts `Weapon.Input.watchedTools() <= 1` at one arbitrary moment.
+    `src/client/Weapon/Input.luau` watches a Tool from `ChildAdded` on the Backpack (`watchTool`) and
+    forgets it from **`tool.AncestryChanged`** when its parent becomes nil (`forgetTool`) — and
+    Roblox's signals are **deferred**, which I measured in Task 47 for `DescendantAdded`
+    (`synchronous=false ; afterOneWait=true`). So on a respawn the order is: the old Tool is destroyed
+    with the old character; the server grants a new one (`Weapon.grant` on `CharacterAdded`); the new
+    Tool lands in the new Backpack and is watched **immediately**; the old Tool's `AncestryChanged`
+    handler runs at the next resumption point. Between those two, `watchedTools()` is legitimately
+    **2**. The drive places players through `Match.Body.place` → `LoadCharacter`, so in a two-player
+    run that window can fall exactly where this spec samples.
+    **That is a timing assumption in the test, not a leak in the owner** — a real leak would never
+    settle. The fix I would write is to retry for a second or two and fail only if it stays above one,
+    which still catches the leak 24a(c) was about. Row 48a carries it, and **I did not change the code
+    this round**: the dispatch says to queue it unless the review makes it blocking, and I cannot run
+    `test2` myself to show a fix worked.
+
 10. **Nothing else changed.** `git diff --stat 5a17776..163ed7c`: `TestKit.luau`, two server specs,
     three `MapGen` files and `tools/studio_mcp.py`. No gameplay change, no new generator step.
 
@@ -108,3 +136,6 @@ run with the fix removed and the failure is quoted.
   cannot run myself would risk failing the Director's run. Queued for 48a.
 * **The three dirty-tree demonstrations are not evidence of the committed state** — they are evidence
   that the checks bite. The committed state is the clean-tree line above.
+* **Claim 11 is a reading, not a measurement.** I did not catch `watchedTools()` at 2: the failing run
+  was the Director's and I cannot run `test2`. The deferred-signal half IS measured (Task 47); the
+  respawn ordering is read from `Input.watchTool` / `forgetTool` and `Weapon.grant`.
