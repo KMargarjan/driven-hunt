@@ -2,14 +2,15 @@
 
 Task: 52
 Round: 1
-Base: `edc3136` (`main`; everything through Task 49 merged. Task 50 is **not** merged, so this
-branch has the pre-Task-50 harness)
-Code commit: `f67834110bd6c2b1f62eef25b8591284f4fe8a44` — the `[harness]` line below names it, it is
-the last commit that changed `src/`, `tests/` or `tools/`, and only this request changes after it.
+Base: `4ee25d2` (`main`, with Task 50 merged as PR #47). This branch started from `edc3136` and
+`origin/main` is **merged into it** at `a519cfe` — a merge, no rebase, no force push.
+Code commit: `a519cfec628e85967ef9bbf67d1d4d144892b1b0` (the merge) — the `[harness]` line below
+names it, it is the last commit that changed `src/`, `tests/` or `tools/`, and only this request
+changes after it.
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 30/30 checks @ f67834110bd6c2b1f62eef25b8591284f4fe8a44 (clean tree)
+    [harness] PASS: 30/30 checks @ a519cfec628e85967ef9bbf67d1d4d144892b1b0 (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me:
 
@@ -21,8 +22,9 @@ spec PASSED on all three sides (server 327, shooter 81, driver 75) and the harne
 `[harness2] FAIL: RuntimeError: execute_luau: This call is missing the required studio_id argument`.
 Claim 11.
 
-327 server specs (307 before: **20 new**) and 81 client specs (75 before: **6 new**). 30 harness
-checks (28 before: **2 new**, the flag-override guards).
+327 server specs (307 before Task 52: **20 new**) and **84** client specs (6 new here, 3 from
+Task 50's look-at work, which this branch now carries). 30 harness checks (28 before: **2 new**, the
+flag-override guards). Task 50's phase table and replay split are in the run output, unchanged.
 
 ## The measurements, first, before a line of code (design §15)
 
@@ -138,17 +140,39 @@ measurement 2 is the Director's `test2`, and until it is green that half is infe
     refused the same way. Verify: `Studio._scoped`, `_call`, `capture`, `Studio.default_studio_id`'s
     comment, the `run_test2` line that sets it, `flag_overrides`, `run_flags`.
 
+12. **Task 50 is merged in, and both harnesses survive.** Four conflicts in
+    `tools/studio_mcp.py`, and in every one **both sides are kept**: the docstring gains both new
+    sections; `Studio.__init__` gains main's `self.replies` (the id-keyed reply map that lets more
+    than one request be in flight) **and** `self.default_studio_id`; `run_flags` and `selftest` both
+    exist; the command tuple gains both `flags` and `selftest`. `TASKS.md` keeps rows 50 and 52.
+    Nothing under `src/` or `tests/` was deleted by the merge. Verify: `git log --merges -1`,
+    `python tools/studio_mcp.py selftest`, `python tools/flags.py`, and the run output above, which
+    carries Task 50's phase table *and* the two flag checks.
+
+13. **The `studio_id` class was re-audited after the merge, and Task 50 had added a third
+    argument-builder.** `Studio.send_input_many` built its own arguments and named only explicit
+    ids — nothing broken today, because `replay_input` always names its targets, but an unnamed call
+    there would be refused the moment a local test exists, which is exactly when that method is
+    used. It asks `_scoped` now, like `_call` and `capture`; **all three builders are scoped and
+    nothing else builds arguments.** The merge also gave the fix a home it did not have on the old
+    base: **nine new `selftest` cases** (unnamed stays unnamed with no default; a default scopes
+    `execute_luau`, `get_studio_state`, `get_console_output` and `start_stop_play`; an explicit id
+    wins; `list_roblox_studios` is never scoped; `capture` agrees both ways) plus one that **counts
+    argument builders against `_scoped` calls**, so the class cannot quietly reopen. Checked by
+    mutation: un-scoping `send_input_many` fails `every argument builder asks _scoped: 4 vs 5`.
+    Verify: `Studio._scoped` and its three call sites; `selftest`'s block 9b.
+
 ## What I could not verify
 
 - **No `[harness2]` for this commit yet.** The run at `ab4380c` proved the flags system itself —
   every spec passed on all three sides, which is the cross-process digest claim and the two-client
   half of §15 item 2 — but it died in the teardown, so there is no PASS line. The scoping fix
   changes only `tools/studio_mcp.py`, so a fresh run is needed and it is the Director's to make.
-- **The scoping fix is proved against a fake transport, not against four Studios.** Five cases over
-  seven calls: unnamed with no default stays unnamed; a default scopes `execute_luau`,
-  `get_studio_state`, `get_console_output` and `start_stop_play`; an explicit id wins;
-  `list_roblox_studios` stays unscoped; `capture` agrees with `_call`. The multi-Studio proof needs
-  four Studios and is the `test2` run itself.
+- **The scoping fix is proved against a fake transport, not against four Studios.** It is nine
+  `selftest` cases now, and CI runs them, but the multi-Studio refusal itself needs four Studios and
+  is the `test2` run.
+- **The merge has not had a two-player run.** Task 50's speed work and Task 52's guards have each
+  passed `test2` separately, never together.
 - **`flags live` was not run.** It needs a running Play session, which is the Director's `test2` or a
   playtest. `set`, `clear`, the table and both refusals were driven by hand; `live` was not.
 - **"A published place ignores `DHFlag_*`" is proved only through the injected parameter.** No
