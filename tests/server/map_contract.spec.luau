@@ -245,22 +245,41 @@ return function()
 	end)
 
 	describe("the generator's layout", function()
-		it("plans exactly the markers the generated map is checked for", function()
+		it("plans exactly the markers the configuration asks for", function()
 			local c = config()
 			local counts = {}
 			for _, marker in ipairs(MapGen.Layout.markers(c)) do
 				counts[marker.kind] = (counts[marker.kind] or 0) + 1
 			end
-			local expected = MapGen.expectedCounts()
-			expect(counts.shooterPost).to.equal(expected.shooterPost)
+			-- Against the CONFIGURATION, not against MapGen.expectedCounts(): that function is the
+			-- same loop over the same data, so comparing the two could not fail for any layout,
+			-- right or wrong (review round 1, finding 2).
+			expect(counts.shooterPost).to.equal(c.SLICE.postCount)
+			expect(counts.boarSpawn).to.equal(#c.SLICE.boarSpawnX)
 			expect(counts.driveLine).to.equal(1)
 			expect(counts.driverStart).to.equal(1)
-			expect(counts.boarSpawn).to.equal(expected.boarSpawn)
-			expect(expected.tree).to.equal(c.SLICE.tieTrees)
 			-- Every kind has a tag string in the contract, so nothing can be placed untaggable.
 			for _, marker in ipairs(MapGen.Layout.markers(c)) do
 				expect(Map.TAGS[marker.kind]).to.be.a("string")
 			end
+		end)
+
+		it("expects one tagged instance per planned marker, plus the tie trees", function()
+			local c = config()
+			local expected = MapGen.expectedCounts()
+			local planned = 0
+			for _, marker in ipairs(MapGen.Layout.markers(c)) do
+				planned += 1
+				expect(expected[marker.kind]).to.be.a("number")
+			end
+			local total = 0
+			for kind, count in pairs(expected) do
+				expect(Map.TAGS[kind]).to.be.a("string")
+				total += count
+			end
+			-- The map's own expectation is every marker it places plus the trunks it tags, and
+			-- nothing else: a sixth kind added to Layout without a tag would break this.
+			expect(total).to.equal(planned + c.SLICE.tieTrees)
 		end)
 
 		it("keeps every boar spawn it plans inside the contract's field", function()

@@ -85,9 +85,11 @@ end
 -- The template for a key, inserted once per run into the run's own Assets folder, or nil when there
 -- is no id yet -- which means "the caller places a proxy", not "the step failed" (section 8.3).
 --
--- UNEXERCISED IN M2.1: `Assets.ROWS` is empty, so this returns nil for every key and the insertion
--- path below has never run. It is written now because the refusal above is the part that must exist
--- before the first id arrives, not after it.
+-- EVERY PLACING STEP CALLS THIS FIRST, and proxies only on nil. That is the whole of section 8.3: the
+-- day a row lands in `Assets.ROWS`, the same step clones the asset instead of building a box, with no
+-- other change. `proxyUsed` therefore reports the keys that WERE proxied, not the keys that exist.
+-- In M2.1 `Assets.ROWS` is empty, so the nil branch is the one that runs and the insertion branch
+-- below -- LoadAsset, the cache, the script refusal -- is dormant until the first id (row 43a(d)).
 function Props.template(key: string, root: Instance): (Instance?, string?)
 	local row = Assets.byKey(key)
 	if row == nil then
@@ -128,15 +130,54 @@ function Props.clearAssets(root: Instance)
 	end
 end
 
+-- One placed thing: a clone of the asset when there is one, and a proxy Part of the same footprint
+-- when there is not. Returns the instance and whether it was a proxy, so the caller can count.
+local function placed(
+	template: Instance?,
+	name: string,
+	size: Vector3,
+	position: Vector3,
+	color: Color3,
+	material: Enum.Material,
+	parent: Instance
+): (Instance, boolean)
+	if template then
+		-- InsertService:LoadAsset returns a container Model; the asset itself is its first child.
+		local source = template:GetChildren()[1] or template
+		local clone = source:Clone()
+		clone.Name = name
+		for _, descendant in ipairs(clone:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				descendant.Anchored = true
+			end
+		end
+		if clone:IsA("Model") then
+			clone:PivotTo(CFrame.new(position))
+		elseif clone:IsA("BasePart") then
+			clone.Anchored = true
+			clone.Position = position
+		end
+		clone.Parent = parent
+		return clone, false
+	end
+	return part(name, size, position, color, material, parent), true
+end
+
 -- The hedgerow: one segment per polyline point, each sitting on the ground under it.
-function Props.hedge(root: Instance, seed: number, config): (number, { string })
+function Props.hedge(root: Instance, seed: number, config): (number, { string }, string?)
+	local template, why = Props.template(Assets.KEY.hedge, root)
+	if why then
+		return 0, {}, why
+	end
 	local parent = folder(propsFolder(root), "Hedge")
 	local pads = Layout.pads(config)
 	local points = Layout.hedgerow(config)
 	local size = config.HEDGE.size
+	local proxied = 0
 	for index, point in ipairs(points) do
 		local y = Height.atFlattened(point.x, point.z, seed, config, pads)
-		part(
+		local _, wasProxy = placed(
+			template,
 			string.format("Hedge%03d", index),
 			size,
 			Vector3.new(point.x, y + size.Y / 2, point.z),
@@ -144,49 +185,76 @@ function Props.hedge(root: Instance, seed: number, config): (number, { string })
 			Enum.Material.Grass,
 			parent
 		)
+		if wasProxy then
+			proxied += 1
+		end
 	end
-	return #points, { Assets.KEY.hedge }
+	return #points, (if proxied > 0 then { Assets.KEY.hedge } else {}), nil
 end
 
 -- The wood: `SLICE.treeCount` trees, each a Model of trunk plus crown so the screenshots answer
 -- "does this read as woods or as poles" (design section 13.3). Each is a PROXY while there is no
 -- asset id, and a proxy is the same footprint and height as the model that replaces it.
-function Props.trees(root: Instance, seed: number, config): (number, { string })
+function Props.trees(root: Instance, seed: number, config): (number, { string }, string?)
+	local template, why = Props.template(Assets.KEY.treeSpruce, root)
+	if why then
+		return 0, {}, why
+	end
 	local parent = folder(propsFolder(root), "Trees")
 	local pads = Layout.pads(config)
 	local points = Scatter.trees(config, seed, function(x, z)
 		return Layout.inCorridor(x, z, config) or Layout.onTrack(x, z, config)
 	end)
 	local trunk, crown = config.TREE_PROXY.trunk, config.TREE_PROXY.crown
+	local proxied = 0
 	for index, point in ipairs(points) do
 		local y = Height.atFlattened(point.x, point.z, seed, config, pads)
-		local model = Instance.new("Model")
 		-- Zero-padded, so the lexicographic order the digest and `trunks` sort by IS the placement
 		-- order: "Tree10" sorts before "Tree2" and a diff would then name a shuffle, not a move.
-		model.Name = string.format("Tree%03d", index)
-		model.Parent = parent
-		local stem = part(
-			"Trunk",
-			trunk,
-			Vector3.new(point.x, y + trunk.Y / 2, point.z),
-			Color3.fromRGB(78, 62, 46),
-			Enum.Material.Wood,
-			model
-		)
-		part(
-			"Crown",
-			crown,
-			Vector3.new(point.x, y + trunk.Y + crown.Y / 2 - 3, point.z),
-			config.PROXY_COLOR.tree,
-			Enum.Material.Grass,
-			model
-		)
-		model.PrimaryPart = stem
+		local name = string.format("Tree%03d", index)
+		if template then
+			placed(
+				template,
+				name,
+				trunk,
+				Vector3.new(point.x, y, point.z),
+				config.PROXY_COLOR.tree,
+				Enum.Material.Wood,
+				parent
+			)
+		else
+			-- The proxy: trunk plus crown, one Model, so a tie can hold on to the trunk and a
+			-- screenshot answers "woods or poles" honestly.
+			local model = Instance.new("Model")
+			model.Name = name
+			model.Parent = parent
+			local stem = part(
+				"Trunk",
+				trunk,
+				Vector3.new(point.x, y + trunk.Y / 2, point.z),
+				Color3.fromRGB(78, 62, 46),
+				Enum.Material.Wood,
+				model
+			)
+			part(
+				"Crown",
+				crown,
+				Vector3.new(point.x, y + trunk.Y + crown.Y / 2 - 3, point.z),
+				config.PROXY_COLOR.tree,
+				Enum.Material.Grass,
+				model
+			)
+			model.PrimaryPart = stem
+			proxied += 1
+		end
 	end
-	return #points, { Assets.KEY.treeSpruce }
+	return #points, (if proxied > 0 then { Assets.KEY.treeSpruce } else {}), nil
 end
 
--- Every trunk, in the order Props placed them, for Markers to tag the tie trees from.
+-- The taggable part of every tree, in the order Props placed them, for Markers to tag the tie trees
+-- from. A proxy's is its Trunk (which is also its PrimaryPart); an asset's is whatever the model calls
+-- its PrimaryPart, falling back to its first BasePart -- so this works before and after the ids
+-- arrive, which is the point of section 8.3.
 function Props.trunks(root: Instance): { BasePart }
 	local out: { BasePart } = {}
 	local props = root:FindFirstChild("Props")
@@ -199,8 +267,13 @@ function Props.trunks(root: Instance): { BasePart }
 		return a.Name < b.Name
 	end)
 	for _, model in ipairs(models) do
-		local stem = model:FindFirstChild("Trunk")
-		if stem and stem:IsA("BasePart") then
+		local stem: BasePart? = nil
+		if model:IsA("BasePart") then
+			stem = model
+		elseif model:IsA("Model") then
+			stem = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
+		end
+		if stem then
 			table.insert(out, stem)
 		end
 	end

@@ -158,14 +158,20 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		local tile = Layout.tiles(Config)[index - 1] -- step 1 is the clear, so tile n is step n + 1
 		return finish({ ok = true, voxelsWritten = Ground.writeTile(tile, seed, Config) })
 	elseif spec.kind == "hedgerow" then
-		local count, keys = Props.hedge(ensureRoot(), seed, Config)
+		local count, keys, why = Props.hedge(ensureRoot(), seed, Config)
+		if why then
+			return finish({ ok = false, message = why })
+		end
 		return finish({ ok = true, partsCreated = count, proxyUsed = keys })
 	elseif spec.kind == "track" then
 		return finish({ ok = true, voxelsWritten = Ground.paintTrack(Config) })
 	elseif spec.kind == "props" then
 		local root = ensureRoot()
-		local count, keys = Props.trees(root, seed, Config)
+		local count, keys, why = Props.trees(root, seed, Config)
 		Props.clearAssets(root) -- no template outlives the run (design section 8.2)
+		if why then
+			return finish({ ok = false, message = why })
+		end
 		if count < Config.SLICE.treeCount then
 			return finish({
 				ok = false,
@@ -189,11 +195,14 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		end
 		return finish({ ok = true, partsCreated = total, message = string.format("%d tie trees tagged", tagged) })
 	elseif spec.kind == "settings" then
-		local changed, unreachable = Settings.apply(Map.STREAMING)
+		local changed, unreachable, unwritten = Settings.apply(Map.STREAMING)
 		local note = if #changed == 0 then "already matched the contract" else "changed " .. table.concat(changed, ", ")
 		if #unreachable > 0 then
 			-- Not a failure: measured, four of the five are Studio-panel settings (Settings.luau).
 			note ..= "; not reachable from Luau: " .. table.concat(unreachable, ", ")
+		end
+		if #unwritten > 0 then
+			note ..= "; readable but NOT written: " .. table.concat(unwritten, ", ")
 		end
 		return finish({ ok = true, message = note })
 	end

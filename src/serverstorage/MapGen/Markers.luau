@@ -78,11 +78,16 @@ function Markers.tagTieTrees(root: Instance, config): number
 	for _, trunk in ipairs(trunks) do
 		table.insert(points, { x = trunk.Position.X, z = trunk.Position.Z })
 	end
+	-- Counts every tie tree that ends up tagged, not only the ones this call newly tagged: re-running
+	-- the step on an unchanged map would otherwise report "0 tie trees tagged" for a map that has
+	-- twelve (review round 1, note).
 	local tagged = 0
 	for _, index in ipairs(Layout.tieTrees(points, config)) do
 		local trunk = trunks[index]
-		if trunk and not CollectionService:HasTag(trunk, Map.TAGS.tree) then
-			CollectionService:AddTag(trunk, Map.TAGS.tree)
+		if trunk then
+			if not CollectionService:HasTag(trunk, Map.TAGS.tree) then
+				CollectionService:AddTag(trunk, Map.TAGS.tree)
+			end
 			tagged += 1
 		end
 	end

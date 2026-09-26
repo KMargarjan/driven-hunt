@@ -21,8 +21,8 @@ local Settings = {}
 
 -- Applies the contract's streaming block. Returns what it changed, so a step report says "nothing"
 -- when nothing moved instead of claiming a write it did not make.
-function Settings.apply(streaming): ({ string }, { string })
-	local changed, unreachable = {}, {}
+function Settings.apply(streaming): ({ string }, { string }, { string })
+	local changed, unreachable, unwritten = {}, {}, {}
 	local wanted: { [string]: any } = {
 		StreamingEnabled = streaming.enabled,
 		StreamingMinRadius = streaming.minRadius,
@@ -36,14 +36,23 @@ function Settings.apply(streaming): ({ string }, { string })
 		end)
 		if not readable then
 			table.insert(unreachable, property)
-		elseif typeof(current) == "boolean" and current ~= value then
-			(Workspace :: any)[property] = value
-			table.insert(changed, property)
+		elseif typeof(current) == "boolean" then
+			if current ~= value then
+				(Workspace :: any)[property] = value
+				table.insert(changed, property)
+			end
+		else
+			-- Readable, but not a boolean: the four M2.6 values are two numbers and two enum names,
+			-- and this module will not convert a string to an Enum and guess. Reported as a THIRD
+			-- class rather than skipped, so the day the engine exposes one, the step says "I did not
+			-- write this" instead of "already matched the contract" (review round 1, note).
+			table.insert(unwritten, property)
 		end
 	end
 	table.sort(changed)
 	table.sort(unreachable)
-	return changed, unreachable
+	table.sort(unwritten)
+	return changed, unreachable, unwritten
 end
 
 -- What the place currently says, as plain strings, so a run log records it.

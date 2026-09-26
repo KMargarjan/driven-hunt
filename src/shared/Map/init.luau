@@ -3,9 +3,10 @@
 -- The Builder edits this file and git records it; nothing in the game assigns to it.
 --
 -- It is the one home for three facts that would otherwise exist in several places:
---   * WHICH WORLD IS THE WORLD (EXPECTED_WORLD). One string, in a diff, read by ArenaBoot and by
---     tests/server/map_contract.spec.luau. It cannot be half-on, and it is never answered by looking
---     for a folder in Workspace -- a predicate like that lies the moment a run half-finishes.
+--   * WHICH WORLD IS THE WORLD (EXPECTED_WORLD). One string, in a diff, read today by
+--     tests/server/map_contract.spec.luau, and by ArenaBoot from M2.5, when the switch gives the
+--     arena an early return (design section 9.2). It cannot be half-on, and it is never answered by
+--     looking for a folder in Workspace -- a predicate like that lies the moment a run half-finishes.
 --   * THE TAG STRINGS. Before this, "DrivenHunt.ShooterPost" lived in TestArena, Match.Markers and
 --     (soon) MapGen.Markers: three copies of one fact, where a typo yields a silent empty GetTagged.
 --   * THE DRIVE RECTANGLE, which must equal Boar.CONFIG.field. The spec asserts they are equal.

@@ -361,7 +361,9 @@ is not a preference, it is the only value the API takes**. The design's tile row
 "unverified" on the resolution is closed. `Config.VOXEL = 4` carries this measurement as a comment.
 
 The whole 512-stud slice is 16 such tiles, and all 16 wrote 24,576 voxels each with no failure and no
-chunking trouble: `[mapgen] OK step 2..17/22 · voxelsWritten=24576`.
+chunking trouble. One of the sixteen lines, verbatim:
+
+    [mapgen] OK  step 2/22 · terrain tile 1/16 (x=-256..-128, z=-256..-128) · voxelsWritten=24576 · 6 ms
 
 ### B. Do tags survive a save and a reopen? — **NOT MEASURED**
 
@@ -437,8 +439,9 @@ every existing system, which is M2.6's task with a playtest and not M2.1's.
 `python tools/mapgen.py verify --seed 7` built the slice, digested it, cleared it, built it again and
 digested it again:
 
-    build 1: digest=87abf2678bfa13bdbe3e936fb34c1d0582b1109f8aef56492de14bff476add99 parts=153
-    build 2: digest=87abf2678bfa13bdbe3e936fb34c1d0582b1109f8aef56492de14bff476add99 parts=153
+    [mapgen] build 1: digest=87abf2678bfa13bdbe3e936fb34c1d0582b1109f8aef56492de14bff476add99 parts=153
+    [mapgen] build 2: digest=87abf2678bfa13bdbe3e936fb34c1d0582b1109f8aef56492de14bff476add99 parts=153
+    [mapgen] OK: same seed twice, same digest @ afb983a8208edbaff329625bd4f6f845f28ec16d seed=7 digest=87abf2678bfa13bdbe3e936fb34c1d0582b1109f8aef56492de14bff476add99 (clean tree)
 
 The digest covers 153 instances with their positions, sizes and tags **and 4,096 terrain occupancy
 samples**, so this says `math.noise` is stable within a session and the whole pipeline is

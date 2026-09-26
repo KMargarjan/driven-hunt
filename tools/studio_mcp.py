@@ -1272,10 +1272,11 @@ def run_test(studio):
             deadline = time.time() + REPORT_WINDOW
             while pending and time.time() < deadline:
                 for side, datamodel in list(pending.items()):
-                    # process_call, not a bare query: a transient StudioMCP error while polling is
-                    # something to retry inside REPORT_WINDOW, not a traceback out of the whole run.
-                    # The wait_for this loop replaced swallowed RuntimeError, and run_test2's
-                    # equivalent loop has always used this (TASKS.md 41a(a)).
+                    # process_call, not a bare query: while a Play session is starting, StudioMCP
+                    # answers "place is not open" and the like, and those are what process_call
+                    # retries (still_loading; anything else it re-raises). The wait_for this loop
+                    # replaced swallowed them, and run_test2's equivalent loop has always used this
+                    # (TASKS.md 41a(a)).
                     raw, _why = process_call(
                         lambda: studio.query(datamodel, QUERY_REPORT[side]), timeout=0, default="")
                     if raw:
@@ -1283,8 +1284,13 @@ def run_test(studio):
                         print(f"[harness] {side} reported after {int(time.time() - (deadline - REPORT_WINDOW))} s")
                         del pending[side]
                         if side == "client":
-                            # The server's last spec waits for this before it ends the drive.
-                            studio.query("Server", QUERY_SET_CLIENTS_DONE % json.dumps(token))
+                            # The server's last spec waits for this before it ends the drive. Wrapped
+                            # like the poll above and like run_test2's equivalent: a loading-class
+                            # error here would otherwise end the run with a traceback one second
+                            # before the handshake would have landed.
+                            process_call(
+                                lambda: studio.query("Server", QUERY_SET_CLIENTS_DONE % json.dumps(token)),
+                                timeout=10)
                 if pending:
                     time.sleep(1)
             output = studio.console()
