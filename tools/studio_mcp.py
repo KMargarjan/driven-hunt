@@ -325,7 +325,9 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
     6. It stops each test instance and, if any remain, says to press Cleanup.
     7. It prints a PHASE TABLE: how many seconds each phase of the run took (Task 50), so the next
        person to make this faster -- or to notice it got slower -- reads it out of the same output
-       that carries the verdict. `test` prints one too.
+       that carries the verdict. `test` prints one too. It comes out on EVERY path, a refusal and a
+       half-finished run included, because a run that died waiting is the one whose timing most
+       wants explaining.
   Final line: "[harness2] PASS|FAIL: n/m checks @ <full HEAD sha> (clean tree | DIRTY TREE ...)".
   A [harness2] line is NOT a substitute for a [harness] line as PR evidence: this mode runs none of
   `test`'s checks 4-6 (disk-vs-Studio comparison, no-script-outside-Rojo, spec placement). It is an
@@ -1360,6 +1362,7 @@ def run_test(studio):
         dirty = dirty_start or dirty_end
         passed = all(checks) and code is None
         tree = "clean tree" if not dirty else f"DIRTY TREE ({len(set(dirty_start + dirty_end))} paths) - NOT valid evidence"
+        phases.report()
         print(f"[harness] {'PASS' if passed else 'FAIL'}: {sum(checks)}/{len(checks)} checks @ {sha} ({tree})")
         if dirty:
             for line in sorted(set(dirty_start + dirty_end))[:10]:
@@ -1521,7 +1524,6 @@ def run_test(studio):
     seam = (reports.get("server") or {}).get("seamClosed")
     check("the drive-clock seam closed when the server run finished", seam is True, repr(seam))
     phases.mark("ending Play, checking the reports")
-    phases.report()
     return verdict()
 
 
@@ -1774,6 +1776,9 @@ def run_test2(studio, wait_seconds=180):
         dirty = dirty_start or dirty_end
         passed = all(checks) and code is None
         tree = "clean tree" if not dirty else f"DIRTY TREE ({len(set(dirty_start + dirty_end))} paths) - NOT valid evidence"
+        # BEFORE the verdict line and on EVERY path out, including a refusal and a half-finished run:
+        # a run that died waiting is the one whose timing most wants explaining (Task 50).
+        phases.report()
         print(f"[harness2] {'PASS' if passed else 'FAIL'}: {sum(checks)}/{len(checks)} checks @ {sha} ({tree})")
         if dirty:
             for line in sorted(set(dirty_start + dirty_end))[:10]:
@@ -2002,7 +2007,6 @@ def run_test2(studio, wait_seconds=180):
 
     end_session(studio, before)
     phases.mark("reading consoles, checking reports, ending the session")
-    phases.report()
     return verdict()
 
 
