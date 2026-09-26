@@ -3,8 +3,9 @@
 Task: 66
 Round: 1
 Base: `4aa2962` (`main`, with Task 63 merged)
-Code commit: `2fcafba34470c8cefe6ac2d271da12f951551d3d` — the `[harness]` line below names it, and it is
-the last commit that changed `src/`, `tests/` or `tools/`.
+Code commit: `41f473513ea1f3d655fad616251144c3dad9c1b5` — **both** harness lines below name it. It is a
+PAPERWORK commit: the last commit that changed `src/`, `tests/` or `tools/` is `2fcafba`, and
+`git diff --name-only 2fcafba..41f4735` is `TASKS.md` and this file.
 
 Harness, clean tree, one player:
 
@@ -12,8 +13,11 @@ Harness, clean tree, one player:
 
 Harness, clean tree, two players — **run by the DIRECTOR, not by me** (`src/` changed):
 
-    [harness2] NOT YET RUN — this line and the `Code commit:` above are updated to the head the
-    Director runs it at, as in Task 63 (`20f2281`, "both harness lines at 4755ad8").
+    [harness2] PASS: 32/32 checks @ 41f473513ea1f3d655fad616251144c3dad9c1b5 (clean tree)
+
+The one-player line names `2fcafba` and the two-player line names `41f4735`, which is `2fcafba`
+plus this file and the `TASKS.md` rows: the `Code commit:` above is the later of the two, so both
+runs cover every line of code in the branch (git workflow step 4).
 
 382 server specs (378 before: **four new**), 84 shooter and 78 driver client specs. **The map is
 CLEARED from the place**: `cellsAfter: 0`, `paletteRestored: true`, and a `census` afterwards shows
@@ -93,5 +97,7 @@ field boundary, reeds at the bog — "all proxies", plus "one new close view". D
   of it should collide when real meshes arrive is a Director/Architect call, queued as 66a(a).
 - **The fence reads as a thin line at 100 studs** in an open field, and is essentially invisible from
   the road. I looked at it from 20 studs to describe it honestly; nobody will see it while playing.
-- **No `[harness2]`** was run by me.
+- **`[harness2]` was run by the Director, not by me.** This change is generator code that runs in
+  Edit and puts nothing in a play session, so the two-player run is the gate's requirement rather
+  than evidence I produced.
 - **The screenshots are seed 1**; the specs are pure and run at `SEED = 7`.
