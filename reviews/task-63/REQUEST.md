@@ -1,123 +1,112 @@
 # Task 63 — M2.8b: the wood
 
 Task: 63
-Round: 1
+Round: 2
 Base: `4a0a7d5` (`main`, with Task 61 merged)
-Code commit: `1484bac6416107dadb48adbc63ade5c3cb70761d` — **both** harness lines below name it. It
-is a PAPERWORK commit: the last commit that changed `src/`, `tests/` or `tools/` is `be43f61`, and
-`git diff --name-only be43f61..1484bac` is `TASKS.md` and this file.
+Code commit: `a2ebfca4111c92b333ce2fd2cefae3c198f50425` — the `[harness]` line below names it, and it
+is the last commit that changed `src/`, `tests/` or `tools/`.
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 30/30 checks @ 1484bac6416107dadb48adbc63ade5c3cb70761d (clean tree)
+    [harness] PASS: 30/30 checks @ a2ebfca4111c92b333ce2fd2cefae3c198f50425 (clean tree)
 
-Harness, clean tree, two players — run by the DIRECTOR, not by me:
+Harness, clean tree, two players — **run by the DIRECTOR, not by me**, at the branch head:
 
-    [harness2] PASS: 32/32 checks @ 1484bac6416107dadb48adbc63ade5c3cb70761d (clean tree)
+    [harness2] NOT YET RUN — this line and the `Code commit:` above are updated to the head the
+    Director runs it at, exactly as round 1 did (`02feb68`, "both harness lines at 1484bac").
 
-377 server specs (374 before), 84 shooter and 78 driver client specs. **The map is CLEARED from the place**:
-`removed: 9031`, `cellsAfter: 0`, `paletteRestored: true`.
+378 server specs (377 before: **one new**), 84 shooter and 78 driver client specs. **The map is
+CLEARED from the place**: `cellsBefore: 3381368`, `cellsAfter: 0`, `paletteRestored: true`, and a
+`census` afterwards shows Workspace holding Camera and Terrain only.
 
-## Scope
+## Round 1's finding, and what round 2 changed
 
-Design §7 (the wood) and the M2.8b row of §18: species, density, brush, the hedge network already cut
-to three lines in M2.8a, and `rejectTree` rewritten. No new props beyond trees and brush; no asset
-ids; the palette and the road are M2.8a's and are untouched.
+The finding was PROJECT_CONTEXT's named killer — **one predicate answered two unrelated questions**.
+`Scatter.weighted` stored the key that decided *whether a candidate becomes a tree* on the point, and
+`Scatter.speciesAt` used that same number to decide *which species it is*. Every candidate accepted
+where the density is 0.42 (the drive) or 0.14 (the backdrop) has a key below
+`SPECIES_CLUMP_STRENGTH = 0.65`, so the clump's leader was returned unconditionally: **every clump
+outside the dense band was a pure monoculture**, over about half the wood.
 
-## The measurements (design §16.6)
-
-**N3 — the build.** 273 steps, **2,402 ms of step time**: terrain 1,975 ms over 256 tiles, **the wood
-298 ms over 4 quadrant steps**, brush 30 ms over 4, everything else 99 ms. The command itself takes
-minutes because every step is one JSON-RPC round trip — the *generator* is not the slow part.
-**6,264 parts** (design's estimate ≈6,650, `Map.BUDGET.parts = 20000`): **2,746 trees** (estimate
-~2,925, ceiling 3,000), **500 brush**, 234 hedge, 24 tie-tree parts, 14 markers. 3,381,368 terrain
-cells.
-
-**N2 — pathfinding with the real trunk count. It passes, and this is the measurement the Director's
-decision F was about.** With 2,746 trunks standing, `MapGen.reachability` is **25/25
-`PathStatus.Success`** across five froms × five targets, 337–424 waypoints; the whole `reach`
-command is **12.5 s wall clock**, of which 6 s is the navmesh settle — so about **0.26 s per
-`ComputeAsync`**. No density fallback is needed, and there is no TASKS row proposing one.
-
-**The walkability property, measured over five seeds** (design §7.3): the closest two trunks anywhere
-are **11.30 studs** apart against the sampler's guaranteed 11.0, so the worst clear gap past the
-widest trunk (oak, 5) is **6.3 studs** against the boar's `AgentRadius = 2`, which needs 4.
+Nothing else in the task changed. **No tree moved**: the same build, same seed, reports the same
+2,746 trees in the same quadrant counts.
 
 ## Claims
 
-1. **The drive is the wood now.** `Props.rejectTree`'s corridor rejection is gone — it was what made
-   the one place the player looks the one place with no trees. `map_contract.spec` asserts **2,095 of
-   2,737** placed trees stand inside the corridor. Verify: *"fills the drive with wood and still
-   leaves the ground the game uses clear"*.
+1. **The species has its own number, and cannot be handed one.** `Scatter.speciesAt(x, z, seed,
+   config, groundY)` **no longer takes a key**; it draws its own from `Scatter.pointKey(x, z, seed,
+   STREAM.species)`, a hash of WHERE the tree is rather than of when it was drawn. The signature is
+   the fix: no caller can pass a number that answered another question. Verify: `Scatter.speciesAt`,
+   `Scatter.pointKey`, `Scatter.STREAM`, and `Props.trees`'s call site.
 
-2. **What stays clear is the ground the game stands things on**, and there is exactly one source for
-   it: `Layout.treeDensity` returns 0 on a bench and its verge, a track, the bog, a field, a hedge's
-   clearance and a spawn pad, and `Props.rejectTree` **is** that function, so the placing step and
-   the spec cannot disagree.
+2. **The acceptance key does not leave `Scatter.weighted`.** A point is `{x, z}`. The number was
+   compared against the weight and is finished; storing it is how the species came to be decided by
+   the density, so the only way to make that unrepeatable is for it not to be there. Verify:
+   `Scatter.weighted` (no `key` on the point); nothing in `src/` or `tests/` reads `point.key` of a
+   tree any more. `Scatter.jitteredGrid` still carries one, because brush sorts candidates BY it —
+   the same question, the same number.
 
-3. **Three density tiers, and they are visible in the numbers, not just in the config.** Measured:
-   **17.71 trees per 10,000 studs² in the dense band** against **0.88 in the backdrop** — twenty
-   times thicker where the shooter's eye is. Verify: *"is denser where the shooter looks than in the
-   backdrop"*.
+3. **The hash is flat, measured before it was used for a second question.** `hash01` is the
+   arithmetic `clumpHash` already used, so **the clump leaders did not move**. Over 200,000 points
+   of this map's own inputs it lands 10.03 / 9.97 / 9.99 / 9.96 / 10.00 / 10.05 / 9.98 / 10.00 /
+   10.01 / 10.01 per cent in the ten deciles, and `pickByShare` over it returns 39.95 / 25.08 /
+   19.96 / 15.02 against Karen's 40 / 25 / 20 / 15. Verify: `hash01`'s comment, which quotes the
+   measurement.
 
-4. **Walkability is arithmetic, not luck.** `SCATTER_JITTER` 0.9 → **0.5**, which is what guarantees
-   `22 × 0.5 = 11` studs between neighbouring candidates; the spec measures the real minimum over
-   five seeds (11.30) and asserts the clear gap beats the boar's agent. This is the one change that
-   makes deleting the corridor sweep safe, and it is a number changed by an argument.
+4. **THE SPEC MEASURES THE MIX INSIDE A CLUMP, because the aggregate mix does not catch this bug.**
+   The leader is itself drawn by share, so the marginal shares are unbiased with the bug and without
+   it — which is why round 1's share assertion passed over a broken wood, and it would have passed
+   over this fix too. The new `it` measures the share of trees that are **not their clump's leader**,
+   per density tier, against the derived `(1 - strength) * (1 - Σ share²) = 0.35 × 0.715 = 0.2503`.
+   Measured at `SEED = 7`: **thin tier 0.262 over 1,438 trees, dense tier 0.244 over 1,289, and the
+   two tiers 0.018 apart**. Verify: `map_contract.spec`, *"draws the species independently of the
+   density, so the mix is the same in a thin wood"*; `Scatter.clumpLeaderAt`, exposed because a spec
+   cannot measure a clump's mix without knowing its leader.
 
-5. **Karen's four species, in her proportions.** Measured by the spec over the whole wood: spruce
-   **39.6 %**, birch **28.2 %**, oak **20.5 %**, alder **11.7 %** against 40/25/20/15. In the built
-   map alder runs higher (21.6 %) because **wet ground forces alder** — the bog and the hollows — and
-   that is the design's rule working, not drift.
+5. **The species mix per tier, against the configured weights, with the tolerance stated.** The same
+   spec asserts every species' share **in each tier**, not only in the wood as a whole: thin
+   spruce 0.401 / birch 0.266 / oak 0.202 / alder 0.131, dense 0.406 / 0.281 / 0.205 / 0.109, against
+   0.40 / 0.25 / 0.20 / 0.15. The band is `× 0.4 … × 1.8` and the comment says why it is that wide:
+   the wood is about **59 clumps** of 260 studs, so the effective sample is clumps, not 2,746 trees
+   (the design's ±25 % over one seed would be ~1.3 σ, i.e. flaky — queued as 63a rather than
+   silently loosened).
 
-6. **A defect the first build found, and it was mine:** the species came from a `math.noise` value
-   indexed into a cumulative share table, and a noise field is bell-shaped about its middle, so the
-   middle band won — **230 birch to 195 spruce to 3 oak** in one quadrant. The clump's species is a
-   flat **hash** of the clump's block now, with the noise only wobbling the block's edges; 65 % of a
-   clump is its leader and the rest is drawn from the same shares, so the marginal share of every
-   species is the number in the table.
+6. **MUTATION-CHECKED, and the mutation is the bug itself.** Scaling the species number by the
+   density again (`Layout.treeDensity(x, z, config) * Scatter.pointKey(...)` — which is exactly the
+   distribution of the old accepted key) makes the thin tier read **0.000**, and the new spec fails
+   at `map_contract.spec:1131`, its tier-agreement line. **The old share assertion passed in the same
+   run** (377 passed, 1 failed), which is the Reviewer's point demonstrated rather than restated.
+   Restored and re-run green.
 
-7. **A second defect the first build found:** every prop step rebuilt its folder, which is right for
-   a one-step prop and wrong for one built in four — the log said 1,869 trees and the world held 964.
-   The first quadrant clears and the other three append.
+7. **The wet rule still overrides the clump**, now asserted at four points around the bog instead of
+   two — `speciesAt` no longer takes a key to steer it with. Verify: the last lines of *"plants
+   Karen's four species, in her proportions, with alder in the wet"*.
 
-8. **The canopy does not block the ground game.** Trunk `CanCollide`/`CanQuery` true; crown
-   `CanCollide` **false**, `CanQuery` true — so the navmesh and the boar see trunks only, while a
-   shot into the canopy still stops in the canopy. Brush is **neither**: cover for the eye, because a
-   bush that eats a slug is an invisible wall.
+8. **N2 — reachability, rebuilt.** `mapgen verify --seed 1` is **25/25 `PathStatus.Success`** across
+   five froms × five targets (321–450 waypoints), same seed twice → **same digest**
+   `940540037013158d…` @ `a2ebfca` (clean tree), `contract OK`, 9,030 instances, 3,381,368 terrain
+   cells. Verify: the `[mapgen] OK` and `[mapgen] reachability OK` lines.
 
-9. **The proxies teach the truth about the mesh that replaces them.** 57–71 studs tall, per
-   `asset-pipeline.md` §12.1, not the 22-stud lollipop; autumn crowns; and **no colour channel
-   maximum below 120**, which is the Task 22 albedo measurement applied rather than re-learned.
+9. **N3 — the build is unchanged where it must be.** **2,746 trees** at seed 1, quadrant for
+   quadrant (433 / 444 / 905 / 964), 500 brush, 12 tie trees — identical to round 1. Only the species
+   assignment moved: spruce 1082→1090, birch 542→567, oak 530→522, alder 592→567 of the same 2,746.
+   That the aggregate barely moves is the point of claim 4.
 
-10. **The budget is a ceiling that fails the build.** The tree step refuses over `Map.BUDGET.trees`
-    and the brush step over `Map.BUDGET.brush`, naming the quadrant — because a build that quietly
-    overruns the part budget is how a place gets slow with no diff to blame. Also: the two stale v2
-    tracks are gone (one ran across the drive, one inside the widened corridor — row 58a(d)); one
-    flank track at x = 880 remains.
-
-## What the shots show (rule 5 — I looked at them)
-
-- **`map-crossing`** — the shot this task exists for: the road runs as an open ride between two walls
-  of wood, autumn crowns overhanging from both sides, sky above it. It is Karen's reference frame.
-- **`map-post`** — a shooter's view into the drive: white birch trunks and dark spruce, a closed
-  canopy overhead, sight lines of roughly 60–100 studs. A boar could hide in that; a boar crossing
-  the road would be seen.
-- **`map-wide`** — from above the wood reads in **clumps of colour**: orange-brown oak, yellow birch,
-  teal-green spruce, thinning to the edges, with the olive field strips on the flanks.
-- **`map-autumn`** — honestly: under a closed canopy the floor and the non-birch trunks go
-  **near-black**, and the spruce crowns read minty-teal rather than dark forest green. The albedo
-  floor stopped the flat colours being black; shadow under a full canopy is a different thing and it
-  is not fixed here. Queued as 63a.
+10. **Screenshots, inspected (rule 5).** `map-wide` (the whole map from 1,100 studs): wood with
+    fields at the edges, the road a line through it, and the four crown colours intermixed across the
+    frame rather than in solid blocks. `map-post` (a shooter's view into the drive): white birch
+    trunks and dark trunks interleaved, crowns green/orange/yellow overhead, sight ~60–80 studs.
+    `map-autumn` (close in the wood): all four crown colours within one small area. `map-drive`
+    (down the corridor from 40 studs up): unchanged framing, mixed crowns, road clear.
 
 ## What I could not verify
 
-- **Whether it is dense enough to hide a boar and open enough to shoot along** is Karen's judgement
-  at a playtest; the shots are the evidence I can produce, and the sight lines are ~60–100 studs.
-- **Nothing was played.** No boar has walked this wood: `reach` pathfinds with the boar's own agent,
-  which is a different claim from "a boar pushed by a driver gets through".
-- **The species share is measured off the pure scatter**, where the ground comes from `Height.at`;
-  the built map uses `atFlattened`, which is why its alder count is higher. Both are recorded.
-- **`map-post`'s sight line is my reading of one frame**, not a measured distance.
-- **The 2,746 trees are proxies.** Every claim about how the wood will look with meshes is a claim
-  about a box of the same size and colour.
+- **A screenshot cannot show a mix statistic.** The pictures show the wood is not blocked into
+  monocultures where I looked; the per-tier measurement in claim 4 is the evidence for the fix, and
+  it is a measurement of the seed-7 wood, not of the seed-1 build the pictures are of.
+- **One seed each.** The spec measures `SEED = 7`; the build and the shots are seed 1. The design's
+  five- and twenty-seed properties are measured by the walkability spec, not by this one.
+- **`[harness2]` has not been run by me** (the Director runs it), so nothing here is evidence about
+  two players; this change is server-side generator code with no client path.
+- **Karen has not seen the wood.** Whether the mix reads as a European wood at all is hers.
+- The round-1 notes that are not this finding are queued in `TASKS.md` as 63a, not fixed here.
