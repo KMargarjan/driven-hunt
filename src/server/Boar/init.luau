@@ -66,6 +66,18 @@ Boar.CONFIG = {
 	EDGE_MARGIN = 20,
 	STUCK_DIST = 3,
 	STUCK_TIME = 2,
+	-- WHERE A ROUTE STARTS, and it is NOT where the boar stands. MEASURED 2026-09-26 (Task 60), in
+	-- this place, with the boar's own AGENT settings: `ComputeAsync` from the centre of an
+	-- unanchored, collidable, boar-sized body returns **NoPath** -- one body or five, 10 studs
+	-- apart or 20. Six studs ahead of it returns a 95-waypoint route over the same ground. The
+	-- start point is inside the body, so the navmesh has no node there; Roblox's own NPCs are
+	-- Humanoid characters, which pathfinding ignores, and a bare Part is not.
+	--
+	-- This was measured because the sounder's live spec asserts the leader's path budget and found
+	-- 23 of 25 requests failing. It is NOT a sounder defect: it is every boar, since Milestone 1.2,
+	-- quietly falling back to the straight-line Reynolds flee that exists for exactly this case.
+	-- BODY_SIZE.Z/2 = 2.75 plus AgentRadius = 2 is 4.75; 6 clears it with a margin.
+	PATH_START_AHEAD = 6,
 
 	-- the body
 	BODY_SIZE = Vector3.new(2, 3, 5.5), -- width, height, length; a Part's LookVector is its -Z
@@ -926,6 +938,13 @@ function Runtime:_requestPath(entry, to: Vector3)
 	entry.lastPathAt = os.clock()
 	self._stats.pathRequests += 1
 	local from = Body.position(entry.body)
+	-- ...AHEAD OF THE BODY, never from inside it (see PATH_START_AHEAD). The boar is already going
+	-- this way, and the first waypoint it follows is ahead of it in any case.
+	local facing = entry.body.part.CFrame.LookVector
+	local ahead = Vector3.new(facing.X, 0, facing.Z)
+	if ahead.Magnitude > 1e-6 then
+		from += ahead.Unit * self._config.PATH_START_AHEAD
+	end
 	self._world.requestPath(entry.id, from, to, function(points)
 		entry.pending = false
 		if entry.dead then
