@@ -33,6 +33,7 @@ local Limits = require(script.Limits)
 local Pattern = require(script.Pattern)
 local Registry = require(script.Registry)
 local SafetyArc = require(script.SafetyArc)
+local Shape = require(script.Shape)
 local StateMachine = require(script.StateMachine)
 local Validator = require(script.Validator)
 
@@ -51,6 +52,7 @@ Weapon.Hits = Hits
 Weapon.SafetyArc = SafetyArc
 Weapon.Cast = Cast
 Weapon.Hardware = Hardware
+Weapon.Shape = Shape
 
 local CONFIG = Shotgun.CONFIG
 

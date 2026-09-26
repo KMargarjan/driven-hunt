@@ -11,10 +11,18 @@
 -- WorldPosition for the shot and the client reads the same Attachment for the flash, so the offset
 -- is defined once and cannot drift between them (design section 8).
 --
+-- SINCE TASK 71 THE GUN IS A SIDE-BY-SIDE BUILT FROM PARTS, not one wooden box: `Weapon.Shape` is
+-- the pure list of what it is made of and this file is still the only thing that creates any of it.
+-- The ADS viewmodel gets the same look by CLONING the Handle (docs/design/camera.md section 3.2), so
+-- there is one source for the gun's appearance and not two.
+--
 -- Design: docs/design/shotgun.md (section 8)
+-- Note:   docs/research/2026-09-26-shotgun-model.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+
+local Shape = require(script.Parent.Shape)
 
 local Hardware = {}
 
@@ -37,6 +45,10 @@ function Hardware.build(): Tool
 	handle.CanCollide = false
 	handle.Massless = true
 	handle.Anchored = false
+	-- INVISIBLE SINCE TASK 71, and still the gun's one real part: the hand grips it, the Muzzle hangs
+	-- on it, and it is the only part of the gun a ray can hit. The shape that is SEEN is welded to it
+	-- below. `HANDLE_TRANSPARENCY = 0` puts the envelope box back on screen.
+	handle.Transparency = config.HANDLE_TRANSPARENCY
 	handle.TopSurface = Enum.SurfaceType.Smooth
 	handle.BottomSurface = Enum.SurfaceType.Smooth
 	handle.Parent = tool
@@ -46,7 +58,54 @@ function Hardware.build(): Tool
 	muzzle.CFrame = CFrame.new(config.MUZZLE_OFFSET)
 	muzzle.Parent = handle
 
+	for _, piece in ipairs(Shape.pieces(config)) do
+		Hardware.addPiece(handle, piece)
+	end
+
 	return tool
+end
+
+-- ONE PIECE OF THE GUN'S LOOK, welded to the Handle. Appearance only, and the three properties that
+-- say so are not decoration:
+--
+--  * `CanQuery = false`. The Handle stays the ONLY part of the gun a ray can hit, exactly as before
+--    Task 71. Without this, ten new boxes on another player's gun become ten new things a slug can
+--    stop against -- an appearance task that quietly changed hit detection.
+--  * `Massless = true`. The assembly's root part is picked anchored-first, then "Parts with Massless
+--    set to false (default) take precedence" (https://create.roblox.com/docs/physics/assemblies), so
+--    a heavy decorative barrel could take the root away from the Handle and move the Tool's grip.
+--  * a legacy `Weld` with an explicit `C0`, NOT a `WeldConstraint`. A WeldConstraint records the
+--    offset the parts happen to have when it is enabled and needs both of them in the DataModel
+--    (src/server/Boar/Body.luau says so where it uses one); `Hardware.build` returns a Tool that is
+--    not parented anywhere yet. A Weld carries the offset AS DATA, so the geometry comes from
+--    `Weapon.Shape` rather than from wherever the parts were at the time.
+--
+-- The weld is parented to the Handle, which is what keeps it part of the tool's own assembly.
+function Hardware.addPiece(handle: BasePart, piece): BasePart
+	local part = Instance.new("Part")
+	part.Name = piece.name
+	part.Shape = piece.shape
+	part.Size = piece.size
+	part.Color = piece.color
+	part.Material = piece.material
+	part.CFrame = handle.CFrame * piece.offset
+	part.Anchored = false
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.Massless = true
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	part.Parent = handle
+
+	local weld = Instance.new("Weld")
+	weld.Name = piece.name .. "Weld"
+	weld.Part0 = handle
+	weld.Part1 = part
+	weld.C0 = piece.offset
+	weld.Parent = handle
+
+	return part
 end
 
 -- The Backpack is where a Tool waits; the character is where it is held.
