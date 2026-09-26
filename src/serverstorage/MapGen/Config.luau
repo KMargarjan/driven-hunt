@@ -327,6 +327,97 @@ Config.TREE_PROXY = {
 Config.CROWN_MIN_OVERLAP = 2
 Config.HEDGE = { segmentStuds = 24, size = Vector3.new(24, 7, 3) }
 
+-- ---------------------------------------------------------------- the road's furniture (M2.8c)
+
+-- THE NUMBERS FOR EVERYTHING THE ROAD CARRIES, in one table, because M2.8c is six small props and
+-- six scattered tables would be six places to look. Design section 18's M2.8c row is the list:
+-- stakes beside each post, a high seat as scenery near four of them, a barrier at each end of the
+-- road, two log piles on the verge, a fence and a gate on a field boundary, reeds at the bog.
+--
+-- EVERY PIECE IS SCENERY AND NOTHING IN IT COLLIDES (`Props.furniture`). The contract walks the
+-- whole road and fails the build for any collidable part within `Map.ROAD.halfWidth + verge` of the
+-- centreline (`MapGen.verifyContract`, Task 58 round 1 finding 1) -- a rule that exists because a
+-- hedge wall once stood across the gravel and reachability pathed around it. Rather than place some
+-- pieces inside that envelope and some outside it and have to remember which, the whole layer is
+-- non-collidable: a grey-box stake a shooter can walk through beats one that traps him on his stand,
+-- and when the real meshes arrive somebody decides collision per mesh, once, on purpose.
+Config.FURNITURE = {
+	-- TWO STAKES FLANK EACH STAND, a step BEHIND the centreline (the drive is at +z), so nothing
+	-- this task adds ever stands between a shooter and what he is shooting at. The orange cap is the
+	-- part that has to read at 160 studs: TASKS.md row 58a(a) is that every marker is
+	-- `Transparency = 1`, so a shot of the road could not answer its own question about the posts.
+	stake = {
+		offsetX = 5, -- studs either side of the post's centre
+		offsetZ = -4, -- behind the centreline, on the far-wood side
+		size = Vector3.new(0.6, 8, 0.6),
+		capSize = Vector3.new(1.2, 1.5, 1.2),
+		color = Color3.fromRGB(168, 146, 112), -- peeled softwood
+		capColor = Color3.fromRGB(232, 108, 28), -- K, hunter orange: the same signal as the outfits
+	},
+	-- A HIGH SEAT AS SCENERY near four stands (design 18: "a proxy -- the shooter still stands on
+	-- the road in v1"). 40 studs behind the road puts it past the verge, in the far wood, where a
+	-- real one stands; `clearRadius` keeps the wood out of it.
+	highSeat = {
+		atPosts = { 2, 4, 6, 8 }, -- every other stand
+		offsetZ = -40,
+		legSpan = 5, -- centre-to-centre of the four legs
+		legSize = Vector3.new(0.7, 15, 0.7),
+		platform = Vector3.new(6.5, 0.8, 6.5),
+		rail = Vector3.new(6.5, 3, 0.5), -- across the back, facing the drive
+		roof = Vector3.new(7.5, 0.6, 7.5),
+		clearRadius = 14, -- no tree inside this of a seat's centre (Layout.treeDensity)
+		color = Color3.fromRGB(122, 96, 66),
+		deckColor = Color3.fromRGB(146, 118, 84),
+	},
+	-- A BARRIER ACROSS EACH END OF THE ROAD. Inside `Map.ROAD.to`, on the flat bench, so it stands
+	-- on gravel rather than among trunks -- and non-collidable like the rest of the layer.
+	barrier = {
+		inset = 10, -- studs inside each end of the road
+		boom = Vector3.new(1.4, 1.1, 26), -- across the road: the long axis is z
+		post = Vector3.new(0.9, 4.5, 0.9),
+		postOffsetZ = 12,
+		boomBase = 3,
+		color = Color3.fromRGB(198, 196, 190),
+		bandColor = Color3.fromRGB(232, 108, 28),
+	},
+	-- TWO LOG PILES ON THE VERGE, one each side, cut to length and stacked 3 + 2 as a forester
+	-- stacks them at the roadside.
+	logPile = {
+		at = { { x = -300, side = -1 }, { x = 420, side = 1 } }, -- side: -1 far wood, +1 drive side
+		offsetZ = 30, -- inside the 32-stud verge, which is why the layer does not collide
+		log = Vector3.new(14, 1.6, 1.6),
+		color = Color3.fromRGB(138, 112, 78),
+		endColor = Color3.fromRGB(176, 152, 112),
+	},
+	-- A FENCE AND A GATE ON A FIELD BOUNDARY, in the eastern field, with the gate where the farm
+	-- track (`WORLD.tracks`, x = 880) passes through it. Well outside the drive corridor
+	-- (x <= 620), so it can never be something a boar or a driver has to get round.
+	fence = {
+		z = -100,
+		fromX = 800,
+		toX = 1000,
+		spacing = 20,
+		post = Vector3.new(0.8, 6, 0.8),
+		rail = Vector3.new(20, 0.5, 0.35),
+		railHeights = { 2.2, 4.2 }, -- centres above ground
+		gateFromX = 860, -- the span left open for the track
+		gateToX = 900,
+		gate = Vector3.new(0.8, 5, 18), -- standing OPEN, swung back along +z on its hinge post
+		color = Color3.fromRGB(128, 106, 78),
+		gateColor = Color3.fromRGB(152, 134, 104),
+	},
+	-- REEDS AT THE BOG. A ring on the rim, sunk into the mud; `Layout.treeDensity` already keeps
+	-- trees out of the bog itself, so these are what makes it read as wet rather than as a hole.
+	reeds = {
+		count = 28,
+		inset = 12, -- the ring's mean radius is bog.radius - inset...
+		jitter = 8, -- ...and each clump moves up to this, deterministically
+		size = Vector3.new(1.4, 7, 1.4),
+		sink = 1.5,
+		color = Color3.fromRGB(152, 142, 96),
+	},
+}
+
 -- ---------------------------------------------------------------- the digest and the run
 
 Config.DIGEST_TERRAIN_SAMPLES = 4096 -- 64 x 64 across the map

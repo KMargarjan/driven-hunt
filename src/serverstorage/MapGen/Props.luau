@@ -210,6 +210,82 @@ function Props.hedge(
 	return #points, (if proxied > 0 then { Assets.KEY.hedge } else {}), nil
 end
 
+-- THE ROAD'S FURNITURE (M2.8c), built from `Layout.furniture`'s list. Like `Props.hedge`, this
+-- function decides NOTHING about where anything goes -- it is handed pieces and it places them.
+--
+-- NOTHING IT PLACES COLLIDES, without exception. `MapGen.verifyContract` fails the build for any
+-- collidable part within `Map.ROAD.halfWidth + verge` of the road's centreline, over the road's
+-- whole length (Task 58 round 1 finding 1, after a hedge wall stood across the gravel and
+-- reachability pathed politely around it). Half this layer stands inside that envelope on purpose --
+-- stakes beside the stand, log piles on the verge, a barrier across each end -- so the rule is
+-- applied to the whole layer rather than remembered piece by piece. It also means the furniture
+-- cannot change a single pathfinding answer: `reach` before and after must be identical.
+--
+-- ONE GROUND HEIGHT PER OBJECT: the piece carries `anchorX`/`anchorZ`, so a high seat's four legs
+-- and its deck stand on one plane instead of each following the heightfield under itself.
+function Props.furniture(root: Instance, seed: number, config): (number, { string }, string?)
+	local template, why = Props.template(Assets.KEY.highSeat, root)
+	if why then
+		return 0, {}, why
+	end
+	local parent = folder(propsFolder(root), "Furniture")
+	local pads = Layout.pads(config)
+	local pieces = Layout.furniture(config)
+	local grounds: { [string]: number } = {}
+	local proxied = false
+	local placedSeats: { [number]: boolean } = {}
+	local count = 0
+	for _, piece in ipairs(pieces) do
+		local anchorKey = string.format("%d:%d", math.floor(piece.anchorX * 4), math.floor(piece.anchorZ * 4))
+		local ground = grounds[anchorKey]
+		if ground == nil then
+			ground = Height.atFlattened(piece.anchorX, piece.anchorZ, seed, config, pads, Layout.bogDepth)
+			grounds[anchorKey] = ground
+		end
+		-- A REAL HIGH SEAT REPLACES ITS WHOLE PROXY, not one part of it: when `prop.highseat` has an
+		-- id, the model goes in at the seat's centre and its seven boxes are not built at all.
+		if template and string.sub(piece.kind, 1, 8) == "highSeat" then
+			local seatIndex = tonumber(string.match(piece.name, "^HighSeat(%d+)") or "") or 0
+			if not placedSeats[seatIndex] then
+				placedSeats[seatIndex] = true
+				local model = placed(
+					template,
+					string.format("HighSeat%d", seatIndex),
+					piece.size,
+					Vector3.new(piece.anchorX, ground, piece.anchorZ),
+					piece.color,
+					piece.material,
+					parent
+				)
+				for _, descendant in ipairs((model :: Instance):GetDescendants()) do
+					if descendant:IsA("BasePart") then
+						descendant.CanCollide = false
+					end
+				end
+				if (model :: Instance):IsA("BasePart") then
+					((model :: any) :: BasePart).CanCollide = false
+				end
+				count += 1
+			end
+			continue
+		end
+		local made = part(
+			piece.name,
+			piece.size,
+			Vector3.new(piece.x, ground + piece.base + piece.size.Y / 2, piece.z),
+			piece.color,
+			piece.material,
+			parent
+		)
+		made.CanCollide = false
+		count += 1
+		if string.sub(piece.kind, 1, 8) == "highSeat" then
+			proxied = true
+		end
+	end
+	return count, (if proxied then { Assets.KEY.highSeat } else {}), nil
+end
+
 -- ONE TREE, and the only place in the repo that knows what a tree is made of. Returns true when it
 -- placed a PROXY, so a caller can report `proxyUsed` for what was actually proxied. The wood and the
 -- tie trees both come through here: two builders would drift, and a tie tree that is not the same

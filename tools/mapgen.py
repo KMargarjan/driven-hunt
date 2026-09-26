@@ -116,6 +116,11 @@ SHOTS = (
      "the tie trees behind the line, in the far wood: woods, or poles"),
     ("map-edge", (600, 8, -700), (1024, 6, -700),
      "does the map's edge read as a void where the road leaves it"),
+    # M2.8c's ONE NEW CLOSE VIEW (design section 18), and the answer to TASKS.md row 58a(a): every
+    # tagged marker is Transparency = 1, so until the stakes existed no shot could show where a
+    # stand is. Stood at the third stand looking along the road at the fourth.
+    ("map-stand-close", (-240, 6, -694), (-80, 7, -700),
+     "STANDING ON ONE STAND, looking at the next: are the stakes visible, is the high seat behind"),
 )
 
 # ---------------------------------------------------------------- talking to the generator

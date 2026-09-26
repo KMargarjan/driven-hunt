@@ -132,6 +132,10 @@ function MapGen.steps(seed: number): { StepSpec }
 		add("brush", string.format("brush: %s quadrant", block.name), 3000)
 	end
 	add("stand", string.format("%d tie trees behind the shooter line", Config.WORLD.tieTrees), 2000)
+	-- THE FURNITURE IS A PROP LAYER, so it runs before the markers, which stay last (layer 9). It
+	-- is one step: ~130 boxes is nothing beside 2,746 trees, and splitting it would only make the
+	-- log harder to read.
+	add("furniture", "the road's furniture: stakes, high seats, barriers, log piles, fence, reeds", 2000)
 	add("markers", "the five tagged marker kinds, and the tie trees", 3000)
 	add("settings", "streaming from the contract", 500)
 	return steps
@@ -398,6 +402,38 @@ function MapGen.runStep(index: number, seed: number): StepReport
 			return finish({ ok = false, message = why })
 		end
 		return finish({ ok = true, partsCreated = count, proxyUsed = keys })
+	elseif spec.kind == "furniture" then
+		local root = ensureRoot(seed)
+		local count, keys, why = Props.furniture(root, seed, Config)
+		Props.clearAssets(root) -- no template outlives the run (design section 8.2)
+		if why then
+			return finish({ ok = false, message = why })
+		end
+		if count > Map.BUDGET.furniture then
+			return finish({
+				ok = false,
+				partsCreated = count,
+				message = string.format(
+					"%d furniture parts, over Map.BUDGET.furniture = %d",
+					count,
+					Map.BUDGET.furniture
+				),
+			})
+		end
+		local kinds: { [string]: number } = {}
+		for _, piece in ipairs(Layout.furniture(Config)) do
+			kinds[piece.kind] = (kinds[piece.kind] or 0) + 1
+		end
+		local named = {}
+		for _, kind in ipairs({ "stake", "highSeatLeg", "barrierBoom", "log", "fencePost", "gate", "reed" }) do
+			table.insert(named, string.format("%s %d", kind, kinds[kind] or 0))
+		end
+		return finish({
+			ok = true,
+			partsCreated = count,
+			proxyUsed = keys,
+			message = string.format("%d furniture parts (%s)", count, table.concat(named, " ")),
+		})
 	elseif spec.kind == "markers" then
 		local root = ensureRoot(seed)
 		local counts = Markers.place(root, seed, Config)
