@@ -3,15 +3,18 @@
 Task: 74
 Round: 2
 Base: `main` (`f3f6a49`)
-Code commit: `8d2b809ef18b081497d6704a93e5d79cee6a70d1`
+Code commit: `f090ea1a4febda655bab60d65b8337e3372f254a`
 
 ```
-[harness] PASS: 30/30 checks @ 8d2b809ef18b081497d6704a93e5d79cee6a70d1 (clean tree)
+[harness]  PASS: 30/30 checks @ f090ea1a4febda655bab60d65b8337e3372f254a (clean tree)
+[harness2] PASS: 32/32 checks @ f090ea1a4febda655bab60d65b8337e3372f254a (clean tree)
 ```
 
-`test2` matters for this change — it touches `src/` and `tests/client/` — and the Director runs it at
-this branch's head; this request is updated with the `[harness2]` line for the same commit before the
-review. Only paperwork (this file and `TASKS.md` rows 74/74a) follows the code commit.
+Both are the Director's runs at this branch's head, and **`test2` is real evidence here rather than a
+formality**: this touches `src/` and `tests/client/`, so the viewmodel work only has a second client
+to be seen on. The head is a paperwork commit — it is at or after the last commit that touched `src/`
+or `tests/` (`8d2b809`), and the only things between them are this file and `TASKS.md` rows 74/74a. My
+own clean-tree `[harness] PASS: 30/30 @ 8d2b809` covers the same code.
 
 **Round 1's three findings were all real and all fixed.** Two were the same mistake at two layers: a
 spec that borrowed shared state and did not put it back. One of them has a consequence I have to own —
@@ -131,4 +134,4 @@ framing is the same geometry as Task 71's ADS, already queued as 71a(b). Nothing
   hung.** The case that proves the bound is an injected loader that never returns; the deliberate
   gap is that it asserts nothing about the shared cache, because `WeaponBoot`'s own preload can land
   inside that 10 s wait — asserting on it would be asserting a race.
-- **`test2` is the Director's run**, pasted above this review.
+- **`test2` was run by the Director, not by me** — the `[harness2]` line above is his, at this head. Two clients ran the whole client suite, the new viewmodel-appearance check included.
