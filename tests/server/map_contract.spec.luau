@@ -480,7 +480,10 @@ return function()
 		-- because the contract happens to match the place -- so a one-character edit to the contract
 		-- would make M2.6's change, without M2.6's playtest, during an M2.3 build.
 		it("refuses to change a streaming property until M2.6 has run", function()
-			expect(Settings.MAY_WRITE).to.equal(false)
+			-- THE BEHAVIOUR FIRST, the constant last. With the assertion on `MAY_WRITE` at the top, a
+			-- run with the guard disabled stopped there and never reached the part that proves the
+			-- place was not written -- TestEZ abandons an `it` at the first failure, which is this
+			-- task's own subject (measured on a dirty-tree run, Task 48).
 			local before = Workspace.StreamingEnabled
 			-- A contract that DISAGREES with the place, which is the whole hazard.
 			local provocation = {
@@ -503,6 +506,7 @@ return function()
 			end
 			expect(#changed).to.equal(0)
 			expect(table.find(refused, "StreamingEnabled")).to.be.ok()
+			expect(Settings.MAY_WRITE).to.equal(false) -- and M2.6 has not run
 		end)
 
 		it("still writes nothing when the contract and the place agree", function()
