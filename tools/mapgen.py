@@ -83,7 +83,9 @@ SHOTS = (
     ("map-wide", (0, 300, 430), (0, 0, -20), "is there a map at all, and is it farmland-shaped"),
     ("map-line", (0, 34, -96), (0, 0, -190), "the shooter line along the wood edge, 8 posts"),
     ("map-corridor", (0, 12, 190), (0, 0, -190), "the drive, from the drivers' eye height"),
-    ("map-hedge", (-130, 10, 40), (60, 0, 44), "the hedgerow and the field edges at eye height"),
+    # ACROSS the hedge, not along it: the first framing put the camera on the hedge's own line and
+    # showed a receding ribbon nobody could read (inspected, 2026-09-26).
+    ("map-hedge", (0, 14, 100), (0, 4, 40), "the hedgerow and the field edges at eye height"),
     ("map-stand", (0, 14, -186), (0, 4, -250), "the wood behind the line: woods, or poles"),
     ("map-track", (-130, 10, -44), (60, 0, -62), "the dirt track: does it read as a track"),
 )

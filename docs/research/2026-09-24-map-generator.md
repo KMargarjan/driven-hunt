@@ -342,6 +342,109 @@ It is small, and it answers every question this note could not:
 Everything else — the bog, spruce/birch variety, the full 2048-stud map, Meshy uploads, Open Cloud —
 waits until that slice is on screen and Karen has walked it.
 
+## Measurements, Milestone 2.1 (Task 43, 2026-09-26)
+
+The four the design asks for (`docs/design/map-generator.md` section 13.5), plus two the build forced.
+Every number here was produced by a probe in this repo's Edit session, Studio **0.740.19.7400931**,
+and every one of them is a fact about *that* Studio, not a promise about the next one.
+
+### A. `Terrain:WriteVoxels` — the region limit and the resolution
+
+    grid=32x24x32 voxels=24576
+    writeVoxels_128x96x128_res4 = true
+    readVoxels_res4 = true
+    writeVoxels_res8 = false   -- "Resolution has to be 4"
+    writeVoxels_res2 = false   -- "Resolution has to be 4"
+
+So a 128 x 128-stud tile through a 96-stud vertical band is accepted in one call, and **resolution 4
+is not a preference, it is the only value the API takes**. The design's tile row is correct and its
+"unverified" on the resolution is closed. `Config.VOXEL = 4` carries this measurement as a comment.
+
+The whole 512-stud slice is 16 such tiles, and all 16 wrote 24,576 voxels each with no failure and no
+chunking trouble: `[mapgen] OK step 2..17/22 · voxelsWritten=24576`.
+
+### B. Do tags survive a save and a reopen? — **NOT MEASURED**
+
+It needs a File → Save to File and a reopen of the place, which are two clicks no tool in this repo
+can make (the StudioMCP tool list has no save; `docs/research/2026-09-24-map-generator.md` section 12).
+The slice is built and tagged in the place right now, so the measurement is one save and one reopen
+away, and `python tools/mapgen.py contract` is the command that answers it afterwards: it counts the
+five tags inside `Workspace.DrivenHuntMap` and prints them.
+
+**If tags do not survive**, the fallback is already named (design section 13.5 B): markers found by
+folder and name under `Workspace.DrivenHuntMap.Markers`, and the only module in the repo that changes
+is `Match.Markers`. Tags and attributes are never shipped both — two representations of one fact is
+this project's named failure mode.
+
+### C. Can `execute_luau` write in Edit mode? — **YES**
+
+    WRITE: true|41      -- created a Folder in Workspace and read its name back
+    CLEANED: true       -- and destroyed it again
+
+Measured before any generator code was written, because the design says a No here changes the whole
+invocation route and is an `ESCALATE.md` entry rather than a workaround. It is a Yes: every step of
+the 22-step build writes through `execute_luau`, including 393,216 voxels of terrain and 153 parts.
+
+### D. What 50 trees cost
+
+    parts:   153 under Workspace.DrivenHuntMap  (50 trees x 2 parts, 39 hedge segments, 14 markers)
+    Stats:GetMemoryUsageMbForTag(Instances):  92.31 built -> 92.33 cleared -> 92.37 rebuilt
+    Stats:GetTotalMemoryUsageMb():          1582.65 built -> 1586.89 cleared -> 1597.14 rebuilt
+
+**The memory half of this measurement failed honestly, and saying so is the measurement.** Studio's
+own totals drifted upward across the three samples regardless of what was in the place — the "cleared"
+reading is higher than the "built" one — so an Edit session cannot resolve 100 parts against its own
+noise. What survives is the part count, which is exact: **two parts per tree**. The design's 3,000-tree
+budget is therefore 6,000 parts, well inside `Map.BUDGET.parts = 20000`, and the budget stands on
+multiplication. The memory question needs a Play session with 3,000 real meshes in it, which is M2.3's
+business and not answerable with proxies.
+
+### E. Studio's require cache survives between `execute_luau` calls — and Rojo does not clear it
+
+Not in the design's list; the build found it. `build` reported "46 of 50 trees" twice from a
+`Config.luau` that already said otherwise: Rojo had replaced the ModuleScript's `Source` in Studio (the
+harness's own byte-for-byte comparison passed), but the **already-required module kept its old return
+value**. A generator that builds from code the file no longer holds is exactly what refusals 2 and 3
+exist to prevent, so it is now prevented three ways:
+
+* `tools/mapgen.py` requires a **parentless clone** of `ServerStorage.MapGen` on every call. A clone
+  loads the current source, and leaves nothing in the DataModel for the harness's "no unmanaged
+  script" check to trip over. Measured: `parentless=true/6` — the clone saw the new value, the
+  cached module still said 3.
+* `MapGen.Contract` does the same for `ReplicatedStorage.Map`, which `Config`, `Markers` and `init`
+  reach by absolute path where a clone of the generator cannot help. At run time it is exactly
+  `require(ReplicatedStorage.Map)`.
+* `mapgen.py` prints a note when the session's own cached contract is older than the file, because
+  only reopening the place fixes that, and no tool can do it.
+
+### F. Four of the five streaming properties are not reachable from Luau
+
+    StreamingEnabled=true ; StreamingMinRadius=MISSING ; StreamingTargetRadius=MISSING
+    StreamingIntegrityMode=MISSING ; ModelStreamingBehavior=MISSING ; StreamOutBehavior=MISSING
+
+Each of the four raises "not a valid member of Workspace". They are Studio-panel place settings, so
+**M2.6 is a Karen click plus a playtest, not a line of code**, and `MapGen.Settings` writes the one
+property it can and reports the four it cannot.
+
+And the first half of that line is the bigger fact: **`Workspace.StreamingEnabled` is already `true`
+in the DEV place** — the engine's default for a new place — so every Milestone 1 system has always run
+with streaming on. The design assumed it was off until M2.6. `Map.STREAMING.enabled` now says `true`,
+because the contract must say what the place is; turning it off would change client behaviour for
+every existing system, which is M2.6's task with a playtest and not M2.1's.
+
+### The reproducibility question, answered for one session
+
+`python tools/mapgen.py verify --seed 7` built the slice, digested it, cleared it, built it again and
+digested it again:
+
+    build 1: digest=87abf2678bfa13bdbe3e936fb34c1d0582b1109f8aef56492de14bff476add99 parts=153
+    build 2: digest=87abf2678bfa13bdbe3e936fb34c1d0582b1109f8aef56492de14bff476add99 parts=153
+
+The digest covers 153 instances with their positions, sizes and tags **and 4,096 terrain occupancy
+samples**, so this says `math.noise` is stable within a session and the whole pipeline is
+deterministic. **Across engine versions it is still unverified** — that needs a Studio update to
+happen, and the named fallback (a seeded value-noise implementation inside `Height.luau`) is unchanged.
+
 ## What needs Karen
 
 1. **Taste, and only she can judge it:** does the farmland read as *European* farmland? Field sizes,
