@@ -4,17 +4,22 @@ Task: 52
 Round: 1
 Base: `edc3136` (`main`; everything through Task 49 merged. Task 50 is **not** merged, so this
 branch has the pre-Task-50 harness)
-Code commit: `d0fc1bfe660600fd0ff66aa2f6704581a3eab3b5` — the `[harness]` line below names it, it is
+Code commit: `f67834110bd6c2b1f62eef25b8591284f4fe8a44` — the `[harness]` line below names it, it is
 the last commit that changed `src/`, `tests/` or `tools/`, and only this request changes after it.
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 30/30 checks @ d0fc1bfe660600fd0ff66aa2f6704581a3eab3b5 (clean tree)
+    [harness] PASS: 30/30 checks @ f67834110bd6c2b1f62eef25b8591284f4fe8a44 (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me:
 
     <the [harness2] PASS line goes here. Both lines must name the SAME commit for tools/agents.py,
      so once test2 has run at the branch head I re-run `test` there and repoint both.>
+
+**Round 1's two-player run found a real defect of mine and it is fixed here.** At `ab4380c` every
+spec PASSED on all three sides (server 327, shooter 81, driver 75) and the harness then died:
+`[harness2] FAIL: RuntimeError: execute_luau: This call is missing the required studio_id argument`.
+Claim 11.
 
 327 server specs (307 before: **20 new**) and 81 client specs (75 before: **6 new**). 30 harness
 checks (28 before: **2 new**, the flag-override guards).
@@ -114,12 +119,36 @@ measurement 2 is the Director's `test2`, and until it is green that half is infe
     `docs/research/2026-09-26-feature-flags.md` plus its `INDEX.md` row carry the measurements, the
     §12 numbers and **five places where the built thing differs from the design**, with reasons.
 
+11. **Every StudioMCP call is scoped once a local test has added processes — the class, not the
+    one call.** StudioMCP refuses any tool call that names no `studio_id` as soon as more than one
+    Studio is connected, and the three a local test adds **do not go away when the session ends**:
+    `end_session` stops their Play, but only Karen's Cleanup closes them (the failing run printed
+    "3 test Studio(s) still open"). So "run it after the session has ended" is not an escape — there
+    is no later moment with one Studio — and my flag-override re-read in `run_test2`'s `verdict()`,
+    which runs last of all, was refused. **All 47 call sites audited; one was wrong.** The fix is
+    structural: `Studio.default_studio_id`, applied by `_call` and by `capture` (which builds its own
+    arguments) through one `_scoped()` helper; `run_test2` sets it to the editor's id **before the
+    click**, while there is still exactly one Studio, and prints it so the log says scoping happened;
+    an explicit `studio_id` always wins; `list_roblox_studios` is never scoped, because "which
+    Studios exist" is not a question about one of them. `flag_overrides` also takes an explicit id,
+    and `verdict()`'s read passes it **and** goes through `process_call`, so a Studio that went away
+    mid-teardown is a reported failure and never a traceback over the verdict line (rule 6).
+    `run_flags` scopes itself through `studio_for_role(studio, "edit")` — `flags clear` is most
+    wanted exactly while a session is still open, and every unnamed call in it would have been
+    refused the same way. Verify: `Studio._scoped`, `_call`, `capture`, `Studio.default_studio_id`'s
+    comment, the `run_test2` line that sets it, `flag_overrides`, `run_flags`.
+
 ## What I could not verify
 
-- **No `[harness2]` yet.** This touches `src/`, `tests/client/` and `tools/studio_mcp.py`, so the
-  two-player run is part of the gate and it is the Director's to make. With it comes the last
-  unmeasured half of §15 item 2 (Edit attribute → a **two-client** server) and the cross-process
-  claim that all three processes resolve the same digest.
+- **No `[harness2]` for this commit yet.** The run at `ab4380c` proved the flags system itself —
+  every spec passed on all three sides, which is the cross-process digest claim and the two-client
+  half of §15 item 2 — but it died in the teardown, so there is no PASS line. The scoping fix
+  changes only `tools/studio_mcp.py`, so a fresh run is needed and it is the Director's to make.
+- **The scoping fix is proved against a fake transport, not against four Studios.** Five cases over
+  seven calls: unnamed with no default stays unnamed; a default scopes `execute_luau`,
+  `get_studio_state`, `get_console_output` and `start_stop_play`; an explicit id wins;
+  `list_roblox_studios` stays unscoped; `capture` agrees with `_call`. The multi-Studio proof needs
+  four Studios and is the `test2` run itself.
 - **`flags live` was not run.** It needs a running Play session, which is the Director's `test2` or a
   playtest. `set`, `clear`, the table and both refusals were driven by hand; `live` was not.
 - **"A published place ignores `DHFlag_*`" is proved only through the injected parameter.** No
