@@ -236,8 +236,11 @@ return function()
 		it("stays inside the relief band, and flatter inside the drive corridor", function()
 			local c = config()
 			local worst, worstCorridor = 0, 0
-			for x = -250, 250, 25 do
-				for z = -250, 250, 25 do
+			-- THE WHOLE MAP, not just the middle: at 2048 studs a +/- 250 sample is entirely inside the
+			-- drive corridor, so `worst` and `worstCorridor` were the same number and the whole-map
+			-- relief bound could not fail (review round 1 of Task 44).
+			for x = -1000, 1000, 50 do
+				for z = -1000, 1000, 50 do
 					local h = math.abs(MapGen.Height.at(x, z, SEED, c) - c.GROUND_Y)
 					worst = math.max(worst, h)
 					if MapGen.Layout.inCorridor(x, z, c) then
@@ -251,6 +254,51 @@ return function()
 			expect(worst < 50).to.equal(true)
 		end)
 
+		it("keeps the drive corridor under the design's slope ceiling", function()
+			local c = config()
+			local pads = MapGen.Layout.pads(c)
+			local corridor = c.WORLD.corridor
+			local limit = math.tan(math.rad(c.CORRIDOR_MAX_SLOPE_DEG))
+			-- The check `Config.CORRIDOR_MAX_SLOPE_DEG` promised and nothing performed until Task 45.
+			-- It measures the SHIPPED ground -- pads flattened, bog dug -- because that is what a boar
+			-- walks, and the pad easing, not the noise, is what made this fail when it was first run:
+			-- a 16-stud drop eased over 24 studs is a 22.5-degree ring around every post and spawn.
+			--
+			-- The step is 8 studs, one voxel wider than the terrain's own resolution, so a slope is
+			-- measured across ground the engine actually builds rather than between two samples of a
+			-- smooth function.
+			local step = 8
+			local worst, worstAt = 0, ""
+			for _, seed in ipairs({ SEED, SEED + 1 }) do
+				for x = corridor.minX, corridor.maxX, 20 do
+					for z = corridor.minZ, corridor.maxZ, 20 do
+						local h = MapGen.Height.atFlattened(x, z, seed, c, pads, MapGen.Layout.bogDepth)
+						local dx =
+							math.abs(MapGen.Height.atFlattened(x + step, z, seed, c, pads, MapGen.Layout.bogDepth) - h)
+						local dz =
+							math.abs(MapGen.Height.atFlattened(x, z + step, seed, c, pads, MapGen.Layout.bogDepth) - h)
+						local slope = math.max(dx, dz) / step
+						if slope > worst then
+							worst, worstAt = slope, string.format("seed %d at (%d, %d)", seed, x, z)
+						end
+					end
+				end
+			end
+			if worst > limit then
+				error(
+					string.format(
+						"the corridor reaches %.2f degrees (%s), over the %d the design allows",
+						math.deg(math.atan(worst)),
+						worstAt,
+						c.CORRIDOR_MAX_SLOPE_DEG
+					),
+					0
+				)
+			end
+			-- And it is not trivially flat, or the assertion above would be worth nothing.
+			expect(worst > 0.02).to.equal(true)
+		end)
+
 		it("flattens every spawn pad to exactly the ground the contract asserts", function()
 			local c = config()
 			local pads = MapGen.Layout.pads(c)
@@ -260,8 +308,8 @@ return function()
 			end
 			-- And a pad eases back to the terrain rather than ending in a cliff: at the far edge of the
 			-- blend the flattened height IS the raw height. One pad on its own, because the shooter
-			-- posts stand 46 studs apart and their pads overlap -- with the real list the point below
-			-- is inside the next post's pad, which is the intended behaviour and not this claim.
+			-- posts stand `WORLD.postSpacing` studs apart and their pads overlap -- with the real list
+			-- the point below is inside the next post's pad, which is intended and not this claim.
 			local lone = { { x = 0, z = 0 } }
 			local edge = c.SPAWN_PAD.radius + c.SPAWN_PAD.blend
 			expect(MapGen.Height.atFlattened(0, 0, SEED, c, lone)).to.equal(c.GROUND_Y)

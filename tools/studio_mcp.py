@@ -20,6 +20,12 @@ Usage:
 Exit codes of `test` and `test2`: 0 PASS on a clean tree · 1 FAIL · 2 REFUSED (Studio not in Edit
 mode) · 3 PASS on a dirty tree (flagged: not valid evidence).
 
+THE SHA IN THE FINAL LINE IS HEAD AT THE MOMENT OF THE RUN, and it is re-checked at the end ("HEAD
+unchanged during the run"). That sha is what a review request must write as its `Code commit:`: the
+code commit is the commit the harness lines name, which has to be at or after the last commit that
+touched src/, tests/ or tools/, with only paperwork after it (CLAUDE.md git workflow step 4).
+`tools/agents.py` refuses a request whose `Code commit:` no pasted line names.
+
 WHICH RUN IS EVIDENCE FOR WHAT (Director decision, 2026-09-26). `test` is the default and every
 change needs it. `test2` is ALSO part of the merge gate for a change touching `src/` (gameplay),
 `tests/client/` or this file: a driver, a tie, a team swap and half the client suite exist only with

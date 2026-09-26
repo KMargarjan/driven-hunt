@@ -19,7 +19,7 @@ Usage:
   python tools/mapgen.py contract                                  # read-only: MapGen.verifyContract()
   python tools/mapgen.py reach                                     # read-only: pathfind the built map
   python tools/mapgen.py census                                    # read-only: what is in Workspace
-  python tools/mapgen.py shots                                     # read-only: the six named captures
+  python tools/mapgen.py shots                                     # read-only: the seven named captures
 
 Exit codes, deliberately the harness's shape: 0 done · 1 a step failed · 2 REFUSED.
 
@@ -59,7 +59,7 @@ PathStatus.Success one second after it appeared, and NoPath after five. `MapGen.
 The run log: every StepReport is appended to .mapgen/<utc>-<seed>.json (git-ignored). Two lines are
 worth pasting into reviews/task-<N>/REQUEST.md, exactly as the harness line is -- `build`'s
 
-  [mapgen] OK: 269/269 steps @ <sha> seed=7 digest=<64 hex> (clean tree)
+  [mapgen] OK: 268/268 steps @ <sha> seed=7 digest=<64 hex> (clean tree)
 
 and, for the evidence the design actually asks for (section 6.4), `verify`'s
 
@@ -92,7 +92,7 @@ RUN_LOG_DIR = os.path.join(REPO, ".mapgen")
 # The generator's own instances, plus the two the engine always puts there.
 WORKSPACE_ALLOWED = ("Terrain", "Camera")
 
-# The six captures (design section 13.3), at the full 2048-stud map's own scale. Milestone 2.1's
+# The seven captures (design section 13.3's six, plus map-gate), at the full 2048-stud map's own scale. Milestone 2.1's
 # cameras were scaled down for the 512 slice; these are the design's table, with two changes it names
 # as the Builder's to make: `map-stand` looks at the tie trees behind the shooter line (the only stand
 # M2.2 builds -- real spruce stands are M2.3), and there is a seventh angle on a hedgerow gate, because

@@ -50,7 +50,7 @@ Map.FIELD = {
 	groundY = 0,
 } :: FieldRect
 
-Map.SIZE_STUDS = 2048 -- the whole map when it exists; the M2.1 slice is MapGen.CONFIG.SLICE_STUDS
+Map.SIZE_STUDS = 2048 -- the whole map; the generator's own copy is MapGen.CONFIG.SIZE_STUDS
 
 -- THE ONE HOME FOR THE TAG STRINGS (design section 4.2).
 Map.TAGS = {
@@ -91,7 +91,20 @@ Map.STREAMING = {
 Map.BUDGET = { parts = 20000, visibleParts = 8000, trees = 3000 }
 
 -- Where a spawn pad is flattened, so a boar is never released inside a hill (design section 7.3).
-Map.SPAWN_PAD = { radius = 14, blend = 24, tolerance = 0.75 }
+--
+-- MEASURED 2026-09-26 (Task 45), and it changed `blend` from the design's 24 to 40: writing the
+-- corridor-slope spec that `CORRIDOR_MAX_SLOPE_DEG` had promised since M2.2 showed the drive corridor
+-- reaching **22.5 degrees**, against the design's 15. The cause is not the noise -- it is this easing.
+-- A pad is flat at GROUND_Y and the terrain around it is up to CORRIDOR_RELIEF studs away, so the
+-- shorter the blend, the steeper the ring around every shooter post and every boar spawn. Over three
+-- seeds, sampling the corridor on a 20-stud lattice:
+--
+--     relief 16, blend 24 -> 22.53 deg      relief 16, blend 40 -> 12.94 deg
+--     relief 12, blend 24 -> 17.28 deg      relief 12, blend 40 -> 10.70 deg
+--
+-- 40 with the relief unchanged, because the relief is Karen's taste value for how rolling the corridor
+-- is and the blend is not. The deviation from design section 7.3 is queued for the Architect.
+Map.SPAWN_PAD = { radius = 14, blend = 40, tolerance = 0.75 }
 
 Shotgun.deepFreeze(Map)
 

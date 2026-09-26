@@ -408,7 +408,13 @@ function MapGen.expectedCounts(): { [string]: number }
 	return counts
 end
 
-function MapGen.verifyContract(): { ok: boolean, findings: { string }, counts: { [string]: number } }
+function MapGen.verifyContract(): {
+	ok: boolean,
+	findings: { string },
+	counts: { [string]: number },
+	streaming: { [string]: string },
+	markerDigest: string,
+}
 	local findings: { string } = {}
 	local root = existingRoot()
 	if root == nil then
@@ -436,7 +442,7 @@ function MapGen.verifyContract(): { ok: boolean, findings: { string }, counts: {
 	for _, spawn in ipairs(taggedInside(root, Map.TAGS.boarSpawn)) do
 		local p, b = spawn.Position, Config.FIELD.bounds
 		if p.X < b.minX or p.X > b.maxX or p.Z < b.minZ or p.Z > b.maxZ then
-			table.insert(findings, spawn.Name .. " is outside Map.FIELD.bounds")
+			table.insert(findings, spawn.Name .. " is outside Config.FIELD.bounds (the MAP's rectangle)")
 		end
 		if math.abs(p.Y - Config.FIELD.groundY) > Map.SPAWN_PAD.tolerance then
 			table.insert(
