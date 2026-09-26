@@ -723,20 +723,32 @@ return function()
 			expect(sizes(1)).never.to.equal(sizes(2))
 			-- THE COMMITTED SEED'S OPENING, recorded rather than assumed (design section 12.10): if
 			-- it opened with a single, the seed would be the thing to change.
+			-- WITH THE FLAG ON, whatever the flag is set to right now: off it every size is 1 and the
+			-- note would say nothing about the seed. The committed seed opens with a GROUP, so
+			-- there is no seed to change (design section 12.10).
+			local live = table.clone(Match.CONFIG)
+			local liveSounder = table.clone(Match.CONFIG.SOUNDER)
+			liveSounder.ENABLED = true
+			live.SOUNDER = liveSounder
 			local first = {}
-			local state = { seed = Match.CONFIG.SEED, driveNumber = 1, boarsReleased = 0, soundersReleased = 0 }
-			for index = 1, 3 do
-				state.soundersReleased = index - 1
-				table.insert(first, Phase.sounderSize(state :: any, Match.CONFIG))
+			local budget = live.BOARS_PER_DRIVE
+			local drawn = { seed = live.SEED, driveNumber = 1, boarsReleased = 0, soundersReleased = 0 }
+			while budget > 0 and #first < 6 do
+				local size = Phase.sounderSize(drawn :: any, live)
+				table.insert(first, size)
+				budget -= size
+				drawn.boarsReleased += size
+				drawn.soundersReleased += 1
 			end
 			TestKit.note(
 				string.format(
-					"SEED=%d drive 1 opens with sizes %s (flag %s)",
-					Match.CONFIG.SEED,
+					"SEED=%d drive 1 is sizes %s with the flag ON (it is %s right now)",
+					live.SEED,
 					table.concat(first, ","),
 					tostring(Match.CONFIG.SOUNDER.ENABLED)
 				)
 			)
+			expect(first[1] >= 2).to.equal(true) -- the committed seed opens with a group, not a single
 		end)
 
 		it("paces the releases across the drive, inside the gap clamp", function()
