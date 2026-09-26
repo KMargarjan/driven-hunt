@@ -91,7 +91,14 @@ local function onAim(_name: string, state: Enum.UserInputState)
 	return Enum.ContextActionResult.Pass
 end
 
-local function bind()
+-- WHICH Tool the actions belong to. Before pruning existed, "there is only ever one Tool" was true
+-- enough for `forgetTool` to unbind unconditionally; now that a stale Tool can be dropped while the
+-- live one is in the player's hands, unbinding on its way out would take the player's own trigger
+-- with it (review of Task 48).
+local boundTo: Instance? = nil
+
+local function bind(tool: Instance?)
+	boundTo = tool
 	if bound then
 		return
 	end
@@ -103,6 +110,7 @@ local function bind()
 end
 
 local function unbind()
+	boundTo = nil
 	if not bound then
 		return
 	end
@@ -132,17 +140,53 @@ local function forgetTool(tool: Instance)
 	for _, connection in ipairs(hooks) do
 		connection:Disconnect()
 	end
-	-- AND UNBIND. Disconnecting the hooks takes the Unequipped handler with them, so a Tool destroyed
-	-- while equipped -- which is what a revoke does -- would otherwise leave the DrivenHunt.Weapon.*
-	-- actions bound with nothing in the player's hands. There is only ever one Tool, so this cannot
-	-- unbind somebody else's.
-	unbind()
+	-- AND UNBIND, but only for the Tool the actions actually belong to. Disconnecting the hooks takes
+	-- the Unequipped handler with them, so a Tool destroyed while equipped -- which is what a revoke
+	-- does -- would otherwise leave the DrivenHunt.Weapon.* actions bound with nothing in the player's
+	-- hands. It used to unbind unconditionally on the grounds that there is only ever one Tool; with
+	-- pruning below, a DEAD Tool can be forgotten while the live one is equipped, and unbinding then
+	-- would take the player's own trigger away.
+	if boundTo == tool then
+		unbind()
+	end
+end
+
+-- IS THIS TOOL STILL THE PLAYER'S? A Tool the client should listen to is in the player's CURRENT
+-- Backpack or CURRENT character. Anything else -- destroyed, or hanging off the character a respawn
+-- replaced -- is dead to this client.
+local function isLive(tool: Instance): boolean
+	if not tool:IsDescendantOf(game) then
+		return false
+	end
+	local player = Players.LocalPlayer
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	local character = player.Character
+	return (backpack ~= nil and tool:IsDescendantOf(backpack)) or (character ~= nil and tool:IsDescendantOf(character))
+end
+
+-- THE INVARIANT IS ENFORCED WHERE THE SET IS WRITTEN (Director, Task 48, after `test2` failed twice in
+-- three runs on `watchedTools() <= 1`). A dead Tool used to be dropped only by its own
+-- `AncestryChanged` with `parent == nil`, and Roblox's signals are DEFERRED (measured in Task 47), so
+-- on a respawn the new Tool -- granted by the server on `CharacterAdded` and delivered through the new
+-- Backpack's `ChildAdded` -- was watched BEFORE the old one's handler ran. For that moment two Tools
+-- were watched, and any spec sampling there read 2. Worse, a Tool whose parent never becomes nil (it
+-- moves elsewhere instead) was never forgotten at all.
+--
+-- So the set is swept before anything is added to it: no new Tool can be watched while a dead one is
+-- still in the table, whatever order the signals arrive in.
+local function pruneWatched()
+	for tool in pairs(watched) do
+		if not isLive(tool) then
+			forgetTool(tool)
+		end
+	end
 end
 
 local function watchTool(tool: Instance)
 	if not tool:IsA("Tool") or tool.Name ~= "Shotgun" then
 		return
 	end
+	pruneWatched()
 	-- The Tool moves between the Backpack and the character every time it is equipped, and both
 	-- containers report it as a new child. Bind its events once (round 1 note).
 	if watched[tool] then
@@ -150,20 +194,32 @@ local function watchTool(tool: Instance)
 	end
 	local hooks: { RBXScriptConnection } = {}
 	watched[tool] = hooks
-	table.insert(hooks, tool.Equipped:Connect(bind))
+	table.insert(
+		hooks,
+		tool.Equipped:Connect(function()
+			bind(tool)
+		end)
+	)
 	table.insert(hooks, tool.Unequipped:Connect(unbind))
 	-- Parent nil is how a Tool leaves: Hardware.destroy unparents and destroys it, and a respawn
 	-- takes the old one with the old character. ChildAdded watches it again if it ever comes back.
+	-- `Destroying` catches the destroy itself, and both are belt and braces over `pruneWatched`.
 	table.insert(
 		hooks,
-		tool.AncestryChanged:Connect(function(_, parent)
-			if parent == nil then
+		tool.AncestryChanged:Connect(function()
+			if not isLive(tool) then
 				forgetTool(tool)
 			end
 		end)
 	)
+	table.insert(
+		hooks,
+		tool.Destroying:Connect(function()
+			forgetTool(tool)
+		end)
+	)
 	if tool.Parent == Players.LocalPlayer.Character then
-		bind()
+		bind(tool)
 	end
 end
 
