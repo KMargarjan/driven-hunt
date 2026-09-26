@@ -1,0 +1,3 @@
+# Task 65 — Architect audit brief (Director)
+
+Audit main after Tasks 49-63 (privacy CI, fast test2, feature flags, Meshy tool + ASSET role, map M2.8a/b, sounders behind BOAR_SOUNDERS, boar path-start fix). Previous: docs/architecture/audit-004.md. Speed rule 2: MUST-FIX only if it blocks the next tasks (Task 64 Meshy refine fix, the boar model swap, map M2.8c-e and the map switch, Karen's next playtest) — name which. Focus: second writers (Flags override vs defaults, Weapon Tools, Match, MapGen vs TestArena markers, Boar runtime vs sounder state), flags that could leak into a live server, dead paths behind flags, specs that cannot fail, drift between docs/design and code, anything personal or secret in the public repo.
