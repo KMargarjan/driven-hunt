@@ -3,14 +3,17 @@
 Task: 68
 Round: 1
 Base: `main` (`47b99a3`)
-Code commit: `06880514ac345efe375663f8235635aa9a827c35`
+Code commit: `b9cd1b9e2056b7c76a2c97a30e9597a5b4cf5fc2`
 
 ```
-[harness] PASS: 30/30 checks @ 06880514ac345efe375663f8235635aa9a827c35 (clean tree)
+[harness] PASS: 30/30 checks @ b9cd1b9e2056b7c76a2c97a30e9597a5b4cf5fc2 (clean tree)
+[harness2] PASS: 32/32 checks @ b9cd1b9e2056b7c76a2c97a30e9597a5b4cf5fc2 (clean tree)
 ```
 
-*(the `[harness2]` line for this same commit is the Director's run; this request is updated with it
-before the review.)*
+Both lines are the Director's runs at this branch's head. The head is the request's own commit, so it
+is at or after every commit that touched `src/` or `tests/` (the last was `62030d3`) and the only
+things between them are paperwork: `TASKS.md` rows 68/68a and this file. The Builder's own earlier
+clean-tree `[harness] PASS: 30/30 @ 0688051` covers the same code.
 
 **What changed.** Two map defects the Director dispatched before M2.8d, and nothing else.
 `src/serverstorage/MapGen/Assets.luau`, `Config.luau`, `Props.luau` and
@@ -85,8 +88,7 @@ The last two would move parts, and claim 8 is that nothing moved.
 
 ## Not verified
 
-- **`test2`** — the Director's run; this request is updated with the `[harness2]` line for the same
-  commit before the review.
+- **`test2` was run by the Director, not by me** — the `[harness2]` line above is his, at this head.
 - **The template branch of `Props.trees` is still dormant.** `Assets.ROWS` is empty, so every tree is
   a proxy and the per-species `Props.template` call is only ever exercised on its `nil` return. What
   claim 4 proves today is that four *keys* are asked for; that four *meshes* arrive is provable only
