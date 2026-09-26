@@ -1,0 +1,11 @@
+{
+  "key": "boar.body",
+  "version": 1,
+  "kind": "meshpart",
+  "prompt": "An adult male European wild boar (Sus scrofa), standing in a neutral four-legged pose, seen as a single solid body. Dark grey-brown bristly coat with coarse visible hair, a paler grizzled flank, a heavy high-shouldered front, a narrow sloping rear, short straight legs, a long straight snout and small eyes. Visible curved ivory tusks from the lower jaw. Realistic proportions and realistic colours, as a European hunting photograph shows the animal. Neutral even lighting, no scene, no ground plane, no background.",
+  "references": [],
+  "sizeMetres": [0.56, 0.84, 1.54],
+  "targetTris": 6000,
+  "texturePx": 2048,
+  "notes": "Karen, 2026-09-26. The flanks must read LIGHT, not black: TASKS.md rows 18 and 24 both lost a round to a dark albedo. sizeMetres is the grey box converted at 1 stud = 0.28 m from Boar.CONFIG.BODY_SIZE (2, 3, 5.5 studs), so no physics, hit-zone or drive number moves when the art lands."
+}
