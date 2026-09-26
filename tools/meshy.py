@@ -14,7 +14,8 @@ Usage
     python tools/meshy.py preview <key>_v<N> [--dry-run]
     python tools/meshy.py status [<run-id>]    local records, plus one GET per live task
     python tools/meshy.py approve <run-id> --by karen [--note "..."]
-    python tools/meshy.py resume <run-id>      continue an interrupted poll
+    python tools/meshy.py resume <run-id>      continue an interrupted poll, or collect a run
+                                               a STOPPED line left unresolved
     python tools/meshy.py runs                 every run: state, age, expiry, credits
     python tools/meshy.py selftest             offline: validators, builders, parsers. CI runs this
 
@@ -22,8 +23,12 @@ Exit codes, the shape tools/studio_mcp.py and tools/privacy_scan.py already use:
     0 done  ·  1 failed  ·  2 REFUSED (no key, dirs unset or inside the repo, validation, wrong
     state, a ceiling) -- refused before anything is sent, and never a stack trace.
 
-THE LAST LINE IS ALWAYS MACHINE-READABLE, prefix `[meshy]`: OK / PENDING / FAILED / REFUSED. It is
-what the ASSET agent pastes into its report and what a Reviewer checks, exactly as `[harness]` is.
+THE LAST LINE IS ALWAYS MACHINE-READABLE, prefix `[meshy]`: OK / PENDING / STOPPED / FAILED /
+REFUSED. It is what the ASSET agent pastes into its report and what a Reviewer checks, exactly as
+`[harness]` is. STOPPED is the one that costs money if it is ignored: the task is paid for and the
+run is still collectable, so that line ends with the exact `resume` command to run. FAILED is
+terminal -- the Meshy task came back FAILED or CANCELED, a ceiling stopped the run, or no task was
+ever created -- and nothing can be collected from it.
 
 THE KEY. Read once, from os.environ, else from HKCU\Environment (a shell started before Karen made
 the variable does not have it). NEVER printed, logged, put in an exception, or written to a run
@@ -136,7 +141,17 @@ LICENCE = {
     "evidence": "Karen's statement 2026-09-26, plus a working API key (no API call can prove a plan)",
 }
 
-STATES = ("brief-ok", "preview-running", "preview-ready", "approved", "failed", "expired")
+STATES = ("brief-ok", "preview-running", "preview-unresolved", "preview-ready", "approved",
+          "failed", "expired")
+
+# MONEY ALREADY SPENT STAYS COLLECTABLE (Task 59, review round 1). `failed` is a TERMINAL: a Meshy
+# task came back FAILED or CANCELED, a ceiling stopped the run, or the POST never created a task --
+# in each of those there is nothing left to collect. Everything else that stops the tool while a
+# PAID task may still be running, or while its output could still be re-fetched, is
+# `preview-unresolved`, and `resume` takes it: a give-up after three unanswered polls, a 401 whose
+# key can be rotated, a SUCCEEDED task whose download failed. Putting those in `failed` made the
+# credits unreachable by any command, because `preview` again would pay twice (design section 8).
+RESUMABLE_STATES = ("preview-running", "preview-unresolved")
 
 
 class Refused(Exception):
@@ -594,6 +609,21 @@ def require_state(record, wanted):
         raise Refused(f"run is {record.get('state')}, not {wanted}")
 
 
+def stop_resumable(record, what, fix):
+    """Stop, keep the run collectable, and print the exact command that collects it.
+
+    Exit 1, because something did go wrong -- but the record stays in a state `resume` accepts, so
+    the credits are not stranded. The line's last sentence is always the command to run: the ASSET
+    agent pastes this into its report and the next session acts on it (design section 8)."""
+    record["state"] = "preview-unresolved"
+    save_run(record)
+    expiry = expiry_line(record)
+    print(f"[meshy] STOPPED: {record['runId']} {what}. {fix} "
+          f"Run: python tools/meshy.py resume {record['runId']}"
+          + (f" ({expiry})" if expiry else ""))
+    return 1
+
+
 def expiry_line(record, now=None):
     """"", "EXPIRES IN 7h" or "EXPIRED" -- the 3-day trap, made visible in `runs` and `status`."""
     now = now or utc_now()
@@ -780,13 +810,22 @@ def poll_and_finish(record, key, phase):
             terminal = status in (400, 401, 403, 404)
             consecutive += 1
             if terminal or consecutive >= POLL_GIVE_UP_AFTER:
-                record["state"] = "failed"
-                save_run(record)
-                why = ("the key or the task id is wrong" if terminal
-                       else f"{consecutive} polls in a row did not answer 200")
-                print(f"[meshy] FAILED: {record['runId']} {phase} cannot be polled -- {why}. "
-                      f"The task may still be running at Meshy; `runs` has the id.")
-                return 1
+                # NOT `failed`: the TASK is not what stopped -- the POLL is (Task 59 finding 1).
+                # It is still running at Meshy and it is already paid for, so the record stays in a
+                # state `resume` accepts. Rotate a revoked key, wait out a 5xx, then resume: the
+                # only alternative was a second `preview`, which pays twice (design section 8).
+                if status in (401, 403):
+                    why = "the key was rejected"
+                    fix = ("Rotate MESHY_API_KEY, check it with `python tools/meshy.py key "
+                           "--check`, then collect this run.")
+                elif terminal:
+                    why = f"Meshy answered {status} for this task id"
+                    fix = ("Check the id with `python tools/meshy.py runs`; if it is right, the "
+                           "task may have been removed at Meshy.")
+                else:
+                    why = f"{consecutive} polls in a row did not answer 200"
+                    fix = "Meshy is unreachable or rate-limiting; wait, then collect this run."
+                return stop_resumable(record, f"{phase} cannot be polled -- {why}", fix)
             time.sleep(POLL_INTERVAL_S)
             continue
         consecutive = 0
@@ -828,6 +867,12 @@ def finish_preview(record, key, task):
     model_urls = task.get("model_urls") or {}
     if isinstance(model_urls, dict) and model_urls.get("glb"):
         wanted.append(("preview.glb", model_urls["glb"]))
+    # A RE-DOWNLOAD REPLACES, it does not append: `resume` re-polls a SUCCEEDED task and comes back
+    # through here, and two entries for one file would make the record say the run produced two
+    # artefacts (Task 59).
+    names = {name for name, _url in wanted}
+    entry["artefacts"] = [a for a in entry.get("artefacts", []) if a.get("name") not in names]
+    undownloaded = []
     for name, url in wanted:
         if not url:
             print(f"[meshy] note: the response carried no URL for {name}")
@@ -836,6 +881,7 @@ def finish_preview(record, key, task):
             blob = download(url)
         except Failed as error:
             print(redact(f"[meshy] note: {name} did not download ({error})", key))
+            undownloaded.append(name)
             continue
         with open(os.path.join(folder, name), "wb") as handle:
             handle.write(blob)
@@ -851,16 +897,27 @@ def finish_preview(record, key, task):
     # describe what it sees, so the next thing in the chain was either a crash or an invention.
     written = {artefact["name"] for artefact in entry.get("artefacts", [])}
     on_disk = os.path.isfile(os.path.join(folder, "preview.png"))
+    # AND THE RUN STAYS COLLECTABLE (Task 59 finding 2). The task SUCCEEDED and the credits are
+    # spent; a signed URL is the only thing that failed, and `resume` mints fresh ones by polling
+    # the same task id. Calling this `failed` locked the operator out of an asset already paid for,
+    # while the line printed here told them to re-poll -- which the tool then refused.
     if "preview.png" not in written or not on_disk:
-        record["state"] = "failed"
-        save_run(record)
-        missing = [name for name, _url in wanted if name not in written]
-        print(f"[meshy] FAILED: {record['runId']} produced no preview image "
-              f"({', '.join(missing) if missing else 'preview.png is not on disk'}). The task "
-              f"itself SUCCEEDED and its credits are spent: `runs` has the id, and the model URLs "
-              f"can be re-minted by re-polling until the 3-day expiry. "
-              f"credits={credits if credits is not None else 'unknown'}")
-        return 1
+        missing = [name for name, _url in wanted if name not in written] or ["preview.png"]
+        return stop_resumable(
+            record,
+            f"SUCCEEDED and its credits are spent, but {', '.join(missing)} did not reach disk "
+            f"(credits={credits if credits is not None else 'unknown'})",
+            "The download URLs are signed and short-lived; resuming re-polls the same task id and "
+            "mints new ones, until the 3-day expiry.")
+    # The GLB is the artefact Task B needs, so a failed GLB download is the same class: paid for,
+    # not collected. A response that carried no GLB URL at all is a note, not a stop -- there is
+    # nothing to re-fetch, and the preview image is what this phase is for.
+    if undownloaded:
+        return stop_resumable(
+            record,
+            f"SUCCEEDED, but {', '.join(undownloaded)} did not download "
+            f"(credits={credits if credits is not None else 'unknown'})",
+            "The preview image is on disk; the rest can be re-fetched until the 3-day expiry.")
 
     record["state"] = "preview-ready"
     save_run(record)
@@ -885,8 +942,9 @@ def cmd_resume(args):
     key, _source, why = read_key()
     if not key:
         raise Refused("MESHY_API_KEY is not set" + (f" ({why})" if why else ""))
-    if record["state"] != "preview-running":
-        raise Refused(f"run is {record['state']}; only preview-running can be resumed in this task")
+    if record["state"] not in RESUMABLE_STATES:
+        raise Refused(f"run is {record['state']}; only {' or '.join(RESUMABLE_STATES)} can be "
+                      "resumed in this task")
     if expiry_line(record) == "EXPIRED":
         record["state"] = "expired"
         save_run(record)
@@ -1218,6 +1276,7 @@ def selftest():
     import tempfile  # noqa: PLC0415
     sandbox = tempfile.mkdtemp(prefix="meshy-selftest-")
     previous = os.environ.get("MESHY_RUN_DIR")
+    previous_key = os.environ.get("MESHY_API_KEY")
     os.environ["MESHY_RUN_DIR"] = sandbox
     try:
         record = {
@@ -1257,10 +1316,53 @@ def selftest():
         again = load_run(record["runId"])["approval"]
         ok("the second approve changed nothing", again == first, json.dumps(again))
 
-        # A PERMANENT POLL ERROR ENDS THE RUN. This is the one Task 55b exists for: a 401 or a 404
-        # used to print and loop to the 600 s deadline, then report PENDING and exit 0 -- a revoked
-        # key looked exactly like a model that was taking a while. `request` is swapped for a fake,
-        # so no key and no network are involved.
+        # A PERMANENT POLL ERROR STOPS THE RUN -- AND LEAVES IT COLLECTABLE. Task 55b made a 401
+        # or a 404 stop instead of looping to the 600 s deadline (a revoked key looked exactly like
+        # a model that was taking a while). Task 59's review then found that stopping wrote
+        # `failed`, which `resume` refuses -- so a task already paid for could never be collected
+        # by the tool again. Both halves are asserted from here down: it stops on the FIRST
+        # permanent error, and `resume` still picks the run up afterwards. `request` and `download`
+        # are swapped for fakes, so no key, no network and no credits are involved.
+        import contextlib  # noqa: PLC0415 -- only this block captures stdout
+        import io as stdlib_io  # noqa: PLC0415
+
+        def say(callable_):
+            """Run it; return (exit code, everything it printed)."""
+            buffer = stdlib_io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = callable_()
+            return code, buffer.getvalue()
+
+        def fake_succeeded(_method, _path, _key, body=None, timeout=HTTP_TIMEOUT_S):
+            return 200, {"result": {"status": "SUCCEEDED", "progress": 100,
+                                    "consumed_credits": 5,
+                                    "thumbnail_url": "https://example.invalid/p.png",
+                                    "model_urls": {"glb": "https://example.invalid/p.glb"}}}, ""
+
+        def fake_download(_url):
+            return b"\x89PNG\r\n\x1a\n not a real image"
+
+        def fake_download_fails(_url):
+            raise Failed("HTTPError: 403 the signed URL expired")
+
+        def collect(run_id, downloader):
+            """resume, with a fake Meshy that answers SUCCEEDED. Returns (code, output)."""
+            real_download = globals()["download"]
+            globals()["request"], globals()["download"] = fake_succeeded, downloader
+            try:
+                # A REFUSAL IS AN ANSWER HERE, not a crash: if `resume` ever stops accepting the
+                # state a stop leaves behind, that must read as a named failing case rather than
+                # an exception that ends the selftest before the cases after it run.
+                return say(lambda: cmd_resume(Args(run_id=run_id)))
+            except Refused as error:
+                return 2, f"REFUSED: {error}"
+            finally:
+                globals()["request"], globals()["download"] = real_request, real_download
+
+        # The fake key is set for the whole block, and RESTORED in the `finally` below rather than
+        # dropped: a real key in this process's environment is not the selftest's to discard (the
+        # same `previous` dance MESHY_RUN_DIR already does).
+        os.environ["MESHY_API_KEY"] = FAKE_KEY
         polled = {"calls": 0}
         real_request = globals()["request"]
 
@@ -1278,14 +1380,24 @@ def selftest():
         save_run(running, fresh=True)
         globals()["request"] = fake_401
         try:
-            code = poll_and_finish(running, FAKE_KEY, "preview")
+            code, said_401 = say(lambda: poll_and_finish(running, FAKE_KEY, "preview"))
         finally:
             globals()["request"] = real_request
         ok("a 401 poll exits 1 rather than reporting PENDING", code == 1, str(code))
         ok("it gives up on the FIRST permanent error, not at the deadline",
            polled["calls"] == 1, str(polled["calls"]))
-        ok("and the run is recorded as failed",
-           load_run(running["runId"])["state"] == "failed",
+        # NOT `failed`: the key can be rotated and the task is still running, and already paid for.
+        ok("a 401 leaves the run resumable rather than failed",
+           load_run(running["runId"])["state"] == "preview-unresolved",
+           load_run(running["runId"])["state"])
+        ok("and the 401 line says exactly what to run",
+           f"resume {running['runId']}" in said_401 and "Rotate MESHY_API_KEY" in said_401,
+           said_401.strip())
+        code, said_after_401 = collect(running["runId"], fake_download)
+        ok("resume collects the run after a 401 give-up (the key was rotated)", code == 0,
+           said_after_401.strip())
+        ok("...and it reaches preview-ready",
+           load_run(running["runId"])["state"] == "preview-ready",
            load_run(running["runId"])["state"])
 
         # A TRANSIENT error is different: it retries, then gives up after POLL_GIVE_UP_AFTER.
@@ -1304,13 +1416,85 @@ def selftest():
         gap = POLL_INTERVAL_S
         globals()["POLL_INTERVAL_S"] = 0  # the sleep is not what is being tested
         try:
-            code = poll_and_finish(transient, FAKE_KEY, "preview")
+            code, said_503 = say(lambda: poll_and_finish(transient, FAKE_KEY, "preview"))
         finally:
             globals()["request"] = real_request
             globals()["POLL_INTERVAL_S"] = gap
         ok("a repeated 5xx also exits 1", code == 1, str(code))
         ok("after exactly POLL_GIVE_UP_AFTER tries", polled["calls"] == POLL_GIVE_UP_AFTER,
            str(polled["calls"]))
+        ok("a transient give-up leaves the run resumable rather than failed",
+           load_run(transient["runId"])["state"] == "preview-unresolved",
+           load_run(transient["runId"])["state"])
+        ok("and the give-up line says exactly what to run",
+           f"resume {transient['runId']}" in said_503, said_503.strip())
+        code, said_after_503 = collect(transient["runId"], fake_download)
+        ok("resume collects the run after a poll give-up", code == 0, said_after_503.strip())
+        ok("...and it reaches preview-ready",
+           load_run(transient["runId"])["state"] == "preview-ready",
+           load_run(transient["runId"])["state"])
+        ok("...with the preview image actually on disk",
+           os.path.isfile(os.path.join(sandbox, transient["runId"], "preview.png")))
+
+        # A DOWNLOAD THAT FAILS IS THE SAME CLASS (Task 59 finding 2): the task SUCCEEDED, the
+        # credits are spent, and only a short-lived signed URL went wrong. Re-polling mints a new
+        # one, so the run must stay resumable and the printed line must say so.
+        broken = dict(record)
+        broken["runId"] = "boar.body_v1-20260101T0004Z"
+        broken["state"] = "preview-running"
+        broken["approval"] = None
+        broken["tasks"] = [dict(running["tasks"][0], status="PENDING", artefacts=[])]
+        save_run(broken, fresh=True)
+        real_download = globals()["download"]
+        globals()["request"], globals()["download"] = fake_succeeded, fake_download_fails
+        try:
+            code, said_dl = say(lambda: poll_and_finish(broken, FAKE_KEY, "preview"))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a failed preview download exits 1", code == 1, str(code))
+        ok("...and leaves the run resumable rather than failed",
+           load_run(broken["runId"])["state"] == "preview-unresolved",
+           load_run(broken["runId"])["state"])
+        ok("...and the line says exactly what to run",
+           f"resume {broken['runId']}" in said_dl, said_dl.strip())
+        code, said_after_dl = collect(broken["runId"], fake_download)
+        ok("resume collects a preview whose download failed", code == 0, said_after_dl.strip())
+        ok("...and the image is on disk",
+           os.path.isfile(os.path.join(sandbox, broken["runId"], "preview.png")))
+        artefacts = load_run(broken["runId"])["tasks"][-1]["artefacts"]
+        names = [artefact["name"] for artefact in artefacts]
+        ok("...and a re-download replaced its record rather than doubling it",
+           len(names) == len(set(names)) == 2, str(names))
+
+        # THE GLB ALONE. The image reaching disk used to be the whole test, so a preview whose GLB
+        # download failed was called `preview-ready` with a one-line note -- and the GLB is the
+        # artefact Task B needs before the 3-day expiry (Task 59, the Reviewer's fourth note).
+        def fake_glb_fails(url):
+            if url.endswith(".glb"):
+                raise Failed("HTTPError: 403 the signed URL expired")
+            return fake_download(url)
+
+        partial = dict(record)
+        partial["runId"] = "boar.body_v1-20260101T0005Z"
+        partial["state"] = "preview-running"
+        partial["approval"] = None
+        partial["tasks"] = [dict(running["tasks"][0], status="PENDING", artefacts=[])]
+        save_run(partial, fresh=True)
+        globals()["request"], globals()["download"] = fake_succeeded, fake_glb_fails
+        try:
+            code, said_glb = say(lambda: poll_and_finish(partial, FAKE_KEY, "preview"))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a failed GLB download stops instead of claiming preview-ready", code == 1, str(code))
+        ok("...and leaves the run resumable",
+           load_run(partial["runId"])["state"] == "preview-unresolved",
+           load_run(partial["runId"])["state"])
+        ok("...and names the GLB in the line", "preview.glb" in said_glb, said_glb.strip())
+        code, said_after_glb = collect(partial["runId"], fake_download)
+        ok("resume collects the GLB afterwards", code == 0, said_after_glb.strip())
+        ok("...and both files are on disk",
+           os.path.isfile(os.path.join(sandbox, partial["runId"], "preview.glb"))
+           and os.path.isfile(os.path.join(sandbox, partial["runId"], "preview.png")))
 
         # resume refuses an EXPIRED run and says why -- the 3-day trap, from created_at.
         expired = dict(record)
@@ -1323,13 +1507,15 @@ def selftest():
                              "artefacts": []}]
         save_run(expired, fresh=True)
         ok("an 80 h old run reads as EXPIRED", expiry_line(expired) == "EXPIRED", expiry_line(expired))
-        os.environ["MESHY_API_KEY"] = FAKE_KEY
         said = refusal(lambda: cmd_resume(Args(run_id=expired["runId"])), "resume an expired run")
         ok("resume refuses an expired run, and says it cannot be regenerated",
            "deleted" in said and "no seed" in said, said)
         ok("the refusal moved it to expired", load_run(expired["runId"])["state"] == "expired")
     finally:
-        os.environ.pop("MESHY_API_KEY", None)
+        if previous_key is None:
+            os.environ.pop("MESHY_API_KEY", None)
+        else:
+            os.environ["MESHY_API_KEY"] = previous_key
         if previous is None:
             os.environ.pop("MESHY_RUN_DIR", None)
         else:
@@ -1380,7 +1566,8 @@ def build_parser():
     approve_parser.add_argument("--note", default="")
     approve_parser.set_defaults(run=cmd_approve)
 
-    resume_parser = sub.add_parser("resume", help="continue an interrupted poll")
+    resume_parser = sub.add_parser("resume",
+                                   help="continue an interrupted poll, or collect a STOPPED run")
     resume_parser.add_argument("run_id")
     resume_parser.set_defaults(run=cmd_resume)
 

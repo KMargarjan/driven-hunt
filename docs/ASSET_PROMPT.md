@@ -69,6 +69,11 @@ brief version rather than asking Karen to judge something you already know is wr
   with its message and its credits, and stop.
 - **Never run a second `preview` for a run that is still going.** Use `resume`. A second POST pays
   twice for the same model.
+- **A `STOPPED` line is money waiting to be collected, not a dead run.** It means the task is paid
+  for and the tool could not finish -- the poll could not reach Meshy, the key was rejected, or a
+  signed download URL expired. The line ends with the exact `resume` command; run it (after fixing
+  what it names), and only if `resume` itself refuses is the run over. `FAILED` is the terminal one:
+  Meshy said FAILED or CANCELED, or a ceiling stopped the run.
 
 ## What is enforced, and what is only this page
 
