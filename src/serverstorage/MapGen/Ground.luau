@@ -35,12 +35,17 @@ end
 -- COLUMN, not once per voxel: at 24,576 voxels a tile and ~6 math.noise calls a height, per-voxel
 -- would be about 600,000 noise evaluations for a tile that needs 3,000.
 local function surfaceMaterial(x: number, z: number, h: number, seed: number, config, pads): Enum.Material
+	-- The bog first: where the ground dips, the ground is mud. One function decides both (Layout.bogDepth
+	-- is what Height dips by too), so the dip and the mud cannot end up in different places.
+	if Layout.bogDepth(x, z, config) > 0.15 then
+		return config.MATERIAL.bog
+	end
 	if Layout.onTrack(x, z, config) then
 		return config.MATERIAL.track
 	end
 	local v = config.VOXEL
-	local dx = math.abs(Height.atFlattened(x + v, z, seed, config, pads) - h) / v
-	local dz = math.abs(Height.atFlattened(x, z + v, seed, config, pads) - h) / v
+	local dx = math.abs(Height.atFlattened(x + v, z, seed, config, pads, Layout.bogDepth) - h) / v
+	local dz = math.abs(Height.atFlattened(x, z + v, seed, config, pads, Layout.bogDepth) - h) / v
 	if math.max(dx, dz) > config.ROUGH_SLOPE then
 		return config.MATERIAL.rough
 	end
@@ -67,7 +72,7 @@ function Ground.writeTile(tile, seed: number, config): number
 		local x = min.X + (i - 0.5) * v
 		for k = 1, nz do
 			local z = min.Z + (k - 0.5) * v
-			local h = Height.atFlattened(x, z, seed, config, pads)
+			local h = Height.atFlattened(x, z, seed, config, pads, Layout.bogDepth)
 			local material = surfaceMaterial(x, z, h, seed, config, pads)
 			for j = 1, ny do
 				local bottom = min.Y + (j - 1) * v
@@ -81,39 +86,59 @@ function Ground.writeTile(tile, seed: number, config): number
 	return nx * ny * nz
 end
 
--- The dirt track: MATERIAL ONLY. Its height was already flattened into the heightfield by step 2, so
--- this pass can never disagree with the ground it paints (design section 5.2 layer 5). Painting the
--- whole solid column rather than the top voxel keeps the pass a pure read-then-write with no surface
--- search: 12 studs of track is never seen from the side. It takes no seed, because the track's
--- POSITION is a layout fact and its HEIGHT was already decided by step 2 -- there is nothing random
--- left to draw.
-function Ground.paintTrack(config): number
-	local slice = config.SLICE
-	local half = config.SLICE_STUDS / 2
-	local region = Region3.new(
-		Vector3.new(-half, config.BAND_Y.min, slice.trackZ - slice.trackHalfWidth),
-		Vector3.new(half, config.BAND_Y.max, slice.trackZ + slice.trackHalfWidth)
-	):ExpandToGrid(config.VOXEL)
+-- The dirt tracks: MATERIAL ONLY. Their height was already flattened into the heightfield by the
+-- terrain step, so this pass can never disagree with the ground it paints (design section 5.2 layer
+-- 5). Painting the whole solid column rather than the top voxel keeps the pass a pure read-then-write
+-- with no surface search: 14 studs of track is never seen from the side.
+--
+-- One region per track, because a region covering both would be most of the map and far past the
+-- measured 24,576-voxel ceiling.
+function Ground.paintTrack(track, config): number
+	local half = config.SIZE_STUDS / 2
 	local v = config.VOXEL
-	local materials, occupancies = Workspace.Terrain:ReadVoxels(region, v)
-	local min = region.CFrame.Position - region.Size / 2
+	local min, max
+	if track.axis == "x" then
+		min = Vector3.new(-half, config.BAND_Y.min, track.at - track.halfWidth)
+		max = Vector3.new(half, config.BAND_Y.max, track.at + track.halfWidth)
+	else
+		min = Vector3.new(track.at - track.halfWidth, config.BAND_Y.min, -half)
+		max = Vector3.new(track.at + track.halfWidth, config.BAND_Y.max, half)
+	end
 	local painted = 0
-	local nx, ny, nz = region.Size.X / v, region.Size.Y / v, region.Size.Z / v
-	for i = 1, nx do
-		local x = min.X + (i - 0.5) * v
-		for k = 1, nz do
-			local z = min.Z + (k - 0.5) * v
-			if Layout.onTrack(x, z, config) then
-				for j = 1, ny do
-					if occupancies[i][j][k] > 0 and materials[i][j][k] ~= AIR then
-						materials[i][j][k] = config.MATERIAL.track
-						painted += 1
+	-- Chunked along the long axis, so no single WriteVoxels region exceeds the measured limit.
+	local chunk = 512
+	local longFrom = if track.axis == "x" then min.X else min.Z
+	local longTo = if track.axis == "x" then max.X else max.Z
+	local at = longFrom
+	while at < longTo do
+		local stop = math.min(at + chunk, longTo)
+		local region
+		if track.axis == "x" then
+			region = Region3.new(Vector3.new(at, min.Y, min.Z), Vector3.new(stop, max.Y, max.Z))
+		else
+			region = Region3.new(Vector3.new(min.X, min.Y, at), Vector3.new(max.X, max.Y, stop))
+		end
+		region = region:ExpandToGrid(v)
+		local materials, occupancies = Workspace.Terrain:ReadVoxels(region, v)
+		local rmin = region.CFrame.Position - region.Size / 2
+		local nx, ny, nz = region.Size.X / v, region.Size.Y / v, region.Size.Z / v
+		for i = 1, nx do
+			local x = rmin.X + (i - 0.5) * v
+			for k = 1, nz do
+				local z = rmin.Z + (k - 0.5) * v
+				if Layout.onTrack(x, z, config) and Layout.bogDepth(x, z, config) <= 0.15 then
+					for j = 1, ny do
+						if occupancies[i][j][k] > 0 and materials[i][j][k] ~= AIR then
+							materials[i][j][k] = config.MATERIAL.track
+							painted += 1
+						end
 					end
 				end
 			end
 		end
+		Workspace.Terrain:WriteVoxels(region, v, materials, occupancies)
+		at = stop
 	end
-	Workspace.Terrain:WriteVoxels(region, v, materials, occupancies)
 	return painted
 end
 
@@ -124,7 +149,7 @@ function Ground.sampleRow(
 	samplesPerRow: number,
 	config
 ): { { x: number, z: number, occupancy: number, material: string } }
-	local half = config.SLICE_STUDS / 2
+	local half = config.SIZE_STUDS / 2
 	local v = config.VOXEL
 	local region =
 		Region3.new(Vector3.new(-half, config.BAND_Y.min, z - v / 2), Vector3.new(half, config.BAND_Y.max, z + v / 2))

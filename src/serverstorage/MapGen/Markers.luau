@@ -55,7 +55,7 @@ function Markers.place(root: Instance, seed: number, config): { [string]: number
 	local pads = Layout.pads(config)
 	local counts: { [string]: number } = {}
 	for _, marker in ipairs(Layout.markers(config)) do
-		local ground = Height.atFlattened(marker.x, marker.z, seed, config, pads)
+		local ground = Height.atFlattened(marker.x, marker.z, seed, config, pads, Layout.bogDepth)
 		local y = ground + marker.size.Y / 2
 		local position = Vector3.new(marker.x, y, marker.z)
 		local part = Instance.new("Part")
@@ -80,41 +80,22 @@ function Markers.place(root: Instance, seed: number, config): { [string]: number
 	return counts
 end
 
--- The tie trees: the `SLICE.tieTrees` trunks nearest the shooter line, tagged where they stand. A
--- player tied to a spruce 900 studs away is a teleport, not a penalty (design section 4.3).
-function Markers.tagTieTrees(root: Instance, config): number
-	local trunks = Props.trunks(root)
-	local points = {}
-	for _, trunk in ipairs(trunks) do
-		table.insert(points, { x = trunk.Position.X, z = trunk.Position.Z })
-	end
-	-- Counts every tie tree that ends up tagged, not only the ones this call newly tagged: re-running
-	-- the step on an unchanged map would otherwise report "0 tie trees tagged" for a map that has
-	-- twelve (review round 1, note).
+-- THE TIE TREES: every trunk in the `TieTrees` folder, which `Props` filled from
+-- `Layout.tieTreePoints` -- twelve trees placed behind the shooter line on purpose. Milestone 2.1
+-- tagged the twelve scattered trunks nearest the line instead; at full size the wood starts beyond
+-- the corridor, so the nearest scattered trunk is ~150 studs away and the design's "within 120 studs"
+-- (section 4.3) could not hold. A player tied to a spruce 900 studs away is a teleport, not a penalty.
+function Markers.tagTieTrees(root: Instance, _config): number
 	local tagged = 0
-	for _, index in ipairs(Layout.tieTrees(points, config)) do
-		local trunk = trunks[index]
-		if trunk then
-			if not CollectionService:HasTag(trunk, Map.TAGS.tree) then
-				CollectionService:AddTag(trunk, Map.TAGS.tree)
-			end
-			tagged += 1
+	for _, trunk in ipairs(Props.trunks(root, "TieTrees")) do
+		if not CollectionService:HasTag(trunk, Map.TAGS.tree) then
+			CollectionService:AddTag(trunk, Map.TAGS.tree)
 		end
+		-- Counts every tie tree that ends up tagged, not only the ones this call newly tagged:
+		-- re-running the step on an unchanged map would otherwise report "0 tie trees tagged".
+		tagged += 1
 	end
 	return tagged
-end
-
--- Every tagged instance under the root, with its tags, for the digest and the contract check.
-function Markers.tagged(root: Instance): { { instance: Instance, tags: { string } } }
-	local out = {}
-	for _, tag in pairs(Map.TAGS) do
-		for _, instance in ipairs(CollectionService:GetTagged(tag)) do
-			if instance:IsDescendantOf(root) then
-				table.insert(out, { instance = instance, tags = CollectionService:GetTags(instance) })
-			end
-		end
-	end
-	return out
 end
 
 -- How many instances carry each tag INSIDE the root. A tag on something outside it is not the map's.

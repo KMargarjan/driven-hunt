@@ -19,12 +19,15 @@
 -- the generator's maths in the ordinary harness run, with no Studio, no Terrain and no asset, while
 -- the generator itself never runs there.
 --
--- MILESTONE 2.1 BUILDS A 512-STUD SLICE and does NOT make it the world: `Map.EXPECTED_WORLD` stays
--- "arena", the grey box is still what a player stands in and still the rollback (design section 14).
+-- MILESTONE 2.2 BUILDS THE WHOLE 2048-STUD MAP and still does NOT make it the world:
+-- `Map.EXPECTED_WORLD` stays "arena", the grey box is still what a player stands in and still the
+-- rollback (design section 14). M2.5 is the switch.
 --
 -- Design: docs/design/map-generator.md (sections 2.2, 5.1, 5.2, 6.4)
 -- Note:   docs/research/2026-09-24-map-generator.md
 local CollectionService = game:GetService("CollectionService")
+local PathfindingService = game:GetService("PathfindingService")
+local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -42,7 +45,7 @@ local Settings = require(script:WaitForChild("Settings"))
 
 local MapGen = {}
 
-MapGen.VERSION = "m2.1"
+MapGen.VERSION = "m2.2"
 MapGen.CONFIG = Config
 MapGen.Height = Height
 MapGen.Layout = Layout
@@ -63,6 +66,8 @@ export type StepReport = {
 	proxyUsed: { string }?,
 	elapsedMs: number,
 }
+
+export type Reach = { from: string, status: string, waypoints: number }
 
 -- ---------------------------------------------------------------- the plan
 
@@ -87,12 +92,31 @@ function MapGen.steps(seed: number): { StepSpec }
 				tile.minZ,
 				tile.minZ + Config.TILE_STUDS
 			),
-			8000
+			4000
 		)
 	end
-	add("hedgerow", string.format("hedgerow at z=%d", Config.SLICE.hedgerow.z), 2000)
-	add("track", string.format("dirt track material at z=%d", Config.SLICE.trackZ), 4000)
-	add("props", string.format("%d trees (seed %d)", Config.SLICE.treeCount, seed), 6000)
+	for index, line in ipairs(Layout.hedgeLines(Config)) do
+		add(
+			"hedgerow",
+			string.format(
+				"hedgerow %d: along %s at %d%s",
+				index,
+				line.axis,
+				line.at,
+				if line.crossesCorridor then ", gated where it crosses the drive" else ""
+			),
+			3000
+		)
+	end
+	for index, track in ipairs(Config.WORLD.tracks) do
+		add("track", string.format("dirt track %d: along %s at %d", index, track.axis, track.at), 6000)
+	end
+	-- No bog STEP: the bog is a dip in the heightfield and a material, and both are decided per voxel
+	-- by the terrain pass through `Layout.bogDepth`. A separate step could only repaint what is
+	-- already right, and a step that does nothing is worse than no step (design section 5.2 layer 6
+	-- assumes a bog painted on top of flat ground; ours is part of the ground).
+	add("props", string.format("%d trees (seed %d)", Config.WORLD.treeCount, seed), 8000)
+	add("stand", string.format("%d tie trees behind the shooter line", Config.WORLD.tieTrees), 2000)
 	add("markers", "the five tagged marker kinds, and the tie trees", 3000)
 	add("settings", "streaming from the contract", 500)
 	return steps
@@ -162,14 +186,28 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		return finish({ ok = true, voxelsWritten = Ground.writeTile(tile, seed, Config) })
 	elseif spec.kind == "hedgerow" then
 		local root = ensureRoot()
-		local count, keys, why = Props.hedge(root, seed, Config)
+		local lineIndex = index - 1 - #Layout.tiles(Config)
+		local line = Layout.hedgeLines(Config)[lineIndex]
+		-- The gates go where the line crosses the DRIVE CORRIDOR, and nowhere else: a gate outside it
+		-- is a gate the drive never reaches (Task 43 review round 2, finding 2).
+		local from, to = Layout.corridorSpan(line, Config)
+		local gates = if from and to then Scatter.hedgeGates(Config, seed, lineIndex, from, to) else {}
+		local count, keys, why = Props.hedge(root, seed, Config, lineIndex, line, gates)
 		Props.clearAssets(root) -- this step can create it too, so this step also clears it (8.2)
 		if why then
 			return finish({ ok = false, message = why })
 		end
-		return finish({ ok = true, partsCreated = count, proxyUsed = keys })
+		return finish({
+			ok = true,
+			partsCreated = count,
+			proxyUsed = keys,
+			message = if #gates > 0
+				then string.format("%d gate(s) in the corridor", #gates)
+				else "no corridor crossing",
+		})
 	elseif spec.kind == "track" then
-		return finish({ ok = true, voxelsWritten = Ground.paintTrack(Config) })
+		local trackIndex = index - 1 - #Layout.tiles(Config) - #Layout.hedgeLines(Config)
+		return finish({ ok = true, voxelsWritten = Ground.paintTrack(Config.WORLD.tracks[trackIndex], Config) })
 	elseif spec.kind == "props" then
 		local root = ensureRoot()
 		local count, keys, why = Props.trees(root, seed, Config)
@@ -177,7 +215,7 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		if why then
 			return finish({ ok = false, message = why })
 		end
-		if count < Config.SLICE.treeCount then
+		if count < Config.WORLD.treeCount then
 			return finish({
 				ok = false,
 				partsCreated = count,
@@ -185,9 +223,17 @@ function MapGen.runStep(index: number, seed: number): StepReport
 				message = string.format(
 					"%d of %d trees placed: the scatter rejected too many cells",
 					count,
-					Config.SLICE.treeCount
+					Config.WORLD.treeCount
 				),
 			})
+		end
+		return finish({ ok = true, partsCreated = count, proxyUsed = keys })
+	elseif spec.kind == "stand" then
+		local root = ensureRoot()
+		local count, keys, why = Props.tieTrees(root, seed, Config)
+		Props.clearAssets(root)
+		if why then
+			return finish({ ok = false, message = why })
 		end
 		return finish({ ok = true, partsCreated = count, proxyUsed = keys })
 	elseif spec.kind == "markers" then
@@ -243,10 +289,10 @@ function MapGen.digest(): { digest: string, parts: number, samples: number, seed
 		return { digest = "", parts = 0, samples = 0, seed = Map.SEED, version = MapGen.VERSION }
 	end
 	local perSide = math.floor(math.sqrt(Config.DIGEST_TERRAIN_SAMPLES))
-	local half = Config.SLICE_STUDS / 2
+	local half = Config.SIZE_STUDS / 2
 	local samples = {}
 	for row = 1, perSide do
-		local z = -half + (row - 0.5) * (Config.SLICE_STUDS / perSide)
+		local z = -half + (row - 0.5) * (Config.SIZE_STUDS / perSide)
 		for _, sample in ipairs(Ground.sampleRow(z, perSide, Config)) do
 			table.insert(samples, sample)
 		end
@@ -269,19 +315,6 @@ function MapGen.markerDigest(): string
 	return Digest.half(Digest.markerText(digestEntries(root), Config.DIGEST_ROUND))
 end
 
--- ---------------------------------------------------------------- the contract
-
--- What the GENERATED map must hold, derived from Layout rather than written out again, so the counts
--- cannot drift from the code that places them. `Map.EXPECTED_COUNTS` describes the world
--- `Map.EXPECTED_WORLD` names, which in M2.1 is still the arena: a different world, different counts.
-function MapGen.expectedCounts(): { [string]: number }
-	local counts: { [string]: number } = { tree = Config.SLICE.tieTrees }
-	for _, marker in ipairs(Layout.markers(Config)) do
-		counts[marker.kind] = (counts[marker.kind] or 0) + 1
-	end
-	return counts
-end
-
 local function taggedInside(root: Instance, tag: string): { BasePart }
 	local out: { BasePart } = {}
 	for _, instance in ipairs(CollectionService:GetTagged(tag)) do
@@ -290,6 +323,89 @@ local function taggedInside(root: Instance, tag: string): { BasePart }
 		end
 	end
 	return out
+end
+
+-- ---------------------------------------------------------------- reachability
+
+-- CAN THE BOAR ACTUALLY GET THERE? Every BoarSpawn and the DriverStart, pathfound to the drive line
+-- with the BOAR'S OWN agent parameters. This is design section 1.1 item 7 and section 13.1 check 5,
+-- moved here because the harness spec can only see the world `EXPECTED_WORLD` names -- the arena --
+-- and so has never looked at the generated map. That gap is exactly how an ungated hedgerow wall
+-- across the drive corridor survived Task 43's first two review rounds (TASKS.md row 43a(k)).
+--
+--   PathfindingService https://create.roblox.com/docs/reference/engine/classes/PathfindingService
+--
+-- MEASURED 2026-09-26: `ComputeAsync` works in an Edit session through `execute_luau`, and a wall
+-- thrown across the corridor still answered `Success` ONE second after it appeared and `NoPath` after
+-- five. Studio rebuilds its navmesh in the background, so this waits `REACH_SETTLE_SECONDS` first: a
+-- check that races the navmesh answers about the map as it was, which is worse than no check.
+function MapGen.reachability(): { ok: boolean, findings: { string }, results: { Reach } }
+	local root = existingRoot()
+	if root == nil then
+		return { ok = false, findings = { Config.ROOT_NAME .. " does not exist in Workspace" }, results = {} }
+	end
+	local ok, Boar = pcall(function()
+		return require(ServerScriptService:WaitForChild("Boar", 10))
+	end)
+	if not ok or type(Boar) ~= "table" then
+		return {
+			ok = false,
+			findings = { "ServerScriptService.Boar is not requireable, so the boar's own agent is unknown" },
+			results = {},
+		}
+	end
+	local lines = taggedInside(root, Map.TAGS.driveLine)
+	if #lines ~= 1 then
+		return { ok = false, findings = { string.format("%d drive lines: nothing to path to", #lines) }, results = {} }
+	end
+	local target = lines[1].Position
+
+	local froms: { { name: string, position: Vector3 } } = {}
+	for _, spawn in ipairs(taggedInside(root, Map.TAGS.boarSpawn)) do
+		table.insert(froms, { name = spawn.Name, position = spawn.Position })
+	end
+	for _, start in ipairs(taggedInside(root, Map.TAGS.driverStart)) do
+		table.insert(froms, { name = start.Name, position = start.Position })
+	end
+	table.sort(froms, function(a, b)
+		return a.name < b.name
+	end)
+	if #froms == 0 then
+		return { ok = false, findings = { "no boar spawn and no driver start to path from" }, results = {} }
+	end
+
+	task.wait(Config.REACH_SETTLE_SECONDS)
+
+	local findings: { string } = {}
+	local results: { Reach } = {}
+	for _, from in ipairs(froms) do
+		local path = PathfindingService:CreatePath(Boar.CONFIG.AGENT)
+		local computed = pcall(function()
+			path:ComputeAsync(from.position + Vector3.new(0, 2, 0), target)
+		end)
+		local waypoints = if computed then #path:GetWaypoints() else 0
+		local status = if computed then tostring(path.Status) else "ComputeAsync raised"
+		table.insert(results, { from = from.name, status = status, waypoints = waypoints })
+		if status ~= "Enum.PathStatus.Success" then
+			table.insert(findings, string.format("%s cannot reach the drive line: %s", from.name, status))
+		elseif waypoints < 2 then
+			table.insert(findings, string.format("%s reached the line in %d waypoint(s)", from.name, waypoints))
+		end
+	end
+	return { ok = #findings == 0, findings = findings, results = results }
+end
+
+-- ---------------------------------------------------------------- the contract
+
+-- What the GENERATED map must hold, derived from Layout rather than written out again, so the counts
+-- cannot drift from the code that places them. `Map.EXPECTED_COUNTS` describes the world
+-- `Map.EXPECTED_WORLD` names, which in M2.1 is still the arena: a different world, different counts.
+function MapGen.expectedCounts(): { [string]: number }
+	local counts: { [string]: number } = { tree = Config.WORLD.tieTrees }
+	for _, marker in ipairs(Layout.markers(Config)) do
+		counts[marker.kind] = (counts[marker.kind] or 0) + 1
+	end
+	return counts
 end
 
 function MapGen.verifyContract(): { ok: boolean, findings: { string }, counts: { [string]: number } }
@@ -314,12 +430,15 @@ function MapGen.verifyContract(): { ok: boolean, findings: { string }, counts: {
 		end
 	end
 
+	-- AGAINST THE MAP'S OWN RECTANGLE, not `Map.FIELD`: while `EXPECTED_WORLD` is "arena" the
+	-- contract's rectangle is the arena's (it must equal `Boar.CONFIG.field`, which the spec asserts),
+	-- and the generated map is 2048 studs across. At the M2.5 switch `Config.FIELD` becomes both.
 	for _, spawn in ipairs(taggedInside(root, Map.TAGS.boarSpawn)) do
-		local p, b = spawn.Position, Map.FIELD.bounds
+		local p, b = spawn.Position, Config.FIELD.bounds
 		if p.X < b.minX or p.X > b.maxX or p.Z < b.minZ or p.Z > b.maxZ then
 			table.insert(findings, spawn.Name .. " is outside Map.FIELD.bounds")
 		end
-		if math.abs(p.Y - Map.FIELD.groundY) > Map.SPAWN_PAD.tolerance then
+		if math.abs(p.Y - Config.FIELD.groundY) > Map.SPAWN_PAD.tolerance then
 			table.insert(
 				findings,
 				string.format(
@@ -357,7 +476,18 @@ function MapGen.verifyContract(): { ok: boolean, findings: { string }, counts: {
 		table.insert(findings, string.format("%d parts, over the budget of %d", parts, Map.BUDGET.parts))
 	end
 	counts.parts = parts
-	return { ok = #findings == 0, findings = findings, counts = counts }
+	return {
+		ok = #findings == 0,
+		findings = findings,
+		counts = counts,
+		-- What the place actually says about streaming, beside what the contract wants: the four
+		-- properties Luau cannot reach read as "unreachable from Luau" rather than as a number nobody
+		-- checked (row 43a(m) gave this function its reader).
+		streaming = Settings.current(),
+		-- The half of the digest a spec can afford, which is what M2.5's committed-digest check will
+		-- compare against (design section 13.1 check 11).
+		markerDigest = MapGen.markerDigest(),
+	}
 end
 
 return MapGen

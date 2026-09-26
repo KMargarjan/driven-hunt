@@ -39,7 +39,7 @@ end
 -- 1 outside the corridor, easing to CORRIDOR_RELIEF / RELIEF inside it. Smoothstep rather than a
 -- step, because a cliff at the corridor edge is exactly the terrain a boar falls off.
 function Height.corridorFalloff(x: number, z: number, config): number
-	local c = config.SLICE.corridor
+	local c = config.WORLD.corridor
 	local inside = config.CORRIDOR_RELIEF / config.RELIEF
 	local blend = 90 -- studs of easing either side
 	local dx = math.max(c.minX - x, x - c.maxX, 0)
@@ -53,14 +53,28 @@ function Height.corridorFalloff(x: number, z: number, config): number
 	return inside + (1 - inside) * smooth
 end
 
+-- How deep the bog dips at a point: 0 outside it, `depth` studs at its centre, eased. The SAME
+-- easing the material uses, because `Ground` asks `Layout.bogDepth` for both -- a dip in one place and
+-- mud in another would be two systems disagreeing about one feature.
+local function bogDip(x: number, z: number, config, bogDepth: ((number, number, any) -> number)?): number
+	if bogDepth == nil then
+		return 0
+	end
+	return bogDepth(x, z, config) * config.WORLD.bog.depth
+end
+
 -- The ground, in studs, at one point. Deterministic in (x, z, seed).
-function Height.at(x: number, z: number, seed: number, config): number
+--
+-- `bogDepth` is passed in rather than required, so this module keeps no dependency at all: `Ground`
+-- and the specs hand it `Layout.bogDepth`, and a caller that omits it gets the terrain without the
+-- bog, which is exactly what the corridor and slope checks want to measure.
+function Height.at(x: number, z: number, seed: number, config, bogDepth: ((number, number, any) -> number)?): number
 	local ox, oz = Height.offset(seed)
 	local wf = config.WARP_FREQUENCY
 	local wx = config.WARP * math.noise((x + ox) * wf, (z + oz) * wf)
 	local wz = config.WARP * math.noise((x + ox + 313.7) * wf, (z + oz + 71.3) * wf)
 	local h = fbm(x + wx + ox, z + wz + oz, config) * config.RELIEF
-	return config.GROUND_Y + h * Height.corridorFalloff(x, z, config)
+	return config.GROUND_Y + h * Height.corridorFalloff(x, z, config) - bogDip(x, z, config, bogDepth)
 end
 
 -- The ground with the flat pads applied: a disc of `radius` at exactly GROUND_Y, easing back to the
@@ -72,8 +86,15 @@ end
 -- Map.FIELD.groundY (design section 13.1 check 4). Flattening to the noise would put a spawn up to
 -- CORRIDOR_RELIEF studs off that, so the map would fail its own contract at the M2.5 switch. It also
 -- means Boar's field.groundY needs no change when the map becomes the world.
-function Height.atFlattened(x: number, z: number, seed: number, config, pads: { { x: number, z: number } }): number
-	local h = Height.at(x, z, seed, config)
+function Height.atFlattened(
+	x: number,
+	z: number,
+	seed: number,
+	config,
+	pads: { { x: number, z: number } },
+	bogDepth: ((number, number, any) -> number)?
+): number
+	local h = Height.at(x, z, seed, config, bogDepth)
 	local pad = config.SPAWN_PAD
 	-- The NEAREST pad wins, not the first in the list: with two pads overlapping, "first" would make
 	-- the ground depend on the order Layout happens to emit them in.

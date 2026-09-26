@@ -15,6 +15,13 @@
 --     exporting them is for. Determinism is the property under test, because a map that cannot be
 --     rebuilt from its seed cannot be reviewed as a diff.
 --
+--     WHAT THIS FILE CANNOT DO, said plainly: it cannot pathfind the generated map, because the map is
+--     not in the place during a harness run. `MapGen.reachability`, driven by
+--     `python tools/mapgen.py verify`, is the check that walks it with the boar's own agent; the
+--     hedgerow tests below are the pure half -- a gate wide enough, inside the corridor, on every line
+--     that crosses it. Both exist because the harness half alone let an ungated wall through
+--     (TASKS.md row 43a(k)).
+--
 -- It asserts the WORLD and the CONTRACT against each other rather than either against itself: the
 -- counts come from `Map.EXPECTED_COUNTS`, the tags from `Map.TAGS`, the rectangle from `Map.FIELD`,
 -- and the boar's own field from `Boar.CONFIG` (CLAUDE.md rule 6 -- test the player's path).
@@ -28,6 +35,9 @@ local Workspace = game:GetService("Workspace")
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local MapGen = require(ServerStorage:WaitForChild("MapGen"))
+-- The placing step's own rejection predicate, so the scatter tests below assert what the generator
+-- actually does rather than a copy of it.
+local Props = require(ServerStorage.MapGen:WaitForChild("Props"))
 
 local ARENA_ROOT = "TestArena"
 local MAP_ROOT = "DrivenHuntMap"
@@ -254,8 +264,8 @@ return function()
 			-- Against the CONFIGURATION, not against MapGen.expectedCounts(): that function is the
 			-- same loop over the same data, so comparing the two could not fail for any layout,
 			-- right or wrong (review round 1, finding 2).
-			expect(counts.shooterPost).to.equal(c.SLICE.postCount)
-			expect(counts.boarSpawn).to.equal(#c.SLICE.boarSpawnX)
+			expect(counts.shooterPost).to.equal(c.WORLD.postCount)
+			expect(counts.boarSpawn).to.equal(#c.WORLD.boarSpawnX)
 			expect(counts.driveLine).to.equal(1)
 			expect(counts.driverStart).to.equal(1)
 			-- Every kind has a tag string in the contract, so nothing can be placed untaggable.
@@ -279,7 +289,7 @@ return function()
 			end
 			-- The map's own expectation is every marker it places plus the trunks it tags, and
 			-- nothing else: a sixth kind added to Layout without a tag would break this.
-			expect(total).to.equal(planned + c.SLICE.tieTrees)
+			expect(total).to.equal(planned + c.WORLD.tieTrees)
 		end)
 
 		it("keeps every boar spawn it plans inside the contract's field", function()
@@ -295,33 +305,24 @@ return function()
 
 		it("ties a punished shooter to a tree near the line, not across the map", function()
 			local c = config()
-			local trees = {}
-			for z = -240, 240, 40 do
-				table.insert(trees, { x = 0, z = z })
+			local points = MapGen.Layout.tieTreePoints(c)
+			expect(#points).to.equal(c.WORLD.tieTrees)
+			for _, point in ipairs(points) do
+				-- Design section 4.3: within 120 studs of the line. These trees are PLACED rather than
+				-- chosen out of the wood, because at 2048 studs the wood starts beyond the drive
+				-- corridor and the nearest scattered trunk is further away than that.
+				expect(math.abs(point.z - c.WORLD.lineZ) <= 120).to.equal(true)
+				-- Behind the line, never in front of it: nothing may stand between a shooter and the
+				-- drive they are shooting into.
+				expect(point.z < c.WORLD.lineZ).to.equal(true)
+				expect(math.abs(point.x) <= c.WORLD.tieTreeSpan / 2 + 1).to.equal(true)
 			end
-			local chosen = MapGen.Layout.tieTrees(trees, c)
-			expect(#chosen).to.equal(math.min(c.SLICE.tieTrees, #trees))
-			-- Every chosen tree is at least as close to the line as every unchosen one.
-			local picked = {}
-			for _, index in ipairs(chosen) do
-				picked[index] = true
-			end
-			local nearest, farthest = math.huge, 0
-			for index, tree in ipairs(trees) do
-				local d = math.abs(tree.z - c.SLICE.lineZ)
-				if picked[index] then
-					farthest = math.max(farthest, d)
-				else
-					nearest = math.min(nearest, d)
-				end
-			end
-			expect(farthest <= nearest).to.equal(true)
 		end)
 
-		it("covers the whole slice with tiles a WriteVoxels call accepts", function()
+		it("covers the whole map with tiles a WriteVoxels call accepts", function()
 			local c = config()
 			local tiles = MapGen.Layout.tiles(c)
-			local perSide = c.SLICE_STUDS / c.TILE_STUDS
+			local perSide = c.SIZE_STUDS / c.TILE_STUDS
 			expect(#tiles).to.equal(perSide * perSide)
 			-- MEASURED (design section 13.5 measurement A): a 128 x 128 x 96-stud region at
 			-- resolution 4 is accepted, which is 24,576 voxels; resolution 8 and 2 are refused.
@@ -331,8 +332,8 @@ return function()
 			local seen = {}
 			for _, tile in ipairs(tiles) do
 				seen[string.format("%d,%d", tile.minX, tile.minZ)] = true
-				expect(tile.minX >= -c.SLICE_STUDS / 2).to.equal(true)
-				expect(tile.minX + c.TILE_STUDS <= c.SLICE_STUDS / 2).to.equal(true)
+				expect(tile.minX >= -c.SIZE_STUDS / 2).to.equal(true)
+				expect(tile.minX + c.TILE_STUDS <= c.SIZE_STUDS / 2).to.equal(true)
 			end
 			local distinct = 0
 			for _ in pairs(seen) do
@@ -342,69 +343,106 @@ return function()
 		end)
 	end)
 
-	describe("the generator's hedgerow", function()
-		it("leaves a gate wide enough for the drive, inside the corridor", function()
+	describe("the generator's hedgerow network", function()
+		it("gates every line that crosses the drive corridor, for twenty seeds", function()
 			local c = config()
-			local corridor = c.SLICE.corridor
-			-- Every seed, not one: a gate that lands outside the corridor on some seeds is a drive
-			-- that stops at a wall on those seeds, and nobody would see it until a playtest.
-			for seed = 1, 20 do
-				local gate = MapGen.Scatter.hedgeGate(c, seed)
-				expect(gate.x > corridor.minX and gate.x < corridor.maxX).to.equal(true)
-				local points = MapGen.Layout.hedgerow(c, gate)
-				local from, to = MapGen.Layout.hedgeGap(points, c)
-				if to - from < c.SLICE.hedgerow.gateStuds then
-					error(
-						string.format(
-							"seed %d: the widest gap is %.1f studs, %d wanted",
-							seed,
-							to - from,
-							c.SLICE.hedgerow.gateStuds
-						),
-						0
-					)
+			local crossings = 0
+			for index, line in ipairs(MapGen.Layout.hedgeLines(c)) do
+				local from, to = MapGen.Layout.corridorSpan(line, c)
+				if from and to then
+					crossings += 1
+					-- EVERY seed, not one: a gate that lands outside the corridor on some seeds is a
+					-- drive that stops at a wall on those seeds, and nobody would see it until a
+					-- playtest. This is the pure half of TASKS.md row 43a(k).
+					for seed = 1, 20 do
+						local gates = MapGen.Scatter.hedgeGates(c, seed, index, from, to)
+						expect(#gates).to.equal(c.WORLD.gatesPerLine)
+						local points = MapGen.Layout.hedgeSegments(line, gates, c)
+						local gapFrom, gapTo = MapGen.Layout.widestGap(points, line, from, to, c)
+						if gapTo - gapFrom < c.WORLD.gateStuds then
+							error(
+								string.format(
+									"seed %d, line along %s at %d: widest corridor gap %.1f studs, %d wanted",
+									seed,
+									line.axis,
+									line.at,
+									gapTo - gapFrom,
+									c.WORLD.gateStuds
+								),
+								0
+							)
+						end
+						for _, gate in ipairs(gates) do
+							-- Wholly inside the corridor, half-width and all.
+							expect(gate - c.WORLD.gateStuds / 2 >= from - 0.001).to.equal(true)
+							expect(gate + c.WORLD.gateStuds / 2 <= to + 0.001).to.equal(true)
+						end
+					end
 				end
-				-- And the gap is the gate, not a hole at the far end of the slice.
-				expect(from >= corridor.minX and to <= corridor.maxX).to.equal(true)
 			end
+			-- And the network really does cross the drive, or the loop above asserted nothing.
+			expect(crossings).to.equal(#c.WORLD.hedgeZ)
 		end)
 
-		it("puts no hedge segment inside the gate", function()
+		it("puts no hedge segment inside a gate, and none off its own line", function()
 			local c = config()
-			local gate = MapGen.Scatter.hedgeGate(c, SEED)
 			local half = c.HEDGE.segmentStuds / 2
-			local gateHalf = c.SLICE.hedgerow.gateStuds / 2
-			for _, point in ipairs(MapGen.Layout.hedgerow(c, gate)) do
-				expect(point.x + half <= gate.x - gateHalf or point.x - half >= gate.x + gateHalf).to.equal(true)
-				expect(point.z).to.equal(c.SLICE.hedgerow.z)
+			local gateHalf = c.WORLD.gateStuds / 2
+			for index, line in ipairs(MapGen.Layout.hedgeLines(c)) do
+				local from, to = MapGen.Layout.corridorSpan(line, c)
+				local gates = if from and to then MapGen.Scatter.hedgeGates(c, SEED, index, from, to) else {}
+				for _, point in ipairs(MapGen.Layout.hedgeSegments(line, gates, c)) do
+					local along = if line.axis == "x" then point.x else point.z
+					local across = if line.axis == "x" then point.z else point.x
+					expect(across).to.equal(line.at)
+					expect(along >= line.from and along <= line.to).to.equal(true)
+					for _, gate in ipairs(gates) do
+						expect(along + half <= gate - gateHalf or along - half >= gate + gateHalf).to.equal(true)
+					end
+				end
 			end
 		end)
 
-		it("puts the gate in the same place for one seed and elsewhere for another", function()
+		it("moves its gates with the seed, and leaves a solid wall without them", function()
 			local c = config()
-			expect(MapGen.Scatter.hedgeGate(c, SEED).x).to.equal(MapGen.Scatter.hedgeGate(c, SEED).x)
-			expect(MapGen.Scatter.hedgeGate(c, SEED).x).never.to.equal(MapGen.Scatter.hedgeGate(c, SEED + 1).x)
-			-- Without a gate it is a solid wall: that is what the argument buys, stated as a test so
-			-- nobody removes it thinking it is decoration.
-			local solid = MapGen.Layout.hedgerow(c, nil)
-			local gated = MapGen.Layout.hedgerow(c, MapGen.Scatter.hedgeGate(c, SEED))
-			expect(#solid > #gated).to.equal(true)
-			local from, to = MapGen.Layout.hedgeGap(solid, c)
-			expect(to - from < c.HEDGE.segmentStuds).to.equal(true)
+			local line = MapGen.Layout.hedgeLines(c)[1]
+			local from, to = MapGen.Layout.corridorSpan(line, c)
+			expect(from).to.be.ok()
+			local a = MapGen.Scatter.hedgeGates(c, SEED, 1, from, to)
+			expect(a[1]).to.equal(MapGen.Scatter.hedgeGates(c, SEED, 1, from, to)[1])
+			expect(a[1]).never.to.equal(MapGen.Scatter.hedgeGates(c, SEED + 1, 1, from, to)[1])
+			-- Without gates it is a solid wall: that is what the gates buy, stated as a test so nobody
+			-- removes them thinking they are decoration.
+			local solid = MapGen.Layout.hedgeSegments(line, {}, c)
+			local gapFrom, gapTo = MapGen.Layout.widestGap(solid, line, from, to, c)
+			expect(gapTo - gapFrom < c.HEDGE.segmentStuds).to.equal(true)
+		end)
+
+		it("stays inside the design's hedge part budget", function()
+			local c = config()
+			local segments = 0
+			for index, line in ipairs(MapGen.Layout.hedgeLines(c)) do
+				local from, to = MapGen.Layout.corridorSpan(line, c)
+				local gates = if from and to then MapGen.Scatter.hedgeGates(c, SEED, index, from, to) else {}
+				segments += #MapGen.Layout.hedgeSegments(line, gates, c)
+			end
+			expect(segments <= 500).to.equal(true) -- design section 12
+			expect(segments > 100).to.equal(true) -- and it is a network, not one token line
 		end)
 	end)
 
 	describe("the generator's scatter", function()
+		-- The SAME predicate the placing step uses, so the spec cannot pass while the generator plants
+		-- trees somewhere else.
 		local function reject(x, z)
-			local c = config()
-			return MapGen.Layout.inCorridor(x, z, c) or MapGen.Layout.onTrack(x, z, c)
+			return Props.rejectTree(x, z, config())
 		end
 
 		it("places the wood it promises, in the same places twice", function()
 			local c = config()
 			local first = MapGen.Scatter.trees(c, SEED, reject)
 			local second = MapGen.Scatter.trees(c, SEED, reject)
-			expect(#first).to.equal(c.SLICE.treeCount)
+			expect(#first).to.equal(c.WORLD.treeCount)
 			expect(#second).to.equal(#first)
 			for index, point in ipairs(first) do
 				expect(point.x).to.equal(second[index].x)
@@ -412,17 +450,23 @@ return function()
 			end
 		end)
 
-		it("puts no tree in the drive corridor or on the track", function()
+		it("puts no tree in the corridor, on a track, in the bog or in a hedge", function()
 			local c = config()
 			for _, point in ipairs(MapGen.Scatter.trees(c, SEED, reject)) do
-				if reject(point.x, point.z) then
-					error(
-						string.format("a tree at (%.1f, %.1f) is in the corridor or on the track", point.x, point.z),
-						0
-					)
+				if MapGen.Layout.inCorridor(point.x, point.z, c) then
+					error(string.format("a tree at (%.0f, %.0f) is in the drive corridor", point.x, point.z), 0)
 				end
-				expect(point.x >= c.SLICE.treeArea.minX and point.x <= c.SLICE.treeArea.maxX).to.equal(true)
-				expect(point.z >= c.SLICE.treeArea.minZ and point.z <= c.SLICE.treeArea.maxZ).to.equal(true)
+				if MapGen.Layout.onTrack(point.x, point.z, c) then
+					error(string.format("a tree at (%.0f, %.0f) is on a track", point.x, point.z), 0)
+				end
+				if MapGen.Layout.bogDepth(point.x, point.z, c) > 0 then
+					error(string.format("a tree at (%.0f, %.0f) is in the bog", point.x, point.z), 0)
+				end
+				if MapGen.Layout.distanceToHedge(point.x, point.z, c) < c.SCATTER_CLEARANCE then
+					error(string.format("a tree at (%.0f, %.0f) stands in a hedgerow", point.x, point.z), 0)
+				end
+				expect(point.x >= c.WORLD.treeArea.minX and point.x <= c.WORLD.treeArea.maxX).to.equal(true)
+				expect(point.z >= c.WORLD.treeArea.minZ and point.z <= c.WORLD.treeArea.maxZ).to.equal(true)
 			end
 		end)
 
@@ -447,8 +491,8 @@ return function()
 				minZ, maxZ = math.min(minZ, point.z), math.max(maxZ, point.z)
 			end
 			-- The candidates are generated row by row, so taking the first N would give a stripe.
-			-- Half the slice's depth is a low bar deliberately: it fails a stripe and passes a wood.
-			expect(maxZ - minZ > c.SLICE_STUDS / 2).to.equal(true)
+			-- Half the map's depth is a low bar deliberately: it fails a stripe and passes a wood.
+			expect(maxZ - minZ > c.SIZE_STUDS / 2).to.equal(true)
 		end)
 	end)
 

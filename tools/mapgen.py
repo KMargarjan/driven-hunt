@@ -17,6 +17,7 @@ Usage:
   python tools/mapgen.py verify   --seed N --backup <path|census>  # build, digest, clear, build, compare
   python tools/mapgen.py digest                                    # read-only
   python tools/mapgen.py contract                                  # read-only: MapGen.verifyContract()
+  python tools/mapgen.py reach                                     # read-only: pathfind the built map
   python tools/mapgen.py census                                    # read-only: what is in Workspace
   python tools/mapgen.py shots                                     # read-only: the six named captures
 
@@ -43,10 +44,26 @@ is actually in Workspace, and proceeds ONLY if every child is Terrain, Camera or
 anything else is there, it stops and prints a NEEDS KAREN block asking for File -> Save to File,
 because that thing is something a rebuild would destroy and no tool can save it.
 
-The run log: every StepReport is appended to .mapgen/<utc>-<seed>.json (git-ignored). The final line is
-the one the Builder pastes into reviews/task-<N>/REQUEST.md, exactly as the harness line is:
+REACHABILITY, and why it lives here. `tests/server/map_contract.spec.luau` can only see the world
+`Map.EXPECTED_WORLD` names -- the arena -- so nothing had ever pathfound the GENERATED map, and that is
+how an ungated hedgerow wall across the drive corridor survived two review rounds in Task 43
+(TASKS.md row 43a(k)). `verify` now ends by asking `MapGen.reachability()` to walk every BoarSpawn and
+the DriverStart to the drive line with the BOAR'S OWN agent parameters, in the Edit session, and fails
+the run if any of them cannot get there. `reach` runs the same check on its own, read-only.
 
-  [mapgen] OK: 22/22 steps @ <sha> seed=7 digest=<64 hex> (clean tree)
+MEASURED 2026-09-26: `PathfindingService:ComputeAsync` works in Edit through `execute_luau`, and the
+navmesh is rebuilt in the BACKGROUND -- a wall thrown across the corridor still answered
+PathStatus.Success one second after it appeared, and NoPath after five. `MapGen.reachability` waits
+`Config.REACH_SETTLE_SECONDS` before asking, so the answer is about the map as it now is.
+
+The run log: every StepReport is appended to .mapgen/<utc>-<seed>.json (git-ignored). Two lines are
+worth pasting into reviews/task-<N>/REQUEST.md, exactly as the harness line is -- `build`'s
+
+  [mapgen] OK: 269/269 steps @ <sha> seed=7 digest=<64 hex> (clean tree)
+
+and, for the evidence the design actually asks for (section 6.4), `verify`'s
+
+  [mapgen] OK: same seed twice, same digest @ <sha> seed=7 digest=<64 hex> (clean tree)
 """
 
 import argparse
@@ -75,19 +92,19 @@ RUN_LOG_DIR = os.path.join(REPO, ".mapgen")
 # The generator's own instances, plus the two the engine always puts there.
 WORKSPACE_ALLOWED = ("Terrain", "Camera")
 
-# The six captures (design section 13.3), scaled to the 512-stud slice M2.1 builds. The design's
-# table is written for the full 2048 map, and its camera distances would frame empty space here.
-# M2.1 has no bog and no tree stand as separate features, so the sixth shot is the DIRT TRACK, which
-# is the feature M2.1 does build; renaming it is more honest than pointing a camera at nothing.
+# The six captures (design section 13.3), at the full 2048-stud map's own scale. Milestone 2.1's
+# cameras were scaled down for the 512 slice; these are the design's table, with two changes it names
+# as the Builder's to make: `map-stand` looks at the tie trees behind the shooter line (the only stand
+# M2.2 builds -- real spruce stands are M2.3), and there is a seventh angle on a hedgerow gate, because
+# the gate is the fix this task exists for and a screenshot is the only way to see it is really there.
 SHOTS = (
-    ("map-wide", (0, 300, 430), (0, 0, -20), "is there a map at all, and is it farmland-shaped"),
-    ("map-line", (0, 34, -96), (0, 0, -190), "the shooter line along the wood edge, 8 posts"),
-    ("map-corridor", (0, 12, 190), (0, 0, -190), "the drive, from the drivers' eye height"),
-    # ACROSS the hedge, not along it: the first framing put the camera on the hedge's own line and
-    # showed a receding ribbon nobody could read (inspected, 2026-09-26).
-    ("map-hedge", (0, 14, 100), (0, 4, 40), "the hedgerow and the field edges at eye height"),
-    ("map-stand", (0, 14, -186), (0, 4, -250), "the wood behind the line: woods, or poles"),
-    ("map-track", (-130, 10, -44), (60, 0, -62), "the dirt track: does it read as a track"),
+    ("map-wide", (0, 900, 1400), (0, 0, 0), "is there a map at all, and is it farmland-shaped"),
+    ("map-line", (0, 60, -560), (0, 0, -760), "the shooter line along the wood edge, 8 posts"),
+    ("map-corridor", (0, 40, 700), (0, 0, -700), "the drive, from the drivers' eye height"),
+    ("map-hedge", (-200, 20, 200), (100, 0, 200), "hedgerows and field edges at eye height"),
+    ("map-gate", (0, 24, 180), (0, 4, -40), "a gate in the hedgerow the drive runs through"),
+    ("map-stand", (0, 16, -640), (0, 6, -745), "the tie trees behind the line: woods, or poles"),
+    ("map-bog", (-700, 40, -140), (-700, 0, -300), "the bog, and whether it is a feature or an annoyance"),
 )
 
 # ---------------------------------------------------------------- talking to the generator
@@ -392,6 +409,15 @@ def command_verify(studio, args, sha):
         else:
             second = digest
     if first.get("digest") and first["digest"] == second["digest"]:
+        # The map is reproducible. Now the other half of the question: is it WALKABLE? A hedgerow with
+        # no gate builds and digests perfectly and stops the drive dead (TASKS.md row 43a(k)).
+        reach = call(studio, "MapGen.reachability()")
+        if reach.get("error"):
+            print(f"[mapgen] FAILED: reachability could not run: {reach['error']}")
+            return 1
+        if not print_reach(reach):
+            print(f"[mapgen] FAILED: the map is reproducible but not walkable @ {sha} seed={args.seed}")
+            return 1
         print(f"[mapgen] OK: same seed twice, same digest @ {sha} seed={args.seed} digest={first['digest']} (clean tree)")
         return 0
     print("[mapgen] MISMATCH: the same seed produced two different maps.")
@@ -402,11 +428,34 @@ def command_verify(studio, args, sha):
     return 1
 
 
+def print_reach(result):
+    """Prints one reachability result and returns True when every route was walkable."""
+    for row in result.get("results") or []:
+        print(f"  {row['from']}: {row['status']} ({row['waypoints']} waypoints)")
+    for finding in result.get("findings") or []:
+        print(f"  ! {finding}")
+    ok = bool(result.get("ok"))
+    print("[mapgen] reachability " + ("OK" if ok else "FAILED"))
+    return ok
+
+
+def command_reach(studio):
+    result = call(studio, "MapGen.reachability()")
+    if result.get("error"):
+        print(f"[mapgen] reachability could not run: {result['error']}")
+        return 1
+    return 0 if print_reach(result) else 1
+
+
 def command_contract(studio):
     result = call(studio, "MapGen.verifyContract()")
     counts = result.get("counts") or {}
     for key in sorted(counts):
         print(f"  {key}: {counts[key]}")
+    for key, value in sorted((result.get("streaming") or {}).items()):
+        print(f"  {key} = {value}")
+    if result.get("markerDigest"):
+        print(f"  marker digest: {result['markerDigest']}")
     for finding in result.get("findings") or []:
         print(f"  ! {finding}")
     print("[mapgen] contract " + ("OK" if result.get("ok") else "FAILED"))
@@ -442,7 +491,10 @@ def parse_indexes(text):
 
 def main(argv):
     parser = argparse.ArgumentParser(prog="mapgen.py", description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("plan", "build", "step", "clear", "verify", "digest", "contract", "census", "shots"))
+    parser.add_argument(
+        "command",
+        choices=("plan", "build", "step", "clear", "verify", "digest", "contract", "reach", "census", "shots"),
+    )
     parser.add_argument("steps", nargs="?", help="for `step`: comma-separated step numbers")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--backup", help="a .rbxl outside the repo, or `census` (M2.1 only)")
@@ -488,6 +540,8 @@ def main(argv):
             return 0
         if args.command == "contract":
             return command_contract(studio)
+        if args.command == "reach":
+            return command_reach(studio)
         if args.command == "shots":
             return command_shots(studio)
         if args.command == "clear":
