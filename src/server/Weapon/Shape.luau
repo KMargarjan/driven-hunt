@@ -56,7 +56,14 @@ local BARREL_Y = 0.12 -- the bore line, above the action's centre
 local RIB_THICK = 0.03 -- the real rib is 8 mm and concave; at this thickness that is sub-pixel
 local ACTION_LENGTH = 0.55 -- the body, which the barrels sit into and the trigger hangs under
 local ACTION_SIZE = Vector3.new(0.36, 0.34, ACTION_LENGTH)
-local ACTION_Y = 0.04
+-- THE ACTION HANGS BELOW THE BORE LINE, AND THE SCREENSHOT IS WHY (rule 5). The first build centred
+-- it on the bore, which put its top face level with the top of the barrels -- and in ADS the camera
+-- looks down the gun from behind, so the near action box hid the whole barrel pair and the bead
+-- behind it: a first-person shotgun with no barrels and nothing to aim with. On a real break gun the
+-- barrels lie ON the action's water table and the rib is the highest line on the gun, which is what
+-- makes a bead sight work at all. So the action's TOP is the bore line: the barrels sit half into it,
+-- and everything above the bore -- the upper half of each tube, the rib, the bead -- is clear.
+local ACTION_TOP = 0.12 -- = BARREL_Y
 local FOREND_SIZE = Vector3.new(0.22, 0.14, 0.8) -- SPLINTER: slim and short, not a beaver tail
 local STOCK_SIZE = Vector3.new(0.26, 0.3, 1.3)
 -- STRAIGHT ENGLISH STOCK: one straight piece, no pistol grip, nose-up so the butt drops below the
@@ -80,8 +87,9 @@ function Shape.pieces(config): { Piece }
 	local barrelRadius = BARREL_DIAMETER / 2
 	local ribY = BARREL_Y + barrelRadius + RIB_THICK / 2
 	local actionZ = breechZ + ACTION_LENGTH / 2 - 0.1 -- the barrels sit INTO the body
-	local actionTop = ACTION_Y + ACTION_SIZE.Y / 2
-	local actionBottom = ACTION_Y - ACTION_SIZE.Y / 2
+	local actionY = ACTION_TOP - ACTION_SIZE.Y / 2
+	local actionTop = ACTION_TOP
+	local actionBottom = actionY - ACTION_SIZE.Y / 2
 	local stockZ = triggerZ + STOCK_SIZE.Z / 2 + 0.06
 
 	-- A cylinder's length runs along its own X, so a barrel is turned a quarter turn to lie along Z.
@@ -124,7 +132,7 @@ function Shape.pieces(config): { Piece }
 	add({
 		name = "Action",
 		size = ACTION_SIZE,
-		offset = CFrame.new(0, ACTION_Y, actionZ),
+		offset = CFrame.new(0, actionY, actionZ),
 		color = look.action,
 		material = Enum.Material.Metal,
 		shape = Enum.PartType.Block,
@@ -152,7 +160,7 @@ function Shape.pieces(config): { Piece }
 	add({
 		name = "Stock",
 		size = STOCK_SIZE,
-		offset = CFrame.new(0, ACTION_Y - 0.06, stockZ) * CFrame.Angles(math.rad(STOCK_DROP_DEG), 0, 0),
+		offset = CFrame.new(0, actionY + 0.02, stockZ) * CFrame.Angles(math.rad(STOCK_DROP_DEG), 0, 0),
 		color = look.wood,
 		material = Enum.Material.Wood,
 		shape = Enum.PartType.Block,
