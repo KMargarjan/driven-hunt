@@ -264,6 +264,51 @@ return function()
 		end)
 	end)
 
+	describe("the second flag: BOAR_SOUNDERS", function()
+		it("is what Match.CONFIG carries -- one read, at the owner's boundary", function()
+			expect(Match.CONFIG.SOUNDER.ENABLED).to.equal(Flags.isOn("BOAR_SOUNDERS"))
+		end)
+
+		it("changes the RELEASE in both states, through the parameter", function()
+			-- Section 13.3 again: the release shape is reachable by parameter, so both states are
+			-- asserted here while the flag itself sits at one of them. Off it, every size is 1.
+			local state = { seed = 1, driveNumber = 1, boarsReleased = 0, soundersReleased = 0 }
+			local sounder = Match.CONFIG.SOUNDER
+			local off = {
+				BOARS_PER_DRIVE = 6,
+				RELEASE_INTERVAL_SECONDS = 90,
+				SOUNDER = { ENABLED = false, MAX_SIZE = sounder.MAX_SIZE, SIZE_WEIGHTS = sounder.SIZE_WEIGHTS },
+			}
+			local on = {
+				BOARS_PER_DRIVE = 6,
+				RELEASE_INTERVAL_SECONDS = 90,
+				SOUNDER = {
+					ENABLED = true,
+					MAX_SIZE = sounder.MAX_SIZE,
+					SIZE_WEIGHTS = sounder.SIZE_WEIGHTS,
+					EXPECTED_SIZE = sounder.EXPECTED_SIZE,
+					TAIL_SECONDS = sounder.TAIL_SECONDS,
+					GAP_MIN_SECONDS = sounder.GAP_MIN_SECONDS,
+					GAP_MAX_SECONDS = sounder.GAP_MAX_SECONDS,
+				},
+			}
+			expect(Match.Phase.sounderSize(state :: any, off)).to.equal(1)
+			local sizes = {}
+			for index = 0, 9 do
+				local drawn = { seed = 1, driveNumber = 1, boarsReleased = 0, soundersReleased = index }
+				table.insert(sizes, Match.Phase.sounderSize(drawn :: any, on))
+			end
+			local grouped = false
+			for _, size in ipairs(sizes) do
+				expect(size >= 1 and size <= sounder.MAX_SIZE).to.equal(true)
+				grouped = grouped or size > 1
+			end
+			expect(grouped).to.equal(true) -- ON really does draw groups, or the flag switches nothing
+			-- and the live config is untouched by either call
+			expect(Match.CONFIG.SOUNDER.ENABLED).to.equal(Flags.isOn("BOAR_SOUNDERS"))
+		end)
+	end)
+
 	describe("the worked example: TIE_UNTIL_DRIVE_END", function()
 		it("is what Match.CONFIG carries -- one source of truth, read at the boundary", function()
 			expect(Match.CONFIG.TIE_UNTIL_DRIVE_END).to.equal(Flags.isOn("TIE_UNTIL_DRIVE_END"))

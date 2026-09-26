@@ -15,6 +15,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Teams = game:GetService("Teams")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+local Flags = require(game:GetService("ReplicatedStorage"):WaitForChild("Flags"))
+local Map = require(game:GetService("ReplicatedStorage"):WaitForChild("Map"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
@@ -262,6 +264,71 @@ return function()
 
 			runtime:destroy()
 			root:Destroy()
+		end)
+	end)
+	-- THE CROSS-SYSTEM INVARIANTS (design section 12.4 items 11-13). Three numbers in two owners
+	-- have to agree, and the reason this is one `it` is that raising any of them alone is the
+	-- failure: "Karen raised the budget to 10" must fail a spec here rather than stall a drive at
+	-- run time.
+	describe("the drive and the boar runtime agree about how many", function()
+		it("keeps the budget, the ceiling and the runtime's capacity in order", function()
+			local drive = Match.CONFIG
+			expect(drive.BOARS_PER_DRIVE <= Boar.CONFIG.maxBoars).to.equal(true)
+			-- A sounder may be MAX_SIZE, so a ceiling below it makes that release PERMANENTLY
+			-- impossible and the retry loop stalls the drive. This is the invariant, not a
+			-- coincidence of two numbers (Director decision H).
+			expect(drive.MAX_ALIVE_BOARS >= drive.SOUNDER.MAX_SIZE).to.equal(true)
+			expect(drive.MAX_ALIVE_BOARS <= Boar.CONFIG.maxBoars).to.equal(true)
+			-- ...and the ring the boar spreads a sounder on fits inside the flat ground the MAP
+			-- guarantees, because Runtime:spawn overwrites the caller's Y.
+			local ring = Boar.CONFIG.SOUNDER
+			expect(ring.SPAWN_RING_STUDS + ring.PAD_MARGIN_STUDS <= Map.SPAWN_PAD.radius).to.equal(true)
+		end)
+
+		it("reads the flag once, at the boundary, and it is OFF on a clean run", function()
+			expect(Match.CONFIG.SOUNDER.ENABLED).to.equal(Flags.isOn("BOAR_SOUNDERS"))
+			-- A harness PASS can never have been produced with the dark path live: `test` refuses to
+			-- start while an override is set, and this is the same fact asserted from inside.
+			expect(Match.CONFIG.SOUNDER.ENABLED).to.equal(false)
+		end)
+
+		it("asks the runtime what it holds, and the drive is not stalling", function()
+			-- THE PRODUCTION RUNTIME IS NOT REACHABLE FROM A SPEC: MatchBoot holds it in a local and
+			-- hands it to Match.start, which is the whole point of that composition root -- so the
+			-- INTERFACE is asserted on a runtime of this spec's own (the same constructor
+			-- production uses), and the OWNER's half is asserted through Match.stats().
+			local runtime = Boar.newRuntime({
+				field = Boar.CONFIG.field,
+				parent = Instance.new("Folder"),
+				folderName = "CapacityProbe",
+				threats = function()
+					return {}
+				end,
+			})
+			expect(type(runtime.capacity)).to.equal("function")
+			expect(type(runtime.count)).to.equal("function")
+			expect(type(runtime.spawnSounder)).to.equal("function")
+			expect(runtime:capacity()).to.equal(Boar.CONFIG.maxBoars)
+			expect(runtime:count()).to.equal(0)
+			runtime:destroy()
+
+			-- The owner fills boarEntries/boarCapacity on every dispatch, and the drive has been
+			-- running through this whole session: nothing can have been held back on an empty field.
+			local stats = Match.stats()
+			expect(type(stats.sounderHoldbacks)).to.equal("number")
+			expect(type(stats.soundersReleased)).to.equal("number")
+			expect(type(stats.boarsReleased)).to.equal("number")
+			expect(stats.sounderHoldbacks).to.equal(0)
+			TestKit.note(
+				string.format(
+					"drive: %d sounder(s), %d boar(s) released, %d holdback(s), max alive %d, budget %d",
+					stats.soundersReleased,
+					stats.boarsReleased,
+					stats.sounderHoldbacks,
+					Match.CONFIG.MAX_ALIVE_BOARS,
+					Match.CONFIG.BOARS_PER_DRIVE
+				)
+			)
 		end)
 	end)
 end
