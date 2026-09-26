@@ -364,13 +364,19 @@ return function()
 			expect(character).to.be.ok()
 
 			Camera.Rig.setLocalBodyHidden(true)
+			-- INERT AND OUT OF THE WAY. The first version left a 1-stud anchored part at the world
+			-- ORIGIN for the length of the wait loop, inside the arena, while weapon_client.spec was
+			-- firing live rounds -- and its ammo counts moved by one. A probe that can be shot is a
+			-- probe that changes another spec's answer (the Task 34 lesson, in miniature).
 			local probe = Instance.new("Part")
 			probe.Name = "AuditF1LateArrival"
 			probe.Size = Vector3.new(1, 1, 1)
-			probe.Transparency = 0
+			probe.Transparency = 1
 			probe.Anchored = true
 			probe.CanCollide = false
 			probe.CanQuery = false
+			probe.CanTouch = false
+			probe.CFrame = character:GetPivot()
 			probe.Parent = character
 
 			local hidden, modifier = false, probe.LocalTransparencyModifier
@@ -449,9 +455,12 @@ return function()
 			local probe = Instance.new("Part")
 			probe.Name = "AuditF1Departure"
 			probe.Size = Vector3.new(1, 1, 1)
+			probe.Transparency = 1
 			probe.Anchored = true
 			probe.CanCollide = false
 			probe.CanQuery = false
+			probe.CanTouch = false
+			probe.CFrame = character:GetPivot()
 			probe.Parent = character
 
 			-- Wait for the deferred DescendantAdded, re-asserting the flag as the camera lowers it --
@@ -474,7 +483,7 @@ return function()
 			-- player unequips mid-aim. Nothing writes this part after it leaves the list, so reading it
 			-- at any later moment is safe -- which is the whole defect: without the restore it stays at
 			-- 1 for the rest of the life.
-			probe.Parent = Workspace
+			probe.Parent = player.Backpack -- where the Tool goes, and out of the world entirely
 			deadline = os.clock() + 3
 			while os.clock() < deadline and probe.LocalTransparencyModifier ~= 0 do
 				task.wait()
