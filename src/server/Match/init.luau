@@ -76,7 +76,30 @@ Match.CONFIG = {
 	FIRST_RELEASE_SECONDS = 20, -- K, the drivers need to be walking before the first boar moves
 	RELEASE_INTERVAL_SECONDS = 90, -- K, 20 + 5*90 = 470 s, so the last boar has ~130 s of drive left
 	RELEASE_JITTER_SECONDS = 15, -- K, so the drive is not a metronome
-	MAX_ALIVE_BOARS = 4, -- never exceed Boar.CONFIG.maxBoars, and carcasses do not count
+	-- 4 -> 6 (Director decision H, and it is OUTSIDE the flag, stated so it is declared rather than
+	-- discovered): a sounder may be 5, and a ceiling of 4 would make a 5-boar release PERMANENTLY
+	-- impossible and stall the drive on a retry loop. MAX_ALIVE_BOARS >= SOUNDER.MAX_SIZE is an
+	-- invariant asserted in match_live.spec, not a coincidence of two numbers. With the flag off it
+	-- only widens a guard the 90-second singles rhythm never approaches.
+	MAX_ALIVE_BOARS = 6, -- never exceed Boar.CONFIG.maxBoars, and carcasses do not count
+
+	-- THE SOUNDER: how big a release is and how often (design, "the sounder release" and "the
+	-- sounder numbers"). How a sounder BEHAVES is Boar.CONFIG.SOUNDER and is not this system's.
+	SOUNDER = {
+		-- THE ONLY PERMITTED SHAPE for a flagged value (feature-flags.md section 10): one read, at
+		-- this boundary, passed inward as `config`. Off it, every size is 1 and the schedule is the
+		-- one this drive has always had. Flag: docs/design/feature-flags.md
+		ENABLED = Flags.isOn("BOAR_SOUNDERS"),
+		MAX_SIZE = 5, -- K, Karen: groups of 2-5
+		SIZE_WEIGHTS = { 40, 20, 18, 12, 10 }, -- K, sizes 1..5: 40% singles, a five once in ten
+		-- NOT AN INDEPENDENT NUMBER: match_phase.spec asserts it equals the weighted mean of the row
+		-- above to 0.01, so retuning the weights cannot leave the pacing reading a stale average.
+		EXPECTED_SIZE = 2.32,
+		TAIL_SECONDS = 90, -- K, the last release lands this long before 0:00 so it can reach the line
+		GAP_MIN_SECONDS = 45, -- K, two sounders never arrive on top of each other
+		GAP_MAX_SECONDS = 180, -- K, never more than three minutes of empty wood
+		HOLDBACK_WARN = 20, -- consecutive hold-backs of one sounder before this warns, once
+	},
 
 	-- points (design section 7.1)
 	POINTS = {
@@ -164,6 +187,11 @@ local stats = {
 	tiesWithoutAnchor = 0,
 	violations = 0,
 	safetySignalMissing = 0,
+	-- The release, counted three ways, because "six boars were released" can now mean two sounders
+	-- and one single, and a stall looks like nothing at all from the outside.
+	soundersReleased = 0,
+	boarsReleased = 0,
+	sounderHoldbacks = 0,
 }
 
 local phaseSignal = Instance.new("BindableEvent")
@@ -315,7 +343,9 @@ function Match.snapshot()
 		phase = state.phase,
 		phaseEndsAt = serverTimeFor(state.phaseEndsAt),
 		driveNumber = state.driveNumber,
-		boarsReleased = state.releasesDone,
+		-- The WIRE IS UNCHANGED (design decision L: no sounder field on it). A player is told how
+		-- many ANIMALS have been released, which is the number that was always meant.
+		boarsReleased = state.boarsReleased,
 		boarsLeft = math.max(0, Match.CONFIG.BOARS_PER_DRIVE - state.boarsAccounted),
 		waitingFor = Phase.waitingFor(state, Match.CONFIG),
 		rows = rows,
@@ -428,23 +458,35 @@ local function applyRefreshArming(userIds: { number }?)
 	end
 end
 
-local function applySpawnBoar(position: Vector3?)
+local function applySpawnSounder(position: Vector3?, size: number?)
 	if not (world and world.boars) then
 		return
 	end
-	-- NO SECOND GUARD. Phase.maybeRelease already decided, on the same live count this owner gives
-	-- it; a second check here is what dropped releases in round 1. Runtime:spawn still ASSERTS at
+	local animals = math.max(1, math.floor(size or 1))
+	-- NO SECOND GUARD. Phase.maybeRelease already decided, on the same counts this owner gives it;
+	-- a second check here is what dropped releases in round 1. Runtime:spawnSounder still ASSERTS at
 	-- maxBoars and an assert inside the Heartbeat step would kill the step rather than the spawn, so
-	-- the call is wrapped -- and a refusal HANDS THE RELEASE BACK, so it is retried on the next step
-	-- instead of vanishing (design section 6.3: deferred, not dropped).
-	local ok = pcall(function()
-		world.boars:spawn(position)
+	-- the call is wrapped -- and a refusal HANDS THE WHOLE SOUNDER BACK, so it is retried on the
+	-- next step instead of vanishing (design section 6.3: deferred, not dropped).
+	--
+	-- THE PAD IS THE CONTRACT: the runtime is told the radius the MAP guarantees is flat, and
+	-- spreads the ring inside it -- because Runtime:spawn overwrites the caller's Y, so a member
+	-- placed on a slope would be spawned inside a hill (map-generator.md section 11).
+	local spread = markerSet and markerSet.spawnRadius
+	local ok, handles = pcall(function()
+		if world.boars.spawnSounder then
+			return world.boars:spawnSounder(position, animals, spread)
+		end
+		-- A world without the sounder interface (an older spec's fake) still gets its one boar.
+		return { world.boars:spawn(position) }
 	end)
-	if ok then
+	if ok and type(handles) == "table" and #handles > 0 then
 		stats.releases += 1
+		stats.soundersReleased += 1
+		stats.boarsReleased += #handles
 	else
 		stats.releasesDeferred += 1
-		state = Phase.releaseFailed(state, now())
+		state = Phase.releaseFailed(state, now(), animals)
 		snapshotCache = nil
 	end
 end
@@ -530,8 +572,8 @@ local function applyEffects(effects)
 			applyPlace(effect.userIds)
 		elseif kind == "refreshArming" then
 			applyRefreshArming(effect.userIds)
-		elseif kind == "spawnBoar" then
-			applySpawnBoar(effect.position)
+		elseif kind == "spawnSounder" then
+			applySpawnSounder(effect.position, effect.size)
 		elseif kind == "clearBoars" then
 			applyClearBoars()
 		elseif kind == "freeze" then
@@ -563,8 +605,35 @@ local function dispatch(event)
 	if filled.aliveBoars == nil then
 		filled.aliveBoars = boarsAlive()
 	end
+	-- ...AND THE CAPACITY NUMBERS, on every event for the same reason `aliveBoars` is: a release
+	-- that lands on a join must see the world a tick would. `boarEntries` counts carcasses, which
+	-- `aliveBoars` does not, and it is the number the runtime's own assert is about.
+	if filled.boarEntries == nil and world and world.boars and world.boars.count then
+		filled.boarEntries = world.boars:count()
+	end
+	if filled.boarCapacity == nil and world and world.boars and world.boars.capacity then
+		filled.boarCapacity = world.boars:capacity()
+	end
+	local holdbacksBefore = state.holdbacks
 	state, effects = Phase.step(state, filled, now(), Match.CONFIG)
 	snapshotCache = nil
+
+	-- A STALL IS VISIBLE, not folkloric: every hold-back is counted, and crossing HOLDBACK_WARN
+	-- warns ONCE (on the crossing tick, not on every one after it).
+	if state.holdbacks > holdbacksBefore then
+		stats.sounderHoldbacks += state.holdbacks - holdbacksBefore
+		if state.holdbacks == Match.CONFIG.SOUNDER.HOLDBACK_WARN then
+			warn(
+				string.format(
+					"[match] a release has been held back %d times in a row: %d alive, %d entries, capacity %s",
+					state.holdbacks,
+					filled.aliveBoars or -1,
+					filled.boarEntries or -1,
+					tostring(filled.boarCapacity)
+				)
+			)
+		end
+	end
 
 	-- BEFORE applyEffects, AND THAT IS THE WHOLE POINT (TASKS.md 32a(c)). Entering Assigning emits a
 	-- `broadcast` effect, and `broadcast` builds the snapshot from `board` -- so with the new drive's

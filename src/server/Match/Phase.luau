@@ -34,7 +34,15 @@ export type State = {
 	markersComplete: boolean,
 	missing: { string },
 	boarSpawns: { Vector3 },
-	releasesDone: number,
+	-- A RELEASE IS A SOUNDER OF `size` ANIMALS, so the two counts are different questions: the
+	-- BUDGET is boars (BOARS_PER_DRIVE), and the RHYTHM -- which marker, which jitter index -- is
+	-- sounders. With the flag off every size is 1 and the two are equal, which is what makes the
+	-- flag-off schedule the same schedule as before this task (design, "the sounder release").
+	boarsReleased: number,
+	soundersReleased: number,
+	-- Consecutive hold-backs of the sounder currently due: a stall made visible instead of
+	-- folkloric (SOUNDER.HOLDBACK_WARN). Reset by a release that happens.
+	holdbacks: number,
 	nextReleaseAt: number,
 	boarsAccounted: number, -- killed + escaped this drive
 	seed: number,
@@ -47,6 +55,11 @@ export type Event = {
 	record: any?,
 	at: number?,
 	aliveBoars: number?,
+	-- EVERYTHING the runtime holds, carcasses included, and what it will hold at most. A carcass
+	-- occupies a slot for CARCASS_SECONDS and `aliveBoars` does not count it, so a drive that has
+	-- killed four can still be at the runtime's ceiling (design section 6.3, hazard 2).
+	boarEntries: number?,
+	boarCapacity: number?,
 	complete: boolean?,
 	missing: { string }?,
 	boarSpawns: { Vector3 }?,
@@ -59,6 +72,7 @@ export type Effect = {
 	userId: number?, -- "freeze": the one player to tie to a tree
 	userIds: { number }?,
 	position: Vector3?,
+	size: number?, -- "spawnSounder": how many animals this release is
 	entry: any?,
 }
 
@@ -91,7 +105,9 @@ function Phase.initial(config): State
 		markersComplete = false,
 		missing = { "markers" },
 		boarSpawns = {},
-		releasesDone = 0,
+		boarsReleased = 0,
+		soundersReleased = 0,
+		holdbacks = 0,
 		nextReleaseAt = math.huge,
 		boarsAccounted = 0,
 		seed = config.SEED or 1,
@@ -125,16 +141,78 @@ function Phase.waitingFor(state: State, config): { string }
 	return reasons
 end
 
+-- ONE HASH IN THIS MODULE, and everything drawn is drawn from it: the jitter on the rhythm and the
+-- size of a sounder. A Random here would make a bug report unreproducible, which is the whole reason
+-- Roster has none either -- and two hashes would be two answers to "is this drive reproducible".
+function Phase.unitHash(seed: number, index: number): number
+	local hashed = (seed * 1103515245 + index * 12345) % 2147483648
+	return (hashed % 10007) / 10007 -- [0, 1)
+end
+
 -- Deterministic jitter, so the release schedule is not a metronome AND a spec still gets the same
--- drive twice from the same seed. A Random here would make a bug report unreproducible, which is the
--- whole reason Roster has none either.
+-- drive twice from the same seed.
 function Phase.jitter(seed: number, index: number, spread: number): number
 	if spread <= 0 then
 		return 0
 	end
-	local hashed = (seed * 1103515245 + index * 12345) % 2147483648
-	local unit = (hashed % 10007) / 10007 -- [0, 1)
-	return (unit * 2 - 1) * spread
+	return (Phase.unitHash(seed, index) * 2 - 1) * spread
+end
+
+-- HOW MANY ANIMALS THE NEXT RELEASE IS. 0 when the drive's budget is spent; 1 whenever the flag is
+-- off, which is exactly today's behaviour; otherwise a weighted pick from SIZE_WEIGHTS, clamped to
+-- MAX_SIZE and to what is left of the budget -- so the sizes of a drive sum to BOARS_PER_DRIVE
+-- exactly, never over (design, "the mix").
+function Phase.sounderSize(state: State, config): number
+	local remaining = config.BOARS_PER_DRIVE - state.boarsReleased
+	if remaining <= 0 then
+		return 0
+	end
+	local sounder = config.SOUNDER
+	if not (sounder and sounder.ENABLED) then
+		return 1
+	end
+
+	local weights = sounder.SIZE_WEIGHTS
+	local total = 0
+	for _, weight in ipairs(weights) do
+		total += weight
+	end
+	if total <= 0 then
+		return 1
+	end
+	-- The index is the sounder COUNT, not the boar count, so the same drive draws the same sequence
+	-- whatever the sizes turn out to be.
+	local pick = Phase.unitHash(state.seed + state.driveNumber, state.soundersReleased + 1) * total
+	local size, running = #weights, 0
+	for index, weight in ipairs(weights) do
+		running += weight
+		if pick < running then
+			size = index
+			break
+		end
+	end
+	return math.max(1, math.min(size, sounder.MAX_SIZE, remaining))
+end
+
+-- HOW LONG UNTIL THE NEXT ONE. Off the flag this is the fixed 90-second rhythm, unchanged. On it,
+-- the gap is PACED: six animals in bites averaging EXPECTED_SIZE is about three encounters, and a
+-- fixed 90 would spend the budget by t+300 and leave half the drive empty. So the time left before
+-- TAIL_SECONDS is divided by the releases the remaining budget is expected to buy, and clamped.
+--
+-- CALLED AFTER state.boarsReleased HAS BEEN INCREMENTED, so `remaining` here is what is left AFTER
+-- the release being scheduled -- which is the design's `remainingAfterThisRelease`.
+-- `_size` is the design's signature and is deliberately unread: the release it describes is already
+-- inside `state.boarsReleased` by the time this is called, so reading it as well would count it
+-- twice. Kept in the signature so the design and the code still say the same thing.
+function Phase.releaseGap(state: State, _size: number, now: number, config): number
+	local sounder = config.SOUNDER
+	if not (sounder and sounder.ENABLED) then
+		return config.RELEASE_INTERVAL_SECONDS
+	end
+	local remaining = math.max(0, config.BOARS_PER_DRIVE - state.boarsReleased)
+	local releasesLeft = math.max(1, math.round(remaining / sounder.EXPECTED_SIZE))
+	local window = (state.phaseEndsAt - sounder.TAIL_SECONDS) - now
+	return math.clamp(window / releasesLeft, sounder.GAP_MIN_SECONDS, sounder.GAP_MAX_SECONDS)
 end
 
 local function copy(state: State): State
@@ -164,7 +242,9 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	state.phase = "Assigning"
 	state.phaseEndsAt = now + config.INTERMISSION_SECONDS
 	state.driveNumber += 1
-	state.releasesDone = 0
+	state.boarsReleased = 0
+	state.soundersReleased = 0
+	state.holdbacks = 0
 	state.boarsAccounted = 0
 	state.nextReleaseAt = math.huge
 
@@ -217,42 +297,60 @@ local function enterWaiting(state: State, effects: { Effect }, now: number)
 	table.insert(effects, { kind = "broadcast", force = true })
 end
 
--- The release schedule: BOARS_PER_DRIVE boars, the first after FIRST_RELEASE_SECONDS and the rest
--- every RELEASE_INTERVAL_SECONDS, each jittered. A release is HELD BACK, never dropped, when the
--- runtime is at its limit.
+-- The release schedule: BOARS_PER_DRIVE ANIMALS in sounders of `Phase.sounderSize`, the first after
+-- FIRST_RELEASE_SECONDS and the rest a `Phase.releaseGap` apart, each jittered. A release is HELD
+-- BACK, never dropped, when the runtime is at its limit -- and the whole sounder is held back, not
+-- part of it.
 --
 -- THIS IS THE ONLY GUARD, and round 1 found out why that matters: the owner used to check the live
 -- boar count as well, and the two disagreed. `event.aliveBoars` was filled in only on the tick, so a
--- join or a leave landing on a release moment read zero, passed here, incremented releasesDone and
+-- join or a leave landing on a release moment read zero, passed here, consumed the release and
 -- pushed nextReleaseAt forward -- and then the owner refused the spawn. The boar was never released
 -- and never retried: a six-boar drive quietly ran five, and the Hud counted one that did not exist.
 -- The owner now fills aliveBoars on EVERY event and has no guard of its own; when the runtime still
 -- refuses a spawn it hands the release back through Phase.releaseFailed.
 local function maybeRelease(state: State, effects: { Effect }, now: number, event: Event, config)
-	if state.releasesDone >= config.BOARS_PER_DRIVE or now < state.nextReleaseAt then
+	if state.boarsReleased >= config.BOARS_PER_DRIVE or now < state.nextReleaseAt then
 		return
 	end
+	local size = Phase.sounderSize(state, config)
+	if size <= 0 then
+		return
+	end
+
+	-- THE WHOLE SOUNDER FITS OR NONE OF IT IS RELEASED. A half sounder would make the drive's budget
+	-- disagree with the world, and `Runtime:spawnSounder` is all-or-nothing for the same reason.
+	-- Held back, never dropped: the same hash index draws the same size next tick.
 	local alive = event.aliveBoars or 0
-	if alive >= config.MAX_ALIVE_BOARS then
+	local entries = event.boarEntries or 0
+	local capacity = event.boarCapacity or math.huge
+	if alive + size > config.MAX_ALIVE_BOARS or entries + size > capacity then
+		state.holdbacks += 1
 		return -- retried next tick; the owner counts it
 	end
+
 	local spawns = state.boarSpawns
-	local position = if #spawns > 0 then spawns[(state.releasesDone % #spawns) + 1] else nil
-	state.releasesDone += 1
-	table.insert(effects, { kind = "spawnBoar", position = position })
+	local position = if #spawns > 0 then spawns[(state.soundersReleased % #spawns) + 1] else nil
+	state.soundersReleased += 1
+	state.boarsReleased += size
+	state.holdbacks = 0
+	table.insert(effects, { kind = "spawnSounder", position = position, size = size })
 	state.nextReleaseAt = now
-		+ config.RELEASE_INTERVAL_SECONDS
-		+ Phase.jitter(state.seed + state.driveNumber, state.releasesDone + 1, config.RELEASE_JITTER_SECONDS)
+		+ Phase.releaseGap(state, size, now, config)
+		+ Phase.jitter(state.seed + state.driveNumber, state.soundersReleased + 1, config.RELEASE_JITTER_SECONDS)
 end
 
--- The owner could not perform a release this machine committed to. Give it back: releasesDone goes
--- down and the next release is due now, so it is retried on the next step rather than lost.
-function Phase.releaseFailed(state: State, now: number): State
-	if state.releasesDone <= 0 then
+-- The owner could not perform a release this machine committed to. Give it back WHOLE: one sounder
+-- and `size` boars, with the next release due now -- so the SAME sounder (the same hash index, and
+-- therefore the same size) is retried on the next step rather than lost.
+function Phase.releaseFailed(state: State, now: number, size: number?): State
+	if state.soundersReleased <= 0 then
 		return state
 	end
 	local next_ = copy(state)
-	next_.releasesDone -= 1
+	next_.soundersReleased -= 1
+	next_.boarsReleased = math.max(0, next_.boarsReleased - math.max(1, size or 1))
+	next_.holdbacks += 1
 	next_.nextReleaseAt = now
 	return freezeState(next_)
 end
