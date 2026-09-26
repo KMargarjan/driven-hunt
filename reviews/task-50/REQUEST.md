@@ -3,13 +3,13 @@
 Task: 50
 Round: 1
 Base: `edc3136` (`main`; everything through Task 49 merged)
-Code commit: `bcbe439adb23023202f5a7a43b5be66a7ef33e12` — the `[harness]` line below names it, it is the
+Code commit: `d204f103d88127d7999f127ba401b146106a1d76` — the `[harness]` line below names it, it is the
 last commit that changed `src/`, `tests/` or `tools/`, and only this request changes after it
 (CLAUDE.md git workflow step 4).
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 28/28 checks @ bcbe439adb23023202f5a7a43b5be66a7ef33e12 (clean tree)
+    [harness] PASS: 28/28 checks @ d204f103d88127d7999f127ba401b146106a1d76 (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me (this change touches
 `tools/studio_mcp.py`, so `agents.py` requires it):
@@ -91,7 +91,7 @@ it could only fail a slow run).
    and its use in `replay_input`; selftest cases 7 and 8.
 
 5. **The one-player `test` did not get slower.** Three timed runs: **91 s** before the change
-   (`edc3136`), **90 s** and **91 s** after (`8028435`, `bcbe439`), same 28/28 checks, same 307
+   (`edc3136`), **90 s** and **91 s** after (`8028435`, `d204f10`), same 28/28 checks, same 307
    server and 75 client specs. With one target `wait_for_each` is `wait_for` look for look (selftest
    case 4) and `send_input_many` is one submit and one await. Verify: the phase tables in the run
    output, and selftest cases 4 and 8.
