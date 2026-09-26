@@ -83,10 +83,36 @@ return function()
 			expect(Map.EXPECTED_WORLD == "arena" or string.sub(Map.EXPECTED_WORLD, 1, 4) == "map:").to.equal(true)
 			local named = waitForRoot(namedRootName())
 			expect(named).to.be.ok()
-			-- The OTHER root must be absent. Two worlds in Workspace means the generated slice was
-			-- left in the place: the tags then resolve to both and every count below is doubled.
+			-- The OTHER root must be absent. Two worlds in Workspace means the generated map was left
+			-- in the place: the tags then resolve to both and every count below is doubled.
 			local other = if namedRootName() == ARENA_ROOT then MAP_ROOT else ARENA_ROOT
 			expect(Workspace:FindFirstChild(other)).to.equal(nil)
+		end)
+
+		it("holds the terrain the named world requires, and no other", function()
+			-- AND THE GROUND, not just the folder (audit-004 must-fix 1). Terrain is a global singleton
+			-- with no container: destroying `Workspace.DrivenHuntMap` -- one right-click in the
+			-- Explorer, between a screenshot and a test -- leaves all 6.3 M voxels of a generated map
+			-- behind. Every check above still passes in that state, the arena's plate sits buried in a
+			-- hillside, and the run prints PASS. A world check that names a folder and ignores the
+			-- ground is the audit this project already paid for once.
+			local cells = Workspace.Terrain:CountCells()
+			if Map.EXPECTED_WORLD == "arena" then
+				-- The arena is built from parts on a flat plate at y = 0 and writes no terrain at all.
+				if cells ~= 0 then
+					error(
+						string.format(
+							"the world is the arena but Workspace.Terrain holds %d cell(s): a generated map "
+								.. "was left behind. Run `python tools/mapgen.py clear --backup census`.",
+							cells
+						),
+						0
+					)
+				end
+			else
+				-- The generated map IS terrain; an empty one means the folder outlived its ground.
+				expect(cells > 0).to.equal(true)
+			end
 		end)
 
 		it("resolves every tag to exactly the expected count, all inside the named world", function()
@@ -236,8 +262,11 @@ return function()
 		it("stays inside the relief band, and flatter inside the drive corridor", function()
 			local c = config()
 			local worst, worstCorridor = 0, 0
-			for x = -250, 250, 25 do
-				for z = -250, 250, 25 do
+			-- THE WHOLE MAP, not just the middle: at 2048 studs a +/- 250 sample is entirely inside the
+			-- drive corridor, so `worst` and `worstCorridor` were the same number and the whole-map
+			-- relief bound could not fail (review round 1 of Task 44).
+			for x = -1000, 1000, 50 do
+				for z = -1000, 1000, 50 do
 					local h = math.abs(MapGen.Height.at(x, z, SEED, c) - c.GROUND_Y)
 					worst = math.max(worst, h)
 					if MapGen.Layout.inCorridor(x, z, c) then
@@ -251,17 +280,67 @@ return function()
 			expect(worst < 50).to.equal(true)
 		end)
 
+		it("keeps the drive corridor under the design's slope ceiling", function()
+			local c = config()
+			local pads = MapGen.Layout.pads(c)
+			local corridor = c.WORLD.corridor
+			local limit = math.tan(math.rad(c.CORRIDOR_MAX_SLOPE_DEG))
+			-- The check `Config.CORRIDOR_MAX_SLOPE_DEG` promised and nothing performed until Task 45.
+			-- It measures the SHIPPED ground -- pads flattened, bog dug -- because that is what a boar
+			-- walks, and the pad easing, not the noise, is what made this fail when it was first run:
+			-- a 16-stud drop eased over 24 studs is a 22.5-degree ring around every post and spawn.
+			--
+			-- The step is 8 studs, one voxel wider than the terrain's own resolution, so a slope is
+			-- measured across ground the engine actually builds rather than between two samples of a
+			-- smooth function.
+			local step = 8
+			local worst, worstAt = 0, ""
+			for _, seed in ipairs({ SEED, SEED + 1 }) do
+				for x = corridor.minX, corridor.maxX, 20 do
+					for z = corridor.minZ, corridor.maxZ, 20 do
+						local h = MapGen.Height.atFlattened(x, z, seed, c, pads, MapGen.Layout.bogDepth)
+						local dx =
+							math.abs(MapGen.Height.atFlattened(x + step, z, seed, c, pads, MapGen.Layout.bogDepth) - h)
+						local dz =
+							math.abs(MapGen.Height.atFlattened(x, z + step, seed, c, pads, MapGen.Layout.bogDepth) - h)
+						local slope = math.max(dx, dz) / step
+						if slope > worst then
+							worst, worstAt = slope, string.format("seed %d at (%d, %d)", seed, x, z)
+						end
+					end
+				end
+			end
+			if worst > limit then
+				error(
+					string.format(
+						"the corridor reaches %.2f degrees (%s), over the %d the design allows",
+						math.deg(math.atan(worst)),
+						worstAt,
+						c.CORRIDOR_MAX_SLOPE_DEG
+					),
+					0
+				)
+			end
+			-- And it is not trivially flat, or the assertion above would be worth nothing.
+			expect(worst > 0.02).to.equal(true)
+		end)
+
 		it("flattens every spawn pad to exactly the ground the contract asserts", function()
 			local c = config()
 			local pads = MapGen.Layout.pads(c)
 			expect(#pads > 0).to.equal(true)
 			for _, pad in ipairs(pads) do
-				expect(MapGen.Height.atFlattened(pad.x, pad.z, SEED, c, pads)).to.equal(c.GROUND_Y)
+				-- WITH `bogDepth`, as `Ground.writeTile` passes it (audit-004 F10). Omitting it asked a
+				-- different question from the one the terrain answers, and the argument is optional, so
+				-- nothing said so.
+				expect(MapGen.Height.atFlattened(pad.x, pad.z, SEED, c, pads, MapGen.Layout.bogDepth)).to.equal(
+					c.GROUND_Y
+				)
 			end
 			-- And a pad eases back to the terrain rather than ending in a cliff: at the far edge of the
 			-- blend the flattened height IS the raw height. One pad on its own, because the shooter
-			-- posts stand 46 studs apart and their pads overlap -- with the real list the point below
-			-- is inside the next post's pad, which is the intended behaviour and not this claim.
+			-- posts stand `WORLD.postSpacing` studs apart and their pads overlap -- with the real list
+			-- the point below is inside the next post's pad, which is intended and not this claim.
 			local lone = { { x = 0, z = 0 } }
 			local edge = c.SPAWN_PAD.radius + c.SPAWN_PAD.blend
 			expect(MapGen.Height.atFlattened(0, 0, SEED, c, lone)).to.equal(c.GROUND_Y)
@@ -307,9 +386,18 @@ return function()
 				expect(Map.TAGS[kind]).to.be.a("string")
 				total += count
 			end
-			-- The map's own expectation is every marker it places plus the trunks it tags, and
-			-- nothing else: a sixth kind added to Layout without a tag would break this.
-			expect(total).to.equal(planned + c.WORLD.tieTrees)
+			-- AGAINST THE CONFIGURATION (audit-004 F2). This used to compare `total` with
+			-- `planned + WORLD.tieTrees`, and `expectedCounts()` is built as exactly one per
+			-- `Layout.markers` entry plus `tieTrees` -- the same arithmetic on the same data, true for
+			-- any layout, right or wrong. It is the twin of the defect Task 44's round 1 caught in the
+			-- test above this one, which was converted and this one was not.
+			local fromConfig = c.WORLD.postCount -- shooterPost
+				+ #c.WORLD.boarSpawnX -- boarSpawn
+				+ 1 -- driveLine
+				+ 1 -- driverStart
+				+ c.WORLD.tieTrees -- tree
+			expect(total).to.equal(fromConfig)
+			expect(planned).to.equal(fromConfig - c.WORLD.tieTrees)
 		end)
 
 		it("keeps every marker it plans inside the MAP's own field", function()
@@ -381,6 +469,72 @@ return function()
 				distinct += 1
 			end
 			expect(distinct).to.equal(#tiles)
+		end)
+	end)
+
+	describe("the generator's streaming step", function()
+		local Settings = require(ServerStorage.MapGen:WaitForChild("Settings"))
+
+		-- audit-004 F4. The build's last step calls `Settings.apply(Map.STREAMING)`, and that is the
+		-- one step that changes a place setting for every existing system. It is inert today only
+		-- because the contract happens to match the place -- so a one-character edit to the contract
+		-- would make M2.6's change, without M2.6's playtest, during an M2.3 build.
+		it("refuses to change a streaming property until M2.6 has run", function()
+			-- THE BEHAVIOUR FIRST, the constant last. With the assertion on `MAY_WRITE` at the top, a
+			-- run with the guard disabled stopped there and never reached the part that proves the
+			-- place was not written -- TestEZ abandons an `it` at the first failure, which is this
+			-- task's own subject (measured on a dirty-tree run, Task 48).
+			local before = Workspace.StreamingEnabled
+			-- A contract that DISAGREES with the place, which is the whole hazard.
+			local provocation = {
+				enabled = not before,
+				minRadius = Map.STREAMING.minRadius,
+				targetRadius = Map.STREAMING.targetRadius,
+				integrityMode = Map.STREAMING.integrityMode,
+				modelBehavior = Map.STREAMING.modelBehavior,
+			}
+			local ok, changed, _unreachable, _unwritten, refused = pcall(Settings.apply, provocation)
+			local after = Workspace.StreamingEnabled
+			if after ~= before then
+				-- Put the place back before failing: a spec that leaves streaming flipped for the rest
+				-- of the session is worse than the defect it found.
+				Workspace.StreamingEnabled = before
+			end
+			expect(ok).to.equal(true)
+			if after ~= before then
+				error("Settings.apply changed Workspace.StreamingEnabled: M2.6 has not run", 0)
+			end
+			expect(#changed).to.equal(0)
+			expect(table.find(refused, "StreamingEnabled")).to.be.ok()
+			expect(Settings.MAY_WRITE).to.equal(false) -- and M2.6 has not run
+		end)
+
+		it("still writes nothing when the contract and the place agree", function()
+			local before = Workspace.StreamingEnabled
+			local changed, _unreachable, _unwritten, refused = Settings.apply(Map.STREAMING)
+			expect(Workspace.StreamingEnabled).to.equal(before)
+			expect(#changed).to.equal(0)
+			expect(#refused).to.equal(0)
+		end)
+	end)
+
+	describe("the generator's bog", function()
+		-- audit-004 F10. `Height.atFlattened`'s `bogDepth` is optional, so a caller that forgets it
+		-- silently asks a different question from the one `Ground.writeTile` answers. This is what the
+		-- argument is worth, in studs, so a spec that omits it is measurably wrong rather than merely
+		-- untidy.
+		it("digs the bog only when the ground is asked with bogDepth", function()
+			local c = config()
+			local bog = c.WORLD.bog
+			local withBog = MapGen.Height.at(bog.x, bog.z, SEED, c, MapGen.Layout.bogDepth)
+			local without = MapGen.Height.at(bog.x, bog.z, SEED, c)
+			expect(math.abs((without - withBog) - bog.depth) < 0.001).to.equal(true)
+			-- And outside it the argument changes nothing at all.
+			local away = MapGen.Layout.bogDepth(bog.x + bog.radius * 2, bog.z, c)
+			expect(away).to.equal(0)
+			expect(MapGen.Height.at(bog.x + bog.radius * 2, bog.z, SEED, c, MapGen.Layout.bogDepth)).to.equal(
+				MapGen.Height.at(bog.x + bog.radius * 2, bog.z, SEED, c)
+			)
 		end)
 	end)
 

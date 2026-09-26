@@ -237,6 +237,73 @@ return function()
 			expect(type(Weapon.Input.isAiming())).to.equal("boolean")
 		end)
 
+		-- THE RACE THAT MADE `test2` UNRELIABLE (two failures in three runs, Director, Task 48). The
+		-- watcher used to drop a Tool only from its own `AncestryChanged` with `parent == nil`, and
+		-- Roblox's signals are DEFERRED (measured in Task 47) -- so on a respawn the NEW Tool, granted
+		-- by the server on `CharacterAdded` and delivered through the new Backpack's `ChildAdded`, was
+		-- watched before the old one's handler ran, and for that moment two Tools were watched.
+		--
+		-- This reproduces the ordering without depending on which deferred signal drains first, and it
+		-- is the stronger case: the old Tool LEAVES THE PLAYER'S CONTAINERS WITHOUT ITS PARENT
+		-- BECOMING NIL, so the old rule never fired at all and it was watched for the rest of the
+		-- session. Before the fix this reads two more than it started with; after it, one.
+		it("drops a dead Tool no later than it watches a new one", function()
+			local backpack = player:WaitForChild("Backpack")
+			local before = Weapon.Input.watchedTools()
+
+			local function settleUntil(predicate: () -> boolean): boolean
+				local deadline = os.clock() + 5
+				while os.clock() < deadline do
+					if predicate() then
+						return true
+					end
+					task.wait()
+				end
+				return false
+			end
+
+			local old = Instance.new("Tool")
+			old.Name = "Shotgun" -- the watcher filters on the name
+			old.RequiresHandle = false
+			old.Parent = backpack
+			expect(settleUntil(function()
+				return Weapon.Input.watchedTools() == before + 1
+			end)).to.equal(true)
+
+			-- Out of the player's containers, parent NOT nil: the departure the old rule could not see.
+			old.Parent = ReplicatedStorage
+
+			local new = Instance.new("Tool")
+			new.Name = "Shotgun"
+			new.RequiresHandle = false
+			new.Parent = backpack
+
+			-- Let every deferred signal drain, then read once. The claim is a CEILING, so waiting for
+			-- it to be true would hide the failure; this waits for the new Tool to be watched at all
+			-- and then asserts the count did not climb.
+			task.wait(0.5)
+			local peak = Weapon.Input.watchedTools()
+			old:Destroy()
+			new:Destroy()
+
+			if peak > before + 1 then
+				error(
+					string.format(
+						"the watcher held %d Tools where %d is the ceiling: a dead Tool was still watched "
+							.. "when a new one arrived (24a(c), Task 48)",
+						peak,
+						before + 1
+					),
+					0
+				)
+			end
+
+			-- And it leaves the set as it found it, so the test after this one is not reading residue.
+			expect(settleUntil(function()
+				return Weapon.Input.watchedTools() <= before
+			end)).to.equal(true)
+		end)
+
 		it("listens to ONE Tool, however many the session has destroyed", function()
 			-- TASKS.md 24a(c). The Tool dies with the Backpack or the character every time the drive
 			-- places a player (Match.Body.place -> LoadCharacter), and the watcher used to keep the

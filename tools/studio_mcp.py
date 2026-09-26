@@ -20,6 +20,12 @@ Usage:
 Exit codes of `test` and `test2`: 0 PASS on a clean tree · 1 FAIL · 2 REFUSED (Studio not in Edit
 mode) · 3 PASS on a dirty tree (flagged: not valid evidence).
 
+THE SHA IN THE FINAL LINE IS HEAD AT THE MOMENT OF THE RUN, and it is re-checked at the end ("HEAD
+unchanged during the run"). That sha is what a review request must write as its `Code commit:`: the
+code commit is the commit the harness lines name, which has to be at or after the last commit that
+touched src/, tests/ or tools/, with only paperwork after it (CLAUDE.md git workflow step 4).
+`tools/agents.py` refuses a request whose `Code commit:` no pasted line names.
+
 WHICH RUN IS EVIDENCE FOR WHAT (Director decision, 2026-09-26). `test` is the default and every
 change needs it. `test2` is ALSO part of the merge gate for a change touching `src/` (gameplay),
 `tests/client/` or this file: a driver, a tie, a team swap and half the client suite exist only with
@@ -61,8 +67,10 @@ Moving parts
       compares byte-for-byte, so the scenario the client reads is provably the file on disk, and no new
       Rojo mapping (a default.project.json change needs a Rojo restart and Karen's Connect) is needed.
   Report (JSON): side, token, placeId, specs (full names), notes, successCount, failureCount, skippedCount,
-      errorCount, status (PASS | FAIL | ERROR), message. Runner status is PASS only if 0 failed, 0 errors,
-      0 skipped (any SKIP/FOCUS variant fails) and > 0 passed; a spec that fails to load is ERROR.
+      errorCount, status (PASS | FAIL | ERROR), message, and on the SERVER's report `seamClosed` -- set
+      by TestRunner after TestKit.run returns, so the harness can see a module upvalue it cannot query.
+      Runner status is PASS only if 0 failed, 0 errors, 0 skipped (any SKIP/FOCUS variant fails) and
+      > 0 passed; a spec that fails to load is ERROR.
       TestKit.awaitToken waits up to TOKEN_WAIT for a token instead of reading once, so the gate is
       open for a runner that started up to a minute before the token arrives. The rule is unchanged
       -- Studio, and a token under 120 s old -- and a playtest still runs no tests because nothing
@@ -114,7 +122,11 @@ What `test` checks, in order (each is one "ok"/"FAIL" line)
      tests/server/zz_drive_boundary.spec.luau ENDS THE DRIVE -- which clears every boar, frees every
      tie and respawns everybody -- and doing that while a client suite is still asserting would break
      it. `test2` sets the same attribute once BOTH clients have reported.
-  8. Stop. The token is cleared and the gate is seen closed in Studio.
+  8. Stop. The token is cleared, the gate is seen closed in Studio, and the server's own report says
+     the drive-clock seam closed with the run (`seamClosed`: TestKit clears `activeToken` when the run
+     ends, so `Match.advanceForTests` cannot be reached afterwards). The answer comes from the report
+     because a query that requires TestKit through `execute_luau` gets a DIFFERENT module instance,
+     out of its own require cache, and can only ever say "closed" (measured, Task 48).
   9. Final line: "[harness] PASS|FAIL: n/m checks @ <full HEAD sha> (clean tree | DIRTY TREE ...)".
      A PASS is evidence for a PR only if the sha equals the PR head and the tree is clean.
 
@@ -1330,6 +1342,18 @@ def run_test(studio):
 
     closed, ok = wait_for(lambda: studio.query("Edit", QUERY_TOKEN), lambda v: v == "", 15)
     check("Gate closed afterwards (token cleared in Studio)", ok, repr(closed))
+    # THE DRIVE-CLOCK SEAM (audit-004 F5). `TestKit.activeToken` is what `Match.advanceForTests` asks
+    # "is a gated test run in progress"; left set, the seam stays open for the rest of a Studio session
+    # a human is about to play in. The answer comes from the RUNNER'S OWN report, because a query that
+    # requires TestKit through execute_luau gets a different instance and can only ever say "closed"
+    # (measured; TestKit.finish says so too).
+    # `reports.get`, never `reports[...]`: when the server report does not arrive inside REPORT_WINDOW
+    # -- the failure that window has been widened for twice (Tasks 34 and 41) -- indexing raises
+    # KeyError before `verdict()` runs, and an eight-minute run ends in a traceback with no
+    # "[harness] FAIL: n/m checks @ <sha>" line at all. A missing report must FAIL this check, not
+    # abort the run (review round 1 of Task 48).
+    seam = (reports.get("server") or {}).get("seamClosed")
+    check("the drive-clock seam closed when the server run finished", seam is True, repr(seam))
     return verdict()
 
 

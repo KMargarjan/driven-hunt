@@ -21,8 +21,15 @@ local Settings = {}
 
 -- Applies the contract's streaming block. Returns what it changed, so a step report says "nothing"
 -- when nothing moved instead of claiming a write it did not make.
-function Settings.apply(streaming): ({ string }, { string }, { string })
-	local changed, unreachable, unwritten = {}, {}, {}
+-- M2.6 IS THE TASK THAT TURNS STREAMING ON, alone, with a playtest (design section 14). Until it
+-- runs, this module REFUSES to change a streaming property rather than writing one silently: today
+-- the build's last step is inert only because `Map.STREAMING.enabled` happens to match the place, and
+-- a one-character edit to the contract would otherwise make M2.6's change during an M2.3 build
+-- (audit-004 F4, TASKS.md row 43a(f)). M2.6 flips this constant and takes the playtest with it.
+Settings.MAY_WRITE = false
+
+function Settings.apply(streaming): ({ string }, { string }, { string }, { string })
+	local changed, unreachable, unwritten, refused = {}, {}, {}, {}
 	local wanted: { [string]: any } = {
 		StreamingEnabled = streaming.enabled,
 		StreamingMinRadius = streaming.minRadius,
@@ -38,8 +45,12 @@ function Settings.apply(streaming): ({ string }, { string }, { string })
 			table.insert(unreachable, property)
 		elseif typeof(current) == "boolean" then
 			if current ~= value then
-				(Workspace :: any)[property] = value
-				table.insert(changed, property)
+				if Settings.MAY_WRITE then
+					(Workspace :: any)[property] = value
+					table.insert(changed, property)
+				else
+					table.insert(refused, property)
+				end
 			end
 		else
 			-- Readable, but not a boolean: the four M2.6 values are two numbers and two enum names,
@@ -52,7 +63,8 @@ function Settings.apply(streaming): ({ string }, { string }, { string })
 	table.sort(changed)
 	table.sort(unreachable)
 	table.sort(unwritten)
-	return changed, unreachable, unwritten
+	table.sort(refused)
+	return changed, unreachable, unwritten, refused
 end
 
 -- What the place currently says, as plain strings, so a run log records it.

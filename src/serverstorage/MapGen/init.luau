@@ -128,26 +128,53 @@ local function existingRoot(): Instance?
 	return Workspace:FindFirstChild(Config.ROOT_NAME)
 end
 
-local function ensureRoot(): Instance
+-- THE MAP CARRIES THE SEED IT WAS BUILT FROM (audit-004 F3). `MapGen.digest` used to report
+-- `Map.SEED`, which is 0 while `EXPECTED_WORLD` is "arena" -- so `mapgen.py digest` printed
+-- `"seed": 0` for a map built from seed 7, and only the CLI's own line carried the real number. Step 6
+-- of the M2.5 switch (design section 9.3) copies that field into the contract, so a wrong one there is
+-- a wrong one in the committed map. An attribute on the root is the map's own record of it: it
+-- survives the session, it is not a script, and it does not enter the digest, which covers names,
+-- classes, positions, sizes and tags.
+local SEED_ATTRIBUTE = "MapGenSeed"
+
+local function ensureRoot(seed: number?): Instance
 	local root = existingRoot()
-	if root then
-		return root
+	if root == nil then
+		local made = Instance.new("Folder")
+		made.Name = Config.ROOT_NAME
+		made.Parent = Workspace
+		root = made
 	end
-	local made = Instance.new("Folder")
-	made.Name = Config.ROOT_NAME
-	made.Parent = Workspace
-	return made
+	if seed ~= nil then
+		(root :: Instance):SetAttribute(SEED_ATTRIBUTE, seed)
+	end
+	return root :: Instance
 end
 
-function MapGen.clear(): { removed: number, terrainCleared: boolean }
+-- The seed the map in the place was built from, or nil when there is no map or it predates the
+-- attribute. Nil is the honest answer; 0 was not.
+function MapGen.builtSeed(): number?
+	local root = existingRoot()
+	if root == nil then
+		return nil
+	end
+	local value = root:GetAttribute(SEED_ATTRIBUTE)
+	return if type(value) == "number" then value else nil
+end
+
+-- Destroys the map root AND the terrain, and reports what is actually left. `terrainCleared` used to
+-- be a hard-coded `true`: a claim with no measurement behind it, about the largest thing the
+-- generator writes (audit-004 must-fix 1). It is now `cellsAfter == 0`, read back from the engine.
+function MapGen.clear(): { removed: number, terrainCleared: boolean, cellsAfter: number, cellsBefore: number }
 	local root = existingRoot()
 	local removed = 0
 	if root then
 		removed = #root:GetDescendants() + 1
 		root:Destroy()
 	end
-	Ground.clear()
-	return { removed = removed, terrainCleared = true }
+	local before = Ground.cells()
+	local after = Ground.clear()
+	return { removed = removed, terrainCleared = after == 0, cellsAfter = after, cellsBefore = before }
 end
 
 -- ---------------------------------------------------------------- one step
@@ -180,12 +207,27 @@ function MapGen.runStep(index: number, seed: number): StepReport
 
 	if spec.kind == "clear" then
 		local result = MapGen.clear()
-		return finish({ ok = true, message = string.format("removed %d instances", result.removed) })
+		if not result.terrainCleared then
+			-- LOUD, not silent: every step after this one writes into terrain that is still there, and
+			-- the digest would then describe a map nobody built (audit-004 must-fix 1).
+			return finish({
+				ok = false,
+				message = string.format(
+					"Terrain:Clear() left %d cell(s) (was %d): the build must not continue over them",
+					result.cellsAfter,
+					result.cellsBefore
+				),
+			})
+		end
+		return finish({
+			ok = true,
+			message = string.format("removed %d instances, %d terrain cell(s)", result.removed, result.cellsBefore),
+		})
 	elseif spec.kind == "terrain" then
 		local tile = Layout.tiles(Config)[index - 1] -- step 1 is the clear, so tile n is step n + 1
 		return finish({ ok = true, voxelsWritten = Ground.writeTile(tile, seed, Config) })
 	elseif spec.kind == "hedgerow" then
-		local root = ensureRoot()
+		local root = ensureRoot(seed)
 		local lineIndex = index - 1 - #Layout.tiles(Config)
 		local line = Layout.hedgeLines(Config)[lineIndex]
 		-- The gates go where the line crosses the DRIVE CORRIDOR, and nowhere else: a gate outside it
@@ -209,7 +251,7 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		local trackIndex = index - 1 - #Layout.tiles(Config) - #Layout.hedgeLines(Config)
 		return finish({ ok = true, voxelsWritten = Ground.paintTrack(Config.WORLD.tracks[trackIndex], Config) })
 	elseif spec.kind == "props" then
-		local root = ensureRoot()
+		local root = ensureRoot(seed)
 		local count, keys, why = Props.trees(root, seed, Config)
 		Props.clearAssets(root) -- no template outlives the run (design section 8.2)
 		if why then
@@ -229,7 +271,7 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		end
 		return finish({ ok = true, partsCreated = count, proxyUsed = keys })
 	elseif spec.kind == "stand" then
-		local root = ensureRoot()
+		local root = ensureRoot(seed)
 		local count, keys, why = Props.tieTrees(root, seed, Config)
 		Props.clearAssets(root)
 		if why then
@@ -237,7 +279,7 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		end
 		return finish({ ok = true, partsCreated = count, proxyUsed = keys })
 	elseif spec.kind == "markers" then
-		local root = ensureRoot()
+		local root = ensureRoot(seed)
 		local counts = Markers.place(root, seed, Config)
 		local tagged = Markers.tagTieTrees(root, Config)
 		-- partsCreated is the marker parts only. The tie trees are trunks Props already placed and
@@ -252,8 +294,12 @@ function MapGen.runStep(index: number, seed: number): StepReport
 			message = string.format("%d tie trees tagged (existing trunks)", tagged),
 		})
 	elseif spec.kind == "settings" then
-		local changed, unreachable, unwritten = Settings.apply(Map.STREAMING)
+		local changed, unreachable, unwritten, refused = Settings.apply(Map.STREAMING)
 		local note = if #changed == 0 then "already matched the contract" else "changed " .. table.concat(changed, ", ")
+		if #refused > 0 then
+			-- NOT a silent write and NOT a silent skip: M2.6 owns this change and has not run.
+			note ..= "; REFUSED (M2.6 has not run): " .. table.concat(refused, ", ")
+		end
 		if #unreachable > 0 then
 			-- Not a failure: measured, four of the five are Studio-panel settings (Settings.luau).
 			note ..= "; not reachable from Luau: " .. table.concat(unreachable, ", ")
@@ -283,10 +329,10 @@ local function digestEntries(root: Instance): { Digest.Entry }
 	return entries
 end
 
-function MapGen.digest(): { digest: string, parts: number, samples: number, seed: number, version: string }
+function MapGen.digest(): { digest: string, parts: number, samples: number, seed: number?, version: string }
 	local root = existingRoot()
 	if root == nil then
-		return { digest = "", parts = 0, samples = 0, seed = Map.SEED, version = MapGen.VERSION }
+		return { digest = "", parts = 0, samples = 0, seed = nil, version = MapGen.VERSION }
 	end
 	local perSide = math.floor(math.sqrt(Config.DIGEST_TERRAIN_SAMPLES))
 	local half = Config.SIZE_STUDS / 2
@@ -301,7 +347,9 @@ function MapGen.digest(): { digest: string, parts: number, samples: number, seed
 		digest = Digest.of(digestEntries(root), samples, Config.DIGEST_ROUND),
 		parts = partsUnder(root),
 		samples = #samples,
-		seed = Map.SEED,
+		-- The seed THIS MAP was built from, read off the root, not the contract's `Map.SEED` -- which
+		-- is 0 until the M2.5 switch sets it, and which this field is one of the inputs to.
+		seed = MapGen.builtSeed(),
 		version = MapGen.VERSION,
 	}
 end
@@ -408,7 +456,14 @@ function MapGen.expectedCounts(): { [string]: number }
 	return counts
 end
 
-function MapGen.verifyContract(): { ok: boolean, findings: { string }, counts: { [string]: number } }
+function MapGen.verifyContract(): {
+	ok: boolean,
+	findings: { string },
+	counts: { [string]: number },
+	streaming: { [string]: string },
+	markerDigest: string,
+	seed: number?,
+}
 	local findings: { string } = {}
 	local root = existingRoot()
 	if root == nil then
@@ -436,7 +491,7 @@ function MapGen.verifyContract(): { ok: boolean, findings: { string }, counts: {
 	for _, spawn in ipairs(taggedInside(root, Map.TAGS.boarSpawn)) do
 		local p, b = spawn.Position, Config.FIELD.bounds
 		if p.X < b.minX or p.X > b.maxX or p.Z < b.minZ or p.Z > b.maxZ then
-			table.insert(findings, spawn.Name .. " is outside Map.FIELD.bounds")
+			table.insert(findings, spawn.Name .. " is outside Config.FIELD.bounds (the MAP's rectangle)")
 		end
 		if math.abs(p.Y - Config.FIELD.groundY) > Map.SPAWN_PAD.tolerance then
 			table.insert(
@@ -476,6 +531,12 @@ function MapGen.verifyContract(): { ok: boolean, findings: { string }, counts: {
 		table.insert(findings, string.format("%d parts, over the budget of %d", parts, Map.BUDGET.parts))
 	end
 	counts.parts = parts
+	-- The map exists, so terrain MUST: a root with no ground under it is a build that half-ran.
+	local cells = Ground.cells()
+	counts.terrainCells = cells
+	if cells == 0 then
+		table.insert(findings, "the map root exists but the terrain is empty: the build did not finish")
+	end
 	return {
 		ok = #findings == 0,
 		findings = findings,
@@ -487,6 +548,7 @@ function MapGen.verifyContract(): { ok: boolean, findings: { string }, counts: {
 		-- The half of the digest a spec can afford, which is what M2.5's committed-digest check will
 		-- compare against (design section 13.1 check 11).
 		markerDigest = MapGen.markerDigest(),
+		seed = MapGen.builtSeed(),
 	}
 end
 

@@ -479,7 +479,7 @@ gates, all five fail; with the wall removed, all five pass again, same waypoint 
 
     268 steps, 1,238 parts, 4,096 terrain samples
     400 hedge segments (76 + 76 + 76 + 86 + 86), inside the design's 500-part hedge budget
-    400 trees x 2 parts + 12 tie trees x 2 parts + 14 markers = 1,238
+    400 trees x 2 parts + 12 tie trees x 2 parts + 400 hedge segments + 14 markers = 1,238
     256 terrain tiles x 24,576 voxels = 6,291,456 voxels written
     two dirt tracks: 18,039 and 18,059 voxels repainted
     build wall clock: about 5 minutes, inside the design's 20-minute target

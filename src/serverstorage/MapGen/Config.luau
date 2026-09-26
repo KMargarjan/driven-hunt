@@ -43,7 +43,7 @@ Config.BAND_Y = { min = -48, max = 48 } -- 24 voxel layers, covering +/- 40 stud
 
 Config.RELIEF = 40 -- K, studs, whole map: gentle farmland, well inside Boar's FALL_LIMIT of 50
 Config.CORRIDOR_RELIEF = 16 -- K, inside the drive corridor, so terrain never spawns or eats a boar
-Config.CORRIDOR_MAX_SLOPE_DEG = 15 -- the design's conservative ceiling; the spec measures it
+Config.CORRIDOR_MAX_SLOPE_DEG = 15 -- the design's conservative ceiling, measured by map_contract.spec
 Config.OCTAVES = 4
 Config.BASE_FREQUENCY = 1 / 420 -- studs^-1; one broad rise per ~420 studs
 Config.LACUNARITY = 2.1
@@ -84,9 +84,10 @@ Config.WORLD = {
 
 	-- THE HEDGEROW NETWORK: field boundaries on a grid, each line the full width or depth of the map.
 	-- Three run along x (constant z) and two along z (constant x), so the map reads as fields of about
-	-- 512 studs (143 m) rather than as one meadow. 10,240 studs of hedge in 24-stud segments = 427
-	-- parts, inside the design's 500-part hedge budget; the design's "<= 6,000 studs of hedge" row is
-	-- exceeded, and that is called out in the review request rather than quietly ignored.
+	-- 512 studs (143 m) rather than as one meadow. 10,240 studs of hedge in 24-stud segments is 430
+	-- segments before the gates are cut and 400 after, inside the design's 500-part hedge budget; the
+	-- design's "<= 6,000 studs of hedge" row is exceeded, and that is queued as TASKS.md row 44a(a)
+	-- rather than quietly ignored.
 	hedgeZ = { -512, 0, 512 }, -- lines running along x
 	hedgeX = { -512, 512 }, -- lines running along z
 	hedgeHalfSpan = 1024,
@@ -118,7 +119,7 @@ Config.FIELD = {
 
 Config.SCATTER_OVERSAMPLE = 6 -- cells per wanted tree: the corridor, tracks, bog and hedges reject many
 Config.SCATTER_JITTER = 0.9 -- of a cell; 0 is a grid, 1 lets two neighbours touch
-Config.SCATTER_CLEARANCE = 14 -- studs a tree keeps from a hedge line, a track or the bog edge
+Config.SCATTER_CLEARANCE = 14 -- studs a tree keeps from a HEDGE LINE; a track and the bog reject at their own edge
 
 -- ---------------------------------------------------------------- materials
 

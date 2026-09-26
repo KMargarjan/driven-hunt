@@ -326,7 +326,14 @@ def harness_gate(req, code_full, base, head):
     A change that touches src/, tests/ or tools/ may not be reviewed until it has RUN: the request
     must paste the harness's own PASS line for its `Code commit:`, on a clean tree. Task 18 was
     reviewed three times before any of its code had executed, and the first real run then failed
-    three specs. Docs-only changes are exempt: the harness says nothing about them."""
+    three specs. Docs-only changes are exempt: the harness says nothing about them.
+
+    WHAT `Code commit:` MEANS, and this is the definition (CLAUDE.md git workflow step 4 now says the
+    same): the commit the harness lines name. It must be at or after the last commit that changed
+    src/, tests/ or tools/, and only paperwork may follow it. A LATER paperwork commit is fine -- the
+    two-player run happens at the branch head, which by then carries the request itself -- and only
+    narrows what the evidence has to cover. An EARLIER one is not, and this gate is what refuses it:
+    the sha in the pasted line must match, so a request cannot claim a commit nothing ran over."""
     # TWO RANGES, UNIONED (TASKS.md 21a(b)). `base` comes from the request, so a `Base:` set to the
     # code commit made a tools/ change look docs-only and skipped this gate entirely. The second
     # range is one the request cannot choose: whatever the code commit itself introduced relative to

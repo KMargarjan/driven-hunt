@@ -19,7 +19,7 @@ Usage:
   python tools/mapgen.py contract                                  # read-only: MapGen.verifyContract()
   python tools/mapgen.py reach                                     # read-only: pathfind the built map
   python tools/mapgen.py census                                    # read-only: what is in Workspace
-  python tools/mapgen.py shots                                     # read-only: the six named captures
+  python tools/mapgen.py shots                                     # read-only: the seven named captures
 
 Exit codes, deliberately the harness's shape: 0 done · 1 a step failed · 2 REFUSED.
 
@@ -59,7 +59,7 @@ PathStatus.Success one second after it appeared, and NoPath after five. `MapGen.
 The run log: every StepReport is appended to .mapgen/<utc>-<seed>.json (git-ignored). Two lines are
 worth pasting into reviews/task-<N>/REQUEST.md, exactly as the harness line is -- `build`'s
 
-  [mapgen] OK: 269/269 steps @ <sha> seed=7 digest=<64 hex> (clean tree)
+  [mapgen] OK: 268/268 steps @ <sha> seed=7 digest=<64 hex> (clean tree)
 
 and, for the evidence the design actually asks for (section 6.4), `verify`'s
 
@@ -92,7 +92,7 @@ RUN_LOG_DIR = os.path.join(REPO, ".mapgen")
 # The generator's own instances, plus the two the engine always puts there.
 WORKSPACE_ALLOWED = ("Terrain", "Camera")
 
-# The six captures (design section 13.3), at the full 2048-stud map's own scale. Milestone 2.1's
+# The seven captures (design section 13.3's six, plus map-gate), at the full 2048-stud map's own scale. Milestone 2.1's
 # cameras were scaled down for the 512 slice; these are the design's table, with two changes it names
 # as the Builder's to make: `map-stand` looks at the tie trees behind the shooter line (the only stand
 # M2.2 builds -- real spruce stands are M2.3), and there is a seventh angle on a hedgerow gate, because
@@ -174,17 +174,24 @@ end
 return HttpService:JSONEncode(result)
 """
 
+# THE CENSUS ANSWERS ABOUT THE GROUND TOO (audit-004 must-fix 1). Terrain is a global singleton with
+# no container, so `Terrain` was unconditionally on the allow-list and the census was structurally
+# incapable of mentioning the single biggest thing `clear` destroys -- or of noticing that a map's
+# terrain is already in the place.
 CENSUS = """
 local HttpService = game:GetService("HttpService")
-local out = {}
+local children = {}
 for _, child in ipairs(workspace:GetChildren()) do
-    table.insert(out, {
+    table.insert(children, {
         name = child.Name,
         className = child.ClassName,
         descendants = #child:GetDescendants(),
     })
 end
-return HttpService:JSONEncode(out)
+return HttpService:JSONEncode({
+    children = children,
+    terrainCells = workspace.Terrain:CountCells(),
+})
 """
 
 
@@ -218,7 +225,14 @@ def call(studio, expression):
 
 
 def census(studio):
+    """{"children": [...], "terrainCells": n} -- what is in Workspace, ground included."""
     return parse_json(studio.query("Edit", CENSUS))
+
+
+def print_census(result):
+    for row in result.get("children") or []:
+        print(f"  {row['name']} ({row['className']}, {row['descendants']} descendants)")
+    print(f"  Terrain: {result.get('terrainCells', '?')} cell(s)")
 
 
 # ---------------------------------------------------------------- the refusals
@@ -268,18 +282,44 @@ def note_contract_cache(studio):
     print("  MapGen.Contract loads the contract fresh, so the build below uses the file on disk.")
     print("  Reopen the place when you want the session itself current (a Rojo sync cannot).")
 
-def check_backup(studio, backup):
+def check_backup(studio, backup, command):
     """Refusal 4, or the M2.1 census in its place."""
     if backup is None:
         return "no --backup. Pass a .rbxl saved by File -> Save to File, or `census` (M2.1 only)."
+    # The census path only. A REAL --backup is a saved .rbxl: whatever is in the place, the operator
+    # can put it back, which is the whole point of the file -- so the orphan refusal below does not
+    # apply to it (review round 1 note).
     if backup == "census":
-        rows = census(studio)
+        result = census(studio)
+        rows = result.get("children") or []
+        cells = result.get("terrainCells") or 0
         allowed = set(WORKSPACE_ALLOWED) | {root_name()}
         strays = [r for r in rows if r["name"] not in allowed]
         print("[mapgen] census of Workspace:")
         for row in rows:
             mark = " " if row["name"] in allowed else "!"
             print(f"  {mark} {row['name']} ({row['className']}, {row['descendants']} descendants)")
+        print(f"    Terrain: {cells} cell(s)")
+        # ORPHANED TERRAIN. A map root with no terrain is a half-finished build; TERRAIN WITH NO ROOT
+        # is somebody deleting Workspace.DrivenHuntMap in the Explorer, which leaves the whole
+        # heightfield behind and which every other check in this project is blind to (audit-004
+        # must-fix 1). A FRESH build must not start from it silently: the operator has to say `clear`.
+        #
+        # ONLY `build` AND `verify` ARE REFUSED, and the other two are legitimate in exactly this
+        # state (review round 1 of Task 47):
+        #   * `step` IS the retry, and a build reaches `ensureRoot()` for the first time in the
+        #     hedgerow step -- so through all 256 terrain steps Workspace holds terrain and no root.
+        #     Refusing `step` would block the documented way to resume a build, and would tell the
+        #     operator to `clear` the partial build it was resuming.
+        #   * `clear` is the cure the refusal itself names.
+        if command in ("build", "verify") and cells > 0 and not any(r["name"] == root_name() for r in rows):
+            return (
+                f"Workspace holds {cells} terrain cell(s) and no {root_name()}: a generated map's ground "
+                "was left behind when its folder went away.\n"
+                "  Nothing here can tell that terrain from a map you meant to keep, so this stops.\n"
+                "  Run `python tools/mapgen.py clear --backup census` to remove it, or save the place "
+                "first and pass that .rbxl as --backup."
+            )
         if strays:
             names = ", ".join(f"{r['name']} ({r['className']})" for r in strays)
             return (
@@ -525,15 +565,14 @@ def main(argv):
             return refuse(why)
         note_contract_cache(studio)
         if mutating:
-            why = check_backup(studio, args.backup)
+            why = check_backup(studio, args.backup, args.command)
             if why:
                 return refuse(why)
 
         if args.command == "plan":
             return command_plan(studio, args)
         if args.command == "census":
-            for row in census(studio):
-                print(f"  {row['name']} ({row['className']}, {row['descendants']} descendants)")
+            print_census(census(studio))
             return 0
         if args.command == "digest":
             print(json.dumps(call(studio, "MapGen.digest()"), indent=2))
@@ -545,7 +584,14 @@ def main(argv):
         if args.command == "shots":
             return command_shots(studio)
         if args.command == "clear":
-            print(json.dumps(call(studio, "MapGen.clear()"), indent=2))
+            # BRANCH ON THE MEASUREMENT. Printing "cleared" and exiting 0 while cells remain is the
+            # same shape this task set out to close, in the very command its refusal points at
+            # (review round 1 note).
+            result = call(studio, "MapGen.clear()")
+            print(json.dumps(result, indent=2))
+            if not result.get("terrainCleared"):
+                print(f"[mapgen] FAILED: Terrain:Clear() left {result.get('cellsAfter')} cell(s) @ {sha}")
+                return 1
             print(f"[mapgen] cleared @ {sha} (clean tree)")
             return 0
         if args.command == "build":

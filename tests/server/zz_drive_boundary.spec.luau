@@ -108,20 +108,54 @@ return function()
 			-- here, after every client has finished, because it hands a gun to a driver for the two
 			-- seconds before the policy is put back, and a client asserting "no Tool at any point"
 			-- must not be watching.
+			-- THE POLICY IS RESTORED BEFORE ANYTHING IS ASSERTED (audit-004 F1). It used to be put
+			-- back four `expect`s later, in this same `it` -- and TestEZ abandons an `it` at the first
+			-- failed `expect`, including the `pcall(Weapon.refreshArming, player)` below, which is the
+			-- falsifying case this test exists for. One genuine failure would have left the LIVE
+			-- server holding a policy that throws: every later `refreshArming` falls through the pcall
+			-- to Shotgun.CONFIG.shouldArm and arms everybody, and the three specs after this one
+			-- assert gun state and tie state. One failure became four.
+			--
+			-- So: gather the observations while the broken policy is installed, put the real one back
+			-- unconditionally, and only then assert. The `pcall` around the gathering means even a
+			-- raise leaves the restore reachable.
+			local raised, armedUnderBrokenPolicy = false, {}
 			Weapon.setArmingPolicy(function()
 				error("the drive's policy is broken")
 			end)
+			local ok = pcall(function()
+				for _, player in ipairs(Players:GetPlayers()) do
+					-- Without the pcall inside mayArm this raises, which is the falsifying case.
+					if not pcall(Weapon.refreshArming, player) then
+						raised = true
+					end
+				end
+				task.wait(0.2)
+				for _, player in ipairs(Players:GetPlayers()) do
+					table.insert(armedUnderBrokenPolicy, Weapon.mayArmForTests(player))
+				end
+			end)
+			Weapon.setArmingPolicy(Match.mayCarryWeapon)
 			for _, player in ipairs(Players:GetPlayers()) do
-				-- Without the pcall inside mayArm this raises, which is the falsifying case.
-				expect(pcall(Weapon.refreshArming, player)).to.equal(true)
-			end
-			task.wait(0.2)
-			for _, player in ipairs(Players:GetPlayers()) do
-				-- The fallback is the weapon's own default, which arms everybody.
-				expect(Weapon.mayArmForTests(player)).to.equal(true)
+				Weapon.refreshArming(player)
 			end
 
-			Weapon.setArmingPolicy(Match.mayCarryWeapon)
+			expect(ok).to.equal(true)
+			expect(raised).to.equal(false)
+			expect(#armedUnderBrokenPolicy > 0).to.equal(true)
+			for _, armed in ipairs(armedUnderBrokenPolicy) do
+				-- The fallback is the weapon's own default, which arms everybody.
+				expect(armed).to.equal(true)
+			end
+			for _, player in ipairs(Players:GetPlayers()) do
+				expect(Weapon.mayArmForTests(player)).to.equal(Match.mayCarryWeapon(player))
+			end
+		end)
+
+		it("leaves the live owner holding the drive's own policy, whatever happened above", function()
+			-- The guarantee the restore above buys, asserted separately so it survives a failure in
+			-- the test that makes it: whatever the policy test did, the server is back on the drive's
+			-- rule before the three specs after it look at gun state.
 			for _, player in ipairs(Players:GetPlayers()) do
 				Weapon.refreshArming(player)
 				expect(Weapon.mayArmForTests(player)).to.equal(Match.mayCarryWeapon(player))

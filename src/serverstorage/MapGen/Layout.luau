@@ -9,7 +9,11 @@
 -- Design: docs/design/map-generator.md (sections 2.2, 12)
 local Layout = {}
 
-export type Marker = { kind: string, name: string, x: number, z: number, size: Vector3, facing: number }
+-- No `facing`: every marker had one, always 0, and nothing read it. `Markers.place` builds every
+-- CFrame with an explicit `CFrame.lookAt(position, position + Vector3.zAxis)`, which is the fact the
+-- drive line depends on, and a second unread way of saying the same thing is the kind of duplicate
+-- rule 3 exists to stop (review round 1 of Task 44).
+export type Marker = { kind: string, name: string, x: number, z: number, size: Vector3 }
 export type Point = { x: number, z: number }
 export type Line = { axis: string, at: number, from: number, to: number, crossesCorridor: boolean }
 
@@ -48,10 +52,10 @@ function Layout.pads(config): { Point }
 	return pads
 end
 
--- The five kinds of marker, in a stable order. `facing` is the yaw the part is built with: the DRIVE
--- LINE is the one that matters, because its LookVector must point at +Z, toward the drivers -- that is
--- the meaning src/server/Weapon/SafetyArc.luau gives the field, and a line facing the other way makes
--- the safety rule fire on exactly the wrong shots.
+-- The five kinds of marker, in a stable order. Position and size only: how a marker FACES is decided
+-- once, in `Markers.place`, with an explicit `CFrame.lookAt` toward +Z. That matters most for the
+-- DRIVE LINE, whose LookVector must point at the drivers -- the meaning src/server/Weapon/SafetyArc.luau
+-- gives it, where the other way round makes the safety rule fire on exactly the wrong shots.
 function Layout.markers(config): { Marker }
 	local world = config.WORLD
 	local out: { Marker } = {}
@@ -63,7 +67,6 @@ function Layout.markers(config): { Marker }
 			x = x,
 			z = world.lineZ,
 			size = Vector3.new(4, 6, 4),
-			facing = 0,
 		})
 	end
 	table.insert(out, {
@@ -71,8 +74,7 @@ function Layout.markers(config): { Marker }
 		name = "DriveLine",
 		x = 0,
 		z = world.lineZ,
-		size = world.driveLineSize,
-		facing = 0, -- CFrame.lookAt(at, at + +Z): the LookVector points at the drivers
+		size = world.driveLineSize, -- CFrame.lookAt(at, at + +Z): the LookVector points at the drivers
 	})
 	table.insert(out, {
 		kind = "driverStart",
@@ -80,7 +82,6 @@ function Layout.markers(config): { Marker }
 		x = 0,
 		z = world.driverStartZ,
 		size = world.driverStartSize,
-		facing = 0,
 	})
 	for index, x in ipairs(world.boarSpawnX) do
 		table.insert(out, {
@@ -89,7 +90,6 @@ function Layout.markers(config): { Marker }
 			x = x,
 			z = world.boarSpawnZ,
 			size = Vector3.new(6, 1, 6),
-			facing = 0,
 		})
 	end
 	return out
