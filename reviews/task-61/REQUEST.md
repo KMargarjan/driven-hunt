@@ -3,18 +3,19 @@
 Task: 61
 Round: 1
 Base: `51c2d57` (`main`, with Task 60 merged)
-Code commit: `d10817a03e5b0d53834bcfc276225904428ce599` — the `[harness]` line below names it, and it is
-the last commit that changed `src/`, `tests/` or `tools/`.
+Code commit: `14dfda94a40d36af744da3faf1f70bfbbc18c3ab` — **both** harness lines below name it. It
+is a PAPERWORK commit: the last commit that changed `src/`, `tests/` or `tools/` is `d10817a`, and
+`git diff --name-only d10817a..14dfda9` is `TASKS.md` and this file.
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 30/30 checks @ d10817a03e5b0d53834bcfc276225904428ce599 (clean tree)
+    [harness] PASS: 30/30 checks @ 14dfda94a40d36af744da3faf1f70bfbbc18c3ab (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me:
 
-    [harness2] PASS: n/n checks @ d10817a03e5b0d53834bcfc276225904428ce599 (clean tree)
+    [harness2] PASS: 32/32 checks @ 14dfda94a40d36af744da3faf1f70bfbbc18c3ab (clean tree)
 
-374 server specs (350 before: **24 new**) and 84 client specs. `python tools/flags.py clear` before
+374 server specs (350 before: **24 new**), 84 shooter and 78 driver client specs. `python tools/flags.py clear` before
 the run, and the harness's own check confirms no override was set.
 
 ## Scope
@@ -113,7 +114,16 @@ harness run above.
 - **Nothing here was played.** Whether ~3 encounters a drive feels empty is Karen item 9, and the
   flag exists for exactly that question.
 
-## For the Director — the playtest tonight
+## Karen played it (2026-09-26, flag ON, two players, Karen driving)
+
+`PLAYTEST.md`, newest first. **The sounders themselves: "seems together, sometimes alone"** — groups
+and singles both arrive and the groups hold together, which is exactly what the mix is for. Density:
+**"for now is ok"**. The one complaint is movement: *"it moves to the sides also, but it gets stuck
+sometimes in a wall; we will improve movement later"* — the sideways movement is Task 60's
+path-start fix working (boars route around cover now), the sticking is queued as **61b** and
+**deferred by Karen**, not a finding against this task.
+
+## For the Director — the playtest
 
     python tools/flags.py set BOAR_SOUNDERS on      # Edit mode; the git tree stays clean
     python tools/flags.py                           # see it
