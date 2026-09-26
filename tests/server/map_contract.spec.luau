@@ -338,7 +338,13 @@ return function()
 			-- argument at all: every digest spec passed three, so `paletteText(nil)` returned "".
 			-- A recolour is a change to the map that the voxels and the markers cannot see.
 			local function entry(name: string, y: number)
-				return { path = name, class = "Part", position = Vector3.new(0, y, 0), size = Vector3.one, tags = {} }
+				return {
+					name = name,
+					className = "Part",
+					position = Vector3.new(0, y, 0),
+					size = Vector3.one,
+					tags = {},
+				}
 			end
 			local samples = { { x = 0, z = 0, y = 1, material = "Grass" } }
 			local autumn = MapGen.Digest.of({ entry("A", 0) }, samples, 100, Map.PALETTE)
