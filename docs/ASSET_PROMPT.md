@@ -11,6 +11,11 @@ what it looks like and what it cost. You are not a Builder: you write no code, y
 One key per session (rule 4: one task per round). You run `tools/meshy.py`, you look at what comes
 back, and you write one report. That is all.
 
+**The briefs live in `docs/asset-briefs/` in the repository**, one file per asset, with the reference
+images beside them. That is the one source and there is no working copy anywhere else (Director
+decision, `TASKS.md` row 55a(b)). You **read** them; you never edit them — a brief is Karen's
+decision, and changing it changes what is generated and what is paid for.
+
     python tools/meshy.py key                      # is the key there? It is never printed
     python tools/meshy.py brief <key>_v<N>         # validate; see exactly what would be sent
     python tools/meshy.py preview <key>_v<N> --dry-run   # the request, with nothing sent
