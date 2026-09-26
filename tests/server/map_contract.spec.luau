@@ -292,15 +292,36 @@ return function()
 			expect(total).to.equal(planned + c.WORLD.tieTrees)
 		end)
 
-		it("keeps every boar spawn it plans inside the contract's field", function()
+		it("keeps every marker it plans inside the MAP's own field", function()
 			local c = config()
-			local b = Map.FIELD.bounds
+			-- `Config.FIELD`, not `Map.FIELD`: while EXPECTED_WORLD is "arena" the contract's rectangle
+			-- is the arena's 400 x 400 (it must equal Boar.CONFIG.field, which another test asserts),
+			-- and the generated map is 2048 studs across. At the M2.5 switch Config.FIELD becomes both,
+			-- and this test and that one start asserting the same rectangle.
+			local b = c.FIELD.bounds
+			expect(b).to.equal(c.WORLD.corridor)
 			for _, marker in ipairs(MapGen.Layout.markers(c)) do
-				if marker.kind == "boarSpawn" then
-					expect(marker.x >= b.minX and marker.x <= b.maxX).to.equal(true)
-					expect(marker.z >= b.minZ and marker.z <= b.maxZ).to.equal(true)
+				if marker.kind ~= "driveLine" then
+					if marker.x < b.minX or marker.x > b.maxX or marker.z < b.minZ or marker.z > b.maxZ then
+						error(
+							string.format(
+								"%s at (%.0f, %.0f) is outside the map's field",
+								marker.name,
+								marker.x,
+								marker.z
+							),
+							0
+						)
+					end
 				end
 			end
+			-- And the map's field is the design's section 12 corridor, not whatever the code drifted to.
+			expect(b.minX).to.equal(-340)
+			expect(b.maxX).to.equal(340)
+			expect(b.minZ).to.equal(-800)
+			expect(b.maxZ).to.equal(800)
+			expect(c.FIELD.exitZ).to.equal(-760)
+			expect(c.FIELD.exitZ < c.WORLD.lineZ).to.equal(true) -- the exit is BEHIND the shooter line
 		end)
 
 		it("ties a punished shooter to a tree near the line, not across the map", function()
