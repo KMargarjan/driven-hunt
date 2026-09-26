@@ -21,6 +21,16 @@
 -- insert, a script inside the template, the wrong number of MeshParts -- all of them return nil with
 -- a reason, and the consumer draws what it drew before.
 --
+-- ALL MUTABLE STATE IS IN ONE TABLE, AND THE TABLE IS INJECTABLE (`newState`, `getState`,
+-- `setState`). That is not tidiness, it is the fix for a defect that survived two review rounds:
+-- `clear()` used to walk a MODULE-LEVEL `templates` table, so a spec that cleared the loader
+-- destroyed the live `shotgun.handle` the running server had preloaded -- whatever container that
+-- spec had nominated for its own templates. Nominating a cache folder guarded the FOLDER and not the
+-- templates inside the live one (review finding 3, found twice). With the state injectable, a spec
+-- runs against a state of its own and `clear()` structurally cannot reach an entry it did not put
+-- there; a load already in flight keeps the state it started in, so a late arrival cannot be parked
+-- into a different one either.
+--
 -- Design: docs/design/asset-pipeline.md (sections 5, 6.1, 6.7)
 local InsertService = game:GetService("InsertService")
 local ServerStorage = game:GetService("ServerStorage")
@@ -41,8 +51,11 @@ Loader.CONFIG = table.freeze({
 	-- the only bound available is to stop WAITING for it: the load runs in its own thread and this
 	-- one gives up at the deadline with reason "timeout". The abandoned thread may still finish --
 	-- if it does, `adopt` takes the template, so a slow load is late rather than lost.
+	-- THE TWO NUMBERS ARE DESIGN SECTION 12'S TARGETS, 10 and 15, not numbers invented here. Round 2
+	-- had the budget at 20, which is an undocumented deviation from a design this task is built to
+	-- (review round 2, note).
 	LOAD_TIMEOUT_S = 10, -- one key
-	PRELOAD_BUDGET_S = 20, -- the whole call, however many keys
+	PRELOAD_BUDGET_S = 15, -- the whole call, however many keys
 })
 
 export type LoadReport = {
@@ -59,27 +72,71 @@ export type LoadReport = {
 	elapsedMs: number,
 }
 
-local templates: { [string]: Instance } = {}
-local reports: { [string]: LoadReport } = {}
-local cacheParent: Instance? = nil
-local insertFn: ((number) -> Instance?)? = nil
-local counters = { requested = 0, loaded = 0, failed = 0, refusedScripts = 0, proxies = 0 }
-local lastReasons: { [string]: string } = {}
+export type Counters = {
+	requested: number,
+	loaded: number,
+	failed: number,
+	refusedScripts: number,
+	proxies: number,
+}
+
+-- EVERYTHING THE LOADER REMEMBERS, IN ONE VALUE. `createdCache` is the folder THIS state made for
+-- itself, and it is the only folder `clear()` may destroy: "destroys only what it created" (rule 7)
+-- is then a fact about the data rather than a claim in a comment.
+export type State = {
+	templates: { [string]: Instance },
+	reports: { [string]: LoadReport },
+	lastReasons: { [string]: string },
+	counters: Counters,
+	cacheParent: Instance?,
+	createdCache: Instance?,
+	insertFn: ((number) -> Instance?)?,
+	preloadDeadline: number?,
+}
+
+-- A STATE NOTHING ELSE SHARES. A spec borrows the live one, runs against a fresh one, and puts the
+-- live one back; production never calls this.
+function Loader.newState(): State
+	return {
+		templates = {},
+		reports = {},
+		lastReasons = {},
+		counters = { requested = 0, loaded = 0, failed = 0, refusedScripts = 0, proxies = 0 },
+		cacheParent = nil,
+		createdCache = nil,
+		insertFn = nil,
+		preloadDeadline = nil,
+	}
+end
+
+local state: State = Loader.newState()
+
+function Loader.getState(): State
+	return state
+end
+
+-- Returns the state that WAS current, so a borrow-and-restore cannot forget which one was live:
+-- `local live = Loader.setState(Loader.newState())` ... `Loader.setState(live)`.
+function Loader.setState(nextState: State): State
+	local previous = state
+	state = nextState
+	return previous
+end
 
 -- INJECTED, SO A SPEC CAN DRIVE BOTH PATHS WITH NO NETWORK. `nil` restores InsertService, which is
 -- what production uses. This is the same shape `Weapon.setCast` and `Viewmodel.setSource` already
 -- have, and it is what makes "the loaded mesh is used" and "a failure falls back" both testable.
 function Loader.setInsert(fn: ((number) -> Instance?)?)
-	insertFn = fn
+	state.insertFn = fn
 end
 
 function Loader.setCacheParent(container: Instance?)
-	cacheParent = container
+	state.cacheParent = container
 end
 
-local function cache(): Instance
-	if cacheParent then
-		return cacheParent
+local function cache(self: State): Instance
+	if self.cacheParent then
+		return self.cacheParent
 	end
 	local existing = ServerStorage:FindFirstChild(Loader.CONFIG.CACHE_NAME)
 	if existing then
@@ -91,6 +148,7 @@ local function cache(): Instance
 	local made = Instance.new("Folder")
 	made.Name = Loader.CONFIG.CACHE_NAME
 	made.Parent = ServerStorage
+	self.createdCache = made
 	return made
 end
 
@@ -136,67 +194,62 @@ local function aspectOf(size: Vector3): (number, number)
 	return axes[2] / longest, axes[3] / longest
 end
 
-local function finish(report: LoadReport): LoadReport
-	reports[report.key] = report
+local function finish(self: State, report: LoadReport): LoadReport
+	self.reports[report.key] = report
 	if report.ok then
-		counters.loaded += 1
+		self.counters.loaded += 1
 	else
-		counters.failed += 1
-		lastReasons[report.key] = report.reason or "unknown"
+		self.counters.failed += 1
+		self.lastReasons[report.key] = report.reason or "unknown"
 	end
 	return report
 end
 
 -- How much of the whole `preload` budget is left. Set by `preload`, so one slow key cannot eat the
 -- budget of the keys behind it.
-local preloadDeadline: number? = nil
-
-local function budgetLeft(): number
-	if preloadDeadline == nil then
+local function budgetLeft(self: State): number
+	if self.preloadDeadline == nil then
 		return Loader.CONFIG.LOAD_TIMEOUT_S
 	end
-	return math.max(preloadDeadline - os.clock(), 0)
+	return math.max(self.preloadDeadline - os.clock(), 0)
 end
 
 -- A LATE ARRIVAL IS LATE, NOT LOST. If a load we stopped waiting for finishes afterwards and the
 -- key is still empty, take it: the next Tool built wears the mesh instead of the grey box.
-local function adopt(key: string, row, container: Instance)
-	local parts = {}
-	if container:IsA("MeshPart") then
-		table.insert(parts, container)
-	end
-	for _, descendant in ipairs(container:GetDescendants()) do
-		if descendant:IsA("MeshPart") then
-			table.insert(parts, descendant)
-		end
-	end
+--
+-- It takes the state the LOAD STARTED IN, never whatever is current when it lands. A spec's slow
+-- fake returning after its case has ended must not park a fake mesh into the live server's cache and
+-- hand it to a player (review round 2, note on `adopt`).
+local function adopt(self: State, key: string, row, container: Instance)
+	local parts = meshPartsIn(container)
 	if row.kind == "meshpart" and #parts ~= 1 then
 		container:Destroy()
 		return
 	end
 	local template: Instance = if row.kind == "meshpart" then parts[1] else container
-	template.Parent = cache()
+	template.Parent = cache(self)
 	if template ~= container then
 		container:Destroy()
 	end
-	templates[key] = template
-	lastReasons[key] = "late"
+	self.templates[key] = template
+	self.lastReasons[key] = "late"
 end
 
 -- ONE KEY. Yields, but never for longer than the budget. Caches the template on success.
-local function loadOne(key: string): LoadReport
+local function loadOne(self: State, key: string): LoadReport
 	local started = os.clock()
-	counters.requested += 1
+	self.counters.requested += 1
 	local row = Assets.byKey(key)
 	local function elapsed()
 		return math.floor((os.clock() - started) * 1000)
 	end
 	if row == nil then
-		return finish({ key = key, ok = false, reason = "no-row", elapsedMs = elapsed() })
+		return finish(self, { key = key, ok = false, reason = "no-row", elapsedMs = elapsed() })
 	end
-	if templates[key] and templates[key].Parent then
-		return reports[key]
-			or finish({
+	local held = self.templates[key]
+	if held and held.Parent then
+		return self.reports[key]
+			or finish(self, {
 				key = key,
 				ok = true,
 				version = row.version,
@@ -205,7 +258,7 @@ local function loadOne(key: string): LoadReport
 			})
 	end
 
-	local insert = insertFn
+	local insert = self.insertFn
 		or function(modelId: number): Instance?
 			local ok, result = pcall(function()
 				return InsertService:LoadAsset(modelId)
@@ -224,8 +277,8 @@ local function loadOne(key: string): LoadReport
 			-- We already gave up on it. Take it if nothing else filled the slot; never leave an
 			-- orphan Instance parented into the world.
 			if result then
-				if templates[key] == nil then
-					adopt(key, row, result)
+				if self.templates[key] == nil then
+					adopt(self, key, row, result)
 				else
 					result:Destroy()
 				end
@@ -236,13 +289,13 @@ local function loadOne(key: string): LoadReport
 		done = true
 	end)
 
-	local deadline = os.clock() + math.min(Loader.CONFIG.LOAD_TIMEOUT_S, budgetLeft())
+	local deadline = os.clock() + math.min(Loader.CONFIG.LOAD_TIMEOUT_S, budgetLeft(self))
 	while not done and os.clock() < deadline do
 		task.wait(0.05)
 	end
 	if not done then
 		done = true -- tells the loader thread it is on its own
-		return finish({
+		return finish(self, {
 			key = key,
 			ok = false,
 			reason = "timeout",
@@ -253,7 +306,7 @@ local function loadOne(key: string): LoadReport
 		})
 	end
 	if container == nil then
-		return finish({
+		return finish(self, {
 			key = key,
 			ok = false,
 			reason = "insert-failed",
@@ -267,8 +320,8 @@ local function loadOne(key: string): LoadReport
 	local found = scriptIn(container)
 	if found then
 		container:Destroy()
-		counters.refusedScripts += 1
-		return finish({
+		self.counters.refusedScripts += 1
+		return finish(self, {
 			key = key,
 			ok = false,
 			reason = "contains-script",
@@ -287,7 +340,7 @@ local function loadOne(key: string): LoadReport
 		-- asset than the row describes.
 		if #parts == 0 then
 			container:Destroy()
-			return finish({
+			return finish(self, {
 				key = key,
 				ok = false,
 				reason = "no-meshpart",
@@ -300,7 +353,7 @@ local function loadOne(key: string): LoadReport
 		end
 		if #parts > 1 then
 			container:Destroy()
-			return finish({
+			return finish(self, {
 				key = key,
 				ok = false,
 				reason = "multi-meshpart",
@@ -312,10 +365,10 @@ local function loadOne(key: string): LoadReport
 			})
 		end
 		template = parts[1]
-		template.Parent = cache()
+		template.Parent = cache(self)
 		container:Destroy() -- the Model wrapper LoadAsset returns is not the asset
 	else
-		container.Parent = cache()
+		container.Parent = cache(self)
 	end
 
 	-- THE ASPECT CHECK, which is what stops a squashed model measuring perfectly (design 6.1). It
@@ -336,7 +389,7 @@ local function loadOne(key: string): LoadReport
 			or math.abs(gotThin - wantThin) > Loader.CONFIG.ASPECT_TOLERANCE
 		then
 			template:Destroy()
-			return finish({
+			return finish(self, {
 				key = key,
 				ok = false,
 				reason = "aspect",
@@ -349,8 +402,8 @@ local function loadOne(key: string): LoadReport
 		end
 	end
 
-	templates[key] = template
-	return finish({
+	self.templates[key] = template
+	return finish(self, {
 		key = key,
 		ok = true,
 		version = row.version,
@@ -368,56 +421,61 @@ end
 -- Design 5.2: past `PRELOAD_BUDGET_S` boot CONTINUES with whatever loaded and warns. So the budget
 -- is a deadline for the WHOLE call, and a key reached after it is refused as `timeout` without even
 -- starting -- otherwise one stalled key would spend the budget of every key behind it.
+--
+-- The state is read ONCE, here, and carried through: a load in flight belongs to the state that
+-- started it even if something else becomes current while it yields.
 function Loader.preload(keys: { string }): { LoadReport }
-	preloadDeadline = os.clock() + Loader.CONFIG.PRELOAD_BUDGET_S
+	local self = state
+	self.preloadDeadline = os.clock() + Loader.CONFIG.PRELOAD_BUDGET_S
 	local out = {}
 	for _, key in ipairs(keys) do
-		table.insert(out, loadOne(key))
+		table.insert(out, loadOne(self, key))
 	end
-	preloadDeadline = nil
+	self.preloadDeadline = nil
 	return out
 end
 
 -- NEVER YIELDS. nil means "use the grey box", and it is counted rather than logged into silence.
 function Loader.template(key: string): (Instance?, LoadReport?)
-	local template = templates[key]
+	local template = state.templates[key]
 	if template and template.Parent then
-		return template, reports[key]
+		return template, state.reports[key]
 	end
-	counters.proxies += 1
-	return nil, reports[key]
+	state.counters.proxies += 1
+	return nil, state.reports[key]
 end
 
 function Loader.stats()
 	return {
-		requested = counters.requested,
-		loaded = counters.loaded,
-		failed = counters.failed,
-		refusedScripts = counters.refusedScripts,
-		proxies = counters.proxies,
-		lastReasons = table.clone(lastReasons),
+		requested = state.counters.requested,
+		loaded = state.counters.loaded,
+		failed = state.counters.failed,
+		refusedScripts = state.counters.refusedScripts,
+		proxies = state.counters.proxies,
+		lastReasons = table.clone(state.lastReasons),
 	}
 end
 
--- Destroys ONLY what it created (rule 7): the templates it cached, never the container it was given.
+-- Destroys ONLY WHAT THIS STATE PUT THERE (rule 7): the templates in this state's own table, and the
+-- cache folder only if this state created it. It cannot reach another state's templates, because it
+-- has no way to name them -- which is the structural half of review finding 3. A spec therefore runs
+-- `Loader.setState(Loader.newState())` first, and the live server's preloaded mesh is untouchable.
 function Loader.clear()
-	for _, template in pairs(templates) do
+	local self = state
+	for _, template in pairs(self.templates) do
 		if template and template.Parent then
 			template:Destroy()
 		end
 	end
-	templates = {}
-	reports = {}
-	lastReasons = {}
-	counters = { requested = 0, loaded = 0, failed = 0, refusedScripts = 0, proxies = 0 }
-	-- ONLY WHAT IT CREATED (rule 7). When a caller nominated a cache container, that container is
-	-- the caller's and this must not remove it -- and the same goes the other way: a spec that sets
-	-- its own parent BEFORE clearing cannot destroy the live server's cache. That is exactly what
-	-- round 1's spec did (review finding 3), and the order is the whole fix.
-	local existing = if cacheParent then nil else ServerStorage:FindFirstChild(Loader.CONFIG.CACHE_NAME)
-	if existing then
-		existing:Destroy()
+	self.templates = {}
+	self.reports = {}
+	self.lastReasons = {}
+	self.counters = { requested = 0, loaded = 0, failed = 0, refusedScripts = 0, proxies = 0 }
+	local made = self.createdCache
+	if made and made.Parent then
+		made:Destroy()
 	end
+	self.createdCache = nil
 end
 
 return Loader

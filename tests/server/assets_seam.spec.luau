@@ -40,26 +40,31 @@ local function fakeAsset(meshParts: number, withScript: boolean?, size: Vector3?
 	return container
 end
 
--- THE ORDER OF THESE TWO LINES IS THE WHOLE POINT, and round 1 had them the wrong way round.
+-- THE SPEC RUNS AGAINST A LOADER STATE OF ITS OWN, AND THAT IS THE WHOLE FIX. It took three rounds
+-- to get right, so here is what did not work:
 --
--- `Loader.clear()` destroys the templates it is holding and, when no cache parent is set, the live
--- `ServerStorage.AssetCache` too. Round 1 called `clear()` BEFORE `setCacheParent`, so every case in
--- this file destroyed the real shotgun template that `WeaponBoot` had preloaded -- and nothing put
--- it back, so the running server wore the grey box for the rest of the session and any screenshot
--- taken afterwards was of the fallback gun. That is exactly the failure
--- `Hardware.getTemplateProvider` was added to prevent, defeated one line higher up.
+--   * Round 1 called `Loader.clear()` while the loader still held the live `shotgun.handle`, so every
+--     case destroyed the template `WeaponBoot` had preloaded. Nothing put it back: the server wore
+--     the grey box for the rest of the session and the in-game screenshots were of the fallback gun.
+--   * Round 2 nominated a throwaway cache FOLDER first and believed that was enough. It was not.
+--     `clear()` walked the loader's one MODULE-LEVEL `templates` table and destroyed every Instance
+--     in it -- including the live one, which sits in the live cache folder, not in the spec's. The
+--     folder was guarded and the templates were not, so the defect was untouched and the comment
+--     that said otherwise was wrong (review finding 3, twice).
 --
--- So: nominate the throwaway container FIRST. From that moment `clear()` can only reach what this
--- spec created. `restoreLive` at the end of the file puts the real template back.
+-- `Loader.newState()` is the structural answer: the scratch state has its own `templates`, its own
+-- reports and its own cache container, so `clear()` has no way to NAME the live template, let alone
+-- destroy it. A load still in flight keeps the state it started in, so a slow fake cannot park itself
+-- into the live cache afterwards either. `hadTemplate` below is what proves it, per run.
 local function withLoader(insert, body)
 	local cacheFolder = Instance.new("Folder")
+	local live = Loader.setState(Loader.newState())
 	Loader.setCacheParent(cacheFolder)
-	Loader.clear()
 	Loader.setInsert(insert)
 	local ok, why = pcall(body)
+	-- clears the SCRATCH state only: its own templates and nothing else in the world
 	Loader.clear()
-	Loader.setInsert(nil)
-	Loader.setCacheParent(nil)
+	Loader.setState(live)
 	cacheFolder:Destroy()
 	if not ok then
 		error(why, 0)
@@ -67,6 +72,37 @@ local function withLoader(insert, body)
 end
 
 return function()
+	-- THE INSTANCE THE RUNNING SERVER HELD BEFORE THIS FILE DID ANYTHING. Not a boolean: the last
+	-- describe asserts the SAME Instance is still there and still parented, so a spec that destroyed
+	-- it and fetched a replacement over the network would not pass either.
+	local hadTemplate: Instance? = nil
+
+	describe("the live server before any of this", function()
+		it("records the template boot loaded, so the cases below can be held to it", function()
+			-- IT WAITS FOR THE BOOT LOAD TO DECIDE, ONCE. `WeaponBoot` preloads over the network at
+			-- server start and this suite begins a second or two later, so asking once answers "not
+			-- yet" on a perfectly healthy server -- which is how round 3's first attempt at this
+			-- check ended up vacuous on the very runs it was written for (measured: the note said
+			-- "no live template existed" while the same run's later cases proved one had arrived).
+			-- `LOAD_TIMEOUT_S` is the bound boot itself works to, so waiting a little past it is
+			-- waiting exactly as long as boot could still be trying, and no longer.
+			local deadline = os.clock() + Loader.CONFIG.LOAD_TIMEOUT_S + 2
+			hadTemplate = Loader.template(Hardware.ASSET_KEY)
+			while hadTemplate == nil and os.clock() < deadline do
+				task.wait(0.25)
+				hadTemplate = Loader.template(Hardware.ASSET_KEY)
+			end
+			-- NOTHING IS ASSERTED ABOUT WHETHER IT LOADED. A Studio with no network has nothing to
+			-- protect and that is not this file's failure; what must not happen is this file
+			-- DESTROYING it, which the last describe is what checks.
+			TestKit.note(
+				if hadTemplate
+					then string.format("boot loaded the live template: %s", hadTemplate:GetFullName())
+					else "boot loaded no template (no network, or it failed); nothing for the specs to lose"
+			)
+		end)
+	end)
+
 	describe("the asset manifest", function()
 		it("is the one source of ids, and the gun's key resolves", function()
 			local row = Assets.byKey(Hardware.ASSET_KEY)
@@ -197,36 +233,93 @@ return function()
 			end
 		end)
 
-		it("gives up on a load that never returns, and says timeout", function()
-			-- A BOOT THAT WAITS ON THE NETWORK IS A GAME THAT DOES NOT START (design 5.2). The
-			-- insert here never returns -- the shape of a moderation queue, a dead endpoint or a
-			-- Studio with no network -- and `preload` must still come back, with a reason.
-			local started = os.clock()
+		it("gives up on a slow load, says timeout, and adopts it when it lands", function()
+			-- A BOOT THAT WAITS ON THE NETWORK IS A GAME THAT DOES NOT START (design 5.2). This
+			-- insert takes longer than the bound -- the shape of a moderation queue or a bad day on
+			-- the CDN -- and `preload` must come back anyway, with a reason.
+			--
+			-- IT RETURNS RATHER THAN SPINNING FOREVER, deliberately: round 2's fake was
+			-- `while true do task.wait(0.1) end`, and the thread it ran in is abandoned, not
+			-- cancelled, so every harness run left one coroutine spinning for the rest of the Studio
+			-- session (review round 2, note). Returning late costs the same evidence and also proves
+			-- the other half of the rule: a late arrival is LATE, NOT LOST.
+			local waited, adopted = 0, 0
 			withLoader(function()
-				while true do
-					task.wait(0.1)
-				end
+				task.wait(Loader.CONFIG.LOAD_TIMEOUT_S + 1)
+				return fakeAsset(1)
 			end, function()
+				local began = os.clock()
 				local report = Loader.preload({ Hardware.ASSET_KEY })[1]
+				waited = os.clock() - began
 				expect(report.ok).to.equal(false)
 				expect(report.reason).to.equal("timeout")
-				-- AND NOTHING IS ASSERTED ABOUT THE SHARED CACHE HERE. This case yields for the
-				-- whole bound, and `WeaponBoot`'s own preload now runs AFTER `Weapon.start()` -- so
-				-- the real load can legitimately land in the middle of this wait and fill the key.
-				-- Asserting "the template is nil" would be asserting that the boot is slow, which is
-				-- a race, not a rule. The report is this case's own answer and it is enough.
+				-- FLATLY nil, and that is new: this state is the spec's own, so there is no longer a
+				-- shared table for the live boot to fill in the middle of the wait. Round 2 could
+				-- only decline to assert this.
+				expect(Loader.template(Hardware.ASSET_KEY)).to.equal(nil)
+				local deadline = os.clock() + 5
+				while Loader.template(Hardware.ASSET_KEY) == nil and os.clock() < deadline do
+					task.wait(0.1)
+				end
+				adopted = os.clock() - began
+				expect(Loader.template(Hardware.ASSET_KEY)).to.be.ok()
+				expect(Loader.stats().lastReasons[Hardware.ASSET_KEY]).to.equal("late")
 			end)
-			local waited = os.clock() - started
-			-- It gave up at the bound rather than hanging the suite: generous, because the harness
-			-- runs under load, but far below "forever".
-			expect(waited < Loader.CONFIG.LOAD_TIMEOUT_S + 8).to.equal(true)
+			-- It gave up AT the bound: neither instantly (which would prove nothing) nor forever.
+			expect(waited > 1).to.equal(true)
+			expect(waited < Loader.CONFIG.LOAD_TIMEOUT_S + 5).to.equal(true)
 			TestKit.note(
 				string.format(
-					"loader timeout: gave up after %.1f s (bound %.0f s)",
+					"loader timeout: gave up after %.1f s (bound %.0f s), adopted the late arrival at %.1f s",
 					waited,
-					Loader.CONFIG.LOAD_TIMEOUT_S
+					Loader.CONFIG.LOAD_TIMEOUT_S,
+					adopted
 				)
 			)
+		end)
+
+		it("cannot reach a template another state holds, with no network in sight", function()
+			-- THE PROOF OF THE FIX, AND IT DEPENDS ON NOTHING OUTSIDE THIS FUNCTION. Two states,
+			-- neither of them the live one: `keeper` stands in for the running server that has
+			-- preloaded its gun, and then a whole spec's worth of work happens in another state,
+			-- `Loader.clear()` included. What the keeper holds must be untouched -- the same
+			-- Instance, still parented where it was put.
+			--
+			-- Round 2's loader could not pass this: `clear()` walked one module-level table, so the
+			-- scratch case destroyed the keeper's template. Put `local live = Loader.getState()` back
+			-- into `withLoader` and this is the case that goes red first.
+			local liveState = Loader.setState(Loader.newState())
+			local keeperCache = Instance.new("Folder")
+			local ok, why = pcall(function()
+				local keeper = Loader.getState()
+				Loader.setCacheParent(keeperCache)
+				Loader.setInsert(function()
+					return fakeAsset(1)
+				end)
+				expect(Loader.preload({ Hardware.ASSET_KEY })[1].ok).to.equal(true)
+				local held = Loader.template(Hardware.ASSET_KEY)
+				expect(held).to.be.ok()
+				expect(held.Parent).to.equal(keeperCache)
+
+				withLoader(function()
+					return fakeAsset(2)
+				end, function()
+					-- a failure AND a clear in the scratch state, which is the hostile case
+					expect(Loader.preload({ Hardware.ASSET_KEY })[1].reason).to.equal("multi-meshpart")
+					expect(Loader.template(Hardware.ASSET_KEY)).to.equal(nil)
+				end)
+
+				expect(Loader.getState()).to.equal(keeper)
+				expect(Loader.template(Hardware.ASSET_KEY)).to.equal(held)
+				expect((held :: Instance).Parent).to.equal(keeperCache)
+				Loader.clear() -- and now the keeper clears its OWN template, which is allowed
+				expect(Loader.template(Hardware.ASSET_KEY)).to.equal(nil)
+			end)
+			Loader.setState(liveState)
+			keeperCache:Destroy()
+			if not ok then
+				error(why, 0)
+			end
 		end)
 
 		it("refuses a key it has no row for, and never throws for it", function()
@@ -241,48 +334,49 @@ return function()
 	end)
 
 	describe("the live server after this file has run", function()
-		it("still holds the real template, so the session does not end on the grey box", function()
-			-- THE SPEC PUTS THE WORLD BACK. Every case above worked in its own container, so the
-			-- live cache was never touched -- but `preload` is the only thing that fills it, and if
-			-- anything here ever drops it again this check is what says so, in the run, rather than
-			-- in a screenshot three tasks later.
-			local template = Loader.template(Hardware.ASSET_KEY)
-			if template == nil then
-				-- Not necessarily this file's doing: a server where the real LoadAsset failed at
-				-- boot has none either. Re-run the real load once and report what happened.
-				local report = Loader.preload({ Hardware.ASSET_KEY })[1]
-				template = Loader.template(Hardware.ASSET_KEY)
+		it("still holds the very Instance it held before these cases, untouched", function()
+			-- THE CHECK THAT CAN FAIL. Round 2's version repaired the damage over the network and
+			-- reported it in a note, so it passed in exactly the state its name ruled out. This one
+			-- compares IDENTITY against `hadTemplate`, recorded before any case, and it repairs
+			-- nothing: put round 2's `clear()` back and this is the assertion that goes red.
+			local now = Loader.template(Hardware.ASSET_KEY)
+			local stats = Loader.stats()
+			if hadTemplate then
+				expect(now).to.equal(hadTemplate)
+				expect(hadTemplate.Parent ~= nil).to.equal(true)
+				-- ...and the gun a player would be handed right now is the mesh, not the grey box.
+				-- Asserting "one or the other" would be no assertion at all: `Hardware.build` always
+				-- draws one of them (review round 2).
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				local wearing = handle:FindFirstChild("Model") ~= nil
+				tool:Destroy()
+				expect(wearing).to.equal(true)
 				TestKit.note(
 					string.format(
-						"live template was missing; re-preload ok=%s reason=%s",
-						tostring(report.ok),
-						tostring(report.reason)
+						"the live template survived the specs: %s (proxies=%d)",
+						hadTemplate:GetFullName(),
+						stats.proxies
+					)
+				)
+			else
+				-- NETWORK-INDEPENDENT, and this is why the check records the Instance rather than
+				-- asking the network: a Studio with no connection, or a boot whose own preload had
+				-- not finished when this file was collected, has nothing to protect. Say which case
+				-- this run was instead of quietly passing as if it had proved something.
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				local partsGun = handle:FindFirstChild("BarrelLeft") ~= nil
+				tool:Destroy()
+				expect(partsGun).to.equal(true)
+				TestKit.note(
+					string.format(
+						"no live template existed before these cases; nothing to protect, "
+							.. "and the fallback gun is what a player gets (failed=%d)",
+						stats.failed
 					)
 				)
 			end
-			local stats = Loader.stats()
-			TestKit.note(
-				string.format(
-					"live loader after the specs: template=%s loaded=%d failed=%d proxies=%d",
-					if template then template.ClassName else "nil",
-					stats.loaded,
-					stats.failed,
-					stats.proxies
-				)
-			)
-			-- The Tool a player gets right now is the thing this asserts, not the cache directly.
-			local tool = Hardware.build()
-			local handle = tool:FindFirstChild("Handle") :: BasePart
-			local wearing = handle:FindFirstChild("Model") ~= nil
-			local partsGun = handle:FindFirstChild("BarrelLeft") ~= nil
-			tool:Destroy()
-			-- One or the other, never neither: a Handle with nothing on it is the gunless case.
-			expect(wearing or partsGun).to.equal(true)
-			TestKit.note(
-				if wearing
-					then "the live server is wearing Karen's mesh"
-					else "the live server is wearing the parts gun"
-			)
 		end)
 	end)
 
