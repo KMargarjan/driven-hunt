@@ -361,6 +361,17 @@ Config.HEDGE = { segmentStuds = 24, size = Vector3.new(24, 7, 3) }
 -- pieces inside that envelope and some outside it and have to remember which, the whole layer is
 -- non-collidable: a grey-box stake a shooter can walk through beats one that traps him on his stand,
 -- and when the real meshes arrive somebody decides collision per mesh, once, on purpose.
+--
+-- AND `CanQuery` FOLLOWS `CanCollide` HERE: A SLUG PASSES THROUGH ANYTHING A PLAYER WALKS THROUGH.
+-- The first build of this layer decided CanCollide and left CanQuery at its default `true`, so the
+-- log pile 20 studs downrange and 20 studs right of shooter post 7 -- which a player walks straight
+-- through -- absorbed his slugs (Task 66 review note 1, audit-005). `Props.sceneryOnly` applies both
+-- to the whole layer at once, which is why this is a rule here rather than a decision per piece; when
+-- a real mesh is made collidable, the same rule makes it stop a slug too.
+-- IT IS THIS LAYER'S RULE AND NOT THE MAP'S: a tree CROWN is `CanCollide = false` with
+-- `CanQuery = true` on purpose (Props.placeTree, Task 63) -- the navmesh sees trunks only, while a
+-- shot into the canopy still stops in the canopy -- and `Config.BRUSH` sets both false for its own
+-- reason (cover for the eye).
 Config.FURNITURE = {
 	-- TWO STAKES FLANK EACH STAND, a step BEHIND the centreline (the drive is at +z), so nothing
 	-- this task adds ever stands between a shooter and what he is shooting at. The orange cap is the
