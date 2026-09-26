@@ -3,17 +3,20 @@
 Task: 44
 Round: 1
 Base: `5a060ed` (task-43-map-slice; stacked on 41, 38, 36 and 35, none merged)
-Code commit: `6bdd43b6724a21e43af0063468bb660574a851b9`
+Code commit: `805e0e044259f0f8a56f2aeee0d1690761f49dec`
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 27/27 checks @ 6bdd43b6724a21e43af0063468bb660574a851b9 (clean tree)
+    [harness] PASS: 27/27 checks @ 805e0e044259f0f8a56f2aeee0d1690761f49dec (clean tree)
 
 301 server specs (300 before this task's last commit, 274 before the map work), 70 client.
 
-Harness, two players: **not run by me.** The Director's standing rule since Task 43 is that the
-Builder never runs `test2`; this task ends on `NEEDS TEST2 6bdd43b`, and the `[harness2]` line goes in
-before the review is run.
+Harness, clean tree, two players — run by the DIRECTOR, not by me (standing rule since Task 43: the
+Builder never runs `test2`):
+
+    [harness2] PASS: 30/30 checks @ 805e0e044259f0f8a56f2aeee0d1690761f49dec (clean tree)
+
+301 server, 70 shooter-client, 64 driver-client.
 
 Generator, clean tree, same seed twice, and walkable — from one
 `python tools/mapgen.py verify --seed 7 --backup census` (268 step lines and two run-log lines sit
@@ -29,10 +32,10 @@ between the digests; the reachability block is printed by the same command, just
     [mapgen] reachability OK
     [mapgen] OK: same seed twice, same digest @ 81a0af4a51c9f6693573e99d0ba53ebec937c2b1 seed=7 digest=dbf6aef43044b14612770da0ff13917a6306aab68f49658c776e2698f6097fce (clean tree)
 
-`81a0af4` is the commit the map was built from. `6bdd43b` is three commits later and changed no
-generator code (`git diff --name-only 81a0af4..6bdd43b`): the research note, the owner row and the task
-rows (`e488d72`); one spec fix (`9497f51`, claim 8); and the navmesh retry in the same spec (`6bdd43b`,
-claim 11).
+`81a0af4` is the commit the map was built from. `805e0e0`, which both harness lines name, is four
+commits later and changed no generator code (`git diff --name-only 81a0af4..805e0e0`): the research
+note, the owner row and the task rows (`e488d72`); one spec fix (`9497f51`, claim 8); the navmesh retry
+in the same spec (`6bdd43b`, claim 11); and this request (`805e0e0`).
 
 ## What changed
 
