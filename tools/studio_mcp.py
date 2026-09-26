@@ -20,6 +20,13 @@ Usage:
 Exit codes of `test` and `test2`: 0 PASS on a clean tree · 1 FAIL · 2 REFUSED (Studio not in Edit
 mode) · 3 PASS on a dirty tree (flagged: not valid evidence).
 
+WHICH RUN IS EVIDENCE FOR WHAT (Director decision, 2026-09-26). `test` is the default and every
+change needs it. `test2` is ALSO part of the merge gate for a change touching `src/` (gameplay),
+`tests/client/` or this file: a driver, a tie, a team swap and half the client suite exist only with
+two clients, so a one-player run says nothing about them. `tools/agents.py` refuses the review
+without the `[harness2]` line for the same code commit. Docs, and the tools that are not this
+harness, are exempt -- `test2` costs a human click and about eight minutes.
+
 Moving parts
   tests/TestKit.luau -> ReplicatedStorage.TestKit
       The one implementation of the gate, spec loading (pcall), TestEZ run and report.
@@ -1265,7 +1272,12 @@ def run_test(studio):
             deadline = time.time() + REPORT_WINDOW
             while pending and time.time() < deadline:
                 for side, datamodel in list(pending.items()):
-                    raw = studio.query(datamodel, QUERY_REPORT[side])
+                    # process_call, not a bare query: a transient StudioMCP error while polling is
+                    # something to retry inside REPORT_WINDOW, not a traceback out of the whole run.
+                    # The wait_for this loop replaced swallowed RuntimeError, and run_test2's
+                    # equivalent loop has always used this (TASKS.md 41a(a)).
+                    raw, _why = process_call(
+                        lambda: studio.query(datamodel, QUERY_REPORT[side]), timeout=0, default="")
                     if raw:
                         reports[side] = json.loads(raw)
                         print(f"[harness] {side} reported after {int(time.time() - (deadline - REPORT_WINDOW))} s")
