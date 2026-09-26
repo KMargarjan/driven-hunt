@@ -111,8 +111,9 @@ harness run above.
   budget is nearly spent. The spec asserts what the code guarantees (every gap inside the clamp,
   every release before the drive ends, worst ≤ 560, ≥ 80 % of drives done by the tail) and prints the
   measurement. Queued as 61a.
-- **Nothing here was played.** Whether ~3 encounters a drive feels empty is Karen item 9, and the
-  flag exists for exactly that question.
+- **Karen has now played it** (below), so the one thing this section used to say — that nothing here
+  was played — no longer holds. What is still unmeasured is a long session: she saw one evening with
+  the flag on, and said the density is fine *"for now"*.
 
 ## Karen played it (2026-09-26, flag ON, two players, Karen driving)
 
