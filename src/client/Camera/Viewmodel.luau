@@ -61,6 +61,13 @@ local function build(handle: BasePart): Model
 	--
 	-- EVERY PART IS ANCHORED, so the welds are not needed and are destroyed with everything else that
 	-- is not a shape: an unanchored part under workspace.CurrentCamera would be simulated.
+	--
+	-- A SurfaceAppearance, a Texture and a Decal ARE the shape (Task 74). The uploaded shotgun is a
+	-- MeshPart with a SurfaceAppearance child carrying its PBR maps, and the sweep as written would
+	-- have destroyed it -- so the FIRST-PERSON gun would have lost its maps while the third-person
+	-- gun kept them: "purple untextured legs" (docs/PROJECT_CONTEXT.md) visible only in ADS, only to
+	-- the player holding it, and asserted by nothing. docs/design/asset-pipeline.md section 6.6
+	-- predicted this exact sweep and named the fix as the camera owner's, which is this file.
 	for _, descendant in ipairs(clone:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			descendant.Anchored = true
@@ -69,7 +76,14 @@ local function build(handle: BasePart): Model
 			descendant.CanTouch = false
 			descendant.Massless = true
 			descendant.CastShadow = false
-		elseif not descendant:IsA("Attachment") then
+		elseif
+			not (
+				descendant:IsA("Attachment")
+				or descendant:IsA("SurfaceAppearance")
+				or descendant:IsA("Texture")
+				or descendant:IsA("Decal")
+			)
+		then
 			descendant:Destroy() -- no scripts, no welds, no sounds: a shape and nothing else
 		end
 	end
