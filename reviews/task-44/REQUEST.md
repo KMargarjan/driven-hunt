@@ -3,16 +3,16 @@
 Task: 44
 Round: 1
 Base: `5a060ed` (task-43-map-slice; stacked on 41, 38, 36 and 35, none merged)
-Code commit: `9497f515c4a29e65b4c9e1e61486e3b1eef36d60`
+Code commit: `6bdd43b6724a21e43af0063468bb660574a851b9`
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 27/27 checks @ 9497f515c4a29e65b4c9e1e61486e3b1eef36d60 (clean tree)
+    [harness] PASS: 27/27 checks @ 6bdd43b6724a21e43af0063468bb660574a851b9 (clean tree)
 
 301 server specs (300 before this task's last commit, 274 before the map work), 70 client.
 
 Harness, two players: **not run by me.** The Director's standing rule since Task 43 is that the
-Builder never runs `test2`; this task ends on `NEEDS TEST2 9497f51`, and the `[harness2]` line goes in
+Builder never runs `test2`; this task ends on `NEEDS TEST2 6bdd43b`, and the `[harness2]` line goes in
 before the review is run.
 
 Generator, clean tree, same seed twice, and walkable — from one
@@ -29,9 +29,10 @@ between the digests; the reachability block is printed by the same command, just
     [mapgen] reachability OK
     [mapgen] OK: same seed twice, same digest @ 81a0af4a51c9f6693573e99d0ba53ebec937c2b1 seed=7 digest=dbf6aef43044b14612770da0ff13917a6306aab68f49658c776e2698f6097fce (clean tree)
 
-`81a0af4` is the commit the map was built from. `9497f51` is two commits later: the research note, the
-owner row and the task rows (`e488d72`), and one spec fix (`9497f51`) that changed no generator code
-(`git diff --name-only 81a0af4..9497f51`).
+`81a0af4` is the commit the map was built from. `6bdd43b` is three commits later and changed no
+generator code (`git diff --name-only 81a0af4..6bdd43b`): the research note, the owner row and the task
+rows (`e488d72`); one spec fix (`9497f51`, claim 8); and the navmesh retry in the same spec (`6bdd43b`,
+claim 11).
 
 ## What changed
 
@@ -104,6 +105,12 @@ Workspace before a harness run.
     trees (the only stand M2.2 builds) and a seventh, `map-gate`, on a hedgerow gate — the fix this
     task exists for, and a picture is the only way to see it is really there.
 
+11. **The harness flake is diagnosed and fixed** — TASKS.md row 43a(j). `25/27` is exactly the two
+    `[server] status` checks, i.e. ONE server spec failing, and the only server spec that can fail on
+    an unchanged tree is the arena pathfinding check this file gained in Task 43 — the flake arrived
+    with it. Same cause as claim 3: the navmesh is rebuilt in the background and `ArenaBoot` builds the
+    arena moments before the spec runs. It retries for 10 s now, and a world with no route still fails.
+
 ## What I could not verify
 
 * **Measurement B (do tags survive a save and a reopen) is still open** from Task 43. The Director and
@@ -116,5 +123,6 @@ Workspace before a harness run.
 * **The design's hedge LENGTH row is exceeded**: section 12 asks for ≤ 6,000 studs of hedge and the
   network is 10,240. The PART budget is met (400 of ≤ 500) by using 24-stud segments instead of 12.
   Queued as 44a(a) for the Architect rather than quietly ignored.
-* **Row 43a(j) is still unexplained.** Tonight's `FAIL: 25/27` had a real cause (claim 8), but the one
-  at `895300e` in Task 43 did not have that cause and I still do not know what it was.
+* **Row 43a(j)'s diagnosis is an inference, not a measurement.** I never caught the failing run's own
+  output: five runs at `73b1d25` all passed. The reasoning is in claim 11, and if a `FAIL: 25/27`
+  appears again it was wrong.
