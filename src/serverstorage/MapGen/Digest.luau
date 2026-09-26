@@ -116,8 +116,38 @@ function Digest.terrainText(samples: { Sample }, scale: number): string
 end
 
 -- The whole digest: 64 hex characters, the marker half first.
-function Digest.of(entries: { Entry }, samples: { Sample }, scale: number): string
-	return Digest.half(Digest.markerText(entries, scale)) .. Digest.half(Digest.terrainText(samples, scale))
+-- The palette, as canonical text. It is IN the digest (design section 8.4) because a hand-edited
+-- terrain colour is a change to the map that nothing else would notice: the voxels are identical, the
+-- markers are identical, and the place looks different.
+function Digest.paletteText(palette): string
+	if palette == nil then
+		return ""
+	end
+	local roles = {}
+	for role in pairs(palette) do
+		table.insert(roles, role)
+	end
+	table.sort(roles)
+	local lines = {}
+	for _, role in ipairs(roles) do
+		local colour = palette[role]
+		table.insert(
+			lines,
+			string.format(
+				"%s=%d,%d,%d",
+				role,
+				math.round(colour.R * 255),
+				math.round(colour.G * 255),
+				math.round(colour.B * 255)
+			)
+		)
+	end
+	return table.concat(lines, "|")
+end
+
+function Digest.of(entries: { Entry }, samples: { Sample }, scale: number, palette): string
+	return Digest.half(Digest.markerText(entries, scale))
+		.. Digest.half(Digest.terrainText(samples, scale) .. "|palette|" .. Digest.paletteText(palette))
 end
 
 -- The half a spec can afford to recompute.
