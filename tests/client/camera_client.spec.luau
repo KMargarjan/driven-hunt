@@ -374,7 +374,12 @@ return function()
 						expect(part.Anchored).to.equal(true)
 					end
 				end
-				expect(parts >= 4).to.equal(true) -- a gun, not a box
+				-- EITHER GUN, AND THE CLAIM IS THE SAME FOR BOTH. Since Task 74 the gun may be one
+				-- MeshPart welded to the invisible Handle (Karen's model) or Task 71's ten parts,
+				-- depending on whether the asset loaded -- so the number is a range and what is
+				-- really asserted is below: the envelope is the ONLY invisible part and everything
+				-- else shows. A blank viewmodel still fails that.
+				expect(parts >= 2).to.equal(true) -- the envelope plus at least one visible thing
 				expect(parts <= 16).to.equal(true) -- a gun, not somebody's character
 				expect((model.PrimaryPart :: BasePart).Transparency).to.equal(1)
 				expect(visible).to.equal(parts - 1)
