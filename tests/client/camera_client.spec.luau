@@ -352,19 +352,32 @@ return function()
 			if model then
 				expect(model:IsA("Model")).to.equal(true)
 				expect(model.Parent).to.equal(Workspace.CurrentCamera)
-				local parts = 0
+				-- SINCE TASK 71 THE VIEWMODEL IS A WHOLE GUN, not one box: the Tool's Handle is an
+				-- invisible envelope and the side-by-side is welded to it, so the clone carries a
+				-- barrel pair, a rib, a bead, an action, a lever, a forend, a stock, a guard and a
+				-- trigger. What is asserted is therefore "the ENVELOPE is the only invisible part",
+				-- which is a stronger claim than the old "every part is visible" and still fails on
+				-- the thing that check existed for -- a viewmodel that is on screen but blank.
+				local parts, visible = 0, 0
 				for _, part in ipairs(model:GetDescendants()) do
 					if part:IsA("BasePart") then
 						parts += 1
-						expect(part.Transparency < 1).to.equal(true)
+						if part.Transparency < 1 then
+							visible += 1
+						end
 						expect(part.LocalTransparencyModifier < 1).to.equal(true)
 						-- Not optional: the camera is a child of Workspace, so a CanQuery part here
 						-- would be hit by this system's own occlusion ray.
 						expect(part.CanQuery).to.equal(false)
+						-- Nothing under the camera may be simulated: the clone is anchored, welds and
+						-- all other non-shape children destroyed.
+						expect(part.Anchored).to.equal(true)
 					end
 				end
-				expect(parts >= 1).to.equal(true)
-				expect(parts <= 4).to.equal(true)
+				expect(parts >= 4).to.equal(true) -- a gun, not a box
+				expect(parts <= 16).to.equal(true) -- a gun, not somebody's character
+				expect((model.PrimaryPart :: BasePart).Transparency).to.equal(1)
+				expect(visible).to.equal(parts - 1)
 
 				-- Every ancestor present, up to the DataModel: an orphaned tree is invisible however
 				-- true its properties are (docs/PROJECT_CONTEXT.md).
