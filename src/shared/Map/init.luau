@@ -65,14 +65,26 @@ Map.TAGS = {
 -- line (design section 4.3), and this table changes with the switch.
 Map.EXPECTED_COUNTS = { shooterPost = 8, driveLine = 1, driverStart = 1, boarSpawn = 4, tree = 4 }
 
--- Off until M2.6, which is its own task with a full harness run and a playtest: turning streaming on
--- changes client behaviour for every system that already exists.
+-- MEASURED 2026-09-26 in Studio 0.740.19 (Task 43), and it contradicts the design's assumption that
+-- streaming is off until M2.6:
+--   * `Workspace.StreamingEnabled` is ALREADY true in the DEV place -- it is the engine's default for
+--     a new place, so every system in Milestone 1 has always run with streaming on. The contract says
+--     so rather than turning it off, because flipping it would change client behaviour for every
+--     existing system, and that is M2.6's task with a playtest, not this one's.
+--   * THE OTHER FOUR PROPERTIES ARE NOT REACHABLE FROM LUAU: reading Workspace.StreamingMinRadius,
+--     StreamingTargetRadius, StreamingIntegrityMode, StreamOutBehavior or ModelStreamingBehavior
+--     raises "not a valid member of Workspace". They are Studio-panel place settings, so M2.6 is a
+--     Karen click plus a playtest, not a line of code. `MapGen.Settings` writes the one it can and
+--     reports the rest as unreachable rather than pretending.
+-- The four numbers below are therefore the VALUES M2.6 MUST SET BY HAND, kept here so the intention
+-- lives in a diff and the spec can assert them the day the engine exposes them.
 Map.STREAMING = {
-	enabled = false,
+	enabled = true,
 	minRadius = 64,
 	targetRadius = 1024,
 	integrityMode = "PauseOutsideLoadedArea",
 	modelBehavior = "Improved",
+	scriptable = { "StreamingEnabled" },
 }
 
 Map.BUDGET = { parts = 20000, visibleParts = 8000, trees = 3000 }

@@ -191,13 +191,13 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		end
 		return finish({ ok = true, partsCreated = total, message = string.format("%d tie trees tagged", tagged) })
 	elseif spec.kind == "settings" then
-		local changed = Settings.apply(Map.STREAMING)
-		return finish({
-			ok = true,
-			message = if #changed == 0
-				then "already matched the contract"
-				else "changed " .. table.concat(changed, ", "),
-		})
+		local changed, unreachable = Settings.apply(Map.STREAMING)
+		local note = if #changed == 0 then "already matched the contract" else "changed " .. table.concat(changed, ", ")
+		if #unreachable > 0 then
+			-- Not a failure: measured, four of the five are Studio-panel settings (Settings.luau).
+			note ..= "; not reachable from Luau: " .. table.concat(unreachable, ", ")
+		end
+		return finish({ ok = true, message = note })
 	end
 	return finish({ ok = false, message = "unknown step kind " .. spec.kind })
 end
