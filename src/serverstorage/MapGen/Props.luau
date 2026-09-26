@@ -38,10 +38,16 @@ local function propsFolder(root: Instance): Folder
 	return made
 end
 
-local function folder(parent: Instance, name: string): Folder
+-- `fresh` defaults to TRUE: a step rebuilds its folder rather than adding to it, which is what
+-- makes re-running a step idempotent. THE WOOD IS THE EXCEPTION (M2.8b): it is built in four
+-- quadrant steps, so the first clears and the other three append -- and the first build of this
+-- shape ended with only the last quadrant in the world, because every step wiped the one before it.
+local function folder(parent: Instance, name: string, fresh: boolean?): Folder
 	local existing = parent:FindFirstChild(name)
-	if existing then
-		existing:Destroy() -- idempotence: the folder is rebuilt, never added to
+	if existing and fresh ~= false then
+		existing:Destroy()
+	elseif existing then
+		return existing :: Folder
 	end
 	local made = Instance.new("Folder")
 	made.Name = name
@@ -283,14 +289,15 @@ function Props.trees(
 	seed: number,
 	config,
 	block,
-	startIndex: number
+	startIndex: number,
+	fresh: boolean?
 ): (number, { string }, string?, { [string]: number })
 	local template, why = Props.template(Assets.KEY.treeSpruce, root)
 	local counts: { [string]: number } = {}
 	if why then
 		return 0, {}, why, counts
 	end
-	local parent = folder(propsFolder(root), "Trees")
+	local parent = folder(propsFolder(root), "Trees", fresh)
 	local pads = Layout.pads(config)
 	local points = Scatter.trees(config, seed, block, function(x, z)
 		return Props.rejectTree(x, z, config)
@@ -319,8 +326,15 @@ end
 
 -- BRUSH: low cover that hides a boar and blocks nothing (design section 7.4). One quadrant per step,
 -- the same four blocks the wood uses, so a slow step names a quarter of the map rather than "props".
-function Props.brush(root: Instance, seed: number, config, block, startIndex: number): (number, string?)
-	local parent = folder(propsFolder(root), "Brush")
+function Props.brush(
+	root: Instance,
+	seed: number,
+	config,
+	block,
+	startIndex: number,
+	fresh: boolean?
+): (number, string?)
+	local parent = folder(propsFolder(root), "Brush", fresh)
 	local pads = Layout.pads(config)
 	local points = Scatter.brush(config, seed, block, function(x, z)
 		-- Brush lives in the WOOD: everywhere a tree could stand, plus nowhere a tree could not.

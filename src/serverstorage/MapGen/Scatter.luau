@@ -117,28 +117,53 @@ end
 --     standing in a bog reads as a mistake to anyone who has walked a European wood.
 --
 -- `key` is the candidate's own drawn number, so two trees in one clump can still differ.
-function Scatter.speciesAt(x: number, z: number, key: number, seed: number, config, groundY: number?): string
-	local species = config.SPECIES
-	if groundY ~= nil and groundY < config.SPECIES_WET_DEPTH then
-		return "alder"
-	end
-	local frequency = config.SPECIES_FREQUENCY
-	-- The same noise call shape the heightfield uses, with its own seed offset so the species field
-	-- is not the ground's shape wearing a different name.
-	local field = (math.noise(x * frequency, z * frequency, seed * 0.37 + 11.5) + 1) / 2
-	field = math.clamp(field, 0, 0.999999)
-
-	-- The field chooses a BAND of the share table, the key chooses inside it: a clump leans to one
-	-- species without being a monoculture.
-	local blended = math.clamp(field * 0.75 + key * 0.25, 0, 0.999999)
+local function pickByShare(species, u: number): string
 	local running = 0
 	for _, row in ipairs(species) do
 		running += row.share
-		if blended < running then
+		if u < running then
 			return row.name
 		end
 	end
 	return species[#species].name
+end
+
+-- A CLUMP'S OWN NUMBER: a hash of the clump's integer coordinates, which is uniform in 0..1 and the
+-- same for every tree in that clump. The first build of this used `math.noise` for the choice and
+-- MEASURED 230 birch to 195 spruce to 3 oak in one quadrant, against Karen's 0.25 / 0.40 / 0.20 --
+-- because a noise field is bell-shaped around its middle, so the middle band of a share table wins.
+-- A hash is flat, so the shares below are the shares she asked for.
+local function clumpHash(a: number, b: number, seed: number): number
+	local h = (a * 374761393 + b * 668265263 + seed * 2654435761) % 2147483647
+	h = (h * 1274126177) % 2147483647
+	return h / 2147483647
+end
+
+function Scatter.speciesAt(x: number, z: number, key: number, seed: number, config, groundY: number?): string
+	local species = config.SPECIES
+	-- WET GROUND IS ALDER, whatever the clump says: black alder is a wet-ground tree, and a spruce
+	-- standing in a bog reads as a mistake to anyone who has walked a European wood.
+	if groundY ~= nil and groundY < config.SPECIES_WET_DEPTH then
+		return "alder"
+	end
+
+	-- The clump is a block of SPECIES_CLUMP_STUDS, its edges pushed about by the noise field so the
+	-- wood does not read as a chessboard. The field decides WHERE the boundary is; the hash decides
+	-- WHICH species the clump is, and that is what keeps the shares honest.
+	local frequency = config.SPECIES_FREQUENCY
+	local wobble = math.noise(x * frequency, z * frequency, seed * 0.37 + 11.5) * config.SPECIES_CLUMP_STUDS / 2
+	local clump = config.SPECIES_CLUMP_STUDS
+	local bx = math.floor((x + wobble) / clump)
+	local bz = math.floor((z + wobble) / clump)
+	local leader = pickByShare(species, clumpHash(bx, bz, seed))
+
+	-- Most of a clump is its leader; the rest is drawn from the same shares, so a stand of spruce
+	-- has birch in it and the MARGINAL share of every species is still Karen's number.
+	if key < config.SPECIES_CLUMP_STRENGTH then
+		return leader
+	end
+	local u = (key - config.SPECIES_CLUMP_STRENGTH) / (1 - config.SPECIES_CLUMP_STRENGTH)
+	return pickByShare(species, math.clamp(u, 0, 0.999999))
 end
 
 -- The candidates a WEIGHT accepts: `weight(x, z)` returns 0..1 and a candidate is kept when its own

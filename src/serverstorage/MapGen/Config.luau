@@ -268,6 +268,10 @@ Config.SPECIES = {
 -- The species FIELD: a low-frequency noise band decides which species a patch of wood leans to, so
 -- the drive crosses dark blocks of spruce and light stands of birch instead of a species salad.
 Config.SPECIES_FREQUENCY = 1 / 260 -- K, clumps read at about 70 m
+Config.SPECIES_CLUMP_STUDS = 260 -- K, the clump's block size; the noise above only wobbles its edges
+-- How much of a clump is its leading species. The rest is drawn from the same shares, so a spruce
+-- stand has birch in it and every species' MARGINAL share is still the number in the table above.
+Config.SPECIES_CLUMP_STRENGTH = 0.65
 -- ...except where it is wet. Black alder is a wet-ground tree, and a spruce in a bog reads as a
 -- mistake, so the bog and the hollows force alder whatever the field says.
 Config.SPECIES_WET_DEPTH = -6 -- ground below this is a hollow

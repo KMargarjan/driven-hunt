@@ -324,9 +324,13 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		return finish({ ok = true, voxelsWritten = Ground.paintTrack(Config.WORLD.tracks[ordinal()], Config) })
 	elseif spec.kind == "props" then
 		local root = ensureRoot(seed)
-		local block = Layout.treeBlocks(Config)[ordinal()]
-		local placedSoFar = #Props.trunks(root, "Trees")
-		local count, keys, why, species = Props.trees(root, seed, Config, block, placedSoFar)
+		local quadrant = ordinal()
+		local block = Layout.treeBlocks(Config)[quadrant]
+		-- THE FIRST QUADRANT CLEARS THE WOOD, the other three add to it. Every step used to rebuild
+		-- its folder, which is right for a one-step prop and wrong for one built in four: the first
+		-- run of this shape ended with 964 trees in the world and 1,869 in the log.
+		local placedSoFar = if quadrant == 1 then 0 else #Props.trunks(root, "Trees")
+		local count, keys, why, species = Props.trees(root, seed, Config, block, placedSoFar, quadrant == 1)
 		Props.clearAssets(root) -- no template outlives the run (design section 8.2)
 		if why then
 			return finish({ ok = false, message = why })
@@ -361,14 +365,15 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		})
 	elseif spec.kind == "brush" then
 		local root = ensureRoot(seed)
-		local block = Layout.treeBlocks(Config)[ordinal()]
+		local quadrant = ordinal()
+		local block = Layout.treeBlocks(Config)[quadrant]
 		local placedSoFar = 0
 		local props = root:FindFirstChild("Props")
 		local existing = props and props:FindFirstChild("Brush")
-		if existing then
+		if existing and quadrant > 1 then
 			placedSoFar = #existing:GetChildren()
 		end
-		local count, why = Props.brush(root, seed, Config, block, placedSoFar)
+		local count, why = Props.brush(root, seed, Config, block, placedSoFar, quadrant == 1)
 		if why then
 			return finish({ ok = false, message = why })
 		end
