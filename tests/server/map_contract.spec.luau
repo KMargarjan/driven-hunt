@@ -141,22 +141,42 @@ return function()
 			end
 			expect(#froms > 0).to.equal(true)
 			for _, from in ipairs(froms) do
-				-- The BOAR's agent params, not an imaginary one: this asserts the map is playable for
+				-- The BOAR's agent params, not an imaginary one: this asserts the world is playable for
 				-- the animal that actually walks it.
-				local path = PathfindingService:CreatePath(Boar.CONFIG.AGENT)
-				path:ComputeAsync(from + Vector3.new(0, 2, 0), target)
-				if path.Status ~= Enum.PathStatus.Success then
+				--
+				-- RETRIED, because the navmesh is built in the BACKGROUND and this spec can run before
+				-- it is ready. Measured in Edit (research note, measurement G): a change to the world
+				-- still answered with the old navmesh one second later and the new one after five. The
+				-- arena is built by ArenaBoot at server start, moments before this runs, so the first
+				-- attempt can legitimately say NoPath about a world that is walkable.
+				--
+				-- This is the cause of TASKS.md row 43a(j): twice, on an unchanged tree, a run reported
+				-- "[harness] FAIL: 25/27" -- which is exactly the two [server] status checks, i.e. ONE
+				-- server spec failing -- and every rerun passed. The check arrived with this file in
+				-- Task 43, and the flake arrived with it.
+				--
+				-- The claim is NOT weakened: a world with no route still fails, it just takes 10 s to
+				-- say so instead of one.
+				local status, waypoints = "never computed", 0
+				local deadline = os.clock() + 10
+				repeat
+					local path = PathfindingService:CreatePath(Boar.CONFIG.AGENT)
+					local ok = pcall(function()
+						path:ComputeAsync(from + Vector3.new(0, 2, 0), target)
+					end)
+					status = if ok then tostring(path.Status) else "ComputeAsync raised"
+					waypoints = if ok then #path:GetWaypoints() else 0
+					if status ~= "Enum.PathStatus.Success" then
+						task.wait(1)
+					end
+				until status == "Enum.PathStatus.Success" or os.clock() > deadline
+				if status ~= "Enum.PathStatus.Success" then
 					error(
-						string.format(
-							"no path from (%d, %d) to the drive line: %s",
-							from.X,
-							from.Z,
-							tostring(path.Status)
-						),
+						string.format("no path from (%d, %d) to the drive line after 10 s: %s", from.X, from.Z, status),
 						0
 					)
 				end
-				expect(#path:GetWaypoints() >= 2).to.equal(true)
+				expect(waypoints >= 2).to.equal(true)
 			end
 		end)
 
