@@ -16,6 +16,7 @@ Usage:
   python tools/studio_mcp.py console        # print Studio Output (read-only)
   python tools/studio_mcp.py stop           # stop a playtest (recovery)
   python tools/studio_mcp.py studios        # list the Studio instances StudioMCP can see (read-only)
+  python tools/studio_mcp.py flags [...]    # the feature-flag switch; `tools/flags.py` is the wrapper
   python tools/studio_mcp.py manifest       # after `wally install`: rewrite devpackages.sha256 (commit it)
   python tools/studio_mcp.py capture <name> [x,y,z] [x,y,z]   # save a screenshot as rule-5 evidence
 
@@ -361,6 +362,58 @@ How long a run takes, and what it is waiting for (Task 50)
   Studio._await). With ONE target both are exactly what the old single-call code did, so the
   one-player `test` neither gains nor loses.
 
+Feature flags, and the two checks they add (Task 52)
+  Design: docs/design/feature-flags.md. A feel-critical path merges switched OFF, the Director turns
+  it on for Karen's playtest WITHOUT a commit, and Karen's OK flips the default in a later three-line
+  commit. The override is attributes named DHFlag_<NAME> on the ServerStorage SERVICE -- not a file --
+  so the git tree stays clean and this harness stays runnable.
+
+  THIS FILE IS THE ONE OWNER OF THOSE ATTRIBUTES (GAME_DESIGN.md). Nothing else writes them.
+
+  `flags [set <NAME> on|off | clear | live [role]]`, and `tools/flags.py` is the thin wrapper the
+  Director types (the same shape tools/review.sh has over tools/agents.py -- one implementation, two
+  names):
+    flags                     Edit. Reads Flags.DEFAULTS out of Studio's synced copy and the
+                              DHFlag_* attributes; prints name, default, override, effective,
+                              expires, owner, why. Read-only. Also names any STRAY override whose
+                              flag does not exist, which the resolver would only silently ignore.
+    flags set <NAME> on|off   EDIT ONLY, else exit 2. Refuses a name that is not in Flags.DEFAULTS
+                              and anything but on/off. The name is validated against
+                              Flags.NAME_PATTERN in Python and passed as a JSON string literal, the
+                              value as a Luau boolean literal -- no arbitrary Luau is ever sent, the
+                              same shape as QUERY_SET_CLIENTS_DONE.
+    flags clear               Edit. Removes every DHFlag_* and prints what it removed.
+    flags live [role]         DURING PLAY. Reads ReplicatedStorage.Flags.State's Digest and Source
+                              from the server, or from a client with `client` / `client:Player2`,
+                              through the same studio_for_role classification `capture` uses. This is
+                              how the Director confirms the session is the intended one.
+  set/clear are Edit-only because the server resolves flags ONCE, at boot: a write into a running
+  session would never be read, and an invisible write is a lie about what was tested.
+
+  EVERY CALL AFTER THE CLICK IS SCOPED (Task 52, after a 2-player run whose every spec passed then
+  died in verdict()). StudioMCP refuses any tool call that names no studio_id as soon as more than
+  one Studio is connected, and the three a local test adds DO NOT GO AWAY when the session ends --
+  end_session stops their Play, but only Karen's Cleanup click closes them. So "run it after the
+  session has ended" is not an escape: there is no later moment with one Studio.
+  `run_test2` therefore sets `Studio.default_studio_id` to the editor's id BEFORE the click, while
+  there is still exactly one, and prints it. From then on `Studio._call` (and `capture`, which
+  builds its own arguments) scopes anything that names nothing to the editor -- which is where
+  every Edit-mode call in this file means to go. An explicit studio_id always wins, and
+  `list_roblox_studios` is never scoped, because "which Studios exist" is not a question about one
+  of them. `flags` does the same through `studio_for_role(studio, "edit")`, since `flags clear` is
+  most wanted exactly while a session is still open.
+
+  TWO NEW CHECKS, in both `test` and `test2`:
+    "No flag override is set"                -- before the token is written and before Play (in
+                                                `test2`, before Karen's click, so a refusal never
+                                                wastes the one human step)
+    "No flag override appeared during the run" -- in verdict(), beside "HEAD unchanged"
+  It REFUSES, it does not reset. Silently clearing the Director's overrides mid-session would destroy
+  a playtest setup and hide that the run was almost made against the wrong build. The failure names
+  every override and prints `python tools/flags.py clear`. The run stops before Play and the final
+  line is the ordinary FAIL line, exit 1 -- not exit 2, which means "Studio not in Edit mode" and
+  keeps that single meaning.
+
 Screenshots as evidence (Task 7)
   `capture <name> [camera x,y,z] [look-at x,y,z] [role]` saves StudioMCP's screen_capture image to
   .screenshots/<UTC stamp>-<name>.png (git-ignored) and prints the path. Studio._call keeps text blocks
@@ -380,10 +433,13 @@ Client-side testing (camera, input, cursor, UI)
   and -- since Task 6 -- can be driven by real keyboard and mouse input replayed by the harness.
 
 Safety
-  The harness writes tests/sync-token.txt, and .screenshots/ when `capture` is asked for. Its Luau is
-  read-only: constant queries, or queries templated with JSON data (QUERY_*). There is no command for
-  arbitrary Luau or arbitrary MCP tools. The input replay sends only what the scenario file lists, and
-  only into the Play session this harness started.
+  The harness writes tests/sync-token.txt, .screenshots/ when `capture` is asked for, and -- only
+  through `flags set` / `flags clear`, only in Edit mode, only with a name validated against
+  Flags.NAME_PATTERN and a boolean value -- the DHFlag_* attributes on ServerStorage. That last one is
+  the same kind of write QUERY_SET_TOKEN and QUERY_SET_CLIENTS_DONE already are.
+  Its Luau is read-only otherwise: constant queries, or queries templated with JSON data (QUERY_*).
+  There is no command for arbitrary Luau or arbitrary MCP tools. The input replay sends only what the
+  scenario file lists, and only into the Play session this harness started.
 """
 
 import base64
@@ -486,6 +542,97 @@ return string.format(
 # an attribute set through execute_luau is server-side. A client CANNOT tell the server this itself:
 # a LocalPlayer attribute set on the client does not replicate to the server (measured, Task 41), and
 # this system has no inbound remote by design.
+# THE FLAG OVERRIDE GUARD (docs/design/feature-flags.md section 7.1). A run made while the Director
+# has a flag switched on for a playtest is a run against a build nobody reviewed, reported as if it
+# were the reviewed one. Constant, read-only, and it names every override it finds so the failure
+# says what to clear.
+QUERY_FLAG_OVERRIDES = (
+    'local SS = game:GetService("ServerStorage") local out = {} '
+    'for name, value in pairs(SS:GetAttributes()) do '
+    '  if string.sub(name, 1, 7) == "DHFlag_" then out[#out + 1] = name .. "=" .. tostring(value) end '
+    "end table.sort(out) return table.concat(out, \",\")"
+)
+
+# Every declared flag, out of Studio's synced copy of ReplicatedStorage.Flags. `require` through
+# execute_luau has its own module cache, and here that is CORRECT rather than a hazard: Flags is
+# frozen data with no run-time writer, and check 4 has already proved Studio's copy is the disk copy.
+QUERY_FLAG_TABLE = """
+local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SS = game:GetService("ServerStorage")
+local ok, Flags = pcall(function()
+    return require(ReplicatedStorage:WaitForChild("Flags", 5))
+end)
+if not ok then
+    return HttpService:JSONEncode({ error = tostring(Flags) })
+end
+local rows = {}
+for name, row in pairs(Flags.DEFAULTS) do
+    local override = SS:GetAttribute(Flags.OVERRIDE_PREFIX .. name)
+    rows[#rows + 1] = {
+        name = name,
+        default = row.default,
+        owner = row.owner,
+        expires = row.expires,
+        why = row.why,
+        override = if override == nil then "none" else tostring(override),
+        effective = if type(override) == "boolean" then override else row.default,
+    }
+end
+table.sort(rows, function(a, b) return a.name < b.name end)
+local stray = {}
+for name in pairs(SS:GetAttributes()) do
+    if string.sub(name, 1, #Flags.OVERRIDE_PREFIX) == Flags.OVERRIDE_PREFIX then
+        local bare = string.sub(name, #Flags.OVERRIDE_PREFIX + 1)
+        if Flags.DEFAULTS[bare] == nil then stray[#stray + 1] = name end
+    end
+end
+table.sort(stray)
+return HttpService:JSONEncode({ rows = rows, stray = stray })
+"""
+
+# Set ONE override. The name is validated against Flags.NAME_PATTERN in Python and checked against
+# Flags.DEFAULTS in Luau before anything is written, and the value is a Luau boolean literal -- so
+# this sends no arbitrary Luau, exactly like QUERY_SET_CLIENTS_DONE.
+QUERY_SET_FLAG = """
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SS = game:GetService("ServerStorage")
+local Flags = require(ReplicatedStorage:WaitForChild("Flags", 5))
+local name = %s
+if Flags.DEFAULTS[name] == nil then
+    return "REFUSED: no such flag " .. name
+end
+SS:SetAttribute(Flags.OVERRIDE_PREFIX .. name, %s)
+return name .. "=" .. tostring(SS:GetAttribute(Flags.OVERRIDE_PREFIX .. name))
+"""
+
+QUERY_CLEAR_FLAGS = (
+    'local SS = game:GetService("ServerStorage") local out = {} '
+    'for name in pairs(SS:GetAttributes()) do '
+    '  if string.sub(name, 1, 7) == "DHFlag_" then out[#out + 1] = name end '
+    "end table.sort(out) "
+    "for _, name in ipairs(out) do SS:SetAttribute(name, nil) end "
+    "return table.concat(out, \",\")"
+)
+
+# What a RUNNING process resolved. Read from the server or from a client through studio_for_role.
+QUERY_FLAG_LIVE = """
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local folder = ReplicatedStorage:FindFirstChild("Flags")
+local state = folder and folder:FindFirstChild("State")
+if not state then
+    return "no ReplicatedStorage.Flags.State in this process"
+end
+local names = {}
+for name, value in pairs(state:GetAttributes()) do
+    if name ~= "Digest" and name ~= "Source" then names[#names + 1] = name .. "=" .. tostring(value) end
+end
+table.sort(names)
+return "Digest=" .. tostring(state:GetAttribute("Digest"))
+    .. "  Source=" .. tostring(state:GetAttribute("Source"))
+    .. "  " .. table.concat(names, " ")
+"""
+
 QUERY_SET_CLIENTS_DONE = (
     'local SS = game:GetService("ServerStorage") '
     'SS:SetAttribute("ClientsFinished", %s) '
@@ -632,6 +779,20 @@ class Studio:
         threading.Thread(target=self._pump, daemon=True).start()
         self.next_id = 0
         self.replies = {}
+        # THE EDITOR'S id, once a run knows it. StudioMCP refuses EVERY tool call that names no
+        # studio_id as soon as more than one Studio is connected -- and a 2-player local test adds
+        # THREE, which do not go away when the session ends (only Karen's Cleanup click closes
+        # them). So any call left unnamed after the click is refused, wherever it sits.
+        #
+        # Task 52 shipped exactly that bug: the flag-override re-read in run_test2's verdict() ran
+        # after the session and was refused, ending an otherwise green 2-player run in
+        # "RuntimeError: execute_luau: This call is missing the required studio_id argument" --
+        # every spec on all three sides had already passed.
+        #
+        # Naming that one call would have fixed that one call. This fixes the CLASS: set it once,
+        # and every later call that names nothing lands on the editor, which is where every
+        # Edit-mode call in this file means to go anyway. An explicit studio_id always wins.
+        self.default_studio_id = None
         self._rpc("initialize", {
             "protocolVersion": "2025-03-26",
             "capabilities": {},
@@ -678,13 +839,27 @@ class Studio:
     def _rpc(self, method, params, timeout=120):
         return self._await(self._submit(method, params), timeout=timeout)
 
+    # The one tool that must NOT be scoped: it is the question "which Studios are there at all",
+    # and scoping it to one of them is meaningless.
+    UNSCOPED_TOOLS = ("list_roblox_studios",)
+
+    def _scoped(self, tool, studio_id):
+        """The studio_id to send: the explicit one, else the default, else none (Task 52)."""
+        if studio_id:
+            return studio_id
+        if tool in self.UNSCOPED_TOOLS:
+            return None
+        return self.default_studio_id
+
     def _call(self, tool, args=None, studio_id=None):
         arguments = dict(args or {})
-        if studio_id:
-            # Every StudioMCP tool takes a studio_id, and with one Studio connected it may be left
-            # out. With a local 2-player test running there are FOUR (Task 34), so every call that
-            # must land somewhere particular names it.
-            arguments["studio_id"] = studio_id
+        # Every StudioMCP tool takes a studio_id, and with one Studio connected it may be left out.
+        # With a local 2-player test running there are FOUR (Task 34), so every call that must land
+        # somewhere particular names it -- and since Task 52 anything that named nothing lands on
+        # the editor rather than being refused.
+        chosen = self._scoped(tool, studio_id)
+        if chosen:
+            arguments["studio_id"] = chosen
         result = self._rpc("tools/call", {"name": tool, "arguments": arguments})
         text = "\n".join(c.get("text", "") for c in result.get("content", []))
         if result.get("isError"):
@@ -754,8 +929,14 @@ class Studio:
         pending = {}
         for studio_id in studio_ids:
             arguments = {"datamodel_type": "Client", "actions": actions}
-            if studio_id:
-                arguments["studio_id"] = studio_id
+            # THE THIRD PLACE that builds its own arguments instead of going through _call, so it
+            # asks _scoped for the same answer (Task 52, re-audited after Task 50 merged). In
+            # practice replay_input always names its targets, so nothing changes today -- but an
+            # unnamed call here would be refused the moment a local test exists, which is precisely
+            # when this method is used.
+            chosen = self._scoped(tool, studio_id)
+            if chosen:
+                arguments["studio_id"] = chosen
             pending[studio_id] = self._submit("tools/call", {"name": tool, "arguments": arguments})
         out = {}
         for studio_id, request_id in pending.items():
@@ -777,9 +958,11 @@ class Studio:
             args["camera_position"], args["look_at_position"] = list(camera), list(look_at)
         # NAMED, when there is more than one Studio: every tool is refused with "This call is missing
         # the required `studio_id` argument" as soon as a local test adds processes, which is what
-        # made a screenshot impossible during a two-player run (Task 41).
-        if studio_id:
-            args["studio_id"] = studio_id
+        # made a screenshot impossible during a two-player run (Task 41). capture builds its own
+        # arguments rather than going through _call, so it asks _scoped for the same answer.
+        chosen = self._scoped("screen_capture", studio_id)
+        if chosen:
+            args["studio_id"] = chosen
         result = self._rpc("tools/call", {"name": "screen_capture", "arguments": args})
         text = "\n".join(c.get("text", "") for c in result.get("content", []) if c.get("type") == "text")
         if result.get("isError"):
@@ -1061,6 +1244,34 @@ def unmanaged_scripts(studio, nodes):
         seen[tuple(path)] = seen.get(tuple(path), 0) + 1
     extra = [".".join(p) + (f" (x{n})" if n > 1 else "") for p, n in seen.items() if n > known.get(p, 0)]
     return sorted(extra), result["unreadable"]
+
+
+# ---------------------------------------------------------------- the flag-override guard
+
+def flag_overrides(studio, studio_id=None):
+    """Every DHFlag_* attribute on ServerStorage, as ["NAME=value", ...]. Read-only.
+
+    `studio_id` is explicit belt beside Studio.default_studio_id's braces: this is the call that
+    ended a green two-player run when it was left unnamed (Task 52), so it says where it goes."""
+    raw = studio.query("Edit", QUERY_FLAG_OVERRIDES, studio_id=studio_id)
+    return [part for part in raw.split(",") if part]
+
+
+def check_no_flag_override(studio, check, label):
+    """The guard, identical in both modes (docs/design/feature-flags.md section 7.1).
+
+    A harness run made while the Director has a flag switched on for a playtest is a run against a
+    build nobody reviewed, reported as if it were the reviewed one. REFUSE, do not silently reset:
+    clearing the Director's overrides mid-session destroys a playtest setup and hides the fact that
+    the run was almost made against the wrong build. The command to clear them is printed."""
+    overrides = flag_overrides(studio)
+    ok = check("No flag override is set", not overrides,
+               ", ".join(overrides) if overrides else "ServerStorage has no DHFlag_* attribute")
+    if not ok:
+        print(f"[{label}] a flag override is active, so this run would NOT be testing the reviewed "
+              "build. Clear it first:")
+        print("[%s]   python tools/flags.py clear" % label)
+    return ok
 
 
 # ---------------------------------------------------------------- run
@@ -1360,6 +1571,10 @@ def run_test(studio):
     def verdict(code=None):
         sha_end, dirty_end = git_state()
         check("HEAD unchanged during the run", sha_end == sha, f"{sha[:12]} -> {sha_end[:12]}")
+        # RE-READ, for the same reason HEAD is re-read: an override set while the run was in flight
+        # means the second half of it was not testing what the first half was.
+        late = flag_overrides(studio)
+        check("No flag override appeared during the run", not late, ", ".join(late))
         dirty = dirty_start or dirty_end
         passed = all(checks) and code is None
         tree = "clean tree" if not dirty else f"DIRTY TREE ({len(set(dirty_start + dirty_end))} paths) - NOT valid evidence"
@@ -1384,6 +1599,11 @@ def run_test(studio):
     place = expected_place_id()
     actual_place = studio.query("Edit", QUERY_PLACE_ID)
     if not check("Studio has the DEV place open", actual_place == place, f"{actual_place} vs {place}"):
+        return verdict()
+
+    # BEFORE the token is written and before Play: a run against an overridden flag set is not
+    # evidence for the reviewed build (docs/design/feature-flags.md section 7.1).
+    if not check_no_flag_override(studio, check, "harness"):
         return verdict()
 
     scenarios = load_scenarios()
@@ -1774,6 +1994,15 @@ def run_test2(studio, wait_seconds=180):
     def verdict(code=None):
         sha_end, dirty_end = git_state()
         check("HEAD unchanged during the run", sha_end == sha, f"{sha[:12]} -> {sha_end[:12]}")
+        # THE LAST CALL OF THE RUN, and the one that has to be scoped by hand as well as by default:
+        # it runs after end_session, when the three test Studios are still connected (only Karen's
+        # Cleanup closes them). Left unnamed it ended a run whose every spec had passed (Task 52).
+        # `late` is read through process_call so a Studio that went away mid-teardown is a reported
+        # failure, never a traceback over the verdict line (rule 6).
+        late, why = process_call(lambda: flag_overrides(studio, studio_id=studio.default_studio_id),
+                                 timeout=10, default=None)
+        check("No flag override appeared during the run", late == [],
+              ", ".join(late) if late else (why or ""))
         dirty = dirty_start or dirty_end
         passed = all(checks) and code is None
         tree = "clean tree" if not dirty else f"DIRTY TREE ({len(set(dirty_start + dirty_end))} paths) - NOT valid evidence"
@@ -1803,6 +2032,18 @@ def run_test2(studio, wait_seconds=180):
     before = studio.studio_list()
     check("One Studio instance before the test starts", len(before) == 1,
           "; ".join(f'{s["name"]}' for s in before))
+    if before:
+        # EVERY LATER CALL IS SCOPED FROM HERE (Task 52). The click adds three Studios that outlive
+        # the session -- end_session stops their Play but cannot close them, only Karen's Cleanup
+        # does -- so from the click onwards an unnamed call is refused, including the ones in
+        # verdict() that run last of all.
+        studio.default_studio_id = before[0]["id"]
+        print(f"[harness2] editor {before[0]['id'][:8]}: every later unnamed call is scoped to it")
+
+    # BEFORE the disk token is written and cleared, and therefore before Karen's click: refusing
+    # after the click would waste the one human step in this mode.
+    if not check_no_flag_override(studio, check, "harness2"):
+        return verdict()
 
     scenarios = load_scenarios()
     spec_files = spec_files_in_repo()
@@ -2011,7 +2252,122 @@ def run_test2(studio, wait_seconds=180):
     return verdict()
 
 
+# ---------------------------------------------------------------- the flags command (Task 52)
+
+FLAG_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")  # Flags.NAME_PATTERN, kept in step by a spec
+
+
+def run_flags(studio, argv):
+    """`flags [set <NAME> on|off | clear | live [role]]` -- the Director's playtest switch.
+
+    It exists so a feature can be turned on for Karen WITHOUT a commit: the override is an attribute
+    on ServerStorage, not a file, so the git tree stays clean and the harness stays runnable. See
+    docs/design/feature-flags.md section 7.2 and `tools/flags.py`, the thin wrapper the Director
+    actually types.
+
+    `set` and `clear` are EDIT-ONLY. Resolution happens once at server boot, so a write into a
+    running session would be invisible -- and an invisible write is a lie about what was tested.
+    `live` is the opposite: it reads what a RUNNING process resolved, which is how the Director
+    confirms the session is the intended one before telling Karen to go."""
+    action = argv[0] if argv else "show"
+
+    if action == "live":
+        role = argv[1] if len(argv) > 1 else "server"
+        studio_id, why = studio_for_role(studio, role)
+        if studio_id is None:
+            print(f"[flags] {why}")
+            return 1
+        datamodel = "Server" if role.startswith("server") else "Client"
+        answer, problem = process_call(
+            lambda: studio.query(datamodel, QUERY_FLAG_LIVE, studio_id=studio_id), timeout=20)
+        if problem:
+            print(f"[flags] could not read {role}: {problem}")
+            return 1
+        print(f"[flags] {role}: {answer}")
+        return 0
+
+    # SCOPE FIRST (Task 52). `flags set` or `flags clear` may well be typed while a two-player
+    # session is still open -- that is exactly when the Director wants to clear an override -- and
+    # every unnamed call would then be refused with StudioMCP's own message instead of this mode's.
+    # studio_for_role finds the editor the way test2 does: by what each Studio answers, not by name.
+    editor, why = studio_for_role(studio, "edit")
+    if editor is None:
+        print(f"[flags] {why}")
+        return 1
+    studio.default_studio_id = editor
+
+    mode = studio.mode()
+    if mode != "Edit":
+        print(f"[flags] REFUSED: Studio is in {mode} mode, and set/clear/show are Edit-only.")
+        print("[flags] An override written into a running session is never read: the server "
+              "resolves once, at boot. Use `flags live` to read a running session instead.")
+        return 2
+
+    if action == "clear":
+        removed = [part for part in studio.query("Edit", QUERY_CLEAR_FLAGS).split(",") if part]
+        print("[flags] cleared: " + (", ".join(removed) if removed else "nothing was set"))
+        return 0
+
+    if action == "set":
+        if len(argv) != 3 or argv[2] not in ("on", "off"):
+            print("[flags] usage: flags set <NAME> on|off")
+            return 2
+        name = argv[1]
+        if not FLAG_NAME_RE.match(name) or len(name) > 40:
+            print(f"[flags] REFUSED: {name!r} is not a flag name (Flags.NAME_PATTERN, <= 40 chars)")
+            return 2
+        # The name is a JSON string literal and the value a Luau boolean literal, so nothing this
+        # sends is arbitrary Luau -- the same shape as QUERY_SET_CLIENTS_DONE.
+        answer = studio.query(
+            "Edit", QUERY_SET_FLAG % (json.dumps(name), "true" if argv[2] == "on" else "false"))
+        if answer.startswith("REFUSED"):
+            print(f"[flags] {answer}. An override for a flag that does not exist is a typo the "
+                  "resolver would only log.")
+            return 2
+        print(f"[flags] override set: {answer}")
+        print("[flags] the git tree is untouched. Clear it before the next harness run:")
+        print("[flags]   python tools/flags.py clear")
+        return 0
+
+    if action != "show":
+        print("[flags] usage: flags [set <NAME> on|off | clear | live [role]]")
+        return 2
+
+    raw = json.loads(studio.query("Edit", QUERY_FLAG_TABLE))
+    if raw.get("error"):
+        print("[flags] could not read ReplicatedStorage.Flags: " + raw["error"])
+        return 1
+    rows = raw.get("rows", [])
+    if not rows:
+        print("[flags] no flags are declared")
+    width = max([len(r["name"]) for r in rows] + [4])
+    print(f"[flags] {'NAME'.ljust(width)}  default  override  effective  expires     owner")
+    for row in rows:
+        print("[flags] {}  {:<7}  {:<8}  {:<9}  {:<10}  {}".format(
+            row["name"].ljust(width),
+            "on" if row["default"] else "off",
+            row["override"] if row["override"] == "none" else ("on" if row["override"] == "true" else "off"),
+            "on" if row["effective"] else "off",
+            row["expires"], row["owner"]))
+    for row in rows:
+        print(f"[flags]   {row['name']}: {row['why']}")
+    stray = raw.get("stray", [])
+    if stray:
+        # An override for a name nothing declares would be silently ignored by the resolver, so the
+        # Director would be watching a playtest that is not the one they set up.
+        print("[flags] STRAY overrides for flags that do not exist (the resolver ignores these): "
+              + ", ".join(stray))
+        print("[flags]   python tools/flags.py clear")
+    return 0
+
+
 # ---------------------------------------------------------------- selftest (Task 50)
+
+def _read_own_source():
+    """This file's own text, for the selftest case that counts argument builders (Task 52)."""
+    with open(os.path.abspath(__file__), encoding="utf-8") as handle:
+        return handle.read()
+
 
 def selftest():
     """Prove the concurrency Task 50 added, WITHOUT Studio. Runs in CI.
@@ -2089,6 +2445,7 @@ def selftest():
             self.lines = queue.Queue()
             self.next_id = 0
             self.replies = {}
+            self.default_studio_id = None
             self.sent = []
 
         def _send(self, msg):
@@ -2169,6 +2526,36 @@ def selftest():
        "studio_id" not in inputs.sent[0]["params"]["arguments"], repr(inputs.sent[0]))
     ok("a single target is reported like any other", out == {None: None}, repr(out))
 
+    # 9b. SCOPING (Task 52). StudioMCP refuses any tool call that names no studio_id as soon as more
+    # than one Studio is connected, and the three a local test adds outlive the session -- only
+    # Karen's Cleanup closes them. A run that left one call unnamed died in verdict() with every
+    # spec already passed. These cases are why that cannot come back, and they need no Studio.
+    scope = FakeStudio()
+    scope._rpc = lambda method, params, timeout=120: (  # noqa: E731 -- a fake, not production
+        scope.sent.append(params), {"content": [{"text": "ok"}]})[1]
+    scope.sent = []
+    scope._call("execute_luau", {"code": "x"})
+    ok("with no default and no explicit id, nothing is named",
+       "studio_id" not in scope.sent[-1]["arguments"], repr(scope.sent[-1]))
+    scope.default_studio_id = "EDITOR"
+    for tool in ("execute_luau", "get_studio_state", "get_console_output", "start_stop_play"):
+        scope._call(tool)
+        ok(f"a default scopes {tool}",
+           scope.sent[-1]["arguments"].get("studio_id") == "EDITOR", repr(scope.sent[-1]))
+    scope._call("execute_luau", {"code": "x"}, studio_id="CLIENT2")
+    ok("an explicit id beats the default",
+       scope.sent[-1]["arguments"].get("studio_id") == "CLIENT2", repr(scope.sent[-1]))
+    scope._call("list_roblox_studios")
+    ok("list_roblox_studios is never scoped -- it asks WHICH Studios exist",
+       "studio_id" not in scope.sent[-1]["arguments"], repr(scope.sent[-1]))
+    ok("capture agrees with _call", scope._scoped("screen_capture", None) == "EDITOR")
+    ok("capture takes an explicit id too", scope._scoped("screen_capture", "C2") == "C2")
+    # Every place that builds MCP arguments must go through _scoped, or the class reopens.
+    source = _read_own_source()
+    builders = source.count('"arguments": arguments') + source.count('"arguments": args')
+    ok("every argument builder asks _scoped",
+       source.count("self._scoped(") == builders, f"{source.count('self._scoped(')} vs {builders}")
+
     # 9. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):
         data = load_scenarios()
@@ -2204,9 +2591,9 @@ def parse_vector(text):
 def main(argv):
     if len(argv) < 2 or argv[1] not in (
             "test", "test2", "selftest", "state", "console", "stop", "manifest", "capture",
-            "studios"):
+            "studios", "flags"):
         sys.exit(__doc__)
-    if argv[1] != "capture" and len(argv) != 2:
+    if argv[1] not in ("capture", "flags") and len(argv) != 2:
         sys.exit(__doc__)
     if argv[1] == "capture" and not 3 <= len(argv) <= 6:
         sys.exit("usage: python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z] "
@@ -2238,6 +2625,8 @@ def main(argv):
                     sha = "<unknown sha>"
                 print(f"[harness] FAIL: harness error @ {sha}: {type(e).__name__}: {e}")
                 return 1
+        if cmd == "flags":
+            return run_flags(studio, list(argv[2:]))
         if cmd == "capture":
             name = re.sub(r"[^A-Za-z0-9_.-]", "-", argv[2])
             stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")

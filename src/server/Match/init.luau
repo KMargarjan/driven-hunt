@@ -31,6 +31,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 
 local Body = require(script.Body)
 local Markers = require(script.Markers)
@@ -100,7 +101,12 @@ Match.CONFIG = {
 	-- harmless. reviews/task-35/DESIGN_DELTA.md.
 	SAFETY_BODY_STUDS = 4,
 	SAFETY_GRACE_SECONDS = 0, -- K, no grace: the rule is the rule from the first second
-	TIE_UNTIL_DRIVE_END = true, -- K, Karen's rule as written
+	-- THE ONLY PERMITTED SHAPE for a flagged value: a read, never a literal beside a flag of the
+	-- same name. There is still one source of truth (Flags.DEFAULTS, reviewed in git) and
+	-- Match.CONFIG is still the one table the drive reads. Penalty.expired is untouched: it already
+	-- takes `config`, which is what lets a spec exercise BOTH states without touching this one.
+	-- K, Karen's rule as written; flag: docs/design/feature-flags.md
+	TIE_UNTIL_DRIVE_END = Flags.isOn("TIE_UNTIL_DRIVE_END"),
 	TIE_SECONDS = 60, -- K, used only when the flag above is false (Penalty.expired)
 	TIE_GAP_STUDS = 2.5, -- K, studs from the trunk's SURFACE, on the side the offender came from
 	ROPE_COLOR = Color3.fromRGB(170, 130, 85), -- K, checked on screen: see the note in Body
