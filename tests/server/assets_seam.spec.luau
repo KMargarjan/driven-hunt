@@ -210,7 +210,11 @@ return function()
 				local report = Loader.preload({ Hardware.ASSET_KEY })[1]
 				expect(report.ok).to.equal(false)
 				expect(report.reason).to.equal("timeout")
-				expect(Loader.template(Hardware.ASSET_KEY)).to.equal(nil)
+				-- AND NOTHING IS ASSERTED ABOUT THE SHARED CACHE HERE. This case yields for the
+				-- whole bound, and `WeaponBoot`'s own preload now runs AFTER `Weapon.start()` -- so
+				-- the real load can legitimately land in the middle of this wait and fill the key.
+				-- Asserting "the template is nil" would be asserting that the boot is slow, which is
+				-- a race, not a rule. The report is this case's own answer and it is enough.
 			end)
 			local waited = os.clock() - started
 			-- It gave up at the bound rather than hanging the suite: generous, because the harness

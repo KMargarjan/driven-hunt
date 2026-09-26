@@ -332,7 +332,9 @@ return function()
 			--
 			-- Driven by injection rather than by whatever the server happened to load, so it says
 			-- the same thing on a machine where the asset does not load at all.
-			local source = Instance.new("Part")
+			-- A MeshPart, because Roblox refuses a SurfaceAppearance anywhere else ("SurfaceAppearance
+			-- can only be parented to MeshParts") -- and because that is what the real gun is.
+			local source = Instance.new("MeshPart")
 			source.Name = "Handle"
 			source.Size = Vector3.new(0.4, 0.5, 4.4)
 			source.Transparency = 1
@@ -350,7 +352,7 @@ return function()
 				child.Parent = source
 			end
 			-- a welded visible piece, so the clone has something to show as well as something to keep
-			local piece = Instance.new("Part")
+			local piece = Instance.new("MeshPart")
 			piece.Name = "BarrelLeft"
 			piece.Size = Vector3.new(0.17, 0.17, 2.7)
 			piece.Parent = source
