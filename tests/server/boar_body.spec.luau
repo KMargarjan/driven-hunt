@@ -401,6 +401,10 @@ return function()
 		local SETTINGS = CONFIG.SOUNDER
 
 		local root, herd, herdWorld, herdThreat, herdRecords, stop
+		-- WHO ASKED. `stats().pathRequests` is a total, and the invariant this block is here to
+		-- prove is about WHICH boar asks: one route per sounder, whatever its size. The spec owns
+		-- the world, so counting them here is the one honest way to attribute them.
+		local pathCalls = {}
 
 		local function spread(handles): number
 			local worst = 0
@@ -436,6 +440,7 @@ return function()
 		beforeAll(function()
 			herdThreat = nil
 			herdRecords = {}
+			pathCalls = {}
 
 			root = Instance.new("Folder")
 			root.Name = "BoarSounderSpec"
@@ -469,7 +474,10 @@ return function()
 					params.FilterDescendantsInstances = if herdWorld.folder then { herdWorld.folder } else {}
 					return Workspace:Raycast(from, direction.Unit * length, params) ~= nil
 				end,
-				requestPath = production.requestPath,
+				requestPath = function(agentId: string, from: Vector3, to: Vector3, done, onBlocked)
+					pathCalls[agentId] = (pathCalls[agentId] or 0) + 1
+					return production.requestPath(agentId, from, to, done, onBlocked)
+				end,
 				releasePath = production.releasePath,
 				pathProblems = production.pathProblems,
 			}
@@ -570,16 +578,31 @@ return function()
 			-- ONE ROUTE PER SOUNDER: five members fleeing for three seconds, and only the leader
 			-- asks. Per-member pathing lands near 30 (design, "one route per sounder").
 			local after = herd:stats()
-			print(
-				string.format(
-					"[boar_body] sounder of 5, 3 s flee: %d path request(s), %d blocked, %d failure(s), %d member(s)",
-					after.pathRequests - before.pathRequests,
-					after.pathBlocked - before.pathBlocked,
-					after.pathFailures - before.pathFailures,
-					#herd:sounders()[1].memberIds
+			local askers, total = {}, 0
+			for agentId, count in pairs(pathCalls) do
+				table.insert(askers, string.format("%s x%d", agentId, count))
+				total += count
+			end
+			table.sort(askers)
+			-- ONLY THE LEADER ASKED. This is the invariant, not the total: five members each asking
+			-- could also each be routed through a different gate in a hedge, which splits the
+			-- sounder in two. The message carries the evidence, because a bare `false` here would
+			-- say nothing about which boar broke it.
+			if pathCalls[leaderId] == nil or total ~= pathCalls[leaderId] then
+				error(
+					string.format(
+						"one route per sounder: leader %s, but the askers were %s",
+						tostring(leaderId),
+						table.concat(askers, ", ")
+					),
+					0
 				)
-			)
-			expect(after.pathRequests - before.pathRequests <= 12).to.equal(true)
+			end
+			-- ...and the leader itself did not run away with it: REPATH_INTERVAL is 0.5 s, and
+			-- Path.Blocked can force one more when a herd-mate stands on the route.
+			if total > 12 then
+				error(string.format("the leader asked %d times in 3 s, over the budget of 12", total), 0)
+			end
 			expect(after.pathFailures).to.equal(0)
 		end)
 
