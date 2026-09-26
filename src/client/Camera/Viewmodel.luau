@@ -52,17 +52,33 @@ local function build(handle: BasePart): Model
 
 	local clone = handle:Clone()
 	clone.Name = "Handle"
+	-- THE GUN'S PARTS COME WITH IT (Task 71). Since the shotgun became a side-by-side built from
+	-- welded parts, the Handle is an INVISIBLE envelope and every visible piece is one of its
+	-- children: destroying them, as this did, would have left the first-person gun as nothing at all
+	-- while the third-person gun was the real one. One source, two views -- the clone IS how the
+	-- viewmodel stays the same object as the Tool, and ServerScriptService.Weapon.Hardware is still
+	-- the only writer of the original (docs/design/camera.md section 3.2).
+	--
+	-- EVERY PART IS ANCHORED, so the welds are not needed and are destroyed with everything else that
+	-- is not a shape: an unanchored part under workspace.CurrentCamera would be simulated.
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanQuery = false
+			descendant.CanTouch = false
+			descendant.Massless = true
+			descendant.CastShadow = false
+		elseif not descendant:IsA("Attachment") then
+			descendant:Destroy() -- no scripts, no welds, no sounds: a shape and nothing else
+		end
+	end
 	clone.Anchored = true
 	clone.CanCollide = false
 	clone.CanQuery = false -- see the header: an occlusion ray must not hit our own viewmodel
 	clone.CanTouch = false
 	clone.Massless = true
 	clone.CastShadow = false
-	for _, child in ipairs(clone:GetChildren()) do
-		if not child:IsA("Attachment") then
-			child:Destroy() -- no scripts, no welds, no sounds: a shape and nothing else
-		end
-	end
 	clone.Parent = made
 	made.PrimaryPart = clone
 	return made

@@ -171,6 +171,25 @@ Shotgun.CONFIG = {
 	GRIP = CFrame.new(0, 0, 1.4), -- the Handle's -Z is the muzzle, so the barrel points away
 	MUZZLE_OFFSET = Vector3.new(0, 0, -2.2), -- half of HANDLE_SIZE.Z: the barrel tip
 
+	-- THE HANDLE IS THE ENVELOPE, NOT THE GUN (Task 71). Since the gun is built from parts, the
+	-- Handle's own box would be a slab through the middle of it, so it is invisible and keeps its two
+	-- real jobs: it is what the hand grips (GRIP), what the Muzzle attachment hangs on, and the only
+	-- part of the gun a ray can hit. Set this to 0 to see the envelope the parts are laid out in.
+	HANDLE_TRANSPARENCY = 1,
+
+	-- THE GUN'S COLOURS. Director's pick and Karen's to change (her rule, 2026-09-26: styling never
+	-- blocks). EVERY ONE IS ABOVE THE ALBEDO FLOOR that Task 22 measured -- an unlit face renders at
+	-- roughly 0.275 x albedo at this place's ambient, which is what turned the first HANDLE_COLOR
+	-- (RGB 70, 55, 45) near-black on screen -- so "blued steel" is a light gunmetal rather than the
+	-- near-black it is in life, and the walnut is warm rather than dark.
+	-- Shapes and proportions: src/server/Weapon/Shape.luau. Note: docs/research/2026-09-26-shotgun-model.md
+	LOOK = {
+		barrel = Color3.fromRGB(96, 100, 108), -- blued steel: the barrels and the top rib
+		action = Color3.fromRGB(178, 180, 184), -- the silver-grey action body, lever, guard, trigger
+		wood = Color3.fromRGB(165, 112, 70), -- walnut: the splinter forend and the English stock
+		bead = Color3.fromRGB(242, 238, 226), -- the one bright thing on the gun
+	},
+
 	-- cosmetics
 	TRACER_LIFETIME = 0.06,
 	IMPACT_LIFETIME = 1.0,
