@@ -45,6 +45,12 @@ local STAGE_ATTRIBUTE = "StagedTarget"
 -- where TestEZ reaches the `it`, and waiting longer costs a passing run nothing.
 local STAGE_TIMEOUT = 210
 local TRACK_SECONDS = 15
+-- Seconds to get one RENDERED frame that points where Camera.lookAt was asked to point. It is not a
+-- camera budget -- the owner turns in a single frame -- it is a budget for finding a frame the
+-- harness's replayed mouse movement did not also turn, and those arrive in bursts a second or two
+-- apart. Task 50: two fixed RenderStepped waits used to stand here, and when `test2` got faster the
+-- replay started arriving during this `it`: two of three runs measured 82 and 89 degrees off.
+local LOOK_AT_SECONDS = 15
 local AIM_HEIGHT = 0.4 -- studs above the trunk's centre: the chest band, not the legs
 
 local markers = {}
@@ -126,20 +132,35 @@ return function()
 			end)).to.equal(true)
 			local root = rootPart()
 			local before = Camera.stats().foreignCameraWrites
+			local landedBefore = Camera.stats().lookAtLanded
 			local request = scripts:WaitForChild("Camera"):FindFirstChild("LookAtRequest")
 
 			-- 60 studs out and 8 up, square to the character: nowhere the camera already points.
 			local target = root.Position + Vector3.new(60, 8, 0)
 			expect(request:Invoke(target.X, target.Y, target.Z)).to.equal(true)
-			RunService.RenderStepped:Wait()
-			RunService.RenderStepped:Wait()
 
-			local cam = Workspace.CurrentCamera
-			local dot = cam.CFrame.LookVector:Dot((target - cam.CFrame.Position).Unit)
+			-- WAIT FOR A FRAME, DO NOT COUNT FRAMES (Task 50). This `it` runs while the harness is
+			-- replaying input into this same client, and a MouseMovement delta is consumed by the
+			-- owner's Mode.step in the very frame the request was meant to be rendered in -- so the
+			-- camera can be 80-plus degrees off through nobody's fault. The request is re-asked each
+			-- round: it is one-shot by design (the owner never fights the mouse for a player), so a
+			-- disturbed one is simply gone. Bounded, and it costs a passing run one frame.
+			local dot = -1
+			local settled = waitUntil(LOOK_AT_SECONDS, function()
+				request:Invoke(target.X, target.Y, target.Z)
+				RunService.RenderStepped:Wait()
+				local live = Workspace.CurrentCamera
+				dot = live.CFrame.LookVector:Dot((target - live.CFrame.Position).Unit)
+				return dot > 0.999 -- within about 2.5 degrees
+			end)
 			print(
 				string.format("[shoot_boar] look-at error: %.2f degrees", math.deg(math.acos(math.clamp(dot, -1, 1))))
 			)
-			expect(dot > 0.999).to.equal(true) -- within about 2.5 degrees
+			expect(settled).to.equal(true)
+			-- AND the owner itself says a rendered frame showed the request -- a separate and looser
+			-- statement (Config.LOOK_AT_LANDED_DOT, about 8 degrees) than the 2.5 degrees measured
+			-- above off Workspace.CurrentCamera, so neither assertion is the other one restated.
+			expect(Camera.stats().lookAtLanded > landedBefore).to.equal(true)
 			-- The owner did it. If the request had written the camera itself, this would rise.
 			expect(Camera.stats().foreignCameraWrites).to.equal(before)
 		end)

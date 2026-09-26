@@ -235,6 +235,50 @@ return function()
 		end)
 	end)
 
+	-- Task 50. `test2` got faster and two of three runs then measured the camera 82 and 89 degrees
+	-- off a point it had just been asked to look at: the spec that asked had waited a fixed TWO
+	-- frames, and a replayed mouse delta consumed in the same frame took the camera elsewhere. The
+	-- owner now says when a request has actually been RENDERED, and these tests are what make that
+	-- signal falsifiable in a ONE-player run -- the two-player race itself needs two clients and a
+	-- human click, so it can never be a regression test.
+	describe("the look-at landed signal", function()
+		it("does not count a request until a frame has been rendered", function()
+			expect(waitUntil(20, function()
+				return Camera.getMode() ~= "Loading" and rootPart() ~= nil
+			end)).to.equal(true)
+			local root = rootPart()
+			local before = Camera.stats()
+			-- NOT A YIELD between these two lines, deliberately: nothing can have rendered, so a
+			-- counter that rose here would be counting the ASK, which is the bug this exists to stop.
+			expect(Camera.lookAt(root.Position + Vector3.new(0, 6, 55))).to.equal(true)
+			local asked = Camera.stats()
+			expect(asked.lookAtRequests).to.equal(before.lookAtRequests + 1)
+			expect(asked.lookAtLanded).to.equal(before.lookAtLanded)
+
+			-- And it does count, once a frame goes by.
+			expect(waitUntil(5, function()
+				return Camera.stats().lookAtLanded > before.lookAtLanded
+			end)).to.equal(true)
+		end)
+
+		it("never lands more requests than were asked for", function()
+			local stats = Camera.stats()
+			expect(stats.lookAtLanded <= stats.lookAtRequests).to.equal(true)
+		end)
+
+		it("does not count a request that was refused", function()
+			-- No character to turn -> Camera.lookAt returns false and nothing is pending. The
+			-- LookAtRequest BindableFunction refuses non-numbers the same way (shoot_boar.spec).
+			local request = scripts:WaitForChild("Camera"):FindFirstChild("LookAtRequest")
+			local before = Camera.stats()
+			expect(request:Invoke("over", "there", nil)).to.equal(false)
+			waitFrames(3)
+			local after = Camera.stats()
+			expect(after.lookAtRequests).to.equal(before.lookAtRequests)
+			expect(after.lookAtLanded).to.equal(before.lookAtLanded)
+		end)
+	end)
+
 	describe("the aim path", function()
 		local fake = { aiming = false }
 		local production = nil

@@ -9,9 +9,11 @@ never reach it, and until Task 49 nothing checked for them on the way in:
    anyone else reading the repo. Placeholders are the fix, and are allowed: a path segment that
    starts with `<`, `%`, `$`, `{` or `...` is a placeholder, so `C:\\Users\\<user>\\AppData\\...`
    passes and `docs/research/2026-09-24-map-generator.md` keeps saying where Studio autosaves.
-2. **Email addresses**, except the GitHub noreply form (`<something>@users.noreply.github.com`) and
-   the one commit-trailer address the attribution lines use. Every commit in this repo already uses
-   the noreply identity; this keeps it that way in file contents too.
+2. **Email addresses**, except two: any address on a domain ending `.noreply.github.com` -- which is
+   the GitHub noreply form (`<name>@users.noreply.github.com`, and the enterprise variants that end
+   the same way) -- and `noreply` at `anthropic.com`, the commit-trailer address. `ALLOWED_EMAIL_SUFFIX`
+   and `ALLOWED_EMAILS` are the whole rule; nothing else is allowed. Every commit in this repo
+   already uses the noreply identity, and this keeps it that way in file contents too.
 3. **Secret shapes** - private key headers, `.ROBLOSECURITY` cookie values, AWS / GitHub / Slack /
    `sk-` style API keys, webhook URLs, and any `api_key = "<20+ characters>"` style assignment.
    Naming a secret is fine: CLAUDE.md and `.gitignore` both talk about `.ROBLOSECURITY` and

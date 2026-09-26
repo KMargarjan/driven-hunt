@@ -58,6 +58,14 @@ service-account*.json
 # Raw agent session output (tools/agents.py)
 /.agent-logs/
 
+# Precomputed review evidence (tools/agents.py). NOT repo content, and it reliably contains local
+# absolute paths -- rojo-build.txt records the `rojo build --output` line verbatim -- so one blind
+# `git add -A` would re-commit exactly what Task 49 scrubbed out (Task 49 review note b).
+/.agent-evidence/
+
+# Asset pipeline run records (docs/design/asset-pipeline.md 7.2): file names and ids, not repo content.
+/.assets/
+
 # Screenshots saved by `python tools/studio_mcp.py capture` (rule-5 evidence, not repo content)
 /.screenshots/
 

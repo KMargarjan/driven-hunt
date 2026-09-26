@@ -10,6 +10,8 @@ Requires: Studio open on the DEV place in Edit mode, MCP server enabled, Rojo pl
 Usage:
   python tools/studio_mcp.py test           # full checked run; exit 0 only on a clean-tree PASS
   python tools/studio_mcp.py test2          # the same specs in a 2-player local test (Karen starts it)
+  python tools/studio_mcp.py selftest       # NO Studio: prove the concurrency helpers (CI runs this)
+  (stdout is line buffered, so a run's lines appear live even when it is piped to a log)
   python tools/studio_mcp.py state          # print Studio mode (read-only)
   python tools/studio_mcp.py console        # print Studio Output (read-only)
   python tools/studio_mcp.py stop           # stop a playtest (recovery)
@@ -32,6 +34,12 @@ change needs it. `test2` is ALSO part of the merge gate for a change touching `s
 two clients, so a one-player run says nothing about them. `tools/agents.py` refuses the review
 without the `[harness2]` line for the same code commit. Docs, and the tools that are not this
 harness, are exempt -- `test2` costs a human click and about eight minutes.
+
+`selftest` is the exception to "needs Studio": it exercises the pure helpers only -- wait_for_each,
+the reply keying, send_input_many, and the scenario file -- so it runs in CI, with no Studio, no
+place and no network, in under a second. Exit 0 PASS, 1 FAIL. It exists because the concurrency
+Task 50 added is only interesting with SEVERAL subjects, and no run on this machine reaches that
+without two clients and a human click.
 
 Moving parts
   tests/TestKit.luau -> ReplicatedStorage.TestKit
@@ -275,7 +283,18 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
        available" are retried against a test process until that step's deadline (60 s to classify,
        15 s for a console) and reported if they outlast it. Run 3 (2026-09-25) crashed the whole
        mode on the first of those; no call against a test process raises now.
-    3. Each client is asked which team its LocalPlayer is on. THEN the gate is opened (above) and
+
+       ALL THREE ARE PROBED TOGETHER, against ONE 60 s deadline, round-robin (Task 50). The three
+       processes open their place at the same time and answer when they are ready, so probing them
+       one after the other -- each with its own 60 s -- meant waiting the first out before the
+       second was asked once. Each process still gets the full 60 s and the same QUERY_ROLE answer
+       decides; only the WAITING overlaps.
+    3. Each client is asked which team its LocalPlayer is on -- BOTH against one 45 s deadline,
+       for the same reason (Task 50): one server event assigns both teams, so they answer within
+       milliseconds of each other and asking them in turn simply put the second wait after the
+       first. The token's arrival in each client, and each client's input-ready handshake, are
+       waited for the same way: one deadline, every client polled in it. THEN the gate is opened
+       (above) and
        the input scenarios are replayed into BOTH clients -- in that order, because the client specs
        start the moment the token lands and input_driving.spec gives the replay ARRIVE_TIMEOUT (45 s)
        to arrive; a 45-second team query must not be inside that budget.
@@ -305,6 +324,11 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
        else) and the DEV PlaceId; ALL THREE reports are PASS with 0 failed/errors/skipped; the server
        ran tests/server/match_teams.spec; and it ran every server spec file in the repo.
     6. It stops each test instance and, if any remain, says to press Cleanup.
+    7. It prints a PHASE TABLE: how many seconds each phase of the run took (Task 50), so the next
+       person to make this faster -- or to notice it got slower -- reads it out of the same output
+       that carries the verdict. `test` prints one too. It comes out on EVERY path, a refusal and a
+       half-finished run included, because a run that died waiting is the one whose timing most
+       wants explaining.
   Final line: "[harness2] PASS|FAIL: n/m checks @ <full HEAD sha> (clean tree | DIRTY TREE ...)".
   A [harness2] line is NOT a substitute for a [harness] line as PR evidence: this mode runs none of
   `test`'s checks 4-6 (disk-vs-Studio comparison, no-script-outside-Rojo, spec placement). It is an
@@ -314,6 +338,28 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
   for WHATEVER number of players is present, so it runs in both modes: with one player it asserts
   Director decision F (the lone player is a Shooter and is armed); with two, that both are assigned,
   that the teams are 1 and 1, and that only the shooter may carry a gun.
+
+How long a run takes, and what it is waiting for (Task 50)
+  Both modes end with a phase table, and the replay prints its own split ("N batch call(s) to M
+  client(s) took X s; the scenarios' own gaps took Y s"). Measured 2026-09-26 on this PC:
+
+    - an `execute_luau` against the EDIT DataModel costs 0.067 s; an input batch against a PLAY
+      client costs about 0.2 s. StudioMCP round trips are NOT what makes a run long.
+    - what makes a run long is WAITING: for three processes to open a place, for the drive to
+      assign teams, for a client to bind its listeners, for the drive to release a boar, and for
+      the scenarios' own gaps.
+    - tests/client/input_scenarios.txt contains 34.5 s of `wait` steps. That is the floor of any
+      run that replays them, it belongs to the specs that assert against those gaps, and the
+      harness does not shorten it.
+    - a one-player `test` is about 90 s: ~4 s of Edit-place checks, ~65 s of replay (34 s of
+      scenario gaps, ~22 s inside the `stage` query waiting for the drive to release a boar, ~5 s
+      of calls), ~19 s waiting for the two reports.
+
+  EVERY PER-PROCESS WAIT IN `test2` IS ROUND-ROBIN against one deadline (wait_for_each), and the
+  same batch of input goes to both clients in one round trip (Studio.send_input_many), because more
+  than one request may now be in flight: replies are keyed by id and kept (Studio._submit /
+  Studio._await). With ONE target both are exactly what the old single-call code did, so the
+  one-player `test` neither gains nor loses.
 
 Screenshots as evidence (Task 7)
   `capture <name> [camera x,y,z] [look-at x,y,z] [role]` saves StudioMCP's screen_capture image to
@@ -585,6 +631,7 @@ class Studio:
         self.lines = queue.Queue()
         threading.Thread(target=self._pump, daemon=True).start()
         self.next_id = 0
+        self.replies = {}
         self._rpc("initialize", {
             "protocolVersion": "2025-03-26",
             "capabilities": {},
@@ -606,15 +653,30 @@ class Studio:
         self.proc.stdin.write((json.dumps(msg) + "\n").encode())
         self.proc.stdin.flush()
 
-    def _rpc(self, method, params, timeout=120):
+    def _submit(self, method, params):
+        """Send one request and return its id, WITHOUT waiting for the reply (Task 50)."""
         self.next_id += 1
         self._send({"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params})
-        while True:
+        return self.next_id
+
+    def _await(self, request_id, timeout=120):
+        """The reply to one submitted request.
+
+        Replies are keyed by id and KEPT (`self.replies`), because more than one request can be in
+        flight since Task 50. The old loop dropped every message whose id did not match the one it
+        was waiting for, which was safe only while exactly one request existed at a time -- with two
+        in flight it would have eaten the other one's answer."""
+        while request_id not in self.replies:
             msg = json.loads(self.lines.get(timeout=timeout))
-            if msg.get("id") == self.next_id:
-                if "error" in msg:
-                    raise RuntimeError(msg["error"])
-                return msg["result"]
+            if msg.get("id") is not None:
+                self.replies[msg["id"]] = msg
+        msg = self.replies.pop(request_id)
+        if "error" in msg:
+            raise RuntimeError(msg["error"])
+        return msg["result"]
+
+    def _rpc(self, method, params, timeout=120):
+        return self._await(self._submit(method, params), timeout=timeout)
 
     def _call(self, tool, args=None, studio_id=None):
         arguments = dict(args or {})
@@ -672,6 +734,38 @@ class Studio:
         """Replay one batch of real input into the Play client. `device` is "keyboard" or "mouse"."""
         tool = "user_keyboard_input" if device == "keyboard" else "user_mouse_input"
         return self._call(tool, {"datamodel_type": "Client", "actions": actions}, studio_id=studio_id)
+
+    def send_input_many(self, device, actions, studio_ids):
+        """The same batch to several clients AT ONCE -> {studio_id: None} or {studio_id: error}.
+
+        Task 50. The batches go out back to back and the replies are collected afterwards, so two
+        clients cost one round trip rather than two. An input call against a Play client is the
+        harness's most expensive call by far (measured 2026-09-26: ~1 s each against a Play client,
+        against 0.067 s for an execute_luau in Edit), and `test2` makes ~26 of them per client, so
+        sending them one after the other put a whole minute of pure latency on the critical path.
+
+        With ONE target this is exactly one submit and one await -- the same two lines `send_input`
+        runs -- so the one-player `test` gains nothing and loses nothing.
+
+        Order within a batch is the tool's to keep and is unchanged: the actions inside one call are
+        untouched, and the calls still leave in scenario order. What overlaps is only the WAIT for
+        two clients' replies to the SAME batch, which nothing orders against each other."""
+        tool = "user_keyboard_input" if device == "keyboard" else "user_mouse_input"
+        pending = {}
+        for studio_id in studio_ids:
+            arguments = {"datamodel_type": "Client", "actions": actions}
+            if studio_id:
+                arguments["studio_id"] = studio_id
+            pending[studio_id] = self._submit("tools/call", {"name": tool, "arguments": arguments})
+        out = {}
+        for studio_id, request_id in pending.items():
+            try:
+                result = self._await(request_id)
+                text = "\n".join(c.get("text", "") for c in result.get("content", []))
+                out[studio_id] = RuntimeError(f"{tool}: {text}") if result.get("isError") else None
+            except Exception as e:  # queue.Empty when StudioMCP stops answering, RuntimeError on a fault
+                out[studio_id] = e
+        return out
 
     def capture(self, path, camera=None, look_at=None, studio_id=None):
         """Save StudioMCP's screen_capture image to `path`. Returns the path, or None with the text.
@@ -990,6 +1084,61 @@ def wait_for(fn, predicate, timeout, interval=0.5):
     return value, False
 
 
+def wait_for_each(keys, fn, predicate, timeout, interval=0.5):
+    """`wait_for` over SEVERAL subjects against ONE deadline -> {key: (value, ok)}.
+
+    Task 50. Every per-process wait in `test2` used to be a loop of `wait_for` calls, one whole
+    timeout each, so two clients that both became ready at t=10 s cost 20 s of waiting and a worst
+    case of 2 x timeout. They are independent questions asked of independent processes: asked
+    round-robin against one deadline they cost the SLOWEST, not the SUM. The bound each subject gets
+    is unchanged (`timeout`), and so is the predicate, so nothing is checked less hard -- a subject
+    that never answers still fails after `timeout`, it just no longer delays the next one.
+
+    With one key this is `wait_for`, so the one-player `test` is unaffected."""
+    deadline = time.time() + timeout
+    values = {key: None for key in keys}
+    done = {}
+    while True:
+        for key in [k for k in keys if k not in done]:
+            try:
+                values[key] = fn(key)
+            except RuntimeError:
+                values[key] = None
+            if values[key] is not None and predicate(values[key]):
+                done[key] = True
+        if len(done) == len(keys) or time.time() >= deadline:
+            return {key: (values[key], key in done) for key in keys}
+        time.sleep(interval)
+
+
+class Phases:
+    """Wall-clock per phase, printed as a table at the end of a run (Task 50).
+
+    The point is that the next person to make this faster does not have to guess: every run says
+    where its seconds went, so a regression is visible in the same output that carries the verdict."""
+
+    def __init__(self, label):
+        self.label = label
+        self.start = time.time()
+        self.last = self.start
+        self.rows = []
+
+    def mark(self, name):
+        now = time.time()
+        self.rows.append((name, now - self.last))
+        self.last = now
+
+    def report(self):
+        total = time.time() - self.start
+        print(f"[{self.label}] phases, {total:.0f} s total:")
+        for name, seconds in self.rows:
+            if seconds >= 0.5:
+                print(f"[{self.label}]   {seconds:6.1f} s  {name}")
+        counted = sum(s for _, s in self.rows)
+        if total - counted >= 0.5:
+            print(f"[{self.label}]   {total - counted:6.1f} s  (after the last mark)")
+
+
 STEP_ACTIONS = {
     "keyboard": {"keyDown", "keyUp", "keyPress"},
     "mouse": {"moveTo", "mouseButtonDown", "mouseButtonUp", "mouseButtonClick"},
@@ -1139,16 +1288,24 @@ def replay_input(studio, data, token, check, studio_id=None, mirror_ids=()):
     # bound its listeners proves nothing there and cannot be repeated. 60 s, not 20: since Task 36 a
     # client resolves its own team (ClientTests.Role) before it publishes this, so the handshake now
     # waits for the drive to assign teams -- which in a one-player `test` happens during Play.
-    not_ready = []
-    for target in targets:
-        seen, ok = wait_for(lambda: studio.query("Client", QUERY_READY % ready_attr, studio_id=target),
+    # ONE deadline for all of them, not one each (Task 50): two clients that both go ready at t=12 s
+    # used to cost 24 s, and a client that never went ready delayed the other's first look by a
+    # whole minute. Each still gets the same 60 s and the same predicate.
+    answers = wait_for_each(targets,
+                            lambda target: studio.query("Client", QUERY_READY % ready_attr,
+                                                        studio_id=target),
                             lambda v: v == token, 60, 0.5)
-        if not ok:
-            not_ready.append(f"{(target or 'client')[:8]}: {seen!r}")
+    not_ready = [f"{(target or 'client')[:8]}: {answers[target][0]!r}"
+                 for target in targets if not answers[target][1]]
     if not check("[input] the client bound its listeners and published this run's token",
                  not not_ready, "; ".join(not_ready) if not_ready else repr(token)):
         return
     sent, problems, staged = 0, [], []
+    # Where the replay's seconds go, split into the part this harness controls (calls) and the part
+    # the scenarios do (their own `wait` gaps, which are what the specs assert against and are not
+    # the harness's to shorten). Task 50: the split is printed so the next person can see at a glance
+    # whether a slow replay is latency or the file.
+    slept, calls, call_seconds = 0.0, 0, 0.0
     for scenario in data["scenarios"]:
         stage = scenario.get("stage")
         if stage:
@@ -1164,16 +1321,24 @@ def replay_input(studio, data, token, check, studio_id=None, mirror_ids=()):
         for device, payload in scenario_batches(scenario.get("steps", [])):
             if device == "wait":
                 time.sleep(payload)
+                slept += payload
                 continue
             sent += len(payload)  # steps in the scenario, not calls made: two clients share one step
-            for target in targets:
-                try:
-                    studio.send_input(device, payload, studio_id=target)
-                except Exception as e:
-                    # Not just RuntimeError: _rpc raises queue.Empty when StudioMCP stops answering,
-                    # and a hung input call must fail this check, not the whole run (review round 1).
-                    problems.append(f"{scenario.get('name')}: {type(e).__name__}: {e}")
+            # ONE round trip for every target (Task 50). An input call against a Play client costs
+            # about a second, so with two clients this batch used to cost two.
+            began = time.time()
+            results = studio.send_input_many(device, payload, targets)
+            call_seconds += time.time() - began
+            calls += 1
+            for target, failure in results.items():
+                if failure is not None:
+                    # Not just RuntimeError: the transport raises queue.Empty when StudioMCP stops
+                    # answering, and a hung input call must fail this check, not the whole run
+                    # (review round 1).
+                    problems.append(f"{scenario.get('name')}: {type(failure).__name__}: {failure}")
     names = ", ".join(str(s.get("name")) for s in data["scenarios"])
+    print(f"[input] {calls} batch call(s) to {len(targets)} client(s) took {call_seconds:.0f} s; "
+          f"the scenarios' own gaps took {slept:.0f} s")
     check(f"[input] replayed every step of {len(data['scenarios'])} scenario(s)", not problems,
           "; ".join(problems) if problems else f"{sent} steps sent to {len(targets)} client(s) ({names})")
     if staged:
@@ -1198,6 +1363,7 @@ def run_test(studio):
         dirty = dirty_start or dirty_end
         passed = all(checks) and code is None
         tree = "clean tree" if not dirty else f"DIRTY TREE ({len(set(dirty_start + dirty_end))} paths) - NOT valid evidence"
+        phases.report()
         print(f"[harness] {'PASS' if passed else 'FAIL'}: {sum(checks)}/{len(checks)} checks @ {sha} ({tree})")
         if dirty:
             for line in sorted(set(dirty_start + dirty_end))[:10]:
@@ -1206,6 +1372,7 @@ def run_test(studio):
             return code
         return 1 if not passed else (3 if dirty else 0)
 
+    phases = Phases("harness")
     sha, dirty_start = git_state()
     print(f"[harness] testing {sha} ({'clean' if not dirty_start else 'DIRTY'} tree)")
 
@@ -1268,6 +1435,7 @@ def run_test(studio):
         check("Every *.spec.* file is synced into ServerStorage.Tests or ReplicatedStorage.ClientTests",
               not misplaced, ", ".join(misplaced))
 
+        phases.mark("checks against the Edit place (sync, scripts, specs)")
         print("[harness] Play")
         studio.set_play(True)
         try:
@@ -1275,6 +1443,7 @@ def run_test(studio):
                 print("[harness] no tests/client/input_scenarios.txt: nothing to replay")
             else:
                 replay_input(studio, scenarios, token, check)
+            phases.mark("replaying the input scenarios")
             # BOTH SIDES AGAINST ONE DEADLINE, round-robin -- the fix Task 34 already made in `test2`
             # and this loop did not have. Read one after another, the server's whole window has to
             # run out before the client is looked at once, and since Task 41 the server's last spec
@@ -1305,6 +1474,7 @@ def run_test(studio):
                                 timeout=10)
                 if pending:
                     time.sleep(1)
+            phases.mark("reading both reports")
             output = studio.console()
         finally:
             studio.set_play(False)
@@ -1354,6 +1524,7 @@ def run_test(studio):
     # abort the run (review round 1 of Task 48).
     seam = (reports.get("server") or {}).get("seamClosed")
     check("the drive-clock seam closed when the server run finished", seam is True, repr(seam))
+    phases.mark("ending Play, checking the reports")
     return verdict()
 
 
@@ -1494,20 +1665,37 @@ def studio_for_role(studio, role):
     return None, f"no Studio answered as {role!r}; connected: {shape}"
 
 
-def classify_studios(studio, before):
+def classify_studios(studio, before, timeout=60):
     """Split the studios a local test added into (server_id, [client_ids], [unknown_ids]).
 
     `before` is the listing from before the test started, so the edit Studio -- and anything else
     Karen happens to have open -- is excluded by identity rather than by name. WHICH of them is the
     server is then asked of each process itself (probe_role), because what they advertise does not
-    distinguish them."""
+    distinguish them.
+
+    ALL THREE ARE PROBED TOGETHER against one deadline (Task 50). The three processes open their
+    place at the same time and answer when they are ready; probing them one after the other, each
+    with its own 60 s, meant waiting out the first before the second was asked once -- so three
+    processes that all became answerable at t=40 s cost 120 s. Round-robin they cost the slowest.
+    Each still gets the full `timeout` to answer, and a process that never answers is still
+    unclassified with the same reason, so the classification is no weaker."""
     known = {s["id"] for s in before}
+    fresh = [e["id"] for e in studio.studio_list() if e["id"] not in known]
+    deadline = time.time() + timeout
+    resolved = {}
+    while True:
+        for studio_id in [i for i in fresh if i not in resolved]:
+            # timeout=0 is ONE attempt: the round-robin here owns the waiting.
+            role, player, datamodel, why = probe_role(studio, studio_id, timeout=0)
+            if role:
+                resolved[studio_id] = (role, player, datamodel, why)
+        if len(resolved) == len(fresh) or time.time() >= deadline:
+            break
+        time.sleep(1)
+
     server, clients, unknown = None, [], []
-    for entry in studio.studio_list():
-        if entry["id"] in known:
-            continue
-        studio_id = entry["id"]
-        role, player, datamodel, why = probe_role(studio, studio_id)
+    for studio_id in fresh:
+        role, player, datamodel, why = resolved.get(studio_id) or probe_role(studio, studio_id, timeout=0)
         named = f", LocalPlayer {player}" if player and player != "nil" else ""
         print(f"[harness2] {studio_id[:8]}: "
               + (f"{role} (DataModel {datamodel}{named})" if role else f"unclassified ({why})"))
@@ -1589,12 +1777,16 @@ def run_test2(studio, wait_seconds=180):
         dirty = dirty_start or dirty_end
         passed = all(checks) and code is None
         tree = "clean tree" if not dirty else f"DIRTY TREE ({len(set(dirty_start + dirty_end))} paths) - NOT valid evidence"
+        # BEFORE the verdict line and on EVERY path out, including a refusal and a half-finished run:
+        # a run that died waiting is the one whose timing most wants explaining (Task 50).
+        phases.report()
         print(f"[harness2] {'PASS' if passed else 'FAIL'}: {sum(checks)}/{len(checks)} checks @ {sha} ({tree})")
         if dirty:
             for line in sorted(set(dirty_start + dirty_end))[:10]:
                 print("    dirty: " + line)
         return code if code is not None else (1 if not passed else (3 if dirty else 0))
 
+    phases = Phases("harness2")
     sha, dirty_start = git_state()
     print(f"[harness2] two-player run @ {sha} ({'clean' if not dirty_start else 'DIRTY'} tree)")
 
@@ -1642,6 +1834,7 @@ def run_test2(studio, wait_seconds=180):
         if not check("The gate is shut again before the copy is taken", ok, f"Studio has {seen!r}"):
             return verdict()
 
+        phases.mark("checks, token sync, gate shut")
         print(START_CLICKS.format(seconds=wait_seconds))
         known = {s["id"] for s in before}
 
@@ -1652,13 +1845,15 @@ def run_test2(studio, wait_seconds=180):
         # waiting for a total of three is satisfied by two of them -- the classification would then
         # run against a half-registered test, find one client, and fail a run Karen had started
         # correctly (round 1, finding 1).
-        found, ok = wait_for(new_studios, lambda v: len(v) >= 3, wait_seconds, 2)
+        found, ok = wait_for(new_studios, lambda v: len(v) >= 3, wait_seconds, 1)
+        phases.mark("waiting for the Start click and three processes")
         if not check(f"A 2-player local test appeared within {wait_seconds} s", ok,
                      f"{len(found)} new studio(s) beside the editor"):
             print("[harness2] NEEDS KAREN: nobody pressed Start. Nothing was run and nothing is claimed.")
             return verdict()
 
         server, clients, unknown = classify_studios(studio, before)
+        phases.mark("classifying the three processes")
         check("Found one server DataModel", server is not None, ", ".join(unknown))
         check("Found exactly two client DataModels", len(clients) == 2,
               f"{len(clients)} client(s)" + ("; unclassified: " + ", ".join(unknown) if unknown else ""))
@@ -1671,11 +1866,15 @@ def run_test2(studio, wait_seconds=180):
         # makes one of them a Driver, and a Driver carries no gun at all (DRIVERS_MAY_SHOOT is
         # false), so the weapon and staged-shot specs cannot pass in that client whatever is
         # replayed into it. Ask each client who it is, and drive the SHOOTER's (round 1, finding 2).
-        teams = {}
-        for studio_id in clients:
-            team, _ = wait_for(lambda: studio.query("Client", QUERY_MY_TEAM, studio_id=studio_id),
-                               lambda v: v != "", 45, 1)
-            teams[studio_id] = team
+        # BOTH clients against ONE 45 s deadline (Task 50). They are assigned their teams by the same
+        # server event, so they answer at about the same moment; asking them one after the other,
+        # each with its own 45 s, put the second client's whole wait after the first's.
+        answers = wait_for_each(clients,
+                                lambda studio_id: studio.query("Client", QUERY_MY_TEAM,
+                                                               studio_id=studio_id),
+                                lambda v: v != "", 45, 1)
+        teams = {studio_id: answers[studio_id][0] for studio_id in clients}
+        phases.mark("asking both clients their team")
         print("[harness2] client teams: " + ", ".join(f"{i[:8]}={teams[i] or '?'}" for i in clients))
         shooter = next((i for i in clients if teams[i] == "Shooters"), None)
         check("One client is on the Shooters team", shooter is not None,
@@ -1700,12 +1899,18 @@ def run_test2(studio, wait_seconds=180):
         if not check("The gate token reached the server process", set_token == token, set_token):
             end_session(studio, before)
             return verdict()
+        # ONE 20 s deadline for both (Task 50): one StringValue replicates to both clients from the
+        # same server write, so they see it within milliseconds of each other.
+        arrived = wait_for_each(clients,
+                                lambda studio_id: studio.query("Client", QUERY_TOKEN,
+                                                               studio_id=studio_id),
+                                lambda v: v == token, 20, 0.5)
         for studio_id in clients:
-            seen, ok = wait_for(lambda: studio.query("Client", QUERY_TOKEN, studio_id=studio_id),
-                                lambda v: v == token, 20, 1)
+            seen, ok = arrived[studio_id]
             check(f"[{'shooter' if studio_id == shooter else 'driver'}] the token replicated to the "
                   "client", ok, f"client has {seen!r}")
 
+        phases.mark("injecting the gate token and replicating it")
         if scenarios is None:
             print("[harness2] no tests/client/input_scenarios.txt: nothing to replay")
         else:
@@ -1719,6 +1924,7 @@ def run_test2(studio, wait_seconds=180):
         # in run 5 both clients HAD reported -- the reads had simply given up first, one after the
         # other. A two-player client suite is also slower than a one-player one, because the same
         # replay is sent to two clients, so the window is REPORT_WINDOW_2P.
+        phases.mark("replaying the input scenarios into both clients")
         pending = {"server": (server, "server"), "shooter": (shooter, "client"),
                    "driver": (other, "client")}
         started_reading = time.time()
@@ -1739,8 +1945,9 @@ def run_test2(studio, wait_seconds=180):
                                                  studio_id=server),
                             timeout=10, default="")
             if pending:
-                time.sleep(2)
+                time.sleep(1)
 
+        phases.mark("reading all three reports")
         for name, studio_id in (("server", server), ("shooter", shooter), ("driver", other)):
             # The console is read from the same still-loading (or already closed) process, so it
             # gets the same treatment: a missing console is a note in the output, never a crash
@@ -1800,7 +2007,186 @@ def run_test2(studio, wait_seconds=180):
             print("-" * 25)
 
     end_session(studio, before)
+    phases.mark("reading consoles, checking reports, ending the session")
     return verdict()
+
+
+# ---------------------------------------------------------------- selftest (Task 50)
+
+def selftest():
+    """Prove the concurrency Task 50 added, WITHOUT Studio. Runs in CI.
+
+    A one-player `test` exercises wait_for_each and send_input_many with exactly one subject, which
+    is the case where they are trivially the old code. The case that makes `test2` fast -- several
+    subjects waited for at once -- no run on this machine can reach without two clients and a human
+    click, so it is proved here instead, against fakes, in under a second."""
+    failures = []
+
+    def ok(name, condition, detail=""):
+        if not condition:
+            failures.append(f"{name}{': ' + detail if detail else ''}")
+
+    # 1. Several subjects that answer at different times cost the SLOWEST, not the SUM.
+    answers = {"a": 3, "b": 4, "c": 1}   # how many looks each needs
+    looks = {key: 0 for key in answers}
+
+    def look(key):
+        looks[key] += 1
+        return "yes" if looks[key] >= answers[key] else "not yet"
+
+    began = time.time()
+    got = wait_for_each(list(answers), look, lambda v: v == "yes", 5, 0.05)
+    elapsed = time.time() - began
+    ok("every subject succeeds", all(got[key][1] for key in answers), repr(got))
+    ok("each subject was looked at until IT answered",
+       all(looks[key] == answers[key] for key in answers), repr(looks))
+    # The slowest needs 4 looks = 3 sleeps = 0.15 s. One-at-a-time would be 3+4+1 = 8 looks
+    # = 5 sleeps of its own each, i.e. 0.25 s or more. The bound is deliberately loose: this
+    # asserts the SHAPE (overlapped, not serial), not a wall-clock budget on a busy PC.
+    ok("the waits overlapped", elapsed < 0.25, f"{elapsed:.3f} s")
+
+    # 2. A subject that NEVER answers still fails, after the deadline, and does not stop the others.
+    began = time.time()
+    got = wait_for_each(["good", "never"],
+                        lambda key: "yes" if key == "good" else "no",
+                        lambda v: v == "yes", 0.3, 0.05)
+    elapsed = time.time() - began
+    ok("the good subject succeeds beside a hopeless one", got["good"][1], repr(got))
+    ok("the hopeless subject fails", not got["never"][1], repr(got))
+    ok("it failed at the deadline, not before or long after", 0.3 <= elapsed < 1.0, f"{elapsed:.3f} s")
+    ok("the failing subject's last value is reported", got["never"][0] == "no", repr(got["never"]))
+
+    # 3. A RuntimeError from one subject is "not yet", exactly as in wait_for.
+    tries = {"n": 0}
+
+    def raises_once(_key):
+        tries["n"] += 1
+        if tries["n"] == 1:
+            raise RuntimeError("place is not open")
+        return "yes"
+
+    got = wait_for_each(["x"], raises_once, lambda v: v == "yes", 2, 0.05)
+    ok("a RuntimeError is retried, not raised", got["x"][1], repr(got))
+
+    # 4. ONE subject behaves exactly like wait_for -- the one-player `test` path.
+    counted = {"n": 0}
+
+    def third_time(_key=None):
+        counted["n"] += 1
+        return "yes" if counted["n"] >= 3 else "no"
+
+    got = wait_for_each(["only"], third_time, lambda v: v == "yes", 2, 0.01)
+    many = counted["n"]
+    counted["n"] = 0
+    value, single = wait_for(third_time, lambda v: v == "yes", 2, 0.01)
+    ok("one subject matches wait_for", got["only"] == (value, single) and many == counted["n"],
+       f"{got['only']!r} vs {(value, single)!r}, {many} vs {counted['n']} looks")
+
+    # 5. Replies are keyed by id, so two requests in flight cannot eat each other's answer. This is
+    # the transport change send_input_many needs; the old loop dropped every non-matching message.
+    class FakeStudio(Studio):
+        def __init__(self):  # no subprocess, no Studio
+            self.lines = queue.Queue()
+            self.next_id = 0
+            self.replies = {}
+            self.sent = []
+
+        def _send(self, msg):
+            self.sent.append(msg)
+
+    fake = FakeStudio()
+    first = fake._submit("tools/call", {"name": "a"})
+    second = fake._submit("tools/call", {"name": "b"})
+    ok("two submits get two ids", first != second, f"{first} vs {second}")
+    # OUT OF ORDER on purpose: the second request answers first.
+    fake.lines.put(json.dumps({"jsonrpc": "2.0", "id": second, "result": {"content": [{"text": "B"}]}}))
+    fake.lines.put(json.dumps({"jsonrpc": "2.0", "id": first, "result": {"content": [{"text": "A"}]}}))
+    # queue.Empty, not an assertion, is how a transport that DROPS the other reply fails here
+    # (that is what the pre-Task-50 loop did), so it is caught and named rather than left to end
+    # the selftest in a traceback -- a harness fault is a reported failure, never a stack (rule 6).
+    try:
+        got_first = fake._await(first, timeout=1)
+        got_second = fake._await(second, timeout=1)
+    except queue.Empty:
+        ok("a reply is never dropped while another request is in flight", False,
+           "one of the two replies was thrown away")
+        got_first = got_second = {"content": [{"text": "<lost>"}]}
+    ok("the first request gets its own reply", got_first["content"][0]["text"] == "A", repr(got_first))
+    ok("the second request gets its own reply, delivered first",
+       got_second["content"][0]["text"] == "B", repr(got_second))
+    ok("nothing is left behind", not fake.replies, repr(fake.replies))
+
+    # 6. An error reply raises for THAT request only.
+    fake = FakeStudio()
+    bad = fake._submit("tools/call", {"name": "boom"})
+    good = fake._submit("tools/call", {"name": "fine"})
+    fake.lines.put(json.dumps({"jsonrpc": "2.0", "id": bad, "error": {"message": "no"}}))
+    fake.lines.put(json.dumps({"jsonrpc": "2.0", "id": good, "result": {"content": []}}))
+    try:
+        fake._await(bad, timeout=1)
+        ok("an error reply raises", False)
+    except RuntimeError:
+        ok("an error reply raises", True)
+    fake._await(good, timeout=1)  # raises if the error ate this one
+
+    # 7. send_input_many submits one call per target, keeps target order, and reports per target.
+    class InputStudio(FakeStudio):
+        def __init__(self, fail_for=()):
+            FakeStudio.__init__(self)
+            self.fail_for = set(fail_for)
+
+        def _await(self, request_id, timeout=120):
+            name = self.sent[request_id - 1]["params"]["arguments"].get("studio_id")
+            if name in self.fail_for:
+                return {"isError": True, "content": [{"text": "refused"}]}
+            return {"content": [{"text": "ok"}]}
+
+    inputs = InputStudio()
+    out = inputs.send_input_many("keyboard", [{"action": "keyPress", "key_code": "R"}], ["one", "two"])
+    ok("one call per target", len(inputs.sent) == 2, str(len(inputs.sent)))
+    ok("every target is reported", list(out) == ["one", "two"], repr(list(out)))
+    ok("no failure is invented", all(v is None for v in out.values()), repr(out))
+    ok("the keyboard tool is used for keyboard",
+       all(m["params"]["name"] == "user_keyboard_input" for m in inputs.sent),
+       repr([m["params"]["name"] for m in inputs.sent]))
+    ok("the batch reaches every target unchanged",
+       all(m["params"]["arguments"]["actions"] == [{"action": "keyPress", "key_code": "R"}]
+           for m in inputs.sent), repr(inputs.sent))
+
+    inputs = InputStudio(fail_for=["two"])
+    out = inputs.send_input_many("mouse", [{"action": "moveTo", "x": 1, "y": 2}], ["one", "two"])
+    ok("a refusal is reported against ITS target and nothing else",
+       out["one"] is None and isinstance(out["two"], RuntimeError), repr(out))
+    ok("the mouse tool is used for mouse",
+       all(m["params"]["name"] == "user_mouse_input" for m in inputs.sent),
+       repr([m["params"]["name"] for m in inputs.sent]))
+
+    # 8. A single target is one submit and one await -- the one-player `test` path.
+    inputs = InputStudio()
+    out = inputs.send_input_many("keyboard", [{"action": "keyPress", "key_code": "R"}], [None])
+    ok("one target means one call", len(inputs.sent) == 1, str(len(inputs.sent)))
+    ok("a target of None names no studio_id",
+       "studio_id" not in inputs.sent[0]["params"]["arguments"], repr(inputs.sent[0]))
+    ok("a single target is reported like any other", out == {None: None}, repr(out))
+
+    # 9. The scenario file the replay is made of still parses and still refuses what it refused.
+    if os.path.exists(SCENARIO_FILE):
+        data = load_scenarios()
+        gaps = sum((step.get("ms") or 0) for scenario in data["scenarios"]
+                   for step in scenario.get("steps", []) if step.get("device") == "wait") / 1000.0
+        batches = sum(len([b for b in scenario_batches(scenario.get("steps", [])) if b[0] != "wait"])
+                      for scenario in data["scenarios"])
+        print(f"[harness] selftest: the scenario file replays {batches} batch(es) "
+              f"and {gaps:.1f} s of its own gaps")
+
+    for line in failures:
+        print("[harness] selftest: " + line)
+    if failures:
+        print(f"[harness] selftest FAIL: {len(failures)} case(s) wrong")
+        return 1
+    print("[harness] selftest PASS: wait_for_each overlaps and still bounds every subject; "
+          "replies are keyed by id; send_input_many is one call per target")
+    return 0
 
 
 def parse_vector(text):
@@ -1817,13 +2203,17 @@ def parse_vector(text):
 
 def main(argv):
     if len(argv) < 2 or argv[1] not in (
-            "test", "test2", "state", "console", "stop", "manifest", "capture", "studios"):
+            "test", "test2", "selftest", "state", "console", "stop", "manifest", "capture",
+            "studios"):
         sys.exit(__doc__)
     if argv[1] != "capture" and len(argv) != 2:
         sys.exit(__doc__)
     if argv[1] == "capture" and not 3 <= len(argv) <= 6:
         sys.exit("usage: python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z] "
                  "[edit|server|client|client:<PlayerName>]")
+    if argv[1] == "selftest":
+        # No Studio, no network, no place: pure helpers only, so CI can run it.
+        return selftest()
     if argv[1] == "manifest":
         with open(DEVPACKAGES_MANIFEST, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(devpackages_manifest()) + "\n")
@@ -1891,5 +2281,10 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.stdout.reconfigure(encoding="utf-8")
+    # LINE BUFFERED, always. Piped to a file or a log, Python buffers stdout in 8 KiB blocks, so a
+    # run that waits three minutes for a click showed nothing at all until it was over -- and the
+    # one line the Director waits for before pressing F7 ("the gate is shut again") arrived with
+    # everything else at the end. `python -u` does this from outside; doing it here means the mode
+    # is live however it is started (Task 50).
+    sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
     sys.exit(main(sys.argv))
