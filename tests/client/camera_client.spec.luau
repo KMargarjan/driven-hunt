@@ -359,10 +359,16 @@ return function()
 			local pieceSkin = Instance.new("SurfaceAppearance")
 			pieceSkin.Parent = piece
 
-			local was = Camera.Viewmodel.current()
+			local live = Camera.Viewmodel.getSource()
 			Camera.Viewmodel.setSource(function()
 				return source
 			end)
+			-- THE SOURCE IS ASKED FOUR TIMES A SECOND, NOT EVERY FRAME (Viewmodel's own comment: the
+			-- pose is what has to be per frame). One update after setSource therefore rebuilds from
+			-- the PREVIOUS handle -- which is how the first version of this test read the live gun's
+			-- Handle and reported no SurfaceAppearance. Wait past the interval, then update.
+			Camera.Viewmodel.clear()
+			task.wait(0.3)
 			Camera.Viewmodel.update(CFrame.new(0, 10, 0), 1, Config)
 			local model = Camera.Viewmodel.current()
 			expect(model).to.be.ok()
@@ -387,10 +393,13 @@ return function()
 			expect(clonedPiece).to.be.ok()
 			expect((clonedPiece :: Instance):FindFirstChildOfClass("SurfaceAppearance")).to.be.ok()
 
-			Camera.Viewmodel.setSource(nil)
+			-- PUT THE LIVE SOURCE BACK. `CameraBoot` set it once at boot, so `setSource(nil)` would
+			-- not restore it -- it would end it, and every later frame of this session would draw no
+			-- viewmodel at all.
 			Camera.Viewmodel.clear()
+			Camera.Viewmodel.setSource(live)
 			source:Destroy()
-			expect(was == nil or true).to.equal(true)
+			expect(Camera.Viewmodel.getSource()).to.equal(live)
 		end)
 
 		it("shows a viewmodel that is really on screen, and unparents it afterwards", function()

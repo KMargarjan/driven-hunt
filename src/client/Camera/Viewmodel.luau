@@ -31,6 +31,15 @@ function Viewmodel.setSource(fn: (() -> BasePart?)?)
 	end
 end
 
+-- So a spec can borrow the source and PUT THE LIVE ONE BACK. `CameraBoot` sets it exactly once at
+-- boot -- "the Handle of the Tool in the local character" -- so `setSource(nil)` does not restore
+-- it, it ends it: every later frame of that session would draw no viewmodel at all, and any ADS
+-- screenshot after would be of nothing. The same seam `Weapon.Hardware.getTemplateProvider` has,
+-- and for the same reason (Task 74 review round 1, finding 3 one layer over).
+function Viewmodel.getSource(): (() -> BasePart?)?
+	return source
+end
+
 -- Nil unless the viewmodel is actually in the camera (design section 9.2 item 6). The clone is kept
 -- behind this so it is not rebuilt every time the player dips out of aim, but "is there a viewmodel"
 -- means "is one on screen".
