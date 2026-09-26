@@ -22,14 +22,12 @@
 -- Design: docs/design/map-generator.md (sections 2.2, 5.1, 5.2, 6.4)
 -- Note:   docs/research/2026-09-24-map-generator.md
 local CollectionService = game:GetService("CollectionService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
-local Map = require(ReplicatedStorage:WaitForChild("Map"))
-
 local Assets = require(script:WaitForChild("Assets"))
 local Config = require(script:WaitForChild("Config"))
+local Map = require(script:WaitForChild("Contract"))
 local Digest = require(script:WaitForChild("Digest"))
 local Ground = require(script:WaitForChild("Ground"))
 local Height = require(script:WaitForChild("Height"))

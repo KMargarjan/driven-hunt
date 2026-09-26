@@ -14,8 +14,11 @@
 -- Note:   docs/research/2026-09-24-map-generator.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+
+-- Through Contract, not by requiring Map directly: at edit time Studio's require cache would otherwise
+-- hand back a contract older than the file (Contract.luau says what was measured).
+local Map = require(script.Parent:WaitForChild("Contract"))
 
 local Config = {}
 

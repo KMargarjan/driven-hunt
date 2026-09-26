@@ -114,11 +114,11 @@ end
 return HttpService:JSONEncode(result)
 """
 
-# The one module the generator CANNOT reload this way: `Map` is required by absolute path from inside
-# Config and Markers, so those requires reach Studio's cached copy however freshly MapGen itself is
-# loaded. This compares the cached table against a freshly required clone of the same script, field by
-# field, and names every difference. A difference means Studio is holding an older contract than the
-# file says, and only reopening the place clears that.
+# THE SESSION'S CACHED CONTRACT, compared with a freshly required clone of the same script. Since
+# MapGen.Contract loads the contract fresh at edit time, a stale cache no longer changes what gets
+# built -- so this is a printed NOTE, not a refusal. It is still worth knowing: it tells the operator
+# that anything else in this Edit session which already required ReplicatedStorage.Map is holding an
+# older copy, and that only reopening the place clears it.
 STALE = """
 local HttpService = game:GetService("HttpService")
 local ok, result = pcall(function()
@@ -234,22 +234,20 @@ def check_synced(studio):
     return None
 
 
-def check_contract_cache(studio):
-    """Refusal 3, second half: Studio must not be holding an older ReplicatedStorage.Map."""
-    result = parse_json(
-        studio.query("Edit", STALE)
-    )
+def note_contract_cache(studio):
+    """Prints a note when Studio's require cache holds an older contract than the file says."""
+    result = parse_json(studio.query("Edit", STALE))
     if result.get("error"):
-        return f"could not check the contract in Studio: {result['error']}"
+        print(f"[mapgen] note: could not compare the cached contract: {result['error']}")
+        return
     differences = result.get("differences") or []
-    if differences:
-        lines = ["Studio has an OLDER ReplicatedStorage.Map in its require cache than the file says:"]
-        lines += [f"  - {d}" for d in differences]
-        lines.append("  A Rojo sync replaces the script Source but does not reload an already-required")
-        lines.append("  module. Close and reopen the place in Studio, press Connect, and run this again.")
-        return chr(10).join(lines)
-    return None
-
+    if not differences:
+        return
+    print("[mapgen] note: this Edit session has an OLDER ReplicatedStorage.Map in its require cache")
+    for difference in differences:
+        print(f"  - {difference}")
+    print("  MapGen.Contract loads the contract fresh, so the build below uses the file on disk.")
+    print("  Reopen the place when you want the session itself current (a Rojo sync cannot).")
 
 def check_backup(studio, backup):
     """Refusal 4, or the M2.1 census in its place."""
@@ -471,9 +469,7 @@ def main(argv):
         why = check_synced(studio)
         if why:
             return refuse(why)
-        why = check_contract_cache(studio)
-        if why:
-            return refuse(why)
+        note_contract_cache(studio)
         if mutating:
             why = check_backup(studio, args.backup)
             if why:

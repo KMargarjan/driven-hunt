@@ -18,9 +18,8 @@
 --
 -- Design: docs/design/map-generator.md (sections 2.2, 4.2, 4.3, 13.1)
 local CollectionService = game:GetService("CollectionService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Map = require(ReplicatedStorage:WaitForChild("Map"))
+local Map = require(script.Parent:WaitForChild("Contract"))
 
 local Height = require(script.Parent:WaitForChild("Height"))
 local Layout = require(script.Parent:WaitForChild("Layout"))
