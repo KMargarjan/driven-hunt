@@ -50,6 +50,10 @@ local started = false
 local connections: { RBXScriptConnection } = {}
 local acquired, acquireReason = false, nil :: string?
 local lookAtRequest: BindableFunction? = nil
+-- The last Camera.lookAt point that has NOT yet been seen on screen. Task 50: a caller needs to know
+-- when its request has actually been rendered, because the harness replays mouse movement into the
+-- same client and a mouse delta in the same frame takes the camera somewhere else.
+local pendingLookAt: Vector3? = nil
 
 local signal = Instance.new("BindableEvent")
 Camera.Changed = signal.Event
@@ -63,6 +67,11 @@ local stats = {
 	viewmodelParented = false,
 	aimEnters = 0,
 	aimExits = 0,
+	-- Camera.lookAt asked for, and a rendered frame that actually showed it. Task 50: the gap between
+	-- the two is a frame in which mouse movement arrived, which is why a caller must WAIT for landed
+	-- rather than count frames. See Config.LOOK_AT_LANDED_DOT for how close "showed it" is.
+	lookAtRequests = 0,
+	lookAtLanded = 0,
 }
 
 -- Every mode the camera has been in, in order, from boot. The harness-driven spec asserts over this
@@ -148,6 +157,11 @@ function Camera.lookAt(point: Vector3): boolean
 		return false
 	end
 	state = Mode.anglesToward(state, root.CFrame, point, Config)
+	-- Pending until a frame has been RENDERED pointing there. The angles are set now, but update()
+	-- runs Mode.step first, and a mouse delta that arrived this frame is consumed there -- so
+	-- "I asked" and "it is on screen" are two different moments and the caller needs the second.
+	pendingLookAt = point
+	stats.lookAtRequests += 1
 	return true
 end
 
@@ -185,6 +199,15 @@ local function update(dt: number)
 		local position = Rig.occlude(pivot, desired.Position, Config)
 		local applied = CFrame.lookAt(position, position + desired.LookVector)
 		Rig.apply(applied, fov)
+		if pendingLookAt then
+			-- Measured against the CFrame THIS frame actually wrote, not against the angles asked
+			-- for: occlusion may have pulled the camera in, and a mouse delta may have turned it.
+			local toTarget = pendingLookAt - applied.Position
+			if toTarget.Magnitude > 1e-3 and applied.LookVector:Dot(toTarget.Unit) >= Config.LOOK_AT_LANDED_DOT then
+				pendingLookAt = nil
+				stats.lookAtLanded += 1
+			end
+		end
 		stats.maxDistanceFromRoot = math.max(stats.maxDistanceFromRoot, (position - root.Position).Magnitude)
 		Viewmodel.update(applied, state.blend, Config)
 	end
