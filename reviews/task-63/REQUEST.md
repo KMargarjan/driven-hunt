@@ -3,18 +3,19 @@
 Task: 63
 Round: 1
 Base: `4a0a7d5` (`main`, with Task 61 merged)
-Code commit: `be43f61a406668a648f410a901f98fb9e67ea7c0` — the `[harness]` line below names it, and it
-is the last commit that changed `src/`, `tests/` or `tools/`.
+Code commit: `1484bac6416107dadb48adbc63ade5c3cb70761d` — **both** harness lines below name it. It
+is a PAPERWORK commit: the last commit that changed `src/`, `tests/` or `tools/` is `be43f61`, and
+`git diff --name-only be43f61..1484bac` is `TASKS.md` and this file.
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 30/30 checks @ be43f61a406668a648f410a901f98fb9e67ea7c0 (clean tree)
+    [harness] PASS: 30/30 checks @ 1484bac6416107dadb48adbc63ade5c3cb70761d (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me:
 
-    [harness2] PASS: n/n checks @ be43f61a406668a648f410a901f98fb9e67ea7c0 (clean tree)
+    [harness2] PASS: 32/32 checks @ 1484bac6416107dadb48adbc63ade5c3cb70761d (clean tree)
 
-377 server specs (374 before) and 84 client specs. **The map is CLEARED from the place**:
+377 server specs (374 before), 84 shooter and 78 driver client specs. **The map is CLEARED from the place**:
 `removed: 9031`, `cellsAfter: 0`, `paletteRestored: true`.
 
 ## Scope
