@@ -350,9 +350,15 @@ return function()
 		-- no list and nothing ever wrote it.
 		--
 		-- This test adds a part to the character AFTER the body is hidden, which is the same arrival
-		-- the Handle makes. Everything below runs WITHOUT YIELDING, because `Camera.step` sets the flag
-		-- from the real aim blend on every render step and would undo the setup a frame later --
-		-- `DescendantAdded` fires synchronously on the parent assignment, so no wait is needed.
+		-- the Handle makes.
+		--
+		-- MEASURED 2026-09-26, and the first version of this test was wrong about it: `DescendantAdded`
+		-- is DEFERRED, not synchronous. A probe that parented a part and read the value in the same
+		-- breath saw `synchronous=false`, and only `afterOneWait=true`. So the loop below waits -- and
+		-- re-asserts the flag on every pass, because `Camera.step` sets it from the real aim blend on
+		-- every render step and will lower it while we wait. Re-asserting CANNOT make this pass by
+		-- itself: `setLocalBodyHidden` only writes the parts in its own list, and the whole point of
+		-- the defect is that the late arrival was never in that list.
 		it("hides a part that arrives after the body was already hidden", function()
 			local character = player.Character
 			expect(character).to.be.ok()
@@ -365,19 +371,29 @@ return function()
 			probe.Anchored = true
 			probe.CanCollide = false
 			probe.CanQuery = false
-			probe.Parent = character -- DescendantAdded fires here, synchronously
+			probe.Parent = character
 
-			local modifier = probe.LocalTransparencyModifier
+			local hidden, modifier = false, probe.LocalTransparencyModifier
+			local deadline = os.clock() + 3
+			while os.clock() < deadline do
+				Camera.Rig.setLocalBodyHidden(true)
+				modifier = probe.LocalTransparencyModifier
+				if modifier == 1 then
+					hidden = true
+					break
+				end
+				task.wait()
+			end
 			local counted = Camera.Rig.hiddenPartCount()
 			probe:Destroy()
 			Camera.Rig.setLocalBodyHidden(false)
 
-			if modifier ~= 1 then
+			if not hidden then
 				error(
 					string.format(
-						"a part parented to the character while the body was hidden kept "
-							.. "LocalTransparencyModifier = %.1f: in ADS that is the real gun drawn beside "
-							.. "the viewmodel (audit-003 F1)",
+						"a part parented to the character while the body was hidden still had "
+							.. "LocalTransparencyModifier = %.1f after 3 s: in ADS that is the real gun drawn "
+							.. "beside the viewmodel (audit-003 F1)",
 						modifier
 					),
 					0
