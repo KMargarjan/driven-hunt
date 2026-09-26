@@ -15,7 +15,8 @@ never reach it, and until Task 49 nothing checked for them on the way in:
    and `ALLOWED_EMAILS` are the whole rule; nothing else is allowed. Every commit in this repo
    already uses the noreply identity, and this keeps it that way in file contents too.
 3. **Secret shapes** - private key headers, `.ROBLOSECURITY` cookie values, AWS / GitHub / Slack /
-   `sk-` style API keys, webhook URLs, and any `api_key = "<20+ characters>"` style assignment.
+   `sk-` and Meshy `msy_` style API keys, webhook URLs, and any `api_key = "<20+ characters>"`
+   style assignment.
    Naming a secret is fine: CLAUDE.md and `.gitignore` both talk about `.ROBLOSECURITY` and
    `*.pem` and must keep passing. Only a value that looks like the real thing fails.
 
@@ -58,6 +59,7 @@ _AT = "@"
 _DASH5 = "-" * 5
 _BEGIN = _DASH5 + "BEGIN "
 _UNDERSCORE_PIPE = "_" + "|"
+_MSY = "msy" + "_"  # kept apart, like every other piece, so this file never matches its own rule
 
 # A path segment that is a placeholder, not a real account name.
 _PLACEHOLDER = r"(?:[<%${]|\.\.\.)"
@@ -108,6 +110,14 @@ RULES = [
         # OpenAI / Anthropic style, including the sk-ant- prefix.
         re.compile(r"(?<![A-Za-z0-9-])sk-(?:ant-)?[A-Za-z0-9_-]{20,}"),
         "API key (sk- prefix)",
+    ),
+    (
+        # Meshy bearer keys (Task 55). `docs/design/meshy-tool.md` section 6.1: the existing rules
+        # cover none of this shape -- it is not AWS, GitHub, Slack, `sk-` or an assignment. The bare
+        # variable NAME and the word `Bearer` as prose must stay legal, so only the token matches.
+        "meshy-key",
+        re.compile(r"(?<![A-Za-z0-9_])" + _MSY + r"[A-Za-z0-9]{20,}"),
+        "Meshy API key - revoke it in the Meshy dashboard first, then remove it (CLAUDE.md)",
     ),
     (
         "slack-token",
@@ -234,6 +244,8 @@ CAUGHT = [
     ("sk-key", "sk-" + "ant-" + "api03-" + "c" * 30),
     ("sk-key", "sk-" + "d" * 32),
     ("slack-token", "xox" + "b-1234567890-abcdefghij"),
+    ("meshy-key", "Authorization: Bearer " + _MSY + "aBcDeFgHiJkLmNoPqRsTuVwXyZ0123"),
+    ("meshy-key", _MSY + "0123456789abcdefghijklmnop"),
     ("webhook-url", "https://hooks.slack.com" + "/services/T000/B000/" + "e" * 24),
     ("webhook-url", "https://discord.com" + "/api/webhooks/123456/" + "f" * 24),
     ("assigned-secret", "api_key" + " = " + '"' + "g" * 32 + '"'),
@@ -251,6 +263,11 @@ ALLOWED = [
     "$HOME/projects/driven-hunt",
     "the drop folder is <assets-dir>, the runs folder <runs-dir>, the repo <repo>",
     "never commit a .ROBLOSECURITY cookie or a *.pem private key",
+    # The Meshy rule must not fire on the variable NAME, on the header word, or on a truncated
+    # example -- all three appear in the docs, the design and the research note as prose.
+    "read MESHY_API_KEY from the environment, never from a prompt",
+    "the header is `Authorization: Bearer " + _MSY + "...`, and the prefix is mandatory",
+    "keys begin " + _MSY + " (Meshy's own example is elided here)",
     "header `x-api-key: <key>`, with the key replaced by ***",
     "see https://create.roblox.com/docs/reference/engine/classes/AssetService",
     "uses: CompeyDev/setup-rokit" + _AT + "v0.2.1",

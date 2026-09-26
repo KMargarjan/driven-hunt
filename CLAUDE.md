@@ -4,7 +4,9 @@ Read docs/PROJECT_CONTEXT.md before your first task in a session.
 
 Roblox game. Code lives on disk and is synced into Studio by Rojo. Place: **Driven Hunt DEV**
 (PlaceId 136410205938347, enforced by `servePlaceIds` in `default.project.json`).
-Five roles: Director, Builder, Architect, Reviewer, Karen. See **Four-agent workflow** below.
+Five agent roles plus Karen: Director, Builder, Architect, Reviewer, **Asset**, and Karen. See
+**Four-agent workflow** below -- the heading is older than the Asset role (Task 55) and the
+table under it is the current list.
 
 ## Rules
 
@@ -42,6 +44,7 @@ Five roles: Director, Builder, Architect, Reviewer, Karen. See **Four-agent work
 | **BUILDER** (Claude, this file's reader) | implementation | the only writer of code in `src/`, `tests/`, `tools/`. Also `reviews/task-<N>/REQUEST.md`, `ESCALATE.md`, research notes, `CLAUDE.md`, and in `TASKS.md` the status of its current task plus any Director dispatch that arrived outside the repo, transcribed verbatim and marked as the Director's | writes designs or verdicts |
 | **ARCHITECT** (`tools/architect.sh`) | structure, system owners, interfaces | `docs/design/`, `docs/architecture/`, `reviews/task-<N>/ARCH_RESULT.md` (through the script) | touches code (read-only) |
 | **REVIEWER** (`tools/review.sh`) | verifying claims | `reviews/task-<N>/RESULT.md` (through the script) | touches code (read-only) |
+| **ASSET** (`docs/ASSET_PROMPT.md`) | one asset from one brief, up to the next stop point. Operates `tools/meshy.py`; never edits it | `reviews/task-<N>/ASSET_RESULT.md`, and the asset dir **outside** the repo | touches `src/`, `tests/`, `tools/`, git, Studio, the harness, the Roblox API, or any asset that is not its session's key. **It is not sandboxed** -- see `docs/ASSET_PROMPT.md`, "What is enforced" |
 | **KAREN** | the game | plays it, decides anything about feel or design, `PLAYTEST.md` feedback, and does the clicks no tool can do (Rojo **Connect**, the Studio MCP toggle, Studio itself) | merges PRs (handed to the Director on 2026-09-24) |
 
 The Director may be Karen or a Director agent. The Builder accepts tasks from either, in exactly the
@@ -63,6 +66,7 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
 | `reviews/task-<N>/BRIEF.md` | Builder, carrying the Director | **optional.** The input to an Architect *design* run: decisions already taken, and what the design must contain. `docs/ARCHITECT_PROMPT.md` tells the Architect to read it first when it exists, and it overrides anything older in `docs/`, `TASKS.md` or an earlier design. Written before the run, committed, then `tools/architect.sh design <system> --task <N>` |
 | `ESCALATE.md` | anyone | for the Director and Karen: a disagreement, a 3rd failed round, a decision needed, or a **`NEEDS KAREN`** entry (a click only Karen can make) |
 | `PLAYTEST.md` | Builder, transcribing Karen | Karen's feedback after playing |
+| `reviews/task-<N>/ASSET_RESULT.md` | Asset agent | what one asset run produced: the `[meshy]` line verbatim, the task ids, the credits, **what the preview image actually looks like**, and `## Needs Karen`. The Builder reads it, then commits it |
 
 ### The loop, for every task (no questions to Karen)
 
@@ -273,7 +277,8 @@ fails if a script exists anywhere Rojo does not manage.
 | `reviews/task-<N>/` | none | One folder per task: `REQUEST.md` (Builder), `RESULT.md` (Reviewer), `ARCH_RESULT.md` (Architect). Per task so branches never conflict and the round count has a boundary (Task 21) |
 | `backups/` | none | Archived files plus notes |
 | `docs/` | none | `PROJECT_CONTEXT.md` (who, the game, why the rules exist), `research/` (notes plus INDEX), `design/` (Architect system designs), `architecture/` (Architect audits), `REVIEWER_PROMPT.md` and `ARCHITECT_PROMPT.md` (the two agent prompts) |
-| `tools/` | none | `studio_mcp.py` (test harness); `agents.py` plus `review.sh`/`review.ps1`/`architect.sh`/`architect.ps1` (the Reviewer and Architect gate); `privacy_scan.py` (the public-repo scan CI runs) |
+| `tools/` | none | `studio_mcp.py` (test harness); `agents.py` plus `review.sh`/`review.ps1`/`architect.sh`/`architect.ps1` (the Reviewer and Architect gate); `privacy_scan.py` (the public-repo scan CI runs); `meshy.py` (the Asset agent's generator; reads `MESHY_API_KEY`, writes only outside the repo) |
+| `docs/asset-briefs/` | none | The reviewed record of each asset brief (Karen's decisions, as data). `tools/meshy.py` reads the working copy in `<assets-dir>/briefs/`, never this folder |
 
 Workspace (the map), Lighting, Terrain and other non-script content are edited in Studio and saved
 with the place. They must contain no scripts.
@@ -400,6 +405,10 @@ Before the first public release, a publish step must strip them (TASKS.md, Task 
 The repo is **public**. Never commit:
 
 - secrets, API keys, tokens, passwords or `.env` files
+- the **Meshy** API key (`MESHY_API_KEY`, a `msy_` bearer token). It lives in the Windows user
+  environment and `tools/meshy.py` reads it from there or from `HKCU\Environment`; the tool never
+  prints it, and CI fails on the shape. If it leaks: **revoke it in the Meshy dashboard first**,
+  then tell Karen
 - Roblox `.ROBLOSECURITY` cookies, Open Cloud API keys, or webhook URLs
 - private keys (`*.pem`, `*.key`) or credential JSON
 - personal data (real emails; use the GitHub noreply address)
@@ -408,7 +417,7 @@ The repo is **public**. Never commit:
   tracked text file and fails on a local absolute user path (`C:\Users\<name>\...`,
   `/c/Users/<name>/...`, `/home/<name>/...`), on an email address that is not the GitHub noreply
   form, and on a secret shape (private key header, `.ROBLOSECURITY` cookie value, AWS / GitHub /
-  Slack / `sk-` key, webhook URL, `api_key = "<20+ characters>"`). `selftest` runs first in the same
+  Slack / `sk-` / Meshy `msy_` key, webhook URL, `api_key = "<20+ characters>"`). `selftest` runs first in the same
   CI step and proves each rule still catches its shape and still allows what must stay legal.
   Placeholders are the fix for a path: `<repo>`, `<assets-dir>`, `<runs-dir>`, or any segment
   beginning `<`, `%`, `$`, `{` or `...`. The tool's docstring is its documentation.

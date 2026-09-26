@@ -56,6 +56,12 @@ jobs:
         if: success() || failure()
         run: python3 tools/studio_mcp.py selftest
 
+      # The Meshy tool's validators, builders and parsers, with no key and no network (Task 55).
+      # CI never gets a Meshy key, and this step must never need one.
+      - name: Meshy tool selftest (no key, no network)
+        if: success() || failure()
+        run: python3 tools/meshy.py selftest
+
       # The repo is public (CLAUDE.md, "Public repository: never commit secrets"). Task 49.
       # selftest runs first: it proves each rule still catches its shape and still allows the
       # GitHub noreply address and the <repo>/<assets-dir>/<runs-dir> placeholders. A scan that
