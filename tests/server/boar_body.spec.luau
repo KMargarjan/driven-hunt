@@ -6,6 +6,7 @@
 -- seconds rather than the 10.5 s a 400-stud arena needs. Production's boar, spawned by BoarBoot, is
 -- a different runtime and is untouched.
 -- Design: docs/design/boar-ai.md (section 10)
+local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
@@ -31,6 +32,24 @@ local function waitUntil(timeout: number, predicate: () -> boolean): (boolean, n
 		task.wait()
 	end
 	return predicate(), os.clock() - started
+end
+
+-- WHY THERE IS A SECOND WAITER HERE (Task 36). Everything below is physically simulated, and Studio
+-- THROTTLES PHYSICS when its frame rate falls -- so a claim written as "n studs in m seconds of wall
+-- clock" is a race against whatever else the machine is doing, not a test of the boar. One did lose
+-- that race under harness load on 2026-09-25 and passed on a re-run, which is the worst kind of red.
+-- This steps the boar's OWN simulation instead: it counts Heartbeat frames and the distance the body
+-- actually travelled, so a slow machine takes longer in seconds and asserts exactly the same thing.
+-- The seconds that remain are backstops -- they fire only if nothing moves at all -- and they are
+-- generous on purpose.
+local function stepUntil(frames: number, predicate: () -> boolean): (boolean, number)
+	for used = 1, frames do
+		RunService.Heartbeat:Wait()
+		if predicate() then
+			return true, used
+		end
+	end
+	return predicate(), frames
 end
 
 return function()
@@ -141,7 +160,7 @@ return function()
 			-- plate, which is a positive condition it cannot satisfy in mid-air.
 			task.wait()
 			local restY = GROUND_Y + CONFIG.BODY_SIZE.Y / 2
-			local landed = waitUntil(3, function()
+			local landed = waitUntil(6, function()
 				local part = handle.part
 				return math.abs(part.Position.Y - restY) < 0.6 and math.abs(part.AssemblyLinearVelocity.Y) < 1
 			end)
@@ -161,35 +180,96 @@ return function()
 			expect(fastest <= CONFIG.WANDER_SPEED * 1.5).to.equal(true) -- the design's figure
 		end)
 
-		it("sprints away from a threat within 1 s, and stays upright", function()
+		it("sprints away from a threat, and stays upright", function()
 			local start = handle.position()
 			threatPosition = start + Vector3.new(0, 0, 20) -- behind it, toward the far side from the exit
 
+			-- FIRST SENSING is the design's own starting line ("body reaches >= 0.5 x SPRINT_SPEED
+			-- within 1.0 s of first sensing", boar-ai design section 11), and the state turning FLEE
+			-- IS first sensing -- a decision, with no physics in it. Measuring the ramp from the
+			-- moment this spec assigned a variable instead put the scheduler's own latency inside the
+			-- design's budget (Task 36).
+			local sensed = waitUntil(5, function()
+				return handle.state() == "FLEE"
+			end)
+			expect(sensed).to.equal(true)
+
 			local upright = true
-			local reached, took = waitUntil(1.0, function()
+			local sinceFlee = os.clock()
+			local reached, frames = stepUntil(240, function()
 				upright = upright and handle.part.CFrame.UpVector.Y > 0.9
 				return handle.part.AssemblyLinearVelocity.Magnitude >= CONFIG.SPRINT_SPEED * 0.5
 			end)
+			local took = os.clock() - sinceFlee
+			print(string.format("[boar_body] reached half sprint in %d frame(s), %.2f s", frames, took))
 			expect(reached).to.equal(true)
-			expect(took <= 1.0).to.equal(true)
+			-- THE DESIGN'S NUMBER, WITH NO TOLERANCE ADDED, in the unit that makes a tolerance
+			-- unnecessary: "within 1.0 s of first sensing" is 60 frames at 60 Hz, and a frame is a
+			-- simulation step whether the machine is idle or not. The first version allowed 120 --
+			-- twice the design -- which put the spec and the design out of step for no reason once
+			-- the clock was out of the measurement. `took` is printed, not asserted: on a stalled
+			-- machine it measures the machine.
+			expect(frames <= 60).to.equal(true)
 			expect(handle.state()).to.equal("FLEE")
 			expect(upright).to.equal(true)
 
-			-- The design also requires that the simulated body actually gets away, not merely that
-			-- it is moving fast (review round 2, finding 4). Flat distance, since the drop is Y.
-			local function flatGap()
-				local p = handle.position()
-				return (Vector3.new(p.X, 0, p.Z) - Vector3.new(threatPosition.X, 0, threatPosition.Z)).Magnitude
+			-- AND IT ACTUALLY GETS AWAY (review round 2, finding 4). Measured against the boar's own
+			-- travel, not the clock: it must open GAIN_STUDS of flat distance on the threat within
+			-- TRAVEL_BUDGET studs of its own path. A boar that ran three times the distance it gained
+			-- is not fleeing, whatever the frame rate was; a boar that stood still trips the backstop
+			-- below with `travelled` near zero, which says so in the failure.
+			local GAIN_STUDS = 20
+			local TRAVEL_BUDGET = GAIN_STUDS * 3
+			local function flat(p: Vector3): Vector3
+				return Vector3.new(p.X, 0, p.Z)
 			end
-			local gapBefore = flatGap()
-			local grew = waitUntil(3, function()
-				return handle.part.Parent == nil or flatGap() - gapBefore >= 20
-			end)
-			expect(grew).to.equal(true)
+			local function flatGap(): number
+				return (flat(handle.position()) - flat(threatPosition)).Magnitude
+			end
+			local gapBefore, travelled = flatGap(), 0
+			local last = handle.position()
+			local gained, spent = false, 0
+			for _ = 1, 1800 do -- 30 s at 60 Hz: a backstop, never the measurement
+				RunService.Heartbeat:Wait()
+				spent += 1
+				-- UPRIGHT AT EVERY SAMPLE OF THE GETAWAY, which is as much of the design's "throughout
+				-- a 3 s flee" (boar-ai section 11) as this test observes: the loop stops as soon as the
+				-- boar has gained its 20 studs, which at SPRINT_SPEED takes under a second. It used to
+				-- be sampled only until the body reached half sprint speed, a handful of frames in, so
+				-- a boar that tipped over while running proved nothing (TASKS.md 36a(3)(c)).
+				upright = upright and (handle.part.Parent == nil or handle.part.CFrame.UpVector.Y > 0.9)
+				if handle.part.Parent == nil then
+					gained = true -- it left the field entirely, which is getting away
+					break
+				end
+				local here = handle.position()
+				travelled += (flat(here) - flat(last)).Magnitude
+				last = here
+				if flatGap() - gapBefore >= GAIN_STUDS then
+					gained = true
+					break
+				end
+				if travelled >= TRAVEL_BUDGET then
+					break
+				end
+			end
+			print(
+				string.format(
+					"[boar_body] gained %.1f studs over %.1f studs of travel, %d frame(s)",
+					flatGap() - gapBefore,
+					travelled,
+					spent
+				)
+			)
+			expect(gained).to.equal(true)
+			expect(upright).to.equal(true)
 		end)
 
 		it("despawns once when it reaches the exit edge, and says so", function()
-			local gone = waitUntil(8, function()
+			-- 8 s was four times what the crossing needs at SPRINT_SPEED and still a wall-clock
+			-- budget; under harness load it is not obviously enough, and there is no cost to a
+			-- backstop that only fires when the boar never arrives at all (Task 36).
+			local gone = waitUntil(30, function()
 				return #records > 0
 			end)
 			expect(gone).to.equal(true)

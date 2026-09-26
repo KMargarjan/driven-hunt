@@ -1,8 +1,13 @@
 --!strict
 -- PlayerScripts.Hud: THE OWNER OF ANYTHING DRAWN (CLAUDE.md rule 3, GAME_DESIGN.md "UI / anything
 -- drawn", which this system fills). It is the only writer of PlayerGui.HunterHud and everything in
--- it: the crosshair, one barrel/ammo readout, the hit marker, and -- since Milestone 1.7a -- the
--- drive bar and the event feed.
+-- it: the crosshair, one barrel/ammo readout, the hit marker, the drive bar and the event feed
+-- (Milestone 1.7a), and the SCORE SCREEN and the TIED banner (1.7b).
+--
+-- renderScore and renderTied are public for one reason, stated so nobody widens it: a drive is 600
+-- seconds long, so no harness run reaches the Scoring phase, and a spec that cannot hand this module
+-- a Scoring snapshot cannot check that the panel really is on screen -- which is the one check
+-- docs/PROJECT_CONTEXT.md's "a visibility audit certified a blank screen twice" demands.
 --
 -- THE HIT MARKER is Karen's playtest answered ("I cannot tell whether I hit"): a short white tick on
 -- a confirmed hit, a longer red one on a kill. The server tells the shooter alone, one way, over
@@ -19,7 +24,8 @@
 --   GuiObject   https://create.roblox.com/docs/reference/engine/classes/GuiObject
 --   UIStroke    https://create.roblox.com/docs/reference/engine/classes/UIStroke
 --
--- Design: docs/design/shotgun.md (sections 3.4, 5.6), docs/design/camera.md (section 6.2)
+-- Design: docs/design/shotgun.md (sections 3.4, 5.6), docs/design/camera.md (section 6.2),
+--         docs/design/drive.md (section 9.3)
 -- Note:   docs/research/2026-09-24-shotgun.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -41,6 +47,11 @@ local driveBar: TextLabel? = nil
 local feedFrame: Frame? = nil -- kept for the client spec's ancestor walk
 local feedLines: { TextLabel } = {}
 local feedEntries: { { text: string, at: number } } = {}
+local scorePanel: Frame? = nil
+local scoreTitle: TextLabel? = nil
+local scoreLines: { TextLabel } = {}
+local scoreFooter: TextLabel? = nil
+local tiedBanner: TextLabel? = nil
 local started = false
 
 function Hud.gui(): ScreenGui?
@@ -75,6 +86,45 @@ function Hud.feedText(): { string }
 		end
 	end
 	return out
+end
+
+function Hud.scorePanel(): Frame?
+	return scorePanel
+end
+
+function Hud.isScorePanelVisible(): boolean
+	return scorePanel ~= nil and scorePanel.Visible
+end
+
+function Hud.scoreTitleText(): string
+	return if scoreTitle then scoreTitle.Text else ""
+end
+
+function Hud.scoreFooterText(): string
+	return if scoreFooter then scoreFooter.Text else ""
+end
+
+-- Only the lines that are actually showing something, in board order.
+function Hud.scoreRowText(): { string }
+	local out = {}
+	for _, line in ipairs(scoreLines) do
+		if line.Visible and line.Text ~= "" then
+			table.insert(out, line.Text)
+		end
+	end
+	return out
+end
+
+function Hud.tiedBanner(): TextLabel?
+	return tiedBanner
+end
+
+function Hud.isTiedBannerVisible(): boolean
+	return tiedBanner ~= nil and tiedBanner.Visible
+end
+
+function Hud.tiedBannerText(): string
+	return if tiedBanner then tiedBanner.Text else ""
 end
 
 function Hud.isHitMarkVisible(): boolean
@@ -243,6 +293,95 @@ local function build(): ScreenGui
 		table.insert(feedLines, line)
 	end
 
+	-- The score screen: a centred panel, hidden except in the Scoring phase. Built once, like
+	-- everything else here, and shown by renderScore -- the ONE writer of its visibility.
+	local rows = Drive.CONFIG.SCORE_ROWS_MAX
+	local rowHeight = Drive.CONFIG.SCORE_ROW_HEIGHT
+	local panel = Instance.new("Frame")
+	panel.Name = "ScorePanel"
+	panel.BackgroundColor3 = Drive.CONFIG.SCORE_PANEL_COLOR
+	panel.BackgroundTransparency = Drive.CONFIG.SCORE_PANEL_TRANSPARENCY
+	panel.BorderSizePixel = 0
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.Position = UDim2.fromScale(0.5, 0.5)
+	panel.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH, 60 + rows * rowHeight + 30)
+	panel.ZIndex = 5 -- over the feed and the bar, because it is the thing to read
+	panel.Visible = false
+	panel.Parent = screen
+
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.Code
+	title.TextSize = Drive.CONFIG.SCORE_TITLE_SIZE
+	title.TextColor3 = Drive.CONFIG.TEXT_COLOR
+	title.Position = UDim2.fromOffset(16, 10)
+	title.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, 28)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Text = ""
+	title.Parent = panel
+
+	local header = Instance.new("TextLabel")
+	header.Name = "Header"
+	header.BackgroundTransparency = 1
+	header.Font = Enum.Font.Code
+	header.TextSize = Drive.CONFIG.SCORE_TEXT_SIZE
+	header.TextColor3 = Drive.CONFIG.TEXT_COLOR
+	header.TextTransparency = 0.4
+	header.Position = UDim2.fromOffset(16, 40)
+	header.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, rowHeight)
+	header.TextXAlignment = Enum.TextXAlignment.Left
+	header.Text = "#  NAME             TEAM     KILLS  POINTS"
+	header.Parent = panel
+
+	table.clear(scoreLines)
+	for index = 1, rows do
+		local line = Instance.new("TextLabel")
+		line.Name = string.format("Row%d", index)
+		line.BackgroundTransparency = 1
+		line.Font = Enum.Font.Code
+		line.TextSize = Drive.CONFIG.SCORE_TEXT_SIZE
+		line.TextColor3 = Drive.CONFIG.TEXT_COLOR
+		line.TextXAlignment = Enum.TextXAlignment.Left
+		line.Position = UDim2.fromOffset(16, 60 + (index - 1) * rowHeight)
+		line.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, rowHeight)
+		line.Text = ""
+		line.Visible = false
+		line.Parent = panel
+		table.insert(scoreLines, line)
+	end
+
+	local footer = Instance.new("TextLabel")
+	footer.Name = "Footer"
+	footer.BackgroundTransparency = 1
+	footer.Font = Enum.Font.Code
+	footer.TextSize = Drive.CONFIG.SCORE_TEXT_SIZE
+	footer.TextColor3 = Drive.CONFIG.TEXT_COLOR
+	footer.Position = UDim2.fromOffset(16, 60 + rows * rowHeight + 4)
+	footer.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, 22)
+	footer.TextXAlignment = Enum.TextXAlignment.Left
+	footer.Text = ""
+	footer.Parent = panel
+
+	-- The tied banner, for the local player alone and only while they are tied. The comedy is the
+	-- point and so is the teaching: it says what they did.
+	local tied = Instance.new("TextLabel")
+	tied.Name = "TiedBanner"
+	tied.BackgroundTransparency = 1
+	tied.Font = Enum.Font.Code
+	tied.TextSize = Drive.CONFIG.TIED_TEXT_SIZE
+	tied.TextColor3 = Drive.CONFIG.TIED_COLOR
+	tied.AnchorPoint = Vector2.new(0.5, 0)
+	tied.Position = UDim2.new(0.5, 0, 0, Drive.CONFIG.TIED_TOP_OFFSET)
+	tied.Size = UDim2.fromOffset(620, 30)
+	tied.Text = ""
+	tied.Visible = false
+	local tiedStroke = Instance.new("UIStroke")
+	tiedStroke.Thickness = 1
+	tiedStroke.Color = Color3.new(0, 0, 0)
+	tiedStroke.Parent = tied
+	tied.Parent = screen
+
 	local label = Instance.new("TextLabel")
 	label.Name = "Readout"
 	label.BackgroundTransparency = 1
@@ -265,6 +404,10 @@ local function build(): ScreenGui
 	hitMark = mark
 	driveBar = bar
 	feedFrame = feed
+	scorePanel = panel
+	scoreTitle = title
+	scoreFooter = footer
+	tiedBanner = tied
 	return screen
 end
 
@@ -327,6 +470,73 @@ local function clockText(seconds: number): string
 	return string.format("%d:%02d", math.floor(whole / 60), whole % 60)
 end
 
+local function scoreRowText(rank: number, row): string
+	local team = if row.team == "Drivers" then "DRIVER" elseif row.team == "Shooters" then "SHOOTER" else "-"
+	-- `left` is a fact the board carries; a leaver's row stays on this drive's screen (drive design
+	-- section 4.4), and a trailing "*" is how the reader knows why they are not in the next drive.
+	local gone = if row.left then " *" else ""
+	return string.format(
+		"%-2d %-16s %-8s %5d %7d%s",
+		rank,
+		string.sub(tostring(row.name or "?"), 1, 16),
+		team,
+		row.kills,
+		row.points,
+		gone
+	)
+end
+
+-- THE ONE WRITER of the score panel, and it is PUBLIC on purpose: a drive is 600 seconds long, so no
+-- harness run ever reaches the Scoring phase, and the design's visibility assertion (section 12.7
+-- item 4) could not be written at all unless a spec can hand this the snapshot the wire would. It is
+-- the same reason Hud.onHitMarker is a named function and not an inline closure. Nothing else in the
+-- repo calls it but renderDrive.
+function Hud.renderScore(snapshot, secondsLeft: number?)
+	local panel = scorePanel
+	if not panel then
+		return
+	end
+	local show = snapshot ~= nil and snapshot.phase == "Scoring" and Drive.CONFIG.SCOREBOARD_ENABLED
+	panel.Visible = show
+	if not show then
+		-- Cleared, not just hidden: a stale board must not flash for a frame at the next Scoring.
+		for _, line in ipairs(scoreLines) do
+			line.Text = ""
+			line.Visible = false
+		end
+		return
+	end
+	if scoreTitle then
+		scoreTitle.Text = string.format("DRIVE %d   SCORE", snapshot.driveNumber)
+	end
+	local me = Players.LocalPlayer.UserId
+	for index, line in ipairs(scoreLines) do
+		local row = snapshot.rows[index]
+		if row then
+			line.Text = scoreRowText(index, row)
+			line.TextColor3 = if row.userId == me then Drive.CONFIG.SCORE_HIGHLIGHT_COLOR else Drive.CONFIG.TEXT_COLOR
+			line.Visible = true
+		else
+			line.Text = ""
+			line.Visible = false
+		end
+	end
+	if scoreFooter then
+		scoreFooter.Text = string.format("NEXT DRIVE IN %d", math.max(0, math.floor(secondsLeft or 0)))
+	end
+end
+
+-- THE ONE WRITER of the tied banner. The local player only: everybody else's tie is in the feed and
+-- in the rope you can see across the arena.
+function Hud.renderTied(isTied: boolean)
+	local banner = tiedBanner
+	if not banner then
+		return
+	end
+	banner.Visible = isTied
+	banner.Text = if isTied then Drive.CONFIG.TIED_TEXT else ""
+end
+
 -- The bar's whole content. `MatchSystem` may be nil -- the Hud works with no drive at all, exactly
 -- as it works with no camera -- and then the bar is simply hidden.
 local function renderDrive(MatchSystem)
@@ -335,6 +545,10 @@ local function renderDrive(MatchSystem)
 		return
 	end
 	local snapshot = if MatchSystem then MatchSystem.get() else nil
+	-- The score screen and the tied banner are driven from the same snapshot as the bar, in one pass,
+	-- so the three can never disagree about which phase it is.
+	Hud.renderScore(snapshot, if MatchSystem then MatchSystem.secondsLeft() else 0)
+	Hud.renderTied(MatchSystem ~= nil and MatchSystem.isTied())
 	if not snapshot then
 		bar.Visible = false
 		bar.Text = ""
@@ -409,7 +623,11 @@ local function render(Weapon, CameraSystem)
 		crosshair.Visible = config.CROSSHAIR_ENABLED and state ~= nil and state.equipped and not aiming
 	end
 	if readout then
-		readout.Text = if state then textFor(state) else ""
+		-- NO GUN, NO READOUT (TASKS.md 35b(a)). The server publishes a reset state when it revokes a
+		-- Tool, and `equipped` is false in it -- so a player tied to a tree stops reading an ammo
+		-- count for a gun that is not in their hands. Without both halves the old snapshot simply
+		-- stayed on screen, which is what the Task 35 screenshot shows.
+		readout.Text = if state and state.equipped then textFor(state) else ""
 	end
 end
 

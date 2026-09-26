@@ -342,6 +342,161 @@ It is small, and it answers every question this note could not:
 Everything else — the bog, spruce/birch variety, the full 2048-stud map, Meshy uploads, Open Cloud —
 waits until that slice is on screen and Karen has walked it.
 
+## Measurements, Milestone 2.1 (Task 43, 2026-09-26)
+
+The four the design asks for (`docs/design/map-generator.md` section 13.5), plus two the build forced.
+Every number here was produced by a probe in this repo's Edit session, Studio **0.740.19.7400931**,
+and every one of them is a fact about *that* Studio, not a promise about the next one.
+
+### A. `Terrain:WriteVoxels` — the region limit and the resolution
+
+    grid=32x24x32 voxels=24576
+    writeVoxels_128x96x128_res4 = true
+    readVoxels_res4 = true
+    writeVoxels_res8 = false   -- "Resolution has to be 4"
+    writeVoxels_res2 = false   -- "Resolution has to be 4"
+
+So a 128 x 128-stud tile through a 96-stud vertical band is accepted in one call, and **resolution 4
+is not a preference, it is the only value the API takes**. The design's tile row is correct and its
+"unverified" on the resolution is closed. `Config.VOXEL = 4` carries this measurement as a comment.
+
+The whole 512-stud slice is 16 such tiles, and all 16 wrote 24,576 voxels each with no failure and no
+chunking trouble. One of the sixteen lines, verbatim:
+
+    [mapgen] OK  step 2/22 · terrain tile 1/16 (x=-256..-128, z=-256..-128) · voxelsWritten=24576 · 6 ms
+
+### B. Do tags survive a save and a reopen? — **NOT MEASURED**
+
+It needs a File → Save to File and a reopen of the place, which are two clicks no tool in this repo
+can make (the StudioMCP tool list has no save; `docs/research/2026-09-24-map-generator.md` section 12).
+The slice is built and tagged in the place right now, so the measurement is one save and one reopen
+away, and `python tools/mapgen.py contract` is the command that answers it afterwards: it counts the
+five tags inside `Workspace.DrivenHuntMap` and prints them.
+
+**If tags do not survive**, the fallback is already named (design section 13.5 B): markers found by
+folder and name under `Workspace.DrivenHuntMap.Markers`, and the only module in the repo that changes
+is `Match.Markers`. Tags and attributes are never shipped both — two representations of one fact is
+this project's named failure mode.
+
+### C. Can `execute_luau` write in Edit mode? — **YES**
+
+    WRITE: true|41      -- created a Folder in Workspace and read its name back
+    CLEANED: true       -- and destroyed it again
+
+Measured before any generator code was written, because the design says a No here changes the whole
+invocation route and is an `ESCALATE.md` entry rather than a workaround. It is a Yes: every step of
+the 22-step build writes through `execute_luau`, including 393,216 voxels of terrain and 153 parts.
+
+### D. What 50 trees cost
+
+    parts:   153 under Workspace.DrivenHuntMap  (50 trees x 2 parts, 39 hedge segments, 14 markers)
+    Stats:GetMemoryUsageMbForTag(Instances):  92.31 built -> 92.33 cleared -> 92.37 rebuilt
+    Stats:GetTotalMemoryUsageMb():          1582.65 built -> 1586.89 cleared -> 1597.14 rebuilt
+
+**The memory half of this measurement failed honestly, and saying so is the measurement.** Studio's
+own totals drifted upward across the three samples regardless of what was in the place — the "cleared"
+reading is higher than the "built" one — so an Edit session cannot resolve 100 parts against its own
+noise. What survives is the part count, which is exact: **two parts per tree**. The design's 3,000-tree
+budget is therefore 6,000 parts, well inside `Map.BUDGET.parts = 20000`, and the budget stands on
+multiplication. The memory question needs a Play session with 3,000 real meshes in it, which is M2.3's
+business and not answerable with proxies.
+
+### E. Studio's require cache survives between `execute_luau` calls — and Rojo does not clear it
+
+Not in the design's list; the build found it. `build` reported "46 of 50 trees" twice from a
+`Config.luau` that already said otherwise: Rojo had replaced the ModuleScript's `Source` in Studio (the
+harness's own byte-for-byte comparison passed), but the **already-required module kept its old return
+value**. A generator that builds from code the file no longer holds is exactly what refusals 2 and 3
+exist to prevent, so it is now prevented three ways:
+
+* `tools/mapgen.py` requires a **parentless clone** of `ServerStorage.MapGen` on every call. A clone
+  loads the current source, and leaves nothing in the DataModel for the harness's "no unmanaged
+  script" check to trip over. Measured: `parentless=true/6` — the clone saw the new value, the
+  cached module still said 3.
+* `MapGen.Contract` does the same for `ReplicatedStorage.Map`, which `Config`, `Markers` and `init`
+  reach by absolute path where a clone of the generator cannot help. At run time it is exactly
+  `require(ReplicatedStorage.Map)`.
+* `mapgen.py` prints a note when the session's own cached contract is older than the file, because
+  only reopening the place fixes that, and no tool can do it.
+
+### F. Four of the five streaming properties are not reachable from Luau
+
+    StreamingEnabled=true ; StreamingMinRadius=MISSING ; StreamingTargetRadius=MISSING
+    StreamingIntegrityMode=MISSING ; ModelStreamingBehavior=MISSING ; StreamOutBehavior=MISSING
+
+Each of the four raises "not a valid member of Workspace". They are Studio-panel place settings, so
+**M2.6 is a Karen click plus a playtest, not a line of code**, and `MapGen.Settings` writes the one
+property it can and reports the four it cannot.
+
+And the first half of that line is the bigger fact: **`Workspace.StreamingEnabled` is already `true`
+in the DEV place** — the engine's default for a new place — so every Milestone 1 system has always run
+with streaming on. The design assumed it was off until M2.6. `Map.STREAMING.enabled` now says `true`,
+because the contract must say what the place is; turning it off would change client behaviour for
+every existing system, which is M2.6's task with a playtest and not M2.1's.
+
+### The reproducibility question, answered for one session
+
+`python tools/mapgen.py verify --seed 7` built the slice, digested it, cleared it, built it again and
+digested it again:
+
+    [mapgen] build 1: digest=87abf2678bfa13bdbe3e936fb34c1d0582b1109f8aef56492de14bff476add99 parts=153
+    [mapgen] build 2: digest=87abf2678bfa13bdbe3e936fb34c1d0582b1109f8aef56492de14bff476add99 parts=153
+    [mapgen] OK: same seed twice, same digest @ afb983a8208edbaff329625bd4f6f845f28ec16d seed=7 digest=87abf2678bfa13bdbe3e936fb34c1d0582b1109f8aef56492de14bff476add99 (clean tree)
+
+The digest covers 153 instances with their positions, sizes and tags **and 4,096 terrain occupancy
+samples**, so this says `math.noise` is stable within a session and the whole pipeline is
+deterministic. **Across engine versions it is still unverified** — that needs a Studio update to
+happen, and the named fallback (a seeded value-noise implementation inside `Height.luau`) is unchanged.
+
+## Measurements, Milestone 2.2 (Task 44, 2026-09-26)
+
+### G. Pathfinding runs in an EDIT session, and the navmesh lags behind the map
+
+    BoarSpawn1..4: ok=true status=Enum.PathStatus.Success waypoints=88..99   (the M2.1 slice)
+
+`PathfindingService:CreatePath(...):ComputeAsync(...)` works through `execute_luau` in Edit mode. That
+is what lets `MapGen.reachability` -- and therefore `python tools/mapgen.py verify` -- walk the
+GENERATED map with the boar's own agent parameters, which no harness spec can do while
+`Map.EXPECTED_WORLD` is `"arena"` (TASKS.md row 43a(k)).
+
+**But the navmesh is rebuilt in the background, and a check that races it lies.** A 560 x 30 x 8 wall
+dropped across the drive corridor answered:
+
+    wait=1s   status=Enum.PathStatus.Success     <- the map as it WAS
+    wait=5s   status=Enum.PathStatus.NoPath      <- the map as it IS
+    wait=15s  status=Enum.PathStatus.NoPath
+
+So `Config.REACH_SETTLE_SECONDS = 6`, and `MapGen.reachability` waits before it asks.
+
+**The check bites.** On the full 2048 map, all five routes pass; with one wall across the corridor's
+gates, all five fail; with the wall removed, all five pass again, same waypoint counts:
+
+    BoarSpawn1..4, DriverStart: Success, 339..370 waypoints
+    (walled)                    NoPath, 0 waypoints, 5 findings
+    (wall removed)              Success, 339..370 waypoints
+
+### H. What the full map costs
+
+    268 steps, 1,238 parts, 4,096 terrain samples
+    400 hedge segments (76 + 76 + 76 + 86 + 86), inside the design's 500-part hedge budget
+    400 trees x 2 parts + 12 tie trees x 2 parts + 400 hedge segments + 14 markers = 1,238
+    256 terrain tiles x 24,576 voxels = 6,291,456 voxels written
+    two dirt tracks: 18,039 and 18,059 voxels repainted
+    build wall clock: about 5 minutes, inside the design's 20-minute target
+
+**The design's hedge LENGTH row is exceeded and its PART row is not.** Section 12 asks for
+"<= 500 parts (one per ~12 studs, <= 6,000 studs of hedge)"; the network M2.2 needs is five lines of
+2,048 studs = 10,240 studs, which at the 12-stud segment the row assumes would be 853 parts. The
+segments are 24 studs instead, so it is 400 parts. Fewer, bigger boxes is the right trade while the
+hedge is a proxy; when real hedge meshes arrive in M2.3 the segment length is one number to change.
+
+### The reproducibility question, at full size
+
+    [mapgen] build 1: digest=dbf6aef43044b14612770da0ff13917a6306aab68f49658c776e2698f6097fce parts=1238
+    [mapgen] build 2: digest=dbf6aef43044b14612770da0ff13917a6306aab68f49658c776e2698f6097fce parts=1238
+
+Same seed, same 1,238 instances and same 4,096 terrain samples, twice, across a full clear and rebuild.
+
 ## What needs Karen
 
 1. **Taste, and only she can judge it:** does the farmland read as *European* farmland? Field sizes,

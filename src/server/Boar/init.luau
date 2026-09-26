@@ -153,6 +153,11 @@ Boar.CONFIG = {
 		LIMP_SCALE = 0.75, -- 28.5 studs/s: still faster than a player's 16, so it is catchable
 		BOLT_SECONDS = 3.0, -- sprint away from the shot point whatever the threats say
 		BOLT_KICK = 0.8, -- the setpoint jumps to 0.8 x sprint on the hit tick: the one ACCEL bypass
+		-- How far back along the impact normal the "where the shot came from" hint is placed when the
+		-- caller did not say. It was the one number in the hit path written inline (TASKS.md 28a(f)),
+		-- against this system's own claim that every number is in CONFIG. It is a hint: the Brain runs
+		-- away from the point, so the distance only has to put it clearly on the far side of the body.
+		BOLT_HINT_STUDS = 10,
 		FLASH_COLOR = Color3.fromRGB(190, 40, 40),
 		FLASH_SECONDS = 0.25, -- 15 frames: long enough to read, short enough not to look like state
 		CARCASS_SECONDS = 120,
@@ -394,14 +399,24 @@ function Runtime:takeHit(part: BasePart, hit): boolean
 			if record.unknownPellets > 0 then
 				self._stats.unknownZoneHits += 1
 			end
+			-- TALLIED UNDER THE ZONE THE DAMAGE WAS CHARGED TO (TASKS.md 28a(g)). An unknown zone
+			-- name used to open its own bucket here while Wound.apply charged its damage to `body`,
+			-- so zoneHits and damageTaken disagreed about the same pellets. unknownZoneHits above is
+			-- still what counts the typo.
 			local zoneHits = self._stats.zoneHits
+			local function tally(zone: string, count: number)
+				if count <= 0 then
+					return -- Wound.apply's `charge` returns early on the same condition
+				end
+				local charged = Wound.chargedZone(zone, self._config.WOUND)
+				zoneHits[charged] = (zoneHits[charged] or 0) + count
+			end
 			if type(payload.zones) == "table" and next(payload.zones) ~= nil then
 				for zone, count in pairs(payload.zones) do
-					zoneHits[zone] = (zoneHits[zone] or 0) + count
+					tally(zone, count)
 				end
 			else
-				local zone = record.zone
-				zoneHits[zone] = (zoneHits[zone] or 0) + record.pellets
+				tally(record.zone, record.pellets)
 			end
 
 			Body.setFlash(entry.body, wound.FLASH_SECONDS)
@@ -411,7 +426,7 @@ function Runtime:takeHit(part: BasePart, hit): boolean
 			-- fired. Either way it is a hint, and the Brain runs away from it rather than at it.
 			local from = payload.shooterPosition
 			if not from and typeof(payload.normal) == "Vector3" then
-				from = Body.position(entry.body) + payload.normal * 10
+				from = Body.position(entry.body) + payload.normal * self._config.WOUND.BOLT_HINT_STUDS
 			end
 			table.insert(entry.hitEvents, { severity = severity, zone = record.zone, from = from })
 

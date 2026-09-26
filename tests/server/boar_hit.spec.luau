@@ -12,6 +12,7 @@
 -- production's boar (spawned by BoarBoot) is untouched.
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/shotgun.md (sections 6.4, 6.5, 13.1), docs/design/hit-zones.md (section 12.4)
+local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
@@ -155,14 +156,21 @@ return function()
 				at = os.clock(),
 				shooterPosition = Vector3.new(0, GROUND_Y, 85),
 			})
-			expect(waitUntil(0.5, function()
-				return handle.state() ~= "IDLE"
-			end)).to.equal(true)
+			-- COUNTED IN FRAMES, NOT MILLISECONDS (Task 36). The claim is "a hit turns the boar
+			-- immediately, and is NOT gated by SENSE_INTERVAL" -- 0.2 s, which at 60 Hz is 12 frames.
+			-- Written as "under 100 ms of wall clock" it was the same claim only while the machine
+			-- was idle: under harness load a single Heartbeat can take longer than that, and the
+			-- verdict would have been about Studio's frame rate. Frames say the same thing and say
+			-- it under load. Measured at 1-2 frames.
+			local frames = 0
+			while frames < 30 and handle.state() == "IDLE" do
+				RunService.Heartbeat:Wait()
+				frames += 1
+			end
 			local reaction = os.clock() - started
-			print(string.format("[boar_hit] reacted in %.0f ms", reaction * 1000))
-			-- 0.2 s would be exactly SENSE_INTERVAL, so a sense-gated reaction would still pass it
-			-- (review round 1, note 4). This is a few Heartbeat ticks, measured at 2 ms.
-			expect(reaction < 0.1).to.equal(true)
+			print(string.format("[boar_hit] reacted in %d frame(s), %.0f ms", frames, reaction * 1000))
+			expect(handle.state()).never.to.equal("IDLE")
+			expect(frames < 12).to.equal(true) -- fewer frames than SENSE_INTERVAL is long
 			expect(handle.state()).to.equal("FLEE")
 
 			-- And it runs AWAY from the shot, using the route code that already existed.

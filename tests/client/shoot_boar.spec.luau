@@ -29,6 +29,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("InputReady"))
+local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -39,7 +40,10 @@ local Camera = require(scripts:WaitForChild("Camera"))
 local STAGE_ATTRIBUTE = "StagedTarget"
 -- Seconds to wait for the harness to stage this scenario. It is the LAST of four, and the whole
 -- replay takes about 50 s from wherever it starts, which is not tied to where this suite starts.
-local STAGE_TIMEOUT = 120
+-- Task 36 raised it from 120: `test2` now sends every step to BOTH clients, so each step costs two
+-- StudioMCP calls and the whole replay takes about twice as long in that mode. The budget starts
+-- where TestEZ reaches the `it`, and waiting longer costs a passing run nothing.
+local STAGE_TIMEOUT = 210
 local TRACK_SECONDS = 15
 local AIM_HEIGHT = 0.4 -- studs above the trunk's centre: the chest band, not the legs
 
@@ -147,7 +151,32 @@ return function()
 	end)
 
 	describe("a replayed click at a real boar", function()
+		-- ROLE-AWARE (TASKS.md row 34a). The harness stages and shoots on the SHOOTER's client only:
+		-- a driver carries no gun (`DRIVERS_MAY_SHOOT = false`), so there is nothing for him to fire
+		-- and the stage would put two characters in the same place. The driver's branch is not a
+		-- skip -- it asserts the rule: he is never staged, and nothing of his ever lands.
+		it("staged this client only if it is the shooter's -- a driver has no gun to fire", function()
+			if Role.isShooter() then
+				-- The shooter's half of this pair is the next two `it`s; here, only that the role this
+				-- file branches on is the drive's own and not this spec's idea of it.
+				expect(player.Team).to.be.ok()
+				expect(player.Team.Name).to.equal("Shooters")
+				return
+			end
+			-- Give the whole replay time to finish before claiming nothing arrived.
+			task.wait(5)
+			expect(player:GetAttribute(STAGE_ATTRIBUTE)).to.equal(nil)
+			expect(latchedAt).to.equal(nil)
+			expect(#markers).to.equal(0)
+		end)
+
 		it("was staged by the harness: the player is standing next to the boar", function()
+			if Role.isDriver() then
+				-- Asserted above, and the camera was never touched by this spec here: `latchedAt` is
+				-- what gates the tracking loop.
+				expect(latchedAt).to.equal(nil)
+				return
+			end
 			-- The specs run WHILE the replay does, so this really is a wait for the harness to reach
 			-- the last scenario -- and MEASURED, the whole replay takes about 50 s, so 40 s was not
 			-- enough and this test failed while the shot itself landed. The harness waits for the
@@ -176,6 +205,14 @@ return function()
 		end)
 
 		it("hit it: the server confirmed a hit on a damageable target and told this client", function()
+			if Role.isDriver() then
+				-- A driver's shot does not exist, so a marker from one cannot either. (The server
+				-- DOES send both clients a test marker in weapon_hits.spec; that is a different
+				-- remote payload and a different claim, asserted in hit_marker.spec. This list only
+				-- collects markers that arrive after this spec's own stage, which never happened.)
+				expect(#markers).to.equal(0)
+				return
+			end
 			local arrived = waitUntil(16, function()
 				return #markers > 0
 			end)

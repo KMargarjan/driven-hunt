@@ -6,8 +6,8 @@
 -- ready here, and the attribute is set only when every expected spec has.
 --
 -- If a listed spec never becomes ready the attribute is never set, the harness's
--- "[input] the client bound its listeners and published this run's token" check fails after 20 s,
--- and the run is red. There is no path where the replay proceeds against an unprepared client, and
+-- "[input] the client bound its listeners and published this run's token" check fails after 60 s
+-- (per client, since Task 36 waits for every one of them), and the run is red. There is no path where the replay proceeds against an unprepared client, and
 -- none where a missing spec passes quietly.
 --
 -- Design: docs/design/shotgun.md (section 13.3)
@@ -19,7 +19,15 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local InputReady = {}
 
 InputReady.ATTRIBUTE = "InputProbeReady" -- must equal the scenario file's `readyAttribute`
-InputReady.EXPECTED = { "input_driving", "weapon_client", "camera_client", "shoot_boar" }
+-- ORDER MATTERS AND IT IS NOT PINNED BY ANYTHING ELSE (Task 30 review note (e)). TestEZ runs the
+-- spec modules in the order the specs folder lists them, and two of them depend on it:
+--   * camera_client's zero-write assertions must land before weapon_client's baseline;
+--   * zz_tie_to_a_tree must run LAST, because a tie takes the gun away and every armed assertion
+--     before it would then fail. Its `zz_` prefix is what puts it there, and its scenario is the
+--     last one in input_scenarios.txt for the same reason.
+-- This list is not the runner's order -- it is only who must be ready -- but it is the one place
+-- every input-driven spec is named, so the rule is written down here.
+InputReady.EXPECTED = { "input_driving", "weapon_client", "camera_client", "shoot_boar", "zz_tie_to_a_tree" }
 
 local done = {}
 

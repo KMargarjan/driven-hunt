@@ -28,7 +28,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
 local ACTION_NAME = "DrivenHunt.Test.InputProbe"
-local ARRIVE_TIMEOUT = 25 -- seconds to wait for the harness's replay; it starts within ~2 s
+-- Seconds to wait for the harness's replay; it starts within ~2 s of the ready handshake. Raised
+-- from 25 in Task 36: `test2` sends every step to both clients, so each one costs two calls.
+local ARRIVE_TIMEOUT = 45
 -- The harness sleeps the scenario's gap in Python, so the gap the client sees can only be LONGER than
 -- asked. The tolerance is for clock skew between that sleep and os.clock() here, nothing more.
 local GAP_TOLERANCE = 0.6
@@ -276,12 +278,27 @@ return function()
 			end
 		end)
 
-		it("leaves nothing bound behind", function()
+		-- THE TEARDOWN IS THE TEARDOWN, AND THE TEST IS THE TEST (TASKS.md 6a(a)). This used to unbind
+		-- and then assert the unbind worked, in one `it` -- a test that could only ever pass, because
+		-- it performed the thing it checked. The unbinding now happens in afterAll, where teardown
+		-- belongs, and what is asserted is the property that matters while the suite runs: this spec
+		-- owns exactly one action, under the reserved test prefix, and bound no other.
+		it("kept its own action bound for the whole run, under the reserved test prefix", function()
+			-- Falsifiable: delete this spec's BindAction and it goes red. The old version unbound the
+			-- action itself and then asserted the unbind had worked, which no change to the code
+			-- under test could ever fail.
+			expect(ContextActionService:GetAllBoundActionInfo()[ACTION_NAME]).to.be.ok()
+			expect(string.sub(ACTION_NAME, 1, 16)).to.equal("DrivenHunt.Test.")
+			-- ...and it really recorded through that binding, rather than only holding it.
+			expect(#log > 0).to.equal(true)
+		end)
+
+		afterAll(function()
 			ContextActionService:UnbindAction(ACTION_NAME)
 			for _, connection in ipairs(connections) do
 				connection:Disconnect()
 			end
-			expect(ContextActionService:GetAllBoundActionInfo()[ACTION_NAME]).to.equal(nil)
+			table.clear(connections)
 		end)
 	end)
 end

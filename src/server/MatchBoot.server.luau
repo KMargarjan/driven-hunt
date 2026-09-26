@@ -91,7 +91,9 @@ Weapon.setDriveLineProvider(Match.driveLine)
 
 Match.start({
 	boars = runtime, -- the Match calls spawn/clear and reads handles; it never writes a boar
-	weapon = Weapon, -- for refreshArming only
+	-- The weapon, for two things and nothing else: refreshArming (the Tool is granted or revoked by
+	-- its own owner) and SafetyViolated, the signal the drive judges (design sections 8.2, 8.5).
+	weapon = Weapon,
 	now = function()
 		return os.clock()
 	end,

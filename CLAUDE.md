@@ -73,6 +73,12 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
    tree. **Harness before review** (Task 21): a change touching `src/`, `tests/` or `tools/` cannot
    be reviewed until it has run — `tools/review.sh` refuses it unless the request pastes the harness
    PASS line for the code commit. Docs-only tasks are exempt.
+   **And the two-player run is part of the gate** (Director decision, 2026-09-26) for a change
+   touching `src/` (gameplay), `tests/client/` or `tools/studio_mcp.py`: paste the
+   `[harness2] PASS: n/m checks @ <code commit> (clean tree)` line as well. A driver, a tie, a team
+   swap and half the client suite exist only with two clients, so a one-player run is not evidence
+   for them. `tools/agents.py` refuses the review without it. **Docs, and the tools that are not the
+   harness, are exempt**, because `test2` costs a human click and about eight minutes.
 4. Write `reviews/task-<N>/REQUEST.md` (increment `Round:`; `Code commit:` = the commit the harness
    line names) and commit it. **One page: `Task: N`, `Round: N`, `Base:`, `Code commit:`, at most 10
    claims, each with how to verify it.** Cite **files and symbols, never line numbers** (every later
@@ -161,10 +167,24 @@ dollars. The script prints each session's cost into the result file's trailer.
 3. Push the branch (`git push -u origin <branch>`) and open a pull request. CI
    (`.github/workflows/ci.yml`) must be green.
 4. The Reviewer reviews the PR. **The Director retargets and merges it**, and only when all four
-   hold. The **code commit** is the `Code commit:` of the final `reviews/task-<N>/REQUEST.md`: the
-   last commit in the PR that changed anything but the loop's own paperwork.
+   hold.
+
+   **The code commit is the commit the harness lines name**, written as `Code commit:` in the final
+   `reviews/task-<N>/REQUEST.md`. It must be **at or after** the last commit that changed `src/`,
+   `tests/` or `tools/`, and **only paperwork may change after it**. Naming a later paperwork commit
+   is allowed and is often unavoidable — `test2` is run by the Director at the branch head, which by
+   then includes the request itself — and it only makes the bound stricter, because everything the
+   harness ran over is still covered. Naming an **earlier** commit is not allowed: then the evidence
+   does not cover the code. This is the definition `tools/agents.py` enforces (it refuses a request
+   whose `Code commit:` no pasted harness line names), the one
+   `.agent-evidence/paperwork-after-code-commit.txt` is computed against, and the one
+   `docs/REVIEWER_PROMPT.md` checks. Written out here because three tasks in a row were noted for the
+   mismatch with the older wording, which said "the last commit that changed anything but paperwork"
+   (`TASKS.md` row 44a(k)).
    - a clean-tree harness PASS names the code commit
-     (`[harness] PASS: n/n checks @ <code commit> (clean tree)`),
+     (`[harness] PASS: n/n checks @ <code commit> (clean tree)`), **and a clean-tree
+     `[harness2] PASS` for the same commit** when the change touches `src/`, `tests/client/` or
+     `tools/studio_mcp.py` (Director decision, 2026-09-26),
    - `reviews/task-<N>/RESULT.md` line 1 is `PASS` (notes under it do not block), and its trailer
      names a commit that differs from the code commit only in paperwork,
    - CI (`.github/workflows/ci.yml`) is green on the PR head,
@@ -197,7 +217,8 @@ The **round count** is in between. `tools/agents.py` takes it from the committed
 `reviews/task-<N>/RESULT.md` trailer of that task and refuses a request that raises, skips or resets
 it, including by deleting the file. So is **harness before review**: a change touching `src/`,
 `tests/` or `tools/` is refused until the request pastes the harness's own PASS line for the code
-commit. But the Builder writes the repo's commits, so a hand-written trailer, or a history
+commit — the commit the line itself names, per step 4 — and one touching `src/`, `tests/client/` or
+`tools/studio_mcp.py` is refused until it also pastes the `[harness2]` line for that same commit. But the Builder writes the repo's commits, so a hand-written trailer, or a history
 rewrite, would still get past it. Until audit-002 must-fix #5 (Task 12) makes the verdict files
 writable only by the scripts, the last step of the stop rule is policy too.
 
@@ -207,9 +228,12 @@ Paste this, filled in, at the end of every task report. Each box is checked, or 
 
 ```
 - [ ] Tests pass: `python tools/studio_mcp.py test` → paste the final line. It must read
-      "[harness] PASS: n/n checks @ <sha> (clean tree)" with <sha> = the PR's **code commit**
-      (the `Code commit:` of the final reviews/task-<N>/REQUEST.md), and only paperwork after it (git
-      workflow step 4)
+      "[harness] PASS: n/n checks @ <sha> (clean tree)", and that <sha> IS the **code commit**: the
+      request's `Code commit:` line says the same one, it is at or after the last commit that changed
+      src/, tests/ or tools/, and only paperwork changed after it (git workflow step 4)
+- [ ] Two players, when the change touches src/, tests/client/ or tools/studio_mcp.py:
+      `python tools/studio_mcp.py test2` → paste "[harness2] PASS: n/n checks @ <same sha> (clean
+      tree)". Or N/A with the reason (docs, or tools outside the harness)
 - [ ] CI green on the PR (link to the run)
 - [ ] Screenshot inspected (rule 5), or N/A: <reason>
 - [ ] Docs updated: TASKS.md, GAME_DESIGN.md owners, research note/INDEX, PLAYTEST.md, CLAUDE.md as needed
@@ -332,7 +356,8 @@ change to the test system, and don't restate it elsewhere.
   (`stylua src tests` fixes formatting). `mkdir -p build && rojo build -o build/place.rbxl` checks the
   project builds (Rojo does not create `build/`).
 - **Tests:** Studio open on the DEV place in **Edit** mode, Rojo connected, work committed:
-  `python tools/studio_mcp.py test`.
+  `python tools/studio_mcp.py test`, and `python tools/studio_mcp.py test2` (two players, one human
+  click) whenever the change touches `src/`, `tests/client/` or `tools/studio_mcp.py`.
   - Exit 0 means PASS on a clean tree. 1 means FAIL. 2 means REFUSED (Studio not in Edit mode).
     3 means PASS on a dirty tree, which is **not valid evidence**.
   - The final line names the commit it tested.

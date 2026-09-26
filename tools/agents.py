@@ -41,6 +41,11 @@ it may only raise the cap, and the run prints it.
 unless the request pastes a harness line `[harness] PASS: n/m checks @ <code commit> (clean tree)`
 naming that request's `Code commit:`. Task 18 was reviewed three times before its code had ever run;
 that cannot happen again. Docs-only changes are exempt.
+**And the TWO-PLAYER line** (`[harness2] PASS: ... (clean tree)`) for the same commit when the
+change touches `src/`, `tests/client/` or `tools/studio_mcp.py` - Director decision 2026-09-26. A
+driver, a tie, a team swap and half the client suite exist only with two clients, so a one-player
+run is not evidence for gameplay or for the harness that drives them. Docs, and the tools that are
+not the harness, stay exempt, because `test2` costs a human click.
 **What is still policy, not enforcement:** nothing stops a Builder committing a hand-written trailer
 (the Builder owns the repo and the commits), and `git rebase`/`--force` could drop the history the
 look-back reads. audit-002 must-fix #5 (Task 12) is about exactly that: the verdict files must be
@@ -67,6 +72,11 @@ HISTORY_SCAN = 50  # commits of one task's RESULT.md history the round check loo
 REVIEWS = "reviews"  # reviews/task-<N>/{REQUEST,RESULT,ARCH_RESULT}.md
 # A change touching any of these must show a harness PASS before it may be reviewed.
 CODE_PATHS = ("src/", "tests/", "tools/")
+# ...and a change touching any of THESE must also show the TWO-PLAYER line. Director decision,
+# 2026-09-26: gameplay (src/) and anything that can only be exercised with two clients (the client
+# specs, the harness itself) are not evidenced by a one-player run. Everything else -- docs, and the
+# tools that are not the harness -- is exempt, because test2 costs a human click and eight minutes.
+TWO_PLAYER_PATHS = ("src/", "tests/client/", "tools/studio_mcp.py")
 AGENT_TIMEOUT_S = 3600
 
 
@@ -305,6 +315,9 @@ def last_committed_review(task):
 
 
 HARNESS_RE = re.compile(r"\[harness\]\s+PASS:\s*\d+/\d+\s+checks\s+@\s*([0-9a-f]{7,40})\s*\(clean tree\)")
+# The two-player line has the same shape under a different tag. Both are written by
+# tools/studio_mcp.py and nothing else; a request pastes them verbatim.
+HARNESS2_RE = re.compile(r"\[harness2\]\s+PASS:\s*\d+/\d+\s+checks\s+@\s*([0-9a-f]{7,40})\s*\(clean tree\)")
 
 
 def harness_gate(req, code_full, base, head):
@@ -313,23 +326,60 @@ def harness_gate(req, code_full, base, head):
     A change that touches src/, tests/ or tools/ may not be reviewed until it has RUN: the request
     must paste the harness's own PASS line for its `Code commit:`, on a clean tree. Task 18 was
     reviewed three times before any of its code had executed, and the first real run then failed
-    three specs. Docs-only changes are exempt: the harness says nothing about them."""
-    changed = [f for f in git("diff", "--name-only", f"{base}...{head}").split()
-               if f.replace("\\", "/").startswith(CODE_PATHS)]
+    three specs. Docs-only changes are exempt: the harness says nothing about them.
+
+    WHAT `Code commit:` MEANS, and this is the definition (CLAUDE.md git workflow step 4 now says the
+    same): the commit the harness lines name. It must be at or after the last commit that changed
+    src/, tests/ or tools/, and only paperwork may follow it. A LATER paperwork commit is fine -- the
+    two-player run happens at the branch head, which by then carries the request itself -- and only
+    narrows what the evidence has to cover. An EARLIER one is not, and this gate is what refuses it:
+    the sha in the pasted line must match, so a request cannot claim a commit nothing ran over."""
+    # TWO RANGES, UNIONED (TASKS.md 21a(b)). `base` comes from the request, so a `Base:` set to the
+    # code commit made a tools/ change look docs-only and skipped this gate entirely. The second
+    # range is one the request cannot choose: whatever the code commit itself introduced relative to
+    # its own parent, plus anything after it. A Builder can still lie about the code commit, and that
+    # is the policy half CLAUDE.md names -- but the free bypass is gone.
+    ranges = [f"{base}...{head}", f"{code_full}~1..{head}"]
+    seen = {}
+    for spread in ranges:
+        try:
+            names = git("diff", "--name-only", spread).split()
+        except Exception:
+            continue  # a root commit has no parent, and a bad Base is the case above
+        for f in names:
+            if f.replace("\\", "/").startswith(CODE_PATHS):
+                seen[f] = True
+    changed = sorted(seen)
     if not changed:
         print("[agents] docs-only change: no harness line required", flush=True)
         return
-    for m in HARNESS_RE.finditer(req):
-        if code_full.startswith(m.group(1)):
-            print(f"[agents] harness line found for the code commit ({len(changed)} code file(s) changed)",
-                  flush=True)
-            return
-    roots = sorted({f.replace("\\", "/").split("/")[0] + "/" for f in changed})
-    raise Refused(
-        f"this change touches {', '.join(roots)} ({len(changed)} file(s)), so it must have RUN before it "
-        f"is reviewed. Paste the harness's own line for the code commit into the request:\n"
-        f"  [harness] PASS: n/m checks @ {code_full} (clean tree)\n"
-        "Run `python tools/studio_mcp.py test` on the clean tree first. Docs-only changes are exempt.")
+    def pasted(pattern):
+        return any(code_full.startswith(m.group(1)) for m in pattern.finditer(req))
+
+    if not pasted(HARNESS_RE):
+        roots = sorted({f.replace("\\", "/").split("/")[0] + "/" for f in changed})
+        raise Refused(
+            f"this change touches {', '.join(roots)} ({len(changed)} file(s)), so it must have RUN "
+            f"before it is reviewed. Paste the harness's own line for the code commit:\n"
+            f"  [harness] PASS: n/m checks @ {code_full} (clean tree)\n"
+            "Run `python tools/studio_mcp.py test` on the clean tree first. Docs are exempt.")
+
+    # THE TWO-PLAYER LINE, for the paths a one-player run cannot evidence (Director, 2026-09-26).
+    # A driver, a tie, a team swap and half the client suite exist only with two clients, so a
+    # change to gameplay or to the harness that drives them is not evidenced without one.
+    two_player = [f for f in changed if f.replace("\\", "/").startswith(TWO_PLAYER_PATHS)]
+    if two_player and not pasted(HARNESS2_RE):
+        named = sorted({f.replace("\\", "/") for f in two_player})[:6]
+        raise Refused(
+            f"this change touches {', '.join(named)}"
+            f"{' and more' if len(two_player) > len(named) else ''}, which a one-player run cannot "
+            f"evidence. Paste the TWO-PLAYER line for the code commit as well:\n"
+            f"  [harness2] PASS: n/m checks @ {code_full} (clean tree)\n"
+            "Run `python tools/studio_mcp.py test2` on the clean tree (it needs one human click). "
+            "Docs, and tools outside the harness, are exempt.")
+
+    print(f"[agents] harness line(s) found for the code commit ({len(changed)} code file(s) changed, "
+          f"{len(two_player)} needing two players)", flush=True)
 
 
 # ------------------------------------------------------------------ worktree
@@ -501,11 +551,18 @@ def main(argv):
         args = argv[1:]
         if args[:1] == ["review"]:
             task, rest = take_task_flag(args[1:])
-            if len(rest) > 1:
+            # A STRAY ARGUMENT IS A REFUSAL, NOT A SHRUG (TASKS.md 21a(a)): `review --task 21 22`
+            # used to review task 21 and drop the 22 without a word.
+            if len(rest) > 1 or (task is not None and rest):
                 raise Refused("usage: review [N]  (or review --task N)")
             return cmd_review(task if task is not None else (rest[0] if rest else None))
         if args[:1] == ["architect"] and len(args) >= 2:
             task, rest = take_task_flag(args[1:])
+            # `architect --task 5`, with the mode left out, used to raise an uncaught IndexError on
+            # rest[0] instead of printing this (TASKS.md 21a(a)).
+            if not rest or len(rest) > 2:
+                raise Refused(
+                    "usage: architect design <system> [--task N] | architect audit [--task N]")
             return cmd_architect(rest[0], task, rest[1] if len(rest) > 1 else None)
         print(__doc__)
         return 2

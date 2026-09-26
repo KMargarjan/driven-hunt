@@ -86,6 +86,9 @@ local ARMING_SWEEP_SECONDS = 2
 local hitSignal = Instance.new("BindableEvent")
 local safetySignal = Instance.new("BindableEvent")
 Weapon.HitReported = hitSignal.Event
+-- (player, aim: Vector3 unit, muzzle: Vector3, stopAt: number) -- stopAt is studs from the muzzle to
+-- where the shot stopped, or the ammo's range when it hit nothing. The drive needs it to tell a shot
+-- that went past a driver from one that stopped in the boar in front of him (Task 35).
 Weapon.SafetyViolated = safetySignal.Event
 
 local started = false
@@ -208,6 +211,13 @@ function Weapon.markHit(player: Player, kind: string?, zone: string?)
 	channel.HitMarker:FireClient(player, { kind = kind or "hit", zone = zone, at = os.clock() })
 end
 
+-- The arming answer this owner actually uses, exposed so a spec can assert the pcall fallback rather
+-- than infer it from whether a Tool appeared (TASKS.md 32a(d)). It decides nothing and writes
+-- nothing: refreshArming is still the only thing that grants or revokes.
+function Weapon.mayArmForTests(player: Player): boolean
+	return mayArm(player)
+end
+
 function Weapon.trackedPlayers(): number
 	return registry:count()
 end
@@ -312,8 +322,15 @@ function Weapon.revoke(player: Player)
 	if previous then
 		local state = table.clone(StateMachine.initial(CONFIG)) :: any
 		state.epoch = previous.epoch + 1
-		setState(player, Shotgun.deepFreeze(state))
+		local reset = Shotgun.deepFreeze(state)
+		setState(player, reset)
 		stats.revoked += 1
+		-- AND TELL THE CLIENT (TASKS.md 35b(a)). Resetting the state without publishing it left the
+		-- replica holding the snapshot from before the gun was taken, so a player tied to a tree
+		-- kept an ammo readout on screen for a gun that no longer exists -- visible in
+		-- .screenshots/task35-tied-to-a-tree.png. grant() publishes; revoke has to as well, or the
+		-- two halves of the same owner disagree about what the player is holding.
+		publish(player, reset, true)
 	end
 end
 
@@ -420,7 +437,17 @@ local function onFireRequest(player: Player, req: any)
 		local line = driveLineProvider()
 		-- `aim`, not the camera direction: a published violation must match where the pellets went.
 		if line and SafetyArc.isForbidden(aim, line, CONFIG.SAFETY_ARC_HALF_DEG) then
-			safetySignal:Fire(player, aim, muzzle)
+			-- HOW FAR THE SHOT GOT, which is the fourth argument the drive needs (Task 35): without
+			-- it a clean kill on a boar 30 studs away ties the shooter because a driver stood 80
+			-- studs behind it, in line -- the pellets never got near him.
+			--
+			-- It is the distance from the muzzle to the AIM POINT, not `report.nearest` as
+			-- docs/design/drive.md section 8.2 proposed (reviews/task-35/DESIGN_DELTA.md): with
+			-- buckshot the nearest impact of a nine-pellet pattern is whichever pellet clipped the
+			-- ground first, which at long range is a few studs out and would mask every violation.
+			-- The aim point is where the shot was actually going.
+			local stopAt = if aimImpact then (aimPoint - muzzle).Magnitude else range
+			safetySignal:Fire(player, aim, muzzle, stopAt)
 		end
 	end
 
@@ -461,8 +488,28 @@ local function runReload(player: Player, epoch: number)
 		-- shell, or none, is correct. Any other reason means the world moved under it (round 1
 		-- note), so it stops and republishes rather than closing a gun the player did not ask for.
 		if reason and not (step.kind == "Load" and reason == "no-reserve") then
-			publish(player, state)
-			return
+			-- A REFUSAL AFTER `Break` USED TO LEAVE THE GUN OPEN FOR EVER (TASKS.md 24a(a)): every
+			-- later Reload is refused with "is-open" and every Fire with the same, so the player is
+			-- carrying a brick until they respawn. Close it before giving up. The player asked for a
+			-- reload; a closed gun is the state they asked to end in, and Close after the step's own
+			-- window has elapsed is the same action the sequence would have taken itself.
+			if state.open then
+				-- A "busy" refusal is the one this has to wait out: StateMachine.apply rejects every
+				-- action while `now < busyUntil`, so an immediate Close would be refused for the same
+				-- reason the step was and the gun would stay open anyway. A fraction of a second is
+				-- cheaper than a gun that cannot be reloaded or fired again.
+				local remaining = state.busyUntil - os.clock()
+				if remaining > 0 then
+					task.wait(remaining)
+				end
+				local closed, refused = StateMachine.apply(state, { kind = "Close" }, os.clock())
+				if not refused then
+					setState(player, closed)
+				end
+			end
+			-- BREAK, NOT RETURN: the trailing publish below is what clears the Hud's "R" once the
+			-- last window has elapsed, and an abort needs it exactly as much as a finished sequence.
+			break
 		end
 		setState(player, next)
 		publish(player, next, true)

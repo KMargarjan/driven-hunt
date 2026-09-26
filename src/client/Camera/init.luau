@@ -1,7 +1,7 @@
 --!strict
 -- Camera: the owner of the camera mode state, of the one render-step binding, and of the one mouse-
 -- movement connection (CLAUDE.md rule 3). Its private modules each own exactly one thing: Mode is
--- pure, Rig is the only writer of workspace.CurrentCamera, Cursor the only writer of the mouse,
+-- pure, Rig is the only writer of workspace.CurrentCamera in src/, Cursor the only writer of the mouse,
 -- Viewmodel the only writer of the first-person model.
 --
 -- Karen's decision (2026-09-25, option A): mouse-locked over-the-shoulder third person, the stock
@@ -209,9 +209,12 @@ function Camera.start()
 	if not acquired then
 		warn("[camera] could not take the camera: " .. tostring(acquireReason))
 	elseif acquireReason then
-		-- The camera is ours, but there was no stock module to disable. Loud, because if one ever
-		-- appears it becomes a second writer -- which stats().foreignCameraWrites then catches.
-		warn("[camera] no stock PlayerModule to disable (" .. acquireReason .. "); the camera is still ours")
+		-- The camera is ours, but the stock cameras were not turned off. Rig.acquire's reason says
+		-- WHICH of the two that is -- none present, or one present that would not turn off -- and it
+		-- is printed verbatim rather than wrapped in a sentence that is true of only one of them
+		-- (TASKS.md 26a(a)). Loud either way, because a stock module that runs is a second writer --
+		-- which stats().foreignCameraWrites then catches.
+		warn("[camera] the stock cameras are not disabled: " .. acquireReason .. "; the camera is still ours")
 	end
 	Cursor.start()
 

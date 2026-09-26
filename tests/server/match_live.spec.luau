@@ -73,7 +73,12 @@ return function()
 				print(
 					string.format("[match_live] %s is on %s in phase %s", player.Name, player.Team.Name, Match.phase())
 				)
-				expect(Match.mayCarryWeapon(player)).to.equal(player.Team.Name == "Shooters")
+				-- AND NOT TIED, which is new in 1.7b and is not a hedge: in a two-player run the
+				-- shooter really does get tied to a tree by tests/client/zz_tie_to_a_tree.spec, and a
+				-- tied shooter may not carry a gun. Without this clause the rule working would make
+				-- this spec fail.
+				local free = not Match.isTied(player.UserId)
+				expect(Match.mayCarryWeapon(player)).to.equal(player.Team.Name == "Shooters" and free)
 			end
 		end)
 
@@ -96,8 +101,12 @@ return function()
 					local character = player.Character
 					return character ~= nil and character:FindFirstChildOfClass("Tool") ~= nil
 				end
+				-- RE-ASKED INSIDE THE WAIT, not captured before it: the answer can change while this
+				-- is waiting (a tie revokes the gun), and comparing against a stale answer would fail
+				-- for the rule working.
 				local expected = Match.mayCarryWeapon(player)
 				local held = waitUntil(if expected then 20 else 1, function()
+					expected = Match.mayCarryWeapon(player)
 					return holdsGun() == expected
 				end)
 				-- A NOTE, not a print: this is the assertion a two-player run keeps failing, and the
@@ -125,7 +134,7 @@ return function()
 			local line = Match.driveLine()
 			expect(line).to.be.ok()
 			-- The direction is the difference between the safety rule firing on the right shots and
-			-- on exactly the wrong ones (1.7b will use it).
+			-- on exactly the wrong ones, and since 1.7b it really does fire on them.
 			expect(line.normal.Z > 0.99).to.equal(true)
 
 			local markers = Markers.read()
@@ -159,6 +168,23 @@ return function()
 			expect(Match.stats().killSignalMissing).to.equal(0)
 		end)
 
+		it("connected the weapon's safety signal, so the penalty can fire at all", function()
+			-- 1.7b's version of the check above, and the same reasoning: a safety rule that is on in
+			-- the config and wired to nothing is worse than one that is off.
+			expect(Match.CONFIG.SAFETY_ENABLED).to.equal(true)
+			expect(Match.stats().safetySignalMissing).to.equal(0)
+			expect(typeof(Weapon.SafetyViolated)).to.equal("RBXScriptSignal")
+			-- Nobody is tied unless somebody earned it, and nothing in this suite shoots at a driver.
+			for _, player in ipairs(Players:GetPlayers()) do
+				local tiedNow = Match.isTied(player.UserId)
+				if tiedNow then
+					-- Not a failure: the two-player client spec ties the shooter on purpose. But a tie
+					-- must always agree with the gun.
+					expect(Match.mayCarryWeapon(player)).to.equal(false)
+				end
+			end
+		end)
+
 		it("raised the boar's own guard, because carcasses occupy slots for two minutes", function()
 			expect(Boar.CONFIG.maxBoars).to.equal(8)
 			expect(Match.CONFIG.MAX_ALIVE_BOARS <= Boar.CONFIG.maxBoars).to.equal(true)
@@ -171,7 +197,8 @@ return function()
 			expect(Match.CONFIG.INTERMISSION_SECONDS).to.equal(20)
 			expect(Match.CONFIG.BOARS_PER_DRIVE).to.equal(6)
 			expect(Match.CONFIG.DRIVERS_MAY_SHOOT).to.equal(false)
-			expect(Match.CONFIG.SAFETY_ENABLED).to.equal(false) -- 1.7b
+			expect(Match.CONFIG.SAFETY_ENABLED).to.equal(true) -- 1.7b: the penalty is live
+			expect(Match.CONFIG.TIE_UNTIL_DRIVE_END).to.equal(true) -- Karen's rule as written
 			expect(Match.CONFIG.END_ON_LAST_BOAR).to.equal(false)
 		end)
 

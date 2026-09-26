@@ -1,0 +1,15 @@
+PASS
+
+## Notes (non-blocking)
+- `Match.CONFIG.ROPE_THICKNESS` (`src/server/Match/init.luau`) — `0.3`, but `docs/design/drive.md` §11.4 says `ROPE_COLOR / ROPE_THICKNESS | RGB(120, 90, 60) / 0.2 studs`. `DESIGN_DELTA.md` names the colour deviation and not the thickness, so the delta file's "Five deviations" plus "not a deviation, but worth naming" list is incomplete. One line in the delta, or restore 0.2.
+- `REQUEST.md` claim 3 and `DESIGN_DELTA.md` §2 — "the design's own cases still pass, by 10 and 50 studs". With `reach = math.min(shot.stopAt + 4, ...)` the margins are 6 studs (driver at 50, `stopAt` 40 → `reach` 44, the case `match_safety.spec` actually asserts) and 46 studs (driver at 80, `stopAt` 30 → `reach` 34). The conclusion holds; the two numbers are the pre-allowance ones.
+- `TASKS.md` row 35 — "**Three deviations** from the design, all in `reviews/task-35/DESIGN_DELTA.md`"; the delta and the request both say five.
+- `REQUEST.md`, Evidence, 2 players — the pasted line is trimmed. `tools/studio_mcp.py` prints `[harness2] PASS: n/m checks @ <sha> (DIRTY TREE (k paths) - NOT valid evidence)`; the request pastes it without the parenthetical and discloses the dirty tree in the next sentence instead. The disclosure is honest and `[harness2]` is not gate evidence, but paste the line verbatim.
+- `applyFreeze` in `src/server/Match/init.luau` — the `(board, awards)` pair from `Score.violation` is destructured as `board` only, so `Match.Scored` never carries the −50 while `Score.kill`/`Score.escape` awards do fire through `scoredSignal`. `Match.Punished` covers the tie, so nothing on screen is wrong; a future listener that reconstructs the board from `Scored` alone would miss penalties. Queue if it matters.
+- `applyFreeze`, the `tiesWithoutAnchor` branches — the −50 and the `violation` feed line land, but the offender is not in `snapshot.tied`, so there is no banner and no revoked gun, and `punishedSignal` does not fire either. The comment says the points landing either way is deliberate; the silent `Punished` is the inconsistent half. Only `stats.tiesWithoutAnchor` records it.
+- `Weapon.revoke` (`src/server/Weapon/init.luau`) — resets state without `publish`, so a tied player's Hud keeps the last ammo readout (visible in `task35-tied-to-a-tree.png`). Correctly reported as pre-existing and out of this task's scope; queue it in `TASKS.md` rather than leaving it only in the request.
+- `docs/design/drive.md` §12.8 item 5 — "the event feed with a kill line and a violation line on screen at once" has no screenshot of its own; `task35-tied-to-a-tree.png` is described with the violation line only. Items 3 and 4, the two this task owed, are both there.
+- `GAME_DESIGN.md` — the design's §13 asked for a separate "Tie-up markers (`Workspace.DriveMarkers`)" row; the build folded it into the existing `Match.Body` row. The owner is still recorded exactly once, so this is structure, not a boundary.
+
+---
+REVIEWER verdict on commit `bdcb6f0297bdadcc6ecde4c3b1a6bed08f95c833` (round 1) · 2026-09-25 22:11 UTC · session cost $4.56, 47 turns · written by tools/agents.py

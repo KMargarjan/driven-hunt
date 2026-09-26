@@ -16,5 +16,15 @@ if not token then
 end
 
 local report = TestKit.run("server", token, ServerStorage:FindFirstChild("Tests"))
+-- THE DRIVE-CLOCK SEAM, observed from OUTSIDE TestKit after the run returned (audit-004 F5). Asked
+-- here rather than inside `TestKit.finish`, where the answer would sit one line below the assignment
+-- that makes it true and could only ever be `true` in a committed state. `activeToken` is what
+-- `Match.advanceForTests` asks "is a gated test run in progress"; left set, the seam stays open for
+-- the rest of a Studio session a human is about to play in.
+--
+-- It travels in the report because nothing outside the module can see the upvalue: MEASURED, a query
+-- that requires ReplicatedStorage.TestKit through `execute_luau` gets a DIFFERENT instance, out of its
+-- own require cache, and answers about a token nothing ever set.
+report.seamClosed = TestKit.activeToken() == nil
 -- Read by tools/studio_mcp.py from the Server DataModel.
 ServerStorage:SetAttribute("TestReport", HttpService:JSONEncode(report))

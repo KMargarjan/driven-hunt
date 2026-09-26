@@ -9,6 +9,7 @@ local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
+local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 
 local Hits = Weapon.Hits
@@ -196,11 +197,17 @@ return function()
 			local players = Players:GetPlayers()
 			expect(#players > 0).to.equal(true) -- a Play session always has the local player
 			local before = Weapon.stats().markers
+			local names = {}
 			for _, player in ipairs(players) do
 				Weapon.markHit(player, "hit", "chest")
 				Weapon.markHit(player, "kill", "head")
+				table.insert(names, player.Name)
 			end
 			expect(Weapon.stats().markers).to.equal(before + 2 * #players)
+			-- WHEN this ran is half of the evidence for tests/client/hit_marker.spec, which waits for
+			-- these very markers: a driver receives no others, so "the wire is broken" and "the
+			-- server had not got here yet" look identical from that side without this (Task 36).
+			TestKit.note(string.format("weapon_hits: marked %s at %.1f s", table.concat(names, ", "), os.clock()))
 		end)
 
 		it("says nothing to a shooter who is not a Player", function()

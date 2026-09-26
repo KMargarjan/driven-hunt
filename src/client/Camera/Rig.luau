@@ -1,5 +1,5 @@
 --!strict
--- Camera.Rig: THE ONLY WRITER OF workspace.CurrentCamera IN THE REPO (CLAUDE.md rule 3), the only
+-- Camera.Rig: THE ONLY WRITER OF workspace.CurrentCamera IN src/ (CLAUDE.md rule 3), the only
 -- module that disables the stock PlayerModule cameras, and the only writer of
 -- LocalTransparencyModifier on the local character. It holds no mode state, reads no input, and
 -- touches neither the cursor nor anything drawn.
@@ -73,7 +73,12 @@ function Rig.acquire(): (boolean, string?)
 	local module = scripts and scripts:FindFirstChild("PlayerModule")
 	if module then
 		local ok, err = disableStockCameras(module)
-		return true, if ok then nil else tostring(err)
+		-- THE REASON HAS TO READ CORRECTLY ON ITS OWN (TASKS.md 26a(a)): the owner prints whatever
+		-- comes back, and "no stock PlayerModule to disable" was the wrong sentence for the case
+		-- where one IS there and would not turn off -- which is the case that matters, because then
+		-- it is a second writer of the camera.
+		return true,
+			if ok then nil else "PlayerScripts.PlayerModule is there and would not be disabled: " .. tostring(err)
 	end
 
 	-- Not there now. Watch for it off the boot path, so a module that appears later is still
@@ -160,29 +165,94 @@ end
 --
 -- The parts are cached per character and written ONLY when the flag changes. A GetDescendants walk
 -- every frame was most of the first measurement's 0.8 ms (the budget is 0.3 ms, design section 8.2).
+--
+-- THE CACHE FOLLOWS THE CHARACTER (audit-003 F1, audit-004 must-fix 2). Caching once per life was
+-- wrong for the one part that matters most: the shotgun's `Handle` is granted server-side on
+-- `CharacterAdded` (src/server/Weapon/init.luau, `watchPlayer` -> `Weapon.grant`) and reaches the
+-- client AFTER the camera's first render step with that character, so it was very likely missing from
+-- the list -- and because the write loop is skipped when the flag has not changed, nothing ever wrote
+-- it. The player then aimed and saw THE REAL GUN BESIDE THE VIEWMODEL: exactly the two-shotgun
+-- picture the comment below says a screenshot already taught once. Layered accessories arrive the
+-- same way.
+--
+-- So the walk stays off the frame path, and `DescendantAdded` keeps the list true: a part that
+-- appears while the body is hidden is hidden as it arrives, and `DescendantRemoving` keeps the list
+-- from growing across a life of accessory churn.
 local hiddenParts: { Instance } = {}
 local hiddenFor: Model? = nil
 local hiddenNow: boolean? = nil
+local hiddenAdded: RBXScriptConnection? = nil
+local hiddenRemoving: RBXScriptConnection? = nil
+
+-- EVERYTHING the local character is wearing or holding, the Tool included. Two screenshots taught
+-- this: with accessories excluded the hair hung across the top of the ADS view, and with the Tool
+-- excluded the real gun was drawn beside the viewmodel clone -- two shotguns on screen at once. In
+-- first person the viewmodel IS the gun.
+local function trackHiddenPart(part: Instance)
+	if not (part:IsA("BasePart") or part:IsA("Decal")) then
+		return
+	end
+	table.insert(hiddenParts, part)
+	if hiddenNow then
+		-- It arrived while the body is hidden: hide it now, because the write loop below only runs
+		-- when the flag CHANGES and the flag is not going to change again until the player lowers
+		-- the gun.
+		(part :: any).LocalTransparencyModifier = 1
+	end
+end
+
+-- RESTORE BEFORE DROPPING. A part that leaves the character while the body is hidden must be put
+-- back first: once it is out of the list, `setLocalBodyHidden(false)` never writes it again, and this
+-- module is the only writer of LocalTransparencyModifier on the local character -- so it would stay
+-- invisible for the rest of that life.
+--
+-- The reachable path is a player's: aim, then unequip the shotgun with `1` or backtick while the
+-- right button is still down. The Tool reparents to the Backpack, its `Handle` leaves the character
+-- at 1, the blend decays, and the gun is gone in third person until the player respawns. Review round
+-- 1 of Task 47 found this; the old code could not do it, because it never removed anything.
+local function forgetHiddenPart(part: Instance)
+	local index = table.find(hiddenParts, part)
+	if index == nil then
+		return
+	end
+	table.remove(hiddenParts, index)
+	if hiddenNow then
+		(part :: any).LocalTransparencyModifier = 0
+	end
+end
+
+local function watchCharacter(character: Model?)
+	if hiddenAdded then
+		hiddenAdded:Disconnect()
+		hiddenAdded = nil
+	end
+	if hiddenRemoving then
+		hiddenRemoving:Disconnect()
+		hiddenRemoving = nil
+	end
+	table.clear(hiddenParts)
+	hiddenFor = character
+	hiddenNow = nil
+	if character == nil then
+		return
+	end
+	for _, part in ipairs(character:GetDescendants()) do
+		trackHiddenPart(part)
+	end
+	hiddenAdded = character.DescendantAdded:Connect(trackHiddenPart)
+	hiddenRemoving = character.DescendantRemoving:Connect(forgetHiddenPart)
+end
 
 function Rig.setLocalBodyHidden(hidden: boolean)
 	local character = Players.LocalPlayer.Character
 	if not character then
-		hiddenFor, hiddenNow = nil, nil
+		if hiddenFor ~= nil then
+			watchCharacter(nil)
+		end
 		return
 	end
 	if hiddenFor ~= character then
-		hiddenFor = character
-		hiddenNow = nil
-		table.clear(hiddenParts)
-		for _, part in ipairs(character:GetDescendants()) do
-			-- EVERYTHING the local character is wearing or holding, the Tool included. Two
-			-- screenshots taught this: with accessories excluded the hair hung across the top of
-			-- the ADS view, and with the Tool excluded the real gun was drawn beside the viewmodel
-			-- clone -- two shotguns on screen at once. In first person the viewmodel IS the gun.
-			if part:IsA("BasePart") or part:IsA("Decal") then
-				table.insert(hiddenParts, part)
-			end
-		end
+		watchCharacter(character)
 	end
 	if hiddenNow == hidden then
 		return
@@ -192,6 +262,12 @@ function Rig.setLocalBodyHidden(hidden: boolean)
 	for _, part in ipairs(hiddenParts) do
 		(part :: any).LocalTransparencyModifier = value
 	end
+end
+
+-- How many parts the local body's cache is holding, for the spec that proves a part arriving after
+-- the cache is still hidden. Read-only.
+function Rig.hiddenPartCount(): number
+	return #hiddenParts
 end
 
 function Rig.setCast(cast: ((Vector3, Vector3) -> Vector3?)?)

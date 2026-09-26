@@ -308,6 +308,141 @@ return function()
 		end)
 	end)
 
+	describe("the broadcast a client may not miss", function()
+		it("forces the push on every phase entry, and only there", function()
+			-- STATE_MIN_INTERVAL is the floor between pushes for a busy drive; a PHASE CHANGE behind
+			-- it is a client showing the wrong drive until the 5-second heartbeat. Task 41's clock
+			-- seam crossed two boundaries inside one throttle window and watched the drive-start push
+			-- vanish, so every phase entry now marks its broadcast `force`.
+			local cfg = config()
+			local state = ready(cfg)
+
+			local function forcedIn(effects): (number, number)
+				local forced, throttled = 0, 0
+				for _, effect in ipairs(effects) do
+					if effect.kind == "broadcast" then
+						if effect.force == true then
+							forced += 1
+						else
+							throttled += 1
+						end
+					end
+				end
+				return forced, throttled
+			end
+
+			-- Waiting -> Assigning
+			local effects
+			state, effects = Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg)
+			local forced, throttled = forcedIn(effects)
+			expect(forced).to.equal(1) -- the phase entry
+			expect(throttled).to.equal(1) -- the join itself, which may wait for the floor
+
+			-- Assigning -> Running, and Running -> Scoring
+			state, effects = Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg)
+			expect(state.phase).to.equal("Running")
+			forced, throttled = forcedIn(effects)
+			expect(forced).to.equal(1)
+			expect(throttled).to.equal(0)
+
+			local endOfDrive = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			state, effects = Phase.step(state, { kind = "tick" }, endOfDrive, cfg)
+			expect(state.phase).to.equal("Scoring")
+			expect((forcedIn(effects))).to.equal(1)
+
+			-- An ordinary event inside a phase is NOT forced: that is what the floor is for.
+			local _, quiet = Phase.step(state, { kind = "join", userId = 2, name = "Mila" }, endOfDrive + 1, cfg)
+			local quietForced, quietThrottled = forcedIn(quiet)
+			expect(quietForced).to.equal(0)
+			expect(quietThrottled).to.equal(1)
+		end)
+	end)
+
+	describe("the safety rule's effects", function()
+		-- The machine does not decide WHETHER the shot was a violation (Match.Penalty does, and the
+		-- owner asks the three questions around it). What it owns is what happens next, and in what
+		-- order.
+		local function running(cfg)
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			state = (Phase.step(state, { kind = "join", userId = 2, name = "Mila" }, 0, cfg))
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			expect(state.phase).to.equal("Running")
+			return state
+		end
+
+		it("freezes the offender BEFORE it announces it, so the two cannot disagree", function()
+			local cfg = config()
+			local state = running(cfg)
+			local at = cfg.INTERMISSION_SECONDS + 5
+			local effects
+			state, effects = Phase.step(state, { kind = "violation", userId = 1, name = "Karen", at = at }, at, cfg)
+			-- The order is load-bearing: the owner's `tied` set is what the snapshot reports, so a
+			-- broadcast applied before the tie would announce the violation and show nobody tied.
+			expect(kinds(effects)[1]).to.equal("freeze")
+			expect(kinds(effects)[2]).to.equal("feed")
+			expect(kinds(effects)[3]).to.equal("broadcast")
+			expect(effects[1].userId).to.equal(1)
+			expect(effects[2].entry.kind).to.equal("violation")
+			expect(effects[2].entry.userId).to.equal(1)
+			expect(countKind(effects, "freeze")).to.equal(1)
+			-- The drive is not interrupted by it: nobody is respawned, nothing is re-armed by the
+			-- machine, and no boar is touched.
+			expect(countKind(effects, "placePlayers")).to.equal(0)
+			expect(countKind(effects, "clearBoars")).to.equal(0)
+		end)
+
+		it("ignores a violation in every phase but Running", function()
+			local cfg = config()
+			-- Waiting: nobody has a gun at all.
+			local waiting = ready(cfg)
+			local _, idle = Phase.step(waiting, { kind = "violation", userId = 1, at = 0 }, 0, cfg)
+			expect(countKind(idle, "freeze")).to.equal(0)
+			expect(countKind(idle, "feed")).to.equal(0)
+
+			-- Assigning: the drive has not started, so the rule has not either.
+			local assigning = (Phase.step(waiting, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			expect(assigning.phase).to.equal("Assigning")
+			local _, early = Phase.step(assigning, { kind = "violation", userId = 1, at = 1 }, 1, cfg)
+			expect(countKind(early, "freeze")).to.equal(0)
+
+			-- Scoring: "shooting is possible and pointless" (design section 4.1).
+			local state = running(cfg)
+			local endOfDrive = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			state = (Phase.step(state, { kind = "tick" }, endOfDrive, cfg))
+			expect(state.phase).to.equal("Scoring")
+			local _, late =
+				Phase.step(state, { kind = "violation", userId = 1, at = endOfDrive + 1 }, endOfDrive + 1, cfg)
+			expect(countKind(late, "freeze")).to.equal(0)
+		end)
+
+		it("frees everybody when the drive ends, in the same step that clears the boars", function()
+			local cfg = config()
+			local state = running(cfg)
+			local endOfDrive = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			local effects
+			state, effects = Phase.step(state, { kind = "tick" }, endOfDrive, cfg)
+			expect(state.phase).to.equal("Scoring")
+			expect(countKind(effects, "release")).to.equal(1)
+			expect(countKind(effects, "clearBoars")).to.equal(1)
+		end)
+
+		it("does not freeze a second time for a second violation, because it is asked once", function()
+			-- The machine is told about a violation only when the owner has decided there is one, and
+			-- the owner's second question is "is he already tied". So two violation EVENTS do produce
+			-- two freezes here -- and that is why the guard lives in the owner, where the `tied` table
+			-- is. Asserted, so nobody moves it and believes it was here.
+			local cfg = config()
+			local state = running(cfg)
+			local at = cfg.INTERMISSION_SECONDS + 5
+			local first, second
+			state, first = Phase.step(state, { kind = "violation", userId = 1, at = at }, at, cfg)
+			state, second = Phase.step(state, { kind = "violation", userId = 1, at = at + 0.1 }, at + 0.1, cfg)
+			expect(countKind(first, "freeze")).to.equal(1)
+			expect(countKind(second, "freeze")).to.equal(1)
+		end)
+	end)
+
 	describe("joining and leaving", function()
 		it("puts a mid-drive joiner on the smaller team and moves nobody else", function()
 			local cfg = config()

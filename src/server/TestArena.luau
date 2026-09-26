@@ -19,7 +19,13 @@
 -- Record: backups/2026-09-25_workspace-defaults.md.
 
 local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+
+-- The tag strings come from the contract, not from here (Task 43): the arena and the generated map
+-- must tag with the same five strings or Match.Markers finds one world and not the other, and a typo
+-- in a second copy yields a silently empty GetTagged.
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
 
 -- Every dimension of the arena is here. Positions are the centre in X/Z; Y is derived, so every
 -- block rests on the ground surface and nothing has to be kept in sync by hand.
@@ -83,11 +89,11 @@ local LAYOUT = {
 		treeBlocks = { "PillarNW", "PillarNE", "PillarSW", "PillarSE" },
 
 		tags = {
-			post = "DrivenHunt.ShooterPost",
-			line = "DrivenHunt.DriveLine",
-			driverStart = "DrivenHunt.DriverStart",
-			boarSpawn = "DrivenHunt.BoarSpawn",
-			tree = "DrivenHunt.Tree",
+			post = Map.TAGS.shooterPost,
+			line = Map.TAGS.driveLine,
+			driverStart = Map.TAGS.driverStart,
+			boarSpawn = Map.TAGS.boarSpawn,
+			tree = Map.TAGS.tree,
 		},
 	},
 }
