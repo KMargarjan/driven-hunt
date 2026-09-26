@@ -3,18 +3,19 @@
 Task: 47
 Round: 2
 Base: `1478854` (task-45-hygiene; stacked on 44, 43, 41, 38, 36 and 35, none merged)
-Code commit: `PENDING` — this request's own commit, which is what both harness lines name (CLAUDE.md
-git workflow step 4). The last commit that changed `src/`, `tests/` or `tools/` is `9bed8e3`.
+Code commit: `d8e9884063c410d781a23e6bb3aaba095d0b4fee` — this request's own commit, which is what
+both harness lines name (CLAUDE.md git workflow step 4). The last commit that changed `src/`, `tests/`
+or `tools/` is `9bed8e3`, and only this fill-in changed after it.
 
 Harness, clean tree, one player:
 
-    HARNESS1_LINE
+    [harness] PASS: 27/27 checks @ d8e9884063c410d781a23e6bb3aaba095d0b4fee (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me:
 
-    HARNESS2_LINE
+    [harness2] PASS: 30/30 checks @ d8e9884063c410d781a23e6bb3aaba095d0b4fee (clean tree)
 
-303 server specs (302 before this task), 74 client (70 before).
+303 server specs (302 before this task), 74 shooter-client and 68 driver-client (70 and 64 before).
 
 ## What changed
 
