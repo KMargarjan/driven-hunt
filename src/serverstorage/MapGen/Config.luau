@@ -103,7 +103,12 @@ Config.WORLD = {
 	tieTreeZ = -745,
 	tieTreeSpan = 1120, -- the post span
 
-	treeCount = 400, -- K, proxies until M2.3 raises it to 3,000 with real meshes
+	-- THE WOOD IS NO LONGER A COUNT (M2.8b, design section 7.2). A flat `treeCount` scattered
+	-- everywhere outside the corridor made a map with a bare drive and a decorated backdrop --
+	-- exactly the wrong way round. The candidate grid is fixed at TREE_SPACING and each candidate is
+	-- accepted against `Layout.treeDensity`, so the wood is DENSE where the shooter's eye is, thinner
+	-- across the rest of the drive, and sparse in the backdrop. The count that comes out is measured,
+	-- not asked for, and the step FAILS if it exceeds Map.BUDGET.trees.
 	treeArea = { minX = -1000, maxX = 1000, minZ = -1000, maxZ = 1000 },
 
 	-- THE HEDGEROW NETWORK: field boundaries on a grid, each line the full width or depth of the map.
@@ -123,10 +128,14 @@ Config.WORLD = {
 	gateStuds = 96, -- K: a gate a boar, a driver and a dog can all use
 	gatesPerLine = 2, -- inside the corridor, where the drive crosses
 
-	-- Dirt tracks, material only: the height was already decided by the heightfield.
+	-- ONE FLANK TRACK, material only: the height was already decided by the heightfield.
+	--
+	-- The two v2 tracks are gone (design section 7.6, and TASKS.md row 58a(d) found the second one
+	-- stale): `x = -250` ran ACROSS the drive, and `z = 430` ran the length of the map INSIDE the
+	-- widened corridor while its comment still said "outside the corridor". The drive is a wood with
+	-- a road in it now; the farm track belongs in the field.
 	tracks = {
-		{ axis = "x", at = -250, halfWidth = 7 }, -- across the drive, between the line and mid-field
-		{ axis = "z", at = 430, halfWidth = 7 }, -- along the map, outside the corridor
+		{ axis = "z", at = 880, halfWidth = 5 }, -- in the eastern field, well outside the corridor
 	},
 
 	-- One bog, OUTSIDE the drive corridor. A bog in the lane is an obstacle in the one place the drive
@@ -186,9 +195,92 @@ Config.FIELD = {
 
 -- ---------------------------------------------------------------- scatter
 
-Config.SCATTER_OVERSAMPLE = 6 -- cells per wanted tree: the corridor, tracks, bog and hedges reject many
-Config.SCATTER_JITTER = 0.9 -- of a cell; 0 is a grid, 1 lets two neighbours touch
+Config.SCATTER_OVERSAMPLE = 6 -- cells per wanted tree, for the count-based scatters that remain
+-- 0.5, NOT the built 0.9, AND IT IS AN ARGUMENT RATHER THAN A TASTE (design section 7.3). A jittered
+-- grid displaces a candidate by at most +/- jitter * spacing / 2 inside its own cell, so two
+-- candidates in neighbouring cells are at least spacing * (1 - jitter) apart: 22 * 0.5 = 11 studs.
+-- The widest trunk is oak at 5, so the worst clear gap is 11 - 2.5 - 2.5 = 6 studs against the boar's
+-- AgentRadius = 2, which needs 4. At 0.9 the guaranteed gap is 2.2 studs and the boar cannot pass --
+-- which is why the corridor used to be swept clear of trees instead.
+Config.SCATTER_JITTER = 0.5
 Config.SCATTER_CLEARANCE = 14 -- studs a tree keeps from a HEDGE LINE; a track and the bog reject at their own edge
+
+-- THE WOOD (design sections 7.1-7.4). One candidate grid, three density tiers, four species.
+Config.TREE_SPACING = 22 -- studs between candidate cells, before the jitter and the density test
+
+-- The tiers, as weights in 0..1: a candidate is accepted when its own drawn key is below the weight.
+-- Dense where the shooter's eye is, thinner across the rest of the drive, sparse in the backdrop.
+Config.TREE_DENSITY = {
+	dense = 1.0, -- K
+	drive = 0.42, -- K
+	backdrop = 0.14, -- K
+	denseBandStuds = 260, -- K, within this of the road's centreline...
+	denseHalfWidth = 700, -- K, ...and inside this |x|
+}
+
+-- FOUR SPECIES AND NOTHING ELSE (Karen's list): oak, birch, black alder, spruce. `share` is the
+-- fraction of the wood, `height` is the proxy's total height in studs -- which matches
+-- docs/design/asset-pipeline.md section 12.1's `sizeStuds`, so a grey box teaches the truth about the
+-- mesh that will replace it rather than a 22-stud lollipop (design section 7.1).
+--
+-- EVERY COLOUR IS ABOVE THE ALBEDO FLOOR. An unlit face renders at roughly 0.275 x albedo at this
+-- place's ambient -- measured in Task 22, which turned RGB(90, 80, 70) into near-black -- so no
+-- channel maximum here is below 120, spruce included.
+Config.SPECIES = {
+	{
+		name = "spruce",
+		share = 0.4, -- K
+		height = 71,
+		trunk = Vector3.new(3, 30, 3),
+		crown = Vector3.new(14, 44, 14),
+		trunkColor = Color3.fromRGB(78, 62, 46),
+		crownColor = Color3.fromRGB(95, 132, 96), -- green: a spruce does not turn in autumn
+	},
+	{
+		name = "birch",
+		share = 0.25, -- K
+		height = 64,
+		trunk = Vector3.new(2.5, 34, 2.5),
+		crown = Vector3.new(18, 32, 18),
+		trunkColor = Color3.fromRGB(225, 222, 210), -- the one white trunk, and it reads at 200 m
+		crownColor = Color3.fromRGB(215, 180, 70), -- yellow
+	},
+	{
+		name = "oak",
+		share = 0.2, -- K
+		height = 64,
+		trunk = Vector3.new(5, 28, 5),
+		crown = Vector3.new(32, 38, 32),
+		trunkColor = Color3.fromRGB(96, 78, 58),
+		crownColor = Color3.fromRGB(170, 105, 45), -- orange-brown
+	},
+	{
+		name = "alder",
+		share = 0.15, -- K
+		height = 57,
+		trunk = Vector3.new(3, 26, 3),
+		crown = Vector3.new(13, 30, 13),
+		trunkColor = Color3.fromRGB(84, 72, 60),
+		crownColor = Color3.fromRGB(140, 130, 60), -- dull yellow-green
+	},
+}
+
+-- The species FIELD: a low-frequency noise band decides which species a patch of wood leans to, so
+-- the drive crosses dark blocks of spruce and light stands of birch instead of a species salad.
+Config.SPECIES_FREQUENCY = 1 / 260 -- K, clumps read at about 70 m
+-- ...except where it is wet. Black alder is a wet-ground tree, and a spruce in a bog reads as a
+-- mistake, so the bog and the hollows force alder whatever the field says.
+Config.SPECIES_WET_DEPTH = -6 -- ground below this is a hollow
+
+-- BRUSH: cover for the EYE only (design section 7.4). CanCollide and CanQuery are both false, so a
+-- bush never eats a slug and never stops a driver -- an invisible wall a shooter cannot see the
+-- reason for is worse than no cover at all.
+Config.BRUSH = {
+	count = 500, -- K
+	size = Vector3.new(10, 5, 10),
+	color = Color3.fromRGB(122, 104, 64),
+	sink = 1.5, -- studs of the box below the ground, so it sits in the litter rather than on it
+}
 
 -- ---------------------------------------------------------------- materials
 
@@ -217,7 +309,18 @@ Config.PROXY_COLOR = {
 	hedge = Color3.fromRGB(58, 78, 48),
 	marker = Color3.fromRGB(255, 255, 255),
 }
-Config.TREE_PROXY = { trunk = Vector3.new(3, 22, 3), crown = Vector3.new(11, 12, 11) }
+-- THE FALLBACK PROXY, for a tree with no species (the tie trees, which are placed on purpose
+-- rather than scattered). The wood's own proxies come from Config.SPECIES.
+Config.TREE_PROXY = {
+	trunk = Vector3.new(3, 30, 3),
+	crown = Vector3.new(14, 44, 14),
+	height = 71,
+	trunkColor = Color3.fromRGB(78, 62, 46),
+	crownColor = Color3.fromRGB(95, 132, 96),
+}
+-- How far a crown's underside may overlap its trunk's top, so a crown never floats: the crown is
+-- centred to put its TOP at the species' height, and then pulled down if that would leave a gap.
+Config.CROWN_MIN_OVERLAP = 2
 Config.HEDGE = { segmentStuds = 24, size = Vector3.new(24, 7, 3) }
 
 -- ---------------------------------------------------------------- the digest and the run

@@ -123,7 +123,14 @@ function MapGen.steps(seed: number): { StepSpec }
 	-- by the terrain pass through `Layout.bogDepth`. A separate step could only repaint what is
 	-- already right, and a step that does nothing is worse than no step (design section 5.2 layer 6
 	-- assumes a bog painted on top of flat ground; ours is part of the ground).
-	add("props", string.format("%d trees (seed %d)", Config.WORLD.treeCount, seed), 8000)
+	-- THE WOOD, ONE QUADRANT PER STEP (design section 7.2). ~3,000 Models in one step is one step
+	-- that can time out and tell you nothing about where it was; four steps name a quarter of the map.
+	for _, block in ipairs(Layout.treeBlocks(Config)) do
+		add("props", string.format("the wood: %s quadrant (seed %d)", block.name, seed), 8000)
+	end
+	for _, block in ipairs(Layout.treeBlocks(Config)) do
+		add("brush", string.format("brush: %s quadrant", block.name), 3000)
+	end
 	add("stand", string.format("%d tie trees behind the shooter line", Config.WORLD.tieTrees), 2000)
 	add("markers", "the five tagged marker kinds, and the tie trees", 3000)
 	add("settings", "streaming from the contract", 500)
@@ -317,24 +324,67 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		return finish({ ok = true, voxelsWritten = Ground.paintTrack(Config.WORLD.tracks[ordinal()], Config) })
 	elseif spec.kind == "props" then
 		local root = ensureRoot(seed)
-		local count, keys, why = Props.trees(root, seed, Config)
+		local block = Layout.treeBlocks(Config)[ordinal()]
+		local placedSoFar = #Props.trunks(root, "Trees")
+		local count, keys, why, species = Props.trees(root, seed, Config, block, placedSoFar)
 		Props.clearAssets(root) -- no template outlives the run (design section 8.2)
 		if why then
 			return finish({ ok = false, message = why })
 		end
-		if count < Config.WORLD.treeCount then
+		local total = placedSoFar + count
+		-- THE BUDGET IS A CEILING THAT FAILS THE BUILD, not a number in a document (design section
+		-- 7.2): a build that quietly overruns the part budget is how a place gets slow with no diff
+		-- to blame. The count is a MEASUREMENT of the density tiers, so this is also the tripwire
+		-- that catches a density raised too far.
+		if total > Map.BUDGET.trees then
 			return finish({
 				ok = false,
 				partsCreated = count,
 				proxyUsed = keys,
 				message = string.format(
-					"%d of %d trees placed: the scatter rejected too many cells",
-					count,
-					Config.WORLD.treeCount
+					"%d trees after the %s quadrant, over Map.BUDGET.trees = %d",
+					total,
+					block.name,
+					Map.BUDGET.trees
 				),
 			})
 		end
-		return finish({ ok = true, partsCreated = count, proxyUsed = keys })
+		local mix = {}
+		for _, row in ipairs(Config.SPECIES) do
+			table.insert(mix, string.format("%s %d", row.name, species[row.name] or 0))
+		end
+		return finish({
+			ok = true,
+			partsCreated = count,
+			proxyUsed = keys,
+			message = string.format("%d trees (%s); %d in the wood so far", count, table.concat(mix, " "), total),
+		})
+	elseif spec.kind == "brush" then
+		local root = ensureRoot(seed)
+		local block = Layout.treeBlocks(Config)[ordinal()]
+		local placedSoFar = 0
+		local props = root:FindFirstChild("Props")
+		local existing = props and props:FindFirstChild("Brush")
+		if existing then
+			placedSoFar = #existing:GetChildren()
+		end
+		local count, why = Props.brush(root, seed, Config, block, placedSoFar)
+		if why then
+			return finish({ ok = false, message = why })
+		end
+		local total = placedSoFar + count
+		if total > Map.BUDGET.brush then
+			return finish({
+				ok = false,
+				partsCreated = count,
+				message = string.format("%d brush parts, over Map.BUDGET.brush = %d", total, Map.BUDGET.brush),
+			})
+		end
+		return finish({
+			ok = true,
+			partsCreated = count,
+			message = string.format("%d bushes; %d so far", count, total),
+		})
 	elseif spec.kind == "stand" then
 		local root = ensureRoot(seed)
 		local count, keys, why = Props.tieTrees(root, seed, Config)

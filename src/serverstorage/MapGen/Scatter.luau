@@ -20,14 +20,22 @@
 --   (docs/design/map-generator.md section 11 source 5)
 --
 -- Design: docs/design/map-generator.md (sections 2.2, 5.3)
+local Layout = require(script.Parent.Layout)
+
 local Scatter = {}
+
+-- A block's own offset into the seed, from its rectangle: two blocks of the same map draw different
+-- numbers, and the SAME block draws the same numbers whatever order the steps run in.
+local function blockSeed(block): number
+	return math.floor(block.minX * 7 + block.minZ * 13 + block.maxX * 3 + block.maxZ * 5)
+end
 
 export type Point = { x: number, z: number }
 export type Area = { minX: number, maxX: number, minZ: number, maxZ: number }
 
 -- Layer ids. Each layer's generator is Random.new(seed * 1000 + id), so adding a layer never moves
 -- an existing layer's points.
-Scatter.LAYER = table.freeze({ trees = 1, hedge = 2 })
+Scatter.LAYER = table.freeze({ trees = 1, hedge = 2, brush = 3 })
 
 function Scatter.generator(seed: number, layer: number): Random
 	return Random.new(seed * 1000 + layer)
@@ -101,20 +109,99 @@ function Scatter.spacingFor(area: Area, count: number): number
 	return math.sqrt(span / math.max(count, 1))
 end
 
--- The wood: `config.WORLD.treeCount` trees inside `treeArea`, none where `reject` says no -- which for
--- the drive means not in the corridor, not on a track, not in the bog and not in a hedge.
+-- WHICH SPECIES STANDS HERE (design section 7.1). Pure, deterministic, and TWO rules rather than one:
 --
--- More cells are generated than trees are wanted, and the subset is chosen BY THE DRAWN KEY rather
--- than by taking the first N: the grid is walked row by row, so the first N would be a stripe along
--- one edge and not a wood.
-function Scatter.trees(config, seed: number, reject: ((number, number) -> boolean)?): { Point }
-	local world = config.WORLD
-	local want = world.treeCount
-	local rng = Scatter.generator(seed, Scatter.LAYER.trees)
-	local spacing = Scatter.spacingFor(world.treeArea, math.ceil(want * config.SCATTER_OVERSAMPLE))
-	local candidates = Scatter.jitteredGrid(world.treeArea, spacing, config.SCATTER_JITTER, rng, reject)
+--  1. a low-frequency noise field picks the band, so the wood comes in clumps a drive crosses --
+--     dark blocks of spruce, light stands of birch -- instead of a species salad at every step;
+--  2. WET GROUND FORCES ALDER, whatever the field says. Black alder is a wet-ground tree; a spruce
+--     standing in a bog reads as a mistake to anyone who has walked a European wood.
+--
+-- `key` is the candidate's own drawn number, so two trees in one clump can still differ.
+function Scatter.speciesAt(x: number, z: number, key: number, seed: number, config, groundY: number?): string
+	local species = config.SPECIES
+	if groundY ~= nil and groundY < config.SPECIES_WET_DEPTH then
+		return "alder"
+	end
+	local frequency = config.SPECIES_FREQUENCY
+	-- The same noise call shape the heightfield uses, with its own seed offset so the species field
+	-- is not the ground's shape wearing a different name.
+	local field = (math.noise(x * frequency, z * frequency, seed * 0.37 + 11.5) + 1) / 2
+	field = math.clamp(field, 0, 0.999999)
+
+	-- The field chooses a BAND of the share table, the key chooses inside it: a clump leans to one
+	-- species without being a monoculture.
+	local blended = math.clamp(field * 0.75 + key * 0.25, 0, 0.999999)
+	local running = 0
+	for _, row in ipairs(species) do
+		running += row.share
+		if blended < running then
+			return row.name
+		end
+	end
+	return species[#species].name
+end
+
+-- The candidates a WEIGHT accepts: `weight(x, z)` returns 0..1 and a candidate is kept when its own
+-- drawn key is below it. Each cell draws all three numbers before any test, so a rejected cell never
+-- shifts the draws of the cells after it -- the property `jitteredGrid` already protects, and the
+-- reason the density can be a function of position without making the count depend on the order.
+function Scatter.weighted(
+	area: Area,
+	spacing: number,
+	jitter: number,
+	rng: Random,
+	weight: (number, number) -> number,
+	reject: ((number, number) -> boolean)?
+): { Point }
+	local out: { Point } = {}
+	local cols = math.max(1, math.floor((area.maxX - area.minX) / spacing))
+	local rows = math.max(1, math.floor((area.maxZ - area.minZ) / spacing))
+	for row = 0, rows - 1 do
+		for col = 0, cols - 1 do
+			local dx = (rng:NextNumber() - 0.5) * spacing * jitter
+			local dz = (rng:NextNumber() - 0.5) * spacing * jitter
+			local key = rng:NextNumber()
+			local x = area.minX + (col + 0.5) * spacing + dx
+			local z = area.minZ + (row + 0.5) * spacing + dz
+			if not (reject and reject(x, z)) and key < weight(x, z) then
+				table.insert(out, { x = x, z = z, key = key } :: any)
+			end
+		end
+	end
+	return out
+end
+
+-- The wood, one BLOCK at a time (design sections 7.2 and 7.3). The grid is fixed at TREE_SPACING and
+-- the density decides what survives, so the wood is thick where the shooter looks and thin in the
+-- backdrop -- and the count is a MEASUREMENT of the map rather than a number somebody asked for.
+--
+-- The block's own cells are the block's own draws: a block is a rectangle of the same global grid,
+-- so which trees exist does not depend on how the work was cut into steps.
+function Scatter.trees(config, seed: number, block, reject: ((number, number) -> boolean)?): { Point }
+	local rng = Scatter.generator(seed + blockSeed(block), Scatter.LAYER.trees)
+	local points = Scatter.weighted(block, config.TREE_SPACING, config.SCATTER_JITTER, rng, function(x, z)
+		return Layout.treeDensity(x, z, config)
+	end, reject)
+	-- Placed in a stable spatial order, so `Tree007` is the same tree in two runs of the same seed and
+	-- a digest diff names a position, not a shuffle.
+	table.sort(points, function(a, b)
+		if a.x ~= b.x then
+			return a.x < b.x
+		end
+		return a.z < b.z
+	end)
+	return points
+end
+
+-- BRUSH: its own grid, its own layer, the wood only. Count-based, because brush is decoration and
+-- Karen asked for a number of bushes rather than for a density.
+function Scatter.brush(config, seed: number, block, reject: ((number, number) -> boolean)?): { Point }
+	local rng = Scatter.generator(seed + blockSeed(block), Scatter.LAYER.brush)
+	local perBlock = math.ceil(config.BRUSH.count / 4)
+	local spacing = Scatter.spacingFor(block, math.ceil(perBlock * config.SCATTER_OVERSAMPLE))
+	local candidates = Scatter.jitteredGrid(block, spacing, config.SCATTER_JITTER, rng, reject)
 	for index, point in ipairs(candidates) do
-		(point :: any).order = index -- a total order, so the sort cannot depend on table.sort's pivot
+		(point :: any).order = index
 	end
 	table.sort(candidates, function(a, b)
 		local ka, kb = (a :: any).key, (b :: any).key
@@ -124,12 +211,9 @@ function Scatter.trees(config, seed: number, reject: ((number, number) -> boolea
 		return (a :: any).order < (b :: any).order
 	end)
 	local out: { Point } = {}
-	for index = 1, math.min(want, #candidates) do
-		local point = candidates[index]
-		table.insert(out, { x = point.x, z = point.z }) -- the sort keys do not leave this module
+	for index = 1, math.min(perBlock, #candidates) do
+		table.insert(out, { x = candidates[index].x, z = candidates[index].z })
 	end
-	-- Placed in a stable spatial order, so `Tree007` is the same tree in two runs of the same seed and
-	-- a digest diff names a position, not a shuffle.
 	table.sort(out, function(a, b)
 		if a.x ~= b.x then
 			return a.x < b.x
