@@ -3,21 +3,21 @@
 Task: 66
 Round: 1
 Base: `4aa2962` (`main`, with Task 63 merged)
-Code commit: `41f473513ea1f3d655fad616251144c3dad9c1b5` — **both** harness lines below name it. It is a
-PAPERWORK commit: the last commit that changed `src/`, `tests/` or `tools/` is `2fcafba`, and
-`git diff --name-only 2fcafba..41f4735` is `TASKS.md` and this file.
+Code commit: `41f473513ea1f3d655fad616251144c3dad9c1b5` — **both** harness lines below name it, and
+both runs were made at it. It is a PAPERWORK commit: the last commit that changed `src/`, `tests/`
+or `tools/` is `2fcafba`, and `git diff --name-only 2fcafba..41f4735` is `TASKS.md` and this file.
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 30/30 checks @ 2fcafba34470c8cefe6ac2d271da12f951551d3d (clean tree)
+    [harness] PASS: 30/30 checks @ 41f473513ea1f3d655fad616251144c3dad9c1b5 (clean tree)
 
 Harness, clean tree, two players — **run by the DIRECTOR, not by me** (`src/` changed):
 
     [harness2] PASS: 32/32 checks @ 41f473513ea1f3d655fad616251144c3dad9c1b5 (clean tree)
 
-The one-player line names `2fcafba` and the two-player line names `41f4735`, which is `2fcafba`
-plus this file and the `TASKS.md` rows: the `Code commit:` above is the later of the two, so both
-runs cover every line of code in the branch (git workflow step 4).
+Both lines name the same commit. My own one-player run had named `2fcafba`, the last commit that
+touched code, and the review gate refused it: the rule is that the pasted line names the
+`Code commit:` itself, so the Director re-ran it at `41f4735`.
 
 382 server specs (378 before: **four new**), 84 shooter and 78 driver client specs. **The map is
 CLEARED from the place**: `cellsAfter: 0`, `paletteRestored: true`, and a `census` afterwards shows
@@ -97,7 +97,8 @@ field boundary, reeds at the bog — "all proxies", plus "one new close view". D
   of it should collide when real meshes arrive is a Director/Architect call, queued as 66a(a).
 - **The fence reads as a thin line at 100 studs** in an open field, and is essentially invisible from
   the road. I looked at it from 20 studs to describe it honestly; nobody will see it while playing.
-- **`[harness2]` was run by the Director, not by me.** This change is generator code that runs in
-  Edit and puts nothing in a play session, so the two-player run is the gate's requirement rather
-  than evidence I produced.
+- **Both harness runs at `41f4735` were made by the Director, not by me.** My own one-player run
+  was at `2fcafba`, the last code commit, which the gate refused. This change is generator code that
+  runs in Edit and puts nothing in a play session, so the two-player run in particular is the gate's
+  requirement rather than evidence I produced.
 - **The screenshots are seed 1**; the specs are pure and run at `SEED = 7`.
