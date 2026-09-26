@@ -3,24 +3,28 @@
 Task: 50
 Round: 1
 Base: `edc3136` (`main`; everything through Task 49 merged)
-Code commit: `1d470161b2902148e092a1d31895f996ab85c612` — the `[harness]` line below names it, it is the
-last commit that changed `src/`, `tests/` or `tools/`, and only this request changes after it
-(CLAUDE.md git workflow step 4).
+Code commit: `143ee1c1de781927b5e341f4f56c2b5aef5e0215` — both harness lines below name it. It is a
+PAPERWORK commit (`1d47016` + this request and the `TASKS.md` row), which CLAUDE.md git workflow
+step 4 allows and prefers: the Director's `test2` runs at the branch head, so naming the head only
+narrows what the evidence has to cover. The last commit that changed `src/`, `tests/` or `tools/` is
+`1d47016`, and `git diff --name-only 1d47016..143ee1c` is `TASKS.md` and this file.
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 28/28 checks @ 1d470161b2902148e092a1d31895f996ab85c612 (clean tree)
+    [harness] PASS: 28/28 checks @ 143ee1c1de781927b5e341f4f56c2b5aef5e0215 (clean tree)
 
-Harness, clean tree, two players — run by the DIRECTOR, not by me:
+Harness, clean tree, two players — run by the DIRECTOR, twice, not by me. Both runs:
 
-    <the [harness2] PASS line for 1d470161b2902148e092a1d31895f996ab85c612 goes here>
+    [harness2] PASS: 30/30 checks @ 143ee1c1de781927b5e341f4f56c2b5aef5e0215 (clean tree)
 
-307 server specs (unchanged) and **78** client specs (75 before: three new ones, claim 8).
+307 server specs (unchanged) and **78** client specs (75 before: three new ones, claim 8). The
+two-player runs report server 307, shooter 78, driver 72 — the driver's six fewer are the shooter-only
+branches the role-aware specs skip for a player with no gun.
 
 ## What changed
 
-Two things. `test2` went from about 7–10 minutes to **96 seconds**, by overlapping waits and cutting
-no checks. And the speed-up exposed a real ordering defect in a client spec, which is fixed by fixing
+Two things. **`test2` went from about 7–10 minutes to 91 seconds**, by overlapping waits and
+cutting no checks. And the speed-up exposed a real ordering defect in a client spec, fixed by fixing
 the order — not the tolerance.
 
 ## Half one: the speed-up, and what it measured
@@ -48,29 +52,34 @@ loop of whole timeouts, so two clients that answered at the same moment cost twi
 | each client's input-ready handshake | 2 × 60 s | 60 s | **60 s** |
 | the 26 input batches | 52 round trips | 26 (`send_input_many`) | ~5 s |
 
-**The Director's three runs at `9165d63` are the result**, and their phase tables are the evidence:
+**The Director's runs are the result**, and the phase tables the harness now prints are the
+evidence. Five runs: three at `9165d63` (the speed work, before the look-at fix) and two at the code
+commit:
 
-| phase | run a | run b | run c |
-|---|---|---|---|
-| checks, token sync, gate shut | 1.5 s | 1.5 s | 1.5 s |
-| waiting for the Start click and three processes | 77.7 s | 20.5 s | 20.7 s |
-| classifying the three processes | 5.1 s | 4.8 s | 4.7 s |
-| team query · token injection · ready handshake | **all three under 0.5 s, so the table omits them** |||
-| replaying the input scenarios into both clients | 58.0 s | 58.3 s | 58.5 s |
-| reading all three reports | 1.4 s | 6.8 s | 6.8 s |
-| consoles, report checks, ending the session | 3.2 s | 3.2 s | 3.2 s |
-| **total** | **147 s** | **96 s** | **96 s** |
+| `test2` phase | before this task | 9165d63 a | 9165d63 b | 9165d63 c | **143ee1c x2** |
+|---|---|---|---|---|---|
+| checks, token sync, gate shut | — | 1.5 s | 1.5 s | 1.5 s | ~1.5 s |
+| waiting for the Start click and three processes | — | 77.7 s | 20.5 s | 20.7 s | **19.4 s** |
+| classifying the three processes | up to 180 s | 5.1 s | 4.8 s | 4.7 s | ~5 s |
+| team query · token · ready handshake | up to 250 s | **under 0.5 s together, so the table omits them** ||||
+| replaying the scenarios into both clients | — | 58.0 s | 58.3 s | 58.5 s | **58.9 s** |
+| reading all three reports | — | 1.4 s | 6.8 s | 6.8 s | ~3 s |
+| consoles, report checks, ending the session | — | 3.2 s | 3.2 s | 3.2 s | ~3 s |
+| **total** | **~420–600 s** | 147 s | 96 s | 96 s | **91 s and ~91 s** |
 
-Run a's 77.7 s was the Director's F7 arriving late, not the harness. **96 s is the run**, against a
-target of under 300 s. The three waits this task set out to overlap now cost less than half a second
-between them, and the remaining 58 s of replay is 34.5 s of scenario gaps (the specs assert against
-them), ~19 s inside the `stage` query waiting for the drive to release a boar, and ~5 s of calls.
+Run a's 77.7 s was the Director's F7 arriving late, not the harness. **91 s against a target of 300 s,
+a 4.6x to 6.6x improvement**, and no check was removed or loosened to get it. The three waits this
+task set out to overlap now cost less than half a second between them. Of the 91 s, **19.4 s is a
+human pressing F7** and **58.9 s is the replay**, which is 34.5 s of the scenario file's own gaps
+(the specs assert against them), ~19 s inside the `stage` query waiting for the drive to release a
+boar, and ~5 s of calls. The harness's own overhead is about 12 s.
 
 ## Half two: the ordering defect the speed-up exposed
 
-Runs b and c **failed 28/30**: `shoot_boar.spec:142`, the camera **82.30°** and **88.96°** off a
-point it had just been asked to look at, and 0.00° on a later reading. Run a read 0.00° first. Not
-flakiness — a real defect, and the speed-up is what made it reachable.
+Runs b and c at `9165d63` **failed 28/30**: `shoot_boar.spec:142`, the camera **82.30°** and
+**88.96°** off a point it had just been asked to look at, and 0.00° on a later reading. Run a read
+0.00° first. Not flakiness — a real defect, and the speed-up is what made it reachable. **Both runs
+at the code commit are 30/30 with no look-at failure.**
 
 The spec invoked `LookAtRequest` and then waited exactly **two `RenderStepped` frames**. The owner
 sets the angles at once, but `update()` runs `Mode.step` **first**, and `Mode.step` consumes whatever
@@ -135,8 +144,8 @@ frames happened to be enough.
    `camera_client.spec:256` ("0" vs "1") and `camera_client.spec:278` ("1" vs "2") in a real harness
    run — `[harness] FAIL: 26/28`. All three mutations were run and reverted; the tree is clean.
 
-10. **The one-player `test` did not get slower, and it now streams.** Six timed runs of the same 28
-    checks: **91 s** before the change, then 90 · 91 · 90 · 90 · 91 s after. With one target
+10. **The one-player `test` did not get slower, and it now streams.** Seven timed runs of the
+    same 28 checks: **91 s** before the change, then 90 · 91 · 90 · 90 · 91 · 92 s after. With one target
     `wait_for_each` is `wait_for` look for look and `send_input_many` is one submit and one await.
     Separately, stdout is line buffered, so a run's lines appear live even when piped to a log — the
     Director was waiting on "the gate is shut again", which used to arrive in an 8 KiB block after
@@ -147,12 +156,11 @@ frames happened to be enough.
 
 ## What I could not verify
 
-- **I have not run `test2` and claim no `[harness2]` result at this commit.** The 96 s figure and the
-  phase tables above are the Director's runs at `9165d63`, which is this branch **before** the
-  look-at fix. The fix changes `src/client/` and `tests/client/`, so it needs a fresh two-player run;
-  the speed work it sits on is unchanged by it.
-- **The two-player look-at race is fixed by reasoning plus a one-player test of the signal, not by
-  reproducing the race.** I cannot make a mouse delta land in a chosen frame from a spec. What is
+- **I did not run `test2` myself and am not claiming to have.** Both `[harness2]` lines are the
+  Director's runs; I read their logs and their phase tables. The click and the eight minutes are
+  theirs, which is what this task existed to shorten.
+- **The two-player look-at race is fixed by reasoning, a one-player test of the signal, and two clean
+  two-player runs — not by reproducing the race.** I cannot make a mouse delta land in a chosen frame from a spec. What is
   proved is that the spec no longer depends on a frame count, that it is bounded, and that the
   owner's counter counts frames and not asks.
 - **`LOOK_AT_SECONDS = 15` is a judgement, not a measurement.** The replay's mouse bursts are a
