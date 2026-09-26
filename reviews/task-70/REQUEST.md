@@ -3,7 +3,7 @@
 Task: 70
 Round: 1
 Base: `7cf52d1` (`main`, with Task 67 merged)
-Code commit: `<this request's commit>` — **docs-only**. Nothing under `src/`, `tests/` or `tools/` is
+Code commit: `23dd1b8` — **docs-only**. Nothing under `src/`, `tests/` or `tools/` is
 touched, so no harness run applies (CLAUDE.md, the loop's step 3: "Docs-only tasks are exempt").
 The only files are `docs/asset-briefs/shotgun.handle_v2.brief.json`,
 `docs/research/2026-09-26-meshy.md` (item D16, claim 8), `TASKS.md` and this request.
