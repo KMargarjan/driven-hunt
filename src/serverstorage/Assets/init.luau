@@ -124,11 +124,15 @@ Assets.ROWS = {
 		naturalSizeStuds = NATURAL,
 		offsetStuds = Vector3.zero, -- measured: the template's pivot is its bounding-box centre to
 		-- within 0.003 studs
-		-- THE MESH'S LONG AXIS IS ITS LOCAL X AND ITS MUZZLE IS AT -X (tools/asset_prep.py measured
-		-- the muzzle end by its thinner cross-section). The Handle's -Z is the muzzle
-		-- (Shotgun.CONFIG.GRIP), so -X must become -Z: a -90 degree turn about Y.
-		-- ONLY A SCREENSHOT CHECKS THIS (design 6.3, and PROJECT_CONTEXT's knife held backwards).
-		rotationDeg = Vector3.new(0, -90, 0),
+		-- THE MESH'S LONG AXIS IS ITS LOCAL X, AND ITS MUZZLE IS AT +X -- WHICH IS NOT WHAT THE
+		-- BLENDER MEASUREMENT SAID. `tools/asset_prep.py` measured the muzzle at the MINIMUM X of
+		-- the source model (the thinner end), and the arithmetic from that gives -90 degrees about
+		-- Y. The first screenshot showed the gun pointing backwards, so the FBX import flips the
+		-- long axis somewhere between Blender and Roblox: +90 is the correction, and it was found
+		-- the only way it can be found.
+		-- ONLY A SCREENSHOT CHECKS THIS (design 6.3, and PROJECT_CONTEXT's knife held backwards for
+		-- three rounds). This is that bug, caught on the first look instead of the third round.
+		rotationDeg = Vector3.new(0, 90, 0),
 		renderFidelity = "Automatic",
 		notes = "One MeshPart with a SurfaceAppearance child; the import kept the PBR maps, so the "
 			.. "viewmodel's clone must not strip non-Attachment children (design 6.6).",
