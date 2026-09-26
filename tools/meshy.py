@@ -1463,7 +1463,11 @@ def selftest():
            os.path.isfile(os.path.join(sandbox, broken["runId"], "preview.png")))
         artefacts = load_run(broken["runId"])["tasks"][-1]["artefacts"]
         names = [artefact["name"] for artefact in artefacts]
-        ok("...and a re-download replaced its record rather than doubling it",
+        # BOTH downloads failed on the first pass here, so the record had nothing to double: this
+        # says the resume produced one entry per file, and the DEDUP is asserted on `partial`
+        # below, which is the run that really does carry a prior preview.png across a resume
+        # (round 2 finding 1 -- this case passed with the dedup deleted).
+        ok("...and the resume recorded one entry per file",
            len(names) == len(set(names)) == 2, str(names))
 
         # THE GLB ALONE. The image reaching disk used to be the whole test, so a preview whose GLB
@@ -1490,11 +1494,21 @@ def selftest():
            load_run(partial["runId"])["state"] == "preview-unresolved",
            load_run(partial["runId"])["state"])
         ok("...and names the GLB in the line", "preview.glb" in said_glb, said_glb.strip())
+        # THE RECORD ALREADY CARRIES ONE preview.png HERE -- `fake_glb_fails` let the thumbnail
+        # through on the first pass -- so this is the run where a re-download can actually double an
+        # entry, and it is the only place the dedup in `finish_preview` can be seen (round 2
+        # finding 1). Asserted BEFORE the resume too, or "it did not double" would be a claim about
+        # a record that never held the entry in the first place.
+        before = [a["name"] for a in load_run(partial["runId"])["tasks"][-1]["artefacts"]]
+        ok("the stopped run kept the file that DID download", before == ["preview.png"], str(before))
         code, said_after_glb = collect(partial["runId"], fake_download)
         ok("resume collects the GLB afterwards", code == 0, said_after_glb.strip())
         ok("...and both files are on disk",
            os.path.isfile(os.path.join(sandbox, partial["runId"], "preview.glb"))
            and os.path.isfile(os.path.join(sandbox, partial["runId"], "preview.png")))
+        after = [a["name"] for a in load_run(partial["runId"])["tasks"][-1]["artefacts"]]
+        ok("...and the re-downloaded preview.png REPLACED its entry rather than doubling it",
+           sorted(after) == ["preview.glb", "preview.png"], str(after))
 
         # resume refuses an EXPIRED run and says why -- the 3-day trap, from created_at.
         expired = dict(record)
