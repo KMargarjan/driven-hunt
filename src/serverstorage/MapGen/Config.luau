@@ -43,6 +43,21 @@ Config.BAND_Y = { min = -48, max = 48 } -- 24 voxel layers, covering +/- 40 stud
 
 Config.RELIEF = 40 -- K, studs, whole map: gentle farmland, well inside Boar's FALL_LIMIT of 50
 Config.CORRIDOR_RELIEF = 16 -- K, inside the drive corridor, so terrain never spawns or eats a boar
+
+-- M2.8a. A BENCH is a flat strip at exactly GROUND_Y -- the forest road and the drivers' assembly
+-- track. BENCH_RELIEF eases the terrain down to +/-6 studs within BENCH_BAND of a bench centreline,
+-- so the VERGE is shallow: 6 studs over the 24-stud verge is atan(6/24) = 14.0 degrees, inside
+-- CORRIDOR_MAX_SLOPE_DEG = 15. Without it the corridor's +/-16 against a flat road is 33.7 degrees,
+-- which the slope spec would correctly fail (design section 6.2).
+Config.BENCH_RELIEF = 6
+Config.BENCH_BAND = 120
+
+-- The outer ring rises so a player on the road does not look at a void. A FLOOR (max), never a sum,
+-- so the maximum height stays 44 -- inside the measured voxel band BAND_Y = {-48, +48}, which is why
+-- the tile size measurement A proved does not change. Suppressed within BENCH_BAND of a bench, so the
+-- road runs off the map flat and the edge is hidden by trees rather than by a ridge.
+Config.EDGE_MAX_Y = 44
+Config.EDGE_BAND = 100
 Config.CORRIDOR_MAX_SLOPE_DEG = 15 -- the design's conservative ceiling, measured by map_contract.spec
 Config.OCTAVES = 4
 Config.BASE_FREQUENCY = 1 / 420 -- studs^-1; one broad rise per ~420 studs
@@ -54,30 +69,39 @@ Config.ROUGH_SLOPE = 0.3 -- studs per stud: above this the field material become
 
 -- ---------------------------------------------------------------- the world's layout
 
--- The design's section 12 table, in one place. The drive runs from z = +700 (drivers) to z = -700
--- (the shooter line), 1,400 studs of it, inside a corridor 680 studs wide.
+-- The design's section 15.1 table, in one place. The drive runs from z = +700 (drivers) to
+-- z = -700 (the FOREST ROAD, which is the shooter line), 1,400 studs of it, inside a corridor 1,240
+-- studs wide -- wide enough to hold a 1,120-stud shooter line at Karen's 45 m spacing.
 Config.WORLD = {
-	corridor = { minX = -340, maxX = 340, minZ = -800, maxZ = 800 },
-	exitZ = -760, -- 60 studs behind the line: a boar that beats the line vanishes behind the shooters
+	corridor = { minX = -620, maxX = 620, minZ = -880, maxZ = 800 },
+	-- 120 studs PAST the road, in the far wood: a boar that beats the line crosses the gravel in
+	-- front of a shooter and disappears into trees, which is what Karen's references show and what
+	-- makes a missed crossing feel like a miss rather than a despawn.
+	exitZ = -820,
 
-	lineZ = -700, -- the shooter line, along the wood edge
+	lineZ = -700, -- the shooter line IS the forest road's centreline; there is no second concept
 	postCount = 8, -- serves 16 players (8 shooters)
-	postSpacing = 80, -- K, span 560 studs
-	driveLineSize = Vector3.new(680, 1, 1), -- the corridor's full width
+	postSpacing = 160, -- K, 45 m, inside Karen's 40-80 m. Span 1,120 studs
+	driveLineSize = Vector3.new(1240, 1, 1), -- the corridor's full width
 
 	driverStartZ = 700,
-	driverStartSize = Vector3.new(240, 1, 12), -- K, spread over x +/- 120
+	-- 1,120 studs over 8 drivers is ~140 studs (39 m) apart: a real driving line, not a huddle.
+	-- Map.ASSEMBLY flattens the strip it stands on, which is why this can be a part and not a pad.
+	driverStartSize = Vector3.new(1120, 1, 20),
 
 	boarSpawnZ = 600,
-	boarSpawnX = { -240, -80, 80, 240 }, -- K
+	boarSpawnX = { -450, -150, 150, 450 }, -- K, widened with the corridor
 
 	-- THE TIE TREES ARE PLACED, NOT CHOSEN. Milestone 2.1 tagged the twelve scattered trunks nearest
 	-- the line; at full size the wood starts beyond the corridor, so the nearest scattered trunk is
 	-- ~150 studs from the line and the design's "within 120 studs" (section 4.3) could not hold. Twelve
 	-- trees behind the shooter line, between the posts, is also what a real stand looks like.
 	tieTrees = 12,
-	tieTreeZ = -745, -- 45 studs BEHIND the line, so nothing stands between a shooter and the drive
-	tieTreeSpan = 560, -- the post span
+	-- 45 studs BEHIND the line, which since M2.8a is behind the shooters IN THE FAR WOOD: within
+	-- sight of the post they left, out of everyone's line of fire, and never between a shooter and
+	-- the drive.
+	tieTreeZ = -745,
+	tieTreeSpan = 1120, -- the post span
 
 	treeCount = 400, -- K, proxies until M2.3 raises it to 3,000 with real meshes
 	treeArea = { minX = -1000, maxX = 1000, minZ = -1000, maxZ = 1000 },
@@ -88,8 +112,13 @@ Config.WORLD = {
 	-- segments before the gates are cut and 400 after, inside the design's 500-part hedge budget; the
 	-- design's "<= 6,000 studs of hedge" row is exceeded, and that is queued as TASKS.md row 44a(a)
 	-- rather than quietly ignored.
-	hedgeZ = { -512, 0, 512 }, -- lines running along x
-	hedgeX = { -512, 512 }, -- lines running along z
+	-- M2.8a: THREE lines, not five. The corridor is now 1,240 studs wide, so the old x = +/-512
+	-- lines ran straight through the drive; the field boundaries move out to the flanks at +/-760 and
+	-- one line crosses at z = +300. 6,144 studs of hedge in 24-stud segments is ~250 parts, inside
+	-- Map.BUDGET.hedgeParts = 400, and it closes TASKS.md row 44a(a) -- the design's own
+	-- "<= 6,000 studs" row that the five-line network exceeded.
+	hedgeZ = { 300 }, -- lines running along x
+	hedgeX = { -760, 760 }, -- lines running along z
 	hedgeHalfSpan = 1024,
 	gateStuds = 96, -- K: a gate a boar, a driver and a dog can all use
 	gatesPerLine = 2, -- inside the corridor, where the drive crosses
@@ -103,7 +132,41 @@ Config.WORLD = {
 	-- One bog, OUTSIDE the drive corridor. A bog in the lane is an obstacle in the one place the drive
 	-- must be open, and design section 13.3 asks whether it reads as a feature or an annoyance --
 	-- which is Karen's call to make while walking it, not one to prejudge by putting it in her way.
-	bog = { x = -700, z = -300, radius = 120, depth = 6 },
+	bog = { x = -820, z = -300, radius = 120, depth = 6 },
+
+	-- THE BENCHES (design section 6.3). A bench is flat at exactly GROUND_Y, eased into the terrain
+	-- over `verge` studs each side and tapered over `taper` studs at each end. Everything the game
+	-- stands a player or a boar on is at GROUND_Y -- the road, the assembly track and the four spawn
+	-- pads -- so Boar.CONFIG.field.groundY needs no change at the M2.5 switch.
+	--
+	-- The road is LEVEL, not contour-following. Marked K and named as a simplification: a real forest
+	-- road undulates, and the cost of a longitudinal profile is that every post, and the contract's
+	-- tolerance check, stops being a comparison against one number (design section 6.3).
+	benches = {
+		{
+			name = "road",
+			axis = "x", -- runs along x, at a constant z
+			at = -700,
+			halfWidth = 8, -- 16 studs = 4.5 m of gravel
+			verge = 24,
+			from = -900,
+			to = 900,
+			taper = 60,
+		},
+		{
+			name = "assembly",
+			axis = "x",
+			at = 700,
+			halfWidth = 5, -- 10 studs
+			verge = 20,
+			from = -700,
+			to = 700,
+			taper = 60,
+		},
+	},
+
+	-- The flank farmland. Outside these, and outside the benches, the ground is forest floor.
+	fields = { innerX = 760, outerX = 1024, minZ = -400, maxZ = 800 },
 }
 
 -- THE MAP'S OWN RECTANGLE. `Map.FIELD` is the rectangle of the world `Map.EXPECTED_WORLD` NAMES,

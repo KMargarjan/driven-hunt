@@ -38,18 +38,48 @@ function Layout.tiles(config): { { tx: number, tz: number, minX: number, minZ: n
 end
 
 -- Every spawn pad the heightfield must flatten: a marker a player or a boar stands on.
+-- FOUR PADS, not thirteen (design section 6.4). The eight post pads and the driver-start rectangle
+-- are gone: the posts and the driver start now stand on BENCHES, which are flat at GROUND_Y anyway.
+--
+-- That closes TASKS.md row 45a(d) by construction. At blend 40 the old post pads (radius 10 + blend
+-- 40 = 54 against a spacing of 80) merged into one flattened strip along the line -- an artefact
+-- nobody chose. There is now a road there deliberately, and the strip IS the feature.
 function Layout.pads(config): { Point }
 	local world = config.WORLD
 	local pads = {}
-	for index = 1, world.postCount do
-		local x = (index - (world.postCount + 1) / 2) * world.postSpacing
-		table.insert(pads, { x = x, z = world.lineZ })
-	end
-	table.insert(pads, { x = 0, z = world.driverStartZ })
 	for _, x in ipairs(world.boarSpawnX) do
 		table.insert(pads, { x = x, z = world.boarSpawnZ })
 	end
 	return pads
+end
+
+-- The benches, as data, so Height, Ground and the specs all read one list (design section 6.3).
+function Layout.benches(config)
+	return config.WORLD.benches
+end
+
+-- True on the gravel of a bench -- not its verge. Ground paints the road material here, and the
+-- contract spec asserts the posts stand on it.
+function Layout.onRoad(x: number, z: number, config): boolean
+	for _, bench in ipairs(config.WORLD.benches) do
+		local along, across
+		if bench.axis == "x" then
+			along, across = x, math.abs(z - bench.at)
+		else
+			along, across = z, math.abs(x - bench.at)
+		end
+		if across <= bench.halfWidth and along >= bench.from and along <= bench.to then
+			return true
+		end
+	end
+	return false
+end
+
+-- The flank farmland: outside it, and off the benches, the ground is forest floor. This is what turns
+-- "wood everywhere" into "a wood with fields at its edges", which is what Karen's references show.
+function Layout.inField(x: number, z: number, config): boolean
+	local f = config.WORLD.fields
+	return math.abs(x) >= f.innerX and math.abs(x) <= f.outerX and z >= f.minZ and z <= f.maxZ
 end
 
 -- The five kinds of marker, in a stable order. Position and size only: how a marker FACES is decided
@@ -66,7 +96,12 @@ function Layout.markers(config): { Marker }
 			name = string.format("ShooterPost%d", index),
 			x = x,
 			z = world.lineZ,
-			size = Vector3.new(4, 6, 4),
+			-- (6, 1, 6) AT GROUND_Y + 0.5, not (4, 6, 4). Body.placementFor stands a character at
+			-- post.Position + (0, post.Size.Y/2 + STAND_HEIGHT_STUDS, 0), so a 6-stud-tall marker put
+			-- the stand point 9.5 studs over a part that does not collide -- the drop named in
+			-- TASKS.md row 43a(l) and audit-004 F9. A 1-stud marker makes it ground + 4.5, and the
+			-- bottom face sits exactly on the road bench, which is the one number the contract checks.
+			size = Vector3.new(6, 1, 6),
 		})
 	end
 	table.insert(out, {

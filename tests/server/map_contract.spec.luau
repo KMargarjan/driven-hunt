@@ -295,7 +295,10 @@ return function()
 			-- smooth function.
 			local step = 8
 			local worst, worstAt = 0, ""
-			for _, seed in ipairs({ SEED, SEED + 1 }) do
+			-- THREE seeds since M2.8a (TASKS.md row 45a(e)): 12.94 against a 15 ceiling on two seeds
+			-- was ~14% headroom on a seed-dependent number. Measurement N4 read 11.60 / 12.36 / 10.31
+			-- degrees on seeds 1-3 with the road benches in.
+			for _, seed in ipairs({ SEED, SEED + 1, SEED + 2 }) do
 				for x = corridor.minX, corridor.maxX, 20 do
 					for z = corridor.minZ, corridor.maxZ, 20 do
 						local h = MapGen.Height.atFlattened(x, z, seed, c, pads, MapGen.Layout.bogDepth)
@@ -323,6 +326,66 @@ return function()
 			end
 			-- And it is not trivially flat, or the assertion above would be worth nothing.
 			expect(worst > 0.02).to.equal(true)
+		end)
+
+		it("keeps the road and the assembly track flat at exactly GROUND_Y", function()
+			-- The one thing the whole revision stands on: everything the game puts a player or a boar
+			-- on is at GROUND_Y, so Boar.CONFIG.field.groundY needs no change at the M2.5 switch and
+			-- Body.placementFor's arithmetic lands on ground rather than in a hole.
+			local c = config()
+			local pads = MapGen.Layout.pads(c)
+			for _, bench in ipairs(c.WORLD.benches) do
+				local worst, worstAt = 0, 0
+				for along = bench.from, bench.to, 10 do
+					local x, z = along, bench.at
+					if bench.axis ~= "x" then
+						x, z = bench.at, along
+					end
+					local h = MapGen.Height.atFlattened(x, z, SEED, c, pads, MapGen.Layout.bogDepth)
+					local off = math.abs(h - c.GROUND_Y)
+					if off > worst then
+						worst, worstAt = off, along
+					end
+				end
+				if worst > 1e-6 then
+					error(string.format("the %s bench is %.4f studs off GROUND_Y at %d", bench.name, worst, worstAt), 0)
+				end
+			end
+		end)
+
+		it("leaves the ground unflattened a verge away from a bench, so the easing cannot hide a bug", function()
+			-- Without this, a benchHeight that flattened the WHOLE map would pass every other check
+			-- here: the road would be flat, the pads would be flat, the slope would be zero.
+			local c = config()
+			local pads = MapGen.Layout.pads(c)
+			local bench = c.WORLD.benches[1]
+			local outside = bench.halfWidth + bench.verge + 1
+			local differences = 0
+			for x = -600, 600, 40 do
+				local z = bench.at - outside
+				local flattened = MapGen.Height.atFlattened(x, z, SEED, c, pads, MapGen.Layout.bogDepth)
+				local raw = MapGen.Height.at(x, z, SEED, c, MapGen.Layout.bogDepth)
+				if math.abs(flattened - raw) > 1e-6 then
+					differences += 1
+				end
+			end
+			expect(differences).to.equal(0)
+		end)
+
+		it("raises the map's rim but leaves the road's band flat where it runs off", function()
+			-- MEASURED (N4): with the end distance in the suppression, the last 124 studs of the ride
+			-- rose to 34.8 studs -- the ridge across the end of the road the design says the
+			-- suppression exists to avoid. It is `across` only now, and this is what says so.
+			local c = config()
+			local pads = MapGen.Layout.pads(c)
+			local bench = c.WORLD.benches[1]
+			local atRim = MapGen.Height.atFlattened(1000, bench.at, SEED, c, pads, MapGen.Layout.bogDepth)
+			expect(math.abs(atRim - c.GROUND_Y) < 0.5).to.equal(true)
+			-- And the rim DOES rise away from the road, or the edge floor is doing nothing.
+			local away = MapGen.Height.atFlattened(1000, 0, SEED, c, pads, MapGen.Layout.bogDepth)
+			expect(away > c.GROUND_Y + 20).to.equal(true)
+			-- ...and never past the voxel band the tile size was measured for.
+			expect(away <= c.BAND_Y.max).to.equal(true)
 		end)
 
 		it("flattens every spawn pad to exactly the ground the contract asserts", function()

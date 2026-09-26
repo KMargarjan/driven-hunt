@@ -45,7 +45,9 @@ local Settings = require(script:WaitForChild("Settings"))
 
 local MapGen = {}
 
-MapGen.VERSION = "m2.2"
+-- ONE HOME (M2.8a, closing TASKS.md row 44a(f)): the generator's version is Map.GENERATOR. Two
+-- strings for one fact is how a digest and a build end up disagreeing about which generator ran.
+MapGen.VERSION = Map.GENERATOR
 MapGen.CONFIG = Config
 MapGen.Height = Height
 MapGen.Layout = Layout
@@ -79,6 +81,9 @@ function MapGen.steps(seed: number): { StepSpec }
 		table.insert(steps, { index = #steps + 1, kind = kind, label = label, estimatedMs = estimatedMs })
 	end
 	add("clear", "clear terrain and destroy " .. Config.ROOT_NAME, 2000)
+	-- SECOND, before a single voxel: the palette is global state, so writing it first means every
+	-- tile that follows is already autumn and no run is ever half-recoloured (design section 8).
+	add("palette", "apply the autumn terrain palette", 200)
 	local tiles = Layout.tiles(Config)
 	for order, tile in ipairs(tiles) do
 		add(
@@ -165,7 +170,13 @@ end
 -- Destroys the map root AND the terrain, and reports what is actually left. `terrainCleared` used to
 -- be a hard-coded `true`: a claim with no measurement behind it, about the largest thing the
 -- generator writes (audit-004 must-fix 1). It is now `cellsAfter == 0`, read back from the engine.
-function MapGen.clear(): { removed: number, terrainCleared: boolean, cellsAfter: number, cellsBefore: number }
+function MapGen.clear(): {
+	removed: number,
+	terrainCleared: boolean,
+	cellsAfter: number,
+	cellsBefore: number,
+	paletteRestored: boolean,
+}
 	local root = existingRoot()
 	local removed = 0
 	if root then
@@ -174,7 +185,17 @@ function MapGen.clear(): { removed: number, terrainCleared: boolean, cellsAfter:
 	end
 	local before = Ground.cells()
 	local after = Ground.clear()
-	return { removed = removed, terrainCleared = after == 0, cellsAfter = after, cellsBefore = before }
+	-- THE PALETTE OUTLIVES Terrain:Clear() -- measured, not assumed (measurement N1) -- so a teardown
+	-- that did not restore it would leave an autumn place behind while the contract still says the
+	-- world is the arena. `resetPalette` READS THE COLOURS BACK and reports; it never claims.
+	local paletteRestored = Ground.resetPalette(Map.PALETTE_DEFAULT)
+	return {
+		removed = removed,
+		terrainCleared = after == 0,
+		cellsAfter = after,
+		cellsBefore = before,
+		paletteRestored = paletteRestored,
+	}
 end
 
 -- ---------------------------------------------------------------- one step
@@ -205,6 +226,22 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		return finish({ ok = false, message = string.format("step %d is outside 1..%d", index, #plan) })
 	end
 
+	-- WHICH tile / hedge line / track this step is, DERIVED FROM THE PLAN rather than from a
+	-- hard-coded offset (M2.8a). Three handlers used to subtract the number of steps before them --
+	-- `index - 1`, `index - 1 - #tiles`, and so on -- with the 1 standing for the clear step. Adding
+	-- the palette step at position 2 would have shifted all three silently, and a terrain tile
+	-- written into the wrong region is a defect no spec here would catch. `ordinal` counts the steps
+	-- of this kind that come before this one, so a later insert cannot do that again.
+	local function ordinal(): number
+		local n = 0
+		for position = 1, index do
+			if plan[position] and plan[position].kind == spec.kind then
+				n += 1
+			end
+		end
+		return n
+	end
+
 	if spec.kind == "clear" then
 		local result = MapGen.clear()
 		if not result.terrainCleared then
@@ -219,16 +256,42 @@ function MapGen.runStep(index: number, seed: number): StepReport
 				),
 			})
 		end
+		if not result.paletteRestored then
+			-- The palette is global state that outlives Terrain:Clear() (measurement N1). A clear that
+			-- could not put it back leaves the place looking like a map that is not there.
+			return finish({
+				ok = false,
+				message = "the terrain palette could not be restored to Map.PALETTE_DEFAULT",
+			})
+		end
 		return finish({
 			ok = true,
 			message = string.format("removed %d instances, %d terrain cell(s)", result.removed, result.cellsBefore),
 		})
+	elseif spec.kind == "palette" then
+		local written = Ground.applyPalette(Map.PALETTE)
+		local got = Ground.readPalette()
+		-- READ BACK. The whole point of measurement N1 was that nobody should assert a colour they
+		-- did not check, and the digest carries this palette, so a silent failure here would make
+		-- every later digest describe a place that does not exist.
+		for role, wanted in pairs(Map.PALETTE) do
+			local now = got[role]
+			if
+				now == nil
+				or math.round(now.R * 255) ~= math.round(wanted.R * 255)
+				or math.round(now.G * 255) ~= math.round(wanted.G * 255)
+				or math.round(now.B * 255) ~= math.round(wanted.B * 255)
+			then
+				return finish({ ok = false, message = string.format("the %s colour did not take", role) })
+			end
+		end
+		return finish({ ok = true, message = string.format("%d material colour(s) set to autumn", written) })
 	elseif spec.kind == "terrain" then
-		local tile = Layout.tiles(Config)[index - 1] -- step 1 is the clear, so tile n is step n + 1
+		local tile = Layout.tiles(Config)[ordinal()]
 		return finish({ ok = true, voxelsWritten = Ground.writeTile(tile, seed, Config) })
 	elseif spec.kind == "hedgerow" then
 		local root = ensureRoot(seed)
-		local lineIndex = index - 1 - #Layout.tiles(Config)
+		local lineIndex = ordinal()
 		local line = Layout.hedgeLines(Config)[lineIndex]
 		-- The gates go where the line crosses the DRIVE CORRIDOR, and nowhere else: a gate outside it
 		-- is a gate the drive never reaches (Task 43 review round 2, finding 2).
@@ -248,8 +311,7 @@ function MapGen.runStep(index: number, seed: number): StepReport
 				else "no corridor crossing",
 		})
 	elseif spec.kind == "track" then
-		local trackIndex = index - 1 - #Layout.tiles(Config) - #Layout.hedgeLines(Config)
-		return finish({ ok = true, voxelsWritten = Ground.paintTrack(Config.WORLD.tracks[trackIndex], Config) })
+		return finish({ ok = true, voxelsWritten = Ground.paintTrack(Config.WORLD.tracks[ordinal()], Config) })
 	elseif spec.kind == "props" then
 		local root = ensureRoot(seed)
 		local count, keys, why = Props.trees(root, seed, Config)
@@ -344,7 +406,7 @@ function MapGen.digest(): { digest: string, parts: number, samples: number, seed
 		end
 	end
 	return {
-		digest = Digest.of(digestEntries(root), samples, Config.DIGEST_ROUND),
+		digest = Digest.of(digestEntries(root), samples, Config.DIGEST_ROUND, Ground.readPalette()),
 		parts = partsUnder(root),
 		samples = #samples,
 		-- The seed THIS MAP was built from, read off the root, not the contract's `Map.SEED` -- which
@@ -406,7 +468,20 @@ function MapGen.reachability(): { ok: boolean, findings: { string }, results: { 
 	if #lines ~= 1 then
 		return { ok = false, findings = { string.format("%d drive lines: nothing to path to", #lines) }, results = {} }
 	end
-	local target = lines[1].Position
+	-- FIVE TARGETS ALONG THE LINE, not its centre (design section 16.4, closing TASKS.md row 44a(e)).
+	-- The line is 1,240 studs wide now; pathing only to its midpoint proved one corridor down the
+	-- middle of the map and said nothing about whether a boar pushed toward x = +500 can reach the
+	-- road at all. Five points at 0, +/-1/4 and +/-1/2 of the span.
+	local centre = lines[1].Position
+	local halfSpan = lines[1].Size.X / 2
+	local targets: { { name: string, position: Vector3 } } = {}
+	for _, fraction in ipairs({ -1, -0.5, 0, 0.5, 1 }) do
+		local offset = halfSpan * fraction * 0.9 -- 0.9: stay off the very ends, which are off the road
+		table.insert(targets, {
+			name = string.format("line%+d", math.round(fraction * 100)),
+			position = centre + Vector3.new(offset, 0, 0),
+		})
+	end
 
 	local froms: { { name: string, position: Vector3 } } = {}
 	for _, spawn in ipairs(taggedInside(root, Map.TAGS.boarSpawn)) do
@@ -426,18 +501,23 @@ function MapGen.reachability(): { ok: boolean, findings: { string }, results: { 
 
 	local findings: { string } = {}
 	local results: { Reach } = {}
+	-- 5 froms x 5 targets = 25 computes. Every one is reported; a single failure fails the check,
+	-- because "a boar can get to the middle of the road" is not the question the drive asks.
 	for _, from in ipairs(froms) do
-		local path = PathfindingService:CreatePath(Boar.CONFIG.AGENT)
-		local computed = pcall(function()
-			path:ComputeAsync(from.position + Vector3.new(0, 2, 0), target)
-		end)
-		local waypoints = if computed then #path:GetWaypoints() else 0
-		local status = if computed then tostring(path.Status) else "ComputeAsync raised"
-		table.insert(results, { from = from.name, status = status, waypoints = waypoints })
-		if status ~= "Enum.PathStatus.Success" then
-			table.insert(findings, string.format("%s cannot reach the drive line: %s", from.name, status))
-		elseif waypoints < 2 then
-			table.insert(findings, string.format("%s reached the line in %d waypoint(s)", from.name, waypoints))
+		for _, to in ipairs(targets) do
+			local path = PathfindingService:CreatePath(Boar.CONFIG.AGENT)
+			local computed = pcall(function()
+				path:ComputeAsync(from.position + Vector3.new(0, 2, 0), to.position)
+			end)
+			local waypoints = if computed then #path:GetWaypoints() else 0
+			local status = if computed then tostring(path.Status) else "ComputeAsync raised"
+			local label = from.name .. "->" .. to.name
+			table.insert(results, { from = label, status = status, waypoints = waypoints })
+			if status ~= "Enum.PathStatus.Success" then
+				table.insert(findings, string.format("%s cannot reach the line: %s", label, status))
+			elseif waypoints < 2 then
+				table.insert(findings, string.format("%s reached the line in %d waypoint(s)", label, waypoints))
+			end
 		end
 	end
 	return { ok = #findings == 0, findings = findings, results = results }
@@ -467,7 +547,17 @@ function MapGen.verifyContract(): {
 	local findings: { string } = {}
 	local root = existingRoot()
 	if root == nil then
-		return { ok = false, findings = { Config.ROOT_NAME .. " does not exist in Workspace" }, counts = {} }
+		-- EVERY FIELD, even here (TASKS.md row 45a(c)). The annotation above makes `streaming`,
+		-- `markerDigest` and `seed` mandatory, and this early return used to omit all three: a
+		-- --!strict mismatch, and a caller that read `.markerDigest` off it got nil instead of "".
+		return {
+			ok = false,
+			findings = { Config.ROOT_NAME .. " does not exist in Workspace" },
+			counts = {},
+			streaming = {},
+			markerDigest = "",
+			seed = nil,
+		}
 	end
 	local counts = Markers.counts(root)
 	for kind, want in pairs(MapGen.expectedCounts()) do

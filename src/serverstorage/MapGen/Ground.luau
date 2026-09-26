@@ -40,8 +40,17 @@ local function surfaceMaterial(x: number, z: number, h: number, seed: number, co
 	if Layout.bogDepth(x, z, config) > 0.15 then
 		return config.MATERIAL.bog
 	end
+	-- THE BENCHES, in front of the slope test (design section 8.1): a road is gravel whatever the
+	-- ground under it was going to be.
+	if Layout.onRoad(x, z, config) then
+		return config.MATERIAL.track
+	end
 	if Layout.onTrack(x, z, config) then
 		return config.MATERIAL.track
+	end
+	-- The flank farmland reads as pasture; everything else in the wood is leaf litter.
+	if Layout.inField(x, z, config) then
+		return config.MATERIAL.rough
 	end
 	local v = config.VOXEL
 	local dx = math.abs(Height.atFlattened(x + v, z, seed, config, pads, Layout.bogDepth) - h) / v
@@ -49,6 +58,8 @@ local function surfaceMaterial(x: number, z: number, h: number, seed: number, co
 	if math.max(dx, dz) > config.ROUGH_SLOPE then
 		return config.MATERIAL.rough
 	end
+	-- M2.8a: the map's default is now the FOREST FLOOR, not pasture. `field` is LeafyGrass, which the
+	-- palette recolours to leaf litter; `rough` is Grass, which stays the greener flank material.
 	return config.MATERIAL.field
 end
 
@@ -184,6 +195,69 @@ end
 -- spec's "exactly one world" check looked at a folder name -- so deleting `Workspace.DrivenHuntMap`
 -- in the Explorer left 6.3 M voxels in the place and every check still said PASS, with the arena
 -- buried in a hillside (audit-004 must-fix 1).
+-- ---------------------------------------------------------------- the palette
+--
+-- Terrain material colour is GLOBAL STATE WITH NO CONTAINER, exactly like the voxels -- so it belongs
+-- to the module that is already the only writer of Terrain in this repo (design section 8.2). No
+-- second writer, anywhere, ever.
+--
+-- MEASURED 2026-09-26 (measurement N1): Get/SetMaterialColor are callable through execute_luau in
+-- Edit, the values read back exactly, they SURVIVE Terrain:Clear(), and they replicate to a client.
+-- The design's material-choice fallback is therefore not taken and no code for it exists.
+
+local PALETTE_MATERIAL = {
+	litter = Enum.Material.LeafyGrass,
+	rough = Enum.Material.Grass,
+	road = Enum.Material.Ground,
+	bog = Enum.Material.Mud,
+}
+
+-- Write one palette table. Returns how many materials were set.
+function Ground.applyPalette(palette): number
+	local written = 0
+	for role, material in pairs(PALETTE_MATERIAL) do
+		local colour = palette[role]
+		if colour ~= nil then
+			workspace.Terrain:SetMaterialColor(material, colour)
+			written += 1
+		end
+	end
+	return written
+end
+
+-- What the place currently carries, as the same role -> Color3 shape. READ BACK, never assumed:
+-- `clear` reports whether the restore worked by comparing this against what it asked for.
+function Ground.readPalette()
+	local out = {}
+	for role, material in pairs(PALETTE_MATERIAL) do
+		out[role] = workspace.Terrain:GetMaterialColor(material)
+	end
+	return out
+end
+
+-- Put the place back the way a place nobody has recoloured looks. A palette outlives Terrain:Clear()
+-- -- that is measured, not assumed -- so without this an autumn palette would survive every teardown
+-- and become "a world nobody chose" (audit-004 must-fix 1).
+function Ground.resetPalette(default): boolean
+	Ground.applyPalette(default)
+	local got = Ground.readPalette()
+	for role, colour in pairs(default) do
+		local now = got[role]
+		if now == nil then
+			return false
+		end
+		-- Colour3 components are floats; compare at 8-bit precision, which is what the engine stores.
+		if
+			math.round(now.R * 255) ~= math.round(colour.R * 255)
+			or math.round(now.G * 255) ~= math.round(colour.G * 255)
+			or math.round(now.B * 255) ~= math.round(colour.B * 255)
+		then
+			return false
+		end
+	end
+	return true
+end
+
 function Ground.cells(): number
 	return Workspace.Terrain:CountCells()
 end

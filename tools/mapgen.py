@@ -97,14 +97,25 @@ WORKSPACE_ALLOWED = ("Terrain", "Camera")
 # as the Builder's to make: `map-stand` looks at the tie trees behind the shooter line (the only stand
 # M2.2 builds -- real spruce stands are M2.3), and there is a seventh angle on a hedgerow gate, because
 # the gate is the fix this task exists for and a screenshot is the only way to see it is really there.
+# The design's section 16.3 list. EVERY ONE IS A QUESTION, not a label: the point of a shot is the
+# answer a human gives it, and "map-road" is the shot this revision exists for.
 SHOTS = (
-    ("map-wide", (0, 900, 1400), (0, 0, 0), "is there a map at all, and is it farmland-shaped"),
-    ("map-line", (0, 60, -560), (0, 0, -760), "the shooter line along the wood edge, 8 posts"),
-    ("map-corridor", (0, 40, 700), (0, 0, -700), "the drive, from the drivers' eye height"),
-    ("map-hedge", (-200, 20, 200), (100, 0, 200), "hedgerows and field edges at eye height"),
-    ("map-gate", (0, 24, 180), (0, 4, -40), "a gate in the hedgerow the drive runs through"),
-    ("map-stand", (0, 16, -640), (0, 6, -745), "the tie trees behind the line: woods, or poles"),
-    ("map-bog", (-700, 40, -140), (-700, 0, -300), "the bog, and whether it is a feature or an annoyance"),
+    ("map-wide", (0, 1100, 1500), (0, 0, -200),
+     "is there a map, does it read as wood-with-fields, is the road visible as a line through it"),
+    ("map-road", (-500, 6, -700), (500, 6, -700),
+     "STANDING ON THE ROAD: do the posts read at 160-stud spacing, is the gravel gravel"),
+    ("map-post", (-80, 6, -700), (-80, 4, -300),
+     "a shooter's view into the drive: how far can he see, how much of the frame is trunk"),
+    ("map-drive", (0, 40, 700), (0, 0, -700),
+     "the drive from the drivers' eye height: is it woods they push through"),
+    ("map-crossing", (240, 6, -700), (-240, 6, -700),
+     "along the road between two posts: is there a gap a boar would cross"),
+    ("map-autumn", (-300, 18, -520), (-120, 6, -640),
+     "close in the wood: do the crowns read autumn, is the floor litter and not grass"),
+    ("map-stand", (0, 16, -640), (0, 6, -745),
+     "the tie trees behind the line, in the far wood: woods, or poles"),
+    ("map-edge", (600, 8, -700), (1024, 6, -700),
+     "does the map's edge read as a void where the road leaves it"),
 )
 
 # ---------------------------------------------------------------- talking to the generator
