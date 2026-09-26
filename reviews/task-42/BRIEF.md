@@ -14,3 +14,11 @@ own task; spawn pads flattened in terrain). Keep the backup rule (Save to File b
 note that the Director can now press Studio shortcuts (Alt+Shift+S = Save to Roblox) but there is no
 shortcut-free route to Save to File yet; say what the generator's refusal should accept.
 No local absolute Windows paths in the design (the repo is public).
+
+## Director decisions on the regenerated design (2026-09-26 night, after the Architect's PASS)
+- A: accepted. `--backup census` is allowed for M2.1 and M2.2; the `.rbxl` stays mandatory when the
+  census is not clean.
+- B: accepted. The Director owns the Alt+Shift+S (Save to Roblox) route; the Builder's report ends with
+  the reopen + `contract` proof, never a claim that the place was saved.
+- C: accepted. Creator Store props withdrawn until M5; ROADMAP speed rule 6 narrowed accordingly.
+- D: M2.3 is dispatched as "proxies, real ids to follow" unless Karen's Meshy answer arrives first.
