@@ -3,19 +3,19 @@
 Task: 60
 Round: 1
 Base: `29d2ba3` (`main`)
-Code commit: `3e741f20466c5feba08bef8d5775932611c69fa8` — the `[harness]` line below names it, it is the
-last commit that changed `src/`, `tests/` or `tools/`, and only this request and `TASKS.md` change
-after it.
+Code commit: `59c678f0ddd2f928bbd0e2c792f3077062b2e75c` — **both** harness lines below name it. It
+is a PAPERWORK commit: the last commit that changed `src/`, `tests/` or `tools/` is `3e741f2`, and
+`git diff --name-only 3e741f2..59c678f` is `TASKS.md` and this file.
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 30/30 checks @ 3e741f20466c5feba08bef8d5775932611c69fa8 (clean tree)
+    [harness] PASS: 30/30 checks @ 59c678f0ddd2f928bbd0e2c792f3077062b2e75c (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me:
 
-    [harness2] PASS: n/n checks @ 3e741f20466c5feba08bef8d5775932611c69fa8 (clean tree)
+    [harness2] PASS: 32/32 checks @ 59c678f0ddd2f928bbd0e2c792f3077062b2e75c (clean tree)
 
-350 server specs (327 before: **23 new**) and 84 client specs. No flag override was set during the
+350 server specs (327 before: **23 new**), 84 shooter and 78 driver client specs. No flag override was set during the
 run (`python tools/flags.py clear` before it, and the harness's own check confirms it).
 
 ## Scope
@@ -90,6 +90,13 @@ Taken in a real Play session, flag ON, with `Runtime:spawnSounder` called direct
   survivors already tens of studs apart on diverging lines. It reads as a group breaking up.
 - **`sounder-scatter-2`** — honestly: one boar at the edge of frame. The survivors sprinted out of
   the camera's view, which is what a scatter does and also why a still picture of it is thin.
+
+## The Director's decisions on this task (2026-09-26)
+
+- **The path-start fix stays in this task** (`PATH_START_AHEAD`, claim 8) and the Reviewer judges it
+  as part of the change, rather than it being split out.
+- **60a(a) — should a hit make the whole sounder bolt, not merely scatter? — is Karen's feel call**
+  at her playtest. The default stays as designed: panic propagates from the LEADER's state.
 
 ## What I could not verify
 
