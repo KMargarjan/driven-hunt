@@ -3,7 +3,7 @@
 Owner: Director (the only writer). Order of work, one task at a time. Task detail lives in `TASKS.md`,
 playtest feedback in `PLAYTEST.md`, design and taste decisions with Karen.
 
-Updated 2026-09-25. Target: **Milestone 1 in ~1–2 weeks, public v1 in ~4–6 weeks.**
+Updated 2026-09-26. Target: **Milestone 1 in ~1–2 weeks, public v1 in ~4–6 weeks.**
 
 ## Speed rules (Director, 2026-09-24)
 
@@ -14,8 +14,7 @@ Updated 2026-09-25. Target: **Milestone 1 in ~1–2 weeks, public v1 in ~4–6 w
 3. **Architect:** a design when a new system starts, and an audit every ~5 tasks, not after every task.
 4. **Reviewer:** every task. Anything outside the task goes to `TASKS.md`, not into the round.
 5. **One whole system per task** (for example the boar AI: idle, flee, route, despawn).
-6. **Borrow before generating:** Creator Store assets and Roblox terrain tools first; Meshy where
-   nothing fits.
+6. **Borrow before generating:** Roblox terrain tools and the map generator first; Meshy models via the asset pipeline. Creator Store props are withdrawn until M5 (free ones cannot be loaded by script, research 2026-09-26).
 7. **Merge after review; playtest after.** Playtest findings become new tasks. Feel-critical tasks
    (shooting, camera) wait for Karen's OK before merging.
 8. **One playtest session per day.** The Director batches what Karen must check. Every gameplay task
@@ -50,12 +49,12 @@ Exit test: Karen and a second player play it, and Karen says it's fun. If it isn
 |---|---|---|
 | 1.1 | Grey-box test area, 400×400 studs, a few blocks as cover | **Done** (Tasks 17, 22; Karen accepted 2026-09-25) |
 | 1.2 | Boar AI: idles, flees from drivers, runs a route, despawns. Architect designs first | **Done** (Task 18; Karen accepted 2026-09-25) |
-| 1.3 | Harness drives real input (Task 6); play-time screenshots work (Task 7), saving them lands with Task 6 | In progress (Task 6) |
-| 1.4 | Shotgun on the default camera: break action, two shells, reload, slug and buckshot, hits reach the boar (`docs/design/shotgun.md`, re-run first for the Task 23a notes) | 1.3 |
-| 1.4b | Camera: third person, first-person aim (ADS) and viewmodel, one camera owner, own design | 1.4 |
-| 1.5 | Hit zones and wounded running | 1.2, 1.4 |
-| 1.6 | Multiplayer test path: the harness runs 2+ players | 1.3 |
-| 1.7 | Teams, 10-minute drive, points per boar, score screen, frozen-at-a-tree penalty | 1.5, 1.6 |
+| 1.3 | Harness drives real input (Task 6); play-time screenshots saved (Tasks 6, 41) | **Done** |
+| 1.4 | Shotgun: break action, two shells, reload, slug and buckshot, X swaps and reloads | **Done** (Task 24; Karen accepted 2026-09-25) |
+| 1.4b | Camera: shoulder cam, right-mouse ADS with viewmodel, one camera owner | **Done** (Task 26; Karen accepted 2026-09-25) |
+| 1.5 | Hit zones, wounds, carcass, hit marker | **Done** (Task 28; Karen accepted 2026-09-25) |
+| 1.6 | 2-player harness (`test2`), started/ended by the Director without Karen | **Done** (Task 34; found the gunless-shooter bug); part of the merge gate for gameplay since Task 43 |
+| 1.7 | 1.7a drive (Task 32, merged); 1.7b tree penalty + score screen (Task 35) | 1.7b built and tested, **waiting for Karen's playtest** (PR #30; #31/#33/#36/#37 stacked on it) |
 | 1.8 | **Karen playtests with a second player** | 1.7 |
 
 ## Milestone 2: the world — ~2 weeks

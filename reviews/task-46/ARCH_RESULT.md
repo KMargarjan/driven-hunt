@@ -1,0 +1,5 @@
+1. `tests/server/map_contract.spec.luau` (`it("names exactly one world…")`) + `src/serverstorage/MapGen/init.luau` (`MapGen.clear`) + `tools/mapgen.py` (`WORKSPACE_ALLOWED`, `command_census`): nothing anywhere asserts the place's Terrain, and `MapGen.clear` returns `terrainCleared = true` without reading it back — 6.3 M voxels can survive the map root's removal and every check stays green. Blocks M2.3, M2.5 and Karen's two-player playtest.
+2. `TASKS.md` (the task table): audit-003's twelve fix-before-release and thirteen log-only items were never queued as a row, against CLAUDE.md loop step 6 — audit-001's became row 8 and audit-002's became rows 12–16. `src/client/Camera/Rig.luau` (`Rig.setLocalBodyHidden`, F1: the real gun stays drawn beside the viewmodel in ADS) is Karen-visible and on no list. Blocks Karen's two-player playtest.
+
+---
+ARCHITECT verdict on commit `83922a4f2c745fd252ec101ff170d4b897a05113` (audit -> docs\architecture\audit-004.md) · 2026-09-26 04:14 UTC · session cost $8.45, 72 turns · written by tools/agents.py
