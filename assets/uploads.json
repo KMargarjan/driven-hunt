@@ -1,0 +1,22 @@
+[
+  {
+    "tool": "roblox-upload/1",
+    "at": "2026-09-26T21:57:10Z",
+    "assetId": "117134580332969",
+    "assetType": "Model",
+    "displayName": "Driven Hunt shotgun (side-by-side)",
+    "description": "Side-by-side break-action shotgun for Driven Hunt. Prepared by tools/asset_prep.py: 19,325 triangles, blued barrels, silver action, walnut stock.",
+    "creatorUserId": "8167651842",
+    "file": "model.fbx",
+    "sourceFolder": "shotgun_sxs_r2-20260926T213701Z",
+    "bytes": 13635900,
+    "sha256": "472602e31c11e860a93a873905eca8f5f0fdfe9c52f68f24469554fa4aab0950",
+    "contentType": "model/fbx",
+    "operation": "operations/b243c2cd-6dab-4e29-bc1d-67ef49288a63",
+    "moderationState": "Approved",
+    "moderationStateFrom": "response.moderationResult.moderationState",
+    "pollSeconds": 20.0,
+    "polls": 9,
+    "karenOk": "2026-09-26 Karen approved uploading her shotgun as prepared by Task 72"
+  }
+]
