@@ -109,6 +109,60 @@ function Layout.inField(x: number, z: number, config): boolean
 	return math.abs(x) >= f.innerX and math.abs(x) <= f.outerX and z >= f.minZ and z <= f.maxZ
 end
 
+-- HOW THICK THE WOOD IS HERE, as a weight in 0..1 (design section 7.2). A candidate tree is
+-- accepted when its own drawn key is below this, which makes the density a property of WHERE rather
+-- than of how many cells were rejected before it.
+--
+-- Three tiers and a zero, and the zero is what used to be the whole rule: until M2.8b nothing could
+-- stand inside the drive corridor at all, so the drive was a bare lane through a decorated backdrop.
+-- The corridor is the wood now; what stays clear is the ground the game stands things on.
+function Layout.treeDensity(x: number, z: number, config): number
+	if Layout.inField(x, z, config) then
+		return 0 -- a field is a field
+	end
+	if Layout.onBench(x, z, config) or Layout.onTrack(x, z, config) then
+		return 0
+	end
+	if Layout.bogDepth(x, z, config) > 0 then
+		return 0 -- alder stands AROUND a bog, not in it
+	end
+	if Layout.distanceToHedge(x, z, config) < config.SCATTER_CLEARANCE then
+		return 0
+	end
+	-- A PAD'S SIZE IS THE CONTRACT'S, not the pad list's: `Layout.pads` is four positions, and how
+	-- wide the flat ground around one is belongs to Map.SPAWN_PAD (Config.SPAWN_PAD reads it).
+	local clear = config.SPAWN_PAD.radius + config.SPAWN_PAD.blend
+	for _, pad in ipairs(Layout.pads(config)) do
+		if (Vector3.new(x, 0, z) - Vector3.new(pad.x, 0, pad.z)).Magnitude <= clear then
+			return 0 -- a boar is released onto flat, clear ground
+		end
+	end
+
+	local density = config.TREE_DENSITY
+	if math.abs(z - config.WORLD.lineZ) <= density.denseBandStuds and math.abs(x) <= density.denseHalfWidth then
+		return density.dense -- the band the shooter actually looks into
+	end
+	if Layout.inCorridor(x, z, config) then
+		return density.drive
+	end
+	return density.backdrop
+end
+
+-- THE WOOD IS BUILT IN BLOCKS, because one step that creates ~3,000 Models is one step that can time
+-- out and tells you nothing about where it was when it did. Four quadrants of the tree area, in a
+-- fixed order, each its own step in the plan and its own line in the run log.
+function Layout.treeBlocks(config): { { name: string, minX: number, maxX: number, minZ: number, maxZ: number } }
+	local area = config.WORLD.treeArea
+	local midX = (area.minX + area.maxX) / 2
+	local midZ = (area.minZ + area.maxZ) / 2
+	return {
+		{ name = "west-far", minX = area.minX, maxX = midX, minZ = midZ, maxZ = area.maxZ },
+		{ name = "east-far", minX = midX, maxX = area.maxX, minZ = midZ, maxZ = area.maxZ },
+		{ name = "west-near", minX = area.minX, maxX = midX, minZ = area.minZ, maxZ = midZ },
+		{ name = "east-near", minX = midX, maxX = area.maxX, minZ = area.minZ, maxZ = midZ },
+	}
+end
+
 -- The five kinds of marker, in a stable order. Position and size only: how a marker FACES is decided
 -- once, in `Markers.place`, with an explicit `CFrame.lookAt` toward +Z. That matters most for the
 -- DRIVE LINE, whose LookVector must point at the drivers -- the meaning src/server/Weapon/SafetyArc.luau
