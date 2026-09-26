@@ -14,7 +14,8 @@ Harness, clean tree, one player:
 Harness, clean tree, two players — run by the DIRECTOR, not by me (this change touches
 `tools/studio_mcp.py`, so `agents.py` requires it):
 
-    <the [harness2] line for bcbe439 goes here; the Director runs test2 twice and reports both times>
+    <the [harness2] PASS line for d204f103d88127d7999f127ba401b146106a1d76 goes here;
+     the Director runs test2 twice and reports both totals>
 
 307 server specs and 75 client specs, unchanged: no `src/` and no `tests/` file is touched.
 
@@ -90,9 +91,9 @@ it could only fail a slow run).
    against each other. A refusal is reported against its own target. Verify: `Studio.send_input_many`
    and its use in `replay_input`; selftest cases 7 and 8.
 
-5. **The one-player `test` did not get slower.** Three timed runs: **91 s** before the change
-   (`edc3136`), **90 s** and **91 s** after (`8028435`, `d204f10`), same 28/28 checks, same 307
-   server and 75 client specs. With one target `wait_for_each` is `wait_for` look for look (selftest
+5. **The one-player `test` did not get slower.** Four timed runs of the same 28 checks, 307 server
+   and 75 client specs: **91 s** before the change (`edc3136`), then **90 s** (`8028435`), **91 s**
+   (`bcbe439`) and **90 s** (`d204f10`) after it. With one target `wait_for_each` is `wait_for` look for look (selftest
    case 4) and `send_input_many` is one submit and one await. Verify: the phase tables in the run
    output, and selftest cases 4 and 8.
 
@@ -111,7 +112,9 @@ it could only fail a slow run).
 8. **The harness docstring is still the single source of truth.** It gains: the round-robin
    classification and the round-robin per-client waits, the phase table as step 7, a
    "How long a run takes, and what it is waiting for" section carrying every number in the table
-   above, and `selftest` in the usage block with why it is exempt from "needs Studio".
+   above, and `selftest` in the usage block with why it is exempt from "needs Studio". The table is
+   printed from `verdict()`, so it comes out on every path -- a refusal and a half-finished run
+   included, which is when it is worth most.
 
 9. **Row 49a(b): `.gitignore` now covers `/.agent-evidence/` and `/.assets/`.** `.agent-evidence/`
    is written by `tools/agents.py` and reliably contains a local absolute path (`rojo-build.txt`
