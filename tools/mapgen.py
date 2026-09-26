@@ -92,11 +92,62 @@ SHOTS = (
 
 # Every call returns JSON, so an MCP reply is machine-readable and lands in the run log verbatim --
 # the same discipline tools/studio_mcp.py uses for the test report.
+# A FRESH COPY OF THE GENERATOR EVERY CALL. MEASURED 2026-09-26: Studio's require cache survives
+# between execute_luau calls, and Rojo replacing a ModuleScript's Source does NOT reload an
+# already-required module -- so a Config edit was invisible to `build`, which cheerfully reported a
+# number the file no longer said. `require` on a parentless clone loads the CURRENT source, leaves
+# nothing in the DataModel (so the harness's "no unmanaged script" check cannot trip over it), and
+# costs nothing measurable.
 CALL = """
 local HttpService = game:GetService("HttpService")
 local ok, result = pcall(function()
-    local MapGen = require(game:GetService("ServerStorage"):WaitForChild("MapGen"))
+    local source = game:GetService("ServerStorage"):FindFirstChild("MapGen")
+    if not source then
+        error("ServerStorage.MapGen is missing: is Rojo connected?", 0)
+    end
+    local MapGen = require(source:Clone())
     return %s
+end)
+if not ok then
+    return HttpService:JSONEncode({ error = tostring(result) })
+end
+return HttpService:JSONEncode(result)
+"""
+
+# The one module the generator CANNOT reload this way: `Map` is required by absolute path from inside
+# Config and Markers, so those requires reach Studio's cached copy however freshly MapGen itself is
+# loaded. This compares the cached table against a freshly required clone of the same script, field by
+# field, and names every difference. A difference means Studio is holding an older contract than the
+# file says, and only reopening the place clears that.
+STALE = """
+local HttpService = game:GetService("HttpService")
+local ok, result = pcall(function()
+    local RS = game:GetService("ReplicatedStorage")
+    local script = RS:WaitForChild("Map")
+    local cached = require(script)
+    local fresh = require(script:Clone())
+    local differences = {}
+    local function compare(path, a, b)
+        if type(a) ~= type(b) then
+            table.insert(differences, path .. ": " .. type(a) .. " loaded, " .. type(b) .. " on disk")
+        elseif type(a) == "table" then
+            local keys = {}
+            for key in pairs(a) do
+                keys[key] = true
+            end
+            for key in pairs(b) do
+                keys[key] = true
+            end
+            for key in pairs(keys) do
+                compare(path .. "." .. tostring(key), a[key], b[key])
+            end
+        elseif a ~= b then
+            table.insert(differences, path .. ": " .. tostring(a) .. " loaded, " .. tostring(b) .. " on disk")
+        end
+    end
+    compare("Map", cached, fresh)
+    table.sort(differences)
+    return { differences = differences }
 end)
 if not ok then
     return HttpService:JSONEncode({ error = tostring(result) })
@@ -180,6 +231,23 @@ def check_synced(studio):
     problems = compare_synced(studio, wanted)
     if problems:
         return "Studio's copy differs from disk (press Connect in the Rojo plugin):\n  - " + "\n  - ".join(problems)
+    return None
+
+
+def check_contract_cache(studio):
+    """Refusal 3, second half: Studio must not be holding an older ReplicatedStorage.Map."""
+    result = parse_json(
+        studio.query("Edit", STALE)
+    )
+    if result.get("error"):
+        return f"could not check the contract in Studio: {result['error']}"
+    differences = result.get("differences") or []
+    if differences:
+        lines = ["Studio has an OLDER ReplicatedStorage.Map in its require cache than the file says:"]
+        lines += [f"  - {d}" for d in differences]
+        lines.append("  A Rojo sync replaces the script Source but does not reload an already-required")
+        lines.append("  module. Close and reopen the place in Studio, press Connect, and run this again.")
+        return chr(10).join(lines)
     return None
 
 
@@ -401,6 +469,9 @@ def main(argv):
         if why:
             return refuse(why)
         why = check_synced(studio)
+        if why:
+            return refuse(why)
+        why = check_contract_cache(studio)
         if why:
             return refuse(why)
         if mutating:
