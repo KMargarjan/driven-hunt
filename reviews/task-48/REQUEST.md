@@ -3,25 +3,29 @@
 Task: 48
 Round: 2
 Base: `5a17776` (task-47-audit004; stacked on 45, 44, 43, 41, 38, 36 and 35, none merged)
-Code commit: `PENDING` — this request's own commit, which is what both harness lines name (CLAUDE.md
-git workflow step 4). The last commit that changed `src/`, `tests/` or `tools/` is `3759e93`.
+Code commit: `630b8670de5018d90562eb664acc3dc33da4782a` — this request's own commit, which is what
+both harness lines name (CLAUDE.md git workflow step 4). The last commit that changed `src/`, `tests/`
+or `tools/` is `3759e93`, and only this fill-in changed after it.
 
 Harness, clean tree, one player:
 
-    HARNESS1_LINE
+    [harness] PASS: 28/28 checks @ 630b8670de5018d90562eb664acc3dc33da4782a (clean tree)
 
 Harness, clean tree, two players — run by the DIRECTOR, not by me:
 
-    HARNESS2_LINE
+    [harness2] PASS: 30/30 checks @ 630b8670de5018d90562eb664acc3dc33da4782a (clean tree)
 
-307 server specs (303 before this task), 74 shooter-client, 68 driver-client. **28 harness checks, not
+**Run TWICE at this commit, 2 of 2 PASS**, on the Director's instruction after the watcher race failed
+two of the previous three runs. It did not recur.
+
+307 server specs (303 before this task), 75 shooter-client, 69 driver-client. **28 harness checks, not
 27**: the drive-clock seam is one of them now.
 
 **THE `test2` RACE THAT RAN THROUGH THIS TASK IS FIXED HERE.** `weapon_client.spec:246`
 (`Weapon.Input.watchedTools() <= 1`) failed in two of the Director's three `test2` runs — at `7adcb75`
 (FAIL, then PASS) and again at `3e26863` (FAIL). That is a real race in the client Tool watcher, not a
 flake in the test, and the Director's instruction was to fix the cause where the set is written and
-keep the test strict. Claim 10.
+keep the test strict. Claim 10. **Both runs at this commit passed.**
 
 ## What changed
 
@@ -119,7 +123,8 @@ work (claim 8).
   dead Tool the old rule could not see and shows the count reaching 3; I never caught the real
   two-player respawn at 2, because I cannot run `test2`. The two are the same defect — a dead entry
   outliving a new one — and the fix removes both, but only the constructed one is measured here.
-* **Whether the race is gone from `test2` is the Director's two runs to answer**, not mine.
+* **Two clean `test2` runs are evidence, not proof, that the race is gone.** It failed two of three
+  before the fix and none of two after it; the construction it is proved against is in claim 10.
 * **F2 was not demonstrated by a failing run** (claim 2), and **F3 has no spec**: a server spec cannot
   build a map root without breaking the "exactly one world" check in the same run. F3 is verified by
   running `mapgen.py digest`.
