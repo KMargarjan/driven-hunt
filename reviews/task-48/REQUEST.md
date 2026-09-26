@@ -4,7 +4,7 @@ Task: 48
 Round: 2
 Base: `5a17776` (task-47-audit004; stacked on 45, 44, 43, 41, 38, 36 and 35, none merged)
 Code commit: `PENDING` — this request's own commit, which is what both harness lines name (CLAUDE.md
-git workflow step 4). The last commit that changed `src/`, `tests/` or `tools/` is `a802e14`.
+git workflow step 4). The last commit that changed `src/`, `tests/` or `tools/` is `3759e93`.
 
 Harness, clean tree, one player:
 
@@ -17,11 +17,11 @@ Harness, clean tree, two players — run by the DIRECTOR, not by me:
 307 server specs (303 before this task), 74 shooter-client, 68 driver-client. **28 harness checks, not
 27**: the drive-clock seam is one of them now.
 
-**A KNOWN FLAKE SITS BEHIND ANY `test2` PASS HERE.** At `7adcb75` the Director ran it twice: run 1
-`FAIL: 28/30` on `weapon_client.spec:246` (`Weapon.Input.watchedTools() <= 1`, the 24a(c) watcher-leak
-test), run 2 `PASS: 30/30`. That test is intermittent, this task did not touch it, and claim 10 is what
-I believe causes it. It is row 48a, diagnosed and **not fixed**: the dispatch says to queue it, and I
-cannot run `test2` to show a fix worked.
+**THE `test2` RACE THAT RAN THROUGH THIS TASK IS FIXED HERE.** `weapon_client.spec:246`
+(`Weapon.Input.watchedTools() <= 1`) failed in two of the Director's three `test2` runs — at `7adcb75`
+(FAIL, then PASS) and again at `3e26863` (FAIL). That is a real race in the client Tool watcher, not a
+flake in the test, and the Director's instruction was to fix the cause where the set is written and
+keep the test strict. Claim 10.
 
 ## What changed
 
@@ -98,19 +98,28 @@ work (claim 8).
    worth: at the bog's centre, omitting it is wrong by exactly `bog.depth` studs; outside the bog it
    changes nothing.
 
-10. **The intermittent `watchedTools()` failure, diagnosed and queued.** `watchTool` is called
-    **synchronously** from the Backpack's `ChildAdded`, while a dead Tool is dropped only from
-    `tool.AncestryChanged` with `parent == nil` — and Roblox's signals are **deferred** (measured in
-    Task 47). On a respawn the new Tool is watched before the old one's handler runs, so
-    `watchedTools()` is legitimately **2** for a moment, and the drive respawns players through
-    `Match.Body.place` → `LoadCharacter`. That is a timing assumption in the **test**, not a leak in
-    the owner: a real leak would never settle. Row 48a carries the retry-based fix.
+10. **The `watchedTools()` race is FIXED in the owner, not worked around in the test** (Director,
+    after `test2` failed on it in two runs of three). A dead Tool was dropped only by its own
+    `AncestryChanged` with `parent == nil`, and Roblox's signals are **deferred** (measured in Task
+    47) — so on a respawn the new Tool, granted on `CharacterAdded` and delivered through the new
+    Backpack's `ChildAdded`, was watched **before** the old one's handler ran; and a Tool whose parent
+    never became nil was never forgotten at all. `watchTool` now sweeps the set before adding to it
+    (`isLive` = in the player's CURRENT Backpack or character; `pruneWatched` drops the rest),
+    `Destroying` is hooked beside `AncestryChanged`, and the ancestry handler asks `isLive` rather
+    than testing for nil. `bind` records which Tool it bound for so `forgetTool` cannot unbind the
+    live gun's trigger while dropping a dead Tool. **The test stayed strict**, and a new one
+    reproduces the ordering without depending on signal order — measured against the old watcher:
+
+        failed [client] weapon_client.spec:290 the watcher held 3 Tools where 2 is the ceiling: a dead
+        Tool was still watched when a new one arrived (24a(c), Task 48)
 
 ## What I could not verify
 
-* **Claim 10 is a reading, not a measurement.** I never caught `watchedTools()` at 2: the failing run
-  was the Director's and I cannot run `test2`. The deferred-signal half is measured; the respawn
-  ordering is read from `Input.watchTool`, `forgetTool` and `Weapon.grant`.
+* **The watcher fix is proved against the construction, not against a respawn.** The new spec makes a
+  dead Tool the old rule could not see and shows the count reaching 3; I never caught the real
+  two-player respawn at 2, because I cannot run `test2`. The two are the same defect — a dead entry
+  outliving a new one — and the fix removes both, but only the constructed one is measured here.
+* **Whether the race is gone from `test2` is the Director's two runs to answer**, not mine.
 * **F2 was not demonstrated by a failing run** (claim 2), and **F3 has no spec**: a server spec cannot
   build a map root without breaking the "exactly one world" check in the same run. F3 is verified by
   running `mapgen.py digest`.
