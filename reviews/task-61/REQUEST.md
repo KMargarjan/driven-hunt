@@ -1,7 +1,7 @@
 # Task 61 — the drive releases sounders
 
 Task: 61
-Round: 1
+Round: 2
 Base: `51c2d57` (`main`, with Task 60 merged)
 Code commit: `14dfda94a40d36af744da3faf1f70bfbbc18c3ab` — **both** harness lines below name it. It
 is a PAPERWORK commit: the last commit that changed `src/`, `tests/` or `tools/` is `d10817a`, and
@@ -86,8 +86,12 @@ Taken in a Play session with `python tools/flags.py set BOAR_SOUNDERS on`, then 
 harness run above.
 
 - **`sounder-drive-6`** — the HUD reads `DRIVE 1 · 6:04 · BOARS 6 · SHOOTER`: the drive is running
-  with the flag on and has released its whole budget. The shooter faces the arena wall, so no boar
-  is in frame.
+  with the flag on. `BOARS` is the count not yet accounted for (`BOARS_PER_DRIVE` minus killed plus
+  escaped, `Match.snapshot` `boarsLeft`), NOT the released count, so this frame says nothing about the
+  release budget; nothing had been killed or escaped yet. The shooter faces the arena wall, so no
+  boar is in frame. The release budget is evidenced only by the server specs (the six-animal budget
+  assertions), not by this screenshot. *(Corrected by the Director after review round 1, finding 1;
+  paperwork only, no code change.)*
 - **`sounder-field-2`** — four boars on the arena floor, well apart, grazing, with the HUD reading
   `DRIVE 1 · 2:58 · BOARS 6 · DRIVER`. **They are not in formation**, and that is the honest
   reading: nothing is pushing them.
