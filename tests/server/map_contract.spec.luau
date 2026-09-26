@@ -83,10 +83,36 @@ return function()
 			expect(Map.EXPECTED_WORLD == "arena" or string.sub(Map.EXPECTED_WORLD, 1, 4) == "map:").to.equal(true)
 			local named = waitForRoot(namedRootName())
 			expect(named).to.be.ok()
-			-- The OTHER root must be absent. Two worlds in Workspace means the generated slice was
-			-- left in the place: the tags then resolve to both and every count below is doubled.
+			-- The OTHER root must be absent. Two worlds in Workspace means the generated map was left
+			-- in the place: the tags then resolve to both and every count below is doubled.
 			local other = if namedRootName() == ARENA_ROOT then MAP_ROOT else ARENA_ROOT
 			expect(Workspace:FindFirstChild(other)).to.equal(nil)
+		end)
+
+		it("holds the terrain the named world requires, and no other", function()
+			-- AND THE GROUND, not just the folder (audit-004 must-fix 1). Terrain is a global singleton
+			-- with no container: destroying `Workspace.DrivenHuntMap` -- one right-click in the
+			-- Explorer, between a screenshot and a test -- leaves all 6.3 M voxels of a generated map
+			-- behind. Every check above still passes in that state, the arena's plate sits buried in a
+			-- hillside, and the run prints PASS. A world check that names a folder and ignores the
+			-- ground is the audit this project already paid for once.
+			local cells = Workspace.Terrain:CountCells()
+			if Map.EXPECTED_WORLD == "arena" then
+				-- The arena is built from parts on a flat plate at y = 0 and writes no terrain at all.
+				if cells ~= 0 then
+					error(
+						string.format(
+							"the world is the arena but Workspace.Terrain holds %d cell(s): a generated map "
+								.. "was left behind. Run `python tools/mapgen.py clear --backup census`.",
+							cells
+						),
+						0
+					)
+				end
+			else
+				-- The generated map IS terrain; an empty one means the folder outlived its ground.
+				expect(cells > 0).to.equal(true)
+			end
 		end)
 
 		it("resolves every tag to exactly the expected count, all inside the named world", function()

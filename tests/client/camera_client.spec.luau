@@ -340,6 +340,97 @@ return function()
 		end)
 	end)
 
+	describe("the hidden local body", function()
+		-- audit-003 F1 / audit-004 must-fix 2, and the one defect in that audit Karen would SEE: in ADS
+		-- the real shotgun was drawn beside the viewmodel, two guns on screen at once.
+		--
+		-- The cause is a cache, not a missing rule. `Rig.setLocalBodyHidden` walks the character once
+		-- per life and then only writes when the flag CHANGES -- and the Tool's `Handle` is granted on
+		-- `CharacterAdded` server-side, so it reaches the client after that walk. It was therefore in
+		-- no list and nothing ever wrote it.
+		--
+		-- This test adds a part to the character AFTER the body is hidden, which is the same arrival
+		-- the Handle makes. Everything below runs WITHOUT YIELDING, because `Camera.step` sets the flag
+		-- from the real aim blend on every render step and would undo the setup a frame later --
+		-- `DescendantAdded` fires synchronously on the parent assignment, so no wait is needed.
+		it("hides a part that arrives after the body was already hidden", function()
+			local character = player.Character
+			expect(character).to.be.ok()
+
+			Camera.Rig.setLocalBodyHidden(true)
+			local probe = Instance.new("Part")
+			probe.Name = "AuditF1LateArrival"
+			probe.Size = Vector3.new(1, 1, 1)
+			probe.Transparency = 0
+			probe.Anchored = true
+			probe.CanCollide = false
+			probe.CanQuery = false
+			probe.Parent = character -- DescendantAdded fires here, synchronously
+
+			local modifier = probe.LocalTransparencyModifier
+			local counted = Camera.Rig.hiddenPartCount()
+			probe:Destroy()
+			Camera.Rig.setLocalBodyHidden(false)
+
+			if modifier ~= 1 then
+				error(
+					string.format(
+						"a part parented to the character while the body was hidden kept "
+							.. "LocalTransparencyModifier = %.1f: in ADS that is the real gun drawn beside "
+							.. "the viewmodel (audit-003 F1)",
+						modifier
+					),
+					0
+				)
+			end
+			expect(counted > 0).to.equal(true)
+		end)
+
+		it("hides every part of the character, the Tool's Handle included", function()
+			local character = player.Character
+			expect(character).to.be.ok()
+
+			Camera.Rig.setLocalBodyHidden(true)
+			local visible, total = {}, 0
+			for _, part in ipairs(character:GetDescendants()) do
+				if part:IsA("BasePart") then
+					total += 1
+					if part.LocalTransparencyModifier ~= 1 then
+						table.insert(visible, part:GetFullName())
+					end
+				end
+			end
+			Camera.Rig.setLocalBodyHidden(false)
+
+			expect(total > 0).to.equal(true)
+			if #visible > 0 then
+				error(
+					string.format(
+						"%d of %d character part(s) stayed visible in ADS: %s",
+						#visible,
+						total,
+						table.concat(visible, ", ")
+					),
+					0
+				)
+			end
+			print(
+				string.format("[camera_client] hidden body: %d character part(s) at LocalTransparencyModifier 1", total)
+			)
+		end)
+
+		it("puts the body back when the flag clears", function()
+			local character = player.Character
+			Camera.Rig.setLocalBodyHidden(true)
+			Camera.Rig.setLocalBodyHidden(false)
+			for _, part in ipairs(character:GetDescendants()) do
+				if part:IsA("BasePart") then
+					expect(part.LocalTransparencyModifier).to.equal(0)
+				end
+			end
+		end)
+	end)
+
 	describe("occlusion", function()
 		it("pulls in short of what the one ray found, once per frame", function()
 			local calls = 0

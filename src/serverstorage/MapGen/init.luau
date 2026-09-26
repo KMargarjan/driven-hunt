@@ -139,15 +139,19 @@ local function ensureRoot(): Instance
 	return made
 end
 
-function MapGen.clear(): { removed: number, terrainCleared: boolean }
+-- Destroys the map root AND the terrain, and reports what is actually left. `terrainCleared` used to
+-- be a hard-coded `true`: a claim with no measurement behind it, about the largest thing the
+-- generator writes (audit-004 must-fix 1). It is now `cellsAfter == 0`, read back from the engine.
+function MapGen.clear(): { removed: number, terrainCleared: boolean, cellsAfter: number, cellsBefore: number }
 	local root = existingRoot()
 	local removed = 0
 	if root then
 		removed = #root:GetDescendants() + 1
 		root:Destroy()
 	end
-	Ground.clear()
-	return { removed = removed, terrainCleared = true }
+	local before = Ground.cells()
+	local after = Ground.clear()
+	return { removed = removed, terrainCleared = after == 0, cellsAfter = after, cellsBefore = before }
 end
 
 -- ---------------------------------------------------------------- one step
@@ -180,7 +184,22 @@ function MapGen.runStep(index: number, seed: number): StepReport
 
 	if spec.kind == "clear" then
 		local result = MapGen.clear()
-		return finish({ ok = true, message = string.format("removed %d instances", result.removed) })
+		if not result.terrainCleared then
+			-- LOUD, not silent: every step after this one writes into terrain that is still there, and
+			-- the digest would then describe a map nobody built (audit-004 must-fix 1).
+			return finish({
+				ok = false,
+				message = string.format(
+					"Terrain:Clear() left %d cell(s) (was %d): the build must not continue over them",
+					result.cellsAfter,
+					result.cellsBefore
+				),
+			})
+		end
+		return finish({
+			ok = true,
+			message = string.format("removed %d instances, %d terrain cell(s)", result.removed, result.cellsBefore),
+		})
 	elseif spec.kind == "terrain" then
 		local tile = Layout.tiles(Config)[index - 1] -- step 1 is the clear, so tile n is step n + 1
 		return finish({ ok = true, voxelsWritten = Ground.writeTile(tile, seed, Config) })
@@ -482,6 +501,12 @@ function MapGen.verifyContract(): {
 		table.insert(findings, string.format("%d parts, over the budget of %d", parts, Map.BUDGET.parts))
 	end
 	counts.parts = parts
+	-- The map exists, so terrain MUST: a root with no ground under it is a build that half-ran.
+	local cells = Ground.cells()
+	counts.terrainCells = cells
+	if cells == 0 then
+		table.insert(findings, "the map root exists but the terrain is empty: the build did not finish")
+	end
 	return {
 		ok = #findings == 0,
 		findings = findings,

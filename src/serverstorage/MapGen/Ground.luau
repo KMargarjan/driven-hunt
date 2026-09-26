@@ -173,8 +173,26 @@ function Ground.sampleRow(
 	return out
 end
 
-function Ground.clear()
+-- HOW MUCH TERRAIN EXISTS, measured rather than assumed.
+--
+--   Terrain:CountCells https://create.roblox.com/docs/reference/engine/classes/Terrain#CountCells
+--     MEASURED 2026-09-26: callable from `execute_luau` in Edit and from a server spec, and 0 on an
+--     empty place.
+--
+-- This is the only number in the repo that can tell a 2048-stud heightfield apart from an empty
+-- world. Before it, `MapGen.clear` returned `terrainCleared = true` as a LITERAL, and the contract
+-- spec's "exactly one world" check looked at a folder name -- so deleting `Workspace.DrivenHuntMap`
+-- in the Explorer left 6.3 M voxels in the place and every check still said PASS, with the arena
+-- buried in a hillside (audit-004 must-fix 1).
+function Ground.cells(): number
+	return Workspace.Terrain:CountCells()
+end
+
+-- Clears the terrain and REPORTS WHAT IS LEFT. The caller decides what to do about it; this function
+-- never claims success it did not measure.
+function Ground.clear(): number
 	Workspace.Terrain:Clear()
+	return Ground.cells()
 end
 
 return Ground

@@ -174,17 +174,24 @@ end
 return HttpService:JSONEncode(result)
 """
 
+# THE CENSUS ANSWERS ABOUT THE GROUND TOO (audit-004 must-fix 1). Terrain is a global singleton with
+# no container, so `Terrain` was unconditionally on the allow-list and the census was structurally
+# incapable of mentioning the single biggest thing `clear` destroys -- or of noticing that a map's
+# terrain is already in the place.
 CENSUS = """
 local HttpService = game:GetService("HttpService")
-local out = {}
+local children = {}
 for _, child in ipairs(workspace:GetChildren()) do
-    table.insert(out, {
+    table.insert(children, {
         name = child.Name,
         className = child.ClassName,
         descendants = #child:GetDescendants(),
     })
 end
-return HttpService:JSONEncode(out)
+return HttpService:JSONEncode({
+    children = children,
+    terrainCells = workspace.Terrain:CountCells(),
+})
 """
 
 
@@ -218,7 +225,14 @@ def call(studio, expression):
 
 
 def census(studio):
+    """{"children": [...], "terrainCells": n} -- what is in Workspace, ground included."""
     return parse_json(studio.query("Edit", CENSUS))
+
+
+def print_census(result):
+    for row in result.get("children") or []:
+        print(f"  {row['name']} ({row['className']}, {row['descendants']} descendants)")
+    print(f"  Terrain: {result.get('terrainCells', '?')} cell(s)")
 
 
 # ---------------------------------------------------------------- the refusals
@@ -268,18 +282,35 @@ def note_contract_cache(studio):
     print("  MapGen.Contract loads the contract fresh, so the build below uses the file on disk.")
     print("  Reopen the place when you want the session itself current (a Rojo sync cannot).")
 
-def check_backup(studio, backup):
+def check_backup(studio, backup, command):
     """Refusal 4, or the M2.1 census in its place."""
     if backup is None:
         return "no --backup. Pass a .rbxl saved by File -> Save to File, or `census` (M2.1 only)."
     if backup == "census":
-        rows = census(studio)
+        result = census(studio)
+        rows = result.get("children") or []
+        cells = result.get("terrainCells") or 0
         allowed = set(WORKSPACE_ALLOWED) | {root_name()}
         strays = [r for r in rows if r["name"] not in allowed]
         print("[mapgen] census of Workspace:")
         for row in rows:
             mark = " " if row["name"] in allowed else "!"
             print(f"  {mark} {row['name']} ({row['className']}, {row['descendants']} descendants)")
+        print(f"    Terrain: {cells} cell(s)")
+        # ORPHANED TERRAIN. A map root with no terrain is a half-finished build; TERRAIN WITH NO ROOT
+        # is somebody deleting Workspace.DrivenHuntMap in the Explorer, which leaves the whole
+        # heightfield behind and which every other check in this project is blind to (audit-004
+        # must-fix 1). A rebuild must not start from it silently: the operator has to say `clear`.
+        # `clear` is the CURE, so it is never refused for the disease: refusing it would leave the
+        # operator with a message telling them to run the command that was just refused.
+        if command != "clear" and cells > 0 and not any(r["name"] == root_name() for r in rows):
+            return (
+                f"Workspace holds {cells} terrain cell(s) and no {root_name()}: a generated map's ground "
+                "was left behind when its folder went away.\n"
+                "  Nothing here can tell that terrain from a map you meant to keep, so this stops.\n"
+                "  Run `python tools/mapgen.py clear --backup census` to remove it, or save the place "
+                "first and pass that .rbxl as --backup."
+            )
         if strays:
             names = ", ".join(f"{r['name']} ({r['className']})" for r in strays)
             return (
@@ -525,15 +556,14 @@ def main(argv):
             return refuse(why)
         note_contract_cache(studio)
         if mutating:
-            why = check_backup(studio, args.backup)
+            why = check_backup(studio, args.backup, args.command)
             if why:
                 return refuse(why)
 
         if args.command == "plan":
             return command_plan(studio, args)
         if args.command == "census":
-            for row in census(studio):
-                print(f"  {row['name']} ({row['className']}, {row['descendants']} descendants)")
+            print_census(census(studio))
             return 0
         if args.command == "digest":
             print(json.dumps(call(studio, "MapGen.digest()"), indent=2))
