@@ -252,6 +252,11 @@ end
 -- (row 43a(o)). One predicate, used by the placing step AND by the spec, so they cannot disagree.
 function Props.rejectTree(x: number, z: number, config): boolean
 	return Layout.inCorridor(x, z, config)
+		-- A BENCH, by the same predicate the hedge uses (round 2, finding 1's class). The road runs
+		-- to x = +/-900 and the corridor stops at +/-620, so `inCorridor` left a 280-stud stretch of
+		-- gravel at each end that a trunk could be scattered onto -- about one tree today and ~7 at
+		-- M2.8b's density. The corridor rule stays: it is a different question and it goes first.
+		or Layout.onBench(x, z, config)
 		or Layout.onTrack(x, z, config)
 		or Layout.bogDepth(x, z, config) > 0
 		or Layout.distanceToHedge(x, z, config) < config.SCATTER_CLEARANCE

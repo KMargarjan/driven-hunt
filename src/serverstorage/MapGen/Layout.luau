@@ -38,18 +38,75 @@ function Layout.tiles(config): { { tx: number, tz: number, minX: number, minZ: n
 end
 
 -- Every spawn pad the heightfield must flatten: a marker a player or a boar stands on.
+-- FOUR PADS, not thirteen (design section 6.4). The eight post pads and the driver-start rectangle
+-- are gone: the posts and the driver start now stand on BENCHES, which are flat at GROUND_Y anyway.
+--
+-- That closes TASKS.md row 45a(d) by construction. At blend 40 the old post pads (radius 10 + blend
+-- 40 = 54 against a spacing of 80) merged into one flattened strip along the line -- an artefact
+-- nobody chose. There is now a road there deliberately, and the strip IS the feature.
 function Layout.pads(config): { Point }
 	local world = config.WORLD
 	local pads = {}
-	for index = 1, world.postCount do
-		local x = (index - (world.postCount + 1) / 2) * world.postSpacing
-		table.insert(pads, { x = x, z = world.lineZ })
-	end
-	table.insert(pads, { x = 0, z = world.driverStartZ })
 	for _, x in ipairs(world.boarSpawnX) do
 		table.insert(pads, { x = x, z = world.boarSpawnZ })
 	end
 	return pads
+end
+
+-- The benches, as data, so Height, Ground and the specs all read one list (design section 6.3).
+function Layout.benches(config)
+	return config.WORLD.benches
+end
+
+-- True on the gravel of a bench -- not its verge. Ground paints the road material here, and the
+-- contract spec asserts the posts stand on it.
+function Layout.onRoad(x: number, z: number, config): boolean
+	for _, bench in ipairs(config.WORLD.benches) do
+		local along, across
+		if bench.axis == "x" then
+			along, across = x, math.abs(z - bench.at)
+		else
+			along, across = z, math.abs(x - bench.at)
+		end
+		if across <= bench.halfWidth and along >= bench.from and along <= bench.to then
+			return true
+		end
+	end
+	return false
+end
+
+-- TRUE ANYWHERE A BENCH OWNS THE GROUND -- the gravel AND its verge, plus `pad` studs of clearance.
+--
+-- ROUND 2, FINDING 1, and it is the CLASS rather than the instance. A hedge line at x = +/-760 runs
+-- the full depth of the map, the corridor stops at +/-620, so `crossesCorridor` was false, so no gate
+-- was cut -- and two collidable 7-stud hedge segments stood across the forest road at each end. The
+-- road is 1,800 studs long and the corridor only 1,240, so "is it in the corridor" was never the
+-- right question for a bench. Anything that PLACES something asks this instead: `hedgeSegments` skips
+-- a segment, `rejectTree` rejects a point, and `map_contract.spec` walks the whole road proving
+-- nothing collidable stands on it.
+function Layout.onBench(x: number, z: number, config, pad: number?): boolean
+	local clearance = pad or 0
+	for _, bench in ipairs(config.WORLD.benches) do
+		local along, across
+		if bench.axis == "x" then
+			along, across = x, math.abs(z - bench.at)
+		else
+			along, across = z, math.abs(x - bench.at)
+		end
+		local width = bench.halfWidth + bench.verge + clearance
+		-- The taper counts: the bench still owns the ground where it runs out.
+		if across <= width and along >= bench.from - bench.taper and along <= bench.to + bench.taper then
+			return true
+		end
+	end
+	return false
+end
+
+-- The flank farmland: outside it, and off the benches, the ground is forest floor. This is what turns
+-- "wood everywhere" into "a wood with fields at its edges", which is what Karen's references show.
+function Layout.inField(x: number, z: number, config): boolean
+	local f = config.WORLD.fields
+	return math.abs(x) >= f.innerX and math.abs(x) <= f.outerX and z >= f.minZ and z <= f.maxZ
 end
 
 -- The five kinds of marker, in a stable order. Position and size only: how a marker FACES is decided
@@ -66,7 +123,12 @@ function Layout.markers(config): { Marker }
 			name = string.format("ShooterPost%d", index),
 			x = x,
 			z = world.lineZ,
-			size = Vector3.new(4, 6, 4),
+			-- (6, 1, 6) AT GROUND_Y + 0.5, not (4, 6, 4). Body.placementFor stands a character at
+			-- post.Position + (0, post.Size.Y/2 + STAND_HEIGHT_STUDS, 0), so a 6-stud-tall marker put
+			-- the stand point 9.5 studs over a part that does not collide -- the drop named in
+			-- TASKS.md row 43a(l) and audit-004 F9. A 1-stud marker makes it ground + 4.5, and the
+			-- bottom face sits exactly on the road bench, which is the one number the contract checks.
+			size = Vector3.new(6, 1, 6),
 		})
 	end
 	table.insert(out, {
@@ -175,12 +237,20 @@ function Layout.hedgeSegments(line: Line, gates: { number }, config): { Point }
 				break
 			end
 		end
+		local x, z
+		if line.axis == "x" then
+			x, z = along, line.at
+		else
+			x, z = line.at, along
+		end
+		-- A BENCH IS A GATE NOBODY HAS TO CUT (round 2, finding 1). A hedge segment on the road is a
+		-- collidable wall across the one strip the whole revision exists to keep open; half a
+		-- segment's length of clearance keeps the part itself off the verge, not just its centre.
+		if Layout.onBench(x, z, config, config.HEDGE.segmentStuds / 2) then
+			blocked = true
+		end
 		if not blocked then
-			if line.axis == "x" then
-				table.insert(out, { x = along, z = line.at })
-			else
-				table.insert(out, { x = line.at, z = along })
-			end
+			table.insert(out, { x = x, z = z })
 		end
 	end
 	return out

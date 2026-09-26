@@ -278,7 +278,7 @@ fails if a script exists anywhere Rojo does not manage.
 | `backups/` | none | Archived files plus notes |
 | `docs/` | none | `PROJECT_CONTEXT.md` (who, the game, why the rules exist), `research/` (notes plus INDEX), `design/` (Architect system designs), `architecture/` (Architect audits), `REVIEWER_PROMPT.md` and `ARCHITECT_PROMPT.md` (the two agent prompts) |
 | `tools/` | none | `studio_mcp.py` (test harness, and the one owner of the `DHFlag_*` overrides); `agents.py` plus `review.sh`/`review.ps1`/`architect.sh`/`architect.ps1` (the Reviewer and Architect gate); `privacy_scan.py` (the public-repo scan CI runs); `flags.py` (the Director's playtest switch, a thin wrapper over `studio_mcp.py flags`); `meshy.py` (the Asset agent's generator; reads `MESHY_API_KEY`, writes only outside the repo) |
-| `docs/asset-briefs/` | none | The reviewed record of each asset brief (Karen's decisions, as data). `tools/meshy.py` reads the working copy in `<assets-dir>/briefs/`, never this folder |
+| `docs/asset-briefs/` | none | **The one source** for each asset brief (Karen's decisions, as data) and the reference images beside them. `tools/meshy.py` reads this folder directly; there is no second copy. Everything the tool *writes* still goes outside the repo |
 
 Workspace (the map), Lighting, Terrain and other non-script content are edited in Studio and saved
 with the place. They must contain no scripts.

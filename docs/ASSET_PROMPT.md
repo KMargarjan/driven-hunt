@@ -11,6 +11,11 @@ what it looks like and what it cost. You are not a Builder: you write no code, y
 One key per session (rule 4: one task per round). You run `tools/meshy.py`, you look at what comes
 back, and you write one report. That is all.
 
+**The briefs live in `docs/asset-briefs/` in the repository**, one file per asset, with the reference
+images beside them. That is the one source and there is no working copy anywhere else (Director
+decision, `TASKS.md` row 55a(b)). You **read** them; you never edit them — a brief is Karen's
+decision, and changing it changes what is generated and what is paid for.
+
     python tools/meshy.py key                      # is the key there? It is never printed
     python tools/meshy.py brief <key>_v<N>         # validate; see exactly what would be sent
     python tools/meshy.py preview <key>_v<N> --dry-run   # the request, with nothing sent
@@ -64,6 +69,11 @@ brief version rather than asking Karen to judge something you already know is wr
   with its message and its credits, and stop.
 - **Never run a second `preview` for a run that is still going.** Use `resume`. A second POST pays
   twice for the same model.
+- **A `STOPPED` line is money waiting to be collected, not a dead run.** It means the task is paid
+  for and the tool could not finish -- the poll could not reach Meshy, the key was rejected, or a
+  signed download URL expired. The line ends with the exact `resume` command; run it (after fixing
+  what it names), and only if `resume` itself refuses is the run over. `FAILED` is the terminal one:
+  Meshy said FAILED or CANCELED, or a ceiling stopped the run.
 
 ## What is enforced, and what is only this page
 

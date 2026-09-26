@@ -1,0 +1,15 @@
+PASS
+
+## Notes (non-blocking)
+- `tools/meshy.py` / `finish_preview` — a SUCCEEDED task whose response carries **no** `thumbnail_url` at all can never reach `preview-ready`: `written` lacks `preview.png`, so the first `stop_resumable` fires ("`preview.png` did not reach disk"), and every `resume` re-polls the same response and stops again until the 72 h expiry — even when `preview.glb` is on disk. This is the asymmetric twin of claim 8's "a response carrying no GLB URL at all stays a note — there is nothing to re-fetch". Queue it beside 59a(h).
+- `tools/meshy.py` / `poll_and_finish` — a 400 or 404 give-up also writes `preview-unresolved` (`terminal = status in (400, 401, 403, 404)`), but for "the path or the task id does not exist" `resume` can never collect anything: it re-polls, prints the same 404 and `stop_resumable`s again. Claim 1's "keeps the run collectable" is true for 401/403/5xx and only nominally true for 400/404.
+- `docs/ASSET_PROMPT.md` — *"run it (after fixing what it names), and only if `resume` itself refuses is the run over"* terminates only at the 72 h `EXPIRED` refusal for the 400/404 case above. One clause ("if the same STOPPED line repeats, stop and report") would close it.
+- `tools/meshy.py` / `cmd_preview` — a 2xx POST whose body carries no parseable task id still writes `record["state"] = "failed"` (`"the create response carried no task id"`). Unchanged by this task, disclosed, queued as 59a(h).
+- `tools/meshy.py` / `selftest` — blocks are still literally `# 1.` … `# 11.`, and the privacy block still says *"or case 5 is guarding nothing in CI"*, while `redact`'s docstring now asserts *"Blocks are named, not numbered (Task 55b)"*. Disclosed; queued as 59a(e).
+- `tools/meshy.py` / `selftest`, `collect` — catches `Refused` (claim 9), but a `Failed` raised inside `cmd_resume` still ends the selftest before the `partial` and `expired` cases run. Queued as 59a(i).
+- `docs/design/meshy-tool.md` — still `<assets-dir>/briefs/` (§4.1, §16 table, §17 quoted-paths line), *"a reference that is not a PNG"*, no `preview-unresolved` row, no `STOPPED`, no `POLL_GIVE_UP_AFTER`. `reviews/task-59/DESIGN_DELTA.md` is the right place; it needs an Architect run to land, and until then the code and its own design disagree in the file the design owns.
+- `docs/asset-briefs/` — holds three briefs, all `"references": []`, and no image, so `validate_brief`'s `reference_names` check makes any future image-to-3d brief unusable. Disclosed; Karen's or the Director's call (59a(f)).
+- `tools/meshy.py` / `request` — the trailing `raise Failed(f"429 after {RETRIES + 1} tries: ...")` is still unreachable: at `attempt == RETRIES` the 429 branch's `attempt < RETRIES` is false and the function returns `(429, parsed, raw)`. Harmless, and it is what routes a 429 into the give-up counter rather than aborting.
+
+---
+REVIEWER verdict on commit `2b59be3336fcd61dcf05e65749487c560005e04c` (round 3) · 2026-09-26 14:52 UTC · session cost $1.91, 23 turns · written by tools/agents.py

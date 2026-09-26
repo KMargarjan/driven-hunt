@@ -30,8 +30,8 @@ local function regionFor(minX: number, minZ: number, config): Region3
 	):ExpandToGrid(config.VOXEL)
 end
 
--- LeafyGrass where the ground is steep, Grass where it is not: the field reads as pasture and the
--- broken ground reads as rough, from one number instead of a second noise field. Called ONCE PER
+-- Leaf litter everywhere in the wood; gravel on the benches and tracks; Grass on the steep columns
+-- and on the flank farmland; Mud in the bog. One slope number instead of a second noise field. Called ONCE PER
 -- COLUMN, not once per voxel: at 24,576 voxels a tile and ~6 math.noise calls a height, per-voxel
 -- would be about 600,000 noise evaluations for a tile that needs 3,000.
 local function surfaceMaterial(x: number, z: number, h: number, seed: number, config, pads): Enum.Material
@@ -40,8 +40,17 @@ local function surfaceMaterial(x: number, z: number, h: number, seed: number, co
 	if Layout.bogDepth(x, z, config) > 0.15 then
 		return config.MATERIAL.bog
 	end
+	-- THE BENCHES, in front of the slope test (design section 8.1): a road is gravel whatever the
+	-- ground under it was going to be.
+	if Layout.onRoad(x, z, config) then
+		return config.MATERIAL.track
+	end
 	if Layout.onTrack(x, z, config) then
 		return config.MATERIAL.track
+	end
+	-- The flank farmland reads as pasture; everything else in the wood is leaf litter.
+	if Layout.inField(x, z, config) then
+		return config.MATERIAL.rough
 	end
 	local v = config.VOXEL
 	local dx = math.abs(Height.atFlattened(x + v, z, seed, config, pads, Layout.bogDepth) - h) / v
@@ -49,7 +58,10 @@ local function surfaceMaterial(x: number, z: number, h: number, seed: number, co
 	if math.max(dx, dz) > config.ROUGH_SLOPE then
 		return config.MATERIAL.rough
 	end
-	return config.MATERIAL.field
+	-- THE WOOD'S DEFAULT IS LEAF LITTER. Everything that is not bog, bench, track, field or a steep
+	-- column is forest floor -- which is what makes the map read as a wood rather than as a meadow
+	-- with trees on it (design section 8.1).
+	return config.MATERIAL.litter
 end
 
 -- One tile. IDEMPOTENT: it writes every voxel of its region from the heightfield, so re-running it
@@ -193,6 +205,74 @@ end
 function Ground.clear(): number
 	Workspace.Terrain:Clear()
 	return Ground.cells()
+end
+
+-- ---------------------------------------------------------------- the palette
+--
+-- Terrain material colour is GLOBAL STATE WITH NO CONTAINER, exactly like the voxels -- so it belongs
+-- to the module that is already the only writer of Terrain in this repo (design section 8.2). No
+-- second writer, anywhere, ever.
+--
+-- MEASURED 2026-09-26 (measurement N1): Get/SetMaterialColor are callable through execute_luau in
+-- Edit, the values read back exactly, they SURVIVE Terrain:Clear(), and they replicate to a client.
+-- The design's material-choice fallback is therefore not taken and no code for it exists.
+
+-- DERIVED FROM Config.MATERIAL, never re-declared (round 2's note, and the same class as the
+-- inversion the screenshot caught): the palette's `road` role is the material Config calls `track`,
+-- and two tables naming the same material differently is how they end up disagreeing.
+local function paletteMaterials(config)
+	return {
+		litter = config.MATERIAL.litter,
+		rough = config.MATERIAL.rough,
+		road = config.MATERIAL.track,
+		bog = config.MATERIAL.bog,
+	}
+end
+
+-- Write one palette table. Returns how many materials were set.
+function Ground.applyPalette(palette, config): number
+	local written = 0
+	for role, material in pairs(paletteMaterials(config)) do
+		local colour = palette[role]
+		if colour ~= nil then
+			workspace.Terrain:SetMaterialColor(material, colour)
+			written += 1
+		end
+	end
+	return written
+end
+
+-- What the place currently carries, as the same role -> Color3 shape. READ BACK, never assumed:
+-- `clear` reports whether the restore worked by comparing this against what it asked for.
+function Ground.readPalette(config)
+	local out = {}
+	for role, material in pairs(paletteMaterials(config)) do
+		out[role] = workspace.Terrain:GetMaterialColor(material)
+	end
+	return out
+end
+
+-- Put the place back the way a place nobody has recoloured looks. A palette outlives Terrain:Clear()
+-- -- that is measured, not assumed -- so without this an autumn palette would survive every teardown
+-- and become "a world nobody chose" (audit-004 must-fix 1).
+function Ground.resetPalette(default, config): boolean
+	Ground.applyPalette(default, config)
+	local got = Ground.readPalette(config)
+	for role, colour in pairs(default) do
+		local now = got[role]
+		if now == nil then
+			return false
+		end
+		-- Colour3 components are floats; compare at 8-bit precision, which is what the engine stores.
+		if
+			math.round(now.R * 255) ~= math.round(colour.R * 255)
+			or math.round(now.G * 255) ~= math.round(colour.G * 255)
+			or math.round(now.B * 255) ~= math.round(colour.B * 255)
+		then
+			return false
+		end
+	end
+	return true
 end
 
 return Ground
