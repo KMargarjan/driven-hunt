@@ -3,18 +3,24 @@
 Task: 58
 Round: 1
 Base: `c46c699` (`main`, with Task 54's revised design merged)
-Code commit: `4bdf43429a7a92b4adab99ff81cb10f0891944a5` — the `[harness]` line below names it, it is the
-last commit that changed `src/`, `tests/` or `tools/`, and only this request changes after it.
+Code commit: `32538b0cd6189b7a0e2f39768f783ae20573ec6e` — **both** harness lines below name it. It is
+a PAPERWORK commit: the last commit that changed `src/`, `tests/` or `tools/` is `4bdf434`, and
+`git diff --name-only 4bdf434..32538b0` is `TASKS.md` and this file. Naming the later commit is what
+CLAUDE.md git workflow step 4 allows and prefers, and it only narrows what the evidence covers.
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 30/30 checks @ 4bdf43429a7a92b4adab99ff81cb10f0891944a5 (clean tree)
+    [harness] PASS: 30/30 checks @ 32538b0cd6189b7a0e2f39768f783ae20573ec6e (clean tree)
 
-330 server specs (327 before: **3 new**) and 84 client specs (unchanged). **The map is CLEARED from
-the place**: `cells: 0`, no `DrivenHuntMap`, and the palette read back at
+Harness, clean tree, two players — run by the DIRECTOR, not by me:
+
+    [harness2] PASS: 32/32 checks @ 32538b0cd6189b7a0e2f39768f783ae20573ec6e (clean tree)
+
+330 server specs (327 before: **3 new**), 84 shooter and 78 driver client specs; the two-player run
+took 120 s and ended its session automatically. **The map is CLEARED from the place**: `cells: 0`, no
+`DrivenHuntMap`, and the palette read back at
 `LeafyGrass=106,134,64 Grass=111,126,62 Ground=140,130,104 Mud=121,112,98` — the measured default.
-
-`[harness2]` is the Director's: this touches `src/`.
+The Director confirms the same: one Studio, Edit mode, no map in the place.
 
 ## Scope
 
@@ -130,7 +136,9 @@ After the fix, honestly:
   post. Queued as row 58a.
 - **Whether it reads as an autumn European forest: the floor does, the trees do not**, and that is
   M2.8b. I am not claiming M2.8a delivers the look.
-- **No `[harness2]`** — this touches `src/`, so the two-player run is the Director's.
+- **Two players says nothing about the map itself**, and I am not claiming otherwise: the map is not
+  the world yet, so `test2`'s value here is that the 330/84/78 suites still pass with the new contract
+  numbers and the palette in the digest — not that anybody walked the road.
 - **The map is not the world.** `Map.EXPECTED_WORLD` is still `"arena"`; nothing here changes what a
   player stands in, and the switch is M2.8e.
 - **Measurement B is still open** (tags and terrain surviving a save and reopen) — it needs clicks no
