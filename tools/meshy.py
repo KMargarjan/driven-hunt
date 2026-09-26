@@ -1799,11 +1799,16 @@ def cmd_fetch(args):
     key, _source, why = read_key()
     if not key:
         raise Refused("MESHY_API_KEY is not set" + (f" ({why})" if why else ""))
-    # TWO DOORS, BOTH PAID FOR (review round 1 finding 2). `remesh-ready` is the ordinary one;
-    # `remesh-unresolved` is a fetch that already ran and landed too little, or landed bytes that
-    # did not match their hash -- and re-fetching is exactly what mints fresh URLs and downloads
-    # them again. So the command every STOPPED line here names is one this command accepts.
-    require_state_in(record, ("remesh-ready", "remesh-unresolved"))
+    # THREE DOORS, ALL PAID FOR. `remesh-ready` is the ordinary one; `remesh-unresolved` is a fetch
+    # that already ran and landed too little, or landed bytes that did not match their hash -- and
+    # re-fetching is exactly what mints fresh URLs and downloads them again (Task 62 review round 1
+    # finding 2). The third is a `fetched` run whose stored verdict says something is WRONG (Task
+    # 67): a verdict is a judgement, and a judgement made by an older build has to be re-makeable or
+    # the run is stuck with it. Re-fetching costs no credits, rewrites every file and re-runs every
+    # check; a fetched run whose verdict is OK is still refused, because there is nothing to do.
+    if not (record.get("state") == "fetched"
+            and (record.get("validation") or {}).get("ok") is False):
+        require_state_in(record, ("remesh-ready", "remesh-unresolved"))
     if expiry_line(record) == "EXPIRED":
         record["state"] = "expired"
         save_run(record)
@@ -3027,6 +3032,27 @@ def selftest():
            str(load_run(bothWrong["runId"]).get("validation")))
         ok("...and the run stays collectable", load_run(bothWrong["runId"])["state"] == "remesh-unresolved",
            load_run(bothWrong["runId"])["state"])
+
+        # A STORED VERDICT CAN BE RE-MADE (Task 67). The real run reached `fetched` with a verdict
+        # an older build wrote, and no command would take it: `fetch` refused the state and `remesh`
+        # would have spent credits re-cutting geometry that was never the problem.
+        stale = load_run(glbOnly["runId"])
+        stale["validation"] = {"ok": False, "problems": ["a verdict an older build wrote"],
+                               "notes": [], "at": stamp()}
+        save_run(stale)
+        globals()["request"], globals()["download"] = glbFake, sized_download
+        try:
+            code, saidStale = step2(lambda: cmd_fetch(Args(run_id=stale["runId"])))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a fetched run whose verdict says something is wrong can be fetched again", code == 0,
+           saidStale.strip())
+        ok("...and the verdict is re-made",
+           (load_run(stale["runId"]).get("validation") or {}).get("ok") is True,
+           str(load_run(stale["runId"]).get("validation")))
+        said = refusal(lambda: cmd_fetch(Args(run_id=stale["runId"])), "fetch a finished run")
+        ok("...while a fetched run that PASSED is still refused, by name",
+           "fetched" in said and "remesh-ready" in said, said)
 
         # OVER ROBLOX'S OWN LIMIT IS A DIFFERENT ANSWER: that one nothing downstream can use, so it
         # is a problem with a route rather than a note.
