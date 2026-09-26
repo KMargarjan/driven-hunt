@@ -1,25 +1,27 @@
 # Task 74 — M2.7a: the id → Instance seam, and Karen's shotgun is the gun
 
 Task: 74
-Round: 1
+Round: 2
 Base: `main` (`f3f6a49`)
-Code commit: `1c4ae70e14cac934a4237ccb47342aeeb224bcbd`
+Code commit: `8d2b809ef18b081497d6704a93e5d79cee6a70d1`
 
 ```
-[harness]  PASS: 30/30 checks @ 1c4ae70e14cac934a4237ccb47342aeeb224bcbd (clean tree)
-[harness2] PASS: 32/32 checks @ 1c4ae70e14cac934a4237ccb47342aeeb224bcbd (clean tree)
+[harness] PASS: 30/30 checks @ 8d2b809ef18b081497d6704a93e5d79cee6a70d1 (clean tree)
 ```
 
-Both lines are the Director's runs at this branch's head, and **`test2` matters for this change** —
-it touches `src/`, so a second client is real evidence rather than a formality. The head is the
-paperwork commit, so it is at or after every commit that touched `src/` or `tests/` (the last was
-`41ca09a`) and the only things between them are `TASKS.md` rows 74/74a and this file. My own
-clean-tree `[harness] PASS: 30/30 @ 41ca09a` covers the same code.
+`test2` matters for this change — it touches `src/` and `tests/client/` — and the Director runs it at
+this branch's head; this request is updated with the `[harness2]` line for the same commit before the
+review. Only paperwork (this file and `TASKS.md` rows 74/74a) follows the code commit.
+
+**Round 1's three findings were all real and all fixed.** Two were the same mistake at two layers: a
+spec that borrowed shared state and did not put it back. One of them has a consequence I have to own —
+`withLoader` destroyed the live template, so **round 1's in-game screenshots were of the fallback
+parts gun, not the mesh**. The pictures are retaken and described below.
 
 **What changed.** New `src/serverstorage/Assets/init.luau` (the manifest) and `Loader.luau` (the
-seam), new `tests/server/assets_seam.spec.luau`; `Weapon.Hardware`, `WeaponBoot`,
-`Camera.Viewmodel`, `weapon_look.spec` and `camera_client.spec` changed. 398 server specs (390
-before: eight new), 84 client.
+seam), new `tests/server/assets_seam.spec.luau`; `Weapon.Hardware`, `WeaponBoot`, `Camera.Viewmodel`,
+`weapon_look.spec` and `camera_client.spec` changed. **400 server specs** (390 before: ten new),
+**85 client** (one new).
 
 ## Claims
 
@@ -27,12 +29,19 @@ before: eight new), 84 client.
    manifest's interface (`VERSION`, `ROWS`, `KEYS`, `byKey`, `describe`, `keysFor`) and the Loader's
    (`setInsert`, `setCacheParent`, `preload`, `template`, `stats`, `clear`, a `LoadReport` with a
    named reason). Both are built to that, so the owner rows Task 73 put in `GAME_DESIGN.md` now
-   describe things that exist.
+   describe things that exist. Two documented deviations are listed in `TASKS.md` 74a(g) for the
+   Architect; three unbuilt §5 members are 74a(h).
 
-2. **The yield boundary is real and it is why there are two functions.** `preload` yields and
-   `WeaponBoot` calls it once at server start; `template` never yields, so `Hardware.build` — reached
-   from a grant path whose own header records what a yield there cost this project — cannot block.
-   Verify: `Loader.template` calls nothing that yields, and `WeaponBoot` is the only `preload` caller.
+2. **Boot cannot wait on the network, and it is now true two ways over (finding 1).**
+   `WeaponBoot` calls `Weapon.start()` **before** anything touches the network, so a stalled
+   `LoadAsset` gives the parts gun rather than no weapon system — round 1 claimed that in a comment
+   and it was only true if `preload` returned. And `preload` is now bounded as design §5.2 requires:
+   `LOAD_TIMEOUT_S = 10` per key, `PRELOAD_BUDGET_S = 20` for the whole call, reason **`timeout`**.
+   `LoadAsset` cannot be cancelled, so the load runs in its own thread and the caller stops *waiting*
+   at the deadline; a late arrival is **adopted** if the key is still empty, so a slow load is late
+   rather than lost. Verify: `assets_seam.spec`, `it("gives up on a load that never returns, and says
+   timeout")` — an injected insert that loops forever — and the run note
+   `loader timeout: gave up after 10.0 s (bound 10 s)`.
 
 3. **Measured before written.** In Studio, `LoadAsset(117134580332969)` returns
    `Model > Model > one MeshPart + SurfaceAppearance`, natural **199.999 × 31.314 × 11.311** studs,
@@ -51,8 +60,8 @@ before: eight new), 84 client.
    import flips that axis. Photographed both ways from the same camera
    (`.screenshots/…task74-yaw-plus90.png` and `…-minus90.png`): **+90** puts the muzzle at the
    Handle's −Z, which is what `GRIP` and `MUZZLE_OFFSET` mean. This is `docs/PROJECT_CONTEXT.md`'s
-   knife held backwards, caught on the first look instead of the third round, exactly as design §6.3
-   says it must be.
+   knife held backwards, caught on the first look instead of the third round, as design §6.3 says it
+   must be.
 
 6. **Nothing about the Handle changed, so nothing downstream did.** Still `HANDLE_SIZE`, still
    `Tool.Grip`, still the `Muzzle` attachment the server reads for every shot, still the **only part
@@ -60,41 +69,66 @@ before: eight new), 84 client.
    `Massless = true`. Verify: `assets_seam.spec`, `it("wears the mesh when there is one, and nothing
    about the Handle changes")`.
 
-7. **Both paths are driven by injection, and the failures are exhaustive.** `Loader.setInsert`
-   replaces the one call that touches the world. The spec drives the mesh being loaded and used, and
-   **`insert-failed`, `contains-script`, `no-meshpart`, `multi-meshpart`, `aspect` and `no-row`** each
-   ending with `Loader.template` returning nil and `Hardware.build` drawing Task 71's parts gun — so
-   the player is never gunless.
+7. **Both paths are driven by injection, and every failure ends in a gun.** `Loader.setInsert`
+   replaces the one call that touches the world, and the spec drives the mesh being used plus
+   **`insert-failed`, `contains-script`, `no-meshpart`, `multi-meshpart`, `aspect`, `no-row` and
+   `timeout`**, each ending with `Loader.template` nil and `Hardware.build` drawing Task 71's parts
+   gun. Two cheap notes are in: `Hardware.addMesh` no longer falls through with a silent `return
+   true` for a template class it cannot scale — it destroys the clone, warns once and returns false,
+   so an unhandled class is the parts gun rather than an invisible gun; and `Loader.aspectOf` sorts
+   all three axes, because the old version dropped every axis *equal* to the longest and failed a cube
+   for arithmetic reasons.
 
-8. **The viewmodel would have lost the texture, and the design said so first.** The uploaded gun
-   carries its PBR maps on a `SurfaceAppearance` child; `Viewmodel`'s clone destroyed every
-   non-`Attachment` child, so the **first-person** gun would have been untextured while the
-   third-person one was fine — visible only in ADS, only to the player holding it, asserted by
-   nothing. It now lets `SurfaceAppearance`, `Texture` and `Decal` through. Design §6.6 predicted this
-   sweep and named the fix as the camera owner's, which is that file.
+8. **The viewmodel keeps the gun's appearance, and that is now asserted (finding 2).**
+   `camera_client.spec`, `it("keeps the appearance of the gun it clones, and still strips everything
+   else")` injects a `MeshPart` handle carrying a `SurfaceAppearance`, a `Texture`, a `Decal` and an
+   `Attachment` plus a `Weld`, a `Sound` and a `Folder`, and asserts the first four survive the clone
+   and the last three do not — on a welded piece as well as on the root. It waits past the
+   source-refresh interval first: the viewmodel asks its source four times a second, not every frame,
+   so a single update rebuilds from the *previous* handle, which is how the first version of this test
+   read the live gun and wrongly reported no `SurfaceAppearance`. It borrows the live source through
+   the new `Viewmodel.getSource` and puts it back, because `setSource(nil)` does not restore what
+   `CameraBoot` set — it ends it. Design §6.6 predicted this sweep and named the fix as the camera
+   owner's, which is that file.
 
-9. **Two older specs failed the moment the mesh loaded, which is the system working.** They asserted
-   Task 71's ten parts on a Tool that now wears the mesh. They **ask** for the parts gun now
-   (provider set to nil, then put back) rather than testing whatever happened to load; the client
-   check takes either gun and asserts what is true of both — the envelope is the only invisible part
-   and everything else shows, which a blank viewmodel still fails. `assets_seam.spec` borrows the live
-   provider and restores it, so no spec can leave the running server wearing the grey box.
+9. **The spec no longer eats the live cache, and it proves the server still has a gun (finding 3).**
+   `withLoader` called `Loader.clear()` **before** `setCacheParent`, so every case destroyed the real
+   template `WeaponBoot` had preloaded and nothing put it back: the server wore the grey box for the
+   rest of the session, and round 1's in-game captures were of the fallback gun. The throwaway
+   container is nominated **first** now, so `clear()` can only reach what the spec made, and a final
+   case — `describe("the live server after this file has run")` — builds a real Tool, asserts it is
+   wearing the mesh **or** the parts gun (never neither) and says which in a note: the run reads
+   **`the live server is wearing Karen's mesh`**. Two older specs that assumed Task 71's ten parts now
+   **ask** for the parts gun (provider set to nil, then restored) rather than testing whatever
+   happened to load.
 
 10. **`MapGen.Assets` is still the empty table it was.** This adds no second id table:
     `assets_seam.spec` asserts `#MapGen.Assets.ROWS == 0`. Moving `MapGen.Props` onto the Loader
     (design §6.8) is queued as 74a(a) — it changes what the map generator does and needs
     `mapgen verify`.
 
+## The ADS screenshot, taken in Play and looked at (rule 5)
+
+`.screenshots/20260926T231103Z-task74-ads2-44.png`, first person, aiming: the gun seen from behind
+the stock — **walnut with its grain clearly textured** filling the lower frame, the silver/blue action
+with its top lever and hinge, the pale standing breech above it, and the barrels foreshortening away
+to a small pale shape at the top, because the camera is looking straight down them. **No untextured
+or purple surface anywhere**, which is the evidence finding 2 asked for. Honest caveats: the action
+and the stock's edges carry a **blue cast** — the SurfaceAppearance's metalness reflecting the sky —
+and the gun is centred pointing away, so it reads as a sight picture rather than a flank view. That
+framing is the same geometry as Task 71's ADS, already queued as 71a(b). Nothing clips into the camera.
+
 ## Not verified
 
-- **No ADS screenshot was caught.** The viewmodel path is asserted on screen by `camera_client.spec`,
-  but nobody has *looked* at the mesh in first person (74a(c)).
 - **The barrels read light silver in Roblox's daylight**, not the near-black of Task 72's Blender
-  renders: the SurfaceAppearance's metalness reflects a bright sky. The albedo is what Karen asked
-  for; the in-engine result is not, and the dial is the prep recipe's (74a(b)).
-- **From directly behind, the gun is nearly edge-on** — 0.25 studs wide, pointing away — so the
-  third-person camera shows a thin sliver plus a long shadow (74a(d)).
+  renders, and in ADS the metal takes a blue cast from the sky. The albedo is what Karen asked for;
+  the in-engine result is not, and the dial is the prep recipe's (74a(b)).
+- **From directly behind, the third-person gun is nearly edge-on** — a thin sliver plus a long
+  shadow, because the barrels point away from the camera (74a(d)).
 - **`LoadAsset` was exercised for real only in this Studio, on this account.** A server where it
   fails takes the fallback, which is asserted — but the real failure has not been seen.
-- **`test2` was run by the Director, not by me** — the `[harness2]` line above is his, at this head.
-  Two players each held the gun and the whole client suite ran on both sides.
+- **The `timeout` bound is measured at 10.0 s in the harness, but no real `LoadAsset` has ever
+  hung.** The case that proves the bound is an injected loader that never returns; the deliberate
+  gap is that it asserts nothing about the shared cache, because `WeaponBoot`'s own preload can land
+  inside that 10 s wait — asserting on it would be asserting a race.
+- **`test2` is the Director's run**, pasted above this review.
