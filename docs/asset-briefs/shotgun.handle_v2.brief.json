@@ -1,0 +1,15 @@
+{
+  "key": "shotgun.handle",
+  "version": 2,
+  "kind": "meshpart",
+  "prompt": "A side-by-side double-barrelled shotgun. The two barrels lie horizontally next to each other at the same height, forming a wide flat barrel pair, seen from the front as two circles side by side -- not stacked, not an over-under. A classic European game gun, break-action, closed, one solid object. Long barrels, about two thirds of the total length; not short or sawn-off. A solid concave top rib, not ventilated. A shallow, wide action body. Straight English stock, no pistol grip; single trigger; slim splinter forend. Warm walnut, fine chequering, a silver-grey action with light scroll engraving, blued barrels, a bead front sight. Restrained rather than ornate. No text, lettering, logo, maker mark or serial number. Realistic materials, neutral even lighting, no scene, no background.",
+  "references": [],
+  "sizeMetres": [
+    0.112,
+    0.14,
+    1.232
+  ],
+  "targetTris": 4000,
+  "texturePx": 2048,
+  "notes": "WHY v2: the v1 preview (run shotgun.handle_v1-20260926T1850Z, 20 credits, NOT approved) came back an OVER-UNDER with short barrels, a ventilated rib and a bulky pistol grip. Karen's decision is unchanged and v1 is kept as it is (rule 7): side-by-side, Beretta 486 Parallelo style, no logo or text, not overly detailed. What changed in the wording: the configuration is stated FIRST and negatively as well as positively (side by side, not stacked, not an over-under), 'classic Italian style' is gone because it pulls toward over-unders and 'a classic European game gun' does not, the rib is 'solid concave, not ventilated', the action body is 'shallow, wide', and the barrels are pinned at about two thirds of the total length. No brand name is in the prompt: a generated maker mark would be somebody's trade dress. DIRECTOR PICK, CHANGEABLE (Karen's rule 2026-09-26, styling never blocks): the straight English-style stock with no pistol grip, the single trigger and the splinter forend are the Director's choice of a sensible first answer, not Karen's decision -- she may overrule any of the three and it costs one brief version. sizeMetres, targetTris and texturePx are v1's, unchanged: sizeMetres is Shotgun.CONFIG.HANDLE_SIZE (0.4, 0.5, 4.4 studs) at 1 stud = 0.28 m, so no physics or hit-zone number moves when the art lands. The prompt is 790 characters against Meshy's documented 800-character maximum (research note, answer 1), which is why the wording is compressed rather than longer; `meshy.py` does not check that limit yet and it is queued as 70a."
+}
