@@ -344,6 +344,19 @@ Feature flags, and the two checks they add (Task 52)
   set/clear are Edit-only because the server resolves flags ONCE, at boot: a write into a running
   session would never be read, and an invisible write is a lie about what was tested.
 
+  EVERY CALL AFTER THE CLICK IS SCOPED (Task 52, after a 2-player run whose every spec passed then
+  died in verdict()). StudioMCP refuses any tool call that names no studio_id as soon as more than
+  one Studio is connected, and the three a local test adds DO NOT GO AWAY when the session ends --
+  end_session stops their Play, but only Karen's Cleanup click closes them. So "run it after the
+  session has ended" is not an escape: there is no later moment with one Studio.
+  `run_test2` therefore sets `Studio.default_studio_id` to the editor's id BEFORE the click, while
+  there is still exactly one, and prints it. From then on `Studio._call` (and `capture`, which
+  builds its own arguments) scopes anything that names nothing to the editor -- which is where
+  every Edit-mode call in this file means to go. An explicit studio_id always wins, and
+  `list_roblox_studios` is never scoped, because "which Studios exist" is not a question about one
+  of them. `flags` does the same through `studio_for_role(studio, "edit")`, since `flags clear` is
+  most wanted exactly while a session is still open.
+
   TWO NEW CHECKS, in both `test` and `test2`:
     "No flag override is set"                -- before the token is written and before Play (in
                                                 `test2`, before Karen's click, so a refusal never
@@ -719,6 +732,20 @@ class Studio:
         self.lines = queue.Queue()
         threading.Thread(target=self._pump, daemon=True).start()
         self.next_id = 0
+        # THE EDITOR'S id, once a run knows it. StudioMCP refuses EVERY tool call that names no
+        # studio_id as soon as more than one Studio is connected -- and a 2-player local test adds
+        # THREE, which do not go away when the session ends (only Karen's Cleanup click closes
+        # them). So any call left unnamed after the click is refused, wherever it sits.
+        #
+        # Task 52 shipped exactly that bug: the flag-override re-read in run_test2's verdict() ran
+        # after the session and was refused, ending an otherwise green 2-player run in
+        # "RuntimeError: execute_luau: This call is missing the required studio_id argument" --
+        # every spec on all three sides had already passed.
+        #
+        # Naming that one call would have fixed that one call. This fixes the CLASS: set it once,
+        # and every later call that names nothing lands on the editor, which is where every
+        # Edit-mode call in this file means to go anyway. An explicit studio_id always wins.
+        self.default_studio_id = None
         self._rpc("initialize", {
             "protocolVersion": "2025-03-26",
             "capabilities": {},
@@ -750,13 +777,27 @@ class Studio:
                     raise RuntimeError(msg["error"])
                 return msg["result"]
 
+    # The one tool that must NOT be scoped: it is the question "which Studios are there at all",
+    # and scoping it to one of them is meaningless.
+    UNSCOPED_TOOLS = ("list_roblox_studios",)
+
+    def _scoped(self, tool, studio_id):
+        """The studio_id to send: the explicit one, else the default, else none (Task 52)."""
+        if studio_id:
+            return studio_id
+        if tool in self.UNSCOPED_TOOLS:
+            return None
+        return self.default_studio_id
+
     def _call(self, tool, args=None, studio_id=None):
         arguments = dict(args or {})
-        if studio_id:
-            # Every StudioMCP tool takes a studio_id, and with one Studio connected it may be left
-            # out. With a local 2-player test running there are FOUR (Task 34), so every call that
-            # must land somewhere particular names it.
-            arguments["studio_id"] = studio_id
+        # Every StudioMCP tool takes a studio_id, and with one Studio connected it may be left out.
+        # With a local 2-player test running there are FOUR (Task 34), so every call that must land
+        # somewhere particular names it -- and since Task 52 anything that named nothing lands on
+        # the editor rather than being refused.
+        chosen = self._scoped(tool, studio_id)
+        if chosen:
+            arguments["studio_id"] = chosen
         result = self._rpc("tools/call", {"name": tool, "arguments": arguments})
         text = "\n".join(c.get("text", "") for c in result.get("content", []))
         if result.get("isError"):
@@ -817,9 +858,11 @@ class Studio:
             args["camera_position"], args["look_at_position"] = list(camera), list(look_at)
         # NAMED, when there is more than one Studio: every tool is refused with "This call is missing
         # the required `studio_id` argument" as soon as a local test adds processes, which is what
-        # made a screenshot impossible during a two-player run (Task 41).
-        if studio_id:
-            args["studio_id"] = studio_id
+        # made a screenshot impossible during a two-player run (Task 41). capture builds its own
+        # arguments rather than going through _call, so it asks _scoped for the same answer.
+        chosen = self._scoped("screen_capture", studio_id)
+        if chosen:
+            args["studio_id"] = chosen
         result = self._rpc("tools/call", {"name": "screen_capture", "arguments": args})
         text = "\n".join(c.get("text", "") for c in result.get("content", []) if c.get("type") == "text")
         if result.get("isError"):
@@ -1105,9 +1148,12 @@ def unmanaged_scripts(studio, nodes):
 
 # ---------------------------------------------------------------- the flag-override guard
 
-def flag_overrides(studio):
-    """Every DHFlag_* attribute on ServerStorage, as ["NAME=value", ...]. Read-only."""
-    raw = studio.query("Edit", QUERY_FLAG_OVERRIDES)
+def flag_overrides(studio, studio_id=None):
+    """Every DHFlag_* attribute on ServerStorage, as ["NAME=value", ...]. Read-only.
+
+    `studio_id` is explicit belt beside Studio.default_studio_id's braces: this is the call that
+    ended a green two-player run when it was left unnamed (Task 52), so it says where it goes."""
+    raw = studio.query("Edit", QUERY_FLAG_OVERRIDES, studio_id=studio_id)
     return [part for part in raw.split(",") if part]
 
 
@@ -1754,8 +1800,15 @@ def run_test2(studio, wait_seconds=180):
     def verdict(code=None):
         sha_end, dirty_end = git_state()
         check("HEAD unchanged during the run", sha_end == sha, f"{sha[:12]} -> {sha_end[:12]}")
-        late = flag_overrides(studio)
-        check("No flag override appeared during the run", not late, ", ".join(late))
+        # THE LAST CALL OF THE RUN, and the one that has to be scoped by hand as well as by default:
+        # it runs after end_session, when the three test Studios are still connected (only Karen's
+        # Cleanup closes them). Left unnamed it ended a run whose every spec had passed (Task 52).
+        # `late` is read through process_call so a Studio that went away mid-teardown is a reported
+        # failure, never a traceback over the verdict line (rule 6).
+        late, why = process_call(lambda: flag_overrides(studio, studio_id=studio.default_studio_id),
+                                 timeout=10, default=None)
+        check("No flag override appeared during the run", late == [],
+              ", ".join(late) if late else (why or ""))
         dirty = dirty_start or dirty_end
         passed = all(checks) and code is None
         tree = "clean tree" if not dirty else f"DIRTY TREE ({len(set(dirty_start + dirty_end))} paths) - NOT valid evidence"
@@ -1781,6 +1834,13 @@ def run_test2(studio, wait_seconds=180):
     before = studio.studio_list()
     check("One Studio instance before the test starts", len(before) == 1,
           "; ".join(f'{s["name"]}' for s in before))
+    if before:
+        # EVERY LATER CALL IS SCOPED FROM HERE (Task 52). The click adds three Studios that outlive
+        # the session -- end_session stops their Play but cannot close them, only Karen's Cleanup
+        # does -- so from the click onwards an unnamed call is refused, including the ones in
+        # verdict() that run last of all.
+        studio.default_studio_id = before[0]["id"]
+        print(f"[harness2] editor {before[0]['id'][:8]}: every later unnamed call is scoped to it")
 
     # BEFORE the disk token is written and cleared, and therefore before Karen's click: refusing
     # after the click would waste the one human step in this mode.
@@ -2011,6 +2071,16 @@ def run_flags(studio, argv):
             return 1
         print(f"[flags] {role}: {answer}")
         return 0
+
+    # SCOPE FIRST (Task 52). `flags set` or `flags clear` may well be typed while a two-player
+    # session is still open -- that is exactly when the Director wants to clear an override -- and
+    # every unnamed call would then be refused with StudioMCP's own message instead of this mode's.
+    # studio_for_role finds the editor the way test2 does: by what each Studio answers, not by name.
+    editor, why = studio_for_role(studio, "edit")
+    if editor is None:
+        print(f"[flags] {why}")
+        return 1
+    studio.default_studio_id = editor
 
     mode = studio.mode()
     if mode != "Edit":
