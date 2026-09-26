@@ -54,6 +54,17 @@ function TestKit.awaitToken(timeout: number?): string?
 	return TestKit.openToken()
 end
 
+-- THE TOKEN THIS RUN OPENED WITH, for as long as the run lasts. `openToken` answers "may a runner
+-- START now", which is deliberately time-limited (TOKEN_MAX_AGE), and a long suite outlives it -- so
+-- a seam that a spec uses at the END of a run cannot ask that question and get a useful answer
+-- (Task 41: Match.advanceForTests was refused 200 s into a run for exactly that). This answers the
+-- other question, "is a gated test run in progress", and only TestKit.run sets it.
+local activeToken: string? = nil
+
+function TestKit.activeToken(): string?
+	return activeToken
+end
+
 -- Notes a spec wants the HARNESS to see, whatever happens to the console.
 --
 -- Studio's console comes back truncated from a long session -- every two-player run so far lost the
@@ -70,6 +81,7 @@ end
 -- Runs every *.spec ModuleScript under specsFolder and returns the report table.
 -- side is "server" or "client"; it is echoed in the report and the [tests:<side>] line.
 function TestKit.run(side: string, token: string, specsFolder: Instance?)
+	activeToken = token
 	local report = {
 		side = side,
 		token = token,

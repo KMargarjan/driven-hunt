@@ -139,6 +139,7 @@ local sinceSample = 0
 local sinceMarkers = 0
 local markersStale = false
 local lastBroadcast = -math.huge
+local lastSent: any = nil -- the snapshot the clients were last actually sent
 local snapshotCache: any = nil
 
 local stats = {
@@ -152,6 +153,7 @@ local stats = {
 	unknownZoneKills = 0,
 	killSignalMissing = 0,
 	broadcasts = 0,
+	testSeconds = 0, -- seconds of test time this owner has been given; 0 in every real session
 	ties = 0,
 	tiesWithoutAnchor = 0,
 	violations = 0,
@@ -173,6 +175,12 @@ function Match.phase(): string
 	return state.phase
 end
 
+-- The snapshot the clients were LAST ACTUALLY SENT, or nil before the first broadcast. Not the same
+-- as Match.snapshot(), and the difference is the point: see `broadcast`.
+function Match.lastSent()
+	return lastSent
+end
+
 function Match.trackedPlayers(): number
 	local n = 0
 	for _ in pairs(names) do
@@ -187,8 +195,60 @@ function Match.isTied(userId: number): boolean
 	return tied[userId] ~= nil
 end
 
+-- THE TEST SEAM: THE DRIVE'S OWN CLOCK, MOVED FORWARD (TASKS.md 38a(i)).
+--
+-- Every transition in this system is time-driven from `phaseEndsAt`, and `phaseEndsAt` is the only
+-- clock (design section 4.1) -- so a drive boundary is 600 seconds away and NOTHING in the suite
+-- could ever watch one. Six queued notes sat behind that: the drive-start rows, the award the
+-- violation publishes, `Match.forget`, and the rest. Adding seconds to this owner's own clock is the
+-- whole seam: no number changes, no phase is skipped, the machine takes exactly the transitions it
+-- would have taken ten minutes later, and the code under test is the production code.
+--
+-- IT IS GATED EXACTLY LIKE THE TEST RUNNERS, and the gate is TestKit's, not a second copy of it:
+-- Studio, plus a harness token under TestKit.TOKEN_MAX_AGE seconds old. Karen's playtests write no
+-- token (tools/studio_mcp.py clears it after every run), and a published place has no TestKit at all
+-- -- which is why this reaches it through FindFirstChild and a pcall rather than a require at the
+-- top of the file: the publish step strips TestKit (TASKS.md row 2) and this owner must not break
+-- when it does. A shortened drive can therefore never happen in a playtest or on a live server.
+local testOffset = 0
+
+local function testGateOpen(): boolean
+	if not RunService:IsStudio() then
+		return false
+	end
+	local module = ReplicatedStorage:FindFirstChild("TestKit")
+	if not (module and module:IsA("ModuleScript")) then
+		return false
+	end
+	local ok, kit = pcall(require, module)
+	-- activeToken, not openToken: "is a gated test run in progress", not "may a runner start now".
+	-- The second is time-limited by design (TOKEN_MAX_AGE = 120 s) and a suite outlives it, so asking
+	-- it here refused the seam 200 s into a run. Only TestKit.run sets activeToken, and a playtest
+	-- never reaches TestKit.run because nothing writes it a token.
+	return ok and type(kit) == "table" and kit.activeToken() ~= nil
+end
+
+-- Moves THIS OWNER's clock forward by `seconds`. Returns false, and does nothing, when the gate is
+-- shut. The next step sees the new time and the machine transitions on its own.
+function Match.advanceForTests(seconds: number): boolean
+	if not testGateOpen() then
+		return false
+	end
+	local step = math.max(0, tonumber(seconds) or 0)
+	testOffset += step
+	stats.testSeconds += step
+	return true
+end
+
+-- How many seconds of test time this owner has been given. Zero in every real session, and a spec
+-- reads it to prove the seam it just used was actually open.
+function Match.testSeconds(): number
+	return testOffset
+end
+
 local function now(): number
-	return if world and world.now then world.now() else os.clock()
+	local base = if world and world.now then world.now() else os.clock()
+	return base + testOffset
 end
 
 local function playersService()
@@ -268,7 +328,13 @@ local function broadcast(force: boolean?)
 	end
 	lastBroadcast = at
 	stats.broadcasts += 1
-	remotes.MatchState:FireAllClients(Match.snapshot())
+	-- KEPT, because "what the clients were actually told" is not the same question as "what does
+	-- snapshot() say now", and the difference is a real defect this system has already had: the
+	-- drive-start push carried the previous drive's score rows while snapshot() read correctly a
+	-- quarter of a second later (TASKS.md 32a(c)). It is the payload, frozen, so holding it costs
+	-- one reference.
+	lastSent = Match.snapshot()
+	remotes.MatchState:FireAllClients(lastSent)
 end
 
 local function publishFeed(entry)
@@ -469,9 +535,11 @@ local function applyEffects(effects)
 		elseif kind == "feed" then
 			publishFeed(effect.entry)
 		elseif kind == "broadcast" then
-			-- Throttled, not forced: STATE_MIN_INTERVAL is the floor between pushes, and the
-			-- heartbeat below is what guarantees a client that missed one still catches up.
-			broadcast(false)
+			-- Throttled unless the machine says otherwise, and it says so for every phase entry:
+			-- STATE_MIN_INTERVAL is the floor between pushes for a busy drive, and the heartbeat is
+			-- what catches a client up -- but a PHASE CHANGE arriving up to five seconds late is a
+			-- client showing the wrong drive (Phase.enterAssigning).
+			broadcast(effect.force == true)
 		end
 	end
 end

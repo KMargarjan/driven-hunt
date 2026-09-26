@@ -211,6 +211,13 @@ function Weapon.markHit(player: Player, kind: string?, zone: string?)
 	channel.HitMarker:FireClient(player, { kind = kind or "hit", zone = zone, at = os.clock() })
 end
 
+-- The arming answer this owner actually uses, exposed so a spec can assert the pcall fallback rather
+-- than infer it from whether a Tool appeared (TASKS.md 32a(d)). It decides nothing and writes
+-- nothing: refreshArming is still the only thing that grants or revokes.
+function Weapon.mayArmForTests(player: Player): boolean
+	return mayArm(player)
+end
+
 function Weapon.trackedPlayers(): number
 	return registry:count()
 end

@@ -54,6 +54,7 @@ export type Event = {
 
 export type Effect = {
 	kind: string,
+	force: boolean?, -- "broadcast": a phase change, which no client may miss behind the throttle
 	assignment: { [number]: TeamName }?,
 	userId: number?, -- "freeze": the one player to tie to a tree
 	userIds: { number }?,
@@ -154,7 +155,11 @@ local function feed(effects: { Effect }, entry)
 end
 
 -- Entering Assigning: teams once, everybody placed, guns re-evaluated, the last drive's boars gone,
--- the scores zeroed by the owner. One broadcast, not one per step.
+-- the scores zeroed by the owner. One broadcast, not one per step -- and a FORCED one, like every
+-- other phase entry: STATE_MIN_INTERVAL exists to stop a busy drive pushing faster than 4 Hz, and a
+-- phase change is the one thing a client must not learn about at the next 5-second heartbeat. Found
+-- by Task 41's clock seam, which crossed two boundaries inside one throttle window and watched the
+-- drive-start push vanish (the clients were still being told it was the previous drive).
 local function enterAssigning(state: State, effects: { Effect }, now: number, config)
 	state.phase = "Assigning"
 	state.phaseEndsAt = now + config.INTERMISSION_SECONDS
@@ -175,7 +180,7 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	table.insert(effects, { kind = "placePlayers" })
 	table.insert(effects, { kind = "refreshArming", userIds = userIds })
 	feed(effects, { kind = "phase", text = "Drive " .. tostring(state.driveNumber), at = now })
-	table.insert(effects, { kind = "broadcast" })
+	table.insert(effects, { kind = "broadcast", force = true })
 end
 
 local function enterRunning(state: State, effects: { Effect }, now: number, config)
@@ -188,7 +193,7 @@ local function enterRunning(state: State, effects: { Effect }, now: number, conf
 	-- (measured, twice). reviews/task-32/DESIGN_DELTA.md records it.
 	state.nextReleaseAt = now + config.FIRST_RELEASE_SECONDS
 	feed(effects, { kind = "phase", text = "Drive on", at = now })
-	table.insert(effects, { kind = "broadcast" })
+	table.insert(effects, { kind = "broadcast", force = true })
 end
 
 local function enterScoring(state: State, effects: { Effect }, now: number, config)
@@ -200,7 +205,7 @@ local function enterScoring(state: State, effects: { Effect }, now: number, conf
 	table.insert(effects, { kind = "release" })
 	table.insert(effects, { kind = "clearBoars" })
 	feed(effects, { kind = "phase", text = "Drive over", at = now })
-	table.insert(effects, { kind = "broadcast" })
+	table.insert(effects, { kind = "broadcast", force = true })
 end
 
 local function enterWaiting(state: State, effects: { Effect }, now: number)
@@ -209,7 +214,7 @@ local function enterWaiting(state: State, effects: { Effect }, now: number)
 	state.nextReleaseAt = math.huge
 	state.assignment = {}
 	feed(effects, { kind = "phase", text = "Waiting for players", at = now })
-	table.insert(effects, { kind = "broadcast" })
+	table.insert(effects, { kind = "broadcast", force = true })
 end
 
 -- The release schedule: BOARS_PER_DRIVE boars, the first after FIRST_RELEASE_SECONDS and the rest

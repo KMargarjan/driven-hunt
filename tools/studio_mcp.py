@@ -36,6 +36,12 @@ Moving parts
       two-player run cannot put the token in the place its processes start from (see `test2`), so it
       arrives after they are up. Outside Studio it returns nil immediately. A playtest still runs no
       tests -- nothing writes a token during one.
+  Drive time under test (Task 41): ServerScriptService.Match.advanceForTests(seconds) moves the
+      drive's own clock forward so a spec can watch Running -> Scoring -> the next drive in seconds
+      instead of ten minutes. It is gated on Studio AND TestKit.activeToken() -- "a gated test run is
+      in progress", which only TestKit.run sets -- so a playtest or a published place can never run a
+      shortened drive; the published place has no TestKit at all, and Match reaches it through
+      FindFirstChild + pcall so stripping it (TASKS.md row 2) cannot break the owner.
   tests/client/Role.luau -> ReplicatedStorage.ClientTests.Role
       Which team THIS client's player is on, resolved once at require time and shared by every client
       spec. Since Task 36 each spec asserts what is true for its player's ROLE -- a shooter's claims,
@@ -85,13 +91,22 @@ What `test` checks, in order (each is one "ok"/"FAIL" line)
      script-like may be created in Studio. Every service must be readable by that scan.
   6. Every *.spec.* file in the repo (git ls-files: tracked + untracked, non-ignored) is synced into
      ServerStorage.Tests (server) or ReplicatedStorage.ClientTests (client).
-  7. Play. Both reports arrive WITHIN 120 s of the replay finishing; each carries this run's token
+  7. Play. Both reports arrive WITHIN REPORT_WINDOW (300 s) of the replay finishing, polled TOGETHER
+     against one deadline rather than one after the other -- since Task 41 the server's last spec
+     waits for the client's report before it ends the drive, so the server reports last; each carries this run's token
      and the DEV PlaceId; each runner ran exactly the spec files of its side (matched by name); each
-     status is PASS with > 0 passed, 0 failed, 0 errors, 0 skipped. (120 s, not 60: a client spec
+     status is PASS with > 0 passed, 0 failed, 0 errors, 0 skipped. (300 s, not 60: a client spec
      waits for its scenario to be staged, so the client suite cannot finish before the replay does,
      and the replay is ~50 s.)
   7a. While Play runs: replay every scenario in tests/client/input_scenarios.txt (see below). Two
      checks per run: the client was ready for it, and every step was sent.
+  7b. When the CLIENT's report arrives, the harness sets ServerStorage's `ClientsFinished` attribute
+     to this run's token, on the server, through execute_luau. That is the one word the server's specs
+     get about the clients: a LocalPlayer attribute written on a client does NOT replicate to the
+     server (measured, Task 41), and this game has no inbound remote by design. It exists because
+     tests/server/zz_drive_boundary.spec.luau ENDS THE DRIVE -- which clears every boar, frees every
+     tie and respawns everybody -- and doing that while a client suite is still asserting would break
+     it. `test2` sets the same attribute once BOTH clients have reported.
   8. Stop. The token is cleared and the gate is seen closed in Studio.
   9. Final line: "[harness] PASS|FAIL: n/m checks @ <full HEAD sha> (clean tree | DIRTY TREE ...)".
      A PASS is evidence for a PR only if the sha equals the PR head and the tree is clean.
@@ -282,11 +297,18 @@ Two players: `test2` (Task 34, ROADMAP 1.6)
   that the teams are 1 and 1, and that only the shooter may carry a gun.
 
 Screenshots as evidence (Task 7)
-  `capture <name> [camera x,y,z] [look-at x,y,z]` saves StudioMCP's screen_capture image to
+  `capture <name> [camera x,y,z] [look-at x,y,z] [role]` saves StudioMCP's screen_capture image to
   .screenshots/<UTC stamp>-<name>.png (git-ignored) and prints the path. Studio._call keeps text blocks
   only, which is why captures could not be saved before; Studio.capture() reads the image block.
   It works in Edit and during Play (Tasks 17, 18 and 22 captured Play this way), and it is a separate
   command, not part of `test`: the Builder inspects the image and says what it shows (rule 5).
+
+  WITH MORE THAN ONE STUDIO CONNECTED -- which is every `test2` run -- StudioMCP refuses any call that
+  names no studio_id, so this used to be impossible during a two-player session and the one picture
+  worth having (a tied player, seen from a window) could not be taken (Task 41). The optional trailing
+  `role` picks the window: `edit` (the default), `server`, `client`, or `client:<LocalPlayer name>`
+  such as `client:Player2`. The editor is recognised by its mode being Edit and a test process by
+  asking it, through the same `probe_role` `test2` classifies with -- never by name.
 
 Client-side testing (camera, input, cursor, UI)
   Client specs run inside the real player client and can assert camera, input, cursor and UI state,
@@ -394,6 +416,16 @@ return string.format(
 """
 # Opens the gate inside a RUNNING test process: the place those processes start from does not
 # reliably carry the token (see the `test2` section), so it is set on the server and replicates.
+# The harness's one word to the SERVER's specs: every client of this run has reported, so a spec may
+# now disturb the session (Task 41). ServerStorage is where the server's own report already lives, and
+# an attribute set through execute_luau is server-side. A client CANNOT tell the server this itself:
+# a LocalPlayer attribute set on the client does not replicate to the server (measured, Task 41), and
+# this system has no inbound remote by design.
+QUERY_SET_CLIENTS_DONE = (
+    'local SS = game:GetService("ServerStorage") '
+    'SS:SetAttribute("ClientsFinished", %s) '
+    'return tostring(SS:GetAttribute("ClientsFinished"))'
+)
 QUERY_SET_TOKEN = """
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local value = ReplicatedStorage:FindFirstChild("TestSyncToken")
@@ -622,7 +654,7 @@ class Studio:
         tool = "user_keyboard_input" if device == "keyboard" else "user_mouse_input"
         return self._call(tool, {"datamodel_type": "Client", "actions": actions}, studio_id=studio_id)
 
-    def capture(self, path, camera=None, look_at=None):
+    def capture(self, path, camera=None, look_at=None, studio_id=None):
         """Save StudioMCP's screen_capture image to `path`. Returns the path, or None with the text.
 
         _call() joins text blocks and drops the image, which is why captures could not be saved
@@ -630,6 +662,11 @@ class Studio:
         args = {"capture_id": f"DrivenHunt_{os.path.basename(path)}"}
         if camera and look_at:
             args["camera_position"], args["look_at_position"] = list(camera), list(look_at)
+        # NAMED, when there is more than one Studio: every tool is refused with "This call is missing
+        # the required `studio_id` argument" as soon as a local test adds processes, which is what
+        # made a screenshot impossible during a two-player run (Task 41).
+        if studio_id:
+            args["studio_id"] = studio_id
         result = self._rpc("tools/call", {"name": "screen_capture", "arguments": args})
         text = "\n".join(c.get("text", "") for c in result.get("content", []) if c.get("type") == "text")
         if result.get("isError"):
@@ -1219,13 +1256,25 @@ def run_test(studio):
                 print("[harness] no tests/client/input_scenarios.txt: nothing to replay")
             else:
                 replay_input(studio, scenarios, token, check)
-            for side in ("server", "client"):
-                # 120 s: a client spec waits for its scenario to be STAGED (Task 30), so the client
-                # suite cannot finish before the replay does, and since Task 32 the stage itself may
-                # wait for the drive to release a boar. Measured: the replay is ~50 s.
-                raw, ok = wait_for(lambda: studio.query(side.capitalize(), QUERY_REPORT[side]), lambda v: v != "", 120, 1)
-                if ok:
-                    reports[side] = json.loads(raw)
+            # BOTH SIDES AGAINST ONE DEADLINE, round-robin -- the fix Task 34 already made in `test2`
+            # and this loop did not have. Read one after another, the server's whole window has to
+            # run out before the client is looked at once, and since Task 41 the server's last spec
+            # deliberately WAITS for the client to finish before it ends the drive: the server then
+            # reported at ~125 s and the sequential read had given up at 120.
+            pending = {"server": "Server", "client": "Client"}
+            deadline = time.time() + REPORT_WINDOW
+            while pending and time.time() < deadline:
+                for side, datamodel in list(pending.items()):
+                    raw = studio.query(datamodel, QUERY_REPORT[side])
+                    if raw:
+                        reports[side] = json.loads(raw)
+                        print(f"[harness] {side} reported after {int(time.time() - (deadline - REPORT_WINDOW))} s")
+                        del pending[side]
+                        if side == "client":
+                            # The server's last spec waits for this before it ends the drive.
+                            studio.query("Server", QUERY_SET_CLIENTS_DONE % json.dumps(token))
+                if pending:
+                    time.sleep(1)
             output = studio.console()
         finally:
             studio.set_play(False)
@@ -1244,7 +1293,7 @@ def run_test(studio):
             print(f"  failed [{side}] {describe_failure(failure)}")
     for side in ("server", "client"):
         report = reports.get(side)
-        if not check(f"[{side}] runner reported within 120 s", report is not None):
+        if not check(f"[{side}] runner reported within {REPORT_WINDOW} s", report is not None):
             continue
         check(f"[{side}] report carries this run's token", report["token"] == token, report["token"])
         check(f"[{side}] report comes from the DEV place", str(report["placeId"]) == place, str(report["placeId"]))
@@ -1363,6 +1412,46 @@ def probe_role(studio, studio_id, timeout=60):
         time.sleep(1)
 
 
+def studio_for_role(studio, role):
+    """The studio_id to address for `role`, or (None, why). `role` is "edit", "server", "client", or
+    "client:<LocalPlayer name>"; None means "let StudioMCP decide", which only works with one Studio.
+
+    WHY THIS EXISTS (Task 41): every StudioMCP tool is refused with "This call is missing the required
+    `studio_id` argument" as soon as more than one Studio is connected, and `capture` sent none -- so
+    no screenshot could be taken during a two-player run at all, and the one picture worth having,
+    a tied player seen from another player's window, was unreachable (TASKS.md row 35).
+
+    The EDIT studio is identified the way `test2` identifies everything else: by what it answers, not
+    by its name. A test process answers `server` or `client` from RunService:IsServer(); the editor is
+    the one whose mode is Edit."""
+    entries = studio.studio_list()
+    if len(entries) == 1:
+        return entries[0]["id"], ""
+    wanted, _, wanted_player = (role or "edit").partition(":")
+    found = []
+    for entry in entries:
+        studio_id = entry["id"]
+        try:
+            mode = studio.mode(studio_id=studio_id)
+        except RuntimeError:
+            mode = ""
+        if mode == "Edit":
+            found.append(("edit", "", studio_id))
+            continue
+        # A Play process: ask it what it is, exactly as classify_studios does.
+        got, player, _, _ = probe_role(studio, studio_id, timeout=20)
+        found.append((got or "unknown", player, studio_id))
+    for got, player, studio_id in found:
+        if got != wanted:
+            continue
+        if wanted_player and player != wanted_player:
+            continue
+        return studio_id, ""
+    shape = ", ".join(f"{got}{'/' + player if player and player != 'nil' else ''}={sid[:8]}"
+                      for got, player, sid in found)
+    return None, f"no Studio answered as {role!r}; connected: {shape}"
+
+
 def classify_studios(studio, before):
     """Split the studios a local test added into (server_id, [client_ids], [unknown_ids]).
 
@@ -1409,6 +1498,13 @@ def end_session(studio, before):
     left = [s for s in studio.studio_list() if s["id"] not in known]
     if left:
         print(f"[harness2] {len(left)} test Studio(s) still open: press Cleanup in the Test tab.")
+
+
+# One deadline for BOTH reports of a one-player run. 120 s was the old per-side window, and it was
+# sequential: since Task 41 the server's last spec waits for the client to finish before it ends the
+# drive, so the server legitimately reports after the client does, and reading the server first burned
+# the whole window before the client was looked at once.
+REPORT_WINDOW = 300
 
 
 # A two-player client suite is slower than a one-player one: the same replay is sent to two clients,
@@ -1594,6 +1690,12 @@ def run_test2(studio, wait_seconds=180):
                     reports[name] = json.loads(raw)
                     print(f"[harness2] {name} reported after {int(time.time() - started_reading)} s")
                     del pending[name]
+                    if name in ("shooter", "driver") and "shooter" not in pending and "driver" not in pending:
+                        # BOTH clients are finished: the server's last spec may end the drive now.
+                        process_call(
+                            lambda: studio.query("Server", QUERY_SET_CLIENTS_DONE % json.dumps(token),
+                                                 studio_id=server),
+                            timeout=10, default="")
             if pending:
                 time.sleep(2)
 
@@ -1677,8 +1779,9 @@ def main(argv):
         sys.exit(__doc__)
     if argv[1] != "capture" and len(argv) != 2:
         sys.exit(__doc__)
-    if argv[1] == "capture" and not 3 <= len(argv) <= 5:
-        sys.exit("usage: python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z]")
+    if argv[1] == "capture" and not 3 <= len(argv) <= 6:
+        sys.exit("usage: python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z] "
+                 "[edit|server|client|client:<PlayerName>]")
     if argv[1] == "manifest":
         with open(DEVPACKAGES_MANIFEST, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(devpackages_manifest()) + "\n")
@@ -1707,15 +1810,26 @@ def main(argv):
             name = re.sub(r"[^A-Za-z0-9_.-]", "-", argv[2])
             stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             path = os.path.join(SCREENSHOT_DIR, f"{stamp}-{name}.png")
-            camera = parse_vector(argv[3]) if len(argv) > 3 else None
-            look_at = parse_vector(argv[4]) if len(argv) > 4 else None
+            # The trailing argument is a ROLE, not a position: "capture tied client:Player2".
+            rest = list(argv[3:])
+            role = None
+            if rest and not re.fullmatch(r"[-0-9eE., ]+", rest[-1]):
+                role = rest.pop()
+            camera = parse_vector(rest[0]) if len(rest) > 0 else None
+            look_at = parse_vector(rest[1]) if len(rest) > 1 else None
             if (camera is None) != (look_at is None):
                 sys.exit("give both a camera and a look-at position, or neither")
-            saved, text = studio.capture(path, camera, look_at)
+            studio_id, why = studio_for_role(studio, role)
+            if studio_id is None:
+                print(f"[capture] {why}")
+                return 1
+            saved, text = studio.capture(path, camera, look_at, studio_id=studio_id)
             if not saved:
                 print(f"[capture] no image came back: {text}")
                 return 1
-            print(f"[capture] wrote {os.path.relpath(saved, REPO)} (mode: {studio.mode()}). "
+            print(f"[capture] wrote {os.path.relpath(saved, REPO)} "
+                  f"(mode: {studio.mode(studio_id=studio_id)}, studio {studio_id[:8]}"
+                  f"{', role ' + role if role else ''}). "
                   "Look at it before you claim what it shows (rule 5).")
             return 0
         if cmd == "studios":
