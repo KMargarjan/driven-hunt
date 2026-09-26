@@ -1146,6 +1146,145 @@ return function()
 			expect(math.abs(thin - dense) < 0.08).to.equal(true)
 		end)
 
+		-- THE WOOD THAT WAS ACTUALLY PLANTED, not the sampler that chose it (audit-005 must-fix 2).
+		-- Every species claim above is a claim about `Scatter.speciesAt`, a pure function; nothing read
+		-- the trees. So `Props.trees` could hand ONE spruce template to all four species -- and did,
+		-- until this task -- and the day the first tree id lands in `Assets.ROWS` the whole wood becomes
+		-- one mesh with every one of those tests still green. Task 63's round-1 finding was the same
+		-- blind spot one layer up: half the wood was a monoculture and the aggregate share assertion
+		-- passed over it.
+		--
+		-- FOUR QUESTIONS, EACH ABOUT AN INSTANCE IN THE WORLD: the tree carries the species it was
+		-- built from, that species is the one the sampler chose AT THAT POINT, the proxy's geometry is
+		-- that species' geometry (a monoculture of templates fails here even with the attribute right),
+		-- and the step asked for FOUR asset keys rather than one (which is what fails on the bug
+		-- itself, today, while `Assets.ROWS` is still empty).
+		it("plants the species it sampled, and asks for a key per species", function()
+			local c = config()
+			-- Built into a throwaway root, as the furniture test below does: `Props.trees` writes only
+			-- under the root it is handed, and the wood needs no Terrain.
+			local root = Instance.new("Folder")
+			local pads = MapGen.Layout.pads(c)
+			local keysUsed: { [string]: boolean } = {}
+			local sampled: { [string]: number } = {}
+			local points = {}
+			local planted = 0
+			for quadrant, block in ipairs(MapGen.Layout.treeBlocks(c)) do
+				local count, keys, why, species = Props.trees(root, SEED, c, block, planted, quadrant == 1)
+				expect(why).to.equal(nil)
+				for _, key in ipairs(keys) do
+					keysUsed[key] = true
+				end
+				for name, n in pairs(species) do
+					sampled[name] = (sampled[name] or 0) + n
+				end
+				-- THE SAME POINTS, IN THE SAME ORDER, FROM THE SAME SAMPLER, so a tree can be matched
+				-- to the point it was planted at BY NAME (`Tree%04d`, the placement order) rather than
+				-- by reading its position back. A Part's Position is float32: the round trip moves x by
+				-- up to a thousandth of a stud, which is enough to flip a tree standing on a clump
+				-- boundary -- the first run of this spec failed on exactly one tree of 2,734 that way.
+				local blockPoints = MapGen.Scatter.trees(c, SEED, block, function(x, z)
+					return Props.rejectTree(x, z, c)
+				end)
+				expect(#blockPoints).to.equal(count)
+				for _, point in ipairs(blockPoints) do
+					table.insert(points, point)
+				end
+				planted += count
+			end
+			expect(planted > 1500).to.equal(true)
+
+			-- ONE KEY PER SPECIES. With `Assets.ROWS` empty every tree is proxied, so the step reports
+			-- the key each species ASKED for -- four distinct ones in a four-species wood, one in the
+			-- monoculture this task exists to make impossible.
+			local distinct = 0
+			for _ in pairs(keysUsed) do
+				distinct += 1
+			end
+			for _, row in ipairs(c.SPECIES) do
+				expect(keysUsed[row.assetKey]).to.equal(true)
+			end
+			expect(distinct).to.equal(#c.SPECIES)
+			expect(distinct).to.equal(4)
+
+			local props = root:FindFirstChild("Props")
+			local trees = props and props:FindFirstChild("Trees")
+			expect(trees).to.be.ok()
+			local byName: { [string]: Instance } = {}
+			local built = 0
+			for _, model in ipairs((trees :: Instance):GetChildren()) do
+				byName[model.Name] = model
+				built += 1
+			end
+			expect(built).to.equal(planted)
+
+			local counts = { spruce = 0, birch = 0, oak = 0, alder = 0 }
+			for index, point in ipairs(points) do
+				local name = string.format("Tree%04d", index)
+				local model = byName[name]
+				expect(model).to.be.ok()
+				local got = (model :: Instance):GetAttribute(Props.SPECIES_ATTRIBUTE)
+				if counts[got] == nil then
+					error(
+						string.format("%s carries Species = %s, which is not one of the four", name, tostring(got)),
+						0
+					)
+				end
+				counts[got] += 1
+				-- THE SAMPLER'S ANSWER AT THIS TREE'S OWN POINT, asked with the inputs `Props.trees`
+				-- itself uses -- `atFlattened` with the pads and the bog, not `Height.at` -- or the wet
+				-- rule would disagree with the build about which trees stand in a hollow.
+				local y = MapGen.Height.atFlattened(point.x, point.z, SEED, c, pads, MapGen.Layout.bogDepth)
+				local want = MapGen.Scatter.speciesAt(point.x, point.z, SEED, c, y)
+				if got ~= want then
+					error(
+						string.format(
+							"%s at (%.0f, %.0f) is a %s, but the sampler chose %s there",
+							name,
+							point.x,
+							point.z,
+							got,
+							want
+						),
+						0
+					)
+				end
+				local stem = (model :: Model).PrimaryPart
+				expect(stem).to.be.ok()
+				-- ...and this really is the tree planted at that point, so the name-to-point match
+				-- above is checked rather than assumed. 0.05 studs is float32 on a 1,000-stud
+				-- coordinate, which is why the species is not re-derived from the instance.
+				expect(math.abs((stem :: BasePart).Position.X - point.x) < 0.05).to.equal(true)
+				expect(math.abs((stem :: BasePart).Position.Z - point.z) < 0.05).to.equal(true)
+				-- AND THE GEOMETRY IS THAT SPECIES' GEOMETRY. This is the assertion that fails on a
+				-- monoculture of templates however right the attribute is: spruce, birch, oak and alder
+				-- have four different trunks and four different crowns (Config.SPECIES).
+				local row = Props.speciesRow(c, got)
+				expect((stem :: BasePart).Size).to.equal(row.trunk)
+				local crown = (model :: Instance):FindFirstChild("Crown")
+				expect(crown).to.be.ok()
+				expect((crown :: BasePart).Size).to.equal(row.crown)
+			end
+			TestKit.note(
+				string.format(
+					"built wood: %d trees, spruce %d, birch %d, oak %d, alder %d, from %d asset keys",
+					built,
+					counts.spruce,
+					counts.birch,
+					counts.oak,
+					counts.alder,
+					distinct
+				)
+			)
+			-- EVERY SPECIES IS REALLY IN THE GROUND, and the built count is the sampled count: the two
+			-- halves of the wood agree tree for tree above, and in total here.
+			for _, row in ipairs(c.SPECIES) do
+				expect(counts[row.name] > 0).to.equal(true)
+				expect(counts[row.name]).to.equal(sampled[row.name])
+			end
+			root:Destroy()
+		end)
+
 		-- ---- M2.8c: THE ROAD'S FURNITURE ------------------------------------------------------
 		--
 		-- The design's section 18 M2.8c row is the list: stakes beside each post, a high seat as
@@ -1233,7 +1372,7 @@ return function()
 			expect(reeds).to.equal(c.FURNITURE.reeds.count)
 		end)
 
-		it("builds every piece of furniture, and not one of them collides", function()
+		it("builds every piece of furniture, and not one of them collides or stops a slug", function()
 			local c = config()
 			local pieces = MapGen.Layout.furniture(c)
 			expect(#pieces <= Map.BUDGET.furniture).to.equal(true)
@@ -1255,6 +1394,12 @@ return function()
 					-- Half this layer stands inside that envelope on purpose, so the layer does not
 					-- collide at all.
 					expect(descendant.CanCollide).to.equal(false)
+					-- ...AND NOT ONE OF THEM STOPS A SLUG (Task 66 review note 1): `CanQuery` was left
+					-- at its default `true`, so the log pile 20 studs downrange and 20 studs right of
+					-- shooter post 7 absorbed a slug a player walks straight through. One rule for the
+					-- layer, in `Props`' own `sceneryOnly`: a slug passes through anything a player
+					-- passes through.
+					expect(descendant.CanQuery).to.equal(false)
 					local dz = math.abs(descendant.Position.Z - Map.ROAD.z)
 					if
 						dz <= Map.ROAD.halfWidth + Map.ROAD.verge
