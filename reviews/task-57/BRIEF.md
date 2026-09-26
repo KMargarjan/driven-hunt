@@ -18,3 +18,13 @@ Design, in docs/design/drive.md (revise it; keep everything already built workin
 - Tests (pure specs for the group logic; a live check), what Karen checks in the playtest, the config
   numbers with her feel values marked.
 No local absolute Windows paths.
+
+## Director decisions on the design's open decisions (2026-09-26, after the Architect's PASS)
+- H: agreed — MAX_ALIVE_BOARS 4 -> 6 outside the flag.
+- I: agreed — build against the contract, clamped to the pad radius in the tree.
+- J: agreed — split into 57a (the sounder exists, behind the flag) and 57b (the drive releases it).
+- K: agreed — separation steering only; a collision group only if the checks show shoving.
+- L: agreed — no group bonus, no sounder field on the wire.
+- M1: agreed — boar-ai.md regenerated with the next boar task after 57a.
+- M2: noted — MIN_PLAYERS back to 2 before release (ROADMAP Milestone 3).
+- Karen's feel items 1–10 keep their defaults until her playtest with the flag on.
