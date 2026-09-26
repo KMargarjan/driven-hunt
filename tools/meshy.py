@@ -19,6 +19,8 @@ Usage
     python tools/meshy.py refine <run-id> [--dry-run]     REFUSED without an approval; 2K PBR
     python tools/meshy.py remesh <run-id> [--target N] [--dry-run]  triangles, target_polycount
     python tools/meshy.py fetch <run-id>                  download the FBX and the maps NOW, validate
+    python tools/meshy.py revive <run-id>      undo a `failed` written for a REJECTED request
+                                               (refused if a task for that step exists)
     python tools/meshy.py resume <run-id>      continue an interrupted poll, or collect a run
                                                a STOPPED line left unresolved
     python tools/meshy.py runs                 every run: state, age, expiry, credits
@@ -31,6 +33,20 @@ Exit codes, the shape tools/studio_mcp.py and tools/privacy_scan.py already use:
 THE TWO STOP POINTS, and they are the reason there is no one-shot `generate`: after `preview` the
 tool stops for a human to LOOK at the image and for Karen's `approve`, and after `fetch` it stops
 again for a human to look at the finished, textured model before anything is uploaded anywhere.
+
+NOTHING THAT DID NOT RUN IS "FAILED" (Task 64), the mirror of the rule above. A request the API
+rejected -- a wrong field type, a bad id, a revoked key -- creates no task and spends no credit, so
+`stop_unstarted` leaves the run exactly where it was and prints the command that tries again.
+`fail_terminal` is the only place `failed` is ever written, and it is for a Meshy task that RAN and
+came back FAILED or CANCELED, or a response this tool cannot read (where a task may exist that it
+cannot name). Calling a 400 `failed` is what stranded a 20-credit preview run behind two refusals;
+`revive` is the narrow, logged undo for a record written by that build.
+
+EVERY REQUEST FIELD HAS ITS DOCUMENTED TYPE IN ONE TABLE, `REQUEST_FIELDS`, checked before the body
+leaves its builder and again inside `request`. `texture_resolution` is a STRING -- "2k", "4k" or
+"8k" (note D12) -- and sending the pixel count cost a 400 and a stranded run. The selftest's frozen
+bodies are taken from the documentation, not from the code: the old one asserted the wrong type and
+so agreed with the bug.
 
 THE LAST LINE IS ALWAYS MACHINE-READABLE, prefix `[meshy]`: OK / PENDING / STOPPED / FAILED /
 REFUSED. It is what the ASSET agent pastes into its report and what a Reviewer checks, exactly as
@@ -138,6 +154,40 @@ TEXTURE_FILES = ("base_color", "metallic", "normal", "roughness", "emission")
 REFERENCE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 DATA_URI_TYPE = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                  ".webp": "image/webp"}
+# THE DOCUMENTED TYPE OF EVERY FIELD THIS TOOL SENDS (Task 64), read from the official reference on
+# 2026-09-26 and quoted in docs/research/2026-09-26-meshy.md item D12:
+#
+#     "texture_resolution (string): "2k", "4k", or "8k" (default: "2k")"
+#
+# It was sent as the NUMBER 2048 and Meshy answered `HTTP 400: texture_resolution must be a string`
+# -- after Karen's preview had been paid for. THE SELFTEST AGREED WITH THE BUG: its frozen body
+# asserted the same wrong type, because the fixture was written from the code instead of from the
+# documentation. So the types live here, in one table, and every body is checked against it before it
+# is sent: once by the builder that made it, and again inside `request`, which is the last place
+# bytes leave this process.
+REQUEST_FIELDS = {
+    "mode": (str, ("preview", "refine")),
+    "prompt": (str, None),
+    "preview_task_id": (str, None),
+    "enable_pbr": (bool, None),
+    "texture_resolution": (str, ("2k", "4k", "8k")),
+    "texture_prompt": (str, None),
+    "ai_model": (str, ("meshy-6-lite", "meshy-6", "meshy-7.1", "latest")),
+    "should_remesh": (bool, None),
+    "should_texture": (bool, None),
+    "topology": (str, ("quad", "triangle")),
+    "target_polycount": (int, None),
+    "image_url": (str, None),
+    "image_urls": (list, None),
+    "input_task_id": (str, None),
+}
+
+# The refine's texture sizes as the API SPELLS them, and the pixels each one means. There is no 1k:
+# a brief whose texturePx is 1024 (asset-pipeline 12.2's budget for an ordinary key, and what
+# tree.oak_v1 asks for) is refined at the smallest size the API has and must be downscaled
+# downstream -- which is recorded on the run and printed, never pretended about (queued as 64a).
+TEXTURE_RESOLUTION = {2048: "2k", 4096: "4k", 8192: "8k"}
+
 TEXTURE_PX_DEFAULT = 2048  # refine's `texture_resolution` IS a parameter (note D3)
 # The sizes Roblox and the asset pipeline between them make sensible: 1024 is
 # `asset-pipeline` 12.2's budget for an ordinary key, 2048 the hero keys' (design 15 Director D),
@@ -424,6 +474,40 @@ def data_uri(blob, name):
     return f"data:{media};base64," + base64.b64encode(blob).decode("ascii")
 
 
+def check_request_types(body):
+    """The body, or `Refused` naming the field, what it is, and what the API documents (Task 64).
+
+    BEFORE ANYTHING IS SENT, so a wrong type costs nothing. It used to cost a 400 -- and, because
+    `start_task` called that failure terminal, it cost a 20-credit preview run as well."""
+    for name in sorted(body):
+        value = body[name]
+        if name not in REQUEST_FIELDS:
+            raise Refused(f"`{name}` is not a documented request field; the documented ones are "
+                          + ", ".join(sorted(REQUEST_FIELDS)))
+        wanted, allowed = REQUEST_FIELDS[name]
+        # `bool` is a subclass of `int` in Python and of nothing in JSON: True is not a polycount.
+        if not isinstance(value, wanted) or (wanted is int and isinstance(value, bool)):
+            raise Refused(f"`{name}` is {type(value).__name__} {value!r}, and the API documents it "
+                          f"as {wanted.__name__}")
+        if allowed is not None and value not in allowed:
+            raise Refused(f"`{name}` is {value!r}, and the API documents "
+                          + ", ".join(repr(one) for one in allowed))
+    return body
+
+
+def resolve_texture(texture_px):
+    """(what the API is asked for, what it means in pixels) for a brief's texturePx.
+
+    Meshy offers 2k, 4k and 8k and NOTHING SMALLER, so a 1024 brief is refined at 2k: the smallest
+    thing that can be asked for. The pair is recorded on the run, so `validate_fetched` judges the
+    maps against what was ASKED FOR rather than against a number the API was never told."""
+    for px in sorted(TEXTURE_RESOLUTION):
+        if texture_px <= px:
+            return TEXTURE_RESOLUTION[px], px
+    raise Refused(f"texturePx {texture_px} is over 8192; the API documents "
+                  + ", ".join(f"{name} ({px})" for px, name in sorted(TEXTURE_RESOLUTION.items())))
+
+
 def build_preview_request(brief, resolved, images):
     """(endpoint, path, body). NOTHING DEPRECATED IS SENT: no art_style, negative_prompt or symmetry,
     and no rigging option (humanoid-only, and the boar is not humanoid).
@@ -457,24 +541,27 @@ def build_preview_request(brief, resolved, images):
             "target_polycount": resolved["targetTris"],
             "should_texture": True,
         }
-    return endpoint, ENDPOINTS[endpoint], body
+    return endpoint, ENDPOINTS[endpoint], check_request_types(body)
 
 
-def build_refine_request(record, texture_px):
+def build_refine_request(record, texture_resolution):
     """(path, body) for the refine of THIS run's preview task.
 
     The same v2 text-to-3d endpoint with `mode: "refine"` and the preview task's id (design section
-    7.2). `texture_resolution` IS a parameter -- research note D3 -- so 2K is ASKED FOR rather than
-    hoped for, and `enable_pbr` is what makes the maps beside the albedo exist at all."""
+    7.2). `texture_resolution` IS a parameter -- research note D3 -- so the size is ASKED FOR rather
+    than hoped for, and `enable_pbr` is what makes the maps beside the albedo exist at all. It is a
+    STRING -- "2k", "4k" or "8k" (note D12) -- and sending the pixel count is what Meshy answered
+    `400 texture_resolution must be a string` to. `check_request_types` refuses it here now, where
+    it costs nothing."""
     preview = task_of(record, "preview")
     if preview is None:
         raise Refused("this run has no preview task to refine")
-    return ENDPOINTS["text-to-3d"], {
+    return ENDPOINTS["text-to-3d"], check_request_types({
         "mode": "refine",
         "preview_task_id": preview["taskId"],
         "enable_pbr": True,
-        "texture_resolution": texture_px,
-    }
+        "texture_resolution": texture_resolution,
+    })
 
 
 def build_remesh_request(record, target):
@@ -487,11 +574,11 @@ def build_remesh_request(record, target):
     source = task_of(record, "refine") or task_of(record, "preview")
     if source is None:
         raise Refused("this run has no model task to remesh")
-    return ENDPOINTS["remesh"], {
+    return ENDPOINTS["remesh"], check_request_types({
         "input_task_id": source["taskId"],
         "target_polycount": target,
         "topology": "triangle",
-    }
+    })
 
 
 def resolve_target(record, asked):
@@ -545,7 +632,13 @@ def request(method, path, key, body=None, timeout=HTTP_TIMEOUT_S):
 
     429 is the interesting one: Meshy distinguishes "RateLimitExceeded" (requests) from
     "NoMoreConcurrentTasks" (queue), and the message says WHICH rather than guessing (note D6).
-    Retry-After is honoured if present and is NOT assumed to exist -- it is undocumented."""
+    Retry-After is honoured if present and is NOT assumed to exist -- it is undocumented.
+
+    THE LAST GATE (Task 64): a POST body is checked against the documented types here as well as in
+    the builder that made it, because this is the one place bytes leave the process -- so a future
+    builder that forgets cannot spend a credit, or a run, on a 400."""
+    if method == "POST" and isinstance(body, dict):
+        check_request_types(body)
     gap = MIN_REQUEST_GAP_S - (time.time() - _last_request_at[0])
     if gap > 0:
         time.sleep(gap)
@@ -774,6 +867,72 @@ def stop_resumable(record, what, fix, command="resume"):
     return 1
 
 
+def fail_terminal(record, why, key=None, kind="a Meshy task that ran and did not succeed"):
+    """THE ONLY PLACE `failed` IS EVER WRITTEN (Task 64). Exit 1.
+
+    `failed` is TERMINAL -- no command in this tool takes it -- so it belongs to exactly the cases
+    where there is nothing left to do here:
+
+      * a Meshy task that RAN and came back FAILED or CANCELED;
+      * a response this tool cannot interpret, where a task MAY exist that it cannot name -- only a
+        human at the dashboard can settle that one, and retrying blindly would pay twice.
+
+    It does NOT belong to a request the API rejected before creating anything: that is
+    `stop_unstarted`, and calling it `failed` is what stranded Karen's 20-credit preview run
+    (`boar.body_v1-20260926T1501Z`, 2026-09-26) behind `refine` and `resume` both refusing.
+
+    `failureKind` says WHICH of the two it was, and `revive` refuses every record that carries one:
+    a run marked failed by this function is one no command here can take further."""
+    record["failureKind"] = kind
+    record["state"] = "failed"
+    record["totals"]["credits"] = sum(t.get("credits") or 0 for t in record.get("tasks", []))
+    save_run(record)
+    line = f"[meshy] FAILED: {record['runId']} {why}"
+    print(redact(line, key) if key else line)
+    return 1
+
+
+def stop_unstarted(record, phase, why, command, key=None):
+    """NOTHING WAS CREATED, SO NOTHING CHANGES (Task 64). Exit 1, and the record is not touched.
+
+    A POST the API rejected -- a wrong field type, a bad id, a revoked key -- creates no task and
+    spends no credit. The run therefore stays in exactly the state it was in, and the line names the
+    command that tries again once the cause is fixed. This is the mirror of `deliver`: that one
+    refuses to call a step done when it delivered nothing, and this one refuses to call a run dead
+    when nothing ran."""
+    print(redact(f"[meshy] FAILED: {record['runId']} the {phase} task was NOT created -- {why}. No "
+                 f"task exists and no credit was spent; the run is still {record.get('state')}. Fix "
+                 f"the cause, then: python tools/meshy.py {command}", key))
+    return 1
+
+
+def next_phase(record):
+    """The phase this run is about to start: `preview` for a run with no tasks, else the one after
+    the newest task's phase, or None when the newest task is already a remesh."""
+    tasks = record.get("tasks") or []
+    if not tasks:
+        return "preview"
+    current = tasks[-1].get("phase") or "preview"
+    index = PHASES.index(current) if current in PHASES else 0
+    return PHASES[index + 1] if index + 1 < len(PHASES) else None
+
+
+def state_before_failure(record):
+    """The state a run WAS in before a PRE-FLIGHT rejection marked it `failed` (Task 64).
+
+    Derived from the run's own tasks rather than remembered, because the records this has to repair
+    were written by the build that had the bug and remember nothing. `cmd_revive` calls it only
+    after establishing that every task SUCCEEDED, so there is no half-finished phase to guess at."""
+    tasks = record.get("tasks") or []
+    if not tasks:
+        return "brief-ok"
+    phase = tasks[-1].get("phase") or "preview"
+    if phase == "preview":
+        # Karen's approval is a fact on the record, so a run that had it gets it back.
+        return "approved" if record.get("approval") else "preview-ready"
+    return f"{phase}-ready"
+
+
 def expiry_line(record, now=None):
     """"", "EXPIRES IN 7h" or "EXPIRED" -- the 3-day trap, made visible in `runs` and `status`."""
     now = now or utc_now()
@@ -954,7 +1113,8 @@ def cmd_brief(args):
     print(f"[meshy] endpoint: {endpoint} (chosen by {count} reference(s), not by a flag)  "
           f"POST {path}")
     print(f"[meshy] target_polycount={resolved['targetTris']} "
-          f"texture_resolution={resolved['texturePx']} (refine, Task B)")
+          f"texture_resolution={resolve_texture(resolved['texturePx'])[0]!r} "
+          f"(refine, Task B; the brief's {resolved['texturePx']}px)")
     print("[meshy] body: " + json.dumps(body, sort_keys=True))
     print(f"[meshy] OK: brief {resolved['key']} v{resolved['version']} is usable")
     return 0
@@ -1008,33 +1168,12 @@ def cmd_preview(args):
     # FRESH: refuses rather than overwriting an existing run directory (Task 55b).
     save_run(record, fresh=True)
 
-    status, parsed, raw_body = request("POST", path, key, body)
-    if status not in (200, 201, 202):
-        record["state"] = "failed"
-        save_run(record)
-        print("[meshy] FAILED: " + describe_http_failure(status, parsed, raw_body, key))
-        return 1
-    task_id = (parsed or {}).get("result") or (parsed or {}).get("id")
-    if isinstance(task_id, dict):
-        task_id = task_id.get("id")
-    if not task_id:
-        record["state"] = "failed"
-        save_run(record)
-        print(redact(f"[meshy] FAILED: the create response carried no task id: {raw_body[:200]}",
-                     key))
-        return 1
-
-    # THE ID IS STORED BEFORE THE FIRST POLL. An interruption after the POST must never orphan a
-    # task that has already been paid for (asset-pipeline 7.4 step 3: same ordering, same reason).
-    record["tasks"].append({"phase": "preview", "taskId": str(task_id), "status": "PENDING",
-                            "createdAt": stamp(), "finishedAt": None,
-                            "credits": None, "creditsSource": "unknown", "artefacts": []})
-    record["state"] = "preview-running"
-    record["totals"]["tasks"] = len(record["tasks"])
-    save_run(record)
-    print(f"[meshy] preview task {task_id} created; polling every {POLL_INTERVAL_S}s "
-          f"(deadline {POLL_DEADLINE_S['preview']}s)")
-    return poll_and_finish(record, key, "preview")
+    # ONE POST PATH (Task 64): this used to be a second copy of `start_task`, and the bug that
+    # stranded a paid run therefore existed twice. A rejected POST leaves this run at `brief-ok`
+    # with no tasks and no credits, and the retry is `preview` again -- which mints a NEW run id,
+    # so nothing is overwritten (`save_run(fresh=True)`).
+    return start_task(record, key, "preview", path, body, endpoint,
+                      f"preview {resolved['key']}_v{resolved['version']}")
 
 
 def poll_and_finish(record, key, phase):
@@ -1097,12 +1236,10 @@ def poll_and_finish(record, key, phase):
             entry["finishedAt"] = stamp(parse_stamp(task.get("finished_at")) or utc_now())
             return finish_task(record, key, task, phase)
         if done and not ok:
+            # THE TASK RAN AND CAME BACK FAILED OR CANCELED: this is what `failed` is for, and
+            # `fail_terminal` is the only place it is written (Task 64).
             entry["finishedAt"] = stamp()
-            record["state"] = "failed"
-            record["totals"]["credits"] = sum(t.get("credits") or 0 for t in record["tasks"])
-            save_run(record)
-            print(redact(f"[meshy] FAILED: {record['runId']} {phase} {state} -- {message}", key))
-            return 1
+            return fail_terminal(record, f"{phase} {state} -- {message}", key)
         progress = task.get("progress")
         print(f"[meshy] {state} {progress if progress is not None else '?'}%", flush=True)
         time.sleep(POLL_INTERVAL_S)
@@ -1269,6 +1406,56 @@ def cmd_resume(args):
     return poll_and_finish(record, key, phase_of(record))
 
 
+def cmd_revive(args):
+    """Put a run that a PRE-FLIGHT REJECTION marked `failed` back where it was (Task 64).
+
+    The narrowest possible undo, and it is logged on the record. It exists because one bug wrote a
+    terminal state over a paid run -- `boar.body_v1-20260926T1501Z`, 20 credits, refused by both
+    `refine` and `resume` -- and rule 7 says archive, never delete: the run is not thrown away and
+    re-bought, it is put back.
+
+    IT REFUSES WHENEVER A TASK MIGHT HAVE RUN: if a task for the step it was about to start exists,
+    or if the newest task came back FAILED or CANCELED, then something did happen at Meshy and this
+    is not the command for it."""
+    record = load_run(args.run_id)
+    require_state(record, "failed")
+    # A RUN THIS BUILD MARKED FAILED IS NOT REVIVABLE, and it says which of the two it was. Only a
+    # record written by the build that had the bug can reach the rest of this command.
+    if record.get("failureKind"):
+        raise Refused(f"this run was marked failed by {record['failureKind']}, not by a rejected "
+                      "request. Nothing here can take it further: check the Meshy dashboard, or "
+                      "write a new brief version")
+    tasks = record.get("tasks") or []
+    for task in tasks:
+        if task.get("status") != STATUS_SUCCESS:
+            raise Refused(f"this run's {task.get('phase')} task ({task.get('taskId')}) is "
+                          f"{task.get('status')}, not {STATUS_SUCCESS}: it was created and may have "
+                          "been paid for, so this was not a pre-flight rejection -- `resume` "
+                          "collects a task that ran")
+    phase = next_phase(record)
+    if phase is None:
+        raise Refused("this run's newest task is a remesh, so there was no next step to reject; "
+                      "nothing here was a pre-flight rejection")
+    existing = task_of(record, phase)
+    if existing is not None:
+        raise Refused(f"this run HAS a {phase} task ({existing['taskId']}, "
+                      f"{existing.get('status')}): it was created, and may have been paid for, so "
+                      "this was not a pre-flight rejection. `resume` collects a task that ran")
+
+    before = state_before_failure(record)
+    record["state"] = before
+    record.setdefault("revivals", []).append({
+        "at": stamp(), "from": "failed", "to": before, "nextPhase": phase,
+        "why": "a pre-flight rejection created no task (Task 64)",
+    })
+    record.pop("stateBefore", None)
+    save_run(record)
+    print(f"[meshy] OK: revive {record['runId']} failed -> {before} "
+          f"(no {phase} task exists; logged on the run) -- "
+          f"next: python tools/meshy.py {phase} {record['runId']}")
+    return 0
+
+
 def cmd_status(args):
     records = [load_run(args.run_id)] if args.run_id else all_runs()
     if not records:
@@ -1346,25 +1533,31 @@ def cmd_approve(args):
 # Nothing in this file has ever contained a Roblox endpoint and nothing here adds one.
 
 
-def start_task(record, key, phase, path, body, endpoint):
+def start_task(record, key, phase, path, body, endpoint, retry):
     """POST one phase's task, record its id BEFORE the first poll, then poll it to its end.
 
-    THE ID IS STORED FIRST for the same reason the preview stores it first: an interruption after
-    the POST must never orphan a task that has already been paid for."""
+    THE ID IS STORED FIRST: an interruption after the POST must never orphan a task that has
+    already been paid for.
+
+    ONE POST PATH FOR ALL THREE PHASES (Task 64). `cmd_preview` used to carry its own copy of this
+    function, which is how one bug lived in two places -- and the bug was that a REJECTED POST was
+    called `failed`. A rejected POST creates nothing and costs nothing, so it is `stop_unstarted`
+    and the run keeps its state; `retry` is the command the caller says tries again."""
     status, parsed, raw_body = request("POST", path, key, body)
     if status not in (200, 201, 202):
-        record["state"] = "failed"
-        save_run(record)
-        print("[meshy] FAILED: " + describe_http_failure(status, parsed, raw_body, key))
-        return 1
+        return stop_unstarted(record, phase, describe_http_failure(status, parsed, raw_body, key),
+                              retry, key)
     task_id = (parsed or {}).get("result") or (parsed or {}).get("id")
     if isinstance(task_id, dict):
         task_id = task_id.get("id")
     if not task_id:
-        record["state"] = "failed"
-        save_run(record)
-        print(redact(f"[meshy] FAILED: the {phase} response carried no task id: {raw_body[:200]}", key))
-        return 1
+        # NOT `stop_unstarted`: the API ANSWERED 2xx, so a task may exist that this tool cannot
+        # name, and a retry would pay for a second one. That needs a human at the dashboard.
+        return fail_terminal(
+            record,
+            f"the {phase} response was {status} but carried no task id: {raw_body[:200]} -- a task "
+            "MAY have been created. Check the Meshy dashboard before running anything again",
+            key, kind="a response that could not be read, so a task may exist")
 
     record["tasks"].append({"phase": phase, "taskId": str(task_id), "status": "PENDING",
                             "endpoint": endpoint, "createdAt": stamp(), "finishedAt": None,
@@ -1397,7 +1590,15 @@ def cmd_refine(args):
     texture_px = (record.get("brief") or {}).get("texturePx") or TEXTURE_PX_DEFAULT
     if texture_px not in TEXTURE_PX_ALLOWED:
         raise Refused(f"texturePx {texture_px} is not one of {TEXTURE_PX_ALLOWED}")
-    path, body = build_refine_request(record, texture_px)
+    # WHAT THE API IS ACTUALLY ASKED FOR, in its own words, and what that means in pixels (Task 64).
+    # There is no 1k at Meshy, so a 1024 brief is refined at 2k and the difference is recorded here
+    # rather than discovered by `validate_fetched` calling the maps oversized.
+    asked, asked_px = resolve_texture(texture_px)
+    if asked_px != texture_px:
+        print(f"[meshy] note: the brief asks for {texture_px}px and the API offers "
+              + ", ".join(sorted(TEXTURE_RESOLUTION.values()))
+              + f"; asking for {asked} ({asked_px}px), to be downscaled downstream")
+    path, body = build_refine_request(record, asked)
 
     if args.dry_run:
         print(f"[meshy] DRY RUN, nothing sent. POST {BASE_URL}{path}")
@@ -1407,7 +1608,12 @@ def cmd_refine(args):
         return 0
 
     check_ceilings(record, all_runs())
-    return start_task(record, key, "refine", path, body, "text-to-3d")
+    # WRITTEN DOWN BEFORE THE TASK RUNS, like `trisDeclared`: what was asked for is what the maps
+    # are judged against, and it must be the value that was SENT.
+    record["textureResolution"] = {"asked": asked, "px": asked_px, "briefPx": texture_px}
+    save_run(record)
+    return start_task(record, key, "refine", path, body, "text-to-3d",
+                      f"refine {record['runId']}")
 
 
 def cmd_remesh(args):
@@ -1445,7 +1651,8 @@ def cmd_remesh(args):
     # number that was SENT rather than one somebody types later.
     record["trisDeclared"] = target
     save_run(record)
-    return start_task(record, key, "remesh", path, body, "remesh")
+    return start_task(record, key, "remesh", path, body, "remesh",
+                      f"remesh {record['runId']}")
 
 
 def validate_fetched(record, folder, entry):
@@ -1475,7 +1682,11 @@ def validate_fetched(record, folder, entry):
             problems.append(Problem(f"model.fbx is {fbx['bytes']} bytes, over Roblox's per-call "
                                     f"{MAX_FILE_BYTES}", "remesh"))
 
-    budget = (record.get("brief") or {}).get("texturePx") or TEXTURE_PX_DEFAULT
+    # WHAT WAS ASKED FOR, not what the brief wishes for (Task 64): Meshy has no 1k, so a 1024
+    # brief's maps come back at 2048 and calling them oversized would strand a run that did exactly
+    # what it was told. The brief's own budget is a DOWNSTREAM one; `promote` will have to resize.
+    budget = ((record.get("textureResolution") or {}).get("px")
+              or (record.get("brief") or {}).get("texturePx") or TEXTURE_PX_DEFAULT)
     for name, artefact in sorted(written.items()):
         path = os.path.join(folder, name)
         if not os.path.isfile(path):
@@ -1872,16 +2083,50 @@ def selftest():
         "tasks": [{"phase": "preview", "taskId": "prev-1", "endpoint": "text-to-3d"}],
         "totals": {"tasks": 1, "credits": 5},
     }
-    refinePath, refineBody = build_refine_request(refineRecord, GOOD_BRIEF["texturePx"])
+    # THE FIXTURE IS TAKEN FROM THE DOCUMENTATION, not from the code (Task 64). It used to freeze
+    # `"texture_resolution": 2048`, which is what the builder sent and what Meshy answered
+    # `400 texture_resolution must be a string` to -- so the one test that could have caught the
+    # defect agreed with it instead. The documented type is quoted at REQUEST_FIELDS.
+    refinePath, refineBody = build_refine_request(
+        refineRecord, resolve_texture(GOOD_BRIEF["texturePx"])[0])
     ok("refine posts to the v2 text-to-3d endpoint", refinePath == ENDPOINTS["text-to-3d"], refinePath)
-    ok("refine asks for exactly the documented four fields",
+    ok("refine asks for exactly the documented four fields, texture_resolution as a STRING",
        refineBody == {"mode": "refine", "preview_task_id": "prev-1", "enable_pbr": True,
-                      "texture_resolution": 2048},
+                      "texture_resolution": "2k"},
        json.dumps(refineBody, sort_keys=True))
     for field in DEPRECATED:
         ok(f"refine sends no {field}", field not in refineBody)
-    said = refusal(lambda: build_refine_request({"tasks": []}, 2048), "refine with no preview")
+    said = refusal(lambda: build_refine_request({"tasks": []}, "2k"), "refine with no preview")
     ok("refine with no preview task is refused", "no preview task" in said, said)
+
+    # EVERY FIELD AGAINST THE DOCUMENTED TYPE, and the exact defect as a case.
+    said = refusal(lambda: build_refine_request(refineRecord, 2048), "refine with a numeric size")
+    ok("a NUMERIC texture_resolution is refused, by name and by type",
+       "texture_resolution" in said and "int 2048" in said and "str" in said, said)
+    said = refusal(lambda: check_request_types({"texture_resolution": "2048"}),
+                   "an undocumented size string")
+    ok("...and a string that is not one of the documented three is refused too",
+       "'2k'" in said and "'4k'" in said, said)
+    said = refusal(lambda: check_request_types({"target_polycount": True}), "a bool polycount")
+    ok("a bool is not an integer, whatever Python thinks", "target_polycount" in said, said)
+    said = refusal(lambda: check_request_types({"art_style": "realistic"}), "an unknown field")
+    ok("a field the docs do not list is refused", "not a documented request field" in said, said)
+    ok("every builder's body passes the documented types",
+       check_request_types(refineBody) is refineBody)
+    # THE PIXELS THE BRIEFS ASK FOR, in the API's words. There is no 1k at Meshy, so the ordinary
+    # key's 1024 budget is refined at the smallest size there is and downscaled downstream.
+    for px, wanted, meant in ((1024, "2k", 2048), (2048, "2k", 2048), (4096, "4k", 4096)):
+        got, got_px = resolve_texture(px)
+        ok(f"texturePx {px} is asked for as {wanted}", (got, got_px) == (wanted, meant), str((got, got_px)))
+    said = refusal(lambda: resolve_texture(16384), "a texture over 8k")
+    ok("over 8k is refused, naming what the API documents", "8192" in said, said)
+    # THE LAST GATE: `request` itself checks, so a future builder that forgets cannot spend a
+    # credit on a 400. No network is reached -- the check runs before the socket.
+    said = refusal(lambda: request("POST", ENDPOINTS["text-to-3d"], FAKE_KEY,
+                                   {"mode": "refine", "texture_resolution": 2048}),
+                   "a bad body handed straight to request()")
+    ok("request() refuses a wrong-typed POST body before it sends anything",
+       "texture_resolution" in said, said)
 
     remeshRecord = dict(refineRecord)
     remeshRecord["tasks"] = [
@@ -2266,7 +2511,8 @@ def selftest():
         code, saidDry = step2(lambda: cmd_refine(Args(run_id=approved["runId"], dry_run=True)))
         ok("a dry-run refine exits 0", code == 0, str(code))
         ok("...sends nothing and says so", "DRY RUN, nothing sent" in saidDry, saidDry.strip())
-        ok("...shows the 2K texture resolution", '"texture_resolution": 2048' in saidDry, saidDry.strip())
+        ok("...shows the 2K texture resolution as the documented STRING",
+           '"texture_resolution": "2k"' in saidDry, saidDry.strip())
         ok("...and the run has not moved", load_run(approved["runId"])["state"] == "approved")
 
         # THE WHOLE CHAIN, offline: refine -> remesh -> fetch.
@@ -2573,6 +2819,98 @@ def selftest():
            any(ENDPOINTS["text-to-3d"] in row for row in resumeSeen["paths"]),
            "; ".join(resumeSeen["paths"]))
 
+        # ---- TASK 64: A REJECTED REQUEST IS NOT A DEAD RUN ------------------------------
+        #
+        # The defect that cost Karen's 20-credit preview: `start_task` wrote `failed` for ANY
+        # non-2xx POST, and `failed` is terminal, so `refine` refused the run and `resume` refused
+        # it too. A request the API rejected creates no task and spends no credit.
+        rejected = approved_run("boar.body_v1-20260101T0020Z")
+
+        def fake_post_400(method, _path, _key, body=None, timeout=HTTP_TIMEOUT_S):
+            if method == "POST":
+                return 400, {"message": "texture_resolution must be a string"}, ""
+            return 200, {"result": {"status": "SUCCEEDED", "consumed_credits": 10}}, ""
+
+        globals()["request"] = fake_post_400
+        try:
+            code, saidRejected = step2(lambda: cmd_refine(Args(run_id=rejected["runId"],
+                                                               dry_run=False)))
+        finally:
+            globals()["request"] = real_request
+        ok("a refine the API rejects exits 1", code == 1, saidRejected.strip())
+        ok("...and the run is STILL approved, not failed",
+           load_run(rejected["runId"])["state"] == "approved", load_run(rejected["runId"])["state"])
+        ok("...and no task was recorded for it",
+           len(load_run(rejected["runId"])["tasks"]) == 1,
+           str([t.get("phase") for t in load_run(rejected["runId"])["tasks"]]))
+        ok("...and the line says no credit was spent, and what to run",
+           "no credit was spent" in saidRejected and "refine " + rejected["runId"] in saidRejected,
+           saidRejected.strip())
+        # AND THE RUN IS STILL USABLE: the same command works once the cause is fixed. This is the
+        # whole point -- the state it was left in has to be a DOOR.
+        againFake, _againSeen = fake_post_then_succeed()
+        globals()["request"], globals()["download"] = againFake, fake_download
+        try:
+            code, saidAgain = step2(lambda: cmd_refine(Args(run_id=rejected["runId"],
+                                                            dry_run=False)))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("...so refining again works", code == 0, saidAgain.strip())
+        ok("...and it reaches refine-ready", load_run(rejected["runId"])["state"] == "refine-ready",
+           load_run(rejected["runId"])["state"])
+
+        # REVIVE: the narrowest possible undo, for a run the OLD build marked failed this way --
+        # which is the shape on disk today: state `failed`, one SUCCEEDED preview, no `failureKind`.
+        stranded = approved_run("boar.body_v1-20260101T0021Z")
+        stranded["tasks"][-1]["status"] = "SUCCEEDED"
+        stranded["state"] = "failed"
+        save_run(stranded)
+        code, saidRevive = step2(lambda: cmd_revive(Args(run_id=stranded["runId"])))
+        ok("revive puts a pre-flight failure back", code == 0, saidRevive.strip())
+        ok("...to approved, because Karen's approval is a fact on the record",
+           load_run(stranded["runId"])["state"] == "approved",
+           load_run(stranded["runId"])["state"])
+        ok("...logs what it did, on the run",
+           (load_run(stranded["runId"]).get("revivals") or [{}])[0].get("to") == "approved",
+           str(load_run(stranded["runId"]).get("revivals")))
+        ok("...and names the next command",
+           "refine " + stranded["runId"] in saidRevive, saidRevive.strip())
+        said = refusal(lambda: cmd_revive(Args(run_id=stranded["runId"])),
+                       "revive a run that is not failed")
+        ok("revive refuses a run that is not failed, by name", "not failed" in said, said)
+
+        # ...AND IT REFUSES EVERYTHING THAT MIGHT HAVE RUN.
+        pending = approved_run("boar.body_v1-20260101T0022Z")
+        pending["tasks"].append({"phase": "refine", "taskId": "ref-9", "endpoint": "text-to-3d",
+                                 "status": "PENDING", "createdAt": stamp(), "finishedAt": None,
+                                 "credits": None, "creditsSource": "unknown", "artefacts": []})
+        pending["state"] = "failed"
+        save_run(pending)
+        said = refusal(lambda: cmd_revive(Args(run_id=pending["runId"])),
+                       "revive a run whose task exists")
+        ok("revive refuses when a task for that step exists, naming it and `resume`",
+           "ref-9" in said and "resume" in said, said)
+
+        burnt = approved_run("boar.body_v1-20260101T0023Z")
+        burnt["tasks"][-1]["status"] = "FAILED"
+        burnt["state"] = "failed"
+        save_run(burnt)
+        said = refusal(lambda: cmd_revive(Args(run_id=burnt["runId"])),
+                       "revive a task that ran and FAILED")
+        ok("revive refuses a task that ran and FAILED", "FAILED" in said, said)
+
+        # A RUN THIS BUILD MARKED FAILED CARRIES WHY, and revive refuses all of those.
+        terminal = approved_run("boar.body_v1-20260101T0024Z")
+        terminal["tasks"][-1]["status"] = "SUCCEEDED"
+        code, saidTerminal = say(lambda: fail_terminal(terminal, "the preview task CANCELED"))
+        ok("fail_terminal is the one writer of `failed`",
+           load_run(terminal["runId"])["state"] == "failed" and code == 1,
+           load_run(terminal["runId"])["state"])
+        said = refusal(lambda: cmd_revive(Args(run_id=terminal["runId"])),
+                       "revive a terminal failure")
+        ok("revive refuses a run THIS build marked failed, and says which kind",
+           "task that ran" in said, said)
+
         # And the wrong state is refused BY NAME, at every door of this half.
         for command, args, wanted in (
             (cmd_remesh, dict(run_id=chain["runId"], target=None, dry_run=False), "refine-ready"),
@@ -2664,6 +3002,11 @@ def build_parser():
     remesh_parser.add_argument("--dry-run", action="store_true",
                                help="print the exact request, send nothing, spend nothing")
     remesh_parser.set_defaults(run=cmd_remesh)
+
+    revive_parser = sub.add_parser(
+        "revive", help="put a run a PRE-FLIGHT rejection marked `failed` back where it was")
+    revive_parser.add_argument("run_id")
+    revive_parser.set_defaults(run=cmd_revive)
 
     fetch_parser = sub.add_parser("fetch", help="download the FBX and the maps NOW, and validate")
     fetch_parser.add_argument("run_id")
