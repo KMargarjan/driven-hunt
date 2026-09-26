@@ -1,7 +1,7 @@
 # Task 72 — an asset-prep tool (headless Blender), first used on Karen's own shotgun
 
 Task: 72
-Round: 2
+Round: 1
 Base: `main` (`c995574`, which is the Task 71 merge — `git merge-base --is-ancestor origin/main HEAD`
 is true, so the diff against main is tools-only and nothing under `src/` or `tests/` appears in it)
 Code commit: `2006fb7a92a021035636879d05cbf0f86a695885`
@@ -14,9 +14,13 @@ Code commit: `2006fb7a92a021035636879d05cbf0f86a695885`
 two research files, this request and the two tool files. Nothing under `src/`, `tests/client/` or
 `tools/studio_mcp.py`.
 
-**Round 1 shipped a real defect and my report described what I meant to build rather than the
-picture.** The Director looked at the renders; I had not, properly. This round found the cause,
-fixed it, and built the checks that make it fail in the tool instead of in his eye.
+**This is the first review round: the gate refused the earlier attempt before any verdict was
+written, so nothing has been reviewed yet.** That attempt shipped a real defect and my report to the
+Director described what I meant to build rather than the picture. The Director looked at the renders;
+I had not, properly. What follows is the state after finding the cause, fixing it, and building the
+checks that make it fail in the tool instead of in his eye. Where the text below says "the first
+attempt", that is the unreviewed code at commit `5b73292`; every claim is about the code at the
+`Code commit:` above.
 
 **The run to look at:** `<assets-dir>/prepped/shotgun_sxs_r2-20260926T213701Z/` — and it now
 contains `source_*.png` (the untouched model) beside `render_*.png` (the prepped one), at the same
@@ -42,7 +46,7 @@ four cameras.
 
 4. **Four new checks catch this class in the tool.** (a) The untouched source is rendered at the same
    four cameras every run. (b) An **edge-density ratio** compares prepped against source per view and
-   warns past 1.25 — round 1 measured 1.92, this round measures **0.37–0.88**. (c) Each region's
+   warns past 1.25 — the first attempt measured 1.92, it now measures **0.37–0.88**. (c) Each region's
    colour is **sampled back through the mesh** — a different route from the mask that wrote it — and
    reported as `surface`; drift over 45/255 is a warning and a selftest failure. (d) The region map's
    **speckle** is measured and smoothed.
@@ -61,8 +65,9 @@ four cameras.
    region boundary is a ramp rather than a step.
 
 7. **Blued steel, with the two numbers the right way round.** RGB(26, 28, 34) — the p25 of Karen's
-   photo, cooled six points of blue — with **metallic 0.30 and roughness 0.55**. Round 1 had 0.55 /
-   0.30, which is a mirror. Action RGB(172, 172, 172), metallic 0.45, roughness 0.42. Wood
+   photo, cooled six points of blue — with **metallic 0.30 and roughness 0.55**. The first attempt
+   had those two the wrong way round, 0.55 / 0.30, which is a mirror. Action RGB(172, 172, 172),
+   metallic 0.45, roughness 0.42. Wood
    RGB(112, 80, 69) with the source grain kept: the levels mapping that clipped it into shards is
    gone, the median moves and each pixel keeps its relation to it.
 
@@ -85,7 +90,7 @@ four cameras.
 10. **Measured colours, both routes agreeing.** barrel asked RGB(26,28,34) → wrote RGB(34,34,34) →
     surface shows RGB(34,34,34), drift 8. action asked RGB(172,172,172) → wrote → surface
     RGB(171,171,171), drift 1. wood asked RGB(112,80,69) → wrote RGB(112,80,69) → surface
-    RGB(110,80,70), drift 2. Selftest **45 checks**; mutations re-run this round: the upside-down
+    RGB(110,80,70), drift 2. Selftest **45 checks**; mutations re-run after the fix: the upside-down
     mask, the echoed triangle count, the skipped lights and the touched input all still fail it.
 
 ## Not verified
