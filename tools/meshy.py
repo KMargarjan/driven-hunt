@@ -9,10 +9,13 @@ tools/assets.py, which does not exist yet (design section 0 item 6).
 Usage
     python tools/meshy.py key [--check]        is MESHY_API_KEY set? --check makes ONE free call
     python tools/meshy.py brief <key>_v<N>     validate a brief and print what would be sent
+    (briefs live in docs/asset-briefs/ IN THE REPO -- one source, reviewed in git; everything this
+     tool WRITES still goes outside it)
     python tools/meshy.py preview <key>_v<N> [--dry-run]
     python tools/meshy.py status [<run-id>]    local records, plus one GET per live task
     python tools/meshy.py approve <run-id> --by karen [--note "..."]
-    python tools/meshy.py resume <run-id>      continue an interrupted poll
+    python tools/meshy.py resume <run-id>      continue an interrupted poll, or collect a run
+                                               a STOPPED line left unresolved
     python tools/meshy.py runs                 every run: state, age, expiry, credits
     python tools/meshy.py selftest             offline: validators, builders, parsers. CI runs this
 
@@ -20,15 +23,19 @@ Exit codes, the shape tools/studio_mcp.py and tools/privacy_scan.py already use:
     0 done  ·  1 failed  ·  2 REFUSED (no key, dirs unset or inside the repo, validation, wrong
     state, a ceiling) -- refused before anything is sent, and never a stack trace.
 
-THE LAST LINE IS ALWAYS MACHINE-READABLE, prefix `[meshy]`: OK / PENDING / FAILED / REFUSED. It is
-what the ASSET agent pastes into its report and what a Reviewer checks, exactly as `[harness]` is.
+THE LAST LINE IS ALWAYS MACHINE-READABLE, prefix `[meshy]`: OK / PENDING / STOPPED / FAILED /
+REFUSED. It is what the ASSET agent pastes into its report and what a Reviewer checks, exactly as
+`[harness]` is. STOPPED is the one that costs money if it is ignored: the task is paid for and the
+run is still collectable, so that line ends with the exact `resume` command to run. FAILED is
+terminal -- the Meshy task came back FAILED or CANCELED, a ceiling stopped the run, or no task was
+ever created -- and nothing can be collected from it.
 
 THE KEY. Read once, from os.environ, else from HKCU\Environment (a shell started before Karen made
 the variable does not have it). NEVER printed, logged, put in an exception, or written to a run
 record -- `key` prints an 8-hex fingerprint of its SHA-256, which says "did it change" and is not
 invertible. Every header is redacted before any print. tools/privacy_scan.py has a `meshy-key` rule
-so a pasted key fails CI instead of being published, and selftest case 3 renders every line this
-tool can emit and asserts the key is in none of them.
+so a pasted key fails CI instead of being published, and the selftest's REDACTION block renders
+every line this tool can emit and asserts the key is in none of them.
 
 WHAT THIS TOOL CANNOT DO, by construction: it contains no Roblox endpoint and reads no Roblox
 variable, so an ASSET session cannot publish UGC through it; and Meshy's API has no publish, share
@@ -77,6 +84,9 @@ STATUS_RUNNING = ("PENDING", "IN_PROGRESS")
 MIN_REQUEST_GAP_S = 1.0  # 5% of Meshy's documented 20 req/s. Concurrency is the real cap, not rate.
 POLL_INTERVAL_S = 5
 POLL_DEADLINE_S = {"preview": 600, "refine": 900, "remesh": 300}
+# Consecutive non-200 polls before the run is given up on. Three is two more chances than a
+# transient 5xx needs and far fewer than the deadline's 120 (Task 55b).
+POLL_GIVE_UP_AFTER = 3
 HTTP_TIMEOUT_S = 60
 DOWNLOAD_TIMEOUT_S = 300
 RETRIES = 3
@@ -91,7 +101,19 @@ MAX_TASKS_PER_RUN = 4  # preview, refine, remesh, one replacement. A fifth needs
 MAX_TASKS_PER_DAY = 12  # counted from the run records on disk, so it survives a crashed session
 REMESH_CEILING = 18000  # the Director's brief; Meshy accepts 100-300,000, Roblox's hard limit is 20,000
 MAX_REFERENCES = 4  # "1 to 4 images" (multi-image endpoint)
+# WHAT MESHY ACCEPTS, and now what this accepts too (Director decision, row 55a(a)). The docs
+# say ".jpg, .jpeg, and .png"; Karen's reference photographs are JPEG and WebP, and refusing them
+# meant the gun and the trees could not use references at all. WebP is sent as a data URI like
+# the rest -- if Meshy refuses it, the task fails loudly with its own message rather than here.
+REFERENCE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
+DATA_URI_TYPE = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                 ".webp": "image/webp"}
 TEXTURE_PX_DEFAULT = 2048  # refine's `texture_resolution` IS a parameter (note D3)
+# The sizes Roblox and the asset pipeline between them make sensible: 1024 is
+# `asset-pipeline` 12.2's budget for an ordinary key, 2048 the hero keys' (design 15 Director D),
+# and 4096 is Roblox's platform limit -- allowed so a future key can ask for it, but never the
+# default. Anything else is a typo, and a typo here is paid for in credits.
+TEXTURE_PX_ALLOWED = (1024, 2048, 4096)
 
 # docs/design/asset-pipeline.md 12.1, quoted not restated. A key with no row uses REMESH_CEILING.
 REMESH_TARGETS = {
@@ -105,14 +127,31 @@ REMESH_TARGETS = {
 }
 
 KINDS = ("meshpart", "image", "model")  # asset-pipeline 4.1 Kind
+# THE LICENCE THIS TOOL CAN PRODUCE, and the only one. On a FREE plan the Terms say the opposite --
+# "Meshy owns all right, title, and interest ... in and to the Customer Output" -- so nothing this
+# pipeline makes could ship. `evidence` says exactly what the claim rests on, because no API call can
+# prove a plan: `usage/tasks` answers 403 for everything below Studio (research note D11), and the
+# authentication docs do not say a key requires a paid plan at all (D7). Director decision, row
+# 55a(c), 2026-09-26.
 LICENCE = {
     "basis": "meshy-paid-owned",
     "quote": "such customers on a paid Meshy plan own their Customer Output.",
     "quotedFrom": "https://www.meshy.ai/terms-of-use",
     "readOn": "2026-09-26",
+    "evidence": "Karen's statement 2026-09-26, plus a working API key (no API call can prove a plan)",
 }
 
-STATES = ("brief-ok", "preview-running", "preview-ready", "approved", "failed", "expired")
+STATES = ("brief-ok", "preview-running", "preview-unresolved", "preview-ready", "approved",
+          "failed", "expired")
+
+# MONEY ALREADY SPENT STAYS COLLECTABLE (Task 59, review round 1). `failed` is a TERMINAL: a Meshy
+# task came back FAILED or CANCELED, a ceiling stopped the run, or the POST never created a task --
+# in each of those there is nothing left to collect. Everything else that stops the tool while a
+# PAID task may still be running, or while its output could still be re-fetched, is
+# `preview-unresolved`, and `resume` takes it: a give-up after three unanswered polls, a 401 whose
+# key can be rotated, a SUCCEEDED task whose download failed. Putting those in `failed` made the
+# credits unreachable by any command, because `preview` again would pay twice (design section 8).
+RESUMABLE_STATES = ("preview-running", "preview-unresolved")
 
 
 class Refused(Exception):
@@ -166,8 +205,11 @@ def fingerprint(key):
 def redact(text, key):
     """Every rendering of anything goes through this before it is printed (design section 6.1).
 
-    Selftest case 3 builds every line this tool can emit with a fake key and asserts the key is in
-    none of them -- that is what keeps this true after a future edit."""
+    The selftest's REDACTION block builds every line this tool can emit with a fake key and asserts
+    the key appears in none of them -- that is what keeps this true after a future edit.
+
+    Blocks are named, not numbered (Task 55b): three comments carried three different case numbers
+    for the same two blocks, because numbering a list that grows is a citation that rots."""
     if not key:
         return text
     return str(text).replace(key, "***")
@@ -211,7 +253,19 @@ def runs_dir():
 
 
 def briefs_dir():
-    return os.path.join(drop_dir(), "briefs")
+    """`docs/asset-briefs/` IN THE REPOSITORY, and there is no second copy (Director decision,
+    row 55a(b), 2026-09-26).
+
+    Task 55 kept two: the reviewed record in the repo and a working copy in the drop folder that
+    this tool read. Two copies of the file that decides what is generated and what is paid for is
+    exactly the drift this project keeps paying for, and the drop-dir copy was the one nobody could
+    review. A brief carries no path, no key and no personal data, so there is no reason it cannot
+    live in git -- and every reason it should, because it is quoted verbatim into every run record
+    as the provenance of record.
+
+    NOTE the asymmetry, and it is deliberate: briefs are READ from the repo, and everything this
+    tool WRITES still goes outside it (`runs_dir`, which refuses a path inside the repo)."""
+    return os.path.join(REPO, "docs", "asset-briefs")
 
 
 # ---------------------------------------------------------------- the brief
@@ -255,7 +309,7 @@ def validate_brief(data, name, reference_names=()):
         problems.append("`prompt` is empty, and it is recorded forever as the provenance of record")
     references = data.get("references") or []
     if not isinstance(references, list):
-        problems.append("`references` must be a list of file NAMES in briefs/, never paths")
+        problems.append("`references` must be a list of file NAMES in docs/asset-briefs/, never paths")
         references = []
     if len(references) > MAX_REFERENCES:
         problems.append(f"{len(references)} references, and Meshy accepts 1 to {MAX_REFERENCES}")
@@ -263,24 +317,33 @@ def validate_brief(data, name, reference_names=()):
         if not isinstance(reference, str) or "/" in reference or "\\" in reference:
             problems.append(f"reference {reference!r} must be a file NAME, not a path")
             continue
-        if not reference.lower().endswith(".png"):
-            problems.append(f"reference {reference!r} is not a .png (one format per job)")
+        if not reference.lower().endswith(REFERENCE_SUFFIXES):
+            problems.append(
+                f"reference {reference!r} is not one of {', '.join(REFERENCE_SUFFIXES)}")
         elif reference_names and reference not in reference_names:
-            problems.append(f"reference {reference!r} is not in briefs/")
+            problems.append(f"reference {reference!r} is not in docs/asset-briefs/")
     size = data.get("sizeMetres")
     if not (isinstance(size, list) and len(size) == 3
             and all(isinstance(number, (int, float)) and number > 0 for number in size)):
         problems.append("`sizeMetres` must be three positive numbers: the mesh must be the grey "
                         "box's size, so no physics or hit-zone number moves when art lands")
     target = data.get("targetTris", REMESH_TARGETS.get(key, REMESH_CEILING))
-    if not isinstance(target, int) or target < 100:
+    if not isinstance(target, int) or isinstance(target, bool) or target < 100:
         problems.append(f"`targetTris` {target!r} is not an integer >= 100 (Meshy's floor)")
     elif target > REMESH_CEILING:
         problems.append(f"`targetTris` {target} is over REMESH_CEILING {REMESH_CEILING}")
+    # CHECKED LIKE EVERY OTHER FIELD (Task 55b). It was read straight out of the brief with no test
+    # at all, so a string or a 16384 would have flowed into Task B's `texture_resolution` and been
+    # refused by Meshy AFTER the credits were spent -- or worse, accepted.
+    texture = data.get("texturePx", TEXTURE_PX_DEFAULT)
+    if not isinstance(texture, int) or isinstance(texture, bool):
+        problems.append(f"`texturePx` {texture!r} is not an integer")
+    elif texture not in TEXTURE_PX_ALLOWED:
+        problems.append(
+            f"`texturePx` {texture} is not one of {', '.join(str(n) for n in TEXTURE_PX_ALLOWED)}")
     if problems:
         raise Refused("the brief is not usable:\n  - " + "\n  - ".join(problems))
-    return {"key": key, "version": version, "targetTris": target,
-            "texturePx": data.get("texturePx", TEXTURE_PX_DEFAULT)}
+    return {"key": key, "version": version, "targetTris": target, "texturePx": texture}
 
 
 def choose_endpoint(references):
@@ -293,17 +356,25 @@ def choose_endpoint(references):
     return "multi-image-to-3d"
 
 
-def data_uri(png_bytes):
-    """A local PNG as Meshy's documented "base64-encoded data URI", so nothing needs public hosting."""
+def data_uri(blob, name):
+    """A local image as Meshy's documented "base64-encoded data URI", so nothing needs public
+    hosting. The media type comes from the FILE NAME, because a PNG announced as a JPEG is a
+    decode error at the far end and a wasted task (Task 55b)."""
     import base64  # noqa: PLC0415 -- only this one function needs it
-    return "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+    suffix = os.path.splitext(name)[1].lower()
+    media = DATA_URI_TYPE.get(suffix)
+    if media is None:
+        raise Refused(f"{name!r} has no known media type; accepted: {', '.join(REFERENCE_SUFFIXES)}")
+    return f"data:{media};base64," + base64.b64encode(blob).decode("ascii")
 
 
 def build_preview_request(brief, resolved, images):
     """(endpoint, path, body). NOTHING DEPRECATED IS SENT: no art_style, negative_prompt or symmetry,
     and no rigging option (humanoid-only, and the boar is not humanoid).
 
-    Asserted against a frozen fixture in selftest case 2, so a later edit shows up as a diff."""
+    Asserted against EXPECTED_TEXT_BODY, a frozen fixture, so a later edit to the builder shows
+    up as a diff. (Named, not numbered: Task 55b found three comments citing three different
+    case numbers for the same two blocks.)"""
     endpoint = choose_endpoint(brief.get("references"))
     body = {}
     if endpoint == "text-to-3d":
@@ -468,9 +539,22 @@ def load_run(run_id):
         return json.load(handle)
 
 
-def save_run(record):
+def save_run(record, fresh=False):
+    """Write one run record. `fresh` means "this run is new": the directory must NOT already exist.
+
+    WHY (Task 55b). `run_id` is minute-resolution, and this used to overwrite `run.json`
+    unconditionally -- so two `preview` runs of the same key inside one minute silently replaced the
+    first record and ORPHANED A TASK THAT HAD ALREADY BEEN PAID FOR. Nothing else in the tool would
+    ever have mentioned it again: no id, no credits, no expiry. Rule 7 territory, and it is money."""
     path = run_path(record["runId"])
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    folder = os.path.dirname(path)
+    if fresh and os.path.exists(folder):
+        raise Refused(
+            f"the run directory {record['runId']} already exists. A run id is minute-resolution, so "
+            "this is almost certainly a second `preview` for the same key in the same minute -- and "
+            "overwriting it would orphan a task that has already been paid for. Wait a minute, or "
+            "use `runs` to see what is there.")
+    os.makedirs(folder, exist_ok=True)
     # Write then rename, so an interrupted write never leaves a half-parsed record.
     temporary = path + ".tmp"
     with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
@@ -523,6 +607,21 @@ def check_ceilings(record, records, now=None):
 def require_state(record, wanted):
     if record.get("state") != wanted:
         raise Refused(f"run is {record.get('state')}, not {wanted}")
+
+
+def stop_resumable(record, what, fix):
+    """Stop, keep the run collectable, and print the exact command that collects it.
+
+    Exit 1, because something did go wrong -- but the record stays in a state `resume` accepts, so
+    the credits are not stranded. The line's last sentence is always the command to run: the ASSET
+    agent pastes this into its report and the next session acts on it (design section 8)."""
+    record["state"] = "preview-unresolved"
+    save_run(record)
+    expiry = expiry_line(record)
+    print(f"[meshy] STOPPED: {record['runId']} {what}. {fix} "
+          f"Run: python tools/meshy.py resume {record['runId']}"
+          + (f" ({expiry})" if expiry else ""))
+    return 1
 
 
 def expiry_line(record, now=None):
@@ -580,18 +679,18 @@ def _load_brief_file(name):
     key, version = parse_brief_name(name)
     folder = briefs_dir()
     if not os.path.isdir(folder):
-        raise Refused("there is no briefs/ folder in <assets-dir>")
+        raise Refused("there is no docs/asset-briefs/ folder in the repository")
     filename = f"{key}_v{version}.brief.json"
     path = os.path.join(folder, filename)
     if not os.path.exists(path):
-        raise Refused(f"no brief named {filename} in <assets-dir>/briefs")
+        raise Refused(f"no brief named {filename} in docs/asset-briefs")
     with open(path, "rb") as handle:
         raw = handle.read()
     try:
         data = json.loads(raw.decode("utf-8"))
     except ValueError as error:
         raise Refused(f"{filename} is not valid JSON: {error}") from error
-    names = {entry for entry in os.listdir(folder) if entry.lower().endswith(".png")}
+    names = {entry for entry in os.listdir(folder) if entry.lower().endswith(REFERENCE_SUFFIXES)}
     resolved = validate_brief(data, filename, names)
     return data, resolved, raw, filename, folder
 
@@ -615,7 +714,7 @@ def _reference_images(data, folder):
     out = []
     for name in data.get("references") or []:
         with open(os.path.join(folder, name), "rb") as handle:
-            out.append(data_uri(handle.read()))
+            out.append(data_uri(handle.read(), name))
     return out
 
 
@@ -656,7 +755,8 @@ def cmd_preview(args):
         "totals": {"tasks": 0, "credits": 0},
     }
     check_ceilings(record, records)
-    save_run(record)
+    # FRESH: refuses rather than overwriting an existing run directory (Task 55b).
+    save_run(record, fresh=True)
 
     status, parsed, raw_body = request("POST", path, key, body)
     if status not in (200, 201, 202):
@@ -696,12 +796,39 @@ def poll_and_finish(record, key, phase):
     path = ENDPOINTS[record["endpoint"]] + "/" + entry["taskId"]
     deadline = time.time() + POLL_DEADLINE_S[phase]
     task = None
+    consecutive = 0
     while time.time() < deadline:
         status, parsed, raw_body = request("GET", path, key)
         if status != 200:
-            print("[meshy] " + describe_http_failure(status, parsed, raw_body, key))
+            # A PERMANENT ERROR IS NOT "STILL RUNNING" (Task 55b). This used to print and loop to
+            # the deadline, then fall out of the loop and report PENDING with exit 0 -- so a revoked
+            # key (401) or a bad task id (404) looked to the operator, and to the ASSET agent's
+            # report, exactly like a model that was simply taking a while. Design section 8 makes
+            # only "the task is still running" a non-failure.
+            message = describe_http_failure(status, parsed, raw_body, key)
+            print("[meshy] " + message)
+            terminal = status in (400, 401, 403, 404)
+            consecutive += 1
+            if terminal or consecutive >= POLL_GIVE_UP_AFTER:
+                # NOT `failed`: the TASK is not what stopped -- the POLL is (Task 59 finding 1).
+                # It is still running at Meshy and it is already paid for, so the record stays in a
+                # state `resume` accepts. Rotate a revoked key, wait out a 5xx, then resume: the
+                # only alternative was a second `preview`, which pays twice (design section 8).
+                if status in (401, 403):
+                    why = "the key was rejected"
+                    fix = ("Rotate MESHY_API_KEY, check it with `python tools/meshy.py key "
+                           "--check`, then collect this run.")
+                elif terminal:
+                    why = f"Meshy answered {status} for this task id"
+                    fix = ("Check the id with `python tools/meshy.py runs`; if it is right, the "
+                           "task may have been removed at Meshy.")
+                else:
+                    why = f"{consecutive} polls in a row did not answer 200"
+                    fix = "Meshy is unreachable or rate-limiting; wait, then collect this run."
+                return stop_resumable(record, f"{phase} cannot be polled -- {why}", fix)
             time.sleep(POLL_INTERVAL_S)
             continue
+        consecutive = 0
         inner = (parsed or {}).get("result")
         task = inner if isinstance(inner, dict) else parsed
         state, done, ok, message = read_status(task)
@@ -740,6 +867,12 @@ def finish_preview(record, key, task):
     model_urls = task.get("model_urls") or {}
     if isinstance(model_urls, dict) and model_urls.get("glb"):
         wanted.append(("preview.glb", model_urls["glb"]))
+    # A RE-DOWNLOAD REPLACES, it does not append: `resume` re-polls a SUCCEEDED task and comes back
+    # through here, and two entries for one file would make the record say the run produced two
+    # artefacts (Task 59).
+    names = {name for name, _url in wanted}
+    entry["artefacts"] = [a for a in entry.get("artefacts", []) if a.get("name") not in names]
+    undownloaded = []
     for name, url in wanted:
         if not url:
             print(f"[meshy] note: the response carried no URL for {name}")
@@ -748,16 +881,46 @@ def finish_preview(record, key, task):
             blob = download(url)
         except Failed as error:
             print(redact(f"[meshy] note: {name} did not download ({error})", key))
+            undownloaded.append(name)
             continue
         with open(os.path.join(folder, name), "wb") as handle:
             handle.write(blob)
         entry["artefacts"].append({"name": name, "sha256": hashlib.sha256(blob).hexdigest(),
                                    "bytes": len(blob)})
-    record["state"] = "preview-ready"
     record["totals"]["credits"] = sum(t.get("credits") or 0 for t in record["tasks"])
     record["totals"]["tasks"] = len(record["tasks"])
-    save_run(record)
     credits = entry.get("credits")
+
+    # THE IMAGE IS THE POINT OF THIS PHASE, so "preview-ready" is claimed only when it is ON DISK
+    # (Task 55b). Before this, a missing thumbnail URL or a failed download printed a note and then
+    # told the ASSET agent to Read a path that does not exist -- and the agent is instructed to
+    # describe what it sees, so the next thing in the chain was either a crash or an invention.
+    written = {artefact["name"] for artefact in entry.get("artefacts", [])}
+    on_disk = os.path.isfile(os.path.join(folder, "preview.png"))
+    # AND THE RUN STAYS COLLECTABLE (Task 59 finding 2). The task SUCCEEDED and the credits are
+    # spent; a signed URL is the only thing that failed, and `resume` mints fresh ones by polling
+    # the same task id. Calling this `failed` locked the operator out of an asset already paid for,
+    # while the line printed here told them to re-poll -- which the tool then refused.
+    if "preview.png" not in written or not on_disk:
+        missing = [name for name, _url in wanted if name not in written] or ["preview.png"]
+        return stop_resumable(
+            record,
+            f"SUCCEEDED and its credits are spent, but {', '.join(missing)} did not reach disk "
+            f"(credits={credits if credits is not None else 'unknown'})",
+            "The download URLs are signed and short-lived; resuming re-polls the same task id and "
+            "mints new ones, until the 3-day expiry.")
+    # The GLB is the artefact Task B needs, so a failed GLB download is the same class: paid for,
+    # not collected. A response that carried no GLB URL at all is a note, not a stop -- there is
+    # nothing to re-fetch, and the preview image is what this phase is for.
+    if undownloaded:
+        return stop_resumable(
+            record,
+            f"SUCCEEDED, but {', '.join(undownloaded)} did not download "
+            f"(credits={credits if credits is not None else 'unknown'})",
+            "The preview image is on disk; the rest can be re-fetched until the 3-day expiry.")
+
+    record["state"] = "preview-ready"
+    save_run(record)
     print(f"[meshy] the preview image is <runs-dir>/{record['runId']}/preview.png -- LOOK AT IT "
           "(rule 5), then ask Karen")
     print(f"[meshy] OK: preview {record['key']} v{record['version']} run={record['runId']} "
@@ -779,8 +942,9 @@ def cmd_resume(args):
     key, _source, why = read_key()
     if not key:
         raise Refused("MESHY_API_KEY is not set" + (f" ({why})" if why else ""))
-    if record["state"] != "preview-running":
-        raise Refused(f"run is {record['state']}; only preview-running can be resumed in this task")
+    if record["state"] not in RESUMABLE_STATES:
+        raise Refused(f"run is {record['state']}; only {' or '.join(RESUMABLE_STATES)} can be "
+                      "resumed in this task")
     if expiry_line(record) == "EXPIRED":
         record["state"] = "expired"
         save_run(record)
@@ -928,7 +1092,13 @@ def selftest():
         ({"prompt": "   "}, "`prompt` is empty"),
         ({"references": ["a.png", "b.png", "c.png", "d.png", "e.png"]}, "Meshy accepts 1 to 4"),
         ({"references": ["sub/dir.png"]}, "must be a file NAME"),
-        ({"references": ["photo.jpg"]}, "is not a .png"),
+        ({"references": ["notes.pdf"]}, "is not one of"),
+        ({"references": ["render.gif"]}, "is not one of"),
+        ({"texturePx": "2048"}, "is not an integer"),
+        ({"texturePx": True}, "is not an integer"),
+        ({"texturePx": 16384}, "is not one of"),
+        ({"texturePx": 700}, "is not one of"),
+        ({"targetTris": True}, "is not an integer"),
         ({"sizeMetres": [1, 2]}, "three positive numbers"),
         ({"sizeMetres": "big"}, "three positive numbers"),
         ({"targetTris": REMESH_CEILING + 1}, "over REMESH_CEILING"),
@@ -943,7 +1113,27 @@ def selftest():
     said = refusal(lambda: validate_brief(dict(GOOD_BRIEF, references=["missing.png"]),
                                           "boar.body_v1.brief.json", {"other.png"}),
                    "a reference not in briefs/")
-    ok("a missing reference is named", "is not in briefs" in said, said)
+    ok("a missing reference is named", "is not in docs/asset-briefs" in said, said)
+
+    # THE THREE FORMATS THE DIRECTOR ACCEPTED (row 55a(a)): Karen's photographs are JPEG and WebP.
+    for suffix in (".png", ".jpg", ".jpeg", ".webp"):
+        name = "ref" + suffix
+        brief = dict(GOOD_BRIEF, references=[name])
+        resolved_one = validate_brief(brief, "boar.body_v1.brief.json", {name})
+        ok(f"a {suffix} reference is accepted", resolved_one["key"] == "boar.body")
+        ok(f"a {suffix} data URI announces its own media type",
+           data_uri(b"bytes", name).startswith("data:" + DATA_URI_TYPE[suffix] + ";base64,"),
+           data_uri(b"bytes", name)[:40])
+    said = refusal(lambda: data_uri(b"bytes", "model.fbx"), "an unknown media type")
+    ok("an unknown suffix has no data URI", "no known media type" in said, said)
+
+    # And every allowed texture size passes, or the refusals above are only half the rule.
+    for size in TEXTURE_PX_ALLOWED:
+        got = validate_brief(dict(GOOD_BRIEF, texturePx=size), "boar.body_v1.brief.json")
+        ok(f"texturePx {size} is accepted", got["texturePx"] == size, str(got["texturePx"]))
+    ok("texturePx defaults when absent",
+       validate_brief({k: v for k, v in GOOD_BRIEF.items() if k != "texturePx"},
+                      "boar.body_v1.brief.json")["texturePx"] == TEXTURE_PX_DEFAULT)
 
     # 3. The endpoint is DATA, not a flag, and the body carries nothing deprecated.
     ok("0 references -> text", choose_endpoint([]) == "text-to-3d")
@@ -955,6 +1145,10 @@ def selftest():
     ok("the text body is exactly the frozen fixture", body == EXPECTED_TEXT_BODY,
        json.dumps(body, sort_keys=True))
     ok("the text path is the documented one", path == "/openapi/v2/text-to-3d", path)
+    # EVERY body, collected -- not just the last loop iteration (Task 55b). The old code checked
+    # `(body, got_body)`, and `got_body` was whatever the loop happened to leave behind, so the
+    # 1-reference image-to-3d body was never checked for a deprecated field at all.
+    built = [body]
     for count, wanted_endpoint, field in ((1, "image-to-3d", "image_url"),
                                           (3, "multi-image-to-3d", "image_urls")):
         brief = dict(GOOD_BRIEF, references=[f"r{index}.png" for index in range(count)])
@@ -962,13 +1156,16 @@ def selftest():
             brief, validate_brief(brief, "boar.body_v1.brief.json",
                                   {f"r{index}.png" for index in range(count)}),
             [f"data:image/png;base64,AAA{index}" for index in range(count)])
+        built.append(got_body)
         ok(f"{count} reference(s) -> {wanted_endpoint}", got_endpoint == wanted_endpoint)
         ok(f"{wanted_endpoint} sends {field}", field in got_body, json.dumps(got_body))
         ok(f"{wanted_endpoint} path is documented", got_path == ENDPOINTS[wanted_endpoint])
         ok(f"{wanted_endpoint} asks for triangles", got_body.get("topology") == "triangle")
-    for bodies in (body, got_body):
+    ok("all three endpoints were built", len(built) == 3, str(len(built)))
+    for index, bodies in enumerate(built):
         for field in DEPRECATED:
-            ok(f"no deprecated field {field}", field not in bodies, json.dumps(bodies))
+            ok(f"no deprecated field {field} in body {index}", field not in bodies,
+               json.dumps(bodies))
 
     # 4. The status parser. An UNKNOWN value is NOT success; a MISSING status fails loudly.
     ok("SUCCEEDED succeeds", read_status({"status": "SUCCEEDED"}) == ("SUCCEEDED", True, True, ""))
@@ -1073,6 +1270,272 @@ def selftest():
         ok(f"{key}'s target is under Roblox's 20000", target < 20000, str(target))
     ok("REMESH_CEILING is under Roblox's hard limit", REMESH_CEILING < 20000)
 
+    # ON-DISK BEHAVIOUR, in a temporary run directory -- no key, no network. These three are what
+    # Task 55b exists for, and none of them could be tested without a run folder.
+    import shutil  # noqa: PLC0415 -- only this block needs them
+    import tempfile  # noqa: PLC0415
+    sandbox = tempfile.mkdtemp(prefix="meshy-selftest-")
+    previous = os.environ.get("MESHY_RUN_DIR")
+    previous_key = os.environ.get("MESHY_API_KEY")
+    os.environ["MESHY_RUN_DIR"] = sandbox
+    try:
+        record = {
+            "runId": "boar.body_v1-20260101T0000Z", "key": "boar.body", "version": 1,
+            "brief": dict(GOOD_BRIEF), "briefSha256": "0" * 64, "briefFile": "x",
+            "endpoint": "text-to-3d", "state": "brief-ok", "tasks": [], "approval": None,
+            "licence": dict(LICENCE), "totals": {"tasks": 0, "credits": 0},
+        }
+        save_run(record, fresh=True)
+        ok("a fresh run writes its record", os.path.isfile(run_path(record["runId"])))
+        # A SECOND fresh save of the same id must REFUSE: run ids are minute-resolution, and
+        # overwriting one orphans a task that has already been paid for.
+        said = refusal(lambda: save_run(dict(record), fresh=True), "a second fresh run")
+        ok("a second fresh run with the same id is refused",
+           "already exists" in said and "paid for" in said, said)
+        # ...and a plain save (a state transition on a run that exists) still works.
+        record["state"] = "preview-running"
+        save_run(record)
+        ok("a state transition still saves", load_run(record["runId"])["state"] == "preview-running")
+
+        # approve twice is idempotent (design 13.1 item 5), and it refuses a wrong state.
+        class Args:
+            def __init__(self, **fields):
+                self.__dict__.update(fields)
+
+        said = refusal(lambda: cmd_approve(Args(run_id=record["runId"], by="karen", note="")),
+                       "approve on preview-running")
+        ok("approve refuses a run that is not preview-ready",
+           "preview-running" in said and "preview-ready" in said, said)
+        record["state"] = "preview-ready"
+        save_run(record)
+        ok("approve succeeds on preview-ready",
+           cmd_approve(Args(run_id=record["runId"], by="karen", note="first")) == 0)
+        first = load_run(record["runId"])["approval"]
+        ok("approve twice is idempotent",
+           cmd_approve(Args(run_id=record["runId"], by="someone-else", note="second")) == 0)
+        again = load_run(record["runId"])["approval"]
+        ok("the second approve changed nothing", again == first, json.dumps(again))
+
+        # A PERMANENT POLL ERROR STOPS THE RUN -- AND LEAVES IT COLLECTABLE. Task 55b made a 401
+        # or a 404 stop instead of looping to the 600 s deadline (a revoked key looked exactly like
+        # a model that was taking a while). Task 59's review then found that stopping wrote
+        # `failed`, which `resume` refuses -- so a task already paid for could never be collected
+        # by the tool again. Both halves are asserted from here down: it stops on the FIRST
+        # permanent error, and `resume` still picks the run up afterwards. `request` and `download`
+        # are swapped for fakes, so no key, no network and no credits are involved.
+        import contextlib  # noqa: PLC0415 -- only this block captures stdout
+        import io as stdlib_io  # noqa: PLC0415
+
+        def say(callable_):
+            """Run it; return (exit code, everything it printed)."""
+            buffer = stdlib_io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = callable_()
+            return code, buffer.getvalue()
+
+        def fake_succeeded(_method, _path, _key, body=None, timeout=HTTP_TIMEOUT_S):
+            return 200, {"result": {"status": "SUCCEEDED", "progress": 100,
+                                    "consumed_credits": 5,
+                                    "thumbnail_url": "https://example.invalid/p.png",
+                                    "model_urls": {"glb": "https://example.invalid/p.glb"}}}, ""
+
+        def fake_download(_url):
+            return b"\x89PNG\r\n\x1a\n not a real image"
+
+        def fake_download_fails(_url):
+            raise Failed("HTTPError: 403 the signed URL expired")
+
+        def collect(run_id, downloader):
+            """resume, with a fake Meshy that answers SUCCEEDED. Returns (code, output)."""
+            real_download = globals()["download"]
+            globals()["request"], globals()["download"] = fake_succeeded, downloader
+            try:
+                # A REFUSAL IS AN ANSWER HERE, not a crash: if `resume` ever stops accepting the
+                # state a stop leaves behind, that must read as a named failing case rather than
+                # an exception that ends the selftest before the cases after it run.
+                return say(lambda: cmd_resume(Args(run_id=run_id)))
+            except Refused as error:
+                return 2, f"REFUSED: {error}"
+            finally:
+                globals()["request"], globals()["download"] = real_request, real_download
+
+        # The fake key is set for the whole block, and RESTORED in the `finally` below rather than
+        # dropped: a real key in this process's environment is not the selftest's to discard (the
+        # same `previous` dance MESHY_RUN_DIR already does).
+        os.environ["MESHY_API_KEY"] = FAKE_KEY
+        polled = {"calls": 0}
+        real_request = globals()["request"]
+
+        def fake_401(_method, _path, _key, body=None, timeout=HTTP_TIMEOUT_S):
+            polled["calls"] += 1
+            return 401, {"message": "No valid API key provided"}, ""
+
+        running = dict(record)
+        running["runId"] = "boar.body_v1-20260101T0002Z"
+        running["state"] = "preview-running"
+        running["approval"] = None
+        running["tasks"] = [{"phase": "preview", "taskId": "t", "status": "PENDING",
+                             "createdAt": stamp(), "finishedAt": None, "credits": None,
+                             "creditsSource": "unknown", "artefacts": []}]
+        save_run(running, fresh=True)
+        globals()["request"] = fake_401
+        try:
+            code, said_401 = say(lambda: poll_and_finish(running, FAKE_KEY, "preview"))
+        finally:
+            globals()["request"] = real_request
+        ok("a 401 poll exits 1 rather than reporting PENDING", code == 1, str(code))
+        ok("it gives up on the FIRST permanent error, not at the deadline",
+           polled["calls"] == 1, str(polled["calls"]))
+        # NOT `failed`: the key can be rotated and the task is still running, and already paid for.
+        ok("a 401 leaves the run resumable rather than failed",
+           load_run(running["runId"])["state"] == "preview-unresolved",
+           load_run(running["runId"])["state"])
+        ok("and the 401 line says exactly what to run",
+           f"resume {running['runId']}" in said_401 and "Rotate MESHY_API_KEY" in said_401,
+           said_401.strip())
+        code, said_after_401 = collect(running["runId"], fake_download)
+        ok("resume collects the run after a 401 give-up (the key was rotated)", code == 0,
+           said_after_401.strip())
+        ok("...and it reaches preview-ready",
+           load_run(running["runId"])["state"] == "preview-ready",
+           load_run(running["runId"])["state"])
+
+        # A TRANSIENT error is different: it retries, then gives up after POLL_GIVE_UP_AFTER.
+        polled["calls"] = 0
+
+        def fake_503(_method, _path, _key, body=None, timeout=HTTP_TIMEOUT_S):
+            polled["calls"] += 1
+            return 503, None, "upstream is unhappy"
+
+        transient = dict(running)
+        transient["runId"] = "boar.body_v1-20260101T0003Z"
+        transient["state"] = "preview-running"
+        transient["tasks"] = [dict(running["tasks"][0])]
+        save_run(transient, fresh=True)
+        globals()["request"] = fake_503
+        gap = POLL_INTERVAL_S
+        globals()["POLL_INTERVAL_S"] = 0  # the sleep is not what is being tested
+        try:
+            code, said_503 = say(lambda: poll_and_finish(transient, FAKE_KEY, "preview"))
+        finally:
+            globals()["request"] = real_request
+            globals()["POLL_INTERVAL_S"] = gap
+        ok("a repeated 5xx also exits 1", code == 1, str(code))
+        ok("after exactly POLL_GIVE_UP_AFTER tries", polled["calls"] == POLL_GIVE_UP_AFTER,
+           str(polled["calls"]))
+        ok("a transient give-up leaves the run resumable rather than failed",
+           load_run(transient["runId"])["state"] == "preview-unresolved",
+           load_run(transient["runId"])["state"])
+        ok("and the give-up line says exactly what to run",
+           f"resume {transient['runId']}" in said_503, said_503.strip())
+        code, said_after_503 = collect(transient["runId"], fake_download)
+        ok("resume collects the run after a poll give-up", code == 0, said_after_503.strip())
+        ok("...and it reaches preview-ready",
+           load_run(transient["runId"])["state"] == "preview-ready",
+           load_run(transient["runId"])["state"])
+        ok("...with the preview image actually on disk",
+           os.path.isfile(os.path.join(sandbox, transient["runId"], "preview.png")))
+
+        # A DOWNLOAD THAT FAILS IS THE SAME CLASS (Task 59 finding 2): the task SUCCEEDED, the
+        # credits are spent, and only a short-lived signed URL went wrong. Re-polling mints a new
+        # one, so the run must stay resumable and the printed line must say so.
+        broken = dict(record)
+        broken["runId"] = "boar.body_v1-20260101T0004Z"
+        broken["state"] = "preview-running"
+        broken["approval"] = None
+        broken["tasks"] = [dict(running["tasks"][0], status="PENDING", artefacts=[])]
+        save_run(broken, fresh=True)
+        real_download = globals()["download"]
+        globals()["request"], globals()["download"] = fake_succeeded, fake_download_fails
+        try:
+            code, said_dl = say(lambda: poll_and_finish(broken, FAKE_KEY, "preview"))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a failed preview download exits 1", code == 1, str(code))
+        ok("...and leaves the run resumable rather than failed",
+           load_run(broken["runId"])["state"] == "preview-unresolved",
+           load_run(broken["runId"])["state"])
+        ok("...and the line says exactly what to run",
+           f"resume {broken['runId']}" in said_dl, said_dl.strip())
+        code, said_after_dl = collect(broken["runId"], fake_download)
+        ok("resume collects a preview whose download failed", code == 0, said_after_dl.strip())
+        ok("...and the image is on disk",
+           os.path.isfile(os.path.join(sandbox, broken["runId"], "preview.png")))
+        artefacts = load_run(broken["runId"])["tasks"][-1]["artefacts"]
+        names = [artefact["name"] for artefact in artefacts]
+        # BOTH downloads failed on the first pass here, so the record had nothing to double: this
+        # says the resume produced one entry per file, and the DEDUP is asserted on `partial`
+        # below, which is the run that really does carry a prior preview.png across a resume
+        # (round 2 finding 1 -- this case passed with the dedup deleted).
+        ok("...and the resume recorded one entry per file",
+           len(names) == len(set(names)) == 2, str(names))
+
+        # THE GLB ALONE. The image reaching disk used to be the whole test, so a preview whose GLB
+        # download failed was called `preview-ready` with a one-line note -- and the GLB is the
+        # artefact Task B needs before the 3-day expiry (Task 59, the Reviewer's fourth note).
+        def fake_glb_fails(url):
+            if url.endswith(".glb"):
+                raise Failed("HTTPError: 403 the signed URL expired")
+            return fake_download(url)
+
+        partial = dict(record)
+        partial["runId"] = "boar.body_v1-20260101T0005Z"
+        partial["state"] = "preview-running"
+        partial["approval"] = None
+        partial["tasks"] = [dict(running["tasks"][0], status="PENDING", artefacts=[])]
+        save_run(partial, fresh=True)
+        globals()["request"], globals()["download"] = fake_succeeded, fake_glb_fails
+        try:
+            code, said_glb = say(lambda: poll_and_finish(partial, FAKE_KEY, "preview"))
+        finally:
+            globals()["request"], globals()["download"] = real_request, real_download
+        ok("a failed GLB download stops instead of claiming preview-ready", code == 1, str(code))
+        ok("...and leaves the run resumable",
+           load_run(partial["runId"])["state"] == "preview-unresolved",
+           load_run(partial["runId"])["state"])
+        ok("...and names the GLB in the line", "preview.glb" in said_glb, said_glb.strip())
+        # THE RECORD ALREADY CARRIES ONE preview.png HERE -- `fake_glb_fails` let the thumbnail
+        # through on the first pass -- so this is the run where a re-download can actually double an
+        # entry, and it is the only place the dedup in `finish_preview` can be seen (round 2
+        # finding 1). Asserted BEFORE the resume too, or "it did not double" would be a claim about
+        # a record that never held the entry in the first place.
+        before = [a["name"] for a in load_run(partial["runId"])["tasks"][-1]["artefacts"]]
+        ok("the stopped run kept the file that DID download", before == ["preview.png"], str(before))
+        code, said_after_glb = collect(partial["runId"], fake_download)
+        ok("resume collects the GLB afterwards", code == 0, said_after_glb.strip())
+        ok("...and both files are on disk",
+           os.path.isfile(os.path.join(sandbox, partial["runId"], "preview.glb"))
+           and os.path.isfile(os.path.join(sandbox, partial["runId"], "preview.png")))
+        after = [a["name"] for a in load_run(partial["runId"])["tasks"][-1]["artefacts"]]
+        ok("...and the re-downloaded preview.png REPLACED its entry rather than doubling it",
+           sorted(after) == ["preview.glb", "preview.png"], str(after))
+
+        # resume refuses an EXPIRED run and says why -- the 3-day trap, from created_at.
+        expired = dict(record)
+        expired["runId"] = "boar.body_v1-20260101T0001Z"
+        expired["state"] = "preview-running"
+        expired["approval"] = None
+        expired["tasks"] = [{"phase": "preview", "taskId": "t", "status": "IN_PROGRESS",
+                             "createdAt": stamp(utc_now() - datetime.timedelta(hours=80)),
+                             "finishedAt": None, "credits": None, "creditsSource": "unknown",
+                             "artefacts": []}]
+        save_run(expired, fresh=True)
+        ok("an 80 h old run reads as EXPIRED", expiry_line(expired) == "EXPIRED", expiry_line(expired))
+        said = refusal(lambda: cmd_resume(Args(run_id=expired["runId"])), "resume an expired run")
+        ok("resume refuses an expired run, and says it cannot be regenerated",
+           "deleted" in said and "no seed" in said, said)
+        ok("the refusal moved it to expired", load_run(expired["runId"])["state"] == "expired")
+    finally:
+        if previous_key is None:
+            os.environ.pop("MESHY_API_KEY", None)
+        else:
+            os.environ["MESHY_API_KEY"] = previous_key
+        if previous is None:
+            os.environ.pop("MESHY_RUN_DIR", None)
+        else:
+            os.environ["MESHY_RUN_DIR"] = previous
+        shutil.rmtree(sandbox, ignore_errors=True)
+
     for line in failures:
         print("[meshy] selftest: " + line)
     if failures:
@@ -1117,7 +1580,8 @@ def build_parser():
     approve_parser.add_argument("--note", default="")
     approve_parser.set_defaults(run=cmd_approve)
 
-    resume_parser = sub.add_parser("resume", help="continue an interrupted poll")
+    resume_parser = sub.add_parser("resume",
+                                   help="continue an interrupted poll, or collect a STOPPED run")
     resume_parser.add_argument("run_id")
     resume_parser.set_defaults(run=cmd_resume)
 
