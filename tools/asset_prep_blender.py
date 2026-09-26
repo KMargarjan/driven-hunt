@@ -77,8 +77,15 @@ def triangles(ob):
 
 
 def decimate(ob, target):
-    """Collapse-decimate towards `target` triangles. Returns (before, after, ratio)."""
+    """Collapse-decimate towards `target` triangles, or not at all when `target` is null.
+
+    `None` IS A DECISION, NOT A MISSING VALUE: Roblox allows 20,000 triangles per mesh and Karen's
+    shotgun arrives at 19,325, so the default is to ship what arrived. The recipe says why.
+    """
     before = triangles(ob)
+    if target is None:
+        return before, before, 1.0
+    target = int(target)
     if before <= target:
         return before, before, 1.0
     ratio = float(target) / float(before)
@@ -203,7 +210,19 @@ def rasterise(masks, uvs, region_of, size):
     """Paint each triangle's UV footprint into its region's boolean mask, at `size` x `size`."""
     for tri_index, region in enumerate(region_of):
         mask = masks[region]
-        uv = uvs[tri_index] * size
+        # THE ROW IS (1 - v), NOT v, AND THIS ONE LINE WAS THE WHOLE DEFECT OF ROUND 1.
+        # `image_array` flips the image so row 0 is the TOP, which is what the classifier samples
+        # with; this function indexed the mask with v directly, so every region's mask was the
+        # VERTICAL MIRROR of the pixels it then edited. The barrels' near-black was painted onto
+        # whatever wood texels sat at the mirrored position and the walnut onto the barrels -- hard
+        # triangle-shaped patches of the wrong colour over the whole gun, which is exactly the
+        # black-and-orange camouflage the Director saw. Every colour still landed on its target
+        # because the median was measured through the same mirrored mask: the numbers agreed with
+        # each other and with nothing in the world (docs/PROJECT_CONTEXT.md, "things measured
+        # correct and looked wrong").
+        uv = uvs[tri_index].copy()
+        uv[:, 1] = 1.0 - uv[:, 1]
+        uv = uv * size
         min_x = max(int(math.floor(uv[:, 0].min())) - 1, 0)
         max_x = min(int(math.ceil(uv[:, 0].max())) + 1, size - 1)
         min_y = max(int(math.floor(uv[:, 1].min())) - 1, 0)
@@ -225,6 +244,23 @@ def rasterise(masks, uvs, region_of, size):
             mask[min_y:max_y + 1, min_x:max_x + 1] |= inside
 
 
+def feather(mask, rounds):
+    """A boolean mask as a float weight with a soft edge.
+
+    A HARD MASK IS A HARD EDGE IN THE FINISHED TEXTURE. The mask follows triangle boundaries, so
+    wherever the region rule ran through the middle of a continuous surface the atlas got an angular
+    step -- which is what the Director saw as camouflage shards. Blurring the mask turns the step
+    into a ramp a few texels wide; a real boundary (wood meeting metal) is still a boundary, because
+    the geometry there is a boundary too.
+    """
+    weight = mask.astype(np.float32)
+    for _ in range(max(rounds, 0)):
+        padded = np.pad(weight, 1, mode="edge")
+        weight = (padded[:-2, 1:-1] + padded[2:, 1:-1] + padded[1:-1, :-2] + padded[1:-1, 2:]
+                  + weight * 2.0) / 6.0
+    return weight
+
+
 def dilate(mask, rounds):
     """Grow a mask by `rounds` pixels, so a UV seam does not show the old colour."""
     out = mask.copy()
@@ -238,7 +274,7 @@ def dilate(mask, rounds):
     return out
 
 
-def correct_colour(array, mask, op, linearise):
+def correct_colour(array, mask, op, linearise, weight=None):
     """Move the masked pixels onto a measured target in HSV, keeping each pixel's ratio to the median.
 
     THE DETAIL SURVIVES BY CONSTRUCTION: grain and engraving are variation AROUND the region's
@@ -248,8 +284,10 @@ def correct_colour(array, mask, op, linearise):
     is converted to scene-linear here when the image is linear float. Getting that wrong is invisible
     in every number the run prints and obvious in the first render.
     """
-    if not mask.any():
-        return {"pixels": 0}
+    if not mask.any() or op.get("skip"):
+        # `skip` is how a region is left exactly as it arrived -- used to bisect which half of a run
+        # changed something, which is how round 2 found out where the damage actually was.
+        return {"pixels": 0, "skipped": bool(op.get("skip"))}
     target_hue, target_saturation, target_value = target_hsv(op["targetRGB"], linearise)
     rgb = array[..., :3]
     hue, saturation, value = rgb_to_hsv(rgb)
@@ -302,7 +340,12 @@ def correct_colour(array, mask, op, linearise):
         new_saturation = np.clip(
             target_saturation + (saturation[selected] - median_saturation) * spread, 0.0, 1.0)
     out = hsv_to_rgb(new_hue, new_saturation, new_value)
-    array[..., :3][selected] = out
+    if weight is None:
+        array[..., :3][selected] = out
+    else:
+        # LERP, NOT REPLACE: the mask's soft edge is what stops a region boundary becoming a shard.
+        blend = weight[selected][:, None]
+        array[..., :3][selected] = array[..., :3][selected] * (1.0 - blend) + out * blend
     # WHAT IT ACTUALLY BECAME, in the same sRGB numbers the target was written in. Without this the
     # only way to check a correction landed is to squint at a render, and three runs were spent
     # doing exactly that while the textures were in fact changing every time.
@@ -398,7 +441,25 @@ def measure_render(path):
         rgb = pixels.reshape((-1, 4))[:, :3]
         luma = rgb.mean(axis=1)
         median = float(np.median(luma))
+        width, height = image.size
+        grid = luma.reshape((height, width))
+        subject = np.abs(grid - median) > 0.02
+        # EDGE DENSITY: how much of the SUBJECT is a hard boundary. Smooth wood grain is low; the
+        # angular black-and-orange shards a scrambled UV produces are high. This is the number that
+        # catches "the tool wrecked the texture" without a human in the loop (Director, round 2).
+        dx = np.abs(np.diff(grid, axis=1))
+        dy = np.abs(np.diff(grid, axis=0))
+        edges = np.zeros_like(grid, dtype=bool)
+        edges[:, :-1] |= dx > 0.06
+        edges[:-1, :] |= dy > 0.06
+        subject_count = max(int(subject.sum()), 1)
+        rgb_grid = rgb.reshape((height, width, 3))
+        subject_rgb = rgb_grid[subject] if subject.any() else rgb_grid.reshape((-1, 3))
+        mean_linear = subject_rgb.mean(axis=0)
+        mean_srgb = [int(round(float(c) * 255)) for c in linear_to_srgb(mean_linear)]
         return {
+            "edgeDensity": round(float((edges & subject).sum()) / subject_count, 4),
+            "subjectMeanRGB": mean_srgb,
             "file": os.path.basename(path),
             "mean": round(float(luma.mean()), 4),
             "max": round(float(luma.max()), 4),
@@ -416,7 +477,14 @@ def measure_render(path):
         bpy.data.images.remove(image)
 
 
-def render_views(ob, out_dir, size_px, samples):
+def render_views(ob, out_dir, size_px, samples, prefix="render"):
+    # ONE RIG PER CALL, and it is removed at the end: this runs twice (once on the source, once on
+    # the prepped model) and a second PrepTarget would make the TRACK_TO constraints point at the
+    # wrong empty.
+    for stale in ("PrepTarget", "PrepCamera"):
+        old_object = bpy.data.objects.get(stale)
+        if old_object:
+            bpy.data.objects.remove(old_object, do_unlink=True)
     bpy.ops.object.empty_add(location=ob.location)
     empty = bpy.context.object
     empty.name = "PrepTarget"
@@ -449,10 +517,12 @@ def render_views(ob, out_dir, size_px, samples):
             camera.constraints.remove(constraint)
         look_at(camera, centre, distance, direction, ortho)
         bpy.context.view_layer.update()
-        path = os.path.join(out_dir, "render_%s.png" % name)
+        path = os.path.join(out_dir, "%s_%s.png" % (prefix, name))
         bpy.context.scene.render.filepath = path
         bpy.ops.render.render(write_still=True)
         written.append(measure_render(path))
+    bpy.data.objects.remove(empty, do_unlink=True)
+    bpy.data.objects.remove(camera, do_unlink=True)
     return written
 
 
@@ -470,10 +540,21 @@ def main():
     log("imported", object=ob.name, triangles=triangles(ob), vertices=len(ob.data.vertices),
         materials=[m.name if m else None for m in ob.data.materials])
 
-    before, after, ratio = decimate(ob, int(recipe["targetTriangles"]))
+    # THE SOURCE, PHOTOGRAPHED BEFORE ANYTHING IS DONE TO IT (Director, round 2). Round 1 shipped a
+    # model whose wood had turned into angular black-and-orange shards and whose barrels had turned
+    # into mirror chrome, and nothing in the tool noticed -- the only comparison available was the
+    # Director's memory of his own render. Now every run carries the before picture beside the after
+    # one, at the same four cameras, and the numbers from both are in the report.
+    studio(ob, int(recipe["renderPx"]), int(recipe["renderSamples"]))
+    if recipe.get("renderSource", True):
+        REPORT["sourceStats"] = render_views(ob, out_dir, int(recipe["renderPx"]),
+                                             int(recipe["renderSamples"]), prefix="source")
+        log("renderedSource", files=REPORT["sourceStats"])
+
+    before, after, ratio = decimate(ob, recipe["targetTriangles"])
     log("decimated", before=before, measuredAfter=after, ratioAsked=round(ratio, 6),
-        target=int(recipe["targetTriangles"]))
-    REPORT["triangles"] = {"before": before, "after": after, "target": int(recipe["targetTriangles"])}
+        target=recipe["targetTriangles"])
+    REPORT["triangles"] = {"before": before, "after": after, "target": recipe["targetTriangles"]}
 
     axis, muzzle_at_min, lo, hi, near_depth, far_depth = long_axis(ob)
     log("oriented", axis="XYZ"[axis], muzzleAtMin=muzzle_at_min, low=round(lo, 4), high=round(hi, 4),
@@ -537,8 +618,18 @@ def main():
 
     base = image_array(base_image)
     size = base.shape[0]
-    sample = np.clip((tri_centre_uv * size).astype(np.int32), 0, size - 1)
-    sampled = base[size - 1 - sample[:, 1], sample[:, 0], :3]
+    # SEVEN SAMPLES PER TRIANGLE, AND THE MEDIAN OF THEM -- not one texel at the centroid.
+    # ONE TEXEL IS WHAT BROKE ROUND 1. Meshy bakes near-black figure into the walnut, so a triangle
+    # whose centroid happened to land on a dark streak read as unsaturated, failed the "is it woody"
+    # test, and was recoloured as barrel (near-black) or action (silver) in the middle of the stock.
+    # Triangle by triangle, that is exactly the black-and-orange camouflage the Director saw.
+    barycentric = np.array([[1 / 3, 1 / 3, 1 / 3],
+                            [0.6, 0.2, 0.2], [0.2, 0.6, 0.2], [0.2, 0.2, 0.6],
+                            [0.45, 0.45, 0.1], [0.45, 0.1, 0.45], [0.1, 0.45, 0.45]])
+    samples = np.einsum("sk,tkc->tsc", barycentric, tri_uv)  # (triangles, 7, 2)
+    coords = np.clip((samples * size).astype(np.int32), 0, size - 1)
+    picked = base[size - 1 - coords[:, :, 1], coords[:, :, 0], :3]  # (triangles, 7, 3)
+    sampled = np.median(picked, axis=1)
     hue, saturation, _ = rgb_to_hsv(sampled.reshape((-1, 1, 3)))
     hue = hue.ravel()
     saturation = saturation.ravel()
@@ -549,15 +640,79 @@ def main():
     if not muzzle_at_min:
         t_axis = 1.0 - t_axis
 
+    def smooth_regions(labels, tris_list, rounds):
+        """Majority vote over neighbouring faces, `rounds` times.
+
+        A PER-TRIANGLE DECISION WITH NO NEIGHBOURHOOD IS SPECKLE, and speckle in a region map is
+        visible as hard-edged patches in the finished texture -- one triangle of silver in the middle
+        of a stock is a shard. Faces that share two vertices are neighbours; three rounds is enough
+        to drown out isolated mistakes without eating a real boundary, which is many triangles wide.
+        """
+        by_vertex = {}
+        for index, tri in enumerate(tris_list):
+            for vertex in tri.vertices:
+                by_vertex.setdefault(vertex, []).append(index)
+        neighbours = []
+        for index, tri in enumerate(tris_list):
+            seen = {}
+            for vertex in tri.vertices:
+                for other in by_vertex[vertex]:
+                    if other != index:
+                        seen[other] = seen.get(other, 0) + 1
+            neighbours.append([other for other, shared in seen.items() if shared >= 2])
+        changed_total = 0
+        labels = list(labels)
+        for _ in range(rounds):
+            updated = list(labels)
+            changed = 0
+            for index, mates in enumerate(neighbours):
+                if not mates:
+                    continue
+                votes = {labels[index]: 1}
+                for other in mates:
+                    votes[labels[other]] = votes.get(labels[other], 0) + 1
+                best = max(votes.items(), key=lambda kv: (kv[1], kv[0] == labels[index]))[0]
+                if best != labels[index]:
+                    changed += 1
+                updated[index] = best
+            labels = updated
+            changed_total += changed
+            if changed == 0:
+                break
+        return labels, changed_total, neighbours
+
+    def speckle_of(labels, neighbours):
+        """The fraction of faces that disagree with every one of their neighbours."""
+        lonely = 0
+        for index, mates in enumerate(neighbours):
+            if mates and all(labels[other] != labels[index] for other in mates):
+                lonely += 1
+        return round(lonely / max(len(labels), 1), 4)
+
     wood_rule = recipe["regions"]["wood"]["rule"]
     woody = ((saturation >= float(wood_rule["satMin"]))
              & (hue * 360.0 >= float(wood_rule["hueLoDeg"]))
              & (hue * 360.0 <= float(wood_rule["hueHiDeg"])))
     action_start = float(recipe["actionStartT"])
-    region_of = np.where(woody, "wood", np.where(t_axis < action_start, "barrel", "action"))
+    raw = np.where(woody, "wood", np.where(t_axis < action_start, "barrel", "action"))
+    rounds = int(recipe.get("regionSmoothRounds", 3))
+    smoothed, changed, neighbours = smooth_regions(list(raw), tris, rounds)
+    speckle_before = speckle_of(list(raw), neighbours)
+    speckle_after = speckle_of(smoothed, neighbours)
+    region_of = np.array(smoothed)
     counts = {name: int((region_of == name).sum()) for name in ("barrel", "action", "wood")}
-    log("regions", triangles=counts, actionStartT=action_start, rule=wood_rule)
+    log("regions", triangles=counts, actionStartT=action_start, rule=wood_rule,
+        smoothRounds=rounds, reassigned=changed, speckleBefore=speckle_before,
+        speckleAfter=speckle_after)
     REPORT["regions"] = counts
+    REPORT["regionSpeckle"] = {"before": speckle_before, "after": speckle_after,
+                               "reassigned": changed, "rounds": rounds}
+    ceiling_speckle = float(recipe.get("maxRegionSpeckle", 0.01))
+    if speckle_after > ceiling_speckle:
+        REPORT["warnings"].append(
+            "%.1f%% of faces still disagree with every neighbour after smoothing (ceiling %.1f%%): "
+            "the region map is speckled and the texture will show it as patches"
+            % (speckle_after * 100, ceiling_speckle * 100))
     if min(counts.values()) == 0:
         REPORT["warnings"].append("a region came out empty: %s" % counts)
 
@@ -565,7 +720,10 @@ def main():
     rasterise(masks, tri_uv, list(region_of), size)
     dilation = int(recipe.get("maskDilatePx", 4))
     masks = {name: dilate(mask, dilation) for name, mask in masks.items()}
-    log("masks", pixels={k: int(v.sum()) for k, v in masks.items()}, dilatePx=dilation)
+    feather_px = int(recipe.get("maskFeatherPx", 6))
+    weights = {name: feather(mask, feather_px) for name, mask in masks.items()}
+    log("masks", pixels={k: int(v.sum()) for k, v in masks.items()}, dilatePx=dilation,
+        featherPx=feather_px)
 
     # `image.pixels` is scene-linear whenever the image is tagged sRGB, which every base colour map
     # out of a generator is. The report says which way it was taken, so a future odd colour has a
@@ -574,30 +732,72 @@ def main():
     corrections = {"colorspace": base_image.colorspace_settings.name, "linearised": linearise}
     for name in ("barrel", "action", "wood"):
         op = dict(recipe["regions"][name]["baseColor"])
-        corrections[name] = correct_colour(base, masks[name], op, linearise)
+        corrections[name] = correct_colour(base, masks[name], op, linearise, weights[name])
     set_image(base_image, base)
+
+    # ---- WHAT THE SURFACE ACTUALLY SHOWS, sampled back THROUGH THE MESH.
+    #
+    # The `achievedRGB` above is measured through the same mask that did the writing, so it agrees
+    # with itself no matter where the mask landed -- round 1 reported every colour dead on target
+    # while the gun was painted in camouflage, because the mask was the vertical mirror of the
+    # region it was measured on. This measurement uses a different route: it takes each region's
+    # TRIANGLES, samples the corrected texture at their UV footprints, and reports the median. If
+    # the mask is upside down, or shifted, or the wrong region's, the two numbers disagree -- which
+    # is the only way a program can notice, and it is how the selftest now catches that defect.
+    verified = {}
+    for name in ("barrel", "action", "wood"):
+        rows = region_of == name
+        if not rows.any():
+            continue
+        coords_here = np.clip((samples[rows] * size).astype(np.int32), 0, size - 1)
+        picked_here = base[size - 1 - coords_here[:, :, 1], coords_here[:, :, 0], :3]
+        median_rgb = np.median(picked_here.reshape((-1, 3)), axis=0)
+        shown = [int(round(float(c) * 255)) for c in linear_to_srgb(median_rgb)] if linearise             else [int(round(float(c) * 255)) for c in median_rgb]
+        wanted = recipe["regions"][name]["baseColor"].get("targetRGB")
+        drift = max(abs(a - b) for a, b in zip(shown, wanted)) if wanted else None
+        verified[name] = {"shownRGB": shown, "targetRGB": wanted, "drift": drift}
+    REPORT["surface"] = verified
+    log("surface", shown=verified)
+    ceiling_drift = float(recipe.get("maxSurfaceDrift", 45))
+    off = {k: v for k, v in verified.items() if v["drift"] is not None and v["drift"] > ceiling_drift}
+    if off:
+        REPORT["warnings"].append(
+            "sampled through the mesh, %s do not show the colour they were given (drift over %d): "
+            "the masks are not where the correction thinks they are"
+            % (", ".join(sorted(off)), ceiling_drift))
+
     REPORT["corrections"] = corrections
     log("baseColour", corrections=corrections)
 
-    for channel_name, image in (("roughness", roughness_image), ("metallic", metallic_image)):
-        if image is None:
-            continue
-        array = image_array(image)
-        touched = {}
-        for name in ("barrel", "action", "wood"):
-            target = recipe["regions"][name].get(channel_name)
-            weight = float(recipe.get("channelWeight", 0.85))
-            touched[name] = push_channel(array, masks[name], target, weight)
-        set_image(image, array)
-        log(channel_name, pixels=touched)
-
-    # ---- one material per region, all sharing the corrected maps, so an importer can split them
+    # ---- ONE MATERIAL PER REGION, AND THE PBR VALUES LIVE ON THE MATERIAL, NOT IN THE MAP.
+    #
+    # Round 1 painted each region's roughness and metallic INTO the shared maps through the same
+    # triangle-shaped masks, and a step in roughness is as visible as a step in colour: with the
+    # albedo left completely untouched the prepped model still came back with 1.4x the source's edge
+    # density (measured, round 2). A material scalar has no edges at all -- the boundary is the
+    # boundary between two materials, which is where the model's own geometry already is -- and it is
+    # what "give each region its own material" is for. The map is disconnected on that material so
+    # the scalar is the value that ships.
     made = {}
     for name in ("barrel", "action", "wood"):
         new_material = material.copy()
         new_material.name = "dh_%s" % name
+        settings = recipe["regions"][name]
+        node = next((n for n in new_material.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if node is not None:
+            for socket_name, key in (("Metallic", "metallic"), ("Roughness", "roughness")):
+                value = settings.get(key)
+                socket = node.inputs.get(socket_name)
+                if value is None or socket is None:
+                    continue
+                for link in list(socket.links):
+                    new_material.node_tree.links.remove(link)
+                socket.default_value = float(value)
         made[name] = len(mesh.materials)
         mesh.materials.append(new_material)
+    log("materialValues", values={name: {"metallic": recipe["regions"][name].get("metallic"),
+                                         "roughness": recipe["regions"][name].get("roughness")}
+                                  for name in ("barrel", "action", "wood")})
     slot_of = {name: made[name] for name in made}
     indices = np.array([slot_of[r] for r in region_of], dtype=np.int32)
     poly_material = np.zeros(len(mesh.polygons), dtype=np.int32)
@@ -611,7 +811,7 @@ def main():
     # ---- write the corrected textures beside the exports
     written = []
     for name, image in (("baseColor", base_image), ("metallic", metallic_image),
-                        ("roughness", roughness_image)):
+                        ("roughness", roughness_image)):  # the last two are unchanged since Task 72r2
         if image is None:
             continue
         path = os.path.join(out_dir, "texture_%s.png" % name)
@@ -622,13 +822,42 @@ def main():
     log("wroteTextures", files=written)
     REPORT["texturesWritten"] = written
 
-    # LIGHTS FIRST. Without this call the scene has no lamps, no world and the default resolution,
-    # and every render comes out pure black -- which is exactly what the first run produced.
-    studio(ob, int(recipe["renderPx"]), int(recipe["renderSamples"]))
+    # The lighting rig is already up (the source renders needed it). Without it every render comes
+    # out pure black, which is exactly what the first version of this tool produced.
     measured = render_views(ob, out_dir, int(recipe["renderPx"]), int(recipe["renderSamples"]))
     log("rendered", files=measured)
     REPORT["renderStats"] = measured
     REPORT["renders"] = [m["file"] for m in measured]
+
+    # ---- BEFORE AGAINST AFTER, as numbers. A colour is MEANT to move; the texture's structure is
+    # not. `edgeDensityRatio` above 1 means the prepped model has harder boundaries than the source
+    # -- shards where there was grain -- and that is the failure round 1 shipped.
+    source_by_view = {m["file"].split("_", 1)[1]: m for m in REPORT.get("sourceStats", [])}
+    comparison = []
+    worst = 0.0
+    for after in measured:
+        view = after["file"].split("_", 1)[1]
+        before = source_by_view.get(view)
+        if not before:
+            continue
+        ratio = after["edgeDensity"] / max(before["edgeDensity"], 1e-4)
+        worst = max(worst, ratio)
+        comparison.append({
+            "view": view,
+            "edgeDensityBefore": before["edgeDensity"],
+            "edgeDensityAfter": after["edgeDensity"],
+            "edgeDensityRatio": round(ratio, 3),
+            "meanRGBBefore": before["subjectMeanRGB"],
+            "meanRGBAfter": after["subjectMeanRGB"],
+        })
+    REPORT["comparison"] = comparison
+    REPORT["worstEdgeDensityRatio"] = round(worst, 3)
+    ceiling = float(recipe.get("maxEdgeDensityRatio", 1.25))
+    if worst > ceiling:
+        REPORT["warnings"].append(
+            "the prepped model has %.2fx the edge density of the source (ceiling %.2f): the texture "
+            "has been broken up, not just recoloured" % (worst, ceiling))
+    log("compared", worstEdgeDensityRatio=round(worst, 3), ceiling=ceiling, views=comparison)
 
     bpy.ops.object.select_all(action="DESELECT")
     ob.select_set(True)

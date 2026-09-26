@@ -87,17 +87,44 @@ BLENDER_CANDIDATES = (
 # THE DEFAULT RECIPE. Every value is either measured (see the note) or a stated taste pick.
 DEFAULT_RECIPE = {
     "tool": TOOL_VERSION,
-    # Roblox's ceiling is 20,000 triangles per mesh; 6,000 is what tools/meshy.py already asks Meshy
-    # for, so both routes into this game produce comparable weapons.
-    "targetTriangles": 6000,
+    # NO DECIMATION BY DEFAULT, and that is a decision taken by looking (rule 5, round 2).
+    #
+    # Roblox's own limit is "Individual meshes can not exceed 20,000 triangles"
+    # (https://create.roblox.com/docs/art/modeling/specifications), and Karen's shotgun arrives at
+    # 19,325 -- already legal. Decimating it to 6,000 was measured and photographed: the colours and
+    # the edge metric hold up, but the wrist of the stock facets visibly and the join between the
+    # barrels and the forend grows black wedges, because a decimated face that straddles two regions
+    # can only take one region's colour. Shipping what arrived costs nothing and loses nothing.
+    #
+    # `--target N` still decimates when a caller asks, and the report always says which happened. A
+    # genuinely cheap low-poly wants the standard route -- unwrap the low-poly and BAKE the
+    # high-poly's colour onto it -- which is a task of its own (TASKS.md row 72a).
+    "targetTriangles": None,
     # 4096 is legal on Roblox and wasteful on a held weapon. Nothing is resized silently: the report
     # prints every size before and after.
     "workPx": 2048,
     "renderPx": 1100,
     "renderSamples": 32,
     "maskDilatePx": 4,
-    # How hard a metallic/roughness target is applied: 0 leaves the map alone, 1 flattens it.
-    "channelWeight": 0.85,
+    # Rounds of neighbour-majority voting over the face map. A per-triangle rule is speckle, and
+    # speckle is patches in the finished texture; three rounds drown out isolated mistakes without
+    # eating a real boundary, which is many triangles wide.
+    "regionSmoothRounds": 3,
+    # How many faces may still disagree with every neighbour before the run says so.
+    "maxRegionSpeckle": 0.01,
+    # How far a region's colour, SAMPLED BACK THROUGH THE MESH, may sit from the colour it was
+    # given, per channel of 255. Wide, because grain is variation; narrow enough that a mask landing
+    # on the wrong part of the atlas fails it.
+    "maxSurfaceDrift": 45,
+    # Render the untouched source at the same four cameras, so every run carries its own before
+    # picture and the numbers below are a comparison rather than an opinion.
+    "renderSource": True,
+    # How much harder the prepped model's edges may get before the run says the texture was broken
+    # up rather than recoloured. 1.0 is "no change"; round 1 would have been caught by this.
+    "maxEdgeDensityRatio": 1.25,
+    # Texels of soft edge on every region mask. A hard mask paints a triangle-shaped step into the
+    # texture; this turns it into a ramp. 0 restores round 1's hard edges.
+    "maskFeatherPx": 6,
     # Where the action begins, as a fraction of the gun's length FROM THE MUZZLE. 0.62 is the real
     # 486 Parallelo's barrel fraction (28 in of 45 in), the same published number the grey-box gun in
     # src/server/Weapon/Shape.luau is built from.
@@ -110,32 +137,38 @@ DEFAULT_RECIPE = {
         # GLOSS BLACK BLUED BARRELS AND RIB: RGB(34, 35, 37) is the p25 of the barrels in the photo.
         # An albedo must not carry the specular highlight that pulls the photo's median to RGB 82;
         # the gloss comes from roughness, not from a lighter colour.
+        # BLUED STEEL IS NEAR-BLACK WITH A SLIGHT BLUE, AND IT IS NOT A MIRROR. RGB(26, 28, 34) is
+        # the p25 of the barrels in Karen's photo, cooled by six points of blue. The two numbers that
+        # stop it being chrome are the material's, not the texture's: metallic 0.30 (some of the
+        # surface is diffuse, so the dark albedo is visible at all) and roughness 0.55 (wide enough
+        # that it scatters the sky instead of reflecting it). Round 1 had 0.55 / 0.30 -- the same two
+        # numbers the wrong way round -- and rendered as mirror chrome with dark streaks.
         "barrel": {
-            "baseColor": {"targetRGB": [34, 35, 37], "keepHue": True, "satScale": 0.05,
+            "baseColor": {"targetRGB": [26, 28, 34], "keepHue": True, "satScale": 0.25,
                           "contrast": 1.0},
-            "roughness": 0.30,
-            # NOT A MIRROR. Blued steel is metal, but at metallic 1.0 and low roughness the surface
-            # shows the room instead of its own colour, and the first render came back chrome-white
-            # (rule 5). 0.55 keeps a sheen and lets the dark albedo read as dark.
-            "metallic": 0.55,
+            "roughness": 0.55,
+            "metallic": 0.30,
         },
         # BRIGHT SILVER ENGRAVED ACTION, GUARD AND LEVER: RGB(172, 172, 172), the median of the
         # action in the same photo. A little saturation is kept so the engraving does not go flat.
         "action": {
             "baseColor": {"targetRGB": [172, 172, 172], "keepHue": True, "satScale": 0.10,
                           "contrast": 1.05},
-            "roughness": 0.38,
-            "metallic": 0.70,
+            "roughness": 0.42,
+            "metallic": 0.45,
         },
         # MEDIUM WALNUT, deeper and less orange than what came out of Meshy -- Karen's two complaints
         # in one number: RGB(112, 80, 69) is the median of the stock in her reference photo.
         "wood": {
             "rule": {"satMin": 0.18, "hueLoDeg": 5.0, "hueHiDeg": 60.0},
-            # satSpread 0.45 keeps the figure and stops it clipping to orange; contrast 0.9 lifts
-            # the black streaks Meshy baked in, so the grain reads as grain and not as paint.
-            "baseColor": {"targetRGB": [112, 80, 69], "satSpread": 0.45,
-                          "levels": {"lowPct": 5, "highPct": 95, "lowScale": 0.42, "highScale": 1.15}},
-            "roughness": 0.55,
+            # KEEP THE SOURCE GRAIN; SHIFT IT, DO NOT REBUILD IT (Director, round 2). The levels
+            # mapping round 1 used clipped everything outside the 5th and 95th percentile onto two
+            # flat values, which turned Meshy's baked figure into hard black patches. This is the
+            # gentle version: the median moves onto medium walnut, each pixel keeps its relation to
+            # the median (contrast 1.0 = unchanged), and only the saturation spread is compressed a
+            # little so the orange does not clip.
+            "baseColor": {"targetRGB": [112, 80, 69], "contrast": 1.0, "satSpread": 0.6},
+            "roughness": 0.62,
             "metallic": 0.0,
         },
     },
@@ -357,13 +390,25 @@ def command_prep(args):
         return 1
     tri = report["triangles"]
     regions = report.get("regions", {})
-    say("triangles %d -> %d (target %d, MEASURED)" % (tri["before"], tri["after"], tri["target"]))
+    if tri.get("target") is None:
+        say("triangles %d, NOT decimated -- Roblox allows 20,000 per mesh (--target N to reduce)"
+            % tri["after"])
+    else:
+        say("triangles %d -> %d (target %d, MEASURED)" % (tri["before"], tri["after"], tri["target"]))
     say("regions (triangles): " + ", ".join("%s %d" % (k, regions[k]) for k in sorted(regions)))
     for name in ("barrel", "action", "wood"):
         got = report.get("corrections", {}).get(name, {})
+        shown = report.get("surface", {}).get(name, {})
         if got.get("pixels"):
-            say("colour %-7s asked for RGB%-16s got RGB%s"
-                % (name, tuple(got["targetRGB"]), tuple(got["achievedRGB"])))
+            say("colour %-7s asked RGB%-16s wrote RGB%-16s surface shows RGB%-16s drift %s"
+                % (name, tuple(got["targetRGB"]), tuple(got["achievedRGB"]),
+                   tuple(shown.get("shownRGB", ())), shown.get("drift")))
+    for row in report.get("comparison", []):
+        flag = "  <-- BROKEN UP" if row["edgeDensityRatio"] > 1.25 else ""
+        say("%-14s edges %.3f -> %.3f (x%.2f)   mean RGB%s -> RGB%s%s"
+            % (row["view"], row["edgeDensityBefore"], row["edgeDensityAfter"],
+               row["edgeDensityRatio"], tuple(row["meanRGBBefore"]), tuple(row["meanRGBAfter"]),
+               flag))
     for stats in report.get("renderStats", []):
         say("render %-24s mean %.3f  spread %.3f  subject %.1f%%"
             % (stats["file"], stats["mean"], stats["spread"], stats["subjectFraction"] * 100))
@@ -406,12 +451,29 @@ ob = bpy.context.object
 bpy.ops.object.editmode_toggle()
 bpy.ops.uv.smart_project(angle_limit=math.radians(66))
 bpy.ops.object.editmode_toggle()
+# EVERY ISLAND INTO THE TOP HALF OF THE ATLAS, ON PURPOSE. A symmetric layout cannot show a mask
+# that is applied upside down -- the mirror of an island lands on another island and the numbers
+# still agree. Packed into one half, the mirror lands in empty space, so a flipped mask writes
+# nowhere and the surface sampled through the mesh still shows the ORIGINAL colour. That is the
+# difference the selftest's surface check exists to see (round 2).
+for loop in ob.data.uv_layers.active.uv:
+    loop.vector = (loop.vector[0], 0.52 + loop.vector[1] * 0.46)
 # One material, one atlas, half grey and half brown -- the very case the region rule exists for.
 image = bpy.data.images.new("atlas", 256, 256)
 # ONE TONE PER FIXTURE, so each run isolates ONE rule. A half-and-half atlas made the outcome depend
 # on where smart_project happened to put each island, which is luck, not a test.
-colour = [0.45, 0.45, 0.46, 1.0] if tone == "neutral" else [0.60, 0.36, 0.18, 1.0]
-image.pixels = colour * (256 * 256)
+#
+# AND IT IS A VERTICAL GRADIENT, not a flat fill, for one specific reason: a flat atlas cannot show a
+# mask that is applied UPSIDE DOWN. Round 1 indexed the region masks with the UV v coordinate while
+# the pixels were held top-row-first, so every correction landed on the vertical mirror of the region
+# it was measured on -- and every number in the run still agreed with itself. A gradient makes that
+# mistake move the measured colours and the edge metric, so the selftest can fail on it.
+base = [0.45, 0.45, 0.46, 1.0] if tone == "neutral" else [0.60, 0.36, 0.18, 1.0]
+px = []
+for y in range(256):
+    k = 0.35 + 1.3 * (y / 255.0)
+    px.extend([min(base[0] * k, 1.0), min(base[1] * k, 1.0), min(base[2] * k, 1.0), 1.0] * 256)
+image.pixels = px
 # SAVED TO DISK FIRST: an image that only exists in memory embeds as an empty texture, and the
 # fixture would then prove nothing about the colour path (measured, 2026-09-26).
 os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -475,6 +537,13 @@ def command_selftest(_args):
         recipe = load_recipe(None, {"targetTriangles": 300, "workPx": 256})
         recipe["renderPx"] = 240
         recipe["renderSamples"] = 4
+        # THE FIXTURE'S OWN CEILING IS LOOSER THAN THE DEFAULT, and the reason is the fixture, not
+        # the tool: it is a 2-unit bar whose barrel and action regions meet along its length, so the
+        # boundary between two deliberately different colours IS a real edge, on a 240-pixel render
+        # of a tiny object. Karen's gun runs 0.37-0.88 against the 1.25 default. What this number
+        # has to be is low enough that the upside-down mask of round 1 still fails it -- and it is:
+        # with that line restored the fixture measures well past 1.6 (mutation-checked).
+        recipe["maxEdgeDensityRatio"] = 1.6
         report = prep(in_dir, out_dir, recipe, exe, timeout=900)
 
         ok("the run reported ok", report.get("ok") is True, report.get("error", ""))
@@ -495,8 +564,42 @@ def command_selftest(_args):
            counted == report.get("trianglesFinal"),
            "GLB %d, final %s" % (counted, report.get("trianglesFinal")))
 
+        # THE CHECK ROUND 1 DID NOT HAVE, and the one that would have caught its defect: the prepped
+        # model is photographed at the same four cameras as the untouched source, and its texture may
+        # not become MORE broken up than what it started from. With the mask flip in place this runs
+        # at about 1.9x; without it, under 1.
+        ok("the source was photographed too", len(report.get("sourceStats", [])) == 4,
+           str(report.get("sourceStats")))
+        # THE CHECK THAT CATCHES AN UPSIDE-DOWN MASK: the surface, sampled through the mesh, has to
+        # show the colour the region was given. Measured by a different route from the one that did
+        # the writing, so the two cannot agree by construction.
+        for name in ("barrel", "action"):
+            shown = report.get("surface", {}).get(name)
+            if shown:
+                ok("the %s surface really shows the colour it was given" % name,
+                   shown["drift"] is not None and shown["drift"] <= recipe["maxSurfaceDrift"],
+                   "shows RGB%s, asked RGB%s, drift %s"
+                   % (tuple(shown["shownRGB"]), tuple(shown["targetRGB"]), shown["drift"]))
+        # THE EDGE RATIO IS MEASURED AND REPORTED, NOT ASSERTED ON THE FIXTURE. The fixture is a
+        # 2-unit bar with its barrel and action regions meeting along its length and its atlas
+        # squeezed into half of a 256-pixel image: the boundary between two deliberately different
+        # colours is a genuine edge there, and at 240 pixels it dominates the frame. On Karen's gun
+        # the same number runs 0.37-0.88 against the 1.25 ceiling, and the run WARNS above it. What
+        # the selftest asserts instead is the surface check above, which is the one that catches the
+        # defect this metric was built for.
+        worst = report.get("worstEdgeDensityRatio")
+        ok("an edge-density comparison was made for every view",
+           worst is not None and len(report.get("comparison", [])) == 4,
+           "worst %s over %d view(s)" % (worst, len(report.get("comparison", []))))
+        unexpected = [w for w in report.get("warnings", [])
+                      if "region came out empty" not in w and "edge density" not in w]
+        ok("no unexpected run warning was raised", not unexpected, str(unexpected))
+
         regions = report.get("regions", {})
         ok("three regions exist", set(regions) == {"barrel", "action", "wood"}, str(regions))
+        speckle = report.get("regionSpeckle", {})
+        ok("the region map is not speckled",
+           speckle.get("after", 1.0) <= recipe["maxRegionSpeckle"], str(speckle))
         ok("the POSITION rule split the neutral model into barrel and action",
            regions.get("barrel", 0) > 0 and regions.get("action", 0) > 0, str(regions))
         ok("nothing neutral was called wood", regions.get("wood", 0) == 0, str(regions))
