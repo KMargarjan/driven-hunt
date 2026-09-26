@@ -33,8 +33,20 @@ export type AssetRow = {
 
 -- The keys the generator asks for. Listed even while ROWS is empty, because the proxy needs a
 -- footprint per key and a typo'd key must be a lint-visible name rather than a silent nil.
+--
+-- ONE KEY PER SPECIES, not one key for the wood (audit-005 must-fix 2). The four species have
+-- different trunks, crowns, heights and colours, so they will be four different meshes: a single
+-- `treeSpruce` key meant that the day the first tree id landed, all ~2,700 trees in the wood became
+-- the same spruce mesh while every species spec still passed, because every one of them was a claim
+-- about `Scatter.speciesAt` and not about what was planted. The key a tree asks for now comes from
+-- its OWN species row (`Config.SPECIES[i].assetKey`), and `Props.trees` reports the keys it proxied
+-- per species -- so a wood built from one key is visible in the step's own report.
+-- The names are docs/design/map-generator.md section 12.1's exactly.
 Assets.KEY = table.freeze({
 	treeSpruce = "tree.spruce.a",
+	treeBirch = "tree.birch.a",
+	treeOak = "tree.oak.a",
+	treeAlder = "tree.alder.a",
 	hedge = "hedge.mixed.a",
 	-- M2.8c: the high seat behind four of the stands. Design section 18 names the key; until a row
 	-- exists `Props.furniture` builds the seven-box proxy, and when one does the model replaces the

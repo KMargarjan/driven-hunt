@@ -20,6 +20,11 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- hand back a contract older than the file (Contract.luau says what was measured).
 local Map = require(script.Parent:WaitForChild("Contract"))
 
+-- The asset MANIFEST's key list, so a species row carries the key it asks for instead of the placing
+-- step naming one key for the whole wood (audit-005 must-fix 2). Data only: `Assets` requires nothing,
+-- so there is no cycle, and there is still exactly one id table in the repo (design section 12.2).
+local Assets = require(script.Parent:WaitForChild("Assets"))
+
 local Config = {}
 
 -- ---------------------------------------------------------------- the world
@@ -226,9 +231,15 @@ Config.TREE_DENSITY = {
 -- EVERY COLOUR IS ABOVE THE ALBEDO FLOOR. An unlit face renders at roughly 0.275 x albedo at this
 -- place's ambient -- measured in Task 22, which turned RGB(90, 80, 70) into near-black -- so no
 -- channel maximum here is below 120, spruce included.
+--
+-- EACH ROW CARRIES THE ASSET KEY IT ASKS FOR (audit-005 must-fix 2). Four species with four trunks
+-- and four crowns are four meshes, so they are four keys: `Props.trees` fetches a template per
+-- species and hands each tree its own, where it used to hand every tree one `treeSpruce` template
+-- and discard the species. `Assets.KEY` holds the names; nothing else in the repo spells them.
 Config.SPECIES = {
 	{
 		name = "spruce",
+		assetKey = Assets.KEY.treeSpruce,
 		share = 0.4, -- K
 		height = 71,
 		trunk = Vector3.new(3, 30, 3),
@@ -238,6 +249,7 @@ Config.SPECIES = {
 	},
 	{
 		name = "birch",
+		assetKey = Assets.KEY.treeBirch,
 		share = 0.25, -- K
 		height = 64,
 		trunk = Vector3.new(2.5, 34, 2.5),
@@ -247,6 +259,7 @@ Config.SPECIES = {
 	},
 	{
 		name = "oak",
+		assetKey = Assets.KEY.treeOak,
 		share = 0.2, -- K
 		height = 64,
 		trunk = Vector3.new(5, 28, 5),
@@ -256,6 +269,7 @@ Config.SPECIES = {
 	},
 	{
 		name = "alder",
+		assetKey = Assets.KEY.treeAlder,
 		share = 0.15, -- K
 		height = 57,
 		trunk = Vector3.new(3, 26, 3),
@@ -316,6 +330,12 @@ Config.PROXY_COLOR = {
 -- THE FALLBACK PROXY, for a tree with no species (the tie trees, which are placed on purpose
 -- rather than scattered). The wood's own proxies come from Config.SPECIES.
 Config.TREE_PROXY = {
+	-- THE NAME EVERY TREE BUILT FROM THIS ROW CARRIES, as its `Species` attribute (Props.placeTree).
+	-- It is deliberately NOT "spruce": a tie tree is the same shape as a spruce but it is not of the
+	-- wood, and the built-wood spec asserts that every tree in `Props.Trees` is one of Karen's four --
+	-- which a tie tree calling itself spruce would silently satisfy.
+	name = "tieTree",
+	assetKey = Assets.KEY.treeSpruce,
 	trunk = Vector3.new(3, 30, 3),
 	crown = Vector3.new(14, 44, 14),
 	height = 71,

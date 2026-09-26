@@ -25,6 +25,11 @@ local Props = {}
 
 Props.ASSETS_FOLDER = "Assets"
 
+-- The attribute every placed tree carries, naming the `Config.SPECIES` row it was built from (or
+-- `Config.TREE_PROXY.name` for a tie tree). One constant, read by the spec, so a rename cannot make a
+-- spec pass by looking for an attribute nothing writes.
+Props.SPECIES_ATTRIBUTE = "Species"
+
 -- The map root's Props folder, created on demand. Props is its only writer, so it is also the only
 -- module that brings it into existence.
 local function propsFolder(root: Instance): Folder
@@ -74,6 +79,31 @@ local function part(
 	made.BottomSurface = Enum.SurfaceType.Smooth
 	made.Parent = parent
 	return made
+end
+
+-- THE FURNITURE LAYER'S ONE RULE, IN ONE PLACE (Task 66 review note 1, audit-005): a slug passes
+-- through anything a player walks through. Nothing in the furniture layer collides -- the contract
+-- forbids a collidable part near the road and half the layer stands there on purpose (Config.FURNITURE
+-- says why) -- so nothing in it may be QUERYABLE either, or the grey-box log pile 20 studs downrange of
+-- shooter post 7 absorbs a slug a player can walk through. Before this, `part()` left `CanQuery` at its
+-- default `true` and only `CanCollide` was decided, which is the "two correct pieces of code
+-- disagreeing" shape: one of them stopped the player and the other stopped the bullet.
+--
+-- IT IS NOT A PROJECT-WIDE RULE and must not become one: a tree CROWN is `CanCollide = false` and
+-- `CanQuery = true` ON PURPOSE (Props.placeTree, Task 63) -- a shot into the canopy stops in the canopy
+-- while the navmesh sees trunks only. This is the FURNITURE's rule, applied to the whole layer at once
+-- rather than remembered per piece, and it is the only writer of either property in `Props.furniture`.
+local function sceneryOnly(instance: Instance)
+	local function apply(candidate: Instance)
+		if candidate:IsA("BasePart") then
+			candidate.CanCollide = false
+			candidate.CanQuery = false
+		end
+	end
+	apply(instance)
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		apply(descendant)
+	end
 end
 
 -- A FREE MODEL WITH A SCRIPT IN IT IS REFUSED, NOT STRIPPED (design section 8.4). One surviving
@@ -257,14 +287,7 @@ function Props.furniture(root: Instance, seed: number, config): (number, { strin
 					piece.material,
 					parent
 				)
-				for _, descendant in ipairs((model :: Instance):GetDescendants()) do
-					if descendant:IsA("BasePart") then
-						descendant.CanCollide = false
-					end
-				end
-				if (model :: Instance):IsA("BasePart") then
-					((model :: any) :: BasePart).CanCollide = false
-				end
+				sceneryOnly(model :: Instance)
 				count += 1
 			end
 			continue
@@ -277,7 +300,7 @@ function Props.furniture(root: Instance, seed: number, config): (number, { strin
 			piece.material,
 			parent
 		)
-		made.CanCollide = false
+		sceneryOnly(made)
 		count += 1
 		if string.sub(piece.kind, 1, 8) == "highSeat" then
 			proxied = true
@@ -313,7 +336,7 @@ function Props.placeTree(
 	local row = Props.speciesRow(config, species)
 	local trunk, crown = row.trunk, row.crown
 	if template then
-		placed(
+		local clone = placed(
 			template,
 			name,
 			trunk,
@@ -322,6 +345,7 @@ function Props.placeTree(
 			Enum.Material.Wood,
 			parent
 		)
+		clone:SetAttribute(Props.SPECIES_ATTRIBUTE, row.name)
 		return false
 	end
 	-- The proxy: trunk plus crown, one Model, so a tie can hold on to the trunk and a screenshot
@@ -329,6 +353,13 @@ function Props.placeTree(
 	local model = Instance.new("Model")
 	model.Name = name
 	model.Parent = parent
+	-- WHAT WAS PLANTED, ON THE THING THAT WAS PLANTED (audit-005 must-fix 2). Until this attribute
+	-- existed, every species claim in the repo was a claim about `Scatter.speciesAt` -- a pure
+	-- function -- and nothing compared it against the wood in the world; a monoculture built from one
+	-- template passed all of them. `tests/server/map_contract.spec.luau` reads it back off the BUILT
+	-- trees and compares it against the sampler tree by tree. Digest.of hashes name, className,
+	-- Position, Size and tags, so an attribute cannot change a map's digest.
+	model:SetAttribute(Props.SPECIES_ATTRIBUTE, row.name)
 	local stem =
 		part("Trunk", trunk, Vector3.new(point.x, y + trunk.Y / 2, point.z), row.trunkColor, Enum.Material.Wood, model)
 	-- THE CROWN'S TOP IS THE SPECIES' HEIGHT, which is the number docs/design/asset-pipeline.md
@@ -368,10 +399,21 @@ function Props.trees(
 	startIndex: number,
 	fresh: boolean?
 ): (number, { string }, string?, { [string]: number })
-	local template, why = Props.template(Assets.KEY.treeSpruce, root)
 	local counts: { [string]: number } = {}
-	if why then
-		return 0, {}, why, counts
+	-- ONE TEMPLATE PER SPECIES, ASKED FOR BY THE SPECIES' OWN KEY (audit-005 must-fix 2). This used to
+	-- be a single `Assets.KEY.treeSpruce` fetched once for the whole block and handed to every tree,
+	-- whatever `Scatter.speciesAt` returned -- so the first tree id would have turned the entire wood
+	-- into one mesh with every species spec still green. `Props.template` caches per key inside the
+	-- run's own Assets folder, so this is one lookup per species per step and not one per tree.
+	local templates: { [string]: Instance } = {}
+	for _, row in ipairs(config.SPECIES) do
+		local template, why = Props.template(row.assetKey, root)
+		if why then
+			return 0, {}, why, counts
+		end
+		if template then
+			templates[row.name] = template
+		end
 	end
 	local parent = folder(propsFolder(root), "Trees", fresh)
 	local pads = Layout.pads(config)
@@ -388,9 +430,11 @@ function Props.trees(
 		-- sort by IS the placement order: "Tree10" sorts before "Tree2" and a diff would then name a
 		-- shuffle, not a move.
 		local name = string.format("Tree%04d", startIndex + index)
-		if Props.placeTree(template, parent, name, point, y, config, species) then
+		if Props.placeTree(templates[species], parent, name, point, y, config, species) then
 			proxied += 1
-			keys[Assets.KEY.treeSpruce] = true
+			-- THE KEY THIS SPECIES ASKED FOR, so the step's `proxyUsed` names four keys in a mixed
+			-- wood and one key in a monoculture -- which is the difference the spec asserts.
+			keys[Props.speciesRow(config, species).assetKey] = true
 		end
 	end
 	local used: { string } = {}
@@ -468,7 +512,11 @@ end
 -- (Layout.tieTreePoints says why). Their own folder, so `Markers` tags exactly these twelve and a
 -- change to the wood can never move which tree a punished shooter is tied to.
 function Props.tieTrees(root: Instance, seed: number, config): (number, { string }, string?)
-	local template, why = Props.template(Assets.KEY.treeSpruce, root)
+	-- THE TIE TREES' OWN ROW NAMES THEIR KEY too (`Config.TREE_PROXY.assetKey`), so no call site in
+	-- this file spells an asset key out by hand any more: the row a tree is built from decides both
+	-- what it looks like and which asset replaces it.
+	local row = Props.speciesRow(config, nil)
+	local template, why = Props.template(row.assetKey, root)
 	if why then
 		return 0, {}, why
 	end
@@ -483,7 +531,7 @@ function Props.tieTrees(root: Instance, seed: number, config): (number, { string
 			proxied += 1
 		end
 	end
-	return #points, (if proxied > 0 then { Assets.KEY.treeSpruce } else {}), nil
+	return #points, (if proxied > 0 then { row.assetKey } else {}), nil
 end
 
 return Props
