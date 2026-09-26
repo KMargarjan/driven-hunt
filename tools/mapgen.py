@@ -119,8 +119,11 @@ SHOTS = (
     # M2.8c's ONE NEW CLOSE VIEW (design section 18), and the answer to TASKS.md row 58a(a): every
     # tagged marker is Transparency = 1, so until the stakes existed no shot could show where a
     # stand is. Stood at the third stand looking along the road at the fourth.
-    ("map-stand-close", (-240, 6, -694), (-80, 7, -700),
-     "STANDING ON ONE STAND, looking at the next: are the stakes visible, is the high seat behind"),
+    # CHOSEN BY LOOKING (rule 5): from the stand itself the camera is in front of its own stakes and
+    # only the next stand's cap is in frame. 60 studs short of a stand puts the near cap close and
+    # the next one at 160 studs in the same picture, which is the question row 58a(a) asks.
+    ("map-stand-close", (-305, 6, -698), (-235, 5, -704),
+     "the road between two stands: does the near stake read, and the next one at 160 studs"),
 )
 
 # ---------------------------------------------------------------- talking to the generator
