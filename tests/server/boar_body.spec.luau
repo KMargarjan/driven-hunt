@@ -570,6 +570,15 @@ return function()
 			-- ONE ROUTE PER SOUNDER: five members fleeing for three seconds, and only the leader
 			-- asks. Per-member pathing lands near 30 (design, "one route per sounder").
 			local after = herd:stats()
+			print(
+				string.format(
+					"[boar_body] sounder of 5, 3 s flee: %d path request(s), %d blocked, %d failure(s), %d member(s)",
+					after.pathRequests - before.pathRequests,
+					after.pathBlocked - before.pathBlocked,
+					after.pathFailures - before.pathFailures,
+					#herd:sounders()[1].memberIds
+				)
+			)
 			expect(after.pathRequests - before.pathRequests <= 12).to.equal(true)
 			expect(after.pathFailures).to.equal(0)
 		end)
