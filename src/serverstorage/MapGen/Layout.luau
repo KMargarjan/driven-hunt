@@ -410,7 +410,8 @@ function Layout.furniture(config): { Piece }
 	for pileIndex, pile in ipairs(f.logPile.at) do
 		local z = world.lineZ + pile.side * f.logPile.offsetZ
 		local log = f.logPile.log
-		local rows = { { -log.Z, 0, log.Z }, { -log.Z / 2, log.Z / 2 } }
+		-- 3 + 2 + 1, the way a forester stacks them, and 6.6 studs tall so it reads from the road.
+		local rows = { { -log.Z, 0, log.Z }, { -log.Z / 2, log.Z / 2 }, { 0 } }
 		local logIndex = 0
 		for row, offsets in ipairs(rows) do
 			for _, dz in ipairs(offsets) do

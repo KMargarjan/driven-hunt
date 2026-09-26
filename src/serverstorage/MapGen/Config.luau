@@ -388,8 +388,12 @@ Config.FURNITURE = {
 	-- stacks them at the roadside.
 	logPile = {
 		at = { { x = -300, side = -1 }, { x = 420, side = 1 } }, -- side: -1 far wood, +1 drive side
-		offsetZ = 30, -- inside the 32-stud verge, which is why the layer does not collide
-		log = Vector3.new(14, 1.6, 1.6),
+		-- LOOKED AT, THEN CHANGED (rule 5). At 30 studs off the centreline and 3.2 studs tall the
+		-- first build's pile was a pale sliver in the shade 33 studs from the camera. 20 studs off
+		-- is still inside the 32-stud verge -- which is why the layer does not collide -- and three
+		-- rows of thicker logs is 6.6 studs of stack, which reads from the road.
+		offsetZ = 20,
+		log = Vector3.new(16, 2.2, 2.2),
 		color = Color3.fromRGB(138, 112, 78),
 		endColor = Color3.fromRGB(176, 152, 112),
 	},
@@ -413,10 +417,11 @@ Config.FURNITURE = {
 	-- REEDS AT THE BOG. A ring on the rim, sunk into the mud; `Layout.treeDensity` already keeps
 	-- trees out of the bog itself, so these are what makes it read as wet rather than as a hole.
 	reeds = {
-		count = 28,
+		count = 32,
 		inset = 12, -- the ring's mean radius is bog.radius - inset...
 		jitter = 8, -- ...and each clump moves up to this, deterministically
-		size = Vector3.new(1.4, 7, 1.4),
+		-- A CLUMP, not a blade: 1.4 studs thick was invisible against the mud at 100 studs.
+		size = Vector3.new(3, 7, 3),
 		sink = 1.5,
 		color = Color3.fromRGB(152, 142, 96),
 	},
