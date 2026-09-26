@@ -1,0 +1,11 @@
+{
+  "key": "tree.oak",
+  "version": 1,
+  "kind": "meshpart",
+  "prompt": "A mature common oak (Quercus robur) in autumn, standing alone as one solid object. A short thick fissured grey-brown trunk dividing low into heavy spreading limbs, a broad rounded crown, and lobed leaves in warm russet and yellow-brown autumn colour. European farmland hedgerow tree. Realistic proportions and realistic bark, neutral even lighting, no ground plane, no scene, no background.",
+  "references": [],
+  "sizeMetres": [8.0, 12.0, 8.0],
+  "targetTris": 1200,
+  "texturePx": 1024,
+  "notes": "Karen, 2026-09-26: common European species only (oak, birch, black alder, spruce), autumn colours, few species. This is the first of the four; birch, alder and spruce follow as their own briefs once Karen has approved the look of one. sizeMetres is a placeholder until the map generator's hedgerow spacing is measured against a real tree."
+}
