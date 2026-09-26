@@ -59,6 +59,25 @@ local function near(actual: number, expected: number): boolean
 end
 
 return function()
+	describe("the zone a hit is charged to", function()
+		-- TASKS.md 28a(g). An unknown zone name used to open its own bucket in
+		-- Runtime:stats().zoneHits while Wound.apply charged its damage to `body`, so the two
+		-- disagreed about the same pellets. One function answers it for both now.
+		it("is the zone itself when the damage table has it", function()
+			for _, zone in ipairs({ "head", "chest", "body", "legs" }) do
+				expect(Wound.chargedZone(zone, WOUND)).to.equal(zone)
+			end
+		end)
+
+		it("falls back to body for anything else, which is where the damage goes", function()
+			expect(Wound.chargedZone("unknown", WOUND)).to.equal("body")
+			expect(Wound.chargedZone("ZoneHaed", WOUND)).to.equal("body")
+			expect(Wound.chargedZone("", WOUND)).to.equal("body")
+			-- ...and it really is the same row the damage is charged at.
+			expect(Wound.damageFor("ZoneHaed", "Slug", 1, WOUND)).to.equal(Wound.damageFor("body", "Slug", 1, WOUND))
+		end)
+	end)
+
 	describe("a fresh wound state", function()
 		it("is zero, healthy and frozen", function()
 			local state = Wound.new()

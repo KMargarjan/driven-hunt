@@ -315,8 +315,15 @@ function Weapon.revoke(player: Player)
 	if previous then
 		local state = table.clone(StateMachine.initial(CONFIG)) :: any
 		state.epoch = previous.epoch + 1
-		setState(player, Shotgun.deepFreeze(state))
+		local reset = Shotgun.deepFreeze(state)
+		setState(player, reset)
 		stats.revoked += 1
+		-- AND TELL THE CLIENT (TASKS.md 35b(a)). Resetting the state without publishing it left the
+		-- replica holding the snapshot from before the gun was taken, so a player tied to a tree
+		-- kept an ammo readout on screen for a gun that no longer exists -- visible in
+		-- .screenshots/task35-tied-to-a-tree.png. grant() publishes; revoke has to as well, or the
+		-- two halves of the same owner disagree about what the player is holding.
+		publish(player, reset, true)
 	end
 end
 
@@ -474,7 +481,20 @@ local function runReload(player: Player, epoch: number)
 		-- shell, or none, is correct. Any other reason means the world moved under it (round 1
 		-- note), so it stops and republishes rather than closing a gun the player did not ask for.
 		if reason and not (step.kind == "Load" and reason == "no-reserve") then
-			publish(player, state)
+			-- A REFUSAL AFTER `Break` USED TO LEAVE THE GUN OPEN FOR EVER (TASKS.md 24a(a)): every
+			-- later Reload is refused with "is-open" and every Fire with the same, so the player is
+			-- carrying a brick until they respawn. Close it before giving up. The player asked for a
+			-- reload; a closed gun is the state they asked to end in, and Close after the step's own
+			-- window has elapsed is the same action the sequence would have taken itself.
+			local ending = state
+			if state.open then
+				local closed, refused = StateMachine.apply(state, { kind = "Close" }, os.clock())
+				if not refused then
+					ending = closed
+					setState(player, closed)
+				end
+			end
+			publish(player, ending, ending ~= state)
 			return
 		end
 		setState(player, next)

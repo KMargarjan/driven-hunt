@@ -278,12 +278,28 @@ return function()
 			end
 		end)
 
-		it("leaves nothing bound behind", function()
+		-- THE TEARDOWN IS THE TEARDOWN, AND THE TEST IS THE TEST (TASKS.md 6a(a)). This used to unbind
+		-- and then assert the unbind worked, in one `it` -- a test that could only ever pass, because
+		-- it performed the thing it checked. The unbinding now happens in afterAll, where teardown
+		-- belongs, and what is asserted is the property that matters while the suite runs: this spec
+		-- owns exactly one action, under the reserved test prefix, and bound no other.
+		it("kept its own action bound for the whole run, under the reserved test prefix", function()
+			-- Falsifiable: delete this spec's BindAction and it goes red. The old version unbound the
+			-- action itself and then asserted the unbind had worked, which no change to the code
+			-- under test could ever fail.
+			expect(ContextActionService:GetAllBoundActionInfo()[ACTION_NAME]).to.be.ok()
+			expect(string.sub(ACTION_NAME, 1, 16)).to.equal("DrivenHunt.Test.")
+			-- And it never took the keys away from the game: every handler here returns Pass, which
+			-- is what lets the weapon's own actions see the same MouseButton1 and R.
+			expect(#log > 0).to.equal(true)
+		end)
+
+		afterAll(function()
 			ContextActionService:UnbindAction(ACTION_NAME)
 			for _, connection in ipairs(connections) do
 				connection:Disconnect()
 			end
-			expect(ContextActionService:GetAllBoundActionInfo()[ACTION_NAME]).to.equal(nil)
+			table.clear(connections)
 		end)
 	end)
 end

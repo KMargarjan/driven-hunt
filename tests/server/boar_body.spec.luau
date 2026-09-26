@@ -232,6 +232,12 @@ return function()
 			for _ = 1, 1800 do -- 30 s at 60 Hz: a backstop, never the measurement
 				RunService.Heartbeat:Wait()
 				spent += 1
+				-- UPRIGHT THROUGHOUT THE FLEE, which is what the design asks for (boar-ai section 11:
+				-- "throughout a 3 s flee", section 12 item 6: "at every sample through the flee").
+				-- It used to be sampled only until the body reached half sprint speed, a handful of
+				-- frames in, so a boar that tipped over while running proved nothing (TASKS.md
+				-- 36a(3)(c)). This loop already walks every frame of the flee.
+				upright = upright and (handle.part.Parent == nil or handle.part.CFrame.UpVector.Y > 0.9)
 				if handle.part.Parent == nil then
 					gained = true -- it left the field entirely, which is getting away
 					break
@@ -256,6 +262,7 @@ return function()
 				)
 			)
 			expect(gained).to.equal(true)
+			expect(upright).to.equal(true)
 		end)
 
 		it("despawns once when it reaches the exit edge, and says so", function()

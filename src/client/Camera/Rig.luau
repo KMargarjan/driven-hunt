@@ -1,5 +1,5 @@
 --!strict
--- Camera.Rig: THE ONLY WRITER OF workspace.CurrentCamera IN THE REPO (CLAUDE.md rule 3), the only
+-- Camera.Rig: THE ONLY WRITER OF workspace.CurrentCamera IN src/ (CLAUDE.md rule 3), the only
 -- module that disables the stock PlayerModule cameras, and the only writer of
 -- LocalTransparencyModifier on the local character. It holds no mode state, reads no input, and
 -- touches neither the cursor nor anything drawn.
@@ -73,7 +73,12 @@ function Rig.acquire(): (boolean, string?)
 	local module = scripts and scripts:FindFirstChild("PlayerModule")
 	if module then
 		local ok, err = disableStockCameras(module)
-		return true, if ok then nil else tostring(err)
+		-- THE REASON HAS TO READ CORRECTLY ON ITS OWN (TASKS.md 26a(a)): the owner prints whatever
+		-- comes back, and "no stock PlayerModule to disable" was the wrong sentence for the case
+		-- where one IS there and would not turn off -- which is the case that matters, because then
+		-- it is a second writer of the camera.
+		return true,
+			if ok then nil else "PlayerScripts.PlayerModule is there and would not be disabled: " .. tostring(err)
 	end
 
 	-- Not there now. Watch for it off the boot path, so a module that appears later is still

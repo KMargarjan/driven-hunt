@@ -76,6 +76,13 @@ export type KillRecord = {
 -- die.
 local FALLBACK_ZONE = "body"
 
+-- The zone a hit is CHARGED to, which is the zone it should be tallied under as well: an attribute
+-- typo used to make its own bucket in Runtime:stats().zoneHits while its damage went to `body`, so
+-- the two disagreed about the same pellets (TASKS.md 28a(g)). One function, one answer.
+function Wound.chargedZone(zone: string, config): string
+	return if config.DAMAGE[zone] then zone else FALLBACK_ZONE
+end
+
 local function freeze<T>(value: T): T
 	if type(value) == "table" and not table.isfrozen(value :: any) then
 		table.freeze(value :: any)

@@ -983,11 +983,32 @@ def load_scenarios():
         data = json.load(f)
     if not isinstance(data.get("scenarios"), list) or not data["scenarios"]:
         raise RuntimeError("input_scenarios.txt has no `scenarios` list")
+    # Here with the other refusals, not at replay time (6a(c)): QUERY_READY templates this straight
+    # into Luau, and a value that is not a plain identifier used to raise in the middle of Play, as a
+    # harness error rather than as a named refusal before Play starts.
+    ready = data.get("readyAttribute", "InputProbeReady")
+    if not re.fullmatch(r"[A-Za-z0-9_]{1,100}", ready):
+        raise RuntimeError(f"readyAttribute must be a plain identifier; got {ready!r}")
     for scenario in data["scenarios"]:
         if scenario.get("stage") is not None:
             check_stage(f"scenario {scenario.get('name')!r}", scenario["stage"])
+        placed = False
         for index, step in enumerate(scenario.get("steps") or [], start=1):
-            check_step(f"scenario {scenario.get('name')!r} step {index}", step)
+            where = f"scenario {scenario.get('name')!r} step {index}"
+            check_step(where, step)
+            # A MOUSE BUTTON WITH NO POSITION TO CLICK AT IS REFUSED BY StudioMCP AT RUN TIME
+            # ("Either x and y, instance_path, or a prior action that establishes mouse position is
+            # required"), and the position is carried only inside one scenario -- so a scenario whose
+            # first mouse action is a button sends nothing and the spec waiting for it fails for a
+            # reason that has nothing to do with the game. Task 35 lost a run to exactly that. It is
+            # a property of the file, so it is refused here, before Play, with the rest (6a(d)).
+            if step.get("device") == "mouse":
+                if step.get("action") == "moveTo":
+                    placed = True
+                elif not placed:
+                    raise RuntimeError(
+                        f"{where}: a mouse button before any moveTo in this scenario; StudioMCP "
+                        "refuses a click with no established position")
     return data
 
 
@@ -1052,9 +1073,8 @@ def replay_input(studio, data, token, check, studio_id=None, mirror_ids=()):
     report as an observation. The steps cost him nothing (he holds no Tool, so the weapon keys do
     nothing) and they let his half of the suite assert what IS true of a driver. The STAGE stays on
     one client: it pivots the character, and two characters staged onto the same boar is a scrum."""
+    # Validated in load_scenarios, before Play, with the rest of the file's refusals (6a(c)).
     ready_attr = data.get("readyAttribute", "InputProbeReady")
-    if not re.fullmatch(r"[A-Za-z0-9_]{1,100}", ready_attr):
-        raise RuntimeError(f"readyAttribute must be a plain identifier; got {ready_attr!r}")
     targets = [studio_id] + [i for i in mirror_ids if i != studio_id]
     # EVERY target must be listening before ANY step is sent: a replay into a client that has not
     # bound its listeners proves nothing there and cannot be repeated. 60 s, not 20: since Task 36 a
@@ -1554,6 +1574,7 @@ def run_test2(studio, wait_seconds=180):
 
         # ALL THREE AT ONCE, against ONE deadline. Read one after another, each with its own
         # window, a slow client is waited for only after the previous one has run its window out:
+        # (both clients get the replay since Task 36, and input_driving's own budget is 45 s)
         # in run 5 both clients HAD reported -- the reads had simply given up first, one after the
         # other. A two-player client suite is also slower than a one-player one, because the same
         # replay is sent to two clients, so the window is REPORT_WINDOW_2P.
@@ -1636,9 +1657,14 @@ def run_test2(studio, wait_seconds=180):
 
 
 def parse_vector(text):
-    parts = [float(v) for v in text.replace(" ", "").split(",")]
+    """x,y,z as three floats. A bad argument exits with the usage line like its neighbours in main,
+    rather than raising a ValueError AFTER Studio has already been spawned (6a(f))."""
+    try:
+        parts = [float(v) for v in text.replace(" ", "").split(",")]
+    except ValueError:
+        parts = []
     if len(parts) != 3:
-        raise ValueError(f"expected x,y,z; got {text!r}")
+        sys.exit(f"expected a position as x,y,z; got {text!r}")
     return parts
 
 

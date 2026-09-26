@@ -314,8 +314,22 @@ def harness_gate(req, code_full, base, head):
     must paste the harness's own PASS line for its `Code commit:`, on a clean tree. Task 18 was
     reviewed three times before any of its code had executed, and the first real run then failed
     three specs. Docs-only changes are exempt: the harness says nothing about them."""
-    changed = [f for f in git("diff", "--name-only", f"{base}...{head}").split()
-               if f.replace("\\", "/").startswith(CODE_PATHS)]
+    # TWO RANGES, UNIONED (TASKS.md 21a(b)). `base` comes from the request, so a `Base:` set to the
+    # code commit made a tools/ change look docs-only and skipped this gate entirely. The second
+    # range is one the request cannot choose: whatever the code commit itself introduced relative to
+    # its own parent, plus anything after it. A Builder can still lie about the code commit, and that
+    # is the policy half CLAUDE.md names -- but the free bypass is gone.
+    ranges = [f"{base}...{head}", f"{code_full}~1..{head}"]
+    seen = {}
+    for spread in ranges:
+        try:
+            names = git("diff", "--name-only", spread).split()
+        except Exception:
+            continue  # a root commit has no parent, and a bad Base is the case above
+        for f in names:
+            if f.replace("\\", "/").startswith(CODE_PATHS):
+                seen[f] = True
+    changed = sorted(seen)
     if not changed:
         print("[agents] docs-only change: no harness line required", flush=True)
         return
@@ -501,11 +515,18 @@ def main(argv):
         args = argv[1:]
         if args[:1] == ["review"]:
             task, rest = take_task_flag(args[1:])
-            if len(rest) > 1:
+            # A STRAY ARGUMENT IS A REFUSAL, NOT A SHRUG (TASKS.md 21a(a)): `review --task 21 22`
+            # used to review task 21 and drop the 22 without a word.
+            if len(rest) > 1 or (task is not None and rest):
                 raise Refused("usage: review [N]  (or review --task N)")
             return cmd_review(task if task is not None else (rest[0] if rest else None))
         if args[:1] == ["architect"] and len(args) >= 2:
             task, rest = take_task_flag(args[1:])
+            # `architect --task 5`, with the mode left out, used to raise an uncaught IndexError on
+            # rest[0] instead of printing this (TASKS.md 21a(a)).
+            if not rest or len(rest) > 2:
+                raise Refused(
+                    "usage: architect design <system> [--task N] | architect audit [--task N]")
             return cmd_architect(rest[0], task, rest[1] if len(rest) > 1 else None)
         print(__doc__)
         return 2

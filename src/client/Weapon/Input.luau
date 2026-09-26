@@ -116,7 +116,23 @@ local function unbind()
 	end
 end
 
-local watched: { [Instance]: boolean } = {}
+-- One entry per Tool this client is listening to, holding that Tool's own connections. It is a
+-- table and not a `true` because of TASKS.md 24a(c): a respawn or a revoke DESTROYS the Tool, and
+-- with the connections in the module-wide list and the key never removed, every respawn left one
+-- dead Tool pinned here and two more connections behind it, cleared only by Input.stop(), which
+-- nothing calls. Now the Tool's own departure takes both with it.
+local watched: { [Instance]: { RBXScriptConnection } } = {}
+
+local function forgetTool(tool: Instance)
+	local hooks = watched[tool]
+	if not hooks then
+		return
+	end
+	watched[tool] = nil
+	for _, connection in ipairs(hooks) do
+		connection:Disconnect()
+	end
+end
 
 local function watchTool(tool: Instance)
 	if not tool:IsA("Tool") or tool.Name ~= "Shotgun" then
@@ -127,12 +143,33 @@ local function watchTool(tool: Instance)
 	if watched[tool] then
 		return
 	end
-	watched[tool] = true
-	table.insert(connections, tool.Equipped:Connect(bind))
-	table.insert(connections, tool.Unequipped:Connect(unbind))
+	local hooks: { RBXScriptConnection } = {}
+	watched[tool] = hooks
+	table.insert(hooks, tool.Equipped:Connect(bind))
+	table.insert(hooks, tool.Unequipped:Connect(unbind))
+	-- Parent nil is how a Tool leaves: Hardware.destroy unparents and destroys it, and a respawn
+	-- takes the old one with the old character. ChildAdded watches it again if it ever comes back.
+	table.insert(
+		hooks,
+		tool.AncestryChanged:Connect(function(_, parent)
+			if parent == nil then
+				forgetTool(tool)
+			end
+		end)
+	)
 	if tool.Parent == Players.LocalPlayer.Character then
 		bind()
 	end
+end
+
+-- How many Tools this client is still listening to. One, normally; a spec reads it to prove the
+-- count does not climb with respawns.
+function Input.watchedTools(): number
+	local n = 0
+	for _ in pairs(watched) do
+		n += 1
+	end
+	return n
 end
 
 function Input.start()
@@ -177,6 +214,9 @@ function Input.stop()
 		connection:Disconnect()
 	end
 	table.clear(connections)
+	for tool in pairs(watched) do
+		forgetTool(tool)
+	end
 end
 
 return Input

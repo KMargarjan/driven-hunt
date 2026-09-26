@@ -236,6 +236,15 @@ return function()
 			expect(typeof(Weapon.Input.AimChanged)).to.equal("RBXScriptSignal")
 			expect(type(Weapon.Input.isAiming())).to.equal("boolean")
 		end)
+
+		it("listens to ONE Tool, however many the session has destroyed", function()
+			-- TASKS.md 24a(c). The Tool dies with the Backpack or the character every time the drive
+			-- places a player (Match.Body.place -> LoadCharacter), and the watcher used to keep the
+			-- dead one's key and both its connections for ever -- one set per respawn, cleared only
+			-- by Input.stop(), which nothing calls. This session has already respawned at least once
+			-- by the time the drive assigns teams, so a count above one is the leak.
+			expect(Weapon.Input.watchedTools() <= 1).to.equal(true)
+		end)
 	end)
 
 	-- THE TWO DESCRIBES BELOW ARE THE SHOOTER'S, and they are guarded rather than branched inside
@@ -397,8 +406,13 @@ return function()
 				-- Karen's change: X is not a label swap, it breaks the gun open and reloads it. So a
 				-- snapshot must exist where the ammo is already Buck and the barrels are NOT yet loaded
 				-- with it -- the open action mid-swap.
+				-- OVER THIS SCENARIO'S OWN LOG (TASKS.md 30a(d)). Scanning the whole session let a
+				-- later scenario satisfy half of this by itself -- `shoot-the-boar` fires the same gun
+				-- and reloads it -- so "the swap happened" was a claim about the session and not about
+				-- the X this scenario pressed. Two siblings were converted in Task 30 and this one was
+				-- missed.
 				local sawSwapInProgress, sawSwapDone = false, false
-				for _, entry in ipairs(log) do
+				for _, entry in ipairs(ownLog()) do
 					local state = entry.state
 					if state.ammo == "Buck" and state.loaded[1] ~= "Buck" then
 						sawSwapInProgress = true
@@ -564,6 +578,13 @@ return function()
 					expect(string.sub(name, 1, 18)).never.to.equal("DrivenHunt.Weapon.")
 				end
 				expect(Weapon.Input.isAiming()).to.equal(false)
+			end)
+
+			it("is listening to no Tool at all, and holds nothing for one that died", function()
+				-- TASKS.md 24a(c): the watcher table used to keep a key and two connections per Tool for
+				-- ever, and the drive destroys a Tool on every placement respawn. A driver is never given
+				-- one, so his count is zero for the whole session.
+				expect(Weapon.Input.watchedTools()).to.equal(0)
 			end)
 
 			it("never draws a crosshair, because there is nothing to aim", function()

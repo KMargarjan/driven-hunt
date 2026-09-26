@@ -6,8 +6,8 @@
 -- ready here, and the attribute is set only when every expected spec has.
 --
 -- If a listed spec never becomes ready the attribute is never set, the harness's
--- "[input] the client bound its listeners and published this run's token" check fails after 20 s,
--- and the run is red. There is no path where the replay proceeds against an unprepared client, and
+-- "[input] the client bound its listeners and published this run's token" check fails after 60 s
+-- (per client, since Task 36 waits for every one of them), and the run is red. There is no path where the replay proceeds against an unprepared client, and
 -- none where a missing spec passes quietly.
 --
 -- Design: docs/design/shotgun.md (section 13.3)

@@ -623,7 +623,11 @@ local function render(Weapon, CameraSystem)
 		crosshair.Visible = config.CROSSHAIR_ENABLED and state ~= nil and state.equipped and not aiming
 	end
 	if readout then
-		readout.Text = if state then textFor(state) else ""
+		-- NO GUN, NO READOUT (TASKS.md 35b(a)). The server publishes a reset state when it revokes a
+		-- Tool, and `equipped` is false in it -- so a player tied to a tree stops reading an ammo
+		-- count for a gun that is not in their hands. Without both halves the old snapshot simply
+		-- stayed on screen, which is what the Task 35 screenshot shows.
+		readout.Text = if state and state.equipped then textFor(state) else ""
 	end
 end
 

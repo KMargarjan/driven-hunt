@@ -40,6 +40,7 @@ local scripts = player:WaitForChild("PlayerScripts")
 local Camera = require(scripts:WaitForChild("Camera"))
 local Hud = require(scripts:WaitForChild("Hud"))
 local Match = require(scripts:WaitForChild("Match"))
+local Weapon = require(scripts:WaitForChild("Weapon"))
 
 local CUE_ACTION = "DrivenHunt.Test.TieCue"
 -- The last of five scenarios, and since Task 36 `test2` sends every step to BOTH clients, so the
@@ -163,10 +164,16 @@ return function()
 		-- window, and a report that never arrives is one the run cannot even check (Task 34's half of
 		-- the client suite).
 		local function cued(): boolean
+			-- ONE SOURCE FOR THE ROLE (TASKS.md 36a(3)(d)). This used to ask Match.myTeam() while
+			-- `onCue` asked Role.isDriver(), and a nil team when Role resolved would have let the two
+			-- disagree: the cue would have fired the shot and this would still have said "not a
+			-- shooter". Role is the one answer the whole client suite branches on.
 			expect(waitUntil(20, function()
 				return Match.myTeam() ~= nil
 			end)).to.equal(true)
-			if Match.myTeam() ~= "Shooters" then
+			-- ...and Role, resolved at require time, must agree with the team the drive published.
+			expect(Role.isDriver()).to.equal(Match.myTeam() == "Drivers")
+			if not Role.isShooter() then
 				return false
 			end
 			return waitUntil(CUE_TIMEOUT, function()
@@ -193,7 +200,7 @@ return function()
 		it("ties the shooter to a tree when a driver was in its path, or nobody when none was", function()
 			expect(cued()).to.equal(Match.myTeam() == "Shooters")
 
-			if Match.myTeam() ~= "Shooters" then
+			if Role.isDriver() then
 				-- A DRIVER's client. It carries no gun (DRIVERS_MAY_SHOOT is false), so it cannot
 				-- break this rule at all, and the rule must not have touched it either.
 				expect(Match.myTeam()).to.equal("Drivers")
@@ -271,6 +278,16 @@ return function()
 			expect(waitUntil(10, function()
 				return not holdsGun()
 			end)).to.equal(true)
+
+			-- AND THE CLIENT WAS TOLD (TASKS.md 35b(a)). Weapon.revoke used to reset the player's
+			-- state without publishing it, so this replica kept the snapshot from before the gun was
+			-- taken and the Hud kept drawing an ammo readout for a gun that no longer exists -- which
+			-- is what .screenshots/task35-tied-to-a-tree.png shows.
+			expect(waitUntil(10, function()
+				local state = Weapon.get()
+				return state ~= nil and not state.equipped
+			end)).to.equal(true)
+			expect(Hud.readoutText()).to.equal("")
 		end)
 
 		afterAll(function()

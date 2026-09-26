@@ -397,19 +397,28 @@ local function applyFreeze(userId: number)
 	end
 	-- The POINTS penalty lands either way: the shot was a violation whether or not the map gave us
 	-- anything to tie him to. Only the tie itself needs an anchor.
-	board = Score.violation(board, userId, Match.CONFIG)
+	--
+	-- AND THE AWARD IS PUBLISHED, like every other (TASKS.md 35b(b)): Score.violation returns
+	-- (board, awards) and only the board was being taken, so Match.Scored carried kills and escapes
+	-- but never the -50 -- a listener rebuilding the drive from that signal alone would have missed
+	-- every penalty.
+	local awards
+	board, awards = Score.violation(board, userId, Match.CONFIG)
+	for _, award in ipairs(awards) do
+		scoredSignal:Fire(award)
+	end
 	stats.violations += 1
 
+	-- WITHOUT AN ANCHOR THE VIOLATION STILL HAPPENED, and everything that does not need a tree still
+	-- happens (TASKS.md 35b(c)): the points above, the feed line the machine emits, and Punished.
+	-- Only the rope, the freeze and the revoked gun need somewhere to tie him. The half-state the
+	-- review found was Punished going missing with them, so a listener saw a feed line and no event.
 	local tree = if markerSet then Body.anchorFor(markerSet, characterPosition(player)) else nil
-	if not tree then
+	if not tree or not Body.tie(player, tree, Match.CONFIG) then
 		-- Never a nil CFrame, which would silently teleport him to the origin (design section 8.4).
 		stats.tiesWithoutAnchor += 1
 		snapshotCache = nil
-		return
-	end
-	if not Body.tie(player, tree, Match.CONFIG) then
-		stats.tiesWithoutAnchor += 1
-		snapshotCache = nil
+		punishedSignal:Fire(userId, Penalty.REASON)
 		return
 	end
 	tied[userId] = { tree = tree, at = now() }
@@ -498,6 +507,11 @@ local function dispatch(event)
 			if counts.Drivers == 0 or counts.Shooters == 0 then
 				stats.emptyTeamDrives += 1
 			end
+			-- THE BOARD WAS REBUILT AFTER THE CACHE WAS CLEARED (TASKS.md 32a(c)). applyEffects runs
+			-- above, and the `broadcast` effect inside it built and cached a snapshot from the
+			-- PREVIOUS drive's rows; without this the drive-start push carried them for up to
+			-- STATE_MIN_INTERVAL. Clearing it here costs one table build and cannot be stale.
+			snapshotCache = nil
 		end
 		phaseSignal:Fire(before, state.phase, state.driveNumber)
 	elseif state.driveNumber ~= driveBefore then
