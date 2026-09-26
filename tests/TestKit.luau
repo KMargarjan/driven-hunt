@@ -103,13 +103,6 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 		-- clock seam open for the rest of the session, in a Studio session a human is about to play in.
 		-- Every exit from `run` goes through here, including the early returns above.
 		activeToken = nil
-		-- AND IT TRAVELS IN THE REPORT, because nothing outside this module can see the upvalue.
-		-- MEASURED 2026-09-26: a `execute_luau` query that requires ReplicatedStorage.TestKit gets a
-		-- DIFFERENT instance from the one the runner is using -- its own require cache, holding a copy
-		-- loaded before the edit under test -- so a harness check written that way reads an
-		-- `activeToken` nothing ever set and can only ever answer "closed". This field is computed
-		-- here, in the instance that actually ran, and goes false the moment the line above is removed.
-		report.seamClosed = activeToken == nil
 		local line = if report.status == "ERROR"
 			then string.format("[tests:%s] ERROR: %s", side, report.message)
 			else string.format(
