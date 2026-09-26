@@ -3,17 +3,17 @@
 Task: 63
 Round: 2
 Base: `4a0a7d5` (`main`, with Task 61 merged)
-Code commit: `a2ebfca4111c92b333ce2fd2cefae3c198f50425` — the `[harness]` line below names it, and it
-is the last commit that changed `src/`, `tests/` or `tools/`.
+Code commit: `4755ad898e4aad35f90f75b0245e98ddbb505c50` — **both** harness lines below name it. It is a
+PAPERWORK commit: the last commit that changed `src/`, `tests/` or `tools/` is `a2ebfca`, and
+`git diff --name-only a2ebfca..4755ad8` is `TASKS.md` and this file.
 
 Harness, clean tree, one player:
 
-    [harness] PASS: 30/30 checks @ a2ebfca4111c92b333ce2fd2cefae3c198f50425 (clean tree)
+    [harness] PASS: 30/30 checks @ 4755ad898e4aad35f90f75b0245e98ddbb505c50 (clean tree)
 
-Harness, clean tree, two players — **run by the DIRECTOR, not by me**, at the branch head:
+Harness, clean tree, two players — **run by the DIRECTOR, not by me**:
 
-    [harness2] NOT YET RUN — this line and the `Code commit:` above are updated to the head the
-    Director runs it at, exactly as round 1 did (`02feb68`, "both harness lines at 1484bac").
+    [harness2] PASS: 32/32 checks @ 4755ad898e4aad35f90f75b0245e98ddbb505c50 (clean tree)
 
 378 server specs (377 before: **one new**), 84 shooter and 78 driver client specs. **The map is
 CLEARED from the place**: `cellsBefore: 3381368`, `cellsAfter: 0`, `paletteRestored: true`, and a
@@ -106,7 +106,8 @@ Nothing else in the task changed. **No tree moved**: the same build, same seed, 
   it is a measurement of the seed-7 wood, not of the seed-1 build the pictures are of.
 - **One seed each.** The spec measures `SEED = 7`; the build and the shots are seed 1. The design's
   five- and twenty-seed properties are measured by the walkability spec, not by this one.
-- **`[harness2]` has not been run by me** (the Director runs it), so nothing here is evidence about
-  two players; this change is server-side generator code with no client path.
+- **`[harness2]` was run by the Director, not by me**; this change is server-side generator code
+  with no client path, and the two-player run is the gate's requirement rather than evidence I
+  produced.
 - **Karen has not seen the wood.** Whether the mix reads as a European wood at all is hers.
 - The round-1 notes that are not this finding are queued in `TASKS.md` as 63a, not fixed here.
