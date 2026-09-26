@@ -72,7 +72,10 @@ Config.SLICE = {
 	trackHalfWidth = 6,
 }
 
-Config.SCATTER_OVERSAMPLE = 3 -- cells per wanted tree, before the corridor and track reject ~2/3
+-- MEASURED on the first real build (seed 7): the drive corridor and the track reject about two
+-- thirds of the cells, so 3 cells per wanted tree yielded 46 of 50 and the step failed honestly
+-- rather than shipping a thin wood. 6 leaves ~100 candidates for 50 trees.
+Config.SCATTER_OVERSAMPLE = 6
 Config.SCATTER_JITTER = 0.9 -- of a cell; 0 is a grid, 1 lets two neighbours touch
 Config.ROUGH_SLOPE = 0.3 -- studs per stud: above this the field material becomes LeafyGrass
 
