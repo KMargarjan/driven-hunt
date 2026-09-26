@@ -402,7 +402,9 @@ return function()
 			expect(counted > 0).to.equal(true)
 		end)
 
-		it("hides every part of the character, the Tool's Handle included", function()
+		-- A DRIVER holds no Tool at all (Match.CONFIG.DRIVERS_MAY_SHOOT is false), so the Handle is
+		-- named as a case rather than promised: the claim is every part the character HAS.
+		it("hides every part the character has, the Tool's Handle among them when it holds one", function()
 			local character = player.Character
 			expect(character).to.be.ok()
 
@@ -433,6 +435,56 @@ return function()
 			print(
 				string.format("[camera_client] hidden body: %d character part(s) at LocalTransparencyModifier 1", total)
 			)
+		end)
+
+		-- Review round 1 of Task 47: the fix for the late arrival introduced its own defect. A part
+		-- that LEAVES the character while the body is hidden was dropped from the list still at 1, and
+		-- nothing writes it again -- so unequipping the shotgun mid-aim left the player's own gun
+		-- invisible in third person for the rest of that life. `Rig` is the only writer of
+		-- LocalTransparencyModifier on the local character, so nothing else could put it back.
+		it("puts a part back when it leaves the character while the body is hidden", function()
+			local character = player.Character
+			expect(character).to.be.ok()
+
+			local probe = Instance.new("Part")
+			probe.Name = "AuditF1Departure"
+			probe.Size = Vector3.new(1, 1, 1)
+			probe.Anchored = true
+			probe.CanCollide = false
+			probe.CanQuery = false
+			probe.Parent = character
+
+			-- Wait for the deferred DescendantAdded, re-asserting the flag as the camera lowers it.
+			local deadline = os.clock() + 3
+			while os.clock() < deadline and probe.LocalTransparencyModifier ~= 1 do
+				Camera.Rig.setLocalBodyHidden(true)
+				task.wait()
+			end
+			expect(probe.LocalTransparencyModifier).to.equal(1)
+
+			-- Out of the character, exactly as the Tool reparents to the Backpack on unequip.
+			probe.Parent = Workspace
+			deadline = os.clock() + 3
+			while os.clock() < deadline and probe.LocalTransparencyModifier ~= 0 do
+				task.wait()
+			end
+			local afterLeaving = probe.LocalTransparencyModifier
+			Camera.Rig.setLocalBodyHidden(false)
+			local afterUnhide = probe.LocalTransparencyModifier
+			probe:Destroy()
+
+			if afterLeaving ~= 0 or afterUnhide ~= 0 then
+				error(
+					string.format(
+						"a part that left the character while hidden stayed at LocalTransparencyModifier "
+							.. "%.1f (and %.1f after the flag cleared): that is the player's own gun going "
+							.. "invisible when they unequip mid-aim",
+						afterLeaving,
+						afterUnhide
+					),
+					0
+				)
+			end
 		end)
 
 		it("puts the body back when the flag clears", function()

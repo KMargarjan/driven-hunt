@@ -201,10 +201,23 @@ local function trackHiddenPart(part: Instance)
 	end
 end
 
+-- RESTORE BEFORE DROPPING. A part that leaves the character while the body is hidden must be put
+-- back first: once it is out of the list, `setLocalBodyHidden(false)` never writes it again, and this
+-- module is the only writer of LocalTransparencyModifier on the local character -- so it would stay
+-- invisible for the rest of that life.
+--
+-- The reachable path is a player's: aim, then unequip the shotgun with `1` or backtick while the
+-- right button is still down. The Tool reparents to the Backpack, its `Handle` leaves the character
+-- at 1, the blend decays, and the gun is gone in third person until the player respawns. Review round
+-- 1 of Task 47 found this; the old code could not do it, because it never removed anything.
 local function forgetHiddenPart(part: Instance)
 	local index = table.find(hiddenParts, part)
-	if index then
-		table.remove(hiddenParts, index)
+	if index == nil then
+		return
+	end
+	table.remove(hiddenParts, index)
+	if hiddenNow then
+		(part :: any).LocalTransparencyModifier = 0
 	end
 end
 

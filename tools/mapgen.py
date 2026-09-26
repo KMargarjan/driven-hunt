@@ -286,6 +286,9 @@ def check_backup(studio, backup, command):
     """Refusal 4, or the M2.1 census in its place."""
     if backup is None:
         return "no --backup. Pass a .rbxl saved by File -> Save to File, or `census` (M2.1 only)."
+    # The census path only. A REAL --backup is a saved .rbxl: whatever is in the place, the operator
+    # can put it back, which is the whole point of the file -- so the orphan refusal below does not
+    # apply to it (review round 1 note).
     if backup == "census":
         result = census(studio)
         rows = result.get("children") or []
@@ -300,10 +303,16 @@ def check_backup(studio, backup, command):
         # ORPHANED TERRAIN. A map root with no terrain is a half-finished build; TERRAIN WITH NO ROOT
         # is somebody deleting Workspace.DrivenHuntMap in the Explorer, which leaves the whole
         # heightfield behind and which every other check in this project is blind to (audit-004
-        # must-fix 1). A rebuild must not start from it silently: the operator has to say `clear`.
-        # `clear` is the CURE, so it is never refused for the disease: refusing it would leave the
-        # operator with a message telling them to run the command that was just refused.
-        if command != "clear" and cells > 0 and not any(r["name"] == root_name() for r in rows):
+        # must-fix 1). A FRESH build must not start from it silently: the operator has to say `clear`.
+        #
+        # ONLY `build` AND `verify` ARE REFUSED, and the other two are legitimate in exactly this
+        # state (review round 1 of Task 47):
+        #   * `step` IS the retry, and a build reaches `ensureRoot()` for the first time in the
+        #     hedgerow step -- so through all 256 terrain steps Workspace holds terrain and no root.
+        #     Refusing `step` would block the documented way to resume a build, and would tell the
+        #     operator to `clear` the partial build it was resuming.
+        #   * `clear` is the cure the refusal itself names.
+        if command in ("build", "verify") and cells > 0 and not any(r["name"] == root_name() for r in rows):
             return (
                 f"Workspace holds {cells} terrain cell(s) and no {root_name()}: a generated map's ground "
                 "was left behind when its folder went away.\n"
@@ -575,7 +584,14 @@ def main(argv):
         if args.command == "shots":
             return command_shots(studio)
         if args.command == "clear":
-            print(json.dumps(call(studio, "MapGen.clear()"), indent=2))
+            # BRANCH ON THE MEASUREMENT. Printing "cleared" and exiting 0 while cells remain is the
+            # same shape this task set out to close, in the very command its refusal points at
+            # (review round 1 note).
+            result = call(studio, "MapGen.clear()")
+            print(json.dumps(result, indent=2))
+            if not result.get("terrainCleared"):
+                print(f"[mapgen] FAILED: Terrain:Clear() left {result.get('cellsAfter')} cell(s) @ {sha}")
+                return 1
             print(f"[mapgen] cleared @ {sha} (clean tree)")
             return 0
         if args.command == "build":
