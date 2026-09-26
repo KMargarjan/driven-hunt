@@ -27,9 +27,16 @@ local Props = require(script.Parent:WaitForChild("Props"))
 
 local Markers = {}
 
--- A marker a player stands at collides; a line, a start box and a spawn pad are reference geometry
--- and must not be something to trip over.
-local SOLID = { shooterPost = true }
+-- EVERY MARKER IS INVISIBLE AND INERT (design section 4.3): Anchored, CanCollide = false,
+-- CanQuery = false, Transparency = 1. Round 2 of the review caught the opposite here -- eight solid
+-- white posts and six translucent boxes -- and the design's own sentence is the reason it matters:
+-- "a marker that can be shot, walked into or collided with is a gameplay object pretending to be
+-- metadata". CanQuery is the load-bearing one: `Weapon.Cast` builds RaycastParams with an Exclude
+-- filter and no RespectCanCollide, so a CanCollide = false part still stops a pellet. A 340-stud
+-- DriveLine across the shooter line would have eaten shots.
+--
+-- The visible grey box is TestArena's job, and it still has it: this is the generated map's metadata,
+-- not its geometry.
 
 local function markersFolder(root: Instance): Folder
 	local existing = root:FindFirstChild("Markers")
@@ -57,10 +64,13 @@ function Markers.place(root: Instance, seed: number, config): { [string]: number
 		-- +Z is the drivers' side of the line, so this LookVector points at them.
 		part.CFrame = CFrame.lookAt(position, position + Vector3.zAxis)
 		part.Anchored = true
-		part.CanCollide = SOLID[marker.kind] == true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.Transparency = 1
+		part.CastShadow = false
 		part.Color = config.PROXY_COLOR.marker
 		part.Material = Enum.Material.SmoothPlastic
-		part.Transparency = if SOLID[marker.kind] then 0 else 0.5
 		part.TopSurface = Enum.SurfaceType.Smooth
 		part.BottomSurface = Enum.SurfaceType.Smooth
 		part.Parent = parent

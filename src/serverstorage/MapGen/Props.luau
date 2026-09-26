@@ -171,7 +171,8 @@ function Props.hedge(root: Instance, seed: number, config): (number, { string },
 	end
 	local parent = folder(propsFolder(root), "Hedge")
 	local pads = Layout.pads(config)
-	local points = Layout.hedgerow(config)
+	-- Seeded gate, so the drive corridor is never walled off (review round 2, finding 2).
+	local points = Layout.hedgerow(config, Scatter.hedgeGate(config, seed))
 	local size = config.HEDGE.size
 	local proxied = 0
 	for index, point in ipairs(points) do

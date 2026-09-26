@@ -90,16 +90,50 @@ function Layout.markers(config): { Marker }
 	return out
 end
 
--- The hedgerow, as a polyline of segment centres. One line for M2.1; a network in M2.2.
-function Layout.hedgerow(config): { { x: number, z: number } }
+-- The hedgerow, as a polyline of segment centres, WITH A GATE cut out of it. One line for M2.1; a
+-- network in M2.2.
+--
+-- `gate` is { x = centre } or nil, and it comes from Scatter (the seeded half of the decision lives
+-- there, so this module stays free of Random). Every segment that would overlap the gate is left out,
+-- which is what keeps the drive corridor walkable for an agent that cannot jump (design section 1.1
+-- item 7; review round 2, finding 2).
+function Layout.hedgerow(config, gate: { x: number }?): { { x: number, z: number } }
 	local hedge = config.SLICE.hedgerow
 	local out = {}
 	local span = hedge.toX - hedge.fromX
 	local count = math.max(1, math.floor(span / config.HEDGE.segmentStuds))
+	local half = config.HEDGE.segmentStuds / 2
+	local gateHalf = hedge.gateStuds / 2
 	for index = 0, count do
-		table.insert(out, { x = hedge.fromX + index * config.HEDGE.segmentStuds, z = hedge.z })
+		local x = hedge.fromX + index * config.HEDGE.segmentStuds
+		-- Overlap, not centre distance: a segment is 12 studs wide, so one whose EDGE reaches into
+		-- the gate would narrow it below the width the spec asserts.
+		local blocksGate = gate ~= nil and math.abs(x - gate.x) < gateHalf + half
+		if not blocksGate then
+			table.insert(out, { x = x, z = hedge.z })
+		end
 	end
 	return out
+end
+
+-- The clear span the hedgerow leaves, given its segment centres: the widest x-interval with no hedge
+-- in it, as (from, to). A spec asserts this is at least `gateStuds` wide and inside the corridor --
+-- the property the boar actually needs, measured from what was placed rather than from the intent.
+function Layout.hedgeGap(points: { { x: number, z: number } }, config): (number, number)
+	local half = config.HEDGE.segmentStuds / 2
+	local xs = {}
+	for _, point in ipairs(points) do
+		table.insert(xs, point.x)
+	end
+	table.sort(xs)
+	local bestFrom, bestTo = 0, 0
+	for index = 1, #xs - 1 do
+		local from, to = xs[index] + half, xs[index + 1] - half
+		if to - from > bestTo - bestFrom then
+			bestFrom, bestTo = from, to
+		end
+	end
+	return bestFrom, bestTo
 end
 
 -- Is this point on the dirt track? Material only -- the track's height was already set by the

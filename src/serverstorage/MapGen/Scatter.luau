@@ -67,6 +67,16 @@ function Scatter.spacingFor(area: Area, count: number): number
 	return math.sqrt(span / math.max(count, 1))
 end
 
+-- Where the hedgerow's gate is: seeded, one generator for the hedge layer, and always INSIDE the
+-- drive corridor, because a gate at the slice edge is not a gate the drive can use. The margin keeps
+-- the whole gate clear of the corridor walls.
+function Scatter.hedgeGate(config, seed: number): { x: number }
+	local corridor = config.SLICE.corridor
+	local margin = config.SLICE.hedgerow.gateStuds
+	local rng = Scatter.generator(seed, Scatter.LAYER.hedge)
+	return { x = rng:NextNumber(corridor.minX + margin, corridor.maxX - margin) }
+end
+
 -- The M2.1 wood: `config.SLICE.treeCount` trees inside `treeArea`, none where `reject` says no --
 -- which for the drive means not in the corridor and not on the track (a tree in the corridor is an
 -- obstacle in the one place the drive must be open).

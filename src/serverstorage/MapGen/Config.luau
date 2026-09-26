@@ -64,7 +64,11 @@ Config.SLICE = {
 	boarSpawnZ = 150,
 	boarSpawnX = { -150, -50, 50, 150 }, -- K
 	driveLineSize = Vector3.new(340, 1, 1),
-	hedgerow = { z = 40, fromX = -230, toX = 230 }, -- one line, M2.1's single hedge
+	-- One line, M2.1's single hedge, WITH A GATE IN IT. A continuous 7-stud hedge across the drive
+	-- corridor is a wall between the boars and the shooter line, and the boar's agent has
+	-- AgentCanJump = false: the drive would simply stop at it (review round 2, finding 2). Real
+	-- farmland has gates and gaps in its hedgerows for exactly the same reason.
+	hedgerow = { z = 40, fromX = -230, toX = 230, gateStuds = 72 },
 	treeCount = 50, -- M2.1: one asset key, proxies until Karen's ids arrive
 	tieTrees = 12, -- tagged DrivenHunt.Tree, the nearest to the line (design section 4.3)
 	-- The whole slice: the corridor is carved out of it by Layout.inCorridor, so the wood ends up

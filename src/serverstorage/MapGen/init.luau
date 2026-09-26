@@ -4,6 +4,9 @@
 -- module at run time and NOTHING HAPPENS ON REQUIRE (the rule src/server/Boar/init.luau states in its
 -- own header).
 --
+-- (The one clause: `Contract.luau` DOES do work on require, and only in Edit -- it clones the
+-- contract script so a run cannot read a stale one. At run time it is a plain require.)
+--
 -- IT HOLDS NO STATE BETWEEN CALLS. Each MCP call is a separate `execute_luau`, and whether Studio
 -- keeps a module's upvalues between two of them is not knowable from the documentation, so the design
 -- forbids depending on it (design section 0 item 2, section 5.4). Every step re-derives everything it
@@ -158,7 +161,9 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		local tile = Layout.tiles(Config)[index - 1] -- step 1 is the clear, so tile n is step n + 1
 		return finish({ ok = true, voxelsWritten = Ground.writeTile(tile, seed, Config) })
 	elseif spec.kind == "hedgerow" then
-		local count, keys, why = Props.hedge(ensureRoot(), seed, Config)
+		local root = ensureRoot()
+		local count, keys, why = Props.hedge(root, seed, Config)
+		Props.clearAssets(root) -- this step can create it too, so this step also clears it (8.2)
 		if why then
 			return finish({ ok = false, message = why })
 		end
@@ -189,11 +194,17 @@ function MapGen.runStep(index: number, seed: number): StepReport
 		local root = ensureRoot()
 		local counts = Markers.place(root, seed, Config)
 		local tagged = Markers.tagTieTrees(root, Config)
-		local total = tagged
+		-- partsCreated is the marker parts only. The tie trees are trunks Props already placed and
+		-- this step only TAGS; counting them as parts created would claim 12 parts that do not exist.
+		local placedParts = 0
 		for _, n in pairs(counts) do
-			total += n
+			placedParts += n
 		end
-		return finish({ ok = true, partsCreated = total, message = string.format("%d tie trees tagged", tagged) })
+		return finish({
+			ok = true,
+			partsCreated = placedParts,
+			message = string.format("%d tie trees tagged (existing trunks)", tagged),
+		})
 	elseif spec.kind == "settings" then
 		local changed, unreachable, unwritten = Settings.apply(Map.STREAMING)
 		local note = if #changed == 0 then "already matched the contract" else "changed " .. table.concat(changed, ", ")

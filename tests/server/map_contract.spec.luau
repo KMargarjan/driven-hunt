@@ -342,6 +342,58 @@ return function()
 		end)
 	end)
 
+	describe("the generator's hedgerow", function()
+		it("leaves a gate wide enough for the drive, inside the corridor", function()
+			local c = config()
+			local corridor = c.SLICE.corridor
+			-- Every seed, not one: a gate that lands outside the corridor on some seeds is a drive
+			-- that stops at a wall on those seeds, and nobody would see it until a playtest.
+			for seed = 1, 20 do
+				local gate = MapGen.Scatter.hedgeGate(c, seed)
+				expect(gate.x > corridor.minX and gate.x < corridor.maxX).to.equal(true)
+				local points = MapGen.Layout.hedgerow(c, gate)
+				local from, to = MapGen.Layout.hedgeGap(points, c)
+				if to - from < c.SLICE.hedgerow.gateStuds then
+					error(
+						string.format(
+							"seed %d: the widest gap is %.1f studs, %d wanted",
+							seed,
+							to - from,
+							c.SLICE.hedgerow.gateStuds
+						),
+						0
+					)
+				end
+				-- And the gap is the gate, not a hole at the far end of the slice.
+				expect(from >= corridor.minX and to <= corridor.maxX).to.equal(true)
+			end
+		end)
+
+		it("puts no hedge segment inside the gate", function()
+			local c = config()
+			local gate = MapGen.Scatter.hedgeGate(c, SEED)
+			local half = c.HEDGE.segmentStuds / 2
+			local gateHalf = c.SLICE.hedgerow.gateStuds / 2
+			for _, point in ipairs(MapGen.Layout.hedgerow(c, gate)) do
+				expect(point.x + half <= gate.x - gateHalf or point.x - half >= gate.x + gateHalf).to.equal(true)
+				expect(point.z).to.equal(c.SLICE.hedgerow.z)
+			end
+		end)
+
+		it("puts the gate in the same place for one seed and elsewhere for another", function()
+			local c = config()
+			expect(MapGen.Scatter.hedgeGate(c, SEED).x).to.equal(MapGen.Scatter.hedgeGate(c, SEED).x)
+			expect(MapGen.Scatter.hedgeGate(c, SEED).x).never.to.equal(MapGen.Scatter.hedgeGate(c, SEED + 1).x)
+			-- Without a gate it is a solid wall: that is what the argument buys, stated as a test so
+			-- nobody removes it thinking it is decoration.
+			local solid = MapGen.Layout.hedgerow(c, nil)
+			local gated = MapGen.Layout.hedgerow(c, MapGen.Scatter.hedgeGate(c, SEED))
+			expect(#solid > #gated).to.equal(true)
+			local from, to = MapGen.Layout.hedgeGap(solid, c)
+			expect(to - from < c.HEDGE.segmentStuds).to.equal(true)
+		end)
+	end)
+
 	describe("the generator's scatter", function()
 		local function reject(x, z)
 			local c = config()
