@@ -386,18 +386,22 @@ return function()
 	-- Design: docs/design/drive.md ("boar_body.spec.luau -- CHANGED, live: one real sounder of five")
 	describe("boar sounder, live", function()
 		local SOUNDER_Y = 1500
-		-- A BIG field, and that is the point: the block above uses a 120-stud plate because ONE boar
-		-- crossing a short line is what it is testing. Here the sounder has to still EXIST after
-		-- three seconds of sprinting, a six-second scatter and the four seconds the break rule
-		-- takes -- and a boar that crosses `exitZ` has escaped and is despawned. At 1,100 studs it
-		-- would take ~28 s of trotting to reach the line, so nothing escapes while this block runs.
-		local SOUNDER_SPAN = 1200
+		-- A BIGGER field than the block above, and that is the point: one boar crossing a short line
+		-- is what THAT block tests, while the sounder has to still EXIST after three seconds of
+		-- sprinting, a six-second scatter and the four seconds the break rule takes -- and a boar
+		-- that crosses `exitZ` has escaped and is despawned.
+		--
+		-- 380 studs from the release to the line, MEASURED rather than chosen: at 1,100 studs every
+		-- single ComputeAsync came back `NoPath` (29 of 29, 2026-09-26), so the leader asked again
+		-- every frame and the path budget read 29 in 3 s. The arena the other specs use is 400
+		-- studs across and routes fine, so this one is sized like it.
+		local SOUNDER_SPAN = 600
 		local SOUNDER_FIELD = {
-			bounds = { minX = -500, maxX = 500, minZ = -500, maxZ = 500 },
-			exitZ = -480,
+			bounds = { minX = -250, maxX = 250, minZ = -250, maxZ = 250 },
+			exitZ = -220,
 			groundY = SOUNDER_Y,
 		}
-		local CENTER = Vector3.new(0, SOUNDER_Y, 25)
+		local CENTER = Vector3.new(0, SOUNDER_Y, 160)
 		local SETTINGS = CONFIG.SOUNDER
 
 		local root, herd, herdWorld, herdThreat, herdRecords, stop
@@ -658,7 +662,7 @@ return function()
 			-- of running on top of the four this already waits, for the same assertion.)
 			local elapsed = 0
 			while elapsed < SETTINGS.BREAK_SECONDS + 1.5 do
-				stray.part.CFrame = CFrame.new(Vector3.new(-50, SOUNDER_Y + CONFIG.BODY_SIZE.Y / 2, 50))
+				stray.part.CFrame = CFrame.new(Vector3.new(-200, SOUNDER_Y + CONFIG.BODY_SIZE.Y / 2, 200))
 				stray.part.AssemblyLinearVelocity = Vector3.zero
 				elapsed += RunService.Heartbeat:Wait()
 			end
