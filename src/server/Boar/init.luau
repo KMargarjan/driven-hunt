@@ -909,6 +909,7 @@ function Runtime:spawn(position: Vector3?)
 		hitEvents = {}, -- hits since the last step; handed to the Brain and cleared
 		lastPosition = at,
 		bornAt = os.clock(),
+		lastPathAt = 0, -- when this boar last asked for a route; the forced-repath cooldown reads it
 		-- sounderId and slot stay nil for a lone boar, which is what makes obs.sounder nil and
 		-- every existing code path apply to it unchanged.
 		awayFor = 0,
@@ -922,6 +923,7 @@ function Runtime:_requestPath(entry, to: Vector3)
 		return
 	end
 	entry.pending = true
+	entry.lastPathAt = os.clock()
 	self._stats.pathRequests += 1
 	local from = Body.position(entry.body)
 	self._world.requestPath(entry.id, from, to, function(points)
@@ -946,8 +948,16 @@ function Runtime:_requestPath(entry, to: Vector3)
 			return
 		end
 		if blockedWaypointIdx >= entry.brain:consumed() + 2 then
-			entry.forceRepath = true
 			self._stats.pathBlocked += 1
+			-- AT MOST ONE FORCED REPATH PER REPATH_INTERVAL, measured 2026-09-26 (Task 60): a
+			-- sounder's leader asked for 29 routes in 3 seconds against the design's budget of 12,
+			-- because its own herd-mates stand on its route and Path.Blocked fires again every time
+			-- one of them moves. A blockage found INSIDE that window buys nothing -- the Brain's own
+			-- repath is at most REPATH_INTERVAL away and will see the same obstruction -- so this
+			-- only removes churn. It applies to a lone boar too, where it is the same improvement.
+			if os.clock() - (entry.lastPathAt or 0) >= self._config.REPATH_INTERVAL then
+				entry.forceRepath = true
+			end
 		end
 	end)
 end
