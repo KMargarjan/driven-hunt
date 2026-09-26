@@ -289,8 +289,7 @@ return function()
 			-- under test could ever fail.
 			expect(ContextActionService:GetAllBoundActionInfo()[ACTION_NAME]).to.be.ok()
 			expect(string.sub(ACTION_NAME, 1, 16)).to.equal("DrivenHunt.Test.")
-			-- And it never took the keys away from the game: every handler here returns Pass, which
-			-- is what lets the weapon's own actions see the same MouseButton1 and R.
+			-- ...and it really recorded through that binding, rather than only holding it.
 			expect(#log > 0).to.equal(true)
 		end)
 

@@ -132,6 +132,11 @@ local function forgetTool(tool: Instance)
 	for _, connection in ipairs(hooks) do
 		connection:Disconnect()
 	end
+	-- AND UNBIND. Disconnecting the hooks takes the Unequipped handler with them, so a Tool destroyed
+	-- while equipped -- which is what a revoke does -- would otherwise leave the DrivenHunt.Weapon.*
+	-- actions bound with nothing in the player's hands. There is only ever one Tool, so this cannot
+	-- unbind somebody else's.
+	unbind()
 end
 
 local function watchTool(tool: Instance)

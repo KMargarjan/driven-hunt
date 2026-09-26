@@ -191,7 +191,9 @@ function Wound.apply(state: WoundState, hit, config): (WoundState, Severity)
 		if not known then
 			unknownPellets += count
 		end
-		local key = if known then zone else FALLBACK_ZONE
+		-- Wound.chargedZone is the one answer, so the tally in Runtime:takeHit and the damage here
+		-- cannot drift apart (TASKS.md 28a(g)).
+		local key = Wound.chargedZone(zone, config)
 		local points = Wound.damageFor(zone, ammo, count, config)
 		byZone[key] = (byZone[key] or 0) + points
 		added += points

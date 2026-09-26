@@ -491,30 +491,32 @@ local function dispatch(event)
 	end
 	state, effects = Phase.step(state, filled, now(), Match.CONFIG)
 	snapshotCache = nil
-	applyEffects(effects)
-	if state.phase ~= before then
-		if state.phase == "Assigning" then
-			-- A map rebuilt in Edit between drives is picked up without a server restart (design
-			-- section 6.2). Read on the NEXT step, never from inside dispatch: readMarkers dispatches
-			-- an event of its own, and a dispatch inside a dispatch would apply effects out of order.
-			markersStale = true
-			stats.drives += 1
-			board = Score.new() -- scores are per drive
-			for userId, name in pairs(names) do
-				board = Score.join(board, userId, name, state.assignment[userId])
-			end
-			local counts = Roster.counts(state.assignment)
-			if counts.Drivers == 0 or counts.Shooters == 0 then
-				stats.emptyTeamDrives += 1
-			end
-			-- THE BOARD WAS REBUILT AFTER THE CACHE WAS CLEARED (TASKS.md 32a(c)). applyEffects runs
-			-- above, and the `broadcast` effect inside it built and cached a snapshot from the
-			-- PREVIOUS drive's rows; without this the drive-start push carried them for up to
-			-- STATE_MIN_INTERVAL. Clearing it here costs one table build and cannot be stale.
-			snapshotCache = nil
+
+	-- BEFORE applyEffects, AND THAT IS THE WHOLE POINT (TASKS.md 32a(c)). Entering Assigning emits a
+	-- `broadcast` effect, and `broadcast` builds the snapshot from `board` -- so with the new drive's
+	-- board built afterwards, the push that announces drive N carried drive N-1's score rows, and
+	-- every client showed the last drive's points until the next event or the 5 s heartbeat. Round 1
+	-- of Task 38 "fixed" this by clearing the snapshot cache after the push had already gone out,
+	-- which changed nothing anybody could see; the order is the fix.
+	if state.phase ~= before and state.phase == "Assigning" then
+		-- A map rebuilt in Edit between drives is picked up without a server restart (design
+		-- section 6.2). Read on the NEXT step, never from inside dispatch: readMarkers dispatches
+		-- an event of its own, and a dispatch inside a dispatch would apply effects out of order.
+		markersStale = true
+		stats.drives += 1
+		board = Score.new() -- scores are per drive
+		for userId, name in pairs(names) do
+			board = Score.join(board, userId, name, state.assignment[userId])
 		end
-		phaseSignal:Fire(before, state.phase, state.driveNumber)
-	elseif state.driveNumber ~= driveBefore then
+		local counts = Roster.counts(state.assignment)
+		if counts.Drivers == 0 or counts.Shooters == 0 then
+			stats.emptyTeamDrives += 1
+		end
+		snapshotCache = nil
+	end
+
+	applyEffects(effects)
+	if state.phase ~= before or state.driveNumber ~= driveBefore then
 		phaseSignal:Fire(before, state.phase, state.driveNumber)
 	end
 end

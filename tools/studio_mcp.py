@@ -150,8 +150,11 @@ Staging a scenario (Task 30): putting the player somewhere useful, pointing at s
   character or the camera's request function FAILS the run -- a scenario staged into thin air would
   otherwise send its clicks at nothing and still be reported as replayed.
   Every step is validated when the file is read, before Play: an unknown device or action, a missing
-  key or button, a non-numeric moveTo or a `wait` outside StudioMCP's 0..10000 ms fails the run there
-  and then, because a step the replay sends but the spec cannot recognise is a hole in the evidence.
+  key or button, a non-numeric moveTo, a `wait` outside StudioMCP's 0..10000 ms, a `readyAttribute`
+  that is not a plain identifier, or a mouse BUTTON before any `moveTo` in the same scenario -- that
+  last one because StudioMCP refuses a click with no established position and the position is carried
+  only inside one scenario, which cost Task 35 a run. All of them fail there and then, because a step
+  the replay sends but the spec cannot recognise is a hole in the evidence.
   Gated exactly like the specs: replay happens only inside `test`, only during its own Play, and the
   spec only listens when TestKit's token gate is open.
   What a scenario CANNOT express: DIFFERENT input per player (that is `test2`, and it sends the same

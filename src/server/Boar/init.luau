@@ -405,6 +405,9 @@ function Runtime:takeHit(part: BasePart, hit): boolean
 			-- still what counts the typo.
 			local zoneHits = self._stats.zoneHits
 			local function tally(zone: string, count: number)
+				if count <= 0 then
+					return -- Wound.apply's `charge` returns early on the same condition
+				end
 				local charged = Wound.chargedZone(zone, self._config.WOUND)
 				zoneHits[charged] = (zoneHits[charged] or 0) + count
 			end

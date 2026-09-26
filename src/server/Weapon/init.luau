@@ -486,16 +486,23 @@ local function runReload(player: Player, epoch: number)
 			-- carrying a brick until they respawn. Close it before giving up. The player asked for a
 			-- reload; a closed gun is the state they asked to end in, and Close after the step's own
 			-- window has elapsed is the same action the sequence would have taken itself.
-			local ending = state
 			if state.open then
+				-- A "busy" refusal is the one this has to wait out: StateMachine.apply rejects every
+				-- action while `now < busyUntil`, so an immediate Close would be refused for the same
+				-- reason the step was and the gun would stay open anyway. A fraction of a second is
+				-- cheaper than a gun that cannot be reloaded or fired again.
+				local remaining = state.busyUntil - os.clock()
+				if remaining > 0 then
+					task.wait(remaining)
+				end
 				local closed, refused = StateMachine.apply(state, { kind = "Close" }, os.clock())
 				if not refused then
-					ending = closed
 					setState(player, closed)
 				end
 			end
-			publish(player, ending, ending ~= state)
-			return
+			-- BREAK, NOT RETURN: the trailing publish below is what clears the Hud's "R" once the
+			-- last window has elapsed, and an abort needs it exactly as much as a finished sequence.
+			break
 		end
 		setState(player, next)
 		publish(player, next, true)
