@@ -1167,6 +1167,7 @@ return function()
 			local pads = MapGen.Layout.pads(c)
 			local keysUsed: { [string]: boolean } = {}
 			local sampled: { [string]: number } = {}
+			local points = {}
 			local planted = 0
 			for quadrant, block in ipairs(MapGen.Layout.treeBlocks(c)) do
 				local count, keys, why, species = Props.trees(root, SEED, c, block, planted, quadrant == 1)
@@ -1177,63 +1178,84 @@ return function()
 				for name, n in pairs(species) do
 					sampled[name] = (sampled[name] or 0) + n
 				end
+				-- THE SAME POINTS, IN THE SAME ORDER, FROM THE SAME SAMPLER, so a tree can be matched
+				-- to the point it was planted at BY NAME (`Tree%04d`, the placement order) rather than
+				-- by reading its position back. A Part's Position is float32: the round trip moves x by
+				-- up to a thousandth of a stud, which is enough to flip a tree standing on a clump
+				-- boundary -- the first run of this spec failed on exactly one tree of 2,734 that way.
+				local blockPoints = MapGen.Scatter.trees(c, SEED, block, function(x, z)
+					return Props.rejectTree(x, z, c)
+				end)
+				expect(#blockPoints).to.equal(count)
+				for _, point in ipairs(blockPoints) do
+					table.insert(points, point)
+				end
 				planted += count
 			end
 			expect(planted > 1500).to.equal(true)
 
 			-- ONE KEY PER SPECIES. With `Assets.ROWS` empty every tree is proxied, so the step reports
-			-- the key each species ASKED for -- four distinct ones in a four-species wood.
-			local askedFor = 0
-			for _, row in ipairs(c.SPECIES) do
-				expect(keysUsed[row.assetKey]).to.equal(true)
-				askedFor += 1
-			end
+			-- the key each species ASKED for -- four distinct ones in a four-species wood, one in the
+			-- monoculture this task exists to make impossible.
 			local distinct = 0
 			for _ in pairs(keysUsed) do
 				distinct += 1
 			end
-			expect(distinct).to.equal(askedFor)
+			for _, row in ipairs(c.SPECIES) do
+				expect(keysUsed[row.assetKey]).to.equal(true)
+			end
+			expect(distinct).to.equal(#c.SPECIES)
 			expect(distinct).to.equal(4)
 
-			local trees = root:FindFirstChild("Props") and root.Props:FindFirstChild("Trees")
+			local props = root:FindFirstChild("Props")
+			local trees = props and props:FindFirstChild("Trees")
 			expect(trees).to.be.ok()
-			local counts = { spruce = 0, birch = 0, oak = 0, alder = 0 }
+			local byName: { [string]: Instance } = {}
 			local built = 0
 			for _, model in ipairs((trees :: Instance):GetChildren()) do
+				byName[model.Name] = model
 				built += 1
-				local got = model:GetAttribute(Props.SPECIES_ATTRIBUTE)
+			end
+			expect(built).to.equal(planted)
+
+			local counts = { spruce = 0, birch = 0, oak = 0, alder = 0 }
+			for index, point in ipairs(points) do
+				local name = string.format("Tree%04d", index)
+				local model = byName[name]
+				expect(model).to.be.ok()
+				local got = (model :: Instance):GetAttribute(Props.SPECIES_ATTRIBUTE)
 				if counts[got] == nil then
 					error(
-						string.format(
-							"%s carries Species = %s, which is not one of the four",
-							model.Name,
-							tostring(got)
-						),
+						string.format("%s carries Species = %s, which is not one of the four", name, tostring(got)),
 						0
 					)
 				end
 				counts[got] += 1
-				local stem = (model :: Model).PrimaryPart
-				expect(stem).to.be.ok()
-				local x, z = (stem :: BasePart).Position.X, (stem :: BasePart).Position.Z
 				-- THE SAMPLER'S ANSWER AT THIS TREE'S OWN POINT, asked with the inputs `Props.trees`
 				-- itself uses -- `atFlattened` with the pads and the bog, not `Height.at` -- or the wet
 				-- rule would disagree with the build about which trees stand in a hollow.
-				local y = MapGen.Height.atFlattened(x, z, SEED, c, pads, MapGen.Layout.bogDepth)
-				local want = MapGen.Scatter.speciesAt(x, z, SEED, c, y)
+				local y = MapGen.Height.atFlattened(point.x, point.z, SEED, c, pads, MapGen.Layout.bogDepth)
+				local want = MapGen.Scatter.speciesAt(point.x, point.z, SEED, c, y)
 				if got ~= want then
 					error(
 						string.format(
 							"%s at (%.0f, %.0f) is a %s, but the sampler chose %s there",
-							model.Name,
-							x,
-							z,
+							name,
+							point.x,
+							point.z,
 							got,
 							want
 						),
 						0
 					)
 				end
+				local stem = (model :: Model).PrimaryPart
+				expect(stem).to.be.ok()
+				-- ...and this really is the tree planted at that point, so the name-to-point match
+				-- above is checked rather than assumed. 0.05 studs is float32 on a 1,000-stud
+				-- coordinate, which is why the species is not re-derived from the instance.
+				expect(math.abs((stem :: BasePart).Position.X - point.x) < 0.05).to.equal(true)
+				expect(math.abs((stem :: BasePart).Position.Z - point.z) < 0.05).to.equal(true)
 				-- AND THE GEOMETRY IS THAT SPECIES' GEOMETRY. This is the assertion that fails on a
 				-- monoculture of templates however right the attribute is: spruce, birch, oak and alder
 				-- have four different trunks and four different crowns (Config.SPECIES).
@@ -1243,7 +1265,6 @@ return function()
 				expect(crown).to.be.ok()
 				expect((crown :: BasePart).Size).to.equal(row.crown)
 			end
-			expect(built).to.equal(planted)
 			TestKit.note(
 				string.format(
 					"built wood: %d trees, spruce %d, birch %d, oak %d, alder %d, from %d asset keys",
