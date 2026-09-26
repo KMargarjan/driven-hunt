@@ -50,6 +50,12 @@ jobs:
         if: success() || failure()
         run: stylua --check src tests
 
+      # The harness's pure helpers, with no Studio and no network (Task 50). The concurrency that
+      # makes `test2` fast only matters with several subjects, which no run here can reach.
+      - name: Harness selftest (no Studio)
+        if: success() || failure()
+        run: python3 tools/studio_mcp.py selftest
+
       # The repo is public (CLAUDE.md, "Public repository: never commit secrets"). Task 49.
       # selftest runs first: it proves each rule still catches its shape and still allows the
       # GitHub noreply address and the <repo>/<assets-dir>/<runs-dir> placeholders. A scan that

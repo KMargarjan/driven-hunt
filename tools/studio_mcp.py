@@ -10,6 +10,7 @@ Requires: Studio open on the DEV place in Edit mode, MCP server enabled, Rojo pl
 Usage:
   python tools/studio_mcp.py test           # full checked run; exit 0 only on a clean-tree PASS
   python tools/studio_mcp.py test2          # the same specs in a 2-player local test (Karen starts it)
+  python tools/studio_mcp.py selftest       # NO Studio: prove the concurrency helpers (CI runs this)
   python tools/studio_mcp.py state          # print Studio mode (read-only)
   python tools/studio_mcp.py console        # print Studio Output (read-only)
   python tools/studio_mcp.py stop           # stop a playtest (recovery)
@@ -32,6 +33,12 @@ change needs it. `test2` is ALSO part of the merge gate for a change touching `s
 two clients, so a one-player run says nothing about them. `tools/agents.py` refuses the review
 without the `[harness2]` line for the same code commit. Docs, and the tools that are not this
 harness, are exempt -- `test2` costs a human click and about eight minutes.
+
+`selftest` is the exception to "needs Studio": it exercises the pure helpers only -- wait_for_each,
+the reply keying, send_input_many, and the scenario file -- so it runs in CI, with no Studio, no
+place and no network, in under a second. Exit 0 PASS, 1 FAIL. It exists because the concurrency
+Task 50 added is only interesting with SEVERAL subjects, and no run on this machine reaches that
+without two clients and a human click.
 
 Moving parts
   tests/TestKit.luau -> ReplicatedStorage.TestKit
@@ -1999,6 +2006,184 @@ def run_test2(studio, wait_seconds=180):
     return verdict()
 
 
+# ---------------------------------------------------------------- selftest (Task 50)
+
+def selftest():
+    """Prove the concurrency Task 50 added, WITHOUT Studio. Runs in CI.
+
+    A one-player `test` exercises wait_for_each and send_input_many with exactly one subject, which
+    is the case where they are trivially the old code. The case that makes `test2` fast -- several
+    subjects waited for at once -- no run on this machine can reach without two clients and a human
+    click, so it is proved here instead, against fakes, in under a second."""
+    failures = []
+
+    def ok(name, condition, detail=""):
+        if not condition:
+            failures.append(f"{name}{': ' + detail if detail else ''}")
+
+    # 1. Several subjects that answer at different times cost the SLOWEST, not the SUM.
+    answers = {"a": 3, "b": 4, "c": 1}   # how many looks each needs
+    looks = {key: 0 for key in answers}
+
+    def look(key):
+        looks[key] += 1
+        return "yes" if looks[key] >= answers[key] else "not yet"
+
+    began = time.time()
+    got = wait_for_each(list(answers), look, lambda v: v == "yes", 5, 0.05)
+    elapsed = time.time() - began
+    ok("every subject succeeds", all(got[key][1] for key in answers), repr(got))
+    ok("each subject was looked at until IT answered",
+       all(looks[key] == answers[key] for key in answers), repr(looks))
+    # The slowest needs 4 looks = 3 sleeps = 0.15 s. One-at-a-time would be 3+4+1 = 8 looks
+    # = 5 sleeps of its own each, i.e. 0.25 s or more. The bound is deliberately loose: this
+    # asserts the SHAPE (overlapped, not serial), not a wall-clock budget on a busy PC.
+    ok("the waits overlapped", elapsed < 0.25, f"{elapsed:.3f} s")
+
+    # 2. A subject that NEVER answers still fails, after the deadline, and does not stop the others.
+    began = time.time()
+    got = wait_for_each(["good", "never"],
+                        lambda key: "yes" if key == "good" else "no",
+                        lambda v: v == "yes", 0.3, 0.05)
+    elapsed = time.time() - began
+    ok("the good subject succeeds beside a hopeless one", got["good"][1], repr(got))
+    ok("the hopeless subject fails", not got["never"][1], repr(got))
+    ok("it failed at the deadline, not before or long after", 0.3 <= elapsed < 1.0, f"{elapsed:.3f} s")
+    ok("the failing subject's last value is reported", got["never"][0] == "no", repr(got["never"]))
+
+    # 3. A RuntimeError from one subject is "not yet", exactly as in wait_for.
+    tries = {"n": 0}
+
+    def raises_once(_key):
+        tries["n"] += 1
+        if tries["n"] == 1:
+            raise RuntimeError("place is not open")
+        return "yes"
+
+    got = wait_for_each(["x"], raises_once, lambda v: v == "yes", 2, 0.05)
+    ok("a RuntimeError is retried, not raised", got["x"][1], repr(got))
+
+    # 4. ONE subject behaves exactly like wait_for -- the one-player `test` path.
+    counted = {"n": 0}
+
+    def third_time(_key=None):
+        counted["n"] += 1
+        return "yes" if counted["n"] >= 3 else "no"
+
+    got = wait_for_each(["only"], third_time, lambda v: v == "yes", 2, 0.01)
+    many = counted["n"]
+    counted["n"] = 0
+    value, single = wait_for(third_time, lambda v: v == "yes", 2, 0.01)
+    ok("one subject matches wait_for", got["only"] == (value, single) and many == counted["n"],
+       f"{got['only']!r} vs {(value, single)!r}, {many} vs {counted['n']} looks")
+
+    # 5. Replies are keyed by id, so two requests in flight cannot eat each other's answer. This is
+    # the transport change send_input_many needs; the old loop dropped every non-matching message.
+    class FakeStudio(Studio):
+        def __init__(self):  # no subprocess, no Studio
+            self.lines = queue.Queue()
+            self.next_id = 0
+            self.replies = {}
+            self.sent = []
+
+        def _send(self, msg):
+            self.sent.append(msg)
+
+    fake = FakeStudio()
+    first = fake._submit("tools/call", {"name": "a"})
+    second = fake._submit("tools/call", {"name": "b"})
+    ok("two submits get two ids", first != second, f"{first} vs {second}")
+    # OUT OF ORDER on purpose: the second request answers first.
+    fake.lines.put(json.dumps({"jsonrpc": "2.0", "id": second, "result": {"content": [{"text": "B"}]}}))
+    fake.lines.put(json.dumps({"jsonrpc": "2.0", "id": first, "result": {"content": [{"text": "A"}]}}))
+    # queue.Empty, not an assertion, is how a transport that DROPS the other reply fails here
+    # (that is what the pre-Task-50 loop did), so it is caught and named rather than left to end
+    # the selftest in a traceback -- a harness fault is a reported failure, never a stack (rule 6).
+    try:
+        got_first = fake._await(first, timeout=1)
+        got_second = fake._await(second, timeout=1)
+    except queue.Empty:
+        ok("a reply is never dropped while another request is in flight", False,
+           "one of the two replies was thrown away")
+        got_first = got_second = {"content": [{"text": "<lost>"}]}
+    ok("the first request gets its own reply", got_first["content"][0]["text"] == "A", repr(got_first))
+    ok("the second request gets its own reply, delivered first",
+       got_second["content"][0]["text"] == "B", repr(got_second))
+    ok("nothing is left behind", not fake.replies, repr(fake.replies))
+
+    # 6. An error reply raises for THAT request only.
+    fake = FakeStudio()
+    bad = fake._submit("tools/call", {"name": "boom"})
+    good = fake._submit("tools/call", {"name": "fine"})
+    fake.lines.put(json.dumps({"jsonrpc": "2.0", "id": bad, "error": {"message": "no"}}))
+    fake.lines.put(json.dumps({"jsonrpc": "2.0", "id": good, "result": {"content": []}}))
+    try:
+        fake._await(bad, timeout=1)
+        ok("an error reply raises", False)
+    except RuntimeError:
+        ok("an error reply raises", True)
+    fake._await(good, timeout=1)  # raises if the error ate this one
+
+    # 7. send_input_many submits one call per target, keeps target order, and reports per target.
+    class InputStudio(FakeStudio):
+        def __init__(self, fail_for=()):
+            FakeStudio.__init__(self)
+            self.fail_for = set(fail_for)
+
+        def _await(self, request_id, timeout=120):
+            name = self.sent[request_id - 1]["params"]["arguments"].get("studio_id")
+            if name in self.fail_for:
+                return {"isError": True, "content": [{"text": "refused"}]}
+            return {"content": [{"text": "ok"}]}
+
+    inputs = InputStudio()
+    out = inputs.send_input_many("keyboard", [{"action": "keyPress", "key_code": "R"}], ["one", "two"])
+    ok("one call per target", len(inputs.sent) == 2, str(len(inputs.sent)))
+    ok("every target is reported", list(out) == ["one", "two"], repr(list(out)))
+    ok("no failure is invented", all(v is None for v in out.values()), repr(out))
+    ok("the keyboard tool is used for keyboard",
+       all(m["params"]["name"] == "user_keyboard_input" for m in inputs.sent),
+       repr([m["params"]["name"] for m in inputs.sent]))
+    ok("the batch reaches every target unchanged",
+       all(m["params"]["arguments"]["actions"] == [{"action": "keyPress", "key_code": "R"}]
+           for m in inputs.sent), repr(inputs.sent))
+
+    inputs = InputStudio(fail_for=["two"])
+    out = inputs.send_input_many("mouse", [{"action": "moveTo", "x": 1, "y": 2}], ["one", "two"])
+    ok("a refusal is reported against ITS target and nothing else",
+       out["one"] is None and isinstance(out["two"], RuntimeError), repr(out))
+    ok("the mouse tool is used for mouse",
+       all(m["params"]["name"] == "user_mouse_input" for m in inputs.sent),
+       repr([m["params"]["name"] for m in inputs.sent]))
+
+    # 8. A single target is one submit and one await -- the one-player `test` path.
+    inputs = InputStudio()
+    out = inputs.send_input_many("keyboard", [{"action": "keyPress", "key_code": "R"}], [None])
+    ok("one target means one call", len(inputs.sent) == 1, str(len(inputs.sent)))
+    ok("a target of None names no studio_id",
+       "studio_id" not in inputs.sent[0]["params"]["arguments"], repr(inputs.sent[0]))
+    ok("a single target is reported like any other", out == {None: None}, repr(out))
+
+    # 9. The scenario file the replay is made of still parses and still refuses what it refused.
+    if os.path.exists(SCENARIO_FILE):
+        data = load_scenarios()
+        gaps = sum((step.get("ms") or 0) for scenario in data["scenarios"]
+                   for step in scenario.get("steps", []) if step.get("device") == "wait") / 1000.0
+        batches = sum(len([b for b in scenario_batches(scenario.get("steps", [])) if b[0] != "wait"])
+                      for scenario in data["scenarios"])
+        print(f"[harness] selftest: the scenario file replays {batches} batch(es) "
+              f"and {gaps:.1f} s of its own gaps")
+
+    for line in failures:
+        print("[harness] selftest: " + line)
+    if failures:
+        print(f"[harness] selftest FAIL: {len(failures)} case(s) wrong")
+        return 1
+    print("[harness] selftest PASS: wait_for_each overlaps and still bounds every subject; "
+          "replies are keyed by id; send_input_many is one call per target")
+    return 0
+
+
 def parse_vector(text):
     """x,y,z as three floats. A bad argument exits with the usage line like its neighbours in main,
     rather than raising a ValueError AFTER Studio has already been spawned (6a(f))."""
@@ -2013,13 +2198,17 @@ def parse_vector(text):
 
 def main(argv):
     if len(argv) < 2 or argv[1] not in (
-            "test", "test2", "state", "console", "stop", "manifest", "capture", "studios"):
+            "test", "test2", "selftest", "state", "console", "stop", "manifest", "capture",
+            "studios"):
         sys.exit(__doc__)
     if argv[1] != "capture" and len(argv) != 2:
         sys.exit(__doc__)
     if argv[1] == "capture" and not 3 <= len(argv) <= 6:
         sys.exit("usage: python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z] "
                  "[edit|server|client|client:<PlayerName>]")
+    if argv[1] == "selftest":
+        # No Studio, no network, no place: pure helpers only, so CI can run it.
+        return selftest()
     if argv[1] == "manifest":
         with open(DEVPACKAGES_MANIFEST, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(devpackages_manifest()) + "\n")
