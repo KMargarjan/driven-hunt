@@ -1,6 +1,6 @@
 # Task 55b — make `tools/meshy.py` safe before the first real credits are spent
 
-Task: 55b
+Task: 59
 Round: 1
 Base: `29d2ba3` (`main`, with Task 55 merged)
 Code commit: `736afa07a298742f0995f19216caf6641c0ac910` — the `[harness]` line below names it, it is
