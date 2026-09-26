@@ -66,6 +66,9 @@ jobs:
       # selftest runs first: it proves each rule still catches its shape and still allows the
       # GitHub noreply address and the <repo>/<assets-dir>/<runs-dir> placeholders. A scan that
       # passes because a pattern silently stopped matching is worse than no scan.
+      - name: Upload tool selftest (mocked HTTP, no key, nothing sent)
+        run: python3 tools/roblox_upload.py selftest
+
       - name: Asset-prep tool loads and its recipe is valid JSON (no Blender in CI)
         # The real selftest drives headless Blender and cannot run here; this catches the cheap
         # half -- the module imports, the default recipe parses, and `prep` refuses a bad request.

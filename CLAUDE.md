@@ -274,6 +274,7 @@ fails if a script exists anywhere Rojo does not manage.
 | `tests/sync-token.txt` (git-ignored, optional) | `ReplicatedStorage.TestSyncToken` | Written only by the harness |
 | `DevPackages/` (git-ignored, optional) | `ReplicatedStorage.DevPackages` | TestEZ, from `wally install` |
 | `assets/source/`, `assets/ready/` | none | Raw vs import-ready art |
+| `assets/uploads.json` | none | One row per Open Cloud upload, appended by `tools/roblox_upload.py`: asset id, creator, sha256, moderation state and the text of Karen's OK. **Ids are not secrets**; the key never appears here. Not a second id table (`docs/design/map-generator.md` 12.2) |
 | `reviews/task-<N>/` | none | One folder per task: `REQUEST.md` (Builder), `RESULT.md` (Reviewer), `ARCH_RESULT.md` (Architect). Per task so branches never conflict and the round count has a boundary (Task 21) |
 | `backups/` | none | Archived files plus notes |
 | `docs/` | none | `PROJECT_CONTEXT.md` (who, the game, why the rules exist), `research/` (notes plus INDEX), `design/` (Architect system designs), `architecture/` (Architect audits), `REVIEWER_PROMPT.md` and `ARCHITECT_PROMPT.md` (the two agent prompts) |
@@ -433,6 +434,11 @@ Design: `docs/design/feature-flags.md`. Note: `docs/research/2026-09-26-feature-
 The repo is **public**. Never commit:
 
 - secrets, API keys, tokens, passwords or `.env` files
+- the **Roblox Open Cloud** key (`ROBLOX_OPEN_CLOUD_KEY`). It has no prefix to grep for, so
+  `tools/privacy_scan.py` matches its SHAPE: an unbroken run of 120+ base64url characters,
+  which no digest (64), git sha (40) or asset id in this repo reaches. `tools/roblox_upload.py`
+  reads it from the environment or `HKCU\Environment` and never prints it. If it leaks:
+  **revoke it at create.roblox.com/dashboard/credentials first**, then tell Karen
 - the **Meshy** API key (`MESHY_API_KEY`, a `msy_` bearer token). It lives in the Windows user
   environment and `tools/meshy.py` reads it from there or from `HKCU\Environment`; the tool never
   prints it, and CI fails on the shape. If it leaks: **revoke it in the Meshy dashboard first**,

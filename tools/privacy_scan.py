@@ -133,6 +133,23 @@ RULES = [
         "webhook URL - it is a credential; keep it in the Secrets Store",
     ),
     (
+        "roblox-open-cloud-key",
+        # AN OPEN CLOUD API KEY, WHICH HAS NO PREFIX TO MATCH ON. Roblox's own words for it:
+        # "The API key string is equivalent to a password for your application" and "save the API
+        # key string to a secure location, not a public repository for your code"
+        # (https://create.roblox.com/docs/cloud/auth/api-keys). It carries no `sk-`, no `ghp_`, no
+        # `msy_` -- nothing to key on but its SHAPE, so this matches what it is: an unbroken run of
+        # base64url characters far longer than anything a source file has a reason to contain. The
+        # key this repo's Director holds is 964 characters (measured without printing it, Task 73).
+        #
+        # 120 IS CHOSEN TO CLEAR WHAT IS LEGAL. A sha256 digest is 64 hex characters and this repo is
+        # full of them; a Roblox asset id is a dozen digits; a git sha is 40. None of them reach 120,
+        # and the ALLOWED list below holds a digest so that stays true.
+        re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{120,}(?![A-Za-z0-9_-])"),
+        "a long opaque token - a Roblox Open Cloud key is a password; revoke it at "
+        "create.roblox.com/dashboard/credentials FIRST, then remove it",
+    ),
+    (
         "assigned-secret",
         # api_key = "....", token: '....', X-Api-Key: <20+ characters>. A quoted or bare literal of
         # 20+ credential-shaped characters after a credential-shaped name. `x-api-key: <key>` in
@@ -248,6 +265,8 @@ CAUGHT = [
     ("meshy-key", _MSY + "0123456789abcdefghijklmnop"),
     ("webhook-url", "https://hooks.slack.com" + "/services/T000/B000/" + "e" * 24),
     ("webhook-url", "https://discord.com" + "/api/webhooks/123456/" + "f" * 24),
+    ("roblox-open-cloud-key", "A1_b" * 40),
+    ("roblox-open-cloud-key", "ROBLOX_OPEN_CLOUD" + "_KEY=" + "z" * 200),
     ("assigned-secret", "api_key" + " = " + '"' + "g" * 32 + '"'),
     ("assigned-secret", "ROBLOX_API_KEY" + ": " + "h" * 40),
     ("assigned-secret", "password" + "=" + "i" * 24),
@@ -274,6 +293,13 @@ ALLOWED = [
     "uses: actions/checkout" + _AT + "v7",
     'testez = "roblox/testez' + _AT + '0.4.1"',
     "https://github.com/rojo-rbx/rojo/issues/1309",
+    # The Open Cloud rule must not fire on the variable NAME, on a digest, on a git sha, on an asset
+    # id or on a long URL -- all five are everywhere in this repo's tools, notes and manifests.
+    "read ROBLOX_OPEN_CLOUD" + "_KEY from the environment, then from HKCU" + _BS + "Environment",
+    "digest=" + "e064d5982513a08616d2bf367f61c30ca3d9e753d4db8755e5fc04f3467deae5",
+    "[harness] PASS: 30/30 checks @ " + "2006fb7a92a021035636879d05cbf0f86a695885" + " (clean tree)",
+    '"assetId": "' + "2205400862" + '", "moderationState": "MODERATION_STATE_APPROVED"',
+    "https://create.roblox.com/docs/cloud/guides/usage-assets#uploading-and-updating-assets-api",
 ]
 
 
