@@ -1,0 +1,15 @@
+PASS
+
+## Notes (non-blocking)
+- `reviews/task-39/RESULT.md` — the Builder edited a Reviewer-owned file (CLAUDE.md role table: Reviewer writes `reviews/task-<N>/RESULT.md`, "through the script"; the Builder's writes list does not include it). The edit is disclosed in claim 1, is a path→`<assets-dir>`/`<repo>-review` substitution inside a note, and leaves the `PASS` line and the trailer untouched, so no gate is affected. Worth the Director confirming the precedent, since "what is enforced and what is policy" already flags verdict files as Builder-writable only until audit-002 must-fix #5 lands.
+- `TASKS.md`, "Director dispatches" — the Task 49 dispatch is not transcribed (newest is Task 48), so the request's "The Director's dispatch says the same" and "on the Director's instruction" (the edited verbatim Task 39 quote) cannot be checked against the repo. The `[harness2]` exemption is independently verifiable from `agents.py`, so nothing rests on it here.
+- `.gitignore` — `.agent-evidence/` is untracked but **not** ignored, while `.agent-logs/` is. It reliably contains a local absolute path (`rojo-build.txt`'s `rojo build … --output` line), so one blind `git add -A` would commit exactly what this task removed. The new CI scan is the backstop, which is the point; an ignore line is the cheap belt-and-braces. Queue it.
+- `tools/privacy_scan.py`, `_email_allowed` / `ALLOWED_EMAIL_SUFFIX` — the docstring says the allowed form is `<something>` at `users.noreply.github.com`, but the code allows any domain ending `.noreply.github.com`. Match the code to the docstring, or the docstring to the code.
+- `tools/privacy_scan.py`, `RULES` `local-path` — the account segment is `[A-Za-z0-9._-]{2,}`, so a one-character user name slips through. Change to `{1,}` if that matters; `{2,}` is not why any current false positive is avoided.
+- `tools/privacy_scan.py`, `scan` — path arguments are joined onto `repo_root`, so `scan` takes repo-relative paths, not cwd-relative ones. The `Usage` block does not say so.
+- `.github/workflows/ci.yml`, "Privacy and secret scan" — the two commands share one `run: |` block under `bash -e`, so a failing `selftest` means `scan` never runs and the step reports only the selftest. That is the deliberate ordering, but it is not "one run reports every problem" (that phrase describes the cross-step `if: success() || failure()`). Two steps would give both.
+- `tools/privacy_scan.py`, `selftest` — each `CAUGHT` case asserts only that the expected rule is among those that fired, not that it is the only one; a rule that started matching everything would still pass those 22 cases. The self-scan and the `ALLOWED` list cover most of that gap.
+- `docs/research/INDEX.md` — no entry, which the docstring states and justifies ("a CI hygiene tool, not a game system"), and the borrowed pattern (gitleaks, MIT, maintained) is named in the docstring per rules 2 and 9. Recording the exemption is the Architect's call, not this task's.
+
+---
+REVIEWER verdict on commit `fd437a05213cfd87881cfde60fd47da4c241c98d` (round 1) · 2026-09-26 08:54 UTC · session cost $2.29, 30 turns · written by tools/agents.py
