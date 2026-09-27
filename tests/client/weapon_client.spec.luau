@@ -330,7 +330,14 @@ return function()
 				}
 			end
 			local mine = payloadFrom(Players.LocalPlayer.UserId)
-			local theirs = payloadFrom(-1)
+			-- NOT A LITERAL -1. MEASURED, in this task's two-player gate: a Studio test client gets a
+			-- NEGATIVE UserId (-1 for the first, -2 for the second), so "another player" written as -1
+			-- was the shooter's own id in that window -- the case failed on the shooter and passed on
+			-- the driver, which is a fixture fault and not the rule under test. Derived from the local
+			-- id, so it is another player wherever this runs.
+			local otherId = Players.LocalPlayer.UserId - 7
+			expect(otherId).never.to.equal(Players.LocalPlayer.UserId)
+			local theirs = payloadFrom(otherId)
 
 			-- MY SHOT: the drawn gun, and the provider is told which pipe fired.
 			expect(Effects.muzzleFrame(mine)).to.equal(drawn)
