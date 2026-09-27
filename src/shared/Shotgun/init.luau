@@ -217,7 +217,7 @@ Shotgun.CONFIG = {
 	-- BARREL 1 IS THE RIGHT TUBE and barrel 2 the left, which is the order a side-by-side with one
 	-- trigger fires in, and the order `Weapon.StateMachine.selected` walks. This is the lateral
 	-- half-gap between the two bores: the same number `Shape`'s BarrelLeft/BarrelRight are laid out at
-	-- (+-BARREL_GAP / 2 = +-0.09), and `tests/server/weapon_state.spec.luau` asserts they still agree
+	-- (+-BARREL_GAP / 2 = +-0.09), and `tests/server/weapon_look.spec.luau` asserts they still agree
 	-- rather than trusting two copies of 0.09.
 	BARREL_HALF_GAP_STUDS = 0.09,
 	-- How far above the Muzzle attachment the bores actually are: the attachment sits on the Handle's

@@ -146,17 +146,16 @@ def shade(ob, angle_deg):
         except Exception as error:  # a 5.x signature change must not end the run silently
             log("shadeOperatorFailed", operator=name, error=str(error))
     if used is None:
-        # Nothing but plain smooth shading is available: mark the sharp edges by hand, which is what
-        # the operator does under the skin, so the export still carries them.
-        for edge in ob.data.edges:
-            edge.use_edge_sharp = False
-        used = "manual"
+        # PRE-4.1 BLENDER had the angle on the mesh itself. If even that is missing, the run REFUSES
+        # to claim it shaded anything: saying "applied" here would flip the export to EDGE smoothing
+        # with not one sharp edge marked, and ship a gun whose action flats had silently melted.
         try:
-            ob.data.use_auto_smooth = True  # pre-4.1 Blender
+            ob.data.use_auto_smooth = True
             ob.data.auto_smooth_angle = angle
             used = "use_auto_smooth"
         except AttributeError:
-            pass
+            return {"applied": False, "reason": "no smoothing operator in this Blender",
+                    "angleDeg": float(angle_deg)}
     sharp = sum(1 for edge in ob.data.edges if edge.use_edge_sharp)
     return {"applied": True, "angleDeg": float(angle_deg), "operator": used,
             "edges": len(ob.data.edges), "sharpEdges": sharp}

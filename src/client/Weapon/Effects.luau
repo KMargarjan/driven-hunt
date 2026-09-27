@@ -8,6 +8,7 @@
 --
 -- Design: docs/design/shotgun.md (sections 3.2, 5.6)
 local Debris = game:GetService("Debris")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -43,7 +44,14 @@ end
 --
 -- PURE, AND EXPORTED, so a spec can ask it what it chose without firing a shot.
 function Effects.muzzleFrame(payload: any): CFrame
-	local fromViewmodel = if muzzleProvider then muzzleProvider(payload.barrel) else nil
+	-- MY OWN GUN IS ONLY EVER MY OWN SHOT (round 1, finding 1). `Effects.play` runs for EVERY
+	-- payload -- the server fires `ShotFired` at all clients -- so asking the provider without
+	-- checking who fired put a teammate's flash, smoke and tracers at the local barrel, and stretched
+	-- a tracer from my own muzzle to somebody else's impacts. The drawn gun is one player's picture of
+	-- their own weapon; everyone else's shot is a thing in the world and is drawn where the world
+	-- says. The provider itself answers nil in third person, so this asks only about the shooter.
+	local mine = payload.shooterUserId ~= nil and payload.shooterUserId == Players.LocalPlayer.UserId
+	local fromViewmodel = if mine and muzzleProvider then muzzleProvider(payload.barrel) else nil
 	if fromViewmodel then
 		return fromViewmodel
 	end

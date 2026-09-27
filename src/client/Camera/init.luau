@@ -204,7 +204,13 @@ end
 -- position is the right answer.
 --
 -- A READ. `Weapon.Effects` draws; this module draws the gun. Neither writes the other's Instances.
+-- FIRST PERSON ONLY (round 1, finding 1). In the OFF branch the clone is also on screen while
+-- aiming, but the player is looking at their CHARACTER holding the real gun, so the world muzzle is
+-- the right answer there -- and task 89's promise is that the flag-off branch is unchanged.
 function Camera.viewmodelMuzzle(barrel: number?): CFrame?
+	if not Config.FIRST_PERSON then
+		return nil
+	end
 	return Viewmodel.muzzle(barrel)
 end
 
