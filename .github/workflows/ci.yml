@@ -69,10 +69,13 @@ jobs:
       - name: Upload tool selftest (mocked HTTP, no key, nothing sent)
         run: python3 tools/roblox_upload.py selftest
 
-      - name: Asset-prep tool loads and its recipe is valid JSON (no Blender in CI)
+      - name: Asset-prep presets load and are complete (no Blender in CI)
         # The real selftest drives headless Blender and cannot run here; this catches the cheap
-        # half -- the module imports, the default recipe parses, and `prep` refuses a bad request.
-        run: python3 tools/asset_prep.py recipe > /dev/null
+        # half -- the module imports, and EVERY preset's region plan is checked before it prints:
+        # a plan with no catch-all, or one naming a region it gives no colours for, fails here.
+        run: |
+          python3 tools/asset_prep.py recipe > /dev/null
+          python3 tools/asset_prep.py recipe --preset animal > /dev/null
 
       - name: Privacy and secret scan (local paths, emails, secret shapes)
         if: success() || failure()

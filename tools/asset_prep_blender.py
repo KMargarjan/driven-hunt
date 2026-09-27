@@ -47,11 +47,23 @@ def write_report():
 # ---------------------------------------------------------------- the mesh
 
 def import_model(path):
+    """Open an .fbx, .glb or .gltf. The container is not the work (Task 69).
+
+    Meshy returns a GLB for a refined model and an FBX for others, and the whole difference to this
+    tool is which importer runs -- except for one thing that is NOT cosmetic and is handled below:
+    glTF packs metalness and roughness into one image.
+    """
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.import_scene.fbx(filepath=path)
+    extension = os.path.splitext(path)[1].lower()
+    if extension == ".fbx":
+        bpy.ops.import_scene.fbx(filepath=path)
+    elif extension in (".glb", ".gltf"):
+        bpy.ops.import_scene.gltf(filepath=path)
+    else:
+        fail("not a model this tool can open: %s" % os.path.basename(path))
     meshes = [ob for ob in bpy.data.objects if ob.type == "MESH"]
     if not meshes:
-        fail("the FBX holds no mesh")
+        fail("the model holds no mesh")
     if len(meshes) > 1:
         # JOINED, NOT PICKED: a model that arrives in pieces is still one weapon, and silently
         # keeping the biggest piece is how half a gun ships.
@@ -206,6 +218,47 @@ def hsv_to_rgb(hue, saturation, value):
     return out
 
 
+def rasterise_weights(planes, uvs, face_weight, size):
+    """Paint each triangle's UV footprint into every region's FLOAT plane, at its own weight.
+
+    THE BAND BOUNDARY HAS TO BE SOFT IN 3D, NOT IN THE ATLAS (Task 69, measured twice). Blurring a
+    finished mask by 110 texels -- the width a boar's saddle actually fades over -- made every
+    region's mask cover the whole 2048 map, because a generator's atlas packs unrelated islands a
+    few texels apart: the belly bled into the back and the snout came out 59 off its target. A face
+    that is half-back and half-flank is a fact about the MODEL, so it is decided on the model and
+    only then painted.
+    """
+    for tri_index in range(len(uvs)):
+        uv = uvs[tri_index].copy()
+        uv[:, 1] = 1.0 - uv[:, 1]
+        uv = uv * size
+        min_x = max(int(math.floor(uv[:, 0].min())) - 1, 0)
+        max_x = min(int(math.ceil(uv[:, 0].max())) + 1, size - 1)
+        min_y = max(int(math.floor(uv[:, 1].min())) - 1, 0)
+        max_y = min(int(math.ceil(uv[:, 1].max())) + 1, size - 1)
+        if max_x < min_x or max_y < min_y:
+            continue
+        xs = np.arange(min_x, max_x + 1) + 0.5
+        ys = np.arange(min_y, max_y + 1) + 0.5
+        gx, gy = np.meshgrid(xs, ys)
+        (x0, y0), (x1, y1), (x2, y2) = uv
+        denominator = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+        if abs(denominator) < 1e-12:
+            continue
+        a = ((y1 - y2) * (gx - x2) + (x2 - x1) * (gy - y2)) / denominator
+        bb = ((y2 - y0) * (gx - x2) + (x0 - x2) * (gy - y2)) / denominator
+        c = 1.0 - a - bb
+        inside = (a >= -0.002) & (bb >= -0.002) & (c >= -0.002)
+        if not inside.any():
+            continue
+        for name, plane in planes.items():
+            weight = float(face_weight[name][tri_index])
+            if weight <= 0.0:
+                continue
+            block = plane[min_y:max_y + 1, min_x:max_x + 1]
+            np.maximum(block, np.where(inside, weight, 0.0).astype(np.float32), out=block)
+
+
 def rasterise(masks, uvs, region_of, size):
     """Paint each triangle's UV footprint into its region's boolean mask, at `size` x `size`."""
     for tri_index, region in enumerate(region_of):
@@ -259,6 +312,34 @@ def feather(mask, rounds):
         weight = (padded[:-2, 1:-1] + padded[2:, 1:-1] + padded[1:-1, :-2] + padded[1:-1, 2:]
                   + weight * 2.0) / 6.0
     return weight
+
+
+def box_blur(weight, radius):
+    """A WIDE, CHEAP RAMP: two separable box passes over a float weight, by cumulative sum.
+
+    `feather` above is a 5-point diffusion, and N rounds of it spread about sqrt(N/3) texels -- 24
+    rounds is three texels, not twenty-four. That is the right tool for taking the aliasing off a
+    seam where the geometry really does change (wood meeting metal) and the wrong one for a
+    TRANSITION: a boar's dark saddle fades into its pale flank over a hand's width, and reaching that
+    by diffusion would take ten thousand rounds. Measured, and it is why the first two boar runs had
+    a sawtooth line drawn along the body (rule 5).
+
+    Two box passes approximate a Gaussian well enough for a mask, and a cumulative sum makes each
+    pass O(1) per texel however wide the radius is.
+    """
+    if radius <= 0:
+        return weight
+    out = weight.astype(np.float32)
+    for _ in range(2):
+        for axis in (0, 1):
+            padded = np.pad(out, [(radius + 1, radius) if a == axis else (0, 0) for a in (0, 1)],
+                            mode="edge")
+            summed = np.cumsum(padded, axis=axis, dtype=np.float32)
+            lo = np.take(summed, np.arange(0, out.shape[axis]), axis=axis)
+            hi = np.take(summed, np.arange(2 * radius + 1, out.shape[axis] + 2 * radius + 1),
+                         axis=axis)
+            out = (hi - lo) / float(2 * radius + 1)
+    return np.clip(out, 0.0, 1.0)
 
 
 def dilate(mask, rounds):
@@ -380,6 +461,59 @@ def push_channel(array, weights, target, strength):
     return touched
 
 
+def split_packed_shine(material, image, size):
+    """glTF packs OCCLUSION-ROUGHNESS-METALNESS into ONE image; split it into two.
+
+    THE CONVENTION IS THE SPEC'S, not a guess: "The metallic-roughness texture. The metalness values
+    are sampled from the B channel. The roughness values are sampled from the G channel."
+      https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#reference-material-pbrmetallicroughness
+    (Measured on the boar as well, before this was written: R median 1.00, G 0.61, B 0.00 -- an
+    occlusion channel left white, a rough hide and no metal, which is what that model should say.)
+
+    WHY SPLIT RATHER THAN REFUSE. This tool writes a number into each map, and it used to fail the
+    run outright when one datablock fed both sockets -- correctly, because writing roughness into a
+    shared image silently overwrites the metalness that was written a moment earlier while every
+    number in the report still reads back right. That failure is real and stays; what is wrong is
+    treating a GLB's normal, documented layout as that failure. So the one image becomes two
+    single-channel images, each linked to its own socket, and from there the run is the same run.
+
+    IT RETURNS THE PIXELS AS WELL AS THE IMAGES, and that is not convenience. A `bpy.data.images.new`
+    datablock is GENERATED: its buffer is Blender's to free, and after the region and mask pass -- a
+    long stretch of Python between the split and the shine step -- it comes back regenerated, which
+    for a new image means BLACK. Measured, and it is exactly the shape of defect this tool exists to
+    catch: the split was provably correct when tested on its own (roughness 0.62, metalness 0.00) and
+    the run it was part of wrote a roughness map of zeros while every number in the report agreed
+    with itself. So the caller uses these arrays and never re-reads the datablock.
+
+    The original is left alone: two new datablocks are made, and the packed one is unlinked.
+    """
+    array = image_array(image)
+    made = {}
+    for key, channel, socket_name in (("roughness", 1, "Roughness"), ("metallic", 2, "Metallic")):
+        plane = array[..., channel]
+        new_image = bpy.data.images.new("dh_" + key, array.shape[1], array.shape[0],
+                                        alpha=False, float_buffer=False)
+        new_image.colorspace_settings.name = "Non-Color"
+        flat = np.empty((array.shape[0], array.shape[1], 4), dtype=np.float32)
+        flat[..., 0] = plane
+        flat[..., 1] = plane
+        flat[..., 2] = plane
+        flat[..., 3] = 1.0
+        set_image(new_image, flat)
+        if tuple(new_image.size) != (size, size):
+            new_image.scale(size, size)
+        node = next(n for n in material.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+        socket = node.inputs[socket_name]
+        for link in list(socket.links):
+            material.node_tree.links.remove(link)
+        tex = material.node_tree.nodes.new("ShaderNodeTexImage")
+        tex.image = new_image
+        tex.label = "dh_" + key
+        material.node_tree.links.new(socket, tex.outputs["Color"])
+        made[key] = (new_image, image_array(new_image))
+    return made
+
+
 def ensure_data_map(material, socket_name, size, fill, image_name):
     """The greyscale map behind a Principled input, made if the model has none. Returns the image.
 
@@ -410,6 +544,115 @@ def ensure_data_map(material, socket_name, size, fill, image_name):
     tex.label = image_name
     material.node_tree.links.new(socket, tex.outputs["Color"])
     return image, True
+
+
+# ---------------------------------------------------------------- the region plan
+
+def rule_matches(when, t_axis, t_up, hue_deg, saturation, value):
+    """One plan rule, as a boolean array over faces. Every predicate present must hold.
+
+    THE PLAN IS DATA BECAUSE NO ONE CUE SEPARATES A MODEL'S PARTS (Task 69). On the gun, position
+    separates the barrels from the action and only colour separates the forend from the barrels it
+    lies along. On the boar, only colour separates the gold tusks from the pale snout they sit in
+    front of, and only height separates the dark back from the pale flank, which are the same
+    colour to begin with. Written as three lines of Python per asset, that is a program edit for
+    every model; written as a list of rules, it is a recipe, which is the thing this tool already
+    writes beside every run.
+
+    `From` is inclusive and `To` is exclusive, so bands can be written back to back and no face
+    lands in two. Hue wraps: 330..25 is the reds through zero.
+    """
+    keep = np.ones(len(t_axis), dtype=bool)
+    if "axisFrom" in when:
+        keep &= t_axis >= float(when["axisFrom"])
+    if "axisTo" in when:
+        keep &= t_axis < float(when["axisTo"])
+    if "upFrom" in when:
+        keep &= t_up >= float(when["upFrom"])
+    if "upTo" in when:
+        keep &= t_up < float(when["upTo"])
+    if "satMin" in when:
+        keep &= saturation >= float(when["satMin"])
+    if "satMax" in when:
+        keep &= saturation < float(when["satMax"])
+    if "valueMin" in when:
+        keep &= value >= float(when["valueMin"])
+    if "valueMax" in when:
+        keep &= value < float(when["valueMax"])
+    if "hueFromDeg" in when or "hueToDeg" in when:
+        low = float(when.get("hueFromDeg", 0.0))
+        high = float(when.get("hueToDeg", 360.0))
+        if low <= high:
+            keep &= (hue_deg >= low) & (hue_deg <= high)
+        else:  # wraps through 0
+            keep &= (hue_deg >= low) | (hue_deg <= high)
+    return keep
+
+
+def soft_band(t, low, high, soft):
+    """Membership of the band [low, high) as a ramp `soft` wide on each open side. 0..1."""
+    if soft <= 0.0:
+        return ((t >= low) & (t < high)).astype(np.float32)
+    weight = np.ones_like(t, dtype=np.float32)
+    if low > 0.0:
+        weight = np.minimum(weight, np.clip((t - (low - soft)) / (2.0 * soft), 0.0, 1.0))
+    if high < 1.0:
+        weight = np.minimum(weight, np.clip(((high + soft) - t) / (2.0 * soft), 0.0, 1.0))
+    return weight.astype(np.float32)
+
+
+def soft_weights(plan, labels, t_up):
+    """A per-face weight for every region: 1 in its core, a ramp across a soft band boundary.
+
+    ONLY THE `up` BANDS ARE SOFTENED, and only where a rule asks. A colour rule's boundary (gold
+    tusk against pale muzzle) is a real boundary on the model and blending it would smear ivory onto
+    hide; a height band's boundary is the rule's own invention and a hard one is a line drawn along
+    the animal. The hard labels are kept beside these: the counts, the speckle check and the
+    verification all still speak about "which region is this face".
+    """
+    names = []
+    for rule in plan:
+        if rule["name"] not in names:
+            names.append(rule["name"])
+    weights = {name: (labels == name).astype(np.float32) for name in names}
+    # A RAMP MAY ONLY REACH THE OTHER BANDS. It is a function of height alone, so without this the
+    # flank's ramp would cover the tusks -- which sit at half the animal's height -- and the coat
+    # colour, applied later in plan order, would paint over the ivory. Bands blend into bands; a
+    # region decided by colour keeps the hard boundary it was given, which is a real boundary.
+    band_names = [rule["name"] for rule in plan if float(rule.get("softUp", 0.0)) > 0.0]
+    in_bands = np.isin(labels.astype(str), np.array(band_names, dtype=str)) if band_names             else np.zeros(len(t_up), dtype=bool)
+    for rule in plan:
+        # EXPLICIT, NEVER INFERRED. A rule's `when` says what it MATCHES, and under first-match-wins
+        # that is not the same as the band it occupies: `flank` is written `upTo 0.62` and means
+        # 0.28 to 0.62, because `underside` ran first. Reading the ramp's bounds off `when` would
+        # have given the flank a weight of 1 over the whole belly and legs. `band` states them, and
+        # the catch-all -- which has no `when` at all -- needs it anyway.
+        soft = float(rule.get("softUp", 0.0))
+        if soft <= 0.0:
+            continue
+        bounds = rule.get("band") or rule.get("when") or {}
+        low = float(bounds.get("upFrom", 0.0))
+        high = float(bounds.get("upTo", 1.0))
+        ramp = soft_band(t_up, low, high, soft) * in_bands
+        # THE CORE STAYS 1: a face the plan actually gave to this region is fully this region, and
+        # the ramp only ADDS the neighbouring faces that are close to the boundary.
+        weights[rule["name"]] = np.maximum(weights[rule["name"]], ramp)
+    return weights
+
+
+def apply_plan(plan, t_axis, t_up, hue_deg, saturation, value):
+    """Label every face, FIRST MATCH WINS. Returns the labels and a per-rule count."""
+    labels = np.full(len(t_axis), "", dtype=object)
+    per_rule = []
+    for index, rule in enumerate(plan):
+        free = labels == ""
+        if not rule.get("when"):
+            taken = free
+        else:
+            taken = free & rule_matches(rule["when"], t_axis, t_up, hue_deg, saturation, value)
+        labels[taken] = rule["name"]
+        per_rule.append({"rule": index, "name": rule["name"], "faces": int(taken.sum())})
+    return labels, per_rule
 
 
 # ---------------------------------------------------------------- rendering
@@ -520,7 +763,7 @@ def measure_render(path):
         bpy.data.images.remove(image)
 
 
-def render_views(ob, out_dir, size_px, samples, prefix="render"):
+def render_views(ob, out_dir, size_px, samples, views, prefix="render"):
     # ONE RIG PER CALL, and it is removed at the end: this runs twice (once on the source, once on
     # the prepped model) and a second PrepTarget would make the TRACK_TO constraints point at the
     # wrong empty.
@@ -545,17 +788,28 @@ def render_views(ob, out_dir, size_px, samples, prefix="render"):
     bpy.context.collection.objects.link(camera)
     bpy.context.scene.camera = camera
     written = []
-    # THE FOUR QUESTIONS: does it read as a gun from the side, are the two barrels side by side from
-    # above and from the muzzle, and does it hold together in a three-quarter view.
-    # FRAMED FROM THE MEASURED BOUNDING BOX, and tight: the first pass used twice the span and the
-    # gun sat in the middle third of the picture, which is a preview nobody can judge detail from.
-    views = (("side", (0.0, -1.0, 0.06), span * 1.2, span * 1.08),
-             ("top", (0.0, -0.02, 1.0), span * 1.2, span * 1.08),
-             # STRAIGHT DOWN THE BARRELS, and far enough back that the near end is not clipped: at
-             # half a span the camera stood ON the muzzle and the render showed the middle of the gun.
-             ("muzzle", (-1.0, -0.015, 0.02), span * 1.3, max(extent.y, extent.z) * 2.8),
-             ("three-quarter", (-0.7, -1.0, 0.38), span * 0.75, 0.0))
-    for name, direction, distance, ortho in views:
+    # THE VIEWS COME FROM THE RECIPE (Task 69), because the four questions are the asset's, not the
+    # tool's: a gun is photographed down its barrels, an animal from the front where its snout and
+    # both tusks are in one frame. FRAMED FROM THE MEASURED BOUNDING BOX, and tight: the first pass
+    # used twice the span and the gun sat in the middle third of the picture, which is a preview
+    # nobody can judge detail from.
+    #
+    # `orthoCross` frames a model seen END-ON, where its length says nothing about how big it looks:
+    # it is a multiple of the larger of the two dimensions ACROSS the view direction.
+    prepared = []
+    for view in views:
+        direction = tuple(float(v) for v in view["dir"])
+        distance = span * float(view.get("distanceSpan", 1.2))
+        if "orthoSpan" in view:
+            ortho = span * float(view["orthoSpan"])
+        elif "orthoCross" in view:
+            dominant = int(np.argmax([abs(v) for v in direction]))
+            across = max(extent[i] for i in (0, 1, 2) if i != dominant)
+            ortho = across * float(view["orthoCross"])
+        else:
+            ortho = 0.0
+        prepared.append((view["name"], direction, distance, ortho))
+    for name, direction, distance, ortho in prepared:
         for constraint in list(camera.constraints):
             camera.constraints.remove(constraint)
         look_at(camera, centre, distance, direction, ortho)
@@ -579,7 +833,7 @@ def main():
     recipe = JOB["recipe"]
     out_dir = JOB["outDir"]
 
-    ob = import_model(JOB["fbx"])
+    ob = import_model(JOB.get("model") or JOB["fbx"])
     log("imported", object=ob.name, triangles=triangles(ob), vertices=len(ob.data.vertices),
         materials=[m.name if m else None for m in ob.data.materials])
 
@@ -588,10 +842,11 @@ def main():
     # into mirror chrome, and nothing in the tool noticed -- the only comparison available was the
     # Director's memory of his own render. Now every run carries the before picture beside the after
     # one, at the same four cameras, and the numbers from both are in the report.
+    views = recipe["views"]
     studio(ob, int(recipe["renderPx"]), int(recipe["renderSamples"]))
     if recipe.get("renderSource", True):
         REPORT["sourceStats"] = render_views(ob, out_dir, int(recipe["renderPx"]),
-                                             int(recipe["renderSamples"]), prefix="source")
+                                             int(recipe["renderSamples"]), views, prefix="source")
         log("renderedSource", files=REPORT["sourceStats"])
 
     before, after, ratio = decimate(ob, recipe["targetTriangles"])
@@ -599,10 +854,26 @@ def main():
         target=recipe["targetTriangles"])
     REPORT["triangles"] = {"before": before, "after": after, "target": recipe["targetTriangles"]}
 
-    axis, muzzle_at_min, lo, hi, near_depth, far_depth = long_axis(ob)
-    log("oriented", axis="XYZ"[axis], muzzleAtMin=muzzle_at_min, low=round(lo, 4), high=round(hi, 4),
-        nearDepth=round(near_depth, 4), farDepth=round(far_depth, 4))
-    REPORT["orientation"] = {"axis": "XYZ"[axis], "muzzleAtMin": muzzle_at_min}
+    axis, measured_at_min, lo, hi, near_depth, far_depth = long_axis(ob)
+    # THE RECIPE MAY STATE WHICH END IS THE FRONT, and for an animal it has to. `long_axis` decides
+    # it by comparing how deep the model is at each end, which is a fact about a gun -- thin at the
+    # muzzle, deep at the butt -- and says nothing about a boar, which is thin at the snout AND thin
+    # at the tail. Both numbers are reported, so a stated value that disagrees with the measurement
+    # is visible rather than silent.
+    stated = recipe.get("frontAtMin")
+    front_at_min = measured_at_min if stated is None else bool(stated)
+    # UP IS Z, which is what both importers produce: the FBX importer and the glTF importer each
+    # convert their file's own convention to Blender's Z-up. The exception is a model whose LONG
+    # axis is Z -- a standing tree -- where the bands would be along the length twice over.
+    up_axis = 2 if axis != 2 else int(np.argmax([ob.dimensions[0], ob.dimensions[1]]))
+    log("oriented", axis="XYZ"[axis], upAxis="XYZ"[up_axis], frontAtMin=front_at_min,
+        measuredFrontAtMin=measured_at_min, statedInRecipe=stated, low=round(lo, 4),
+        high=round(hi, 4), nearDepth=round(near_depth, 4), farDepth=round(far_depth, 4))
+    REPORT["orientation"] = {"axis": "XYZ"[axis], "upAxis": "XYZ"[up_axis],
+                             "frontAtMin": front_at_min, "measuredFrontAtMin": measured_at_min,
+                             "frontStated": stated is not None,
+                             # kept under its old name so an older reader still finds it
+                             "muzzleAtMin": front_at_min}
 
     # ---- the base colour image, and the regions
     material = ob.data.materials[0] if ob.data.materials else None
@@ -631,10 +902,22 @@ def main():
     if base_image is None:
         fail("the material has no base colour texture")
     if tuple(base_image.size) == (0, 0):
-        fail("the base colour texture has no pixels (image '%s' did not load from the FBX)"
+        fail("the base colour texture has no pixels (image '%s' did not load from the model)"
              % base_image.name)
 
     work_px = int(recipe["workPx"])
+    # ONE IMAGE FEEDING BOTH SHINE SOCKETS IS glTF'S NORMAL LAYOUT, not a broken model (Task 69) --
+    # occlusion in R, roughness in G, metalness in B. It is also a shape this tool genuinely cannot
+    # write into, so it is split in two. NOTED HERE, SPLIT AT THE SHINE STEP: the new datablocks are
+    # generated images and Blender is free to drop their buffers, so the less that happens between
+    # making them and using them the better (see `split_packed_shine`).
+    packed_shine = metallic_image if (metallic_image is not None
+                                      and metallic_image is roughness_image) else None
+    if packed_shine is not None:
+        REPORT["packedShineMap"] = {"name": packed_shine.name,
+                                    "sourcePx": int(packed_shine.size[0]),
+                                    "splitInto": ["metallic", "roughness"]}
+        log("packedShineMap", name=packed_shine.name, sourcePx=list(packed_shine.size))
     sizes_before = {}
     for name, image in (("baseColor", base_image), ("metallic", metallic_image),
                         ("roughness", roughness_image), ("normal", normal_image)):
@@ -673,15 +956,37 @@ def main():
     coords = np.clip((samples * size).astype(np.int32), 0, size - 1)
     picked = base[size - 1 - coords[:, :, 1], coords[:, :, 0], :3]  # (triangles, 7, 3)
     sampled = np.median(picked, axis=1)
-    hue, saturation, _ = rgb_to_hsv(sampled.reshape((-1, 1, 3)))
+    # IN WHICH SPACE ARE THE PLAN'S COLOUR THRESHOLDS READ? It matters and it is not a detail.
+    # `base_image.pixels` is scene-LINEAR whenever the image is tagged sRGB, and saturation is a
+    # different number in the two spaces -- (max-min)/max on 0.9/0.6 sRGB is 0.33 and on the same
+    # colour in linear is 0.59. The gun's rule (`satMin` 0.18) was measured against the LINEAR
+    # values in Tasks 72 and 75 and its region counts are proven; a colour read off a picture, as
+    # the boar's tusks and snout were, is an sRGB number. So the recipe says which, the gun keeps
+    # what it had, and neither has to be re-tuned for the other.
+    space = recipe.get("regionColorSpace", "linear")
+    if space not in ("linear", "srgb"):
+        fail("regionColorSpace must be 'linear' or 'srgb', not %r" % space)
+    for_regions = sampled
+    if space == "srgb" and base_image.colorspace_settings.name in ("sRGB", "Filmic sRGB"):
+        for_regions = linear_to_srgb(sampled)
+    hue, saturation, value = rgb_to_hsv(for_regions.reshape((-1, 1, 3)))
     hue = hue.ravel()
     saturation = saturation.ravel()
+    # VALUE IS A REGION CUE TOO, and on the boar it is the one that separates the tusks (0.90) from
+    # the pale muzzle they stand in front of (0.65).
+    value = value.ravel()
+    REPORT["regionColorSpace"] = space
 
     coords = np.array([v.co[:] for v in mesh.vertices], dtype=np.float64)
     tri_pos = np.array([[coords[v] for v in t.vertices] for t in tris]).mean(axis=1)
     t_axis = (tri_pos[:, axis] - lo) / max(hi - lo, 1e-9)
-    if not muzzle_at_min:
+    if not front_at_min:
         t_axis = 1.0 - t_axis
+    # HOW FAR UP THE MODEL A FACE IS, 0 at the lowest point and 1 at the highest. The gun's plan
+    # never asks; an animal's is three bands of it -- dark back, pale flank, dark belly and legs.
+    up_lo = float(coords[:, up_axis].min())
+    up_hi = float(coords[:, up_axis].max())
+    t_up = (tri_pos[:, up_axis] - up_lo) / max(up_hi - up_lo, 1e-9)
 
     def smooth_regions(labels, tris_list, rounds):
         """Majority vote over neighbouring faces, `rounds` times.
@@ -732,21 +1037,27 @@ def main():
                 lonely += 1
         return round(lonely / max(len(labels), 1), 4)
 
-    wood_rule = recipe["regions"]["wood"]["rule"]
-    woody = ((saturation >= float(wood_rule["satMin"]))
-             & (hue * 360.0 >= float(wood_rule["hueLoDeg"]))
-             & (hue * 360.0 <= float(wood_rule["hueHiDeg"])))
-    action_start = float(recipe["actionStartT"])
-    raw = np.where(woody, "wood", np.where(t_axis < action_start, "barrel", "action"))
+    plan = recipe["regionPlan"]
+    names = []
+    for rule in plan:
+        if rule["name"] not in names:
+            names.append(rule["name"])
+    raw, per_rule = apply_plan(plan, t_axis, t_up, hue * 360.0, saturation, value)
+    unplaced = int((raw == "").sum())
+    if unplaced:
+        # THE DRIVER REFUSES A PLAN WITH NO CATCH-ALL, so reaching this means something worse: a
+        # rule matched nothing it should have. A face with no region keeps the generator's colour
+        # and nobody decided that.
+        fail("%d face(s) matched no rule in the region plan" % unplaced)
     rounds = int(recipe.get("regionSmoothRounds", 3))
     smoothed, changed, neighbours = smooth_regions(list(raw), tris, rounds)
     speckle_before = speckle_of(list(raw), neighbours)
     speckle_after = speckle_of(smoothed, neighbours)
     region_of = np.array(smoothed)
-    counts = {name: int((region_of == name).sum()) for name in ("barrel", "action", "wood")}
-    log("regions", triangles=counts, actionStartT=action_start, rule=wood_rule,
-        smoothRounds=rounds, reassigned=changed, speckleBefore=speckle_before,
-        speckleAfter=speckle_after)
+    counts = {name: int((region_of == name).sum()) for name in names}
+    REPORT["regionPlanHits"] = per_rule
+    log("regions", triangles=counts, plan=per_rule, smoothRounds=rounds, reassigned=changed,
+        speckleBefore=speckle_before, speckleAfter=speckle_after)
     REPORT["regions"] = counts
     REPORT["regionSpeckle"] = {"before": speckle_before, "after": speckle_after,
                                "reassigned": changed, "rounds": rounds}
@@ -764,16 +1075,41 @@ def main():
     dilation = int(recipe.get("maskDilatePx", 4))
     masks = {name: dilate(mask, dilation) for name, mask in masks.items()}
     feather_px = int(recipe.get("maskFeatherPx", 6))
-    weights = {name: feather(mask, feather_px) for name, mask in masks.items()}
+
+    # A SOFT BAND BOUNDARY, DECIDED ON THE MODEL (Task 69). Where a plan rule asks for it, a face
+    # near a height band's edge belongs PARTLY to the band next door, and that partial weight is
+    # what gets painted. Without it the two coat bands met along a hard sawtooth -- the triangles
+    # that happened to straddle the height -- drawn the length of the animal and visible from every
+    # camera (rule 5, two runs). Blurring the finished mask instead was tried and measured: 110
+    # texels, the width the saddle really fades over, made every region's mask cover the whole 2048
+    # atlas, because a generator packs unrelated islands a few texels apart.
+    #
+    # THE HARD LABELS STAY exactly as they were: the counts, the speckle check and both
+    # verification passes still ask "which region is this face", which is the question that catches
+    # a mask in the wrong place.
+    soft = soft_weights(plan, region_of, t_up)
+    softened = sorted(name for name in names if float(np.abs(soft[name]
+                                                             - (region_of == name)).max()) > 0.0)
+    if softened:
+        planes = {name: np.zeros((size, size), dtype=np.float32) for name in names}
+        rasterise_weights(planes, tri_uv, soft, size)
+        weights = {name: feather(np.maximum(planes[name], masks[name].astype(np.float32)),
+                                 feather_px) for name in names}
+        # The correction picks its pixels by the mask and only then lerps by the weight, so the
+        # mask has to cover the ramp or the ramp is cut off at the hard region's own edge.
+        masks = {name: weights[name] > 0.002 for name in names}
+    else:
+        weights = {name: feather(mask, feather_px) for name, mask in masks.items()}
     log("masks", pixels={k: int(v.sum()) for k, v in masks.items()}, dilatePx=dilation,
-        featherPx=feather_px)
+        featherPx=feather_px, softened=softened)
+    REPORT["softBands"] = softened
 
     # `image.pixels` is scene-linear whenever the image is tagged sRGB, which every base colour map
     # out of a generator is. The report says which way it was taken, so a future odd colour has a
     # line to check rather than a mystery.
     linearise = base_image.colorspace_settings.name in ("sRGB", "Filmic sRGB")
     corrections = {"colorspace": base_image.colorspace_settings.name, "linearised": linearise}
-    for name in ("barrel", "action", "wood"):
+    for name in names:
         op = dict(recipe["regions"][name]["baseColor"])
         corrections[name] = correct_colour(base, masks[name], op, linearise, weights[name])
     set_image(base_image, base)
@@ -788,7 +1124,7 @@ def main():
     # the mask is upside down, or shifted, or the wrong region's, the two numbers disagree -- which
     # is the only way a program can notice, and it is how the selftest now catches that defect.
     verified = {}
-    for name in ("barrel", "action", "wood"):
+    for name in names:
         rows = region_of == name
         if not rows.any():
             continue
@@ -844,11 +1180,27 @@ def main():
     # engine renders too -- the honest answer to it is the feather and the region boundary, not
     # hiding the number where only Blender can see it.
     strength = dict(recipe.get("channelWeight", {"metallic": 1.0, "roughness": 0.85}))
+    # THE PACKED MAP IS SPLIT HERE, one step before it is written to, and the pixels come back with
+    # the images so nothing has to re-read a generated datablock (see `split_packed_shine`).
+    preloaded = {}
+    if packed_shine is not None:
+        made = split_packed_shine(material, packed_shine, size)
+        preloaded = {key: array for key, (_image, array) in made.items()}
+        log("splitPackedShine", name=packed_shine.name, splitInto=sorted(made),
+            medians={key: round(float(np.median(array[..., 0])), 4)
+                     for key, array in preloaded.items()})
+        REPORT["packedShineMap"]["medians"] = {
+            key: round(float(np.median(array[..., 0])), 4) for key, array in preloaded.items()}
     shine_images = {
         "metallic": ensure_data_map(material, "Metallic", size, 0.0, "dh_metallic"),
         "roughness": ensure_data_map(material, "Roughness", size, 0.5, "dh_roughness"),
     }
-    shine = {"created": [], "written": {}, "strength": strength}
+    # WHICH IMAGE CARRIED WHICH CHANNEL. One line, and it is the line that says a split map went
+    # where it was meant to: with a packed ORM the two names are this tool's own, and if they were
+    # ever the same datablock the refusal below would have fired.
+    shine = {"created": [], "written": {}, "strength": strength,
+             "images": {key: (image.name if image is not None else None)
+                        for key, (image, _created) in shine_images.items()}}
     arrays = {}
     # ONE IMAGE CANNOT CARRY TWO VALUES, and a generator that hands back a single combined map is
     # common. The loop below reads, writes and saves each map in turn, so one datablock feeding both
@@ -871,8 +1223,13 @@ def main():
             # indexed by them. Scaling is honest for these two: by the time they ship they are flat
             # per region apart from the source detail roughness keeps.
             image.scale(size, size)
-        arrays[key] = image_array(image)
-        for name in ("barrel", "action", "wood"):
+        # THE SPLIT'S OWN PIXELS WIN over whatever the datablock says now: a generated image's
+        # buffer is Blender's to free and comes back black, which is how this run once wrote a
+        # roughness map of zeros with every number in the report agreeing with itself.
+        arrays[key] = preloaded.get(key)
+        if arrays[key] is None:
+            arrays[key] = image_array(image)
+        for name in names:
             target = recipe["regions"][name].get(key)
             painted = push_channel(arrays[key], weights[name], target, strength.get(key, 1.0))
             shine["written"].setdefault(name, {})[key] = {"target": target, "pixels": painted}
@@ -886,7 +1243,7 @@ def main():
     # mirrored, shifted or the wrong region's writes a number that agrees with itself; this one asks
     # the triangles what they actually sit on.
     verified_shine = {}
-    for name in ("barrel", "action", "wood"):
+    for name in names:
         rows = region_of == name
         if not rows.any():
             continue
@@ -970,7 +1327,8 @@ def main():
 
     # The lighting rig is already up (the source renders needed it). Without it every render comes
     # out pure black, which is exactly what the first version of this tool produced.
-    measured = render_views(ob, out_dir, int(recipe["renderPx"]), int(recipe["renderSamples"]))
+    measured = render_views(ob, out_dir, int(recipe["renderPx"]), int(recipe["renderSamples"]),
+                            views)
     log("rendered", files=measured)
     REPORT["renderStats"] = measured
     REPORT["renders"] = [m["file"] for m in measured]

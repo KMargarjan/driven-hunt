@@ -6,15 +6,26 @@ the five things a raw generated model needs before it can be a weapon in this ga
   (a) DECIMATE to a held-weapon budget, and report the count it MEASURED rather than the one it asked
       for (Roblox's own ceiling is 20,000 triangles per mesh, so this is about draw cost, not
       legality);
-  (b) SPLIT the single mesh into regions -- barrels, action, wood -- by position along the long axis
-      AND by texture colour, because the barrels and the action are both neutral grey in one atlas
-      (position separates them) while the forend shares the barrels' span (only colour separates
-      that);
+  (b) SPLIT the single mesh into regions BY A PLAN IN THE RECIPE -- position along the long axis,
+      position up the model, and texture colour -- because no single cue separates the parts of a
+      real model: the barrels and the action are both neutral grey in one atlas (position separates
+      them) while the forend shares the barrels' span (only colour does), and on an animal the gold
+      tusks and the pink snout share the head end (only colour) while the back and the flank share
+      the coat's colour (only height);
   (c) COLOUR-CORRECT each region's pixels in HSV, moving the region's MEDIAN onto a target and
       keeping every pixel's ratio to it -- so the grain and the engraving survive, which a flat fill
       would erase;
-  (d) RENDER four previews a human looks at (rule 5): side, top, muzzle, three-quarter;
+  (d) RENDER four previews a human looks at (rule 5), also from the recipe: the gun is photographed
+      side, top, muzzle and three-quarter, the animal side, front, top and three-quarter;
   (e) EXPORT `model.fbx` and `model.glb`.
+
+THE INPUT MAY BE `.fbx` OR `.glb`/`.gltf` (Task 69). Meshy hands back a GLB for a refined model and
+an FBX for some others, and the difference is the container, not the work. One thing does change with
+it and it is not cosmetic: **glTF packs metalness and roughness into ONE image** (occlusion in R,
+roughness in G, metalness in B), so both Principled sockets are fed by the same datablock. This tool
+writes a number into each map and cannot write two into one -- it used to refuse such a model
+outright -- so a packed map is now SPLIT into two single-channel maps before anything is written, and
+the report says it happened.
 
 THIS FILE NEVER IMPORTS `bpy`. It spawns a process, so it carries the repository's terms;
 `tools/asset_prep_blender.py` runs inside Blender and carries GPL-2.0-or-later, which is what the
@@ -23,8 +34,9 @@ Blender Foundation asks of a published script written for Blender. See the resea
 Usage:
   python tools/asset_prep.py probe --in <folder>                      # read-only: what is in there
   python tools/asset_prep.py prep --in <folder> --out <folder>        # the run
-        [--recipe <file.json>] [--target 6000] [--work-px 2048] [--dry-run]
-  python tools/asset_prep.py recipe                                   # print the default recipe
+        [--preset gun|animal] [--recipe <file.json>] [--model <name>]
+        [--target 6000] [--work-px 2048] [--dry-run]
+  python tools/asset_prep.py recipe [--preset gun|animal]             # print a preset recipe
   python tools/asset_prep.py selftest                                 # offline, no input needed
 
 Exit codes, the harness's shape: 0 done - 1 the run failed - 2 REFUSED before anything happened.
@@ -32,7 +44,9 @@ Exit codes, the harness's shape: 0 done - 1 the run failed - 2 REFUSED before an
 WHAT IT REFUSES, BEFORE IT TOUCHES ANYTHING:
   1. No Blender. `BLENDER_EXE` in the environment wins; otherwise the usual install locations are
      searched. A missing Blender is a refusal, never a silent skip.
-  2. An input folder with no `.fbx` (or no such folder).
+  2. An input folder with no model in it (or no such folder). `.fbx` wins over `.glb` over `.gltf`
+     when several are there, shortest path first, and the run SAYS which file it opened --
+     `--model <name>` picks one by name when a folder holds a preview beside the real thing.
   3. An output path INSIDE the repository. Everything this tool writes is generated and some of it is
      large binary; the repo takes neither (`.rbxm` is banned outright, CLAUDE.md).
   4. An output folder that already exists and is not empty. Nothing is ever overwritten and nothing
@@ -50,8 +64,13 @@ the colour targets, the render size -- comes from one JSON document, and that do
 into the output folder next to the results. A run is repeatable from its own output, and a colour
 Karen wants changed is a number in a file rather than an edit to this program.
 
-Colours: the defaults were sampled from Karen's own reference photographs of the real gun and are the
-Director's pick, changeable (her rule, 2026-09-26: styling never blocks).
+A PRESET IS A RECIPE WITH A NAME, and the names are `gun` and `animal`. Both live in this file, so
+the numbers that decide what an asset looks like are reviewed as a diff rather than carried in a
+loose JSON file nobody reads; `--recipe <file.json>` still overrides any of them.
+
+Colours: the gun's were sampled from Karen's own reference photographs of the real gun; the animal's
+are the Director's pick from the boar's own textures. Both are changeable (Karen's rule, 2026-09-26:
+styling never blocks).
 
 NO NETWORK, EVER. This file has no HTTP client and nothing in it uploads. A model reaching Roblox is
 Karen's explicit decision and a different tool.
@@ -106,6 +125,16 @@ DEFAULT_RECIPE = {
     "renderPx": 1100,
     "renderSamples": 32,
     "maskDilatePx": 4,
+    # WHICH SPACE THE PLAN'S COLOUR THRESHOLDS ARE READ IN. "linear" is what this tool has always
+    # used -- `image.pixels` is scene-linear for an sRGB-tagged map -- and the gun's `satMin` 0.18
+    # was measured against those values in Tasks 72 and 75. An asset whose thresholds were read off
+    # a picture wants "srgb" instead; saturation is a different number in the two spaces.
+    "regionColorSpace": "linear",
+    # WHICH END IS THE FRONT. `None` means MEASURE it (`long_axis`: the end whose cross-section is
+    # shallower is the gun's muzzle). An animal is not shaped like that -- a boar is thin at the
+    # snout and thin at the tail -- so a recipe may state it instead, and the report always prints
+    # both what was measured and what was used.
+    "frontAtMin": None,
     # Rounds of neighbour-majority voting over the face map. A per-triangle rule is speckle, and
     # speckle is patches in the finished texture; three rounds drown out isolated mistakes without
     # eating a real boundary, which is many triangles wide.
@@ -125,10 +154,41 @@ DEFAULT_RECIPE = {
     # Texels of soft edge on every region mask. A hard mask paints a triangle-shaped step into the
     # texture; this turns it into a ramp. 0 restores round 1's hard edges.
     "maskFeatherPx": 6,
-    # Where the action begins, as a fraction of the gun's length FROM THE MUZZLE. 0.62 is the real
-    # 486 Parallelo's barrel fraction (28 in of 45 in), the same published number the grey-box gun in
-    # src/server/Weapon/Shape.luau is built from.
-    "actionStartT": 0.62,
+    # THE REGION PLAN: an ordered list, FIRST MATCH WINS, and the last entry has no `when` and is
+    # therefore the "everything else" (the run fails without one, because a face with no region is a
+    # face nobody decided about).
+    #
+    # Every predicate that is present must hold. `axisFrom`/`axisTo` are the fraction along the long
+    # axis measured FROM THE FRONT (the muzzle here), `upFrom`/`upTo` the fraction up the model,
+    # `hueFromDeg`/`hueToDeg` (wrap-aware), `satMin`/`satMax`, `valueMin`/`valueMax` the colour
+    # sampled off the base texture at the face's own UV footprint. `From` is inclusive and `To` is
+    # exclusive, so bands can be written back to back without overlapping.
+    #
+    # THIS IS THE GUN'S OLD RULE, WRITTEN OUT AS DATA rather than as three lines of Python: wood is
+    # whatever is woody-coloured wherever it sits (the forend shares the barrels' span), then
+    # everything in front of 0.62 of the length is barrel, then the rest is the action. 0.62 is the
+    # real 486 Parallelo's barrel fraction (28 in of 45 in), the same published number the grey-box
+    # gun in src/server/Weapon/Shape.luau is built from. Task 69 re-ran Karen's gun through the new
+    # engine and got the same three region counts to the triangle.
+    "regionPlan": [
+        {"name": "wood", "when": {"satMin": 0.18, "hueFromDeg": 5.0, "hueToDeg": 60.0}},
+        {"name": "barrel", "when": {"axisTo": 0.62}},
+        {"name": "action"},
+    ],
+    # THE FOUR QUESTIONS THIS ASSET IS PHOTOGRAPHED TO ANSWER, as data too: does it read as a gun
+    # from the side, are the two barrels side by side from above and from the muzzle, and does it
+    # hold together in three-quarter. `distanceSpan` and `orthoSpan` are multiples of the model's
+    # longest dimension; `orthoCross` is a multiple of the larger of the two dimensions ACROSS the
+    # view direction, which is what frames a model seen end-on. No `orthoSpan` or `orthoCross` means
+    # a perspective camera.
+    "views": [
+        {"name": "side", "dir": [0.0, -1.0, 0.06], "distanceSpan": 1.2, "orthoSpan": 1.08},
+        {"name": "top", "dir": [0.0, -0.02, 1.0], "distanceSpan": 1.2, "orthoSpan": 1.08},
+        # STRAIGHT DOWN THE BARRELS, and far enough back that the near end is not clipped: at half a
+        # span the camera stood ON the muzzle and the render showed the middle of the gun.
+        {"name": "muzzle", "dir": [-1.0, -0.015, 0.02], "distanceSpan": 1.3, "orthoCross": 2.8},
+        {"name": "three-quarter", "dir": [-0.7, -1.0, 0.38], "distanceSpan": 0.75},
+    ],
     "regions": {
         # EVERY targetRGB IS AN sRGB TRIPLE MEASURED OFF KAREN'S OWN REFERENCE PHOTOGRAPHS, and the
         # Blender side converts it to scene-linear before it touches a pixel -- the first run applied
@@ -176,7 +236,6 @@ DEFAULT_RECIPE = {
         # MEDIUM WALNUT, deeper and less orange than what came out of Meshy -- Karen's two complaints
         # in one number: RGB(112, 80, 69) is the median of the stock in her reference photo.
         "wood": {
-            "rule": {"satMin": 0.18, "hueLoDeg": 5.0, "hueHiDeg": 60.0},
             # KEEP THE SOURCE GRAIN; SHIFT IT, DO NOT REBUILD IT (Director, round 2). The levels
             # mapping round 1 used clipped everything outside the 5th and 95th percentile onto two
             # flat values, which turned Meshy's baked figure into hard black patches. This is the
@@ -199,6 +258,160 @@ DEFAULT_RECIPE = {
     # which are the two failures this whole task is about.
     "maxShineDrift": 0.08,
 }
+
+
+# THE ANIMAL PRESET (Task 69). Karen kept the refined boar and asked for its COLOURS to be fixed --
+# the shape and the proportions are hers already (Director decision, 2026-09-26, run
+# boar.body_v1-20260926T1501Z: 6,188 triangles, keep).
+#
+# WHAT WAS WRONG, and all four were looked at before a number was chosen (rule 5):
+#   * the whole body is one dark slate grey -- a wild boar is grizzled grey-brown and its FLANK is
+#     paler than its back, which is the shape a hunter reads at 80 m;
+#   * the snout is farm-pig PINK (measured on the model: hue 20 deg, saturation 0.25, at the front
+#     end) -- a wild boar's is near-black;
+#   * the tusks are GOLD/BRASS (hue 36 deg, saturation 0.35, value 0.90) -- ivory is dull bone-white;
+#   * metalness and roughness arrive as one 4096 map and ship at 4096.
+#
+# EVERY NUMBER BELOW WAS MEASURED OFF THIS MODEL FIRST (the medians are in the report):
+#   whole body median sRGB(135, 128, 119), hue 32 deg, saturation 0.11, value 0.53;
+#   the coat's bands then move that median per band -- back 104, flank 158, belly and legs 86 --
+#     so the flank is 1.5x the back's albedo, which is the step a hunter reads at distance;
+#   the head end is at the MINIMUM of the long axis -- the tusks (the one unambiguous colour on the
+#   animal) sit at 0.04-0.12 of the length from that end, so `frontAtMin` is stated rather than
+#   measured, because the "shallower end is the front" rule is about a gun and a boar is thin at
+#   both ends.
+#
+# The colours are the Director's pick and Karen's to change (her rule: styling never blocks).
+ANIMAL_RECIPE = {
+    "tool": TOOL_VERSION,
+    # 6,188 triangles against Roblox's 20,000 per mesh: nothing to gain by decimating, and a
+    # decimated face that straddles two regions can only take one region's colour (see the gun).
+    "targetTriangles": None,
+    "workPx": 2048,
+    "renderPx": 1100,
+    "renderSamples": 32,
+    "maskDilatePx": 4,
+    # EIGHT ROUNDS, NOT THREE, AND THE FIRST RENDER IS WHY (rule 5). The gun's regions meet at a
+    # machined join and three rounds is plenty; an animal's bands meet in the middle of a flank,
+    # where the boundary follows whichever triangles happened to straddle the height, and at three
+    # rounds it came out as a hard SAWTOOTH running the length of the body -- visible from every
+    # camera and obviously artificial. More rounds of majority voting straighten it.
+    "regionSmoothRounds": 8,
+    "maxRegionSpeckle": 0.01,
+    "maxSurfaceDrift": 45,
+    "renderSource": True,
+    "maxEdgeDensityRatio": 1.25,
+    "maskFeatherPx": 6,
+    # sRGB, because every threshold below was read off this model's own texture as a colour --
+    # hue 36 degrees, saturation 0.35, value 0.90 for the tusks -- which is an sRGB reading.
+    "regionColorSpace": "srgb",
+    # MEASURED, THEN STATED: the tusks are at the low end of the long axis. See above.
+    "frontAtMin": True,
+    # FIRST MATCH WINS, so the two colour rules run before the three height bands: the tusks and the
+    # snout are at the head end and would otherwise be swallowed by whichever band they sit in.
+    "regionPlan": [
+        # GOLD, AT THE HEAD. Colour alone would also catch warm highlights along the back, and
+        # position alone would catch the whole muzzle; together they are the tusks and nothing else
+        # (144 faces of 6,188, at 0.16-0.82 across the width -- both sides, which is the check that
+        # this is a pair of tusks rather than one lit patch).
+        {"name": "tusk", "when": {"axisTo": 0.22, "hueFromDeg": 28.0, "hueToDeg": 60.0,
+                                  "satMin": 0.25, "valueMin": 0.70}},
+        # THE PIG-PINK MUZZLE: the front tenth of the animal, plus anything pink further back on the
+        # head (the inner ears are the same pink on this model, and a wild boar's are not).
+        {"name": "snout", "when": {"axisTo": 0.10}},
+        {"name": "snout", "when": {"axisTo": 0.22, "hueFromDeg": 0.0, "hueToDeg": 25.0,
+                                   "satMin": 0.18}},
+        # THE COAT, IN THREE BANDS UP THE ANIMAL. A boar is dark along the spine, pale down the
+        # flank and dark again underneath -- belly and legs. The bands are back-to-back fractions of
+        # the height, so every face lands in exactly one.
+        # `band` and `softUp` are the ramp, and they are written out rather than read off `when`:
+        # under first-match-wins `flank`'s `upTo 0.62` means 0.28 to 0.62, and the catch-all has no
+        # `when` at all. 0.06 of the animal's height is about 6 cm on a live boar -- a hand's
+        # width, which is what the saddle actually fades over.
+        {"name": "underside", "when": {"upTo": 0.28},
+         "band": {"upTo": 0.28}, "softUp": 0.06},
+        {"name": "flank", "when": {"upTo": 0.62},
+         "band": {"upFrom": 0.28, "upTo": 0.62}, "softUp": 0.06},
+        {"name": "back", "band": {"upFrom": 0.62}, "softUp": 0.06},
+    ],
+    # SIDE is the shape a hunter sees; FRONT is the one view that shows the snout and both tusks at
+    # once, which is what this task is about; TOP shows the back-to-flank break; THREE-QUARTER is
+    # the sanity check that it still reads as one animal. The long axis is the boar's length, so
+    # "side" looks across it and "front" looks down it from the head end.
+    "views": [
+        {"name": "side", "dir": [-1.0, 0.0, 0.06], "distanceSpan": 1.2, "orthoSpan": 1.08},
+        {"name": "front", "dir": [0.0, -1.0, 0.04], "distanceSpan": 1.3, "orthoCross": 1.35},
+        {"name": "top", "dir": [0.0, -0.02, 1.0], "distanceSpan": 1.2, "orthoSpan": 1.08},
+        # FURTHER BACK THAN THE GUN'S. At 0.8 the perspective camera stood inside the animal and the
+        # render was a close-up of one shoulder (rule 5, the first run).
+        {"name": "three-quarter", "dir": [-0.7, -1.0, 0.38], "distanceSpan": 1.7},
+    ],
+    "regions": {
+        # THE COAT KEEPS ITS OWN HUE AND NEARLY ALL ITS SATURATION (`keepHue`, `satScale` 0.9) and
+        # only its VALUE is retargeted. That is the whole difference between recolouring an animal
+        # and painting one: the grizzle -- light and dark bristles within a centimetre of each other
+        # -- is variation around the median, and moving only the median keeps every bristle.
+        #
+        # NOT NEAR-BLACK, DELIBERATELY. The brief says it in Karen's own words: "The flanks must
+        # read LIGHT, not black: TASKS.md rows 18 and 24 both lost a round to a dark albedo", and
+        # Task 22 measured why -- an unlit face renders at roughly 0.275 x albedo at this place's
+        # ambient. So the darkest thing on this animal is the snout at 52, not 20.
+        # `valueSpread`, NOT A RATIO, AND THE FIRST RUN IS WHY. Meshy bakes shadow and ambient
+        # occlusion into the base colour, so the coat arrives with a lot of already-dark pixels; a
+        # ratio correction keeps every pixel's distance from the median AS A RATIO, so moving the
+        # median down multiplies those pixels down too and the animal came out near-black from every
+        # camera. `valueSpread` moves each pixel a FRACTION of its distance from the median instead,
+        # which lifts the baked lighting off the floor and leaves the grizzle as grizzle. It is the
+        # same fix the gun's walnut needed, for the same reason, and the vocabulary was already here.
+        "back": {
+            "baseColor": {"targetRGB": [104, 95, 84], "keepHue": True, "satScale": 0.9,
+                          "valueSpread": 0.5},
+            "roughness": 0.88,
+            "metallic": 0.0,
+        },
+        # THE PALE FLANK, and it is the reason this task has three bands instead of one colour: a
+        # boar read at distance is a dark back over a light side. 146 against the back's 92 is a
+        # 1.6x step in albedo, which survives being lit from any direction.
+        "flank": {
+            "baseColor": {"targetRGB": [158, 147, 130], "keepHue": True, "satScale": 0.9,
+                          "valueSpread": 0.5},
+            "roughness": 0.85,
+            "metallic": 0.0,
+        },
+        # BELLY AND LEGS, dark again: on a live animal they are in its own shadow all day.
+        "underside": {
+            "baseColor": {"targetRGB": [86, 79, 72], "keepHue": True, "satScale": 0.9,
+                          "valueSpread": 0.5},
+            "roughness": 0.88,
+            "metallic": 0.0,
+        },
+        # THE SNOUT: `satScale` 0.15 is what kills the pink. The hue is kept rather than replaced,
+        # so the correction cannot invent a colour cast of its own; with the saturation crushed and
+        # the value dropped it is wet dark hide, which is what a boar's rhinarium is.
+        "snout": {
+            "baseColor": {"targetRGB": [58, 55, 53], "keepHue": True, "satScale": 0.15,
+                          "valueSpread": 0.45},
+            # Wet skin, but not a mirror: it is the one part of the animal that catches a highlight.
+            "roughness": 0.55,
+            "metallic": 0.0,
+        },
+        # IVORY IS NOT GOLD AND IT IS NOT WHITE EITHER: dull bone, slightly warm, and duller than
+        # the snout is wet. `satScale` 0.25 keeps a trace of the warmth so it does not read as
+        # plastic.
+        "tusk": {
+            "baseColor": {"targetRGB": [208, 199, 178], "keepHue": True, "satScale": 0.25,
+                          "valueSpread": 0.5},
+            "roughness": 0.45,
+            "metallic": 0.0,
+        },
+    },
+    # NOTHING ON A LIVING ANIMAL IS METAL, so metalness is replaced outright; roughness keeps 15 % of
+    # the generator's own variation, which is where the bristle and the wet-nose detail live.
+    "channelWeight": {"metallic": 1.0, "roughness": 0.85},
+    "maxShineDrift": 0.08,
+}
+
+PRESETS = {"gun": DEFAULT_RECIPE, "animal": ANIMAL_RECIPE}
 
 
 def glb_triangles(path):
@@ -290,15 +503,36 @@ def inside_repo(path):
         return False
 
 
-def find_fbx(folder):
+# WHAT COUNTS AS A MODEL, in the order a folder holding several is read. FBX first because that is
+# what the gun runs are and what Roblox is handed; GLB next, which is what Meshy returns for a
+# refined model (Task 69).
+MODEL_EXTENSIONS = (".fbx", ".glb", ".gltf")
+
+
+def find_model(folder, wanted=None):
+    """The one model file in `folder`, or the one named by `wanted`. Deterministic, and it says why.
+
+    A run folder holds more than a model: the boar's holds `preview.glb` (a 300 KB draft) beside
+    `model.glb` (21 MB, the refined one), so "the only file with that extension" is not a rule that
+    survives contact. The order is extension first, then shortest path, then alphabetical -- which
+    picks `model.glb` over `preview.glb` -- and `--model` overrides it by name when that is not what
+    a caller wants. The chosen file is printed and written into the recipe either way.
+    """
     hits = []
     for root, _dirs, files in os.walk(folder):
         for name in files:
-            if name.lower().endswith(".fbx"):
+            if name.lower().endswith(MODEL_EXTENSIONS):
                 hits.append(os.path.join(root, name))
     if not hits:
-        raise Refused("no .fbx under the input folder")
-    hits.sort(key=lambda p: (len(p), p))
+        raise Refused("no .fbx, .glb or .gltf under the input folder")
+    if wanted:
+        named = [h for h in hits if os.path.basename(h).lower() == wanted.lower()]
+        if not named:
+            raise Refused("--model %s is not in the input folder (it holds %s)"
+                          % (wanted, ", ".join(sorted(os.path.basename(h) for h in hits))))
+        return named[0]
+    hits.sort(key=lambda path: (MODEL_EXTENSIONS.index(os.path.splitext(path)[1].lower()),
+                                len(path), path))
     return hits[0]
 
 
@@ -310,32 +544,71 @@ def check_output(path):
                       "overwritten (rule 7) -- name a new one")
 
 
-def load_recipe(path, overrides):
-    recipe = json.loads(json.dumps(DEFAULT_RECIPE))
+def region_names(recipe):
+    """The region names the plan can produce, in plan order and without repeats."""
+    out = []
+    for rule in recipe.get("regionPlan", []):
+        if rule["name"] not in out:
+            out.append(rule["name"])
+    return out
+
+
+def check_recipe(recipe):
+    """REFUSE A PLAN THAT CANNOT DECIDE, before Blender is started.
+
+    Two ways a plan is not a plan: a region it names has no colours (the Blender side would paint
+    nothing and report a region that was never corrected), and no final catch-all (a face that
+    matches no rule belongs to nobody, and "nobody" is what silently keeps the generator's colour).
+    Both are cheap to check here and expensive to find in a render.
+    """
+    plan = recipe.get("regionPlan")
+    if not plan:
+        raise Refused("the recipe has no regionPlan")
+    if plan[-1].get("when"):
+        raise Refused("the last regionPlan entry must have no `when`: it is the everything-else, "
+                      "and without one a face can match no rule at all")
+    missing = [name for name in region_names(recipe) if name not in recipe.get("regions", {})]
+    if missing:
+        raise Refused("the regionPlan names %s, which the recipe gives no colours for"
+                      % ", ".join(missing))
+    for view in recipe.get("views", []):
+        if "orthoSpan" in view and "orthoCross" in view:
+            raise Refused("view %s asks for both orthoSpan and orthoCross" % view.get("name"))
+    return recipe
+
+
+def load_recipe(path, overrides, preset="gun"):
+    if preset not in PRESETS:
+        raise Refused("no such preset: %s (there are %s)" % (preset, ", ".join(sorted(PRESETS))))
+    recipe = json.loads(json.dumps(PRESETS[preset]))
+    recipe["preset"] = preset
     if path:
         with open(path, "r", encoding="utf-8") as handle:
             recipe.update(json.load(handle))
     for key, value in overrides.items():
         if value is not None:
             recipe[key] = value
-    return recipe
+    return check_recipe(recipe)
 
 
 def command_probe(args):
     folder = args.input
     if not os.path.isdir(folder):
         raise Refused("no such input folder")
-    fbx = find_fbx(folder)
+    model = find_model(folder, getattr(args, "model", None))
     files = manifest(folder)
     say("input %d file(s); model is %s (%.1f MiB)"
-        % (len(files), os.path.basename(fbx), os.path.getsize(fbx) / (1 << 20)))
+        % (len(files), os.path.basename(model), os.path.getsize(model) / (1 << 20)))
     for name in sorted(files):
         say("  %s  %d bytes" % (name, os.path.getsize(os.path.join(folder, name))))
     return 0
 
 
-def command_recipe(_args):
-    print(json.dumps(DEFAULT_RECIPE, indent=2))
+def command_recipe(args):
+    # CHECKED BEFORE IT IS PRINTED. A preset that cannot decide -- a plan with no catch-all, or one
+    # naming a region it gives no colours for -- would otherwise print like any other, and this
+    # command is what CI runs to prove the presets are still whole without a Blender to run them in.
+    print(json.dumps(check_recipe(PRESETS[args.preset]), indent=2))
     return 0
 
 
@@ -429,12 +702,13 @@ def verify_embedded_textures(out_dir, report):
     return result
 
 
-def prep(input_dir, out_dir, recipe, exe, timeout=1800, keep_source=True):
+def prep(input_dir, out_dir, recipe, exe, timeout=1800, keep_source=True, model=None):
     """The whole run. Returns the Blender side's report. Raises Refused before anything is written."""
     if not os.path.isdir(input_dir):
         raise Refused("no such input folder")
     check_output(out_dir)
-    fbx_name = os.path.relpath(find_fbx(input_dir), input_dir)
+    check_recipe(recipe)
+    model_name = os.path.relpath(find_model(input_dir, model), input_dir)
 
     before = manifest(input_dir)
     os.makedirs(out_dir, exist_ok=True)
@@ -448,13 +722,13 @@ def prep(input_dir, out_dir, recipe, exe, timeout=1800, keep_source=True):
     recipe["ranAt"] = stamp
     recipe["blender"] = blender_version(exe)
     recipe["sourceFiles"] = before
-    recipe["sourceModel"] = fbx_name.replace("\\", "/")
+    recipe["sourceModel"] = model_name.replace("\\", "/")
     recipe_path = os.path.join(out_dir, "recipe.json")
     with open(recipe_path, "w", encoding="utf-8") as handle:
         json.dump(recipe, handle, indent=2)
 
     job = {
-        "fbx": os.path.join(source_dir, fbx_name),
+        "model": os.path.join(source_dir, model_name),
         "outDir": out_dir,
         "recipe": recipe,
         "reportPath": os.path.join(out_dir, "report.json"),
@@ -486,16 +760,30 @@ def prep(input_dir, out_dir, recipe, exe, timeout=1800, keep_source=True):
 
 def command_prep(args):
     exe = find_blender()
-    recipe = load_recipe(args.recipe, {"targetTriangles": args.target, "workPx": args.work_px})
+    recipe = load_recipe(args.recipe, {"targetTriangles": args.target, "workPx": args.work_px},
+                         preset=args.preset)
     if args.dry_run:
-        say("would run %s" % os.path.basename(exe))
+        say("would run %s on %s" % (os.path.basename(exe),
+                                    os.path.basename(find_model(args.input, args.model))
+                                    if os.path.isdir(args.input) else args.input))
         print(json.dumps(recipe, indent=2))
         return 0
     say("blender: %s" % blender_version(exe))
-    report = prep(args.input, args.output, recipe, exe, keep_source=not args.no_source)
+    say("preset %s, model %s" % (recipe.get("preset", "gun"),
+                                 os.path.basename(find_model(args.input, args.model))))
+    report = prep(args.input, args.output, recipe, exe, keep_source=not args.no_source,
+                  model=args.model)
     if not report.get("ok"):
         say("FAILED: %s" % report.get("error", "no reason given"))
         return 1
+    orientation = report.get("orientation", {})
+    say("long axis %s, front at its %s (%s)"
+        % (orientation.get("axis"), "minimum" if orientation.get("frontAtMin") else "maximum",
+           "stated in the recipe" if orientation.get("frontStated") else "measured"))
+    packed = report.get("packedShineMap")
+    if packed:
+        say("metalness and roughness arrived as ONE %dpx map (%s); split into two"
+            % (packed.get("sourcePx", 0), packed.get("name", "?")))
     tri = report["triangles"]
     regions = report.get("regions", {})
     if tri.get("target") is None:
@@ -504,13 +792,20 @@ def command_prep(args):
     else:
         say("triangles %d -> %d (target %d, MEASURED)" % (tri["before"], tri["after"], tri["target"]))
     say("regions (triangles): " + ", ".join("%s %d" % (k, regions[k]) for k in sorted(regions)))
-    for name in ("barrel", "action", "wood"):
+    for name in region_names(recipe):
         got = report.get("corrections", {}).get(name, {})
         shown = report.get("surface", {}).get(name, {})
         if got.get("pixels"):
-            say("colour %-7s asked RGB%-16s wrote RGB%-16s surface shows RGB%-16s drift %s"
+            say("colour %-9s asked RGB%-16s wrote RGB%-16s surface shows RGB%-16s drift %s"
                 % (name, tuple(got["targetRGB"]), tuple(got["achievedRGB"]),
                    tuple(shown.get("shownRGB", ())), shown.get("drift")))
+        shine = report.get("shine", {}).get("surface", {}).get(name, {})
+        if shine:
+            say("shine  %-9s metalness %s (asked %s)   roughness %s (asked %s)"
+                % (name, shine.get("metallic", {}).get("shown"),
+                   shine.get("metallic", {}).get("target"),
+                   shine.get("roughness", {}).get("shown"),
+                   shine.get("roughness", {}).get("target")))
     for row in report.get("comparison", []):
         flag = "  <-- BROKEN UP" if row["edgeDensityRatio"] > 1.25 else ""
         say("%-14s edges %.3f -> %.3f (x%.2f)   mean RGB%s -> RGB%s%s"
@@ -599,6 +894,107 @@ bpy.context.view_layer.objects.active = ob
 bpy.ops.export_scene.fbx(filepath=out, use_selection=True, path_mode="COPY", embed_textures=True)
 print("[selftest-build] wrote", out, len(ob.data.polygons), "polys")
 '''
+
+
+SELFTEST_BUILD_GLB = r"""
+import bpy, sys, os, math
+out = sys.argv[sys.argv.index("--") + 1]
+bpy.ops.wm.read_factory_settings(use_empty=True)
+# A BODY, NOT A BAR: long in Y and tall in Z, so the height bands an animal plan uses have something
+# to divide. Subdivided so each band gets real faces rather than one face of a cube.
+bpy.ops.mesh.primitive_cube_add(size=1)
+ob = bpy.context.object
+ob.scale = (0.25, 1.0, 0.5)
+bpy.ops.object.transform_apply(scale=True)
+bpy.ops.object.modifier_add(type="SUBSURF")
+ob.modifiers["Subdivision"].subdivision_type = "SIMPLE"
+ob.modifiers["Subdivision"].levels = 4
+ob.modifiers["Subdivision"].render_levels = 4
+bpy.ops.object.modifier_apply(modifier="Subdivision")
+bpy.ops.object.editmode_toggle()
+bpy.ops.uv.smart_project(angle_limit=math.radians(66))
+bpy.ops.object.editmode_toggle()
+for loop in ob.data.uv_layers.active.uv:
+    loop.vector = (loop.vector[0], 0.52 + loop.vector[1] * 0.46)
+# The base colour: the same vertical gradient the other fixtures use, so a mask applied upside down
+# still moves the measured numbers.
+base = bpy.data.images.new("atlas", 256, 256)
+px = []
+for y in range(256):
+    k = 0.35 + 1.3 * (y / 255.0)
+    px.extend([min(0.45 * k, 1.0), min(0.45 * k, 1.0), min(0.46 * k, 1.0), 1.0] * 256)
+base.pixels = px
+os.makedirs(os.path.dirname(out), exist_ok=True)
+base.filepath_raw = os.path.join(os.path.dirname(out), "atlas.png")
+base.file_format = "PNG"
+base.save()
+# THE PACKED ORM MAP, EXACTLY AS glTF DEFINES IT AND AS MESHY SHIPS IT: occlusion in R (left white),
+# roughness in G, metalness in B. One image, feeding BOTH Principled sockets -- which is the shape
+# this tool used to refuse outright.
+orm = bpy.data.images.new("orm", 256, 256)
+orm.colorspace_settings.name = "Non-Color"
+orm.pixels = [1.0, 0.62, 0.0, 1.0] * (256 * 256)
+orm.filepath_raw = os.path.join(os.path.dirname(out), "orm.png")
+orm.file_format = "PNG"
+orm.save()
+mat = bpy.data.materials.new("m"); mat.use_nodes = True
+bsdf = mat.node_tree.nodes["Principled BSDF"]
+tex = mat.node_tree.nodes.new("ShaderNodeTexImage"); tex.image = base
+mat.node_tree.links.new(bsdf.inputs["Base Color"], tex.outputs["Color"])
+shine = mat.node_tree.nodes.new("ShaderNodeTexImage"); shine.image = orm
+mat.node_tree.links.new(bsdf.inputs["Metallic"], shine.outputs["Color"])
+mat.node_tree.links.new(bsdf.inputs["Roughness"], shine.outputs["Color"])
+ob.data.materials.append(mat)
+bpy.ops.object.select_all(action="DESELECT"); ob.select_set(True)
+bpy.context.view_layer.objects.active = ob
+bpy.ops.export_scene.gltf(filepath=out, export_format="GLB", use_selection=True)
+print("[selftest-build] wrote", out, len(ob.data.polygons), "polys")
+"""
+
+
+# The plan and the colours the GLB fixture is prepped with. Three height bands plus one rule that
+# matches on the texture's VALUE, which is the predicate the boar's tusks need and the gun's rule
+# never uses. Roughness is deliberately left at None in every band: the source's own G channel then
+# survives untouched, so what the roughness map reads back is proof of WHICH CHANNEL the split took
+# (0.62 is G; R is 1.0 and B is 0.0, and either of those would fail).
+SELFTEST_GLB_RECIPE = {
+    "regionColorSpace": "srgb",
+    "frontAtMin": True,
+    "regionPlan": [
+        # `nose` is here to be RUN OVER, and it is not: it is decided by position, it sits at every
+        # height, and the three bands below all have soft edges whose ramps are a function of height
+        # alone. If a ramp were allowed to reach a region another rule decided, this one would be
+        # painted by whichever band it sits in -- which is what would happen to the boar's tusks,
+        # at half the animal's height, if the restriction were dropped.
+        {"name": "nose", "when": {"axisTo": 0.15}},
+        {"name": "bright", "when": {"valueMin": 0.88}},
+        {"name": "low", "when": {"upTo": 0.28}, "band": {"upTo": 0.28}, "softUp": 0.08},
+        {"name": "high", "when": {"upFrom": 0.62}, "band": {"upFrom": 0.62}, "softUp": 0.08},
+        {"name": "middle", "band": {"upFrom": 0.28, "upTo": 0.62}, "softUp": 0.08},
+    ],
+    "views": [
+        {"name": "side", "dir": [-1.0, 0.0, 0.06], "distanceSpan": 1.2, "orthoSpan": 1.08},
+        {"name": "front", "dir": [0.0, -1.0, 0.04], "distanceSpan": 1.3, "orthoCross": 1.6},
+        {"name": "top", "dir": [0.0, -0.02, 1.0], "distanceSpan": 1.2, "orthoSpan": 1.08},
+        {"name": "three-quarter", "dir": [-0.7, -1.0, 0.38], "distanceSpan": 0.8},
+    ],
+    "regions": {
+        # LABELLED AND LEFT ALONE. The value rule is here to prove the predicate matches -- which
+        # `regionPlanHits` records before smoothing -- and a handful of scattered faces is not a
+        # region worth repainting: a two-face region's colour, sampled back through the mesh, is
+        # mostly its neighbours' feather, and asserting on that would be asserting on noise.
+        "bright": {"baseColor": {"skip": True}, "metallic": None, "roughness": None},
+        "nose": {"baseColor": {"targetRGB": [40, 38, 36], "keepHue": True, "satScale": 0.5},
+                 "metallic": 0.95, "roughness": None},
+        "low": {"baseColor": {"targetRGB": [60, 56, 52], "keepHue": True, "satScale": 0.9},
+                "metallic": 0.1, "roughness": None},
+        "high": {"baseColor": {"targetRGB": [96, 88, 78], "keepHue": True, "satScale": 0.9},
+                 "metallic": 0.3, "roughness": None},
+        "middle": {"baseColor": {"targetRGB": [150, 140, 124], "keepHue": True, "satScale": 0.9},
+                   "metallic": 0.5, "roughness": None},
+    },
+    "channelWeight": {"metallic": 1.0, "roughness": 0.85},
+}
 
 
 def command_selftest(_args):
@@ -811,6 +1207,107 @@ def command_selftest(_args):
            wood_report.get("corrections", {}).get("wood", {}).get("pixels", 0) > 0,
            str(wood_report.get("corrections")))
 
+        # ------------------------------------------------- a GLB, a packed ORM map, height bands
+        # TASK 69'S THREE NEW PATHS, END TO END AND IN ONE RUN: the input is a .glb rather than a
+        # .fbx, its metalness and roughness arrive as ONE image (which this tool used to refuse),
+        # and the regions are decided by HEIGHT and by texture VALUE rather than by the gun's
+        # position-and-hue rule.
+        glb_dir = os.path.join(tmp, "in-glb")
+        os.makedirs(glb_dir)
+        glb_builder = os.path.join(tmp, "build-glb.py")
+        with open(glb_builder, "w", encoding="utf-8") as handle:
+            handle.write(SELFTEST_BUILD_GLB)
+        glb_in = os.path.join(glb_dir, "model.glb")
+        made = subprocess.run([exe, "--background", "--python", glb_builder, "--", glb_in],
+                              capture_output=True, text=True, timeout=600)
+        ok("the GLB fixture was built", os.path.exists(glb_in),
+           (made.stdout or "")[-200:] if not os.path.exists(glb_in) else "")
+        if os.path.exists(glb_in):
+            # a decoy beside it, so the choice is a rule and not "the only file there"
+            shutil.copyfile(glb_in, os.path.join(glb_dir, "preview.glb"))
+            ok("it picks the model over the preview beside it",
+               os.path.basename(find_model(glb_dir)) == "model.glb",
+               os.path.basename(find_model(glb_dir)))
+            ok("--model picks the other one by name",
+               os.path.basename(find_model(glb_dir, "preview.glb")) == "preview.glb")
+            try:
+                find_model(glb_dir, "nope.glb")
+                ok("--model refuses a name that is not there", False)
+            except Refused:
+                ok("--model refuses a name that is not there", True)
+
+            glb_before = manifest(glb_dir)
+            glb_recipe = load_recipe(None, {"targetTriangles": None, "workPx": 256})
+            glb_recipe.update(json.loads(json.dumps(SELFTEST_GLB_RECIPE)))
+            glb_recipe["renderPx"] = 240
+            glb_recipe["renderSamples"] = 4
+            glb_recipe["maxEdgeDensityRatio"] = 1.6
+            glb_out = os.path.join(tmp, "out-glb")
+            glb_report = prep(glb_dir, glb_out, glb_recipe, exe, timeout=900, model="model.glb")
+            ok("the GLB run reported ok", glb_report.get("ok") is True, glb_report.get("error", ""))
+            ok("its input folder is byte-for-byte unchanged", manifest(glb_dir) == glb_before)
+
+            packed = glb_report.get("packedShineMap", {})
+            ok("the packed metalness-roughness map was seen and split",
+               sorted(packed.get("splitInto", [])) == ["metallic", "roughness"], str(packed))
+            glb_shine = glb_report.get("shine", {}).get("surface", {})
+            # THE CHANNEL PROOF. Roughness is left at None in every band, so nothing is written into
+            # that map and what it reads back is the SOURCE: 0.62, which is the G channel. R is 1.0
+            # and B is 0.0, so taking either of those instead fails this by a mile.
+            roughnesses = [entry.get("roughness", {}).get("shown")
+                           for entry in glb_shine.values()]
+            ok("the roughness map came from the G channel, untouched",
+               roughnesses and all(r is not None and abs(r - 0.62) < 0.05 for r in roughnesses),
+               str(roughnesses))
+            # ...and metalness is its own map now: three bands, three different numbers, each one
+            # sampled back through the mesh.
+            for name in ("low", "middle", "high"):
+                entry = glb_shine.get(name, {}).get("metallic", {})
+                if entry.get("target") is not None:
+                    ok("  the %s band's metalness is in its own map" % name,
+                       entry.get("drift") is not None
+                       and entry["drift"] <= glb_recipe["maxShineDrift"], str(entry))
+            shown = sorted((glb_shine.get(n, {}).get("metallic", {}).get("shown")
+                            for n in ("low", "middle", "high")), key=lambda v: v or 0)
+            ok("the three bands really carry three different metalness numbers",
+               len(set(shown)) == 3, str(shown))
+
+            # ---- the SOFT band boundary, and what it is not allowed to reach
+            ok("the three height bands were softened and nothing else was",
+               sorted(glb_report.get("softBands", [])) == ["high", "low", "middle"],
+               str(glb_report.get("softBands")))
+            # A ramp is a function of height, so an unrestricted one would paint the whole model at
+            # whatever height it sits. `nose` is decided by POSITION along the long axis, spans every
+            # height, and must come out carrying its own number: this is the check that fails when a
+            # band is allowed to bleed into a region another rule decided -- the boar's tusks.
+            nose = glb_shine.get("nose", {}).get("metallic", {})
+            ok("a soft band does not reach a region another rule decided",
+               nose.get("drift") is not None and nose["drift"] <= glb_recipe["maxShineDrift"],
+               str(nose))
+            nose_colour = glb_report.get("surface", {}).get("nose", {})
+            ok("  and its colour survives the bands too",
+               nose_colour.get("drift") is not None
+               and nose_colour["drift"] <= glb_recipe["maxSurfaceDrift"], str(nose_colour))
+
+            glb_regions = glb_report.get("regions", {})
+            ok("the HEIGHT rule split the model into low, middle and high",
+               all(glb_regions.get(n, 0) > 0 for n in ("low", "middle", "high")), str(glb_regions))
+            hits = {row["name"]: row["faces"] for row in glb_report.get("regionPlanHits", [])}
+            ok("the VALUE rule matched faces of its own before smoothing",
+               hits.get("bright", 0) > 0, str(hits))
+            ok("the run was photographed from the recipe's four cameras, front included",
+               sorted(m["file"] for m in glb_report.get("renderStats", []))
+               == ["render_front.png", "render_side.png", "render_three-quarter.png",
+                   "render_top.png"],
+               str(glb_report.get("renders")))
+            ok("the front end was taken from the recipe, not measured",
+               glb_report.get("orientation", {}).get("frontStated") is True,
+               str(glb_report.get("orientation")))
+            for stats in glb_report.get("renderStats", []):
+                ok("  %s is lit and has a subject" % stats["file"],
+                   stats["p99"] > 0.10 and stats["spread"] > 0.05
+                   and 0.01 < stats["subjectFraction"] < 0.98, str(stats))
+
         # ---------------------------------------------------------- the refusals, each proved
         try:
             check_output(os.path.join(REPO, "tools", "nope"))
@@ -823,10 +1320,30 @@ def command_selftest(_args):
         except Refused:
             ok("it refuses a non-empty output folder", True)
         try:
-            find_fbx(os.path.join(tmp, "in-neutral", "no-such-place"))
-            ok("it refuses an input with no FBX", False)
+            find_model(os.path.join(tmp, "in-neutral", "no-such-place"))
+            ok("it refuses an input with no model in it", False)
         except (Refused, OSError):
-            ok("it refuses an input with no FBX", True)
+            ok("it refuses an input with no model in it", True)
+        # A PLAN THAT CANNOT DECIDE IS REFUSED BEFORE BLENDER IS STARTED, both ways it can happen.
+        try:
+            check_recipe({"regionPlan": [{"name": "a", "when": {"axisTo": 0.5}}],
+                          "regions": {"a": {}}})
+            ok("it refuses a region plan with no everything-else", False)
+        except Refused:
+            ok("it refuses a region plan with no everything-else", True)
+        try:
+            check_recipe({"regionPlan": [{"name": "ghost"}], "regions": {}})
+            ok("it refuses a plan naming a region with no colours", False)
+        except Refused:
+            ok("it refuses a plan naming a region with no colours", True)
+        try:
+            load_recipe(None, {}, preset="nope")
+            ok("it refuses a preset that does not exist", False)
+        except Refused:
+            ok("it refuses a preset that does not exist", True)
+        ok("both presets are complete enough to run",
+           all(check_recipe(json.loads(json.dumps(PRESETS[name]))) for name in PRESETS),
+           str(sorted(PRESETS)))
         try:
             glb_triangles(os.path.join(out_dir, "model.fbx"))
             ok("the GLB reader refuses a file that is not a GLB", False)
@@ -846,10 +1363,14 @@ def main(argv):
     sub = parser.add_subparsers(dest="command", required=True)
     probe = sub.add_parser("probe")
     probe.add_argument("--in", dest="input", required=True)
+    probe.add_argument("--model", default=None, help="the model file to read, by name")
     recipe = sub.add_parser("recipe")
+    recipe.add_argument("--preset", default="gun", choices=sorted(PRESETS))
     run = sub.add_parser("prep")
     run.add_argument("--in", dest="input", required=True)
     run.add_argument("--out", dest="output", required=True)
+    run.add_argument("--preset", default="gun", choices=sorted(PRESETS))
+    run.add_argument("--model", default=None, help="the model file to prep, by name")
     run.add_argument("--recipe", default=None)
     run.add_argument("--target", type=int, default=None)
     run.add_argument("--work-px", type=int, default=None)
