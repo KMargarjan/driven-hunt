@@ -33,7 +33,14 @@
 --     server-side pivot alone is a suggestion the client can walk out of. Anchoring first makes the
 --     pivot stick, which is why the order here is anchor-then-pivot and not the design's list order.
 --
--- Design: docs/design/drive.md (sections 5.1, 5.3, 6.4, 8.4)
+-- SINCE M2.8d IT ALSO DRESSES THE CHARACTER (map-generator design section 10): a shooter gets an
+-- orange hat, a driver an orange vest. Same module, same signal, same discipline -- it is one more
+-- thing written onto a character at the moment the team or the character changes, and the design
+-- gives it this owner precisely so it never gets two (not the Hud, which draws the screen and not
+-- the world; not the client, which cannot be trusted or screenshotted from the server).
+--
+-- Design: docs/design/drive.md (sections 5.1, 5.3, 6.4, 8.4),
+--         docs/design/map-generator.md (section 10)
 -- Note:   docs/research/2026-09-25-drive.md
 local Players = game:GetService("Players")
 local Teams = game:GetService("Teams")
@@ -51,6 +58,148 @@ local TEAM_COLORS = {
 	Drivers = BrickColor.new("Bright blue"),
 	Shooters = BrickColor.new("Bright orange"),
 }
+
+-- ------------------------------------------------------------------- M2.8d: the outfits
+-- ONE FOLDER PER CHARACTER, destroyed and rebuilt (design section 10.2). Parented to the character,
+-- which is what makes "removed on leave and on respawn" structural rather than a cleanup path: a
+-- respawn replaces the character and takes its children with it, and so does leaving.
+Body.OUTFIT_NAME = "HuntOutfit"
+
+-- HUNTER ORANGE, RGB(255, 112, 0), the design's number, and the same one for both roles. In the
+-- field both sides wear safety orange; what says WHICH side you are is the Hud's badge and the team
+-- colour below. Director's pick and Karen's to change (her rule: styling never blocks).
+local OUTFIT_COLOR = Color3.fromRGB(255, 112, 0)
+
+-- THE GREY-BOX OUTFIT, exactly the design's table plus two fields it does not have and cannot
+-- express: `shape` and `rotationDeg`. A Roblox cylinder's axis is its X (the rope above says the
+-- same thing where it uses one), so "a flat cylinder 2.2 x 0.6 x 2.2" is a part of Size
+-- (0.6, 2.2, 2.2) turned a quarter turn about Z -- which is a rotation, and the design's row type is
+-- `{name, limb, size, offset, color}` with nowhere to put one. The SIZES here are the part's own;
+-- the design's numbers are the world-space box, and for the hat the two differ by that quarter turn.
+--
+-- `fallbackLimb` is R6: an R15 character has `UpperTorso` and an R6 one has `Torso`. Nothing in this
+-- place makes an R6 character today, and a missing limb is a counted miss rather than a crash.
+local OUTFITS = {
+	Shooters = {
+		name = "Hat",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.6, 2.2, 2.2), -- world box 2.2 x 0.6 x 2.2 after the turn below
+		rotationDeg = Vector3.new(0, 0, 90),
+		offset = Vector3.new(0, 0.8, 0), -- above the Head's CENTRE, which is what a Position is
+		color = OUTFIT_COLOR,
+	},
+	Drivers = {
+		name = "Vest",
+		limb = "UpperTorso",
+		fallbackLimb = "Torso",
+		shape = Enum.PartType.Block,
+		-- CENTRED ON THE TORSO, not stood in front of it: a vest has a back. 1.3 deep against an
+		-- R15 UpperTorso's ~1.0 leaves it proud by 0.15 on each face, which is a garment rather than
+		-- a sign hung on a chest.
+		size = Vector3.new(2.2, 1.6, 1.3),
+		rotationDeg = Vector3.zero,
+		offset = Vector3.zero,
+		color = OUTFIT_COLOR,
+	},
+}
+
+-- PURE (design section 10.2). Takes the team and the config, touches no Instance, and answers the
+-- same way whether or not there is a game running -- which is what lets a spec drive BOTH states of
+-- the flag with nothing to restore (feature-flags.md 13.3).
+--
+-- The switch is READ FROM THE CONFIG, not from `Flags` directly: `Match.CONFIG.OUTFITS_ENABLED` is
+-- the one boundary read (CLAUDE.md, "Feature flags"), and passing it inward as a parameter is what
+-- makes the ON branch reachable while the flag sits OFF.
+function Body.dressFor(team: TeamName?, config): { any }
+	if not team or not (config and config.OUTFITS_ENABLED) then
+		return {}
+	end
+	local row = OUTFITS[team]
+	if not row then
+		return {}
+	end
+	return { row }
+end
+
+-- DRESSES ONE CHARACTER. Destroys any existing outfit first, so it is idempotent and a team swap is
+-- a re-dress rather than two hats.
+--
+-- Returns false only when it FAILED to do something it should have -- no character, or no limb to
+-- hang the item on -- so the caller can count a miss rather than believe a change it did not make
+-- (the `Body.tie` discipline). With the flag off there is nothing to do and that is a success, not a
+-- miss: the folder is still cleared, so switching the flag off undresses at the next respawn.
+--
+-- FOUR PROPERTIES THAT ARE NOT TIDINESS (design section 10.2):
+--   * `CanQuery = false`. A hat that stops a pellet changes what the shot hit, and what the shot hit
+--     is what `Match.Penalty.judge` reads through the weapon's report. The outfit must be invisible
+--     to every ray in the game. This is the one the client spec asserts.
+--   * `Massless = true` and NOT anchored. `Body.tie` anchors the ROOT; an anchored hat would pin a
+--     character's head to the world.
+--   * `CanTouch = false`, which the design's list does not name and `Weapon.Hardware.addPiece` sets
+--     for the same reason: a cosmetic part should not fire a Touched event at anything.
+--   * `CastShadow = false`: a shadow is the only thing a hat could cost that a player would see.
+--
+-- THE FOLDER IS PARENTED FIRST, THEN THE PARTS, THEN THE WELDS. A `WeldConstraint` records the
+-- offset the parts happen to have when it is enabled and needs both of them in the DataModel --
+-- `src/server/Boar/Body.luau` says so where it uses one, and `Weapon.Hardware` uses a legacy Weld
+-- instead precisely because its Tool is not parented anywhere yet. Here the character IS live, so
+-- the design's WeldConstraint is the right one and the order is what makes it work.
+function Body.dress(character: Model?, team: TeamName?, config): boolean
+	if not character or not character.Parent then
+		return false
+	end
+	local existing = character:FindFirstChild(Body.OUTFIT_NAME)
+	if existing then
+		existing:Destroy()
+	end
+	local rows = Body.dressFor(team, config)
+	if #rows == 0 then
+		return true -- nothing to wear: the flag is off, or this player has no team
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = Body.OUTFIT_NAME
+	folder.Parent = character
+	local made = 0
+	for _, row in ipairs(rows) do
+		local limb = character:FindFirstChild(row.limb)
+		if not limb and row.fallbackLimb then
+			limb = character:FindFirstChild(row.fallbackLimb)
+		end
+		if limb and limb:IsA("BasePart") then
+			local part = Instance.new("Part")
+			part.Name = row.name
+			part.Shape = row.shape
+			part.Size = row.size
+			part.Color = row.color
+			part.Material = Enum.Material.SmoothPlastic
+			part.Anchored = false
+			part.Massless = true
+			part.CanCollide = false
+			part.CanQuery = false
+			part.CanTouch = false
+			part.CastShadow = false
+			part.TopSurface = Enum.SurfaceType.Smooth
+			part.BottomSurface = Enum.SurfaceType.Smooth
+			part.CFrame = limb.CFrame
+				* CFrame.new(row.offset)
+				* CFrame.Angles(math.rad(row.rotationDeg.X), math.rad(row.rotationDeg.Y), math.rad(row.rotationDeg.Z))
+			part.Parent = folder
+			local weld = Instance.new("WeldConstraint")
+			weld.Name = row.name .. "Weld"
+			weld.Part0 = limb
+			weld.Part1 = part
+			weld.Parent = part
+			made += 1
+		end
+	end
+	if made == 0 then
+		folder:Destroy()
+		return false
+	end
+	return true
+end
 
 -- Creates the two teams once and returns them by name. Idempotent: a second call returns what is
 -- already there rather than making a duplicate (rule 7 -- nothing here ever deletes a Team either).
@@ -78,9 +227,16 @@ end
 
 -- One player's team, by NAME. Never by reference: comparing by name is the only form that survives a
 -- Team being recreated (source A).
-function Body.setTeam(player: Player, name: TeamName?)
+function Body.setTeam(player: Player, name: TeamName?, config)
 	player.Team = Body.teamNamed(name)
 	player.Neutral = name == nil
+	-- AND THE OUTFIT FOLLOWS THE TEAM, at the same moment, from the same writer. A team swap does
+	-- not always come with a respawn, and a driver still wearing a shooter's hat is two answers to
+	-- one question -- this project's named failure mode. `config` is optional so a caller that does
+	-- not have one (a spec asserting only the Team field) is unchanged.
+	if config then
+		Body.dress(player.Character, name, config)
+	end
 end
 
 function Body.teamOf(player: Player): TeamName?
@@ -139,6 +295,10 @@ function Body.place(player: Player, cframe: CFrame?, config, onPlaced: ((boolean
 	end
 
 	local function pivot(character: Model)
+		-- DRESSED BEFORE THE EARLY RETURN, because a player who spawned with nowhere to stand is
+		-- still a player of a team (M2.8d). This handler is the design's first call site: it is the
+		-- one place that already knows a NEW character has arrived for a player whose team is set.
+		Body.dress(character, Body.teamOf(player), config)
 		if not cframe then
 			finish(true) -- nowhere to put them: they spawned, and that is not a failure
 			return
@@ -250,7 +410,16 @@ end
 -- rather than believe a tie that never took. `parent` is where the rope goes (Workspace.DriveMarkers
 -- in production; its own folder in a spec).
 function Body.tie(player: Player, tree: BasePart, config, parent: Instance?): boolean
-	return Body.tieCharacter(player.Character, player.UserId, tree, config, parent)
+	local ok = Body.tieCharacter(player.Character, player.UserId, tree, config, parent)
+	-- THE SECOND CALL SITE THE DESIGN NAMES: a re-tie. A tied player who presses Reset gets a new
+	-- character and `Match.watchCharacter` re-ties it here; without this that character would be the
+	-- one person in the drive wearing nothing. It is on the PLAYER wrapper and not on
+	-- `tieCharacter`, because the team is a fact about the player and `tieCharacter` has only a
+	-- userId -- the seam a spec uses so it never freezes the one live player.
+	if ok then
+		Body.dress(player.Character, Body.teamOf(player), config)
+	end
+	return ok
 end
 
 -- The same work against a Model rather than a Player, which is the seam a spec uses: a live spec must

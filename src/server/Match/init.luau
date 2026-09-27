@@ -130,6 +130,12 @@ Match.CONFIG = {
 	-- takes `config`, which is what lets a spec exercise BOTH states without touching this one.
 	-- K, Karen's rule as written; flag: docs/design/feature-flags.md
 	TIE_UNTIL_DRIVE_END = Flags.isOn("TIE_UNTIL_DRIVE_END"),
+	-- M2.8d, and the same one permitted shape: ONE read, at this boundary, passed inward as a
+	-- parameter. `Match.Body.dressFor` and `Body.dress` both take the config, so a spec drives the
+	-- ON branch with a table while the flag itself stays OFF -- which is what "merged dark" means.
+	-- K: Karen chose the items (2026-09-26, shooters a hat, drivers a vest); flag:
+	-- docs/design/feature-flags.md, design: docs/design/map-generator.md section 10.
+	OUTFITS_ENABLED = Flags.isOn("ORANGE_OUTFITS"),
 	TIE_SECONDS = 60, -- K, used only when the flag above is false (Penalty.expired)
 	TIE_GAP_STUDS = 2.5, -- K, studs from the trunk's SURFACE, on the side the offender came from
 	ROPE_COLOR = Color3.fromRGB(170, 130, 85), -- K, checked on screen: see the note in Body
@@ -404,7 +410,9 @@ local function applyAssignTeams(assignment)
 	for userId, team in pairs(assignment) do
 		local player = playersService():GetPlayerByUserId(userId)
 		if player then
-			Body.setTeam(player, team)
+			-- CONFIG GOES WITH THE TEAM so the outfit follows it in the same call (M2.8d): an
+			-- assignment that swaps two players does not always come with a respawn.
+			Body.setTeam(player, team, Match.CONFIG)
 		end
 		board = Score.setTeam(board, userId, team)
 	end
