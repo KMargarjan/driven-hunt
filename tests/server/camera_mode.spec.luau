@@ -9,7 +9,11 @@
 -- design is a finding and not a tautology (the rule test_arena.spec already follows).
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/camera.md (section 9.1)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
+
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local cameraFolder = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera")
 local Mode = require(cameraFolder:WaitForChild("Mode"))
@@ -37,6 +41,40 @@ local function run(state, stepInput, dt: number, seconds: number, predicate)
 		end
 	end
 	return state, elapsed
+end
+
+-- THE ON BRANCH, BY PARAMETER (docs/design/feature-flags.md section 13.3). `FIRST_PERSON` is born
+-- OFF, so a spec that read the live flag could only ever test one of the two cameras -- which is
+-- exactly why `Camera.Config.FIRST_PERSON` is read ONCE at the boundary and passed inward as
+-- `config`. Every case below that names a branch drives its own table, so there is nothing to
+-- restore and nothing that depends on what the place booted with.
+local firstPerson = table.clone(Config) :: any
+firstPerson.FIRST_PERSON = true
+table.freeze(firstPerson)
+
+-- The gun's envelope, from the weapon's own config rather than a number copied here: the viewmodel
+-- clone is the Handle, and the Handle IS the box (docs/design/shotgun.md, `Weapon.Hardware`).
+local HANDLE_SIZE = Shotgun.CONFIG.HANDLE_SIZE
+
+-- Every corner of that box, in the gun's own frame, centred like the Handle is.
+local function gunCorners(): { Vector3 }
+	local out = {}
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sy in ipairs({ -1, 1 }) do
+			for _, sz in ipairs({ -1, 1 }) do
+				table.insert(out, Vector3.new(sx * HANDLE_SIZE.X / 2, sy * HANDLE_SIZE.Y / 2, sz * HANDLE_SIZE.Z / 2))
+			end
+		end
+	end
+	return out
+end
+
+-- A state at a given blend, with every cosmetic term at its exact rest.
+local function stateAtBlend(blend: number)
+	local state = table.clone(Mode.initial(Config)) :: any
+	state.mode = if blend > 0 then "Aiming" else "Third"
+	state.blend = blend
+	return table.freeze(state)
 end
 
 return function()
@@ -229,6 +267,156 @@ return function()
 	-- Task 30: the angles that point the CAMERA at a target. It is what makes an end-to-end
 	-- "shoot the thing you are looking at" test possible at all, because the harness cannot aim.
 	-- Design: docs/design/hit-zones.md section 14 item D.
+	-- ------------------------------------------------------------------ first person (task 89, S1)
+	describe("first person, by parameter", function()
+		it("puts the camera at the eye at EVERY blend, inside every tolerance that binds", function()
+			-- The point of the branch: there is no boom to ease along, so blend moves the field of
+			-- view and the viewmodel and NOT the camera. A player who aims has the same eye.
+			local root = CFrame.new(10, 5, -3)
+			for _, blend in ipairs({ 0, 0.25, 0.5, 1 }) do
+				local pivot, desired = Mode.cameraCFrame(root, stateAtBlend(blend), firstPerson)
+				local fromPivot = (desired.Position - pivot).Magnitude
+				expect(fromPivot <= Config.AIM_PIVOT_FORWARD_STUDS + 1e-4).to.equal(true)
+				local fromRoot = (desired.Position - root.Position).Magnitude
+				expect(fromRoot < 2.0).to.equal(true)
+				-- The two that would let a shot be refused: the camera's own hard clamp, and the
+				-- shotgun validator's CAMERA_ORIGIN_TOLERANCE = 30 studs (docs/design/shotgun.md
+				-- section 11), which the fire origin is measured against.
+				expect(fromRoot < Config.MAX_DISTANCE_STUDS).to.equal(true)
+				expect(fromRoot < 30).to.equal(true)
+			end
+		end)
+
+		it("disagrees with the third-person branch, which is the whole point of the flag", function()
+			-- A case that would pass with the branch deleted is worth nothing: at blend 0 the two
+			-- cameras are a boom apart, and this is the number that says the switch does something.
+			local root = CFrame.new(0, 0, 0)
+			local _, on = Mode.cameraCFrame(root, stateAtBlend(0), firstPerson)
+			local _, off = Mode.cameraCFrame(root, stateAtBlend(0), Config)
+			expect((on.Position - off.Position).Magnitude > 10).to.equal(true)
+			-- ...and they agree about where the player is LOOKING, in both branches.
+			expect(on.LookVector:Dot(off.LookVector) > 0.999).to.equal(true)
+		end)
+
+		it("eases the field of view the same way in both branches, and ends exactly", function()
+			for _, cfg in ipairs({ Config, firstPerson }) do
+				expect(Mode.fovFor(0, cfg)).to.equal(cfg.FOV_THIRD_DEG)
+				expect(Mode.fovFor(1, cfg)).to.equal(cfg.FOV_AIM_DEG)
+				local half = Mode.fovFor(0.5, cfg)
+				expect(half < cfg.FOV_THIRD_DEG and half > cfg.FOV_AIM_DEG).to.equal(true)
+			end
+		end)
+
+		it("carries the gun low and LEFT, with the three degrees converted at one site", function()
+			local carry = Mode.carryOffset(firstPerson)
+			-- Low and left. Karen's instruction, and the sign is the whole of it.
+			expect(carry.Position.X < 0).to.equal(true)
+			expect(carry.Position.Y < 0).to.equal(true)
+			expect(carry.Position).to.equal(Config.VIEWMODEL_CARRY_POS_STUDS)
+			-- The rotation, rebuilt here from the SAME three numbers in degrees. A second
+			-- conversion, a missing `math.rad` or a 2x slip moves the muzzle by a stud and fails
+			-- this -- which is the defect Task 19's cone units cost a round.
+			local expected = CFrame.new(Config.VIEWMODEL_CARRY_POS_STUDS)
+				* CFrame.Angles(
+					math.rad(Config.CARRY_PITCH_DEG),
+					math.rad(Config.CARRY_YAW_DEG),
+					math.rad(Config.CARRY_ROLL_DEG)
+				)
+			local a = { carry:GetComponents() }
+			local b = { expected:GetComponents() }
+			for index = 1, 12 do
+				expect(math.abs(a[index] - b[index]) < 1e-6).to.equal(true)
+			end
+			-- and the carry pose is the OFF branch's hip pose only in the OFF branch
+			expect(Mode.viewmodelOffset(stateAtBlend(0), nil, Config)).to.equal(Config.VIEWMODEL_HIP_OFFSET)
+			expect(Mode.viewmodelOffset(stateAtBlend(0), nil, firstPerson)).to.equal(carry)
+		end)
+
+		it("keeps every corner of the gun in front of the near plane, in both poses", function()
+			-- docs/research/2026-09-27-first-person-viewmodel.md section 8: the near plane is 0.1
+			-- studs and the gun is 4.4 studs long about its centre, so a pose that is a little wrong
+			-- slices the butt off on screen. This is that risk made mechanical rather than left to a
+			-- screenshot -- the screenshot is still taken, and it is what Karen judges.
+			local worst = -math.huge
+			local worstWhere = ""
+			for _, blend in ipairs({ 0, 1 }) do
+				local pose = Mode.viewmodelOffset(stateAtBlend(blend), nil, firstPerson)
+				for _, corner in ipairs(gunCorners()) do
+					local z = (pose * CFrame.new(corner)).Position.Z
+					if z > worst then
+						worst, worstWhere = z, string.format("blend %.0f corner %s", blend, tostring(corner))
+					end
+					expect(z <= -Config.NEAR_PLANE_MARGIN_STUDS).to.equal(true)
+				end
+			end
+			TestKit.note(
+				string.format(
+					"task89: nearest gun corner to the camera %.3f studs (%s), margin %.2f",
+					worst,
+					worstWhere,
+					Config.NEAR_PLANE_MARGIN_STUDS
+				)
+			)
+		end)
+
+		it("composes the cosmetic terms in one place, and they are exactly identity at rest", function()
+			-- The composition order is the bug in every viewmodel, so it is written once and
+			-- asserted while every term is identity. S4 fills the terms in; if any of them stopped
+			-- being at rest in a build that has no maths for them, this fails.
+			for _, cfg in ipairs({ Config, firstPerson }) do
+				for _, blend in ipairs({ 0, 0.5, 1 }) do
+					local state = stateAtBlend(blend)
+					expect(state.swayDeg).to.equal(Vector2.zero)
+					expect(state.bobStuds).to.equal(Vector3.zero)
+					expect(state.recoilCamPitchDeg).to.equal(0)
+					expect(state.openTilt).to.equal(0)
+					local hip = if cfg.FIRST_PERSON then Mode.carryOffset(cfg) else cfg.VIEWMODEL_HIP_OFFSET
+					local pose = hip:Lerp(cfg.VIEWMODEL_AIM_OFFSET, Mode.ease(blend))
+					-- BITWISE, not within a tolerance: at rest the four cosmetic factors are
+					-- identity, and the bead measurement S2 adds rests on that being exact.
+					expect(Mode.viewmodelOffset(state, nil, cfg)).to.equal(pose)
+				end
+			end
+		end)
+
+		it("carries every cosmetic field through a step and through anglesToward", function()
+			-- A field dropped by either would be `nil` in the next frame's composition. Both build
+			-- their next state by cloning for exactly this reason.
+			local state = Mode.step(Mode.initial(firstPerson), {
+				aiming = false,
+				alive = true,
+				hasCharacter = true,
+				lookDelta = Vector2.new(40, 10),
+			}, 1 / 60, firstPerson)
+			local aimed = Mode.anglesToward(state, CFrame.new(0, 0, 0), Vector3.new(0, 0, -20), firstPerson)
+			for _, each in ipairs({ state, aimed }) do
+				expect(each.swayDeg).to.equal(Vector2.zero)
+				expect(each.bobPhase).to.equal(0)
+				expect(each.bobStuds).to.equal(Vector3.zero)
+				expect(each.recoilGunPitchDeg).to.equal(0)
+				expect(each.recoilGunPitchRate).to.equal(0)
+				expect(each.recoilGunBackStuds).to.equal(0)
+				expect(each.recoilGunBackRate).to.equal(0)
+				expect(each.recoilCamPitchDeg).to.equal(0)
+				expect(each.recoilCamPitchRate).to.equal(0)
+				expect(each.openTilt).to.equal(0)
+				expect(table.isfrozen(each)).to.equal(true)
+			end
+		end)
+
+		it("aims at a point in first person too, which is what the harness stages a shot with", function()
+			-- Camera.lookAt is how the harness stages shoot-the-boar, and it must land in both
+			-- branches (design section 9.1 item 14). At the eye the iteration has almost nothing to
+			-- correct, so one pass would do -- but the assertion is the result, not the count.
+			local root = CFrame.new(0, 0, 0)
+			local target = Vector3.new(6, 2, -20)
+			local aimed = Mode.anglesToward(stateAtBlend(0), root, target, firstPerson)
+			local _, desired = Mode.cameraCFrame(root, aimed, firstPerson)
+			local to = (target - desired.Position).Unit
+			expect(math.deg(math.acos(math.clamp(desired.LookVector:Dot(to), -1, 1))) < 0.01).to.equal(true)
+		end)
+	end)
+
 	describe("aiming at a point", function()
 		local function errorDegrees(rootCFrame: CFrame, target: Vector3, state): number
 			local _, desired = Mode.cameraCFrame(rootCFrame, state, Config)

@@ -25,6 +25,22 @@ export type State = {
 	yawDeg: number,
 	pitchDeg: number,
 	sinceModeChange: number,
+	-- THE COSMETIC TERMS (design section 5.2). Task 89 (S1) puts them in the state and composes
+	-- them in `viewmodelOffset`; NOTHING MOVES THEM YET -- sway and bob have no maths here, and the
+	-- recoil springs and the break-open tilt arrive with S4. They are declared now, at their exact
+	-- rests, for one reason: the composition order is the bug in every viewmodel, so it is written
+	-- and tested once, while every term is identity, rather than assembled later under a feel change.
+	-- `swayDeg` is degrees on screen, `bobStuds` a camera-space displacement, `openTilt` a 0..1 blend.
+	swayDeg: Vector2,
+	bobPhase: number,
+	bobStuds: Vector3,
+	recoilGunPitchDeg: number,
+	recoilGunPitchRate: number,
+	recoilGunBackStuds: number,
+	recoilGunBackRate: number,
+	recoilCamPitchDeg: number,
+	recoilCamPitchRate: number,
+	openTilt: number,
 }
 
 export type StepInput = {
@@ -40,14 +56,31 @@ local function wrapDeg(deg: number): number
 	return if wrapped <= -180 then wrapped + 360 else wrapped
 end
 
+-- The exact rest of every cosmetic term, in one place, so "at rest" is a value and not an opinion
+-- (design section 4.5). Task 89 never leaves it.
+local function atRest()
+	return {
+		swayDeg = Vector2.zero,
+		bobPhase = 0,
+		bobStuds = Vector3.zero,
+		recoilGunPitchDeg = 0,
+		recoilGunPitchRate = 0,
+		recoilGunBackStuds = 0,
+		recoilGunBackRate = 0,
+		recoilCamPitchDeg = 0,
+		recoilCamPitchRate = 0,
+		openTilt = 0,
+	}
+end
+
 function Mode.initial(config): State
-	return table.freeze({
-		mode = "Loading" :: ModeName,
-		blend = 0,
-		yawDeg = 0,
-		pitchDeg = config.SPAWN_PITCH_DEG,
-		sinceModeChange = 0,
-	})
+	local state = atRest()
+	state.mode = "Loading" :: ModeName
+	state.blend = 0
+	state.yawDeg = 0
+	state.pitchDeg = config.SPAWN_PITCH_DEG
+	state.sinceModeChange = 0
+	return table.freeze(state)
 end
 
 -- Quad/Out. One site, so "the ease" is a thing with a name rather than a formula repeated twice.
@@ -124,13 +157,16 @@ function Mode.step(state: State, input: StepInput, dt: number, config): State
 		blend = math.max(0, blend - step)
 	end
 
-	return table.freeze({
-		mode = mode,
-		blend = blend,
-		yawDeg = yaw,
-		pitchDeg = pitch,
-		sinceModeChange = if mode == state.mode then state.sinceModeChange + dt else 0,
-	})
+	-- CARRIED, NOT REBUILT. Every cosmetic term is copied from the state it arrived in: this
+	-- reducer does not move any of them yet (S4 does), and a field silently dropped here would be
+	-- `nil` in the next frame's composition rather than a visible failure.
+	local next_ = table.clone(state) :: any
+	next_.mode = mode
+	next_.blend = blend
+	next_.yawDeg = yaw
+	next_.pitchDeg = pitch
+	next_.sinceModeChange = if mode == state.mode then state.sinceModeChange + dt else 0
+	return table.freeze(next_)
 end
 
 -- (pivot, desired camera CFrame, fov). Pure geometry: no raycast, no Instance. The two angles are
@@ -140,11 +176,21 @@ function Mode.cameraCFrame(rootCFrame: CFrame, state: State, config): (Vector3, 
 	local pivot = rootCFrame.Position + Vector3.new(0, config.PIVOT_HEIGHT_STUDS, 0)
 	local look = CFrame.fromEulerAnglesYXZ(math.rad(state.pitchDeg), math.rad(state.yawDeg), 0)
 
+	-- FIRST PERSON (task 89): the eye, at every blend. There is no boom and no shoulder to ease
+	-- between, so `blend` changes the field of view and the viewmodel's pose and moves the camera
+	-- not at all -- which is why `AIM_PIVOT_FORWARD_STUDS` is applied always rather than eased in:
+	-- the eye sits a little ahead of the pivot so it is never inside the character's own head.
+	--
 	-- Third person: back along the look direction, offset to the shoulder. Aiming: at the eye,
 	-- slightly forward of the pivot. Everything in between is the eased mix of the two.
-	local distance = config.THIRD_DISTANCE_STUDS * (1 - eased)
-	local shoulder = config.SHOULDER_STUDS * (1 - eased)
-	local forward = config.AIM_PIVOT_FORWARD_STUDS * eased
+	local distance, shoulder, forward
+	if config.FIRST_PERSON then
+		distance, shoulder, forward = 0, Vector3.zero, config.AIM_PIVOT_FORWARD_STUDS
+	else
+		distance = config.THIRD_DISTANCE_STUDS * (1 - eased)
+		shoulder = config.SHOULDER_STUDS * (1 - eased)
+		forward = config.AIM_PIVOT_FORWARD_STUDS * eased
+	end
 
 	local offset = look:VectorToWorldSpace(Vector3.new(shoulder.X, shoulder.Y, distance - forward))
 	local position = pivot + offset
@@ -187,20 +233,54 @@ function Mode.anglesToward(state: State, rootCFrame: CFrame, point: Vector3, con
 		local pitch =
 			math.clamp(math.deg(math.asin(math.clamp(direction.Y, -1, 1))), config.PITCH_MIN_DEG, config.PITCH_MAX_DEG)
 		local yaw = wrapDeg(math.deg(math.atan2(-direction.X, -direction.Z)))
-		result = table.freeze({
-			mode = result.mode,
-			blend = result.blend,
-			yawDeg = yaw,
-			pitchDeg = pitch,
-			sinceModeChange = result.sinceModeChange,
-		})
+		-- Cloned rather than rebuilt field by field, for the reason `Mode.step` gives: this
+		-- function changes exactly two numbers, and listing the other fourteen is how one goes
+		-- missing.
+		local next_ = table.clone(result) :: any
+		next_.yawDeg = yaw
+		next_.pitchDeg = pitch
+		result = table.freeze(next_)
 	end
 	return result
 end
 
--- Where the viewmodel sits, relative to the camera, for a given EASED blend.
-function Mode.viewmodelOffset(easedBlend: number, config): CFrame
-	return config.VIEWMODEL_HIP_OFFSET:Lerp(config.VIEWMODEL_AIM_OFFSET, math.clamp(easedBlend, 0, 1))
+-- THE CARRY POSE (task 89, first person only): the gun held low and LEFT while walking. Position
+-- plus three named degrees, and this is the ONE site that converts them -- the rule introduced after
+-- the Task 19 cone-unit defect, where a 2x error hid in a second conversion.
+function Mode.carryOffset(config): CFrame
+	return CFrame.new(config.VIEWMODEL_CARRY_POS_STUDS)
+		* CFrame.Angles(
+			math.rad(config.CARRY_PITCH_DEG),
+			math.rad(config.CARRY_YAW_DEG),
+			math.rad(config.CARRY_ROLL_DEG)
+		)
+end
+
+-- Where the viewmodel sits, relative to the camera. The POSE is the eased mix of the hip/carry pose
+-- and the aimed one; everything else in this function is cosmetic and, in task 89, exactly identity.
+--
+-- `_sightLocal` is the gun's own `Sight` attachment in the Handle's frame. It is in the signature and
+-- DELIBERATELY UNUSED in task 89 -- hence the underscore, which is how selene is told a parameter is
+-- unused on purpose. S2 replaces the aimed pose with `Mode.aimOffset(_sightLocal, config)` and drops
+-- the underscore; the call sites do not change twice. Until then the aimed pose is `VIEWMODEL_AIM_OFFSET`, the
+-- framing a screenshot already accepted in Task 26/47 -- which is exactly what `aimOffset(nil)` will
+-- fall back to, so S2 changes the geometry and not the shape.
+--
+-- THE COMPOSITION ORDER IS THE BUG IN EVERY VIEWMODEL, so it is written once, here, and asserted
+-- while every term is identity (design section 5.2):
+--   * sway and bob PRE-multiply, in camera space: they move the gun ACROSS the frame;
+--   * recoil and the break-open tilt POST-multiply, in gun space: the gun turns about its own grip.
+-- With the state at rest the four cosmetic factors are exactly identity, so this returns the pose
+-- bit for bit -- which is what `tests/server/camera_mode.spec.luau` asserts, and what the bead
+-- measurement in S2 will rest on.
+function Mode.viewmodelOffset(state: State, _sightLocal: CFrame?, config): CFrame
+	local hip = if config.FIRST_PERSON then Mode.carryOffset(config) else config.VIEWMODEL_HIP_OFFSET
+	local pose = hip:Lerp(config.VIEWMODEL_AIM_OFFSET, Mode.ease(state.blend))
+	return CFrame.new(state.bobStuds)
+		* CFrame.Angles(math.rad(state.swayDeg.Y), math.rad(state.swayDeg.X), 0)
+		* pose
+		* CFrame.new(0, 0, state.recoilGunBackStuds)
+		* CFrame.Angles(math.rad(state.recoilGunPitchDeg + state.openTilt * config.OPEN_TILT_DEG), 0, 0)
 end
 
 return Mode

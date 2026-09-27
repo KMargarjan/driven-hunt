@@ -21,6 +21,22 @@ local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
 local Camera = require(scripts:WaitForChild("Camera"))
 local Config = Camera.Config
+local Hud = require(scripts:WaitForChild("Hud"))
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
+
+-- WHICH LIVE BRANCH RAN. `FIRST_PERSON` decides which of the two `describe`s below is even built,
+-- and the last `it` in the file asserts this is exactly 1. A guard that merely returns early is a
+-- test that passes when the flag flips and nothing runs (design section 9); this one fails.
+local liveBranches = 0
+
+-- A state at a blend with every cosmetic term at its exact rest -- what `Viewmodel.update` takes
+-- since task 89.
+local function stateAtBlend(blend: number)
+	local state = table.clone(Camera.Mode.initial(Config)) :: any
+	state.mode = if blend > 0 then "Aiming" else "Third"
+	state.blend = blend
+	return table.freeze(state)
+end
 
 -- The harness replays every scenario once the LAST expected spec says it is ready, so this file
 -- signals at require time like the others (docs/design/shotgun.md section 13.3).
@@ -90,9 +106,20 @@ return function()
 			expect(stats.cursorReasserts).to.equal(0)
 		end)
 
-		it("sits in third person with the third-person field of view", function()
-			expect(Camera.getMode()).to.equal("Third")
-			expect(math.abs(Workspace.CurrentCamera.FieldOfView - Config.FOV_THIRD_DEG) < 0.01).to.equal(true)
+		it("says which camera this build is running, and agrees with the flag", function()
+			-- ONE LINE, and it is what ties every branch guard in this file to the build actually
+			-- running. The camera owns the switch (`Camera.isFirstPerson`) and the Hud asks IT, not
+			-- `Flags`; both are asserted to be the same fact so the indirection cannot drift.
+			print(
+				string.format(
+					"[camera_client] FIRST_PERSON = %s (Config %s, flag %s)",
+					tostring(Camera.isFirstPerson()),
+					tostring(Config.FIRST_PERSON),
+					tostring(Flags.isOn("FIRST_PERSON"))
+				)
+			)
+			expect(Camera.isFirstPerson()).to.equal(Config.FIRST_PERSON)
+			expect(Camera.isFirstPerson()).to.equal(Flags.isOn("FIRST_PERSON"))
 		end)
 
 		it("stays inside the shotgun validator's tolerance, all session", function()
@@ -122,6 +149,70 @@ return function()
 			expect(stats.maxUpdateMs < 5).to.equal(true)
 		end)
 	end)
+
+	-- ------------------------------------------------------- the two live branches (task 89, S1)
+	-- Only one of these is built, and the counter at the bottom of the file proves it.
+	if not Config.FIRST_PERSON then
+		liveBranches += 1
+		describe("third person -- the live OFF branch", function()
+			it("sits in third person with the third-person field of view", function()
+				expect(Camera.getMode()).to.equal("Third")
+				expect(math.abs(Workspace.CurrentCamera.FieldOfView - Config.FOV_THIRD_DEG) < 0.01).to.equal(true)
+			end)
+
+			it("sits a boom behind the pivot, which is what first person removes", function()
+				local root = rootPart()
+				expect(root).to.be.ok()
+				expect(waitUntil(5, function()
+					return Camera.getMode() == "Third" and Camera.getBlend() <= 0
+				end)).to.equal(true)
+				waitFrames(2)
+				local pivot = (root :: BasePart).Position + Vector3.new(0, Config.PIVOT_HEIGHT_STUDS, 0)
+				local distance = (Workspace.CurrentCamera.CFrame.Position - pivot).Magnitude
+				print(string.format("[camera_client] third-person camera sits %.2f studs from the pivot", distance))
+				-- Loose on purpose: an occluder in the map may legitimately pull it in. The claim is
+				-- that there IS a boom, which is the thing first person does away with.
+				expect(distance > 2.5).to.equal(true)
+			end)
+		end)
+	end
+
+	if Config.FIRST_PERSON then
+		liveBranches += 1
+		describe("first person -- the live ON branch", function()
+			-- NOT RUN IN A HARNESS RUN, and that is stated rather than hidden: the flag is born OFF,
+			-- `test` and `test2` refuse to start while an override is set, and a playtest with the
+			-- override on runs no specs. The ON branch's MATHS is covered by parameter in
+			-- tests/server/camera_mode.spec.luau, its POSE by the viewmodel cases below, and its live
+			-- wiring by the Director's screenshots (design section 9.4 says exactly this).
+			it("puts the real camera at the eye, with the gun carried at blend 0", function()
+				local root = rootPart()
+				expect(root).to.be.ok()
+				expect(waitUntil(5, function()
+					return Camera.getBlend() <= 0
+				end)).to.equal(true)
+				waitFrames(2)
+				local pivot = (root :: BasePart).Position + Vector3.new(0, Config.PIVOT_HEIGHT_STUDS, 0)
+				local distance = (Workspace.CurrentCamera.CFrame.Position - pivot).Magnitude
+				print(string.format("[camera_client] first-person camera sits %.2f studs from the pivot", distance))
+				expect(distance <= Config.AIM_PIVOT_FORWARD_STUDS + 0.2).to.equal(true)
+				-- CARRIED, NOT SUMMONED: the gun is on screen at blend 0, which is the difference
+				-- VIEWMODEL_SHOW_BLEND makes in the other branch.
+				expect(Camera.Viewmodel.isParented()).to.equal(true)
+			end)
+
+			it("casts no ray at all", function()
+				local calls = 0
+				Camera.Rig.setCast(function()
+					calls += 1
+					return nil
+				end)
+				waitFrames(10)
+				Camera.Rig.setCast(nil)
+				expect(calls).to.equal(0)
+			end)
+		end)
+	end
 
 	-- FIRST, and that ordering is the test. Round 1, finding 1: this used to run after the
 	-- fake-source tests, which left their fake installed and had already moved aimEnters/aimExits --
@@ -380,7 +471,7 @@ return function()
 			-- Handle and reported no SurfaceAppearance. Wait past the interval, then update.
 			Camera.Viewmodel.clear()
 			task.wait(0.3)
-			Camera.Viewmodel.update(CFrame.new(0, 10, 0), 1, Config)
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), Config)
 			local model = Camera.Viewmodel.current()
 			expect(model).to.be.ok()
 			local clone = (model :: Model).PrimaryPart :: BasePart
@@ -435,7 +526,7 @@ return function()
 			end)
 			Camera.Viewmodel.clear()
 			task.wait(0.3) -- the source is asked four times a second, not per frame
-			Camera.Viewmodel.update(CFrame.new(0, 10, 0), 1, Config)
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), Config)
 			local before = Camera.Viewmodel.current()
 			expect(before).to.be.ok()
 			local firstClone = (before :: Model).PrimaryPart :: Instance
@@ -454,7 +545,7 @@ return function()
 			-- rebuilds and reparents it.
 			task.wait(0.1)
 
-			Camera.Viewmodel.update(CFrame.new(0, 10, 0), 1, Config)
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), Config)
 			local after = Camera.Viewmodel.current()
 			expect(after).to.be.ok()
 			expect(after).never.to.equal(before)
@@ -726,8 +817,18 @@ return function()
 		end)
 	end)
 
+	-- OFF-BRANCH ONLY, and it does not touch the counter: the counter counts the two branch blocks
+	-- above, and one more `if` that silently skipped would be the thing the counter exists to catch.
+	-- In first person the owner never calls `occlude` at all (design section 4.3), which the ON
+	-- block asserts directly.
 	describe("occlusion", function()
 		it("pulls in short of what the one ray found, once per frame", function()
+			if Config.FIRST_PERSON then
+				-- Not a skip: the same claim, the other way round. With the flag on there is no cast
+				-- to count, and the ON branch's own case asserts zero calls.
+				expect(Camera.Rig).to.be.ok()
+				return
+			end
 			local calls = 0
 			local hit: Vector3? = nil
 			Camera.Rig.setCast(function(from: Vector3, to: Vector3): Vector3?
@@ -767,6 +868,50 @@ return function()
 		end)
 	end)
 
+	describe("the crosshair", function()
+		local equipped = { equipped = true }
+		local bare = { equipped = false }
+
+		it("is never drawn in first person, in all eight combinations", function()
+			-- BY PARAMETER, so all eight run whichever branch this build is: the predicate is pure
+			-- and public for exactly that reason (design section 6.2).
+			for _, state in ipairs({ equipped, bare }) do
+				for _, aiming in ipairs({ true, false }) do
+					expect(Hud.crosshairVisible(state, aiming, true)).to.equal(false)
+				end
+			end
+			-- ...and in third person it is the gun plus the hipfire, which is the case the "never"
+			-- above would otherwise be true of for the wrong reason.
+			expect(Hud.crosshairVisible(equipped, false, false)).to.equal(true)
+			expect(Hud.crosshairVisible(equipped, true, false)).to.equal(false)
+			expect(Hud.crosshairVisible(bare, false, false)).to.equal(false)
+			expect(Hud.crosshairVisible(bare, true, false)).to.equal(false)
+			expect(Hud.crosshairVisible(nil, false, false)).to.equal(false)
+		end)
+
+		it("is drawn on screen exactly as the predicate says, in this build", function()
+			-- THE HALF THAT STOPS A PREDICATE BEING RIGHT WHILE THE DRAWING IS WRONG. The Hud reads
+			-- the camera every frame, so the live GUI must agree with what the predicate answers for
+			-- the same three inputs.
+			local Weapon = require(scripts:WaitForChild("Weapon"))
+			waitFrames(2)
+			local wanted = Hud.crosshairVisible(Weapon.get(), Camera.getMode() == "Aiming", Camera.isFirstPerson())
+			print(
+				string.format(
+					"[camera_client] crosshair drawn=%s, predicate=%s (firstPerson=%s, aiming=%s)",
+					tostring(Hud.isCrosshairVisible()),
+					tostring(wanted),
+					tostring(Camera.isFirstPerson()),
+					tostring(Camera.getMode() == "Aiming")
+				)
+			)
+			expect(Hud.isCrosshairVisible()).to.equal(wanted)
+			if Camera.isFirstPerson() then
+				expect(Hud.isCrosshairVisible()).to.equal(false)
+			end
+		end)
+	end)
+
 	describe("the cursor", function()
 		it("is locked and hidden by default, and freed only by request", function()
 			expect(UserInputService.MouseBehavior).to.equal(Enum.MouseBehavior.LockCenter)
@@ -789,6 +934,23 @@ return function()
 			expect(Camera.Cursor.isFree()).to.equal(false)
 			expect(UserInputService.MouseBehavior).to.equal(Enum.MouseBehavior.LockCenter)
 			expect(Camera.Cursor.stats().reasserts).to.equal(0)
+		end)
+	end)
+
+	-- LAST IN THE FILE, and that is the point: it asserts that exactly one of the two live branch
+	-- blocks was built. Both would mean the flag is two things at once; neither would mean a build
+	-- whose camera nothing live tested -- and a guard that returns early inside an `it` would report
+	-- a pass for a branch that never ran (design section 9).
+	describe("the branch guard", function()
+		it("ran exactly one live branch, and says which", function()
+			print(
+				string.format(
+					"[camera_client] live branch: %s (%d built)",
+					if Config.FIRST_PERSON then "first person" else "third person",
+					liveBranches
+				)
+			)
+			expect(liveBranches).to.equal(1)
 		end)
 	end)
 end

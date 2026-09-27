@@ -104,6 +104,13 @@ function Camera.getAimSource(): AimSource?
 	return aimSource
 end
 
+-- WHICH CAMERA THIS BUILD IS RUNNING, republished as a fact about the view. The Hud asks this
+-- rather than `Flags.isOn` (design section 6.2): the camera owns the switch, so there is one source
+-- for the fact and one writer of the crosshair.
+function Camera.isFirstPerson(): boolean
+	return Config.FIRST_PERSON
+end
+
 function Camera.stats()
 	local out = table.clone(stats)
 	-- The budget (design section 8.2) is what this costs every frame, so the AVERAGE is the number
@@ -196,7 +203,12 @@ local function update(dt: number)
 		Viewmodel.clear()
 	elseif root then
 		local pivot, desired, fov = Mode.cameraCFrame(root.CFrame, state, Config)
-		local position = Rig.occlude(pivot, desired.Position, Config)
+		-- NO RAYCAST AT ALL IN FIRST PERSON, and that is a removal rather than a saving: the eye is
+		-- AIM_PIVOT_FORWARD_STUDS = 0.4 studs from the pivot and `occlude` pulls in no closer than
+		-- OCCLUSION_MIN_DISTANCE_STUDS = 1.2, so a cast would return `desired` untouched every frame
+		-- -- a cost with no effect, and a "one cast per frame" assertion that asserts nothing
+		-- (design section 4.3).
+		local position = if Config.FIRST_PERSON then desired.Position else Rig.occlude(pivot, desired.Position, Config)
 		local applied = CFrame.lookAt(position, position + desired.LookVector)
 		Rig.apply(applied, fov)
 		if pendingLookAt then
@@ -209,13 +221,30 @@ local function update(dt: number)
 			end
 		end
 		stats.maxDistanceFromRoot = math.max(stats.maxDistanceFromRoot, (position - root.Position).Magnitude)
-		Viewmodel.update(applied, state.blend, Config)
+		Viewmodel.update(applied, state, Config)
 	end
 
 	-- Every frame, whatever the mode. Round 2, finding 2: this used to live inside the `elseif root`
 	-- branch, so a player who died while aimed stayed invisible to themselves until they respawned --
 	-- a frozen ADS camera looking at a body nobody had told to come back.
-	Rig.setLocalBodyHidden(state.mode ~= "Dead" and state.blend > Config.BODY_HIDE_BLEND)
+	--
+	-- IN FIRST PERSON THE BODY IS HIDDEN WHENEVER THERE IS ONE, THE DEAD INCLUDED (design section
+	-- 4.6): the camera is inside the head, so drawing the body would draw the inside of a neck across
+	-- the whole screen. `BODY_HIDE_BLEND` therefore decides nothing in this branch, which is said
+	-- here and in Config rather than by deleting a number the OFF branch still uses.
+	--
+	-- THE OFF BRANCH IS LEFT EXACTLY AS IT WAS, deliberately. The design writes this step as one
+	-- expression, `FIRST_PERSON and mode ~= "Loading" or blend > BODY_HIDE_BLEND`, and read literally
+	-- that drops the `mode ~= "Dead"` guard from the OFF branch -- the guard round 2's finding 2 put
+	-- there. Task 89 changes nothing a player sees with the flag off, so the branches are written
+	-- out. Recorded in TASKS.md row 89a for the Architect.
+	local hideBody
+	if Config.FIRST_PERSON then
+		hideBody = state.mode ~= "Loading"
+	else
+		hideBody = state.mode ~= "Dead" and state.blend > Config.BODY_HIDE_BLEND
+	end
+	Rig.setLocalBodyHidden(hideBody)
 
 	Cursor.apply()
 	stats.frames += 1

@@ -10,9 +10,27 @@
 -- compare" until audit-002 must-fix 1 lands (TASKS.md row 16). Third system to make that choice,
 -- after TestArena.LAYOUT and Boar.CONFIG.
 --
--- Design: docs/design/camera.md (section 8)
--- Note:   docs/research/2026-09-24-shotgun.md (sources 4-5)
+-- SINCE TASK 89 IT READS ONE FLAG, and this is the first client production module in the repo to
+-- read `Flags` at all. It is the ONE boundary read (CLAUDE.md, "Feature flags"): the value is
+-- resolved once, here, and passed inward as `config` by every function that needs it -- which is why
+-- both branches stay reachable by parameter while the flag itself sits at one of them
+-- (docs/design/feature-flags.md section 13.3). On a client `Flags.isOn` reads the replicated
+-- `ReplicatedStorage.Flags.State` attributes, published by `FlagsBoot` before any player exists; the
+-- pathological case waits and falls back to the DEFAULTS with its own warning -- i.e. to the accepted
+-- shoulder camera, loudly, which is the honest failure (design section 6.6).
+--
+-- Design: docs/design/camera.md (sections 6.6, 8)
+-- Note:   docs/research/2026-09-24-shotgun.md (sources 4-5),
+--         docs/research/2026-09-27-first-person-viewmodel.md
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
+
 local Config = {
+	-- THE SWITCH (task 89, S1). ON: the eye, the carry pose below, no crosshair, no occlusion cast.
+	-- OFF: everything this file said before, unchanged.
+	FIRST_PERSON = Flags.isOn("FIRST_PERSON"),
+
 	-- field of view
 	FOV_THIRD_DEG = 70, -- the engine default; keeps the stock look
 	FOV_AIM_DEG = 50, -- feel (Karen): 1.4x magnification, a bead sight and not a scope
@@ -49,6 +67,33 @@ local Config = {
 	VIEWMODEL_AIM_OFFSET = CFrame.new(0, -0.6, -3.4), -- blend 1: barrel under the view line
 	VIEWMODEL_SHOW_BLEND = 0.02, -- below it the viewmodel is UNPARENTED, not merely invisible
 	BODY_HIDE_BLEND = 0.60, -- above it the local body gets LocalTransparencyModifier = 1
+
+	-- ------------------------------------------------------ first person (ON branch, task 89)
+	-- LOW AND LEFT, and roughly half the gun off the bottom-left corner -- Karen's own words for
+	-- what her reference does (docs/research/2026-09-27-first-person-viewmodel.md section 2.1).
+	--
+	-- THE Z IS BOUNDED, NOT CHOSEN: the gun is Shotgun.CONFIG.HANDLE_SIZE.Z = 4.4 studs long about
+	-- its CENTRE, so anything nearer than -2.2 would put the butt behind the camera plane. -2.6
+	-- leaves about half a stud once the three angles below are applied, and
+	-- tests/server/camera_mode.spec.luau asserts every one of the gun box's eight corners against
+	-- NEAR_PLANE_MARGIN_STUDS rather than trusting this sentence.
+	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(-0.95, -1.45, -2.6),
+	-- Three named degrees rather than a CFrame literal, so there are three legible dials. Converted
+	-- to radians at ONE site, Mode.carryOffset -- the rule the Task 19 cone-unit defect bought.
+	-- Negative yaw turns the muzzle in toward the screen centre from a left-hand offset, which is
+	-- the reference's "enters from the lower-left at roughly 30 degrees".
+	CARRY_PITCH_DEG = -12,
+	CARRY_YAW_DEG = -14,
+	CARRY_ROLL_DEG = 8,
+	-- The whole-gun break-open tilt. IT IS IN THE COMPOSITION FROM S1 AND NOTHING MOVES IT UNTIL
+	-- S4: `Mode.viewmodelOffset` multiplies by `openTilt * OPEN_TILT_DEG`, and `openTilt` is exactly
+	-- 0 in every state this build produces. The number lives here now so the composition is written
+	-- and tested once rather than assembled later under a feel change. A single MeshPart has no
+	-- barrel to hinge (research note section 5.4), so the WHOLE gun tilts about its grip.
+	OPEN_TILT_DEG = 22,
+	-- ASSERTED, NOT APPLIED: nothing clamps to this. The near plane is 0.1 studs and a 4.4-stud gun
+	-- held at the eye clips through it if the pose is wrong, so the spec measures the corners.
+	NEAR_PLANE_MARGIN_STUDS = 0.25,
 
 	-- names and switches
 	-- How close a RENDERED frame must be to a Camera.lookAt request before the owner counts it as

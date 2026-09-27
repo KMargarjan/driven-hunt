@@ -98,6 +98,20 @@ Flags.DEFAULTS = {
 		expires = "2026-12-31",
 		why = "Shooters wear an orange hat and drivers an orange vest. OFF dresses nobody, as before task 82.",
 	} :: FlagRow,
+	FIRST_PERSON = {
+		-- BORN OFF, and the whole polish phase hangs off it: Karen asked for first person on
+		-- 2026-09-27 and wants to compare it against the accepted shoulder camera in one session,
+		-- which is exactly what a flag buys. Design: docs/design/camera.md section 6.6.
+		default = false,
+		-- The owner is the module that READS it at its boundary (`Camera.Config.FIRST_PERSON`) and
+		-- passes it inward as `config` -- the only permitted shape, and what keeps both branches
+		-- reachable by parameter while the flag sits at one of them.
+		owner = "StarterPlayerScripts.Camera",
+		born = "2026-09-27 task 88 (the design); first code in task 89 (S1)",
+		expires = "2026-10-18", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "The whole game is first person: the gun is carried low-left and aimed down the rib at the "
+			.. "bead, with no crosshair. OFF is the accepted over-the-shoulder third person with ADS.",
+	} :: FlagRow,
 }
 
 -- deepFreeze, REQUIRED and not copied: table.freeze is shallow, and this repo has already paid for
