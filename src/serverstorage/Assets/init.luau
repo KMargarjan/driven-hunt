@@ -70,6 +70,13 @@ export type AssetRow = {
 	-- compare against rather than a hope
 	offsetStuds: Vector3,
 	rotationDeg: Vector3, -- the backwards-knife correction; only a screenshot checks it (6.3)
+	-- WHERE THIS MESH'S BEAD IS, in the Handle's frame, so the first-person camera can line the view
+	-- up with it (docs/design/camera.md section 6.5). OPTIONAL, and nil is the honest value until
+	-- somebody has looked: a single MeshPart has a PAINTED bead and no Instance to read, so this can
+	-- only be measured on screen in ADS. With it nil, `Weapon.Hardware` falls back to the parts
+	-- gun's own bead and warns once. It lives here rather than in `Shotgun.CONFIG` because it
+	-- describes ONE upload: a new mesh is a new row with a new measurement.
+	sightOffsetStuds: Vector3?,
 	renderFidelity: string,
 	-- SET WHEN A LATER VERSION REPLACES THIS ROW. The row STAYS (rule 7: never delete, archive
 	-- with a note) -- an id that has been in a place is provenance, and a moderated-away or
@@ -197,6 +204,16 @@ Assets.ROWS = {
 		naturalSizeStuds = NATURAL,
 		offsetStuds = Vector3.zero,
 		rotationDeg = Vector3.new(0, 90, 0),
+		-- MEASURED ON SCREEN, 2026-09-27 (task 90), the only way this can be measured: the mesh's
+		-- bead is PAINTED, so there is no Instance to read. The first ADS screenshot put the drawn
+		-- bead at the parts gun's own height (Y = 0.255) and it was INVISIBLE -- buried inside the
+		-- muzzle's own metal, which the brightest pixel within 60 px of the screen centre confirmed
+		-- (185, 197, 219: the mesh's lit rim, not a Neon ball). This clears the mesh outright: the
+		-- template's box is `naturalSizeStuds.Y * SCALE` = 0.689 studs tall about the Handle's
+		-- centre, so nothing the mesh has reaches above +0.345, and +0.375 is 0.03 studs clear of
+		-- the highest point it could possibly have. Z stays with the parts gun's bead, 0.05 behind
+		-- the muzzle face.
+		sightOffsetStuds = Vector3.new(0, 0.375, -2.15),
 		renderFidelity = "Automatic",
 		notes = "Barrels and rib at metalness 0.10 / roughness 0.50, action 0.70 / 0.35, stock "
 			.. "0.00 / 0.62, written into the MAPS, which is the only channel Roblox reads. One "

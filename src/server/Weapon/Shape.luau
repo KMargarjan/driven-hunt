@@ -120,10 +120,14 @@ function Shape.pieces(config): { Piece }
 	})
 
 	-- THE BEAD: the one bright thing on the gun, and the only aiming mark a side-by-side has.
+	-- ITS POSITION IS `Shape.beadOffset`, NOT A SECOND COPY OF THE ARITHMETIC (task 90): the same
+	-- expression places this piece and answers `Shape.sight`, which is what the first-person ADS
+	-- pose is built from. Two expressions would let the bead a player sees and the point the camera
+	-- lines up drift apart -- one of them right, both of them measured, and the picture a lie.
 	add({
 		name = "Bead",
 		size = Vector3.new(0.05, 0.05, 0.05),
-		offset = CFrame.new(0, ribY + RIB_THICK / 2 + 0.02, muzzleZ + 0.05),
+		offset = CFrame.new(Shape.beadOffset(config)),
 		color = look.bead,
 		material = Enum.Material.SmoothPlastic,
 		shape = Enum.PartType.Ball,
@@ -192,6 +196,30 @@ end
 -- spec can say "the muzzle attachment is at the muzzle" rather than "both are -2.2".
 function Shape.muzzleZ(config): number
 	return -config.HANDLE_SIZE.Z / 2
+end
+
+-- WHERE THE BEAD SITS, in the Handle's frame, and the ONE place that decides it (task 90). The rib
+-- lies on top of the two barrels, and the bead sits on top of the rib at the muzzle end:
+--   bore line   BARREL_Y
+--   rib centre  BARREL_Y + barrel radius + RIB_THICK/2
+--   bead centre rib top + a bead's own clearance
+-- It is 0.135 studs above the bore, so lining the bead up with the view axis puts the barrels about
+-- 1.4 degrees below the centre of the screen -- which is what a bead sight picture looks like, and a
+-- consequence of the geometry rather than a number anybody chose.
+function Shape.beadOffset(config): Vector3
+	local ribY = BARREL_Y + BARREL_DIAMETER / 2 + RIB_THICK / 2
+	return Vector3.new(0, ribY + RIB_THICK / 2 + 0.02, Shape.muzzleZ(config) + 0.05)
+end
+
+-- THE SIGHT LINE, as a CFrame in the Handle's frame: the point the first-person camera lines its own
+-- axis up with when the player aims (`Camera.Mode.aimOffset`, docs/design/camera.md section 6.5).
+--
+-- The rotation is IDENTITY and that is not laziness: an identity CFrame's LookVector is (0, 0, -1),
+-- which is already the muzzle direction in this frame (the `GRIP` convention), so the sight looks
+-- exactly where the barrels point. A rib that was canted would need a rotation here, and this one
+-- is level.
+function Shape.sight(config): CFrame
+	return CFrame.new(Shape.beadOffset(config))
 end
 
 return Shape

@@ -20,6 +20,7 @@ local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
 
 local Hardware = Weapon.Hardware
+local Shape = Weapon.Shape
 local CONFIG = Shotgun.CONFIG
 
 -- A stand-in for what `LoadAsset` returns: a Model wrapper around one MeshPart, which is the shape
@@ -524,6 +525,176 @@ return function()
 	-- module's side -- so nothing below yields. That matters twice over: a spec that waits is a spec
 	-- that lets the live 2 s arming sweep run while a fake provider is wired, and the sweep now calls
 	-- `upgradeAll`.
+	-- ------------------------------------------------------------------ the sight (task 90, S2)
+	describe("the sight the first-person camera aims with", function()
+		local function withProvider(fn, body)
+			local live = Hardware.getTemplateProvider()
+			Hardware.setTemplateProvider(fn)
+			local ok, why = pcall(body)
+			Hardware.setTemplateProvider(live)
+			if not ok then
+				error(why, 0)
+			end
+		end
+
+		it("is on the Handle beside the Muzzle, at the parts gun's own bead", function()
+			withProvider(nil, function()
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				local sight = handle:FindFirstChild(Hardware.SIGHT_NAME)
+				expect(sight).to.be.ok()
+				expect((sight :: Instance):IsA("Attachment")).to.equal(true)
+				expect((sight :: Attachment).CFrame).to.equal(Shape.sight(CONFIG))
+				-- beside the muzzle, and one of each
+				expect(handle:FindFirstChild("Muzzle")).to.be.ok()
+				local sights = 0
+				for _, child in ipairs(handle:GetChildren()) do
+					if child.Name == Hardware.SIGHT_NAME then
+						sights += 1
+					end
+				end
+				expect(sights).to.equal(1)
+				tool:Destroy()
+			end)
+		end)
+
+		it("is the SAME expression that places the bead the player sees", function()
+			-- The mechanical proof that there is one source for "where the bead is". Two
+			-- expressions would let the drawn bead and the aimed point drift apart -- both
+			-- measured, both green, and the picture a lie.
+			local bead = nil
+			for _, piece in ipairs(Shape.pieces(CONFIG)) do
+				if piece.name == "Bead" then
+					bead = piece
+				end
+			end
+			expect(bead).to.be.ok()
+			local fromPiece = (bead :: any).offset.Position
+			local fromSight = Shape.sight(CONFIG).Position
+			expect((fromPiece - fromSight).Magnitude < 1e-6).to.equal(true)
+			expect((fromSight - Shape.beadOffset(CONFIG)).Magnitude < 1e-6).to.equal(true)
+			-- and it is where a bead belongs: above the bore, at the muzzle end
+			expect(fromSight.Y > 0).to.equal(true)
+			expect(math.abs(fromSight.Z - Shape.muzzleZ(CONFIG)) < 0.25).to.equal(true)
+		end)
+
+		it("takes the row's measurement for a mesh, and falls back when there is none", function()
+			local row = Assets.byKey(Hardware.ASSET_KEY)
+			local template = Instance.new("MeshPart")
+			template.Size = row.naturalSizeStuds
+			local measured = Vector3.new(0, 0.3, -2.1)
+
+			local withRow = table.clone(row) :: any
+			withRow.sightOffsetStuds = measured
+			withProvider(function()
+				return template, { row = withRow }
+			end, function()
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				local sight = handle:FindFirstChild(Hardware.SIGHT_NAME) :: Attachment
+				expect(sight).to.be.ok()
+				expect(sight.CFrame.Position).to.equal(measured)
+				tool:Destroy()
+			end)
+
+			-- THE SAME ROW WITHOUT THE FIELD: the parts gun's bead, and the warning (which is once
+			-- per server, so this case asserts the VALUE and not the warning's count).
+			--
+			-- BUILT WITHOUT IT RATHER THAN BORROWED FROM THE MANIFEST. The first version of this
+			-- case passed the live row and expected the fallback, which was true only while no row
+			-- carried a measurement -- and this task measured one an hour later, so the case failed
+			-- on data rather than on behaviour. The fixture now says what it means.
+			local withoutRow = table.clone(row) :: any
+			withoutRow.sightOffsetStuds = nil
+			withProvider(function()
+				return template, { row = withoutRow }
+			end, function()
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				local sight = handle:FindFirstChild(Hardware.SIGHT_NAME) :: Attachment
+				expect(sight).to.be.ok()
+				expect(sight.CFrame).to.equal(Shape.sight(CONFIG))
+				tool:Destroy()
+			end)
+			template:Destroy()
+		end)
+
+		it("survives the upgrade, exactly once", function()
+			local row = Assets.byKey(Hardware.ASSET_KEY)
+			local template = Instance.new("MeshPart")
+			template.Size = row.naturalSizeStuds
+			local measured = Vector3.new(0, 0.29, -2.12)
+			local withRow = table.clone(row) :: any
+			withRow.sightOffsetStuds = measured
+
+			-- built with no mesh (the parts gun, the parts-gun sight)...
+			local tool
+			withProvider(nil, function()
+				tool = Hardware.build()
+			end)
+			local handle = (tool :: Tool):FindFirstChild("Handle") :: BasePart
+			expect((handle:FindFirstChild(Hardware.SIGHT_NAME) :: Attachment).CFrame).to.equal(Shape.sight(CONFIG))
+
+			-- ...and upgraded in place, which must move the sight and not add a second one.
+			withProvider(function()
+				return template, { row = withRow }
+			end, function()
+				expect(Hardware.upgrade(tool :: Tool)).to.equal(true)
+			end)
+			local sights = 0
+			for _, child in ipairs(handle:GetChildren()) do
+				if child.Name == Hardware.SIGHT_NAME then
+					sights += 1
+				end
+			end
+			expect(sights).to.equal(1)
+			expect((handle:FindFirstChild(Hardware.SIGHT_NAME) :: Attachment).CFrame.Position).to.equal(measured);
+			(tool :: Tool):Destroy()
+			template:Destroy()
+		end)
+
+		it("bounds every measurement the manifest carries", function()
+			-- Cheap, and it catches a typo without pretending to catch a wrong bead: only a
+			-- screenshot can say whether a painted bead is where the row claims (design 9.3 item 5).
+			local checked = 0
+			for _, row in ipairs(Assets.ROWS) do
+				local offset = (row :: any).sightOffsetStuds
+				if typeof(offset) == "Vector3" then
+					checked += 1
+					-- IN THE HANDLE'S FRAME, WHICH `sizeStuds` IS NOT. The row's box is the mesh's
+					-- own, before `rotationDeg` is applied -- for this gun (0, 90, 0) swaps its
+					-- length onto Z -- so comparing the offset's Z against `sizeStuds.Z/2` compares
+					-- a position along the barrels against the gun's WIDTH. It did, and this case
+					-- failed on a measurement that was right (task 90, the third gate).
+					local rotation = CFrame.Angles(
+						math.rad(row.rotationDeg.X),
+						math.rad(row.rotationDeg.Y),
+						math.rad(row.rotationDeg.Z)
+					)
+					local size = row.sizeStuds
+					local function extent(axis: Vector3): number
+						return math.abs(axis.X * size.X) + math.abs(axis.Y * size.Y) + math.abs(axis.Z * size.Z)
+					end
+					local half = Vector3.new(
+						extent(rotation.XVector),
+						extent(rotation.YVector),
+						extent(rotation.ZVector)
+					) / 2
+					-- inside the gun's own envelope along the barrels and across them...
+					expect(math.abs(offset.Z) <= half.Z + 1e-3).to.equal(true)
+					expect(math.abs(offset.X) <= half.X + 1e-3).to.equal(true)
+					-- ...above the bore and no more than a bead's clearance above the mesh's own
+					-- top, which is what "on the rib" means and what a typo would miss...
+					expect(offset.Y >= 0.15).to.equal(true)
+					expect(offset.Y <= half.Y + 0.05).to.equal(true)
+					-- ...and at the muzzle end.
+					expect(math.abs(offset.Z - Shape.muzzleZ(CONFIG)) <= 0.25).to.equal(true)
+				end
+			end
+			TestKit.note(string.format("task90: %d manifest row(s) carry a sightOffsetStuds", checked))
+		end)
+	end)
+
 	describe("the gun that was granted before the mesh landed", function()
 		local function withProvider(fn, body)
 			local live = Hardware.getTemplateProvider()

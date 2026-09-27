@@ -69,30 +69,92 @@ local Config = {
 	BODY_HIDE_BLEND = 0.60, -- above it the local body gets LocalTransparencyModifier = 1
 
 	-- ------------------------------------------------------ first person (ON branch, task 89)
-	-- LOW AND LEFT, and roughly half the gun off the bottom-left corner -- Karen's own words for
-	-- what her reference does (docs/research/2026-09-27-first-person-viewmodel.md section 2.1).
+	-- LOW AND RIGHT, and roughly half the gun off the bottom-right corner. KAREN, 2026-09-27, after
+	-- playing S1: "has to be from right to left, meaning right hand shooter and weapon holding with
+	-- right hand grip and left hand pipes like in real life". Task 89 built the reference's own
+	-- left-handed carry; this is the mirror of it -- the stock at the right shoulder, the barrels
+	-- crossing toward the centre-left, which is where the left hand will hold them in S3.
 	--
-	-- THE Z IS BOUNDED, NOT CHOSEN: the gun is Shotgun.CONFIG.HANDLE_SIZE.Z = 4.4 studs long about
-	-- its CENTRE, so anything nearer than -2.2 would put the butt behind the camera plane. -2.6
-	-- leaves about half a stud once the three angles below are applied, and
-	-- tests/server/camera_mode.spec.luau asserts every one of the gun box's eight corners against
-	-- NEAR_PLANE_MARGIN_STUDS rather than trusting this sentence.
-	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(-0.95, -1.45, -2.6),
+	-- CLOSER SINCE THE SECOND BUILD ROUND OF TASK 90: at -2.6 the gun read "small and far" against
+	-- Karen's own picture, so it comes in to -2.1 (about a quarter bigger on screen), up a little and
+	-- in a little -- which also leaves the bottom-right corner clear for the right hand in S3.
+	--
+	-- THE BUTT IS BEHIND THE EYE AT THIS DISTANCE, and that is the point rather than a problem: the
+	-- gun is 4.4 studs long about its CENTRE, so anything nearer than -2.2 puts the stock behind the
+	-- camera plane -- which is where a real one is, under the cheek and out of the view.
+	-- tests/server/camera_mode.spec.luau asserts what actually matters, on the gun's own pieces: the
+	-- BARRELS, the rib and the bead clear NEAR_PLANE_MARGIN_STUDS in both poses, so nothing a player
+	-- aims with is ever sliced.
+	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(0.85, -1.3, -2.1),
 	-- Three named degrees rather than a CFrame literal, so there are three legible dials. Converted
 	-- to radians at ONE site, Mode.carryOffset -- the rule the Task 19 cone-unit defect bought.
-	-- Negative yaw turns the muzzle in toward the screen centre from a left-hand offset, which is
-	-- the reference's "enters from the lower-left at roughly 30 degrees".
+	-- POSITIVE yaw turns the muzzle in toward the screen centre from a RIGHT-hand offset (task 90):
+	-- with the gun's own -Z as the muzzle, +14 degrees about Y points it left of straight ahead, so
+	-- the barrels cross the frame from the lower right toward the centre. Pitch lifts the muzzle,
+	-- roll cants the rib toward the eye; both are mirrored from task 89's left-handed pose, which is
+	-- what "mirror it" means for a rotation about Y and Z.
 	CARRY_PITCH_DEG = -12,
-	CARRY_YAW_DEG = -14,
-	CARRY_ROLL_DEG = 8,
+	CARRY_YAW_DEG = 14,
+	CARRY_ROLL_DEG = -8,
 	-- The whole-gun break-open tilt. IT IS IN THE COMPOSITION FROM S1 AND NOTHING MOVES IT UNTIL
 	-- S4: `Mode.viewmodelOffset` multiplies by `openTilt * OPEN_TILT_DEG`, and `openTilt` is exactly
 	-- 0 in every state this build produces. The number lives here now so the composition is written
 	-- and tested once rather than assembled later under a feel change. A single MeshPart has no
 	-- barrel to hinge (research note section 5.4), so the WHOLE gun tilts about its grip.
 	OPEN_TILT_DEG = 22,
+	-- ------------------------------------------------------ the bead sight (ON branch, task 90)
+	-- HOW FAR THE BEAD SITS FROM THE EYE when aiming. 3.5, AND IT IS MEASURED OFF KAREN'S OWN
+	-- ACCEPTANCE PICTURE rather than chosen: `<assets-dir>/references/inspiration-2026-09-27/`,
+	-- `ads-target-karen.jpg`, her words -- "something like here is aiming (red point on end) and
+	-- looking more through pipes like in real life".
+	--
+	-- THE MEASUREMENT IS SCALE-FREE, so it survives her gun being a different gun. In her picture the
+	-- barrel's apparent width where it leaves the BOTTOM of the frame is about 4.4x its width at the
+	-- muzzle; apparent width goes as 1/distance, so her muzzle is 4.4x as far from the eye as the
+	-- point where the barrel leaves the frame. That point is where the bore line drops half the
+	-- vertical field below the sight line -- with the bead 0.375 studs above the bore on this mesh
+	-- and a 50-degree field, 0.375/tan(25) = 0.80 studs -- so the muzzle wants to be 4.4 x 0.80 = 3.5.
+	--
+	-- THE FIRST BUILD ROUND HAD 5.0 (and the design's own first pick was 5.6, derived from task
+	-- 26/47's accepted `VIEWMODEL_AIM_OFFSET`): that put the eye a whole gun behind the breech, so
+	-- the wooden STOCK filled the lower half as a plank and the barrels were a small shape in the
+	-- middle -- which is not the picture she sent. At 3.5 the eye sits just behind the breech, the
+	-- two barrels and the rib fill the lower centre and converge on the bead, and the stock passes
+	-- BEHIND the camera. Karen's dial still; the floor is now the barrels rather than the butt (see
+	-- NEAR_PLANE_MARGIN_STUDS).
+	EYE_RELIEF_STUDS = 3.5,
+	-- HOW FAR OFF THE CENTRE OF THE SCREEN THE BEAD MAY BE, aimed and at rest. Roblox's field of
+	-- view is VERTICAL, so at 1920x1080 and FOV 50 this is 8 pixels: 50/1080 = 0.0463 degrees per
+	-- pixel. At 143 studs (40 m) it is 0.9 studs, against a boar 5.5 studs long and 3 tall. The
+	-- CLIENT spec measures it in the real viewport and derives the pixels from the live viewport
+	-- size, because a Studio Play window is much smaller than 1080 px and a fixed pixel count there
+	-- would be a LOOSER angular claim -- a false pass.
+	BEAD_CENTRE_TOLERANCE_DEG = 0.37,
+	-- THE DRAWN BEAD. Karen, 2026-09-27: "we are missing front knob or how it calls where you aim
+	-- and follow animal with that point", and of her own picture, "red point on end". The parts gun
+	-- has a real `Bead` piece; the uploaded mesh is exactly ONE MeshPart with a painted one too small
+	-- to aim with, so the viewmodel draws its own at the `Sight` attachment when the clone has no
+	-- `Bead` part of its own.
+	--
+	-- RED, AND NOT THE GUN'S OWN BEAD COLOUR. `Shotgun.CONFIG.LOOK.bead` is the off-white bead of the
+	-- PARTS gun -- a piece of the weapon, which other players see. This is the AIMING MARK, drawn by
+	-- the camera for one player, and Karen's picture has it red. Two different things with two
+	-- owners, so the client spec asserts this one is really red rather than that the two still match.
+	--
+	-- Neon, so it reads under the canopy where the S1 screenshot was almost black. 0.07 studs at
+	-- EYE_RELIEF_STUDS = 3.5 is about 1.15 degrees -- roughly 18 px in a 784-px viewport at the
+	-- aiming field of view: a bead, a little larger than hers, and not a blob over the animal.
+	BEAD_MARKER_STUDS = 0.07,
+	BEAD_MARKER_COLOR = Color3.fromRGB(255, 45, 35),
+
 	-- ASSERTED, NOT APPLIED: nothing clamps to this. The near plane is 0.1 studs and a 4.4-stud gun
-	-- held at the eye clips through it if the pose is wrong, so the spec measures the corners.
+	-- held at the eye clips through it if the pose is wrong, so the spec measures the corners -- OF
+	-- THE BARRELS, THE RIB AND THE BEAD, in both poses. It used to measure the whole gun's box, and
+	-- that rule forbids the very picture Karen accepted: a cheek weld puts the STOCK behind the eye.
+	-- The spec asserts both halves now -- nothing you aim with is sliced, and when aiming the stock
+	-- really is behind the camera -- so "the gun is not clipped" stayed a mechanical claim instead of
+	-- becoming a looser one. Deviation from docs/design/camera.md section 9.1 item 8, recorded in
+	-- TASKS.md row 90a for the Architect.
 	NEAR_PLANE_MARGIN_STUDS = 0.25,
 
 	-- names and switches
