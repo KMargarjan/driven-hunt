@@ -105,11 +105,14 @@ local Config = {
 	-- the action about 1.45 studs out: a 2.73-stud barrel between those two points fixes the gun's
 	-- direction, and the Handle's centre is 0.53 studs behind the action along it.
 	--
-	-- ON SCREEN that line runs up-left at about 24 degrees, which is panel A's own diagonal. Round 1
-	-- met the same two conditions at 20 and 30 degrees down and came out at 37 -- too steep and too
-	-- high in the frame, which is what the Director sent it back for. The STOCK is out of the picture
-	-- either way: panel A shows the action and the barrels and no butt at all.
-	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(-0.69, -0.73, -1.56),
+	-- THEN MEASURED ON SCREEN AND MOVED TWICE, because the arithmetic above lands within about ten
+	-- degrees of where the viewmodel actually renders: the solved pose put the barrel at 8 degrees
+	-- and the action halfway up the frame, so the gun came down 0.22 studs, left 0.11, and its nose
+	-- up 11. What ships reads at about 28 degrees with the muzzle meeting the left edge two thirds
+	-- of the way down and the action at the bottom edge a third across -- panel A's own diagonal, and
+	-- round 1's was 37. The STOCK is out of the picture either way, which is what the picture shows.
+	CARRY_ON_SCREEN_DEG = 28, -- ASSERTED, NOT APPLIED: what the two poses above came out at.
+	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(-0.80, -0.95, -1.56),
 	-- Three named degrees rather than a CFrame literal, so there are three legible dials. Converted
 	-- to radians at ONE site, Mode.carryOffset -- the rule the Task 19 cone-unit defect bought.
 	-- POSITIVE yaw turns the muzzle in toward the screen centre from a RIGHT-hand offset (task 90):
@@ -122,7 +125,7 @@ local Config = {
 	-- barrel crossing the frame from the lower right of the action to the left edge, exactly panel
 	-- A's diagonal, with the muzzle leaving the frame at the left edge rather than stopping inside
 	-- it. `Mode.carryOffset` is still the ONE site that converts them to radians.
-	CARRY_PITCH_DEG = -9,
+	CARRY_PITCH_DEG = 2,
 	CARRY_YAW_DEG = 53,
 	CARRY_ROLL_DEG = -6, -- a touch of cant, so the rib and not the flat of the barrels faces the eye
 	-- The whole-gun break-open tilt. IT IS IN THE COMPOSITION FROM S1 AND NOTHING MOVES IT UNTIL
