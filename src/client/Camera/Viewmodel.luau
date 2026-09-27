@@ -450,8 +450,12 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 	end
 	local started = openedAt
 	local live = {}
+	-- BY PREFIX, because a shell is named for its barrel -- `SpentShell1`, `FreshShell2`. Matching
+	-- the bare name found nothing, so the spent shells were never cleared and stayed in the gun
+	-- after it shut: caught by the client case that asserts a shut gun has none.
 	for _, child in ipairs(clone:GetChildren()) do
-		if child.Name == SPENT_NAME or child.Name == FRESH_NAME then
+		local name = child.Name
+		if string.sub(name, 1, #SPENT_NAME) == SPENT_NAME or string.sub(name, 1, #FRESH_NAME) == FRESH_NAME then
 			table.insert(live, child)
 		end
 	end
