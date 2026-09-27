@@ -3,11 +3,11 @@
 Task: 96
 Round: 1
 Base: `main` (`d4de4c7`)
-Code commit: `e543fa95e2181a3a5dc8f2d12d7b6f09c76d17ab`
+Code commit: `ea047aa1f5686e6c357295c3d7315a57f7c2196d`
 
 ```
-[harness2] PASS: 32/32 checks @ e543fa95e2181a3a5dc8f2d12d7b6f09c76d17ab (clean tree)
-[harness]  PASS: 32/32 checks @ e543fa95e2181a3a5dc8f2d12d7b6f09c76d17ab (clean tree)
+[harness2] PASS: 32/32 checks @ ea047aa1f5686e6c357295c3d7315a57f7c2196d (clean tree)
+[harness]  PASS: 32/32 checks @ ea047aa1f5686e6c357295c3d7315a57f7c2196d (clean tree)
 ```
 
 Karen, 2026-09-27: a BREAK ACTION like the real Beretta 486 Parallelo, not the reference game's
@@ -27,11 +27,14 @@ pump-style reload. Behind `FIRST_PERSON`, still default OFF.
    a source exactly like the aim flag. The drawn swing is 0.22 s open and 0.16 s shut, both inside
    the server's own 0.5 and 0.6 -- asserted, so the motion always finishes inside the state that
    started it -- and `openTilt` reaches exactly 1 and exactly 0 at 240, 60 and 20 fps.
-3. **THE BARRELS HINGE, THE SHELLS COME AND GO.** `Camera.Viewmodel` rotates the `Barrels` piece 35
-   degrees about the knuckle: the client case measures 0.000 deg off the body when shut, 35.00 when
-   open, the muzzle DOWN, one spent shell per barrel that FIRED (two for two, one for one), none when
-   shut, and nothing at all in the third-person branch. `task96 break: barrels swing 35.0 deg, 2
-   shell(s) drawn`.
+3. **THE BARRELS HINGE, THE BEAD RIDES THEM, THE SHELLS COME AND GO.** `Camera.Viewmodel` rotates
+   the `Barrels` piece 35 degrees about the knuckle: the client case measures 0.000 deg off the body
+   when shut, 35.00 when open, the muzzle DOWN, one spent shell per barrel that FIRED (two for two,
+   one for one), none when shut, and nothing at all in the third-person branch. The BEAD is parented
+   to the barrel group and placed from the same transform, so it swings down to the muzzle instead of
+   floating where the muzzle was -- asserted twice over: it moves more than 0.2 studs, and its offset
+   in the barrels' own frame does not change by a ten-thousandth. Shut, that transform is identity:
+   `task90 bead: worst 0.00 px from the shot line and the screen centre`.
 4. **THREE DEFECTS THE SCREEN AND THE SPECS FOUND, each fixed at its cause.** The boot preloaded one
    key by name and `wearsMesh` said yes to a gun wearing the body alone, so every gun handed out
    before the barrels landed stayed body-only for ever -- the boot preloads the manifest's own key
@@ -46,8 +49,8 @@ pump-style reload. Behind `FIRST_PERSON`, still default OFF.
 
 ## Not verified
 
-- Karen has not played it. The fresh shells sliding in were not caught on camera -- the spent ones
-  were -- and the "chambers" a player sees are the barrels' own open ends, not modelled chambers.
+- Karen has not played it. The "chambers" a player sees are the barrels' own open ends rather than
+  modelled chambers.
 - The five frames were taken with the reload slowed in a throwaway tree (a capture takes ~4 s against
   a 2 s reload); the POSES are the shipped ones, the speed is not what they show.
 - The mesh bead sits on the body, not the barrels, so during the swing the drawn bead does not travel
