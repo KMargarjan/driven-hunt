@@ -561,7 +561,10 @@ return function()
 			-- is a real invariant, and `match_live.spec` asserts it of the live numbers.
 			MAX_ALIVE_BOARS = 4,
 			QUICK_TEST_INTERVAL_SECONDS = 15,
-			QUICK_TEST_FIRST_RELEASE_SECONDS = 5,
+			-- DELIBERATELY NOT THIS FILE'S OWN FIRST_RELEASE_SECONDS (5): when the two are equal,
+			-- a quick branch that returned the ordinary number passes every case here. Measured --
+			-- that mutation ran green until this line made them different.
+			QUICK_TEST_FIRST_RELEASE_SECONDS = 2,
 		}
 
 		local function quickConfig(overrides)
@@ -594,7 +597,7 @@ return function()
 
 			local on = quickConfig()
 			expect(Phase.intermissionSeconds(on)).to.equal(3)
-			expect(Phase.firstReleaseSeconds(on)).to.equal(5)
+			expect(Phase.firstReleaseSeconds(on)).to.equal(2)
 			-- AND THE SHIPPED NUMBERS ARE REALLY FASTER, which is the claim Karen made and the one a
 			-- fixture cannot answer: this file's own FIRST_RELEASE_SECONDS is 5 because a test does
 			-- not want to simulate twenty, and comparing the quick value against THAT compared 5
