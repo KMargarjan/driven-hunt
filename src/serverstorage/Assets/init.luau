@@ -496,6 +496,14 @@ Assets.ROWS = {
 		-- replacing it: stretched back along the gun's own axis until its rear meets the cut (x1.22)
 		-- and lifted if it hangs below the tubes (it did not need lifting here). Only the vertices
 		-- that belong to the forend alone are moved; one shared with the action would tear the mesh.
+		--
+		-- WHAT IT LOOKS LIKE IN THE GAME, from `.screenshots/...t95r3-carry.png` at the carry, where
+		-- the gun is closest to the eye: the wood is one piece with the gun at the action end and
+		-- runs forward UNDER the barrels as a dark walnut wedge. It is not flush all the way -- toward
+		-- its front the wood narrows away from the tubes and a thin dark gap opens between its top
+		-- edge and the barrel's underside. The flap that hung off the gun with daylight above it and
+		-- a gap behind it is gone; the wedge at the front is not, and it is the next thing to fix
+		-- there.
 		modelId = 126484176321060,
 		displayName = "Driven Hunt shotgun r10 seated forend",
 		fileName = "model.fbx",

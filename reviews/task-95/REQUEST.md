@@ -27,17 +27,23 @@ after. The reference is `REF-SHEET-carry-aim.jpg`, panels A and C.
    screen); both ends stay below the horizon; the action is low, left and clear of the near plane;
    and the butt is past the CORNER of the field of view, so it cannot be in frame.
    `task95 carry: muzzle 41.6 deg left, 23.3 deg above the action in view, action 1.62 studs`.
-3. **THE FOREND BELONGS TO THE GUN AGAIN.** Karen's wood was carved for the generated barrels --
-   fatter, and running into the action -- so against the built tubes it read as a separate dark flap
-   with daylight above it and a gap behind it. `rebuildBarrels` MOVES her wood rather than replacing
-   it: stretched back along the gun's own axis until its rear meets the cut (x1.22) and lifted if it
-   hangs below the tubes, and only the vertices that belong to the forend alone, because one shared
-   with the action would tear the mesh at the seam. Asset **126484176321060**, Approved, manifest
-   **v8**; v7 kept and superseded, and the seam spec's chain check follows.
-4. **THE RAISE AND THE AIM ARE UNCHANGED FROM THE ROUND THE DIRECTOR ACCEPTED.** One eased swing,
-   0.25 s up and 0.20 s down (`Mode.blendSeconds`), the muzzle peaking at 6.9 degrees above the
-   horizon -- the carry itself -- and no step backwards on the way; the aimed picture still leaves the
-   bottom edge a quarter of the screen wide with the action out of frame.
+3. **THE FOREND, AND WHAT IT NOW LOOKS LIKE IN THE GAME.** In `t95r3-carry` the wood is one piece
+   with the gun at the action end and runs forward UNDER the barrels as a dark walnut wedge; toward
+   its front it narrows away from the tubes and a thin dark gap opens between its top edge and the
+   barrel's underside. The flap that hung off the gun with daylight above it and a gap behind it is
+   gone; that front wedge is not. `rebuildBarrels` MOVES Karen's wood rather than replacing it --
+   stretched back along the gun's axis until its rear meets the cut (x1.22), lifted only if it hangs
+   below the tubes, and only the vertices that belong to the forend alone, because one shared with
+   the action would tear the mesh at the seam. Asset **126484176321060**, Approved, manifest **v8**;
+   v7 kept and superseded, and the seam spec's chain check follows.
+4. **THE RAISE RISES, AND THE GUARD SAYS SO.** This commit's own numbers: the muzzle sits about
+   **1.2 degrees** above the horizon in the carry and **5.4** in the aim -- the cheek angle tips the
+   gun nose-up about the bead -- so it climbs across the swing and the AIMED pose is the highest it
+   gets (`task95 raise: muzzle peaks at 5.4 deg up at blend 1.00`). Round 1 said the carry was the
+   highest, which was true of an earlier pose and not of this one. The case now asserts that the
+   swing never climbs above where it ENDS, which is what "never points at the sky" means for a move
+   whose end is not the sky, and still checks the pose sweeps there without a step backwards. One
+   eased swing, 0.25 s up and 0.20 s down.
 5. **TASK 92 STILL HOLDS.** No crosshair; `task90 bead: worst 0.00 px from the shot line and the
    screen centre`; the ADS rotation is about the bead, so the aim point does not move; recoil and the
    muzzle flash are untouched code and their cases pass.

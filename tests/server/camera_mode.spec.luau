@@ -357,9 +357,26 @@ return function()
 					worst, worstAt = elevation, blend
 				end
 			end
-			-- The carry itself is the highest the muzzle ever gets, and it is a few degrees.
-			expect(worst < 20).to.equal(true)
-			TestKit.note(string.format("task95 raise: muzzle peaks at %.1f deg up, at blend %.2f", worst, worstAt))
+			-- MEASURED, AND THE OTHER WAY ROUND FROM WHAT THIS CASE FIRST SAID: the muzzle sits about
+			-- 1.2 degrees above the horizon in the carry and 5.4 in the aim -- the cheek angle tips
+			-- the gun nose-up about the bead -- so it RISES across the swing and the aimed pose is the
+			-- highest it gets. The guard is therefore that the swing never climbs above where it
+			-- ENDS: a move that flicked the muzzle toward the sky on its way would show as a peak
+			-- above the aimed elevation, whatever that elevation happens to be.
+			local endPose = Mode.viewmodelOffset(stateAtBlend(1), sight, firstPerson)
+			local aimedMuzzle = (endPose * CFrame.new(0, 0, -Shotgun.CONFIG.HANDLE_SIZE.Z / 2)).Position
+			local aimedAction = (endPose * CFrame.new(0, 0, Shotgun.CONFIG.HANDLE_SIZE.Z / 2)).Position
+			local aimedElevation = math.deg(math.asin(math.clamp((aimedMuzzle - aimedAction).Unit.Y, -1, 1)))
+			expect(worst <= aimedElevation + 0.5).to.equal(true)
+			expect(aimedElevation < 20).to.equal(true) -- and the end of the move is not the sky either
+			TestKit.note(
+				string.format(
+					"task95 raise: muzzle peaks at %.1f deg up at blend %.2f; aimed is %.1f deg",
+					worst,
+					worstAt,
+					aimedElevation
+				)
+			)
 
 			-- ...AND IT IS ONE MOVE, NOT A WANDER: the gun's own position sweeps monotonically from
 			-- the carry to the aimed pose, with no doubling back.
