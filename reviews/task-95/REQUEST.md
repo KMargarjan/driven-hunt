@@ -26,7 +26,7 @@ after. The reference is `REF-SHEET-carry-aim.jpg`, panels A and C.
    the view, not the gun's pitch -- the bore is 2 degrees below level and still rises across the
    screen); both ends stay below the horizon; the action is low, left and clear of the near plane;
    and the butt is past the CORNER of the field of view, so it cannot be in frame.
-   `task95 carry: muzzle 37.7 deg left, 13.6 deg above the action in view, action 1.62 studs`.
+   `task95 carry: muzzle 41.6 deg left, 23.3 deg above the action in view, action 1.62 studs`.
 3. **THE FOREND BELONGS TO THE GUN AGAIN.** Karen's wood was carved for the generated barrels --
    fatter, and running into the action -- so against the built tubes it read as a separate dark flap
    with daylight above it and a gap behind it. `rebuildBarrels` MOVES her wood rather than replacing
