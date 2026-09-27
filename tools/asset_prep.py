@@ -207,7 +207,7 @@ DEFAULT_RECIPE = {
         "wallT": 0.0014,  # 1.6 mm of steel at the muzzle
         "ribThicknessT": 0.0025,
         "beadDiameterT": 0.0028,  # a 3 mm bead, which is what a game gun carries
-        "segments": 48,  # round at arm's length: 7.5 degrees a facet, and 48 x 2 tubes is cheap
+        "segments": 64,  # round at arm's length: 5.6 degrees a facet, and 64 x 2 tubes is still cheap
         "dropT": 0.002,  # the bores sit a hair below the action's top face, not flush with it
         "keepForendWood": True,
         "forendMinSaturation": 0.18,

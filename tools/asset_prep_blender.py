@@ -134,6 +134,15 @@ def shade(ob, angle_deg):
     bpy.ops.object.select_all(action="DESELECT")
     ob.select_set(True)
     bpy.context.view_layer.objects.active = ob
+    # CUSTOM SPLIT NORMALS COME IN WITH THE FBX AND OUTLAST `shade_smooth` (task 94). They are the
+    # generator's own per-corner normals, and on a tube built here they are simply absent, so the two
+    # halves of the model were lit by different rules: the barrels showed fine lengthwise STRIPES --
+    # one band per segment -- while the action was smooth. Clearing them makes the whole model take
+    # the smoothing below, which is what "smooth and nice" needs.
+    try:
+        bpy.ops.mesh.customdata_custom_splitnormals_clear()
+    except RuntimeError as error:  # nothing to clear is not a failure
+        log("splitNormalsClear", note=str(error))
     bpy.ops.object.shade_smooth()
     angle = math.radians(float(angle_deg))
     used = None
@@ -230,6 +239,10 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
         value = (face.calc_center_median()[axis] - lo) / max(length, 1e-9)
         return value if front_at_min else 1.0 - value
 
+    def face_t_of_vert(vert):
+        value = (vert.co[axis] - lo) / max(length, 1e-9)
+        return value if front_at_min else 1.0 - value
+
     def face_uv(face):
         total = Vector((0.0, 0.0))
         for loop in face.loops:
@@ -286,15 +299,6 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
         fail("the barrel band has no triangle to borrow texels from")
     # THE BEAD borrows the brightest face just BEHIND the cut -- the silver action on this model --
     # and those faces are still here, so overlapping their texels is exactly what is wanted.
-    bead_patch = barrel_patch
-    behind = [f for f in bm.faces if cut_t < face_t(f) <= cut_t + 0.12 and uv_area(f) > 0]
-    if behind and pixels is not None:
-        def brightness(face):
-            rgb = texel(face_uv(face))
-            return 0.0 if rgb is None else sum(rgb)
-        bead_patch = uv_triangle(max(behind, key=brightness)) or barrel_patch
-
-    # ---- the cut: everything in front of it goes, except the wood when the recipe keeps it
     keep_wood = bool(plan.get("keepForendWood", True))
     min_saturation = float(plan.get("forendMinSaturation", 0.18))
 
@@ -306,11 +310,79 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
         saturation = 0.0 if high <= 0 else (high - low) / high
         return saturation >= min_saturation and rgb[0] >= rgb[2]
 
-    forward = [f for f in bm.faces if face_t(f) < cut_t]
+    # ANY VERTEX FORWARD, NOT THE CENTRE. Judging a face by its middle leaves every face that
+    # STRADDLES the cut behind, stretched over the hole where the barrels were: those are the pale
+    # spikes the first renders showed at the front of the action, and in the aim view they are the
+    # first thing a player sees.
+    # THE BEAD AND THE BREECH FACE borrow texels from the ACTION, and the test is what the region
+    # plan will call that face rather than how bright it is in the raw atlas: anything behind the cut
+    # that is not wood is painted the action's silver, so the biggest such triangle is the safest
+    # patch. Run 14 picked "the brightest raw texel" and got a near-black one, which rendered the
+    # breech as a black wedge between the silver action and the barrels.
+    bead_patch = barrel_patch
+    behind = [f for f in bm.faces
+              if cut_t + 0.02 < face_t(f) <= cut_t + 0.12 and uv_area(f) > 0 and not is_wood(f)]
+    if behind:
+        bead_patch = uv_triangle(max(behind, key=uv_area)) or barrel_patch
+
+    # ---- the cut: everything in front of it goes, except the wood when the recipe keeps it
+    forward = [f for f in bm.faces if min(face_t_of_vert(v) for v in f.verts) < cut_t]
     doomed = [f for f in forward if not (keep_wood and is_wood(f))]
     bmesh.ops.delete(bm, geom=doomed, context="FACES")
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
     bm.verts.ensure_lookup_table()
     bm.faces.ensure_lookup_table()
+
+    # ---- the shards: whatever is left floating in front of the action, in pieces of its own
+    islands, seen = [], set()
+    for face in bm.faces:
+        if face in seen:
+            continue
+        island, queue = [], [face]
+        seen.add(face)
+        while queue:
+            current = queue.pop()
+            island.append(current)
+            for edge in current.edges:
+                for other in edge.link_faces:
+                    if other not in seen:
+                        seen.add(other)
+                        queue.append(other)
+        islands.append(island)
+    biggest = max(len(i) for i in islands) if islands else 0
+    strays = []
+    for island in islands:
+        if len(island) >= max(biggest * 0.02, 40):
+            continue  # the gun itself, or a real piece of it (the forend is one)
+        strays.extend(island)
+    if strays:
+        bmesh.ops.delete(bm, geom=strays, context="FACES")
+        bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+        bm.verts.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+
+    # ---- the breech: close what the cut opened, so the action ends in a face and not in a rim
+    open_edges = [e for e in bm.edges if len(e.link_faces) == 1
+                  and all(abs((v.co[axis] - cut) / max(length, 1e-9)) <= 0.06 for v in e.verts)]
+    filled = 0
+    if open_edges:
+        try:
+            result = bmesh.ops.holes_fill(bm, edges=open_edges, sides=0)
+            made_faces = result.get("faces", [])
+            filled = len(made_faces)
+            bm.faces.ensure_lookup_table()
+            # A FILLED FACE HAS NO UVs, AND AN UNSET UV IS NOT HARMLESS. Measured in runs 12 and 13:
+            # the breech face came out with its corners at the atlas origin, so its UV triangle
+            # covered the WHOLE map -- the action's own mask with it -- and the action's shine was
+            # written over every other region. The wood came back metallic 0.45 and rendered as dark
+            # camouflage. The face is given the action's own texels, which is what a breech is.
+            for face in made_faces:
+                for index, loop in enumerate(face.loops):
+                    corner = bead_patch[index % 3]
+                    loop[uv_layer].uv = (corner.x, corner.y)
+                face.material_index = 0
+        except (RuntimeError, TypeError) as error:
+            log("breechFillFailed", error=str(error))
 
     # ---- where the new barrels go: MEASURED off what is left at the cut, not declared
     slab_t = float(plan.get("slabT", 0.05))
@@ -450,8 +522,10 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
                         Vector((centre.x + half, centre.y - half)),
                         Vector((centre.x, centre.y + half))]
         empty_corner = {"cell": list(best), "cellsFromAnything": best_distance}
+        patch_rect = [centre.x - half, centre.y - half, centre.x + half, centre.y + half]
     else:
         empty_corner = {"cell": None, "cellsFromAnything": best_distance}
+        patch_rect = None
 
     made = set(built)
     new_faces = 0
@@ -477,7 +551,10 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
         "barrelDiameterT": round(float(plan["barrelDiameterT"]), 5),
         "barrelLengthT": round(float(plan["barrelLengthT"]), 5),
         "newFaces": new_faces,
+        "strayFacesRemoved": len(strays),
+        "breechFacesFilled": filled,
         "atlasCorner": empty_corner,
+        "patchRect": patch_rect,
         "triangles": triangles(ob),
     }
 
@@ -1642,6 +1719,53 @@ def main():
         metallic_image = shine_images["metallic"][0]
     if "roughness" in shine_images and shine_images["roughness"][0] is not None:
         roughness_image = shine_images["roughness"][0]
+
+    # ---- THE REBUILT BARRELS' OWN TEXELS, PAINTED BY THE STEP THAT OWNS THEM (task 94)
+    #
+    # The new faces live in a corner of the atlas that no old face uses, and the region pass paints
+    # that corner as barrel -- but MEASURED, over four runs, the barrels still came out at the
+    # ACTION's metalness of 0.45. Rather than keep guessing which pass reaches the corner, the step
+    # that OWNS those texels writes them itself: the numbers are the barrel region's own, from the
+    # recipe. IT RUNS HERE, between the shine pass and the check that samples the surface back
+    # through the mesh, for two reasons -- the textures are written to disk further down (a repaint
+    # after that reached neither the PNGs nor the export, measured in run 12), and the surface check
+    # must measure what actually ships rather than what an earlier pass left.
+    rebuilt = REPORT.get("rebuiltBarrels") or {}
+    rect = rebuilt.get("patchRect")
+    if rect:
+        barrel_region = recipe["regions"].get("barrel", {})
+        wanted = target_hsv(barrel_region.get("baseColor", {}).get("targetRGB", [26, 28, 34]),
+                            linearise)
+        painted = {}
+        for image, value in ((base_image, None),
+                             (metallic_image, barrel_region.get("metallic")),
+                             (roughness_image, barrel_region.get("roughness"))):
+            if image is None:
+                continue
+            array = image_array(image)
+            height, width = array.shape[0], array.shape[1]
+            x0 = max(int(rect[0] * width), 0)
+            x1 = min(int(math.ceil(rect[2] * width)), width - 1)
+            # the atlas is stored top row first and a v runs from the bottom
+            y0 = max(int((1.0 - rect[3]) * height), 0)
+            y1 = min(int(math.ceil((1.0 - rect[1]) * height)), height - 1)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            if value is None:
+                # `hsv_to_rgb` works on ARRAYS (it paints whole masks), so the one colour is handed
+                # to it as a one-element array and read back out.
+                channels = hsv_to_rgb(np.array([wanted[0]], dtype=np.float32),
+                                      np.array([wanted[1]], dtype=np.float32),
+                                      np.array([wanted[2]], dtype=np.float32))[0]
+                for channel in range(3):
+                    array[y0:y1 + 1, x0:x1 + 1, channel] = float(channels[channel])
+                painted["baseColor"] = [round(float(c), 4) for c in channels]
+            else:
+                array[y0:y1 + 1, x0:x1 + 1, 0:3] = float(value)
+                painted[image.name] = float(value)
+            set_image(image, array)
+        REPORT["rebuiltBarrels"]["repainted"] = painted
+        log("repaintedBarrelPatch", **painted)
 
     # ---- AND SAMPLED BACK THROUGH THE MESH, the same second route the colour uses. A mask that is
     # mirrored, shifted or the wrong region's writes a number that agrees with itself; this one asks
