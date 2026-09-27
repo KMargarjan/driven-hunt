@@ -18,7 +18,7 @@ changed, so `test2` is part of the gate and the Director runs it twice.
 at `weapon_shot.spec:161`, `Expected 0, got 1` — the `shots` delta. The client half passed under two
 players, which is claims 1–7. Claim 8's first version asserted a **server-wide counter across a
 wall-clock window**, which is the same mistake this whole task is about, committed inside the fix for
-it. Claim 8 now reads per call, and claim 11 is the correction.
+it. Claim 8 reads per call now and carries that correction itself.
 
 **What changed.** `src/server/Weapon/init.luau` (`Weapon.onActionRequest` and `Weapon.onFireRequest`
 exported, and both now return their own decision at every exit),
