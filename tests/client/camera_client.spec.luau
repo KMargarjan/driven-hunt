@@ -509,6 +509,17 @@ return function()
 			expect(clone:FindFirstChildOfClass("PointLight")).to.equal(nil)
 			expect(clone:FindFirstChild("SightBead")).to.equal(nil)
 
+			-- WHAT MUST NOT: a weld would be simulated under the camera, a sound would play twice.
+			expect(kept.Weld).to.equal(nil)
+			expect(kept.Sound).to.equal(nil)
+			expect(kept.Folder).to.equal(nil)
+			-- ...and the appearance of a welded PIECE survives too, not just the root's.
+			local clonedPiece = (clone :: Instance):FindFirstChild("BarrelLeft")
+			expect(clonedPiece).to.be.ok()
+			expect((clonedPiece :: Instance):FindFirstChildOfClass("SurfaceAppearance")).to.be.ok()
+
+			-- ...AND THE SAME HANDLE, REBUILT FOR FIRST PERSON, DOES GET THEM. Last, because a rebuild
+			-- destroys the clone every assertion above reads: `clone` is a dead Instance after it.
 			Camera.Viewmodel.clear() -- a config change does not rebuild a cached clone; this does
 			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), firstPersonConfig)
 			local lit = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
@@ -522,14 +533,6 @@ return function()
 				end
 			end
 			expect(fillLights).to.equal(1)
-			-- WHAT MUST NOT: a weld would be simulated under the camera, a sound would play twice.
-			expect(kept.Weld).to.equal(nil)
-			expect(kept.Sound).to.equal(nil)
-			expect(kept.Folder).to.equal(nil)
-			-- ...and the appearance of a welded PIECE survives too, not just the root's.
-			local clonedPiece = (clone :: Instance):FindFirstChild("BarrelLeft")
-			expect(clonedPiece).to.be.ok()
-			expect((clonedPiece :: Instance):FindFirstChildOfClass("SurfaceAppearance")).to.be.ok()
 
 			-- PUT THE LIVE SOURCE BACK. `CameraBoot` set it once at boot, so `setSource(nil)` would
 			-- not restore it -- it would end it, and every later frame of this session would draw no
