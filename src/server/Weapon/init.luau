@@ -72,6 +72,8 @@ local stats = {
 	revoked = 0,
 	armingRepairs = 0, -- a sweep found a player who should be holding a gun and was not
 	armingSweeps = 0, -- passes of the sweep below: 0 in a running server means it is not running
+	meshUpgrades = 0, -- guns that were wearing the parts fallback when the mesh arrived (Task 76)
+	meshUpgradeFails = 0, -- passes of that upgrade that ERRORED, so a silent one cannot look like a no-op
 	emptySwaps = 0,
 	markers = 0,
 }
@@ -628,6 +630,23 @@ function Weapon.start()
 					stats.armingRepairs += 1
 				end
 				pcall(Weapon.refreshArming, player)
+			end
+			-- AND THE LOOK, for a gun granted before the mesh landed (TASKS.md row 75a(h)).
+			-- `WeaponBoot` upgrades once, the moment the preload returns; this is the same net the
+			-- sweep above is -- the asset can arrive LATER than the preload budget, because a load
+			-- that timed out is late rather than lost (`Loader` adopts it), and there is no signal
+			-- for that. `Hardware.upgrade` is idempotent and never yields, so a pass that has
+			-- nothing to do costs one child lookup per carried Tool.
+			local ok, upgraded = pcall(Hardware.upgradeAll)
+			if ok then
+				stats.meshUpgrades += upgraded
+			else
+				-- COUNTED AND SAID ONCE, NOT SWALLOWED. A pcall whose failure goes nowhere is how a
+				-- sweep that repairs nothing looks exactly like a sweep with nothing to repair.
+				stats.meshUpgradeFails += 1
+				if stats.meshUpgradeFails == 1 then
+					warn(string.format("[Weapon] the mesh upgrade sweep failed: %s", tostring(upgraded)))
+				end
 			end
 		end
 	end)

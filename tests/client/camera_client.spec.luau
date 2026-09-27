@@ -402,6 +402,61 @@ return function()
 			expect(Camera.Viewmodel.getSource()).to.equal(live)
 		end)
 
+		it("rebuilds the clone when the source Handle's children change", function()
+			-- TASK 76. The server upgrades a gun that was handed out before the mesh loaded
+			-- (`Weapon.Hardware.upgrade`): the SAME Handle Instance loses ten welded parts and gains a
+			-- `Model`. `builtFrom ~= handle` therefore never fires, so without watching the children
+			-- the first-person gun would keep the parts fallback while the third-person gun -- the
+			-- Tool this is a clone of -- wore the mesh. Two looks for one gun, which is the thing
+			-- cloning the Handle exists to prevent.
+			local source = Instance.new("Part")
+			source.Name = "Handle"
+			source.Size = Vector3.new(0.4, 0.5, 4.4)
+			source.Transparency = 1
+			local piece = Instance.new("Part")
+			piece.Name = "BarrelLeft"
+			piece.Size = Vector3.new(0.17, 0.17, 2.7)
+			piece.Parent = source
+
+			local live = Camera.Viewmodel.getSource()
+			Camera.Viewmodel.setSource(function()
+				return source
+			end)
+			Camera.Viewmodel.clear()
+			task.wait(0.3) -- the source is asked four times a second, not per frame
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), 1, Config)
+			local before = Camera.Viewmodel.current()
+			expect(before).to.be.ok()
+			local firstClone = (before :: Model).PrimaryPart :: Instance
+			expect(firstClone:FindFirstChild("BarrelLeft")).to.be.ok()
+			expect(firstClone:FindFirstChild("Model")).to.equal(nil)
+
+			-- exactly what the upgrade does, in the same order: the mesh on, then the parts off
+			local mesh = Instance.new("MeshPart")
+			mesh.Name = "Model"
+			mesh.Size = Vector3.new(4.4, 0.69, 0.25)
+			mesh.Parent = source
+			piece:Destroy()
+			-- ChildAdded/ChildRemoved are DEFERRED, so the handlers have not run yet in this
+			-- resumption. Waiting is the only way to see them; the production loop is running the
+			-- whole time and leaves the model unparented at blend 0, so the update below is what
+			-- rebuilds and reparents it.
+			task.wait(0.1)
+
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), 1, Config)
+			local after = Camera.Viewmodel.current()
+			expect(after).to.be.ok()
+			expect(after).never.to.equal(before)
+			local clone = (after :: Model).PrimaryPart :: Instance
+			expect(clone:FindFirstChild("Model")).to.be.ok()
+			expect(clone:FindFirstChild("BarrelLeft")).to.equal(nil)
+
+			Camera.Viewmodel.clear()
+			Camera.Viewmodel.setSource(live)
+			source:Destroy()
+			expect(Camera.Viewmodel.getSource()).to.equal(live)
+		end)
+
 		it("shows a viewmodel that is really on screen, and unparents it afterwards", function()
 			if Role.isDriver() then
 				-- The viewmodel is a clone of the Tool's Handle (docs/design/camera.md section 7), so
