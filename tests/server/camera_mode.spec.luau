@@ -525,11 +525,17 @@ return function()
 			-- ends are asserted where the picture puts them, in the camera's own frame.
 			expect(carry.Position).to.equal(Config.VIEWMODEL_CARRY_POS_STUDS)
 			local half = Shotgun.CONFIG.HANDLE_SIZE.Z / 2
+			-- THE ACTION, NOT THE BUTT. The barrels are 0.62 of the gun, so the breech sits 0.53
+			-- studs BEHIND the Handle's centre; the stock carries on past it and, in this carry, past
+			-- the camera -- which is why the picture shows no butt.
+			local breechZ = Shotgun.CONFIG.HANDLE_SIZE.Z * (0.62 - 0.5)
 			local muzzle = (carry * CFrame.new(0, 0, -half)).Position
-			local action = (carry * CFrame.new(0, 0, half)).Position
+			local action = (carry * CFrame.new(0, 0, breechZ)).Position
 			-- THE MUZZLE IS LEFT, AND FURTHER AWAY: it runs off toward the left edge, which is what
 			-- makes the barrel taper across the frame instead of pointing at the viewer.
 			expect(muzzle.X < -1.5).to.equal(true)
+			-- ...and the BUTT is behind the eye, which is what keeps the stock out of the picture.
+			expect((carry * CFrame.new(0, 0, half)).Position.Z > 0).to.equal(true)
 			expect(muzzle.Z < action.Z).to.equal(true)
 			-- ...AND A LITTLE UP, never at the sky: between 2 and 20 degrees above the horizon.
 			local elevation = math.deg(math.asin(math.clamp((muzzle - action).Unit.Y, -1, 1)))
