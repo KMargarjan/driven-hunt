@@ -189,10 +189,10 @@ return function()
 			-- appears without anyone deciding is a failure, and the CHAIN is asserted by rule rather
 			-- than by naming today's numbers twice: exactly one row is live, every other row points
 			-- at a later version, and no chain dead-ends.
-			expect(#mine).to.equal(7)
+			expect(#mine).to.equal(8)
 			local live = Assets.byKey(Hardware.ASSET_KEY)
-			expect(live.version).to.equal(7)
-			expect(live.modelId).to.equal(107443663683446)
+			expect(live.version).to.equal(8)
+			expect(live.modelId).to.equal(126484176321060)
 			expect(live.supersededBy).to.equal(nil)
 			local byVersion, liveRows = {}, 0
 			for _, row in ipairs(mine) do
@@ -220,6 +220,7 @@ return function()
 			expect(byVersion[4].modelId).to.equal(80699745427569)
 			expect(byVersion[5].modelId).to.equal(73632997167378)
 			expect(byVersion[6].modelId).to.equal(94500894676280)
+			expect(byVersion[7].modelId).to.equal(107443663683446)
 		end)
 
 		it("skips a superseded row even when it is the newest one", function()
