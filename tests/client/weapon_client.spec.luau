@@ -746,6 +746,16 @@ return function()
 
 				local before = Weapon.get()
 				expect(before).to.be.ok()
+				-- TASK 80, THE MEASUREMENT. This case has failed intermittently at
+				-- `after.open` and `after.barrels[1]`, which is either the whitelist letting a forged
+				-- request through -- a security defect -- or something legitimate moving the gun
+				-- inside a window this spec believed was quiet. The two look identical from the state,
+				-- so the window prints its own timeline, every run, pass or fail: every snapshot that
+				-- arrived, when, and what changed in it. A green run says the window really was empty;
+				-- a red one says what moved it.
+				local firstIndex = #log
+				local inputAtOpen = os.clock() - lastWeaponInput
+				local openedAt = os.clock()
 				local remotes = Shotgun.remotes()
 				-- The reducer's own primitives, which Validator.checkRequest does not accept at all.
 				for _, bad in ipairs({ "Break", "Load", "Close", "Fire", "", 42 }) do
@@ -763,6 +773,49 @@ return function()
 					-- state guard refused none of them, and anything that moved was the whitelist
 					-- failing to.
 					local after = Weapon.get()
+					local timeline = {}
+					for index = firstIndex + 1, #log do
+						local entry = log[index]
+						table.insert(
+							timeline,
+							string.format(
+								"+%.2fs eq=%s open=%s b=%s/%s ld=%s/%s ammo=%s res=%d/%d busyFor=%.2f",
+								entry.at - openedAt,
+								tostring(entry.state.equipped),
+								tostring(entry.state.open),
+								tostring(entry.state.barrels[1]),
+								tostring(entry.state.barrels[2]),
+								tostring(entry.state.loaded[1]),
+								tostring(entry.state.loaded[2]),
+								tostring(entry.state.ammo),
+								entry.state.reserve.Slug or -1,
+								entry.state.reserve.Buck or -1,
+								entry.state.busyFor
+							)
+						)
+					end
+					print(
+						string.format(
+							"[weapon_client] exploit window: %d snapshot(s) in %.2f s; last weapon input "
+								.. "%.2f s before it opened, %.2f s before it closed; before open=%s "
+								.. "b=%s/%s res=%d/%d -> after open=%s b=%s/%s res=%d/%d%s",
+							#log - firstIndex,
+							os.clock() - openedAt,
+							inputAtOpen,
+							os.clock() - lastWeaponInput,
+							tostring(before.open),
+							tostring(before.barrels[1]),
+							tostring(before.barrels[2]),
+							before.reserve.Slug or -1,
+							before.reserve.Buck or -1,
+							tostring(after.open),
+							tostring(after.barrels[1]),
+							tostring(after.barrels[2]),
+							after.reserve.Slug or -1,
+							after.reserve.Buck or -1,
+							if #timeline > 0 then " | " .. table.concat(timeline, " | ") else ""
+						)
+					)
 					expect(after.open).to.equal(before.open)
 					expect(after.reserve.Slug).to.equal(before.reserve.Slug)
 					expect(after.reserve.Buck).to.equal(before.reserve.Buck)
