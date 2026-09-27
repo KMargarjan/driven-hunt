@@ -72,6 +72,11 @@ local stats = {
 	-- rather than count frames. See Config.LOOK_AT_LANDED_DOT for how close "showed it" is.
 	lookAtRequests = 0,
 	lookAtLanded = 0,
+	-- Shots this camera has kicked for, and the largest camera pitch offset any of them reached
+	-- (task 92). The second number is what says the kick is "a bit" rather than a lurch, and the
+	-- client spec asserts both it and the return to zero.
+	recoilKicks = 0,
+	maxRecoilCamPitchDeg = 0,
 }
 
 -- Every mode the camera has been in, in order, from boot. The harness-driven spec asserts over this
@@ -172,6 +177,43 @@ function Camera.lookAt(point: Vector3): boolean
 	return true
 end
 
+-- THE SHOT'S KICK (task 92). Karen, after playing S2: "shooting has to have recoil a bit".
+--
+-- A REQUEST, exactly as `Camera.lookAt` and `Cursor.requestFree` are: the weapon owner says "a shot
+-- of mine landed" and the camera decides what the camera does about it. `CameraBoot` is what connects
+-- the two, so neither owner requires the other -- the same wiring the aim source uses.
+--
+-- The spring is in `Mode`, so this is one reducer call and a counter. Off in the third-person branch
+-- (`Mode.kick` refuses it by config), because task 89 promised the flag-off camera is unchanged.
+function Camera.kick()
+	local before = state
+	state = Mode.kick(state, Config)
+	if state ~= before then
+		stats.recoilKicks += 1
+	end
+end
+
+-- WHERE THE DRAWN GUN'S MUZZLE IS, for the shot cosmetics (task 92). Karen, after playing S2: "when
+-- firing this animation where flies light has to be from pipes not from shoulder."
+--
+-- IN FIRST PERSON THE GUN ON SCREEN IS NOT THE GUN IN THE WORLD: the Tool is in the character's hand,
+-- hidden, and what the player sees is the viewmodel clone parented to the camera. So a flash drawn at
+-- the server's muzzle position appears where the character's hands are -- off to the side, at the
+-- shoulder, which is exactly what she saw. This answers with the CLONE's muzzle instead, and nil
+-- whenever there is no clone on screen (third person, dead, the flag off), which is when the world
+-- position is the right answer.
+--
+-- A READ. `Weapon.Effects` draws; this module draws the gun. Neither writes the other's Instances.
+-- FIRST PERSON ONLY (round 1, finding 1). In the OFF branch the clone is also on screen while
+-- aiming, but the player is looking at their CHARACTER holding the real gun, so the world muzzle is
+-- the right answer there -- and task 89's promise is that the flag-off branch is unchanged.
+function Camera.viewmodelMuzzle(barrel: number?): CFrame?
+	if not Config.FIRST_PERSON then
+		return nil
+	end
+	return Viewmodel.muzzle(barrel)
+end
+
 local function update(dt: number)
 	local startedAt = os.clock()
 	local character, root, humanoid = characterParts()
@@ -186,6 +228,7 @@ local function update(dt: number)
 		lookDelta = lookDelta,
 	}, dt, Config)
 	lookDelta = Vector2.zero -- consumed exactly once
+	stats.maxRecoilCamPitchDeg = math.max(stats.maxRecoilCamPitchDeg, math.abs(state.recoilCamPitchDeg))
 
 	if state.mode ~= previous then
 		table.insert(history, state.mode)

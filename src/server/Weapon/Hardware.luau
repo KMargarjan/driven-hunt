@@ -444,6 +444,24 @@ function Hardware.muzzlePosition(tool: Tool): Vector3?
 	return muzzle and muzzle.WorldPosition
 end
 
+-- WHERE THE FIRED BARREL'S MUZZLE IS, AND WHICH WAY IT POINTS (task 92): the frame every client draws
+-- the flash and the smoke in. Karen, after playing S2: "when firing this animation where flies light
+-- has to be from pipes not from shoulder."
+--
+-- IT IS COSMETIC AND IT IS DELIBERATELY NOT WHERE THE PELLETS START. `muzzlePosition` above is the
+-- ballistic origin and nothing here changes it: the pattern, the safety arc and every hit spec still
+-- measure from the one `Muzzle` attachment on the Handle's axis. This adds the barrel's own lateral
+-- offset -- `Shotgun.barrelMuzzleOffset`, the one definition of "the right tube is +0.09" -- so the
+-- light comes out of the tube that fired instead of the middle of the pair.
+function Hardware.muzzleCFrame(tool: Tool, barrel: number?): CFrame?
+	local handle = tool:FindFirstChild("Handle") :: BasePart?
+	local muzzle = handle and handle:FindFirstChild("Muzzle") :: Attachment?
+	if not muzzle then
+		return nil
+	end
+	return (muzzle :: Attachment).WorldCFrame * CFrame.new(Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG))
+end
+
 function Hardware.destroy(tool: Tool?)
 	if tool then
 		tool:Destroy()

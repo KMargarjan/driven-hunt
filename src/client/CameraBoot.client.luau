@@ -34,6 +34,17 @@ if weaponModule then
 		local handle = tool and tool:FindFirstChild("Handle")
 		return if handle and handle:IsA("BasePart") then handle else nil
 	end)
+	-- TASK 92, AND BOTH DIRECTIONS OF THE SAME WIRE. The weapon says "a shot of mine landed" and the
+	-- camera kicks; the weapon's cosmetics ask the camera where the DRAWN gun's muzzle is, so the flash
+	-- comes out of the pipe on screen instead of the hidden gun at the character's shoulder. Neither
+	-- owner requires the other -- this file is the only place that knows both, exactly as the aim
+	-- source above.
+	Weapon.Fired:Connect(function()
+		Camera.kick()
+	end)
+	Weapon.Effects.setMuzzleProvider(function(barrel: number?): CFrame?
+		return Camera.viewmodelMuzzle(barrel)
+	end)
 end
 
 Camera.start()

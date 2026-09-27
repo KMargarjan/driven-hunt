@@ -17,7 +17,12 @@
 -- Design: docs/design/camera.md (sections 3.2, 5.5)
 local Workspace = game:GetService("Workspace")
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local Mode = require(script.Parent.Mode)
+-- SHARED, AND ONLY FOR THE GEOMETRY OF THE BARRELS (task 92): `Shotgun.barrelMuzzleOffset`. This
+-- module still knows nothing about weapon STATE -- it clones a Handle and poses it.
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Viewmodel = {}
 
@@ -43,6 +48,10 @@ local stale = false
 local SIGHT_NAME = "Sight"
 local BEAD_NAME = "Bead"
 local MARKER_NAME = "SightBead"
+-- `Muzzle` is written by `Weapon.Hardware` beside `Sight` and comes across with the clone (task 92);
+-- `ViewmodelFill` is the one light this module adds.
+local MUZZLE_NAME = "Muzzle"
+local FILL_NAME = "ViewmodelFill"
 
 local stats = { sightMissing = 0, rebuilds = 0, parts = 0 }
 
@@ -126,7 +135,11 @@ local function addBeadMarker(clone: BasePart, config): boolean
 	bead.Shape = Enum.PartType.Ball
 	bead.Size = Vector3.new(config.BEAD_MARKER_STUDS, config.BEAD_MARKER_STUDS, config.BEAD_MARKER_STUDS)
 	bead.Color = config.BEAD_MARKER_COLOR
-	bead.Material = Enum.Material.Neon
+	-- METAL, NOT NEON (task 92). Karen, after playing S2: "that red dot is not realistic, we need to
+	-- improve what actually is on Beretta Parallelo" -- and what that gun has is a brass ball on the
+	-- rib. A Neon bead is its own light source and cannot read as metal at any colour, so the material
+	-- is a config row rather than a literal, and the fill light below is what keeps it visible.
+	bead.Material = config.BEAD_MARKER_MATERIAL
 	bead.Anchored = true
 	bead.CanCollide = false
 	bead.CanQuery = false
@@ -136,6 +149,48 @@ local function addBeadMarker(clone: BasePart, config): boolean
 	bead.CFrame = clone.CFrame * (attachment :: Attachment).CFrame
 	bead.Parent = clone
 	return true
+end
+
+-- THE GUN'S OWN LIGHT (task 92). Karen, after playing S2: "Weapon color we need to improve and style
+-- now feels a bit broken, it has to be smooth and nice."
+--
+-- A first-person gun is lit by the sun alone, inches from the eye, so in anything but flat noon light
+-- it renders as a near-black silhouette -- which is what "broken" is looking at, and what the S1
+-- screenshot showed in the dark. One PointLight inside the camera lifts the blued steel and the walnut
+-- into the colours they actually are. `Shadows = false`, because a light this close casting shadows
+-- from a gun's own barrels is noise, and it is the only light in the game that is not the sun.
+local function addFillLight(clone: BasePart, config): Light
+	local light = Instance.new("PointLight")
+	light.Name = FILL_NAME
+	light.Brightness = config.VIEWMODEL_FILL_BRIGHTNESS
+	light.Range = config.VIEWMODEL_FILL_RANGE_STUDS
+	light.Color = config.VIEWMODEL_FILL_COLOR
+	light.Shadows = false
+	-- An Attachment is how a light gets an offset from the part it hangs on: a PointLight's own
+	-- position is its parent's, and the light wants to be above and left of the breech rather than
+	-- inside the Handle's centre.
+	local at = Instance.new("Attachment")
+	at.Name = FILL_NAME .. "At"
+	at.CFrame = CFrame.new(config.VIEWMODEL_FILL_OFFSET_STUDS)
+	at.Parent = clone
+	light.Parent = at
+	return light
+end
+
+-- WHERE THE DRAWN GUN'S MUZZLE IS, in WORLD space, for the fired barrel (task 92) -- or nil when there
+-- is no viewmodel on screen, or the cloned gun carries no `Muzzle` attachment. The caller then draws
+-- at the world gun's muzzle instead, which is the right answer in third person.
+--
+-- The barrel's own lateral offset comes from `Shotgun.barrelMuzzleOffset`, the ONE definition of which
+-- tube is which -- this module does not know that the right barrel is +0.09 and must not learn it.
+function Viewmodel.muzzle(barrel: number?): CFrame?
+	local made = Viewmodel.current()
+	local clone = made and made.PrimaryPart
+	local attachment = clone and clone:FindFirstChild(MUZZLE_NAME)
+	if not (attachment and attachment:IsA("Attachment")) then
+		return nil
+	end
+	return (attachment :: Attachment).WorldCFrame * CFrame.new(Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG))
 end
 
 local function build(handle: BasePart, config): Model
@@ -187,7 +242,17 @@ local function build(handle: BasePart, config): Model
 	clone.CastShadow = false
 	clone.Parent = made
 	made.PrimaryPart = clone
-	addBeadMarker(clone, config)
+	-- FIRST-PERSON EXTRAS, AND THEY BELONG TO THE FIRST-PERSON BRANCH (review round 2, finding 1).
+	-- The clone is drawn in BOTH branches -- in the OFF branch it is the ADS viewmodel Karen accepted
+	-- on 2026-09-25 -- so a light or a drawn bead added here without asking lands in the camera task
+	-- 89 promised not to touch: the fill light was throwing a glow on the ground behind a
+	-- third-person player. Neither is any use there either: the shoulder camera's gun is lit by the
+	-- same sun as everything else around it, and its sight picture is the accepted framing rather
+	-- than a bead on the axis.
+	if config.FIRST_PERSON then
+		addBeadMarker(clone, config)
+		addFillLight(clone, config)
+	end
 
 	stats.rebuilds += 1
 	local parts = 0

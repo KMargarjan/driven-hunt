@@ -113,6 +113,22 @@ function Shotgun.snapshot(state: WeaponState, now: number, notice: string?): Wea
 end
 
 -- The one place the remote paths are spelled, so no caller hard-codes them twice.
+-- WHERE THE FIRED BARREL'S MUZZLE IS, in the frame of the `Muzzle` attachment (task 92). One
+-- definition, used by the server to tell every client where to draw the flash and by the client to
+-- place it on the first-person gun, because two copies of "the right pipe is +0.09" is how the left
+-- barrel ends up flashing on the right.
+--
+-- `barrel` is 1 (right) or 2 (left); anything else is the centre, which is what a gun with one barrel
+-- or an unknown index should do rather than guessing a side.
+function Shotgun.barrelMuzzleOffset(barrel: number?, config): Vector3
+	local config_ = config or Shotgun.CONFIG
+	local x = if barrel == 1
+		then config_.BARREL_HALF_GAP_STUDS
+		elseif barrel == 2 then -config_.BARREL_HALF_GAP_STUDS
+		else 0
+	return Vector3.new(x, config_.BARREL_RISE_STUDS, 0)
+end
+
 function Shotgun.remotes()
 	local folder = ReplicatedStorage:WaitForChild("Shotgun"):WaitForChild("Remotes")
 	return {
@@ -195,6 +211,25 @@ Shotgun.CONFIG = {
 	IMPACT_LIFETIME = 1.0,
 	FLASH_LIFETIME = 0.05,
 	EFFECT_MAX_PER_SHOT = 24, -- a hard cap, so a bug cannot flood Workspace
+	-- THE FLASH COMES OUT OF THE PIPE THAT FIRED (task 92). Karen, after playing S2, 2026-09-27:
+	-- "when firing this animation where flies light has to be from pipes not from shoulder."
+	--
+	-- BARREL 1 IS THE RIGHT TUBE and barrel 2 the left, which is the order a side-by-side with one
+	-- trigger fires in, and the order `Weapon.StateMachine.selected` walks. This is the lateral
+	-- half-gap between the two bores: the same number `Shape`'s BarrelLeft/BarrelRight are laid out at
+	-- (+-BARREL_GAP / 2 = +-0.09), and `tests/server/weapon_look.spec.luau` asserts they still agree
+	-- rather than trusting two copies of 0.09.
+	BARREL_HALF_GAP_STUDS = 0.09,
+	-- How far above the Muzzle attachment the bores actually are: the attachment sits on the Handle's
+	-- axis, the barrels ride above it (`Shape`'s BARREL_Y).
+	BARREL_RISE_STUDS = 0.12,
+	-- The smoke that follows the flash: bigger, slower, grey, and gone before the next shot. MEASURED
+	-- RATHER THAN CHOSEN: at the first pick, 0.45 s, seventeen screenshots taken across two sessions
+	-- caught it exactly never -- the harness's own capture grabs its frame seconds into the call, and
+	-- a player firing a barrel sees about as much of it as the camera did. Real muzzle smoke from a
+	-- 12-gauge hangs; 1.1 s is still short, and it is what makes "the light comes from the pipes"
+	-- something Karen can actually watch. The FLASH stays at 0.05 s, because a flash is instant.
+	SMOKE_LIFETIME = 1.1,
 
 	-- the Hud
 	-- The hit marker (Director decision, 2026-09-25, on hit-zones design section 14 item C): Karen's

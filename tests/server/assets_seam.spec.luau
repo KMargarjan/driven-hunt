@@ -183,16 +183,38 @@ return function()
 					table.insert(mine, row)
 				end
 			end
-			expect(#mine).to.equal(2)
+			-- THREE SINCE TASK 92: v3 is the same model shaded smooth, after Karen's "style now feels
+			-- a bit broken, it has to be smooth and nice". The count is asserted so a row that
+			-- appears without anyone deciding is a failure, and the CHAIN is asserted by rule rather
+			-- than by naming today's numbers twice: exactly one row is live, every other row points
+			-- at a later version, and no chain dead-ends.
+			expect(#mine).to.equal(3)
 			local live = Assets.byKey(Hardware.ASSET_KEY)
-			expect(live.version).to.equal(2)
-			expect(live.modelId).to.equal(103304840285660)
+			expect(live.version).to.equal(3)
+			expect(live.modelId).to.equal(137252961155547)
 			expect(live.supersededBy).to.equal(nil)
-			-- ...and the row it replaced is still here, still saying why.
-			local old = if mine[1].version == 1 then mine[1] else mine[2]
-			expect(old.modelId).to.equal(117134580332969)
-			expect(old.supersededBy).to.equal(2)
-			expect(string.find(old.notes :: string, "SUPERSEDED") ~= nil).to.equal(true)
+			local byVersion, liveRows = {}, 0
+			for _, row in ipairs(mine) do
+				byVersion[row.version] = row
+				if row.supersededBy == nil then
+					liveRows += 1
+				end
+			end
+			expect(liveRows).to.equal(1)
+			for _, row in ipairs(mine) do
+				if row.supersededBy ~= nil then
+					-- the row it points at exists, and is later than it
+					expect(byVersion[row.supersededBy]).to.be.ok()
+					expect(row.supersededBy > row.version).to.equal(true)
+				end
+			end
+			-- ...and the FIRST row is still here, still saying why it was replaced.
+			local first = byVersion[1]
+			expect(first.modelId).to.equal(117134580332969)
+			expect(first.supersededBy).to.equal(2)
+			expect(string.find(first.notes :: string, "SUPERSEDED") ~= nil).to.equal(true)
+			-- ...as is the one task 92 replaced, with its own id kept.
+			expect(byVersion[2].modelId).to.equal(103304840285660)
 		end)
 
 		it("skips a superseded row even when it is the newest one", function()

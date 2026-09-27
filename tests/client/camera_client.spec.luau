@@ -495,7 +495,20 @@ return function()
 			expect(kept.SurfaceAppearance).to.equal(1)
 			expect(kept.Texture).to.equal(1)
 			expect(kept.Decal).to.equal(1)
+			-- THE GUN'S OWN ATTACHMENT SURVIVES THE SWEEP -- it is what the muzzle and the sight ride
+			-- on -- and in THIS branch it is the only one there is.
 			expect(kept.Attachment).to.equal(1)
+
+			-- ------------------------------------------------ the first-person extras (round 2, f1)
+			-- THE FILL LIGHT IS FIRST PERSON'S, AND ONLY FIRST PERSON'S. The clone is drawn in both
+			-- branches -- with the flag off it is the ADS viewmodel Karen accepted on 2026-09-25 --
+			-- so a light added to every clone put a glow on the ground behind a third-person player,
+			-- in the camera task 89 promised not to touch. Both branches are driven here, from the
+			-- same handle, because "it is absent" means nothing unless the same code can produce it.
+			expect(clone:FindFirstChild("ViewmodelFillAt")).to.equal(nil)
+			expect(clone:FindFirstChildOfClass("PointLight")).to.equal(nil)
+			expect(clone:FindFirstChild("SightBead")).to.equal(nil)
+
 			-- WHAT MUST NOT: a weld would be simulated under the camera, a sound would play twice.
 			expect(kept.Weld).to.equal(nil)
 			expect(kept.Sound).to.equal(nil)
@@ -504,6 +517,22 @@ return function()
 			local clonedPiece = (clone :: Instance):FindFirstChild("BarrelLeft")
 			expect(clonedPiece).to.be.ok()
 			expect((clonedPiece :: Instance):FindFirstChildOfClass("SurfaceAppearance")).to.be.ok()
+
+			-- ...AND THE SAME HANDLE, REBUILT FOR FIRST PERSON, DOES GET THEM. Last, because a rebuild
+			-- destroys the clone every assertion above reads: `clone` is a dead Instance after it.
+			Camera.Viewmodel.clear() -- a config change does not rebuild a cached clone; this does
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), firstPersonConfig)
+			local lit = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+			local fill = lit:FindFirstChild("ViewmodelFillAt") :: Attachment
+			expect(fill).to.be.ok()
+			expect(fill:FindFirstChildOfClass("PointLight")).to.be.ok()
+			local fillLights = 0
+			for _, descendant in ipairs(lit:GetDescendants()) do
+				if descendant:IsA("PointLight") then
+					fillLights += 1
+				end
+			end
+			expect(fillLights).to.equal(1)
 
 			-- PUT THE LIVE SOURCE BACK. `CameraBoot` set it once at boot, so `setSource(nil)` would
 			-- not restore it -- it would end it, and every later frame of this session would draw no
@@ -803,6 +832,14 @@ return function()
 				expect((marker.Position - sight.WorldPosition).Magnitude < 1e-3).to.equal(true)
 			end)
 
+			-- ...and the OFF BRANCH gets no drawn bead at all (round 2, finding 1): its sight picture
+			-- is the framing Karen accepted for the shoulder camera, not a bead on the view axis.
+			posed(gunWithSight(false), function()
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), Config)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				expect(clone:FindFirstChild("SightBead")).to.equal(nil)
+			end)
+
 			-- ...and a gun that brought its own bead gets nothing added: one bead, never two.
 			posed(gunWithSight(true), function()
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
@@ -813,16 +850,100 @@ return function()
 				expect(clone:FindFirstChild("Bead")).to.be.ok()
 			end)
 
-			-- IT IS RED, which is what Karen asked for of her own picture ("red point on end"), and
-			-- it is deliberately NOT `Shotgun.CONFIG.LOOK.bead` any more: that off-white is the parts
-			-- gun's own bead, a piece of the weapon other players see, while this is the aiming mark
-			-- the camera draws for one player. The assertion is the colour's character rather than a
-			-- copy check, because there is nothing left to copy.
-			local red = Config.BEAD_MARKER_COLOR
-			expect(red.R * 255 > 200).to.equal(true)
-			expect(red.G * 255 < 90).to.equal(true)
-			expect(red.B * 255 < 90).to.equal(true)
-			expect(red).never.to.equal(Shotgun.CONFIG.LOOK.bead)
+			-- IT IS A METAL BEAD, NOT A RED DOT (task 92). Karen, after playing S2: "that red dot is
+			-- not realistic, we need to improve what actually is on Beretta Parallelo" -- and what a
+			-- 486 Parallelo carries is a small BRASS BALL on the rib. So the assertion is brass and
+			-- metal: warm (red above green above blue), not saturated like the dot it replaces, and a
+			-- material that is not its own light source. It is still deliberately NOT
+			-- `Shotgun.CONFIG.LOOK.bead`: that off-white is the parts gun's own bead, a piece of the
+			-- weapon other players see, while this is the aiming mark the camera draws for one player.
+			local brass = Config.BEAD_MARKER_COLOR
+			expect(brass.R > brass.G and brass.G > brass.B).to.equal(true)
+			expect(brass.B * 255 > 40).to.equal(true) -- brass, not a red LED: blue is present
+			expect(brass.R * 255 < 240).to.equal(true) -- and it is metal, not a glowing dot
+			expect(Config.BEAD_MARKER_MATERIAL).to.equal(Enum.Material.Metal)
+			expect(brass).never.to.equal(Shotgun.CONFIG.LOOK.bead)
+			-- ...and the drawn bead really wears both, or the config rows above are a description of
+			-- something nobody applied.
+			posed(gunWithSight(false), function()
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local marker = clone:FindFirstChild("SightBead") :: BasePart
+				expect(marker.Material).to.equal(Enum.Material.Metal)
+				expect(marker.Color).to.equal(Config.BEAD_MARKER_COLOR)
+			end)
+
+			-- THE GUN CARRIES ITS OWN LIGHT (task 92). Karen: "Weapon color we need to improve and
+			-- style now feels a bit broken, it has to be smooth and nice." A first-person gun lit by
+			-- the sun alone is a near-black silhouette, so the viewmodel adds one PointLight of its
+			-- own -- inside the camera, so it lights the gun and nothing a player could point at.
+			posed(gunWithSight(false), function()
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local at = clone:FindFirstChild("ViewmodelFillAt") :: Attachment
+				expect(at).to.be.ok()
+				local light = at:FindFirstChildOfClass("PointLight") :: PointLight
+				expect(light).to.be.ok()
+				expect(light.Shadows).to.equal(false)
+				-- WITHIN A FLOAT, for the same reason the bead's size is: `Light.Brightness` is
+				-- float32, so 1.4 comes back as 1.399999976158142 (measured, this task's first run).
+				expect(math.abs(light.Brightness - Config.VIEWMODEL_FILL_BRIGHTNESS) < 1e-4).to.equal(true)
+				expect(math.abs(light.Range - Config.VIEWMODEL_FILL_RANGE_STUDS) < 1e-4).to.equal(true)
+				-- ONE light, never one per rebuild: a leak here is a light per shot fired.
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
+				local lights = 0
+				for _, descendant in ipairs(clone:GetDescendants()) do
+					if descendant:IsA("PointLight") then
+						lights += 1
+					end
+				end
+				expect(lights).to.equal(1)
+			end)
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ recoil, live (task 92)
+	describe("the shot's kick", function()
+		it("is wired, does nothing to the live third-person camera, and settles the gun", function()
+			-- KAREN, after playing S2: "shooting has to have recoil a bit".
+			--
+			-- THE LIVE HALF IS THE PROMISE, not the feel: this client runs with `FIRST_PERSON` off, so
+			-- `Camera.kick()` must be a no-op on the camera a player is looking through right now --
+			-- task 89's promise that the flag-off branch is the shoulder camera Karen accepted.
+			local before = Camera.getState()
+			Camera.kick()
+			local after = Camera.getState()
+			expect(after.recoilCamPitchDeg).to.equal(0)
+			expect(after.recoilGunPitchDeg).to.equal(0)
+			expect(Camera.Mode.recoiling(after)).to.equal(false)
+			expect(Camera.stats().recoilKicks).to.equal(0)
+			expect(before.recoilCamPitchDeg).to.equal(0)
+
+			-- ...and the first-person branch, by parameter, moves the gun on screen and brings it
+			-- home: the same reducer the live camera would run with the flag on. The POSE is what a
+			-- player sees, so that is what is measured rather than the numbers behind it.
+			local kicked = Camera.Mode.kick(stateAtBlend(1), firstPersonConfig)
+			local rest = Camera.Mode.viewmodelOffset(stateAtBlend(1), nil, firstPersonConfig)
+			local shot = Camera.Mode.viewmodelOffset(kicked, nil, firstPersonConfig)
+			expect((shot.Position - rest.Position).Magnitude > 0.05).to.equal(true)
+			local settling = kicked
+			for _ = 1, 120 do
+				settling = Camera.Mode.step(
+					settling,
+					{ aiming = true, alive = true, hasCharacter = true, lookDelta = Vector2.zero },
+					1 / 60,
+					firstPersonConfig
+				)
+			end
+			expect(Camera.Mode.recoiling(settling)).to.equal(false)
+			expect(Camera.Mode.viewmodelOffset(settling, nil, firstPersonConfig)).to.equal(rest)
+			TestKit.note(
+				string.format(
+					"task92 kick: gun moves %.3f studs on screen and is home in under 2 s; live branch kicked %d time(s)",
+					(shot.Position - rest.Position).Magnitude,
+					Camera.stats().recoilKicks
+				)
+			)
 		end)
 	end)
 

@@ -177,6 +177,7 @@ Assets.ROWS = {
 		-- MEASURED in Studio, on this id: ONE SurfaceAppearance, ColorMap 137831763707305,
 		-- MetalnessMap 97235862383876, RoughnessMap 113964612606991 -- all three new, where
 		-- version 1 came back carrying the raw model's own map ids.
+		supersededBy = 3, -- task 92: v3 is the same model with smooth normals and a softer action
 		modelId = 103304840285660,
 		displayName = "Driven Hunt shotgun (side-by-side) r4",
 		fileName = "model.fbx",
@@ -219,6 +220,61 @@ Assets.ROWS = {
 			.. "0.00 / 0.62, written into the MAPS, which is the only channel Roblox reads. One "
 			.. "MeshPart with ONE SurfaceAppearance child (version 1's export made four, three of "
 			.. "them empty); the viewmodel's clone must keep it (design 6.6).",
+	},
+	{
+		key = "shotgun.handle",
+		version = 3,
+		kind = "meshpart" :: Kind,
+		-- Uploaded by tools/roblox_upload.py on 2026-09-27; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- WHY THERE IS A VERSION 3. Karen, after playing the first-person build (PLAYTEST.md,
+		-- 2026-09-27): "Weapon color we need to improve and style now feels a bit broken, it has to
+		-- be smooth and nice." What she was looking at was FLAT SHADING: `tools/asset_prep.py`
+		-- exported every run with `mesh_smooth_type="FACE"`, so each of the model's 19,325 triangles
+		-- was lit as its own plane and a round barrel an inch from a first-person eye became a ring
+		-- of bright shards with dark seams. The tool now shades the mesh smooth and keeps as SHARP
+		-- only the edges whose faces meet at more than 35 degrees (`smoothAngleDeg`), and exports
+		-- with `mesh_smooth_type="EDGE"` so those flags travel: MEASURED on this run, 9,050 of
+		-- 28,992 edges stayed sharp. The action's shine came down with it -- metalness 0.70 -> 0.45,
+		-- roughness 0.35 -> 0.50 -- because a mirror is what turned the shards white.
+		--
+		-- SAME MODEL, SAME GEOMETRY: the same Meshy source file as v2, not decimated, so the
+		-- triangle count, the bounding box and `sightOffsetStuds` are unchanged and no number the
+		-- rest of the system is built on moves.
+		modelId = 137252961155547,
+		displayName = "Driven Hunt shotgun (side-by-side) r5 smooth",
+		fileName = "model.fbx",
+		sourceSha256 = "0d27f24e14b3b95125aac621ecfd0b12242c2810ad2cd24a1a445c8efd9b4fee",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked for this "
+				.. "exact correction on 2026-09-27, after playing it: weapon colour and style feel "
+				.. "a bit broken, it has to be smooth and nice. The re-upload carries her "
+				.. "correction and nothing else -- same model, same geometry, smooth shading.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-09-27, TASKS.md row 92",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 19325,
+		texturePx = 2048,
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		-- UNCHANGED FROM v2, and it may be: the geometry is the same file, so the painted bead is
+		-- where it was. See v2 for how this was measured on screen.
+		sightOffsetStuds = Vector3.new(0, 0.375, -2.15),
+		renderFidelity = "Automatic",
+		notes = "Smooth normals at 35 degrees (9,050 of 28,992 edges kept sharp), exported with "
+			.. "EDGE smoothing. Barrels and rib at metalness 0.10 / roughness 0.50, action 0.45 / "
+			.. "0.50, stock 0.00 / 0.62, written into the MAPS. One MeshPart with ONE "
+			.. "SurfaceAppearance child; the viewmodel's clone must keep it (design 6.6).",
 	},
 } :: { AssetRow }
 
