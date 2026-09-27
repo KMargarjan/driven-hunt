@@ -50,6 +50,14 @@ Match.Markers = Markers
 Match.Penalty = Penalty
 Match.Body = Body
 
+-- THE QUICK TEST'S BOUNDARY READ, AND THE STUDIO GUARD IS PART OF IT (task 83). Pure and exported
+-- so the guard itself is testable: `quickTestEnabled(true, false)` is false, which is the assertion
+-- that says a live server can never run this however the attribute got there. It is the only flag in
+-- this repo whose value is ANDed with anything, and it is ANDed with `RunService:IsStudio()`.
+local function quickTestEnabled(flagOn: boolean, isStudio: boolean): boolean
+	return flagOn == true and isStudio == true
+end
+
 -- Every number the drive has. K marks Karen's feel values. No magic number anywhere else in this
 -- system, and none of this is replicated: a client that knows the safety numbers can dodge the rule
 -- by eye (design section 3.4).
@@ -100,6 +108,29 @@ Match.CONFIG = {
 		GAP_MAX_SECONDS = 180, -- K, never more than three minutes of empty wood
 		HOLDBACK_WARN = 20, -- consecutive hold-backs of one sounder before this warns, once
 	},
+
+	-- ------------------------------------------------------------ the quick test (task 83)
+	-- STUDIO ONLY. One read, at this boundary, ANDed with IsStudio and passed inward as `config` --
+	-- so `Phase` needs no flag and no service, and a spec drives both states with a table
+	-- (feature-flags.md section 13.3). Karen: "just for testing could be much faster that they cross
+	-- a line small group and then you can shoot".
+	QUICK_TEST = quickTestEnabled(Flags.isOn("QUICK_TEST"), RunService:IsStudio()),
+	QUICK_TEST_INTERMISSION_SECONDS = 3, -- enough to read "Drive 1" and turn round
+	QUICK_TEST_SOUNDER = 3, -- K's "small group": the first release only, then the drive is normal
+	-- ON THE ROAD ITSELF, 6 studs north of the centreline. The road is the one strip of ground the
+	-- map GUARANTEES flat at groundY (`Map.ROAD`, halfWidth 8), and `Runtime:spawn` overwrites the
+	-- caller's Y -- so a spawn off it would put a boar inside a hill. 6 keeps the whole ring inside
+	-- the flat half-width with the spread below.
+	QUICK_TEST_AHEAD_STUDS = 6,
+	QUICK_TEST_SPREAD_STUDS = 6,
+	-- THE PHANTOM DRIVER, and it is what makes them RUN rather than graze. A boar flees only when a
+	-- threat is inside DETECT_RADIUS (40), and in a quick test there may be no driver on the map at
+	-- all -- a solo player is a shooter. So while the quick test's first sounder is young, the boar
+	-- world is told there is a driver standing this far BEHIND it, which is exactly what a real
+	-- driver walking up would look like: the sounder bolts for the exit, across the road, in front
+	-- of the shooters. It is not a player, carries no userId, and `Penalty` therefore never sees it.
+	QUICK_TEST_PUSH_BEHIND_STUDS = 30,
+	QUICK_TEST_PUSH_SECONDS = 25, -- after this the phantom is gone and the drive is the real drive
 
 	-- points (design section 7.1)
 	POINTS = {
@@ -478,7 +509,7 @@ local function applyRefreshArming(userIds: { number }?)
 	end
 end
 
-local function applySpawnSounder(position: Vector3?, size: number?)
+local function applySpawnSounder(position: Vector3?, size: number?, quickSpread: number?)
 	if not (world and world.boars) then
 		return
 	end
@@ -492,7 +523,9 @@ local function applySpawnSounder(position: Vector3?, size: number?)
 	-- THE PAD IS THE CONTRACT: the runtime is told the radius the MAP guarantees is flat, and
 	-- spreads the ring inside it -- because Runtime:spawn overwrites the caller's Y, so a member
 	-- placed on a slope would be spawned inside a hill (map-generator.md section 11).
-	local spread = markerSet and markerSet.spawnRadius
+	-- THE EFFECT MAY NAME ITS OWN SPREAD (task 83): the quick test spawns on the road, whose flat
+	-- half-width is 8 studs, not on a 30-stud spawn pad. Everything else still gets the pad.
+	local spread = quickSpread or (markerSet and markerSet.spawnRadius)
 	local ok, handles = pcall(function()
 		if world.boars.spawnSounder then
 			return world.boars:spawnSounder(position, animals, spread)
@@ -596,7 +629,7 @@ local function applyEffects(effects)
 		elseif kind == "refreshArming" then
 			applyRefreshArming(effect.userIds)
 		elseif kind == "spawnSounder" then
-			applySpawnSounder(effect.position, effect.size)
+			applySpawnSounder(effect.position, effect.size, effect.spread)
 		elseif kind == "clearBoars" then
 			applyClearBoars()
 		elseif kind == "freeze" then
@@ -689,12 +722,50 @@ end
 
 -- ------------------------------------------------------------------------------- the boar's side
 
+-- Exported for the spec: see the comment on the local, above CONFIG.
+Match.quickTestEnabled = quickTestEnabled
+
+-- Where the quick test puts its first sounder: on the road, `QUICK_TEST_AHEAD_STUDS` north of the
+-- drive line, or nil when there is no line to measure from. Pure, so the spec can check it without
+-- a map.
+function Match.quickSpawnFor(line, config): Vector3?
+	if not (config and config.QUICK_TEST and line and typeof(line.position) == "Vector3") then
+		return nil
+	end
+	return line.position + Vector3.new(0, 0, config.QUICK_TEST_AHEAD_STUDS)
+end
+
 -- Drivers only. A shooter standing on a post must not push the boar back into the wood before it
 -- reaches the line, which is the whole mechanic.
+--
+-- PLUS THE QUICK TEST'S PHANTOM (task 83, Studio only), for its first `QUICK_TEST_PUSH_SECONDS`.
+-- The boar world asks this one function "who is pushing?", so this is the one place a quick test can
+-- answer "somebody is" without inventing a player. The id is not a number, so
+-- `driverPositions()` -- the safety rule's own read, which is `tonumber`-keyed -- skips it and
+-- nobody can be tied to a tree for shooting at a phantom.
 function Match.driverThreats()
-	return Body.driverPositions(function(player)
+	local out = Body.driverPositions(function(player)
 		return state.assignment[player.UserId]
 	end, playersService())
+	local phantom = Match.quickTestPhantom(now())
+	if phantom then
+		table.insert(out, { id = "quick-test", position = phantom })
+	end
+	return out
+end
+
+-- Nil unless the quick test is on, the drive is running, its first seconds have not passed, and
+-- there is a spawn to stand behind. Exported so the spec can drive all four of those.
+function Match.quickTestPhantom(at: number): Vector3?
+	local config = Match.CONFIG
+	if not config.QUICK_TEST or state.phase ~= "Running" or not state.quickSpawn then
+		return nil
+	end
+	local driveStartedAt = state.phaseEndsAt - config.DRIVE_SECONDS
+	if at - driveStartedAt > config.QUICK_TEST_PUSH_SECONDS then
+		return nil
+	end
+	return state.quickSpawn + Vector3.new(0, 0, config.QUICK_TEST_PUSH_BEHIND_STUDS)
 end
 
 function Match.driveLine()
@@ -858,6 +929,9 @@ local function readMarkers()
 		complete = markerSet.complete,
 		missing = markerSet.missing,
 		boarSpawns = markerSet.boarSpawns,
+		-- The quick test's own spawn point, computed HERE because this owner is the one that reads
+		-- the markers; `Phase` gets a Vector3 like every other position it is given.
+		quickSpawn = Match.quickSpawnFor(markerSet.line, Match.CONFIG),
 	})
 end
 

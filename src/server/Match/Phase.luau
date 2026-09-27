@@ -34,6 +34,10 @@ export type State = {
 	markersComplete: boolean,
 	missing: { string },
 	boarSpawns: { Vector3 },
+	-- THE QUICK TEST'S OWN SPAWN (task 83, Studio only): on the road in front of the shooters,
+	-- computed by the owner from the drive-line marker because the owner is what reads markers. Nil
+	-- whenever the quick test is off, which is what makes every branch below a one-line question.
+	quickSpawn: Vector3?,
 	-- A RELEASE IS A SOUNDER OF `size` ANIMALS, so the two counts are different questions: the
 	-- BUDGET is boars (BOARS_PER_DRIVE), and the RHYTHM -- which marker, which jitter index -- is
 	-- sounders. With the flag off every size is 1 and the two are equal, which is what makes the
@@ -63,10 +67,14 @@ export type Event = {
 	complete: boolean?,
 	missing: { string }?,
 	boarSpawns: { Vector3 }?,
+	quickSpawn: Vector3?,
 }
 
 export type Effect = {
 	kind: string,
+	-- "spawnSounder": how far from `position` the ring may spread, when the caller knows better than
+	-- the map's spawn pad. The quick test does: it spawns on the road (task 83).
+	spread: number?,
 	force: boolean?, -- "broadcast": a phase change, which no client may miss behind the throttle
 	assignment: { [number]: TeamName }?,
 	userId: number?, -- "freeze": the one player to tie to a tree
@@ -105,6 +113,7 @@ function Phase.initial(config): State
 		markersComplete = false,
 		missing = { "markers" },
 		boarSpawns = {},
+		quickSpawn = nil,
 		boarsReleased = 0,
 		soundersReleased = 0,
 		holdbacks = 0,
@@ -112,6 +121,23 @@ function Phase.initial(config): State
 		boarsAccounted = 0,
 		seed = config.SEED or 1,
 	})
+end
+
+-- HOW LONG THE INTERMISSION IS, and HOW LONG AFTER THE DRIVE STARTS THE FIRST RELEASE IS. Two pure
+-- questions with one branch each, so the quick test is a value rather than a second schedule: with
+-- `QUICK_TEST` off they answer exactly what this drive has always answered (task 83).
+function Phase.intermissionSeconds(config): number
+	if config.QUICK_TEST then
+		return config.QUICK_TEST_INTERMISSION_SECONDS
+	end
+	return config.INTERMISSION_SECONDS
+end
+
+function Phase.firstReleaseSeconds(config): number
+	if config.QUICK_TEST then
+		return 0 -- immediately: the drive starts and the boars are already moving
+	end
+	return config.FIRST_RELEASE_SECONDS
 end
 
 function Phase.isLive(state: State): boolean
@@ -167,6 +193,13 @@ function Phase.sounderSize(state: State, config): number
 	if remaining <= 0 then
 		return 0
 	end
+	-- THE QUICK TEST'S FIRST RELEASE IS KAREN'S "SMALL GROUP", whatever the sounder flag says: it is
+	-- the release she is waiting for, and one boar 1,300 studs away is the thing being fixed. Only
+	-- the FIRST one -- `soundersReleased == 0` -- so the rest of the drive is the real drive.
+	if config.QUICK_TEST and state.soundersReleased == 0 then
+		return math.max(1, math.min(config.QUICK_TEST_SOUNDER, remaining))
+	end
+
 	local sounder = config.SOUNDER
 	if not (sounder and sounder.ENABLED) then
 		return 1
@@ -240,7 +273,7 @@ end
 -- drive-start push vanish (the clients were still being told it was the previous drive).
 local function enterAssigning(state: State, effects: { Effect }, now: number, config)
 	state.phase = "Assigning"
-	state.phaseEndsAt = now + config.INTERMISSION_SECONDS
+	state.phaseEndsAt = now + Phase.intermissionSeconds(config)
 	state.driveNumber += 1
 	state.boarsReleased = 0
 	state.soundersReleased = 0
@@ -271,7 +304,7 @@ local function enterRunning(state: State, effects: { Effect }, now: number, conf
 	-- that can stage a shot at a boar and one that cannot: with the first release jittered by up to
 	-- 15 s either way, the only boar in the session arrived after the replay had finished
 	-- (measured, twice). reviews/task-32/DESIGN_DELTA.md records it.
-	state.nextReleaseAt = now + config.FIRST_RELEASE_SECONDS
+	state.nextReleaseAt = now + Phase.firstReleaseSeconds(config)
 	feed(effects, { kind = "phase", text = "Drive on", at = now })
 	table.insert(effects, { kind = "broadcast", force = true })
 end
@@ -331,10 +364,17 @@ local function maybeRelease(state: State, effects: { Effect }, now: number, even
 
 	local spawns = state.boarSpawns
 	local position = if #spawns > 0 then spawns[(state.soundersReleased % #spawns) + 1] else nil
+	-- THE QUICK TEST'S FIRST RELEASE STARTS ON THE ROAD (task 83), not at the far marker 1,300 studs
+	-- away, and it carries its own spread because the road is 16 studs wide and a spawn pad is 60.
+	-- Every later release in the same drive is the normal one, from the normal marker.
+	local spread = nil
+	if config.QUICK_TEST and state.soundersReleased == 0 and state.quickSpawn then
+		position, spread = state.quickSpawn, config.QUICK_TEST_SPREAD_STUDS
+	end
 	state.soundersReleased += 1
 	state.boarsReleased += size
 	state.holdbacks = 0
-	table.insert(effects, { kind = "spawnSounder", position = position, size = size })
+	table.insert(effects, { kind = "spawnSounder", position = position, size = size, spread = spread })
 	state.nextReleaseAt = now
 		+ Phase.releaseGap(state, size, now, config)
 		+ Phase.jitter(state.seed + state.driveNumber, state.soundersReleased + 1, config.RELEASE_JITTER_SECONDS)
@@ -364,6 +404,7 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		next_.markersComplete = event.complete == true
 		next_.missing = table.clone(event.missing or {})
 		next_.boarSpawns = table.clone(event.boarSpawns or {})
+		next_.quickSpawn = event.quickSpawn
 	elseif kind == "join" and event.userId then
 		next_.participants[event.userId] = event.name or tostring(event.userId)
 		feed(effects, { kind = "join", userId = event.userId, name = event.name, at = now })

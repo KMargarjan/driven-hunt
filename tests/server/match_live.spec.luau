@@ -285,6 +285,41 @@ return function()
 			expect(ring.SPAWN_RING_STUDS + ring.PAD_MARGIN_STUDS <= Map.SPAWN_PAD.radius).to.equal(true)
 		end)
 
+		it("never runs the quick test on a clean run, and cannot run it outside Studio", function()
+			-- TASK 83, AND THE STUDIO GUARD IS THE HALF THAT MATTERS. `QUICK_TEST` is the only flag
+			-- whose value is ANDed with `RunService:IsStudio()` at its boundary, so a live server
+			-- cannot run it however the attribute got there. The guard is a pure function, which is
+			-- what lets this assert the case a Studio spec can never reach: not Studio.
+			expect(Match.quickTestEnabled(true, false)).to.equal(false)
+			expect(Match.quickTestEnabled(false, true)).to.equal(false)
+			expect(Match.quickTestEnabled(false, false)).to.equal(false)
+			-- ...and it IS enabled when both halves say so, or the case above would pass on a
+			-- function that always answers false.
+			expect(Match.quickTestEnabled(true, true)).to.equal(true)
+
+			-- The live value: `test` refuses to start while an override is set, so a harness PASS is
+			-- always the reviewed default -- which is off.
+			expect(Match.CONFIG.QUICK_TEST).to.equal(Match.quickTestEnabled(Flags.isOn("QUICK_TEST"), true))
+			expect(Match.CONFIG.QUICK_TEST).to.equal(false)
+			expect(Flags.DEFAULTS.QUICK_TEST.default).to.equal(false)
+
+			-- AND NO PHANTOM DRIVER EXISTS. The quick test pushes its sounder by telling the boar
+			-- world a driver is standing behind it; with the flag off there is never one, and every
+			-- threat the boars are given is a real player keyed by a real userId.
+			expect(Match.quickTestPhantom(os.clock())).to.equal(nil)
+			local threats = Match.driverThreats()
+			for _, threat in ipairs(threats) do
+				expect(tonumber(threat.id)).never.to.equal(nil)
+			end
+			TestKit.note(
+				string.format(
+					"task83: QUICK_TEST=%s, %d threat(s), all real players",
+					tostring(Match.CONFIG.QUICK_TEST),
+					#threats
+				)
+			)
+		end)
+
 		it("reads the flag once, at the boundary, and it is the REVIEWED value on a clean run", function()
 			expect(Match.CONFIG.SOUNDER.ENABLED).to.equal(Flags.isOn("BOAR_SOUNDERS"))
 			-- FLIPPED ON IN TASK 82 (Karen's OK, PLAYTEST.md 2026-09-26 and 2026-09-27), so "and it

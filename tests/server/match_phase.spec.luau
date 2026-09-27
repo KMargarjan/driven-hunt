@@ -543,6 +543,149 @@ return function()
 	-- THE SOUNDER RELEASE (design, "the sounder release" and section 12.1). Both states of the flag
 	-- are exercised here whatever the flag is set to, because `SOUNDER.ENABLED` arrives in `config`
 	-- and this spec writes its own (feature-flags.md section 13.3).
+	-- ------------------------------------------------------------------ the quick test (task 83)
+	describe("the quick test", function()
+		-- Its own numbers, and its own spawn on "the road". Everything below drives BOTH states from
+		-- one table, so neither the flag nor Studio is consulted anywhere in this file.
+		local LINE = Vector3.new(0, 0, -700)
+		local QUICK = {
+			QUICK_TEST = true,
+			QUICK_TEST_INTERMISSION_SECONDS = 3,
+			QUICK_TEST_SOUNDER = 3,
+			QUICK_TEST_AHEAD_STUDS = 6,
+			QUICK_TEST_SPREAD_STUDS = 6,
+		}
+
+		local function quickConfig(overrides)
+			local merged = config(QUICK)
+			for key, value in pairs(overrides or {}) do
+				merged[key] = value
+			end
+			return merged
+		end
+
+		local function readyQuick(cfg)
+			local state = Phase.initial(cfg)
+			return (
+				Phase.step(state, {
+					kind = "markers",
+					complete = true,
+					missing = {},
+					boarSpawns = SPAWNS,
+					quickSpawn = LINE + Vector3.new(0, 0, cfg.QUICK_TEST_AHEAD_STUDS),
+				}, 0, cfg)
+			)
+		end
+
+		it("shortens the intermission and fires the first release at once, and does neither when off", function()
+			-- BOTH BRANCHES, ONE TABLE EACH. With the quick test off these are the numbers this
+			-- drive has always had, which is the half that says a playtest switch changed nothing.
+			local off = config()
+			expect(Phase.intermissionSeconds(off)).to.equal(off.INTERMISSION_SECONDS)
+			expect(Phase.firstReleaseSeconds(off)).to.equal(off.FIRST_RELEASE_SECONDS)
+
+			local on = quickConfig()
+			expect(Phase.intermissionSeconds(on)).to.equal(3)
+			expect(Phase.firstReleaseSeconds(on)).to.equal(0)
+			-- and they really are different, so neither case can pass by the two being equal
+			expect(Phase.intermissionSeconds(on) < Phase.intermissionSeconds(off)).to.equal(true)
+			expect(Phase.firstReleaseSeconds(on) < Phase.firstReleaseSeconds(off)).to.equal(true)
+		end)
+
+		it("puts three boars on the road within seconds of the first player joining", function()
+			-- THE WHOLE POINT, AS A CLOCK. Karen, 2026-09-27: "just for testing could be much faster
+			-- that they cross a line small group and then you can shoot".
+			local cfg = quickConfig()
+			local state = readyQuick(cfg)
+			local at = 0
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, at, cfg))
+			expect(state.phase).to.equal("Assigning")
+
+			local collected
+			state, collected, at = run(state, cfg, at, 6, 0.25)
+			expect(state.phase).to.equal("Running")
+			local spawns = {}
+			for _, effect in ipairs(collected) do
+				if effect.kind == "spawnSounder" then
+					table.insert(spawns, effect)
+				end
+			end
+			expect(#spawns).to.equal(1)
+			expect(spawns[1].size).to.equal(3)
+			-- ON THE ROAD, not at the far marker: the position is the one the owner measured from
+			-- the drive line, and the ring is clamped to the road's own width.
+			expect(spawns[1].position).to.equal(LINE + Vector3.new(0, 0, cfg.QUICK_TEST_AHEAD_STUDS))
+			expect(spawns[1].spread).to.equal(cfg.QUICK_TEST_SPREAD_STUDS)
+			expect(at <= 6).to.equal(true)
+
+			-- ...and the SAME six seconds with the quick test off release nothing at all, because
+			-- the drive has not even started yet.
+			local slowCfg = config()
+			local slow = ready(slowCfg)
+			slow = (Phase.step(slow, { kind = "join", userId = 1, name = "Karen" }, 0, slowCfg))
+			local slowEffects
+			slow, slowEffects = run(slow, slowCfg, 0, 6, 0.25)
+			expect(slow.phase).to.equal("Assigning")
+			expect(countKind(slowEffects, "spawnSounder")).to.equal(0)
+		end)
+
+		it("is the FIRST release only: the rest of the drive is the real drive", function()
+			local cfg = quickConfig({ BOARS_PER_DRIVE = 6, RELEASE_INTERVAL_SECONDS = 5 })
+			local state = readyQuick(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			local collected
+			state, collected = run(state, cfg, 0, 30, 0.25)
+			local spawns = {}
+			for _, effect in ipairs(collected) do
+				if effect.kind == "spawnSounder" then
+					table.insert(spawns, effect)
+				end
+			end
+			expect(#spawns >= 2).to.equal(true)
+			-- the first is the quick one...
+			expect(spawns[1].size).to.equal(3)
+			expect(spawns[1].spread).to.equal(cfg.QUICK_TEST_SPREAD_STUDS)
+			-- ...and the second is an ordinary release: a marker position, the map's own spread
+			-- (nil here, so the owner uses the spawn pad), and the sounder flag's own size.
+			expect(spawns[2].spread).to.equal(nil)
+			local fromMarker = false
+			for _, spawn in ipairs(SPAWNS) do
+				if spawns[2].position == spawn then
+					fromMarker = true
+				end
+			end
+			expect(fromMarker).to.equal(true)
+		end)
+
+		it("falls back to the normal marker when there is no line to measure from", function()
+			-- A map with no DriveLine cannot have a quick spawn, and the release must still happen
+			-- rather than being dropped: `quickSpawn` is nil and everything else is unchanged.
+			local cfg = quickConfig()
+			local state = Phase.initial(cfg)
+			state = (
+				Phase.step(state, { kind = "markers", complete = true, missing = {}, boarSpawns = SPAWNS }, 0, cfg)
+			)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			local collected
+			state, collected = run(state, cfg, 0, 6, 0.25)
+			local spawns = {}
+			for _, effect in ipairs(collected) do
+				if effect.kind == "spawnSounder" then
+					table.insert(spawns, effect)
+				end
+			end
+			expect(#spawns).to.equal(1)
+			expect(spawns[1].spread).to.equal(nil)
+			local fromMarker = false
+			for _, spawn in ipairs(SPAWNS) do
+				if spawns[1].position == spawn then
+					fromMarker = true
+				end
+			end
+			expect(fromMarker).to.equal(true)
+		end)
+	end)
+
 	describe("the release is a sounder", function()
 		-- THE REAL NUMBERS, AS LITERALS. The flag-off identity proof must not be able to agree with
 		-- a changed CONFIG: if somebody moves the 90-second rhythm, this fails, which is the point.
