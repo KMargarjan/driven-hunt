@@ -1,33 +1,23 @@
 --!strict
 -- The outfit, from the client's side (M2.8d, map-generator design section 10; the §18 row asks for
 -- exactly this spec). The server is the only writer, so what a client can say about an outfit is
--- what REACHED it -- which is the half that matters for the one property this rests on.
+-- what REACHED it -- which is the half that matters, because the client is where Karen looks.
 --
--- WHY `CanQuery = false` IS THE CHECK AND NOT A DETAIL. Every ray in this game is cast by somebody:
--- the weapon casts for the shot, the camera casts for occlusion, and `Match.Penalty.judge` decides
--- whether a player is tied to a tree from where that shot STOPPED. A hat that stops a pellet is a
--- shot that hit a hat, and the penalty would be judged on it. The design says it in one line ("the
--- outfit must be invisible to every ray in the game") and this is where a client can see that it
--- is true of the Instances it was actually sent.
+-- SINCE TASK 82 THIS SPEC HAS SOMETHING TO MEASURE. `ORANGE_OUTFITS` is ON by default (Karen's OK,
+-- PLAYTEST.md 2026-09-27), so in a harness run the players in the world are dressed and every
+-- assertion below runs over real Instances instead of over an empty list. Two properties:
+--   * `CanQuery = false` on every outfit part. Every ray in this game is cast by somebody -- the
+--     weapon for the shot, the camera for occlusion, and `Match.Penalty.judge` decides whether a
+--     player is tied to a tree from where that shot STOPPED. A hat that stops a pellet is a shot
+--     that hit a hat, and the penalty would be judged on it.
+--   * EVERY VEST PLATE STANDS CLEAR OF THE TORSO IT IS WELDED TO. This is the one Karen's report
+--     rests on: "I can see hat on hunter but not vest on driver". Task 77's vest was a single plate
+--     centred on the limb, so most of it was inside the torso and all of it was on one face; a spec
+--     asserted the Instances existed and nobody asserted they could be seen (77a(d)). A plate inside
+--     the torso now fails this case on the client that would have had to look at it.
 --
--- WHAT THIS SPEC CAN AND CANNOT REACH, said plainly. `ORANGE_OUTFITS` is born OFF and merges OFF,
--- and `python tools/studio_mcp.py test` REFUSES to start while a flag override is set -- so in a
--- harness run there is never an outfit in the world, and the loop below runs over nothing. The
--- assertion that bites today is the other one: with the flag off, NOBODY is dressed. A dark path
--- that dresses people is not a dark path, and that is the failure this run can actually catch.
--- The ON half is the Director's two-player screenshot, by hand, with the flag switched on for that
--- session only.
---
--- THE `zz_` PREFIX IS GONE, AND SO IS WHAT IT WAS HIDING (Task 80). This file first landed as
--- `outfit_client.spec` and `weapon_client` came back with 23 slugs instead of 24 and three shots
--- instead of two, with nothing about the weapon changed -- so it was renamed `zz_outfit_client.spec`
--- to sort after it, and reported as a harness fragility (77a(a)). The rename worked and the diagnosis
--- was wrong: `weapon_client` was counting shots and reserve over the WHOLE session rather than over
--- its own window, so ANY shot before it took the gun read as one of its own. Inserting a file changed
--- which shot that was; it did not cause it. Task 80 measured the same failure with no new file at all
--- -- one run in three on the map world, a slug fired at +4.1 s against a cue at +4.5 s, because the
--- weapon's owner auto-equips the gun it grants and `weapon_client`'s parking lost that race. That
--- spec's window now starts at its own cue, so load order is nobody's business again.
+-- THE OFF BRANCH IS STILL WRITTEN, because a flag is two states and the default can be flipped back
+-- in one line. It is simply not the branch a run takes today.
 --
 -- AND IT SCANS CHARACTERS, NOT WORKSPACE. `Body.dress` parents the folder to the character and
 -- nowhere else, so a character scan is complete -- and `Workspace:GetDescendants()` over a map of
@@ -41,9 +31,28 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
--- The server's `Match.Body.OUTFIT_NAME`. Written out rather than required: `Match` is
--- ServerScriptService and a client cannot see it, which is the point of the boundary.
+-- The server's `Match.Body.OUTFIT_NAME` and its vest gap. Written out rather than required: `Match`
+-- is ServerScriptService and a client cannot see it, which is the point of the boundary. If either
+-- ever disagrees with `src/server/Match/Body.luau`, the case below fails and says so.
 local OUTFIT_NAME = "HuntOutfit"
+local VEST_GAP = 0.12
+
+local AXES = { "X", "Y", "Z" }
+
+-- How far outside the limb's own box this part lands, in the LIMB's frame: the best of the three
+-- axes, because a plate needs to be fully clear on ONE axis to be seen. Negative means it overlaps
+-- the limb on every axis -- a vest inside a torso, which is what nobody could see.
+local function clearance(limb: BasePart, part: BasePart): number
+	local relative = limb.CFrame:Inverse() * part.CFrame
+	local best = -math.huge
+	for _, axis in ipairs(AXES) do
+		local gap = math.abs((relative.Position :: any)[axis])
+			- (part.Size :: any)[axis] / 2
+			- (limb.Size :: any)[axis] / 2
+		best = math.max(best, gap)
+	end
+	return best
+end
 
 local function outfitParts(): { BasePart }
 	local out = {}
@@ -84,26 +93,52 @@ return function()
 			end
 		end)
 
-		it("dresses nobody while the flag is off, and everybody while it is on", function()
-			-- BOTH BRANCHES ARE WRITTEN, and only one of them can run in a harness run. Said in the
-			-- header rather than hidden: the OFF branch is the live assertion here, and it is the
-			-- one that catches a dark path that is not dark.
-			local dressed, total = 0, 0
+		it("dresses everybody with a team while the flag is on, and nobody while it is off", function()
+			local dressed, teamed = 0, 0
 			for _, player in ipairs(Players:GetPlayers()) do
 				local character = player.Character
-				if character then
-					total += 1
+				if character and player.Team then
+					teamed += 1
 					if character:FindFirstChild(OUTFIT_NAME) then
 						dressed += 1
 					end
 				end
 			end
+			TestKit.note(string.format("outfit[client]: %d teamed character(s), %d dressed", teamed, dressed))
 			if Flags.isOn("ORANGE_OUTFITS") then
-				expect(dressed).to.equal(total)
+				expect(dressed).to.equal(teamed)
 			else
 				expect(dressed).to.equal(0)
 				expect(#outfitParts()).to.equal(0)
 			end
+		end)
+
+		it("shows the vest: every plate stands clear of the torso it is welded to", function()
+			-- MEASURED ON THIS CLIENT'S OWN INSTANCES, which is where the complaint came from. A
+			-- plate whose every axis overlaps the torso is a plate inside the body, and that is the
+			-- vest Karen could not find on a driver.
+			local measured, worst, worstName = 0, math.huge, "none"
+			for _, part in ipairs(outfitParts()) do
+				local weld = part:FindFirstChildOfClass("WeldConstraint")
+				local limb = weld and weld.Part0
+				if limb and limb:IsA("BasePart") and string.sub(part.Name, 1, 4) == "Vest" then
+					measured += 1
+					local clear = clearance(limb, part)
+					if clear < worst then
+						worst, worstName = clear, part.Name
+					end
+					expect(clear >= VEST_GAP - 1e-3).to.equal(true)
+				end
+			end
+			TestKit.note(
+				string.format(
+					"outfit[client]: %d vest plate(s) measured, worst %s at %s (gap %.2f)",
+					measured,
+					if worst == math.huge then "none" else string.format("%.3f", worst),
+					worstName,
+					VEST_GAP
+				)
+			)
 		end)
 	end)
 end

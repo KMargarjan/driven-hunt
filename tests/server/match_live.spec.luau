@@ -285,11 +285,15 @@ return function()
 			expect(ring.SPAWN_RING_STUDS + ring.PAD_MARGIN_STUDS <= Map.SPAWN_PAD.radius).to.equal(true)
 		end)
 
-		it("reads the flag once, at the boundary, and it is OFF on a clean run", function()
+		it("reads the flag once, at the boundary, and it is the REVIEWED value on a clean run", function()
 			expect(Match.CONFIG.SOUNDER.ENABLED).to.equal(Flags.isOn("BOAR_SOUNDERS"))
-			-- A harness PASS can never have been produced with the dark path live: `test` refuses to
-			-- start while an override is set, and this is the same fact asserted from inside.
-			expect(Match.CONFIG.SOUNDER.ENABLED).to.equal(false)
+			-- FLIPPED ON IN TASK 82 (Karen's OK, PLAYTEST.md 2026-09-26 and 2026-09-27), so "and it
+			-- is OFF" is not the fact any more. The fact that still holds, and the one worth
+			-- asserting, is that a harness PASS is produced with the value GIT REVIEWED and not with
+			-- an override: `test` refuses to start while one is set, and this is the same thing
+			-- asserted from inside the server it started.
+			expect(Match.CONFIG.SOUNDER.ENABLED).to.equal(Flags.DEFAULTS.BOAR_SOUNDERS.default)
+			expect(Flags.DEFAULTS.BOAR_SOUNDERS.default).to.equal(true)
 		end)
 
 		it("asks the runtime what it holds, and the drive is not stalling", function()
@@ -312,13 +316,21 @@ return function()
 			expect(runtime:count()).to.equal(0)
 			runtime:destroy()
 
-			-- The owner fills boarEntries/boarCapacity on every dispatch, and the drive has been
-			-- running through this whole session: nothing can have been held back on an empty field.
+			-- The owner fills boarEntries/boarCapacity on every dispatch, so a release is held back
+			-- only when the whole sounder does not fit.
+			--
+			-- NOT `== 0` ANY MORE, AND TASK 82 IS WHY. With BOAR_SOUNDERS ON by default a release is
+			-- a GROUP of up to MAX_SIZE, so `alive + size > MAX_ALIVE_BOARS` is a legitimate thing to
+			-- happen on a field the players are not clearing -- and whether it has happened by the
+			-- time this spec runs depends on where in the release schedule the run landed. That is
+			-- the shape of flake Task 80 spent a whole task on. What must never happen is a drive
+			-- that holds back until it warns, and that is what is asserted: the drive is not stuck.
 			local stats = Match.stats()
 			expect(type(stats.sounderHoldbacks)).to.equal("number")
 			expect(type(stats.soundersReleased)).to.equal("number")
 			expect(type(stats.boarsReleased)).to.equal("number")
-			expect(stats.sounderHoldbacks).to.equal(0)
+			expect(stats.sounderHoldbacks < Match.CONFIG.SOUNDER.HOLDBACK_WARN).to.equal(true)
+			expect(stats.boarsReleased <= Match.CONFIG.BOARS_PER_DRIVE).to.equal(true)
 			TestKit.note(
 				string.format(
 					"drive: %d sounder(s), %d boar(s) released, %d holdback(s), max alive %d, budget %d",

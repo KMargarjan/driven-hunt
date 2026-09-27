@@ -70,29 +70,47 @@ Body.OUTFIT_NAME = "HuntOutfit"
 -- colour below. Director's pick and Karen's to change (her rule: styling never blocks).
 local OUTFIT_COLOR = Color3.fromRGB(255, 112, 0)
 
--- THE GREY-BOX OUTFIT, exactly the design's table plus two fields it does not have and cannot
--- express: `shape` and `rotationDeg`. A Roblox cylinder's axis is its X (the rope above says the
--- same thing where it uses one), so "a flat cylinder 2.2 x 0.6 x 2.2" is a part of Size
--- (0.6, 2.2, 2.2) turned a quarter turn about Z -- which is a rotation, and the design's row type is
--- `{name, limb, size, offset, color}` with nowhere to put one. The SIZES here are the part's own;
--- the design's numbers are the world-space box, and for the hat the two differ by that quarter turn.
+-- THE GREY-BOX OUTFIT. The design's table (section 10.2) plus the fields it cannot express --
+-- `shape`, `rotationDeg`, and since Task 82 `scale`/`pad`/`anchor`, which is how a row says "fit
+-- yourself to the limb you are hung on" instead of naming studs that are only right for one avatar.
 --
--- `fallbackLimb` is R6: an R15 character has `UpperTorso` and an R6 one has `Torso`. Nothing in this
--- place makes an R6 character today, and a missing limb is a counted miss rather than a crash.
+-- `fallbackLimb` is R6: an R15 character has `UpperTorso` and an R6 one has `Torso`. A missing limb
+-- is a counted miss rather than a crash.
 --
 -- THE HAT IS TWO PARTS AND THE SCREENSHOT IS WHY (rule 5). The design's table is one flat cylinder,
 -- 2.2 x 0.6 x 2.2 at +0.8 above the Head's centre, and that is exactly what was built and
 -- photographed first (.screenshots/20260927T031301Z-task77-hat-2.png): a disc AT THE HAIR LINE that
--- the avatar's hair grows straight through. It measured perfectly -- the spec's 0.8 is still
+-- the avatar's hair grows straight through. It measured perfectly -- the spec's 0.95 is still
 -- asserted below -- and it read as an orange HALO, not headwear. A hat is a crown and a brim; one
 -- disc at any height is a brim on its own, and this project has a whole page about things that
 -- measure correct and look wrong (docs/PROJECT_CONTEXT.md).
 --
 -- So the brim keeps the design's 2.2 diameter and its place in the silhouette, thins to 0.35 and
--- rises to clear a default avatar's hair, and a short crown sits on it. The design's row TYPE is a
--- list and always was; what changes is that the shooter's list has two rows. Deviation recorded in
--- TASKS.md row 77a for the Architect, and the colours and sizes are the Director's pick and Karen's
--- to change either way.
+-- rises to clear a default avatar's hair, and a short crown sits on it. The hat's rows keep their
+-- STUDS, because Karen has seen this hat on a player and it reads (PLAYTEST.md, 2026-09-27).
+--
+-- AND THE VEST IS FOUR PLATES THAT WRAP THE TORSO, BECAUSE KAREN COULD NOT SEE THE OLD ONE.
+-- PLAYTEST.md, 2026-09-27: "I can see hat on hunter but not vest on driver". The old row was one
+-- 2.2 x 1.6 x 1.3 box CENTRED on the torso, and both halves of that are why it was invisible:
+--   * CENTRED means most of it is INSIDE the limb. It stood 0.1 proud on each side of an R15
+--     UpperTorso of (2, 1.6, 1) and 0.15 front and back -- and nothing in this game guarantees that
+--     torso. `HumanoidDescription` body scaling, an R6 `Torso` and any avatar bundle change the box,
+--     and a torso wider than 2.2 or deeper than 1.3 SWALLOWS a part with those numbers whole. A
+--     number that is only right for one avatar is the class of bug here, not the vest.
+--   * ONE PLATE HAS ONE FACE. Karen looks at a driver from the front, from behind (her own camera is
+--     over her shoulder) and from a post 40-80 m away.
+-- So a vest row now says its size and its offset as a FUNCTION OF THE LIMB (`Body.fit`): four
+-- plates, one per horizontal face, each standing VEST_GAP clear of the limb's own surface whatever
+-- that surface is, and the two side plates deep enough to close the wrap around the other two. The
+-- deviation from the design's single `Vest` row is recorded in TASKS.md row 82a for the Architect.
+-- The thickness, the gap and the 0.78 of the torso's height are the Director's pick and Karen's to
+-- change (her rule: styling never blocks).
+local VEST_THICKNESS = 0.22
+-- CLEAR OF THE SURFACE, not flush with it. Two coplanar faces z-fight, and a plate exactly on the
+-- surface also sits INSIDE any layered-clothing mesh that stands off the limb's own box.
+local VEST_GAP = 0.12
+local VEST_HEIGHT_FRACTION = 0.78 -- of the torso's height: a vest, not a barrel
+
 local OUTFITS = {
 	Shooters = {
 		{
@@ -116,22 +134,94 @@ local OUTFITS = {
 			color = OUTFIT_COLOR,
 		},
 	},
+	-- FOUR PLATES, ONE PER HORIZONTAL FACE. `scale` is a multiple of the limb's own size, `pad` is
+	-- studs added to it, and `anchor` is which face to sit on in halves of the limb (so -1 on Z is
+	-- the -Z face). A character's front is its -Z, but the front and back plates are identical on
+	-- purpose: a wrap has no front, so nothing here depends on which way a limb happens to face.
 	Drivers = {
 		{
-			name = "Vest",
+			name = "VestFront",
 			limb = "UpperTorso",
 			fallbackLimb = "Torso",
 			shape = Enum.PartType.Block,
-			-- CENTRED ON THE TORSO, not stood in front of it: a vest has a back. 1.3 deep against
-			-- an R15 UpperTorso's ~1.0 leaves it proud by 0.15 on each face, which is a garment
-			-- rather than a sign hung on a chest.
-			size = Vector3.new(2.2, 1.6, 1.3),
+			scale = Vector3.new(0.98, VEST_HEIGHT_FRACTION, 0),
+			pad = Vector3.new(0, 0, VEST_THICKNESS),
+			anchor = Vector3.new(0, 0, -1),
+			offset = Vector3.new(0, 0, -(VEST_THICKNESS / 2 + VEST_GAP)),
 			rotationDeg = Vector3.zero,
-			offset = Vector3.zero,
+			color = OUTFIT_COLOR,
+		},
+		{
+			name = "VestBack",
+			limb = "UpperTorso",
+			fallbackLimb = "Torso",
+			shape = Enum.PartType.Block,
+			scale = Vector3.new(0.98, VEST_HEIGHT_FRACTION, 0),
+			pad = Vector3.new(0, 0, VEST_THICKNESS),
+			anchor = Vector3.new(0, 0, 1),
+			offset = Vector3.new(0, 0, VEST_THICKNESS / 2 + VEST_GAP),
+			rotationDeg = Vector3.zero,
+			color = OUTFIT_COLOR,
+		},
+		{
+			-- The sides are as DEEP as the wrap needs to be closed: the limb plus both plates and
+			-- both gaps, so there is no orange-free corner to look at a driver through.
+			name = "VestLeftSide",
+			limb = "UpperTorso",
+			fallbackLimb = "Torso",
+			shape = Enum.PartType.Block,
+			scale = Vector3.new(0, VEST_HEIGHT_FRACTION, 1),
+			pad = Vector3.new(VEST_THICKNESS, 0, 2 * (VEST_THICKNESS + VEST_GAP)),
+			anchor = Vector3.new(-1, 0, 0),
+			offset = Vector3.new(-(VEST_THICKNESS / 2 + VEST_GAP), 0, 0),
+			rotationDeg = Vector3.zero,
+			color = OUTFIT_COLOR,
+		},
+		{
+			name = "VestRightSide",
+			limb = "UpperTorso",
+			fallbackLimb = "Torso",
+			shape = Enum.PartType.Block,
+			scale = Vector3.new(0, VEST_HEIGHT_FRACTION, 1),
+			pad = Vector3.new(VEST_THICKNESS, 0, 2 * (VEST_THICKNESS + VEST_GAP)),
+			anchor = Vector3.new(1, 0, 0),
+			offset = Vector3.new(VEST_THICKNESS / 2 + VEST_GAP, 0, 0),
+			rotationDeg = Vector3.zero,
 			color = OUTFIT_COLOR,
 		},
 	},
 }
+
+-- What every fitted plate keeps between itself and the limb's surface, published so a spec asserts
+-- the invariant rather than a number copied out of this file.
+Body.VEST_GAP = VEST_GAP
+Body.VEST_THICKNESS = VEST_THICKNESS
+Body.VEST_HEIGHT_FRACTION = VEST_HEIGHT_FRACTION
+
+-- PURE, and the whole of the fix. (size, offset) for one row on a limb of THIS size:
+--   size   = limbSize * row.scale + row.pad
+--   offset = limbSize/2 * row.anchor + row.offset
+-- A row with no `scale` is a row in studs (the hat) and comes back exactly as written, so this is
+-- the same function for both roles and there is no second code path to keep in step.
+--
+-- Because the offset is measured from the limb's own half-extent, the plate's INNER face lands
+-- `VEST_GAP` clear of the limb's surface on ANY avatar: an R15 torso, an R6 `Torso`, a scaled one,
+-- or a bundle nobody has seen yet. That is the invariant match_outfit.spec asserts over three
+-- different torsos, and it is what the old hard-coded 2.2 x 1.6 x 1.3 could not promise.
+function Body.fit(row: any, limbSize: Vector3): (Vector3, Vector3)
+	if not row.scale then
+		return row.size, row.offset
+	end
+	local scale, pad = row.scale, row.pad or Vector3.zero
+	local anchor = row.anchor or Vector3.zero
+	local size = Vector3.new(limbSize.X * scale.X + pad.X, limbSize.Y * scale.Y + pad.Y, limbSize.Z * scale.Z + pad.Z)
+	local offset = Vector3.new(
+		limbSize.X / 2 * anchor.X + row.offset.X,
+		limbSize.Y / 2 * anchor.Y + row.offset.Y,
+		limbSize.Z / 2 * anchor.Z + row.offset.Z
+	)
+	return size, offset
+end
 
 -- PURE (design section 10.2). Takes the team and the config, touches no Instance, and answers the
 -- same way whether or not there is a game running -- which is what lets a spec drive BOTH states of
@@ -192,10 +282,13 @@ function Body.dress(character: Model?, team: TeamName?, config): boolean
 			limb = character:FindFirstChild(row.fallbackLimb)
 		end
 		if limb and limb:IsA("BasePart") then
+			-- FITTED TO THE LIMB THAT WAS ACTUALLY FOUND, not to the one the row hoped for: an
+			-- R6 `Torso` and a scaled R15 `UpperTorso` are different boxes and the vest wraps both.
+			local size, offset = Body.fit(row, limb.Size)
 			local part = Instance.new("Part")
 			part.Name = row.name
 			part.Shape = row.shape
-			part.Size = row.size
+			part.Size = size
 			part.Color = row.color
 			part.Material = Enum.Material.SmoothPlastic
 			part.Anchored = false
@@ -207,7 +300,7 @@ function Body.dress(character: Model?, team: TeamName?, config): boolean
 			part.TopSurface = Enum.SurfaceType.Smooth
 			part.BottomSurface = Enum.SurfaceType.Smooth
 			part.CFrame = limb.CFrame
-				* CFrame.new(row.offset)
+				* CFrame.new(offset)
 				* CFrame.Angles(math.rad(row.rotationDeg.X), math.rad(row.rotationDeg.Y), math.rad(row.rotationDeg.Z))
 			part.Parent = folder
 			local weld = Instance.new("WeldConstraint")
