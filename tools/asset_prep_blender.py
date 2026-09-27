@@ -19,7 +19,9 @@ import sys
 
 import bpy
 import numpy as np
-from mathutils import Vector
+from mathutils import Matrix, Vector
+
+import bmesh
 
 REPORT = {"steps": [], "warnings": []}
 
@@ -159,6 +161,325 @@ def shade(ob, angle_deg):
     sharp = sum(1 for edge in ob.data.edges if edge.use_edge_sharp)
     return {"applied": True, "angleDeg": float(angle_deg), "operator": used,
             "edges": len(ob.data.edges), "sharpEdges": sharp}
+
+
+def base_colour_image(ob):
+    """The material's base-colour image, or None -- needed before the main pass looks one up."""
+    material = ob.data.materials[0] if ob.data.materials else None
+    tree = material.node_tree if material else None
+    if not tree:
+        return None
+    principled = next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    socket = principled.inputs.get("Base Color") if principled else None
+    if socket is None or not socket.is_linked:
+        return None
+    node = socket.links[0].from_node
+    while node and node.type != "TEX_IMAGE":
+        linked = [i for i in node.inputs if i.is_linked]
+        if not linked:
+            return None
+        node = linked[0].links[0].from_node
+    return node.image if node and node.type == "TEX_IMAGE" else None
+
+
+def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
+    """CUT THE GENERATED BARRELS OFF AND BUILD CLEAN ONES (task 94).
+
+    KAREN, after her third test (2026-09-27): "gun is not smooth and nice ... nozzle is terrible
+    (ending where we aim) ... barrels don't feel smooth". A generated mesh is lumpy BY CONSTRUCTION --
+    it is a surface fitted to an image, not a tube -- and task 92 proved that shading it smooth does
+    not fix the SHAPE: the silhouette still wobbles and the muzzle ends in a blob. A shotgun barrel
+    is the one part of the gun whose true shape is two numbers, so this builds it instead.
+
+    KEPT: everything behind the cut -- Karen's walnut stock and her silver engraved action, which she
+    has never complained about, and (when the recipe says so) the wooden forend in front of it.
+    BUILT: two round barrels side by side and touching, a rib along the top, a thin-walled muzzle
+    with two real openings, and a bead on the rib.
+
+    THE NEW FACES BORROW A TEXEL. In Roblox this model is one MeshPart with one texture, so new
+    geometry cannot carry a material of its own: every new face is given ONE UV coordinate, taken
+    from a face of the original barrels, so the region pass paints it exactly as it paints the
+    barrels -- blued steel at metalness 0.10 / roughness 0.50 today. The bead borrows the brightest
+    texel found just behind the cut instead, which on this model is the silver action.
+
+    Every number in the plan is a FRACTION OF THE MODEL'S OWN LENGTH, so the proportions survive a
+    model that arrives at a different scale.
+    """
+    across = [i for i in (0, 1, 2) if i not in (axis, up_axis)][0]
+    length = hi - lo
+    # The region plan's t: 0 at the FRONT (the muzzle end), 1 at the butt.
+    def coordinate(t):
+        return lo + t * length if front_at_min else hi - t * length
+
+    cut_t = float(plan["cutAtT"])
+    cut = coordinate(cut_t)
+    forward_sign = -1.0 if front_at_min else 1.0  # which way along `axis` the muzzle is
+
+    mesh = ob.data
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.faces.ensure_lookup_table()
+    uv_layer = bm.loops.layers.uv.active
+    if uv_layer is None:
+        fail("the model has no UV layer, so new geometry could not be painted")
+
+    image = base_colour_image(ob)
+    pixels = image_array(image) if (image is not None and tuple(image.size) != (0, 0)) else None
+
+    def face_t(face):
+        value = (face.calc_center_median()[axis] - lo) / max(length, 1e-9)
+        return value if front_at_min else 1.0 - value
+
+    def face_uv(face):
+        total = Vector((0.0, 0.0))
+        for loop in face.loops:
+            total += Vector(loop[uv_layer].uv)
+        return total / len(face.loops)
+
+    def texel(uv):
+        # `image_array` is HxWx4 with the TOP row first, and a UV's v runs from the BOTTOM, so the
+        # row is flipped here. Measured the hard way: indexing it as a flat array crashed the
+        # selftest with "index 61913 is out of bounds for axis 0 with size 256".
+        if pixels is None:
+            return None
+        height, width = pixels.shape[0], pixels.shape[1]
+        x = min(max(int(uv.x % 1.0 * width), 0), width - 1)
+        y = min(max(int((1.0 - uv.y % 1.0) * height), 0), height - 1)
+        row = pixels[y, x]
+        return float(row[0]), float(row[1]), float(row[2])
+
+    # ---- the two texels, sampled BEFORE anything is deleted
+    band = [f for f in bm.faces if 0.18 <= face_t(f) <= 0.45]
+    if not band:
+        fail("no faces in the barrel band to take a texel from")
+    barrel_uv = sum((face_uv(f) for f in band), Vector((0.0, 0.0))) / len(band)
+    # A PATCH, NOT A POINT, AND THE FIRST RUN IS WHY. Collapsing every new face onto one UV
+    # coordinate gives the region mask no AREA to rasterise, so the corrector painted nothing and the
+    # surface check read the generator's own numbers straight back: "barrel metallic (1.00, wanted
+    # 0.10)". The new faces are laid over a small square of the atlas INSIDE the old barrels' own UV
+    # island instead -- texels that belonged to the barrel and that nothing else uses now, because
+    # the faces that did are the ones being deleted.
+    def uv_triangle(face):
+        """A face's first three UV corners, shrunk toward its own middle.
+
+        INSIDE ONE FACE'S ISLAND, WHICH IS THE WHOLE POINT. The centroid of a whole BAND of faces
+        can land on a different island altogether -- run 2 put the new barrels over texels the ACTION
+        also owns, and the action pass, which runs later, wrote metalness 0.45 over the barrel's
+        0.10. A patch shrunk inside one face's own triangle cannot overlap another island's texels.
+        """
+        corners = [Vector(loop[uv_layer].uv) for loop in face.loops][:3]
+        if len(corners) < 3:
+            return None
+        middle = sum(corners, Vector((0.0, 0.0))) / 3.0
+        keep = float(plan.get("texelPatch", 0.55))
+        return [middle + (corner - middle) * keep for corner in corners]
+
+    def uv_area(face):
+        corners = [Vector(loop[uv_layer].uv) for loop in face.loops][:3]
+        if len(corners) < 3:
+            return 0.0
+        a, b, c = corners
+        return abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)) / 2.0
+
+    barrel_patch = uv_triangle(max(band, key=uv_area))
+    if barrel_patch is None:
+        fail("the barrel band has no triangle to borrow texels from")
+    # THE BEAD borrows the brightest face just BEHIND the cut -- the silver action on this model --
+    # and those faces are still here, so overlapping their texels is exactly what is wanted.
+    bead_patch = barrel_patch
+    behind = [f for f in bm.faces if cut_t < face_t(f) <= cut_t + 0.12 and uv_area(f) > 0]
+    if behind and pixels is not None:
+        def brightness(face):
+            rgb = texel(face_uv(face))
+            return 0.0 if rgb is None else sum(rgb)
+        bead_patch = uv_triangle(max(behind, key=brightness)) or barrel_patch
+
+    # ---- the cut: everything in front of it goes, except the wood when the recipe keeps it
+    keep_wood = bool(plan.get("keepForendWood", True))
+    min_saturation = float(plan.get("forendMinSaturation", 0.18))
+
+    def is_wood(face):
+        rgb = texel(face_uv(face))
+        if rgb is None:
+            return False
+        high, low = max(rgb), min(rgb)
+        saturation = 0.0 if high <= 0 else (high - low) / high
+        return saturation >= min_saturation and rgb[0] >= rgb[2]
+
+    forward = [f for f in bm.faces if face_t(f) < cut_t]
+    doomed = [f for f in forward if not (keep_wood and is_wood(f))]
+    bmesh.ops.delete(bm, geom=doomed, context="FACES")
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+
+    # ---- where the new barrels go: MEASURED off what is left at the cut, not declared
+    slab_t = float(plan.get("slabT", 0.05))
+    slab = [v for v in bm.verts if abs((v.co[axis] - cut) / max(length, 1e-9)) <= slab_t]
+    if len(slab) < 8:
+        fail("nothing left at the cut to measure the action against")
+    top = max(v.co[up_axis] for v in slab)
+    centre_across = (max(v.co[across] for v in slab) + min(v.co[across] for v in slab)) / 2.0
+
+    radius = float(plan["barrelDiameterT"]) * length / 2.0
+    barrel_length = float(plan["barrelLengthT"]) * length
+    segments = int(plan["segments"])
+    wall = float(plan["wallT"]) * length
+    rib_thickness = float(plan["ribThicknessT"]) * length
+    bead_radius = float(plan["beadDiameterT"]) * length / 2.0
+    # A side-by-side's barrels sit at the TOP of the action, and the two tubes TOUCH: their centres
+    # are exactly one diameter apart.
+    centre_up = top - radius - float(plan.get("dropT", 0.0)) * length
+    muzzle = cut + forward_sign * barrel_length
+    middle = (cut + muzzle) / 2.0
+
+    def placed(along, sideways, up):
+        out = [0.0, 0.0, 0.0]
+        out[axis] = along
+        out[across] = sideways
+        out[up_axis] = up
+        return Vector(out)
+
+    def along_axis(centre):
+        """A transform that lays a Z-aligned primitive along the model's long axis."""
+        if axis == 0:
+            rotation = Matrix.Rotation(math.radians(90), 4, "Y")
+        elif axis == 1:
+            rotation = Matrix.Rotation(math.radians(90), 4, "X")
+        else:
+            rotation = Matrix.Identity(4)
+        return Matrix.Translation(centre) @ rotation
+
+    def faces_of(verts):
+        wanted = set(verts)
+        return [f for f in bm.faces if all(v in wanted for v in f.verts)]
+
+    built = []
+
+    for side in (-1.0, 1.0):
+        centre = placed(middle, centre_across + side * radius, centre_up)
+        cone = bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=segments,
+                                     radius1=radius, radius2=radius, depth=barrel_length,
+                                     matrix=along_axis(centre), calc_uvs=False)
+        bm.faces.ensure_lookup_table()
+        tube = faces_of(cone["verts"])
+        built.extend(cone["verts"])
+        # THE MUZZLE IS A TUBE, NOT A DISC. The cap at the front is inset by the wall thickness and
+        # the inner face pushed back down the bore: a real opening with a thin rim, which is what
+        # "nozzle is terrible" was about.
+        caps = [f for f in tube if len(f.verts) == segments]
+        front_cap = min(caps, key=lambda f: forward_sign * -f.calc_center_median()[axis]) if caps else None
+        if front_cap is not None:
+            inset = bmesh.ops.inset_individual(bm, faces=[front_cap], thickness=wall, depth=0.0)
+            bm.faces.ensure_lookup_table()
+            built.extend(v for f in inset["faces"] for v in f.verts)
+            bmesh.ops.translate(bm, verts=list(front_cap.verts),
+                                vec=placed(-forward_sign * radius * 1.5, 0.0, 0.0))
+
+    # ---- the rib: a thin flat bridge across the top of both barrels
+    rib_centre = placed(middle, centre_across, centre_up + radius + rib_thickness / 2.0)
+    rib = bmesh.ops.create_cube(bm, size=1.0, matrix=Matrix.Translation(rib_centre))
+    bm.faces.ensure_lookup_table()
+    scale = [0.0, 0.0, 0.0]
+    scale[axis] = barrel_length
+    scale[across] = 2.0 * radius
+    scale[up_axis] = rib_thickness
+    bmesh.ops.scale(bm, verts=rib["verts"], vec=Vector(scale),
+                    space=Matrix.Translation(-rib_centre))
+    built.extend(rib["verts"])
+
+    # ---- the bead: a small ball on the rib at the muzzle
+    bead_centre = placed(muzzle - forward_sign * bead_radius * 1.5, centre_across,
+                         centre_up + radius + rib_thickness + bead_radius * 0.5)
+    try:
+        bead = bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=bead_radius,
+                                         matrix=Matrix.Translation(bead_centre), calc_uvs=False)
+    except TypeError:  # older bmesh spells it `diameter`
+        bead = bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, diameter=bead_radius,
+                                         matrix=Matrix.Translation(bead_centre), calc_uvs=False)
+    bm.faces.ensure_lookup_table()
+    bead_verts = set(bead["verts"])
+    built.extend(bead["verts"])
+
+    # ---- one texel, one material slot, for every face that was built here
+    # ---- WHERE THE NEW FACES LIVE IN THE ATLAS: the emptiest corner of it.
+    #
+    # Runs 2 and 3 borrowed texels from the old barrels' own island and the surface still came back
+    # at the ACTION's metalness: every mask is DILATED and FEATHERED by several pixels before it is
+    # painted, so a patch a few texels from an action island is written twice and the later pass
+    # wins. The new faces are given a square of atlas that NO surviving face is near instead -- the
+    # region pass classifies them as barrel (they are in front of the cut), so that square is painted
+    # barrel and nothing else can reach it.
+    grid = 48
+    occupied = np.zeros((grid, grid), dtype=bool)
+    building = set(built)
+    for face in bm.faces:
+        if all(v in building for v in face.verts):
+            continue
+        # THE WHOLE FOOTPRINT, NOT THE CORNERS. Marking only the corner cells left the middle of a
+        # big triangle looking empty, so the "empty corner" of run 4 sat under an action face and the
+        # action pass wrote metalness 0.45 over the barrel's 0.10 -- measured, in that run's own
+        # surface check.
+        uvs = [loop[uv_layer].uv for loop in face.loops]
+        x0 = min(max(int(min(uv[0] for uv in uvs) % 1.0 * grid), 0), grid - 1)
+        x1 = min(max(int(max(uv[0] for uv in uvs) % 1.0 * grid), 0), grid - 1)
+        y0 = min(max(int(min(uv[1] for uv in uvs) % 1.0 * grid), 0), grid - 1)
+        y1 = min(max(int(max(uv[1] for uv in uvs) % 1.0 * grid), 0), grid - 1)
+        occupied[y0:y1 + 1, x0:x1 + 1] = True
+    best, best_distance = None, -1.0
+    taken = np.argwhere(occupied)
+    for gy in range(grid):
+        for gx in range(grid):
+            if occupied[gy, gx]:
+                continue
+            if len(taken) == 0:
+                distance = float(grid)
+            else:
+                distance = float(np.min(np.abs(taken - np.array([gy, gx])).max(axis=1)))
+            if distance > best_distance:
+                best, best_distance = (gx, gy), distance
+    if best is not None and best_distance >= 1.0:
+        # BIG ENOUGH TO HAVE AN INTERIOR. Every mask is feathered by `maskFeatherPx` (6) and dilated
+        # by `maskDilatePx` (4) before it is painted, and `push_channel` BLENDS by that weight: a
+        # 17-pixel patch is all edge, so the barrel's metalness 0.10 came out at 0.45 -- the source's
+        # own 1.00 pulled two thirds of the way, which run 5 measured exactly. The patch fills the
+        # empty cell and as much of its clear neighbourhood as there is, so its middle is at full
+        # weight.
+        half = min(best_distance - 0.5, 1.5) / grid
+        centre = Vector(((best[0] + 0.5) / grid, (best[1] + 0.5) / grid))
+        barrel_patch = [Vector((centre.x - half, centre.y - half)),
+                        Vector((centre.x + half, centre.y - half)),
+                        Vector((centre.x, centre.y + half))]
+        empty_corner = {"cell": list(best), "cellsFromAnything": best_distance}
+    else:
+        empty_corner = {"cell": None, "cellsFromAnything": best_distance}
+
+    made = set(built)
+    new_faces = 0
+    for face in bm.faces:
+        if not all(v in made for v in face.verts):
+            continue
+        corners = bead_patch if all(v in bead_verts for v in face.verts) else barrel_patch
+        for index, loop in enumerate(face.loops):
+            corner = corners[index % 3]
+            loop[uv_layer].uv = (corner.x, corner.y)
+        face.material_index = 0
+        new_faces += 1
+
+    bmesh.ops.recalc_face_normals(bm, faces=[f for f in bm.faces if all(v in made for v in f.verts)])
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+    return {
+        "cutAtT": cut_t,
+        "deletedFaces": len(doomed),
+        "keptWoodFacesInFront": len(forward) - len(doomed),
+        "segments": segments,
+        "barrelDiameterT": round(float(plan["barrelDiameterT"]), 5),
+        "barrelLengthT": round(float(plan["barrelLengthT"]), 5),
+        "newFaces": new_faces,
+        "atlasCorner": empty_corner,
+        "triangles": triangles(ob),
+    }
 
 
 def long_axis(ob):
@@ -846,10 +1167,20 @@ def render_views(ob, out_dir, size_px, samples, views, prefix="render"):
     #
     # `orthoCross` frames a model seen END-ON, where its length says nothing about how big it looks:
     # it is a multiple of the larger of the two dimensions ACROSS the view direction.
+    # A VIEW MAY LOOK AT A POINT OTHER THAN THE MIDDLE (task 94). `targetAlong` moves the camera's
+    # target along the model's longest axis, as a fraction of it from the centre (+ toward the end
+    # the model's own axis grows into), and `targetUp` moves it up the same way. That is what a
+    # muzzle close-up and a look down the rib are: the same rig, aimed at the muzzle instead of at
+    # the middle of the gun.
+    longest = int(np.argmax([extent.x, extent.y, extent.z]))
+    tallest = 2 if longest != 2 else int(np.argmax([extent.x, extent.y]))
     prepared = []
     for view in views:
         direction = tuple(float(v) for v in view["dir"])
         distance = span * float(view.get("distanceSpan", 1.2))
+        target = centre.copy()
+        target[longest] += float(view.get("targetAlong", 0.0)) * extent[longest]
+        target[tallest] += float(view.get("targetUp", 0.0)) * extent[tallest]
         if "orthoSpan" in view:
             ortho = span * float(view["orthoSpan"])
         elif "orthoCross" in view:
@@ -858,11 +1189,13 @@ def render_views(ob, out_dir, size_px, samples, views, prefix="render"):
             ortho = across * float(view["orthoCross"])
         else:
             ortho = 0.0
-        prepared.append((view["name"], direction, distance, ortho))
-    for name, direction, distance, ortho in prepared:
+        prepared.append((view["name"], direction, distance, ortho, target))
+    for name, direction, distance, ortho, target in prepared:
         for constraint in list(camera.constraints):
             camera.constraints.remove(constraint)
-        look_at(camera, centre, distance, direction, ortho)
+        empty.location = target
+        bpy.context.view_layer.update()
+        look_at(camera, target, distance, direction, ortho)
         bpy.context.view_layer.update()
         path = os.path.join(out_dir, "%s_%s.png" % (prefix, name))
         bpy.context.scene.render.filepath = path
@@ -903,6 +1236,24 @@ def main():
     log("decimated", before=before, measuredAfter=after, ratioAsked=round(ratio, 6),
         target=recipe["targetTriangles"])
     REPORT["triangles"] = {"before": before, "after": after, "target": recipe["targetTriangles"]}
+
+    # ---- clean barrels (task 94), BEFORE the shading and the regions
+    #
+    # It runs here for two reasons and both are order, not taste: the new faces must be shaded by the
+    # same `smoothAngleDeg` pass as everything else, and they must be classified by the same region
+    # plan -- they are in front of `actionStartT`, so the plan calls them barrel and the colour pass
+    # paints them. The orientation is measured TWICE: once to tell the rebuild which way the gun
+    # faces, and again afterwards because the new barrels move the bounding box the regions are
+    # measured in.
+    plan = recipe.get("rebuildBarrels")
+    if plan:
+        pre_axis, pre_front, pre_lo, pre_hi, _near, _far = long_axis(ob)
+        pre_up = 2 if pre_axis != 2 else int(np.argmax([ob.dimensions[0], ob.dimensions[1]]))
+        stated_front = recipe.get("frontAtMin")
+        REPORT["rebuiltBarrels"] = rebuild_barrels(
+            ob, plan, pre_axis, pre_up,
+            pre_front if stated_front is None else bool(stated_front), pre_lo, pre_hi)
+        log("rebuiltBarrels", **REPORT["rebuiltBarrels"])
 
     REPORT["shading"] = shade(ob, recipe.get("smoothAngleDeg"))
     log("shaded", **REPORT["shading"])
