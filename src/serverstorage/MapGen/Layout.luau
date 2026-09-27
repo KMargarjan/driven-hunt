@@ -470,7 +470,7 @@ function Layout.furniture(config): { Piece }
 	end
 	local span = fence.fromX
 	local railIndex = 0
-	while span + fence.spacing <= fence.toX + 1e-6 do
+	while config.INCLUDE.fence and span + fence.spacing <= fence.toX + 1e-6 do
 		local middle = span + fence.spacing / 2
 		if not (middle > fence.gateFromX and middle < fence.gateToX) then
 			for heightIndex, height in ipairs(fence.railHeights) do
@@ -491,18 +491,23 @@ function Layout.furniture(config): { Piece }
 		end
 		span += fence.spacing
 	end
-	add({
-		kind = "gate",
-		name = "FieldGate",
-		x = fence.gateFromX + 1,
-		z = fence.z + fence.gate.Z / 2,
-		size = fence.gate,
-		base = 0.4,
-		anchorX = fence.gateFromX,
-		anchorZ = fence.z,
-		color = fence.gateColor,
-		material = Enum.Material.Wood,
-	})
+	-- THE GATE IS A SEPARATE `add`, not part of the loops above, and the first bare build caught
+	-- that: the run's own furniture line read `fencePost 0 ... gate 1`, one gate standing alone in an
+	-- empty field with no fence to hang on (task 85).
+	if config.INCLUDE.fence then
+		add({
+			kind = "gate",
+			name = "FieldGate",
+			x = fence.gateFromX + 1,
+			z = fence.z + fence.gate.Z / 2,
+			size = fence.gate,
+			base = 0.4,
+			anchorX = fence.gateFromX,
+			anchorZ = fence.z,
+			color = fence.gateColor,
+			material = Enum.Material.Wood,
+		})
+	end
 
 	-- 6. REEDS ON THE BOG'S RIM.
 	local bog, reeds = world.bog, f.reeds
