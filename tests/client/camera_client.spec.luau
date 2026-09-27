@@ -981,8 +981,11 @@ return function()
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local cloned = clone:FindFirstChild("Barrels") :: BasePart
 				expect(cloned).to.be.ok()
-				local restAngle =
-					math.deg(math.acos(math.clamp(cloned.CFrame.LookVector:Dot(clone.CFrame.LookVector), -1, 1)))
+				local function angleBetween(): number
+					return math.deg(math.acos(math.clamp(cloned.CFrame.LookVector:Dot(clone.CFrame.LookVector), -1, 1)))
+				end
+				local restAngle = angleBetween()
+				TestKit.note(string.format("task96 shut: barrels %.3f deg off the body", restAngle))
 				expect(restAngle < 0.01).to.equal(true)
 				expect(clone:FindFirstChild("SpentShell1")).to.equal(nil)
 
@@ -993,8 +996,16 @@ return function()
 				table.freeze(open)
 				Camera.Viewmodel.setReload({ open = true, spent = 2 })
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
-				local swung =
-					math.deg(math.acos(math.clamp(cloned.CFrame.LookVector:Dot(clone.CFrame.LookVector), -1, 1)))
+				local swung = angleBetween()
+				TestKit.note(
+					string.format(
+						"task96 open: barrels %.2f deg (asked %.0f), muzzle Y %.3f vs body %.3f",
+						swung,
+						firstPersonConfig.BREAK_OPEN_DEG,
+						cloned.CFrame.LookVector.Y,
+						clone.CFrame.LookVector.Y
+					)
+				)
 				expect(math.abs(swung - firstPersonConfig.BREAK_OPEN_DEG) < 0.5).to.equal(true)
 				expect(cloned.CFrame.LookVector.Y < clone.CFrame.LookVector.Y).to.equal(true) -- muzzle DOWN
 				-- ...and a shell for each barrel that fired, drawn where the chambers are.
@@ -1026,8 +1037,8 @@ return function()
 				openAimed.blend = 1
 				table.freeze(openAimed)
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), openAimed, Config)
-				local offAngle =
-					math.deg(math.acos(math.clamp(cloned.CFrame.LookVector:Dot(clone.CFrame.LookVector), -1, 1)))
+				local offAngle = angleBetween()
+				TestKit.note(string.format("task96 flag off: barrels %.3f deg off the body", offAngle))
 				expect(offAngle < 0.01).to.equal(true)
 
 				Camera.Viewmodel.setReload(nil)
