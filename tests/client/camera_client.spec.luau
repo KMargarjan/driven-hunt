@@ -813,9 +813,16 @@ return function()
 				expect(clone:FindFirstChild("Bead")).to.be.ok()
 			end)
 
-			-- The camera writes the colour out rather than requiring the weapon, so this is the
-			-- check that the copy has not drifted from the gun's own bead.
-			expect(Config.BEAD_MARKER_COLOR).to.equal(Shotgun.CONFIG.LOOK.bead)
+			-- IT IS RED, which is what Karen asked for of her own picture ("red point on end"), and
+			-- it is deliberately NOT `Shotgun.CONFIG.LOOK.bead` any more: that off-white is the parts
+			-- gun's own bead, a piece of the weapon other players see, while this is the aiming mark
+			-- the camera draws for one player. The assertion is the colour's character rather than a
+			-- copy check, because there is nothing left to copy.
+			local red = Config.BEAD_MARKER_COLOR
+			expect(red.R * 255 > 200).to.equal(true)
+			expect(red.G * 255 < 90).to.equal(true)
+			expect(red.B * 255 < 90).to.equal(true)
+			expect(red).never.to.equal(Shotgun.CONFIG.LOOK.bead)
 		end)
 	end)
 

@@ -57,21 +57,34 @@ local firstPerson = table.clone(Config) :: any
 firstPerson.FIRST_PERSON = true
 table.freeze(firstPerson)
 
--- The gun's envelope, from the weapon's own config rather than a number copied here: the viewmodel
--- clone is the Handle, and the Handle IS the box (docs/design/shotgun.md, `Weapon.Hardware`).
-local HANDLE_SIZE = Shotgun.CONFIG.HANDLE_SIZE
+-- THE PIECES A PLAYER AIMS WITH, and the one they rest their cheek on. `Shape.pieces` is the gun's
+-- own list, so these follow the gun rather than a box copied into this file.
+local AIMED_WITH = { BarrelLeft = true, BarrelRight = true, Rib = true, Bead = true }
 
--- Every corner of that box, in the gun's own frame, centred like the Handle is.
-local function gunCorners(): { Vector3 }
+-- The camera-space Z of every corner of one piece, given the pose the viewmodel is drawn at. A
+-- piece's `offset` carries its own rotation (a barrel is a cylinder lying along Z), so the corners
+-- are taken through it rather than from an axis-aligned box.
+local function pieceCornerZ(pose: CFrame, piece): { number }
 	local out = {}
 	for _, sx in ipairs({ -1, 1 }) do
 		for _, sy in ipairs({ -1, 1 }) do
 			for _, sz in ipairs({ -1, 1 }) do
-				table.insert(out, Vector3.new(sx * HANDLE_SIZE.X / 2, sy * HANDLE_SIZE.Y / 2, sz * HANDLE_SIZE.Z / 2))
+				local corner = piece.offset
+					* CFrame.new(sx * piece.size.X / 2, sy * piece.size.Y / 2, sz * piece.size.Z / 2)
+				table.insert(out, (pose * corner).Position.Z)
 			end
 		end
 	end
 	return out
+end
+
+local function pieceNamed(name: string)
+	for _, piece in ipairs(Shape.pieces(Shotgun.CONFIG)) do
+		if piece.name == name then
+			return piece
+		end
+	end
+	return nil
 end
 
 -- A state at a given blend, with every cosmetic term at its exact rest.
@@ -345,30 +358,75 @@ return function()
 			expect(muzzleDirection.Z < 0).to.equal(true) -- still forward, not across the player
 		end)
 
-		it("keeps every corner of the gun in front of the near plane, in both poses", function()
+		it("keeps everything a player aims with clear of the near plane, in both poses", function()
 			-- docs/research/2026-09-27-first-person-viewmodel.md section 8: the near plane is 0.1
-			-- studs and the gun is 4.4 studs long about its centre, so a pose that is a little wrong
-			-- slices the butt off on screen. This is that risk made mechanical rather than left to a
-			-- screenshot -- the screenshot is still taken, and it is what Karen judges.
-			local worst = -math.huge
-			local worstWhere = ""
-			for _, blend in ipairs({ 0, 1 }) do
-				local pose = Mode.viewmodelOffset(stateAtBlend(blend), nil, firstPerson)
-				for _, corner in ipairs(gunCorners()) do
-					local z = (pose * CFrame.new(corner)).Position.Z
-					if z > worst then
-						worst, worstWhere = z, string.format("blend %.0f corner %s", blend, tostring(corner))
+			-- studs and the gun is 4.4 studs long, so a pose that is a little wrong slices it on
+			-- screen. This is that risk made mechanical.
+			--
+			-- ON THE GUN'S OWN PIECES, AND NOT ON ONE BOX ROUND THE WHOLE GUN (the second build round
+			-- of task 90). The design asserts the whole box (section 9.1 item 8) -- and that rule
+			-- forbids the very picture Karen accepted, because a cheek weld puts the STOCK behind the
+			-- eye. What must never be sliced is what she looks THROUGH: the two barrels, the rib and
+			-- the bead. The case below asserts the other half, that the stock really is behind the
+			-- camera when aiming, so nothing was loosened -- it was split in two.
+			local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
+			local poses = {
+				{ name = "carry", pose = Mode.viewmodelOffset(stateAtBlend(0), sight, firstPerson) },
+				{ name = "aimed", pose = Mode.viewmodelOffset(stateAtBlend(1), sight, firstPerson) },
+			}
+			local worst, worstWhere = -math.huge, ""
+			for _, entry in ipairs(poses) do
+				local seen = 0
+				for _, piece in ipairs(Shape.pieces(Shotgun.CONFIG)) do
+					if AIMED_WITH[piece.name] then
+						seen += 1
+						for _, z in ipairs(pieceCornerZ(entry.pose, piece)) do
+							if z > worst then
+								worst, worstWhere = z, string.format("%s %s", entry.name, piece.name)
+							end
+							expect(z <= -firstPerson.NEAR_PLANE_MARGIN_STUDS).to.equal(true)
+						end
 					end
-					expect(z <= -Config.NEAR_PLANE_MARGIN_STUDS).to.equal(true)
 				end
+				-- the filter really reached the pieces it names: two barrels, a rib and a bead
+				expect(seen).to.equal(4)
 			end
 			TestKit.note(
 				string.format(
-					"task89: nearest gun corner to the camera %.3f studs (%s), margin %.2f",
+					"task90: nearest aimed-with corner %.3f studs (%s), margin %.2f, eye relief %.2f",
 					worst,
 					worstWhere,
-					Config.NEAR_PLANE_MARGIN_STUDS
+					firstPerson.NEAR_PLANE_MARGIN_STUDS,
+					firstPerson.EYE_RELIEF_STUDS
 				)
+			)
+		end)
+
+		it("puts the stock behind the eye when aiming, which is what a cheek weld is", function()
+			-- KAREN'S ACCEPTANCE PICTURE, as an assertion
+			-- (<assets-dir>/references/inspiration-2026-09-27/ads-target-karen.jpg): the barrels fill
+			-- the lower centre and run away to the bead, and almost none of the stock is visible
+			-- because it is under the cheek. If somebody pushes the eye back to where the first build
+			-- round had it -- a whole gun behind the breech, the stock a plank across the lower half
+			-- -- this fails.
+			local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
+			local pose = Mode.viewmodelOffset(stateAtBlend(1), sight, firstPerson)
+			local stock = pieceNamed("Stock")
+			expect(stock).to.be.ok()
+			local rearmost = -math.huge
+			for _, z in ipairs(pieceCornerZ(pose, stock)) do
+				rearmost = math.max(rearmost, z)
+			end
+			expect(rearmost > 0).to.equal(true)
+			-- ...and the carry pose is NOT a cheek weld: there the whole gun is out in front, which
+			-- is what "carried" means and what makes the two poses different pictures.
+			local carry = Mode.viewmodelOffset(stateAtBlend(0), sight, firstPerson)
+			local carryBarrel = pieceNamed("BarrelLeft")
+			for _, z in ipairs(pieceCornerZ(carry, carryBarrel)) do
+				expect(z < 0).to.equal(true)
+			end
+			TestKit.note(
+				string.format("task90: aimed, the stock's rearmost corner is %.3f studs behind the eye", rearmost)
 			)
 		end)
 
@@ -444,30 +502,6 @@ return function()
 			-- `Viewmodel.stats().sightMissing` counts it.
 			expect(Mode.aimOffset(nil, firstPerson)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
 			expect(Mode.aimOffset(nil, Config)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
-		end)
-
-		it("keeps the gun in front of the near plane in the REAL aimed pose too", function()
-			-- Task 89 asserted the corners against the fallback pose; the aimed pose is geometry now,
-			-- so the same assertion has to be made against the pose the player actually gets. At
-			-- EYE_RELIEF_STUDS the butt is about 1.25 studs in front of the eye -- and if somebody
-			-- pulls the eye relief in to make the view "closer" (Karen asked for closer), this is
-			-- the case that says how far is too far.
-			local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
-			local pose = Mode.viewmodelOffset(stateAtBlend(1), sight, firstPerson)
-			local worst = -math.huge
-			for _, corner in ipairs(gunCorners()) do
-				local z = (pose * CFrame.new(corner)).Position.Z
-				worst = math.max(worst, z)
-				expect(z <= -firstPerson.NEAR_PLANE_MARGIN_STUDS).to.equal(true)
-			end
-			TestKit.note(
-				string.format(
-					"task90: aimed, nearest gun corner %.3f studs (eye relief %.2f, margin %.2f)",
-					worst,
-					firstPerson.EYE_RELIEF_STUDS,
-					firstPerson.NEAR_PLANE_MARGIN_STUDS
-				)
-			)
 		end)
 
 		it("returns the aimed pose bitwise at rest, which the screen measurement rests on", function()
