@@ -160,6 +160,12 @@ end
 -- and the specs hand it `Layout.bogDepth`, and a caller that omits it gets the terrain without the
 -- bog, which is exactly what the corridor and slope checks want to measure.
 function Height.at(x: number, z: number, seed: number, config, bogDepth: ((number, number, any) -> number)?): number
+	-- THE BARE WORLD (task 85): one plane at GROUND_Y, and it is an early return rather than
+	-- `RELIEF = 0` because `corridorFalloff` and `benchBand` DIVIDE by RELIEF. Everything below is
+	-- untouched and comes back with `Config.INCLUDE.relief = true`.
+	if not config.INCLUDE.relief then
+		return config.GROUND_Y
+	end
 	local ox, oz = Height.offset(seed)
 	local wf = config.WARP_FREQUENCY
 	local wx = config.WARP * math.noise((x + ox) * wf, (z + oz) * wf)

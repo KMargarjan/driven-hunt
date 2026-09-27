@@ -29,6 +29,37 @@ local Config = {}
 
 -- ---------------------------------------------------------------- the world
 
+-- ---------------------------------------------------------------- what gets built (task 85)
+--
+-- KAREN, 2026-09-27: "I think now we are focusing on 1 thing per fix or improvements to be as we
+-- want, that makes me to tell you remove all trees and unnecessary terrains, so we will focus now on
+-- shotgun shooting etc and boars, so rest is just extra time and noise to load."
+--
+-- SO THIS IS A SWITCH PER LAYER, AND NOTHING WAS DELETED. Every generator that these turn off is
+-- still here, still tested and still reachable: flip one row back to `true`, run
+-- `python tools/mapgen.py build --seed 1`, and that layer comes back exactly as it was. That is the
+-- whole point -- the wood, the relief and the road's furniture come back ONE AT A TIME when Karen
+-- wants to look at them again, and each is one line rather than a revert.
+--
+-- The rows that stay TRUE are what the GAME needs: the flat ground, the road that is the shooter
+-- line, the stands and their stakes, the markers, the tie trees the safety penalty ties a player to,
+-- and the spawn pads. Everything else is scenery.
+Config.INCLUDE = {
+	relief = false, -- terrain height: the fbm, the corridor and bench easings, the outer ring
+	trees = false, -- the wood: ~2,700 tree Models across four quadrant steps
+	brush = false, -- the 500 non-collidable cover boxes
+	hedges = false, -- the field-boundary hedgerows and their gates
+	tracks = false, -- the flank dirt track (material only)
+	bog = false, -- the bog's dip and its Mud
+	highSeats = false, -- the four high seats behind the stands
+	barriers = false, -- the boom barrier at each end of the road
+	logPiles = false, -- the two roadside log piles
+	fence = false, -- the field fence and its gate
+	reeds = false, -- the reed ring on the bog's rim (pointless without the bog)
+	stakes = true, -- KEPT: the orange-capped stakes are how a shooter finds his stand
+	tieTrees = true, -- KEPT: Match.Body.anchorFor ties a punished player to a DrivenHunt.Tree
+}
+
 Config.SIZE_STUDS = 2048 -- 573 m at 1 stud = 0.28 m; ~2x StreamingTargetRadius, so streaming is used
 Config.GROUND_Y = 0 -- matches Boar.CONFIG.field.groundY, so the M2.5 switch needs no boar change
 

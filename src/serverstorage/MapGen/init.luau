@@ -116,7 +116,7 @@ function MapGen.steps(seed: number): { StepSpec }
 			3000
 		)
 	end
-	for index, track in ipairs(Config.WORLD.tracks) do
+	for index, track in ipairs(if Config.INCLUDE.tracks then Config.WORLD.tracks else {}) do
 		add("track", string.format("dirt track %d: along %s at %d", index, track.axis, track.at), 6000)
 	end
 	-- No bog STEP: the bog is a dip in the heightfield and a material, and both are decided per voxel
@@ -125,17 +125,32 @@ function MapGen.steps(seed: number): { StepSpec }
 	-- assumes a bog painted on top of flat ground; ours is part of the ground).
 	-- THE WOOD, ONE QUADRANT PER STEP (design section 7.2). ~3,000 Models in one step is one step
 	-- that can time out and tell you nothing about where it was; four steps name a quarter of the map.
-	for _, block in ipairs(Layout.treeBlocks(Config)) do
-		add("props", string.format("the wood: %s quadrant (seed %d)", block.name, seed), 8000)
+	-- TASK 85: `Layout.treeBlocks` is empty in the bare world, so neither loop adds a step. Each
+	-- layer is still guarded by its own switch, because the wood and the brush come back separately.
+	if Config.INCLUDE.trees then
+		for _, block in ipairs(Layout.treeBlocks(Config)) do
+			add("props", string.format("the wood: %s quadrant (seed %d)", block.name, seed), 8000)
+		end
 	end
-	for _, block in ipairs(Layout.treeBlocks(Config)) do
-		add("brush", string.format("brush: %s quadrant", block.name), 3000)
+	if Config.INCLUDE.brush then
+		for _, block in ipairs(Layout.treeBlocks(Config)) do
+			add("brush", string.format("brush: %s quadrant", block.name), 3000)
+		end
 	end
 	add("stand", string.format("%d tie trees behind the shooter line", Config.WORLD.tieTrees), 2000)
 	-- THE FURNITURE IS A PROP LAYER, so it runs before the markers, which stay last (layer 9). It
 	-- is one step: ~130 boxes is nothing beside 2,746 trees, and splitting it would only make the
 	-- log harder to read.
-	add("furniture", "the road's furniture: stakes, high seats, barriers, log piles, fence, reeds", 2000)
+	-- The label names what this config builds, not what the layer can build: in the bare world
+	-- (task 85) it is the stakes alone, and a run log that still promised five other layers would
+	-- be the wrong thing to read a failed step against.
+	local furnitureLayers = {}
+	for _, layer in ipairs({ "stakes", "highSeats", "barriers", "logPiles", "fence", "reeds" }) do
+		if Config.INCLUDE[layer] then
+			table.insert(furnitureLayers, layer)
+		end
+	end
+	add("furniture", "the road's furniture: " .. table.concat(furnitureLayers, ", "), 2000)
 	add("markers", "the five tagged marker kinds, and the tie trees", 3000)
 	add("settings", "streaming from the contract", 500)
 	return steps
