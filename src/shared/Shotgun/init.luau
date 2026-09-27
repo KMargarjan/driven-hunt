@@ -223,8 +223,13 @@ Shotgun.CONFIG = {
 	-- How far above the Muzzle attachment the bores actually are: the attachment sits on the Handle's
 	-- axis, the barrels ride above it (`Shape`'s BARREL_Y).
 	BARREL_RISE_STUDS = 0.12,
-	-- The smoke that follows the flash: bigger, slower, grey, and gone before the next shot.
-	SMOKE_LIFETIME = 0.45,
+	-- The smoke that follows the flash: bigger, slower, grey, and gone before the next shot. MEASURED
+	-- RATHER THAN CHOSEN: at the first pick, 0.45 s, seventeen screenshots taken across two sessions
+	-- caught it exactly never -- the harness's own capture grabs its frame seconds into the call, and
+	-- a player firing a barrel sees about as much of it as the camera did. Real muzzle smoke from a
+	-- 12-gauge hangs; 1.1 s is still short, and it is what makes "the light comes from the pipes"
+	-- something Karen can actually watch. The FLASH stays at 0.05 s, because a flash is instant.
+	SMOKE_LIFETIME = 1.1,
 
 	-- the Hud
 	-- The hit marker (Director decision, 2026-09-25, on hit-zones design section 14 item C): Karen's

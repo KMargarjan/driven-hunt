@@ -161,7 +161,11 @@ local Config = {
 	-- workspace.CurrentCamera, so it lights the gun and nothing else the player can see): warm, weak
 	-- and short-ranged, shadows off. It does not light the world -- range 6 studs from a point inside
 	-- the camera -- and it costs one light.
-	VIEWMODEL_FILL_BRIGHTNESS = 1.4,
+	-- 1.0, AND THE FIRST PICK OF 1.4 WAS MEASURED ON SCREEN: at 1.4 the action's own metal (the mesh
+	-- carries it at metalness 0.70 / roughness 0.35) blew out to near-white in the aimed view, which
+	-- trades one unreadable gun for another. At 1.0 the barrels and the rib keep their highlight and
+	-- the walnut still reads as walnut.
+	VIEWMODEL_FILL_BRIGHTNESS = 1.0,
 	VIEWMODEL_FILL_RANGE_STUDS = 6,
 	VIEWMODEL_FILL_COLOR = Color3.fromRGB(255, 244, 224),
 	-- Where the light sits relative to the gun's own pivot: up and to the left of the breech, so the
