@@ -1017,8 +1017,15 @@ return function()
 				expect(clone:FindFirstChild("SpentShell1")).to.be.ok()
 				expect(clone:FindFirstChild("SpentShell2")).to.equal(nil)
 
-				-- AND THE OFF BRANCH HINGES NOTHING: the third-person gun has no break to draw.
-				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, Config)
+				-- AND THE OFF BRANCH HINGES NOTHING: the third-person gun has no break to draw. At
+				-- BLEND 1, because that branch only draws a viewmodel while the player is aiming --
+				-- at blend 0 it unparents the clone, and an unparented clone is not a test of the
+				-- hinge, it is a test of the threshold (measured: the case failed here first).
+				local openAimed = table.clone(open) :: any
+				openAimed.mode = "Aiming"
+				openAimed.blend = 1
+				table.freeze(openAimed)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), openAimed, Config)
 				local offAngle =
 					math.deg(math.acos(math.clamp(cloned.CFrame.LookVector:Dot(clone.CFrame.LookVector), -1, 1)))
 				expect(offAngle < 0.01).to.equal(true)
