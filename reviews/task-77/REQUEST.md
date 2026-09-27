@@ -3,15 +3,19 @@
 Task: 77
 Round: 1
 Base: `main` (`1be1174`)
-Code commit: `a5f8febeb31bf9766f39bf41e999fb3d75163b5e`
+Code commit: `3edb986a13e48a640c26cd7252f9ea3fbaab4dcb`
 
 ```
-[harness] PASS: 30/30 checks @ a5f8febeb31bf9766f39bf41e999fb3d75163b5e (clean tree)
+[harness]  PASS: 30/30 checks @ 3edb986a13e48a640c26cd7252f9ea3fbaab4dcb (clean tree)
+[harness2] PASS: 32/32 checks @ 3edb986a13e48a640c26cd7252f9ea3fbaab4dcb (clean tree)
 ```
 
-`src/` and `tests/client/` both changed, so `test2` is part of the gate; the Director runs it at
-this branch's head and that line goes here. `[tests:server] PASS: 419 passed` (408 before: eleven
-new), client 88 (86 before: two new).
+Both are the Director's runs at this branch's head. `src/` and `tests/client/` both changed, so
+`test2` is part of the gate. The head is a paperwork commit — at or after the last commit that
+touched `src/` or `tests/` (`a5f8feb`), with only `TASKS.md` and this file between them — which only
+makes the bound stricter. My own clean-tree `[harness] PASS: 30/30 @ a5f8feb` covers the same code
+and reported `[tests:server] PASS: 419 passed` (408 before: eleven new), client 88 (86 before: two
+new).
 
 **What changed.** `src/server/Match/Body.luau` (`OUTFIT_NAME`, the `OUTFITS` table, `dressFor`,
 `dress`, and the three call sites), `src/server/Match/init.luau`
@@ -69,20 +73,27 @@ new), client 88 (86 before: two new).
 
 ## What I could not verify
 
-- **The two-player screenshot the M2.8d row asks for.** I cannot take it: `test` and `test2` both
-  **refuse to start while a flag override is set**, and a two-player session is a human click.
-  **Steps for the Director**, on this branch:
-  1. `python tools/flags.py set ORANGE_OUTFITS on` (Edit mode), then `python tools/flags.py` to see
-     `override on`.
-  2. In Studio: **Test → Clients and Servers → 2 players → Start**. (Not `test2`: it refuses while
-     the override is set, and that refusal is deliberate.)
-  3. `python tools/flags.py live` — it must say the session resolved `ORANGE_OUTFITS` on.
-  4. Wait for a drive to assign teams (one shooter, one driver), then
-     `python tools/studio_mcp.py capture task77-two-player <cam x,y,z> <look x,y,z> server` — the
-     server window sees both players; the camera is the Director's pick.
-  5. **`python tools/flags.py clear`** before any harness run.
+- **The two-player screenshot the M2.8d row asks for was NOT taken, and the reason is a harness
+  bug.** The Director tried and reports it verbatim: *"`python tools/flags.py set ORANGE_OUTFITS on`
+  REFUSES 'no such flag ORANGE_OUTFITS' in Edit mode while a Play session resolves it fine —
+  QUERY_SET_FLAG's `require(Flags)` in the Edit-mode MCP context returns a module CACHED before the
+  flag existed (Rojo updated the Source of the same ModuleScript). That is a harness bug (rule 6);
+  the Director queues it as Task 78, and the two-player screenshot is taken after 78 for Karen's
+  playtest."*
+
+  That trap has now bitten this project a fourth time — `reviews/task-75/REQUEST.md` records the
+  same one layer up (*"Studio's Edit-mode require cache is stale for a module required earlier in
+  the session"*), which is why this task's own evidence never went through `flags set` at all.
+  **Nothing about this task's code is affected**: `Flags.DEFAULTS.ORANGE_OUTFITS` is asserted by a
+  server spec on a running server, and the ON path is exercised by parameter everywhere else.
+
+  I could not take the screenshot either, for a second and independent reason: `test` and `test2`
+  both **refuse to start while a flag override is set**, and a two-player session is a human click.
 - **The vest has never been rendered.** The single player in a one-player session is a Shooter, so
-  every screenshot is of the hat. The vest is asserted on Instances only (77a(d)).
+  every screenshot is of the hat. The vest is asserted on Instances only (77a(d)). **What I could
+  photograph, I did**: the hat was captured in Play by flipping the flag's `default` for a throwaway
+  run — which needs no override and so is not blocked by either problem above — and that is how the
+  halo in claim 8 was found.
 - **Whether orange-on-orange reads at eighty metres** is Karen's eye at a playtest, not a
   measurement. Colours and sizes are one line each in `Body`'s `OUTFITS` table.
 - **`test2` is the Director's run**, and a second player exercises one path this task adds that one
