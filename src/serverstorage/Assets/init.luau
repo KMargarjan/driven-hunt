@@ -400,6 +400,7 @@ Assets.ROWS = {
 		-- surfaces fight for the depth buffer. A real side-by-side is brazed tube to tube; a renderer
 		-- needs a hair of daylight, so `clearanceT` puts 0.4 mm between them. Same geometry
 		-- otherwise, same maps, same smoothing groups.
+		supersededBy = 7, -- task 94: v6's barrels still speckled at a distance (mipmaps; see v7)
 		modelId = 94500894676280,
 		displayName = "Driven Hunt shotgun r8 no z-fight",
 		fileName = "model.fbx",
@@ -433,6 +434,52 @@ Assets.ROWS = {
 			.. "rib, muzzle and bead built by `rebuildBarrels`; blued steel written into the maps by "
 			.. "the step that owns those texels; smoothing groups on export. One MeshPart with ONE "
 			.. "SurfaceAppearance.",
+	},
+	{
+		key = "shotgun.handle",
+		version = 7,
+		kind = "meshpart" :: Kind,
+		-- Uploaded by tools/roblox_upload.py on 2026-09-27; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- WHY THERE IS A VERSION 7, AND IT IS MIPMAPS. The rebuilt barrels take their colour from a
+		-- borrowed patch of the atlas, and Roblox halves that texture over and over for distance:
+		-- by the third level a patch a few dozen pixels wide has blended into whatever the generator
+		-- left beside it, which came out on screen as a speckled, scalloped shimmer down both tubes
+		-- -- and never appeared in Blender's own render, which has no mip chain. The built faces now
+		-- take a small island in the MIDDLE of the largest empty square of atlas (3 x 3 cells of a
+		-- 48-cell grid, about 123 px), and the repaint fills that whole square with the same flat
+		-- blued steel, so several mip levels are flat before anything else can bleed in.
+		modelId = 107443663683446,
+		displayName = "Driven Hunt shotgun r9 flat atlas block",
+		fileName = "model.fbx",
+		sourceSha256 = "3bcd2c6587cb30e5a37854f82842a0c37c140ee8f671437791323bbe3f9e8ebe",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked on "
+				.. "2026-09-27, after playing it, for the gun to be built smooth like the video she "
+				.. "sent. The barrels are this repository's own geometry; the stock and action are "
+				.. "hers, unchanged.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-09-27, TASKS.md row 94",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 11770,
+		texturePx = 2048,
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		sightOffsetStuds = Vector3.new(0, 0.336, -2.19),
+		renderFidelity = "Automatic",
+		notes = "As v6 -- built barrels, rib, muzzle and bead, 0.4 mm of clearance between the tubes "
+			.. "and under the rib, smoothing groups on export -- with the built faces on a small UV "
+			.. "island inside a flat 123-pixel block of atlas. One MeshPart with ONE SurfaceAppearance.",
 	},
 } :: { AssetRow }
 

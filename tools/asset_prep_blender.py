@@ -511,34 +511,47 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
         y0 = min(max(int(min(uv[1] for uv in uvs) % 1.0 * grid), 0), grid - 1)
         y1 = min(max(int(max(uv[1] for uv in uvs) % 1.0 * grid), 0), grid - 1)
         occupied[y0:y1 + 1, x0:x1 + 1] = True
-    best, best_distance = None, -1.0
-    taken = np.argwhere(occupied)
-    for gy in range(grid):
-        for gx in range(grid):
-            if occupied[gy, gx]:
-                continue
-            if len(taken) == 0:
-                distance = float(grid)
-            else:
-                distance = float(np.min(np.abs(taken - np.array([gy, gx])).max(axis=1)))
-            if distance > best_distance:
-                best, best_distance = (gx, gy), distance
-    if best is not None and best_distance >= 1.0:
+    # THE LARGEST EMPTY SQUARE, not the emptiest single cell (task 94). The barrels' texels have to
+    # survive MIP-MAPPING: Roblox halves the texture over and over, and by the third level a patch a
+    # few dozen pixels wide has blended into whatever the generator left beside it -- which is what
+    # speckled the barrels in the game while Blender's own render, with no mip chain, was perfect.
+    # A big block of atlas painted one flat colour is flat at every level that matters.
+    best, best_size = None, 0
+    for size in range(min(grid // 2, 12), 0, -1):
+        for gy in range(grid - size + 1):
+            for gx in range(grid - size + 1):
+                if not occupied[gy:gy + size, gx:gx + size].any():
+                    best, best_size = (gx, gy), size
+                    break
+            if best:
+                break
+        if best:
+            break
+    if best is not None and best_size >= 1:
         # BIG ENOUGH TO HAVE AN INTERIOR. Every mask is feathered by `maskFeatherPx` (6) and dilated
         # by `maskDilatePx` (4) before it is painted, and `push_channel` BLENDS by that weight: a
         # 17-pixel patch is all edge, so the barrel's metalness 0.10 came out at 0.45 -- the source's
         # own 1.00 pulled two thirds of the way, which run 5 measured exactly. The patch fills the
         # empty cell and as much of its clear neighbourhood as there is, so its middle is at full
         # weight.
-        half = min(best_distance - 0.5, 1.5) / grid
-        centre = Vector(((best[0] + 0.5) / grid, (best[1] + 0.5) / grid))
+        # THE UV TRIANGLE IS SMALL AND THE PAINTED BLOCK AROUND IT IS BIG (task 94, measured in the
+        # game). Roblox mipmaps every texture: at the second or third level a 40-pixel patch is
+        # already blended with whatever the generator left beside it, and the barrels came out
+        # speckled and scalloped at exactly the distances where a lower mip is chosen -- which is why
+        # Blender's own render, with no mip chain, showed none of it. The triangle stays in the
+        # middle of the empty cell and the repaint below covers everything around it.
+        centre = Vector(((best[0] + best_size / 2.0) / grid, (best[1] + best_size / 2.0) / grid))
+        half = best_size / grid * 0.12  # a small island in the MIDDLE of the block
         barrel_patch = [Vector((centre.x - half, centre.y - half)),
                         Vector((centre.x + half, centre.y - half)),
                         Vector((centre.x, centre.y + half))]
-        empty_corner = {"cell": list(best), "cellsFromAnything": best_distance}
-        patch_rect = [centre.x - half, centre.y - half, centre.x + half, centre.y + half]
+        empty_corner = {"cell": list(best), "emptyCells": best_size, "gridCells": grid}
+        # What the repaint covers: the whole clear neighbourhood, so every mip level the barrels can
+        # sample is the same flat blued steel.
+        block = best_size / grid / 2.0 * 0.96  # the painted square, a hair inside the empty block
+        patch_rect = [centre.x - block, centre.y - block, centre.x + block, centre.y + block]
     else:
-        empty_corner = {"cell": None, "cellsFromAnything": best_distance}
+        empty_corner = {"cell": None, "emptyCells": best_size, "gridCells": grid}
         patch_rect = None
 
     made = set(built)
