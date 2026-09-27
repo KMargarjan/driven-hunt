@@ -268,7 +268,10 @@ return function()
 				local firedRight = Hardware.muzzleCFrame(tool, 1) :: CFrame
 				local firedLeft = Hardware.muzzleCFrame(tool, 2) :: CFrame
 				expect(firedRight).to.be.ok()
-				expect((firedRight.Position - firedLeft.Position).Magnitude).to.equal(2 * CONFIG.BARREL_HALF_GAP_STUDS)
+				-- WITHIN A FLOAT: a CFrame's position is float32, so the 0.18 bore gap comes back as
+				-- 0.18000000715255737 -- measured, in this task's first gate run.
+				local gap = (firedRight.Position - firedLeft.Position).Magnitude
+				expect(math.abs(gap - 2 * CONFIG.BARREL_HALF_GAP_STUDS) < 1e-4).to.equal(true)
 				expect(firedRight.LookVector:Dot(muzzle.WorldCFrame.LookVector) > 0.9999).to.equal(true)
 				-- ...and barrel 1 really is the RIGHT tube, measured in the GUN's frame rather than in
 				-- the world, where "right" depends on which way the player happens to be facing.
