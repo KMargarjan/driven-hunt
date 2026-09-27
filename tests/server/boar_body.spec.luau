@@ -7,10 +7,13 @@
 -- a different runtime and is untouched.
 -- Design: docs/design/boar-ai.md (section 10)
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local CONFIG = Boar.CONFIG
 
 local GROUND_Y = 500
@@ -326,6 +329,17 @@ return function()
 		end)
 
 		it("routes AROUND the arena's cover, not straight over the Baseplate", function()
+			-- ONLY WHILE THE ARENA IS THE WORLD (M2.8e). This case is about `WallWest`, a part of the
+			-- grey box, and since the switch `ArenaBoot` does not build it -- so there is no wall to
+			-- route around and nothing here to assert. It is BRANCHED rather than deleted for the
+			-- reason `test_arena.spec` is: the arena is the rollback until Karen accepts the map
+			-- (map-generator design section 17 step 9), and a deleted spec cannot check a rollback.
+			-- The generated map's own routing is covered, and better: `map_contract.spec` walks it
+			-- from every BoarSpawn and the DriverStart with the boar's own agent parameters.
+			if Map.EXPECTED_WORLD ~= "arena" then
+				TestKit.note("boar_body: world=" .. Map.EXPECTED_WORLD .. ", the arena's cover case is dormant")
+				return
+			end
 			-- Round 4, finding 1: the first version of this test never waited for the arena and never
 			-- checked it was there, so it could pass over the default Baseplate alone - and did. 54
 			-- waypoints for a 210-stud route is a straight line, which means WallWest was not in the

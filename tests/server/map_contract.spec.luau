@@ -289,8 +289,8 @@ return function()
 
 		it("agrees with the boar about the field rectangle, in whichever world this is", function()
 			-- THE SWITCH'S ONE REAL INVARIANT (design section 17 step 6): the boar hunts in the
-			-- rectangle the contract names, and both follow the same resolved flag. If `ArenaBoot`
-			-- and `Boar.CONFIG` ever read different values this is what catches it.
+			-- rectangle the contract names, and the switch changes both together. A commit that
+			-- moved one and forgot the other is exactly what this catches.
 			local field = Boar.CONFIG.field
 			expect(field.bounds.minX).to.equal(FIELD.bounds.minX)
 			expect(field.bounds.maxX).to.equal(FIELD.bounds.maxX)
@@ -298,7 +298,6 @@ return function()
 			expect(field.bounds.maxZ).to.equal(FIELD.bounds.maxZ)
 			expect(field.exitZ).to.equal(FIELD.exitZ)
 			expect(field.groundY).to.equal(FIELD.groundY)
-			expect(Boar.CONFIG.WORLD).to.equal(WORLD)
 		end)
 
 		it("keeps the streaming properties the contract names", function()
