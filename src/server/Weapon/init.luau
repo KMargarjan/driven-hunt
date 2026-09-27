@@ -605,6 +605,21 @@ local function watchPlayer(player: Player)
 	end
 end
 
+-- THE SEAM A FORGED REQUEST ARRIVES THROUGH, reachable by parameter as well as by remote (Task 80).
+-- `OnServerEvent` can only be raised by a client, so until now the only way to test "the server
+-- ignores a request it must not accept" was from a Play client, watching this player's published
+-- state for a change. That test could never be sound: THIS module is the only writer of that state
+-- and it rewrites it on its own schedule -- `Weapon.grant` resets it and auto-equips, the arming
+-- sweep calls grant again, a Reload is a multi-step cycle -- so "the state changed" and "the forged
+-- request was accepted" are the same observation from the client. Task 80 measured a client run
+-- failing for the first reason and reading as the second.
+--
+-- These two are the SAME functions `Weapon.start` connects to the remotes, not a copy: one owner, one
+-- implementation, and a spec can hand them a player and a forged payload with nothing in flight.
+-- `Weapon.stats().badRequests` is the counter that says the whitelist refused it.
+Weapon.onActionRequest = onActionRequest
+Weapon.onFireRequest = onFireRequest
+
 function Weapon.start()
 	assert(not started, "Weapon.start() called twice")
 	started = true

@@ -56,29 +56,42 @@ local log = {}
 -- scenario -- the one event that says another scenario has taken the gun (tools/studio_mcp.py, the
 -- `stage` step, which sets this attribute and nothing else does).
 local ownLogEntries: number? = nil
+-- WHEN THIS SPEC TOOK THE GUN, and what the gun held then: the near end of its own window (Task 80).
+-- Declared here because `ownLog` below reads it.
+local equippedAt = nil
+local baseline = nil
 player:GetAttributeChangedSignal("StagedTarget"):Connect(function()
 	ownLogEntries = ownLogEntries or #log
 end)
 
--- The log as it stood when this spec's own scenario ended.
+-- THIS SPEC'S OWN WINDOW: from its cue to the moment the harness staged the next scenario.
+--
+-- BOTH ENDS ARE CAUSAL, and the near end is new (Task 80). It used to start at the beginning of the
+-- session, so anything the owner's auto-equip let through before the cue counted as this spec's --
+-- which is exactly how a slug fired at +4.1 s became "3 shots where the replay fires two", and how
+-- 77a(a) read the same 23-slugs-and-3-shots when a spec file loaded in a different order. Neither was
+-- about order or timing: the window simply had no near end.
 local function ownLog()
-	if not ownLogEntries then
-		return log
-	end
 	local out = {}
-	for index = 1, ownLogEntries do
-		out[index] = log[index]
+	for index = 1, ownLogEntries or #log do
+		local entry = log[index]
+		if not equippedAt or entry.at >= equippedAt then
+			table.insert(out, entry)
+		end
 	end
 	return out
 end
 local aimEvents = {}
 local cameraSamples = {}
-local equippedAt = nil
 
 local suiteStart = os.clock()
 
 Weapon.Changed:Connect(function(snapshot)
 	table.insert(log, { at = os.clock(), state = snapshot })
+	-- The baseline, if the cue could not read one itself: the first snapshot of this spec's window.
+	if equippedAt and not baseline then
+		baseline = snapshot
+	end
 end)
 
 -- EVERY TOOL THE OWNER HANDS THIS PLAYER (Task 80). `Weapon.grant` destroys the recorded Tool,
@@ -150,6 +163,45 @@ Weapon.Input.AimChanged:Connect(function(aiming)
 	})
 end)
 
+-- KEEP the Tool in the Backpack until the cue, and that is not optional: CONFIG.AUTO_EQUIP is true
+-- (Karen's playtest should start with the gun in hand), so a gun in the character when Task 6's
+-- `key-mouse-order` scenario sends MouseButton1 fires a shell nothing in this file asked for.
+-- Unequipping unbinds the weapon's own actions (Tool.Unequipped), so scenario 1's clicks reach
+-- nothing, and the cue key puts it back. This is the spec's arrangement; nothing asserted afterwards
+-- depends on it.
+--
+-- AN INVARIANT, NOT A ONE-OFF ACT, and Task 80 measured why. `parkTool` used to return true the
+-- moment it found the gun in the Backpack -- "already parked" -- and the OWNER then auto-equipped it
+-- a moment later, because `Weapon.grant` ends with `Hardware.equip` and `refreshArming`'s sweep calls
+-- grant repeatedly. On the map world that race was lost about one run in three: the failing run's own
+-- note read `3 gun(s) handed over [+2.2s backpack, ...]; rises [#1 at +4.1s None/Slug res=24/24
+-- BEFORE THE CUE, ...]` -- a slug fired at +4.1 s, before this spec's cue at +4.5 s, and the gun was
+-- never unequipped at all. So the watcher below keeps unequipping until the cue: the owner may hand
+-- the gun over as often as it likes, and the replay's early clicks still reach nothing.
+local cueGiven = false
+local function unequipNow(): boolean
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local held = character and character:FindFirstChild("Shotgun")
+	if humanoid and held then
+		humanoid:UnequipTools()
+		return true
+	end
+	return false
+end
+
+local function keepParked(character: Model)
+	character.ChildAdded:Connect(function(child)
+		if not cueGiven and child.Name == "Shotgun" and child:IsA("Tool") then
+			unequipNow()
+		end
+	end)
+end
+if player.Character then
+	keepParked(player.Character)
+end
+player.CharacterAdded:Connect(keepParked)
+
 -- The cue: equip the Tool the way the Backpack does, so Tool.Equipped fires on the client and the
 -- server sees Tool.Parent become the character. Equipping is this spec's arrangement; everything
 -- asserted afterwards arrives through the real input path.
@@ -159,6 +211,10 @@ local function onCue(_name: string, state: Enum.UserInputState)
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local backpack = player:FindFirstChildOfClass("Backpack")
 		local tool = backpack and backpack:FindFirstChild("Shotgun")
+		-- THE CUE IS THIS SPEC'S OWN WINDOW OPENING, so the parking watcher stands down here and
+		-- nothing before this moment counts against the assertions below (Task 80).
+		cueGiven = true
+		baseline = baseline or Weapon.get()
 		if humanoid and tool then
 			humanoid:EquipTool(tool)
 			equippedAt = os.clock()
@@ -184,25 +240,15 @@ ContextActionService:BindAction(QUIET_ACTION, function()
 	return Enum.ContextActionResult.Pass
 end, false, Enum.KeyCode.R, Enum.KeyCode.X, Enum.UserInputType.MouseButton1, Enum.UserInputType.MouseButton2)
 
--- Park the Tool in the Backpack BEFORE signalling ready, and that is not optional: CONFIG.AUTO_EQUIP
--- is true (Karen's playtest should start with the gun in hand), so without this the gun is in the
--- character while Task 6's `key-mouse-order` scenario sends MouseButton1 and R -- and it was: the
--- third run fired a shot and ran a whole reload before this scenario began. Unequipping unbinds the
--- weapon's own actions (Tool.Unequipped), so scenario 1's clicks reach nothing, and the cue key puts
--- it back. This is the spec's arrangement; nothing asserted afterwards depends on it.
 local function parkTool(): boolean
 	local deadline = os.clock() + 15
 	repeat
-		local character = player.Character
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local backpack = player:FindFirstChildOfClass("Backpack")
-		local held = character and character:FindFirstChild("Shotgun")
-		if humanoid and held then
-			humanoid:UnequipTools()
+		if unequipNow() then
 			return true
 		end
 		if backpack and backpack:FindFirstChild("Shotgun") then
-			return true -- already parked
+			return true -- in the Backpack, and the watcher above keeps it there
 		end
 		task.wait(0.1)
 	until os.clock() > deadline
@@ -481,9 +527,16 @@ return function()
 				expect(state.loaded[2]).to.equal("Buck")
 				expect(state.selected).to.equal(1)
 				expect(state.ammo).to.equal("Buck")
-				-- Slug: 24 - 2 for the R reload, + 2 returned when X broke the action open. Buck: -2.
-				expect(state.reserve.Slug).to.equal(24)
-				expect(state.reserve.Buck).to.equal(22)
+				-- A DELTA FROM THE CUE, not an absolute (Task 80). These used to read `== 24` and
+				-- `== 22`, which is `Shotgun.CONFIG`'s starting pocket -- a claim about the whole
+				-- session rather than about this spec's window. `Weapon.grant` resets the reserve to
+				-- full whenever the owner hands over a new gun, and a shot before the cue leaves it one
+				-- short for ever, so the absolute was right only when nothing had touched the gun
+				-- first. Slug: -2 for the R reload, +2 returned when X broke the action open, so back
+				-- to what the gun held at the cue. Buck: -2, the two that came out for the swap.
+				expect(baseline).to.be.ok()
+				expect(state.reserve.Slug).to.equal(baseline.reserve.Slug)
+				expect(state.reserve.Buck).to.equal(baseline.reserve.Buck - 2)
 			end)
 
 			it("fired exactly twice: an empty gun refused the third click", function()
@@ -792,6 +845,12 @@ return function()
 				return newest ~= nil and os.clock() - newest.at < newest.state.busyFor
 			end
 
+			-- THE PROPERTY ITSELF NOW LIVES ON THE SERVER (Task 80), in `weapon_shot.spec`'s "consults
+			-- the whitelist before acting, at the handler the remote calls", which counts
+			-- `stats.badRequests` and needs no window at all. What is left here is the half only a
+			-- client can prove: that these remotes REACH that handler, from a real Play client, and
+			-- that nothing comes back. Keeping both is deliberate -- the server case would still pass
+			-- if `Weapon.start` forgot to connect the remote.
 			for _ = 1, attempts do
 				-- THE WINDOW MUST OPEN ON A GUN THESE REQUESTS COULD ACTUALLY MOVE (round 2, finding
 				-- 1). src/server/Weapon/init.luau's onActionRequest returns at
@@ -838,6 +897,13 @@ return function()
 				local firstIndex = #log
 				local inputAtOpen = os.clock() - lastWeaponInput
 				local openedAt = os.clock()
+				-- ...AND THE OWNER MUST NOT HAND OVER A GUN INSIDE THE WINDOW (Task 80). `Weapon.grant`
+				-- resets the state to `StateMachine.initial` and auto-equips, so a grant inside the
+				-- window changes `open`, `barrels` and the whole reserve with no input at all -- which
+				-- is indistinguishable from an accepted `Break` and is what the failing two-player runs
+				-- looked like (that session's own note read `weapon granted=9 revoked=4`). Counting the
+				-- guns is causal: it does not care how long anything took.
+				local gunsAtOpen = #guns
 				local remotes = Shotgun.remotes()
 				-- The reducer's own primitives, which Validator.checkRequest does not accept at all.
 				for _, bad in ipairs({ "Break", "Load", "Close", "Fire", "", 42 }) do
@@ -849,7 +915,7 @@ return function()
 				remotes.FireRequest:FireServer({ origin = "x", direction = Vector3.zero })
 				task.wait(WINDOW)
 
-				if os.clock() - lastWeaponInput > QUIET + WINDOW then
+				if os.clock() - lastWeaponInput > QUIET + WINDOW and #guns == gunsAtOpen then
 					-- Nothing of the player's own arrived between the quiet check and now, and the gun
 					-- was equipped, closed and idle when the requests went out -- so the server's own
 					-- state guard refused none of them, and anything that moved was the whitelist
@@ -914,8 +980,18 @@ return function()
 					break
 				end
 			end
-			-- Not "give up quietly": if the replay never stops touching this gun, this spec asserted
-			-- nothing and must say so.
+			-- Not "give up quietly": if the replay never stops touching this gun, or the owner keeps
+			-- handing over new ones, this spec asserted nothing and must say so.
+			if not opened then
+				TestKit.note(
+					string.format(
+						"weapon_client: the exploit window never closed quietly: %d gun(s) handed over, "
+							.. "last weapon input %.2f s ago",
+						#guns,
+						os.clock() - lastWeaponInput
+					)
+				)
+			end
 			expect(opened).to.equal(true)
 		end)
 	end)
