@@ -95,6 +95,25 @@ return function()
 			-- Scoring clears the boars and frees the tied; Assigning respawns everybody and re-grants
 			-- their guns. Both would break a client suite that is still asserting.
 			local done = waitUntil(CLIENTS_DONE_TIMEOUT, clientsFinished)
+			-- WHAT THE LIVE DRIVE ACTUALLY DID, printed EVERY run and not only when something breaks
+			-- (Task 79). When `shoot-the-boar` could not stage -- "no BasePart inside Workspace.Boars
+			-- after 60 s" -- there was no way to tell from the outside whether the drive had never
+			-- reached a release, had released and the scenario missed it, or had tried and failed:
+			-- `releasesDeferred` is the third case, and `applySpawnSounder` hands a refused sounder
+			-- back to be retried, so a spawn that cannot succeed defers forever and silently.
+			local live = Match.stats()
+			local boars = Workspace:FindFirstChild("Boars")
+			TestKit.note(
+				string.format(
+					"zz_drive_boundary: drive live -- phase=%s releases=%d deferred=%d boars=%d alive=%d testSeconds=%d",
+					Match.phase(),
+					live.releases,
+					live.releasesDeferred,
+					live.boarsReleased,
+					if boars then #boars:GetChildren() else -1,
+					live.testSeconds
+				)
+			)
 			if not done then
 				TestKit.note("zz_drive_boundary: a client never reported; the drive was left alone")
 			end
