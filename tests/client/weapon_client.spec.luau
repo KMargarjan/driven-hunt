@@ -832,7 +832,23 @@ return function()
 			-- indistinguishable from the state, so the window is opened only on a quiet gun with no
 			-- weapon input for QUIET seconds, and is DISCARDED AND RETRIED if any arrives while it
 			-- is open. A real exploit reproduces on every attempt; a replayed keypress does not.
-			local QUIET = 1.5
+			-- QUIET COMES FROM THE GUN'S OWN NUMBERS, NOT FROM A GUESS, and Task 79's final gate
+			-- measured why it has to. It was a flat 1.5 s, and a two-player run failed here with
+			-- `after.open == true`: the window's own note read `last weapon input 1.51 s before it
+			-- opened` and then, at +0.47 s inside it, one state change -- `Spent/Spent -> Empty/Empty,
+			-- open=true, busyFor=0.50`. That is the BREAK step of a reload (`RELOAD_BREAK` is 0.50),
+			-- and it landed **1.98 s** after the last input the spec could see, against
+			-- `RELOAD_TOTAL = 2.0`. An input just outside a 1.5 s quiet period is still producing state
+			-- changes for half a second after the window opens, and `stillBusy()` cannot see it: that
+			-- reads the newest snapshot's `busyFor`, and at window-open time the gun really was idle.
+			--
+			-- So the quiet period is the SERVER'S OWN reload window plus a second for the round trip,
+			-- read from the config the server runs on -- one source, and it moves if Karen changes the
+			-- feel. It was never a forged request: at that same head, in that same session, the server
+			-- case reported `action Break=bad-request` and `badRequests +12, rateDropped +0, shots +0`.
+			-- This is still a TIME-based guard and 80a(a) stays open; what it guards is a smoke test
+			-- whose worst failure is a retry, because the property itself is proved on the server.
+			local QUIET = Shotgun.CONFIG.RELOAD_TOTAL + 1
 			local WINDOW = 1
 			local attempts, opened = 3, false
 
