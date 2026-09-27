@@ -115,28 +115,34 @@ What `test` checks, in order (each is one "ok"/"FAIL" line)
      script-like may be created in Studio. Every service must be readable by that scan.
   6. Every *.spec.* file in the repo (git ls-files: tracked + untracked, non-ignored) is synced into
      ServerStorage.Tests (server) or ReplicatedStorage.ClientTests (client).
-  7. Play. Both reports arrive WITHIN REPORT_WINDOW (300 s) of the replay finishing, polled TOGETHER
+  7. THE REQUIRE CACHE, twice over (Task 78). A fixture built in memory -- a ModuleScript whose
+     Source is rewritten under it, as Rojo does -- proves that a parentless CLONE reads the CURRENT
+     source; the same instance going stale is printed, not asserted, because a future Roblox fix
+     must not block this repo. Then Studio's own flag table, read through that clone, must list
+     exactly the flags src/shared/Flags/init.luau declares. The second only bites in a session whose
+     cache is already stale -- which is the session a Director cannot switch a flag on in.
+  8. Play. Both reports arrive WITHIN REPORT_WINDOW (300 s) of the replay finishing, polled TOGETHER
      against one deadline rather than one after the other -- since Task 41 the server's last spec
      waits for the client's report before it ends the drive, so the server reports last; each carries this run's token
      and the DEV PlaceId; each runner ran exactly the spec files of its side (matched by name); each
      status is PASS with > 0 passed, 0 failed, 0 errors, 0 skipped. (300 s, not 60: a client spec
      waits for its scenario to be staged, so the client suite cannot finish before the replay does,
      and the replay is ~50 s.)
-  7a. While Play runs: replay every scenario in tests/client/input_scenarios.txt (see below). Two
+  8a. While Play runs: replay every scenario in tests/client/input_scenarios.txt (see below). Two
      checks per run: the client was ready for it, and every step was sent.
-  7b. When the CLIENT's report arrives, the harness sets ServerStorage's `ClientsFinished` attribute
+  8b. When the CLIENT's report arrives, the harness sets ServerStorage's `ClientsFinished` attribute
      to this run's token, on the server, through execute_luau. That is the one word the server's specs
      get about the clients: a LocalPlayer attribute written on a client does NOT replicate to the
      server (measured, Task 41), and this game has no inbound remote by design. It exists because
      tests/server/zz_drive_boundary.spec.luau ENDS THE DRIVE -- which clears every boar, frees every
      tie and respawns everybody -- and doing that while a client suite is still asserting would break
      it. `test2` sets the same attribute once BOTH clients have reported.
-  8. Stop. The token is cleared, the gate is seen closed in Studio, and the server's own report says
+  9. Stop. The token is cleared, the gate is seen closed in Studio, and the server's own report says
      the drive-clock seam closed with the run (`seamClosed`: TestKit clears `activeToken` when the run
      ends, so `Match.advanceForTests` cannot be reached afterwards). The answer comes from the report
      because a query that requires TestKit through `execute_luau` gets a DIFFERENT module instance,
      out of its own require cache, and can only ever say "closed" (measured, Task 48).
-  9. Final line: "[harness] PASS|FAIL: n/m checks @ <full HEAD sha> (clean tree | DIRTY TREE ...)".
+  10. Final line: "[harness] PASS|FAIL: n/m checks @ <full HEAD sha> (clean tree | DIRTY TREE ...)".
      A PASS is evidence for a PR only if the sha equals the PR head and the tree is clean.
 
 Driving real player input (Task 6), step 7a of `test`
@@ -377,6 +383,18 @@ Feature flags, and the two checks they add (Task 52)
                               DHFlag_* attributes; prints name, default, override, effective,
                               expires, owner, why. Read-only. Also names any STRAY override whose
                               flag does not exist, which the resolver would only silently ignore.
+
+  EVERY EDIT-MODE QUERY THAT NEEDS THE FLAGS TABLE REQUIRES A PARENTLESS **CLONE** OF THE MODULE
+  (`FRESH_FLAGS`, Task 78), and that is not tidiness. `require` caches per ModuleScript INSTANCE and
+  the Edit-mode MCP context is long-lived, while Rojo writes the SOURCE of the same instance rather
+  than making a new one -- so the first require of a Studio session is what every later call gets
+  back, and a flag added since then does not exist as far as `flags` and `flags set` are concerned.
+  Measured on 2026-09-27: `flags set ORANGE_OUTFITS on` refused "no such flag" in Edit mode while a
+  Play session resolved that same flag fine (Task 77), which blocked the Director switching it on for
+  a playtest. `tools/mapgen.py` has used the same clone since 2026-09-26 for the same reason; these
+  queries simply had not got it. Two checks in `test` cover it: a fixture that builds the staleness in
+  memory and proves a clone reads the current source, and a comparison of Studio's flag table against
+  the names `src/shared/Flags/init.luau` declares.
     flags set <NAME> on|off   EDIT ONLY, else exit 2. Refuses a name that is not in Flags.DEFAULTS
                               and anything but on/off. The name is validated against
                               Flags.NAME_PATTERN in Python and passed as a JSON string literal, the
@@ -446,6 +464,8 @@ import base64
 import datetime
 import glob
 import hashlib
+import contextlib
+import io
 import json
 import os
 import queue
@@ -553,19 +573,70 @@ QUERY_FLAG_OVERRIDES = (
     "end table.sort(out) return table.concat(out, \",\")"
 )
 
-# Every declared flag, out of Studio's synced copy of ReplicatedStorage.Flags. `require` through
-# execute_luau has its own module cache, and here that is CORRECT rather than a hazard: Flags is
-# frozen data with no run-time writer, and check 4 has already proved Studio's copy is the disk copy.
-QUERY_FLAG_TABLE = """
+# A FRESH COPY OF THE FLAGS MODULE, EVERY CALL, AND IT IS THE WHOLE OF TASK 78.
+#
+# `require` caches per ModuleScript INSTANCE, and the Edit-mode MCP context is long-lived: the first
+# require in a Studio session is the one every later call gets back. Rojo does not make a new
+# ModuleScript when a file changes -- it writes the SOURCE of the same one -- so a flag added after
+# that first require is invisible for the rest of the session.
+#   ModuleScript: "ModuleScripts run once and only once per Luau environment and return the exact
+#   same value for subsequent calls to require()", and "return values ... are independent with
+#   regards to Scripts and LocalScripts, and other environments like the Command Bar" -- the
+#   Edit-mode MCP context is one of those other environments, with a cache of its own.
+#   require: "Returns the value that was returned by the given ModuleScript, running it if it has
+#   not been run yet."
+#     https://create.roblox.com/docs/reference/engine/classes/ModuleScript
+#     https://create.roblox.com/docs/reference/engine/globals/LuaGlobals#require
+#   BOTH RENDERED PAGES GAVE A FETCHER NOTHING (asked twice, 2026-09-27); the sentences above are
+#   quoted from the GENERATED SOURCE those pages are built from, which is first-party and public:
+#     .../creator-docs/main/content/en-us/reference/engine/classes/ModuleScript.yaml
+#     .../creator-docs/main/content/en-us/reference/engine/globals/LuaGlobals.yaml
+#
+# MEASURED, TWICE. On 2026-09-27 `flags.py set ORANGE_OUTFITS on` refused "no such flag" in Edit mode
+# while a Play session resolved ORANGE_OUTFITS=false perfectly -- it blocked the Director switching a
+# flag on for Karen's playtest (Task 77, `reviews/task-77/REQUEST.md`). And from scratch, in memory:
+# require a ModuleScript declaring A, rewrite its Source to declare A and B as Rojo would, require
+# the same instance again -> still A; require a CLONE -> A and B. That fixture is check
+# "a clone of a changed module reads the current source" below.
+#
+# THE FIX IS ALREADY IN THIS REPO (rule 2, borrow before building): `tools/mapgen.py`'s `CALL` has
+# used `require(source:Clone())` since 2026-09-26, for this exact reason and with the same
+# measurement written beside it. These two queries simply did not get it.
+#
+# A parentless clone loads the CURRENT source, leaves nothing in any Rojo-owned container (so the
+# "no script outside Rojo-managed paths" check cannot trip over it), and is destroyed immediately.
+# It sends no arbitrary Luau: the query is still a constant, with only a JSON-encoded name and a
+# boolean literal interpolated.
+# ONE ANSWER SHAPE FOR EVERY QUERY THAT READS `Flags`, AND IT IS JSON (round 2's blocking finding).
+# Round 1 had this snippet answer a bare `"REFUSED: ..."` string, which the `set` path handled and
+# the two `json.loads` call sites did not: a Studio open in Edit before Rojo has been connected --
+# the exact case the message names -- gave the Director a `JSONDecodeError` traceback instead of
+# "[flags] could not read ...", and the handler written for it became dead code. So every Flags query
+# answers a JSON object, every failure is `{ error = ... }`, and every caller goes through
+# `flags_answer()` below, which cannot raise whatever Studio says.
+FRESH_FLAGS = """
 local HttpService = game:GetService("HttpService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SS = game:GetService("ServerStorage")
-local ok, Flags = pcall(function()
-    return require(ReplicatedStorage:WaitForChild("Flags", 5))
+local source = game:GetService("ReplicatedStorage"):WaitForChild("Flags", 5)
+if not source then
+    return HttpService:JSONEncode({ error = "no ReplicatedStorage.Flags -- is Rojo connected?" })
+end
+local clone = source:Clone()
+local loaded, Flags = pcall(function()
+    return require(clone)
 end)
-if not ok then
+clone:Destroy()
+if not loaded then
     return HttpService:JSONEncode({ error = tostring(Flags) })
 end
+"""
+
+# Every declared flag, out of Studio's synced copy of ReplicatedStorage.Flags -- read fresh, per the
+# block above. The comment that used to sit here said the module cache was "CORRECT rather than a
+# hazard"; Task 77 measured that it is not, and this listing missed a flag the file declared.
+QUERY_FLAG_TABLE = (
+    FRESH_FLAGS
+    + """
+local SS = game:GetService("ServerStorage")
 local rows = {}
 for name, row in pairs(Flags.DEFAULTS) do
     local override = SS:GetAttribute(Flags.OVERRIDE_PREFIX .. name)
@@ -590,20 +661,63 @@ end
 table.sort(stray)
 return HttpService:JSONEncode({ rows = rows, stray = stray })
 """
+)
 
 # Set ONE override. The name is validated against Flags.NAME_PATTERN in Python and checked against
 # Flags.DEFAULTS in Luau before anything is written, and the value is a Luau boolean literal -- so
-# this sends no arbitrary Luau, exactly like QUERY_SET_CLIENTS_DONE.
-QUERY_SET_FLAG = """
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+# this sends no arbitrary Luau, exactly like QUERY_SET_CLIENTS_DONE. The DEFAULTS it checks against
+# are read FRESH (see FRESH_FLAGS): this is the query Task 77 could not use.
+QUERY_SET_FLAG = (
+    FRESH_FLAGS
+    + """
 local SS = game:GetService("ServerStorage")
-local Flags = require(ReplicatedStorage:WaitForChild("Flags", 5))
 local name = %s
 if Flags.DEFAULTS[name] == nil then
-    return "REFUSED: no such flag " .. name
+    return HttpService:JSONEncode({ error = "no such flag " .. name })
 end
 SS:SetAttribute(Flags.OVERRIDE_PREFIX .. name, %s)
-return name .. "=" .. tostring(SS:GetAttribute(Flags.OVERRIDE_PREFIX .. name))
+return HttpService:JSONEncode({
+    set = name .. "=" .. tostring(SS:GetAttribute(Flags.OVERRIDE_PREFIX .. name)),
+})
+"""
+)
+
+# THE TRAP AND THE FIX, BUILT FROM SCRATCH IN MEMORY (Task 78). It makes its own ModuleScript,
+# requires it, rewrites its Source exactly as Rojo does -- the same instance, new source -- and then
+# asks the same instance and a CLONE what they say. Nothing is ever parented, so no container sees a
+# script and the "no script outside Rojo-managed paths" check cannot trip over it.
+#
+# WHAT IT ASSERTS is only the half this harness depends on: a clone reads the CURRENT source. It
+# REPORTS whether the same instance went stale rather than asserting it -- if Roblox ever changed
+# require's caching, an assertion there would block this repo for a fix, and the clone would still be
+# right either way.
+QUERY_REQUIRE_CACHE = """
+local HttpService = game:GetService("HttpService")
+local ok, result = pcall(function()
+    local module = Instance.new("ModuleScript")
+    module.Name = "DHRequireCacheFixture"
+    module.Source = "return { NAMES = { A = true } }"
+    local first = require(module)
+    module.Source = "return { NAMES = { A = true, B = true } }"
+    local again = require(module)
+    local clone = module:Clone()
+    local fresh = require(clone)
+    clone:Destroy()
+    module:Destroy()
+    local function names(value)
+        local out = {}
+        for key in pairs(value.NAMES) do
+            out[#out + 1] = key
+        end
+        table.sort(out)
+        return table.concat(out, ",")
+    end
+    return { first = names(first), again = names(again), fresh = names(fresh) }
+end)
+if not ok then
+    return HttpService:JSONEncode({ error = tostring(result) })
+end
+return HttpService:JSONEncode(result)
 """
 
 QUERY_CLEAR_FLAGS = (
@@ -1026,6 +1140,55 @@ def synced_nodes():
 
     walk(json.loads(out), [])
     return nodes
+
+
+def json_answer(studio, code, studio_id=None):
+    """Run a query whose answer is a JSON object -> (object, problem). NEVER RAISES ON WHAT STUDIO SAID.
+
+    THE ONE PLACE A FLAGS ANSWER IS PARSED (round 2's blocking finding). Every query built on
+    `FRESH_FLAGS` answers a JSON object and reports failure as `{ error = ... }`; this turns anything
+    else -- a bare string, a truncated reply, a Luau error text, `null` -- into a `problem` the caller
+    prints. Two call sites used to `json.loads` the answer directly, so one refusal shape that was
+    not JSON ended a Director's command in a traceback and a harness check in
+    "harness error: JSONDecodeError" with its own evidence string never printed. A caller cannot make
+    that mistake through this function, whatever a future query answers.
+    """
+    raw = studio.query("Edit", code, studio_id=studio_id) if studio_id else studio.query("Edit", code)
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None, f"Studio did not answer with JSON: {str(raw)[:200]!r}"
+    if not isinstance(data, dict):
+        return None, f"Studio answered {type(data).__name__}, not an object: {str(raw)[:200]!r}"
+    if data.get("error"):
+        return None, str(data["error"])
+    return data, ""
+
+
+def declared_flags():
+    """Every flag name `src/shared/Flags/init.luau` declares, read off the file.
+
+    THE SECOND HALF OF TASK 78'S CHECK, and it is deliberately a different route from the one the
+    harness uses to ask Studio: this parses the repo's own file, Studio answers from its synced copy,
+    and the two are compared. A stale require in an Edit-mode query shows up as a flag the file has
+    and Studio's answer does not -- which is exactly what `flags.py` printed on 2026-09-27.
+    """
+    path = os.path.join(REPO, "src", "shared", "Flags", "init.luau")
+    with open(path, "r", encoding="utf-8") as handle:
+        return flags_in_text(handle.read())
+
+
+def flags_in_text(text):
+    """The same parse, on a string -- so the selftest can hand it a table it made up rather than
+    asserting that a flag which exists today still exists (review round 1, note)."""
+    start = text.find("Flags.DEFAULTS = {")
+    if start < 0:
+        return []
+    body = text[start:]
+    end = body.find("\n}\n")
+    if end >= 0:
+        body = body[:end]
+    return sorted(set(re.findall(r"^\t([A-Z][A-Z0-9_]*) = \{", body, re.M)))
 
 
 def project_refusals():
@@ -1654,6 +1817,25 @@ def run_test(studio):
         print(f"[harness] {len(spec_files)} *.spec.* file(s) in repo: {', '.join(spec_files)}")
         check("Every *.spec.* file is synced into ServerStorage.Tests or ReplicatedStorage.ClientTests",
               not misplaced, ", ".join(misplaced))
+
+        # TASK 78, TWO CHECKS AND THEY ARE ABOUT DIFFERENT THINGS. The first proves the MECHANISM
+        # every Edit-mode flag query now relies on; the second proves the CALL SITES actually use
+        # it, by asking Studio for the flag table and comparing it with the file on disk. The second
+        # only bites in a session whose cache is already stale -- which is precisely the session the
+        # Director could not switch a flag on in.
+        cache, problem = json_answer(studio, QUERY_REQUIRE_CACHE)
+        cache = cache or {}
+        check("A clone of a changed module reads the current source (the flag queries rely on it)",
+              not problem and cache.get("fresh") == "A,B", problem or json.dumps(cache))
+        print(f"[harness] require cache: same instance said {cache.get('again')!r} after its Source "
+              f"declared {cache.get('fresh')!r}"
+              + ("  <-- STALE, which is the trap Task 78 fixed" if cache.get("again") != cache.get("fresh") else ""))
+        want = declared_flags()
+        table, problem = json_answer(studio, QUERY_FLAG_TABLE)
+        got = sorted(row["name"] for row in (table or {}).get("rows", []))
+        check("The Edit-mode flag table lists every flag the repo declares",
+              not problem and got == want,
+              f"repo {want}, Studio {got}" + (f" -- {problem}" if problem else ""))
 
         phases.mark("checks against the Edit place (sync, scripts, specs)")
         print("[harness] Play")
@@ -2318,13 +2500,14 @@ def run_flags(studio, argv):
             return 2
         # The name is a JSON string literal and the value a Luau boolean literal, so nothing this
         # sends is arbitrary Luau -- the same shape as QUERY_SET_CLIENTS_DONE.
-        answer = studio.query(
-            "Edit", QUERY_SET_FLAG % (json.dumps(name), "true" if argv[2] == "on" else "false"))
-        if answer.startswith("REFUSED"):
-            print(f"[flags] {answer}. An override for a flag that does not exist is a typo the "
-                  "resolver would only log.")
+        answer, problem = json_answer(
+            studio, QUERY_SET_FLAG % (json.dumps(name), "true" if argv[2] == "on" else "false"))
+        if problem:
+            print(f"[flags] could not read ReplicatedStorage.Flags: {problem}")
+            print("[flags] An override for a flag that does not exist is a typo the resolver would "
+                  "only log, so nothing was written.")
             return 2
-        print(f"[flags] override set: {answer}")
+        print(f"[flags] override set: {answer.get('set')}")
         print("[flags] the git tree is untouched. Clear it before the next harness run:")
         print("[flags]   python tools/flags.py clear")
         return 0
@@ -2333,13 +2516,14 @@ def run_flags(studio, argv):
         print("[flags] usage: flags [set <NAME> on|off | clear | live [role]]")
         return 2
 
-    raw = json.loads(studio.query("Edit", QUERY_FLAG_TABLE))
-    if raw.get("error"):
-        print("[flags] could not read ReplicatedStorage.Flags: " + raw["error"])
+    raw, problem = json_answer(studio, QUERY_FLAG_TABLE)
+    if problem:
+        print("[flags] could not read ReplicatedStorage.Flags: " + problem)
         return 1
     rows = raw.get("rows", [])
     if not rows:
         print("[flags] no flags are declared")
+        return 0
     width = max([len(r["name"]) for r in rows] + [4])
     print(f"[flags] {'NAME'.ljust(width)}  default  override  effective  expires     owner")
     for row in rows:
@@ -2556,7 +2740,100 @@ def selftest():
     ok("every argument builder asks _scoped",
        source.count("self._scoped(") == builders, f"{source.count('self._scoped(')} vs {builders}")
 
-    # 9. The scenario file the replay is made of still parses and still refuses what it refused.
+    # 9. THE FLAG PARSER, which is the half of Task 78's check that needs no Studio. The other half
+    # is the in-memory require-cache fixture, and that one can only run where a Luau VM is.
+    #
+    # DRIVEN BY A SYNTHETIC TABLE, NOT BY A LIVE FLAG NAME (review round 1, note). Asserting that
+    # `ORANGE_OUTFITS` parses tests that a third flag exists, not that a NEWLY ADDED one is found --
+    # and it would fail this CI check the day that flag is legitimately retired, which its own
+    # `expires` date schedules.
+    grown = flags_in_text(
+        'Flags.DEFAULTS = {\n'
+        '\tOLD_ONE = {\n\t\tdefault = true,\n\t} :: FlagRow,\n'
+        '\tBRAND_NEW = {\n\t\tdefault = false,\n\t} :: FlagRow,\n'
+        '}\n')
+    ok("a flag added to the table is found straight away, which is the whole bug",
+       grown == ["BRAND_NEW", "OLD_ONE"], repr(grown))
+    # ...and it reads the DEFAULTS table, not any all-caps assignment anywhere in the file: the
+    # module is full of `Flags.NAME_PATTERN`, `Flags.MAX_FLAGS` and a `FlagRow` type, and a parser
+    # that swept those up would compare Studio against a list of things that are not flags.
+    outside = flags_in_text(
+        'Flags.NAME_PATTERN = "^[A-Z]"\nFlags.MAX_FLAGS = 12\n'
+        'Flags.DEFAULTS = {\n\tREAL_ONE = {\n\t\tdefault = true,\n\t} :: FlagRow,\n}\n'
+        'Flags.STATE_NAME = "State"\n')
+    ok("it does not mistake the module's own constants for flags", outside == ["REAL_ONE"],
+       repr(outside))
+    # ...and against the real file, which is what the harness compares Studio with.
+    ok("every declared flag is found in the repo's own file",
+       set(declared_flags()) >= {"TIE_UNTIL_DRIVE_END", "BOAR_SOUNDERS"}, repr(declared_flags()))
+
+    # 9b. EVERY CALLER OF A FLAGS QUERY, FED THE FAILURE ANSWER (round 2's blocking finding).
+    # Round 1's refusal was a bare string and two call sites `json.loads`ed it, so the reachable
+    # case -- Studio open in Edit before Rojo has connected -- ended in a JSONDecodeError traceback
+    # instead of the message written for it. These cases drive the real `run_flags` against a
+    # scripted Studio and assert the message and the exit code, not the absence of a crash.
+    class FailingStudio:
+        """The smallest thing `run_flags` needs, answering whatever this test wants."""
+
+        def __init__(self, answer):
+            self.answer = answer
+            self.default_studio_id = None
+
+        def studio_list(self):
+            return [{"id": "EDITOR", "name": "editor"}]
+
+        def mode(self, studio_id=None):
+            return "Edit"
+
+        def query(self, datamodel, code, studio_id=None):
+            return self.answer
+
+    def flags_says(answer, argv):
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            try:
+                code = run_flags(FailingStudio(answer), argv)
+            except Exception as why:  # noqa: BLE001 -- a traceback here IS the defect
+                return -1, f"raised {type(why).__name__}: {why}"
+        return code, buffer.getvalue()
+
+    BAD = {
+        "a bare refusal string (round 1's shape)": "REFUSED: no ReplicatedStorage.Flags",
+        "an empty answer": "",
+        "a Luau error text": "Workspace.Script:3: attempt to index nil",
+        "JSON that is not an object": "[1, 2, 3]",
+        "the JSON error object itself": '{"error": "no ReplicatedStorage.Flags -- is Rojo connected?"}',
+    }
+    for label, answer in BAD.items():
+        code, output = flags_says(answer, [])
+        ok(f"  show says what went wrong and exits 1 on {label}",
+           code == 1 and "[flags] could not read ReplicatedStorage.Flags:" in output,
+           f"exit {code}, said {output.strip()[:120]!r}")
+        code, output = flags_says(answer, ["set", "SOME_FLAG", "on"])
+        ok(f"  set says what went wrong and exits 2 on {label}",
+           code == 2 and "[flags] could not read ReplicatedStorage.Flags:" in output,
+           f"exit {code}, said {output.strip()[:120]!r}")
+    # ...and the good answers still work, so the guard above is not just refusing everything.
+    code, output = flags_says('{"rows": [], "stray": []}', [])
+    ok("  show still prints an empty table cleanly", code == 0 and "no flags are declared" in output,
+       f"exit {code}, said {output.strip()[:120]!r}")
+    code, output = flags_says('{"set": "SOME_FLAG=true"}', ["set", "SOME_FLAG", "on"])
+    ok("  set still reports what it wrote", code == 0 and "override set: SOME_FLAG=true" in output,
+       f"exit {code}, said {output.strip()[:120]!r}")
+    # The harness check reads the same answers through the same parser, so it degrades the same way.
+    _, problem = json_answer(FailingStudio("REFUSED: no ReplicatedStorage.Flags"), "")
+    ok("  the harness check gets a problem string, not an exception",
+       problem.startswith("Studio did not answer with JSON"), repr(problem))
+    # AND THE QUERIES THEMSELVES STILL SPEAK THE ONE SHAPE. The parser above makes a caller safe
+    # whatever a query answers; this is the other half -- that no Flags query goes back to answering
+    # a bare string, which is what made a caller's handler dead code in round 1. Same idiom as
+    # "every argument builder asks _scoped" above: a property of the source, checked in CI.
+    flag_queries = FRESH_FLAGS + QUERY_SET_FLAG + QUERY_FLAG_TABLE
+    ok("every Flags query reports failure as JSON, never as a bare string",
+       "JSONEncode({ error" in FRESH_FLAGS and 'return "' not in flag_queries,
+       repr([line for line in flag_queries.splitlines() if 'return "' in line]))
+
+    # 10. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):
         data = load_scenarios()
         gaps = sum((step.get("ms") or 0) for scenario in data["scenarios"]
