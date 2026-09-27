@@ -414,6 +414,17 @@ function Mode.aimOffset(sightLocal: CFrame?, config): CFrame
 		* sightLocal:Inverse()
 end
 
+-- WHERE THE GUN IS HELD WHILE IT IS OPEN (task 96): in front of the player, low, and turned so the
+-- breech faces the eye. Its own pose, converted at ONE site like the carry's.
+function Mode.breakOffset(config): CFrame
+	return CFrame.new(config.BREAK_POSE_STUDS)
+		* CFrame.Angles(
+			math.rad(config.BREAK_POSE_PITCH_DEG),
+			math.rad(config.BREAK_POSE_YAW_DEG),
+			math.rad(config.BREAK_POSE_ROLL_DEG)
+		)
+end
+
 -- HOW FAR THE BARRELS HAVE SWUNG, in degrees (task 96). One site, so the viewmodel and any spec ask
 -- the same question of the same state rather than each multiplying the blend by the angle.
 function Mode.breakAngleDeg(state: State, config): number
@@ -440,19 +451,16 @@ function Mode.viewmodelOffset(state: State, sightLocal: CFrame?, config): CFrame
 	-- what the OFF branch looks like. Geometric ADS is the first-person sight picture.
 	local aim = if config.FIRST_PERSON then Mode.aimOffset(sightLocal, config) else config.VIEWMODEL_AIM_OFFSET
 	local pose = hip:Lerp(aim, Mode.ease(state.blend))
-	-- THE BREAK-OPEN POSE (task 96): while the gun is open it comes down a little and turns toward
-	-- the centre, so the player looks INTO the breech rather than at it edge-on. The BARRELS
-	-- themselves are hinged by `Camera.Viewmodel`, which is the only owner that can move one piece
-	-- of the gun; this is the whole gun's part of the move. Until task 96 `openTilt` tilted the whole
-	-- gun about its grip, which is what a model with no separate barrels could do.
-	local broken = CFrame.new(config.BREAK_POSE_STUDS)
-		* CFrame.Angles(math.rad(config.BREAK_POSE_PITCH_DEG), math.rad(config.BREAK_POSE_YAW_DEG), 0)
-	local rest: CFrame = CFrame.new()
-	local opened = rest:Lerp(broken, math.clamp(state.openTilt, 0, 1))
+	-- THE BREAK-OPEN POSE (task 96), AND IT IS A POSE OF ITS OWN RATHER THAN AN OFFSET ON THE CARRY.
+	-- Measured on screen: added to the carry -- which already holds the gun low and left with a third
+	-- of it in frame -- "down a little and toward the centre" pushed the whole gun out of the
+	-- picture. While the gun is open it is held IN FRONT of the player, low and turned so the breech
+	-- faces the eye, and the pose eases there and back with `openTilt`. The BARRELS themselves are
+	-- hinged by `Camera.Viewmodel`, which is the only owner that can move one piece of the gun.
+	pose = pose:Lerp(Mode.breakOffset(config), math.clamp(state.openTilt, 0, 1))
 	return CFrame.new(state.bobStuds)
 		* CFrame.Angles(math.rad(state.swayDeg.Y), math.rad(state.swayDeg.X), 0)
 		* pose
-		* opened
 		* CFrame.new(0, 0, state.recoilGunBackStuds)
 		* CFrame.Angles(math.rad(state.recoilGunPitchDeg), 0, 0)
 end

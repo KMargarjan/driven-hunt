@@ -148,11 +148,14 @@ local Config = {
 	-- centre, and the pin sits just under the bore line.
 	BREAK_HINGE_STUDS = Vector3.new(0, -0.06, 0.50),
 	BREAK_OPEN_DEG = 35, -- a crisp break: the two chambers face the player
-	-- The gun comes down a little and turns toward the centre while it is open, so the breech is
-	-- something the player looks INTO rather than edge-on.
-	BREAK_POSE_STUDS = Vector3.new(0.15, -0.28, 0.25),
-	BREAK_POSE_PITCH_DEG = -6,
-	BREAK_POSE_YAW_DEG = -16,
+	-- WHERE THE GUN IS HELD WHILE IT IS OPEN, as a pose of its own rather than an offset on the
+	-- carry: in front of the player, low, and turned so the breech faces the eye. MEASURED -- added
+	-- to the carry, which already keeps the gun low and left with a third of it in frame, "down a
+	-- little" put the whole gun outside the picture.
+	BREAK_POSE_STUDS = Vector3.new(-0.27, -0.40, -1.72),
+	BREAK_POSE_PITCH_DEG = 8,
+	BREAK_POSE_YAW_DEG = 30,
+	BREAK_POSE_ROLL_DEG = -25,
 	-- How long the drawn swing takes, each way. Both are shorter than the server's own break and
 	-- close steps (0.35 s and 0.30 s), so the motion is always finished before the state that
 	-- started it ends -- the gun is never caught half open when the shells arrive.
@@ -166,7 +169,7 @@ local Config = {
 	SHELL_BASE_COLOR = Color3.fromRGB(196, 158, 82),
 	SHELL_BASE_FRACTION = 0.34, -- how much of the shell's length is brass
 	SHELL_EJECT_SECONDS = 0.35, -- up and back, then gone
-	SHELL_EJECT_RISE_STUDS = 0.45,
+	SHELL_EJECT_RISE_STUDS = 0.18, -- measured: at 0.45 the shell flew clear across the frame
 	SHELL_FEED_SECONDS = 0.30, -- fresh shells sliding into the chambers
 	SHELL_FEED_FROM_STUDS = 0.40, -- how far behind the chamber they start
 	-- ------------------------------------------------------ the bead sight (ON branch, task 90)
