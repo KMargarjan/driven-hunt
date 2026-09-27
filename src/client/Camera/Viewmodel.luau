@@ -423,8 +423,11 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config)
 	end
 	local angle = Mode.breakAngleDeg(state, config)
 	local hinge = CFrame.new(config.BREAK_HINGE_STUDS)
-	-- Positive degrees swing the muzzle DOWN about the pin, which is what "break open" means.
-	local swing = hinge * CFrame.Angles(math.rad(angle), 0, 0) * hinge:Inverse();
+	-- NEGATIVE ABOUT X IS THE MUZZLE GOING DOWN, which is what "break open" means: a part's
+	-- LookVector is its -Z, and `CFrame.Angles(+t, 0, 0)` takes (0, 0, -1) to (0, sin t, -cos t) --
+	-- i.e. UP. Measured the hard way: the first run of `camera_client.spec` caught the barrels
+	-- swinging toward the sky.
+	local swing = hinge * CFrame.Angles(-math.rad(angle), 0, 0) * hinge:Inverse();
 	(barrels :: BasePart).CFrame = gunCFrame * swing * (barrelsLocal :: CFrame)
 	if angle > 0 then
 		stats.breaksDrawn += 1
