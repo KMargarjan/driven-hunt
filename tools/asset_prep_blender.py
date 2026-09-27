@@ -359,14 +359,57 @@ def correct_colour(array, mask, op, linearise, weight=None):
             "linearised": bool(linearise)}
 
 
-def push_channel(array, mask, target, weight):
-    """Blend a greyscale map's masked pixels towards `target` -- Karen's "too shiny" dial."""
-    if not mask.any() or target is None:
+def push_channel(array, weights, target, strength):
+    """Write `target` into a greyscale map through a FEATHERED region mask -- Karen's shine dial.
+
+    `weights` is the same soft 0..1 mask the colour correction uses, so a metalness or roughness
+    boundary is a ramp rather than a triangle-shaped step. `strength` is how much of the source's own
+    variation survives: 1.0 replaces it outright (right for metalness, which the Roblox docs say
+    should be 0% or 100% "in most cases"), below 1.0 keeps some of the generator's detail (right for
+    roughness, where the scratches and wear are worth keeping).
+    """
+    if target is None:
+        return 0
+    alpha = np.clip(weights * float(strength), 0.0, 1.0)
+    touched = int((alpha > 0.0).sum())
+    if touched == 0:
         return 0
     for channel in range(3):
         plane = array[..., channel]
-        plane[mask] = plane[mask] * (1.0 - weight) + float(target) * weight
-    return int(mask.sum())
+        plane[:] = plane * (1.0 - alpha) + float(target) * alpha
+    return touched
+
+
+def ensure_data_map(material, socket_name, size, fill, image_name):
+    """The greyscale map behind a Principled input, made if the model has none. Returns the image.
+
+    A MODEL WITHOUT THE MAP IS THE DANGEROUS CASE, not the harmless one: Roblox reads maps and
+    ignores material scalars (measured, Task 75), so "this model has no metalness map" means "this
+    model ships whatever Roblox defaults to" rather than "this model ships the recipe's number".
+    Making a flat one costs a 2048 greyscale PNG and puts the number where the engine can see it.
+    """
+    node = next((n for n in material.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if node is None:
+        return None, False
+    socket = node.inputs.get(socket_name)
+    if socket is None:
+        return None, False
+    for link in socket.links:
+        source = link.from_node
+        if source.type == "TEX_IMAGE" and source.image is not None:
+            # DATA, NOT COLOUR. A metalness map tagged sRGB is read and written through the transfer
+            # function, so writing 0.10 would store a byte that means something else entirely.
+            source.image.colorspace_settings.name = "Non-Color"
+            return source.image, False
+    image = bpy.data.images.new(image_name, size, size, alpha=False, float_buffer=False)
+    image.colorspace_settings.name = "Non-Color"
+    image.pixels.foreach_set(np.tile(np.array([fill, fill, fill, 1.0], dtype=np.float32),
+                                     size * size))
+    tex = material.node_tree.nodes.new("ShaderNodeTexImage")
+    tex.image = image
+    tex.label = image_name
+    material.node_tree.links.new(socket, tex.outputs["Color"])
+    return image, True
 
 
 # ---------------------------------------------------------------- rendering
@@ -769,55 +812,144 @@ def main():
     REPORT["corrections"] = corrections
     log("baseColour", corrections=corrections)
 
-    # ---- ONE MATERIAL PER REGION, AND THE PBR VALUES LIVE ON THE MATERIAL, NOT IN THE MAP.
+    # ---- THE SHINE GOES IN THE MAPS, BECAUSE THE MAPS ARE THE ONLY THING ROBLOX READS.
     #
-    # Round 1 painted each region's roughness and metallic INTO the shared maps through the same
-    # triangle-shaped masks, and a step in roughness is as visible as a step in colour: with the
-    # albedo left completely untouched the prepped model still came back with 1.4x the source's edge
-    # density (measured, round 2). A material scalar has no edges at all -- the boundary is the
-    # boundary between two materials, which is where the model's own geometry already is -- and it is
-    # what "give each region its own material" is for. The map is disconnected on that material so
-    # the scalar is the value that ships.
-    made = {}
+    # THIS IS TASK 75'S WHOLE POINT, AND IT IS A DEFECT THE PREVIOUS TWO ROUNDS OF THIS TOOL SHIPPED.
+    # Task 72 round 2 moved metalness and roughness OUT of the maps and onto one Blender material per
+    # region, because painting them into the maps had put visible steps in the EEVEE previews. The
+    # previews got better and the game got worse: Roblox's importer builds a `SurfaceAppearance` from
+    # the texture MAPS and has nowhere to put a material scalar, so the recipe's numbers reached the
+    # four renders and never reached the engine at all.
+    #
+    # MEASURED, not deduced (Task 75). The uploaded asset 117134580332969, read back in Studio:
+    #   SurfaceAppearance ColorMap=91950944543455 MetalnessMap=90465645958960 RoughnessMap=96961706396039
+    # and the maps behind those ids were Meshy's own, untouched. Two measurements, and they are of
+    # different files, so both numbers are kept: the prep's own output PNGs (which did NOT ship)
+    # measured metalness 249/255 = 0.98 and roughness 48/255 = 0.19; the 4096 originals actually
+    # embedded in the uploaded FBX measured 232/255 = 0.91 and 49/255 = 0.19.
+    # A near-perfect mirror, which is exactly what Karen saw ("barrels too shiny") and what the
+    # Director saw in the Task 74 screenshots: bright silver barrels reflecting a bright sky.
+    #
+    #   "When roughness is at 0%, the surface doesn't scatter light at all, resulting in a much
+    #    sharper and brighter reflection and glossiness on your material. At 100%, light and
+    #    reflections evenly scatter over the model resulting in a less reflective matte-like surface."
+    #   "In most cases, you should set this value to either 0% (non-metal) or 100% (metal), although
+    #    you can use partial metalness values when creating surfaces with moderate reflective
+    #    properties like satin or silk."
+    #     -- create.roblox.com/docs/art/modeling/surface-appearance, read 2026-09-27
+    #
+    # So the numbers are written into the maps, through the SAME feathered masks as the colour, and
+    # the materials below read those maps instead of a scalar: one place a shine number can live, and
+    # it is the place the engine looks. The step the previews showed is real and is now what the
+    # engine renders too -- the honest answer to it is the feather and the region boundary, not
+    # hiding the number where only Blender can see it.
+    strength = dict(recipe.get("channelWeight", {"metallic": 1.0, "roughness": 0.85}))
+    shine_images = {
+        "metallic": ensure_data_map(material, "Metallic", size, 0.0, "dh_metallic"),
+        "roughness": ensure_data_map(material, "Roughness", size, 0.5, "dh_roughness"),
+    }
+    shine = {"created": [], "written": {}, "strength": strength}
+    arrays = {}
+    for key, (image, created) in shine_images.items():
+        if image is None:
+            REPORT["warnings"].append("no %s map and none could be made: the recipe's %s numbers "
+                                      "will not reach the engine" % (key, key))
+            continue
+        if created:
+            shine["created"].append(key)
+        elif tuple(image.size) != (size, size):
+            # THE MASKS ARE THE BASE COLOUR'S RESOLUTION and a map at any other size cannot be
+            # indexed by them. Scaling is honest for these two: by the time they ship they are flat
+            # per region apart from the source detail roughness keeps.
+            image.scale(size, size)
+        arrays[key] = image_array(image)
+        for name in ("barrel", "action", "wood"):
+            target = recipe["regions"][name].get(key)
+            painted = push_channel(arrays[key], weights[name], target, strength.get(key, 1.0))
+            shine["written"].setdefault(name, {})[key] = {"target": target, "pixels": painted}
+        set_image(image, arrays[key])
+    if "metallic" in shine_images and shine_images["metallic"][0] is not None:
+        metallic_image = shine_images["metallic"][0]
+    if "roughness" in shine_images and shine_images["roughness"][0] is not None:
+        roughness_image = shine_images["roughness"][0]
+
+    # ---- AND SAMPLED BACK THROUGH THE MESH, the same second route the colour uses. A mask that is
+    # mirrored, shifted or the wrong region's writes a number that agrees with itself; this one asks
+    # the triangles what they actually sit on.
+    verified_shine = {}
     for name in ("barrel", "action", "wood"):
-        new_material = material.copy()
-        new_material.name = "dh_%s" % name
-        settings = recipe["regions"][name]
-        node = next((n for n in new_material.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
-        if node is not None:
-            for socket_name, key in (("Metallic", "metallic"), ("Roughness", "roughness")):
-                value = settings.get(key)
-                socket = node.inputs.get(socket_name)
-                if value is None or socket is None:
-                    continue
-                for link in list(socket.links):
-                    new_material.node_tree.links.remove(link)
-                socket.default_value = float(value)
-        made[name] = len(mesh.materials)
-        mesh.materials.append(new_material)
-    log("materialValues", values={name: {"metallic": recipe["regions"][name].get("metallic"),
-                                         "roughness": recipe["regions"][name].get("roughness")}
-                                  for name in ("barrel", "action", "wood")})
-    slot_of = {name: made[name] for name in made}
-    indices = np.array([slot_of[r] for r in region_of], dtype=np.int32)
-    poly_material = np.zeros(len(mesh.polygons), dtype=np.int32)
-    for tri, index in zip(tris, indices):
-        poly_material[tri.polygon_index] = index
-    mesh.polygons.foreach_set("material_index", poly_material)
+        rows = region_of == name
+        if not rows.any():
+            continue
+        coords_here = np.clip((samples[rows] * size).astype(np.int32), 0, size - 1)
+        entry = {}
+        for key, array in arrays.items():
+            picked = array[size - 1 - coords_here[:, :, 1], coords_here[:, :, 0], 0]
+            shown = float(np.median(picked))
+            target = recipe["regions"][name].get(key)
+            entry[key] = {"shown": round(shown, 3), "target": target,
+                          "drift": None if target is None else round(abs(shown - float(target)), 3)}
+        verified_shine[name] = entry
+    REPORT["shine"] = {"maps": shine, "surface": verified_shine}
+    log("shine", written=shine, surface=verified_shine)
+    ceiling_shine = float(recipe.get("maxShineDrift", 0.08))
+    off_shine = sorted(
+        "%s %s (%.2f, wanted %.2f)" % (name, key, entry[key]["shown"], entry[key]["target"])
+        for name, entry in verified_shine.items()
+        for key in entry
+        if entry[key]["drift"] is not None and entry[key]["drift"] > ceiling_shine
+    )
+    if off_shine:
+        REPORT["warnings"].append(
+            "sampled through the mesh, the shine maps do not carry the numbers they were given "
+            "(drift over %.2f): %s" % (ceiling_shine, ", ".join(off_shine)))
+
+    # ---- ONE MATERIAL, DELIBERATELY, AND THE REGIONS LIVE IN THE MAPS.
+    #
+    # Task 72 round 2 gave each region its own material so the shine could be a material scalar.
+    # Task 75 measured what that shipped: nothing. Roblox builds a `SurfaceAppearance` per material
+    # THAT HAS MAPS and has nowhere to put a scalar, so the split bought three extra materials and
+    # no control at all -- and once the maps carried the numbers, the same split came back from the
+    # upload as FOUR SurfaceAppearance children, one with the maps and three empty (measured on
+    # asset 140422686530548). A blank SurfaceAppearance on a held weapon is a gun that may render
+    # untextured for reasons nobody can see.
+    #
+    # So: one material, and the region split lives where it is read -- in the base colour, metalness
+    # and roughness maps, which is also where `REPORT["shine"]["surface"]` measures it back.
     mesh.update()
-    log("materials", slots=[m.name for m in mesh.materials], assigned=slot_of)
+    log("materials", slots=[m.name for m in mesh.materials])
     REPORT["materials"] = [m.name for m in mesh.materials]
 
-    # ---- write the corrected textures beside the exports
+    # ---- write the corrected textures beside the exports, AND MAKE THE EXPORT USE THEM.
+    #
+    # THE FBX EXPORTER EMBEDS A FILE, NOT THE PIXELS IN MEMORY. `image.filepath_raw` is where `save()`
+    # writes; `image.filepath` is what `path_mode="COPY", embed_textures=True` copies. Setting only
+    # the first means the tool writes a corrected PNG beside the results, shows it in its own renders
+    # -- and embeds the UNTOUCHED ORIGINAL in the file it hands to Roblox.
+    #
+    # That is not a hypothesis. The FBX uploaded in Task 73 and shipped in Task 74 was read back byte
+    # by byte (Task 75): its three embedded PNGs were the 2048 original base colour and Meshy's
+    # 4096x4096 metalness and roughness maps -- medians 0.91 and 0.19, a mirror -- while the 2048
+    # corrected maps sat unused in the output folder. Every colour and shine number this tool has
+    # ever produced reached the four renders and never reached the game.
+    #
+    # `verify_embedded_textures` in tools/asset_prep.py now reads the exported FBX back and fails the
+    # run unless every embedded PNG is byte-for-byte one of these files.
     written = []
     for name, image in (("baseColor", base_image), ("metallic", metallic_image),
-                        ("roughness", roughness_image)):  # the last two are unchanged since Task 72r2
+                        ("roughness", roughness_image)):  # all three are edited, and all three ship
         if image is None:
             continue
         path = os.path.join(out_dir, "texture_%s.png" % name)
+        if image.packed_file is not None:
+            # An FBX-embedded texture arrives PACKED into the blend, and packed bytes are the
+            # ORIGINAL bytes: they win over anything written to disk, which is exactly how two
+            # uploads shipped Meshy's raw maps (Task 75, mutation-checked).
+            image.unpack(method="REMOVE")
         image.filepath_raw = path
         image.file_format = "PNG"
         image.save()
+        image.filepath = path
         written.append(os.path.basename(path))
     log("wroteTextures", files=written)
     REPORT["texturesWritten"] = written

@@ -134,28 +134,43 @@ DEFAULT_RECIPE = {
         # Blender side converts it to scene-linear before it touches a pixel -- the first run applied
         # these numbers straight to linear pixels and the gun came back white and orange.
         #
-        # GLOSS BLACK BLUED BARRELS AND RIB: RGB(34, 35, 37) is the p25 of the barrels in the photo.
-        # An albedo must not carry the specular highlight that pulls the photo's median to RGB 82;
-        # the gloss comes from roughness, not from a lighter colour.
         # BLUED STEEL IS NEAR-BLACK WITH A SLIGHT BLUE, AND IT IS NOT A MIRROR. RGB(26, 28, 34) is
-        # the p25 of the barrels in Karen's photo, cooled by six points of blue. The two numbers that
-        # stop it being chrome are the material's, not the texture's: metallic 0.30 (some of the
-        # surface is diffuse, so the dark albedo is visible at all) and roughness 0.55 (wide enough
-        # that it scatters the sky instead of reflecting it). Round 1 had 0.55 / 0.30 -- the same two
-        # numbers the wrong way round -- and rendered as mirror chrome with dark streaks.
+        # the p25 of the barrels in Karen's photo, cooled by six points of blue. An albedo must not
+        # carry the specular highlight that pulls the photo's median to RGB 82: the gloss comes from
+        # roughness, not from a lighter colour. This region is the barrels AND the top rib, which are
+        # one span of the model and one material on the real gun.
+        #
+        # THE TWO NUMBERS THAT DECIDE "GLOSS BLACK" RATHER THAN "CHROME" ARE THESE, and since Task 75
+        # they are written into the metalness and roughness MAPS, which is the only channel Roblox
+        # reads (see the long comment in asset_prep_blender.py; the maps that shipped in Task 74 said
+        # metalness 0.98 / roughness 0.19 and the barrels came out mirror silver in daylight).
+        #   metallic 0.10 -- a metal at 1.0 has NO diffuse colour at all: it shows only what it
+        #     reflects, and in Roblox daylight that is the sky, so the near-black albedo above would
+        #     never be seen. 0.10 keeps a trace of the conductor tint and lets the dark colour do the
+        #     work. The Roblox docs ask for 0% or 100% "in most cases"; this is the deliberate
+        #     exception they allow for "moderate reflective properties", chosen because the sky is
+        #     the only environment a Roblox surface has to reflect.
+        #   roughness 0.50 -- half way. At 0.19 (what shipped) the reflection is "sharper and
+        #     brighter"; at 1.0 it is flat matte and the gun looks like slate. 0.50 spreads the sky
+        #     into a broad soft sheen along the barrel: gloss, not mirror.
+        # Karen's words, 2026-09-26: "barrels too shiny ... make more realistic".
         "barrel": {
             "baseColor": {"targetRGB": [26, 28, 34], "keepHue": True, "satScale": 0.25,
                           "contrast": 1.0},
-            "roughness": 0.55,
-            "metallic": 0.30,
+            "roughness": 0.50,
+            "metallic": 0.10,
         },
         # BRIGHT SILVER ENGRAVED ACTION, GUARD AND LEVER: RGB(172, 172, 172), the median of the
         # action in the same photo. A little saturation is kept so the engraving does not go flat.
+        # It STAYS metal -- this is the part that is meant to catch the light, and Karen's complaint
+        # was the barrels -- but not a mirror: 0.70 / 0.35 is bright polished steel with the engraving
+        # still readable, where the 0.98 / 0.19 that shipped made the whole action a sky-coloured
+        # blob. It is the same class of change as the barrels and it lands in the same maps.
         "action": {
             "baseColor": {"targetRGB": [172, 172, 172], "keepHue": True, "satScale": 0.10,
                           "contrast": 1.05},
-            "roughness": 0.42,
-            "metallic": 0.45,
+            "roughness": 0.35,
+            "metallic": 0.70,
         },
         # MEDIUM WALNUT, deeper and less orange than what came out of Meshy -- Karen's two complaints
         # in one number: RGB(112, 80, 69) is the median of the stock in her reference photo.
@@ -172,6 +187,16 @@ DEFAULT_RECIPE = {
             "metallic": 0.0,
         },
     },
+    # HOW MUCH OF THE SOURCE MAP SURVIVES, per channel. Metalness is a yes/no property of a material
+    # and the Roblox docs say to treat it as one, so it is replaced outright; roughness carries the
+    # generator's scratches and wear, which are worth keeping, so 15 % of the original variation is
+    # left in. 0 would leave the shipped maps exactly as Task 74 shipped them.
+    "channelWeight": {"metallic": 1.0, "roughness": 0.85},
+    # How far a region's metalness or roughness, SAMPLED BACK THROUGH THE MESH, may sit from the
+    # number it was given (0..1). Tight, because unlike colour there is no grain to allow for -- the
+    # only reasons to miss are a mask in the wrong place or a number that never reached the map,
+    # which are the two failures this whole task is about.
+    "maxShineDrift": 0.08,
 }
 
 
@@ -322,6 +347,75 @@ def run_blender(exe, job_path, timeout):
     return process
 
 
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+PNG_END = b"IEND\xaeB`\x82"
+
+
+def embedded_pngs(fbx_path):
+    """Every PNG embedded in an FBX, as raw bytes. Stdlib only: find the signature, read to IEND.
+
+    The container is not parsed. It does not need to be: an embedded texture is stored as the file's
+    own bytes, so the signature and the end marker bracket it exactly, and the whole point here is to
+    compare bytes with what was written rather than to decode anything.
+    """
+    with open(fbx_path, "rb") as handle:
+        blob = handle.read()
+    out, pos = [], 0
+    while True:
+        start = blob.find(PNG_SIGNATURE, pos)
+        if start < 0:
+            return out
+        end = blob.find(PNG_END, start)
+        if end < 0:
+            return out
+        out.append(blob[start:end + len(PNG_END)])
+        pos = end + len(PNG_END)
+
+
+def verify_embedded_textures(out_dir, report):
+    """THE EXPORT MUST CARRY THE TEXTURES THIS TOOL WROTE. Measured, not assumed.
+
+    Everything else in this tool measures the model in Blender: the colours, the shine, the region
+    split, the renders. None of that says anything about the FILE Roblox is handed, and for two
+    uploads it was wrong about it -- the FBX embedded the untouched originals (Meshy's 4096 metalness
+    and roughness maps, median 0.91 and 0.19) while the corrected 2048 maps sat in the output folder
+    (Task 75, read back out of the uploaded file). The renders were right, the game got the raw
+    model, and nothing in the run said so.
+
+    So the run now reads its own FBX back and asks one question with a yes-or-no answer: is every
+    embedded PNG byte-for-byte one of the files this run wrote? A re-encode, a stale path, a packed
+    original -- all of them fail it.
+    """
+    fbx_path = os.path.join(out_dir, "model.fbx")
+    if not os.path.exists(fbx_path):
+        return None
+    written = {}
+    for name in report.get("texturesWritten", []):
+        path = os.path.join(out_dir, name)
+        if os.path.exists(path):
+            with open(path, "rb") as handle:
+                written[handle.read()] = name
+    embedded = embedded_pngs(fbx_path)
+    matched, strangers = [], 0
+    for blob in embedded:
+        name = written.get(blob)
+        if name is None:
+            strangers += 1
+        else:
+            matched.append(name)
+    result = {"embedded": len(embedded), "matched": sorted(matched), "strangers": strangers,
+              "written": sorted(written.values())}
+    report["embeddedTextures"] = result
+    missing = sorted(set(written.values()) - set(matched))
+    if strangers or missing:
+        report.setdefault("warnings", []).append(
+            "the exported FBX does not carry the textures this run wrote: %d embedded PNG(s) match "
+            "nothing written (%s), and %s never reached it -- the game would get the original model"
+            % (strangers, ", ".join(sorted(written.values())) or "none written",
+               ", ".join(missing) or "nothing"))
+    return result
+
+
 def prep(input_dir, out_dir, recipe, exe, timeout=1800, keep_source=True):
     """The whole run. Returns the Blender side's report. Raises Refused before anything is written."""
     if not os.path.isdir(input_dir):
@@ -369,6 +463,7 @@ def prep(input_dir, out_dir, recipe, exe, timeout=1800, keep_source=True):
     with open(job["reportPath"], "r", encoding="utf-8") as handle:
         report = json.load(handle)
     report["inputUnchanged"] = True
+    verify_embedded_textures(out_dir, report)
     if not keep_source:
         shutil.rmtree(source_dir, ignore_errors=True)
     with open(job["reportPath"], "w", encoding="utf-8") as handle:
@@ -614,8 +709,47 @@ def command_selftest(_args):
         ok("the action really came out bright",
            min(corrections.get("action", {}).get("achievedRGB", [0, 0, 0])) > 120,
            str(corrections.get("action", {}).get("achievedRGB")))
-        ok("one material per region", len(report.get("materials", [])) >= 3,
+        # ONE MATERIAL, not one per region (Task 75): Roblox makes a SurfaceAppearance per material
+        # that has maps, so the old split came back as three empty SurfaceAppearance children.
+        ok("the mesh ships with one material", len(report.get("materials", [])) == 1,
            str(report.get("materials")))
+
+        # ---------------------------------------------------------- the FILE carries the work
+        embedded = report.get("embeddedTextures", {})
+        ok("every texture the run wrote is embedded in the FBX",
+           embedded.get("strangers") == 0
+           and sorted(embedded.get("matched", [])) == sorted(embedded.get("written", [])),
+           str(embedded))
+        ok("the FBX embeds every one of them, and nothing else",
+           embedded.get("embedded", 0) == len(embedded.get("written", [])), str(embedded))
+
+        # ---------------------------------------------------------- the shine reaches the MAPS
+        # THE DEFECT TASK 75 EXISTS FOR: the recipe's metalness and roughness used to live on a
+        # Blender material, where Roblox never looked. These checks are on the maps, measured back
+        # through the mesh, because that is the only channel the engine reads.
+        shine = report.get("shine", {})
+        maps = shine.get("maps", {})
+        ok("the fixture had no shine maps and the tool made them",
+           sorted(maps.get("created", [])) == ["metallic", "roughness"], str(maps.get("created")))
+        surface = shine.get("surface", {})
+        barrel = surface.get("barrel", {})
+        ok("the barrels' metalness is in the MAP, sampled through the mesh",
+           barrel.get("metallic", {}).get("drift") is not None
+           and barrel["metallic"]["drift"] <= recipe["maxShineDrift"], str(barrel.get("metallic")))
+        ok("the barrels' roughness is in the MAP, sampled through the mesh",
+           barrel.get("roughness", {}).get("drift") is not None
+           and barrel["roughness"]["drift"] <= recipe["maxShineDrift"], str(barrel.get("roughness")))
+        # ...and asserted on the VALUE, not only on the drift: a recipe edited to ship a mirror
+        # would satisfy the drift check perfectly.
+        ok("the barrels are not a mirror", barrel.get("metallic", {}).get("shown", 1.0) <= 0.25
+           and barrel.get("roughness", {}).get("shown", 0.0) >= 0.40, str(barrel))
+        ok("the action stayed bright metal",
+           surface.get("action", {}).get("metallic", {}).get("shown", 0.0) >= 0.50,
+           str(surface.get("action")))
+        written_maps = report.get("texturesWritten", [])
+        ok("both shine maps were written beside the exports",
+           "texture_metallic.png" in written_maps and "texture_roughness.png" in written_maps,
+           str(written_maps))
         ok("the muzzle end was measured, not guessed",
            report.get("orientation", {}).get("muzzleAtMin") is True,
            str(report.get("orientation")))
