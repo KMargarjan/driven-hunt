@@ -379,7 +379,14 @@ function Mode.aimOffset(sightLocal: CFrame?, config): CFrame
 	if sightLocal == nil then
 		return config.VIEWMODEL_AIM_OFFSET
 	end
-	return CFrame.new(0, 0, -config.EYE_RELIEF_STUDS) * sightLocal:Inverse()
+	-- THE CHEEK ANGLE IS APPLIED AT THE BEAD, which is the whole reason it is safe (task 92, round
+	-- 2): a rotation about the point the bead sits at leaves the bead exactly where it was -- on the
+	-- axis, `EYE_RELIEF_STUDS` ahead -- and swings only what is BEHIND it. That is what an eye above
+	-- the bore actually sees: the top of the barrel running away to the bead, the action low in the
+	-- frame. `camera_mode.spec` asserts both halves, the bead's position and the gun's new tilt.
+	return CFrame.new(0, 0, -config.EYE_RELIEF_STUDS)
+		* CFrame.Angles(math.rad(config.ADS_CHEEK_DEG), 0, 0)
+		* sightLocal:Inverse()
 end
 
 -- Where the viewmodel sits, relative to the camera. The POSE is the eased mix of the hip/carry pose

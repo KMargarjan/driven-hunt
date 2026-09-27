@@ -123,6 +123,18 @@ local Config = {
 	-- BEHIND the camera. Karen's dial still; the floor is now the barrels rather than the butt (see
 	-- NEAR_PLANE_MARGIN_STUDS).
 	EYE_RELIEF_STUDS = 3.5,
+	-- THE CHEEK ON THE COMB (task 92, round 2). In Karen's own acceptance picture the eye is ABOVE
+	-- the rib, not level with it: you look down the TOP of the barrel, which tapers away to the bead,
+	-- and the action is a dark shape at the very bottom of the frame. Level with the rib -- which is
+	-- what pure bead-on-axis geometry gives, because the bead is the only thing it is told about --
+	-- put the standing breech in the lower CENTRE as a big bulbous shape.
+	--
+	-- IT IS A ROTATION ABOUT THE BEAD, so nothing about the sight picture's one hard claim changes:
+	-- the bead stays exactly `EYE_RELIEF_STUDS` in front of the eye, on the axis, which is where the
+	-- shot goes. Everything BEHIND the bead swings down by this angle, which is what an eye above the
+	-- bore sees. Positive drops the breech; 7 degrees puts the action's top below the rib line at the
+	-- distance the breech sits from the eye (about 2.2 studs, so 0.27 studs of drop).
+	ADS_CHEEK_DEG = 7,
 	-- HOW FAR OFF THE CENTRE OF THE SCREEN THE BEAD MAY BE, aimed and at rest. Roblox's field of
 	-- view is VERTICAL, so at 1920x1080 and FOV 50 this is 8 pixels: 50/1080 = 0.0463 degrees per
 	-- pixel. At 143 studs (40 m) it is 0.9 studs, against a boar 5.5 studs long and 3 tall. The

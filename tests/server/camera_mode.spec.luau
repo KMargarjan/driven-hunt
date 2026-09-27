@@ -609,7 +609,14 @@ return function()
 			local sight = CFrame.new(0, 0.255, -2.15) -- the parts gun's bead, Shape.beadOffset
 			local aimed = Mode.aimOffset(sight, firstPerson) * sight
 			expect((aimed.Position - Vector3.new(0, 0, -firstPerson.EYE_RELIEF_STUDS)).Magnitude < 1e-4).to.equal(true)
-			expect((aimed.LookVector - Vector3.new(0, 0, -1)).Magnitude < 1e-6).to.equal(true)
+			-- ...AND THE GUN IS TIPPED BY EXACTLY THE CHEEK ANGLE (task 92, round 2), which is the
+			-- other half of the claim: the bead does not move, everything behind it swings down, so
+			-- the player looks along the TOP of the barrels as in Karen's own picture. The angle is
+			-- measured off the pose rather than assumed, so a cheek angle that stopped being applied
+			-- fails here rather than only on a screenshot.
+			local tilt = math.deg(math.asin(math.clamp(aimed.LookVector.Y, -1, 1)))
+			expect(math.abs(tilt - firstPerson.ADS_CHEEK_DEG) < 1e-3).to.equal(true)
+			expect(math.abs(aimed.LookVector.X) < 1e-6).to.equal(true)
 
 			-- ...and it FOLLOWS the bead: move the sight, and the gun moves to suit it. A pose that
 			-- ignored its argument would pass the case above and fail this one.
@@ -619,6 +626,14 @@ return function()
 				true
 			)
 			expect(Mode.aimOffset(moved, firstPerson)).never.to.equal(Mode.aimOffset(sight, firstPerson))
+
+			-- AND THE CHEEK ANGLE IS A DIAL ON SOMETHING: at zero the gun is level with the view, so
+			-- the case above is measuring the angle rather than an accident of the arithmetic.
+			local level = table.clone(firstPerson) :: any
+			level.ADS_CHEEK_DEG = 0
+			local levelAimed = Mode.aimOffset(sight, level) * sight
+			expect((levelAimed.LookVector - Vector3.new(0, 0, -1)).Magnitude < 1e-6).to.equal(true)
+			expect((levelAimed.Position - Vector3.new(0, 0, -level.EYE_RELIEF_STUDS)).Magnitude < 1e-4).to.equal(true)
 		end)
 
 		it("falls back to the accepted framing when the gun carries no sight", function()

@@ -118,6 +118,13 @@ DEFAULT_RECIPE = {
     # `--target N` still decimates when a caller asks, and the report always says which happened. A
     # genuinely cheap low-poly wants the standard route -- unwrap the low-poly and BAKE the
     # high-poly's colour onto it -- which is a task of its own (TASKS.md row 72a).
+    # HOW SMOOTH THE SURFACE IS, in degrees (task 92). Shade the model smooth, then keep as SHARP
+    # only the edges whose faces meet at more than this. `None` skips it and leaves every face flat,
+    # which is what every run before task 92 shipped -- and what made the uploaded gun read as bright
+    # shards with dark seams an inch from a first-person eye (Karen: "style now feels a bit broken").
+    # 35 degrees keeps a gun's real edges (the action's flats, the breech face, the trigger guard)
+    # and smooths everything that is meant to be a surface (the barrels, the bead, the stock).
+    "smoothAngleDeg": 35,
     "targetTriangles": None,
     # 4096 is legal on Roblox and wasteful on a held weapon. Nothing is resized silently: the report
     # prints every size before and after.
@@ -286,6 +293,9 @@ ANIMAL_RECIPE = {
     "tool": TOOL_VERSION,
     # 6,188 triangles against Roblox's 20,000 per mesh: nothing to gain by decimating, and a
     # decimated face that straddles two regions can only take one region's colour (see the gun).
+    # Task 92: see the gun preset. An animal is all surface, so nothing on it wants a hard edge at
+    # all below this angle.
+    "smoothAngleDeg": 35,
     "targetTriangles": None,
     "workPx": 2048,
     "renderPx": 1100,

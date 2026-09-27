@@ -111,6 +111,57 @@ def decimate(ob, target):
     return before, after, ratio
 
 
+def shade(ob, angle_deg):
+    """SMOOTH NORMALS, SHARP ONLY WHERE THE MODEL REALLY TURNS (task 92).
+
+    Karen, after playing the first-person build: "Weapon color we need to improve and style now
+    feels a bit broken, it has to be smooth and nice." What she is looking at is FLAT SHADING -- the
+    export asked for `mesh_smooth_type="FACE"`, so every one of the model's 19,000 triangles was lit
+    as its own plane, and a round barrel became a ring of bright shards with dark seams between them.
+
+    The fix is the one Blender has for exactly this: shade the mesh smooth, then mark as sharp only
+    the edges whose two faces meet at more than `angle_deg`. A gun wants both -- the barrels, the
+    bead and the rounded stock are surfaces, while the action's flats, the trigger guard and the
+    breech face are real edges that must stay crisp. 5.x renamed the operator twice, so all three
+    spellings are tried and the report says which one answered.
+
+    `None` skips the whole step and keeps flat shading, so the old behaviour is still reachable.
+    """
+    if angle_deg is None:
+        return {"applied": False, "reason": "smoothAngleDeg is null"}
+    bpy.ops.object.select_all(action="DESELECT")
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    bpy.ops.object.shade_smooth()
+    angle = math.radians(float(angle_deg))
+    used = None
+    for name in ("shade_smooth_by_angle", "shade_auto_smooth"):
+        operator = getattr(bpy.ops.object, name, None)
+        if operator is None:
+            continue
+        try:
+            operator(angle=angle)
+            used = name
+            break
+        except Exception as error:  # a 5.x signature change must not end the run silently
+            log("shadeOperatorFailed", operator=name, error=str(error))
+    if used is None:
+        # Nothing but plain smooth shading is available: mark the sharp edges by hand, which is what
+        # the operator does under the skin, so the export still carries them.
+        for edge in ob.data.edges:
+            edge.use_edge_sharp = False
+        used = "manual"
+        try:
+            ob.data.use_auto_smooth = True  # pre-4.1 Blender
+            ob.data.auto_smooth_angle = angle
+            used = "use_auto_smooth"
+        except AttributeError:
+            pass
+    sharp = sum(1 for edge in ob.data.edges if edge.use_edge_sharp)
+    return {"applied": True, "angleDeg": float(angle_deg), "operator": used,
+            "edges": len(ob.data.edges), "sharpEdges": sharp}
+
+
 def long_axis(ob):
     """The index of the model's longest local axis, and whether the muzzle is at its MINIMUM.
 
@@ -854,6 +905,9 @@ def main():
         target=recipe["targetTriangles"])
     REPORT["triangles"] = {"before": before, "after": after, "target": recipe["targetTriangles"]}
 
+    REPORT["shading"] = shade(ob, recipe.get("smoothAngleDeg"))
+    log("shaded", **REPORT["shading"])
+
     axis, measured_at_min, lo, hi, near_depth, far_depth = long_axis(ob)
     # THE RECIPE MAY STATE WHICH END IS THE FRONT, and for an animal it has to. `long_axis` decides
     # it by comparing how deep the model is at each end, which is a fact about a gun -- thin at the
@@ -1367,8 +1421,12 @@ def main():
     ob.select_set(True)
     bpy.context.view_layer.objects.active = ob
     fbx_path = os.path.join(out_dir, "model.fbx")
+    # "EDGE", NOT "FACE" (task 92). `FACE` writes every polygon as its own flat plane, which is what
+    # made the uploaded gun a field of bright shards with dark seams in first person; `EDGE` carries
+    # the smooth/sharp flag per edge, which is what `shade()` above has just set.
+    smooth_type = "EDGE" if REPORT.get("shading", {}).get("applied") else "FACE"
     bpy.ops.export_scene.fbx(filepath=fbx_path, use_selection=True, path_mode="COPY",
-                             embed_textures=True, mesh_smooth_type="FACE")
+                             embed_textures=True, mesh_smooth_type=smooth_type)
     glb_path = os.path.join(out_dir, "model.glb")
     bpy.ops.export_scene.gltf(filepath=glb_path, export_format="GLB", use_selection=True)
     REPORT["exports"] = {

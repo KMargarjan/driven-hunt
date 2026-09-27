@@ -58,5 +58,25 @@
     "pollSeconds": 13.2,
     "polls": 6,
     "karenOk": "2026-09-26 Karen: put her shotgun in the game; this re-upload fixes the barrel shine she asked to fix"
+  },
+  {
+    "tool": "roblox-upload/1",
+    "at": "2026-09-27T16:33:25Z",
+    "assetId": "137252961155547",
+    "assetType": "Model",
+    "displayName": "Driven Hunt shotgun (side-by-side) r5 smooth",
+    "description": "Side-by-side game gun, prepared by tools/asset_prep.py with smooth normals (35 deg) and a softened action. Same model as r4.",
+    "creatorUserId": "8167651842",
+    "file": "model.fbx",
+    "sourceFolder": "shotgun_sxs_r5-smooth",
+    "bytes": 7391468,
+    "sha256": "0d27f24e14b3b95125aac621ecfd0b12242c2810ad2cd24a1a445c8efd9b4fee",
+    "contentType": "model/fbx",
+    "operation": "operations/89417b96-4c6d-432c-ab89-421b0cf439be",
+    "moderationState": "Approved",
+    "moderationStateFrom": "response.moderationResult.moderationState",
+    "pollSeconds": 11.1,
+    "polls": 5,
+    "karenOk": "2026-09-27 Karen asked for this look fix after playing S2: 'Weapon color we need to improve and style now feels a bit broken, it has to be smooth and nice' -- same model, smooth shading and softer action metal"
   }
 ]
