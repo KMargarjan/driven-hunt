@@ -3,15 +3,19 @@
 Task: 74
 Round: 3
 Base: `main` (`f3f6a49`)
-Code commit: `ae7d0f2f67824fc3a425dd10c8788c59f9f68ad1`
+Code commit: `f73493fe2111dccf1a746a7d5f2592d45aef074e`
 
 ```
-[harness] PASS: 30/30 checks @ ae7d0f2f67824fc3a425dd10c8788c59f9f68ad1 (clean tree)
+[harness]  PASS: 30/30 checks @ f73493fe2111dccf1a746a7d5f2592d45aef074e (clean tree)
+[harness2] PASS: 32/32 checks @ f73493fe2111dccf1a746a7d5f2592d45aef074e (clean tree)
 ```
 
-`[tests:server] PASS: 402 passed, 0 failed, 0 skipped, 0 errors, 24 spec files`, client 85 passed.
-`test2` matters here — this touches `src/` and `tests/client/` — and the Director runs it; this
-request is updated with the `[harness2]` line for the same commit before the review.
+Both are the Director's runs at this branch's head, and **`test2` is evidence rather than a formality
+here**: this touches `src/` and `tests/client/`, and the viewmodel work only has a second client to be
+seen on. The head is a paperwork commit — at or after the last commit that touched `src/` or `tests/`
+(`ae7d0f2`), with only this file and `TASKS.md` row 74 between them. My own clean-tree
+`[harness] PASS: 30/30 @ ae7d0f2` covers the same code, and reported
+`[tests:server] PASS: 402 passed, 0 failed, 0 skipped, 0 errors, 24 spec files` with client 85 passed.
 
 **Round 2's single finding was right, and it was right for the second time.** The spec was still
 destroying the running server's preloaded template, and the check I had added to catch that could not
@@ -136,4 +140,4 @@ picture of the mesh and not of the fallback gun; the round-3 change is invisible
   rather than pretending it proved something.
 - **`MapGen.Props` is still its own `LoadAsset` caller** (74a(a)), so "one caller in the repo" is
   true of `src/` outside the map generator and not yet of the whole repo.
-- **`test2` is the Director's run**, pasted above before the review.
+- **`test2` was run by the Director, not by me** — the `[harness2]` line above is his, at this head. Two clients ran the whole client suite, the viewmodel appearance check included.
