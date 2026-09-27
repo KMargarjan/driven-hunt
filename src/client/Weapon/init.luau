@@ -14,6 +14,7 @@
 --
 -- Design: docs/design/shotgun.md (sections 3.2, 5.6)
 -- Note:   docs/research/2026-09-24-shotgun.md
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
@@ -29,6 +30,14 @@ Weapon.Effects = Effects
 local snapshot: Shotgun.WeaponSnapshot? = nil
 local signal = Instance.new("BindableEvent")
 Weapon.Changed = signal.Event
+
+-- MY OWN SHOT, THE MOMENT IT LANDS (task 92). Karen, after playing S2: "shooting has to have recoil a
+-- bit" -- and recoil is the camera's, not the weapon's. This module still writes no camera: it says
+-- "a shot of mine happened, out of this barrel" and `CameraBoot`, the composition root that knows both
+-- owners, connects it to `Camera.kick`. Other players' shots do not fire it, because a kick belongs to
+-- the person who pulled the trigger.
+local firedSignal = Instance.new("BindableEvent")
+Weapon.Fired = firedSignal.Event
 
 local started = false
 
@@ -51,6 +60,9 @@ function Weapon.start()
 	end)
 	remotes.ShotFired.OnClientEvent:Connect(function(payload)
 		Effects.play(payload)
+		if type(payload) == "table" and payload.shooterUserId == Players.LocalPlayer.UserId then
+			firedSignal:Fire(payload)
+		end
 	end)
 
 	Input.start()

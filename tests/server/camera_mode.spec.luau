@@ -305,6 +305,131 @@ return function()
 			end
 		end)
 
+		-- ------------------------------------------------------------ no jump on ADS (task 92)
+		it("moves the gun and NOT the aim point when right mouse goes down", function()
+			-- KAREN, after playing S2 (2026-09-27): "I expect when clicking mouse right the weapon
+			-- height (aim dot) is in same level as before clicking mouse right."
+			--
+			-- So this asserts the property her sentence describes, in the only place it can be
+			-- asserted exactly: the eye and the look direction are INDEPENDENT OF THE BLEND, so the
+			-- world point under the screen centre is the same before the click, during the ease and
+			-- after it. The client spec measures the same thing in a live session, in studs.
+			local root = CFrame.new(-4, 3, 17)
+			local _, atRest = Mode.cameraCFrame(root, stateAtBlend(0), firstPerson)
+			for _, blend in ipairs({ 0.01, 0.25, 0.5, 0.99, 1 }) do
+				local _, aimed = Mode.cameraCFrame(root, stateAtBlend(blend), firstPerson)
+				expect((aimed.Position - atRest.Position).Magnitude).to.equal(0)
+				expect((aimed.LookVector - atRest.LookVector).Magnitude).to.equal(0)
+				-- ...and therefore the point 60 studs down the centre of the screen, which is what a
+				-- player is actually looking at when they click.
+				local was = atRest.Position + atRest.LookVector * 60
+				local is = aimed.Position + aimed.LookVector * 60
+				expect((is - was).Magnitude).to.equal(0)
+			end
+			-- IT IS THE GUN THAT MOVES, or this case is a claim that nothing happens at all: the
+			-- viewmodel's pose at blend 1 is a long way from the carry pose.
+			local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
+			local carry = Mode.viewmodelOffset(stateAtBlend(0), sight, firstPerson)
+			local aimedPose = Mode.viewmodelOffset(stateAtBlend(1), sight, firstPerson)
+			expect((aimedPose.Position - carry.Position).Magnitude > 0.5).to.equal(true)
+			-- ...and the THIRD-PERSON branch does move the eye, which is what the flag is for and
+			-- what makes the assertions above a measurement rather than a description of both.
+			local _, thirdRest = Mode.cameraCFrame(root, stateAtBlend(0), Config)
+			local _, thirdAimed = Mode.cameraCFrame(root, stateAtBlend(1), Config)
+			expect((thirdAimed.Position - thirdRest.Position).Magnitude > 5).to.equal(true)
+		end)
+
+		-- ------------------------------------------------------------------ recoil (task 92)
+		describe("recoil", function()
+			-- KAREN, after playing S2: "shooting has to have recoil a bit".
+			local function stepFor(state, seconds: number, dt: number)
+				local elapsed = 0
+				local worstGun, worstCam = 0, 0
+				while elapsed < seconds do
+					state = Mode.step(state, input({ aiming = true }), dt, firstPerson)
+					worstGun = math.max(worstGun, math.abs(state.recoilGunPitchDeg))
+					worstCam = math.max(worstCam, math.abs(state.recoilCamPitchDeg))
+					elapsed += dt
+				end
+				return state, worstGun, worstCam
+			end
+
+			it("kicks the gun and the view, then returns the aim point EXACTLY", function()
+				local root = CFrame.new(0, 5, 0)
+				local before = Mode.step(Mode.initial(firstPerson), input({ aiming = true }), 1 / 60, firstPerson)
+				expect(Mode.recoiling(before)).to.equal(false)
+				local _, aimBefore = Mode.cameraCFrame(root, before, firstPerson)
+
+				local kicked = Mode.kick(before, firstPerson)
+				expect(kicked.recoilGunPitchDeg).to.equal(firstPerson.RECOIL_GUN_PITCH_DEG)
+				expect(kicked.recoilGunBackStuds).to.equal(firstPerson.RECOIL_GUN_BACK_STUDS)
+				expect(kicked.recoilCamPitchDeg).to.equal(firstPerson.RECOIL_CAM_PITCH_DEG)
+				expect(Mode.recoiling(kicked)).to.equal(true)
+				-- THE VIEW REALLY LIFTS, or "recoil" is a number nobody can see: the camera's look
+				-- direction is no longer where it was.
+				local _, aimKicked = Mode.cameraCFrame(root, kicked, firstPerson)
+				expect(aimKicked.LookVector:Dot(aimBefore.LookVector) < 0.9999).to.equal(true)
+				-- ...and the gun moved in its own frame too, up and back.
+				local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
+				expect(Mode.viewmodelOffset(kicked, sight, firstPerson)).never.to.equal(
+					Mode.viewmodelOffset(before, sight, firstPerson)
+				)
+
+				-- AND IT COMES ALL THE WAY HOME. Not "close to zero": exactly zero, because the
+				-- spring snaps at RECOIL_REST_EPSILON -- which is what lets the bead return to the
+				-- point it left rather than somewhere a fraction of a degree off it.
+				local settled, worstGun, worstCam = stepFor(kicked, 1.0, 1 / 60)
+				expect(Mode.recoiling(settled)).to.equal(false)
+				expect(settled.recoilGunPitchDeg).to.equal(0)
+				expect(settled.recoilCamPitchDeg).to.equal(0)
+				expect(settled.recoilGunBackStuds).to.equal(0)
+				local _, aimAfter = Mode.cameraCFrame(root, settled, firstPerson)
+				expect((aimAfter.Position - aimBefore.Position).Magnitude).to.equal(0)
+				expect((aimAfter.LookVector - aimBefore.LookVector).Magnitude).to.equal(0)
+				-- CRITICALLY DAMPED means it never goes past where the kick put it, in either
+				-- direction: no overshoot, so no wobble to watch.
+				expect(worstGun <= firstPerson.RECOIL_GUN_PITCH_DEG + 1e-6).to.equal(true)
+				expect(worstCam <= firstPerson.RECOIL_CAM_PITCH_DEG + 1e-6).to.equal(true)
+				TestKit.note(
+					string.format(
+						"task92 recoil: gun %.2f deg / %.3f studs, view %.2f deg, home in under 1.0 s at 60 fps",
+						firstPerson.RECOIL_GUN_PITCH_DEG,
+						firstPerson.RECOIL_GUN_BACK_STUDS,
+						firstPerson.RECOIL_CAM_PITCH_DEG
+					)
+				)
+			end)
+
+			it("settles the same way at 240, 60 and 20 fps, and clamps a doublet", function()
+				-- FRAME-RATE INDEPENDENT, which is the one thing a hand-rolled spring gets wrong.
+				for _, dt in ipairs({ 1 / 240, 1 / 60, 1 / 20 }) do
+					local settled = (stepFor(Mode.kick(Mode.initial(firstPerson), firstPerson), 1.0, dt))
+					expect(Mode.recoiling(settled)).to.equal(false)
+				end
+				-- TWO BARRELS, A TENTH OF A SECOND APART: the offsets add, and the ceiling is what
+				-- keeps the view on the animal. Five kicks with no time between them is the worst
+				-- case the rate limit allows and it still stops at the ceiling.
+				local state = Mode.initial(firstPerson)
+				for _ = 1, 5 do
+					state = Mode.kick(state, firstPerson)
+				end
+				expect(state.recoilGunPitchDeg).to.equal(firstPerson.RECOIL_MAX_GUN_PITCH_DEG)
+				expect(state.recoilCamPitchDeg).to.equal(firstPerson.RECOIL_MAX_CAM_PITCH_DEG)
+				expect(state.recoilGunBackStuds).to.equal(firstPerson.RECOIL_MAX_GUN_BACK_STUDS)
+				-- ...and the ceiling is a ceiling on something: one kick is under it.
+				expect(firstPerson.RECOIL_GUN_PITCH_DEG < firstPerson.RECOIL_MAX_GUN_PITCH_DEG).to.equal(true)
+			end)
+
+			it("does nothing at all in the third-person branch", function()
+				-- Task 89 promised the flag-off camera is the one Karen accepted on 2026-09-25,
+				-- unchanged, and a kick is something a player sees. By parameter, so the promise is
+				-- tested while the flag itself sits at one value.
+				local before = Mode.initial(Config)
+				expect(Mode.kick(before, Config)).to.equal(before)
+				expect(Mode.recoiling(before)).to.equal(false)
+			end)
+		end)
+
 		it("disagrees with the third-person branch, which is the whole point of the flag", function()
 			-- A case that would pass with the branch deleted is worth nothing: at blend 0 the two
 			-- cameras are a boom apart, and this is the number that says the switch does something.

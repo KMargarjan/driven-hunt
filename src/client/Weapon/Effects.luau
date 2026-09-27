@@ -17,6 +17,42 @@ local Effects = {}
 
 local folder: Folder? = nil
 
+-- WHERE THE GUN ON SCREEN IS, when the gun on screen is not the gun in the world (task 92). Karen,
+-- after playing S2: "when firing this animation where flies light has to be from pipes not from
+-- shoulder."
+--
+-- In first person the Tool is in the character's hand, hidden, and what the player SEES is the camera's
+-- viewmodel clone -- so a flash at the server's muzzle position appears off at the character's
+-- shoulder. `CameraBoot` installs the camera's `viewmodelMuzzle` here, the same way it installs the
+-- camera's aim source: injected rather than required, so this module needs no camera and a spec can
+-- drive both answers. Nil, or no provider at all, means "draw it in the world", which is what every
+-- other player's shot wants.
+local muzzleProvider: ((number?) -> CFrame?)? = nil
+
+function Effects.setMuzzleProvider(fn: ((number?) -> CFrame?)?)
+	muzzleProvider = fn
+end
+
+function Effects.getMuzzleProvider(): ((number?) -> CFrame?)?
+	return muzzleProvider
+end
+
+-- The frame the flash, the smoke and the tracers are drawn in: the fired barrel's muzzle, pointing
+-- down the bore. In order of preference -- the drawn gun, then the payload's own barrel frame, then
+-- the bare position the payload has always carried (an older server, or a gun with no attachment).
+--
+-- PURE, AND EXPORTED, so a spec can ask it what it chose without firing a shot.
+function Effects.muzzleFrame(payload: any): CFrame
+	local fromViewmodel = if muzzleProvider then muzzleProvider(payload.barrel) else nil
+	if fromViewmodel then
+		return fromViewmodel
+	end
+	if typeof(payload.muzzleCFrame) == "CFrame" then
+		return payload.muzzleCFrame
+	end
+	return CFrame.new(payload.muzzle)
+end
+
 function Effects.folder(): Folder
 	if folder and folder.Parent then
 		return folder
@@ -33,13 +69,22 @@ function Effects.folder(): Folder
 	return made
 end
 
-local function part(name: string, size: Vector3, cframe: CFrame, color: Color3, lifetime: number)
+local function part(
+	name: string,
+	size: Vector3,
+	cframe: CFrame,
+	color: Color3,
+	lifetime: number,
+	material: Enum.Material?,
+	transparency: number?
+)
 	local p = Instance.new("Part")
 	p.Name = name
 	p.Size = size
 	p.CFrame = cframe
 	p.Color = color
-	p.Material = Enum.Material.Neon
+	p.Material = material or Enum.Material.Neon
+	p.Transparency = transparency or 0
 	p.Anchored = true
 	p.CanCollide = false
 	p.CanQuery = false
@@ -57,12 +102,29 @@ function Effects.play(payload: any)
 	local config = Shotgun.CONFIG
 	local budget = config.EFFECT_MAX_PER_SHOT
 
+	-- OUT OF THE PIPE THAT FIRED, AND ALONG IT (task 92): a short bloom on the bore line rather than a
+	-- cube at a point, and a puff of smoke behind it that outlives it. `-Z` is the muzzle direction in
+	-- the barrel's own frame (the `GRIP` convention), so both sit forward of the muzzle rather than
+	-- inside the barrel.
+	local at = Effects.muzzleFrame(payload)
+	local origin = at.Position
 	part(
 		"Flash",
-		Vector3.new(0.5, 0.5, 0.5),
-		CFrame.new(payload.muzzle),
+		Vector3.new(0.34, 0.34, 0.75),
+		at * CFrame.new(0, 0, -0.30),
 		Color3.fromRGB(255, 220, 140),
-		config.FLASH_LIFETIME
+		config.FLASH_LIFETIME,
+		Enum.Material.Neon
+	)
+	budget -= 1
+	part(
+		"Smoke",
+		Vector3.new(0.5, 0.5, 0.5),
+		at * CFrame.new(0, 0.06, -0.45),
+		Color3.fromRGB(196, 196, 196),
+		config.SMOKE_LIFETIME,
+		Enum.Material.SmoothPlastic,
+		0.62
 	)
 	budget -= 1
 
@@ -70,12 +132,12 @@ function Effects.play(payload: any)
 		if budget <= 1 then
 			break
 		end
-		local gap = position - payload.muzzle
+		local gap = position - origin
 		if gap.Magnitude > 0.1 then
 			part(
 				"Tracer",
 				Vector3.new(0.08, 0.08, gap.Magnitude),
-				CFrame.lookAt(payload.muzzle + gap * 0.5, position),
+				CFrame.lookAt(origin + gap * 0.5, position),
 				Color3.fromRGB(255, 240, 200),
 				config.TRACER_LIFETIME
 			)

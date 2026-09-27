@@ -470,11 +470,18 @@ local function onFireRequest(player: Player, req: any): string?
 		table.insert(points, impact.position)
 	end
 	local channel = remotes or Shotgun.remotes()
+	-- WHICH PIPE FIRED, AND THE FRAME TO DRAW IT IN (task 92). `state.selected` is the barrel this
+	-- shot came out of -- `fired.selected` has already moved to the other one -- and `muzzleCFrame` is
+	-- that barrel's own muzzle, which is what a client needs to point a flash along the bore without
+	-- re-deriving the gun's orientation from a position. `muzzle` stays exactly what it was: the
+	-- ballistic origin every pellet came from.
 	channel.ShotFired:FireAllClients({
 		shooterUserId = player.UserId,
 		muzzle = muzzle,
 		impacts = points,
 		ammo = ammo,
+		barrel = state.selected,
+		muzzleCFrame = Hardware.muzzleCFrame(tool, state.selected),
 	})
 	return nil -- the shot was taken
 end

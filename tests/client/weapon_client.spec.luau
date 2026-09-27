@@ -299,6 +299,81 @@ return function()
 			expect(remotes.ShotFired:IsA("RemoteEvent")).to.equal(true)
 		end)
 
+		-- --------------------------------------------------- the flash comes from the pipes (task 92)
+		it("draws the flash and the smoke at the DRAWN gun's muzzle, not at the shoulder", function()
+			-- KAREN, after playing S2 (2026-09-27): "when firing this animation where flies light has
+			-- to be from pipes not from shoulder."
+			--
+			-- In first person the Tool is in the character's hand, hidden, and the gun the player SEES
+			-- is the camera's clone -- so the server's muzzle position is off at the shoulder. The
+			-- cosmetics ask the camera where the drawn muzzle is, and this drives all three answers.
+			local Effects = Weapon.Effects
+			local live = Effects.getMuzzleProvider()
+			local worldFrame = CFrame.new(10, 20, 30) * CFrame.Angles(0, math.pi / 3, 0)
+			local drawn = CFrame.new(-5, 2, -5)
+			local payload = {
+				shooterUserId = -1,
+				muzzle = worldFrame.Position,
+				muzzleCFrame = worldFrame,
+				barrel = 1,
+				impacts = {},
+				ammo = "Buck",
+			}
+			local askedFor: { number? } = {}
+			Effects.setMuzzleProvider(function(barrel: number?): CFrame?
+				table.insert(askedFor, barrel)
+				return drawn
+			end)
+			expect(Effects.muzzleFrame(payload)).to.equal(drawn)
+			expect(askedFor[1]).to.equal(1) -- and it is told WHICH pipe fired
+
+			-- No viewmodel on screen (third person, dead, the flag off): the payload's own barrel
+			-- frame, which is the world gun's fired pipe.
+			Effects.setMuzzleProvider(function(): CFrame?
+				return nil
+			end)
+			expect(Effects.muzzleFrame(payload)).to.equal(worldFrame)
+			-- ...and a payload with no frame at all still draws, at the bare position the payload has
+			-- always carried -- an older server, or a gun with no attachment.
+			local bare = table.clone(payload)
+			bare.muzzleCFrame = nil
+			expect(Effects.muzzleFrame(bare).Position).to.equal(worldFrame.Position)
+
+			-- AND IT IS REALLY WHERE THE PARTS GO. Both the flash and the smoke are drawn forward of
+			-- the chosen muzzle, along the bore, and nothing lands at the payload's position.
+			Effects.setMuzzleProvider(function(): CFrame?
+				return drawn
+			end)
+			local folder = Effects.folder()
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+			Effects.play(payload)
+			local flash = folder:FindFirstChild("Flash") :: BasePart
+			local smoke = folder:FindFirstChild("Smoke") :: BasePart
+			expect(flash).to.be.ok()
+			expect(smoke).to.be.ok()
+			expect((flash.Position - drawn.Position).Magnitude < 0.6).to.equal(true)
+			expect((smoke.Position - drawn.Position).Magnitude < 0.8).to.equal(true)
+			expect((flash.Position - worldFrame.Position).Magnitude > 10).to.equal(true)
+			-- Forward of the muzzle, not inside the barrel: -Z is the bore direction.
+			expect(drawn:PointToObjectSpace(flash.Position).Z < 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task92 flash: drawn muzzle %s, flash %.2f studs from it, %.1f studs from the world muzzle",
+					tostring(drawn.Position),
+					(flash.Position - drawn.Position).Magnitude,
+					(flash.Position - worldFrame.Position).Magnitude
+				)
+			)
+			flash:Destroy()
+			smoke:Destroy()
+			Effects.setMuzzleProvider(live)
+			-- THE LIVE WIRING IS PUT BACK, and it was there to begin with: `CameraBoot` installs it,
+			-- so a nil here would mean the composition root never ran.
+			expect(Effects.getMuzzleProvider()).to.be.ok()
+		end)
+
 		it("keeps CONFIG frozen to its nested tables", function()
 			expect(Shotgun.CONFIG.SPREAD_FULL_DEG.Buck).to.equal(1.6)
 			expect(function()

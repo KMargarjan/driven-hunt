@@ -123,6 +123,79 @@ local function nextMode(state: State, input: StepInput): ModeName
 	return if input.aiming then "Aiming" else "Third"
 end
 
+-- ------------------------------------------------------------------ recoil (task 92)
+-- Karen, after playing S2 (2026-09-27): "shooting has to have recoil a bit".
+--
+-- ONE SPRING, THREE TERMS. Each of the gun's pitch, the gun's travel back and the camera's pitch is a
+-- damped harmonic oscillator about ZERO: the shot adds an offset, the spring takes it home. The
+-- integrator is semi-implicit Euler -- velocity from the acceleration first, then position from the
+-- new velocity -- which is the stable order for a spring and the one Roblox's own documentation uses
+-- for spring-driven cameras.
+--   Critically damped: c = 2 * zeta * omega with zeta = 1, so there is NO overshoot and no wobble.
+--   Erin Catto, "Soft Constraints" (GDC 2011), the standard stiffness/damping form:
+--   https://box2d.org/files/ErinCatto_SoftConstraints_GDC2011.pdf
+--
+-- WHY THE CAMERA TERM IS SEPARATE FROM `pitchDeg`: the player's own aim must not move. `pitchDeg` is
+-- where they are looking and the shot ray comes from it; `recoilCamPitchDeg` is added on top, for the
+-- view only, and decays to EXACTLY zero (see `RECOIL_REST_EPSILON`) -- so the bead comes back to the
+-- point it left rather than somewhere near it, which is what the spec asserts.
+local function springStep(value: number, rate: number, dt: number, config): (number, number)
+	if value == 0 and rate == 0 then
+		return 0, 0 -- the common case: no shot has been fired, and no arithmetic is done
+	end
+	local omega = 2 * math.pi * config.RECOIL_FREQUENCY_HZ
+	local acceleration = -(omega * omega) * value - 2 * config.RECOIL_DAMPING_RATIO * omega * rate
+	local nextRate = rate + acceleration * dt
+	local nextValue = value + nextRate * dt
+	if math.abs(nextValue) < config.RECOIL_REST_EPSILON and math.abs(nextRate) < config.RECOIL_REST_EPSILON then
+		return 0, 0 -- SNAPPED, so "settled" is a value a spec can assert and not an asymptote
+	end
+	return nextValue, nextRate
+end
+
+-- THE SHOT'S KICK. Called by the camera owner when the LOCAL player's shot lands, once per shot, and
+-- it is a reducer like everything else here: no clock, no Instance, a new frozen state.
+--
+-- FIRST PERSON ONLY, by parameter rather than by flag: task 89 and 90 promised the flag-off branch is
+-- the shoulder camera Karen accepted on 2026-09-25, unchanged, and a kick is something a player sees.
+-- `camera_mode.spec` drives both configs, so the OFF branch is tested at the same time.
+--
+-- The offsets ADD and are then clamped: two barrels a tenth of a second apart are two kicks, and the
+-- ceiling is what keeps a doublet from throwing the view off the animal.
+function Mode.kick(state: State, config): State
+	if not config.FIRST_PERSON then
+		return state
+	end
+	local next_ = table.clone(state) :: any
+	next_.recoilGunPitchDeg = math.clamp(
+		state.recoilGunPitchDeg + config.RECOIL_GUN_PITCH_DEG,
+		-config.RECOIL_MAX_GUN_PITCH_DEG,
+		config.RECOIL_MAX_GUN_PITCH_DEG
+	)
+	next_.recoilGunBackStuds = math.clamp(
+		state.recoilGunBackStuds + config.RECOIL_GUN_BACK_STUDS,
+		-config.RECOIL_MAX_GUN_BACK_STUDS,
+		config.RECOIL_MAX_GUN_BACK_STUDS
+	)
+	next_.recoilCamPitchDeg = math.clamp(
+		state.recoilCamPitchDeg + config.RECOIL_CAM_PITCH_DEG,
+		-config.RECOIL_MAX_CAM_PITCH_DEG,
+		config.RECOIL_MAX_CAM_PITCH_DEG
+	)
+	return table.freeze(next_)
+end
+
+-- Is anything still moving? So a spec -- and the owner's own stats -- can say "settled" without
+-- reading six fields, and so `Mode.step` can skip the springs entirely on the frames between shots.
+function Mode.recoiling(state: State): boolean
+	return state.recoilGunPitchDeg ~= 0
+		or state.recoilGunPitchRate ~= 0
+		or state.recoilGunBackStuds ~= 0
+		or state.recoilGunBackRate ~= 0
+		or state.recoilCamPitchDeg ~= 0
+		or state.recoilCamPitchRate ~= 0
+end
+
 -- Returns a NEW frozen state. The caller holding the result is the only mutation in the system.
 function Mode.step(state: State, input: StepInput, dt: number, config): State
 	local mode = nextMode(state, input)
@@ -163,6 +236,14 @@ function Mode.step(state: State, input: StepInput, dt: number, config): State
 	local next_ = table.clone(state) :: any
 	next_.mode = mode
 	next_.blend = blend
+	-- THE RECOIL SPRINGS ARE THE ONE COSMETIC TERM THIS REDUCER MOVES (task 92). Sway, bob and the
+	-- break-open tilt are still carried untouched, exactly as S1 left them.
+	next_.recoilGunPitchDeg, next_.recoilGunPitchRate =
+		springStep(state.recoilGunPitchDeg, state.recoilGunPitchRate, dt, config)
+	next_.recoilGunBackStuds, next_.recoilGunBackRate =
+		springStep(state.recoilGunBackStuds, state.recoilGunBackRate, dt, config)
+	next_.recoilCamPitchDeg, next_.recoilCamPitchRate =
+		springStep(state.recoilCamPitchDeg, state.recoilCamPitchRate, dt, config)
 	next_.yawDeg = yaw
 	next_.pitchDeg = pitch
 	next_.sinceModeChange = if mode == state.mode then state.sinceModeChange + dt else 0
@@ -174,12 +255,23 @@ end
 function Mode.cameraCFrame(rootCFrame: CFrame, state: State, config): (Vector3, CFrame, number)
 	local eased = Mode.ease(state.blend)
 	local pivot = rootCFrame.Position + Vector3.new(0, config.PIVOT_HEIGHT_STUDS, 0)
-	local look = CFrame.fromEulerAnglesYXZ(math.rad(state.pitchDeg), math.rad(state.yawDeg), 0)
+	-- THE VIEW PITCH IS THE PLAYER'S PITCH PLUS RECOIL, and the recoil term is not the player's aim
+	-- (task 92): it decays to exactly zero, so the view returns to `pitchDeg` and the bead to the
+	-- point it left. Clamped together, so a kick at the top of the look range cannot gimbal the camera.
+	local viewPitch = math.clamp(state.pitchDeg + state.recoilCamPitchDeg, config.PITCH_MIN_DEG, config.PITCH_MAX_DEG)
+	local look = CFrame.fromEulerAnglesYXZ(math.rad(viewPitch), math.rad(state.yawDeg), 0)
 
 	-- FIRST PERSON (task 89): the eye, at every blend. There is no boom and no shoulder to ease
 	-- between, so `blend` changes the field of view and the viewmodel's pose and moves the camera
 	-- not at all -- which is why `AIM_PIVOT_FORWARD_STUDS` is applied always rather than eased in:
 	-- the eye sits a little ahead of the pivot so it is never inside the character's own head.
+	--
+	-- AND THAT IS THE NO-JUMP RULE, WHICH IS NOW ASSERTED (task 92). Karen, after playing S2: "I
+	-- expect when clicking mouse right the weapon height (aim dot) is in same level as before clicking
+	-- mouse right." Pressing right mouse must move the GUN and nothing else: in this branch the eye's
+	-- position and the look direction are independent of `blend` and of `eased`, so the world point
+	-- under the screen centre is bit-for-bit the same before and after. `camera_mode.spec` drives
+	-- blend 0 -> 1 and asserts exactly that, and the client spec measures the point in a live session.
 	--
 	-- Third person: back along the look direction, offset to the shoulder. Aiming: at the eye,
 	-- slightly forward of the pivot. Everything in between is the eased mix of the two.

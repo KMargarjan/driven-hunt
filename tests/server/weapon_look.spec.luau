@@ -87,6 +87,25 @@ return function()
 			expect(pieces.TriggerGuard.offset.Position.Z).to.equal(triggerZ)
 		end)
 
+		-- ------------------------------------------------------ the flash comes out of a pipe (task 92)
+		it("knows which pipe fired, and says it in ONE place the shape agrees with", function()
+			-- KAREN, after playing S2 (2026-09-27): "when firing this animation where flies light has
+			-- to be from pipes not from shoulder." The flash is drawn by the client at the fired
+			-- barrel's muzzle, and "the right tube is +0.09" must exist once: here it is checked
+			-- against the SHAPE's own barrels rather than against a second copy of the number.
+			local pieces = byName(Shape.pieces(CONFIG))
+			local right = Shotgun.barrelMuzzleOffset(1, CONFIG)
+			local left = Shotgun.barrelMuzzleOffset(2, CONFIG)
+			expect(right.X).to.equal(pieces.BarrelRight.offset.Position.X)
+			expect(left.X).to.equal(pieces.BarrelLeft.offset.Position.X)
+			expect(right.Y).to.equal(pieces.BarrelRight.offset.Position.Y)
+			-- BARREL 1 IS THE RIGHT TUBE, which is the order `selected` walks; 2 is the left; and
+			-- anything else is the centre rather than a guessed side.
+			expect(right.X > 0 and left.X < 0).to.equal(true)
+			expect(Shotgun.barrelMuzzleOffset(nil, CONFIG).X).to.equal(0)
+			expect(Shotgun.barrelMuzzleOffset(7, CONFIG).X).to.equal(0)
+		end)
+
 		it("is a SIDE-BY-SIDE: two barrels level with each other, one left one right", function()
 			local pieces = byName(Shape.pieces(CONFIG))
 			local left, right = pieces.BarrelLeft, pieces.BarrelRight
@@ -231,6 +250,31 @@ return function()
 				end
 				expect(cloned).to.equal(#EXPECTED)
 				clone:Destroy()
+				tool:Destroy()
+			end)
+		end)
+
+		-- ------------------------------------------------------ the flash comes out of a pipe (task 92)
+		it("gives each pipe its own muzzle frame, and leaves the ballistic one alone", function()
+			withPartsGun(function()
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				local muzzle = handle:FindFirstChild("Muzzle") :: Attachment
+				-- THE BALLISTIC ORIGIN DOES NOT MOVE, and that is why this is a SECOND function: the
+				-- pattern, the safety arc and every hit spec still start at the one attachment on the
+				-- Handle's axis. Only the drawn flash moves to the pipe that fired.
+				expect(Hardware.muzzlePosition(tool)).to.equal(muzzle.WorldPosition)
+
+				local firedRight = Hardware.muzzleCFrame(tool, 1) :: CFrame
+				local firedLeft = Hardware.muzzleCFrame(tool, 2) :: CFrame
+				expect(firedRight).to.be.ok()
+				expect((firedRight.Position - firedLeft.Position).Magnitude).to.equal(2 * CONFIG.BARREL_HALF_GAP_STUDS)
+				expect(firedRight.LookVector:Dot(muzzle.WorldCFrame.LookVector) > 0.9999).to.equal(true)
+				-- ...and barrel 1 really is the RIGHT tube, measured in the GUN's frame rather than in
+				-- the world, where "right" depends on which way the player happens to be facing.
+				local toRight = muzzle.WorldCFrame:PointToObjectSpace(firedRight.Position)
+				expect(math.abs(toRight.X - CONFIG.BARREL_HALF_GAP_STUDS) < 1e-4).to.equal(true)
+				expect(math.abs(toRight.Y - CONFIG.BARREL_RISE_STUDS) < 1e-4).to.equal(true)
 				tool:Destroy()
 			end)
 		end)

@@ -131,21 +131,71 @@ local Config = {
 	-- would be a LOOSER angular claim -- a false pass.
 	BEAD_CENTRE_TOLERANCE_DEG = 0.37,
 	-- THE DRAWN BEAD. Karen, 2026-09-27: "we are missing front knob or how it calls where you aim
-	-- and follow animal with that point", and of her own picture, "red point on end". The parts gun
-	-- has a real `Bead` piece; the uploaded mesh is exactly ONE MeshPart with a painted one too small
-	-- to aim with, so the viewmodel draws its own at the `Sight` attachment when the clone has no
-	-- `Bead` part of its own.
+	-- and follow animal with that point". The parts gun has a real `Bead` piece; the uploaded mesh is
+	-- exactly ONE MeshPart with a painted one too small to aim with, so the viewmodel draws its own at
+	-- the `Sight` attachment when the clone has no `Bead` part of its own.
 	--
-	-- RED, AND NOT THE GUN'S OWN BEAD COLOUR. `Shotgun.CONFIG.LOOK.bead` is the off-white bead of the
-	-- PARTS gun -- a piece of the weapon, which other players see. This is the AIMING MARK, drawn by
-	-- the camera for one player, and Karen's picture has it red. Two different things with two
-	-- owners, so the client spec asserts this one is really red rather than that the two still match.
+	-- A METAL BEAD, NOT A RED DOT (task 92). Karen, after playing S2: "that red dot is not realistic,
+	-- we need to improve what actually is on Beretta Parallelo". What a Beretta 486 Parallelo actually
+	-- carries is a small BRASS BALL on the rib at the muzzle -- no glass, no electronics, no colour
+	-- that is not metal -- so this is brass, `Enum.Material.Metal`, and smaller: 0.05 studs at
+	-- EYE_RELIEF_STUDS = 3.5 is 0.82 degrees, about 13 px in a 784-px viewport at the aiming field of
+	-- view. Brass reads warm against both sky and ground, which is why every classic side-by-side uses
+	-- it; against a bright sky it goes dark rather than invisible, which is what a real one does too.
 	--
-	-- Neon, so it reads under the canopy where the S1 screenshot was almost black. 0.07 studs at
-	-- EYE_RELIEF_STUDS = 3.5 is about 1.15 degrees -- roughly 18 px in a 784-px viewport at the
-	-- aiming field of view: a bead, a little larger than hers, and not a blob over the animal.
-	BEAD_MARKER_STUDS = 0.07,
-	BEAD_MARKER_COLOR = Color3.fromRGB(255, 45, 35),
+	-- It is still NOT `Shotgun.CONFIG.LOOK.bead`: that is the off-white bead of the PARTS gun, a piece
+	-- of the weapon other players see. This is the aiming mark the camera draws for one player. Two
+	-- things, two owners -- so the client spec asserts this one is brass-coloured metal rather than
+	-- asserting the two still agree.
+	BEAD_MARKER_STUDS = 0.05,
+	BEAD_MARKER_COLOR = Color3.fromRGB(198, 158, 82),
+	BEAD_MARKER_MATERIAL = Enum.Material.Metal,
+
+	-- ------------------------------------------------------ the viewmodel's own light (task 92)
+	-- Karen, after playing S2: "Weapon color we need to improve and style now feels a bit broken, it
+	-- has to be smooth and nice." In first person the gun is inches from the eye and lit by the SUN
+	-- ALONE, so under any sky but a noon one it reads as a near-black silhouette -- which is what her
+	-- "broken" is looking at. A real gun at the cheek catches light from everything around it.
+	--
+	-- So the viewmodel carries ONE PointLight of its own, parented to the clone (which is a child of
+	-- workspace.CurrentCamera, so it lights the gun and nothing else the player can see): warm, weak
+	-- and short-ranged, shadows off. It does not light the world -- range 6 studs from a point inside
+	-- the camera -- and it costs one light.
+	VIEWMODEL_FILL_BRIGHTNESS = 1.4,
+	VIEWMODEL_FILL_RANGE_STUDS = 6,
+	VIEWMODEL_FILL_COLOR = Color3.fromRGB(255, 244, 224),
+	-- Where the light sits relative to the gun's own pivot: up and to the left of the breech, so the
+	-- barrels and the rib catch a highlight along their length and the wood behind them is lifted out
+	-- of black. Camera space would move with the pose; the gun's own frame does not.
+	VIEWMODEL_FILL_OFFSET_STUDS = Vector3.new(-0.6, 0.8, 0.9),
+
+	-- ------------------------------------------------------ recoil (task 92)
+	-- Karen, after playing S2: "shooting has to have recoil a bit" -- "a bit" is the whole brief, so
+	-- these are first picks and every one of them is a dial.
+	--
+	-- ONE SPRING SHAPE FOR ALL THREE TERMS, critically damped: an offset is applied the instant the
+	-- shot lands and a damped spring takes it back to exactly zero. Critically damped means NO
+	-- overshoot and no oscillation -- the gun does not wobble, it settles -- and zero is an attractor,
+	-- so the bead returns to the aim point rather than near it. The integrator is semi-implicit Euler
+	-- (velocity first, then position), which is stable at this frequency for any frame time a player
+	-- will see; `tests/server/camera_mode.spec.luau` drives it at 240, 60 and 20 fps and asserts the
+	-- same settle.
+	RECOIL_FREQUENCY_HZ = 3.6, -- omega = 2*pi*f = 22.6 rad/s, so it is home in about a third of a second
+	RECOIL_DAMPING_RATIO = 1.0, -- exactly critical: the one value with no overshoot and no wobble
+	-- THE KICK ITSELF, per shot. The gun rises and comes back (in its own frame, so it follows the
+	-- pose), and the camera lifts a fraction of what the gun does -- a shotgun shoves the shoulder,
+	-- it does not throw the head.
+	RECOIL_GUN_PITCH_DEG = 4.0,
+	RECOIL_GUN_BACK_STUDS = 0.14,
+	RECOIL_CAM_PITCH_DEG = 1.1,
+	-- A CEILING, because two barrels can be fired a tenth of a second apart and the offsets add.
+	-- Without it a doublet would throw the view off the animal, which is not "a bit".
+	RECOIL_MAX_GUN_PITCH_DEG = 7.0,
+	RECOIL_MAX_GUN_BACK_STUDS = 0.25,
+	RECOIL_MAX_CAM_PITCH_DEG = 2.0,
+	-- Below this the spring is snapped to exact zero, so "settled" is a value and not an asymptote --
+	-- the spec can assert the aim point is bit-for-bit what it was before the shot.
+	RECOIL_REST_EPSILON = 1e-4,
 
 	-- ASSERTED, NOT APPLIED: nothing clamps to this. The near plane is 0.1 studs and a 4.4-stud gun
 	-- held at the eye clips through it if the pose is wrong, so the spec measures the corners -- OF
