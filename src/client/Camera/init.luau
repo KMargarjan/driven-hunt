@@ -45,7 +45,7 @@ export type AimSource = { isAiming: () -> boolean }
 -- WHAT THE WEAPON SAYS ABOUT ITS OWN RELOAD (task 96): is it broken open, and how many barrels had
 -- been fired when it opened. The server owns the reload and its clock; the camera draws it. Injected
 -- by `CameraBoot` exactly as the aim source is, so this module still requires no weapon.
-export type BreakSource = { state: () -> { open: boolean, spent: number } }
+export type BreakSource = { state: () -> { open: boolean, spent: number, loaded: { boolean } } }
 
 local state = Mode.initial(Config)
 local lookDelta = Vector2.zero
@@ -116,6 +116,36 @@ end
 -- duplicate production logic in a test (round 1, finding 1).
 function Camera.getAimSource(): AimSource?
 	return aimSource
+end
+
+-- WHAT THE RELOAD SHOULD DRAW, from two snapshots (task 96, round 2). PURE, so a spec can drive it
+-- with fabricated states, and because the answer cannot be read off the CURRENT replica at all:
+-- `Break` opens the gun AND empties every barrel in one reduction, so by the time `open` is true the
+-- barrels say "None" and nothing was ever spent. Round 1 asked the live snapshot and therefore drew
+-- no spent shell in the game, ever -- it passed its own spec only because the spec handed the
+-- viewmodel a `spent` it had made up.
+--
+-- So the spent count comes from the LAST SNAPSHOT BEFORE THE GUN OPENED: those are the barrels that
+-- fired. The fresh shells come from the current one -- a chamber counts as fed the moment the
+-- replica says it holds a shell, which is exactly when the server's `Load` step lands.
+function Camera.breakFrom(lastClosed, snapshot)
+	local empty = { open = false, spent = 0, loaded = { false, false } }
+	if snapshot == nil or snapshot.open ~= true then
+		return empty
+	end
+	local spent = 0
+	for _, barrel in ipairs((lastClosed and lastClosed.barrels) or {}) do
+		if barrel == "Spent" then
+			spent += 1
+		end
+	end
+	local loaded = { false, false }
+	for index, shell in ipairs(snapshot.loaded or {}) do
+		if index <= 2 then
+			loaded[index] = shell ~= nil and shell ~= "None"
+		end
+	end
+	return { open = true, spent = spent, loaded = loaded }
 end
 
 function Camera.setBreakSource(source: BreakSource?)
@@ -241,7 +271,9 @@ local function update(dt: number)
 
 	-- THE RELOAD THE WEAPON IS ACTUALLY IN (task 96), asked once a frame and handed to both halves:
 	-- the reducer swings the barrels, the viewmodel draws the shells.
-	local breaking = if breakSource then breakSource.state() else nil
+	-- FIRST PERSON ONLY, AND ASKED NOWHERE ELSE (round 2, finding 2): the flag-off camera has no
+	-- break to draw, so the source is not even consulted and the viewmodel is told the gun is shut.
+	local breaking = if Config.FIRST_PERSON and breakSource then breakSource.state() else nil
 	Viewmodel.setReload(breaking)
 
 	local previous = state.mode

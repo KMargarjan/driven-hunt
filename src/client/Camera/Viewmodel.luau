@@ -64,26 +64,41 @@ local stats = { sightMissing = 0, rebuilds = 0, parts = 0, breaksDrawn = 0, shel
 -- WHAT THE WEAPON SAYS ABOUT ITS OWN RELOAD, handed in by the camera every frame (task 96). The
 -- server owns the reload and its clock; this module only draws it. `spent` is how many barrels were
 -- fired, so only those throw a shell -- the thing a player notices if it is wrong.
-local reload = { open = false, spent = 0 }
+local reload = { open = false, spent = 0, loaded = { false, false } }
 local openedAt: number? = nil
+-- WHEN EACH CHAMBER WAS FED (round 2): the server loads one barrel at a time, so each fresh shell
+-- has its own clock -- the moment the replica first said that chamber holds a shell.
+local loadedAt: { [number]: number } = {}
 local barrelsLocal: CFrame? = nil
 -- WHAT ELSE RIDES ON THE BARRELS (task 96, round 2): the bead. An anchored part does not follow its
 -- parent, so every piece that swings with the barrel group is placed by hand from the same
 -- transform, and its rest offset is read off the clone once.
 local ridersLocal: { [BasePart]: CFrame } = {}
 
-function Viewmodel.setReload(state: { open: boolean, spent: number }?)
-	local next_ = state or { open = false, spent = 0 }
-	if next_.open and not reload.open then
-		openedAt = os.clock() -- the rising edge: the shells' own clock starts here
-	elseif not next_.open then
+function Viewmodel.setReload(state: { open: boolean, spent: number, loaded: { boolean }? }?)
+	local next_ = state or { open = false, spent = 0, loaded = { false, false } }
+	local open = next_.open == true
+	if open and not reload.open then
+		openedAt = os.clock() -- the rising edge: the spent shells' clock starts here
+		table.clear(loadedAt)
+	elseif not open then
 		openedAt = nil
+		table.clear(loadedAt)
 	end
-	reload = { open = next_.open == true, spent = math.clamp(next_.spent or 0, 0, 2) }
+	local loaded = { false, false }
+	for index = 1, 2 do
+		loaded[index] = (next_.loaded or {})[index] == true
+		-- EACH CHAMBER STARTS ITS OWN SLIDE when the server's `Load` step lands, which is what the
+		-- replica saying "this barrel holds a shell" means.
+		if open and loaded[index] and loadedAt[index] == nil then
+			loadedAt[index] = os.clock()
+		end
+	end
+	reload = { open = open, spent = math.clamp(next_.spent or 0, 0, 2), loaded = loaded }
 end
 
 function Viewmodel.reloadState()
-	return { open = reload.open, spent = reload.spent, openedAt = openedAt }
+	return { open = reload.open, spent = reload.spent, loaded = table.clone(reload.loaded), openedAt = openedAt }
 end
 
 function Viewmodel.setSource(fn: (() -> BasePart?)?)
@@ -424,6 +439,17 @@ end
 function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config)
 	local made = model
 	local clone = made and made.PrimaryPart
+	-- FIRST PERSON ONLY, AND THE WHOLE DRAWN RELOAD WITH IT (round 2, finding 2). The gun wears its
+	-- barrels as a separate piece in EVERY build -- the server welds them whatever the flag says --
+	-- so without this the flag-off camera, which is the default one, would swing them and draw
+	-- shells the moment a player reloaded. `Mode.breakAngleDeg` already refuses; this refuses the
+	-- rest, and clears anything a session that flipped the flag left behind.
+	if not config.FIRST_PERSON then
+		if clone then
+			Viewmodel.clearShells(clone)
+		end
+		return
+	end
 	local barrels = clone and clone:FindFirstChild(BARRELS_NAME)
 	if not (barrels and barrels:IsA("BasePart")) then
 		return
@@ -467,6 +493,17 @@ end
 --
 -- Anchored and moved by hand rather than thrown: nothing under `workspace.CurrentCamera` may be
 -- simulated (a physics part parented to the camera is a part in the world that nobody can see).
+-- Every shell this module has drawn, gone. One site, because two places need it: the gun shutting,
+-- and the flag-off branch refusing to draw a reload at all.
+function Viewmodel.clearShells(clone: BasePart)
+	for _, child in ipairs(clone:GetChildren()) do
+		local name = child.Name
+		if string.sub(name, 1, #SPENT_NAME) == SPENT_NAME or string.sub(name, 1, #FRESH_NAME) == FRESH_NAME then
+			child:Destroy()
+		end
+	end
+end
+
 function Viewmodel.shells(barrelsCFrame: CFrame, config)
 	local made = model
 	local clone = made and made.PrimaryPart
@@ -491,9 +528,12 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 		return
 	end
 
-	local elapsed = os.clock() - started
+	local now = os.clock()
+	local elapsed = now - started
 	local wanted = {}
-	-- SPENT: one per barrel that fired, rising out of its chamber and back over the shoulder.
+	-- SPENT: one per barrel that FIRED, rising out of its chamber and back over the shoulder. The
+	-- count comes from the last shut snapshot (`Camera.breakFrom`), because the break that opened
+	-- the gun emptied it in the same breath.
 	local ejectT = math.clamp(elapsed / config.SHELL_EJECT_SECONDS, 0, 1)
 	if ejectT < 1 then
 		for barrel = 1, reload.spent do
@@ -501,10 +541,13 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 				* CFrame.new(0, config.SHELL_EJECT_RISE_STUDS * ejectT, config.SHELL_EJECT_RISE_STUDS * ejectT)
 		end
 	end
-	-- FRESH: after the spent ones are clear, sliding forward into the chambers and stopping there.
-	local feedT = math.clamp((elapsed - config.SHELL_EJECT_SECONDS) / config.SHELL_FEED_SECONDS, 0, 1)
-	if feedT > 0 then
-		for barrel = 1, math.max(reload.spent, 1) do
+	-- FRESH: ONE PER CHAMBER THE SERVER HAS ACTUALLY LOADED, each sliding forward from its own
+	-- moment. Round 1 drew them on a timer and for `max(spent, 1)` barrels, so a two-shell reload
+	-- showed one shell and an unfired barrel was fed one it never got.
+	for barrel = 1, 2 do
+		local at = loadedAt[barrel]
+		if reload.loaded[barrel] and at then
+			local feedT = math.clamp((now - at) / config.SHELL_FEED_SECONDS, 0, 1)
 			wanted[FRESH_NAME .. barrel] = chamberOffset(barrel)
 				* CFrame.new(0, 0, config.SHELL_FEED_FROM_STUDS * (1 - feedT))
 		end

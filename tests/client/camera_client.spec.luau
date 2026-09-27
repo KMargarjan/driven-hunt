@@ -1001,7 +1001,7 @@ return function()
 				local open = table.clone(stateAtBlend(0)) :: any
 				open.openTilt = 1
 				table.freeze(open)
-				Camera.Viewmodel.setReload({ open = true, spent = 2 })
+				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { false, false } })
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
 				local swung = angleBetween()
 				TestKit.note(
@@ -1037,13 +1037,24 @@ return function()
 				)
 
 				-- ONE FIRED BARREL THROWS ONE SHELL. The thing a player notices if it is wrong.
-				Camera.Viewmodel.setReload({ open = false, spent = 0 })
+				Camera.Viewmodel.setReload({ open = false, spent = 0, loaded = { true, true } })
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				expect(clone:FindFirstChild("SpentShell1")).to.equal(nil)
-				Camera.Viewmodel.setReload({ open = true, spent = 1 })
+				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { false, false } })
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
 				expect(clone:FindFirstChild("SpentShell1")).to.be.ok()
 				expect(clone:FindFirstChild("SpentShell2")).to.equal(nil)
+
+				-- A CHAMBER THE SERVER HAS LOADED GETS ITS FRESH SHELL, and only that chamber: the
+				-- reload feeds one barrel at a time and the drawn shells follow the replica rather
+				-- than a timer (round 2, finding 1).
+				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { true, false } })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				expect(clone:FindFirstChild("FreshShell1")).to.be.ok()
+				expect(clone:FindFirstChild("FreshShell2")).to.equal(nil)
+				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { true, true } })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				expect(clone:FindFirstChild("FreshShell2")).to.be.ok()
 
 				-- AND THE OFF BRANCH HINGES NOTHING: the third-person gun has no break to draw. At
 				-- BLEND 1, because that branch only draws a viewmodel while the player is aiming --
@@ -1057,6 +1068,12 @@ return function()
 				local offAngle = angleBetween()
 				TestKit.note(string.format("task96 flag off: barrels %.3f deg off the body", offAngle))
 				expect(offAngle < 0.01).to.equal(true)
+				-- ...AND IT DRAWS NO SHELLS EITHER (round 2, finding 2). The gun wears its barrels as
+				-- a separate piece in every build, so without a flag test the DEFAULT camera would
+				-- swing them and litter the clone with shells the moment a player reloaded.
+				expect(clone:FindFirstChild("SpentShell1")).to.equal(nil)
+				expect(clone:FindFirstChild("FreshShell1")).to.equal(nil)
+				expect(clone:FindFirstChild("FreshShell2")).to.equal(nil)
 
 				Camera.Viewmodel.setReload(nil)
 				Camera.Viewmodel.clear()
@@ -1069,6 +1086,37 @@ return function()
 			-- THE LIVE CAMERA IS BACK AS IT WAS: nothing left open, nothing left holding shells.
 			expect(Camera.Viewmodel.reloadState().open).to.equal(false)
 			expect(Camera.stats().breakAngleDeg).to.equal(0)
+		end)
+	end)
+
+	describe("what the reload should draw", function()
+		it("counts the spent barrels from BEFORE the break, and the fresh from the chambers", function()
+			-- ROUND 1'S DEFECT, AS A MEASUREMENT: the server's `Break` opens the gun AND empties both
+			-- barrels in one reduction, so a replica that says "open" has already forgotten what was
+			-- fired. Asking it counts nothing -- which is why no spent shell was ever drawn in the
+			-- game, while the spec passed on a number it had made up itself.
+			local fired = { open = false, barrels = { "Spent", "Live" }, loaded = { "None", "Buck" } }
+			local opened = { open = true, barrels = { "Live", "Live" }, loaded = { "None", "None" } }
+			local one = Camera.breakFrom(fired, opened)
+			expect(one.open).to.equal(true)
+			expect(one.spent).to.equal(1)
+			expect(one.loaded[1]).to.equal(false)
+			expect(one.loaded[2]).to.equal(false)
+			-- TWO FIRED, TWO SHELLS.
+			local bothFired = { open = false, barrels = { "Spent", "Spent" }, loaded = { "None", "None" } }
+			expect(Camera.breakFrom(bothFired, opened).spent).to.equal(2)
+			-- ...and each LOAD shows up as a chamber that now holds a shell.
+			local half = { open = true, barrels = { "Live", "Live" }, loaded = { "Buck", "None" } }
+			local fed = Camera.breakFrom(bothFired, half)
+			expect(fed.loaded[1]).to.equal(true)
+			expect(fed.loaded[2]).to.equal(false)
+			-- A SHUT GUN DRAWS NOTHING, whatever it remembers.
+			local shut = Camera.breakFrom(bothFired, { open = false, barrels = { "Live", "Live" } })
+			expect(shut.open).to.equal(false)
+			expect(shut.spent).to.equal(0)
+			-- ...and no memory at all is a shut gun too, not a crash.
+			expect(Camera.breakFrom(nil, opened).spent).to.equal(0)
+			expect(Camera.breakFrom(nil, nil).open).to.equal(false)
 		end)
 	end)
 
