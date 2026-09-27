@@ -104,9 +104,12 @@ local Config = {
 	-- which is 0.05 studs and sub-pixel. Geometric ADS therefore starts from a framing a screenshot
 	-- already accepted. It is about 1.7x the anatomical eye-to-bead distance, deliberately: it keeps
 	-- the butt in front of the near plane, which the corner assertion in camera_mode.spec enforces.
-	-- KAREN'S DIAL: she asked for the aimed view to be CLOSER (2026-09-27), and this is the one
-	-- number that does it -- the floor is about 4.6, below which the butt crosses the near plane.
-	EYE_RELIEF_STUDS = 5.6,
+	-- 5.0, NOT THE DESIGN'S FIRST PICK OF 5.6: Karen asked for the aimed view to be CLOSER
+	-- ("like looking through pipes", 2026-09-27) and this is the one number that does it. 0.6 studs
+	-- in is about 12% more gun across the frame. The FLOOR is about 4.6 -- below that the butt
+	-- crosses the near plane and `camera_mode.spec`'s corner case fails -- so this keeps 0.65 studs
+	-- of clearance in hand. Karen's dial, and the screenshot in reviews/task-90 is what she judges.
+	EYE_RELIEF_STUDS = 5.0,
 	-- HOW FAR OFF THE CENTRE OF THE SCREEN THE BEAD MAY BE, aimed and at rest. Roblox's field of
 	-- view is VERTICAL, so at 1920x1080 and FOV 50 this is 8 pixels: 50/1080 = 0.0463 degrees per
 	-- pixel. At 143 studs (40 m) it is 0.9 studs, against a boar 5.5 studs long and 3 tall. The

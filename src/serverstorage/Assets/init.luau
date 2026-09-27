@@ -204,6 +204,16 @@ Assets.ROWS = {
 		naturalSizeStuds = NATURAL,
 		offsetStuds = Vector3.zero,
 		rotationDeg = Vector3.new(0, 90, 0),
+		-- MEASURED ON SCREEN, 2026-09-27 (task 90), the only way this can be measured: the mesh's
+		-- bead is PAINTED, so there is no Instance to read. The first ADS screenshot put the drawn
+		-- bead at the parts gun's own height (Y = 0.255) and it was INVISIBLE -- buried inside the
+		-- muzzle's own metal, which the brightest pixel within 60 px of the screen centre confirmed
+		-- (185, 197, 219: the mesh's lit rim, not a Neon ball). This clears the mesh outright: the
+		-- template's box is `naturalSizeStuds.Y * SCALE` = 0.689 studs tall about the Handle's
+		-- centre, so nothing the mesh has reaches above +0.345, and +0.375 is 0.03 studs clear of
+		-- the highest point it could possibly have. Z stays with the parts gun's bead, 0.05 behind
+		-- the muzzle face.
+		sightOffsetStuds = Vector3.new(0, 0.375, -2.15),
 		renderFidelity = "Automatic",
 		notes = "Barrels and rib at metalness 0.10 / roughness 0.50, action 0.70 / 0.35, stock "
 			.. "0.00 / 0.62, written into the MAPS, which is the only channel Roblox reads. One "
