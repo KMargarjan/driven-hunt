@@ -109,9 +109,13 @@ Boar.CONFIG = {
 		exitZ = -820,
 		groundY = 0,
 	},
-	-- 210 studs from exitZ, comfortably beyond HOME_RADIUS + the wander tolerance, so an idle
-	-- boar cannot drift onto the exit line (review round 2, finding 6). Clear of PillarMid at
-	-- (40, -40) and WallWest at (-60, -100) in the Task 17 arena.
+	-- A FALLBACK ONLY, and its old comment described a world that no longer exists (review round 1
+	-- of Task 79, note). It read "210 studs from exitZ ... clear of PillarMid and WallWest in the
+	-- Task 17 arena": with `exitZ = -820` it is 840 studs, and neither part is built any more. What
+	-- is still true is the reason it exists -- it is comfortably beyond HOME_RADIUS + the wander
+	-- tolerance, so an idle boar cannot drift onto the exit line (Task 17 review, finding 6) -- and
+	-- that it is UNUSED IN PRODUCTION: the drive always passes a marker position to `Runtime:spawn`
+	-- (`docs/design/drive.md`, "`Boar.CONFIG.spawnPoint` stays unused in production").
 	spawnPoint = Vector3.new(-40, 0, 20),
 	-- A guard, not a feature. Raised from 4 in Milestone 1.7a: a killed boar stays in the list
 	-- for CARCASS_SECONDS = 120 and counts against this, so four kills inside two minutes would

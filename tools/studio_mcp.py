@@ -36,11 +36,13 @@ two clients, so a one-player run says nothing about them. `tools/agents.py` refu
 without the `[harness2]` line for the same code commit. Docs, and the tools that are not this
 harness, are exempt -- `test2` costs a human click and about eight minutes.
 
-`selftest` is the exception to "needs Studio": it exercises the pure helpers only -- wait_for_each,
-the reply keying, send_input_many, and the scenario file -- so it runs in CI, with no Studio, no
-place and no network, in under a second. Exit 0 PASS, 1 FAIL. It exists because the concurrency
-Task 50 added is only interesting with SEVERAL subjects, and no run on this machine reaches that
-without two clients and a human click.
+`selftest` is the exception to "needs Studio": no Studio, no place and no network, in under a
+second, so it runs in CI. It covers the pure helpers -- wait_for_each, the reply keying,
+send_input_many, the flag parser and the scenario file -- and, since Task 78 and Task 79, three
+things that are not helpers at all: `run_flags` and `replay_input` driven against a SCRIPTED Studio
+that answers whatever the case wants, and source-shape checks over the queries themselves.
+Exit 0 PASS, 1 FAIL. It exists because the concurrency Task 50 added is only interesting with SEVERAL
+subjects, and no run on this machine reaches that without two clients and a human click.
 
 Moving parts
   tests/TestKit.luau -> ReplicatedStorage.TestKit
@@ -3114,29 +3116,60 @@ def selftest():
        "the server's Workspace.Boars.Boar_1 is at (12, 5, 600)" in log
        and "targetRadius 1024" in log, repr(log[:300]))
 
-    # (b) THE FAILURE THIS TASK IS ABOUT, when it still happens: the check fails and the message
-    #     carries the distance and the radius, which is the whole diagnosis in one line.
+    # (b) THE FAILURE THIS TASK IS ABOUT, when it still happens: the stage failure reaches the CHECK
+    #     rather than being swallowed, carrying the distance and the radius. What it proves is the
+    #     propagation, not `QUERY_STAGE`'s own format string -- that is Luau and unrunnable here, so
+    #     the live run is its only evidence (review round 1, note).
     staged, _client, _log = stages(MAP_BOAR, LOST)
     ok("a target that never replicates fails the stage", staged[0] is False, repr(staged))
-    ok("  and the failure names the distance and the streaming radius",
+    ok("  and it reaches the check carrying the distance and the radius, rather than being swallowed",
        "1300 studs" in staged[1] and "targetRadius is 1024" in staged[1], repr(staged[1]))
 
     # (c) THE ARENA PATH, UNCHANGED, and it must survive a server that cannot answer at all: no seed,
     #     the original 60 s wait, and a stage that still passes. A fix that made the arena depend on
     #     the new query would have traded one broken world for another.
-    for label, answer in {
-        "the server query raises": RuntimeError("place is not open"),
-        "the server answers a bare string": "REFUSED: no Server datamodel",
-        "the server answers JSON with no position": '{"name": "Workspace.Boars.Boar_1"}',
-        "the server says it has no boar": '{"error": "the SERVER has no BasePart inside "'
-                                         '"Workspace.Boars after 60 s"}',
-    }.items():
+    #
+    # EACH CASE NAMES THE WORDS THE LOG MUST CARRY, because "it fell back" is a weaker claim than "it
+    # fell back FOR THIS REASON" -- and round 1's review caught exactly that: the `{error}` fixture was
+    # two adjacent Python literals whose seam left a stray `""`, so it was malformed JSON, `json.loads`
+    # raised, and the case passed through the SAME "did not answer with JSON" branch as the bare-string
+    # case beside it. `{error}` is the one shape `QUERY_STAGE_TARGET` actually produces on its most
+    # likely real failure, and nothing tested it. So the fixture is built with `json.dumps` -- valid by
+    # construction, not by proofreading -- and the case asserts the server's own words reach the log,
+    # which only `json_answer`'s `data.get("error")` branch can do.
+    NO_BOAR = json.dumps({"error": "the SERVER has no BasePart inside Workspace.Boars after 60 s: "
+                                   "the drive released nothing"})
+    # ONE FORBIDDEN PHRASE PER OTHER BRANCH, not just one per case. `json_answer` and `stage_seed`
+    # have three ways to refuse, and two of them REPEAT the server's answer back into the message --
+    # so "the error text is in the log" is satisfied by the wrong branch as easily as the right one.
+    # Breaking `json_answer`'s `data.get("error")` branch proved it: the `{error}` object then arrived
+    # as data with no position, and `carries no usable position: {'error': ...}` still carried every
+    # word this case was looking for. Naming the branches a case must NOT take is what pins it.
+    PARSE, NO_POSITION = "did not answer with JSON", "carries no usable position"
+    FALLBACKS = (
+        # label, the server's answer, the words the log must carry, the branches it must NOT take
+        ("the server query raises", RuntimeError("place is not open"),
+         "RuntimeError: place is not open", (PARSE, NO_POSITION)),
+        ("the server answers a bare string", "REFUSED: no Server datamodel",
+         "Studio did not answer with JSON", (NO_POSITION,)),
+        ("the server answers JSON with no position", '{"name": "Workspace.Boars.Boar_1"}',
+         "carries no usable position", (PARSE,)),
+        ("the server says it has no boar", NO_BOAR,
+         "the SERVER has no BasePart inside Workspace.Boars after 60 s: the drive released nothing",
+         (PARSE, NO_POSITION)),
+    )
+    for label, answer, because, never in FALLBACKS:
         staged, client, log = stages(answer, STAGED)
         ok(f"  with no usable seed ({label}) the client stages as it did before Task 79",
            '"seedPosition": null' in client and f'"waitSeconds": {STAGE_TARGET_WAIT_SECONDS}' in client,
            repr(client))
         ok(f"  ...and the stage still passes ({label})", staged[0] is True, repr(staged))
-        ok(f"  ...and says why the seed is missing ({label})", "NO SEED" in log, repr(log[:300]))
+        ok(f"  ...and says WHY the seed is missing, in these words ({label})",
+           "NO SEED" in log and because in log, repr(log[:400]))
+        # A fixture that is quietly the wrong shape passes the line above for the wrong reason.
+        took = [other for other in never if other in log]
+        ok(f"  ...through the branch this case is about and no other ({label})", not took,
+           f"also took {took}: {log[:300]!r}")
 
     # (d) THE SERVER QUERY'S OWN SHAPE: one JSON argument and nothing else -- the "sends no arbitrary
     #     Luau" property these queries are built on -- and the one failure shape `json_answer` reads.
@@ -3155,10 +3188,13 @@ def selftest():
     # the first QUERY_STAGE_TARGET read one anyway, so every stage in a live run came back
     # "StreamingTargetRadius is not a valid member of Workspace" and silently fell back. The radius
     # comes from `Map.STREAMING` now, and this keeps it that way.
+    # Scanned as `.Name`, not `Workspace.Name`, so `local w = Workspace; w.StreamingTargetRadius` and
+    # lowercase `workspace.` are caught too (review round 1, note). A bare mention of the name in a
+    # comment stays legal, which is why the comments above say "it off Workspace" instead.
     UNREADABLE = ("StreamingMinRadius", "StreamingTargetRadius", "StreamingIntegrityMode",
                   "StreamOutBehavior", "ModelStreamingBehavior")
-    reads = [f"Workspace.{name}" for name in UNREADABLE
-             if f"Workspace.{name}" in QUERY_STAGE or f"Workspace.{name}" in QUERY_STAGE_TARGET]
+    reads = [f".{name}" for name in UNREADABLE
+             if f".{name}" in QUERY_STAGE or f".{name}" in QUERY_STAGE_TARGET]
     ok("no staging query reads a streaming property Luau cannot read", not reads, repr(reads))
     ok("the radius the failure names comes from the contract",
        "Map.STREAMING" in QUERY_STAGE_TARGET and "stage.streamingRadius" in QUERY_STAGE)
@@ -3207,7 +3243,8 @@ def main(argv):
         sys.exit("usage: python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z] "
                  "[edit|server|client|client:<PlayerName>]")
     if argv[1] == "selftest":
-        # No Studio, no network, no place: pure helpers only, so CI can run it.
+        # No Studio, no network, no place -- the helpers, plus the real run_flags and replay_input
+        # against a scripted Studio. See the docstring's `selftest` paragraph.
         return selftest()
     if argv[1] == "manifest":
         with open(DEVPACKAGES_MANIFEST, "w", encoding="utf-8", newline="\n") as f:

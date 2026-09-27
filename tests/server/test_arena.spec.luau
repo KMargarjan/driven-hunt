@@ -43,11 +43,14 @@ return function()
 	if Map.EXPECTED_WORLD ~= "arena" then
 		describe("the grey-box test arena", function()
 			it("is not built, because it is not the world any more", function()
+				-- NO COUNT HERE. It used to say "its 12 cases are dormant" and there were ten, which
+				-- is what a hand-kept number does (review round 1, note). The file names itself
+				-- instead, and that cannot go stale.
 				TestKit.note(
 					string.format(
-						"test_arena: world=%s, the arena is not built and its %d cases are dormant",
-						Map.EXPECTED_WORLD,
-						12
+						"test_arena: world=%s, the arena is not built; this file's other cases are "
+							.. 'dormant until the switch goes back to "arena"',
+						Map.EXPECTED_WORLD
 					)
 				)
 				expect(Workspace:FindFirstChild(FOLDER_NAME)).to.equal(nil)
