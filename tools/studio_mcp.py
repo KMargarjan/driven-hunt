@@ -540,6 +540,7 @@ QUERY_READY = 'local p = game:GetService("Players").LocalPlayer return p and p:G
 # boar is -- and the client is placed there FIRST, which is what makes streaming bring the boar in.
 QUERY_STAGE_TARGET = """
 local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local want = HttpService:JSONDecode(%s)
@@ -564,11 +565,29 @@ if not target then
         ),
     })
 end
+-- THE RADIUS COMES FROM THE CONTRACT, NOT FROM WORKSPACE, and Task 79 learned that twice. The
+-- first version of this query read it off Workspace and every stage in a real run
+-- came back "not a valid member of Workspace" and fell back to the old path -- which
+-- `src/shared/Map/init.luau` had already written down: that property and its three neighbours are
+-- NOT reachable from Luau, only from the Studio property pane. So it is
+-- read from `Map.STREAMING`, the one source for the value the place was configured with.
+--
+-- A `require` here gets execute_luau's own module copy, which for `Map` is exactly right: it is
+-- frozen data with no runtime writer, so a fresh copy is the same table (Task 78's cache hazard is
+-- about a module whose Source changed under a live one). pcall'd, because this value only decorates
+-- a message: a missing Map must not cost a stage.
+local radius = -1
+local loaded, Map = pcall(function()
+    return require(ReplicatedStorage:WaitForChild("Map", 10))
+end)
+if loaded and type(Map) == "table" and type(Map.STREAMING) == "table" then
+    radius = Map.STREAMING.targetRadius or -1
+end
 local at = target.Position
 return HttpService:JSONEncode({
     name = target:GetFullName(),
     position = { at.X, at.Y, at.Z },
-    streamingRadius = Workspace.StreamingTargetRadius,
+    streamingRadius = radius,
 })
 """
 # Staging (Task 30): place the character in front of a target and ask the CAMERA OWNER to aim at it.
@@ -635,7 +654,7 @@ if not target then
     return string.format(
         "the SERVER's %%s is at (%%d, %%d, %%d) but no BasePart reached Workspace.%%s on this client "
             .. "after %%d s: the character is at (%%d, %%d, %%d), %%d studs from it, and "
-            .. "Workspace.StreamingTargetRadius is %%d -- nothing further than that is replicated",
+            .. "Map.STREAMING.targetRadius is %%d -- nothing further than that is replicated",
         tostring(stage.targetName),
         math.floor(seed.X),
         math.floor(seed.Y),
@@ -646,7 +665,7 @@ if not target then
         math.floor(here.Y),
         math.floor(here.Z),
         math.floor((seed - here).Magnitude),
-        math.floor(Workspace.StreamingTargetRadius)
+        math.floor(stage.streamingRadius)
     )
 end
 local player = Players.LocalPlayer
@@ -1792,6 +1811,9 @@ def stage_seed(studio, stage, server_id=None):
     args["waitSeconds"] = STAGE_TARGET_WAIT_SECONDS
     args["seedPosition"] = None
     args["targetName"] = ""
+    # Only the SERVER query reads this, and it reads it from `Map.STREAMING` -- see the comment there.
+    # The client just prints what it was handed, so there is one reader of the radius, not two.
+    args["streamingRadius"] = -1
     ask = luau_json({"targetFolder": stage["targetFolder"],
                      "waitSeconds": STAGE_TARGET_WAIT_SECONDS})
     try:
@@ -1805,11 +1827,13 @@ def stage_seed(studio, stage, server_id=None):
                 and all(isinstance(v, (int, float)) for v in at)):
             args["seedPosition"] = at
             args["targetName"] = str(found.get("name") or stage["targetFolder"])
+            radius = found.get("streamingRadius")
+            args["streamingRadius"] = radius if isinstance(radius, (int, float)) else -1
             # The client now waits only for replication, not for the drive's clock.
             args["waitSeconds"] = STAGE_STREAM_WAIT_SECONDS
             return args, (f"the server's {args['targetName']} is at "
                           f"({at[0]:.0f}, {at[1]:.0f}, {at[2]:.0f}); the client is placed there "
-                          f"first, radius {found.get('streamingRadius')}")
+                          f"first, Map.STREAMING.targetRadius {args['streamingRadius']:.0f}")
         problem = f"the server's answer carries no usable position: {str(found)[:120]}"
     return args, f"NO SEED, staging as before Task 79 ({problem})"
 
@@ -3021,7 +3045,7 @@ def selftest():
     STAGED = "staged on Workspace.Boars.Boar_1, 22 studs away"
     LOST = ("the SERVER's Workspace.Boars.Boar_1 is at (12, 5, 600) but no BasePart reached "
             "Workspace.Boars on this client after 30 s: the character is at (12, 6, -700), "
-            "1300 studs from it, and Workspace.StreamingTargetRadius is 1024 -- nothing further "
+            "1300 studs from it, and Map.STREAMING.targetRadius is 1024 -- nothing further "
             "than that is replicated")
 
     class StagingStudio:
@@ -3086,15 +3110,16 @@ def selftest():
     ok("  the target's name goes with it, so a failure can name what did not arrive",
        '"targetName": "Workspace.Boars.Boar_1"' in client, repr(client))
     ok("  and the stage passes", staged[0] is True, repr(staged))
-    ok("  the log says where the server's target was", "the server's Workspace.Boars.Boar_1 is at "
-       "(12, 5, 600)" in log, repr(log[:300]))
+    ok("  the log says where the server's target was, and at what radius",
+       "the server's Workspace.Boars.Boar_1 is at (12, 5, 600)" in log
+       and "targetRadius 1024" in log, repr(log[:300]))
 
     # (b) THE FAILURE THIS TASK IS ABOUT, when it still happens: the check fails and the message
     #     carries the distance and the radius, which is the whole diagnosis in one line.
     staged, _client, _log = stages(MAP_BOAR, LOST)
     ok("a target that never replicates fails the stage", staged[0] is False, repr(staged))
     ok("  and the failure names the distance and the streaming radius",
-       "1300 studs" in staged[1] and "StreamingTargetRadius is 1024" in staged[1], repr(staged[1]))
+       "1300 studs" in staged[1] and "targetRadius is 1024" in staged[1], repr(staged[1]))
 
     # (c) THE ARENA PATH, UNCHANGED, and it must survive a server that cannot answer at all: no seed,
     #     the original 60 s wait, and a stage that still passes. A fix that made the arena depend on
@@ -3125,6 +3150,18 @@ def selftest():
        repr([line for line in QUERY_STAGE_TARGET.splitlines() if 'return "' in line]))
     ok("it writes nothing: no PivotTo, no SetAttribute, no Invoke",
        not any(word in QUERY_STAGE_TARGET for word in ("PivotTo", "SetAttribute", "Invoke", "Destroy")))
+    # AND THE ONE THAT WOULD HAVE SAVED A RUN. `src/shared/Map/init.luau` records that these four
+    # Workspace properties are not reachable from Luau -- only from the Studio property pane -- and
+    # the first QUERY_STAGE_TARGET read one anyway, so every stage in a live run came back
+    # "StreamingTargetRadius is not a valid member of Workspace" and silently fell back. The radius
+    # comes from `Map.STREAMING` now, and this keeps it that way.
+    UNREADABLE = ("StreamingMinRadius", "StreamingTargetRadius", "StreamingIntegrityMode",
+                  "StreamOutBehavior", "ModelStreamingBehavior")
+    reads = [f"Workspace.{name}" for name in UNREADABLE
+             if f"Workspace.{name}" in QUERY_STAGE or f"Workspace.{name}" in QUERY_STAGE_TARGET]
+    ok("no staging query reads a streaming property Luau cannot read", not reads, repr(reads))
+    ok("the radius the failure names comes from the contract",
+       "Map.STREAMING" in QUERY_STAGE_TARGET and "stage.streamingRadius" in QUERY_STAGE)
 
     # 10. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):
