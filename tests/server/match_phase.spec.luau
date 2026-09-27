@@ -554,6 +554,12 @@ return function()
 			QUICK_TEST_SOUNDER = 3,
 			QUICK_TEST_AHEAD_STUDS = 6,
 			QUICK_TEST_SPREAD_STUDS = 6,
+			-- ROOM FOR THE THREE, and the first run of this block is why it is written down: this
+			-- file's own MAX_ALIVE_BOARS is 2, so a three-boar release was held back for ever and
+			-- three cases failed on a ceiling rather than on the quick test. A release bigger than
+			-- the ceiling can never happen -- `maybeRelease` holds the WHOLE sounder back -- which
+			-- is a real invariant, and `match_live.spec` asserts it of the live numbers.
+			MAX_ALIVE_BOARS = 4,
 		}
 
 		local function quickConfig(overrides)

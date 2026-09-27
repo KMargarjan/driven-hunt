@@ -278,6 +278,12 @@ return function()
 			-- impossible and the retry loop stalls the drive. This is the invariant, not a
 			-- coincidence of two numbers (Director decision H).
 			expect(drive.MAX_ALIVE_BOARS >= drive.SOUNDER.MAX_SIZE).to.equal(true)
+			-- THE QUICK TEST'S OWN RELEASE IS SUBJECT TO THE SAME CEILING (task 83): `maybeRelease`
+			-- holds the WHOLE sounder back when it does not fit, so a quick release bigger than the
+			-- ceiling would stall the drive it is supposed to shorten -- for ever, on a retry loop.
+			-- The first run of `match_phase.spec`'s quick-test block failed exactly that way against
+			-- its own small ceiling, which is why it is an invariant here and not a comment there.
+			expect(drive.MAX_ALIVE_BOARS >= drive.QUICK_TEST_SOUNDER).to.equal(true)
 			expect(drive.MAX_ALIVE_BOARS <= Boar.CONFIG.maxBoars).to.equal(true)
 			-- ...and the ring the boar spreads a sounder on fits inside the flat ground the MAP
 			-- guarantees, because Runtime:spawn overwrites the caller's Y.
