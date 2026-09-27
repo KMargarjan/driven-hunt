@@ -168,8 +168,15 @@ def shade(ob, angle_deg):
             return {"applied": False, "reason": "no smoothing operator in this Blender",
                     "angleDeg": float(angle_deg)}
     sharp = sum(1 for edge in ob.data.edges if edge.use_edge_sharp)
+    # AND WHAT THE POLYGONS THEMSELVES SAY. `use_smooth` per face is the flag every exporter reads;
+    # a mesh can carry sharp EDGES and still be flat-shaded everywhere, which is a different defect
+    # with the same symptom (task 94, measured after the tubes arrived in Roblox faceted).
+    smooth_faces = sum(1 for polygon in ob.data.polygons if polygon.use_smooth)
+    modifiers = [m.type for m in ob.modifiers]
     return {"applied": True, "angleDeg": float(angle_deg), "operator": used,
-            "edges": len(ob.data.edges), "sharpEdges": sharp}
+            "edges": len(ob.data.edges), "sharpEdges": sharp,
+            "smoothFaces": smooth_faces, "faces": len(ob.data.polygons),
+            "modifiers": modifiers}
 
 
 def base_colour_image(ob):
@@ -427,8 +434,14 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
 
     built = []
 
+    # NOTHING TOUCHES ANYTHING EXACTLY (task 94, measured IN THE GAME). The first build had the two
+    # tubes tangent to each other and the rib's underside tangent to both, and Roblox rendered a
+    # bright scalloped shimmer down each barrel where the coincident surfaces fight for the depth
+    # buffer -- which in the aim view is the whole barrel. A real side-by-side IS brazed tube to
+    # tube; a renderer needs a hair of daylight, and `clearanceT` is it (0.4 mm at this scale).
+    clearance = float(plan.get("clearanceT", 0.0003)) * length
     for side in (-1.0, 1.0):
-        centre = placed(middle, centre_across + side * radius, centre_up)
+        centre = placed(middle, centre_across + side * (radius + clearance / 2.0), centre_up)
         cone = bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=segments,
                                      radius1=radius, radius2=radius, depth=barrel_length,
                                      matrix=along_axis(centre), calc_uvs=False)
@@ -448,12 +461,13 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
                                 vec=placed(-forward_sign * radius * 1.5, 0.0, 0.0))
 
     # ---- the rib: a thin flat bridge across the top of both barrels
-    rib_centre = placed(middle, centre_across, centre_up + radius + rib_thickness / 2.0)
+    rib_centre = placed(middle, centre_across,
+                        centre_up + radius + clearance + rib_thickness / 2.0)
     rib = bmesh.ops.create_cube(bm, size=1.0, matrix=Matrix.Translation(rib_centre))
     bm.faces.ensure_lookup_table()
     scale = [0.0, 0.0, 0.0]
     scale[axis] = barrel_length
-    scale[across] = 2.0 * radius
+    scale[across] = 2.0 * radius + clearance
     scale[up_axis] = rib_thickness
     bmesh.ops.scale(bm, verts=rib["verts"], vec=Vector(scale),
                     space=Matrix.Translation(-rib_centre))
@@ -461,7 +475,7 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
 
     # ---- the bead: a small ball on the rib at the muzzle
     bead_centre = placed(muzzle - forward_sign * bead_radius * 1.5, centre_across,
-                         centre_up + radius + rib_thickness + bead_radius * 0.5)
+                         centre_up + radius + clearance + rib_thickness + bead_radius * 0.5)
     try:
         bead = bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=bead_radius,
                                          matrix=Matrix.Translation(bead_centre), calc_uvs=False)

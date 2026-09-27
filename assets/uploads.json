@@ -118,5 +118,25 @@
     "pollSeconds": 8.8,
     "polls": 4,
     "karenOk": "2026-09-26 Karen: her shotgun in the game; 2026-09-27 Karen: build it smooth like the video -- Director approves renders tonight"
+  },
+  {
+    "tool": "roblox-upload/1",
+    "at": "2026-09-27T20:23:00Z",
+    "assetId": "94500894676280",
+    "assetType": "Model",
+    "displayName": "Driven Hunt shotgun r8 no z-fight",
+    "description": "Side-by-side game gun: Karen's stock and action, barrels built by tools/asset_prep.py with clearance between tube, tube and rib.",
+    "creatorUserId": "8167651842",
+    "file": "model.fbx",
+    "sourceFolder": "shotgun_clean_barrels_r21",
+    "bytes": 7375036,
+    "sha256": "5a380efbc97c5faf2775d8ea2197646f4efb294de9b55966cf71ba63cf13b28a",
+    "contentType": "model/fbx",
+    "operation": "operations/935393e0-026f-4046-a70c-beb726fa0d07",
+    "moderationState": "Approved",
+    "moderationStateFrom": "response.moderationResult.moderationState",
+    "pollSeconds": 11.1,
+    "polls": 5,
+    "karenOk": "2026-09-26 Karen: her shotgun in the game; 2026-09-27 Karen: build it smooth like the video -- Director approves renders tonight"
   }
 ]
