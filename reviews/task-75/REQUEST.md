@@ -3,16 +3,20 @@
 Task: 75
 Round: 2
 Base: `main` (`ab3dfa1`)
-Code commit: `9ccd0f3de240b4d3d6e3adccfdd9d626e6ca31c0`
+Code commit: `bcb7c3561e859c18f101832370ae3b235bccde5c`
 
 ```
-[harness] PASS: 30/30 checks @ 9ccd0f3de240b4d3d6e3adccfdd9d626e6ca31c0 (clean tree)
+[harness]  PASS: 30/30 checks @ bcb7c3561e859c18f101832370ae3b235bccde5c (clean tree)
+[harness2] PASS: 32/32 checks @ bcb7c3561e859c18f101832370ae3b235bccde5c (clean tree)
 ```
 
-`[tests:server] PASS: 404 passed, 0 failed, 0 skipped, 0 errors, 24 spec files`, client 85 passed.
-`src/` changed again this round (`Assets.keysFor`, and the version 1 row's `texturePx`), so `test2`
-is part of the gate; it is the Director's run and this file is updated with the `[harness2]` line for
-the same commit before the review.
+Both are the Director's runs at this branch's head. `src/` changed again this round
+(`Assets.keysFor`, and the version 1 row's `texturePx`), so `test2` is part of the gate. The head is
+a paperwork commit — at or after the last commit that touched `src/`, `tests/` or `tools/`
+(`9ccd0f3`), with only this file between them — which only makes the bound stricter. My own
+clean-tree `[harness] PASS: 30/30 @ 9ccd0f3` covers the same code and reported
+`[tests:server] PASS: 404 passed, 0 failed, 0 skipped, 0 errors, 24 spec files` with client 85
+passed.
 
 **Round 1's finding was right, and it was the sharpest kind: the guard this whole task rests on did
 not bite.** `verify_embedded_textures` appended a warning, `command_prep` still printed `OK` and
@@ -163,9 +167,9 @@ answers Karen's question properly:
   (`Weapon.start()` before `preload`, which is what round 2's finding asked for), not anything this
   task changed, and in a live server the boot finishes long before a player joins. Queued as 75a(h);
   it is a real defect and it is not mine to fix in this task.
-- **`test2` is the Director's run**, at this branch's head; this file is updated with the
-  `[harness2]` line for the same commit before the review. Round 1's pair was
-  `[harness] 30/30` and `[harness2] 32/32` at `4bb0162`.
+- **`test2` was run by the Director, not by me** — the `[harness2]` line above is his, at this
+  head. Two clients each held the gun and the whole client suite ran on both sides. Round 1's pair
+  was the same shape at `4bb0162`.
 - **Daylight at ClockTime 14.5 only**, on the test arena's platform rather than in the wood under the
   drive's own lighting; dusk is unjudged.
 - **The ADS picture cannot judge the barrels** (they foreshorten out of sight), and the third-person
