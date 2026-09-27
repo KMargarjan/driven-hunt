@@ -850,6 +850,15 @@ def main():
     }
     shine = {"created": [], "written": {}, "strength": strength}
     arrays = {}
+    # ONE IMAGE CANNOT CARRY TWO VALUES, and a generator that hands back a single combined map is
+    # common. The loop below reads, writes and saves each map in turn, so one datablock feeding both
+    # sockets would have its metalness overwritten by the roughness pass while
+    # `REPORT["shine"]["surface"]` still read the right number out of the in-memory array: measured
+    # correct, looked wrong -- the shape this project exists to avoid (review round 1, note).
+    metal_image, rough_image = shine_images["metallic"][0], shine_images["roughness"][0]
+    if metal_image is not None and metal_image == rough_image:
+        fail("one image feeds both the Metallic and the Roughness socket (%s); this tool writes a "
+             "value into each map and cannot write two into one" % metal_image.name)
     for key, (image, created) in shine_images.items():
         if image is None:
             REPORT["warnings"].append("no %s map and none could be made: the recipe's %s numbers "
@@ -936,15 +945,20 @@ def main():
     # `verify_embedded_textures` in tools/asset_prep.py now reads the exported FBX back and fails the
     # run unless every embedded PNG is byte-for-byte one of these files.
     written = []
+    # THE NORMAL MAP IS HERE BECAUSE IT SHIPS TOO. It is not edited, but it arrives packed like the
+    # others, and a packed original is embedded whatever the filepath says -- so a model with a
+    # normal map would put a stranger in the FBX and fail `verify_embedded_textures` (review round 1,
+    # note). Karen's gun has none; the next asset might.
     for name, image in (("baseColor", base_image), ("metallic", metallic_image),
-                        ("roughness", roughness_image)):  # all three are edited, and all three ship
+                        ("roughness", roughness_image), ("normal", normal_image)):
         if image is None:
             continue
         path = os.path.join(out_dir, "texture_%s.png" % name)
         if image.packed_file is not None:
             # An FBX-embedded texture arrives PACKED into the blend, and packed bytes are the
             # ORIGINAL bytes: they win over anything written to disk, which is exactly how two
-            # uploads shipped Meshy's raw maps (Task 75, mutation-checked).
+            # uploads shipped Meshy's raw maps (Task 75, mutation-checked twice: with this line
+            # gone the run exits 1 and the uploader refuses the folder).
             image.unpack(method="REMOVE")
         image.filepath_raw = path
         image.file_format = "PNG"

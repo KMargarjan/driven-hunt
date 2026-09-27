@@ -143,7 +143,8 @@ DEFAULT_RECIPE = {
         # THE TWO NUMBERS THAT DECIDE "GLOSS BLACK" RATHER THAN "CHROME" ARE THESE, and since Task 75
         # they are written into the metalness and roughness MAPS, which is the only channel Roblox
         # reads (see the long comment in asset_prep_blender.py; the maps that shipped in Task 74 said
-        # metalness 0.98 / roughness 0.19 and the barrels came out mirror silver in daylight).
+        # metalness 0.91 / roughness 0.19 and the barrels came out mirror silver in daylight --
+        # 0.98 was the prep's own output PNG, which never reached the upload at all).
         #   metallic 0.10 -- a metal at 1.0 has NO diffuse colour at all: it shows only what it
         #     reflects, and in Roblox daylight that is the sky, so the near-black albedo above would
         #     never be seen. 0.10 keeps a trace of the conductor tint and lets the dark colour do the
@@ -164,7 +165,7 @@ DEFAULT_RECIPE = {
         # action in the same photo. A little saturation is kept so the engraving does not go flat.
         # It STAYS metal -- this is the part that is meant to catch the light, and Karen's complaint
         # was the barrels -- but not a mirror: 0.70 / 0.35 is bright polished steel with the engraving
-        # still readable, where the 0.98 / 0.19 that shipped made the whole action a sky-coloured
+        # still readable, where the 0.91 / 0.19 that shipped made the whole action a sky-coloured
         # blob. It is the same class of change as the barrels and it lands in the same maps.
         "action": {
             "baseColor": {"targetRGB": [172, 172, 172], "keepHue": True, "satScale": 0.10,
@@ -408,11 +409,23 @@ def verify_embedded_textures(out_dir, report):
     report["embeddedTextures"] = result
     missing = sorted(set(written.values()) - set(matched))
     if strangers or missing:
-        report.setdefault("warnings", []).append(
+        # IT FAILS THE RUN. IT DOES NOT WARN (review round 1, the blocking finding).
+        #
+        # Round 1 appended a warning and returned; `command_prep` still printed "OK" and exited 0, so
+        # the one guard this whole task rests on could not stop a bad file from being uploaded --
+        # and three separate texts in the deliverables claimed it could. A guard that only narrates
+        # is worse than no guard: it reads like protection in a diff.
+        #
+        # `ok` is the field `command_prep` exits on and `tools/roblox_upload.py` now refuses on, so
+        # the FILE that carries the wrong textures cannot be handed to Roblox by either route.
+        report["ok"] = False
+        report["error"] = (
             "the exported FBX does not carry the textures this run wrote: %d embedded PNG(s) match "
-            "nothing written (%s), and %s never reached it -- the game would get the original model"
-            % (strangers, ", ".join(sorted(written.values())) or "none written",
-               ", ".join(missing) or "nothing"))
+            "nothing written, and %s never reached it -- the game would get the original model, "
+            "which is exactly the defect Task 75 exists for"
+            % (strangers, ", ".join(missing) or "nothing")
+        )
+        report.setdefault("warnings", []).append(report["error"])
     return result
 
 
@@ -721,7 +734,14 @@ def command_selftest(_args):
            and sorted(embedded.get("matched", [])) == sorted(embedded.get("written", [])),
            str(embedded))
         ok("the FBX embeds every one of them, and nothing else",
-           embedded.get("embedded", 0) == len(embedded.get("written", [])), str(embedded))
+           embedded.get("embedded", 0) == len(embedded.get("written", []))
+           and embedded.get("strangers") == 0
+           and sorted(embedded.get("matched", [])) == sorted(embedded.get("written", [])),
+           str(embedded))
+        # ...and the run that produced them SAID SO: `ok` is what `command_prep` exits on and what
+        # `tools/roblox_upload.py` refuses on (review round 1, finding 1).
+        ok("a run whose file carries its own textures reports ok", report.get("ok") is True,
+           str(report.get("error")))
 
         # ---------------------------------------------------------- the shine reaches the MAPS
         # THE DEFECT TASK 75 EXISTS FOR: the recipe's metalness and roughness used to live on a

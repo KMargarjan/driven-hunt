@@ -128,7 +128,11 @@ Assets.ROWS = {
 		-- MEASURED, not declared: tools/asset_prep.py counted 19,325 triangles on the prepped mesh
 		-- and the GLB's own index accessor agreed. Roblox's ceiling is 20,000 per mesh.
 		trisDeclared = 19325,
-		texturePx = 2048,
+		-- 4096, NOT THE 2048 THIS ROW CLAIMED UNTIL TASK 75. The prep down-sampled its own copies to
+		-- 2048 and this row recorded that, but the FBX that was uploaded embedded Meshy's untouched
+		-- 4096 maps -- so the number described the intention and not the asset (review round 1,
+		-- note). Version 2's 2048 is measured on what actually shipped.
+		texturePx = 4096,
 		sizeStuds = GUN_SIZE,
 		naturalSizeStuds = NATURAL,
 		offsetStuds = Vector3.zero, -- measured: the template's pivot is its bounding-box centre to
@@ -225,11 +229,19 @@ function Assets.describe(key: string, rows: { AssetRow }?): AssetRow?
 end
 
 -- What a boot script preloads. "runtime" is everything a server needs before a player can hold it.
+-- ONE KEY, ONCE, AND NEVER A SUPERSEDED ONE. The moment this table held two rows for one key it
+-- started answering `{"shotgun.handle", "shotgun.handle"}`, which is what `Loader.preload` is meant
+-- to be called with (design 5.2) -- two network loads for one gun, the second finding the first
+-- already cached (review round 1, note). Nothing calls it that way yet; that is the point of fixing
+-- it now rather than when something does.
 function Assets.keysFor(scope: string): { string }
-	local out = {}
+	local out, seen = {}, {}
 	for _, row in ipairs(Assets.ROWS) do
-		if scope == "runtime" and row.kind ~= "image" then
-			table.insert(out, row.key)
+		if scope == "runtime" and row.kind ~= "image" and row.supersededBy == nil then
+			if not seen[row.key] then
+				seen[row.key] = true
+				table.insert(out, row.key)
+			end
 		end
 	end
 	return out

@@ -113,7 +113,16 @@ return function()
 			expect(row.kind).to.equal("meshpart")
 			expect(row.moderation).to.equal("approved")
 			expect(Assets.describe(Hardware.ASSET_KEY)).to.equal(row)
-			expect(#Assets.keysFor("runtime") >= 1).to.equal(true)
+			-- ONE KEY, ONCE. Two rows for the gun now exist, and `#keysFor >= 1` would have passed
+			-- just as happily on the duplicate that `Loader.preload` would have loaded twice
+			-- (review round 1, note). Asserted as an exact set instead.
+			local keys = Assets.keysFor("runtime")
+			local counted = {}
+			for _, key in ipairs(keys) do
+				counted[key] = (counted[key] or 0) + 1
+			end
+			expect(counted[Hardware.ASSET_KEY]).to.equal(1)
+			expect(#keys).to.equal(1)
 			-- ...and there is no second id table: MapGen's is still empty (map-generator 12.2).
 			local mapGen = ServerStorage:FindFirstChild("MapGen")
 			if mapGen then
