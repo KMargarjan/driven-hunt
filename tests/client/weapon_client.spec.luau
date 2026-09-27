@@ -32,6 +32,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+-- NOTES, NOT PRINTS, for anything that explains a failure. TestKit's own header says why: "Studio's
+-- console comes back truncated from a long session -- every two-player run so far lost the head of
+-- it". Task 80 lost a whole diagnostic run to exactly that: the map world's console came back
+-- `[TRUNCATED DUE TO LENGTH LIMIT]` and every print from this file with it, while the notes arrived.
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("InputReady"))
 local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 
@@ -51,28 +56,92 @@ local log = {}
 -- scenario -- the one event that says another scenario has taken the gun (tools/studio_mcp.py, the
 -- `stage` step, which sets this attribute and nothing else does).
 local ownLogEntries: number? = nil
+-- WHEN THIS SPEC TOOK THE GUN, and what the gun held then: the near end of its own window (Task 80).
+-- Declared here because `ownLog` below reads it.
+local equippedAt = nil
+local baseline = nil
 player:GetAttributeChangedSignal("StagedTarget"):Connect(function()
 	ownLogEntries = ownLogEntries or #log
 end)
 
--- The log as it stood when this spec's own scenario ended.
+-- THIS SPEC'S OWN WINDOW: from its cue to the moment the harness staged the next scenario.
+--
+-- BOTH ENDS ARE CAUSAL, and the near end is new (Task 80). It used to start at the beginning of the
+-- session, so anything the owner's auto-equip let through before the cue counted as this spec's --
+-- which is exactly how a slug fired at +4.1 s became "3 shots where the replay fires two", and how
+-- 77a(a) read the same 23-slugs-and-3-shots when a spec file loaded in a different order. Neither was
+-- about order or timing: the window simply had no near end.
 local function ownLog()
-	if not ownLogEntries then
-		return log
-	end
 	local out = {}
-	for index = 1, ownLogEntries do
-		out[index] = log[index]
+	for index = 1, ownLogEntries or #log do
+		local entry = log[index]
+		if not equippedAt or entry.at >= equippedAt then
+			table.insert(out, entry)
+		end
 	end
 	return out
 end
 local aimEvents = {}
 local cameraSamples = {}
-local equippedAt = nil
+
+local suiteStart = os.clock()
 
 Weapon.Changed:Connect(function(snapshot)
 	table.insert(log, { at = os.clock(), state = snapshot })
+	-- The baseline, if the cue could not read one itself: the first snapshot of this spec's window.
+	if equippedAt and not baseline then
+		baseline = snapshot
+	end
 end)
+
+-- EVERY TOOL THE OWNER HANDS THIS PLAYER (Task 80). `Weapon.grant` destroys the recorded Tool,
+-- builds a new one, resets the state to `StateMachine.initial` -- reserve back to full -- and then
+-- AUTO-EQUIPS it, because `Shotgun.CONFIG.AUTO_EQUIP` is true (Karen: a playtest should not start by
+-- hunting for the hotbar). `Weapon.refreshArming`'s sweep calls grant again whenever it finds a
+-- player who should be holding one, so a session sees several. That makes "the gun is in the Backpack
+-- because this spec parked it" an arrangement the OWNER is free to undo, with no input at all -- and
+-- a gun in the hand when the replay's first click arrives fires a shell nothing in this file asked
+-- for. This is the record of it, so a wrong shot count says WHERE the extra shot came from.
+local guns: { { at: number, where: string } } = {}
+local seen: { [Instance]: true } = {}
+local function sawGun(child: Instance, where: string)
+	if child.Name ~= "Shotgun" or not child:IsA("Tool") or seen[child] then
+		return
+	end
+	seen[child] = true
+	table.insert(guns, { at = os.clock() - suiteStart, where = where })
+end
+
+local function watchBag()
+	local bag = player:FindFirstChildOfClass("Backpack")
+	if bag then
+		for _, child in ipairs(bag:GetChildren()) do
+			sawGun(child, "backpack")
+		end
+		bag.ChildAdded:Connect(function(child)
+			sawGun(child, "backpack")
+		end)
+	end
+end
+watchBag()
+player.ChildAdded:Connect(function(child)
+	if child:IsA("Backpack") then
+		watchBag()
+	end
+end)
+
+local function watchBody(character: Model)
+	for _, child in ipairs(character:GetChildren()) do
+		sawGun(child, "hand")
+	end
+	character.ChildAdded:Connect(function(child)
+		sawGun(child, "hand")
+	end)
+end
+if player.Character then
+	watchBody(player.Character)
+end
+player.CharacterAdded:Connect(watchBody)
 
 Weapon.Input.AimChanged:Connect(function(aiming)
 	table.insert(aimEvents, aiming)
@@ -94,6 +163,45 @@ Weapon.Input.AimChanged:Connect(function(aiming)
 	})
 end)
 
+-- KEEP the Tool in the Backpack until the cue, and that is not optional: CONFIG.AUTO_EQUIP is true
+-- (Karen's playtest should start with the gun in hand), so a gun in the character when Task 6's
+-- `key-mouse-order` scenario sends MouseButton1 fires a shell nothing in this file asked for.
+-- Unequipping unbinds the weapon's own actions (Tool.Unequipped), so scenario 1's clicks reach
+-- nothing, and the cue key puts it back. This is the spec's arrangement; nothing asserted afterwards
+-- depends on it.
+--
+-- AN INVARIANT, NOT A ONE-OFF ACT, and Task 80 measured why. `parkTool` used to return true the
+-- moment it found the gun in the Backpack -- "already parked" -- and the OWNER then auto-equipped it
+-- a moment later, because `Weapon.grant` ends with `Hardware.equip` and `refreshArming`'s sweep calls
+-- grant repeatedly. On the map world that race was lost about one run in three: the failing run's own
+-- note read `3 gun(s) handed over [+2.2s backpack, ...]; rises [#1 at +4.1s None/Slug res=24/24
+-- BEFORE THE CUE, ...]` -- a slug fired at +4.1 s, before this spec's cue at +4.5 s, and the gun was
+-- never unequipped at all. So the watcher below keeps unequipping until the cue: the owner may hand
+-- the gun over as often as it likes, and the replay's early clicks still reach nothing.
+local cueGiven = false
+local function unequipNow(): boolean
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local held = character and character:FindFirstChild("Shotgun")
+	if humanoid and held then
+		humanoid:UnequipTools()
+		return true
+	end
+	return false
+end
+
+local function keepParked(character: Model)
+	character.ChildAdded:Connect(function(child)
+		if not cueGiven and child.Name == "Shotgun" and child:IsA("Tool") then
+			unequipNow()
+		end
+	end)
+end
+if player.Character then
+	keepParked(player.Character)
+end
+player.CharacterAdded:Connect(keepParked)
+
 -- The cue: equip the Tool the way the Backpack does, so Tool.Equipped fires on the client and the
 -- server sees Tool.Parent become the character. Equipping is this spec's arrangement; everything
 -- asserted afterwards arrives through the real input path.
@@ -103,6 +211,10 @@ local function onCue(_name: string, state: Enum.UserInputState)
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local backpack = player:FindFirstChildOfClass("Backpack")
 		local tool = backpack and backpack:FindFirstChild("Shotgun")
+		-- THE CUE IS THIS SPEC'S OWN WINDOW OPENING, so the parking watcher stands down here and
+		-- nothing before this moment counts against the assertions below (Task 80).
+		cueGiven = true
+		baseline = baseline or Weapon.get()
 		if humanoid and tool then
 			humanoid:EquipTool(tool)
 			equippedAt = os.clock()
@@ -128,25 +240,15 @@ ContextActionService:BindAction(QUIET_ACTION, function()
 	return Enum.ContextActionResult.Pass
 end, false, Enum.KeyCode.R, Enum.KeyCode.X, Enum.UserInputType.MouseButton1, Enum.UserInputType.MouseButton2)
 
--- Park the Tool in the Backpack BEFORE signalling ready, and that is not optional: CONFIG.AUTO_EQUIP
--- is true (Karen's playtest should start with the gun in hand), so without this the gun is in the
--- character while Task 6's `key-mouse-order` scenario sends MouseButton1 and R -- and it was: the
--- third run fired a shot and ran a whole reload before this scenario began. Unequipping unbinds the
--- weapon's own actions (Tool.Unequipped), so scenario 1's clicks reach nothing, and the cue key puts
--- it back. This is the spec's arrangement; nothing asserted afterwards depends on it.
 local function parkTool(): boolean
 	local deadline = os.clock() + 15
 	repeat
-		local character = player.Character
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local backpack = player:FindFirstChildOfClass("Backpack")
-		local held = character and character:FindFirstChild("Shotgun")
-		if humanoid and held then
-			humanoid:UnequipTools()
+		if unequipNow() then
 			return true
 		end
 		if backpack and backpack:FindFirstChild("Shotgun") then
-			return true -- already parked
+			return true -- in the Backpack, and the watcher above keeps it there
 		end
 		task.wait(0.1)
 	until os.clock() > deadline
@@ -386,9 +488,9 @@ return function()
 				end)
 				if not finished then
 					local state = last()
-					print(
+					TestKit.note(
 						string.format(
-							"[weapon_client] %d snapshots; last: ammo=%s slug=%s busyFor=%.2f aims=%d",
+							"weapon_client: %d snapshots; last: ammo=%s slug=%s busyFor=%.2f aims=%d",
 							#log,
 							tostring(state and state.ammo),
 							tostring(state and state.reserve and state.reserve.Slug),
@@ -401,9 +503,9 @@ return function()
 
 				local state = endState
 				expect(state).to.be.ok()
-				print(
+				TestKit.note(
 					string.format(
-						"[weapon_client] end state: barrels=%s/%s loaded=%s/%s selected=%d ammo=%s slug=%d buck=%d open=%s",
+						"weapon_client: end state: barrels=%s/%s loaded=%s/%s selected=%d ammo=%s slug=%d buck=%d open=%s",
 						state.barrels[1],
 						state.barrels[2],
 						state.loaded[1],
@@ -425,9 +527,16 @@ return function()
 				expect(state.loaded[2]).to.equal("Buck")
 				expect(state.selected).to.equal(1)
 				expect(state.ammo).to.equal("Buck")
-				-- Slug: 24 - 2 for the R reload, + 2 returned when X broke the action open. Buck: -2.
-				expect(state.reserve.Slug).to.equal(24)
-				expect(state.reserve.Buck).to.equal(22)
+				-- A DELTA FROM THE CUE, not an absolute (Task 80). These used to read `== 24` and
+				-- `== 22`, which is `Shotgun.CONFIG`'s starting pocket -- a claim about the whole
+				-- session rather than about this spec's window. `Weapon.grant` resets the reserve to
+				-- full whenever the owner hands over a new gun, and a shot before the cue leaves it one
+				-- short for ever, so the absolute was right only when nothing had touched the gun
+				-- first. Slug: -2 for the R reload, +2 returned when X broke the action open, so back
+				-- to what the gun held at the cue. Buck: -2, the two that came out for the swap.
+				expect(baseline).to.be.ok()
+				expect(state.reserve.Slug).to.equal(baseline.reserve.Slug)
+				expect(state.reserve.Buck).to.equal(baseline.reserve.Buck - 2)
 			end)
 
 			it("fired exactly twice: an empty gun refused the third click", function()
@@ -436,19 +545,45 @@ return function()
 				local entries = ownLog()
 				local rises = 0
 				local previous = 0
+				local when = {}
 				for _, entry in ipairs(entries) do
 					local spent = spentCount(entry.state)
 					if spent > previous then
 						rises += 1
+						-- WHICH shot, not just how many (Task 80). An extra one is either the replay
+						-- firing three times or a gun that was in the hand before this spec's cue,
+						-- and the reserve at the moment it went off says which.
+						table.insert(
+							when,
+							string.format(
+								"#%d at +%.1fs %s/%s res=%d/%d%s",
+								rises,
+								entry.at - suiteStart,
+								tostring(entry.state.loaded[1]),
+								tostring(entry.state.loaded[2]),
+								entry.state.reserve.Slug or -1,
+								entry.state.reserve.Buck or -1,
+								if equippedAt and entry.at < equippedAt then " BEFORE THE CUE" else ""
+							)
+						)
 					end
 					previous = spent
 				end
-				print(
+				local handed = {}
+				for index, gun in ipairs(guns) do
+					handed[index] = string.format("+%.1fs %s", gun.at, gun.where)
+				end
+				TestKit.note(
 					string.format(
-						"[weapon_client] shots seen: %d over %d snapshots (%d in the session)",
+						"weapon_client: shots seen: %d over %d snapshots (%d in the session); cue at "
+							.. "+%.1fs; %d gun(s) handed over [%s]; rises [%s]",
 						rises,
 						#entries,
-						#log
+						#log,
+						if equippedAt then equippedAt - suiteStart else -1,
+						#guns,
+						table.concat(handed, ", "),
+						table.concat(when, ", ")
 					)
 				)
 				expect(rises).to.equal(2)
@@ -525,16 +660,16 @@ return function()
 				if not cameraModule then
 					-- No camera system in the place: the old evidence is the best available, and the
 					-- stock camera is then the only other writer.
-					print("[weapon_client] no camera system; asserting the camera did not change instead")
+					TestKit.note("weapon_client: no camera system; asserting the camera did not change instead")
 					expect(cameraSamples[1].fov).to.equal(cameraSamples[2].fov)
 					expect(Weapon.Input.isAiming()).to.equal(false)
 					return
 				end
 				local CameraSystem = require(cameraModule)
 				local stats = CameraSystem.stats()
-				print(
+				TestKit.note(
 					string.format(
-						"[weapon_client] camera foreign writes: %d (from %d) over %d frames",
+						"weapon_client: camera foreign writes: %d (from %d) over %d frames",
 						stats.foreignCameraWrites,
 						foreignBefore,
 						stats.frames
@@ -554,9 +689,9 @@ return function()
 				end)
 				if not visible then
 					local state = Weapon.get()
-					print(
+					TestKit.note(
 						string.format(
-							"[weapon_client] crosshair not visible: gui=%s equipped=%s enabled=%s",
+							"weapon_client: crosshair not visible: gui=%s equipped=%s enabled=%s",
 							tostring(Hud.gui() ~= nil),
 							tostring(state and state.equipped),
 							tostring(Shotgun.CONFIG.CROSSHAIR_ENABLED)
@@ -601,9 +736,9 @@ return function()
 				local inset = GuiService:GetGuiInset()
 				local centre = crosshair.AbsolutePosition + crosshair.AbsoluteSize / 2 + inset
 				local viewport = Workspace.CurrentCamera.ViewportSize / 2
-				print(
+				TestKit.note(
 					string.format(
-						"[weapon_client] crosshair centre %.1f,%.1f vs viewport centre %.1f,%.1f (inset %.0f,%.0f)",
+						"weapon_client: crosshair centre %.1f,%.1f vs viewport centre %.1f,%.1f (inset %.0f,%.0f)",
 						centre.X,
 						centre.Y,
 						viewport.X,
@@ -617,7 +752,7 @@ return function()
 
 			it("reads out the barrels, the ammo and the reserve", function()
 				local text = Hud.readoutText()
-				print("[weapon_client] readout: " .. text)
+				TestKit.note("weapon_client: readout: " .. text)
 				-- glyphs, ammo, the pocket for that ammo, an optional " R" while busy, and an optional
 				-- one-line notice such as "NO BUCK" (Karen, 2026-09-25).
 				expect(string.match(text, "^[%[%*%-x%]]+ [A-Z]+ %d+[ A-Z]*$")).to.be.ok()
@@ -697,7 +832,23 @@ return function()
 			-- indistinguishable from the state, so the window is opened only on a quiet gun with no
 			-- weapon input for QUIET seconds, and is DISCARDED AND RETRIED if any arrives while it
 			-- is open. A real exploit reproduces on every attempt; a replayed keypress does not.
-			local QUIET = 1.5
+			-- QUIET COMES FROM THE GUN'S OWN NUMBERS, NOT FROM A GUESS, and Task 79's final gate
+			-- measured why it has to. It was a flat 1.5 s, and a two-player run failed here with
+			-- `after.open == true`: the window's own note read `last weapon input 1.51 s before it
+			-- opened` and then, at +0.47 s inside it, one state change -- `Spent/Spent -> Empty/Empty,
+			-- open=true, busyFor=0.50`. That is the BREAK step of a reload (`RELOAD_BREAK` is 0.50),
+			-- and it landed **1.98 s** after the last input the spec could see, against
+			-- `RELOAD_TOTAL = 2.0`. An input just outside a 1.5 s quiet period is still producing state
+			-- changes for half a second after the window opens, and `stillBusy()` cannot see it: that
+			-- reads the newest snapshot's `busyFor`, and at window-open time the gun really was idle.
+			--
+			-- So the quiet period is the SERVER'S OWN reload window plus a second for the round trip,
+			-- read from the config the server runs on -- one source, and it moves if Karen changes the
+			-- feel. It was never a forged request: at that same head, in that same session, the server
+			-- case reported `action Break=bad-request` and `badRequests +12, rateDropped +0, shots +0`.
+			-- This is still a TIME-based guard and 80a(a) stays open; what it guards is a smoke test
+			-- whose worst failure is a retry, because the property itself is proved on the server.
+			local QUIET = Shotgun.CONFIG.RELOAD_TOTAL + 1
 			local WINDOW = 1
 			local attempts, opened = 3, false
 
@@ -710,6 +861,12 @@ return function()
 				return newest ~= nil and os.clock() - newest.at < newest.state.busyFor
 			end
 
+			-- THE PROPERTY ITSELF NOW LIVES ON THE SERVER (Task 80), in `weapon_shot.spec`'s "consults
+			-- the whitelist before acting, at the handler the remote calls", which counts
+			-- `stats.badRequests` and needs no window at all. What is left here is the half only a
+			-- client can prove: that these remotes REACH that handler, from a real Play client, and
+			-- that nothing comes back. Keeping both is deliberate -- the server case would still pass
+			-- if `Weapon.start` forgot to connect the remote.
 			for _ = 1, attempts do
 				-- THE WINDOW MUST OPEN ON A GUN THESE REQUESTS COULD ACTUALLY MOVE (round 2, finding
 				-- 1). src/server/Weapon/init.luau's onActionRequest returns at
@@ -732,9 +889,9 @@ return function()
 				end)
 				if not ready then
 					local state = Weapon.get()
-					print(
+					TestKit.note(
 						string.format(
-							"[weapon_client] no quiet gun to test: equipped=%s open=%s busyFor=%.2f since input=%.1f s",
+							"weapon_client: no quiet gun to test: equipped=%s open=%s busyFor=%.2f since input=%.1f s",
 							tostring(state and state.equipped),
 							tostring(state and state.open),
 							if state then state.busyFor else -1,
@@ -746,6 +903,23 @@ return function()
 
 				local before = Weapon.get()
 				expect(before).to.be.ok()
+				-- TASK 80, THE MEASUREMENT. This case has failed intermittently at
+				-- `after.open` and `after.barrels[1]`, which is either the whitelist letting a forged
+				-- request through -- a security defect -- or something legitimate moving the gun
+				-- inside a window this spec believed was quiet. The two look identical from the state,
+				-- so the window prints its own timeline, every run, pass or fail: every snapshot that
+				-- arrived, when, and what changed in it. A green run says the window really was empty;
+				-- a red one says what moved it.
+				local firstIndex = #log
+				local inputAtOpen = os.clock() - lastWeaponInput
+				local openedAt = os.clock()
+				-- ...AND THE OWNER MUST NOT HAND OVER A GUN INSIDE THE WINDOW (Task 80). `Weapon.grant`
+				-- resets the state to `StateMachine.initial` and auto-equips, so a grant inside the
+				-- window changes `open`, `barrels` and the whole reserve with no input at all -- which
+				-- is indistinguishable from an accepted `Break` and is what the failing two-player runs
+				-- looked like (that session's own note read `weapon granted=9 revoked=4`). Counting the
+				-- guns is causal: it does not care how long anything took.
+				local gunsAtOpen = #guns
 				local remotes = Shotgun.remotes()
 				-- The reducer's own primitives, which Validator.checkRequest does not accept at all.
 				for _, bad in ipairs({ "Break", "Load", "Close", "Fire", "", 42 }) do
@@ -757,12 +931,55 @@ return function()
 				remotes.FireRequest:FireServer({ origin = "x", direction = Vector3.zero })
 				task.wait(WINDOW)
 
-				if os.clock() - lastWeaponInput > QUIET + WINDOW then
+				if os.clock() - lastWeaponInput > QUIET + WINDOW and #guns == gunsAtOpen then
 					-- Nothing of the player's own arrived between the quiet check and now, and the gun
 					-- was equipped, closed and idle when the requests went out -- so the server's own
 					-- state guard refused none of them, and anything that moved was the whitelist
 					-- failing to.
 					local after = Weapon.get()
+					local timeline = {}
+					for index = firstIndex + 1, #log do
+						local entry = log[index]
+						table.insert(
+							timeline,
+							string.format(
+								"+%.2fs eq=%s open=%s b=%s/%s ld=%s/%s ammo=%s res=%d/%d busyFor=%.2f",
+								entry.at - openedAt,
+								tostring(entry.state.equipped),
+								tostring(entry.state.open),
+								tostring(entry.state.barrels[1]),
+								tostring(entry.state.barrels[2]),
+								tostring(entry.state.loaded[1]),
+								tostring(entry.state.loaded[2]),
+								tostring(entry.state.ammo),
+								entry.state.reserve.Slug or -1,
+								entry.state.reserve.Buck or -1,
+								entry.state.busyFor
+							)
+						)
+					end
+					TestKit.note(
+						string.format(
+							"weapon_client: exploit window: %d snapshot(s) in %.2f s; last weapon input "
+								.. "%.2f s before it opened, %.2f s before it closed; before open=%s "
+								.. "b=%s/%s res=%d/%d -> after open=%s b=%s/%s res=%d/%d%s",
+							#log - firstIndex,
+							os.clock() - openedAt,
+							inputAtOpen,
+							os.clock() - lastWeaponInput,
+							tostring(before.open),
+							tostring(before.barrels[1]),
+							tostring(before.barrels[2]),
+							before.reserve.Slug or -1,
+							before.reserve.Buck or -1,
+							tostring(after.open),
+							tostring(after.barrels[1]),
+							tostring(after.barrels[2]),
+							after.reserve.Slug or -1,
+							after.reserve.Buck or -1,
+							if #timeline > 0 then " | " .. table.concat(timeline, " | ") else ""
+						)
+					)
 					expect(after.open).to.equal(before.open)
 					expect(after.reserve.Slug).to.equal(before.reserve.Slug)
 					expect(after.reserve.Buck).to.equal(before.reserve.Buck)
@@ -779,8 +996,18 @@ return function()
 					break
 				end
 			end
-			-- Not "give up quietly": if the replay never stops touching this gun, this spec asserted
-			-- nothing and must say so.
+			-- Not "give up quietly": if the replay never stops touching this gun, or the owner keeps
+			-- handing over new ones, this spec asserted nothing and must say so.
+			if not opened then
+				TestKit.note(
+					string.format(
+						"weapon_client: the exploit window never closed quietly: %d gun(s) handed over, "
+							.. "last weapon input %.2f s ago",
+						#guns,
+						os.clock() - lastWeaponInput
+					)
+				)
+			end
 			expect(opened).to.equal(true)
 		end)
 	end)

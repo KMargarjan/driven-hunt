@@ -887,3 +887,137 @@ The Director dispatched Task 11 in the same message, outside the repo. Its scope
 the head always moves past it (review round 1, finding 1). The gate in `CLAUDE.md` git-workflow step 4
 therefore names the **code commit** and bounds what may follow it (paperwork only). Same intent,
 satisfiable. Flagged to the Director in the Task 11 report.
+
+---
+
+## 2026-09-27 — Task 79 (M2.8e, the map switch): the flag and the PLACE contradict each other
+
+**Builder → Director. A decision is needed; the code half is built, tested and merged-dark, and the
+place half cannot be finished as specified.**
+
+### What was asked
+
+Task 79 dispatch, point 2: *"With the flag OFF the arena must still build and every existing spec
+pass while the map sits in Workspace (prove the two worlds do not interfere: positions, spawns, boar
+field)."*
+
+### What happened, measured
+
+The code half is done and green: `MAP_V1` is declared `default = false`, `Map` gained pure selectors
+over a boolean, `ArenaBoot` and `Boar.CONFIG` read the flag at their own boundaries, and
+`map_contract.spec` drives both worlds by parameter. With **no map in Workspace**:
+
+```
+[harness] PASS: 32/32 checks @ 0c29687e284422803b36dde57827b8e207e47c3f (clean tree)
+[tests:server] PASS: 424 passed
+note [server] task79: MAP_V1=false, world=arena, boar field x[-200,200] z[-200,200] exitZ=-190,
+               arena=built, map=absent
+```
+
+Then the map was built into the place — `mapgen.py build --seed 1 --backup census`, **274/274 steps,
+digest `e064d598…deae5`, 6,393 parts, 3,381,368 terrain cells**; `contract OK`; `reachability OK`
+(every BoarSpawn and the DriverStart reach the line); all nine shots taken and inspected. With the
+map in Workspace **and the flag still OFF**, the same commit:
+
+```
+[harness] FAIL: 22/27 checks @ 0c29687… (clean tree)
+[tests:server] FAIL: 413 passed, 11 failed, 11 errors
+  map_contract.spec:118  the arena is the world but Workspace holds DrivenHuntMap
+  map_contract.spec:132  the world is the arena but Terrain holds 3381368 cell(s)
+  map_contract.spec:163  the rough material is (126,122,78) but the arena world wants (111,126,62)
+  map_contract.spec:197  Expected 8 shooter posts, got 16
+  match_live.spec:137    Expected value "nil" to be non-nil
+```
+
+**The fourth one is not a spec being fussy — it is a gameplay collision.** Both worlds tag their
+markers with the same `Map.TAGS` strings, so `CollectionService:GetTagged("DrivenHunt.ShooterPost")`
+answers **16**, two drive lines, two driver starts and eight boar spawns. `Match.Markers` reads those
+tags. A drive with the flag off would place shooters on map posts 700 studs away.
+
+The place was restored afterwards (`mapgen.py clear` → `removed 9157, cellsAfter 0, paletteRestored
+true`) and the harness is green again at the same commit.
+
+### Why this is a decision and not a bug
+
+`docs/design/map-generator.md` §17 never contemplated a place holding both worlds: step 4 saves the
+map and step 6 commits `EXPECTED_WORLD = "map:v1"` **together**. The Director's one change — merge
+dark behind a flag — separates them, and that is what creates the both-present state, because **the
+flag lives in code and the map lives in the PLACE**. A flag cannot make 6,393 parts and three million
+terrain cells absent.
+
+Three ways out, none of which the Builder may choose alone:
+
+1. **Filter by world root.** `Match.Markers` (and the spec's exclusivity checks) resolve tags only
+   inside the named world's root — the `taggedInside` helper `map_contract.spec` already has. Fixes
+   the collision and `match_live`. **Does not fix the palette**: the saved place keeps the autumn
+   terrain colours, so with the flag OFF the grey-box arena sits on an autumn-coloured world for
+   every playtest. Karen would see that, and §8.4/audit-004 called a leftover palette "a world nobody
+   chose".
+2. **Do not save the map until Karen accepts.** The place stays arena-only, everything above stays
+   green — and the flag-on playtest has no map to walk, which is the point of the task.
+3. **Switch by commit after all, as §17 wrote it** — EXPECTED_WORLD flips in the same commit that
+   saves the place, and the feel gate is Karen's walk on a branch rather than a flag. This is the
+   design's own shape and gives up "merge dark" for this one task.
+
+**Recommendation: 1 plus an explicit decision about the palette** — it is the only option that both
+merges dark and gives Karen a map to walk. It needs `Match.Markers` changed (its owner is the drive,
+not this task's) and it needs somebody to say that an autumn-coloured arena is acceptable while the
+flag is off. Option 3 is the cheapest if "merge dark" is worth less here than the design's simplicity.
+
+### What is NOT blocked
+
+The code half is committed and green and merges dark on its own: with no map saved, `MAP_V1` on or
+off changes nothing a player can see, because the map does not exist in the place. Nothing here has
+to be reverted whichever option is chosen.
+
+### And one thing that was never reached
+
+**`NEEDS SAVE`.** §17 step 4 (Karen's `File → Save to Roblox`, or the Director's Alt+Shift+S) and
+step 5 (reopen, `contract` again = measurement B) were never requested, because the map had to be
+cleared again to leave the place usable. When the decision above is made, the save is still a human
+action and still the only way the map reaches the place.
+
+### RESOLVED — Director decision, 2026-09-27
+
+Verbatim:
+
+> **DIRECTOR DECISION on your ESCALATE.md entry: OPTION 3 — switch by commit, exactly as
+> docs/design/map-generator.md §17 wrote it. Reason: the world lives in the place, not in code, so a
+> flag that cannot be turned off without failing 11 specs and misplacing shooters is not a feature
+> flag; option 1 adds permanent marker-filtering code for a temporary state.**
+
+Done in `0c29687`'s successor on `task-79-map-switch`: the `MAP_V1` row and both of its reads are
+gone (archived nothing — it never merged, so there is nothing to archive under rule 7),
+`Map.EXPECTED_WORLD` is `"map:v1"` with §17 step 6's data beside it, `Boar.CONFIG.field` carries the
+same corridor as a literal by its own owner, and `ArenaBoot` and `MatchBoot` branch on the committed
+string. `CLAUDE.md`'s "Feature flags" section now names the exception. `tests/server/test_arena.spec`
+is **branched, not archived** — §17 step 9 archives it only after Karen accepts, and a spec that was
+deleted cannot check a rollback.
+
+## NEEDS KAREN — 2026-09-27, Task 79: the map save has never been read back
+
+The generated map reached the place with **one human keystroke**, Alt+Shift+S (File → Save to
+Roblox), posted by the Director with Studio in Edit mode and the built map in view. **Studio showed
+no confirmation dialog**, so the save is **SENT, not verified**. Nothing a tool can run reads
+Roblox's copy of a place, and `python tools/mapgen.py contract` answers `OK` for the Edit session
+that was saved — the same DataModel, not proof it landed.
+
+`docs/design/map-generator.md` §17 step 5 asks for exactly this readback (its "measurement B"), and
+it needs a **reopen**, which the Director will not do tonight: reopening the place drops `rojo serve`
+and the Studio MCP link, and recovering both needs Karen's **Connect** click.
+
+**The clicks, in order, at Karen's 10:00 session:**
+
+1. Open **Driven Hunt DEV** (PlaceId 136410205938347) in Studio, in **Edit** mode.
+2. Press **Connect** in the Rojo plugin (Karen's click; `rojo serve` must be running).
+3. Studio → Assistant settings → **MCP server enabled**.
+4. Then the Director runs `python tools/mapgen.py contract` and compares the marker digest with
+   **`e064d5982513a08616d2bf367f61c30c`**, and the counts with 8 shooterPost, 1 driveLine,
+   1 driverStart, 4 boarSpawn, 12 tree.
+
+If the digest matches, §17 step 5 is complete. If the place comes back empty, the map did not save
+and `python tools/mapgen.py build --seed 1` rebuilds it byte-identically from the committed seed —
+nothing is lost but the keystroke.
+
+Recorded as `TASKS.md` 79a(j). The code half does not wait on this: `[harness] PASS: 32/32 @ 6ddb54e`
+is a run against the map in that Edit session.

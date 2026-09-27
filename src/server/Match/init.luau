@@ -198,7 +198,19 @@ local stats = {
 	soundersReleased = 0,
 	boarsReleased = 0,
 	sounderHoldbacks = 0,
+	-- HOW LONG A PLAYER WAITED FOR THE FIRST BOAR OF THIS SERVER, in seconds from this module's
+	-- load, and -1 until one is released (Task 79). `FIRST_RELEASE_SECONDS` says 20 seconds INTO
+	-- THE DRIVE, but a player's wait also carries the intermission and however long it takes to put
+	-- everybody on a post -- and placing somebody 1,400 studs away in a streamed world is not the
+	-- same job as placing them in a 400-stud arena. That difference is a number now instead of a
+	-- guess, and it is the number Karen would feel at 10:00.
+	firstReleaseAfterSeconds = -1,
 }
+
+-- When this module loaded, which on a live server is server start: the only clock a "how long did
+-- the player wait" number can be measured against. `os.clock()` and not the drive's own `now()`,
+-- because the drive's clock carries `testOffset` and a spec that advanced it would flatter this.
+local bootAt = os.clock()
 
 local phaseSignal = Instance.new("BindableEvent")
 local scoredSignal = Instance.new("BindableEvent")
@@ -489,6 +501,9 @@ local function applySpawnSounder(position: Vector3?, size: number?)
 		return { world.boars:spawn(position) }
 	end)
 	if ok and type(handles) == "table" and #handles > 0 then
+		if stats.firstReleaseAfterSeconds < 0 then
+			stats.firstReleaseAfterSeconds = math.floor((os.clock() - bootAt) * 10 + 0.5) / 10
+		end
 		stats.releases += 1
 		stats.soundersReleased += 1
 		stats.boarsReleased += #handles

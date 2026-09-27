@@ -13,7 +13,10 @@
 -- Design: docs/design/drive.md (section 3.5)
 -- Note:   docs/research/2026-09-25-drive.md
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
@@ -23,21 +26,27 @@ local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 -- Unchanged from BoarBoot: the arena rectangle is carried as data, so when the Milestone 2 map
 -- generator replaces the arena this fails loudly here instead of routing boars to an edge that no
 -- longer exists.
+-- ...and ONLY WHILE THE ARENA IS THE WORLD (M2.8e). Once `Map.EXPECTED_WORLD` is "map:v1",
+-- `ArenaBoot` never builds the grey box and `Boar.CONFIG.field` is the map's corridor, so this
+-- assertion would compare the map's rectangle against an arena nobody built. The contract's own
+-- string decides, exactly as `ArenaBoot` does, so this composition root still decides nothing.
 local field = Boar.CONFIG.field
-local ground = TestArena.LAYOUT.ground
-local span = field.bounds.maxX - field.bounds.minX
+if Map.EXPECTED_WORLD == "arena" then
+	local ground = TestArena.LAYOUT.ground
+	local span = field.bounds.maxX - field.bounds.minX
 
-assert(
-	ground.span == span and ground.top == field.groundY,
-	string.format(
-		"boar-ai: the arena changed (span %d, top %d) but Boar.CONFIG.field still says span %d, groundY %d."
-			.. " Update CONFIG.field in src/server/Boar/init.luau (see docs/design/boar-ai.md section 9).",
-		ground.span,
-		ground.top,
-		span,
-		field.groundY
+	assert(
+		ground.span == span and ground.top == field.groundY,
+		string.format(
+			"boar-ai: the arena changed (span %d, top %d) but Boar.CONFIG.field still says span %d, groundY %d."
+				.. " Update CONFIG.field in src/server/Boar/init.luau (see docs/design/boar-ai.md section 9).",
+			ground.span,
+			ground.top,
+			span,
+			field.groundY
+		)
 	)
-)
+end
 
 local world = Boar.defaultWorld()
 

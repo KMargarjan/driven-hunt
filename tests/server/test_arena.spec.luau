@@ -3,10 +3,13 @@
 -- It checks what a player would meet in Workspace, not the module's own constants, so the numbers
 -- below are written out independently of src/server/TestArena.luau (CLAUDE.md rule 6).
 local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local TestArena = require(ServerScriptService:WaitForChild("TestArena"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local FOLDER_NAME = "TestArena"
 local GROUND_SPAN = 400 -- studs, X and Z
@@ -28,6 +31,38 @@ local function waitForArena()
 end
 
 return function()
+	-- THE ARENA IS ONLY BUILT WHILE IT IS THE WORLD (M2.8e, map-generator design section 17). Once
+	-- `Map.EXPECTED_WORLD` is "map:v1" the generated map is what a player stands in and `ArenaBoot`
+	-- returns early, so every assertion below would be about a folder nobody built.
+	--
+	-- IT IS BRANCHED, NOT ARCHIVED, AND THAT IS DELIBERATE. Section 17 step 9 archives this file
+	-- only after Karen has walked the map and accepted it; until then the arena is the ROLLBACK, and
+	-- a spec that was deleted cannot check a rollback. So while the map is the world this file
+	-- asserts the one thing that is still true of the arena -- that it is not there -- and the rest
+	-- of its cases come back with the arena if the switch is ever reverted.
+	if Map.EXPECTED_WORLD ~= "arena" then
+		describe("the grey-box test arena", function()
+			it("is not built, because it is not the world any more", function()
+				-- NO COUNT HERE. It used to say "its 12 cases are dormant" and there were ten, which
+				-- is what a hand-kept number does (review round 1, note). The file names itself
+				-- instead, and that cannot go stale.
+				TestKit.note(
+					string.format(
+						"test_arena: world=%s, the arena is not built; this file's other cases are "
+							.. 'dormant until the switch goes back to "arena"',
+						Map.EXPECTED_WORLD
+					)
+				)
+				expect(Workspace:FindFirstChild(FOLDER_NAME)).to.equal(nil)
+				-- ...and the module is still here, still requireable, still the rollback: section 17
+				-- step 9 archives it only after Karen accepts the map.
+				expect(TestArena.build).to.be.a("function")
+				expect(TestArena.LAYOUT.ground.span).to.equal(GROUND_SPAN)
+			end)
+		end)
+		return
+	end
+
 	describe("test arena", function()
 		it("is built under one Workspace folder", function()
 			local folder = waitForArena()

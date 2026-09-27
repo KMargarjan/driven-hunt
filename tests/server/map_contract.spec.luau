@@ -72,8 +72,15 @@ local function waitForRoot(name: string)
 	return root
 end
 
+-- ONE COMMITTED STRING, read once (design section 17; the Director's decision of 2026-09-27 after
+-- Task 79 measured what a flag would cost here -- `ESCALATE.md`). Every live-world assertion below
+-- goes through these three, so the spec follows the switch rather than being rewritten by it.
+local WORLD = Map.EXPECTED_WORLD
+local FIELD = Map.FIELD
+local COUNTS = Map.EXPECTED_COUNTS
+
 local function namedRootName(): string
-	return if Map.EXPECTED_WORLD == "arena" then ARENA_ROOT else MAP_ROOT
+	return if WORLD == "arena" then ARENA_ROOT else MAP_ROOT
 end
 
 local function taggedInside(root: Instance, tag: string): { BasePart }
@@ -98,7 +105,7 @@ end
 return function()
 	describe("the map contract", function()
 		it("names exactly one world, and that world is the one that exists", function()
-			expect(Map.EXPECTED_WORLD == "arena" or string.sub(Map.EXPECTED_WORLD, 1, 4) == "map:").to.equal(true)
+			expect(WORLD == "arena" or string.sub(WORLD, 1, 4) == "map:").to.equal(true)
 			local named = waitForRoot(namedRootName())
 			expect(named).to.be.ok()
 			-- The OTHER root must be absent. Two worlds in Workspace means the generated map was left
@@ -115,7 +122,7 @@ return function()
 			-- hillside, and the run prints PASS. A world check that names a folder and ignores the
 			-- ground is the audit this project already paid for once.
 			local cells = Workspace.Terrain:CountCells()
-			if Map.EXPECTED_WORLD == "arena" then
+			if WORLD == "arena" then
 				-- The arena is built from parts on a flat plate at y = 0 and writes no terrain at all.
 				if cells ~= 0 then
 					error(
@@ -140,7 +147,7 @@ return function()
 			-- was about: the voxels are gone, every other check passes, and the place is still orange.
 			--
 			-- Read from the ENGINE, never from the table that wrote it.
-			local want = if Map.EXPECTED_WORLD == "arena" then Map.PALETTE_DEFAULT else Map.PALETTE
+			local want = if WORLD == "arena" then Map.PALETTE_DEFAULT else Map.PALETTE
 			local got = MapGen.Ground.readPalette(MapGen.CONFIG)
 			for role, colour in pairs(want) do
 				local now = got[role]
@@ -157,7 +164,7 @@ return function()
 							math.round(now.R * 255),
 							math.round(now.G * 255),
 							math.round(now.B * 255),
-							Map.EXPECTED_WORLD,
+							WORLD,
 							math.round(colour.R * 255),
 							math.round(colour.G * 255),
 							math.round(colour.B * 255)
@@ -175,7 +182,7 @@ return function()
 		it("resolves every tag to exactly the expected count, all inside the named world", function()
 			local root = waitForRoot(namedRootName())
 			for kind, tag in pairs(Map.TAGS) do
-				local want = Map.EXPECTED_COUNTS[kind]
+				local want = COUNTS[kind]
 				expect(want).to.be.a("number")
 				local inside = taggedInside(root, tag)
 				if #inside ~= want then
@@ -280,18 +287,81 @@ return function()
 			end
 		end)
 
-		it("agrees with the boar about the field rectangle", function()
+		it("agrees with the boar about the field rectangle, in whichever world this is", function()
+			-- THE SWITCH'S ONE REAL INVARIANT (design section 17 step 6): the boar hunts in the
+			-- rectangle the contract names, and the switch changes both together. A commit that
+			-- moved one and forgot the other is exactly what this catches.
 			local field = Boar.CONFIG.field
-			expect(field.bounds.minX).to.equal(Map.FIELD.bounds.minX)
-			expect(field.bounds.maxX).to.equal(Map.FIELD.bounds.maxX)
-			expect(field.bounds.minZ).to.equal(Map.FIELD.bounds.minZ)
-			expect(field.bounds.maxZ).to.equal(Map.FIELD.bounds.maxZ)
-			expect(field.exitZ).to.equal(Map.FIELD.exitZ)
-			expect(field.groundY).to.equal(Map.FIELD.groundY)
+			expect(field.bounds.minX).to.equal(FIELD.bounds.minX)
+			expect(field.bounds.maxX).to.equal(FIELD.bounds.maxX)
+			expect(field.bounds.minZ).to.equal(FIELD.bounds.minZ)
+			expect(field.bounds.maxZ).to.equal(FIELD.bounds.maxZ)
+			expect(field.exitZ).to.equal(FIELD.exitZ)
+			expect(field.groundY).to.equal(FIELD.groundY)
 		end)
 
 		it("keeps the streaming properties the contract names", function()
 			expect(Workspace.StreamingEnabled).to.equal(Map.STREAMING.enabled)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- M2.8e: the switch
+	--
+	-- ONE COMMITTED STRING, AND IT IS NOT A FEATURE FLAG. Task 79 built the flag version first and
+	-- measured what it cost: with the map in Workspace and the flag off, eleven specs failed and
+	-- `GetTagged("DrivenHunt.ShooterPost")` answered SIXTEEN, because both worlds tag with the same
+	-- strings. A flag lives in code; the world lives in the PLACE. Director decision, 2026-09-27,
+	-- recorded in `ESCALATE.md` and in CLAUDE.md's "Feature flags" section: this switches by commit,
+	-- and the rollback is a commit back to "arena" plus `mapgen.py clear`.
+	describe("the map switch", function()
+		it("names one world, and the whole contract names the same one", function()
+			expect(WORLD).to.equal("map:v1")
+			expect(Map.SEED).to.equal(1)
+			-- The digest is either empty -- the place has not been rebuilt for this commit yet --
+			-- or a full sha256. Never a truncated one, which is how a digest stops being a digest.
+			expect(Map.DIGEST == "" or #Map.DIGEST == 64).to.equal(true)
+		end)
+
+		it("carries the design's corridor, and the boars cross the road", function()
+			-- design section 15.1: 1,240 studs wide to hold a 1,120-stud shooter line...
+			expect(FIELD.bounds.minX).to.equal(-620)
+			expect(FIELD.bounds.maxX).to.equal(620)
+			expect(FIELD.bounds.minZ).to.equal(-880)
+			expect(FIELD.bounds.maxZ).to.equal(800)
+			expect(FIELD.bounds.maxX - FIELD.bounds.minX).to.equal(1240)
+			-- ...and exitZ is PAST the forest road, not on it: Karen's decision that the boar
+			-- crosses the road and is gone. This is the one assertion that would catch a switch
+			-- that moved the rectangle but left the exit where the arena's was.
+			expect(FIELD.exitZ).to.equal(-820)
+			expect(FIELD.exitZ < Map.ROAD.z).to.equal(true)
+			expect(Map.ROAD.z - FIELD.exitZ).to.equal(120)
+			expect(FIELD.groundY).to.equal(0)
+		end)
+
+		it("expects the map's twelve tie trees, not the arena's four", function()
+			expect(COUNTS.tree).to.equal(12)
+			expect(COUNTS.shooterPost).to.equal(8)
+		end)
+
+		it("leaves no grey box in the world it does not name", function()
+			-- `ArenaBoot` returns early, so the arena is NOT BUILT -- not hidden, not moved. This is
+			-- the assertion that catches a switch whose early return never fired.
+			expect(Workspace:FindFirstChild(ARENA_ROOT)).to.equal(nil)
+			TestKit.note(
+				string.format(
+					"task79: world=%s seed=%d digest=%s, boar field x[%d,%d] z[%d,%d] exitZ=%d, arena=%s, map=%s",
+					WORLD,
+					Map.SEED,
+					if Map.DIGEST == "" then "(pending)" else string.sub(Map.DIGEST, 1, 12),
+					Boar.CONFIG.field.bounds.minX,
+					Boar.CONFIG.field.bounds.maxX,
+					Boar.CONFIG.field.bounds.minZ,
+					Boar.CONFIG.field.bounds.maxZ,
+					Boar.CONFIG.field.exitZ,
+					if Workspace:FindFirstChild(ARENA_ROOT) then "built" else "absent",
+					if Workspace:FindFirstChild(MAP_ROOT) then "in Workspace" else "absent"
+				)
+			)
 		end)
 	end)
 

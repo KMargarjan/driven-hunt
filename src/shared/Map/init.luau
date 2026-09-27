@@ -38,20 +38,39 @@ Map.VERSION = "v1"
 -- digest and a build end up disagreeing about which generator made the map.
 Map.GENERATOR = "m2.8c-road-furniture"
 
--- THE SWITCH (design section 9). "arena" or "map:v1". Milestone 2.1 builds the 512-stud slice as an
--- EDIT-TIME artefact and does not make it the world: the grey box is still what a player stands in,
--- still the rollback, and still what every existing spec is written against. M2.5 flips this, sets
--- SEED and DIGEST, and changes FIELD and Boar.CONFIG.field together.
-Map.EXPECTED_WORLD = "arena"
-Map.SEED = 0 -- the seed the committed map was built from; 0 while "arena"
-Map.DIGEST = "" -- the digest that seed produced; "" while "arena"
+-- THE SWITCH (design section 9, and section 17). "arena" or "map:v1": ONE COMMITTED STRING, in a
+-- diff, read by `tests/server/map_contract.spec.luau` and by `ArenaBoot`, which returns early when
+-- this is not "arena" so the grey box is not built.
+--
+-- IT IS NOT A FEATURE FLAG, AND TASK 79 MEASURED WHY (Director decision, 2026-09-27, recorded in
+-- `ESCALATE.md` and in CLAUDE.md's "Feature flags" section). A flag lives in code; THE WORLD LIVES
+-- IN THE PLACE. Built behind a flag, the map sat in Workspace with the flag off and the same commit
+-- went from 32/32 checks to 22/27 with eleven specs failing -- including
+-- `GetTagged("DrivenHunt.ShooterPost")` answering **16**, because both worlds tag with the same
+-- strings, which would have put shooters on map posts 700 studs away. A switch that cannot be
+-- switched off is not a switch. So this flips by COMMIT, and the rollback is a commit back to
+-- "arena" plus `python tools/mapgen.py clear --backup <accepted>` -- the terrain and the palette go
+-- with it, which is audit-004's point and why `clear` restores `PALETTE_DEFAULT`.
+--
+-- It cannot be half-on, and it is never answered by looking for a folder in Workspace: a predicate
+-- like that lies the moment a run half-finishes.
+Map.EXPECTED_WORLD = "map:v1"
+Map.SEED = 1 -- the seed the committed map was built from
+-- The digest that seed produced, filled from the build that made the place this commit describes:
+-- `mapgen.py build --seed 1` prints it and `mapgen.py digest` reads it back out of Studio.
+Map.DIGEST = "e064d5982513a08616d2bf367f61c30ca3d9e753d4db8755e5fc04f3467deae5"
 
--- THE DRIVE RECTANGLE. While EXPECTED_WORLD is "arena" these are the ARENA's numbers, because
--- map_contract.spec asserts Boar.CONFIG.field deep-equals this and the boar is still hunting in the
--- grey box. At the switch both change together, to the design's section 12 corridor.
+-- THE DRIVE RECTANGLE, and `Boar.CONFIG.field` must deep-equal it -- map_contract.spec asserts that,
+-- and the switch changes both together (design section 17 step 6).
+--
+-- SINCE M2.8e THESE ARE THE MAP'S NUMBERS (design section 15.1): 1,240 studs wide, to hold a
+-- 1,120-stud shooter line, and `exitZ` 120 studs PAST the forest road at z = -700 -- Karen's
+-- decision that the boars CROSS the road rather than stopping at it. `groundY` stays 0, which is
+-- why the switch needs no other boar change. The arena's old rectangle (x, z +-200, exitZ -190) is
+-- the rollback and lives in git, not in a second table here.
 Map.FIELD = {
-	bounds = { minX = -200, maxX = 200, minZ = -200, maxZ = 200 },
-	exitZ = -190,
+	bounds = { minX = -620, maxX = 620, minZ = -880, maxZ = 800 },
+	exitZ = -820,
 	groundY = 0,
 } :: FieldRect
 
@@ -69,7 +88,10 @@ Map.TAGS = {
 -- The counts of the world EXPECTED_WORLD NAMES, so the spec can assert them without a branch of its
 -- own. The arena tags its four corner pillars as tie trees; the generated map tags twelve near the
 -- line (design section 4.3), and this table changes with the switch.
-Map.EXPECTED_COUNTS = { shooterPost = 8, driveLine = 1, driverStart = 1, boarSpawn = 4, tree = 4 }
+-- SINCE M2.8e: twelve tie trees, not the arena's four corner pillars (design section 4.3, section
+-- 15.1's "Tie trees" row). The other four counts are the same in both worlds, because it is the
+-- same drive.
+Map.EXPECTED_COUNTS = { shooterPost = 8, driveLine = 1, driverStart = 1, boarSpawn = 4, tree = 12 }
 
 -- MEASURED 2026-09-26 in Studio 0.740.19 (Task 43), and it contradicts the design's assumption that
 -- streaming is off until M2.6:

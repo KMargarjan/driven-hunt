@@ -36,11 +36,13 @@ two clients, so a one-player run says nothing about them. `tools/agents.py` refu
 without the `[harness2]` line for the same code commit. Docs, and the tools that are not this
 harness, are exempt -- `test2` costs a human click and about eight minutes.
 
-`selftest` is the exception to "needs Studio": it exercises the pure helpers only -- wait_for_each,
-the reply keying, send_input_many, and the scenario file -- so it runs in CI, with no Studio, no
-place and no network, in under a second. Exit 0 PASS, 1 FAIL. It exists because the concurrency
-Task 50 added is only interesting with SEVERAL subjects, and no run on this machine reaches that
-without two clients and a human click.
+`selftest` is the exception to "needs Studio": no Studio, no place and no network, in under a
+second, so it runs in CI. It covers the pure helpers -- wait_for_each, the reply keying,
+send_input_many, the flag parser and the scenario file -- and, since Task 78 and Task 79, three
+things that are not helpers at all: `run_flags` and `replay_input` driven against a SCRIPTED Studio
+that answers whatever the case wants, and source-shape checks over the queries themselves.
+Exit 0 PASS, 1 FAIL. It exists because the concurrency Task 50 added is only interesting with SEVERAL
+subjects, and no run on this machine reaches that without two clients and a human click.
 
 Moving parts
   tests/TestKit.luau -> ReplicatedStorage.TestKit
@@ -176,12 +178,32 @@ Staging a scenario (Task 30): putting the player somewhere useful, pointing at s
   A replayed click fires wherever the camera is already looking, and the harness cannot aim: the
   camera's yaw is mouse-driven and under MouseBehavior = LockCenter StudioMCP's moveTo delivers no
   usable InputObject.Delta (docs/design/camera.md 9.3). So a scenario may carry a `stage` block, which
-  the replay runs against the Client DataModel immediately before that scenario's steps:
-    * it WAITS up to 60 s for the first BasePart inside Workspace.<targetFolder> -- the target.
-      It waits rather than failing on the first look because since Milestone 1.7a the boars belong
-      to the drive: none exists until the match releases one, about INTERMISSION_SECONDS +
-      FIRST_RELEASE_SECONDS (~40 s) into a session, which is a real part of the game's timing and
-      not a fault;
+  the replay runs against the Client DataModel immediately before that scenario's steps.
+
+  FIRST THE SERVER IS ASKED WHERE THE TARGET IS, and that is the one source for it (Task 79,
+  QUERY_STAGE_TARGET + stage_seed):
+    * the SERVER waits up to STAGE_TARGET_WAIT_SECONDS (60 s) for the first BasePart inside
+      Workspace.<targetFolder>. It waits rather than failing on the first look because since
+      Milestone 1.7a the boars belong to the drive: none exists until the match releases one, about
+      INTERMISSION_SECONDS + FIRST_RELEASE_SECONDS into a session -- measured at 40.3 s in the
+      generated map -- which is a real part of the game's timing and not a fault;
+    * the client is then PLACED AT THAT POSITION before it waits for anything, and waits only
+      STAGE_STREAM_WAIT_SECONDS (30 s) for the part to be replicated to it.
+
+    WHY, because it is not obvious and it cost a run: a client is only sent instances within
+    Workspace.StreamingTargetRadius of its character, which is 1,024 (Map.STREAMING). In the
+    400-stud grey-box arena everything is always inside that, so the client could simply wait for
+    the boar. In the generated map it cannot: a boar is released at z = +600 and the lone player in a
+    one-player run is a shooter on the forest road at z = -700, ~1,300 studs away, so the boar is
+    NEVER replicated to that client. The client waited its whole budget for something that was never
+    coming, `shoot-the-boar` could not stage, and `zz_drive_boundary` then waited for a client report
+    that never arrived. A bigger budget could not have fixed it. If the part STILL does not arrive,
+    the failure names the server's position, the character's position, the distance between them and
+    the radius, so the next reader does not have to measure it again.
+    THE ARENA PATH IS UNCHANGED: if the server cannot be asked, or answers no usable position, the
+    stage runs exactly as it did before -- no seed, and the client's own 60 s wait against the same
+    folder. The seed only ever adds a pivot that the pivot below supersedes.
+  Then, as before:
     * it moves the player's character to target.Position + offsetStuds (PivotTo: the client owns its
       own character, so this is the character's own writer);
     * it sets the LocalPlayer attribute `StagedTarget` to the target's full name, so a spec can
@@ -359,8 +381,9 @@ How long a run takes, and what it is waiting for (Task 50)
       run that replays them, it belongs to the specs that assert against those gaps, and the
       harness does not shorten it.
     - a one-player `test` is about 90 s: ~4 s of Edit-place checks, ~65 s of replay (34 s of
-      scenario gaps, ~22 s inside the `stage` query waiting for the drive to release a boar, ~5 s
-      of calls), ~19 s waiting for the two reports.
+      scenario gaps, ~22 s waiting for the drive to release a boar -- since Task 79 that wait is in
+      the SERVER query the stage asks first, not in the client one, ~5 s of calls), ~19 s waiting
+      for the two reports.
 
   EVERY PER-PROCESS WAIT IN `test2` IS ROUND-ROBIN against one deadline (wait_for_each), and the
   same batch of input goes to both clients in one round trip (Studio.send_input_many), because more
@@ -483,6 +506,13 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = os.path.join(REPO, "default.project.json")
 TOKEN_FILE = os.path.join(REPO, "tests", "sync-token.txt")
 SCENARIO_FILE = os.path.join(REPO, "tests", "client", "input_scenarios.txt")
+# THE TWO HALVES OF A STAGE'S WAIT (Task 79). The SERVER waits for the drive to release a boar at all
+# -- about INTERMISSION_SECONDS + FIRST_RELEASE_SECONDS, measured at 40.3 s in the generated map, so
+# 60 s leaves margin without being a budget nobody can explain. The CLIENT then waits only for that
+# boar to be REPLICATED to it, which is a network hop and a streaming decision, not a game clock.
+# A stage with no seed falls back to the client doing the whole wait, which is what it did before.
+STAGE_TARGET_WAIT_SECONDS = 60
+STAGE_STREAM_WAIT_SECONDS = 30
 SCREENSHOT_DIR = os.path.join(REPO, ".screenshots")
 SPEC_ROOTS = {"server": ("ServerStorage", "Tests"), "client": ("ReplicatedStorage", "ClientTests")}
 
@@ -496,22 +526,112 @@ return if v and v:IsA("StringValue") then v.Value else "<missing>"
 # name is a Luau string literal, not luau_json's JSON-in-a-long-bracket: that would ask Studio for an
 # attribute whose name includes the quote characters, and every read would come back empty.
 QUERY_READY = 'local p = game:GetService("Players").LocalPlayer return p and p:GetAttribute("%s") or ""'
+# WHERE THE SERVER'S OWN TARGET IS (Task 79). Read-only, constant, and templated only with JSON --
+# the same property every query in this file has: it sends no arbitrary Luau.
+#
+# WHY IT EXISTS. `QUERY_STAGE` runs in the CLIENT datamodel and used to wait there for the first
+# BasePart inside Workspace.<targetFolder>. In the 400-stud arena that always worked, because the
+# whole world is inside the streaming radius. In the generated map it cannot: a boar is released at
+# z = +600 and the one player in a one-player run is a shooter on the forest road at z = -700, so the
+# boar is ~1,300 studs away against Workspace.StreamingTargetRadius = 1024 (Map.STREAMING) and is
+# NEVER replicated to that client. The client waited its whole budget for something that was never
+# coming, `shoot-the-boar` could not stage, and `zz_drive_boundary` then waited for a client report
+# that never arrived. A longer budget could not have fixed it (measured, Task 79, TASKS.md 79a(i)).
+#
+# So the SERVER is asked -- it is the boar's owner and the one place that always knows where its own
+# boar is -- and the client is placed there FIRST, which is what makes streaming bring the boar in.
+QUERY_STAGE_TARGET = """
+local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local want = HttpService:JSONDecode(%s)
+-- WAIT for a target rather than failing on the first look: since the drive owns the boars
+-- (Milestone 1.7a) the folder is empty until the match releases one, which is a real part of the
+-- game's timing and not a fault.
+local deadline = os.clock() + want.waitSeconds
+local target = nil
+repeat
+    local folder = Workspace:FindFirstChild(want.targetFolder)
+    target = folder and folder:FindFirstChildWhichIsA("BasePart")
+    if not target then
+        task.wait(0.25)
+    end
+until target or os.clock() > deadline
+if not target then
+    return HttpService:JSONEncode({
+        error = string.format(
+            "the SERVER has no BasePart inside Workspace.%%s after %%d s: the drive released nothing",
+            tostring(want.targetFolder),
+            math.floor(want.waitSeconds)
+        ),
+    })
+end
+-- THE RADIUS COMES FROM THE CONTRACT, NOT FROM WORKSPACE, and Task 79 learned that twice. The
+-- first version of this query read it off Workspace and every stage in a real run
+-- came back "not a valid member of Workspace" and fell back to the old path -- which
+-- `src/shared/Map/init.luau` had already written down: that property and its three neighbours are
+-- NOT reachable from Luau, only from the Studio property pane. So it is
+-- read from `Map.STREAMING`, the one source for the value the place was configured with.
+--
+-- A `require` here gets execute_luau's own module copy, which for `Map` is exactly right: it is
+-- frozen data with no runtime writer, so a fresh copy is the same table (Task 78's cache hazard is
+-- about a module whose Source changed under a live one). pcall'd, because this value only decorates
+-- a message: a missing Map must not cost a stage.
+local radius = -1
+local loaded, Map = pcall(function()
+    return require(ReplicatedStorage:WaitForChild("Map", 10))
+end)
+if loaded and type(Map) == "table" and type(Map.STREAMING) == "table" then
+    radius = Map.STREAMING.targetRadius or -1
+end
+local at = target.Position
+return HttpService:JSONEncode({
+    name = target:GetFullName(),
+    position = { at.X, at.Y, at.Z },
+    streamingRadius = radius,
+})
+"""
 # Staging (Task 30): place the character in front of a target and ask the CAMERA OWNER to aim at it.
 # Templated with the scenario's own `stage` block as JSON. It writes two things and only two: the
 # character's pivot (the client owns its own character) and, through the owner's request function,
 # the camera's yaw and pitch. workspace.CurrentCamera is never touched here -- Camera.Rig is its only
 # writer in the repo, and reaching the live module any other way is impossible because execute_luau
 # has its own module cache (a require() through it reports a fresh module: mode=Loading, frames=0).
+# SINCE TASK 79 it is also handed `seedPosition` -- where the SERVER said the target is, from
+# QUERY_STAGE_TARGET above -- and `waitSeconds`. The pivot at the seed is the SAME writer, done once
+# more: still only the character's own pivot and the camera owner's request function.
 QUERY_STAGE = """
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 local stage = HttpService:JSONDecode(%s)
+local offset = Vector3.new(stage.offsetStuds[1], stage.offsetStuds[2], stage.offsetStuds[3])
+
+-- GO TO THE TARGET BEFORE WAITING FOR IT (Task 79). `seedPosition` is where the SERVER says its own
+-- target is, asked a moment ago through QUERY_STAGE_TARGET; the header on that query says why. A
+-- client is only sent instances inside StreamingTargetRadius of its character, so standing here is
+-- what makes the target arrive at all. It is the same PivotTo this query already ended with -- one
+-- writer, the client's own character -- just done twice: once at the server's position, and again
+-- below at the replicated part's own position, because a boar moves while this runs.
+--
+-- WITH NO SEED NOTHING CHANGES: the wait below is the arena's original 60 s against the same folder,
+-- and the arena never needs a seed because its whole world is inside the streaming radius.
+local seed = nil
+if stage.seedPosition then
+    seed = Vector3.new(stage.seedPosition[1], stage.seedPosition[2], stage.seedPosition[3])
+    local early = Players.LocalPlayer
+    local body = early and early.Character
+    if body then
+        body:PivotTo(CFrame.new(seed + offset))
+    end
+end
+
 -- WAIT for a target rather than failing on the first look: since the drive owns the boars
 -- (Milestone 1.7a) the folder is empty until the match releases one, which is a real part of the
 -- game's timing and not a fault.
-local deadline = os.clock() + 60
+local deadline = os.clock() + stage.waitSeconds
 local target = nil
 repeat
     local folder = Workspace:FindFirstChild(stage.targetFolder)
@@ -521,7 +641,34 @@ repeat
     end
 until target or os.clock() > deadline
 if not target then
-    return "no BasePart inside Workspace." .. tostring(stage.targetFolder) .. " after 60 s"
+    if not seed then
+        return string.format(
+            "no BasePart inside Workspace.%%s after %%d s",
+            tostring(stage.targetFolder),
+            math.floor(stage.waitSeconds)
+        )
+    end
+    -- NAME THE DISTANCE AND THE RADIUS, because that is the whole diagnosis in one line: the server
+    -- has a target, this client was placed at it, and it still did not arrive.
+    local late = Players.LocalPlayer
+    local body = late and late.Character
+    local here = if body then body:GetPivot().Position else seed + offset
+    return string.format(
+        "the SERVER's %%s is at (%%d, %%d, %%d) but no BasePart reached Workspace.%%s on this client "
+            .. "after %%d s: the character is at (%%d, %%d, %%d), %%d studs from it, and "
+            .. "Map.STREAMING.targetRadius is %%d -- nothing further than that is replicated",
+        tostring(stage.targetName),
+        math.floor(seed.X),
+        math.floor(seed.Y),
+        math.floor(seed.Z),
+        tostring(stage.targetFolder),
+        math.floor(stage.waitSeconds),
+        math.floor(here.X),
+        math.floor(here.Y),
+        math.floor(here.Z),
+        math.floor((seed - here).Magnitude),
+        math.floor(stage.streamingRadius)
+    )
 end
 local player = Players.LocalPlayer
 local character = player and player.Character
@@ -529,7 +676,6 @@ if not character then
     return "no character to place"
 end
 
-local offset = Vector3.new(stage.offsetStuds[1], stage.offsetStuds[2], stage.offsetStuds[3])
 character:PivotTo(CFrame.new(target.Position + offset))
 
 local scripts = player:FindFirstChild("PlayerScripts")
@@ -1142,7 +1288,7 @@ def synced_nodes():
     return nodes
 
 
-def json_answer(studio, code, studio_id=None):
+def json_answer(studio, code, studio_id=None, datamodel="Edit"):
     """Run a query whose answer is a JSON object -> (object, problem). NEVER RAISES ON WHAT STUDIO SAID.
 
     THE ONE PLACE A FLAGS ANSWER IS PARSED (round 2's blocking finding). Every query built on
@@ -1152,8 +1298,12 @@ def json_answer(studio, code, studio_id=None):
     not JSON ended a Director's command in a traceback and a harness check in
     "harness error: JSONDecodeError" with its own evidence string never printed. A caller cannot make
     that mistake through this function, whatever a future query answers.
+
+    `datamodel` is "Edit" for the flag queries this was written for and "Server" for the staging
+    query Task 79 added -- the shape rule and the parser are the same wherever the answer comes from.
     """
-    raw = studio.query("Edit", code, studio_id=studio_id) if studio_id else studio.query("Edit", code)
+    raw = (studio.query(datamodel, code, studio_id=studio_id) if studio_id
+           else studio.query(datamodel, code))
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
@@ -1645,7 +1795,52 @@ def scenario_batches(steps):
     return batches
 
 
-def replay_input(studio, data, token, check, studio_id=None, mirror_ids=()):
+def stage_seed(studio, stage, server_id=None):
+    """Where the SERVER says the stage's target is -> (args for QUERY_STAGE, one line for the log).
+
+    TASK 79, AND IT IS THE HARNESS'S BUG, NOT THE GAME'S (rule 6). The client cannot be asked to wait
+    for a boar it will never be sent: outside StreamingTargetRadius nothing is replicated, and in the
+    generated map the lone shooter stands ~1,300 studs from the release point against a radius of
+    1,024. So the boar's OWNER is asked instead -- one source, the server's own boar -- and the
+    client is placed there before it waits, which is what brings the boar in.
+
+    IT NEVER TURNS A WORKING RUN INTO A FAILING ONE. If the server cannot be asked, or answers
+    something unusable, the stage runs exactly as it did before Task 79: no seed, and the client's own
+    60 s wait against the same folder. That is the arena's path, and the arena needs no seed at all --
+    its whole world is inside the radius. The reason is printed either way, because a stage that
+    silently lost its seed would be a slower, less explicable failure next time."""
+    args = dict(stage)
+    args["waitSeconds"] = STAGE_TARGET_WAIT_SECONDS
+    args["seedPosition"] = None
+    args["targetName"] = ""
+    # Only the SERVER query reads this, and it reads it from `Map.STREAMING` -- see the comment there.
+    # The client just prints what it was handed, so there is one reader of the radius, not two.
+    args["streamingRadius"] = -1
+    ask = luau_json({"targetFolder": stage["targetFolder"],
+                     "waitSeconds": STAGE_TARGET_WAIT_SECONDS})
+    try:
+        found, problem = json_answer(studio, QUERY_STAGE_TARGET % ask,
+                                     studio_id=server_id, datamodel="Server")
+    except Exception as why:  # noqa: BLE001 -- the transport, not the answer; both fall back
+        found, problem = None, f"{type(why).__name__}: {why}"
+    if found:
+        at = found.get("position")
+        if (isinstance(at, list) and len(at) == 3
+                and all(isinstance(v, (int, float)) for v in at)):
+            args["seedPosition"] = at
+            args["targetName"] = str(found.get("name") or stage["targetFolder"])
+            radius = found.get("streamingRadius")
+            args["streamingRadius"] = radius if isinstance(radius, (int, float)) else -1
+            # The client now waits only for replication, not for the drive's clock.
+            args["waitSeconds"] = STAGE_STREAM_WAIT_SECONDS
+            return args, (f"the server's {args['targetName']} is at "
+                          f"({at[0]:.0f}, {at[1]:.0f}, {at[2]:.0f}); the client is placed there "
+                          f"first, Map.STREAMING.targetRadius {args['streamingRadius']:.0f}")
+        problem = f"the server's answer carries no usable position: {str(found)[:120]}"
+    return args, f"NO SEED, staging as before Task 79 ({problem})"
+
+
+def replay_input(studio, data, token, check, studio_id=None, mirror_ids=(), server_id=None):
     """Replay every scenario into the running Play client(s). Adds two checks per run (three with a
     `stage`). `studio_id` names WHICH client in a 2-player run; None means "the only one".
 
@@ -1654,7 +1849,10 @@ def replay_input(studio, data, token, check, studio_id=None, mirror_ids=()):
     every input-driven spec on his client failed by construction and `test2` could only print his
     report as an observation. The steps cost him nothing (he holds no Tool, so the weapon keys do
     nothing) and they let his half of the suite assert what IS true of a driver. The STAGE stays on
-    one client: it pivots the character, and two characters staged onto the same boar is a scrum."""
+    one client: it pivots the character, and two characters staged onto the same boar is a scrum.
+
+    `server_id` names the SERVER process, which a stage asks where its target is (Task 79, see
+    stage_seed). In a one-player `test` that is the same Studio, so it is None there too."""
     # Validated in load_scenarios, before Play, with the rest of the file's refusals (6a(c)).
     ready_attr = data.get("readyAttribute", "InputProbeReady")
     targets = [studio_id] + [i for i in mirror_ids if i != studio_id]
@@ -1685,8 +1883,11 @@ def replay_input(studio, data, token, check, studio_id=None, mirror_ids=()):
         if stage:
             # Before the steps, never after: a click is only worth sending once the player is standing
             # where the scenario needs them and the camera owner has been asked to look at the target.
+            args, why = stage_seed(studio, stage, server_id=server_id)
+            print(f"[input] {scenario.get('name')}: {why}")
             try:
-                result = studio.query("Client", QUERY_STAGE % luau_json(stage), studio_id=studio_id).strip()
+                result = studio.query("Client", QUERY_STAGE % luau_json(args),
+                                      studio_id=studio_id).strip()
             except Exception as e:
                 result = f"{type(e).__name__}: {e}"
             staged.append(f"{scenario.get('name')}: {result}")
@@ -2339,7 +2540,8 @@ def run_test2(studio, wait_seconds=180):
         else:
             # BOTH clients, one stage. See replay_input: the driver's half of the suite is only
             # assertable if his client receives the same input the shooter's does.
-            replay_input(studio, scenarios, token, check, studio_id=shooter, mirror_ids=[other])
+            replay_input(studio, scenarios, token, check, studio_id=shooter, mirror_ids=[other],
+                         server_id=server)
 
         # ALL THREE AT ONCE, against ONE deadline. Read one after another, each with its own
         # window, a slow client is waited for only after the previous one has run its window out:
@@ -2833,6 +3035,170 @@ def selftest():
        "JSONEncode({ error" in FRESH_FLAGS and 'return "' not in flag_queries,
        repr([line for line in flag_queries.splitlines() if 'return "' in line]))
 
+    # 9c. STAGING ACROSS THE STREAMING RADIUS (Task 79), driven OFFLINE against a scripted Studio.
+    # The defect it locks down cost a run and could not be seen from the harness's output: the client
+    # stage waited its whole budget for a boar 1,300 studs away that Roblox was never going to
+    # replicate to it, and the only symptom was "stage failed" plus a spec that never reported. These
+    # cases drive the REAL `replay_input` -- the seed query, the fallback and the check -- and assert
+    # what the client was actually asked, not that nothing crashed.
+    STAGE_TOKEN = "deadbeefdeadbeef:1759000000"
+    MAP_BOAR = '{"name": "Workspace.Boars.Boar_1", "position": [12.5, 5.0, 600.0], ' \
+               '"streamingRadius": 1024}'
+    STAGED = "staged on Workspace.Boars.Boar_1, 22 studs away"
+    LOST = ("the SERVER's Workspace.Boars.Boar_1 is at (12, 5, 600) but no BasePart reached "
+            "Workspace.Boars on this client after 30 s: the character is at (12, 6, -700), "
+            "1300 studs from it, and Map.STREAMING.targetRadius is 1024 -- nothing further "
+            "than that is replicated")
+
+    class StagingStudio:
+        """The smallest thing `replay_input` needs: a client that is ready, a server that knows where
+        its boar is (or cannot say), and a client stage that answers whatever this case wants."""
+
+        def __init__(self, server_answer, client_answer):
+            self.server_answer = server_answer
+            self.client_answer = client_answer
+            self.asked = []          # (datamodel, code) in the order they were asked
+            self.default_studio_id = None
+
+        def query(self, datamodel, code, studio_id=None):
+            self.asked.append((datamodel, code))
+            if datamodel == "Server":
+                if isinstance(self.server_answer, Exception):
+                    raise self.server_answer
+                return self.server_answer
+            if "GetAttribute" in code:      # QUERY_READY, the handshake before any stage
+                return STAGE_TOKEN
+            return self.client_answer
+
+        def send_input_many(self, device, actions, studio_ids):
+            return {studio_id: None for studio_id in studio_ids}
+
+    def stages(server_answer, client_answer):
+        """-> (the stage check's (ok, detail), the JSON the CLIENT stage was handed, the log)."""
+        studio = StagingStudio(server_answer, client_answer)
+        results = {}
+
+        def check(name, ok, detail=""):
+            results[name] = (ok, detail)
+            return ok
+
+        data = {"readyAttribute": "InputProbeReady",
+                "scenarios": [{"name": "shoot-the-boar", "spec": "ClientTests.shoot_boar.spec",
+                               "stage": {"targetFolder": "Boars", "offsetStuds": [0, 1.5, 22]},
+                               "steps": [{"device": "mouse", "action": "moveTo", "x": 4, "y": 4}]}]}
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            try:
+                replay_input(studio, data, STAGE_TOKEN, check)
+            except Exception as why:  # noqa: BLE001 -- a traceback here IS the defect
+                return ("raised", f"raised {type(why).__name__}: {why}"), "", buffer.getvalue()
+        staged = next((v for k, v in results.items() if "staged" in k), ("missing", "no stage check"))
+        code = next((c for datamodel, c in studio.asked
+                     if datamodel == "Client" and "PivotTo" in c), "")
+        # The one part of that 5 kB query worth reading here: the JSON block it was templated with,
+        # which IS what the client was asked to do.
+        head = code.find("[[")
+        tail = code.find("]]", head + 2)
+        return staged, (code[head + 2:tail].strip() if head >= 0 and tail > head else code), \
+            buffer.getvalue()
+
+    # (a) THE MAP'S CASE: the server is asked, in the SERVER datamodel, and the client is handed the
+    #     position so it can stand there BEFORE it waits.
+    staged, client, log = stages(MAP_BOAR, STAGED)
+    ok("a stage asks the server where its target is, and passes the answer to the client",
+       '"seedPosition": [12.5, 5.0, 600.0]' in client, repr(client))
+    ok("  seeded, the client waits only for replication, not for the drive's clock",
+       f'"waitSeconds": {STAGE_STREAM_WAIT_SECONDS}' in client, repr(client))
+    ok("  the target's name goes with it, so a failure can name what did not arrive",
+       '"targetName": "Workspace.Boars.Boar_1"' in client, repr(client))
+    ok("  and the stage passes", staged[0] is True, repr(staged))
+    ok("  the log says where the server's target was, and at what radius",
+       "the server's Workspace.Boars.Boar_1 is at (12, 5, 600)" in log
+       and "targetRadius 1024" in log, repr(log[:300]))
+
+    # (b) THE FAILURE THIS TASK IS ABOUT, when it still happens: the stage failure reaches the CHECK
+    #     rather than being swallowed, carrying the distance and the radius. What it proves is the
+    #     propagation, not `QUERY_STAGE`'s own format string -- that is Luau and unrunnable here, so
+    #     the live run is its only evidence (review round 1, note).
+    staged, _client, _log = stages(MAP_BOAR, LOST)
+    ok("a target that never replicates fails the stage", staged[0] is False, repr(staged))
+    ok("  and it reaches the check carrying the distance and the radius, rather than being swallowed",
+       "1300 studs" in staged[1] and "targetRadius is 1024" in staged[1], repr(staged[1]))
+
+    # (c) THE ARENA PATH, UNCHANGED, and it must survive a server that cannot answer at all: no seed,
+    #     the original 60 s wait, and a stage that still passes. A fix that made the arena depend on
+    #     the new query would have traded one broken world for another.
+    #
+    # EACH CASE NAMES THE WORDS THE LOG MUST CARRY, because "it fell back" is a weaker claim than "it
+    # fell back FOR THIS REASON" -- and round 1's review caught exactly that: the `{error}` fixture was
+    # two adjacent Python literals whose seam left a stray `""`, so it was malformed JSON, `json.loads`
+    # raised, and the case passed through the SAME "did not answer with JSON" branch as the bare-string
+    # case beside it. `{error}` is the one shape `QUERY_STAGE_TARGET` actually produces on its most
+    # likely real failure, and nothing tested it. So the fixture is built with `json.dumps` -- valid by
+    # construction, not by proofreading -- and the case asserts the server's own words reach the log,
+    # which only `json_answer`'s `data.get("error")` branch can do.
+    NO_BOAR = json.dumps({"error": "the SERVER has no BasePart inside Workspace.Boars after 60 s: "
+                                   "the drive released nothing"})
+    # ONE FORBIDDEN PHRASE PER OTHER BRANCH, not just one per case. `json_answer` and `stage_seed`
+    # have three ways to refuse, and two of them REPEAT the server's answer back into the message --
+    # so "the error text is in the log" is satisfied by the wrong branch as easily as the right one.
+    # Breaking `json_answer`'s `data.get("error")` branch proved it: the `{error}` object then arrived
+    # as data with no position, and `carries no usable position: {'error': ...}` still carried every
+    # word this case was looking for. Naming the branches a case must NOT take is what pins it.
+    PARSE, NO_POSITION = "did not answer with JSON", "carries no usable position"
+    FALLBACKS = (
+        # label, the server's answer, the words the log must carry, the branches it must NOT take
+        ("the server query raises", RuntimeError("place is not open"),
+         "RuntimeError: place is not open", (PARSE, NO_POSITION)),
+        ("the server answers a bare string", "REFUSED: no Server datamodel",
+         "Studio did not answer with JSON", (NO_POSITION,)),
+        ("the server answers JSON with no position", '{"name": "Workspace.Boars.Boar_1"}',
+         "carries no usable position", (PARSE,)),
+        ("the server says it has no boar", NO_BOAR,
+         "the SERVER has no BasePart inside Workspace.Boars after 60 s: the drive released nothing",
+         (PARSE, NO_POSITION)),
+    )
+    for label, answer, because, never in FALLBACKS:
+        staged, client, log = stages(answer, STAGED)
+        ok(f"  with no usable seed ({label}) the client stages as it did before Task 79",
+           '"seedPosition": null' in client and f'"waitSeconds": {STAGE_TARGET_WAIT_SECONDS}' in client,
+           repr(client))
+        ok(f"  ...and the stage still passes ({label})", staged[0] is True, repr(staged))
+        ok(f"  ...and says WHY the seed is missing, in these words ({label})",
+           "NO SEED" in log and because in log, repr(log[:400]))
+        # A fixture that is quietly the wrong shape passes the line above for the wrong reason.
+        took = [other for other in never if other in log]
+        ok(f"  ...through the branch this case is about and no other ({label})", not took,
+           f"also took {took}: {log[:300]!r}")
+
+    # (d) THE SERVER QUERY'S OWN SHAPE: one JSON argument and nothing else -- the "sends no arbitrary
+    #     Luau" property these queries are built on -- and the one failure shape `json_answer` reads.
+    ok("the server staging query takes exactly one argument, as JSON",
+       len(re.findall(r"(?<!%)%[sd]", QUERY_STAGE_TARGET)) == 1
+       and "HttpService:JSONDecode(%s)" in QUERY_STAGE_TARGET,
+       repr(re.findall(r"(?<!%)%[sd]", QUERY_STAGE_TARGET)))
+    ok("the server staging query reports failure as JSON, never as a bare string",
+       "JSONEncode({" in QUERY_STAGE_TARGET and "error = string.format(" in QUERY_STAGE_TARGET
+       and 'return "' not in QUERY_STAGE_TARGET,
+       repr([line for line in QUERY_STAGE_TARGET.splitlines() if 'return "' in line]))
+    ok("it writes nothing: no PivotTo, no SetAttribute, no Invoke",
+       not any(word in QUERY_STAGE_TARGET for word in ("PivotTo", "SetAttribute", "Invoke", "Destroy")))
+    # AND THE ONE THAT WOULD HAVE SAVED A RUN. `src/shared/Map/init.luau` records that these four
+    # Workspace properties are not reachable from Luau -- only from the Studio property pane -- and
+    # the first QUERY_STAGE_TARGET read one anyway, so every stage in a live run came back
+    # "StreamingTargetRadius is not a valid member of Workspace" and silently fell back. The radius
+    # comes from `Map.STREAMING` now, and this keeps it that way.
+    # Scanned as `.Name`, not `Workspace.Name`, so `local w = Workspace; w.StreamingTargetRadius` and
+    # lowercase `workspace.` are caught too (review round 1, note). A bare mention of the name in a
+    # comment stays legal, which is why the comments above say "it off Workspace" instead.
+    UNREADABLE = ("StreamingMinRadius", "StreamingTargetRadius", "StreamingIntegrityMode",
+                  "StreamOutBehavior", "ModelStreamingBehavior")
+    reads = [f".{name}" for name in UNREADABLE
+             if f".{name}" in QUERY_STAGE or f".{name}" in QUERY_STAGE_TARGET]
+    ok("no staging query reads a streaming property Luau cannot read", not reads, repr(reads))
+    ok("the radius the failure names comes from the contract",
+       "Map.STREAMING" in QUERY_STAGE_TARGET and "stage.streamingRadius" in QUERY_STAGE)
+
     # 10. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):
         data = load_scenarios()
@@ -2849,7 +3215,8 @@ def selftest():
         print(f"[harness] selftest FAIL: {len(failures)} case(s) wrong")
         return 1
     print("[harness] selftest PASS: wait_for_each overlaps and still bounds every subject; "
-          "replies are keyed by id; send_input_many is one call per target")
+          "replies are keyed by id; send_input_many is one call per target; a stage asks the server "
+          "for its target and falls back to the arena's own wait")
     return 0
 
 
@@ -2876,7 +3243,8 @@ def main(argv):
         sys.exit("usage: python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z] "
                  "[edit|server|client|client:<PlayerName>]")
     if argv[1] == "selftest":
-        # No Studio, no network, no place: pure helpers only, so CI can run it.
+        # No Studio, no network, no place -- the helpers, plus the real run_flags and replay_input
+        # against a scripted Studio. See the docstring's `selftest` paragraph.
         return selftest()
     if argv[1] == "manifest":
         with open(DEVPACKAGES_MANIFEST, "w", encoding="utf-8", newline="\n") as f:

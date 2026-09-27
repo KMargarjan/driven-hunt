@@ -18,14 +18,16 @@
 -- The ON half is the Director's two-player screenshot, by hand, with the flag switched on for that
 -- session only.
 --
--- `zz_` AND IT IS NOT DECORATION. The client suite runs while the harness replays a fixed input
--- scenario into this process, so several specs assert on what the scripted keys and clicks had done
--- BY THE TIME THEY RAN -- `weapon_client`'s end state is an ammo count. Specs load in name order, so
--- a new file inserted before one of those shifts it in the replay: this file first landed as
+-- THE `zz_` PREFIX IS GONE, AND SO IS WHAT IT WAS HIDING (Task 80). This file first landed as
 -- `outfit_client.spec` and `weapon_client` came back with 23 slugs instead of 24 and three shots
--- instead of two, with nothing about the weapon changed. The prefix puts this after them, which is
--- also where a read-only spec belongs. (`zz_tie_to_a_tree` keeps the last word; this one only
--- counts and cannot disturb it.) Reported as a harness fragility in TASKS.md row 77a.
+-- instead of two, with nothing about the weapon changed -- so it was renamed `zz_outfit_client.spec`
+-- to sort after it, and reported as a harness fragility (77a(a)). The rename worked and the diagnosis
+-- was wrong: `weapon_client` was counting shots and reserve over the WHOLE session rather than over
+-- its own window, so ANY shot before it took the gun read as one of its own. Inserting a file changed
+-- which shot that was; it did not cause it. Task 80 measured the same failure with no new file at all
+-- -- one run in three on the map world, a slug fired at +4.1 s against a cue at +4.5 s, because the
+-- weapon's owner auto-equips the gun it grants and `weapon_client`'s parking lost that race. That
+-- spec's window now starts at its own cue, so load order is nobody's business again.
 --
 -- AND IT SCANS CHARACTERS, NOT WORKSPACE. `Body.dress` parents the folder to the character and
 -- nowhere else, so a character scan is complete -- and `Workspace:GetDescendants()` over a map of
