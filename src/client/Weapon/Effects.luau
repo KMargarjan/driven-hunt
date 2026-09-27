@@ -76,11 +76,15 @@ local function part(
 	color: Color3,
 	lifetime: number,
 	material: Enum.Material?,
-	transparency: number?
+	transparency: number?,
+	shape: Enum.PartType?
 )
 	local p = Instance.new("Part")
 	p.Name = name
 	p.Size = size
+	if shape then
+		p.Shape = shape
+	end
 	p.CFrame = cframe
 	p.Color = color
 	p.Material = material or Enum.Material.Neon
@@ -117,14 +121,18 @@ function Effects.play(payload: any)
 		Enum.Material.Neon
 	)
 	budget -= 1
+	-- A BALL, AND THAT IS WHAT THE FIRST SCREENSHOT OF IT CHANGED: as a block it read as a grey BOX
+	-- hanging off the barrels (`.screenshots/...t92-smoke-1.png`, the first frame that ever caught it).
+	-- A sphere at this size reads as a puff of smoke, which is what it is.
 	part(
 		"Smoke",
-		Vector3.new(0.5, 0.5, 0.5),
+		Vector3.new(0.55, 0.55, 0.55),
 		at * CFrame.new(0, 0.06, -0.45),
 		Color3.fromRGB(196, 196, 196),
 		config.SMOKE_LIFETIME,
 		Enum.Material.SmoothPlastic,
-		0.62
+		0.62,
+		Enum.PartType.Ball
 	)
 	budget -= 1
 
