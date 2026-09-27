@@ -612,15 +612,32 @@ local function renderFeed(atClock: number)
 	end
 end
 
+-- WHEN THE CROSSHAIR IS DRAWN, as a pure predicate so a spec can assert all eight combinations
+-- without a camera, a gun or a flag (camera design section 6.2; the same reason Hud.renderScore and
+-- Hud.onHitMarker are public).
+--
+-- Hidden while aiming: in ADS the gun's own line is the aiming reference, and leaving a hipfire
+-- cross on top of it is the double-reticle mistake.
+--
+-- AND NEVER IN FIRST PERSON, at all, aiming or not (Karen, 2026-09-27: no crosshair at any time).
+-- `firstPerson` comes from `Camera.isFirstPerson()` and NOT from a second `Flags.isOn` call: the
+-- camera owns the switch and republishes it as a fact about the view, the Hud decides the drawing,
+-- and there is one writer of the crosshair and one source for the fact.
+function Hud.crosshairVisible(state, aiming: boolean, firstPerson: boolean): boolean
+	if not Shotgun.CONFIG.CROSSHAIR_ENABLED or firstPerson or aiming then
+		return false
+	end
+	return state ~= nil and state.equipped == true
+end
+
 local function render(Weapon, CameraSystem)
 	local state = Weapon.get()
-	local config = Shotgun.CONFIG
 	if crosshair then
-		-- Hidden while aiming: in ADS the gun's own line is the aiming reference, and leaving a
-		-- hipfire cross on top of it is the double-reticle mistake (camera design section 6.2). The
-		-- Hud asks the CAMERA, which is the state, not the weapon's aim flag, which is the request.
+		-- The Hud asks the CAMERA, which is the state, not the weapon's aim flag, which is the
+		-- request -- and it asks the same camera which view this build is running.
 		local aiming = CameraSystem ~= nil and CameraSystem.getMode() == "Aiming"
-		crosshair.Visible = config.CROSSHAIR_ENABLED and state ~= nil and state.equipped and not aiming
+		local firstPerson = CameraSystem ~= nil and CameraSystem.isFirstPerson()
+		crosshair.Visible = Hud.crosshairVisible(state, aiming, firstPerson)
 	end
 	if readout then
 		-- NO GUN, NO READOUT (TASKS.md 35b(a)). The server publishes a reset state when it revokes a

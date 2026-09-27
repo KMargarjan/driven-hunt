@@ -127,10 +127,18 @@ end
 -- Parents, poses or unparents the viewmodel for this frame. Below VIEWMODEL_SHOW_BLEND it is
 -- UNPARENTED, not merely invisible, so a leak is visible on screen rather than hiding as a
 -- transparent part (design section 10).
+--
+-- IN FIRST PERSON THE GUN IS CARRIED, NOT SUMMONED (task 89): the threshold applies only in the OFF
+-- branch, so with the flag on the clone stays parented at blend 0 and the player always has a gun in
+-- frame. Nothing else about the clone changes.
+--
+-- IT TAKES THE WHOLE STATE since task 89, not a blend: sway, bob, recoil and the break-open tilt all
+-- live in the state and all land in one offset (`Mode.viewmodelOffset`), so no second module holds a
+-- piece of the pose. In this task every one of them is exactly identity.
 local cachedHandle: BasePart? = nil
 local lastSourceCheck = 0
 
-function Viewmodel.update(camCFrame: CFrame, blend: number, config)
+function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	local cam = Workspace.CurrentCamera
 	-- The source walks the character for a Tool, so it is asked four times a second rather than
 	-- every frame (the pose below is what has to be per frame, and it is one PivotTo).
@@ -143,7 +151,7 @@ function Viewmodel.update(camCFrame: CFrame, blend: number, config)
 	end
 	local handle = cachedHandle
 
-	if not cam or not handle or blend < config.VIEWMODEL_SHOW_BLEND then
+	if not cam or not handle or (state.blend < config.VIEWMODEL_SHOW_BLEND and not config.FIRST_PERSON) then
 		if model then
 			model.Parent = nil
 		end
@@ -170,7 +178,7 @@ function Viewmodel.update(camCFrame: CFrame, blend: number, config)
 	if made.Parent ~= cam then
 		made.Parent = cam
 	end
-	made:PivotTo(camCFrame * Mode.viewmodelOffset(Mode.ease(blend), config))
+	made:PivotTo(camCFrame * Mode.viewmodelOffset(state, nil, config))
 end
 
 function Viewmodel.isParented(): boolean
