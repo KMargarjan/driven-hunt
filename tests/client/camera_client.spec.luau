@@ -1050,10 +1050,34 @@ return function()
 				-- than a timer (round 2, finding 1).
 				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { true, false } })
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				local drawn = {}
+				for _, child in ipairs(clone:GetChildren()) do
+					table.insert(drawn, child.Name)
+				end
+				TestKit.note(
+					string.format(
+						"task96 feed: reload=%s, clone holds [%s]",
+						tostring(Camera.Viewmodel.reloadState().open),
+						table.concat(drawn, ", ")
+					)
+				)
 				expect(clone:FindFirstChild("FreshShell1")).to.be.ok()
 				expect(clone:FindFirstChild("FreshShell2")).to.equal(nil)
 				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { true, true } })
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				local after = {}
+				for _, child in ipairs(clone:GetChildren()) do
+					table.insert(after, child.Name)
+				end
+				local both = Camera.Viewmodel.reloadState()
+				TestKit.note(
+					string.format(
+						"task96 feed2: loaded=[%s, %s], clone holds [%s]",
+						tostring(both.loaded[1]),
+						tostring(both.loaded[2]),
+						table.concat(after, ", ")
+					)
+				)
 				expect(clone:FindFirstChild("FreshShell2")).to.be.ok()
 
 				-- AND THE OFF BRANCH HINGES NOTHING: the third-person gun has no break to draw. At

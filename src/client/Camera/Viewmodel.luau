@@ -444,11 +444,15 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config)
 	-- so without this the flag-off camera, which is the default one, would swing them and draw
 	-- shells the moment a player reloaded. `Mode.breakAngleDeg` already refuses; this refuses the
 	-- rest, and clears anything a session that flipped the flag left behind.
-	if not config.FIRST_PERSON then
-		if clone then
-			Viewmodel.clearShells(clone)
-		end
-		return
+	-- FIRST PERSON ONLY, AND IT PUTS THINGS BACK RATHER THAN WALKING AWAY. The gun wears its barrels
+	-- as a separate piece in EVERY build -- the server welds them whatever the flag says -- so the
+	-- flag-off camera must draw no shells and swing nothing. `Mode.breakAngleDeg` already answers 0
+	-- there, so the barrels are still PLACED, at rest: returning early instead left them wherever a
+	-- first-person frame had last put them, which the OFF-branch case caught by finding them 35
+	-- degrees off the body.
+	local firstPerson = config.FIRST_PERSON == true
+	if clone and not firstPerson then
+		Viewmodel.clearShells(clone)
 	end
 	local barrels = clone and clone:FindFirstChild(BARRELS_NAME)
 	if not (barrels and barrels:IsA("BasePart")) then
@@ -483,7 +487,9 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config)
 	if angle > 0 then
 		stats.breaksDrawn += 1
 	end
-	Viewmodel.shells(swungGun, config)
+	if firstPerson then
+		Viewmodel.shells(swungGun, config)
+	end
 end
 
 -- THE SHELLS (task 96): spent ones pop out of the barrels that fired, fresh ones slide into the
