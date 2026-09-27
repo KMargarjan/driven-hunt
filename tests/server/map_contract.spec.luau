@@ -97,6 +97,24 @@ local function config()
 	return MapGen.CONFIG
 end
 
+-- THE GENERATOR WITH EVERY LAYER ON (task 85). The bare world switches the wood, the brush, the
+-- hedges, the bog, the track, the fence, the log piles, the high seats, the barriers, the reeds and
+-- the terrain relief OFF in `Config.INCLUDE`, and nothing about those generators was deleted: they
+-- come back one row at a time. So the cases that measure a GENERATOR -- its noise field, its slope
+-- ceiling, its species mix, its part budgets -- ask it with its own layer on, and they are the reason
+-- turning a row back on is a one-line change rather than a rediscovery. The cases that measure the
+-- BUILT WORLD keep using `config()`, and "the bare world builds none of it" is asserted on its own
+-- below.
+local function withScenery()
+	local c = table.clone(MapGen.CONFIG) :: any
+	local include = table.clone(MapGen.CONFIG.INCLUDE) :: any
+	for key in pairs(include) do
+		include[key] = true
+	end
+	c.INCLUDE = include
+	return c
+end
+
 local function driveLinePoint(root: Instance): Vector3
 	local lines = taggedInside(root, Map.TAGS.driveLine)
 	return lines[1].Position
@@ -112,6 +130,49 @@ return function()
 			-- in the place: the tags then resolve to both and every count below is doubled.
 			local other = if namedRootName() == ARENA_ROOT then MAP_ROOT else ARENA_ROOT
 			expect(Workspace:FindFirstChild(other)).to.equal(nil)
+		end)
+
+		-- ------------------------------------------------------------------ the bare world (task 85)
+		it("builds the bare world: flat ground and no scenery, and still every marker", function()
+			-- KAREN, 2026-09-27: "remove all trees and unnecessary terrains, so we will focus now on
+			-- shotgun shooting etc and boars, so rest is just extra time and noise to load."
+			--
+			-- THIS IS THE SWITCH, ASSERTED AT ITS EFFECT rather than by reading the table back: each
+			-- generator is asked, with the live config, for what it would place. A row flipped back on
+			-- by accident fails here by name, and `withScenery()` above proves the same generators
+			-- still do their work when it is flipped on deliberately.
+			local c = config()
+			expect(c.INCLUDE.relief).to.equal(false)
+			for _, point in ipairs({ { 0, 0 }, { 123.5, -77.25 }, { -600, 400 } }) do
+				expect(MapGen.Height.at(point[1], point[2], SEED, c)).to.equal(c.GROUND_Y)
+			end
+			expect(MapGen.Layout.bogDepth(c.WORLD.bog.x, c.WORLD.bog.z, c)).to.equal(0)
+			expect(#MapGen.Layout.treeBlocks(c)).to.equal(0)
+			expect(#MapGen.Layout.hedgeLines(c)).to.equal(0)
+			expect(#MapGen.Layout.highSeats(c)).to.equal(0)
+			local track = c.WORLD.tracks[1]
+			local onX = if track.axis == "x" then 0 else track.at
+			local onZ = if track.axis == "x" then track.at else 0
+			expect(MapGen.Layout.onTrack(onX, onZ, c)).to.equal(false)
+			-- ...and with every layer on the same questions answer something, or the assertions above
+			-- are bounds on a generator that does nothing at all.
+			local on = withScenery()
+			expect(#MapGen.Layout.treeBlocks(on) > 0).to.equal(true)
+			expect(#MapGen.Layout.hedgeLines(on) > 0).to.equal(true)
+			expect(#MapGen.Layout.highSeats(on) > 0).to.equal(true)
+			expect(MapGen.Layout.bogDepth(on.WORLD.bog.x, on.WORLD.bog.z, on) > 0).to.equal(true)
+			expect(MapGen.Layout.onTrack(onX, onZ, on)).to.equal(true)
+
+			-- THE FURNITURE: the stakes stay, because with the wood gone they are the only thing that
+			-- says where a stand is, and everything else goes.
+			local kinds = {}
+			for _, piece in ipairs(MapGen.Layout.furniture(c)) do
+				kinds[piece.kind] = (kinds[piece.kind] or 0) + 1
+			end
+			expect(kinds.stake).to.equal(c.WORLD.postCount * 2)
+			for _, gone in ipairs({ "highSeatLeg", "barrierBoom", "log", "fencePost", "gate", "reed" }) do
+				expect(kinds[gone]).to.equal(nil)
+			end
 		end)
 
 		it("holds the terrain the named world requires, and no other", function()
@@ -367,7 +428,7 @@ return function()
 
 	describe("the generator's heightfield", function()
 		it("gives the same height for the same seed, and a different one for another seed", function()
-			local c = config()
+			local c = withScenery()
 			for _, point in ipairs({ { 0, 0 }, { 123.5, -77.25 }, { -200, 200 } }) do
 				local a = MapGen.Height.at(point[1], point[2], SEED, c)
 				local b = MapGen.Height.at(point[1], point[2], SEED, c)
@@ -387,7 +448,7 @@ return function()
 		end)
 
 		it("stays inside the relief band, and flatter inside the drive corridor", function()
-			local c = config()
+			local c = withScenery()
 			local worst, worstCorridor, worstInland = 0, 0, 0
 			-- THE WHOLE MAP, not just the middle: at 2048 studs a +/- 250 sample is entirely inside the
 			-- drive corridor, so `worst` and `worstCorridor` were the same number and the whole-map
@@ -477,7 +538,7 @@ return function()
 		end)
 
 		it("keeps the drive corridor under the design's slope ceiling", function()
-			local c = config()
+			local c = withScenery()
 			local pads = MapGen.Layout.pads(c)
 			local corridor = c.WORLD.corridor
 			local limit = math.tan(math.rad(c.CORRIDOR_MAX_SLOPE_DEG))
@@ -593,7 +654,7 @@ return function()
 			-- MEASURED (N4): with the end distance in the suppression, the last 124 studs of the ride
 			-- rose to 34.8 studs -- the ridge across the end of the road the design says the
 			-- suppression exists to avoid. It is `across` only now, and this is what says so.
-			local c = config()
+			local c = withScenery()
 			local pads = MapGen.Layout.pads(c)
 			local bench = c.WORLD.benches[1]
 			local atRim = MapGen.Height.atFlattened(1000, bench.at, SEED, c, pads, MapGen.Layout.bogDepth)
@@ -807,7 +868,7 @@ return function()
 		-- argument is worth, in studs, so a spec that omits it is measurably wrong rather than merely
 		-- untidy.
 		it("digs the bog only when the ground is asked with bogDepth", function()
-			local c = config()
+			local c = withScenery()
 			local bog = c.WORLD.bog
 			local withBog = MapGen.Height.at(bog.x, bog.z, SEED, c, MapGen.Layout.bogDepth)
 			local without = MapGen.Height.at(bog.x, bog.z, SEED, c)
@@ -823,7 +884,7 @@ return function()
 
 	describe("the generator's hedgerow network", function()
 		it("gates every line that crosses the drive corridor, for twenty seeds", function()
-			local c = config()
+			local c = withScenery()
 			local crossings = 0
 			for index, line in ipairs(MapGen.Layout.hedgeLines(c)) do
 				local from, to = MapGen.Layout.corridorSpan(line, c)
@@ -882,7 +943,7 @@ return function()
 		end)
 
 		it("moves its gates with the seed, and leaves a solid wall without them", function()
-			local c = config()
+			local c = withScenery()
 			local line = MapGen.Layout.hedgeLines(c)[1]
 			local from, to = MapGen.Layout.corridorSpan(line, c)
 			expect(from).to.be.ok()
@@ -897,7 +958,7 @@ return function()
 		end)
 
 		it("stays inside the design's hedge part budget", function()
-			local c = config()
+			local c = withScenery()
 			local segments = 0
 			for index, line in ipairs(MapGen.Layout.hedgeLines(c)) do
 				local from, to = MapGen.Layout.corridorSpan(line, c)
@@ -913,7 +974,7 @@ return function()
 		-- The SAME predicate the placing step uses, so the spec cannot pass while the generator plants
 		-- trees somewhere else.
 		local function reject(x, z)
-			return Props.rejectTree(x, z, config())
+			return Props.rejectTree(x, z, withScenery())
 		end
 
 		-- The whole wood, block by block, exactly as MapGen.runStep builds it.
@@ -928,7 +989,7 @@ return function()
 		end
 
 		it("places the same wood twice, and a different one for a different seed", function()
-			local c = config()
+			local c = withScenery()
 			local first, second = wood(c, SEED), wood(c, SEED)
 			expect(#first > 0).to.equal(true)
 			expect(#second).to.equal(#first)
@@ -947,7 +1008,7 @@ return function()
 		end)
 
 		it("fills the drive with wood and still leaves the ground the game uses clear", function()
-			local c = config()
+			local c = withScenery()
 			local points = wood(c, SEED)
 			local inCorridor = 0
 			for _, point in ipairs(points) do
@@ -987,7 +1048,7 @@ return function()
 		end)
 
 		it("keeps the wood inside the part budget, measured rather than asked for", function()
-			local c = config()
+			local c = withScenery()
 			local points = wood(c, SEED)
 			expect(#points <= Map.BUDGET.trees).to.equal(true)
 			-- ...and it is a WOOD, not a copse: the estimate in design section 7.2 is ~2,925.
@@ -997,7 +1058,7 @@ return function()
 		it("is denser where the shooter looks than in the backdrop", function()
 			-- The tiers exist to put the wood where the player's eye is (design section 7.2), and a
 			-- density function nobody measures is a comment. Counted per 10,000 studs.
-			local c = config()
+			local c = withScenery()
 			local dense, backdrop = 0, 0
 			for _, point in ipairs(wood(c, SEED)) do
 				if
@@ -1077,7 +1138,7 @@ return function()
 		end)
 
 		it("plants Karen's four species, in her proportions, with alder in the wet", function()
-			local c = config()
+			local c = withScenery()
 			local counts = { spruce = 0, birch = 0, oak = 0, alder = 0 }
 			local total = 0
 			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
@@ -1125,7 +1186,7 @@ return function()
 		-- the share assertion above passed while about half the wood was wrong, and why this spec
 		-- measures the mix INSIDE a clump as well as the shares, in EACH density tier.
 		it("draws the species independently of the density, so the mix is the same in a thin wood", function()
-			local c = config()
+			local c = withScenery()
 			local strength = c.SPECIES_CLUMP_STRENGTH
 			-- The share of trees that are NOT their clump's leader, derived rather than guessed: a tree
 			-- takes the leader with probability `strength`, and otherwise draws from the same shares --
@@ -1230,7 +1291,7 @@ return function()
 		-- and the step asked for FOUR asset keys rather than one (which is what fails on the bug
 		-- itself, today, while `Assets.ROWS` is still empty).
 		it("plants the species it sampled, and asks for a key per species", function()
-			local c = config()
+			local c = withScenery()
 			-- Built into a throwaway root, as the furniture test below does: `Props.trees` writes only
 			-- under the root it is handed, and the wood needs no Terrain.
 			local root = Instance.new("Folder")
@@ -1393,7 +1454,7 @@ return function()
 		end)
 
 		it("stands four high seats off the verge, each in its own clearing", function()
-			local c = config()
+			local c = withScenery()
 			local seats = MapGen.Layout.highSeats(c)
 			expect(#seats).to.equal(#c.FURNITURE.highSeat.atPosts)
 			local edge = Map.ROAD.halfWidth + Map.ROAD.verge
@@ -1411,7 +1472,7 @@ return function()
 		end)
 
 		it("puts the fence, its gate and the reeds where they belong", function()
-			local c = config()
+			local c = withScenery()
 			local pieces = MapGen.Layout.furniture(c)
 			local fence, gates, reeds = 0, 0, 0
 			for _, piece in ipairs(pieces) do
@@ -1488,7 +1549,7 @@ return function()
 		end)
 
 		it("puts brush in the wood and nowhere else", function()
-			local c = config()
+			local c = withScenery()
 			local total = 0
 			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
 				for _, point in ipairs(MapGen.Scatter.brush(c, SEED, block, reject)) do
