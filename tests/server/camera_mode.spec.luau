@@ -534,8 +534,14 @@ return function()
 			-- THE MUZZLE IS LEFT, AND FURTHER AWAY: it runs off toward the left edge, which is what
 			-- makes the barrel taper across the frame instead of pointing at the viewer.
 			expect(muzzle.X < -1.5).to.equal(true)
-			-- ...and the BUTT is behind the eye, which is what keeps the stock out of the picture.
-			expect((carry * CFrame.new(0, 0, half)).Position.Z > 0).to.equal(true)
+			-- ...and the BUTT IS OUT OF THE PICTURE, which is what panel A shows and what the first
+			-- build of this task got wrong -- it had the whole stock on screen. Asserted as an ANGLE
+			-- rather than as "behind the eye": the butt sits 0.17 studs in FRONT of the camera and
+			-- 51 degrees below its axis, and half the carry field of view is 35, so it is below the
+			-- bottom edge. Measured that way because that is the claim -- what the player can see.
+			local butt = (carry * CFrame.new(0, 0, half)).Position
+			local buttBelowDeg = -math.deg(math.atan2(butt.Y, math.sqrt(butt.X * butt.X + butt.Z * butt.Z)))
+			expect(buttBelowDeg > firstPerson.FOV_THIRD_DEG / 2).to.equal(true)
 			expect(muzzle.Z < action.Z).to.equal(true)
 			-- ...AND A LITTLE UP, never at the sky: between 2 and 20 degrees above the horizon.
 			local elevation = math.deg(math.asin(math.clamp((muzzle - action).Unit.Y, -1, 1)))
