@@ -8,6 +8,7 @@
 --
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/asset-pipeline.md (sections 4, 5, 6.1, 6.6, 6.7)
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
@@ -56,15 +57,25 @@ end
 -- reports and its own cache container, so `clear()` has no way to NAME the live template, let alone
 -- destroy it. A load still in flight keeps the state it started in, so a slow fake cannot park itself
 -- into the live cache afterwards either. `hadTemplate` below is what proves it, per run.
+--
+-- SINCE TASK 76 IT ALSO UNWIRES THE WEAPON'S TEMPLATE PROVIDER, and that is not tidiness either. The
+-- 2 s arming sweep now asks for a template on every pass (`Hardware.upgradeAll`), and the cases below
+-- YIELD -- so with a scratch loader state current, the sweep's ask would reach THIS spec's fake
+-- template and could weld it onto a live player's gun for the rest of the session. `nil` means "build
+-- the parts gun", which is the fallback the sweep would otherwise be repairing; the live provider goes
+-- back with the live state.
 local function withLoader(insert, body)
 	local cacheFolder = Instance.new("Folder")
 	local live = Loader.setState(Loader.newState())
+	local liveProvider = Hardware.getTemplateProvider()
+	Hardware.setTemplateProvider(nil)
 	Loader.setCacheParent(cacheFolder)
 	Loader.setInsert(insert)
 	local ok, why = pcall(body)
 	-- clears the SCRATCH state only: its own templates and nothing else in the world
 	Loader.clear()
 	Loader.setState(live)
+	Hardware.setTemplateProvider(liveProvider)
 	cacheFolder:Destroy()
 	if not ok then
 		error(why, 0)
@@ -500,6 +511,168 @@ return function()
 				expect(handle:FindFirstChild("BarrelLeft")).to.be.ok()
 				tool:Destroy()
 			end)
+		end)
+	end)
+
+	-- TASK 76: THE GUN THAT WAS HANDED OUT TOO EARLY.
+	--
+	-- `WeaponBoot` starts the weapon system BEFORE the preload, deliberately (Task 74 review round 1:
+	-- a stalled `LoadAsset` must not mean a gunless player), so a player who spawns in the server's
+	-- first second is handed the parts fallback. Measured twice in Task 75: the preload took 1227 ms
+	-- and the Tool granted before it had `BarrelLeft` and no `Model` for as long as it was held.
+	--
+	-- EVERY CASE HERE IS DRIVEN BY THE PROVIDER, NOT BY A CLOCK. "Late" is expressed as a provider
+	-- that answers nil and then answers a template -- which is what a late arrival IS from this
+	-- module's side -- so nothing below yields. That matters twice over: a spec that waits is a spec
+	-- that lets the live 2 s arming sweep run while a fake provider is wired, and the sweep now calls
+	-- `upgradeAll`.
+	describe("the gun that was granted before the mesh landed", function()
+		local live = Hardware.getTemplateProvider()
+
+		local function withProvider(fn, body)
+			Hardware.setTemplateProvider(fn)
+			local ok, why = pcall(body)
+			Hardware.setTemplateProvider(live)
+			if not ok then
+				error(why, 0)
+			end
+		end
+
+		-- A template of the row's own natural size, so the size and pose the manifest describes are
+		-- the ones the upgrade applies.
+		local function fakeTemplate(): MeshPart
+			local row = Assets.byKey(Hardware.ASSET_KEY)
+			local template = Instance.new("MeshPart")
+			template.Size = row.naturalSizeStuds
+			return template
+		end
+
+		it("upgrades a tool built before the template arrived, exactly once", function()
+			local row = Assets.byKey(Hardware.ASSET_KEY)
+			local template = fakeTemplate()
+			local asked = 0
+			-- LATE: nil for the build, the template for every call after it.
+			withProvider(function()
+				asked += 1
+				if asked == 1 then
+					return nil, { reason = "not preloaded" }
+				end
+				return template, { row = row }
+			end, function()
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				-- the defect, reproduced: this is the gun Karen was holding
+				expect(Hardware.wearsMesh(tool)).to.equal(false)
+				expect(handle:FindFirstChild("BarrelLeft")).to.be.ok()
+
+				-- what the Handle carries before, so "nothing but the look changed" is a comparison
+				local muzzle = handle:FindFirstChild("Muzzle")
+
+				expect(Hardware.upgrade(tool)).to.equal(true)
+
+				local model = handle:FindFirstChild(Hardware.MODEL_NAME) :: BasePart
+				expect(model).to.be.ok()
+				expect(model.Size).to.equal(row.sizeStuds)
+				expect(model.CanQuery).to.equal(false)
+				expect((handle:FindFirstChild("ModelWeld") :: Weld).Part1).to.equal(model)
+				expect(Hardware.wearsMesh(tool)).to.equal(true)
+				-- AND THE FALLBACK IS GONE: one gun in the hand, not two overlapping ones.
+				expect(handle:FindFirstChild("BarrelLeft")).to.equal(nil)
+				expect(handle:FindFirstChild("BarrelLeftWeld")).to.equal(nil)
+				expect(handle:FindFirstChild("Stock")).to.equal(nil)
+				expect(handle:FindFirstChild("Trigger")).to.equal(nil)
+				-- NOTHING THE REST OF THE SYSTEM STANDS ON MOVED.
+				expect(handle.Size).to.equal(CONFIG.HANDLE_SIZE)
+				expect(tool.Grip).to.equal(CONFIG.GRIP)
+				expect(handle.CanQuery).to.equal(true)
+				expect(handle:FindFirstChild("Muzzle")).to.equal(muzzle) -- the SAME Attachment
+				expect(Hardware.muzzlePosition(tool)).to.be.ok()
+
+				-- EXACTLY ONCE. A second arrival, and the next sweep pass, find the mesh already
+				-- there: no second `Model`, and the same Instance as before.
+				expect(Hardware.upgrade(tool)).to.equal(false)
+				expect(Hardware.upgrade(tool)).to.equal(false)
+				local models = 0
+				for _, child in ipairs(handle:GetChildren()) do
+					if child.Name == Hardware.MODEL_NAME then
+						models += 1
+					end
+				end
+				expect(models).to.equal(1)
+				expect(handle:FindFirstChild(Hardware.MODEL_NAME)).to.equal(model)
+				tool:Destroy()
+			end)
+			template:Destroy()
+		end)
+
+		it("leaves the fallback alone when the template never arrives", function()
+			withProvider(function()
+				return nil, { reason = "timeout" }
+			end, function()
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				expect(Hardware.upgrade(tool)).to.equal(false)
+				expect(Hardware.upgrade(tool)).to.equal(false)
+				-- STILL THE WHOLE PARTS GUN. The mesh goes on before the parts come off, so a failed
+				-- upgrade cannot leave a player holding an empty Handle.
+				expect(Hardware.wearsMesh(tool)).to.equal(false)
+				expect(handle:FindFirstChild("BarrelLeft")).to.be.ok()
+				expect(handle:FindFirstChild("BarrelRight")).to.be.ok()
+				expect(handle:FindFirstChild("Stock")).to.be.ok()
+				expect(handle:FindFirstChild("Trigger")).to.be.ok()
+				expect(Hardware.muzzlePosition(tool)).to.be.ok()
+				tool:Destroy()
+			end)
+		end)
+
+		it("refuses a Tool that has no Handle, rather than erroring in a sweep", function()
+			local template = fakeTemplate()
+			withProvider(function()
+				return template, { row = Assets.byKey(Hardware.ASSET_KEY) }
+			end, function()
+				local bare = Instance.new("Tool")
+				expect(Hardware.upgrade(bare)).to.equal(false)
+				bare:Destroy()
+			end)
+			template:Destroy()
+		end)
+
+		-- THE PLAYER'S PATH, with the LIVE provider and no fake anywhere: whatever this server is
+		-- actually holding. This is the assertion row 75a(h) failed.
+		it("leaves no carried gun wearing the fallback once the mesh has loaded", function()
+			local held, meshed = 0, 0
+			for _, player in ipairs(Players:GetPlayers()) do
+				for _, tool in Hardware.toolsOf(player) do
+					held += 1
+					if Hardware.wearsMesh(tool) then
+						meshed += 1
+					end
+				end
+			end
+			local template = Loader.template(Hardware.ASSET_KEY)
+			TestKit.note(
+				string.format(
+					"task76: %d carried gun(s), %d wearing the mesh, live template=%s, sweep upgrades=%d",
+					held,
+					meshed,
+					if template then "yes" else "no",
+					Weapon.stats().meshUpgrades
+				)
+			)
+			if template == nil then
+				-- No mesh in this server at all, so the fallback is the right answer and there is
+				-- nothing to upgrade. Asserted rather than skipped, so this branch still says
+				-- something: every carried gun wears the parts gun and none wears half a mesh.
+				expect(meshed).to.equal(0)
+				return
+			end
+			-- One sweep, by hand, so the assertion does not depend on when the 2 s one last ran.
+			Hardware.upgradeAll()
+			for _, player in ipairs(Players:GetPlayers()) do
+				for _, tool in Hardware.toolsOf(player) do
+					expect(Hardware.wearsMesh(tool)).to.equal(true)
+				end
+			end
 		end)
 	end)
 end

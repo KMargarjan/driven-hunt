@@ -16,8 +16,14 @@
 -- The ADS viewmodel gets the same look by CLONING the Handle (docs/design/camera.md section 3.2), so
 -- there is one source for the gun's appearance and not two.
 --
--- Design: docs/design/shotgun.md (section 8)
+-- SINCE TASK 76 IT ALSO UPGRADES A GUN IT ALREADY BUILT (`Hardware.upgrade`). The preload does not
+-- block the boot, so a gun handed out in the server's first second wears the parts fallback; when the
+-- template lands, every gun still wearing it gets the mesh. One path, idempotent, and it is still the
+-- only writer of Tool Instances.
+--
+-- Design: docs/design/shotgun.md (section 8), docs/design/asset-pipeline.md (sections 5.2, 6.6)
 -- Note:   docs/research/2026-09-26-shotgun-model.md
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
@@ -55,6 +61,12 @@ Hardware.ASSET_KEY = "shotgun.handle"
 -- The name every granted Tool carries. One per player, so it is also how a stray one is found.
 Hardware.TOOL_NAME = "Shotgun"
 
+-- THE NAME OF THE WORN MESH, AND IT IS ALSO THE ONE FACT THE UPGRADE PATH READS. A Handle either has
+-- this child -- the loaded gun -- or it does not, in which case what is on it is Task 71's parts
+-- fallback. No attribute, no flag and no table: the visible model IS the state, so "has this gun
+-- already been upgraded" cannot disagree with what is on screen.
+Hardware.MODEL_NAME = "Model"
+
 function Hardware.build(): Tool
 	local config = Shotgun.CONFIG
 	local tool = Instance.new("Tool")
@@ -85,9 +97,7 @@ function Hardware.build(): Tool
 	muzzle.Parent = handle
 
 	if not Hardware.addMesh(handle, config) then
-		for _, piece in ipairs(Shape.pieces(config)) do
-			Hardware.addPiece(handle, piece)
-		end
+		Hardware.addParts(handle, config)
 	end
 
 	return tool
@@ -138,7 +148,7 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 		else Vector3.zero
 
 	local model = template:Clone()
-	model.Name = "Model"
+	model.Name = Hardware.MODEL_NAME
 	if model:IsA("BasePart") then
 		model.Size = size
 	end
@@ -244,6 +254,97 @@ function Hardware.addPiece(handle: BasePart, piece): BasePart
 	weld.Parent = handle
 
 	return part
+end
+
+-- TASK 71'S FALLBACK, AS ONE CALL. `build` is its one caller, and `removeParts` below is its exact
+-- opposite: naming both means the list of what the parts gun is made of is walked in one place,
+-- forwards and backwards, instead of being spelled out wherever a parts gun is put on or taken off.
+function Hardware.addParts(handle: BasePart, config)
+	for _, piece in ipairs(Shape.pieces(config)) do
+		Hardware.addPiece(handle, piece)
+	end
+end
+
+-- THE FALLBACK COMES OFF, AND ONLY THE FALLBACK. It destroys exactly the pieces `Shape.pieces` names
+-- and their welds -- BY NAME, from the same one list `addParts` builds from -- so the Handle, the
+-- `Muzzle` attachment, the worn mesh and its `ModelWeld` cannot be caught by it. Not a
+-- "destroy every child but the Muzzle" sweep: that would be a second, looser idea of what the gun is
+-- made of, and the first thing it deleted would be the attachment every shot is measured from.
+function Hardware.removeParts(handle: BasePart, config): number
+	local removed = 0
+	for _, piece in ipairs(Shape.pieces(config)) do
+		local part = handle:FindFirstChild(piece.name)
+		if part then
+			part:Destroy()
+			removed += 1
+		end
+		local weld = handle:FindFirstChild(piece.name .. "Weld")
+		if weld then
+			weld:Destroy()
+		end
+	end
+	return removed
+end
+
+-- Is this Tool wearing the loaded gun, or the parts fallback? Read off the Instance, never off a
+-- table this module keeps: a Tool granted by a server that has since reloaded, or one the sweep found
+-- and this module never recorded, answers correctly anyway.
+function Hardware.wearsMesh(tool: Tool): boolean
+	local handle = tool:FindFirstChild("Handle")
+	return handle ~= nil and handle:FindFirstChild(Hardware.MODEL_NAME) ~= nil
+end
+
+-- THE ONE UPGRADE PATH (TASKS.md row 75a(h)). A player who spawns inside the server's first second
+-- gets the parts gun, because `WeaponBoot` starts the weapon system BEFORE the preload finishes and
+-- that ordering is deliberate (Task 74 review round 1: a stalled `LoadAsset` must not mean a gunless
+-- player). Nothing used to rebuild a Tool that was granted early, so that player kept the fallback
+-- for as long as they held it -- and in Studio Play, where a join takes well under a second, that is
+-- every player, every time.
+--
+-- Returns true only when THIS call put the mesh on. It is:
+--
+--  * IDEMPOTENT. The worn model is the state (`MODEL_NAME`), so a second arrival, the next sweep pass
+--    and the boot line's own call all find the mesh already there and do nothing. Two `Model`
+--    children -- two guns in one hand -- is the shape this makes impossible.
+--  * SAFE WHEN THERE IS NOTHING TO WEAR. The mesh goes on BEFORE the parts come off, and a false from
+--    `addMesh` returns with the fallback untouched. A template that never arrives changes nothing.
+--  * BLIND TO EVERYTHING BUT THE LOOK. It does not touch the `Handle` (still `HANDLE_SIZE`, still the
+--    grip, still the only part a ray can hit), the `Muzzle` the server reads for every shot, the
+--    Tool's Parent, or any weapon state: a player mid-reload or mid-aim sees the gun change and
+--    nothing else. `Weapon`'s reducer is not consulted because there is nothing in it to change.
+--
+-- The ADS viewmodel follows from its one source without being told: it CLONES this Handle
+-- (docs/design/camera.md 3.2) and `Camera.Viewmodel` rebuilds the clone when the source's children
+-- change, so the first-person gun cannot be left wearing a look the third-person gun has dropped.
+function Hardware.upgrade(tool: Tool): boolean
+	local handle = tool:FindFirstChild("Handle")
+	if handle == nil or not handle:IsA("BasePart") then
+		return false
+	end
+	if handle:FindFirstChild(Hardware.MODEL_NAME) ~= nil then
+		return false
+	end
+	local config = Shotgun.CONFIG
+	if not Hardware.addMesh(handle, config) then
+		return false
+	end
+	Hardware.removeParts(handle, config)
+	return true
+end
+
+-- Every gun already in a hand, upgraded. Walks the players rather than a table of this module's own,
+-- for the same reason `toolsOf` does: a Tool nobody recorded is still a Tool a player is looking at.
+-- NEVER YIELDS, so it is safe from the arming sweep and from a boot line.
+function Hardware.upgradeAll(): number
+	local upgraded = 0
+	for _, player in ipairs(Players:GetPlayers()) do
+		for _, tool in Hardware.toolsOf(player) do
+			if Hardware.upgrade(tool) then
+				upgraded += 1
+			end
+		end
+	end
+	return upgraded
 end
 
 -- The Backpack is where a Tool waits; the character is where it is held.

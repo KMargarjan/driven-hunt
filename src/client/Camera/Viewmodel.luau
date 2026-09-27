@@ -3,7 +3,8 @@
 --
 -- It CLONES the Tool's Handle and never touches the original: ServerScriptService.Weapon.Hardware
 -- stays the only writer of Tool Instances (docs/design/shotgun.md section 3.1). The clone is local,
--- unreplicated, and rebuilt only when the source part changes identity -- never per frame.
+-- unreplicated, and rebuilt only when the source part changes identity OR its children change --
+-- never per frame.
 --
 -- CanQuery = false on every part, and it is not optional: workspace.CurrentCamera is a child of
 -- Workspace, so a client raycast -- including this system's own occlusion cast -- can hit a part
@@ -23,6 +24,17 @@ local Viewmodel = {}
 local source: (() -> BasePart?)? = nil
 local model: Model? = nil
 local builtFrom: BasePart? = nil
+
+-- THE CLONE GOES STALE WHEN THE SOURCE'S CHILDREN CHANGE, and since Task 76 that happens in a live
+-- game: the server upgrades a gun handed out before the mesh loaded (`Weapon.Hardware.upgrade`), so
+-- the Handle loses ten welded parts and gains a `Model`. Rebuilding only on `builtFrom ~= handle`
+-- would leave the FIRST-PERSON gun wearing the parts fallback while the third-person gun wore the
+-- mesh -- two looks for one gun, which is exactly what cloning the Handle exists to prevent.
+--
+-- Watched rather than told: this file knows nothing about what the gun is made of, only that its
+-- clone is a copy of something that changed. One flag, cleared when the rebuild happens.
+local childWatchers: { RBXScriptConnection } = {}
+local stale = false
 
 function Viewmodel.setSource(fn: (() -> BasePart?)?)
 	source = fn
@@ -53,6 +65,11 @@ function Viewmodel.clear()
 		model = nil
 	end
 	builtFrom = nil
+	for _, connection in ipairs(childWatchers) do
+		connection:Disconnect()
+	end
+	childWatchers = {}
+	stale = false
 end
 
 local function build(handle: BasePart): Model
@@ -133,8 +150,18 @@ function Viewmodel.update(camCFrame: CFrame, blend: number, config)
 		return
 	end
 
-	if not model or builtFrom ~= handle then
+	if not model or builtFrom ~= handle or stale then
+		-- clear() disconnects the old watchers and resets `stale`, so nothing that fired before this
+		-- rebuild can mark the new clone stale.
 		Viewmodel.clear()
+		childWatchers = {
+			handle.ChildAdded:Connect(function()
+				stale = true
+			end),
+			handle.ChildRemoved:Connect(function()
+				stale = true
+			end),
+		}
 		model = build(handle)
 		builtFrom = handle
 	end

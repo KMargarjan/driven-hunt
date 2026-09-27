@@ -55,3 +55,18 @@ Weapon.Hardware.setTemplateProvider(function(key: string)
 	local row = Assets.byKey(key)
 	return template, { reason = if loadReport then loadReport.reason else nil, row = row }
 end)
+
+-- AND EVERY GUN THAT WAS ALREADY HANDED OUT GETS THE MESH (TASKS.md row 75a(h)).
+--
+-- `Weapon.start()` is above `preload` on purpose and stays there, so between those two lines a player
+-- can join, spawn and be handed a gun -- which is not a corner case: the preload measured 1227 ms and
+-- a Studio Play join takes well under a second, so in a playtest it is what ALWAYS happens. Nothing
+-- rebuilt those Tools, so Karen never saw her own shotgun; she saw Task 71's parts gun and kept it.
+--
+-- This is the moment the template exists, so it is the moment to look. `Hardware.upgrade` is
+-- idempotent and touches nothing but the visible model, and `Weapon`'s arming sweep repeats the call
+-- every 2 s for the other case -- a load that arrived later than the budget.
+local upgraded = Weapon.Hardware.upgradeAll()
+if upgraded > 0 then
+	print(string.format("[WeaponBoot] upgraded %d gun(s) that were handed out before the mesh landed", upgraded))
+end
