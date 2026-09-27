@@ -595,9 +595,20 @@ return function()
 			local on = quickConfig()
 			expect(Phase.intermissionSeconds(on)).to.equal(3)
 			expect(Phase.firstReleaseSeconds(on)).to.equal(5)
-			-- and they really are different, so neither case can pass by the two being equal
-			expect(Phase.intermissionSeconds(on) < Phase.intermissionSeconds(off)).to.equal(true)
-			expect(Phase.firstReleaseSeconds(on) < Phase.firstReleaseSeconds(off)).to.equal(true)
+			-- AND THE SHIPPED NUMBERS ARE REALLY FASTER, which is the claim Karen made and the one a
+			-- fixture cannot answer: this file's own FIRST_RELEASE_SECONDS is 5 because a test does
+			-- not want to simulate twenty, and comparing the quick value against THAT compared 5
+			-- with 5 and failed (the first gate of this task). The production table is what the
+			-- promise is about.
+			local live = Match.CONFIG
+			expect(live.QUICK_TEST_INTERMISSION_SECONDS < live.INTERMISSION_SECONDS).to.equal(true)
+			expect(live.QUICK_TEST_FIRST_RELEASE_SECONDS < live.FIRST_RELEASE_SECONDS).to.equal(true)
+			expect(live.QUICK_TEST_INTERVAL_SECONDS < live.RELEASE_INTERVAL_SECONDS).to.equal(true)
+			-- 40 seconds of waiting becomes 8, and that difference IS the task
+			local realWait = live.INTERMISSION_SECONDS + live.FIRST_RELEASE_SECONDS
+			local quickWait = live.QUICK_TEST_INTERMISSION_SECONDS + live.QUICK_TEST_FIRST_RELEASE_SECONDS
+			expect(quickWait * 4 <= realWait).to.equal(true)
+			TestKit.note(string.format("task83: %d s of waiting becomes %d s with the quick test", realWait, quickWait))
 		end)
 
 		it("puts three boars on the road within seconds of the first player joining", function()
