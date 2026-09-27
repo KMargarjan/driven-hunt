@@ -495,21 +495,33 @@ return function()
 			expect(kept.SurfaceAppearance).to.equal(1)
 			expect(kept.Texture).to.equal(1)
 			expect(kept.Decal).to.equal(1)
-			-- TWO SINCE TASK 92, and named rather than counted: the gun's own attachment must survive
-			-- the sweep (it is what the muzzle and the sight ride on), and the viewmodel adds exactly one
-			-- of its own for the fill light. A bare count would also have been satisfied by losing the
-			-- gun's and gaining ours.
-			expect(kept.Attachment).to.equal(2)
-			expect(clone:FindFirstChild("ViewmodelFillAt")).to.be.ok()
-			-- ...and the SOURCE's own attachment is still there beside ours: this fixture's is the
-			-- unnamed one the keep-list adds, which on a real gun is `Muzzle` and `Sight`.
-			local mine = 0
-			for _, child in ipairs((clone :: Instance):GetChildren()) do
-				if child:IsA("Attachment") and child.Name ~= "ViewmodelFillAt" then
-					mine += 1
+			-- THE GUN'S OWN ATTACHMENT SURVIVES THE SWEEP -- it is what the muzzle and the sight ride
+			-- on -- and in THIS branch it is the only one there is.
+			expect(kept.Attachment).to.equal(1)
+
+			-- ------------------------------------------------ the first-person extras (round 2, f1)
+			-- THE FILL LIGHT IS FIRST PERSON'S, AND ONLY FIRST PERSON'S. The clone is drawn in both
+			-- branches -- with the flag off it is the ADS viewmodel Karen accepted on 2026-09-25 --
+			-- so a light added to every clone put a glow on the ground behind a third-person player,
+			-- in the camera task 89 promised not to touch. Both branches are driven here, from the
+			-- same handle, because "it is absent" means nothing unless the same code can produce it.
+			expect(clone:FindFirstChild("ViewmodelFillAt")).to.equal(nil)
+			expect(clone:FindFirstChildOfClass("PointLight")).to.equal(nil)
+			expect(clone:FindFirstChild("SightBead")).to.equal(nil)
+
+			Camera.Viewmodel.clear() -- a config change does not rebuild a cached clone; this does
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), firstPersonConfig)
+			local lit = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+			local fill = lit:FindFirstChild("ViewmodelFillAt") :: Attachment
+			expect(fill).to.be.ok()
+			expect(fill:FindFirstChildOfClass("PointLight")).to.be.ok()
+			local fillLights = 0
+			for _, descendant in ipairs(lit:GetDescendants()) do
+				if descendant:IsA("PointLight") then
+					fillLights += 1
 				end
 			end
-			expect(mine).to.equal(1)
+			expect(fillLights).to.equal(1)
 			-- WHAT MUST NOT: a weld would be simulated under the camera, a sound would play twice.
 			expect(kept.Weld).to.equal(nil)
 			expect(kept.Sound).to.equal(nil)
@@ -815,6 +827,14 @@ return function()
 				-- ON the sight, not near it: within a tenth of a bead of the attachment.
 				local sight = clone:FindFirstChild("Sight") :: Attachment
 				expect((marker.Position - sight.WorldPosition).Magnitude < 1e-3).to.equal(true)
+			end)
+
+			-- ...and the OFF BRANCH gets no drawn bead at all (round 2, finding 1): its sight picture
+			-- is the framing Karen accepted for the shoulder camera, not a bead on the view axis.
+			posed(gunWithSight(false), function()
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), Config)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				expect(clone:FindFirstChild("SightBead")).to.equal(nil)
 			end)
 
 			-- ...and a gun that brought its own bead gets nothing added: one bead, never two.

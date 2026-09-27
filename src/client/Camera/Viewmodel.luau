@@ -242,8 +242,17 @@ local function build(handle: BasePart, config): Model
 	clone.CastShadow = false
 	clone.Parent = made
 	made.PrimaryPart = clone
-	addBeadMarker(clone, config)
-	addFillLight(clone, config)
+	-- FIRST-PERSON EXTRAS, AND THEY BELONG TO THE FIRST-PERSON BRANCH (review round 2, finding 1).
+	-- The clone is drawn in BOTH branches -- in the OFF branch it is the ADS viewmodel Karen accepted
+	-- on 2026-09-25 -- so a light or a drawn bead added here without asking lands in the camera task
+	-- 89 promised not to touch: the fill light was throwing a glow on the ground behind a
+	-- third-person player. Neither is any use there either: the shoulder camera's gun is lit by the
+	-- same sun as everything else around it, and its sight picture is the accepted framing rather
+	-- than a bead on the axis.
+	if config.FIRST_PERSON then
+		addBeadMarker(clone, config)
+		addFillLight(clone, config)
+	end
 
 	stats.rebuilds += 1
 	local parts = 0
