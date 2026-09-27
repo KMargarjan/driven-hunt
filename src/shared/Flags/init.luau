@@ -87,6 +87,19 @@ Flags.DEFAULTS = {
 		expires = "2026-10-18", -- 21 days: the ceiling in feature-flags.md section 12
 		why = "Shooters wear an orange hat and drivers an orange vest. OFF dresses nobody, as today.",
 	} :: FlagRow,
+	MAP_V1 = {
+		default = false,
+		-- TWO READERS, ONE RESOLUTION, and it is written out because it is a deviation from the
+		-- usual one-owner row (Task 79, and the research note says why at length): two boot Scripts
+		-- in ServerScriptService have no defined order and cannot share a Luau value
+		-- (`MatchBoot`'s own header established that), so the arena's boot and the boar's config
+		-- each read this at their own boundary. `Flags` memoises per process, so they cannot
+		-- disagree -- the value is resolved once whoever asks first.
+		owner = "ServerScriptService.ArenaBoot and ServerScriptService.Boar",
+		born = "2026-09-27 task 79 (M2.8e, docs/design/map-generator.md section 17)",
+		expires = "2026-10-18", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "The generated map is the world and the shooter line is the forest road. OFF builds the grey-box arena, as today.",
+	} :: FlagRow,
 }
 
 -- deepFreeze, REQUIRED and not copied: table.freeze is shallow, and this repo has already paid for

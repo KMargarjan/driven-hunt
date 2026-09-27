@@ -23,21 +23,28 @@ local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 -- Unchanged from BoarBoot: the arena rectangle is carried as data, so when the Milestone 2 map
 -- generator replaces the arena this fails loudly here instead of routing boars to an edge that no
 -- longer exists.
+-- ...and ONLY WHILE THE ARENA IS THE WORLD (Task 79). When `MAP_V1` is on, `ArenaBoot` never builds
+-- the grey box and `Boar.CONFIG.field` is the map's corridor, so this assertion would compare the
+-- map's rectangle against an arena nobody built. `Boar.CONFIG.WORLD` is the value the boar's own
+-- owner resolved at its boundary -- read here rather than re-read from `Flags`, so this composition
+-- root still decides nothing.
 local field = Boar.CONFIG.field
-local ground = TestArena.LAYOUT.ground
-local span = field.bounds.maxX - field.bounds.minX
+if Boar.CONFIG.WORLD == "arena" then
+	local ground = TestArena.LAYOUT.ground
+	local span = field.bounds.maxX - field.bounds.minX
 
-assert(
-	ground.span == span and ground.top == field.groundY,
-	string.format(
-		"boar-ai: the arena changed (span %d, top %d) but Boar.CONFIG.field still says span %d, groundY %d."
-			.. " Update CONFIG.field in src/server/Boar/init.luau (see docs/design/boar-ai.md section 9).",
-		ground.span,
-		ground.top,
-		span,
-		field.groundY
+	assert(
+		ground.span == span and ground.top == field.groundY,
+		string.format(
+			"boar-ai: the arena changed (span %d, top %d) but Boar.CONFIG.field still says span %d, groundY %d."
+				.. " Update CONFIG.field in src/server/Boar/init.luau (see docs/design/boar-ai.md section 9).",
+			ground.span,
+			ground.top,
+			span,
+			field.groundY
+		)
 	)
-)
+end
 
 local world = Boar.defaultWorld()
 

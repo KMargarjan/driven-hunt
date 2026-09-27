@@ -32,6 +32,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local MapGen = require(ServerStorage:WaitForChild("MapGen"))
@@ -72,8 +73,18 @@ local function waitForRoot(name: string)
 	return root
 end
 
+-- WHICH WORLD THIS SERVER RESOLVED (Task 79), read ONCE, here, at this spec's own boundary. Since
+-- the switch became a flag, `Map.EXPECTED_WORLD` is what SHIPS and `Map.worldFor(...)` is what the
+-- running server actually built -- the same string in every harness run, because the harness refuses
+-- to start while any override is set. Every live-world assertion below uses this, so the spec is
+-- right in both states rather than right in the one it was written in.
+local MAP_ON = Flags.isOn("MAP_V1")
+local WORLD = Map.worldFor(MAP_ON)
+local FIELD = Map.fieldFor(MAP_ON)
+local COUNTS = Map.countsFor(MAP_ON)
+
 local function namedRootName(): string
-	return if Map.EXPECTED_WORLD == "arena" then ARENA_ROOT else MAP_ROOT
+	return if WORLD == "arena" then ARENA_ROOT else MAP_ROOT
 end
 
 local function taggedInside(root: Instance, tag: string): { BasePart }
@@ -98,7 +109,7 @@ end
 return function()
 	describe("the map contract", function()
 		it("names exactly one world, and that world is the one that exists", function()
-			expect(Map.EXPECTED_WORLD == "arena" or string.sub(Map.EXPECTED_WORLD, 1, 4) == "map:").to.equal(true)
+			expect(WORLD == "arena" or string.sub(WORLD, 1, 4) == "map:").to.equal(true)
 			local named = waitForRoot(namedRootName())
 			expect(named).to.be.ok()
 			-- The OTHER root must be absent. Two worlds in Workspace means the generated map was left
@@ -115,7 +126,7 @@ return function()
 			-- hillside, and the run prints PASS. A world check that names a folder and ignores the
 			-- ground is the audit this project already paid for once.
 			local cells = Workspace.Terrain:CountCells()
-			if Map.EXPECTED_WORLD == "arena" then
+			if WORLD == "arena" then
 				-- The arena is built from parts on a flat plate at y = 0 and writes no terrain at all.
 				if cells ~= 0 then
 					error(
@@ -140,7 +151,7 @@ return function()
 			-- was about: the voxels are gone, every other check passes, and the place is still orange.
 			--
 			-- Read from the ENGINE, never from the table that wrote it.
-			local want = if Map.EXPECTED_WORLD == "arena" then Map.PALETTE_DEFAULT else Map.PALETTE
+			local want = if WORLD == "arena" then Map.PALETTE_DEFAULT else Map.PALETTE
 			local got = MapGen.Ground.readPalette(MapGen.CONFIG)
 			for role, colour in pairs(want) do
 				local now = got[role]
@@ -157,7 +168,7 @@ return function()
 							math.round(now.R * 255),
 							math.round(now.G * 255),
 							math.round(now.B * 255),
-							Map.EXPECTED_WORLD,
+							WORLD,
 							math.round(colour.R * 255),
 							math.round(colour.G * 255),
 							math.round(colour.B * 255)
@@ -175,7 +186,7 @@ return function()
 		it("resolves every tag to exactly the expected count, all inside the named world", function()
 			local root = waitForRoot(namedRootName())
 			for kind, tag in pairs(Map.TAGS) do
-				local want = Map.EXPECTED_COUNTS[kind]
+				local want = COUNTS[kind]
 				expect(want).to.be.a("number")
 				local inside = taggedInside(root, tag)
 				if #inside ~= want then
@@ -280,18 +291,106 @@ return function()
 			end
 		end)
 
-		it("agrees with the boar about the field rectangle", function()
+		it("agrees with the boar about the field rectangle, in whichever world this is", function()
+			-- THE SWITCH'S ONE REAL INVARIANT (design section 17 step 6): the boar hunts in the
+			-- rectangle the contract names, and both follow the same resolved flag. If `ArenaBoot`
+			-- and `Boar.CONFIG` ever read different values this is what catches it.
 			local field = Boar.CONFIG.field
-			expect(field.bounds.minX).to.equal(Map.FIELD.bounds.minX)
-			expect(field.bounds.maxX).to.equal(Map.FIELD.bounds.maxX)
-			expect(field.bounds.minZ).to.equal(Map.FIELD.bounds.minZ)
-			expect(field.bounds.maxZ).to.equal(Map.FIELD.bounds.maxZ)
-			expect(field.exitZ).to.equal(Map.FIELD.exitZ)
-			expect(field.groundY).to.equal(Map.FIELD.groundY)
+			expect(field.bounds.minX).to.equal(FIELD.bounds.minX)
+			expect(field.bounds.maxX).to.equal(FIELD.bounds.maxX)
+			expect(field.bounds.minZ).to.equal(FIELD.bounds.minZ)
+			expect(field.bounds.maxZ).to.equal(FIELD.bounds.maxZ)
+			expect(field.exitZ).to.equal(FIELD.exitZ)
+			expect(field.groundY).to.equal(FIELD.groundY)
+			expect(Boar.CONFIG.WORLD).to.equal(WORLD)
 		end)
 
 		it("keeps the streaming properties the contract names", function()
 			expect(Workspace.StreamingEnabled).to.equal(Map.STREAMING.enabled)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- M2.8e: the switch
+	--
+	-- BOTH WORLDS, AND NEITHER NEEDS THE FLAG. `MAP_V1` is born OFF and merges OFF, and the harness
+	-- refuses to start while an override is set -- so a case that read the live flag could only ever
+	-- test the arena. Every case here hands `Map`'s selectors a boolean instead, which is why they
+	-- are pure functions and not a table lookup on a resolved string (CLAUDE.md, "Feature flags";
+	-- feature-flags.md 13.3).
+	describe("the map switch", function()
+		it("names one world per state, and they are different worlds", function()
+			expect(Map.worldFor(false)).to.equal("arena")
+			expect(Map.worldFor(true)).to.equal("map:v1")
+			expect(Map.worldFor(false)).never.to.equal(Map.worldFor(true))
+			-- what SHIPS is the off state: a dark path that is on by default is not dark
+			expect(Map.EXPECTED_WORLD).to.equal(Map.worldFor(false))
+			expect(Flags.DEFAULTS.MAP_V1.default).to.equal(false)
+			expect(Flags.DEFAULTS.MAP_V1.expires <= "2026-10-18").to.equal(true)
+		end)
+
+		it("gives each world its own rectangle, and the map's is the design's corridor", function()
+			local arena = Map.fieldFor(false)
+			expect(arena.bounds.minX).to.equal(-200)
+			expect(arena.exitZ).to.equal(-190)
+			-- design section 15.1: 1,240 studs wide to hold a 1,120-stud shooter line, and exitZ
+			-- 120 studs PAST the road at z = -700, because the boars cross it (Karen's decision).
+			local map = Map.fieldFor(true)
+			expect(map.bounds.minX).to.equal(-620)
+			expect(map.bounds.maxX).to.equal(620)
+			expect(map.bounds.minZ).to.equal(-880)
+			expect(map.bounds.maxZ).to.equal(800)
+			expect(map.exitZ).to.equal(-820)
+			expect(map.exitZ < Map.ROAD.z).to.equal(true)
+			-- groundY is 0 in BOTH, which is why the switch needs no other boar change
+			expect(arena.groundY).to.equal(0)
+			expect(map.groundY).to.equal(0)
+		end)
+
+		it("gives each world its own tie-tree count", function()
+			expect(Map.countsFor(false).tree).to.equal(4) -- the arena's four corner pillars
+			expect(Map.countsFor(true).tree).to.equal(12) -- design section 4.3
+			-- and the other four are the same in both, because the drive is the same drive
+			for _, key in ipairs({ "shooterPost", "driveLine", "driverStart", "boarSpawn" }) do
+				expect(Map.countsFor(true)[key]).to.equal(Map.countsFor(false)[key])
+			end
+		end)
+
+		it("names the seed and digest of the world it selects", function()
+			expect(Map.seedFor(false)).to.equal(0)
+			expect(Map.digestFor(false)).to.equal("")
+			expect(Map.seedFor(true)).to.equal(Map.MAP_SEED)
+			expect(Map.MAP_SEED > 0).to.equal(true)
+			-- The committed digest is either empty (the place has not been built and saved yet) or
+			-- a full sha256 -- never a truncated one, which is how a digest stops being a digest.
+			local digest = Map.digestFor(true)
+			expect(digest == "" or #digest == 64).to.equal(true)
+		end)
+
+		it("is the same decision everywhere, and nothing else reads the flag", function()
+			-- THE OWNERS' BOUNDARIES AGREE. `ArenaBoot` reads the flag to decide whether to build
+			-- the grey box; `Boar.CONFIG` reads it to pick the rectangle. `Flags` memoises per
+			-- process, so "two reads" is still one resolution -- this is what proves it rather than
+			-- asserting it in a comment.
+			expect(Boar.CONFIG.WORLD).to.equal(Map.worldFor(Flags.isOn("MAP_V1")))
+			-- ...and with the flag off, which is every harness run, the arena really is the world.
+			if not MAP_ON then
+				expect(Boar.CONFIG.WORLD).to.equal("arena")
+				expect(Workspace:FindFirstChild(ARENA_ROOT)).to.be.ok()
+			end
+			TestKit.note(
+				string.format(
+					"task79: MAP_V1=%s, world=%s, boar field x[%d,%d] z[%d,%d] exitZ=%d, arena=%s, map=%s",
+					tostring(MAP_ON),
+					WORLD,
+					Boar.CONFIG.field.bounds.minX,
+					Boar.CONFIG.field.bounds.maxX,
+					Boar.CONFIG.field.bounds.minZ,
+					Boar.CONFIG.field.bounds.maxZ,
+					Boar.CONFIG.field.exitZ,
+					if Workspace:FindFirstChild(ARENA_ROOT) then "built" else "absent",
+					if Workspace:FindFirstChild(MAP_ROOT) then "in Workspace" else "absent"
+				)
+			)
 		end)
 	end)
 

@@ -38,13 +38,33 @@ Map.VERSION = "v1"
 -- digest and a build end up disagreeing about which generator made the map.
 Map.GENERATOR = "m2.8c-road-furniture"
 
--- THE SWITCH (design section 9). "arena" or "map:v1". Milestone 2.1 builds the 512-stud slice as an
--- EDIT-TIME artefact and does not make it the world: the grey box is still what a player stands in,
--- still the rollback, and still what every existing spec is written against. M2.5 flips this, sets
--- SEED and DIGEST, and changes FIELD and Boar.CONFIG.field together.
+-- THE SWITCH (design section 9, and section 17's M2.8e step). "arena" or "map:v1".
+--
+-- SINCE TASK 79 IT IS A FLAG, NOT A COMMITTED STRING, and that is a Director decision recorded as a
+-- deviation from section 17 (`docs/research/2026-09-27-map-switch.md`, `TASKS.md` row 79a).
+-- CLAUDE.md lists the map switch as feel-critical, and feel-critical work merges DARK: the map ships
+-- switched off, Karen walks it with `MAP_V1` turned on for her playtest, and her OK flips the default
+-- in a later three-line commit. **It still cannot be half-on**, and it is still never answered by
+-- looking for a folder in Workspace -- a predicate like that lies the moment a run half-finishes.
+--
+-- NOTHING IN THIS FILE READS THE FLAG. `Map` is frozen data with no runtime writer and it is SHARED,
+-- so a client requiring it must never be made to wait on the published flag mirror. What lives here
+-- is both worlds' numbers plus PURE selectors over a boolean, which is also what makes the ON branch
+-- reachable by parameter while the flag sits off (CLAUDE.md, "Feature flags").
+--
+-- `EXPECTED_WORLD` is therefore what SHIPS -- the flag's default -- and `Map.worldFor(mapOn)` is what
+-- a running server resolved. With the flag off they are the same string, which is every harness run.
 Map.EXPECTED_WORLD = "arena"
+Map.WORLD_WHEN_ON = "map:v1"
 Map.SEED = 0 -- the seed the committed map was built from; 0 while "arena"
 Map.DIGEST = "" -- the digest that seed produced; "" while "arena"
+
+-- THE GENERATED MAP'S OWN NUMBERS (design section 17 step 6), active only when the flag is on.
+-- MAP_DIGEST is filled from the build that produced the place: `mapgen.py build --seed N` prints it
+-- and `mapgen.py digest` reads it back out of Studio, so the committed string names the world the
+-- place actually holds.
+Map.MAP_SEED = 1
+Map.MAP_DIGEST = ""
 
 -- THE DRIVE RECTANGLE. While EXPECTED_WORLD is "arena" these are the ARENA's numbers, because
 -- map_contract.spec asserts Boar.CONFIG.field deep-equals this and the boar is still hunting in the
@@ -52,6 +72,16 @@ Map.DIGEST = "" -- the digest that seed produced; "" while "arena"
 Map.FIELD = {
 	bounds = { minX = -200, maxX = 200, minZ = -200, maxZ = 200 },
 	exitZ = -190,
+	groundY = 0,
+} :: FieldRect
+
+-- THE GENERATED MAP'S DRIVE RECTANGLE (design section 15.1): 1,240 studs wide, to hold a 1,120-stud
+-- shooter line, and `exitZ` 120 studs PAST the road at z = -700 -- Karen's decision that the boars
+-- CROSS the road rather than stopping at it. `groundY` is 0 in both worlds, which is why the switch
+-- needs no other boar change.
+Map.MAP_FIELD = {
+	bounds = { minX = -620, maxX = 620, minZ = -880, maxZ = 800 },
+	exitZ = -820,
 	groundY = 0,
 } :: FieldRect
 
@@ -70,6 +100,10 @@ Map.TAGS = {
 -- own. The arena tags its four corner pillars as tie trees; the generated map tags twelve near the
 -- line (design section 4.3), and this table changes with the switch.
 Map.EXPECTED_COUNTS = { shooterPost = 8, driveLine = 1, driverStart = 1, boarSpawn = 4, tree = 4 }
+
+-- The same five counts for the generated map: the arena tags its four corner pillars as tie trees,
+-- the map tags TWELVE near the line (design section 4.3, section 15.1's "Tie trees" row).
+Map.MAP_EXPECTED_COUNTS = { shooterPost = 8, driveLine = 1, driverStart = 1, boarSpawn = 4, tree = 12 }
 
 -- MEASURED 2026-09-26 in Studio 0.740.19 (Task 43), and it contradicts the design's assumption that
 -- streaming is off until M2.6:
@@ -154,6 +188,33 @@ Map.PALETTE_DEFAULT = {
 -- to hold the group. The nearest two pads are 300 studs apart, so pads never overlap and
 -- Height.atFlattened's nearest-pad rule never has to arbitrate.
 Map.SPAWN_PAD = { radius = 30, blend = 40, tolerance = 0.75 }
+
+-- ---------------------------------------------------------------- the switch, as pure functions
+--
+-- PURE, AND THAT IS THE WHOLE POINT. Each takes the resolved flag as an ARGUMENT, so a spec drives
+-- BOTH worlds with a boolean and nothing to restore, while the flag itself stays off -- the shape
+-- CLAUDE.md requires of every flagged path. The owners read the flag once at their own boundary
+-- (`ArenaBoot`, `Boar.CONFIG`) and pass the value in here.
+
+function Map.worldFor(mapOn: boolean): string
+	return if mapOn then Map.WORLD_WHEN_ON else Map.EXPECTED_WORLD
+end
+
+function Map.fieldFor(mapOn: boolean): FieldRect
+	return if mapOn then Map.MAP_FIELD else Map.FIELD
+end
+
+function Map.countsFor(mapOn: boolean)
+	return if mapOn then Map.MAP_EXPECTED_COUNTS else Map.EXPECTED_COUNTS
+end
+
+function Map.seedFor(mapOn: boolean): number
+	return if mapOn then Map.MAP_SEED else Map.SEED
+end
+
+function Map.digestFor(mapOn: boolean): string
+	return if mapOn then Map.MAP_DIGEST else Map.DIGEST
+end
 
 Shotgun.deepFreeze(Map)
 

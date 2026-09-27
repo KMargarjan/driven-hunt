@@ -17,8 +17,12 @@
 -- Note:   docs/research/2026-09-24-boar-ai.md
 local PathfindingService = game:GetService("PathfindingService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
 
 local Brain = require(script.Brain)
 local Body = require(script.Body)
@@ -95,12 +99,19 @@ Boar.CONFIG = {
 	ALIGN_RESPONSIVENESS = 25,
 	SPAWN_CLEARANCE = 0.5, -- studs above the ground, so it settles instead of starting embedded
 
-	-- the world it lives in: the Task 17 arena, 400x400 with its surface at y = 0
-	field = {
-		bounds = { minX = -200, maxX = 200, minZ = -200, maxZ = 200 },
-		exitZ = -190, -- the far edge, the future shooter line
-		groundY = 0,
-	},
+	-- THE WORLD IT LIVES IN, AND SINCE TASK 79 THE SWITCH DECIDES WHICH (map-generator design
+	-- section 17 step 6: "`Boar.CONFIG.field` to the same numbers -- a data change inside
+	-- `ServerScriptService.Boar`'s own file, by its owner"). With the flag off it is the Task 17
+	-- arena, 400 x 400 with its surface at y = 0, exactly as before; with it on it is the map's
+	-- 1,240-stud corridor with `exitZ` past the forest road, so the boar crosses the road and is
+	-- gone (Karen's decision).
+	--
+	-- THE ONLY PERMITTED SHAPE (CLAUDE.md, "Feature flags"): the flag is read ONCE, here, at this
+	-- owner's own config boundary, and what it produces is a plain table. `Map.fieldFor` is pure and
+	-- takes the boolean, so a spec drives both rectangles with nothing to restore, and
+	-- `Boar.defaultWorld(field)` already took the rectangle as a parameter before any of this.
+	WORLD = Map.worldFor(Flags.isOn("MAP_V1")),
+	field = Map.fieldFor(Flags.isOn("MAP_V1")),
 	-- 210 studs from exitZ, comfortably beyond HOME_RADIUS + the wander tolerance, so an idle
 	-- boar cannot drift onto the exit line (review round 2, finding 6). Clear of PillarMid at
 	-- (40, -40) and WallWest at (-60, -100) in the Task 17 arena.
