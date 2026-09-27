@@ -73,6 +73,7 @@ local stats = {
 	armingRepairs = 0, -- a sweep found a player who should be holding a gun and was not
 	armingSweeps = 0, -- passes of the sweep below: 0 in a running server means it is not running
 	meshUpgrades = 0, -- guns that were wearing the parts fallback when the mesh arrived (Task 76)
+	meshUpgradeFails = 0, -- passes of that upgrade that ERRORED, so a silent one cannot look like a no-op
 	emptySwaps = 0,
 	markers = 0,
 }
@@ -639,6 +640,13 @@ function Weapon.start()
 			local ok, upgraded = pcall(Hardware.upgradeAll)
 			if ok then
 				stats.meshUpgrades += upgraded
+			else
+				-- COUNTED AND SAID ONCE, NOT SWALLOWED. A pcall whose failure goes nowhere is how a
+				-- sweep that repairs nothing looks exactly like a sweep with nothing to repair.
+				stats.meshUpgradeFails += 1
+				if stats.meshUpgradeFails == 1 then
+					warn(string.format("[Weapon] the mesh upgrade sweep failed: %s", tostring(upgraded)))
+				end
 			end
 		end
 	end)

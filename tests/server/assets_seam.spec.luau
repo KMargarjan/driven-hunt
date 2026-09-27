@@ -647,14 +647,26 @@ return function()
 				end
 			end
 			local template = Loader.template(Hardware.ASSET_KEY)
+			-- WHY `sweep upgrades` IS OFTEN 0 AND THAT IS NOT A DEFECT, measured while writing this:
+			-- this file unwires the provider for the whole 11 s of the slow-load case above, which is
+			-- most of the sweep passes that have happened by the time this runs. It is 0 as well
+			-- whenever this server's player joined AFTER the preload and was handed the mesh gun
+			-- outright -- which is the other thing the count distinguishes. `sweep failures` is what
+			-- would say the sweep is broken; a silent pcall used to make those two look alike.
+			--
+			-- WHAT THE SWEEP ITSELF WOULD GET, asked the same way it asks.
+			local provider = Hardware.getTemplateProvider()
+			local answered = if provider then (provider(Hardware.ASSET_KEY)) ~= nil else false
 			TestKit.note(
 				string.format(
-					"task76: %d carried gun(s), %d wearing the mesh, live template=%s, provider=%s, sweep upgrades=%d",
+					"task76: %d carried gun(s), %d wearing the mesh, live template=%s, provider answers=%s, sweep upgrades=%d, sweep failures=%d, sweeps=%d",
 					held,
 					meshed,
 					if template then "yes" else "no",
-					if Hardware.getTemplateProvider() then "wired" else "NIL",
-					Weapon.stats().meshUpgrades
+					if answered then "yes" else "no",
+					Weapon.stats().meshUpgrades,
+					Weapon.stats().meshUpgradeFails,
+					Weapon.stats().armingSweeps
 				)
 			)
 			-- THE SEAM IS STILL WIRED, and this is the assertion that caught the defect Task 76's
