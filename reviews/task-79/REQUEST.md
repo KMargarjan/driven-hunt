@@ -25,7 +25,7 @@ the `UNREADABLE` guard, the docstring's `selftest` paragraph, case (b)'s wording
 `tests/server/test_arena.spec.luau` (the dormant note's count), `src/server/Boar/init.luau`
 (`CONFIG.spawnPoint`'s comment), `TASKS.md` rows 79/79a.
 
-**What changed.** `src/shared/Map/init.luau` (`EXPECTED_WORLD`, `SEED`, `DIGEST`, `FIELD`,
+**What the branch changes in all.** `src/shared/Map/init.luau` (`EXPECTED_WORLD`, `SEED`, `DIGEST`, `FIELD`,
 `EXPECTED_COUNTS`), `src/server/ArenaBoot.server.luau`, `src/server/Boar/init.luau`
 (`CONFIG.field`), `src/server/MatchBoot.server.luau`, `src/server/Match/init.luau`
 (`stats.firstReleaseAfterSeconds`), `tests/server/map_contract.spec.luau`,
@@ -51,8 +51,9 @@ the `UNREADABLE` guard, the docstring's `selftest` paragraph, case (b)'s wording
 2. **`ArenaBoot` builds nothing, and it cannot be half-on.** It returns early on
    `Map.EXPECTED_WORLD ~= "arena"` before requiring `TestArena` — not hidden, not moved, not built —
    and it never sniffs Workspace for a folder, because a predicate like that lies the moment a run
-   half-finishes. Verify: `test_arena: world=map:v1, the arena is not built and its 12 cases are
-   dormant`, and `task79: ... arena=absent, map=in Workspace`.
+   half-finishes. Verify: `test_arena: world=map:v1, the arena is not built; this file's other cases
+   are dormant until the switch goes back to "arena"`, and `task79: ... arena=absent, map=in
+   Workspace`.
 3. **The corridor is the design's, and the boar and the contract agree about it.**
    `Map.FIELD` is x ±620, z −880…+800, `exitZ = -820`, which is 120 studs PAST the road at z = −700 —
    Karen's decision that the boars cross it. `map_contract.spec`'s "the map switch" describe asserts
@@ -66,8 +67,9 @@ the `UNREADABLE` guard, the docstring's `selftest` paragraph, case (b)'s wording
    `e064d5982513a08616d2bf367f61c30c`.
 5. **The arena-shaped specs are BRANCHED, not archived** (`test_arena.spec`, `boar_body.spec`).
    Section 17 step 9 archives them only after Karen accepts, and a deleted spec cannot check the
-   rollback. Both print what they did rather than passing silently: `the arena is not built and its 12
-   cases are dormant`, `the arena's cover case is dormant`.
+   rollback. Both print what they did rather than passing silently: `the arena is not built; this
+   file's other cases are dormant`, `the arena's cover case is dormant`. Neither note names a COUNT any
+   more: the dormant one said twelve and there were ten (Reviewer note, round 1).
 6. **79a(i), fixed at the harness, at its class, the way the Director chose (fix (1)).**
    `QUERY_STAGE_TARGET` asks the **SERVER** where its own boar is — read-only, constant, one JSON
    argument, no arbitrary Luau — and `stage_seed` hands the position to the client stage, which pivots
