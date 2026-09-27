@@ -3,15 +3,19 @@
 Task: 78
 Round: 2
 Base: `main` (`3273f3e`)
-Code commit: `314337b877d25055896cc2c5ef087bed508adedd`
+Code commit: `d7dc3f844fa352384685dcb38804941a93606bab`
 
 ```
-[harness] PASS: 32/32 checks @ 314337b877d25055896cc2c5ef087bed508adedd (clean tree)
+[harness]  PASS: 32/32 checks @ d7dc3f844fa352384685dcb38804941a93606bab (clean tree)
+[harness2] PASS: 32/32 checks @ d7dc3f844fa352384685dcb38804941a93606bab (clean tree)
 ```
 
-`tools/studio_mcp.py` is the harness itself, so `test2` is part of the gate; the Director runs it at
-this branch's head and that line goes here. `[tests:server] PASS: 419 passed`, client 88 — unchanged,
-because nothing in `src/` or `tests/` moved.
+Both are the Director's runs at this branch's head. `tools/studio_mcp.py` is the harness itself, so
+`test2` is part of the gate. The head is a paperwork commit — at or after the last commit that
+touched `tools/` (`314337b`), with only `TASKS.md` and this file between them — which only makes the
+bound stricter. My own clean-tree `[harness] PASS: 32/32 @ 314337b` covers the same code and reported
+`[tests:server] PASS: 419 passed`, client 88 — unchanged, because nothing in `src/` or `tests/`
+moved.
 
 **Round 1's finding was right, and it was the sharpest kind: the fix had the same shape as the bug.**
 `FRESH_FLAGS` answered a bare `"REFUSED: ..."` string. The `set` path checked that prefix; the two
