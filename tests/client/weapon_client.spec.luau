@@ -32,6 +32,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+-- NOTES, NOT PRINTS, for anything that explains a failure. TestKit's own header says why: "Studio's
+-- console comes back truncated from a long session -- every two-player run so far lost the head of
+-- it". Task 80 lost a whole diagnostic run to exactly that: the map world's console came back
+-- `[TRUNCATED DUE TO LENGTH LIMIT]` and every print from this file with it, while the notes arrived.
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("InputReady"))
 local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 
@@ -70,9 +75,60 @@ local aimEvents = {}
 local cameraSamples = {}
 local equippedAt = nil
 
+local suiteStart = os.clock()
+
 Weapon.Changed:Connect(function(snapshot)
 	table.insert(log, { at = os.clock(), state = snapshot })
 end)
+
+-- EVERY TOOL THE OWNER HANDS THIS PLAYER (Task 80). `Weapon.grant` destroys the recorded Tool,
+-- builds a new one, resets the state to `StateMachine.initial` -- reserve back to full -- and then
+-- AUTO-EQUIPS it, because `Shotgun.CONFIG.AUTO_EQUIP` is true (Karen: a playtest should not start by
+-- hunting for the hotbar). `Weapon.refreshArming`'s sweep calls grant again whenever it finds a
+-- player who should be holding one, so a session sees several. That makes "the gun is in the Backpack
+-- because this spec parked it" an arrangement the OWNER is free to undo, with no input at all -- and
+-- a gun in the hand when the replay's first click arrives fires a shell nothing in this file asked
+-- for. This is the record of it, so a wrong shot count says WHERE the extra shot came from.
+local guns: { { at: number, where: string } } = {}
+local seen: { [Instance]: true } = {}
+local function sawGun(child: Instance, where: string)
+	if child.Name ~= "Shotgun" or not child:IsA("Tool") or seen[child] then
+		return
+	end
+	seen[child] = true
+	table.insert(guns, { at = os.clock() - suiteStart, where = where })
+end
+
+local function watchBag()
+	local bag = player:FindFirstChildOfClass("Backpack")
+	if bag then
+		for _, child in ipairs(bag:GetChildren()) do
+			sawGun(child, "backpack")
+		end
+		bag.ChildAdded:Connect(function(child)
+			sawGun(child, "backpack")
+		end)
+	end
+end
+watchBag()
+player.ChildAdded:Connect(function(child)
+	if child:IsA("Backpack") then
+		watchBag()
+	end
+end)
+
+local function watchBody(character: Model)
+	for _, child in ipairs(character:GetChildren()) do
+		sawGun(child, "hand")
+	end
+	character.ChildAdded:Connect(function(child)
+		sawGun(child, "hand")
+	end)
+end
+if player.Character then
+	watchBody(player.Character)
+end
+player.CharacterAdded:Connect(watchBody)
 
 Weapon.Input.AimChanged:Connect(function(aiming)
 	table.insert(aimEvents, aiming)
@@ -386,9 +442,9 @@ return function()
 				end)
 				if not finished then
 					local state = last()
-					print(
+					TestKit.note(
 						string.format(
-							"[weapon_client] %d snapshots; last: ammo=%s slug=%s busyFor=%.2f aims=%d",
+							"weapon_client: %d snapshots; last: ammo=%s slug=%s busyFor=%.2f aims=%d",
 							#log,
 							tostring(state and state.ammo),
 							tostring(state and state.reserve and state.reserve.Slug),
@@ -401,9 +457,9 @@ return function()
 
 				local state = endState
 				expect(state).to.be.ok()
-				print(
+				TestKit.note(
 					string.format(
-						"[weapon_client] end state: barrels=%s/%s loaded=%s/%s selected=%d ammo=%s slug=%d buck=%d open=%s",
+						"weapon_client: end state: barrels=%s/%s loaded=%s/%s selected=%d ammo=%s slug=%d buck=%d open=%s",
 						state.barrels[1],
 						state.barrels[2],
 						state.loaded[1],
@@ -436,19 +492,45 @@ return function()
 				local entries = ownLog()
 				local rises = 0
 				local previous = 0
+				local when = {}
 				for _, entry in ipairs(entries) do
 					local spent = spentCount(entry.state)
 					if spent > previous then
 						rises += 1
+						-- WHICH shot, not just how many (Task 80). An extra one is either the replay
+						-- firing three times or a gun that was in the hand before this spec's cue,
+						-- and the reserve at the moment it went off says which.
+						table.insert(
+							when,
+							string.format(
+								"#%d at +%.1fs %s/%s res=%d/%d%s",
+								rises,
+								entry.at - suiteStart,
+								tostring(entry.state.loaded[1]),
+								tostring(entry.state.loaded[2]),
+								entry.state.reserve.Slug or -1,
+								entry.state.reserve.Buck or -1,
+								if equippedAt and entry.at < equippedAt then " BEFORE THE CUE" else ""
+							)
+						)
 					end
 					previous = spent
 				end
-				print(
+				local handed = {}
+				for index, gun in ipairs(guns) do
+					handed[index] = string.format("+%.1fs %s", gun.at, gun.where)
+				end
+				TestKit.note(
 					string.format(
-						"[weapon_client] shots seen: %d over %d snapshots (%d in the session)",
+						"weapon_client: shots seen: %d over %d snapshots (%d in the session); cue at "
+							.. "+%.1fs; %d gun(s) handed over [%s]; rises [%s]",
 						rises,
 						#entries,
-						#log
+						#log,
+						if equippedAt then equippedAt - suiteStart else -1,
+						#guns,
+						table.concat(handed, ", "),
+						table.concat(when, ", ")
 					)
 				)
 				expect(rises).to.equal(2)
@@ -525,16 +607,16 @@ return function()
 				if not cameraModule then
 					-- No camera system in the place: the old evidence is the best available, and the
 					-- stock camera is then the only other writer.
-					print("[weapon_client] no camera system; asserting the camera did not change instead")
+					TestKit.note("weapon_client: no camera system; asserting the camera did not change instead")
 					expect(cameraSamples[1].fov).to.equal(cameraSamples[2].fov)
 					expect(Weapon.Input.isAiming()).to.equal(false)
 					return
 				end
 				local CameraSystem = require(cameraModule)
 				local stats = CameraSystem.stats()
-				print(
+				TestKit.note(
 					string.format(
-						"[weapon_client] camera foreign writes: %d (from %d) over %d frames",
+						"weapon_client: camera foreign writes: %d (from %d) over %d frames",
 						stats.foreignCameraWrites,
 						foreignBefore,
 						stats.frames
@@ -554,9 +636,9 @@ return function()
 				end)
 				if not visible then
 					local state = Weapon.get()
-					print(
+					TestKit.note(
 						string.format(
-							"[weapon_client] crosshair not visible: gui=%s equipped=%s enabled=%s",
+							"weapon_client: crosshair not visible: gui=%s equipped=%s enabled=%s",
 							tostring(Hud.gui() ~= nil),
 							tostring(state and state.equipped),
 							tostring(Shotgun.CONFIG.CROSSHAIR_ENABLED)
@@ -601,9 +683,9 @@ return function()
 				local inset = GuiService:GetGuiInset()
 				local centre = crosshair.AbsolutePosition + crosshair.AbsoluteSize / 2 + inset
 				local viewport = Workspace.CurrentCamera.ViewportSize / 2
-				print(
+				TestKit.note(
 					string.format(
-						"[weapon_client] crosshair centre %.1f,%.1f vs viewport centre %.1f,%.1f (inset %.0f,%.0f)",
+						"weapon_client: crosshair centre %.1f,%.1f vs viewport centre %.1f,%.1f (inset %.0f,%.0f)",
 						centre.X,
 						centre.Y,
 						viewport.X,
@@ -617,7 +699,7 @@ return function()
 
 			it("reads out the barrels, the ammo and the reserve", function()
 				local text = Hud.readoutText()
-				print("[weapon_client] readout: " .. text)
+				TestKit.note("weapon_client: readout: " .. text)
 				-- glyphs, ammo, the pocket for that ammo, an optional " R" while busy, and an optional
 				-- one-line notice such as "NO BUCK" (Karen, 2026-09-25).
 				expect(string.match(text, "^[%[%*%-x%]]+ [A-Z]+ %d+[ A-Z]*$")).to.be.ok()
@@ -732,9 +814,9 @@ return function()
 				end)
 				if not ready then
 					local state = Weapon.get()
-					print(
+					TestKit.note(
 						string.format(
-							"[weapon_client] no quiet gun to test: equipped=%s open=%s busyFor=%.2f since input=%.1f s",
+							"weapon_client: no quiet gun to test: equipped=%s open=%s busyFor=%.2f since input=%.1f s",
 							tostring(state and state.equipped),
 							tostring(state and state.open),
 							if state then state.busyFor else -1,
@@ -794,9 +876,9 @@ return function()
 							)
 						)
 					end
-					print(
+					TestKit.note(
 						string.format(
-							"[weapon_client] exploit window: %d snapshot(s) in %.2f s; last weapon input "
+							"weapon_client: exploit window: %d snapshot(s) in %.2f s; last weapon input "
 								.. "%.2f s before it opened, %.2f s before it closed; before open=%s "
 								.. "b=%s/%s res=%d/%d -> after open=%s b=%s/%s res=%d/%d%s",
 							#log - firstIndex,
