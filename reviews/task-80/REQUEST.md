@@ -3,20 +3,30 @@
 Task: 80
 Round: 1
 Base: `task-79-map-switch` (`5d31119`) — stacked, because Task 79 is not merged
-Code commit: `40390b37d5932e4561b63f568bb71ebfa85e6449`
+Code commit: `fd362867395246a8f3aea431a38f45ae83cb98b1`
 
 ```
-[harness]  PASS: 32/32 checks @ 40390b37d5932e4561b63f568bb71ebfa85e6449 (clean tree)
+[harness]  PASS: 32/32 checks @ fd362867395246a8f3aea431a38f45ae83cb98b1 (clean tree)
 [harness2] pending — the Director's run at this branch's head
 ```
 
-Nine of my own clean-tree runs at that commit, all green, on the **map world**; `src/` and
-`tests/client/` both changed, so `test2` is part of the gate and the Director runs it twice.
+Three of my own clean-tree runs at that commit, all green, on the **map world**, plus nine at
+`40390b3` for the client half, which this commit does not touch. `src/` and `tests/client/` both
+changed, so `test2` is part of the gate and the Director runs it twice.
 
-**What changed.** `src/server/Weapon/init.luau` (`Weapon.onActionRequest`, `Weapon.onFireRequest`
-exported), `tests/server/weapon_shot.spec.luau` (the handler case), `tests/client/weapon_client.spec.luau`
-(the parking invariant, the window's near end, the reserve delta, the gun-count guard, prints → notes),
-`tests/client/zz_outfit_client.spec.luau` → `tests/client/outfit_client.spec.luau`, `TASKS.md` rows 80/80a.
+**The Director's `test2` at `99a2f5a` found a second fault, and it was mine.** `[harness2] FAIL: 30/32`
+at `weapon_shot.spec:161`, `Expected 0, got 1` — the `shots` delta. The client half passed under two
+players, which is claims 1–7. Claim 8's first version asserted a **server-wide counter across a
+wall-clock window**, which is the same mistake this whole task is about, committed inside the fix for
+it. Claim 8 now reads per call, and claim 11 is the correction.
+
+**What changed.** `src/server/Weapon/init.luau` (`Weapon.onActionRequest` and `Weapon.onFireRequest`
+exported, and both now return their own decision at every exit),
+`tests/server/weapon_shot.spec.luau` (the handler case),
+`tests/client/weapon_client.spec.luau` (the parking invariant, the window's near end, the reserve
+delta, the gun-count guard, prints → notes),
+`tests/client/zz_outfit_client.spec.luau` → `tests/client/outfit_client.spec.luau`, `TASKS.md` rows
+80/80a.
 
 ## Claims
 
@@ -50,20 +60,33 @@ exported), `tests/server/weapon_shot.spec.luau` (the handler case), `tests/clien
 7. **The exploit window is thrown away if the owner handed over a gun inside it.** Causal, not timed:
    a grant resets the state and auto-equips, which is exactly what an accepted `Break` would look
    like, and the two failing two-player runs had `weapon granted=9 revoked=4`.
-8. **The property itself moved to the server, where it is deterministic.**
-   `Weapon.onActionRequest` and `Weapon.onFireRequest` are the **same** functions `Weapon.start`
-   connects to the remotes, now reachable by parameter — no second implementation, one owner.
-   `weapon_shot.spec`'s "consults the whitelist before acting, at the handler the remote calls" drives
-   twelve forged payloads through them and requires `stats.badRequests` to rise by exactly twelve with
-   `rateDropped` and `shots` unmoved. A legitimate grant or reload cannot raise that counter, so there
-   is no window and no waiting. Verify: `weapon_shot: 12 forged request(s) at the handler ->
-   badRequests +12, rateDropped +0, shots +0`. The client case stays as the half only a client can
-   prove — that the remotes reach that handler at all.
-9. **One mutation, applied, run and restored, and it caught both halves.** `onActionRequest` stops
-   consulting the whitelist → the server case fails with `badRequests +3` of twelve
-   (`weapon_shot.spec:158`) **and** the client case fails at
-   `expect(after.open).to.equal(before.open)`. So the forged `Break` really does open the gun when the
-   guard is gone, and neither half is dead weight.
+8. **The property itself moved to the server, and the seam reports its own decision so nothing is
+   raced.** `Weapon.onActionRequest` and `Weapon.onFireRequest` are the **same** functions
+   `Weapon.start` connects to the remotes, now reachable by parameter — no second implementation, one
+   owner — and each returns `nil` when the request was acted on, otherwise the reason it was not, at
+   every exit. `OnServerEvent:Connect` discards the return, so the game is unchanged; a return value
+   belongs to one call and one player and nobody can race it. The spec drives twelve forged payloads
+   and asserts **(i)** none came back `nil`, so none was acted on, and **(ii)** none came back
+   `rate-limited` or `untracked`, the two exits *before* the validator — which is what would make this
+   case green with the whitelist deleted. The rate limiter is no longer dodged by counting to ten and
+   guessing: a call that says `rate-limited` is simply made again in the next window. Verify:
+   `weapon_shot: 12 forged request(s) at the handler, subject <name> of roster [<name>(tracked)];
+   reasons [action Break=bad-request, … fire #1=bad-type, …]`. The client case stays as the half only a
+   client can prove — that the remotes reach that handler at all.
+   **AND ITS FIRST VERSION WAS WRONG IN EXACTLY THE WAY CLAIMS 1-7 ARE ABOUT.** It asserted
+   `stats.shots` had not moved across its own window. `stats` is one module-level table for the whole
+   server, so `after.shots - before.shots` counted **every** player's shots — and under two players the
+   shooter's replayed click landed in my numbers and read as a forged request being accepted. One
+   player never overlapped; two did. Verify in `<runs-dir>/test2-task-80.log`: `badRequests +12,
+   rateDropped +0, shots +1` — twelve refusals *and* one real shot, in the same line. The counters
+   survive only as labelled context in the note now, beside the subject's name, the full roster with
+   who is tracked, and every payload's reason, so the next `test2` answers this either way without
+   another round.
+9. **The mutation, re-run against the new shape, still catches both halves — and now it names the
+   exploit instead of a number.** `onActionRequest` stops consulting the whitelist → the note reads
+   `action Break=nil` (the forged `Break` **accepted**) with every later payload `not-ready`, because
+   that Break left the gun broken open; `weapon_shot.spec:202` fails; **and** the client case fails at
+   `expect(after.open).to.equal(before.open)`. Neither half is dead weight.
 10. **The evidence arrives with the failure now.** Every print in `weapon_client` that explains
     something is a `TestKit.note`. The first diagnostic run was wasted on exactly this: the map
     world's console came back `[TRUNCATED DUE TO LENGTH LIMIT]` and took every print with it, while
@@ -72,11 +95,12 @@ exported), `tests/server/weapon_shot.spec.luau` (the handler case), `tests/clien
 
 ## What I could not verify
 
-- **The two-player failures were not reproduced under two players.** I cannot run `test2`, so
-  `weapon_client.spec:766/770` in `<runs-dir>/test2-task-79b.log` and `-79c.log` are **explained** by
-  this mechanism, not measured under it: that session handed over nine guns and revoked four, and
-  claim 7 is aimed exactly at it. If a two-player run still fails there, the new note says how many
-  guns were handed over and when. Queued as 80a(b).
+- **The client half is confirmed under two players; the server half is not yet.** The Director's
+  `test2` at `99a2f5a` reported `[shooter] weapon_client: shots seen: 2 … cue at +16.8s; 3 gun(s)
+  handed over [+0.0s hand, +37.0s backpack, +37.0s backpack]` and it passed — which is claims 1–7
+  measured under the conditions that used to break them, including a gun in the hand at +0.0 s. Claim
+  8's new shape has only run under one player; I cannot run `test2`. If it still fails, the note names
+  the subject, the roster and every payload's reason. 80a(b).
 - **Nine green runs is evidence, not proof.** The failure was about one run in three, so nine clean
   runs put the chance of having been lucky near 2.6%. The cause is a race with a sweep that runs every
   few seconds, so a slower machine could still find a window this does not cover (80a(f)).
