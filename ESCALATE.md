@@ -976,3 +976,20 @@ to be reverted whichever option is chosen.
 step 5 (reopen, `contract` again = measurement B) were never requested, because the map had to be
 cleared again to leave the place usable. When the decision above is made, the save is still a human
 action and still the only way the map reaches the place.
+
+### RESOLVED — Director decision, 2026-09-27
+
+Verbatim:
+
+> **DIRECTOR DECISION on your ESCALATE.md entry: OPTION 3 — switch by commit, exactly as
+> docs/design/map-generator.md §17 wrote it. Reason: the world lives in the place, not in code, so a
+> flag that cannot be turned off without failing 11 specs and misplacing shooters is not a feature
+> flag; option 1 adds permanent marker-filtering code for a temporary state.**
+
+Done in `0c29687`'s successor on `task-79-map-switch`: the `MAP_V1` row and both of its reads are
+gone (archived nothing — it never merged, so there is nothing to archive under rule 7),
+`Map.EXPECTED_WORLD` is `"map:v1"` with §17 step 6's data beside it, `Boar.CONFIG.field` carries the
+same corridor as a literal by its own owner, and `ArenaBoot` and `MatchBoot` branch on the committed
+string. `CLAUDE.md`'s "Feature flags" section now names the exception. `tests/server/test_arena.spec`
+is **branched, not archived** — §17 step 9 archives it only after Karen accepts, and a spec that was
+deleted cannot check a rollback.

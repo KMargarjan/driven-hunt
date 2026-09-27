@@ -427,6 +427,8 @@ before merging, so ten PRs stacked on one unmerged PR. Since Task 52 it does not
   which blocks the merge gate. Moving the date costs one line, so it can never actually block a
   task -- it can only force someone to say the flag still has a reason to exist.
 
+**THE MAP SWITCH IS THE EXCEPTION, and it was measured (Task 79, Director decision 2026-09-27, `ESCALATE.md`).** It switches **by commit** -- `Map.EXPECTED_WORLD`, exactly as `docs/design/map-generator.md` section 17 writes it -- and the rollback is a commit back to `"arena"` plus `python tools/mapgen.py clear --backup <accepted>`. A flag lives in code and the WORLD LIVES IN THE PLACE: built behind a flag, the map sat in Workspace with the flag off and the same commit went from 32/32 checks to 22/27 with eleven specs failing, including `GetTagged("DrivenHunt.ShooterPost")` answering **16** -- both worlds tag with the same strings, so a flag-off drive would have put shooters on map posts 700 studs away. A switch that cannot be switched off is not a feature flag.
+
 Design: `docs/design/feature-flags.md`. Note: `docs/research/2026-09-26-feature-flags.md`.
 
 ## Public repository: never commit secrets
