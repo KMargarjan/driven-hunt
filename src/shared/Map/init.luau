@@ -58,7 +58,7 @@ Map.EXPECTED_WORLD = "map:v1"
 Map.SEED = 1 -- the seed the committed map was built from
 -- The digest that seed produced, filled from the build that made the place this commit describes:
 -- `mapgen.py build --seed 1` prints it and `mapgen.py digest` reads it back out of Studio.
-Map.DIGEST = ""
+Map.DIGEST = "e064d5982513a08616d2bf367f61c30ca3d9e753d4db8755e5fc04f3467deae5"
 
 -- THE DRIVE RECTANGLE, and `Boar.CONFIG.field` must deep-equal it -- map_contract.spec asserts that,
 -- and the switch changes both together (design section 17 step 6).
