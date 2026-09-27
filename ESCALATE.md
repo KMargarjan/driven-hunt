@@ -887,3 +887,92 @@ The Director dispatched Task 11 in the same message, outside the repo. Its scope
 the head always moves past it (review round 1, finding 1). The gate in `CLAUDE.md` git-workflow step 4
 therefore names the **code commit** and bounds what may follow it (paperwork only). Same intent,
 satisfiable. Flagged to the Director in the Task 11 report.
+
+---
+
+## 2026-09-27 — Task 79 (M2.8e, the map switch): the flag and the PLACE contradict each other
+
+**Builder → Director. A decision is needed; the code half is built, tested and merged-dark, and the
+place half cannot be finished as specified.**
+
+### What was asked
+
+Task 79 dispatch, point 2: *"With the flag OFF the arena must still build and every existing spec
+pass while the map sits in Workspace (prove the two worlds do not interfere: positions, spawns, boar
+field)."*
+
+### What happened, measured
+
+The code half is done and green: `MAP_V1` is declared `default = false`, `Map` gained pure selectors
+over a boolean, `ArenaBoot` and `Boar.CONFIG` read the flag at their own boundaries, and
+`map_contract.spec` drives both worlds by parameter. With **no map in Workspace**:
+
+```
+[harness] PASS: 32/32 checks @ 0c29687e284422803b36dde57827b8e207e47c3f (clean tree)
+[tests:server] PASS: 424 passed
+note [server] task79: MAP_V1=false, world=arena, boar field x[-200,200] z[-200,200] exitZ=-190,
+               arena=built, map=absent
+```
+
+Then the map was built into the place — `mapgen.py build --seed 1 --backup census`, **274/274 steps,
+digest `e064d598…deae5`, 6,393 parts, 3,381,368 terrain cells**; `contract OK`; `reachability OK`
+(every BoarSpawn and the DriverStart reach the line); all nine shots taken and inspected. With the
+map in Workspace **and the flag still OFF**, the same commit:
+
+```
+[harness] FAIL: 22/27 checks @ 0c29687… (clean tree)
+[tests:server] FAIL: 413 passed, 11 failed, 11 errors
+  map_contract.spec:118  the arena is the world but Workspace holds DrivenHuntMap
+  map_contract.spec:132  the world is the arena but Terrain holds 3381368 cell(s)
+  map_contract.spec:163  the rough material is (126,122,78) but the arena world wants (111,126,62)
+  map_contract.spec:197  Expected 8 shooter posts, got 16
+  match_live.spec:137    Expected value "nil" to be non-nil
+```
+
+**The fourth one is not a spec being fussy — it is a gameplay collision.** Both worlds tag their
+markers with the same `Map.TAGS` strings, so `CollectionService:GetTagged("DrivenHunt.ShooterPost")`
+answers **16**, two drive lines, two driver starts and eight boar spawns. `Match.Markers` reads those
+tags. A drive with the flag off would place shooters on map posts 700 studs away.
+
+The place was restored afterwards (`mapgen.py clear` → `removed 9157, cellsAfter 0, paletteRestored
+true`) and the harness is green again at the same commit.
+
+### Why this is a decision and not a bug
+
+`docs/design/map-generator.md` §17 never contemplated a place holding both worlds: step 4 saves the
+map and step 6 commits `EXPECTED_WORLD = "map:v1"` **together**. The Director's one change — merge
+dark behind a flag — separates them, and that is what creates the both-present state, because **the
+flag lives in code and the map lives in the PLACE**. A flag cannot make 6,393 parts and three million
+terrain cells absent.
+
+Three ways out, none of which the Builder may choose alone:
+
+1. **Filter by world root.** `Match.Markers` (and the spec's exclusivity checks) resolve tags only
+   inside the named world's root — the `taggedInside` helper `map_contract.spec` already has. Fixes
+   the collision and `match_live`. **Does not fix the palette**: the saved place keeps the autumn
+   terrain colours, so with the flag OFF the grey-box arena sits on an autumn-coloured world for
+   every playtest. Karen would see that, and §8.4/audit-004 called a leftover palette "a world nobody
+   chose".
+2. **Do not save the map until Karen accepts.** The place stays arena-only, everything above stays
+   green — and the flag-on playtest has no map to walk, which is the point of the task.
+3. **Switch by commit after all, as §17 wrote it** — EXPECTED_WORLD flips in the same commit that
+   saves the place, and the feel gate is Karen's walk on a branch rather than a flag. This is the
+   design's own shape and gives up "merge dark" for this one task.
+
+**Recommendation: 1 plus an explicit decision about the palette** — it is the only option that both
+merges dark and gives Karen a map to walk. It needs `Match.Markers` changed (its owner is the drive,
+not this task's) and it needs somebody to say that an autumn-coloured arena is acceptable while the
+flag is off. Option 3 is the cheapest if "merge dark" is worth less here than the design's simplicity.
+
+### What is NOT blocked
+
+The code half is committed and green and merges dark on its own: with no map saved, `MAP_V1` on or
+off changes nothing a player can see, because the map does not exist in the place. Nothing here has
+to be reverted whichever option is chosen.
+
+### And one thing that was never reached
+
+**`NEEDS SAVE`.** §17 step 4 (Karen's `File → Save to Roblox`, or the Director's Alt+Shift+S) and
+step 5 (reopen, `contract` again = measurement B) were never requested, because the map had to be
+cleared again to leave the place usable. When the decision above is made, the save is still a human
+action and still the only way the map reaches the place.
