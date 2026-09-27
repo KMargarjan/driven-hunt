@@ -323,6 +323,85 @@ return function()
 			expect(math.abs(Workspace.CurrentCamera.FieldOfView - Config.FOV_THIRD_DEG) < 0.01).to.equal(true)
 		end)
 
+		it("keeps the appearance of the gun it clones, and still strips everything else", function()
+			-- THE ONE CLIENT-VISIBLE CHANGE OF TASK 74, AND IT WAS ASSERTED BY NOTHING (review
+			-- round 1, finding 2). Karen's uploaded shotgun is a MeshPart carrying its PBR maps on a
+			-- SurfaceAppearance child; the clone's sweep used to destroy every child that was not an
+			-- Attachment, so the FIRST-PERSON gun would have lost its maps while the third-person
+			-- gun kept them -- visible only in ADS, only to the player holding it.
+			--
+			-- Driven by injection rather than by whatever the server happened to load, so it says
+			-- the same thing on a machine where the asset does not load at all.
+			-- A MeshPart, because Roblox refuses a SurfaceAppearance anywhere else ("SurfaceAppearance
+			-- can only be parented to MeshParts") -- and because that is what the real gun is.
+			local source = Instance.new("MeshPart")
+			source.Name = "Handle"
+			source.Size = Vector3.new(0.4, 0.5, 4.4)
+			source.Transparency = 1
+			local keep = {
+				Instance.new("SurfaceAppearance"),
+				Instance.new("Texture"),
+				Instance.new("Decal"),
+				Instance.new("Attachment"),
+			}
+			local strip = { Instance.new("Weld"), Instance.new("Sound"), Instance.new("Folder") }
+			for _, child in ipairs(keep) do
+				child.Parent = source
+			end
+			for _, child in ipairs(strip) do
+				child.Parent = source
+			end
+			-- a welded visible piece, so the clone has something to show as well as something to keep
+			local piece = Instance.new("MeshPart")
+			piece.Name = "BarrelLeft"
+			piece.Size = Vector3.new(0.17, 0.17, 2.7)
+			piece.Parent = source
+			local pieceSkin = Instance.new("SurfaceAppearance")
+			pieceSkin.Parent = piece
+
+			local live = Camera.Viewmodel.getSource()
+			Camera.Viewmodel.setSource(function()
+				return source
+			end)
+			-- THE SOURCE IS ASKED FOUR TIMES A SECOND, NOT EVERY FRAME (Viewmodel's own comment: the
+			-- pose is what has to be per frame). One update after setSource therefore rebuilds from
+			-- the PREVIOUS handle -- which is how the first version of this test read the live gun's
+			-- Handle and reported no SurfaceAppearance. Wait past the interval, then update.
+			Camera.Viewmodel.clear()
+			task.wait(0.3)
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), 1, Config)
+			local model = Camera.Viewmodel.current()
+			expect(model).to.be.ok()
+			local clone = (model :: Model).PrimaryPart :: BasePart
+			expect(clone).to.be.ok()
+
+			local kept = {}
+			for _, child in ipairs((clone :: Instance):GetChildren()) do
+				kept[child.ClassName] = (kept[child.ClassName] or 0) + 1
+			end
+			-- WHAT MUST SURVIVE: the appearance, and the attachment the muzzle rides on.
+			expect(kept.SurfaceAppearance).to.equal(1)
+			expect(kept.Texture).to.equal(1)
+			expect(kept.Decal).to.equal(1)
+			expect(kept.Attachment).to.equal(1)
+			-- WHAT MUST NOT: a weld would be simulated under the camera, a sound would play twice.
+			expect(kept.Weld).to.equal(nil)
+			expect(kept.Sound).to.equal(nil)
+			expect(kept.Folder).to.equal(nil)
+			-- ...and the appearance of a welded PIECE survives too, not just the root's.
+			local clonedPiece = (clone :: Instance):FindFirstChild("BarrelLeft")
+			expect(clonedPiece).to.be.ok()
+			expect((clonedPiece :: Instance):FindFirstChildOfClass("SurfaceAppearance")).to.be.ok()
+
+			-- PUT THE LIVE SOURCE BACK. `CameraBoot` set it once at boot, so `setSource(nil)` would
+			-- not restore it -- it would end it, and every later frame of this session would draw no
+			-- viewmodel at all.
+			Camera.Viewmodel.clear()
+			Camera.Viewmodel.setSource(live)
+			source:Destroy()
+			expect(Camera.Viewmodel.getSource()).to.equal(live)
+		end)
+
 		it("shows a viewmodel that is really on screen, and unparents it afterwards", function()
 			if Role.isDriver() then
 				-- The viewmodel is a clone of the Tool's Handle (docs/design/camera.md section 7), so
@@ -374,7 +453,12 @@ return function()
 						expect(part.Anchored).to.equal(true)
 					end
 				end
-				expect(parts >= 4).to.equal(true) -- a gun, not a box
+				-- EITHER GUN, AND THE CLAIM IS THE SAME FOR BOTH. Since Task 74 the gun may be one
+				-- MeshPart welded to the invisible Handle (Karen's model) or Task 71's ten parts,
+				-- depending on whether the asset loaded -- so the number is a range and what is
+				-- really asserted is below: the envelope is the ONLY invisible part and everything
+				-- else shows. A blank viewmodel still fails that.
+				expect(parts >= 2).to.equal(true) -- the envelope plus at least one visible thing
 				expect(parts <= 16).to.equal(true) -- a gun, not somebody's character
 				expect((model.PrimaryPart :: BasePart).Transparency).to.equal(1)
 				expect(visible).to.equal(parts - 1)

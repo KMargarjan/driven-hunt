@@ -1,0 +1,458 @@
+-- assets_seam.spec: the manifest and the one id -> Instance seam (Task 74, M2.7a).
+--
+-- BOTH PATHS, DRIVEN BY INJECTION. The harness runs inside Studio, where `InsertService:LoadAsset`
+-- may or may not reach the network on any given day -- so a spec that only ever saw the real thing
+-- would be a spec that passes for reasons it cannot name. `Loader.setInsert` replaces the one call
+-- that hits the world, and every branch below is reached on purpose: the mesh loaded and used, and
+-- each way it can fail ending in the grey box rather than in a gunless player.
+--
+-- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
+-- Design: docs/design/asset-pipeline.md (sections 4, 5, 6.1, 6.6, 6.7)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+local ServerStorage = game:GetService("ServerStorage")
+
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+local Assets = require(ServerStorage:WaitForChild("Assets"))
+local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
+
+local Hardware = Weapon.Hardware
+local CONFIG = Shotgun.CONFIG
+
+-- A stand-in for what `LoadAsset` returns: a Model wrapper around one MeshPart, which is the shape
+-- the real asset came back as (measured, Task 74: Model > Model > MeshPart + SurfaceAppearance).
+local function fakeAsset(meshParts: number, withScript: boolean?, size: Vector3?)
+	local container = Instance.new("Model")
+	container.Name = "Model"
+	for index = 1, meshParts do
+		local mesh = Instance.new("MeshPart")
+		mesh.Name = "output_unwrapped" .. (if index > 1 then tostring(index) else "")
+		mesh.Size = size or Vector3.new(199.999, 31.314, 11.311)
+		mesh.Parent = container
+	end
+	if withScript then
+		local nasty = Instance.new("Script")
+		nasty.Name = "Backdoor"
+		nasty.Parent = container
+	end
+	return container
+end
+
+-- THE SPEC RUNS AGAINST A LOADER STATE OF ITS OWN, AND THAT IS THE WHOLE FIX. It took three rounds
+-- to get right, so here is what did not work:
+--
+--   * Round 1 called `Loader.clear()` while the loader still held the live `shotgun.handle`, so every
+--     case destroyed the template `WeaponBoot` had preloaded. Nothing put it back: the server wore
+--     the grey box for the rest of the session and the in-game screenshots were of the fallback gun.
+--   * Round 2 nominated a throwaway cache FOLDER first and believed that was enough. It was not.
+--     `clear()` walked the loader's one MODULE-LEVEL `templates` table and destroyed every Instance
+--     in it -- including the live one, which sits in the live cache folder, not in the spec's. The
+--     folder was guarded and the templates were not, so the defect was untouched and the comment
+--     that said otherwise was wrong (review finding 3, twice).
+--
+-- `Loader.newState()` is the structural answer: the scratch state has its own `templates`, its own
+-- reports and its own cache container, so `clear()` has no way to NAME the live template, let alone
+-- destroy it. A load still in flight keeps the state it started in, so a slow fake cannot park itself
+-- into the live cache afterwards either. `hadTemplate` below is what proves it, per run.
+local function withLoader(insert, body)
+	local cacheFolder = Instance.new("Folder")
+	local live = Loader.setState(Loader.newState())
+	Loader.setCacheParent(cacheFolder)
+	Loader.setInsert(insert)
+	local ok, why = pcall(body)
+	-- clears the SCRATCH state only: its own templates and nothing else in the world
+	Loader.clear()
+	Loader.setState(live)
+	cacheFolder:Destroy()
+	if not ok then
+		error(why, 0)
+	end
+end
+
+return function()
+	-- THE INSTANCE THE RUNNING SERVER HELD BEFORE THIS FILE DID ANYTHING. Not a boolean: the last
+	-- describe asserts the SAME Instance is still there and still parented, so a spec that destroyed
+	-- it and fetched a replacement over the network would not pass either.
+	local hadTemplate: Instance? = nil
+
+	describe("the live server before any of this", function()
+		it("records the template boot loaded, so the cases below can be held to it", function()
+			-- IT WAITS FOR THE BOOT LOAD TO DECIDE, ONCE. `WeaponBoot` preloads over the network at
+			-- server start and this suite begins a second or two later, so asking once answers "not
+			-- yet" on a perfectly healthy server -- which is how round 3's first attempt at this
+			-- check ended up vacuous on the very runs it was written for (measured: the note said
+			-- "no live template existed" while the same run's later cases proved one had arrived).
+			-- `LOAD_TIMEOUT_S` is the bound boot itself works to, so waiting a little past it is
+			-- waiting exactly as long as boot could still be trying, and no longer.
+			local deadline = os.clock() + Loader.CONFIG.LOAD_TIMEOUT_S + 2
+			hadTemplate = Loader.template(Hardware.ASSET_KEY)
+			while hadTemplate == nil and os.clock() < deadline do
+				task.wait(0.25)
+				hadTemplate = Loader.template(Hardware.ASSET_KEY)
+			end
+			-- NOTHING IS ASSERTED ABOUT WHETHER IT LOADED. A Studio with no network has nothing to
+			-- protect and that is not this file's failure; what must not happen is this file
+			-- DESTROYING it, which the last describe is what checks.
+			TestKit.note(
+				if hadTemplate
+					then string.format("boot loaded the live template: %s", hadTemplate:GetFullName())
+					else "boot loaded no template (no network, or it failed); nothing for the specs to lose"
+			)
+		end)
+	end)
+
+	describe("the asset manifest", function()
+		it("is the one source of ids, and the gun's key resolves", function()
+			local row = Assets.byKey(Hardware.ASSET_KEY)
+			expect(row).to.be.ok()
+			expect(row.key).to.equal("shotgun.handle")
+			-- 0 IS NEVER VALID: an unset id must not look like a row.
+			expect(row.modelId > 0).to.equal(true)
+			expect(row.kind).to.equal("meshpart")
+			expect(row.moderation).to.equal("approved")
+			expect(Assets.describe(Hardware.ASSET_KEY)).to.equal(row)
+			expect(#Assets.keysFor("runtime") >= 1).to.equal(true)
+			-- ...and there is no second id table: MapGen's is still empty (map-generator 12.2).
+			local mapGen = ServerStorage:FindFirstChild("MapGen")
+			if mapGen then
+				local mapAssets = require(mapGen:WaitForChild("Assets"))
+				expect(#mapAssets.ROWS).to.equal(0)
+			end
+		end)
+
+		it("keeps the gun's LENGTH and does not squash it", function()
+			local row = Assets.byKey(Hardware.ASSET_KEY)
+			-- The length is the number GRIP and MUZZLE_OFFSET are built on, so it is exact.
+			expect(math.abs(row.sizeStuds.X - CONFIG.HANDLE_SIZE.Z) < 1e-6).to.equal(true)
+			-- UNIFORM, and this is the assertion that catches a non-uniform "fit to the envelope":
+			-- every axis is the natural size times the SAME factor, so the gun cannot be squashed
+			-- flat and still measure right (design 6.1's squashed boar).
+			local natural = row.naturalSizeStuds
+			expect(natural).to.be.ok()
+			local factor = row.sizeStuds.X / natural.X
+			expect(math.abs(row.sizeStuds.Y / natural.Y - factor) < 1e-4).to.equal(true)
+			expect(math.abs(row.sizeStuds.Z / natural.Z - factor) < 1e-4).to.equal(true)
+			-- and it really is a different shape from the envelope, or the check above proves nothing
+			expect(row.sizeStuds.Y > CONFIG.HANDLE_SIZE.Y).to.equal(true)
+			TestKit.note(
+				string.format(
+					"shotgun mesh: natural %.1f x %.1f x %.1f -> %.3f x %.3f x %.3f studs (x%.5f)",
+					natural.X,
+					natural.Y,
+					natural.Z,
+					row.sizeStuds.X,
+					row.sizeStuds.Y,
+					row.sizeStuds.Z,
+					factor
+				)
+			)
+		end)
+
+		it("is frozen, all the way down", function()
+			expect(function()
+				(Assets.ROWS :: any)[1] = nil
+			end).to.throw()
+			expect(function()
+				(Assets.ROWS[1] :: any).modelId = 1
+			end).to.throw()
+		end)
+	end)
+
+	describe("the id to Instance seam", function()
+		it("loads the mesh, unwraps it, and hands the same template out without yielding", function()
+			withLoader(function(modelId)
+				expect(modelId).to.equal(Assets.byKey(Hardware.ASSET_KEY).modelId)
+				return fakeAsset(1)
+			end, function()
+				local report = Loader.preload({ Hardware.ASSET_KEY })[1]
+				expect(report.ok).to.equal(true)
+				expect(report.reason).to.equal(nil)
+				expect(report.meshParts).to.equal(1)
+				local template = Loader.template(Hardware.ASSET_KEY)
+				expect(template).to.be.ok()
+				-- THE MODEL WRAPPER IS NOT THE ASSET (design 6.7): what comes back is the MeshPart.
+				expect(template:IsA("MeshPart")).to.equal(true)
+				expect(Loader.stats().loaded).to.equal(1)
+			end)
+		end)
+
+		it("ends in the grey box for every way it can fail, and says which", function()
+			local cases = {
+				{
+					name = "insert-failed",
+					insert = function()
+						return nil
+					end,
+				},
+				{
+					name = "contains-script",
+					insert = function()
+						return fakeAsset(1, true)
+					end,
+				},
+				{
+					name = "no-meshpart",
+					insert = function()
+						return fakeAsset(0)
+					end,
+				},
+				{
+					name = "multi-meshpart",
+					insert = function()
+						return fakeAsset(2)
+					end,
+				},
+				-- A mesh whose proportions are not the row's: the squashed-model case, caught by
+				-- measurement rather than by trust.
+				{
+					name = "aspect",
+					insert = function()
+						return fakeAsset(1, false, Vector3.new(100, 100, 100))
+					end,
+				},
+			}
+			for _, case in ipairs(cases) do
+				withLoader(case.insert, function()
+					local report = Loader.preload({ Hardware.ASSET_KEY })[1]
+					if report.ok or report.reason ~= case.name then
+						error(
+							string.format(
+								"expected %s, got ok=%s reason=%s",
+								case.name,
+								tostring(report.ok),
+								tostring(report.reason)
+							),
+							0
+						)
+					end
+					expect(Loader.template(Hardware.ASSET_KEY)).to.equal(nil)
+					expect(Loader.stats().lastReasons[Hardware.ASSET_KEY]).to.equal(case.name)
+				end)
+			end
+		end)
+
+		it("gives up on a slow load, says timeout, and adopts it when it lands", function()
+			-- A BOOT THAT WAITS ON THE NETWORK IS A GAME THAT DOES NOT START (design 5.2). This
+			-- insert takes longer than the bound -- the shape of a moderation queue or a bad day on
+			-- the CDN -- and `preload` must come back anyway, with a reason.
+			--
+			-- IT RETURNS RATHER THAN SPINNING FOREVER, deliberately: round 2's fake was
+			-- `while true do task.wait(0.1) end`, and the thread it ran in is abandoned, not
+			-- cancelled, so every harness run left one coroutine spinning for the rest of the Studio
+			-- session (review round 2, note). Returning late costs the same evidence and also proves
+			-- the other half of the rule: a late arrival is LATE, NOT LOST.
+			local waited, adopted = 0, 0
+			withLoader(function()
+				task.wait(Loader.CONFIG.LOAD_TIMEOUT_S + 1)
+				return fakeAsset(1)
+			end, function()
+				local began = os.clock()
+				local report = Loader.preload({ Hardware.ASSET_KEY })[1]
+				waited = os.clock() - began
+				expect(report.ok).to.equal(false)
+				expect(report.reason).to.equal("timeout")
+				-- FLATLY nil, and that is new: this state is the spec's own, so there is no longer a
+				-- shared table for the live boot to fill in the middle of the wait. Round 2 could
+				-- only decline to assert this.
+				expect(Loader.template(Hardware.ASSET_KEY)).to.equal(nil)
+				local deadline = os.clock() + 5
+				while Loader.template(Hardware.ASSET_KEY) == nil and os.clock() < deadline do
+					task.wait(0.1)
+				end
+				adopted = os.clock() - began
+				expect(Loader.template(Hardware.ASSET_KEY)).to.be.ok()
+				expect(Loader.stats().lastReasons[Hardware.ASSET_KEY]).to.equal("late")
+			end)
+			-- It gave up AT the bound: neither instantly (which would prove nothing) nor forever.
+			expect(waited > 1).to.equal(true)
+			expect(waited < Loader.CONFIG.LOAD_TIMEOUT_S + 5).to.equal(true)
+			TestKit.note(
+				string.format(
+					"loader timeout: gave up after %.1f s (bound %.0f s), adopted the late arrival at %.1f s",
+					waited,
+					Loader.CONFIG.LOAD_TIMEOUT_S,
+					adopted
+				)
+			)
+		end)
+
+		it("cannot reach a template another state holds, with no network in sight", function()
+			-- THE PROOF OF THE FIX, AND IT DEPENDS ON NOTHING OUTSIDE THIS FUNCTION. Two states,
+			-- neither of them the live one: `keeper` stands in for the running server that has
+			-- preloaded its gun, and then a whole spec's worth of work happens in another state,
+			-- `Loader.clear()` included. What the keeper holds must be untouched -- the same
+			-- Instance, still parented where it was put.
+			--
+			-- Round 2's loader could not pass this: `clear()` walked one module-level table, so the
+			-- scratch case destroyed the keeper's template. Put `local live = Loader.getState()` back
+			-- into `withLoader` and this is the case that goes red first.
+			local liveState = Loader.setState(Loader.newState())
+			local keeperCache = Instance.new("Folder")
+			local ok, why = pcall(function()
+				local keeper = Loader.getState()
+				Loader.setCacheParent(keeperCache)
+				Loader.setInsert(function()
+					return fakeAsset(1)
+				end)
+				expect(Loader.preload({ Hardware.ASSET_KEY })[1].ok).to.equal(true)
+				local held = Loader.template(Hardware.ASSET_KEY)
+				expect(held).to.be.ok()
+				expect(held.Parent).to.equal(keeperCache)
+
+				withLoader(function()
+					return fakeAsset(2)
+				end, function()
+					-- a failure AND a clear in the scratch state, which is the hostile case
+					expect(Loader.preload({ Hardware.ASSET_KEY })[1].reason).to.equal("multi-meshpart")
+					expect(Loader.template(Hardware.ASSET_KEY)).to.equal(nil)
+				end)
+
+				expect(Loader.getState()).to.equal(keeper)
+				expect(Loader.template(Hardware.ASSET_KEY)).to.equal(held)
+				expect((held :: Instance).Parent).to.equal(keeperCache)
+				Loader.clear() -- and now the keeper clears its OWN template, which is allowed
+				expect(Loader.template(Hardware.ASSET_KEY)).to.equal(nil)
+			end)
+			Loader.setState(liveState)
+			keeperCache:Destroy()
+			if not ok then
+				error(why, 0)
+			end
+		end)
+
+		it("refuses a key it has no row for, and never throws for it", function()
+			withLoader(function()
+				error("the insert must not even be attempted for an unknown key", 0)
+			end, function()
+				local report = Loader.preload({ "no.such.key" })[1]
+				expect(report.ok).to.equal(false)
+				expect(report.reason).to.equal("no-row")
+			end)
+		end)
+	end)
+
+	describe("the live server after this file has run", function()
+		it("still holds the very Instance it held before these cases, untouched", function()
+			-- THE CHECK THAT CAN FAIL. Round 2's version repaired the damage over the network and
+			-- reported it in a note, so it passed in exactly the state its name ruled out. This one
+			-- compares IDENTITY against `hadTemplate`, recorded before any case, and it repairs
+			-- nothing: put round 2's `clear()` back and this is the assertion that goes red.
+			local now = Loader.template(Hardware.ASSET_KEY)
+			local stats = Loader.stats()
+			if hadTemplate then
+				expect(now).to.equal(hadTemplate)
+				expect(hadTemplate.Parent ~= nil).to.equal(true)
+				-- ...and the gun a player would be handed right now is the mesh, not the grey box.
+				-- Asserting "one or the other" would be no assertion at all: `Hardware.build` always
+				-- draws one of them (review round 2).
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				local wearing = handle:FindFirstChild("Model") ~= nil
+				tool:Destroy()
+				expect(wearing).to.equal(true)
+				TestKit.note(
+					string.format(
+						"the live template survived the specs: %s (proxies=%d)",
+						hadTemplate:GetFullName(),
+						stats.proxies
+					)
+				)
+			else
+				-- NETWORK-INDEPENDENT, and this is why the check records the Instance rather than
+				-- asking the network: a Studio with no connection, or a boot whose own preload had
+				-- not finished when this file was collected, has nothing to protect. Say which case
+				-- this run was instead of quietly passing as if it had proved something.
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				local partsGun = handle:FindFirstChild("BarrelLeft") ~= nil
+				tool:Destroy()
+				expect(partsGun).to.equal(true)
+				TestKit.note(
+					string.format(
+						"no live template existed before these cases; nothing to protect, "
+							.. "and the fallback gun is what a player gets (failed=%d)",
+						stats.failed
+					)
+				)
+			end
+		end)
+	end)
+
+	describe("the gun that is built", function()
+		-- THE LIVE PROVIDER IS PUT BACK. A spec that leaves its fake wired in changes what every
+		-- later spec -- and every later screenshot -- sees.
+		local live = Hardware.getTemplateProvider()
+
+		local function withProvider(fn, body)
+			Hardware.setTemplateProvider(fn)
+			local ok, why = pcall(body)
+			Hardware.setTemplateProvider(live)
+			if not ok then
+				error(why, 0)
+			end
+		end
+
+		it("wears the mesh when there is one, and nothing about the Handle changes", function()
+			local row = Assets.byKey(Hardware.ASSET_KEY)
+			local template = Instance.new("MeshPart")
+			template.Size = row.naturalSizeStuds
+			withProvider(function()
+				return template, { row = row }
+			end, function()
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				-- Everything the rest of the system is built on is untouched.
+				expect(handle.Size).to.equal(CONFIG.HANDLE_SIZE)
+				expect(tool.Grip).to.equal(CONFIG.GRIP)
+				expect(handle:FindFirstChild("Muzzle")).to.be.ok()
+				expect(handle.CanQuery).to.equal(true) -- still the only part a ray can hit
+
+				local model = handle:FindFirstChild("Model") :: BasePart
+				expect(model).to.be.ok()
+				expect(model:IsA("MeshPart")).to.equal(true)
+				expect(model.Size).to.equal(row.sizeStuds)
+				expect(model.CanQuery).to.equal(false)
+				expect(model.CanCollide).to.equal(false)
+				expect(model.Massless).to.equal(true)
+				-- welded to the Handle with the row's own pose, so the geometry comes from the
+				-- manifest and not from wherever the part happened to be
+				local weld = handle:FindFirstChild("ModelWeld") :: Weld
+				expect(weld).to.be.ok()
+				expect(weld.Part0).to.equal(handle)
+				expect(weld.Part1).to.equal(model)
+				-- AND THE PARTS GUN IS NOT ALSO THERE: one gun, not two overlapping ones.
+				expect(handle:FindFirstChild("BarrelLeft")).to.equal(nil)
+				expect(handle:FindFirstChild("Stock")).to.equal(nil)
+				tool:Destroy()
+			end)
+		end)
+
+		it("falls back to the parts gun when the mesh is not there", function()
+			withProvider(function()
+				return nil, { reason = "insert-failed" }
+			end, function()
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				expect(handle:FindFirstChild("Model")).to.equal(nil)
+				-- Task 71's ten pieces, so the player is never gunless.
+				expect(handle:FindFirstChild("BarrelLeft")).to.be.ok()
+				expect(handle:FindFirstChild("BarrelRight")).to.be.ok()
+				expect(handle:FindFirstChild("Stock")).to.be.ok()
+				expect(handle:FindFirstChild("Trigger")).to.be.ok()
+				tool:Destroy()
+			end)
+		end)
+
+		it("falls back with no provider wired at all", function()
+			withProvider(nil, function()
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				expect(handle:FindFirstChild("Model")).to.equal(nil)
+				expect(handle:FindFirstChild("BarrelLeft")).to.be.ok()
+				tool:Destroy()
+			end)
+		end)
+	end)
+end

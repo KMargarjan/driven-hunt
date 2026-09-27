@@ -140,52 +140,70 @@ return function()
 	end)
 
 	describe("the shotgun Tool that is built", function()
-		it("welds every piece to the Handle, and the Handle alone answers a ray", function()
-			local tool = Hardware.build()
-			local handle = tool:FindFirstChild("Handle") :: BasePart
-			expect(handle).to.be.ok()
-			-- THE HANDLE IS THE ENVELOPE: invisible, but still the size, the grip and the muzzle's
-			-- anchor. Nothing about how the gun is held changed in Task 71.
-			expect(handle.Size).to.equal(CONFIG.HANDLE_SIZE)
-			expect(handle.Transparency).to.equal(1)
-			expect(tool.Grip).to.equal(CONFIG.GRIP)
-			expect(handle:FindFirstChild("Muzzle")).to.be.ok()
+		-- THESE TWO TESTS ARE ABOUT THE PARTS GUN, so they ASK for the parts gun rather than hoping
+		-- they get it. Since Task 74 a running server wears Karen's mesh, and a test that assumed
+		-- the fallback was really testing "what happened to load today" (it failed the moment the
+		-- mesh arrived, which is the system working). `assets_seam.spec` is where the mesh path and
+		-- the fallback are both driven on purpose.
+		local live = Hardware.getTemplateProvider()
 
-			local parts, welds = {}, {}
-			for _, child in ipairs(handle:GetChildren()) do
-				if child:IsA("BasePart") then
-					parts[child.Name] = child
-				elseif child:IsA("Weld") then
-					welds[(child :: Weld).Part1 and ((child :: Weld).Part1 :: Instance).Name or "?"] = child
-				end
+		local function withPartsGun(body)
+			Hardware.setTemplateProvider(nil)
+			local ok, why = pcall(body)
+			Hardware.setTemplateProvider(live)
+			if not ok then
+				error(why, 0)
 			end
-			local pieces = byName(Shape.pieces(CONFIG))
-			local count = 0
-			for _, name in ipairs(EXPECTED) do
-				local part = parts[name]
-				if part == nil then
-					error(string.format("the built Tool has no %s", name), 0)
+		end
+
+		it("welds every piece to the Handle, and the Handle alone answers a ray", function()
+			withPartsGun(function()
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				expect(handle).to.be.ok()
+				-- THE HANDLE IS THE ENVELOPE: invisible, but still the size, the grip and the muzzle's
+				-- anchor. Nothing about how the gun is held changed in Task 71.
+				expect(handle.Size).to.equal(CONFIG.HANDLE_SIZE)
+				expect(handle.Transparency).to.equal(1)
+				expect(tool.Grip).to.equal(CONFIG.GRIP)
+				expect(handle:FindFirstChild("Muzzle")).to.be.ok()
+
+				local parts, welds = {}, {}
+				for _, child in ipairs(handle:GetChildren()) do
+					if child:IsA("BasePart") then
+						parts[child.Name] = child
+					elseif child:IsA("Weld") then
+						welds[(child :: Weld).Part1 and ((child :: Weld).Part1 :: Instance).Name or "?"] = child
+					end
 				end
-				count += 1
-				-- APPEARANCE ONLY. The Handle is still the one part of the gun a ray can hit: ten new
-				-- boxes that answered a raycast would be ten new things another player's slug stops
-				-- against, which is a gameplay change wearing a cosmetic task's clothes.
-				expect(part.CanQuery).to.equal(false)
-				expect(part.CanCollide).to.equal(false)
-				expect(part.Massless).to.equal(true)
-				expect(part.Anchored).to.equal(false)
-				-- THE WELD CARRIES THE OFFSET AS DATA, so the geometry comes from Weapon.Shape and not
-				-- from wherever the part happened to be when it was joined.
-				local weld = welds[name]
-				expect(weld).to.be.ok()
-				expect((weld :: Weld).Part0).to.equal(handle)
-				expect((weld :: Weld).C0).to.equal(pieces[name].offset)
-				expect(part.Size).to.equal(pieces[name].size)
-			end
-			expect(count).to.equal(#EXPECTED)
-			expect(handle.CanQuery).to.equal(true)
-			TestKit.note(string.format("shotgun: %d parts welded to the Handle, plus the Handle", count))
-			tool:Destroy()
+				local pieces = byName(Shape.pieces(CONFIG))
+				local count = 0
+				for _, name in ipairs(EXPECTED) do
+					local part = parts[name]
+					if part == nil then
+						error(string.format("the built Tool has no %s", name), 0)
+					end
+					count += 1
+					-- APPEARANCE ONLY. The Handle is still the one part of the gun a ray can hit: ten new
+					-- boxes that answered a raycast would be ten new things another player's slug stops
+					-- against, which is a gameplay change wearing a cosmetic task's clothes.
+					expect(part.CanQuery).to.equal(false)
+					expect(part.CanCollide).to.equal(false)
+					expect(part.Massless).to.equal(true)
+					expect(part.Anchored).to.equal(false)
+					-- THE WELD CARRIES THE OFFSET AS DATA, so the geometry comes from Weapon.Shape and not
+					-- from wherever the part happened to be when it was joined.
+					local weld = welds[name]
+					expect(weld).to.be.ok()
+					expect((weld :: Weld).Part0).to.equal(handle)
+					expect((weld :: Weld).C0).to.equal(pieces[name].offset)
+					expect(part.Size).to.equal(pieces[name].size)
+				end
+				expect(count).to.equal(#EXPECTED)
+				expect(handle.CanQuery).to.equal(true)
+				TestKit.note(string.format("shotgun: %d parts welded to the Handle, plus the Handle", count))
+				tool:Destroy()
+			end)
 		end)
 
 		it("hands the ADS viewmodel the same gun, because the viewmodel clones it", function()
@@ -194,25 +212,27 @@ return function()
 			-- hangs off the Handle, so `handle:Clone()` carries every visible piece with it. If a
 			-- piece were ever parented to the Tool instead, the first-person gun would silently lose
 			-- it. tests/client/camera_client.spec.luau asserts the clone itself, on screen.
-			local tool = Hardware.build()
-			local handle = tool:FindFirstChild("Handle") :: BasePart
-			local loose = {}
-			for _, child in ipairs(tool:GetChildren()) do
-				if child:IsA("BasePart") and child ~= handle then
-					table.insert(loose, child.Name)
+			withPartsGun(function()
+				local tool = Hardware.build()
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				local loose = {}
+				for _, child in ipairs(tool:GetChildren()) do
+					if child:IsA("BasePart") and child ~= handle then
+						table.insert(loose, child.Name)
+					end
 				end
-			end
-			expect(#loose).to.equal(0)
-			local clone = handle:Clone()
-			local cloned = 0
-			for _, descendant in ipairs(clone:GetDescendants()) do
-				if descendant:IsA("BasePart") then
-					cloned += 1
+				expect(#loose).to.equal(0)
+				local clone = handle:Clone()
+				local cloned = 0
+				for _, descendant in ipairs(clone:GetDescendants()) do
+					if descendant:IsA("BasePart") then
+						cloned += 1
+					end
 				end
-			end
-			expect(cloned).to.equal(#EXPECTED)
-			clone:Destroy()
-			tool:Destroy()
+				expect(cloned).to.equal(#EXPECTED)
+				clone:Destroy()
+				tool:Destroy()
+			end)
 		end)
 	end)
 end

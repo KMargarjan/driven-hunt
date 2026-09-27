@@ -26,6 +26,32 @@ local Shape = require(script.Parent.Shape)
 
 local Hardware = {}
 
+-- THE MESH, OR THE PARTS. Injected rather than required, for two reasons: `Hardware` must not drag
+-- `ServerStorage.Assets` into every weapon spec, and a spec has to be able to drive BOTH paths --
+-- the loaded mesh and the fallback -- without a network. `WeaponBoot` wires this to
+-- `Assets.Loader.template`, which never yields (docs/design/asset-pipeline.md section 5.2), so the
+-- grant path stays yield-free. `nil` restores "always build the parts gun".
+--
+-- The same shape as `Weapon.setDriveLineProvider` and `Viewmodel.setSource`.
+local templateFor: ((string) -> (Instance?, any))? = nil
+local warned = false
+
+function Hardware.setTemplateProvider(fn: ((string) -> (Instance?, any))?)
+	templateFor = fn
+	warned = false
+end
+
+-- So a spec can borrow the seam and PUT THE LIVE ONE BACK. Without this a spec that injects a fake
+-- leaves the running server wearing the grey box for the rest of the session -- including in any
+-- screenshot taken afterwards, which is exactly the kind of quiet difference rule 5 exists for.
+function Hardware.getTemplateProvider(): ((string) -> (Instance?, any))?
+	return templateFor
+end
+
+-- The key this system asks for. A string literal on purpose: the weapon's config must not require
+-- the manifest (docs/design/asset-pipeline.md section 4.2), and a spec asserts it resolves.
+Hardware.ASSET_KEY = "shotgun.handle"
+
 -- The name every granted Tool carries. One per player, so it is also how a stray one is found.
 Hardware.TOOL_NAME = "Shotgun"
 
@@ -58,11 +84,123 @@ function Hardware.build(): Tool
 	muzzle.CFrame = CFrame.new(config.MUZZLE_OFFSET)
 	muzzle.Parent = handle
 
-	for _, piece in ipairs(Shape.pieces(config)) do
-		Hardware.addPiece(handle, piece)
+	if not Hardware.addMesh(handle, config) then
+		for _, piece in ipairs(Shape.pieces(config)) do
+			Hardware.addPiece(handle, piece)
+		end
 	end
 
 	return tool
+end
+
+-- THE LOADED MODEL, WELDED TO THE HANDLE. Returns false when there is nothing to wear, which is not
+-- an error: the caller builds Task 71's parts gun instead and the player is never gunless.
+--
+-- WHAT DOES NOT CHANGE, AND IT IS THE WHOLE POINT: the `Handle` is still exactly `HANDLE_SIZE`,
+-- still the grip (`Tool.Grip`), still the anchor of the `Muzzle` attachment the server reads for
+-- every shot, and still the ONLY part of the gun a ray can hit. The mesh is scenery welded to it --
+-- `CanQuery = false`, `CanCollide = false`, `Massless = true` -- so firing, hit zones, the safety
+-- arc, reloading and ADS are all bit-for-bit what they were.
+--
+-- THE SIZE IS UNIFORM AND THE MANIFEST SAYS WHY (`Assets` row `sizeStuds`): the mesh is scaled so
+-- its LENGTH is `HANDLE_SIZE.Z`, not squeezed into the envelope's 0.4 x 0.5 cross-section, because
+-- a non-uniform fit is a squashed gun that measures perfectly.
+function Hardware.addMesh(handle: BasePart, config): boolean
+	if templateFor == nil then
+		return false
+	end
+	local template, report = templateFor(Hardware.ASSET_KEY)
+	if template == nil then
+		-- ONCE, NOT PER GRANT. A gun is granted on every spawn; a warning per spawn is a log nobody
+		-- reads and a frame nobody gets back.
+		if not warned then
+			warned = true
+			warn(
+				string.format(
+					"[Weapon] no %s template (%s); wearing the grey box",
+					Hardware.ASSET_KEY,
+					if typeof(report) == "table" and report.reason then report.reason else "not preloaded"
+				)
+			)
+		end
+		return false
+	end
+
+	local row = if typeof(report) == "table" then report.row else nil
+	local size = if typeof(row) == "table" and typeof(row.sizeStuds) == "Vector3"
+		then row.sizeStuds
+		else config.HANDLE_SIZE
+	local rotation = if typeof(row) == "table" and typeof(row.rotationDeg) == "Vector3"
+		then row.rotationDeg
+		else Vector3.zero
+	local offset = if typeof(row) == "table" and typeof(row.offsetStuds) == "Vector3"
+		then row.offsetStuds
+		else Vector3.zero
+
+	local model = template:Clone()
+	model.Name = "Model"
+	if model:IsA("BasePart") then
+		model.Size = size
+	end
+	local pose = CFrame.new(offset) * CFrame.Angles(math.rad(rotation.X), math.rad(rotation.Y), math.rad(rotation.Z))
+	for _, part in ipairs({ model, table.unpack(model:GetDescendants()) }) do
+		if part:IsA("BasePart") then
+			part.Anchored = false
+			part.CanCollide = false
+			part.CanQuery = false
+			part.CanTouch = false
+			part.Massless = true
+			part.CastShadow = true
+		end
+	end
+	if model:IsA("BasePart") then
+		model.CFrame = handle.CFrame * pose
+		model.Parent = handle
+		local weld = Instance.new("Weld")
+		weld.Name = "ModelWeld"
+		weld.Part0 = handle
+		weld.Part1 = model
+		weld.C0 = pose
+		weld.Parent = handle
+	elseif model:IsA("Model") then
+		-- THE CONSUMER SETS THE SIZE, FOR A MODEL TOO (design 6.1). A Model has no Size, so the
+		-- equivalent is a uniform scale onto the row's target length -- without this the `model`
+		-- branch was the one path that shipped whatever the exporter happened to choose.
+		local _, natural = model:GetBoundingBox()
+		local longest = math.max(natural.X, natural.Y, natural.Z)
+		local target = math.max(size.X, size.Y, size.Z)
+		if longest > 0 and target > 0 then
+			model:ScaleTo(target / longest)
+		end
+		model:PivotTo(handle.CFrame * pose)
+		model.Parent = handle
+		for _, part in ipairs(model:GetDescendants()) do
+			if part:IsA("BasePart") then
+				local weld = Instance.new("Weld")
+				weld.Part0 = handle
+				weld.Part1 = part
+				weld.C0 = handle.CFrame:ToObjectSpace(part.CFrame)
+				weld.Parent = handle
+			end
+		end
+	else
+		-- NEITHER, SO WEAR THE GREY BOX. Returning true here left the clone unparented and the
+		-- player holding an empty Handle with no parts gun behind it (review round 1, note): the
+		-- one shape this whole seam exists to make impossible.
+		model:Destroy()
+		if not warned then
+			warned = true
+			warn(
+				string.format(
+					"[Weapon] the %s template is a %s, which cannot be worn; wearing the " .. "grey box",
+					Hardware.ASSET_KEY,
+					template.ClassName
+				)
+			)
+		end
+		return false
+	end
+	return true
 end
 
 -- ONE PIECE OF THE GUN'S LOOK, welded to the Handle. Appearance only, and the three properties that
