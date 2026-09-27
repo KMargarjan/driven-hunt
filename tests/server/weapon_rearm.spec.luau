@@ -75,19 +75,44 @@ return function()
 			-- nobody is re-granted while they are holding what they should hold. A sweep that
 			-- churned would break the client's scenario one snapshot at a time.
 			--
-			-- THE SAME TOOL, not an unchanged counter: a drive that places players during these six
-			-- seconds grants legitimately, and counting grants would fail this spec for something it
-			-- does not own. The identity of the gun in the player's hands is the claim.
+			-- THE SAME TOOL, not an unchanged counter: a drive that places players grants
+			-- legitimately, and counting grants would fail this spec for something it does not own.
+			-- The identity of the gun in the player's hands is the claim.
+			--
+			-- AND THE SWEEP IS ASKED, NOT WAITED FOR (task 82). `Weapon.refreshArming` IS the
+			-- sweep's per-player work -- the sweep loops the players and calls it -- so three calls
+			-- are three passes over this player with no wall clock in between. The wall clock was the
+			-- fault: the drive PLACES players at a drive start (`Match.Body.place` ->
+			-- `LoadCharacter`), which takes the character's Tool with it and lets the sweep repair
+			-- it, so a placement landing inside the six seconds read as churn. It did, in the
+			-- two-player run at 8daf457: `Expected "Shotgun", got "nil"`, with this spec's own note
+			-- reading `repairs=2 granted=5` -- both players placed inside the window. A placement is
+			-- the drive doing its job; the claim here is about the sweep's decision, and the decision
+			-- is reachable by call.
+			--
+			-- IT STILL DOES NOT TAKE ANYBODY'S GUN. `refreshArming` is called only for a player the
+			-- WEAPON's own policy also says may carry (`Weapon.mayArmForTests`) and who is holding
+			-- one, which is `armingAction(true, true)` -- the case asserted above to be a no-op. If
+			-- the two owners ever disagree, the row says so and nothing is called.
 			local rows = {}
 			for _, player in ipairs(Players:GetPlayers()) do
 				local mayCarry = Match.mayCarryWeapon(player)
+				local mayArm = Weapon.mayArmForTests(player)
 				local gun = gunOf(player)
 				table.insert(
 					rows,
-					string.format("%s may=%s holds=%s", player.Name, tostring(mayCarry), tostring(gun ~= nil))
+					string.format(
+						"%s may=%s mayArm=%s holds=%s",
+						player.Name,
+						tostring(mayCarry),
+						tostring(mayArm),
+						tostring(gun ~= nil)
+					)
 				)
-				if mayCarry and gun then
-					task.wait(SWEEP_OBSERVATION)
+				if mayCarry and mayArm and gun then
+					for _ = 1, 3 do
+						Weapon.refreshArming(player)
+					end
 					expect(gunOf(player)).to.equal(gun)
 				end
 			end
