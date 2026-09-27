@@ -23,6 +23,16 @@ local Camera = require(scripts:WaitForChild("Camera"))
 local Config = Camera.Config
 local Hud = require(scripts:WaitForChild("Hud"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+
+-- THE ON BRANCH BY PARAMETER (docs/design/feature-flags.md 13.3). The flag is born OFF, so the
+-- first-person POSE -- and the bead measurement that rests on it -- is driven through the public
+-- `Viewmodel.update(camCFrame, state, config)` with a config of this spec's own, on the real camera
+-- in the real viewport. Nothing is flipped and nothing has to be restored.
+local firstPersonConfig = table.clone(Config) :: any
+firstPersonConfig.FIRST_PERSON = true
+table.freeze(firstPersonConfig)
 
 -- WHICH LIVE BRANCH RAN. `FIRST_PERSON` decides which of the two `describe`s below is even built,
 -- and the last `it` in the file asserts this is exactly 1. A guard that merely returns early is a
@@ -635,6 +645,173 @@ return function()
 			end)).to.equal(true)
 			waitFrames(3)
 			expect(Camera.stats().viewmodelParented).to.equal(false)
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ the bead (task 90, S2)
+	describe("the bead sight", function()
+		-- A gun of this spec's own, so the case says the same thing on a machine where the uploaded
+		-- asset never loads: the envelope, a `Sight` where `Shape.beadOffset` puts it, and a `Bead`
+		-- piece at the same point -- which is what the parts gun really is.
+		local SIGHT_LOCAL = CFrame.new(0, 0.255, -2.15)
+
+		local function gunWithSight(withBead: boolean): BasePart
+			local handle = Instance.new("MeshPart")
+			handle.Name = "Handle"
+			handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+			handle.Transparency = 1
+			local sight = Instance.new("Attachment")
+			sight.Name = "Sight"
+			sight.CFrame = SIGHT_LOCAL
+			sight.Parent = handle
+			if withBead then
+				local bead = Instance.new("Part")
+				bead.Name = "Bead"
+				bead.Shape = Enum.PartType.Ball
+				bead.Size = Vector3.new(0.05, 0.05, 0.05)
+				bead.CFrame = handle.CFrame * SIGHT_LOCAL
+				bead.Parent = handle
+			end
+			return handle
+		end
+
+		-- Installs `handle` as the viewmodel's source, poses it against the LIVE camera with the
+		-- first-person config, and hands the caller the clone -- then puts the live source back
+		-- whatever happened. The source is asked four times a second, so the wait is not optional.
+		local function posed(handle: BasePart, body)
+			local live = Camera.Viewmodel.getSource()
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			Camera.Viewmodel.clear()
+			task.wait(0.3)
+			local ok, why = pcall(body)
+			Camera.Viewmodel.clear()
+			Camera.Viewmodel.setSource(live)
+			handle:Destroy()
+			if not ok then
+				error(why, 0)
+			end
+		end
+
+		it("keeps the pivot the pose assumes: the model's pivot IS the cloned Handle", function()
+			-- `aimOffset` is arithmetic about the model's pivot, and it is only the Handle's CFrame
+			-- because `PrimaryPart` is set and `WorldPivot` is never written. An engine default this
+			-- design leans on is a test and not a hope (design section 5.5).
+			posed(gunWithSight(true), function()
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
+				local model = Camera.Viewmodel.current()
+				expect(model).to.be.ok()
+				local clone = (model :: Model).PrimaryPart :: BasePart
+				expect(((model :: Model):GetPivot().Position - clone.Position).Magnitude < 1e-3).to.equal(true)
+			end)
+		end)
+
+		it("puts the bead on the screen centre, which is where the shot goes", function()
+			-- THE ONE TESTABLE NUMBER (design section 9.2 item 12), and the Director's question in
+			-- this task: how far apart, in pixels, are the bead a player follows the animal with and
+			-- the line the pellets travel down?
+			--
+			-- They are the same line by construction: `Weapon` fires from
+			-- `workspace.CurrentCamera.CFrame` along its LookVector (docs/design/shotgun.md 5.5), so
+			-- the shot's own aim point at any range projects to the centre of the screen. What is
+			-- NOT free is that the drawn bead lands there too -- that is what `aimOffset` has to
+			-- earn, and what this measures.
+			--
+			-- NO YIELD between the pose and the measurement: the production render step re-poses the
+			-- viewmodel and moves the camera every frame, and a yield here would measure a pose this
+			-- case did not set.
+			posed(gunWithSight(true), function()
+				local cam = Workspace.CurrentCamera
+				local camCFrame = cam.CFrame
+				local state = stateAtBlend(1)
+				expect(state.swayDeg).to.equal(Vector2.zero)
+				expect(state.bobStuds).to.equal(Vector3.zero)
+				expect(state.recoilCamPitchDeg).to.equal(0)
+
+				Camera.Viewmodel.update(camCFrame, state, firstPersonConfig)
+				local model = Camera.Viewmodel.current()
+				-- UNCONDITIONAL: `if model then` would make this whole block pass when no viewmodel
+				-- was built at all (the Task 74 round-1 note).
+				expect(model).to.be.ok()
+				local clone = (model :: Model).PrimaryPart :: BasePart
+				local sight = clone:FindFirstChild("Sight") :: Attachment
+				local bead = clone:FindFirstChild("Bead") :: BasePart
+				expect(sight).to.be.ok()
+				expect(bead).to.be.ok()
+
+				local viewport = cam.ViewportSize
+				local centre = Vector2.new(viewport.X / 2, viewport.Y / 2)
+				local perDegree = viewport.Y / cam.FieldOfView
+				local tolerancePx = Config.BEAD_CENTRE_TOLERANCE_DEG * perDegree
+				-- The shot's own line, 143 studs out (40 m, the range the design measures the
+				-- tolerance at).
+				local aimPoint = camCFrame.Position + camCFrame.LookVector * 143
+				local shot = cam:WorldToViewportPoint(aimPoint)
+				local shotPx = Vector2.new(shot.X, shot.Y)
+
+				local worst = 0
+				for _, point in ipairs({ sight.WorldPosition, bead.Position }) do
+					local projected, onScreen = cam:WorldToViewportPoint(point)
+					expect(onScreen).to.equal(true)
+					local px = Vector2.new(projected.X, projected.Y)
+					worst = math.max(worst, (px - centre).Magnitude, (px - shotPx).Magnitude)
+					expect((px - centre).Magnitude <= tolerancePx).to.equal(true)
+					expect((px - shotPx).Magnitude <= tolerancePx).to.equal(true)
+				end
+				TestKit.note(
+					string.format(
+						"task90 bead: worst %.2f px from the shot line and the screen centre, "
+							.. "tolerance %.2f px (%.2f deg, viewport %dx%d, fov %.0f)",
+						worst,
+						tolerancePx,
+						Config.BEAD_CENTRE_TOLERANCE_DEG,
+						viewport.X,
+						viewport.Y,
+						cam.FieldOfView
+					)
+				)
+				-- and the gun really did carry its own sight: nothing fell back
+				expect(Camera.Viewmodel.sight()).to.equal(SIGHT_LOCAL)
+			end)
+		end)
+
+		it("draws a bead when the gun has none, and leaves the parts gun's own alone", function()
+			-- Karen, 2026-09-27: "we are missing front knob or how it calls where you aim and follow
+			-- animal with that point". The uploaded gun is ONE MeshPart with a painted bead a few
+			-- pixels across; this is the mark that replaces it, and it is drawn at the very
+			-- attachment the pose lines up -- so the thing a player follows the animal with IS the
+			-- thing the geometry aims.
+			posed(gunWithSight(false), function()
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
+				local model = Camera.Viewmodel.current()
+				expect(model).to.be.ok()
+				local clone = (model :: Model).PrimaryPart :: BasePart
+				local marker = clone:FindFirstChild("SightBead") :: BasePart
+				expect(marker).to.be.ok()
+				expect(marker.CanQuery).to.equal(false)
+				expect(marker.CanCollide).to.equal(false)
+				expect(marker.Anchored).to.equal(true)
+				expect(marker.Size.X).to.equal(Config.BEAD_MARKER_STUDS)
+				expect(marker.Color).to.equal(Config.BEAD_MARKER_COLOR)
+				-- ON the sight, not near it: within a tenth of a bead of the attachment.
+				local sight = clone:FindFirstChild("Sight") :: Attachment
+				expect((marker.Position - sight.WorldPosition).Magnitude < 1e-3).to.equal(true)
+			end)
+
+			-- ...and a gun that brought its own bead gets nothing added: one bead, never two.
+			posed(gunWithSight(true), function()
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
+				local model = Camera.Viewmodel.current()
+				expect(model).to.be.ok()
+				local clone = (model :: Model).PrimaryPart :: BasePart
+				expect(clone:FindFirstChild("SightBead")).to.equal(nil)
+				expect(clone:FindFirstChild("Bead")).to.be.ok()
+			end)
+
+			-- The camera writes the colour out rather than requiring the weapon, so this is the
+			-- check that the copy has not drifted from the gun's own bead.
+			expect(Config.BEAD_MARKER_COLOR).to.equal(Shotgun.CONFIG.LOOK.bead)
 		end)
 	end)
 

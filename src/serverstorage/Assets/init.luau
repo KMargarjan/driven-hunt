@@ -70,6 +70,13 @@ export type AssetRow = {
 	-- compare against rather than a hope
 	offsetStuds: Vector3,
 	rotationDeg: Vector3, -- the backwards-knife correction; only a screenshot checks it (6.3)
+	-- WHERE THIS MESH'S BEAD IS, in the Handle's frame, so the first-person camera can line the view
+	-- up with it (docs/design/camera.md section 6.5). OPTIONAL, and nil is the honest value until
+	-- somebody has looked: a single MeshPart has a PAINTED bead and no Instance to read, so this can
+	-- only be measured on screen in ADS. With it nil, `Weapon.Hardware` falls back to the parts
+	-- gun's own bead and warns once. It lives here rather than in `Shotgun.CONFIG` because it
+	-- describes ONE upload: a new mesh is a new row with a new measurement.
+	sightOffsetStuds: Vector3?,
 	renderFidelity: string,
 	-- SET WHEN A LATER VERSION REPLACES THIS ROW. The row STAYS (rule 7: never delete, archive
 	-- with a note) -- an id that has been in a place is provenance, and a moderated-away or

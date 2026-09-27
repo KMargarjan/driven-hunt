@@ -12,8 +12,13 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
+local ServerScriptService = game:GetService("ServerScriptService")
+
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+-- THE GUN'S OWN BEAD EXPRESSION, not a copy of its numbers: the sight picture this file asserts is
+-- only right if it is built from the same place the gun's bead is (docs/design/camera.md 6.5).
+local Shape = require(ServerScriptService:WaitForChild("Weapon"):WaitForChild("Shape"))
 
 local cameraFolder = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera")
 local Mode = require(cameraFolder:WaitForChild("Mode"))
@@ -307,10 +312,12 @@ return function()
 			end
 		end)
 
-		it("carries the gun low and LEFT, with the three degrees converted at one site", function()
+		it("carries the gun low and RIGHT, with the three degrees converted at one site", function()
 			local carry = Mode.carryOffset(firstPerson)
-			-- Low and left. Karen's instruction, and the sign is the whole of it.
-			expect(carry.Position.X < 0).to.equal(true)
+			-- LOW AND RIGHT since task 90, and the sign is the whole of it. Karen, 2026-09-27, after
+			-- playing S1: "right hand shooter and weapon holding with right hand grip and left hand
+			-- pipes like in real life". Task 89 had it on the left, mirrored from her reference.
+			expect(carry.Position.X > 0).to.equal(true)
 			expect(carry.Position.Y < 0).to.equal(true)
 			expect(carry.Position).to.equal(Config.VIEWMODEL_CARRY_POS_STUDS)
 			-- The rotation, rebuilt here from the SAME three numbers in degrees. A second
@@ -330,6 +337,12 @@ return function()
 			-- and the carry pose is the OFF branch's hip pose only in the OFF branch
 			expect(Mode.viewmodelOffset(stateAtBlend(0), nil, Config)).to.equal(Config.VIEWMODEL_HIP_OFFSET)
 			expect(Mode.viewmodelOffset(stateAtBlend(0), nil, firstPerson)).to.equal(carry)
+			-- THE MUZZLE POINTS IN, not out: the gun is held on the right and crosses toward the
+			-- centre-left, which is what "right hand grip, left hand on the pipes" looks like. The
+			-- position's sign alone would pass with the gun aimed off the right edge of the screen.
+			local muzzleDirection = carry.LookVector
+			expect(muzzleDirection.X < 0).to.equal(true)
+			expect(muzzleDirection.Z < 0).to.equal(true) -- still forward, not across the player
 		end)
 
 		it("keeps every corner of the gun in front of the near plane, in both poses", function()
@@ -402,6 +415,69 @@ return function()
 				expect(each.openTilt).to.equal(0)
 				expect(table.isfrozen(each)).to.equal(true)
 			end
+		end)
+
+		it("puts the bead on the view axis, exactly, because that is where the bead is", function()
+			-- THE WHOLE OF GEOMETRIC ADS, as algebra rather than as a screenshot. `aimOffset` is the
+			-- offset from the camera to the gun's pivot; composing it with the sight's own CFrame
+			-- must land the sight EYE_RELIEF_STUDS straight in front of the camera, looking where
+			-- the camera looks. Zero tolerance beyond floating point: the 0.37-degree tolerance
+			-- belongs to the screen, and this is the maths the screen rests on.
+			local sight = CFrame.new(0, 0.255, -2.15) -- the parts gun's bead, Shape.beadOffset
+			local aimed = Mode.aimOffset(sight, firstPerson) * sight
+			expect((aimed.Position - Vector3.new(0, 0, -firstPerson.EYE_RELIEF_STUDS)).Magnitude < 1e-4).to.equal(true)
+			expect((aimed.LookVector - Vector3.new(0, 0, -1)).Magnitude < 1e-6).to.equal(true)
+
+			-- ...and it FOLLOWS the bead: move the sight, and the gun moves to suit it. A pose that
+			-- ignored its argument would pass the case above and fail this one.
+			local moved = CFrame.new(0.3, 0.5, -2.0)
+			local movedAimed = Mode.aimOffset(moved, firstPerson) * moved
+			expect((movedAimed.Position - Vector3.new(0, 0, -firstPerson.EYE_RELIEF_STUDS)).Magnitude < 1e-4).to.equal(
+				true
+			)
+			expect(Mode.aimOffset(moved, firstPerson)).never.to.equal(Mode.aimOffset(sight, firstPerson))
+		end)
+
+		it("falls back to the accepted framing when the gun carries no sight", function()
+			-- A DECISION, NOT AN ACCIDENT (design section 9.1 item 6): an old Handle or a mesh whose
+			-- row has no measurement yet still draws, at the framing Task 26/47 accepted, and
+			-- `Viewmodel.stats().sightMissing` counts it.
+			expect(Mode.aimOffset(nil, firstPerson)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
+			expect(Mode.aimOffset(nil, Config)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
+		end)
+
+		it("keeps the gun in front of the near plane in the REAL aimed pose too", function()
+			-- Task 89 asserted the corners against the fallback pose; the aimed pose is geometry now,
+			-- so the same assertion has to be made against the pose the player actually gets. At
+			-- EYE_RELIEF_STUDS the butt is about 1.25 studs in front of the eye -- and if somebody
+			-- pulls the eye relief in to make the view "closer" (Karen asked for closer), this is
+			-- the case that says how far is too far.
+			local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
+			local pose = Mode.viewmodelOffset(stateAtBlend(1), sight, firstPerson)
+			local worst = -math.huge
+			for _, corner in ipairs(gunCorners()) do
+				local z = (pose * CFrame.new(corner)).Position.Z
+				worst = math.max(worst, z)
+				expect(z <= -firstPerson.NEAR_PLANE_MARGIN_STUDS).to.equal(true)
+			end
+			TestKit.note(
+				string.format(
+					"task90: aimed, nearest gun corner %.3f studs (eye relief %.2f, margin %.2f)",
+					worst,
+					firstPerson.EYE_RELIEF_STUDS,
+					firstPerson.NEAR_PLANE_MARGIN_STUDS
+				)
+			)
+		end)
+
+		it("returns the aimed pose bitwise at rest, which the screen measurement rests on", function()
+			local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
+			expect(Mode.viewmodelOffset(stateAtBlend(1), sight, firstPerson)).to.equal(
+				Mode.aimOffset(sight, firstPerson)
+			)
+			-- and the OFF branch keeps the pose Karen accepted for the shoulder camera: a sight
+			-- changes nothing there, deliberately.
+			expect(Mode.viewmodelOffset(stateAtBlend(1), sight, Config)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
 		end)
 
 		it("aims at a point in first person too, which is what the harness stages a shot with", function()

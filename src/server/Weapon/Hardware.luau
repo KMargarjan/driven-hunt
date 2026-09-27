@@ -41,6 +41,8 @@ local Hardware = {}
 -- The same shape as `Weapon.setDriveLineProvider` and `Viewmodel.setSource`.
 local templateFor: ((string) -> (Instance?, any))? = nil
 local warned = false
+-- Once per server, not once per grant: see the warning itself (task 90).
+local sightWarned = false
 
 function Hardware.setTemplateProvider(fn: ((string) -> (Instance?, any))?)
 	templateFor = fn
@@ -66,6 +68,10 @@ Hardware.TOOL_NAME = "Shotgun"
 -- fallback. No attribute, no flag and no table: the visible model IS the state, so "has this gun
 -- already been upgraded" cannot disagree with what is on screen.
 Hardware.MODEL_NAME = "Model"
+-- The attachment the first-person camera lines the view up with (task 90, docs/design/camera.md
+-- section 6.5). Named here because `Hardware` is its only writer and `Camera.Viewmodel` reads it off
+-- the CLONE by the same name.
+Hardware.SIGHT_NAME = "Sight"
 
 function Hardware.build(): Tool
 	local config = Shotgun.CONFIG
@@ -96,11 +102,31 @@ function Hardware.build(): Tool
 	muzzle.CFrame = CFrame.new(config.MUZZLE_OFFSET)
 	muzzle.Parent = handle
 
+	-- THE SIGHT, beside the muzzle and for exactly the same reason (task 90): where a feature of the
+	-- gun IS belongs on the gun as an Attachment, once, rather than as a number re-derived at each
+	-- call site. The server never reads this one -- the first-person camera does, to line the bead up
+	-- with the view axis -- but the gun is what knows where its own bead is, and a mesh and the parts
+	-- fallback answer differently. `addMesh` overwrites it from the manifest row when that row has a
+	-- measurement (docs/design/camera.md section 6.5).
+	Hardware.setSight(handle, Shape.sight(config))
+
 	if not Hardware.addMesh(handle, config) then
 		Hardware.addParts(handle, config)
 	end
 
 	return tool
+end
+
+-- CREATE-OR-UPDATE, never a second one. The attachment IS the state, so `build`, `addMesh` and
+-- `upgrade` can all call this and a gun ends up with exactly one `Sight` -- the same shape
+-- `Hardware.upgrade` already has for the worn model.
+function Hardware.setSight(handle: BasePart, cframe: CFrame): Attachment
+	local existing = handle:FindFirstChild(Hardware.SIGHT_NAME)
+	local sight = if existing and existing:IsA("Attachment") then existing else Instance.new("Attachment")
+	sight.Name = Hardware.SIGHT_NAME
+	sight.CFrame = cframe
+	sight.Parent = handle
+	return sight
 end
 
 -- THE LOADED MODEL, WELDED TO THE HANDLE. Returns false when there is nothing to wear, which is not
@@ -146,6 +172,28 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 	local offset = if typeof(row) == "table" and typeof(row.offsetStuds) == "Vector3"
 		then row.offsetStuds
 		else Vector3.zero
+
+	-- THE MESH'S OWN SIGHT, when the row carries a measurement. It cannot be derived: the uploaded
+	-- gun is exactly one MeshPart with a PAINTED bead and no Instance to read, so the number is
+	-- measured on screen in ADS and recorded in the row (docs/design/camera.md section 6.5, Director
+	-- item C). Without it the parts-gun bead is the fallback and this warns ONCE, because a gun is
+	-- granted on every spawn and a warning per spawn is a log nobody reads.
+	local sightOffset = if typeof(row) == "table" and typeof(row.sightOffsetStuds) == "Vector3"
+		then row.sightOffsetStuds
+		else nil
+	if sightOffset then
+		Hardware.setSight(handle, CFrame.new(sightOffset))
+	elseif not sightWarned then
+		sightWarned = true
+		warn(
+			string.format(
+				"[Weapon] the %s row carries no sightOffsetStuds; the first-person sight falls back "
+					.. "to the parts gun's bead at %s",
+				Hardware.ASSET_KEY,
+				tostring(Shape.beadOffset(config))
+			)
+		)
+	end
 
 	local model = template:Clone()
 	model.Name = Hardware.MODEL_NAME

@@ -256,15 +256,31 @@ function Mode.carryOffset(config): CFrame
 		)
 end
 
--- Where the viewmodel sits, relative to the camera. The POSE is the eased mix of the hip/carry pose
--- and the aimed one; everything else in this function is cosmetic and, in task 89, exactly identity.
+-- THE AIMED POSE, AND IT IS GEOMETRY RATHER THAN A NUMBER SOMEBODY LIKED (task 90, S2).
 --
--- `_sightLocal` is the gun's own `Sight` attachment in the Handle's frame. It is in the signature and
--- DELIBERATELY UNUSED in task 89 -- hence the underscore, which is how selene is told a parameter is
--- unused on purpose. S2 replaces the aimed pose with `Mode.aimOffset(_sightLocal, config)` and drops
--- the underscore; the call sites do not change twice. Until then the aimed pose is `VIEWMODEL_AIM_OFFSET`, the
--- framing a screenshot already accepted in Task 26/47 -- which is exactly what `aimOffset(nil)` will
--- fall back to, so S2 changes the geometry and not the shape.
+-- Aiming must put the gun's own bead on the camera's axis, `EYE_RELIEF_STUDS` in front of the eye,
+-- pointing where the camera points. The viewmodel's pivot is the cloned `Handle`, and `sightLocal`
+-- is where the `Sight` attachment sits in that Handle's frame, so:
+--
+--   handleWanted = camCFrame * CFrame.new(0, 0, -EYE_RELIEF) * sightLocal:Inverse()
+--   => the offset from the camera is  CFrame.new(0, 0, -EYE_RELIEF) * sightLocal:Inverse()
+--
+-- and the bead lands on the axis BECAUSE OF WHERE THE BEAD IS. Move the bead, and the gun moves to
+-- suit it; swap the parts gun for the mesh, and the pose follows the new measurement. Nothing here
+-- is tuned by eye.
+--
+-- `sightLocal == nil` is a gun that carries no `Sight` -- an old Handle, or a mesh whose row has no
+-- measurement yet. It falls back to `VIEWMODEL_AIM_OFFSET`, the framing Task 26/47 accepted, and
+-- `Viewmodel.stats().sightMissing` counts it so the fallback is visible rather than silent.
+function Mode.aimOffset(sightLocal: CFrame?, config): CFrame
+	if sightLocal == nil then
+		return config.VIEWMODEL_AIM_OFFSET
+	end
+	return CFrame.new(0, 0, -config.EYE_RELIEF_STUDS) * sightLocal:Inverse()
+end
+
+-- Where the viewmodel sits, relative to the camera. The POSE is the eased mix of the hip/carry pose
+-- and the aimed one; everything else in this function is cosmetic and, in task 90, exactly identity.
 --
 -- THE COMPOSITION ORDER IS THE BUG IN EVERY VIEWMODEL, so it is written once, here, and asserted
 -- while every term is identity (design section 5.2):
@@ -273,9 +289,13 @@ end
 -- With the state at rest the four cosmetic factors are exactly identity, so this returns the pose
 -- bit for bit -- which is what `tests/server/camera_mode.spec.luau` asserts, and what the bead
 -- measurement in S2 will rest on.
-function Mode.viewmodelOffset(state: State, _sightLocal: CFrame?, config): CFrame
+function Mode.viewmodelOffset(state: State, sightLocal: CFrame?, config): CFrame
 	local hip = if config.FIRST_PERSON then Mode.carryOffset(config) else config.VIEWMODEL_HIP_OFFSET
-	local pose = hip:Lerp(config.VIEWMODEL_AIM_OFFSET, Mode.ease(state.blend))
+	-- THE THIRD-PERSON BRANCH KEEPS ITS OWN AIMED POSE, deliberately: `VIEWMODEL_AIM_OFFSET` is what
+	-- Karen accepted for the shoulder camera on 2026-09-25, and task 90 is not allowed to change
+	-- what the OFF branch looks like. Geometric ADS is the first-person sight picture.
+	local aim = if config.FIRST_PERSON then Mode.aimOffset(sightLocal, config) else config.VIEWMODEL_AIM_OFFSET
+	local pose = hip:Lerp(aim, Mode.ease(state.blend))
 	return CFrame.new(state.bobStuds)
 		* CFrame.Angles(math.rad(state.swayDeg.Y), math.rad(state.swayDeg.X), 0)
 		* pose

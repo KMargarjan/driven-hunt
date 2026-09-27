@@ -36,6 +36,16 @@ local builtFrom: BasePart? = nil
 local childWatchers: { RBXScriptConnection } = {}
 local stale = false
 
+-- THE NAMES THIS MODULE LOOKS FOR ON THE CLONE (task 90). `Sight` is written by
+-- `ServerScriptService.Weapon.Hardware` and comes across with the clone; `Bead` is the parts gun's
+-- own bright piece; `SightBead` is the one thing this module ADDS, and it adds it only when the gun
+-- it cloned has no bead of its own.
+local SIGHT_NAME = "Sight"
+local BEAD_NAME = "Bead"
+local MARKER_NAME = "SightBead"
+
+local stats = { sightMissing = 0, rebuilds = 0, parts = 0 }
+
 function Viewmodel.setSource(fn: (() -> BasePart?)?)
 	source = fn
 	if not fn then
@@ -72,7 +82,63 @@ function Viewmodel.clear()
 	stale = false
 end
 
-local function build(handle: BasePart): Model
+-- WHERE THE GUN SAYS ITS BEAD IS, in the clone's own frame, or nil when it carries no `Sight`.
+-- `PrimaryPart` is the cloned Handle and `WorldPivot` is never written, so an attachment's CFrame is
+-- already relative to the model's pivot -- which is exactly the frame `Mode.aimOffset` wants.
+function Viewmodel.sight(): CFrame?
+	local made = model
+	local clone = made and made.PrimaryPart
+	local attachment = clone and clone:FindFirstChild(SIGHT_NAME)
+	if attachment and attachment:IsA("Attachment") then
+		return attachment.CFrame
+	end
+	return nil
+end
+
+function Viewmodel.stats()
+	return table.clone(stats)
+end
+
+-- THE BEAD A PLAYER CAN ACTUALLY SEE (task 90). Karen, 2026-09-27: "we are missing front knob or how
+-- it calls where you aim and follow animal with that point".
+--
+-- The parts gun already has a `Bead` piece and gets nothing added. The uploaded gun is exactly ONE
+-- MeshPart whose bead is PAINTED at a few pixels across, so there is nothing on it to aim with: this
+-- draws one at the `Sight` attachment, which is the same point the ADS pose lines up with the view
+-- axis. So the mark a player follows the animal with and the point the geometry aims are the same
+-- Instance, not two numbers that agree today.
+--
+-- It is drawn by the VIEWMODEL and not by the weapon on purpose: it is cosmetic, client-side and
+-- first-person only -- the gun other players see is unchanged, and `CanQuery = false` keeps it out of
+-- every ray in the game, including this system's own occlusion cast.
+local function addBeadMarker(clone: BasePart, config): boolean
+	local attachment = clone:FindFirstChild(SIGHT_NAME)
+	if not (attachment and attachment:IsA("Attachment")) then
+		return false
+	end
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant:IsA("BasePart") and descendant.Name == BEAD_NAME then
+			return false -- the gun brought its own
+		end
+	end
+	local bead = Instance.new("Part")
+	bead.Name = MARKER_NAME
+	bead.Shape = Enum.PartType.Ball
+	bead.Size = Vector3.new(config.BEAD_MARKER_STUDS, config.BEAD_MARKER_STUDS, config.BEAD_MARKER_STUDS)
+	bead.Color = config.BEAD_MARKER_COLOR
+	bead.Material = Enum.Material.Neon
+	bead.Anchored = true
+	bead.CanCollide = false
+	bead.CanQuery = false
+	bead.CanTouch = false
+	bead.Massless = true
+	bead.CastShadow = false
+	bead.CFrame = clone.CFrame * (attachment :: Attachment).CFrame
+	bead.Parent = clone
+	return true
+end
+
+local function build(handle: BasePart, config): Model
 	local made = Instance.new("Model")
 	made.Name = "DrivenHuntViewmodel"
 
@@ -121,6 +187,22 @@ local function build(handle: BasePart): Model
 	clone.CastShadow = false
 	clone.Parent = made
 	made.PrimaryPart = clone
+	addBeadMarker(clone, config)
+
+	stats.rebuilds += 1
+	local parts = 0
+	for _, descendant in ipairs(made:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			parts += 1
+		end
+	end
+	stats.parts = parts
+	-- COUNTED, NOT WARNED. A gun with no `Sight` still draws -- `Mode.aimOffset(nil, config)` falls
+	-- back to the accepted framing -- but the sight picture is then a guess about somebody else's
+	-- mesh, so the number says how often that happened and a spec asserts it is zero for a real gun.
+	if not clone:FindFirstChild(SIGHT_NAME) then
+		stats.sightMissing += 1
+	end
 	return made
 end
 
@@ -170,7 +252,7 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 				stale = true
 			end),
 		}
-		model = build(handle)
+		model = build(handle, config)
 		builtFrom = handle
 	end
 
@@ -178,7 +260,9 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	if made.Parent ~= cam then
 		made.Parent = cam
 	end
-	made:PivotTo(camCFrame * Mode.viewmodelOffset(state, nil, config))
+	-- THE GUN'S OWN SIGHT DECIDES THE AIMED POSE (task 90): read off the clone every frame, because
+	-- a rebuild (the mesh arriving late, `Hardware.upgrade`) can change it mid-life.
+	made:PivotTo(camCFrame * Mode.viewmodelOffset(state, Viewmodel.sight(), config))
 end
 
 function Viewmodel.isParented(): boolean
