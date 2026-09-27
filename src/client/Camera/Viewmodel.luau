@@ -67,6 +67,10 @@ local stats = { sightMissing = 0, rebuilds = 0, parts = 0, breaksDrawn = 0, shel
 local reload = { open = false, spent = 0 }
 local openedAt: number? = nil
 local barrelsLocal: CFrame? = nil
+-- WHAT ELSE RIDES ON THE BARRELS (task 96, round 2): the bead. An anchored part does not follow its
+-- parent, so every piece that swings with the barrel group is placed by hand from the same
+-- transform, and its rest offset is read off the clone once.
+local ridersLocal: { [BasePart]: CFrame } = {}
 
 function Viewmodel.setReload(state: { open: boolean, spent: number }?)
 	local next_ = state or { open = false, spent = 0 }
@@ -111,6 +115,7 @@ function Viewmodel.clear()
 		model = nil
 	end
 	barrelsLocal = nil -- the next clone reads its own barrels' rest pose (task 96)
+	table.clear(ridersLocal)
 	builtFrom = nil
 	for _, connection in ipairs(childWatchers) do
 		connection:Disconnect()
@@ -175,7 +180,12 @@ local function addBeadMarker(clone: BasePart, config): boolean
 	bead.Massless = true
 	bead.CastShadow = false
 	bead.CFrame = clone.CFrame * (attachment :: Attachment).CFrame
-	bead.Parent = clone
+	-- ON THE BARRELS WHEN THERE ARE BARRELS (task 96, round 2), so the piece it belongs to owns
+	-- it: a bead is part of the rib, not part of the action. `hinge` places it either way, but
+	-- the parenting is what says whose it is -- and with the gun in one piece, which is what
+	-- the OFF branch and the parts gun are, it hangs on the Handle exactly as before.
+	local onBarrels = clone:FindFirstChild(BARRELS_NAME)
+	bead.Parent = if onBarrels and onBarrels:IsA("BasePart") then onBarrels else clone
 	return true
 end
 
@@ -427,12 +437,27 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config)
 	-- LookVector is its -Z, and `CFrame.Angles(+t, 0, 0)` takes (0, 0, -1) to (0, sin t, -cos t) --
 	-- i.e. UP. Measured the hard way: the first run of `camera_client.spec` caught the barrels
 	-- swinging toward the sky.
-	local swing = hinge * CFrame.Angles(-math.rad(angle), 0, 0) * hinge:Inverse();
-	(barrels :: BasePart).CFrame = gunCFrame * swing * (barrelsLocal :: CFrame)
+	local swing = hinge * CFrame.Angles(-math.rad(angle), 0, 0) * hinge:Inverse()
+	local swungGun = gunCFrame * swing
+	local barrelPart = barrels :: BasePart
+	barrelPart.CFrame = swungGun * (barrelsLocal :: CFrame)
+	-- THE BEAD RIDES WITH THEM (round 1's own report, and the Director's reading of the frames):
+	-- a bead is a sight ON THE BARRELS, so with the gun open it belongs down at the muzzle where
+	-- the barrels are and not floating where the muzzle used to be. Placed from the same
+	-- transform, and shut that transform is identity -- so the bead is bit-for-bit where it was
+	-- and the shot line is untouched.
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant:IsA("BasePart") and (descendant.Name == MARKER_NAME or descendant.Name == BEAD_NAME) then
+			if ridersLocal[descendant] == nil then
+				ridersLocal[descendant] = clone.CFrame:ToObjectSpace(descendant.CFrame)
+			end
+			descendant.CFrame = swungGun * ridersLocal[descendant]
+		end
+	end
 	if angle > 0 then
 		stats.breaksDrawn += 1
 	end
-	Viewmodel.shells(gunCFrame * swing, config)
+	Viewmodel.shells(swungGun, config)
 end
 
 -- THE SHELLS (task 96): spent ones pop out of the barrels that fired, fresh ones slide into the

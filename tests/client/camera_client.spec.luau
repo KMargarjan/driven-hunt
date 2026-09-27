@@ -987,6 +987,13 @@ return function()
 				local restAngle = angleBetween()
 				TestKit.note(string.format("task96 shut: barrels %.3f deg off the body", restAngle))
 				expect(restAngle < 0.01).to.equal(true)
+				-- WHERE THE BEAD SITS WITH THE GUN SHUT, and whose it is: the barrels'. Both are read
+				-- here so the open case can say it MOVED and that it moved WITH them.
+				local shutBead = cloned:FindFirstChild("SightBead") :: BasePart
+				expect(shutBead).to.be.ok()
+				expect(shutBead.Parent).to.equal(cloned)
+				local openBeadRest = shutBead.Position
+				local beadOnBarrels = cloned.CFrame:ToObjectSpace(shutBead.CFrame)
 				expect(clone:FindFirstChild("SpentShell1")).to.equal(nil)
 
 				-- OPEN, WITH BOTH BARRELS FIRED: the barrels swing down by the config's own angle
@@ -1008,6 +1015,16 @@ return function()
 				)
 				expect(math.abs(swung - firstPersonConfig.BREAK_OPEN_DEG) < 0.5).to.equal(true)
 				expect(cloned.CFrame.LookVector.Y < clone.CFrame.LookVector.Y).to.equal(true) -- muzzle DOWN
+				-- THE BEAD TRAVELS WITH THE BARRELS (round 2). A bead is a sight on the rib: with the
+				-- gun open it belongs down at the muzzle, not floating where the muzzle used to be.
+				local marker = cloned:FindFirstChild("SightBead") :: BasePart
+				expect(marker).to.be.ok()
+				expect((marker.Position - openBeadRest).Magnitude > 0.2).to.equal(true)
+				-- ...and it is still in the SAME place on the barrels, which is what makes it a
+				-- sight rather than a decoration that happens to move.
+				local carried = cloned.CFrame:ToObjectSpace(marker.CFrame)
+				expect((carried.Position - beadOnBarrels.Position).Magnitude < 1e-4).to.equal(true)
+
 				-- ...and a shell for each barrel that fired, drawn where the chambers are.
 				expect(clone:FindFirstChild("SpentShell1")).to.be.ok()
 				expect(clone:FindFirstChild("SpentShell2")).to.be.ok()
