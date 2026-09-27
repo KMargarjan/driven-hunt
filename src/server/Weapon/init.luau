@@ -383,31 +383,39 @@ local function ignoreFor(player: Player): { Instance }
 end
 
 -- The whole server flow for one FireRequest (design section 5.5).
-local function onFireRequest(player: Player, req: any)
+--
+-- IT RETURNS ITS OWN DECISION (Task 80, round 2): nil when the shot was taken, otherwise the reason
+-- it was not. `OnServerEvent:Connect` discards the return, so nothing about the game changes -- but a
+-- caller now gets a per-call answer instead of having to infer one from a counter. That distinction
+-- cost a two-player run: the first version of the handler spec asserted `stats.shots` had not moved
+-- across its own window, and `stats` is ONE module-level table for the whole server, so the shooter's
+-- legitimate replayed click landed in the spec's numbers and read as a forged request being accepted.
+-- A return value belongs to one call and one player and cannot be raced by anybody.
+local function onFireRequest(player: Player, req: any): string?
 	local now = os.clock()
 	local allowed, bucket = Limits.allow(registry:bucket(player, "fire"), now, CONFIG.FIRE_RATE_LIMIT)
 	registry:setBucket(player, "fire", bucket)
 	if not allowed then
 		stats.rateDropped += 1
-		return
+		return "rate-limited"
 	end
 
 	local state = stateOf(player)
 	if not state then
-		return
+		return "untracked"
 	end
 
-	local ok = Validator.checkShot(req, rootPositionOf(player), CONFIG)
+	local ok, why = Validator.checkShot(req, rootPositionOf(player), CONFIG)
 	if not ok then
 		stats.badRequests += 1
 		publish(player, state)
-		return
+		return why or "bad-request"
 	end
 
 	local fired, reason = StateMachine.apply(state, { kind = "Fire" }, now)
 	if reason then
 		publish(player, state)
-		return
+		return reason
 	end
 	local ammo = state.loaded[state.selected]
 	setState(player, fired)
@@ -416,7 +424,7 @@ local function onFireRequest(player: Player, req: any)
 	local muzzle = tool and Hardware.muzzlePosition(tool)
 	if not muzzle then
 		publish(player, fired)
-		return
+		return "no-muzzle"
 	end
 
 	local range = CONFIG.RANGE_STUDS[ammo]
@@ -468,6 +476,7 @@ local function onFireRequest(player: Player, req: any)
 		impacts = points,
 		ammo = ammo,
 	})
+	return nil -- the shot was taken
 end
 
 -- Break/Load/Close are never reachable from here: Validator.checkRequest accepts only "Reload" and
@@ -528,25 +537,27 @@ local function runReload(player: Player, epoch: number)
 	end
 end
 
-local function onActionRequest(player: Player, kind: any, ammo: any)
+-- Same contract as `onFireRequest` above, and the same reason for it: nil when the request was
+-- acted on, otherwise the reason it was not.
+local function onActionRequest(player: Player, kind: any, ammo: any): string?
 	local now = os.clock()
 	local allowed, bucket = Limits.allow(registry:bucket(player, "action"), now, CONFIG.ACTION_RATE_LIMIT)
 	registry:setBucket(player, "action", bucket)
 	if not allowed then
 		stats.rateDropped += 1
-		return
+		return "rate-limited"
 	end
 
 	local state = stateOf(player)
 	if not state then
-		return
+		return "untracked"
 	end
 
-	local ok = Validator.checkRequest(kind, ammo)
+	local ok, why = Validator.checkRequest(kind, ammo)
 	if not ok then
 		stats.badRequests += 1
 		publish(player, state)
-		return
+		return why or "bad-request"
 	end
 
 	-- X, since Karen's playtest of 2026-09-25: switching the type RELOADS to it. Break returns the
@@ -556,28 +567,29 @@ local function onActionRequest(player: Player, kind: any, ammo: any)
 	if kind == "SelectAmmo" then
 		if not state.equipped or state.open or now < state.busyUntil then
 			publish(player, state)
-			return
+			return "not-ready"
 		end
 		if (state.reserve[ammo] or 0) <= 0 then
 			stats.emptySwaps += 1
 			publish(player, state, true, "NO " .. string.upper(ammo))
-			return
+			return "empty-pocket"
 		end
 		local swapped = StateMachine.apply(state, { kind = "SelectAmmo", ammo = ammo }, now)
 		setState(player, swapped)
 		publish(player, swapped, true)
 		task.spawn(runReload, player, swapped.epoch)
-		return
+		return nil -- the swap was accepted
 	end
 
 	-- "Reload": one thread per player. A second Reload while the action is open is rejected by the
 	-- reducer's own "is-open", which is what makes the 2.0 s window uninterruptible (feel default 2).
 	if not state.equipped or state.open or now < state.busyUntil then
 		publish(player, state)
-		return
+		return "not-ready"
 	end
 	local epoch = state.epoch
 	task.spawn(runReload, player, epoch)
+	return nil -- the reload was accepted
 end
 
 local function watchPlayer(player: Player)

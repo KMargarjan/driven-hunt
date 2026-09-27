@@ -102,23 +102,25 @@ return function()
 			-- A player the owner is already tracking, because a request for an untracked player
 			-- returns before the validator and proves nothing.
 			local subject = nil
+			local roster = {}
 			for _, player in ipairs(Players:GetPlayers()) do
-				if Weapon.getSnapshot(player) then
+				table.insert(roster, player.Name .. (if Weapon.getSnapshot(player) then "(tracked)" else "(untracked)"))
+				if not subject and Weapon.getSnapshot(player) then
 					subject = player
-					break
 				end
 			end
 			if not subject then
 				-- Not a skip (TestKit fails the run for those): say what was missing and assert the
 				-- half that needs nobody, so this case never passes silently.
-				TestKit.note("weapon_shot: no tracked player, so the handler half of the exploit path was not driven")
+				TestKit.note(
+					"weapon_shot: no tracked player, so the handler half was not driven; roster ["
+						.. table.concat(roster, ", ")
+						.. "]"
+				)
 				expect(Validator.checkRequest("Break", nil)).to.equal(false)
 				return
 			end
 
-			-- Ten per second is CONFIG.ACTION_RATE_LIMIT, so they go in two windows. A rate-dropped
-			-- request returns BEFORE the validator, so it would prove nothing -- which is why
-			-- `rateDropped` is asserted not to move.
 			local actions = {
 				{ "Break", nil },
 				{ "Load", nil },
@@ -132,33 +134,76 @@ return function()
 			}
 			local shots = { "not a table", { origin = "x", direction = Vector3.zero }, 7 }
 
-			local before = Weapon.stats()
-			for index, pair in ipairs(actions) do
-				if index == 6 then
-					task.wait(1.1) -- a fresh rate-limit window, so nothing is dropped instead of refused
+			-- THE RATE LIMITER IS A PRE-VALIDATOR EXIT, so a dropped call would prove nothing. It is
+			-- not avoided by counting to ten and guessing: the handler SAYS "rate-limited", so a call
+			-- that hits the limit is simply made again in the next window.
+			local function ask(send: () -> string?): string?
+				local why = send()
+				if why == "rate-limited" then
+					task.wait(1.1)
+					why = send()
 				end
-				Weapon.onActionRequest(subject, pair[1], pair[2])
+				return why
 			end
-			task.wait(1.1)
-			for _, bad in ipairs(shots) do
-				Weapon.onFireRequest(subject, bad)
+
+			local before = Weapon.stats()
+			local said = {}
+			local accepted, preValidator = {}, {}
+			local function record(label: string, why: string?)
+				table.insert(said, label .. "=" .. tostring(why))
+				if why == nil then
+					table.insert(accepted, label)
+				elseif why == "rate-limited" or why == "untracked" then
+					table.insert(preValidator, label .. "=" .. why)
+				end
+			end
+
+			for _, pair in ipairs(actions) do
+				local kind, ammo = pair[1], pair[2]
+				record(
+					"action " .. tostring(kind) .. (if ammo then "/" .. tostring(ammo) else ""),
+					ask(function()
+						return Weapon.onActionRequest(subject, kind, ammo)
+					end)
+				)
+			end
+			for index, bad in ipairs(shots) do
+				record(
+					"fire #" .. index,
+					ask(function()
+						return Weapon.onFireRequest(subject, bad)
+					end)
+				)
 			end
 			local after = Weapon.stats()
 
+			-- WHAT IT COUNTED AND FROM WHOM, because the first version of this case could not say.
+			-- The counter deltas are the WHOLE SERVER's -- `stats` is one module-level table, so a
+			-- second player's legitimate click lands in them -- and they are context here, not the
+			-- assertion. The per-call reasons below are what is asserted, and each belongs to one call
+			-- and one player.
 			TestKit.note(
 				string.format(
-					"weapon_shot: %d forged request(s) at the handler -> badRequests +%d, rateDropped +%d, shots +%d",
+					"weapon_shot: %d forged request(s) at the handler, subject %s of roster [%s]; "
+						.. "reasons [%s]; server-wide counters over the same window: badRequests +%d, "
+						.. "rateDropped +%d, shots +%d (other players' shots land in these)",
 					#actions + #shots,
+					subject.Name,
+					table.concat(roster, ", "),
+					table.concat(said, ", "),
 					after.badRequests - before.badRequests,
 					after.rateDropped - before.rateDropped,
 					after.shots - before.shots
 				)
 			)
-			-- EVERY ONE reached the validator and was refused there.
-			expect(after.badRequests - before.badRequests).to.equal(#actions + #shots)
-			expect(after.rateDropped - before.rateDropped).to.equal(0)
-			-- ...and none of them fired: `stats.shots` rises only after the reducer has spent a barrel.
-			expect(after.shots - before.shots).to.equal(0)
+
+			-- NOT ONE OF THEM WAS ACTED ON: the handlers return nil only on the paths that did
+			-- something.
+			expect(#accepted).to.equal(0)
+			-- ...and every one of them reached the VALIDATOR to be refused, rather than falling out at
+			-- an earlier guard, which would make this case green with the whitelist deleted.
+			expect(#preValidator).to.equal(0)
+			expect(#said).to.equal(#actions + #shots)
 		end)
 	end)
 
