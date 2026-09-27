@@ -993,3 +993,31 @@ same corridor as a literal by its own owner, and `ArenaBoot` and `MatchBoot` bra
 string. `CLAUDE.md`'s "Feature flags" section now names the exception. `tests/server/test_arena.spec`
 is **branched, not archived** — §17 step 9 archives it only after Karen accepts, and a spec that was
 deleted cannot check a rollback.
+
+## NEEDS KAREN — 2026-09-27, Task 79: the map save has never been read back
+
+The generated map reached the place with **one human keystroke**, Alt+Shift+S (File → Save to
+Roblox), posted by the Director with Studio in Edit mode and the built map in view. **Studio showed
+no confirmation dialog**, so the save is **SENT, not verified**. Nothing a tool can run reads
+Roblox's copy of a place, and `python tools/mapgen.py contract` answers `OK` for the Edit session
+that was saved — the same DataModel, not proof it landed.
+
+`docs/design/map-generator.md` §17 step 5 asks for exactly this readback (its "measurement B"), and
+it needs a **reopen**, which the Director will not do tonight: reopening the place drops `rojo serve`
+and the Studio MCP link, and recovering both needs Karen's **Connect** click.
+
+**The clicks, in order, at Karen's 10:00 session:**
+
+1. Open **Driven Hunt DEV** (PlaceId 136410205938347) in Studio, in **Edit** mode.
+2. Press **Connect** in the Rojo plugin (Karen's click; `rojo serve` must be running).
+3. Studio → Assistant settings → **MCP server enabled**.
+4. Then the Director runs `python tools/mapgen.py contract` and compares the marker digest with
+   **`e064d5982513a08616d2bf367f61c30c`**, and the counts with 8 shooterPost, 1 driveLine,
+   1 driverStart, 4 boarSpawn, 12 tree.
+
+If the digest matches, §17 step 5 is complete. If the place comes back empty, the map did not save
+and `python tools/mapgen.py build --seed 1` rebuilds it byte-identically from the committed seed —
+nothing is lost but the keystroke.
+
+Recorded as `TASKS.md` 79a(j). The code half does not wait on this: `[harness] PASS: 32/32 @ 6ddb54e`
+is a run against the map in that Edit session.
