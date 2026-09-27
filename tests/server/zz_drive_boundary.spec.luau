@@ -105,12 +105,14 @@ return function()
 			local boars = Workspace:FindFirstChild("Boars")
 			TestKit.note(
 				string.format(
-					"zz_drive_boundary: drive live -- phase=%s releases=%d deferred=%d boars=%d alive=%d testSeconds=%d",
+					"zz_drive_boundary: drive live -- phase=%s releases=%d deferred=%d boars=%d alive=%d "
+						.. "firstReleaseAfter=%.1fs testSeconds=%d",
 					Match.phase(),
 					live.releases,
 					live.releasesDeferred,
 					live.boarsReleased,
 					if boars then #boars:GetChildren() else -1,
+					live.firstReleaseAfterSeconds,
 					live.testSeconds
 				)
 			)
