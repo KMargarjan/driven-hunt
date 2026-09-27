@@ -69,6 +69,7 @@ local function withLoader(insert, body)
 	local live = Loader.setState(Loader.newState())
 	local liveProvider = Hardware.getTemplateProvider()
 	Hardware.setTemplateProvider(nil)
+
 	Loader.setCacheParent(cacheFolder)
 	Loader.setInsert(insert)
 	local ok, why = pcall(body)
@@ -439,11 +440,8 @@ return function()
 	end)
 
 	describe("the gun that is built", function()
-		-- THE LIVE PROVIDER IS PUT BACK. A spec that leaves its fake wired in changes what every
-		-- later spec -- and every later screenshot -- sees.
-		local live = Hardware.getTemplateProvider()
-
 		local function withProvider(fn, body)
+			local live = Hardware.getTemplateProvider()
 			Hardware.setTemplateProvider(fn)
 			local ok, why = pcall(body)
 			Hardware.setTemplateProvider(live)
@@ -527,9 +525,8 @@ return function()
 	-- that lets the live 2 s arming sweep run while a fake provider is wired, and the sweep now calls
 	-- `upgradeAll`.
 	describe("the gun that was granted before the mesh landed", function()
-		local live = Hardware.getTemplateProvider()
-
 		local function withProvider(fn, body)
+			local live = Hardware.getTemplateProvider()
 			Hardware.setTemplateProvider(fn)
 			local ok, why = pcall(body)
 			Hardware.setTemplateProvider(live)
@@ -652,13 +649,21 @@ return function()
 			local template = Loader.template(Hardware.ASSET_KEY)
 			TestKit.note(
 				string.format(
-					"task76: %d carried gun(s), %d wearing the mesh, live template=%s, sweep upgrades=%d",
+					"task76: %d carried gun(s), %d wearing the mesh, live template=%s, provider=%s, sweep upgrades=%d",
 					held,
 					meshed,
 					if template then "yes" else "no",
+					if Hardware.getTemplateProvider() then "wired" else "NIL",
 					Weapon.stats().meshUpgrades
 				)
 			)
+			-- THE SEAM IS STILL WIRED, and this is the assertion that caught the defect Task 76's
+			-- second harness run failed on. Every case above borrows the provider and puts it back;
+			-- one that captured its "live" value BEFORE `WeaponBoot` wired it put nil back instead,
+			-- and a server with no provider builds the parts gun for every grant and cannot upgrade
+			-- one either -- silently, for the rest of the session, including in any screenshot taken
+			-- afterwards. It passed and failed on the same commit, which is what a race looks like.
+			expect(Hardware.getTemplateProvider()).to.be.ok()
 			if template == nil then
 				-- No mesh in this server at all, so the fallback is the right answer and there is
 				-- nothing to upgrade. Asserted rather than skipped, so this branch still says
