@@ -552,7 +552,7 @@ return function()
 			QUICK_TEST = true,
 			QUICK_TEST_INTERMISSION_SECONDS = 3,
 			QUICK_TEST_SOUNDER = 3,
-			QUICK_TEST_AHEAD_STUDS = 6,
+			QUICK_TEST_AHEAD_STUDS = 12,
 			QUICK_TEST_SPREAD_STUDS = 6,
 			-- ROOM FOR THE THREE, and the first run of this block is why it is written down: this
 			-- file's own MAX_ALIVE_BOARS is 2, so a three-boar release was held back for ever and
@@ -560,6 +560,8 @@ return function()
 			-- the ceiling can never happen -- `maybeRelease` holds the WHOLE sounder back -- which
 			-- is a real invariant, and `match_live.spec` asserts it of the live numbers.
 			MAX_ALIVE_BOARS = 4,
+			QUICK_TEST_INTERVAL_SECONDS = 15,
+			QUICK_TEST_FIRST_RELEASE_SECONDS = 5,
 		}
 
 		local function quickConfig(overrides)
@@ -592,7 +594,7 @@ return function()
 
 			local on = quickConfig()
 			expect(Phase.intermissionSeconds(on)).to.equal(3)
-			expect(Phase.firstReleaseSeconds(on)).to.equal(0)
+			expect(Phase.firstReleaseSeconds(on)).to.equal(5)
 			-- and they really are different, so neither case can pass by the two being equal
 			expect(Phase.intermissionSeconds(on) < Phase.intermissionSeconds(off)).to.equal(true)
 			expect(Phase.firstReleaseSeconds(on) < Phase.firstReleaseSeconds(off)).to.equal(true)
@@ -608,7 +610,7 @@ return function()
 			expect(state.phase).to.equal("Assigning")
 
 			local collected
-			state, collected, at = run(state, cfg, at, 6, 0.25)
+			state, collected, at = run(state, cfg, at, 12, 0.25)
 			expect(state.phase).to.equal("Running")
 			local spawns = {}
 			for _, effect in ipairs(collected) do
@@ -622,25 +624,25 @@ return function()
 			-- the drive line, and the ring is clamped to the road's own width.
 			expect(spawns[1].position).to.equal(LINE + Vector3.new(0, 0, cfg.QUICK_TEST_AHEAD_STUDS))
 			expect(spawns[1].spread).to.equal(cfg.QUICK_TEST_SPREAD_STUDS)
-			expect(at <= 6).to.equal(true)
+			expect(at <= 12).to.equal(true) -- 3 s of intermission plus a 5 s first release, not 40
 
-			-- ...and the SAME six seconds with the quick test off release nothing at all, because
-			-- the drive has not even started yet.
+			-- ...and the same nine seconds with the quick test off release nothing at all, because
+			-- the drive has not even started yet: the intermission alone is ten.
 			local slowCfg = config()
 			local slow = ready(slowCfg)
 			slow = (Phase.step(slow, { kind = "join", userId = 1, name = "Karen" }, 0, slowCfg))
 			local slowEffects
-			slow, slowEffects = run(slow, slowCfg, 0, 6, 0.25)
+			slow, slowEffects = run(slow, slowCfg, 0, 9, 0.25)
 			expect(slow.phase).to.equal("Assigning")
 			expect(countKind(slowEffects, "spawnSounder")).to.equal(0)
 		end)
 
-		it("is the FIRST release only: the rest of the drive is the real drive", function()
-			local cfg = quickConfig({ BOARS_PER_DRIVE = 6, RELEASE_INTERVAL_SECONDS = 5 })
+		it("keeps them coming on its own rhythm, and only the FIRST release is the quick one", function()
+			local cfg = quickConfig({ BOARS_PER_DRIVE = 6, QUICK_TEST_INTERVAL_SECONDS = 5 })
 			local state = readyQuick(cfg)
 			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
 			local collected
-			state, collected = run(state, cfg, 0, 30, 0.25)
+			state, collected = run(state, cfg, 0, 40, 0.25)
 			local spawns = {}
 			for _, effect in ipairs(collected) do
 				if effect.kind == "spawnSounder" then
@@ -652,7 +654,9 @@ return function()
 			expect(spawns[1].size).to.equal(3)
 			expect(spawns[1].spread).to.equal(cfg.QUICK_TEST_SPREAD_STUDS)
 			-- ...and the second is an ordinary release: a marker position, the map's own spread
-			-- (nil here, so the owner uses the spawn pad), and the sounder flag's own size.
+			-- (nil here, so the owner uses the spawn pad), and the sounder flag's own size. It
+			-- arrives on the quick rhythm rather than the drive's 90 seconds, which is what makes a
+			-- playtest a series of crossings instead of one blink.
 			expect(spawns[2].spread).to.equal(nil)
 			local fromMarker = false
 			for _, spawn in ipairs(SPAWNS) do
@@ -673,7 +677,7 @@ return function()
 			)
 			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
 			local collected
-			state, collected = run(state, cfg, 0, 6, 0.25)
+			state, collected = run(state, cfg, 0, 12, 0.25)
 			local spawns = {}
 			for _, effect in ipairs(collected) do
 				if effect.kind == "spawnSounder" then

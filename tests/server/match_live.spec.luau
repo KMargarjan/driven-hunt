@@ -313,6 +313,39 @@ return function()
 			-- world a driver is standing behind it; with the flag off there is never one, and every
 			-- threat the boars are given is a real player keyed by a real userId.
 			expect(Match.quickTestPhantom(os.clock())).to.equal(nil)
+			-- AND THE SPAWN IS IN FRONT OF A POST, not at the corridor's centre. The line marker is
+			-- 1,240 studs wide and the posts span 1,120 of it, so a sounder at the line's own
+			-- Position can be 560 studs from the only shooter -- which is what the first quick-test
+			-- screenshot showed: nothing, twice. Driven by parameter, because the live config has
+			-- the flag off.
+			local quickConfig = table.clone(Match.CONFIG) :: any
+			quickConfig.QUICK_TEST = true
+			local line = { position = Vector3.new(0, 0, -700), normal = Vector3.new(0, 0, 1) }
+			local post = Instance.new("Part")
+			post.Position = Vector3.new(-560, 3, -700)
+			local at = Match.quickSpawnFor(line, { post }, quickConfig)
+			expect(at).to.be.ok()
+			expect((at :: Vector3).X).to.equal(-560 + quickConfig.QUICK_TEST_SIDE_STUDS)
+			expect((at :: Vector3).Z).to.equal(-700 + quickConfig.QUICK_TEST_AHEAD_STUDS)
+			-- ...and with the flag off there is no spawn at all, whatever the markers say
+			expect(Match.quickSpawnFor(line, { post }, Match.CONFIG)).to.equal(nil)
+			post:Destroy()
+
+			-- THE PHANTOM MUST NOT REACH ANYTHING THAT MEANS A PERSON, and this is the defect that
+			-- taught it: push credit is keyed BY USER ID, and `credit[tonumber("quick-test")] = at`
+			-- is `credit[nil] = at` -- "table index is nil", on every step of every quick-test
+			-- session, taking the rest of the drive's step with it. The console found it; the
+			-- harness never could, because the flag is off here. `Match.playerDrivers` is the one
+			-- filter both the safety rule and push credit now go through.
+			local mixed = {
+				{ id = "12345", position = Vector3.new(1, 0, 2) },
+				{ id = "quick-test", position = Vector3.new(3, 0, 4) },
+			}
+			local people = Match.playerDrivers(mixed)
+			expect(#people).to.equal(1)
+			expect(people[1].userId).to.equal(12345)
+			expect(people[1].position).to.equal(Vector3.new(1, 0, 2))
+			expect(#Match.playerDrivers({})).to.equal(0)
 			local threats = Match.driverThreats()
 			for _, threat in ipairs(threats) do
 				expect(tonumber(threat.id)).never.to.equal(nil)

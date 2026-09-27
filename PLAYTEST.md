@@ -16,10 +16,16 @@ python tools/flags.py                       # see it: override on, effective on
 python tools/flags.py clear                 # ALWAYS: test and test2 refuse to start while it is set
 ```
 
-With it on: the intermission is **3 s**, the first release fires the moment the drive starts, and it
-is **three boars on the road** a few studs in front of the shooter line, pushed across it by a
-phantom driver that exists for the first 25 seconds and is not a player. Everything after that first
-release is the ordinary drive, and scoring, the safety penalty and hit zones are untouched.
+With it on: the intermission is **3 s**, the first release comes **5 s into the drive** -- so about
+ten seconds after pressing Play, against forty -- and it is **three boars on the road**, twelve studs
+in front of the shooter line and dead ahead of the first post. Releases then keep coming every **15
+s** instead of ninety, so a playtest is a series of crossings rather than one. Everything else is the
+ordinary drive: scoring, the safety penalty and hit zones are untouched.
+
+Measured on 2026-09-27: the drive is **running about 2 s after Play** (the Hud clock reads 9:55 at
+t+7 s), and the three boars are **in front of the shooter at t+11 s**. The first release waits 5 s
+rather than firing at once for a reason worth knowing: at zero they were released and gone before a
+player had finished loading in.
 
 **It cannot run outside Studio.** The flag's value is ANDed with `RunService:IsStudio()` at
 `Match.CONFIG.QUICK_TEST`, so a published server ignores it even if the attribute somehow survived.

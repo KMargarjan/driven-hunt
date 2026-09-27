@@ -135,7 +135,9 @@ end
 
 function Phase.firstReleaseSeconds(config): number
 	if config.QUICK_TEST then
-		return 0 -- immediately: the drive starts and the boars are already moving
+		-- Not zero: a boar released at the drive's first tick is across the road before a player has
+		-- loaded in. See the number's own comment in Match.CONFIG.
+		return config.QUICK_TEST_FIRST_RELEASE_SECONDS
 	end
 	return config.FIRST_RELEASE_SECONDS
 end
@@ -238,6 +240,11 @@ end
 -- inside `state.boarsReleased` by the time this is called, so reading it as well would count it
 -- twice. Kept in the signature so the design and the code still say the same thing.
 function Phase.releaseGap(state: State, _size: number, now: number, config): number
+	-- THE QUICK TEST'S OWN RHYTHM (task 83), and it is deliberately not the sounder pacing: a
+	-- playtest wants the next crossing soon, not the drive's budget spread over ten minutes.
+	if config.QUICK_TEST then
+		return config.QUICK_TEST_INTERVAL_SECONDS
+	end
 	local sounder = config.SOUNDER
 	if not (sounder and sounder.ENABLED) then
 		return config.RELEASE_INTERVAL_SECONDS
