@@ -242,6 +242,7 @@ Assets.ROWS = {
 		-- SAME MODEL, SAME GEOMETRY: the same Meshy source file as v2, not decimated, so the
 		-- triangle count, the bounding box and `sightOffsetStuds` are unchanged and no number the
 		-- rest of the system is built on moves.
+		supersededBy = 4, -- task 94: v4 has barrels this repo built rather than smoothed
 		modelId = 137252961155547,
 		displayName = "Driven Hunt shotgun (side-by-side) r5 smooth",
 		fileName = "model.fbx",
@@ -275,6 +276,210 @@ Assets.ROWS = {
 			.. "EDGE smoothing. Barrels and rib at metalness 0.10 / roughness 0.50, action 0.45 / "
 			.. "0.50, stock 0.00 / 0.62, written into the MAPS. One MeshPart with ONE "
 			.. "SurfaceAppearance child; the viewmodel's clone must keep it (design 6.6).",
+	},
+	{
+		key = "shotgun.handle",
+		version = 4,
+		kind = "meshpart" :: Kind,
+		-- Uploaded by tools/roblox_upload.py on 2026-09-27; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- WHY THERE IS A VERSION 4. Karen, after her third test (2026-09-27): "gun is not smooth and
+		-- nice ... nozzle is terrible (ending where we aim) ... barrels don't feel smooth". A
+		-- generated mesh is lumpy BY CONSTRUCTION -- it is a surface fitted to an image, not a tube --
+		-- and v3 proved that shading it smooth does not change its SHAPE. So `tools/asset_prep.py`
+		-- now CUTS the model at the front of the action, keeps Karen's stock, her silver action and
+		-- her wooden forend, and BUILDS the rest: two round barrels side by side and touching, 64
+		-- segments each, a rib along their top, a thin-walled muzzle with two real openings, and a
+		-- bead on the rib. Beretta 486 Parallelo proportions -- barrels 0.62 of the gun's length,
+		-- 23 mm across, a 1.7 mm wall.
+		--
+		-- FEWER TRIANGLES THAN BEFORE, because a tube costs less than a fitted lump: 11,770 against
+		-- v3's 19,325.
+		supersededBy = 5, -- task 94: v4 reached Roblox with no smoothing groups (see v5)
+		modelId = 80699745427569,
+		displayName = "Driven Hunt shotgun r6 clean barrels",
+		fileName = "model.fbx",
+		sourceSha256 = "a72131f7f43fca8d04246d451513c6fd9d3fb0a68cc298558890fb78e85c5244",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked on "
+				.. "2026-09-27, after playing it, for the gun to be built smooth like the video she "
+				.. "sent. The barrels are this repository's own geometry; the stock and action are "
+				.. "hers, unchanged.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-09-27, TASKS.md row 94",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 11770,
+		texturePx = 2048,
+		-- THE BOX IS v1's, AND IT IS 0.8 % GENEROUS IN HEIGHT. The rebuilt barrels are slimmer than
+		-- the generated ones, so the model measures 31.07 units tall against the 31.31 declared here;
+		-- the mesh is scaled to `sizeStuds` either way, so keeping the shared numbers stretches it by
+		-- less than a hundredth and keeps one size for the whole key.
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		-- COMPUTED FROM THE GEOMETRY THAT WAS BUILT, not measured off a screenshot: the prep reports
+		-- the bead at 0.0021 of the model's length from the muzzle and 0.491 of its height above the
+		-- centre (`rebuiltBarrels.bead` in the run's report.json), which at this scale is 2.19 studs
+		-- forward and 0.336 up. v3's 0.375 was a bound on a PAINTED bead nobody could see; this one
+		-- is where the ball actually is.
+		sightOffsetStuds = Vector3.new(0, 0.336, -2.19),
+		renderFidelity = "Automatic",
+		notes = "Barrels, rib, muzzle and bead built by asset_prep's `rebuildBarrels`; blued steel "
+			.. "written into the maps by the step that owns those texels (metalness 0.10, roughness "
+			.. "0.50). Action 0.45 / 0.50, stock 0.00 / 0.62. Custom split normals cleared before "
+			.. "smoothing at 35 degrees, which is what took the lengthwise stripes off the tubes. "
+			.. "One MeshPart with ONE SurfaceAppearance child; the viewmodel's clone must keep it.",
+	},
+	{
+		key = "shotgun.handle",
+		version = 5,
+		kind = "meshpart" :: Kind,
+		-- Uploaded by tools/roblox_upload.py on 2026-09-27; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- WHY THERE IS A VERSION 5, AND IT WAS MEASURED IN THE GAME RATHER THAN IN A RENDER. v4's
+		-- tubes are perfectly smooth in Blender's own photograph of them and arrived in Roblox as a
+		-- HERRINGBONE of flat triangles down both barrels -- an inch from a first-person eye, which
+		-- is exactly the "not smooth" this task exists to fix. The cause is the FBX export: task 92
+		-- switched it from smoothing GROUPS ("FACE") to per-edge sharp flags ("EDGE") on the belief
+		-- that groups meant flat shading, and Roblox's importer reads the groups and not the flags.
+		-- Same geometry as v4, same maps, exported with smoothing groups.
+		supersededBy = 6, -- task 94: v5 still shimmered where the tubes and the rib touched exactly
+		modelId = 73632997167378,
+		displayName = "Driven Hunt shotgun r7 smooth tubes",
+		fileName = "model.fbx",
+		sourceSha256 = "f25d6431628d08ff1a121af9530488028bfbf7a2d6ed9c59bae10c51b8672dd5",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked on "
+				.. "2026-09-27, after playing it, for the gun to be built smooth like the video she "
+				.. "sent. The barrels are this repository's own geometry; the stock and action are "
+				.. "hers, unchanged.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-09-27, TASKS.md row 94",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 11770,
+		texturePx = 2048,
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		-- v4's number, computed from the same geometry: the prep reports the bead 0.0021 of the
+		-- model's length from the muzzle and 0.491 of its height above the centre.
+		sightOffsetStuds = Vector3.new(0, 0.336, -2.19),
+		renderFidelity = "Automatic",
+		notes = "As v4 -- barrels, rib, muzzle and bead built by `rebuildBarrels`, blued steel "
+			.. "written into the maps by the step that owns those texels -- exported with smoothing "
+			.. "groups so Roblox shades the tubes round. One MeshPart with ONE SurfaceAppearance.",
+	},
+	{
+		key = "shotgun.handle",
+		version = 6,
+		kind = "meshpart" :: Kind,
+		-- Uploaded by tools/roblox_upload.py on 2026-09-27; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- WHY THERE IS A VERSION 6, AND AGAIN IT WAS MEASURED IN THE GAME. v5's barrels carried a
+		-- bright scalloped shimmer down each side in first person -- the two tubes were built exactly
+		-- tangent to each other and the rib's underside exactly tangent to both, and coincident
+		-- surfaces fight for the depth buffer. A real side-by-side is brazed tube to tube; a renderer
+		-- needs a hair of daylight, so `clearanceT` puts 0.4 mm between them. Same geometry
+		-- otherwise, same maps, same smoothing groups.
+		supersededBy = 7, -- task 94: v6's barrels still speckled at a distance (mipmaps; see v7)
+		modelId = 94500894676280,
+		displayName = "Driven Hunt shotgun r8 no z-fight",
+		fileName = "model.fbx",
+		sourceSha256 = "5a380efbc97c5faf2775d8ea2197646f4efb294de9b55966cf71ba63cf13b28a",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked on "
+				.. "2026-09-27, after playing it, for the gun to be built smooth like the video she "
+				.. "sent. The barrels are this repository's own geometry; the stock and action are "
+				.. "hers, unchanged.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-09-27, TASKS.md row 94",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 11770,
+		texturePx = 2048,
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		-- Computed from the geometry that was built: the prep reports the bead 0.0021 of the model's
+		-- length from the muzzle and 0.491 of its height above the centre.
+		sightOffsetStuds = Vector3.new(0, 0.336, -2.19),
+		renderFidelity = "Automatic",
+		notes = "As v5, with 0.4 mm of clearance between the two tubes and under the rib. Barrels, "
+			.. "rib, muzzle and bead built by `rebuildBarrels`; blued steel written into the maps by "
+			.. "the step that owns those texels; smoothing groups on export. One MeshPart with ONE "
+			.. "SurfaceAppearance.",
+	},
+	{
+		key = "shotgun.handle",
+		version = 7,
+		kind = "meshpart" :: Kind,
+		-- Uploaded by tools/roblox_upload.py on 2026-09-27; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- WHY THERE IS A VERSION 7, AND IT IS MIPMAPS. The rebuilt barrels take their colour from a
+		-- borrowed patch of the atlas, and Roblox halves that texture over and over for distance:
+		-- by the third level a patch a few dozen pixels wide has blended into whatever the generator
+		-- left beside it, which came out on screen as a speckled, scalloped shimmer down both tubes
+		-- -- and never appeared in Blender's own render, which has no mip chain. The built faces now
+		-- take a small island in the MIDDLE of the largest empty square of atlas (3 x 3 cells of a
+		-- 48-cell grid, about 123 px), and the repaint fills that whole square with the same flat
+		-- blued steel, so several mip levels are flat before anything else can bleed in.
+		modelId = 107443663683446,
+		displayName = "Driven Hunt shotgun r9 flat atlas block",
+		fileName = "model.fbx",
+		sourceSha256 = "3bcd2c6587cb30e5a37854f82842a0c37c140ee8f671437791323bbe3f9e8ebe",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked on "
+				.. "2026-09-27, after playing it, for the gun to be built smooth like the video she "
+				.. "sent. The barrels are this repository's own geometry; the stock and action are "
+				.. "hers, unchanged.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-09-27, TASKS.md row 94",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 11770,
+		texturePx = 2048,
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		sightOffsetStuds = Vector3.new(0, 0.336, -2.19),
+		renderFidelity = "Automatic",
+		notes = "As v6 -- built barrels, rib, muzzle and bead, 0.4 mm of clearance between the tubes "
+			.. "and under the rib, smoothing groups on export -- with the built faces on a small UV "
+			.. "island inside a flat 123-pixel block of atlas. One MeshPart with ONE SurfaceAppearance.",
 	},
 } :: { AssetRow }
 

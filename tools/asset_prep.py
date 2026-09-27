@@ -188,6 +188,31 @@ DEFAULT_RECIPE = {
     # longest dimension; `orthoCross` is a multiple of the larger of the two dimensions ACROSS the
     # view direction, which is what frames a model seen end-on. No `orthoSpan` or `orthoCross` means
     # a perspective camera.
+    # THE BARRELS THIS TOOL BUILDS ITSELF (task 94). Karen, after her third test (2026-09-27): "gun
+    # is not smooth and nice ... nozzle is terrible (ending where we aim) ... barrels don't feel
+    # smooth". A generated mesh is lumpy by construction and task 92 proved that shading it smooth
+    # does not change its SHAPE, so the barrels are cut off at the front of the action and built:
+    # two round tubes, a rib, a thin-walled muzzle, a bead. Her stock and action are kept untouched.
+    #
+    # EVERY NUMBER IS A FRACTION OF THE MODEL'S OWN LENGTH and every one is a real gun's proportion.
+    # A Beretta 486 Parallelo is 45 in overall with 28 in barrels, so the barrels are 28/45 = 0.622
+    # of the gun -- which is where `cutAtT` 0.62 already sat, because that is where the region plan
+    # was measured to put the action. A 12-gauge bore is 18.5 mm and the wall at the muzzle about
+    # 1.6 mm, so the tube is about 21.7 mm across: 21.7 / 1143 mm = 0.019 of the length.
+    # `null` skips the whole step and keeps the model as it arrived.
+    "rebuildBarrels": {
+        "cutAtT": 0.62,
+        "barrelLengthT": 0.62,
+        "barrelDiameterT": 0.019,
+        "wallT": 0.0014,  # 1.6 mm of steel at the muzzle
+        "ribThicknessT": 0.0025,
+        "beadDiameterT": 0.0028,  # a 3 mm bead, which is what a game gun carries
+        "segments": 64,  # round at arm's length: 5.6 degrees a facet, and 64 x 2 tubes is still cheap
+        "dropT": 0.002,  # the bores sit a hair below the action's top face, not flush with it
+        "keepForendWood": True,
+        "forendMinSaturation": 0.18,
+        "slabT": 0.05,
+    },
     "views": [
         {"name": "side", "dir": [0.0, -1.0, 0.06], "distanceSpan": 1.2, "orthoSpan": 1.08},
         {"name": "top", "dir": [0.0, -0.02, 1.0], "distanceSpan": 1.2, "orthoSpan": 1.08},
@@ -195,6 +220,23 @@ DEFAULT_RECIPE = {
         # span the camera stood ON the muzzle and the render showed the middle of the gun.
         {"name": "muzzle", "dir": [-1.0, -0.015, 0.02], "distanceSpan": 1.3, "orthoCross": 2.8},
         {"name": "three-quarter", "dir": [-0.7, -1.0, 0.38], "distanceSpan": 0.75},
+        # THE TWO VIEWS KAREN'S THIRD TEST ASKED FOR (task 94): the muzzle close up, because "nozzle
+        # is terrible (ending where we aim)", and the view she actually aims down -- from behind the
+        # action, along the rib, to the bead. `targetAlong` is a fraction of the model's length from
+        # its centre; the gun's own axis grows toward the BUTT here, so a negative value is the
+        # muzzle end.
+        # MEASURED, NOT GUESSED (the first run of task 94): at 0.16 of a span the muzzle shot framed
+        # a quarter of the gun and at 1.05 the aim shot stood behind the BUTT, where a 22 mm barrel
+        # is a few pixels. The muzzle is photographed from 0.08 of a span -- about 100 mm -- and the
+        # aim view from 0.72, which puts the eye just behind the breech, where a shooter's is.
+        # ...AND AT THE BORE'S OWN HEIGHT. The barrels sit at the TOP of a side-by-side's action, so a
+        # target at the model's vertical middle looks under them: the first runs put the muzzle in a
+        # corner of the frame and the aim view under the action. `targetUp` 0.38 of the height is the
+        # bore line, measured off this model.
+        {"name": "muzzle-close", "dir": [-1.0, -0.35, 0.16], "distanceSpan": 0.08,
+         "targetAlong": -0.47, "targetUp": 0.38},
+        {"name": "aim", "dir": [1.0, 0.0, 0.10], "distanceSpan": 0.88, "targetAlong": -0.47,
+         "targetUp": 0.42},
     ],
     "regions": {
         # EVERY targetRGB IS AN sRGB TRIPLE MEASURED OFF KAREN'S OWN REFERENCE PHOTOGRAPHS, and the
@@ -296,6 +338,9 @@ ANIMAL_RECIPE = {
     # Task 92: see the gun preset. An animal is all surface, so nothing on it wants a hard edge at
     # all below this angle.
     "smoothAngleDeg": 35,
+    # Task 94: the barrel rebuild is a GUN's step. An animal's shape is the whole point of generating
+    # it, and there is nothing on a boar whose true form is two numbers.
+    "rebuildBarrels": None,
     "targetTriangles": None,
     "workPx": 2048,
     "renderPx": 1100,
@@ -1058,6 +1103,17 @@ def command_selftest(_args):
         # has to be is low enough that the upside-down mask of round 1 still fails it -- and it is:
         # with that line restored the fixture measures well past 1.6 (mutation-checked).
         recipe["maxEdgeDensityRatio"] = 1.6
+        # NO BARREL REBUILD ON THE FIXTURES (task 94): a 2-unit bar has no action to cut in front of,
+        # and the step SAYS so rather than guessing -- "nothing left at the cut to measure the action
+        # against" is what it refused with here, which is the guard working. The rebuild's own
+        # numbers are checked on the recipe below; building a fixture gun would be building the thing
+        # under test.
+        recipe["rebuildBarrels"] = None
+        # ...AND ONLY THE FRAMED VIEWS. The two close-ups task 94 added are aimed at a GUN's muzzle;
+        # on a 2-unit bar they are a macro shot of a colour boundary, which is a real edge and blows
+        # the fixture's own edge-density ceiling for reasons that say nothing about the tool. The
+        # targeting itself is checked by the recipe assertions at the end of this run.
+        recipe["views"] = [v for v in recipe["views"] if "targetAlong" not in v]
         report = prep(in_dir, out_dir, recipe, exe, timeout=900)
 
         ok("the run reported ok", report.get("ok") is True, report.get("error", ""))
@@ -1082,8 +1138,9 @@ def command_selftest(_args):
         # model is photographed at the same four cameras as the untouched source, and its texture may
         # not become MORE broken up than what it started from. With the mask flip in place this runs
         # at about 1.9x; without it, under 1.
-        ok("the source was photographed too", len(report.get("sourceStats", [])) == 4,
-           str(report.get("sourceStats")))
+        ok("the source was photographed at every view the recipe asks for",
+           len(report.get("sourceStats", [])) == len(recipe["views"]),
+           "%d of %d" % (len(report.get("sourceStats", [])), len(recipe["views"])))
         # THE CHECK THAT CATCHES AN UPSIDE-DOWN MASK: the surface, sampled through the mesh, has to
         # show the colour the region was given. Measured by a different route from the one that did
         # the writing, so the two cannot agree by construction.
@@ -1103,7 +1160,7 @@ def command_selftest(_args):
         # defect this metric was built for.
         worst = report.get("worstEdgeDensityRatio")
         ok("an edge-density comparison was made for every view",
-           worst is not None and len(report.get("comparison", [])) == 4,
+           worst is not None and len(report.get("comparison", [])) == len(recipe["views"]),
            "worst %s over %d view(s)" % (worst, len(report.get("comparison", []))))
         unexpected = [w for w in report.get("warnings", [])
                       if "region came out empty" not in w and "edge density" not in w]
@@ -1179,7 +1236,8 @@ def command_selftest(_args):
         ok("the muzzle end was measured, not guessed",
            report.get("orientation", {}).get("muzzleAtMin") is True,
            str(report.get("orientation")))
-        ok("four renders were written", len(report.get("renders", [])) == 4,
+        ok("a render was written for every view in the recipe",
+           len(report.get("renders", [])) == len(recipe["views"]),
            str(report.get("renders")))
         # NOT "IS THE FILE BIG ENOUGH" -- that check passed four pure-black PNGs on the first real
         # run, because a uniform image compresses to almost nothing and 2 KB is still 2 KB.
@@ -1252,6 +1310,7 @@ def command_selftest(_args):
             glb_recipe["renderPx"] = 240
             glb_recipe["renderSamples"] = 4
             glb_recipe["maxEdgeDensityRatio"] = 1.6
+            glb_recipe["rebuildBarrels"] = None  # task 94: the fixture is a bar, not a gun
             glb_out = os.path.join(tmp, "out-glb")
             glb_report = prep(glb_dir, glb_out, glb_recipe, exe, timeout=900, model="model.glb")
             ok("the GLB run reported ok", glb_report.get("ok") is True, glb_report.get("error", ""))
@@ -1351,6 +1410,37 @@ def command_selftest(_args):
             ok("it refuses a preset that does not exist", False)
         except Refused:
             ok("it refuses a preset that does not exist", True)
+        # ---- the barrel rebuild is a GUN's step, and its plan is a set of PROPORTIONS (task 94)
+        gun_plan = PRESETS["gun"]["rebuildBarrels"]
+        ok("only the gun rebuilds its barrels",
+           gun_plan is not None and PRESETS["animal"]["rebuildBarrels"] is None)
+        # THE CUT IS WHERE THE REGION PLAN ALREADY SAYS THE ACTION STARTS, read out of the plan
+        # rather than written twice: the barrel entry's `axisTo` IS that boundary.
+        barrel_rule = next(e for e in PRESETS["gun"]["regionPlan"] if e["name"] == "barrel")
+        ok("the barrels are cut where the region plan puts the action",
+           abs(gun_plan["cutAtT"] - barrel_rule["when"]["axisTo"]) < 1e-9,
+           "cut %s, barrel region ends %s" % (gun_plan["cutAtT"], barrel_rule["when"]["axisTo"]))
+        # A REAL GUN'S PROPORTIONS, asserted as ratios rather than as the literals above: a Parallelo
+        # is 45 in overall with 28 in barrels (0.622), and a 12-gauge tube is about 21.7 mm across --
+        # 0.019 of 1,143 mm. Wide bands, because the point is that nobody typed a barrel as thick as
+        # the stock or as long as the gun.
+        ok("its barrels are a real gun's length",
+           0.58 <= gun_plan["barrelLengthT"] <= 0.66, str(gun_plan["barrelLengthT"]))
+        ok("its barrels are a real gun's diameter",
+           0.012 <= gun_plan["barrelDiameterT"] <= 0.030, str(gun_plan["barrelDiameterT"]))
+        ok("the muzzle has a thin wall and the bead is small",
+           0 < gun_plan["wallT"] < gun_plan["barrelDiameterT"] / 4
+           and 0 < gun_plan["beadDiameterT"] < gun_plan["barrelDiameterT"] / 3,
+           "wall %s bead %s" % (gun_plan["wallT"], gun_plan["beadDiameterT"]))
+        ok("the tubes are round enough to read up close",
+           gun_plan["segments"] >= 32, str(gun_plan["segments"]))
+        # THE TWO VIEWS KAREN'S THIRD TEST ASKED FOR, by name and by target: a view that does not
+        # move its target is the framed picture of the whole gun this tool already had.
+        aimed = {v["name"]: v for v in PRESETS["gun"]["views"] if "targetAlong" in v}
+        ok("the gun is photographed at its muzzle and down its rib",
+           set(aimed) == {"muzzle-close", "aim"}
+           and all(v["targetAlong"] < 0 for v in aimed.values()),
+           str(sorted(aimed)))
         ok("both presets are complete enough to run",
            all(check_recipe(json.loads(json.dumps(PRESETS[name]))) for name in PRESETS),
            str(sorted(PRESETS)))
