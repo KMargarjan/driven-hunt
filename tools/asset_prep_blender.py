@@ -335,6 +335,7 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
     # ---- the cut: everything in front of it goes, except the wood when the recipe keeps it
     forward = [f for f in bm.faces if min(face_t_of_vert(v) for v in f.verts) < cut_t]
     doomed = [f for f in forward if not (keep_wood and is_wood(f))]
+    kept_wood_faces = [f for f in forward if f not in set(doomed)]
     bmesh.ops.delete(bm, geom=doomed, context="FACES")
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
     bm.verts.ensure_lookup_table()
@@ -459,6 +460,58 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
             built.extend(v for f in inset["faces"] for v in f.verts)
             bmesh.ops.translate(bm, verts=list(front_cap.verts),
                                 vec=placed(-forward_sign * radius * 1.5, 0.0, 0.0))
+
+    # ---- THE FOREND, SEATED UNDER THE NEW BARRELS (task 95)
+    #
+    # Karen's wooden forend was carved for the GENERATED barrels, which were far fatter and sat
+    # lower: against tubes this slim it hangs below them as a separate dark flap with daylight
+    # between -- visible in every carry frame of task 95's first round. It is her wood and it stays
+    # her wood, so it is MOVED rather than replaced: up until its top meets the underside of the
+    # tubes, and across until it is centred on them.
+    #
+    # ONLY THE VERTICES THAT BELONG TO THE FOREND ALONE. A vertex shared with the action would tear
+    # the mesh open at the cut; those stay where they are, so the wood stretches the last millimetre
+    # into place instead of leaving a hole.
+    forend_faces = [f for f in kept_wood_faces if f.is_valid]
+    seated = None
+    if forend_faces:
+        wood_verts = set()
+        for face in forend_faces:
+            wood_verts.update(face.verts)
+        exclusive = [v for v in wood_verts
+                     if all(f in set(forend_faces) for f in v.link_faces)]
+        if exclusive:
+            # TWO THINGS ARE WRONG WITH A SPLINTER FOREND CARVED FOR FATTER BARRELS, and the render
+            # shows both: it can hang BELOW the new tubes, and it ends short of the action -- the old
+            # barrels filled that gap, and tubes this slim leave daylight where the wood should meet
+            # the metal. So it is stretched BACK to the cut and lifted only if it needs lifting.
+            #
+            # ONLY THE VERTICES THAT BELONG TO THE FOREND ALONE: one shared with the action would
+            # tear the mesh at the seam, so those stay and the wood stretches the last millimetre.
+            target = centre_up - radius + radius / 3.0
+            along = [v.co[axis] for v in exclusive]
+            front = min(along) if forward_sign < 0 else max(along)
+            rear = max(along) if forward_sign < 0 else min(along)
+            span = rear - front
+            wanted = cut - front
+            stretch = (wanted / span) if abs(span) > 1e-9 else 1.0
+            top = max(v.co[up_axis] for v in exclusive)
+            lift = max(0.0, target - top)  # NEVER push it down: at rest it already meets the barrel
+            left = min(v.co[across] for v in exclusive)
+            right = max(v.co[across] for v in exclusive)
+            shift = centre_across - (left + right) / 2.0
+            for vert in exclusive:
+                moved = vert.co.copy()
+                moved[axis] = front + (moved[axis] - front) * stretch
+                moved[up_axis] += lift
+                moved[across] += shift
+                vert.co = moved
+            seated = {
+                "verts": len(exclusive),
+                "stretchToAction": round(float(stretch), 4),
+                "liftT": round(float(lift / max(length, 1e-9)), 5),
+                "shiftT": round(float(shift / max(length, 1e-9)), 5),
+            }
 
     # ---- the rib: a thin flat bridge across the top of both barrels
     rib_centre = placed(middle, centre_across,
@@ -602,6 +655,7 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
         "barrelLengthT": round(float(plan["barrelLengthT"]), 5),
         "newFaces": new_faces,
         "strayFacesRemoved": len(strays),
+        "forendSeated": seated,
         "breechFacesFilled": filled,
         "atlasCorner": empty_corner,
         "patchRect": patch_rect,

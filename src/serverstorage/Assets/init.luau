@@ -450,6 +450,7 @@ Assets.ROWS = {
 		-- take a small island in the MIDDLE of the largest empty square of atlas (3 x 3 cells of a
 		-- 48-cell grid, about 123 px), and the repaint fills that whole square with the same flat
 		-- blued steel, so several mip levels are flat before anything else can bleed in.
+		supersededBy = 8, -- task 95: the forend hung off the new tubes; v8 seats it
 		modelId = 107443663683446,
 		displayName = "Driven Hunt shotgun r9 flat atlas block",
 		fileName = "model.fbx",
@@ -480,6 +481,51 @@ Assets.ROWS = {
 		notes = "As v6 -- built barrels, rib, muzzle and bead, 0.4 mm of clearance between the tubes "
 			.. "and under the rib, smoothing groups on export -- with the built faces on a small UV "
 			.. "island inside a flat 123-pixel block of atlas. One MeshPart with ONE SurfaceAppearance.",
+	},
+	{
+		key = "shotgun.handle",
+		version = 8,
+		kind = "meshpart" :: Kind,
+		-- Uploaded by tools/roblox_upload.py on 2026-09-27; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- WHY THERE IS A VERSION 8: THE FOREND. Karen's wood was carved for the GENERATED barrels,
+		-- which were far fatter and ran right into the action; against the tubes task 94 built it
+		-- read as a separate dark flap with daylight above it and a gap behind it -- visible in every
+		-- carry frame of task 95 round 1. It is her wood, so `rebuildBarrels` MOVES it rather than
+		-- replacing it: stretched back along the gun's own axis until its rear meets the cut (x1.22)
+		-- and lifted if it hangs below the tubes (it did not need lifting here). Only the vertices
+		-- that belong to the forend alone are moved; one shared with the action would tear the mesh.
+		modelId = 126484176321060,
+		displayName = "Driven Hunt shotgun r10 seated forend",
+		fileName = "model.fbx",
+		sourceSha256 = "d8cfc5bbbab61bea70e2da2d12f03944dc7c2cc52647327c63e039e4ecc2bb2a",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked on "
+				.. "2026-09-27, after playing it, for the gun to be built smooth like the video she "
+				.. "sent. The barrels are this repository's own geometry; the stock, action and "
+				.. "forend are hers.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-09-27, TASKS.md row 95",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 11770,
+		texturePx = 2048,
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		sightOffsetStuds = Vector3.new(0, 0.336, -2.19),
+		renderFidelity = "Automatic",
+		notes = "As v7 -- built barrels, rib, muzzle and bead, clearance between the tubes, smoothing "
+			.. "groups, the built faces on a flat block of atlas -- with the forend seated against "
+			.. "the action and the tubes. One MeshPart with ONE SurfaceAppearance.",
 	},
 } :: { AssetRow }
 

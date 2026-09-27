@@ -98,14 +98,18 @@ local Config = {
 	-- on screen. It is a cradle carry, not a hip carry, and it is the pose in the clip Karen asked us
 	-- to copy (2026-09-27).
 	--
-	-- MEASURED BACKWARDS FROM THE PICTURE, not dialled: the ACTION -- not the butt -- wants to sit
-	-- about 10 degrees left of centre and 22 degrees down (the bottom edge is 25) at roughly 1.45
-	-- studs -- the first two builds of this task had it at 0.9 and the gun filled half the screen -- and the muzzle about 33 degrees left, at the left edge, near the middle height. The
-	-- action is 0.53 studs behind this Handle's centre (the barrels are 0.62 of the gun), so the
-	-- CENTRE goes here and the STOCK ends up behind the camera -- which is where the picture has it:
-	-- panel A shows the action and the barrels and no butt at all. The first build of this task put
-	-- the whole stock on screen, which is a different carry entirely.
-	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(-0.85, -0.68, -1.67),
+	-- SOLVED FROM TWO POINTS ON THE PICTURE, the way the aimed pose below is solved. In panel A the
+	-- muzzle meets the LEFT EDGE about a third of the way up from the bottom, and the ACTION -- not
+	-- the butt -- sits at the bottom edge, left of centre. In the carry's 70-degree field that is the
+	-- muzzle at 40.6 degrees left (the edge) and 14 down, and the action at 12 left and 28 down, with
+	-- the action about 1.45 studs out: a 2.73-stud barrel between those two points fixes the gun's
+	-- direction, and the Handle's centre is 0.53 studs behind the action along it.
+	--
+	-- ON SCREEN that line runs up-left at about 24 degrees, which is panel A's own diagonal. Round 1
+	-- met the same two conditions at 20 and 30 degrees down and came out at 37 -- too steep and too
+	-- high in the frame, which is what the Director sent it back for. The STOCK is out of the picture
+	-- either way: panel A shows the action and the barrels and no butt at all.
+	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(-0.69, -0.73, -1.56),
 	-- Three named degrees rather than a CFrame literal, so there are three legible dials. Converted
 	-- to radians at ONE site, Mode.carryOffset -- the rule the Task 19 cone-unit defect bought.
 	-- POSITIVE yaw turns the muzzle in toward the screen centre from a RIGHT-hand offset (task 90):
@@ -118,8 +122,8 @@ local Config = {
 	-- barrel crossing the frame from the lower right of the action to the left edge, exactly panel
 	-- A's diagonal, with the muzzle leaving the frame at the left edge rather than stopping inside
 	-- it. `Mode.carryOffset` is still the ONE site that converts them to radians.
-	CARRY_PITCH_DEG = 10,
-	CARRY_YAW_DEG = 46,
+	CARRY_PITCH_DEG = -9,
+	CARRY_YAW_DEG = 53,
 	CARRY_ROLL_DEG = -6, -- a touch of cant, so the rib and not the flat of the barrels faces the eye
 	-- The whole-gun break-open tilt. IT IS IN THE COMPOSITION FROM S1 AND NOTHING MOVES IT UNTIL
 	-- S4: `Mode.viewmodelOffset` multiplies by `openTilt * OPEN_TILT_DEG`, and `openTilt` is exactly

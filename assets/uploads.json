@@ -158,5 +158,25 @@
     "pollSeconds": 11.1,
     "polls": 5,
     "karenOk": "2026-09-26 Karen: her shotgun in the game; 2026-09-27 Karen: build it smooth like the video -- Director approves renders tonight"
+  },
+  {
+    "tool": "roblox-upload/1",
+    "at": "2026-09-27T21:26:05Z",
+    "assetId": "126484176321060",
+    "assetType": "Model",
+    "displayName": "Driven Hunt shotgun r10 seated forend",
+    "description": "Side-by-side game gun: Karen's stock and action, barrels built by tools/asset_prep.py, forend stretched back to the action and seated flush under the tubes.",
+    "creatorUserId": "8167651842",
+    "file": "model.fbx",
+    "sourceFolder": "shotgun_forend_seated_r3",
+    "bytes": 7376076,
+    "sha256": "d8cfc5bbbab61bea70e2da2d12f03944dc7c2cc52647327c63e039e4ecc2bb2a",
+    "contentType": "model/fbx",
+    "operation": "operations/480c9071-ef21-4e21-a7a8-10bfe37d98b7",
+    "moderationState": "Approved",
+    "moderationStateFrom": "response.moderationResult.moderationState",
+    "pollSeconds": 6.7,
+    "polls": 3,
+    "karenOk": "2026-09-26 Karen: her shotgun in the game; 2026-09-27 Karen: build it smooth like the video -- Director approves renders tonight"
   }
 ]

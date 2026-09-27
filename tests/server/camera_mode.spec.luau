@@ -540,12 +540,23 @@ return function()
 			-- 51 degrees below its axis, and half the carry field of view is 35, so it is below the
 			-- bottom edge. Measured that way because that is the claim -- what the player can see.
 			local butt = (carry * CFrame.new(0, 0, half)).Position
-			local buttBelowDeg = -math.deg(math.atan2(butt.Y, math.sqrt(butt.X * butt.X + butt.Z * butt.Z)))
-			expect(buttBelowDeg > firstPerson.FOV_THIRD_DEG / 2).to.equal(true)
+			-- OUTSIDE THE FRAME ALTOGETHER: the angle between the butt and the view axis is past the
+			-- CORNER of a 70-degree field (about 48 degrees on a 958x784 viewport), so it cannot be in
+			-- the picture whichever way the frame is shaped.
+			local buttFromAxisDeg = math.deg(math.acos(math.clamp(-butt.Unit.Z, -1, 1)))
+			expect(buttFromAxisDeg > 48).to.equal(true)
 			expect(muzzle.Z < action.Z).to.equal(true)
-			-- ...AND A LITTLE UP, never at the sky: between 2 and 20 degrees above the horizon.
-			local elevation = math.deg(math.asin(math.clamp((muzzle - action).Unit.Y, -1, 1)))
-			expect(elevation > 2 and elevation < 20).to.equal(true)
+			-- ...AND HIGHER IN THE FRAME THAN THE ACTION, which is the claim panel A actually makes:
+			-- the barrels run UP-left across the picture. It is an angle in the VIEW, not the gun's
+			-- own pitch -- the bore sits a couple of degrees below level and still rises across the
+			-- screen, because the muzzle is three times as far away. Both stay below the horizon.
+			local function aboveAxisDeg(point: Vector3): number
+				return math.deg(math.atan2(point.Y, math.sqrt(point.X * point.X + point.Z * point.Z)))
+			end
+			local muzzleDeg, actionDeg = aboveAxisDeg(muzzle), aboveAxisDeg(action)
+			expect(muzzleDeg > actionDeg + 5).to.equal(true)
+			expect(muzzleDeg < 0).to.equal(true)
+			local elevation = muzzleDeg - actionDeg
 			-- THE ACTION IS CLOSE, LOW AND LEFT OF CENTRE -- the corner of the frame the picture puts
 			-- it in -- and inside the near plane's margin, which is what stops it being sliced.
 			expect(action.Y < 0).to.equal(true)
@@ -553,7 +564,7 @@ return function()
 			expect(action.Z < -firstPerson.NEAR_PLANE_MARGIN_STUDS).to.equal(true)
 			TestKit.note(
 				string.format(
-					"task95 carry: muzzle %.1f deg left and %.1f deg up, action at %.2f studs",
+					"task95 carry: muzzle %.1f deg left, %.1f deg above the action in view, action %.2f studs",
 					math.deg(math.atan2(-muzzle.X, -muzzle.Z)),
 					elevation,
 					action.Magnitude
