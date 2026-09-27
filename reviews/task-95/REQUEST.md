@@ -1,14 +1,18 @@
 # Task 95 — the walk pose, the raise and the aim, from Karen's reference
 
 Task: 95
-Round: 1
+Round: 2
 Base: `main` (`1443cde`)
-Code commit: `a4b727aa6d54db4dcf1fdd9259b7db00682eed65`
+Code commit: `3c564ad0d79bc5cd655235c1417719748ab826c6`
 
 ```
-[harness2] PASS: 32/32 checks @ a4b727aa6d54db4dcf1fdd9259b7db00682eed65 (clean tree)
-[harness]  PASS: 32/32 checks @ a4b727aa6d54db4dcf1fdd9259b7db00682eed65 (clean tree)
+[harness2] PASS: 32/32 checks @ 3c564ad0d79bc5cd655235c1417719748ab826c6 (clean tree)
+[harness]  PASS: 32/32 checks @ 3c564ad0d79bc5cd655235c1417719748ab826c6 (clean tree)
 ```
+
+The `[harness]` line is a SECOND one-player run at the same commit: the first failed `hit_marker.spec`
+waiting for its tick to clear while a real marker from the staged shot arrived at +42.8 s inside that
+wait. `test2` passed the same spec at the same commit, and nothing in this round touches the Hud.
 
 Behind `FIRST_PERSON`, still **default OFF**. Screenshots are throwaway sessions with it on, cleared
 after. The reference is `REF-SHEET-carry-aim.jpg`, panels A and C.
@@ -39,7 +43,7 @@ after. The reference is `REF-SHEET-carry-aim.jpg`, panels A and C.
 4. **THE RAISE RISES, AND THE GUARD SAYS SO.** This commit's own numbers: the muzzle sits about
    **1.2 degrees** above the horizon in the carry and **5.4** in the aim -- the cheek angle tips the
    gun nose-up about the bead -- so it climbs across the swing and the AIMED pose is the highest it
-   gets (`task95 raise: muzzle peaks at 5.4 deg up at blend 1.00`). Round 1 said the carry was the
+   gets (`task95 raise: muzzle peaks at 5.4 deg up at blend 1.00; aimed is 5.4 deg`). Round 1 said the carry was the
    highest, which was true of an earlier pose and not of this one. The case now asserts that the
    swing never climbs above where it ENDS, which is what "never points at the sky" means for a move
    whose end is not the sky, and still checks the pose sweeps there without a step backwards. One
