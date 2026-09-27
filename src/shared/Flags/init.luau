@@ -65,27 +65,38 @@ Flags.DEFAULTS = {
 		why = "A tied player stays tied until the drive ends. OFF frees him after TIE_SECONDS.",
 	} :: FlagRow,
 	BOAR_SOUNDERS = {
-		default = false,
-		-- The owner NAMED here is the module that will read it at its boundary
-		-- (`Match.CONFIG.SOUNDER.ENABLED`) when the drive learns to release a sounder. THAT IS THE
-		-- NEXT TASK (Director decision J: the sounder exists first, the drive releases it second),
-		-- so today nothing reads this row and turning it on changes nothing a player can see. It is
-		-- declared now because the Director asked for the flag to exist with the behaviour, and
-		-- because a row born OFF is what lets the behaviour merge dark.
+		-- FLIPPED ON BY KAREN'S OK (task 82), which is step 6 of the lifecycle and a one-line
+		-- change: she played a drive with the override on and said of the groups and singles
+		-- "Didn't try that yet but this ok" and of the density "for now is ok" (PLAYTEST.md,
+		-- 2026-09-26 and 2026-09-27). Sounders are now what every server does.
+		default = true,
+		-- The owner is the module that READS it at its boundary (`Match.CONFIG.SOUNDER.ENABLED`) and
+		-- passes it inward as `config`, which is what keeps BOTH states reachable by parameter now
+		-- that the flag itself sits at one of them.
 		owner = "ServerScriptService.Match",
 		born = "2026-09-26 task 60 (the sounder itself; the release is task 61)",
-		expires = "2026-10-17", -- 20 days: inside the 21-day ceiling (feature-flags.md section 12)
-		why = "Boars come as a mix of singles and sounders of 2-5. OFF releases one boar per release, as today.",
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS, exactly as TIE_UNTIL_DRIVE_END does not: the
+		-- 21-day ceiling (feature-flags.md section 12) is what stops a DARK path living for ever,
+		-- and this path is lit. It stays until the losing one-boar-per-release branch is archived and
+		-- the row retired (TASKS.md row 82b).
+		expires = "2026-12-31",
+		why = "Boars come as a mix of singles and sounders of 2-5. OFF releases one boar per release, as before task 82.",
 	} :: FlagRow,
 	ORANGE_OUTFITS = {
-		default = false,
+		-- FLIPPED ON BY KAREN'S OK (task 82): "I can see hat on hunter but not vest on driver"
+		-- (PLAYTEST.md, 2026-09-27). The hat is accepted as it is; the vest was the defect, and it is
+		-- four plates that wrap the torso in this same task (`Match.Body`'s OUTFITS table). Everybody
+		-- is dressed by default from here on.
+		default = true,
 		-- The owner is the module that READS it at its boundary (`Match.CONFIG.OUTFITS_ENABLED`),
 		-- which `Match.Body` then takes as a parameter -- the only permitted shape, and the reason
-		-- both branches are testable while the flag sits OFF.
+		-- both branches stay testable now that the flag sits at ON.
 		owner = "ServerScriptService.Match",
 		born = "2026-09-27 task 77 (M2.8d, docs/design/map-generator.md section 10)",
-		expires = "2026-10-18", -- 21 days: the ceiling in feature-flags.md section 12
-		why = "Shooters wear an orange hat and drivers an orange vest. OFF dresses nobody, as today.",
+		-- Accepted, so not a 21-day dark path any more (see BOAR_SOUNDERS above): it stays until the
+		-- undressed branch is archived and the row retired (TASKS.md row 82b).
+		expires = "2026-12-31",
+		why = "Shooters wear an orange hat and drivers an orange vest. OFF dresses nobody, as before task 82.",
 	} :: FlagRow,
 }
 

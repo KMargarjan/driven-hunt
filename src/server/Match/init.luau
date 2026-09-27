@@ -915,6 +915,14 @@ end
 -- is not a penalty. The tie is re-applied to the new character, at the same tree.
 local function watchCharacter(player: Player)
 	characterWatch[player.UserId] = player.CharacterAdded:Connect(function(character)
+		-- AND THE OUTFIT IS RE-APPLIED FIRST, tied or not (Task 82). `Body.place` dresses the
+		-- character it spawns, so a player who is placed at the start of a drive is dressed -- but
+		-- the Reset button and a death make a NEW character in the middle of one, and this handler
+		-- was the only thing watching for it. Before this line a driver who reset spent the rest of
+		-- the drive with no vest while the shooters kept their hats, which is exactly what Karen
+		-- reported not seeing (PLAYTEST.md, 2026-09-27). One call, at the moment a character
+		-- arrives, from the module that owns what is written onto a character.
+		Body.dress(character, Body.teamOf(player), Match.CONFIG)
 		local record = tied[player.UserId]
 		if not record then
 			return

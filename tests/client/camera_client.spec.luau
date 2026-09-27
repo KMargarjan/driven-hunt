@@ -269,10 +269,21 @@ return function()
 		it("does not count a request that was refused", function()
 			-- No character to turn -> Camera.lookAt returns false and nothing is pending. The
 			-- LookAtRequest BindableFunction refuses non-numbers the same way (shoot_boar.spec).
+			--
+			-- AND IT IS MEASURED WITH NO FRAME IN BETWEEN (task 82). The refusal is SYNCHRONOUS --
+			-- the BindableFunction's OnInvoke returns false before Camera.lookAt is reached, and
+			-- `lookAtRequests` is written inside `Camera.lookAt` -- so this is a claim about ONE
+			-- call, and one call is what the counters can answer for. Across three frames it was a
+			-- claim about a GLOBAL counter instead, and this client has another legitimate caller:
+			-- `shoot_boar.spec` connects a RenderStepped tracker at require time and calls
+			-- `Camera.lookAt` EVERY FRAME for up to its 15 s once the harness has staged its shot and
+			-- a boar is on the field -- and the spec suite runs while the input replay is staging it.
+			-- Measured in the two-player run at 8daf457: `Expected 13, got 15`, two frames' worth of
+			-- somebody else's traffic. The windowed claim that survives another caller is
+			-- `landed <= requests`, which is the case above.
 			local request = scripts:WaitForChild("Camera"):FindFirstChild("LookAtRequest")
 			local before = Camera.stats()
 			expect(request:Invoke("over", "there", nil)).to.equal(false)
-			waitFrames(3)
 			local after = Camera.stats()
 			expect(after.lookAtRequests).to.equal(before.lookAtRequests)
 			expect(after.lookAtLanded).to.equal(before.lookAtLanded)
