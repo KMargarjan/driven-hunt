@@ -3,19 +3,34 @@
 Task: 79
 Round: 2
 Base: `main` (`4650b97`)
-Code commit: `cc5045ceb5fc8a397e55627f2fd04814e2efc248`
+Code commit: `23205e98abcc469406e8b1af203387a651051358`
 
 ```
-[harness]  PASS: 32/32 checks @ cc5045ceb5fc8a397e55627f2fd04814e2efc248 (clean tree)
-[harness2] pending — the Director's run at this branch's head
+[gate] HEAD 23205e98abcc469406e8b1af203387a651051358 (task-79-map-switch)
+[harness2] PASS: 32/32 checks @ 23205e98abcc469406e8b1af203387a651051358 (clean tree)
+[harness]  PASS: 32/32 checks @ 23205e98abcc469406e8b1af203387a651051358 (clean tree)
+[gate] OK: both lines name 23205e98abcc469406e8b1af203387a651051358
 ```
 
-My own clean-tree run, **on the map world**, with `[tests:server] PASS: 414 passed, 0 failed, 0
-errors, 25 spec files`. `src/` and `tools/studio_mcp.py` both changed, so `test2` is part of the gate
-and the Director runs it at the head; the head is a paperwork commit, which only makes the bound
-stricter. Round 1's two lines were `PASS: 32/32` and `PASS: 32/32` at `a21efef`, and this round
-changed nothing a second client would see — `tests/client/` is untouched by the whole branch, which
-round 1's request got wrong (Reviewer note, fixed here).
+**My own runs**, both at ONE head on a clean tree (`bash ../driven-hunt-runs/gate.sh task-79e`, Builder
+rules v2), on the **map world**: `[tests:server] PASS: 415 passed, 0 failed, 0 skipped, 0 errors, 25
+spec files` and `[tests:client] PASS: 88 passed, 0 failed, 0 skipped, 0 errors, 10 spec files`. Every
+number quoted below is from these two runs, not from an earlier commit.
+
+**THIS BRANCH NOW CONTAINS TASK 80, merged as PR #74** (`5e0f364`, Reviewer `PASS` round 1). So the
+diff against `main` also carries `src/server/Weapon/init.luau` (the two request handlers, exported and
+returning their own decision), `tests/server/weapon_shot.spec.luau`,
+`tests/client/weapon_client.spec.luau` and `tests/client/zz_outfit_client.spec.luau` →
+`outfit_client.spec.luau`. Those were reviewed under Task 80 and are not this task's claims;
+`reviews/task-80/` holds them.
+
+**The first gate at the merged head FAILED, and it was that spec, not this task.**
+`[harness2] FAIL: 30/32 @ b83d9fc`, `weapon_client.spec:967`, `after.open` expected false got true.
+**No forged request was accepted** — proved in the same session on the same server by the case Task 80
+added: `action Break=bad-request`, `badRequests +12, rateDropped +0, shots +0`. A legitimate reload's
+Break landed 1.98 s after the last input that spec could see, against `RELOAD_TOTAL = 2.0` and a flat
+1.5 s quiet period. Fixed by taking the number from the gun — `QUIET = Shotgun.CONFIG.RELOAD_TOTAL + 1`
+— recorded as 79a(o), and the gate above is the next run. That is the whole of `23205e9`.
 
 **Round 1's finding was right, and then right a second time about my fix for it** — claims 8 and 9.
 An assertion that passes for the wrong reason is what this whole task has been about.
@@ -23,9 +38,10 @@ An assertion that passes for the wrong reason is what this whole task has been a
 **What changed this round.** `tools/studio_mcp.py` (9c's fixture and its per-case branch assertions,
 the `UNREADABLE` guard, the docstring's `selftest` paragraph, case (b)'s wording),
 `tests/server/test_arena.spec.luau` (the dormant note's count), `src/server/Boar/init.luau`
-(`CONFIG.spawnPoint`'s comment), `TASKS.md` rows 79/79a.
+(`CONFIG.spawnPoint`'s comment), `tests/client/weapon_client.spec.luau` (`QUIET`, 79a(o) above),
+`TASKS.md` rows 79/79a.
 
-**What the branch changes in all.** `src/shared/Map/init.luau` (`EXPECTED_WORLD`, `SEED`, `DIGEST`, `FIELD`,
+**What this task changes.** `src/shared/Map/init.luau` (`EXPECTED_WORLD`, `SEED`, `DIGEST`, `FIELD`,
 `EXPECTED_COUNTS`), `src/server/ArenaBoot.server.luau`, `src/server/Boar/init.luau`
 (`CONFIG.field`), `src/server/MatchBoot.server.luau`, `src/server/Match/init.luau`
 (`stats.firstReleaseAfterSeconds`), `tests/server/map_contract.spec.luau`,
@@ -53,7 +69,7 @@ the `UNREADABLE` guard, the docstring's `selftest` paragraph, case (b)'s wording
    and it never sniffs Workspace for a folder, because a predicate like that lies the moment a run
    half-finishes. Verify: `test_arena: world=map:v1, the arena is not built; this file's other cases
    are dormant until the switch goes back to "arena"`, and `task79: ... arena=absent, map=in
-   Workspace`.
+   Workspace`, both from this code commit's run.
 3. **The corridor is the design's, and the boar and the contract agree about it.**
    `Map.FIELD` is x ±620, z −880…+800, `exitZ = -820`, which is 120 studs PAST the road at z = −700 —
    Karen's decision that the boars cross it. `map_contract.spec`'s "the map switch" describe asserts
@@ -62,9 +78,11 @@ the `UNREADABLE` guard, the docstring's `selftest` paragraph, case (b)'s wording
    whichever world this is" (round 1's request cited the wrong describe for it). Verify: `boar field x[-620,620] z[-880,800]
    exitZ=-820`.
 4. **Twelve tie trees, not the arena's four corner pillars**, and the other four counts are the same
-   because it is the same drive. `Map.EXPECTED_COUNTS.tree = 12`; `mapgen.py contract` answers 8
-   shooterPost, 1 driveLine, 1 driverStart, 4 boarSpawn, 12 tree, marker digest
-   `e064d5982513a08616d2bf367f61c30c`.
+   because it is the same drive. `Map.EXPECTED_COUNTS.tree = 12`, and `python tools/mapgen.py
+   contract` **re-run at this code commit** answers `contract OK`: 8 shooterPost, 1 driveLine, 1
+   driverStart, 4 boarSpawn, 12 tree, 6,393 parts, 3,381,368 terrainCells, marker digest
+   `e064d5982513a08616d2bf367f61c30c` — the first 32 characters of `Map.DIGEST`. It also prints
+   `StreamingTargetRadius = unreachable from Luau`, which is claim 10's finding from the other side.
 5. **The arena-shaped specs are BRANCHED, not archived** (`test_arena.spec`, `boar_body.spec`).
    Section 17 step 9 archives them only after Karen accepts, and a deleted spec cannot check the
    rollback. Both print what they did rather than passing silently: `the arena is not built; this
@@ -75,13 +93,15 @@ the `UNREADABLE` guard, the docstring's `selftest` paragraph, case (b)'s wording
    argument, no arbitrary Luau — and `stage_seed` hands the position to the client stage, which pivots
    the character there **before** it waits, so streaming brings the boar in. The wait splits by what
    each half waits for: the server holds the drive's clock (`STAGE_TARGET_WAIT_SECONDS` 60) and the
-   client holds only replication (`STAGE_STREAM_WAIT_SECONDS` 30). Verify: `[input] shoot-the-boar:
-   the server's Workspace.Boars.Boar1 is at (-449, 3, 600); the client is placed there first,
-   Map.STREAMING.targetRadius 1024` → `staged on Workspace.Boars.Boar1, 22 studs away`.
+   client holds only replication (`STAGE_STREAM_WAIT_SECONDS` 30). Verify, from this code commit's
+   run: `[input] shoot-the-boar: the server's Workspace.Boars.Boar1 is at (-450, 3, 601); the client is
+   placed there first, Map.STREAMING.targetRadius 1024` → `staged on Workspace.Boars.Boar1, 22 studs
+   away`.
 7. **The diagnosis was measured before anything was widened, and the answer was neither candidate.**
    `Match.stats().firstReleaseAfterSeconds` and a permanent `zz_drive_boundary` note print the drive
-   every run: `phase=Running releases=1 deferred=0 boars=1 alive=1 firstReleaseAfter=40.5s`. 40.5 s is
-   `INTERMISSION_SECONDS` 20 + `FIRST_RELEASE_SECONDS` 20, nothing deferred — **the map costs the
+   every run: at this code commit, `firstReleaseAfter=41.2s testSeconds=0` (40.3 s and 40.5 s at the
+   two earlier commits). That is `INTERMISSION_SECONDS` 20 + `FIRST_RELEASE_SECONDS` 20 plus the boot,
+   nothing deferred — **the map costs the
    drive nothing**, so there was nothing to fix at its owner, and a bigger scenario budget could not
    have helped either: the boar is released 1,300 studs from the lone shooter against a streaming
    radius of 1,024 and was never going to be replicated to that client.
@@ -135,18 +155,25 @@ the `UNREADABLE` guard, the docstring's `selftest` paragraph, case (b)'s wording
   needs a **reopen**, which drops Rojo and the MCP link, so it waits for Karen's 10:00 session. Every
   harness result here is a run against the map in that Edit session, which is what a player would
   stand in; what is unproven is only whether Roblox kept it.
-- **`test2` is the Director's run, not mine**, and a second player exercises paths one does not: the
-  driver's half of the client suite, a team swap and the tie. I have not watched that session.
+- **I ran `test2` myself this round** (Builder rules v2), so both lines above are mine and name one
+  head. I did not WATCH either session: the gate presses F7 and ends the session itself, and what I
+  have is the report and the notes, not a look at the screen.
 - **Three round-1 notes are queued, not fixed**, because none is a one-liner, and each is written out
   in `TASKS.md`: **79a(l)** no `SpawnLocation` exists in the map world and nothing asserts one (a
   joining player gets Roblox's origin fallback until the drive places them — not broken, the live run
   placed, shot and scored, but §17 never named it and it is a decision with an owner); **79a(m)**
   `stats.firstReleaseAfterSeconds` is first-writer-wins per server process, so a future spec could
-  silently claim the number claim 7 rests on (it did not: 40.3 s and 40.5 s over two runs); **79a(n)**
+  silently claim the number claim 7 rests on (it did not: 40.3 s, 40.5 s and 41.2 s over three
+  commits); **79a(n)**
   no Play-mode capture of the switched state exists — the nine images are Edit-mode stills, and a Play
   capture needs a session outside the harness's own.
 - **No new screenshot this round**, and none was warranted: nothing was rebuilt. The nine from
   `d133bba` stand at the same seed and marker digest.
-- **Whether the map plays well is Karen's eye**, not a measurement: the eighty-metre sightlines, the
-  120 studs past the road, how long 40 s feels waiting for the first boar. Five more items sit in 79a,
-  none of which changes what this branch does.
+- **KAREN HAS NOW PLAYED IT, and she accepts the map for v1** (`PLAYTEST.md`, 2026-09-27, two players,
+  with `BOAR_SOUNDERS` and `ORANGE_OUTFITS` switched on): *"yes it's ok for v1"*, and *"in general is
+  all good"*. Two things came out of that session and **neither is a change to this branch**: she wants
+  the first boar much faster **for testing** (*"just for testing"*), which belongs to the harness or a
+  short-drive playtest setting rather than to `Match.CONFIG`'s feel values; and she could see the hat on
+  the shooter but **no vest on the driver**, which is a Task 77 defect in `Match.Body`'s file, queued as
+  80a(j) for its own task. Her Q3 (boars crossing) was not tried. Five more items sit in 79a, none of
+  which changes what this branch does.
