@@ -77,6 +77,16 @@ Flags.DEFAULTS = {
 		expires = "2026-10-17", -- 20 days: inside the 21-day ceiling (feature-flags.md section 12)
 		why = "Boars come as a mix of singles and sounders of 2-5. OFF releases one boar per release, as today.",
 	} :: FlagRow,
+	ORANGE_OUTFITS = {
+		default = false,
+		-- The owner is the module that READS it at its boundary (`Match.CONFIG.OUTFITS_ENABLED`),
+		-- which `Match.Body` then takes as a parameter -- the only permitted shape, and the reason
+		-- both branches are testable while the flag sits OFF.
+		owner = "ServerScriptService.Match",
+		born = "2026-09-27 task 77 (M2.8d, docs/design/map-generator.md section 10)",
+		expires = "2026-10-18", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "Shooters wear an orange hat and drivers an orange vest. OFF dresses nobody, as today.",
+	} :: FlagRow,
 }
 
 -- deepFreeze, REQUIRED and not copied: table.freeze is shallow, and this repo has already paid for
