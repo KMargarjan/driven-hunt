@@ -3,20 +3,23 @@
 Task: 80
 Round: 1
 Base: `task-79-map-switch` (`5d31119`) — stacked, because Task 79 is not merged
-Code commit: `fd362867395246a8f3aea431a38f45ae83cb98b1`
+Code commit: `99c750b76aa77b0a77d8055e906cb68019fca4a5`
 
 ```
-[harness]  PASS: 32/32 checks @ fd362867395246a8f3aea431a38f45ae83cb98b1 (clean tree)
-[harness2] pending — the Director's run at this branch's head
+[harness]  PASS: 32/32 checks @ 99c750b76aa77b0a77d8055e906cb68019fca4a5 (clean tree)
+[harness2] PASS: 32/32 checks @ 99c750b76aa77b0a77d8055e906cb68019fca4a5 (clean tree)
 ```
 
-Three of my own clean-tree runs at that commit, all green, on the **map world**, plus nine at
-`40390b3` for the client half, which this commit does not touch. `src/` and `tests/client/` both
-changed, so `test2` is part of the gate and the Director runs it twice.
+Both are the Director's runs at this branch's head, on the **map world**. `src/` and `tests/client/`
+both changed, so `test2` is part of the gate. The named commit is a paperwork commit — at or after the
+last commit that touched `src/` or `tests/` (`fd36286`), with only `TASKS.md` and this file between
+them — which only makes the bound stricter, because everything the harness ran over is still covered.
+My own clean-tree runs cover the same code: three `[harness] PASS: 32/32 @ fd36286` and nine at
+`40390b3` for the client half, which `fd36286` does not touch.
 
-**The Director's `test2` at `99a2f5a` found a second fault, and it was mine.** `[harness2] FAIL: 30/32`
-at `weapon_shot.spec:161`, `Expected 0, got 1` — the `shots` delta. The client half passed under two
-players, which is claims 1–7. Claim 8's first version asserted a **server-wide counter across a
+**One earlier `test2` failed, and it was mine, not the game's.** At `99a2f5a`: `[harness2] FAIL: 30/32`
+at `weapon_shot.spec:161`, `Expected 0, got 1` — the `shots` delta. The client half passed there, which
+is claims 1–7 under two players. Claim 8's first version asserted a **server-wide counter across a
 wall-clock window**, which is the same mistake this whole task is about, committed inside the fix for
 it. Claim 8 reads per call now and carries that correction itself.
 
@@ -95,11 +98,14 @@ delta, the gun-count guard, prints → notes),
 
 ## What I could not verify
 
-- **The client half is confirmed under two players; the server half is not yet.** The Director's
-  `test2` at `99a2f5a` reported `[shooter] weapon_client: shots seen: 2 … cue at +16.8s; 3 gun(s)
-  handed over [+0.0s hand, +37.0s backpack, +37.0s backpack]` and it passed — which is claims 1–7
-  measured under the conditions that used to break them, including a gun in the hand at +0.0 s. Claim
-  8's new shape has only run under one player; I cannot run `test2`. If it still fails, the note names
+- **Both halves are now confirmed under two players, by the Director's runs, not mine.** The client
+  half at `99a2f5a`: `[shooter] weapon_client: shots seen: 2 … cue at +16.8s; 3 gun(s) handed over
+  [+0.0s hand, +37.0s backpack, +37.0s backpack]`, passed — claims 1–7 under the conditions that used
+  to break them, including a gun in the hand at +0.0 s. The server half at this commit:
+  `weapon_shot: 12 forged request(s) at the handler, subject Player1 of roster [Player1(tracked),
+  Player2(untracked)]; … badRequests +12, rateDropped +0, shots +0` — **no forged request accepted, and
+  the note names the subject and the roster**, which is what the first version could not do. I have not
+  watched either session; both are the Director's. If it ever fails again, the note names
   the subject, the roster and every payload's reason. 80a(b).
 - **Nine green runs is evidence, not proof.** The failure was about one run in three, so nine clean
   runs put the chance of having been lucky near 2.6%. The cause is a race with a sweep that runs every
