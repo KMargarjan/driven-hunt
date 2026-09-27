@@ -1,22 +1,29 @@
 # Task 79 — M2.8e: the generated map IS the world
 
 Task: 79
-Round: 1
+Round: 2
 Base: `main` (`4650b97`)
-Code commit: `a21efef5e1455028ba59f262c021ec52bb84bd91`
+Code commit: `cc5045ceb5fc8a397e55627f2fd04814e2efc248`
 
 ```
-[harness]  PASS: 32/32 checks @ a21efef5e1455028ba59f262c021ec52bb84bd91 (clean tree)
-[harness2] PASS: 32/32 checks @ a21efef5e1455028ba59f262c021ec52bb84bd91 (clean tree)
+[harness]  PASS: 32/32 checks @ cc5045ceb5fc8a397e55627f2fd04814e2efc248 (clean tree)
+[harness2] pending — the Director's run at this branch's head
 ```
 
-Both are the Director's runs at this branch's head, **on the map world**. `src/`, `tests/client/` and
-`tools/studio_mcp.py` all changed, so `test2` is part of the gate. The named commit is a paperwork
-commit — at or after the last commit that touched `src/`, `tests/` or `tools/` (`6ddb54e`), with only
-`GAME_DESIGN.md`, `TASKS.md`, `ESCALATE.md` and this file between them — which only makes the bound
-stricter, because everything the harness ran over is still covered. My own clean-tree
-`[harness] PASS: 32/32 @ 05df7bb` covers the same code and reported `[tests:server] PASS: 414 passed,
-0 failed, 0 errors, 25 spec files`, with the client reporting after 18 s and 93 s total.
+My own clean-tree run, **on the map world**, with `[tests:server] PASS: 414 passed, 0 failed, 0
+errors, 25 spec files`. `src/` and `tools/studio_mcp.py` both changed, so `test2` is part of the gate
+and the Director runs it at the head; the head is a paperwork commit, which only makes the bound
+stricter. Round 1's two lines were `PASS: 32/32` and `PASS: 32/32` at `a21efef`, and this round
+changed nothing a second client would see — `tests/client/` is untouched by the whole branch, which
+round 1's request got wrong (Reviewer note, fixed here).
+
+**Round 1's finding was right, and then right a second time about my fix for it** — claims 8 and 9.
+An assertion that passes for the wrong reason is what this whole task has been about.
+
+**What changed this round.** `tools/studio_mcp.py` (9c's fixture and its per-case branch assertions,
+the `UNREADABLE` guard, the docstring's `selftest` paragraph, case (b)'s wording),
+`tests/server/test_arena.spec.luau` (the dormant note's count), `src/server/Boar/init.luau`
+(`CONFIG.spawnPoint`'s comment), `TASKS.md` rows 79/79a.
 
 **What changed.** `src/shared/Map/init.luau` (`EXPECTED_WORLD`, `SEED`, `DIGEST`, `FIELD`,
 `EXPECTED_COUNTS`), `src/server/ArenaBoot.server.luau`, `src/server/Boar/init.luau`
@@ -49,8 +56,9 @@ stricter, because everything the harness ran over is still covered. My own clean
 3. **The corridor is the design's, and the boar and the contract agree about it.**
    `Map.FIELD` is x ±620, z −880…+800, `exitZ = -820`, which is 120 studs PAST the road at z = −700 —
    Karen's decision that the boars cross it. `map_contract.spec`'s "the map switch" describe asserts
-   every number, that `exitZ < Map.ROAD.z`, that `Map.ROAD.z - FIELD.exitZ == 120`, and that
-   `Boar.CONFIG.field` deep-equals `Map.FIELD`. Verify: `boar field x[-620,620] z[-880,800]
+   every number, that `exitZ < Map.ROAD.z` and that `Map.ROAD.z - FIELD.exitZ == 120`; the
+   `Boar.CONFIG.field` deep-equal lives in "agrees with the boar about the field rectangle, in
+   whichever world this is" (round 1's request cited the wrong describe for it). Verify: `boar field x[-620,620] z[-880,800]
    exitZ=-820`.
 4. **Twelve tie trees, not the arena's four corner pillars**, and the other four counts are the same
    because it is the same drive. `Map.EXPECTED_COUNTS.tree = 12`; `mapgen.py contract` answers 8
@@ -75,18 +83,26 @@ stricter, because everything the harness ran over is still covered. My own clean
    drive nothing**, so there was nothing to fix at its owner, and a bigger scenario budget could not
    have helped either: the boar is released 1,300 studs from the lone shooter against a streaming
    radius of 1,024 and was never going to be replicated to that client.
-8. **The arena path is unchanged, and that is enforced rather than asserted.** A server that cannot be
-   asked, or answers no usable position, falls back to exactly the old query — no seed, the client's
-   own 60 s wait against the same folder. Selftest 9c drives the **real** `replay_input` against a
-   scripted Studio: four kinds of unusable answer (a raising transport, a bare string, JSON with no
-   position, the `{error}` object) each give `"seedPosition": null` and `"waitSeconds": 60` with the
-   stage still passing; the seeded case gives the position, 30 s and the target's name; a target that
-   never replicates fails the check with `1300 studs` and `targetRadius is 1024` in the message.
-9. **Three mutations, applied, run and restored.** Drop the seed → case (a) fails, printing the JSON
-   the client was actually handed, `"seedPosition": null`. Drop the transport guard → three cases
-   report `raised RuntimeError: place is not open`, which is Task 78's shape of defect avoided here.
-   Read the radius off Workspace again → the new CI guard fails, naming
-   `Workspace.StreamingTargetRadius`.
+8. **The arena path is unchanged, and that is enforced rather than asserted.** A server that cannot
+   be asked, or answers no usable position, falls back to exactly the old query — no seed, the
+   client's own 60 s wait against the same folder. Selftest 9c drives the **real** `replay_input`
+   against a scripted Studio: four kinds of unusable answer (a raising transport, a bare string, JSON
+   with no position, the `{error}` object) each give `"seedPosition": null` and `"waitSeconds": 60`
+   with the stage still passing, and the seeded case gives the position, 30 s and the target's name.
+   **Each case now pins itself to ONE branch**: it names the words the log must carry *and* the
+   branches it must not take. `json_answer` and `stage_seed` have three ways to refuse and two of them
+   repeat the server's answer back into the message, so "the error text is in the log" is satisfied by
+   the wrong branch as easily as the right one — which is precisely how round 1's malformed fixture
+   went unnoticed. The `{error}` fixture is built with `json.dumps`: valid by construction, not by
+   proofreading.
+9. **Five mutations, applied, run and restored.** Break `json_answer`'s `data.get("error")` branch →
+   three cases fail, naming `also took ['carries no usable position']`; **this is the one that showed
+   my first fix was still passing for the wrong reason**, because the `{error}` object then arrived as
+   data with no position and that message repeated every word the case looked for. Restore round 1's
+   stray seam → two cases fail, printing the malformed `""` verbatim. Drop the seed → case (a) fails,
+   printing the JSON the client was handed, `"seedPosition": null`. Drop the transport guard → three
+   cases report `raised RuntimeError: place is not open`, Task 78's shape of defect avoided here. Read
+   the radius off Workspace again → the CI guard fails, naming `.StreamingTargetRadius`.
 10. **It cost an extra round, and the reason is worth reading.** The first `QUERY_STAGE_TARGET` read
     `Workspace.StreamingTargetRadius`, and a live run answered *"not a valid member of Workspace"* for
     **every** stage — which `src/shared/Map/init.luau` had already recorded in a comment: that
@@ -94,8 +110,18 @@ stricter, because everything the harness ran over is still covered. My own clean
     carried the run instead of crashing it and printed the reason on its own line, which is why one
     run was enough to find it. `Map.STREAMING.targetRadius` is the one source for it now, read by the
     server query only, and the guard in claim 9 refuses any staging query that names one of the
-    five. That second fix is why `6ddb54e` exists; claim 1's owners-table rows are why `05df7bb`
-    does.
+    five — scanned as `.<Name>` since this round, so `local w = Workspace; w.StreamingTargetRadius`
+    no longer slips past (Reviewer note). That second fix is why `6ddb54e` exists; claim 1's
+    owners-table rows are why `05df7bb` does; this round is `cc5045c`.
+    **Four more round-1 notes fixed here rather than queued**, each because it was a documentation
+    defect and not a preference: `test_arena.spec`'s dormant note claimed *"its 12 cases are dormant"*
+    and there were **ten**, so it names the file instead of a count and cannot go stale; the
+    `studio_mcp.py` docstring still said `selftest` *"exercises the pure helpers only"*, untrue since
+    Task 78, and CLAUDE.md makes that docstring the source of truth for the test system;
+    `Boar.CONFIG.spawnPoint`'s comment described the Task 17 arena (*"210 studs from exitZ … clear of
+    PillarMid and WallWest"*) when with `exitZ = -820` it is 840 studs and neither part is built; and
+    case (b)'s label claimed it proved `QUERY_STAGE`'s Luau format string when it proves the
+    propagation, the live run being that message's only evidence.
 
 ## What I could not verify
 
@@ -107,11 +133,18 @@ stricter, because everything the harness ran over is still covered. My own clean
   needs a **reopen**, which drops Rojo and the MCP link, so it waits for Karen's 10:00 session. Every
   harness result here is a run against the map in that Edit session, which is what a player would
   stand in; what is unproven is only whether Roblox kept it.
-- **`test2` is the Director's run, not mine**, and a second player exercises paths one does not:
-  the driver's half of the client suite, a team swap and the tie. I have not watched that session.
-- **No new screenshot this round.** The nine from `d133bba` stand — same seed, same marker digest,
-  nothing rebuilt. Rule 5 is satisfied by those, not by a fresh look.
+- **`test2` is the Director's run, not mine**, and a second player exercises paths one does not: the
+  driver's half of the client suite, a team swap and the tie. I have not watched that session.
+- **Three round-1 notes are queued, not fixed**, because none is a one-liner, and each is written out
+  in `TASKS.md`: **79a(l)** no `SpawnLocation` exists in the map world and nothing asserts one (a
+  joining player gets Roblox's origin fallback until the drive places them — not broken, the live run
+  placed, shot and scored, but §17 never named it and it is a decision with an owner); **79a(m)**
+  `stats.firstReleaseAfterSeconds` is first-writer-wins per server process, so a future spec could
+  silently claim the number claim 7 rests on (it did not: 40.3 s and 40.5 s over two runs); **79a(n)**
+  no Play-mode capture of the switched state exists — the nine images are Edit-mode stills, and a Play
+  capture needs a session outside the harness's own.
+- **No new screenshot this round**, and none was warranted: nothing was rebuilt. The nine from
+  `d133bba` stand at the same seed and marker digest.
 - **Whether the map plays well is Karen's eye**, not a measurement: the eighty-metre sightlines, the
-  120 studs past the road, how long 40 s feels while waiting for the first boar.
-- **`mapgen.py shots` still takes nine screenshots where section 17 step 3 says eight** (79a(a)), and
-  four other items sit in 79a. None of them changes what this branch does.
+  120 studs past the road, how long 40 s feels waiting for the first boar. Five more items sit in 79a,
+  none of which changes what this branch does.
