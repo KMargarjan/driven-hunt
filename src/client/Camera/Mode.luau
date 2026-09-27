@@ -99,6 +99,17 @@ function Mode.sensitivityScale(fovDeg: number, config): number
 	return math.tan(math.rad(fovDeg) / 2) / math.tan(math.rad(config.FOV_THIRD_DEG) / 2)
 end
 
+-- HOW LONG THE MOVE TAKES, up and down (task 95). One question, one site: first person raises the
+-- gun in `AIM_RAISE_SECONDS` and drops it in `AIM_LOWER_SECONDS` -- the reference clip's own
+-- quarter-second swing -- while the third-person branch keeps the single `AIM_BLEND_SECONDS` it has
+-- had since task 26, which is the camera Karen accepted and task 89 promised not to touch.
+function Mode.blendSeconds(config, aiming: boolean): number
+	if not config.FIRST_PERSON then
+		return config.AIM_BLEND_SECONDS
+	end
+	return if aiming then config.AIM_RAISE_SECONDS else config.AIM_LOWER_SECONDS
+end
+
 -- The blended field of view for a blend value, eased.
 local function fovFor(blend: number, config): number
 	local eased = Mode.ease(blend)
@@ -233,7 +244,8 @@ function Mode.step(state: State, input: StepInput, dt: number, config): State
 		pitch = config.SPAWN_PITCH_DEG
 	end
 
-	local step = if config.AIM_BLEND_SECONDS > 0 then dt / config.AIM_BLEND_SECONDS else 1
+	local seconds = Mode.blendSeconds(config, mode == "Aiming")
+	local step = if seconds > 0 then dt / seconds else 1
 	local blend = state.blend
 	if mode == "Aiming" then
 		blend = math.min(1, blend + step)

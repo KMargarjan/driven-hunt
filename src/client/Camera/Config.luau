@@ -35,6 +35,12 @@ local Config = {
 	FOV_THIRD_DEG = 70, -- the engine default; keeps the stock look
 	FOV_AIM_DEG = 50, -- feel (Karen): 1.4x magnification, a bead sight and not a scope
 	AIM_BLEND_SECONDS = 0.20, -- feel; the research note says plainly this is not derived
+	-- FIRST PERSON RAISES FASTER THAN IT LOWERS (task 95). The reference clip Karen chose does the
+	-- whole move in about a quarter of a second -- one swing, not a drift -- and drops the gun a
+	-- little quicker than it lifts it. The third-person branch keeps `AIM_BLEND_SECONDS` both ways,
+	-- which is what task 89 promised about the camera Karen accepted on 2026-09-25.
+	AIM_RAISE_SECONDS = 0.25,
+	AIM_LOWER_SECONDS = 0.20,
 
 	-- third-person framing
 	THIRD_DISTANCE_STUDS = 12.0,
@@ -85,7 +91,18 @@ local Config = {
 	-- tests/server/camera_mode.spec.luau asserts what actually matters, on the gun's own pieces: the
 	-- BARRELS, the rib and the bead clear NEAR_PLANE_MARGIN_STUDS in both poses, so nothing a player
 	-- aims with is ever sliced.
-	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(0.85, -1.3, -2.1),
+	-- TASK 95 PUTS IT WHERE THE REFERENCE PUTS IT, and the reference is a picture rather than a
+	-- sentence: `<assets-dir>/references/inspiration-2026-09-27/REF-SHEET-carry-aim.jpg`, panel A.
+	-- The gun lies ACROSS THE LOWER LEFT -- the action just below the bottom edge left of centre, the
+	-- barrels running away up-left and leaving the frame at the left edge, about a third of the gun
+	-- on screen. It is a cradle carry, not a hip carry, and it is the pose in the clip Karen asked us
+	-- to copy (2026-09-27).
+	--
+	-- MEASURED BACKWARDS FROM THE PICTURE, not dialled: the action's rear end wants to sit about 10
+	-- degrees left of centre and 22 degrees down (the bottom edge is 25) at roughly 0.9 studs, and
+	-- the muzzle about 35 degrees left and a few degrees up. A 4.4-stud gun between those two points
+	-- has its CENTRE here, and the two angles below are that line's own direction.
+	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(-1.54, -0.04, -2.5),
 	-- Three named degrees rather than a CFrame literal, so there are three legible dials. Converted
 	-- to radians at ONE site, Mode.carryOffset -- the rule the Task 19 cone-unit defect bought.
 	-- POSITIVE yaw turns the muzzle in toward the screen centre from a RIGHT-hand offset (task 90):
@@ -93,9 +110,13 @@ local Config = {
 	-- the barrels cross the frame from the lower right toward the centre. Pitch lifts the muzzle,
 	-- roll cants the rib toward the eye; both are mirrored from task 89's left-handed pose, which is
 	-- what "mirror it" means for a rotation about Y and Z.
-	CARRY_PITCH_DEG = -12,
-	CARRY_YAW_DEG = 14,
-	CARRY_ROLL_DEG = -8,
+	-- THE DIRECTION THAT LINE POINTS, in the camera's own frame: 39 degrees of yaw swings the muzzle
+	-- LEFT and 10 degrees of pitch lifts it, which is 40 degrees left and 8 up in world terms -- the
+	-- barrel crossing the frame from the lower right of the action to the left edge, exactly panel
+	-- A's diagonal. `Mode.carryOffset` is still the ONE site that converts them to radians.
+	CARRY_PITCH_DEG = 10,
+	CARRY_YAW_DEG = 39,
+	CARRY_ROLL_DEG = -6, -- a touch of cant, so the rib and not the flat of the barrels faces the eye
 	-- The whole-gun break-open tilt. IT IS IN THE COMPOSITION FROM S1 AND NOTHING MOVES IT UNTIL
 	-- S4: `Mode.viewmodelOffset` multiplies by `openTilt * OPEN_TILT_DEG`, and `openTilt` is exactly
 	-- 0 in every state this build produces. The number lives here now so the composition is written
@@ -134,7 +155,15 @@ local Config = {
 	-- shot goes. Everything BEHIND the bead swings down by this angle, which is what an eye above the
 	-- bore sees. Positive drops the breech; 7 degrees puts the action's top below the rib line at the
 	-- distance the breech sits from the eye (about 2.2 studs, so 0.27 studs of drop).
-	ADS_CHEEK_DEG = 7,
+	-- 5, AND IT IS THE NUMBER THAT DECIDES WHETHER THE BREECH IS IN FRAME (task 95, panel C). With
+	-- the bead on the axis at EYE_RELIEF_STUDS, the bore leaves the bottom edge of the screen
+	-- `0.466 * R / (sin t + 0.466 cos t)` studs behind the bead -- 25 degrees being half the aiming
+	-- field. At 7 degrees that is 2.79 studs, INSIDE the 2.73-stud barrels, so the breech face sat in
+	-- the picture; at 5 it is 2.96, past them, so the action is a sliver at the very bottom and the
+	-- back of the barrels is never seen. The same arithmetic puts the barrel pair 0.61 studs from the
+	-- eye where it crosses that edge, which is about a quarter of the screen's width -- panel C's own
+	-- proportion.
+	ADS_CHEEK_DEG = 5,
 	-- HOW FAR OFF THE CENTRE OF THE SCREEN THE BEAD MAY BE, aimed and at rest. Roblox's field of
 	-- view is VERTICAL, so at 1920x1080 and FOV 50 this is 8 pixels: 50/1080 = 0.0463 degrees per
 	-- pixel. At 143 studs (40 m) it is 0.9 studs, against a boar 5.5 studs long and 3 tall. The

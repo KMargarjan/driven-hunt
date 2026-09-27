@@ -339,6 +339,73 @@ return function()
 			expect((thirdAimed.Position - thirdRest.Position).Magnitude > 5).to.equal(true)
 		end)
 
+		-- ------------------------------------------------------ the raise, one swing (task 95)
+		it("swings from the carry into the aim without ever pointing at the sky", function()
+			-- KAREN'S REFERENCE, FRAME BY FRAME: right mouse down and the gun comes up in about a
+			-- quarter of a second, ONE eased swing, the barrels turning from pointing-left to
+			-- pointing-forward as they rise. What must never happen in between is the muzzle lifting
+			-- toward the sky -- the thing that makes a viewmodel look like it is being thrown.
+			local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
+			local worst, worstAt = -90, 0
+			for step = 0, 20 do
+				local blend = step / 20
+				local pose = Mode.viewmodelOffset(stateAtBlend(blend), sight, firstPerson)
+				local muzzle = (pose * CFrame.new(0, 0, -Shotgun.CONFIG.HANDLE_SIZE.Z / 2)).Position
+				local action = (pose * CFrame.new(0, 0, Shotgun.CONFIG.HANDLE_SIZE.Z / 2)).Position
+				local elevation = math.deg(math.asin(math.clamp((muzzle - action).Unit.Y, -1, 1)))
+				if elevation > worst then
+					worst, worstAt = elevation, blend
+				end
+			end
+			-- The carry itself is the highest the muzzle ever gets, and it is a few degrees.
+			expect(worst < 20).to.equal(true)
+			TestKit.note(string.format("task95 raise: muzzle peaks at %.1f deg up, at blend %.2f", worst, worstAt))
+
+			-- ...AND IT IS ONE MOVE, NOT A WANDER: the gun's own position sweeps monotonically from
+			-- the carry to the aimed pose, with no doubling back.
+			local previous, backwards = nil, 0
+			local aimed = Mode.viewmodelOffset(stateAtBlend(1), sight, firstPerson).Position
+			for step = 0, 20 do
+				local here = Mode.viewmodelOffset(stateAtBlend(step / 20), sight, firstPerson).Position
+				local left = (aimed - here).Magnitude
+				if previous and left > previous + 1e-4 then
+					backwards += 1
+				end
+				previous = left
+			end
+			expect(backwards).to.equal(0)
+		end)
+
+		it("raises faster than it lowers, and the OFF branch keeps its one number", function()
+			expect(Mode.blendSeconds(firstPerson, true)).to.equal(firstPerson.AIM_RAISE_SECONDS)
+			expect(Mode.blendSeconds(firstPerson, false)).to.equal(firstPerson.AIM_LOWER_SECONDS)
+			expect(firstPerson.AIM_LOWER_SECONDS < firstPerson.AIM_RAISE_SECONDS).to.equal(true)
+			expect(firstPerson.AIM_RAISE_SECONDS <= 0.3).to.equal(true) -- "very fast", not a drift
+			-- The third-person camera Karen accepted on 2026-09-25 keeps ONE number both ways.
+			expect(Mode.blendSeconds(Config, true)).to.equal(Config.AIM_BLEND_SECONDS)
+			expect(Mode.blendSeconds(Config, false)).to.equal(Config.AIM_BLEND_SECONDS)
+
+			-- ...and the reducer really uses them: the raise takes longer than the fall, measured in
+			-- simulated seconds rather than read off the table.
+			local function secondsTo(aiming: boolean, from)
+				local state, elapsed = from, 0
+				while (aiming and state.blend < 1) or (not aiming and state.blend > 0) do
+					state = Mode.step(state, input({ aiming = aiming }), 1 / 240, firstPerson)
+					elapsed += 1 / 240
+					if elapsed > 2 then
+						break
+					end
+				end
+				return state, elapsed
+			end
+			local start = Mode.step(Mode.initial(firstPerson), input(), 1 / 240, firstPerson)
+			local up, upSeconds = secondsTo(true, start)
+			local _, downSeconds = secondsTo(false, up)
+			expect(math.abs(upSeconds - firstPerson.AIM_RAISE_SECONDS) < 0.02).to.equal(true)
+			expect(math.abs(downSeconds - firstPerson.AIM_LOWER_SECONDS) < 0.02).to.equal(true)
+			expect(downSeconds < upSeconds).to.equal(true)
+		end)
+
 		-- ------------------------------------------------------------------ recoil (task 92)
 		describe("recoil", function()
 			-- KAREN, after playing S2: "shooting has to have recoil a bit".
@@ -450,14 +517,36 @@ return function()
 			end
 		end)
 
-		it("carries the gun low and RIGHT, with the three degrees converted at one site", function()
+		it("carries the gun ACROSS THE LOWER LEFT, muzzle to the left and a little up", function()
 			local carry = Mode.carryOffset(firstPerson)
-			-- LOW AND RIGHT since task 90, and the sign is the whole of it. Karen, 2026-09-27, after
-			-- playing S1: "right hand shooter and weapon holding with right hand grip and left hand
-			-- pipes like in real life". Task 89 had it on the left, mirrored from her reference.
-			expect(carry.Position.X > 0).to.equal(true)
-			expect(carry.Position.Y < 0).to.equal(true)
+			-- TASK 95, AND IT IS THE REFERENCE'S POSE RATHER THAN A SIGN CONVENTION: panel A of
+			-- `REF-SHEET-carry-aim.jpg` has the gun lying across the lower left, the action below the
+			-- bottom edge left of centre and the barrels leaving the frame at the LEFT. So the two
+			-- ends are asserted where the picture puts them, in the camera's own frame.
 			expect(carry.Position).to.equal(Config.VIEWMODEL_CARRY_POS_STUDS)
+			local half = Shotgun.CONFIG.HANDLE_SIZE.Z / 2
+			local muzzle = (carry * CFrame.new(0, 0, -half)).Position
+			local action = (carry * CFrame.new(0, 0, half)).Position
+			-- THE MUZZLE IS LEFT, AND FURTHER AWAY: it runs off toward the left edge, which is what
+			-- makes the barrel taper across the frame instead of pointing at the viewer.
+			expect(muzzle.X < -1.5).to.equal(true)
+			expect(muzzle.Z < action.Z).to.equal(true)
+			-- ...AND A LITTLE UP, never at the sky: between 2 and 20 degrees above the horizon.
+			local elevation = math.deg(math.asin(math.clamp((muzzle - action).Unit.Y, -1, 1)))
+			expect(elevation > 2 and elevation < 20).to.equal(true)
+			-- THE ACTION IS CLOSE, LOW AND LEFT OF CENTRE -- the corner of the frame the picture puts
+			-- it in -- and inside the near plane's margin, which is what stops it being sliced.
+			expect(action.Y < 0).to.equal(true)
+			expect(action.X < 0).to.equal(true)
+			expect(action.Z < -firstPerson.NEAR_PLANE_MARGIN_STUDS).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task95 carry: muzzle %.1f deg left and %.1f deg up, action at %.2f studs",
+					math.deg(math.atan2(-muzzle.X, -muzzle.Z)),
+					elevation,
+					action.Magnitude
+				)
+			)
 			-- The rotation, rebuilt here from the SAME three numbers in degrees. A second
 			-- conversion, a missing `math.rad` or a 2x slip moves the muzzle by a stud and fails
 			-- this -- which is the defect Task 19's cone units cost a round.
