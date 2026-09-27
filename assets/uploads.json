@@ -98,5 +98,25 @@
     "pollSeconds": 13.3,
     "polls": 6,
     "karenOk": "2026-09-26 Karen: her shotgun in the game; 2026-09-27 Karen: build it smooth like the video -- Director approves renders tonight"
+  },
+  {
+    "tool": "roblox-upload/1",
+    "at": "2026-09-27T20:18:10Z",
+    "assetId": "73632997167378",
+    "assetType": "Model",
+    "displayName": "Driven Hunt shotgun r7 smooth tubes",
+    "description": "Side-by-side game gun: Karen's stock and action, barrels built by tools/asset_prep.py, exported with smoothing groups.",
+    "creatorUserId": "8167651842",
+    "file": "model.fbx",
+    "sourceFolder": "shotgun_clean_barrels_r19",
+    "bytes": 7375292,
+    "sha256": "f25d6431628d08ff1a121af9530488028bfbf7a2d6ed9c59bae10c51b8672dd5",
+    "contentType": "model/fbx",
+    "operation": "operations/c2cd17f3-7dba-46f4-919d-93d6f3b2e8a2",
+    "moderationState": "Approved",
+    "moderationStateFrom": "response.moderationResult.moderationState",
+    "pollSeconds": 8.8,
+    "polls": 4,
+    "karenOk": "2026-09-26 Karen: her shotgun in the game; 2026-09-27 Karen: build it smooth like the video -- Director approves renders tonight"
   }
 ]

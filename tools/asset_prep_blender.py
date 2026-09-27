@@ -1760,9 +1760,16 @@ def main():
         wanted = target_hsv(barrel_region.get("baseColor", {}).get("targetRGB", [26, 28, 34]),
                             linearise)
         painted = {}
+        # THE NORMAL MAP IS REPAINTED TOO, AND IT HAS TO BE. MEASURED in the game, not in a render:
+        # the borrowed corner of the atlas carries the generator's own normal detail, and on a
+        # first-person barrel an inch from the eye that came out as a strong herringbone pattern
+        # running down both tubes -- the very "not smooth" Karen is complaining about. A flat tangent
+        # normal is (0.5, 0.5, 1.0), so the built tubes are lit by their own geometry and nothing else.
+        flat_normal = (0.5, 0.5, 1.0)
         for image, value in ((base_image, None),
                              (metallic_image, barrel_region.get("metallic")),
-                             (roughness_image, barrel_region.get("roughness"))):
+                             (roughness_image, barrel_region.get("roughness")),
+                             (normal_image, flat_normal)):
             if image is None:
                 continue
             array = image_array(image)
@@ -1783,6 +1790,10 @@ def main():
                 for channel in range(3):
                     array[y0:y1 + 1, x0:x1 + 1, channel] = float(channels[channel])
                 painted["baseColor"] = [round(float(c), 4) for c in channels]
+            elif isinstance(value, tuple):
+                for channel in range(3):
+                    array[y0:y1 + 1, x0:x1 + 1, channel] = float(value[channel])
+                painted[image.name] = list(value)
             else:
                 array[y0:y1 + 1, x0:x1 + 1, 0:3] = float(value)
                 painted[image.name] = float(value)
@@ -1918,10 +1929,15 @@ def main():
     ob.select_set(True)
     bpy.context.view_layer.objects.active = ob
     fbx_path = os.path.join(out_dir, "model.fbx")
-    # "EDGE", NOT "FACE" (task 92). `FACE` writes every polygon as its own flat plane, which is what
-    # made the uploaded gun a field of bright shards with dark seams in first person; `EDGE` carries
-    # the smooth/sharp flag per edge, which is what `shade()` above has just set.
-    smooth_type = "EDGE" if REPORT.get("shading", {}).get("applied") else "FACE"
+    # "FACE" -- SMOOTHING GROUPS -- AND TASK 92 HAD THE REASON BACKWARDS. `FACE` does not mean "flat
+    # shade everything": it writes a smoothing GROUP per polygon, which is the only smoothing
+    # information Roblox's FBX importer reads. Task 92 saw a flat-shaded gun and blamed this setting,
+    # when the cause was that nothing had ever called `shade_smooth`; switching to `EDGE` then sent
+    # Roblox a file with no smoothing groups at all, and MEASURED IN THE GAME (task 94): the rebuilt
+    # tubes, perfectly smooth in Blender's own render, arrived in Roblox as a herringbone of flat
+    # triangles down both barrels. With the mesh shaded smooth by angle above, `FACE` carries that
+    # shading across.
+    smooth_type = "FACE"
     bpy.ops.export_scene.fbx(filepath=fbx_path, use_selection=True, path_mode="COPY",
                              embed_textures=True, mesh_smooth_type=smooth_type)
     glb_path = os.path.join(out_dir, "model.glb")

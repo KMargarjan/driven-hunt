@@ -296,6 +296,7 @@ Assets.ROWS = {
 		--
 		-- FEWER TRIANGLES THAN BEFORE, because a tube costs less than a fitted lump: 11,770 against
 		-- v3's 19,325.
+		supersededBy = 5, -- task 94: v4 reached Roblox with no smoothing groups (see v5)
 		modelId = 80699745427569,
 		displayName = "Driven Hunt shotgun r6 clean barrels",
 		fileName = "model.fbx",
@@ -337,6 +338,53 @@ Assets.ROWS = {
 			.. "0.50). Action 0.45 / 0.50, stock 0.00 / 0.62. Custom split normals cleared before "
 			.. "smoothing at 35 degrees, which is what took the lengthwise stripes off the tubes. "
 			.. "One MeshPart with ONE SurfaceAppearance child; the viewmodel's clone must keep it.",
+	},
+	{
+		key = "shotgun.handle",
+		version = 5,
+		kind = "meshpart" :: Kind,
+		-- Uploaded by tools/roblox_upload.py on 2026-09-27; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- WHY THERE IS A VERSION 5, AND IT WAS MEASURED IN THE GAME RATHER THAN IN A RENDER. v4's
+		-- tubes are perfectly smooth in Blender's own photograph of them and arrived in Roblox as a
+		-- HERRINGBONE of flat triangles down both barrels -- an inch from a first-person eye, which
+		-- is exactly the "not smooth" this task exists to fix. The cause is the FBX export: task 92
+		-- switched it from smoothing GROUPS ("FACE") to per-edge sharp flags ("EDGE") on the belief
+		-- that groups meant flat shading, and Roblox's importer reads the groups and not the flags.
+		-- Same geometry as v4, same maps, exported with smoothing groups.
+		modelId = 73632997167378,
+		displayName = "Driven Hunt shotgun r7 smooth tubes",
+		fileName = "model.fbx",
+		sourceSha256 = "f25d6431628d08ff1a121af9530488028bfbf7a2d6ed9c59bae10c51b8672dd5",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked on "
+				.. "2026-09-27, after playing it, for the gun to be built smooth like the video she "
+				.. "sent. The barrels are this repository's own geometry; the stock and action are "
+				.. "hers, unchanged.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-09-27, TASKS.md row 94",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 11770,
+		texturePx = 2048,
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		-- v4's number, computed from the same geometry: the prep reports the bead 0.0021 of the
+		-- model's length from the muzzle and 0.491 of its height above the centre.
+		sightOffsetStuds = Vector3.new(0, 0.336, -2.19),
+		renderFidelity = "Automatic",
+		notes = "As v4 -- barrels, rib, muzzle and bead built by `rebuildBarrels`, blued steel "
+			.. "written into the maps by the step that owns those texels -- exported with smoothing "
+			.. "groups so Roblox shades the tubes round. One MeshPart with ONE SurfaceAppearance.",
 	},
 } :: { AssetRow }
 
