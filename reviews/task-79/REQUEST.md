@@ -3,17 +3,20 @@
 Task: 79
 Round: 1
 Base: `main` (`4650b97`)
-Code commit: `05df7bbf0e69ddc329a0e17e82291be42dd10ff3`
+Code commit: `a21efef5e1455028ba59f262c021ec52bb84bd91`
 
 ```
-[harness]  PASS: 32/32 checks @ 05df7bbf0e69ddc329a0e17e82291be42dd10ff3 (clean tree)
-[harness2] pending — the Director's run at this branch's head
+[harness]  PASS: 32/32 checks @ a21efef5e1455028ba59f262c021ec52bb84bd91 (clean tree)
+[harness2] PASS: 32/32 checks @ a21efef5e1455028ba59f262c021ec52bb84bd91 (clean tree)
 ```
 
-My own clean-tree run, against the **generated map**, with `[tests:server] PASS: 414 passed, 0
-failed, 0 errors, 25 spec files` and the client reporting after 18 s, 93 s total. `src/`,
-`tests/client/` and `tools/studio_mcp.py` all changed, so `test2` is part of the gate and the
-Director runs it at the head; the head is a paperwork commit, which only makes the bound stricter.
+Both are the Director's runs at this branch's head, **on the map world**. `src/`, `tests/client/` and
+`tools/studio_mcp.py` all changed, so `test2` is part of the gate. The named commit is a paperwork
+commit — at or after the last commit that touched `src/`, `tests/` or `tools/` (`6ddb54e`), with only
+`GAME_DESIGN.md`, `TASKS.md`, `ESCALATE.md` and this file between them — which only makes the bound
+stricter, because everything the harness ran over is still covered. My own clean-tree
+`[harness] PASS: 32/32 @ 05df7bb` covers the same code and reported `[tests:server] PASS: 414 passed,
+0 failed, 0 errors, 25 spec files`, with the client reporting after 18 s and 93 s total.
 
 **What changed.** `src/shared/Map/init.luau` (`EXPECTED_WORLD`, `SEED`, `DIGEST`, `FIELD`,
 `EXPECTED_COUNTS`), `src/server/ArenaBoot.server.luau`, `src/server/Boar/init.luau`
@@ -33,7 +36,11 @@ Director runs it at the head; the head is a paperwork commit, which only makes t
    worlds tag with the same strings. `ESCALATE.md` carries the decision verbatim under `### RESOLVED`
    and CLAUDE.md's "Feature flags" section now names the exception. **Nothing of the `MAP_V1` flag
    survives**: `grep -rn MAP_V1 src tests tools` is empty, and nothing is archived because it never
-   merged.
+   merged. **And `GAME_DESIGN.md`'s owners table no longer says the opposite of what ships** — a
+   documentation defect, not a preference: the generated map's row read *"it is still NOT the world:
+   `Map.EXPECTED_WORLD` is still `"arena"`"*, and the arena's row read *"the arena is the only thing
+   this repo puts in Workspace at all"* while `ArenaBoot` now builds nothing. Three rows fixed,
+   including why `TestArena` keeps its file (it is the rollback until section 17 step 9).
 2. **`ArenaBoot` builds nothing, and it cannot be half-on.** It returns early on
    `Map.EXPECTED_WORLD ~= "arena"` before requiring `TestArena` — not hidden, not moved, not built —
    and it never sniffs Workspace for a folder, because a predicate like that lies the moment a run
@@ -86,7 +93,9 @@ Director runs it at the head; the head is a paperwork commit, which only makes t
     property and its three neighbours are reachable only from the Studio property pane. The fallback
     carried the run instead of crashing it and printed the reason on its own line, which is why one
     run was enough to find it. `Map.STREAMING.targetRadius` is the one source for it now, read by the
-    server query only, and the guard in claim 9 refuses any staging query that names one of the five.
+    server query only, and the guard in claim 9 refuses any staging query that names one of the
+    five. That second fix is why `6ddb54e` exists; claim 1's owners-table rows are why `05df7bb`
+    does.
 
 ## What I could not verify
 
@@ -98,8 +107,8 @@ Director runs it at the head; the head is a paperwork commit, which only makes t
   needs a **reopen**, which drops Rojo and the MCP link, so it waits for Karen's 10:00 session. Every
   harness result here is a run against the map in that Edit session, which is what a player would
   stand in; what is unproven is only whether Roblox kept it.
-- **`test2` is the Director's run.** Two players exercise the driver's half of the client suite and
-  the tie, neither of which one player reaches.
+- **`test2` is the Director's run, not mine**, and a second player exercises paths one does not:
+  the driver's half of the client suite, a team swap and the tie. I have not watched that session.
 - **No new screenshot this round.** The nine from `d133bba` stand — same seed, same marker digest,
   nothing rebuilt. Rule 5 is satisfied by those, not by a fresh look.
 - **Whether the map plays well is Karen's eye**, not a measurement: the eighty-metre sightlines, the
