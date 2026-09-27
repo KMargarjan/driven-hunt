@@ -540,11 +540,34 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
         new_faces += 1
 
     bmesh.ops.recalc_face_normals(bm, faces=[f for f in bm.faces if all(v in made for v in f.verts)])
+    corners_before_free = [v.co.copy() for v in bm.verts]
     bm.to_mesh(mesh)
     bm.free()
     mesh.update()
+    # WHERE THE BEAD ENDED UP, as fractions of the model's own box (task 94). The game aims by the
+    # gun's bead -- `Assets` carries a `sightOffsetStuds` and the first-person camera puts that point
+    # on the view axis -- so the number has to come from the geometry that was built, not from a
+    # measurement somebody takes again on a screenshot.
+    corners = corners_before_free
+    bead_report = None
+    if corners:
+        lows = [min(c[i] for c in corners) for i in (0, 1, 2)]
+        highs = [max(c[i] for c in corners) for i in (0, 1, 2)]
+        span_up = max(highs[up_axis] - lows[up_axis], 1e-9)
+        t_bead = (bead_centre[axis] - lo) / max(length, 1e-9)
+        bead_report = {
+            "alongT": round(float(t_bead if front_at_min else 1.0 - t_bead), 5),
+            "upFromCentre": round(float((bead_centre[up_axis]
+                                         - (highs[up_axis] + lows[up_axis]) / 2.0) / span_up), 5),
+            "acrossFromCentre": round(float((bead_centre[across]
+                                             - (highs[across] + lows[across]) / 2.0)
+                                            / max(highs[across] - lows[across], 1e-9)), 5),
+            "modelBox": [round(float(highs[i] - lows[i]), 4) for i in (0, 1, 2)],
+        }
+
     return {
         "cutAtT": cut_t,
+        "bead": bead_report,
         "deletedFaces": len(doomed),
         "keptWoodFacesInFront": len(forward) - len(doomed),
         "segments": segments,

@@ -78,5 +78,25 @@
     "pollSeconds": 11.1,
     "polls": 5,
     "karenOk": "2026-09-27 Karen asked for this look fix after playing S2: 'Weapon color we need to improve and style now feels a bit broken, it has to be smooth and nice' -- same model, smooth shading and softer action metal"
+  },
+  {
+    "tool": "roblox-upload/1",
+    "at": "2026-09-27T20:08:56Z",
+    "assetId": "80699745427569",
+    "assetType": "Model",
+    "displayName": "Driven Hunt shotgun r6 clean barrels",
+    "description": "Side-by-side game gun: Karen's stock and action, barrels rebuilt by tools/asset_prep.py -- two round tubes, a rib, a thin-walled muzzle and a bead, blued steel.",
+    "creatorUserId": "8167651842",
+    "file": "model.fbx",
+    "sourceFolder": "shotgun_clean_barrels_r15",
+    "bytes": 7381660,
+    "sha256": "a72131f7f43fca8d04246d451513c6fd9d3fb0a68cc298558890fb78e85c5244",
+    "contentType": "model/fbx",
+    "operation": "operations/84195fb4-71bc-4317-9a2d-3e8c4908396b",
+    "moderationState": "Approved",
+    "moderationStateFrom": "response.moderationResult.moderationState",
+    "pollSeconds": 13.3,
+    "polls": 6,
+    "karenOk": "2026-09-26 Karen: her shotgun in the game; 2026-09-27 Karen: build it smooth like the video -- Director approves renders tonight"
   }
 ]

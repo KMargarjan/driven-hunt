@@ -242,6 +242,7 @@ Assets.ROWS = {
 		-- SAME MODEL, SAME GEOMETRY: the same Meshy source file as v2, not decimated, so the
 		-- triangle count, the bounding box and `sightOffsetStuds` are unchanged and no number the
 		-- rest of the system is built on moves.
+		supersededBy = 4, -- task 94: v4 has barrels this repo built rather than smoothed
 		modelId = 137252961155547,
 		displayName = "Driven Hunt shotgun (side-by-side) r5 smooth",
 		fileName = "model.fbx",
@@ -275,6 +276,67 @@ Assets.ROWS = {
 			.. "EDGE smoothing. Barrels and rib at metalness 0.10 / roughness 0.50, action 0.45 / "
 			.. "0.50, stock 0.00 / 0.62, written into the MAPS. One MeshPart with ONE "
 			.. "SurfaceAppearance child; the viewmodel's clone must keep it (design 6.6).",
+	},
+	{
+		key = "shotgun.handle",
+		version = 4,
+		kind = "meshpart" :: Kind,
+		-- Uploaded by tools/roblox_upload.py on 2026-09-27; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- WHY THERE IS A VERSION 4. Karen, after her third test (2026-09-27): "gun is not smooth and
+		-- nice ... nozzle is terrible (ending where we aim) ... barrels don't feel smooth". A
+		-- generated mesh is lumpy BY CONSTRUCTION -- it is a surface fitted to an image, not a tube --
+		-- and v3 proved that shading it smooth does not change its SHAPE. So `tools/asset_prep.py`
+		-- now CUTS the model at the front of the action, keeps Karen's stock, her silver action and
+		-- her wooden forend, and BUILDS the rest: two round barrels side by side and touching, 64
+		-- segments each, a rib along their top, a thin-walled muzzle with two real openings, and a
+		-- bead on the rib. Beretta 486 Parallelo proportions -- barrels 0.62 of the gun's length,
+		-- 23 mm across, a 1.7 mm wall.
+		--
+		-- FEWER TRIANGLES THAN BEFORE, because a tube costs less than a fitted lump: 11,770 against
+		-- v3's 19,325.
+		modelId = 80699745427569,
+		displayName = "Driven Hunt shotgun r6 clean barrels",
+		fileName = "model.fbx",
+		sourceSha256 = "a72131f7f43fca8d04246d451513c6fd9d3fb0a68cc298558890fb78e85c5244",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked on "
+				.. "2026-09-27, after playing it, for the gun to be built smooth like the video she "
+				.. "sent. The barrels are this repository's own geometry; the stock and action are "
+				.. "hers, unchanged.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-09-27, TASKS.md row 94",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 11770,
+		texturePx = 2048,
+		-- THE BOX IS v1's, AND IT IS 0.8 % GENEROUS IN HEIGHT. The rebuilt barrels are slimmer than
+		-- the generated ones, so the model measures 31.07 units tall against the 31.31 declared here;
+		-- the mesh is scaled to `sizeStuds` either way, so keeping the shared numbers stretches it by
+		-- less than a hundredth and keeps one size for the whole key.
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		-- COMPUTED FROM THE GEOMETRY THAT WAS BUILT, not measured off a screenshot: the prep reports
+		-- the bead at 0.0021 of the model's length from the muzzle and 0.491 of its height above the
+		-- centre (`rebuiltBarrels.bead` in the run's report.json), which at this scale is 2.19 studs
+		-- forward and 0.336 up. v3's 0.375 was a bound on a PAINTED bead nobody could see; this one
+		-- is where the ball actually is.
+		sightOffsetStuds = Vector3.new(0, 0.336, -2.19),
+		renderFidelity = "Automatic",
+		notes = "Barrels, rib, muzzle and bead built by asset_prep's `rebuildBarrels`; blued steel "
+			.. "written into the maps by the step that owns those texels (metalness 0.10, roughness "
+			.. "0.50). Action 0.45 / 0.50, stock 0.00 / 0.62. Custom split normals cleared before "
+			.. "smoothing at 35 degrees, which is what took the lengthwise stripes off the tubes. "
+			.. "One MeshPart with ONE SurfaceAppearance child; the viewmodel's clone must keep it.",
 	},
 } :: { AssetRow }
 
