@@ -306,7 +306,6 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 				weld.Parent = handle
 			end
 		end
-		Hardware.addBarrels(handle, size, pose)
 	else
 		-- NEITHER, SO WEAR THE GREY BOX. Returning true here left the clone unparented and the
 		-- player holding an empty Handle with no parts gun behind it (review round 1, note): the
@@ -324,6 +323,11 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 		end
 		return false
 	end
+	-- ...AND THE BARRELS, WHICHEVER SHAPE THE BODY CAME IN. This used to sit at the end of the
+	-- `Model` branch alone, so a body that arrives as a MeshPart -- which is what this gun is --
+	-- never got them: the spec's own note read `body=true barrels=false` while the game, where the
+	-- gun is upgraded through the other path, looked right. One call, after either branch.
+	Hardware.addBarrels(handle, size, pose)
 	return true
 end
 

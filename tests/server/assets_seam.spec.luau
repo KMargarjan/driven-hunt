@@ -73,7 +73,12 @@ local function withLoader(insert, body)
 
 	Loader.setCacheParent(cacheFolder)
 	Loader.setInsert(insert)
-	local ok, why = pcall(body)
+	-- THE TRACEBACK COMES WITH IT. A bare pcall reports this rethrow's line and nothing
+	-- else, so a failure inside the body names the seam rather than the assertion that
+	-- failed -- measured in task 96, where three candidates all looked plausible.
+	local ok, why = xpcall(body, function(message)
+		return tostring(message) .. " | " .. debug.traceback("", 2)
+	end)
 	-- clears the SCRATCH state only: its own templates and nothing else in the world
 	Loader.clear()
 	Loader.setState(live)
@@ -779,7 +784,16 @@ return function()
 				-- what the Handle carries before, so "nothing but the look changed" is a comparison
 				local muzzle = handle:FindFirstChild("Muzzle")
 
-				expect(Hardware.upgrade(tool)).to.equal(true)
+				local upgraded = Hardware.upgrade(tool)
+				TestKit.note(
+					string.format(
+						"task96 upgrade: returned %s, body=%s barrels=%s",
+						tostring(upgraded),
+						tostring(handle:FindFirstChild(Hardware.MODEL_NAME) ~= nil),
+						tostring(handle:FindFirstChild(Hardware.BARRELS_NAME) ~= nil)
+					)
+				)
+				expect(upgraded).to.equal(true)
 
 				local model = handle:FindFirstChild(Hardware.MODEL_NAME) :: BasePart
 				expect(model).to.be.ok()
@@ -901,6 +915,14 @@ return function()
 			Hardware.upgradeAll()
 			for _, player in ipairs(Players:GetPlayers()) do
 				for _, tool in Hardware.toolsOf(player) do
+					local handle = tool:FindFirstChild("Handle")
+					TestKit.note(
+						string.format(
+							"task96 live gun: body=%s barrels=%s",
+							tostring(handle and handle:FindFirstChild(Hardware.MODEL_NAME) ~= nil),
+							tostring(handle and handle:FindFirstChild(Hardware.BARRELS_NAME) ~= nil)
+						)
+					)
 					expect(Hardware.wearsMesh(tool)).to.equal(true)
 				end
 			end

@@ -469,9 +469,18 @@ return function()
 				openState.openTilt = 1
 				table.freeze(openState)
 				local open = Mode.viewmodelOffset(openState, sight, firstPerson)
-				-- DOWN, and turned: the breech becomes something to look into rather than at.
-				expect(open.Position.Y < closed.Position.Y - 0.1).to.equal(true)
+				-- UP OUT OF THE CARRY AND IN TOWARD THE CENTRE, which is what the pose actually does
+				-- and what the screen showed: from a carry that holds the gun low and left with a
+				-- third of it in frame, "down a little" would put the whole gun outside the picture,
+				-- and the first build of this task did exactly that. The open gun is nearer the
+				-- middle of the view than the carry is, and it is turned.
+				local function fromAxis(point: Vector3): number
+					return math.sqrt(point.X * point.X + point.Y * point.Y)
+				end
+				expect(fromAxis(open.Position) < fromAxis(closed.Position)).to.equal(true)
 				expect(open.LookVector:Dot(closed.LookVector) < 0.999).to.equal(true)
+				-- ...and it is a real move rather than a nudge: a third of a stud at least.
+				expect((open.Position - closed.Position).Magnitude > 0.33).to.equal(true)
 				-- ...and with the gun shut the pose is bit-for-bit what it was before task 96, which
 				-- is what keeps the carry and the aim the pictures Karen and the Director accepted.
 				local halfOpen = table.clone(shutState) :: any
