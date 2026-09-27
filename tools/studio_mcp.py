@@ -377,6 +377,18 @@ Feature flags, and the two checks they add (Task 52)
                               DHFlag_* attributes; prints name, default, override, effective,
                               expires, owner, why. Read-only. Also names any STRAY override whose
                               flag does not exist, which the resolver would only silently ignore.
+
+  EVERY EDIT-MODE QUERY THAT NEEDS THE FLAGS TABLE REQUIRES A PARENTLESS **CLONE** OF THE MODULE
+  (`FRESH_FLAGS`, Task 78), and that is not tidiness. `require` caches per ModuleScript INSTANCE and
+  the Edit-mode MCP context is long-lived, while Rojo writes the SOURCE of the same instance rather
+  than making a new one -- so the first require of a Studio session is what every later call gets
+  back, and a flag added since then does not exist as far as `flags` and `flags set` are concerned.
+  Measured on 2026-09-27: `flags set ORANGE_OUTFITS on` refused "no such flag" in Edit mode while a
+  Play session resolved that same flag fine (Task 77), which blocked the Director switching it on for
+  a playtest. `tools/mapgen.py` has used the same clone since 2026-09-26 for the same reason; these
+  queries simply had not got it. Two checks in `test` cover it: a fixture that builds the staleness in
+  memory and proves a clone reads the current source, and a comparison of Studio's flag table against
+  the names `src/shared/Flags/init.luau` declares.
     flags set <NAME> on|off   EDIT ONLY, else exit 2. Refuses a name that is not in Flags.DEFAULTS
                               and anything but on/off. The name is validated against
                               Flags.NAME_PATTERN in Python and passed as a JSON string literal, the
@@ -553,19 +565,63 @@ QUERY_FLAG_OVERRIDES = (
     "end table.sort(out) return table.concat(out, \",\")"
 )
 
-# Every declared flag, out of Studio's synced copy of ReplicatedStorage.Flags. `require` through
-# execute_luau has its own module cache, and here that is CORRECT rather than a hazard: Flags is
-# frozen data with no run-time writer, and check 4 has already proved Studio's copy is the disk copy.
-QUERY_FLAG_TABLE = """
-local HttpService = game:GetService("HttpService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local SS = game:GetService("ServerStorage")
-local ok, Flags = pcall(function()
-    return require(ReplicatedStorage:WaitForChild("Flags", 5))
-end)
-if not ok then
-    return HttpService:JSONEncode({ error = tostring(Flags) })
+# A FRESH COPY OF THE FLAGS MODULE, EVERY CALL, AND IT IS THE WHOLE OF TASK 78.
+#
+# `require` caches per ModuleScript INSTANCE, and the Edit-mode MCP context is long-lived: the first
+# require in a Studio session is the one every later call gets back. Rojo does not make a new
+# ModuleScript when a file changes -- it writes the SOURCE of the same one -- so a flag added after
+# that first require is invisible for the rest of the session.
+#   ModuleScript: "ModuleScripts run once and only once per Luau environment and return the exact
+#   same value for subsequent calls to require()", and "return values ... are independent with
+#   regards to Scripts and LocalScripts, and other environments like the Command Bar" -- the
+#   Edit-mode MCP context is one of those other environments, with a cache of its own.
+#   require: "Returns the value that was returned by the given ModuleScript, running it if it has
+#   not been run yet."
+#     https://create.roblox.com/docs/reference/engine/classes/ModuleScript
+#     https://create.roblox.com/docs/reference/engine/globals/LuaGlobals#require
+#   BOTH RENDERED PAGES GAVE A FETCHER NOTHING (asked twice, 2026-09-27); the sentences above are
+#   quoted from the GENERATED SOURCE those pages are built from, which is first-party and public:
+#     .../creator-docs/main/content/en-us/reference/engine/classes/ModuleScript.yaml
+#     .../creator-docs/main/content/en-us/reference/engine/globals/LuaGlobals.yaml
+#
+# MEASURED, TWICE. On 2026-09-27 `flags.py set ORANGE_OUTFITS on` refused "no such flag" in Edit mode
+# while a Play session resolved ORANGE_OUTFITS=false perfectly -- it blocked the Director switching a
+# flag on for Karen's playtest (Task 77, `reviews/task-77/REQUEST.md`). And from scratch, in memory:
+# require a ModuleScript declaring A, rewrite its Source to declare A and B as Rojo would, require
+# the same instance again -> still A; require a CLONE -> A and B. That fixture is check
+# "a clone of a changed module reads the current source" below.
+#
+# THE FIX IS ALREADY IN THIS REPO (rule 2, borrow before building): `tools/mapgen.py`'s `CALL` has
+# used `require(source:Clone())` since 2026-09-26, for this exact reason and with the same
+# measurement written beside it. These two queries simply did not get it.
+#
+# A parentless clone loads the CURRENT source, leaves nothing in any Rojo-owned container (so the
+# "no script outside Rojo-managed paths" check cannot trip over it), and is destroyed immediately.
+# It sends no arbitrary Luau: the query is still a constant, with only a JSON-encoded name and a
+# boolean literal interpolated.
+FRESH_FLAGS = """
+local source = game:GetService("ReplicatedStorage"):WaitForChild("Flags", 5)
+if not source then
+    return "REFUSED: no ReplicatedStorage.Flags -- is Rojo connected?"
 end
+local clone = source:Clone()
+local loaded, Flags = pcall(function()
+    return require(clone)
+end)
+clone:Destroy()
+if not loaded then
+    return "REFUSED: " .. tostring(Flags)
+end
+"""
+
+# Every declared flag, out of Studio's synced copy of ReplicatedStorage.Flags -- read fresh, per the
+# block above. The comment that used to sit here said the module cache was "CORRECT rather than a
+# hazard"; Task 77 measured that it is not, and this listing missed a flag the file declared.
+QUERY_FLAG_TABLE = (
+    FRESH_FLAGS
+    + """
+local HttpService = game:GetService("HttpService")
+local SS = game:GetService("ServerStorage")
 local rows = {}
 for name, row in pairs(Flags.DEFAULTS) do
     local override = SS:GetAttribute(Flags.OVERRIDE_PREFIX .. name)
@@ -590,20 +646,61 @@ end
 table.sort(stray)
 return HttpService:JSONEncode({ rows = rows, stray = stray })
 """
+)
 
 # Set ONE override. The name is validated against Flags.NAME_PATTERN in Python and checked against
 # Flags.DEFAULTS in Luau before anything is written, and the value is a Luau boolean literal -- so
-# this sends no arbitrary Luau, exactly like QUERY_SET_CLIENTS_DONE.
-QUERY_SET_FLAG = """
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+# this sends no arbitrary Luau, exactly like QUERY_SET_CLIENTS_DONE. The DEFAULTS it checks against
+# are read FRESH (see FRESH_FLAGS): this is the query Task 77 could not use.
+QUERY_SET_FLAG = (
+    FRESH_FLAGS
+    + """
 local SS = game:GetService("ServerStorage")
-local Flags = require(ReplicatedStorage:WaitForChild("Flags", 5))
 local name = %s
 if Flags.DEFAULTS[name] == nil then
     return "REFUSED: no such flag " .. name
 end
 SS:SetAttribute(Flags.OVERRIDE_PREFIX .. name, %s)
 return name .. "=" .. tostring(SS:GetAttribute(Flags.OVERRIDE_PREFIX .. name))
+"""
+)
+
+# THE TRAP AND THE FIX, BUILT FROM SCRATCH IN MEMORY (Task 78). It makes its own ModuleScript,
+# requires it, rewrites its Source exactly as Rojo does -- the same instance, new source -- and then
+# asks the same instance and a CLONE what they say. Nothing is ever parented, so no container sees a
+# script and the "no script outside Rojo-managed paths" check cannot trip over it.
+#
+# WHAT IT ASSERTS is only the half this harness depends on: a clone reads the CURRENT source. It
+# REPORTS whether the same instance went stale rather than asserting it -- if Roblox ever changed
+# require's caching, an assertion there would block this repo for a fix, and the clone would still be
+# right either way.
+QUERY_REQUIRE_CACHE = """
+local HttpService = game:GetService("HttpService")
+local ok, result = pcall(function()
+    local module = Instance.new("ModuleScript")
+    module.Name = "DHRequireCacheFixture"
+    module.Source = "return { NAMES = { A = true } }"
+    local first = require(module)
+    module.Source = "return { NAMES = { A = true, B = true } }"
+    local again = require(module)
+    local clone = module:Clone()
+    local fresh = require(clone)
+    clone:Destroy()
+    module:Destroy()
+    local function names(value)
+        local out = {}
+        for key in pairs(value.NAMES) do
+            out[#out + 1] = key
+        end
+        table.sort(out)
+        return table.concat(out, ",")
+    end
+    return { first = names(first), again = names(again), fresh = names(fresh) }
+end)
+if not ok then
+    return HttpService:JSONEncode({ error = tostring(result) })
+end
+return HttpService:JSONEncode(result)
 """
 
 QUERY_CLEAR_FLAGS = (
@@ -1026,6 +1123,27 @@ def synced_nodes():
 
     walk(json.loads(out), [])
     return nodes
+
+
+def declared_flags():
+    """Every flag name `src/shared/Flags/init.luau` declares, read off the file.
+
+    THE SECOND HALF OF TASK 78'S CHECK, and it is deliberately a different route from the one the
+    harness uses to ask Studio: this parses the repo's own file, Studio answers from its synced copy,
+    and the two are compared. A stale require in an Edit-mode query shows up as a flag the file has
+    and Studio's answer does not -- which is exactly what `flags.py` printed on 2026-09-27.
+    """
+    path = os.path.join(REPO, "src", "shared", "Flags", "init.luau")
+    with open(path, "r", encoding="utf-8") as handle:
+        text = handle.read()
+    start = text.find("Flags.DEFAULTS = {")
+    if start < 0:
+        return []
+    body = text[start:]
+    end = body.find("\n}\n")
+    if end >= 0:
+        body = body[:end]
+    return sorted(set(re.findall(r"^\t([A-Z][A-Z0-9_]*) = \{", body, re.M)))
 
 
 def project_refusals():
@@ -1654,6 +1772,23 @@ def run_test(studio):
         print(f"[harness] {len(spec_files)} *.spec.* file(s) in repo: {', '.join(spec_files)}")
         check("Every *.spec.* file is synced into ServerStorage.Tests or ReplicatedStorage.ClientTests",
               not misplaced, ", ".join(misplaced))
+
+        # TASK 78, TWO CHECKS AND THEY ARE ABOUT DIFFERENT THINGS. The first proves the MECHANISM
+        # every Edit-mode flag query now relies on; the second proves the CALL SITES actually use
+        # it, by asking Studio for the flag table and comparing it with the file on disk. The second
+        # only bites in a session whose cache is already stale -- which is precisely the session the
+        # Director could not switch a flag on in.
+        cache = json.loads(studio.query("Edit", QUERY_REQUIRE_CACHE))
+        check("A clone of a changed module reads the current source (the flag queries rely on it)",
+              cache.get("fresh") == "A,B", json.dumps(cache))
+        print(f"[harness] require cache: same instance said {cache.get('again')!r} after its Source "
+              f"declared {cache.get('fresh')!r}"
+              + ("  <-- STALE, which is the trap Task 78 fixed" if cache.get("again") != cache.get("fresh") else ""))
+        want = declared_flags()
+        table = json.loads(studio.query("Edit", QUERY_FLAG_TABLE))
+        got = sorted(row["name"] for row in table.get("rows", [])) if "rows" in table else []
+        check("The Edit-mode flag table lists every flag the repo declares", got == want,
+              f"repo {want}, Studio {got}" + (f" -- {table.get('error')}" if table.get("error") else ""))
 
         phases.mark("checks against the Edit place (sync, scripts, specs)")
         print("[harness] Play")
@@ -2556,7 +2691,20 @@ def selftest():
     ok("every argument builder asks _scoped",
        source.count("self._scoped(") == builders, f"{source.count('self._scoped(')} vs {builders}")
 
-    # 9. The scenario file the replay is made of still parses and still refuses what it refused.
+    # 9. THE FLAG PARSER, which is the half of Task 78's check that needs no Studio. The other half
+    # is the in-memory require-cache fixture, and that one can only run where a Luau VM is.
+    ok("every declared flag is found in the repo's own file",
+       set(declared_flags()) >= {"TIE_UNTIL_DRIVE_END", "BOAR_SOUNDERS"}, repr(declared_flags()))
+    ok("a flag added to the file is found straight away, which is the whole bug",
+       "ORANGE_OUTFITS" in declared_flags(), repr(declared_flags()))
+    # ...and it reads the DEFAULTS table, not any all-caps assignment anywhere in the file: the
+    # module is full of `Flags.NAME_PATTERN`, `Flags.MAX_FLAGS` and a `FlagRow` type, and a parser
+    # that swept those up would compare Studio against a list of things that are not flags.
+    ok("it does not mistake the module's own constants for flags",
+       not ({"NAME_PATTERN", "MAX_FLAGS", "STATE_NAME", "SOURCES", "DEFAULTS"} & set(declared_flags())),
+       repr(declared_flags()))
+
+    # 10. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):
         data = load_scenarios()
         gaps = sum((step.get("ms") or 0) for scenario in data["scenarios"]
