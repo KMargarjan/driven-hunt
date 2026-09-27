@@ -3,17 +3,24 @@
 Task: 75
 Round: 1
 Base: `main` (`ab3dfa1`)
-Code commit: `58b3069bd4ba3b32f74c549e033270de842a616b`
+Code commit: `6670402a382b40afea2d5ac1fe10f70307f5a4c0`
 
 ```
-[harness] NOT RUN -- the Rojo plugin is disconnected (ESCALATE.md, 2026-09-27, NEEDS KAREN)
+[harness] PASS: 30/30 checks @ 6670402a382b40afea2d5ac1fe10f70307f5a4c0 (clean tree)
 ```
 
-**This request is not reviewable yet and says so.** `src/` changed (the manifest's asset id), so the
-gate needs a clean-tree `[harness] PASS` naming the code commit and a `[harness2] PASS` for the same
-commit. I moved branches while `rojo serve` was live and the Studio plugin dropped its connection;
-pressing **Connect** is a human click. Everything else in the task is finished and committed. One
-harness run completes this file.
+`[tests:server] PASS: 404 passed, 0 failed, 0 skipped, 0 errors, 24 spec files`, client 85 passed.
+`test2` is the Director's run and this file is updated with the `[harness2]` line for the same commit
+before the review; `src/` changed (the manifest's asset id), so it is part of the gate. The code
+commit is a paperwork commit one step after the last one that touched `src/`, `tests/` or `tools/`
+(`58b3069`), which only makes the bound stricter.
+
+**The Rojo plugin had dropped its connection** (I moved branches while `rojo serve` was live) and the
+Director pressed **Connect**; the `ESCALATE.md` entry is closed. Worth one line, because it cost me a
+wrong measurement first: a probe that `require`d `ServerStorage.Assets` reported the OLD row after the
+reconnect, because **Studio's Edit-mode require cache is stale for a module required earlier in the
+session**. Reading the ModuleScript's `Source` instead showed the new id and the new spec. The same
+trap has now bitten this project three times.
 
 **What changed.** `tools/asset_prep_blender.py` and `tools/asset_prep.py` (the shine goes in the
 maps; the export must carry them; one material), `src/serverstorage/Assets/init.luau` (a version 2
@@ -93,11 +100,27 @@ the tool), the research note and its index, `TASKS.md` rows 75/75a.
     manifest row's licence. Same model, same geometry (Roblox handed back the **same MeshId**), new
     textures. **Two uploads happened, not one**, and the first is dead: it is recorded, not hidden.
 
-## Screens — looked at, and one of them is not what I wanted
+## Screens — four, looked at, and they do not all flatter the change
 
-Rojo is disconnected, so the gun cannot be photographed **held**. Instead both assets were loaded in
-the Edit place, scaled to exactly what the manifest scales them to (4.400 × 0.689 × 0.249 studs),
-placed side by side in daylight (ClockTime 14.5), photographed and then removed.
+**In Play, daylight (ClockTime 14.5), the gun the player is actually holding:**
+
+- `.screenshots/20260927T005014Z-task75-held-turned.png` — **third person, held**. The gun hangs low
+  across the character's front, pointing down and to the left: a **dark, near-black** forend and
+  barrel with a dull sheen, and the stock dark over the shoulder. It is unmistakably not the bright
+  silver of version 1 — and it is also a poor look at the gun, because the default carry never
+  presents its flank to the camera (the same complaint as 71a(b) and 74a(d), not new here).
+- `.screenshots/20260927T005018Z-task75-ads.png` — **ADS**. Looking straight down the gun: the
+  **walnut stock** fills the lower frame with its grain, the standing breech and top lever above it
+  read **blue-grey steel with visible engraving texture**, and two barrel mouths show as dark circles.
+  **The barrels themselves are invisible at this angle** — they foreshorten into the breech — so this
+  picture proves the gun is textured and says nothing about the shine. No untextured or purple
+  surface anywhere.
+- `…T005010Z-task75-held-thirdperson.png` is the same scene before the camera was turned, with the
+  gun mostly behind the character.
+
+**In Edit, both assets side by side** at exactly the size the manifest scales them to
+(4.400 × 0.689 × 0.249 studs), same sky, then removed again — because this is the only view that
+answers Karen's question properly:
 
 - `.screenshots/20260927T003822Z-task75-old-side.png` — **version 1, the gun in the game today**: the
   barrels and the whole rib are **bright mirror silver**, brighter than the sky behind them. This is
@@ -114,12 +137,22 @@ placed side by side in daylight (ClockTime 14.5), photographed and then removed.
 
 ## Not verified
 
-- **No harness run, and no `test2`.** Blocked on the Connect click (`ESCALATE.md`).
-- **The gun has not been seen held, or in ADS.** Both need the same click; the task asks for both and
-  they are the first thing I will do.
-- **Daylight at ClockTime 14.5 only**, and floating in the air rather than in the hands of a
-  character under the drive's own lighting.
+- **A PLAYER WHO SPAWNS IN THE FIRST SECOND OF A SERVER GETS THE PARTS GUN AND KEEPS IT.** Measured
+  here, twice: the server logged `[WeaponBoot] shotgun.handle loaded: model 103304840285660, 1 mesh
+  part(s), 1227 ms`, and the Tool the player was holding had `BarrelLeft` and no `Model` — for two
+  minutes, because nothing rebuilds a Tool that was granted before the template arrived. I took the
+  gun away once, on the server, and the re-arm sweep handed back the mesh gun; **both Play
+  screenshots were taken after that**, and they are honest about it. This is Task 74's ordering
+  (`Weapon.start()` before `preload`, which is what round 2's finding asked for), not anything this
+  task changed, and in a live server the boot finishes long before a player joins. Queued as 75a(h);
+  it is a real defect and it is not mine to fix in this task.
+- **`test2` is the Director's run**, pasted above before the review.
+- **Daylight at ClockTime 14.5 only**, on the test arena's platform rather than in the wood under the
+  drive's own lighting; dusk is unjudged.
+- **The ADS picture cannot judge the barrels** (they foreshorten out of sight), and the third-person
+  carry never shows the gun's flank. The Edit-mode pair is what carries the barrel claim.
 - **The colours are new to the game as of this upload** (claim 2), so the walnut and the silver have
-  never been judged in-engine by anyone.
+  never been judged in-engine by anyone, and the shaded side of the gun is now genuinely darker than
+  version 1's.
 - **The GLB beside the FBX is not checked** by `verify_embedded_textures`; only the FBX, which is
   what is uploaded.

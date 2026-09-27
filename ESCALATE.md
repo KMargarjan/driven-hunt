@@ -10,7 +10,7 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
-## 2026-09-27 · NEEDS KAREN · Task 75: the Rojo plugin is disconnected, so the harness and the in-game screenshots cannot run
+## 2026-09-27 · CLOSED 2026-09-27 · NEEDS KAREN · Task 75: the Rojo plugin is disconnected, so the harness and the in-game screenshots cannot run
 
 **Raised by:** Builder, Task 75 (branch `task-75-barrel-shine`, code commit `58b3069`).
 
@@ -49,6 +49,11 @@ picture of the thing this task fixed. I did not take one and call it evidence.
 **What I would do next, unattended, once it is connected:** run the harness, take the two
 screenshots, look at them, finish `reviews/task-75/REQUEST.md` with the PASS line and the honest
 description, and report.
+
+**RESOLVED 2026-09-27 by the DIRECTOR, not by Karen.** He pressed Connect himself ("Connected to
+session 'DrivenHunt'"), and the harness then ran clean:
+`[harness] PASS: 30/30 checks @ 6670402a382b40afea2d5ac1fe10f70307f5a4c0 (clean tree)`. Both in-game
+screenshots were taken and are described in `reviews/task-75/REQUEST.md`. Nothing here needs Karen.
 
 **Interim evidence that does not need the click** (Edit mode, daylight, both assets loaded side by
 side at the exact size the manifest scales them to, then removed again):
