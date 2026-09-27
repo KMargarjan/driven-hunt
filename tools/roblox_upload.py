@@ -140,6 +140,40 @@ def check_karen_ok(text):
     return text.strip()
 
 
+def refuse_a_failed_prep(folder):
+    """A prepared folder whose own run said it failed is not uploadable (review round 1, finding 1).
+
+    `tools/asset_prep.py` writes `report.json` beside the exports and sets `ok` false when the run
+    could not stand behind what it produced -- including, since Task 75 round 2, when the exported
+    FBX does not carry the textures the run wrote. That is the one failure that cannot be seen by
+    looking at the file: it is a valid, uploadable FBX of the WRONG model, and it is how two uploads
+    went out with Meshy's raw maps in them.
+
+    A folder with no report is not refused. The tool has always taken a plain folder with a model in
+    it, the selftest's fixtures are exactly that, and refusing them would be a new rule about where
+    assets may come from rather than a check on this one. It says so out loud instead.
+    """
+    path = os.path.join(folder, "report.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            report = json.load(handle)
+    except (OSError, ValueError) as why:
+        raise Refused("report.json in the prepared folder cannot be read (%s); delete it or re-run "
+                      "the prep" % why)
+    if report.get("ok") is False:
+        raise Refused("the prep run that produced this folder FAILED: %s -- fix it and re-run "
+                      "tools/asset_prep.py, do not upload this"
+                      % report.get("error", "no reason recorded"))
+    embedded = report.get("embeddedTextures") or {}
+    if embedded and (embedded.get("strangers") or
+                     sorted(embedded.get("matched", [])) != sorted(embedded.get("written", []))):
+        raise Refused("the FBX in this folder does not embed the textures its own prep run wrote "
+                      "(%s) -- uploading it would ship the original model" % json.dumps(embedded))
+    return report
+
+
 def find_model(folder, wanted=None, asset_type="Model"):
     allowed = CONTENT_TYPES.get(asset_type)
     if allowed is None:
@@ -293,6 +327,16 @@ def upload(folder, name, description, karen_ok, key=None, sender=send, asset_typ
            sleep=time.sleep):
     """The whole run. Raises Refused before anything is sent."""
     karen_ok = check_karen_ok(karen_ok)
+    # BEFORE ANYTHING ELSE, AND BEFORE ANY BYTES MOVE: a prep run that said it failed is not
+    # uploadable, whatever the file looks like (review round 1, finding 1).
+    prep_report = refuse_a_failed_prep(folder)
+    if prep_report is None:
+        say("prep       no report.json beside the model: this folder was not produced by "
+            "tools/asset_prep.py, so nothing vouches for what the file embeds")
+    else:
+        embedded = prep_report.get("embeddedTextures") or {}
+        say("prep       report ok, %s embedded texture(s) all match what the run wrote"
+            % embedded.get("embedded", 0))
     path, content_type, size = find_model(folder, wanted, asset_type)
     sha = digest_of(path)
     seen = already_uploaded(sha)
@@ -419,6 +463,38 @@ def command_selftest(_args):
         model = os.path.join(folder, "model.fbx")
         with open(model, "wb") as handle:
             handle.write(b"fbx-bytes" * 100)
+
+        # ---- A PREP RUN THAT FAILED CANNOT BE UPLOADED (review round 1, finding 1)
+        GOOD_OK = "2026-09-26 the shotgun as prepared by Task 72"
+
+        def never_called(url, method, key, body=None, content_type=None, timeout=120):
+            raise AssertionError("the network was touched: the refusal did not come first")
+
+        report_path = os.path.join(folder, "report.json")
+        with open(report_path, "w", encoding="utf-8") as handle:
+            json.dump({"ok": False, "error": "the exported FBX does not carry the textures this "
+                                             "run wrote"}, handle)
+        refuses("it refuses a folder whose prep run FAILED",
+                lambda: upload(folder, "n", "d", GOOD_OK, key="k", sender=never_called),
+                "prep run that produced this folder FAILED")
+        # ...and the subtler one: the run said ok, but its own embedding check did not match up.
+        with open(report_path, "w", encoding="utf-8") as handle:
+            json.dump({"ok": True, "embeddedTextures": {
+                "embedded": 3, "strangers": 1, "matched": ["texture_metallic.png"],
+                "written": ["texture_baseColor.png", "texture_metallic.png"]}}, handle)
+        refuses("it refuses a folder whose FBX embeds something the prep did not write",
+                lambda: upload(folder, "n", "d", GOOD_OK, key="k", sender=never_called),
+                "does not embed the textures its own prep run wrote")
+        # A good report does not get in the way, and a folder with no report is allowed through.
+        with open(report_path, "w", encoding="utf-8") as handle:
+            json.dump({"ok": True, "embeddedTextures": {
+                "embedded": 2, "strangers": 0,
+                "matched": ["texture_baseColor.png", "texture_metallic.png"],
+                "written": ["texture_baseColor.png", "texture_metallic.png"]}}, handle)
+        ok("a good prep report is accepted", refuse_a_failed_prep(folder) is not None)
+        os.remove(report_path)
+        ok("a folder with no prep report is still allowed (the tool predates the report)",
+           refuse_a_failed_prep(folder) is None)
 
         # ---- the refusals, each proved rather than described
         refuses("it refuses with no Karen OK at all",

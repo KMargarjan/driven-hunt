@@ -71,6 +71,11 @@ export type AssetRow = {
 	offsetStuds: Vector3,
 	rotationDeg: Vector3, -- the backwards-knife correction; only a screenshot checks it (6.3)
 	renderFidelity: string,
+	-- SET WHEN A LATER VERSION REPLACES THIS ROW. The row STAYS (rule 7: never delete, archive
+	-- with a note) -- an id that has been in a place is provenance, and a moderated-away or
+	-- rolled-back asset is undiagnosable without it. `byKey` skips a superseded row even if it is
+	-- somehow the highest version, so the FIELD is the decision and the version number is not.
+	supersededBy: number?,
 	notes: string?,
 }
 
@@ -123,7 +128,11 @@ Assets.ROWS = {
 		-- MEASURED, not declared: tools/asset_prep.py counted 19,325 triangles on the prepped mesh
 		-- and the GLB's own index accessor agreed. Roblox's ceiling is 20,000 per mesh.
 		trisDeclared = 19325,
-		texturePx = 2048,
+		-- 4096, NOT THE 2048 THIS ROW CLAIMED UNTIL TASK 75. The prep down-sampled its own copies to
+		-- 2048 and this row recorded that, but the FBX that was uploaded embedded Meshy's untouched
+		-- 4096 maps -- so the number described the intention and not the asset (review round 1,
+		-- note). Version 2's 2048 is measured on what actually shipped.
+		texturePx = 4096,
 		sizeStuds = GUN_SIZE,
 		naturalSizeStuds = NATURAL,
 		offsetStuds = Vector3.zero, -- measured: the template's pivot is its bounding-box centre to
@@ -138,16 +147,74 @@ Assets.ROWS = {
 		-- three rounds). This is that bug, caught on the first look instead of the third round.
 		rotationDeg = Vector3.new(0, 90, 0),
 		renderFidelity = "Automatic",
-		notes = "One MeshPart with a SurfaceAppearance child; the import kept the PBR maps, so the "
-			.. "viewmodel's clone must not strip non-Attachment children (design 6.6).",
+		supersededBy = 2,
+		notes = "SUPERSEDED BY VERSION 2, and kept because rule 7 keeps things. This upload's FBX "
+			.. "embedded Meshy's untouched textures: the prep tool wrote its corrected maps beside "
+			.. "the export and repointed nothing, so what shipped was metalness 0.91 / roughness "
+			.. "0.19 -- a mirror. That is why the barrels read bright silver in Roblox daylight "
+			.. "(Karen, 2026-09-26: barrels too shiny). Measured by reading the PNGs back out of "
+			.. "the uploaded file (Task 75).",
+	},
+	{
+		key = "shotgun.handle",
+		version = 2,
+		kind = "meshpart" :: Kind,
+		-- Uploaded by tools/roblox_upload.py on 2026-09-27; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- WHY THERE IS A VERSION 2 AT ALL. Karen asked for one correction -- "barrels too shiny
+		-- ... make more realistic" (2026-09-26) -- and it took a tool fix to deliver it: the prep
+		-- recipe's metalness and roughness lived on a Blender material, and Roblox reads MAPS and
+		-- has nowhere to put a material scalar, so those numbers reached the renders and never the
+		-- game. Since Task 75 they are written into the maps and the export carries them.
+		-- MEASURED in Studio, on this id: ONE SurfaceAppearance, ColorMap 137831763707305,
+		-- MetalnessMap 97235862383876, RoughnessMap 113964612606991 -- all three new, where
+		-- version 1 came back carrying the raw model's own map ids.
+		modelId = 103304840285660,
+		displayName = "Driven Hunt shotgun (side-by-side) r4",
+		fileName = "model.fbx",
+		sourceSha256 = "1cedac2b5485d709b4a796df51fba26a030b466689989a6720bd3ab598a8930d",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked for this "
+				.. "exact correction the same day: barrels too shiny, make more realistic. The "
+				.. "re-upload carries her correction and nothing else -- same model, same geometry, "
+				.. "new textures.",
+			quotedFrom = "assets/uploads.json (karenOk), TASKS.md rows 74-75",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		-- MEASURED, not declared: the geometry did not change, and Roblox handed back the SAME
+		-- MeshId (rbxassetid://72415641939074), so the count and the bounding box are version 1's.
+		trisDeclared = 19325,
+		texturePx = 2048,
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		renderFidelity = "Automatic",
+		notes = "Barrels and rib at metalness 0.10 / roughness 0.50, action 0.70 / 0.35, stock "
+			.. "0.00 / 0.62, written into the MAPS, which is the only channel Roblox reads. One "
+			.. "MeshPart with ONE SurfaceAppearance child (version 1's export made four, three of "
+			.. "them empty); the viewmodel's clone must keep it (design 6.6).",
 	},
 } :: { AssetRow }
 
 -- The newest usable row for a key, or nil -- which means "use the grey box", not "fail".
-function Assets.byKey(key: string): AssetRow?
+--
+-- `rows` is here so the RULES can be tested rather than only the current data: with one row per key
+-- and versions in order, "skips a superseded row" and "prefers the highest version" cannot be told
+-- apart by looking at `Assets.ROWS`. A spec passes its own table and asks each question separately.
+-- Production never passes it.
+function Assets.byKey(key: string, rows: { AssetRow }?): AssetRow?
 	local best: AssetRow? = nil
-	for _, row in ipairs(Assets.ROWS) do
-		if row.key == key and row.moderation ~= "rejected" then
+	for _, row in ipairs(rows or Assets.ROWS) do
+		if row.key == key and row.moderation ~= "rejected" and row.supersededBy == nil then
 			if best == nil or row.version > best.version then
 				best = row
 			end
@@ -157,16 +224,24 @@ function Assets.byKey(key: string): AssetRow?
 end
 
 -- An alias, kept because consumers read like this (design 4.2).
-function Assets.describe(key: string): AssetRow?
-	return Assets.byKey(key)
+function Assets.describe(key: string, rows: { AssetRow }?): AssetRow?
+	return Assets.byKey(key, rows)
 end
 
 -- What a boot script preloads. "runtime" is everything a server needs before a player can hold it.
+-- ONE KEY, ONCE, AND NEVER A SUPERSEDED ONE. The moment this table held two rows for one key it
+-- started answering `{"shotgun.handle", "shotgun.handle"}`, which is what `Loader.preload` is meant
+-- to be called with (design 5.2) -- two network loads for one gun, the second finding the first
+-- already cached (review round 1, note). Nothing calls it that way yet; that is the point of fixing
+-- it now rather than when something does.
 function Assets.keysFor(scope: string): { string }
-	local out = {}
+	local out, seen = {}, {}
 	for _, row in ipairs(Assets.ROWS) do
-		if scope == "runtime" and row.kind ~= "image" then
-			table.insert(out, row.key)
+		if scope == "runtime" and row.kind ~= "image" and row.supersededBy == nil then
+			if not seen[row.key] then
+				seen[row.key] = true
+				table.insert(out, row.key)
+			end
 		end
 	end
 	return out

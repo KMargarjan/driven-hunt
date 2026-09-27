@@ -113,7 +113,16 @@ return function()
 			expect(row.kind).to.equal("meshpart")
 			expect(row.moderation).to.equal("approved")
 			expect(Assets.describe(Hardware.ASSET_KEY)).to.equal(row)
-			expect(#Assets.keysFor("runtime") >= 1).to.equal(true)
+			-- ONE KEY, ONCE. Two rows for the gun now exist, and `#keysFor >= 1` would have passed
+			-- just as happily on the duplicate that `Loader.preload` would have loaded twice
+			-- (review round 1, note). Asserted as an exact set instead.
+			local keys = Assets.keysFor("runtime")
+			local counted = {}
+			for _, key in ipairs(keys) do
+				counted[key] = (counted[key] or 0) + 1
+			end
+			expect(counted[Hardware.ASSET_KEY]).to.equal(1)
+			expect(#keys).to.equal(1)
 			-- ...and there is no second id table: MapGen's is still empty (map-generator 12.2).
 			local mapGen = ServerStorage:FindFirstChild("MapGen")
 			if mapGen then
@@ -148,6 +157,44 @@ return function()
 					factor
 				)
 			)
+		end)
+
+		it("keeps the row it replaced, and hands out the new one", function()
+			-- RULE 7 IN THE ONE PLACE AN ID LIVES. Task 75 re-uploaded Karen's shotgun with the
+			-- barrel shine she asked for, so there are now two rows for one key. The old id STAYS:
+			-- an id that has been in a place is provenance, and a rolled-back or moderated-away
+			-- asset cannot be diagnosed from a row that was deleted.
+			local mine = {}
+			for _, row in ipairs(Assets.ROWS) do
+				if row.key == Hardware.ASSET_KEY then
+					table.insert(mine, row)
+				end
+			end
+			expect(#mine).to.equal(2)
+			local live = Assets.byKey(Hardware.ASSET_KEY)
+			expect(live.version).to.equal(2)
+			expect(live.modelId).to.equal(103304840285660)
+			expect(live.supersededBy).to.equal(nil)
+			-- ...and the row it replaced is still here, still saying why.
+			local old = if mine[1].version == 1 then mine[1] else mine[2]
+			expect(old.modelId).to.equal(117134580332969)
+			expect(old.supersededBy).to.equal(2)
+			expect(string.find(old.notes :: string, "SUPERSEDED") ~= nil).to.equal(true)
+		end)
+
+		it("skips a superseded row even when it is the newest one", function()
+			-- THE RULE, NOT TODAY'S DATA. With the real table the answer is the same whether the
+			-- rule is "highest version" or "highest version that is not superseded", so the two are
+			-- asked separately, on a table this case owns. Delete the `supersededBy == nil` test in
+			-- `Assets.byKey` and this is the case that fails; the one above still passes.
+			local row = Assets.byKey("x", {
+				{ key = "x", version = 1, modelId = 11 } :: any,
+				{ key = "x", version = 9, modelId = 99, supersededBy = 10 } :: any,
+			})
+			expect(row).to.be.ok()
+			expect(row.modelId).to.equal(11)
+			-- a rejected row is skipped the same way, and nothing usable means nil, not an error
+			expect(Assets.byKey("x", { { key = "x", version = 1, moderation = "rejected" } :: any })).to.equal(nil)
 		end)
 
 		it("is frozen, all the way down", function()

@@ -10,6 +10,58 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-09-27 · CLOSED 2026-09-27 · NEEDS KAREN · Task 75: the Rojo plugin is disconnected, so the harness and the in-game screenshots cannot run
+
+**Raised by:** Builder, Task 75 (branch `task-75-barrel-shine`, code commit `58b3069`).
+
+**What is blocked:** the 1-player harness, and the two in-game screenshots the task asks for (the gun
+held in third person, and ADS). Nothing else: the tool fix, the re-prep, the upload, the manifest
+change, the specs, the selftest and its two mutations are all done and committed.
+
+**Why it needs a click.** I moved branches (`task-74` → `main` → `task-75`) while `rojo serve` was
+live, which is exactly what CLAUDE.md's git workflow step 6 warns about. `rojo serve` still answers
+on 34872, but the Studio plugin is no longer connected, and only a human (or the Director's click
+tool) can press **Connect**. Measured, not guessed — Studio's own copy of the place still holds the
+task-74 tree:
+
+```
+ServerStorage.Tests children = 24
+TestSyncToken = ""
+Assets.ROWS = 1 row(s); byKey modelId = 117134580332969   <- the OLD asset; this branch has 2 rows
+```
+
+Until it is connected, a Play session would load the old asset, so an in-game screenshot would be a
+picture of the thing this task fixed. I did not take one and call it evidence.
+
+**The clicks, in this order:**
+
+1. In Studio, open the **Rojo** plugin window and press **Connect** (the DEV place, 136410205938347,
+   must be open in **Edit** mode). Accept the sync dialog if it lists changes — they are this
+   branch's: `ServerStorage.Assets` gains a second row.
+2. Then, in a terminal in the repo folder:
+
+   ```
+   python tools/studio_mcp.py test
+   ```
+
+   and, because this touches `src/`, the Director's `test2` afterwards.
+
+**What I would do next, unattended, once it is connected:** run the harness, take the two
+screenshots, look at them, finish `reviews/task-75/REQUEST.md` with the PASS line and the honest
+description, and report.
+
+**RESOLVED 2026-09-27 by the DIRECTOR, not by Karen.** He pressed Connect himself ("Connected to
+session 'DrivenHunt'"), and the harness then ran clean:
+`[harness] PASS: 30/30 checks @ 6670402a382b40afea2d5ac1fe10f70307f5a4c0 (clean tree)`. Both in-game
+screenshots were taken and are described in `reviews/task-75/REQUEST.md`. Nothing here needs Karen.
+
+**Interim evidence that does not need the click** (Edit mode, daylight, both assets loaded side by
+side at the exact size the manifest scales them to, then removed again):
+`.screenshots/20260927T003817Z-task75-new-side.png`, `…-task75-old-side.png` and
+`…-task75-new-side-b.png`. The old gun's barrels are bright mirror silver; the new gun's are
+near-black with a thin highlight along the rib. Described in full in `reviews/task-75/REQUEST.md`.
+
+---
 ## 2026-09-25 · CLOSED 2026-09-25 · NEEDS KAREN · Task 34: the 2-player harness mode needs one click to be exercised
 
 **Raised by:** Builder, Task 34 (branch `task-34-harness-2p`). **Nothing is blocked**: the mode is
