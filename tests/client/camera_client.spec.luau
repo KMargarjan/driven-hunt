@@ -792,7 +792,11 @@ return function()
 				expect(marker.CanQuery).to.equal(false)
 				expect(marker.CanCollide).to.equal(false)
 				expect(marker.Anchored).to.equal(true)
-				expect(marker.Size.X).to.equal(Config.BEAD_MARKER_STUDS)
+				-- WITHIN A FLOAT, NOT EQUAL TO ONE. `BasePart.Size` is stored as float32, so the
+				-- config's 0.055 comes back as 0.054999999701976776 -- measured, in the first
+				-- two-player run of this task. The claim is the size the config asks for, and a
+				-- round trip through the engine's own precision is not a difference.
+				expect(math.abs(marker.Size.X - Config.BEAD_MARKER_STUDS) < 1e-4).to.equal(true)
 				expect(marker.Color).to.equal(Config.BEAD_MARKER_COLOR)
 				-- ON the sight, not near it: within a tenth of a bead of the attachment.
 				local sight = clone:FindFirstChild("Sight") :: Attachment
