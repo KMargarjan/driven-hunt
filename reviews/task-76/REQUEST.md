@@ -3,15 +3,19 @@
 Task: 76
 Round: 1
 Base: `main` (`25da32d`)
-Code commit: `80380a783a53c0e222dac8025a862f673409b40e`
+Code commit: `9100aae464a19c23cc1ea79c126d927cee17fc3e`
 
 ```
-[harness] PASS: 30/30 checks @ 80380a783a53c0e222dac8025a862f673409b40e (clean tree)
+[harness]  PASS: 30/30 checks @ 9100aae464a19c23cc1ea79c126d927cee17fc3e (clean tree)
+[harness2] PASS: 32/32 checks @ 9100aae464a19c23cc1ea79c126d927cee17fc3e (clean tree)
 ```
 
-`src/` and `tests/client/` both changed, so `test2` is part of the gate; the Director runs it at this
-branch's head and that line goes here. `[tests:server] PASS: 408 passed` (404 before: four new),
-client 86 (85 before: one new).
+Both are the Director's runs at this branch's head. `src/` and `tests/client/` both changed, so
+`test2` is part of the gate. The head is a paperwork commit — at or after the last commit that
+touched `src/` or `tests/` (`80380a7`), with only `TASKS.md` and this file between them — which only
+makes the bound stricter. My own clean-tree `[harness] PASS: 30/30 @ 80380a7` covers the same code
+and reported `[tests:server] PASS: 408 passed` (404 before: four new), client 86 (85 before: one
+new).
 
 **The defect (row 75a(h)).** `WeaponBoot` starts the weapon system BEFORE the preload — Task 74
 review round 1 asked for exactly that, because a stalled `LoadAsset` must not mean a gunless player —
@@ -54,7 +58,9 @@ before the network; one `upgradeAll` when the preload returns),
 5. **The player's path, live.** "leaves no carried gun wearing the fallback once the mesh has
    loaded" runs with the LIVE provider and no fake. Its note in the `80380a7` run reads
    `1 carried gun(s), 0 wearing the mesh, live template=yes, provider answers=yes` — the defect,
-   reproduced on the harness's own player — and the case passes because `upgradeAll` fixes it.
+   reproduced on the harness's own player — and the case passes because `upgradeAll` fixes it. The
+   count varies per run (a player who joins after the preload is handed the mesh outright), which is
+   why the note prints what it saw rather than the case asserting a number.
 6. **The ADS viewmodel follows from its one source.** `Camera.Viewmodel` rebuilt only when the
    source part changed IDENTITY, which an in-place upgrade never does. It now watches the source's
    `ChildAdded`/`ChildRemoved`; `camera_client.spec`, "rebuilds the clone when the source Handle's
@@ -80,8 +86,9 @@ before the network; one `upgradeAll` when the preload returns),
 
 ## What I could not verify
 
-- **`test2`.** Not run by me (Director's rule). A second player exercises no path this task adds that
-  one does not, but the gate wants it.
+- **`test2` is the Director's run, not mine**, and it is pasted above. A second player exercises no
+  path this task adds that one does not; the gate wants it because `src/` and `tests/client/`
+  changed.
 - **The screenshots are of a gun that had already been upgraded**, not of one changing under the
   camera: I cannot make a Play session join at a chosen millisecond. The three Play captures of the
   `80380a7` run show the MESH gun in ADS and in hand; the same run's spec note is what says the gun
