@@ -5,8 +5,11 @@
 -- Slug, which fires one pellet.
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/shotgun.md (sections 5.3, 13.1)
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 
 local Validator = Weapon.Validator
@@ -77,6 +80,130 @@ return function()
 			expect(Validator.checkRequest("SelectAmmo", "Grenade")).to.equal(false)
 			expect(Validator.checkRequest("Reload", "Slug")).to.equal(false)
 			expect(select(2, Validator.checkRequest("Break", nil))).to.equal("bad-request")
+		end)
+
+		-- THE OTHER HALF OF THE SAME RULE, at the seam a forged request actually arrives through
+		-- (Task 80). The case above proves the whitelist says no; this proves the HANDLER asks it,
+		-- which is the half that would let an exploit through if someone moved the check.
+		--
+		-- IT USED TO BE A CLIENT CASE, and it could never have been sound there. `weapon_client.spec`
+		-- fired forged payloads from a Play client and watched this player's published state for a
+		-- change -- but `ServerScriptService.Weapon` is the only writer of that state and rewrites it
+		-- on its own schedule: `grant` resets it and auto-equips, the arming sweep calls grant again,
+		-- a Reload is a multi-step cycle. So "the state changed" and "the forged request was accepted"
+		-- are the same observation from a client, and two two-player runs failed for the first reason
+		-- while reading as the second (`weapon granted=9 revoked=4` in that session's own note).
+		--
+		-- Here there is no window and no waiting. `Weapon.onActionRequest` and `Weapon.onFireRequest`
+		-- ARE the functions `Weapon.start` connects to the remotes, and `stats.badRequests` rises in
+		-- exactly one place: the branch taken when the validator refuses. Counting it is what makes
+		-- this deterministic -- a legitimate grant or reload cannot raise that number.
+		it("consults the whitelist before acting, at the handler the remote calls", function()
+			-- A player the owner is already tracking, because a request for an untracked player
+			-- returns before the validator and proves nothing.
+			local subject = nil
+			local roster = {}
+			for _, player in ipairs(Players:GetPlayers()) do
+				table.insert(roster, player.Name .. (if Weapon.getSnapshot(player) then "(tracked)" else "(untracked)"))
+				if not subject and Weapon.getSnapshot(player) then
+					subject = player
+				end
+			end
+			if not subject then
+				-- Not a skip (TestKit fails the run for those): say what was missing and assert the
+				-- half that needs nobody, so this case never passes silently.
+				TestKit.note(
+					"weapon_shot: no tracked player, so the handler half was not driven; roster ["
+						.. table.concat(roster, ", ")
+						.. "]"
+				)
+				expect(Validator.checkRequest("Break", nil)).to.equal(false)
+				return
+			end
+
+			local actions = {
+				{ "Break", nil },
+				{ "Load", nil },
+				{ "Close", nil },
+				{ "Fire", nil },
+				{ "", nil },
+				{ 42, nil },
+				{ {}, nil },
+				{ "SelectAmmo", "Grenade" },
+				{ "Reload", "Slug" },
+			}
+			local shots = { "not a table", { origin = "x", direction = Vector3.zero }, 7 }
+
+			-- THE RATE LIMITER IS A PRE-VALIDATOR EXIT, so a dropped call would prove nothing. It is
+			-- not avoided by counting to ten and guessing: the handler SAYS "rate-limited", so a call
+			-- that hits the limit is simply made again in the next window.
+			local function ask(send: () -> string?): string?
+				local why = send()
+				if why == "rate-limited" then
+					task.wait(1.1)
+					why = send()
+				end
+				return why
+			end
+
+			local before = Weapon.stats()
+			local said = {}
+			local accepted, preValidator = {}, {}
+			local function record(label: string, why: string?)
+				table.insert(said, label .. "=" .. tostring(why))
+				if why == nil then
+					table.insert(accepted, label)
+				elseif why == "rate-limited" or why == "untracked" then
+					table.insert(preValidator, label .. "=" .. why)
+				end
+			end
+
+			for _, pair in ipairs(actions) do
+				local kind, ammo = pair[1], pair[2]
+				record(
+					"action " .. tostring(kind) .. (if ammo then "/" .. tostring(ammo) else ""),
+					ask(function()
+						return Weapon.onActionRequest(subject, kind, ammo)
+					end)
+				)
+			end
+			for index, bad in ipairs(shots) do
+				record(
+					"fire #" .. index,
+					ask(function()
+						return Weapon.onFireRequest(subject, bad)
+					end)
+				)
+			end
+			local after = Weapon.stats()
+
+			-- WHAT IT COUNTED AND FROM WHOM, because the first version of this case could not say.
+			-- The counter deltas are the WHOLE SERVER's -- `stats` is one module-level table, so a
+			-- second player's legitimate click lands in them -- and they are context here, not the
+			-- assertion. The per-call reasons below are what is asserted, and each belongs to one call
+			-- and one player.
+			TestKit.note(
+				string.format(
+					"weapon_shot: %d forged request(s) at the handler, subject %s of roster [%s]; "
+						.. "reasons [%s]; server-wide counters over the same window: badRequests +%d, "
+						.. "rateDropped +%d, shots +%d (other players' shots land in these)",
+					#actions + #shots,
+					subject.Name,
+					table.concat(roster, ", "),
+					table.concat(said, ", "),
+					after.badRequests - before.badRequests,
+					after.rateDropped - before.rateDropped,
+					after.shots - before.shots
+				)
+			)
+
+			-- NOT ONE OF THEM WAS ACTED ON: the handlers return nil only on the paths that did
+			-- something.
+			expect(#accepted).to.equal(0)
+			-- ...and every one of them reached the VALIDATOR to be refused, rather than falling out at
+			-- an earlier guard, which would make this case green with the whitelist deleted.
+			expect(#preValidator).to.equal(0)
+			expect(#said).to.equal(#actions + #shots)
 		end)
 	end)
 
