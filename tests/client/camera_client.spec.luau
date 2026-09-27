@@ -947,6 +947,96 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------------------ the break-open reload (task 96)
+	describe("the break", function()
+		it("hinges the barrels off the action, and throws a shell per fired barrel", function()
+			-- KAREN, 2026-09-27: a BREAK ACTION like the real gun. `Weapon.Hardware` wears the gun as
+			-- two welded meshes since this task, and the viewmodel rotates the one called `Barrels`
+			-- about the knuckle -- which is the only reason the model was split at all.
+			local handle = Instance.new("MeshPart")
+			handle.Name = "Handle"
+			handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+			handle.Transparency = 1
+			local sight = Instance.new("Attachment")
+			sight.Name = "Sight"
+			sight.CFrame = CFrame.new(0, 0.336, -2.19)
+			sight.Parent = handle
+			local barrels = Instance.new("Part")
+			barrels.Name = "Barrels"
+			barrels.Size = Vector3.new(0.2, 0.2, 2.7)
+			barrels.CFrame = handle.CFrame
+			barrels.Parent = handle
+
+			local live = Camera.Viewmodel.getSource()
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			local ok, err = pcall(function()
+				Camera.Viewmodel.clear()
+				task.wait(0.3)
+
+				-- SHUT: the barrels sit exactly where the body does, and there are no shells.
+				Camera.Viewmodel.setReload({ open = false, spent = 0 })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local cloned = clone:FindFirstChild("Barrels") :: BasePart
+				expect(cloned).to.be.ok()
+				local restAngle =
+					math.deg(math.acos(math.clamp(cloned.CFrame.LookVector:Dot(clone.CFrame.LookVector), -1, 1)))
+				expect(restAngle < 0.01).to.equal(true)
+				expect(clone:FindFirstChild("SpentShell1")).to.equal(nil)
+
+				-- OPEN, WITH BOTH BARRELS FIRED: the barrels swing down by the config's own angle
+				-- about the hinge, and the muzzle drops rather than the whole gun turning.
+				local open = table.clone(stateAtBlend(0)) :: any
+				open.openTilt = 1
+				table.freeze(open)
+				Camera.Viewmodel.setReload({ open = true, spent = 2 })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				local swung =
+					math.deg(math.acos(math.clamp(cloned.CFrame.LookVector:Dot(clone.CFrame.LookVector), -1, 1)))
+				expect(math.abs(swung - firstPersonConfig.BREAK_OPEN_DEG) < 0.5).to.equal(true)
+				expect(cloned.CFrame.LookVector.Y < clone.CFrame.LookVector.Y).to.equal(true) -- muzzle DOWN
+				-- ...and a shell for each barrel that fired, drawn where the chambers are.
+				expect(clone:FindFirstChild("SpentShell1")).to.be.ok()
+				expect(clone:FindFirstChild("SpentShell2")).to.be.ok()
+				TestKit.note(
+					string.format(
+						"task96 break: barrels swing %.1f deg, %d shell(s) drawn",
+						swung,
+						Camera.Viewmodel.stats().shellsDrawn
+					)
+				)
+
+				-- ONE FIRED BARREL THROWS ONE SHELL. The thing a player notices if it is wrong.
+				Camera.Viewmodel.setReload({ open = false, spent = 0 })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				expect(clone:FindFirstChild("SpentShell1")).to.equal(nil)
+				Camera.Viewmodel.setReload({ open = true, spent = 1 })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				expect(clone:FindFirstChild("SpentShell1")).to.be.ok()
+				expect(clone:FindFirstChild("SpentShell2")).to.equal(nil)
+
+				-- AND THE OFF BRANCH HINGES NOTHING: the third-person gun has no break to draw.
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, Config)
+				local offAngle =
+					math.deg(math.acos(math.clamp(cloned.CFrame.LookVector:Dot(clone.CFrame.LookVector), -1, 1)))
+				expect(offAngle < 0.01).to.equal(true)
+
+				Camera.Viewmodel.setReload(nil)
+				Camera.Viewmodel.clear()
+			end)
+			Camera.Viewmodel.setSource(live)
+			handle:Destroy()
+			if not ok then
+				error(err, 0)
+			end
+			-- THE LIVE CAMERA IS BACK AS IT WAS: nothing left open, nothing left holding shells.
+			expect(Camera.Viewmodel.reloadState().open).to.equal(false)
+			expect(Camera.stats().breakAngleDeg).to.equal(0)
+		end)
+	end)
+
 	describe("the hidden local body", function()
 		-- audit-003 F1 / audit-004 must-fix 2, and the one defect in that audit Karen would SEE: in ADS
 		-- the real shotgun was drawn beside the viewmodel, two guns on screen at once.

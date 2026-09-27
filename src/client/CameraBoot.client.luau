@@ -45,6 +45,24 @@ if weaponModule then
 	Weapon.Effects.setMuzzleProvider(function(barrel: number?): CFrame?
 		return Camera.viewmodelMuzzle(barrel)
 	end)
+	-- TASK 96: the break-open reload. The weapon's own replica says whether the gun is open and how
+	-- many barrels were spent when it opened; the camera draws the swing and the shells. The RULES
+	-- and the clock stay the server's -- this is a read, like the aim source above.
+	Camera.setBreakSource({
+		state = function()
+			local snapshot = Weapon.get()
+			if snapshot == nil then
+				return { open = false, spent = 0 }
+			end
+			local spent = 0
+			for _, barrel in ipairs(snapshot.barrels or {}) do
+				if barrel == "Spent" then
+					spent += 1
+				end
+			end
+			return { open = snapshot.open == true, spent = spent }
+		end,
+	})
 end
 
 Camera.start()

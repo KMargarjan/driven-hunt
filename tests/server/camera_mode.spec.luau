@@ -423,6 +423,75 @@ return function()
 			expect(downSeconds < upSeconds).to.equal(true)
 		end)
 
+		-- ------------------------------------------------------ the break-open reload (task 96)
+		describe("the break", function()
+			-- KAREN, 2026-09-27: a BREAK ACTION like the real Beretta 486 Parallelo -- the barrels
+			-- hinge down off the action -- not the reference game's pump-style muzzle-up reload. The
+			-- rules and the clock stay the server's; this is the drawn motion following the weapon's
+			-- own `open` flag.
+			local function step(state, breaking: boolean, seconds: number, dt: number)
+				local elapsed = 0
+				while elapsed < seconds do
+					state = Mode.step(state, input({ breaking = breaking }), dt, firstPerson)
+					elapsed += dt
+				end
+				return state
+			end
+
+			it("swings to exactly open and exactly shut, at any frame rate", function()
+				for _, dt in ipairs({ 1 / 240, 1 / 60, 1 / 20 }) do
+					local start = Mode.step(Mode.initial(firstPerson), input(), dt, firstPerson)
+					expect(start.openTilt).to.equal(0)
+					local open = step(start, true, firstPerson.BREAK_OPEN_SECONDS + dt * 2, dt)
+					-- EXACTLY 1, not 0.999: a viewmodel that settles a hair short never looks shut
+					-- again either, and the angle below is read straight off this number.
+					expect(open.openTilt).to.equal(1)
+					expect(Mode.breakAngleDeg(open, firstPerson)).to.equal(firstPerson.BREAK_OPEN_DEG)
+					local shut = step(open, false, firstPerson.BREAK_CLOSE_SECONDS + dt * 2, dt)
+					expect(shut.openTilt).to.equal(0)
+					expect(Mode.breakAngleDeg(shut, firstPerson)).to.equal(0)
+				end
+				-- IT SHUTS FASTER THAN IT OPENS -- the snap Karen asked for -- and both are shorter
+				-- than the server's own break and close steps, so the drawn move always finishes
+				-- inside the state that started it.
+				expect(firstPerson.BREAK_CLOSE_SECONDS < firstPerson.BREAK_OPEN_SECONDS).to.equal(true)
+				expect(firstPerson.BREAK_OPEN_SECONDS < Shotgun.CONFIG.RELOAD_BREAK).to.equal(true)
+				expect(firstPerson.BREAK_CLOSE_SECONDS < Shotgun.CONFIG.RELOAD_CLOSE).to.equal(true)
+				-- ...and it is a crisp break rather than a crack: 30 to 40 degrees.
+				expect(firstPerson.BREAK_OPEN_DEG >= 30 and firstPerson.BREAK_OPEN_DEG <= 40).to.equal(true)
+			end)
+
+			it("brings the gun down and toward the centre while it is open, and not before", function()
+				local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
+				local shutState = stateAtBlend(0)
+				local closed = Mode.viewmodelOffset(shutState, sight, firstPerson)
+				local openState = table.clone(shutState) :: any
+				openState.openTilt = 1
+				table.freeze(openState)
+				local open = Mode.viewmodelOffset(openState, sight, firstPerson)
+				-- DOWN, and turned: the breech becomes something to look into rather than at.
+				expect(open.Position.Y < closed.Position.Y - 0.1).to.equal(true)
+				expect(open.LookVector:Dot(closed.LookVector) < 0.999).to.equal(true)
+				-- ...and with the gun shut the pose is bit-for-bit what it was before task 96, which
+				-- is what keeps the carry and the aim the pictures Karen and the Director accepted.
+				local halfOpen = table.clone(shutState) :: any
+				halfOpen.openTilt = 0
+				table.freeze(halfOpen)
+				expect(Mode.viewmodelOffset(halfOpen, sight, firstPerson)).to.equal(closed)
+			end)
+
+			it("does nothing at all in the third-person branch", function()
+				local state = Mode.step(Mode.initial(Config), input({ breaking = true }), 1 / 60, Config)
+				expect(state.openTilt).to.equal(0)
+				expect(Mode.breakAngleDeg(state, Config)).to.equal(0)
+				-- ...and the flag-off pose is untouched by a state that somehow arrived open.
+				local opened = table.clone(stateAtBlend(0)) :: any
+				opened.openTilt = 1
+				table.freeze(opened)
+				expect(Mode.breakAngleDeg(opened, Config)).to.equal(0)
+			end)
+		end)
+
 		-- ------------------------------------------------------------------ recoil (task 92)
 		describe("recoil", function()
 			-- KAREN, after playing S2: "shooting has to have recoil a bit".

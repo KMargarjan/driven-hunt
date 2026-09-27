@@ -42,10 +42,15 @@ Camera.Cursor = Cursor
 Camera.Viewmodel = Viewmodel
 
 export type AimSource = { isAiming: () -> boolean }
+-- WHAT THE WEAPON SAYS ABOUT ITS OWN RELOAD (task 96): is it broken open, and how many barrels had
+-- been fired when it opened. The server owns the reload and its clock; the camera draws it. Injected
+-- by `CameraBoot` exactly as the aim source is, so this module still requires no weapon.
+export type BreakSource = { state: () -> { open: boolean, spent: number } }
 
 local state = Mode.initial(Config)
 local lookDelta = Vector2.zero
 local aimSource: AimSource? = nil
+local breakSource: BreakSource? = nil
 local started = false
 local connections: { RBXScriptConnection } = {}
 local acquired, acquireReason = false, nil :: string?
@@ -72,6 +77,10 @@ local stats = {
 	-- rather than count frames. See Config.LOOK_AT_LANDED_DOT for how close "showed it" is.
 	lookAtRequests = 0,
 	lookAtLanded = 0,
+	-- How far the barrels are swung right now, in degrees, and how many shells the viewmodel has
+	-- drawn since boot (task 96). The first is what a screenshot is checked against; the second says
+	-- the reload was drawn at all.
+	breakAngleDeg = 0,
 	-- Shots this camera has kicked for, and the largest camera pitch offset any of them reached
 	-- (task 92). The second number is what says the kick is "a bit" rather than a lurch, and the
 	-- client spec asserts both it and the return to zero.
@@ -109,6 +118,14 @@ function Camera.getAimSource(): AimSource?
 	return aimSource
 end
 
+function Camera.setBreakSource(source: BreakSource?)
+	breakSource = source
+end
+
+function Camera.getBreakSource(): BreakSource?
+	return breakSource
+end
+
 -- WHICH CAMERA THIS BUILD IS RUNNING, republished as a fact about the view. The Hud asks this
 -- rather than `Flags.isOn` (design section 6.2): the camera owns the switch, so there is one source
 -- for the fact and one writer of the crosshair.
@@ -126,6 +143,8 @@ function Camera.stats()
 	out.foreignCameraWrites = Rig.stats().foreignCameraWrites
 	out.cursorReasserts = Cursor.stats().reasserts
 	out.viewmodelParented = Viewmodel.isParented()
+	out.breakAngleDeg = Mode.breakAngleDeg(state, Config)
+	out.shellsDrawn = Viewmodel.stats().shellsDrawn
 	return table.freeze(out)
 end
 
@@ -220,12 +239,18 @@ local function update(dt: number)
 	local alive = humanoid ~= nil and humanoid.Health > 0
 	local aiming = aimSource ~= nil and aimSource.isAiming()
 
+	-- THE RELOAD THE WEAPON IS ACTUALLY IN (task 96), asked once a frame and handed to both halves:
+	-- the reducer swings the barrels, the viewmodel draws the shells.
+	local breaking = if breakSource then breakSource.state() else nil
+	Viewmodel.setReload(breaking)
+
 	local previous = state.mode
 	state = Mode.step(state, {
 		aiming = aiming,
 		alive = alive,
 		hasCharacter = character ~= nil and root ~= nil,
 		lookDelta = lookDelta,
+		breaking = breaking ~= nil and breaking.open,
 	}, dt, Config)
 	lookDelta = Vector2.zero -- consumed exactly once
 	stats.maxRecoilCamPitchDeg = math.max(stats.maxRecoilCamPitchDeg, math.abs(state.recoilCamPitchDeg))

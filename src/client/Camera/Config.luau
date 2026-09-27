@@ -134,6 +134,41 @@ local Config = {
 	-- and tested once rather than assembled later under a feel change. A single MeshPart has no
 	-- barrel to hinge (research note section 5.4), so the WHOLE gun tilts about its grip.
 	OPEN_TILT_DEG = 22,
+
+	-- ------------------------------------------------ the break-open reload (ON branch, task 96)
+	-- KAREN, 2026-09-27: the reload is a BREAK ACTION, like the real Beretta 486 Parallelo -- the
+	-- barrels hinge down off the action -- and NOT the reference game's pump-style muzzle-up reload.
+	--
+	-- NONE OF THIS TOUCHES THE RELOAD'S RULES OR ITS CLOCK. The server still owns break, load, load
+	-- and close and their timings (`Shotgun.CONFIG.RELOAD_*`); the client's replica carries `open`,
+	-- and everything here is the drawn motion that follows it.
+	--
+	-- WHERE THE HINGE IS, in the Handle's own frame: the knuckle at the bottom front of the action.
+	-- The barrels are 0.62 of a 4.4-stud gun, so the breech face is 0.53 studs behind the Handle's
+	-- centre, and the pin sits just under the bore line.
+	BREAK_HINGE_STUDS = Vector3.new(0, -0.06, 0.50),
+	BREAK_OPEN_DEG = 35, -- a crisp break: the two chambers face the player
+	-- The gun comes down a little and turns toward the centre while it is open, so the breech is
+	-- something the player looks INTO rather than edge-on.
+	BREAK_POSE_STUDS = Vector3.new(0.15, -0.28, 0.25),
+	BREAK_POSE_PITCH_DEG = -6,
+	BREAK_POSE_YAW_DEG = -16,
+	-- How long the drawn swing takes, each way. Both are shorter than the server's own break and
+	-- close steps (0.35 s and 0.30 s), so the motion is always finished before the state that
+	-- started it ends -- the gun is never caught half open when the shells arrive.
+	BREAK_OPEN_SECONDS = 0.22,
+	BREAK_CLOSE_SECONDS = 0.16,
+
+	-- THE SHELLS. Spent ones pop out of the barrels that fired; fresh ones slide in. Plain parts,
+	-- drawn by the viewmodel for one player, never replicated: red plastic with a brass base.
+	SHELL_SIZE_STUDS = Vector3.new(0.055, 0.055, 0.16),
+	SHELL_BODY_COLOR = Color3.fromRGB(150, 32, 28),
+	SHELL_BASE_COLOR = Color3.fromRGB(196, 158, 82),
+	SHELL_BASE_FRACTION = 0.34, -- how much of the shell's length is brass
+	SHELL_EJECT_SECONDS = 0.35, -- up and back, then gone
+	SHELL_EJECT_RISE_STUDS = 0.45,
+	SHELL_FEED_SECONDS = 0.30, -- fresh shells sliding into the chambers
+	SHELL_FEED_FROM_STUDS = 0.40, -- how far behind the chamber they start
 	-- ------------------------------------------------------ the bead sight (ON branch, task 90)
 	-- HOW FAR THE BEAD SITS FROM THE EYE when aiming. 3.5, AND IT IS MEASURED OFF KAREN'S OWN
 	-- ACCEPTANCE PICTURE rather than chosen: `<assets-dir>/references/inspiration-2026-09-27/`,

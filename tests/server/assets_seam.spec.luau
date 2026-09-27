@@ -135,7 +135,10 @@ return function()
 				counted[key] = (counted[key] or 0) + 1
 			end
 			expect(counted[Hardware.ASSET_KEY]).to.equal(1)
-			expect(#keys).to.equal(1)
+			-- TWO KEYS SINCE TASK 96, each exactly once: the gun ships as a body and a barrel group
+			-- so the break-action can hinge, and both have to be preloaded before a player holds one.
+			expect(counted[Hardware.BARRELS_KEY]).to.equal(1)
+			expect(#keys).to.equal(2)
 			-- ...and there is no second id table: MapGen's is still empty (map-generator 12.2).
 			local mapGen = ServerStorage:FindFirstChild("MapGen")
 			if mapGen then
@@ -183,16 +186,27 @@ return function()
 					table.insert(mine, row)
 				end
 			end
-			-- FOUR SINCE TASK 94: v3 shaded the generated model smooth, and v4 replaced its barrels
-			-- with geometry this repository builds -- Karen, after her third test: "gun is not smooth
-			-- and nice ... barrels don't feel smooth". The count is asserted so a row that
+			-- NINE SINCE TASK 96, and every one of them is still here with the reason it was replaced:
+			-- v3 shaded the generated model smooth, v4 to v7 built and fixed the barrels, v8 seated
+			-- the forend, and v9 is the BODY half of the gun -- the barrels moved to a key of their
+			-- own so a break-action reload can hinge them. The count is asserted so a row that
 			-- appears without anyone deciding is a failure, and the CHAIN is asserted by rule rather
 			-- than by naming today's numbers twice: exactly one row is live, every other row points
 			-- at a later version, and no chain dead-ends.
-			expect(#mine).to.equal(8)
+			expect(#mine).to.equal(9)
 			local live = Assets.byKey(Hardware.ASSET_KEY)
-			expect(live.version).to.equal(8)
-			expect(live.modelId).to.equal(126484176321060)
+			expect(live.version).to.equal(9)
+			expect(live.modelId).to.equal(121405298612730)
+			-- ...AND THE PIECE THAT HINGES IS A KEY OF ITS OWN, live and approved (task 96).
+			local barrels = Assets.byKey(Hardware.BARRELS_KEY)
+			expect(barrels).to.be.ok()
+			expect(barrels.modelId).to.equal(85998258056906)
+			expect(barrels.moderation).to.equal("approved")
+			-- The two halves assemble at ONE CFrame: same size, same rotation, no offset between
+			-- them, which is what the baked-in bounding box in each piece is for.
+			expect(barrels.sizeStuds).to.equal(live.sizeStuds)
+			expect(barrels.rotationDeg).to.equal(live.rotationDeg)
+			expect(barrels.offsetStuds).to.equal(live.offsetStuds)
 			expect(live.supersededBy).to.equal(nil)
 			local byVersion, liveRows = {}, 0
 			for _, row in ipairs(mine) do
@@ -221,6 +235,7 @@ return function()
 			expect(byVersion[5].modelId).to.equal(73632997167378)
 			expect(byVersion[6].modelId).to.equal(94500894676280)
 			expect(byVersion[7].modelId).to.equal(107443663683446)
+			expect(byVersion[8].modelId).to.equal(126484176321060)
 		end)
 
 		it("skips a superseded row even when it is the newest one", function()

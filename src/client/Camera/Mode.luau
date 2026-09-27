@@ -48,6 +48,10 @@ export type StepInput = {
 	alive: boolean,
 	hasCharacter: boolean,
 	lookDelta: Vector2,
+	-- IS THE GUN BROKEN OPEN? (task 96) The weapon's own replica answers it -- the server owns the
+	-- reload and its clock -- and the camera only draws what it says. Absent means closed, which is
+	-- what every caller that predates the break-open reload means.
+	breaking: boolean?,
 }
 
 -- (-180, 180]. Without this, yaw drifts without bound over a session.
@@ -259,14 +263,23 @@ function Mode.step(state: State, input: StepInput, dt: number, config): State
 	local next_ = table.clone(state) :: any
 	next_.mode = mode
 	next_.blend = blend
-	-- THE RECOIL SPRINGS ARE THE ONE COSMETIC TERM THIS REDUCER MOVES (task 92). Sway, bob and the
-	-- break-open tilt are still carried untouched, exactly as S1 left them.
+	-- THE RECOIL SPRINGS AND THE BREAK-OPEN BLEND ARE THE COSMETIC TERMS THIS REDUCER MOVES (tasks
+	-- 92 and 96). Sway and bob are still carried untouched, exactly as S1 left them.
 	next_.recoilGunPitchDeg, next_.recoilGunPitchRate =
 		springStep(state.recoilGunPitchDeg, state.recoilGunPitchRate, dt, config)
 	next_.recoilGunBackStuds, next_.recoilGunBackRate =
 		springStep(state.recoilGunBackStuds, state.recoilGunBackRate, dt, config)
 	next_.recoilCamPitchDeg, next_.recoilCamPitchRate =
 		springStep(state.recoilCamPitchDeg, state.recoilCamPitchRate, dt, config)
+	-- THE BREAK, AND IT IS A BLEND RATHER THAN A SPRING: a gun that bounces at the end of its swing
+	-- is a gun with a broken hinge. Frame-rate independent, and it reaches exactly 0 and exactly 1 --
+	-- the same shape `blend` has, for the same reason (a viewmodel that settles at 0.999 open never
+	-- closes). First person only: task 89 promised the flag-off camera is unchanged, and the
+	-- third-person gun has no hinge to swing.
+	local breaking = config.FIRST_PERSON and input.breaking == true
+	local openSeconds = if breaking then config.BREAK_OPEN_SECONDS else config.BREAK_CLOSE_SECONDS
+	local openStep = if openSeconds > 0 then dt / openSeconds else 1
+	next_.openTilt = if breaking then math.min(1, state.openTilt + openStep) else math.max(0, state.openTilt - openStep)
 	next_.yawDeg = yaw
 	next_.pitchDeg = pitch
 	next_.sinceModeChange = if mode == state.mode then state.sinceModeChange + dt else 0
@@ -401,6 +414,15 @@ function Mode.aimOffset(sightLocal: CFrame?, config): CFrame
 		* sightLocal:Inverse()
 end
 
+-- HOW FAR THE BARRELS HAVE SWUNG, in degrees (task 96). One site, so the viewmodel and any spec ask
+-- the same question of the same state rather than each multiplying the blend by the angle.
+function Mode.breakAngleDeg(state: State, config): number
+	if not config.FIRST_PERSON then
+		return 0
+	end
+	return math.clamp(state.openTilt, 0, 1) * config.BREAK_OPEN_DEG
+end
+
 -- Where the viewmodel sits, relative to the camera. The POSE is the eased mix of the hip/carry pose
 -- and the aimed one; everything else in this function is cosmetic and, in task 90, exactly identity.
 --
@@ -418,11 +440,21 @@ function Mode.viewmodelOffset(state: State, sightLocal: CFrame?, config): CFrame
 	-- what the OFF branch looks like. Geometric ADS is the first-person sight picture.
 	local aim = if config.FIRST_PERSON then Mode.aimOffset(sightLocal, config) else config.VIEWMODEL_AIM_OFFSET
 	local pose = hip:Lerp(aim, Mode.ease(state.blend))
+	-- THE BREAK-OPEN POSE (task 96): while the gun is open it comes down a little and turns toward
+	-- the centre, so the player looks INTO the breech rather than at it edge-on. The BARRELS
+	-- themselves are hinged by `Camera.Viewmodel`, which is the only owner that can move one piece
+	-- of the gun; this is the whole gun's part of the move. Until task 96 `openTilt` tilted the whole
+	-- gun about its grip, which is what a model with no separate barrels could do.
+	local broken = CFrame.new(config.BREAK_POSE_STUDS)
+		* CFrame.Angles(math.rad(config.BREAK_POSE_PITCH_DEG), math.rad(config.BREAK_POSE_YAW_DEG), 0)
+	local rest: CFrame = CFrame.new()
+	local opened = rest:Lerp(broken, math.clamp(state.openTilt, 0, 1))
 	return CFrame.new(state.bobStuds)
 		* CFrame.Angles(math.rad(state.swayDeg.Y), math.rad(state.swayDeg.X), 0)
 		* pose
+		* opened
 		* CFrame.new(0, 0, state.recoilGunBackStuds)
-		* CFrame.Angles(math.rad(state.recoilGunPitchDeg + state.openTilt * config.OPEN_TILT_DEG), 0, 0)
+		* CFrame.Angles(math.rad(state.recoilGunPitchDeg), 0, 0)
 end
 
 return Mode

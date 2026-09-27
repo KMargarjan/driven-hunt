@@ -41,6 +41,7 @@ local Hardware = {}
 -- The same shape as `Weapon.setDriveLineProvider` and `Viewmodel.setSource`.
 local templateFor: ((string) -> (Instance?, any))? = nil
 local warned = false
+local barrelsWarned = false
 -- Once per server, not once per grant: see the warning itself (task 90).
 local sightWarned = false
 
@@ -68,6 +69,13 @@ Hardware.TOOL_NAME = "Shotgun"
 -- fallback. No attribute, no flag and no table: the visible model IS the state, so "has this gun
 -- already been upgraded" cannot disagree with what is on screen.
 Hardware.MODEL_NAME = "Model"
+-- THE PIECE THAT HINGES (task 96). Karen, 2026-09-27: the reload is a BREAK ACTION like the real
+-- Beretta 486 Parallelo, so the barrels must be able to swing down off the action -- and one
+-- MeshPart cannot hinge. The gun is worn as two welded pieces, and this is the name the
+-- first-person viewmodel looks for to rotate one of them. A player who is not holding the gun sees
+-- the same two pieces welded in the same place, which is the same gun they saw before.
+Hardware.BARRELS_KEY = "shotgun.barrels"
+Hardware.BARRELS_NAME = "Barrels"
 -- The attachment the first-person camera lines the view up with (task 90, docs/design/camera.md
 -- section 6.5). Named here because `Hardware` is its only writer and `Camera.Viewmodel` reads it off
 -- the CLONE by the same name.
@@ -240,6 +248,43 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 				weld.C0 = handle.CFrame:ToObjectSpace(part.CFrame)
 				weld.Parent = handle
 			end
+		end
+		-- ---- AND THE BARRELS, THE PIECE THAT HINGES (task 96)
+		--
+		-- The same pose and the same size: both rows carry the whole gun's bounding box, baked into
+		-- each half by `asset_prep` as anchor triangles, so the two pieces assemble at ONE CFrame
+		-- with no measured offset. A missing barrels template is not an error -- the body alone is
+		-- still a gun, and the warning says so once.
+		local barrels, barrelsReport = templateFor(Hardware.BARRELS_KEY)
+		if barrels and barrels:IsA("BasePart") then
+			local worn = barrels:Clone()
+			worn.Name = Hardware.BARRELS_NAME
+			worn.Size = size
+			worn.Anchored = false
+			worn.CanCollide = false
+			worn.CanQuery = false
+			worn.CanTouch = false
+			worn.Massless = true
+			worn.CastShadow = true
+			worn.CFrame = handle.CFrame * pose
+			worn.Parent = handle
+			local barrelWeld = Instance.new("Weld")
+			barrelWeld.Name = "BarrelsWeld"
+			barrelWeld.Part0 = handle
+			barrelWeld.Part1 = worn
+			barrelWeld.C0 = pose
+			barrelWeld.Parent = handle
+		elseif not barrelsWarned then
+			barrelsWarned = true
+			warn(
+				string.format(
+					"[Weapon] no %s template (%s); the gun wears its body alone and cannot break open",
+					Hardware.BARRELS_KEY,
+					if typeof(barrelsReport) == "table" and barrelsReport.reason
+						then barrelsReport.reason
+						else "not preloaded"
+				)
+			)
 		end
 	else
 		-- NEITHER, SO WEAR THE GREY BOX. Returning true here left the clone unparented and the
