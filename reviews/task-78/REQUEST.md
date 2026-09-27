@@ -3,15 +3,19 @@
 Task: 78
 Round: 1
 Base: `main` (`3273f3e`)
-Code commit: `4f28c0b931db27c8affc9288c7c7a3eace04efb1`
+Code commit: `f65659188df7be8c4340f2c14a771aaf9e315e4b`
 
 ```
-[harness] PASS: 32/32 checks @ 4f28c0b931db27c8affc9288c7c7a3eace04efb1 (clean tree)
+[harness]  PASS: 32/32 checks @ f65659188df7be8c4340f2c14a771aaf9e315e4b (clean tree)
+[harness2] PASS: 32/32 checks @ f65659188df7be8c4340f2c14a771aaf9e315e4b (clean tree)
 ```
 
-**32, not 30**: two checks are new. `tools/studio_mcp.py` is the harness itself, so `test2` is part
-of the gate; the Director runs it at this branch's head and that line goes here. `[tests:server] PASS:
-419 passed`, client 88 — unchanged, because nothing in `src/` or `tests/` moved.
+Both are the Director's runs at this branch's head. **32, not 30**: two checks are new in `test`.
+`tools/studio_mcp.py` is the harness itself, so `test2` is part of the gate. The head is a paperwork
+commit — at or after the last commit that touched `tools/` (`4f28c0b`), with only `TASKS.md` and this
+file between them — which only makes the bound stricter. My own clean-tree
+`[harness] PASS: 32/32 @ 4f28c0b` covers the same code and reported `[tests:server] PASS: 419
+passed`, client 88 — unchanged, because nothing in `src/` or `tests/` moved.
 
 **What changed.** `tools/studio_mcp.py` (`FRESH_FLAGS`; `QUERY_FLAG_TABLE` and `QUERY_SET_FLAG` use
 it; `QUERY_REQUIRE_CACHE`; `declared_flags()`; two run-time checks; three selftest checks; the
@@ -62,14 +66,23 @@ docstring), `docs/research/2026-09-27-require-cache.md` and its INDEX row, `TASK
     committed code and with the tree clean afterwards: `set ORANGE_OUTFITS on` →
     `override set: ORANGE_OUTFITS=true`; `flags` lists all three with `override on` / `effective
     on`; `clear` → `cleared: DHFlag_ORANGE_OUTFITS`.
+11. **AND THE WHOLE PLAYER PATH, BY THE DIRECTOR, AT THIS HEAD.** What the bug blocked is now done
+    end to end: `flags.py set ORANGE_OUTFITS on` succeeded in Edit mode **in the same Studio session
+    that had refused it before**; a **two-player session resolved `ORANGE_OUTFITS=true`**; the
+    screenshots show **the shooter wearing the orange hat and the driver wearing the orange vest**;
+    and `flags.py clear` then showed `override none`. That is this task's fix, Task 77's outfits and
+    the M2.8d evidence row all confirmed in one pass — including the two things neither task could
+    show on its own: a **driver in a vest**, which a one-player session has never had, and a flag
+    switched on for a playtest the way the design says it should be.
 
 ## What I could not verify
 
 - **`test2` is the Director's run.** This file is the harness, so the gate wants it; nothing here is
   two-player-specific, and `run_test2` keeps its own shorter Edit-mode check list (32, unchanged).
-- **The two-player outfit screenshot is unblocked but still not taken** (77a(c), now 78a(a)). Step 1
-  of those steps works now; the rest still needs a human click, and `test`/`test2` refuse to start
-  while an override is set.
+- **The two-player outfit screenshot was taken by the DIRECTOR, not by me** (claim 11, and it
+  closes 77a(c)/78a(a)). I still cannot take one: `test` and `test2` refuse to start while an
+  override is set, and a two-player session is a human click. I have not seen those screenshots
+  myself, so what claim 11 says about them is the Director's report, not my own look.
 - **The flag-table check only bites in a session whose cache is already stale.** On a freshly opened
   Studio the cached and the fresh module agree and it passes either way — which is why there are
   two checks, and it is said in the code (78a(f)).
