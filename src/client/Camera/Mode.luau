@@ -144,9 +144,20 @@ local function springStep(value: number, rate: number, dt: number, config): (num
 		return 0, 0 -- the common case: no shot has been fired, and no arithmetic is done
 	end
 	local omega = 2 * math.pi * config.RECOIL_FREQUENCY_HZ
-	local acceleration = -(omega * omega) * value - 2 * config.RECOIL_DAMPING_RATIO * omega * rate
-	local nextRate = rate + acceleration * dt
-	local nextValue = value + nextRate * dt
+	-- SUB-STEPPED, AND IT IS NOT A REFINEMENT. MEASURED: at 20 fps one Euler step of this spring is
+	-- omega * dt = 1.13, past the point where semi-implicit Euler still damps -- the first run of
+	-- `camera_mode.spec` had it still moving after a whole second, because the integrator was ringing
+	-- rather than the spring. Splitting the frame into steps no longer than RECOIL_MAX_SUBSTEP_SECONDS
+	-- makes the SPRING the thing that decides the settle, at any frame rate a player will ever see,
+	-- which is what the 240/60/20 fps case asserts.
+	local steps = math.max(1, math.ceil(dt / config.RECOIL_MAX_SUBSTEP_SECONDS))
+	local h = dt / steps
+	local nextValue, nextRate = value, rate
+	for _ = 1, steps do
+		local acceleration = -(omega * omega) * nextValue - 2 * config.RECOIL_DAMPING_RATIO * omega * nextRate
+		nextRate += acceleration * h
+		nextValue += nextRate * h
+	end
 	if math.abs(nextValue) < config.RECOIL_REST_EPSILON and math.abs(nextRate) < config.RECOIL_REST_EPSILON then
 		return 0, 0 -- SNAPPED, so "settled" is a value a spec can assert and not an asymptote
 	end

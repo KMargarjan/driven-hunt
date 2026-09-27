@@ -683,13 +683,17 @@ return function()
 			local target = Vector3.new(0, 3, -20)
 			local pivot = root.Position + Vector3.new(0, Config.PIVOT_HEIGHT_STUDS, 0)
 			local direction = (target - pivot).Unit
-			local naive = table.freeze({
-				mode = "Third",
-				blend = 0,
-				yawDeg = math.deg(math.atan2(-direction.X, -direction.Z)),
-				pitchDeg = math.deg(math.asin(direction.Y)),
-				sinceModeChange = 0,
-			})
+			-- BUILT FROM `Mode.initial`, not written out field by field: since task 92 the camera's
+			-- view pitch reads a cosmetic term (the recoil offset), and a hand-made state missing it
+			-- fails with "arithmetic on nil" -- which is exactly the failure `Mode.step`'s "carried,
+			-- not rebuilt" comment exists to avoid, one layer up, in a test.
+			local naive = table.clone(Mode.initial(Config)) :: any
+			naive.mode = "Third"
+			naive.blend = 0
+			naive.yawDeg = math.deg(math.atan2(-direction.X, -direction.Z))
+			naive.pitchDeg = math.deg(math.asin(direction.Y))
+			naive.sinceModeChange = 0
+			table.freeze(naive)
 			local naiveError = errorDegrees(root, target, naive)
 			local aimedError = errorDegrees(root, target, Mode.anglesToward(Mode.initial(Config), root, target, Config))
 			print(string.format("[camera_mode] aim error: naive %.2f deg, iterated %.4f deg", naiveError, aimedError))

@@ -495,7 +495,21 @@ return function()
 			expect(kept.SurfaceAppearance).to.equal(1)
 			expect(kept.Texture).to.equal(1)
 			expect(kept.Decal).to.equal(1)
-			expect(kept.Attachment).to.equal(1)
+			-- TWO SINCE TASK 92, and named rather than counted: the gun's own attachment must survive
+			-- the sweep (it is what the muzzle and the sight ride on), and the viewmodel adds exactly one
+			-- of its own for the fill light. A bare count would also have been satisfied by losing the
+			-- gun's and gaining ours.
+			expect(kept.Attachment).to.equal(2)
+			expect(clone:FindFirstChild("ViewmodelFillAt")).to.be.ok()
+			-- ...and the SOURCE's own attachment is still there beside ours: this fixture's is the
+			-- unnamed one the keep-list adds, which on a real gun is `Muzzle` and `Sight`.
+			local mine = 0
+			for _, child in ipairs((clone :: Instance):GetChildren()) do
+				if child:IsA("Attachment") and child.Name ~= "ViewmodelFillAt" then
+					mine += 1
+				end
+			end
+			expect(mine).to.equal(1)
 			-- WHAT MUST NOT: a weld would be simulated under the camera, a sound would play twice.
 			expect(kept.Weld).to.equal(nil)
 			expect(kept.Sound).to.equal(nil)
@@ -848,8 +862,10 @@ return function()
 				local light = at:FindFirstChildOfClass("PointLight") :: PointLight
 				expect(light).to.be.ok()
 				expect(light.Shadows).to.equal(false)
-				expect(light.Brightness).to.equal(Config.VIEWMODEL_FILL_BRIGHTNESS)
-				expect(light.Range).to.equal(Config.VIEWMODEL_FILL_RANGE_STUDS)
+				-- WITHIN A FLOAT, for the same reason the bead's size is: `Light.Brightness` is
+				-- float32, so 1.4 comes back as 1.399999976158142 (measured, this task's first run).
+				expect(math.abs(light.Brightness - Config.VIEWMODEL_FILL_BRIGHTNESS) < 1e-4).to.equal(true)
+				expect(math.abs(light.Range - Config.VIEWMODEL_FILL_RANGE_STUDS) < 1e-4).to.equal(true)
 				-- ONE light, never one per rebuild: a leak here is a light per shot fired.
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
 				local lights = 0

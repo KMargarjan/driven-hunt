@@ -196,6 +196,11 @@ local Config = {
 	-- Below this the spring is snapped to exact zero, so "settled" is a value and not an asymptote --
 	-- the spec can assert the aim point is bit-for-bit what it was before the shot.
 	RECOIL_REST_EPSILON = 1e-4,
+	-- The longest step the spring is integrated in one go. A 20-fps frame is 0.05 s and omega * dt is
+	-- then 1.13, which semi-implicit Euler does not damp: MEASURED, in this task's first run, as a
+	-- spring still moving a second after the shot. The frame is split into steps this long or shorter,
+	-- so the settle is the spring's and not the frame rate's.
+	RECOIL_MAX_SUBSTEP_SECONDS = 1 / 60,
 
 	-- ASSERTED, NOT APPLIED: nothing clamps to this. The near plane is 0.1 studs and a 4.4-stud gun
 	-- held at the eye clips through it if the pose is wrong, so the spec measures the corners -- OF
