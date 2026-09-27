@@ -50,6 +50,14 @@ Match.Markers = Markers
 Match.Penalty = Penalty
 Match.Body = Body
 
+-- THE QUICK TEST'S BOUNDARY READ, AND THE STUDIO GUARD IS PART OF IT (task 83). Pure and exported
+-- so the guard itself is testable: `quickTestEnabled(true, false)` is false, which is the assertion
+-- that says a live server can never run this however the attribute got there. It is the only flag in
+-- this repo whose value is ANDed with anything, and it is ANDed with `RunService:IsStudio()`.
+local function quickTestEnabled(flagOn: boolean, isStudio: boolean): boolean
+	return flagOn == true and isStudio == true
+end
+
 -- Every number the drive has. K marks Karen's feel values. No magic number anywhere else in this
 -- system, and none of this is replicated: a client that knows the safety numbers can dodge the rule
 -- by eye (design section 3.4).
@@ -100,6 +108,54 @@ Match.CONFIG = {
 		GAP_MAX_SECONDS = 180, -- K, never more than three minutes of empty wood
 		HOLDBACK_WARN = 20, -- consecutive hold-backs of one sounder before this warns, once
 	},
+
+	-- ------------------------------------------------------------ the quick test (task 83)
+	-- STUDIO ONLY. One read, at this boundary, ANDed with IsStudio and passed inward as `config` --
+	-- so `Phase` needs no flag and no service, and a spec drives both states with a table
+	-- (feature-flags.md section 13.3). Karen: "just for testing could be much faster that they cross
+	-- a line small group and then you can shoot".
+	QUICK_TEST = quickTestEnabled(Flags.isOn("QUICK_TEST"), RunService:IsStudio()),
+	QUICK_TEST_INTERMISSION_SECONDS = 3, -- enough to read "Drive 1" and turn round
+	-- NOT ZERO, AND THE SCREENSHOTS ARE WHY. At zero the sounder is released the instant the drive
+	-- starts -- about two seconds after Play -- and a boar at SPRINT_SPEED is across the road before
+	-- a player has finished loading in: five capture bursts in a row caught an empty road, twice on
+	-- either side of the run. Five seconds is still "much faster" (Karen's ask against 20 + 20), and
+	-- it is long enough to spawn in, look up the drive and see them coming.
+	QUICK_TEST_FIRST_RELEASE_SECONDS = 5,
+	QUICK_TEST_SOUNDER = 3, -- K's "small group": the first release only, then the drive is normal
+	-- JUST NORTH OF THE ROAD, in front of the first shooter post. The road is the one strip of
+	-- ground the map GUARANTEES flat at groundY (`Map.ROAD`: halfWidth 8, then a 24-stud verge eased
+	-- up to the terrain), and `Runtime:spawn` OVERWRITES the caller's Y with groundY -- so a spawn
+	-- far off it puts a boar inside a hill, where nobody sees it.
+	--
+	-- 90 WAS TRIED AND IS NOT WHAT SHIPPED. A 90-stud run-up would be a longer look, and three
+	-- capture bursts at 90 showed an empty road: either the boars were off the flat strip and under
+	-- the ground, or the screenshot tool's 3-6 second round trip kept missing them. I could not tell
+	-- which from a picture, so this is the number whose ground is GUARANTEED. If the run-up is worth
+	-- having, the honest way to buy it is a flat pad near the line from the map generator, not a
+	-- guess about terrain height (TASKS.md row 83a).
+	QUICK_TEST_AHEAD_STUDS = 12,
+	QUICK_TEST_SPREAD_STUDS = 6,
+	-- DEAD AHEAD OF THE POST, and 0 is a measurement rather than a default: at 12 studs the visible
+	-- half-width of a 70-degree view is 12 * tan(35) = 8.4 studs, so a sideways offset of 25 or 60
+	-- -- both tried -- puts the sounder outside the frame of the player it is released for. The
+	-- shooter looks up the drive; this is what he is looking at.
+	QUICK_TEST_SIDE_STUDS = 0,
+	-- THE PHANTOM DRIVER, and it is what makes them RUN rather than graze. A boar flees only when a
+	-- threat is inside DETECT_RADIUS (40), and in a quick test there may be no driver on the map at
+	-- all -- a solo player is a shooter. So while the quick test's first sounder is young, the boar
+	-- world is told there is a driver standing this far BEHIND it, which is exactly what a real
+	-- driver walking up would look like: the sounder bolts for the exit, across the road, in front
+	-- of the shooters. It is not a player, carries no userId, and `Penalty` therefore never sees it.
+	-- AND THEY KEEP COMING. One fast crossing is three seconds of boar and then nine minutes of
+	-- nothing -- which is not a playtest, it is a blink: measured here, the whole first release was
+	-- across the road before the screenshot tool could take its second frame. A quick test releases
+	-- the drive's whole budget on this rhythm instead of the real 90 seconds, so a player gets three
+	-- or four crossings in the first minute and can practise the shot. The drive's budget
+	-- (BOARS_PER_DRIVE) is unchanged: this is pace, not quantity.
+	QUICK_TEST_INTERVAL_SECONDS = 15,
+	QUICK_TEST_PUSH_BEHIND_STUDS = 30,
+	QUICK_TEST_PUSH_SECONDS = 25, -- after this the phantom is gone and the drive is the real drive
 
 	-- points (design section 7.1)
 	POINTS = {
@@ -478,7 +534,7 @@ local function applyRefreshArming(userIds: { number }?)
 	end
 end
 
-local function applySpawnSounder(position: Vector3?, size: number?)
+local function applySpawnSounder(position: Vector3?, size: number?, quickSpread: number?)
 	if not (world and world.boars) then
 		return
 	end
@@ -492,7 +548,9 @@ local function applySpawnSounder(position: Vector3?, size: number?)
 	-- THE PAD IS THE CONTRACT: the runtime is told the radius the MAP guarantees is flat, and
 	-- spreads the ring inside it -- because Runtime:spawn overwrites the caller's Y, so a member
 	-- placed on a slope would be spawned inside a hill (map-generator.md section 11).
-	local spread = markerSet and markerSet.spawnRadius
+	-- THE EFFECT MAY NAME ITS OWN SPREAD (task 83): the quick test spawns on the road, whose flat
+	-- half-width is 8 studs, not on a 30-stud spawn pad. Everything else still gets the pad.
+	local spread = quickSpread or (markerSet and markerSet.spawnRadius)
 	local ok, handles = pcall(function()
 		if world.boars.spawnSounder then
 			return world.boars:spawnSounder(position, animals, spread)
@@ -596,7 +654,7 @@ local function applyEffects(effects)
 		elseif kind == "refreshArming" then
 			applyRefreshArming(effect.userIds)
 		elseif kind == "spawnSounder" then
-			applySpawnSounder(effect.position, effect.size)
+			applySpawnSounder(effect.position, effect.size, effect.spread)
 		elseif kind == "clearBoars" then
 			applyClearBoars()
 		elseif kind == "freeze" then
@@ -689,12 +747,65 @@ end
 
 -- ------------------------------------------------------------------------------- the boar's side
 
+-- Exported for the spec: see the comment on the local, above CONFIG.
+Match.quickTestEnabled = quickTestEnabled
+
+-- Where the quick test puts its first sounder: `QUICK_TEST_AHEAD_STUDS` north of the drive line and
+-- IN FRONT OF THE FIRST POST, or nil when there is no line to measure from. Pure, so the spec can
+-- check it without a map.
+--
+-- THE POST MATTERS AS MUCH AS THE LINE, and the first screenshot is why: the line marker's own
+-- Position is the CENTRE of a 1,240-stud corridor, while the eight posts span 1,120 studs of it --
+-- so a sounder at the line's centre can be 560 studs from the only shooter, and in the capture at
+-- t+13 s and again at t+36 s there was nothing to see. `Body.placementFor` puts shooter number one
+-- on `posts[1]`, so that is the post this stands in front of: the same list, the same index.
+function Match.quickSpawnFor(line, posts, config): Vector3?
+	if not (config and config.QUICK_TEST and line and typeof(line.position) == "Vector3") then
+		return nil
+	end
+	local x = line.position.X
+	local first = posts and posts[1]
+	if first and typeof(first.Position) == "Vector3" then
+		x = first.Position.X
+	end
+	return Vector3.new(
+		x + (config.QUICK_TEST_SIDE_STUDS or 0),
+		line.position.Y,
+		line.position.Z + config.QUICK_TEST_AHEAD_STUDS
+	)
+end
+
 -- Drivers only. A shooter standing on a post must not push the boar back into the wood before it
 -- reaches the line, which is the whole mechanic.
+--
+-- PLUS THE QUICK TEST'S PHANTOM (task 83, Studio only), for its first `QUICK_TEST_PUSH_SECONDS`.
+-- The boar world asks this one function "who is pushing?", so this is the one place a quick test can
+-- answer "somebody is" without inventing a player. The id is not a number, so
+-- `driverPositions()` -- the safety rule's own read, which is `tonumber`-keyed -- skips it and
+-- nobody can be tied to a tree for shooting at a phantom.
 function Match.driverThreats()
-	return Body.driverPositions(function(player)
+	local out = Body.driverPositions(function(player)
 		return state.assignment[player.UserId]
 	end, playersService())
+	local phantom = Match.quickTestPhantom(now())
+	if phantom then
+		table.insert(out, { id = "quick-test", position = phantom })
+	end
+	return out
+end
+
+-- Nil unless the quick test is on, the drive is running, its first seconds have not passed, and
+-- there is a spawn to stand behind. Exported so the spec can drive all four of those.
+function Match.quickTestPhantom(at: number): Vector3?
+	local config = Match.CONFIG
+	if not config.QUICK_TEST or state.phase ~= "Running" or not state.quickSpawn then
+		return nil
+	end
+	local driveStartedAt = state.phaseEndsAt - config.DRIVE_SECONDS
+	if at - driveStartedAt > config.QUICK_TEST_PUSH_SECONDS then
+		return nil
+	end
+	return state.quickSpawn + Vector3.new(0, 0, config.QUICK_TEST_PUSH_BEHIND_STUDS)
 end
 
 function Match.driveLine()
@@ -718,17 +829,28 @@ end
 
 -- ------------------------------------------------------------------------------ the safety rule
 
--- Every live DRIVER, as Penalty.judge wants them. driverThreats keys by a string because that is the
--- shape the boar's world wants; this is the same read, keyed by number.
-local function driverPositions(): { Penalty.DriverPos }
+-- THE PLAYERS AMONG THE THREATS, and it is the fix for a defect the quick test caused and the
+-- console found (task 83). `driverThreats` answers the BOAR's question -- "who is pushing?" -- and
+-- since the quick test that list may contain a phantom that is not a player. Everything that means
+-- "a driver who is a person" -- the safety rule, and push credit, which is keyed BY USER ID -- has
+-- to filter, and `samplePush` did not: `credit[tonumber("quick-test")] = at` is `credit[nil] = at`,
+-- which threw `table index is nil` on every step of every quick-test session and took the rest of
+-- the drive's step with it. One filter, one place, both callers.
+function Match.playerDrivers(threats): { Penalty.DriverPos }
 	local out = {}
-	for _, driver in ipairs(Match.driverThreats()) do
+	for _, driver in ipairs(threats or {}) do
 		local userId = tonumber(driver.id)
 		if userId then
 			table.insert(out, { userId = userId, position = driver.position })
 		end
 	end
 	return out
+end
+
+-- Every live DRIVER, as Penalty.judge wants them. driverThreats keys by a string because that is the
+-- shape the boar's world wants; this is the same read, keyed by number.
+local function driverPositions(): { Penalty.DriverPos }
+	return Match.playerDrivers(Match.driverThreats())
 end
 
 -- THE WEAPON PUBLISHED A SHOT INTO THE DRIVE; this decides whether it endangered anybody. Four
@@ -774,7 +896,10 @@ local function samplePush()
 	if not (world and world.boars) or not Phase.isLive(state) then
 		return
 	end
-	local drivers = Match.driverThreats()
+	-- PLAYERS ONLY, and by userId: this table is what turns into points. A threat that is not a
+	-- player -- the quick test's phantom -- has no userId to credit, and indexing by its `nil` is
+	-- what threw on every step until this line filtered (see `Match.playerDrivers`).
+	local drivers = driverPositions()
 	if #drivers == 0 then
 		return
 	end
@@ -788,7 +913,7 @@ local function samplePush()
 		end
 		for _, driver in ipairs(drivers) do
 			if (driver.position - boarPosition).Magnitude <= Match.CONFIG.POINTS.PUSH_RADIUS then
-				credit[tonumber(driver.id) :: number] = at
+				credit[driver.userId] = at
 			end
 		end
 	end
@@ -858,6 +983,9 @@ local function readMarkers()
 		complete = markerSet.complete,
 		missing = markerSet.missing,
 		boarSpawns = markerSet.boarSpawns,
+		-- The quick test's own spawn point, computed HERE because this owner is the one that reads
+		-- the markers; `Phase` gets a Vector3 like every other position it is given.
+		quickSpawn = Match.quickSpawnFor(markerSet.line, markerSet.posts, Match.CONFIG),
 	})
 end
 

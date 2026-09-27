@@ -3,6 +3,33 @@
 Karen's test sessions, newest first. The Builder adds Karen's feedback here every round (same PR),
 and turns each "to fix" item into a row in `TASKS.md`, linked by session date.
 
+## Quick test mode: boars on the road in seconds (Studio only, Task 83)
+
+A real drive is 20 s of intermission plus 20 s before the first release, and the first boars start
+1,300 studs from the road. Karen, 2026-09-27: *"just for testing could be much faster that they cross
+a line small group and then you can shoot"*. The switch:
+
+```
+python tools/flags.py set QUICK_TEST on     # Edit mode, before pressing Play
+python tools/flags.py                       # see it: override on, effective on
+# ... press Play, walk to a post and watch the road ...
+python tools/flags.py clear                 # ALWAYS: test and test2 refuse to start while it is set
+```
+
+With it on: the intermission is **3 s**, the first release comes **5 s into the drive** -- so about
+ten seconds after pressing Play, against forty -- and it is **three boars on the road**, twelve studs
+in front of the shooter line and dead ahead of the first post. Releases then keep coming every **15
+s** instead of ninety, so a playtest is a series of crossings rather than one. Everything else is the
+ordinary drive: scoring, the safety penalty and hit zones are untouched.
+
+Measured on 2026-09-27: the drive is **running about 2 s after Play** (the Hud clock reads 9:55 at
+t+7 s), and the three boars are **in front of the shooter at t+11 s**. The first release waits 5 s
+rather than firing at once for a reason worth knowing: at zero they were released and gone before a
+player had finished loading in.
+
+**It cannot run outside Studio.** The flag's value is ANDed with `RunService:IsStudio()` at
+`Match.CONFIG.QUICK_TEST`, so a published server ignores it even if the attribute somehow survived.
+
 | Date | What I tried | What felt wrong | What to fix | Task(s) |
 |---|---|---|---|---|
 | 2026-09-27 | **S1, the first-person camera, with `FIRST_PERSON` switched on by the Director, 2 players** (Task 89). Six questions: 1 first person and eye height; 2 how much gun on screen; 3 no crosshair; 4 right mouse, which still had the old ADS; 5 the gun through trees; 6 hands or a floating gun. | **VERBATIM:** *"1. feel good just has to be from right to left, meaning right hand shooter and weapon holding with right hand grip and left hand pipes like in real life and example where I showed in video  2. mentioned in 1  3. nice, love it  5. yes hands needed will look nicer.  feels that view has to be closer when aiming, like looking through pipes and of course we are missing front knob or how it calls where you aim and follow animal with that point. but first step is nice"* <br><br>**SUMMARISED.** First person is **accepted** ("feel good", "first step is nice") and no crosshair is **accepted** ("nice, love it"). **One thing is wrong and it is the hand:** the gun is carried on the LEFT -- which is what her reference does -- and she wants it **right-handed**, the right hand on the grip and the left hand on the barrels. **Two things are missing:** the aimed view must be **closer**, "like looking through pipes", and there is **no front bead** to put on the animal. Hands are asked for again and are their own step. Questions 4 and 6 were not answered separately; 2 was answered inside 1. | **Task 90 does the carry and the sight:** the carry pose is mirrored to the right, and ADS becomes geometric -- the gun's own `Sight` attachment on the camera's axis, with a drawn bead at it. **Hands are S3 (Task 91), not this task**, by her own "yes hands needed". The eye-relief number is the dial for "closer" and stays at the design's first pick until she has seen the bead. | 89, 90, **91 (hands)** |

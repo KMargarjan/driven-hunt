@@ -543,6 +543,173 @@ return function()
 	-- THE SOUNDER RELEASE (design, "the sounder release" and section 12.1). Both states of the flag
 	-- are exercised here whatever the flag is set to, because `SOUNDER.ENABLED` arrives in `config`
 	-- and this spec writes its own (feature-flags.md section 13.3).
+	-- ------------------------------------------------------------------ the quick test (task 83)
+	describe("the quick test", function()
+		-- Its own numbers, and its own spawn on "the road". Everything below drives BOTH states from
+		-- one table, so neither the flag nor Studio is consulted anywhere in this file.
+		local LINE = Vector3.new(0, 0, -700)
+		local QUICK = {
+			QUICK_TEST = true,
+			QUICK_TEST_INTERMISSION_SECONDS = 3,
+			QUICK_TEST_SOUNDER = 3,
+			QUICK_TEST_AHEAD_STUDS = 12,
+			QUICK_TEST_SPREAD_STUDS = 6,
+			-- ROOM FOR THE THREE, and the first run of this block is why it is written down: this
+			-- file's own MAX_ALIVE_BOARS is 2, so a three-boar release was held back for ever and
+			-- three cases failed on a ceiling rather than on the quick test. A release bigger than
+			-- the ceiling can never happen -- `maybeRelease` holds the WHOLE sounder back -- which
+			-- is a real invariant, and `match_live.spec` asserts it of the live numbers.
+			MAX_ALIVE_BOARS = 4,
+			QUICK_TEST_INTERVAL_SECONDS = 15,
+			-- DELIBERATELY NOT THIS FILE'S OWN FIRST_RELEASE_SECONDS (5): when the two are equal,
+			-- a quick branch that returned the ordinary number passes every case here. Measured --
+			-- that mutation ran green until this line made them different.
+			QUICK_TEST_FIRST_RELEASE_SECONDS = 2,
+		}
+
+		local function quickConfig(overrides)
+			local merged = config(QUICK)
+			for key, value in pairs(overrides or {}) do
+				merged[key] = value
+			end
+			return merged
+		end
+
+		local function readyQuick(cfg)
+			local state = Phase.initial(cfg)
+			return (
+				Phase.step(state, {
+					kind = "markers",
+					complete = true,
+					missing = {},
+					boarSpawns = SPAWNS,
+					quickSpawn = LINE + Vector3.new(0, 0, cfg.QUICK_TEST_AHEAD_STUDS),
+				}, 0, cfg)
+			)
+		end
+
+		it("shortens the intermission and fires the first release at once, and does neither when off", function()
+			-- BOTH BRANCHES, ONE TABLE EACH. With the quick test off these are the numbers this
+			-- drive has always had, which is the half that says a playtest switch changed nothing.
+			local off = config()
+			expect(Phase.intermissionSeconds(off)).to.equal(off.INTERMISSION_SECONDS)
+			expect(Phase.firstReleaseSeconds(off)).to.equal(off.FIRST_RELEASE_SECONDS)
+
+			local on = quickConfig()
+			expect(Phase.intermissionSeconds(on)).to.equal(3)
+			expect(Phase.firstReleaseSeconds(on)).to.equal(2)
+			-- AND THE SHIPPED NUMBERS ARE REALLY FASTER, which is the claim Karen made and the one a
+			-- fixture cannot answer: this file's own FIRST_RELEASE_SECONDS is 5 because a test does
+			-- not want to simulate twenty, and comparing the quick value against THAT compared 5
+			-- with 5 and failed (the first gate of this task). The production table is what the
+			-- promise is about.
+			local live = Match.CONFIG
+			expect(live.QUICK_TEST_INTERMISSION_SECONDS < live.INTERMISSION_SECONDS).to.equal(true)
+			expect(live.QUICK_TEST_FIRST_RELEASE_SECONDS < live.FIRST_RELEASE_SECONDS).to.equal(true)
+			expect(live.QUICK_TEST_INTERVAL_SECONDS < live.RELEASE_INTERVAL_SECONDS).to.equal(true)
+			-- 40 seconds of waiting becomes 8, and that difference IS the task
+			local realWait = live.INTERMISSION_SECONDS + live.FIRST_RELEASE_SECONDS
+			local quickWait = live.QUICK_TEST_INTERMISSION_SECONDS + live.QUICK_TEST_FIRST_RELEASE_SECONDS
+			expect(quickWait * 4 <= realWait).to.equal(true)
+			TestKit.note(string.format("task83: %d s of waiting becomes %d s with the quick test", realWait, quickWait))
+		end)
+
+		it("puts three boars on the road within seconds of the first player joining", function()
+			-- THE WHOLE POINT, AS A CLOCK. Karen, 2026-09-27: "just for testing could be much faster
+			-- that they cross a line small group and then you can shoot".
+			local cfg = quickConfig()
+			local state = readyQuick(cfg)
+			local at = 0
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, at, cfg))
+			expect(state.phase).to.equal("Assigning")
+
+			local collected
+			state, collected, at = run(state, cfg, at, 12, 0.25)
+			expect(state.phase).to.equal("Running")
+			local spawns = {}
+			for _, effect in ipairs(collected) do
+				if effect.kind == "spawnSounder" then
+					table.insert(spawns, effect)
+				end
+			end
+			expect(#spawns).to.equal(1)
+			expect(spawns[1].size).to.equal(3)
+			-- ON THE ROAD, not at the far marker: the position is the one the owner measured from
+			-- the drive line, and the ring is clamped to the road's own width.
+			expect(spawns[1].position).to.equal(LINE + Vector3.new(0, 0, cfg.QUICK_TEST_AHEAD_STUDS))
+			expect(spawns[1].spread).to.equal(cfg.QUICK_TEST_SPREAD_STUDS)
+			expect(at <= 12).to.equal(true) -- 3 s of intermission plus a 5 s first release, not 40
+
+			-- ...and the same nine seconds with the quick test off release nothing at all, because
+			-- the drive has not even started yet: the intermission alone is ten.
+			local slowCfg = config()
+			local slow = ready(slowCfg)
+			slow = (Phase.step(slow, { kind = "join", userId = 1, name = "Karen" }, 0, slowCfg))
+			local slowEffects
+			slow, slowEffects = run(slow, slowCfg, 0, 9, 0.25)
+			expect(slow.phase).to.equal("Assigning")
+			expect(countKind(slowEffects, "spawnSounder")).to.equal(0)
+		end)
+
+		it("keeps them coming on its own rhythm, and only the FIRST release is the quick one", function()
+			local cfg = quickConfig({ BOARS_PER_DRIVE = 6, QUICK_TEST_INTERVAL_SECONDS = 5 })
+			local state = readyQuick(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			local collected
+			state, collected = run(state, cfg, 0, 40, 0.25)
+			local spawns = {}
+			for _, effect in ipairs(collected) do
+				if effect.kind == "spawnSounder" then
+					table.insert(spawns, effect)
+				end
+			end
+			expect(#spawns >= 2).to.equal(true)
+			-- the first is the quick one...
+			expect(spawns[1].size).to.equal(3)
+			expect(spawns[1].spread).to.equal(cfg.QUICK_TEST_SPREAD_STUDS)
+			-- ...and the second is an ordinary release: a marker position, the map's own spread
+			-- (nil here, so the owner uses the spawn pad), and the sounder flag's own size. It
+			-- arrives on the quick rhythm rather than the drive's 90 seconds, which is what makes a
+			-- playtest a series of crossings instead of one blink.
+			expect(spawns[2].spread).to.equal(nil)
+			local fromMarker = false
+			for _, spawn in ipairs(SPAWNS) do
+				if spawns[2].position == spawn then
+					fromMarker = true
+				end
+			end
+			expect(fromMarker).to.equal(true)
+		end)
+
+		it("falls back to the normal marker when there is no line to measure from", function()
+			-- A map with no DriveLine cannot have a quick spawn, and the release must still happen
+			-- rather than being dropped: `quickSpawn` is nil and everything else is unchanged.
+			local cfg = quickConfig()
+			local state = Phase.initial(cfg)
+			state = (
+				Phase.step(state, { kind = "markers", complete = true, missing = {}, boarSpawns = SPAWNS }, 0, cfg)
+			)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			local collected
+			state, collected = run(state, cfg, 0, 12, 0.25)
+			local spawns = {}
+			for _, effect in ipairs(collected) do
+				if effect.kind == "spawnSounder" then
+					table.insert(spawns, effect)
+				end
+			end
+			expect(#spawns).to.equal(1)
+			expect(spawns[1].spread).to.equal(nil)
+			local fromMarker = false
+			for _, spawn in ipairs(SPAWNS) do
+				if spawns[1].position == spawn then
+					fromMarker = true
+				end
+			end
+			expect(fromMarker).to.equal(true)
+		end)
+	end)
+
 	describe("the release is a sounder", function()
 		-- THE REAL NUMBERS, AS LITERALS. The flag-off identity proof must not be able to agree with
 		-- a changed CONFIG: if somebody moves the 90-second rhythm, this fails, which is the point.
