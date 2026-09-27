@@ -161,6 +161,11 @@ end
 -- out and tells you nothing about where it was when it did. Four quadrants of the tree area, in a
 -- fixed order, each its own step in the plan and its own line in the run log.
 function Layout.treeBlocks(config): { { name: string, minX: number, maxX: number, minZ: number, maxZ: number } }
+	if not (config.INCLUDE.trees or config.INCLUDE.brush) then
+		-- Task 85: the wood's quadrants are what the tree and brush steps iterate, so an empty list
+		-- is four fewer steps each rather than eight steps that place nothing.
+		return {}
+	end
 	local area = config.WORLD.treeArea
 	local midX = (area.minX + area.maxX) / 2
 	local midZ = (area.minZ + area.maxZ) / 2
@@ -251,6 +256,9 @@ export type Piece = {
 -- WHERE THE FOUR HIGH SEATS STAND. Its own function because `Layout.treeDensity` needs it for every
 -- candidate in the wood and must not build the whole furniture list to find out.
 function Layout.highSeats(config): { Point }
+	if not config.INCLUDE.highSeats then
+		return {} -- task 85: no high seats, and `treeDensity` keeps no clearing for one
+	end
 	local world, seat = config.WORLD, config.FURNITURE.highSeat
 	local out: { Point } = {}
 	for _, index in ipairs(seat.atPosts) do
@@ -278,7 +286,10 @@ function Layout.furniture(config): { Piece }
 
 	-- 1. TWO STAKES PER STAND, and the orange cap on top of each (row 58a(a): the posts have to be
 	-- visible from the road, and every tagged marker is Transparency = 1 by design).
-	for index = 1, world.postCount do
+	--
+	-- THE ONE PIECE OF FURNITURE THE BARE WORLD KEEPS (task 85): with the wood gone, the stakes are
+	-- the only thing that says where a stand is.
+	for index = 1, (if config.INCLUDE.stakes then world.postCount else 0) do
 		local postX = (index - (world.postCount + 1) / 2) * world.postSpacing
 		local z = world.lineZ + f.stake.offsetZ
 		for _, side in ipairs({ -1, 1 }) do
@@ -377,7 +388,10 @@ function Layout.furniture(config): { Piece }
 	-- 3. A BARRIER ACROSS EACH END OF THE ROAD: two uprights and a boom, on the flat bench inside
 	-- the road's own ends, so it stands on gravel rather than among trunks.
 	local road = Layout.benches(config)[1]
-	for endIndex, endX in ipairs({ road.from + f.barrier.inset, road.to - f.barrier.inset }) do
+	local barrierEnds = if config.INCLUDE.barriers
+		then { road.from + f.barrier.inset, road.to - f.barrier.inset }
+		else {}
+	for endIndex, endX in ipairs(barrierEnds) do
 		for _, side in ipairs({ -1, 1 }) do
 			add({
 				kind = "barrierPost",
@@ -407,7 +421,7 @@ function Layout.furniture(config): { Piece }
 	end
 
 	-- 4. TWO LOG PILES ON THE VERGE, stacked 3 + 2, their long axis along the road.
-	for pileIndex, pile in ipairs(f.logPile.at) do
+	for pileIndex, pile in ipairs(if config.INCLUDE.logPiles then f.logPile.at else {}) do
 		local z = world.lineZ + pile.side * f.logPile.offsetZ
 		local log = f.logPile.log
 		-- 3 + 2 + 1, the way a forester stacks them, and 6.6 studs tall so it reads from the road.
@@ -437,7 +451,7 @@ function Layout.furniture(config): { Piece }
 	-- track would say the track goes nowhere.
 	local fence = f.fence
 	local x = fence.fromX
-	while x <= fence.toX + 1e-6 do
+	while config.INCLUDE.fence and x <= fence.toX + 1e-6 do
 		if not (x > fence.gateFromX and x < fence.gateToX) then
 			add({
 				kind = "fencePost",
@@ -492,7 +506,7 @@ function Layout.furniture(config): { Piece }
 
 	-- 6. REEDS ON THE BOG'S RIM.
 	local bog, reeds = world.bog, f.reeds
-	for index = 1, reeds.count do
+	for index = 1, (if config.INCLUDE.reeds then reeds.count else 0) do
 		local angle = (index - 1) / reeds.count * math.pi * 2
 		-- Deterministic, and it is arithmetic rather than a draw: see the note above the function.
 		local wobble = ((index * 37) % (reeds.jitter * 2 + 1)) - reeds.jitter
@@ -522,6 +536,9 @@ end
 -- z at a constant x. A line that crosses the drive corridor is marked, because that is the one that
 -- must be gated or the drive stops at it.
 function Layout.hedgeLines(config): { Line }
+	if not config.INCLUDE.hedges then
+		return {} -- task 85: no hedgerows, so no hedgerow STEPS and no clearance around them
+	end
 	local world = config.WORLD
 	local span = world.hedgeHalfSpan
 	local corridor = world.corridor
@@ -643,6 +660,9 @@ end
 -- Is this point on a dirt track? Material only -- the track's height was already set by the
 -- heightfield, so nothing here can disagree with Height about the ground.
 function Layout.onTrack(x: number, z: number, config): boolean
+	if not config.INCLUDE.tracks then
+		return false -- task 85: no dirt track, so no ground painted for one
+	end
 	for _, track in ipairs(config.WORLD.tracks) do
 		local across = if track.axis == "x" then z else x
 		if math.abs(across - track.at) <= track.halfWidth then
@@ -655,6 +675,9 @@ end
 -- How far into the bog a point is, 0 outside it and 1 at its centre, eased. Both the heightfield (a
 -- shallow depression) and the material ask this one function, so the mud and the dip cannot disagree.
 function Layout.bogDepth(x: number, z: number, config): number
+	if not config.INCLUDE.bog then
+		return 0 -- task 85: no bog, so no dip and no Mud. The numbers stay in WORLD.bog.
+	end
 	local bog = config.WORLD.bog
 	local d = math.sqrt((x - bog.x) ^ 2 + (z - bog.z) ^ 2)
 	if d >= bog.radius then
