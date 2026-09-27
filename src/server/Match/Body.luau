@@ -79,29 +79,57 @@ local OUTFIT_COLOR = Color3.fromRGB(255, 112, 0)
 --
 -- `fallbackLimb` is R6: an R15 character has `UpperTorso` and an R6 one has `Torso`. Nothing in this
 -- place makes an R6 character today, and a missing limb is a counted miss rather than a crash.
+--
+-- THE HAT IS TWO PARTS AND THE SCREENSHOT IS WHY (rule 5). The design's table is one flat cylinder,
+-- 2.2 x 0.6 x 2.2 at +0.8 above the Head's centre, and that is exactly what was built and
+-- photographed first (.screenshots/20260927T031301Z-task77-hat-2.png): a disc AT THE HAIR LINE that
+-- the avatar's hair grows straight through. It measured perfectly -- the spec's 0.8 is still
+-- asserted below -- and it read as an orange HALO, not headwear. A hat is a crown and a brim; one
+-- disc at any height is a brim on its own, and this project has a whole page about things that
+-- measure correct and look wrong (docs/PROJECT_CONTEXT.md).
+--
+-- So the brim keeps the design's 2.2 diameter and its place in the silhouette, thins to 0.35 and
+-- rises to clear a default avatar's hair, and a short crown sits on it. The design's row TYPE is a
+-- list and always was; what changes is that the shooter's list has two rows. Deviation recorded in
+-- TASKS.md row 77a for the Architect, and the colours and sizes are the Director's pick and Karen's
+-- to change either way.
 local OUTFITS = {
 	Shooters = {
-		name = "Hat",
-		limb = "Head",
-		fallbackLimb = nil,
-		shape = Enum.PartType.Cylinder,
-		size = Vector3.new(0.6, 2.2, 2.2), -- world box 2.2 x 0.6 x 2.2 after the turn below
-		rotationDeg = Vector3.new(0, 0, 90),
-		offset = Vector3.new(0, 0.8, 0), -- above the Head's CENTRE, which is what a Position is
-		color = OUTFIT_COLOR,
+		{
+			name = "Hat", -- the brim
+			limb = "Head",
+			fallbackLimb = nil,
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.35, 2.2, 2.2), -- world box 2.2 x 0.35 x 2.2 after the turn below
+			rotationDeg = Vector3.new(0, 0, 90),
+			offset = Vector3.new(0, 0.95, 0), -- above the Head's CENTRE, which is what a Position is
+			color = OUTFIT_COLOR,
+		},
+		{
+			name = "HatCrown",
+			limb = "Head",
+			fallbackLimb = nil,
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.7, 1.35, 1.35),
+			rotationDeg = Vector3.new(0, 0, 90),
+			offset = Vector3.new(0, 1.42, 0),
+			color = OUTFIT_COLOR,
+		},
 	},
 	Drivers = {
-		name = "Vest",
-		limb = "UpperTorso",
-		fallbackLimb = "Torso",
-		shape = Enum.PartType.Block,
-		-- CENTRED ON THE TORSO, not stood in front of it: a vest has a back. 1.3 deep against an
-		-- R15 UpperTorso's ~1.0 leaves it proud by 0.15 on each face, which is a garment rather than
-		-- a sign hung on a chest.
-		size = Vector3.new(2.2, 1.6, 1.3),
-		rotationDeg = Vector3.zero,
-		offset = Vector3.zero,
-		color = OUTFIT_COLOR,
+		{
+			name = "Vest",
+			limb = "UpperTorso",
+			fallbackLimb = "Torso",
+			shape = Enum.PartType.Block,
+			-- CENTRED ON THE TORSO, not stood in front of it: a vest has a back. 1.3 deep against
+			-- an R15 UpperTorso's ~1.0 leaves it proud by 0.15 on each face, which is a garment
+			-- rather than a sign hung on a chest.
+			size = Vector3.new(2.2, 1.6, 1.3),
+			rotationDeg = Vector3.zero,
+			offset = Vector3.zero,
+			color = OUTFIT_COLOR,
+		},
 	},
 }
 
@@ -116,11 +144,7 @@ function Body.dressFor(team: TeamName?, config): { any }
 	if not team or not (config and config.OUTFITS_ENABLED) then
 		return {}
 	end
-	local row = OUTFITS[team]
-	if not row then
-		return {}
-	end
-	return { row }
+	return OUTFITS[team] or {}
 end
 
 -- DRESSES ONE CHARACTER. Destroys any existing outfit first, so it is idempotent and a team swap is

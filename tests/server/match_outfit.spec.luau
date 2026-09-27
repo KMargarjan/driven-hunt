@@ -32,7 +32,7 @@ local OFF = { OUTFITS_ENABLED = false }
 
 -- The design's own numbers, by hand (section 10.2's table).
 local ORANGE = Color3.fromRGB(255, 112, 0)
-local HAT_WORLD_BOX = Vector3.new(2.2, 0.6, 2.2)
+local HAT_BRIM_WORLD_BOX = Vector3.new(2.2, 0.35, 2.2)
 local VEST_SIZE = Vector3.new(2.2, 1.6, 1.3)
 
 -- An R15-shaped rig: a root, a head and an upper torso, anchored and far from anybody.
@@ -95,11 +95,16 @@ return function()
 
 	describe("dressFor, which is pure", function()
 		it("gives a shooter a hat on the head and a driver a vest on the torso", function()
+			-- TWO ROWS FOR THE HAT since the first screenshot: a brim and a crown. One disc at the
+			-- hair line read as a halo (rule 5); the header of Body's OUTFITS table has the picture.
 			local shooter = Body.dressFor("Shooters", ON)
-			expect(#shooter).to.equal(1)
+			expect(#shooter).to.equal(2)
 			expect(shooter[1].name).to.equal("Hat")
-			expect(shooter[1].limb).to.equal("Head")
-			expect(shooter[1].color).to.equal(ORANGE)
+			expect(shooter[2].name).to.equal("HatCrown")
+			for _, row in ipairs(shooter) do
+				expect(row.limb).to.equal("Head")
+				expect(row.color).to.equal(ORANGE)
+			end
 
 			local driver = Body.dressFor("Drivers", ON)
 			expect(#driver).to.equal(1)
@@ -110,14 +115,20 @@ return function()
 			expect(driver[1].size).to.equal(VEST_SIZE)
 		end)
 
-		it("makes the hat the design's box once it is turned", function()
-			-- A Roblox cylinder's axis is its X, so the part's own Size is not the world box. The
-			-- design's table says 2.2 x 0.6 x 2.2 and this is the arithmetic that gets there.
-			local row = Body.dressFor("Shooters", ON)[1]
-			expect(row.shape).to.equal(Enum.PartType.Cylinder)
-			expect(row.rotationDeg).to.equal(Vector3.new(0, 0, 90))
-			local turned = Vector3.new(row.size.Y, row.size.X, row.size.Z)
-			expect(turned).to.equal(HAT_WORLD_BOX)
+		it("keeps the design's brim diameter, turned the right way, and stacks the crown on it", function()
+			-- A Roblox cylinder's axis is its X, so a part's own Size is not its world box. The
+			-- design's table says the brim is 2.2 across and this is the arithmetic that gets there.
+			local rows = Body.dressFor("Shooters", ON)
+			local brim, crown = rows[1], rows[2]
+			expect(brim.shape).to.equal(Enum.PartType.Cylinder)
+			expect(brim.rotationDeg).to.equal(Vector3.new(0, 0, 90))
+			expect(Vector3.new(brim.size.Y, brim.size.X, brim.size.Z)).to.equal(HAT_BRIM_WORLD_BOX)
+			-- the crown is narrower than the brim and sits ON it, not inside it
+			expect(crown.size.Y < brim.size.Y).to.equal(true)
+			expect(crown.offset.Y > brim.offset.Y).to.equal(true)
+			local brimTop = brim.offset.Y + brim.size.X / 2
+			local crownBottom = crown.offset.Y - crown.size.X / 2
+			expect(math.abs(crownBottom - brimTop) < 0.15).to.equal(true)
 		end)
 
 		it("gives nobody anything with the flag off, or with no team", function()
@@ -148,15 +159,26 @@ return function()
 			local character = newRig("Task77Shooter")
 			expect(Body.dress(character, "Shooters", ON)).to.equal(true)
 			local parts = outfitParts(character)
-			expect(#parts).to.equal(1)
+			expect(#parts).to.equal(2)
 			local hat = parts[1]
+			if hat.Name ~= "Hat" then
+				hat = parts[2]
+			end
 			expect(hat.Name).to.equal("Hat")
 			expect(hat.Color).to.equal(ORANGE)
 			-- THE ONE THAT MATTERS: a hat that stops a pellet changes what the shot hit, and what
 			-- the shot hit is what Match.Penalty.judge reads.
+			-- asserted on EVERY part of the outfit, not just the one this case names: a crown that
+			-- ate a slug would be exactly as wrong as a brim that did.
+			for _, part in ipairs(parts) do
+				expect(part.CanQuery).to.equal(false)
+				expect(part.CanCollide).to.equal(false)
+				expect(part.CanTouch).to.equal(false)
+				expect(part.Massless).to.equal(true)
+				expect(part.Anchored).to.equal(false)
+				expect(part.Color).to.equal(ORANGE)
+			end
 			expect(hat.CanQuery).to.equal(false)
-			expect(hat.CanCollide).to.equal(false)
-			expect(hat.CanTouch).to.equal(false)
 			expect(hat.Massless).to.equal(true)
 			-- NOT anchored: Body.tie anchors the ROOT, and an anchored hat pins a head to the world.
 			expect(hat.Anchored).to.equal(false)
@@ -166,9 +188,10 @@ return function()
 			expect(weld).to.be.ok()
 			expect((weld :: WeldConstraint).Part0).to.equal(character:FindFirstChild("Head"))
 			expect((weld :: WeldConstraint).Part1).to.equal(hat)
-			-- above the head's CENTRE, which is what a Position is
+			-- above the head's CENTRE, which is what a Position is, and high enough to clear a
+			-- default avatar's hair -- which the design's 0.8 did not (rule 5, the first screenshot)
 			local head = character:FindFirstChild("Head") :: BasePart
-			expect(math.abs((hat.Position - head.Position).Y - 0.8) < 1e-3).to.equal(true)
+			expect(math.abs((hat.Position - head.Position).Y - 0.95) < 1e-3).to.equal(true)
 		end)
 
 		it("puts one orange vest on a driver's torso", function()
@@ -186,9 +209,10 @@ return function()
 		it("swaps the item when the team swaps, and never wears two", function()
 			local character = newRig("Task77Swap")
 			expect(Body.dress(character, "Shooters", ON)).to.equal(true)
+			expect(#outfitParts(character)).to.equal(2) -- brim and crown
 			expect(Body.dress(character, "Drivers", ON)).to.equal(true)
 			local parts = outfitParts(character)
-			expect(#parts).to.equal(1)
+			expect(#parts).to.equal(1) -- and the hat is gone, both parts of it
 			expect(parts[1].Name).to.equal("Vest")
 			-- and dressing twice for the SAME team is still one item: the folder is destroyed and
 			-- rebuilt, which is what makes every call site above safe to call again.
@@ -207,7 +231,7 @@ return function()
 		it("adds nothing with the flag off, and takes off what is already there", function()
 			local character = newRig("Task77Off")
 			expect(Body.dress(character, "Shooters", ON)).to.equal(true)
-			expect(#outfitParts(character)).to.equal(1)
+			expect(#outfitParts(character)).to.equal(2)
 			-- Switching off and respawning must undress: the folder is cleared before the rows are
 			-- asked for, so "off" is not "whatever you were wearing stays".
 			expect(Body.dress(character, "Shooters", OFF)).to.equal(true)
