@@ -18,11 +18,23 @@
 -- The ON half is the Director's two-player screenshot, by hand, with the flag switched on for that
 -- session only.
 --
+-- `zz_` AND IT IS NOT DECORATION. The client suite runs while the harness replays a fixed input
+-- scenario into this process, so several specs assert on what the scripted keys and clicks had done
+-- BY THE TIME THEY RAN -- `weapon_client`'s end state is an ammo count. Specs load in name order, so
+-- a new file inserted before one of those shifts it in the replay: this file first landed as
+-- `outfit_client.spec` and `weapon_client` came back with 23 slugs instead of 24 and three shots
+-- instead of two, with nothing about the weapon changed. The prefix puts this after them, which is
+-- also where a read-only spec belongs. (`zz_tie_to_a_tree` keeps the last word; this one only
+-- counts and cannot disturb it.) Reported as a harness fragility in TASKS.md row 77a.
+--
+-- AND IT SCANS CHARACTERS, NOT WORKSPACE. `Body.dress` parents the folder to the character and
+-- nowhere else, so a character scan is complete -- and `Workspace:GetDescendants()` over a map of
+-- 2,700 trees is exactly the kind of cost that moves the replay again.
+--
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/map-generator.md (section 10.2), docs/design/feature-flags.md (section 13.2)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
 
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -33,9 +45,15 @@ local OUTFIT_NAME = "HuntOutfit"
 
 local function outfitParts(): { BasePart }
 	local out = {}
-	for _, descendant in ipairs(Workspace:GetDescendants()) do
-		if descendant:IsA("BasePart") and descendant.Parent and descendant.Parent.Name == OUTFIT_NAME then
-			table.insert(out, descendant)
+	for _, player in ipairs(Players:GetPlayers()) do
+		local character = player.Character
+		local folder = character and character:FindFirstChild(OUTFIT_NAME)
+		if folder then
+			for _, child in ipairs(folder:GetChildren()) do
+				if child:IsA("BasePart") then
+					table.insert(out, child)
+				end
+			end
 		end
 	end
 	return out
@@ -48,7 +66,7 @@ return function()
 			local mine = Players.LocalPlayer.Character
 			TestKit.note(
 				string.format(
-					"outfit[client]: ORANGE_OUTFITS=%s, %d outfit part(s) in Workspace, mine=%s",
+					"outfit[client]: ORANGE_OUTFITS=%s, %d outfit part(s) on live characters, mine=%s",
 					tostring(Flags.isOn("ORANGE_OUTFITS")),
 					#parts,
 					if mine and mine:FindFirstChild(OUTFIT_NAME) then "dressed" else "none"
