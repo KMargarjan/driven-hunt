@@ -599,8 +599,15 @@ return function()
 
 			-- THE SAME ROW WITHOUT THE FIELD: the parts gun's bead, and the warning (which is once
 			-- per server, so this case asserts the VALUE and not the warning's count).
+			--
+			-- BUILT WITHOUT IT RATHER THAN BORROWED FROM THE MANIFEST. The first version of this
+			-- case passed the live row and expected the fallback, which was true only while no row
+			-- carried a measurement -- and this task measured one an hour later, so the case failed
+			-- on data rather than on behaviour. The fixture now says what it means.
+			local withoutRow = table.clone(row) :: any
+			withoutRow.sightOffsetStuds = nil
 			withProvider(function()
-				return template, { row = row }
+				return template, { row = withoutRow }
 			end, function()
 				local tool = Hardware.build()
 				local handle = tool:FindFirstChild("Handle") :: BasePart
@@ -654,10 +661,33 @@ return function()
 				local offset = (row :: any).sightOffsetStuds
 				if typeof(offset) == "Vector3" then
 					checked += 1
-					local half = row.sizeStuds / 2
-					expect(math.abs(offset.X) <= half.X + 1e-3).to.equal(true)
+					-- IN THE HANDLE'S FRAME, WHICH `sizeStuds` IS NOT. The row's box is the mesh's
+					-- own, before `rotationDeg` is applied -- for this gun (0, 90, 0) swaps its
+					-- length onto Z -- so comparing the offset's Z against `sizeStuds.Z/2` compares
+					-- a position along the barrels against the gun's WIDTH. It did, and this case
+					-- failed on a measurement that was right (task 90, the third gate).
+					local rotation = CFrame.Angles(
+						math.rad(row.rotationDeg.X),
+						math.rad(row.rotationDeg.Y),
+						math.rad(row.rotationDeg.Z)
+					)
+					local size = row.sizeStuds
+					local function extent(axis: Vector3): number
+						return math.abs(axis.X * size.X) + math.abs(axis.Y * size.Y) + math.abs(axis.Z * size.Z)
+					end
+					local half = Vector3.new(
+						extent(rotation.XVector),
+						extent(rotation.YVector),
+						extent(rotation.ZVector)
+					) / 2
+					-- inside the gun's own envelope along the barrels and across them...
 					expect(math.abs(offset.Z) <= half.Z + 1e-3).to.equal(true)
-					expect(offset.Y >= 0.15 and offset.Y <= 0.45).to.equal(true)
+					expect(math.abs(offset.X) <= half.X + 1e-3).to.equal(true)
+					-- ...above the bore and no more than a bead's clearance above the mesh's own
+					-- top, which is what "on the rib" means and what a typo would miss...
+					expect(offset.Y >= 0.15).to.equal(true)
+					expect(offset.Y <= half.Y + 0.05).to.equal(true)
+					-- ...and at the muzzle end.
 					expect(math.abs(offset.Z - Shape.muzzleZ(CONFIG)) <= 0.25).to.equal(true)
 				end
 			end
