@@ -197,7 +197,12 @@ local Config = {
 	-- carry and the aim were found in tasks 90 and 95. What is derived rather than picked is the
 	-- direction: the right hand's fingers run forward along the stock's wrist with the index on the
 	-- trigger guard, and the left hand's run forward under the barrels.
-	HAND_RIGHT_POS_STUDS = Vector3.new(0.10, -0.14, 1.30),
+	-- MEASURED ON SCREEN, ROUND 2 (rule 5). The first pick put the right hand's palm 0.19 studs out
+	-- to the right of the stock and 0.16 below it -- beside the wood rather than round it -- which
+	-- the arithmetic says and the break screenshot showed. The palm sits 0.45 studs along the
+	-- fingers from the model's centre, so moving the centre in and up by that much moves the palm
+	-- onto the wrist of the stock.
+	HAND_RIGHT_POS_STUDS = Vector3.new(0.02, -0.02, 1.30),
 	-- Three named degrees, converted to radians at ONE site (`Mode.handOffset`) -- the rule the
 	-- Task 19 cone-unit defect bought. YAW swings the hand's long axis (wrist to fingertip)
 	-- horizontally, PITCH lifts or drops it, TWIST turns the hand about that axis -- which is the
@@ -205,12 +210,19 @@ local Config = {
 	HAND_RIGHT_YAW_DEG = 78,
 	HAND_RIGHT_PITCH_DEG = -6,
 	HAND_RIGHT_TWIST_DEG = -15,
-	HAND_LEFT_POS_STUDS = Vector3.new(-0.06, -0.17, 0.02),
+	-- MEASURED ON SCREEN, ROUND 2, AND IT MOVED FURTHEST. In the first build the left hand sat at
+	-- the bottom-left CORNER of the carry frame, clear of the barrels, and in the aimed view it was
+	-- a fist beside the tubes rather than a hand under them. The cause is arithmetic rather than
+	-- taste: at 75 degrees of yaw the palm -- 0.45 studs along the fingers from the model's centre
+	-- -- drifts 0.12 studs to the LEFT of wherever the centre is put, and the barrel pair is only
+	-- 0.18 studs wide. So the yaw comes in to 80 (the forearm still angles out to the left, which
+	-- is what a left hand does) and the centre moves right and up by what the drift costs.
+	HAND_LEFT_POS_STUDS = Vector3.new(0.08, -0.09, 0.09),
 	-- NEGATIVE YAW for the left hand, because its model runs the other way: the right hand's
 	-- fingertips are at its mesh +X and the left hand's at its -X (measured on each prepped model's
 	-- own bounds). TWIST 180 is what turns the palm UP, so the barrels lie in it rather than on the
 	-- back of the hand.
-	HAND_LEFT_YAW_DEG = -75,
+	HAND_LEFT_YAW_DEG = -80,
 	HAND_LEFT_PITCH_DEG = -4,
 	HAND_LEFT_TWIST_DEG = 180,
 
