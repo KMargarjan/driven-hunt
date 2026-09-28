@@ -1208,29 +1208,36 @@ return function()
 				-- forend is bolted to the barrels, so the hand holding it swings down with them --
 				-- and the hand on the grip stays exactly where it was, because the body does not
 				-- move at all.
+				--
+				-- MEASURED IN THE BODY'S OWN FRAME, NOT IN THE WORLD, and the first run of this case is
+				-- why: opening the gun also moves the WHOLE gun into `Mode.breakOffset`, so both hands
+				-- travel in world space and "the left hand moved" would have passed for the wrong
+				-- reason while "the right hand did not" simply failed. What is being claimed is about
+				-- the gun's own parts: the left hand's place on the BODY changes (it went down with the
+				-- barrels) while its place on the BARRELS does not, and the right hand's place on the
+				-- body does not change at all.
 				local leftOnBarrels = cloned.CFrame:ToObjectSpace(left.CFrame)
+				local leftOnBody = clone.CFrame:ToObjectSpace(left.CFrame)
 				local rightOnBody = clone.CFrame:ToObjectSpace(right.CFrame)
-				local leftWas, rightWas = left.Position, right.Position
 				local open = table.clone(stateAtBlend(0)) :: any
 				open.openTilt = 1
 				table.freeze(open)
 				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { false, false } })
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				local leftNowOnBody = clone.CFrame:ToObjectSpace(left.CFrame)
+				local leftNowOnBarrels = cloned.CFrame:ToObjectSpace(left.CFrame)
+				local rightNowOnBody = clone.CFrame:ToObjectSpace(right.CFrame)
 				TestKit.note(
 					string.format(
-						"task93 break: left hand moved %.3f studs, right hand %.3f",
-						(left.Position - leftWas).Magnitude,
-						(right.Position - rightWas).Magnitude
+						"task93 break: left hand moved %.3f studs on the body and %.4f on the barrels; right hand %.4f",
+						(leftNowOnBody.Position - leftOnBody.Position).Magnitude,
+						(leftNowOnBarrels.Position - leftOnBarrels.Position).Magnitude,
+						(rightNowOnBody.Position - rightOnBody.Position).Magnitude
 					)
 				)
-				expect((left.Position - leftWas).Magnitude > 0.05).to.equal(true)
-				expect((right.Position - rightWas).Magnitude < 1e-3).to.equal(true)
-				-- ...and it is still in the SAME place ON the barrels, which is what makes it a hand
-				-- holding the forend rather than a hand that happens to move.
-				local carried = cloned.CFrame:ToObjectSpace(left.CFrame)
-				expect((carried.Position - leftOnBarrels.Position).Magnitude < 1e-3).to.equal(true)
-				local stillOnBody = clone.CFrame:ToObjectSpace(right.CFrame)
-				expect((stillOnBody.Position - rightOnBody.Position).Magnitude < 1e-3).to.equal(true)
+				expect((leftNowOnBody.Position - leftOnBody.Position).Magnitude > 0.05).to.equal(true)
+				expect((leftNowOnBarrels.Position - leftOnBarrels.Position).Magnitude < 1e-3).to.equal(true)
+				expect((rightNowOnBody.Position - rightOnBody.Position).Magnitude < 1e-3).to.equal(true)
 
 				-- THE FLAG-OFF CAMERA HAS NO HANDS, and it TAKES THEM OFF rather than walking away
 				-- (the lesson the barrels taught in task 96, round 2): the clone is drawn in that
