@@ -113,6 +113,32 @@ def decimate(ob, target):
     return before, after, ratio
 
 
+def edges_over_angle(ob, angle_rad):
+    """How many of the mesh's edges have two faces that meet at more than `angle_rad`.
+
+    THE SECOND ROUTE (task 93). `shade()` asks Blender to flag those edges; this counts them off the
+    geometry itself, so "the smoothing took" is a comparison between two independent measurements
+    rather than a number the operator reports about its own work. An edge with fewer or more than two
+    faces is not counted: there is no single angle for it, and Blender does not mark one from an angle
+    either.
+    """
+    mesh = ob.data
+    faces = {}
+    normals = {}
+    for polygon in mesh.polygons:
+        normals[polygon.index] = polygon.normal
+        for key in polygon.edge_keys:
+            faces.setdefault(tuple(sorted(key)), []).append(polygon.index)
+    over = 0
+    for _key, sharing in faces.items():
+        if len(sharing) != 2:
+            continue
+        dot = normals[sharing[0]].dot(normals[sharing[1]])
+        if math.acos(max(-1.0, min(1.0, dot))) > angle_rad:
+            over += 1
+    return over
+
+
 def shade(ob, angle_deg):
     """SMOOTH NORMALS, SHARP ONLY WHERE THE MODEL REALLY TURNS (task 92).
 
@@ -144,6 +170,18 @@ def shade(ob, angle_deg):
     except RuntimeError as error:  # nothing to clear is not a failure
         log("splitNormalsClear", note=str(error))
     bpy.ops.object.shade_smooth()
+    # EVERY SHARP EDGE THE FILE ARRIVED WITH IS CLEARED FIRST (task 93), and that is the whole
+    # difference between this step's own sentence -- "mark as sharp only the edges whose two faces
+    # meet at more than `angle_deg`" -- and what it actually did until now.
+    #
+    # MEASURED, in Blender 5.2.1: Karen's gloved hand comes out of Meshy with 1,476 of its 3,120
+    # edges ALREADY flagged sharp, and `shade_smooth_by_angle` ADDS to that flag rather than
+    # recomputing it. 1,476 became 1,478 at 35 degrees, at 70 and at 179 alike -- so the angle
+    # decided nothing, the report's own `sharpEdges` line was reporting the generator's flags back
+    # as this tool's work, and the hand rendered as shards whatever was asked for.
+    sharp_on_import = sum(1 for edge in ob.data.edges if edge.use_edge_sharp)
+    for edge in ob.data.edges:
+        edge.use_edge_sharp = False
     angle = math.radians(float(angle_deg))
     used = None
     for name in ("shade_smooth_by_angle", "shade_auto_smooth"):
@@ -173,8 +211,22 @@ def shade(ob, angle_deg):
     # with the same symptom (task 94, measured after the tubes arrived in Roblox faceted).
     smooth_faces = sum(1 for polygon in ob.data.polygons if polygon.use_smooth)
     modifiers = [m.type for m in ob.modifiers]
+    # ---- AND THE STEP IS CHECKED AGAINST THE GEOMETRY, not trusted (task 93).
+    #
+    # The defect above passed every line of this function: the operator returned {'FINISHED'}, the
+    # report printed a plausible number, and nothing compared that number with the model. So the
+    # angle is now measured independently -- the angle between the two face normals at every edge
+    # that has two faces -- and a count that disagrees with what the operator left FAILS THE RUN.
+    # A smoothing step that quietly does nothing is the whole of task 92 and task 94 happening again.
+    wanted_sharp = edges_over_angle(ob, angle)
+    tolerance = max(8, int(round(0.02 * len(ob.data.edges))))
+    if abs(sharp - wanted_sharp) > tolerance:
+        fail("the smoothing step did not take: %d edge(s) are flagged sharp but %d of %d meet at "
+             "more than %.0f degrees (tolerance %d). The operator that ran was %s."
+             % (sharp, wanted_sharp, len(ob.data.edges), float(angle_deg), tolerance, used))
     return {"applied": True, "angleDeg": float(angle_deg), "operator": used,
             "edges": len(ob.data.edges), "sharpEdges": sharp,
+            "sharpOnImport": sharp_on_import, "sharpByAngle": wanted_sharp,
             "smoothFaces": smooth_faces, "faces": len(ob.data.polygons),
             "modifiers": modifiers}
 

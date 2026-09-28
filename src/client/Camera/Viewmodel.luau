@@ -23,6 +23,10 @@ local Mode = require(script.Parent.Mode)
 -- SHARED, AND ONLY FOR THE GEOMETRY OF THE BARRELS (task 92): `Shotgun.barrelMuzzleOffset`. This
 -- module still knows nothing about weapon STATE -- it clones a Handle and poses it.
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+-- SHARED, AND ONLY FOR THE THREE NAMES the hands are published under (task 93). This module does not
+-- load them and does not know what an asset id is: the server does that and parks the templates
+-- where a client can reach them.
+local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 
 local Viewmodel = {}
 
@@ -59,7 +63,19 @@ local BARRELS_NAME = "Barrels"
 local SPENT_NAME = "SpentShell"
 local FRESH_NAME = "FreshShell"
 
-local stats = { sightMissing = 0, rebuilds = 0, parts = 0, breaksDrawn = 0, shellsDrawn = 0 }
+local stats =
+	{ sightMissing = 0, rebuilds = 0, parts = 0, breaksDrawn = 0, shellsDrawn = 0, handsDrawn = 0, handsMissing = 0 }
+
+-- THE HANDS (task 93). `handsOn` is not a cache of what is on screen -- the Instances are that -- it
+-- is how the OFF branch knows whether it has anything to take off without walking the clone every
+-- frame for a part that is almost never there. `clear()` resets both it and the model together, so
+-- the two cannot disagree.
+local handsOn = false
+local handsMissingCounted = false
+-- INJECTED, SO A SPEC CAN DRIVE BOTH PATHS -- hands and no hands -- with no server and no network.
+-- `nil` restores the real lookup, which is what production uses. The same shape `setSource`,
+-- `Loader.setInsert` and `Hardware.setTemplateProvider` already have.
+local handTemplates: ((string) -> BasePart?)? = nil
 
 -- WHAT THE WEAPON SAYS ABOUT ITS OWN RELOAD, handed in by the camera every frame (task 96). The
 -- server owns the reload and its clock; this module only draws it. `spent` is how many barrels were
@@ -117,6 +133,16 @@ function Viewmodel.getSource(): (() -> BasePart?)?
 	return source
 end
 
+function Viewmodel.setHandTemplates(fn: ((string) -> BasePart?)?)
+	handTemplates = fn
+end
+
+-- So a spec can put back what it found, exactly as `getSource` exists for: leaving a fake installed
+-- would mean every later frame of that session drew somebody's test hands.
+function Viewmodel.getHandTemplates(): ((string) -> BasePart?)?
+	return handTemplates
+end
+
 -- Nil unless the viewmodel is actually in the camera (design section 9.2 item 6). The clone is kept
 -- behind this so it is not rebuilt every time the player dips out of aim, but "is there a viewmodel"
 -- means "is one on screen".
@@ -130,6 +156,8 @@ function Viewmodel.clear()
 		model = nil
 	end
 	barrelsLocal = nil -- the next clone reads its own barrels' rest pose (task 96)
+	handsOn = false -- the hands went with the model (task 93)
+	handsMissingCounted = false
 	table.clear(ridersLocal)
 	builtFrom = nil
 	for _, connection in ipairs(childWatchers) do
@@ -288,6 +316,106 @@ local function chamberOffset(barrel: number): CFrame
 	return CFrame.new(across.X, across.Y, breechZ)
 end
 
+-- WHERE A HAND TEMPLATE COMES FROM. The real answer is the folder
+-- `ServerScriptService.ViewmodelAssetsBoot` publishes; a spec injects its own with
+-- `setHandTemplates`. Never yields and never loads anything: nil means "no hands", which is the gun
+-- Karen has been playing since task 95 and not a failure.
+local function handTemplate(name: string): BasePart?
+	local fn = handTemplates
+	if fn then
+		return fn(name)
+	end
+	local folder = ReplicatedStorage:FindFirstChild(HandAssets.FOLDER_NAME)
+	local found = if folder then folder:FindFirstChild(name) else nil
+	return if found and found:IsA("BasePart") then found :: BasePart else nil
+end
+
+local function addHand(clone: BasePart, parent: Instance, name: string, offset: CFrame): boolean
+	local template = handTemplate(name)
+	if template == nil then
+		return false
+	end
+	local worn = template:Clone()
+	worn.Name = name
+	-- The same set every other piece under the camera carries. `CanQuery = false` is the one that is
+	-- not cosmetic: workspace.CurrentCamera is a child of Workspace, so this system's own occlusion
+	-- cast could otherwise hit a hand an inch from the eye (see the header).
+	worn.Anchored = true
+	worn.CanCollide = false
+	worn.CanQuery = false
+	worn.CanTouch = false
+	worn.Massless = true
+	worn.CastShadow = false
+	worn.CFrame = clone.CFrame * offset
+	worn.Parent = parent
+	stats.handsDrawn += 1
+	handsOn = true
+	return true
+end
+
+-- THE HANDS ON THE GUN (task 93). KAREN, 2026-09-27: "right hand grip and left hand pipes like in
+-- real life".
+--
+-- WHOSE PIECE EACH HAND IS, WHICH IS THE WHOLE OF THE RELOAD QUESTION. The RIGHT hand goes on the
+-- Handle: it holds the grip, which is part of the BODY, and the body does not move when the gun
+-- breaks open. The LEFT hand goes on `Barrels`: it holds the forend, and on a break gun the forend
+-- is bolted to the barrels and swings down with them -- so the hand that holds it swings too, and a
+-- shooter's left hand really does ride the barrels while they open. Parenting says whose it is; the
+-- placement follows from that, exactly as the bead's does (`hinge` places every rider from the
+-- barrels' own transform). With the gun in one piece -- the parts gun, or a mesh that arrived
+-- without its barrels -- both hands hang on the Handle and one `PivotTo` poses them.
+--
+-- IDEMPOTENT, AND CALLED EVERY FRAME ON PURPOSE. The templates are loaded on the server and
+-- replicate, so they can land after the clone was built; two `FindFirstChild` calls a frame is what
+-- buys "the hands appear as soon as they exist" without a second staleness flag.
+--
+-- FIRST PERSON ONLY, AND IT PUTS THINGS BACK RATHER THAN WALKING AWAY -- the lesson the barrels
+-- taught in task 96 round 2. The OFF branch is the shoulder camera Karen accepted on 2026-09-25 and
+-- draws no hands at all, including in a session that flipped the flag mid-life.
+function Viewmodel.hands(made: Model, config)
+	local clone = made.PrimaryPart
+	if clone == nil then
+		return
+	end
+	if config.FIRST_PERSON ~= true then
+		if handsOn then
+			Viewmodel.clearHands(clone)
+		end
+		return
+	end
+	local barrels = clone:FindFirstChild(BARRELS_NAME)
+	local leftParent: Instance = if barrels and barrels:IsA("BasePart") then barrels else clone
+	local missing = false
+	if clone:FindFirstChild(HandAssets.RIGHT) == nil then
+		missing = not addHand(clone, clone, HandAssets.RIGHT, Mode.rightHandOffset(config)) or missing
+	end
+	if leftParent:FindFirstChild(HandAssets.LEFT) == nil then
+		missing = not addHand(clone, leftParent, HandAssets.LEFT, Mode.leftHandOffset(config)) or missing
+	end
+	-- COUNTED ONCE PER CLONE, NOT PER FRAME. A gun drawn without hands is a real state -- the load
+	-- failed, or the asset was moderated away -- and it must be visible in `stats()` rather than in a
+	-- log line nobody reads or a warning sixty times a second. A spec asserts it is zero for a real
+	-- session and that it is not zero when the templates are taken away.
+	if missing and not handsMissingCounted then
+		handsMissingCounted = true
+		stats.handsMissing += 1
+	end
+end
+
+-- Every hand this module has drawn, gone. Walks the clone rather than remembering where it put them:
+-- the left hand's parent depends on whether the gun has barrels, and a walk cannot disagree with
+-- what is actually on screen.
+function Viewmodel.clearHands(clone: BasePart)
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant.Name == HandAssets.RIGHT or descendant.Name == HandAssets.LEFT then
+			ridersLocal[descendant :: any] = nil
+			descendant:Destroy()
+		end
+	end
+	handsOn = false
+	handsMissingCounted = false
+end
+
 local function build(handle: BasePart, config): Model
 	local made = Instance.new("Model")
 	made.Name = "DrivenHuntViewmodel"
@@ -420,6 +548,10 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	if made.Parent ~= cam then
 		made.Parent = cam
 	end
+	-- THE HANDS, BEFORE THE POSE. They are children of the clone (and of its barrels), so the
+	-- `PivotTo` below carries them with everything else; adding them after it would leave them one
+	-- frame behind the gun.
+	Viewmodel.hands(made, config)
 	-- THE GUN'S OWN SIGHT DECIDES THE AIMED POSE (task 90): read off the clone every frame, because
 	-- a rebuild (the mesh arriving late, `Hardware.upgrade`) can change it mid-life.
 	local gun = camCFrame * Mode.viewmodelOffset(state, Viewmodel.sight(), config)
@@ -477,7 +609,17 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config)
 	-- transform, and shut that transform is identity -- so the bead is bit-for-bit where it was
 	-- and the shot line is untouched.
 	for _, descendant in ipairs(clone:GetDescendants()) do
-		if descendant:IsA("BasePart") and (descendant.Name == MARKER_NAME or descendant.Name == BEAD_NAME) then
+		if
+			descendant:IsA("BasePart")
+			and (
+				descendant.Name == MARKER_NAME
+				or descendant.Name == BEAD_NAME
+				-- THE LEFT HAND IS A RIDER TOO (task 93): it holds the forend, the forend is bolted
+				-- to the barrels, and both swing down together when the gun breaks. The RIGHT hand
+				-- is deliberately not here -- it holds the grip, which is part of the body.
+				or descendant.Name == HandAssets.LEFT
+			)
+		then
 			if ridersLocal[descendant] == nil then
 				ridersLocal[descendant] = clone.CFrame:ToObjectSpace(descendant.CFrame)
 			end

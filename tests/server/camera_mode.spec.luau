@@ -501,6 +501,101 @@ return function()
 			end)
 		end)
 
+		-- ------------------------------------------------------------------- the hands (task 93)
+		describe("where the hands sit on the gun", function()
+			-- KAREN, 2026-09-27: "right hand grip and left hand pipes like in real life". The pose
+			-- is pure geometry in the GUN's own frame, so it is asserted here with no client, no
+			-- camera and no mesh -- the client spec then checks that the drawn hands are actually
+			-- posed from these two answers.
+			--
+			-- THE GUN'S OWN LANDMARKS, from `Weapon.Shape` and `Shotgun.CONFIG` rather than from
+			-- numbers copied into this file: the Handle is 4.4 studs long about its centre with -Z
+			-- the muzzle, the barrels are 28/45 of it, so the breech face is at +0.54 and the
+			-- trigger a little behind that.
+			local length = Shotgun.CONFIG.HANDLE_SIZE.Z
+			local breechZ = -length / 2 + length * (28 / 45)
+
+			it("puts the right hand behind the breech and the left hand under the barrels", function()
+				local right = Mode.rightHandOffset(firstPerson).Position
+				local left = Mode.leftHandOffset(firstPerson).Position
+				TestKit.note(
+					string.format(
+						"task93 hands: right (%.2f, %.2f, %.2f), left (%.2f, %.2f, %.2f), breech at %.2f",
+						right.X,
+						right.Y,
+						right.Z,
+						left.X,
+						left.Y,
+						left.Z,
+						breechZ
+					)
+				)
+				-- THE GRIP IS BEHIND THE BREECH and the forend is in front of it. That is what makes
+				-- one hand the body's and the other the barrels': a left hand behind the breech
+				-- would be holding the action, and would then swing with the barrels for no reason.
+				expect(right.Z > breechZ).to.equal(true)
+				expect(left.Z < breechZ).to.equal(true)
+				-- BOTH ARE BELOW THE BORE LINE. A hand on top of the barrels covers the rib and the
+				-- bead, which is the one thing a player aims with.
+				expect(right.Y < 0).to.equal(true)
+				expect(left.Y < 0).to.equal(true)
+				-- AND NEITHER IS PAST THE MUZZLE: a hand out in front of the gun is a hand being
+				-- shot through.
+				expect(left.Z > -length / 2).to.equal(true)
+			end)
+
+			it("points both hands' fingers down the gun, and turns the left one palm up", function()
+				-- THE MODEL'S LONG AXIS IS ITS OWN X, wrist to fingertip -- and the two hands run
+				-- opposite ways (measured on each prepped model's bounds: the right hand's
+				-- fingertips are at its mesh minimum and the left hand's at its maximum, and the FBX
+				-- import flips the long axis, so in Roblox they are +X and -X). So "the fingers
+				-- point at the muzzle" is a claim about DIFFERENT model axes for the two hands, and
+				-- it is asserted on where each axis ends up rather than on the yaw number.
+				local right = Mode.rightHandOffset(firstPerson)
+				local left = Mode.leftHandOffset(firstPerson)
+				local rightFingers = right.RightVector -- the model's +X
+				local leftFingers = -left.RightVector -- the model's -X
+				TestKit.note(
+					string.format(
+						"task93 fingers: right Z %.2f, left Z %.2f; left palm up %.2f",
+						rightFingers.Z,
+						leftFingers.Z,
+						left.UpVector.Y
+					)
+				)
+				-- FORWARD IS -Z. Both sets of fingers must point down the gun rather than back at
+				-- the player: a hand facing the wrong way is the knife held backwards for three
+				-- rounds (docs/PROJECT_CONTEXT.md).
+				expect(rightFingers.Z < -0.7).to.equal(true)
+				expect(leftFingers.Z < -0.7).to.equal(true)
+				-- THE LEFT HAND IS TURNED PALM UP, which is the whole difference between cradling
+				-- the barrels and lying on top of them. The model's +Y is the BACK of the hand, so
+				-- palm up means that axis points DOWN.
+				expect(left.UpVector.Y < -0.5).to.equal(true)
+				-- ...and the right hand is not: it wraps the grip from above.
+				expect(right.UpVector.Y > 0.5).to.equal(true)
+			end)
+
+			it("converts its three degrees at one site, and only there", function()
+				-- The rule the Task 19 cone-unit defect bought. `Mode.handOffset` takes DEGREES, so
+				-- a caller that passed radians would get a pose 57 times too small -- which this
+				-- catches by asking for a right angle and measuring one.
+				local quarter = Mode.handOffset(Vector3.zero, 90, 0, 0)
+				expect(math.abs(quarter.RightVector.Z + 1) < 1e-4).to.equal(true)
+				local flat = Mode.handOffset(Vector3.zero, 0, 0, 0)
+				expect((flat.Position).Magnitude < 1e-6).to.equal(true)
+				expect((flat.RightVector - Vector3.xAxis).Magnitude < 1e-6).to.equal(true)
+				expect((flat.UpVector - Vector3.yAxis).Magnitude < 1e-6).to.equal(true)
+				-- THE TWIST IS ABOUT THE HAND'S OWN LONG AXIS AND NOTHING ELSE: after a half turn
+				-- the fingers still point where they did and the back of the hand has swapped with
+				-- the palm. Written out because the other two rotations would also flip `UpVector`,
+				-- and then "palm up" above would be a claim about the wrong dial.
+				local twisted = Mode.handOffset(Vector3.zero, 90, 0, 180)
+				expect((twisted.RightVector - quarter.RightVector).Magnitude < 1e-4).to.equal(true)
+				expect(twisted.UpVector.Y < -0.99).to.equal(true)
+			end)
+		end)
+
 		-- ------------------------------------------------------------------ recoil (task 92)
 		describe("recoil", function()
 			-- KAREN, after playing S2: "shooting has to have recoil a bit".

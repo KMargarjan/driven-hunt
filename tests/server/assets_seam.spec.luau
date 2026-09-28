@@ -152,6 +152,41 @@ return function()
 			end
 		end)
 
+		it("keeps the hands out of the server's preload, and gives them a scope of their own", function()
+			-- TASK 93. The two hands are loaded on the server -- `LoadAsset` is server-only -- but the
+			-- server has nothing to do with them afterwards: they are cloned under the local player's
+			-- camera and never worn by a Tool. `WeaponBoot` must not preload them (the `#keys == 2`
+			-- above is the other half of this claim) and `ViewmodelAssetsBoot` must not preload the
+			-- gun, or the two boot lines would ask the Loader for the same key at the same moment.
+			local viewmodel = Assets.keysFor("viewmodel")
+			table.sort(viewmodel)
+			TestKit.note(string.format("task93 viewmodel keys: [%s]", table.concat(viewmodel, ", ")))
+			expect(#viewmodel).to.equal(2)
+			expect(viewmodel[1]).to.equal(Assets.KEYS.handLeft)
+			expect(viewmodel[2]).to.equal(Assets.KEYS.handRight)
+			for _, key in ipairs(Assets.keysFor("runtime")) do
+				expect(key ~= Assets.KEYS.handLeft and key ~= Assets.KEYS.handRight).to.equal(true)
+			end
+			-- AND EACH HAND IS A REAL ROW: an approved id, one mesh, and a size that is a hand's
+			-- rather than the gun's. 1.28 studs is 330 mm at this game's scale (the gun is 4.4 studs
+			-- for 1,143 mm); anything near the gun's own length would be an arm across the screen.
+			for _, key in ipairs(viewmodel) do
+				local hand = Assets.byKey(key)
+				expect(hand).to.be.ok()
+				expect(hand.modelId > 0).to.equal(true)
+				expect(hand.kind).to.equal("meshpart")
+				expect(hand.moderation).to.equal("approved")
+				expect(hand.scope).to.equal("viewmodel")
+				local longest = math.max(hand.sizeStuds.X, hand.sizeStuds.Y, hand.sizeStuds.Z)
+				TestKit.note(string.format("task93 %s: %.2f studs long, %d tris", key, longest, hand.trisDeclared))
+				expect(longest > 0.8 and longest < 1.8).to.equal(true)
+				-- THE HANDS ARE POSED BY THE CAMERA, so this field is zero and nothing reads it. It
+				-- is asserted rather than left alone because a non-zero rotation here would be a
+				-- number somebody wrote expecting it to do something.
+				expect(hand.rotationDeg).to.equal(Vector3.zero)
+			end
+		end)
+
 		it("keeps the gun's LENGTH and does not squash it", function()
 			local row = Assets.byKey(Hardware.ASSET_KEY)
 			-- The length is the number GRIP and MUZZLE_OFFSET are built on, so it is exact.

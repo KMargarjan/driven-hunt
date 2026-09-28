@@ -1113,6 +1113,178 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------------------------------------ the hands (task 93)
+	describe("the hands", function()
+		it("puts the right hand on the body and the left on the barrels, and neither on the player", function()
+			-- KAREN, 2026-09-27: "right hand grip and left hand pipes like in real life". The pose
+			-- itself is proved on the server (`camera_mode.spec`, pure geometry); this proves the
+			-- things only a running client can show -- that the hands are REAL Instances under the
+			-- camera, posed from that same geometry, parented to the piece each one holds, and that
+			-- they are not on the character.
+			local handle = Instance.new("MeshPart")
+			handle.Name = "Handle"
+			handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+			handle.Transparency = 1
+			local sight = Instance.new("Attachment")
+			sight.Name = "Sight"
+			sight.CFrame = CFrame.new(0, 0.336, -2.19)
+			sight.Parent = handle
+			local barrels = Instance.new("Part")
+			barrels.Name = "Barrels"
+			barrels.Size = Vector3.new(0.2, 0.2, 2.7)
+			barrels.CFrame = handle.CFrame
+			barrels.Parent = handle
+
+			-- THE TEMPLATES, INJECTED. The real ones are loaded on the server and published into
+			-- ReplicatedStorage, which a Studio with no network may not have; driving the seam means
+			-- both branches -- hands and no hands -- are reached on purpose rather than on a good day.
+			local fakes: { [string]: BasePart } = {}
+			local liveSource = Camera.Viewmodel.getSource()
+			local liveHands = Camera.Viewmodel.getHandTemplates()
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			Camera.Viewmodel.setHandTemplates(function(name: string): BasePart?
+				if fakes[name] == nil then
+					local part = Instance.new("Part")
+					part.Name = name .. "Template"
+					part.Size = Vector3.new(1.28, 0.57, 0.53)
+					fakes[name] = part
+				end
+				return fakes[name]
+			end)
+
+			local ok, err = pcall(function()
+				Camera.Viewmodel.clear()
+				Camera.Viewmodel.setReload(nil)
+				task.wait(0.3)
+
+				local before = Camera.Viewmodel.stats().handsDrawn
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local cloned = clone:FindFirstChild("Barrels") :: BasePart
+				local right = clone:FindFirstChild("HandRight") :: BasePart
+				local left = cloned:FindFirstChild("HandLeft") :: BasePart
+				expect(right).to.be.ok()
+				expect(left).to.be.ok()
+				expect(Camera.Viewmodel.stats().handsDrawn - before).to.equal(2)
+				-- WHOSE PIECE EACH ONE IS, asserted as the parent rather than as a position: the
+				-- grip is on the body and the forend is on the barrels, and that is what decides
+				-- which one swings when the gun breaks open.
+				expect(right.Parent).to.equal(clone)
+				expect(left.Parent).to.equal(cloned)
+				-- NOT THE PLAYER'S OWN ARMS. The two owners are disjoint by parent (design section
+				-- 9.2): the camera's hands are under workspace.CurrentCamera and `Rig`'s hidden body
+				-- parts are under the character, and neither may reach into the other.
+				expect(right:IsDescendantOf(Workspace.CurrentCamera)).to.equal(true)
+				local character = player.Character
+				if character then
+					expect(right:IsDescendantOf(character)).to.equal(false)
+					expect(left:IsDescendantOf(character)).to.equal(false)
+				end
+				for _, hand in ipairs({ right, left }) do
+					expect(hand.Anchored).to.equal(true)
+					expect(hand.CanQuery).to.equal(false) -- the occlusion cast must not hit them
+					expect(hand.CanCollide).to.equal(false)
+					expect(#hand:GetDescendants()).to.equal(0) -- no scripts came with them
+				end
+				-- POSED FROM THE PURE GEOMETRY, not from numbers this file repeats.
+				local wantRight = Camera.Mode.rightHandOffset(firstPersonConfig)
+				local gotRight = clone.CFrame:ToObjectSpace(right.CFrame)
+				TestKit.note(
+					string.format(
+						"task93 right hand at (%.2f, %.2f, %.2f), wanted (%.2f, %.2f, %.2f)",
+						gotRight.Position.X,
+						gotRight.Position.Y,
+						gotRight.Position.Z,
+						wantRight.Position.X,
+						wantRight.Position.Y,
+						wantRight.Position.Z
+					)
+				)
+				expect((gotRight.Position - wantRight.Position).Magnitude < 1e-3).to.equal(true)
+
+				-- THE LEFT HAND RIDES THE BARRELS AND THE RIGHT ONE DOES NOT. On a break gun the
+				-- forend is bolted to the barrels, so the hand holding it swings down with them --
+				-- and the hand on the grip stays exactly where it was, because the body does not
+				-- move at all.
+				local leftOnBarrels = cloned.CFrame:ToObjectSpace(left.CFrame)
+				local rightOnBody = clone.CFrame:ToObjectSpace(right.CFrame)
+				local leftWas, rightWas = left.Position, right.Position
+				local open = table.clone(stateAtBlend(0)) :: any
+				open.openTilt = 1
+				table.freeze(open)
+				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { false, false } })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				TestKit.note(
+					string.format(
+						"task93 break: left hand moved %.3f studs, right hand %.3f",
+						(left.Position - leftWas).Magnitude,
+						(right.Position - rightWas).Magnitude
+					)
+				)
+				expect((left.Position - leftWas).Magnitude > 0.05).to.equal(true)
+				expect((right.Position - rightWas).Magnitude < 1e-3).to.equal(true)
+				-- ...and it is still in the SAME place ON the barrels, which is what makes it a hand
+				-- holding the forend rather than a hand that happens to move.
+				local carried = cloned.CFrame:ToObjectSpace(left.CFrame)
+				expect((carried.Position - leftOnBarrels.Position).Magnitude < 1e-3).to.equal(true)
+				local stillOnBody = clone.CFrame:ToObjectSpace(right.CFrame)
+				expect((stillOnBody.Position - rightOnBody.Position).Magnitude < 1e-3).to.equal(true)
+
+				-- THE FLAG-OFF CAMERA HAS NO HANDS, and it TAKES THEM OFF rather than walking away
+				-- (the lesson the barrels taught in task 96, round 2): the clone is drawn in that
+				-- branch too, while aiming, and a session that flipped the flag must not leave two
+				-- gloves floating by the shoulder camera's gun.
+				Camera.Viewmodel.setReload(nil)
+				local aimedOff = table.clone(stateAtBlend(1)) :: any
+				aimedOff.mode = "Aiming"
+				table.freeze(aimedOff)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), aimedOff, Config)
+				expect(clone:FindFirstChild("HandRight")).to.equal(nil)
+				expect(cloned:FindFirstChild("HandLeft")).to.equal(nil)
+
+				-- AND A GUN WITH NO TEMPLATES IS STILL A GUN (design 5.3). The load can fail, the
+				-- asset can be moderated away, a Studio can have no network: the fallback is no
+				-- hands, never a broken gun, and it is COUNTED rather than silent.
+				Camera.Viewmodel.setHandTemplates(function(): BasePart?
+					return nil
+				end)
+				local missingBefore = Camera.Viewmodel.stats().handsMissing
+				Camera.Viewmodel.clear()
+				task.wait(0.3)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				local bare = Camera.Viewmodel.current()
+				expect(bare).to.be.ok()
+				local bareClone = (bare :: Model).PrimaryPart :: BasePart
+				expect(bareClone:FindFirstChild("HandRight")).to.equal(nil)
+				TestKit.note(
+					string.format(
+						"task93 no templates: handsMissing %d -> %d, gun still drawn with %d part(s)",
+						missingBefore,
+						Camera.Viewmodel.stats().handsMissing,
+						Camera.Viewmodel.stats().parts
+					)
+				)
+				expect(Camera.Viewmodel.stats().handsMissing > missingBefore).to.equal(true)
+
+				Camera.Viewmodel.clear()
+			end)
+			Camera.Viewmodel.setHandTemplates(liveHands)
+			Camera.Viewmodel.setSource(liveSource)
+			for _, fake in pairs(fakes) do
+				fake:Destroy()
+			end
+			handle:Destroy()
+			if not ok then
+				error(err, 0)
+			end
+			-- THE LIVE CAMERA IS BACK AS IT WAS: its own source, its own templates, nothing open.
+			expect(Camera.Viewmodel.getSource()).to.equal(liveSource)
+			expect(Camera.Viewmodel.getHandTemplates()).to.equal(liveHands)
+		end)
+	end)
+
 	describe("what the reload should draw", function()
 		it("counts the spent barrels from BEFORE the break, and the fresh from the chambers", function()
 			-- ROUND 1'S DEFECT, AS A MEASUREMENT: the server's `Break` opens the gun AND empties both

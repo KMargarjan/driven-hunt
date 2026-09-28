@@ -172,6 +172,48 @@ local Config = {
 	SHELL_EJECT_RISE_STUDS = 0.18, -- measured: at 0.45 the shell flew clear across the frame
 	SHELL_FEED_SECONDS = 0.30, -- fresh shells sliding into the chambers
 	SHELL_FEED_FROM_STUDS = 0.40, -- how far behind the chamber they start
+	-- ------------------------------------------------------ the hands (ON branch, task 93)
+	-- KAREN ASKED FOR THEM TWICE (PLAYTEST.md, 2026-09-27): "right hand grip and left hand pipes
+	-- like in real life", and again after S2. She made both gloves in her own Meshy account; the
+	-- server publishes the templates and `Camera.Viewmodel` clones them under the camera. Nobody
+	-- else sees them -- other players see the character's own arms, exactly as before.
+	--
+	-- THE POSE LIVES HERE AND NOT ON THE GUN, which is a deviation from docs/design/camera.md S3
+	-- (it has `Hardware` write `GripHold` and `ForeHold` attachments beside `Sight`). The reason is
+	-- that a hand is cosmetic, client-side and first-person only -- the same class as the drawn
+	-- bead, the shells and the fill light, all of which are already numbers in this file -- while
+	-- `Sight` is on the gun because the SHOT GEOMETRY depends on it and the server writes it. Two
+	-- dials for one measurement is what putting half of this in the manifest would buy: the hand's
+	-- position and its orientation are one thing, measured together on one screenshot.
+	--
+	-- IN THE GUN'S OWN FRAME, like `BREAK_HINGE_STUDS`: -Z is the muzzle, +X is right, +Y is up, and
+	-- the Handle's centre is the origin. The gun's own landmarks, from `Weapon.Shape`: the muzzle at
+	-- Z = -2.2, the breech face at +0.54, the trigger at +0.78, the forend's centre at (0, -0.035,
+	-- -0.21) and the bore line at Y = +0.12.
+	--
+	-- THE HAND MODELS ARE A HAND PLUS A CUFF and their pivot is the middle of that whole thing, so
+	-- the POSITION below is where the middle of the forearm goes, about a third of the model behind
+	-- the palm. THESE ARE FIRST PICKS AND THE SCREENSHOT IS THE MEASUREMENT -- the same way the
+	-- carry and the aim were found in tasks 90 and 95. What is derived rather than picked is the
+	-- direction: the right hand's fingers run forward along the stock's wrist with the index on the
+	-- trigger guard, and the left hand's run forward under the barrels.
+	HAND_RIGHT_POS_STUDS = Vector3.new(0.10, -0.14, 1.30),
+	-- Three named degrees, converted to radians at ONE site (`Mode.handOffset`) -- the rule the
+	-- Task 19 cone-unit defect bought. YAW swings the hand's long axis (wrist to fingertip)
+	-- horizontally, PITCH lifts or drops it, TWIST turns the hand about that axis -- which is the
+	-- one a hand actually has, and the one that decides whether the palm faces the wood or the sky.
+	HAND_RIGHT_YAW_DEG = 78,
+	HAND_RIGHT_PITCH_DEG = -6,
+	HAND_RIGHT_TWIST_DEG = -15,
+	HAND_LEFT_POS_STUDS = Vector3.new(-0.06, -0.17, 0.02),
+	-- NEGATIVE YAW for the left hand, because its model runs the other way: the right hand's
+	-- fingertips are at its mesh +X and the left hand's at its -X (measured on each prepped model's
+	-- own bounds). TWIST 180 is what turns the palm UP, so the barrels lie in it rather than on the
+	-- back of the hand.
+	HAND_LEFT_YAW_DEG = -75,
+	HAND_LEFT_PITCH_DEG = -4,
+	HAND_LEFT_TWIST_DEG = 180,
+
 	-- ------------------------------------------------------ the bead sight (ON branch, task 90)
 	-- HOW FAR THE BEAD SITS FROM THE EYE when aiming. 3.5, AND IT IS MEASURED OFF KAREN'S OWN
 	-- ACCEPTANCE PICTURE rather than chosen: `<assets-dir>/references/inspiration-2026-09-27/`,

@@ -425,6 +425,44 @@ function Mode.breakOffset(config): CFrame
 		)
 end
 
+-- WHERE A HAND SITS ON THE GUN (task 93), in the GUN's own frame -- the frame `BREAK_HINGE_STUDS`
+-- and `Weapon.Shape` are written in: -Z is the muzzle, +X is right, +Y is up.
+--
+-- THE THREE DEGREES ARE THE THREE A HAND ACTUALLY HAS, and the order is what makes them legible
+-- rather than interacting:
+--   * YAW swings the hand's long axis -- wrist to fingertip, which is the model's own X -- left and
+--     right about the gun's vertical;
+--   * PITCH then lifts or drops that axis, about the axis the yaw left pointing across it;
+--   * TWIST turns the hand about its OWN long axis, applied innermost so it is unaffected by the
+--     other two. It is the one that decides whether the palm faces the wood or the sky, which is
+--     the whole difference between a hand cradling the barrels and a hand lying on top of them.
+-- Converted to radians at THIS SITE and nowhere else -- the rule the Task 19 cone-unit defect bought.
+function Mode.handOffset(position: Vector3, yawDeg: number, pitchDeg: number, twistDeg: number): CFrame
+	return CFrame.new(position)
+		* CFrame.Angles(0, math.rad(yawDeg), 0)
+		* CFrame.Angles(0, 0, math.rad(pitchDeg))
+		* CFrame.fromAxisAngle(Vector3.xAxis, math.rad(twistDeg))
+end
+
+-- The two poses by name, so the viewmodel and any spec ask the same question of the same numbers.
+function Mode.rightHandOffset(config): CFrame
+	return Mode.handOffset(
+		config.HAND_RIGHT_POS_STUDS,
+		config.HAND_RIGHT_YAW_DEG,
+		config.HAND_RIGHT_PITCH_DEG,
+		config.HAND_RIGHT_TWIST_DEG
+	)
+end
+
+function Mode.leftHandOffset(config): CFrame
+	return Mode.handOffset(
+		config.HAND_LEFT_POS_STUDS,
+		config.HAND_LEFT_YAW_DEG,
+		config.HAND_LEFT_PITCH_DEG,
+		config.HAND_LEFT_TWIST_DEG
+	)
+end
+
 -- HOW FAR THE BARRELS HAVE SWUNG, in degrees (task 96). One site, so the viewmodel and any spec ask
 -- the same question of the same state rather than each multiplying the blend by the angle.
 function Mode.breakAngleDeg(state: State, config): number

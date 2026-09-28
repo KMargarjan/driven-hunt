@@ -471,7 +471,86 @@ ANIMAL_RECIPE = {
     "maxShineDrift": 0.08,
 }
 
-PRESETS = {"gun": DEFAULT_RECIPE, "animal": ANIMAL_RECIPE}
+# THE HAND PRESET (task 93). Karen made two gloved hands in her own paid Meshy account -- a right
+# hand gripping, index finger extended along the side, and a left hand palm up, cupped to cradle the
+# barrels -- and gave the upload OK on 2026-09-27. They are FIRST-PERSON scenery: nobody but the
+# player holding the gun ever sees them.
+#
+# WHAT THIS PRESET IS FOR, AND IT IS ONE THING: the shading. The Director rendered both hands in
+# Blender before this preset existed and they came back FACETED -- every triangle lit as its own
+# plane -- which is exactly the look Karen called "broken" on the gun (PLAYTEST.md, 2026-09-27), and
+# a hand two inches from a first-person eye shows it worse than a barrel does. `smoothAngleDeg` is
+# the same step the gun's preset gained in task 92: shade smooth, keep sharp only the edges whose
+# faces meet at more than 35 degrees.
+#
+# NOTHING IS RECOLOURED. Karen chose brown leather and an olive cuff and the Director approves the
+# look (Karen, 2026-09-27: "you do all autonomously"), so the base colour is `skip`ped outright --
+# the one region this plan has exists to carry the SHINE numbers and to give the run something to
+# measure through the mesh. A glove is not a metal, so metalness is replaced with 0 rather than
+# trusted: a generated model can arrive at metalness 0.9, and a mirror-chrome glove an inch from the
+# eye is the same defect the barrels had in task 74. Roughness keeps the generator's own variation
+# (target `None`), because leather's wear and the cuff's weave are in it.
+#
+# NO REBUILD AND NO SPLIT: there is nothing on a hand whose true form is two numbers, and it does
+# not hinge.
+HAND_RECIPE = {
+    "tool": TOOL_VERSION,
+    # 2,080 and 2,061 triangles as they arrive, against Roblox's 20,000 per mesh: nothing to gain.
+    "targetTriangles": None,
+    # 70, NOT THE 35 THE GUN USES, AND IT WAS MEASURED ON THIS MODEL. A gun has real edges -- the
+    # action's flats, the breech face, the trigger guard -- and 35 degrees is what keeps them. A hand
+    # has almost none: it is all surface, and the only places it really turns are between the fingers
+    # and at the cuff. The dihedral angles of Karen's right hand say so -- of 3,113 edges that have
+    # two faces, 815 meet at more than 35 degrees and 277 at more than 70 -- and at 35 the knuckles
+    # rendered as a fan of shards (the first run of this task, looked at).
+    "smoothAngleDeg": 70,
+    "rebuildBarrels": None,
+    # 2048 is more than a hand needs and is what every other asset here ships at; nothing is resized
+    # silently and the report prints every size before and after.
+    "workPx": 2048,
+    "renderPx": 1100,
+    "renderSamples": 32,
+    "maskDilatePx": 4,
+    "regionColorSpace": "linear",
+    # Nothing in this plan reads the long axis, so there is nothing to state: let it be measured and
+    # printed like any other run.
+    "frontAtMin": None,
+    "regionSmoothRounds": 3,
+    "maxRegionSpeckle": 0.01,
+    "maxSurfaceDrift": 45,
+    "renderSource": True,
+    "maxEdgeDensityRatio": 1.25,
+    "maskFeatherPx": 6,
+    # ONE REGION, AND IT IS THE CATCH-ALL. `check_recipe` requires the last entry to have no `when`;
+    # here that entry is the only entry, which is the honest shape for an asset that is one material.
+    "regionPlan": [
+        {"name": "glove"},
+    ],
+    # FOUR CAMERAS ROUND THE HAND, named for where they stand rather than for what they are expected
+    # to show: which side of a generated hand is the palm is something a human decides by LOOKING at
+    # these pictures (rule 5), not something this file may assume. `renderSource` gives the same four
+    # of the untouched original, so the smoothing is a comparison rather than a claim.
+    "views": [
+        {"name": "across", "dir": [0.0, -1.0, 0.06], "distanceSpan": 1.3},
+        {"name": "across-back", "dir": [0.0, 1.0, 0.06], "distanceSpan": 1.3},
+        {"name": "above", "dir": [0.0, -0.02, 1.0], "distanceSpan": 1.3},
+        {"name": "three-quarter", "dir": [-0.7, -1.0, 0.38], "distanceSpan": 1.1},
+    ],
+    "regions": {
+        "glove": {
+            # KAREN'S OWN COLOURS, UNTOUCHED. `skip` is the recipe vocabulary for "this region's
+            # pixels are already what they should be" (the gun preset's selftest region uses it).
+            "baseColor": {"skip": True},
+            "metallic": 0.0,
+            "roughness": None,
+        },
+    },
+    "channelWeight": {"metallic": 1.0, "roughness": 0.85},
+    "maxShineDrift": 0.08,
+}
+
+
+PRESETS = {"gun": DEFAULT_RECIPE, "animal": ANIMAL_RECIPE, "hand": HAND_RECIPE}
 
 
 def glb_triangles(path):
@@ -1446,7 +1525,7 @@ def command_selftest(_args):
            set(aimed) == {"muzzle-close", "aim"}
            and all(v["targetAlong"] < 0 for v in aimed.values()),
            str(sorted(aimed)))
-        ok("both presets are complete enough to run",
+        ok("every preset is complete enough to run",
            all(check_recipe(json.loads(json.dumps(PRESETS[name]))) for name in PRESETS),
            str(sorted(PRESETS)))
         try:

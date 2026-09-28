@@ -77,6 +77,11 @@ export type AssetRow = {
 	-- gun's own bead and warns once. It lives here rather than in `Shotgun.CONFIG` because it
 	-- describes ONE upload: a new mesh is a new row with a new measurement.
 	sightOffsetStuds: Vector3?,
+	-- WHO NEEDS THIS ROW BEFORE A PLAYER CAN USE IT (task 93). `nil` means "runtime": the server
+	-- needs it before it can hand the thing over, which is every row that predates the hands.
+	-- "viewmodel" is a row only the LOCAL player's camera ever draws, so a different boot line asks
+	-- for it and it must not be loaded twice -- `keysFor` answers per scope rather than per table.
+	scope: string?,
 	renderFidelity: string,
 	-- SET WHEN A LATER VERSION REPLACES THIS ROW. The row STAYS (rule 7: never delete, archive
 	-- with a note) -- an id that has been in a place is provenance, and a moderated-away or
@@ -90,6 +95,11 @@ export type AssetRow = {
 -- grey box nobody can explain.
 Assets.KEYS = table.freeze({
 	shotgunHandle = "shotgun.handle",
+	-- THE TWO FIRST-PERSON HANDS (task 93). They are not the gun and they are not the map: nobody
+	-- but the player holding the shotgun ever sees them, which is why they carry a scope of their
+	-- own below.
+	handRight = "hand.right",
+	handLeft = "hand.left",
 })
 
 -- THE SIZE IS UNIFORM, AND THAT IS A DECISION WORTH READING (design 6.1 says "the consumer sets
@@ -107,6 +117,21 @@ Assets.KEYS = table.freeze({
 local NATURAL = Vector3.new(199.999, 31.314, 11.311)
 local SCALE = Shotgun.CONFIG.HANDLE_SIZE.Z / NATURAL.X
 local GUN_SIZE = Vector3.new(NATURAL.X * SCALE, NATURAL.Y * SCALE, NATURAL.Z * SCALE)
+
+-- THE HANDS (task 93), by the same rule and written out the same way: scale UNIFORMLY so the long
+-- axis is `HAND_LENGTH_STUDS`, and let the other two be whatever the hand's own proportions give.
+-- The two natural boxes are MEASURED off each prepped model's own vertex bounds (the run's
+-- `model.glb` position accessors, times the hundred Roblox's FBX import applies -- the same hundred
+-- that makes the gun's two-unit model 200 units long above). See the rows for where 1.28 comes from.
+local HAND_LENGTH_STUDS = 1.28
+local HAND_RIGHT_NATURAL = Vector3.new(190.04, 84.99, 78.93)
+local HAND_LEFT_NATURAL = Vector3.new(189.64, 95.52, 72.04)
+local function uniformTo(natural: Vector3, length: number): Vector3
+	local scale = length / natural.X
+	return Vector3.new(natural.X * scale, natural.Y * scale, natural.Z * scale)
+end
+local HAND_RIGHT_SIZE = uniformTo(HAND_RIGHT_NATURAL, HAND_LENGTH_STUDS)
+local HAND_LEFT_SIZE = uniformTo(HAND_LEFT_NATURAL, HAND_LENGTH_STUDS)
 
 Assets.ROWS = {
 	{
@@ -623,6 +648,107 @@ Assets.ROWS = {
 			.. "maps and smoothing groups, the whole gun's bounding box baked in with anchor "
 			.. "triangles so it assembles with the body at one CFrame.",
 	},
+	-- ------------------------------------------------------ the hands (task 93)
+	--
+	-- KAREN made both of these in her own paid Meshy account and gave the upload OK on 2026-09-27
+	-- ("ok to upload"): a RIGHT hand gripping, index finger extended along the side, and a LEFT hand
+	-- palm up and cupped to cradle the barrels. `tools/asset_prep.py` prepped each with the `hand`
+	-- preset -- smooth shading and nothing else; her leather and her olive cuff are untouched.
+	--
+	-- THEY ARE `scope = "viewmodel"`, WHICH IS THE ONE THING THAT MAKES THEM DIFFERENT FROM THE GUN.
+	-- A hand is never worn by a Tool and never replicated as part of one: the server loads it and
+	-- publishes the template, and `Camera.Viewmodel` clones it under `workspace.CurrentCamera` for
+	-- the local player alone. Other players see the character's own arms, exactly as before.
+	--
+	-- THE SIZE IS A FIRST PICK AND IT IS THE ONE NUMBER A SCREENSHOT DECIDES. Meshy normalises every
+	-- model it makes to a two-unit box, so the file says nothing about how big a hand is -- unlike
+	-- the gun, whose length is a published number (a Beretta 486 Parallelo is 1,143 mm). What is
+	-- known: this game's scale is the gun's, `HANDLE_SIZE.Z` = 4.4 studs for 1,143 mm, i.e. 260 mm to
+	-- the stud; and these models are a hand plus a cuff, which on a person is about 200 mm of hand
+	-- and 130 mm of sleeve. 330 mm / 260 = 1.27, so the long axis is scaled UNIFORMLY to 1.28 studs
+	-- and the other two axes are whatever the hand's own proportions give -- the same rule, and for
+	-- the same reason, as `GUN_SIZE` above. If the hands read too big or too small against the gun in
+	-- the first-person screenshot, this constant is the dial.
+	--
+	-- `rotationDeg` IS ZERO AND NOTHING READS IT. The gun's rotation is applied by
+	-- `Weapon.Hardware`, which wears the mesh on a Tool; a hand is posed by `Camera.Viewmodel` from
+	-- `Camera.Config`'s own three named degrees per hand, at one conversion site, because the pose
+	-- and the orientation are the same measurement and splitting them over two files would be two
+	-- dials for one thing.
+	{
+		key = "hand.right",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel",
+		-- Uploaded by tools/roblox_upload.py on 2026-09-28; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		modelId = 135163569224932,
+		displayName = "Driven Hunt gloved right hand r1",
+		fileName = "model.fbx",
+		sourceSha256 = "0b48cbfe76be38fd2d0968ca5387b37ee586ef3137e1872975a4838c3f201686",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated both hands in her own paid Meshy account on 2026-09-27 and "
+				.. "gave the upload OK the same day: ok to upload (hands). They were prepared with "
+				.. "tools/asset_prep.py's hand preset, which changes the shading and no colour.",
+			quotedFrom = "assets/uploads.json (karenOk), TASKS.md row 93",
+			readOn = "2026-09-28",
+			attribution = nil,
+		},
+		added = "2026-09-28",
+		moderation = "approved" :: Moderation,
+		-- MEASURED by the prep run (hand_right_r4): 2,080 triangles, against Roblox's 20,000.
+		trisDeclared = 2080,
+		texturePx = 2048,
+		sizeStuds = HAND_RIGHT_SIZE,
+		naturalSizeStuds = HAND_RIGHT_NATURAL,
+		offsetStuds = Vector3.zero, -- measured: the model's pivot is its bounding-box centre to
+		-- within 0.001 of a unit on every axis
+		rotationDeg = Vector3.zero, -- see the note above: the camera poses the hand
+		renderFidelity = "Automatic",
+		notes = "Brown leather glove, olive jacket cuff, fingers curled into a grip with the index "
+			.. "extended along the side. Smooth shading at 70 degrees (280 of 3,120 edges kept "
+			.. "sharp, against 1,476 the file arrived flagged with). Metalness written to 0 -- a "
+			.. "glove is not a metal -- and the generator's own roughness kept.",
+	},
+	{
+		key = "hand.left",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel",
+		-- Uploaded by tools/roblox_upload.py on 2026-09-28; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		modelId = 89496857904040,
+		displayName = "Driven Hunt gloved left hand r1",
+		fileName = "model.fbx",
+		sourceSha256 = "78bb1c079d849f30213e5cd4686861bddfe11381dc206b2f8e555d1c7903d0e9",
+		source = "own" :: Source,
+		creator = "8167651842",
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated both hands in her own paid Meshy account on 2026-09-27 and "
+				.. "gave the upload OK the same day: ok to upload (hands). They were prepared with "
+				.. "tools/asset_prep.py's hand preset, which changes the shading and no colour.",
+			quotedFrom = "assets/uploads.json (karenOk), TASKS.md row 93",
+			readOn = "2026-09-28",
+			attribution = nil,
+		},
+		added = "2026-09-28",
+		moderation = "approved" :: Moderation,
+		-- MEASURED by the prep run (hand_left_r1): 2,061 triangles.
+		trisDeclared = 2061,
+		texturePx = 2048,
+		sizeStuds = HAND_LEFT_SIZE,
+		naturalSizeStuds = HAND_LEFT_NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		notes = "The same glove and cuff, palm up and cupped, thumb raised: the hand a shooter "
+			.. "cradles the forend in. Smooth shading at 70 degrees (268 of 3,093 edges kept sharp, "
+			.. "against 1,479 the file arrived flagged with). Metalness written to 0.",
+	},
 } :: { AssetRow }
 
 -- The newest usable row for a key, or nil -- which means "use the grey box", not "fail".
@@ -657,7 +783,7 @@ end
 function Assets.keysFor(scope: string): { string }
 	local out, seen = {}, {}
 	for _, row in ipairs(Assets.ROWS) do
-		if scope == "runtime" and row.kind ~= "image" and row.supersededBy == nil then
+		if (row.scope or "runtime") == scope and row.kind ~= "image" and row.supersededBy == nil then
 			if not seen[row.key] then
 				seen[row.key] = true
 				table.insert(out, row.key)
