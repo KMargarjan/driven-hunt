@@ -209,6 +209,11 @@ DEFAULT_RECIPE = {
         "beadDiameterT": 0.0028,  # a 3 mm bead, which is what a game gun carries
         "segments": 64,  # round at arm's length: 5.6 degrees a facet, and 64 x 2 tubes is still cheap
         "dropT": 0.002,  # the bores sit a hair below the action's top face, not flush with it
+        # TASK 96: write the gun out in two more files, split at the same cut -- the barrels with
+        # their forend, and the body -- so a break-action gun can hinge in Roblox, where one MeshPart
+        # cannot. Both carry the whole gun's bounding box, so they assemble at one CFrame.
+        "splitAtCut": True,
+        "anchorSize": 1e-4,
         "keepForendWood": True,
         "forendMinSaturation": 0.18,
         "slabT": 0.05,

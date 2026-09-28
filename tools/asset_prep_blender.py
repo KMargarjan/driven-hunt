@@ -1389,6 +1389,77 @@ def render_views(ob, out_dir, size_px, samples, views, prefix="render"):
 
 # ---------------------------------------------------------------- the run
 
+def split_export(ob, plan, axis, front_at_min, lo, hi, out_dir, smooth_type):
+    """EXPORT THE GUN TWICE MORE: the barrels alone, and the body alone (task 96).
+
+    A break-action shotgun hinges: the barrels and their forend swing down off the action, and no
+    single MeshPart can do that in Roblox. So the same model is written out in two pieces, split at
+    the SAME plane `rebuild_barrels` cut at -- everything forward of it is the barrel group (the
+    built tubes, the rib, the bead and Karen's forend), everything behind it is the body (her action
+    and stock).
+
+    BOTH PIECES CARRY THE WHOLE GUN'S BOUNDING BOX, and that is what makes them assemble without a
+    single measured offset: each gets two anchor triangles a ten-thousandth of a unit across at the
+    full model's opposite corners, so Roblox imports both at the same size and the same origin, and
+    a consumer can weld them at one CFrame. At this model's scale those triangles are two millionths
+    of a stud -- smaller than any pixel the game will ever draw.
+    """
+    corners = [v.co.copy() for v in ob.data.vertices]
+    if not corners:
+        return {}
+    lows = [min(c[i] for c in corners) for i in (0, 1, 2)]
+    highs = [max(c[i] for c in corners) for i in (0, 1, 2)]
+    cut = lo + float(plan["cutAtT"]) * (hi - lo) if front_at_min else hi - float(plan["cutAtT"]) * (hi - lo)
+    anchor = float(plan.get("anchorSize", 1e-4)) * (hi - lo)
+    written = {}
+    for name, forward in (("barrels", True), ("body", False)):
+        piece = ob.copy()
+        piece.data = ob.data.copy()
+        piece.name = "Piece_" + name
+        bpy.context.collection.objects.link(piece)
+
+        bm = bmesh.new()
+        bm.from_mesh(piece.data)
+        bm.faces.ensure_lookup_table()
+
+        def is_forward(face):
+            value = face.calc_center_median()[axis]
+            return value < cut if front_at_min else value > cut
+
+        doomed = [f for f in bm.faces if is_forward(f) != forward]
+        bmesh.ops.delete(bm, geom=doomed, context="FACES")
+        bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+
+        # the two anchors, at the WHOLE gun's corners
+        uv_layer = bm.loops.layers.uv.active
+        for point in (Vector(lows), Vector(highs)):
+            verts = [bm.verts.new((point.x, point.y, point.z)),
+                     bm.verts.new((point.x + anchor, point.y, point.z)),
+                     bm.verts.new((point.x, point.y + anchor, point.z))]
+            face = bm.faces.new(verts)
+            face.material_index = 0
+            if uv_layer is not None:
+                for loop in face.loops:
+                    loop[uv_layer].uv = (0.0, 0.0)
+        bm.to_mesh(piece.data)
+        bm.free()
+        piece.data.update()
+
+        bpy.ops.object.select_all(action="DESELECT")
+        piece.select_set(True)
+        bpy.context.view_layer.objects.active = piece
+        path = os.path.join(out_dir, "model_%s.fbx" % name)
+        bpy.ops.export_scene.fbx(filepath=path, use_selection=True, path_mode="COPY",
+                                 embed_textures=True, mesh_smooth_type=smooth_type)
+        written["model_%s.fbx" % name] = {"bytes": os.path.getsize(path),
+                                          "triangles": triangles(piece)}
+        bpy.data.objects.remove(piece, do_unlink=True)
+    bpy.ops.object.select_all(action="DESELECT")
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    return written
+
+
 def main():
     global JOB
     argv = sys.argv[sys.argv.index("--") + 1:]
@@ -2028,6 +2099,15 @@ def main():
         "model.glb": os.path.getsize(glb_path),
     }
     log("exported", sizes=REPORT["exports"])
+
+    # ---- and the two halves a break-action gun needs (task 96)
+    # NOT `plan`: by this point in main that name belongs to the REGION plan, which is a list. The
+    # rebuild's own plan is read out of the recipe again, which is where it came from.
+    rebuild_plan = recipe.get("rebuildBarrels")
+    if rebuild_plan and recipe.get("splitAtCut", True):
+        REPORT["splitExports"] = split_export(ob, rebuild_plan, axis, front_at_min, lo, hi, out_dir,
+                                              smooth_type)
+        log("splitExported", **REPORT["splitExports"])
 
     REPORT["ok"] = True
     REPORT["trianglesFinal"] = triangles(ob)

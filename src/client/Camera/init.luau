@@ -42,10 +42,15 @@ Camera.Cursor = Cursor
 Camera.Viewmodel = Viewmodel
 
 export type AimSource = { isAiming: () -> boolean }
+-- WHAT THE WEAPON SAYS ABOUT ITS OWN RELOAD (task 96): is it broken open, and how many barrels had
+-- been fired when it opened. The server owns the reload and its clock; the camera draws it. Injected
+-- by `CameraBoot` exactly as the aim source is, so this module still requires no weapon.
+export type BreakSource = { state: () -> { open: boolean, spent: number, loaded: { boolean } } }
 
 local state = Mode.initial(Config)
 local lookDelta = Vector2.zero
 local aimSource: AimSource? = nil
+local breakSource: BreakSource? = nil
 local started = false
 local connections: { RBXScriptConnection } = {}
 local acquired, acquireReason = false, nil :: string?
@@ -72,6 +77,10 @@ local stats = {
 	-- rather than count frames. See Config.LOOK_AT_LANDED_DOT for how close "showed it" is.
 	lookAtRequests = 0,
 	lookAtLanded = 0,
+	-- How far the barrels are swung right now, in degrees, and how many shells the viewmodel has
+	-- drawn since boot (task 96). The first is what a screenshot is checked against; the second says
+	-- the reload was drawn at all.
+	breakAngleDeg = 0,
 	-- Shots this camera has kicked for, and the largest camera pitch offset any of them reached
 	-- (task 92). The second number is what says the kick is "a bit" rather than a lurch, and the
 	-- client spec asserts both it and the return to zero.
@@ -109,6 +118,44 @@ function Camera.getAimSource(): AimSource?
 	return aimSource
 end
 
+-- WHAT THE RELOAD SHOULD DRAW, from two snapshots (task 96, round 2). PURE, so a spec can drive it
+-- with fabricated states, and because the answer cannot be read off the CURRENT replica at all:
+-- `Break` opens the gun AND empties every barrel in one reduction, so by the time `open` is true the
+-- barrels say "None" and nothing was ever spent. Round 1 asked the live snapshot and therefore drew
+-- no spent shell in the game, ever -- it passed its own spec only because the spec handed the
+-- viewmodel a `spent` it had made up.
+--
+-- So the spent count comes from the LAST SNAPSHOT BEFORE THE GUN OPENED: those are the barrels that
+-- fired. The fresh shells come from the current one -- a chamber counts as fed the moment the
+-- replica says it holds a shell, which is exactly when the server's `Load` step lands.
+function Camera.breakFrom(lastClosed, snapshot)
+	local empty = { open = false, spent = 0, loaded = { false, false } }
+	if snapshot == nil or snapshot.open ~= true then
+		return empty
+	end
+	local spent = 0
+	for _, barrel in ipairs((lastClosed and lastClosed.barrels) or {}) do
+		if barrel == "Spent" then
+			spent += 1
+		end
+	end
+	local loaded = { false, false }
+	for index, shell in ipairs(snapshot.loaded or {}) do
+		if index <= 2 then
+			loaded[index] = shell ~= nil and shell ~= "None"
+		end
+	end
+	return { open = true, spent = spent, loaded = loaded }
+end
+
+function Camera.setBreakSource(source: BreakSource?)
+	breakSource = source
+end
+
+function Camera.getBreakSource(): BreakSource?
+	return breakSource
+end
+
 -- WHICH CAMERA THIS BUILD IS RUNNING, republished as a fact about the view. The Hud asks this
 -- rather than `Flags.isOn` (design section 6.2): the camera owns the switch, so there is one source
 -- for the fact and one writer of the crosshair.
@@ -126,6 +173,8 @@ function Camera.stats()
 	out.foreignCameraWrites = Rig.stats().foreignCameraWrites
 	out.cursorReasserts = Cursor.stats().reasserts
 	out.viewmodelParented = Viewmodel.isParented()
+	out.breakAngleDeg = Mode.breakAngleDeg(state, Config)
+	out.shellsDrawn = Viewmodel.stats().shellsDrawn
 	return table.freeze(out)
 end
 
@@ -220,12 +269,20 @@ local function update(dt: number)
 	local alive = humanoid ~= nil and humanoid.Health > 0
 	local aiming = aimSource ~= nil and aimSource.isAiming()
 
+	-- THE RELOAD THE WEAPON IS ACTUALLY IN (task 96), asked once a frame and handed to both halves:
+	-- the reducer swings the barrels, the viewmodel draws the shells.
+	-- FIRST PERSON ONLY, AND ASKED NOWHERE ELSE (round 2, finding 2): the flag-off camera has no
+	-- break to draw, so the source is not even consulted and the viewmodel is told the gun is shut.
+	local breaking = if Config.FIRST_PERSON and breakSource then breakSource.state() else nil
+	Viewmodel.setReload(breaking)
+
 	local previous = state.mode
 	state = Mode.step(state, {
 		aiming = aiming,
 		alive = alive,
 		hasCharacter = character ~= nil and root ~= nil,
 		lookDelta = lookDelta,
+		breaking = breaking ~= nil and breaking.open,
 	}, dt, Config)
 	lookDelta = Vector2.zero -- consumed exactly once
 	stats.maxRecoilCamPitchDeg = math.max(stats.maxRecoilCamPitchDeg, math.abs(state.recoilCamPitchDeg))

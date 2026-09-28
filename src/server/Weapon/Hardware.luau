@@ -41,6 +41,7 @@ local Hardware = {}
 -- The same shape as `Weapon.setDriveLineProvider` and `Viewmodel.setSource`.
 local templateFor: ((string) -> (Instance?, any))? = nil
 local warned = false
+local barrelsWarned = false
 -- Once per server, not once per grant: see the warning itself (task 90).
 local sightWarned = false
 
@@ -68,6 +69,13 @@ Hardware.TOOL_NAME = "Shotgun"
 -- fallback. No attribute, no flag and no table: the visible model IS the state, so "has this gun
 -- already been upgraded" cannot disagree with what is on screen.
 Hardware.MODEL_NAME = "Model"
+-- THE PIECE THAT HINGES (task 96). Karen, 2026-09-27: the reload is a BREAK ACTION like the real
+-- Beretta 486 Parallelo, so the barrels must be able to swing down off the action -- and one
+-- MeshPart cannot hinge. The gun is worn as two welded pieces, and this is the name the
+-- first-person viewmodel looks for to rotate one of them. A player who is not holding the gun sees
+-- the same two pieces welded in the same place, which is the same gun they saw before.
+Hardware.BARRELS_KEY = "shotgun.barrels"
+Hardware.BARRELS_NAME = "Barrels"
 -- The attachment the first-person camera lines the view up with (task 90, docs/design/camera.md
 -- section 6.5). Named here because `Hardware` is its only writer and `Camera.Viewmodel` reads it off
 -- the CLONE by the same name.
@@ -115,6 +123,55 @@ function Hardware.build(): Tool
 	end
 
 	return tool
+end
+
+-- THE PIECE THAT HINGES, welded to the Handle beside the body (task 96). Its own function because
+-- it is its own state: a gun handed out between the two templates landing wears the body and needs
+-- exactly this, and nothing else, when the sweep comes round.
+--
+-- The same pose and the same size as the body: both rows carry the whole gun's bounding box, baked
+-- into each half by `asset_prep` as anchor triangles, so the two pieces assemble at ONE CFrame with
+-- no measured offset. A missing barrels template is not an error -- the body alone is still a gun --
+-- and the warning says so once.
+function Hardware.addBarrels(handle: BasePart, size: Vector3, pose: CFrame): boolean
+	if handle:FindFirstChild(Hardware.BARRELS_NAME) ~= nil then
+		return true
+	end
+	if templateFor == nil then
+		return false
+	end
+	local barrels, report = templateFor(Hardware.BARRELS_KEY)
+	if not (barrels and barrels:IsA("BasePart")) then
+		if not barrelsWarned then
+			barrelsWarned = true
+			warn(
+				string.format(
+					"[Weapon] no %s template (%s); the gun wears its body alone and cannot break open",
+					Hardware.BARRELS_KEY,
+					if typeof(report) == "table" and report.reason then report.reason else "not preloaded"
+				)
+			)
+		end
+		return false
+	end
+	local worn = (barrels :: BasePart):Clone()
+	worn.Name = Hardware.BARRELS_NAME
+	worn.Size = size
+	worn.Anchored = false
+	worn.CanCollide = false
+	worn.CanQuery = false
+	worn.CanTouch = false
+	worn.Massless = true
+	worn.CastShadow = true
+	worn.CFrame = handle.CFrame * pose
+	worn.Parent = handle
+	local weld = Instance.new("Weld")
+	weld.Name = "BarrelsWeld"
+	weld.Part0 = handle
+	weld.Part1 = worn
+	weld.C0 = pose
+	weld.Parent = handle
+	return true
 end
 
 -- CREATE-OR-UPDATE, never a second one. The attachment IS the state, so `build`, `addMesh` and
@@ -195,12 +252,20 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 		)
 	end
 
+	local pose = CFrame.new(offset) * CFrame.Angles(math.rad(rotation.X), math.rad(rotation.Y), math.rad(rotation.Z))
+
+	-- EACH PIECE ON ITS OWN (task 96). A gun that already wears the body and is missing the barrels
+	-- -- which is every gun handed out between the two templates landing -- must get the barrels and
+	-- not a second body.
+	if handle:FindFirstChild(Hardware.MODEL_NAME) ~= nil then
+		return Hardware.addBarrels(handle, size, pose)
+	end
+
 	local model = template:Clone()
 	model.Name = Hardware.MODEL_NAME
 	if model:IsA("BasePart") then
 		model.Size = size
 	end
-	local pose = CFrame.new(offset) * CFrame.Angles(math.rad(rotation.X), math.rad(rotation.Y), math.rad(rotation.Z))
 	for _, part in ipairs({ model, table.unpack(model:GetDescendants()) }) do
 		if part:IsA("BasePart") then
 			part.Anchored = false
@@ -258,6 +323,11 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 		end
 		return false
 	end
+	-- ...AND THE BARRELS, WHICHEVER SHAPE THE BODY CAME IN. This used to sit at the end of the
+	-- `Model` branch alone, so a body that arrives as a MeshPart -- which is what this gun is --
+	-- never got them: the spec's own note read `body=true barrels=false` while the game, where the
+	-- gun is upgraded through the other path, looked right. One call, after either branch.
+	Hardware.addBarrels(handle, size, pose)
 	return true
 end
 
@@ -339,7 +409,13 @@ end
 -- and this module never recorded, answers correctly anyway.
 function Hardware.wearsMesh(tool: Tool): boolean
 	local handle = tool:FindFirstChild("Handle")
-	return handle ~= nil and handle:FindFirstChild(Hardware.MODEL_NAME) ~= nil
+	-- BOTH PIECES SINCE TASK 96. A gun wearing the body and no barrels is half a gun, and saying it
+	-- "wears the mesh" is what stopped the upgrade sweep from ever giving it the rest: the first
+	-- Play session of that task handed out a body-only gun and nothing ever fixed it, because the
+	-- body alone answered this question yes.
+	return handle ~= nil
+		and handle:FindFirstChild(Hardware.MODEL_NAME) ~= nil
+		and handle:FindFirstChild(Hardware.BARRELS_NAME) ~= nil
 end
 
 -- THE ONE UPGRADE PATH (TASKS.md row 75a(h)). A player who spawns inside the server's first second
@@ -369,7 +445,7 @@ function Hardware.upgrade(tool: Tool): boolean
 	if handle == nil or not handle:IsA("BasePart") then
 		return false
 	end
-	if handle:FindFirstChild(Hardware.MODEL_NAME) ~= nil then
+	if Hardware.wearsMesh(tool) then
 		return false
 	end
 	local config = Shotgun.CONFIG

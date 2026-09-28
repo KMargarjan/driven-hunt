@@ -504,6 +504,7 @@ Assets.ROWS = {
 		-- edge and the barrel's underside. The flap that hung off the gun with daylight above it and
 		-- a gap behind it is gone; the wedge at the front is not, and it is the next thing to fix
 		-- there.
+		supersededBy = 9, -- task 96: the gun ships in two pieces now, so a break-action can hinge
 		modelId = 126484176321060,
 		displayName = "Driven Hunt shotgun r10 seated forend",
 		fileName = "model.fbx",
@@ -534,6 +535,93 @@ Assets.ROWS = {
 		notes = "As v7 -- built barrels, rib, muzzle and bead, clearance between the tubes, smoothing "
 			.. "groups, the built faces on a flat block of atlas -- with the forend seated against "
 			.. "the action and the tubes. One MeshPart with ONE SurfaceAppearance.",
+	},
+	-- ------------------------------------------------------ the gun in two pieces (task 96)
+	--
+	-- KAREN, 2026-09-27: the reload is a BREAK ACTION, like the real Beretta 486 Parallelo -- the
+	-- barrels hinge down off the action -- and not the reference game's pump-style muzzle-up reload.
+	-- One MeshPart cannot hinge, so `tools/asset_prep.py` writes the same model out in two more
+	-- files, split at the plane it cut the generated barrels off at: the BARRELS (the built tubes,
+	-- the rib, the bead and Karen's forend) and the BODY (her action and stock).
+	--
+	-- THEY ASSEMBLE AT ONE CFRAME AND NEED NO MEASURED OFFSET, which is the whole reason the split
+	-- is done this way: each piece carries two anchor triangles a ten-thousandth of a unit across at
+	-- the WHOLE gun's opposite corners, so Roblox imports both at the same size and the same origin.
+	-- That is two millionths of a stud at this scale -- smaller than any pixel the game will draw --
+	-- and it is why both rows below carry v8's `sizeStuds` and a zero `offsetStuds`.
+	{
+		key = "shotgun.handle",
+		version = 9,
+		kind = "meshpart" :: Kind,
+		-- THE BODY, and it keeps the `shotgun.handle` key because the body IS the gun as far as
+		-- every other system is concerned: the Handle's envelope, the grip, the Muzzle attachment and
+		-- the Sight all hang on it, and the barrels are scenery welded in front.
+		modelId = 121405298612730,
+		displayName = "Driven Hunt shotgun body r1",
+		fileName = "model_body.fbx",
+		sourceSha256 = "8115feb2b20d9bc55fa164534f085b72875c78c0f12a57d0444b2e59a600651a",
+		source = "own" :: Source,
+		creator = "8167651842",
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked on "
+				.. "2026-09-27 for a break-action reload like the real gun, which is why it ships "
+				.. "in two pieces. The barrels are this repository's own geometry; the stock, action "
+				.. "and forend are hers.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-09-27, TASKS.md row 96",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 9701,
+		texturePx = 2048,
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		sightOffsetStuds = Vector3.new(0, 0.336, -2.19),
+		renderFidelity = "Automatic",
+		notes = "The body half of v8: action and stock, same maps, same smoothing groups, the whole "
+			.. "gun's bounding box baked in with anchor triangles so it assembles with the barrels.",
+	},
+	{
+		key = "shotgun.barrels",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		-- THE BARREL GROUP, the piece that hinges. `Camera.Viewmodel` rotates it about the action's
+		-- knuckle for the break-open reload; the server welds it to the Handle like any other
+		-- scenery, so a player who is not holding this gun sees exactly what they saw before.
+		modelId = 85998258056906,
+		displayName = "Driven Hunt shotgun barrels r1",
+		fileName = "model_barrels.fbx",
+		sourceSha256 = "bddc32d0f89ec820242fd9413465ce0b5f0fbb472670b60e8781c1c52cbc77b5",
+		source = "own" :: Source,
+		creator = "8167651842",
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked on "
+				.. "2026-09-27 for a break-action reload like the real gun, which is why it ships "
+				.. "in two pieces. The barrels are this repository's own geometry; the forend on "
+				.. "them is hers.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-09-27, TASKS.md row 96",
+			readOn = "2026-09-27",
+			attribution = nil,
+		},
+		added = "2026-09-27",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 2073,
+		texturePx = 2048,
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		renderFidelity = "Automatic",
+		notes = "The barrel half of v8: two tubes, rib, muzzle, bead and the seated forend, same "
+			.. "maps and smoothing groups, the whole gun's bounding box baked in with anchor "
+			.. "triangles so it assembles with the body at one CFrame.",
 	},
 } :: { AssetRow }
 

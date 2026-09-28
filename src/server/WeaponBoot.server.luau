@@ -46,18 +46,43 @@ end)
 -- `preload` YIELDS and hits the network, which is exactly why it happens here, once, at server
 -- start -- and never on the path that hands a player a gun (docs/design/asset-pipeline.md 5.2).
 -- It is bounded by `Loader.CONFIG.PRELOAD_BUDGET_S`, so this line cannot hang the boot either.
-local report = Loader.preload({ Weapon.Hardware.ASSET_KEY })[1]
-if report and report.ok then
-	print(
-		string.format(
-			"[WeaponBoot] %s loaded: model %d, %d mesh part(s), %d ms",
-			report.key,
-			report.modelId or 0,
-			report.meshParts or 0,
-			report.elapsedMs
+--
+-- EVERY LIVE KEY, NOT A LITERAL (task 96). The gun ships as two meshes since the break-action
+-- reload -- a body and a barrel group that hinges -- and a list written out by hand here would have
+-- preloaded one of them and left the gun with no barrels, which is exactly what the first run of
+-- that task did. `Assets.keysFor("runtime")` is the manifest's own answer to "what does a server
+-- need before a player can hold it", one key each and never a superseded row.
+local reports = Loader.preload(Assets.keysFor("runtime"))
+for _, loaded in ipairs(reports) do
+	if loaded.ok then
+		print(
+			string.format(
+				"[WeaponBoot] %s loaded: model %d, %d mesh part(s), %d ms",
+				loaded.key,
+				loaded.modelId or 0,
+				loaded.meshParts or 0,
+				loaded.elapsedMs
+			)
 		)
-	)
-else
+	else
+		warn(
+			string.format(
+				"[WeaponBoot] %s not loaded (%s); that piece of the gun is missing",
+				loaded.key,
+				loaded.reason or "unknown"
+			)
+		)
+	end
+end
+-- AND THE GUN ITSELF IS THE ONE FAILURE WORTH ITS OWN WORDS: without the body there is no mesh gun
+-- at all, only task 71's parts gun, which is a different sentence from "a piece is missing".
+local report = nil
+for _, loaded in ipairs(reports) do
+	if loaded.key == Weapon.Hardware.ASSET_KEY then
+		report = loaded
+	end
+end
+if not (report and report.ok) then
 	-- NOT FATAL. A failure here means the parts gun, not a gunless player: `Hardware.addMesh`
 	-- returns false and `Hardware.build` draws Task 71's shape instead.
 	warn(

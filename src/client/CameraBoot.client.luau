@@ -45,6 +45,24 @@ if weaponModule then
 	Weapon.Effects.setMuzzleProvider(function(barrel: number?): CFrame?
 		return Camera.viewmodelMuzzle(barrel)
 	end)
+	-- TASK 96: the break-open reload. The weapon's own replica says whether the gun is open and how
+	-- many barrels were spent when it opened; the camera draws the swing and the shells. The RULES
+	-- and the clock stay the server's -- this is a read, like the aim source above.
+	--
+	-- IT REMEMBERS THE LAST SHUT SNAPSHOT, because that is the only place the answer lives: the
+	-- server's `Break` opens the gun and empties both barrels in ONE reduction, so a replica that
+	-- says "open" has already forgotten what was spent. `Camera.breakFrom` does the deciding and is
+	-- pure; this closure only keeps the memory.
+	local lastClosed = Weapon.get()
+	Camera.setBreakSource({
+		state = function()
+			local snapshot = Weapon.get()
+			if snapshot ~= nil and snapshot.open ~= true then
+				lastClosed = snapshot
+			end
+			return Camera.breakFrom(lastClosed, snapshot)
+		end,
+	})
 end
 
 Camera.start()

@@ -52,8 +52,54 @@ local MARKER_NAME = "SightBead"
 -- `ViewmodelFill` is the one light this module adds.
 local MUZZLE_NAME = "Muzzle"
 local FILL_NAME = "ViewmodelFill"
+-- THE PIECE THAT HINGES (task 96). `Weapon.Hardware` wears the gun as two welded meshes since the
+-- break-action reload, and this is the one the barrels live in; `SpentShell`/`FreshShell` are the
+-- only other things this module ever adds to the clone.
+local BARRELS_NAME = "Barrels"
+local SPENT_NAME = "SpentShell"
+local FRESH_NAME = "FreshShell"
 
-local stats = { sightMissing = 0, rebuilds = 0, parts = 0 }
+local stats = { sightMissing = 0, rebuilds = 0, parts = 0, breaksDrawn = 0, shellsDrawn = 0 }
+
+-- WHAT THE WEAPON SAYS ABOUT ITS OWN RELOAD, handed in by the camera every frame (task 96). The
+-- server owns the reload and its clock; this module only draws it. `spent` is how many barrels were
+-- fired, so only those throw a shell -- the thing a player notices if it is wrong.
+local reload = { open = false, spent = 0, loaded = { false, false } }
+local openedAt: number? = nil
+-- WHEN EACH CHAMBER WAS FED (round 2): the server loads one barrel at a time, so each fresh shell
+-- has its own clock -- the moment the replica first said that chamber holds a shell.
+local loadedAt: { [number]: number } = {}
+local barrelsLocal: CFrame? = nil
+-- WHAT ELSE RIDES ON THE BARRELS (task 96, round 2): the bead. An anchored part does not follow its
+-- parent, so every piece that swings with the barrel group is placed by hand from the same
+-- transform, and its rest offset is read off the clone once.
+local ridersLocal: { [BasePart]: CFrame } = {}
+
+function Viewmodel.setReload(state: { open: boolean, spent: number, loaded: { boolean }? }?)
+	local next_ = state or { open = false, spent = 0, loaded = { false, false } }
+	local open = next_.open == true
+	if open and not reload.open then
+		openedAt = os.clock() -- the rising edge: the spent shells' clock starts here
+		table.clear(loadedAt)
+	elseif not open then
+		openedAt = nil
+		table.clear(loadedAt)
+	end
+	local loaded = { false, false }
+	for index = 1, 2 do
+		loaded[index] = (next_.loaded or {})[index] == true
+		-- EACH CHAMBER STARTS ITS OWN SLIDE when the server's `Load` step lands, which is what the
+		-- replica saying "this barrel holds a shell" means.
+		if open and loaded[index] and loadedAt[index] == nil then
+			loadedAt[index] = os.clock()
+		end
+	end
+	reload = { open = open, spent = math.clamp(next_.spent or 0, 0, 2), loaded = loaded }
+end
+
+function Viewmodel.reloadState()
+	return { open = reload.open, spent = reload.spent, loaded = table.clone(reload.loaded), openedAt = openedAt }
+end
 
 function Viewmodel.setSource(fn: (() -> BasePart?)?)
 	source = fn
@@ -83,6 +129,8 @@ function Viewmodel.clear()
 		model:Destroy()
 		model = nil
 	end
+	barrelsLocal = nil -- the next clone reads its own barrels' rest pose (task 96)
+	table.clear(ridersLocal)
 	builtFrom = nil
 	for _, connection in ipairs(childWatchers) do
 		connection:Disconnect()
@@ -147,7 +195,12 @@ local function addBeadMarker(clone: BasePart, config): boolean
 	bead.Massless = true
 	bead.CastShadow = false
 	bead.CFrame = clone.CFrame * (attachment :: Attachment).CFrame
-	bead.Parent = clone
+	-- ON THE BARRELS WHEN THERE ARE BARRELS (task 96, round 2), so the piece it belongs to owns
+	-- it: a bead is part of the rib, not part of the action. `hinge` places it either way, but
+	-- the parenting is what says whose it is -- and with the gun in one piece, which is what
+	-- the OFF branch and the parts gun are, it hangs on the Handle exactly as before.
+	local onBarrels = clone:FindFirstChild(BARRELS_NAME)
+	bead.Parent = if onBarrels and onBarrels:IsA("BasePart") then onBarrels else clone
 	return true
 end
 
@@ -191,6 +244,48 @@ function Viewmodel.muzzle(barrel: number?): CFrame?
 		return nil
 	end
 	return (attachment :: Attachment).WorldCFrame * CFrame.new(Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG))
+end
+
+-- ONE SHELL: red plastic with a brass base, two parts, drawn for one player and never replicated.
+local function makeShell(name: string, config, parent: Instance): Model
+	local shell = Instance.new("Model")
+	shell.Name = name
+	local size = config.SHELL_SIZE_STUDS
+	local baseLength = size.Z * config.SHELL_BASE_FRACTION
+	for _, piece in ipairs({
+		{ name = "Body", length = size.Z - baseLength, colour = config.SHELL_BODY_COLOR, offset = baseLength / 2 },
+		{ name = "Base", length = baseLength, colour = config.SHELL_BASE_COLOR, offset = -(size.Z - baseLength) / 2 },
+	}) do
+		local part = Instance.new("Part")
+		part.Name = piece.name
+		part.Shape = Enum.PartType.Cylinder
+		-- A cylinder's length runs along its own X, so the shell lies along Z once turned.
+		part.Size = Vector3.new(piece.length, size.X, size.Y)
+		part.Color = piece.colour
+		part.Material = if piece.name == "Base" then Enum.Material.Metal else Enum.Material.SmoothPlastic
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.Massless = true
+		part.CastShadow = false
+		part.Parent = shell
+		if piece.name == "Body" then
+			shell.PrimaryPart = part
+		end
+	end
+	shell.Parent = parent
+	return shell
+end
+
+-- WHERE A CHAMBER IS, in the gun's own frame: the breech end of each tube, on its bore line. The
+-- barrels are 0.62 of a 4.4-stud gun and the Handle's -Z is the muzzle, so the breech face sits 0.53
+-- studs BEHIND the Handle's centre -- the same number the carry pose and the aim's cheek angle are
+-- built on. `Shotgun.barrelMuzzleOffset` is still the one definition of which tube is which.
+local function chamberOffset(barrel: number): CFrame
+	local across = Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG)
+	local breechZ = Shotgun.CONFIG.HANDLE_SIZE.Z * (0.62 - 0.5)
+	return CFrame.new(across.X, across.Y, breechZ)
 end
 
 local function build(handle: BasePart, config): Model
@@ -327,7 +422,156 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	end
 	-- THE GUN'S OWN SIGHT DECIDES THE AIMED POSE (task 90): read off the clone every frame, because
 	-- a rebuild (the mesh arriving late, `Hardware.upgrade`) can change it mid-life.
-	made:PivotTo(camCFrame * Mode.viewmodelOffset(state, Viewmodel.sight(), config))
+	local gun = camCFrame * Mode.viewmodelOffset(state, Viewmodel.sight(), config)
+	made:PivotTo(gun)
+	Viewmodel.hinge(gun, state, config)
+end
+
+-- THE BREAK (task 96). Karen, 2026-09-27: the reload is a break action like the real gun, so the
+-- barrels swing DOWN off the action -- and that is one piece of the gun moving relative to another,
+-- which is why `Weapon.Hardware` wears it as two welded meshes and why this is the only module that
+-- can draw it: it owns what is under the camera.
+--
+-- ROTATION ABOUT THE KNUCKLE, not a translation that looks like one: the barrels turn about
+-- `BREAK_HINGE_STUDS` in the Handle's own frame, which is where the hinge pin is on the real gun.
+-- Their rest pose is read off the clone ONCE per build, so a mesh that arrives with its own offset
+-- still hinges about the right point.
+function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config)
+	local made = model
+	local clone = made and made.PrimaryPart
+	-- FIRST PERSON ONLY, AND THE WHOLE DRAWN RELOAD WITH IT (round 2, finding 2). The gun wears its
+	-- barrels as a separate piece in EVERY build -- the server welds them whatever the flag says --
+	-- so without this the flag-off camera, which is the default one, would swing them and draw
+	-- shells the moment a player reloaded. `Mode.breakAngleDeg` already refuses; this refuses the
+	-- rest, and clears anything a session that flipped the flag left behind.
+	-- FIRST PERSON ONLY, AND IT PUTS THINGS BACK RATHER THAN WALKING AWAY. The gun wears its barrels
+	-- as a separate piece in EVERY build -- the server welds them whatever the flag says -- so the
+	-- flag-off camera must draw no shells and swing nothing. `Mode.breakAngleDeg` already answers 0
+	-- there, so the barrels are still PLACED, at rest: returning early instead left them wherever a
+	-- first-person frame had last put them, which the OFF-branch case caught by finding them 35
+	-- degrees off the body.
+	local firstPerson = config.FIRST_PERSON == true
+	if clone and not firstPerson then
+		Viewmodel.clearShells(clone)
+	end
+	local barrels = clone and clone:FindFirstChild(BARRELS_NAME)
+	if not (barrels and barrels:IsA("BasePart")) then
+		return
+	end
+	if barrelsLocal == nil then
+		barrelsLocal = clone.CFrame:ToObjectSpace((barrels :: BasePart).CFrame)
+	end
+	local angle = Mode.breakAngleDeg(state, config)
+	local hinge = CFrame.new(config.BREAK_HINGE_STUDS)
+	-- NEGATIVE ABOUT X IS THE MUZZLE GOING DOWN, which is what "break open" means: a part's
+	-- LookVector is its -Z, and `CFrame.Angles(+t, 0, 0)` takes (0, 0, -1) to (0, sin t, -cos t) --
+	-- i.e. UP. Measured the hard way: the first run of `camera_client.spec` caught the barrels
+	-- swinging toward the sky.
+	local swing = hinge * CFrame.Angles(-math.rad(angle), 0, 0) * hinge:Inverse()
+	local swungGun = gunCFrame * swing
+	local barrelPart = barrels :: BasePart
+	barrelPart.CFrame = swungGun * (barrelsLocal :: CFrame)
+	-- THE BEAD RIDES WITH THEM (round 1's own report, and the Director's reading of the frames):
+	-- a bead is a sight ON THE BARRELS, so with the gun open it belongs down at the muzzle where
+	-- the barrels are and not floating where the muzzle used to be. Placed from the same
+	-- transform, and shut that transform is identity -- so the bead is bit-for-bit where it was
+	-- and the shot line is untouched.
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant:IsA("BasePart") and (descendant.Name == MARKER_NAME or descendant.Name == BEAD_NAME) then
+			if ridersLocal[descendant] == nil then
+				ridersLocal[descendant] = clone.CFrame:ToObjectSpace(descendant.CFrame)
+			end
+			descendant.CFrame = swungGun * ridersLocal[descendant]
+		end
+	end
+	if angle > 0 then
+		stats.breaksDrawn += 1
+	end
+	if firstPerson then
+		Viewmodel.shells(swungGun, config)
+	end
+end
+
+-- THE SHELLS (task 96): spent ones pop out of the barrels that fired, fresh ones slide into the
+-- chambers. They are drawn in the BARRELS' frame, so they swing with them, and they live only while
+-- the gun is open -- `setReload` gives this module the weapon's own answer and the clock starts at
+-- the rising edge of "open".
+--
+-- Anchored and moved by hand rather than thrown: nothing under `workspace.CurrentCamera` may be
+-- simulated (a physics part parented to the camera is a part in the world that nobody can see).
+-- Every shell this module has drawn, gone. One site, because two places need it: the gun shutting,
+-- and the flag-off branch refusing to draw a reload at all.
+function Viewmodel.clearShells(clone: BasePart)
+	for _, child in ipairs(clone:GetChildren()) do
+		local name = child.Name
+		if string.sub(name, 1, #SPENT_NAME) == SPENT_NAME or string.sub(name, 1, #FRESH_NAME) == FRESH_NAME then
+			child:Destroy()
+		end
+	end
+end
+
+function Viewmodel.shells(barrelsCFrame: CFrame, config)
+	local made = model
+	local clone = made and made.PrimaryPart
+	if not clone then
+		return
+	end
+	local started = openedAt
+	local live = {}
+	-- BY PREFIX, because a shell is named for its barrel -- `SpentShell1`, `FreshShell2`. Matching
+	-- the bare name found nothing, so the spent shells were never cleared and stayed in the gun
+	-- after it shut: caught by the client case that asserts a shut gun has none.
+	for _, child in ipairs(clone:GetChildren()) do
+		local name = child.Name
+		if string.sub(name, 1, #SPENT_NAME) == SPENT_NAME or string.sub(name, 1, #FRESH_NAME) == FRESH_NAME then
+			table.insert(live, child)
+		end
+	end
+	if not (reload.open and started) then
+		for _, shell in ipairs(live) do
+			shell:Destroy()
+		end
+		return
+	end
+
+	local now = os.clock()
+	local elapsed = now - started
+	local wanted = {}
+	-- SPENT: one per barrel that FIRED, rising out of its chamber and back over the shoulder. The
+	-- count comes from the last shut snapshot (`Camera.breakFrom`), because the break that opened
+	-- the gun emptied it in the same breath.
+	local ejectT = math.clamp(elapsed / config.SHELL_EJECT_SECONDS, 0, 1)
+	if ejectT < 1 then
+		for barrel = 1, reload.spent do
+			wanted[SPENT_NAME .. barrel] = chamberOffset(barrel)
+				* CFrame.new(0, config.SHELL_EJECT_RISE_STUDS * ejectT, config.SHELL_EJECT_RISE_STUDS * ejectT)
+		end
+	end
+	-- FRESH: ONE PER CHAMBER THE SERVER HAS ACTUALLY LOADED, each sliding forward from its own
+	-- moment. Round 1 drew them on a timer and for `max(spent, 1)` barrels, so a two-shell reload
+	-- showed one shell and an unfired barrel was fed one it never got.
+	for barrel = 1, 2 do
+		local at = loadedAt[barrel]
+		if reload.loaded[barrel] and at then
+			local feedT = math.clamp((now - at) / config.SHELL_FEED_SECONDS, 0, 1)
+			wanted[FRESH_NAME .. barrel] = chamberOffset(barrel)
+				* CFrame.new(0, 0, config.SHELL_FEED_FROM_STUDS * (1 - feedT))
+		end
+	end
+
+	for _, shell in ipairs(live) do
+		if wanted[shell.Name] == nil then
+			shell:Destroy()
+		end
+	end
+	for name, offset in pairs(wanted) do
+		local shell = clone:FindFirstChild(name)
+		if not shell then
+			shell = makeShell(name, config, clone)
+			stats.shellsDrawn += 1
+		end
+		(shell :: Model):PivotTo(barrelsCFrame * offset * CFrame.Angles(0, math.rad(90), 0))
+	end
 end
 
 function Viewmodel.isParented(): boolean

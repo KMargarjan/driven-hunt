@@ -947,6 +947,203 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------------------ the break-open reload (task 96)
+	describe("the break", function()
+		it("hinges the barrels off the action, and throws a shell per fired barrel", function()
+			-- KAREN, 2026-09-27: a BREAK ACTION like the real gun. `Weapon.Hardware` wears the gun as
+			-- two welded meshes since this task, and the viewmodel rotates the one called `Barrels`
+			-- about the knuckle -- which is the only reason the model was split at all.
+			local handle = Instance.new("MeshPart")
+			handle.Name = "Handle"
+			handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+			handle.Transparency = 1
+			local sight = Instance.new("Attachment")
+			sight.Name = "Sight"
+			sight.CFrame = CFrame.new(0, 0.336, -2.19)
+			sight.Parent = handle
+			local barrels = Instance.new("Part")
+			barrels.Name = "Barrels"
+			barrels.Size = Vector3.new(0.2, 0.2, 2.7)
+			barrels.CFrame = handle.CFrame
+			barrels.Parent = handle
+
+			local live = Camera.Viewmodel.getSource()
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			local ok, err = pcall(function()
+				Camera.Viewmodel.clear()
+				task.wait(0.3)
+
+				-- SHUT: the barrels sit exactly where the body does, and there are no shells.
+				Camera.Viewmodel.setReload({ open = false, spent = 0 })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local cloned = clone:FindFirstChild("Barrels") :: BasePart
+				expect(cloned).to.be.ok()
+				local function angleBetween(): number
+					return math.deg(math.acos(math.clamp(cloned.CFrame.LookVector:Dot(clone.CFrame.LookVector), -1, 1)))
+				end
+				local restAngle = angleBetween()
+				TestKit.note(string.format("task96 shut: barrels %.3f deg off the body", restAngle))
+				expect(restAngle < 0.01).to.equal(true)
+				-- WHERE THE BEAD SITS WITH THE GUN SHUT, and whose it is: the barrels'. Both are read
+				-- here so the open case can say it MOVED and that it moved WITH them.
+				local shutBead = cloned:FindFirstChild("SightBead") :: BasePart
+				expect(shutBead).to.be.ok()
+				expect(shutBead.Parent).to.equal(cloned)
+				local openBeadRest = shutBead.Position
+				local beadOnBarrels = cloned.CFrame:ToObjectSpace(shutBead.CFrame)
+				expect(clone:FindFirstChild("SpentShell1")).to.equal(nil)
+
+				-- OPEN, WITH BOTH BARRELS FIRED: the barrels swing down by the config's own angle
+				-- about the hinge, and the muzzle drops rather than the whole gun turning.
+				local open = table.clone(stateAtBlend(0)) :: any
+				open.openTilt = 1
+				table.freeze(open)
+				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { false, false } })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				local swung = angleBetween()
+				TestKit.note(
+					string.format(
+						"task96 open: barrels %.2f deg (asked %.0f), muzzle Y %.3f vs body %.3f",
+						swung,
+						firstPersonConfig.BREAK_OPEN_DEG,
+						cloned.CFrame.LookVector.Y,
+						clone.CFrame.LookVector.Y
+					)
+				)
+				expect(math.abs(swung - firstPersonConfig.BREAK_OPEN_DEG) < 0.5).to.equal(true)
+				expect(cloned.CFrame.LookVector.Y < clone.CFrame.LookVector.Y).to.equal(true) -- muzzle DOWN
+				-- THE BEAD TRAVELS WITH THE BARRELS (round 2). A bead is a sight on the rib: with the
+				-- gun open it belongs down at the muzzle, not floating where the muzzle used to be.
+				local marker = cloned:FindFirstChild("SightBead") :: BasePart
+				expect(marker).to.be.ok()
+				expect((marker.Position - openBeadRest).Magnitude > 0.2).to.equal(true)
+				-- ...and it is still in the SAME place on the barrels, which is what makes it a
+				-- sight rather than a decoration that happens to move.
+				local carried = cloned.CFrame:ToObjectSpace(marker.CFrame)
+				expect((carried.Position - beadOnBarrels.Position).Magnitude < 1e-4).to.equal(true)
+
+				-- ...and a shell for each barrel that fired, drawn where the chambers are.
+				expect(clone:FindFirstChild("SpentShell1")).to.be.ok()
+				expect(clone:FindFirstChild("SpentShell2")).to.be.ok()
+				TestKit.note(
+					string.format(
+						"task96 break: barrels swing %.1f deg, %d shell(s) drawn",
+						swung,
+						Camera.Viewmodel.stats().shellsDrawn
+					)
+				)
+
+				-- ONE FIRED BARREL THROWS ONE SHELL. The thing a player notices if it is wrong.
+				Camera.Viewmodel.setReload({ open = false, spent = 0, loaded = { true, true } })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				expect(clone:FindFirstChild("SpentShell1")).to.equal(nil)
+				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { false, false } })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				expect(clone:FindFirstChild("SpentShell1")).to.be.ok()
+				expect(clone:FindFirstChild("SpentShell2")).to.equal(nil)
+
+				-- A CHAMBER THE SERVER HAS LOADED GETS ITS FRESH SHELL, and only that chamber: the
+				-- reload feeds one barrel at a time and the drawn shells follow the replica rather
+				-- than a timer (round 2, finding 1).
+				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { true, false } })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				local drawn = {}
+				for _, child in ipairs(clone:GetChildren()) do
+					table.insert(drawn, child.Name)
+				end
+				TestKit.note(
+					string.format(
+						"task96 feed: reload=%s, clone holds [%s]",
+						tostring(Camera.Viewmodel.reloadState().open),
+						table.concat(drawn, ", ")
+					)
+				)
+				expect(clone:FindFirstChild("FreshShell1")).to.be.ok()
+				expect(clone:FindFirstChild("FreshShell2")).to.equal(nil)
+				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { true, true } })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				local after = {}
+				for _, child in ipairs(clone:GetChildren()) do
+					table.insert(after, child.Name)
+				end
+				local both = Camera.Viewmodel.reloadState()
+				TestKit.note(
+					string.format(
+						"task96 feed2: loaded=[%s, %s], clone holds [%s]",
+						tostring(both.loaded[1]),
+						tostring(both.loaded[2]),
+						table.concat(after, ", ")
+					)
+				)
+				expect(clone:FindFirstChild("FreshShell2")).to.be.ok()
+
+				-- AND THE OFF BRANCH HINGES NOTHING: the third-person gun has no break to draw. At
+				-- BLEND 1, because that branch only draws a viewmodel while the player is aiming --
+				-- at blend 0 it unparents the clone, and an unparented clone is not a test of the
+				-- hinge, it is a test of the threshold (measured: the case failed here first).
+				local openAimed = table.clone(open) :: any
+				openAimed.mode = "Aiming"
+				openAimed.blend = 1
+				table.freeze(openAimed)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), openAimed, Config)
+				local offAngle = angleBetween()
+				TestKit.note(string.format("task96 flag off: barrels %.3f deg off the body", offAngle))
+				expect(offAngle < 0.01).to.equal(true)
+				-- ...AND IT DRAWS NO SHELLS EITHER (round 2, finding 2). The gun wears its barrels as
+				-- a separate piece in every build, so without a flag test the DEFAULT camera would
+				-- swing them and litter the clone with shells the moment a player reloaded.
+				expect(clone:FindFirstChild("SpentShell1")).to.equal(nil)
+				expect(clone:FindFirstChild("FreshShell1")).to.equal(nil)
+				expect(clone:FindFirstChild("FreshShell2")).to.equal(nil)
+
+				Camera.Viewmodel.setReload(nil)
+				Camera.Viewmodel.clear()
+			end)
+			Camera.Viewmodel.setSource(live)
+			handle:Destroy()
+			if not ok then
+				error(err, 0)
+			end
+			-- THE LIVE CAMERA IS BACK AS IT WAS: nothing left open, nothing left holding shells.
+			expect(Camera.Viewmodel.reloadState().open).to.equal(false)
+			expect(Camera.stats().breakAngleDeg).to.equal(0)
+		end)
+	end)
+
+	describe("what the reload should draw", function()
+		it("counts the spent barrels from BEFORE the break, and the fresh from the chambers", function()
+			-- ROUND 1'S DEFECT, AS A MEASUREMENT: the server's `Break` opens the gun AND empties both
+			-- barrels in one reduction, so a replica that says "open" has already forgotten what was
+			-- fired. Asking it counts nothing -- which is why no spent shell was ever drawn in the
+			-- game, while the spec passed on a number it had made up itself.
+			local fired = { open = false, barrels = { "Spent", "Live" }, loaded = { "None", "Buck" } }
+			local opened = { open = true, barrels = { "Live", "Live" }, loaded = { "None", "None" } }
+			local one = Camera.breakFrom(fired, opened)
+			expect(one.open).to.equal(true)
+			expect(one.spent).to.equal(1)
+			expect(one.loaded[1]).to.equal(false)
+			expect(one.loaded[2]).to.equal(false)
+			-- TWO FIRED, TWO SHELLS.
+			local bothFired = { open = false, barrels = { "Spent", "Spent" }, loaded = { "None", "None" } }
+			expect(Camera.breakFrom(bothFired, opened).spent).to.equal(2)
+			-- ...and each LOAD shows up as a chamber that now holds a shell.
+			local half = { open = true, barrels = { "Live", "Live" }, loaded = { "Buck", "None" } }
+			local fed = Camera.breakFrom(bothFired, half)
+			expect(fed.loaded[1]).to.equal(true)
+			expect(fed.loaded[2]).to.equal(false)
+			-- A SHUT GUN DRAWS NOTHING, whatever it remembers.
+			local shut = Camera.breakFrom(bothFired, { open = false, barrels = { "Live", "Live" } })
+			expect(shut.open).to.equal(false)
+			expect(shut.spent).to.equal(0)
+			-- ...and no memory at all is a shut gun too, not a crash.
+			expect(Camera.breakFrom(nil, opened).spent).to.equal(0)
+			expect(Camera.breakFrom(nil, nil).open).to.equal(false)
+		end)
+	end)
+
 	describe("the hidden local body", function()
 		-- audit-003 F1 / audit-004 must-fix 2, and the one defect in that audit Karen would SEE: in ADS
 		-- the real shotgun was drawn beside the viewmodel, two guns on screen at once.
