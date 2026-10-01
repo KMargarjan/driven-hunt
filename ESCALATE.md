@@ -10,6 +10,63 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-10-01 · NEEDS KAREN (or the Director's click) · Task 99: Studio is not connected to Rojo, so the gate cannot run
+
+**Raised by:** Builder, Task 99 (branch `task-99-new-gun`, code commit `8db324e`).
+
+**What is blocked:** every harness run, and the three screenshots the task asks for (`pose.py compare
+carry`, `compare aim`, and the break-open with shells going in). Nothing else: the flag, the exact
+geometry, the hinge, the chambers, the glove fix, the specs and the docs are all written, linted,
+built and committed.
+
+**Why it needs a click.** Moving between branches while `rojo serve` was live -- `task-98` to `main`
+to `task-99`, which is what CLAUDE.md's git workflow step 6 warns about -- left the Studio plugin
+disconnected. Measured, not guessed:
+
+```
+[harness] FAIL: 7/8 checks @ 8db324e (clean tree)
+  FAIL Rojo synced the fresh token from disk  (Studio has '')
+[harness] `rojo serve` answers, so the Rojo plugin is probably not connected: press Connect.
+```
+
+and, from a Play session started before the commit, Studio's own copy of the place is a build older
+than Task 98:
+
+```
+Poses is not a valid member of ModuleScript "Players.<name>.PlayerScripts.Camera"
+  Script 'Players.<name>.PlayerScripts.Camera', Line 32
+```
+
+So a Play session right now runs the pre-Task-98 camera. A screenshot taken from it would be a
+picture of the wrong build, and I did not take one and call it evidence (rule 8).
+
+**The clicks, in this order:**
+
+1. In Studio, with the DEV place (136410205938347) open in **Edit** mode, open the **Rojo** plugin
+   window and press **Connect**. Accept the sync dialog; the changes it lists are this branch's --
+   `ReplicatedStorage.Gun` is new, and `Camera.Poses` arrives if it is still missing.
+2. Then, in a terminal in the repo folder:
+
+   ```
+   python tools/flags.py clear
+   python tools/pose.py clear
+   bash ../driven-hunt-runs/gate.sh task-99
+   ```
+
+3. For the three pictures the task asks for, with the gate green and a Play session running:
+
+   ```
+   python tools/flags.py set NEW_GUN on     (Edit mode, BEFORE starting Play)
+   ... start Play ...
+   python tools/pose.py compare carry --assets-dir <assets-dir>
+   python tools/pose.py compare aim   --assets-dir <assets-dir>
+   python tools/flags.py clear
+   python tools/pose.py clear
+   ```
+
+**Closed:** _(open)_
+
+---
 ## 2026-10-01 · CLOSED 2026-10-01 · Director decision · Task 98: `FIRST_PERSON` ships ON, and the poses are seeded from Task 97 round 2
 
 **Raised by:** Director, answering Reviewer finding 2 of Task 98 round 1 (and the background of finding 1).
