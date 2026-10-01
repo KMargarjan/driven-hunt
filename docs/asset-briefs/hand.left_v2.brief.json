@@ -1,0 +1,15 @@
+{
+  "key": "hand.left",
+  "version": 2,
+  "kind": "meshpart",
+  "prompt": "A left hand in a slim, close-fitting dark brown leather shooting glove, seen alone, first-person game viewmodel. The palm faces up and the fingers curl gently up and around an invisible wooden shotgun forend about 5 cm wide, cradling it from below; the thumb lies along the near side. Thin supple leather with fine seams and knuckle creases, a snug wrist strap. Above the glove an olive green hunting jacket sleeve, long, reaching to mid forearm, ending in a soft open cuff. Realistic proportions, an adult hand, not bulky, not a cartoon. One solid part. No gun, no object in the hand, no text or logo. Realistic materials, neutral even lighting, no background.",
+  "references": [],
+  "sizeMetres": [
+    0.11,
+    0.12,
+    0.45
+  ],
+  "targetTris": 5000,
+  "texturePx": 2048,
+  "notes": "WHY v2 (Director, 2026-10-01 night, Karen asleep; Meshy API budget 300 credits given by Karen ~23:20: 'with gloves ect you can use up to 300crediths'). Karen chose GLOVES over the target game's bare hands ('with gloves nicer', 2026-10-01 ~23:00). v1 (Karen's own Meshy run, 2026-09-27) read bulky in first person, and its short cuff showed its open end to the camera as a black disc in the break-open frame. v2: slim close-fitting leather, the same two grips as v1 (right: three fingers round the wrist, index straight along the side; left: palm up, cradling the forend), and a LONG olive sleeve to mid forearm so the cuff end sits off screen. sizeMetres: hand ~0.20 m plus ~0.25 m of sleeve; Meshy normalises scale anyway and the camera config is the dial. No upload without Karen seeing the preview: her 'upload ok' of 2026-10-01 named the forend, the stock and metal parts, not gloves."
+}
