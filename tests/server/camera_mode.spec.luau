@@ -367,23 +367,30 @@ return function()
 					worst, worstAt = elevation, blend
 				end
 			end
-			-- MEASURED, AND THE OTHER WAY ROUND FROM WHAT THIS CASE FIRST SAID: the muzzle sits about
-			-- 1.2 degrees above the horizon in the carry and 5.4 in the aim -- the cheek angle tips
-			-- the gun nose-up about the bead -- so it RISES across the swing and the aimed pose is the
-			-- highest it gets. The guard is therefore that the swing never climbs above where it
-			-- ENDS: a move that flicked the muzzle toward the sky on its way would show as a peak
-			-- above the aimed elevation, whatever that elevation happens to be.
-			local endPose = Mode.viewmodelOffset(stateAtBlend(1), sight, firstPerson)
-			local aimedMuzzle = (endPose * CFrame.new(0, 0, -Shotgun.CONFIG.HANDLE_SIZE.Z / 2)).Position
-			local aimedAction = (endPose * CFrame.new(0, 0, Shotgun.CONFIG.HANDLE_SIZE.Z / 2)).Position
-			local aimedElevation = math.deg(math.asin(math.clamp((aimedMuzzle - aimedAction).Unit.Y, -1, 1)))
-			expect(worst <= aimedElevation + 0.5).to.equal(true)
-			expect(aimedElevation < 20).to.equal(true) -- and the end of the move is not the sky either
+			-- MEASURED AGAIN FOR TASK 97'S CARRY, WHICH RUNS THE OTHER WAY. The new carry holds the
+			-- gun across the body with the muzzle UP at about 24 degrees -- that is the whole point
+			-- of it -- and the aim is nearly level at the cheek angle, so the swing comes DOWN rather
+			-- than up. The guard is the same guard stated for that motion: the muzzle never climbs
+			-- ABOVE WHERE IT STARTS, so a move that flicked it toward the sky on its way still shows
+			-- as a peak, whichever end is higher.
+			local function elevationAt(blend: number): number
+				local pose = Mode.viewmodelOffset(stateAtBlend(blend), sight, firstPerson)
+				local muzzle = (pose * CFrame.new(0, 0, -Shotgun.CONFIG.HANDLE_SIZE.Z / 2)).Position
+				local action = (pose * CFrame.new(0, 0, Shotgun.CONFIG.HANDLE_SIZE.Z / 2)).Position
+				return math.deg(math.asin(math.clamp((muzzle - action).Unit.Y, -1, 1)))
+			end
+			local carryElevation, aimedElevation = elevationAt(0), elevationAt(1)
+			expect(worst <= math.max(carryElevation, aimedElevation) + 0.5).to.equal(true)
+			-- ...and neither END is the sky either, which is what stops the bound above from being
+			-- satisfied by simply starting high.
+			expect(carryElevation < 35).to.equal(true)
+			expect(aimedElevation < 20).to.equal(true)
 			TestKit.note(
 				string.format(
-					"task95 raise: muzzle peaks at %.1f deg up at blend %.2f; aimed is %.1f deg",
+					"task97 raise: muzzle peaks at %.1f deg up at blend %.2f; carry %.1f, aimed %.1f",
 					worst,
 					worstAt,
+					carryElevation,
 					aimedElevation
 				)
 			)

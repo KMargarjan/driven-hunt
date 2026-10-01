@@ -503,8 +503,14 @@ return function()
 			-- pose is what has to be per frame). One update after setSource therefore rebuilds from
 			-- the PREVIOUS handle -- which is how the first version of this test read the live gun's
 			-- Handle and reported no SurfaceAppearance. Wait past the interval, then update.
-			Camera.Viewmodel.clear()
 			task.wait(0.3)
+			-- CLEARED AFTER THE WAIT, NOT BEFORE IT (task 97). The live camera is first person now, so
+			-- its own render step rebuilds this clone during the wait -- from this spec's source, but
+			-- with the LIVE config, which adds the first-person bead and fill light. `update` then
+			-- finds a clone it considers current and does not rebuild, so the config passed here
+			-- would never reach `build` at all. Clearing with no yield after it makes the next
+			-- `update` the thing that builds.
+			Camera.Viewmodel.clear()
 			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), thirdPersonConfig)
 			local model = Camera.Viewmodel.current()
 			expect(model).to.be.ok()
@@ -587,8 +593,8 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return source
 			end)
-			Camera.Viewmodel.clear()
 			task.wait(0.3) -- the source is asked four times a second, not per frame
+			Camera.Viewmodel.clear() -- ...and the clone is built by THIS call; see the case above
 			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), thirdPersonConfig)
 			local before = Camera.Viewmodel.current()
 			expect(before).to.be.ok()
@@ -631,18 +637,25 @@ return function()
 				expect(waitUntil(2, function()
 					return Camera.getBlend() >= 1
 				end)).to.equal(true)
-				-- ...UNLESS HE IS ACTUALLY HOLDING ONE. `Role` is resolved once, at require time, from
-				-- the team this player was put on; `test2` ends a drive and respawns everybody, so a
-				-- client can be re-teamed under a role this file already decided. The claim that
-				-- matters is about the TOOL, so it is read off the character: no Tool, no viewmodel.
-				-- With a Tool in hand this is a shooter's frame and the shooter's own case below is
-				-- the one that applies.
-				local holding = player.Character ~= nil and player.Character:FindFirstChildOfClass("Tool") ~= nil
-				if not holding then
+				-- ...AND THE CLAIM IS ASKED OF THE SAME FUNCTION THE CAMERA ASKS. `Role` is resolved
+				-- once, at require time, from the team this player was put on, and `test2` ends a
+				-- drive and respawns everybody -- so a client can be re-teamed under a role this file
+				-- already decided, and "a driver has no gun" then measures the wrong thing. What the
+				-- viewmodel actually depends on is the SOURCE: no Handle, no viewmodel. Reading the
+				-- source itself cannot disagree with what the camera saw this frame, which reading
+				-- the character separately can (measured: it did, twice).
+				local source = Camera.Viewmodel.getSource()
+				local handle = if source then source() else nil
+				if handle == nil then
 					expect(Camera.Viewmodel.current()).to.equal(nil)
 					expect(Camera.stats().viewmodelParented).to.equal(false)
 				else
-					TestKit.note("camera_client: this client was re-teamed and is holding a Tool; no driver claim")
+					TestKit.note(
+						string.format(
+							"camera_client: this client is on the drivers but holds %s; the no-gun claim does not apply",
+							handle:GetFullName()
+						)
+					)
 				end
 				fake.aiming = false
 				expect(waitUntil(2, function()
@@ -753,8 +766,8 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			Camera.Viewmodel.clear()
 			task.wait(0.3)
+			Camera.Viewmodel.clear() -- the clone is built inside `body`; see "keeps the appearance"
 			local ok, why = pcall(body)
 			Camera.Viewmodel.clear()
 			Camera.Viewmodel.setSource(live)
