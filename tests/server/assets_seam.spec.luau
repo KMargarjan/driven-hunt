@@ -161,9 +161,13 @@ return function()
 			local viewmodel = Assets.keysFor("viewmodel")
 			table.sort(viewmodel)
 			TestKit.note(string.format("task93 viewmodel keys: [%s]", table.concat(viewmodel, ", ")))
-			expect(#viewmodel).to.equal(2)
-			expect(viewmodel[1]).to.equal(Assets.KEYS.handLeft)
-			expect(viewmodel[2]).to.equal(Assets.KEYS.handRight)
+			-- THREE SINCE TASK 99: the two hands and the new gun's walnut stock, which is the same
+			-- kind of row for the same reason -- the server loads it because `LoadAsset` is
+			-- server-only, and only the local player's camera ever draws it.
+			expect(#viewmodel).to.equal(3)
+			expect(viewmodel[1]).to.equal(Assets.KEYS.gunStock)
+			expect(viewmodel[2]).to.equal(Assets.KEYS.handLeft)
+			expect(viewmodel[3]).to.equal(Assets.KEYS.handRight)
 			for _, key in ipairs(Assets.keysFor("runtime")) do
 				expect(key ~= Assets.KEYS.handLeft and key ~= Assets.KEYS.handRight).to.equal(true)
 			end
