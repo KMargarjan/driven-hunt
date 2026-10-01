@@ -7,6 +7,38 @@ Note: docs/research/2026-09-24-toolchain.md
 
 Requires: Studio open on the DEV place in Edit mode, MCP server enabled, Rojo plugin connected.
 
+THE MCP THREAD CANNOT `require` OR `Invoke`, AND SINCE TASK 101 NOTHING HERE DOES (2026-10-02)
+  Measured, in this order, after a `LoadAsset` call was made through `execute_luau` on 2026-10-01:
+    * a plain property or attribute READ works; so does a WRITE (`SetAttribute`, `PivotTo`);
+    * creating an Instance works, and so does calling a plain Lua function the thread just made,
+      and invoking a `BindableFunction` the thread itself created;
+    * `require` of ANY ModuleScript is refused -- the synced ones AND one the thread created a
+      microsecond earlier, parentless, one line of source: "The current thread cannot require 'X'
+      since 'X' has additional values for the Capabilities property: LoadUnownedAsset (and 3 more)";
+    * `Invoke` of a BindableFunction that a GAME script created is refused the same way;
+    * every instance in the place reports `Capabilities` empty and `Sandboxed = false`, so it is the
+      THREAD that carries them: a capability-carrying thread may not enter a container that grants
+      none.
+  NOT CLEARED BY: a full Studio close and reopen ("Don't Save"), or the Assistant's MCP server
+  toggle OFF and ON (Director, 2026-10-02 ~01:10). No Studio update (version-76e1a02649ad4f35).
+  So it is the new normal, and this file is written for it:
+    * a JSON module is compared by its SOURCE TEXT, which Rojo writes deterministically, parsed
+      back into a value here (`luau_table_value`) and compared structurally. No require;
+    * the flag table is parsed from `src/shared/Flags/init.luau` ON DISK (`flag_rows_in_text`) and
+      the overrides are read as attributes. No require. Check 4 already proves Studio's copy of that
+      file is byte-for-byte the disk one, which is a STRONGER statement than asking Studio to
+      evaluate it;
+    * the Task 78 require-cache fixture is GONE. What it protected was a stale `require` in a
+      long-lived Edit session returning a flag table without a flag the file had just gained; with
+      nothing requiring anything, that hazard cannot occur at all -- and the source comparison in
+      check 4 is what now stands behind "Studio has the file the repo has";
+    * the input stage asks the camera to aim by SETTING AN ATTRIBUTE the owner watches, instead of
+      invoking its `BindableFunction`. The owner still does the writing.
+  NONE OF IT DEPENDS ON THE ERROR. Every path above is a plain read or write that works whether or
+  not a future Studio lifts the restriction; nothing branches on the message.
+  STILL AFFECTED, and not in this harness: `tools/mapgen.py`'s `CALL` requires a clone of
+  `MapGen` the same way. It is the Director's map tool and is not part of the gate.
+
 Usage:
   python tools/studio_mcp.py test           # full checked run; exit 0 only on a clean-tree PASS
   python tools/studio_mcp.py test2          # the same specs in a 2-player local test (Karen starts it)
@@ -104,11 +136,11 @@ What `test` checks, in order (each is one "ok"/"FAIL" line)
        default.project.json  structure (instance checks); $properties/$attributes are refused
        nested *.project.json refused, except third-party ones under DevPackages/
        *.json           a Rojo JSON MODULE: a ModuleScript whose Source Rojo GENERATES from the
-                        file, so it is compared by requiring a parentless clone in Studio,
-                        JSON-encoding what it returns and comparing that STRUCTURE with the file
-                        (numbers to a relative 1e-9, because the value makes two round trips
-                        through two JSON encoders). Added for src/shared/Viewmodel/poses.json
-                        (Task 98); before it, a .json file failed as "cannot compare"
+                        file. Its SOURCE TEXT is read (a plain property read), parsed back into a
+                        value by `luau_table_value`, and compared STRUCTURALLY with the file
+                        (numbers to a relative 1e-9). Added for src/shared/Viewmodel/poses.json
+                        (Task 98); before it, a .json file failed as "cannot compare". Task 101
+                        moved it off `require`, which the MCP thread may no longer do
        *.rbxm / *.rbxmx BANNED: binary, unreviewable in a PR, cannot be compared
        anything else    "cannot compare" -> FAIL, never skipped
      Properties/attributes are compared when their JSON value is a plain string/number/bool (attributes
@@ -408,27 +440,26 @@ Feature flags, and the two checks they add (Task 52)
   `flags [set <NAME> on|off | clear | live [role]]`, and `tools/flags.py` is the thin wrapper the
   Director types (the same shape tools/review.sh has over tools/agents.py -- one implementation, two
   names):
-    flags                     Edit. Reads Flags.DEFAULTS out of Studio's synced copy and the
-                              DHFlag_* attributes; prints name, default, override, effective,
-                              expires, owner, why. Read-only. Also names any STRAY override whose
-                              flag does not exist, which the resolver would only silently ignore.
+    flags                     Edit. Reads the DECLARATIONS from `src/shared/Flags/init.luau` on
+                              disk (`flag_rows_in_text`) and the DHFlag_* attributes from Studio;
+                              prints name, default, override, effective, expires, owner, why.
+                              Read-only. Also names any STRAY override whose flag does not exist,
+                              which the resolver would only silently ignore.
 
-  EVERY EDIT-MODE QUERY THAT NEEDS THE FLAGS TABLE REQUIRES A PARENTLESS **CLONE** OF THE MODULE
-  (`FRESH_FLAGS`, Task 78), and that is not tidiness. `require` caches per ModuleScript INSTANCE and
-  the Edit-mode MCP context is long-lived, while Rojo writes the SOURCE of the same instance rather
-  than making a new one -- so the first require of a Studio session is what every later call gets
-  back, and a flag added since then does not exist as far as `flags` and `flags set` are concerned.
-  Measured on 2026-09-27: `flags set ORANGE_OUTFITS on` refused "no such flag" in Edit mode while a
-  Play session resolved that same flag fine (Task 77), which blocked the Director switching it on for
-  a playtest. `tools/mapgen.py` has used the same clone since 2026-09-26 for the same reason; these
-  queries simply had not got it. Two checks in `test` cover it: a fixture that builds the staleness in
-  memory and proves a clone reads the current source, and a comparison of Studio's flag table against
-  the names `src/shared/Flags/init.luau` declares.
-    flags set <NAME> on|off   EDIT ONLY, else exit 2. Refuses a name that is not in Flags.DEFAULTS
-                              and anything but on/off. The name is validated against
-                              Flags.NAME_PATTERN in Python and passed as a JSON string literal, the
-                              value as a Luau boolean literal -- no arbitrary Luau is ever sent, the
-                              same shape as QUERY_SET_CLIENTS_DONE.
+  NOTHING HERE EVALUATES THE FLAG MODULE ANY MORE (Task 101). Task 77 and 78 had these queries
+  require a parentless CLONE, because `require` caches per ModuleScript INSTANCE and Rojo rewrites
+  the SOURCE of the same instance -- so the first require of a long Studio session was what every
+  later call got back, and a flag added since then did not exist as far as `flags set` was
+  concerned (measured 2026-09-27: it refused "no such flag" for a flag a Play session resolved
+  fine). The MCP thread may now not require anything at all, so the declarations are PARSED FROM THE
+  FILE instead. That is not a workaround with a cost: check 4 compares the flag module's Source with
+  that same file byte-for-byte, so the file IS what Studio has -- a stronger statement than asking
+  Studio to run it and trusting the answer, and immune to the cache hazard by construction.
+    flags set <NAME> on|off   EDIT ONLY, else exit 2. Refuses a name that is not declared in
+                              `src/shared/Flags/init.luau` and anything but on/off. The name is
+                              validated against Flags.NAME_PATTERN in Python and passed as a JSON
+                              string literal, the value as a Luau boolean literal -- no arbitrary
+                              Luau is ever sent, the same shape as QUERY_SET_CLIENTS_DONE.
     flags clear               Edit. Removes every DHFlag_* and prints what it removed.
     flags live [role]         DURING PLAY. Reads ReplicatedStorage.Flags.State's Digest and Source
                               from the server, or from a client with `client` / `client:Player2`,
@@ -613,22 +644,16 @@ end
 -- NOT reachable from Luau, only from the Studio property pane. So it is
 -- read from `Map.STREAMING`, the one source for the value the place was configured with.
 --
--- A `require` here gets execute_luau's own module copy, which for `Map` is exactly right: it is
--- frozen data with no runtime writer, so a fresh copy is the same table (Task 78's cache hazard is
--- about a module whose Source changed under a live one). pcall'd, because this value only decorates
--- a message: a missing Map must not cost a stage.
-local radius = -1
-local loaded, Map = pcall(function()
-    return require(ReplicatedStorage:WaitForChild("Map", 10))
-end)
-if loaded and type(Map) == "table" and type(Map.STREAMING) == "table" then
-    radius = Map.STREAMING.targetRadius or -1
-end
+-- THE RADIUS IS NOT ASKED FOR HERE ANY MORE (Task 101). It used to be required out of `Map`, and
+-- the MCP thread may no longer require anything; the Workspace streaming radius property is not an
+-- answer either, because Luau cannot read that Workspace property at all (measured before this
+-- task; written without the dot because `selftest` scans for `.Name` and a comment would trip it, and it still
+-- guards it). So Python reads `Map.STREAMING.targetRadius` off the file -- `map_streaming_radius`
+-- -- and hands it to the CLIENT query, which is the only place the number is ever printed.
 local at = target.Position
 return HttpService:JSONEncode({
     name = target:GetFullName(),
     position = { at.X, at.Y, at.Z },
-    streamingRadius = radius,
 })
 """
 # Staging (Task 30): place the character in front of a target and ask the CAMERA OWNER to aim at it.
@@ -695,7 +720,7 @@ if not target then
     return string.format(
         "the SERVER's %%s is at (%%d, %%d, %%d) but no BasePart reached Workspace.%%s on this client "
             .. "after %%d s: the character is at (%%d, %%d, %%d), %%d studs from it, and "
-            .. "Map.STREAMING.targetRadius is %%d -- nothing further than that is replicated",
+            .. "the streaming target radius is %%d -- nothing further than that is replicated",
         tostring(stage.targetName),
         math.floor(seed.X),
         math.floor(seed.Y),
@@ -717,14 +742,24 @@ end
 
 character:PivotTo(CFrame.new(target.Position + offset))
 
-local scripts = player:FindFirstChild("PlayerScripts")
-local camera = scripts and scripts:FindFirstChild("Camera")
-local request = camera and camera:FindFirstChild("LookAtRequest")
-if not request then
-    return "placed, but PlayerScripts.Camera.LookAtRequest is missing: nothing aimed"
+-- AIMED BY ATTRIBUTE, NOT BY INVOKE (Task 101). The MCP thread may no longer invoke a
+-- BindableFunction a game script created, so the camera owner WATCHES an attribute instead: the
+-- harness writes the point, the owner aims and then clears it back to nil. The owner still does the
+-- writing -- `Camera.Rig` is the only writer of `workspace.CurrentCamera` in the whole repo -- and
+-- this is a request exactly as the BindableFunction was.
+--
+-- THE CLEAR IS THE HANDSHAKE, and it is what makes this a measurement rather than a hope: an
+-- attribute that is still there means the owner never took it (no character root yet, or the camera
+-- never started), which is the same failure the old `Invoke` returned false for.
+player:SetAttribute("DHLookAt", target.Position)
+local waited = 0
+while player:GetAttribute("DHLookAt") ~= nil and waited < 3 do
+    task.wait(0.1)
+    waited += 0.1
 end
-if not request:Invoke(target.Position.X, target.Position.Y, target.Position.Z) then
-    return "placed, but the camera owner refused to aim (no character root yet?)"
+if player:GetAttribute("DHLookAt") ~= nil then
+    player:SetAttribute("DHLookAt", nil)
+    return "placed, but the camera owner never took the aim request (is the camera running?)"
 end
 -- So a spec knows its scenario has been staged, without guessing from the player's position. The
 -- harness is the only writer of this attribute, exactly as the client spec is the only writer of the
@@ -758,19 +793,19 @@ QUERY_FLAG_OVERRIDES = (
     "end table.sort(out) return table.concat(out, \",\")"
 )
 
-# A JSON MODULE'S OWN TABLE (Task 98). Read-only, and templated only with JSON.
+# A JSON MODULE'S SOURCE (Task 98, rewritten in Task 101). Read-only, and templated only with JSON.
 #
 # Rojo turns a plain `foo.json` into a ModuleScript that RETURNS the decoded table (measured with
 # `rojo sourcemap --include-non-scripts` on 2026-10-01: src/shared/Viewmodel/poses.json comes out as
-# ReplicatedStorage.Viewmodel.poses, className ModuleScript). Its Source is generated, so it cannot
+# ReplicatedStorage.Viewmodel.poses, className ModuleScript). Its Source is GENERATED, so it cannot
 # be compared with the file byte-for-byte the way a .luau file is -- which is why a .json file used
-# to fail check 4 as "cannot compare (unsupported file type)". What CAN be compared is the value:
-# require it and encode it, and compare the structure with the file's own.
+# to fail check 4 as "cannot compare (unsupported file type)".
 #
-# A PARENTLESS CLONE, for the reason FRESH_FLAGS gives below: `require` caches per ModuleScript
-# INSTANCE and Rojo rewrites the SOURCE of the same instance, so in a long-lived Edit-mode MCP
-# context the first require of a session is what every later one answers. Comparing a stale require
-# against the file would be the harness certifying its own blind spot.
+# TASK 98 REQUIRED A PARENTLESS CLONE AND ENCODED WHAT IT RETURNED. Task 101 cannot: the MCP thread
+# may not `require` anything at all (see the docstring). So the SOURCE TEXT is read -- a plain
+# property read, which still works -- and `luau_table_value` parses it back here. That is a parser
+# of Rojo's output rather than a copy of its formatter, so it does not care how Rojo indents, how it
+# orders keys or how it prints a number; it only has to read what Rojo writes.
 QUERY_JSON_MODULES = """
 local HttpService = game:GetService("HttpService")
 local wanted = HttpService:JSONDecode(%s)
@@ -785,19 +820,7 @@ for index, path in wanted do
     elseif not inst:IsA("ModuleScript") then
         out[index] = { error = "is a " .. inst.ClassName .. ", not a ModuleScript" }
     else
-        local clone = inst:Clone()
-        local loaded, value = pcall(function()
-            return require(clone)
-        end)
-        clone:Destroy()
-        if not loaded then
-            out[index] = { error = "require failed: " .. tostring(value) }
-        else
-            local encoded, text = pcall(function()
-                return HttpService:JSONEncode(value)
-            end)
-            out[index] = if encoded then { json = text } else { error = "encode failed: " .. tostring(text) }
-        end
+        out[index] = { source = inst.Source }
     end
 end
 return HttpService:JSONEncode(out)
@@ -926,152 +949,30 @@ end
 return HttpService:JSONEncode(out)
 """
 
-# A FRESH COPY OF THE FLAGS MODULE, EVERY CALL, AND IT IS THE WHOLE OF TASK 78.
+# SET OR CLEAR ONE OVERRIDE. The name is validated in Python against the flag rows parsed from
+# `src/shared/Flags/init.luau` (`flag_rows_in_text`) and passed as a JSON string literal; the value
+# is a Luau boolean literal. So this sends no arbitrary Luau, exactly like QUERY_SET_CLIENTS_DONE --
+# and, since Task 101, it REQUIRES NOTHING: the prefix is a constant here rather than read off
+# `Flags.OVERRIDE_PREFIX`, which would have meant evaluating the module.
 #
-# `require` caches per ModuleScript INSTANCE, and the Edit-mode MCP context is long-lived: the first
-# require in a Studio session is the one every later call gets back. Rojo does not make a new
-# ModuleScript when a file changes -- it writes the SOURCE of the same one -- so a flag added after
-# that first require is invisible for the rest of the session.
-#   ModuleScript: "ModuleScripts run once and only once per Luau environment and return the exact
-#   same value for subsequent calls to require()", and "return values ... are independent with
-#   regards to Scripts and LocalScripts, and other environments like the Command Bar" -- the
-#   Edit-mode MCP context is one of those other environments, with a cache of its own.
-#   require: "Returns the value that was returned by the given ModuleScript, running it if it has
-#   not been run yet."
-#     https://create.roblox.com/docs/reference/engine/classes/ModuleScript
-#     https://create.roblox.com/docs/reference/engine/globals/LuaGlobals#require
-#   BOTH RENDERED PAGES GAVE A FETCHER NOTHING (asked twice, 2026-09-27); the sentences above are
-#   quoted from the GENERATED SOURCE those pages are built from, which is first-party and public:
-#     .../creator-docs/main/content/en-us/reference/engine/classes/ModuleScript.yaml
-#     .../creator-docs/main/content/en-us/reference/engine/globals/LuaGlobals.yaml
-#
-# MEASURED, TWICE. On 2026-09-27 `flags.py set ORANGE_OUTFITS on` refused "no such flag" in Edit mode
-# while a Play session resolved ORANGE_OUTFITS=false perfectly -- it blocked the Director switching a
-# flag on for Karen's playtest (Task 77, `reviews/task-77/REQUEST.md`). And from scratch, in memory:
-# require a ModuleScript declaring A, rewrite its Source to declare A and B as Rojo would, require
-# the same instance again -> still A; require a CLONE -> A and B. That fixture is check
-# "a clone of a changed module reads the current source" below.
-#
-# THE FIX IS ALREADY IN THIS REPO (rule 2, borrow before building): `tools/mapgen.py`'s `CALL` has
-# used `require(source:Clone())` since 2026-09-26, for this exact reason and with the same
-# measurement written beside it. These two queries simply did not get it.
-#
-# A parentless clone loads the CURRENT source, leaves nothing in any Rojo-owned container (so the
-# "no script outside Rojo-managed paths" check cannot trip over it), and is destroyed immediately.
-# It sends no arbitrary Luau: the query is still a constant, with only a JSON-encoded name and a
-# boolean literal interpolated.
-# ONE ANSWER SHAPE FOR EVERY QUERY THAT READS `Flags`, AND IT IS JSON (round 2's blocking finding).
-# Round 1 had this snippet answer a bare `"REFUSED: ..."` string, which the `set` path handled and
-# the two `json.loads` call sites did not: a Studio open in Edit before Rojo has been connected --
-# the exact case the message names -- gave the Director a `JSONDecodeError` traceback instead of
-# "[flags] could not read ...", and the handler written for it became dead code. So every Flags query
-# answers a JSON object, every failure is `{ error = ... }`, and every caller goes through
-# `flags_answer()` below, which cannot raise whatever Studio says.
-FRESH_FLAGS = """
-local HttpService = game:GetService("HttpService")
-local source = game:GetService("ReplicatedStorage"):WaitForChild("Flags", 5)
-if not source then
-    return HttpService:JSONEncode({ error = "no ReplicatedStorage.Flags -- is Rojo connected?" })
-end
-local clone = source:Clone()
-local loaded, Flags = pcall(function()
-    return require(clone)
-end)
-clone:Destroy()
-if not loaded then
-    return HttpService:JSONEncode({ error = tostring(Flags) })
-end
-"""
+# THE PREFIX IS THEREFORE IN TWO PLACES, and that is said rather than hidden: `Flags.OVERRIDE_PREFIX`
+# in the module and `FLAG_PREFIX` here. `selftest` asserts they are the same string, by reading the
+# file -- so they cannot drift without CI saying so.
+FLAG_PREFIX = "DHFlag_"
 
-# Every declared flag, out of Studio's synced copy of ReplicatedStorage.Flags -- read fresh, per the
-# block above. The comment that used to sit here said the module cache was "CORRECT rather than a
-# hazard"; Task 77 measured that it is not, and this listing missed a flag the file declared.
-QUERY_FLAG_TABLE = (
-    FRESH_FLAGS
-    + """
-local SS = game:GetService("ServerStorage")
-local rows = {}
-for name, row in pairs(Flags.DEFAULTS) do
-    local override = SS:GetAttribute(Flags.OVERRIDE_PREFIX .. name)
-    rows[#rows + 1] = {
-        name = name,
-        default = row.default,
-        owner = row.owner,
-        expires = row.expires,
-        why = row.why,
-        override = if override == nil then "none" else tostring(override),
-        effective = if type(override) == "boolean" then override else row.default,
-    }
-end
-table.sort(rows, function(a, b) return a.name < b.name end)
-local stray = {}
-for name in pairs(SS:GetAttributes()) do
-    if string.sub(name, 1, #Flags.OVERRIDE_PREFIX) == Flags.OVERRIDE_PREFIX then
-        local bare = string.sub(name, #Flags.OVERRIDE_PREFIX + 1)
-        if Flags.DEFAULTS[bare] == nil then stray[#stray + 1] = name end
-    end
-end
-table.sort(stray)
-return HttpService:JSONEncode({ rows = rows, stray = stray })
-"""
-)
-
-# Set ONE override. The name is validated against Flags.NAME_PATTERN in Python and checked against
-# Flags.DEFAULTS in Luau before anything is written, and the value is a Luau boolean literal -- so
-# this sends no arbitrary Luau, exactly like QUERY_SET_CLIENTS_DONE. The DEFAULTS it checks against
-# are read FRESH (see FRESH_FLAGS): this is the query Task 77 could not use.
 QUERY_SET_FLAG = (
-    FRESH_FLAGS
-    + """
-local SS = game:GetService("ServerStorage")
-local name = %s
-if Flags.DEFAULTS[name] == nil then
-    return HttpService:JSONEncode({ error = "no such flag " .. name })
-end
-SS:SetAttribute(Flags.OVERRIDE_PREFIX .. name, %s)
-return HttpService:JSONEncode({
-    set = name .. "=" .. tostring(SS:GetAttribute(Flags.OVERRIDE_PREFIX .. name)),
-})
-"""
+    'local SS = game:GetService("ServerStorage") '
+    'SS:SetAttribute("%s" .. %s, %s) '
+    'return tostring(SS:GetAttribute("%s" .. %s))'
 )
 
-# THE TRAP AND THE FIX, BUILT FROM SCRATCH IN MEMORY (Task 78). It makes its own ModuleScript,
-# requires it, rewrites its Source exactly as Rojo does -- the same instance, new source -- and then
-# asks the same instance and a CLONE what they say. Nothing is ever parented, so no container sees a
-# script and the "no script outside Rojo-managed paths" check cannot trip over it.
-#
-# WHAT IT ASSERTS is only the half this harness depends on: a clone reads the CURRENT source. It
-# REPORTS whether the same instance went stale rather than asserting it -- if Roblox ever changed
-# require's caching, an assertion there would block this repo for a fix, and the clone would still be
-# right either way.
-QUERY_REQUIRE_CACHE = """
-local HttpService = game:GetService("HttpService")
-local ok, result = pcall(function()
-    local module = Instance.new("ModuleScript")
-    module.Name = "DHRequireCacheFixture"
-    module.Source = "return { NAMES = { A = true } }"
-    local first = require(module)
-    module.Source = "return { NAMES = { A = true, B = true } }"
-    local again = require(module)
-    local clone = module:Clone()
-    local fresh = require(clone)
-    clone:Destroy()
-    module:Destroy()
-    local function names(value)
-        local out = {}
-        for key in pairs(value.NAMES) do
-            out[#out + 1] = key
-        end
-        table.sort(out)
-        return table.concat(out, ",")
-    end
-    return { first = names(first), again = names(again), fresh = names(fresh) }
-end)
-if not ok then
-    return HttpService:JSONEncode({ error = tostring(result) })
-end
-return HttpService:JSONEncode(result)
-"""
+# THE TASK 78 REQUIRE-CACHE FIXTURE IS GONE (Task 101). It built a ModuleScript in memory, rewrote
+# its Source as Rojo does and proved that a parentless CLONE reads the current source -- the
+# mechanism every Edit-mode flag query then relied on. The MCP thread may no longer `require`
+# anything, so no query relies on it, and the hazard it guarded (a stale require handing back a flag
+# table without a flag the file had just gained) cannot occur. What stands behind "Studio has the
+# file the repo has" is check 4's byte-for-byte Source comparison, which is a stronger claim than
+# asking Studio to evaluate the module and trusting the answer.
 
 QUERY_CLEAR_FLAGS = (
     'local SS = game:GetService("ServerStorage") local out = {} '
@@ -1498,8 +1399,8 @@ def synced_nodes():
 def json_answer(studio, code, studio_id=None, datamodel="Edit"):
     """Run a query whose answer is a JSON object -> (object, problem). NEVER RAISES ON WHAT STUDIO SAID.
 
-    THE ONE PLACE A FLAGS ANSWER IS PARSED (round 2's blocking finding). Every query built on
-    `FRESH_FLAGS` answers a JSON object and reports failure as `{ error = ... }`; this turns anything
+    THE ONE PLACE A JSON ANSWER IS PARSED (round 2's blocking finding). Every query that answers an
+    object reports failure as `{ error = ... }`; this turns anything
     else -- a bare string, a truncated reply, a Luau error text, `null` -- into a `problem` the caller
     prints. Two call sites used to `json.loads` the answer directly, so one refusal shape that was
     not JSON ended a Director's command in a traceback and a harness check in
@@ -1532,20 +1433,38 @@ def declared_flags():
     """
     path = os.path.join(REPO, "src", "shared", "Flags", "init.luau")
     with open(path, "r", encoding="utf-8") as handle:
-        return flags_in_text(handle.read())
+        return [row["name"] for row in flag_rows_in_text(handle.read())]
 
 
 def flags_in_text(text):
-    """The same parse, on a string -- so the selftest can hand it a table it made up rather than
+    """Just the NAMES, on a string -- so the selftest can hand it a table it made up rather than
     asserting that a flag which exists today still exists (review round 1, note)."""
-    start = text.find("Flags.DEFAULTS = {")
-    if start < 0:
-        return []
-    body = text[start:]
-    end = body.find("\n}\n")
-    if end >= 0:
-        body = body[:end]
-    return sorted(set(re.findall(r"^\t([A-Z][A-Z0-9_]*) = \{", body, re.M)))
+    return sorted(row["name"] for row in flag_rows_in_text(text))
+
+
+def map_streaming_radius():
+    """`Map.STREAMING.targetRadius`, read off `src/shared/Map/init.luau`, or -1.
+
+    OFF THE FILE AND NOT OUT OF STUDIO (Task 101), for two measured reasons: the MCP thread may no
+    longer `require` the module, and Luau cannot read `Workspace.StreamingTargetRadius` either --
+    the first version of the staging query read it and every stage came back "not a valid member of
+    Workspace" (`selftest` still guards that). The number only decorates the failure message that
+    says why a boar never reached a client, and check 4 compares this file with Studio's copy
+    byte-for-byte, so the file is what the game is running."""
+    path = os.path.join(REPO, "src", "shared", "Map", "init.luau")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            found = re.search(r"^	*targetRadius = ([0-9.]+)", handle.read(), re.M)
+    except OSError:
+        return -1
+    return float(found.group(1)) if found else -1
+
+
+def declared_flag_rows():
+    """Every flag row `src/shared/Flags/init.luau` declares, read off the file."""
+    path = os.path.join(REPO, "src", "shared", "Flags", "init.luau")
+    with open(path, "r", encoding="utf-8") as handle:
+        return flag_rows_in_text(handle.read())
 
 
 def project_refusals():
@@ -1645,6 +1564,158 @@ def same_value(expected, got, float32=False):
         except OverflowError:  # beyond float32 range: cannot be a float32 rounding, so it is a mismatch
             return False
     return isinstance(expected, str) and str(got["v"]) == expected
+
+
+def luau_table_value(source):
+    """Rojo's generated JSON-module Source -> the Python value it returns. Raises ValueError.
+
+    THIS IS A PARSER OF ROJO'S OUTPUT, NOT A COPY OF ITS FORMATTER (Task 101). The MCP thread may
+    no longer `require` a module, so the only way left to compare a JSON module with its file is to
+    read the generated Source and read it back. A parser does not care how Rojo indents, in what
+    order it writes keys, or how it prints a number; a re-implemented formatter would care about all
+    three and would break the day any of them changed.
+
+    THE GRAMMAR IS ROJO'S, WHICH IS SMALL: `return` then a value; a table is `{ ... }` holding
+    either `key = value,` entries or positional ones; a value is a table, a number, a quoted string,
+    `true`, `false` or `nil`. Measured on 2026-10-02 against the real Source of
+    ReplicatedStorage.Viewmodel.poses: tab-indented, keys in alphabetical order, trailing commas,
+    `180` for 180.0.
+
+    AN EMPTY TABLE IS AMBIGUOUS -- Luau has one `{}` for an empty array and an empty object -- so it
+    comes back as `[]` and `same_json` treats the two as equal. That is stated rather than silently
+    right: `src/shared/Viewmodel/poses.json` has `"keyframes": []` and no empty objects.
+    """
+    tokens = []
+    i, n = 0, len(source)
+    while i < n:
+        ch = source[i]
+        if ch in " \t\r\n":
+            i += 1
+        elif source.startswith("--[[", i):
+            end = source.find("]]", i)
+            i = n if end < 0 else end + 2
+        elif source.startswith("--", i):
+            end = source.find("\n", i)
+            i = n if end < 0 else end + 1
+        elif ch in "{}=,[]":
+            tokens.append(ch)
+            i += 1
+        elif ch in "\"'":
+            quote, j, out = ch, i + 1, []
+            while j < n and source[j] != quote:
+                if source[j] == "\\" and j + 1 < n:
+                    out.append({"n": "\n", "t": "\t", "r": "\r"}.get(source[j + 1], source[j + 1]))
+                    j += 2
+                else:
+                    out.append(source[j])
+                    j += 1
+            tokens.append(("str", "".join(out)))
+            i = j + 1
+        else:
+            j = i
+            while j < n and source[j] not in " \t\r\n{}=,[]\"'":
+                j += 1
+            word = source[i:j]
+            if word in ("true", "false", "nil", "return"):
+                tokens.append(("word", word))
+            else:
+                try:
+                    tokens.append(("num", float(word) if ("." in word or "e" in word or "E" in word) else int(word)))
+                except ValueError:
+                    tokens.append(("name", word))
+            i = j
+
+    pos = [0]
+
+    def peek():
+        return tokens[pos[0]] if pos[0] < len(tokens) else None
+
+    def take():
+        tok = peek()
+        pos[0] += 1
+        return tok
+
+    def value():
+        tok = take()
+        if tok == "{":
+            out_map, out_list = {}, []
+            while True:
+                nxt = peek()
+                if nxt is None:
+                    raise ValueError("unterminated table")
+                if nxt == "}":
+                    take()
+                    break
+                if nxt == ",":
+                    take()
+                    continue
+                if nxt == "[":
+                    take()
+                    key = take()
+                    if take() != "]" or take() != "=":
+                        raise ValueError("bad [key] = value")
+                    out_map[str(key[1])] = value()
+                elif isinstance(nxt, tuple) and nxt[0] == "name" and tokens[pos[0] + 1 : pos[0] + 2] == ["="]:
+                    key = take()[1]
+                    take()  # '='
+                    out_map[key] = value()
+                else:
+                    out_list.append(value())
+            if out_map and out_list:
+                raise ValueError("a table with both named and positional entries")
+            return out_map if out_map else out_list
+        if isinstance(tok, tuple):
+            kind, raw = tok
+            if kind in ("str", "num"):
+                return raw
+            if kind == "word":
+                return {"true": True, "false": False, "nil": None}[raw]
+        raise ValueError(f"unexpected token {tok!r}")
+
+    first = peek()
+    if isinstance(first, tuple) and first == ("word", "return"):
+        take()
+    out = value()
+    if peek() is not None:
+        raise ValueError(f"trailing tokens after the value: {peek()!r}")
+    return out
+
+
+def flag_rows_in_text(text):
+    """Every flag the module DECLARES, as rows -- name, default, owner, expires, why. On a string.
+
+    PARSED FROM THE FILE, NOT EVALUATED IN STUDIO (Task 101). The MCP thread may no longer `require`
+    `ReplicatedStorage.Flags`, and it does not need to: check 4 compares that module's Source with
+    this very file byte-for-byte, so the file IS what Studio has -- a stronger statement than asking
+    Studio to run it and trusting the answer.
+    """
+    start = text.find("Flags.DEFAULTS = {")
+    if start < 0:
+        return []
+    body = text[start:]
+    end = body.find("\n}\n")
+    if end >= 0:
+        body = body[:end]
+    rows = []
+    for match in re.finditer(r"^\t([A-Z][A-Z0-9_]*) = \{(.*?)^\t\} ::", body, re.M | re.S):
+        name, block = match.group(1), match.group(2)
+        default = re.search(r"^\t\tdefault = (true|false),", block, re.M)
+        row = {
+            "name": name,
+            "default": bool(default) and default.group(1) == "true",
+            "owner": "",
+            "expires": "",
+            "why": "",
+        }
+        for key in ("owner", "expires"):
+            found = re.search(r'^\t\t%s = "([^"]*)"' % key, block, re.M)
+            if found:
+                row[key] = found.group(1)
+        why = re.search(r"^\t\twhy = (.*?)(?=^\t\t[a-z]+ =|\Z)", block, re.M | re.S)
+        if why:
+            row["why"] = "".join(re.findall(r'"((?:[^"\\]|\\.)*)"', why.group(1))).replace('\\"', '"')
+        rows.append(row)
+    return sorted(rows, key=lambda r: r["name"])
 
 
 def same_json(expected, got, where=""):
@@ -1793,9 +1864,10 @@ def compare_synced(studio, nodes):
                             f"{(answer or {}).get('error') if isinstance(answer, dict) else answer!r}")
             continue
         try:
-            in_studio = json.loads(answer["json"])
-        except (json.JSONDecodeError, TypeError, KeyError) as why:
-            problems.append(f"{jname}: Studio's answer for {jspec['file']} was not JSON ({why})")
+            in_studio = luau_table_value(answer["source"])
+        except (ValueError, TypeError, KeyError) as why:
+            problems.append(f"{jname}: could not read Studio's generated source for "
+                            f"{jspec['file']} ({why})")
             continue
         on_disk = json.loads(read_disk(jspec["file"]))
         for difference in same_json(on_disk, in_studio)[:10]:
@@ -2129,9 +2201,11 @@ def stage_seed(studio, stage, server_id=None):
     args["waitSeconds"] = STAGE_TARGET_WAIT_SECONDS
     args["seedPosition"] = None
     args["targetName"] = ""
-    # Only the SERVER query reads this, and it reads it from `Map.STREAMING` -- see the comment there.
-    # The client just prints what it was handed, so there is one reader of the radius, not two.
-    args["streamingRadius"] = -1
+    # THE RADIUS IS READ HERE, OFF THE FILE (Task 101). It used to come back from the SERVER query,
+    # which required `Map`; the MCP thread may no longer require anything, and Luau cannot read
+    # `Workspace.StreamingTargetRadius` at all. The client query just prints what it is handed, so
+    # there is still exactly one reader of the number.
+    args["streamingRadius"] = map_streaming_radius()
     ask = luau_json({"targetFolder": stage["targetFolder"],
                      "waitSeconds": STAGE_TARGET_WAIT_SECONDS})
     try:
@@ -2145,8 +2219,6 @@ def stage_seed(studio, stage, server_id=None):
                 and all(isinstance(v, (int, float)) for v in at)):
             args["seedPosition"] = at
             args["targetName"] = str(found.get("name") or stage["targetFolder"])
-            radius = found.get("streamingRadius")
-            args["streamingRadius"] = radius if isinstance(radius, (int, float)) else -1
             # The client now waits only for replication, not for the drive's clock.
             args["waitSeconds"] = STAGE_STREAM_WAIT_SECONDS
             return args, (f"the server's {args['targetName']} is at "
@@ -2341,24 +2413,15 @@ def run_test(studio):
         check("Every *.spec.* file is synced into ServerStorage.Tests or ReplicatedStorage.ClientTests",
               not misplaced, ", ".join(misplaced))
 
-        # TASK 78, TWO CHECKS AND THEY ARE ABOUT DIFFERENT THINGS. The first proves the MECHANISM
-        # every Edit-mode flag query now relies on; the second proves the CALL SITES actually use
-        # it, by asking Studio for the flag table and comparing it with the file on disk. The second
-        # only bites in a session whose cache is already stale -- which is precisely the session the
-        # Director could not switch a flag on in.
-        cache, problem = json_answer(studio, QUERY_REQUIRE_CACHE)
-        cache = cache or {}
-        check("A clone of a changed module reads the current source (the flag queries rely on it)",
-              not problem and cache.get("fresh") == "A,B", problem or json.dumps(cache))
-        print(f"[harness] require cache: same instance said {cache.get('again')!r} after its Source "
-              f"declared {cache.get('fresh')!r}"
-              + ("  <-- STALE, which is the trap Task 78 fixed" if cache.get("again") != cache.get("fresh") else ""))
-        want = declared_flags()
-        table, problem = json_answer(studio, QUERY_FLAG_TABLE)
-        got = sorted(row["name"] for row in (table or {}).get("rows", []))
-        check("The Edit-mode flag table lists every flag the repo declares",
-              not problem and got == want,
-              f"repo {want}, Studio {got}" + (f" -- {problem}" if problem else ""))
+        # TASK 78'S TWO CHECKS ARE GONE (Task 101), and neither is replaced. The first proved that
+        # a parentless CLONE reads the current source, which every Edit-mode flag query then relied
+        # on; the second proved those call sites used it, by asking Studio to evaluate the flag
+        # module. The MCP thread may no longer `require` anything (see the docstring), so no query
+        # evaluates a module and the hazard cannot occur -- and what now stands behind "Studio has
+        # the file the repo has" is check 4's byte-for-byte Source comparison, which says it of the
+        # flag module and of every other synced file. A check restating that would pass for the
+        # wrong reason.
+        print(f"[harness] {len(declared_flags())} flag(s) declared on disk: {', '.join(declared_flags())}")
 
         phases.mark("checks against the Edit place (sync, scripts, specs)")
         print("[harness] Play")
@@ -3031,14 +3094,21 @@ def run_flags(studio, argv):
             return 2
         # The name is a JSON string literal and the value a Luau boolean literal, so nothing this
         # sends is arbitrary Luau -- the same shape as QUERY_SET_CLIENTS_DONE.
-        answer, problem = json_answer(
-            studio, QUERY_SET_FLAG % (json.dumps(name), "true" if argv[2] == "on" else "false"))
-        if problem:
-            print(f"[flags] could not read ReplicatedStorage.Flags: {problem}")
-            print("[flags] An override for a flag that does not exist is a typo the resolver would "
-                  "only log, so nothing was written.")
+        # VALIDATED AGAINST THE FILE, not against a table Studio evaluated (Task 101): an override
+        # for a flag that does not exist is a typo the resolver would only log, so it is refused
+        # before anything is written.
+        if not any(row["name"] == name for row in declared_flag_rows()):
+            print(f"[flags] REFUSED: no such flag {name} in src/shared/Flags/init.luau")
             return 2
-        print(f"[flags] override set: {answer.get('set')}")
+        quoted = json.dumps(name)
+        answer, problem = process_call(
+            lambda: studio.query("Edit", QUERY_SET_FLAG
+                                 % (FLAG_PREFIX, quoted, "true" if argv[2] == "on" else "false",
+                                    FLAG_PREFIX, quoted)), timeout=20)
+        if problem:
+            print(f"[flags] could not write the override: {problem}")
+            return 2
+        print(f"[flags] override set: {name}={answer}")
         print("[flags] the git tree is untouched. Clear it before the next harness run:")
         print("[flags]   python tools/flags.py clear")
         return 0
@@ -3047,14 +3117,28 @@ def run_flags(studio, argv):
         print("[flags] usage: flags [set <NAME> on|off | clear | live [role]]")
         return 2
 
-    raw, problem = json_answer(studio, QUERY_FLAG_TABLE)
-    if problem:
-        print("[flags] could not read ReplicatedStorage.Flags: " + problem)
-        return 1
-    rows = raw.get("rows", [])
+    # THE DECLARATIONS COME FROM THE FILE AND THE OVERRIDES FROM STUDIO (Task 101). The MCP thread
+    # may no longer `require` `ReplicatedStorage.Flags`, and it does not need to: the harness's own
+    # check 4 compares that module's Source with this very file byte-for-byte, so the file IS what
+    # Studio has. What only Studio can answer -- which overrides are set right now -- is read as
+    # attributes, which still works.
+    rows = declared_flag_rows()
     if not rows:
-        print("[flags] no flags are declared")
+        print("[flags] no flags are declared in src/shared/Flags/init.luau")
         return 0
+    live, problem = process_call(lambda: flag_overrides(studio), timeout=20)
+    if problem:
+        print("[flags] could not read the overrides on ServerStorage: " + problem)
+        return 1
+    set_ = {}
+    for entry in live or []:
+        name, _, value = entry.partition("=")
+        set_[name[len(FLAG_PREFIX):]] = value == "true"
+    for row in rows:
+        override = set_.get(row["name"])
+        row["override"] = "none" if override is None else ("true" if override else "false")
+        row["effective"] = row["default"] if override is None else override
+    stray = sorted(name for name in set_ if not any(row["name"] == name for row in rows))
     width = max([len(r["name"]) for r in rows] + [4])
     print(f"[flags] {'NAME'.ljust(width)}  default  override  effective  expires     owner")
     for row in rows:
@@ -3066,7 +3150,6 @@ def run_flags(studio, argv):
             row["expires"], row["owner"]))
     for row in rows:
         print(f"[flags]   {row['name']}: {row['why']}")
-    stray = raw.get("stray", [])
     if stray:
         # An override for a name nothing declares would be silently ignored by the resolver, so the
         # Director would be watching a playtest that is not the one they set up.
@@ -3077,6 +3160,38 @@ def run_flags(studio, argv):
 
 
 # ---------------------------------------------------------------- selftest (Task 50)
+
+def _as_luau(value, depth=1):
+    """A Python value as the Luau table literal Rojo writes. SELFTEST ONLY.
+
+    It exists so `luau_table_value` can be driven against the SHIPPED poses.json with no Studio: the
+    parser is the thing under test, and this renders something for it to read. It is deliberately
+    NOT used by the harness -- comparing Rojo's output with our own rendering of it would be
+    comparing two formatters, which is the mistake Task 101 avoided."""
+    pad = "\t" * depth
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        rows = "".join(f"{pad}{k} = {_as_luau(v, depth + 1)},\n" for k, v in sorted(value.items()))
+        return "{\n" + rows + "\t" * (depth - 1) + "}"
+    if isinstance(value, list):
+        if not value:
+            return "{}"
+        rows = "".join(f"{pad}{_as_luau(v, depth + 1)},\n" for v in value)
+        return "{\n" + rows + "\t" * (depth - 1) + "}"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        out = repr(float(value))
+        return out[:-2] if out.endswith(".0") else out
+    return json.dumps(value)
+
+
+def own_flags_text():
+    """`src/shared/Flags/init.luau` as text. SELFTEST ONLY."""
+    with open(os.path.join(REPO, "src", "shared", "Flags", "init.luau"), encoding="utf-8") as handle:
+        return handle.read()
+
 
 def _read_own_source():
     """This file's own text, for the selftest case that counts argument builders (Task 52)."""
@@ -3328,41 +3443,111 @@ def selftest():
                 return -1, f"raised {type(why).__name__}: {why}"
         return code, buffer.getvalue()
 
+    # SINCE TASK 101 `run_flags` ASKS STUDIO FOR ONE THING ONLY -- the DHFlag_* attributes -- and
+    # reads the declarations off the file, so these cases drive what Studio can still fail at.
     BAD = {
-        "a bare refusal string (round 1's shape)": "REFUSED: no ReplicatedStorage.Flags",
-        "an empty answer": "",
         "a Luau error text": "Workspace.Script:3: attempt to index nil",
-        "JSON that is not an object": "[1, 2, 3]",
-        "the JSON error object itself": '{"error": "no ReplicatedStorage.Flags -- is Rojo connected?"}',
+        "a bare refusal string": "REFUSED: no ServerStorage",
     }
     for label, answer in BAD.items():
+        # `flag_overrides` splits on commas, so any of these parses as one bogus override name --
+        # which is exactly what a STRAY is, and `show` must name it rather than crash.
         code, output = flags_says(answer, [])
-        ok(f"  show says what went wrong and exits 1 on {label}",
-           code == 1 and "[flags] could not read ReplicatedStorage.Flags:" in output,
-           f"exit {code}, said {output.strip()[:120]!r}")
-        code, output = flags_says(answer, ["set", "SOME_FLAG", "on"])
-        ok(f"  set says what went wrong and exits 2 on {label}",
-           code == 2 and "[flags] could not read ReplicatedStorage.Flags:" in output,
-           f"exit {code}, said {output.strip()[:120]!r}")
-    # ...and the good answers still work, so the guard above is not just refusing everything.
-    code, output = flags_says('{"rows": [], "stray": []}', [])
-    ok("  show still prints an empty table cleanly", code == 0 and "no flags are declared" in output,
-       f"exit {code}, said {output.strip()[:120]!r}")
-    code, output = flags_says('{"set": "SOME_FLAG=true"}', ["set", "SOME_FLAG", "on"])
-    ok("  set still reports what it wrote", code == 0 and "override set: SOME_FLAG=true" in output,
-       f"exit {code}, said {output.strip()[:120]!r}")
-    # The harness check reads the same answers through the same parser, so it degrades the same way.
+        ok(f"  show survives {label} and still prints the table",
+           code == 0 and "[flags] NAME" in output,
+           f"exit {code}, said {output.strip()[:140]!r}")
+    code, output = flags_says("", [])
+    ok("  show prints the declared flags with no override set",
+       code == 0 and "FIRST_PERSON" in output and "no override" not in output,
+       f"exit {code}, said {output.strip()[:140]!r}")
+    code, output = flags_says("", ["set", "NO_SUCH_FLAG", "on"])
+    ok("  set refuses a flag the file does not declare, and writes nothing",
+       code == 2 and "no such flag NO_SUCH_FLAG" in output,
+       f"exit {code}, said {output.strip()[:140]!r}")
+    code, output = flags_says("true", ["set", "FIRST_PERSON", "on"])
+    ok("  set reports what it wrote", code == 0 and "override set: FIRST_PERSON=true" in output,
+       f"exit {code}, said {output.strip()[:140]!r}")
+    # The harness check reads JSON answers through the one parser, so it degrades the same way.
     _, problem = json_answer(FailingStudio("REFUSED: no ReplicatedStorage.Flags"), "")
     ok("  the harness check gets a problem string, not an exception",
        problem.startswith("Studio did not answer with JSON"), repr(problem))
-    # AND THE QUERIES THEMSELVES STILL SPEAK THE ONE SHAPE. The parser above makes a caller safe
-    # whatever a query answers; this is the other half -- that no Flags query goes back to answering
-    # a bare string, which is what made a caller's handler dead code in round 1. Same idiom as
-    # "every argument builder asks _scoped" above: a property of the source, checked in CI.
-    flag_queries = FRESH_FLAGS + QUERY_SET_FLAG + QUERY_FLAG_TABLE
-    ok("every Flags query reports failure as JSON, never as a bare string",
-       "JSONEncode({ error" in FRESH_FLAGS and 'return "' not in flag_queries,
-       repr([line for line in flag_queries.splitlines() if 'return "' in line]))
+
+    # 9b1. NOTHING THE MCP THREAD SENDS MAY `require` OR `Invoke` ANY MORE (Task 101), and that is a
+    # property of the SOURCE, checked in CI where no Studio exists. Measured 2026-10-02: the thread
+    # carries capabilities and may not enter a container that grants none, so every `require` is
+    # refused -- including of a ModuleScript it created itself. See the docstring.
+    own = _read_own_source()
+    queries = "\n".join(
+        line for line in own.splitlines()
+        # The prohibition is about the Luau this file SENDS. Its own Python `import` lines and the
+        # paragraphs that explain the rule are not that, so the scan is of the query constants.
+        if not line.lstrip().startswith("#")
+    )
+    sent = []
+    for name, value in sorted(globals().items()):
+        if name.startswith("QUERY_") and isinstance(value, str):
+            for word in ("require(", ":Invoke("):
+                if word in value:
+                    sent.append(f"{name} contains {word}")
+    ok("no query sends `require` or `:Invoke`", sent == [], repr(sent))
+    ok("the stage asks the camera by attribute instead", "DHLookAt" in QUERY_STAGE, "QUERY_STAGE")
+    ok("the flag prefix in this file is the one the module declares",
+       ('Flags.OVERRIDE_PREFIX = "%s"' % FLAG_PREFIX)
+       in open(os.path.join(REPO, "src", "shared", "Flags", "init.luau"), encoding="utf-8").read(),
+       FLAG_PREFIX)
+
+    # 9b2. THE LUAU VALUE PARSER (Task 101), which is how a JSON module is compared now.
+    PARSED = luau_table_value(
+        'return {\n\taim = { cheekDeg = 1.2, left = { pos = { x = -0.02 } } },\n'
+        '\tnames = { "a", "b" },\n\tempty = {},\n\ton = true,\n\toff = false,\n\tversion = 2,\n}'
+    )
+    ok("  it reads Rojo's table literal", PARSED == {
+        "aim": {"cheekDeg": 1.2, "left": {"pos": {"x": -0.02}}},
+        "names": ["a", "b"],
+        "empty": [],
+        "on": True,
+        "off": False,
+        "version": 2,
+    }, repr(PARSED))
+    ok("  an empty table compares equal to an empty array", same_json([], PARSED["empty"]) == [])
+    ok("  it reads `[1] = v` keys too", luau_table_value('return { [1] = "x" }') == {"1": "x"})
+    ok("  it ignores comments", luau_table_value("return { -- hi\n\ta = 1,\n}") == {"a": 1})
+    for bad in ("return { a = 1", "return { a = }", "return { 1, b = 2 }", "{ a = 1 } junk"):
+        raised = False
+        try:
+            luau_table_value(bad)
+        except (ValueError, KeyError, IndexError):
+            raised = True
+        ok(f"  it refuses {bad!r} rather than guessing", raised)
+    # ...AND IT READS THE FILE THIS WAS WRITTEN FOR, round-tripped through its own JSON.
+    with open(os.path.join(REPO, "src", "shared", "Viewmodel", "poses.json"), encoding="utf-8") as handle:
+        poses = json.load(handle)
+    rendered = "return " + _as_luau(poses)
+    ok("  it round-trips the shipped poses.json", same_json(poses, luau_table_value(rendered)) == [],
+       repr(same_json(poses, luau_table_value(rendered))[:3]))
+
+    # 9b3. THE FLAG ROWS, parsed from the file rather than evaluated in Studio (Task 101).
+    rows = flag_rows_in_text(own_flags_text())
+    ok("  every declared flag comes back as a row", len(rows) >= 4, repr([r["name"] for r in rows]))
+    for row in rows:
+        ok(f"  {row['name']} has an owner, an expiry and a why",
+           row["owner"] and re.match(r"^\d{4}-\d{2}-\d{2}$", row["expires"]) and len(row["why"]) > 10,
+           repr(row))
+    MADE_UP = (
+        "Flags.DEFAULTS = {\n"
+        '\tALPHA = {\n\t\tdefault = true,\n\t\towner = "Somewhere.Thing",\n'
+        '\t\tborn = "2026-01-01",\n\t\texpires = "2026-02-01",\n'
+        '\t\twhy = "One line "\n\t\t\t.. "and a second.",\n\t} :: FlagRow,\n'
+        '\tBETA = {\n\t\tdefault = false,\n\t\towner = "Else.Where",\n'
+        '\t\tborn = "2026-01-02",\n\t\texpires = "2026-02-02",\n\t\twhy = "Only one.",\n'
+        "\t} :: FlagRow,\n}\n"
+    )
+    made = flag_rows_in_text(MADE_UP)
+    ok("  it reads a table it has never seen", [r["name"] for r in made] == ["ALPHA", "BETA"], repr(made))
+    ok("  it reads the default both ways", [r["default"] for r in made] == [True, False], repr(made))
+    ok("  it joins a multi-line why", made[0]["why"] == "One line and a second.", repr(made[0]["why"]))
+    ok("  it reads owner and expires", made[1]["owner"] == "Else.Where" and made[1]["expires"] == "2026-02-02",
+       repr(made[1]))
 
     # 9b2. THE JSON-MODULE COMPARISON AND THE POSE GUARD (Task 98), both offline.
     #
@@ -3484,6 +3669,11 @@ def selftest():
                 if isinstance(self.server_answer, Exception):
                     raise self.server_answer
                 return self.server_answer
+            # BY THE STAGE'S OWN MARKER, and the order matters (Task 101): the stage query now
+            # polls `GetAttribute` for its aim handshake, so dispatching on that word first sent the
+            # ready token back as the stage's answer and every stage case failed.
+            if "PivotTo" in code:
+                return self.client_answer
             if "GetAttribute" in code:      # QUERY_READY, the handshake before any stage
                 return STAGE_TOKEN
             return self.client_answer
@@ -3614,8 +3804,13 @@ def selftest():
     reads = [f".{name}" for name in UNREADABLE
              if f".{name}" in QUERY_STAGE or f".{name}" in QUERY_STAGE_TARGET]
     ok("no staging query reads a streaming property Luau cannot read", not reads, repr(reads))
+    # SINCE TASK 101 THE RADIUS IS READ IN PYTHON, off `src/shared/Map/init.luau`, because the MCP
+    # thread may not require the module and Luau cannot read the Workspace property either. The
+    # client query still just prints what it was handed, so there is one reader, not two.
     ok("the radius the failure names comes from the contract",
-       "Map.STREAMING" in QUERY_STAGE_TARGET and "stage.streamingRadius" in QUERY_STAGE)
+       map_streaming_radius() == 1024 and "stage.streamingRadius" in QUERY_STAGE
+       and "require(" not in QUERY_STAGE_TARGET,
+       f"{map_streaming_radius()} / {'require(' in QUERY_STAGE_TARGET}")
 
     # 10. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):
