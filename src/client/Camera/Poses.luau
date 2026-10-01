@@ -71,7 +71,9 @@ function Poses.resolve(base: any, raw: string?): (any, string?, { string })
 		return base, hold, problems
 	end
 	local out = table.clone(base)
-	for key, value in pairs(Data.view(merged)) do
+	-- THE SAME GUN THE BASE WAS BUILT FOR (task 99). `base.NEW_GUN` is the flag as the owner read it
+	-- at its boundary, so a tuning override can never silently swap which gun's poses are resolved.
+	for key, value in pairs(Data.view(merged, base.NEW_GUN == true)) do
 		out[key] = value
 	end
 	return table.freeze(out), hold, problems

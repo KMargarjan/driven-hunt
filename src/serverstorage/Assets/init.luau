@@ -88,6 +88,22 @@ export type AssetRow = {
 	-- rolled-back asset is undiagnosable without it. `byKey` skips a superseded row even if it is
 	-- somehow the highest version, so the FIELD is the decision and the version number is not.
 	supersededBy: number?,
+	-- THE COLOUR THE PART IS LEFT AT WHEN ITS TEXTURE DOES NOT DRAW (task 99), measured off the
+	-- SOURCE texture rather than guessed.
+	--
+	-- MEASURED, AND IT IS WHY THIS FIELD EXISTS. Karen, 2026-10-01: the right glove is WHITE in game.
+	-- Both hands carry a `SurfaceAppearance` with a `ColorMap` -- probed on the server in a live
+	-- session, both ids present -- and both source textures are dark brown (median ~54, 44, 35). But
+	-- the pixels of the aimed screenshot read (115, 120, 131) and (132, 138, 151): that is Roblox's
+	-- DEFAULT medium stone grey, shaded by the sky, which is what a part shows when its colour map
+	-- does not draw. Beside it the gun mesh's own texture rendered at (39, 16, 13), so the place and
+	-- the lighting are not the fault.
+	--
+	-- So the fix is not to argue with the renderer: a part whose map fails falls back to its `Color`,
+	-- and this is that colour. If the map ever does draw it overwrites this and nothing is lost; if
+	-- it does not, the glove is brown leather instead of a white blob. `nil` for rows nobody draws
+	-- without a texture.
+	fallbackColor: Color3?,
 	notes: string?,
 }
 
@@ -123,7 +139,11 @@ local GUN_SIZE = Vector3.new(NATURAL.X * SCALE, NATURAL.Y * SCALE, NATURAL.Z * S
 -- The two natural boxes are MEASURED off each prepped model's own vertex bounds (the run's
 -- `model.glb` position accessors, times the hundred Roblox's FBX import applies -- the same hundred
 -- that makes the gun's two-unit model 200 units long above). See the rows for where 1.28 comes from.
-local HAND_LENGTH_STUDS = 1.28
+-- 1.10 SINCE TASK 99 (was 1.28). The new gun's barrels are 0.145 studs across against the mesh
+-- gun's thicker pair, and at 1.28 the two gloves were the biggest things in the aimed frame --
+-- measured on the task 98 side-by-side, where they are brighter and larger than the barrels they
+-- hold. This is the one dial for how bulky a hand reads, and it is the Director's to tune.
+local HAND_LENGTH_STUDS = 1.10
 local HAND_RIGHT_NATURAL = Vector3.new(190.04, 84.99, 78.93)
 local HAND_LEFT_NATURAL = Vector3.new(189.64, 95.52, 72.04)
 local function uniformTo(natural: Vector3, length: number): Vector3
@@ -703,6 +723,8 @@ Assets.ROWS = {
 		trisDeclared = 2080,
 		texturePx = 2048,
 		sizeStuds = HAND_RIGHT_SIZE,
+		-- The median of this model's own `_texture.png`, measured 2026-10-01: dark brown leather.
+		fallbackColor = Color3.fromRGB(54, 44, 35),
 		naturalSizeStuds = HAND_RIGHT_NATURAL,
 		offsetStuds = Vector3.zero, -- measured: the model's pivot is its bounding-box centre to
 		-- within 0.001 of a unit on every axis
@@ -741,6 +763,7 @@ Assets.ROWS = {
 		trisDeclared = 2061,
 		texturePx = 2048,
 		sizeStuds = HAND_LEFT_SIZE,
+		fallbackColor = Color3.fromRGB(54, 44, 35),
 		naturalSizeStuds = HAND_LEFT_NATURAL,
 		offsetStuds = Vector3.zero,
 		rotationDeg = Vector3.zero,

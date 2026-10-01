@@ -217,8 +217,8 @@ function Viewmodel.validate(data: any): { string }
 	if type(data) ~= "table" then
 		return { "poses.json did not load as a table" }
 	end
-	if data.version ~= 1 then
-		table.insert(problems, "version must be 1")
+	if data.version ~= 2 then
+		table.insert(problems, "version must be 2")
 	end
 	for _, name in ipairs({ "carry", "reload" }) do
 		local pose = data[name]
@@ -228,6 +228,38 @@ function Viewmodel.validate(data: any): { string }
 			gunProblems(name .. ".gun", pose.gun, problems)
 			handProblems(name .. ".right", pose.right, problems)
 			handProblems(name .. ".left", pose.left, problems)
+		end
+	end
+	-- THE SECOND GUN'S OWN SET (task 99). `newGun` holds the three poses that are ABOUT THE GUN --
+	-- carry, aim and reload -- and nothing else: the raise's timings and keyframes and the recoil
+	-- spring are properties of the player's hands and the shot, not of which gun is in them, so both
+	-- guns share them and there is one place to tune each number.
+	local newGun = data.newGun
+	if type(newGun) ~= "table" then
+		table.insert(problems, "newGun is missing")
+	else
+		for _, name in ipairs({ "carry", "reload" }) do
+			local pose = newGun[name]
+			if type(pose) ~= "table" then
+				table.insert(problems, "newGun." .. name .. " is missing")
+			else
+				gunProblems("newGun." .. name .. ".gun", pose.gun, problems)
+				handProblems("newGun." .. name .. ".right", pose.right, problems)
+				handProblems("newGun." .. name .. ".left", pose.left, problems)
+			end
+		end
+		local newAim = newGun.aim
+		if type(newAim) ~= "table" then
+			table.insert(problems, "newGun.aim is missing")
+		else
+			if not isNumber(newAim.eyeReliefStuds) or newAim.eyeReliefStuds <= 0 then
+				table.insert(problems, "newGun.aim.eyeReliefStuds must be a positive number")
+			end
+			if not isNumber(newAim.cheekDeg) then
+				table.insert(problems, "newGun.aim.cheekDeg is not a number")
+			end
+			handProblems("newGun.aim.right", newAim.right, problems)
+			handProblems("newGun.aim.left", newAim.left, problems)
 		end
 	end
 	local aim = data.aim
@@ -349,26 +381,30 @@ Viewmodel.vec = vec
 -- Vector3 is built HERE and nowhere else, like the degree-to-radian conversion in `Camera.Mode`:
 -- three numbers in a JSON object become one Vector3 at one site (the rule the Task 19 cone-unit
 -- defect bought).
-function Viewmodel.view(data: any): { [string]: any }
+function Viewmodel.view(data: any, newGun: boolean?): { [string]: any }
+	-- WHICH GUN'S THREE POSES (task 99). `set` is the only thing the flag changes here: carry, aim
+	-- and reload come from `newGun` when it is on, and `raise` and `fire` always come from the top
+	-- level because they belong to the swing and the shot rather than to the gun.
+	local set = if newGun == true and type(data.newGun) == "table" then data.newGun else data
 	return {
 		-- the carry pose (first person, blend 0)
-		VIEWMODEL_CARRY_POS_STUDS = vec(data.carry.gun.pos),
-		CARRY_PITCH_DEG = data.carry.gun.rot.x,
-		CARRY_YAW_DEG = data.carry.gun.rot.y,
-		CARRY_ROLL_DEG = data.carry.gun.rot.z,
+		VIEWMODEL_CARRY_POS_STUDS = vec(set.carry.gun.pos),
+		CARRY_PITCH_DEG = set.carry.gun.rot.x,
+		CARRY_YAW_DEG = set.carry.gun.rot.y,
+		CARRY_ROLL_DEG = set.carry.gun.rot.z,
 		-- the hands at the carry, which is where `Mode.rightHandOffset` and `Mode.leftHandOffset`
 		-- answer; the aimed and reloading hands come off `POSES` in `Mode.handFrame`.
-		HAND_RIGHT_POS_STUDS = vec(data.carry.right.pos),
-		HAND_RIGHT_YAW_DEG = data.carry.right.rot.yaw,
-		HAND_RIGHT_PITCH_DEG = data.carry.right.rot.pitch,
-		HAND_RIGHT_TWIST_DEG = data.carry.right.rot.twist,
-		HAND_LEFT_POS_STUDS = vec(data.carry.left.pos),
-		HAND_LEFT_YAW_DEG = data.carry.left.rot.yaw,
-		HAND_LEFT_PITCH_DEG = data.carry.left.rot.pitch,
-		HAND_LEFT_TWIST_DEG = data.carry.left.rot.twist,
+		HAND_RIGHT_POS_STUDS = vec(set.carry.right.pos),
+		HAND_RIGHT_YAW_DEG = set.carry.right.rot.yaw,
+		HAND_RIGHT_PITCH_DEG = set.carry.right.rot.pitch,
+		HAND_RIGHT_TWIST_DEG = set.carry.right.rot.twist,
+		HAND_LEFT_POS_STUDS = vec(set.carry.left.pos),
+		HAND_LEFT_YAW_DEG = set.carry.left.rot.yaw,
+		HAND_LEFT_PITCH_DEG = set.carry.left.rot.pitch,
+		HAND_LEFT_TWIST_DEG = set.carry.left.rot.twist,
 		-- the aimed pose, solved from the gun's own sight
-		EYE_RELIEF_STUDS = data.aim.eyeReliefStuds,
-		ADS_CHEEK_DEG = data.aim.cheekDeg,
+		EYE_RELIEF_STUDS = set.aim.eyeReliefStuds,
+		ADS_CHEEK_DEG = set.aim.cheekDeg,
 		-- the swing between them
 		AIM_RAISE_SECONDS = data.raise.raiseSeconds,
 		AIM_LOWER_SECONDS = data.raise.lowerSeconds,
@@ -382,21 +418,33 @@ function Viewmodel.view(data: any): { [string]: any }
 		RECOIL_MAX_GUN_BACK_STUDS = data.fire.maxGunBackStuds,
 		RECOIL_MAX_CAM_PITCH_DEG = data.fire.maxCamPitchDeg,
 		-- the break-open reload
-		BREAK_OPEN_SECONDS = data.reload.openSeconds,
-		BREAK_CLOSE_SECONDS = data.reload.closeSeconds,
-		BREAK_OPEN_DEG = data.reload.openDeg,
-		BREAK_HINGE_STUDS = vec(data.reload.hingeStuds),
-		BREAK_POSE_STUDS = vec(data.reload.gun.pos),
-		BREAK_POSE_PITCH_DEG = data.reload.gun.rot.x,
-		BREAK_POSE_YAW_DEG = data.reload.gun.rot.y,
-		BREAK_POSE_ROLL_DEG = data.reload.gun.rot.z,
-		SHELL_EJECT_SECONDS = data.reload.shells.ejectSeconds,
-		SHELL_EJECT_RISE_STUDS = data.reload.shells.ejectRiseStuds,
-		SHELL_FEED_SECONDS = data.reload.shells.feedSeconds,
-		SHELL_FEED_FROM_STUDS = data.reload.shells.feedFromStuds,
-		-- THE DATA ITSELF, because two things in it have no flat name and never will: the raise's
-		-- mid keyframes (a list) and the per-pose hands. `Camera.Mode` reads those off here.
-		POSES = data,
+		BREAK_OPEN_SECONDS = set.reload.openSeconds,
+		BREAK_CLOSE_SECONDS = set.reload.closeSeconds,
+		BREAK_OPEN_DEG = set.reload.openDeg,
+		BREAK_HINGE_STUDS = vec(set.reload.hingeStuds),
+		BREAK_POSE_STUDS = vec(set.reload.gun.pos),
+		BREAK_POSE_PITCH_DEG = set.reload.gun.rot.x,
+		BREAK_POSE_YAW_DEG = set.reload.gun.rot.y,
+		BREAK_POSE_ROLL_DEG = set.reload.gun.rot.z,
+		SHELL_EJECT_SECONDS = set.reload.shells.ejectSeconds,
+		SHELL_EJECT_RISE_STUDS = set.reload.shells.ejectRiseStuds,
+		SHELL_FEED_SECONDS = set.reload.shells.feedSeconds,
+		SHELL_FEED_FROM_STUDS = set.reload.shells.feedFromStuds,
+		-- THE THREE POSES THE DRAWN GUN IS MADE OF, plus the swing and the shot, because four things
+		-- here have no flat name and never will: the raise's mid keyframes (a list) and the aimed and
+		-- reloading hands. `Camera.Mode` reads those off here.
+		--
+		-- IT IS A VIEW, NOT A SECOND SOURCE: every field is a reference into `data`, chosen by the
+		-- same `set` the flat names above were read through, so the two can never disagree about
+		-- which gun is being drawn.
+		POSES = table.freeze({
+			version = data.version,
+			carry = set.carry,
+			aim = set.aim,
+			reload = set.reload,
+			raise = data.raise,
+			fire = data.fire,
+		}),
 	}
 end
 

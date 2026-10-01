@@ -27,6 +27,9 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- load them and does not know what an asset id is: the server does that and parks the templates
 -- where a client can reach them.
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
+-- SHARED, AND ONLY FOR THE EXACT GEOMETRY OF THE NEW GUN (task 99). Pure data: a piece list, the
+-- hinge axis, the two chambers and the bead. This module still knows nothing about weapon STATE.
+local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 
 local Viewmodel = {}
 
@@ -62,6 +65,9 @@ local FILL_NAME = "ViewmodelFill"
 local BARRELS_NAME = "Barrels"
 local SPENT_NAME = "SpentShell"
 local FRESH_NAME = "FreshShell"
+-- THE SLEEVE (task 99): one olive cylinder per hand, on the hand's own long axis, running back
+-- past the near plane so the cuff's open end is never in the picture.
+local SLEEVE_NAME = "Sleeve"
 
 local stats =
 	{ sightMissing = 0, rebuilds = 0, parts = 0, breaksDrawn = 0, shellsDrawn = 0, handsDrawn = 0, handsMissing = 0 }
@@ -310,7 +316,15 @@ end
 -- barrels are 0.62 of a 4.4-stud gun and the Handle's -Z is the muzzle, so the breech face sits 0.53
 -- studs BEHIND the Handle's centre -- the same number the carry pose and the aim's cheek angle are
 -- built on. `Shotgun.barrelMuzzleOffset` is still the one definition of which tube is which.
-local function chamberOffset(barrel: number): CFrame
+local function chamberOffset(barrel: number, config): CFrame
+	-- THE NEW GUN KNOWS WHERE ITS OWN CHAMBERS ARE (task 99), and that is the whole of "the shell
+	-- goes IN". The old answer put the shell at the barrels' breech END on the Handle's centre line,
+	-- which with a mesh gun meant it floated in the gap between the two halves; `Gun.chamber` puts it
+	-- on the tube's own BORE LINE, inside the barrel, from the same arithmetic the barrels are drawn
+	-- from.
+	if config ~= nil and config.NEW_GUN == true then
+		return Gun.chamber(barrel, Shotgun.CONFIG)
+	end
 	local across = Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG)
 	local breechZ = Shotgun.CONFIG.HANDLE_SIZE.Z * (0.62 - 0.5)
 	return CFrame.new(across.X, across.Y, breechZ)
@@ -330,7 +344,7 @@ local function handTemplate(name: string): BasePart?
 	return if found and found:IsA("BasePart") then found :: BasePart else nil
 end
 
-local function addHand(clone: BasePart, parent: Instance, name: string): boolean
+local function addHand(clone: BasePart, parent: Instance, name: string, config): boolean
 	local template = handTemplate(name)
 	if template == nil then
 		return false
@@ -353,6 +367,26 @@ local function addHand(clone: BasePart, parent: Instance, name: string): boolean
 	-- below cannot drag it in from wherever the template happens to sit in the world.
 	worn.CFrame = clone.CFrame
 	worn.Parent = parent
+	-- THE ARM BEHIND THE HAND (task 99). Karen, 2026-10-01: the left cuff's open end faces the camera
+	-- as a big black disc in the break-open frame. A hand model ends at the cuff, so wherever the arm
+	-- would continue there is a hole; this runs a plain olive cylinder back along the hand's own long
+	-- axis, far enough that its far end is behind the eye in every pose. It is a CHILD of the hand,
+	-- and `poseHands` places it from the hand's transform, because an anchored part does not follow
+	-- its parent.
+	local sleeve = Instance.new("Part")
+	sleeve.Name = SLEEVE_NAME
+	sleeve.Shape = Enum.PartType.Cylinder -- a cylinder's length runs along its own X, like the hand's
+	sleeve.Size = Vector3.new(config.SLEEVE_LENGTH_STUDS, config.SLEEVE_DIAMETER_STUDS, config.SLEEVE_DIAMETER_STUDS)
+	sleeve.Color = config.SLEEVE_COLOR
+	sleeve.Material = config.SLEEVE_MATERIAL
+	sleeve.Anchored = true
+	sleeve.CanCollide = false
+	sleeve.CanQuery = false
+	sleeve.CanTouch = false
+	sleeve.Massless = true
+	sleeve.CastShadow = false
+	sleeve.CFrame = worn.CFrame
+	sleeve.Parent = worn
 	stats.handsDrawn += 1
 	handsOn = true
 	return true
@@ -392,10 +426,10 @@ function Viewmodel.hands(made: Model, config)
 	local leftParent: Instance = if barrels and barrels:IsA("BasePart") then barrels else clone
 	local missing = false
 	if clone:FindFirstChild(HandAssets.RIGHT) == nil then
-		missing = not addHand(clone, clone, HandAssets.RIGHT) or missing
+		missing = not addHand(clone, clone, HandAssets.RIGHT, config) or missing
 	end
 	if leftParent:FindFirstChild(HandAssets.LEFT) == nil then
-		missing = not addHand(clone, leftParent, HandAssets.LEFT) or missing
+		missing = not addHand(clone, leftParent, HandAssets.LEFT, config) or missing
 	end
 	-- COUNTED ONCE PER CLONE, NOT PER FRAME. A gun drawn without hands is a real state -- the load
 	-- failed, or the asset was moderated away -- and it must be visible in `stats()` rather than in a
@@ -439,17 +473,119 @@ function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mo
 	if clone == nil or config.FIRST_PERSON ~= true then
 		return -- the OFF branch draws no hands at all; `Viewmodel.hands` is what takes them off
 	end
+	-- WHICH WAY THE ARM RUNS, and it is measured off the model rather than assumed: the right hand's
+	-- fingertips are at its mesh +X and the left hand's at its -X (`Camera.Config`'s HAND_LEFT_YAW
+	-- comment, task 93), so the wrist -- and the sleeve -- runs the other way on each.
+	local function placeSleeve(hand: BasePart, towardFingers: number)
+		local sleeve = hand:FindFirstChild(SLEEVE_NAME)
+		if sleeve and sleeve:IsA("BasePart") then
+			local back = -towardFingers * (hand.Size.X / 2 + sleeve.Size.X / 2 - config.SLEEVE_OVERLAP_STUDS);
+			(sleeve :: BasePart).CFrame = hand.CFrame * CFrame.new(back, 0, 0)
+		end
+	end
+
 	local right = clone:FindFirstChild(HandAssets.RIGHT)
 	if right and right:IsA("BasePart") then
 		(right :: BasePart).CFrame = gunCFrame * Mode.handOffsetAt("right", state, config)
+		placeSleeve(right :: BasePart, 1)
 	end
 	-- Walked rather than remembered, for the reason `clearHands` gives: the left hand's parent is the
 	-- barrels when the gun has them and the Handle when it does not.
 	for _, descendant in ipairs(clone:GetDescendants()) do
 		if descendant.Name == HandAssets.LEFT and descendant:IsA("BasePart") then
 			(descendant :: BasePart).CFrame = barrelsCFrame * Mode.handOffsetAt("left", state, config)
+			placeSleeve(descendant :: BasePart, -1)
 		end
 	end
+end
+
+-- THE NEW GUN, BUILT RATHER THAN CLONED (task 99, behind `NEW_GUN`). Karen, 2026-10-01:
+-- "shooting, weapon, reload, all has to be perfect". The cloned mesh is one AI model cut in two, so
+-- the break-open frame showed a torn breech and a shell in the gap; this builds the gun from
+-- `ReplicatedStorage.Gun`'s exact piece list instead -- round barrels, two bores at each end, a
+-- silver action, and a hinge pin the barrel group really turns about.
+--
+-- FIRST PERSON ONLY, AND LOCAL ONLY. The Tool's Handle is untouched and every other player sees the
+-- uploaded mesh exactly as before: `Weapon.Hardware` is still the only writer of Tool Instances
+-- (docs/design/shotgun.md 3.1), and this model lives under `workspace.CurrentCamera`.
+--
+-- THE SAME SHAPE AS THE CLONE, deliberately: an invisible `Handle` of `HANDLE_SIZE` is the
+-- PrimaryPart (so every pose, the pivot and the near-plane arithmetic are unchanged), a `Barrels`
+-- envelope holds everything that swings, and the `Sight` and `Muzzle` attachments are where the rest
+-- of the system already looks for them.
+local function buildNewGun(config): Model
+	local made = Instance.new("Model")
+	made.Name = "DrivenHuntViewmodel"
+
+	local function dress(part: BasePart)
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false -- see the header: an occlusion ray must not hit our own viewmodel
+		part.CanTouch = false
+		part.Massless = true
+		part.CastShadow = false
+	end
+
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+	handle.Transparency = 1 -- the envelope, exactly as the worn gun's Handle is (Task 71)
+	dress(handle)
+	handle.Parent = made
+	made.PrimaryPart = handle
+
+	-- THE BARREL GROUP'S OWN ENVELOPE, and it is what `Viewmodel.hinge` turns. Every piece in the
+	-- group is a CHILD of it, so "what swings" is a parent rather than a list in two files -- the
+	-- same rule the old mesh gun's `Barrels` piece already set.
+	local at = Gun.layout(Shotgun.CONFIG)
+	local barrels = Instance.new("Part")
+	barrels.Name = BARRELS_NAME
+	barrels.Size = Vector3.new(0.3, 0.2, at.barrelLength)
+	barrels.Transparency = 1
+	dress(barrels)
+	barrels.CFrame = handle.CFrame * CFrame.new(0, 0, at.barrelZ)
+	barrels.Parent = handle
+
+	for _, piece in ipairs(Gun.pieces(Shotgun.CONFIG)) do
+		local part = Instance.new("Part")
+		part.Name = piece.name
+		part.Size = piece.size
+		part.Shape = piece.shape
+		part.Color = piece.color
+		part.Material = piece.material
+		part.Reflectance = piece.reflectance or 0
+		dress(part)
+		part.CFrame = handle.CFrame * piece.offset
+		part.Parent = if piece.group == "barrels" then barrels else handle
+	end
+
+	-- WHERE THE REST OF THE SYSTEM LOOKS. `Mode.aimOffset` solves the aimed pose from `Sight`, and
+	-- `Weapon.Effects` draws the flash at `Muzzle`; both are read off the PrimaryPart, so they are
+	-- added here rather than left to a gun that was never cloned from a Tool.
+	local sight = Instance.new("Attachment")
+	sight.Name = SIGHT_NAME
+	sight.CFrame = Gun.sight(Shotgun.CONFIG)
+	sight.Parent = handle
+
+	local muzzle = Instance.new("Attachment")
+	muzzle.Name = MUZZLE_NAME
+	muzzle.CFrame = Gun.muzzle(Shotgun.CONFIG)
+	muzzle.Parent = handle
+
+	-- NO DRAWN BEAD MARKER: this gun carries its own `Bead` piece, on the rib, at exactly
+	-- `Gun.beadOffset` -- the same expression `Gun.sight` answers with. The light is still added,
+	-- for the reason it was added in task 92: a gun inches from the eye is lit by the sun alone.
+	addFillLight(handle, config)
+
+	stats.rebuilds += 1
+	local parts = 0
+	for _, descendant in ipairs(made:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			parts += 1
+		end
+	end
+	stats.parts = parts
+	return made
 end
 
 local function build(handle: BasePart, config): Model
@@ -576,7 +712,10 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 				stale = true
 			end),
 		}
-		model = build(handle, config)
+		-- WHICH GUN (task 99). ON: built from `ReplicatedStorage.Gun`'s exact pieces. OFF: the
+		-- Tool's Handle, cloned, which is the gun this repo has drawn since Task 71 and the one
+		-- every other player sees in both cases.
+		model = if config.NEW_GUN == true then buildNewGun(config) else build(handle, config)
 		builtFrom = handle
 	end
 
@@ -638,7 +777,13 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config): CFrame
 		barrelsLocal = clone.CFrame:ToObjectSpace((barrels :: BasePart).CFrame)
 	end
 	local angle = Mode.breakAngleDeg(state, config)
-	local hinge = CFrame.new(config.BREAK_HINGE_STUDS)
+	-- THE AXIS THE BARRELS TURN ABOUT. The new gun has a PIN, drawn at `Gun.hinge`, and the barrels
+	-- must turn about exactly that line or the pin is something they swing around rather than on --
+	-- so the number comes from the gun's own geometry rather than from a pose the Director tunes.
+	-- The old mesh gun keeps `BREAK_HINGE_STUDS`, which is where its knuckle was measured.
+	local hinge = if config.NEW_GUN == true
+		then CFrame.new(Gun.hinge(Shotgun.CONFIG))
+		else CFrame.new(config.BREAK_HINGE_STUDS)
 	-- NEGATIVE ABOUT X IS THE MUZZLE GOING DOWN, which is what "break open" means: a part's
 	-- LookVector is its -Z, and `CFrame.Angles(+t, 0, 0)` takes (0, 0, -1) to (0, sin t, -cos t) --
 	-- i.e. UP. Measured the hard way: the first run of `camera_client.spec` caught the barrels
@@ -652,13 +797,31 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config): CFrame
 	-- the barrels are and not floating where the muzzle used to be. Placed from the same
 	-- transform, and shut that transform is identity -- so the bead is bit-for-bit where it was
 	-- and the shot line is untouched.
-	-- THE LEFT HAND WAS A RIDER TOO (task 93) AND IS NOT ANY MORE (task 98). It still swings with the
-	-- barrels -- it holds a forend that is bolted to them -- but it is placed by
-	-- `Viewmodel.poseHands` from the transform this function RETURNS, because its offset is now a
-	-- blended pose that changes every frame rather than a rest offset captured once off the clone. A
-	-- captured offset is exactly what could not follow a live tuning change. The bead's offset still
-	-- is captured once, and should be: it is bolted to the rib and never moves relative to it.
-	for _, descendant in ipairs(clone:GetDescendants()) do
+	-- EVERY PIECE THE BARREL GROUP OWNS RIDES WITH IT, and since task 99 that is a PARENT rather
+	-- than a list of names: anything parented under `Barrels` swings, because that is what being
+	-- part of the barrel group means. The old mesh gun has only the bead down there, so it behaves
+	-- exactly as it did; the new gun has two tubes, four bores, the rib, the bead, the breech face,
+	-- the hinge hook and the wooden forend, and none of them had to be named here.
+	--
+	-- AN ANCHORED PART DOES NOT FOLLOW ITS PARENT, which is why this loop exists at all: every rider
+	-- is placed by hand from the swung transform, with its rest offset read off the clone ONCE.
+	--
+	-- THE LEFT HAND WAS A RIDER TOO (task 93) AND IS NOT ANY MORE (task 98): it still swings with the
+	-- barrels, but `Viewmodel.poseHands` places it from the transform this function RETURNS, because
+	-- its offset is a blended pose that changes every frame rather than a rest offset. A captured
+	-- offset is exactly what could not follow a live tuning change.
+	for _, descendant in ipairs(barrelPart:GetDescendants()) do
+		if descendant:IsA("BasePart") and descendant.Name ~= HandAssets.LEFT then
+			if ridersLocal[descendant] == nil then
+				ridersLocal[descendant] = clone.CFrame:ToObjectSpace(descendant.CFrame)
+			end
+			descendant.CFrame = swungGun * ridersLocal[descendant]
+		end
+	end
+	-- ...and the OLD gun's drawn bead hangs on the Handle when the clone has no barrels to hang it
+	-- on, so it is still looked for by name there. One loop could not do both: on the new gun the
+	-- bead is already a child of `Barrels` and would be placed twice.
+	for _, descendant in ipairs(clone:GetChildren()) do
 		if descendant:IsA("BasePart") and (descendant.Name == MARKER_NAME or descendant.Name == BEAD_NAME) then
 			if ridersLocal[descendant] == nil then
 				ridersLocal[descendant] = clone.CFrame:ToObjectSpace(descendant.CFrame)
@@ -726,7 +889,7 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 	local ejectT = math.clamp(elapsed / config.SHELL_EJECT_SECONDS, 0, 1)
 	if ejectT < 1 then
 		for barrel = 1, reload.spent do
-			wanted[SPENT_NAME .. barrel] = chamberOffset(barrel)
+			wanted[SPENT_NAME .. barrel] = chamberOffset(barrel, config)
 				* CFrame.new(0, config.SHELL_EJECT_RISE_STUDS * ejectT, config.SHELL_EJECT_RISE_STUDS * ejectT)
 		end
 	end
@@ -737,7 +900,7 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 		local at = loadedAt[barrel]
 		if reload.loaded[barrel] and at then
 			local feedT = math.clamp((now - at) / config.SHELL_FEED_SECONDS, 0, 1)
-			wanted[FRESH_NAME .. barrel] = chamberOffset(barrel)
+			wanted[FRESH_NAME .. barrel] = chamberOffset(barrel, config)
 				* CFrame.new(0, 0, config.SHELL_FEED_FROM_STUDS * (1 - feedT))
 		end
 	end

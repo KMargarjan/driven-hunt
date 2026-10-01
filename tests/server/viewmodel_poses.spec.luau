@@ -32,7 +32,7 @@ local Poses = require(Camera:WaitForChild("Poses"))
 local function configWith(firstPerson: boolean, data: any?)
 	local out = table.clone(Config) :: any
 	if data ~= nil then
-		for key, value in pairs(Data.view(data)) do
+		for key, value in pairs(Data.view(data, Config.NEW_GUN)) do
 			out[key] = value
 		end
 	end
@@ -246,19 +246,40 @@ return function()
 		-- THE WHOLE OF "ONE SOURCE". `Camera.Config` does not define these numbers any more; it
 		-- computes them from the data. If the two ever disagreed, there would be two sources again.
 		it("is what the live Config carries", function()
-			for key, value in pairs(Data.view(Data.DATA)) do
+			for key, value in pairs(Data.view(Data.DATA, Config.NEW_GUN)) do
 				if typeof(value) == "number" or typeof(value) == "Vector3" then
 					expect(Config[key]).to.equal(value)
 				end
 			end
-			expect(Config.POSES).to.equal(Data.DATA)
+			-- `POSES` IS A VIEW SINCE TASK 99, not the whole file: it carries the three poses of
+			-- WHICHEVER GUN the flag chose, plus the swing and the shot, which both guns share. The
+			-- fields are references into the data, so this is still one source.
+			local chosen = if Config.NEW_GUN then Data.DATA.newGun else Data.DATA
+			expect(Config.POSES.carry).to.equal(chosen.carry)
+			expect(Config.POSES.aim).to.equal(chosen.aim)
+			expect(Config.POSES.reload).to.equal(chosen.reload)
+			expect(Config.POSES.raise).to.equal(Data.DATA.raise)
+			expect(Config.POSES.fire).to.equal(Data.DATA.fire)
+		end)
+
+		it("gives each gun its own carry, aim and reload, and one swing and one kick", function()
+			local classic = Data.view(Data.DATA, false)
+			local fresh = Data.view(Data.DATA, true)
+			-- The two guns are held differently, so the three poses differ...
+			expect(classic.HAND_LEFT_POS_STUDS).never.to.equal(fresh.HAND_LEFT_POS_STUDS)
+			expect(classic.POSES.carry).to.equal(Data.DATA.carry)
+			expect(fresh.POSES.carry).to.equal(Data.DATA.newGun.carry)
+			-- ...and the swing's timings and the recoil spring are the player's, not the gun's.
+			expect(classic.AIM_RAISE_SECONDS).to.equal(fresh.AIM_RAISE_SECONDS)
+			expect(classic.RECOIL_GUN_PITCH_DEG).to.equal(fresh.RECOIL_GUN_PITCH_DEG)
+			expect(fresh.POSES.raise).to.equal(Data.DATA.raise)
 		end)
 
 		it("follows the data when the data changes", function()
 			local data = Data.copy(Data.DATA)
 			data.carry.gun.rot.y = 12.5
 			data.aim.eyeReliefStuds = 5.0
-			local view = Data.view(data)
+			local view = Data.view(data, false)
 			expect(view.CARRY_YAW_DEG).to.equal(12.5)
 			expect(view.EYE_RELIEF_STUDS).to.equal(5.0)
 			-- ...and the pose built from it moves, which is the point: the camera reads the view.

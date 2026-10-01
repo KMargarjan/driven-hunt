@@ -59,6 +59,21 @@ for name, key in pairs(HandAssets.KEY_OF) do
 		-- THE CONSUMER SETS THE SIZE, ALWAYS (design 6.1), and this script is the consumer: the
 		-- Loader never writes it. Uniform, from the row, for the reason the row spells out.
 		worn.Size = row.sizeStuds
+		-- THE COLOUR ITS TEXTURE WOULD HAVE GIVEN IT, when the texture does not draw (task 99).
+		--
+		-- MEASURED: both hands arrive with a `SurfaceAppearance` carrying a `ColorMap` (probed on
+		-- this server in a live session on 2026-10-01: ids present on both), and both source
+		-- textures are dark brown -- yet the pixels of the aimed screenshot read as Roblox's DEFAULT
+		-- medium stone grey, which is what a part shows when its map does not draw. Karen saw that
+		-- as "the right glove is WHITE". Writing the row's own measured colour costs nothing when
+		-- the map DOES draw -- a `ColorMap` overwrites `Color` -- and turns a white blob into brown
+		-- leather when it does not.
+		if row.fallbackColor ~= nil then
+			worn.Color = row.fallbackColor
+			-- Leather, not plastic: the material decides how the fallback catches the viewmodel's
+			-- own fill light, and a glove that reads as shiny plastic is the next complaint.
+			worn.Material = Enum.Material.Fabric
+		end
 		-- Everything that says "scenery" -- the same set `Weapon.Hardware` puts on the worn gun.
 		-- `CanQuery = false` is not decoration: the clone ends up under `workspace.CurrentCamera`,
 		-- which is a child of Workspace, so a client raycast can hit a part parented there.

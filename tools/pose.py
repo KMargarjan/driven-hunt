@@ -541,6 +541,13 @@ def selftest():
                    "reload.openSeconds", "reload.openDeg", "reload.hingeStuds.z",
                    "reload.gun.rot.z", "reload.shells.feedFromStuds"):
         ok(f"{wanted} is a tunable path", wanted in paths, "missing from poses.json")
+    # THE SECOND GUN'S OWN SET (task 99): the Director tunes it live exactly like the first one, so
+    # every one of its paths has to be reachable or the whole point of the flag is lost.
+    for wanted in ("newGun.carry.gun.pos.x", "newGun.carry.left.pos.z", "newGun.aim.eyeReliefStuds",
+                   "newGun.reload.gun.rot.y", "newGun.aim.right.rot.twist"):
+        ok(f"{wanted} is a tunable path", wanted in paths, "missing from poses.json")
+    ok("the two guns are tuned apart", data["newGun"]["carry"]["left"]["pos"] != data["carry"]["left"]["pos"],
+       "the new gun's hands must sit on the new gun's own wood")
     ok("version is NOT tunable", "version" not in paths, "version must not be settable")
     ok("raise.easing is NOT tunable", "raise.easing" not in paths, "a string is not a number")
     ok("the file ships with no mid keyframes", data["raise"]["keyframes"] == [],
