@@ -226,17 +226,18 @@ return function()
 					table.insert(mine, row)
 				end
 			end
-			-- NINE SINCE TASK 96, and every one of them is still here with the reason it was replaced:
+			-- TEN SINCE TASK 97, and every one of them is still here with the reason it was replaced:
 			-- v3 shaded the generated model smooth, v4 to v7 built and fixed the barrels, v8 seated
-			-- the forend, and v9 is the BODY half of the gun -- the barrels moved to a key of their
-			-- own so a break-action reload can hinge them. The count is asserted so a row that
-			-- appears without anyone deciding is a failure, and the CHAIN is asserted by rule rather
-			-- than by naming today's numbers twice: exactly one row is live, every other row points
-			-- at a later version, and no chain dead-ends.
-			expect(#mine).to.equal(9)
+			-- the forend, v9 is the BODY half of the gun -- the barrels moved to a key of their own so
+			-- a break-action reload can hinge them -- and v10 took the chrome off the action, which
+			-- in the aimed view was the brightest thing on the screen. The count is asserted so a row
+			-- that appears without anyone deciding is a failure, and the CHAIN is asserted by rule
+			-- rather than by naming today's numbers twice: exactly one row is live, every other row
+			-- points at a later version, and no chain dead-ends.
+			expect(#mine).to.equal(10)
 			local live = Assets.byKey(Hardware.ASSET_KEY)
-			expect(live.version).to.equal(9)
-			expect(live.modelId).to.equal(121405298612730)
+			expect(live.version).to.equal(10)
+			expect(live.modelId).to.equal(75977232140256)
 			-- ...AND THE PIECE THAT HINGES IS A KEY OF ITS OWN, live and approved (task 96).
 			local barrels = Assets.byKey(Hardware.BARRELS_KEY)
 			expect(barrels).to.be.ok()
