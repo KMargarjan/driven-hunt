@@ -234,12 +234,12 @@ local Config = {
 	-- the arithmetic says and the break screenshot showed. The palm sits 0.45 studs along the
 	-- fingers from the model's centre, so moving the centre in and up by that much moves the palm
 	-- onto the wrist of the stock.
-	-- FORWARD AND DOWN SINCE ROUND 2, by the 0.28 studs the clearance above needed. The palm sits at
-	-- the FRONT of the grip rather than the middle of it, which is as far back as this 0.95-stud
-	-- glove can sit and still keep its own rear corner clear of the lens in the CARRY -- the pose
-	-- that holds the gun closest to the eye. Karen's "right on stock holding and aiming" is still
-	-- what it is: the hand is on the gun behind the trigger guard's front, with its fingers forward.
-	HAND_RIGHT_POS_STUDS = Vector3.new(0.12, -0.16, 0.52),
+	-- FORWARD AND DOWN SINCE ROUND 2, by the 0.26 studs the clearance above needed, and it is pinned
+	-- between two requirements: the breech plane at the gun's Z = +0.528, which the grip hand must
+	-- stay behind, and the CARRY's own clearance, which wants it as far forward as possible. Karen's
+	-- "right on stock holding and aiming" still holds -- the hand is on the gun at the front of the
+	-- grip with its fingers forward -- but there is no room left on this side of the breech.
+	HAND_RIGHT_POS_STUDS = Vector3.new(0.12, -0.16, 0.54),
 	-- Three named degrees, converted to radians at ONE site (`Mode.handOffset`) -- the rule the
 	-- Task 19 cone-unit defect bought. YAW swings the hand's long axis (wrist to fingertip)
 	-- horizontally, PITCH lifts or drops it, TWIST turns the hand about that axis -- which is the
@@ -294,7 +294,7 @@ local Config = {
 	-- t = 5.4 degrees and R = 3.27. At the old 3.5 and 5 the barrels stopped SHORT of the bottom edge
 	-- and the action filled the space below them -- measured on screen, which is the only place that
 	-- shows.
-	-- 3.85, AND IT IS THE ONLY NUMBER IN THIS FILE THAT TWO REQUIREMENTS DECIDE BETWEEN THEM
+	-- 3.90, AND IT IS THE ONLY NUMBER IN THIS FILE THAT TWO REQUIREMENTS DECIDE BETWEEN THEM
 	-- (task 97, round 2). Everything else about the aimed picture follows from it, so it is written
 	-- here once and nothing else restates a value -- the superseded derivations are in git.
 	--
@@ -313,20 +313,24 @@ local Config = {
 	--      already asks of everything else, so the glove's rearmost CORNER has to sit half a stud
 	--      clear before a shot. MEASURED by the spec, not by hand: at this relief and this hand
 	--      position the worst corner of either glove, in either pose, at the recoil's ceiling, is
-	--      0.37 studs in front of the near plane -- 0.12 of surplus.
+	--      0.35 studs in front of the near plane -- 0.10 of surplus.
 	--
 	--      THE CARRY IS THE BINDING POSE, NOT THE AIM, which is the thing that is not obvious: the
 	--      carry holds the gun close to the eye and does not move with this constant at all, so the
 	--      only lever it leaves is where the right hand sits on the gun. That is why the hand is at
-	--      the gun's Z = +0.52 -- the front of the grip -- rather than at +0.80, the middle of it: at
+	--      the gun's Z = +0.54 -- the front of the grip -- rather than at +0.80, the middle of it: at
 	--      +0.80 the first configuration that satisfied the aim left the CARRY with 0.005 studs of
-	--      surplus, which is a guard that is about to fail rather than one that holds.
+	--      surplus, which is a guard that is about to fail rather than one that holds. +0.54 is as
+	--      far forward as it may go, because the breech plane is at +0.528 and `camera_mode.spec`
+	--      asks that the grip hand stay BEHIND it -- which is what makes it the body's hand and the
+	--      other one the barrels'. The two requirements meet within a fiftieth of a stud, and the
+	--      real headroom for either is a shorter glove, not a different number here.
 	--
 	-- ASSERTED, NOT REMEMBERED: `tests/server/camera_mode.spec.luau`, "keeps both gloves clear of the
 	-- near plane", drives the real composition at the recoil's ceiling and measures every corner of
 	-- both hands. Round 1 shipped 3.65 with a comment that said 4.40, and one shot put the cuff
 	-- through the lens; nothing caught it, because no spec read a hand against the near plane.
-	EYE_RELIEF_STUDS = 3.85,
+	EYE_RELIEF_STUDS = 3.90,
 	-- THE CHEEK ON THE COMB (task 92, round 2). In Karen's own acceptance picture the eye is ABOVE
 	-- the rib, not level with it: you look down the TOP of the barrel, which tapers away to the bead,
 	-- and the action is a dark shape at the very bottom of the frame. Level with the rib -- which is
