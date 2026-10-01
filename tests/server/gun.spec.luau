@@ -114,12 +114,17 @@ return function()
 					if other.group ~= "barrels" or other.name == piece.name or other.name == tubeName then
 						continue
 					end
-					local spansX = math.abs(other.offset.Position.X - piece.offset.Position.X) < other.size.X / 2
-					local spansY = math.abs(other.offset.Position.Y - piece.offset.Position.Y) < other.size.Y / 2
-					-- A cylinder lying along Z has its LENGTH on X, so its Z half-extent is size.X/2
-					-- and its cross-section is size.Y; a block's is size.Z. One expression either way
-					-- would be wrong for one of them, so the shape decides.
-					local halfZ = if other.shape == Enum.PartType.Cylinder then other.size.X / 2 else other.size.Z / 2
+					-- A CYLINDER LYING ALONG Z CARRIES ITS LENGTH ON X. Its half-extents in this
+					-- gun's frame are therefore (size.Y/2, size.Z/2, size.X/2) and a block's are the
+					-- plain (X/2, Y/2, Z/2). The first run of this case used the plain one for both
+					-- and reported the LEFT muzzle bore as hidden by the RIGHT BARREL -- a tube 2.7
+					-- studs long "spanning" 1.37 studs sideways. The test was wrong, not the gun.
+					local cylinder = other.shape == Enum.PartType.Cylinder
+					local halfX = if cylinder then other.size.Y / 2 else other.size.X / 2
+					local halfY = if cylinder then other.size.Z / 2 else other.size.Y / 2
+					local halfZ = if cylinder then other.size.X / 2 else other.size.Z / 2
+					local spansX = math.abs(other.offset.Position.X - piece.offset.Position.X) < halfX
+					local spansY = math.abs(other.offset.Position.Y - piece.offset.Position.Y) < halfY
 					local reach = other.offset.Position.Z + towardOpening * halfZ
 					if spansX and spansY and towardOpening * (reach - face) > 1e-6 then
 						table.insert(blocked, other.name)
