@@ -707,12 +707,14 @@ return function()
 			end
 		end)
 
-		it("carries the gun ACROSS THE LOWER LEFT, muzzle to the left and a little up", function()
+		it("carries the gun ACROSS THE BODY, muzzle up and to the left at about 45 degrees", function()
 			local carry = Mode.carryOffset(firstPerson)
-			-- TASK 95, AND IT IS THE REFERENCE'S POSE RATHER THAN A SIGN CONVENTION: panel A of
-			-- `REF-SHEET-carry-aim.jpg` has the gun lying across the lower left, the action below the
-			-- bottom edge left of centre and the barrels leaving the frame at the LEFT. So the two
-			-- ends are asserted where the picture puts them, in the camera's own frame.
+			-- TASK 97, AND A NEW VIDEO REPLACES EVERY EARLIER REFERENCE (Karen, 2026-10-01):
+			-- `<assets-dir>/references/inspiration-2026-10-01/TARGET-carry.jpg` has the action at the
+			-- bottom edge a third of the way across and the barrels running UP to leave the frame at
+			-- the LEFT edge, 40 % of the way down -- so the muzzle is ABOVE the view axis, which is
+			-- the one claim task 95's pose had the other way round. The two ends are asserted where
+			-- the picture puts them, in the camera's own frame.
 			expect(carry.Position).to.equal(Config.VIEWMODEL_CARRY_POS_STUDS)
 			local half = Shotgun.CONFIG.HANDLE_SIZE.Z / 2
 			-- THE ACTION, NOT THE BUTT. The barrels are 0.62 of the gun, so the breech sits 0.53
@@ -744,8 +746,13 @@ return function()
 				return math.deg(math.atan2(point.Y, math.sqrt(point.X * point.X + point.Z * point.Z)))
 			end
 			local muzzleDeg, actionDeg = aboveAxisDeg(muzzle), aboveAxisDeg(action)
-			expect(muzzleDeg > actionDeg + 5).to.equal(true)
-			expect(muzzleDeg < 0).to.equal(true)
+			-- A REAL DIAGONAL, AND IT CROSSES THE MIDDLE OF THE FRAME. Task 95's carry had both ends
+			-- below the axis and read 28 degrees across the screen; this one puts the muzzle ABOVE
+			-- the axis and the action far below it, which is the 45-degree sweep the video shows.
+			-- 25 degrees of separation, not 5: a shallow version of this pose would still pass the
+			-- old bound while looking nothing like the picture.
+			expect(muzzleDeg > actionDeg + 25).to.equal(true)
+			expect(muzzleDeg > 0).to.equal(true)
 			local elevation = muzzleDeg - actionDeg
 			-- THE ACTION IS CLOSE, LOW AND LEFT OF CENTRE -- the corner of the frame the picture puts
 			-- it in -- and inside the near plane's margin, which is what stops it being sliced.
@@ -754,7 +761,7 @@ return function()
 			expect(action.Z < -firstPerson.NEAR_PLANE_MARGIN_STUDS).to.equal(true)
 			TestKit.note(
 				string.format(
-					"task95 carry: muzzle %.1f deg left, %.1f deg above the action in view, action %.2f studs",
+					"task97 carry: muzzle %.1f deg left, %.1f deg above the action in view, action %.2f studs",
 					math.deg(math.atan2(-muzzle.X, -muzzle.Z)),
 					elevation,
 					action.Magnitude
@@ -830,12 +837,12 @@ return function()
 		end)
 
 		it("puts the stock behind the eye when aiming, which is what a cheek weld is", function()
-			-- KAREN'S ACCEPTANCE PICTURE, as an assertion
-			-- (<assets-dir>/references/inspiration-2026-09-27/ads-target-karen.jpg): the barrels fill
-			-- the lower centre and run away to the bead, and almost none of the stock is visible
-			-- because it is under the cheek. If somebody pushes the eye back to where the first build
-			-- round had it -- a whole gun behind the breech, the stock a plank across the lower half
-			-- -- this fails.
+			-- THE CLAIM SURVIVES THE NEW REFERENCE, which is why it is still here. Task 97 moves the
+			-- eye BACK so the wrist, the top tang and the right hand come into the picture
+			-- (`TARGET-aim.jpg`), but the BUTT is still at the shoulder and still behind the camera in
+			-- that frame -- it is a shouldered gun, not a gun held out at arm's length. If somebody
+			-- pushes the eye back a whole gun behind the breech, so the stock lies across the lower
+			-- half as a plank, this fails.
 			local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
 			local pose = Mode.viewmodelOffset(stateAtBlend(1), sight, firstPerson)
 			local stock = pieceNamed("Stock")
@@ -844,7 +851,24 @@ return function()
 			for _, z in ipairs(pieceCornerZ(pose, stock)) do
 				rearmost = math.max(rearmost, z)
 			end
-			expect(rearmost > 0).to.equal(true)
+			-- MEASURED AS AN ANGLE SINCE TASK 97, AND IT IS THE SAME CLAIM MADE HONESTLY. At the old
+			-- eye relief the butt was behind the camera plane, so "Z is positive" said "out of the
+			-- picture". The new relief puts it about a tenth of a stud IN FRONT -- and still far
+			-- outside the frame, because it hangs most of a stud BELOW the sight line at that
+			-- distance. So the claim is measured the way the carry case already measures the same
+			-- thing: the angle between the butt and the view axis, against the CORNER of the aiming
+			-- field (about 34 degrees on this viewport at FOV_AIM_DEG). Asserting Z here would now be
+			-- asserting a number that no longer means "you cannot see it".
+			local butt = (pose * CFrame.new(0, 0, Shotgun.CONFIG.HANDLE_SIZE.Z / 2)).Position
+			local buttFromAxisDeg = math.deg(math.acos(math.clamp(-butt.Unit.Z, -1, 1)))
+			expect(buttFromAxisDeg > 40).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task97 aimed: the butt is %.0f degrees off the axis, rearmost stock corner %.3f studs",
+					buttFromAxisDeg,
+					rearmost
+				)
+			)
 			-- ...and the carry pose is NOT a cheek weld: there the whole gun is out in front, which
 			-- is what "carried" means and what makes the two poses different pictures.
 			local carry = Mode.viewmodelOffset(stateAtBlend(0), sight, firstPerson)
@@ -852,9 +876,6 @@ return function()
 			for _, z in ipairs(pieceCornerZ(carry, carryBarrel)) do
 				expect(z < 0).to.equal(true)
 			end
-			TestKit.note(
-				string.format("task90: aimed, the stock's rearmost corner is %.3f studs behind the eye", rearmost)
-			)
 		end)
 
 		it("composes the cosmetic terms in one place, and they are exactly identity at rest", function()

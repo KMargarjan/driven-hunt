@@ -115,10 +115,13 @@ Flags.DEFAULTS = {
 			.. "far end.",
 	} :: FlagRow,
 	FIRST_PERSON = {
-		-- BORN OFF, and the whole polish phase hangs off it: Karen asked for first person on
-		-- 2026-09-27 and wants to compare it against the accepted shoulder camera in one session,
-		-- which is exactly what a flag buys. Design: docs/design/camera.md section 6.6.
-		default = false,
+		-- BORN OFF on 2026-09-27, ON SINCE TASK 97 (2026-10-01). Karen's word was "start": first
+		-- person is now what the game is, so every Studio Play shows the shotgun she is judging
+		-- rather than the shoulder camera nobody is working on. THE ROW STAYS, and that is the
+		-- rollback: one line back to `false` returns the camera she accepted on 2026-09-25, with
+		-- both branches still reachable by parameter (every camera spec drives the other one with a
+		-- config of its own). Design: docs/design/camera.md section 6.6.
+		default = true,
 		-- The owner is the module that READS it at its boundary (`Camera.Config.FIRST_PERSON`) and
 		-- passes it inward as `config` -- the only permitted shape, and what keeps both branches
 		-- reachable by parameter while the flag sits at one of them.

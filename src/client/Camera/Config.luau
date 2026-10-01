@@ -111,8 +111,30 @@ local Config = {
 	-- up 11. What ships reads at about 28 degrees with the muzzle meeting the left edge two thirds
 	-- of the way down and the action at the bottom edge a third across -- panel A's own diagonal, and
 	-- round 1's was 37. The STOCK is out of the picture either way, which is what the picture shows.
-	CARRY_ON_SCREEN_DEG = 28, -- ASSERTED, NOT APPLIED: what the two poses above came out at.
-	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(-0.80, -0.95, -1.56),
+	-- TASK 97 REPLACES BOTH POSES, AND A NEW VIDEO REPLACES EVERY EARLIER REFERENCE. Karen,
+	-- 2026-10-01, on what shipped: "weapon is shit, aiming is shit ... follow the video"
+	-- (`<assets-dir>/references/inspiration-2026-10-01/`, `sxs-video.mp4` and the TARGET frames).
+	--
+	-- SOLVED FROM `TARGET-carry.jpg`, TWO POINTS AND A WIDTH, rather than nudged: in that frame the
+	-- barrels run from the ACTION at the bottom edge 31 % across to the MUZZLE leaving the LEFT edge
+	-- 40 % down, and the barrel pair is about 8 % of the screen wide where it meets the bottom. Those
+	-- three readings are three equations. Turned into camera-space rays through this build's own
+	-- carry field of view (70 degrees vertical on a 958x784 viewport), they put the breech 1.17 studs
+	-- from the eye and the muzzle 3.44, which fixes the gun's direction and its distance; the
+	-- Handle's centre is 0.54 studs behind the breech along it. The old pose read 28 degrees across
+	-- the screen and this one reads 45 -- which is the whole of Karen's "too low, too flat, too
+	-- small".
+	-- THEN MEASURED ON SCREEN AND RE-SOLVED ONCE (rule 5): the first build of this pose rendered
+	-- about 8 % of the screen height HIGHER than the arithmetic asked for -- the muzzle left the left
+	-- edge at 32 % instead of 40 % and the action sat at 91 % instead of the bottom edge -- so the
+	-- same three equations were solved again with the measured bias folded into the asked-for points.
+	-- WHAT THE ANGLE COMES OUT AT DEPENDS ON THE VIEWPORT, and that is worth writing down: Roblox's
+	-- field of view is VERTICAL, so the same composition reads 45 degrees on the reference's 16:9 and
+	-- about 57 in the 1.24:1 Studio Play window the screenshots are taken in. The COMPOSITION is what
+	-- is matched -- muzzle off the left edge 40 % down, action at the bottom edge a third across --
+	-- because that is what the picture is.
+	CARRY_ON_SCREEN_DEG = 45, -- ASSERTED, NOT APPLIED: what the two poses above come out at on 16:9.
+	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(-0.67, -0.57, -1.22),
 	-- Three named degrees rather than a CFrame literal, so there are three legible dials. Converted
 	-- to radians at ONE site, Mode.carryOffset -- the rule the Task 19 cone-unit defect bought.
 	-- POSITIVE yaw turns the muzzle in toward the screen centre from a RIGHT-hand offset (task 90):
@@ -125,9 +147,14 @@ local Config = {
 	-- barrel crossing the frame from the lower right of the action to the left edge, exactly panel
 	-- A's diagonal, with the muzzle leaving the frame at the left edge rather than stopping inside
 	-- it. `Mode.carryOffset` is still the ONE site that converts them to radians.
-	CARRY_PITCH_DEG = 2,
-	CARRY_YAW_DEG = 53,
-	CARRY_ROLL_DEG = -6, -- a touch of cant, so the rib and not the flat of the barrels faces the eye
+	-- DERIVED FROM THE MUZZLE DIRECTION ABOVE, not chosen: the solved barrel line is
+	-- (-0.701, 0.369, -0.610) in camera space, and `-sin(yaw), cos(yaw) sin(pitch), -cos(yaw)
+	-- cos(pitch)` is that line for exactly one pair of angles. Roll is a pure cant about the bore --
+	-- it moves no end of the gun -- so it stays the free dial, and it is a little stronger than
+	-- before so the rib and not the flat of the barrels faces the eye, as it does in the video.
+	CARRY_PITCH_DEG = 23.9,
+	CARRY_YAW_DEG = 45.7,
+	CARRY_ROLL_DEG = -10,
 	-- The whole-gun break-open tilt. IT IS IN THE COMPOSITION FROM S1 AND NOTHING MOVES IT UNTIL
 	-- S4: `Mode.viewmodelOffset` multiplies by `openTilt * OPEN_TILT_DEG`, and `openTilt` is exactly
 	-- 0 in every state this build produces. The number lives here now so the composition is written
@@ -202,7 +229,7 @@ local Config = {
 	-- the arithmetic says and the break screenshot showed. The palm sits 0.45 studs along the
 	-- fingers from the model's centre, so moving the centre in and up by that much moves the palm
 	-- onto the wrist of the stock.
-	HAND_RIGHT_POS_STUDS = Vector3.new(0.02, -0.02, 1.30),
+	HAND_RIGHT_POS_STUDS = Vector3.new(0.11, -0.36, 1.05),
 	-- Three named degrees, converted to radians at ONE site (`Mode.handOffset`) -- the rule the
 	-- Task 19 cone-unit defect bought. YAW swings the hand's long axis (wrist to fingertip)
 	-- horizontally, PITCH lifts or drops it, TWIST turns the hand about that axis -- which is the
@@ -217,7 +244,7 @@ local Config = {
 	-- -- drifts 0.12 studs to the LEFT of wherever the centre is put, and the barrel pair is only
 	-- 0.18 studs wide. So the yaw comes in to 80 (the forearm still angles out to the left, which
 	-- is what a left hand does) and the centre moves right and up by what the drift costs.
-	HAND_LEFT_POS_STUDS = Vector3.new(0.08, -0.09, 0.09),
+	HAND_LEFT_POS_STUDS = Vector3.new(-0.02, -0.16, -0.25),
 	-- NEGATIVE YAW for the left hand, because its model runs the other way: the right hand's
 	-- fingertips are at its mesh +X and the left hand's at its -X (measured on each prepped model's
 	-- own bounds). TWIST 180 is what turns the palm UP, so the barrels lie in it rather than on the
@@ -257,7 +284,21 @@ local Config = {
 	-- t = 5.4 degrees and R = 3.27. At the old 3.5 and 5 the barrels stopped SHORT of the bottom edge
 	-- and the action filled the space below them -- measured on screen, which is the only place that
 	-- shows.
-	EYE_RELIEF_STUDS = 3.27,
+	-- 4.40 SINCE TASK 97, AND THE REASON IS WHAT THE PICTURE CONTAINS rather than how big it is.
+	-- At 3.27 the eye sat at the gun's own Z = +1.08, which is INSIDE the stock: everything behind
+	-- the breech was behind the camera, so the aimed view was barrels and nothing else -- no wood, no
+	-- action, no top lever, and the right hand 0.06 studs from the lens. `TARGET-aim.jpg` is a
+	-- different picture: the stock's wrist fills the bottom centre, the top tang runs up it, the two
+	-- barrels sit either side of the rib and the right hand's fingers show on the right of the wrist.
+	-- 4.40 puts the eye at the gun's Z = +2.21, which brings all of that -- the right hand's fingers
+	-- included -- in front of the camera. MEASURED ON SCREEN, in three rounds: at 3.85 the fingers
+	-- were still below the bottom edge, and at 4.15 the hand's CUFF reached the lens and the aimed
+	-- view carried a pale, smooth, untextured blob across its lower left. That blob was the INSIDE of
+	-- the glove -- a Roblox MeshPart renders both faces, so a model the camera is inside shows its own
+	-- back surface, unlit. Proved by moving the right hand 8 studs sideways for one Play session: the
+	-- blob went with it. The hand is clear of the lens by 0.54 studs now, which still holds with the
+	-- recoil spring at its 0.25-stud ceiling.
+	EYE_RELIEF_STUDS = 4.40,
 	-- THE CHEEK ON THE COMB (task 92, round 2). In Karen's own acceptance picture the eye is ABOVE
 	-- the rib, not level with it: you look down the TOP of the barrel, which tapers away to the bead,
 	-- and the action is a dark shape at the very bottom of the frame. Level with the rib -- which is
@@ -273,7 +314,13 @@ local Config = {
 	-- about the BEAD, so the sight line is untouched and everything behind the bead swings down --
 	-- an eye above the bore. 5.4 degrees is what puts the barrels' rear end exactly on the bottom
 	-- edge of the aiming field, which is where the picture has them leave the frame.
-	ADS_CHEEK_DEG = 5.4,
+	-- 1.2 SINCE TASK 97, AND IT IS THE OTHER HALF OF THE SAME PICTURE. The cheek angle swings
+	-- everything BEHIND the bead downward, and 2.74 studs behind it -- the breech -- 5.4 degrees is a
+	-- quarter of a stud of drop, which is what pushed the action and the stock off the bottom of the
+	-- frame. In the video you look very nearly ALONG the rib: the barrels' tops sit just under the
+	-- bead at the middle of the screen and the wood climbs into the lower third. 1.2 degrees is an
+	-- eye a finger's width above the bore at this relief, which is what a low comb actually gives.
+	ADS_CHEEK_DEG = 1.2,
 	-- HOW FAR OFF THE CENTRE OF THE SCREEN THE BEAD MAY BE, aimed and at rest. Roblox's field of
 	-- view is VERTICAL, so at 1920x1080 and FOV 50 this is 8 pixels: 50/1080 = 0.0463 degrees per
 	-- pixel. At 143 studs (40 m) it is 0.9 studs, against a boar 5.5 studs long and 3 tall. The
@@ -316,13 +363,18 @@ local Config = {
 	-- carries it at metalness 0.70 / roughness 0.35) blew out to near-white in the aimed view, which
 	-- trades one unreadable gun for another. At 1.0 the barrels and the rib keep their highlight and
 	-- the walnut still reads as walnut.
-	VIEWMODEL_FILL_BRIGHTNESS = 1.0,
+	-- 0.8 AND MOVED FORWARD SINCE TASK 97, and the screenshot is why: the aimed view now contains the
+	-- action and the stock, and the light sat 0.9 studs BEHIND the gun's centre -- i.e. inside them,
+	-- inches from the lens -- so the stock's left flank rendered as a blown-out white patch. It is
+	-- the same mistake as a lamp inside the lampshade, and the fix is to put it in front of what it
+	-- is meant to light.
+	VIEWMODEL_FILL_BRIGHTNESS = 0.8,
 	VIEWMODEL_FILL_RANGE_STUDS = 6,
 	VIEWMODEL_FILL_COLOR = Color3.fromRGB(255, 244, 224),
 	-- Where the light sits relative to the gun's own pivot: up and to the left of the breech, so the
 	-- barrels and the rib catch a highlight along their length and the wood behind them is lifted out
 	-- of black. Camera space would move with the pose; the gun's own frame does not.
-	VIEWMODEL_FILL_OFFSET_STUDS = Vector3.new(-0.6, 0.8, 0.9),
+	VIEWMODEL_FILL_OFFSET_STUDS = Vector3.new(-0.45, 0.60, -0.80),
 
 	-- ------------------------------------------------------ recoil (task 92)
 	-- Karen, after playing S2: "shooting has to have recoil a bit" -- "a bit" is the whole brief, so

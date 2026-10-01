@@ -190,11 +190,10 @@ return function()
 	if Config.FIRST_PERSON then
 		liveBranches += 1
 		describe("first person -- the live ON branch", function()
-			-- NOT RUN IN A HARNESS RUN, and that is stated rather than hidden: the flag is born OFF,
-			-- `test` and `test2` refuse to start while an override is set, and a playtest with the
-			-- override on runs no specs. The ON branch's MATHS is covered by parameter in
-			-- tests/server/camera_mode.spec.luau, its POSE by the viewmodel cases below, and its live
-			-- wiring by the Director's screenshots (design section 9.4 says exactly this).
+			-- RUN IN EVERY HARNESS RUN SINCE TASK 97, which flipped the flag's default to true: this
+			-- is the camera the game has. The branch's MATHS is still covered by parameter in
+			-- tests/server/camera_mode.spec.luau and its POSE by the viewmodel cases below; what only
+			-- this block can say is that the real camera, in a real client, is at the eye.
 			it("puts the real camera at the eye, with the gun carried at blend 0", function()
 				local root = rootPart()
 				expect(root).to.be.ok()
@@ -208,7 +207,12 @@ return function()
 				expect(distance <= Config.AIM_PIVOT_FORWARD_STUDS + 0.2).to.equal(true)
 				-- CARRIED, NOT SUMMONED: the gun is on screen at blend 0, which is the difference
 				-- VIEWMODEL_SHOW_BLEND makes in the other branch.
-				expect(Camera.Viewmodel.isParented()).to.equal(true)
+				--
+				-- ROLE-AWARE, because a DRIVER carries no Tool at all
+				-- (`Match.CONFIG.DRIVERS_MAY_SHOOT = false`) and the viewmodel clones the Handle of
+				-- the Tool in the local character. "A driver has a gun in frame" would be the bug,
+				-- so it is asserted as the equality rather than skipped (TASKS.md row 34a).
+				expect(Camera.Viewmodel.isParented()).to.equal(Role.isShooter())
 			end)
 
 			it("casts no ray at all", function()
@@ -907,17 +911,32 @@ return function()
 		it("is wired, does nothing to the live third-person camera, and settles the gun", function()
 			-- KAREN, after playing S2: "shooting has to have recoil a bit".
 			--
-			-- THE LIVE HALF IS THE PROMISE, not the feel: this client runs with `FIRST_PERSON` off, so
-			-- `Camera.kick()` must be a no-op on the camera a player is looking through right now --
-			-- task 89's promise that the flag-off branch is the shoulder camera Karen accepted.
+			-- THE LIVE HALF IS THE PROMISE, not the feel, and since task 97 the live branch is FIRST
+			-- PERSON: `Camera.kick()` really does move the camera a player is looking through, and
+			-- then brings it back to EXACTLY where it was. Both halves are asserted here, because
+			-- "it kicked" without "it came home" is a camera that drifts a degree per shot.
+			local kicks = Camera.stats().recoilKicks
 			local before = Camera.getState()
+			expect(before.recoilCamPitchDeg).to.equal(0)
 			Camera.kick()
 			local after = Camera.getState()
-			expect(after.recoilCamPitchDeg).to.equal(0)
-			expect(after.recoilGunPitchDeg).to.equal(0)
-			expect(Camera.Mode.recoiling(after)).to.equal(false)
-			expect(Camera.stats().recoilKicks).to.equal(0)
-			expect(before.recoilCamPitchDeg).to.equal(0)
+			if Config.FIRST_PERSON then
+				expect(Camera.Mode.recoiling(after)).to.equal(true)
+				expect(Camera.stats().recoilKicks).to.equal(kicks + 1)
+				-- AND THE LIVE CAMERA IS LEFT AS IT WAS FOUND. The spring is critically damped and
+				-- snaps to exact zero at `RECOIL_REST_EPSILON`, so this is a value and not an
+				-- asymptote -- and a spec that left the live camera recoiling would hand every
+				-- screenshot after it a tilted horizon.
+				expect(waitUntil(3, function()
+					return not Camera.Mode.recoiling(Camera.getState())
+				end)).to.equal(true)
+				expect(Camera.getState().recoilCamPitchDeg).to.equal(0)
+			else
+				expect(after.recoilCamPitchDeg).to.equal(0)
+				expect(after.recoilGunPitchDeg).to.equal(0)
+				expect(Camera.Mode.recoiling(after)).to.equal(false)
+				expect(Camera.stats().recoilKicks).to.equal(kicks)
+			end
 
 			-- ...and the first-person branch, by parameter, moves the gun on screen and brings it
 			-- home: the same reducer the live camera would run with the flag on. The POSE is what a

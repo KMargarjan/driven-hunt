@@ -47,6 +47,22 @@ local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
 local Weapon = require(scripts:WaitForChild("Weapon"))
 local Hud = require(scripts:WaitForChild("Hud"))
+-- WHICH VIEW THIS BUILD IS RUNNING, asked of the camera and not of `Flags` (the camera owns the
+-- switch and republishes it as a fact about the view, docs/design/camera.md section 6.2). Two of the
+-- claims below are different claims in the two branches: there is no crosshair in first person at
+-- all, and the muzzle a shot's light is drawn at is the DRAWN gun's there rather than the world's.
+--
+-- RESOLVED LAZILY AND TOLERANTLY, the way "never writes the camera itself" below already does it:
+-- this spec is the WEAPON's, and it still has to run in a place with no camera system in it.
+local function cameraView()
+	local module = scripts:FindFirstChild("Camera")
+	return if module then require(module) else nil
+end
+
+local function liveFirstPerson(): boolean
+	local view = cameraView()
+	return view ~= nil and view.isFirstPerson()
+end
 
 -- Every snapshot the server published, in order, with the client clock that received it.
 local log = {}
@@ -401,11 +417,21 @@ return function()
 			end
 			Effects.setMuzzleProvider(live)
 			-- THE LIVE WIRING IS PUT BACK, and it was there to begin with: `CameraBoot` installs it,
-			-- so a nil here would mean the composition root never ran. And the live camera answers
-			-- NIL for it, because this client runs with FIRST_PERSON off: in the third-person branch
-			-- the player is looking at their character holding the real gun.
+			-- so a nil here would mean the composition root never ran.
+			--
+			-- WHAT IT ANSWERS IS THE BRANCH'S OWN TRUTH. In third person the player is looking at
+			-- their character holding the real gun, so the provider answers nil and the flash is
+			-- drawn at the world muzzle. In first person -- the live branch since task 97 -- it
+			-- answers the DRAWN gun's muzzle whenever there is a drawn gun, and nil when there is
+			-- none (a driver holds no Tool, so there is no viewmodel to ask).
 			expect(Effects.getMuzzleProvider()).to.be.ok()
-			expect((Effects.getMuzzleProvider() :: any)(1)).to.equal(nil)
+			local answer = (Effects.getMuzzleProvider() :: any)(1)
+			if liveFirstPerson() then
+				local view = cameraView()
+				expect(answer ~= nil).to.equal(view ~= nil and view.Viewmodel.current() ~= nil)
+			else
+				expect(answer).to.equal(nil)
+			end
 		end)
 
 		it("keeps CONFIG frozen to its nested tables", function()
@@ -793,6 +819,21 @@ return function()
 
 		describe("the crosshair", function()
 			it("is really on screen: every ancestor present and visible, centred on the viewport", function()
+				-- NO CROSSHAIR AT ALL IN FIRST PERSON (Karen, 2026-09-27), which is the live branch
+				-- since task 97. That is a DIFFERENT CLAIM about the same screen, not a skip: the
+				-- Hud is up, the Crosshair Instance still exists, and it is never visible. The
+				-- camera's own spec asserts the Hud asks the camera rather than the flag.
+				if liveFirstPerson() then
+					expect(Hud.isCrosshairVisible()).to.equal(false)
+					local gui = Hud.gui()
+					expect(gui).to.be.ok()
+					expect(gui.Enabled).to.equal(true)
+					local hidden = gui:FindFirstChild("Crosshair")
+					expect(hidden).to.be.ok()
+					expect(hidden.Visible).to.equal(false)
+					TestKit.note("weapon_client: first person -- the crosshair exists and is never drawn")
+					return
+				end
 				local visible = waitUntil(RUN_TIMEOUT, function()
 					return Hud.isCrosshairVisible()
 				end)
