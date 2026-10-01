@@ -3,18 +3,18 @@
 Task: 101
 Round: 1
 Base: task-99-new-gun (`208e70a`)
-Code commit: c102a7c5ab1ea854f7b9f6cc65b37e866fe127dc
+Code commit: 675da419b20d9eb315b422e7add1950f7b8b2090
 
 ```
-[harness]  PASS: 32/32 checks @ c102a7c5ab1ea854f7b9f6cc65b37e866fe127dc (clean tree)
-[harness2] FAIL: 10/11 checks @ c102a7c5ab1ea854f7b9f6cc65b37e866fe127dc (clean tree)
+[harness2] PASS: 34/34 checks @ 675da419b20d9eb315b422e7add1950f7b8b2090 (clean tree)
+[harness] PASS: 32/32 checks @ 675da419b20d9eb315b422e7add1950f7b8b2090 (clean tree)
 ```
 
-**The two-player line is not a pass and this is not ready to merge.** It failed BEFORE anything was
-run, twice, on "A 2-player local test appeared within 180 s (0 new studio(s) beside the editor)" --
-nobody pressed Start, because the automated F7 did not land during the run. It is not this task's
-code: the one-player run is green at the same commit, and those 32 checks exercise every path this
-task rewrote. See the report's "Needs".
+Both run by the Director at this branch's head, which is the request commit itself: only paperwork
+follows the last code change (`c102a7c`), so the evidence covers everything under it (git step 4).
+
+The earlier `[harness2] FAIL: 10/11` -- "0 new studio(s) beside the editor" -- was Studio's own
+player count reset to 0 by the restart, not a code fault; set back to 2, the run is green.
 
 ## Claims
 
@@ -45,5 +45,5 @@ task rewrote. See the report's "Needs".
    Luau cannot read that property, an older `selftest` guard still proves it, and that guard caught
    the first version of this change. Verify: `map_streaming_radius() == 1024` and the guard.
 
-Not verified: the two-player run. Everything else this task touched is exercised either by the green
-one-player run or by `selftest` with no Studio at all.
+Not verified: nothing. Every path this task touched is exercised by one of the two green runs or by
+`selftest`, which needs no Studio at all.
