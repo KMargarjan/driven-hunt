@@ -715,6 +715,85 @@ def rebuild_barrels(ob, plan, axis, up_axis, front_at_min, lo, hi):
     }
 
 
+def trim_cuff(ob, plan, axis, front_at_min, lo, hi):
+    """CUT THE SLEEVE OFF A GLOVE and cap what the cut opened (task 97, round 3).
+
+    Karen's gloves arrive as a hand PLUS most of a forearm in a jacket cuff, and the forearm is the
+    part nobody can see: it runs back toward the shoulder, which in first person is behind the eye.
+    Worse, it is the part that reaches the LENS -- a Roblox MeshPart renders both faces, so a camera
+    inside one shows the inside of the sleeve as a pale, smooth, unlit blob. Task 97 spent three
+    rounds walking the hand forward off the grip to keep that sleeve out of the lens; the cause is
+    the sleeve, so this removes it and the hand goes back where Karen asked for it.
+
+    `keepT` is the fraction of the model's long axis, measured FROM THE FRONT (the fingertips, which
+    is what `long_axis` calls the front: the shallower end), that survives. The rest is deleted and
+    the rim is filled, so the glove ends in a face at the wrist rather than in an open tube.
+
+    The fill's UVs are borrowed from the rim's own corners, exactly as the breech fill does: an unset
+    UV is not harmless, and a face whose corners sit at the atlas origin covers the whole map and
+    takes every region's mask with it (measured in task 94, runs 12 and 13).
+    """
+    keep_t = float(plan.get("keepT", 0.65))
+    length = hi - lo
+    if not (0.05 < keep_t < 1.0) or length <= 0:
+        return {"applied": False, "reason": "keepT out of range"}
+    cut = (lo + keep_t * length) if front_at_min else (hi - keep_t * length)
+    mesh = ob.data
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    uv_layer = bm.loops.layers.uv.active
+    if uv_layer is None:
+        bm.free()
+        return {"applied": False, "reason": "no UV layer"}
+
+    before = len(bm.faces)
+    # THE RIM'S OWN TEXELS, taken BEFORE the cut: three UVs from faces that straddle the plane, so
+    # the cap is the leather the wrist already is rather than whatever sits at (0, 0).
+    near_rim = []
+    for face in bm.faces:
+        if any(abs(v.co[axis] - cut) <= 0.04 * length for v in face.verts):
+            for loop in face.loops:
+                near_rim.append(loop[uv_layer].uv.copy())
+            if len(near_rim) >= 3:
+                break
+    if len(near_rim) < 3:
+        bm.free()
+        return {"applied": False, "reason": "no faces at the cut"}
+
+    # `clear_outer`/`clear_inner` is which side bmesh deletes: the plane's normal points along the
+    # axis, so the side to keep depends on which end the fingers are.
+    normal = [0.0, 0.0, 0.0]
+    normal[axis] = 1.0 if front_at_min else -1.0
+    plane_co = [0.0, 0.0, 0.0]
+    plane_co[axis] = cut
+    bmesh.ops.bisect_plane(bm, geom=list(bm.verts) + list(bm.edges) + list(bm.faces),
+                           plane_co=plane_co, plane_no=normal, clear_outer=True, use_snap_center=False)
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+
+    rim = [e for e in bm.edges if len(e.link_faces) == 1]
+    filled = 0
+    if rim:
+        try:
+            result = bmesh.ops.holes_fill(bm, edges=rim, sides=0)
+            made = result.get("faces", [])
+            filled = len(made)
+            for face in made:
+                for index, loop in enumerate(face.loops):
+                    loop[uv_layer].uv = near_rim[index % 3]
+                face.material_index = 0
+        except (RuntimeError, TypeError) as error:
+            log("cuffFillFailed", error=str(error))
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+    return {"applied": True, "keepT": keep_t, "cutAt": round(float(cut), 5),
+            "facesBefore": before, "facesAfter": len(mesh.polygons), "capFaces": filled,
+            "frontAtMin": bool(front_at_min)}
+
+
 def long_axis(ob):
     """The index of the model's longest local axis, and whether the muzzle is at its MINIMUM.
 
@@ -1540,6 +1619,16 @@ def main():
     log("decimated", before=before, measuredAfter=after, ratioAsked=round(ratio, 6),
         target=recipe["targetTriangles"])
     REPORT["triangles"] = {"before": before, "after": after, "target": recipe["targetTriangles"]}
+
+    # ---- trim the glove's sleeve (task 97), for the same reason and in the same place as the
+    # barrels below: the cap it makes must be shaded and classified with everything else.
+    cuff = recipe.get("trimCuff")
+    if cuff:
+        c_axis, c_front, c_lo, c_hi, _cn, _cf = long_axis(ob)
+        stated = recipe.get("frontAtMin")
+        REPORT["trimmedCuff"] = trim_cuff(
+            ob, cuff, c_axis, c_front if stated is None else bool(stated), c_lo, c_hi)
+        log("trimmedCuff", **REPORT["trimmedCuff"])
 
     # ---- clean barrels (task 94), BEFORE the shading and the regions
     #

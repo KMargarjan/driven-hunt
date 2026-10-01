@@ -126,6 +126,7 @@ DEFAULT_RECIPE = {
     # and smooths everything that is meant to be a surface (the barrels, the bead, the stock).
     "smoothAngleDeg": 35,
     "targetTriangles": None,
+    "trimCuff": None,  # a gun has no sleeve (task 97)
     # 4096 is legal on Roblox and wasteful on a held weapon. Nothing is resized silently: the report
     # prints every size before and after.
     "workPx": 2048,
@@ -357,6 +358,7 @@ ANIMAL_RECIPE = {
     # Task 94: the barrel rebuild is a GUN's step. An animal's shape is the whole point of generating
     # it, and there is nothing on a boar whose true form is two numbers.
     "rebuildBarrels": None,
+    "trimCuff": None,  # task 97: an animal has no sleeve either
     "targetTriangles": None,
     "workPx": 2048,
     "renderPx": 1100,
@@ -516,6 +518,17 @@ HAND_RECIPE = {
     # rendered as a fan of shards (the first run of this task, looked at).
     "smoothAngleDeg": 70,
     "rebuildBarrels": None,
+    # CUT THE SLEEVE OFF (task 97, round 3). Both gloves arrive as a hand plus most of a forearm in a
+    # jacket cuff. In first person the forearm runs back toward the shoulder -- behind the eye -- so
+    # nobody ever sees it, and it is the part that reaches the LENS: a Roblox MeshPart renders both
+    # faces, so a camera inside the sleeve shows its inside as a pale unlit blob. Task 97 spent three
+    # rounds walking the right hand forward off the grip to keep that sleeve clear; cutting it is the
+    # fix to the cause, and it puts the hand back on the grip where Karen asked for it.
+    #
+    # 0.62 OF THE MODEL'S LENGTH, measured from the fingertips: on both gloves the hand itself --
+    # fingertips to wrist -- is about 60 % of the model, so this keeps the hand and a little wrist
+    # and drops the rest. `null` keeps the model whole.
+    "trimCuff": {"keepT": 0.62},
     # 2048 is more than a hand needs and is what every other asset here ships at; nothing is resized
     # silently and the report prints every size before and after.
     "workPx": 2048,
@@ -1277,8 +1290,11 @@ def command_selftest(_args):
         # pixels back and reports them in the same sRGB numbers the target was written in.
         achieved = corrections.get("barrel", {}).get("achievedRGB", [255, 255, 255])
         ok("the barrels really came out near-black", max(achieved) < 70, str(achieved))
-        ok("the action really came out bright",
-           min(corrections.get("action", {}).get("achievedRGB", [0, 0, 0])) > 120,
+        # DARK STEEL SINCE TASK 97, which is what the reference video's action is. This check used
+        # to read "> 120" -- bright chrome -- and it is the mirror of the barrels' check above: a
+        # recipe edited back to a mirror would satisfy a drift check perfectly and fail this.
+        ok("the action really came out dark steel",
+           max(corrections.get("action", {}).get("achievedRGB", [255, 255, 255])) < 140,
            str(corrections.get("action", {}).get("achievedRGB")))
         # ONE MATERIAL, not one per region (Task 75): Roblox makes a SurfaceAppearance per material
         # that has maps, so the old split came back as three empty SurfaceAppearance children.
@@ -1321,8 +1337,9 @@ def command_selftest(_args):
         # would satisfy the drift check perfectly.
         ok("the barrels are not a mirror", barrel.get("metallic", {}).get("shown", 1.0) <= 0.25
            and barrel.get("roughness", {}).get("shown", 0.0) >= 0.40, str(barrel))
-        ok("the action stayed bright metal",
-           surface.get("action", {}).get("metallic", {}).get("shown", 0.0) >= 0.50,
+        ok("the action is not a mirror either",
+           surface.get("action", {}).get("metallic", {}).get("shown", 1.0) <= 0.30
+           and surface.get("action", {}).get("roughness", {}).get("shown", 0.0) >= 0.45,
            str(surface.get("action")))
         written_maps = report.get("texturesWritten", [])
         ok("both shine maps were written beside the exports",

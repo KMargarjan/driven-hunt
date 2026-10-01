@@ -24,6 +24,7 @@ local Shape = require(ServerScriptService:WaitForChild("Weapon"):WaitForChild("S
 -- server loads the meshes and publishes the templates already sized -- but the glove's clearance is
 -- a fact about the SIZE, so the spec reads the size where it is decided rather than copying it.
 local Assets = require(ServerStorage:WaitForChild("Assets"))
+local Hardware = require(ServerScriptService:WaitForChild("Weapon"):WaitForChild("Hardware"))
 
 local cameraFolder = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera")
 local Mode = require(cameraFolder:WaitForChild("Mode"))
@@ -858,29 +859,45 @@ return function()
 			)
 		end)
 
-		it("keeps both gloves clear of the near plane, even at the recoil's ceiling", function()
-			-- TASK 97, ROUND 2, AND IT IS THE DEFECT THIS CASE EXISTS FOR. The right hand is a
-			-- 0.95-stud MeshPart on the grip, a few tenths of a stud in front of an aiming eye, and a
-			-- Roblox MeshPart renders BOTH faces -- so a camera INSIDE one sees its own back surface,
-			-- unlit, as a pale smooth blob across the lower frame. Round 1 shipped an eye relief
-			-- 0.35 studs short of where its own comment said it was, and one shot's recoil pulled the
-			-- cuff through the lens. Nothing caught it: the other near-plane case filters on the
-			-- pieces a player AIMS with, and no spec read a hand at all.
+		it("keeps the camera out of both gloves, even at the recoil's ceiling", function()
+			-- TASK 97, AND IT IS THE DEFECT THIS CASE EXISTS FOR. A Roblox MeshPart renders BOTH
+			-- faces, so a camera INSIDE one sees its own back surface, unlit, as a pale smooth blob
+			-- across the frame. Round 1 shipped an eye relief 0.35 studs short of where its own
+			-- comment said it was and one shot's recoil pulled the right glove over the lens;
+			-- nothing caught it, because no spec read a hand at all.
+			--
+			-- WHY THIS IS NOT A NEAR-PLANE MARGIN, which is what rounds 1 and 2 asserted. The right
+			-- hand is on the STOCK GRIP -- Karen, 2026-10-01, "right on stock holding and aiming" --
+			-- and on a shouldered gun that is BESIDE the shooter's eye, not in front of it. A box
+			-- beside the camera necessarily straddles the near plane; asserting it must not was what
+			-- drove rounds 1 and 2 to walk the hand forward onto the action to satisfy the test. The
+			-- two claims that actually describe the defect are asserted instead:
+			--   (a) the camera is not INSIDE the glove, by `GLOVE_CLEARANCE_STUDS`, and
+			--   (b) nothing of a glove that IS nearer than the near plane can be in the picture.
 			--
 			-- DRIVEN THROUGH THE REAL COMPOSITION, not re-derived here: `Mode.viewmodelOffset` is
 			-- what the viewmodel poses from, `Mode.rightHandOffset` is where it hangs each glove
 			-- (`Viewmodel.addHand` does `clone.CFrame * offset`), and the recoil enters as the state
 			-- the owner hands in. So a change to the composition order, the poses, the hand sizes or
 			-- the recoil ceiling all reach this.
-			local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
+			-- THE SIGHT THE GUN A PLAYER HOLDS ACTUALLY CARRIES. `Weapon.Hardware` writes the live
+			-- manifest row's `sightOffsetStuds` onto the Handle when the mesh is worn and falls back
+			-- to the parts gun's bead when it is not, so the aimed pose is built on one or the other
+			-- -- and they differ by 0.08 studs in height, which is most of this case's own margin.
+			-- Measuring the parts gun's bead while the game ships the mesh's would be measuring a
+			-- pose nobody is in.
+			local gunRow = Assets.byKey(Hardware.ASSET_KEY)
+			local sight = if gunRow ~= nil and typeof(gunRow.sightOffsetStuds) == "Vector3"
+				then CFrame.new(gunRow.sightOffsetStuds)
+				else CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
 			-- THE WORST FRAME A PLAYER CAN REACH: both recoil terms at the ceiling `Mode.kick`
 			-- clamps them to, in both poses -- a shot from the hip kicks too.
-			local worstCase = {}
+			local frames = {}
 			for _, blend in ipairs({ 0, 1 }) do
 				local kicked = table.clone(stateAtBlend(blend)) :: any
 				kicked.recoilGunBackStuds = firstPerson.RECOIL_MAX_GUN_BACK_STUDS
 				kicked.recoilGunPitchDeg = firstPerson.RECOIL_MAX_GUN_PITCH_DEG
-				table.insert(worstCase, {
+				table.insert(frames, {
 					name = if blend == 0 then "carry" else "aimed",
 					pose = Mode.viewmodelOffset(table.freeze(kicked), sight, firstPerson),
 				})
@@ -889,25 +906,44 @@ return function()
 				{ name = "right", key = Assets.KEYS.handRight, offset = Mode.rightHandOffset(firstPerson) },
 				{ name = "left", key = Assets.KEYS.handLeft, offset = Mode.leftHandOffset(firstPerson) },
 			}
-			local worst, worstWhere = -math.huge, ""
+			local nearZone = -(firstPerson.NEAR_PLANE_STUDS + firstPerson.GLOVE_CLEARANCE_STUDS)
+			local worstGap, worstGapWhere = math.huge, ""
+			local worstAngle, worstAngleWhere = math.huge, "none"
 			local checked = 0
-			for _, frame in ipairs(worstCase) do
+			for _, frame in ipairs(frames) do
 				for _, hand in ipairs(hands) do
 					local row = Assets.byKey(hand.key)
 					expect(row).to.be.ok()
 					local half = row.sizeStuds / 2
 					local at = frame.pose * hand.offset
+					-- (a) THE CAMERA IS OUTSIDE THE BOX. The camera's origin is (0, 0, 0) in this
+					-- frame, so it is taken into the glove's own axes and clamped against the box --
+					-- the standard point-to-oriented-box distance, zero when the point is inside.
+					local local_ = at:PointToObjectSpace(Vector3.zero)
+					local outside = Vector3.new(
+						math.max(math.abs(local_.X) - half.X, 0),
+						math.max(math.abs(local_.Y) - half.Y, 0),
+						math.max(math.abs(local_.Z) - half.Z, 0)
+					)
+					local gap = outside.Magnitude
+					if gap < worstGap then
+						worstGap, worstGapWhere = gap, string.format("%s %s", frame.name, hand.name)
+					end
+					expect(gap >= firstPerson.GLOVE_CLEARANCE_STUDS).to.equal(true)
+					-- (b) AND WHAT IS INSIDE THE NEAR ZONE IS OUT OF THE PICTURE.
 					for _, sx in ipairs({ -1, 1 }) do
 						for _, sy in ipairs({ -1, 1 }) do
 							for _, sz in ipairs({ -1, 1 }) do
 								local corner = (at * CFrame.new(sx * half.X, sy * half.Y, sz * half.Z)).Position
 								checked += 1
-								if corner.Z > worst then
-									worst, worstWhere = corner.Z, string.format("%s %s", frame.name, hand.name)
+								if corner.Z > nearZone and corner.Magnitude > 1e-6 then
+									local offAxis = math.deg(math.acos(math.clamp(-corner.Unit.Z, -1, 1)))
+									if offAxis < worstAngle then
+										worstAngle, worstAngleWhere =
+											offAxis, string.format("%s %s", frame.name, hand.name)
+									end
+									expect(offAxis > firstPerson.GLOVE_OFF_AXIS_DEG).to.equal(true)
 								end
-								-- IN FRONT OF THE NEAR PLANE BY THE SAME MARGIN the gun's own pieces
-								-- are held to. Camera space looks down -Z, so "in front" is negative.
-								expect(corner.Z <= -firstPerson.NEAR_PLANE_MARGIN_STUDS).to.equal(true)
 							end
 						end
 					end
@@ -916,12 +952,12 @@ return function()
 			expect(checked).to.equal(32) -- two poses, two hands, eight corners: the loop really ran
 			TestKit.note(
 				string.format(
-					"task97 gloves: nearest corner %.3f studs (%s), margin %.2f, relief %.2f, recoil back %.2f",
-					worst,
-					worstWhere,
-					firstPerson.NEAR_PLANE_MARGIN_STUDS,
-					firstPerson.EYE_RELIEF_STUDS,
-					firstPerson.RECOIL_MAX_GUN_BACK_STUDS
+					"task97 gloves: camera %.3f studs outside the nearest (%s), worst near-zone corner %.0f deg off axis (%s), relief %.2f",
+					worstGap,
+					worstGapWhere,
+					worstAngle,
+					worstAngleWhere,
+					firstPerson.EYE_RELIEF_STUDS
 				)
 			)
 		end)
