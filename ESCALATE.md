@@ -10,6 +10,23 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-10-01 · CLOSED 2026-10-01 · Director decision · Task 98: `FIRST_PERSON` ships ON, and the poses are seeded from Task 97 round 2
+
+**Raised by:** Director, answering Reviewer finding 2 of Task 98 round 1 (and the background of finding 1).
+
+**Authorisation.** On 2026-10-01 (~21:30 local) Karen approved the pose-data plan ("let's try") after the
+Task 97 tuning loop. The plan she approved had three parts, and one of them was, as written: *FIRST_PERSON
+default ON (Karen must see the current gun on every Play)*. The Director dispatched Task 98 with that as
+item 4 and with item 1 saying: seed carry/aim from Task 97 round 2 (commit 9393d1e, closer to Karen's
+target) if they read better, else main's. Both changes are therefore in scope and authorised.
+
+**What it is not.** It is not a playtest OK of the poses. Those numbers are a starting point that the
+Director now tunes live with `tools/pose.py` against `TARGET-*.jpg`, and Karen OKs the result from a
+side-by-side (the content lane). The rollback for first person is the flag's `default = false` line.
+
+**Closed** by the Director, 2026-10-01.
+
+---
 ## 2026-09-27 · CLOSED 2026-09-27 · NEEDS KAREN · Task 75: the Rojo plugin is disconnected, so the harness and the in-game screenshots cannot run
 
 **Raised by:** Builder, Task 75 (branch `task-75-barrel-shine`, code commit `58b3069`).
