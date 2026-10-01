@@ -278,7 +278,7 @@ fails if a script exists anywhere Rojo does not manage.
 | `reviews/task-<N>/` | none | One folder per task: `REQUEST.md` (Builder), `RESULT.md` (Reviewer), `ARCH_RESULT.md` (Architect). Per task so branches never conflict and the round count has a boundary (Task 21) |
 | `backups/` | none | Archived files plus notes |
 | `docs/` | none | `PROJECT_CONTEXT.md` (who, the game, why the rules exist), `research/` (notes plus INDEX), `design/` (Architect system designs), `architecture/` (Architect audits), `REVIEWER_PROMPT.md` and `ARCHITECT_PROMPT.md` (the two agent prompts) |
-| `tools/` | none | `studio_mcp.py` (test harness, and the one owner of the `DHFlag_*` overrides); `agents.py` plus `review.sh`/`review.ps1`/`architect.sh`/`architect.ps1` (the Reviewer and Architect gate); `privacy_scan.py` (the public-repo scan CI runs); `flags.py` (the Director's playtest switch, a thin wrapper over `studio_mcp.py flags`); `meshy.py` (the Asset agent's generator; reads `MESHY_API_KEY`, writes only outside the repo) |
+| `tools/` | none | `studio_mcp.py` (test harness, and the one owner of the `DHFlag_*` overrides); `agents.py` plus `review.sh`/`review.ps1`/`architect.sh`/`architect.ps1` (the Reviewer and Architect gate); `privacy_scan.py` (the public-repo scan CI runs); `flags.py` (the Director's playtest switch, a thin wrapper over `studio_mcp.py flags`); `pose.py` (the Director's viewmodel tuning instrument: the **one writer** of the live pose override, and the only thing that rewrites `src/shared/Viewmodel/poses.json`); `meshy.py` (the Asset agent's generator; reads `MESHY_API_KEY`, writes only outside the repo) |
 | `docs/asset-briefs/` | none | **The one source** for each asset brief (Karen's decisions, as data) and the reference images beside them. `tools/meshy.py` reads this folder directly; there is no second copy. Everything the tool *writes* still goes outside the repo |
 
 Workspace (the map), Lighting, Terrain and other non-script content are edited in Studio and saved
@@ -295,6 +295,7 @@ with the place. They must contain no scripts.
 | `init.meta.json` | properties, attributes and `className` of the folder it sits in | properties, attributes |
 | nested `*.project.json`, `$properties`/`$attributes` in `default.project.json` | refused (not compared). Use `.meta.json` | none |
 | `Name.txt` | StringValue | Value |
+| `Name.json` (not `.model.json` / `.meta.json` / `*.project.json`) | a **Rojo JSON module**: a ModuleScript returning the decoded table ([Sync Details](https://rojo.space/docs/v7/sync-details/)) | the VALUE, not the Source: the harness requires a parentless clone in Studio, JSON-encodes what it returns and compares that structure with the file (numbers to a relative 1e-9, because the value makes two round trips through two encoders). Added in Task 98 for `src/shared/Viewmodel/poses.json`; before it, a `.json` file failed as "cannot compare" |
 | **`.rbxm` / `.rbxmx`** | **BANNED** | binary, unreviewable in a PR. CI and the harness both fail on it |
 
 Properties and attributes must be plain JSON values (string, number, bool) until the harness learns
@@ -430,6 +431,34 @@ before merging, so ten PRs stacked on one unmerged PR. Since Task 52 it does not
 **THE MAP SWITCH IS THE EXCEPTION, and it was measured (Task 79, Director decision 2026-09-27, `ESCALATE.md`).** It switches **by commit** -- `Map.EXPECTED_WORLD`, exactly as `docs/design/map-generator.md` section 17 writes it -- and the rollback is a commit back to `"arena"` plus `python tools/mapgen.py clear --backup <accepted>`. A flag lives in code and the WORLD LIVES IN THE PLACE: built behind a flag, the map sat in Workspace with the flag off and the same commit went from 32/32 checks to 22/27 with eleven specs failing, including `GetTagged("DrivenHunt.ShooterPost")` answering **16** -- both worlds tag with the same strings, so a flag-off drive would have put shooters on map posts 700 studs away. A switch that cannot be switched off is not a feature flag.
 
 Design: `docs/design/feature-flags.md`. Note: `docs/research/2026-09-26-feature-flags.md`.
+
+## Content lane: data the Director tunes live, Karen OKs, one commit
+
+**Karen's rule, 2026-10-01, after task 97 was stopped: "too slow".** Tuning the shotgun's poses by
+editing Luau, running the gate and asking for a review cost HOURS PER TWEAK, and what was being tuned
+was a picture. So there are two lanes now.
+
+**The CONTENT lane** -- pose and motion DATA, timings, materials and effects that are already behind a
+flag:
+
+- the numbers live in a data file, not in code (`src/shared/Viewmodel/poses.json` is the first one);
+- the **Director tunes them live** in a running Studio session (`python tools/pose.py set <path>
+  <value>`, `show`, `compare <pose>`), with nothing in the git tree and no review round per tweak;
+- **Karen looks and OKs**;
+- then **one commit** (`python tools/pose.py save`) with the ONE-PLAYER gate: `python
+  tools/studio_mcp.py test`. A data-only commit touches no client spec and no harness code, so
+  `test2` is N/A with that as the reason (the Director decides if a change is bigger than that);
+- **no Builder round, no Reviewer round, no research note, no Architect run** for the tuning itself.
+
+**The ENGINEERING lane** -- anything that is code: the pose PLAYER, the override mechanism, a new
+state, a guard, an owner boundary, the harness. That keeps every rule above it: one task, a request,
+a review, both harness runs where the gate asks for them.
+
+**The boundary is the file.** Changing `poses.json` is content. Changing what reads it is
+engineering. `python tools/pose.py clear` before any harness run -- `test` and `test2` both REFUSE to
+start while an override is set, and print that line.
+
+Note: `docs/research/2026-10-01-poses-as-data.md`.
 
 ## Public repository: never commit secrets
 

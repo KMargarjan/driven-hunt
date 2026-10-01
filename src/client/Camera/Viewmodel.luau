@@ -330,7 +330,7 @@ local function handTemplate(name: string): BasePart?
 	return if found and found:IsA("BasePart") then found :: BasePart else nil
 end
 
-local function addHand(clone: BasePart, parent: Instance, name: string, offset: CFrame): boolean
+local function addHand(clone: BasePart, parent: Instance, name: string): boolean
 	local template = handTemplate(name)
 	if template == nil then
 		return false
@@ -346,7 +346,12 @@ local function addHand(clone: BasePart, parent: Instance, name: string, offset: 
 	worn.CanTouch = false
 	worn.Massless = true
 	worn.CastShadow = false
-	worn.CFrame = clone.CFrame * offset
+	-- PARKED ON THE GUN, NOT POSED HERE (task 98). `Viewmodel.poseHands` places both hands from the
+	-- blended pose every frame, in this same frame, and it is the ONE site that does -- a hand that
+	-- was also placed here would be two writers of one CFrame, and the one placed at build time is
+	-- the one that could not follow a live tuning change. This puts it on the gun so the `PivotTo`
+	-- below cannot drag it in from wherever the template happens to sit in the world.
+	worn.CFrame = clone.CFrame
 	worn.Parent = parent
 	stats.handsDrawn += 1
 	handsOn = true
@@ -387,10 +392,10 @@ function Viewmodel.hands(made: Model, config)
 	local leftParent: Instance = if barrels and barrels:IsA("BasePart") then barrels else clone
 	local missing = false
 	if clone:FindFirstChild(HandAssets.RIGHT) == nil then
-		missing = not addHand(clone, clone, HandAssets.RIGHT, Mode.rightHandOffset(config)) or missing
+		missing = not addHand(clone, clone, HandAssets.RIGHT) or missing
 	end
 	if leftParent:FindFirstChild(HandAssets.LEFT) == nil then
-		missing = not addHand(clone, leftParent, HandAssets.LEFT, Mode.leftHandOffset(config)) or missing
+		missing = not addHand(clone, leftParent, HandAssets.LEFT) or missing
 	end
 	-- COUNTED ONCE PER CLONE, NOT PER FRAME. A gun drawn without hands is a real state -- the load
 	-- failed, or the asset was moderated away -- and it must be visible in `stats()` rather than in a
@@ -408,12 +413,43 @@ end
 function Viewmodel.clearHands(clone: BasePart)
 	for _, descendant in ipairs(clone:GetDescendants()) do
 		if descendant.Name == HandAssets.RIGHT or descendant.Name == HandAssets.LEFT then
-			ridersLocal[descendant :: any] = nil
 			descendant:Destroy()
 		end
 	end
 	handsOn = false
 	handsMissingCounted = false
+end
+
+-- BOTH HANDS, PLACED FROM THIS FRAME'S POSE (task 98), and this is the one site that places them.
+--
+-- WHY EVERY FRAME. Until task 98 a hand was posed once, when the clone was built, and carried along
+-- by the `PivotTo`. That had two costs: the glove sat in the carry's place even in the aimed view --
+-- one hand pose for the whole game -- and a number changed while a Studio session ran could not
+-- reach it, which is exactly what `tools/pose.py` exists to do. `Mode.handOffsetAt` answers the
+-- BLENDED pose, so the hands move with the gun through the raise, the aim and the break.
+--
+-- WHOSE FRAME EACH ONE IS MEASURED IN is the same rule as before and it is the whole reload
+-- question: the RIGHT hand holds the grip, which is part of the body, so it is placed from the gun's
+-- transform; the LEFT hand holds the forend, which is bolted to the barrels, so it is placed from
+-- the BARRELS' transform and swings down with them. With the gun shut the two transforms are equal,
+-- so a shut gun's hands are bit-for-bit where task 93 put them.
+function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mode.State, config)
+	local made = model
+	local clone = made and made.PrimaryPart
+	if clone == nil or config.FIRST_PERSON ~= true then
+		return -- the OFF branch draws no hands at all; `Viewmodel.hands` is what takes them off
+	end
+	local right = clone:FindFirstChild(HandAssets.RIGHT)
+	if right and right:IsA("BasePart") then
+		(right :: BasePart).CFrame = gunCFrame * Mode.handOffsetAt("right", state, config)
+	end
+	-- Walked rather than remembered, for the reason `clearHands` gives: the left hand's parent is the
+	-- barrels when the gun has them and the Handle when it does not.
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant.Name == HandAssets.LEFT and descendant:IsA("BasePart") then
+			(descendant :: BasePart).CFrame = barrelsCFrame * Mode.handOffsetAt("left", state, config)
+		end
+	end
 end
 
 local function build(handle: BasePart, config): Model
@@ -556,7 +592,11 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	-- a rebuild (the mesh arriving late, `Hardware.upgrade`) can change it mid-life.
 	local gun = camCFrame * Mode.viewmodelOffset(state, Viewmodel.sight(), config)
 	made:PivotTo(gun)
-	Viewmodel.hinge(gun, state, config)
+	-- THE BARRELS FIRST, THEN THE HANDS ON THEM (task 98): `hinge` answers with the transform the
+	-- barrel group ended up at -- the gun's own when there is nothing to hinge -- and the left hand
+	-- is placed from that, because it holds a forend that swings with them.
+	local barrels = Viewmodel.hinge(gun, state, config)
+	Viewmodel.poseHands(gun, barrels, state, config)
 end
 
 -- THE BREAK (task 96). Karen, 2026-09-27: the reload is a break action like the real gun, so the
@@ -568,7 +608,11 @@ end
 -- `BREAK_HINGE_STUDS` in the Handle's own frame, which is where the hinge pin is on the real gun.
 -- Their rest pose is read off the clone ONCE per build, so a mesh that arrives with its own offset
 -- still hinges about the right point.
-function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config)
+--
+-- IT ANSWERS WITH THE TRANSFORM THE BARREL GROUP ENDED UP AT (task 98) -- `gunCFrame` itself when
+-- the gun is one piece, or when there is no clone at all -- because the LEFT HAND is placed from it
+-- and `Viewmodel.poseHands` must not work that transform out a second time.
+function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config): CFrame
 	local made = model
 	local clone = made and made.PrimaryPart
 	-- FIRST PERSON ONLY, AND THE WHOLE DRAWN RELOAD WITH IT (round 2, finding 2). The gun wears its
@@ -588,7 +632,7 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config)
 	end
 	local barrels = clone and clone:FindFirstChild(BARRELS_NAME)
 	if not (barrels and barrels:IsA("BasePart")) then
-		return
+		return gunCFrame -- one piece: the barrels' frame IS the gun's frame
 	end
 	if barrelsLocal == nil then
 		barrelsLocal = clone.CFrame:ToObjectSpace((barrels :: BasePart).CFrame)
@@ -608,18 +652,14 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config)
 	-- the barrels are and not floating where the muzzle used to be. Placed from the same
 	-- transform, and shut that transform is identity -- so the bead is bit-for-bit where it was
 	-- and the shot line is untouched.
+	-- THE LEFT HAND WAS A RIDER TOO (task 93) AND IS NOT ANY MORE (task 98). It still swings with the
+	-- barrels -- it holds a forend that is bolted to them -- but it is placed by
+	-- `Viewmodel.poseHands` from the transform this function RETURNS, because its offset is now a
+	-- blended pose that changes every frame rather than a rest offset captured once off the clone. A
+	-- captured offset is exactly what could not follow a live tuning change. The bead's offset still
+	-- is captured once, and should be: it is bolted to the rib and never moves relative to it.
 	for _, descendant in ipairs(clone:GetDescendants()) do
-		if
-			descendant:IsA("BasePart")
-			and (
-				descendant.Name == MARKER_NAME
-				or descendant.Name == BEAD_NAME
-				-- THE LEFT HAND IS A RIDER TOO (task 93): it holds the forend, the forend is bolted
-				-- to the barrels, and both swing down together when the gun breaks. The RIGHT hand
-				-- is deliberately not here -- it holds the grip, which is part of the body.
-				or descendant.Name == HandAssets.LEFT
-			)
-		then
+		if descendant:IsA("BasePart") and (descendant.Name == MARKER_NAME or descendant.Name == BEAD_NAME) then
 			if ridersLocal[descendant] == nil then
 				ridersLocal[descendant] = clone.CFrame:ToObjectSpace(descendant.CFrame)
 			end
@@ -632,6 +672,7 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config)
 	if firstPerson then
 		Viewmodel.shells(swungGun, config)
 	end
+	return swungGun
 end
 
 -- THE SHELLS (task 96): spent ones pop out of the barrels that fired, fresh ones slide into the

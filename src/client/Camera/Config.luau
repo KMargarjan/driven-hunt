@@ -25,6 +25,10 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
+-- THE POSE DATA (task 98). `Viewmodel.view` turns `src/shared/Viewmodel/poses.json` into the
+-- flat names this file has always published, which is why there is still exactly one writer of
+-- every pose number and it is that file. See the block above the merge at the bottom.
+local Viewmodel = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 
 local Config = {
 	-- THE SWITCH (task 89, S1). ON: the eye, the carry pose below, no crosshair, no occlusion cast.
@@ -39,8 +43,9 @@ local Config = {
 	-- whole move in about a quarter of a second -- one swing, not a drift -- and drops the gun a
 	-- little quicker than it lifts it. The third-person branch keeps `AIM_BLEND_SECONDS` both ways,
 	-- which is what task 89 promised about the camera Karen accepted on 2026-09-25.
-	AIM_RAISE_SECONDS = 0.25,
-	AIM_LOWER_SECONDS = 0.20,
+	-- NOW DATA (task 98): `raise.raiseSeconds` and `raise.lowerSeconds` in
+	-- src/shared/Viewmodel/poses.json, which is also where the swing's optional MID KEYFRAMES
+	-- live (`raise.keyframes`, empty as seeded, which is this plain two-pose ease).
 
 	-- third-person framing
 	THIRD_DISTANCE_STUDS = 12.0,
@@ -111,8 +116,11 @@ local Config = {
 	-- up 11. What ships reads at about 28 degrees with the muzzle meeting the left edge two thirds
 	-- of the way down and the action at the bottom edge a third across -- panel A's own diagonal, and
 	-- round 1's was 37. The STOCK is out of the picture either way, which is what the picture shows.
-	CARRY_ON_SCREEN_DEG = 28, -- ASSERTED, NOT APPLIED: what the two poses above came out at.
-	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(-0.80, -0.95, -1.56),
+	-- A RECORD OF A MEASUREMENT, applied by nothing and asserted by nothing: what the carry pose
+	-- read on screen when it was solved. Task 97 re-solved it from the new video at 45 degrees on
+	-- 16:9, which is the pose task 98 seeded `poses.json` with; the live number moves whenever the
+	-- Director tunes the pose, so this says WHEN it was measured rather than what is true now.
+	CARRY_ON_SCREEN_DEG = 45, -- as seeded, 2026-10-01
 	-- Three named degrees rather than a CFrame literal, so there are three legible dials. Converted
 	-- to radians at ONE site, Mode.carryOffset -- the rule the Task 19 cone-unit defect bought.
 	-- POSITIVE yaw turns the muzzle in toward the screen centre from a RIGHT-hand offset (task 90):
@@ -125,9 +133,17 @@ local Config = {
 	-- barrel crossing the frame from the lower right of the action to the left edge, exactly panel
 	-- A's diagonal, with the muzzle leaving the frame at the left edge rather than stopping inside
 	-- it. `Mode.carryOffset` is still the ONE site that converts them to radians.
-	CARRY_PITCH_DEG = 2,
-	CARRY_YAW_DEG = 53,
-	CARRY_ROLL_DEG = -6, -- a touch of cant, so the rib and not the flat of the barrels faces the eye
+	-- NOW DATA (task 98): `carry.gun.pos` and `carry.gun.rot` in src/shared/Viewmodel/poses.json.
+	-- `VIEWMODEL_CARRY_POS_STUDS`, `CARRY_PITCH_DEG`, `CARRY_YAW_DEG` and `CARRY_ROLL_DEG` are
+	-- still published here, by `Viewmodel.view`, so every reader and every spec is unchanged.
+	--
+	-- WHAT THE SEEDED VALUES ARE AND WHERE THEY CAME FROM (task 97 round 2, commit 9393d1e --
+	-- the Director's pick as closest to Karen's target): position (-0.67, -0.57, -1.22), pitch
+	-- 23.9, yaw 45.7, roll -10. Solved from `TARGET-carry.jpg` in the 2026-10-01 reference video
+	-- by three readings -- the action at the bottom edge 31 % across, the muzzle leaving the LEFT
+	-- edge 40 % down, and the barrel pair about 8 % of the screen wide where it meets the bottom
+	-- -- then re-solved once against what actually rendered. The derivation is kept in
+	-- docs/research/2026-10-01-poses-as-data.md section 6; the VALUES are now tuned live.
 	-- The whole-gun break-open tilt. IT IS IN THE COMPOSITION FROM S1 AND NOTHING MOVES IT UNTIL
 	-- S4: `Mode.viewmodelOffset` multiplies by `openTilt * OPEN_TILT_DEG`, and `openTilt` is exactly
 	-- 0 in every state this build produces. The number lives here now so the composition is written
@@ -146,21 +162,22 @@ local Config = {
 	-- WHERE THE HINGE IS, in the Handle's own frame: the knuckle at the bottom front of the action.
 	-- The barrels are 0.62 of a 4.4-stud gun, so the breech face is 0.53 studs behind the Handle's
 	-- centre, and the pin sits just under the bore line.
-	BREAK_HINGE_STUDS = Vector3.new(0, -0.06, 0.50),
-	BREAK_OPEN_DEG = 35, -- a crisp break: the two chambers face the player
+	-- NOW DATA (task 98): `reload.hingeStuds` and `reload.openDeg` in
+	-- src/shared/Viewmodel/poses.json. Seeded with (0, -0.06, 0.50) and 35 degrees -- a crisp
+	-- break, with the two chambers facing the player.
 	-- WHERE THE GUN IS HELD WHILE IT IS OPEN, as a pose of its own rather than an offset on the
 	-- carry: in front of the player, low, and turned so the breech faces the eye. MEASURED -- added
 	-- to the carry, which already keeps the gun low and left with a third of it in frame, "down a
 	-- little" put the whole gun outside the picture.
-	BREAK_POSE_STUDS = Vector3.new(-0.27, -0.40, -1.72),
-	BREAK_POSE_PITCH_DEG = 8,
-	BREAK_POSE_YAW_DEG = 30,
-	BREAK_POSE_ROLL_DEG = -25,
+	-- NOW DATA (task 98): `reload.gun.pos` and `reload.gun.rot`, seeded with (-0.27, -0.40, -1.72)
+	-- and pitch 8, yaw 30, roll -25.
 	-- How long the drawn swing takes, each way. Both are shorter than the server's own break and
 	-- close steps (0.35 s and 0.30 s), so the motion is always finished before the state that
 	-- started it ends -- the gun is never caught half open when the shells arrive.
-	BREAK_OPEN_SECONDS = 0.22,
-	BREAK_CLOSE_SECONDS = 0.16,
+	-- NOW DATA (task 98): `reload.openSeconds` and `reload.closeSeconds`, seeded with 0.22 and
+	-- 0.16. BOTH MUST STAY SHORTER than the server's own break and close steps, which is a rule
+	-- about the game and not a taste: `tests/server/viewmodel_poses.spec.luau` asserts it against
+	-- `Shotgun.CONFIG.RELOAD_*`, so tuning them past it fails the harness.
 
 	-- THE SHELLS. Spent ones pop out of the barrels that fired; fresh ones slide in. Plain parts,
 	-- drawn by the viewmodel for one player, never replicated: red plastic with a brass base.
@@ -168,10 +185,11 @@ local Config = {
 	SHELL_BODY_COLOR = Color3.fromRGB(150, 32, 28),
 	SHELL_BASE_COLOR = Color3.fromRGB(196, 158, 82),
 	SHELL_BASE_FRACTION = 0.34, -- how much of the shell's length is brass
-	SHELL_EJECT_SECONDS = 0.35, -- up and back, then gone
-	SHELL_EJECT_RISE_STUDS = 0.18, -- measured: at 0.45 the shell flew clear across the frame
-	SHELL_FEED_SECONDS = 0.30, -- fresh shells sliding into the chambers
-	SHELL_FEED_FROM_STUDS = 0.40, -- how far behind the chamber they start
+	-- NOW DATA (task 98): `reload.shells` in src/shared/Viewmodel/poses.json -- `ejectSeconds`
+	-- 0.35 (up and back, then gone), `ejectRiseStuds` 0.18 (measured: at 0.45 the shell flew
+	-- clear across the frame), `feedSeconds` 0.30 and `feedFromStuds` 0.40 (how far behind the
+	-- chamber a fresh shell starts). The shells' SIZE and COLOURS stay here: they are the
+	-- geometry and the material of a part, not a pose.
 	-- ------------------------------------------------------ the hands (ON branch, task 93)
 	-- KAREN ASKED FOR THEM TWICE (PLAYTEST.md, 2026-09-27): "right hand grip and left hand pipes
 	-- like in real life", and again after S2. She made both gloves in her own Meshy account; the
@@ -202,14 +220,15 @@ local Config = {
 	-- the arithmetic says and the break screenshot showed. The palm sits 0.45 studs along the
 	-- fingers from the model's centre, so moving the centre in and up by that much moves the palm
 	-- onto the wrist of the stock.
-	HAND_RIGHT_POS_STUDS = Vector3.new(0.02, -0.02, 1.30),
+	-- NOW DATA (task 98), AND PER POSE: `carry.right`, `aim.right` and `reload.right` in
+	-- src/shared/Viewmodel/poses.json. All three are seeded with the SAME numbers -- position
+	-- (0.12, -0.12, 0.80), yaw 78, pitch 10, twist -15, from task 97 round 2 -- so the drawn gun
+	-- is bit-for-bit what it was while the capability to move a hand between poses now exists.
+	-- `HAND_RIGHT_*` still names the CARRY hand, which is what `Mode.rightHandOffset` answers.
 	-- Three named degrees, converted to radians at ONE site (`Mode.handOffset`) -- the rule the
 	-- Task 19 cone-unit defect bought. YAW swings the hand's long axis (wrist to fingertip)
 	-- horizontally, PITCH lifts or drops it, TWIST turns the hand about that axis -- which is the
 	-- one a hand actually has, and the one that decides whether the palm faces the wood or the sky.
-	HAND_RIGHT_YAW_DEG = 78,
-	HAND_RIGHT_PITCH_DEG = -6,
-	HAND_RIGHT_TWIST_DEG = -15,
 	-- MEASURED ON SCREEN, ROUND 2, AND IT MOVED FURTHEST. In the first build the left hand sat at
 	-- the bottom-left CORNER of the carry frame, clear of the barrels, and in the aimed view it was
 	-- a fist beside the tubes rather than a hand under them. The cause is arithmetic rather than
@@ -217,14 +236,12 @@ local Config = {
 	-- -- drifts 0.12 studs to the LEFT of wherever the centre is put, and the barrel pair is only
 	-- 0.18 studs wide. So the yaw comes in to 80 (the forearm still angles out to the left, which
 	-- is what a left hand does) and the centre moves right and up by what the drift costs.
-	HAND_LEFT_POS_STUDS = Vector3.new(0.08, -0.09, 0.09),
+	-- NOW DATA (task 98), AND PER POSE: `carry.left`, `aim.left` and `reload.left`, all seeded
+	-- with position (-0.02, -0.08, -0.85), yaw -80, pitch -4, twist 180 (task 97 round 2).
 	-- NEGATIVE YAW for the left hand, because its model runs the other way: the right hand's
 	-- fingertips are at its mesh +X and the left hand's at its -X (measured on each prepped model's
 	-- own bounds). TWIST 180 is what turns the palm UP, so the barrels lie in it rather than on the
 	-- back of the hand.
-	HAND_LEFT_YAW_DEG = -80,
-	HAND_LEFT_PITCH_DEG = -4,
-	HAND_LEFT_TWIST_DEG = 180,
 
 	-- ------------------------------------------------------ the bead sight (ON branch, task 90)
 	-- HOW FAR THE BEAD SITS FROM THE EYE when aiming. 3.5, AND IT IS MEASURED OFF KAREN'S OWN
@@ -257,7 +274,12 @@ local Config = {
 	-- t = 5.4 degrees and R = 3.27. At the old 3.5 and 5 the barrels stopped SHORT of the bottom edge
 	-- and the action filled the space below them -- measured on screen, which is the only place that
 	-- shows.
-	EYE_RELIEF_STUDS = 3.27,
+	-- NOW DATA (task 98): `aim.eyeReliefStuds`, seeded with 3.65 (task 97 round 2, commit
+	-- 9393d1e). The 3.27 above was task 95's; 3.65 is what brings the stock's wrist, the top tang
+	-- and the right hand's fingers in front of the camera, which is what `TARGET-aim.jpg` of the
+	-- 2026-10-01 video contains. MEASURED THE HARD WAY in task 97: at 4.15 the glove's CUFF
+	-- reached the lens and the aimed view carried a pale untextured blob across its lower left --
+	-- the INSIDE of the glove, because a MeshPart renders both of its faces.
 	-- THE CHEEK ON THE COMB (task 92, round 2). In Karen's own acceptance picture the eye is ABOVE
 	-- the rib, not level with it: you look down the TOP of the barrel, which tapers away to the bead,
 	-- and the action is a dark shape at the very bottom of the frame. Level with the rib -- which is
@@ -273,7 +295,10 @@ local Config = {
 	-- about the BEAD, so the sight line is untouched and everything behind the bead swings down --
 	-- an eye above the bore. 5.4 degrees is what puts the barrels' rear end exactly on the bottom
 	-- edge of the aiming field, which is where the picture has them leave the frame.
-	ADS_CHEEK_DEG = 5.4,
+	-- NOW DATA (task 98): `aim.cheekDeg`, seeded with 1.2 (task 97 round 2). The cheek angle
+	-- swings everything BEHIND the bead downward, and 5.4 degrees is a quarter of a stud of drop
+	-- at the breech -- which is what pushed the action and the stock off the bottom of the frame.
+	-- In the video you look very nearly ALONG the rib, which 1.2 degrees is.
 	-- HOW FAR OFF THE CENTRE OF THE SCREEN THE BEAD MAY BE, aimed and at rest. Roblox's field of
 	-- view is VERTICAL, so at 1920x1080 and FOV 50 this is 8 pixels: 50/1080 = 0.0463 degrees per
 	-- pixel. At 143 studs (40 m) it is 0.9 studs, against a boar 5.5 studs long and 3 tall. The
@@ -316,13 +341,18 @@ local Config = {
 	-- carries it at metalness 0.70 / roughness 0.35) blew out to near-white in the aimed view, which
 	-- trades one unreadable gun for another. At 1.0 the barrels and the rib keep their highlight and
 	-- the walnut still reads as walnut.
-	VIEWMODEL_FILL_BRIGHTNESS = 1.0,
+	-- 0.8 AND MOVED FORWARD SINCE TASK 97, and the screenshot is why: the aimed view now contains
+	-- the action and the stock, and the light sat 0.9 studs BEHIND the gun's centre -- i.e. inside
+	-- them, inches from the lens -- so the stock's left flank rendered as a blown-out white patch.
+	-- The same mistake as a lamp inside the lampshade; the fix is to put it in front of what it is
+	-- meant to light. IT STAYS HERE AND IS NOT POSE DATA: it is a light, not a pose.
+	VIEWMODEL_FILL_BRIGHTNESS = 0.8,
 	VIEWMODEL_FILL_RANGE_STUDS = 6,
 	VIEWMODEL_FILL_COLOR = Color3.fromRGB(255, 244, 224),
 	-- Where the light sits relative to the gun's own pivot: up and to the left of the breech, so the
 	-- barrels and the rib catch a highlight along their length and the wood behind them is lifted out
 	-- of black. Camera space would move with the pose; the gun's own frame does not.
-	VIEWMODEL_FILL_OFFSET_STUDS = Vector3.new(-0.6, 0.8, 0.9),
+	VIEWMODEL_FILL_OFFSET_STUDS = Vector3.new(-0.45, 0.60, -0.80),
 
 	-- ------------------------------------------------------ recoil (task 92)
 	-- Karen, after playing S2: "shooting has to have recoil a bit" -- "a bit" is the whole brief, so
@@ -335,19 +365,23 @@ local Config = {
 	-- (velocity first, then position), which is stable at this frequency for any frame time a player
 	-- will see; `tests/server/camera_mode.spec.luau` drives it at 240, 60 and 20 fps and asserts the
 	-- same settle.
-	RECOIL_FREQUENCY_HZ = 3.6, -- omega = 2*pi*f = 22.6 rad/s, so it is home in about a third of a second
-	RECOIL_DAMPING_RATIO = 1.0, -- exactly critical: the one value with no overshoot and no wobble
+	-- NOW DATA (task 98): `fire` in src/shared/Viewmodel/poses.json. `frequencyHz` 3.6 (omega =
+	-- 2*pi*f = 22.6 rad/s, home in about a third of a second) and `dampingRatio` 1.0 -- exactly
+	-- critical, the one value with no overshoot and no wobble.
+	--
+	-- THE KICK IS A SPRING AND NOT A KEYFRAME LIST, deliberately, and it is the one place task 98
+	-- did not do what its brief said. A keyframed recoil would replace the critically-damped
+	-- spring whose behaviour `tests/server/camera_mode.spec.luau` rests on -- no overshoot, the
+	-- same settle at 240, 60 and 20 fps, and a return to EXACTLY the aim point -- and the brief's
+	-- own rule is that today's behaviour is preserved. So the spring's amplitudes, its frequency,
+	-- its damping and its ceilings are the data, which is every dial the feel has.
 	-- THE KICK ITSELF, per shot. The gun rises and comes back (in its own frame, so it follows the
 	-- pose), and the camera lifts a fraction of what the gun does -- a shotgun shoves the shoulder,
 	-- it does not throw the head.
-	RECOIL_GUN_PITCH_DEG = 4.0,
-	RECOIL_GUN_BACK_STUDS = 0.14,
-	RECOIL_CAM_PITCH_DEG = 1.1,
+	-- `fire.gunPitchDeg` 4.0, `fire.gunBackStuds` 0.14, `fire.camPitchDeg` 1.1.
 	-- A CEILING, because two barrels can be fired a tenth of a second apart and the offsets add.
 	-- Without it a doublet would throw the view off the animal, which is not "a bit".
-	RECOIL_MAX_GUN_PITCH_DEG = 7.0,
-	RECOIL_MAX_GUN_BACK_STUDS = 0.25,
-	RECOIL_MAX_CAM_PITCH_DEG = 2.0,
+	-- `fire.maxGunPitchDeg` 7.0, `fire.maxGunBackStuds` 0.25, `fire.maxCamPitchDeg` 2.0.
 	-- Below this the spring is snapped to exact zero, so "settled" is a value and not an asymptote --
 	-- the spec can assert the aim point is bit-for-bit what it was before the shot.
 	RECOIL_REST_EPSILON = 1e-4,
@@ -379,5 +413,23 @@ local Config = {
 	CURSOR_LOCKED_DEFAULT = true, -- MouseBehavior = LockCenter when no requestFree tag is out
 	FREE_CURSOR_ON_DEATH = false, -- v1 has no death UI; the hook exists
 }
+
+-- EVERY POSE NUMBER, FROM `poses.json`, AND THIS IS THE WHOLE OF "ONE SOURCE" (task 98).
+--
+-- The rows above that say NOW DATA are gone from this file as literals; the NAMES they used to
+-- define are written here instead, computed by `Viewmodel.view` out of
+-- `src/shared/Viewmodel/poses.json`. So a pose number cannot be in two places and disagree:
+-- there is one file, one function that reads it, and -- while a Studio session is being tuned --
+-- `Camera.Poses`, which calls that same function on the same data with the live override applied.
+--
+-- IT ASSERTS rather than warning, because a name that is missing or doubled is not survivable:
+-- `Mode.carryOffset` would hand `CFrame.new(nil)` to the engine and the gun would be drawn
+-- nowhere, with the one line that said why lost in a Play console.
+-- `tests/server/viewmodel_poses.spec.luau` checks the shape of the file itself, so this only
+-- ever fires for a `view` that forgot a name or a literal that came back.
+for key, value in pairs(Viewmodel.view(Viewmodel.DATA)) do
+	assert(Config[key] == nil, "Camera.Config already defines " .. key .. "; poses.json is the one source")
+	Config[key] = value
+end
 
 return table.freeze(Config)

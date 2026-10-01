@@ -1622,6 +1622,59 @@ return function()
 		end)
 	end)
 
+	-- THE LIVE POSE OVERRIDE (task 98). The merge, every refusal and the view are proved on the
+	-- server (tests/server/viewmodel_poses.spec.luau); what only a CLIENT can show is the half this
+	-- whole task exists for -- that a number written into the attribute while the game runs reaches
+	-- the gun that is actually drawn, on the next frame, with no commit and no rebuild.
+	describe("the live pose override", function()
+		it("moves the drawn gun, and is put back", function()
+			local folder = ReplicatedStorage:WaitForChild("Viewmodel")
+			local before = folder:GetAttribute("DHPose")
+			-- THE ATTRIBUTE IS SET LOCALLY, which is enough and is the honest test: a client write
+			-- does not replicate, and what is being asserted is that THIS client's camera reads it.
+			-- `tools/pose.py` writes it on the server, where it reaches every client the same way.
+			folder:SetAttribute("DHPose", '{"aim.eyeReliefStuds": 9.5}')
+			local ok, err = pcall(function()
+				local resolved = Camera.Poses.config(firstPersonConfig)
+				expect(resolved).never.to.equal(firstPersonConfig)
+				expect(resolved.EYE_RELIEF_STUDS).to.equal(9.5)
+				-- AND THE DRAWN GUN FOLLOWS IT. Both poses come out of the public
+				-- `Viewmodel.update`, on the real camera, so this is the Instance moving and not
+				-- arithmetic agreeing with itself.
+				local at = CFrame.new(0, 14, 0)
+				Camera.Viewmodel.clear()
+				Camera.Viewmodel.setReload(nil)
+				Camera.Viewmodel.update(at, stateAtBlend(1), firstPersonConfig)
+				local model = Camera.Viewmodel.current()
+				if model == nil then
+					-- No gun in this client (a driver carries none), so there is nothing to move.
+					-- Said as a note rather than passed silently: the claim above still stands.
+					TestKit.note("task98 live override: no viewmodel on this client, pose not measured")
+					return
+				end
+				local plain = ((model :: Model).PrimaryPart :: BasePart).CFrame
+				Camera.Viewmodel.update(at, stateAtBlend(1), resolved)
+				local moved = ((model :: Model).PrimaryPart :: BasePart).CFrame
+				TestKit.note(
+					string.format(
+						"task98 live override moved the drawn gun %.3f studs (relief %.2f -> 9.50)",
+						(moved.Position - plain.Position).Magnitude,
+						firstPersonConfig.EYE_RELIEF_STUDS
+					)
+				)
+				expect((moved.Position - plain.Position).Magnitude > 1.0).to.equal(true)
+			end)
+			-- PUT BACK WHATEVER WAS THERE, on every path: an override left set would fail the next
+			-- harness run's own guard, which is exactly the trap this test would otherwise lay.
+			folder:SetAttribute("DHPose", before)
+			Camera.Viewmodel.clear()
+			if not ok then
+				error(err, 0)
+			end
+			expect(folder:GetAttribute("DHPose")).to.equal(before)
+		end)
+	end)
+
 	-- LAST IN THE FILE, and that is the point: it asserts that exactly one of the two live branch
 	-- blocks was built. Both would mean the flag is two things at once; neither would mean a build
 	-- whose camera nothing live tested -- and a guard that returns early inside an `it` would report

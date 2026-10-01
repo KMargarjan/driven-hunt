@@ -103,6 +103,12 @@ What `test` checks, in order (each is one "ok"/"FAIL" line)
        *.meta.json      properties and attributes of the instance; "ignoreUnknownInstances" is refused
        default.project.json  structure (instance checks); $properties/$attributes are refused
        nested *.project.json refused, except third-party ones under DevPackages/
+       *.json           a Rojo JSON MODULE: a ModuleScript whose Source Rojo GENERATES from the
+                        file, so it is compared by requiring a parentless clone in Studio,
+                        JSON-encoding what it returns and comparing that STRUCTURE with the file
+                        (numbers to a relative 1e-9, because the value makes two round trips
+                        through two JSON encoders). Added for src/shared/Viewmodel/poses.json
+                        (Task 98); before it, a .json file failed as "cannot compare"
        *.rbxm / *.rbxmx BANNED: binary, unreviewable in a PR, cannot be compared
        anything else    "cannot compare" -> FAIL, never skipped
      Properties/attributes are compared when their JSON value is a plain string/number/bool (attributes
@@ -455,6 +461,23 @@ Feature flags, and the two checks they add (Task 52)
   line is the ordinary FAIL line, exit 1 -- not exit 2, which means "Studio not in Edit mode" and
   keeps that single meaning.
 
+The live POSE override, and the two checks it adds (Task 98)
+  The viewmodel's pose numbers are data (src/shared/Viewmodel/poses.json) and the Director tunes
+  them inside a RUNNING Studio session with `tools/pose.py`, which writes one JSON string into the
+  attribute `DHPose` on ReplicatedStorage.Viewmodel. `Camera.Poses` reads it every frame, in
+  Studio only, so a changed number is on screen on the next frame instead of after a commit.
+  THE TOOL IS `tools/pose.py` AND IT OWNS THAT ATTRIBUTE. This file holds the Luau those writes
+  are made with -- every query in this file, templated with JSON and never arbitrary -- and the
+  GUARD, which is this harness's own business:
+    "No pose override is set"                  -- before the token is written and before Play
+    "No pose override appeared during the run" -- in verdict(), beside "HEAD unchanged"
+  It REFUSES rather than clearing, for the reason the flag guard does: a run made against tuned
+  numbers is not evidence for the reviewed ones, and silently resetting them would destroy a
+  tuning session and hide that the run was almost made against the wrong build. It reads the EDIT
+  DataModel, which is where an override would have to be to survive into a `test`: a write into a
+  Play process dies with that process, and `tools/pose.py set` refuses Edit mode for exactly
+  that reason. The failure prints `python tools/pose.py clear`.
+
 Screenshots as evidence (Task 7)
   `capture <name> [camera x,y,z] [look-at x,y,z] [role]` saves StudioMCP's screen_capture image to
   .screenshots/<UTC stamp>-<name>.png (git-ignored) and prints the path. Studio._call keeps text blocks
@@ -479,6 +502,8 @@ Safety
   Flags.NAME_PATTERN and a boolean value -- the DHFlag_* attributes on ServerStorage. That last one is
   the same kind of write QUERY_SET_TOKEN and QUERY_SET_CLIENTS_DONE already are.
   Its Luau is read-only otherwise: constant queries, or queries templated with JSON data (QUERY_*).
+  The pose override's own writes (QUERY_SET_POSE) are made by tools/pose.py through this file's
+  transport, with the JSON text passed as a string literal -- the same shape as QUERY_SET_FLAG.
   There is no command for arbitrary Luau or arbitrary MCP tools. The input replay sends only what the
   scenario file lists, and only into the Play session this harness started.
 """
@@ -718,6 +743,156 @@ QUERY_FLAG_OVERRIDES = (
     '  if string.sub(name, 1, 7) == "DHFlag_" then out[#out + 1] = name .. "=" .. tostring(value) end '
     "end table.sort(out) return table.concat(out, \",\")"
 )
+
+# A JSON MODULE'S OWN TABLE (Task 98). Read-only, and templated only with JSON.
+#
+# Rojo turns a plain `foo.json` into a ModuleScript that RETURNS the decoded table (measured with
+# `rojo sourcemap --include-non-scripts` on 2026-10-01: src/shared/Viewmodel/poses.json comes out as
+# ReplicatedStorage.Viewmodel.poses, className ModuleScript). Its Source is generated, so it cannot
+# be compared with the file byte-for-byte the way a .luau file is -- which is why a .json file used
+# to fail check 4 as "cannot compare (unsupported file type)". What CAN be compared is the value:
+# require it and encode it, and compare the structure with the file's own.
+#
+# A PARENTLESS CLONE, for the reason FRESH_FLAGS gives below: `require` caches per ModuleScript
+# INSTANCE and Rojo rewrites the SOURCE of the same instance, so in a long-lived Edit-mode MCP
+# context the first require of a session is what every later one answers. Comparing a stale require
+# against the file would be the harness certifying its own blind spot.
+QUERY_JSON_MODULES = """
+local HttpService = game:GetService("HttpService")
+local wanted = HttpService:JSONDecode(%s)
+local out = {}
+for index, path in wanted do
+    local inst = game
+    for _, name in path do
+        inst = if inst then inst:FindFirstChild(name) else nil
+    end
+    if inst == nil then
+        out[index] = { error = "missing in Studio" }
+    elseif not inst:IsA("ModuleScript") then
+        out[index] = { error = "is a " .. inst.ClassName .. ", not a ModuleScript" }
+    else
+        local clone = inst:Clone()
+        local loaded, value = pcall(function()
+            return require(clone)
+        end)
+        clone:Destroy()
+        if not loaded then
+            out[index] = { error = "require failed: " .. tostring(value) }
+        else
+            local encoded, text = pcall(function()
+                return HttpService:JSONEncode(value)
+            end)
+            out[index] = if encoded then { json = text } else { error = "encode failed: " .. tostring(text) }
+        end
+    end
+end
+return HttpService:JSONEncode(out)
+"""
+
+# THE LIVE POSE OVERRIDE (Task 98). One attribute, one JSON string, on ReplicatedStorage.Viewmodel.
+#
+# WHY ONE ATTRIBUTE AND NOT ONE PER NUMBER: a Roblox attribute name cannot contain a dot, so
+# `aim.cheekDeg` could not be one, and clearing a tuning session has to be a single write or a
+# half-cleared override is a build nobody can name. WHY ON ReplicatedStorage AND NOT ServerStorage,
+# which is where the flag overrides live: this one has to reach the CLIENT, which is what draws the
+# gun, and ReplicatedStorage attributes replicate.
+QUERY_POSE_OVERRIDE = """
+local folder = game:GetService("ReplicatedStorage"):FindFirstChild("Viewmodel")
+local value = if folder then folder:GetAttribute("DHPose") else nil
+return if type(value) == "string" then value else ""
+"""
+
+# Set or clear it. The JSON text is passed as a Luau STRING LITERAL built by json.dumps, so this
+# sends no arbitrary Luau -- the same shape as QUERY_SET_FLAG and QUERY_SET_CLIENTS_DONE. An empty
+# string clears the attribute, so "clear" is this same query and not a second one.
+QUERY_SET_POSE = """
+local HttpService = game:GetService("HttpService")
+local folder = game:GetService("ReplicatedStorage"):FindFirstChild("Viewmodel")
+if folder == nil then
+    return HttpService:JSONEncode({ error = "no ReplicatedStorage.Viewmodel -- is Rojo connected?" })
+end
+local text = %s
+if text == "" then
+    folder:SetAttribute("DHPose", nil)
+else
+    folder:SetAttribute("DHPose", text)
+end
+local now = folder:GetAttribute("DHPose")
+return HttpService:JSONEncode({ set = if type(now) == "string" then now else "" })
+"""
+
+# WHERE THE DRAWN GUN ACTUALLY IS ON SCREEN (Task 98), read out of a RUNNING client. Read-only and
+# constant: it projects parts the viewmodel owner has already placed and measures nothing else.
+#
+# IT IS THE MEASUREMENT HALF OF `tools/pose.py compare`, and it exists because a screenshot beside a
+# video frame is a judgement and three numbers are not: where the bead sits (per cent of the screen),
+# how wide the gun is where it crosses the bottom edge, and where each hand is. Rule 5 still applies
+# -- the picture is looked at -- but the numbers are what a later round can be held to.
+QUERY_POSE_LANDMARKS = """
+local HttpService = game:GetService("HttpService")
+local camera = game:GetService("Workspace").CurrentCamera
+if camera == nil then
+    return HttpService:JSONEncode({ error = "no CurrentCamera in this process" })
+end
+local made = camera:FindFirstChild("DrivenHuntViewmodel")
+if made == nil then
+    return HttpService:JSONEncode({ error = "no viewmodel under the camera (first person on? player alive?)" })
+end
+local size = camera.ViewportSize
+local function screen(position)
+    local point, visible = camera:WorldToViewportPoint(position)
+    return { x = point.X / size.X, y = point.Y / size.Y, studs = point.Z, onScreen = visible }
+end
+local out = { viewport = { x = size.X, y = size.Y }, parts = {} }
+local bead, barrels = nil, nil
+for _, found in made:GetDescendants() do
+    if found:IsA("BasePart") then
+        if found.Name == "SightBead" or found.Name == "Bead" then
+            bead = bead or found
+        elseif found.Name == "Barrels" then
+            barrels = found
+        elseif found.Name == "HandRight" or found.Name == "HandLeft" then
+            out.parts[found.Name] = screen(found.Position)
+        end
+    end
+end
+if bead then
+    out.parts.Bead = screen(bead.Position)
+end
+-- THE GUN'S WIDTH WHERE IT MEETS THE BOTTOM EDGE, which is one of the three readings the carry pose
+-- was solved from. Measured off the eight corners of the barrel group (the Handle when the gun is
+-- one piece): the full silhouette's width always, and the width of just the corners inside the
+-- bottom band when any of them is there -- said as a count, so "no corner reaches the bottom edge"
+-- is a fact in the answer rather than a zero that looks like a measurement.
+local piece = barrels or made.PrimaryPart
+if piece then
+    local half = piece.Size / 2
+    local left, right, top, bottom = 1e9, -1e9, 1e9, -1e9
+    local bandLeft, bandRight, inBand = 1e9, -1e9, 0
+    for _, sx in { -1, 1 } do
+        for _, sy in { -1, 1 } do
+            for _, sz in { -1, 1 } do
+                local corner = piece.CFrame * Vector3.new(half.X * sx, half.Y * sy, half.Z * sz)
+                local point = screen(corner)
+                left, right = math.min(left, point.x), math.max(right, point.x)
+                top, bottom = math.min(top, point.y), math.max(bottom, point.y)
+                if point.y >= 0.85 then
+                    inBand += 1
+                    bandLeft, bandRight = math.min(bandLeft, point.x), math.max(bandRight, point.x)
+                end
+            end
+        end
+    end
+    out.gun = {
+        piece = piece.Name,
+        silhouetteWidth = right - left,
+        box = { left = left, right = right, top = top, bottom = bottom },
+        cornersInBottomBand = inBand,
+        bottomEdgeWidth = if inBand > 0 then bandRight - bandLeft else -1,
+    }
+end
+return HttpService:JSONEncode(out)
+"""
 
 # A FRESH COPY OF THE FLAGS MODULE, EVERY CALL, AND IT IS THE WHOLE OF TASK 78.
 #
@@ -1440,6 +1615,53 @@ def same_value(expected, got, float32=False):
     return isinstance(expected, str) and str(got["v"]) == expected
 
 
+def same_json(expected, got, where=""):
+    """Differences between two decoded JSON values, as a list of strings (empty = the same).
+
+    STRUCTURAL, NOT TEXTUAL, and numeric to a RELATIVE 1e-9. A JSON module's value makes two round
+    trips through two different encoders -- Rojo's Luau generator and HttpService:JSONEncode -- so
+    comparing the text would compare their formatting rather than the data, and comparing floats
+    exactly would rest on both printing a decimal the same way. 1e-9 relative is far tighter than any
+    pose number means (the smallest is 0.02 studs, and a tenth of a thousandth of that is nothing a
+    screen could show) and far looser than a decimal round trip.
+    """
+    out = []
+    if isinstance(expected, dict):
+        if not isinstance(got, dict):
+            return [f"{where or 'value'}: Studio has {type(got).__name__}, the file has an object"]
+        for key in sorted(set(expected) | set(got)):
+            at = f"{where}.{key}" if where else key
+            if key not in expected:
+                out.append(f"{at}: in Studio only")
+            elif key not in got:
+                out.append(f"{at}: in the file only")
+            else:
+                out += same_json(expected[key], got[key], at)
+        return out
+    if isinstance(expected, list):
+        if not isinstance(got, list):
+            return [f"{where or 'value'}: Studio has {type(got).__name__}, the file has an array"]
+        if len(expected) != len(got):
+            return [f"{where or 'value'}: {len(got)} entries in Studio, {len(expected)} in the file"]
+        for index, (a, b) in enumerate(zip(expected, got), start=1):
+            out += same_json(a, b, f"{where}.{index}" if where else str(index))
+        return out
+    if isinstance(expected, bool) or isinstance(got, bool):
+        # Before the number branch: in Python True == 1, and a bool where a number belongs is a
+        # difference worth naming rather than quietly accepting.
+        if expected is not got:
+            return [f"{where or 'value'}: {got!r} in Studio, {expected!r} in the file"]
+        return out
+    if isinstance(expected, (int, float)) and isinstance(got, (int, float)):
+        scale = max(abs(float(expected)), abs(float(got)), 1.0)
+        if abs(float(expected) - float(got)) > 1e-9 * scale:
+            return [f"{where or 'value'}: {got!r} in Studio, {expected!r} in the file"]
+        return out
+    if expected != got:
+        return [f"{where or 'value'}: {got!r} in Studio, {expected!r} in the file"]
+    return out
+
+
 def expectations_for(path, files, problems):
     """Turn one node's files into [(path, spec)] comparison requests; problems collects refusals."""
     requests = []
@@ -1477,6 +1699,10 @@ def expectations_for(path, files, problems):
                 for child in model.get("children", model.get("Children", [])):
                     walk_model(child, mpath + [child.get("name", child.get("Name"))])
             walk_model(json.loads(read_disk(rel)), path)
+        elif low.endswith(".json"):
+            # A Rojo JSON MODULE (Task 98). Last of the .json branches on purpose: .project.json,
+            # .meta.json and .model.json are each a different thing and are matched above.
+            requests.append((path, {"kind": "json", "file": rel}))
         else:
             problems.append(f"{name}: cannot compare {rel} (unsupported file type; add a comparison)")
     return requests
@@ -1513,6 +1739,35 @@ def compare_synced(studio, nodes):
     remote = []
     for i in range(0, len(wanted), 8):
         remote += fetch(wanted[i:i + 8])
+
+    # THE JSON MODULES, IN THEIR OWN QUERY (Task 98). They are asked separately because the
+    # answer is a required VALUE rather than a property read, and because keeping it out of the
+    # batched node query leaves that query -- the one every file in the repo goes through -- 
+    # exactly as it was.
+    json_requests = [(p, s) for p, s in requests if s["kind"] == "json"]
+    json_answers = []
+    if json_requests:
+        raw = studio.query("Edit", QUERY_JSON_MODULES % luau_json([list(p) for p, _ in json_requests]))
+        try:
+            json_answers = json.loads(raw)
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Studio did not answer the JSON-module query with JSON: {str(raw)[:200]!r}")
+        if len(json_answers) != len(json_requests):
+            raise RuntimeError(f"Studio answered {len(json_answers)} of {len(json_requests)} JSON modules")
+    for (jpath, jspec), answer in zip(json_requests, json_answers):
+        jname = ".".join(jpath)
+        if not isinstance(answer, dict) or answer.get("error"):
+            problems.append(f"{jname}: {jspec['file']} could not be read in Studio: "
+                            f"{(answer or {}).get('error') if isinstance(answer, dict) else answer!r}")
+            continue
+        try:
+            in_studio = json.loads(answer["json"])
+        except (json.JSONDecodeError, TypeError, KeyError) as why:
+            problems.append(f"{jname}: Studio's answer for {jspec['file']} was not JSON ({why})")
+            continue
+        on_disk = json.loads(read_disk(jspec["file"]))
+        for difference in same_json(on_disk, in_studio)[:10]:
+            problems.append(f"{jname}: {jspec['file']} differs -- {difference}")
 
     if len(remote) != len(requests):
         raise RuntimeError(f"Studio answered {len(remote)} of {len(requests)} node queries")
@@ -1584,6 +1839,35 @@ def check_no_flag_override(studio, check, label):
         print(f"[{label}] a flag override is active, so this run would NOT be testing the reviewed "
               "build. Clear it first:")
         print("[%s]   python tools/flags.py clear" % label)
+    return ok
+
+
+def pose_override(studio, studio_id=None):
+    """The live pose override's JSON text in the EDIT DataModel, or "" when there is none.
+
+    Read-only. EDIT, because that is the only DataModel an override could survive into a `test`
+    from: a write into a Play process dies with that process, and `tools/pose.py set` refuses Edit
+    mode outright (the camera reads the attribute every frame, so a write that nothing is rendering
+    is a lie about what was tuned). So this check can only ever trip on an attribute something put
+    into the editor's own tree -- which is exactly the one that would be SAVED WITH THE PLACE and
+    published (TASKS.md row 2 lists the flag attributes for the same reason)."""
+    return studio.query("Edit", QUERY_POSE_OVERRIDE, studio_id=studio_id).strip()
+
+
+def check_no_pose_override(studio, check, label):
+    """The pose guard, identical in both modes (Task 98), and the same rule as the flag one.
+
+    A run made while the viewmodel's numbers are overridden is a run against a build nobody
+    reviewed, reported as if it were the reviewed one. REFUSE, do not reset: clearing the Director's
+    tuning session mid-run destroys it and hides that the run was almost made against the wrong
+    numbers."""
+    raw = pose_override(studio)
+    ok = check("No pose override is set", not raw,
+               raw[:160] if raw else "ReplicatedStorage.Viewmodel has no DHPose attribute")
+    if not ok:
+        print(f"[{label}] a pose override is active in the EDIT place, so this run would NOT be "
+              "testing the reviewed numbers. Clear it first:")
+        print("[%s]   python tools/pose.py clear" % label)
     return ok
 
 
@@ -1939,6 +2223,10 @@ def run_test(studio):
         # means the second half of it was not testing what the first half was.
         late = flag_overrides(studio)
         check("No flag override appeared during the run", not late, ", ".join(late))
+        # The same re-read for the pose numbers (Task 98): an override set while the run was in
+        # flight means its second half was drawing a gun its first half was not.
+        late_pose = pose_override(studio)
+        check("No pose override appeared during the run", not late_pose, late_pose[:160])
         dirty = dirty_start or dirty_end
         passed = all(checks) and code is None
         tree = "clean tree" if not dirty else f"DIRTY TREE ({len(set(dirty_start + dirty_end))} paths) - NOT valid evidence"
@@ -1968,6 +2256,8 @@ def run_test(studio):
     # BEFORE the token is written and before Play: a run against an overridden flag set is not
     # evidence for the reviewed build (docs/design/feature-flags.md section 7.1).
     if not check_no_flag_override(studio, check, "harness"):
+        return verdict()
+    if not check_no_pose_override(studio, check, "harness"):
         return verdict()
 
     scenarios = load_scenarios()
@@ -2386,6 +2676,11 @@ def run_test2(studio, wait_seconds=180):
                                  timeout=10, default=None)
         check("No flag override appeared during the run", late == [],
               ", ".join(late) if late else (why or ""))
+        # The pose numbers, read the same guarded way and for the same reason (Task 98).
+        late_pose, pose_why = process_call(
+            lambda: pose_override(studio, studio_id=studio.default_studio_id), timeout=10, default=None)
+        check("No pose override appeared during the run", late_pose == "",
+              (late_pose or "")[:160] or (pose_why or ""))
         dirty = dirty_start or dirty_end
         passed = all(checks) and code is None
         tree = "clean tree" if not dirty else f"DIRTY TREE ({len(set(dirty_start + dirty_end))} paths) - NOT valid evidence"
@@ -2426,6 +2721,8 @@ def run_test2(studio, wait_seconds=180):
     # BEFORE the disk token is written and cleared, and therefore before Karen's click: refusing
     # after the click would waste the one human step in this mode.
     if not check_no_flag_override(studio, check, "harness2"):
+        return verdict()
+    if not check_no_pose_override(studio, check, "harness2"):
         return verdict()
 
     scenarios = load_scenarios()
@@ -3034,6 +3331,95 @@ def selftest():
     ok("every Flags query reports failure as JSON, never as a bare string",
        "JSONEncode({ error" in FRESH_FLAGS and 'return "' not in flag_queries,
        repr([line for line in flag_queries.splitlines() if 'return "' in line]))
+
+    # 9b2. THE JSON-MODULE COMPARISON AND THE POSE GUARD (Task 98), both offline.
+    #
+    # WHY THEY ARE HERE. `src/shared/Viewmodel/poses.json` is the first file in this repo that Rojo
+    # syncs as a JSON module, and before Task 98 check 4 failed it as "cannot compare". The
+    # comparison it got is structural with a numeric tolerance, which is exactly the kind of rule
+    # that can be wrong in a way a passing run never shows -- so every branch of it is driven here.
+    SAME = json.loads('{"a": 1, "b": [1, 2, {"c": 0.25}], "d": "x", "e": true}')
+    ok("  same_json passes identical values", same_json(SAME, json.loads(json.dumps(SAME))) == [],
+       repr(same_json(SAME, json.loads(json.dumps(SAME)))))
+    # A decimal that two encoders print differently is NOT a difference...
+    ok("  a 1e-12 relative difference passes (two JSON round trips)",
+       same_json({"a": 0.25}, {"a": 0.25 + 2.5e-13}) == [], repr(same_json({"a": 0.25}, {"a": 0.25 + 2.5e-13})))
+    # ...and a real change IS, however small it would look in a file.
+    ok("  a 1e-6 difference fails", len(same_json({"a": 0.25}, {"a": 0.250001})) == 1,
+       repr(same_json({"a": 0.25}, {"a": 0.250001})))
+    ok("  a key only in the file fails", same_json({"a": 1, "b": 2}, {"a": 1}) == ["b: in the file only"],
+       repr(same_json({"a": 1, "b": 2}, {"a": 1})))
+    ok("  a key only in Studio fails", same_json({"a": 1}, {"a": 1, "b": 2}) == ["b: in Studio only"],
+       repr(same_json({"a": 1}, {"a": 1, "b": 2})))
+    ok("  a longer array fails", len(same_json({"k": [1]}, {"k": [1, 2]})) == 1,
+       repr(same_json({"k": [1]}, {"k": [1, 2]})))
+    ok("  a nested change is named by its path",
+       same_json({"a": {"b": {"c": 1}}}, {"a": {"b": {"c": 2}}})[0].startswith("a.b.c:"),
+       repr(same_json({"a": {"b": {"c": 1}}}, {"a": {"b": {"c": 2}}})))
+    # true where 1 belongs is a difference, not a pass: in Python True == 1.
+    ok("  a bool where a number belongs fails", len(same_json({"a": 1}, {"a": True})) == 1,
+       repr(same_json({"a": 1}, {"a": True})))
+    ok("  an object where an array belongs fails", len(same_json([1], {"0": 1})) == 1,
+       repr(same_json([1], {"0": 1})))
+    # AND THE FILE THIS WAS WRITTEN FOR really is a JSON module with a comparison, rather than a
+    # file that happens to be ignored: `expectations_for` must ask for one.
+    pose_problems = []
+    pose_requests = expectations_for(["ReplicatedStorage", "Viewmodel", "poses"],
+                                     ["src/shared/Viewmodel/poses.json"], pose_problems)
+    ok("  poses.json asks for a json comparison, not a refusal",
+       pose_problems == [] and [s["kind"] for _, s in pose_requests] == ["json"],
+       f"{pose_problems} / {[s['kind'] for _, s in pose_requests]}")
+    # The .json shapes that are NOT modules still go where they went: a `.model.json` is an instance
+    # tree and `default.project.json` is the project, and neither may be swallowed by the new branch.
+    shaped = []
+    got = expectations_for(["X"], ["src/shared/Flags/State.model.json"], shaped)
+    ok("  a .model.json is still compared as props",
+       shaped == [] and set(s["kind"] for _, s in got) == {"props"},
+       f"{shaped} / {[s['kind'] for _, s in got]}")
+    shaped = []
+    expectations_for(["X"], ["default.project.json"], shaped)
+    ok("  default.project.json is still neither compared nor refused here", shaped == [], repr(shaped))
+    shaped = []
+    expectations_for(["X"], ["src/nested.project.json"], shaped)
+    ok("  a nested project file is still refused", len(shaped) == 1 and "not supported" in shaped[0],
+       repr(shaped))
+
+    class PoseStudio:
+        """The smallest thing the pose guard needs, answering whatever this case wants."""
+
+        def __init__(self, answer):
+            self.answer = answer
+            self.default_studio_id = None
+
+        def query(self, datamodel, code, studio_id=None):
+            return self.answer
+
+    def pose_guard_says(answer):
+        results = []
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            passed = check_no_pose_override(PoseStudio(answer),
+                                            lambda name, good, detail="": results.append(good) or good,
+                                            "harness")
+        return passed, buffer.getvalue()
+
+    # THE GUARD MUST FAIL THE RUN, not warn: a run made against tuned numbers is not evidence for
+    # the reviewed ones (the lesson of Task 75 -- a guard that only warns is not a guard).
+    refused, said = pose_guard_says('{"aim.cheekDeg": 9.5}')
+    ok("  an override fails the pose guard and names the clear command",
+       refused is False and "python tools/pose.py clear" in said, f"{refused}, {said.strip()[:140]!r}")
+    for empty in ("", "   ", "\n"):
+        allowed, _ = pose_guard_says(empty)
+        ok(f"  no override passes the pose guard ({empty!r})", allowed is True, repr(allowed))
+    # And the pose queries are the same shape as every other query in this file: no arbitrary Luau,
+    # failure reported as JSON where there is an answer to report.
+    pose_queries = QUERY_POSE_OVERRIDE + QUERY_SET_POSE + QUERY_POSE_LANDMARKS
+    ok("  the pose queries interpolate at most one JSON value each",
+       QUERY_SET_POSE.count("%s") == 1 and QUERY_POSE_LANDMARKS.count("%s") == 0
+       and QUERY_POSE_OVERRIDE.count("%s") == 0,
+       f"{QUERY_SET_POSE.count('%s')}, {QUERY_POSE_LANDMARKS.count('%s')}, {QUERY_POSE_OVERRIDE.count('%s')}")
+    ok("  the pose queries that answer an object report failure as JSON",
+       pose_queries.count("JSONEncode({ error") == 3, str(pose_queries.count("JSONEncode({ error")))
 
     # 9c. STAGING ACROSS THE STREAMING RADIUS (Task 79), driven OFFLINE against a scripted Studio.
     # The defect it locks down cost a run and could not be seen from the harness's output: the client

@@ -29,6 +29,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(script.Config)
 local Cursor = require(script.Cursor)
 local Mode = require(script.Mode)
+local Poses = require(script.Poses)
 local Rig = require(script.Rig)
 local Viewmodel = require(script.Viewmodel)
 
@@ -37,6 +38,7 @@ local Camera = {}
 -- Exported for specs only, exactly as src/server/Boar/init.luau exports Boar.Brain.
 Camera.Config = Config
 Camera.Mode = Mode
+Camera.Poses = Poses
 Camera.Rig = Rig
 Camera.Cursor = Cursor
 Camera.Viewmodel = Viewmodel
@@ -173,7 +175,7 @@ function Camera.stats()
 	out.foreignCameraWrites = Rig.stats().foreignCameraWrites
 	out.cursorReasserts = Cursor.stats().reasserts
 	out.viewmodelParented = Viewmodel.isParented()
-	out.breakAngleDeg = Mode.breakAngleDeg(state, Config)
+	out.breakAngleDeg = Mode.breakAngleDeg(state, Poses.config(Config))
 	local drawn = Viewmodel.stats()
 	out.shellsDrawn = drawn.shellsDrawn
 	-- THE HANDS (task 93): how many the viewmodel has drawn since boot, and how many clones went
@@ -181,6 +183,13 @@ function Camera.stats()
 	-- no hands is playable and must not be silent.
 	out.handsDrawn = drawn.handsDrawn
 	out.handsMissing = drawn.handsMissing
+	-- THE LIVE POSE OVERRIDE (task 98): how many distinct overrides this session applied, how many
+	-- it refused, and the first problem of the last refusal. A refusal is the Director's typo and
+	-- has to be visible in a number rather than in one console line in a long Play session.
+	local poses = Poses.stats()
+	out.poseOverridesApplied = poses.applied
+	out.poseOverridesRefused = poses.refused
+	out.poseOverrideProblem = poses.lastProblem
 	return table.freeze(out)
 end
 
@@ -241,8 +250,9 @@ end
 -- The spring is in `Mode`, so this is one reducer call and a counter. Off in the third-person branch
 -- (`Mode.kick` refuses it by config), because task 89 promised the flag-off camera is unchanged.
 function Camera.kick()
+	-- THE RESOLVED CONFIG, so `fire` can be tuned live like every other pose number (task 98).
 	local before = state
-	state = Mode.kick(state, Config)
+	state = Mode.kick(state, Poses.config(Config))
 	if state ~= before then
 		stats.recoilKicks += 1
 	end
@@ -271,6 +281,12 @@ end
 
 local function update(dt: number)
 	local startedAt = os.clock()
+	-- THE POSE NUMBERS FOR THIS FRAME (task 98), resolved ONCE and passed inward as `config` --
+	-- exactly the shape the flag read has. Outside Studio this IS `Config`, the same frozen table;
+	-- inside one, it is `Config` with whatever `tools/pose.py set` has put in the live override, so
+	-- the Director sees a changed number on the next frame rather than after a commit and a review.
+	local config = Poses.config(Config)
+	local hold = Poses.hold()
 	local character, root, humanoid = characterParts()
 	local alive = humanoid ~= nil and humanoid.Health > 0
 	local aiming = aimSource ~= nil and aimSource.isAiming()
@@ -279,7 +295,11 @@ local function update(dt: number)
 	-- the reducer swings the barrels, the viewmodel draws the shells.
 	-- FIRST PERSON ONLY, AND ASKED NOWHERE ELSE (round 2, finding 2): the flag-off camera has no
 	-- break to draw, so the source is not even consulted and the viewmodel is told the gun is shut.
-	local breaking = if Config.FIRST_PERSON and breakSource then breakSource.state() else nil
+	local breaking = if config.FIRST_PERSON and breakSource then breakSource.state() else nil
+	-- A HELD "reload" POSE IS THE ONE THING THAT OVERRIDES THE WEAPON'S OWN ANSWER, and only in
+	-- Studio (`Poses.hold` answers nil anywhere else): `tools/pose.py compare reload` needs the gun
+	-- open and two shells out while it takes the picture, and the weapon will not oblige on request.
+	breaking = Poses.holdReload(hold) or breaking
 	Viewmodel.setReload(breaking)
 
 	local previous = state.mode
@@ -289,7 +309,11 @@ local function update(dt: number)
 		hasCharacter = character ~= nil and root ~= nil,
 		lookDelta = lookDelta,
 		breaking = breaking ~= nil and breaking.open,
-	}, dt, Config)
+	}, dt, config)
+	-- THE HOLD, AFTER THE STEP AND EVERY FRAME. It forces the blend and the break tilt to one named
+	-- pose so a screenshot catches the gun still; it refuses to touch Loading or Dead, so it can
+	-- never put a viewmodel on screen where the design says there is none.
+	state = Poses.holdState(state, hold)
 	lookDelta = Vector2.zero -- consumed exactly once
 	stats.maxRecoilCamPitchDeg = math.max(stats.maxRecoilCamPitchDeg, math.abs(state.recoilCamPitchDeg))
 
@@ -308,26 +332,26 @@ local function update(dt: number)
 		-- input moves it. Nothing is applied, so whatever Rig last wrote stays on screen.
 		Viewmodel.clear()
 	elseif root then
-		local pivot, desired, fov = Mode.cameraCFrame(root.CFrame, state, Config)
+		local pivot, desired, fov = Mode.cameraCFrame(root.CFrame, state, config)
 		-- NO RAYCAST AT ALL IN FIRST PERSON, and that is a removal rather than a saving: the eye is
 		-- AIM_PIVOT_FORWARD_STUDS = 0.4 studs from the pivot and `occlude` pulls in no closer than
 		-- OCCLUSION_MIN_DISTANCE_STUDS = 1.2, so a cast would return `desired` untouched every frame
 		-- -- a cost with no effect, and a "one cast per frame" assertion that asserts nothing
 		-- (design section 4.3).
-		local position = if Config.FIRST_PERSON then desired.Position else Rig.occlude(pivot, desired.Position, Config)
+		local position = if config.FIRST_PERSON then desired.Position else Rig.occlude(pivot, desired.Position, config)
 		local applied = CFrame.lookAt(position, position + desired.LookVector)
 		Rig.apply(applied, fov)
 		if pendingLookAt then
 			-- Measured against the CFrame THIS frame actually wrote, not against the angles asked
 			-- for: occlusion may have pulled the camera in, and a mouse delta may have turned it.
 			local toTarget = pendingLookAt - applied.Position
-			if toTarget.Magnitude > 1e-3 and applied.LookVector:Dot(toTarget.Unit) >= Config.LOOK_AT_LANDED_DOT then
+			if toTarget.Magnitude > 1e-3 and applied.LookVector:Dot(toTarget.Unit) >= config.LOOK_AT_LANDED_DOT then
 				pendingLookAt = nil
 				stats.lookAtLanded += 1
 			end
 		end
 		stats.maxDistanceFromRoot = math.max(stats.maxDistanceFromRoot, (position - root.Position).Magnitude)
-		Viewmodel.update(applied, state, Config)
+		Viewmodel.update(applied, state, config)
 	end
 
 	-- Every frame, whatever the mode. Round 2, finding 2: this used to live inside the `elseif root`
@@ -345,10 +369,10 @@ local function update(dt: number)
 	-- there. Task 89 changes nothing a player sees with the flag off, so the branches are written
 	-- out. Recorded in TASKS.md row 89a for the Architect.
 	local hideBody
-	if Config.FIRST_PERSON then
+	if config.FIRST_PERSON then
 		hideBody = state.mode ~= "Loading"
 	else
-		hideBody = state.mode ~= "Dead" and state.blend > Config.BODY_HIDE_BLEND
+		hideBody = state.mode ~= "Dead" and state.blend > config.BODY_HIDE_BLEND
 	end
 	Rig.setLocalBodyHidden(hideBody)
 
