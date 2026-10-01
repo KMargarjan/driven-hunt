@@ -1,51 +1,47 @@
-# Task 99 -- the new shotgun: exact metal, Karen's walnut, a real hinge, and the white glove
+# Task 99 -- the new shotgun, round 2: the breech is open and the rise is counted once
 
 Task: 99
-Round: 1
+Round: 2
 Base: main (`2026eee`)
-Code commit: f2b96671ffb7ddb65444e35f60d8637829cf3b35
+Code commit: 123202206eeb90dfc76e9879ab46d0cecf46a447
 
 ```
-[harness2] PASS: 34/34 checks @ f2b96671ffb7ddb65444e35f60d8637829cf3b35 (clean tree)
-[harness] PASS: 34/34 checks @ f2b96671ffb7ddb65444e35f60d8637829cf3b35 (clean tree)
+[harness]  PASS: 34/34 checks @ 123202206eeb90dfc76e9879ab46d0cecf46a447 (clean tree)
+[harness2] FAIL: 28/34 checks @ 123202206eeb90dfc76e9879ab46d0cecf46a447 (clean tree)
 ```
 
-Behind `NEW_GUN`, born OFF, **first person only**: the world gun every other player sees is
-untouched and no number a shot depends on moved. Both guns are driven by parameter, so every spec
-drives both while the flag sits off.
+**THE TWO-PLAYER LINE IS NOT A PASS, AND THIS REQUEST IS NOT READY TO REVIEW UNTIL IT IS.** It is a
+capability refusal in the harness's OWN staging step -- `execute_luau` could not invoke
+`PlayerScripts.Camera.LookAtRequest` -- so `shoot-the-boar` was never aimed and four specs failed
+waiting for a shot that never happened. Reproducible twice at this commit; one player is green at
+the same commit and stages the same scenario through the same function. `ESCALATE.md` (top entry)
+has the evidence and the two things to try.
 
-## Claims
+## Claims (round 2 only; round 1's five stand)
 
-1. **The metal is exact geometry, and the hinge is real.** `src/shared/Gun` is the pure piece list
-   plus the gun's own arithmetic. Verify: `tests/server/gun.spec.luau` -- the barrels are Cylinders
-   with equal cross-axes (a Roblox Cylinder is analytically round, which is the whole reason this is
-   parts: the note, section 3), four bore discs sit inside their own tubes, the drawn `HingePin` is
-   at exactly `Gun.hinge`, and nothing on the body rises above the rib. `tests/client/gun_client.spec.luau`
-   measures the live model: the tube moves and the pin does not, the tube keeps its place on the
-   barrel group, and its distance to the pin is unchanged -- which is what makes it a rotation about
-   that axis rather than a slide.
-2. **The shells go IN.** `Gun.chamber` puts each shell on its own tube's bore line instead of the
-   gun's centre line, which is why they floated in the gap. Verify: `gun.spec` ("puts a chamber on
-   each tube's own bore line") and `gun_client.spec` ("seats a fresh shell INSIDE the barrel"),
-   which measures in the tube's own frame with no yield.
-3. **The white glove was `AlphaMode.Overlay` over a map with no alpha channel**, measured in three
-   steps and proved by isolation (the comment above `showItsOwnColour` has all four). The dispatch's
-   "wrong id for the right hand" was wrong: both ids were present. The map now goes on `TextureID`,
-   whose id lives in the manifest row because **a game script cannot read
-   `SurfaceAppearance.ColorMap` at all** -- "lacking capability Plugin", which took the whole boot
-   down and published nothing. Verify: `gun_client.spec` ("never left at Roblox's default grey") and
-   `gun.spec`'s glove case; live, all three templates publish with their map on `TextureID`.
-4. **Karen's walnut stock is in; the forend is not, and that was measured.** `A-barrels.glb` is one
-   mesh, one material, one primitive and -- welded by position, the test that survives UV seams --
-   ONE connected component spanning the whole model, so Meshy fused the forend into the barrels and
-   there is no loose part to lift out. Verify: `gun.spec`'s two wood cases; `assets/uploads.json`
-   row for asset 115346777423870 with Karen's verbatim OK; the exact-geometry forend is drawn in the
-   same place at the same size, and `Camera.Viewmodel` swaps in a mesh the moment a row appears.
-5. **The flag's OFF branch is the gun Karen has been playing.** Verify: `NEW_GUN` is `default =
-   false` in `src/shared/Flags`, `Camera.Config` reads it once at its boundary, and every
-   `camera_client.spec` case that drove the cloned gun still drives it unchanged -- 34/34 both ways.
+1. **The breech shows two open bores.** The `BreechFace` plate that buried both discs -- and that
+   the fed shells slid through -- is gone; a Cylinder's rear end is already the flat face, and the
+   breech disc now sits DEEPER than `Gun.chamber` seats a shell, so an empty chamber reads dark and
+   a fed one shows the shell in front of the dark. Verify: `gun.spec`, "lets you SEE both openings"
+   -- nothing in the BARREL GROUP may stand in front of a bore (the group is the right scope: the
+   break-open is what separates the barrels from the standing breech).
+2. **The old case could not have caught it, and the new one can.** A disc sealed inside an opaque
+   plate still satisfies "inside its tube". Verify: the new case found a second defect on its first
+   run -- its own box arithmetic treated a Z-lying cylinder's `size.X` as a width, so it reported
+   the left muzzle bore as hidden by the right barrel. The test was wrong, the gun was not; commit
+   `1232022` fixes the test.
+3. **The muzzle flash is on the bore line, for both guns.** `Gun.muzzle` is back on the Handle's
+   axis (`= MUZZLE_OFFSET` exactly), and `Gun.barrelOffset` is the one definition of this gun's bore
+   line -- sign from `Shotgun`, magnitude this gun's own 0.076. `Viewmodel.muzzle` picks the offset
+   from an attribute the BUILDER wrote on the model, so no caller can hand it the wrong gun.
+   Verify: `gun.spec` (pure: the flash lands exactly on the tube's axis) and `gun_client.spec`
+   (live: inside the drawn tube, and the OLD gun's flash exactly where it has always been).
+4. **MUTATION CHECKED.** Putting `Gun.muzzle` back on the bore line failed four assertions across
+   both files -- `gun.spec` (the attachment, the exact bore line, the occlusion count) and
+   `gun_client.spec` -- then restored.
+5. **One definition fixed a note for free.** `Gun.chamber` took the whole of
+   `Shotgun.barrelMuzzleOffset` (the MESH gun's 0.09), so the shell sat 0.014 studs off this gun's
+   bore line while both tests bounded it only by the tube radius. It is exact now, bound 1e-6.
 
-Not verified: whether the new gun LOOKS right. It does not yet, and the report says what the three
-captures show -- the action renders bright, the aimed picture is wrong (the action's top face
-dominates and the barrels read small) and the right hand is off screen in all three poses. Those are
-`poses.json`'s `newGun` set and `Gun.LOOK`, which is the content lane, and they are TASKS.md row 99a.
+Not verified: the two-player run (above). The rest of the Reviewer's round-1 notes are queued as
+`TASKS.md` row 99a(f), unfixed.

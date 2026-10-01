@@ -10,6 +10,54 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-10-02 · NEEDS DIRECTOR · Task 99: `test2` cannot stage `shoot-the-boar` -- a capability refusal in the harness, not in the game
+
+**Raised by:** Builder, Task 99 round 2 (branch `task-99-new-gun`, code commit `1232022`).
+
+**What is blocked:** the merge gate's `[harness2]` line, and therefore the review --
+`tools/agents.py` refuses a review of an `src/` change without it. Nothing else: the one-player run
+is green at the same commit.
+
+```
+[harness]  PASS: 34/34 checks @ 1232022 (clean tree)
+[harness2] FAIL: 28/34 checks @ 1232022 (clean tree)
+  FAIL [input] staged 1 scenario(s) (placed + aimed)  (shoot-the-boar: RuntimeError: execute_luau:
+       ... The current thread cannot invoke 'LookAtRequest' since 'LookAtRequest' has additional
+       values for the Capabilities property: LoadUnownedAsset (and 3 more))
+```
+
+**It is the harness's own step, and the four spec failures are its consequence.** The stage asks the
+camera owner to aim by invoking the `BindableFunction` `PlayerScripts.Camera.LookAtRequest`
+(`tools/studio_mcp.py`, "Staging a scenario"). Roblox refused the INVOKE on capability grounds, so
+`shoot-the-boar` was never aimed -- and then `shoot_boar.spec` (2), `weapon_client.spec` (3) and
+`zz_drive_boundary.spec` (1) failed waiting for a shot that never happened. The suites are otherwise
+clean: 509 server and 101 shooter assertions passed.
+
+**What is measured, and what is not.**
+- REPRODUCIBLE: two consecutive `test2` runs at `1232022`, identical message, identical 28/34.
+- ONE PLAYER IS GREEN at the same commit, and `test` stages the same scenario through the same
+  function -- so it is not the camera, the request function or this task's diff. The difference is
+  WHERE the call lands: in `test` the editor's own Play DataModel, in `test2` a separate Studio
+  process that "Clients and Servers" started.
+- `test2` was green at `f2b9667` earlier tonight, with the same staging code.
+- NOT MEASURED: why the capability set differs. The most likely thing that changed in between is
+  Studio's own session state -- this session used `execute_luau` to call
+  `InsertService:LoadAsset` while reading the stock's colour map id, which is the first time this
+  repo has asked the Assistant plugin for an asset capability. I did not verify that, and I am not
+  going to guess further in a report.
+
+**What I suggest, in order:**
+
+1. Close Studio completely, reopen the DEV place (136410205938347) in **Edit**, press Rojo
+   **Connect**, then `bash ../driven-hunt-runs/gate.sh task-99`. If that is green, the cause was
+   Studio session state and this entry closes with that sentence.
+2. If it fails the same way, it is a harness fault in the stage (rule 6) and wants its own task:
+   the stage would have to reach the camera without invoking a BindableFunction, or the capability
+   has to be granted to the plugin.
+
+**Closed:** _(open)_
+
+---
 ## 2026-10-01 · CLOSED 2026-10-01 · NEEDS KAREN (or the Director's click) · Task 99: Studio is not connected to Rojo, so the gate cannot run
 
 **Raised by:** Builder, Task 99 (branch `task-99-new-gun`, code commit `8db324e`).
