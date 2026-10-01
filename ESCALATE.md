@@ -76,7 +76,7 @@ memory, cannot be required -- so nothing about OUR instances is the cause (and t
 are empty anyway). The THREAD carries `LoadUnownedAsset (and 3 more)`, and a capability-carrying
 thread may not enter a container that grants none; the message names the target but the asymmetry
 is the thread's. A full Studio close and reopen did not clear it, so it is attached to the plugin
-context rather than to the place -- and `%LOCALAPPDATA%\Roblox\LocalStorageppStorage.json`
+context rather than to the place -- and Studio's own `LocalStorage/appStorage.json`
 contains no `LoadUnownedAsset` entry, so wherever Studio keeps it, it is not there.
 
 **What set it:** this session called `InsertService:LoadAsset(115346777423870)` through
