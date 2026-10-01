@@ -650,12 +650,18 @@ return function()
 					expect(Camera.Viewmodel.current()).to.equal(nil)
 					expect(Camera.stats().viewmodelParented).to.equal(false)
 				else
+					-- ...AND THE POSITIVE IS ASSERTED TOO, so both arms carry a claim: a handle means a
+					-- clone on screen, which is this spec's whole subject.
 					TestKit.note(
 						string.format(
-							"camera_client: this client is on the drivers but holds %s; the no-gun claim does not apply",
+							"camera_client: this client is on the drivers but holds %s; the shooter's claim applies",
 							handle:GetFullName()
 						)
 					)
+					expect(waitUntil(5, function()
+						return Camera.Viewmodel.current() ~= nil
+					end)).to.equal(true)
+					expect(Camera.stats().viewmodelParented).to.equal(true)
 				end
 				fake.aiming = false
 				expect(waitUntil(2, function()
@@ -958,7 +964,7 @@ return function()
 
 	-- ------------------------------------------------------------------ recoil, live (task 92)
 	describe("the shot's kick", function()
-		it("is wired, does nothing to the live third-person camera, and settles the gun", function()
+		it("is wired, kicks the live camera the branch says it should, and settles the gun", function()
 			-- KAREN, after playing S2: "shooting has to have recoil a bit".
 			--
 			-- THE LIVE HALF IS THE PROMISE, not the feel, and since task 97 the live branch is FIRST
@@ -1243,12 +1249,12 @@ return function()
 				local left = cloned:FindFirstChild("HandLeft") :: BasePart
 				expect(right).to.be.ok()
 				expect(left).to.be.ok()
-				-- COUNTED, NOT DIFFERENCED. Since task 97 the live camera is first person, so its own
-				-- render step draws hands on this clone too -- from the REAL templates, in whatever
-				-- frame falls between this spec's calls. A delta of exactly 2 was therefore a claim
-				-- about which of the two got there first, which is not the claim. That both hands
-				-- ARE on the clone, on the right pieces, at the pose the pure geometry gives, is.
-				expect(Camera.Viewmodel.stats().handsDrawn > 0).to.equal(true)
+				-- NO COUNTER HERE. Since task 97 the live camera is first person, so its own render
+				-- step draws hands on this clone too -- from the REAL templates, in whatever frame
+				-- falls between this spec's calls. A delta of exactly 2 was a claim about which of
+				-- the two got there first, and a session-wide total is satisfied by any earlier live
+				-- frame; neither is the claim. The claim is the two parts found on the clone, on the
+				-- right pieces, at the pose the pure geometry gives -- which is what follows.
 				-- WHOSE PIECE EACH ONE IS, asserted as the parent rather than as a position: the
 				-- grip is on the body and the forend is on the barrels, and that is what decides
 				-- which one swings when the gun breaks open.

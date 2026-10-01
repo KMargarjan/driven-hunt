@@ -13,12 +13,17 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerStorage = game:GetService("ServerStorage")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 -- THE GUN'S OWN BEAD EXPRESSION, not a copy of its numbers: the sight picture this file asserts is
 -- only right if it is built from the same place the gun's bead is (docs/design/camera.md 6.5).
 local Shape = require(ServerScriptService:WaitForChild("Weapon"):WaitForChild("Shape"))
+-- THE HANDS' OWN BOXES, from the manifest that owns them. The camera never reads this table -- the
+-- server loads the meshes and publishes the templates already sized -- but the glove's clearance is
+-- a fact about the SIZE, so the spec reads the size where it is decided rather than copying it.
+local Assets = require(ServerStorage:WaitForChild("Assets"))
 
 local cameraFolder = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera")
 local Mode = require(cameraFolder:WaitForChild("Mode"))
@@ -853,6 +858,74 @@ return function()
 			)
 		end)
 
+		it("keeps both gloves clear of the near plane, even at the recoil's ceiling", function()
+			-- TASK 97, ROUND 2, AND IT IS THE DEFECT THIS CASE EXISTS FOR. The right hand is a
+			-- 0.95-stud MeshPart on the grip, a few tenths of a stud in front of an aiming eye, and a
+			-- Roblox MeshPart renders BOTH faces -- so a camera INSIDE one sees its own back surface,
+			-- unlit, as a pale smooth blob across the lower frame. Round 1 shipped an eye relief
+			-- 0.35 studs short of where its own comment said it was, and one shot's recoil pulled the
+			-- cuff through the lens. Nothing caught it: the other near-plane case filters on the
+			-- pieces a player AIMS with, and no spec read a hand at all.
+			--
+			-- DRIVEN THROUGH THE REAL COMPOSITION, not re-derived here: `Mode.viewmodelOffset` is
+			-- what the viewmodel poses from, `Mode.rightHandOffset` is where it hangs each glove
+			-- (`Viewmodel.addHand` does `clone.CFrame * offset`), and the recoil enters as the state
+			-- the owner hands in. So a change to the composition order, the poses, the hand sizes or
+			-- the recoil ceiling all reach this.
+			local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
+			-- THE WORST FRAME A PLAYER CAN REACH: both recoil terms at the ceiling `Mode.kick`
+			-- clamps them to, in both poses -- a shot from the hip kicks too.
+			local worstCase = {}
+			for _, blend in ipairs({ 0, 1 }) do
+				local kicked = table.clone(stateAtBlend(blend)) :: any
+				kicked.recoilGunBackStuds = firstPerson.RECOIL_MAX_GUN_BACK_STUDS
+				kicked.recoilGunPitchDeg = firstPerson.RECOIL_MAX_GUN_PITCH_DEG
+				table.insert(worstCase, {
+					name = if blend == 0 then "carry" else "aimed",
+					pose = Mode.viewmodelOffset(table.freeze(kicked), sight, firstPerson),
+				})
+			end
+			local hands = {
+				{ name = "right", key = Assets.KEYS.handRight, offset = Mode.rightHandOffset(firstPerson) },
+				{ name = "left", key = Assets.KEYS.handLeft, offset = Mode.leftHandOffset(firstPerson) },
+			}
+			local worst, worstWhere = -math.huge, ""
+			local checked = 0
+			for _, frame in ipairs(worstCase) do
+				for _, hand in ipairs(hands) do
+					local row = Assets.byKey(hand.key)
+					expect(row).to.be.ok()
+					local half = row.sizeStuds / 2
+					local at = frame.pose * hand.offset
+					for _, sx in ipairs({ -1, 1 }) do
+						for _, sy in ipairs({ -1, 1 }) do
+							for _, sz in ipairs({ -1, 1 }) do
+								local corner = (at * CFrame.new(sx * half.X, sy * half.Y, sz * half.Z)).Position
+								checked += 1
+								if corner.Z > worst then
+									worst, worstWhere = corner.Z, string.format("%s %s", frame.name, hand.name)
+								end
+								-- IN FRONT OF THE NEAR PLANE BY THE SAME MARGIN the gun's own pieces
+								-- are held to. Camera space looks down -Z, so "in front" is negative.
+								expect(corner.Z <= -firstPerson.NEAR_PLANE_MARGIN_STUDS).to.equal(true)
+							end
+						end
+					end
+				end
+			end
+			expect(checked).to.equal(32) -- two poses, two hands, eight corners: the loop really ran
+			TestKit.note(
+				string.format(
+					"task97 gloves: nearest corner %.3f studs (%s), margin %.2f, relief %.2f, recoil back %.2f",
+					worst,
+					worstWhere,
+					firstPerson.NEAR_PLANE_MARGIN_STUDS,
+					firstPerson.EYE_RELIEF_STUDS,
+					firstPerson.RECOIL_MAX_GUN_BACK_STUDS
+				)
+			)
+		end)
+
 		it("puts the stock behind the eye when aiming, which is what a cheek weld is", function()
 			-- THE CLAIM SURVIVES THE NEW REFERENCE, which is why it is still here. Task 97 moves the
 			-- eye BACK so the wrist, the top tang and the right hand come into the picture
@@ -860,6 +933,11 @@ return function()
 			-- that frame -- it is a shouldered gun, not a gun held out at arm's length. If somebody
 			-- pushes the eye back a whole gun behind the breech, so the stock lies across the lower
 			-- half as a plank, this fails.
+			--
+			-- BOTH HALVES ARE ASSERTED (round 2). At this relief the butt really is behind the camera
+			-- plane, so that is the claim; the ANGLE is kept beside it because it is the one that
+			-- still means "out of the picture" if a later relief puts the butt just in front, which
+			-- is what it did at the relief round 1 shipped.
 			local sight = CFrame.new(Shape.beadOffset(Shotgun.CONFIG))
 			local pose = Mode.viewmodelOffset(stateAtBlend(1), sight, firstPerson)
 			local stock = pieceNamed("Stock")
@@ -879,6 +957,7 @@ return function()
 			local butt = (pose * CFrame.new(0, 0, Shotgun.CONFIG.HANDLE_SIZE.Z / 2)).Position
 			local buttFromAxisDeg = math.deg(math.acos(math.clamp(-butt.Unit.Z, -1, 1)))
 			expect(buttFromAxisDeg > 40).to.equal(true)
+			expect(rearmost > 0).to.equal(true)
 			TestKit.note(
 				string.format(
 					"task97 aimed: the butt is %.0f degrees off the axis, rearmost stock corner %.3f studs",

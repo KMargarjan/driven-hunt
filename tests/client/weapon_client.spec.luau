@@ -432,10 +432,18 @@ return function()
 			-- gun's muzzle. Asserting "not nil in first person" was a claim about whether a viewmodel
 			-- with a `Muzzle` attachment happened to be on screen at this moment, which is a
 			-- different question and one this case does not stage.
+			-- COMPARED AGAINST THE VIEWMODEL, NOT AGAINST THE SAME FUNCTION. `Camera.viewmodelMuzzle`
+			-- IS what the composition root installed, so asking it again would compare the answer
+			-- with itself and a provider that always returned nil would pass whenever the camera's
+			-- answer was nil (round 1 note). `Viewmodel.muzzle` is the other end of it: in first
+			-- person the provider must be exactly the DRAWN gun's muzzle, and in third person nil
+			-- whatever the viewmodel says, because there the player is looking at their character
+			-- holding the real gun.
 			local answer = (Effects.getMuzzleProvider() :: any)(1)
 			local view = cameraView()
-			expect(answer).to.equal(if view then view.viewmodelMuzzle(1) else nil)
-			if not liveFirstPerson() then
+			if liveFirstPerson() then
+				expect(answer).to.equal(if view then view.Viewmodel.muzzle(1) else nil)
+			else
 				expect(answer).to.equal(nil)
 			end
 		end)

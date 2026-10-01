@@ -168,8 +168,9 @@ return function()
 				expect(key ~= Assets.KEYS.handLeft and key ~= Assets.KEYS.handRight).to.equal(true)
 			end
 			-- AND EACH HAND IS A REAL ROW: an approved id, one mesh, and a size that is a hand's
-			-- rather than the gun's. 1.28 studs is 330 mm at this game's scale (the gun is 4.4 studs
-			-- for 1,143 mm); anything near the gun's own length would be an arm across the screen.
+			-- rather than the gun's. 0.95 studs is 247 mm at this game's scale (the gun is 4.4 studs
+			-- for 1,143 mm), against the 200 mm of hand a person has; anything near the gun's own
+			-- length would be an arm across the screen.
 			for _, key in ipairs(viewmodel) do
 				local hand = Assets.byKey(key)
 				expect(hand).to.be.ok()

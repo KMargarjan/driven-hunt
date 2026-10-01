@@ -133,7 +133,10 @@ local Config = {
 	-- about 57 in the 1.24:1 Studio Play window the screenshots are taken in. The COMPOSITION is what
 	-- is matched -- muzzle off the left edge 40 % down, action at the bottom edge a third across --
 	-- because that is what the picture is.
-	CARRY_ON_SCREEN_DEG = 45, -- ASSERTED, NOT APPLIED: what the two poses above come out at on 16:9.
+	-- READ, NOT APPLIED AND NOT ASSERTED: nothing in the game or in a spec uses this. It is here as
+	-- the one-line record of what the pose above measures on a 16:9 screen, because the number a
+	-- screenshot shows depends on the viewport and the specs are written in the camera's own frame.
+	CARRY_ON_SCREEN_DEG = 45,
 	VIEWMODEL_CARRY_POS_STUDS = Vector3.new(-0.67, -0.57, -1.22),
 	-- Three named degrees rather than a CFrame literal, so there are three legible dials. Converted
 	-- to radians at ONE site, Mode.carryOffset -- the rule the Task 19 cone-unit defect bought.
@@ -147,11 +150,13 @@ local Config = {
 	-- barrel crossing the frame from the lower right of the action to the left edge, exactly panel
 	-- A's diagonal, with the muzzle leaving the frame at the left edge rather than stopping inside
 	-- it. `Mode.carryOffset` is still the ONE site that converts them to radians.
-	-- DERIVED FROM THE MUZZLE DIRECTION ABOVE, not chosen: the solved barrel line is
-	-- (-0.701, 0.369, -0.610) in camera space, and `-sin(yaw), cos(yaw) sin(pitch), -cos(yaw)
-	-- cos(pitch)` is that line for exactly one pair of angles. Roll is a pure cant about the bore --
-	-- it moves no end of the gun -- so it stays the free dial, and it is a little stronger than
-	-- before so the rib and not the flat of the barrels faces the eye, as it does in the video.
+	-- DERIVED FROM A MUZZLE DIRECTION, then MOVED: `-sin(yaw), cos(yaw) sin(pitch), -cos(yaw)
+	-- cos(pitch)` is a barrel line for exactly one pair of angles, and the pair below is the line
+	-- (-0.716, 0.283, -0.638) -- which is the re-solve, 5.5 degrees flatter than the first one the
+	-- comment above describes, because the first build rendered 8 % of the screen height high. Roll
+	-- is a pure cant about the bore -- it moves no end of the gun -- so it stays the free dial, and
+	-- it is a little stronger than before so the rib and not the flat of the barrels faces the eye,
+	-- as it does in the video.
 	CARRY_PITCH_DEG = 23.9,
 	CARRY_YAW_DEG = 45.7,
 	CARRY_ROLL_DEG = -10,
@@ -229,7 +234,10 @@ local Config = {
 	-- the arithmetic says and the break screenshot showed. The palm sits 0.45 studs along the
 	-- fingers from the model's centre, so moving the centre in and up by that much moves the palm
 	-- onto the wrist of the stock.
-	HAND_RIGHT_POS_STUDS = Vector3.new(0.12, -0.12, 0.80),
+	-- FORWARD AND DOWN SINCE ROUND 2, by the 0.10 studs the clearance above needed: the palm is at
+	-- the front of the grip rather than the middle of it, which is as far back as the hand can sit
+	-- and still keep its own rear corner out of the lens at a sensible eye relief.
+	HAND_RIGHT_POS_STUDS = Vector3.new(0.12, -0.16, 0.70),
 	-- Three named degrees, converted to radians at ONE site (`Mode.handOffset`) -- the rule the
 	-- Task 19 cone-unit defect bought. YAW swings the hand's long axis (wrist to fingertip)
 	-- horizontally, PITCH lifts or drops it, TWIST turns the hand about that axis -- which is the
@@ -284,21 +292,32 @@ local Config = {
 	-- t = 5.4 degrees and R = 3.27. At the old 3.5 and 5 the barrels stopped SHORT of the bottom edge
 	-- and the action filled the space below them -- measured on screen, which is the only place that
 	-- shows.
-	-- 4.40 SINCE TASK 97, AND THE REASON IS WHAT THE PICTURE CONTAINS rather than how big it is.
-	-- At 3.27 the eye sat at the gun's own Z = +1.08, which is INSIDE the stock: everything behind
-	-- the breech was behind the camera, so the aimed view was barrels and nothing else -- no wood, no
-	-- action, no top lever, and the right hand 0.06 studs from the lens. `TARGET-aim.jpg` is a
-	-- different picture: the stock's wrist fills the bottom centre, the top tang runs up it, the two
-	-- barrels sit either side of the rib and the right hand's fingers show on the right of the wrist.
-	-- 4.40 puts the eye at the gun's Z = +2.21, which brings all of that -- the right hand's fingers
-	-- included -- in front of the camera. MEASURED ON SCREEN, in three rounds: at 3.85 the fingers
-	-- were still below the bottom edge, and at 4.15 the hand's CUFF reached the lens and the aimed
-	-- view carried a pale, smooth, untextured blob across its lower left. That blob was the INSIDE of
-	-- the glove -- a Roblox MeshPart renders both faces, so a model the camera is inside shows its own
-	-- back surface, unlit. Proved by moving the right hand 8 studs sideways for one Play session: the
-	-- blob went with it. The hand is clear of the lens by 0.54 studs now, which still holds with the
-	-- recoil spring at its 0.25-stud ceiling.
-	EYE_RELIEF_STUDS = 3.65,
+	-- 4.00, AND IT IS THE ONLY NUMBER IN THIS FILE THAT TWO REQUIREMENTS DECIDE BETWEEN THEM
+	-- (task 97, round 2). Everything else about the aimed picture follows from it, so it is written
+	-- here once and nothing else restates a value -- the superseded derivations are in git.
+	--
+	-- WHAT IT HAS TO DO. The eye sits at the gun's own Z = EYE_RELIEF_STUDS - 2.19, because
+	-- `Mode.aimOffset` puts the live row's `sightOffsetStuds` on the view axis at this distance.
+	--  (a) THE PICTURE. `TARGET-aim.jpg` is the wrist filling the bottom centre, the top tang up it,
+	--      the two barrels either side of the rib and the bead above them. At 3.27 the eye sat at
+	--      Z = +1.08, which is INSIDE the stock: everything behind the breech was behind the camera
+	--      and the aimed view was barrels and nothing else. Anything past about 4.3 and the gun is
+	--      small again.
+	--  (b) THE GLOVE MUST STAY OUT OF THE LENS, and that is what fixes the lower bound. The right
+	--      hand is a 0.95-stud MeshPart on the grip and a Roblox MeshPart renders BOTH faces, so a
+	--      model the camera is inside shows its own back surface, unlit -- the pale, smooth blob
+	--      round 1 shipped. Its rearmost corner sits at the gun's Z = +1.23 (`HAND_RIGHT_POS_STUDS`
+	--      through `Mode.handOffset`, over the row's `sizeStuds`), the recoil spring pulls the whole
+	--      gun `RECOIL_MAX_GUN_BACK_STUDS` = 0.25 back toward the eye, and `NEAR_PLANE_MARGIN_STUDS`
+	--      = 0.25 is the clearance this file already asks of everything else. 1.23 + 0.25 + 0.25
+	--      + 2.19 = 3.92 is the floor; 4.00 leaves 0.33 studs of clearance under the ceiling of the
+	--      recoil rather than 0.08.
+	--
+	-- ASSERTED, NOT REMEMBERED: `tests/server/camera_mode.spec.luau`, "keeps both gloves clear of the
+	-- near plane", drives the real composition at the recoil's ceiling and measures every corner of
+	-- both hands. Round 1 shipped 3.65 with a comment that said 4.40, and one shot put the cuff
+	-- through the lens; nothing caught it, because no spec read a hand against the near plane.
+	EYE_RELIEF_STUDS = 4.00,
 	-- THE CHEEK ON THE COMB (task 92, round 2). In Karen's own acceptance picture the eye is ABOVE
 	-- the rib, not level with it: you look down the TOP of the barrel, which tapers away to the bead,
 	-- and the action is a dark shape at the very bottom of the frame. Level with the rib -- which is
@@ -336,9 +355,10 @@ local Config = {
 	-- A METAL BEAD, NOT A RED DOT (task 92). Karen, after playing S2: "that red dot is not realistic,
 	-- we need to improve what actually is on Beretta Parallelo". What a Beretta 486 Parallelo actually
 	-- carries is a small BRASS BALL on the rib at the muzzle -- no glass, no electronics, no colour
-	-- that is not metal -- so this is brass, `Enum.Material.Metal`, and smaller: 0.05 studs at
-	-- EYE_RELIEF_STUDS = 3.5 is 0.82 degrees, about 13 px in a 784-px viewport at the aiming field of
-	-- view. Brass reads warm against both sky and ground, which is why every classic side-by-side uses
+	-- that is not metal -- so this is brass, `Enum.Material.Metal`, and smaller: 0.05 studs at the
+	-- eye relief above is about three quarters of a degree, a dozen pixels in a 784-px viewport at
+	-- the aiming field of view. Written as a ratio rather than as a second copy of the relief, which
+	-- is the mistake round 1 of task 97 made in three files at once. Brass reads warm against both sky and ground, which is why every classic side-by-side uses
 	-- it; against a bright sky it goes dark rather than invisible, which is what a real one does too.
 	--
 	-- It is still NOT `Shotgun.CONFIG.LOOK.bead`: that is the off-white bead of the PARTS gun, a piece

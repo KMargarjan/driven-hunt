@@ -124,11 +124,15 @@ local GUN_SIZE = Vector3.new(NATURAL.X * SCALE, NATURAL.Y * SCALE, NATURAL.Z * S
 -- `model.glb` position accessors, times the hundred Roblox's FBX import applies -- the same hundred
 -- that makes the gun's two-unit model 200 units long above). See the rows for where 1.28 comes from.
 -- 0.95 SINCE TASK 97, AND IT IS A CLEARANCE NUMBER AS WELL AS A SIZE ONE. 1.28 studs was a hand
--- plus most of a forearm, and task 97 brings the aiming eye in to 3.80 studs of relief -- so the
--- right hand's CUFF reached the lens and the aimed view filled with the inside of the glove (a
--- Roblox MeshPart renders both faces, so a model the camera is inside shows its own back surface).
--- 0.95 is a hand and a short sleeve: 247 mm at this game's scale, against the 200 mm of hand a
--- person has. The row below says this constant is the dial a screenshot decides; this is that.
+-- plus most of a forearm, and task 97 brings the aiming eye in close enough that such a sleeve
+-- reached the lens -- which filled the aimed view with the INSIDE of the glove, because a Roblox
+-- MeshPart renders both faces. 0.95 is a hand and a short sleeve: 247 mm at this game's scale,
+-- against the 200 mm of hand a person has.
+--
+-- HOW CLOSE THE EYE IS LIVES IN ONE PLACE, `Camera.Config.EYE_RELIEF_STUDS`, and this comment
+-- deliberately does not repeat it: round 1 of task 97 had three files naming three different
+-- numbers for it. `tests/server/camera_mode.spec.luau` is what holds the two together -- it measures
+-- this box, at that relief, at the recoil's ceiling, against the near plane.
 local HAND_LENGTH_STUDS = 0.95
 local HAND_RIGHT_NATURAL = Vector3.new(190.04, 84.99, 78.93)
 local HAND_LEFT_NATURAL = Vector3.new(189.64, 95.52, 72.04)
