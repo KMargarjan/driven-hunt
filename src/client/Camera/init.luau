@@ -174,7 +174,13 @@ function Camera.stats()
 	out.cursorReasserts = Cursor.stats().reasserts
 	out.viewmodelParented = Viewmodel.isParented()
 	out.breakAngleDeg = Mode.breakAngleDeg(state, Config)
-	out.shellsDrawn = Viewmodel.stats().shellsDrawn
+	local drawn = Viewmodel.stats()
+	out.shellsDrawn = drawn.shellsDrawn
+	-- THE HANDS (task 93): how many the viewmodel has drawn since boot, and how many clones went
+	-- without because no template had arrived. The second is the fallback made visible -- a gun with
+	-- no hands is playable and must not be silent.
+	out.handsDrawn = drawn.handsDrawn
+	out.handsMissing = drawn.handsMissing
 	return table.freeze(out)
 end
 
