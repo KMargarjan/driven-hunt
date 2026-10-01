@@ -1055,7 +1055,15 @@ return function()
 				end
 				local restAngle = angleBetween()
 				TestKit.note(string.format("task96 shut: barrels %.3f deg off the body", restAngle))
-				expect(restAngle < 0.01).to.equal(true)
+				-- 0.1 DEGREE, NOT 0.01, AND IT IS MEASURED RATHER THAN RELAXED (task 97). The barrels'
+				-- rest pose is read off the clone as `clone.CFrame:ToObjectSpace(barrels.CFrame)` and
+				-- put back as `swungGun * rest`, which is a round trip through two float32 CFrames.
+				-- Since task 97 the live first-person camera builds this clone, so that round trip
+				-- starts from a real world pose instead of this spec's tidy CFrame.new(0, 12, 0) --
+				-- and the driver's two-player run measured 0.020 degrees of residue where the
+				-- shooter's measured 0.000. The thing this bound exists to exclude is a 35-degree
+				-- swing, so 0.1 is still 350 times smaller than the failure it catches.
+				expect(restAngle < 0.1).to.equal(true)
 				-- WHERE THE BEAD SITS WITH THE GUN SHUT, and whose it is: the barrels'. Both are read
 				-- here so the open case can say it MOVED and that it moved WITH them.
 				local shutBead = cloned:FindFirstChild("SightBead") :: BasePart
@@ -1160,7 +1168,7 @@ return function()
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), openAimed, thirdPersonConfig)
 				local offAngle = angleBetween()
 				TestKit.note(string.format("task96 flag off: barrels %.3f deg off the body", offAngle))
-				expect(offAngle < 0.01).to.equal(true)
+				expect(offAngle < 0.1).to.equal(true) -- see the shut case above for why 0.1
 				-- ...AND IT DRAWS NO SHELLS EITHER (round 2, finding 2). The gun wears its barrels as
 				-- a separate piece in every build, so without a flag test the DEFAULT camera would
 				-- swing them and litter the clone with shells the moment a player reloaded.
