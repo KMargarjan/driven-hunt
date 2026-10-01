@@ -869,24 +869,42 @@ if piece then
     local half = piece.Size / 2
     local left, right, top, bottom = 1e9, -1e9, 1e9, -1e9
     local bandLeft, bandRight, inBand = 1e9, -1e9, 0
+    local inPicture, clipped = 0, 0
     for _, sx in { -1, 1 } do
         for _, sy in { -1, 1 } do
             for _, sz in { -1, 1 } do
                 local corner = piece.CFrame * Vector3.new(half.X * sx, half.Y * sy, half.Z * sz)
                 local point = screen(corner)
-                left, right = math.min(left, point.x), math.max(right, point.x)
-                top, bottom = math.min(top, point.y), math.max(bottom, point.y)
-                if point.y >= 0.85 then
-                    inBand += 1
-                    bandLeft, bandRight = math.min(bandLeft, point.x), math.max(bandRight, point.x)
+                -- ONLY WHAT IS BEYOND THE NEAR PLANE (measured twice, 2026-10-01).
+                -- WorldToViewportPoint extrapolates a point BEHIND the camera to a screen position
+                -- anyway, and the carry pose puts the stock behind it on purpose -- which is why
+                -- the first run of this query reported the gun as 22,425 % of the screen wide. A
+                -- depth > 0 test was not enough: a corner a hundredth of a stud in front of the
+                -- lens still projects thousands of per cent off the screen, and the second run
+                -- reported 21,904 %. The engine clips at NearPlaneZ (0.1 studs by default), so
+                -- anything nearer than that is not in the picture whatever it projects to.
+                if point.studs > 0.1 then
+                    inPicture += 1
+                    left, right = math.min(left, point.x), math.max(right, point.x)
+                    top, bottom = math.min(top, point.y), math.max(bottom, point.y)
+                    if point.y >= 0.85 then
+                        inBand += 1
+                        bandLeft, bandRight = math.min(bandLeft, point.x), math.max(bandRight, point.x)
+                    end
+                else
+                    clipped += 1
                 end
             end
         end
     end
     out.gun = {
         piece = piece.Name,
-        silhouetteWidth = right - left,
-        box = { left = left, right = right, top = top, bottom = bottom },
+        cornersInPicture = inPicture,
+        cornersClipped = clipped,
+        silhouetteWidth = if inPicture > 0 then right - left else -1,
+        box = if inPicture > 0
+            then { left = left, right = right, top = top, bottom = bottom }
+            else nil,
         cornersInBottomBand = inBand,
         bottomEdgeWidth = if inBand > 0 then bandRight - bandLeft else -1,
     }

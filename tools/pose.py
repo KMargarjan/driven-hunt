@@ -155,8 +155,15 @@ def running(studio, role):
 
 
 def read_override(studio, studio_id, datamodel):
-    """The override object the session is carrying, as a dict ({} for none) -> (dict, problem)."""
-    raw = studio.query(datamodel, studio_mcp.QUERY_POSE_OVERRIDE, studio_id=studio_id).strip()
+    """The override object the session is carrying, as a dict ({} for none) -> (dict, problem).
+
+    NEVER RAISES ON WHAT STUDIO SAID, which is the rule `studio_mcp.json_answer` exists for: a
+    DataModel that is not reachable is an ordinary answer to "is anything overridden", not a
+    traceback over the Director's command."""
+    try:
+        raw = studio.query(datamodel, studio_mcp.QUERY_POSE_OVERRIDE, studio_id=studio_id).strip()
+    except RuntimeError as why:
+        return {}, str(why)
     if not raw:
         return {}, ""
     try:
@@ -172,10 +179,19 @@ def write_override(studio, studio_id, datamodel, overrides):
     """Replace the whole override object (an empty one clears the attribute) -> (text, problem).
 
     WHOLE, NOT PER PATH. One attribute means one write, so there is no moment at which half of a
-    tuning change is live; and clearing is this same call with nothing in it."""
+    tuning change is live; and clearing is this same call with nothing in it.
+
+    IT NEVER RAISES ON WHAT STUDIO SAID either, and that is MEASURED rather than tidy: `clear` also
+    clears the EDIT place -- the one a `test` run would be refused over -- and the Edit DataModel is
+    NOT REACHABLE while a Play session runs ("Edit datamodel is not available in Play mode"). So the
+    first `pose.py clear` typed during a tuning session ended in a traceback, after it had already
+    cleared the session. A tool that half-succeeds and then crashes is worse than one that refuses."""
     text = "" if not overrides else json.dumps(overrides, sort_keys=True)
-    answer, problem = studio_mcp.json_answer(
-        studio, studio_mcp.QUERY_SET_POSE % json.dumps(text), studio_id=studio_id, datamodel=datamodel)
+    try:
+        answer, problem = studio_mcp.json_answer(
+            studio, studio_mcp.QUERY_SET_POSE % json.dumps(text), studio_id=studio_id, datamodel=datamodel)
+    except RuntimeError as why:
+        return "", str(why)
     if problem:
         return "", problem
     return answer.get("set", ""), ""
@@ -270,11 +286,20 @@ def print_landmarks(marks):
             "" if mark.get("onScreen") else "  (OFF SCREEN)"))
     gun = marks.get("gun")
     if gun:
-        print("[pose]   gun ({}): silhouette {:.1f} % of the width; box {:.1f}-{:.1f} % across, "
-              "{:.1f}-{:.1f} % down".format(
-                  gun["piece"], gun["silhouetteWidth"] * 100,
-                  gun["box"]["left"] * 100, gun["box"]["right"] * 100,
-                  gun["box"]["top"] * 100, gun["box"]["bottom"] * 100))
+        # THE CLIPPED CORNERS ARE SAID, NOT SILENTLY DROPPED. The carry pose puts the stock behind
+        # the camera on purpose, so "3 of 8 corners are clipped" is part of what the picture IS --
+        # and a box measured from the five that are left is a box of five corners.
+        print("[pose]   gun ({}): {} of 8 corners in the picture, {} clipped (behind the eye or "
+              "inside the near plane)".format(
+                  gun["piece"], gun.get("cornersInPicture"), gun.get("cornersClipped")))
+        if gun.get("box"):
+            print("[pose]   gun silhouette {:.1f} % of the width; box {:.1f}-{:.1f} % across, "
+                  "{:.1f}-{:.1f} % down".format(
+                      gun["silhouetteWidth"] * 100,
+                      gun["box"]["left"] * 100, gun["box"]["right"] * 100,
+                      gun["box"]["top"] * 100, gun["box"]["bottom"] * 100))
+        else:
+            print("[pose]   the whole piece is behind the eye, so there is no silhouette to measure")
         if gun["cornersInBottomBand"] > 0:
             print("[pose]   gun width at the bottom edge: {:.1f} % of the screen "
                   "({} of 8 corners in the bottom 15 %)".format(
@@ -410,7 +435,16 @@ def main(argv):
                 cleared.append(f"edit place SKIPPED: {edit_why}")
             else:
                 _, problem = write_override(studio, edit_id, "Edit", {})
-                cleared.append("the edit place" if not problem else f"edit place FAILED: {problem}")
+                if not problem:
+                    cleared.append("the edit place")
+                elif "not available in Play mode" in problem:
+                    # NOT A FAILURE, and it is the usual case: Studio does not expose the Edit
+                    # DataModel while a Play session runs, and the override being cleared was never
+                    # in the edit place to begin with (`set` refuses Edit mode outright).
+                    cleared.append("edit place SKIPPED: it is not reachable while Play runs; "
+                                   "run `pose.py clear` again after the session ends")
+                else:
+                    cleared.append(f"edit place FAILED: {problem}")
             print("[pose] cleared: " + ", ".join(cleared))
             return 0 if not any("FAILED" in part for part in cleared) else 1
 
@@ -559,7 +593,28 @@ def selftest():
     ok("poses.json is already in `save`'s own format", buffer.getvalue() == on_disk,
        "re-saving it would rewrite the whole file")
 
-    # 6. THE TARGET PATH IS BUILT, NEVER BAKED IN. The reference frames are third-party and outside
+    # 6. NEITHER CALL RAISES ON WHAT STUDIO SAID. MEASURED, on the first tuning session: `clear`
+    # cleared the running session and then died with a traceback on "Edit datamodel is not available
+    # in Play mode" -- Studio does not expose the Edit DataModel while a Play session runs, and
+    # `clear` deliberately reaches for both. A tool that half-succeeds and then crashes is worse than
+    # one that refuses, so a Studio fault is an ordinary problem string here.
+    class RaisingStudio:
+        def __init__(self, why):
+            self.why = why
+            self.default_studio_id = None
+
+        def query(self, datamodel, code, studio_id=None):
+            raise RuntimeError(self.why)
+
+    PLAY = "execute_luau: Edit datamodel is not available in Play mode"
+    got, problem = read_override(RaisingStudio(PLAY), "X", "Edit")
+    ok("read_override reports a Studio fault instead of raising", got == {} and PLAY in problem,
+       f"{got!r} / {problem!r}")
+    text, problem = write_override(RaisingStudio(PLAY), "X", "Edit", {})
+    ok("write_override reports a Studio fault instead of raising", text == "" and PLAY in problem,
+       f"{text!r} / {problem!r}")
+
+    # 7. THE TARGET PATH IS BUILT, NEVER BAKED IN. The reference frames are third-party and outside
     # the repo (CLAUDE.md, "Public repository": no local absolute path in a committed file).
     ok("no reference path without an assets dir", target_for("aim", None) is None)
     built = target_for("aim", os.path.join("X", "Y"))
