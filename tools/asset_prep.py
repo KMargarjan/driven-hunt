@@ -281,11 +281,22 @@ DEFAULT_RECIPE = {
         # was the barrels -- but not a mirror: 0.70 / 0.35 is bright polished steel with the engraving
         # still readable, where the 0.91 / 0.19 that shipped made the whole action a sky-coloured
         # blob. It is the same class of change as the barrels and it lands in the same maps.
+        # DARK STEEL SINCE TASK 97, NOT BRIGHT SILVER. The Director's side-by-side of our aimed view
+        # against the reference video (`inspiration-2026-10-01/COMPARE-video-vs-ours.jpg`) shows the
+        # difference plainly: in the video the action is a dark, matte, case-hardened body that the
+        # eye reads past, and ours is the brightest thing on the screen -- a chrome blob right under
+        # the sight line, two inches from a first-person eye.
+        #
+        # RGB(88, 90, 95) is the same near-black blue-grey family as the barrels, a little lighter so
+        # the two still read as different parts. Metalness comes down from 0.70 to 0.20 for the reason
+        # the barrels' own comment gives: a metal at 1.0 has no diffuse colour at all and shows only
+        # the sky, so a dark albedo is never seen. Roughness goes up from 0.35 to 0.62 -- the sheen
+        # spreads out instead of mirroring, which is what takes the glare off the engraving.
         "action": {
-            "baseColor": {"targetRGB": [172, 172, 172], "keepHue": True, "satScale": 0.10,
+            "baseColor": {"targetRGB": [88, 90, 95], "keepHue": True, "satScale": 0.10,
                           "contrast": 1.05},
-            "roughness": 0.35,
-            "metallic": 0.70,
+            "roughness": 0.62,
+            "metallic": 0.20,
         },
         # MEDIUM WALNUT, deeper and less orange than what came out of Meshy -- Karen's two complaints
         # in one number: RGB(112, 80, 69) is the median of the stock in her reference photo.

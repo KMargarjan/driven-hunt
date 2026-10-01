@@ -123,7 +123,13 @@ local GUN_SIZE = Vector3.new(NATURAL.X * SCALE, NATURAL.Y * SCALE, NATURAL.Z * S
 -- The two natural boxes are MEASURED off each prepped model's own vertex bounds (the run's
 -- `model.glb` position accessors, times the hundred Roblox's FBX import applies -- the same hundred
 -- that makes the gun's two-unit model 200 units long above). See the rows for where 1.28 comes from.
-local HAND_LENGTH_STUDS = 1.28
+-- 0.95 SINCE TASK 97, AND IT IS A CLEARANCE NUMBER AS WELL AS A SIZE ONE. 1.28 studs was a hand
+-- plus most of a forearm, and task 97 brings the aiming eye in to 3.80 studs of relief -- so the
+-- right hand's CUFF reached the lens and the aimed view filled with the inside of the glove (a
+-- Roblox MeshPart renders both faces, so a model the camera is inside shows its own back surface).
+-- 0.95 is a hand and a short sleeve: 247 mm at this game's scale, against the 200 mm of hand a
+-- person has. The row below says this constant is the dial a screenshot decides; this is that.
+local HAND_LENGTH_STUDS = 0.95
 local HAND_RIGHT_NATURAL = Vector3.new(190.04, 84.99, 78.93)
 local HAND_LEFT_NATURAL = Vector3.new(189.64, 95.52, 72.04)
 local function uniformTo(natural: Vector3, length: number): Vector3
@@ -581,6 +587,7 @@ Assets.ROWS = {
 		-- THE BODY, and it keeps the `shotgun.handle` key because the body IS the gun as far as
 		-- every other system is concerned: the Handle's envelope, the grip, the Muzzle attachment and
 		-- the Sight all hang on it, and the barrels are scenery welded in front.
+		supersededBy = 10, -- task 97: v10 is the same body with a dark steel action
 		modelId = 121405298612730,
 		displayName = "Driven Hunt shotgun body r1",
 		fileName = "model_body.fbx",
@@ -610,6 +617,60 @@ Assets.ROWS = {
 		renderFidelity = "Automatic",
 		notes = "The body half of v8: action and stock, same maps, same smoothing groups, the whole "
 			.. "gun's bounding box baked in with anchor triangles so it assembles with the barrels.",
+	},
+	{
+		key = "shotgun.handle",
+		version = 10,
+		kind = "meshpart" :: Kind,
+		-- Uploaded by tools/roblox_upload.py on 2026-10-01; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- WHY THERE IS A VERSION 10: THE ACTION WAS CHROME. Karen, 2026-10-01, on the new reference
+		-- video (`<assets-dir>/references/inspiration-2026-10-01/`): "follow the video". The
+		-- Director's side-by-side of our aimed view against it shows what that means here -- in the
+		-- video the action is a dark, matte, case-hardened body the eye reads straight past, and ours
+		-- was the brightest thing on the screen: a chrome blob directly under the sight line, two
+		-- inches from a first-person eye. `tools/asset_prep.py`'s `action` region goes from
+		-- RGB(172, 172, 172) at metalness 0.70 / roughness 0.35 to RGB(88, 90, 95) at 0.20 / 0.62 --
+		-- the same near-black blue-grey family as the barrels, a little lighter so the two still read
+		-- as different parts.
+		--
+		-- THE BODY ONLY. The gun ships as two meshes and the action lives in this half; the barrel
+		-- group's own maps are untouched, so `shotgun.barrels` v1 stays as it is and the two halves
+		-- still assemble at one CFrame (the anchor triangles are the same geometry).
+		modelId = 75977232140256,
+		displayName = "Driven Hunt shotgun body r2 dark action",
+		fileName = "model_body.fbx",
+		sourceSha256 = "e0c0ad7894cf0a5446d157b5ee072ef01d9b1c2046daf32d4d8e831bccbac07c",
+		source = "own" :: Source,
+		creator = "8167651842",
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the model in her own paid Meshy account and prepared it with "
+				.. "tools/asset_prep.py; she gave the upload OK on 2026-09-26 and asked on "
+				.. "2026-10-01 for the gun to follow her new reference video, where the action is "
+				.. "dark steel rather than chrome. The barrels are this repository's own geometry; "
+				.. "the stock, action and forend are hers.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-10-01, TASKS.md row 97",
+			readOn = "2026-10-01",
+			attribution = nil,
+		},
+		added = "2026-10-01",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 9701,
+		texturePx = 2048,
+		sizeStuds = GUN_SIZE,
+		naturalSizeStuds = NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 90, 0),
+		sightOffsetStuds = Vector3.new(0, 0.336, -2.19),
+		renderFidelity = "Automatic",
+		notes = "As v9 -- the body half, same geometry, same smoothing groups, the whole gun's "
+			.. "bounding box baked in with anchor triangles -- with the action at RGB(88, 90, 95), "
+			.. "metalness 0.20, roughness 0.62. The run's own warning about the BARREL region's "
+			.. "sampled shine is the pre-existing one (task 93's regression run carries it too): the "
+			.. "generated barrels are cut away and rebuilt, so the few texels left in that region "
+			.. "read their neighbours. The barrels a player sees are painted by `rebuildBarrels`.",
 	},
 	{
 		key = "shotgun.barrels",
@@ -680,6 +741,7 @@ Assets.ROWS = {
 		version = 1,
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel",
+		supersededBy = 2, -- task 97: this id arrives in game untextured (see v2)
 		-- Uploaded by tools/roblox_upload.py on 2026-09-28; the row it wrote is in
 		-- assets/uploads.json, and this id is that row's assetId.
 		modelId = 135163569224932,
@@ -712,6 +774,47 @@ Assets.ROWS = {
 			.. "extended along the side. Smooth shading at 70 degrees (280 of 3,120 edges kept "
 			.. "sharp, against 1,476 the file arrived flagged with). Metalness written to 0 -- a "
 			.. "glove is not a metal -- and the generator's own roughness kept.",
+	},
+	{
+		key = "hand.right",
+		version = 2,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel",
+		-- THE SAME FILE, UPLOADED AGAIN, AND THE REASON IS WHAT IT LOOKS LIKE IN THE GAME. Version 1
+		-- renders as a WHITE, untextured glove in every first-person frame of 2026-10-01 -- beside
+		-- the LEFT hand, prepped by the same preset in the same run and rendered brown. It is not the
+		-- model: `hand_right_r4`'s own Blender renders are brown leather, and it is not the drawn
+		-- code, which is one function for both hands. Something in that upload did not keep its
+		-- maps. The bytes are identical (same sha256 as version 1, which is why the upload tool needed
+		-- `--again`); only the asset id is new.
+		--
+		-- IF THIS ONE IS WHITE TOO, the next step is to look at the asset's own SurfaceAppearance in
+		-- Studio rather than to upload a third time.
+		modelId = 114416997151977,
+		displayName = "Driven Hunt gloved right hand r2",
+		fileName = "model.fbx",
+		sourceSha256 = "0b48cbfe76be38fd2d0968ca5387b37ee586ef3137e1872975a4838c3f201686",
+		source = "own" :: Source,
+		creator = "8167651842",
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated both hands in her own paid Meshy account on 2026-09-27 and "
+				.. "gave the upload OK the same day: ok to upload (hands). This is the same prepared "
+				.. "file uploaded a second time, because the first asset arrives in game untextured.",
+			quotedFrom = "assets/uploads.json (karenOk), TASKS.md row 97",
+			readOn = "2026-10-01",
+			attribution = nil,
+		},
+		added = "2026-10-01",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 2080,
+		texturePx = 2048,
+		sizeStuds = HAND_RIGHT_SIZE,
+		naturalSizeStuds = HAND_RIGHT_NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		notes = "Byte-for-byte version 1's file; a new asset id only. See the comment above for why.",
 	},
 	{
 		key = "hand.left",

@@ -229,13 +229,13 @@ local Config = {
 	-- the arithmetic says and the break screenshot showed. The palm sits 0.45 studs along the
 	-- fingers from the model's centre, so moving the centre in and up by that much moves the palm
 	-- onto the wrist of the stock.
-	HAND_RIGHT_POS_STUDS = Vector3.new(0.11, -0.36, 1.05),
+	HAND_RIGHT_POS_STUDS = Vector3.new(0.12, -0.12, 0.80),
 	-- Three named degrees, converted to radians at ONE site (`Mode.handOffset`) -- the rule the
 	-- Task 19 cone-unit defect bought. YAW swings the hand's long axis (wrist to fingertip)
 	-- horizontally, PITCH lifts or drops it, TWIST turns the hand about that axis -- which is the
 	-- one a hand actually has, and the one that decides whether the palm faces the wood or the sky.
 	HAND_RIGHT_YAW_DEG = 78,
-	HAND_RIGHT_PITCH_DEG = -6,
+	HAND_RIGHT_PITCH_DEG = 10,
 	HAND_RIGHT_TWIST_DEG = -15,
 	-- MEASURED ON SCREEN, ROUND 2, AND IT MOVED FURTHEST. In the first build the left hand sat at
 	-- the bottom-left CORNER of the carry frame, clear of the barrels, and in the aimed view it was
@@ -244,7 +244,7 @@ local Config = {
 	-- -- drifts 0.12 studs to the LEFT of wherever the centre is put, and the barrel pair is only
 	-- 0.18 studs wide. So the yaw comes in to 80 (the forearm still angles out to the left, which
 	-- is what a left hand does) and the centre moves right and up by what the drift costs.
-	HAND_LEFT_POS_STUDS = Vector3.new(-0.02, -0.16, -0.25),
+	HAND_LEFT_POS_STUDS = Vector3.new(-0.02, -0.08, -0.85),
 	-- NEGATIVE YAW for the left hand, because its model runs the other way: the right hand's
 	-- fingertips are at its mesh +X and the left hand's at its -X (measured on each prepped model's
 	-- own bounds). TWIST 180 is what turns the palm UP, so the barrels lie in it rather than on the
@@ -298,7 +298,7 @@ local Config = {
 	-- back surface, unlit. Proved by moving the right hand 8 studs sideways for one Play session: the
 	-- blob went with it. The hand is clear of the lens by 0.54 studs now, which still holds with the
 	-- recoil spring at its 0.25-stud ceiling.
-	EYE_RELIEF_STUDS = 4.40,
+	EYE_RELIEF_STUDS = 3.65,
 	-- THE CHEEK ON THE COMB (task 92, round 2). In Karen's own acceptance picture the eye is ABOVE
 	-- the rib, not level with it: you look down the TOP of the barrel, which tapers away to the bead,
 	-- and the action is a dark shape at the very bottom of the frame. Level with the rib -- which is
