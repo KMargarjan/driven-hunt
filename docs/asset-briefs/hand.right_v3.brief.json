@@ -1,0 +1,15 @@
+{
+  "key": "hand.right",
+  "version": 3,
+  "kind": "meshpart",
+  "prompt": "A right human hand in a slim dark brown leather glove, attached to a long olive green jacket sleeve that runs to mid forearm. Pose: a loose fist. The middle, ring and little fingers are curled tightly round, leaving a round 4 cm tunnel through the fist, and the thumb is curled over them closing the tunnel at the top. Only the index finger is extended, straight forward, lying along the outside of the fist. Five digits, anatomically correct, a slim adult hand. The sleeve is a long fabric tube, closed and smooth, not cut short. Clean smooth surfaces, no crumpled facets. One solid part, nothing held in the hand, no text or logo. Realistic materials, neutral even lighting, no background.",
+  "references": [],
+  "sizeMetres": [
+    0.11,
+    0.12,
+    0.45
+  ],
+  "targetTris": 5000,
+  "texturePx": 2048,
+  "notes": "WHY v3 (Director, 2026-10-01 night): the v2 previews (runs hand.right_v2-20261001T2108Z, not approved) came back in a neutral display pose \u2014 right a flat open 'stop' hand with a short cuff, left an open splayed hand with a crumpled sleeve. The 'invisible grip' wording failed: v3 describes the finished hand SHAPE (a fist with a 4 cm tunnel and the index alone extended; a palm-up shallow C with a 5 cm channel) and asks for a long closed smooth sleeve on BOTH. Everything else as v2. Karen chose GLOVES over the target game's bare hands ('with gloves nicer', 2026-10-01 ~23:00). v1 (Karen's own Meshy run, 2026-09-27) read bulky in first person, and its short cuff showed its open end to the camera as a black disc in the break-open frame. v2: slim close-fitting leather, the same two grips as v1 (right: three fingers round the wrist, index straight along the side; left: palm up, cradling the forend), and a LONG olive sleeve to mid forearm so the cuff end sits off screen. sizeMetres: hand ~0.20 m plus ~0.25 m of sleeve; Meshy normalises scale anyway and the camera config is the dial. No upload without Karen seeing the preview: her 'upload ok' of 2026-10-01 named the forend, the stock and metal parts, not gloves."
+}
