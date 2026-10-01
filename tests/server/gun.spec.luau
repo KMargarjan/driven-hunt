@@ -150,6 +150,23 @@ return function()
 			-- The action is SHALLOW AND WIDE, which is what a side-by-side has.
 			local action = byName(pieces, "Action")
 			expect(action.size.X > action.size.Y).to.equal(true)
+			-- ...AND NOTHING ON THE BODY RISES ABOVE THE RIB, which is the one thing that makes a
+			-- bead sight work. MEASURED ON SCREEN: the first standing breech stood 0.11 studs proud
+			-- of the rib and filled the middle of the aimed view with the barrels hidden behind it.
+			local ribTop = byName(pieces, "Rib").offset.Position.Y + byName(pieces, "Rib").size.Y / 2
+			for _, piece in ipairs(pieces) do
+				if piece.group == "body" and piece.name ~= Gun.STOCK_NAME then
+					local top = piece.offset.Position.Y + piece.size.Y / 2
+					if top > ribTop then
+						TestKit.note(
+							string.format("task99 %s tops out %.3f studs above the rib", piece.name, top - ribTop)
+						)
+					end
+					-- The top lever and the safety sit ON the action's top face, which is the bore
+					-- line; only the rib and the bead may be higher.
+					expect(top <= ribTop + 1e-6).to.equal(true)
+				end
+			end
 		end)
 
 		it("splits every piece into the half that swings and the half that does not", function()
@@ -231,6 +248,7 @@ return function()
 			-- THE TURN IS THE GUN'S, not the row's: the mesh is not mis-oriented, it simply lies
 			-- along X and this gun lies along Z.
 			expect(row.rotationDeg).to.equal(Vector3.zero)
+			expect(row.textureId).to.be.ok()
 			expect(Gun.WOOD_ROTATION_DEG[Gun.STOCK_NAME]).to.equal(-90)
 		end)
 
@@ -259,6 +277,11 @@ return function()
 				local row = Assets.byKey(key)
 				expect(row).to.be.ok()
 				expect(row.fallbackColor).to.be.ok()
+				-- AND THE COLOUR MAP'S OWN ID, which is what actually draws it: a game script cannot
+				-- read `SurfaceAppearance.ColorMap`, so the row carries the id and the boot writes it
+				-- to `TextureID`. A row without one is a hand that can only ever be a flat colour.
+				expect(row.textureId).to.be.ok()
+				expect(string.sub(row.textureId :: string, 1, 13)).to.equal("rbxassetid://")
 				local colour = row.fallbackColor :: Color3
 				TestKit.note(
 					string.format(

@@ -163,7 +163,11 @@ function Poses.holdReload(hold: string?)
 	if hold ~= "reload" then
 		return nil
 	end
-	return { open = true, spent = 2, loaded = { false, false } }
+	-- BOTH CHAMBERS FED, so the held frame is the one worth photographing: the barrels down on the
+	-- pin with two fresh shells seated in the bores. With them empty the hold showed an open gun
+	-- and nothing else -- the spent pair had already finished ejecting by the time the capture
+	-- was taken (`SHELL_EJECT_SECONDS` is 0.35 and the hold settles for a second).
+	return { open = true, spent = 2, loaded = { true, true } }
 end
 
 return Poses

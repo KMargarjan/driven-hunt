@@ -76,6 +76,9 @@ local ACTION_WIDTH = 0.30 -- SHALLOW AND WIDE, which is what a side-by-side acti
 local ACTION_HEIGHT = 0.26
 local ACTION_TOP = BARREL_Y -- the barrels lie ON the water table; the rib is the highest line
 local STANDING_BREECH_THICK = 0.055 -- the upright face the two chambers close against
+-- ...and it stops at the bore line, a hair proud of it. See the piece for the screenshot that
+-- bought this number: taller than this and it hides the barrels in the aimed view.
+local STANDING_BREECH_HEIGHT = ACTION_HEIGHT + 0.015
 local FLAT_BAR_LENGTH = 0.30 -- the bars that run FORWARD under the barrels, into the forend
 local HINGE_PIN_DIAMETER = 0.07
 
@@ -119,7 +122,11 @@ Gun.WOOD_ROTATION_DEG = table.freeze({ [Gun.FOREND_NAME] = -90, [Gun.STOCK_NAME]
 -- case-hardened silver-grey, which is the contrast that makes a side-by-side read as one.
 Gun.LOOK = table.freeze({
 	blued = Color3.fromRGB(34, 38, 46),
-	action = Color3.fromRGB(176, 178, 182),
+	-- 140, NOT 176, AND THE SCREENSHOT IS WHY (rule 5). At 176 the action rendered near-WHITE in
+	-- the break-open capture and dominated the frame -- Roblox's `Metal` adds its own specular on
+	-- top of the albedo, so a light grey becomes white in sun. Case-hardened steel is a mid grey
+	-- with colour mottling; this is the grey.
+	action = Color3.fromRGB(140, 143, 148),
 	bore = Color3.fromRGB(9, 9, 11),
 	bead = Color3.fromRGB(198, 158, 82),
 	wood = Color3.fromRGB(86, 52, 32),
@@ -222,9 +229,12 @@ function Gun.pieces(config): { Piece }
 			color = Gun.LOOK.blued,
 			material = Enum.Material.Metal,
 			shape = Enum.PartType.Cylinder,
-			-- SOME GLOSS, NOT A MIRROR. Task 72 shipped "blued barrels" that were mirror chrome on
-			-- screen; 0.06 lifts a highlight along the top of each tube without turning it silver.
-			reflectance = 0.06,
+			-- NO REFLECTANCE AT ALL, and the screenshot is why (rule 5). Task 72 shipped "blued
+			-- barrels" that were mirror chrome; 0.06 was meant to be a highlight and instead the
+			-- tubes mirrored the sky and read as bright BLUE plastic in the carry capture. Roblox's
+			-- `Metal` already carries a specular response, and a blued barrel is a dark matte-ish
+			-- surface with a sheen along its length, not a mirror.
+			reflectance = 0,
 		})
 		-- THE TWO OPENINGS AT EACH END (requirement 2 of the note). A near-black disc INSET into the
 		-- tube: it is not a hole and the note says so, but at the aiming distance an unlit disc
@@ -303,13 +313,18 @@ function Gun.pieces(config): { Piece }
 		reflectance = 0.04,
 	})
 
-	-- THE STANDING BREECH: the upright face the two chambers close against. Taller than the action
-	-- body, because it has to cover both bores.
+	-- THE STANDING BREECH: the upright face the two chambers close against. It reaches from the
+	-- action's bottom up to the BORE LINE and no further -- MEASURED ON SCREEN (rule 5): the first
+	-- build made it `ACTION_HEIGHT + BARREL_DIAMETER` tall and centred it half a barrel above the
+	-- action, which put its top 0.11 studs ABOVE the rib. In the aimed view that is a pale box
+	-- filling the middle of the screen with the barrels hidden behind it -- a gun you cannot aim.
+	-- On a real side-by-side the standing breech stops at the water table, which is the bore line,
+	-- and the rib is the highest line on the gun.
 	add({
 		name = "StandingBreech",
 		group = "body",
-		size = Vector3.new(ACTION_WIDTH, ACTION_HEIGHT + BARREL_DIAMETER, STANDING_BREECH_THICK),
-		offset = CFrame.new(0, at.actionY + BARREL_DIAMETER / 2, at.breechFaceZ),
+		size = Vector3.new(ACTION_WIDTH, STANDING_BREECH_HEIGHT, STANDING_BREECH_THICK),
+		offset = CFrame.new(0, at.actionBottom + STANDING_BREECH_HEIGHT / 2, at.breechFaceZ),
 		color = Gun.LOOK.action,
 		material = Enum.Material.Metal,
 		shape = Enum.PartType.Block,
@@ -419,7 +434,10 @@ function Gun.pieces(config): { Piece }
 		name = Gun.STOCK_NAME,
 		group = "body",
 		size = STOCK_SIZE,
-		offset = CFrame.new(0, at.actionY + 0.01, at.stockZ) * CFrame.Angles(math.rad(STOCK_DROP_DEG), 0, 0),
+		-- LOWER THAN THE ACTION'S CENTRE, measured on screen with the stock mesh in: at the action's
+		-- own centre the comb rose above the bore line and filled the bottom half of the aimed view.
+		-- A real stock's comb is just under the bore line and drops away from it.
+		offset = CFrame.new(0, at.actionY - 0.045, at.stockZ) * CFrame.Angles(math.rad(STOCK_DROP_DEG), 0, 0),
 		color = Gun.LOOK.wood,
 		material = Enum.Material.Wood,
 		shape = Enum.PartType.Block,

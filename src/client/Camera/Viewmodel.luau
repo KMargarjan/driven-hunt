@@ -47,6 +47,13 @@ local builtFrom: BasePart? = nil
 -- clone is a copy of something that changed. One flag, cleared when the rebuild happens.
 local childWatchers: { RBXScriptConnection } = {}
 local stale = false
+-- HOW MANY WOODEN PIECES THE CLONE WAS BUILT WITH (task 99), and it is the same staleness problem
+-- one layer over. MEASURED: the server loads Karen's stock through `InsertService` and publishes it
+-- about 1.6 s into a session, and the viewmodel has usually built its gun before that -- so the
+-- first build takes the exact-geometry fallback and, with nothing to make it stale, KEEPS it for the
+-- whole life of that clone. The gun had a plain stock all session and `stats().woodDrawn` said 0.
+-- Counted rather than told: this module still knows nothing about asset ids or load order.
+local builtWood = -1
 
 -- THE NAMES THIS MODULE LOOKS FOR ON THE CLONE (task 90). `Sight` is written by
 -- `ServerScriptService.Weapon.Hardware` and comes across with the clone; `Bead` is the parts gun's
@@ -177,6 +184,7 @@ function Viewmodel.clear()
 	handsMissingCounted = false
 	table.clear(ridersLocal)
 	builtFrom = nil
+	builtWood = -1 -- the next clone counts its own wood (task 99)
 	for _, connection in ipairs(childWatchers) do
 		connection:Disconnect()
 	end
@@ -613,6 +621,7 @@ local function buildNewGun(config): Model
 	-- for the reason it was added in task 92: a gun inches from the eye is lit by the sun alone.
 	addFillLight(handle, config)
 
+	builtWood = if woodFolder then #woodFolder:GetChildren() else 0
 	stats.rebuilds += 1
 	local parts = 0
 	for _, descendant in ipairs(made:GetDescendants()) do
@@ -724,6 +733,15 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	if source and (now - lastSourceCheck > 0.25 or (cachedHandle and not cachedHandle.Parent)) then
 		lastSourceCheck = now
 		cachedHandle = source()
+		-- AND WHETHER THE WOOD HAS ARRIVED SINCE THE GUN WAS BUILT (task 99). On the same throttle
+		-- as the source, for the same reason: it is a container lookup, not something a frame needs.
+		-- `builtWood` is -1 until a new gun has been built, so this never fires for the cloned one.
+		if config.NEW_GUN == true and builtWood >= 0 then
+			local folder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
+			if (if folder then #folder:GetChildren() else 0) ~= builtWood then
+				stale = true
+			end
+		end
 	elseif not source then
 		cachedHandle = nil
 	end

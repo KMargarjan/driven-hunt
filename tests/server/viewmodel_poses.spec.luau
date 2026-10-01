@@ -525,6 +525,10 @@ return function()
 			expect(drawn).to.be.ok()
 			expect((drawn :: any).open).to.equal(true)
 			expect((drawn :: any).spent).to.equal(2)
+			-- BOTH CHAMBERS FED, so the held frame shows shells seated in the bores rather than an
+			-- empty open gun: the spent pair has finished ejecting long before a capture is taken.
+			expect((drawn :: any).loaded[1]).to.equal(true)
+			expect((drawn :: any).loaded[2]).to.equal(true)
 		end)
 	end)
 end

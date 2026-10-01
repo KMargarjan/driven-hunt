@@ -369,7 +369,10 @@ local Config = {
 	-- hand's own long axis, starting at the cuff and running back past the near plane, so the end is
 	-- always behind the camera. It is drawn by `Camera.Viewmodel` with the hands, for one player.
 	SLEEVE_LENGTH_STUDS = 1.6, -- far enough back that the end is behind the eye in every pose
-	SLEEVE_DIAMETER_STUDS = 0.30,
+	-- 0.20, NOT 0.30, AND THE SCREENSHOT IS WHY (rule 5). At 0.30 the sleeve read as an olive LOG
+	-- lying across the right half of the break-open frame: it is inches from the eye, so its
+	-- apparent size is nothing like its real one. A forearm at this distance is a narrow band.
+	SLEEVE_DIAMETER_STUDS = 0.20,
 	SLEEVE_COLOR = Color3.fromRGB(62, 66, 48), -- the olive of the jacket cuff on Karen's gloves
 	SLEEVE_MATERIAL = Enum.Material.Fabric,
 	-- How far the sleeve's near end sits INSIDE the cuff, so there is never a seam between them.

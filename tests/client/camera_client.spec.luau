@@ -1983,10 +1983,13 @@ return function()
 					-- (the path that does not read alpha) or there is no map to draw.
 					local appearance = hand:FindFirstChildOfClass("SurfaceAppearance")
 					expect(appearance).to.equal(nil)
-					if (hand :: any).TextureID ~= "" then
-						-- A MeshPart's Color TINTS its TextureID, so a textured hand is left white.
-						expect(hand.Color).to.equal(Color3.new(1, 1, 1))
-					end
+					-- ...AND THE MAP IS ON THE PATH THAT DRAWS IT. The id comes from the manifest
+					-- row, because a game script cannot READ `SurfaceAppearance.ColorMap` at all --
+					-- measured, 2026-10-01: "lacking capability Plugin", which took the whole boot
+					-- down and published nothing.
+					expect((hand :: any).TextureID).never.to.equal("")
+					-- A MeshPart's Color TINTS its TextureID, so a textured hand is left white.
+					expect(hand.Color).to.equal(Color3.new(1, 1, 1))
 				end
 			end
 

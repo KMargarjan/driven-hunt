@@ -108,6 +108,14 @@ export type AssetRow = {
 	-- it does not, the glove is brown leather instead of a white blob. `nil` for rows nobody draws
 	-- without a texture.
 	fallbackColor: Color3?,
+	-- THE COLOUR MAP'S OWN ASSET ID, so a game script can put it on the MeshPart's `TextureID`
+	-- (task 99). It is HERE and not read off the model at run time because a normal script CANNOT
+	-- read `SurfaceAppearance.ColorMap` at all -- measured, 2026-10-01: "The current thread cannot
+	-- read 'ColorMap' (lacking capability Plugin)", which took `ViewmodelAssetsBoot` down with it and
+	-- published nothing. Only a plugin context can read it, which is what `execute_luau` is, so the
+	-- id is read ONCE through the harness when the row is written and kept here like every other
+	-- measured fact about an upload.
+	textureId: string?,
 	notes: string?,
 }
 
@@ -737,6 +745,9 @@ Assets.ROWS = {
 		trisDeclared = 5146,
 		texturePx = 1024,
 		sizeStuds = STOCK_SIZE,
+		-- Read through the harness (a plugin context) off the loaded asset: a game script
+		-- cannot read `SurfaceAppearance.ColorMap`. 2026-10-01.
+		textureId = "rbxassetid://96976091145006",
 		naturalSizeStuds = STOCK_NATURAL,
 		-- MEASURED off the prepped model's bounds: the pivot is the bounding-box centre to within
 		-- 0.003 of a unit on every axis, which is 2e-5 studs at this scale.
@@ -780,6 +791,9 @@ Assets.ROWS = {
 		trisDeclared = 2080,
 		texturePx = 2048,
 		sizeStuds = HAND_RIGHT_SIZE,
+		-- Read through the harness (a plugin context) off the loaded asset: a game script
+		-- cannot read `SurfaceAppearance.ColorMap`. 2026-10-01.
+		textureId = "rbxassetid://134242352363086",
 		-- The median of this model's own `_texture.png`, measured 2026-10-01: dark brown leather.
 		fallbackColor = Color3.fromRGB(54, 44, 35),
 		naturalSizeStuds = HAND_RIGHT_NATURAL,
@@ -820,6 +834,9 @@ Assets.ROWS = {
 		trisDeclared = 2061,
 		texturePx = 2048,
 		sizeStuds = HAND_LEFT_SIZE,
+		-- Read through the harness (a plugin context) off the loaded asset: a game script
+		-- cannot read `SurfaceAppearance.ColorMap`. 2026-10-01.
+		textureId = "rbxassetid://104214044387030",
 		fallbackColor = Color3.fromRGB(54, 44, 35),
 		naturalSizeStuds = HAND_LEFT_NATURAL,
 		offsetStuds = Vector3.zero,

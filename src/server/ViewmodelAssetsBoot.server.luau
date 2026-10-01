@@ -60,11 +60,17 @@ local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 -- nobody can see the colour of loses everything.
 local function showItsOwnColour(worn: BasePart, row, material: Enum.Material)
 	worn.Material = material
+	-- THE ID COMES FROM THE ROW, NEVER OFF THE MODEL. Measured the hard way, 2026-10-01: reading
+	-- `SurfaceAppearance.ColorMap` from a game script raises "The current thread cannot read
+	-- 'ColorMap' (lacking capability Plugin)" -- which took this whole boot down and published
+	-- nothing at all, hands included. DESTROYING it needs no such capability, and the id is a
+	-- measured fact about the upload that belongs in the manifest beside the size and the sha.
 	local appearance = worn:FindFirstChildOfClass("SurfaceAppearance")
-	local colorMap = if appearance then appearance.ColorMap else ""
-	if colorMap ~= "" then
-		worn.TextureID = colorMap;
-		(appearance :: SurfaceAppearance):Destroy()
+	if appearance then
+		appearance:Destroy()
+	end
+	if row.textureId ~= nil and row.textureId ~= "" then
+		worn.TextureID = row.textureId
 		-- A MeshPart's `Color` TINTS its `TextureID`, so a textured part is left white and the
 		-- texture is shown as it is.
 		worn.Color = Color3.new(1, 1, 1)
