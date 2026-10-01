@@ -375,6 +375,10 @@ end
 -- THE CARRY POSE (task 89, first person only): the gun held low and LEFT while walking. Position
 -- plus three named degrees, and this is the ONE site that converts them -- the rule introduced after
 -- the Task 19 cone-unit defect, where a 2x error hid in a second conversion.
+--
+-- Since task 98 the four numbers come from `src/shared/Viewmodel/poses.json` (`carry.gun`), through
+-- `Camera.Config`; nothing about this function's shape changed, which is the point of publishing the
+-- old names from the new data.
 function Mode.carryOffset(config): CFrame
 	return CFrame.new(config.VIEWMODEL_CARRY_POS_STUDS)
 		* CFrame.Angles(
@@ -382,6 +386,47 @@ function Mode.carryOffset(config): CFrame
 			math.rad(config.CARRY_YAW_DEG),
 			math.rad(config.CARRY_ROLL_DEG)
 		)
+end
+
+-- ONE KEYFRAME'S GUN POSE, from the data (task 98): `{ pos = {x,y,z}, rot = {x,y,z} }` in degrees,
+-- converted here and nowhere else -- the same shape and the same one site as `carryOffset` above.
+-- It exists for the raise's MID KEYFRAMES, which have no flat config names and never will.
+function Mode.gunPose(entry): CFrame
+	return CFrame.new(entry.pos.x, entry.pos.y, entry.pos.z)
+		* CFrame.Angles(math.rad(entry.rot.x), math.rad(entry.rot.y), math.rad(entry.rot.z))
+end
+
+-- WHICH SEGMENT OF A KEYFRAME PATH `t` FALLS IN, and how far along that segment it is. `times` is
+-- the path's own time list, which always starts at 0 and ends at 1 (the two poses the swing runs
+-- between), with any mid keyframe's `t` in between and in order --
+-- `tests/server/viewmodel_poses.spec.luau` is what makes that true of the file.
+--
+-- WITH NO MID KEYFRAMES `times` is {0, 1} and this answers (1, t), so the player below reduces to
+-- exactly the single `hip:Lerp(aim, eased)` the camera has done since task 89. That is deliberate:
+-- the keyframe path is ONE code path, driven by data, rather than a new branch beside the old one.
+local function segmentAt(times: { number }, t: number): (number, number)
+	local clamped = math.clamp(t, 0, 1)
+	for index = 1, #times - 1 do
+		local from, to = times[index], times[index + 1]
+		if clamped <= to then
+			local span = to - from
+			return index, if span > 0 then (clamped - from) / span else 0
+		end
+	end
+	return math.max(1, #times - 1), 1
+end
+
+Mode.segmentAt = segmentAt
+
+-- THE RAISE'S OWN TIME LIST, for a path that runs carry -> mids -> aim.
+local function raiseTimes(config): { number }
+	local times = { 0 }
+	local keyframes = config.POSES.raise.keyframes
+	for _, frame in ipairs(keyframes) do
+		table.insert(times, frame.t)
+	end
+	table.insert(times, 1)
+	return times
 end
 
 -- THE AIMED POSE, AND IT IS GEOMETRY RATHER THAN A NUMBER SOMEBODY LIKED (task 90, S2).
@@ -445,6 +490,9 @@ function Mode.handOffset(position: Vector3, yawDeg: number, pitchDeg: number, tw
 end
 
 -- The two poses by name, so the viewmodel and any spec ask the same question of the same numbers.
+-- THESE TWO ARE THE CARRY HAND, which is where a hand is at blend 0 with the gun shut. The hand the
+-- viewmodel actually draws is `Mode.handOffsetAt`, which blends this one toward the aimed and the
+-- reloading hand -- and at blend 0 with the gun shut it is bit-for-bit this.
 function Mode.rightHandOffset(config): CFrame
 	return Mode.handOffset(
 		config.HAND_RIGHT_POS_STUDS,
@@ -461,6 +509,76 @@ function Mode.leftHandOffset(config): CFrame
 		config.HAND_LEFT_PITCH_DEG,
 		config.HAND_LEFT_TWIST_DEG
 	)
+end
+
+-- ------------------------------------------------------------- a hand per pose (task 98)
+-- A HAND MOVES BETWEEN POSES, and until task 98 it could not: one `HAND_RIGHT_*` set was applied
+-- once when the clone was built, so the glove sat in the carry's place even in the aimed view, and
+-- changing it needed a rebuild. Now every pose in `poses.json` carries its own `left` and `right`,
+-- the viewmodel places both every frame, and the Director can move one while watching the screen.
+--
+-- SEEDED IDENTICAL IN ALL THREE POSES, so this task changed no pixel: a lerp between equal numbers
+-- is those numbers. What changed is that they CAN differ.
+export type HandFrame = { pos: Vector3, yawDeg: number, pitchDeg: number, twistDeg: number }
+
+local function handFrameOf(entry): HandFrame
+	return {
+		pos = Vector3.new(entry.pos.x, entry.pos.y, entry.pos.z),
+		yawDeg = entry.rot.yaw,
+		pitchDeg = entry.rot.pitch,
+		twistDeg = entry.rot.twist,
+	}
+end
+
+local function lerp(a: number, b: number, t: number): number
+	return a + (b - a) * t
+end
+
+-- Numeric, not CFrame:Lerp, and on purpose: these are the three angles a hand has (yaw, pitch,
+-- twist about its own long axis) and blending the ANGLES keeps each dial legible, which is the whole
+-- reason `Mode.handOffset` takes three of them instead of a rotation.
+local function lerpHand(a: HandFrame, b: HandFrame, t: number): HandFrame
+	if t <= 0 then
+		return a -- exactly the start, so blend 0 is bit-for-bit the carry hand
+	end
+	if t >= 1 then
+		return b
+	end
+	return {
+		pos = Vector3.new(lerp(a.pos.X, b.pos.X, t), lerp(a.pos.Y, b.pos.Y, t), lerp(a.pos.Z, b.pos.Z, t)),
+		yawDeg = lerp(a.yawDeg, b.yawDeg, t),
+		pitchDeg = lerp(a.pitchDeg, b.pitchDeg, t),
+		twistDeg = lerp(a.twistDeg, b.twistDeg, t),
+	}
+end
+
+-- WHERE ONE HAND IS THIS FRAME, in the gun's own frame. `side` is "right" or "left", the two keys
+-- every pose in `poses.json` carries.
+--
+-- The path is the same one the gun takes: carry -> the raise's mid keyframes -> aim, at the eased
+-- blend, and then toward the reloading hand by `openTilt`. A mid keyframe that does NOT name a hand
+-- takes whatever the plain carry-to-aim blend gives at its own `t`, so adding a keyframe to move the
+-- GUN alone cannot silently move a hand.
+function Mode.handFrame(side: string, state: State, config): HandFrame
+	local poses = config.POSES
+	local carry = handFrameOf(poses.carry[side])
+	local aim = handFrameOf(poses.aim[side])
+	local times = raiseTimes(config)
+	local frames = { carry }
+	for _, frame in ipairs(poses.raise.keyframes) do
+		local entry = frame[side]
+		table.insert(frames, if entry ~= nil then handFrameOf(entry) else lerpHand(carry, aim, frame.t))
+	end
+	table.insert(frames, aim)
+	local index, along = segmentAt(times, Mode.ease(state.blend))
+	local value = lerpHand(frames[index], frames[index + 1], along)
+	return lerpHand(value, handFrameOf(poses.reload[side]), math.clamp(state.openTilt, 0, 1))
+end
+
+-- The hand pose as a CFrame, through the one conversion site. This is what the viewmodel draws with.
+function Mode.handOffsetAt(side: string, state: State, config): CFrame
+	local frame = Mode.handFrame(side, state, config)
+	return Mode.handOffset(frame.pos, frame.yawDeg, frame.pitchDeg, frame.twistDeg)
 end
 
 -- HOW FAR THE BARRELS HAVE SWUNG, in degrees (task 96). One site, so the viewmodel and any spec ask
@@ -488,7 +606,26 @@ function Mode.viewmodelOffset(state: State, sightLocal: CFrame?, config): CFrame
 	-- Karen accepted for the shoulder camera on 2026-09-25, and task 90 is not allowed to change
 	-- what the OFF branch looks like. Geometric ADS is the first-person sight picture.
 	local aim = if config.FIRST_PERSON then Mode.aimOffset(sightLocal, config) else config.VIEWMODEL_AIM_OFFSET
-	local pose = hip:Lerp(aim, Mode.ease(state.blend))
+	-- THE SWING IS A KEYFRAME PATH SINCE TASK 98: carry -> `raise.keyframes` -> aim, at the eased
+	-- blend. With the list empty -- which is how `poses.json` ships -- `segmentAt` answers (1, t) and
+	-- this is exactly the one `hip:Lerp(aim, eased)` the camera has done since task 89, bit for bit.
+	-- The mid keyframes exist so the Director can bend the swing (the gun dipping before it comes up,
+	-- which is what the reference video does) without a code change.
+	--
+	-- THE THIRD-PERSON BRANCH TAKES NO KEYFRAMES, by construction: its path is the two poses task
+	-- 26/47 accepted and task 89 promised not to touch, so `frames` is built only in the ON branch.
+	local pose
+	if config.FIRST_PERSON then
+		local frames = { hip }
+		for _, frame in ipairs(config.POSES.raise.keyframes) do
+			table.insert(frames, Mode.gunPose(frame.gun))
+		end
+		table.insert(frames, aim)
+		local index, along = segmentAt(raiseTimes(config), Mode.ease(state.blend))
+		pose = frames[index]:Lerp(frames[index + 1], along)
+	else
+		pose = hip:Lerp(aim, Mode.ease(state.blend))
+	end
 	-- THE BREAK-OPEN POSE (task 96), AND IT IS A POSE OF ITS OWN RATHER THAN AN OFFSET ON THE CARRY.
 	-- Measured on screen: added to the carry -- which already holds the gun low and left with a third
 	-- of it in frame -- "down a little and toward the centre" pushed the whole gun out of the
