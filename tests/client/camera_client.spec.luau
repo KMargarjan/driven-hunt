@@ -34,6 +34,15 @@ local firstPersonConfig = table.clone(Config) :: any
 firstPersonConfig.FIRST_PERSON = true
 table.freeze(firstPersonConfig)
 
+-- AND THE OFF BRANCH BY PARAMETER TOO, SINCE TASK 97 FLIPPED THE DEFAULT. Every case below that
+-- drives "the shoulder camera" used to pass the LIVE `Config` and get it by accident, because the
+-- flag was born off. It is the live camera now, so those cases were asserting third-person claims --
+-- no drawn bead, no fill light, no hinge -- about a first-person config. Both branches are built
+-- here and neither is the live one; `Config` is still what the LIVE-branch cases read.
+local thirdPersonConfig = table.clone(Config) :: any
+thirdPersonConfig.FIRST_PERSON = false
+table.freeze(thirdPersonConfig)
+
 -- WHICH LIVE BRANCH RAN. `FIRST_PERSON` decides which of the two `describe`s below is even built,
 -- and the last `it` in the file asserts this is exactly 1. A guard that merely returns early is a
 -- test that passes when the flag flips and nothing runs (design section 9); this one fails.
@@ -211,8 +220,19 @@ return function()
 				-- ROLE-AWARE, because a DRIVER carries no Tool at all
 				-- (`Match.CONFIG.DRIVERS_MAY_SHOOT = false`) and the viewmodel clones the Handle of
 				-- the Tool in the local character. "A driver has a gun in frame" would be the bug,
-				-- so it is asserted as the equality rather than skipped (TASKS.md row 34a).
-				expect(Camera.Viewmodel.isParented()).to.equal(Role.isShooter())
+				-- so it is asserted rather than skipped (TASKS.md row 34a).
+				--
+				-- A SHOOTER IS WAITED FOR, NOT SAMPLED. The gun arrives when the drive arms him,
+				-- which is some way into the run and not at the moment this case happens to reach
+				-- here -- measured: this read false on the shooter's first `test2` pass.
+				if Role.isDriver() then
+					waitFrames(5)
+					expect(Camera.Viewmodel.isParented()).to.equal(false)
+				else
+					expect(waitUntil(25, function()
+						return Camera.Viewmodel.isParented()
+					end)).to.equal(true)
+				end
 			end)
 
 			it("casts no ray at all", function()
@@ -485,7 +505,7 @@ return function()
 			-- Handle and reported no SurfaceAppearance. Wait past the interval, then update.
 			Camera.Viewmodel.clear()
 			task.wait(0.3)
-			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), Config)
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), thirdPersonConfig)
 			local model = Camera.Viewmodel.current()
 			expect(model).to.be.ok()
 			local clone = (model :: Model).PrimaryPart :: BasePart
@@ -569,7 +589,7 @@ return function()
 			end)
 			Camera.Viewmodel.clear()
 			task.wait(0.3) -- the source is asked four times a second, not per frame
-			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), Config)
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), thirdPersonConfig)
 			local before = Camera.Viewmodel.current()
 			expect(before).to.be.ok()
 			local firstClone = (before :: Model).PrimaryPart :: Instance
@@ -588,7 +608,7 @@ return function()
 			-- rebuilds and reparents it.
 			task.wait(0.1)
 
-			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), Config)
+			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), thirdPersonConfig)
 			local after = Camera.Viewmodel.current()
 			expect(after).to.be.ok()
 			expect(after).never.to.equal(before)
@@ -611,8 +631,19 @@ return function()
 				expect(waitUntil(2, function()
 					return Camera.getBlend() >= 1
 				end)).to.equal(true)
-				expect(Camera.Viewmodel.current()).to.equal(nil)
-				expect(Camera.stats().viewmodelParented).to.equal(false)
+				-- ...UNLESS HE IS ACTUALLY HOLDING ONE. `Role` is resolved once, at require time, from
+				-- the team this player was put on; `test2` ends a drive and respawns everybody, so a
+				-- client can be re-teamed under a role this file already decided. The claim that
+				-- matters is about the TOOL, so it is read off the character: no Tool, no viewmodel.
+				-- With a Tool in hand this is a shooter's frame and the shooter's own case below is
+				-- the one that applies.
+				local holding = player.Character ~= nil and player.Character:FindFirstChildOfClass("Tool") ~= nil
+				if not holding then
+					expect(Camera.Viewmodel.current()).to.equal(nil)
+					expect(Camera.stats().viewmodelParented).to.equal(false)
+				else
+					TestKit.note("camera_client: this client was re-teamed and is holding a Tool; no driver claim")
+				end
 				fake.aiming = false
 				expect(waitUntil(2, function()
 					return Camera.getBlend() <= 0
@@ -659,7 +690,9 @@ return function()
 				-- really asserted is below: the envelope is the ONLY invisible part and everything
 				-- else shows. A blank viewmodel still fails that.
 				expect(parts >= 2).to.equal(true) -- the envelope plus at least one visible thing
-				expect(parts <= 16).to.equal(true) -- a gun, not somebody's character
+				-- A GUN, NOT SOMEBODY'S CHARACTER -- plus, in first person, the two gloved hands that
+				-- hold it (design section 8.2 budgets the gun at 16 and the arms at 4 on top).
+				expect(parts <= (if Config.FIRST_PERSON then 20 else 16)).to.equal(true)
 				expect((model.PrimaryPart :: BasePart).Transparency).to.equal(1)
 				expect(visible).to.equal(parts - 1)
 
@@ -677,7 +710,11 @@ return function()
 				return Camera.getBlend() <= 0
 			end)).to.equal(true)
 			waitFrames(3)
-			expect(Camera.stats().viewmodelParented).to.equal(false)
+			-- AND WHAT HAPPENS AT BLEND 0 IS THE BRANCH'S OWN ANSWER. With the flag off the clone is
+			-- UNPARENTED below `VIEWMODEL_SHOW_BLEND`, which is what makes a leak visible on screen
+			-- instead of hiding as a transparent part. In first person the gun is CARRIED: it stays
+			-- in frame at blend 0, and that is the whole of task 89's carry pose.
+			expect(Camera.stats().viewmodelParented).to.equal(Config.FIRST_PERSON)
 		end)
 	end)
 
@@ -839,7 +876,7 @@ return function()
 			-- ...and the OFF BRANCH gets no drawn bead at all (round 2, finding 1): its sight picture
 			-- is the framing Karen accepted for the shoulder camera, not a bead on the view axis.
 			posed(gunWithSight(false), function()
-				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), Config)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), thirdPersonConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				expect(clone:FindFirstChild("SightBead")).to.equal(nil)
 			end)
@@ -1107,7 +1144,7 @@ return function()
 				openAimed.mode = "Aiming"
 				openAimed.blend = 1
 				table.freeze(openAimed)
-				Camera.Viewmodel.update(CFrame.new(0, 12, 0), openAimed, Config)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), openAimed, thirdPersonConfig)
 				local offAngle = angleBetween()
 				TestKit.note(string.format("task96 flag off: barrels %.3f deg off the body", offAngle))
 				expect(offAngle < 0.01).to.equal(true)
@@ -1178,7 +1215,6 @@ return function()
 				Camera.Viewmodel.setReload(nil)
 				task.wait(0.3)
 
-				local before = Camera.Viewmodel.stats().handsDrawn
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local cloned = clone:FindFirstChild("Barrels") :: BasePart
@@ -1186,7 +1222,12 @@ return function()
 				local left = cloned:FindFirstChild("HandLeft") :: BasePart
 				expect(right).to.be.ok()
 				expect(left).to.be.ok()
-				expect(Camera.Viewmodel.stats().handsDrawn - before).to.equal(2)
+				-- COUNTED, NOT DIFFERENCED. Since task 97 the live camera is first person, so its own
+				-- render step draws hands on this clone too -- from the REAL templates, in whatever
+				-- frame falls between this spec's calls. A delta of exactly 2 was therefore a claim
+				-- about which of the two got there first, which is not the claim. That both hands
+				-- ARE on the clone, on the right pieces, at the pose the pure geometry gives, is.
+				expect(Camera.Viewmodel.stats().handsDrawn > 0).to.equal(true)
 				-- WHOSE PIECE EACH ONE IS, asserted as the parent rather than as a position: the
 				-- grip is on the body and the forend is on the barrels, and that is what decides
 				-- which one swings when the gun breaks open.
@@ -1205,7 +1246,12 @@ return function()
 					expect(hand.Anchored).to.equal(true)
 					expect(hand.CanQuery).to.equal(false) -- the occlusion cast must not hit them
 					expect(hand.CanCollide).to.equal(false)
-					expect(#hand:GetDescendants()).to.equal(0) -- no scripts came with them
+					-- NO SCRIPTS CAME WITH THEM, which is the claim -- not "no children". A real
+					-- uploaded hand carries its `SurfaceAppearance`, and it must: a hand that loses
+					-- its maps is the purple untextured leg of docs/PROJECT_CONTEXT.md.
+					for _, inside in ipairs(hand:GetDescendants()) do
+						expect(inside:IsA("LuaSourceContainer")).to.equal(false)
+					end
 				end
 				-- POSED FROM THE PURE GEOMETRY, not from numbers this file repeats.
 				local wantRight = Camera.Mode.rightHandOffset(firstPersonConfig)
@@ -1266,7 +1312,7 @@ return function()
 				local aimedOff = table.clone(stateAtBlend(1)) :: any
 				aimedOff.mode = "Aiming"
 				table.freeze(aimedOff)
-				Camera.Viewmodel.update(CFrame.new(0, 12, 0), aimedOff, Config)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), aimedOff, thirdPersonConfig)
 				expect(clone:FindFirstChild("HandRight")).to.equal(nil)
 				expect(cloned:FindFirstChild("HandLeft")).to.equal(nil)
 

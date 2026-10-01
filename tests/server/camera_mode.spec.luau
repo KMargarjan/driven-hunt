@@ -24,6 +24,25 @@ local cameraFolder = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForC
 local Mode = require(cameraFolder:WaitForChild("Mode"))
 local Config = require(cameraFolder:WaitForChild("Config"))
 
+-- BOTH BRANCHES, BY PARAMETER (docs/design/feature-flags.md section 13.3). A spec that read the live
+-- flag could only ever test one of the two cameras -- which is exactly why
+-- `Camera.Config.FIRST_PERSON` is read ONCE at the boundary and passed inward as `config`. Every
+-- case below that names a branch drives its own table, so there is nothing to restore and nothing
+-- that depends on what the place booted with.
+local firstPerson = table.clone(Config) :: any
+firstPerson.FIRST_PERSON = true
+table.freeze(firstPerson)
+
+-- AND THE OFF BRANCH BY PARAMETER TOO, SINCE TASK 97 FLIPPED THE DEFAULT. Every case below that
+-- means "the shoulder camera Karen accepted on 2026-09-25" used to pass the LIVE `Config` and get it
+-- by accident, because the flag was born off. It is the live camera now, so the same cases were
+-- suddenly asserting third-person claims about a first-person config -- eleven of them failed at
+-- once. Both branches are built here, neither is the live one, and nothing in this file depends on
+-- what the place booted with. `Config` itself is still read for NUMBERS, which are the same in both.
+local thirdPerson = table.clone(Config) :: any
+thirdPerson.FIRST_PERSON = false
+table.freeze(thirdPerson)
+
 local NONE = { aiming = false, alive = true, hasCharacter = true, lookDelta = Vector2.zero }
 
 local function input(overrides)
@@ -39,7 +58,7 @@ end
 local function run(state, stepInput, dt: number, seconds: number, predicate)
 	local elapsed = 0
 	while elapsed < seconds do
-		state = Mode.step(state, stepInput, dt, Config)
+		state = Mode.step(state, stepInput, dt, thirdPerson)
 		elapsed += dt
 		if predicate and predicate(state) then
 			return state, elapsed
@@ -47,15 +66,6 @@ local function run(state, stepInput, dt: number, seconds: number, predicate)
 	end
 	return state, elapsed
 end
-
--- THE ON BRANCH, BY PARAMETER (docs/design/feature-flags.md section 13.3). `FIRST_PERSON` is born
--- OFF, so a spec that read the live flag could only ever test one of the two cameras -- which is
--- exactly why `Camera.Config.FIRST_PERSON` is read ONCE at the boundary and passed inward as
--- `config`. Every case below that names a branch drives its own table, so there is nothing to
--- restore and nothing that depends on what the place booted with.
-local firstPerson = table.clone(Config) :: any
-firstPerson.FIRST_PERSON = true
-table.freeze(firstPerson)
 
 -- THE PIECES A PLAYER AIMS WITH, and the one they rest their cheek on. `Shape.pieces` is the gun's
 -- own list, so these follow the gun rather than a box copied into this file.
@@ -108,16 +118,16 @@ return function()
 		end)
 
 		it("leaves Loading for Third as soon as there is a living character", function()
-			local state = Mode.step(Mode.initial(Config), input(), 1 / 60, Config)
+			local state = Mode.step(Mode.initial(Config), input(), 1 / 60, thirdPerson)
 			expect(state.mode).to.equal("Third")
 			expect(state.blend).to.equal(0)
 		end)
 
 		it("reaches blend 1 after exactly AIM_BLEND_SECONDS, at any frame rate", function()
 			for _, dt in ipairs({ 1 / 30, 1 / 240 }) do
-				local state = Mode.step(Mode.initial(Config), input(), dt, Config)
+				local state = Mode.step(Mode.initial(Config), input(), dt, thirdPerson)
 				local aiming = input({ aiming = true })
-				state = Mode.step(state, aiming, dt, Config)
+				state = Mode.step(state, aiming, dt, thirdPerson)
 				expect(state.mode).to.equal("Aiming")
 
 				local reached
@@ -129,14 +139,14 @@ return function()
 				expect(math.abs(reached - 0.2) <= dt * 2).to.equal(true)
 
 				-- and it does not overshoot
-				state = Mode.step(state, aiming, dt, Config)
+				state = Mode.step(state, aiming, dt, thirdPerson)
 				expect(state.blend).to.equal(1)
 			end
 		end)
 
 		it("returns to 0 in the same time, and from wherever the reversal happened", function()
 			local dt = 1 / 60
-			local state = Mode.step(Mode.initial(Config), input(), dt, Config)
+			local state = Mode.step(Mode.initial(Config), input(), dt, thirdPerson)
 			local aiming = input({ aiming = true })
 			state = run(state, aiming, dt, 0.08) -- part way in
 			expect(state.blend > 0.2 and state.blend < 0.8).to.equal(true)
@@ -153,12 +163,12 @@ return function()
 
 		it("goes Dead when the character dies, and ignores aim entirely while dead", function()
 			local dt = 1 / 60
-			local state = Mode.step(Mode.initial(Config), input(), dt, Config)
-			state = Mode.step(state, input({ aiming = true }), dt, Config)
+			local state = Mode.step(Mode.initial(Config), input(), dt, thirdPerson)
+			state = Mode.step(state, input({ aiming = true }), dt, thirdPerson)
 			expect(state.mode).to.equal("Aiming")
 
 			local dead = input({ alive = false, aiming = true })
-			state = Mode.step(state, dead, dt, Config)
+			state = Mode.step(state, dead, dt, thirdPerson)
 			expect(state.mode).to.equal("Dead")
 			state = run(state, dead, dt, 1)
 			expect(state.mode).to.equal("Dead")
@@ -169,13 +179,13 @@ return function()
 			-- Design section 4.1: Dead is "no orbit, no input". Round 1, finding 4 was that only
 			-- Loading suppressed the look, so a dead player could still swing the view.
 			local dt = 1 / 60
-			local state = Mode.step(Mode.initial(Config), input(), dt, Config)
-			state = Mode.step(state, input({ lookDelta = Vector2.new(200, 50) }), dt, Config)
+			local state = Mode.step(Mode.initial(Config), input(), dt, thirdPerson)
+			state = Mode.step(state, input({ lookDelta = Vector2.new(200, 50) }), dt, thirdPerson)
 			local aliveYaw, alivePitch = state.yawDeg, state.pitchDeg
 			expect(aliveYaw ~= 0).to.equal(true) -- the look works while alive
 
 			local dead = input({ alive = false, lookDelta = Vector2.new(400, 120) })
-			state = Mode.step(state, dead, dt, Config)
+			state = Mode.step(state, dead, dt, thirdPerson)
 			expect(state.mode).to.equal("Dead")
 			expect(state.yawDeg).to.equal(aliveYaw)
 			expect(state.pitchDeg).to.equal(alivePitch)
@@ -187,46 +197,46 @@ return function()
 			local dt = 1 / 60
 			local gone = input({ hasCharacter = false })
 			for _, start in ipairs({ "Third", "Aiming", "Dead" }) do
-				local state = Mode.step(Mode.initial(Config), input(), dt, Config)
+				local state = Mode.step(Mode.initial(Config), input(), dt, thirdPerson)
 				if start == "Aiming" then
-					state = Mode.step(state, input({ aiming = true }), dt, Config)
+					state = Mode.step(state, input({ aiming = true }), dt, thirdPerson)
 				elseif start == "Dead" then
-					state = Mode.step(state, input({ alive = false }), dt, Config)
+					state = Mode.step(state, input({ alive = false }), dt, thirdPerson)
 				end
 				expect(state.mode).to.equal(start)
-				expect(Mode.step(state, gone, dt, Config).mode).to.equal("Loading")
+				expect(Mode.step(state, gone, dt, thirdPerson).mode).to.equal("Loading")
 			end
 		end)
 
 		it("clamps pitch and wraps yaw, however hard the mouse is thrown", function()
 			local dt = 1 / 60
-			local state = Mode.step(Mode.initial(Config), input(), dt, Config)
+			local state = Mode.step(Mode.initial(Config), input(), dt, thirdPerson)
 
-			local up = Mode.step(state, input({ lookDelta = Vector2.new(0, -10000) }), dt, Config)
+			local up = Mode.step(state, input({ lookDelta = Vector2.new(0, -10000) }), dt, thirdPerson)
 			expect(up.pitchDeg).to.equal(78)
-			local down = Mode.step(state, input({ lookDelta = Vector2.new(0, 10000) }), dt, Config)
+			local down = Mode.step(state, input({ lookDelta = Vector2.new(0, 10000) }), dt, thirdPerson)
 			expect(down.pitchDeg).to.equal(-72)
 
 			-- 100 full turns at 0.25 deg/pixel: 1440 pixels is 360 degrees.
 			local spun = state
 			for _ = 1, 100 do
-				spun = Mode.step(spun, input({ lookDelta = Vector2.new(1440, 0) }), dt, Config)
+				spun = Mode.step(spun, input({ lookDelta = Vector2.new(1440, 0) }), dt, thirdPerson)
 			end
 			expect(spun.yawDeg > -180 and spun.yawDeg <= 180).to.equal(true)
 		end)
 
 		it("scales sensitivity with the zoom, through the one conversion", function()
-			expect(Mode.sensitivityScale(70, Config)).to.equal(1)
-			local aimed = Mode.sensitivityScale(50, Config)
+			expect(Mode.sensitivityScale(70, thirdPerson)).to.equal(1)
+			local aimed = Mode.sensitivityScale(50, thirdPerson)
 			-- tan(25)/tan(35) = 0.6658. A degrees/radians mix-up misses this by an order of magnitude.
 			expect(aimed > 0.66 and aimed < 0.67).to.equal(true)
 		end)
 
 		it("puts the third-person camera behind the pivot, inside the hard clamp", function()
 			local dt = 1 / 60
-			local state = Mode.step(Mode.initial(Config), input(), dt, Config)
+			local state = Mode.step(Mode.initial(Config), input(), dt, thirdPerson)
 			local root = CFrame.new(0, 5, 0)
-			local pivot, cf, fov = Mode.cameraCFrame(root, state, Config)
+			local pivot, cf, fov = Mode.cameraCFrame(root, state, thirdPerson)
 
 			expect(pivot.Y > root.Position.Y).to.equal(true)
 			expect(fov).to.equal(70)
@@ -241,23 +251,23 @@ return function()
 
 		it("puts the aimed camera at the eye, with the aim field of view", function()
 			local dt = 1 / 60
-			local state = Mode.step(Mode.initial(Config), input(), dt, Config)
+			local state = Mode.step(Mode.initial(Config), input(), dt, thirdPerson)
 			local aiming = input({ aiming = true })
 			state = run(state, aiming, dt, 1, function(s)
 				return s.blend >= 1
 			end)
 
 			local root = CFrame.new(0, 5, 0)
-			local pivot, cf, fov = Mode.cameraCFrame(root, state, Config)
+			local pivot, cf, fov = Mode.cameraCFrame(root, state, thirdPerson)
 			expect(fov).to.equal(50)
 			expect((cf.Position - pivot).Magnitude <= 0.5).to.equal(true)
 		end)
 
 		it("never mutates the state it was given", function()
 			local dt = 1 / 60
-			local state = Mode.step(Mode.initial(Config), input(), dt, Config)
+			local state = Mode.step(Mode.initial(Config), input(), dt, thirdPerson)
 			local before = { state.mode, state.blend, state.yawDeg, state.pitchDeg }
-			local next = Mode.step(state, input({ aiming = true, lookDelta = Vector2.new(50, 50) }), dt, Config)
+			local next = Mode.step(state, input({ aiming = true, lookDelta = Vector2.new(50, 50) }), dt, thirdPerson)
 			expect(next).never.to.equal(state)
 			expect(state.mode).to.equal(before[1])
 			expect(state.blend).to.equal(before[2])
@@ -276,7 +286,7 @@ return function()
 			local stepInput = input({ lookDelta = Vector2.new(2, 1) })
 			local started = os.clock()
 			for _ = 1, 10000 do
-				state = Mode.step(state, stepInput, 1 / 60, Config)
+				state = Mode.step(state, stepInput, 1 / 60, thirdPerson)
 			end
 			expect(os.clock() - started < 0.1).to.equal(true)
 		end)
@@ -334,8 +344,8 @@ return function()
 			expect((aimedPose.Position - carry.Position).Magnitude > 0.5).to.equal(true)
 			-- ...and the THIRD-PERSON branch does move the eye, which is what the flag is for and
 			-- what makes the assertions above a measurement rather than a description of both.
-			local _, thirdRest = Mode.cameraCFrame(root, stateAtBlend(0), Config)
-			local _, thirdAimed = Mode.cameraCFrame(root, stateAtBlend(1), Config)
+			local _, thirdRest = Mode.cameraCFrame(root, stateAtBlend(0), thirdPerson)
+			local _, thirdAimed = Mode.cameraCFrame(root, stateAtBlend(1), thirdPerson)
 			expect((thirdAimed.Position - thirdRest.Position).Magnitude > 5).to.equal(true)
 		end)
 
@@ -399,8 +409,8 @@ return function()
 			expect(firstPerson.AIM_LOWER_SECONDS < firstPerson.AIM_RAISE_SECONDS).to.equal(true)
 			expect(firstPerson.AIM_RAISE_SECONDS <= 0.3).to.equal(true) -- "very fast", not a drift
 			-- The third-person camera Karen accepted on 2026-09-25 keeps ONE number both ways.
-			expect(Mode.blendSeconds(Config, true)).to.equal(Config.AIM_BLEND_SECONDS)
-			expect(Mode.blendSeconds(Config, false)).to.equal(Config.AIM_BLEND_SECONDS)
+			expect(Mode.blendSeconds(thirdPerson, true)).to.equal(Config.AIM_BLEND_SECONDS)
+			expect(Mode.blendSeconds(thirdPerson, false)).to.equal(Config.AIM_BLEND_SECONDS)
 
 			-- ...and the reducer really uses them: the raise takes longer than the fall, measured in
 			-- simulated seconds rather than read off the table.
@@ -490,14 +500,14 @@ return function()
 			end)
 
 			it("does nothing at all in the third-person branch", function()
-				local state = Mode.step(Mode.initial(Config), input({ breaking = true }), 1 / 60, Config)
+				local state = Mode.step(Mode.initial(Config), input({ breaking = true }), 1 / 60, thirdPerson)
 				expect(state.openTilt).to.equal(0)
-				expect(Mode.breakAngleDeg(state, Config)).to.equal(0)
+				expect(Mode.breakAngleDeg(state, thirdPerson)).to.equal(0)
 				-- ...and the flag-off pose is untouched by a state that somehow arrived open.
 				local opened = table.clone(stateAtBlend(0)) :: any
 				opened.openTilt = 1
 				table.freeze(opened)
-				expect(Mode.breakAngleDeg(opened, Config)).to.equal(0)
+				expect(Mode.breakAngleDeg(opened, thirdPerson)).to.equal(0)
 			end)
 		end)
 
@@ -682,7 +692,7 @@ return function()
 				-- unchanged, and a kick is something a player sees. By parameter, so the promise is
 				-- tested while the flag itself sits at one value.
 				local before = Mode.initial(Config)
-				expect(Mode.kick(before, Config)).to.equal(before)
+				expect(Mode.kick(before, thirdPerson)).to.equal(before)
 				expect(Mode.recoiling(before)).to.equal(false)
 			end)
 		end)
@@ -692,14 +702,14 @@ return function()
 			-- cameras are a boom apart, and this is the number that says the switch does something.
 			local root = CFrame.new(0, 0, 0)
 			local _, on = Mode.cameraCFrame(root, stateAtBlend(0), firstPerson)
-			local _, off = Mode.cameraCFrame(root, stateAtBlend(0), Config)
+			local _, off = Mode.cameraCFrame(root, stateAtBlend(0), thirdPerson)
 			expect((on.Position - off.Position).Magnitude > 10).to.equal(true)
 			-- ...and they agree about where the player is LOOKING, in both branches.
 			expect(on.LookVector:Dot(off.LookVector) > 0.999).to.equal(true)
 		end)
 
 		it("eases the field of view the same way in both branches, and ends exactly", function()
-			for _, cfg in ipairs({ Config, firstPerson }) do
+			for _, cfg in ipairs({ thirdPerson, firstPerson }) do
 				expect(Mode.fovFor(0, cfg)).to.equal(cfg.FOV_THIRD_DEG)
 				expect(Mode.fovFor(1, cfg)).to.equal(cfg.FOV_AIM_DEG)
 				local half = Mode.fovFor(0.5, cfg)
@@ -782,7 +792,7 @@ return function()
 				expect(math.abs(a[index] - b[index]) < 1e-6).to.equal(true)
 			end
 			-- and the carry pose is the OFF branch's hip pose only in the OFF branch
-			expect(Mode.viewmodelOffset(stateAtBlend(0), nil, Config)).to.equal(Config.VIEWMODEL_HIP_OFFSET)
+			expect(Mode.viewmodelOffset(stateAtBlend(0), nil, thirdPerson)).to.equal(Config.VIEWMODEL_HIP_OFFSET)
 			expect(Mode.viewmodelOffset(stateAtBlend(0), nil, firstPerson)).to.equal(carry)
 			-- THE MUZZLE POINTS IN, not out: the gun is held on the right and crosses toward the
 			-- centre-left, which is what "right hand grip, left hand on the pipes" looks like. The
@@ -882,7 +892,7 @@ return function()
 			-- The composition order is the bug in every viewmodel, so it is written once and
 			-- asserted while every term is identity. S4 fills the terms in; if any of them stopped
 			-- being at rest in a build that has no maths for them, this fails.
-			for _, cfg in ipairs({ Config, firstPerson }) do
+			for _, cfg in ipairs({ thirdPerson, firstPerson }) do
 				for _, blend in ipairs({ 0, 0.5, 1 }) do
 					local state = stateAtBlend(blend)
 					expect(state.swayDeg).to.equal(Vector2.zero)
@@ -964,7 +974,7 @@ return function()
 			-- row has no measurement yet still draws, at the framing Task 26/47 accepted, and
 			-- `Viewmodel.stats().sightMissing` counts it.
 			expect(Mode.aimOffset(nil, firstPerson)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
-			expect(Mode.aimOffset(nil, Config)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
+			expect(Mode.aimOffset(nil, thirdPerson)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
 		end)
 
 		it("returns the aimed pose bitwise at rest, which the screen measurement rests on", function()
@@ -974,7 +984,7 @@ return function()
 			)
 			-- and the OFF branch keeps the pose Karen accepted for the shoulder camera: a sight
 			-- changes nothing there, deliberately.
-			expect(Mode.viewmodelOffset(stateAtBlend(1), sight, Config)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
+			expect(Mode.viewmodelOffset(stateAtBlend(1), sight, thirdPerson)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
 		end)
 
 		it("aims at a point in first person too, which is what the harness stages a shot with", function()
@@ -992,7 +1002,7 @@ return function()
 
 	describe("aiming at a point", function()
 		local function errorDegrees(rootCFrame: CFrame, target: Vector3, state): number
-			local _, desired = Mode.cameraCFrame(rootCFrame, state, Config)
+			local _, desired = Mode.cameraCFrame(rootCFrame, state, thirdPerson)
 			local dot = desired.LookVector:Dot((target - desired.Position).Unit)
 			return math.deg(math.acos(math.clamp(dot, -1, 1)))
 		end
@@ -1005,7 +1015,7 @@ return function()
 				Vector3.new(-60, 12, -10),
 				Vector3.new(0, 3, 30),
 			}) do
-				local aimed = Mode.anglesToward(Mode.initial(Config), root, target, Config)
+				local aimed = Mode.anglesToward(Mode.initial(Config), root, target, thirdPerson)
 				local err = errorDegrees(root, target, aimed)
 				-- Six passes; four left 0.08 degrees on this geometry, which is where the number in
 				-- Mode.anglesToward comes from.
@@ -1033,7 +1043,8 @@ return function()
 			naive.sinceModeChange = 0
 			table.freeze(naive)
 			local naiveError = errorDegrees(root, target, naive)
-			local aimedError = errorDegrees(root, target, Mode.anglesToward(Mode.initial(Config), root, target, Config))
+			local aimedError =
+				errorDegrees(root, target, Mode.anglesToward(Mode.initial(Config), root, target, thirdPerson))
 			print(string.format("[camera_mode] aim error: naive %.2f deg, iterated %.4f deg", naiveError, aimedError))
 			expect(naiveError > 3).to.equal(true)
 			expect(aimedError < 0.02).to.equal(true)
@@ -1047,7 +1058,7 @@ return function()
 			-- at 8). What it must never do is return NaN or an unclamped angle, and that is what is
 			-- asserted; aiming at something you are standing on is not a shot anyone takes.
 			local root = CFrame.new(0, 3, 0)
-			local near = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(3, 3, 8), Config)
+			local near = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(3, 3, 8), thirdPerson)
 			expect(near.yawDeg == near.yawDeg).to.equal(true) -- not NaN
 			expect(near.pitchDeg == near.pitchDeg).to.equal(true)
 			expect(near.yawDeg > -180 and near.yawDeg <= 180).to.equal(true)
@@ -1056,24 +1067,24 @@ return function()
 
 		it("clamps the pitch and wraps the yaw, like every other angle in this module", function()
 			local root = CFrame.new(0, 3, 0)
-			local up = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(0, 400, 0), Config)
+			local up = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(0, 400, 0), thirdPerson)
 			expect(up.pitchDeg <= 78).to.equal(true) -- PITCH_MAX_DEG
-			local down = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(0, -400, 0), Config)
+			local down = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(0, -400, 0), thirdPerson)
 			expect(down.pitchDeg >= -72).to.equal(true) -- PITCH_MIN_DEG
 
 			-- Straight behind the character is yaw 180, which must come back as 180, not -180 or 540.
-			local behind = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(0, 3, 40), Config)
+			local behind = Mode.anglesToward(Mode.initial(Config), root, Vector3.new(0, 3, 40), thirdPerson)
 			expect(behind.yawDeg > -180 and behind.yawDeg <= 180).to.equal(true)
 		end)
 
 		it("keeps the mode and the blend, and returns a frozen state", function()
 			local aiming = Mode.step(
-				Mode.step(Mode.initial(Config), input(), 1 / 60, Config),
+				Mode.step(Mode.initial(Config), input(), 1 / 60, thirdPerson),
 				input({ aiming = true }),
 				1 / 60,
-				Config
+				thirdPerson
 			)
-			local aimed = Mode.anglesToward(aiming, CFrame.new(0, 3, 0), Vector3.new(0, 3, -30), Config)
+			local aimed = Mode.anglesToward(aiming, CFrame.new(0, 3, 0), Vector3.new(0, 3, -30), thirdPerson)
 			expect(aimed.mode).to.equal(aiming.mode)
 			expect(aimed.blend).to.equal(aiming.blend)
 			expect(function()
@@ -1084,8 +1095,8 @@ return function()
 		it("leaves the angles alone when the target is where the camera already is", function()
 			local root = CFrame.new(0, 3, 0)
 			local state = Mode.initial(Config)
-			local _, desired = Mode.cameraCFrame(root, state, Config)
-			local aimed = Mode.anglesToward(state, root, desired.Position, Config)
+			local _, desired = Mode.cameraCFrame(root, state, thirdPerson)
+			local aimed = Mode.anglesToward(state, root, desired.Position, thirdPerson)
 			expect(aimed.yawDeg).to.equal(state.yawDeg)
 			expect(aimed.pitchDeg).to.equal(state.pitchDeg)
 		end)
