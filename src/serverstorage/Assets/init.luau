@@ -123,19 +123,28 @@ local GUN_SIZE = Vector3.new(NATURAL.X * SCALE, NATURAL.Y * SCALE, NATURAL.Z * S
 -- The two natural boxes are MEASURED off each prepped model's own vertex bounds (the run's
 -- `model.glb` position accessors, times the hundred Roblox's FBX import applies -- the same hundred
 -- that makes the gun's two-unit model 200 units long above). See the rows for where 1.28 comes from.
--- 0.95 SINCE TASK 97, AND IT IS A CLEARANCE NUMBER AS WELL AS A SIZE ONE. 1.28 studs was a hand
--- plus most of a forearm, and task 97 brings the aiming eye in close enough that such a sleeve
--- reached the lens -- which filled the aimed view with the INSIDE of the glove, because a Roblox
--- MeshPart renders both faces. 0.95 is a hand and a short sleeve: 247 mm at this game's scale,
--- against the 200 mm of hand a person has.
+-- 0.78 SINCE TASK 97 ROUND 3, AND THE MODEL IT MEASURES IS A HAND, NOT A HAND PLUS A FOREARM.
+-- Karen's gloves arrive as a hand in a long jacket sleeve, and `tools/asset_prep.py`'s `trimCuff`
+-- step now cuts that sleeve off at the wrist (0.62 of the model's length from the fingertips). So
+-- this is the real measurement of a hand: 203 mm at this game's scale, against the 200 mm a person
+-- has.
+--
+-- WHY THE SLEEVE HAD TO GO, which is a geometry fact and not a tidying one: the sleeve ran back past
+-- the camera when the hand sat where Karen asked for it -- on the stock grip -- and a Roblox
+-- MeshPart renders BOTH faces, so a camera inside the sleeve showed its own back surface as a pale
+-- unlit blob. Rounds 1 and 2 of this task walked the hand FORWARD off the grip to dodge it, which
+-- broke Karen's rule; cutting the sleeve is the fix to the cause.
 --
 -- HOW CLOSE THE EYE IS LIVES IN ONE PLACE, `Camera.Config.EYE_RELIEF_STUDS`, and this comment
 -- deliberately does not repeat it: round 1 of task 97 had three files naming three different
 -- numbers for it. `tests/server/camera_mode.spec.luau` is what holds the two together -- it measures
--- this box, at that relief, at the recoil's ceiling, against the near plane.
-local HAND_LENGTH_STUDS = 0.95
-local HAND_RIGHT_NATURAL = Vector3.new(190.04, 84.99, 78.93)
-local HAND_LEFT_NATURAL = Vector3.new(189.64, 95.52, 72.04)
+-- these boxes, at that relief, at the recoil's ceiling, against the camera itself.
+local HAND_LENGTH_STUDS = 0.78
+-- MEASURED off each TRIMMED model's own vertex bounds (the run's `model.glb` position accessors,
+-- times the hundred Roblox's FBX import applies). Both are shorter than the untrimmed boxes by about
+-- the sleeve's length, which is what the cut took.
+local HAND_RIGHT_NATURAL = Vector3.new(117.83, 84.01, 57.65)
+local HAND_LEFT_NATURAL = Vector3.new(117.58, 95.52, 65.12)
 local function uniformTo(natural: Vector3, length: number): Vector3
 	local scale = length / natural.X
 	return Vector3.new(natural.X * scale, natural.Y * scale, natural.Z * scale)
@@ -784,6 +793,7 @@ Assets.ROWS = {
 		version = 2,
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel",
+		supersededBy = 3, -- task 97 round 3: v3 is the same hand with its sleeve cut off
 		-- THE SAME FILE, UPLOADED AGAIN, AND THE REASON IS WHAT IT LOOKS LIKE IN THE GAME. Version 1
 		-- renders as a WHITE, untextured glove in every first-person frame of 2026-10-01 -- beside
 		-- the LEFT hand, prepped by the same preset in the same run and rendered brown. It is not the
@@ -821,10 +831,59 @@ Assets.ROWS = {
 		notes = "Byte-for-byte version 1's file; a new asset id only. See the comment above for why.",
 	},
 	{
+		key = "hand.right",
+		version = 3,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel",
+		-- Uploaded by tools/roblox_upload.py on 2026-10-01; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		--
+		-- THE SLEEVE IS GONE. `tools/asset_prep.py`'s `trimCuff` cuts the glove at 0.62 of its length
+		-- from the fingertips and caps the rim, so the model is a hand that ends at the wrist. That
+		-- is what lets the hand sit on the STOCK GRIP, where Karen put it on 2026-10-01 ("right on
+		-- stock holding and aiming"), without the camera ending up inside the jacket.
+		--
+		-- AND IT IS A NEW FILE, not the same bytes a third time: v2 was byte-identical to v1 and
+		-- rendered the same untextured white. This one is different geometry with the same three maps
+		-- embedded (the upload tool's own check: "3 embedded texture(s) all match what the run
+		-- wrote"), so if it is still white the fault is in what Roblox builds from the file, and
+		-- `assets_seam.spec` now says exactly what the loaded template carries.
+		modelId = 95353507459444,
+		displayName = "Driven Hunt gloved right hand r3 trimmed",
+		fileName = "model.fbx",
+		sourceSha256 = "dd2aefa369db5cb34a84184b578023824ccfc25149b62dc5515799bd4da79c08",
+		source = "own" :: Source,
+		creator = "8167651842",
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated both hands in her own paid Meshy account on 2026-09-27 and "
+				.. "gave the upload OK the same day: ok to upload (hands). On 2026-10-01 she asked "
+				.. "for the right hand to hold the stock grip, which is why the sleeve is cut.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-10-01, TASKS.md row 97",
+			readOn = "2026-10-01",
+			attribution = nil,
+		},
+		added = "2026-10-01",
+		moderation = "approved" :: Moderation,
+		-- MEASURED by the prep run (hand_right_trim_r1): 2,080 triangles in, 1,637 faces after the
+		-- cut and one capping face.
+		trisDeclared = 1637,
+		texturePx = 2048,
+		sizeStuds = HAND_RIGHT_SIZE,
+		naturalSizeStuds = HAND_RIGHT_NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		notes = "Brown leather glove, fingers curled into a grip with the index extended, cut off at "
+			.. "the wrist. Smooth shading at 70 degrees. Metalness written to 0; the generator's own "
+			.. "roughness kept.",
+	},
+	{
 		key = "hand.left",
 		version = 1,
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel",
+		supersededBy = 2, -- task 97 round 3: v2 is the same hand with its sleeve cut off
 		-- Uploaded by tools/roblox_upload.py on 2026-09-28; the row it wrote is in
 		-- assets/uploads.json, and this id is that row's assetId.
 		modelId = 89496857904040,
@@ -855,6 +914,42 @@ Assets.ROWS = {
 		notes = "The same glove and cuff, palm up and cupped, thumb raised: the hand a shooter "
 			.. "cradles the forend in. Smooth shading at 70 degrees (268 of 3,093 edges kept sharp, "
 			.. "against 1,479 the file arrived flagged with). Metalness written to 0.",
+	},
+	{
+		key = "hand.left",
+		version = 2,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel",
+		-- Uploaded by tools/roblox_upload.py on 2026-10-01; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId. The same cut as the right hand's
+		-- v3: both gloves are a hand that ends at the wrist now, so there is one `trimCuff` in the
+		-- preset rather than a rule that applies to one of a pair.
+		modelId = 98361661603189,
+		displayName = "Driven Hunt gloved left hand r2 trimmed",
+		fileName = "model.fbx",
+		sourceSha256 = "cd204b40d9b093a0eaefc3ff06883919d1f0ebe834b18409c5654fc5af590995",
+		source = "own" :: Source,
+		creator = "8167651842",
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated both hands in her own paid Meshy account on 2026-09-27 and "
+				.. "gave the upload OK the same day: ok to upload (hands). The sleeve is cut off "
+				.. "both gloves as of 2026-10-01.",
+			quotedFrom = "assets/uploads.json (karenOk), PLAYTEST.md 2026-10-01, TASKS.md row 97",
+			readOn = "2026-10-01",
+			attribution = nil,
+		},
+		added = "2026-10-01",
+		moderation = "approved" :: Moderation,
+		-- MEASURED by the prep run (hand_left_trim_r1): 2,061 triangles in, 1,372 faces after the cut.
+		trisDeclared = 1372,
+		texturePx = 2048,
+		sizeStuds = HAND_LEFT_SIZE,
+		naturalSizeStuds = HAND_LEFT_NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		notes = "The same glove, palm up and cupped, cut off at the wrist.",
 	},
 } :: { AssetRow }
 

@@ -235,6 +235,22 @@ return function()
 				end
 			end)
 
+			it("agrees with the engine about where the near plane is", function()
+				-- `Config.NEAR_PLANE_STUDS` is the engine's default, not ours to set, and the pure
+				-- specs measure the gloves against it -- so it is pinned here rather than trusted.
+				-- A camera that moved its near plane further out would make those measurements
+				-- optimistic by exactly the difference.
+				local near = Workspace.CurrentCamera.NearPlaneZ
+				print(
+					string.format(
+						"[camera_client] near plane %.3f studs (config says %.3f)",
+						near,
+						Config.NEAR_PLANE_STUDS
+					)
+				)
+				expect(near <= Config.NEAR_PLANE_STUDS + 1e-3).to.equal(true)
+			end)
+
 			it("casts no ray at all", function()
 				local calls = 0
 				Camera.Rig.setCast(function()

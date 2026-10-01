@@ -234,12 +234,16 @@ local Config = {
 	-- the arithmetic says and the break screenshot showed. The palm sits 0.45 studs along the
 	-- fingers from the model's centre, so moving the centre in and up by that much moves the palm
 	-- onto the wrist of the stock.
-	-- FORWARD AND DOWN SINCE ROUND 2, by the 0.26 studs the clearance above needed, and it is pinned
-	-- between two requirements: the breech plane at the gun's Z = +0.528, which the grip hand must
-	-- stay behind, and the CARRY's own clearance, which wants it as far forward as possible. Karen's
-	-- "right on stock holding and aiming" still holds -- the hand is on the gun at the front of the
-	-- grip with its fingers forward -- but there is no room left on this side of the breech.
-	HAND_RIGHT_POS_STUDS = Vector3.new(0.12, -0.16, 0.54),
+	-- BACK ON THE GRIP (round 3), at the gun's Z = +1.30 -- a tenth of a stud in front of
+	-- `Shotgun.CONFIG.GRIP`, which is where the character's hand holds this gun, and well behind the
+	-- trigger at +0.78. Rounds 1 and 2 had it at +0.54, on the action, to keep the glove's sleeve out
+	-- of the camera; the sleeve is cut off now, so the hand goes where Karen put it.
+	--
+	-- AND IT HANGS UNDER THE WRIST. -0.28 is below the stock's own centreline, so the glove grips the
+	-- wrist from beneath -- which is both what a hand does and what keeps the EYE, which sits at the
+	-- bead's height 0.336 above the gun's centre, clear of the glove's box when the two are side by
+	-- side. It is the one dial that buys that clearance without moving the hand along the gun.
+	HAND_RIGHT_POS_STUDS = Vector3.new(0.02, -0.28, 1.30),
 	-- Three named degrees, converted to radians at ONE site (`Mode.handOffset`) -- the rule the
 	-- Task 19 cone-unit defect bought. YAW swings the hand's long axis (wrist to fingertip)
 	-- horizontally, PITCH lifts or drops it, TWIST turns the hand about that axis -- which is the
@@ -294,43 +298,32 @@ local Config = {
 	-- t = 5.4 degrees and R = 3.27. At the old 3.5 and 5 the barrels stopped SHORT of the bottom edge
 	-- and the action filled the space below them -- measured on screen, which is the only place that
 	-- shows.
-	-- 3.90, AND IT IS THE ONLY NUMBER IN THIS FILE THAT TWO REQUIREMENTS DECIDE BETWEEN THEM
-	-- (task 97, round 2). Everything else about the aimed picture follows from it, so it is written
+	-- 3.60, AND IT IS THE ONLY NUMBER IN THIS FILE THAT THREE REQUIREMENTS DECIDE BETWEEN THEM
+	-- (task 97, round 3). Everything else about the aimed picture follows from it, so it is written
 	-- here once and nothing else restates a value -- the superseded derivations are in git.
 	--
-	-- WHAT IT HAS TO DO. The eye sits at the gun's own Z = EYE_RELIEF_STUDS - 2.19, because
-	-- `Mode.aimOffset` puts the live row's `sightOffsetStuds` on the view axis at this distance.
+	-- The eye sits at the gun's own Z = EYE_RELIEF_STUDS - 2.19, because `Mode.aimOffset` puts the
+	-- live row's `sightOffsetStuds` on the view axis at this distance.
 	--  (a) THE PICTURE. `TARGET-aim.jpg` is the wrist filling the bottom centre, the top tang up it,
-	--      the two barrels either side of the rib and the bead above them. At 3.27 the eye sat at
-	--      Z = +1.08, which is INSIDE the stock: everything behind the breech was behind the camera
-	--      and the aimed view was barrels and nothing else. Anything past about 4.3 and the gun is
-	--      small again.
-	--  (b) THE GLOVE MUST STAY OUT OF THE LENS, and that is what fixes the lower bound. The right
-	--      hand is a 0.95-stud MeshPart on the grip and a Roblox MeshPart renders BOTH faces, so a
-	--      model the camera is inside shows its own back surface, unlit -- the pale, smooth blob
-	--      round 1 shipped. The recoil spring pulls the whole gun `RECOIL_MAX_GUN_BACK_STUDS` = 0.25
-	--      studs back toward the eye, and `NEAR_PLANE_MARGIN_STUDS` = 0.25 is the clearance this file
-	--      already asks of everything else, so the glove's rearmost CORNER has to sit half a stud
-	--      clear before a shot. MEASURED by the spec, not by hand: at this relief and this hand
-	--      position the worst corner of either glove, in either pose, at the recoil's ceiling, is
-	--      0.35 studs in front of the near plane -- 0.10 of surplus.
+	--      the two barrels either side of the rib and the bead above them, with the barrel pair
+	--      30-35 % of the screen wide. At 3.60 it measures 31.8 % -- inside that band for the first
+	--      time. At 3.27 the eye sat INSIDE the stock and the aimed view was barrels and nothing
+	--      else; past about 4.3 the gun is small again, which is what rounds 1 and 2 shipped.
+	--  (b) THE RIGHT HAND IS ON THE STOCK GRIP, at the gun's Z = +1.30, a tenth of a stud from
+	--      `Shotgun.CONFIG.GRIP`. Karen, 2026-10-01: "right on stock holding and aiming". Rounds 1
+	--      and 2 walked it forward to +0.54 -- onto the action -- to keep it out of the camera, which
+	--      is not a thing this task is allowed to do.
+	--  (c) THE CAMERA IS NOT INSIDE THE GLOVE. A Roblox MeshPart renders BOTH faces, so a camera
+	--      inside one shows its own back surface, unlit -- the pale blob round 1 shipped. At the
+	--      grip, a hand in a long jacket SLEEVE swallows the eye at any relief that gives (a), which
+	--      is why `tools/asset_prep.py` now cuts the sleeve off at the wrist: the glove is a hand,
+	--      0.78 studs long, and the eye clears it by 0.14 studs at the recoil's ceiling.
 	--
-	--      THE CARRY IS THE BINDING POSE, NOT THE AIM, which is the thing that is not obvious: the
-	--      carry holds the gun close to the eye and does not move with this constant at all, so the
-	--      only lever it leaves is where the right hand sits on the gun. That is why the hand is at
-	--      the gun's Z = +0.54 -- the front of the grip -- rather than at +0.80, the middle of it: at
-	--      +0.80 the first configuration that satisfied the aim left the CARRY with 0.005 studs of
-	--      surplus, which is a guard that is about to fail rather than one that holds. +0.54 is as
-	--      far forward as it may go, because the breech plane is at +0.528 and `camera_mode.spec`
-	--      asks that the grip hand stay BEHIND it -- which is what makes it the body's hand and the
-	--      other one the barrels'. The two requirements meet within a fiftieth of a stud, and the
-	--      real headroom for either is a shorter glove, not a different number here.
-	--
-	-- ASSERTED, NOT REMEMBERED: `tests/server/camera_mode.spec.luau`, "keeps both gloves clear of the
-	-- near plane", drives the real composition at the recoil's ceiling and measures every corner of
-	-- both hands. Round 1 shipped 3.65 with a comment that said 4.40, and one shot put the cuff
-	-- through the lens; nothing caught it, because no spec read a hand against the near plane.
-	EYE_RELIEF_STUDS = 3.90,
+	-- ASSERTED, NOT REMEMBERED: `tests/server/camera_mode.spec.luau`, "keeps the camera out of both
+	-- gloves", drives the real composition at the recoil's ceiling in both poses and measures the
+	-- camera against each glove's own box. Round 1 shipped 3.65 with a comment that said 4.40, and
+	-- one shot put the cuff through the lens; nothing caught it, because no spec read a hand at all.
+	EYE_RELIEF_STUDS = 3.60,
 	-- THE CHEEK ON THE COMB (task 92, round 2). In Karen's own acceptance picture the eye is ABOVE
 	-- the rib, not level with it: you look down the TOP of the barrel, which tapers away to the bead,
 	-- and the action is a dark shape at the very bottom of the frame. Level with the rib -- which is
@@ -451,6 +444,25 @@ local Config = {
 	-- becoming a looser one. Deviation from docs/design/camera.md section 9.1 item 8, recorded in
 	-- TASKS.md row 90a for the Architect.
 	NEAR_PLANE_MARGIN_STUDS = 0.25,
+
+	-- HOW FAR THE CAMERA MUST STAY OUTSIDE A GLOVE'S OWN BOX (task 97, round 3), and it is a
+	-- different question from the margin above. The gun's pieces are things a player looks THROUGH,
+	-- so they are held a quarter of a stud in front of the near plane. A glove on the grip sits BESIDE
+	-- the eye -- that is where a hand on a shouldered gun is -- so what must never happen is the
+	-- camera ending up INSIDE it, which a Roblox MeshPart answers by drawing its own back faces,
+	-- unlit, across the screen. Measured at the recoil's ceiling: 0.14 studs in the aimed pose and
+	-- 1.09 in the carry.
+	GLOVE_CLEARANCE_STUDS = 0.05,
+	-- ...AND NOTHING OF A GLOVE THAT IS NEARER THAN THE NEAR PLANE MAY BE IN THE PICTURE. A box
+	-- beside the eye necessarily straddles that plane; what makes it harmless is that the part which
+	-- does is far outside the view. The widest half-field this game can present corner to corner is
+	-- about 55 degrees (FOV_THIRD_DEG = 70 vertical on a 16:9 screen), so 60 is outside it whatever
+	-- the viewport is shaped like. Measured: the nearest such corner is 88 degrees off the axis.
+	GLOVE_OFF_AXIS_DEG = 60,
+	-- The engine's own near plane, which is what all of this is measured against. Not ours to set --
+	-- `tests/client/camera_client.spec.luau` reads `Workspace.CurrentCamera.NearPlaneZ` and fails if
+	-- the engine ever disagrees with this number, so the pure specs may use it.
+	NEAR_PLANE_STUDS = 0.1,
 
 	-- names and switches
 	-- How close a RENDERED frame must be to a Camera.lookAt request before the owner counts it as

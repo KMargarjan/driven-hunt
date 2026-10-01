@@ -18,6 +18,9 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
+-- The three names the hands are published under; the server script that publishes them and the
+-- client that clones them both read this, so the spec reads it too rather than carrying a literal.
+local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 
 local Hardware = Weapon.Hardware
 local Shape = Weapon.Shape
@@ -168,9 +171,11 @@ return function()
 				expect(key ~= Assets.KEYS.handLeft and key ~= Assets.KEYS.handRight).to.equal(true)
 			end
 			-- AND EACH HAND IS A REAL ROW: an approved id, one mesh, and a size that is a hand's
-			-- rather than the gun's. 0.95 studs is 247 mm at this game's scale (the gun is 4.4 studs
-			-- for 1,143 mm), against the 200 mm of hand a person has; anything near the gun's own
-			-- length would be an arm across the screen.
+			-- rather than the gun's. Since task 97 round 3 the sleeve is cut off, so the model IS a
+			-- hand: 0.78 studs is 203 mm at this game's scale (the gun is 4.4 studs for 1,143 mm),
+			-- against the 200 mm a person has. The band is wide enough for a glove with or without
+			-- its cuff and nowhere near the gun's own length, which would be an arm across the
+			-- screen.
 			for _, key in ipairs(viewmodel) do
 				local hand = Assets.byKey(key)
 				expect(hand).to.be.ok()
@@ -180,12 +185,70 @@ return function()
 				expect(hand.scope).to.equal("viewmodel")
 				local longest = math.max(hand.sizeStuds.X, hand.sizeStuds.Y, hand.sizeStuds.Z)
 				TestKit.note(string.format("task93 %s: %.2f studs long, %d tris", key, longest, hand.trisDeclared))
-				expect(longest > 0.8 and longest < 1.8).to.equal(true)
+				expect(longest > 0.5 and longest < 1.4).to.equal(true)
 				-- THE HANDS ARE POSED BY THE CAMERA, so this field is zero and nothing reads it. It
 				-- is asserted rather than left alone because a non-zero rotation here would be a
 				-- number somebody wrote expecting it to do something.
 				expect(hand.rotationDeg).to.equal(Vector3.zero)
 			end
+		end)
+
+		it("says exactly what each published hand carries, and refuses one with no maps", function()
+			-- TASK 97: the right glove rendered WHITE in every first-person frame of 2026-10-01 while
+			-- the left, prepped by the same preset in the same run, rendered brown. Re-uploading the
+			-- identical bytes to a new id changed nothing. The thing nobody had looked at is what
+			-- Roblox actually BUILDS from the file, so this looks -- at the templates
+			-- `ServerScriptService.ViewmodelAssetsBoot` published, which needs no network call of its
+			-- own and no Loader state.
+			--
+			-- NOT A SKIP WHEN THE FOLDER IS EMPTY: a Studio with no network publishes nothing, and
+			-- that is not this spec's failure. What IS asserted is the claim that matters -- a
+			-- published hand carries its colour, as a `SurfaceAppearance` or as a `TextureID`. A mesh
+			-- that lost its maps is the purple untextured leg of docs/PROJECT_CONTEXT.md, and it is
+			-- what the player sees.
+			-- WAITED FOR, NOT SAMPLED. `ViewmodelAssetsBoot` creates the folder first and fills it
+			-- after its own `Loader.preload`, which is bounded by `PRELOAD_BUDGET_S` = 15 s -- so a
+			-- spec that looks the moment it runs sees an empty folder and says nothing (measured:
+			-- "0 of 2 published" on the first run of this case).
+			local folder = ReplicatedStorage:FindFirstChild(HandAssets.FOLDER_NAME)
+			local deadline = os.clock() + 20
+			while os.clock() < deadline do
+				folder = folder or ReplicatedStorage:FindFirstChild(HandAssets.FOLDER_NAME)
+				if folder ~= nil and #folder:GetChildren() >= 2 then
+					break
+				end
+				task.wait(0.25)
+			end
+			if folder == nil then
+				TestKit.note("task97 hands: nothing published yet; no claim about what a template carries")
+				expect(Assets.byKey(Assets.KEYS.handRight)).to.be.ok()
+				return
+			end
+			local seen = 0
+			for _, name in ipairs({ HandAssets.RIGHT, HandAssets.LEFT }) do
+				local worn = folder:FindFirstChild(name)
+				if worn ~= nil then
+					seen += 1
+					local kinds = {}
+					for _, child in ipairs(worn:GetChildren()) do
+						table.insert(kinds, child.ClassName)
+					end
+					local texture = if worn:IsA("MeshPart") then worn.TextureID else ""
+					TestKit.note(
+						string.format(
+							"task97 %s: %s, size %s, TextureID '%s', children [%s]",
+							name,
+							worn.ClassName,
+							tostring((worn :: BasePart).Size),
+							texture,
+							table.concat(kinds, ", ")
+						)
+					)
+					local dressed = texture ~= "" or worn:FindFirstChildOfClass("SurfaceAppearance") ~= nil
+					expect(dressed).to.equal(true)
+				end
+			end
+			TestKit.note(string.format("task97 hands: %d of 2 published", seen))
 		end)
 
 		it("keeps the gun's LENGTH and does not squash it", function()
