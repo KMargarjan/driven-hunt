@@ -1976,6 +1976,17 @@ return function()
 					-- THE DEFECT ITSELF: a part whose colour map does not draw falls back to its
 					-- `Color`, and left at the default that is the white blob Karen saw.
 					expect(hand.Color).never.to.equal(DEFAULT_GREY)
+					-- ...AND THE EXACT STATE THAT CAUSED IT IS GONE. `AlphaMode.Overlay` blends the
+					-- colour map over `Color` THROUGH THE MAP'S ALPHA, and these maps have no alpha
+					-- channel -- so a hand left with a SurfaceAppearance and no `TextureID` draws no
+					-- texture at all, whatever ids it carries. Either the map is on `TextureID`
+					-- (the path that does not read alpha) or there is no map to draw.
+					local appearance = hand:FindFirstChildOfClass("SurfaceAppearance")
+					expect(appearance).to.equal(nil)
+					if (hand :: any).TextureID ~= "" then
+						-- A MeshPart's Color TINTS its TextureID, so a textured hand is left white.
+						expect(hand.Color).to.equal(Color3.new(1, 1, 1))
+					end
 				end
 			end
 

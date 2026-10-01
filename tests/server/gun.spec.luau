@@ -203,6 +203,49 @@ return function()
 		end)
 	end)
 
+	describe("the wood", function()
+		it("scales Karen's stock mesh to the length THIS gun says, uniformly", function()
+			local row = Assets.byKey(Gun.WOOD_KEYS[Gun.STOCK_NAME])
+			expect(row).to.be.ok()
+			expect(row.scope).to.equal("viewmodel")
+			expect(row.modelId > 0).to.equal(true)
+			-- UNIFORM: the long axis is what the gun asks for and the other two are whatever the
+			-- wood's own proportions give. A stock squashed into a chosen box measures perfectly and
+			-- looks wrong (design 6.1, the squashed boar).
+			local wanted = Gun.WOOD_LENGTH_STUDS[Gun.STOCK_NAME]
+			expect(math.abs(row.sizeStuds.X - wanted) < 1e-6).to.equal(true)
+			local scale = wanted / row.naturalSizeStuds.X
+			expect(math.abs(row.sizeStuds.Y - row.naturalSizeStuds.Y * scale) < 1e-6).to.equal(true)
+			expect(math.abs(row.sizeStuds.Z - row.naturalSizeStuds.Z * scale) < 1e-6).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task99 stock %.3f x %.3f x %.3f studs (natural %.1f x %.1f x %.1f)",
+					row.sizeStuds.X,
+					row.sizeStuds.Y,
+					row.sizeStuds.Z,
+					row.naturalSizeStuds.X,
+					row.naturalSizeStuds.Y,
+					row.naturalSizeStuds.Z
+				)
+			)
+			-- THE TURN IS THE GUN'S, not the row's: the mesh is not mis-oriented, it simply lies
+			-- along X and this gun lies along Z.
+			expect(row.rotationDeg).to.equal(Vector3.zero)
+			expect(Gun.WOOD_ROTATION_DEG[Gun.STOCK_NAME]).to.equal(-90)
+		end)
+
+		it("has no forend mesh, and that is stated rather than silent", function()
+			-- MEASURED, 2026-10-01, on `A-barrels.glb`: ONE mesh, ONE material, ONE primitive, and --
+			-- welded by position, which is the test that survives UV seams -- ONE connected component
+			-- spanning the whole model. Meshy fused the forend into the barrels, so there is nothing
+			-- in the file that marks it apart and no loose part to lift out. The exact-geometry
+			-- forend in `Gun.pieces` is what is drawn, in the same place and at the same size, and
+			-- `Camera.Viewmodel` swaps in a mesh the moment a row appears.
+			expect(Assets.byKey(Gun.WOOD_KEYS[Gun.FOREND_NAME])).to.equal(nil)
+			expect(Gun.WOOD_LENGTH_STUDS[Gun.FOREND_NAME]).to.be.ok()
+		end)
+	end)
+
 	describe("the gloves", function()
 		-- THE WHITE GLOVE (task 99). Karen, 2026-10-01: the right glove is WHITE in game. Both hands
 		-- carry a SurfaceAppearance with a ColorMap and both source textures are dark brown, but the

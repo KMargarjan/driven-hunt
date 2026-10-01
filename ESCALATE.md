@@ -10,7 +10,7 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
-## 2026-10-01 · NEEDS KAREN (or the Director's click) · Task 99: Studio is not connected to Rojo, so the gate cannot run
+## 2026-10-01 · CLOSED 2026-10-01 · NEEDS KAREN (or the Director's click) · Task 99: Studio is not connected to Rojo, so the gate cannot run
 
 **Raised by:** Builder, Task 99 (branch `task-99-new-gun`, code commit `8db324e`).
 
@@ -64,7 +64,10 @@ picture of the wrong build, and I did not take one and call it evidence (rule 8)
    python tools/pose.py clear
    ```
 
-**Closed:** _(open)_
+**Answer (Director, 2026-10-01 23:33).** Connect pressed. Studio shows "Connected to session
+'DrivenHunt' at localhost:34872". The gate and the captures are the Builder's to run from here.
+
+**Closed** by the Director, 2026-10-01.
 
 ---
 ## 2026-10-01 · CLOSED 2026-10-01 · Director decision · Task 98: `FIRST_PERSON` ships ON, and the poses are seeded from Task 97 round 2

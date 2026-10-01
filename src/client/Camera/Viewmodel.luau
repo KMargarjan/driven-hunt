@@ -69,8 +69,19 @@ local FRESH_NAME = "FreshShell"
 -- past the near plane so the cuff's open end is never in the picture.
 local SLEEVE_NAME = "Sleeve"
 
-local stats =
-	{ sightMissing = 0, rebuilds = 0, parts = 0, breaksDrawn = 0, shellsDrawn = 0, handsDrawn = 0, handsMissing = 0 }
+local stats = {
+	sightMissing = 0,
+	rebuilds = 0,
+	parts = 0,
+	breaksDrawn = 0,
+	shellsDrawn = 0,
+	handsDrawn = 0,
+	handsMissing = 0,
+	-- How many of the new gun's wooden pieces were Karen's uploaded MESH rather than the piece
+	-- list's own part (task 99). A gun with plain wood is a real state -- the upload did not load --
+	-- and it must be visible in a number rather than only on screen.
+	woodDrawn = 0,
+}
 
 -- THE HANDS (task 93). `handsOn` is not a cache of what is on screen -- the Instances are that -- it
 -- is how the OFF branch knows whether it has anything to take off without walking the clone every
@@ -546,16 +557,41 @@ local function buildNewGun(config): Model
 	barrels.CFrame = handle.CFrame * CFrame.new(0, 0, at.barrelZ)
 	barrels.Parent = handle
 
+	-- KAREN'S WOOD WHERE THERE IS ANY (task 99). The METAL is exact geometry because Meshy is weak
+	-- on machined surfaces; the WOOD is exactly what Meshy is good at, so the forend and the stock
+	-- are her own models when the server has published them and the piece list's own part when it
+	-- has not. The silhouette is the same either way -- `Gun.WOOD_LENGTH_STUDS` is what the mesh is
+	-- scaled to -- so a gun whose upload failed to load is a gun with a plain wooden stock, not a
+	-- gun with a hole in it.
+	local woodFolder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
+	local function woodFor(name: string): BasePart?
+		local found = if woodFolder then woodFolder:FindFirstChild(name) else nil
+		return if found and found:IsA("BasePart") then found :: BasePart else nil
+	end
+
 	for _, piece in ipairs(Gun.pieces(Shotgun.CONFIG)) do
-		local part = Instance.new("Part")
+		local wood = if Gun.WOOD_KEYS[piece.name] ~= nil then woodFor(piece.name) else nil
+		local part: BasePart
+		local offset = piece.offset
+		if wood ~= nil then
+			-- The SIZE came from the manifest when the server published it (the consumer sets it,
+			-- design 6.1); the TURN is this gun's, because the same model on another gun would be
+			-- turned differently.
+			part = wood:Clone()
+			offset = piece.offset * CFrame.Angles(0, math.rad(Gun.WOOD_ROTATION_DEG[piece.name]), 0)
+			stats.woodDrawn += 1
+		else
+			local made_ = Instance.new("Part")
+			made_.Size = piece.size
+			made_.Shape = piece.shape
+			made_.Color = piece.color
+			made_.Material = piece.material
+			made_.Reflectance = piece.reflectance or 0
+			part = made_
+		end
 		part.Name = piece.name
-		part.Size = piece.size
-		part.Shape = piece.shape
-		part.Color = piece.color
-		part.Material = piece.material
-		part.Reflectance = piece.reflectance or 0
 		dress(part)
-		part.CFrame = handle.CFrame * piece.offset
+		part.CFrame = handle.CFrame * offset
 		part.Parent = if piece.group == "barrels" then barrels else handle
 	end
 

@@ -30,6 +30,10 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+-- THE FIRST-PERSON GUN'S OWN GEOMETRY (task 99), and only for two numbers: how long each wooden
+-- piece is on that gun. The gun decides the scale, so the manifest does not carry a second copy
+-- of it -- the rule `Gun.beadOffset` and `Shape.beadOffset` already follow one layer over.
+local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 
 local Assets = {}
 
@@ -115,6 +119,7 @@ Assets.KEYS = table.freeze({
 	-- but the player holding the shotgun ever sees them, which is why they carry a scope of their
 	-- own below.
 	handRight = "hand.right",
+	gunStock = "gun.stock",
 	handLeft = "hand.left",
 })
 
@@ -146,10 +151,18 @@ local GUN_SIZE = Vector3.new(NATURAL.X * SCALE, NATURAL.Y * SCALE, NATURAL.Z * S
 local HAND_LENGTH_STUDS = 1.10
 local HAND_RIGHT_NATURAL = Vector3.new(190.04, 84.99, 78.93)
 local HAND_LEFT_NATURAL = Vector3.new(189.64, 95.52, 72.04)
+-- THE WOOD (task 99), by the same rule: MEASURED off the prepped model's own vertex bounds (the
+-- run's `model.glb` position accessors, times the hundred Roblox's FBX import applies), then
+-- scaled UNIFORMLY so the LONG AXIS is what `Gun` says that piece is on this gun. The other two
+-- sizes are whatever the wood's own proportions give -- a stock squashed to a chosen box measures
+-- perfectly and looks wrong (design 6.1, the squashed boar).
+local STOCK_NATURAL = Vector3.new(190.153, 69.262, 17.743)
 local function uniformTo(natural: Vector3, length: number): Vector3
 	local scale = length / natural.X
 	return Vector3.new(natural.X * scale, natural.Y * scale, natural.Z * scale)
 end
+
+local STOCK_SIZE = uniformTo(STOCK_NATURAL, Gun.WOOD_LENGTH_STUDS[Gun.STOCK_NAME])
 local HAND_RIGHT_SIZE = uniformTo(HAND_RIGHT_NATURAL, HAND_LENGTH_STUDS)
 local HAND_LEFT_SIZE = uniformTo(HAND_LEFT_NATURAL, HAND_LENGTH_STUDS)
 
@@ -695,6 +708,50 @@ Assets.ROWS = {
 	-- `Camera.Config`'s own three named degrees per hand, at one conversion site, because the pose
 	-- and the orientation are the same measurement and splitting them over two files would be two
 	-- dials for one thing.
+	{
+		key = "gun.stock",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel" :: string?,
+		-- Uploaded by tools/roblox_upload.py on 2026-10-01; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		modelId = 115346777423870,
+		displayName = "Driven Hunt shotgun stock r1",
+		fileName = "model.fbx",
+		sourceSha256 = "06a515eeefc0cf77e9a6de562c4596af9f36601ae6b285d891abeff6414bcd3b",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated the two wooden pieces of the new shotgun in her own paid Meshy "
+				.. "account on 2026-10-01 and gave the upload OK the same evening, at about 23:05: "
+				.. "upload ok. It was prepared with tools/asset_prep.py's hand preset -- smooth "
+				.. "shading and the shine maps, textures down to 1024, and no recolour.",
+			quotedFrom = "assets/uploads.json (karenOk), TASKS.md row 99",
+			readOn = "2026-10-01",
+			attribution = nil,
+		},
+		added = "2026-10-01",
+		moderation = "approved" :: Moderation,
+		-- MEASURED by the prep run (gun_stock_r1): 5,146 triangles, against Roblox's 20,000.
+		trisDeclared = 5146,
+		texturePx = 1024,
+		sizeStuds = STOCK_SIZE,
+		naturalSizeStuds = STOCK_NATURAL,
+		-- MEASURED off the prepped model's bounds: the pivot is the bounding-box centre to within
+		-- 0.003 of a unit on every axis, which is 2e-5 studs at this scale.
+		offsetStuds = Vector3.zero,
+		-- THE MESH ITSELF IS NOT MIS-ORIENTED, so there is nothing to correct here. How it is TURNED
+		-- to lie on the gun is the gun's business and lives in `Gun.WOOD_ROTATION_DEG`: the same
+		-- model on a different gun would be turned differently, and this row describes the model.
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		notes = "Walnut stock with a half-pistol grip, chequering and a butt plate; the flat square "
+			.. "front face is where the action fits. Looked at before it was called done "
+			.. "(render_three-quarter.png): light golden walnut with strong grain, a rounded butt "
+			.. "and a clean grip. Metalness written to 0 -- wood is not a metal -- and the "
+			.. "generator's own roughness kept (median 0.31).",
+	},
 	{
 		key = "hand.right",
 		version = 1,

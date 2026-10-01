@@ -98,6 +98,22 @@ Gun.BARRELS_NAME = "Barrels" -- the SAME name the old mesh gun's barrel piece ha
 Gun.FOREND_NAME = "Forend"
 Gun.STOCK_NAME = "Stock"
 Gun.WOOD_KEYS = table.freeze({ [Gun.FOREND_NAME] = "gun.forend", [Gun.STOCK_NAME] = "gun.stock" })
+-- WHERE THE SERVER PARKS THE WOOD for the client to clone, the same arrangement the hands have
+-- (`HandAssets.FOLDER_NAME`): `InsertService:LoadAsset` is server-only, so the server loads and
+-- publishes and `Camera.Viewmodel` clones. Created at RUN TIME, never on disk -- ReplicatedStorage
+-- is Rojo-owned and a folder parked there in Edit would be deleted at the next Connect.
+Gun.FOLDER_NAME = "ViewmodelGun"
+-- HOW LONG EACH WOODEN PIECE IS ON THIS GUN. The uploaded mesh is scaled UNIFORMLY so its long axis
+-- is this, and its other two sizes are whatever the wood's own proportions give (design 6.1's rule,
+-- and the reason the squashed boar is in it). `ServerStorage.Assets` reads these to work out each
+-- row's `sizeStuds`, so the gun's geometry decides the scale rather than a number in the manifest.
+Gun.WOOD_LENGTH_STUDS = table.freeze({ [Gun.FOREND_NAME] = FOREND_SIZE.Z, [Gun.STOCK_NAME] = STOCK_SIZE.Z })
+-- HOW THE MESH IS TURNED to lie on this gun. Both models arrive with their LONG AXIS ALONG X
+-- (measured by `tools/asset_prep.py`: "long axis X, front at its minimum"), and this gun's long axis
+-- is Z with -Z the muzzle -- so a quarter turn about Y lays it down. MINUS ninety, not plus: that
+-- takes the mesh's +X to the gun's +Z, which puts the model's own FRONT -- its minimum X, the flat
+-- face the action fits against -- toward the action. Plus ninety would seat the butt in the breech.
+Gun.WOOD_ROTATION_DEG = table.freeze({ [Gun.FOREND_NAME] = -90, [Gun.STOCK_NAME] = -90 })
 
 -- The colours. Blued steel is dark blue-black and METALLIC with some gloss; the action is a
 -- case-hardened silver-grey, which is the contrast that makes a side-by-side read as one.

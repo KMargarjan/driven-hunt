@@ -258,5 +258,25 @@
     "pollSeconds": 6.6,
     "polls": 3,
     "karenOk": "2026-09-27 Karen: ok to upload (hands)"
+  },
+  {
+    "tool": "roblox-upload/1",
+    "at": "2026-10-01T21:40:11Z",
+    "assetId": "115346777423870",
+    "assetType": "Model",
+    "displayName": "Driven Hunt shotgun stock r1",
+    "description": "Walnut stock for the Driven Hunt side-by-side shotgun's first-person viewmodel. Made by the place owner in her own Meshy account, prepared with tools/asset_prep.py (hand preset, textures to 1024).",
+    "creatorUserId": "8167651842",
+    "file": "model.fbx",
+    "sourceFolder": "gun_stock_r1",
+    "bytes": 2614828,
+    "sha256": "06a515eeefc0cf77e9a6de562c4596af9f36601ae6b285d891abeff6414bcd3b",
+    "contentType": "model/fbx",
+    "operation": "operations/9b052046-c08f-4af3-a840-d64aefff314f",
+    "moderationState": "Approved",
+    "moderationStateFrom": "response.moderationResult.moderationState",
+    "pollSeconds": 11.1,
+    "polls": 5,
+    "karenOk": "2026-10-01 ~23:05 Karen, on the two Meshy wood models for the new shotgun (the forend and the stock): upload ok"
   }
 ]
