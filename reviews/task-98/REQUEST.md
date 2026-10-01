@@ -3,12 +3,15 @@
 Task: 98
 Round: 1
 Base: main (`ee8fed5`)
-Code commit: _(the Director runs `test` and `test2` at this branch's head; both lines go here)_
+Code commit: 18f7570b342403cd72f4a5797160e71cdeb20beb
 
 ```
-[harness]  PASS: ... @ <head> (clean tree)          <- to be pasted
-[harness2] PASS: ... @ <head> (clean tree)          <- to be pasted
+[harness] PASS: 34/34 checks @ 18f7570b342403cd72f4a5797160e71cdeb20beb (clean tree)
+[harness2] PASS: 34/34 checks @ 18f7570b342403cd72f4a5797160e71cdeb20beb (clean tree)
 ```
+
+Both run by the Director at this branch's head, which is the request commit itself: only paperwork
+follows the last code change (`825b00e`), so the evidence covers everything under it (git step 4).
 
 What changed, for the player: nothing yet. Every first-person pose number moved out of Luau into
 `src/shared/Viewmodel/poses.json`, seeded with task 97 round 2's values (`9393d1e`), and the
