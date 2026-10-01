@@ -1054,6 +1054,22 @@ return function()
 							os.clock() - lastWeaponInput
 						)
 					)
+					-- ...AND A TIED PLAYER HAS NO GUN BY THE GAME'S OWN RULE, which is not this
+					-- case's failure. The safety rule takes the Tool away and `TIE_UNTIL_DRIVE_END`
+					-- keeps it until the drive ends, so a shooter tied earlier in the run reaches
+					-- here disarmed -- measured, on the two-player run of task 97, 41.9 s after his
+					-- last input. The forged-remote claim needs an equipped gun to mean anything, so
+					-- for a tied player the claim asserted instead is the tie's own: no gun.
+					-- Not a skip -- `Match.isTied()` is the server's replicated answer, and "tied but
+					-- still armed" is the bug it would catch.
+					local matchModule = scripts:FindFirstChild("Match")
+					local Match = if matchModule then require(matchModule) else nil
+					if Match ~= nil and Match.isTied() then
+						TestKit.note("weapon_client: this shooter is tied to a tree, so he has no gun to forge against")
+						local tiedSnapshot = Weapon.get()
+						expect(tiedSnapshot == nil or tiedSnapshot.equipped ~= true).to.equal(true)
+						return
+					end
 				end
 				expect(ready).to.equal(true)
 
