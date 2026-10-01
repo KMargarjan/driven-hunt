@@ -67,8 +67,18 @@ local RIB_THICK = 0.022
 -- THE BORE, FAKED AND SAID TO BE FAKED. A Cylinder is solid, so the opening is a near-black disc
 -- inset into each end of each tube -- four in all. At the aiming distance (3.65 studs) an unlit disc
 -- inside a blued tube reads as a hole, which is what requirement 2 of the note asks for; it is not
--- one, and `Gun.spec` asserts only that each disc sits inside its tube's radius.
-local BORE_INSET = 0.012 -- how far inside the tube's end face the disc sits
+-- one, and `Gun.spec` asserts that each disc sits inside its tube AND that nothing in the barrel
+-- group stands behind it.
+--
+-- THE TWO ENDS ARE INSET BY DIFFERENT AMOUNTS, and the reason is the SHELL (round 1, finding 1).
+-- At the muzzle the disc is the end of the hole, so a hair inside the end face is right. At the
+-- BREECH the hole is a CHAMBER with a shell in it: `Gun.chamber` seats a fresh shell 0.10 studs
+-- inside the tube, so a disc at 0.012 would stand in front of the seated shell and hide the one
+-- thing the break-open frame exists to show. The breech disc therefore sits BEHIND the seated shell
+-- and reads as the dark depth of the chamber -- empty chamber, dark; fed chamber, a shell in front
+-- of the dark.
+local BORE_INSET = 0.012 -- the muzzle: just inside the end face
+local BREECH_BORE_INSET = 0.17 -- the breech: deeper than `Gun.chamber`'s 0.10
 local BORE_FRACTION = 0.72 -- of the tube's diameter: a wall, then the hole
 
 local ACTION_LENGTH = 0.62
@@ -176,8 +186,8 @@ end
 -- definition of which tube is which, so this module does not learn that the right barrel is +X.
 function Gun.chamber(barrel: number, config): CFrame
 	local at = Gun.layout(config)
-	local across = Shotgun.barrelMuzzleOffset(barrel, config or Shotgun.CONFIG)
-	return CFrame.new(across.X, BARREL_Y, at.breechZ - 0.10)
+	local across = Gun.barrelOffset(barrel, config)
+	return CFrame.new(across.X, across.Y, at.breechZ - 0.10)
 end
 
 -- WHERE THE BEAD SITS, and the ONE place that decides it: the rib lies on the tubes, the bead sits
@@ -195,9 +205,25 @@ function Gun.sight(config): CFrame
 	return CFrame.new(Gun.beadOffset(config))
 end
 
+-- WHERE THIS GUN'S OWN BORE LINE IS, per barrel, in the Handle's frame -- and it is the ONE
+-- definition of it (round 1, finding 2). `Shotgun.barrelMuzzleOffset` answers the same question for
+-- the MESH gun, whose tubes are `BARREL_HALF_GAP_STUDS` = 0.09 apart and ride
+-- `BARREL_RISE_STUDS` = 0.12 above the Handle's axis; this gun's tubes are `BARREL_GAP / 2` = 0.076
+-- apart and ride `BARREL_Y`. The SIGN still comes from `Shotgun`, so "which tube is barrel 1" has
+-- one owner in the whole repo and this module does not learn that the right barrel is +X.
+function Gun.barrelOffset(barrel: number?, config): Vector3
+	local sign = if Shotgun.barrelMuzzleOffset(barrel, config or Shotgun.CONFIG).X >= 0 then 1 else -1
+	return Vector3.new(sign * BARREL_GAP / 2, BARREL_Y, 0)
+end
+
+-- THE `Muzzle` ATTACHMENT, ON THE HANDLE'S AXIS, exactly where `Weapon.Hardware` puts it on every
+-- other gun (`CFrame.new(config.MUZZLE_OFFSET)`). It is NOT on the bore line, and that is the whole
+-- of round 1's finding 2: `Camera.Viewmodel.muzzle` adds the barrel's own rise to whatever this
+-- attachment says, so a bore-line attachment counted the rise twice and drew the first-person flash
+-- 0.12 studs above the barrels -- off the top of the rib rather than out of a tube.
 function Gun.muzzle(config): CFrame
 	local at = Gun.layout(config)
-	return CFrame.new(0, BARREL_Y, at.muzzleZ)
+	return CFrame.new(0, 0, at.muzzleZ)
 end
 
 -- ---------------------------------------------------------------- the pieces
@@ -242,7 +268,7 @@ function Gun.pieces(config): { Piece }
 		-- with the gun broken open, which is the frame this task exists to fix.
 		for _, end_ in ipairs({
 			{ suffix = "Muzzle", z = at.muzzleZ + BORE_INSET },
-			{ suffix = "Breech", z = at.breechZ - BORE_INSET },
+			{ suffix = "Breech", z = at.breechZ - BREECH_BORE_INSET },
 		}) do
 			add({
 				name = side.name .. "Bore" .. end_.suffix,
@@ -278,16 +304,15 @@ function Gun.pieces(config): { Piece }
 		shape = Enum.PartType.Ball,
 	})
 
-	-- THE FLAT BREECH FACE: the end the chambers open at, which the standing breech closes against.
-	add({
-		name = "BreechFace",
-		group = "barrels",
-		size = Vector3.new(BARREL_GAP + BARREL_DIAMETER, BARREL_DIAMETER * 1.05, 0.02),
-		offset = CFrame.new(0, BARREL_Y, at.breechZ - 0.004),
-		color = Gun.LOOK.blued,
-		material = Enum.Material.Metal,
-		shape = Enum.PartType.Block,
-	})
+	-- THERE IS NO BREECH PLATE, AND THAT IS THE FIX (round 1, finding 1). A `BreechFace` block the
+	-- width of both tubes was added here to be "the flat breech face"; the Reviewer measured what it
+	-- actually did -- it spanned z 0.524 to 0.544 across both tube ends, so it BURIED both breech
+	-- bore discs (z-fighting their front faces into the bargain) and the fed shells slid straight
+	-- through it and out of sight. That is precisely the frame this task exists to fix.
+	--
+	-- The requirement it was meant to meet is still met, by the tubes themselves: a Cylinder's rear
+	-- end IS a flat face, the two are coplanar at `breechZ`, and each one now shows the dark chamber
+	-- behind it. A real monobloc looks like two flat-ended tubes side by side, which is what this is.
 
 	-- THE HINGE HOOK: the lug under the breech end of the tubes that drops onto the pin. It is what
 	-- a player sees rotate when the gun opens, so it belongs to the barrel group.

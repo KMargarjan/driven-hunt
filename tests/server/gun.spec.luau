@@ -88,6 +88,50 @@ return function()
 			expect(bores).to.equal(4)
 		end)
 
+		it("lets you SEE both openings: nothing in the barrel group stands in front of one", function()
+			-- ROUND 1, FINDING 1, AND THE CASE ABOVE COULD NOT CATCH IT. A `BreechFace` plate spanned
+			-- both tube ends and buried both breech discs (z-fighting their front faces as well), and
+			-- the fed shells slid straight through it and out of sight -- while every assertion above
+			-- still passed, because a disc sealed inside an opaque plate is still "inside its tube".
+			--
+			-- THE GROUP IS THE RIGHT SCOPE, not the whole gun: the break-open is what separates the
+			-- barrels from the body, so with the gun open the standing breech is nowhere near the
+			-- chamber mouths. What may never stand in front of a bore is something that SWINGS WITH
+			-- IT -- which is exactly what the plate was.
+			--
+			-- AXIS-ALIGNED BOXES, which every piece in the barrel group is: the tubes and the discs
+			-- are cylinders along Z, the rib and the hook are blocks, the forend is a block.
+			for _, piece in ipairs(pieces) do
+				local at = string.find(piece.name, "Bore", 1, true)
+				if at == nil then
+					continue
+				end
+				local tubeName = string.sub(piece.name, 1, at - 1)
+				local towardOpening = if string.find(piece.name, "Muzzle", 1, true) then -1 else 1
+				local face = piece.offset.Position.Z + towardOpening * piece.size.X / 2
+				local blocked = {}
+				for _, other in ipairs(pieces) do
+					if other.group ~= "barrels" or other.name == piece.name or other.name == tubeName then
+						continue
+					end
+					local spansX = math.abs(other.offset.Position.X - piece.offset.Position.X) < other.size.X / 2
+					local spansY = math.abs(other.offset.Position.Y - piece.offset.Position.Y) < other.size.Y / 2
+					-- A cylinder lying along Z has its LENGTH on X, so its Z half-extent is size.X/2
+					-- and its cross-section is size.Y; a block's is size.Z. One expression either way
+					-- would be wrong for one of them, so the shape decides.
+					local halfZ = if other.shape == Enum.PartType.Cylinder then other.size.X / 2 else other.size.Z / 2
+					local reach = other.offset.Position.Z + towardOpening * halfZ
+					if spansX and spansY and towardOpening * (reach - face) > 1e-6 then
+						table.insert(blocked, other.name)
+					end
+				end
+				if #blocked > 0 then
+					TestKit.note(string.format("task99 %s is hidden by %s", piece.name, table.concat(blocked, ", ")))
+				end
+				expect(#blocked).to.equal(0)
+			end
+		end)
+
 		it("carry the bead, on the rib, at exactly the point the aimed pose is solved from", function()
 			local bead = byName(pieces, "Bead")
 			expect(bead).to.be.ok()
@@ -198,7 +242,11 @@ return function()
 					chamber.Position.X - tube.offset.Position.X,
 					chamber.Position.Y - tube.offset.Position.Y
 				)
-				expect(across.Magnitude < tube.size.Y / 2).to.equal(true)
+				-- ON the bore line, not merely within the tube: since round 2 the chamber is built
+				-- from `Gun.barrelOffset`, the same one definition the flash uses, so this is exact.
+				-- It used to take the whole of `Shotgun.barrelMuzzleOffset`, which is the MESH gun's
+				-- 0.09, and sat 0.014 studs off -- passing a bound five times looser than the error.
+				expect(across.Magnitude < 1e-6).to.equal(true)
 				-- ...and at the BREECH end, behind the middle of the barrel.
 				expect(chamber.Position.Z > at.barrelZ).to.equal(true)
 				expect(chamber.Position.Z < at.breechZ).to.equal(true)
@@ -208,7 +256,7 @@ return function()
 		it("costs the budget the note states, so growth is a decision", function()
 			local count = Gun.partCount(CONFIG)
 			TestKit.note(string.format("task99 the drawn gun is %d parts", count))
-			expect(count).to.equal(23)
+			expect(count).to.equal(22)
 		end)
 
 		it("moves no number a shot depends on", function()
@@ -216,7 +264,44 @@ return function()
 			-- them: the new gun is DRAWN under one player's camera and nothing else.
 			expect(CONFIG.HANDLE_SIZE).to.equal(Vector3.new(0.4, 0.5, 4.4))
 			expect(CONFIG.MUZZLE_OFFSET).to.equal(Vector3.new(0, 0, -2.2))
-			expect(Gun.muzzle(CONFIG).Position.Z).to.equal(CONFIG.MUZZLE_OFFSET.Z)
+		end)
+
+		it("puts the Muzzle attachment on the HANDLE'S AXIS, so the rise is counted once", function()
+			-- ROUND 1, FINDING 2. `Camera.Viewmodel.muzzle` adds the barrel's own rise to whatever
+			-- the attachment says, because on every gun in this repo the attachment sits on the
+			-- Handle's axis (`Weapon.Hardware`: `CFrame.new(config.MUZZLE_OFFSET)`). The first build
+			-- put this one on the BORE LINE, so the rise was added to a point that already had it and
+			-- the first-person flash was drawn 0.12 studs above the barrels -- off the top of the rib
+			-- at the bead rather than out of a tube.
+			expect(Gun.muzzle(CONFIG).Position).to.equal(CONFIG.MUZZLE_OFFSET)
+		end)
+
+		it("gives each tube ONE bore line, and the flash point lands inside that tube", function()
+			-- THE ONE DEFINITION (round 1, finding 2). `Gun.barrelOffset` is this gun's answer to the
+			-- question `Shotgun.barrelMuzzleOffset` answers for the mesh gun, and the two guns' tubes
+			-- are NOT in the same place -- 0.076 apart here against 0.09 there. Whatever draws the
+			-- flash must use the gun's own.
+			for barrel, tubeName in ipairs({ "BarrelRight", "BarrelLeft" }) do -- barrel 1 is +X
+				local tube = byName(pieces, tubeName)
+				local offset = Gun.barrelOffset(barrel, CONFIG)
+				-- THE SIGN STILL COMES FROM `Shotgun`, so "which tube is barrel 1" has one owner.
+				local theirs = Shotgun.barrelMuzzleOffset(barrel, CONFIG)
+				expect(offset.X > 0).to.equal(theirs.X > 0)
+				-- ...and the magnitude is THIS gun's: exactly its own tube's centre line.
+				expect(offset.X).to.equal(tube.offset.Position.X)
+				expect(offset.Y).to.equal(tube.offset.Position.Y)
+				-- THE DRAWN FLASH POINT, as `Camera.Viewmodel.muzzle` builds it: the attachment plus
+				-- this offset. It must be ON the tube's axis, at its muzzle end -- which is false by
+				-- 0.12 studs the moment the rise is counted twice.
+				local flash = Gun.muzzle(CONFIG) * CFrame.new(offset)
+				local across = Vector2.new(
+					flash.Position.X - tube.offset.Position.X,
+					flash.Position.Y - tube.offset.Position.Y
+				).Magnitude
+				TestKit.note(string.format("task99 %s flash %.4f studs off the bore line", tubeName, across))
+				expect(across < 1e-6).to.equal(true)
+				expect(math.abs(flash.Position.Z - Gun.layout(CONFIG).muzzleZ) < 1e-6).to.equal(true)
+			end
 		end)
 	end)
 

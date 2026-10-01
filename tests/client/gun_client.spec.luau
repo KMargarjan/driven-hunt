@@ -164,6 +164,80 @@ return function()
 			end)
 		end)
 
+		it("draws the muzzle flash INSIDE the tube it comes out of", function()
+			-- ROUND 1, FINDING 2, MEASURED ON THE DRAWN INSTANCES. `Camera.Viewmodel.muzzle` is what
+			-- `Weapon.Effects` draws the first-person flash at, and it adds the barrel's own rise to
+			-- the `Muzzle` attachment. With the attachment on the bore line the rise was counted
+			-- twice and the flash sat 0.12 studs above the barrels -- outside a 0.0725-radius tube,
+			-- which is what this measures.
+			withNewGun(function()
+				Camera.Viewmodel.setReload(nil)
+				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), newGunConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local barrels = clone:FindFirstChild("Barrels") :: BasePart
+				for barrel, tubeName in ipairs({ "BarrelRight", "BarrelLeft" }) do -- barrel 1 is +X
+					local tube = barrels:FindFirstChild(tubeName) :: BasePart
+					local flash = Camera.Viewmodel.muzzle(barrel)
+					expect(flash).to.be.ok()
+					-- IN THE TUBE'S OWN FRAME: a cylinder's length is its X, so the other two axes
+					-- are the bore and the flash must be inside that circle.
+					local inTube = tube.CFrame:ToObjectSpace(flash :: CFrame)
+					local across = Vector2.new(inTube.Position.Y, inTube.Position.Z).Magnitude
+					TestKit.note(
+						string.format(
+							"task99 %s flash %.4f studs off the bore line, bore radius %.4f",
+							tubeName,
+							across,
+							tube.Size.Y / 2
+						)
+					)
+					expect(across < tube.Size.Y / 2).to.equal(true)
+					-- ...and at the MUZZLE end of it, not the breech.
+					expect(inTube.Position.X).never.to.equal(0)
+				end
+			end)
+		end)
+
+		it("leaves the OLD gun's flash where it has always been", function()
+			-- THE OTHER HALF OF ONE DEFINITION: the mesh gun's tubes are 0.09 apart and 0.12 above
+			-- the Handle's axis (`Shotgun.barrelMuzzleOffset`), and nothing about this task may move
+			-- them. A gun built from a cloned Handle must still get that offset and not the new
+			-- gun's -- which is why `Viewmodel.muzzle` asks the MODEL which gun it is.
+			local handle = Instance.new("Part")
+			handle.Name = "Handle"
+			handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+			handle.Transparency = 1
+			local muzzle = Instance.new("Attachment")
+			muzzle.Name = "Muzzle"
+			muzzle.CFrame = CFrame.new(Shotgun.CONFIG.MUZZLE_OFFSET)
+			muzzle.Parent = handle
+			local live = Camera.Viewmodel.getSource()
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			local ok, why = pcall(function()
+				task.wait(0.3)
+				Camera.Viewmodel.clear()
+				Camera.Viewmodel.setReload(nil)
+				local at = CFrame.new(0, 16, 0)
+				Camera.Viewmodel.update(at, stateAtBlend(0), firstPersonConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				for barrel = 1, 2 do
+					local flash = Camera.Viewmodel.muzzle(barrel)
+					expect(flash).to.be.ok()
+					local inGun = clone.CFrame:ToObjectSpace(flash :: CFrame)
+					local wanted = Shotgun.CONFIG.MUZZLE_OFFSET + Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG)
+					expect((inGun.Position - wanted).Magnitude < 1e-3).to.equal(true)
+				end
+			end)
+			Camera.Viewmodel.clear()
+			Camera.Viewmodel.setSource(live)
+			handle:Destroy()
+			if not ok then
+				error(why, 0)
+			end
+		end)
+
 		it("seats a fresh shell INSIDE the barrel, not in the gap between the two", function()
 			withNewGun(function()
 				local at = CFrame.new(0, 16, 0)

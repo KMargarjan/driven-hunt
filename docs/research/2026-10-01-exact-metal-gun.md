@@ -13,7 +13,8 @@ faceted and wavy along the top, which is the one surface the player looks ALONG 
 1. The barrels are **perfectly round and smooth down their whole length**, as a side-by-side pair,
    with a slim rib and a bead at the muzzle.
 2. The muzzle and the breech each show **two dark round openings** that read as bores at
-   first-person distance, and the breech face is flat.
+   first-person distance, and the breech face is flat. **Nothing in the barrel group may stand in
+   front of one** -- round 1's `BreechFace` plate did, and `gun.spec` now asserts it cannot.
 3. A silver-grey **action**, a round **hinge pin** at its lower front, and the barrel group rotates
    about exactly that axis -- so the break-open is a real hinge and not a mesh tearing.
 4. Trigger, round trigger guard, top lever, safety. Blued steel against a silver action.
@@ -56,10 +57,10 @@ these two models actually are -- the split Karen OK'd on 2026-10-01.
 | Barrels round and smooth | `Enum.PartType.Cylinder`, analytic | `gun.spec`: every barrel piece is a Cylinder, and its two cross-axis sizes are equal (a cylinder scaled unevenly is an ellipse) |
 | Side-by-side pair | two tubes, centres `BARREL_GAP` apart, same Y | `gun.spec` |
 | Bores read as holes | a near-black `SmoothPlastic` disc inset at each end of each tube, 4 in all | `gun.spec` counts them and asserts each sits inside its tube's radius |
-| Hinge is real | the barrel group rotates about `hinge.pinStuds`, and the PIN part is centred on that axis | `gun.spec` (the pin's centre is the axis) + `camera_mode.spec`'s break case |
-| Shells seat in the chambers | a fresh shell at feed 1 is INSIDE the barrel's bore line, within the tube's radius | `viewmodel_poses.spec` / client spec |
+| Hinge is real | the barrel group rotates about `Gun.hinge`, and the PIN part is centred on that axis | `gun.spec` (the pin's centre is the axis) and `gun_client.spec` ("swings its barrel group about its own pin": the tube moves, the pin does not, and the distance between them is unchanged) |
+| Shells seat in the chambers | a fresh shell is ON the tube's own bore line at every moment of the feed, and the chamber mouth is not covered | `gun.spec` ("puts a chamber on each tube's own bore line", exact since round 2) and `gun_client.spec` ("seats a fresh shell INSIDE the barrel") |
 | Nothing a shot depends on moves | `HANDLE_SIZE`, `MUZZLE_OFFSET`, `GRIP`, the hitbox | the flag's OFF branch is byte-identical, and no `Shotgun.CONFIG` number changes |
-| Budget | **23 parts** for the whole first-person gun: 19 metal (2 barrels, 4 bore discs, rib, bead, breech face, hinge hook, action, standing breech, flat bars, hinge pin, top lever, safety, trigger, guard bow, guard strap), 2 wood, and the 2 invisible envelopes (the Handle and the barrel group). The old mesh gun is 1 MeshPart plus a drawn bead | `gun.spec` asserts the count exactly, so growth is a decision and not a drift |
+| Budget | **22 parts** for the whole first-person gun: 18 metal (2 barrels, 4 bore discs, rib, bead, hinge hook, action, standing breech, flat bars, hinge pin, top lever, safety, trigger, guard bow, guard strap), 2 wood, and the 2 invisible envelopes (the Handle and the barrel group). The `BreechFace` plate was REMOVED in round 2 -- it buried both breech bore discs and the fed shells went through it; two flat-ended tubes are the breech face. The old mesh gun is 1 MeshPart plus a drawn bead | `gun.spec` asserts the count exactly, so growth is a decision and not a drift |
 
 ## 5. What this does NOT change
 

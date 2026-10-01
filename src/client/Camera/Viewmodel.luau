@@ -75,6 +75,10 @@ local FRESH_NAME = "FreshShell"
 -- THE SLEEVE (task 99): one olive cylinder per hand, on the hand's own long axis, running back
 -- past the near plane so the cuff's open end is never in the picture.
 local SLEEVE_NAME = "Sleeve"
+-- WHICH GUN THIS MODEL IS, written on the model itself (task 99, round 2). `Viewmodel.muzzle`
+-- has to add the right gun's own barrel offset and it is called with no config -- so it asks the
+-- thing that was built rather than a caller who could pass the wrong one.
+local NEW_GUN_ATTRIBUTE = "DHNewGun"
 
 local stats = {
 	sightMissing = 0,
@@ -296,7 +300,15 @@ function Viewmodel.muzzle(barrel: number?): CFrame?
 	if not (attachment and attachment:IsA("Attachment")) then
 		return nil
 	end
-	return (attachment :: Attachment).WorldCFrame * CFrame.new(Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG))
+	-- EACH GUN'S OWN BORE LINE (round 1, finding 2). Both attachments sit on the HANDLE'S AXIS, so
+	-- the rise from the axis up to the barrels is added here -- and the two guns' tubes are not in
+	-- the same place: the mesh gun's are 0.09 apart and 0.12 up, this one's are 0.076 apart. Asked of
+	-- the MODEL rather than of a caller, because this function takes no config and a caller passing
+	-- the wrong one would put the flash on the other gun's barrels.
+	local offset = if (made :: Model):GetAttribute(NEW_GUN_ATTRIBUTE) == true
+		then Gun.barrelOffset(barrel, Shotgun.CONFIG)
+		else Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG)
+	return (attachment :: Attachment).WorldCFrame * CFrame.new(offset)
 end
 
 -- ONE SHELL: red plastic with a brass base, two parts, drawn for one player and never replicated.
@@ -535,6 +547,7 @@ end
 local function buildNewGun(config): Model
 	local made = Instance.new("Model")
 	made.Name = "DrivenHuntViewmodel"
+	made:SetAttribute(NEW_GUN_ATTRIBUTE, true)
 
 	local function dress(part: BasePart)
 		part.Anchored = true
