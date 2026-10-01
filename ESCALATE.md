@@ -55,7 +55,54 @@ clean: 509 server and 101 shooter assertions passed.
    the stage would have to reach the camera without invoking a BindableFunction, or the capability
    has to be granted to the plugin.
 
-**Closed:** _(open)_
+**DIAGNOSED, 2026-10-02 (Builder).** It is not the place and it is not this repo. It is the
+Assistant plugin's own thread, and a `LoadAsset` call this session made through `execute_luau` is
+what gave it capabilities.
+
+Read-only measurements, all through `execute_luau` against the Edit DataModel:
+
+| probe | result |
+|---|---|
+| `Capabilities` / `Sandboxed` on `game`, `ReplicatedStorage`, `ServerScriptService`, `StarterPlayerScripts`, and the modules `Gun`, `Shotgun`, `Viewmodel`, `Viewmodel.poses`, `Flags`, `Camera` | **every one empty**, `Sandboxed = false` |
+| a brand-new `Instance.new("ModuleScript")`'s `Capabilities` | **empty** |
+| plain property read | works |
+| a plain Lua function the thread made, called | works |
+| a `BindableFunction` the thread made, invoked | works |
+| `require` of the synced `ReplicatedStorage.Shotgun` | **refused**: "The current thread cannot require 'Shotgun' since 'Shotgun' has additional values for the Capabilities property: LoadUnownedAsset (and 3 more)" |
+| `require` of a ModuleScript **the thread had just created itself**, one line of source, parentless | **refused, identically** |
+
+The last row is the one that settles it. A module the calling thread made a microsecond earlier, in
+memory, cannot be required -- so nothing about OUR instances is the cause (and their `Capabilities`
+are empty anyway). The THREAD carries `LoadUnownedAsset (and 3 more)`, and a capability-carrying
+thread may not enter a container that grants none; the message names the target but the asymmetry
+is the thread's. A full Studio close and reopen did not clear it, so it is attached to the plugin
+context rather than to the place -- and `%LOCALAPPDATA%\Roblox\LocalStorageppStorage.json`
+contains no `LoadUnownedAsset` entry, so wherever Studio keeps it, it is not there.
+
+**What set it:** this session called `InsertService:LoadAsset(115346777423870)` through
+`execute_luau`, to read the uploaded stock's `SurfaceAppearance.ColorMap` -- a property a game
+script cannot read. That is the only new thing between `f2b9667` (both runs 34/34 tonight) and the
+first refusal. **The prohibition is now in `tools/studio_mcp.py`'s Safety section with this
+measurement**, and the id it was after lives in the manifest row (`Assets.textureId`) where it is
+measured once and never asked for again.
+
+**The clicks, in order. After each one, `python tools/flags.py` is the one-command test** -- it
+goes through `FRESH_FLAGS`, which is a `require`, so it prints the flag table if the thread is
+clean and the same capability message if it is not.
+
+1. Studio -> **Assistant** settings -> turn the **MCP server OFF**, then **ON** again. That restarts
+   the Assistant's plugin context, which is what carries the capability.
+2. If still refused: **Plugins** tab -> **Manage Plugins** -> the Assistant / MCP plugin ->
+   **Permissions** -> revoke its asset access. Restart Studio afterwards.
+3. If still refused after both, it is not clearable by a click and wants its own task: every
+   `require` the harness makes from `execute_luau` would have to stop crossing that boundary
+   (`FRESH_FLAGS`, `QUERY_FLAG_TABLE`, `QUERY_REQUIRE_CACHE`, `QUERY_JSON_MODULES`) and so would the
+   stage's `LookAtRequest:Invoke`. I did not start that here: it is a large change to the gate
+   itself, and it would be the wrong fix if a click clears it.
+
+**I did not save the place, and I have not called `LoadAsset` through `execute_luau` since.**
+
+**Closed:** _(open -- waiting on the clicks above)_
 
 ---
 ## 2026-10-01 · CLOSED 2026-10-01 · NEEDS KAREN (or the Director's click) · Task 99: Studio is not connected to Rojo, so the gate cannot run

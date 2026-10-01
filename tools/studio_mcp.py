@@ -502,6 +502,20 @@ Safety
   Flags.NAME_PATTERN and a boolean value -- the DHFlag_* attributes on ServerStorage. That last one is
   the same kind of write QUERY_SET_TOKEN and QUERY_SET_CLIENTS_DONE already are.
   Its Luau is read-only otherwise: constant queries, or queries templated with JSON data (QUERY_*).
+
+  NEVER CALL `InsertService:LoadAsset` (OR ANYTHING ELSE THAT NEEDS AN ASSET CAPABILITY) THROUGH
+  `execute_luau`. Measured on 2026-10-02, and it cost a night's gate: a single `LoadAsset` call made
+  through the Assistant's ExecuteLuauTool left that thread carrying capabilities
+  ("LoadUnownedAsset (and 3 more)"), and a thread that carries capabilities may not cross into a
+  container that grants none. From then on EVERY `require` this file makes was refused --
+  `FRESH_FLAGS`, the flag table, the require-cache fixture, the JSON-module comparison -- and so was
+  the staging step's `LookAtRequest:Invoke`. Isolated: a plain property read still worked, a plain
+  function call still worked, a `BindableFunction` created by the thread still invoked, but
+  `require` of a ModuleScript THE THREAD HAD JUST CREATED ITSELF was refused. Every instance in the
+  place reported `Capabilities` empty and `Sandboxed = false`, so it is the THREAD that carries
+  them, not the place, and a full Studio restart did not clear it. The id that call was after
+  (a `SurfaceAppearance.ColorMap`, which a game script cannot read) belongs in a manifest row,
+  measured once by hand -- which is where `Assets.textureId` now keeps it.
   The pose override's own writes (QUERY_SET_POSE) are made by tools/pose.py through this file's
   transport, with the JSON text passed as a string literal -- the same shape as QUERY_SET_FLAG.
   There is no command for arbitrary Luau or arbitrary MCP tools. The input replay sends only what the
