@@ -439,7 +439,15 @@ INSPECT_VIEWS = {
 	# Three-quarter from the shooter's LEFT and FRONT, a little below: the side the left palm is on.
 	"left-front": (2.3, 62.0, -22.0, 0.55),
 	# From UNDERNEATH: the view that shows a palm, and which way the fingers curl round the wood.
-	"below": (2.0, 74.0, -40.0, 0.45),
+	# RE-AIMED (task 108, round 1): at (2.0, 74, -40, 0.45) the copy's own pitch carried it clean out
+	# of the frame and every shot came back as empty terrain. The pitch is the sign that was wrong --
+	# it has to roll the gun's UNDERSIDE toward the lens -- and the forward step has to stay small,
+	# because it runs along the ROTATED axis.
+	"below": (2.2, 74.0, 58.0, 0.12),
+	# From the shooter's RIGHT and BEHIND: the only view that shows the right fist on the stock's
+	# wrist, which is the half of Karen's complaint the other two cameras cannot see at all -- the
+	# stock is between them and it.
+	"right-rear": (2.3, -118.0, -16.0, 0.35),
 }
 
 # THE LIVE VIEWMODEL IS HIDDEN FOR THE SHOT, and it has to be: it is drawn at the camera every frame,

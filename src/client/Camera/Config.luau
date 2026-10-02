@@ -400,6 +400,27 @@ local Config = {
 	-- fingers -- `gun_client.spec` asserts that against the published glove.
 	SLEEVE_OVERLAP_NEW_GUN_STUDS = 0.30,
 
+	-- A FOREARM, NOT A PIPE (task 108, round 1). The Director, on the first `pose.py inspect` frame:
+	-- both olive sleeves "are long straight tubes running up out of the frame like pipes -- far too
+	-- thick and too long, they must read as forearms". So model B's sleeve is drawn as THREE cylinder
+	-- segments of equal length, listed wrist -> elbow, instead of one: a real forearm is narrowest at
+	-- the wrist and widens toward the elbow, and three steps are enough to read as that at an inch
+	-- from the lens. The mean is 0.102, half of the 0.20 one that was there, which is the other half
+	-- of the note.
+	--
+	-- THE TOTAL LENGTH DOES NOT CHANGE, and that is deliberate rather than ignoring "too long": the
+	-- claim the length exists for is absolute -- the far end must be BEHIND THE EYE in every pose, or
+	-- its open end is a disc in the frame, which is task 99's complaint. What made it read as a pipe
+	-- is the thickness and the dead-straight constant width, not the studs. `SLEEVE_LENGTH_NEW_GUN_STUDS`
+	-- stays the total; each segment is a third of it.
+	-- IT NARROWS TOWARD THE ELBOW, WHICH IS THE WRONG WAY ROUND FOR AN ARM, AND THE FIRST FRAME IS
+	-- WHY (`.screenshots/20261002T142154Z-inspect-aim-left-front.png`). The glove MODEL carries its
+	-- own turned olive cuff, and that cuff has an open end: at 0.080 the drawn sleeve was thinner than
+	-- the hole it exists to plug, so BOTH gloves showed an open ellipse at the wrist -- task 99's
+	-- complaint, back on a thinner tube. The wrist segment is sized to the cuff's own opening and the
+	-- two behind it recede, which at an inch from the lens is what the eye reads anyway.
+	SLEEVE_TAPER_NEW_GUN_STUDS = { 0.150, 0.125, 0.105 },
+
 	-- ------------------------------------------------------ recoil (task 92)
 	-- Karen, after playing S2: "shooting has to have recoil a bit" -- "a bit" is the whole brief, so
 	-- these are first picks and every one of them is a dial.

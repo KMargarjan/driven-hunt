@@ -78,6 +78,95 @@ return function()
 			end
 		end
 
+		-- KAREN, 2026-10-02, PLAYING: "hands are bad / left hand is oposit180deg need to turn or not
+		-- sure but broken" and "one arm holds pipes and another stock right ?". THIS CASE IS THAT
+		-- QUESTION, asked of the instances that are really drawn: one hand on the barrels, the other
+		-- on the stock, neither above the rib, and both arms running back toward the shoulder.
+		--
+		-- IT STANDS IN ITS OWN GLOVES rather than waiting for the published pair, because the
+		-- published pair arrives seconds after boot through `InsertService` and this must say the
+		-- same thing on a run that got there first. The alignment is applied to whatever is drawn, so
+		-- a stub answers it exactly: the measurement is of the POSE, through `Viewmodel.align`.
+		it("holds the gun like a hunter: barrels in the left, stock in the right", function()
+			local stubs: { [string]: BasePart } = {}
+			for _, name in ipairs({ HandAssets.RIGHT, HandAssets.LEFT }) do
+				local stub = Instance.new("Part")
+				stub.Name = name
+				stub.Size = Vector3.new(0.669, 0.350, 0.211)
+				stubs[name] = stub
+			end
+			local live = Camera.Viewmodel.getSource()
+			local liveHands = Camera.Viewmodel.getHandTemplates()
+			Camera.Viewmodel.setHandTemplates(function(name)
+				return stubs[name]
+			end)
+			local handle = Instance.new("Part")
+			handle.Name = "Handle"
+			handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+			handle.Transparency = 1
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			local ok, why = pcall(function()
+				task.wait(0.3)
+				Camera.Viewmodel.clear()
+				Camera.Viewmodel.setReload(nil)
+				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), newGunConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local layout = Gun.layout(Shotgun.CONFIG)
+				local found = 0
+				for _, drawn in ipairs(clone:GetDescendants()) do
+					local isHand = drawn.Name == HandAssets.RIGHT or drawn.Name == HandAssets.LEFT
+					if isHand and drawn:IsA("BasePart") then
+						found += 1
+						local at = clone.CFrame:ToObjectSpace(drawn.CFrame)
+						TestKit.note(
+							string.format("task108 %s at z %.2f, y %.2f", drawn.Name, at.Position.Z, at.Position.Y)
+						)
+						if drawn.Name == HandAssets.LEFT then
+							-- ON THE PIPES: between the muzzle and the breech, which is the barrel
+							-- group's own span, and UNDER them -- Karen sees the rib in the aimed
+							-- view, and a glove over it is the sight picture gone.
+							expect(at.Position.Z > layout.muzzleZ).to.equal(true)
+							expect(at.Position.Z < layout.breechZ).to.equal(true)
+							expect(at.Position.Y < layout.barrelY - layout.barrelRadius).to.equal(true)
+						else
+							-- ON THE STOCK: behind the breech, where the wrist of the stock is, and
+							-- below the bore line.
+							expect(at.Position.Z > layout.breechZ).to.equal(true)
+							expect(at.Position.Z < layout.half).to.equal(true)
+							expect(at.Position.Y < layout.barrelY).to.equal(true)
+						end
+						-- THE ARM RUNS BACK TOWARD THE SHOULDER, and that is the whole of "the open
+						-- sleeve end must never face the camera": every segment is further from the
+						-- muzzle than the hand it belongs to, so what points at the lens is the
+						-- glove, never a tube's mouth. Measured on the drawn parts, in the gun's own
+						-- frame, so it fails if the alignment or the sign ever turns round.
+						local segments = 0
+						for _, sleeve in ipairs(drawn:GetChildren()) do
+							if sleeve.Name == "Sleeve" and sleeve:IsA("BasePart") then
+								segments += 1
+								local back = clone.CFrame:ToObjectSpace(sleeve.CFrame).Position
+								expect(back.Z > at.Position.Z).to.equal(true)
+							end
+						end
+						expect(segments).to.equal(#Camera.Viewmodel.sleeveSegments(newGunConfig))
+					end
+				end
+				expect(found).to.equal(2)
+			end)
+			Camera.Viewmodel.clear()
+			Camera.Viewmodel.setHandTemplates(liveHands)
+			Camera.Viewmodel.setSource(live)
+			handle:Destroy()
+			for _, stub in pairs(stubs) do
+				stub:Destroy()
+			end
+			if not ok then
+				error(why, 0)
+			end
+		end)
+
 		it("is built, not cloned: the pieces are really under the camera", function()
 			withNewGun(function()
 				Camera.Viewmodel.setReload(nil)
