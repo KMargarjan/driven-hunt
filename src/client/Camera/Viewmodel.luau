@@ -377,12 +377,16 @@ local function makeShell(name: string, config, parent: Instance): Model
 	local layout = Gun.shellLayout(size, config.SHELL_BASE_FRACTION)
 	local template = if config.NEW_GUN == true then gunTemplate(Gun.SHELL_TEMPLATE_NAME) else nil
 	if template ~= nil then
-		-- ONE PART, AT THE MODEL'S ORIGIN. Its long axis is its own X with the MOUTH at +X -- the
-		-- same convention `Gun.shellLayout` lays the drawn one out in -- so the quarter turn
-		-- `Viewmodel.shells` applies when it places the model turns both the same way.
+		-- ONE PART, AT THE MODEL'S ORIGIN, TURNED BY WHAT THE IMPORT DID TO IT (task 107). Its long
+		-- axis is its own X with the mouth written at +X -- the same convention `Gun.shellLayout`
+		-- lays the DRAWN one out in -- but the import brings it in reversed along that axis, exactly
+		-- as it does the two gun groups (`Gun.MESH_IMPORT_TURN_DEG`, measured on screen). So the half
+		-- turn is applied here, where the imported thing is cloned, and the quarter turn stays where
+		-- it was: at the one site that places every shell, drawn or uploaded. Without it a seated
+		-- shell points its brass head up the barrel.
 		local part = template:Clone()
 		part.Name = "Body"
-		part.CFrame = CFrame.new()
+		part.CFrame = CFrame.Angles(0, math.rad(Gun.MESH_IMPORT_TURN_DEG), 0)
 		part.Anchored = true
 		part.CanCollide = false
 		part.CanQuery = false
