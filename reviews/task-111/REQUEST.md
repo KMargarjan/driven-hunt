@@ -3,10 +3,10 @@
 Task: 111
 Round: 2
 Base: `content-hands-karen-1` (`9b45c56`)
-Code commit: PENDING -- the gate runs on the paperwork commit and its line is pasted in here
+Code commit: `107a148866fb8529dfc9b29f8ba13317ab76b129`
 
 ```
-[harness] PENDING
+[harness] PASS: 33/33 checks @ 107a148866fb8529dfc9b29f8ba13317ab76b129 (clean tree)
 ```
 
 `test2` is N/A: every changed file is in `WEAPON_VIEWMODEL_PATHS`
@@ -47,7 +47,7 @@ checked with `tools/agents.py`'s own `needs_two_player`, which answered `[]`.
 
 ## What I could not verify
 
-- **The fetch instant was not caught on camera.** The four frames show the hand still on the forend
+- **The fetch instant was not caught on camera.** The four frames (`.screenshots/20261002T183720Z-task111r2-{fetch,carry,above,seated}.png`) show the hand still on the forend
   with the gun open, then carrying a shell above the breech, then the second shell above the
   breech with the first seated, then the gun shut and the hand back. The fetch segment is 0.15 s
   and the capture round trip is longer than that; what proves it is the spec, at the fetch time.
