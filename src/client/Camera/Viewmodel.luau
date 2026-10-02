@@ -112,6 +112,22 @@ local handTemplates: ((string) -> BasePart?)? = nil
 -- WHAT THE WEAPON SAYS ABOUT ITS OWN RELOAD, handed in by the camera every frame (task 96). The
 -- server owns the reload and its clock; this module only draws it. `spent` is how many barrels were
 -- fired, so only those throw a shell -- the thing a player notices if it is wrong.
+-- THE CLOCK, AS A SEAM (task 111, round 2). `os.clock` everywhere meant the one thing the loading
+-- motion does -- move over time -- could not be asserted at all: the player's own camera loop clears
+-- the reload state on every frame it draws, so a spec that waits loses the state, and a spec that
+-- does not wait only ever sees weight 0. The Reviewer's finding was exactly that: the case passed
+-- with the whole feature deleted. The same shape as `setSource` and `setHandTemplates`: a spec
+-- installs its own clock, steps it, and reads the DRAWN hand.
+local clock: () -> number = os.clock
+
+function Viewmodel.setClock(fn: (() -> number)?)
+	clock = fn or os.clock
+end
+
+function Viewmodel.getClock(): () -> number
+	return clock
+end
+
 local reload = { open = false, spent = 0, loaded = { false, false } }
 local openedAt: number? = nil
 -- WHEN EACH CHAMBER WAS FED (round 2): the server loads one barrel at a time, so each fresh shell
@@ -127,7 +143,7 @@ function Viewmodel.setReload(state: { open: boolean, spent: number, loaded: { bo
 	local next_ = state or { open = false, spent = 0, loaded = { false, false } }
 	local open = next_.open == true
 	if open and not reload.open then
-		openedAt = os.clock() -- the rising edge: the spent shells' clock starts here
+		openedAt = clock() -- the rising edge: the spent shells' clock starts here
 		table.clear(loadedAt)
 	elseif not open then
 		openedAt = nil
@@ -139,7 +155,7 @@ function Viewmodel.setReload(state: { open: boolean, spent: number, loaded: { bo
 		-- EACH CHAMBER STARTS ITS OWN SLIDE when the server's `Load` step lands, which is what the
 		-- replica saying "this barrel holds a shell" means.
 		if open and loaded[index] and loadedAt[index] == nil then
-			loadedAt[index] = os.clock()
+			loadedAt[index] = clock()
 		end
 	end
 	reload = { open = open, spent = math.clamp(next_.spent or 0, 0, 2), loaded = loaded }
@@ -611,6 +627,14 @@ end
 -- `Camera.Config.SLEEVE_TAPER_NEW_GUN_STUDS` lists, at the same TOTAL length (that number is what
 -- keeps the far end behind the eye, and the far end is the one that must never be seen).
 function Viewmodel.sleeveSegments(config): { { length: number, diameter: number } }
+	-- NONE AT ALL ON MODEL B (task 111). Karen, 2026-10-02: "you can remove those arm extentions
+	-- from both hands". The drawn sleeve exists because a hand model ends at the cuff and task 99's
+	-- gloves had an open hole there; Karen's v2 pair carries its OWN turned cuff, and with the arms
+	-- now running out of the bottom corners (task 108) the tube was a shape in the frame rather than
+	-- a fix. The OLD gun keeps its sleeve: its glove has the hole this was built for.
+	if config ~= nil and config.NEW_GUN == true then
+		return {}
+	end
 	local total = Viewmodel.sleeveLength(config)
 	local taper = if config ~= nil and config.NEW_GUN == true then config.SLEEVE_TAPER_NEW_GUN_STUDS else nil
 	if taper == nil or #taper == 0 then
@@ -775,6 +799,147 @@ function Viewmodel.clearHands(clone: BasePart)
 	handsMissingCounted = false
 end
 
+-- THE LEFT HAND LOADS THE SHELLS (task 111). Karen, 2026-10-02: "can we make that i push ammo
+-- inside pipes? just moving hand", and then, correcting which hand: "the left loads shell".
+--
+-- IT RUNS ON THE SHELL'S OWN CLOCK, AND THAT IS THE WHOLE DESIGN. `Viewmodel.shells` already slides
+-- each fresh shell forward from `SHELL_FEED_FROM_STUDS` behind its chamber over
+-- `SHELL_FEED_SECONDS`, starting at `loadedAt[barrel]` -- the moment the SERVER said that barrel was
+-- loaded. So the hand is not animated beside the shell on a second timeline that could drift out of
+-- step with it: it is placed from the same two numbers, which is what "the shell travels WITH the
+-- hand" means when nothing is parented to anything.
+--
+-- THE SHAPE OF ONE LOAD: the hand blends in over the first `reachShare` of the feed (arriving as the
+-- shell starts to move), sits exactly behind the shell all the way home, then blends back to Karen's
+-- own `newGun.reload.left` over `returnSeconds`. Two shells are two of these, a moment apart,
+-- because the server loads the barrels one at a time; whichever is further along wins, so the second
+-- takes over cleanly from the first.
+--
+-- NEW GUN ONLY, and open only. Everything here is `Gun.chamber` arithmetic, which the old gun does
+-- not have, and a shut gun is not being loaded.
+-- WHERE A FRESH SHELL IS AT THIS POINT OF ITS FEED, in the barrels' frame -- the slide forward that
+-- `Viewmodel.shells` has drawn since task 99, and still what a shell does once the hand has let go.
+function Viewmodel.shellFeedAt(barrel: number, feedT: number, config): CFrame
+	return chamberOffset(barrel, config) * CFrame.new(0, 0, config.SHELL_FEED_FROM_STUDS * (1 - feedT))
+end
+
+-- WHAT ONE SHELL'S LOADING LOOKS LIKE, AS FOUR MOMENTS (task 111, round 2). Karen, watching the
+-- first version: "wrong ... when left arm is on weapon on reload arm go up towards hunter and then
+-- towards pipes where shells in places and again towards hunter and then shell place and then back
+-- to weapon". Round 1 went straight from the barrels to the breech with no FETCH, which is what
+-- read wrong -- a hand that arrives holding a shell it never picked up.
+--
+-- So one shell is three segments and a return, all of them seconds in `poses.json`:
+--   REST -> FETCH   (`fetchSeconds`): the hand leaves the barrels and goes back toward the hunter,
+--                   low and left, where the shells are. It is empty.
+--   FETCH -> ABOVE  (`carrySeconds`): it carries the shell up and forward to over the open chamber,
+--                   brass up. THE SHELL IS IN THE HAND from the start of this segment.
+--   ABOVE -> SEAT   (`seatSeconds`): straight down into the chamber.
+--   SEAT -> REST    (`returnSeconds`): back to Karen's own tuned pose, empty again.
+-- Two shells are two of those, one after the other, because the server loads one barrel at a time.
+--
+-- WHICH FRAME EACH POINT IS IN, and they are not the same: `fetch` is a place on the HUNTER, so it
+-- is written in the gun's own frame but means "down and back toward the body" -- during the reload
+-- the gun is held in one fixed pose (`newGun.reload.gun`), so the two frames differ by a constant
+-- and the gun frame is the one `poseHands` already has. `above` and `seat` are offsets FROM THE
+-- CHAMBER MOUTH, so they follow the gun's own geometry and stay right if the barrels move.
+local function loadKey(entry, base: CFrame): CFrame
+	local pos = entry.pos
+	return base * Mode.handOffset(Vector3.new(pos.x, pos.y, pos.z), entry.rot.yaw, entry.rot.pitch, entry.rot.twist)
+end
+
+-- (weight, hand frame, the barrel whose shell is IN THE HAND or nil, that shell's frame or nil),
+-- all in the BARRELS' frame, for `now`. Weight 0 means the hand belongs on the barrels at Karen's
+-- numbers, and at weight 0 nothing here is drawn.
+-- ONE BARREL'S PLACE IN ITS OWN LOADING, at `since` seconds after the server loaded it:
+-- (weight, the hand's frame, whether the shell is IN that hand). Pulled out of the loop below
+-- because `Viewmodel.shells` asks the same question of ONE barrel (task 111, round 2 follow-up):
+-- Karen, live, "either we have 2 animation when shells go inside or one go straight another from
+-- hand" -- the old automatic feed was still sliding each shell into its chamber by itself WHILE the
+-- hand carried another, so there were two of them going in at once.
+local function loadStep(barrel: number, since: number, config): (number, CFrame?, boolean)
+	local load = config.SHELL_LOAD
+	local fetchFor = math.max(1e-3, load.fetchSeconds)
+	local carryFor = math.max(1e-3, load.carrySeconds)
+	local seatFor = math.max(1e-3, load.seatSeconds)
+	local backFor = math.max(1e-3, load.returnSeconds)
+	local mouth = chamberOffset(barrel, config)
+	local held = config.POSES.reload.left
+	local rest =
+		Mode.handOffset(Vector3.new(held.pos.x, held.pos.y, held.pos.z), held.rot.yaw, held.rot.pitch, held.rot.twist)
+	local fetch = loadKey(load.fetch, CFrame.identity)
+	local above = loadKey(load.above, mouth)
+	local seat = loadKey(load.seat, mouth)
+	if since < 0 then
+		return 0, nil, false
+	elseif since < fetchFor then
+		local weight = math.clamp(since / fetchFor, 0, 1)
+		return weight, rest:Lerp(fetch, weight), false
+	elseif since < fetchFor + carryFor then
+		return 1, fetch:Lerp(above, (since - fetchFor) / carryFor), true
+	elseif since < fetchFor + carryFor + seatFor then
+		return 1, above:Lerp(seat, (since - fetchFor - carryFor) / seatFor), true
+	end
+	local weight = math.clamp(1 - (since - fetchFor - carryFor - seatFor) / backFor, 0, 1)
+	return weight, seat:Lerp(rest, 1 - weight), false
+end
+
+-- WHERE ONE BARREL'S FRESH SHELL IS, or nil for "do not draw it at all" -- which is the fix for
+-- Karen's two animations. With the new gun a shell exists ONLY once the hand has it: BEFORE the
+-- fetch is over there is nothing to see, DURING the carry and the seat it is in the hand's own
+-- frame, and AFTER that it is in the chamber and still. The old slide (`shellFeedAt` with a clock)
+-- is what the OLD gun still does, and it is the one this replaces.
+function Viewmodel.freshShellAt(barrel: number, config, now: number): CFrame?
+	local at = loadedAt[barrel]
+	if at == nil or not reload.loaded[barrel] then
+		return nil
+	end
+	local load = config ~= nil and config.SHELL_LOAD or nil
+	if load == nil or config.NEW_GUN ~= true then
+		-- THE OLD GUN, UNCHANGED: the shell slides itself in, as it has since task 99.
+		local feedT = math.clamp((now - at) / config.SHELL_FEED_SECONDS, 0, 1)
+		return Viewmodel.shellFeedAt(barrel, feedT, config)
+	end
+	local _, frame, holding = loadStep(barrel, now - at, config)
+	if holding and frame ~= nil then
+		return (frame :: CFrame) * CFrame.new(load.shellInHand.x, load.shellInHand.y, load.shellInHand.z)
+	end
+	local since = now - at
+	if since < math.max(1e-3, load.fetchSeconds) then
+		return nil -- the hand has not picked it up yet, so there is no shell on screen
+	end
+	return Viewmodel.shellFeedAt(barrel, 1, config) -- seated, and it stays there
+end
+
+function Viewmodel.loadingAt(config, now: number): (number, CFrame?, number?, CFrame?)
+	local load = config ~= nil and config.SHELL_LOAD or nil
+	if load == nil or config.NEW_GUN ~= true or not reload.open then
+		return 0, nil, nil, nil
+	end
+	local best, bestFrame, carryBarrel, carryShell = 0, nil, nil, nil
+	for barrel = 1, 2 do
+		local at = loadedAt[barrel]
+		if at ~= nil and reload.loaded[barrel] then
+			local weight, frame, holding = loadStep(barrel, now - at, config)
+			if weight > best and frame ~= nil then
+				best, bestFrame = weight, frame
+				if holding then
+					carryBarrel = barrel
+					carryShell = Viewmodel.freshShellAt(barrel, config, now)
+				else
+					carryBarrel, carryShell = nil, nil
+				end
+			end
+		end
+	end
+	return best, bestFrame, carryBarrel, carryShell
+end
+
+-- The same question at this instant, which is what the viewmodel asks every frame.
+function Viewmodel.loading(config): (number, CFrame?, number?, CFrame?)
+	return Viewmodel.loadingAt(config, clock())
+end
+
 -- BOTH HANDS, PLACED FROM THIS FRAME'S POSE (task 98), and this is the one site that places them.
 --
 -- WHY EVERY FRAME. Until task 98 a hand was posed once, when the clone was built, and carried along
@@ -855,7 +1020,14 @@ function Viewmodel.poseHands(camCFrame: CFrame, gunCFrame: CFrame, barrelsCFrame
 	-- barrels when the gun has them and the Handle when it does not.
 	for _, descendant in ipairs(clone:GetDescendants()) do
 		if descendant.Name == HandAssets.LEFT and descendant:IsA("BasePart") then
-			local base = barrelsCFrame * Mode.handOffsetAt("left", state, config);
+			-- ...AND THE LEFT HAND LEAVES THE BARRELS TO LOAD (task 111). `Viewmodel.loading` says
+			-- how far along that is; at weight 0 this is bit-for-bit Karen's own tuned pose.
+			local held = Mode.handOffsetAt("left", state, config)
+			local weight, loading = Viewmodel.loading(config)
+			if loading ~= nil and weight > 0 then
+				held = held:Lerp(loading :: CFrame, weight)
+			end
+			local base = barrelsCFrame * held;
 			(descendant :: BasePart).CFrame = base * Viewmodel.align(HandAssets.LEFT, config)
 			placeSleeve(base, descendant :: BasePart, toward, armFrame(HandAssets.LEFT, base))
 		end
@@ -1084,7 +1256,7 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	local cam = Workspace.CurrentCamera
 	-- The source walks the character for a Tool, so it is asked four times a second rather than
 	-- every frame (the pose below is what has to be per frame, and it is one PivotTo).
-	local now = os.clock()
+	local now = clock()
 	if source and (now - lastSourceCheck > 0.25 or (cachedHandle and not cachedHandle.Parent)) then
 		lastSourceCheck = now
 		cachedHandle = source()
@@ -1291,7 +1463,7 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 		return
 	end
 
-	local now = os.clock()
+	local now = clock()
 	local elapsed = now - started
 	local wanted = {}
 	-- SPENT: one per barrel that FIRED, rising out of its chamber and back over the shoulder. The
@@ -1307,12 +1479,13 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 	-- FRESH: ONE PER CHAMBER THE SERVER HAS ACTUALLY LOADED, each sliding forward from its own
 	-- moment. Round 1 drew them on a timer and for `max(spent, 1)` barrels, so a two-shell reload
 	-- showed one shell and an unfired barrel was fed one it never got.
+	-- ONE PLACE DECIDES WHERE A FRESH SHELL IS, AND WHETHER THERE IS ONE AT ALL. With the new gun
+	-- that is the hand's own frame while it carries it and the chamber once it is in; the old gun's
+	-- self-sliding feed is still exactly what `freshShellAt` answers for the old gun.
 	for barrel = 1, 2 do
-		local at = loadedAt[barrel]
-		if reload.loaded[barrel] and at then
-			local feedT = math.clamp((now - at) / config.SHELL_FEED_SECONDS, 0, 1)
-			wanted[FRESH_NAME .. barrel] = chamberOffset(barrel, config)
-				* CFrame.new(0, 0, config.SHELL_FEED_FROM_STUDS * (1 - feedT))
+		local place = Viewmodel.freshShellAt(barrel, config, now)
+		if place ~= nil then
+			wanted[FRESH_NAME .. barrel] = place
 		end
 	end
 

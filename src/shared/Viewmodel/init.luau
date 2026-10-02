@@ -423,6 +423,9 @@ function Viewmodel.view(data: any, newGun: boolean?): { [string]: any }
 	-- and reload come from `newGun` when it is on, and `raise` and `fire` always come from the top
 	-- level because they belong to the swing and the shot rather than to the gun.
 	local set = if newGun == true and type(data.newGun) == "table" then data.newGun else data
+	-- Only `newGun.reload` carries one (task 111); `or {}` is what keeps the OFF branch reading
+	-- the same shape rather than indexing nil.
+	local loadBlock = if type(set.reload.load) == "table" then set.reload.load else nil
 	return {
 		-- the carry pose (first person, blend 0)
 		VIEWMODEL_CARRY_POS_STUDS = vec(set.carry.gun.pos),
@@ -479,6 +482,17 @@ function Viewmodel.view(data: any, newGun: boolean?): { [string]: any }
 		SHELL_EJECT_RISE_STUDS = set.reload.shells.ejectRiseStuds,
 		SHELL_FEED_SECONDS = set.reload.shells.feedSeconds,
 		SHELL_FEED_FROM_STUDS = set.reload.shells.feedFromStuds,
+		-- THE LEFT HAND'S LOADING MOVE (task 111). Karen: "can we make that i push ammo inside
+		-- pipes? just moving hand". Only `newGun.reload` carries a `load` block -- the old gun's
+		-- hands never leave the gun -- so this is nil there and `Viewmodel.loadingAt` answers
+		-- weight 0. Every number in it is a path `tools/pose.py set` can move.
+		-- THE WHOLE BLOCK, NOT SIX FLAT NAMES (task 111, round 2). The loading motion is four
+		-- moments now -- fetch, carry, above, seat -- each a position and three angles, which is a shape
+		-- and not a number; the same reason `POSES` below passes the poses themselves. ONE SOURCE: this is
+		-- a reference into `data`, so there is no second copy of a default to drift from the file -- the
+		-- round-1 fallbacks said 0.16 where the file shipped 0.1 and 0.06 where it shipped -0.3 (the other
+		-- side of the gun), and nothing would have failed if the block went missing.
+		SHELL_LOAD = loadBlock,
 		-- THE THREE POSES THE DRAWN GUN IS MADE OF, plus the swing and the shot, because four things
 		-- here have no flat name and never will: the raise's mid keyframes (a list) and the aimed and
 		-- reloading hands. `Camera.Mode` reads those off here.

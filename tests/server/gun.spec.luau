@@ -397,9 +397,12 @@ return function()
 				-- ...and the right is BEHIND the breech, on the frame group, ahead of the butt.
 				expect(right.z > at.breechZ).to.equal(true)
 				expect(right.z < at.half).to.equal(true)
-				-- THE RIGHT HAND IS ON THE GUN'S CENTRE LINE, because it wraps the wrist and its own
-				-- model is symmetric about its box.
-				expect(right.x).to.equal(0)
+				-- THE RIGHT HAND IS NEAR THE GUN'S CENTRE LINE, and "near" rather than "on" since
+				-- Karen tuned these by eye (`content-hands-karen-1`): her carry puts it at -0.0456,
+				-- a hand's own width inside the gun's half-width, which is a fist wrapped round a
+				-- wrist rather than a hand on the wrong side of the stock. Asserting exactly zero
+				-- asserted that nobody had touched it.
+				expect(math.abs(right.x) < at.halfWidth * 1.5).to.equal(true)
 				-- THE LEFT ONE IS NOT, AND TASK 106 IS WHY. What this pose places is the MESH'S
 				-- BOUNDING-BOX CENTRE, not the palm, and Karen's left glove is a palm-up C whose
 				-- forearm runs at an angle to the fingers -- so its box is a diagonal and the hand
