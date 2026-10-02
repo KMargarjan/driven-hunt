@@ -553,15 +553,39 @@ return function()
 					length = CameraConfig.SLEEVE_LENGTH_STUDS,
 				},
 				{
-					name = "model B",
+					name = "model B, right",
 					key = Assets.KEYS.gunHandRight,
+					axes = HandAssets.AXES[HandAssets.RIGHT],
+					overlap = CameraConfig.SLEEVE_OVERLAP_NEW_GUN_STUDS,
+					length = CameraConfig.SLEEVE_LENGTH_NEW_GUN_STUDS,
+				},
+				-- THE LEFT GLOVE, WHICH THIS CASE NEVER LOOKED AT (round 1, finding 3). It is the one
+				-- that matters: its box is a diagonal, so the side the code used to pick answered
+				-- 0.534 where the extent along its fingers is 0.914, and half of 0.534 is UNDER the
+				-- 0.30 overlap. The bound below is now asked of the quantity
+				-- `Camera.Viewmodel`'s `handLengthAlongFingers` actually computes.
+				{
+					name = "model B, left",
+					key = Assets.KEYS.gunHandLeft,
+					axes = HandAssets.AXES[HandAssets.LEFT],
 					overlap = CameraConfig.SLEEVE_OVERLAP_NEW_GUN_STUDS,
 					length = CameraConfig.SLEEVE_LENGTH_NEW_GUN_STUDS,
 				},
 			}) do
 				local hand = Assets.byKey(case.key)
 				expect(hand).to.be.ok()
+				-- THE GLOVE'S OWN LENGTH ALONG ITS OWN FINGER AXIS: a box's extent along a direction
+				-- is the sum of its sides times that direction's components. For the old gun there is
+				-- no measured axis and the long side IS the hand, which is what X meant here.
 				local halfHand = hand.sizeStuds.X / 2
+				if case.axes ~= nil then
+					local fingers = case.axes.fingers.Unit
+					halfHand = (
+						math.abs(fingers.X) * hand.sizeStuds.X
+						+ math.abs(fingers.Y) * hand.sizeStuds.Y
+						+ math.abs(fingers.Z) * hand.sizeStuds.Z
+					) / 2
+				end
 				TestKit.note(
 					string.format(
 						"task106 %s: overlap %.3f against half a hand %.3f, sleeve %.2f long",
@@ -572,9 +596,9 @@ return function()
 					)
 				)
 				expect(case.overlap < halfHand).to.equal(true)
-				-- ...and the sleeve is longer than the hand it joins, which is the claim that its far
-				-- end is behind the eye rather than beside the cuff.
-				expect(case.length > hand.sizeStuds.X).to.equal(true)
+				-- ...and the sleeve is longer than the hand it joins, so what reaches the far end of
+				-- the arm is a tube and not the cuff it started in.
+				expect(case.length > halfHand * 2).to.equal(true)
 			end
 		end)
 

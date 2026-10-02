@@ -397,22 +397,38 @@ local Config = {
 	-- back on a different model. 0.12 was measured against a 1.27-stud glove; on a 0.67-stud one the
 	-- drawn sleeve has to start nearly half a hand in to be inside the model's own cuff rather than
 	-- behind it. It must stay under half the hand's own X, or the near end comes out through the
-	-- fingers -- `gun_client.spec` asserts that against the published glove.
+	-- fingers -- `tests/server/gun.spec.luau` asserts that against the published glove.
 	SLEEVE_OVERLAP_NEW_GUN_STUDS = 0.30,
 
 	-- A FOREARM, NOT A PIPE (task 108, round 1). The Director, on the first `pose.py inspect` frame:
 	-- both olive sleeves "are long straight tubes running up out of the frame like pipes -- far too
 	-- thick and too long, they must read as forearms". So model B's sleeve is drawn as THREE cylinder
-	-- segments of equal length, listed wrist -> elbow, instead of one: a real forearm is narrowest at
-	-- the wrist and widens toward the elbow, and three steps are enough to read as that at an inch
-	-- from the lens. The mean is 0.102, half of the 0.20 one that was there, which is the other half
-	-- of the note.
+	-- segments of equal length, listed wrist -> elbow, instead of one, and three steps are enough to
+	-- stop it reading as a pipe at an inch from the lens. The mean is 0.127 against the 0.20 one that
+	-- was there, a third thinner, which is the other half of the note. WHICH WAY IT STEPS is the next
+	-- block's subject, and it is not the anatomical one.
 	--
 	-- THE TOTAL LENGTH DOES NOT CHANGE, and that is deliberate rather than ignoring "too long": the
 	-- claim the length exists for is absolute -- the far end must be BEHIND THE EYE in every pose, or
 	-- its open end is a disc in the frame, which is task 99's complaint. What made it read as a pipe
 	-- is the thickness and the dead-straight constant width, not the studs. `SLEEVE_LENGTH_NEW_GUN_STUDS`
 	-- stays the total; each segment is a third of it.
+
+	-- WHICH WAY THE ARM RUNS, IN THE CAMERA'S OWN FRAME (task 108, round 2). The Director, on the
+	-- round-1 frames: in AIM "the left SLEEVE crosses the frame as a straight olive bar from the left
+	-- edge to the barrels", in RELOAD "a sleeve runs as a straight bar in from the upper-left corner
+	-- across the gun" -- "in the target the forearms run DOWN and BACK out of the bottom corners
+	-- toward the shoulders; they never cross the picture horizontally or come down from the top".
+	--
+	-- SO THE FOREARM IS NO LONGER THE HAND'S OWN AXIS. Round 1 ran it back along -X of the pose frame,
+	-- which is the wrist -- anatomically right and wrong on screen, because the hand's axis turns with
+	-- the grip while the SHOULDER does not move: a yaw of 15 at the forend sends it out sideways. A
+	-- shoulder is a fixed place relative to the EYE, so this is read in the camera's frame (+X right,
+	-- +Y up, +Z behind the lens) and is the same vector in carry, aim and reload. Down and back, a
+	-- little outboard: it leaves through the bottom corner on its own side in all three.
+	SLEEVE_TO_LEFT_SHOULDER = Vector3.new(-0.42, -0.62, 0.66).Unit,
+	SLEEVE_TO_RIGHT_SHOULDER = Vector3.new(0.42, -0.62, 0.66).Unit,
+
 	-- IT NARROWS TOWARD THE ELBOW, WHICH IS THE WRONG WAY ROUND FOR AN ARM, AND THE FIRST FRAME IS
 	-- WHY (`.screenshots/20261002T142154Z-inspect-aim-left-front.png`). The glove MODEL carries its
 	-- own turned olive cuff, and that cuff has an open end: at 0.080 the drawn sleeve was thinner than

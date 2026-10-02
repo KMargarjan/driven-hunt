@@ -53,26 +53,25 @@ HandAssets.KEY_OF = table.freeze({
 --   LEFT  glove: wrist -> fingers ( 0.317, 0.874, -0.369), i.e. its own +Y, and the palm faces
 --                roughly (0.458, 0.488, 0.743)
 --
--- ONE CONVENTION IS WHAT THIS IS FOR, AND NOTHING READS IT YET. Because the two models differ, no
--- single yaw/pitch/twist can mean the same thing on both: the Director's live try of
--- `left.rot.twist 180` moved the glove to the far side of the barrels instead of rolling the palm,
--- which is what a shared number does when the two meshes disagree about which axis it turns. The fix
--- is a per-glove ALIGNMENT in `Camera.Viewmodel.poseHands` that takes each mesh into one frame --
--- FINGERS ALONG +X, PALM TOWARD +Y -- so the pose's three angles are read in THAT frame on both.
+-- ONE CONVENTION IS WHAT THIS IS FOR, AND `Camera.Viewmodel.align` IS WHAT READS IT. Because the two
+-- models differ, no single yaw/pitch/twist can mean the same thing on both: the Director's live try
+-- of `left.rot.twist 180` moved the glove to the far side of the barrels instead of rolling the
+-- palm, which is what a shared number does when the two meshes disagree about which axis it turns.
+-- So `poseHands` applies a per-glove rotation that takes each mesh into ONE frame -- FINGERS ALONG
+-- +X, PALM TOWARD +Y -- on the right of the pose offset, and the pose's three angles are read in
+-- THAT frame on both. All three newGun poses in `poses.json` are seeded in it.
 --
--- IT IS NOT APPLIED IN THIS COMMIT, AND THAT IS A DECISION, NOT AN OMISSION. Applying it RE-MEANS
--- every angle already in `poses.json`, so all three poses must be re-seeded in the same change -- and
--- in the hour task 108 had, only CARRY converged (`pose.py inspect carry`, 2026-10-02: the left
--- glove's fingers wrapped round the barrels at the forend, the right at the grip, both forearms
--- running back out of frame). The AIMED view, which is the one Karen judges, came out with the left
--- glove filling the right of the frame palm-on -- worse than what she is waiting on. So what ships is
--- the measurement and the instrument that makes the next pass quick rather than blind:
--- `python tools/pose.py inspect <pose>` photographs the drawn viewmodel FROM OUTSIDE, which three
--- rounds of guessing at two dark lumps beside a barrel could not do.
+-- IT REACHES THE NEW GUN ONLY. `align` returns identity unless `config.NEW_GUN`, because the old
+-- gun's pair is a different model whose poses were measured against it with no alignment at all.
 --
 -- The palm normal is the hand cloud's flattest axis signed toward the fingertips (a curled hand's
 -- tips lie over its palm). On the right glove that is a clean slab; on the LEFT, which is a cupped C,
--- it is an estimate, and the pose's `twist` is the dial that finishes it.
+-- it is an estimate -- `align` squares it against the fingers, which were measured exactly, so a few
+-- degrees of error there turns into a few degrees of roll and the pose's `twist` is the dial that
+-- finishes it.
+--
+-- `python tools/pose.py inspect <pose>` photographs the drawn viewmodel FROM OUTSIDE, which is how
+-- these were judged: three rounds of guessing at two dark lumps beside a barrel could not.
 HandAssets.AXES = table.freeze({
 	[HandAssets.RIGHT] = table.freeze({
 		fingers = Vector3.new(-0.9632, 0.2645, 0.0484),

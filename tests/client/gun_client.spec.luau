@@ -100,11 +100,19 @@ return function()
 		-- same thing on a run that got there first. The alignment is applied to whatever is drawn, so
 		-- a stub answers it exactly: the measurement is of the POSE, through `Viewmodel.align`.
 		it("holds the gun like a hunter: barrels in the left, stock in the right", function()
+			-- A BOX PER GLOVE, not one box twice (round 1, finding 3): the published left glove's box
+			-- is its own diagonal (0.629, 0.534, 0.669) and the right's is (0.669, 0.350, 0.211), and
+			-- with both stubs shaped like the right one the left branch of the sleeve arithmetic was
+			-- never really measured. These are `Assets.byKey(...).sizeStuds` to three places.
+			local boxes = {
+				[HandAssets.RIGHT] = Vector3.new(0.669, 0.350, 0.211),
+				[HandAssets.LEFT] = Vector3.new(0.629, 0.534, 0.669),
+			}
 			local stubs: { [string]: BasePart } = {}
-			for _, name in ipairs({ HandAssets.RIGHT, HandAssets.LEFT }) do
+			for name, box in pairs(boxes) do
 				local stub = Instance.new("Part")
 				stub.Name = name
-				stub.Size = Vector3.new(0.669, 0.350, 0.211)
+				stub.Size = box
 				stubs[name] = stub
 			end
 			local live = Camera.Viewmodel.getSource()
@@ -123,7 +131,8 @@ return function()
 				task.wait(0.3)
 				Camera.Viewmodel.clear()
 				Camera.Viewmodel.setReload(nil)
-				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), newGunPosedConfig)
+				local state = stateAtBlend(0)
+				Camera.Viewmodel.update(CFrame.new(0, 16, 0), state, newGunPosedConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local layout = Gun.layout(Shotgun.CONFIG)
 				local found = 0
@@ -149,23 +158,61 @@ return function()
 							expect(at.Position.Z < layout.half).to.equal(true)
 							expect(at.Position.Y < layout.barrelY).to.equal(true)
 						end
-						-- THE ARM RUNS BACK TOWARD THE SHOULDER, and that is the whole of "the open
-						-- sleeve end must never face the camera": every segment is further from the
-						-- muzzle than the hand it belongs to, so what points at the lens is the
-						-- glove, never a tube's mouth. Measured on the drawn parts, in the gun's own
-						-- frame, so it fails if the alignment or the sign ever turns round.
+						-- THE GLOVE IS REALLY TURNED BY `Viewmodel.align` (round 1, finding 2). Every
+						-- other assertion here reads a POSITION, and `align` is a pure rotation about
+						-- the hand's own centre, so deleting it would not move one of them. THIS is
+						-- the orientation: each glove's own measured `fingers` vector, carried
+						-- through the CFrame of the part that is really drawn, has to land on the
+						-- pose frame's +X, and its palm on +Y. That is the convention the three pose
+						-- angles are read in, and without the alignment the right glove's fingers
+						-- land on -X and the left's nowhere near either.
+						local side = if drawn.Name == HandAssets.LEFT then "left" else "right"
+						local base = clone.CFrame * Camera.Mode.handOffsetAt(side, state, newGunPosedConfig)
+						local axes = HandAssets.AXES[drawn.Name]
+						local fingers = (drawn :: BasePart).CFrame:VectorToWorldSpace(axes.fingers.Unit)
+						local palm = (drawn :: BasePart).CFrame:VectorToWorldSpace(axes.palm.Unit)
+						TestKit.note(
+							string.format(
+								"task108 %s fingers.X %.3f, palm.Y %.3f (1.0 is the convention)",
+								drawn.Name,
+								base.RightVector:Dot(fingers),
+								base.UpVector:Dot(palm)
+							)
+						)
+						expect(base.RightVector:Dot(fingers) > 0.999).to.equal(true)
+						-- The palm is SQUARED against the fingers inside `align` (the measured pair is
+						-- not orthogonal: a hand is not a perfect slab), so it lands near +Y, not on
+						-- it. 0.85 is far outside that correction and far inside any other axis.
+						expect(base.UpVector:Dot(palm) > 0.85).to.equal(true)
+
+						-- THE ARM RUNS TOWARD ITS OWN SHOULDER (round 2), which is what keeps it out
+						-- of the picture: down, back and outboard IN THE CAMERA'S frame, the same
+						-- vector in every pose. The camera here is unrotated, so its axes are the
+						-- world's. It fails if the arm ever goes back to following the grip.
+						local want = Camera.Viewmodel.armDirection(drawn.Name, newGunPosedConfig) :: Vector3
 						local segments = 0
 						for _, sleeve in ipairs(drawn:GetChildren()) do
 							if sleeve.Name == "Sleeve" and sleeve:IsA("BasePart") then
 								segments += 1
-								local back = clone.CFrame:ToObjectSpace(sleeve.CFrame).Position
-								expect(back.Z > at.Position.Z).to.equal(true)
+								local run = (sleeve :: BasePart).Position - (drawn :: BasePart).Position
+								expect(run.Magnitude > 0).to.equal(true)
+								expect(run.Unit:Dot(want) > 0.999).to.equal(true)
+								-- Down and back, said once in the camera's own terms so a sign
+								-- change in the config cannot pass quietly.
+								expect(run.Y < 0).to.equal(true)
+								expect(run.Z > 0).to.equal(true)
 							end
 						end
-						expect(segments).to.equal(#Camera.Viewmodel.sleeveSegments(newGunPosedConfig))
+						expect(segments).to.equal(3)
 					end
 				end
 				expect(found).to.equal(2)
+				-- ...AND THE FLAG-OFF BUILD IS NOT TURNED AT ALL, which is the guarantee that keeps
+				-- the gun Karen has been playing the gun she has been playing.
+				for _, name in ipairs({ HandAssets.RIGHT, HandAssets.LEFT }) do
+					expect(Camera.Viewmodel.align(name, firstPersonConfig)).to.equal(CFrame.identity)
+					expect(Camera.Viewmodel.armDirection(name, firstPersonConfig)).to.equal(nil)
+				end
 			end)
 			Camera.Viewmodel.clear()
 			Camera.Viewmodel.setHandTemplates(liveHands)

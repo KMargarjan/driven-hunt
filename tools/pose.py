@@ -6,12 +6,12 @@
     python tools/pose.py set <path> <value>           e.g. `set aim.eyeReliefStuds 4.2`
     python tools/pose.py save                         write the effective values into poses.json
     python tools/pose.py clear                        drop every override
-    python tools/pose.py inspect <pose> [left-front|below] [--client <name>]
+    python tools/pose.py inspect <pose> [left-front|below|right-rear] [--client <name>]
                                                       LOOK AT THE HANDS FROM OUTSIDE. The viewmodel
                                                       is drawn at the camera, so it follows the lens
                                                       wherever it goes: this COPIES it into the sky,
                                                       hides the live one for the length of the shot
-                                                      and photographs the copy from two fixed angles.
+                                                      and photographs the copy from three fixed angles.
                                                       Nothing about the pose or the player's own
                                                       camera moves, and the copy is destroyed again
     python tools/pose.py compare <pose> [--target <image>] [--assets-dir <dir>]
@@ -527,7 +527,7 @@ def run_inspect(studio, pose, client="client", views=None):
     THE CAMERA CANNOT SIMPLY BE MOVED, and that is the whole difficulty: the viewmodel is drawn at
     `workspace.CurrentCamera` every frame, so it follows the lens wherever it goes. So this COPIES it
     -- one frozen clone, parked in the sky, which is a static object like any other -- hides the live
-    one for the length of the shot, and photographs the copy from two fixed angles. Nothing about the
+    one for the length of the shot, and photographs the copy from three fixed angles. Nothing about the
     pose, the player or the camera's own place is changed: the hold is the same one `compare` uses and
     is always put back.
     """
