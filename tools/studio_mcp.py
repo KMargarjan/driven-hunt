@@ -890,6 +890,11 @@ local WANTED = {
     -- The two tubes, since task 103: a tube's CENTRE is the single best reading of which way the
     -- barrels point, which is the one thing a breech mark and a stock mark between them cannot say.
     BarrelLeft = true, BarrelRight = true,
+    -- ...and the top lever and the trigger guard, since task 104: they are on OPPOSITE sides of the
+    -- gun's own axis, so which of them is nearer the eye is the ROLL -- the one thing a screen
+    -- position, a depth order along the gun, an edge and a 2-D angle between two points all leave
+    -- open, and the one that decides whether the open chambers face the camera.
+    TopLever = true, TriggerGuard = true,
 }
 local bead, barrels = nil, nil
 for _, found in made:GetDescendants() do
