@@ -630,16 +630,29 @@ local function buildNewGun(config): Model
 		return if found and found:IsA("BasePart") then found :: BasePart else nil
 	end
 
+	-- COUNTED PER BUILD, NOT FOR EVER (TASKS.md 99a(g)): this was incremented per piece per build and
+	-- never reset, so after one stale rebuild `stats().woodDrawn` read 4 for a two-piece gun while
+	-- `builtWood` had been reset to -1 by `clear()`. It answers "how much of Karen's wood is on the
+	-- gun that is on screen", which is a fact about THIS build.
+	stats.woodDrawn = 0
+	-- ...and the taper ahead of the forend exists only while there is no forend MESH: a mesh forend
+	-- is the whole splinter, tip included (`Gun.WOOD_LENGTH_STUDS`).
+	local hasForendMesh = woodFor(Gun.FOREND_NAME) ~= nil
 	for _, piece in ipairs(Gun.pieces(Shotgun.CONFIG)) do
+		if piece.name == Gun.FOREND_TIP_NAME and hasForendMesh then
+			continue
+		end
 		local wood = if Gun.WOOD_KEYS[piece.name] ~= nil then woodFor(piece.name) else nil
 		local part: BasePart
 		local offset = piece.offset
 		if wood ~= nil then
 			-- The SIZE came from the manifest when the server published it (the consumer sets it,
 			-- design 6.1); the TURN is this gun's, because the same model on another gun would be
-			-- turned differently.
+			-- turned differently. `woodOffset` is where a MESH goes, which differs from where the
+			-- drawn PART goes whenever that part's shape carries a turn of its own (a Cylinder).
 			part = wood:Clone()
-			offset = piece.offset * CFrame.Angles(0, math.rad(Gun.WOOD_ROTATION_DEG[piece.name]), 0)
+			offset = (piece.woodOffset or piece.offset)
+				* CFrame.Angles(0, math.rad(Gun.WOOD_ROTATION_DEG[piece.name]), 0)
 			stats.woodDrawn += 1
 		else
 			local made_ = Instance.new("Part")
@@ -672,7 +685,13 @@ local function buildNewGun(config): Model
 	-- NO DRAWN BEAD MARKER: this gun carries its own `Bead` piece, on the rib, at exactly
 	-- `Gun.beadOffset` -- the same expression `Gun.sight` answers with. The light is still added,
 	-- for the reason it was added in task 92: a gun inches from the eye is lit by the sun alone.
-	addFillLight(handle, config)
+	--
+	-- FIRST PERSON ONLY, exactly as `build` gates it (TASKS.md 99a(g)): this was unconditional, so
+	-- `NEW_GUN` on with `FIRST_PERSON` off put a point light back on the third-person gun -- the glow
+	-- task 92 measured and gated.
+	if config.FIRST_PERSON then
+		addFillLight(handle, config)
+	end
 
 	builtWood = if woodFolder then #woodFolder:GetChildren() else 0
 	stats.rebuilds += 1

@@ -17,6 +17,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+local Poses = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -112,8 +113,8 @@ return function()
 			-- chamber mouths. What may never stand in front of a bore is something that SWINGS WITH
 			-- IT -- which is exactly what the plate was.
 			--
-			-- AXIS-ALIGNED BOXES, which every piece in the barrel group is: the tubes and the discs
-			-- are cylinders along Z, the rib and the hook are blocks, the forend is a block.
+			-- AXIS-ALIGNED BOXES, which every piece in the barrel group is: the tubes, the discs and
+			-- the forend are cylinders along Z, and the rib and the hook are blocks.
 			for _, piece in ipairs(pieces) do
 				local at = string.find(piece.name, "Bore", 1, true)
 				if at == nil then
@@ -127,14 +128,20 @@ return function()
 					if other.group ~= "barrels" or other.name == piece.name then
 						continue
 					end
-					-- A CYLINDER LYING ALONG Z CARRIES ITS LENGTH ON X. Its half-extents in this
-					-- gun's frame are therefore (size.Y/2, size.Z/2, size.X/2) and a block's are the
-					-- plain (X/2, Y/2, Z/2). The first run of this case used the plain one for both
-					-- and reported the LEFT muzzle bore as hidden by the RIGHT BARREL -- a tube 2.7
-					-- studs long "spanning" 1.37 studs sideways. The test was wrong, not the gun.
+					-- A CYLINDER LYING ALONG Z CARRIES ITS LENGTH ON X, and a block does not, so the
+					-- half-extents are read differently for the two. The first run of this case used
+					-- the block rule for both and reported the LEFT muzzle bore as hidden by the
+					-- RIGHT BARREL -- a tube 2.7 studs long "spanning" 1.37 studs sideways. The test
+					-- was wrong, not the gun.
+					--
+					-- THE QUARTER TURN IS ABOUT Y, so a cylinder's own X goes to the gun's -Z, its Y
+					-- stays Y and its Z goes to the gun's +X. Task 100 corrected the X and Y rows,
+					-- which were written X<-size.Y and Y<-size.Z: harmless while every cylinder in
+					-- the group is CIRCULAR (size.Y == size.Z, true of the tubes and the discs) and
+					-- wrong the moment one is not -- which the splinter forend is.
 					local cylinder = other.shape == Enum.PartType.Cylinder
-					local halfX = if cylinder then other.size.Y / 2 else other.size.X / 2
-					local halfY = if cylinder then other.size.Z / 2 else other.size.Y / 2
+					local halfX = if cylinder then other.size.Z / 2 else other.size.X / 2
+					local halfY = other.size.Y / 2 -- the same on both: the quarter turn leaves Y alone
 					local halfZ = if cylinder then other.size.X / 2 else other.size.Z / 2
 					local spansX = math.abs(other.offset.Position.X - piece.offset.Position.X) < halfX
 					local spansY = math.abs(other.offset.Position.Y - piece.offset.Position.Y) < halfY
@@ -194,7 +201,11 @@ return function()
 		it("is silver against blued barrels, and carries a trigger, a round guard, a lever and a safety", function()
 			for _, name in ipairs({
 				"Action",
+				"ActionBelly",
 				"StandingBreech",
+				"FenceLeft",
+				"FenceRight",
+				"TopStrap",
 				"FlatBars",
 				"TopLever",
 				"Safety",
@@ -215,18 +226,26 @@ return function()
 			-- ...AND NOTHING ON THE BODY RISES ABOVE THE RIB, which is the one thing that makes a
 			-- bead sight work. MEASURED ON SCREEN: the first standing breech stood 0.11 studs proud
 			-- of the rib and filled the middle of the aimed view with the barrels hidden behind it.
-			local ribTop = byName(pieces, "Rib").offset.Position.Y + byName(pieces, "Rib").size.Y / 2
+			--
+			-- TASK 100 TIGHTENED IT FROM THE RIB'S TOP TO ITS UNDERSIDE, because what the aimed view
+			-- may not contain is anything square between the eye and the RIB, and a piece level with
+			-- the rib's top is level with the sighting plane. The two FENCES are the one exemption:
+			-- they are round, they wrap the tubes, and they reach only `FENCE_CLEARANCE` past the
+			-- tubes' own outline -- a rounded shoulder around each chamber, which is what a
+			-- side-by-side has and what the photo shows.
+			local rib = byName(pieces, "Rib")
+			local ribBottom = rib.offset.Position.Y - rib.size.Y / 2
+			local tubeTop = byName(pieces, "BarrelLeft").offset.Position.Y + byName(pieces, "BarrelLeft").size.Y / 2
 			for _, piece in ipairs(pieces) do
 				if piece.group == "body" and piece.name ~= Gun.STOCK_NAME then
 					local top = piece.offset.Position.Y + piece.size.Y / 2
-					if top > ribTop then
-						TestKit.note(
-							string.format("task99 %s tops out %.3f studs above the rib", piece.name, top - ribTop)
-						)
+					local limit = if string.find(piece.name, "Fence", 1, true) then tubeTop + 0.015 else ribBottom
+					if top > limit then
+						TestKit.note(string.format("task100 %s tops out %.3f studs too high", piece.name, top - limit))
 					end
-					-- The top lever and the safety sit ON the action's top face, which is the bore
-					-- line; only the rib and the bead may be higher.
-					expect(top <= ribTop + 1e-6).to.equal(true)
+					-- The top lever and the safety sit ON the top strap, which is a hair above the
+					-- bore line; only the rib, the bead and the fences' round shoulders are higher.
+					expect(top <= limit + 1e-6).to.equal(true)
 				end
 			end
 		end)
@@ -324,10 +343,163 @@ return function()
 			TestKit.note(string.format("task99 shell pivot %.4f studs forward of the breech face", at.breechZ - pivotZ))
 		end)
 
+		-- ---------------------------------------------------------------- task 100: the look pass
+
+		it("is dielectric, because Roblox Metal is what made the barrels sky-blue", function()
+			-- MEASURED (rule 5), `.screenshots/20261001T215631Z-compare-carry.png`: the tube pixels
+			-- came back with a median of (10, 26, 57) and a 90th percentile of (48, 79, 112) -- blue
+			-- about three times red -- against the video target frame's (56, 53, 48) and
+			-- (69, 64, 62), which are NEUTRAL. `Enum.Material.Metal` is a conductor: its specular is
+			-- the ENVIRONMENT times the albedo, and over a field the environment is the sky, so no
+			-- albedo could have fixed it. Every drawn metal piece is a dielectric now, and none of
+			-- them carries reflectance -- a mirror finish is the same defect by another route.
+			--
+			-- THE BEAD IS THE ONE EXEMPTION, and it is deliberate: a 0.034-stud brass ball whose
+			-- whole job is to catch the light is exactly what `Metal` is good at, and a dull bead is
+			-- a sight a player cannot find (task 92 measured the same thing from the other side when
+			-- it took the bead off Neon).
+			local metal = 0
+			for _, piece in ipairs(pieces) do
+				if piece.material ~= Enum.Material.Wood and piece.name ~= "Bead" then
+					expect(piece.material).never.to.equal(Enum.Material.Metal)
+					expect(piece.reflectance == nil or piece.reflectance == 0).to.equal(true)
+					metal += 1
+				end
+			end
+			expect(byName(pieces, "Bead").material).to.equal(Enum.Material.Metal)
+			TestKit.note(string.format("task100 %d pieces of steel, none of them Metal", metal))
+			-- ...and the blued steel is near-black and NEUTRAL: no channel over 40, and no more than
+			-- a 6-point cool cast. The old (34, 38, 46) was a blue-biased albedo under a material
+			-- that multiplied the sky by it.
+			local blued = Gun.LOOK.blued
+			for _, channel in ipairs({ blued.R, blued.G, blued.B }) do
+				expect(channel * 255 <= 40).to.equal(true)
+			end
+			expect((blued.B - blued.R) * 255 <= 6).to.equal(true)
+		end)
+
+		it("keeps the Beretta side photo's action proportions, and says the numbers", function()
+			local at = Gun.layout(CONFIG)
+			local action = byName(pieces, "Action")
+			local belly = byName(pieces, "ActionBelly")
+			local breech = byName(pieces, "StandingBreech")
+			-- THE PHOTO (`Social_1_1-2500 (5).jpeg`, segmented by colour): a 2,348 px gun with the
+			-- muzzle at 85, the action's front at 1412 and its joint with the stock at 1572. So the
+			-- action is 160 px against 1,327 px of barrel: 0.121 of it. Ours was 0.226 -- 1.9x.
+			local lengthRatio = action.size.Z / at.barrelLength
+			TestKit.note(string.format("task100 action length is %.3f of the barrels (photo 0.121)", lengthRatio))
+			expect(lengthRatio < 0.14).to.equal(true)
+			-- THE ACTION BODY IS NARROWER THAN THE BARREL PAIR, so the tubes overhang it and nothing
+			-- square shows beside them from the shooter's eye.
+			local left, right = byName(pieces, "BarrelLeft"), byName(pieces, "BarrelRight")
+			local pairWidth = (right.offset.Position.X - left.offset.Position.X) + left.size.Y
+			TestKit.note(string.format("task100 action %.3f wide, barrel pair %.3f", action.size.X, pairWidth))
+			expect(action.size.X < pairWidth).to.equal(true)
+			expect(breech.size.X < pairWidth).to.equal(true)
+			-- THE BARRELS LIE ON THE WATER TABLE: the action's top face is their UNDERSIDE, not the
+			-- bore line it used to be, so the body no longer stands up between the two tubes.
+			local barrelBottom = left.offset.Position.Y - left.size.Y / 2
+			expect(math.abs(at.actionTop - barrelBottom) < 1e-6).to.equal(true)
+			-- ...and the belly is round, exactly as tall as the action and no taller: its upper half
+			-- is covered by the block and nothing bulges above the water table, which a CIRCULAR
+			-- belly of the action's width would have done by 0.067 studs.
+			expect(belly.shape).to.equal(Enum.PartType.Cylinder)
+			expect(math.abs(belly.offset.Position.Y - belly.size.Y / 2 - at.actionBottom) < 1e-6).to.equal(true)
+			expect(belly.offset.Position.Y + belly.size.Y / 2 <= at.actionTop + 1e-6).to.equal(true)
+		end)
+
+		it("hangs the hinge hook ON the pin, and did not move the axis doing it", function()
+			-- THE AXIS IS THE ONE THING THIS LOOK PASS MAY NOT MOVE (the dispatch says so), and the
+			-- action got shallower from the TOP for exactly that reason. This is the value task 99
+			-- shipped, written out so a later change to `ACTION_HEIGHT` cannot quietly move it.
+			-- 1e-6 AND NOT 1e-9, for the reason task 99's round 3 found the hard way: a Vector3's
+			-- components are FLOAT32, so -0.14 + 0.035 comes back as -0.10500000417 and a 1e-9 bound
+			-- refuses arithmetic that is exactly right.
+			local hinge = Gun.hinge(CONFIG)
+			expect(math.abs(hinge.Y - -0.105) < 1e-6).to.equal(true)
+			-- ...and the hook now REACHES it. The Reviewer measured a 0.0275-stud air gap between
+			-- the hook's underside and the top of the pin it is said to drop onto (TASKS.md 99a(f)).
+			local hook = byName(pieces, "HingeHook")
+			local hookBottom = hook.offset.Position.Y - hook.size.Y / 2
+			TestKit.note(string.format("task100 hook bottom %.4f, hinge axis %.4f", hookBottom, hinge.Y))
+			expect(math.abs(hookBottom - hinge.Y) < 1e-6).to.equal(true)
+		end)
+
+		it("puts the flat bars UNDER the bore instead of inside the tubes", function()
+			-- TASKS.md 99a(f): while the action's top was the bore LINE these sat at y
+			-- 0.1025..0.1375, wholly inside two tubes spanning 0.0475..0.1925 -- an invisible part.
+			local bars = byName(pieces, "FlatBars")
+			local tube = byName(pieces, "BarrelLeft")
+			local tubeBottom = tube.offset.Position.Y - tube.size.Y / 2
+			local barsTop = bars.offset.Position.Y + bars.size.Y / 2
+			TestKit.note(string.format("task100 flat bars top %.4f, tubes start %.4f", barsTop, tubeBottom))
+			expect(barsTop <= tubeBottom + 1e-6).to.equal(true)
+		end)
+
+		it("gives the forend a round, tapering splinter and a place for a mesh to land", function()
+			local body = byName(pieces, Gun.FOREND_NAME)
+			local tip = byName(pieces, Gun.FOREND_TIP_NAME)
+			expect(body).to.be.ok()
+			expect(tip).to.be.ok()
+			-- NO BOX EDGES ON THE WOOD a hand wraps: both lengths are Cylinders.
+			expect(body.shape).to.equal(Enum.PartType.Cylinder)
+			expect(tip.shape).to.equal(Enum.PartType.Cylinder)
+			-- ...AND IT TAPERS toward the muzzle, which is what a splinter forend does: the tip is
+			-- thinner in both cross-section axes and sits ahead of the body (-Z is the muzzle).
+			expect(tip.size.Y < body.size.Y).to.equal(true)
+			expect(tip.size.Z < body.size.Z).to.equal(true)
+			expect(tip.offset.Position.Z < body.offset.Position.Z).to.equal(true)
+			-- THE SAME WALNUT AS KAREN'S STOCK MESH: measured off its own lit pixels in
+			-- `.screenshots/20261002T012118Z-pose-reload.png` -- (144, 79, 49) and (153, 96, 66).
+			expect(body.color).to.equal(Gun.LOOK.wood)
+			expect(tip.color).to.equal(Gun.LOOK.wood)
+			expect(byName(pieces, Gun.STOCK_NAME).color).to.equal(Gun.LOOK.wood)
+			-- A MESH IS NOT A CYLINDER. The drawn part carries a quarter turn so its own X lies
+			-- along the gun; composing `Gun.WOOD_ROTATION_DEG` on top of that would cancel the turn
+			-- the MESH needs, so the forend declares where a mesh goes separately -- and it is the
+			-- whole splinter, tip included, because a mesh replaces both.
+			expect(body.woodOffset).to.be.ok()
+			expect((body.woodOffset :: CFrame).Rotation).to.equal(CFrame.identity)
+			local wanted = Gun.WOOD_LENGTH_STUDS[Gun.FOREND_NAME]
+			expect(math.abs(wanted - (body.size.X + tip.size.X)) < 1e-6).to.equal(true)
+		end)
+
+		it("seeds the left hand ON THE FOREND, in the frame the viewmodel actually poses it in", function()
+			-- ROUND 1'S FINDING, AND IT IS WHY THIS CASE EXISTS. The seed was computed in the BARREL
+			-- GROUP's frame and the viewmodel poses hands in the GUN's: `Camera.Viewmodel.update`
+			-- passes `Viewmodel.hinge(gun, state, config)` as `barrelsCFrame`, and that is
+			-- `gunCFrame * swing` -- identity with the gun shut -- NOT the `Barrels` part's own
+			-- CFrame, which is `handle.CFrame * CFrame.new(0, 0, at.barrelZ)` and is never passed to
+			-- anything. The two frames are `at.barrelZ` = -0.831 studs apart, so a number right in
+			-- one puts the glove at the breech in the other: two hands at the grip and none on the
+			-- wood. Nothing caught it, because no spec read these three numbers at all.
+			--
+			-- THE BOUND IS THE WOOD'S OWN EXTENT, read off `Gun.pieces` rather than written down, so
+			-- moving the splinter moves the bound with it.
+			local front, rear = math.huge, -math.huge
+			for _, piece in ipairs(pieces) do
+				if piece.name == Gun.FOREND_NAME or piece.name == Gun.FOREND_TIP_NAME then
+					-- A Cylinder lying along the gun carries its length on its own X.
+					front = math.min(front, piece.offset.Position.Z - piece.size.X / 2)
+					rear = math.max(rear, piece.offset.Position.Z + piece.size.X / 2)
+				end
+			end
+			expect(front < rear).to.equal(true)
+			TestKit.note(string.format("task100 the splinter spans z %.4f to %.4f", front, rear))
+			for _, pose in ipairs({ "carry", "aim", "reload" }) do
+				local seeded = Poses.DATA.newGun[pose].left.pos
+				TestKit.note(string.format("task100 newGun.%s.left.pos.z = %.4f", pose, seeded.z))
+				expect(seeded.z >= front).to.equal(true)
+				expect(seeded.z <= rear).to.equal(true)
+			end
+		end)
+
 		it("costs the budget the note states, so growth is a decision", function()
 			local count = Gun.partCount(CONFIG)
 			TestKit.note(string.format("task99 the drawn gun is %d parts", count))
-			expect(count).to.equal(22)
+			-- 22 -> 27 in task 100: the action's round belly, the two fences, the top strap and the
+			-- forend's tapered tip.
+			expect(count).to.equal(27)
 		end)
 
 		it("moves no number a shot depends on", function()
