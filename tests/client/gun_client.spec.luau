@@ -1,5 +1,5 @@
 --!strict
--- The NEW first-person gun, in a real client (task 99), and the gloves that hold it.
+-- MODEL B, the first-person gun, in a real client (task 105), and the gloves that hold it.
 --
 -- WHY IT IS ITS OWN FILE: `camera_client.spec.luau` grew past what StudioMCP will return in one
 -- reply. MEASURED -- the harness refused the run with "Studio's answer for
@@ -10,7 +10,7 @@
 -- THE FLAG SITS OFF AND BOTH GUNS ARE DRIVEN BY PARAMETER, the rule every flagged path in this repo
 -- follows (docs/design/feature-flags.md 13.3). The GEOMETRY is proved on the server
 -- (tests/server/gun.spec.luau); what only a client can show is that the gun is really built, really
--- under the camera, and that its barrel group really turns about its own pin.
+-- under the camera, and that its barrel group really turns about the model's own knuckle.
 --
 -- Note: docs/research/2026-10-01-exact-metal-gun.md
 local Players = game:GetService("Players")
@@ -38,10 +38,16 @@ local function stateAtBlend(blend: number)
 end
 
 return function()
-	-- THE NEW GUN (task 99), DRIVEN BY PARAMETER while the flag sits OFF -- the rule every flagged
-	-- path in this repo follows (docs/design/feature-flags.md 13.3). The GEOMETRY is proved on the
-	-- server (tests/server/gun.spec.luau); what only a client can show is that it is really built,
-	-- really under the camera, and that its barrel group really turns about its own pin.
+	-- MODEL B (task 105), DRIVEN BY PARAMETER while the flag sits OFF -- the rule every flagged path
+	-- in this repo follows (docs/design/feature-flags.md 13.3). The GEOMETRY is proved on the server
+	-- (tests/server/gun.spec.luau); what only a client can show is that it is really built, really
+	-- under the camera, and that its barrel group really turns about the model's own knuckle.
+	--
+	-- NOT ONE OF THESE CASES READS A DRAWN TUBE ANY MORE, and that is the point of the task: the gun
+	-- is two MeshParts of somebody else's model, so there is no `BarrelLeft` to measure a flash
+	-- against. Every claim is measured against the gun's OWN arithmetic (`Gun.barrelOffset`,
+	-- `Gun.chamber`, `Gun.hinge`) on the instances that are really on screen -- which is the harder
+	-- test, because the arithmetic is what the mesh has to agree with.
 	describe("the new gun", function()
 		local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 		local newGunConfig = table.clone(firstPersonConfig) :: any
@@ -85,22 +91,31 @@ return function()
 				expect(clone:IsDescendantOf(Workspace.CurrentCamera)).to.equal(true)
 				local barrels = clone:FindFirstChild("Barrels") :: BasePart
 				expect(barrels).to.be.ok()
-				-- WHAT SWINGS IS A PARENT, not a list of names: the tubes, the rib, the bead and the
-				-- forend are children of the barrel group, and the pin and the stock are not.
-				for _, name in ipairs({ "BarrelLeft", "BarrelRight", "Rib", "Bead", "Forend" }) do
+				-- WHAT SWINGS IS A PARENT, not a list of names: the barrel group and the bead are
+				-- children of it, and the frame group is not.
+				for _, name in ipairs({ Gun.BARREL_GROUP_NAME, "Bead" }) do
 					expect(barrels:FindFirstChild(name)).to.be.ok()
 				end
-				for _, name in ipairs({ "HingePin", "Action", "StandingBreech", "Trigger", "Stock" }) do
-					expect(clone:FindFirstChild(name)).to.be.ok()
-				end
+				expect(clone:FindFirstChild(Gun.FRAME_GROUP_NAME)).to.be.ok()
+				expect(barrels:FindFirstChild(Gun.FRAME_GROUP_NAME)).to.equal(nil)
 				-- The two attachments the rest of the system reads off the PrimaryPart.
 				expect(clone:FindFirstChild("Sight")).to.be.ok()
 				expect(clone:FindFirstChild("Muzzle")).to.be.ok()
 				expect((Camera.Viewmodel.sight() :: CFrame).Position).to.equal(Gun.beadOffset(Shotgun.CONFIG))
+				-- WHETHER THE UPLOADS LOADED, SAID RATHER THAN ASSUMED. Both halves are published by
+				-- the server through `InsertService`, which takes seconds, so a run that got there
+				-- first draws the fallback boxes -- a real state, and the reason the fallback exists.
+				-- Either way the gun is the same parts in the same places, which is what is asserted.
+				local drawn = Camera.Viewmodel.stats().meshesDrawn
+				TestKit.note(string.format("task105 %d of 2 group meshes were on this build", drawn))
+				for _, name in ipairs({ Gun.BARREL_GROUP_NAME, Gun.FRAME_GROUP_NAME }) do
+					local part = clone:FindFirstChild(name) or barrels:FindFirstChild(name)
+					expect((part :: BasePart):IsA("BasePart")).to.equal(true)
+				end
 				-- THE GUN'S OWN PARTS, which is what the budget is about: the two gloves and their
 				-- sleeves are the HANDS' cost and are counted in their own case. The two-player run
 				-- is what taught this -- there the live templates had arrived, so the drawn model was
-				-- 27 parts against the gun's 23 and the budget read as broken when it was not.
+				-- bigger than the gun and the budget read as broken when it was not.
 				local parts, worn = 0, 0
 				for _, found in ipairs((model :: Model):GetDescendants()) do
 					if found:IsA("BasePart") then
@@ -115,23 +130,26 @@ return function()
 						expect(found.Anchored).to.equal(true)
 					end
 				end
-				TestKit.note(string.format("task99 the drawn new gun is %d gun part(s) plus %d worn", parts, worn))
+				TestKit.note(string.format("task105 the drawn new gun is %d gun part(s) plus %d worn", parts, worn))
 				expect(parts).to.equal(Gun.partCount(Shotgun.CONFIG))
 			end)
 		end)
 
-		it("swings its barrel group about its own pin, and the pin stays put", function()
+		it("swings its barrel group about the model's knuckle, and the frame stays put", function()
 			withNewGun(function()
 				local at = CFrame.new(0, 16, 0)
 				Camera.Viewmodel.setReload(nil)
 				Camera.Viewmodel.update(at, stateAtBlend(0), newGunConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local barrels = clone:FindFirstChild("Barrels") :: BasePart
-				local tube = barrels:FindFirstChild("BarrelLeft") :: BasePart
-				local pin = clone:FindFirstChild("HingePin") :: BasePart
-				local shutTube = clone.CFrame:ToObjectSpace(tube.CFrame)
-				local shutPin = clone.CFrame:ToObjectSpace(pin.CFrame)
-				local onBarrels = barrels.CFrame:ToObjectSpace(tube.CFrame)
+				local group = barrels:FindFirstChild(Gun.BARREL_GROUP_NAME) :: BasePart
+				local frame = clone:FindFirstChild(Gun.FRAME_GROUP_NAME) :: BasePart
+				local bead = barrels:FindFirstChild("Bead") :: BasePart
+				local hinge = Gun.hinge(Shotgun.CONFIG)
+				local shutGroup = clone.CFrame:ToObjectSpace(group.CFrame)
+				local shutFrame = clone.CFrame:ToObjectSpace(frame.CFrame)
+				local shutBead = clone.CFrame:ToObjectSpace(bead.CFrame)
+				local onBarrels = barrels.CFrame:ToObjectSpace(group.CFrame)
 
 				local open = table.clone(stateAtBlend(0)) :: any
 				open.openTilt = 1
@@ -139,75 +157,71 @@ return function()
 				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { false, false } })
 				Camera.Viewmodel.update(at, open, newGunConfig)
 
-				local openTube = clone.CFrame:ToObjectSpace(tube.CFrame)
-				local openPin = clone.CFrame:ToObjectSpace(pin.CFrame)
+				local openGroup = clone.CFrame:ToObjectSpace(group.CFrame)
+				local openFrame = clone.CFrame:ToObjectSpace(frame.CFrame)
+				local openBead = clone.CFrame:ToObjectSpace(bead.CFrame)
 				TestKit.note(
 					string.format(
-						"task99 break: the tube moved %.3f studs on the body, the pin %.4f",
-						(openTube.Position - shutTube.Position).Magnitude,
-						(openPin.Position - shutPin.Position).Magnitude
+						"task105 break: the barrel group moved %.3f studs on the body, the frame %.4f",
+						(openGroup.Position - shutGroup.Position).Magnitude,
+						(openFrame.Position - shutFrame.Position).Magnitude
 					)
 				)
-				-- THE BARRELS MOVE AND THE PIN DOES NOT, which is what a hinge is.
-				expect((openTube.Position - shutTube.Position).Magnitude > 0.1).to.equal(true)
-				expect((openPin.Position - shutPin.Position).Magnitude < 1e-3).to.equal(true)
-				-- ...and the tube has not moved relative to the group it belongs to: the whole
-				-- barrel group turns as one piece rather than the mesh tearing, which is the frame
-				-- this task exists to fix.
-				local stillOnBarrels = barrels.CFrame:ToObjectSpace(tube.CFrame)
+				-- THE BARRELS MOVE AND THE FRAME DOES NOT, which is what a hinge is. The bead is
+				-- measured too, because it is the one piece that is still DRAWN and it has to ride
+				-- the barrels down rather than hang where the muzzle used to be.
+				expect((openGroup.Position - shutGroup.Position).Magnitude > 0.1).to.equal(true)
+				expect((openBead.Position - shutBead.Position).Magnitude > 0.1).to.equal(true)
+				expect((openFrame.Position - shutFrame.Position).Magnitude < 1e-3).to.equal(true)
+				-- ...and the group has not moved relative to the parent it belongs to: it turns as
+				-- one piece rather than the mesh tearing, which is the frame task 99 existed to fix.
+				local stillOnBarrels = barrels.CFrame:ToObjectSpace(group.CFrame)
 				expect((stillOnBarrels.Position - onBarrels.Position).Magnitude < 1e-3).to.equal(true)
-				-- AND THE TUBE STAYS THE SAME DISTANCE FROM THE PIN, which is what makes the motion
-				-- a rotation about that axis rather than a slide that looks like one.
-				local shutR = (shutTube.Position - shutPin.Position).Magnitude
-				local openR = (openTube.Position - openPin.Position).Magnitude
-				expect(math.abs(shutR - openR) < 1e-3).to.equal(true)
+				-- AND EVERY RIDER STAYS THE SAME DISTANCE FROM THE HINGE, which is what makes the
+				-- motion a rotation about THAT axis rather than a slide that looks like one. The
+				-- hinge is a point in the gun's own frame now -- there is no pin part on model B to
+				-- read it off -- so it is measured against `Gun.hinge`, which is what swung it.
+				for _, row in ipairs({
+					{ name = "group", shut = shutGroup, opened = openGroup },
+					{ name = "bead", shut = shutBead, opened = openBead },
+				}) do
+					local shutR = (row.shut.Position - hinge).Magnitude
+					local openR = (row.opened.Position - hinge).Magnitude
+					TestKit.note(string.format("task105 %s is %.4f from the hinge, was %.4f", row.name, openR, shutR))
+					expect(math.abs(shutR - openR) < 1e-3).to.equal(true)
+				end
 			end)
 		end)
 
-		it("draws the muzzle flash INSIDE the tube it comes out of", function()
-			-- ROUND 1, FINDING 2, MEASURED ON THE DRAWN INSTANCES. `Camera.Viewmodel.muzzle` is what
-			-- `Weapon.Effects` draws the first-person flash at, and it adds the barrel's own rise to
-			-- the `Muzzle` attachment. With the attachment on the bore line the rise was counted
-			-- twice and the flash sat 0.12 studs above the barrels -- outside a 0.0725-radius tube,
-			-- which is what this measures.
+		it("draws the muzzle flash on the model's own bore line, at the muzzle", function()
+			-- `Camera.Viewmodel.muzzle` is what `Weapon.Effects` draws the first-person flash at, and
+			-- it adds the barrel's own rise to the `Muzzle` attachment. Model B's bores are 0.039
+			-- studs off the centre line where the drawn gun's were 0.076 and the world gun's are
+			-- 0.09, so a flash built from the wrong gun's number lands between the tubes.
 			withNewGun(function()
 				Camera.Viewmodel.setReload(nil)
 				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), newGunConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
-				local barrels = clone:FindFirstChild("Barrels") :: BasePart
-				for barrel, tubeName in ipairs({ "BarrelRight", "BarrelLeft" }) do -- barrel 1 is +X
-					local tube = barrels:FindFirstChild(tubeName) :: BasePart
+				local at = Gun.layout(Shotgun.CONFIG)
+				for barrel = 1, 2 do
 					local flash = Camera.Viewmodel.muzzle(barrel)
 					expect(flash).to.be.ok()
-					-- IN THE TUBE'S OWN FRAME: a cylinder's length is its X, so the other two axes
-					-- are the bore and the flash must be inside that circle.
-					local inTube = tube.CFrame:ToObjectSpace(flash :: CFrame)
-					local across = Vector2.new(inTube.Position.Y, inTube.Position.Z).Magnitude
+					local inGun = clone.CFrame:ToObjectSpace(flash :: CFrame)
+					local bore = Gun.barrelOffset(barrel, Shotgun.CONFIG)
+					local across = Vector2.new(inGun.Position.X - bore.X, inGun.Position.Y - bore.Y).Magnitude
 					TestKit.note(
 						string.format(
-							"task99 %s flash %.4f studs off the bore line, bore radius %.4f",
-							tubeName,
+							"task105 barrel %d flash %.4f studs off its bore line (bore radius %.4f), z %+.4f",
+							barrel,
 							across,
-							tube.Size.Y / 2
+							at.barrelRadius,
+							inGun.Position.Z
 						)
 					)
-					expect(across < tube.Size.Y / 2).to.equal(true)
-					-- ...AND AT THE MUZZLE END OF IT, BY SIGN AND BY DISTANCE (round 2 note). This
-					-- used to read `never.to.equal(0)`, which the BREECH end satisfies just as well
-					-- -- the real value is 1.369 and the breech is -1.369. A cylinder's own +X is the
-					-- end its `LYING` quarter turn points down the gun's -Z, which is the muzzle, so
-					-- the flash must be at POSITIVE X and half a tube away from the centre.
-					local halfLength = tube.Size.X / 2
-					TestKit.note(
-						string.format(
-							"task99 %s flash at x %+.4f of a %.4f half-tube",
-							tubeName,
-							inTube.Position.X,
-							halfLength
-						)
-					)
-					expect(inTube.Position.X > 0).to.equal(true)
-					expect(math.abs(inTube.Position.X - halfLength) < 1e-3).to.equal(true)
+					expect(across < 1e-3).to.equal(true)
+					-- AT THE MUZZLE END, by sign and by distance: the muzzle is the Handle's -Z.
+					expect(inGun.Position.Z < 0).to.equal(true)
+					expect(math.abs(inGun.Position.Z - at.muzzleZ) < 1e-3).to.equal(true)
 				end
 			end)
 		end)
@@ -252,7 +266,7 @@ return function()
 			end
 		end)
 
-		it("seats a fresh shell on the bore line with its brass rim OUT of the breech face", function()
+		it("seats a fresh shell on the bore line, its rim OUT of the breech face", function()
 			withNewGun(function()
 				local at = CFrame.new(0, 16, 0)
 				local open = table.clone(stateAtBlend(0)) :: any
@@ -263,80 +277,69 @@ return function()
 				-- the clone from a different handle and this case then measures somebody else's gun.
 				--
 				-- SO BOTH CLAIMS ARE ONES THAT HOLD AT EVERY MOMENT OF THE FEED: the shell is ON the
-				-- tube's own bore line, and its brass RIM is OUTSIDE the tube's breech face. A shell
-				-- still travelling in is further out than a seated one, so neither claim depends on
-				-- catching a frame.
+				-- tube's own bore line, and its back face is OUTSIDE the breech. A shell still
+				-- travelling in is further out than a seated one, so neither depends on a frame.
 				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { true, true } })
 				Camera.Viewmodel.update(at, open, newGunConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local barrels = clone:FindFirstChild("Barrels") :: BasePart
-				local worst, worstAt = 0, "none"
-				for barrel, tubeName in ipairs({ "BarrelRight", "BarrelLeft" }) do -- barrel 1 is +X
+				local layout = Gun.layout(Shotgun.CONFIG)
+				for barrel = 1, 2 do
 					local shell = clone:FindFirstChild("FreshShell" .. barrel)
 					expect(shell).to.be.ok()
-					local tube = barrels:FindFirstChild(tubeName) :: BasePart
-					-- MEASURED IN THE TUBE'S OWN FRAME: a cylinder's length is its X, so the other
-					-- two axes are the bore, and the shell must be inside that circle. This is what
-					-- "the shell goes IN" means, against a shell floating in the gap.
-					local inTube = tube.CFrame:ToObjectSpace((shell :: Model):GetPivot())
-					local across = Vector2.new(inTube.Position.Y, inTube.Position.Z).Magnitude
-					if across > worst then
-						worst, worstAt = across, tubeName
-					end
-					-- EXACTLY on the bore line, not merely inside the tube (round 2 note). The bound
-					-- used to be the tube's own radius, 0.0725 -- five times the 0.014 the OLD
-					-- `chamberOffset` answer is out by, so the case passed with the new gun's branch
-					-- of it deleted.
-					expect(across < 1e-3).to.equal(true)
-					-- THE BRASS RIM (round 2, finding 1). Rounds 1 and 2 seated the shell 0.10 studs
-					-- down an opaque tube, so a loaded chamber and an empty one were the same
-					-- picture. Two claims, and NEITHER of them is "the drawn rim is outside the
-					-- tube right now": a shell still travelling in is outside the tube whatever the
-					-- seat is, so that one passes for the wrong reason -- it is noted below, not
-					-- asserted.
-					local rim = (shell :: Model):FindFirstChild("Rim") :: BasePart
-					expect(rim).to.be.ok()
-					-- ONE: THE BUILDER AND THE SEAT AGREE. `Gun.shellLayout().back` is what
-					-- `chamberOffset` backs the shell off by, so the drawn rim's outer face must be
-					-- exactly that far behind the model's pivot. If the two ever disagreed the rim
-					-- would be seated against nothing.
-					local layout = Gun.shellLayout(newGunConfig.SHELL_SIZE_STUDS, newGunConfig.SHELL_BASE_FRACTION)
-					local rimFromPivot = (shell :: Model):GetPivot():ToObjectSpace(rim.CFrame)
-					-- ALONG X: the three parts are built as unrotated cylinders offset along the
-					-- shell's own X, and the model's quarter turn moves all of them together, so in
-					-- the PIVOT's frame the rim is still straight behind it on X.
-					local back = -rimFromPivot.Position.X + rim.Size.X / 2
-					expect(math.abs(back - layout.back) < 1e-4).to.equal(true)
-					-- TWO: THE SEAT IS OUTSIDE THE DRAWN TUBE'S BREECH FACE. Measured against the
-					-- tube as it is really drawn (its own half length), against the gun's own
-					-- arithmetic for the seat -- and the feed only ever slides the shell BACKWARD
-					-- from that, so this is the claim with no clock in it.
-					local seatBehindCentre = Gun.chamber(barrel, Shotgun.CONFIG).Position.Z
-						- Gun.layout(Shotgun.CONFIG).barrelZ
-					local rimIn = tube.CFrame:ToObjectSpace(rim.CFrame)
+					-- MEASURED IN THE BARREL GROUP'S FRAME, which is where the shell is drawn and
+					-- where it swings: the bore line is `Gun.barrelOffset`, the one definition of it.
+					local inBarrels = barrels.CFrame:ToObjectSpace((shell :: Model):GetPivot())
+					-- ...and the barrel group's own part sits `at.barrelZ` down the gun from the
+					-- Handle, so the bore line in ITS frame is the same X and Y and that Z removed.
+					local bore = Gun.barrelOffset(barrel, Shotgun.CONFIG)
+					local across = Vector2.new(inBarrels.Position.X - bore.X, inBarrels.Position.Y - bore.Y).Magnitude
 					TestKit.note(
 						string.format(
-							"task99 %s seat %.4f studs behind the tube centre (half tube %.4f); drawn rim %.4f out, mid-feed",
-							tubeName,
-							seatBehindCentre,
-							tube.Size.X / 2,
-							-rimIn.Position.X - tube.Size.X / 2
+							"task105 fresh shell %d is %.4f studs off its bore line (bore radius %.4f)",
+							barrel,
+							across,
+							layout.barrelRadius
 						)
 					)
-					expect(seatBehindCentre > tube.Size.X / 2).to.equal(true)
-					-- ...and the rim is wider than the dark disc it has to cover.
-					local disc = barrels:FindFirstChild(tubeName .. "BoreBreech") :: BasePart
-					expect(disc).to.be.ok()
-					expect(rim.Size.Y > disc.Size.Y).to.equal(true)
-				end
-				TestKit.note(
-					string.format(
-						"task99 fed shells: worst %.4f studs off the bore line (%s), bore radius %.4f",
-						worst,
-						worstAt,
-						(barrels:FindFirstChild("BarrelLeft") :: BasePart).Size.Y / 2
+					-- EXACTLY on the bore line, not merely inside the tube: the bound used to be the
+					-- tube's own radius, which is five times the error the old answer had, so the
+					-- case passed with the new gun's branch of it deleted (task 99 round 2).
+					expect(across < 1e-3).to.equal(true)
+					-- THE SEAT IS OUTSIDE THE BREECH FACE. Rounds 1 and 2 of task 99 seated the shell
+					-- down an opaque tube, so a loaded chamber and an empty one were the same
+					-- picture. This is the claim with no clock in it: the gun's own seat, against the
+					-- gun's own breech.
+					local seat = Gun.chamber(barrel, Shotgun.CONFIG).Position.Z
+					expect(seat > layout.breechZ).to.equal(true)
+					-- AND THE BUILDER AND THE SEAT AGREE ABOUT WHERE THE RIM ENDED UP. The pivot is
+					-- backed off from the rim by the shell's own length, so the two can be read back
+					-- against each other -- and they must be, or the rim is seated against nothing.
+					-- Which shell is drawn depends on whether the upload had loaded, so the back-off
+					-- is read off the drawn thing rather than assumed.
+					local rim = (shell :: Model):FindFirstChild("Rim")
+					local back = if rim ~= nil
+						then Gun.shellLayout(newGunConfig.SHELL_SIZE_STUDS, newGunConfig.SHELL_BASE_FRACTION).back
+						else Gun.SHELL_MESH_SIZE_STUDS.X / 2
+					local wanted = (Gun.chamber(barrel, Shotgun.CONFIG) * CFrame.new(0, 0, -back)).Position
+					local isMesh = rim == nil
+					TestKit.note(
+						string.format(
+							"task105 shell %d is the %s one, backed off %.4f",
+							barrel,
+							if isMesh then "uploaded" else "drawn",
+							back
+						)
 					)
-				)
+					-- MEASURED IN THE BARREL GROUP'S FRAME, NOT THE HANDLE'S, and with the gun open
+					-- that matters: the shells are drawn from the SWUNG gun's transform, which the
+					-- Handle's own CFrame is not. The group's part sits `at.barrelZ` down the gun from
+					-- it, so that is what is added back. The feed slides the shell backward along Z from
+					-- the seat, so only the two across-axes are exact and Z is a bound.
+					expect(math.abs(inBarrels.Position.X - wanted.X) < 1e-3).to.equal(true)
+					expect(math.abs(inBarrels.Position.Y - wanted.Y) < 1e-3).to.equal(true)
+					expect(inBarrels.Position.Z + layout.barrelZ >= wanted.Z - 1e-3).to.equal(true)
+				end
 			end)
 		end)
 	end)

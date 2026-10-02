@@ -128,6 +128,13 @@ Assets.KEYS = table.freeze({
 	-- own below.
 	handRight = "hand.right",
 	gunStock = "gun.stock",
+	-- MODEL B'S TWO HINGE GROUPS AND ITS SHELL (task 105). Karen picked a professional CC-BY model
+	-- on 2026-10-02 after calling the exact-geometry gun "bad"; `tools/gltf_split.py` splits it at
+	-- the hinge and `Gun.MESH_KEYS` names these two, so the gun's geometry and this table cannot
+	-- disagree about which half swings.
+	gunBarrels = "gun.barrels",
+	gunFrame = "gun.frame",
+	gunShell = "gun.shell",
 	handLeft = "hand.left",
 })
 
@@ -152,11 +159,15 @@ local GUN_SIZE = Vector3.new(NATURAL.X * SCALE, NATURAL.Y * SCALE, NATURAL.Z * S
 -- The two natural boxes are MEASURED off each prepped model's own vertex bounds (the run's
 -- `model.glb` position accessors, times the hundred Roblox's FBX import applies -- the same hundred
 -- that makes the gun's two-unit model 200 units long above). See the rows for where 1.28 comes from.
--- 1.10 SINCE TASK 99 (was 1.28). The new gun's barrels are 0.145 studs across against the mesh
--- gun's thicker pair, and at 1.28 the two gloves were the biggest things in the aimed frame --
--- measured on the task 98 side-by-side, where they are brighter and larger than the barrels they
--- hold. This is the one dial for how bulky a hand reads, and it is the Director's to tune.
-local HAND_LENGTH_STUDS = 1.10
+-- 1.27 SINCE TASK 105, AND IT IS BACK TO LIFE SIZE BECAUSE THE GUN IS. Task 99 cut this from 1.28 to
+-- 1.10 for one measured reason: the drawn gun's barrels were 0.145 studs across where a real pair at
+-- this length is about 0.078, so the metal was drawn at nearly twice life and a life-size hand beside
+-- it read as the biggest thing in the frame. Model B's tubes ARE 0.078 -- 21.7 mm, a 12-gauge -- so
+-- the gun is life size in cross-section now and the hand has to be too. 1.27 is the original
+-- measurement, not a new guess: a hand plus a cuff is about 330 mm, this game's scale is 1143 mm of
+-- gun to 4.4 studs, and 330 / 259.8 = 1.27. Still the one dial for how bulky a hand reads, and still
+-- the Director's to tune.
+local HAND_LENGTH_STUDS = 1.27
 local HAND_RIGHT_NATURAL = Vector3.new(190.04, 84.99, 78.93)
 local HAND_LEFT_NATURAL = Vector3.new(189.64, 95.52, 72.04)
 -- THE WOOD (task 99), by the same rule: MEASURED off the prepped model's own vertex bounds (the
@@ -170,20 +181,11 @@ local function uniformTo(natural: Vector3, length: number): Vector3
 	return Vector3.new(natural.X * scale, natural.Y * scale, natural.Z * scale)
 end
 
--- THE STOCK IS THE ONE ROW THAT IS NOT UNIFORM, AND IT WAS MEASURED (task 102). Uniform to 1.32
--- studs long this mesh is 0.481 tall and 0.123 WIDE, which is about right for a real stock and
--- wrong for this gun: the metal is drawn at about 1.65x life in cross-section (`BARREL_DIAMETER`
--- 0.145 against a life-size 0.089 at this length) because a life-size pair is unreadable at arm's
--- length, and the stock arrived at 1.0x. The aimed capture is what it cost -- a comb spanning ~15%
--- of the half-frame's width against the video target's ~50%. So the LENGTH and the HEIGHT stay
--- uniform, exactly as design 6.1 asks, and the WIDTH is the gun's own answer
--- (`Gun.WOOD_WIDTH_STUDS`): 0.255, the action's width, which is 2.07x what uniform gives.
-local function widenTo(natural: Vector3, length: number, width: number): Vector3
-	local uniform = uniformTo(natural, length)
-	return Vector3.new(uniform.X, uniform.Y, width)
-end
-
-local STOCK_SIZE = widenTo(STOCK_NATURAL, Gun.WOOD_LENGTH_STUDS[Gun.STOCK_NAME], Gun.WOOD_WIDTH_STUDS[Gun.STOCK_NAME])
+-- THE STOCK'S SIZE IS FROZEN AT WHAT TASK 102 SHIPPED, and nothing asks for it any more: model B
+-- carries its own chequered stock, so `gun.stock` is retired below rather than scaled to a gun that
+-- no longer has a hole for it. The row stays, with its id, because an id that has been in a place is
+-- provenance (rule 7), and the number stays with the row it belongs to.
+local STOCK_SIZE = Vector3.new(1.32, 0.4808, 0.255)
 local HAND_RIGHT_SIZE = uniformTo(HAND_RIGHT_NATURAL, HAND_LENGTH_STUDS)
 local HAND_LEFT_SIZE = uniformTo(HAND_LEFT_NATURAL, HAND_LENGTH_STUDS)
 
@@ -733,7 +735,13 @@ Assets.ROWS = {
 		key = "gun.stock",
 		version = 1,
 		kind = "meshpart" :: Kind,
-		scope = "viewmodel" :: string?,
+		-- RETIRED BY TASK 105, and that is what this scope says. Karen replaced the whole gun with
+		-- model B on 2026-10-02; model B's frame group IS a stock, so nothing draws this one. The
+		-- row and its id stay (rule 7) and `keysFor` no longer answers with it, because no boot line
+		-- asks for the scope "retired". `supersededBy` would be the wrong field: it takes a VERSION
+		-- of this same key, and there is no `gun.stock` v2 -- the thing that replaced it is a
+		-- different model under a different key.
+		scope = "retired" :: string?,
 		-- Uploaded by tools/roblox_upload.py on 2026-10-01; the row it wrote is in
 		-- assets/uploads.json, and this id is that row's assetId.
 		modelId = 115346777423870,
@@ -766,7 +774,7 @@ Assets.ROWS = {
 		-- 0.003 of a unit on every axis, which is 2e-5 studs at this scale.
 		offsetStuds = Vector3.zero,
 		-- THE MESH ITSELF IS NOT MIS-ORIENTED, so there is nothing to correct here. How it is TURNED
-		-- to lie on the gun is the gun's business and lives in `Gun.WOOD_ROTATION_DEG`: the same
+		-- to lie on the gun is the gun's business and lives in `Gun.MESH_ROTATION_DEG` (task 99 called it `Gun.WOOD_ROTATION_DEG`): the same
 		-- model on a different gun would be turned differently, and this row describes the model.
 		rotationDeg = Vector3.zero,
 		renderFidelity = "Automatic",
@@ -858,6 +866,156 @@ Assets.ROWS = {
 		notes = "The same glove and cuff, palm up and cupped, thumb raised: the hand a shooter "
 			.. "cradles the forend in. Smooth shading at 70 degrees (268 of 3,093 edges kept sharp, "
 			.. "against 1,479 the file arrived flagged with). Metalness written to 0.",
+	},
+	-- ------------------------------------------------- model B, Karen's chosen gun (task 105)
+	--
+	-- KAREN, 2026-10-02, on the exact-geometry gun tasks 99 to 103 built: "bad". She then picked a
+	-- professional model and downloaded it, and gave the upload OK the same morning (~09:20, verbatim
+	-- "upload ok"):
+	--
+	--   "Double Barrel Shotgun" by Ryan_Nein
+	--   https://sketchfab.com/3d-models/double-barrel-shotgun-063cb20627ea40b0915f9d9eeb65c8dd
+	--   CC-BY-4.0: commercial use allowed, THE AUTHOR MUST BE CREDITED.
+	--
+	-- THE CREDIT IS A LICENCE CONDITION AND IT IS KEPT IN THREE PLACES, on purpose: `CREDITS.md` at
+	-- the root of the repository, the `attribution` field of each row below (which is what this
+	-- manifest exists for), and the uploaded asset's own description on Roblox, which is the copy
+	-- that travels with the file. `assets/uploads.json` holds the fourth, with the sha256 of exactly
+	-- what was sent.
+	--
+	-- TWO ROWS FOR ONE MODEL, because a break-action hinges and one MeshPart cannot.
+	-- `tools/gltf_split.py` splits the glTF BY NODE at the hinge and gives both halves the WHOLE
+	-- gun's bounding box with two anchor triangles, so they import at one size and one origin --
+	-- which is why both rows carry the same `sizeStuds` and a zero `offsetStuds`, exactly as
+	-- `shotgun.handle` v9 and `shotgun.barrels` do. That trick is task 96's.
+	--
+	-- `sizeStuds` COMES FROM `Gun`, not from a number typed twice: the model is scaled UNIFORMLY so
+	-- its own length is `HANDLE_SIZE.Z` and the other two axes are whatever the gun's proportions
+	-- give (design 6.1), and `Gun.MESH_SIZE_STUDS` is that. The natural box below is the MEASURED one
+	-- (the prep run's `model.glb` position accessors, times the hundred Roblox's FBX import applies),
+	-- and it matches `sizeStuds` exactly because `tools/gltf_split.py` already wrote the file in
+	-- studs.
+	{
+		key = "gun.barrels",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel" :: string?,
+		-- Uploaded by tools/roblox_upload.py on 2026-10-02; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		modelId = 114543475864056,
+		displayName = "Driven Hunt model B barrel group r1",
+		fileName = "model.fbx",
+		sourceSha256 = "fa66b378b4e1f0ad1930bb3e485df2e8c4cca46b91269e33012b47fc6cf62f9c",
+		source = "creator-store" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "cc-by-4.0",
+			quote = "Model License: license type: CC-BY-4.0 "
+				.. "(http://creativecommons.org/licenses/by/4.0/); requirements: Author must be "
+				.. "credited. Commercial use is allowed.",
+			quotedFrom = "license.txt, shipped with the Sketchfab download of the model",
+			readOn = "2026-10-02",
+			attribution = 'This work is based on "Double Barrel Shotgun" '
+				.. "(https://sketchfab.com/3d-models/double-barrel-shotgun-063cb20627ea40b0915f9d9eeb65c8dd) "
+				.. "by Ryan_Nein (https://sketchfab.com/Ryan_Nein) licensed under CC-BY-4.0 "
+				.. "(http://creativecommons.org/licenses/by/4.0/)",
+		},
+		added = "2026-10-02",
+		moderation = "approved" :: Moderation,
+		-- MEASURED by the prep run: 268 of the model's own triangles plus the two anchors.
+		trisDeclared = 270,
+		texturePx = 1024,
+		sizeStuds = Gun.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(440.0, 66.1652, 15.5427),
+		-- The anchor triangles put the box's centre at the model's own, so the pivot IS the centre.
+		offsetStuds = Vector3.zero,
+		-- The model arrives with its long axis along X (the prep run measured it), and this gun's is
+		-- Z. `Gun.MESH_ROTATION_DEG` is the one place that quarter turn is written down.
+		rotationDeg = Vector3.new(0, Gun.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The half that swings: two 12-gauge tubes, open at both ends, and the chequered "
+			.. "forend with its steel iron. Looked at before it was called done "
+			.. "(render_three-quarter.png, render_muzzle.png): dark blued barrels, two round dark "
+			.. "bore openings with a thin wall, walnut forend. The artist's own base colour, normal "
+			.. "and ORM maps, resized to 1024 and the ORM split into the two single-channel maps "
+			.. "Roblox needs; nothing recoloured.",
+	},
+	{
+		key = "gun.frame",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel" :: string?,
+		modelId = 123900401924976,
+		displayName = "Driven Hunt model B frame group r1",
+		fileName = "model.fbx",
+		sourceSha256 = "a1781c8eee093a1948437bce3aa43221ce9abb37b2712d969a05c17494a1f34e",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = {
+			basis = "cc-by-4.0",
+			quote = "Model License: license type: CC-BY-4.0 "
+				.. "(http://creativecommons.org/licenses/by/4.0/); requirements: Author must be "
+				.. "credited. Commercial use is allowed.",
+			quotedFrom = "license.txt, shipped with the Sketchfab download of the model",
+			readOn = "2026-10-02",
+			attribution = 'This work is based on "Double Barrel Shotgun" '
+				.. "(https://sketchfab.com/3d-models/double-barrel-shotgun-063cb20627ea40b0915f9d9eeb65c8dd) "
+				.. "by Ryan_Nein (https://sketchfab.com/Ryan_Nein) licensed under CC-BY-4.0 "
+				.. "(http://creativecommons.org/licenses/by/4.0/)",
+		},
+		added = "2026-10-02",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 540,
+		texturePx = 1024,
+		sizeStuds = Gun.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(440.0, 66.1652, 15.5427),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, Gun.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The half that does not swing: the silver action, the chequered walnut stock with "
+			.. "its pistol grip, the trigger, the guard, the top lever and the safety. Looked at "
+			.. "before it was called done (render_three-quarter.png).",
+	},
+	{
+		key = "gun.shell",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel" :: string?,
+		modelId = 122800102017287,
+		displayName = "Driven Hunt model B shell r1",
+		fileName = "model.fbx",
+		sourceSha256 = "8fb0221506322e651fa4f1712fe90381a0657b15d6173842b3df9a1976e14b33",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = {
+			basis = "cc-by-4.0",
+			quote = "Model License: license type: CC-BY-4.0 "
+				.. "(http://creativecommons.org/licenses/by/4.0/); requirements: Author must be "
+				.. "credited. Commercial use is allowed.",
+			quotedFrom = "license.txt, shipped with the Sketchfab download of the model",
+			readOn = "2026-10-02",
+			attribution = 'This work is based on "Double Barrel Shotgun" '
+				.. "(https://sketchfab.com/3d-models/double-barrel-shotgun-063cb20627ea40b0915f9d9eeb65c8dd) "
+				.. "by Ryan_Nein (https://sketchfab.com/Ryan_Nein) licensed under CC-BY-4.0 "
+				.. "(http://creativecommons.org/licenses/by/4.0/)",
+		},
+		added = "2026-10-02",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 96,
+		texturePx = 256,
+		-- NO ANCHORS AND ITS OWN BOX: a loose cartridge in the gun's bounding box would be a
+		-- 4.4-stud MeshPart. `tools/gltf_split.py` gives it its own frame as well -- the artist left
+		-- it lying at an angle -- measured the same way the gun's is, at the GUN'S scale, so this is
+		-- the size a 12-gauge really is in this gun's chambers.
+		sizeStuds = Gun.SHELL_MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(13.685, 6.5588, 6.5577),
+		offsetStuds = Vector3.zero,
+		-- The mouth is at the file's +X, the same convention the gun's muzzle is written in, so it
+		-- takes the same quarter turn.
+		rotationDeg = Vector3.new(0, Gun.SHELL_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "A red 12-gauge shotshell with a brass head. Looked at before it was called done "
+			.. "(render_three-quarter.png): red hull, brass head with lettering on it.",
 	},
 } :: { AssetRow }
 

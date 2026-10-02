@@ -85,14 +85,14 @@ local folder = Instance.new("Folder")
 folder.Name = HandAssets.FOLDER_NAME
 folder.Parent = ReplicatedStorage
 
--- THE NEW GUN'S WOOD (task 99), parked in its own folder for the same reason the hands have one:
+-- MODEL B'S GUN PIECES (task 105; task 99's wood before it), parked in their own folder for the same reason the hands have one:
 -- `InsertService:LoadAsset` is server-only, so the server loads and publishes and
 -- `Camera.Viewmodel` clones. A SEPARATE folder because they are a different thing with a
 -- different owner -- `Gun` names these, `HandAssets` names those -- and because a client that
 -- draws the old gun has no use for either.
-local woodFolder = Instance.new("Folder")
-woodFolder.Name = Gun.FOLDER_NAME
-woodFolder.Parent = ReplicatedStorage
+local gunFolder = Instance.new("Folder")
+gunFolder.Name = Gun.FOLDER_NAME
+gunFolder.Parent = ReplicatedStorage
 
 local reports = Loader.preload(Assets.keysFor("viewmodel"))
 for _, loaded in ipairs(reports) do
@@ -135,27 +135,46 @@ for name, key in pairs(HandAssets.KEY_OF) do
 end
 print(string.format("[ViewmodelAssets] published %d of 2 hand template(s)", published))
 
--- THE WOOD, by the same three rules as the hands: the CONSUMER sets the size (uniformly, from
--- the row), everything says scenery, and a piece that did not load is simply absent --
--- `Camera.Viewmodel` then draws the exact-geometry part that is already in `Gun.pieces`, so the
--- gun has a stock either way and the silhouette does not depend on an upload.
-local wood = 0
-for name, key in pairs(Gun.WOOD_KEYS) do
+-- MODEL B, by the same three rules as the hands: the CONSUMER sets the size (from the row),
+-- everything says scenery, and a piece that did not load is simply absent -- `Camera.Viewmodel`
+-- then draws the measured box `Gun.pieces` carries as that group's fallback, so the gun has a
+-- silhouette either way and does not depend on an upload.
+--
+-- TWO HINGE GROUPS AND A SHELL, under one folder, named by `Gun.MESH_KEYS` and `Gun.SHELL_KEY` so
+-- the server and the camera cannot disagree about which half swings.
+local gunParts = 0
+local function publishGunPiece(name: string, key: string)
 	local template = Loader.template(key)
 	local row = Assets.byKey(key)
-	if template and template:IsA("BasePart") and row then
-		local worn = (template :: BasePart):Clone()
-		worn.Name = name
-		worn.Size = row.sizeStuds
-		showItsOwnColour(worn, row, Enum.Material.Wood)
-		worn.Anchored = true
-		worn.CanCollide = false
-		worn.CanQuery = false
-		worn.CanTouch = false
-		worn.Massless = true
-		worn.CastShadow = false
-		worn.Parent = woodFolder
-		wood += 1
+	if not (template and template:IsA("BasePart") and row) then
+		return
 	end
+	local worn = (template :: BasePart):Clone()
+	worn.Name = name
+	worn.Size = row.sizeStuds
+	-- THE ARTIST'S OWN MATERIAL AND MAPS ARE LEFT ALONE, which is the one way this differs from the
+	-- hands. Model B arrives with a base colour, a normal and the two shine maps its author painted,
+	-- and the whole reason Karen chose it is that they are better than anything this repo would pick
+	-- for it. `showItsOwnColour` -- the white-glove fix -- is the fallback for a part whose colour
+	-- map does NOT draw, and it needs a `textureId` that only a plugin context can read off a loaded
+	-- asset. These rows have none yet, so this calls it only if one is ever written in.
+	if row.textureId ~= nil or row.fallbackColor ~= nil then
+		showItsOwnColour(worn, row, worn.Material)
+	end
+	worn.Anchored = true
+	worn.CanCollide = false
+	worn.CanQuery = false
+	worn.CanTouch = false
+	worn.Massless = true
+	worn.CastShadow = false
+	worn.Parent = gunFolder
+	gunParts += 1
 end
-print(string.format("[ViewmodelAssets] published %d wooden gun piece(s)", wood))
+
+for name, key in pairs(Gun.MESH_KEYS) do
+	publishGunPiece(name, key)
+end
+-- The shell is not a hinge group, so it is not in `Gun.MESH_KEYS`; it is published here because it
+-- comes from the same model, through the same loader, into the same folder.
+publishGunPiece(Gun.SHELL_TEMPLATE_NAME, Gun.SHELL_KEY)
+print(string.format("[ViewmodelAssets] published %d of 3 model B gun piece(s)", gunParts))

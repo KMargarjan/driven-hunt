@@ -550,7 +550,84 @@ HAND_RECIPE = {
 }
 
 
-PRESETS = {"gun": DEFAULT_RECIPE, "animal": ANIMAL_RECIPE, "hand": HAND_RECIPE}
+# THE MODEL-B PRESET (task 105). Karen looked at the overnight exact-geometry gun on 2026-10-02 and
+# said "bad", then picked a professional CC-BY model: "Double Barrel Shotgun" by Ryan_Nein,
+# CC-BY-4.0, 806 triangles for the whole gun, with 2048 base-colour, ORM and normal maps. It is
+# split into its hinge groups and aligned to the game's frame by `tools/gltf_split.py` BEFORE this
+# runs; what reaches here is one group, one material, already in studs.
+#
+# WHAT THIS PRESET IS FOR, AND IT IS TWO THINGS:
+#   1. THE SHADING. The gun is 806 triangles, so its barrel tubes are a handful of flats each. Roblox
+#      reads only smoothing GROUPS out of an FBX (measured in task 94: tubes that were smooth in
+#      Blender's own render arrived as a herringbone of flat triangles), so the mesh is shaded smooth
+#      by angle here and exported with `FACE` smoothing. 35 degrees, which is the GUN preset's number
+#      and for the gun preset's reason: a gun has real edges -- the action's flats, the breech face,
+#      the trigger guard -- and 35 keeps them while rounding the tubes a player looks along.
+#   2. THE TEXTURES DOWN TO 1024, and the ORM map SPLIT into the two single-channel maps Roblox's
+#      SurfaceAppearance needs (G is roughness, B is metalness, per the glTF spec). That split is the
+#      one thing in the pipeline this model cannot do without.
+#
+# NOTHING IS RECOLOURED AND NO SHINE NUMBER IS WRITTEN. This is a professional artist's work with its
+# own blued steel, silver action and chequered walnut -- the Director rendered it and Karen chose it
+# from that render -- so the base colour is `skip`ped and both shine targets are `None`, which is the
+# recipe's word for "keep what the file says". The gun preset's colour targets exist because Meshy's
+# output needed them; this model does not.
+#
+# NO REBUILD AND NO PLANE SPLIT. `rebuildBarrels` is `None`, which turns BOTH off: these barrels are
+# the reason the model was chosen, and the split that matters here was by NODE and has already
+# happened.
+MODEL_B_RECIPE = {
+    "tool": TOOL_VERSION,
+    # 806 triangles for the whole gun against Roblox's 20,000 per mesh: there is nothing to decimate.
+    "targetTriangles": None,
+    "smoothAngleDeg": 35,
+    "rebuildBarrels": None,
+    # 1024, which is the Director's call for this task and the size Karen's stock already ships at.
+    # The maps arrive at 2048 (the shell's at 256); nothing is resized silently and the report prints
+    # every size before and after.
+    "workPx": 1024,
+    "renderPx": 1100,
+    "renderSamples": 32,
+    "maskDilatePx": 4,
+    "regionColorSpace": "linear",
+    "frontAtMin": None,
+    "regionSmoothRounds": 3,
+    "maxRegionSpeckle": 0.01,
+    "maxSurfaceDrift": 45,
+    "renderSource": True,
+    "maxEdgeDensityRatio": 1.25,
+    "maskFeatherPx": 6,
+    # ONE REGION, THE CATCH-ALL, exactly as the hand preset's: this is one material, and a plan that
+    # pretended otherwise would be a plan whose numbers nothing reads.
+    "regionPlan": [
+        {"name": "asIs"},
+    ],
+    # FOUR CAMERAS, named for where they stand. No `targetAlong` view: those frame a point along the
+    # WHOLE gun's axis, and what is photographed here is one hinge group -- a frame group has no
+    # muzzle to stand in front of.
+    "views": [
+        {"name": "side", "dir": [0.0, -1.0, 0.06], "distanceSpan": 1.2, "orthoSpan": 1.08},
+        {"name": "top", "dir": [0.0, -0.02, 1.0], "distanceSpan": 1.2, "orthoSpan": 1.08},
+        {"name": "muzzle", "dir": [-1.0, -0.015, 0.02], "distanceSpan": 1.3, "orthoCross": 2.8},
+        {"name": "three-quarter", "dir": [-0.7, -1.0, 0.38], "distanceSpan": 0.75},
+    ],
+    "regions": {
+        "asIs": {
+            # THE ARTIST'S OWN COLOURS AND HIS OWN SHINE. `skip` is the recipe's vocabulary for "these
+            # pixels are already what they should be", and a `None` target is the same for a shine
+            # channel: the map is split, resized and exported, and not one number in it is moved.
+            "baseColor": {"skip": True},
+            "metallic": None,
+            "roughness": None,
+        },
+    },
+    "channelWeight": {"metallic": 1.0, "roughness": 0.85},
+    "maxShineDrift": 0.08,
+}
+
+
+PRESETS = {"gun": DEFAULT_RECIPE, "animal": ANIMAL_RECIPE, "hand": HAND_RECIPE,
+           "model-b": MODEL_B_RECIPE}
 
 
 def glb_triangles(path):

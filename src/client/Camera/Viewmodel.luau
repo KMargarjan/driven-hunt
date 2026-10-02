@@ -51,9 +51,9 @@ local stale = false
 -- one layer over. MEASURED: the server loads Karen's stock through `InsertService` and publishes it
 -- about 1.6 s into a session, and the viewmodel has usually built its gun before that -- so the
 -- first build takes the exact-geometry fallback and, with nothing to make it stale, KEEPS it for the
--- whole life of that clone. The gun had a plain stock all session and `stats().woodDrawn` said 0.
+-- whole life of that clone. The gun had a plain stock all session and `stats().meshesDrawn` said 0.
 -- Counted rather than told: this module still knows nothing about asset ids or load order.
-local builtWood = -1
+local builtMeshes = -1
 
 -- THE NAMES THIS MODULE LOOKS FOR ON THE CLONE (task 90). `Sight` is written by
 -- `ServerScriptService.Weapon.Hardware` and comes across with the clone; `Bead` is the parts gun's
@@ -91,7 +91,7 @@ local stats = {
 	-- How many of the new gun's wooden pieces were Karen's uploaded MESH rather than the piece
 	-- list's own part (task 99). A gun with plain wood is a real state -- the upload did not load --
 	-- and it must be visible in a number rather than only on screen.
-	woodDrawn = 0,
+	meshesDrawn = 0,
 }
 
 -- THE HANDS (task 93). `handsOn` is not a cache of what is on screen -- the Instances are that -- it
@@ -188,7 +188,7 @@ function Viewmodel.clear()
 	handsMissingCounted = false
 	table.clear(ridersLocal)
 	builtFrom = nil
-	builtWood = -1 -- the next clone counts its own wood (task 99)
+	builtMeshes = -1 -- the next clone counts its own wood (task 99)
 	for _, connection in ipairs(childWatchers) do
 		connection:Disconnect()
 	end
@@ -347,11 +347,53 @@ end
 -- with no brass head at all, which is also why there was nothing to show at a chamber mouth. The
 -- three parts now lie end to end along the shell's own X, mouth forward, from the ONE layout
 -- `Gun.shellLayout` owns -- the same one `Gun.chamber` seats the shell by.
+--
+-- SINCE TASK 105 THE SHELL IS MODEL B'S OWN CARTRIDGE where the server has published it: a red
+-- 12-gauge hull with a brass head, which is what the artist drew and what the chambers it goes in
+-- were drawn around. The three cylinders stay as the fallback, for the reason every fallback in this
+-- file stays: an upload that did not load must leave a shell, not nothing.
+local function gunTemplate(name: string): BasePart?
+	local folder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
+	local found = if folder then folder:FindFirstChild(name) else nil
+	return if found and found:IsA("BasePart") then found :: BasePart else nil
+end
+
+-- HOW FAR BEHIND A SHELL'S PIVOT ITS RIM IS, which is the one number that seats it: `Gun.chamber`
+-- says where the RIM goes and `PivotTo` places the PIVOT. The mesh shell's pivot is its own bounding
+-- box centre -- Roblox puts it there, and `assets/uploads.json`'s row records that the model's centre
+-- is its box's -- so half its length is the answer; the drawn one's pivot is its Body part, and
+-- `Gun.shellLayout` owns that answer.
+local function shellBack(config): number
+	if config.NEW_GUN == true and gunTemplate(Gun.SHELL_TEMPLATE_NAME) ~= nil then
+		return Gun.SHELL_MESH_SIZE_STUDS.X / 2
+	end
+	return Gun.shellLayout(config.SHELL_SIZE_STUDS, config.SHELL_BASE_FRACTION).back
+end
+
 local function makeShell(name: string, config, parent: Instance): Model
 	local shell = Instance.new("Model")
 	shell.Name = name
 	local size = config.SHELL_SIZE_STUDS
 	local layout = Gun.shellLayout(size, config.SHELL_BASE_FRACTION)
+	local template = if config.NEW_GUN == true then gunTemplate(Gun.SHELL_TEMPLATE_NAME) else nil
+	if template ~= nil then
+		-- ONE PART, AT THE MODEL'S ORIGIN. Its long axis is its own X with the MOUTH at +X -- the
+		-- same convention `Gun.shellLayout` lays the drawn one out in -- so the quarter turn
+		-- `Viewmodel.shells` applies when it places the model turns both the same way.
+		local part = template:Clone()
+		part.Name = "Body"
+		part.CFrame = CFrame.new()
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.Massless = true
+		part.CastShadow = false
+		part.Parent = shell
+		shell.PrimaryPart = part
+		shell.Parent = parent
+		return shell
+	end
 	local pieces = {
 		{
 			name = "Body",
@@ -421,8 +463,7 @@ local function chamberOffset(barrel: number, config): CFrame
 		-- What `PivotTo` places is the model's pivot, its Body, so the shell is backed off by its
 		-- own `back` -- from the same layout `makeShell` draws it from, so the rim lands where this
 		-- says it does.
-		local layout = Gun.shellLayout(config.SHELL_SIZE_STUDS, config.SHELL_BASE_FRACTION)
-		return Gun.chamber(barrel, Shotgun.CONFIG) * CFrame.new(0, 0, -layout.back)
+		return Gun.chamber(barrel, Shotgun.CONFIG) * CFrame.new(0, 0, -shellBack(config))
 	end
 	local across = Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG)
 	local breechZ = Shotgun.CONFIG.HANDLE_SIZE.Z * (0.62 - 0.5)
@@ -646,42 +687,33 @@ local function buildNewGun(config): Model
 	barrels.CFrame = handle.CFrame * CFrame.new(0, 0, at.barrelZ)
 	barrels.Parent = handle
 
-	-- KAREN'S WOOD WHERE THERE IS ANY (task 99). The METAL is exact geometry because Meshy is weak
-	-- on machined surfaces; the WOOD is exactly what Meshy is good at, so the forend and the stock
-	-- are her own models when the server has published them and the piece list's own part when it
-	-- has not. The silhouette is the same either way -- `Gun.WOOD_LENGTH_STUDS` is what the mesh is
-	-- scaled to -- so a gun whose upload failed to load is a gun with a plain wooden stock, not a
-	-- gun with a hole in it.
-	local woodFolder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
-	local function woodFor(name: string): BasePart?
-		local found = if woodFolder then woodFolder:FindFirstChild(name) else nil
+	-- MODEL B WHERE THE SERVER HAS PUBLISHED IT (task 105), and the measured box where it has not.
+	-- Karen chose this model after calling the drawn gun "bad"; `ServerScriptService.
+	-- ViewmodelAssetsBoot` loads its two hinge groups and parks them in `Gun.FOLDER_NAME`, and this
+	-- clones them. A group whose upload did not load is drawn as the box `Gun.pieces` carries for it,
+	-- so a gun that failed to load is a plain dark gun and not a hole where a gun should be.
+	local gunFolder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
+	local function meshFor(name: string): BasePart?
+		local found = if gunFolder then gunFolder:FindFirstChild(name) else nil
 		return if found and found:IsA("BasePart") then found :: BasePart else nil
 	end
 
 	-- COUNTED PER BUILD, NOT FOR EVER (TASKS.md 99a(g)): this was incremented per piece per build and
-	-- never reset, so after one stale rebuild `stats().woodDrawn` read 4 for a two-piece gun while
-	-- `builtWood` had been reset to -1 by `clear()`. It answers "how much of Karen's wood is on the
-	-- gun that is on screen", which is a fact about THIS build.
-	stats.woodDrawn = 0
-	-- ...and the taper ahead of the forend exists only while there is no forend MESH: a mesh forend
-	-- is the whole splinter, tip included (`Gun.WOOD_LENGTH_STUDS`).
-	local hasForendMesh = woodFor(Gun.FOREND_NAME) ~= nil
+	-- never reset, so after one stale rebuild it read 4 for a two-piece gun. It answers "how much of
+	-- the real model is on the gun that is on screen", which is a fact about THIS build.
+	stats.meshesDrawn = 0
 	for _, piece in ipairs(Gun.pieces(Shotgun.CONFIG)) do
-		if piece.name == Gun.FOREND_TIP_NAME and hasForendMesh then
-			continue
-		end
-		local wood = if Gun.WOOD_KEYS[piece.name] ~= nil then woodFor(piece.name) else nil
+		local mesh = if piece.meshKey ~= nil then meshFor(piece.name) else nil
 		local part: BasePart
 		local offset = piece.offset
-		if wood ~= nil then
+		if mesh ~= nil then
 			-- The SIZE came from the manifest when the server published it (the consumer sets it,
-			-- design 6.1); the TURN is this gun's, because the same model on another gun would be
-			-- turned differently. `woodOffset` is where a MESH goes, which differs from where the
-			-- drawn PART goes whenever that part's shape carries a turn of its own (a Cylinder).
-			part = wood:Clone()
-			offset = (piece.woodOffset or piece.offset)
-				* CFrame.Angles(0, math.rad(Gun.WOOD_ROTATION_DEG[piece.name]), 0)
-			stats.woodDrawn += 1
+			-- design 6.1); `meshOffset` is where the MESH goes, which is not where the fallback BOX
+			-- goes -- both halves of the model carry the WHOLE gun's bounding box, so a mesh sits at
+			-- the gun's centre while a fallback box sits at its own group's.
+			part = mesh:Clone()
+			offset = piece.meshOffset or piece.offset
+			stats.meshesDrawn += 1
 		else
 			local made_ = Instance.new("Part")
 			made_.Size = piece.size
@@ -721,7 +753,7 @@ local function buildNewGun(config): Model
 		addFillLight(handle, config)
 	end
 
-	builtWood = if woodFolder then #woodFolder:GetChildren() else 0
+	builtMeshes = if gunFolder then #gunFolder:GetChildren() else 0
 	stats.rebuilds += 1
 	local parts = 0
 	for _, descendant in ipairs(made:GetDescendants()) do
@@ -835,10 +867,10 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 		cachedHandle = source()
 		-- AND WHETHER THE WOOD HAS ARRIVED SINCE THE GUN WAS BUILT (task 99). On the same throttle
 		-- as the source, for the same reason: it is a container lookup, not something a frame needs.
-		-- `builtWood` is -1 until a new gun has been built, so this never fires for the cloned one.
-		if config.NEW_GUN == true and builtWood >= 0 then
+		-- `builtMeshes` is -1 until a new gun has been built, so this never fires for the cloned one.
+		if config.NEW_GUN == true and builtMeshes >= 0 then
 			local folder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
-			if (if folder then #folder:GetChildren() else 0) ~= builtWood then
+			if (if folder then #folder:GetChildren() else 0) ~= builtMeshes then
 				stale = true
 			end
 		end
