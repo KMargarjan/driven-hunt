@@ -67,7 +67,7 @@ Gun.BARREL_FRACTION = 28 / 45
 -- as a 12-gauge pair at 3.65 studs.
 local BARREL_DIAMETER = 0.145
 local BARREL_GAP = 0.152 -- centre to centre: the two tubes touch, so they read as ONE pair
-local BARREL_Y = 0.12 -- the bore line, and the action's top face
+local BARREL_Y = 0.12 -- the bore line. The action's top is the WATER TABLE, half a tube below it
 local RIB_WIDTH = 0.072
 local RIB_THICK = 0.022
 -- THE BORE, FAKED, SAID TO BE FAKED, AND ON THE OUTSIDE OF THE TUBE (round 2, finding 1). A Cylinder
