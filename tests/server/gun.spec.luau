@@ -17,6 +17,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+local Poses = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -461,6 +462,36 @@ return function()
 			expect((body.woodOffset :: CFrame).Rotation).to.equal(CFrame.identity)
 			local wanted = Gun.WOOD_LENGTH_STUDS[Gun.FOREND_NAME]
 			expect(math.abs(wanted - (body.size.X + tip.size.X)) < 1e-6).to.equal(true)
+		end)
+
+		it("seeds the left hand ON THE FOREND, in the frame the viewmodel actually poses it in", function()
+			-- ROUND 1'S FINDING, AND IT IS WHY THIS CASE EXISTS. The seed was computed in the BARREL
+			-- GROUP's frame and the viewmodel poses hands in the GUN's: `Camera.Viewmodel.update`
+			-- passes `Viewmodel.hinge(gun, state, config)` as `barrelsCFrame`, and that is
+			-- `gunCFrame * swing` -- identity with the gun shut -- NOT the `Barrels` part's own
+			-- CFrame, which is `handle.CFrame * CFrame.new(0, 0, at.barrelZ)` and is never passed to
+			-- anything. The two frames are `at.barrelZ` = -0.831 studs apart, so a number right in
+			-- one puts the glove at the breech in the other: two hands at the grip and none on the
+			-- wood. Nothing caught it, because no spec read these three numbers at all.
+			--
+			-- THE BOUND IS THE WOOD'S OWN EXTENT, read off `Gun.pieces` rather than written down, so
+			-- moving the splinter moves the bound with it.
+			local front, rear = math.huge, -math.huge
+			for _, piece in ipairs(pieces) do
+				if piece.name == Gun.FOREND_NAME or piece.name == Gun.FOREND_TIP_NAME then
+					-- A Cylinder lying along the gun carries its length on its own X.
+					front = math.min(front, piece.offset.Position.Z - piece.size.X / 2)
+					rear = math.max(rear, piece.offset.Position.Z + piece.size.X / 2)
+				end
+			end
+			expect(front < rear).to.equal(true)
+			TestKit.note(string.format("task100 the splinter spans z %.4f to %.4f", front, rear))
+			for _, pose in ipairs({ "carry", "aim", "reload" }) do
+				local seeded = Poses.DATA.newGun[pose].left.pos
+				TestKit.note(string.format("task100 newGun.%s.left.pos.z = %.4f", pose, seeded.z))
+				expect(seeded.z >= front).to.equal(true)
+				expect(seeded.z <= rear).to.equal(true)
+			end
 		end)
 
 		it("costs the budget the note states, so growth is a decision", function()

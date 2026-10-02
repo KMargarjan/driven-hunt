@@ -584,8 +584,8 @@ function Gun.pieces(config): { Piece }
 
 	-- ON THE TOP STRAP, which is where a player looks for them: the lever first, thumbed to the side
 	-- to open the gun, then the safety behind it. Both lie ON the tang, so their tops are
-	-- `TANG_Y + their own thickness` -- still 0.012 clear of the rib's underside, which is the one
-	-- thing the aimed view may not have anything square inside.
+	-- `TANG_Y + their own thickness`: 0.148 for the lever, which is 0.0445 clear of the rib's
+	-- underside at 0.1925 -- and the aimed view may have nothing square inside that.
 	add({
 		name = "TopLever",
 		group = "body",
