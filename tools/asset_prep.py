@@ -567,11 +567,36 @@ HAND_RECIPE = {
 #      SurfaceAppearance needs (G is roughness, B is metalness, per the glTF spec). That split is the
 #      one thing in the pipeline this model cannot do without.
 #
-# NOTHING IS RECOLOURED AND NO SHINE NUMBER IS WRITTEN. This is a professional artist's work with its
-# own blued steel, silver action and chequered walnut -- the Director rendered it and Karen chose it
-# from that render -- so the base colour is `skip`ped and both shine targets are `None`, which is the
-# recipe's word for "keep what the file says". The gun preset's colour targets exist because Meshy's
-# output needed them; this model does not.
+# NOTHING IS RECOLOURED. This is a professional artist's work with its own blued steel, silver action
+# and chequered walnut -- the Director rendered it and Karen chose it from that render -- so every
+# region's base colour is `skip`ped. The gun preset's colour targets exist because Meshy's output
+# needed them; this model does not.
+#
+# BUT THE METALNESS IS WRITTEN DOWN, AND IT WAS MEASURED IN THE GAME (rule 5, task 105). The artist's
+# ORM map says metalness 0.98 over the steel, which is right in any renderer with an environment --
+# and Roblox's environment over an open field is THE SKY. The first upload went in with his numbers
+# untouched and the aimed capture (`.screenshots/20261002T100632Z-pose-aim.png`) showed the barrels
+# as a WHITE mirror filling the lower half: looking down a tube is a grazing angle, and a conductor
+# at a grazing angle returns almost all of what it sees. Destroying the SurfaceAppearance and putting
+# the same colour map on `TextureID` with `SmoothPlastic` did NOT fix it
+# (`...100928Z-pose-aim.png`); `Enum.Material.Fabric`, which has no specular lobe at all, did
+# (`...101019Z-pose-aim.png`) -- so the fault is the specular response, not the texture.
+#
+# THIS IS TASK 100'S FINDING ARRIVING THROUGH A DIFFERENT DOOR. There it was `Enum.Material.Metal`
+# turning the drawn barrels sky-blue; here it is a metalness MAP, which is the channel Roblox
+# actually reads. The numbers are the gun preset's own, for the gun preset's measured reasons:
+#   metallic 0.10 -- "a metal at 1.0 has NO diffuse colour at all: it shows only what it reflects,
+#     and in Roblox daylight that is the sky". 0.10 keeps a trace of the conductor tint and lets the
+#     artist's own albedo do the work.
+#   roughness 0.50 -- at 0.19 the reflection is sharp and bright; at 1.0 it is flat slate. 0.50
+#     spreads the sky into a broad soft sheen along the barrel.
+# The WOOD keeps its own roughness and is written to metalness 0, because walnut is not a metal and a
+# generated map that says it is produces a mirror stock.
+#
+# SO THE PLAN HAS TWO REGIONS, AND THEY ARE SPLIT BY COLOUR ALONE. Position cannot do it here: each
+# hinge group is prepped as its own model, so "0.62 along the gun" means nothing in a file that holds
+# only the barrels. Saturation can -- walnut is a saturated warm brown and every steel surface on
+# this gun is near-neutral -- and it is the same `satMin` 0.18 the gun preset's own forend rule uses.
 #
 # NO REBUILD AND NO PLANE SPLIT. `rebuildBarrels` is `None`, which turns BOTH off: these barrels are
 # the reason the model was chosen, and the split that matters here was by NODE and has already
@@ -597,10 +622,12 @@ MODEL_B_RECIPE = {
     "renderSource": True,
     "maxEdgeDensityRatio": 1.25,
     "maskFeatherPx": 6,
-    # ONE REGION, THE CATCH-ALL, exactly as the hand preset's: this is one material, and a plan that
-    # pretended otherwise would be a plan whose numbers nothing reads.
+    # WOOD FIRST, STEEL AS THE CATCH-ALL. First match wins, so the warm saturated pixels are the
+    # walnut and everything else -- barrels, action, trigger, guard, lever, the forend's steel iron,
+    # and the shell's brass, which wants no mirror either -- is steel.
     "regionPlan": [
-        {"name": "asIs"},
+        {"name": "wood", "when": {"satMin": 0.18, "hueFromDeg": 5.0, "hueToDeg": 60.0}},
+        {"name": "steel"},
     ],
     # FOUR CAMERAS, named for where they stand. No `targetAlong` view: those frame a point along the
     # WHOLE gun's axis, and what is photographed here is one hinge group -- a frame group has no
@@ -612,13 +639,17 @@ MODEL_B_RECIPE = {
         {"name": "three-quarter", "dir": [-0.7, -1.0, 0.38], "distanceSpan": 0.75},
     ],
     "regions": {
-        "asIs": {
-            # THE ARTIST'S OWN COLOURS AND HIS OWN SHINE. `skip` is the recipe's vocabulary for "these
-            # pixels are already what they should be", and a `None` target is the same for a shine
-            # channel: the map is split, resized and exported, and not one number in it is moved.
+        # THE ARTIST'S OWN COLOURS, BOTH TIMES. `skip` is the recipe's vocabulary for "these pixels
+        # are already what they should be".
+        "wood": {
             "baseColor": {"skip": True},
-            "metallic": None,
+            "metallic": 0.0,
             "roughness": None,
+        },
+        "steel": {
+            "baseColor": {"skip": True},
+            "metallic": 0.10,
+            "roughness": 0.50,
         },
     },
     "channelWeight": {"metallic": 1.0, "roughness": 0.85},
@@ -626,8 +657,54 @@ MODEL_B_RECIPE = {
 }
 
 
+def _model_b_steel(target, note):
+    """`model-b` with its STEEL region's base colour moved onto `target`. One recipe, two guns.
+
+    WHY THE STEEL IS RECOLOURED AFTER ALL, AND IT IS THE SECOND HALF OF THE SAME MEASUREMENT. Writing
+    metalness down to 0.10 stopped the sky mirroring (above), and it also took away the thing that
+    was making this model look dark: a conductor's colour is what it REFLECTS, so with the reflection
+    gone what is left is the artist's albedo -- and his albedo is pale. MEASURED off his own atlas at
+    the triangles that use it: the barrels sample RGB(154, 157, 157) and the action RGB(89, 77, 72).
+    The r2 prep renders say the same thing with a picture: `model_b_barrels_r2/render_three-quarter`
+    is a taupe tube and `model_b_frame_r2/render_three-quarter` is a WHITE action.
+    So the albedo has to carry the darkness the reflection used to, exactly as the gun preset's own
+    comment says ("an albedo must not carry the specular highlight ... the gloss comes from
+    roughness, not from a lighter colour") -- and the targets below are that preset's, re-measured
+    for this gun.
+
+    EACH HINGE GROUP IS ITS OWN FILE, which is what makes two targets possible at all: a region plan
+    can only split one model, and "barrels" and "action" are two models here. The barrels go to blued
+    and the action to a case-hardened grey, so the two still read as two materials -- the contrast
+    `tests/server/gun.spec.luau` asserted for the drawn gun, kept for this one.
+    """
+    recipe = json.loads(json.dumps(MODEL_B_RECIPE))
+    recipe["regions"]["steel"]["baseColor"] = {
+        "targetRGB": list(target), "keepHue": True, "satScale": 0.25, "contrast": 1.0,
+    }
+    recipe["modelBNote"] = note
+    return recipe
+
+
+# THE BARRELS: blued steel is near-black with the faintest cool cast. RGB(34, 36, 42) is the gun
+# preset's own measured blued (26, 28, 34) -- the p25 of the barrels in Karen's reference photograph
+# -- lifted by the eight points task 100 measured this place's ambient to swallow.
+MODEL_B_BARRELS_RECIPE = _model_b_steel(
+    (34, 36, 42), "the barrel group: blued tubes and the forend's steel iron")
+# THE ACTION: a case-hardened grey, NOT the silver the artist painted and not the near-black of the
+# barrels. RGB(78, 79, 82) sits between task 103's measured action albedo (62, which was a flat
+# untextured slab and had no engraving to carry) and the reference frame's own metal (median
+# RGB(69, 66, 66), lower quartile RGB(54, 52, 52)). It is about 2.3x the barrels' luminance, which is
+# the contrast that makes a side-by-side read as two materials.
+MODEL_B_FRAME_RECIPE = _model_b_steel(
+    (78, 79, 82), "the frame group: the action, trigger, guard, lever and safety")
+
+
 PRESETS = {"gun": DEFAULT_RECIPE, "animal": ANIMAL_RECIPE, "hand": HAND_RECIPE,
-           "model-b": MODEL_B_RECIPE}
+           # `model-b` itself recolours nothing and is what the SHELL uses: a brass head is already
+           # brass, and the only thing it needed was the metalness written down.
+           "model-b": MODEL_B_RECIPE,
+           "model-b-barrels": MODEL_B_BARRELS_RECIPE,
+           "model-b-frame": MODEL_B_FRAME_RECIPE}
 
 
 def glb_triangles(path):

@@ -21,11 +21,20 @@ The licence's own words, from the `license.txt` shipped with the download: *"lic
 (http://creativecommons.org/licenses/by/4.0/); requirements: Author must be credited. Commercial use
 is allowed."*
 
-What was changed, and nothing else was: `tools/gltf_split.py` split the model into its two hinge
-groups and its shell and aligned them to the game's frame; `tools/asset_prep.py` (the `model-b`
-preset) shaded it smooth by angle, resized the textures to 1024 and split the packed
-occlusion-roughness-metalness map into the two single-channel maps Roblox reads. No pixel was
-recoloured and no shine number was written.
+What was changed, and nothing else was:
+
+- `tools/gltf_split.py` split the model into its two hinge groups and its shell and aligned them to
+  the game's frame. No vertex was added, moved relative to its neighbours, or removed.
+- `tools/asset_prep.py` (the `model-b-barrels`, `model-b-frame` and `model-b` presets) shaded it
+  smooth by angle, resized the textures to 1024, and split the packed
+  occlusion-roughness-metalness map into the two single-channel maps Roblox reads.
+- **The shine was re-tuned for Roblox, and the steel recoloured with it.** The artist's map says
+  metalness 0.98, which is right for steel in any renderer with an environment — and Roblox's
+  environment over an open field is the sky, so in the game the barrels rendered as a white mirror.
+  Metalness is written down to 0.10 and roughness to 0.50, and because a conductor's colour is what
+  it reflects, the steel's base colour then had to carry the darkness the reflection used to: blued
+  for the barrels, case-hardened grey for the action. **The walnut is his, untouched**, and so is
+  every line of the model's own form.
 
 ## Everything else
 

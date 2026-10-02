@@ -189,6 +189,22 @@ local STOCK_SIZE = Vector3.new(1.32, 0.4808, 0.255)
 local HAND_RIGHT_SIZE = uniformTo(HAND_RIGHT_NATURAL, HAND_LENGTH_STUDS)
 local HAND_LEFT_SIZE = uniformTo(HAND_LEFT_NATURAL, HAND_LENGTH_STUDS)
 
+-- THE ONE LICENCE MODEL B IS USED UNDER, written once because it is the same condition on every row
+-- of it and a credit that drifts between copies is a credit nobody can rely on. CC-BY-4.0 asks for
+-- exactly one thing, and `CREDITS.md` carries the same words at the root of the repository.
+local MODEL_B_LICENCE = {
+	basis = "cc-by-4.0",
+	quote = "Model License: license type: CC-BY-4.0 "
+		.. "(http://creativecommons.org/licenses/by/4.0/); requirements: Author must be "
+		.. "credited. Commercial use is allowed.",
+	quotedFrom = "license.txt, shipped with the Sketchfab download of the model",
+	readOn = "2026-10-02",
+	attribution = 'This work is based on "Double Barrel Shotgun" '
+		.. "(https://sketchfab.com/3d-models/double-barrel-shotgun-063cb20627ea40b0915f9d9eeb65c8dd) "
+		.. "by Ryan_Nein (https://sketchfab.com/Ryan_Nein) licensed under CC-BY-4.0 "
+		.. "(http://creativecommons.org/licenses/by/4.0/)",
+}
+
 Assets.ROWS = {
 	{
 		key = "shotgun.handle",
@@ -898,6 +914,7 @@ Assets.ROWS = {
 	{
 		key = "gun.barrels",
 		version = 1,
+		supersededBy = 2, -- task 105: v2 takes the sky mirror out (see the block above v2)
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel" :: string?,
 		-- Uploaded by tools/roblox_upload.py on 2026-10-02; the row it wrote is in
@@ -908,18 +925,7 @@ Assets.ROWS = {
 		sourceSha256 = "fa66b378b4e1f0ad1930bb3e485df2e8c4cca46b91269e33012b47fc6cf62f9c",
 		source = "creator-store" :: Source,
 		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
-		licence = {
-			basis = "cc-by-4.0",
-			quote = "Model License: license type: CC-BY-4.0 "
-				.. "(http://creativecommons.org/licenses/by/4.0/); requirements: Author must be "
-				.. "credited. Commercial use is allowed.",
-			quotedFrom = "license.txt, shipped with the Sketchfab download of the model",
-			readOn = "2026-10-02",
-			attribution = 'This work is based on "Double Barrel Shotgun" '
-				.. "(https://sketchfab.com/3d-models/double-barrel-shotgun-063cb20627ea40b0915f9d9eeb65c8dd) "
-				.. "by Ryan_Nein (https://sketchfab.com/Ryan_Nein) licensed under CC-BY-4.0 "
-				.. "(http://creativecommons.org/licenses/by/4.0/)",
-		},
+		licence = MODEL_B_LICENCE,
 		added = "2026-10-02",
 		moderation = "approved" :: Moderation,
 		-- MEASURED by the prep run: 268 of the model's own triangles plus the two anchors.
@@ -943,6 +949,7 @@ Assets.ROWS = {
 	{
 		key = "gun.frame",
 		version = 1,
+		supersededBy = 2, -- task 105: v2 takes the sky mirror out (see the block above v2)
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel" :: string?,
 		modelId = 123900401924976,
@@ -951,18 +958,7 @@ Assets.ROWS = {
 		sourceSha256 = "a1781c8eee093a1948437bce3aa43221ce9abb37b2712d969a05c17494a1f34e",
 		source = "creator-store" :: Source,
 		creator = "8167651842",
-		licence = {
-			basis = "cc-by-4.0",
-			quote = "Model License: license type: CC-BY-4.0 "
-				.. "(http://creativecommons.org/licenses/by/4.0/); requirements: Author must be "
-				.. "credited. Commercial use is allowed.",
-			quotedFrom = "license.txt, shipped with the Sketchfab download of the model",
-			readOn = "2026-10-02",
-			attribution = 'This work is based on "Double Barrel Shotgun" '
-				.. "(https://sketchfab.com/3d-models/double-barrel-shotgun-063cb20627ea40b0915f9d9eeb65c8dd) "
-				.. "by Ryan_Nein (https://sketchfab.com/Ryan_Nein) licensed under CC-BY-4.0 "
-				.. "(http://creativecommons.org/licenses/by/4.0/)",
-		},
+		licence = MODEL_B_LICENCE,
 		added = "2026-10-02",
 		moderation = "approved" :: Moderation,
 		trisDeclared = 540,
@@ -979,6 +975,7 @@ Assets.ROWS = {
 	{
 		key = "gun.shell",
 		version = 1,
+		supersededBy = 2, -- task 105: v2 takes the sky mirror out (see the block above v2)
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel" :: string?,
 		modelId = 122800102017287,
@@ -987,18 +984,7 @@ Assets.ROWS = {
 		sourceSha256 = "8fb0221506322e651fa4f1712fe90381a0657b15d6173842b3df9a1976e14b33",
 		source = "creator-store" :: Source,
 		creator = "8167651842",
-		licence = {
-			basis = "cc-by-4.0",
-			quote = "Model License: license type: CC-BY-4.0 "
-				.. "(http://creativecommons.org/licenses/by/4.0/); requirements: Author must be "
-				.. "credited. Commercial use is allowed.",
-			quotedFrom = "license.txt, shipped with the Sketchfab download of the model",
-			readOn = "2026-10-02",
-			attribution = 'This work is based on "Double Barrel Shotgun" '
-				.. "(https://sketchfab.com/3d-models/double-barrel-shotgun-063cb20627ea40b0915f9d9eeb65c8dd) "
-				.. "by Ryan_Nein (https://sketchfab.com/Ryan_Nein) licensed under CC-BY-4.0 "
-				.. "(http://creativecommons.org/licenses/by/4.0/)",
-		},
+		licence = MODEL_B_LICENCE,
 		added = "2026-10-02",
 		moderation = "approved" :: Moderation,
 		trisDeclared = 96,
@@ -1016,6 +1002,115 @@ Assets.ROWS = {
 		renderFidelity = "Automatic",
 		notes = "A red 12-gauge shotshell with a brass head. Looked at before it was called done "
 			.. "(render_three-quarter.png): red hull, brass head with lettering on it.",
+	},
+	-- ------------------------------- model B v2: the sky mirror, measured and taken out (task 105)
+	--
+	-- WHAT v1 LOOKED LIKE IN THE GAME, WHICH IS THE ONLY PLACE IT COUNTS (rule 5). The first upload
+	-- carried the artist's own ORM map untouched, as the dispatch asked -- metalness 0.98 over every
+	-- steel surface -- and the aimed capture showed the barrels as a WHITE mirror filling the lower
+	-- half of the frame (`.screenshots/20261002T100632Z-pose-aim.png`). That is task 100's finding
+	-- arriving through a different door: a conductor's colour is what it REFLECTS, and in Roblox
+	-- daylight over an open field that is the sky. Looking DOWN a tube makes it worse, because every
+	-- visible surface is then at a grazing angle.
+	--
+	-- MEASURED IN FOUR STEPS, in a live session, before anything was re-uploaded:
+	--   1. the published texture itself is fine -- put on a Decal in front of the camera it drew the
+	--      whole atlas, walnut and steel (`...100703Z-texprobe.png`);
+	--   2. so is the published MESH -- cloned into Workspace and lit from the side it was a dark
+	--      blued rod (`...100810Z-meshprobe.png`);
+	--   3. `AlphaMode.Transparency`, and then destroying the SurfaceAppearance and putting the same
+	--      colour map on `TextureID` with `SmoothPlastic`, BOTH left it white
+	--      (`...100542Z`, `...100928Z`) -- so it was never the white-glove fault of task 99;
+	--   4. `Enum.Material.Fabric`, which has no specular lobe at all, fixed it on the spot
+	--      (`...101019Z-pose-aim.png`): flat grey tubes with the valley line between them.
+	-- The specular response was the defect, so the fix is in the MAP Roblox reads: metalness 0.10 and
+	-- roughness 0.50, which are the gun preset's own measured numbers for "gloss, not mirror".
+	--
+	-- AND THE ALBEDO HAD TO CARRY THE DARKNESS THE REFLECTION USED TO. With the mirror gone the
+	-- artist's own base colour is what shows, and it is pale: RGB(154, 157, 157) at the barrels'
+	-- triangles and RGB(89, 77, 72) at the action's, so the r2 prep rendered a taupe tube and a WHITE
+	-- action. Each hinge group is its own file, so each gets its own target -- blued RGB(34, 36, 42)
+	-- for the barrels, case-hardened RGB(78, 79, 82) for the action -- and the two still read as two
+	-- materials. `tools/asset_prep.py`'s `model-b-barrels` and `model-b-frame` presets hold both.
+	--
+	-- v1'S ROWS STAY, WITH THEIR IDS (rule 7): they are the record of what was measured.
+	{
+		key = "gun.barrels",
+		version = 2,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel" :: string?,
+		modelId = 113789244777033,
+		displayName = "Driven Hunt model B barrel group r2",
+		fileName = "model.fbx",
+		sourceSha256 = "c7864330609143d0465e655eba81c52e2271eec2272722ef96b4c961e378e286",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = MODEL_B_LICENCE,
+		added = "2026-10-02",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 270,
+		texturePx = 1024,
+		sizeStuds = Gun.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(440.0, 66.1652, 15.5427),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, Gun.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "As v1 -- two 12-gauge tubes open at both ends, and the chequered forend with its "
+			.. "steel iron -- with metalness written down to 0.10, roughness to 0.50 and the steel's "
+			.. "base colour moved onto blued RGB(34, 36, 42) (measured drift 8). Looked at before it "
+			.. "was called done (render_three-quarter.png): deep blued tubes, two round dark bore "
+			.. "openings, walnut forend. The walnut is untouched and written to metalness 0.",
+	},
+	{
+		key = "gun.frame",
+		version = 2,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel" :: string?,
+		modelId = 140462781926086,
+		displayName = "Driven Hunt model B frame group r2",
+		fileName = "model.fbx",
+		sourceSha256 = "061c143fa65dea9e120478e7d59f95a3a751e791c75e26d2288a313c41f595e3",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = MODEL_B_LICENCE,
+		added = "2026-10-02",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 540,
+		texturePx = 1024,
+		sizeStuds = Gun.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(440.0, 66.1652, 15.5427),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, Gun.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "As v1 -- the action, the chequered walnut stock with its pistol grip, the trigger, "
+			.. "the guard, the top lever and the safety -- with metalness 0.10, roughness 0.50 and "
+			.. "the steel's base colour on case-hardened RGB(78, 79, 82). Looked at "
+			.. "(render_three-quarter.png): a dark engraved action against warm walnut.",
+	},
+	{
+		key = "gun.shell",
+		version = 2,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel" :: string?,
+		modelId = 107524331758435,
+		displayName = "Driven Hunt model B shell r2",
+		fileName = "model.fbx",
+		sourceSha256 = "cfdcebdc4c4951e3156fbdd6ee74bb137e239c1cfe590f2906ea63edb54aa955",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = MODEL_B_LICENCE,
+		added = "2026-10-02",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 96,
+		texturePx = 256,
+		sizeStuds = Gun.SHELL_MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(13.685, 6.5588, 6.5577),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, Gun.SHELL_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "As v1 -- a red 12-gauge shotshell with a brass head -- with metalness 0.10 and "
+			.. "roughness 0.50 on the brass. Its colour is NOT recoloured: a brass head is already "
+			.. "brass, so it keeps the `model-b` preset, which moves no pixel.",
 	},
 } :: { AssetRow }
 
