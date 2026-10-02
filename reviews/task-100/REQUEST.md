@@ -1,73 +1,63 @@
 # Task 100 — the new gun's look pass (lean lane, behind `NEW_GUN`)
 
 Task: 100
-Round: 1
+Round: 2
 Base: `e312419` (main, after PR #89)
-Code commit: `5aa672ef42f95794ef6f6580ca57984cef8f7130`
+Code commit: `b18ab732cc39f851fe65f21859b196c5813704fa`
 
 ```
-[harness] PASS: 32/32 checks @ 5aa672ef42f95794ef6f6580ca57984cef8f7130 (clean tree)
-[harness2] PASS: 34/34 checks @ 5aa672ef42f95794ef6f6580ca57984cef8f7130 (clean tree)
+[harness] PASS: 32/32 checks @ b18ab732cc39f851fe65f21859b196c5813704fa (clean tree)
+[harness2] PASS: 34/34 checks @ b18ab732cc39f851fe65f21859b196c5813704fa (clean tree)
 ```
 
-With `NEW_GUN` on: the barrels stopped being sky-blue, the action stopped being a long pale box,
-the forend became a round walnut splinter, and the left hand came off the top of the barrels.
+1. **Round 1's finding was right, and the FRAME was the whole of it.** `Camera.Viewmodel.update`
+   passes `Viewmodel.hinge(gun, state, config)` as `poseHands`'s `barrelsCFrame`, and that is
+   `gunCFrame * swing` — identity with the gun shut — never the `Barrels` part's own CFrame, which
+   is `at.barrelZ` = -0.831 studs away and is passed to nothing. So `0.649`, right in the barrel
+   group's frame, put the glove **0.41 studs behind the forend's rear end**: two hands at the grip
+   and none on the wood, which is what the round-1 reload capture shows. The seed is now the
+   splinter's own centre **in the Handle's frame**, `(0, -0.0275, -0.1822)`, in all three `newGun`
+   poses. Verify: `newGun.*.left.pos` in `poses.json`, and `Gun.pieces`'s `Forend` centre
+   `-0.0622 ± 0.30` with `ForendTip` `-0.4822 ± 0.12` — union z `-0.6022…0.2378`, centre `-0.1822`.
+2. **And a spec now reads those three numbers, which nothing did before.** `gun.spec` "seeds the
+   left hand ON THE FOREND…" computes the `Forend`/`ForendTip` z span from `Gun.pieces` — so the
+   bound moves with the wood rather than being written down — and asserts each pose's
+   `Viewmodel.DATA.newGun.<pose>.left.pos.z` lies inside it. **Mutation-checked**: with `0.649` put
+   back, it fails at `seeded.z <= rear` (`gun.spec:493`, 0.649 against 0.2378) and the harness
+   reports 30/32. Restored, 32/32.
+3. **The steel is a dielectric, because `Metal` was what made it blue.** Roblox `Metal` is a
+   conductor: its specular is the environment times the albedo, and over a field that is the sky.
+   Before: tube pixels median (10, 26, 57), p90 (48, 79, 112). After
+   (`20261002T021833Z-compare-carry.png`, darkest quartile of the gun crop): **p50 (27, 29, 24),
+   p90 (66, 66, 68)**, 219 of 64,903 gun pixels over 90 in any channel — the highlight line. The
+   video target's own barrels are p50 (64, 58, 46), so ours are darker and neutral. Verify:
+   `Gun.LOOK.blued`, `STEEL_MATERIAL`, `gun.spec` "is dielectric…".
+4. **The action's proportions came off the Beretta side photo**: 160 px of action against 1,327 px
+   of barrel = **0.121**, where ours was **0.226**. `ACTION_LENGTH` 0.62 → 0.36 (0.131),
+   `ACTION_WIDTH` 0.30 → 0.255 (0.86 of the barrel pair), and its top face is now the **water
+   table** — the tubes' underside — not the bore line it stood up between them on. `ActionBelly` is
+   an elliptical cylinder of the action's full width and exactly its height; `FenceLeft`/`Right`
+   wrap the chambers inside the standing breech; `TopStrap` carries the lever and the safety. Every
+   body piece's top is now at or below the rib's **underside**, the two round fences excepted.
+   Verify: `gun.spec` "keeps the Beretta side photo's action proportions" and "is silver against
+   blued barrels…".
+5. **The forend is a tapering round splinter in Karen's walnut**, and `woodOffset` is where a MESH
+   goes — a drawn Cylinder carries a quarter turn a mesh must not. Verify: `gun.spec` "gives the
+   forend a round, tapering splinter…".
+6. **From 99a, and the hinge did not move.** Flat bars out of the tubes, hinge hook onto its own
+   pin, `addFillLight` gated on `FIRST_PERSON` as `build` does, `stats.woodDrawn` reset per build.
+   `ACTION_BOTTOM` is pinned at -0.14 so `Gun.hinge` is bit-for-bit task 99's; `gun.spec` asserts
+   the value. The Reviewer is right that these are outside the dispatch's seven items — disclosed in
+   TASKS row 100, and queued as the lesson in 100a(h).
 
-1. **The steel is a dielectric, because `Metal` was what made it blue.** Roblox `Metal` is a
-   conductor: its specular is the ENVIRONMENT times the albedo, and over a field that is the sky, so
-   no albedo could have fixed it. Before (`20261001T215631Z-compare-carry.png`): tube pixels median
-   (10, 26, 57), p90 (48, 79, 112) — blue ≈ 3× red. After (`20261002T021833Z-compare-carry.png`,
-   darkest quartile of the gun crop): **p50 (27, 29, 24), p90 (66, 66, 68)**, and 219 of 64,903 gun
-   pixels exceed 90 in any channel — the highlight line. The video target's own barrels in the same
-   frame are p50 (64, 58, 46), so ours are now darker and neutral rather than blue. Verify:
-   `Gun.LOOK.blued`, `STEEL_MATERIAL`, and `gun.spec` "is dielectric…" — no piece but `Bead` is
-   `Metal` or carries reflectance, and `blued` is neutral and under 40 per channel.
-2. **The action's proportions came off the Beretta side photo.** Segmented by colour: 160 px of
-   action against 1,327 px of barrel = **0.121**; ours was **0.226**. `ACTION_LENGTH` 0.62 → 0.36
-   (0.131), `ACTION_WIDTH` 0.30 → 0.255 (0.86 of the barrel pair). Its top face is now the **water
-   table** — the tubes' underside — not the bore line it stood up between them on. Verify:
-   `gun.spec` "keeps the Beretta side photo's action proportions".
-3. **It is round, and nothing square sits in the sight line.** `ActionBelly` is an elliptical
-   cylinder of the action's full width and exactly its height (a *circular* one of that width would
-   bulge 0.067 studs above the water table); `FenceLeft`/`FenceRight` wrap the chambers inside the
-   standing breech; `TopStrap` carries the lever and the safety. Verify: `gun.spec` "is silver
-   against blued barrels…" — every body piece's top is now at or below the rib's **underside** (was:
-   its top), the two round fences excepted at the tubes' own outline + 0.015.
-4. **The forend is a tapering round splinter in Karen's walnut**, and a mesh still has somewhere to
-   land: `woodOffset` is where a MESH goes, because a drawn Cylinder carries a quarter turn a mesh
-   must not, and `buildNewGun` drops `ForendTip` if a forend mesh is ever published. Verify:
-   `gun.spec` "gives the forend a round, tapering splinter…".
-5. **From 99a, and the hinge did not move.** Flat bars were inside the tubes (y 0.1025…0.1375 of a
-   tube spanning 0.0475…0.1925) and now hang under the water table; the hinge hook hung 0.0275 studs
-   above its own pin and now reaches it; `buildNewGun` gates `addFillLight` on `FIRST_PERSON` as
-   `build` does; `stats.woodDrawn` resets per build. `ACTION_BOTTOM` is pinned at -0.14 so
-   `Gun.hinge` is bit-for-bit task 99's — `gun.spec` asserts the value.
-6. **The left hand is on the forend**, seeded in all three `newGun` poses; it was 0.44 studs forward
-   of the forend's front end, out on the bare tubes, and showed as a glove beside the bead.
-   Verify: `newGun.*.left.pos` in `poses.json` is (0, -0.16, 0.649), the splinter's own centre in
-   the barrel group's frame, and `20261002T021839Z-compare-aim.png` — no glove near the bead.
+**The dispatch's item 7 is answered: FALSE, measured.** In `20261002T012118Z-pose-reload.png` the
+near-white wedge is (139, 148, 165) — the ACTION under `Metal` — while the walnut beside it is
+(144, 79, 49) and (153, 96, 66): Karen's stock was drawn AND textured all along.
 
-**The dispatch's item 7 is answered: FALSE, and it was measured before anything was changed.** In
-`20261002T012118Z-pose-reload.png` the near-white wedge reads (139, 148, 165) — a blue-grey, which
-is the ACTION under `Metal` — while the walnut beside it reads (144, 79, 49) and (153, 96, 66), two
-different values, so Karen's stock was drawn AND textured all along. Nothing was changed for it; the
-action was the white thing in that frame and claim 2 is its fix.
-
-**What the three new captures show, as they are** (`NEW_GUN` on, Player1, 2026-10-02):
-- `021833Z-compare-carry`: near-black tubes with one thin grey highlight down each, crossing lower
-  right to upper left like the target. Bigger in frame than the target, and no hand or stock in it.
-- `021839Z-compare-aim`: the target's layout at last — two round fences, the top strap with its
-  lever, walnut comb in front, bead on the centre cross. But the fences and strap read **pale
-  blue-grey, p50 (155, 161, 173)**, where the target's metal there is dark, and the comb spans only
-  ~15% of the half-frame's width at the bottom against the target's ~50%.
-- `021845Z-pose-reload`: barrels hinged down and near-black (mean 28, 24, 22), a brass rim
-  (mean 156, 127, 97) in one chamber mouth, walnut forend (mean 136, 102, 66) under the left glove.
-  The action still reads pale (mean 131, 132, 131) and the right sleeve's olive cuff fills the right
-  third of the frame.
-
-**Not verified / known open.** The pale metal is NOT the albedo alone — (118, 120, 122) rendering at
-(155, 161, 173) is the viewmodel's own fill light, which no claim here touches; a darker action needs
-that light or `Gun.LOOK.action`, and it is a one-number content change, not this task. The action
-lost 0.26 studs, so the stock moved 0.26 forward; `newGun.aim.eyeReliefStuds` is the dial that brings
-the cheek back onto the comb, and the comb's narrowness is partly that and partly `STOCK_SIZE`. The
-`gun.stock` row still has no `fallbackColor`, so a texture that failed to load would show white.
+**Not verified.** No capture exists for this commit: `pose.py compare` needs a Play session and the
+gate ends its own, so the hand is verified by the spec above and not on screen. Whether the glove
+reads UNDER the wood rather than on it is the rotation triple (`yaw`/`pitch`/`twist`), untouched here
+and the Director's live dial. The fences and top strap still render pale, p50 (155, 161, 173) from an
+albedo of (118, 120, 122) — that is the viewmodel's FILL LIGHT, not the colour, and 100a(i). The
+other seven round-1 notes are queued in TASKS 100a; 100a(b), one false sentence in a comment, was
+corrected here rather than queued.
