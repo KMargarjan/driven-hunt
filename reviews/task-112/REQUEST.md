@@ -1,19 +1,25 @@
 # Task 112 - shooting: the kick, the flash and the noise
 
 Task: 112
-Round: 1
-Base: `task-111-reload-hand` (`0030a56`)
-Code commit: `4ee53b62983b150f544a477e388047cbc181200f`
+Round: 2
+Base: `content-hands-karen-1` (PR #102 was retargeted by the Director)
+Code commit: `ca572f7abab976547f27b391d0b8c7eac06d841b`
 
 ```
-[harness] PASS: 33/33 checks @ 4ee53b62983b150f544a477e388047cbc181200f (clean tree)
-[harness2] PASS: 35/35 checks @ 4ee53b62983b150f544a477e388047cbc181200f (clean tree)
+[harness]  PASS: 33/33 checks @ ca572f7abab976547f27b391d0b8c7eac06d841b (clean tree)
+[harness2] FAIL: 33/35 checks @ ca572f7abab976547f27b391d0b8c7eac06d841b (clean tree)
 ```
+
+**THE TWO-PLAYER LINE IS A FAIL AND IT IS NOT THIS TASK'S** -- both failures are in
+`tests/client/weapon_client.spec.luau`, which this task does not touch, and the run's own notes say
+the shooter was TIED during the drive so his gun was in the backpack by the time the specs ran. It
+reproduced on a second run, so it is not a flake any more; `ESCALATE.md` (2026-10-02) has the
+evidence and asks the Director to decide. The review cannot run until it is.
 
 `test2` is required: `src/client/Camera/Config.luau`, `init.luau`, `CameraBoot.client.luau` and
 `src/client/Weapon/` are all outside `WEAPON_VIEWMODEL_PATHS`.
 
-## Claims
+## Claims (round 2 fixed all four blocking findings)
 
 1. **The kick is the gun's now, not the player's.** `newGun.fire` is model B's own block -- 6.0
    degrees of muzzle rise and 0.20 studs back against the old gun's 4.0 and 0.14, with its own caps,
@@ -22,30 +28,46 @@ Code commit: `4ee53b62983b150f544a477e388047cbc181200f`
    spring was already there and already played on every shot in carry and aim, and both hands follow
    because they are posed in the gun's frame. `viewmodel_poses.spec` now says which block each gun
    reads and that the two differ.
-2. **The flash and the smoke come out of the pipe that fired, on the DRAWN gun.** `Weapon.Effects`
-   draws the WORLD flash for every player's shot; the first-person gun is two studs from the eye and
-   nowhere near it, so `Camera.Viewmodel.flash` draws this one -- a `PointLight` and two
-   `ParticleEmitter`s (a one-burst bloom and a grey puff that rises and thins) parented to the
-   viewmodel at `Viewmodel.muzzle(barrel)`. New gun only, and said twice: the flag, and that the old
-   gun's `fire` block carries no `flash` at all.
-3. **Every number is data**: `newGun.fire.flash` (size, light range and brightness, seconds, how far
+2. **ONE FLASH NOW, NOT TWO** (finding 1, and it was right). `Effects.muzzleFrame` has asked the
+   viewmodel for the SHOOTER'S OWN muzzle since task 92, so the old neon box and grey ball were
+   already at the drawn gun -- round 1's comments said twice that they were "in the world, nowhere
+   near it", which was false, and Karen saw the result: "remove those smokes (white from previous)".
+   `Effects.setViewmodelFlash` is the seam: the viewmodel answers whether it drew its own, and that
+   pair is skipped for that shot. Everybody else's shot and the flag-OFF build are drawn there
+   exactly as before, and the false comments are replaced with what is true.
+3. **Simpler and shorter, as Karen asked** ("should be simple", "recoil is perfect", "smoke short a
+   bit"): the recoil numbers are untouched, and the smoke is half what it was -- 0.75 studs for
+   0.7 s against 1.5 and 1.4. Every number is data: `newGun.fire.flash` (size, light range and brightness, seconds, how far
    forward) and `.smoke` (size, seconds, rise, transparency, spread, rate, burst) are `pose.py set`
    paths, so the look is tuned live like every other number in `poses.json`.
-4. **The noise has one owner.** `Weapon.Sound` is the only writer of the gun's sounds for the local
-   player, played on the shot (from `Weapon.Fired`) and on the break and the close (from the one
-   closure that already sees that state flip). Volumes are in `newGun.fire.volume`.
+4. **The two clicks are behind the flag now** (finding 3): round 1 shipped them ON, unflagged, on
+   the gun Karen plays, at a volume no data could reach -- only `newGun.fire` has a `volume` block.
+   `Weapon.Sound.play` refuses unless `config.NEW_GUN`, which fixes both at once. The edge that
+   decides open from close is `Camera.breakSound`, pure and beside `Camera.breakFrom` (finding 4),
+   so a spec drives shut -> open -> shut.
 5. **THE SHOT SOUND'S ID IS EMPTY, DELIBERATELY.** The dispatch says library sounds only; choosing a
    12-gauge from the library means picking an id I cannot hear, and a wrong one ships as the gun's
    voice. `Weapon.Sound` treats `""` as "play nothing" without a warning, so the path is live and
    waiting for one line in `Camera.Config.SOUND_SHOT_ID`. The two clicks are Studio's own
    `rbxasset://sounds/` files, which ship with the engine and need no library at all.
-6. **One client case measures the three on the drawn instances**: the new gun's kick is bigger than
-   the old gun's, a flash exists for each barrel with a light and two emitters within 0.25 studs of
-   THAT barrel's muzzle and closer to it than to the other one, the flag-OFF config draws none, and
-   the three sounds are each asked for once.
+6. **The case measures it on the drawn instances, and the sound by what came back** (finding 4:
+   counting its own calls proved nothing). A flash for each barrel within 0.25 studs of THAT
+   barrel's muzzle and closer to it than to the other; `Effects.play` driven with a payload that says
+   the shot is mine leaves **zero** old `Flash`/`Smoke` parts and exactly one `MuzzleFlash`, and with
+   the seam cleared it draws the old pair again -- so the skip is an answer, not a deletion.
+   `Sound.shot` is `false` while the id is empty, the two clicks are `true`, and both are `false` for
+   the old gun. **Mutation-checked**: with the `drawnOnScreen` guard forced off,
+   `gun_client.spec:545` FAILS on 2 parts where it wants 0.
 
 ## What I could not verify
 
+- **THE SHIPPED FRAMES** (finding 2 -- round 1 described none).
+  `.screenshots/20261002T201836Z-task112r2-kick.png`: a small white star of light at the muzzle, far
+  up the left edge where the barrels point in carry, the gun kicked up-left, the glove lit warm,
+  readout `x[*]`. No neon box and no grey ball anywhere in frame.
+  `...-smoke.png` (+0.33 s): the flash is gone, the gun is back down -- and **no smoke is visible at
+  all**. At 0.75 studs for 0.7 s the puff is brief and the muzzle is off the left edge in carry; it
+  may simply be out of frame. That is the one thing a frame has not shown.
 - **The shot is silent until Karen picks an id.** Everything else about the sound is wired and
   counted; nobody has heard it.
 - **The kick was not compared against the target video frame by frame.** The numbers are a first
