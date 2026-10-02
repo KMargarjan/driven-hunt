@@ -3,19 +3,20 @@
 Task: 113
 Round: 3
 Base: `0cc60ca`
-Code commit: `<round 3's code commit — the Director's gate run names it>`
+Code commit: `959eea8f822cd9a9c85385c9c821b14143102588`
 
 Tools and docs only: no `src/`, no `tests/`. Karen, 2026-10-02: *"not need start from zero I
 mentioned 100 times / it has to test only parts what has been changed and what blast radius could
 be."*
 
 ```
-[harness] PASS: n/n checks @ <code commit> (clean tree) scope=all      <- the Director runs this
+[harness] PASS: 32/32 checks @ 959eea8f822cd9a9c85385c9c821b14143102588 (clean tree) scope=all
 ```
 
-Rounds 1 and 2 both ran 32/32 on a clean tree (`d82e675`, `d9af20d`). **`test2` is N/A**, and the
-Director accepted both judgement calls behind that: nothing here touches the match, the drive,
-the tie or the teams (`TWO_PLAYER_PATHS`), with `src/server/Weapon/SafetyArc.luau` out of that list
+Run by the Director at this branch's head, on a clean tree, with Rojo restarted and reconnected
+after the branch move (rounds 1 and 2 were the same 32/32 at `d82e675` and `d9af20d`).
+**`test2` is N/A**, and the Director accepted both judgement calls behind that: nothing here touches
+the match, the drive, the tie or the teams (`TWO_PLAYER_PATHS`), with `SafetyArc.luau` out of that list
 and `tools/studio_mcp.py` out of it too (claim 7; the gap that leaves is queued as 113a(d)).
 
 ## Claims, each with how to verify it
@@ -99,11 +100,11 @@ and `tools/studio_mcp.py` out of it too (claim 7; the gap that leaves is queued 
   against. `FAIL_SAFE_PATHS`' comment now says which root build files it does not cover.
 
 ## What I could not verify
-- **Both runs were `scope=all`, so two paths are still unexercised against Studio**: `--scope auto`'s
+- **All three runs were `scope=all`, so two paths are still unexercised against Studio**: `--scope auto`'s
   resolution from the changed paths, and the Play-skipping branch it reaches when no spec is in the
   radius. The `scope=` suffix itself is in the pasted line, so that much has been printed by a real
-  run, twice. I ran no harness myself — another Builder holds Studio — and the line above is the
-  Director's.
+  run, three times. I ran no harness myself — another Builder holds Studio — and the line above is
+  the Director's.
 - **No Reviewer has read the new `blast-radius.md` yet**, so the round-1 finding is fixed by
   construction and by its selftest cases, not yet by a reader of the document.
 - **No review has been replayed yet**, so the after cost/turns are unknown. The baseline is 66
