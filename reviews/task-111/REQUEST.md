@@ -1,7 +1,7 @@
 # Task 111 - the left hand loads the shells, and no sleeves
 
 Task: 111
-Round: 2
+Round: 3
 Base: `content-hands-karen-1` (`9b45c56`)
 Code commit: `0c5c268438fb338e83e96dc5403fb03df3ec41ed`
 
@@ -38,7 +38,9 @@ checked with `tools/agents.py`'s own `needs_two_player`, which answered `[]`.
    `poseHands` deleted, `gun_client.spec:353` FAILS -- the hand never leaves the barrels.
 4. **Karen's rest numbers are untouched** (`newGun.reload.left` and `.right` byte-identical to
    `content-hands-karen-1`), and the whole motion is `pose.py set` paths under `newGun.reload.load`.
-5. **ONE ANIMATION PER SHELL, NOT TWO.** Karen, live on the first version: "either we have 2
+5. **ONE ANIMATION PER SHELL, NOT TWO -- round 2's blocking finding, and Karen's own words for the
+   same defect.** The Reviewer: "the fresh shell feeds ITSELF into the chamber while the hand is away
+   fetching it, then teleports back into the hand"; Karen, live: "either we have 2
    animation when shells go inside or one go straight another from hand" -- both were drawn, because
    `Viewmodel.shells` fell back to the old self-sliding feed for every barrel that was not the one in
    the hand. `Viewmodel.freshShellAt` is now the ONE place that decides where a fresh shell is AND
@@ -46,12 +48,16 @@ checked with `tools/agents.py`'s own `needs_two_player`, which answered `[]`.
    own frame while it carries it, the chamber once it is in. The OLD gun's self-sliding feed comes
    out of that same function, unchanged. The case steps the whole load on its own clock and requires
    at every step that the shell is in one of those three states and never on the slide --
-   **mutation-checked**: with the old feed back on for the new gun, `gun_client.spec:384` FAILS.
-   No sleeve on either glove with NEW_GUN either, the old gun's unchanged.
+   **mutation-checked**: with the old feed back on for the new gun, `gun_client.spec:384` FAILS. The
+   stale comments the finding names are gone with the code they described. No sleeve on either glove
+   with NEW_GUN either, the old gun's unchanged.
 6. **`Viewmodel.view` now passes the `load` BLOCK, not six flat names with literal defaults.** The
    Reviewer's note was right: those defaults had drifted from the file (0.16 against 0.1, +0.06
    against -0.3, the other side of the gun) and nothing would have failed if the block went missing.
    There is one source now.
+
+**Round 3 and not 2**: the round-2 verdict on `63a5c2c` landed while this was being fixed, and its
+one blocking finding IS this fix, so the counter had already moved.
 
 ## What I could not verify
 
