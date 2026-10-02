@@ -323,9 +323,22 @@ return function()
 				-- ...and the right is BEHIND the breech, on the frame group, ahead of the butt.
 				expect(right.z > at.breechZ).to.equal(true)
 				expect(right.z < at.half).to.equal(true)
-				-- Both on the gun's centre line, because both hands wrap it.
-				expect(left.x).to.equal(0)
+				-- THE RIGHT HAND IS ON THE GUN'S CENTRE LINE, because it wraps the wrist and its own
+				-- model is symmetric about its box.
 				expect(right.x).to.equal(0)
+				-- THE LEFT ONE IS NOT, AND TASK 106 IS WHY. What this pose places is the MESH'S
+				-- BOUNDING-BOX CENTRE, not the palm, and Karen's left glove is a palm-up C whose
+				-- forearm runs at an angle to the fingers -- so its box is a diagonal and the hand
+				-- sits off-centre inside it. Asserting zero here asserted a fact about the OLD
+				-- model's symmetry, and the first gate run of task 106 caught it.
+				--
+				-- WHAT IS STILL TRUE, and is the claim worth keeping: the offset is less than the
+				-- hand's OWN half-width, so the palm is within a hand of the gun's centre line
+				-- rather than beside the gun.
+				local leftHand = Assets.byKey("hand.left")
+				local halfWidth = math.min(leftHand.sizeStuds.X, leftHand.sizeStuds.Y, leftHand.sizeStuds.Z) / 2
+				TestKit.note(string.format("task106 newGun.%s left x %.4f, half-width %.4f", pose, left.x, halfWidth))
+				expect(math.abs(left.x) < halfWidth).to.equal(true)
 			end
 		end)
 	end)
