@@ -75,6 +75,10 @@ local FRESH_NAME = "FreshShell"
 -- THE SLEEVE (task 99): one olive cylinder per hand, on the hand's own long axis, running back
 -- past the near plane so the cuff's open end is never in the picture.
 local SLEEVE_NAME = "Sleeve"
+-- How far from the hand's centre, along whichever axis `poseHands` runs the arm down, one sleeve
+-- segment sits. Worked out once in `addHand` from that glove's own size (round 2: the pose frame's
+-- -X for the old gun, the direction of that shoulder for the new one).
+local SLEEVE_BACK_ATTRIBUTE = "DHSleeveBack"
 -- WHICH GUN THIS MODEL IS, written on the model itself (task 99, round 2). `Viewmodel.muzzle`
 -- has to add the right gun's own barrel offset and it is called with no config -- so it asks the
 -- thing that was built rather than a caller who could pass the wrong one.
@@ -515,6 +519,110 @@ function Viewmodel.sleeveLength(config): number
 	return config.SLEEVE_LENGTH_STUDS
 end
 
+-- EACH GLOVE INTO ONE FRAME (task 108), and this is the whole of Karen's "left hand is oposit180deg
+-- need to turn or not sure but broken".
+--
+-- THE TWO MESHES DO NOT SHARE AN AXIS. `HandAssets.AXES` records what was measured off each prepped
+-- glove: the RIGHT one's fingers run along its own -X and its palm faces its own +Z; the LEFT one's
+-- fingers run along its own +Y. So one `twist` turns them about different things -- the Director's
+-- live try of `left.rot.twist 180` swung the glove to the far side of the barrels instead of rolling
+-- the palm, which is exactly what a shared number does when the models disagree.
+--
+-- WHAT THIS RETURNS is the rotation that takes a glove's own axes into the convention the three pose
+-- angles are read in: FINGERS ALONG +X, PALM TOWARD +Y. Applied on the RIGHT of the pose offset, so
+-- it turns the mesh inside the pose rather than moving where the pose put it -- the hand's position
+-- is the offset's, untouched. After it, `yaw` swings both hands' fingers the same way, `pitch` lifts
+-- both, and `twist` rolls both palms, which is what `Mode.handOffset`'s comment always claimed.
+--
+-- THE MEASURED PAIR IS NOT ORTHOGONAL (the palm normal is the hand cloud's flattest axis, and a hand
+-- is not a perfect slab), so the palm is squared against the fingers here -- the fingers direction is
+-- the one that was measured exactly, centroid to centroid, so it is the one that is kept.
+--
+-- THE OLD GUN GETS IDENTITY. Its pair is a different model and its poses were measured against it
+-- with no alignment at all; `config.NEW_GUN` is the one switch, so the flag-OFF build draws exactly
+-- what it drew before.
+local alignCache: { [string]: CFrame } = {}
+
+function Viewmodel.align(name: string, config): CFrame
+	if config == nil or config.NEW_GUN ~= true then
+		return CFrame.identity
+	end
+	local cached = alignCache[name]
+	if cached then
+		return cached
+	end
+	local axes = HandAssets.AXES[name]
+	if axes == nil then
+		return CFrame.identity
+	end
+	local fingers = axes.fingers.Unit
+	local palm = (axes.palm - fingers * axes.palm:Dot(fingers)).Unit
+	-- fromMatrix's three columns are right, up and BACK, and back = right x up for a proper rotation.
+	local mesh = CFrame.fromMatrix(Vector3.zero, fingers, palm, fingers:Cross(palm))
+	-- `mesh` takes +X to the fingers; the INVERSE is what takes the fingers to +X.
+	local align = mesh:Inverse()
+	alignCache[name] = align
+	return align
+end
+
+-- WHICH OF THE MESH'S OWN AXES THE FINGERS RUN ALONG, so the sleeve starts inside the cuff on both
+-- gloves. The old pair's long axis IS its X; model B's LEFT glove's is its Z while its fingers run
+-- along its Y (a palm-up C puts the forearm at an angle to the fingers, so its box is a diagonal --
+-- `Assets.uniformTo`'s own reason), and `Size.X` there is not the hand's length at all.
+local function handLengthAlongFingers(hand: BasePart, name: string, config): number
+	if config == nil or config.NEW_GUN ~= true then
+		return hand.Size.X
+	end
+	local axes = HandAssets.AXES[name]
+	if axes == nil then
+		return hand.Size.X
+	end
+	-- THE BOX PROJECTED ONTO THE AXIS, not the nearest side (round 1, finding 3): a box's extent along
+	-- a direction is the sum of its sides times that direction's own components, and picking one side
+	-- answered 0.534 for the LEFT glove where the real extent is 0.914. Half of 0.534 is 0.267, which
+	-- is LESS than the 0.30 overlap -- the wrist segment's near end would have started on the finger
+	-- side of the glove's centre, which is exactly what `SLEEVE_OVERLAP_NEW_GUN_STUDS`' comment
+	-- forbids. Nothing on screen showed it, because that near end is inside the glove either way.
+	local fingers = axes.fingers.Unit
+	local size = hand.Size
+	return math.abs(fingers.X) * size.X + math.abs(fingers.Y) * size.Y + math.abs(fingers.Z) * size.Z
+end
+
+-- WHICH WAY THE FOREARM LEAVES THE FRAME (task 108, round 2), in the CAMERA's own axes, or nil for
+-- the old gun -- whose sleeve keeps running back along the hand's own wrist, because that pair and
+-- its poses were measured together and nothing about them is being re-judged.
+--
+-- A SHOULDER DOES NOT MOVE WITH THE GRIP, which is the whole finding: round 1 ran the sleeve back
+-- along the pose frame's -X, so the left yaw of 15 that puts the hand on the forend also swung the
+-- arm out sideways and it crossed the aimed frame as a bar. Down, back and a little outboard is the
+-- same vector in every pose, so the arm leaves through its own bottom corner in all of them.
+function Viewmodel.armDirection(name: string, config): Vector3?
+	if config == nil or config.NEW_GUN ~= true then
+		return nil
+	end
+	if name == HandAssets.LEFT then
+		return config.SLEEVE_TO_LEFT_SHOULDER
+	end
+	return config.SLEEVE_TO_RIGHT_SHOULDER
+end
+
+-- THE SLEEVE'S SEGMENTS, wrist -> elbow: {length, diameter} each. The old gun keeps ONE cylinder of
+-- the length and diameter it always had, so its pixels do not move; model B's is cut into the taper
+-- `Camera.Config.SLEEVE_TAPER_NEW_GUN_STUDS` lists, at the same TOTAL length (that number is what
+-- keeps the far end behind the eye, and the far end is the one that must never be seen).
+function Viewmodel.sleeveSegments(config): { { length: number, diameter: number } }
+	local total = Viewmodel.sleeveLength(config)
+	local taper = if config ~= nil and config.NEW_GUN == true then config.SLEEVE_TAPER_NEW_GUN_STUDS else nil
+	if taper == nil or #taper == 0 then
+		return { { length = total, diameter = config.SLEEVE_DIAMETER_STUDS } }
+	end
+	local out = {}
+	for _, diameter in ipairs(taper) do
+		table.insert(out, { length = total / #taper, diameter = diameter })
+	end
+	return out
+end
+
 function Viewmodel.sleeveOverlap(config): number
 	if config ~= nil and config.NEW_GUN == true then
 		return config.SLEEVE_OVERLAP_NEW_GUN_STUDS
@@ -576,25 +684,30 @@ local function addHand(clone: BasePart, parent: Instance, name: string, config):
 	-- axis, far enough that its far end is behind the eye in every pose. It is a CHILD of the hand,
 	-- and `poseHands` places it from the hand's transform, because an anchored part does not follow
 	-- its parent.
-	local sleeve = Instance.new("Part")
-	sleeve.Name = SLEEVE_NAME
-	sleeve.Shape = Enum.PartType.Cylinder -- a cylinder's length runs along its own X, like the hand's
-	-- THE LENGTH IS PER GUN (task 106, round 2), because the two pairs are different sizes and the
-	-- claim is absolute: the far end must be behind the eye in EVERY pose. The old gun's glove is
-	-- 1.27 studs and sits close in, so 1.6 reaches; model B's is 0.67 and sits further out, and in
-	-- the broken-open frame a 1.6-stud sleeve ended at the lens.
-	local length = Viewmodel.sleeveLength(config)
-	sleeve.Size = Vector3.new(length, config.SLEEVE_DIAMETER_STUDS, config.SLEEVE_DIAMETER_STUDS)
-	sleeve.Color = config.SLEEVE_COLOR
-	sleeve.Material = config.SLEEVE_MATERIAL
-	sleeve.Anchored = true
-	sleeve.CanCollide = false
-	sleeve.CanQuery = false
-	sleeve.CanTouch = false
-	sleeve.Massless = true
-	sleeve.CastShadow = false
-	sleeve.CFrame = worn.CFrame
-	sleeve.Parent = worn
+	--
+	-- THREE SEGMENTS, NOT ONE, FOR MODEL B (task 108): a straight tube of constant width read as a
+	-- pipe. `Viewmodel.sleeveSegments` answers the same TOTAL length either way, and each segment
+	-- carries the distance from the hand's centre to its own centre as an attribute, because that
+	-- distance depends on the glove's own size and `poseHands` must not measure it every frame.
+	local back = handLengthAlongFingers(worn, name, config) / 2 - Viewmodel.sleeveOverlap(config)
+	for _, segment in ipairs(Viewmodel.sleeveSegments(config)) do
+		local sleeve = Instance.new("Part")
+		sleeve.Name = SLEEVE_NAME
+		sleeve.Shape = Enum.PartType.Cylinder -- a cylinder's length runs along its own X, like the hand's
+		sleeve.Size = Vector3.new(segment.length, segment.diameter, segment.diameter)
+		sleeve.Color = config.SLEEVE_COLOR
+		sleeve.Material = config.SLEEVE_MATERIAL
+		sleeve.Anchored = true
+		sleeve.CanCollide = false
+		sleeve.CanQuery = false
+		sleeve.CanTouch = false
+		sleeve.Massless = true
+		sleeve.CastShadow = false
+		sleeve:SetAttribute(SLEEVE_BACK_ATTRIBUTE, back + segment.length / 2)
+		sleeve.CFrame = worn.CFrame
+		sleeve.Parent = worn
+		back += segment.length
+	end
 	stats.handsDrawn += 1
 	handsOn = true
 	return true
@@ -675,7 +788,7 @@ end
 -- transform; the LEFT hand holds the forend, which is bolted to the barrels, so it is placed from
 -- the BARRELS' transform and swings down with them. With the gun shut the two transforms are equal,
 -- so a shut gun's hands are bit-for-bit where task 93 put them.
-function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mode.State, config)
+function Viewmodel.poseHands(camCFrame: CFrame, gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mode.State, config)
 	local made = model
 	local clone = made and made.PrimaryPart
 	if clone == nil or config.FIRST_PERSON ~= true then
@@ -684,25 +797,67 @@ function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mo
 	-- WHICH WAY THE ARM RUNS, and it is measured off the model rather than assumed: the right hand's
 	-- fingertips are at its mesh +X and the left hand's at its -X (`Camera.Config`'s HAND_LEFT_YAW
 	-- comment, task 93), so the wrist -- and the sleeve -- runs the other way on each.
-	local function placeSleeve(hand: BasePart, towardFingers: number)
-		local sleeve = hand:FindFirstChild(SLEEVE_NAME)
-		if sleeve and sleeve:IsA("BasePart") then
-			local back = -towardFingers * (hand.Size.X / 2 + sleeve.Size.X / 2 - Viewmodel.sleeveOverlap(config));
-			(sleeve :: BasePart).CFrame = hand.CFrame * CFrame.new(back, 0, 0)
+	-- EVERY SEGMENT, FROM ITS OWN ATTRIBUTE (task 108). `addHand` worked each one's distance out
+	-- once, from the glove's own length along ITS OWN finger axis; this only has to turn that into a
+	-- place. `towardFingers` is +1 once the alignment is on, because the aligned hand's +X IS the
+	-- fingers on both gloves -- it is the OLD pair, drawn unaligned, that needs the two signs.
+	--
+	-- THE FOREARM'S OWN FRAME: at the hand, with its +X running toward that shoulder (round 2). The
+	-- segments are strung along it, so a sleeve is never turned by the grip -- `armDirection` says
+	-- why. For the OLD gun it is nil and the sleeve runs back along the pose frame's -X exactly as
+	-- it always did, which is what keeps the flag-OFF build the one Karen has been playing.
+	local function armFrame(name: string, base: CFrame): CFrame?
+		local want = Viewmodel.armDirection(name, config)
+		if want == nil then
+			return nil
+		end
+		local along = camCFrame:VectorToWorldSpace(want :: Vector3).Unit
+		-- Any up will do -- a cylinder is round about its own X -- as long as it is square to `along`
+		-- and never parallel to it.
+		local up = camCFrame.UpVector
+		local across = up - along * up:Dot(along)
+		if across.Magnitude < 1e-3 then
+			across = camCFrame.RightVector - along * camCFrame.RightVector:Dot(along)
+		end
+		across = across.Unit
+		return CFrame.fromMatrix(base.Position, along, across, along:Cross(across))
+	end
+
+	-- IT IS PLACED FROM THE POSE'S FRAME, NOT THE HAND'S (task 108): once the alignment is applied
+	-- the hand part's own X is the MESH's X, which on the left glove is not the arm at all. For the
+	-- new gun the frame is the ARM's, from `armFrame`; for the old one it is the pose's, where it
+	-- was.
+	local function placeSleeve(base: CFrame, hand: BasePart, towardFingers: number, arm: CFrame?)
+		for _, sleeve in ipairs(hand:GetChildren()) do
+			if sleeve.Name == SLEEVE_NAME and sleeve:IsA("BasePart") then
+				local stored = sleeve:GetAttribute(SLEEVE_BACK_ATTRIBUTE)
+				local back = if typeof(stored) == "number"
+					then stored :: number
+					else hand.Size.X / 2 + sleeve.Size.X / 2 - Viewmodel.sleeveOverlap(config);
+				(sleeve :: BasePart).CFrame = if arm ~= nil
+					then (arm :: CFrame) * CFrame.new(back, 0, 0)
+					else base * CFrame.new(-towardFingers * back, 0, 0)
+			end
 		end
 	end
 
+	-- THE ALIGNMENT IS APPLIED HERE, ON THE RIGHT OF THE POSE (task 108): the pose says WHERE the
+	-- hand is and which way it is turned, and `Viewmodel.align` turns the MESH inside that, so both
+	-- gloves answer the same three angles. It is identity for the old gun.
+	local toward = if config.NEW_GUN == true then 1 else -1
 	local right = clone:FindFirstChild(HandAssets.RIGHT)
 	if right and right:IsA("BasePart") then
-		(right :: BasePart).CFrame = gunCFrame * Mode.handOffsetAt("right", state, config)
-		placeSleeve(right :: BasePart, 1)
+		local base = gunCFrame * Mode.handOffsetAt("right", state, config);
+		(right :: BasePart).CFrame = base * Viewmodel.align(HandAssets.RIGHT, config)
+		placeSleeve(base, right :: BasePart, 1, armFrame(HandAssets.RIGHT, base))
 	end
 	-- Walked rather than remembered, for the reason `clearHands` gives: the left hand's parent is the
 	-- barrels when the gun has them and the Handle when it does not.
 	for _, descendant in ipairs(clone:GetDescendants()) do
 		if descendant.Name == HandAssets.LEFT and descendant:IsA("BasePart") then
-			(descendant :: BasePart).CFrame = barrelsCFrame * Mode.handOffsetAt("left", state, config)
-			placeSleeve(descendant :: BasePart, -1)
+			local base = barrelsCFrame * Mode.handOffsetAt("left", state, config);
+			(descendant :: BasePart).CFrame = base * Viewmodel.align(HandAssets.LEFT, config)
+			placeSleeve(base, descendant :: BasePart, toward, armFrame(HandAssets.LEFT, base))
 		end
 	end
 end
@@ -991,7 +1146,7 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	-- barrel group ended up at -- the gun's own when there is nothing to hinge -- and the left hand
 	-- is placed from that, because it holds a forend that swings with them.
 	local barrels = Viewmodel.hinge(gun, state, config)
-	Viewmodel.poseHands(gun, barrels, state, config)
+	Viewmodel.poseHands(camCFrame, gun, barrels, state, config)
 end
 
 -- THE BREAK (task 96). Karen, 2026-09-27: the reload is a break action like the real gun, so the

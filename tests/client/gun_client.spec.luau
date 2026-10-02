@@ -23,6 +23,7 @@ local Camera = require(scripts:WaitForChild("Camera"))
 local Config = Camera.Config
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local ViewmodelData = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 -- THE ON BRANCH BY PARAMETER, exactly as `camera_client.spec` builds it: nothing is flipped and
@@ -54,6 +55,17 @@ return function()
 		local newGunConfig = table.clone(firstPersonConfig) :: any
 		newGunConfig.NEW_GUN = true
 		table.freeze(newGunConfig)
+		-- ...AND A SECOND ONE THAT ALSO CARRIES MODEL B'S OWN POSE NUMBERS (task 108). `Camera.Config`
+		-- folds in ONE set at boot -- `Viewmodel.view(DATA, Config.NEW_GUN)` -- and the flag is OFF
+		-- during a harness run, so a config that only flips `NEW_GUN` draws model B at the OLD gun's
+		-- hand numbers, a pose nobody ever ships. Flipping the data too is what "reachable by
+		-- parameter as well as by flag" means here (docs/design/feature-flags.md 13.3). It is its own
+		-- config so no case that was passing has its gun moved under it.
+		local newGunPosedConfig = table.clone(newGunConfig) :: any
+		for key, value in pairs(ViewmodelData.view(ViewmodelData.DATA, true)) do
+			newGunPosedConfig[key] = value
+		end
+		table.freeze(newGunPosedConfig)
 
 		-- Its own handle, so this never depends on what the live player happens to be holding, and
 		-- the live source is always put back.
@@ -77,6 +89,142 @@ return function()
 				error(why, 0)
 			end
 		end
+
+		-- KAREN, 2026-10-02, PLAYING: "hands are bad / left hand is oposit180deg need to turn or not
+		-- sure but broken" and "one arm holds pipes and another stock right ?". THIS CASE IS THAT
+		-- QUESTION, asked of the instances that are really drawn: one hand on the barrels, the other
+		-- on the stock, neither above the rib, and both arms running back toward the shoulder.
+		--
+		-- IT STANDS IN ITS OWN GLOVES rather than waiting for the published pair, because the
+		-- published pair arrives seconds after boot through `InsertService` and this must say the
+		-- same thing on a run that got there first. The alignment is applied to whatever is drawn, so
+		-- a stub answers it exactly: the measurement is of the POSE, through `Viewmodel.align`.
+		it("holds the gun like a hunter: barrels in the left, stock in the right", function()
+			-- A BOX PER GLOVE, not one box twice (round 1, finding 3): the published left glove's box
+			-- is its own diagonal (0.629, 0.534, 0.669) and the right's is (0.669, 0.350, 0.211), and
+			-- with both stubs shaped like the right one the left branch of the sleeve arithmetic was
+			-- never really measured. These are `Assets.byKey(...).sizeStuds` to three places.
+			local boxes = {
+				[HandAssets.RIGHT] = Vector3.new(0.669, 0.350, 0.211),
+				[HandAssets.LEFT] = Vector3.new(0.629, 0.534, 0.669),
+			}
+			local stubs: { [string]: BasePart } = {}
+			for name, box in pairs(boxes) do
+				local stub = Instance.new("Part")
+				stub.Name = name
+				stub.Size = box
+				stubs[name] = stub
+			end
+			local live = Camera.Viewmodel.getSource()
+			local liveHands = Camera.Viewmodel.getHandTemplates()
+			Camera.Viewmodel.setHandTemplates(function(name)
+				return stubs[name]
+			end)
+			local handle = Instance.new("Part")
+			handle.Name = "Handle"
+			handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+			handle.Transparency = 1
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			local ok, why = pcall(function()
+				task.wait(0.3)
+				Camera.Viewmodel.clear()
+				Camera.Viewmodel.setReload(nil)
+				local state = stateAtBlend(0)
+				Camera.Viewmodel.update(CFrame.new(0, 16, 0), state, newGunPosedConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local layout = Gun.layout(Shotgun.CONFIG)
+				local found = 0
+				for _, drawn in ipairs(clone:GetDescendants()) do
+					local isHand = drawn.Name == HandAssets.RIGHT or drawn.Name == HandAssets.LEFT
+					if isHand and drawn:IsA("BasePart") then
+						found += 1
+						local at = clone.CFrame:ToObjectSpace(drawn.CFrame)
+						TestKit.note(
+							string.format("task108 %s at z %.2f, y %.2f", drawn.Name, at.Position.Z, at.Position.Y)
+						)
+						if drawn.Name == HandAssets.LEFT then
+							-- ON THE PIPES: between the muzzle and the breech, which is the barrel
+							-- group's own span, and UNDER them -- Karen sees the rib in the aimed
+							-- view, and a glove over it is the sight picture gone.
+							expect(at.Position.Z > layout.muzzleZ).to.equal(true)
+							expect(at.Position.Z < layout.breechZ).to.equal(true)
+							expect(at.Position.Y < layout.barrelY - layout.barrelRadius).to.equal(true)
+						else
+							-- ON THE STOCK: behind the breech, where the wrist of the stock is, and
+							-- below the bore line.
+							expect(at.Position.Z > layout.breechZ).to.equal(true)
+							expect(at.Position.Z < layout.half).to.equal(true)
+							expect(at.Position.Y < layout.barrelY).to.equal(true)
+						end
+						-- THE GLOVE IS REALLY TURNED BY `Viewmodel.align` (round 1, finding 2). Every
+						-- other assertion here reads a POSITION, and `align` is a pure rotation about
+						-- the hand's own centre, so deleting it would not move one of them. THIS is
+						-- the orientation: each glove's own measured `fingers` vector, carried
+						-- through the CFrame of the part that is really drawn, has to land on the
+						-- pose frame's +X, and its palm on +Y. That is the convention the three pose
+						-- angles are read in, and without the alignment the right glove's fingers
+						-- land on -X and the left's nowhere near either.
+						local side = if drawn.Name == HandAssets.LEFT then "left" else "right"
+						local base = clone.CFrame * Camera.Mode.handOffsetAt(side, state, newGunPosedConfig)
+						local axes = HandAssets.AXES[drawn.Name]
+						local fingers = (drawn :: BasePart).CFrame:VectorToWorldSpace(axes.fingers.Unit)
+						local palm = (drawn :: BasePart).CFrame:VectorToWorldSpace(axes.palm.Unit)
+						TestKit.note(
+							string.format(
+								"task108 %s fingers.X %.3f, palm.Y %.3f (1.0 is the convention)",
+								drawn.Name,
+								base.RightVector:Dot(fingers),
+								base.UpVector:Dot(palm)
+							)
+						)
+						expect(base.RightVector:Dot(fingers) > 0.999).to.equal(true)
+						-- The palm is SQUARED against the fingers inside `align` (the measured pair is
+						-- not orthogonal: a hand is not a perfect slab), so it lands near +Y, not on
+						-- it. 0.85 is far outside that correction and far inside any other axis.
+						expect(base.UpVector:Dot(palm) > 0.85).to.equal(true)
+
+						-- THE ARM RUNS TOWARD ITS OWN SHOULDER (round 2), which is what keeps it out
+						-- of the picture: down, back and outboard IN THE CAMERA'S frame, the same
+						-- vector in every pose. The camera here is unrotated, so its axes are the
+						-- world's. It fails if the arm ever goes back to following the grip.
+						local want = Camera.Viewmodel.armDirection(drawn.Name, newGunPosedConfig) :: Vector3
+						local segments = 0
+						for _, sleeve in ipairs(drawn:GetChildren()) do
+							if sleeve.Name == "Sleeve" and sleeve:IsA("BasePart") then
+								segments += 1
+								local run = (sleeve :: BasePart).Position - (drawn :: BasePart).Position
+								expect(run.Magnitude > 0).to.equal(true)
+								expect(run.Unit:Dot(want) > 0.999).to.equal(true)
+								-- Down and back, said once in the camera's own terms so a sign
+								-- change in the config cannot pass quietly.
+								expect(run.Y < 0).to.equal(true)
+								expect(run.Z > 0).to.equal(true)
+							end
+						end
+						expect(segments).to.equal(3)
+					end
+				end
+				expect(found).to.equal(2)
+				-- ...AND THE FLAG-OFF BUILD IS NOT TURNED AT ALL, which is the guarantee that keeps
+				-- the gun Karen has been playing the gun she has been playing.
+				for _, name in ipairs({ HandAssets.RIGHT, HandAssets.LEFT }) do
+					expect(Camera.Viewmodel.align(name, firstPersonConfig)).to.equal(CFrame.identity)
+					expect(Camera.Viewmodel.armDirection(name, firstPersonConfig)).to.equal(nil)
+				end
+			end)
+			Camera.Viewmodel.clear()
+			Camera.Viewmodel.setHandTemplates(liveHands)
+			Camera.Viewmodel.setSource(live)
+			handle:Destroy()
+			for _, stub in pairs(stubs) do
+				stub:Destroy()
+			end
+			if not ok then
+				error(why, 0)
+			end
+		end)
 
 		it("is built, not cloned: the pieces are really under the camera", function()
 			withNewGun(function()

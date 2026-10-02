@@ -553,15 +553,39 @@ return function()
 					length = CameraConfig.SLEEVE_LENGTH_STUDS,
 				},
 				{
-					name = "model B",
+					name = "model B, right",
 					key = Assets.KEYS.gunHandRight,
+					axes = HandAssets.AXES[HandAssets.RIGHT],
+					overlap = CameraConfig.SLEEVE_OVERLAP_NEW_GUN_STUDS,
+					length = CameraConfig.SLEEVE_LENGTH_NEW_GUN_STUDS,
+				},
+				-- THE LEFT GLOVE, WHICH THIS CASE NEVER LOOKED AT (round 1, finding 3). It is the one
+				-- that matters: its box is a diagonal, so the side the code used to pick answered
+				-- 0.534 where the extent along its fingers is 0.914, and half of 0.534 is UNDER the
+				-- 0.30 overlap. The bound below is now asked of the quantity
+				-- `Camera.Viewmodel`'s `handLengthAlongFingers` actually computes.
+				{
+					name = "model B, left",
+					key = Assets.KEYS.gunHandLeft,
+					axes = HandAssets.AXES[HandAssets.LEFT],
 					overlap = CameraConfig.SLEEVE_OVERLAP_NEW_GUN_STUDS,
 					length = CameraConfig.SLEEVE_LENGTH_NEW_GUN_STUDS,
 				},
 			}) do
 				local hand = Assets.byKey(case.key)
 				expect(hand).to.be.ok()
+				-- THE GLOVE'S OWN LENGTH ALONG ITS OWN FINGER AXIS: a box's extent along a direction
+				-- is the sum of its sides times that direction's components. For the old gun there is
+				-- no measured axis and the long side IS the hand, which is what X meant here.
 				local halfHand = hand.sizeStuds.X / 2
+				if case.axes ~= nil then
+					local fingers = case.axes.fingers.Unit
+					halfHand = (
+						math.abs(fingers.X) * hand.sizeStuds.X
+						+ math.abs(fingers.Y) * hand.sizeStuds.Y
+						+ math.abs(fingers.Z) * hand.sizeStuds.Z
+					) / 2
+				end
 				TestKit.note(
 					string.format(
 						"task106 %s: overlap %.3f against half a hand %.3f, sleeve %.2f long",
@@ -572,10 +596,43 @@ return function()
 					)
 				)
 				expect(case.overlap < halfHand).to.equal(true)
-				-- ...and the sleeve is longer than the hand it joins, which is the claim that its far
-				-- end is behind the eye rather than beside the cuff.
-				expect(case.length > hand.sizeStuds.X).to.equal(true)
+				-- ...and the sleeve is longer than the hand it joins, so what reaches the far end of
+				-- the arm is a tube and not the cuff it started in.
+				expect(case.length > halfHand * 2).to.equal(true)
 			end
+		end)
+
+		it("records that the two gloves do NOT share an axis, which is Karen's broken left hand", function()
+			-- TASK 108. Karen, 2026-10-02: "hands are bad / left hand is oposit180deg need to turn or
+			-- not sure but broken". The cause is not one number: the two meshes disagree about which
+			-- of their own axes the fingers run along -- the right glove's along its -X, the left's
+			-- along its +Y -- so a yaw, a pitch or a twist turns them about different things, and the
+			-- Director's live `left.rot.twist 180` moved the glove to the far side of the barrels
+			-- instead of rolling its palm.
+			--
+			-- THE MEASUREMENT IS THE DELIVERABLE HERE, and this is what guards it: the numbers are
+			-- unit vectors, each glove's palm is not parallel to its own fingers (or the alignment
+			-- they are for cannot be built), and the two FINGER axes really are different. A later
+			-- change that quietly made them agree would be a change that had stopped measuring.
+			for name, axes in pairs(HandAssets.AXES) do
+				TestKit.note(
+					string.format("task108 %s: fingers %s, palm %s", name, tostring(axes.fingers), tostring(axes.palm))
+				)
+				expect(math.abs(axes.fingers.Magnitude - 1) < 1e-3).to.equal(true)
+				expect(math.abs(axes.palm.Magnitude - 1) < 1e-3).to.equal(true)
+				-- NOT PARALLEL: `CFrame.fromMatrix` orthonormalises, so it needs a palm with some
+				-- component across the fingers. A pair that had collapsed onto one line would build a
+				-- frame with no roll at all.
+				expect(math.abs(axes.fingers.Unit:Dot(axes.palm.Unit)) < 0.9).to.equal(true)
+			end
+			local right = HandAssets.AXES[HandAssets.RIGHT]
+			local left = HandAssets.AXES[HandAssets.LEFT]
+			expect(right).to.be.ok()
+			expect(left).to.be.ok()
+			-- THE FACT THAT EXPLAINS THE BUG, asserted rather than only written in a comment.
+			local agree = math.abs(right.fingers.Unit:Dot(left.fingers.Unit))
+			TestKit.note(string.format("task108 the two finger axes agree by %.3f", agree))
+			expect(agree < 0.8).to.equal(true)
 		end)
 
 		it("keeps the old gun's own poses, measured for the old gun's own gloves", function()

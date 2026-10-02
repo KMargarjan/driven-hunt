@@ -6,6 +6,14 @@
     python tools/pose.py set <path> <value>           e.g. `set aim.eyeReliefStuds 4.2`
     python tools/pose.py save                         write the effective values into poses.json
     python tools/pose.py clear                        drop every override
+    python tools/pose.py inspect <pose> [left-front|below|right-rear] [--client <name>]
+                                                      LOOK AT THE HANDS FROM OUTSIDE. The viewmodel
+                                                      is drawn at the camera, so it follows the lens
+                                                      wherever it goes: this COPIES it into the sky,
+                                                      hides the live one for the length of the shot
+                                                      and photographs the copy from three fixed angles.
+                                                      Nothing about the pose or the player's own
+                                                      camera moves, and the copy is destroyed again
     python tools/pose.py compare <pose> [--target <image>] [--assets-dir <dir>]
                                         [--client <name>]
                                                       hold the pose, capture it, build ONE
@@ -405,6 +413,179 @@ def run_compare(studio, pose, explicit_target, assets_dir, client="client"):
     finally:
         # THE HOLD IS ALWAYS PUT BACK, including on a failure: a session left frozen in one pose is a
         # session whose next screenshot is a lie about what the game does.
+        _, restore_problem = write_override(studio, server_id, server_dm, restore)
+        if restore_problem:
+            print("[pose] WARNING: could not release the hold: " + restore_problem)
+            print("[pose]   python tools/pose.py clear")
+        else:
+            print(f"[pose] released the hold ({len(restore)} override(s) still set)")
+
+
+
+# ---------------------------------------------------------------- inspect: the hands from outside
+
+# WHERE THE COPY IS PUT, AND THE CAMERA IS NOT MOVED TO IT -- THE COPY IS MOVED TO THE CAMERA.
+# MEASURED, 2026-10-02: the first try parked the clone 240 studs up and asked `screen_capture` for a
+# camera position beside it, and every frame came back empty sky. `Camera.update` writes
+# `CurrentCamera.CFrame` EVERY FRAME, so a camera the harness moves is put back before the shutter.
+# So the subject is placed in front of whatever the player is looking at instead, turned so the lens
+# ends up where an outside observer would stand.
+#
+# EACH VIEW IS (DISTANCE, YAW, PITCH, ALONG): the copy is put `distance` studs in front of the eye,
+# turned `yaw` about the eye's up axis and `pitch` about its right, then slid `along` studs down its
+# OWN axis so the stretch of gun the hands are on -- the forend at z 0 and the grip at z 1.2 -- is
+# what fills the frame rather than the whole 4.4 studs.
+INSPECT_VIEWS = {
+	# Three-quarter from the shooter's LEFT and FRONT, a little below: the side the left palm is on.
+	"left-front": (2.3, 62.0, -22.0, 0.55),
+	# From UNDERNEATH: the view that shows a palm, and which way the fingers curl round the wood.
+	# RE-AIMED (task 108, round 1): at (2.0, 74, -40, 0.45) the copy's own pitch carried it clean out
+	# of the frame and every shot came back as empty terrain. The pitch is the sign that was wrong --
+	# it has to roll the gun's UNDERSIDE toward the lens -- and the forward step has to stay small,
+	# because it runs along the ROTATED axis.
+	"below": (2.2, 74.0, 58.0, 0.12),
+	# From the shooter's RIGHT and BEHIND: the only view that shows the right fist on the stock's
+	# wrist, which is the half of Karen's complaint the other two cameras cannot see at all -- the
+	# stock is between them and it.
+	"right-rear": (2.3, -118.0, -16.0, 0.35),
+}
+
+# THE LIVE VIEWMODEL IS HIDDEN FOR THE SHOT, and it has to be: it is drawn at the camera every frame,
+# so it is always between the lens and the copy. Its own transparency is parked on an attribute,
+# because `execute_luau` gets a fresh module copy every call and only an Instance survives between
+# them.
+INSPECT_PLACE = """
+local camera = workspace.CurrentCamera
+local made = camera:FindFirstChild("DrivenHuntViewmodel")
+if made == nil then return {ok = false, why = "no viewmodel is drawn"} end
+local copy = workspace:FindFirstChild("DH_Inspect")
+if copy then copy:Destroy() end
+copy = made:Clone()
+copy.Name = "DH_Inspect"
+copy.Parent = workspace
+local at = camera.CFrame
+	* CFrame.new(0, 0, -%f)
+	* CFrame.Angles(0, math.rad(%f), 0)
+	* CFrame.Angles(math.rad(%f), 0, 0)
+	* CFrame.new(0, 0, -%f)
+copy:PivotTo(at)
+local hidden = 0
+for _, part in ipairs(made:GetDescendants()) do
+	if part:IsA("BasePart") then
+		if part:GetAttribute("DHInspectWas") == nil then
+			part:SetAttribute("DHInspectWas", part.Transparency)
+		end
+		part.Transparency = 1
+		hidden += 1
+	end
+end
+local parts = 0
+for _, part in ipairs(copy:GetDescendants()) do
+	if part:IsA("BasePart") then
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		-- THE HANDLE IS THE ENVELOPE AND IS INVISIBLE ON THE REAL GUN; on the copy it is the one
+		-- thing that says where the gun's own frame is, so it is drawn as a faint box.
+		if part.Name == "Handle" then
+			part.Transparency = 0.85
+		end
+		parts += 1
+	end
+end
+return {ok = true, hidden = hidden, parts = parts}
+"""
+
+INSPECT_RESTORE = """
+local copy = workspace:FindFirstChild("DH_Inspect")
+if copy then copy:Destroy() end
+local shown = 0
+local camera = workspace.CurrentCamera
+for _, part in ipairs(camera:GetDescendants()) do
+	if part:IsA("BasePart") then
+		local was = part:GetAttribute("DHInspectWas")
+		if was ~= nil then
+			part.Transparency = was
+			part:SetAttribute("DHInspectWas", nil)
+			shown += 1
+		end
+	end
+end
+return {ok = true, shown = shown}
+"""
+
+
+def run_inspect(studio, pose, client="client", views=None):
+    """Photograph the drawn viewmodel FROM OUTSIDE, without moving what the player is looking at.
+
+    WHY IT EXISTS (task 108). Karen, 2026-10-02: "hands are bad / left hand is oposit180deg need to
+    turn or not sure but broken". From the eye the hands are two dark lumps beside a barrel, so three
+    rounds of tuning them by `compare` guessed -- and the Director's own live try (`left.rot.twist
+    180`) moved the glove to the wrong side of the gun, which says the problem is the CONVENTION and
+    not one number. A convention cannot be read off a frame where the thing is edge-on and occluded.
+
+    THE CAMERA CANNOT SIMPLY BE MOVED, and that is the whole difficulty: the viewmodel is drawn at
+    `workspace.CurrentCamera` every frame, so it follows the lens wherever it goes. So this COPIES it
+    -- one frozen clone, parked in the sky, which is a static object like any other -- hides the live
+    one for the length of the shot, and photographs the copy from three fixed angles. Nothing about the
+    pose, the player or the camera's own place is changed: the hold is the same one `compare` uses and
+    is always put back.
+    """
+    if pose not in HOLDS:
+        print(f"[pose] inspect takes one of: {', '.join(HOLDS)}")
+        return 2
+    wanted_views = views or list(INSPECT_VIEWS)
+    for name in wanted_views:
+        if name not in INSPECT_VIEWS:
+            print(f"[pose] no such view: {name} (there are {', '.join(INSPECT_VIEWS)})")
+            return 2
+    client_id, client_dm, why = running(studio, client)
+    if client_id is None:
+        print("[pose] " + why)
+        return 2
+    server_id, server_dm, server_why = running(studio, "server")
+    if server_id is None:
+        print("[pose] " + server_why)
+        return 2
+    held, problem = read_override(studio, server_id, server_dm)
+    if problem:
+        print("[pose] " + problem)
+        return 2
+    restore = {key: value for key, value in held.items() if key != HOLD_KEY}
+    wanted = dict(restore)
+    wanted[HOLD_KEY] = pose
+    _, problem = write_override(studio, server_id, server_dm, wanted)
+    if problem:
+        print("[pose] could not hold the pose: " + problem)
+        return 2
+    saved = []
+    try:
+        time.sleep(1.0)  # the hold is a replication hop plus a frame, as `compare` says
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        for name in wanted_views:
+            answer, problem = studio_mcp.json_answer(
+                studio, INSPECT_PLACE % INSPECT_VIEWS[name], studio_id=client_id,
+                datamodel=client_dm)
+            if problem or not (answer or {}).get("ok"):
+                print("[pose] could not copy the viewmodel: "
+                      + (problem or (answer or {}).get("why", "?")))
+                return 1
+            shot = os.path.join(studio_mcp.SCREENSHOT_DIR, f"{stamp}-inspect-{pose}-{name}.png")
+            path, text = studio.capture(shot, studio_id=client_id)
+            if not path:
+                print(f"[pose] no image came back from Studio for {name}: {text}")
+                return 1
+            saved.append(path)
+            print(f"[pose] {name}: {os.path.relpath(path, REPO)} "
+                  f"({answer.get('parts')} part(s) copied, {answer.get('hidden')} live hidden)")
+        print("[pose] LOOK AT THEM before claiming what they show (CLAUDE.md rule 5).")
+        return 0
+    finally:
+        answer, problem = studio_mcp.json_answer(
+            studio, INSPECT_RESTORE, studio_id=client_id, datamodel=client_dm)
+        if problem:
+            print("[pose] WARNING: could not put the live viewmodel back: " + problem)
+            print("[pose]   end the session; nothing written here outlives it")
         _, restore_problem = write_override(studio, server_id, server_dm, restore)
         if restore_problem:
             print("[pose] WARNING: could not release the hold: " + restore_problem)
@@ -846,7 +1027,7 @@ def main(argv):
     args = rest
 
     action = args[0] if args else "show"
-    if action not in ("show", "set", "save", "clear", "compare", "fit", "play", "stop"):
+    if action not in ("show", "set", "save", "clear", "compare", "inspect", "fit", "play", "stop"):
         print(__doc__)
         return 2
 
@@ -859,6 +1040,12 @@ def main(argv):
                       "[--client <name>]")
                 return 2
             return run_compare(studio, args[1], explicit_target, assets_dir, client)
+        if action == "inspect":
+            if not 2 <= len(args) <= 3:
+                print("[pose] usage: pose.py inspect <carry|raise|aim|reload> "
+                      f"[{'|'.join(INSPECT_VIEWS)}] [--client <name>]")
+                return 2
+            return run_inspect(studio, args[1], client, [args[2]] if len(args) == 3 else None)
         if action in ("play", "stop"):
             if len(args) != 1:
                 print(f"[pose] usage: pose.py {action}")
