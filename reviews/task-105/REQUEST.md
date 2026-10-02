@@ -3,11 +3,11 @@
 Task: 105
 Round: 1
 Base: `main` (`088274b`)
-Code commit: `254987d339de1099beb7f8a8ad63b96605315e6c`
+Code commit: `b257d6c257cfc4d1011490cc4849ce35d8b80d46`
 
 ```
-[harness] PASS: 32/32 checks @ 254987d339de1099beb7f8a8ad63b96605315e6c (clean tree)
-[harness2] PASS: 34/34 checks @ 254987d339de1099beb7f8a8ad63b96605315e6c (clean tree)
+[harness] PASS: 32/32 checks @ b257d6c257cfc4d1011490cc4849ce35d8b80d46 (clean tree)
+[harness2] PASS: 34/34 checks @ b257d6c257cfc4d1011490cc4849ce35d8b80d46 (clean tree)
 ```
 
 Karen, 2026-10-02, on the exact-geometry gun: "bad". She picked "Double Barrel Shotgun" by Ryan_Nein
