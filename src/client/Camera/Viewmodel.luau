@@ -801,8 +801,15 @@ end
 --
 -- NEW GUN ONLY, and open only. Everything here is `Gun.chamber` arithmetic, which the old gun does
 -- not have, and a shut gun is not being loaded.
-local function loadFrame(barrel: number, feedT: number, config): CFrame
-	local shellAt = chamberOffset(barrel, config) * CFrame.new(0, 0, config.SHELL_FEED_FROM_STUDS * (1 - feedT))
+-- WHERE A FRESH SHELL IS AT THIS POINT OF ITS FEED, in the barrels' frame. ONE SOURCE, because the
+-- hand is placed from it too (task 111): two expressions could drift apart by a decimal nobody
+-- would ever think to look for, and the whole claim is that the hand is ON the shell.
+function Viewmodel.shellFeedAt(barrel: number, feedT: number, config): CFrame
+	return chamberOffset(barrel, config) * CFrame.new(0, 0, config.SHELL_FEED_FROM_STUDS * (1 - feedT))
+end
+
+function Viewmodel.loadFrameAt(barrel: number, feedT: number, config): CFrame
+	local shellAt = Viewmodel.shellFeedAt(barrel, feedT, config)
 	-- JUST BEHIND THE SHELL, a little to the gun's left and below the bore: the hand comes from the
 	-- left and the thumb is what is on the shell's head, so the palm centre is off the bore line.
 	local at = (shellAt * CFrame.new(
@@ -843,7 +850,7 @@ function Viewmodel.loading(config): (number, CFrame?)
 			end
 			if weight > best then
 				best = weight
-				bestFrame = loadFrame(barrel, math.clamp(since / feed, 0, 1), config)
+				bestFrame = Viewmodel.loadFrameAt(barrel, math.clamp(since / feed, 0, 1), config)
 			end
 		end
 	end
@@ -1393,8 +1400,7 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 		local at = loadedAt[barrel]
 		if reload.loaded[barrel] and at then
 			local feedT = math.clamp((now - at) / config.SHELL_FEED_SECONDS, 0, 1)
-			wanted[FRESH_NAME .. barrel] = chamberOffset(barrel, config)
-				* CFrame.new(0, 0, config.SHELL_FEED_FROM_STUDS * (1 - feedT))
+			wanted[FRESH_NAME .. barrel] = Viewmodel.shellFeedAt(barrel, feedT, config)
 		end
 	end
 
