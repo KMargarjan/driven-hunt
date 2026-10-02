@@ -198,7 +198,7 @@ return function()
 			expect(pin.offset.Position.Y < at.actionY).to.equal(true)
 		end)
 
-		it("is silver against blued barrels, and carries a trigger, a round guard, a lever and a safety", function()
+		it("is a DARK case-hardened grey against blued barrels, and carries the furniture", function()
 			for _, name in ipairs({
 				"Action",
 				"ActionBelly",
@@ -218,6 +218,27 @@ return function()
 			expect(byName(pieces, "Action").color).to.equal(Gun.LOOK.action)
 			expect(byName(pieces, "BarrelLeft").color).to.equal(Gun.LOOK.blued)
 			expect(byName(pieces, "Action").color).never.to.equal(byName(pieces, "BarrelLeft").color)
+			-- DARK, BUT STILL TWO MATERIALS (task 103). The action came down from 118 to 62 because
+			-- 118 measured (132, 135, 140) on screen against the target frame's (69, 66, 66) -- and
+			-- it was NOT the fill light, which moved those pixels by two points over a 4.5x change
+			-- (TASKS.md 102a(a)). "Darker" has an end, though: an action that reaches the barrels is
+			-- a gun with no action, so the gap is asserted rather than left to the next tuner.
+			local function luminance(colour: Color3): number
+				return 0.2126 * colour.R + 0.7152 * colour.G + 0.0722 * colour.B
+			end
+			local actionLight = luminance(Gun.LOOK.action)
+			local bluedLight = luminance(Gun.LOOK.blued)
+			TestKit.note(
+				string.format(
+					"task103 action luma %.4f, blued %.4f, ratio %.2f",
+					actionLight,
+					bluedLight,
+					actionLight / bluedLight
+				)
+			)
+			expect(actionLight / bluedLight > 1.8).to.equal(true)
+			-- ...and it is DARK: under the target frame's own upper quartile for metal, not a silver.
+			expect(actionLight * 255 < 90).to.equal(true)
 			-- A ROUND guard, not a rectangle of three bars.
 			expect(byName(pieces, "TriggerGuard").shape).to.equal(Enum.PartType.Cylinder)
 			-- The action is SHALLOW AND WIDE, which is what a side-by-side has.

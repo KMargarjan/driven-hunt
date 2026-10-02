@@ -223,19 +223,31 @@ Gun.WOOD_ROTATION_DEG = table.freeze({ [Gun.FOREND_NAME] = -90, [Gun.STOCK_NAME]
 -- mirror the sky across the whole tube. It is the material, not the colour, that was the defect.
 local STEEL_MATERIAL = Enum.Material.SmoothPlastic
 
--- The colours. Blued steel is near-black with the faintest cool cast; the action is a case-hardened
--- silver-grey, which is the contrast that makes a side-by-side read as one.
+-- The colours. Blued steel is near-black with the faintest cool cast; the action is a DARK
+-- case-hardened grey -- lighter than the barrels, so the two still read apart, and nowhere near the
+-- silver it started as.
 Gun.LOOK = table.freeze({
 	-- NEUTRAL, NOT BLUE (task 100). The old (34, 38, 46) was a blue-biased albedo under a material
 	-- that multiplied the sky by it. The target frame's barrels are a flat dark grey, so this is
 	-- one: a 4-point cool cast, no more.
 	blued = Color3.fromRGB(26, 27, 30),
-	-- 118, NOT 140 OR 176, AND THE SCREENSHOT IS WHY (rule 5). At 176 the action rendered near-WHITE;
-	-- at 140 with `Metal` and 0.04 reflectance it still measured (139, 148, 165) in the break-open
-	-- capture -- a pale blue-grey slab, which is what the Director called "a Roblox block". With the
-	-- sky reflection gone (`STEEL_MATERIAL`) this stays a mid grey in sun, which is what
-	-- case-hardened steel is.
-	action = Color3.fromRGB(118, 120, 122),
+	-- 62, AND EVERY NUMBER BEFORE IT WAS MEASURED ON SCREEN (rule 5). 176 rendered near-WHITE; 140
+	-- with `Metal` and 0.04 reflectance measured (139, 148, 165) in the break-open capture; 118 with
+	-- the sky reflection gone STILL measured (132, 135, 140) in the aimed capture -- a pale blue-grey
+	-- slab, which is what the Director called "a Roblox block".
+	--
+	-- AND IT IS NOT THE LIGHT, WHICH IS THE MEASUREMENT THAT BOUGHT THIS ONE (task 102, TASKS.md
+	-- 102a(a)). With everything else identical, `look.fill.brightness` live at 0.10 instead of 0.45
+	-- moved those same pixels from (132, 135, 140) to (130, 134, 139): two points of 255 for a 4.5x
+	-- change in the lamp. So what is pale is the ALBEDO, and no brightness was ever going to fix it.
+	--
+	-- 62 IS SOLVED FROM THE TARGET FRAME. `TARGET-aim.jpg`'s metal -- the top strap running up the
+	-- middle between the two wooden flanks -- measures a median of (69, 66, 66) and a lower quartile
+	-- of (54, 52, 52): dark grey, not silver. At the shipped fill this gun renders about 14 points
+	-- above its albedo, so 62 lands in that band. It is still 2.4x the blued barrels' luminance, so
+	-- the contrast that makes a side-by-side read as two materials survives -- `gun.spec` asserts
+	-- that rather than leaving it to the eye.
+	action = Color3.fromRGB(62, 63, 66),
 	bore = Color3.fromRGB(9, 9, 11),
 	bead = Color3.fromRGB(198, 158, 82),
 	-- WALNUT, matched to Karen's own stock mesh rather than guessed: the stock's lit pixels in
