@@ -135,6 +135,12 @@ Assets.KEYS = table.freeze({
 	gunBarrels = "gun.barrels",
 	gunFrame = "gun.frame",
 	gunShell = "gun.shell",
+	-- MODEL B'S OWN HANDS (task 106, round 2). They are a DIFFERENT KEY rather than a new version of
+	-- `hand.right`/`hand.left`, and that is finding 1 of round 1: a new version supersedes, and
+	-- `byKey` would then have handed the OLD gun -- the flag-OFF default build -- a pair it was never
+	-- posed for. The two guns have two pairs of hands, so they have two pairs of keys.
+	gunHandRight = "gun.hand.right",
+	gunHandLeft = "gun.hand.left",
 	handLeft = "hand.left",
 })
 
@@ -160,12 +166,19 @@ local GUN_SIZE = Vector3.new(NATURAL.X * SCALE, NATURAL.Y * SCALE, NATURAL.Z * S
 -- Roblox's FBX import applies -- the same hundred that makes the gun's two-unit model 200 units long
 -- above).
 --
--- THE SIZE IS PINNED TO THE GRIP SINCE TASK 106, NOT TO THE HAND'S LENGTH, and that is the measured
--- fix for a glove that was the biggest thing in the frame. The dial used to be the model's LONGEST
--- axis set to 1.27 studs ("a hand plus a cuff is about 330 mm"), which is right for a real hand and
--- wrong for a generated one: Karen's gloves are chunky, so at 1.27 long the right glove measured
--- 0.665 studs ACROSS THE FINGERS -- 173 mm, nearly twice an adult palm -- and the aimed capture of
--- task 105 showed exactly that.
+-- TWO PAIRS OF HANDS, ONE PER GUN (task 106, round 2). The OLD gun -- the flag-OFF default build --
+-- keeps the v1 pair at the v1 dial, because the TOP-LEVEL poses in `poses.json` were measured
+-- against those models and nothing in this task re-measured them. Model B gets Karen's new pair
+-- under its own keys. Round 1 shipped the new pair as `hand.right` v2, which supersedes, so the old
+-- gun was handed a glove it was never posed for: upside down and at 53 % of the size its poses
+-- assume.
+--
+-- THE NEW PAIR'S SIZE IS PINNED TO THE GRIP, NOT TO THE HAND'S LENGTH, and that is the measured fix
+-- for a glove that was the biggest thing in the frame. The v1 dial is the model's LONGEST axis set
+-- to 1.27 studs ("a hand plus a cuff is about 330 mm"), which is right for a real hand and wrong for
+-- a generated one: Karen's gloves are chunky, so at 1.27 long the new right glove measured 0.665
+-- studs ACROSS THE FINGERS -- 173 mm, nearly twice an adult palm -- and the aimed capture of task
+-- 105 showed exactly that.
 --
 -- SO THE ANCHOR IS THE THING THE HAND HAS TO FIT. MEASURED on model B
 -- (`tools/gltf_split.py probe`): the stock's WRIST -- the narrow grip between the action's rear and
@@ -179,7 +192,10 @@ local HAND_ACROSS_STUDS = 0.35
 -- the LONGEST axis rather than X.
 local HAND_RIGHT_NATURAL = Vector3.new(189.8336, 99.3031, 59.8539)
 local HAND_LEFT_NATURAL = Vector3.new(178.9431, 151.8857, 190.2365)
--- The v1 gloves' boxes, kept beside their own rows below (rule 7: the row stays, so its numbers do).
+-- The v1 gloves' boxes and their own dial. THE OLD GUN STILL DRAWS THESE, so this is not an archive
+-- number: 1.27 studs is 330 mm of hand and cuff at this game's scale, and it is what the top-level
+-- poses were measured against.
+local HAND_V1_LENGTH_STUDS = 1.27
 local HAND_RIGHT_V1_NATURAL = Vector3.new(190.04, 84.99, 78.93)
 local HAND_LEFT_V1_NATURAL = Vector3.new(189.64, 95.52, 72.04)
 -- ...so the one dial above becomes the LENGTH the helper below takes: the right glove's own
@@ -209,11 +225,11 @@ end
 local STOCK_SIZE = Vector3.new(1.32, 0.4808, 0.255)
 local HAND_RIGHT_SIZE = uniformTo(HAND_RIGHT_NATURAL, HAND_LENGTH_STUDS)
 local HAND_LEFT_SIZE = uniformTo(HAND_LEFT_NATURAL, HAND_LENGTH_STUDS)
--- THE v1 GLOVES KEEP THE SIZE THEY SHIPPED AT, frozen beside their own rows: those rows stay for
--- their ids (rule 7) and nothing loads them, so scaling them to a dial they never used would be a
--- number pretending to mean something.
-local HAND_RIGHT_V1_SIZE = Vector3.new(1.27, 0.568, 0.527)
-local HAND_LEFT_V1_SIZE = Vector3.new(1.27, 0.640, 0.482)
+-- THE v1 GLOVES KEEP THEIR OWN DIAL, computed the same way, because the OLD gun still wears them and
+-- its poses were measured at it. `uniformTo` pins the longest axis, and on both v1 models that is X,
+-- so these are bit-for-bit the sizes that shipped before task 106.
+local HAND_RIGHT_V1_SIZE = uniformTo(HAND_RIGHT_V1_NATURAL, HAND_V1_LENGTH_STUDS)
+local HAND_LEFT_V1_SIZE = uniformTo(HAND_LEFT_V1_NATURAL, HAND_V1_LENGTH_STUDS)
 
 -- THE ONE LICENCE MODEL B IS USED UNDER, written once because it is the same condition on every row
 -- of it and a credit that drifts between copies is a credit nobody can rely on. CC-BY-4.0 asks for
@@ -829,7 +845,6 @@ Assets.ROWS = {
 	{
 		key = "hand.right",
 		version = 1,
-		supersededBy = 2, -- task 106: Karen made a pair that HOLDS something (see the block below v2)
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel",
 		-- Uploaded by tools/roblox_upload.py on 2026-09-28; the row it wrote is in
@@ -873,7 +888,6 @@ Assets.ROWS = {
 	{
 		key = "hand.left",
 		version = 1,
-		supersededBy = 2, -- task 106: Karen made a pair that HOLDS something (see the block below v2)
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel",
 		-- Uploaded by tools/roblox_upload.py on 2026-09-28; the row it wrote is in
@@ -1161,8 +1175,8 @@ Assets.ROWS = {
 	-- site, because the pose and the orientation are the same measurement and splitting them over two
 	-- files would be two dials for one thing.
 	{
-		key = "hand.right",
-		version = 2,
+		key = "gun.hand.right",
+		version = 1,
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel",
 		-- Uploaded by tools/roblox_upload.py on 2026-10-02; the row it wrote is in
@@ -1213,8 +1227,8 @@ Assets.ROWS = {
 			.. "Textures 2048 and 4096 down to 1024.",
 	},
 	{
-		key = "hand.left",
-		version = 2,
+		key = "gun.hand.left",
+		version = 1,
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel",
 		modelId = 74971853808718,

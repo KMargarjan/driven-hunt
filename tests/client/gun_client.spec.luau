@@ -21,6 +21,7 @@ local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
 local Camera = require(scripts:WaitForChild("Camera"))
 local Config = Camera.Config
+local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
@@ -341,6 +342,85 @@ return function()
 					expect(inBarrels.Position.Z + layout.barrelZ >= wanted.Z - 1e-3).to.equal(true)
 				end
 			end)
+		end)
+		it("draws the OLD gun's gloves with the flag off and model B's with it on", function()
+			-- ROUND 1'S FINDING 1, ON THE INSTANCES THAT ARE REALLY DRAWN. The new gloves first
+			-- shipped as `hand.right` VERSION 2, which supersedes -- so the flag-OFF default build,
+			-- whose TOP-LEVEL poses were measured against the v1 models, was handed model B's pair:
+			-- upside down and at 53 % of the size its poses assume. The manifest half is asserted on
+			-- the server (`gun.spec`); this is the half only a client can see.
+			local oldFolder = ReplicatedStorage:FindFirstChild(HandAssets.FOLDER_NAME)
+			local newFolder = ReplicatedStorage:FindFirstChild(HandAssets.NEW_GUN_FOLDER_NAME)
+			local oldTemplate = if oldFolder then oldFolder:FindFirstChild(HandAssets.RIGHT) else nil
+			local newTemplate = if newFolder then newFolder:FindFirstChild(HandAssets.RIGHT) else nil
+			if not (oldTemplate and newTemplate) then
+				-- A gun with no hands is a real state -- the load failed, or it has not landed yet --
+				-- and saying so is the honest answer, not a silent pass.
+				TestKit.note("task106 gloves: both pairs are not published on this client yet")
+				return
+			end
+			-- THE TWO PAIRS ARE DIFFERENT THINGS, which is what makes the rest of this case mean
+			-- anything: same name, two folders, two models, two sizes.
+			local oldSize = (oldTemplate :: BasePart).Size
+			local newSize = (newTemplate :: BasePart).Size
+			TestKit.note(
+				string.format(
+					"task106 published: old gun %.3f studs, model B %.3f",
+					math.max(oldSize.X, oldSize.Y, oldSize.Z),
+					math.max(newSize.X, newSize.Y, newSize.Z)
+				)
+			)
+			expect(math.max(oldSize.X, oldSize.Y, oldSize.Z) > math.max(newSize.X, newSize.Y, newSize.Z)).to.equal(true)
+
+			-- ...AND EACH GUN DRAWS ITS OWN. Measured on the drawn part, under the camera, for both
+			-- branches of the flag, driven by parameter while the flag sits at one of them.
+			local function drawnRightHandSize(config): Vector3?
+				local found: Vector3? = nil
+				withNewGun(function()
+					Camera.Viewmodel.setReload(nil)
+					Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), config)
+					local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+					local hand = clone:FindFirstChild(HandAssets.RIGHT)
+					if hand and hand:IsA("BasePart") then
+						found = (hand :: BasePart).Size
+					end
+				end)
+				return found
+			end
+
+			local drawnOff = drawnRightHandSize(firstPersonConfig)
+			local drawnOn = drawnRightHandSize(newGunConfig)
+			expect(drawnOff).to.be.ok()
+			expect(drawnOn).to.be.ok()
+			-- THE FLAG-OFF BUILD DRAWS THE OLD PAIR, at the old size. A regression here is the
+			-- default build changing under a flagged task, which is exactly what round 1 shipped.
+			expect((drawnOff :: Vector3) == oldSize).to.equal(true)
+			expect((drawnOn :: Vector3) == newSize).to.equal(true)
+			expect((drawnOff :: Vector3) ~= (drawnOn :: Vector3)).to.equal(true)
+		end)
+
+		it("keeps the drawn sleeve inside the glove it belongs to, on both guns", function()
+			-- THE OVERLAP IS TAKEN OFF `hand.Size.X / 2` (round 1, note): if it ever exceeds that,
+			-- the sleeve's near end comes out through the fingers instead of starting inside the
+			-- cuff. Nothing asserted the relation, and model B's glove has 0.015 studs of margin.
+			for _, case in ipairs({
+				{ name = "old gun", config = firstPersonConfig, folder = HandAssets.FOLDER_NAME },
+				{ name = "model B", config = newGunConfig, folder = HandAssets.NEW_GUN_FOLDER_NAME },
+			}) do
+				local folder = ReplicatedStorage:FindFirstChild(case.folder)
+				local template = if folder then folder:FindFirstChild(HandAssets.RIGHT) else nil
+				if template and template:IsA("BasePart") then
+					local overlap = Camera.Viewmodel.sleeveOverlap(case.config)
+					local halfHand = (template :: BasePart).Size.X / 2
+					TestKit.note(
+						string.format("task106 %s: overlap %.3f against half a hand %.3f", case.name, overlap, halfHand)
+					)
+					expect(overlap < halfHand).to.equal(true)
+					-- ...and the sleeve is longer than the hand, which is the claim that its far end
+					-- is behind the eye rather than beside the cuff.
+					expect(Camera.Viewmodel.sleeveLength(case.config) > (template :: BasePart).Size.X).to.equal(true)
+				end
+			end
 		end)
 	end)
 

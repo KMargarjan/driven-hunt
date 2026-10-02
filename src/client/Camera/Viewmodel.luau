@@ -470,22 +470,57 @@ local function chamberOffset(barrel: number, config): CFrame
 	return CFrame.new(across.X, across.Y, breechZ)
 end
 
+-- THE SLEEVE'S TWO NUMBERS, PER GUN (task 106, round 2), and they are functions rather than two more
+-- config rows because the choice is one rule with one reason: the sleeve's far end must be behind
+-- the eye in EVERY pose, and that is an ABSOLUTE distance, so a glove of a different size needs a
+-- different length. The old gun's glove is 1.27 studs and sits close in; model B's is 0.67 and sits
+-- further out, and in the broken-open frame a 1.6-stud sleeve ended at the lens
+-- (`.screenshots/20261002T111802Z-pose-reload.png`). The overlap is how far the cylinder starts
+-- INSIDE the cuff, and the new glove's own turned cuff needs nearly half a hand to be covered.
+--
+-- THE OLD GUN'S NUMBERS DO NOT MOVE, which is round 1's finding 1 in one line: the flag-OFF default
+-- build draws exactly what it drew before this task.
+function Viewmodel.sleeveLength(config): number
+	if config ~= nil and config.NEW_GUN == true then
+		return config.SLEEVE_LENGTH_NEW_GUN_STUDS
+	end
+	return config.SLEEVE_LENGTH_STUDS
+end
+
+function Viewmodel.sleeveOverlap(config): number
+	if config ~= nil and config.NEW_GUN == true then
+		return config.SLEEVE_OVERLAP_NEW_GUN_STUDS
+	end
+	return config.SLEEVE_OVERLAP_STUDS
+end
+
 -- WHERE A HAND TEMPLATE COMES FROM. The real answer is the folder
 -- `ServerScriptService.ViewmodelAssetsBoot` publishes; a spec injects its own with
 -- `setHandTemplates`. Never yields and never loads anything: nil means "no hands", which is the gun
 -- Karen has been playing since task 95 and not a failure.
-local function handTemplate(name: string): BasePart?
+-- WHICH PAIR, AND IT IS THE ONLY PLACE THAT ASKS (task 106, round 2). Karen made gloves that HOLD
+-- something, for model B; the OLD gun keeps the pair the TOP-LEVEL poses in `poses.json` were
+-- measured against. They are published under the SAME names in two folders, so this one lookup is
+-- the whole of the difference -- `poseHands`, `clearHands` and every spec still look for `HandRight`
+-- and `HandLeft`.
+--
+-- Shipping one pair for both guns is round 1's finding 1: the new glove's `twist` of 180 belongs to
+-- a palm-DOWN model, so the old gun drew it upside down, at 53 % of the size its poses assume.
+local function handTemplate(name: string, config): BasePart?
 	local fn = handTemplates
 	if fn then
 		return fn(name)
 	end
-	local folder = ReplicatedStorage:FindFirstChild(HandAssets.FOLDER_NAME)
+	local folderName = if config ~= nil and config.NEW_GUN == true
+		then HandAssets.NEW_GUN_FOLDER_NAME
+		else HandAssets.FOLDER_NAME
+	local folder = ReplicatedStorage:FindFirstChild(folderName)
 	local found = if folder then folder:FindFirstChild(name) else nil
 	return if found and found:IsA("BasePart") then found :: BasePart else nil
 end
 
 local function addHand(clone: BasePart, parent: Instance, name: string, config): boolean
-	local template = handTemplate(name)
+	local template = handTemplate(name, config)
 	if template == nil then
 		return false
 	end
@@ -516,7 +551,12 @@ local function addHand(clone: BasePart, parent: Instance, name: string, config):
 	local sleeve = Instance.new("Part")
 	sleeve.Name = SLEEVE_NAME
 	sleeve.Shape = Enum.PartType.Cylinder -- a cylinder's length runs along its own X, like the hand's
-	sleeve.Size = Vector3.new(config.SLEEVE_LENGTH_STUDS, config.SLEEVE_DIAMETER_STUDS, config.SLEEVE_DIAMETER_STUDS)
+	-- THE LENGTH IS PER GUN (task 106, round 2), because the two pairs are different sizes and the
+	-- claim is absolute: the far end must be behind the eye in EVERY pose. The old gun's glove is
+	-- 1.27 studs and sits close in, so 1.6 reaches; model B's is 0.67 and sits further out, and in
+	-- the broken-open frame a 1.6-stud sleeve ended at the lens.
+	local length = Viewmodel.sleeveLength(config)
+	sleeve.Size = Vector3.new(length, config.SLEEVE_DIAMETER_STUDS, config.SLEEVE_DIAMETER_STUDS)
 	sleeve.Color = config.SLEEVE_COLOR
 	sleeve.Material = config.SLEEVE_MATERIAL
 	sleeve.Anchored = true
@@ -619,7 +659,7 @@ function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mo
 	local function placeSleeve(hand: BasePart, towardFingers: number)
 		local sleeve = hand:FindFirstChild(SLEEVE_NAME)
 		if sleeve and sleeve:IsA("BasePart") then
-			local back = -towardFingers * (hand.Size.X / 2 + sleeve.Size.X / 2 - config.SLEEVE_OVERLAP_STUDS);
+			local back = -towardFingers * (hand.Size.X / 2 + sleeve.Size.X / 2 - Viewmodel.sleeveOverlap(config));
 			(sleeve :: BasePart).CFrame = hand.CFrame * CFrame.new(back, 0, 0)
 		end
 	end

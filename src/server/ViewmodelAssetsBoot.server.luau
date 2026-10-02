@@ -85,6 +85,13 @@ local folder = Instance.new("Folder")
 folder.Name = HandAssets.FOLDER_NAME
 folder.Parent = ReplicatedStorage
 
+-- MODEL B'S OWN PAIR, in its own folder (task 106). Created BEFORE the load for the same reason the
+-- first one is: the client's lookup must resolve to "nothing published" rather than to "not there
+-- yet, forever".
+local newGunFolder = Instance.new("Folder")
+newGunFolder.Name = HandAssets.NEW_GUN_FOLDER_NAME
+newGunFolder.Parent = ReplicatedStorage
+
 -- MODEL B'S GUN PIECES (task 105; task 99's wood before it), parked in their own folder for the same reason the hands have one:
 -- `InsertService:LoadAsset` is server-only, so the server loads and publishes and
 -- `Camera.Viewmodel` clones. A SEPARATE folder because they are a different thing with a
@@ -107,33 +114,44 @@ for _, loaded in ipairs(reports) do
 	end
 end
 
+-- TWO PAIRS, TWO FOLDERS, ONE LOOP (task 106). The OLD gun keeps the pair the TOP-LEVEL poses in
+-- `poses.json` were measured against; model B gets Karen's new pair, which HOLDS something. Same
+-- published NAMES in both folders, so the only place that has to know which gun is being drawn is
+-- `Camera.Viewmodel.handTemplate` -- everything downstream still looks for `HandRight`/`HandLeft`.
 local published = 0
-for name, key in pairs(HandAssets.KEY_OF) do
-	local template = Loader.template(key)
-	local row = Assets.byKey(key)
-	if template and template:IsA("BasePart") and row then
-		local worn = (template :: BasePart):Clone()
-		worn.Name = name
-		-- THE CONSUMER SETS THE SIZE, ALWAYS (design 6.1), and this script is the consumer: the
-		-- Loader never writes it. Uniform, from the row, for the reason the row spells out.
-		worn.Size = row.sizeStuds
-		-- Leather: the material decides how a glove catches the viewmodel's own fill light, and one
-		-- that reads as shiny plastic is the next complaint.
-		showItsOwnColour(worn, row, Enum.Material.Fabric)
-		-- Everything that says "scenery" -- the same set `Weapon.Hardware` puts on the worn gun.
-		-- `CanQuery = false` is not decoration: the clone ends up under `workspace.CurrentCamera`,
-		-- which is a child of Workspace, so a client raycast can hit a part parented there.
-		worn.Anchored = true
-		worn.CanCollide = false
-		worn.CanQuery = false
-		worn.CanTouch = false
-		worn.Massless = true
-		worn.CastShadow = false
-		worn.Parent = folder
-		published += 1
+local function publishHands(into: Folder, keys: { [string]: string }): number
+	local count = 0
+	for name, key in pairs(keys) do
+		local template = Loader.template(key)
+		local row = Assets.byKey(key)
+		if template and template:IsA("BasePart") and row then
+			local worn = (template :: BasePart):Clone()
+			worn.Name = name
+			-- THE CONSUMER SETS THE SIZE, ALWAYS (design 6.1), and this script is the consumer: the
+			-- Loader never writes it. Uniform, from the row, for the reason the row spells out.
+			worn.Size = row.sizeStuds
+			-- Leather: the material decides how a glove catches the viewmodel's own fill light, and
+			-- one that reads as shiny plastic is the next complaint.
+			showItsOwnColour(worn, row, Enum.Material.Fabric)
+			-- Everything that says "scenery" -- the same set `Weapon.Hardware` puts on the worn gun.
+			-- `CanQuery = false` is not decoration: the clone ends up under
+			-- `workspace.CurrentCamera`, which is a child of Workspace, so a client raycast can hit
+			-- a part parented there.
+			worn.Anchored = true
+			worn.CanCollide = false
+			worn.CanQuery = false
+			worn.CanTouch = false
+			worn.Massless = true
+			worn.CastShadow = false
+			worn.Parent = into
+			count += 1
+		end
 	end
+	return count
 end
-print(string.format("[ViewmodelAssets] published %d of 2 hand template(s)", published))
+
+published = publishHands(folder, HandAssets.KEY_OF) + publishHands(newGunFolder, HandAssets.NEW_GUN_KEY_OF)
+print(string.format("[ViewmodelAssets] published %d of 4 hand template(s), two pairs", published))
 
 -- MODEL B, by the same three rules as the hands: the CONSUMER sets the size (from the row),
 -- everything says scenery, and a piece that did not load is simply absent -- `Camera.Viewmodel`

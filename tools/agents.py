@@ -631,8 +631,14 @@ def selftest():
               "%d path(s) need it" % len(got))
     check("a docs-only change asks for nothing", needs_two_player([]) == [])
     check("a non-code change asks for nothing", needs_two_player(["README.md"]) == [])
-    check("a Windows path is normalised",
-          needs_two_player([r"src\shared\Gun\init.luau"]) == [])
+    # NORMALISATION, DRIVEN BY THE CASE THAT CAN FAIL (round 1, finding 2). This used to assert that
+    # a backslashed VIEWMODEL path comes back exempt -- which it does with the normalisation deleted
+    # too, because an un-normalised path matches no prefix at all and the function then returns the
+    # same empty list. The dangerous direction is the other one: a GAMEPLAY path that the gate reads
+    # as asking for nothing. With `norm` removed this returns [] and the check fails.
+    check("a Windows path is normalised, so a gameplay path still asks for two players",
+          needs_two_player([r"src\server\Match\init.luau"]) != [],
+          "%s" % (needs_two_player([r"src\server\Match\init.luau"]),))
     # EVERY EXEMPT PATH IS A CODE PATH, so nothing in this list can ever skip the ONE-player line --
     # which is the half of the gate the Director did not relax.
     for path in WEAPON_VIEWMODEL_PATHS:

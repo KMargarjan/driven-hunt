@@ -390,8 +390,8 @@ return function()
 			-- SO THE ANCHOR IS MODEL B'S STOCK WRIST, which is what the fist has to close on: 0.320
 			-- studs from the grip's front to the comb, 83 mm at this gun's scale. A fist round a
 			-- wrist that size is about an adult palm across.
-			local right = Assets.byKey("hand.right")
-			local left = Assets.byKey("hand.left")
+			local right = Assets.byKey(Assets.KEYS.gunHandRight)
+			local left = Assets.byKey(Assets.KEYS.gunHandLeft)
 			local across = right.sizeStuds.Y -- the right glove's across-the-fingers axis
 			TestKit.note(
 				string.format(
@@ -405,14 +405,81 @@ return function()
 			-- ...and an adult palm is 85 to 95 mm, which at 259.8 mm to the stud is this band. The
 			-- old 1.27 put it at 173 mm and fails here, which is the point of the case.
 			expect(across * 259.8 > 85 and across * 259.8 < 95).to.equal(true)
-			-- THE PAIR IS ONE PAIR: two hands of different sizes is the defect nobody measures until
-			-- a screenshot shows it. Scaled uniformly to the same longest axis, they agree.
-			local rightLongest = math.max(right.sizeStuds.X, right.sizeStuds.Y, right.sizeStuds.Z)
-			local leftLongest = math.max(left.sizeStuds.X, left.sizeStuds.Y, left.sizeStuds.Z)
-			expect(math.abs(rightLongest - leftLongest) < 1e-4).to.equal(true)
+			-- THE PAIR IS ONE PAIR, AND THE CLAIM IS THE SCALE FACTOR (round 1, note). Comparing the
+			-- two longest axes proves nothing: `uniformTo` pins the longest axis to the dial, so ANY
+			-- two models come out equal there. What "one pair" means is that both models were shrunk
+			-- by the same factor -- two hands drawn at different scales is the defect nobody measures
+			-- until a screenshot shows it.
+			local rightScale = right.sizeStuds.X / (right.naturalSizeStuds :: Vector3).X
+			local leftScale = left.sizeStuds.X / (left.naturalSizeStuds :: Vector3).X
+			TestKit.note(string.format("task106 scale: right %.6f, left %.6f", rightScale, leftScale))
+			expect(math.abs(rightScale - leftScale) < 1e-4).to.equal(true)
 			-- A hand is still several times the width of the barrel it holds.
 			local at = Gun.layout(CONFIG)
 			expect(across > at.barrelRadius * 4).to.equal(true)
+		end)
+
+		it("gives each gun its OWN pair, so the flag-OFF build cannot be handed model B's", function()
+			-- ROUND 1'S FINDING 1, AND THIS CASE IS THE THING THAT WOULD HAVE CAUGHT IT. The new
+			-- gloves first shipped as `hand.right` VERSION 2 -- and a new version supersedes, so
+			-- `Assets.byKey("hand.right")` answered with them for every caller, including the
+			-- flag-OFF default build whose TOP-LEVEL poses were measured against the v1 models. The
+			-- old gun drew the new left glove upside down (its `twist` of 180 belongs to a palm-DOWN
+			-- model) at 53 % of the size its poses assume.
+			--
+			-- SO THE TWO GUNS HAVE TWO KEYS, and this asserts all three halves of that: the old keys
+			-- still answer with v1, the new keys answer with the new pair, and no row of either is
+			-- superseded by the other.
+			for name, key in pairs(HandAssets.KEY_OF) do
+				local old = Assets.byKey(key)
+				local new = Assets.byKey(HandAssets.NEW_GUN_KEY_OF[name])
+				expect(old).to.be.ok()
+				expect(new).to.be.ok()
+				expect(old.modelId).never.to.equal(new.modelId)
+				-- THE OLD PAIR IS STILL THE 1.27-STUD PAIR the top-level poses were measured at. A
+				-- regression here is the flag-OFF build changing size, which is exactly what round 1
+				-- shipped.
+				local oldLongest = math.max(old.sizeStuds.X, old.sizeStuds.Y, old.sizeStuds.Z)
+				local newLongest = math.max(new.sizeStuds.X, new.sizeStuds.Y, new.sizeStuds.Z)
+				TestKit.note(
+					string.format("task106 %s: old gun %.3f studs, model B %.3f", name, oldLongest, newLongest)
+				)
+				expect(math.abs(oldLongest - 1.27) < 1e-4).to.equal(true)
+				expect(newLongest < oldLongest * 0.75).to.equal(true)
+				-- ...and neither row may be superseded by the other: that is the mechanism that
+				-- failed.
+				expect(old.supersededBy).to.equal(nil)
+				expect(new.supersededBy).to.equal(nil)
+			end
+			-- THE TWO KEY TABLES NAME DIFFERENT KEYS, which is what makes the lookup above possible
+			-- at all. One table pointing at the other's keys is the same defect wearing a hat.
+			for name, key in pairs(HandAssets.KEY_OF) do
+				expect(HandAssets.NEW_GUN_KEY_OF[name]).never.to.equal(key)
+			end
+			-- ...and the two folders they are published into are different, or one pair overwrites
+			-- the other on the client.
+			expect(HandAssets.NEW_GUN_FOLDER_NAME).never.to.equal(HandAssets.FOLDER_NAME)
+		end)
+
+		it("keeps the old gun's own poses, measured for the old gun's own gloves", function()
+			-- THE OTHER HALF OF FINDING 1: the TOP-LEVEL poses are the v1 pair's, and nothing in task
+			-- 106 re-measured them. The `newGun` set answers differently BECAUSE the models differ --
+			-- Karen's new left glove is modelled palm-up, so its twist is 0 where the old one needs a
+			-- half turn to get the palm under the barrels.
+			expect(Poses.DATA.carry.left.rot.twist).to.equal(180)
+			expect(Poses.DATA.aim.left.rot.twist).to.equal(180)
+			expect(Poses.DATA.reload.left.rot.twist).to.equal(180)
+			for _, pose in ipairs({ "carry", "aim", "reload" }) do
+				TestKit.note(
+					string.format(
+						"task106 %s left twist: old gun %.0f, model B %.0f",
+						pose,
+						Poses.DATA[pose].left.rot.twist,
+						Poses.DATA.newGun[pose].left.rot.twist
+					)
+				)
+				expect(Poses.DATA.newGun[pose].left.rot.twist).never.to.equal(Poses.DATA[pose].left.rot.twist)
+			end
 		end)
 	end)
 
