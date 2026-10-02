@@ -266,10 +266,15 @@ return function()
 				-- point is where a seated shell's brass RIM goes, and a rim inside an opaque tube is
 				-- a rim nobody can see: rounds 1 and 2 seated the shell 0.10 studs down the chamber,
 				-- so a loaded gun and an empty one were the same picture.
+				-- 1e-6 AND NOT 1e-9, and the reason is the type: a `CFrame` and a `Vector3` hold
+				-- FLOAT32 components, so every number read back out of `offset.Position` has already
+				-- lost about seven digits. 1e-9 fails here on arithmetic that is exactly right --
+				-- measured, this run. The claims below are about studs, where 1e-6 is a thousandth
+				-- of a millimetre at this scale.
 				local breechFace = tube.offset.Position.Z + tube.size.X / 2
-				expect(math.abs(breechFace - at.breechZ) < 1e-9).to.equal(true)
+				expect(math.abs(breechFace - at.breechZ) < 1e-6).to.equal(true)
 				expect(chamber.Position.Z > breechFace).to.equal(true)
-				expect(math.abs(chamber.Position.Z - (breechFace + Gun.SHELL_RIM_PROUD)) < 1e-9).to.equal(true)
+				expect(math.abs(chamber.Position.Z - (breechFace + Gun.SHELL_RIM_PROUD)) < 1e-6).to.equal(true)
 				-- ...and in FRONT of the dark bore disc rather than in its plane, because two discs
 				-- ending on one plane z-fight and neither reads as anything.
 				local disc = byName(pieces, (if barrel == 1 then "BarrelRight" else "BarrelLeft") .. "BoreBreech")
@@ -295,22 +300,26 @@ return function()
 			-- places is the shell model's PIVOT, which is its Body part, so the one number that joins
 			-- them is `Gun.shellLayout().back`. If it were wrong in either direction the rim would
 			-- float off the breech or the whole shell would be swallowed -- the round 2 defect again.
-			local shell = Gun.shellLayout(Vector3.new(0.055, 0.055, 0.16), 0.34)
+			-- A `Vector3` HOLDS FLOAT32, so `size.Z` is not the 0.16 written here but the nearest
+			-- float to it; every bound below is 1e-6 for that reason, which is a thousandth of a
+			-- millimetre at this gun's scale.
+			local size = Vector3.new(0.055, 0.055, 0.16)
+			local shell = Gun.shellLayout(size, 0.34)
 			-- Body, base and rim lie END TO END with no gap and no overlap, mouth forward.
 			local mouth = shell.bodyX + shell.bodyLength / 2
-			expect(math.abs(mouth - 0.16 / 2) < 1e-9).to.equal(true)
-			expect(math.abs((shell.bodyX - shell.bodyLength / 2) - (shell.baseX + shell.baseLength / 2)) < 1e-9).to.equal(
+			expect(math.abs(mouth - size.Z / 2) < 1e-6).to.equal(true)
+			expect(math.abs((shell.bodyX - shell.bodyLength / 2) - (shell.baseX + shell.baseLength / 2)) < 1e-6).to.equal(
 				true
 			)
-			expect(math.abs((shell.baseX - shell.baseLength / 2) - (shell.rimX + shell.rimThick / 2)) < 1e-9).to.equal(
+			expect(math.abs((shell.baseX - shell.baseLength / 2) - (shell.rimX + shell.rimThick / 2)) < 1e-6).to.equal(
 				true
 			)
 			-- ...and `back` is the pivot-to-rim-face distance those three imply.
-			expect(math.abs(shell.back - (shell.bodyX - (shell.rimX - shell.rimThick / 2))) < 1e-9).to.equal(true)
+			expect(math.abs(shell.back - (shell.bodyX - (shell.rimX - shell.rimThick / 2))) < 1e-6).to.equal(true)
 			-- SEATED: the rim's face lands exactly on the mouth, and the body is inside the tube.
 			local at = Gun.layout(CONFIG)
 			local pivotZ = Gun.chamber(1, CONFIG).Position.Z - shell.back
-			expect(math.abs((pivotZ + shell.back) - (at.breechZ + Gun.SHELL_RIM_PROUD)) < 1e-9).to.equal(true)
+			expect(math.abs((pivotZ + shell.back) - (at.breechZ + Gun.SHELL_RIM_PROUD)) < 1e-6).to.equal(true)
 			expect(pivotZ + shell.bodyLength / 2 < at.breechZ).to.equal(true)
 			TestKit.note(string.format("task99 shell pivot %.4f studs forward of the breech face", at.breechZ - pivotZ))
 		end)
