@@ -42,6 +42,48 @@ HandAssets.KEY_OF = table.freeze({
 	[HandAssets.LEFT] = "hand.left",
 })
 
+-- WHICH WAY EACH GLOVE'S OWN MESH POINTS, MEASURED (task 108), and this is the whole of Karen's
+-- "left hand is oposit180deg need to turn or not sure but broken".
+--
+-- THE TWO MODELS DO NOT SHARE AN AXIS. Measured off each prepped mesh by classifying every vertex by
+-- the colour its own UV samples in the base-colour map -- the cuff is olive, the glove is brown -- so
+-- the centroid of one to the centroid of the other IS the wrist-to-fingers direction, exactly:
+--
+--   RIGHT glove: wrist -> fingers (-0.963, 0.265, 0.048), i.e. its own -X, and the palm faces +Z
+--   LEFT  glove: wrist -> fingers ( 0.317, 0.874, -0.369), i.e. its own +Y, and the palm faces
+--                roughly (0.458, 0.488, 0.743)
+--
+-- ONE CONVENTION IS WHAT THIS IS FOR, AND NOTHING READS IT YET. Because the two models differ, no
+-- single yaw/pitch/twist can mean the same thing on both: the Director's live try of
+-- `left.rot.twist 180` moved the glove to the far side of the barrels instead of rolling the palm,
+-- which is what a shared number does when the two meshes disagree about which axis it turns. The fix
+-- is a per-glove ALIGNMENT in `Camera.Viewmodel.poseHands` that takes each mesh into one frame --
+-- FINGERS ALONG +X, PALM TOWARD +Y -- so the pose's three angles are read in THAT frame on both.
+--
+-- IT IS NOT APPLIED IN THIS COMMIT, AND THAT IS A DECISION, NOT AN OMISSION. Applying it RE-MEANS
+-- every angle already in `poses.json`, so all three poses must be re-seeded in the same change -- and
+-- in the hour task 108 had, only CARRY converged (`pose.py inspect carry`, 2026-10-02: the left
+-- glove's fingers wrapped round the barrels at the forend, the right at the grip, both forearms
+-- running back out of frame). The AIMED view, which is the one Karen judges, came out with the left
+-- glove filling the right of the frame palm-on -- worse than what she is waiting on. So what ships is
+-- the measurement and the instrument that makes the next pass quick rather than blind:
+-- `python tools/pose.py inspect <pose>` photographs the drawn viewmodel FROM OUTSIDE, which three
+-- rounds of guessing at two dark lumps beside a barrel could not do.
+--
+-- The palm normal is the hand cloud's flattest axis signed toward the fingertips (a curled hand's
+-- tips lie over its palm). On the right glove that is a clean slab; on the LEFT, which is a cupped C,
+-- it is an estimate, and the pose's `twist` is the dial that finishes it.
+HandAssets.AXES = table.freeze({
+	[HandAssets.RIGHT] = table.freeze({
+		fingers = Vector3.new(-0.9632, 0.2645, 0.0484),
+		palm = Vector3.new(-0.0660, 0.1061, 0.9922),
+	}),
+	[HandAssets.LEFT] = table.freeze({
+		fingers = Vector3.new(0.3172, 0.8738, -0.3686),
+		palm = Vector3.new(0.4579, 0.4884, 0.7428),
+	}),
+})
+
 HandAssets.NEW_GUN_KEY_OF = table.freeze({
 	[HandAssets.RIGHT] = "gun.hand.right",
 	[HandAssets.LEFT] = "gun.hand.left",

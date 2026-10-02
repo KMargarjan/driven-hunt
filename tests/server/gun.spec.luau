@@ -578,6 +578,39 @@ return function()
 			end
 		end)
 
+		it("records that the two gloves do NOT share an axis, which is Karen's broken left hand", function()
+			-- TASK 108. Karen, 2026-10-02: "hands are bad / left hand is oposit180deg need to turn or
+			-- not sure but broken". The cause is not one number: the two meshes disagree about which
+			-- of their own axes the fingers run along -- the right glove's along its -X, the left's
+			-- along its +Y -- so a yaw, a pitch or a twist turns them about different things, and the
+			-- Director's live `left.rot.twist 180` moved the glove to the far side of the barrels
+			-- instead of rolling its palm.
+			--
+			-- THE MEASUREMENT IS THE DELIVERABLE HERE, and this is what guards it: the numbers are
+			-- unit vectors, each glove's palm is not parallel to its own fingers (or the alignment
+			-- they are for cannot be built), and the two FINGER axes really are different. A later
+			-- change that quietly made them agree would be a change that had stopped measuring.
+			for name, axes in pairs(HandAssets.AXES) do
+				TestKit.note(
+					string.format("task108 %s: fingers %s, palm %s", name, tostring(axes.fingers), tostring(axes.palm))
+				)
+				expect(math.abs(axes.fingers.Magnitude - 1) < 1e-3).to.equal(true)
+				expect(math.abs(axes.palm.Magnitude - 1) < 1e-3).to.equal(true)
+				-- NOT PARALLEL: `CFrame.fromMatrix` orthonormalises, so it needs a palm with some
+				-- component across the fingers. A pair that had collapsed onto one line would build a
+				-- frame with no roll at all.
+				expect(math.abs(axes.fingers.Unit:Dot(axes.palm.Unit)) < 0.9).to.equal(true)
+			end
+			local right = HandAssets.AXES[HandAssets.RIGHT]
+			local left = HandAssets.AXES[HandAssets.LEFT]
+			expect(right).to.be.ok()
+			expect(left).to.be.ok()
+			-- THE FACT THAT EXPLAINS THE BUG, asserted rather than only written in a comment.
+			local agree = math.abs(right.fingers.Unit:Dot(left.fingers.Unit))
+			TestKit.note(string.format("task108 the two finger axes agree by %.3f", agree))
+			expect(agree < 0.8).to.equal(true)
+		end)
+
 		it("keeps the old gun's own poses, measured for the old gun's own gloves", function()
 			-- THE OTHER HALF OF FINDING 1: the TOP-LEVEL poses are the v1 pair's, and nothing in task
 			-- 106 re-measured them. The `newGun` set answers differently BECAUSE the models differ --
