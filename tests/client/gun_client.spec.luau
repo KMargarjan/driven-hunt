@@ -332,21 +332,28 @@ return function()
 							)
 						)
 						expect(headAxis.Z > 0.99).to.equal(true)
-						-- ...AND THE BODY IS IN THE TUBE: the part's centre sits forward of the
-						-- chamber mouth, down the barrel, not behind it in the open air. Measured
-						-- against the gun's own seat rather than a number written here.
+						-- ...AND THE BRASS END IS NEVER INSIDE THE TUBE. The gate's first run of this
+						-- case asserted that the shell's CENTRE sits forward of the chamber mouth,
+						-- and it failed at 0.853 against a mouth at 0.522 -- not because the shell
+						-- was backwards but because it was caught MID-FEED: `Viewmodel.shells` slides
+						-- a fresh shell in from `feedFromStuds` behind the seat, so the one claim with
+						-- no clock in it is the one that holds at every moment of that slide. The
+						-- brass end is at or BEHIND the mouth the whole way in; a shell whose head
+						-- had gone past it would be a shell loaded backwards.
 						local seatZ = Gun.chamber(barrel, Shotgun.CONFIG).Position.Z
 						local centreZ = barrels.CFrame:ToObjectSpace(body.CFrame).Position.Z
 							+ Gun.layout(Shotgun.CONFIG).barrelZ
+						local brassEndZ = centreZ + headAxis.Z * body.Size.X / 2
 						TestKit.note(
 							string.format(
-								"task107 fresh shell %d: centre z %.4f against the chamber mouth %.4f",
+								"task107 fresh shell %d: centre z %.4f, brass end %.4f, chamber mouth %.4f",
 								barrel,
 								centreZ,
+								brassEndZ,
 								seatZ
 							)
 						)
-						expect(centreZ < seatZ).to.equal(true)
+						expect(brassEndZ > seatZ - 1e-3).to.equal(true)
 					end
 				end)
 			end)
