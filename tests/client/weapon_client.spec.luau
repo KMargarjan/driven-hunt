@@ -926,18 +926,38 @@ return function()
 			it("reads out the barrels, the ammo and the reserve", function()
 				local text = Hud.readoutText()
 				TestKit.note("weapon_client: readout: " .. text)
-				-- A TIED SHOOTER HAS NO GUN AND SO NO READOUT, and that is not a failure: the last
-				-- scenario ties him on purpose (see the equip case above), and the case beside this
-				-- one already says so in its own note ("no quiet gun to test"). An EMPTY readout is
-				-- the right answer then; anything else must still match the shape.
-				local state = Weapon.get()
-				if text == "" and (state == nil or not state.equipped) then
-					TestKit.note("weapon_client: no gun in hand, so the readout is empty -- the tie")
-					return
-				end
+				-- THE SHAPE IS ASKED OF A STATE THIS CASE OWNS (round 2's finding: the version before
+				-- this returned before its only assertion when the player was tied, which is every
+				-- `test2` run -- the last scenario ties him on purpose). `Hud.readoutFor` is the
+				-- formatter itself, so this asserts the thing the screen is written from rather than
+				-- whatever the screen happens to hold while he is roped to a tree.
+				--
 				-- glyphs, ammo, the pocket for that ammo, an optional " R" while busy, and an optional
 				-- one-line notice such as "NO BUCK" (Karen, 2026-09-25).
-				expect(string.match(text, "^[%[%*%-x%]]+ [A-Z]+ %d+[ A-Z]*$")).to.be.ok()
+				local SHAPE = "^[%[%*%-x%]]+ [A-Z]+ %d+[ A-Z]*$"
+				local mine = {
+					equipped = true,
+					barrels = { "Live", "Spent" },
+					loaded = { "Slug", "None" },
+					selected = 1,
+					ammo = "Slug",
+					reserve = { Slug = 24, Buck = 22 },
+					open = false,
+					busyFor = 0,
+				}
+				local shaped = Hud.readoutFor(mine :: any)
+				TestKit.note("weapon_client: readout of my own state: " .. shaped)
+				expect(string.match(shaped, SHAPE)).to.be.ok()
+				expect(string.match(shaped, "^%[%*%]x SLUG 24")).to.be.ok()
+				-- ...AND THE LIVE ONE IS EMPTY EXACTLY WHEN THERE IS NO GUN, which is the other half
+				-- of "no gun, no readout" (TASKS.md 35b(a)) and the half the tie actually exercises.
+				local state = Weapon.get()
+				local hasGun = state ~= nil and state.equipped == true
+				if hasGun then
+					expect(string.match(text, SHAPE)).to.be.ok()
+				else
+					expect(text).to.equal("")
+				end
 			end)
 		end)
 	else

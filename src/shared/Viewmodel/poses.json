@@ -162,6 +162,16 @@
       "camPitchDeg": 1.5,
       "dampingRatio": 0.85,
       "flash": {
+        "colorEnd": {
+          "b": 40.0,
+          "g": 120.0,
+          "r": 255.0
+        },
+        "colorStart": {
+          "b": 110.0,
+          "g": 190.0,
+          "r": 255.0
+        },
         "forwardStuds": 0.12,
         "lightBrightness": 3.0,
         "lightRange": 10.0,
@@ -176,6 +186,11 @@
       "maxGunPitchDeg": 9.5,
       "smoke": {
         "burstSeconds": 0.07,
+        "color": {
+          "b": 185.0,
+          "g": 190.0,
+          "r": 190.0
+        },
         "rate": 30.0,
         "riseStuds": 0.4,
         "seconds": 1.6,

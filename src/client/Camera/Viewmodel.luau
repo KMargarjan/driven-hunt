@@ -1512,6 +1512,17 @@ end
 -- ----------------------------------------------------------------- the shot's own light (task 112)
 
 local FLASH_NAME = "MuzzleFlash"
+-- ROBLOX'S OWN PARTICLE TEXTURES, which ship with the engine (`rbxasset://`, not `rbxassetid://`):
+-- no upload, no library asset, and nothing to load over the network.
+local FLASH_TEXTURE = "rbxasset://textures/particles/fire_main.dds"
+local SMOKE_TEXTURE = "rbxasset://textures/particles/smoke_main.dds"
+
+-- A COLOUR IS THREE NUMBERS, so it lives in `poses.json` with the rest of the shot and `pose.py set`
+-- reaches it (task 112, round 3: the Director previewed these live and Karen OK'd them -- "smoke
+-- looks good now", and the flash "yes").
+local function rgbOf(entry): Color3
+	return Color3.fromRGB(entry.r, entry.g, entry.b)
+end
 
 -- THE FLASH AND THE SMOKE, ON THE PIPE THAT FIRED, UNDER THE CAMERA. Karen's order, 2026-10-02:
 -- finish the weapon before the animal, and shooting is next; the reference is
@@ -1575,7 +1586,14 @@ function Viewmodel.flash(barrel: number?, config)
 
 	local spark = Instance.new("ParticleEmitter")
 	spark.Name = "Flash"
-	spark.Color = ColorSequence.new(Color3.fromRGB(255, 240, 200), Color3.fromRGB(255, 170, 60))
+	-- THE STAR WAS THE DEFAULT TEXTURE (round 3). Karen: "flash is not perfect seems like animation
+	-- kids" and "I am not about size I am about this shape like a star". A `ParticleEmitter` with no
+	-- `Texture` draws Roblox's SPARKLE -- a four-pointed star with rays -- which is exactly the shape
+	-- she drew with her words. These two are the engine's own particle textures, shipped with Studio
+	-- under `rbxasset://`, so nothing is uploaded and nothing is fetched: `fire_main` is a soft
+	-- orange-white blob with no spikes, and `smoke_main` is a soft grey puff with no outline.
+	spark.Texture = FLASH_TEXTURE
+	spark.Color = ColorSequence.new(rgbOf(fire.flash.colorStart), rgbOf(fire.flash.colorEnd))
 	spark.Size = NumberSequence.new(fire.flash.sizeStuds)
 	spark.Transparency = NumberSequence.new(0)
 	spark.Lifetime = NumberRange.new(fire.flash.seconds)
@@ -1589,7 +1607,9 @@ function Viewmodel.flash(barrel: number?, config)
 	-- or so while the gun is already coming back down.
 	local smoke = Instance.new("ParticleEmitter")
 	smoke.Name = "Smoke"
-	smoke.Color = ColorSequence.new(Color3.fromRGB(205, 205, 205), Color3.fromRGB(150, 150, 150))
+	smoke.Texture = SMOKE_TEXTURE
+	smoke.Color = ColorSequence.new(rgbOf(fire.smoke.color))
+	smoke.LightEmission = 0
 	smoke.Size = NumberSequence.new(fire.smoke.sizeStuds * 0.35, fire.smoke.sizeStuds)
 	smoke.Transparency = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, fire.smoke.transparency),

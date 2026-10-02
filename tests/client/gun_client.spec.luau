@@ -465,6 +465,30 @@ return function()
 						end
 					end
 					expect(emitters).to.equal(2) -- the flash and the smoke
+					-- ...AND NEITHER IS THE DEFAULT SPARKLE (round 3). Karen: "I am not about size I
+					-- am about this shape like a star" -- an emitter with no `Texture` draws
+					-- Roblox's four-pointed sparkle, which is the star she saw. Both carry one of
+					-- the engine's own soft textures instead, and `rbxasset://` says it is shipped
+					-- with Studio rather than uploaded.
+					for _, child in ipairs(lit:GetChildren()) do
+						if child:IsA("ParticleEmitter") then
+							local texture = (child :: ParticleEmitter).Texture
+							expect(texture).never.to.equal("")
+							expect(string.sub(texture, 1, 11)).to.equal("rbxasset://")
+							expect(string.find(texture, "sparkle") == nil).to.equal(true)
+						end
+					end
+					-- ...AND THE COLOURS ARE THE ONES KAREN OK'D, read from the data rather than
+					-- written twice: the Director previewed them live on 2026-10-02.
+					local flashEmitter = lit:FindFirstChild("Flash") :: ParticleEmitter
+					local smokeEmitter = lit:FindFirstChild("Smoke") :: ParticleEmitter
+					expect(flashEmitter.LightEmission).to.equal(1)
+					expect(smokeEmitter.LightEmission).to.equal(0)
+					local want = newGunPosedConfig.FIRE.flash.colorStart
+					local got = flashEmitter.Color.Keypoints[1].Value
+					expect(math.abs(got.R * 255 - want.r) < 1).to.equal(true)
+					expect(math.abs(got.G * 255 - want.g) < 1).to.equal(true)
+					expect(math.abs(got.B * 255 - want.b) < 1).to.equal(true)
 					local muzzle = (Camera.Viewmodel.muzzle(barrel) :: CFrame).Position
 					TestKit.note(
 						string.format(
