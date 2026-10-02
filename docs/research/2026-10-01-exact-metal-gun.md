@@ -14,7 +14,8 @@ faceted and wavy along the top, which is the one surface the player looks ALONG 
    with a slim rib and a bead at the muzzle.
 2. The muzzle and the breech each show **two dark round openings** that read as bores at
    first-person distance, and the breech face is flat. **Nothing in the barrel group may stand in
-   front of one** -- round 1's `BreechFace` plate did, and `gun.spec` now asserts it cannot.
+   front of one** -- round 1's `BreechFace` plate did and round 2's own tube did, and `gun.spec` now
+   asserts it cannot, the tube included.
 3. A silver-grey **action**, a round **hinge pin** at its lower front, and the barrel group rotates
    about exactly that axis -- so the break-open is a real hinge and not a mesh tearing.
 4. Trigger, round trigger guard, top lever, safety. Blued steel against a silver action.
@@ -26,7 +27,7 @@ faceted and wavy along the top, which is the one surface the player looks ALONG 
 
 | # | Source | Licence / status | Good | Bad |
 |---|---|---|---|---|
-| 1 | Roblox [`BasePart.Shape`](https://create.roblox.com/docs/reference/engine/enums/PartType) / [`Part`](https://create.roblox.com/docs/reference/engine/classes/Part) -- Cylinder, Ball, Block, Wedge | First-party, maintained, no asset pipeline at all | A `Part` with `Shape = Cylinder` is **analytically round**: the engine tessellates it per-frame for the view, so there is no facet count to get wrong and no wavy top -- exactly requirement 1. Free to change (a number, not an upload), reviewable as a diff, needs no moderation, and this repo already builds its gun this way (`Weapon.Shape` + `Weapon.Hardware`, Task 71). Smooth-shaded by the engine | No bore HOLE: a cylinder is solid, so an opening has to be faked with a dark inset disc. No chamfers, no fillets, no engraved rib. Part count grows with detail, and each part is a draw call |
+| 1 | Roblox [`BasePart.Shape`](https://create.roblox.com/docs/reference/engine/enums/PartType) / [`Part`](https://create.roblox.com/docs/reference/engine/classes/Part) -- Cylinder, Ball, Block, Wedge | First-party, maintained, no asset pipeline at all | A `Part` with `Shape = Cylinder` is **analytically round**: the engine tessellates it per-frame for the view, so there is no facet count to get wrong and no wavy top -- exactly requirement 1. Free to change (a number, not an upload), reviewable as a diff, needs no moderation, and this repo already builds its gun this way (`Weapon.Shape` + `Weapon.Hardware`, Task 71). Smooth-shaded by the engine | No bore HOLE: a cylinder is solid, so an opening has to be faked with a dark disc standing proud of the end face (inside it, the engine draws nothing). No chamfers, no fillets, no engraved rib. Part count grows with detail, and each part is a draw call |
 | 2 | Roblox [`EditableMesh`](https://create.roblox.com/docs/reference/engine/classes/EditableMesh) + [`AssetService:CreateMeshPartAsync`](https://create.roblox.com/docs/reference/engine/classes/AssetService#CreateMeshPartAsync) | First-party, out of beta, maintained | Real geometry built in code: a true tube with a HOLE at each end, exact normals, one MeshPart for the whole barrel group. Nothing uploaded, so no moderation and no asset id | Every vertex is OURS to get right, which is precisely the invention rule 2 warns about -- a hand-written tube generator is a new foundation with its own run of bugs (`docs/PROJECT_CONTEXT.md`: "a home-grown viewmodel system ... each produced a run of bugs"). It is also **client-creatable but not free**: the mesh is rebuilt per session, and `CreateMeshPartAsync` yields. And a generated mesh is not reviewable as a diff: a PR would show arithmetic, not a gun |
 | 3 | A generated mesh FILE (Blender via `tools/asset_prep.py`, then `tools/roblox_upload.py`) -- the pipeline Task 74/93 already use | Blender GPL-2.0-or-later; the repo's own tools | The best-looking option: true bores, chamfers, a concave rib. The pipeline exists and is proven on four assets | Every change is a Blender run, an upload, a moderation wait and a manifest row -- hours per tweak, which is exactly the loop Karen stopped in Task 97. It also puts the metal back into the asset lane, where the Director cannot tune it live. `.rbxm` is banned (CLAUDE.md) so it must be an uploaded asset, not a file in the PR |
 
@@ -40,8 +41,12 @@ The deciding requirement is **1**: the barrel must be perfectly round and smooth
 length, because that is the surface the player looks along. A Roblox Cylinder is round by
 construction -- there is no triangle budget at which it stops being round -- while both mesh routes
 make roundness a number somebody chose. Source 2 and 3 buy real bore holes, and source 1 cannot have
-them; that is answered with a dark inset disc at each end (requirement 2 asks that it READ as a bore
-at first-person distance, and at 3.65 studs an unlit near-black disc inside a blued tube does).
+them; that is answered with a dark disc standing PROUD of each end face (requirement 2 asks that it
+READ as a bore at first-person distance, and at 3.65 studs an unlit near-black disc inside a thin
+bright ring of steel does). It has to be proud and not inset: a Roblox Part is an opaque closed
+solid, so a disc INSIDE the tube is drawn nowhere at all -- rounds 1 and 2 both shipped that and the
+Reviewer measured it. The same rule puts the seated shell's brass rim at the chamber mouth rather
+than down the chamber.
 
 The other half is the loop: a part gun is **numbers in a file the Director can change and the
 Reviewer can read**, which is the same reason Task 98 moved the poses into data. A mesh gun is an
@@ -56,11 +61,11 @@ these two models actually are -- the split Karen OK'd on 2026-10-01.
 |---|---|---|
 | Barrels round and smooth | `Enum.PartType.Cylinder`, analytic | `gun.spec`: every barrel piece is a Cylinder, and its two cross-axis sizes are equal (a cylinder scaled unevenly is an ellipse) |
 | Side-by-side pair | two tubes, centres `BARREL_GAP` apart, same Y | `gun.spec` |
-| Bores read as holes | a near-black `SmoothPlastic` disc inset at each end of each tube, 4 in all | `gun.spec` counts them and asserts each sits inside its tube's radius |
+| Bores read as holes | a near-black `SmoothPlastic` disc standing `BORE_PROUD` OUT of each end face, 4 in all, each `BORE_FRACTION` of the tube so a ring of steel shows round it | `gun.spec` counts them and asserts BY SIGN that each disc's outer face is outside its tube's end face, and that nothing in the barrel group -- the tube included -- stands in front of one |
 | Hinge is real | the barrel group rotates about `Gun.hinge`, and the PIN part is centred on that axis | `gun.spec` (the pin's centre is the axis) and `gun_client.spec` ("swings its barrel group about its own pin": the tube moves, the pin does not, and the distance between them is unchanged) |
-| Shells seat in the chambers | a fresh shell is ON the tube's own bore line at every moment of the feed, and the chamber mouth is not covered | `gun.spec` ("puts a chamber on each tube's own bore line", exact since round 2) and `gun_client.spec` ("seats a fresh shell INSIDE the barrel") |
+| Shells seat in the chambers | a fresh shell is ON the tube's own bore line at every moment of the feed, and its brass RIM sits at the chamber mouth, `Gun.SHELL_RIM_PROUD` outside the breech face, where a real shell's rim sits. The body is in the tube and unseen, so what the frame shows is brass at the mouth loaded, the dark disc empty | `gun.spec` ("seats a shell's RIM at each tube's own chamber mouth", exact, and the `Gun.shellLayout` case that joins the rim to the model's pivot) and `gun_client.spec` ("seats a fresh shell on the bore line with its brass rim OUT of the breech face", measured on the drawn part) |
 | Nothing a shot depends on moves | `HANDLE_SIZE`, `MUZZLE_OFFSET`, `GRIP`, the hitbox | the flag's OFF branch is byte-identical, and no `Shotgun.CONFIG` number changes |
-| Budget | **22 parts** for the whole first-person gun: 18 metal (2 barrels, 4 bore discs, rib, bead, hinge hook, action, standing breech, flat bars, hinge pin, top lever, safety, trigger, guard bow, guard strap), 2 wood, and the 2 invisible envelopes (the Handle and the barrel group). The `BreechFace` plate was REMOVED in round 2 -- it buried both breech bore discs and the fed shells went through it; two flat-ended tubes are the breech face. The old mesh gun is 1 MeshPart plus a drawn bead | `gun.spec` asserts the count exactly, so growth is a decision and not a drift |
+| Budget | **22 parts** for the whole first-person gun: 18 metal (2 barrels, 4 bore discs, rib, bead, hinge hook, action, standing breech, flat bars, hinge pin, top lever, safety, trigger, guard bow, guard strap), 2 wood, and the 2 invisible envelopes (the Handle and the barrel group). The `BreechFace` plate was REMOVED in round 2 -- it buried both breech bore discs and the fed shells went through it; two flat-ended tubes are the breech face. Round 3 moved all four discs OUT of their end faces for the same reason the plate went, and added the shell's brass rim (a shell part, not a gun piece, so the count is unchanged). The old mesh gun is 1 MeshPart plus a drawn bead | `gun.spec` asserts the count exactly, so growth is a decision and not a drift |
 
 ## 5. What this does NOT change
 

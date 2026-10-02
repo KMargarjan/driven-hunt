@@ -192,8 +192,22 @@ return function()
 						)
 					)
 					expect(across < tube.Size.Y / 2).to.equal(true)
-					-- ...and at the MUZZLE end of it, not the breech.
-					expect(inTube.Position.X).never.to.equal(0)
+					-- ...AND AT THE MUZZLE END OF IT, BY SIGN AND BY DISTANCE (round 2 note). This
+					-- used to read `never.to.equal(0)`, which the BREECH end satisfies just as well
+					-- -- the real value is 1.369 and the breech is -1.369. A cylinder's own +X is the
+					-- end its `LYING` quarter turn points down the gun's -Z, which is the muzzle, so
+					-- the flash must be at POSITIVE X and half a tube away from the centre.
+					local halfLength = tube.Size.X / 2
+					TestKit.note(
+						string.format(
+							"task99 %s flash at x %+.4f of a %.4f half-tube",
+							tubeName,
+							inTube.Position.X,
+							halfLength
+						)
+					)
+					expect(inTube.Position.X > 0).to.equal(true)
+					expect(math.abs(inTube.Position.X - halfLength) < 1e-3).to.equal(true)
 				end
 			end)
 		end)
@@ -238,7 +252,7 @@ return function()
 			end
 		end)
 
-		it("seats a fresh shell INSIDE the barrel, not in the gap between the two", function()
+		it("seats a fresh shell on the bore line with its brass rim OUT of the breech face", function()
 			withNewGun(function()
 				local at = CFrame.new(0, 16, 0)
 				local open = table.clone(stateAtBlend(0)) :: any
@@ -248,9 +262,10 @@ return function()
 				-- draws with the LIVE source, so a `task.wait` between these calls lets it rebuild
 				-- the clone from a different handle and this case then measures somebody else's gun.
 				--
-				-- SO THE CLAIM IS THE ONE THAT HOLDS AT EVERY MOMENT OF THE FEED: the shell is on the
-				-- tube's own BORE LINE. How far along it has slid is the animation; that it is in
-				-- the barrel at all rather than in the gap between the two is the defect this fixes.
+				-- SO BOTH CLAIMS ARE ONES THAT HOLD AT EVERY MOMENT OF THE FEED: the shell is ON the
+				-- tube's own bore line, and its brass RIM is OUTSIDE the tube's breech face. A shell
+				-- still travelling in is further out than a seated one, so neither claim depends on
+				-- catching a frame.
 				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { true, true } })
 				Camera.Viewmodel.update(at, open, newGunConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
@@ -268,7 +283,51 @@ return function()
 					if across > worst then
 						worst, worstAt = across, tubeName
 					end
-					expect(across < tube.Size.Y / 2).to.equal(true)
+					-- EXACTLY on the bore line, not merely inside the tube (round 2 note). The bound
+					-- used to be the tube's own radius, 0.0725 -- five times the 0.014 the OLD
+					-- `chamberOffset` answer is out by, so the case passed with the new gun's branch
+					-- of it deleted.
+					expect(across < 1e-3).to.equal(true)
+					-- THE BRASS RIM (round 2, finding 1). Rounds 1 and 2 seated the shell 0.10 studs
+					-- down an opaque tube, so a loaded chamber and an empty one were the same
+					-- picture. Two claims, and NEITHER of them is "the drawn rim is outside the
+					-- tube right now": a shell still travelling in is outside the tube whatever the
+					-- seat is, so that one passes for the wrong reason -- it is noted below, not
+					-- asserted.
+					local rim = (shell :: Model):FindFirstChild("Rim") :: BasePart
+					expect(rim).to.be.ok()
+					-- ONE: THE BUILDER AND THE SEAT AGREE. `Gun.shellLayout().back` is what
+					-- `chamberOffset` backs the shell off by, so the drawn rim's outer face must be
+					-- exactly that far behind the model's pivot. If the two ever disagreed the rim
+					-- would be seated against nothing.
+					local layout = Gun.shellLayout(newGunConfig.SHELL_SIZE_STUDS, newGunConfig.SHELL_BASE_FRACTION)
+					local rimFromPivot = (shell :: Model):GetPivot():ToObjectSpace(rim.CFrame)
+					-- ALONG X: the three parts are built as unrotated cylinders offset along the
+					-- shell's own X, and the model's quarter turn moves all of them together, so in
+					-- the PIVOT's frame the rim is still straight behind it on X.
+					local back = -rimFromPivot.Position.X + rim.Size.X / 2
+					expect(math.abs(back - layout.back) < 1e-4).to.equal(true)
+					-- TWO: THE SEAT IS OUTSIDE THE DRAWN TUBE'S BREECH FACE. Measured against the
+					-- tube as it is really drawn (its own half length), against the gun's own
+					-- arithmetic for the seat -- and the feed only ever slides the shell BACKWARD
+					-- from that, so this is the claim with no clock in it.
+					local seatBehindCentre = Gun.chamber(barrel, Shotgun.CONFIG).Position.Z
+						- Gun.layout(Shotgun.CONFIG).barrelZ
+					local rimIn = tube.CFrame:ToObjectSpace(rim.CFrame)
+					TestKit.note(
+						string.format(
+							"task99 %s seat %.4f studs behind the tube centre (half tube %.4f); drawn rim %.4f out, mid-feed",
+							tubeName,
+							seatBehindCentre,
+							tube.Size.X / 2,
+							-rimIn.Position.X - tube.Size.X / 2
+						)
+					)
+					expect(seatBehindCentre > tube.Size.X / 2).to.equal(true)
+					-- ...and the rim is wider than the dark disc it has to cover.
+					local disc = barrels:FindFirstChild(tubeName .. "BoreBreech") :: BasePart
+					expect(disc).to.be.ok()
+					expect(rim.Size.Y > disc.Size.Y).to.equal(true)
 				end
 				TestKit.note(
 					string.format(

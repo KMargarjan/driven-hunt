@@ -64,21 +64,25 @@ local BARREL_GAP = 0.152 -- centre to centre: the two tubes touch, so they read 
 local BARREL_Y = 0.12 -- the bore line, and the action's top face
 local RIB_WIDTH = 0.072
 local RIB_THICK = 0.022
--- THE BORE, FAKED AND SAID TO BE FAKED. A Cylinder is solid, so the opening is a near-black disc
--- inset into each end of each tube -- four in all. At the aiming distance (3.65 studs) an unlit disc
--- inside a blued tube reads as a hole, which is what requirement 2 of the note asks for; it is not
--- one, and `Gun.spec` asserts that each disc sits inside its tube AND that nothing in the barrel
--- group stands behind it.
+-- THE BORE, FAKED, SAID TO BE FAKED, AND ON THE OUTSIDE OF THE TUBE (round 2, finding 1). A Cylinder
+-- is solid, so the opening is a near-black disc -- four in all, one at each end of each tube. Rounds
+-- 1 and 2 both put the disc INSIDE the end face, and the Reviewer measured what that costs: a Roblox
+-- Part is an opaque closed solid, so a smaller part wholly contained in a larger one is never drawn.
+-- Four invisible parts, two flat blued end caps where the openings should be, and the seated shell
+-- hidden with them.
 --
--- THE TWO ENDS ARE INSET BY DIFFERENT AMOUNTS, and the reason is the SHELL (round 1, finding 1).
--- At the muzzle the disc is the end of the hole, so a hair inside the end face is right. At the
--- BREECH the hole is a CHAMBER with a shell in it: `Gun.chamber` seats a fresh shell 0.10 studs
--- inside the tube, so a disc at 0.012 would stand in front of the seated shell and hide the one
--- thing the break-open frame exists to show. The breech disc therefore sits BEHIND the seated shell
--- and reads as the dark depth of the chamber -- empty chamber, dark; fed chamber, a shell in front
--- of the dark.
-local BORE_INSET = 0.012 -- the muzzle: just inside the end face
-local BREECH_BORE_INSET = 0.17 -- the breech: deeper than `Gun.chamber`'s 0.10
+-- SO THE DISC STANDS PROUD OF THE FACE, which is how a real gun reads anyway -- the muzzle of a
+-- barrel is the darkest thing on it, with a thin bright ring of steel around that dark. The disc is
+-- `BORE_FRACTION` of the tube, so that ring is what shows around it: a wall, then the hole. It is
+-- still not a hole. `gun.spec` asserts BY SIGN that each disc's outer face is outside its tube's end
+-- face -- a magnitude cannot say it, since 0.002 in and 0.002 out are the same distance and only one
+-- of them can be seen -- and that nothing in the barrel group, THE TUBE INCLUDED, stands in front of
+-- one.
+local BORE_PROUD = 0.002 -- how far the disc's outer face stands out of the end face
+-- ...and how far it reaches back INTO the tube. It is there so that no two drawn faces are coplanar:
+-- the disc's inner face is buried in the tube rather than sharing a plane with its end cap.
+local BORE_BITE = 0.001
+local BORE_THICK = BORE_PROUD + BORE_BITE
 local BORE_FRACTION = 0.72 -- of the tube's diameter: a wall, then the hole
 
 local ACTION_LENGTH = 0.62
@@ -91,6 +95,17 @@ local STANDING_BREECH_THICK = 0.055 -- the upright face the two chambers close a
 local STANDING_BREECH_HEIGHT = ACTION_HEIGHT + 0.015
 local FLAT_BAR_LENGTH = 0.30 -- the bars that run FORWARD under the barrels, into the forend
 local HINGE_PIN_DIAMETER = 0.07
+
+-- THE SEATED SHELL'S BRASS RIM, which is the whole of "this chamber is loaded" (round 2, finding 1).
+-- On a real gun the rim sits ON the breech face with the body down the chamber out of sight, so the
+-- rim is the ONE part of a shell that may not be inside the tube: brass at the mouth loaded, the
+-- dark bore disc empty, and those two pictures are what the break-open frame exists to show.
+Gun.SHELL_RIM_THICK = 0.003
+-- A HAIR WIDER THAN THE BORE, so it COVERS the dark disc instead of sitting in it.
+Gun.SHELL_RIM_DIAMETER = BARREL_DIAMETER * BORE_FRACTION + 0.006
+-- ...and it must stand in FRONT of that disc, which is itself `BORE_PROUD` out of the face. Two
+-- discs ending on the same plane z-fight, so the rim clears it rather than meeting it.
+Gun.SHELL_RIM_PROUD = BORE_PROUD + 0.003
 
 local TRIGGER_GUARD_RADIUS = 0.085
 local TOP_LEVER_LENGTH = 0.17
@@ -181,13 +196,47 @@ function Gun.hinge(config): Vector3
 	return Vector3.new(0, at.actionBottom + HINGE_PIN_DIAMETER / 2, at.breechZ - 0.02)
 end
 
--- WHERE A CHAMBER IS: the breech end of one tube, ON its bore line, so a shell placed here is INSIDE
--- the barrel rather than floating in the gap beside it. `Shotgun.barrelMuzzleOffset` is still the one
--- definition of which tube is which, so this module does not learn that the right barrel is +X.
+-- WHERE A SEATED SHELL'S RIM GOES: the chamber MOUTH -- on that tube's own bore line, a hair proud
+-- of its breech face (round 2, finding 1). It is the mouth and not a point down the chamber because
+-- a shell seated INSIDE an opaque tube is a shell nobody can see, which is what rounds 1 and 2 both
+-- drew. The body follows it into the tube and is unseen, exactly as on a real gun.
+--
+-- `Gun.barrelOffset` is the one definition of this gun's bore line, so this module still does not
+-- learn that the right barrel is +X; and `Gun.shellLayout` is the one definition of how far behind
+-- its rim a shell's pivot sits, so the caller that PLACES the shell and the builder that DRAWS it
+-- cannot disagree about where the rim ended up.
 function Gun.chamber(barrel: number, config): CFrame
 	local at = Gun.layout(config)
 	local across = Gun.barrelOffset(barrel, config)
-	return CFrame.new(across.X, across.Y, at.breechZ - 0.10)
+	return CFrame.new(across.X, across.Y, at.breechZ + Gun.SHELL_RIM_PROUD)
+end
+
+-- ONE SHELL'S OWN LAYOUT along its length, in the shell's local frame: the red body, the brass base
+-- behind it, and the brass rim behind that. Pure arithmetic over the two numbers the CAMERA owns
+-- (`Camera.Config.SHELL_SIZE_STUDS` and `SHELL_BASE_FRACTION`), passed in rather than read, because
+-- a shared module cannot require a client one.
+--
+-- X IS THE SHELL'S LENGTH, with the MOUTH forward at +X: `Camera.Viewmodel.makeShell` builds the
+-- parts as cylinders (whose length is their own X) and turns the finished model a quarter turn, which
+-- takes -X to the gun's +Z -- the breech. `back` is the one number that seats it: how far BEHIND the
+-- model's pivot (its Body part, which is what `PivotTo` places) the rim's outer face is.
+function Gun.shellLayout(sizeStuds: Vector3, baseFraction: number)
+	local baseLength = sizeStuds.Z * baseFraction
+	local bodyLength = sizeStuds.Z - baseLength
+	return table.freeze({
+		bodyLength = bodyLength,
+		baseLength = baseLength,
+		diameter = sizeStuds.X,
+		rimThick = Gun.SHELL_RIM_THICK,
+		rimDiameter = Gun.SHELL_RIM_DIAMETER,
+		-- Offsets from the SHELL'S centre, which is the frame the three parts are built in.
+		bodyX = baseLength / 2,
+		baseX = -bodyLength / 2,
+		rimX = -(sizeStuds.Z / 2 + Gun.SHELL_RIM_THICK / 2),
+		-- ...and from the PIVOT, which is the Body: half the shell, plus the half base the body is
+		-- offset forward by, plus the rim itself.
+		back = sizeStuds.Z / 2 + baseLength / 2 + Gun.SHELL_RIM_THICK,
+	})
 end
 
 -- WHERE THE BEAD SITS, and the ONE place that decides it: the rib lies on the tubes, the bead sits
@@ -262,18 +311,21 @@ function Gun.pieces(config): { Piece }
 			-- surface with a sheen along its length, not a mirror.
 			reflectance = 0,
 		})
-		-- THE TWO OPENINGS AT EACH END (requirement 2 of the note). A near-black disc INSET into the
-		-- tube: it is not a hole and the note says so, but at the aiming distance an unlit disc
-		-- inside a blued tube is what a bore looks like. The breech pair is what the player sees
-		-- with the gun broken open, which is the frame this task exists to fix.
+		-- THE TWO OPENINGS AT EACH END (requirement 2 of the note), each one PROUD of the end face it
+		-- belongs to -- see `BORE_PROUD`: a disc inside a solid Cylinder is drawn nowhere. The breech
+		-- pair is what the player sees with the gun broken open, which is the frame this task exists
+		-- to fix; the muzzle pair is what he looks at down the rib.
+		--
+		-- EACH SPANS [face - BORE_PROUD, face + BORE_BITE] in the direction of its own opening, so the
+		-- sign is the only difference between the two ends.
 		for _, end_ in ipairs({
-			{ suffix = "Muzzle", z = at.muzzleZ + BORE_INSET },
-			{ suffix = "Breech", z = at.breechZ - BREECH_BORE_INSET },
+			{ suffix = "Muzzle", z = at.muzzleZ - BORE_PROUD + BORE_THICK / 2 },
+			{ suffix = "Breech", z = at.breechZ + BORE_PROUD - BORE_THICK / 2 },
 		}) do
 			add({
 				name = side.name .. "Bore" .. end_.suffix,
 				group = "barrels",
-				size = Vector3.new(0.004, BARREL_DIAMETER * BORE_FRACTION, BARREL_DIAMETER * BORE_FRACTION),
+				size = Vector3.new(BORE_THICK, BARREL_DIAMETER * BORE_FRACTION, BARREL_DIAMETER * BORE_FRACTION),
 				offset = CFrame.new(side.x, BARREL_Y, end_.z) * LYING,
 				color = Gun.LOOK.bore,
 				material = Enum.Material.SmoothPlastic,
@@ -311,8 +363,9 @@ function Gun.pieces(config): { Piece }
 	-- through it and out of sight. That is precisely the frame this task exists to fix.
 	--
 	-- The requirement it was meant to meet is still met, by the tubes themselves: a Cylinder's rear
-	-- end IS a flat face, the two are coplanar at `breechZ`, and each one now shows the dark chamber
-	-- behind it. A real monobloc looks like two flat-ended tubes side by side, which is what this is.
+	-- end IS a flat face and the two are coplanar at `breechZ`. What each one SHOWS is the near-black
+	-- disc standing proud of it, or the brass rim of a seated shell standing proud of that (round 2,
+	-- finding 1). A real monobloc is two flat-ended tubes side by side, which is what this is.
 
 	-- THE HINGE HOOK: the lug under the breech end of the tubes that drops onto the pin. It is what
 	-- a player sees rotate when the gun opens, so it belongs to the barrel group.

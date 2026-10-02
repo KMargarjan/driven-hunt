@@ -66,20 +66,31 @@ return function()
 			expect(at.muzzleZ).to.equal(-CONFIG.HANDLE_SIZE.Z / 2)
 		end)
 
-		it("show two dark openings at each end, each one inside its own tube", function()
+		it("show two dark openings at each end, each one PROUD of its own tube's end face", function()
 			local bores = 0
 			for _, piece in ipairs(pieces) do
-				if string.find(piece.name, "Bore", 1, true) then
+				local found = string.find(piece.name, "Bore", 1, true)
+				if found then
 					bores += 1
-					local tube = byName(pieces, string.sub(piece.name, 1, string.find(piece.name, "Bore", 1, true) - 1))
+					local tube = byName(pieces, string.sub(piece.name, 1, found - 1))
 					expect(tube).to.be.ok()
-					-- INSIDE THE TUBE, in both senses: narrower than the bore it sits in, and set
-					-- back from the end face rather than poking out of it.
+					-- NARROWER THAN THE TUBE and on its axis, so a ring of blued steel shows all
+					-- round the dark: a wall, then the hole.
 					expect(piece.size.Y < tube.size.Y).to.equal(true)
 					expect(piece.offset.Position.X).to.equal(tube.offset.Position.X)
 					expect(piece.offset.Position.Y).to.equal(tube.offset.Position.Y)
-					local alongTube = math.abs(piece.offset.Position.Z - tube.offset.Position.Z)
-					expect(alongTube < tube.size.X / 2).to.equal(true)
+					-- ...AND OUTSIDE THE END FACE, BY SIGN. ROUND 2, FINDING 1: a Roblox Part is an
+					-- opaque closed solid, so a smaller part wholly inside a larger one is never
+					-- drawn -- and rounds 1 and 2 both put these discs INSIDE the tube, which cost
+					-- four invisible parts and a seated shell nobody could see. A distance cannot
+					-- say this (0.002 in and 0.002 out are the same distance, and only one of them
+					-- can be seen), so what is asserted is the DIRECTION.
+					local towardOpening = if string.find(piece.name, "Muzzle", 1, true) then -1 else 1
+					local tubeFace = tube.offset.Position.Z + towardOpening * tube.size.X / 2
+					local discFace = piece.offset.Position.Z + towardOpening * piece.size.X / 2
+					local proud = towardOpening * (discFace - tubeFace)
+					TestKit.note(string.format("task99 %s stands %.4f studs out of its end face", piece.name, proud))
+					expect(proud > 0).to.equal(true)
 				end
 			end
 			-- Two tubes, two ends each: the MUZZLE pair is what you look at down the rib and the
@@ -89,10 +100,12 @@ return function()
 		end)
 
 		it("lets you SEE both openings: nothing in the barrel group stands in front of one", function()
-			-- ROUND 1, FINDING 1, AND THE CASE ABOVE COULD NOT CATCH IT. A `BreechFace` plate spanned
-			-- both tube ends and buried both breech discs (z-fighting their front faces as well), and
-			-- the fed shells slid straight through it and out of sight -- while every assertion above
-			-- still passed, because a disc sealed inside an opaque plate is still "inside its tube".
+			-- ROUND 1, FINDING 1, AND THE FIRST VERSION OF THIS CASE COULD NOT CATCH ROUND 2'S. A
+			-- `BreechFace` plate spanned both tube ends and buried both breech discs; it was deleted,
+			-- and then THE TUBE ITSELF buried them, because this case excluded the one part that
+			-- could -- `other.name == tubeName`. It no longer does: the tube a disc belongs to has to
+			-- clear that disc like everything else, which is only true when the disc is proud of the
+			-- end face.
 			--
 			-- THE GROUP IS THE RIGHT SCOPE, not the whole gun: the break-open is what separates the
 			-- barrels from the body, so with the gun open the standing breech is nowhere near the
@@ -106,12 +119,12 @@ return function()
 				if at == nil then
 					continue
 				end
-				local tubeName = string.sub(piece.name, 1, at - 1)
 				local towardOpening = if string.find(piece.name, "Muzzle", 1, true) then -1 else 1
 				local face = piece.offset.Position.Z + towardOpening * piece.size.X / 2
 				local blocked = {}
 				for _, other in ipairs(pieces) do
-					if other.group ~= "barrels" or other.name == piece.name or other.name == tubeName then
+					-- THE TUBE IS NOT EXCLUDED (round 2, finding 1), only the disc itself.
+					if other.group ~= "barrels" or other.name == piece.name then
 						continue
 					end
 					-- A CYLINDER LYING ALONG Z CARRIES ITS LENGTH ON X. Its half-extents in this
@@ -234,28 +247,72 @@ return function()
 			TestKit.note(string.format("task99 pieces: %d body, %d barrels", groups.body, groups.barrels))
 		end)
 
-		it("puts a chamber on each tube's own bore line, not between them", function()
+		it("seats a shell's RIM at each tube's own chamber mouth, OUTSIDE the breech face", function()
 			local left = byName(pieces, "BarrelLeft")
 			local right = byName(pieces, "BarrelRight")
 			local at = Gun.layout(CONFIG)
 			for barrel, tube in ipairs({ right, left }) do -- barrel 1 is +X (Shotgun's own rule)
 				local chamber = Gun.chamber(barrel, CONFIG)
-				-- INSIDE THE TUBE: within its radius of the bore line, in both cross axes. This is
-				-- what "the shell goes IN" means, against the old answer that put it on the gun's
-				-- centre line -- i.e. in the gap between the two barrels.
 				local across = Vector2.new(
 					chamber.Position.X - tube.offset.Position.X,
 					chamber.Position.Y - tube.offset.Position.Y
 				)
-				-- ON the bore line, not merely within the tube: since round 2 the chamber is built
-				-- from `Gun.barrelOffset`, the same one definition the flash uses, so this is exact.
-				-- It used to take the whole of `Shotgun.barrelMuzzleOffset`, which is the MESH gun's
-				-- 0.09, and sat 0.014 studs off -- passing a bound five times looser than the error.
+				-- ON the bore line, exactly: the chamber is built from `Gun.barrelOffset`, the same
+				-- one definition the flash uses. It used to take the whole of
+				-- `Shotgun.barrelMuzzleOffset`, which is the MESH gun's 0.09, and sat 0.014 studs
+				-- off -- passing a bound five times looser than the error.
 				expect(across.Magnitude < 1e-6).to.equal(true)
-				-- ...and at the BREECH end, behind the middle of the barrel.
-				expect(chamber.Position.Z > at.barrelZ).to.equal(true)
-				expect(chamber.Position.Z < at.breechZ).to.equal(true)
+				-- ...AND OUTSIDE THE BREECH FACE, WHICH IS THE WHOLE OF ROUND 2, FINDING 1. This
+				-- point is where a seated shell's brass RIM goes, and a rim inside an opaque tube is
+				-- a rim nobody can see: rounds 1 and 2 seated the shell 0.10 studs down the chamber,
+				-- so a loaded gun and an empty one were the same picture.
+				local breechFace = tube.offset.Position.Z + tube.size.X / 2
+				expect(math.abs(breechFace - at.breechZ) < 1e-9).to.equal(true)
+				expect(chamber.Position.Z > breechFace).to.equal(true)
+				expect(math.abs(chamber.Position.Z - (breechFace + Gun.SHELL_RIM_PROUD)) < 1e-9).to.equal(true)
+				-- ...and in FRONT of the dark bore disc rather than in its plane, because two discs
+				-- ending on one plane z-fight and neither reads as anything.
+				local disc = byName(pieces, (if barrel == 1 then "BarrelRight" else "BarrelLeft") .. "BoreBreech")
+				expect(disc).to.be.ok()
+				local discFace = disc.offset.Position.Z + disc.size.X / 2
+				expect(chamber.Position.Z > discFace + 1e-6).to.equal(true)
+				-- THE RIM IS WIDER THAN THE DARK IT COVERS, so brass at the mouth is what a loaded
+				-- chamber looks like.
+				expect(Gun.SHELL_RIM_DIAMETER > disc.size.Y).to.equal(true)
+				TestKit.note(
+					string.format(
+						"task99 barrel %d rim seats %.4f studs out of the breech face (disc %.4f out)",
+						barrel,
+						chamber.Position.Z - breechFace,
+						discFace - breechFace
+					)
+				)
 			end
+		end)
+
+		it("backs the shell off its rim by its own length, so the body is in the tube", function()
+			-- THE OTHER HALF OF THE SEAT. `Gun.chamber` says where the RIM goes; what the viewmodel
+			-- places is the shell model's PIVOT, which is its Body part, so the one number that joins
+			-- them is `Gun.shellLayout().back`. If it were wrong in either direction the rim would
+			-- float off the breech or the whole shell would be swallowed -- the round 2 defect again.
+			local shell = Gun.shellLayout(Vector3.new(0.055, 0.055, 0.16), 0.34)
+			-- Body, base and rim lie END TO END with no gap and no overlap, mouth forward.
+			local mouth = shell.bodyX + shell.bodyLength / 2
+			expect(math.abs(mouth - 0.16 / 2) < 1e-9).to.equal(true)
+			expect(math.abs((shell.bodyX - shell.bodyLength / 2) - (shell.baseX + shell.baseLength / 2)) < 1e-9).to.equal(
+				true
+			)
+			expect(math.abs((shell.baseX - shell.baseLength / 2) - (shell.rimX + shell.rimThick / 2)) < 1e-9).to.equal(
+				true
+			)
+			-- ...and `back` is the pivot-to-rim-face distance those three imply.
+			expect(math.abs(shell.back - (shell.bodyX - (shell.rimX - shell.rimThick / 2))) < 1e-9).to.equal(true)
+			-- SEATED: the rim's face lands exactly on the mouth, and the body is inside the tube.
+			local at = Gun.layout(CONFIG)
+			local pivotZ = Gun.chamber(1, CONFIG).Position.Z - shell.back
+			expect(math.abs((pivotZ + shell.back) - (at.breechZ + Gun.SHELL_RIM_PROUD)) < 1e-9).to.equal(true)
+			expect(pivotZ + shell.bodyLength / 2 < at.breechZ).to.equal(true)
+			TestKit.note(string.format("task99 shell pivot %.4f studs forward of the breech face", at.breechZ - pivotZ))
 		end)
 
 		it("costs the budget the note states, so growth is a decision", function()

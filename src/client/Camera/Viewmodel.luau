@@ -311,23 +311,57 @@ function Viewmodel.muzzle(barrel: number?): CFrame?
 	return (attachment :: Attachment).WorldCFrame * CFrame.new(offset)
 end
 
--- ONE SHELL: red plastic with a brass base, two parts, drawn for one player and never replicated.
+-- ONE SHELL: red plastic, a brass base behind it, and -- on the new gun -- the brass RIM that is the
+-- whole of "this chamber is loaded". Drawn for one player and never replicated.
+--
+-- THE OFFSETS ARE APPLIED (round 2 note). They were computed and then never written anywhere, so
+-- both cylinders sat at the model origin and the brass base was wholly inside the red body: a shell
+-- with no brass head at all, which is also why there was nothing to show at a chamber mouth. The
+-- three parts now lie end to end along the shell's own X, mouth forward, from the ONE layout
+-- `Gun.shellLayout` owns -- the same one `Gun.chamber` seats the shell by.
 local function makeShell(name: string, config, parent: Instance): Model
 	local shell = Instance.new("Model")
 	shell.Name = name
 	local size = config.SHELL_SIZE_STUDS
-	local baseLength = size.Z * config.SHELL_BASE_FRACTION
-	for _, piece in ipairs({
-		{ name = "Body", length = size.Z - baseLength, colour = config.SHELL_BODY_COLOR, offset = baseLength / 2 },
-		{ name = "Base", length = baseLength, colour = config.SHELL_BASE_COLOR, offset = -(size.Z - baseLength) / 2 },
-	}) do
+	local layout = Gun.shellLayout(size, config.SHELL_BASE_FRACTION)
+	local pieces = {
+		{
+			name = "Body",
+			length = layout.bodyLength,
+			across = size.X,
+			colour = config.SHELL_BODY_COLOR,
+			offset = layout.bodyX,
+		},
+		{
+			name = "Base",
+			length = layout.baseLength,
+			across = size.X,
+			colour = config.SHELL_BASE_COLOR,
+			offset = layout.baseX,
+		},
+	}
+	-- THE RIM IS THE NEW GUN'S, and the flag discipline is the reason: the mesh gun's chamber is a
+	-- fraction of a Handle rather than a measured face (`chamberOffset`, below), so a rim seated
+	-- against it would be a number with no owner. Nothing about the flag-off gun's shells moves.
+	if config.NEW_GUN == true then
+		table.insert(pieces, {
+			name = "Rim",
+			length = layout.rimThick,
+			across = layout.rimDiameter,
+			colour = config.SHELL_BASE_COLOR,
+			offset = layout.rimX,
+		})
+	end
+	for _, piece in ipairs(pieces) do
 		local part = Instance.new("Part")
 		part.Name = piece.name
 		part.Shape = Enum.PartType.Cylinder
 		-- A cylinder's length runs along its own X, so the shell lies along Z once turned.
-		part.Size = Vector3.new(piece.length, size.X, size.Y)
+		part.Size = Vector3.new(piece.length, piece.across, piece.across)
+		part.CFrame = CFrame.new(piece.offset, 0, 0)
 		part.Color = piece.colour
-		part.Material = if piece.name == "Base" then Enum.Material.Metal else Enum.Material.SmoothPlastic
+		-- THE BODY IS THE ONLY PLASTIC ONE: the base and the rim behind it are the same brass.
+		part.Material = if piece.name == "Body" then Enum.Material.SmoothPlastic else Enum.Material.Metal
 		part.Anchored = true
 		part.CanCollide = false
 		part.CanQuery = false
@@ -343,18 +377,24 @@ local function makeShell(name: string, config, parent: Instance): Model
 	return shell
 end
 
--- WHERE A CHAMBER IS, in the gun's own frame: the breech end of each tube, on its bore line. The
--- barrels are 0.62 of a 4.4-stud gun and the Handle's -Z is the muzzle, so the breech face sits 0.53
--- studs BEHIND the Handle's centre -- the same number the carry pose and the aim's cheek angle are
--- built on. `Shotgun.barrelMuzzleOffset` is still the one definition of which tube is which.
+-- WHERE A SHELL IS PLACED, in the gun's own frame: at the breech end of each tube, on its bore line.
+-- The barrels are 0.62 of a 4.4-stud gun and the Handle's -Z is the muzzle, so the breech face sits
+-- 0.53 studs BEHIND the Handle's centre -- the same number the carry pose and the aim's cheek angle
+-- are built on. `Shotgun.barrelMuzzleOffset` is still the one definition of which tube is which.
 local function chamberOffset(barrel: number, config): CFrame
 	-- THE NEW GUN KNOWS WHERE ITS OWN CHAMBERS ARE (task 99), and that is the whole of "the shell
 	-- goes IN". The old answer put the shell at the barrels' breech END on the Handle's centre line,
 	-- which with a mesh gun meant it floated in the gap between the two halves; `Gun.chamber` puts it
-	-- on the tube's own BORE LINE, inside the barrel, from the same arithmetic the barrels are drawn
-	-- from.
+	-- on the tube's own BORE LINE, at the chamber mouth, from the same arithmetic the barrels are
+	-- drawn from.
 	if config ~= nil and config.NEW_GUN == true then
-		return Gun.chamber(barrel, Shotgun.CONFIG)
+		-- `Gun.chamber` says where the shell's RIM goes: the chamber MOUTH, a hair proud of the
+		-- breech face (round 2, finding 1 -- a shell seated inside an opaque tube is invisible).
+		-- What `PivotTo` places is the model's pivot, its Body, so the shell is backed off by its
+		-- own `back` -- from the same layout `makeShell` draws it from, so the rim lands where this
+		-- says it does.
+		local layout = Gun.shellLayout(config.SHELL_SIZE_STUDS, config.SHELL_BASE_FRACTION)
+		return Gun.chamber(barrel, Shotgun.CONFIG) * CFrame.new(0, 0, -layout.back)
 	end
 	local across = Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG)
 	local breechZ = Shotgun.CONFIG.HANDLE_SIZE.Z * (0.62 - 0.5)

@@ -7,9 +7,14 @@
     python tools/pose.py save                         write the effective values into poses.json
     python tools/pose.py clear                        drop every override
     python tools/pose.py compare <pose> [--target <image>] [--assets-dir <dir>]
+                                        [--client <name>]
                                                       hold the pose, capture it, build ONE
                                                       side-by-side with the reference frame, and
-                                                      print the measured landmarks
+                                                      print the measured landmarks. `--client` says
+                                                      WHICH player to photograph (`--client Player1`):
+                                                      with two players one of them is the DRIVER and
+                                                      carries no gun, and the default is simply the
+                                                      first client that answered
     python tools/pose.py selftest                     NO Studio: prove the merge, the paths and the
                                                       file round trip (CI runs this)
 
@@ -309,11 +314,11 @@ def print_landmarks(marks):
                   "screen, so there is nothing to measure there")
 
 
-def run_compare(studio, pose, explicit_target, assets_dir):
+def run_compare(studio, pose, explicit_target, assets_dir, client="client"):
     if pose not in HOLDS:
         print(f"[pose] compare takes one of: {', '.join(HOLDS)}")
         return 2
-    client_id, client_dm, why = running(studio, "client")
+    client_id, client_dm, why = running(studio, client)
     if client_id is None:
         print("[pose] " + why)
         return 2
@@ -391,6 +396,11 @@ def main(argv):
 
     assets_dir = os.environ.get("DRIVEN_HUNT_ASSETS")
     explicit_target = None
+    # WHICH PLAYER TO PHOTOGRAPH. `studio_for_role` already understands "client:Player1"; this is
+    # the way to say it, and it exists because a two-player session makes one of them the DRIVER,
+    # who carries no gun at all -- so the default (the first client that answered) photographs an
+    # empty screen half the time. Measured 2026-10-02 on the task 99 break-open capture.
+    client = "client"
     rest = []
     index = 0
     while index < len(args):
@@ -399,6 +409,9 @@ def main(argv):
             index += 2
         elif args[index] == "--target" and index + 1 < len(args):
             explicit_target = args[index + 1]
+            index += 2
+        elif args[index] == "--client" and index + 1 < len(args):
+            client = "client:" + args[index + 1]
             index += 2
         else:
             rest.append(args[index])
@@ -415,9 +428,10 @@ def main(argv):
     try:
         if action == "compare":
             if len(args) != 2:
-                print("[pose] usage: pose.py compare <carry|raise|aim|reload> [--target <image>]")
+                print("[pose] usage: pose.py compare <carry|raise|aim|reload> [--target <image>] "
+                      "[--client <name>]")
                 return 2
-            return run_compare(studio, args[1], explicit_target, assets_dir)
+            return run_compare(studio, args[1], explicit_target, assets_dir, client)
 
         # Everything else reads, and may write, the SERVER of the running session: an attribute set
         # there replicates to every client, so a two-player test tunes both guns at once.
