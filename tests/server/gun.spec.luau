@@ -583,7 +583,11 @@ return function()
 			-- IT IS THE ACTION'S WIDTH, which is the Director's rule for a side-by-side's stock: as
 			-- wide as the action at the head. Read off the drawn action rather than written down, so
 			-- the two cannot drift.
-			expect(Gun.WOOD_WIDTH_STUDS[Gun.STOCK_NAME]).to.equal(byName(pieces, "Action").size.X)
+			-- 1e-6 AND NOT EQUALITY: a Vector3's components are FLOAT32, so the drawn action's own
+			-- width reads back as 0.2549999952 against the row's double 0.255.
+			expect(math.abs(Gun.WOOD_WIDTH_STUDS[Gun.STOCK_NAME] - byName(pieces, "Action").size.X) < 1e-6).to.equal(
+				true
+			)
 			expect(row.sizeStuds.Z > uniformWidth).to.equal(true)
 			TestKit.note(
 				string.format(
