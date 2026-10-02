@@ -3,18 +3,21 @@
 Task: 112
 Round: 2
 Base: `content-hands-karen-1` (PR #102 was retargeted by the Director)
-Code commit: `ca572f7abab976547f27b391d0b8c7eac06d841b`
+Code commit: `58ffd1648d6c94fafa88a9fd3e9a75c34b7b9ffc`
 
 ```
-[harness]  PASS: 33/33 checks @ ca572f7abab976547f27b391d0b8c7eac06d841b (clean tree)
-[harness2] FAIL: 33/35 checks @ ca572f7abab976547f27b391d0b8c7eac06d841b (clean tree)
+[harness]  PASS: 33/33 checks @ 58ffd1648d6c94fafa88a9fd3e9a75c34b7b9ffc (clean tree)
+[harness2] PASS: 35/35 checks @ 58ffd1648d6c94fafa88a9fd3e9a75c34b7b9ffc (clean tree)
 ```
 
-**THE TWO-PLAYER LINE IS A FAIL AND IT IS NOT THIS TASK'S** -- both failures are in
-`tests/client/weapon_client.spec.luau`, which this task does not touch, and the run's own notes say
-the shooter was TIED during the drive so his gun was in the backpack by the time the specs ran. It
-reproduced on a second run, so it is not a flake any more; `ESCALATE.md` (2026-10-02) has the
-evidence and asks the Director to decide. The review cannot run until it is.
+**THE TWO-PLAYER LINE WAS A FAIL TWICE AND IS FIXED IN THE TEST SETUP** (Director's decision on the
+`ESCALATE.md` entry, now closed): the shooter is tied on purpose by the LAST scenario in
+`input_scenarios.txt`, which exists FOR `zz_tie_to_a_tree.spec`, so pardoning ties would take the tie
+from the one spec whose subject it is. The two failing cases in `weapon_client.spec` assumed an
+equipped gun AFTER that scenario had run -- one waited on `Weapon.get().equipped` while saying one
+line down that `Weapon.get()` is the wrong thing to ask, and now reads the equip off the LOG; the
+other accepts an EMPTY readout when there is no gun in hand, which the case beside it already says in
+its own note. No gameplay file is touched and `Match` is untouched.
 
 `test2` is required: `src/client/Camera/Config.luau`, `init.luau`, `CameraBoot.client.luau` and
 `src/client/Weapon/` are all outside `WEAPON_VIEWMODEL_PATHS`.
@@ -45,11 +48,12 @@ evidence and asks the Director to decide. The review cannot run until it is.
    `Weapon.Sound.play` refuses unless `config.NEW_GUN`, which fixes both at once. The edge that
    decides open from close is `Camera.breakSound`, pure and beside `Camera.breakFrom` (finding 4),
    so a spec drives shut -> open -> shut.
-5. **THE SHOT SOUND'S ID IS EMPTY, DELIBERATELY.** The dispatch says library sounds only; choosing a
-   12-gauge from the library means picking an id I cannot hear, and a wrong one ships as the gun's
-   voice. `Weapon.Sound` treats `""` as "play nothing" without a warning, so the path is live and
-   waiting for one line in `Camera.Config.SOUND_SHOT_ID`. The two clicks are Studio's own
-   `rbxasset://sounds/` files, which ship with the engine and need no library at all.
+5. **THE GUN HAS A VOICE**: Audioscape's "AS_shotgun_shot-01", `rbxassetid://99008924129683`, found
+   by the Director at Karen's asking -- Roblox-provided library audio, NOT an upload, so nothing was
+   published to Karen's account and no asset row is needed; the source is written beside the id.
+   **Nobody here has heard it**: the Builder cannot play audio and the Director picked it from the
+   store page. The two clicks are Studio's own `rbxasset://sounds/` files. `Weapon.Sound` still
+   treats an empty id as "play nothing", which is what the old gun gets.
 6. **The case measures it on the drawn instances, and the sound by what came back** (finding 4:
    counting its own calls proved nothing). A flash for each barrel within 0.25 studs of THAT
    barrel's muzzle and closer to it than to the other; `Effects.play` driven with a payload that says
@@ -68,8 +72,8 @@ evidence and asks the Director to decide. The review cannot run until it is.
   `...-smoke.png` (+0.33 s): the flash is gone, the gun is back down -- and **no smoke is visible at
   all**. At 0.75 studs for 0.7 s the puff is brief and the muzzle is off the left edge in carry; it
   may simply be out of frame. That is the one thing a frame has not shown.
-- **The shot is silent until Karen picks an id.** Everything else about the sound is wired and
-  counted; nobody has heard it.
+- **Nobody has heard the shot sound.** The id is the Director's pick from a store page; the spec
+  proves an id reached a `Sound` and nothing more. Karen is the first person who will know.
 - **The kick was not compared against the target video frame by frame.** The numbers are a first
   pass, sized by eye against `TARGET-fire-smoke.jpg` and the old gun's, and every one is live.
 - **No roll in the recoil.** The dispatch asked for a small roll with the kick; the spring in
