@@ -42,14 +42,17 @@ unless the request pastes a harness line `[harness] PASS: n/m checks @ <code com
 naming that request's `Code commit:`. Task 18 was reviewed three times before its code had ever run;
 that cannot happen again. Docs-only changes are exempt.
 **And the TWO-PLAYER line** (`[harness2] PASS: ... (clean tree)`) for the same commit when the
-change touches `src/`, `tests/client/` or `tools/studio_mcp.py` - Director decision 2026-09-26. A
-driver, a tie, a team swap and half the client suite exist only with two clients, so a one-player
-run is not evidence for gameplay or for the harness that drives them. Docs, and the tools that are
-not the harness, stay exempt, because `test2` costs a human click.
-**Except when EVERY changed code file is first-person viewmodel** (`WEAPON_VIEWMODEL_PATHS`,
-Director decision 2026-10-02): that gun is drawn under one player's own camera, every other player
-sees the Tool's mesh, and a second client renders a second copy of it and answers nothing. All or
-nothing - one file outside the list and the whole change needs the line again.
+change touches one of the paths in `TWO_PLAYER_PATHS`: the MATCH, the DRIVE, the TIE, the TEAMS and
+the specs that test them. **That list is explicit and small since 2026-10-03** (Director decision,
+after Karen the same day: "we dont need 2 player test now we just working on weapon and animal
+next"). It was "any `src/`, any `tests/client/`, or this harness" from 2026-09-26, which asked for a
+human click and eight minutes on every gameplay task. A second player answers one class of question
+-- who the OTHER player is -- and the weapon, the viewmodel, the camera, the boar, the hud and the
+tools are the same with one player as with two. They need only the one-player line, for a review
+round AND for the PR to main.
+`WEAPON_VIEWMODEL_PATHS` (Director decision 2026-10-02) is kept and is now SUBSUMED: no viewmodel
+path is in the two-player list any more, so the exemption changes no answer. ALL OR NOTHING is still
+its rule, and `selftest` proves it inert rather than assuming it.
 **A SCOPED one-player line is enough for a REVIEW ROUND** (Task 113; Karen, 2026-10-02: "it has to
 test only parts what has been changed and what blast radius could be"). `tools/studio_mcp.py test
 --scope auto` resolves the scope from the branch's own changed paths and writes it into its line as
@@ -94,11 +97,53 @@ HISTORY_SCAN = 50  # commits of one task's RESULT.md history the round check loo
 REVIEWS = "reviews"  # reviews/task-<N>/{REQUEST,RESULT,ARCH_RESULT}.md
 # A change touching any of these must show a harness PASS before it may be reviewed.
 CODE_PATHS = ("src/", "tests/", "tools/")
-# ...and a change touching any of THESE must also show the TWO-PLAYER line. Director decision,
-# 2026-09-26: gameplay (src/) and anything that can only be exercised with two clients (the client
-# specs, the harness itself) are not evidenced by a one-player run. Everything else -- docs, and the
-# tools that are not the harness -- is exempt, because test2 costs a human click and eight minutes.
-TWO_PLAYER_PATHS = ("src/", "tests/client/", "tools/studio_mcp.py")
+# ...and a change touching any of THESE must also show the TWO-PLAYER line.
+#
+# IT IS AN EXPLICIT, SMALL LIST NOW (Director decision, 2026-10-03, after Karen the same day: "we
+# dont need 2 player test now we just working on weapon and animal next"). It used to be "any
+# `src/`, any `tests/client/`, or the harness", which asked for a human click and eight minutes on
+# every gameplay task -- including the weapon and animal work that is all there is for the next
+# while. A second player answers exactly one class of question: WHO THE OTHER PLAYER IS. The drive
+# that assigns teams, the roster, the tie that freezes a driver at a tree, the score across two
+# rosters, and the client specs that assert their own ROLE. Nothing else in the game has a second
+# player in it: the weapon, the viewmodel, the camera, the boar, the hud and the tools behave the
+# same whether one player is present or two, so a second client renders a second copy and answers
+# nothing the first did not.
+#
+# PRECISION BEATS LENGTH HERE. The entries are owners and their specs, named one by one, because the
+# rule has to be readable as a sentence: "the match, the drive, the tie, the teams, and the specs
+# that test them". Add a path only when a SECOND PLAYER is what makes it true.
+#
+# DELIBERATELY NOT IN THE LIST, and both are judgement calls worth stating:
+#   * `src/server/Weapon/SafetyArc.luau` -- the geometry that decides a shot is toward the drive
+#     line. It is weapon-side maths, provable with one player and one angle; the PENALTY it triggers
+#     is `src/server/Match/Penalty.luau`, which IS in the list.
+#   * `tools/studio_mcp.py` -- the harness itself, which the Director's 2026-10-03 decision puts
+#     with the tools. `run_test2` is then the one thing in the repo that only a two-player run can
+#     evidence and nothing asks for that run: the Director decides that case by hand (TASKS.md
+#     113a(d)).
+TWO_PLAYER_PATHS = (
+    # The match: phases, the roster and teams, the score, the markers, the outfit, and the TIE.
+    "src/server/Match/",
+    "src/server/MatchBoot.server.luau",
+    "src/client/Match/",
+    "src/client/MatchBoot.client.luau",
+    "src/shared/Drive/",
+    # Which team THIS client is on -- the module every client spec asks about its own role.
+    "tests/client/Role.luau",
+    # ...and the specs that test all of it. A spec is here when its claims need two rosters.
+    "tests/server/match_live.spec.luau",
+    "tests/server/match_outfit.spec.luau",
+    "tests/server/match_phase.spec.luau",
+    "tests/server/match_roster.spec.luau",
+    "tests/server/match_safety.spec.luau",
+    "tests/server/match_score.spec.luau",
+    "tests/server/match_teams.spec.luau",
+    "tests/server/zz_drive_boundary.spec.luau",
+    "tests/client/match_client.spec.luau",
+    "tests/client/outfit_client.spec.luau",
+    "tests/client/zz_tie_to_a_tree.spec.luau",
+)
 
 # THE CONTENT LANE (CLAUDE.md "Content lane", Karen 2026-10-01: "too slow"; extended here in Task
 # 113). These files are DATA the Director tunes live and Karen OKs, not code: the numbers behind a
@@ -124,10 +169,15 @@ CONTENT_PATHS = ("src/shared/Viewmodel/poses.json",)
 # change needs it again, because the exemption is about what the change CAN break, not about what it
 # mostly is. The one-player line is still required for everything, always.
 #
-# THE SPECS ARE NAMED, NOT PREFIXED, and that is deliberate: `tests/client/` as a whole is exactly
-# what `TWO_PLAYER_PATHS` says needs two players, so only the files that test the viewmodel and
-# nothing else may be in here. A spec that grows a driver or a team assertion must come out of this
-# list in the same commit.
+# THE SPECS ARE NAMED, NOT PREFIXED, and that is deliberate: only the files that test the viewmodel
+# and nothing else may be in here. A spec that grows a driver or a team assertion must come out of
+# this list in the same commit.
+#
+# SINCE 2026-10-03 THIS LIST IS SUBSUMED and kept anyway. `TWO_PLAYER_PATHS` is now the explicit
+# match/drive/tie/team list above, and no viewmodel path is in it, so the exemption no longer has
+# anything to exempt -- `needs_two_player` returns the same answer with it and without it. It stays
+# because it is the written record of WHY the viewmodel never needed a second client, and because
+# `selftest` proves it is inert rather than assuming it (the "subsumed" cases below).
 WEAPON_VIEWMODEL_PATHS = (
     "src/shared/Gun/",
     "src/shared/Viewmodel/",
@@ -144,9 +194,15 @@ AGENT_TIMEOUT_S = 3600
 def needs_two_player(changed):
     """Which of `changed` a ONE-player run cannot evidence. Pure: a list of paths in, a list out.
 
-    Empty when the whole change is first-person viewmodel (`WEAPON_VIEWMODEL_PATHS`, Director
-    2026-10-02). ALL OR NOTHING, and that is the point: one file outside the list -- a server script,
-    Match, the shot path, the driver, the tie -- and every two-player path is back, because the
+    A path is in the answer only when it is in `TWO_PLAYER_PATHS` -- the match, the drive, the tie,
+    the teams and the specs that test them (Director, 2026-10-03). Weapon, viewmodel, camera, boar,
+    hud and tools paths are never in it, so they come back empty and need only the one-player line,
+    for a review round AND for the PR to main.
+
+    The `WEAPON_VIEWMODEL_PATHS` all-or-nothing exemption (Director, 2026-10-02) still applies and is
+    now SUBSUMED: no viewmodel path is a two-player path any more, so it changes no answer. It is
+    kept as the record of why, and `selftest` proves it inert. ALL OR NOTHING is still the rule it
+    encodes: one file outside that list and every two-player path in the change is back, because the
     question is what the change CAN break, not what most of it is.
     """
     norm = [f.replace("\\", "/") for f in changed]
@@ -827,14 +883,32 @@ def selftest():
                  "tests/client/gun_client.spec.luau", "tests/server/gun.spec.luau"]
     check("a viewmodel-only change needs no two-player line",
           needs_two_player(viewmodel) == [], "%s" % (needs_two_player(viewmodel),))
-    # ...AND THE OTHER DIRECTION, which is the one that matters: one file outside the list brings it
-    # all back. A server script, the shot path, the driver, the tie.
-    for stranger in ("src/server/Match/init.luau", "src/server/Weapon/Shot.luau",
-                     "tools/studio_mcp.py", "tests/client/match_client.spec.luau",
-                     "src/client/Hud/init.luau"):
+    # ...AND THE OTHER DIRECTION, which is the one that matters: one MATCH, DRIVE, TIE or TEAM file
+    # brings the two-player line back for the whole change. These are the paths a second player is
+    # the only way to test (Director, 2026-10-03).
+    for stranger in ("src/server/Match/init.luau", "src/server/Match/Penalty.luau",
+                     "src/server/Match/Roster.luau", "src/client/Match/init.luau",
+                     "src/shared/Drive/init.luau", "src/server/MatchBoot.server.luau",
+                     "tests/client/Role.luau", "tests/client/match_client.spec.luau",
+                     "tests/client/zz_tie_to_a_tree.spec.luau",
+                     "tests/server/match_teams.spec.luau",
+                     "tests/server/zz_drive_boundary.spec.luau"):
         got = needs_two_player(viewmodel + [stranger])
         check("one %s brings the two-player line back" % stranger, len(got) > 0,
               "%d path(s) need it" % len(got))
+    # ...AND THE OTHER HALF OF KAREN'S RULE, 2026-10-03: "we dont need 2 player test now we just
+    # working on weapon and animal next". These are the paths that used to demand a human click and
+    # eight minutes and must NOT any more -- the weapon, the shot path, the hud, the boar, the
+    # camera, the client specs that are not about a role, and the tools.
+    for alone in ("src/server/Weapon/Shot.luau", "src/server/Weapon/Hits.luau",
+                  "src/client/Weapon/Input.luau", "src/client/Hud/init.luau",
+                  "src/server/Boar/Brain.luau", "src/client/Camera/Rig.luau",
+                  "src/shared/Gun/init.luau", "tests/client/weapon_client.spec.luau",
+                  "tests/client/camera_client.spec.luau", "tests/client/hit_marker.spec.luau",
+                  "tests/server/weapon_shot.spec.luau", "tests/server/boar_hit.spec.luau",
+                  "tools/studio_mcp.py", "tools/agents.py"):
+        got = needs_two_player([alone])
+        check("%s needs only the one-player line" % alone, got == [], "%s" % (got,))
     check("a docs-only change asks for nothing", needs_two_player([]) == [])
     check("a non-code change asks for nothing", needs_two_player(["README.md"]) == [])
     # NORMALISATION, DRIVEN BY THE CASE THAT CAN FAIL (round 1, finding 2). This used to assert that
@@ -850,17 +924,32 @@ def selftest():
     for path in WEAPON_VIEWMODEL_PATHS:
         check("exempt path %s still needs the one-player line" % path,
               path.startswith(CODE_PATHS))
-    # ...and the list does something: at least one entry is a path that WOULD otherwise need the
-    # two-player line. The server specs in it are there for the ALL-OR-NOTHING rule -- a change to
-    # `src/shared/Gun/` plus `tests/server/gun.spec.luau` must still be exempt -- not because a
-    # server spec ever needed two players.
-    check("the list contains a path the two-player gate would otherwise catch",
-          any(p.startswith(TWO_PLAYER_PATHS) for p in WEAPON_VIEWMODEL_PATHS))
+    # ...AND THE EXEMPTION IS NOW INERT, which is a thing to PROVE rather than assume (Director,
+    # 2026-10-03): `TWO_PLAYER_PATHS` is the match/drive/tie/team list, and no viewmodel path is in
+    # it, so `needs_two_player` gives the same answer with the exemption and without it. If a
+    # viewmodel path is ever added back to the two-player list, this fails and whoever added it has
+    # to decide which rule wins.
+    check("no viewmodel path is a two-player path any more (the exemption is subsumed)",
+          not any(p.startswith(TWO_PLAYER_PATHS) for p in WEAPON_VIEWMODEL_PATHS),
+          "%s" % ([p for p in WEAPON_VIEWMODEL_PATHS if p.startswith(TWO_PLAYER_PATHS)],))
     check("a viewmodel change plus its SERVER spec is still exempt",
           needs_two_player(["src/shared/Gun/init.luau", "tests/server/gun.spec.luau"]) == [])
-    # ...and `tests/client/` as a whole is NOT exempt: only the named spec is.
-    check("tests/client/ as a whole is still a two-player path",
-          needs_two_player(["tests/client/weapon_client.spec.luau"]) != [])
+    # ...and `tests/client/` as a whole is NOT a two-player path any more: only the named match, tie
+    # and role files in `TWO_PLAYER_PATHS` are. That is the change Karen asked for, stated as a test.
+    check("tests/client/ as a whole is no longer a two-player path",
+          needs_two_player(["tests/client/weapon_client.spec.luau"]) == [])
+    check("but the named client role, match and tie specs still are",
+          needs_two_player(["tests/client/Role.luau"]) != []
+          and needs_two_player(["tests/client/match_client.spec.luau"]) != []
+          and needs_two_player(["tests/client/zz_tie_to_a_tree.spec.luau"]) != [])
+    # EVERY TWO-PLAYER PATH IS A CODE PATH, so it can never skip the one-player line either.
+    check("every two-player path is a code path", all(p.startswith(CODE_PATHS) for p in TWO_PLAYER_PATHS))
+    # THE LIST IS SMALL ON PURPOSE. A rule that has to be readable as a sentence cannot grow to
+    # "any src/" again without somebody noticing, which is what this bound is for.
+    check("the two-player list is still small and explicit", len(TWO_PLAYER_PATHS) <= 20,
+          "%d entries" % len(TWO_PLAYER_PATHS))
+    check("no two-player entry is a whole root", not any(p in ("src/", "tests/", "tools/")
+                                                         for p in TWO_PLAYER_PATHS))
     # The one-player gate is untouched by any of this: every code path still needs `[harness]`.
     check("the exempt paths are still CODE paths, so the one-player line is still required",
           all(p.startswith(CODE_PATHS) for p in WEAPON_VIEWMODEL_PATHS))

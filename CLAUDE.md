@@ -79,12 +79,19 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
    PASS line for the code commit. Docs-only tasks are exempt, and so is a content-lane
    `poses.json`-only change (Task 113). A **scoped** line from `test --scope auto` is accepted for
    a review round, and then no `[harness2]` line is asked for; the merge still needs the full run.
-   **And the two-player run is part of the gate** (Director decision, 2026-09-26) for a change
-   touching `src/` (gameplay), `tests/client/` or `tools/studio_mcp.py`: paste the
-   `[harness2] PASS: n/m checks @ <code commit> (clean tree)` line as well. A driver, a tie, a team
-   swap and half the client suite exist only with two clients, so a one-player run is not evidence
-   for them. `tools/agents.py` refuses the review without it. **Docs, and the tools that are not the
-   harness, are exempt**, because `test2` costs a human click and about eight minutes.
+   **The two-player run is part of the gate ONLY for the match, the drive, the tie and the teams**
+   (Director decision, 2026-10-03, after Karen the same day: *"we dont need 2 player test now we just
+   working on weapon and animal next"*). That is the explicit list in `tools/agents.py`'s
+   `TWO_PLAYER_PATHS`: `src/server/Match/`, `src/server/MatchBoot.server.luau`, `src/client/Match/`,
+   `src/client/MatchBoot.client.luau`, `src/shared/Drive/`, `tests/client/Role.luau`, and the
+   specs that test them (`tests/server/match_*.spec.luau`, `zz_drive_boundary.spec.luau`,
+   `tests/client/match_client.spec.luau`, `outfit_client.spec.luau`, `zz_tie_to_a_tree.spec.luau`). For one of those, paste the
+   `[harness2] PASS: n/m checks @ <code commit> (clean tree)` line as well, and `tools/agents.py`
+   refuses the review without it. **Everything else needs only the one-player line, for a review
+   round AND for the PR to main**: the weapon, the viewmodel, the camera, the boar, the hud, the
+   sound and the tools. A second player answers one question -- who the OTHER player is -- and until
+   2026-10-03 the rule was "any `src/`, any `tests/client/`, or the harness", which cost a human
+   click and eight minutes on every gameplay task.
 4. Write `reviews/task-<N>/REQUEST.md` (increment `Round:`; `Code commit:` = the commit the harness
    line names) and commit it. **One page: `Task: N`, `Round: N`, `Base:`, `Code commit:`, at most 10
    claims, each with how to verify it.** Cite **files and symbols, never line numbers** (every later
@@ -188,11 +195,13 @@ dollars. The script prints each session's cost into the result file's trailer.
    mismatch with the older wording, which said "the last commit that changed anything but paperwork"
    (`TASKS.md` row 44a(k)).
    - a clean-tree harness PASS names the code commit
-     (`[harness] PASS: n/n checks @ <code commit> (clean tree)`), **and a clean-tree
-     `[harness2] PASS` for the same commit** when the change touches `src/`, `tests/client/` or
-     `tools/studio_mcp.py` (Director decision, 2026-09-26) — unless every changed code file is
-     first-person viewmodel (`WEAPON_VIEWMODEL_PATHS`, Director decision 2026-10-02; see
-     "Run / test"),
+     (`[harness] PASS: n/n checks @ <code commit> (clean tree) scope=all` — the PR to `main` needs
+     the FULL run, not a `scope=auto:…` one), **and a clean-tree `[harness2] PASS` for the same
+     commit ONLY when the change touches the match, the drive, the tie or the teams**: the explicit
+     `TWO_PLAYER_PATHS` list in `tools/agents.py` (Director decision, 2026-10-03, after Karen: *"we
+     dont need 2 player test now we just working on weapon and animal next"*; see "Run / test").
+     Weapon, viewmodel, camera, boar, hud, sound and tools changes need the one-player line only,
+     for the PR to `main` as well as for a review round,
    - `reviews/task-<N>/RESULT.md` line 1 is `PASS` (notes under it do not block), and its trailer
      names a commit that differs from the code commit only in paperwork,
    - CI (`.github/workflows/ci.yml`) is green on the PR head,
@@ -225,8 +234,10 @@ The **round count** is in between. `tools/agents.py` takes it from the committed
 `reviews/task-<N>/RESULT.md` trailer of that task and refuses a request that raises, skips or resets
 it, including by deleting the file. So is **harness before review**: a change touching `src/`,
 `tests/` or `tools/` is refused until the request pastes the harness's own PASS line for the code
-commit — the commit the line itself names, per step 4 — and one touching `src/`, `tests/client/` or
-`tools/studio_mcp.py` is refused until it also pastes the `[harness2]` line for that same commit. But the Builder writes the repo's commits, so a hand-written trailer, or a history
+commit — the commit the line itself names, per step 4 — and one touching the match, the drive, the
+tie or the teams (`TWO_PLAYER_PATHS`) is refused until it also pastes the `[harness2]` line for that
+same commit. A `scope=auto:…` line is accepted for a review round and then the `[harness2]` line is
+not asked for at all; a hand-named scope is refused as evidence (Task 113). But the Builder writes the repo's commits, so a hand-written trailer, or a history
 rewrite, would still get past it. Until audit-002 must-fix #5 (Task 12) makes the verdict files
 writable only by the scripts, the last step of the stop rule is policy too.
 
@@ -241,10 +252,12 @@ Paste this, filled in, at the end of every task report. Each box is checked, or 
       and that <sha> IS the **code commit**: the
       request's `Code commit:` line says the same one, it is at or after the last commit that changed
       src/, tests/ or tools/, and only paperwork changed after it (git workflow step 4)
-- [ ] Two players, when the change touches src/, tests/client/ or tools/studio_mcp.py:
+- [ ] Two players, ONLY when the change touches the match, the drive, the tie or the teams
+      (`TWO_PLAYER_PATHS` in tools/agents.py; Director 2026-10-03, Karen: "we dont need 2 player
+      test now we just working on weapon and animal next"):
       `python tools/studio_mcp.py test2` → paste "[harness2] PASS: n/n checks @ <same sha> (clean
-      tree)". Or N/A with the reason (docs; tools outside the harness; or EVERY changed code file is
-      first-person viewmodel — `WEAPON_VIEWMODEL_PATHS`, Director 2026-10-02, see "Run / test")
+      tree)". Otherwise N/A with the reason — weapon / viewmodel / camera / boar / hud / sound /
+      tools / docs all need the one-player line only, for the PR to main as well
 - [ ] CI green on the PR (link to the run)
 - [ ] Screenshot inspected (rule 5), or N/A: <reason>
 - [ ] Docs updated: TASKS.md, GAME_DESIGN.md owners, research note/INDEX, PLAYTEST.md, CLAUDE.md as needed
@@ -371,24 +384,33 @@ change to the test system, and don't restate it elsewhere.
   project builds (Rojo does not create `build/`).
 - **Tests:** Studio open on the DEV place in **Edit** mode, Rojo connected, work committed:
   `python tools/studio_mcp.py test`, and `python tools/studio_mcp.py test2` (two players, one human
-  click) whenever the change touches `src/`, `tests/client/` or `tools/studio_mcp.py`.
+  click) **only when the change touches the match, the drive, the tie or the teams** — the explicit
+  `TWO_PLAYER_PATHS` list in `tools/agents.py` (Director decision, 2026-10-03).
   - Exit 0 means PASS on a clean tree. 1 means FAIL. 2 means REFUSED (Studio not in Edit mode).
     3 means PASS on a dirty tree, which is **not valid evidence**.
   - The final line names the commit it tested.
-  - **BLAST RADIUS: the FIRST-PERSON VIEWMODEL is exempt from `test2`** (Director decision,
-    2026-10-02, after Karen: *"not testing everything only changed part and only where could be
-    blast radius ... we just focus to weapon features"*). `test2` exists because a driver, a tie, a
-    team swap and half the client suite only exist with two clients. The viewmodel is the opposite
-    case: it is drawn under `workspace.CurrentCamera` for ONE player, every other player sees the
-    Tool's own mesh, and nothing in it reads a team, a role or another character — a second client
-    renders a second copy of the same thing and answers no question the first did not.
-    So when **every** changed code file is in `tools/agents.py`'s `WEAPON_VIEWMODEL_PATHS`
-    (`src/shared/Gun/`, `src/shared/Viewmodel/`, `src/client/Camera/Viewmodel.luau`,
-    `src/client/Camera/Poses.luau`, and the three specs that drive only those), `test2` is N/A and
-    `tools/agents.py` does not ask for the line. **ALL OR NOTHING:** one file outside that list —
-    any server code, Match, the shot or hit path, the driver, the tie — and the whole change needs
-    `test2` again, because the question is what the change CAN break, not what most of it is. The
-    **one-player** line is still required for every code change, always.
+  - **BLAST RADIUS: `test2` IS FOR THE MATCH, THE DRIVE, THE TIE AND THE TEAMS, AND NOTHING ELSE**
+    (Director decision, 2026-10-03, after Karen the same day: *"we dont need 2 player test now we
+    just working on weapon and animal next"*; the first cut was 2026-10-02, when only the
+    first-person viewmodel was exempt). A second player answers exactly one class of question: who
+    the OTHER player is. The drive that assigns teams, the roster, the tie that freezes a driver at a
+    tree, the score across two rosters, and the client specs that assert their own ROLE. The weapon,
+    the viewmodel, the camera, the boar, the hud and the tools behave the same with one player as
+    with two, so a second client renders a second copy and answers nothing the first did not.
+    The list is explicit, small, and readable as a sentence — `TWO_PLAYER_PATHS` in
+    `tools/agents.py`: `src/server/Match/`, `src/server/MatchBoot.server.luau`, `src/client/Match/`,
+    `src/client/MatchBoot.client.luau`, `src/shared/Drive/`, `tests/client/Role.luau`, and the
+    specs that test them (`tests/server/match_*.spec.luau`, `zz_drive_boundary.spec.luau`,
+    `tests/client/match_client.spec.luau`, `outfit_client.spec.luau`, `zz_tie_to_a_tree.spec.luau`).
+    **Two judgement calls are written into that list's comment:** `src/server/Weapon/SafetyArc.luau`
+    is NOT in it (weapon-side geometry, provable with one player; the penalty it triggers,
+    `src/server/Match/Penalty.luau`, IS in it), and neither is `tools/studio_mcp.py` (the Director's
+    2026-10-03 decision puts the harness with the tools, which leaves `run_test2` itself the one
+    thing only a two-player run can evidence and nothing asking for that run — the Director decides
+    that case by hand, TASKS.md 113a(d)).
+    `WEAPON_VIEWMODEL_PATHS` is kept and is now **subsumed**: no viewmodel path is in the two-player
+    list, so the exemption changes no answer, and `tools/agents.py selftest` proves it inert rather
+    than assuming it. The **one-player** line is still required for every code change, always.
     `tools/agents.py selftest` proves both directions and runs in CI.
   - **SCOPED RUNS, for a review round: `python tools/studio_mcp.py test --scope auto`** (Task 113,
     after Karen on 2026-10-02: *"it has to test only parts what has been changed and what blast

@@ -10,9 +10,13 @@ mentioned 100 times / it has to test only parts what has been changed and what b
 be."*
 
 ```
-[harness]  PASS: n/n checks @ <code commit> (clean tree) scope=all      <- the Director runs this
-[harness2] PASS: n/n checks @ <code commit> (clean tree)                <- and this
+[harness] PASS: n/n checks @ <code commit> (clean tree) scope=all      <- the Director runs this
 ```
+
+`test2` is **N/A** under the rule this task installs: nothing here touches the match, the drive, the
+tie or the teams (`TWO_PLAYER_PATHS`). It was required before the change and is not after, which is
+the point of claim 7 — the Director may want the pair once anyway, since this is the commit that
+changes the rule.
 
 ## Claims, each with how to verify it
 
@@ -51,6 +55,19 @@ be."*
    `src/shared/Viewmodel/poses.json` still scopes to `viewmodel` in the harness (its spec reads the
    file), so the content lane's own one-player `test` still plays those specs.
 
+7. **`test2` is for the match, the drive, the tie and the teams, and nothing else.**
+   `TWO_PLAYER_PATHS` is now that explicit list (`src/server/Match/`, `src/client/Match/`, the two
+   `MatchBoot`s, `src/shared/Drive/`, `tests/client/Role.luau` and the match/tie/outfit specs), where
+   it used to be "any `src/`, any `tests/client/`, or the harness". Weapon, viewmodel, camera, boar,
+   hud and tools changes need the one-player line only, **for the PR to main as well as for a review
+   round**. Verify: `TWO_PLAYER_PATHS` and `needs_two_player`, the 25 selftest cases that drive both
+   directions (11 paths that must bring the line back, 14 that must not), and that CLAUDE.md says
+   the same in the loop step 3, git workflow step 4, "What is enforced", Run / test and the
+   definition of done. Two judgement calls are written into the list's comment and into Run / test:
+   `src/server/Weapon/SafetyArc.luau` is out (the penalty it triggers, `Match/Penalty.luau`, is in)
+   and `tools/studio_mcp.py` is out, which leaves `run_test2` the one thing only a two-player run
+   can evidence with nothing asking for it — queued as 113a(d).
+
 ## What I could not verify
 - **No harness run at all.** Another Builder holds Studio; the Director runs `test` and `test2` for
   this branch. Nothing here was exercised against Studio: `--scope auto`'s Play-skipping branch has
@@ -59,4 +76,5 @@ be."*
   rounds on record: mean $3.36 / 38 turns, median $3.20 / 36. This task's own review is the first
   measurement.
 - Both selftests pass offline and in CI (`python tools/agents.py selftest`,
-  `python tools/studio_mcp.py selftest`): 41 new cases.
+  `python tools/studio_mcp.py selftest`): **65 new cases** — `agents.py` goes from 21 to 69, the
+  harness gains 17.

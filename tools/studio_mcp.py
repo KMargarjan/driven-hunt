@@ -87,12 +87,19 @@ only parts what has been changed and what blast radius could be")
   refuses a hand-named scope as evidence -- a chosen scope is a choice, not a measurement. The merge
   gate still wants the full pair (CLAUDE.md git workflow step 4).
 
-WHICH RUN IS EVIDENCE FOR WHAT (Director decision, 2026-09-26). `test` is the default and every
-change needs it. `test2` is ALSO part of the merge gate for a change touching `src/` (gameplay),
-`tests/client/` or this file: a driver, a tie, a team swap and half the client suite exist only with
-two clients, so a one-player run says nothing about them. `tools/agents.py` refuses the review
-without the `[harness2]` line for the same code commit. Docs, and the tools that are not this
-harness, are exempt -- `test2` costs a human click and about eight minutes.
+WHICH RUN IS EVIDENCE FOR WHAT (Director decision, 2026-10-03). `test` is the default and EVERY
+change needs it. `test2` is part of the merge gate ONLY for a change touching the MATCH, the DRIVE,
+the TIE or the TEAMS -- the explicit `TWO_PLAYER_PATHS` list in `tools/agents.py`, which is where
+that rule lives. Karen, 2026-10-03: "we dont need 2 player test now we just working on weapon and
+animal next". Until then the rule was "any `src/`, any `tests/client/`, or this file", and it cost a
+human click and eight minutes on every gameplay task. A second player answers one class of question
+-- who the other player is -- and the weapon, the viewmodel, the camera, the boar, the hud and the
+tools are the same with one player as with two: they need the one-player line only, for the PR to
+main as well as for a review round. `tools/agents.py` refuses the review without the `[harness2]`
+line for a change that IS in that list.
+THIS FILE IS IN THE TOOLS, NOT IN THE LIST, and that is the one gap the decision leaves: `run_test2`
+below is the only thing in the repo that a two-player run alone can evidence, and nothing now asks
+for that run. The Director decides that case by hand (TASKS.md 113a(d)).
 
 `selftest` is the exception to "needs Studio": no Studio, no place and no network, in under a
 second, so it runs in CI. It covers the pure helpers -- wait_for_each, the reply keying,
