@@ -52,7 +52,15 @@ local Config = {
 	-- id I cannot hear, and an id that turns out to be wrong is worse than silence because it ships
 	-- as the gun's voice. `Weapon.Sound` treats "" as "play nothing" without a warning, so the path
 	-- is live and waiting for one line. KAREN: paste an id here.
-	SOUND_SHOT_ID = "",
+	-- KAREN ASKED THE DIRECTOR TO FIND ONE, and this is it: "AS_shotgun_shot-01" by Audioscape,
+	-- `rbxassetid://99008924129683`, audioType SoundEffect --
+	-- https://create.roblox.com/store/asset/99008924129683 . ROBLOX-PROVIDED LIBRARY AUDIO, NOT AN
+	-- UPLOAD: nothing was published to Karen's account for it and no asset row is needed, which is why
+	-- it sits here with its source rather than in `assets/uploads.json`.
+	--
+	-- NOBODY HERE HAS HEARD IT. The Builder cannot play audio and the Director picked it from the
+	-- store page; Karen is the first person who will know whether it sounds like a 12-gauge.
+	SOUND_SHOT_ID = "rbxassetid://99008924129683",
 	-- The break-open and the close are Studio's OWN sounds, which ship with the engine rather than
 	-- coming from the library, so they are the two I can be sure exist.
 	SOUND_OPEN_ID = "rbxasset://sounds/switch3.wav",

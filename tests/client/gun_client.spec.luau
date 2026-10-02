@@ -401,7 +401,9 @@ return function()
 			-- these three say: the clicks have ids and the shot does not yet.
 			local Sound = require(scripts:WaitForChild("Weapon")).Sound
 			Sound.resetStats()
-			expect(Sound.shot(newGunPosedConfig)).to.equal(false) -- the id is empty until Karen picks one
+			-- The shot has an id now (Audioscape's, Director 2026-10-02), so this is TRUE: an id
+			-- really reached a `Sound`. Nobody here has heard it.
+			expect(Sound.shot(newGunPosedConfig)).to.equal(true)
 			expect(Sound.open(newGunPosedConfig)).to.equal(true)
 			expect(Sound.close(newGunPosedConfig)).to.equal(true)
 			-- ...and NONE of it reaches the gun Karen plays: the whole task is behind the flag, and

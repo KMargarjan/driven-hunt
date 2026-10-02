@@ -1241,3 +1241,27 @@ no finding names. Either:
 
 Task 112's work is committed and pushed; `reviews/task-112/REQUEST.md` says the same thing. The
 review cannot run until this is decided, because `tools/agents.py` asks for the `[harness2]` line.
+
+**DIRECTOR'S ANSWER, 2026-10-02 (transcribed by the Builder; CLOSED).** (1) The `test2` tie failure
+is a HARNESS fault -- the suite outgrew the drive's tie timing -- and not a reason to accept a
+one-player line; fix it in the test setup, smallest honest way, no gameplay change, and the gate must
+be green on both lines. (2) The shot sound is Audioscape's "AS_shotgun_shot-01",
+`rbxassetid://99008924129683` (Roblox-provided library audio, not an upload). (3) Keep the halved
+smoke; Karen tunes it live.
+
+**WHAT THE BUILDER DID, AND WHY IT IS IN `weapon_client.spec` AND NOT IN `Match`.** The shooter is
+not tied by chance: the LAST scenario in `tests/client/input_scenarios.txt` is `tie-the-driver`,
+which exists FOR `ClientTests.zz_tie_to_a_tree.spec` and ties him on purpose. So pardoning ties for
+the run -- the test-only Match config the decision offers first -- would take the tie away from the
+one spec whose whole subject it is. The two failing cases are the ones that assumed an equipped gun
+AFTER that scenario had run:
+
+* "equips on the cue and starts full" waited on `Weapon.get().equipped` and then said, one line
+  down, that `Weapon.get()` is the wrong thing to ask because "the scenario has moved on". It now
+  reads the equip off the LOG, like the "starts full" half beside it. The claim is about the
+  BEGINNING of the session, and the log is where the beginning is kept.
+* "reads out the barrels" now accepts an EMPTY readout when there is no gun in hand, which is what
+  the case next to it already says in its own note ("no quiet gun to test ... tied to a tree").
+  Anything that is not empty must still match the shape.
+
+No gameplay file is touched, `Match` is untouched, and `zz_tie_to_a_tree.spec` still gets its tie.
