@@ -17,6 +17,7 @@
 -- Design: docs/design/camera.md (sections 3.2, 5.5)
 local Workspace = game:GetService("Workspace")
 
+local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Mode = require(script.Parent.Mode)
@@ -90,6 +91,7 @@ local stats = {
 	parts = 0,
 	breaksDrawn = 0,
 	shellsDrawn = 0,
+	flashesDrawn = 0,
 	handsDrawn = 0,
 	handsMissing = 0,
 	-- How many of the new gun's wooden pieces were Karen's uploaded MESH rather than the piece
@@ -1505,6 +1507,95 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 		-- cartridge that has been through Roblox's importer.
 		(shell :: Model):PivotTo(barrelsCFrame * offset * CFrame.Angles(0, math.rad(shellTurnDeg(config)), 0))
 	end
+end
+
+-- ----------------------------------------------------------------- the shot's own light (task 112)
+
+local FLASH_NAME = "MuzzleFlash"
+
+-- THE FLASH AND THE SMOKE, ON THE PIPE THAT FIRED, UNDER THE CAMERA. Karen's order, 2026-10-02:
+-- finish the weapon before the animal, and shooting is next; the reference is
+-- `TARGET-fire-smoke.jpg` -- a short white bloom and a grey puff that drifts up and thins out.
+--
+-- WHY HERE AND NOT IN `Weapon.Effects`, which already draws a flash: that one is a part in
+-- WORKSPACE, at the world muzzle, for every player's shot. This is the FIRST-PERSON gun -- the one
+-- drawn at the camera, whose muzzle is 2 studs from the eye and nowhere near the world one -- so it
+-- is this module's business by the same rule the hands and the shells are (one owner per system).
+-- `Weapon.Effects` still draws the world flash for everybody, this one included: a player sees both,
+-- and only this one is in frame.
+--
+-- A PARTICLE EMITTER AND A LIGHT, NOT A BOX. Task 92's flash is a neon cube and its own screenshot
+-- said so ("it read as a grey BOX hanging off the barrels"). An emitter with a one-burst rate and a
+-- `PointLight` is what a muzzle flash is: bright for a frame or two, then nothing.
+--
+-- EVERY NUMBER IS DATA (`newGun.fire.flash` / `.smoke`), so the Director and Karen tune the look
+-- live with `pose.py set` like every other number in this file.
+function Viewmodel.flash(barrel: number?, config)
+	local made = model
+	local clone = made and made.PrimaryPart
+	if clone == nil or config == nil or config.FIRE == nil or config.FIRST_PERSON ~= true then
+		return false
+	end
+	local at = Viewmodel.muzzle(barrel)
+	if at == nil then
+		return false
+	end
+	local fire = config.FIRE
+	local holder = Instance.new("Part")
+	holder.Name = FLASH_NAME
+	holder.Size = Vector3.new(0.05, 0.05, 0.05)
+	holder.Transparency = 1
+	holder.Anchored = true
+	holder.CanCollide = false
+	holder.CanQuery = false
+	holder.CanTouch = false
+	holder.Massless = true
+	holder.CastShadow = false
+	holder.CFrame = (at :: CFrame) * CFrame.new(0, 0, -fire.flash.forwardStuds)
+	holder.Parent = clone
+
+	local light = Instance.new("PointLight")
+	light.Brightness = fire.flash.lightBrightness
+	light.Range = fire.flash.lightRange
+	light.Color = Color3.fromRGB(255, 226, 170)
+	light.Shadows = false
+	light.Parent = holder
+
+	local spark = Instance.new("ParticleEmitter")
+	spark.Name = "Flash"
+	spark.Color = ColorSequence.new(Color3.fromRGB(255, 240, 200), Color3.fromRGB(255, 170, 60))
+	spark.Size = NumberSequence.new(fire.flash.sizeStuds)
+	spark.Transparency = NumberSequence.new(0)
+	spark.Lifetime = NumberRange.new(fire.flash.seconds)
+	spark.Speed = NumberRange.new(0)
+	spark.Rate = 0
+	spark.LightEmission = 1
+	spark.Parent = holder
+	spark:Emit(6)
+
+	-- THE SMOKE OUTLIVES THE FLASH, which is the whole look: it drifts UP and thins out over a second
+	-- or so while the gun is already coming back down.
+	local smoke = Instance.new("ParticleEmitter")
+	smoke.Name = "Smoke"
+	smoke.Color = ColorSequence.new(Color3.fromRGB(205, 205, 205), Color3.fromRGB(150, 150, 150))
+	smoke.Size = NumberSequence.new(fire.smoke.sizeStuds * 0.35, fire.smoke.sizeStuds)
+	smoke.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, fire.smoke.transparency),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	smoke.Lifetime = NumberRange.new(fire.smoke.seconds * 0.7, fire.smoke.seconds)
+	smoke.Speed = NumberRange.new(fire.smoke.riseStuds * 0.5, fire.smoke.riseStuds)
+	smoke.SpreadAngle = Vector2.new(fire.smoke.spreadDeg, fire.smoke.spreadDeg)
+	smoke.Acceleration = Vector3.new(0, fire.smoke.riseStuds, 0)
+	smoke.Rate = 0
+	smoke.Parent = holder
+	smoke:Emit(math.max(1, math.floor(fire.smoke.rate * fire.smoke.burstSeconds)))
+
+	-- CLEANED UP BY THE DRAWER, not by `Debris`: this lives under the camera, which this module owns,
+	-- and the holder has to outlive the longest particle rather than the shot.
+	Debris:AddItem(holder, fire.smoke.seconds + fire.flash.seconds + 0.2)
+	stats.flashesDrawn += 1
+	return true
 end
 
 function Viewmodel.isParented(): boolean

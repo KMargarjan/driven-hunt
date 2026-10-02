@@ -42,6 +42,21 @@ local Config = {
 
 	-- field of view
 	FOV_THIRD_DEG = 70, -- the engine default; keeps the stock look
+
+	-- THE GUN'S SOUNDS (task 112). An id is not a number, so these are configuration and not pose
+	-- data; the three VOLUMES are in `newGun.fire.volume`, where `tools/pose.py` can balance them
+	-- live while somebody listens.
+	--
+	-- THE SHOT ID IS EMPTY AND THAT IS DELIBERATE. The dispatch says library sounds only and nothing
+	-- uploaded that Karen has not OK'd; choosing a 12-gauge from the Roblox library means picking an
+	-- id I cannot hear, and an id that turns out to be wrong is worse than silence because it ships
+	-- as the gun's voice. `Weapon.Sound` treats "" as "play nothing" without a warning, so the path
+	-- is live and waiting for one line. KAREN: paste an id here.
+	SOUND_SHOT_ID = "",
+	-- The break-open and the close are Studio's OWN sounds, which ship with the engine rather than
+	-- coming from the library, so they are the two I can be sure exist.
+	SOUND_OPEN_ID = "rbxasset://sounds/switch3.wav",
+	SOUND_CLOSE_ID = "rbxasset://sounds/switch.wav",
 	FOV_AIM_DEG = 50, -- feel (Karen): 1.4x magnification, a bead sight and not a scope
 	AIM_BLEND_SECONDS = 0.20, -- feel; the research note says plainly this is not derived
 	-- FIRST PERSON RAISES FASTER THAN IT LOWERS (task 95). The reference clip Karen chose does the

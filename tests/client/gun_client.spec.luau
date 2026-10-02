@@ -389,6 +389,96 @@ return function()
 			end
 		end)
 
+		-- KAREN'S ORDER, 2026-10-02: finish the weapon before the animal, and shooting is next.
+		-- THREE THINGS A SHOT DOES, measured where they are: the kick is the new gun's own numbers,
+		-- the flash and the smoke come out of the PIPE THAT FIRED on the drawn gun, and the sounds
+		-- are asked for once each.
+		it("fires: its own kick, a flash on the fired barrel, and a noise", function()
+			-- THE NOISE IS ASKED FOR, which is all a spec can hear: `Weapon.Sound` counts every
+			-- request, so "the shot plays a sound" is a number even with the id still empty.
+			local Sound = require(scripts:WaitForChild("Weapon")).Sound
+			Sound.resetStats()
+			Sound.shot(newGunPosedConfig)
+			Sound.open(newGunPosedConfig)
+			Sound.close(newGunPosedConfig)
+			local heard = Sound.stats()
+			expect(heard.shot).to.equal(1)
+			expect(heard.open).to.equal(1)
+			expect(heard.close).to.equal(1)
+			-- ...and the volumes come from the pose data, so they are tunable live.
+			expect(newGunPosedConfig.FIRE.volume.shot > 0).to.equal(true)
+			-- THE KICK IS PER GUN, and the old gun's is untouched: `newGun.fire` is a different
+			-- spring from the top-level one, which is what lets Karen tune model B without moving
+			-- the gun she has been playing.
+			expect(newGunPosedConfig.RECOIL_GUN_PITCH_DEG).never.to.equal(Config.RECOIL_GUN_PITCH_DEG)
+			expect(newGunPosedConfig.RECOIL_GUN_PITCH_DEG > Config.RECOIL_GUN_PITCH_DEG).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task112 kick: model B %.2f deg against the old gun's %.2f",
+					newGunPosedConfig.RECOIL_GUN_PITCH_DEG,
+					Config.RECOIL_GUN_PITCH_DEG
+				)
+			)
+
+			local handle = Instance.new("Part")
+			handle.Name = "Handle"
+			handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+			handle.Transparency = 1
+			local live = Camera.Viewmodel.getSource()
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			local ok, why = pcall(function()
+				task.wait(0.3)
+				Camera.Viewmodel.clear()
+				Camera.Viewmodel.setReload(nil)
+				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), newGunPosedConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				-- ONE FLASH PER BARREL, AT THAT BARREL'S OWN MUZZLE. The two bores are 0.078 studs
+				-- apart, so "it came out of the pipe that fired" is a measurement and not a shrug.
+				for barrel = 1, 2 do
+					for _, old in ipairs(clone:GetChildren()) do
+						if old.Name == "MuzzleFlash" then
+							old:Destroy()
+						end
+					end
+					expect(Camera.Viewmodel.flash(barrel, newGunPosedConfig)).to.equal(true)
+					local lit = clone:FindFirstChild("MuzzleFlash") :: BasePart
+					expect(lit).to.be.ok()
+					expect(lit:FindFirstChildOfClass("PointLight")).to.be.ok()
+					local emitters = 0
+					for _, child in ipairs(lit:GetChildren()) do
+						if child:IsA("ParticleEmitter") then
+							emitters += 1
+						end
+					end
+					expect(emitters).to.equal(2) -- the flash and the smoke
+					local muzzle = (Camera.Viewmodel.muzzle(barrel) :: CFrame).Position
+					TestKit.note(
+						string.format(
+							"task112 barrel %d flash is %.3f studs from its muzzle",
+							barrel,
+							(lit.Position - muzzle).Magnitude
+						)
+					)
+					expect((lit.Position - muzzle).Magnitude < 0.25).to.equal(true)
+					-- ...and NOT at the other barrel's.
+					local other = (Camera.Viewmodel.muzzle(3 - barrel) :: CFrame).Position
+					expect((lit.Position - muzzle).Magnitude < (lit.Position - other).Magnitude).to.equal(true)
+					lit:Destroy()
+				end
+				-- THE FLAG-OFF BUILD DRAWS NONE OF IT: `FIRE` is the new gun's block and the old
+				-- gun's config has its own, so this says the guard is the flag and not the data.
+				expect(Camera.Viewmodel.flash(1, Config)).to.equal(false)
+			end)
+			Camera.Viewmodel.clear()
+			Camera.Viewmodel.setSource(live)
+			handle:Destroy()
+			if not ok then
+				error(why, 0)
+			end
+		end)
+
 		it("is built, not cloned: the pieces are really under the camera", function()
 			withNewGun(function()
 				Camera.Viewmodel.setReload(nil)

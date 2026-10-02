@@ -253,6 +253,25 @@ end
 --
 -- The spring is in `Mode`, so this is one reducer call and a counter. Off in the third-person branch
 -- (`Mode.kick` refuses it by config), because task 89 promised the flag-off camera is unchanged.
+-- THE RESOLVED POSE CONFIG, for the one caller outside this module that needs it (task 112):
+-- `CameraBoot` hands it to `Weapon.Sound` so the volumes come from `poses.json` and can be balanced
+-- live, like every other number there. A READ -- the config is frozen and this module stays its
+-- only writer.
+function Camera.poseConfig()
+	return Poses.config(Config)
+end
+
+-- THE SHOT'S FLASH AND SMOKE, ON THE DRAWN GUN (task 112). The gun on screen is not the gun in the
+-- world (see `Camera.viewmodelMuzzle`), so the flash a player sees in first person has to come out of
+-- the viewmodel's own muzzle; `Weapon.Effects` still draws the world one for everybody.
+function Camera.fire(barrel: number?): boolean
+	local config = Poses.config(Config)
+	if not config.FIRST_PERSON then
+		return false
+	end
+	return Viewmodel.flash(barrel, config)
+end
+
 function Camera.kick()
 	-- THE RESOLVED CONFIG, so `fire` can be tuned live like every other pose number (task 98).
 	local before = state

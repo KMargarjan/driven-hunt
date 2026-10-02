@@ -426,6 +426,7 @@ function Viewmodel.view(data: any, newGun: boolean?): { [string]: any }
 	-- Only `newGun.reload` carries one (task 111); `or {}` is what keeps the OFF branch reading
 	-- the same shape rather than indexing nil.
 	local loadBlock = if type(set.reload.load) == "table" then set.reload.load else nil
+	local fire = if type(set.fire) == "table" then set.fire else data.fire
 	return {
 		-- the carry pose (first person, blend 0)
 		VIEWMODEL_CARRY_POS_STUDS = vec(set.carry.gun.pos),
@@ -461,14 +462,19 @@ function Viewmodel.view(data: any, newGun: boolean?): { [string]: any }
 		AIM_RAISE_SECONDS = data.raise.raiseSeconds,
 		AIM_LOWER_SECONDS = data.raise.lowerSeconds,
 		-- the shot's kick
-		RECOIL_GUN_PITCH_DEG = data.fire.gunPitchDeg,
-		RECOIL_GUN_BACK_STUDS = data.fire.gunBackStuds,
-		RECOIL_CAM_PITCH_DEG = data.fire.camPitchDeg,
-		RECOIL_FREQUENCY_HZ = data.fire.frequencyHz,
-		RECOIL_DAMPING_RATIO = data.fire.dampingRatio,
-		RECOIL_MAX_GUN_PITCH_DEG = data.fire.maxGunPitchDeg,
-		RECOIL_MAX_GUN_BACK_STUDS = data.fire.maxGunBackStuds,
-		RECOIL_MAX_CAM_PITCH_DEG = data.fire.maxCamPitchDeg,
+		-- THE SHOT, PER GUN (task 112). Karen's order: finish the weapon before the animal, and
+		-- shooting is next. `newGun.fire` is model B's own kick -- harder than the old gun's, which is
+		-- what the target video shows -- and its flash, smoke and volumes; `set.fire` falls back to the
+		-- top-level block, so the OLD gun's recoil is the same spring at the same numbers it has had
+		-- since task 92. The RECOIL_* names below are the spring's; `fire` carries the cosmetics too.
+		RECOIL_GUN_PITCH_DEG = fire.gunPitchDeg,
+		RECOIL_GUN_BACK_STUDS = fire.gunBackStuds,
+		RECOIL_CAM_PITCH_DEG = fire.camPitchDeg,
+		RECOIL_FREQUENCY_HZ = fire.frequencyHz,
+		RECOIL_DAMPING_RATIO = fire.dampingRatio,
+		RECOIL_MAX_GUN_PITCH_DEG = fire.maxGunPitchDeg,
+		RECOIL_MAX_GUN_BACK_STUDS = fire.maxGunBackStuds,
+		RECOIL_MAX_CAM_PITCH_DEG = fire.maxCamPitchDeg,
 		-- the break-open reload
 		BREAK_OPEN_SECONDS = set.reload.openSeconds,
 		BREAK_CLOSE_SECONDS = set.reload.closeSeconds,
@@ -493,6 +499,9 @@ function Viewmodel.view(data: any, newGun: boolean?): { [string]: any }
 		-- round-1 fallbacks said 0.16 where the file shipped 0.1 and 0.06 where it shipped -0.3 (the other
 		-- side of the gun), and nothing would have failed if the block went missing.
 		SHELL_LOAD = loadBlock,
+		-- The flash, the smoke and the volumes live in the same block as the kick (task 112), and
+		-- they are shapes rather than numbers, so the block goes through whole.
+		FIRE = fire,
 		-- THE THREE POSES THE DRAWN GUN IS MADE OF, plus the swing and the shot, because four things
 		-- here have no flat name and never will: the raise's mid keyframes (a list) and the aimed and
 		-- reloading hands. `Camera.Mode` reads those off here.

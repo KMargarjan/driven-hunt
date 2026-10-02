@@ -158,6 +158,37 @@
         }
       }
     },
+    "fire": {
+      "camPitchDeg": 1.5,
+      "dampingRatio": 0.85,
+      "flash": {
+        "forwardStuds": 0.12,
+        "lightBrightness": 6.0,
+        "lightRange": 10.0,
+        "seconds": 0.06,
+        "sizeStuds": 0.9
+      },
+      "frequencyHz": 3.2,
+      "gunBackStuds": 0.2,
+      "gunPitchDeg": 6.0,
+      "maxCamPitchDeg": 2.6,
+      "maxGunBackStuds": 0.34,
+      "maxGunPitchDeg": 9.5,
+      "smoke": {
+        "burstSeconds": 0.09,
+        "rate": 90.0,
+        "riseStuds": 1.1,
+        "seconds": 1.4,
+        "sizeStuds": 1.5,
+        "spreadDeg": 14.0,
+        "transparency": 0.45
+      },
+      "volume": {
+        "close": 0.45,
+        "open": 0.35,
+        "shot": 0.8
+      }
+    },
     "reload": {
       "closeSeconds": 0.16,
       "gun": {
