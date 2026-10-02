@@ -348,7 +348,11 @@ return function()
 				-- picked it up), exactly where the hand is, or exactly at the chamber mouth.
 				local whole = load.fetchSeconds + load.carrySeconds + load.seatSeconds
 				local steps = 0
-				for stepAt = 0, whole + load.returnSeconds, whole / 12 do
+				-- The steps sit BETWEEN the boundaries on purpose: `fake` is a float sum, so a step
+				-- that lands exactly on `fetchSeconds` can read either side of it -- which is how
+				-- this case first failed, asking for a shell the hand had not quite picked up.
+				for index = 0, 12 do
+					local stepAt = (whole + load.returnSeconds) * (index + 0.5) / 13
 					drawAt(stepAt)
 					steps += 1
 					local shell = clone:FindFirstChild("FreshShell1")
