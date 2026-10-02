@@ -3,15 +3,19 @@
 Task: 107
 Round: 3
 Base: `main` (`65d1c14`)
-Code commit: `6715643bf0e885a6d54ddac89392db2dbeac8089`
+Code commit: `27c3b3fde90f9d100de5424d7babec99ecc93f76`
 
 ```
-[harness] PASS: 32/32 checks @ 6715643bf0e885a6d54ddac89392db2dbeac8089 (clean tree)
-[harness2] N/A: every changed code file is first-person viewmodel
-          (src/shared/Gun/init.luau, src/client/Camera/Viewmodel.luau,
-           tests/client/gun_client.spec.luau) -- WEAPON_VIEWMODEL_PATHS, Director 2026-10-02.
-          `python -c "import agents; agents.needs_two_player(...)"` answers `[]`.
+[harness] PASS: 32/32 checks @ 27c3b3fde90f9d100de5424d7babec99ecc93f76 (clean tree)
+[harness2] PASS: 34/34 checks @ 27c3b3fde90f9d100de5424d7babec99ecc93f76 (clean tree)
 ```
+
+**`test2` WAS NEEDED, AND ROUND 3'S FIRST ATTEMPT AT THE REVIEW WAS REFUSED FOR SAYING OTHERWISE.**
+The gate reads the whole BRANCH (`base...head`), not this round's commits: round 1 changed
+`src/serverstorage/Assets/init.luau`, which is under `TWO_PLAYER_PATHS` and outside
+`WEAPON_VIEWMODEL_PATHS`, so the exemption never applied to this branch at all. Round 3's own three
+files are viewmodel; that is not the question the gate asks. The Director ran both lines above at the
+branch head on a clean tree. The refused attempt wrote no verdict, so this is still `Round: 3`.
 
 Round 2's finding was right and the engine fact behind it is right: `Model:PivotTo` lands the PIVOT,
 and with `PrimaryPart` set the pivot IS that part — so the half turn written onto the cloned part was
