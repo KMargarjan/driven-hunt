@@ -3,12 +3,15 @@
 Task: 109
 Round: 1
 Base: `content-model-b-aim-1` (`4196697`)
-Code commit: PENDING -- the gate runs on the paperwork commit and its lines are pasted in here
+Code commit: `600d50e40b5f347be494d4799af0adb94631fe56` (the paperwork commit; the last code commit
+is `8880327` and only this file and the TASKS row changed after it)
 
 ```
-[harness] PENDING
-[harness2] PENDING
+[harness] PASS: 33/33 checks @ 600d50e40b5f347be494d4799af0adb94631fe56 (clean tree)
+[harness2] PASS: 35/35 checks @ 600d50e40b5f347be494d4799af0adb94631fe56 (clean tree)
 ```
+
+Both counts are one higher than task 108's: the check the editor guard adds really runs.
 
 `test2` is required: `tools/studio_mcp.py` is one of the three paths that always ask for it.
 
