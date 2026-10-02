@@ -3,10 +3,10 @@
 Task: 111
 Round: 2
 Base: `content-hands-karen-1` (`9b45c56`)
-Code commit: `107a148866fb8529dfc9b29f8ba13317ab76b129`
+Code commit: `0c5c268438fb338e83e96dc5403fb03df3ec41ed`
 
 ```
-[harness] PASS: 33/33 checks @ 107a148866fb8529dfc9b29f8ba13317ab76b129 (clean tree)
+[harness] PASS: 33/33 checks @ 0c5c268438fb338e83e96dc5403fb03df3ec41ed (clean tree)
 ```
 
 `test2` is N/A: every changed file is in `WEAPON_VIEWMODEL_PATHS`
@@ -38,8 +38,16 @@ checked with `tools/agents.py`'s own `needs_two_player`, which answered `[]`.
    `poseHands` deleted, `gun_client.spec:353` FAILS -- the hand never leaves the barrels.
 4. **Karen's rest numbers are untouched** (`newGun.reload.left` and `.right` byte-identical to
    `content-hands-karen-1`), and the whole motion is `pose.py set` paths under `newGun.reload.load`.
-5. **No sleeve on either glove with NEW_GUN**, the old gun's unchanged -- round 1's claim, unchanged
-   and still asserted on the drawn parts.
+5. **ONE ANIMATION PER SHELL, NOT TWO.** Karen, live on the first version: "either we have 2
+   animation when shells go inside or one go straight another from hand" -- both were drawn, because
+   `Viewmodel.shells` fell back to the old self-sliding feed for every barrel that was not the one in
+   the hand. `Viewmodel.freshShellAt` is now the ONE place that decides where a fresh shell is AND
+   whether there is one: with the new gun, nothing on screen before the hand picks it up, the hand's
+   own frame while it carries it, the chamber once it is in. The OLD gun's self-sliding feed comes
+   out of that same function, unchanged. The case steps the whole load on its own clock and requires
+   at every step that the shell is in one of those three states and never on the slide --
+   **mutation-checked**: with the old feed back on for the new gun, `gun_client.spec:384` FAILS.
+   No sleeve on either glove with NEW_GUN either, the old gun's unchanged.
 6. **`Viewmodel.view` now passes the `load` BLOCK, not six flat names with literal defaults.** The
    Reviewer's note was right: those defaults had drifted from the file (0.16 against 0.1, +0.06
    against -0.3, the other side of the gun) and nothing would have failed if the block went missing.
