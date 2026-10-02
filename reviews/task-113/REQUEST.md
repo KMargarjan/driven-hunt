@@ -3,18 +3,18 @@
 Task: 113
 Round: 2
 Base: `0cc60ca`
-Code commit: `<round 2's code commit — the Director's gate run names it>`
+Code commit: `d9af20d5bdfa3a70a294c0b5f108196d8154d8b7`
 
 Tools and docs only: no `src/`, no `tests/`. Karen, 2026-10-02: *"not need start from zero I
 mentioned 100 times / it has to test only parts what has been changed and what blast radius could
 be."*
 
 ```
-[harness] PASS: n/n checks @ <code commit> (clean tree) scope=all      <- the Director runs this
+[harness] PASS: 32/32 checks @ d9af20d5bdfa3a70a294c0b5f108196d8154d8b7 (clean tree) scope=all
 ```
 
-Round 1 ran `[harness] PASS: 32/32 checks @ d82e675 (clean tree) scope=all`. **`test2` is N/A**, and
-the Director accepted both judgement calls behind that: nothing here touches the match, the drive,
+Run by the Director at this branch's head, on a clean tree (round 1's was the same 32/32 at
+`d82e675`). **`test2` is N/A**, and the Director accepted both judgement calls behind that: nothing here touches the match, the drive,
 the tie or the teams (`TWO_PLAYER_PATHS`), with `src/server/Weapon/SafetyArc.luau` out of that list
 and `tools/studio_mcp.py` out of it too (claim 7; the gap that leaves is queued as 113a(d)).
 
@@ -77,11 +77,13 @@ and `tools/studio_mcp.py` out of it too (claim 7; the gap that leaves is queued 
    can evidence with nothing asking for it — queued as 113a(d).
 
 ## What I could not verify
-- **The run was `scope=all`, so two paths are still unexercised against Studio**: `--scope auto`'s
+- **Both runs were `scope=all`, so two paths are still unexercised against Studio**: `--scope auto`'s
   resolution from the changed paths, and the Play-skipping branch it reaches when no spec is in the
-  radius. The `scope=` suffix itself is in the pasted line, so that much has now been printed by a
-  real run. I ran no harness myself — another Builder held Studio — and the line above is the
+  radius. The `scope=` suffix itself is in the pasted line, so that much has been printed by a real
+  run, twice. I ran no harness myself — another Builder holds Studio — and the line above is the
   Director's.
+- **No Reviewer has read the new `blast-radius.md` yet**, so the round-1 finding is fixed by
+  construction and by its selftest cases, not yet by a reader of the document.
 - **No review has been replayed yet**, so the after cost/turns are unknown. The baseline is 66
   rounds on record: mean $3.36 / 38 turns, median $3.20 / 36. This task's own review is the first
   measurement.
