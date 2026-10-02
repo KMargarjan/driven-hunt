@@ -1,13 +1,13 @@
 # Task 112 - shooting: the kick, the flash and the noise
 
 Task: 112
-Round: 2
+Round: 3
 Base: `content-hands-karen-1` (PR #102 was retargeted by the Director)
-Code commit: `58ffd1648d6c94fafa88a9fd3e9a75c34b7b9ffc`
+Code commit: `3e7a1d3334a4ac640b68348e2467212b4df439a2`
 
 ```
-[harness]  PASS: 33/33 checks @ 58ffd1648d6c94fafa88a9fd3e9a75c34b7b9ffc (clean tree)
-[harness2] PASS: 35/35 checks @ 58ffd1648d6c94fafa88a9fd3e9a75c34b7b9ffc (clean tree)
+[harness]  PASS: 33/33 checks @ 3e7a1d3334a4ac640b68348e2467212b4df439a2 (clean tree)
+[harness2] PASS: 35/35 checks @ 3e7a1d3334a4ac640b68348e2467212b4df439a2 (clean tree)
 ```
 
 **THE TWO-PLAYER LINE WAS A FAIL TWICE AND IS FIXED IN THE TEST SETUP** (Director's decision on the
@@ -31,7 +31,18 @@ its own note. No gameplay file is touched and `Match` is untouched.
    spring was already there and already played on every shot in carry and aim, and both hands follow
    because they are posed in the gun's frame. `viewmodel_poses.spec` now says which block each gun
    reads and that the two differ.
-2. **ONE FLASH NOW, NOT TWO** (finding 1, and it was right). `Effects.muzzleFrame` has asked the
+1. **THE STAR WAS THE DEFAULT TEXTURE** (round 3). Karen: "flash is not perfect seems like animation
+   kids smoke has to be real life simple", and "I am not about size I am about this shape like a
+   star". A `ParticleEmitter` with no `Texture` draws Roblox's four-pointed SPARKLE, which is the
+   shape she described. Both emitters carry one of the engine's own soft textures now --
+   `rbxasset://textures/particles/fire_main.dds` for the flash,
+   `rbxasset://textures/particles/smoke_main.dds` for the smoke. `rbxasset://` is shipped with
+   Studio: nothing uploaded, no library asset, nothing fetched. The colours the Director previewed
+   live and Karen OK'd ("smoke looks good now", the flash "yes") are DATA, because a colour is three
+   numbers: the flash runs RGB(255,190,110) -> RGB(255,120,40) at `LightEmission` 1, the smoke is a
+   flat RGB(190,190,185) at 0. Every other number in `newGun.fire` is the Director's content commit,
+   untouched.
+2. **ONE FLASH, NOT TWO** (round 1's finding 1, and it was right). `Effects.muzzleFrame` has asked the
    viewmodel for the SHOOTER'S OWN muzzle since task 92, so the old neon box and grey ball were
    already at the drawn gun -- round 1's comments said twice that they were "in the world, nowhere
    near it", which was false, and Karen saw the result: "remove those smokes (white from previous)".
@@ -54,7 +65,15 @@ its own note. No gameplay file is touched and `Match` is untouched.
    **Nobody here has heard it**: the Builder cannot play audio and the Director picked it from the
    store page. The two clicks are Studio's own `rbxasset://sounds/` files. `Weapon.Sound` still
    treats an empty id as "play nothing", which is what the old gun gets.
-6. **The case measures it on the drawn instances, and the sound by what came back** (finding 4:
+6. **THE READOUT CASE REALLY ASSERTS NOW** (round 2's finding): it returned before its only
+   assertion whenever the player was tied, which is every `test2` run -- the last scenario ties him
+   on purpose. `Hud.readoutFor` exports the formatter, so the case asks the SHAPE of a state it owns
+   and then requires the live text to be empty exactly when there is no gun in hand.
+   **Mutation-checked** in the one-player run (the case runs in both): with `readoutFor` returning
+   `""`, `weapon_client.spec:950` FAILS. The flash case also asserts both textures are `rbxasset://`
+   and neither is a sparkle -- **mutation-checked**: with the flash texture cleared,
+   `gun_client.spec:560` FAILS.
+7. **The rest measures on the drawn instances, and the sound by what came back** (finding 4:
    counting its own calls proved nothing). A flash for each barrel within 0.25 studs of THAT
    barrel's muzzle and closer to it than to the other; `Effects.play` driven with a payload that says
    the shot is mine leaves **zero** old `Flash`/`Smoke` parts and exactly one `MuzzleFlash`, and with
