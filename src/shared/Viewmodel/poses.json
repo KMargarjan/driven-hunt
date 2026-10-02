@@ -94,11 +94,11 @@
   "newGun": {
     "aim": {
       "cheekDeg": 1.2,
-      "eyeReliefStuds": 3.65,
+      "eyeReliefStuds": 3.2,
       "left": {
         "pos": {
           "x": 0.17,
-          "y": -0.04,
+          "y": -0.2,
           "z": 0.0
         },
         "rot": {
