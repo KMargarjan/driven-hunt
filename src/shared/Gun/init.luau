@@ -48,6 +48,12 @@ export type Piece = {
 	material: Enum.Material,
 	shape: Enum.PartType,
 	reflectance: number?,
+	-- WHERE A MESH GOES INSTEAD, when this piece is one Karen uploaded (`Gun.WOOD_KEYS`). It exists
+	-- because a drawn part's offset may carry a SHAPE rotation that is not the mesh's: a Cylinder's
+	-- length runs along its own X, so the forend part is turned a quarter turn to lie along the gun,
+	-- and composing `Gun.WOOD_ROTATION_DEG` on top of that would cancel the turn the MESH needs.
+	-- nil means the two are the same, which is true of every piece whose shape is a Block.
+	woodOffset: CFrame?,
 }
 
 -- ---------------------------------------------------------------- the numbers
@@ -85,14 +91,43 @@ local BORE_BITE = 0.001
 local BORE_THICK = BORE_PROUD + BORE_BITE
 local BORE_FRACTION = 0.72 -- of the tube's diameter: a wall, then the hole
 
-local ACTION_LENGTH = 0.62
-local ACTION_WIDTH = 0.30 -- SHALLOW AND WIDE, which is what a side-by-side action is
-local ACTION_HEIGHT = 0.26
-local ACTION_TOP = BARREL_Y -- the barrels lie ON the water table; the rib is the highest line
+-- THE ACTION'S PROPORTIONS, AND THEY WERE MEASURED OFF THE BERETTA SIDE PHOTO rather than guessed
+-- (task 100). `references/Beretta Parrelo Shutgun/Social_1_1-2500 (5).jpeg`, segmented by colour --
+-- blued tubes, walnut forend, silver action, walnut stock -- gives, in pixels of a 2,348 px gun:
+--   muzzle 85, forend front 1008, action front 1412, action/stock joint 1572, butt 2432;
+--   barrel pair 40 px deep; action top strap to belly 101 px.
+-- So the three ratios that matter, against the BARRELS:
+--   action length / barrel length   0.121   (ours was 0.226 -- 1.9x too long)
+--   action+breech height / barrels  2.53 D  (ours was 1.90 D -- it was never too TALL)
+--   action body width / barrel pair --      (ours was 1.01: the action was as wide as the tubes)
+-- What made it read as a slab was the LENGTH and the fact that its top face sat on the BORE LINE,
+-- so the body stood up between the two tubes. It now stops at the WATER TABLE, which is where a
+-- real gun's barrels lie, and the standing breech is what rises behind them.
+local ACTION_LENGTH = 0.36 -- 0.131 of the barrels, against the photo's 0.121
+local ACTION_WIDTH = 0.255 -- 0.86 of the barrel pair's outer width: the tubes overhang the body
+-- THE BARRELS LIE **ON** THE WATER TABLE, which is their own underside -- not half sunk into the
+-- action, which is what `ACTION_TOP = BARREL_Y` (the bore CENTRE) actually drew.
+local WATER_TABLE_Y = BARREL_Y - BARREL_DIAMETER / 2
+-- ...AND THE BELLY DOES NOT MOVE. `Gun.hinge` is measured up from it, and the dispatch forbids
+-- moving the hinge axis, so the action gets shallower from the TOP and this number is the one that
+-- is held fixed. It is what `ACTION_TOP - ACTION_HEIGHT` was before: 0.12 - 0.26.
+local ACTION_BOTTOM = -0.14
+local ACTION_HEIGHT = WATER_TABLE_Y - ACTION_BOTTOM
+local ACTION_TOP = WATER_TABLE_Y
+-- THE TOP STRAP / TANG: the strip that runs back from the breech over the grip, carrying the top
+-- lever and the safety. It sits just ABOVE the bore line and well under the rib, so it is a line
+-- along the gun rather than a block in the sight picture.
+local TANG_Y = BARREL_Y + 0.01
+local TANG_LENGTH = 0.25
+local TANG_THICK = 0.022
 local STANDING_BREECH_THICK = 0.055 -- the upright face the two chambers close against
--- ...and it stops at the bore line, a hair proud of it. See the piece for the screenshot that
+-- ...and it stops at the tang, a hair above the bore line. See the piece for the screenshot that
 -- bought this number: taller than this and it hides the barrels in the aimed view.
-local STANDING_BREECH_HEIGHT = ACTION_HEIGHT + 0.015
+local STANDING_BREECH_HEIGHT = TANG_Y - ACTION_BOTTOM
+-- THE FENCES: the two ROUND walls that wrap the chamber ends, and the one shape that stops the
+-- breech reading as a sawn-off box. They sit INSIDE the standing breech's own thickness, behind the
+-- tubes, so they hide nothing the standing breech was not already hiding.
+local FENCE_CLEARANCE = 0.014 -- how far a fence stands proud of the tube it wraps
 local FLAT_BAR_LENGTH = 0.30 -- the bars that run FORWARD under the barrels, into the forend
 local HINGE_PIN_DIAMETER = 0.07
 
@@ -114,9 +149,21 @@ local TOP_LEVER_LENGTH = 0.17
 -- (`Gun.WOOD_KEYS`); these sizes are what the MeshPart is scaled to, and what the fallback part is
 -- when no mesh arrived -- so the gun has a forend and a stock either way and the silhouette is the
 -- same. A gun with no wood is a real state (the load failed), not a reason to draw nothing.
-local FOREND_SIZE = Vector3.new(0.20, 0.145, 0.78)
+-- A SPLINTER FOREND, IN TWO ROUND LENGTHS (task 100). The photo's forend runs 1008..1410 px of a
+-- 1,327 px barrel -- 0.30 of it -- and TAPERS: about 1.0 barrel-diameters deep at the rear and 0.4
+-- at the front. One box could be neither round nor tapered, so the wood is the thicker rear length
+-- plus `ForendTip`, a thinner one ahead of it, both CYLINDERS: no box edge anywhere on it.
+-- `FOREND_SIZE` is still the envelope Karen's forend mesh would be scaled into if one is ever
+-- uploaded (there is none today -- TASKS.md 99a(a)), and `buildNewGun` drops the tip when it is.
+local FOREND_SIZE = Vector3.new(0.185, 0.15, 0.60)
+local FOREND_TIP_SIZE = Vector3.new(0.125, 0.105, 0.24)
 local STOCK_SIZE = Vector3.new(0.235, 0.30, 1.32)
 local STOCK_DROP_DEG = 8 -- 2.25 in of drop over a 14.5 in pull
+-- WHERE THE COMB IS, and it is measured from the BORE LINE rather than from the action's centre
+-- (task 100). It is the same 0.095 the action-relative expression gave before this task, so the
+-- stock did not move -- but the action got shallower, and a comb that follows the action's centre
+-- would have dropped out of the aimed view with it. The comb is a fact about where a cheek goes.
+local STOCK_COMB_Y = BARREL_Y - 0.025
 
 -- THE NAMES THE VIEWMODEL LOOKS FOR, so neither side carries a literal the other could disagree
 -- with (the reason `HandAssets` and `Assets.KEYS` exist).
@@ -124,6 +171,9 @@ Gun.BODY_NAME = "GunBody"
 Gun.BARRELS_NAME = "Barrels" -- the SAME name the old mesh gun's barrel piece has, so
 -- `Camera.Viewmodel.hinge` and the left hand's parent rule are one rule for both guns.
 Gun.FOREND_NAME = "Forend"
+-- The taper ahead of the forend. It is NOT a wood key: it exists only while there is no forend mesh
+-- (TASKS.md 99a(a)), and `Camera.Viewmodel` drops it the day one is published.
+Gun.FOREND_TIP_NAME = "ForendTip"
 Gun.STOCK_NAME = "Stock"
 Gun.WOOD_KEYS = table.freeze({ [Gun.FOREND_NAME] = "gun.forend", [Gun.STOCK_NAME] = "gun.stock" })
 -- WHERE THE SERVER PARKS THE WOOD for the client to clone, the same arrangement the hands have
@@ -135,7 +185,12 @@ Gun.FOLDER_NAME = "ViewmodelGun"
 -- is this, and its other two sizes are whatever the wood's own proportions give (design 6.1's rule,
 -- and the reason the squashed boar is in it). `ServerStorage.Assets` reads these to work out each
 -- row's `sizeStuds`, so the gun's geometry decides the scale rather than a number in the manifest.
-Gun.WOOD_LENGTH_STUDS = table.freeze({ [Gun.FOREND_NAME] = FOREND_SIZE.Z, [Gun.STOCK_NAME] = STOCK_SIZE.Z })
+-- The forend's length is the SPLINTER'S WHOLE length -- the body plus the tapered tip -- because a
+-- mesh forend replaces both (`Gun.FOREND_TIP_NAME`).
+Gun.WOOD_LENGTH_STUDS = table.freeze({
+	[Gun.FOREND_NAME] = FOREND_SIZE.Z + FOREND_TIP_SIZE.Z,
+	[Gun.STOCK_NAME] = STOCK_SIZE.Z,
+})
 -- HOW THE MESH IS TURNED to lie on this gun. Both models arrive with their LONG AXIS ALONG X
 -- (measured by `tools/asset_prep.py`: "long axis X, front at its minimum"), and this gun's long axis
 -- is Z with -Z the muzzle -- so a quarter turn about Y lays it down. MINUS ninety, not plus: that
@@ -143,18 +198,38 @@ Gun.WOOD_LENGTH_STUDS = table.freeze({ [Gun.FOREND_NAME] = FOREND_SIZE.Z, [Gun.S
 -- face the action fits against -- toward the action. Plus ninety would seat the butt in the breech.
 Gun.WOOD_ROTATION_DEG = table.freeze({ [Gun.FOREND_NAME] = -90, [Gun.STOCK_NAME] = -90 })
 
--- The colours. Blued steel is dark blue-black and METALLIC with some gloss; the action is a
--- case-hardened silver-grey, which is the contrast that makes a side-by-side read as one.
+-- `Enum.Material.Metal` IS THE REASON THE GUN WAS BLUE, AND IT IS MEASURED (task 100, rule 5).
+-- Roblox's `Metal` is a conductor: its specular response is the ENVIRONMENT multiplied by the
+-- albedo, and over an open field the environment is the sky. In `20261001T215631Z-compare-carry.png`
+-- the tube pixels came back with a median of (10, 26, 57) and a 90th percentile of (48, 79, 112) --
+-- blue three times red -- while the same frame's video target reads (56, 53, 48), (69, 64, 62):
+-- NEUTRAL near-black. Lowering the albedo could not fix it, because what is blue is the reflection
+-- and not the paint.
+--
+-- SO THE STEEL IS A DIELECTRIC. `SmoothPlastic` keeps a narrow white specular lobe -- which on a
+-- Cylinder is exactly the thin highlight that runs along the top of a blued barrel -- and does not
+-- mirror the sky across the whole tube. It is the material, not the colour, that was the defect.
+local STEEL_MATERIAL = Enum.Material.SmoothPlastic
+
+-- The colours. Blued steel is near-black with the faintest cool cast; the action is a case-hardened
+-- silver-grey, which is the contrast that makes a side-by-side read as one.
 Gun.LOOK = table.freeze({
-	blued = Color3.fromRGB(34, 38, 46),
-	-- 140, NOT 176, AND THE SCREENSHOT IS WHY (rule 5). At 176 the action rendered near-WHITE in
-	-- the break-open capture and dominated the frame -- Roblox's `Metal` adds its own specular on
-	-- top of the albedo, so a light grey becomes white in sun. Case-hardened steel is a mid grey
-	-- with colour mottling; this is the grey.
-	action = Color3.fromRGB(140, 143, 148),
+	-- NEUTRAL, NOT BLUE (task 100). The old (34, 38, 46) was a blue-biased albedo under a material
+	-- that multiplied the sky by it. The target frame's barrels are a flat dark grey, so this is
+	-- one: a 4-point cool cast, no more.
+	blued = Color3.fromRGB(26, 27, 30),
+	-- 118, NOT 140 OR 176, AND THE SCREENSHOT IS WHY (rule 5). At 176 the action rendered near-WHITE;
+	-- at 140 with `Metal` and 0.04 reflectance it still measured (139, 148, 165) in the break-open
+	-- capture -- a pale blue-grey slab, which is what the Director called "a Roblox block". With the
+	-- sky reflection gone (`STEEL_MATERIAL`) this stays a mid grey in sun, which is what
+	-- case-hardened steel is.
+	action = Color3.fromRGB(118, 120, 122),
 	bore = Color3.fromRGB(9, 9, 11),
 	bead = Color3.fromRGB(198, 158, 82),
-	wood = Color3.fromRGB(86, 52, 32),
+	-- WALNUT, matched to Karen's own stock mesh rather than guessed: the stock's lit pixels in
+	-- `20261002T012118Z-pose-reload.png` measure (144, 79, 49) and (153, 96, 66), so the forend
+	-- beside it -- which has no mesh and never will until one is uploaded -- is the same wood.
+	wood = Color3.fromRGB(104, 64, 38),
 })
 
 -- ---------------------------------------------------------------- the layout
@@ -181,7 +256,9 @@ function Gun.layout(config)
 		ribY = BARREL_Y + BARREL_DIAMETER / 2 + RIB_THICK / 2,
 		actionZ = actionZ,
 		actionY = ACTION_TOP - ACTION_HEIGHT / 2,
-		actionBottom = ACTION_TOP - ACTION_HEIGHT,
+		actionBottom = ACTION_BOTTOM,
+		actionTop = ACTION_TOP,
+		tangY = TANG_Y,
 		breechFaceZ = breechZ + STANDING_BREECH_THICK / 2,
 		triggerZ = actionZ + ACTION_LENGTH / 2 - 0.12,
 		stockZ = actionZ + ACTION_LENGTH / 2 + STOCK_SIZE.Z / 2,
@@ -302,7 +379,7 @@ function Gun.pieces(config): { Piece }
 			size = Vector3.new(at.barrelLength, BARREL_DIAMETER, BARREL_DIAMETER),
 			offset = CFrame.new(side.x, BARREL_Y, at.barrelZ) * LYING,
 			color = Gun.LOOK.blued,
-			material = Enum.Material.Metal,
+			material = STEEL_MATERIAL,
 			shape = Enum.PartType.Cylinder,
 			-- NO REFLECTANCE AT ALL, and the screenshot is why (rule 5). Task 72 shipped "blued
 			-- barrels" that were mirror chrome; 0.06 was meant to be a highlight and instead the
@@ -342,10 +419,14 @@ function Gun.pieces(config): { Piece }
 		size = Vector3.new(RIB_WIDTH, RIB_THICK, at.barrelLength),
 		offset = CFrame.new(0, at.ribY, at.barrelZ),
 		color = Gun.LOOK.blued,
-		material = Enum.Material.Metal,
+		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Block,
 	})
 
+	-- THE BEAD KEEPS `Metal`, and it is the one piece that should. Task 92 measured why it is not
+	-- Neon (a bead is brass, not a light), and the reason `Metal` ruined the BARRELS -- it mirrors
+	-- the sky -- is the reason it suits a 0.034-stud ball whose whole job is to catch the light and
+	-- be seen. A dull bead is a sight you cannot find.
 	add({
 		name = "Bead",
 		group = "barrels",
@@ -369,55 +450,122 @@ function Gun.pieces(config): { Piece }
 
 	-- THE HINGE HOOK: the lug under the breech end of the tubes that drops onto the pin. It is what
 	-- a player sees rotate when the gun opens, so it belongs to the barrel group.
+	--
+	-- IT NOW REACHES THE PIN (TASKS.md 99a(f)). The Reviewer measured a 0.0275-stud air gap between
+	-- the hook's underside and the top of the pin it is said to drop onto: a hook hanging above its
+	-- own hinge. It runs from the tubes' underside DOWN TO THE AXIS, so the two touch by
+	-- construction and `gun.spec` asserts it rather than a number that could drift from the pin's.
+	local hookTop = BARREL_Y - at.barrelRadius + 0.01
+	local hookBottom = Gun.hinge(config).Y
 	add({
 		name = "HingeHook",
 		group = "barrels",
-		size = Vector3.new(ACTION_WIDTH * 0.7, 0.10, 0.12),
-		offset = CFrame.new(0, BARREL_Y - at.barrelRadius - 0.04, at.breechZ - 0.06),
+		size = Vector3.new(ACTION_WIDTH * 0.7, hookTop - hookBottom, 0.12),
+		offset = CFrame.new(0, (hookTop + hookBottom) / 2, at.breechZ - 0.06),
 		color = Gun.LOOK.blued,
-		material = Enum.Material.Metal,
+		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Block,
 	})
 
 	-- ---------------- the body: the action and everything bolted to it
+	--
+	-- A ROUND-BODIED ACTION, IN TWO PIECES, because the 486 Parallelo's is round-bodied (the review
+	-- link in the header says so) and because what the break-open capture showed was "a flat
+	-- near-white box with hard corners". The flat top -- the water table, which the barrels lie on --
+	-- is a block; the BELLY is a Cylinder of the action's own width lying along the gun, so the
+	-- bottom and both lower edges are one curve and there is no corner anywhere below the barrels.
+	-- The two meet at the cylinder's own centre line, so the silhouette is continuous.
+	-- The belly is an ELLIPTICAL cylinder -- a Roblox Cylinder's two cross-section axes are its own
+	-- Y and Z and they need not match -- so it is the action's full width and exactly its full
+	-- height, and its upper half is covered by the block to the stud. Nothing bulges above the water
+	-- table, which a circular belly of the action's width would have done by 0.067 studs: a round
+	-- hump standing up between the two tubes.
 	add({
 		name = "Action",
 		group = "body",
-		size = Vector3.new(ACTION_WIDTH, ACTION_HEIGHT, ACTION_LENGTH),
-		offset = CFrame.new(0, at.actionY, at.actionZ),
+		size = Vector3.new(ACTION_WIDTH, ACTION_HEIGHT / 2, ACTION_LENGTH),
+		offset = CFrame.new(0, (ACTION_TOP + at.actionY) / 2, at.actionZ),
 		color = Gun.LOOK.action,
-		material = Enum.Material.Metal,
+		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Block,
-		reflectance = 0.04,
+	})
+
+	add({
+		name = "ActionBelly",
+		group = "body",
+		size = Vector3.new(ACTION_LENGTH, ACTION_HEIGHT, ACTION_WIDTH),
+		offset = CFrame.new(0, at.actionY, at.actionZ) * LYING,
+		color = Gun.LOOK.action,
+		material = STEEL_MATERIAL,
+		shape = Enum.PartType.Cylinder,
 	})
 
 	-- THE STANDING BREECH: the upright face the two chambers close against. It reaches from the
-	-- action's bottom up to the BORE LINE and no further -- MEASURED ON SCREEN (rule 5): the first
-	-- build made it `ACTION_HEIGHT + BARREL_DIAMETER` tall and centred it half a barrel above the
-	-- action, which put its top 0.11 studs ABOVE the rib. In the aimed view that is a pale box
-	-- filling the middle of the screen with the barrels hidden behind it -- a gun you cannot aim.
-	-- On a real side-by-side the standing breech stops at the water table, which is the bore line,
-	-- and the rib is the highest line on the gun.
+	-- action's bottom up to the TANG, a hair above the bore line, and no further -- MEASURED ON
+	-- SCREEN (rule 5): the first build made it `ACTION_HEIGHT + BARREL_DIAMETER` tall and centred it
+	-- half a barrel above the action, which put its top 0.11 studs ABOVE the rib. In the aimed view
+	-- that is a pale box filling the middle of the screen with the barrels hidden behind it -- a gun
+	-- you cannot aim. It is also NARROWER than the barrel pair, so from the shooter's eye the tubes
+	-- overhang it and nothing square shows beside them.
 	add({
 		name = "StandingBreech",
 		group = "body",
 		size = Vector3.new(ACTION_WIDTH, STANDING_BREECH_HEIGHT, STANDING_BREECH_THICK),
 		offset = CFrame.new(0, at.actionBottom + STANDING_BREECH_HEIGHT / 2, at.breechFaceZ),
 		color = Gun.LOOK.action,
-		material = Enum.Material.Metal,
+		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Block,
-		reflectance = 0.04,
+	})
+
+	-- THE FENCES: the two round walls that wrap the chamber ends. They are what a side-by-side has
+	-- instead of a square breech, and they are Cylinders along the gun's own axis, one per tube,
+	-- sitting INSIDE the standing breech's thickness. So they add a curve around each chamber and
+	-- hide nothing: with the gun shut the standing breech is already behind the bore discs, and with
+	-- it broken open the barrels -- and the discs and any seated shell with them -- have swung away.
+	for _, side in ipairs({ { name = "FenceLeft", x = -BARREL_GAP / 2 }, { name = "FenceRight", x = BARREL_GAP / 2 } }) do
+		local fenceDiameter = BARREL_DIAMETER + FENCE_CLEARANCE * 2
+		add({
+			name = side.name,
+			group = "body",
+			-- A HAIR SHORTER THAN THE BREECH IT SITS IN, so neither end face is coplanar with the
+			-- standing breech's -- the same reason `BORE_BITE` exists. Two coplanar drawn faces
+			-- z-fight, and the fence shows above and beside the breech where it would be seen.
+			size = Vector3.new(STANDING_BREECH_THICK - 0.004, fenceDiameter, fenceDiameter),
+			offset = CFrame.new(side.x, BARREL_Y, at.breechFaceZ) * LYING,
+			color = Gun.LOOK.action,
+			material = STEEL_MATERIAL,
+			shape = Enum.PartType.Cylinder,
+		})
+	end
+
+	-- THE TOP STRAP: the tang that runs back from the breech over the grip and carries the top lever
+	-- and the safety. In the photo it is a third of the action's whole length again, and it is what
+	-- the shooter actually looks across on the way to the rib -- so it is a slim strip well below the
+	-- rib rather than another face of the action block.
+	add({
+		name = "TopStrap",
+		group = "body",
+		size = Vector3.new(ACTION_WIDTH * 0.72, TANG_THICK, TANG_LENGTH),
+		offset = CFrame.new(0, TANG_Y - TANG_THICK / 2, at.breechFaceZ + STANDING_BREECH_THICK / 2 + TANG_LENGTH / 2),
+		color = Gun.LOOK.action,
+		material = STEEL_MATERIAL,
+		shape = Enum.PartType.Block,
 	})
 
 	-- THE FLAT BARS: they run FORWARD from the action under the barrels, which is the shape that
 	-- says "side-by-side" at a glance and what the forend wood is screwed to.
+	--
+	-- BELOW THE BORE, NOT INSIDE IT (TASKS.md 99a(f)). While the action's top was the bore LINE these
+	-- sat at y 0.1025..0.1375 -- wholly inside two tubes that span 0.0475..0.1925 -- so they were an
+	-- invisible part. They now hang under the water table, where a real gun's flats are, and they are
+	-- the action's own width so the forend has something to sit on.
 	add({
 		name = "FlatBars",
 		group = "body",
-		size = Vector3.new(ACTION_WIDTH * 0.92, 0.035, FLAT_BAR_LENGTH),
+		size = Vector3.new(ACTION_WIDTH, 0.035, FLAT_BAR_LENGTH),
 		offset = CFrame.new(0, ACTION_TOP - 0.0175, at.breechZ - FLAT_BAR_LENGTH / 2),
 		color = Gun.LOOK.action,
-		material = Enum.Material.Metal,
+		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Block,
 	})
 
@@ -430,29 +578,32 @@ function Gun.pieces(config): { Piece }
 		size = Vector3.new(ACTION_WIDTH * 1.02, HINGE_PIN_DIAMETER, HINGE_PIN_DIAMETER),
 		offset = CFrame.new(Gun.hinge(config)) * ACROSS,
 		color = Gun.LOOK.action,
-		material = Enum.Material.Metal,
+		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Cylinder,
 		reflectance = 0.05,
 	})
 
+	-- ON THE TOP STRAP, which is where a player looks for them: the lever first, thumbed to the side
+	-- to open the gun, then the safety behind it. Both lie ON the tang, so their tops are
+	-- `TANG_Y + their own thickness` -- still 0.012 clear of the rib's underside, which is the one
+	-- thing the aimed view may not have anything square inside.
 	add({
 		name = "TopLever",
 		group = "body",
-		size = Vector3.new(0.05, 0.022, TOP_LEVER_LENGTH),
-		offset = CFrame.new(0, ACTION_TOP + 0.011, at.breechFaceZ + TOP_LEVER_LENGTH / 2),
+		size = Vector3.new(0.05, 0.018, TOP_LEVER_LENGTH),
+		offset = CFrame.new(0, TANG_Y + 0.009, at.breechFaceZ + STANDING_BREECH_THICK / 2 + TOP_LEVER_LENGTH / 2),
 		color = Gun.LOOK.action,
-		material = Enum.Material.Metal,
+		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Block,
-		reflectance = 0.05,
 	})
 
 	add({
 		name = "Safety",
 		group = "body",
-		size = Vector3.new(0.034, 0.016, 0.055),
-		offset = CFrame.new(0, ACTION_TOP + 0.008, at.breechFaceZ + TOP_LEVER_LENGTH + 0.05),
+		size = Vector3.new(0.034, 0.014, 0.055),
+		offset = CFrame.new(0, TANG_Y + 0.007, at.breechFaceZ + STANDING_BREECH_THICK / 2 + TOP_LEVER_LENGTH + 0.04),
 		color = Gun.LOOK.blued,
-		material = Enum.Material.Metal,
+		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Block,
 	})
 
@@ -464,7 +615,7 @@ function Gun.pieces(config): { Piece }
 		size = Vector3.new(0.018, TRIGGER_GUARD_RADIUS * 2, TRIGGER_GUARD_RADIUS * 2),
 		offset = CFrame.new(0, at.actionBottom - TRIGGER_GUARD_RADIUS * 0.55, at.triggerZ) * ACROSS,
 		color = Gun.LOOK.action,
-		material = Enum.Material.Metal,
+		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Cylinder,
 		reflectance = 0.04,
 	})
@@ -475,7 +626,7 @@ function Gun.pieces(config): { Piece }
 		size = Vector3.new(0.05, 0.03, 0.20),
 		offset = CFrame.new(0, at.actionBottom - 0.012, at.triggerZ + 0.06),
 		color = Gun.LOOK.action,
-		material = Enum.Material.Metal,
+		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Block,
 	})
 
@@ -486,7 +637,7 @@ function Gun.pieces(config): { Piece }
 		size = Vector3.new(0.022, 0.065, 0.022),
 		offset = CFrame.new(0, at.actionBottom - 0.038, at.triggerZ) * CFrame.Angles(math.rad(14), 0, 0),
 		color = Gun.LOOK.action,
-		material = Enum.Material.Metal,
+		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Block,
 		reflectance = 0.05,
 	})
@@ -494,28 +645,54 @@ function Gun.pieces(config): { Piece }
 	-- ---------------- the wood. These two are REPLACED BY KAREN'S MESHES when they are published
 	-- (`Gun.WOOD_KEYS`); the size and the place are the same either way, so the silhouette does not
 	-- depend on whether an upload loaded.
+	-- A SPLINTER, UNDER THE TUBES, IN TWO ROUND LENGTHS (task 100). The forend hangs from the flat
+	-- bars, so its rear is where they end; its top touches the tubes' underside, which is the water
+	-- table line, so no wood stands up beside the barrels.
+	local forendRearZ = at.breechZ - FLAT_BAR_LENGTH
+	local forendY = WATER_TABLE_Y - FOREND_SIZE.Y / 2
 	add({
 		name = Gun.FOREND_NAME,
 		group = "barrels", -- bolted to the barrels: it swings with them, and the left hand holds it
-		size = FOREND_SIZE,
-		offset = CFrame.new(
-			0,
-			BARREL_Y - at.barrelRadius - FOREND_SIZE.Y / 2 + 0.02,
-			at.breechZ - 0.30 - FOREND_SIZE.Z / 2
-		),
+		size = Vector3.new(FOREND_SIZE.Z, FOREND_SIZE.Y, FOREND_SIZE.X),
+		offset = CFrame.new(0, forendY, forendRearZ - FOREND_SIZE.Z / 2) * LYING,
+		-- A MESH IS NOT A CYLINDER: it keeps the position and loses the quarter turn. Centred on the
+		-- whole splinter, tip included, because a mesh replaces that too.
+		woodOffset = CFrame.new(0, forendY, forendRearZ - Gun.WOOD_LENGTH_STUDS[Gun.FOREND_NAME] / 2),
 		color = Gun.LOOK.wood,
 		material = Enum.Material.Wood,
-		shape = Enum.PartType.Block,
+		shape = Enum.PartType.Cylinder,
+	})
+
+	-- ...AND ITS TAPER. The photo's forend is about 1.0 barrel-diameters deep at the rear and 0.4 at
+	-- the front, so the front third is its own thinner length rather than the same box carried on.
+	-- `buildNewGun` DROPS THIS PIECE if a forend mesh is ever published, because the mesh is then the
+	-- whole shape (TASKS.md 99a(a): there is no forend mesh today and `A-barrels.glb` cannot give one).
+	add({
+		name = Gun.FOREND_TIP_NAME,
+		group = "barrels",
+		size = Vector3.new(FOREND_TIP_SIZE.Z, FOREND_TIP_SIZE.Y, FOREND_TIP_SIZE.X),
+		offset = CFrame.new(
+			0,
+			WATER_TABLE_Y - FOREND_TIP_SIZE.Y / 2,
+			forendRearZ - FOREND_SIZE.Z - FOREND_TIP_SIZE.Z / 2
+		) * LYING,
+		color = Gun.LOOK.wood,
+		material = Enum.Material.Wood,
+		shape = Enum.PartType.Cylinder,
 	})
 
 	add({
 		name = Gun.STOCK_NAME,
 		group = "body",
 		size = STOCK_SIZE,
-		-- LOWER THAN THE ACTION'S CENTRE, measured on screen with the stock mesh in: at the action's
-		-- own centre the comb rose above the bore line and filled the bottom half of the aimed view.
-		-- A real stock's comb is just under the bore line and drops away from it.
-		offset = CFrame.new(0, at.actionY - 0.045, at.stockZ) * CFrame.Angles(math.rad(STOCK_DROP_DEG), 0, 0),
+		-- THE COMB IS MEASURED FROM THE BORE LINE, not from the action (task 100): a cheek goes where
+		-- the eye has to end up, which is a fact about the barrels. It is the same 0.095 that
+		-- `at.actionY - 0.045` gave before this task -- measured on screen with the stock mesh in,
+		-- where the action's own centre put the comb ABOVE the bore line and filled the bottom half
+		-- of the aimed view -- so the stock has not moved; it is simply no longer tied to a number
+		-- this task changed.
+		offset = CFrame.new(0, STOCK_COMB_Y - STOCK_SIZE.Y / 2, at.stockZ)
+			* CFrame.Angles(math.rad(STOCK_DROP_DEG), 0, 0),
 		color = Gun.LOOK.wood,
 		material = Enum.Material.Wood,
 		shape = Enum.PartType.Block,
