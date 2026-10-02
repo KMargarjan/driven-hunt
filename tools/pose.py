@@ -25,6 +25,10 @@
                                                       `<pose>` is the dotted prefix of a pose that
                                                       has a `gun` block: `reload`, `newGun.reload`,
                                                       `carry`, `newGun.carry`
+    python tools/pose.py play | stop                   start or end a SOLO Play session, which is the
+                                                      one a capture can reach: Studio's two-player
+                                                      session leaves its CLIENT processes unconnected
+                                                      to StudioMCP (measured, task 103)
     python tools/pose.py selftest                     NO Studio: prove the merge, the paths, the
                                                       file round trip and the search (CI runs this)
 
@@ -71,6 +75,7 @@ import json
 import math
 import os
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -419,6 +424,11 @@ FIT_BOUNDS = {"posStuds": 1.5, "rotDeg": 60.0}
 FIT_MISSING = 2.0
 # ...AND THE FEWEST MARKS THAT CAN PIN SIX NUMBERS. See `read_landmark_file`.
 FIT_MIN_MARKS = 3
+# THE EDGES A MARK CAN LEAVE THE PICTURE BY (task 104). "Off screen" alone cost task 103 its fit.
+FIT_EDGES = ("bottom", "top", "left", "right")
+# A STUD OF DEPTH ERROR COUNTS AS A TENTH OF THE SCREEN, so one weight scale covers positions, depth
+# and angle and the search needs no second tolerance.
+FIT_STUD = 0.1
 
 
 def read_landmark_file(path):
@@ -429,18 +439,33 @@ def read_landmark_file(path):
         {
           "note":  "TARGET-reload-open.jpg, read by hand",
           "marks": {
-            "StandingBreech": { "x": 0.771, "y": 0.619, "studs": 1.1, "weight": 2 },
-            "Stock":          { "x": 0.930, "y": 0.966 }
+            "StandingBreech": { "x": 0.55, "y": 0.70, "studs": 0.9, "weight": 2 },
+            "Action":         { "x": 0.68, "y": 0.84, "nearer": "StandingBreech" },
+            "Forend":         { "x": 0.50, "y": 0.93, "farther": "StandingBreech" }
           },
-          "offScreen": ["Muzzle"],
-          "bounds": { "posStuds": 1.5, "rotDeg": 60 }
+          "offScreen": { "Muzzle": "bottom" },
+          "directions": [ { "from": "StandingBreech", "to": "Muzzle", "deg": 105 } ],
+          "bounds": { "posStuds": 1.5, "rotDeg": 90 }
         }
 
     `x` and `y` are FRACTIONS of the screen (0 = left/top, 1 = right/bottom), which is exactly what
     `pose.py compare` already prints for every landmark, so a reading and a target are the same unit.
-    `studs` is optional and is the distance from the eye -- the one thing a flat picture cannot give
-    and the one thing six numbers need to be determined. `offScreen` names marks that must NOT be in
-    the picture, which is a real constraint and often the only thing that pins the muzzle down.
+
+    THE OTHER THREE ARE TASK 104, AND TASK 103 IS WHY THEY EXIST. A fit against four x/y marks and a
+    bare `offScreen` halved the screen error and still drew a gun lying flat across the frame, because
+    the thing being copied -- barrels pointing DOWN-AWAY -- is almost entirely depth and edge, and the
+    format could say neither:
+
+      * `studs` is the distance from the eye. A flat picture cannot give it, so there is usually one.
+      * `nearer` / `farther` name ANOTHER mark, and that a person CAN read off a picture: in a
+        broken-open gun the stock is nearer than the breech and the forend is farther. An ORDER needs
+        no ruler, and a chain of them pins the recession that one `studs` cannot.
+      * `offScreen` may be a list (any edge, as before) or an OBJECT naming the edge --
+        `bottom`, `top`, `left`, `right`. "The muzzle is off the bottom" and "the muzzle is off the
+        left" are different guns, and task 103's fit chose the wrong one.
+      * `directions` are the SCREEN ANGLE from one mark to another, in degrees, measured the way a
+        screen is: 0 points right, 90 straight DOWN, 180 left. The barrel axis is one line on the
+        picture and this is how to say which way it runs.
     """
     try:
         with open(path, encoding="utf-8") as handle:
@@ -453,8 +478,24 @@ def read_landmark_file(path):
         if not isinstance(mark, dict) or not isinstance(mark.get("x"), (int, float)) \
                 or not isinstance(mark.get("y"), (int, float)):
             return None, f"marks.{name} needs numeric x and y (fractions of the screen)"
-    if not isinstance(spec.get("offScreen", []), list):
-        return None, "\"offScreen\" must be a list of landmark names"
+    off = spec.get("offScreen", [])
+    if isinstance(off, dict):
+        for name, edge in off.items():
+            if edge not in FIT_EDGES:
+                return None, (f"offScreen.{name} = {edge!r} is not an edge; use one of "
+                              f"{', '.join(sorted(FIT_EDGES))}")
+    elif not isinstance(off, list):
+        return None, '"offScreen" must be a list of names, or an object of name -> edge'
+    for entry in spec.get("directions", []):
+        if not isinstance(entry, dict) or entry.get("from") not in spec["marks"] \
+                or not isinstance(entry.get("deg"), (int, float)):
+            return None, ('each entry in "directions" needs "from" (a mark), "to" (any landmark) '
+                          'and "deg", the screen angle: 0 right, 90 down, 180 left')
+    for name, mark in spec["marks"].items():
+        for key in ("nearer", "farther"):
+            other = mark.get(key)
+            if other is not None and other == name:
+                return None, f"marks.{name}.{key} names itself"
     # AT LEAST THREE MARKS THAT ARE IN THE PICTURE, and task 102 is why (TASKS.md 102a(b)). A fit was
     # run against TWO marks plus one off-screen constraint; the search did exactly what it was asked
     # and answered with the gun lying FLAT across the middle of the frame, breech away from the
@@ -472,44 +513,110 @@ def fit_error(answer, spec):
     """How wrong one candidate is, as (error, one line about it).
 
     ROOT MEAN SQUARE IN SCREEN FRACTIONS, so the number means something a person can check: 0.05 is
-    five per cent of the screen out, averaged over the marks. Depth, when a mark asks for it, is
-    folded in as a fraction too -- a stud of error counts the same as 10 % of the screen -- so one
-    weight scale covers both and the search does not need two tolerances.
+    five per cent of the screen out, averaged over everything asked for. Depth, the depth ORDER, the
+    edge a mark leaves by and the angle between two marks are all folded in as fractions too -- a
+    stud counts as `FIT_STUD` of the screen and a half-turn as the whole of it -- so one weight scale
+    covers them all and the search needs no second tolerance.
     """
     parts = (answer or {}).get("parts") or {}
     total, weight_sum, worst, worst_name = 0.0, 0.0, 0.0, "-"
+
+    def add(weight, term, label):
+        nonlocal total, weight_sum, worst, worst_name
+        total += weight * term
+        weight_sum += weight
+        if term > worst:
+            worst, worst_name = term, label
+
+    def drawn(name):
+        """The reading for a landmark, or None when it is not drawn or is behind the eye.
+
+        BEHIND THE EYE IS NOT A POSITION. WorldToViewportPoint extrapolates a point behind the camera
+        to a screen position anyway (measured twice, 2026-10-01, and it is why the gun once read as
+        22,425 % of the screen wide), so depth is what says it is in the picture at all."""
+        got = parts.get(name)
+        return got if got and got["studs"] > 0.1 else None
+
     for name, mark in spec["marks"].items():
         weight = float(mark.get("weight", 1.0))
         got = parts.get(name)
         if not got:
-            term = FIT_MISSING ** 2
-        else:
-            dx = got["x"] - float(mark["x"])
-            dy = got["y"] - float(mark["y"])
-            term = dx * dx + dy * dy
-            if mark.get("studs") is not None:
-                term += ((got["studs"] - float(mark["studs"])) * 0.1) ** 2
-            # BEHIND THE EYE IS NOT A POSITION. WorldToViewportPoint extrapolates a point behind the
-            # camera to a screen position anyway (measured twice, 2026-10-01, and it is why the gun
-            # once read as 22,425 % of the screen wide), so depth is what says it is in the picture.
-            if got["studs"] <= 0.1:
-                term += FIT_MISSING ** 2
-        total += weight * term
-        weight_sum += weight
-        if term > worst:
-            worst, worst_name = term, name
-    for name in spec.get("offScreen", []):
-        got = parts.get(name)
+            add(weight, FIT_MISSING ** 2, name + " (not drawn)")
+            continue
+        dx = got["x"] - float(mark["x"])
+        dy = got["y"] - float(mark["y"])
+        term = dx * dx + dy * dy
+        if mark.get("studs") is not None:
+            term += ((got["studs"] - float(mark["studs"])) * FIT_STUD) ** 2
+        if got["studs"] <= 0.1:
+            term += FIT_MISSING ** 2
+        add(weight, term, name)
+
+    # THE DEPTH ORDER (task 104). A picture cannot give a distance but a person can always read an
+    # ORDER off it -- on a broken-open gun the stock is nearer than the breech and the forend is
+    # farther -- and a chain of orders pins the recession that one `studs` reading cannot. It is a
+    # HINGE: being on the right side of the other mark costs nothing, and being on the wrong side
+    # costs by how far, so the search has a gradient to follow back.
+    for name, mark in spec["marks"].items():
+        for key, wanted_nearer in (("nearer", True), ("farther", False)):
+            other = mark.get(key)
+            if other is None:
+                continue
+            here, there = drawn(name), drawn(other)
+            if here is None or there is None:
+                add(1.0, FIT_MISSING ** 2, f"{name} {key} {other} (one of them is not in the picture)")
+                continue
+            gap = here["studs"] - there["studs"]
+            violation = max(0.0, gap if wanted_nearer else -gap)
+            add(1.0, (violation * FIT_STUD) ** 2, f"{name} {key} {other}")
+
+    # OFF SCREEN, AND SINCE TASK 104 OFF WHICH EDGE. A list is still "any edge"; an object is
+    # name -> edge. "The muzzle is off the bottom" and "off the left" are different guns, and the
+    # fit that had only the first of those drew the second.
+    off = spec.get("offScreen", [])
+    wanted_edges = off if isinstance(off, dict) else {name: None for name in off}
+    for name, edge in wanted_edges.items():
+        got = drawn(name)
+        if got is None:
+            # Not drawn, or behind the eye: it is not in the picture, which is what was asked.
+            add(1.0, 0.0, name + " (off screen)")
+            continue
         # ON SCREEN WHEN IT SHOULD NOT BE: penalised by how far INSIDE the frame it is, so the search
         # has a gradient to follow out rather than a cliff it cannot see over.
-        inside = 0.0
-        if got and got["studs"] > 0.1:
-            inside = min(got["x"], 1 - got["x"], got["y"], 1 - got["y"])
-        term = max(0.0, inside) ** 2
-        total += term
-        weight_sum += 1.0
-        if term > worst:
-            worst, worst_name = term, name + " (should be off screen)"
+        inside = min(got["x"], 1 - got["x"], got["y"], 1 - got["y"])
+        if inside >= 0:
+            # THE STEP IS DELIBERATE. A mark in the middle of the picture when it should be out of it
+            # must cost MORE than one that is out of the wrong edge -- otherwise the search prefers
+            # the frame it can see, which is how task 103's muzzle ended up on screen. `inside` alone
+            # could not say that: a wrong-edge excursion already scores up to 0.5, and a dead-centre
+            # mark scored 0.25. So the whole constraint carries a floor.
+            add(1.0, (inside + 0.25) ** 2, name + " (should be off screen)")
+            continue
+        if edge is None:
+            add(1.0, 0.0, name + " (off screen)")
+            continue
+        # OUT, BUT WHICH WAY? The excursion past each edge; the one it is really past is the biggest.
+        past = {"left": -got["x"], "right": got["x"] - 1, "top": -got["y"], "bottom": got["y"] - 1}
+        actual = max(past, key=lambda key: past[key])
+        # Wrong edge costs the excursion it has the wrong way PLUS what it is missing the right way,
+        # both bounded, so a gun pointing out of the left edge is pulled toward the bottom one.
+        term = 0.0 if actual == edge else min(1.0, past[actual]) ** 2 + min(1.0, -past[edge]) ** 2
+        add(1.0, term, f"{name} (off the {actual}, wanted {edge})")
+
+    # THE SCREEN ANGLE BETWEEN TWO MARKS (task 104): the one thing that says which way the barrels
+    # RUN, which no pair of positions says when both of them are uncertain. Measured the way a screen
+    # is -- 0 right, 90 straight down -- and scored as a fraction of a half-turn, so 180 degrees out
+    # is a whole screen of error.
+    for entry in spec.get("directions", []):
+        here, there = drawn(entry["from"]), drawn(entry["to"])
+        label = f"{entry['from']}->{entry['to']} angle"
+        if here is None or there is None:
+            add(float(entry.get("weight", 1.0)), FIT_MISSING ** 2, label + " (not in the picture)")
+            continue
+        angle = math.degrees(math.atan2(there["y"] - here["y"], there["x"] - here["x"])) % 360
+        off_by = abs((angle - float(entry["deg"]) + 180) % 360 - 180)
+        add(float(entry.get("weight", 1.0)), (off_by / 180.0) ** 2, label)
+
     error = math.sqrt(total / max(weight_sum, 1e-9))
     return error, f"worst: {worst_name}"
 
@@ -653,6 +760,45 @@ def run_fit(studio, prefix, landmarks_path, evals, client, assets_dir, explicit_
     return run_compare(studio, hold, explicit_target, assets_dir, client)
 
 
+# ---------------------------------------------------------------- the session itself
+
+def run_play(studio, wanting):
+    """`pose.py play` / `pose.py stop`: start or end a SOLO Play session, from Edit.
+
+    WHY IT IS HERE AND NOT A HUMAN'S KEYPRESS (task 103, measured). `studio-key.ps1 F7` starts
+    Studio's "Server and Clients" session, which is what the two-player harness needs -- and its two
+    CLIENT processes never registered with StudioMCP: `studios` listed the Edit window and the Play
+    SERVER only, through three attempts over about ninety seconds. The viewmodel lives on a client,
+    so there was nothing to photograph. A SOLO session puts both DataModels in the one process that
+    is already connected, which is how the harness has always run `test`, and that one answers.
+
+    IT IS THE SAME CALL THE HARNESS MAKES -- `Studio.set_play` -- so there is no second way to start
+    a session in this repo, and nothing here sends Luau.
+
+    EDIT IN, EDIT OUT. `play` is refused unless Studio is in Edit, so it can never be the thing that
+    restarts a session the Director is already tuning; `stop` is refused unless one is running, so a
+    stray `stop` cannot be the reason a harness run found no Studio.
+    """
+    try:
+        state = studio.mode()
+    except RuntimeError as why:
+        print("[pose] " + str(why))
+        return 2
+    running_now = state != "Edit"
+    if wanting and running_now:
+        print(f"[pose] a session is already running ({state}); `pose.py stop` ends it")
+        return 2
+    if not wanting and not running_now:
+        print("[pose] Studio is in Edit: there is no session to stop")
+        return 2
+    answer = studio.set_play(wanting)
+    print(f"[pose] {'started' if wanting else 'stopped'} a solo Play session ({answer})")
+    if wanting:
+        print("[pose] `pose.py compare <pose>` and `pose.py fit` can reach it now; end it with "
+              "`pose.py stop`, then `pose.py clear` and `flags.py clear` before any harness run.")
+    return 0
+
+
 # ---------------------------------------------------------------- the commands
 
 def main(argv):
@@ -700,7 +846,7 @@ def main(argv):
     args = rest
 
     action = args[0] if args else "show"
-    if action not in ("show", "set", "save", "clear", "compare", "fit"):
+    if action not in ("show", "set", "save", "clear", "compare", "fit", "play", "stop"):
         print(__doc__)
         return 2
 
@@ -713,6 +859,11 @@ def main(argv):
                       "[--client <name>]")
                 return 2
             return run_compare(studio, args[1], explicit_target, assets_dir, client)
+        if action in ("play", "stop"):
+            if len(args) != 1:
+                print(f"[pose] usage: pose.py {action}")
+                return 2
+            return run_play(studio, action == "play")
         if action == "fit":
             if len(args) != 2 or not landmarks:
                 print("[pose] usage: pose.py fit <pose> --landmarks <file> [--evals N] "
@@ -978,7 +1129,6 @@ def selftest():
     ok("a landmarks file that is not JSON is refused", bad is None and problem != "")
     # TOO FEW MARKS IS REFUSED, NOT ANSWERED (task 103, from 102a(b)). Written to a real file,
     # because that is the path the Director's own file takes.
-    import tempfile  # noqa: PLC0415 -- the one case that needs a file on disk
     with tempfile.TemporaryDirectory() as folder:
         thin = os.path.join(folder, "thin.json")
         with open(thin, "w", encoding="utf-8") as handle:
@@ -994,6 +1144,76 @@ def selftest():
                                  "Action": {"x": 0.5, "y": 0.6},
                                  "Stock": {"x": 0.6, "y": 0.8}}}, handle)
         ok("three marks are enough to try", read_landmark_file(enough)[0] is not None)
+    # ---- TASK 104: the three things task 103's format could not say, each scored and each pinned.
+    def reading(x, y, studs=1.0):
+        return {"x": x, "y": y, "studs": studs, "onScreen": 0 <= x <= 1 and 0 <= y <= 1}
+
+    # (i) DEPTH ORDER. A picture gives no distance but it always gives an order.
+    order = {"marks": {"Stock": {"x": 0.5, "y": 0.5, "nearer": "Forend"},
+                       "Forend": {"x": 0.5, "y": 0.5}}}
+    right_way = {"parts": {"Stock": reading(0.5, 0.5, 0.8), "Forend": reading(0.5, 0.5, 2.0)}}
+    wrong_way = {"parts": {"Stock": reading(0.5, 0.5, 2.0), "Forend": reading(0.5, 0.5, 0.8)}}
+    ok("the right depth order costs nothing", fit_error(right_way, order)[0] < 1e-9,
+       f"{fit_error(right_way, order)[0]}")
+    ok("the wrong depth order costs, by how far it is wrong",
+       fit_error(wrong_way, order)[0] > fit_error(right_way, order)[0], f"{fit_error(wrong_way, order)[0]}")
+    worse = {"parts": {"Stock": reading(0.5, 0.5, 5.0), "Forend": reading(0.5, 0.5, 0.8)}}
+    ok("...and more when it is more wrong", fit_error(worse, order)[0] > fit_error(wrong_way, order)[0])
+    ok("`farther` is the same rule the other way up",
+       fit_error(right_way, {"marks": {"Forend": {"x": 0.5, "y": 0.5, "farther": "Stock"},
+                                       "Stock": {"x": 0.5, "y": 0.5}}})[0] < 1e-9)
+
+    # (ii) WHICH EDGE. "Off the bottom" and "off the left" are different guns, and task 103's fit
+    # chose the second while scoring the first as satisfied.
+    edged = {"marks": {"Stock": {"x": 0.5, "y": 0.5}}, "offScreen": {"Muzzle": "bottom"}}
+    base = {"Stock": reading(0.5, 0.5)}
+    out_bottom = {"parts": dict(base, Muzzle=reading(0.5, 1.4))}
+    out_left = {"parts": dict(base, Muzzle=reading(-0.4, 0.5))}
+    on_screen = {"parts": dict(base, Muzzle=reading(0.5, 0.5))}
+    ok("off the edge it was asked for costs nothing", fit_error(out_bottom, edged)[0] < 1e-9,
+       f"{fit_error(out_bottom, edged)[0]}")
+    ok("off the WRONG edge costs", fit_error(out_left, edged)[0] > 0.1, f"{fit_error(out_left, edged)[0]}")
+    ok("on screen when it should be off costs most",
+       fit_error(on_screen, edged)[0] > fit_error(out_left, edged)[0],
+       f"{fit_error(on_screen, edged)[0]} vs {fit_error(out_left, edged)[0]}")
+    ok("a bare list is still any edge",
+       fit_error(out_left, {"marks": {"Stock": {"x": 0.5, "y": 0.5}}, "offScreen": ["Muzzle"]})[0] < 1e-9)
+
+    # (iii) THE SCREEN ANGLE: which way the barrels RUN, which no pair of uncertain positions says.
+    # 0 points right, 90 straight DOWN.
+    angled = {"marks": {"StandingBreech": {"x": 0.5, "y": 0.5}},
+              "directions": [{"from": "StandingBreech", "to": "Muzzle", "deg": 90}]}
+    down = {"parts": {"StandingBreech": reading(0.5, 0.5), "Muzzle": reading(0.5, 0.9)}}
+    right = {"parts": {"StandingBreech": reading(0.5, 0.5), "Muzzle": reading(0.9, 0.5)}}
+    up = {"parts": {"StandingBreech": reading(0.5, 0.5), "Muzzle": reading(0.5, 0.1)}}
+    ok("the angle it was asked for costs nothing", fit_error(down, angled)[0] < 1e-9,
+       f"{fit_error(down, angled)[0]}")
+    # The score is an RMS over every term, and these two specs carry one exact mark beside the
+    # angle: a quarter turn out is sqrt(0.25 / 2) = 0.354, a half turn sqrt(1 / 2) = 0.707.
+    ok("a quarter turn out costs a quarter of the angle scale",
+       abs(fit_error(right, angled)[0] - 0.3536) < 0.01, f"{fit_error(right, angled)[0]}")
+    ok("a half turn out costs the whole of it",
+       abs(fit_error(up, angled)[0] - 0.7071) < 0.01, f"{fit_error(up, angled)[0]}")
+
+    # ...and the three new shapes are REFUSED when they are written wrong, so a typo in the
+    # Director's file is a message rather than a constraint that silently scores nothing.
+    def refused(spec_body, why):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "x.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(spec_body, handle)
+            got, problem = read_landmark_file(path)
+            ok(why, got is None and problem != "", repr(problem))
+
+    three = {"A": {"x": 0.1, "y": 0.1}, "B": {"x": 0.2, "y": 0.2}, "C": {"x": 0.3, "y": 0.3}}
+    refused({"marks": three, "offScreen": {"Muzzle": "sideways"}}, "an edge nobody has is refused")
+    refused({"marks": three, "directions": [{"from": "nope", "to": "Muzzle", "deg": 90}]},
+            "a direction from a mark that is not there is refused")
+    refused({"marks": three, "directions": [{"from": "A", "to": "Muzzle"}]},
+            "a direction with no angle is refused")
+    refused({"marks": dict(three, A={"x": 0.1, "y": 0.1, "nearer": "A"})},
+            "a mark that is nearer than itself is refused")
+
     # ...and the file the Director actually runs has more than the minimum.
     shipped, shipped_problem = read_landmark_file(
         os.path.join(REPO, "tools", "landmarks", "newGun-reload.json"))

@@ -1,18 +1,62 @@
 {
-  "note": "TARGET-reload-open.jpg (640x357), read by hand on 2026-10-02 off a 4x crop of x 352..608, y 160..357. The frame shows the gun broken open and held to the RIGHT: the two chamber mouths face the camera close, the barrels run down-LEFT and leave the picture through the bottom edge, the action and then the walnut wrist run away to the lower right, and the bare LEFT hand reaches in from the left with a shell. Four marks, each a different point ALONG the gun, which is what pins an orientation; the left hand is deliberately NOT one of them, because in this frame it has left the forend to feed a shell and its own offset is a separate dial (newGun.reload.left) rather than one of the six numbers this fits.",
+  "note": "TARGET-reload-open.jpg, read by hand on 2026-10-02 and then RE-AIMED BY THE DIRECTOR. The frame shows the gun broken open: the two chamber mouths face the camera close, the barrels run down-away and leave the picture through the BOTTOM edge, the action and then the walnut wrist run off to the lower right, and the bare left hand reaches in from the left. Raw, the video's chamber-mouth mid-point reads (0.768, 0.620) -- but the two frames do NOT share an aspect ratio (the video is 16:9, a Studio Play window about 1.24:1, and `side_by_side` matches their HEIGHT), so a horizontal fraction does not carry across; the Director prescribed the breech at 50-60 % across and 65-75 % down, and these are those numbers. The VERTICAL readings, the depth ORDER, the edge and the angle do carry across, and they are what this file is really made of.",
   "marks": {
-    "StandingBreech": { "x": 0.768, "y": 0.62, "studs": 1.2, "weight": 2 },
-    "Action": { "x": 0.784, "y": 0.763 },
-    "Forend": { "x": 0.679, "y": 0.826 },
-    "Stock": { "x": 0.863, "y": 0.938 }
+    "StandingBreech": {
+      "x": 0.55,
+      "y": 0.7,
+      "studs": 0.9,
+      "weight": 4
+    },
+    "Action": {
+      "x": 0.68,
+      "y": 0.84,
+      "nearer": "StandingBreech"
+    },
+    "Stock": {
+      "x": 0.82,
+      "y": 0.96,
+      "nearer": "Action"
+    },
+    "Forend": {
+      "x": 0.46,
+      "y": 0.93,
+      "farther": "StandingBreech"
+    },
+    "HandLeft": {
+      "x": 0.28,
+      "y": 0.78,
+      "weight": 0.5
+    },
+    "TopLever": {
+      "x": 0.63,
+      "y": 0.78,
+      "nearer": "TriggerGuard",
+      "weight": 1.5
+    }
   },
-  "offScreen": ["Muzzle"],
-  "bounds": { "posStuds": 1.5, "rotDeg": 90 },
+  "offScreen": {
+    "Muzzle": "bottom"
+  },
+  "directions": [
+    {
+      "from": "StandingBreech",
+      "to": "Muzzle",
+      "deg": 105,
+      "weight": 2
+    }
+  ],
+  "bounds": {
+    "posStuds": 1.5,
+    "rotDeg": 120
+  },
   "readings": {
-    "StandingBreech": "the mid-point of the two chamber mouths, source px (491, 221). The PART's own centre sits a little below that, so this mark carries about 0.04 of the frame in error and the weight is what says it is still the most certain one.",
-    "Action": "the metal block behind the breech, with the top lever on it, source px (502, 272).",
-    "Forend": "the mid-point of the visible barrel band, source px (434, 295); the forend is bolted to the barrels and is about a third of the way down them, and the tube is one dark band in this frame, so this is the best reading of it.",
-    "Stock": "the walnut wrist running to the lower right, source px (552, 335).",
-    "Muzzle": "off the bottom edge: the barrel band leaves the frame at source px (412, 357)."
+    "StandingBreech": "the mid-point of the two chamber mouths. The PART's own centre sits a little below that, which is why this mark carries a `studs` as well. WEIGHT 4, AND THE FIRST FIT IS WHY: at weight 2 the search answered with the whole gun 2.1 studs from the eye where this asks 0.9 -- it traded the one constraint that pins SCALE against the edge and the angle, and drew a small far gun. Scale is the thing a picture says least about and the thing a viewmodel gets most wrong.",
+    "Action": "the metal block behind the breech, with the top lever on it, running away to the lower right; NEARER the eye than the breech, because the shooter holds the grip and the barrels hang away from it.",
+    "Stock": "the walnut wrist at the lower right, nearer still -- it is the end of the gun that is in the hand.",
+    "Forend": "bolted to the barrels and about a third of the way down them, so it is FARTHER than the breech. That ordering is the whole of 'down-away' and no single screen position says it.",
+    "HandLeft": "in from the left with a shell. Weight 0.5 on purpose: in this frame the hand has LEFT the forend, and its own offset is `newGun.reload.left` rather than one of the six numbers this fits -- so it is a hint, not a constraint.",
+    "Muzzle": "off the BOTTOM edge. Task 103 had only 'off screen', and the fit satisfied it by pointing the barrels off the LEFT edge instead: a different gun entirely.",
+    "directions": "from the breech to the muzzle the barrel axis runs down and slightly left: 105 degrees, where 0 points right and 90 straight down. Weight 2, because this is the reading task 103 had no way to write.",
+    "TopLever": "the lever on the action's top strap, which in this frame FACES the camera -- the gun is seen from its top-left, with the trigger guard away on the far side. It is the ROLL, and it is the reading the first two fits had no way to be given: both answered with the gun standing on end, butt up, because nothing said which way round its own axis it should lie."
   }
 }
