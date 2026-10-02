@@ -1,23 +1,22 @@
 # Task 113 — review and test only what changed, plus its blast radius
 
 Task: 113
-Round: 1
+Round: 2
 Base: `0cc60ca`
-Code commit: `d82e67557a16d3a0fade01c30f7d2eba1acaec74` (the commit the harness line names; the
-last commit that changed src/, tests/ or tools/ is `b5a5a48`, and only this request changed after it)
+Code commit: `<round 2's code commit — the Director's gate run names it>`
 
 Tools and docs only: no `src/`, no `tests/`. Karen, 2026-10-02: *"not need start from zero I
 mentioned 100 times / it has to test only parts what has been changed and what blast radius could
 be."*
 
 ```
-[harness] PASS: 32/32 checks @ d82e67557a16d3a0fade01c30f7d2eba1acaec74 (clean tree) scope=all
+[harness] PASS: n/n checks @ <code commit> (clean tree) scope=all      <- the Director runs this
 ```
 
-Run by the Director, at this branch's head, on a clean tree. **`test2` is N/A**, and the Director
-accepted both judgement calls behind that: nothing here touches the match, the drive, the tie or
-the teams (`TWO_PLAYER_PATHS`), with `src/server/Weapon/SafetyArc.luau` out of that list and
-`tools/studio_mcp.py` out of it too (claim 7; the gap that leaves is queued as 113a(d)).
+Round 1 ran `[harness] PASS: 32/32 checks @ d82e675 (clean tree) scope=all`. **`test2` is N/A**, and
+the Director accepted both judgement calls behind that: nothing here touches the match, the drive,
+the tie or the teams (`TWO_PLAYER_PATHS`), with `src/server/Weapon/SafetyArc.luau` out of that list
+and `tools/studio_mcp.py` out of it too (claim 7; the gap that leaves is queued as 113a(d)).
 
 ## Claims, each with how to verify it
 
@@ -30,10 +29,18 @@ the teams (`TWO_PLAYER_PATHS`), with `src/server/Weapon/SafetyArc.luau` out of t
 2. **The Reviewer's scope is the change plus its blast radius.** `blast_radius_text` writes
    `.agent-evidence/blast-radius.md`: the changed files, the symbols whose definition the diff added
    **or removed** (`symbols_in_diff`), the names other files `require` (`module_names` — a folder's
-   name for an `init.luau`), and every place in the repo's code that names one (`references`).
-   Verify: the three functions, their selftest cases, and the "What you review" section of the
-   prompt. `references` scans code and config only, because a symbol like `Body` matches English
-   prose in `TASKS.md`.
+   name for an `init.luau`), and **every file in the repo's code that names one, with how many of its
+   lines do** (`reference_hits`, rendered by `blast_radius_report`). **Round 1's blocking finding is
+   fixed here: no file is cut.** The cap (`MAX_QUOTED_LINES_PER_SYMBOL`) now bounds only the quoted
+   sample; the heading prints the true total and the file count, the file list is complete with
+   per-file counts, and the quoted block says "12 of 48 line(s) quoted; the other 36 are in the files
+   above". Verify: `reference_hits` (pure — no git, no filesystem) and `blast_radius_report` (pure),
+   the 9 selftest cases that drive a symbol with 40 hits in 20 files against a cap of 12, and the
+   "What you review" section of the prompt. Mutation check: putting the old early-exit back
+   (`if len(info["lines"]) >= MAX_QUOTED_LINES_PER_SYMBOL: continue` before `total += 1`) fails 5 of
+   those cases — the heading goes back to "12 reference(s) in 6 file(s)" — and it was restored.
+   `references` scans code and config only, because a symbol like `Body` matches English prose in
+   `TASKS.md`.
 3. **`test --scope auto` decides whether Play happens.** `BLAST_RADIUS` maps a changed path to a
    scope name, `SCOPE_SPECS` maps the name to spec files, and `run_test` skips Play when no spec is
    in the radius — keeping every Edit-place check. Verify: `resolve_scope`, `scope_for`, the
@@ -79,5 +86,9 @@ the teams (`TWO_PLAYER_PATHS`), with `src/server/Weapon/SafetyArc.luau` out of t
   rounds on record: mean $3.36 / 38 turns, median $3.20 / 36. This task's own review is the first
   measurement.
 - Both selftests pass offline and in CI (`python tools/agents.py selftest`,
-  `python tools/studio_mcp.py selftest`): **65 new cases** — `agents.py` goes from 21 to 69, the
+  `python tools/studio_mcp.py selftest`): **74 new cases** — `agents.py` goes from 20 to 77, the
   harness gains 17.
+- The round-1 numbers measured on the real repo after the fix: `studio_mcp` is named on 48 lines in
+  **19** files, which is the file count the Reviewer measured, and `tools/pose.py` (19 lines) is in
+  the list. The total counts matching LINES, not occurrences, which is why it reads 48 where the
+  Reviewer counted 55 occurrences; the heading says "named on 48 line(s)" so the unit is explicit.

@@ -67,9 +67,11 @@ data the Director tunes live and Karen OKs, so a change made only of it is treat
 a docs change. Its own one-player `test` is still required by CLAUDE.md -- what is dropped is the
 review round, not the run.
 **The REVIEWER'S EVIDENCE IS SCOPED TOO**: `.agent-evidence/blast-radius.md` holds the changed files
-and, per symbol the diff defined, every place in the repo that names it, and the prompt tells the
-Reviewer to review only that and to read `docs/REVIEWER_RULES.md` (61 lines) instead of CLAUDE.md
-and docs/PROJECT_CONTEXT.md (605 lines together).
+and, per symbol the diff defined, EVERY file in the repo's code that names it and how many times --
+no file cut, only the quoted sample capped and counted against the true total
+(`MAX_QUOTED_LINES_PER_SYMBOL`, review round 1 finding 1) -- and the prompt tells the Reviewer to
+review only that and to read `docs/REVIEWER_RULES.md` (61 lines) instead of CLAUDE.md and
+docs/PROJECT_CONTEXT.md.
 
 **What is still policy, not enforcement:** nothing stops a Builder committing a hand-written trailer
 (the Builder owns the repo and the commits), and `git rebase`/`--force` could drop the history the
@@ -277,7 +279,13 @@ SYMBOL_RES = (
     re.compile(r"^([A-Z][A-Z0-9_]{2,})\s*="),  # a module-level constant, the other thing callers read
 )
 MAX_SYMBOLS = 40
-MAX_HITS_PER_SYMBOL = 12
+# HOW MANY LINES ARE QUOTED PER SYMBOL -- and that is ALL it bounds (review round 1, finding 1).
+# It used to bound the SEARCH: `references` stopped counting at 12 and the heading printed 12 as the
+# total, so `studio_mcp`'s 55 references in 19 files came out as "12 reference(s)" and ten caller
+# files -- `tools/pose.py` among them, with 19 of its own -- silently left the Reviewer's scope,
+# which the prompt makes exhaustive by fiat. The count is now complete and EVERY file that names a
+# symbol is named with how many times; only the quoted sample is capped, and the heading says so.
+MAX_QUOTED_LINES_PER_SYMBOL = 12
 
 
 def symbols_in_diff(diff_text):
@@ -314,14 +322,40 @@ def module_names(changed):
     return names
 
 
+def reference_hits(names, documents):
+    """{name: {"total": n, "files": {path: count}, "lines": [(path, number, text)]}}.
+
+    Pure: the names and `{path: [line, ...]}` go in, the counts come out -- no git and no
+    filesystem, which is what lets `selftest` drive it (CI runs that step with neither).
+
+    NOTHING IS CUT SILENTLY (review round 1, finding 1). `total` counts every matching line and
+    `files` names EVERY file that names the symbol, with how many times; the cap applies only to
+    `lines`, the quoted sample, and the report prints `len(lines)` against `total`. The old version
+    stopped searching at the cap and printed the cap as the total, so a caller file could leave the
+    Reviewer's scope with no sign of it -- and the Reviewer prompt makes that scope exhaustive.
+    """
+    patterns = {name: re.compile(r"\b" + re.escape(name) + r"\b") for name in names}
+    hits = {name: {"total": 0, "files": {}, "lines": []} for name in names}
+    for path in sorted(documents):
+        for number, text in enumerate(documents[path], 1):
+            for name, rx in patterns.items():
+                if not rx.search(text):
+                    continue
+                info = hits[name]
+                info["total"] += 1
+                info["files"][path] = info["files"].get(path, 0) + 1
+                if len(info["lines"]) < MAX_QUOTED_LINES_PER_SYMBOL:
+                    info["lines"].append((path, number, text.strip()[:140]))
+    return hits
+
+
 def references(wt, names, changed):
-    """{name: [(file, line number, text)]} for every tracked text file that names one of `names`.
+    """`reference_hits` over the worktree's tracked code: who else names one of `names`.
 
     The changed files themselves are left out: the diff already shows them, and what the Reviewer
     cannot see from the diff is who else depends on them."""
     skip = {f.replace("\\", "/") for f in changed}
-    patterns = {name: re.compile(r"\b" + re.escape(name) + r"\b") for name in names}
-    hits = {name: [] for name in names}
+    documents = {}
     for rel in git("ls-files", cwd=wt).split():
         rel = rel.replace("\\", "/")
         if rel in skip or rel.startswith((".agent-evidence/", "reviews/", "backups/")):
@@ -333,27 +367,27 @@ def references(wt, names, changed):
             continue
         try:
             with open(os.path.join(wt, rel), encoding="utf-8", errors="replace") as f:
-                lines = f.read().splitlines()
+                documents[rel] = f.read().splitlines()
         except OSError:
             continue
-        for number, text in enumerate(lines, 1):
-            for name, rx in patterns.items():
-                if len(hits[name]) < MAX_HITS_PER_SYMBOL and rx.search(text):
-                    hits[name].append((rel, number, text.strip()[:140]))
-    return hits
+    return reference_hits(names, documents)
 
 
-def blast_radius_text(wt, changed, diff_text):
-    """The `.agent-evidence/blast-radius.md` body: the change, plus who else names what it touched."""
-    code = [f for f in changed if f.replace("\\", "/").endswith((".luau", ".lua", ".py"))]
-    defined = symbols_in_diff(diff_text)
-    names = defined + [n for n in module_names(code) if n not in defined]
-    hits = references(wt, names[:MAX_SYMBOLS], changed) if names else {}
+def blast_radius_report(changed, names, hits):
+    """The `.agent-evidence/blast-radius.md` body. Pure: the lists and the counts in, markdown out.
+
+    Split from `blast_radius_text` so `selftest` can render a symbol with more hits than the quoted
+    cap and read what the Reviewer would read (review round 1, finding 1: the heading was the only
+    place the truncation could have been visible, and it was not)."""
     out = ["# Blast radius", "",
            "**This is your whole review scope.** The files below, and the callers and callees of the",
            "symbols below. Nothing else in the repository is yours this round (docs/REVIEWER_RULES.md,",
-           "\"What you review\"). Grep-based, so the caller list is a superset: an entry that turns out",
-           "not to call the symbol costs you one look, which is the safe direction.", "",
+           "\"What you review\").", "",
+           "Grep-based, so the lists are a SUPERSET: an entry that turns out not to call the symbol",
+           "costs you one look, which is the safe direction. **Every file that names a symbol is",
+           "named below, with how many of its lines name it** -- no file is cut. Only the QUOTED",
+           f"LINES are capped, at {MAX_QUOTED_LINES_PER_SYMBOL} per symbol; each heading says how",
+           "many of the total they are, and the rest are in the files named beside them.", "",
            f"## Changed files ({len(changed)})", ""]
     out += [f"- `{f}`" for f in changed] or ["- none"]
     out += ["", "## Symbols the diff defines, removed or renamed, and who names them", ""]
@@ -361,12 +395,30 @@ def blast_radius_text(wt, changed, diff_text):
         out.append("No function, class or constant definition changed: the diff is data, docs or "
                    "paperwork only.")
     for name in names[:MAX_SYMBOLS]:
-        found = hits.get(name) or []
-        out.append(f"### `{name}` -- {len(found)} reference(s) outside the changed files"
-                   + (" (none: nothing else in the repo names it)" if not found else ""))
-        out += [f"- `{rel}`:{number} `{text}`" for rel, number, text in found]
+        info = hits.get(name) or {"total": 0, "files": {}, "lines": []}
+        total, files, lines = info["total"], info["files"], info["lines"]
+        if not total:
+            out += [f"### `{name}` -- no reference outside the changed files (nothing else in the "
+                    "repo's code names it)", ""]
+            continue
+        out += [f"### `{name}` -- named on {total} line(s) in {len(files)} file(s) outside the "
+                "changed files", "",
+                "Every file that names it, and on how many of its lines: "
+                + " · ".join(f"`{f}` ({n})" for f, n in sorted(files.items())), "",
+                f"{len(lines)} of {total} line(s) quoted"
+                + ("" if len(lines) == total else
+                   f"; the other {total - len(lines)} are in the files above")]
+        out += [f"- `{rel}`:{number} `{text}`" for rel, number, text in lines]
         out.append("")
     return "\n".join(out) + "\n"
+
+
+def blast_radius_text(wt, changed, diff_text):
+    """`blast_radius_report` over a worktree: work out the symbols, count the references, render."""
+    code = [f for f in changed if f.replace("\\", "/").endswith((".luau", ".lua", ".py"))]
+    defined = symbols_in_diff(diff_text)
+    names = (defined + [n for n in module_names(code) if n not in defined])[:MAX_SYMBOLS]
+    return blast_radius_report(changed, names, references(wt, names, changed) if names else {})
 
 # ------------------------------------------------------------------ evidence
 
@@ -1011,6 +1063,40 @@ def selftest():
     mods = module_names(["src/shared/Gun/init.luau", "src/client/Camera/Viewmodel.luau", "docs/x.md"])
     check("an init.luau is named by its folder", "Gun" in mods, repr(mods))
     check("a plain module is named by its file", "Viewmodel" in mods, repr(mods))
+
+    # ...AND THE CAP MUST NOT HIDE A CALLER (review round 1, finding 1). The cap used to stop the
+    # SEARCH and the heading printed it as the total: `studio_mcp`'s 55 references in 19 files were
+    # reported as "12 reference(s)", and ten caller files -- `tools/pose.py` with 19 of its own
+    # among them -- left the Reviewer's scope without a word, in a scope the prompt makes
+    # exhaustive. These cases drive the two pure halves with MORE hits and MORE files than the cap.
+    many = {"caller_%02d.luau" % i: ["local x = useThing()", "-- useThing again", "nothing here"]
+            for i in range(MAX_QUOTED_LINES_PER_SYMBOL + 8)}
+    total = 2 * len(many)
+    got = reference_hits(["useThing"], many)["useThing"]
+    check("the TOTAL counts every reference, not the cap", got["total"] == total,
+          "%d vs %d" % (got["total"], total))
+    check("EVERY file that names the symbol is counted, however many there are",
+          set(got["files"]) == set(many), "%d of %d file(s)" % (len(got["files"]), len(many)))
+    check("each file carries its own count", set(got["files"].values()) == {2}, repr(got["files"]))
+    check("only the QUOTED lines are capped",
+          len(got["lines"]) == MAX_QUOTED_LINES_PER_SYMBOL, "%d quoted" % len(got["lines"]))
+    check("a file that does not name the symbol is not counted",
+          reference_hits(["useThing"], {"quiet.luau": ["nothing here"]})["useThing"]["total"] == 0)
+    # ...and THE DOCUMENT THE REVIEWER READS says all of it: the true total, the file count, every
+    # file name, and how many lines it quoted. This is the check that would have caught it.
+    report = blast_radius_report(["caller_00.luau"], ["useThing"], {"useThing": got})
+    check("the report heading carries the full total, not the cap",
+          "named on %d line(s) in %d file(s)" % (total, len(many)) in report,
+          [l for l in report.splitlines() if l.startswith("### ")][:1])
+    check("the report names every file, including the ones it could not quote",
+          all(("`%s`" % f) in report for f in many),
+          "%d of %d named" % (sum(1 for f in many if ("`%s`" % f) in report), len(many)))
+    check("the report says how many lines it quoted and how many it did not",
+          "%d of %d line(s) quoted" % (MAX_QUOTED_LINES_PER_SYMBOL, total) in report
+          and "the other %d are in the files above" % (total - MAX_QUOTED_LINES_PER_SYMBOL) in report)
+    check("a symbol nothing names says so plainly",
+          "no reference outside the changed files"
+          in blast_radius_report([], ["lonely"], {"lonely": {"total": 0, "files": {}, "lines": []}}))
 
     print("[selftest] %s" % ("all ok" if not failures else "FAILED: " + ", ".join(failures)))
     return 0 if not failures else 1
