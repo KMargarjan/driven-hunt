@@ -10,7 +10,7 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
-## 2026-10-02 · NEEDS DIRECTOR · Task 99: `test2` cannot stage `shoot-the-boar` -- a capability refusal in the harness, not in the game
+## 2026-10-02 · CLOSED 2026-10-02 · NEEDS DIRECTOR · Task 99: `test2` cannot stage `shoot-the-boar` -- a capability refusal in the harness, not in the game
 
 **Raised by:** Builder, Task 99 round 2 (branch `task-99-new-gun`, code commit `1232022`).
 
@@ -102,7 +102,14 @@ clean and the same capability message if it is not.
 
 **I did not save the place, and I have not called `LoadAsset` through `execute_luau` since.**
 
-**Closed:** _(open -- waiting on the clicks above)_
+**Answer (Director, 2026-10-02).** Neither click cleared it: a full Studio close and reopen did
+not, and the Assistant's MCP server toggle OFF and ON did not either, with no Studio update. So it
+is the new normal for the MCP thread, and it was fixed in code instead -- **Task 101** (PR #90,
+Reviewer PASS, merged into this branch at `b49ae77`) rewrote every harness, flags and pose path that
+needed a module's VALUE so that none of them requires or invokes anything. The gate is green again:
+`[harness2] PASS: 34/34` and `[harness] PASS: 32/32` at `b49ae77`.
+
+**Closed** by Task 101, 2026-10-02.
 
 ---
 ## 2026-10-01 · CLOSED 2026-10-01 · NEEDS KAREN (or the Director's click) · Task 99: Studio is not connected to Rojo, so the gate cannot run
