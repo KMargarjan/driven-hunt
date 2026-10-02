@@ -423,6 +423,9 @@ function Viewmodel.view(data: any, newGun: boolean?): { [string]: any }
 	-- and reload come from `newGun` when it is on, and `raise` and `fire` always come from the top
 	-- level because they belong to the swing and the shot rather than to the gun.
 	local set = if newGun == true and type(data.newGun) == "table" then data.newGun else data
+	-- Only `newGun.reload` carries one (task 111); `or {}` is what keeps the OFF branch reading
+	-- the same shape rather than indexing nil.
+	local loadBlock = if type(set.reload.load) == "table" then set.reload.load else {}
 	return {
 		-- the carry pose (first person, blend 0)
 		VIEWMODEL_CARRY_POS_STUDS = vec(set.carry.gun.pos),
@@ -479,6 +482,16 @@ function Viewmodel.view(data: any, newGun: boolean?): { [string]: any }
 		SHELL_EJECT_RISE_STUDS = set.reload.shells.ejectRiseStuds,
 		SHELL_FEED_SECONDS = set.reload.shells.feedSeconds,
 		SHELL_FEED_FROM_STUDS = set.reload.shells.feedFromStuds,
+		-- THE LEFT HAND'S LOADING MOVE (task 111). Karen: "can we make that i push ammo inside
+		-- pipes? just moving hand". Only `newGun.reload` carries a `load` block -- the old gun's hands
+		-- do not leave the gun -- so these fall back to the shape the new gun ships with and the OFF
+		-- branch reads numbers nothing consults. Every one is a path `tools/pose.py set` can move.
+		SHELL_LOAD_REACH_SHARE = loadBlock.reachShare or 0.45,
+		SHELL_LOAD_RETURN_SECONDS = loadBlock.returnSeconds or 0.18,
+		SHELL_LOAD_BEHIND_STUDS = loadBlock.behindStuds or 0.16,
+		SHELL_LOAD_SIDE_STUDS = loadBlock.sideStuds or 0.06,
+		SHELL_LOAD_UP_STUDS = loadBlock.upStuds or -0.05,
+		SHELL_LOAD_FINGER_DOWN_DEG = loadBlock.fingerDownDeg or 18,
 		-- THE THREE POSES THE DRAWN GUN IS MADE OF, plus the swing and the shot, because four things
 		-- here have no flat name and never will: the raise's mid keyframes (a list) and the aimed and
 		-- reloading hands. `Camera.Mode` reads those off here.

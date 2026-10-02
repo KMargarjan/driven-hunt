@@ -189,6 +189,14 @@
           "yaw": 90.0
         }
       },
+      "load": {
+        "behindStuds": 0.1,
+        "fingerDownDeg": 18.0,
+        "reachShare": 0.45,
+        "returnSeconds": 0.18,
+        "sideStuds": -0.3,
+        "upStuds": -0.17
+      },
       "openDeg": 35.0,
       "openSeconds": 0.22,
       "right": {

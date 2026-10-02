@@ -611,6 +611,14 @@ end
 -- `Camera.Config.SLEEVE_TAPER_NEW_GUN_STUDS` lists, at the same TOTAL length (that number is what
 -- keeps the far end behind the eye, and the far end is the one that must never be seen).
 function Viewmodel.sleeveSegments(config): { { length: number, diameter: number } }
+	-- NONE AT ALL ON MODEL B (task 111). Karen, 2026-10-02: "you can remove those arm extentions
+	-- from both hands". The drawn sleeve exists because a hand model ends at the cuff and task 99's
+	-- gloves had an open hole there; Karen's v2 pair carries its OWN turned cuff, and with the arms
+	-- now running out of the bottom corners (task 108) the tube was a shape in the frame rather than
+	-- a fix. The OLD gun keeps its sleeve: its glove has the hole this was built for.
+	if config ~= nil and config.NEW_GUN == true then
+		return {}
+	end
 	local total = Viewmodel.sleeveLength(config)
 	local taper = if config ~= nil and config.NEW_GUN == true then config.SLEEVE_TAPER_NEW_GUN_STUDS else nil
 	if taper == nil or #taper == 0 then
@@ -775,6 +783,73 @@ function Viewmodel.clearHands(clone: BasePart)
 	handsMissingCounted = false
 end
 
+-- THE LEFT HAND LOADS THE SHELLS (task 111). Karen, 2026-10-02: "can we make that i push ammo
+-- inside pipes? just moving hand", and then, correcting which hand: "the left loads shell".
+--
+-- IT RUNS ON THE SHELL'S OWN CLOCK, AND THAT IS THE WHOLE DESIGN. `Viewmodel.shells` already slides
+-- each fresh shell forward from `SHELL_FEED_FROM_STUDS` behind its chamber over
+-- `SHELL_FEED_SECONDS`, starting at `loadedAt[barrel]` -- the moment the SERVER said that barrel was
+-- loaded. So the hand is not animated beside the shell on a second timeline that could drift out of
+-- step with it: it is placed from the same two numbers, which is what "the shell travels WITH the
+-- hand" means when nothing is parented to anything.
+--
+-- THE SHAPE OF ONE LOAD: the hand blends in over the first `reachShare` of the feed (arriving as the
+-- shell starts to move), sits exactly behind the shell all the way home, then blends back to Karen's
+-- own `newGun.reload.left` over `returnSeconds`. Two shells are two of these, a moment apart,
+-- because the server loads the barrels one at a time; whichever is further along wins, so the second
+-- takes over cleanly from the first.
+--
+-- NEW GUN ONLY, and open only. Everything here is `Gun.chamber` arithmetic, which the old gun does
+-- not have, and a shut gun is not being loaded.
+local function loadFrame(barrel: number, feedT: number, config): CFrame
+	local shellAt = chamberOffset(barrel, config) * CFrame.new(0, 0, config.SHELL_FEED_FROM_STUDS * (1 - feedT))
+	-- JUST BEHIND THE SHELL, a little to the gun's left and below the bore: the hand comes from the
+	-- left and the thumb is what is on the shell's head, so the palm centre is off the bore line.
+	local at = (shellAt * CFrame.new(
+		config.SHELL_LOAD_SIDE_STUDS,
+		config.SHELL_LOAD_UP_STUDS,
+		config.SHELL_LOAD_BEHIND_STUDS
+	)).Position
+	-- FINGERS DOWN THE BORE, toward the muzzle, which is the direction the shell is being pushed;
+	-- the palm faces the gun's left, so the back of the hand is what the camera sees. Squared the
+	-- same way `Gun.gripFrame` and `Viewmodel.align` square theirs: the fingers win.
+	local down = math.rad(config.SHELL_LOAD_FINGER_DOWN_DEG)
+	local fingers = Vector3.new(0, -math.sin(down), -math.cos(down)).Unit
+	local palm = Vector3.new(-1, 0, 0)
+	local up = (palm - fingers * palm:Dot(fingers)).Unit
+	return CFrame.fromMatrix(at, fingers, up, fingers:Cross(up))
+end
+
+-- (weight, frame) for the left hand this instant: 0 when it belongs on the barrels at Karen's own
+-- numbers, 1 when it is on a shell, and the blend on the way in and out.
+function Viewmodel.loading(config): (number, CFrame?)
+	if config == nil or config.NEW_GUN ~= true or not reload.open then
+		return 0, nil
+	end
+	local now = os.clock()
+	local best, bestFrame = 0, nil
+	for barrel = 1, 2 do
+		local at = loadedAt[barrel]
+		if at ~= nil and reload.loaded[barrel] then
+			local since = now - at
+			local feed = math.max(1e-3, config.SHELL_FEED_SECONDS)
+			local weight
+			if since <= feed then
+				local reach = math.max(1e-3, config.SHELL_LOAD_REACH_SHARE * feed)
+				weight = math.clamp(since / reach, 0, 1)
+			else
+				local back = math.max(1e-3, config.SHELL_LOAD_RETURN_SECONDS)
+				weight = math.clamp(1 - (since - feed) / back, 0, 1)
+			end
+			if weight > best then
+				best = weight
+				bestFrame = loadFrame(barrel, math.clamp(since / feed, 0, 1), config)
+			end
+		end
+	end
+	return best, bestFrame
+end
+
 -- BOTH HANDS, PLACED FROM THIS FRAME'S POSE (task 98), and this is the one site that places them.
 --
 -- WHY EVERY FRAME. Until task 98 a hand was posed once, when the clone was built, and carried along
@@ -855,7 +930,14 @@ function Viewmodel.poseHands(camCFrame: CFrame, gunCFrame: CFrame, barrelsCFrame
 	-- barrels when the gun has them and the Handle when it does not.
 	for _, descendant in ipairs(clone:GetDescendants()) do
 		if descendant.Name == HandAssets.LEFT and descendant:IsA("BasePart") then
-			local base = barrelsCFrame * Mode.handOffsetAt("left", state, config);
+			-- ...AND THE LEFT HAND LEAVES THE BARRELS TO LOAD (task 111). `Viewmodel.loading` says
+			-- how far along that is; at weight 0 this is bit-for-bit Karen's own tuned pose.
+			local held = Mode.handOffsetAt("left", state, config)
+			local weight, loading = Viewmodel.loading(config)
+			if loading ~= nil and weight > 0 then
+				held = held:Lerp(loading :: CFrame, weight)
+			end
+			local base = barrelsCFrame * held;
 			(descendant :: BasePart).CFrame = base * Viewmodel.align(HandAssets.LEFT, config)
 			placeSleeve(base, descendant :: BasePart, toward, armFrame(HandAssets.LEFT, base))
 		end

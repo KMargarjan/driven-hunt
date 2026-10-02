@@ -185,25 +185,22 @@ return function()
 						-- it. 0.85 is far outside that correction and far inside any other axis.
 						expect(base.UpVector:Dot(palm) > 0.85).to.equal(true)
 
-						-- THE ARM RUNS TOWARD ITS OWN SHOULDER (round 2), which is what keeps it out
-						-- of the picture: down, back and outboard IN THE CAMERA'S frame, the same
-						-- vector in every pose. The camera here is unrotated, so its axes are the
-						-- world's. It fails if the arm ever goes back to following the grip.
-						local want = Camera.Viewmodel.armDirection(drawn.Name, newGunPosedConfig) :: Vector3
+						-- NO SLEEVE AT ALL ON MODEL B (task 111). Karen, 2026-10-02: "you can remove
+						-- those arm extentions from both hands". Task 108's to-the-shoulder rule and
+						-- the taper are still in `Camera.Viewmodel` for the OLD gun -- which is the
+						-- pair that has the open cuff they were built for -- so this says only that
+						-- the new gun draws none, on the parts that are really there.
 						local segments = 0
 						for _, sleeve in ipairs(drawn:GetChildren()) do
 							if sleeve.Name == "Sleeve" and sleeve:IsA("BasePart") then
 								segments += 1
-								local run = (sleeve :: BasePart).Position - (drawn :: BasePart).Position
-								expect(run.Magnitude > 0).to.equal(true)
-								expect(run.Unit:Dot(want) > 0.999).to.equal(true)
-								-- Down and back, said once in the camera's own terms so a sign
-								-- change in the config cannot pass quietly.
-								expect(run.Y < 0).to.equal(true)
-								expect(run.Z > 0).to.equal(true)
 							end
 						end
-						expect(segments).to.equal(3)
+						expect(segments).to.equal(0)
+						expect(#Camera.Viewmodel.sleeveSegments(newGunPosedConfig)).to.equal(0)
+						-- ...and the OLD gun still has one, which is the half of this that must not
+						-- change: its glove ends at an open cuff.
+						expect(#Camera.Viewmodel.sleeveSegments(firstPersonConfig) > 0).to.equal(true)
 					end
 				end
 				expect(found).to.equal(2)
@@ -214,6 +211,105 @@ return function()
 					expect(Camera.Viewmodel.armDirection(name, firstPersonConfig)).to.equal(nil)
 				end
 			end)
+			Camera.Viewmodel.clear()
+			Camera.Viewmodel.setHandTemplates(liveHands)
+			Camera.Viewmodel.setSource(live)
+			handle:Destroy()
+			for _, stub in pairs(stubs) do
+				stub:Destroy()
+			end
+			if not ok then
+				error(why, 0)
+			end
+		end)
+
+		-- KAREN, 2026-10-02: "can we make that i push ammo inside pipes? just moving hand", and then
+		-- "the left loads shell". THE SHELL AND THE HAND ARE PLACED FROM THE SAME TWO NUMBERS --
+		-- `loadedAt[barrel]` and `SHELL_FEED_SECONDS` -- so "the shell travels with the hand" is a
+		-- claim about a distance between two drawn parts, which is what this measures.
+		it("loads with the LEFT hand: the shell travels with it, and the hand goes back", function()
+			local boxes = {
+				[HandAssets.RIGHT] = Vector3.new(0.669, 0.350, 0.211),
+				[HandAssets.LEFT] = Vector3.new(0.629, 0.534, 0.669),
+			}
+			local stubs: { [string]: BasePart } = {}
+			for name, box in pairs(boxes) do
+				local stub = Instance.new("Part")
+				stub.Name = name
+				stub.Size = box
+				stubs[name] = stub
+			end
+			local live = Camera.Viewmodel.getSource()
+			local liveHands = Camera.Viewmodel.getHandTemplates()
+			Camera.Viewmodel.setHandTemplates(function(name)
+				return stubs[name]
+			end)
+			local handle = Instance.new("Part")
+			handle.Name = "Handle"
+			handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+			handle.Transparency = 1
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			local at = CFrame.new(0, 16, 0)
+			local ok, why = pcall(function()
+				task.wait(0.3)
+				Camera.Viewmodel.clear()
+				local state = stateAtBlend(0)
+				-- OPEN, NOTHING LOADED YET: this is the frame the left hand is still on the barrels.
+				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { false, false } })
+				Camera.Viewmodel.update(at, state, newGunPosedConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local function leftHand(): BasePart
+					for _, found in ipairs(clone:GetDescendants()) do
+						if found.Name == HandAssets.LEFT and found:IsA("BasePart") then
+							return found :: BasePart
+						end
+					end
+					error("no left hand was drawn", 0)
+				end
+				local rest = leftHand().Position
+				local weightAtRest = Camera.Viewmodel.loading(newGunPosedConfig)
+				expect(weightAtRest).to.equal(0)
+
+				-- THE SERVER LOADS BARREL 1. Half a feed later the hand must be ON the shell.
+				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { true, false } })
+				task.wait(newGunPosedConfig.SHELL_FEED_SECONDS / 2)
+				Camera.Viewmodel.update(at, state, newGunPosedConfig)
+				local fresh = clone:FindFirstChild("FreshShell1")
+				expect(fresh).to.be.ok()
+				local shellAt = (fresh :: Model):GetPivot().Position
+				local onShell = (leftHand().Position - shellAt).Magnitude
+				local fromRest = (rest - shellAt).Magnitude
+				TestKit.note(
+					string.format("task111 mid-feed: hand %.3f studs from the shell, rest was %.3f", onShell, fromRest)
+				)
+				-- Within a hand's own length of the shell, and MUCH closer than the pose it left.
+				expect(onShell < 0.45).to.equal(true)
+				expect(onShell < fromRest / 2).to.equal(true)
+				-- ...and the RIGHT hand has not moved off the grip while this happens.
+				local right = clone:FindFirstChild(HandAssets.RIGHT) :: BasePart
+				local grip = (clone.CFrame * Camera.Mode.handOffsetAt("right", state, newGunPosedConfig)).Position
+				expect((right.Position - grip).Magnitude < 1e-3).to.equal(true)
+
+				-- THE FEED FINISHES AND THE HAND GOES BACK to Karen's own tuned numbers.
+				task.wait(newGunPosedConfig.SHELL_FEED_SECONDS + newGunPosedConfig.SHELL_LOAD_RETURN_SECONDS)
+				Camera.Viewmodel.update(at, state, newGunPosedConfig)
+				expect(Camera.Viewmodel.loading(newGunPosedConfig)).to.equal(0)
+				expect((leftHand().Position - rest).Magnitude < 1e-3).to.equal(true)
+				-- ...and the shell it pushed is seated where task 107 put it, which this task does
+				-- not touch: `Viewmodel.shells` still places every shell.
+				local seated = (clone.CFrame * Gun.chamber(1, Shotgun.CONFIG)).Position
+				local brass = ((clone:FindFirstChild("FreshShell1") :: Model):GetPivot()).Position
+				TestKit.note(
+					string.format(
+						"task111 seated shell is %.3f studs from the chamber mouth",
+						(brass - seated).Magnitude
+					)
+				)
+				expect((brass - seated).Magnitude < 0.2).to.equal(true)
+			end)
+			Camera.Viewmodel.setReload(nil)
 			Camera.Viewmodel.clear()
 			Camera.Viewmodel.setHandTemplates(liveHands)
 			Camera.Viewmodel.setSource(live)
