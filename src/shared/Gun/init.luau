@@ -580,7 +580,6 @@ function Gun.pieces(config): { Piece }
 		color = Gun.LOOK.action,
 		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Cylinder,
-		reflectance = 0.05,
 	})
 
 	-- ON THE TOP STRAP, which is where a player looks for them: the lever first, thumbed to the side
@@ -617,7 +616,6 @@ function Gun.pieces(config): { Piece }
 		color = Gun.LOOK.action,
 		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Cylinder,
-		reflectance = 0.04,
 	})
 	-- ...and the strap that joins the bow to the action, so it hangs from something.
 	add({
@@ -639,7 +637,6 @@ function Gun.pieces(config): { Piece }
 		color = Gun.LOOK.action,
 		material = STEEL_MATERIAL,
 		shape = Enum.PartType.Block,
-		reflectance = 0.05,
 	})
 
 	-- ---------------- the wood. These two are REPLACED BY KAREN'S MESHES when they are published

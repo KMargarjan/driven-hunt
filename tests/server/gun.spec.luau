@@ -398,27 +398,30 @@ return function()
 			-- THE BARRELS LIE ON THE WATER TABLE: the action's top face is their UNDERSIDE, not the
 			-- bore line it used to be, so the body no longer stands up between the two tubes.
 			local barrelBottom = left.offset.Position.Y - left.size.Y / 2
-			expect(math.abs(at.actionTop - barrelBottom) < 1e-9).to.equal(true)
+			expect(math.abs(at.actionTop - barrelBottom) < 1e-6).to.equal(true)
 			-- ...and the belly is round, exactly as tall as the action and no taller: its upper half
 			-- is covered by the block and nothing bulges above the water table, which a CIRCULAR
 			-- belly of the action's width would have done by 0.067 studs.
 			expect(belly.shape).to.equal(Enum.PartType.Cylinder)
-			expect(math.abs(belly.offset.Position.Y - belly.size.Y / 2 - at.actionBottom) < 1e-9).to.equal(true)
-			expect(belly.offset.Position.Y + belly.size.Y / 2 <= at.actionTop + 1e-9).to.equal(true)
+			expect(math.abs(belly.offset.Position.Y - belly.size.Y / 2 - at.actionBottom) < 1e-6).to.equal(true)
+			expect(belly.offset.Position.Y + belly.size.Y / 2 <= at.actionTop + 1e-6).to.equal(true)
 		end)
 
 		it("hangs the hinge hook ON the pin, and did not move the axis doing it", function()
 			-- THE AXIS IS THE ONE THING THIS LOOK PASS MAY NOT MOVE (the dispatch says so), and the
 			-- action got shallower from the TOP for exactly that reason. This is the value task 99
 			-- shipped, written out so a later change to `ACTION_HEIGHT` cannot quietly move it.
+			-- 1e-6 AND NOT 1e-9, for the reason task 99's round 3 found the hard way: a Vector3's
+			-- components are FLOAT32, so -0.14 + 0.035 comes back as -0.10500000417 and a 1e-9 bound
+			-- refuses arithmetic that is exactly right.
 			local hinge = Gun.hinge(CONFIG)
-			expect(math.abs(hinge.Y - -0.105) < 1e-9).to.equal(true)
+			expect(math.abs(hinge.Y - -0.105) < 1e-6).to.equal(true)
 			-- ...and the hook now REACHES it. The Reviewer measured a 0.0275-stud air gap between
 			-- the hook's underside and the top of the pin it is said to drop onto (TASKS.md 99a(f)).
 			local hook = byName(pieces, "HingeHook")
 			local hookBottom = hook.offset.Position.Y - hook.size.Y / 2
 			TestKit.note(string.format("task100 hook bottom %.4f, hinge axis %.4f", hookBottom, hinge.Y))
-			expect(math.abs(hookBottom - hinge.Y) < 1e-9).to.equal(true)
+			expect(math.abs(hookBottom - hinge.Y) < 1e-6).to.equal(true)
 		end)
 
 		it("puts the flat bars UNDER the bore instead of inside the tubes", function()
@@ -429,7 +432,7 @@ return function()
 			local tubeBottom = tube.offset.Position.Y - tube.size.Y / 2
 			local barsTop = bars.offset.Position.Y + bars.size.Y / 2
 			TestKit.note(string.format("task100 flat bars top %.4f, tubes start %.4f", barsTop, tubeBottom))
-			expect(barsTop <= tubeBottom + 1e-9).to.equal(true)
+			expect(barsTop <= tubeBottom + 1e-6).to.equal(true)
 		end)
 
 		it("gives the forend a round, tapering splinter and a place for a mesh to land", function()
@@ -457,7 +460,7 @@ return function()
 			expect(body.woodOffset).to.be.ok()
 			expect((body.woodOffset :: CFrame).Rotation).to.equal(CFrame.identity)
 			local wanted = Gun.WOOD_LENGTH_STUDS[Gun.FOREND_NAME]
-			expect(math.abs(wanted - (body.size.X + tip.size.X)) < 1e-9).to.equal(true)
+			expect(math.abs(wanted - (body.size.X + tip.size.X)) < 1e-6).to.equal(true)
 		end)
 
 		it("costs the budget the note states, so growth is a decision", function()
