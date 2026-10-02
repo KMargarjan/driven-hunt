@@ -23,6 +23,7 @@
 -- Note: docs/research/2026-10-01-exact-metal-gun.md (why the gun stopped being one AI mesh)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
+local StarterPlayer = game:GetService("StarterPlayer")
 
 local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
@@ -30,6 +31,10 @@ local Poses = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+-- THE CAMERA'S OWN NUMBERS, not a copy of them: the sleeve is drawn by `Camera.Viewmodel` from
+-- `Camera.Config`, and the bound below is only worth anything if it reads the shipped values.
+local CameraConfig =
+	require(StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera"):WaitForChild("Config"))
 
 local CONFIG = Shotgun.CONFIG
 
@@ -459,6 +464,49 @@ return function()
 			-- ...and the two folders they are published into are different, or one pair overwrites
 			-- the other on the client.
 			expect(HandAssets.NEW_GUN_FOLDER_NAME).never.to.equal(HandAssets.FOLDER_NAME)
+		end)
+
+		it("starts each gun's sleeve INSIDE the glove it belongs to", function()
+			-- ROUND 1'S NOTE, MADE INTO A BOUND. `Camera.Viewmodel.poseHands` places the sleeve at
+			-- `hand.Size.X / 2 + sleeve.Size.X / 2 - overlap` back along the hand's own axis: if the
+			-- overlap ever exceeds half the hand, the cylinder's near end comes out through the
+			-- fingers instead of starting inside the cuff. Model B's glove has 0.015 studs of margin
+			-- and nothing was asserting it, so the next size tweak would have shown it on screen.
+			--
+			-- IT IS A SERVER CASE because the sizes are the manifest's and the numbers are
+			-- `Camera.Config`'s, and both are readable here. The client cannot see the manifest, and
+			-- the published Instances have not landed by the time its specs run.
+			for _, case in ipairs({
+				{
+					name = "old gun",
+					key = Assets.KEYS.handRight,
+					overlap = CameraConfig.SLEEVE_OVERLAP_STUDS,
+					length = CameraConfig.SLEEVE_LENGTH_STUDS,
+				},
+				{
+					name = "model B",
+					key = Assets.KEYS.gunHandRight,
+					overlap = CameraConfig.SLEEVE_OVERLAP_NEW_GUN_STUDS,
+					length = CameraConfig.SLEEVE_LENGTH_NEW_GUN_STUDS,
+				},
+			}) do
+				local hand = Assets.byKey(case.key)
+				expect(hand).to.be.ok()
+				local halfHand = hand.sizeStuds.X / 2
+				TestKit.note(
+					string.format(
+						"task106 %s: overlap %.3f against half a hand %.3f, sleeve %.2f long",
+						case.name,
+						case.overlap,
+						halfHand,
+						case.length
+					)
+				)
+				expect(case.overlap < halfHand).to.equal(true)
+				-- ...and the sleeve is longer than the hand it joins, which is the claim that its far
+				-- end is behind the eye rather than beside the cuff.
+				expect(case.length > hand.sizeStuds.X).to.equal(true)
+			end
 		end)
 
 		it("keeps the old gun's own poses, measured for the old gun's own gloves", function()
