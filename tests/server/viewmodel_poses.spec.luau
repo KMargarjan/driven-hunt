@@ -269,9 +269,15 @@ return function()
 			expect(classic.HAND_LEFT_POS_STUDS).never.to.equal(fresh.HAND_LEFT_POS_STUDS)
 			expect(classic.POSES.carry).to.equal(Data.DATA.carry)
 			expect(fresh.POSES.carry).to.equal(Data.DATA.newGun.carry)
-			-- ...and the swing's timings and the recoil spring are the player's, not the gun's.
+			-- ...and the swing's timings are the player's, not the gun's.
 			expect(classic.AIM_RAISE_SECONDS).to.equal(fresh.AIM_RAISE_SECONDS)
-			expect(classic.RECOIL_GUN_PITCH_DEG).to.equal(fresh.RECOIL_GUN_PITCH_DEG)
+			-- THE RECOIL IS THE GUN'S NOW (task 112), and it was the player's until then: Karen's
+			-- order was to finish the weapon, and model B kicks harder than the gun she has been
+			-- playing. `set.fire` is what makes that per gun, so the two must DIFFER here, and the
+			-- old gun's block is still the top-level one it always read.
+			expect(classic.RECOIL_GUN_PITCH_DEG).to.equal(Data.DATA.fire.gunPitchDeg)
+			expect(fresh.RECOIL_GUN_PITCH_DEG).to.equal(Data.DATA.newGun.fire.gunPitchDeg)
+			expect(classic.RECOIL_GUN_PITCH_DEG).never.to.equal(fresh.RECOIL_GUN_PITCH_DEG)
 			expect(fresh.POSES.raise).to.equal(Data.DATA.raise)
 		end)
 

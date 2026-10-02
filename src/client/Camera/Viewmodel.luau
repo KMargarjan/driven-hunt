@@ -1533,7 +1533,13 @@ local FLASH_NAME = "MuzzleFlash"
 function Viewmodel.flash(barrel: number?, config)
 	local made = model
 	local clone = made and made.PrimaryPart
-	if clone == nil or config == nil or config.FIRE == nil or config.FIRST_PERSON ~= true then
+	-- THE NEW GUN ONLY, AND SAID TWICE. The flag is the rule; the second half is that the OLD gun's
+	-- `fire` block carries no `flash` at all -- its cosmetics are `Weapon.Effects`' parts in the
+	-- world -- so this would have nothing to read even if it got here (the gate caught exactly that).
+	if clone == nil or config == nil or config.FIRST_PERSON ~= true or config.NEW_GUN ~= true then
+		return false
+	end
+	if config.FIRE == nil or config.FIRE.flash == nil or config.FIRE.smoke == nil then
 		return false
 	end
 	local at = Viewmodel.muzzle(barrel)
