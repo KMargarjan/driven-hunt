@@ -256,16 +256,23 @@ return function()
 				task.wait(0.3)
 				Camera.Viewmodel.clear()
 				local state = stateAtBlend(0)
-				-- NOT ONE YIELD FROM HERE DOWN, and that is the reason this case is shaped the way
-				-- it is. The player's own camera loop is running beside the spec and calls
-				-- `Viewmodel.setReload(nil)` on every frame it draws, so a `task.wait` long enough to
-				-- let a feed run would have the reload state cleared out from under it -- measured:
-				-- the first version waited half a feed and `FreshShell1` was gone. So the CLOCK is
-				-- left out of the measurement: the hand's own placement function is asked for the
-				-- feed points directly, and what is read off the drawn parts is what survives a
-				-- single frame.
+				-- ON ITS OWN CLOCK, which is round 1's finding (the case passed with the feature
+				-- deleted). Two things made that possible: the player's camera loop clears the reload
+				-- state on every frame it draws, so a spec that WAITS loses it, and a spec that does
+				-- not wait only ever sees weight 0. With `Viewmodel.setClock` the whole motion is
+				-- driven synchronously, at times this case chooses, and what is read is the DRAWN
+				-- left hand.
+				local fake = 1000.0
+				Camera.Viewmodel.setClock(function()
+					return fake
+				end)
 				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { true, false } })
-				Camera.Viewmodel.update(at, state, newGunPosedConfig)
+				local load = newGunPosedConfig.SHELL_LOAD
+				local function drawAt(when: number)
+					fake = 1000.0 + when
+					Camera.Viewmodel.update(at, state, newGunPosedConfig)
+				end
+				drawAt(0)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local function leftHand(): BasePart
 					for _, found in ipairs(clone:GetDescendants()) do
@@ -275,53 +282,66 @@ return function()
 					end
 					error("no left hand was drawn", 0)
 				end
+				local rest = (clone.CFrame * Camera.Mode.handOffsetAt("left", state, newGunPosedConfig)).Position
 
-				-- THE SHELL IS DRAWN, at the start of its feed, where `shellFeedAt` says.
+				-- AT THE FETCH POINT: the hand has LEFT the barrels and gone back toward the hunter,
+				-- which is Karen's "arm go up towards hunter" and the thing round 1 did not do.
+				drawAt(load.fetchSeconds)
+				local atFetch = leftHand().Position
+				-- ...and it is where the loading keyframe says, not approximately: the alignment is a
+				-- pure rotation about the glove's own centre, so the POSITION is the keyframe's.
+				local weight, frame = Camera.Viewmodel.loadingAt(newGunPosedConfig, fake)
+				-- > 0.99 rather than == 1: `fake` is a float sum, so `since` lands a part in 1e12
+				-- short of the segment's own length and the ramp has not quite closed.
+				expect(weight > 0.99).to.equal(true)
+				local wanted = clone.CFrame * (frame :: CFrame)
+				TestKit.note(
+					string.format("task111 fetch: hand %.3f studs from Karen's rest pose", (atFetch - rest).Magnitude)
+				)
+				expect((atFetch - rest).Magnitude > 0.3).to.equal(true)
+				expect((atFetch - wanted.Position).Magnitude < 1e-3).to.equal(true)
+
+				-- CARRYING: the shell is in the hand, so the drawn shell is a fixed short distance
+				-- from the drawn glove and nowhere near its chamber.
+				drawAt(load.fetchSeconds + load.carrySeconds / 2)
 				local fresh = clone:FindFirstChild("FreshShell1")
 				expect(fresh).to.be.ok()
-				local drawnShell = (fresh :: Model):GetPivot().Position
-				local saidShell = (clone.CFrame * Camera.Viewmodel.shellFeedAt(1, 0, newGunPosedConfig)).Position
+				local shellAt = (fresh :: Model):GetPivot().Position
+				local gap = (shellAt - leftHand().Position).Magnitude
+				local mouth = (clone.CFrame * Camera.Viewmodel.shellFeedAt(1, 1, newGunPosedConfig)).Position
 				TestKit.note(
 					string.format(
-						"task111 fresh shell is %.3f studs from where shellFeedAt puts it",
-						(drawnShell - saidShell).Magnitude
+						"task111 carrying: shell %.3f from the hand, %.3f from its chamber",
+						gap,
+						(shellAt - mouth).Magnitude
 					)
 				)
-				expect((drawnShell - saidShell).Magnitude < 0.05).to.equal(true)
+				expect(gap < 0.35).to.equal(true)
+				expect((shellAt - mouth).Magnitude > 0.2).to.equal(true)
 
-				-- AND THE HAND IS ON IT, AT EVERY POINT OF THE FEED, because both are placed from
-				-- that one function. Within a hand's own half-length at each end and in the middle.
-				for _, feedT in ipairs({ 0, 0.5, 1 }) do
-					local hand = Camera.Viewmodel.loadFrameAt(1, feedT, newGunPosedConfig).Position
-					local shell = Camera.Viewmodel.shellFeedAt(1, feedT, newGunPosedConfig).Position
-					expect((hand - shell).Magnitude < 0.45).to.equal(true)
-				end
-				-- ...and at the end of the feed the shell it was pushing is at the chamber mouth,
-				-- which is task 107's arithmetic and is not touched by this task.
-				local seated = Camera.Viewmodel.shellFeedAt(1, 1, newGunPosedConfig).Position
-				local mouth = (Gun.chamber(1, Shotgun.CONFIG) * CFrame.new(0, 0, -0.1)).Position
+				-- SEATED: the hand has put it in, and the shell is at the chamber mouth again.
+				drawAt(load.fetchSeconds + load.carrySeconds + load.seatSeconds)
+				local seatedShell = ((clone:FindFirstChild("FreshShell1") :: Model):GetPivot()).Position
 				TestKit.note(
 					string.format(
-						"task111 seated shell is %.3f studs from the chamber mouth",
-						(seated - mouth).Magnitude
+						"task111 seated: shell %.3f studs from the chamber mouth",
+						(seatedShell - mouth).Magnitude
 					)
 				)
-				expect((seated - mouth).Magnitude < 0.2).to.equal(true)
+				expect((seatedShell - mouth).Magnitude < 0.25).to.equal(true)
 
-				-- THE RIGHT HAND NEVER LEAVES THE GRIP while any of this happens.
+				-- AND BACK: after the return the hand is bit-for-bit Karen's own tuned pose again.
+				drawAt(load.fetchSeconds + load.carrySeconds + load.seatSeconds + load.returnSeconds + 0.01)
+				expect(Camera.Viewmodel.loading(newGunPosedConfig)).to.equal(0)
+				expect((leftHand().Position - rest).Magnitude < 1e-3).to.equal(true)
+
+				-- THE RIGHT HAND NEVER LEFT THE GRIP through any of it.
 				local right = clone:FindFirstChild(HandAssets.RIGHT) :: BasePart
 				local grip = (clone.CFrame * Camera.Mode.handOffsetAt("right", state, newGunPosedConfig)).Position
 				expect((right.Position - grip).Magnitude < 1e-3).to.equal(true)
-
-				-- AND WITH THE GUN SHUT THE LEFT HAND IS BIT-FOR-BIT KAREN'S OWN POSE: the loading
-				-- move is weight 0 then, so her numbers are what is drawn.
-				Camera.Viewmodel.setReload(nil)
-				Camera.Viewmodel.update(at, state, newGunPosedConfig)
-				expect(Camera.Viewmodel.loading(newGunPosedConfig)).to.equal(0)
-				local rest = (clone.CFrame * Camera.Mode.handOffsetAt("left", state, newGunPosedConfig)).Position
-				expect((leftHand().Position - rest).Magnitude < 1e-3).to.equal(true)
 			end)
 			Camera.Viewmodel.setReload(nil)
+			Camera.Viewmodel.setClock(nil)
 			Camera.Viewmodel.clear()
 			Camera.Viewmodel.setHandTemplates(liveHands)
 			Camera.Viewmodel.setSource(live)

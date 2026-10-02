@@ -190,12 +190,51 @@
         }
       },
       "load": {
-        "behindStuds": 0.1,
-        "fingerDownDeg": 18.0,
-        "reachShare": 0.45,
-        "returnSeconds": 0.18,
-        "sideStuds": -0.3,
-        "upStuds": -0.17
+        "above": {
+          "pos": {
+            "x": -0.05,
+            "y": 0.34,
+            "z": 0.1
+          },
+          "rot": {
+            "pitch": -85.0,
+            "twist": 0.0,
+            "yaw": 0.0
+          }
+        },
+        "carrySeconds": 0.17,
+        "fetch": {
+          "pos": {
+            "x": -0.34,
+            "y": -0.62,
+            "z": 1.15
+          },
+          "rot": {
+            "pitch": -60.0,
+            "twist": 0.0,
+            "yaw": 40.0
+          }
+        },
+        "fetchSeconds": 0.15,
+        "returnSeconds": 0.12,
+        "seat": {
+          "pos": {
+            "x": -0.05,
+            "y": 0.1,
+            "z": 0.02
+          },
+          "rot": {
+            "pitch": -85.0,
+            "twist": 0.0,
+            "yaw": 0.0
+          }
+        },
+        "seatSeconds": 0.13,
+        "shellInHand": {
+          "x": 0.16,
+          "y": 0.0,
+          "z": 0.0
+        }
       },
       "openDeg": 35.0,
       "openSeconds": 0.22,
