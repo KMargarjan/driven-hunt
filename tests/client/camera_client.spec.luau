@@ -24,6 +24,9 @@ local Config = Camera.Config
 local Hud = require(scripts:WaitForChild("Hud"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+-- THE GUN THE VIEWMODEL BUILDS (task 114): its piece list, its sight and its bead colour, so this
+-- file asserts against the one definition rather than against numbers it repeats.
+local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 -- THE ON BRANCH BY PARAMETER (docs/design/feature-flags.md 13.3). The flag is born OFF, so the
@@ -459,175 +462,6 @@ return function()
 			expect(math.abs(Workspace.CurrentCamera.FieldOfView - Config.FOV_THIRD_DEG) < 0.01).to.equal(true)
 		end)
 
-		it("keeps the appearance of the gun it clones, and still strips everything else", function()
-			-- THE ONE CLIENT-VISIBLE CHANGE OF TASK 74, AND IT WAS ASSERTED BY NOTHING (review
-			-- round 1, finding 2). Karen's uploaded shotgun is a MeshPart carrying its PBR maps on a
-			-- SurfaceAppearance child; the clone's sweep used to destroy every child that was not an
-			-- Attachment, so the FIRST-PERSON gun would have lost its maps while the third-person
-			-- gun kept them -- visible only in ADS, only to the player holding it.
-			--
-			-- Driven by injection rather than by whatever the server happened to load, so it says
-			-- the same thing on a machine where the asset does not load at all.
-			-- A MeshPart, because Roblox refuses a SurfaceAppearance anywhere else ("SurfaceAppearance
-			-- can only be parented to MeshParts") -- and because that is what the real gun is.
-			local source = Instance.new("MeshPart")
-			source.Name = "Handle"
-			source.Size = Vector3.new(0.4, 0.5, 4.4)
-			source.Transparency = 1
-			local keep = {
-				Instance.new("SurfaceAppearance"),
-				Instance.new("Texture"),
-				Instance.new("Decal"),
-				Instance.new("Attachment"),
-			}
-			local strip = { Instance.new("Weld"), Instance.new("Sound"), Instance.new("Folder") }
-			for _, child in ipairs(keep) do
-				child.Parent = source
-			end
-			for _, child in ipairs(strip) do
-				child.Parent = source
-			end
-			-- a welded visible piece, so the clone has something to show as well as something to keep
-			local piece = Instance.new("MeshPart")
-			piece.Name = "BarrelLeft"
-			piece.Size = Vector3.new(0.17, 0.17, 2.7)
-			piece.Parent = source
-			local pieceSkin = Instance.new("SurfaceAppearance")
-			pieceSkin.Parent = piece
-
-			local live = Camera.Viewmodel.getSource()
-			Camera.Viewmodel.setSource(function()
-				return source
-			end)
-			-- THE SOURCE IS ASKED FOUR TIMES A SECOND, NOT EVERY FRAME (Viewmodel's own comment: the
-			-- pose is what has to be per frame). One update after setSource therefore rebuilds from
-			-- the PREVIOUS handle -- which is how the first version of this test read the live gun's
-			-- Handle and reported no SurfaceAppearance. Wait past the interval, then update.
-			task.wait(0.3)
-			-- CLEARED AFTER THE WAIT, NOT BEFORE IT (task 97). The live camera is first person now, so
-			-- its own render step rebuilds this clone during the wait -- from this spec's source, but
-			-- with the LIVE config, which adds the first-person bead and fill light. `update` then
-			-- finds a clone it considers current and does not rebuild, so the config passed here
-			-- would never reach `build` at all. Clearing with no yield after it makes the next
-			-- `update` the thing that builds.
-			Camera.Viewmodel.clear()
-			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), thirdPersonConfig)
-			local model = Camera.Viewmodel.current()
-			expect(model).to.be.ok()
-			local clone = (model :: Model).PrimaryPart :: BasePart
-			expect(clone).to.be.ok()
-
-			local kept = {}
-			for _, child in ipairs((clone :: Instance):GetChildren()) do
-				kept[child.ClassName] = (kept[child.ClassName] or 0) + 1
-			end
-			-- WHAT MUST SURVIVE: the appearance, and the attachment the muzzle rides on.
-			expect(kept.SurfaceAppearance).to.equal(1)
-			expect(kept.Texture).to.equal(1)
-			expect(kept.Decal).to.equal(1)
-			-- THE GUN'S OWN ATTACHMENT SURVIVES THE SWEEP -- it is what the muzzle and the sight ride
-			-- on -- and in THIS branch it is the only one there is.
-			expect(kept.Attachment).to.equal(1)
-
-			-- ------------------------------------------------ the first-person extras (round 2, f1)
-			-- THE FILL LIGHT IS FIRST PERSON'S, AND ONLY FIRST PERSON'S. The clone is drawn in both
-			-- branches -- with the flag off it is the ADS viewmodel Karen accepted on 2026-09-25 --
-			-- so a light added to every clone put a glow on the ground behind a third-person player,
-			-- in the camera task 89 promised not to touch. Both branches are driven here, from the
-			-- same handle, because "it is absent" means nothing unless the same code can produce it.
-			expect(clone:FindFirstChild("ViewmodelFillAt")).to.equal(nil)
-			expect(clone:FindFirstChildOfClass("PointLight")).to.equal(nil)
-			expect(clone:FindFirstChild("SightBead")).to.equal(nil)
-
-			-- WHAT MUST NOT: a weld would be simulated under the camera, a sound would play twice.
-			expect(kept.Weld).to.equal(nil)
-			expect(kept.Sound).to.equal(nil)
-			expect(kept.Folder).to.equal(nil)
-			-- ...and the appearance of a welded PIECE survives too, not just the root's.
-			local clonedPiece = (clone :: Instance):FindFirstChild("BarrelLeft")
-			expect(clonedPiece).to.be.ok()
-			expect((clonedPiece :: Instance):FindFirstChildOfClass("SurfaceAppearance")).to.be.ok()
-
-			-- ...AND THE SAME HANDLE, REBUILT FOR FIRST PERSON, DOES GET THEM. Last, because a rebuild
-			-- destroys the clone every assertion above reads: `clone` is a dead Instance after it.
-			Camera.Viewmodel.clear() -- a config change does not rebuild a cached clone; this does
-			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), firstPersonConfig)
-			local lit = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
-			local fill = lit:FindFirstChild("ViewmodelFillAt") :: Attachment
-			expect(fill).to.be.ok()
-			expect(fill:FindFirstChildOfClass("PointLight")).to.be.ok()
-			local fillLights = 0
-			for _, descendant in ipairs(lit:GetDescendants()) do
-				if descendant:IsA("PointLight") then
-					fillLights += 1
-				end
-			end
-			expect(fillLights).to.equal(1)
-
-			-- PUT THE LIVE SOURCE BACK. `CameraBoot` set it once at boot, so `setSource(nil)` would
-			-- not restore it -- it would end it, and every later frame of this session would draw no
-			-- viewmodel at all.
-			Camera.Viewmodel.clear()
-			Camera.Viewmodel.setSource(live)
-			source:Destroy()
-			expect(Camera.Viewmodel.getSource()).to.equal(live)
-		end)
-
-		it("rebuilds the clone when the source Handle's children change", function()
-			-- TASK 76. The server upgrades a gun that was handed out before the mesh loaded
-			-- (`Weapon.Hardware.upgrade`): the SAME Handle Instance loses ten welded parts and gains a
-			-- `Model`. `builtFrom ~= handle` therefore never fires, so without watching the children
-			-- the first-person gun would keep the parts fallback while the third-person gun -- the
-			-- Tool this is a clone of -- wore the mesh. Two looks for one gun, which is the thing
-			-- cloning the Handle exists to prevent.
-			local source = Instance.new("Part")
-			source.Name = "Handle"
-			source.Size = Vector3.new(0.4, 0.5, 4.4)
-			source.Transparency = 1
-			local piece = Instance.new("Part")
-			piece.Name = "BarrelLeft"
-			piece.Size = Vector3.new(0.17, 0.17, 2.7)
-			piece.Parent = source
-
-			local live = Camera.Viewmodel.getSource()
-			Camera.Viewmodel.setSource(function()
-				return source
-			end)
-			task.wait(0.3) -- the source is asked four times a second, not per frame
-			Camera.Viewmodel.clear() -- ...and the clone is built by THIS call; see the case above
-			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), thirdPersonConfig)
-			local before = Camera.Viewmodel.current()
-			expect(before).to.be.ok()
-			local firstClone = (before :: Model).PrimaryPart :: Instance
-			expect(firstClone:FindFirstChild("BarrelLeft")).to.be.ok()
-			expect(firstClone:FindFirstChild("Model")).to.equal(nil)
-
-			-- exactly what the upgrade does, in the same order: the mesh on, then the parts off
-			local mesh = Instance.new("MeshPart")
-			mesh.Name = "Model"
-			mesh.Size = Vector3.new(4.4, 0.69, 0.25)
-			mesh.Parent = source
-			piece:Destroy()
-			-- ChildAdded/ChildRemoved are DEFERRED, so the handlers have not run yet in this
-			-- resumption. Waiting is the only way to see them; the production loop is running the
-			-- whole time and leaves the model unparented at blend 0, so the update below is what
-			-- rebuilds and reparents it.
-			task.wait(0.1)
-
-			Camera.Viewmodel.update(CFrame.new(0, 10, 0), stateAtBlend(1), thirdPersonConfig)
-			local after = Camera.Viewmodel.current()
-			expect(after).to.be.ok()
-			expect(after).never.to.equal(before)
-			local clone = (after :: Model).PrimaryPart :: Instance
-			expect(clone:FindFirstChild("Model")).to.be.ok()
-			expect(clone:FindFirstChild("BarrelLeft")).to.equal(nil)
-
-			Camera.Viewmodel.clear()
-			Camera.Viewmodel.setSource(live)
-			source:Destroy()
-			expect(Camera.Viewmodel.getSource()).to.equal(live)
-		end)
-
 		it("shows a viewmodel that is really on screen, and unparents it afterwards", function()
 			if Role.isDriver() then
 				-- The viewmodel is a clone of the Tool's Handle (docs/design/camera.md section 7), so
@@ -739,28 +573,19 @@ return function()
 
 	-- ------------------------------------------------------------------ the bead (task 90, S2)
 	describe("the bead sight", function()
-		-- A gun of this spec's own, so the case says the same thing on a machine where the uploaded
-		-- asset never loads: the envelope, a `Sight` where `Shape.beadOffset` puts it, and a `Bead`
-		-- piece at the same point -- which is what the parts gun really is.
-		local SIGHT_LOCAL = CFrame.new(0, 0.255, -2.15)
+		-- A SOURCE HANDLE OF THIS SPEC'S OWN, AND NOTHING ELSE ON IT (task 114). The viewmodel BUILDS
+		-- the gun now -- `Gun`'s piece list plus model B's two hinge groups where the server has
+		-- published them -- so the Handle it is handed answers exactly one question: is the player
+		-- holding the gun. Its own `Sight` and its own `Bead` come from `Gun.sight` and
+		-- `Gun.beadOffset`, which is why this case says the same thing on a machine where the
+		-- uploaded asset never loads.
+		local SIGHT_LOCAL = Gun.sight(Shotgun.CONFIG)
 
-		local function gunWithSight(withBead: boolean): BasePart
+		local function gunSource(): BasePart
 			local handle = Instance.new("MeshPart")
 			handle.Name = "Handle"
 			handle.Size = Shotgun.CONFIG.HANDLE_SIZE
 			handle.Transparency = 1
-			local sight = Instance.new("Attachment")
-			sight.Name = "Sight"
-			sight.CFrame = SIGHT_LOCAL
-			sight.Parent = handle
-			if withBead then
-				local bead = Instance.new("Part")
-				bead.Name = "Bead"
-				bead.Shape = Enum.PartType.Ball
-				bead.Size = Vector3.new(0.05, 0.05, 0.05)
-				bead.CFrame = handle.CFrame * SIGHT_LOCAL
-				bead.Parent = handle
-			end
 			return handle
 		end
 
@@ -773,7 +598,10 @@ return function()
 				return handle
 			end)
 			task.wait(0.3)
-			Camera.Viewmodel.clear() -- the clone is built inside `body`; see "keeps the appearance"
+			-- CLEARED WITH NO YIELD AFTER IT, so the `update` inside `body` is the call that builds
+			-- the gun: the live first-person render step would otherwise have built it already, from
+			-- this spec's source but with the LIVE config.
+			Camera.Viewmodel.clear()
 			local ok, why = pcall(body)
 			Camera.Viewmodel.clear()
 			Camera.Viewmodel.setSource(live)
@@ -783,11 +611,11 @@ return function()
 			end
 		end
 
-		it("keeps the pivot the pose assumes: the model's pivot IS the cloned Handle", function()
+		it("keeps the pivot the pose assumes: the model's pivot IS the Handle it builds", function()
 			-- `aimOffset` is arithmetic about the model's pivot, and it is only the Handle's CFrame
 			-- because `PrimaryPart` is set and `WorldPivot` is never written. An engine default this
 			-- design leans on is a test and not a hope (design section 5.5).
-			posed(gunWithSight(true), function()
+			posed(gunSource(), function()
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
 				local model = Camera.Viewmodel.current()
 				expect(model).to.be.ok()
@@ -810,7 +638,7 @@ return function()
 			-- NO YIELD between the pose and the measurement: the production render step re-poses the
 			-- viewmodel and moves the camera every frame, and a yield here would measure a pose this
 			-- case did not set.
-			posed(gunWithSight(true), function()
+			posed(gunSource(), function()
 				local cam = Workspace.CurrentCamera
 				local camCFrame = cam.CFrame
 				local state = stateAtBlend(1)
@@ -860,84 +688,65 @@ return function()
 						cam.FieldOfView
 					)
 				)
-				-- and the gun really did carry its own sight: nothing fell back
+				-- and the gun really did carry its own sight: nothing fell back. `Gun.sight` is the
+				-- one definition of where it is, and `buildNewGun` is what puts the attachment there.
 				expect(Camera.Viewmodel.sight()).to.equal(SIGHT_LOCAL)
 			end)
 		end)
 
-		it("draws a bead when the gun has none, and leaves the parts gun's own alone", function()
-			-- Karen, 2026-09-27: "we are missing front knob or how it calls where you aim and follow
-			-- animal with that point". The uploaded gun is ONE MeshPart with a painted bead a few
-			-- pixels across; this is the mark that replaces it, and it is drawn at the very
-			-- attachment the pose lines up -- so the thing a player follows the animal with IS the
-			-- thing the geometry aims.
-			posed(gunWithSight(false), function()
+		it("carries ONE bead of its own, on the rib, and the gun's own light", function()
+			-- KAREN, 2026-09-27: "we are missing front knob or how it calls where you aim and follow
+			-- animal with that point".
+			--
+			-- IT IS THE GUN'S OWN PIECE SINCE TASK 114, and that is the whole of this case's history.
+			-- The gun used to be a CLONE of the Tool's Handle -- one MeshPart with a bead painted a
+			-- few pixels across -- so the viewmodel DREW one, `SightBead`, at the `Sight` attachment
+			-- when the clone had none. The built gun carries a real `Bead` at exactly
+			-- `Gun.beadOffset`, which is the same expression `Gun.sight` answers with, so the mark a
+			-- player follows the animal with and the point the geometry aims are one Instance.
+			posed(gunSource(), function()
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
 				local model = Camera.Viewmodel.current()
 				expect(model).to.be.ok()
 				local clone = (model :: Model).PrimaryPart :: BasePart
-				local marker = clone:FindFirstChild("SightBead") :: BasePart
-				expect(marker).to.be.ok()
-				expect(marker.CanQuery).to.equal(false)
-				expect(marker.CanCollide).to.equal(false)
-				expect(marker.Anchored).to.equal(true)
-				-- WITHIN A FLOAT, NOT EQUAL TO ONE. `BasePart.Size` is stored as float32, so the
-				-- config's 0.055 comes back as 0.054999999701976776 -- measured, in the first
-				-- two-player run of this task. The claim is the size the config asks for, and a
-				-- round trip through the engine's own precision is not a difference.
-				expect(math.abs(marker.Size.X - Config.BEAD_MARKER_STUDS) < 1e-4).to.equal(true)
-				expect(marker.Color).to.equal(Config.BEAD_MARKER_COLOR)
-				-- ON the sight, not near it: within a tenth of a bead of the attachment.
+				-- ONE BEAD, NEVER TWO, and no drawn marker left anywhere: `SightBead` was the name
+				-- the drawn one carried, and nothing writes it any more.
+				local beads = 0
+				for _, found in ipairs(clone:GetDescendants()) do
+					if found:IsA("BasePart") and found.Name == "Bead" then
+						beads += 1
+					end
+					expect(found.Name).never.to.equal("SightBead")
+				end
+				expect(beads).to.equal(1)
+				local bead = (clone:FindFirstChild("Barrels") :: BasePart):FindFirstChild("Bead") :: BasePart
+				expect(bead).to.be.ok()
+				expect(bead.CanQuery).to.equal(false)
+				expect(bead.CanCollide).to.equal(false)
+				expect(bead.Anchored).to.equal(true)
+				-- IT IS METAL AND NOT A RED DOT (task 92). Karen, after playing S2: "that red dot is
+				-- not realistic, we need to improve what actually is on Beretta Parallelo" -- and
+				-- what a 486 Parallelo carries is a small brass ball on the rib. `Gun.LOOK.bead` is
+				-- the one definition of its colour, and the piece really wears it.
+				expect(bead.Material).to.equal(Enum.Material.Metal)
+				expect(bead.Color).to.equal(Gun.LOOK.bead)
+				-- ON THE SIGHT, not near it: the attachment the aimed pose lines up with the view
+				-- axis is at the same point, within a thousandth of a stud.
 				local sight = clone:FindFirstChild("Sight") :: Attachment
-				expect((marker.Position - sight.WorldPosition).Magnitude < 1e-3).to.equal(true)
-			end)
-
-			-- ...and the OFF BRANCH gets no drawn bead at all (round 2, finding 1): its sight picture
-			-- is the framing Karen accepted for the shoulder camera, not a bead on the view axis.
-			posed(gunWithSight(false), function()
-				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), thirdPersonConfig)
-				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
-				expect(clone:FindFirstChild("SightBead")).to.equal(nil)
-			end)
-
-			-- ...and a gun that brought its own bead gets nothing added: one bead, never two.
-			posed(gunWithSight(true), function()
-				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
-				local model = Camera.Viewmodel.current()
-				expect(model).to.be.ok()
-				local clone = (model :: Model).PrimaryPart :: BasePart
-				expect(clone:FindFirstChild("SightBead")).to.equal(nil)
-				expect(clone:FindFirstChild("Bead")).to.be.ok()
-			end)
-
-			-- IT IS A METAL BEAD, NOT A RED DOT (task 92). Karen, after playing S2: "that red dot is
-			-- not realistic, we need to improve what actually is on Beretta Parallelo" -- and what a
-			-- 486 Parallelo carries is a small BRASS BALL on the rib. So the assertion is brass and
-			-- metal: warm (red above green above blue), not saturated like the dot it replaces, and a
-			-- material that is not its own light source. It is still deliberately NOT
-			-- `Shotgun.CONFIG.LOOK.bead`: that off-white is the parts gun's own bead, a piece of the
-			-- weapon other players see, while this is the aiming mark the camera draws for one player.
-			local brass = Config.BEAD_MARKER_COLOR
-			expect(brass.R > brass.G and brass.G > brass.B).to.equal(true)
-			expect(brass.B * 255 > 40).to.equal(true) -- brass, not a red LED: blue is present
-			expect(brass.R * 255 < 240).to.equal(true) -- and it is metal, not a glowing dot
-			expect(Config.BEAD_MARKER_MATERIAL).to.equal(Enum.Material.Metal)
-			expect(brass).never.to.equal(Shotgun.CONFIG.LOOK.bead)
-			-- ...and the drawn bead really wears both, or the config rows above are a description of
-			-- something nobody applied.
-			posed(gunWithSight(false), function()
-				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
-				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
-				local marker = clone:FindFirstChild("SightBead") :: BasePart
-				expect(marker.Material).to.equal(Enum.Material.Metal)
-				expect(marker.Color).to.equal(Config.BEAD_MARKER_COLOR)
+				expect((bead.Position - sight.WorldPosition).Magnitude < 1e-3).to.equal(true)
+				TestKit.note(
+					string.format(
+						"task114 the bead is the gun's own piece, %.4f studs from the Sight",
+						(bead.Position - sight.WorldPosition).Magnitude
+					)
+				)
 			end)
 
 			-- THE GUN CARRIES ITS OWN LIGHT (task 92). Karen: "Weapon color we need to improve and
 			-- style now feels a bit broken, it has to be smooth and nice." A first-person gun lit by
 			-- the sun alone is a near-black silhouette, so the viewmodel adds one PointLight of its
 			-- own -- inside the camera, so it lights the gun and nothing a player could point at.
-			posed(gunWithSight(false), function()
+			posed(gunSource(), function()
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local at = clone:FindFirstChild("ViewmodelFillAt") :: Attachment
@@ -1071,8 +880,9 @@ return function()
 				-- swing, so 0.1 is still 350 times smaller than the failure it catches.
 				expect(restAngle < 0.1).to.equal(true)
 				-- WHERE THE BEAD SITS WITH THE GUN SHUT, and whose it is: the barrels'. Both are read
-				-- here so the open case can say it MOVED and that it moved WITH them.
-				local shutBead = cloned:FindFirstChild("SightBead") :: BasePart
+				-- here so the open case can say it MOVED and that it moved WITH them. It is the gun's
+				-- own `Bead` piece since task 114; the drawn `SightBead` went with the cloned gun.
+				local shutBead = cloned:FindFirstChild("Bead") :: BasePart
 				expect(shutBead).to.be.ok()
 				expect(shutBead.Parent).to.equal(cloned)
 				local openBeadRest = shutBead.Position
@@ -1100,7 +910,7 @@ return function()
 				expect(cloned.CFrame.LookVector.Y < clone.CFrame.LookVector.Y).to.equal(true) -- muzzle DOWN
 				-- THE BEAD TRAVELS WITH THE BARRELS (round 2). A bead is a sight on the rib: with the
 				-- gun open it belongs down at the muzzle, not floating where the muzzle used to be.
-				local marker = cloned:FindFirstChild("SightBead") :: BasePart
+				local marker = cloned:FindFirstChild("Bead") :: BasePart
 				expect(marker).to.be.ok()
 				expect((marker.Position - openBeadRest).Magnitude > 0.2).to.equal(true)
 				-- ...and it is still in the SAME place on the barrels, which is what makes it a

@@ -921,7 +921,7 @@ local WANTED = {
 local bead, barrels = nil, nil
 for _, found in made:GetDescendants() do
     if found:IsA("BasePart") then
-        if found.Name == "SightBead" or found.Name == "Bead" then
+        if found.Name == "Bead" then
             bead = bead or found
         elseif found.Name == "Barrels" then
             barrels = found

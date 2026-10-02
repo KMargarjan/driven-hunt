@@ -10,12 +10,9 @@
 -- range is just a loud one. Other players hearing each other's shots is a server-side system that
 -- does not exist yet and is not this task.
 --
--- BEHIND `NEW_GUN`, like the rest of task 112: `play` refuses unless the config says so, so the gun
--- Karen has been playing makes exactly the noises it always has (none).
---
 -- THE IDS ARE CONFIGURATION AND THE VOLUMES ARE DATA. `Camera.Config.SOUND_*` holds the asset ids,
--- because an id is not a number and `tools/pose.py` tunes numbers; `newGun.fire.volume` holds the
--- three volumes, so the Director can balance them live while listening. AN EMPTY ID PLAYS NOTHING
+-- because an id is not a number and `tools/pose.py` tunes numbers; `fire.volume` in `poses.json`
+-- holds the three volumes, so the Director can balance them live while listening. AN EMPTY ID PLAYS NOTHING
 -- and is not an error: see `Config.SOUND_SHOT_ID`.
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
@@ -34,11 +31,11 @@ function Sound.resetStats()
 end
 
 local function play(kind: string, config, id: string?, volume: number?): boolean
-	-- BEHIND `NEW_GUN` WITH THE REST OF TASK 112 (round 1, finding 3). Without this the two clicks
-	-- shipped ON, unflagged, on the gun Karen plays -- a feel-critical path that CLAUDE.md says is
-	-- born OFF -- and at a volume no data could reach, because only `newGun.fire` carries a `volume`
-	-- block. One guard fixes both: the old gun is silent exactly as it has always been.
-	if config == nil or config.NEW_GUN ~= true then
+	-- NO CONFIG, NO SOUND. Task 112 asked the gun flag here as well, which kept the two clicks
+	-- off the gun Karen was playing while it was still flagged; the flag retired with that gun in
+	-- task 114, and what is left is the honest check -- a caller with no resolved config has no
+	-- volumes either, because the three of them are `fire.volume` in `poses.json`.
+	if config == nil then
 		return false
 	end
 	played[kind] = (played[kind] or 0) + 1

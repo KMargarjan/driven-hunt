@@ -85,18 +85,10 @@ local folder = Instance.new("Folder")
 folder.Name = HandAssets.FOLDER_NAME
 folder.Parent = ReplicatedStorage
 
--- MODEL B'S OWN PAIR, in its own folder (task 106). Created BEFORE the load for the same reason the
--- first one is: the client's lookup must resolve to "nothing published" rather than to "not there
--- yet, forever".
-local newGunFolder = Instance.new("Folder")
-newGunFolder.Name = HandAssets.NEW_GUN_FOLDER_NAME
-newGunFolder.Parent = ReplicatedStorage
-
--- MODEL B'S GUN PIECES (task 105; task 99's wood before it), parked in their own folder for the same reason the hands have one:
--- `InsertService:LoadAsset` is server-only, so the server loads and publishes and
--- `Camera.Viewmodel` clones. A SEPARATE folder because they are a different thing with a
--- different owner -- `Gun` names these, `HandAssets` names those -- and because a client that
--- draws the old gun has no use for either.
+-- MODEL B'S GUN PIECES (task 105; task 99's wood before it), parked in their own folder for the same
+-- reason the hands have one: `InsertService:LoadAsset` is server-only, so the server loads and
+-- publishes and `Camera.Viewmodel` clones. A SEPARATE folder because they are a different thing with
+-- a different owner -- `Gun` names these, `HandAssets` names those.
 local gunFolder = Instance.new("Folder")
 gunFolder.Name = Gun.FOLDER_NAME
 gunFolder.Parent = ReplicatedStorage
@@ -114,10 +106,9 @@ for _, loaded in ipairs(reports) do
 	end
 end
 
--- TWO PAIRS, TWO FOLDERS, ONE LOOP (task 106). The OLD gun keeps the pair the TOP-LEVEL poses in
--- `poses.json` were measured against; model B gets Karen's new pair, which HOLDS something. Same
--- published NAMES in both folders, so the only place that has to know which gun is being drawn is
--- `Camera.Viewmodel.handTemplate` -- everything downstream still looks for `HandRight`/`HandLeft`.
+-- ONE PAIR, ONE FOLDER (task 114). Task 106 published two pairs into two folders because there were
+-- two guns; Karen's gun is the only gun and her gloves are the only gloves, so this publishes one
+-- pair under the names everything downstream looks for -- `HandRight` and `HandLeft`.
 local published = 0
 local function publishHands(into: Folder, keys: { [string]: string }): number
 	local count = 0
@@ -150,8 +141,8 @@ local function publishHands(into: Folder, keys: { [string]: string }): number
 	return count
 end
 
-published = publishHands(folder, HandAssets.KEY_OF) + publishHands(newGunFolder, HandAssets.NEW_GUN_KEY_OF)
-print(string.format("[ViewmodelAssets] published %d of 4 hand template(s), two pairs", published))
+published = publishHands(folder, HandAssets.KEY_OF)
+print(string.format("[ViewmodelAssets] published %d of 2 hand template(s)", published))
 
 -- MODEL B, by the same three rules as the hands: the CONSUMER sets the size (from the row),
 -- everything says scenery, and a piece that did not load is simply absent -- `Camera.Viewmodel`

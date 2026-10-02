@@ -328,6 +328,14 @@ return function()
 			-- only thing that differs between them.
 			local Effects = Weapon.Effects
 			local live = Effects.getMuzzleProvider()
+			-- NOBODY DRAWS THE FIRST-PERSON FLASH FOR THE LENGTH OF THIS CASE (task 114). `Effects`
+			-- asks the viewmodel first and skips its own pair when the answer is yes (task 112), and
+			-- since the gun flag retired the LIVE answer for my own shot is yes whenever a viewmodel
+			-- is on screen -- which depends on whether this client happens to be a shooter holding
+			-- the gun. What this case is about is WHOSE MUZZLE the parts come out of, so the other
+			-- owner is stood down and put back. The skip itself is asserted in `gun_client.spec`.
+			local liveFlash = Effects.getViewmodelFlash()
+			Effects.setViewmodelFlash(nil)
 			local worldFrame = CFrame.new(10, 20, 30) * CFrame.Angles(0, math.pi / 3, 0)
 			local drawn = CFrame.new(-5, 2, -5)
 			local askedFor: { number? } = {}
@@ -416,8 +424,9 @@ return function()
 				child:Destroy()
 			end
 			Effects.setMuzzleProvider(live)
-			-- THE LIVE WIRING IS PUT BACK, and it was there to begin with: `CameraBoot` installs it,
-			-- so a nil here would mean the composition root never ran.
+			Effects.setViewmodelFlash(liveFlash)
+			-- THE LIVE WIRING IS PUT BACK -- BOTH SEAMS -- and both were there to begin with:
+			-- `CameraBoot` installs them, so a nil here would mean the composition root never ran.
 			--
 			-- WHAT IT ANSWERS IS THE BRANCH'S OWN TRUTH. In third person the player is looking at
 			-- their character holding the real gun, so the provider answers nil and the flash is
@@ -425,6 +434,7 @@ return function()
 			-- answers the DRAWN gun's muzzle whenever there is a drawn gun, and nil when there is
 			-- none (a driver holds no Tool, so there is no viewmodel to ask).
 			expect(Effects.getMuzzleProvider()).to.be.ok()
+			expect(Effects.getViewmodelFlash()).to.be.ok()
 			--
 			-- THE CLAIM IS THAT THE PROVIDER IS THE CAMERA'S OWN ANSWER, which is what the composition
 			-- root wired, and it is one claim in both branches: third person answers nil (the player

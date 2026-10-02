@@ -162,20 +162,20 @@ return function()
 			local viewmodel = Assets.keysFor("viewmodel")
 			table.sort(viewmodel)
 			TestKit.note(string.format("task106 viewmodel keys: [%s]", table.concat(viewmodel, ", ")))
-			-- SEVEN SINCE TASK 106: model B's two hinge groups, its shell, its OWN pair of gloves,
-			-- and the OLD gun's pair, which the flag-OFF default build still draws. The walnut stock
-			-- that was here since task 99 is RETIRED rather than deleted -- model B's frame group is
-			-- a stock -- so its row and its id are still in the table and this scope no longer asks
-			-- for it.
-			expect(#viewmodel).to.equal(7)
+			-- FIVE SINCE TASK 114: model B's two hinge groups, its shell, and the pair of gloves Karen
+			-- made to hold it. Three rows that were in this scope are RETIRED rather than deleted --
+			-- the walnut stock (task 105: model B's frame group IS a stock) and the v1 pair of gloves
+			-- (task 114: the gun whose poses were measured at them is gone) -- so their rows and their
+			-- ids are still in the table and this scope no longer asks for them.
+			expect(#viewmodel).to.equal(5)
 			expect(viewmodel[1]).to.equal(Assets.KEYS.gunBarrels)
 			expect(viewmodel[2]).to.equal(Assets.KEYS.gunFrame)
 			expect(viewmodel[3]).to.equal(Assets.KEYS.gunHandLeft)
 			expect(viewmodel[4]).to.equal(Assets.KEYS.gunHandRight)
 			expect(viewmodel[5]).to.equal(Assets.KEYS.gunShell)
-			expect(viewmodel[6]).to.equal(Assets.KEYS.handLeft)
-			expect(viewmodel[7]).to.equal(Assets.KEYS.handRight)
-			expect(Assets.byKey(Assets.KEYS.gunStock).scope).to.equal("retired")
+			for _, retired in ipairs({ Assets.KEYS.gunStock, Assets.KEYS.handLeft, Assets.KEYS.handRight }) do
+				expect(Assets.byKey(retired).scope).to.equal("retired")
+			end
 			for _, key in ipairs(Assets.keysFor("runtime")) do
 				expect(key ~= Assets.KEYS.handLeft and key ~= Assets.KEYS.handRight).to.equal(true)
 				expect(key ~= Assets.KEYS.gunHandLeft and key ~= Assets.KEYS.gunHandRight).to.equal(true)
@@ -193,13 +193,14 @@ return function()
 				local longest = math.max(row.sizeStuds.X, row.sizeStuds.Y, row.sizeStuds.Z)
 				TestKit.note(string.format("task106 %s: %.2f studs long, %d tris", key, longest, row.trisDeclared))
 			end
-			-- A HAND IS A HAND'S SIZE, and since task 106 there are TWO pairs with two dials: the
-			-- old gun's gloves at 1.27 studs -- what its top-level poses were measured against -- and
-			-- model B's at 0.669, which is a fist closed on its stock wrist. Both must stay well
-			-- under the gun's own length, or it is an arm across the screen. THE HANDS ARE POSED BY
-			-- THE CAMERA, so `rotationDeg` is zero on all four and nothing reads it -- asserted
-			-- rather than left alone, because a non-zero rotation there would be a number somebody
-			-- wrote expecting it to do something.
+			-- A HAND IS A HAND'S SIZE. There are two pairs of rows with two dials -- the retired pair
+			-- at 1.27 studs, which is what the retired gun's poses were measured against, and the pair
+			-- the game draws at 0.669, which is a fist closed on model B's stock wrist -- and both
+			-- stay well under the gun's own length, or it is an arm across the screen. The retired
+			-- rows are checked too, because rule 7 keeps them and a row nobody checks is a row that
+			-- can quietly change. THE HANDS ARE POSED BY THE CAMERA, so `rotationDeg` is zero on all
+			-- four and nothing reads it -- asserted rather than left alone, because a non-zero
+			-- rotation there would be a number somebody wrote expecting it to do something.
 			for _, pair in ipairs({
 				{ keys = { Assets.KEYS.handLeft, Assets.KEYS.handRight }, low = 1.2, high = 1.4 },
 				{ keys = { Assets.KEYS.gunHandLeft, Assets.KEYS.gunHandRight }, low = 0.4, high = 1.0 },

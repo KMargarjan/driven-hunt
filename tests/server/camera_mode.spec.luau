@@ -977,9 +977,10 @@ return function()
 		end)
 
 		it("falls back to the accepted framing when the gun carries no sight", function()
-			-- A DECISION, NOT AN ACCIDENT (design section 9.1 item 6): an old Handle or a mesh whose
-			-- row has no measurement yet still draws, at the framing Task 26/47 accepted, and
-			-- `Viewmodel.stats().sightMissing` counts it.
+			-- A DECISION, NOT AN ACCIDENT (design section 9.1 item 6): a gun with no `Sight` still
+			-- draws, at the framing Task 26/47 accepted, rather than being drawn nowhere. The gun
+			-- the viewmodel BUILDS always carries one (`Gun.sight`, task 114), so this is the
+			-- fallback for a caller that has no model on screen at all.
 			expect(Mode.aimOffset(nil, firstPerson)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
 			expect(Mode.aimOffset(nil, thirdPerson)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
 		end)

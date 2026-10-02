@@ -46,9 +46,8 @@
                                                       search the gun's six numbers in the RUNNING
                                                       session until what is drawn matches, then
                                                       print the values and capture one side-by-side.
-                                                      `<pose>` is the dotted prefix of a pose that
-                                                      has a `gun` block: `reload`, `newGun.reload`,
-                                                      `carry`, `newGun.carry`
+                                                      `<pose>` is the name of a pose that has a
+                                                      `gun` block: `carry` or `reload`
     python tools/pose.py play | stop                   start or end a SOLO Play session, which is the
                                                       one a capture can reach: Studio's two-player
                                                       session leaves its CLIENT processes unconnected
@@ -976,7 +975,7 @@ def run_edit(studio, what, client="client"):
         # this tool can read is the Barrels PART, which sits at its own rest offset from it -- 0.84
         # studs down the gun (2026-10-02). So the gap between them is calibrated off the LIVE
         # viewmodel, which is at the pose this tool already knows, and then taken off the rig.
-        was = effective_now["newGun"][pose][side]
+        was = effective_now[pose][side]
         posed = compose_hand((was["pos"]["x"], was["pos"]["y"], was["pos"]["z"]),
                              was["rot"]["yaw"], was["rot"]["pitch"], was["rot"]["twist"])
         align = align_of(axes[hand_name])
@@ -990,17 +989,17 @@ def run_edit(studio, what, client="client"):
             off_by = max(abs(a - b) for a, b in zip(gap, IDENTITY))
             if off_by > 0.02:
                 print(f"[pose] REFUSED: the drawn {side} glove is {off_by:.3f} from where "
-                      f"newGun.{pose}.{side} says it should be. Either the session is not holding "
+                      f"{pose}.{side} says it should be. Either the session is not holding "
                       "that pose, or this tool's arithmetic and the game's have drifted apart.")
                 return 2
-            print(f"[pose] the drawn {side} glove is where newGun.{pose}.{side} says, to {off_by:.4f}")
+            print(f"[pose] the drawn {side} glove is where {pose}.{side} says, to {off_by:.4f}")
         # WHAT KAREN MOVED IS THE DRAWN GLOVE, which is the pose offset TIMES the alignment
         # (`poseHands`). Taking both off again is what turns it back into a pose.
         base = mat_mul(mat_mul(mat_inverse(gap), components(got["rel"])), mat_inverse(align))
         pos, yaw, pitch, twist = decompose_hand(base)
         for path, value in (("pos.x", pos[0]), ("pos.y", pos[1]), ("pos.z", pos[2]),
                             ("rot.yaw", yaw), ("rot.pitch", pitch), ("rot.twist", twist)):
-            at = f"newGun.{pose}.{side}.{path}"
+            at = f"{pose}.{side}.{path}"
             # A GLOVE NOBODY MOVED MUST NOT CHANGE THE FILE. A CFrame is float32 all the way
             # through Studio and back, so an untouched hand came back as z = -0.0001 and a twist of
             # -0.0 (measured 2026-10-02): true noise, and a diff Karen would have to read after
@@ -1281,7 +1280,7 @@ def run_fit(studio, prefix, landmarks_path, evals, client, assets_dir, explicit_
     for leaf in FIT_VARS:
         if f"{prefix}.{leaf}" not in known:
             print(f"[pose] {prefix} has no {leaf}: fit works on a pose with a `gun` block "
-                  "(carry, reload, newGun.carry, newGun.reload). The aimed pose is solved from the "
+                  "(carry, reload). The aimed pose is solved from the "
                   "gun's own sight and has no x/y/z to search.")
             return 2
     hold = prefix.split(".")[-1]
@@ -1623,13 +1622,20 @@ def selftest():
                    "reload.openSeconds", "reload.openDeg", "reload.hingeStuds.z",
                    "reload.gun.rot.z", "reload.shells.feedFromStuds"):
         ok(f"{wanted} is a tunable path", wanted in paths, "missing from poses.json")
-    # THE SECOND GUN'S OWN SET (task 99): the Director tunes it live exactly like the first one, so
-    # every one of its paths has to be reachable or the whole point of the flag is lost.
-    for wanted in ("newGun.carry.gun.pos.x", "newGun.carry.left.pos.z", "newGun.aim.eyeReliefStuds",
-                   "newGun.reload.gun.rot.y", "newGun.aim.right.rot.twist"):
+    # ONE POSE SET SINCE TASK 114, and this is what says so: the second gun's `newGun.*` paths were
+    # tunable beside the first gun's while a feature flag chose between them, and that flag retired
+    # when Karen accepted model B. Its numbers moved UP to the paths checked above, byte-identical, so
+    # a `newGun.` prefix must now be refused like any other typo -- a Director who types the old path
+    # out of habit has to be told, not silently ignored.
+    for gone in ("newGun.carry.gun.pos.x", "newGun.aim.eyeReliefStuds", "newGun.reload.left.pos.z"):
+        ok(f"{gone} is no longer a path", gone not in paths, "poses.json still carries two pose sets")
+    ok("the left hand sits on this gun's own wood", data["carry"]["left"]["pos"]["z"] != 0,
+       repr(data["carry"]["left"]["pos"]))
+    # THE LOADING MOVE IS PART OF THE ONE RELOAD POSE (task 111, promoted in 114): it was
+    # `newGun.reload.load` and only one of the two guns had one.
+    for wanted in ("reload.load.fetchSeconds", "reload.load.above.pos.y", "reload.load.shellInHand.z",
+                   "fire.flash.seconds", "fire.smoke.riseStuds", "fire.volume.shot"):
         ok(f"{wanted} is a tunable path", wanted in paths, "missing from poses.json")
-    ok("the two guns are tuned apart", data["newGun"]["carry"]["left"]["pos"] != data["carry"]["left"]["pos"],
-       "the new gun's hands must sit on the new gun's own wood")
     ok("version is NOT tunable", "version" not in paths, "version must not be settable")
     ok("raise.easing is NOT tunable", "raise.easing" not in paths, "a string is not a number")
     ok("the file ships with no mid keyframes", data["raise"]["keyframes"] == [],
@@ -1650,7 +1656,8 @@ def selftest():
     for bad, why in (({"aim.cheeckDeg": 1.0}, "a typo'd path"),
                      ({"aim": 1.0}, "a path that is a whole pose"),
                      ({"raise.easing": 1.0}, "a path whose value is a string"),
-                     ({"version": 2}, "version"),
+                     ({"version": 3}, "version"),
+                     ({"newGun.carry.gun.pos.x": 0.1}, "a retired newGun path"),
                      ({"aim.eyeReliefStuds": "4.2"}, "a string value"),
                      ({"aim.eyeReliefStuds": True}, "a boolean value")):
         _, problems = apply_overrides(data, bad)
@@ -1845,7 +1852,7 @@ def selftest():
 
     # ...and the file the Director actually runs has more than the minimum.
     shipped, shipped_problem = read_landmark_file(
-        os.path.join(REPO, "tools", "landmarks", "newGun-reload.json"))
+        os.path.join(REPO, "tools", "landmarks", "reload.json"))
     ok("the shipped reload landmarks are usable", shipped is not None, repr(shipped_problem))
     ok("the shipped reload landmarks carry four on-screen marks",
        shipped is not None and len(shipped["marks"]) >= 4,
@@ -1865,7 +1872,7 @@ def selftest():
     worst = 0.0
     for pose in EDIT_POSES:
         for side, hand_name, _ in EDIT_HANDS:
-            entry = data["newGun"][pose][side]
+            entry = data[pose][side]
             pos = (entry["pos"]["x"], entry["pos"]["y"], entry["pos"]["z"])
             base = compose_hand(pos, entry["rot"]["yaw"], entry["rot"]["pitch"], entry["rot"]["twist"])
             # Exactly what the rig holds: the pose, times the alignment the drawn glove carries.
@@ -1886,14 +1893,14 @@ def selftest():
     moves = {}
     for pose in EDIT_POSES:
         for side, hand_name, _ in EDIT_HANDS:
-            entry = data["newGun"][pose][side]
+            entry = data[pose][side]
             pos = (entry["pos"]["x"], entry["pos"]["y"], entry["pos"]["z"])
             base = compose_hand(pos, entry["rot"]["yaw"], entry["rot"]["pitch"], entry["rot"]["twist"])
             drawn = mat_mul(base, align_of(axes[hand_name]))
             got, yaw, pitch, twist = decompose_hand(mat_mul(drawn, mat_inverse(align_of(axes[hand_name]))))
             for path, value in (("pos.x", got[0]), ("pos.y", got[1]), ("pos.z", got[2]),
                                 ("rot.yaw", yaw), ("rot.pitch", pitch), ("rot.twist", twist)):
-                moves[f"newGun.{pose}.{side}.{path}"] = round(value, 4)
+                moves[f"{pose}.{side}.{path}"] = round(value, 4)
     rebuilt, trouble = apply_overrides(rebuilt, moves)
     ok("the round trip writes no refused path", trouble == [], str(trouble))
     with open(POSES_FILE, encoding="utf-8") as handle:

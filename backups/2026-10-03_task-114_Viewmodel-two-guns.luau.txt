@@ -1,15 +1,10 @@
 --!strict
 -- Camera.Viewmodel: the only writer of the first-person weapon model under workspace.CurrentCamera.
 --
--- IT BUILDS THE GUN; IT NO LONGER CLONES THE TOOL'S HANDLE (task 114). Karen's model B is the only
--- first-person gun now -- the flag that chose between two guns retired when she accepted it -- so
--- the one build path is
--- `buildNewGun`, from `ReplicatedStorage.Gun`'s piece list and the two hinge-group meshes the server
--- publishes. The Tool's own Handle is still never touched: ServerScriptService.Weapon.Hardware stays
--- the only writer of Tool Instances (docs/design/shotgun.md section 3.1), the WORLD gun every other
--- player sees is unchanged, and the Handle is read here for exactly two things -- whether the player
--- is holding the gun at all, and when to rebuild. The model is local, unreplicated and built only
--- when that Handle changes identity, never per frame.
+-- It CLONES the Tool's Handle and never touches the original: ServerScriptService.Weapon.Hardware
+-- stays the only writer of Tool Instances (docs/design/shotgun.md section 3.1). The clone is local,
+-- unreplicated, and rebuilt only when the source part changes identity OR its children change --
+-- never per frame.
 --
 -- CanQuery = false on every part, and it is not optional: workspace.CurrentCamera is a child of
 -- Workspace, so a client raycast -- including this system's own occlusion cast -- can hit a part
@@ -26,10 +21,8 @@ local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Mode = require(script.Parent.Mode)
--- SHARED, AND ONLY FOR `Shotgun.CONFIG` -- the Handle's size, which is the envelope every pose and
--- the near-plane arithmetic are written against. `Shotgun.barrelMuzzleOffset` was read here too
--- until task 114, for the cloned gun's tubes; the WORLD gun still reads it, in
--- `ServerScriptService.Weapon.Hardware`. This module knows nothing about weapon STATE.
+-- SHARED, AND ONLY FOR THE GEOMETRY OF THE BARRELS (task 92): `Shotgun.barrelMuzzleOffset`. This
+-- module still knows nothing about weapon STATE -- it clones a Handle and poses it.
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- SHARED, AND ONLY FOR THE THREE NAMES the hands are published under (task 93). This module does not
 -- load them and does not know what an asset id is: the server does that and parks the templates
@@ -45,29 +38,33 @@ local source: (() -> BasePart?)? = nil
 local model: Model? = nil
 local builtFrom: BasePart? = nil
 
--- THE GUN GOES STALE WHEN ITS MESHES ARRIVE (task 99), and since task 114 that is the ONLY way it
--- can. While the gun was a clone of the Tool's Handle it also went stale when that Handle's children
--- changed -- `Weapon.Hardware.upgrade` swaps ten welded parts for a `Model` about a second into a
--- session -- and two watchers on the Handle said so. The gun is BUILT now and shares nothing with the
--- Handle's children, so what it waits for is its own two hinge-group meshes.
+-- THE CLONE GOES STALE WHEN THE SOURCE'S CHILDREN CHANGE, and since Task 76 that happens in a live
+-- game: the server upgrades a gun handed out before the mesh loaded (`Weapon.Hardware.upgrade`), so
+-- the Handle loses ten welded parts and gains a `Model`. Rebuilding only on `builtFrom ~= handle`
+-- would leave the FIRST-PERSON gun wearing the parts fallback while the third-person gun wore the
+-- mesh -- two looks for one gun, which is exactly what cloning the Handle exists to prevent.
 --
--- One flag, cleared when the rebuild happens.
+-- Watched rather than told: this file knows nothing about what the gun is made of, only that its
+-- clone is a copy of something that changed. One flag, cleared when the rebuild happens.
+local childWatchers: { RBXScriptConnection } = {}
 local stale = false
--- HOW MANY MESH PIECES THE GUN WAS BUILT WITH. MEASURED: the server loads Karen's model through
--- `InsertService` and publishes it about 1.6 s into a session, and the viewmodel has usually built
--- its gun before that -- so the first build takes the measured-box fallback and, with nothing to
--- make it stale, KEEPS it for the whole life of that model. The gun had plain boxes all session and
--- `stats().meshesDrawn` said 0. Counted rather than told: this module still knows nothing about
--- asset ids or load order.
+-- HOW MANY WOODEN PIECES THE CLONE WAS BUILT WITH (task 99), and it is the same staleness problem
+-- one layer over. MEASURED: the server loads Karen's stock through `InsertService` and publishes it
+-- about 1.6 s into a session, and the viewmodel has usually built its gun before that -- so the
+-- first build takes the exact-geometry fallback and, with nothing to make it stale, KEEPS it for the
+-- whole life of that clone. The gun had a plain stock all session and `stats().meshesDrawn` said 0.
+-- Counted rather than told: this module still knows nothing about asset ids or load order.
 local builtMeshes = -1
 
--- THE NAME THIS MODULE WRITES ON THE GUN IT BUILDS (task 90; one gun since task 114). `Sight` is
--- where `Mode.aimOffset` solves the aimed pose from, and `buildNewGun` adds it. The drawn `SightBead`
--- marker went with the cloned gun it existed for: model B carries its own `Bead` piece, on the rib,
--- at exactly `Gun.beadOffset`.
+-- THE NAMES THIS MODULE LOOKS FOR ON THE CLONE (task 90). `Sight` is written by
+-- `ServerScriptService.Weapon.Hardware` and comes across with the clone; `Bead` is the parts gun's
+-- own bright piece; `SightBead` is the one thing this module ADDS, and it adds it only when the gun
+-- it cloned has no bead of its own.
 local SIGHT_NAME = "Sight"
--- `Muzzle` is the second attachment `buildNewGun` adds, beside `Sight` (task 92): `Weapon.Effects`
--- draws the flash at it. `ViewmodelFill` is the one light this module adds.
+local BEAD_NAME = "Bead"
+local MARKER_NAME = "SightBead"
+-- `Muzzle` is written by `Weapon.Hardware` beside `Sight` and comes across with the clone (task 92);
+-- `ViewmodelFill` is the one light this module adds.
 local MUZZLE_NAME = "Muzzle"
 local FILL_NAME = "ViewmodelFill"
 -- THE PIECE THAT HINGES (task 96). `Weapon.Hardware` wears the gun as two welded meshes since the
@@ -76,8 +73,20 @@ local FILL_NAME = "ViewmodelFill"
 local BARRELS_NAME = "Barrels"
 local SPENT_NAME = "SpentShell"
 local FRESH_NAME = "FreshShell"
+-- THE SLEEVE (task 99): one olive cylinder per hand, on the hand's own long axis, running back
+-- past the near plane so the cuff's open end is never in the picture.
+local SLEEVE_NAME = "Sleeve"
+-- How far from the hand's centre, along whichever axis `poseHands` runs the arm down, one sleeve
+-- segment sits. Worked out once in `addHand` from that glove's own size (round 2: the pose frame's
+-- -X for the old gun, the direction of that shoulder for the new one).
+local SLEEVE_BACK_ATTRIBUTE = "DHSleeveBack"
+-- WHICH GUN THIS MODEL IS, written on the model itself (task 99, round 2). `Viewmodel.muzzle`
+-- has to add the right gun's own barrel offset and it is called with no config -- so it asks the
+-- thing that was built rather than a caller who could pass the wrong one.
+local NEW_GUN_ATTRIBUTE = "DHNewGun"
 
 local stats = {
+	sightMissing = 0,
 	rebuilds = 0,
 	parts = 0,
 	breaksDrawn = 0,
@@ -184,7 +193,7 @@ function Viewmodel.getHandTemplates(): ((string) -> BasePart?)?
 	return handTemplates
 end
 
--- Nil unless the viewmodel is actually in the camera (design section 9.2 item 6). The model is kept
+-- Nil unless the viewmodel is actually in the camera (design section 9.2 item 6). The clone is kept
 -- behind this so it is not rebuilt every time the player dips out of aim, but "is there a viewmodel"
 -- means "is one on screen".
 function Viewmodel.current(): Model?
@@ -201,14 +210,17 @@ function Viewmodel.clear()
 	handsMissingCounted = false
 	table.clear(ridersLocal)
 	builtFrom = nil
-	builtMeshes = -1 -- the next build counts its own wood (task 99)
+	builtMeshes = -1 -- the next clone counts its own wood (task 99)
+	for _, connection in ipairs(childWatchers) do
+		connection:Disconnect()
+	end
+	childWatchers = {}
 	stale = false
 end
 
--- WHERE THE GUN SAYS ITS BEAD IS, in the model's own frame, or nil when it carries no `Sight`.
--- `PrimaryPart` is the Handle `buildNewGun` makes and `WorldPivot` is never written, so an
--- attachment's CFrame is already relative to the model's pivot -- exactly the frame `Mode.aimOffset`
--- wants.
+-- WHERE THE GUN SAYS ITS BEAD IS, in the clone's own frame, or nil when it carries no `Sight`.
+-- `PrimaryPart` is the cloned Handle and `WorldPivot` is never written, so an attachment's CFrame is
+-- already relative to the model's pivot -- which is exactly the frame `Mode.aimOffset` wants.
 function Viewmodel.sight(): CFrame?
 	local made = model
 	local clone = made and made.PrimaryPart
@@ -221,6 +233,54 @@ end
 
 function Viewmodel.stats()
 	return table.clone(stats)
+end
+
+-- THE BEAD A PLAYER CAN ACTUALLY SEE (task 90). Karen, 2026-09-27: "we are missing front knob or how
+-- it calls where you aim and follow animal with that point".
+--
+-- The parts gun already has a `Bead` piece and gets nothing added. The uploaded gun is exactly ONE
+-- MeshPart whose bead is PAINTED at a few pixels across, so there is nothing on it to aim with: this
+-- draws one at the `Sight` attachment, which is the same point the ADS pose lines up with the view
+-- axis. So the mark a player follows the animal with and the point the geometry aims are the same
+-- Instance, not two numbers that agree today.
+--
+-- It is drawn by the VIEWMODEL and not by the weapon on purpose: it is cosmetic, client-side and
+-- first-person only -- the gun other players see is unchanged, and `CanQuery = false` keeps it out of
+-- every ray in the game, including this system's own occlusion cast.
+local function addBeadMarker(clone: BasePart, config): boolean
+	local attachment = clone:FindFirstChild(SIGHT_NAME)
+	if not (attachment and attachment:IsA("Attachment")) then
+		return false
+	end
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant:IsA("BasePart") and descendant.Name == BEAD_NAME then
+			return false -- the gun brought its own
+		end
+	end
+	local bead = Instance.new("Part")
+	bead.Name = MARKER_NAME
+	bead.Shape = Enum.PartType.Ball
+	bead.Size = Vector3.new(config.BEAD_MARKER_STUDS, config.BEAD_MARKER_STUDS, config.BEAD_MARKER_STUDS)
+	bead.Color = config.BEAD_MARKER_COLOR
+	-- METAL, NOT NEON (task 92). Karen, after playing S2: "that red dot is not realistic, we need to
+	-- improve what actually is on Beretta Parallelo" -- and what that gun has is a brass ball on the
+	-- rib. A Neon bead is its own light source and cannot read as metal at any colour, so the material
+	-- is a config row rather than a literal, and the fill light below is what keeps it visible.
+	bead.Material = config.BEAD_MARKER_MATERIAL
+	bead.Anchored = true
+	bead.CanCollide = false
+	bead.CanQuery = false
+	bead.CanTouch = false
+	bead.Massless = true
+	bead.CastShadow = false
+	bead.CFrame = clone.CFrame * (attachment :: Attachment).CFrame
+	-- ON THE BARRELS WHEN THERE ARE BARRELS (task 96, round 2), so the piece it belongs to owns
+	-- it: a bead is part of the rib, not part of the action. `hinge` places it either way, but
+	-- the parenting is what says whose it is -- and with the gun in one piece, which is what
+	-- the OFF branch and the parts gun are, it hangs on the Handle exactly as before.
+	local onBarrels = clone:FindFirstChild(BARRELS_NAME)
+	bead.Parent = if onBarrels and onBarrels:IsA("BasePart") then onBarrels else clone
+	return true
 end
 
 -- THE GUN'S OWN LIGHT (task 92). Karen, after playing S2: "Weapon color we need to improve and style
@@ -277,14 +337,12 @@ local function applyFill(made: Model, config)
 	return true
 end
 
--- WHERE THE DRAWN GUN'S MUZZLE IS, in WORLD space, for the fired barrel (task 92) -- or nil when
--- there is no viewmodel on screen. The caller then draws at the world gun's muzzle instead, which is
--- the right answer in third person.
+-- WHERE THE DRAWN GUN'S MUZZLE IS, in WORLD space, for the fired barrel (task 92) -- or nil when there
+-- is no viewmodel on screen, or the cloned gun carries no `Muzzle` attachment. The caller then draws
+-- at the world gun's muzzle instead, which is the right answer in third person.
 --
--- The barrel's own lateral offset comes from `Gun.barrelOffset`, the ONE definition of which tube is
--- which on this gun -- this module does not know that the two bores are 0.076 apart and must not
--- learn it. (`Shotgun.barrelMuzzleOffset` is the same answer for the WORLD gun, whose tubes are a
--- different model's.)
+-- The barrel's own lateral offset comes from `Shotgun.barrelMuzzleOffset`, the ONE definition of which
+-- tube is which -- this module does not know that the right barrel is +0.09 and must not learn it.
 function Viewmodel.muzzle(barrel: number?): CFrame?
 	local made = Viewmodel.current()
 	local clone = made and made.PrimaryPart
@@ -292,12 +350,15 @@ function Viewmodel.muzzle(barrel: number?): CFrame?
 	if not (attachment and attachment:IsA("Attachment")) then
 		return nil
 	end
-	-- THE GUN'S OWN BORE LINE (round 1, finding 2; one gun since task 114). The `Muzzle` attachment
-	-- sits on the HANDLE'S AXIS, so the rise from that axis up to the barrels is added here -- this
-	-- gun's tubes are 0.076 apart -- and `Gun.barrelOffset` is the one definition of which tube is
-	-- which. Until task 114 the model carried a `DHNewGun` attribute so this could tell two guns
-	-- apart without a config; with one gun there is nothing to ask.
-	return (attachment :: Attachment).WorldCFrame * CFrame.new(Gun.barrelOffset(barrel, Shotgun.CONFIG))
+	-- EACH GUN'S OWN BORE LINE (round 1, finding 2). Both attachments sit on the HANDLE'S AXIS, so
+	-- the rise from the axis up to the barrels is added here -- and the two guns' tubes are not in
+	-- the same place: the mesh gun's are 0.09 apart and 0.12 up, this one's are 0.076 apart. Asked of
+	-- the MODEL rather than of a caller, because this function takes no config and a caller passing
+	-- the wrong one would put the flash on the other gun's barrels.
+	local offset = if (made :: Model):GetAttribute(NEW_GUN_ATTRIBUTE) == true
+		then Gun.barrelOffset(barrel, Shotgun.CONFIG)
+		else Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG)
+	return (attachment :: Attachment).WorldCFrame * CFrame.new(offset)
 end
 
 -- ONE SHELL: red plastic, a brass base behind it, and -- on the new gun -- the brass RIM that is the
@@ -320,11 +381,10 @@ local function gunTemplate(name: string): BasePart?
 end
 
 -- WHICH SHELL IS BEING DRAWN, asked once and answered in one place: the uploaded cartridge when the
--- server has published it, the three drawn cylinders otherwise. Both numbers below turn on it, so
--- they cannot disagree about which shell they are describing. Until task 114 it also asked which gun;
--- there is one gun now, so all that is left is whether the upload arrived.
-local function shellIsMesh(): boolean
-	return gunTemplate(Gun.SHELL_TEMPLATE_NAME) ~= nil
+-- server has published it and this is the new gun, the three drawn cylinders otherwise. Both numbers
+-- below turn on it, so they cannot disagree about which shell they are describing.
+local function shellIsMesh(config): boolean
+	return config.NEW_GUN == true and gunTemplate(Gun.SHELL_TEMPLATE_NAME) ~= nil
 end
 
 -- HOW FAR BEHIND A SHELL'S PIVOT ITS RIM IS, which is the one number that seats it: `Gun.chamber`
@@ -333,7 +393,7 @@ end
 -- is its box's -- so half its length is the answer; the drawn one's pivot is its Body part, and
 -- `Gun.shellLayout` owns that answer.
 local function shellBack(config): number
-	if shellIsMesh() then
+	if shellIsMesh(config) then
 		return Gun.SHELL_MESH_SIZE_STUDS.X / 2
 	end
 	return Gun.shellLayout(config.SHELL_SIZE_STUDS, config.SHELL_BASE_FRACTION).back
@@ -352,8 +412,8 @@ end
 -- SO THE TURN LIVES AT THE PLACEMENT SITE, composed with the quarter turn rather than fighting it.
 -- The DRAWN shell is three cylinders this file lays out mouth-at-+X and never sends through an
 -- importer, so it takes the quarter turn alone.
-local function shellTurnDeg(): number
-	if shellIsMesh() then
+local function shellTurnDeg(config): number
+	if shellIsMesh(config) then
 		return Gun.SHELL_ROTATION_DEG
 	end
 	return Gun.MESH_FILE_TURN_DEG
@@ -364,7 +424,7 @@ local function makeShell(name: string, config, parent: Instance): Model
 	shell.Name = name
 	local size = config.SHELL_SIZE_STUDS
 	local layout = Gun.shellLayout(size, config.SHELL_BASE_FRACTION)
-	local template = if shellIsMesh() then gunTemplate(Gun.SHELL_TEMPLATE_NAME) else nil
+	local template = if shellIsMesh(config) then gunTemplate(Gun.SHELL_TEMPLATE_NAME) else nil
 	if template ~= nil then
 		-- ONE PART, AND ITS CFRAME HERE IS WORTH NOTHING: it is the model's `PrimaryPart`, so
 		-- `Viewmodel.shells`'s `PivotTo` writes over it on the frame this is built and every frame
@@ -400,17 +460,18 @@ local function makeShell(name: string, config, parent: Instance): Model
 			offset = layout.baseX,
 		},
 	}
-	-- THE RIM, which is the whole of "this chamber is loaded" seen from behind an open breech. It was
-	-- the new gun's alone while there were two: the cloned gun's chamber was a fraction of a Handle
-	-- rather than a measured face, so a rim seated against it would have been a number with no owner.
-	-- `Gun.chamber` owns it now, so it is drawn on every shell.
-	table.insert(pieces, {
-		name = "Rim",
-		length = layout.rimThick,
-		across = layout.rimDiameter,
-		colour = config.SHELL_BASE_COLOR,
-		offset = layout.rimX,
-	})
+	-- THE RIM IS THE NEW GUN'S, and the flag discipline is the reason: the mesh gun's chamber is a
+	-- fraction of a Handle rather than a measured face (`chamberOffset`, below), so a rim seated
+	-- against it would be a number with no owner. Nothing about the flag-off gun's shells moves.
+	if config.NEW_GUN == true then
+		table.insert(pieces, {
+			name = "Rim",
+			length = layout.rimThick,
+			across = layout.rimDiameter,
+			colour = config.SHELL_BASE_COLOR,
+			offset = layout.rimX,
+		})
+	end
 	for _, piece in ipairs(pieces) do
 		local part = Instance.new("Part")
 		part.Name = piece.name
@@ -436,19 +497,44 @@ local function makeShell(name: string, config, parent: Instance): Model
 	return shell
 end
 
--- WHERE A SHELL IS PLACED, in the gun's own frame: at the chamber mouth of each tube, on its own
--- BORE LINE, from the same arithmetic the barrels are drawn from.
---
--- THE GUN KNOWS WHERE ITS OWN CHAMBERS ARE (task 99), and that is the whole of "the shell goes IN".
--- The cloned gun's answer -- the barrels' breech END on the Handle's centre line -- left the shell
--- floating in the gap between its two mesh halves, and it went with that gun in task 114.
---
--- `Gun.chamber` says where the shell's RIM goes: the chamber MOUTH, a hair proud of the breech face
--- (round 2, finding 1 -- a shell seated inside an opaque tube is invisible). What `PivotTo` places is
--- the model's pivot, its Body, so the shell is backed off by its own `back` -- from the same layout
--- `makeShell` draws it from, so the rim lands where this says it does.
+-- WHERE A SHELL IS PLACED, in the gun's own frame: at the breech end of each tube, on its bore line.
+-- The barrels are 0.62 of a 4.4-stud gun and the Handle's -Z is the muzzle, so the breech face sits
+-- 0.53 studs BEHIND the Handle's centre -- the same number the carry pose and the aim's cheek angle
+-- are built on. `Shotgun.barrelMuzzleOffset` is still the one definition of which tube is which.
 local function chamberOffset(barrel: number, config): CFrame
-	return Gun.chamber(barrel, Shotgun.CONFIG) * CFrame.new(0, 0, -shellBack(config))
+	-- THE NEW GUN KNOWS WHERE ITS OWN CHAMBERS ARE (task 99), and that is the whole of "the shell
+	-- goes IN". The old answer put the shell at the barrels' breech END on the Handle's centre line,
+	-- which with a mesh gun meant it floated in the gap between the two halves; `Gun.chamber` puts it
+	-- on the tube's own BORE LINE, at the chamber mouth, from the same arithmetic the barrels are
+	-- drawn from.
+	if config ~= nil and config.NEW_GUN == true then
+		-- `Gun.chamber` says where the shell's RIM goes: the chamber MOUTH, a hair proud of the
+		-- breech face (round 2, finding 1 -- a shell seated inside an opaque tube is invisible).
+		-- What `PivotTo` places is the model's pivot, its Body, so the shell is backed off by its
+		-- own `back` -- from the same layout `makeShell` draws it from, so the rim lands where this
+		-- says it does.
+		return Gun.chamber(barrel, Shotgun.CONFIG) * CFrame.new(0, 0, -shellBack(config))
+	end
+	local across = Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG)
+	local breechZ = Shotgun.CONFIG.HANDLE_SIZE.Z * (0.62 - 0.5)
+	return CFrame.new(across.X, across.Y, breechZ)
+end
+
+-- THE SLEEVE'S TWO NUMBERS, PER GUN (task 106, round 2), and they are functions rather than two more
+-- config rows because the choice is one rule with one reason: the sleeve's far end must be behind
+-- the eye in EVERY pose, and that is an ABSOLUTE distance, so a glove of a different size needs a
+-- different length. The old gun's glove is 1.27 studs and sits close in; model B's is 0.67 and sits
+-- further out, and in the broken-open frame a 1.6-stud sleeve ended at the lens
+-- (`.screenshots/20261002T111802Z-pose-reload.png`). The overlap is how far the cylinder starts
+-- INSIDE the cuff, and the new glove's own turned cuff needs nearly half a hand to be covered.
+--
+-- THE OLD GUN'S NUMBERS DO NOT MOVE, which is round 1's finding 1 in one line: the flag-OFF default
+-- build draws exactly what it drew before this task.
+function Viewmodel.sleeveLength(config): number
+	if config ~= nil and config.NEW_GUN == true then
+		return config.SLEEVE_LENGTH_NEW_GUN_STUDS
+	end
+	return config.SLEEVE_LENGTH_STUDS
 end
 
 -- EACH GLOVE INTO ONE FRAME (task 108), and this is the whole of Karen's "left hand is oposit180deg
@@ -470,12 +556,15 @@ end
 -- is not a perfect slab), so the palm is squared against the fingers here -- the fingers direction is
 -- the one that was measured exactly, centroid to centroid, so it is the one that is kept.
 --
--- IT APPLIES TO EVERY GLOVE DRAWN (task 114). While there were two guns this returned identity for
--- the old one, whose pair was a different model posed with no alignment at all; that pair retired
--- with that gun, so there is one convention and `HandAssets.AXES` is its one definition.
+-- THE OLD GUN GETS IDENTITY. Its pair is a different model and its poses were measured against it
+-- with no alignment at all; `config.NEW_GUN` is the one switch, so the flag-OFF build draws exactly
+-- what it drew before.
 local alignCache: { [string]: CFrame } = {}
 
-function Viewmodel.align(name: string): CFrame
+function Viewmodel.align(name: string, config): CFrame
+	if config == nil or config.NEW_GUN ~= true then
+		return CFrame.identity
+	end
 	local cached = alignCache[name]
 	if cached then
 		return cached
@@ -494,27 +583,106 @@ function Viewmodel.align(name: string): CFrame
 	return align
 end
 
+-- WHICH OF THE MESH'S OWN AXES THE FINGERS RUN ALONG, so the sleeve starts inside the cuff on both
+-- gloves. The old pair's long axis IS its X; model B's LEFT glove's is its Z while its fingers run
+-- along its Y (a palm-up C puts the forearm at an angle to the fingers, so its box is a diagonal --
+-- `Assets.uniformTo`'s own reason), and `Size.X` there is not the hand's length at all.
+local function handLengthAlongFingers(hand: BasePart, name: string, config): number
+	if config == nil or config.NEW_GUN ~= true then
+		return hand.Size.X
+	end
+	local axes = HandAssets.AXES[name]
+	if axes == nil then
+		return hand.Size.X
+	end
+	-- THE BOX PROJECTED ONTO THE AXIS, not the nearest side (round 1, finding 3): a box's extent along
+	-- a direction is the sum of its sides times that direction's own components, and picking one side
+	-- answered 0.534 for the LEFT glove where the real extent is 0.914. Half of 0.534 is 0.267, which
+	-- is LESS than the 0.30 overlap -- the wrist segment's near end would have started on the finger
+	-- side of the glove's centre, which is exactly what `SLEEVE_OVERLAP_NEW_GUN_STUDS`' comment
+	-- forbids. Nothing on screen showed it, because that near end is inside the glove either way.
+	local fingers = axes.fingers.Unit
+	local size = hand.Size
+	return math.abs(fingers.X) * size.X + math.abs(fingers.Y) * size.Y + math.abs(fingers.Z) * size.Z
+end
+
+-- WHICH WAY THE FOREARM LEAVES THE FRAME (task 108, round 2), in the CAMERA's own axes, or nil for
+-- the old gun -- whose sleeve keeps running back along the hand's own wrist, because that pair and
+-- its poses were measured together and nothing about them is being re-judged.
+--
+-- A SHOULDER DOES NOT MOVE WITH THE GRIP, which is the whole finding: round 1 ran the sleeve back
+-- along the pose frame's -X, so the left yaw of 15 that puts the hand on the forend also swung the
+-- arm out sideways and it crossed the aimed frame as a bar. Down, back and a little outboard is the
+-- same vector in every pose, so the arm leaves through its own bottom corner in all of them.
+function Viewmodel.armDirection(name: string, config): Vector3?
+	if config == nil or config.NEW_GUN ~= true then
+		return nil
+	end
+	if name == HandAssets.LEFT then
+		return config.SLEEVE_TO_LEFT_SHOULDER
+	end
+	return config.SLEEVE_TO_RIGHT_SHOULDER
+end
+
+-- THE SLEEVE'S SEGMENTS, wrist -> elbow: {length, diameter} each. The old gun keeps ONE cylinder of
+-- the length and diameter it always had, so its pixels do not move; model B's is cut into the taper
+-- `Camera.Config.SLEEVE_TAPER_NEW_GUN_STUDS` lists, at the same TOTAL length (that number is what
+-- keeps the far end behind the eye, and the far end is the one that must never be seen).
+function Viewmodel.sleeveSegments(config): { { length: number, diameter: number } }
+	-- NONE AT ALL ON MODEL B (task 111). Karen, 2026-10-02: "you can remove those arm extentions
+	-- from both hands". The drawn sleeve exists because a hand model ends at the cuff and task 99's
+	-- gloves had an open hole there; Karen's v2 pair carries its OWN turned cuff, and with the arms
+	-- now running out of the bottom corners (task 108) the tube was a shape in the frame rather than
+	-- a fix. The OLD gun keeps its sleeve: its glove has the hole this was built for.
+	if config ~= nil and config.NEW_GUN == true then
+		return {}
+	end
+	local total = Viewmodel.sleeveLength(config)
+	local taper = if config ~= nil and config.NEW_GUN == true then config.SLEEVE_TAPER_NEW_GUN_STUDS else nil
+	if taper == nil or #taper == 0 then
+		return { { length = total, diameter = config.SLEEVE_DIAMETER_STUDS } }
+	end
+	local out = {}
+	for _, diameter in ipairs(taper) do
+		table.insert(out, { length = total / #taper, diameter = diameter })
+	end
+	return out
+end
+
+function Viewmodel.sleeveOverlap(config): number
+	if config ~= nil and config.NEW_GUN == true then
+		return config.SLEEVE_OVERLAP_NEW_GUN_STUDS
+	end
+	return config.SLEEVE_OVERLAP_STUDS
+end
+
 -- WHERE A HAND TEMPLATE COMES FROM. The real answer is the folder
 -- `ServerScriptService.ViewmodelAssetsBoot` publishes; a spec injects its own with
 -- `setHandTemplates`. Never yields and never loads anything: nil means "no hands", which is the gun
 -- Karen has been playing since task 95 and not a failure.
--- ONE PAIR SINCE TASK 114. Karen made gloves that HOLD this gun, and the v1 pair the retired gun's
--- top-level poses were measured against went with it -- so there is one folder again and one pair of
--- keys (`HandAssets.KEY_OF`). Task 106's reason for having had two is still the reason they could
--- never be ONE key: the surviving glove's `twist` of 180 belongs to a palm-DOWN model, so the old gun
--- drew it upside down at 53 % of the size its poses assumed, and a new version of a key SUPERSEDES.
-local function handTemplate(name: string): BasePart?
+-- WHICH PAIR, AND IT IS THE ONLY PLACE THAT ASKS (task 106, round 2). Karen made gloves that HOLD
+-- something, for model B; the OLD gun keeps the pair the TOP-LEVEL poses in `poses.json` were
+-- measured against. They are published under the SAME names in two folders, so this one lookup is
+-- the whole of the difference -- `poseHands`, `clearHands` and every spec still look for `HandRight`
+-- and `HandLeft`.
+--
+-- Shipping one pair for both guns is round 1's finding 1: the new glove's `twist` of 180 belongs to
+-- a palm-DOWN model, so the old gun drew it upside down, at 53 % of the size its poses assume.
+local function handTemplate(name: string, config): BasePart?
 	local fn = handTemplates
 	if fn then
 		return fn(name)
 	end
-	local folder = ReplicatedStorage:FindFirstChild(HandAssets.FOLDER_NAME)
+	local folderName = if config ~= nil and config.NEW_GUN == true
+		then HandAssets.NEW_GUN_FOLDER_NAME
+		else HandAssets.FOLDER_NAME
+	local folder = ReplicatedStorage:FindFirstChild(folderName)
 	local found = if folder then folder:FindFirstChild(name) else nil
 	return if found and found:IsA("BasePart") then found :: BasePart else nil
 end
 
-local function addHand(clone: BasePart, parent: Instance, name: string): boolean
-	local template = handTemplate(name)
+local function addHand(clone: BasePart, parent: Instance, name: string, config): boolean
+	local template = handTemplate(name, config)
 	if template == nil then
 		return false
 	end
@@ -536,13 +704,36 @@ local function addHand(clone: BasePart, parent: Instance, name: string): boolean
 	-- below cannot drag it in from wherever the template happens to sit in the world.
 	worn.CFrame = clone.CFrame
 	worn.Parent = parent
-	-- NO DRAWN SLEEVE, AND THE WHOLE APPARATUS IS GONE (task 114). Task 99 ran an olive cylinder back
-	-- along each hand's long axis because a hand model ends at the cuff and the v1 gloves had an open
-	-- hole there; task 108 cut it into a taper and ran it toward the shoulder instead of the wrist;
-	-- then Karen, 2026-10-02: "you can remove those arm extentions from both hands", and task 111
-	-- made `sleeveSegments` answer an empty list for model B. With model B the only gun that answer is
-	-- the only answer -- its gloves carry their own turned cuff -- so the segments, the taper, the
-	-- to-the-shoulder vectors and the four SLEEVE numbers went with the gun they were drawn for.
+	-- THE ARM BEHIND THE HAND (task 99). Karen, 2026-10-01: the left cuff's open end faces the camera
+	-- as a big black disc in the break-open frame. A hand model ends at the cuff, so wherever the arm
+	-- would continue there is a hole; this runs a plain olive cylinder back along the hand's own long
+	-- axis, far enough that its far end is behind the eye in every pose. It is a CHILD of the hand,
+	-- and `poseHands` places it from the hand's transform, because an anchored part does not follow
+	-- its parent.
+	--
+	-- THREE SEGMENTS, NOT ONE, FOR MODEL B (task 108): a straight tube of constant width read as a
+	-- pipe. `Viewmodel.sleeveSegments` answers the same TOTAL length either way, and each segment
+	-- carries the distance from the hand's centre to its own centre as an attribute, because that
+	-- distance depends on the glove's own size and `poseHands` must not measure it every frame.
+	local back = handLengthAlongFingers(worn, name, config) / 2 - Viewmodel.sleeveOverlap(config)
+	for _, segment in ipairs(Viewmodel.sleeveSegments(config)) do
+		local sleeve = Instance.new("Part")
+		sleeve.Name = SLEEVE_NAME
+		sleeve.Shape = Enum.PartType.Cylinder -- a cylinder's length runs along its own X, like the hand's
+		sleeve.Size = Vector3.new(segment.length, segment.diameter, segment.diameter)
+		sleeve.Color = config.SLEEVE_COLOR
+		sleeve.Material = config.SLEEVE_MATERIAL
+		sleeve.Anchored = true
+		sleeve.CanCollide = false
+		sleeve.CanQuery = false
+		sleeve.CanTouch = false
+		sleeve.Massless = true
+		sleeve.CastShadow = false
+		sleeve:SetAttribute(SLEEVE_BACK_ATTRIBUTE, back + segment.length / 2)
+		sleeve.CFrame = worn.CFrame
+		sleeve.Parent = worn
+		back += segment.length
+	end
 	stats.handsDrawn += 1
 	handsOn = true
 	return true
@@ -582,10 +773,10 @@ function Viewmodel.hands(made: Model, config)
 	local leftParent: Instance = if barrels and barrels:IsA("BasePart") then barrels else clone
 	local missing = false
 	if clone:FindFirstChild(HandAssets.RIGHT) == nil then
-		missing = not addHand(clone, clone, HandAssets.RIGHT) or missing
+		missing = not addHand(clone, clone, HandAssets.RIGHT, config) or missing
 	end
 	if leftParent:FindFirstChild(HandAssets.LEFT) == nil then
-		missing = not addHand(clone, leftParent, HandAssets.LEFT) or missing
+		missing = not addHand(clone, leftParent, HandAssets.LEFT, config) or missing
 	end
 	-- COUNTED ONCE PER CLONE, NOT PER FRAME. A gun drawn without hands is a real state -- the load
 	-- failed, or the asset was moderated away -- and it must be visible in `stats()` rather than in a
@@ -696,19 +887,20 @@ local function loadStep(barrel: number, since: number, config): (number, CFrame?
 end
 
 -- WHERE ONE BARREL'S FRESH SHELL IS, or nil for "do not draw it at all" -- which is the fix for
--- Karen's two animations. A shell exists ONLY once the hand has it: BEFORE the fetch is over there
--- is nothing to see, DURING the carry and the seat it is in the hand's own frame, and AFTER that it
--- is in the chamber and still. The self-sliding feed this replaced (`shellFeedAt` on a clock) was
--- the retired gun's, and it went with it in task 114; `SHELL_LOAD` is the only shape read here, and
--- it is nil only for a config that carries no `reload.load` block at all.
+-- Karen's two animations. With the new gun a shell exists ONLY once the hand has it: BEFORE the
+-- fetch is over there is nothing to see, DURING the carry and the seat it is in the hand's own
+-- frame, and AFTER that it is in the chamber and still. The old slide (`shellFeedAt` with a clock)
+-- is what the OLD gun still does, and it is the one this replaces.
 function Viewmodel.freshShellAt(barrel: number, config, now: number): CFrame?
 	local at = loadedAt[barrel]
 	if at == nil or not reload.loaded[barrel] then
 		return nil
 	end
 	local load = config ~= nil and config.SHELL_LOAD or nil
-	if load == nil then
-		return nil
+	if load == nil or config.NEW_GUN ~= true then
+		-- THE OLD GUN, UNCHANGED: the shell slides itself in, as it has since task 99.
+		local feedT = math.clamp((now - at) / config.SHELL_FEED_SECONDS, 0, 1)
+		return Viewmodel.shellFeedAt(barrel, feedT, config)
 	end
 	local _, frame, holding = loadStep(barrel, now - at, config)
 	if holding and frame ~= nil then
@@ -723,7 +915,7 @@ end
 
 function Viewmodel.loadingAt(config, now: number): (number, CFrame?, number?, CFrame?)
 	local load = config ~= nil and config.SHELL_LOAD or nil
-	if load == nil or not reload.open then
+	if load == nil or config.NEW_GUN ~= true or not reload.open then
 		return 0, nil, nil, nil
 	end
 	local best, bestFrame, carryBarrel, carryShell = 0, nil, nil, nil
@@ -758,28 +950,73 @@ end
 -- reach it, which is exactly what `tools/pose.py` exists to do. `Mode.handOffsetAt` answers the
 -- BLENDED pose, so the hands move with the gun through the raise, the aim and the break.
 --
--- IT TAKES NO CAMERA FRAME SINCE TASK 114. It used to, for one thing only: running each drawn
--- sleeve toward its own shoulder, which is a direction in the CAMERA's axes rather than the gun's.
--- The sleeves went with the gun they were drawn for, and a hand's place is the gun's business.
---
 -- WHOSE FRAME EACH ONE IS MEASURED IN is the same rule as before and it is the whole reload
 -- question: the RIGHT hand holds the grip, which is part of the body, so it is placed from the gun's
 -- transform; the LEFT hand holds the forend, which is bolted to the barrels, so it is placed from
 -- the BARRELS' transform and swings down with them. With the gun shut the two transforms are equal,
 -- so a shut gun's hands are bit-for-bit where task 93 put them.
-function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mode.State, config)
+function Viewmodel.poseHands(camCFrame: CFrame, gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mode.State, config)
 	local made = model
 	local clone = made and made.PrimaryPart
 	if clone == nil or config.FIRST_PERSON ~= true then
 		return -- the OFF branch draws no hands at all; `Viewmodel.hands` is what takes them off
 	end
+	-- WHICH WAY THE ARM RUNS, and it is measured off the model rather than assumed: the right hand's
+	-- fingertips are at its mesh +X and the left hand's at its -X (`Camera.Config`'s HAND_LEFT_YAW
+	-- comment, task 93), so the wrist -- and the sleeve -- runs the other way on each.
+	-- EVERY SEGMENT, FROM ITS OWN ATTRIBUTE (task 108). `addHand` worked each one's distance out
+	-- once, from the glove's own length along ITS OWN finger axis; this only has to turn that into a
+	-- place. `towardFingers` is +1 once the alignment is on, because the aligned hand's +X IS the
+	-- fingers on both gloves -- it is the OLD pair, drawn unaligned, that needs the two signs.
+	--
+	-- THE FOREARM'S OWN FRAME: at the hand, with its +X running toward that shoulder (round 2). The
+	-- segments are strung along it, so a sleeve is never turned by the grip -- `armDirection` says
+	-- why. For the OLD gun it is nil and the sleeve runs back along the pose frame's -X exactly as
+	-- it always did, which is what keeps the flag-OFF build the one Karen has been playing.
+	local function armFrame(name: string, base: CFrame): CFrame?
+		local want = Viewmodel.armDirection(name, config)
+		if want == nil then
+			return nil
+		end
+		local along = camCFrame:VectorToWorldSpace(want :: Vector3).Unit
+		-- Any up will do -- a cylinder is round about its own X -- as long as it is square to `along`
+		-- and never parallel to it.
+		local up = camCFrame.UpVector
+		local across = up - along * up:Dot(along)
+		if across.Magnitude < 1e-3 then
+			across = camCFrame.RightVector - along * camCFrame.RightVector:Dot(along)
+		end
+		across = across.Unit
+		return CFrame.fromMatrix(base.Position, along, across, along:Cross(across))
+	end
+
+	-- IT IS PLACED FROM THE POSE'S FRAME, NOT THE HAND'S (task 108): once the alignment is applied
+	-- the hand part's own X is the MESH's X, which on the left glove is not the arm at all. For the
+	-- new gun the frame is the ARM's, from `armFrame`; for the old one it is the pose's, where it
+	-- was.
+	local function placeSleeve(base: CFrame, hand: BasePart, towardFingers: number, arm: CFrame?)
+		for _, sleeve in ipairs(hand:GetChildren()) do
+			if sleeve.Name == SLEEVE_NAME and sleeve:IsA("BasePart") then
+				local stored = sleeve:GetAttribute(SLEEVE_BACK_ATTRIBUTE)
+				local back = if typeof(stored) == "number"
+					then stored :: number
+					else hand.Size.X / 2 + sleeve.Size.X / 2 - Viewmodel.sleeveOverlap(config);
+				(sleeve :: BasePart).CFrame = if arm ~= nil
+					then (arm :: CFrame) * CFrame.new(back, 0, 0)
+					else base * CFrame.new(-towardFingers * back, 0, 0)
+			end
+		end
+	end
+
 	-- THE ALIGNMENT IS APPLIED HERE, ON THE RIGHT OF THE POSE (task 108): the pose says WHERE the
 	-- hand is and which way it is turned, and `Viewmodel.align` turns the MESH inside that, so both
-	-- gloves answer the same three angles.
+	-- gloves answer the same three angles. It is identity for the old gun.
+	local toward = if config.NEW_GUN == true then 1 else -1
 	local right = clone:FindFirstChild(HandAssets.RIGHT)
 	if right and right:IsA("BasePart") then
 		local base = gunCFrame * Mode.handOffsetAt("right", state, config);
-		(right :: BasePart).CFrame = base * Viewmodel.align(HandAssets.RIGHT)
+		(right :: BasePart).CFrame = base * Viewmodel.align(HandAssets.RIGHT, config)
+		placeSleeve(base, right :: BasePart, 1, armFrame(HandAssets.RIGHT, base))
 	end
 	-- Walked rather than remembered, for the reason `clearHands` gives: the left hand's parent is the
 	-- barrels when the gun has them and the Handle when it does not.
@@ -793,16 +1030,17 @@ function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mo
 				held = held:Lerp(loading :: CFrame, weight)
 			end
 			local base = barrelsCFrame * held;
-			(descendant :: BasePart).CFrame = base * Viewmodel.align(HandAssets.LEFT)
+			(descendant :: BasePart).CFrame = base * Viewmodel.align(HandAssets.LEFT, config)
+			placeSleeve(base, descendant :: BasePart, toward, armFrame(HandAssets.LEFT, base))
 		end
 	end
 end
 
--- THE GUN, BUILT RATHER THAN CLONED (task 99; the only build path since task 114). Karen,
--- 2026-10-01: "shooting, weapon, reload, all has to be perfect". The cloned mesh was one AI model cut
--- in two, so the break-open frame showed a torn breech and a shell in the gap; this builds the gun
--- from `ReplicatedStorage.Gun`'s piece list instead, with Karen's model B cloned over the two hinge
--- groups where the server has published them, and a hinge pin the barrel group really turns about.
+-- THE NEW GUN, BUILT RATHER THAN CLONED (task 99, behind `NEW_GUN`). Karen, 2026-10-01:
+-- "shooting, weapon, reload, all has to be perfect". The cloned mesh is one AI model cut in two, so
+-- the break-open frame showed a torn breech and a shell in the gap; this builds the gun from
+-- `ReplicatedStorage.Gun`'s exact piece list instead -- round barrels, two bores at each end, a
+-- silver action, and a hinge pin the barrel group really turns about.
 --
 -- FIRST PERSON ONLY, AND LOCAL ONLY. The Tool's Handle is untouched and every other player sees the
 -- uploaded mesh exactly as before: `Weapon.Hardware` is still the only writer of Tool Instances
@@ -815,6 +1053,7 @@ end
 local function buildNewGun(config): Model
 	local made = Instance.new("Model")
 	made.Name = "DrivenHuntViewmodel"
+	made:SetAttribute(NEW_GUN_ATTRIBUTE, true)
 
 	local function dress(part: BasePart)
 		part.Anchored = true
@@ -904,8 +1143,9 @@ local function buildNewGun(config): Model
 	-- `Gun.beadOffset` -- the same expression `Gun.sight` answers with. The light is still added,
 	-- for the reason it was added in task 92: a gun inches from the eye is lit by the sun alone.
 	--
-	-- FIRST PERSON ONLY (TASKS.md 99a(g)): this was unconditional, which put a point light back on
-	-- the third-person gun -- the glow task 92 measured and gated.
+	-- FIRST PERSON ONLY, exactly as `build` gates it (TASKS.md 99a(g)): this was unconditional, so
+	-- `NEW_GUN` on with `FIRST_PERSON` off put a point light back on the third-person gun -- the glow
+	-- task 92 measured and gated.
 	if config.FIRST_PERSON then
 		addFillLight(handle, config)
 	end
@@ -919,6 +1159,84 @@ local function buildNewGun(config): Model
 		end
 	end
 	stats.parts = parts
+	return made
+end
+
+local function build(handle: BasePart, config): Model
+	local made = Instance.new("Model")
+	made.Name = "DrivenHuntViewmodel"
+
+	local clone = handle:Clone()
+	clone.Name = "Handle"
+	-- THE GUN'S PARTS COME WITH IT (Task 71). Since the shotgun became a side-by-side built from
+	-- welded parts, the Handle is an INVISIBLE envelope and every visible piece is one of its
+	-- children: destroying them, as this did, would have left the first-person gun as nothing at all
+	-- while the third-person gun was the real one. One source, two views -- the clone IS how the
+	-- viewmodel stays the same object as the Tool, and ServerScriptService.Weapon.Hardware is still
+	-- the only writer of the original (docs/design/camera.md section 3.2).
+	--
+	-- EVERY PART IS ANCHORED, so the welds are not needed and are destroyed with everything else that
+	-- is not a shape: an unanchored part under workspace.CurrentCamera would be simulated.
+	--
+	-- A SurfaceAppearance, a Texture and a Decal ARE the shape (Task 74). The uploaded shotgun is a
+	-- MeshPart with a SurfaceAppearance child carrying its PBR maps, and the sweep as written would
+	-- have destroyed it -- so the FIRST-PERSON gun would have lost its maps while the third-person
+	-- gun kept them: "purple untextured legs" (docs/PROJECT_CONTEXT.md) visible only in ADS, only to
+	-- the player holding it, and asserted by nothing. docs/design/asset-pipeline.md section 6.6
+	-- predicted this exact sweep and named the fix as the camera owner's, which is this file.
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanQuery = false
+			descendant.CanTouch = false
+			descendant.Massless = true
+			descendant.CastShadow = false
+		elseif
+			not (
+				descendant:IsA("Attachment")
+				or descendant:IsA("SurfaceAppearance")
+				or descendant:IsA("Texture")
+				or descendant:IsA("Decal")
+			)
+		then
+			descendant:Destroy() -- no scripts, no welds, no sounds: a shape and nothing else
+		end
+	end
+	clone.Anchored = true
+	clone.CanCollide = false
+	clone.CanQuery = false -- see the header: an occlusion ray must not hit our own viewmodel
+	clone.CanTouch = false
+	clone.Massless = true
+	clone.CastShadow = false
+	clone.Parent = made
+	made.PrimaryPart = clone
+	-- FIRST-PERSON EXTRAS, AND THEY BELONG TO THE FIRST-PERSON BRANCH (review round 2, finding 1).
+	-- The clone is drawn in BOTH branches -- in the OFF branch it is the ADS viewmodel Karen accepted
+	-- on 2026-09-25 -- so a light or a drawn bead added here without asking lands in the camera task
+	-- 89 promised not to touch: the fill light was throwing a glow on the ground behind a
+	-- third-person player. Neither is any use there either: the shoulder camera's gun is lit by the
+	-- same sun as everything else around it, and its sight picture is the accepted framing rather
+	-- than a bead on the axis.
+	if config.FIRST_PERSON then
+		addBeadMarker(clone, config)
+		addFillLight(clone, config)
+	end
+
+	stats.rebuilds += 1
+	local parts = 0
+	for _, descendant in ipairs(made:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			parts += 1
+		end
+	end
+	stats.parts = parts
+	-- COUNTED, NOT WARNED. A gun with no `Sight` still draws -- `Mode.aimOffset(nil, config)` falls
+	-- back to the accepted framing -- but the sight picture is then a guess about somebody else's
+	-- mesh, so the number says how often that happened and a spec asserts it is zero for a real gun.
+	if not clone:FindFirstChild(SIGHT_NAME) then
+		stats.sightMissing += 1
+	end
 	return made
 end
 
@@ -944,11 +1262,10 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	if source and (now - lastSourceCheck > 0.25 or (cachedHandle and not cachedHandle.Parent)) then
 		lastSourceCheck = now
 		cachedHandle = source()
-		-- AND WHETHER THE MESHES HAVE ARRIVED SINCE THE GUN WAS BUILT (task 99). On the same
-		-- throttle as the source, for the same reason: it is a container lookup, not something a frame
-		-- needs. `builtMeshes` is -1 until a gun has been built, so this never fires before the first
-		-- build.
-		if builtMeshes >= 0 then
+		-- AND WHETHER THE WOOD HAS ARRIVED SINCE THE GUN WAS BUILT (task 99). On the same throttle
+		-- as the source, for the same reason: it is a container lookup, not something a frame needs.
+		-- `builtMeshes` is -1 until a new gun has been built, so this never fires for the cloned one.
+		if config.NEW_GUN == true and builtMeshes >= 0 then
 			local folder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
 			if (if folder then #folder:GetChildren() else 0) ~= builtMeshes then
 				stale = true
@@ -967,13 +1284,21 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	end
 
 	if not model or builtFrom ~= handle or stale then
-		-- clear() resets `stale`, so a folder count taken before this rebuild cannot mark the new
-		-- build stale.
+		-- clear() disconnects the old watchers and resets `stale`, so nothing that fired before this
+		-- rebuild can mark the new clone stale.
 		Viewmodel.clear()
-		-- ONE GUN (task 114): built from `ReplicatedStorage.Gun`'s pieces, with model B's two hinge
-		-- groups where the server has published them. The Tool's Handle is still what every OTHER
-		-- player sees, and it is still untouched.
-		model = buildNewGun(config)
+		childWatchers = {
+			handle.ChildAdded:Connect(function()
+				stale = true
+			end),
+			handle.ChildRemoved:Connect(function()
+				stale = true
+			end),
+		}
+		-- WHICH GUN (task 99). ON: built from `ReplicatedStorage.Gun`'s exact pieces. OFF: the
+		-- Tool's Handle, cloned, which is the gun this repo has drawn since Task 71 and the one
+		-- every other player sees in both cases.
+		model = if config.NEW_GUN == true then buildNewGun(config) else build(handle, config)
 		builtFrom = handle
 	end
 
@@ -995,7 +1320,7 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	-- barrel group ended up at -- the gun's own when there is nothing to hinge -- and the left hand
 	-- is placed from that, because it holds a forend that swings with them.
 	local barrels = Viewmodel.hinge(gun, state, config)
-	Viewmodel.poseHands(gun, barrels, state, config)
+	Viewmodel.poseHands(camCFrame, gun, barrels, state, config)
 end
 
 -- THE BREAK (task 96). Karen, 2026-09-27: the reload is a break action like the real gun, so the
@@ -1037,13 +1362,13 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config): CFrame
 		barrelsLocal = clone.CFrame:ToObjectSpace((barrels :: BasePart).CFrame)
 	end
 	local angle = Mode.breakAngleDeg(state, config)
-	-- THE AXIS THE BARRELS TURN ABOUT. The gun has a PIN, drawn at `Gun.hinge`, and the barrels must
-	-- turn about exactly that line or the pin is something they swing around rather than on -- so the
-	-- number comes from the gun's own geometry rather than from a pose the Director tunes.
-	-- `BREAK_HINGE_STUDS` is where the RETIRED gun's knuckle was measured and is read by nothing
-	-- since task 114; it is still published, because `reload.hingeStuds` is one of Karen's tuned
-	-- numbers and removing a number nobody reads is the Director's call, not this task's (TASKS 114a).
-	local hinge = CFrame.new(Gun.hinge(Shotgun.CONFIG))
+	-- THE AXIS THE BARRELS TURN ABOUT. The new gun has a PIN, drawn at `Gun.hinge`, and the barrels
+	-- must turn about exactly that line or the pin is something they swing around rather than on --
+	-- so the number comes from the gun's own geometry rather than from a pose the Director tunes.
+	-- The old mesh gun keeps `BREAK_HINGE_STUDS`, which is where its knuckle was measured.
+	local hinge = if config.NEW_GUN == true
+		then CFrame.new(Gun.hinge(Shotgun.CONFIG))
+		else CFrame.new(config.BREAK_HINGE_STUDS)
 	-- NEGATIVE ABOUT X IS THE MUZZLE GOING DOWN, which is what "break open" means: a part's
 	-- LookVector is its -Z, and `CFrame.Angles(+t, 0, 0)` takes (0, 0, -1) to (0, sin t, -cos t) --
 	-- i.e. UP. Measured the hard way: the first run of `camera_client.spec` caught the barrels
@@ -1072,6 +1397,17 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config): CFrame
 	-- offset is exactly what could not follow a live tuning change.
 	for _, descendant in ipairs(barrelPart:GetDescendants()) do
 		if descendant:IsA("BasePart") and descendant.Name ~= HandAssets.LEFT then
+			if ridersLocal[descendant] == nil then
+				ridersLocal[descendant] = clone.CFrame:ToObjectSpace(descendant.CFrame)
+			end
+			descendant.CFrame = swungGun * ridersLocal[descendant]
+		end
+	end
+	-- ...and the OLD gun's drawn bead hangs on the Handle when the clone has no barrels to hang it
+	-- on, so it is still looked for by name there. One loop could not do both: on the new gun the
+	-- bead is already a child of `Barrels` and would be placed twice.
+	for _, descendant in ipairs(clone:GetChildren()) do
+		if descendant:IsA("BasePart") and (descendant.Name == MARKER_NAME or descendant.Name == BEAD_NAME) then
 			if ridersLocal[descendant] == nil then
 				ridersLocal[descendant] = clone.CFrame:ToObjectSpace(descendant.CFrame)
 			end
@@ -1169,7 +1505,7 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 		-- THE ONE PLACE EVERY SHELL IS TURNED, drawn or uploaded (task 107, round 3). It was a
 		-- literal 90 here, which is right for the three cylinders this file lays out and wrong for a
 		-- cartridge that has been through Roblox's importer.
-		(shell :: Model):PivotTo(barrelsCFrame * offset * CFrame.Angles(0, math.rad(shellTurnDeg()), 0))
+		(shell :: Model):PivotTo(barrelsCFrame * offset * CFrame.Angles(0, math.rad(shellTurnDeg(config)), 0))
 	end
 end
 
@@ -1214,11 +1550,10 @@ end
 function Viewmodel.flash(barrel: number?, config)
 	local made = model
 	local clone = made and made.PrimaryPart
-	-- FIRST PERSON ONLY, and it still asks the DATA whether there is a flash to draw: a config whose
-	-- `fire` block carries no `flash` draws none rather than erroring, which is the check below. Until
-	-- task 114 the gun flag was asked here too, and the retired gun's `fire` block was exactly such
-	-- a block -- its cosmetics were `Weapon.Effects`' parts in the world.
-	if clone == nil or config == nil or config.FIRST_PERSON ~= true then
+	-- THE NEW GUN ONLY, AND SAID TWICE. The flag is the rule; the second half is that the OLD gun's
+	-- `fire` block carries no `flash` at all -- its cosmetics are `Weapon.Effects`' parts in the
+	-- world -- so this would have nothing to read even if it got here (the gate caught exactly that).
+	if clone == nil or config == nil or config.FIRST_PERSON ~= true or config.NEW_GUN ~= true then
 		return false
 	end
 	if config.FIRE == nil or config.FIRE.flash == nil or config.FIRE.smoke == nil then

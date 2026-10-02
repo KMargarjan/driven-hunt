@@ -7,10 +7,12 @@
 -- too big for a single StudioMCP result" -- and that is a real bound on how big any one synced
 -- instance may be, not a thing to work around. The claims are unchanged; they live here.
 --
--- THE FLAG SITS OFF AND BOTH GUNS ARE DRIVEN BY PARAMETER, the rule every flagged path in this repo
--- follows (docs/design/feature-flags.md 13.3). The GEOMETRY is proved on the server
--- (tests/server/gun.spec.luau); what only a client can show is that the gun is really built, really
--- under the camera, and that its barrel group really turns about the model's own knuckle.
+-- ONE GUN SINCE TASK 114: Karen accepted model B, so the gun flag retired and this is just
+-- the gun. `FIRST_PERSON` is still a flag and is still driven by parameter here, the rule every
+-- flagged path in this repo follows (docs/design/feature-flags.md 13.3). The GEOMETRY is proved on
+-- the server (tests/server/gun.spec.luau); what only a client can show is that the gun is really
+-- built, really under the camera, and that its barrel group really turns about the model's own
+-- knuckle.
 --
 -- Note: docs/research/2026-10-01-exact-metal-gun.md
 local Players = game:GetService("Players")
@@ -40,32 +42,18 @@ local function stateAtBlend(blend: number)
 end
 
 return function()
-	-- MODEL B (task 105), DRIVEN BY PARAMETER while the flag sits OFF -- the rule every flagged path
-	-- in this repo follows (docs/design/feature-flags.md 13.3). The GEOMETRY is proved on the server
-	-- (tests/server/gun.spec.luau); what only a client can show is that it is really built, really
-	-- under the camera, and that its barrel group really turns about the model's own knuckle.
+	-- MODEL B (task 105), AND SINCE TASK 114 THE ONLY GUN: Karen accepted it, so the gun flag retired
+	-- and there is no second build path left to drive by parameter. The GEOMETRY is proved on
+	-- the server (tests/server/gun.spec.luau); what only a client can show is that it is really built,
+	-- really under the camera, and that its barrel group really turns about the model's own knuckle.
 	--
 	-- NOT ONE OF THESE CASES READS A DRAWN TUBE ANY MORE, and that is the point of the task: the gun
 	-- is two MeshParts of somebody else's model, so there is no `BarrelLeft` to measure a flash
 	-- against. Every claim is measured against the gun's OWN arithmetic (`Gun.barrelOffset`,
 	-- `Gun.chamber`, `Gun.hinge`) on the instances that are really on screen -- which is the harder
 	-- test, because the arithmetic is what the mesh has to agree with.
-	describe("the new gun", function()
+	describe("the gun", function()
 		local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
-		local newGunConfig = table.clone(firstPersonConfig) :: any
-		newGunConfig.NEW_GUN = true
-		table.freeze(newGunConfig)
-		-- ...AND A SECOND ONE THAT ALSO CARRIES MODEL B'S OWN POSE NUMBERS (task 108). `Camera.Config`
-		-- folds in ONE set at boot -- `Viewmodel.view(DATA, Config.NEW_GUN)` -- and the flag is OFF
-		-- during a harness run, so a config that only flips `NEW_GUN` draws model B at the OLD gun's
-		-- hand numbers, a pose nobody ever ships. Flipping the data too is what "reachable by
-		-- parameter as well as by flag" means here (docs/design/feature-flags.md 13.3). It is its own
-		-- config so no case that was passing has its gun moved under it.
-		local newGunPosedConfig = table.clone(newGunConfig) :: any
-		for key, value in pairs(ViewmodelData.view(ViewmodelData.DATA, true)) do
-			newGunPosedConfig[key] = value
-		end
-		table.freeze(newGunPosedConfig)
 
 		-- Its own handle, so this never depends on what the live player happens to be holding, and
 		-- the live source is always put back.
@@ -132,7 +120,7 @@ return function()
 				Camera.Viewmodel.clear()
 				Camera.Viewmodel.setReload(nil)
 				local state = stateAtBlend(0)
-				Camera.Viewmodel.update(CFrame.new(0, 16, 0), state, newGunPosedConfig)
+				Camera.Viewmodel.update(CFrame.new(0, 16, 0), state, firstPersonConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local layout = Gun.layout(Shotgun.CONFIG)
 				local found = 0
@@ -167,7 +155,7 @@ return function()
 						-- angles are read in, and without the alignment the right glove's fingers
 						-- land on -X and the left's nowhere near either.
 						local side = if drawn.Name == HandAssets.LEFT then "left" else "right"
-						local base = clone.CFrame * Camera.Mode.handOffsetAt(side, state, newGunPosedConfig)
+						local base = clone.CFrame * Camera.Mode.handOffsetAt(side, state, firstPersonConfig)
 						local axes = HandAssets.AXES[drawn.Name]
 						local fingers = (drawn :: BasePart).CFrame:VectorToWorldSpace(axes.fingers.Unit)
 						local palm = (drawn :: BasePart).CFrame:VectorToWorldSpace(axes.palm.Unit)
@@ -185,11 +173,13 @@ return function()
 						-- it. 0.85 is far outside that correction and far inside any other axis.
 						expect(base.UpVector:Dot(palm) > 0.85).to.equal(true)
 
-						-- NO SLEEVE AT ALL ON MODEL B (task 111). Karen, 2026-10-02: "you can remove
-						-- those arm extentions from both hands". Task 108's to-the-shoulder rule and
-						-- the taper are still in `Camera.Viewmodel` for the OLD gun -- which is the
-						-- pair that has the open cuff they were built for -- so this says only that
-						-- the new gun draws none, on the parts that are really there.
+						-- NO SLEEVE AT ALL, AND NOTHING LEFT THAT COULD DRAW ONE (tasks 111 and 114).
+						-- Karen, 2026-10-02: "you can remove those arm extentions from both hands".
+						-- Task 111 made `sleeveSegments` answer an empty list for model B while the
+						-- retired gun -- the one whose glove had the open cuff they were built for --
+						-- kept its own; task 114 retired that gun, so the segments, the taper and
+						-- the to-the-shoulder vectors are gone. This asserts it on the parts that
+						-- are really drawn, which is the only place a leftover would show.
 						local segments = 0
 						for _, sleeve in ipairs(drawn:GetChildren()) do
 							if sleeve.Name == "Sleeve" and sleeve:IsA("BasePart") then
@@ -197,19 +187,9 @@ return function()
 							end
 						end
 						expect(segments).to.equal(0)
-						expect(#Camera.Viewmodel.sleeveSegments(newGunPosedConfig)).to.equal(0)
-						-- ...and the OLD gun still has one, which is the half of this that must not
-						-- change: its glove ends at an open cuff.
-						expect(#Camera.Viewmodel.sleeveSegments(firstPersonConfig) > 0).to.equal(true)
 					end
 				end
 				expect(found).to.equal(2)
-				-- ...AND THE FLAG-OFF BUILD IS NOT TURNED AT ALL, which is the guarantee that keeps
-				-- the gun Karen has been playing the gun she has been playing.
-				for _, name in ipairs({ HandAssets.RIGHT, HandAssets.LEFT }) do
-					expect(Camera.Viewmodel.align(name, firstPersonConfig)).to.equal(CFrame.identity)
-					expect(Camera.Viewmodel.armDirection(name, firstPersonConfig)).to.equal(nil)
-				end
 			end)
 			Camera.Viewmodel.clear()
 			Camera.Viewmodel.setHandTemplates(liveHands)
@@ -267,10 +247,10 @@ return function()
 					return fake
 				end)
 				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { true, false } })
-				local load = newGunPosedConfig.SHELL_LOAD
+				local load = firstPersonConfig.SHELL_LOAD
 				local function drawAt(when: number)
 					fake = 1000.0 + when
-					Camera.Viewmodel.update(at, state, newGunPosedConfig)
+					Camera.Viewmodel.update(at, state, firstPersonConfig)
 				end
 				drawAt(0)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
@@ -282,7 +262,7 @@ return function()
 					end
 					error("no left hand was drawn", 0)
 				end
-				local rest = (clone.CFrame * Camera.Mode.handOffsetAt("left", state, newGunPosedConfig)).Position
+				local rest = (clone.CFrame * Camera.Mode.handOffsetAt("left", state, firstPersonConfig)).Position
 
 				-- AT THE FETCH POINT: the hand has LEFT the barrels and gone back toward the hunter,
 				-- which is Karen's "arm go up towards hunter" and the thing round 1 did not do.
@@ -290,7 +270,7 @@ return function()
 				local atFetch = leftHand().Position
 				-- ...and it is where the loading keyframe says, not approximately: the alignment is a
 				-- pure rotation about the glove's own centre, so the POSITION is the keyframe's.
-				local weight, frame = Camera.Viewmodel.loadingAt(newGunPosedConfig, fake)
+				local weight, frame = Camera.Viewmodel.loadingAt(firstPersonConfig, fake)
 				-- > 0.99 rather than == 1: `fake` is a float sum, so `since` lands a part in 1e12
 				-- short of the segment's own length and the ramp has not quite closed.
 				expect(weight > 0.99).to.equal(true)
@@ -308,7 +288,7 @@ return function()
 				expect(fresh).to.be.ok()
 				local shellAt = (fresh :: Model):GetPivot().Position
 				local gap = (shellAt - leftHand().Position).Magnitude
-				local mouth = (clone.CFrame * Camera.Viewmodel.shellFeedAt(1, 1, newGunPosedConfig)).Position
+				local mouth = (clone.CFrame * Camera.Viewmodel.shellFeedAt(1, 1, firstPersonConfig)).Position
 				TestKit.note(
 					string.format(
 						"task111 carrying: shell %.3f from the hand, %.3f from its chamber",
@@ -332,12 +312,12 @@ return function()
 
 				-- AND BACK: after the return the hand is bit-for-bit Karen's own tuned pose again.
 				drawAt(load.fetchSeconds + load.carrySeconds + load.seatSeconds + load.returnSeconds + 0.01)
-				expect(Camera.Viewmodel.loading(newGunPosedConfig)).to.equal(0)
+				expect(Camera.Viewmodel.loading(firstPersonConfig)).to.equal(0)
 				expect((leftHand().Position - rest).Magnitude < 1e-3).to.equal(true)
 
 				-- THE RIGHT HAND NEVER LEFT THE GRIP through any of it.
 				local right = clone:FindFirstChild(HandAssets.RIGHT) :: BasePart
-				local grip = (clone.CFrame * Camera.Mode.handOffsetAt("right", state, newGunPosedConfig)).Position
+				local grip = (clone.CFrame * Camera.Mode.handOffsetAt("right", state, firstPersonConfig)).Position
 				expect((right.Position - grip).Magnitude < 1e-3).to.equal(true)
 
 				-- AND THERE IS ONLY EVER ONE ANIMATION PER SHELL. Karen, live: "either we have 2
@@ -357,7 +337,7 @@ return function()
 					steps += 1
 					local shell = clone:FindFirstChild("FreshShell1")
 					local carriedWeight, _, carriedBarrel, carriedShell =
-						Camera.Viewmodel.loadingAt(newGunPosedConfig, fake)
+						Camera.Viewmodel.loadingAt(firstPersonConfig, fake)
 					if stepAt < load.fetchSeconds then
 						expect(shell).to.equal(nil)
 					else
@@ -366,7 +346,7 @@ return function()
 						local inHand = carriedBarrel == 1 and carriedShell ~= nil
 						local wantedAt = if inHand
 							then (clone.CFrame * (carriedShell :: CFrame)).Position
-							else (clone.CFrame * Camera.Viewmodel.shellFeedAt(1, 1, newGunPosedConfig)).Position
+							else (clone.CFrame * Camera.Viewmodel.shellFeedAt(1, 1, firstPersonConfig)).Position
 						expect((where - wantedAt).Magnitude < 1e-3).to.equal(true)
 					end
 					expect(carriedWeight >= 0).to.equal(true)
@@ -403,13 +383,15 @@ return function()
 			Sound.resetStats()
 			-- The shot has an id now (Audioscape's, Director 2026-10-02), so this is TRUE: an id
 			-- really reached a `Sound`. Nobody here has heard it.
-			expect(Sound.shot(newGunPosedConfig)).to.equal(true)
-			expect(Sound.open(newGunPosedConfig)).to.equal(true)
-			expect(Sound.close(newGunPosedConfig)).to.equal(true)
-			-- ...and NONE of it reaches the gun Karen plays: the whole task is behind the flag, and
-			-- round 1 shipped two engine clicks on her reloads.
-			expect(Sound.open(Config)).to.equal(false)
-			expect(Sound.close(Config)).to.equal(false)
+			expect(Sound.shot(firstPersonConfig)).to.equal(true)
+			expect(Sound.open(firstPersonConfig)).to.equal(true)
+			expect(Sound.close(firstPersonConfig)).to.equal(true)
+			-- ...AND A CALLER WITH NO RESOLVED CONFIG PLAYS NOTHING AND IS NOT COUNTED. The gun-flag
+			-- check that used to stand here retired with the gun it kept sounds off (task 114);
+			-- what is left is the honest one, because the three volumes are `fire.volume` in
+			-- `poses.json` and a caller without the config has no volumes either.
+			expect(Sound.open(nil)).to.equal(false)
+			expect(Sound.close(nil)).to.equal(false)
 			expect(Sound.stats().open).to.equal(1)
 			-- THE EDGE IS WHERE THE ONLY LOGIC IS, and it is pure now, so a spec can drive the whole
 			-- cycle: shut -> open is one click, open -> open is none, open -> shut is the other.
@@ -418,19 +400,15 @@ return function()
 			expect(Camera.breakSound(true, false)).to.equal("close")
 			expect(Camera.breakSound(false, false)).to.equal(nil)
 			-- ...and the volumes come from the pose data, so they are tunable live.
-			expect(newGunPosedConfig.FIRE.volume.shot > 0).to.equal(true)
-			-- THE KICK IS PER GUN, and the old gun's is untouched: `newGun.fire` is a different
-			-- spring from the top-level one, which is what lets Karen tune model B without moving
-			-- the gun she has been playing.
-			expect(newGunPosedConfig.RECOIL_GUN_PITCH_DEG).never.to.equal(Config.RECOIL_GUN_PITCH_DEG)
-			expect(newGunPosedConfig.RECOIL_GUN_PITCH_DEG > Config.RECOIL_GUN_PITCH_DEG).to.equal(true)
-			TestKit.note(
-				string.format(
-					"task112 kick: model B %.2f deg against the old gun's %.2f",
-					newGunPosedConfig.RECOIL_GUN_PITCH_DEG,
-					Config.RECOIL_GUN_PITCH_DEG
-				)
-			)
+			expect(firstPersonConfig.FIRE.volume.shot > 0).to.equal(true)
+			-- THE KICK IS THE DATA'S, which is what makes it tunable live. It was `newGun.fire`
+			-- against a top-level block while there were two guns (task 112); task 114 moved it up,
+			-- byte-identical, so the one thing left to assert is that the spring the camera reads IS
+			-- the file's and not a literal that came back.
+			expect(firstPersonConfig.RECOIL_GUN_PITCH_DEG).to.equal(ViewmodelData.DATA.fire.gunPitchDeg)
+			expect(firstPersonConfig.RECOIL_GUN_PITCH_DEG > 0).to.equal(true)
+			expect(firstPersonConfig.FIRE).to.equal(ViewmodelData.DATA.fire)
+			TestKit.note(string.format("task114 kick: %.2f deg", firstPersonConfig.RECOIL_GUN_PITCH_DEG))
 
 			local handle = Instance.new("Part")
 			handle.Name = "Handle"
@@ -444,7 +422,7 @@ return function()
 				task.wait(0.3)
 				Camera.Viewmodel.clear()
 				Camera.Viewmodel.setReload(nil)
-				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), newGunPosedConfig)
+				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), firstPersonConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				-- ONE FLASH PER BARREL, AT THAT BARREL'S OWN MUZZLE. The two bores are 0.078 studs
 				-- apart, so "it came out of the pipe that fired" is a measurement and not a shrug.
@@ -454,7 +432,7 @@ return function()
 							old:Destroy()
 						end
 					end
-					expect(Camera.Viewmodel.flash(barrel, newGunPosedConfig)).to.equal(true)
+					expect(Camera.Viewmodel.flash(barrel, firstPersonConfig)).to.equal(true)
 					local lit = clone:FindFirstChild("MuzzleFlash") :: BasePart
 					expect(lit).to.be.ok()
 					expect(lit:FindFirstChildOfClass("PointLight")).to.be.ok()
@@ -484,7 +462,7 @@ return function()
 					local smokeEmitter = lit:FindFirstChild("Smoke") :: ParticleEmitter
 					expect(flashEmitter.LightEmission).to.equal(1)
 					expect(smokeEmitter.LightEmission).to.equal(0)
-					local want = newGunPosedConfig.FIRE.flash.colorStart
+					local want = firstPersonConfig.FIRE.flash.colorStart
 					local got = flashEmitter.Color.Keypoints[1].Value
 					expect(math.abs(got.R * 255 - want.r) < 1).to.equal(true)
 					expect(math.abs(got.G * 255 - want.g) < 1).to.equal(true)
@@ -503,9 +481,20 @@ return function()
 					expect((lit.Position - muzzle).Magnitude < (lit.Position - other).Magnitude).to.equal(true)
 					lit:Destroy()
 				end
-				-- THE FLAG-OFF BUILD DRAWS NONE OF IT: `FIRE` is the new gun's block and the old
-				-- gun's config has its own, so this says the guard is the flag and not the data.
-				expect(Camera.Viewmodel.flash(1, Config)).to.equal(false)
+				-- WHAT STILL REFUSES TO DRAW IT, now that the gun flag is gone (task 114): a
+				-- THIRD-PERSON config, because the flash is parented to the viewmodel and rides it
+				-- through the kick, and a config whose `fire` block carries no `flash` at all --
+				-- which is what the retired gun's block was. Both are driven here, from the live
+				-- config, so the two guards are measured rather than described.
+				local shoulder = table.clone(firstPersonConfig) :: any
+				shoulder.FIRST_PERSON = false
+				table.freeze(shoulder)
+				expect(Camera.Viewmodel.flash(1, shoulder)).to.equal(false)
+				local noFlash = table.clone(firstPersonConfig) :: any
+				noFlash.FIRE = table.freeze({ gunPitchDeg = 4, volume = firstPersonConfig.FIRE.volume })
+				table.freeze(noFlash)
+				expect(Camera.Viewmodel.flash(1, noFlash)).to.equal(false)
+				expect(Camera.Viewmodel.flash(1, nil)).to.equal(false)
 
 				-- AND THE OLD EFFECTS DO NOT DRAW ON TOP OF IT (round 1, finding 1). Karen: "remove
 				-- those smokes (white from previous)". `Weapon.Effects` asks first; when the
@@ -536,7 +525,7 @@ return function()
 					drawn:Destroy()
 				end
 				Effects.setViewmodelFlash(function(barrel: number?): boolean
-					return Camera.Viewmodel.flash(barrel, newGunPosedConfig)
+					return Camera.Viewmodel.flash(barrel, firstPersonConfig)
 				end)
 				Effects.play(payload)
 				TestKit.note(
@@ -575,7 +564,7 @@ return function()
 		it("is built, not cloned: the pieces are really under the camera", function()
 			withNewGun(function()
 				Camera.Viewmodel.setReload(nil)
-				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), newGunConfig)
+				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), firstPersonConfig)
 				local model = Camera.Viewmodel.current()
 				expect(model).to.be.ok()
 				local clone = (model :: Model).PrimaryPart :: BasePart
@@ -607,14 +596,14 @@ return function()
 					local part = clone:FindFirstChild(name) or barrels:FindFirstChild(name)
 					expect((part :: BasePart):IsA("BasePart")).to.equal(true)
 				end
-				-- THE GUN'S OWN PARTS, which is what the budget is about: the two gloves and their
-				-- sleeves are the HANDS' cost and are counted in their own case. The two-player run
-				-- is what taught this -- there the live templates had arrived, so the drawn model was
-				-- bigger than the gun and the budget read as broken when it was not.
+				-- THE GUN'S OWN PARTS, which is what the budget is about: the two gloves are the
+				-- HANDS' cost and are counted in their own case. The two-player run is what taught
+				-- this -- there the live templates had arrived, so the drawn model was bigger than
+				-- the gun and the budget read as broken when it was not.
 				local parts, worn = 0, 0
 				for _, found in ipairs((model :: Model):GetDescendants()) do
 					if found:IsA("BasePart") then
-						if found.Name == "HandRight" or found.Name == "HandLeft" or found.Name == "Sleeve" then
+						if found.Name == "HandRight" or found.Name == "HandLeft" then
 							worn += 1
 						else
 							parts += 1
@@ -634,7 +623,7 @@ return function()
 			withNewGun(function()
 				local at = CFrame.new(0, 16, 0)
 				Camera.Viewmodel.setReload(nil)
-				Camera.Viewmodel.update(at, stateAtBlend(0), newGunConfig)
+				Camera.Viewmodel.update(at, stateAtBlend(0), firstPersonConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local barrels = clone:FindFirstChild("Barrels") :: BasePart
 				local group = barrels:FindFirstChild(Gun.BARREL_GROUP_NAME) :: BasePart
@@ -650,7 +639,7 @@ return function()
 				open.openTilt = 1
 				table.freeze(open)
 				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { false, false } })
-				Camera.Viewmodel.update(at, open, newGunConfig)
+				Camera.Viewmodel.update(at, open, firstPersonConfig)
 
 				local openGroup = clone.CFrame:ToObjectSpace(group.CFrame)
 				local openFrame = clone.CFrame:ToObjectSpace(frame.CFrame)
@@ -695,7 +684,7 @@ return function()
 			-- 0.09, so a flash built from the wrong gun's number lands between the tubes.
 			withNewGun(function()
 				Camera.Viewmodel.setReload(nil)
-				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), newGunConfig)
+				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), firstPersonConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local at = Gun.layout(Shotgun.CONFIG)
 				for barrel = 1, 2 do
@@ -719,46 +708,6 @@ return function()
 					expect(math.abs(inGun.Position.Z - at.muzzleZ) < 1e-3).to.equal(true)
 				end
 			end)
-		end)
-
-		it("leaves the OLD gun's flash where it has always been", function()
-			-- THE OTHER HALF OF ONE DEFINITION: the mesh gun's tubes are 0.09 apart and 0.12 above
-			-- the Handle's axis (`Shotgun.barrelMuzzleOffset`), and nothing about this task may move
-			-- them. A gun built from a cloned Handle must still get that offset and not the new
-			-- gun's -- which is why `Viewmodel.muzzle` asks the MODEL which gun it is.
-			local handle = Instance.new("Part")
-			handle.Name = "Handle"
-			handle.Size = Shotgun.CONFIG.HANDLE_SIZE
-			handle.Transparency = 1
-			local muzzle = Instance.new("Attachment")
-			muzzle.Name = "Muzzle"
-			muzzle.CFrame = CFrame.new(Shotgun.CONFIG.MUZZLE_OFFSET)
-			muzzle.Parent = handle
-			local live = Camera.Viewmodel.getSource()
-			Camera.Viewmodel.setSource(function()
-				return handle
-			end)
-			local ok, why = pcall(function()
-				task.wait(0.3)
-				Camera.Viewmodel.clear()
-				Camera.Viewmodel.setReload(nil)
-				local at = CFrame.new(0, 16, 0)
-				Camera.Viewmodel.update(at, stateAtBlend(0), firstPersonConfig)
-				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
-				for barrel = 1, 2 do
-					local flash = Camera.Viewmodel.muzzle(barrel)
-					expect(flash).to.be.ok()
-					local inGun = clone.CFrame:ToObjectSpace(flash :: CFrame)
-					local wanted = Shotgun.CONFIG.MUZZLE_OFFSET + Shotgun.barrelMuzzleOffset(barrel, Shotgun.CONFIG)
-					expect((inGun.Position - wanted).Magnitude < 1e-3).to.equal(true)
-				end
-			end)
-			Camera.Viewmodel.clear()
-			Camera.Viewmodel.setSource(live)
-			handle:Destroy()
-			if not ok then
-				error(why, 0)
-			end
 		end)
 
 		it("seats the uploaded shell brass-head-first, measured on the drawn part", function()
@@ -801,7 +750,7 @@ return function()
 					-- NO YIELD, for the reason the case below gives: the live render step would
 					-- rebuild the clone from a different handle between these two calls.
 					Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { true, true } })
-					Camera.Viewmodel.update(at, open, newGunConfig)
+					Camera.Viewmodel.update(at, open, firstPersonConfig)
 					local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 					local barrels = clone:FindFirstChild("Barrels") :: BasePart
 					for barrel = 1, 2 do
@@ -873,7 +822,7 @@ return function()
 				-- tube's own bore line, and its back face is OUTSIDE the breech. A shell still
 				-- travelling in is further out than a seated one, so neither depends on a frame.
 				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { true, true } })
-				Camera.Viewmodel.update(at, open, newGunConfig)
+				Camera.Viewmodel.update(at, open, firstPersonConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local barrels = clone:FindFirstChild("Barrels") :: BasePart
 				local layout = Gun.layout(Shotgun.CONFIG)
@@ -912,7 +861,7 @@ return function()
 					-- is read off the drawn thing rather than assumed.
 					local rim = (shell :: Model):FindFirstChild("Rim")
 					local back = if rim ~= nil
-						then Gun.shellLayout(newGunConfig.SHELL_SIZE_STUDS, newGunConfig.SHELL_BASE_FRACTION).back
+						then Gun.shellLayout(firstPersonConfig.SHELL_SIZE_STUDS, firstPersonConfig.SHELL_BASE_FRACTION).back
 						else Gun.SHELL_MESH_SIZE_STUDS.X / 2
 					local wanted = (Gun.chamber(barrel, Shotgun.CONFIG) * CFrame.new(0, 0, -back)).Position
 					local isMesh = rim == nil
@@ -935,19 +884,20 @@ return function()
 				end
 			end)
 		end)
-		it("draws the OLD gun's gloves with the flag off and model B's with it on", function()
-			-- ROUND 1'S FINDING 1, ON THE INSTANCES THAT ARE REALLY DRAWN. The new gloves first
-			-- shipped as `hand.right` VERSION 2, which supersedes -- so the flag-OFF default build,
-			-- whose TOP-LEVEL poses were measured against the v1 models, was handed model B's pair:
-			-- upside down and at 53 % of the size its poses assume. The manifest half is asserted on
-			-- the server (`gun.spec`); this is the half only a client can see.
+		it("draws the gloves out of the one folder the server publishes them into", function()
+			-- TASK 106 ROUND 1'S FINDING 1, ON THE INSTANCES THAT ARE REALLY DRAWN, AND WHAT TASK 114
+			-- LEFT OF IT. Karen's gloves first shipped as `hand.right` VERSION 2, which supersedes --
+			-- so the build whose poses were measured against the v1 models was handed her pair: upside
+			-- down and at 53 % of the size those poses assume. Two folders and two keys were the fix.
+			-- One gun now means ONE folder, and this is the half only a client can see: the drawn hand
+			-- comes out of `HandAssets.FOLDER_NAME` and nowhere else.
 			--
 			-- IT DOES NOT WAIT FOR THE UPLOADS, AND THAT IS DELIBERATE. `InsertService:LoadAsset`
 			-- takes seconds and the client specs run before it lands -- the task 99 gloves case below
 			-- has skipped in every harness run for that reason, which is a case that cannot fail. So
-			-- where a pair is not published this stands one in: `Camera.Viewmodel.handTemplate` reads
-			-- the folder by name, so a part of the right name in the right folder IS the thing it
-			-- looks up. Anything made here is destroyed again.
+			-- where the pair is not published this stands one in: `Camera.Viewmodel.handTemplate`
+			-- reads the folder by name, so a part of the right name in the right folder IS the thing
+			-- it looks up. Anything made here is destroyed again.
 			local made: { Instance } = {}
 			local function template(folderName: string, size: Vector3): BasePart
 				local folder = ReplicatedStorage:FindFirstChild(folderName)
@@ -971,41 +921,35 @@ return function()
 			end
 
 			local ok, why = pcall(function()
-				-- Two sizes that cannot be mistaken for each other, and the published pair's own
-				-- when it IS there.
-				local oldSize = template(HandAssets.FOLDER_NAME, Vector3.new(1.27, 0.57, 0.53)).Size
-				local newSize = template(HandAssets.NEW_GUN_FOLDER_NAME, Vector3.new(0.67, 0.35, 0.21)).Size
+				-- The published pair's own size when it IS there, and a stand-in of that size when
+				-- it is not.
+				local size = template(HandAssets.FOLDER_NAME, Vector3.new(0.67, 0.35, 0.21)).Size
+				-- A SECOND FOLDER THAT MUST NOT BE READ. `ViewmodelHandsNewGun` is the folder task
+				-- 106 added and task 114 removed; a glove of an unmistakable size is parked there,
+				-- so a lookup that still reached for it would draw 1.27 studs instead of 0.67 and
+				-- this case would say so rather than passing on a name nobody publishes any more.
+				local stale = template("ViewmodelHandsNewGun", Vector3.new(1.27, 0.57, 0.53)).Size
+				expect(size).never.to.equal(stale)
 				TestKit.note(
 					string.format(
-						"task106 the old gun's glove is %.3f studs, model B's %.3f",
-						math.max(oldSize.X, oldSize.Y, oldSize.Z),
-						math.max(newSize.X, newSize.Y, newSize.Z)
+						"task114 the drawn glove is %.3f studs; the retired folder holds %.3f",
+						math.max(size.X, size.Y, size.Z),
+						math.max(stale.X, stale.Y, stale.Z)
 					)
 				)
-				expect(oldSize).never.to.equal(newSize)
 
-				local function drawnRightHandSize(config): Vector3?
-					local found: Vector3? = nil
-					withNewGun(function()
-						Camera.Viewmodel.setReload(nil)
-						Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), config)
-						local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
-						local hand = clone:FindFirstChild(HandAssets.RIGHT)
-						if hand and hand:IsA("BasePart") then
-							found = (hand :: BasePart).Size
-						end
-					end)
-					return found
-				end
-
-				local drawnOff = drawnRightHandSize(firstPersonConfig)
-				local drawnOn = drawnRightHandSize(newGunConfig)
-				expect(drawnOff).to.be.ok()
-				expect(drawnOn).to.be.ok()
-				-- THE FLAG-OFF BUILD DRAWS THE OLD PAIR, at the old size. A regression here is the
-				-- default build changing under a flagged task, which is exactly what round 1 shipped.
-				expect(drawnOff).to.equal(oldSize)
-				expect(drawnOn).to.equal(newSize)
+				local found: Vector3? = nil
+				withNewGun(function()
+					Camera.Viewmodel.setReload(nil)
+					Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), firstPersonConfig)
+					local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+					local hand = clone:FindFirstChild(HandAssets.RIGHT)
+					if hand and hand:IsA("BasePart") then
+						found = (hand :: BasePart).Size
+					end
+				end)
+				expect(found).to.be.ok()
+				expect(found).to.equal(size)
 			end)
 			for index = #made, 1, -1 do
 				made[index]:Destroy()
@@ -1018,11 +962,11 @@ return function()
 
 	-- THE GLOVES (task 99). Karen, 2026-10-01: the right glove is WHITE in game. The manifest half of
 	-- the fix is asserted on the server (`gun.spec`); this is the half only a client can see -- what
-	-- is actually published, and that the drawn hands carry the sleeve.
+	-- is actually published, and that nothing draws a sleeve behind it any more.
 	describe("the gloves", function()
 		local DEFAULT_GREY = Color3.fromRGB(163, 162, 165)
 
-		it("are never left at Roblox's default grey, and each drawn one has a sleeve", function()
+		it("are never left at Roblox's default grey, and carry no drawn sleeve", function()
 			local folder = ReplicatedStorage:FindFirstChild("ViewmodelHands")
 			local published = if folder then folder:GetChildren() else {}
 			if #published == 0 then
@@ -1077,18 +1021,20 @@ return function()
 				Camera.Viewmodel.setReload(nil)
 				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), firstPersonConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
-				local found = 0
+				local found, sleeves = 0, 0
 				for _, drawn in ipairs(clone:GetDescendants()) do
 					if drawn.Name == "HandRight" or drawn.Name == "HandLeft" then
-						local sleeve = drawn:FindFirstChild("Sleeve")
-						expect(sleeve).to.be.ok()
-						-- IT RUNS BACK PAST THE EYE, which is the claim: longer than the hand it is
-						-- joined to, so the cuff's open end is never the thing facing the camera.
-						expect((sleeve :: BasePart).Size.X > (drawn :: BasePart).Size.X).to.equal(true)
 						found += 1
+					elseif drawn.Name == "Sleeve" then
+						sleeves += 1
 					end
 				end
-				TestKit.note(string.format("task99 sleeves: %d drawn hand(s) carried one", found))
+				-- NO SLEEVE, ANYWHERE UNDER THE GUN (tasks 111 and 114). Karen, 2026-10-02: "you can
+				-- remove those arm extentions from both hands". Task 99 drew one because the v1 glove
+				-- ended at an open cuff; her pair carries its own turned cuff, so there is nothing
+				-- left to plug and nothing left in `Camera.Viewmodel` that could draw one.
+				TestKit.note(string.format("task114 %d drawn hand(s), %d sleeve(s)", found, sleeves))
+				expect(sleeves).to.equal(0)
 				expect(found).to.equal(#published)
 			end)
 			Camera.Viewmodel.clear()

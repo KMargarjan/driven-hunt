@@ -20,12 +20,9 @@ local HandAssets = {}
 -- deleted at the next Connect (CLAUDE.md); a folder a running server makes for itself lives and dies
 -- with that server, exactly as `Assets.Loader`'s own cache folder does.
 HandAssets.FOLDER_NAME = "ViewmodelHands"
--- ...AND A SECOND FOLDER, FOR A SECOND PAIR (task 106). Karen made gloves that HOLD something, for
--- model B; the old gun keeps the pair its poses were measured against. Two folders rather than two
--- NAMES, so everything downstream -- `poseHands`, `clearHands`, every spec -- still looks for
--- `HandRight` and `HandLeft` and only ONE place decides which pair that is
--- (`Camera.Viewmodel.handTemplate`).
-HandAssets.NEW_GUN_FOLDER_NAME = "ViewmodelHandsNewGun"
+-- ONE FOLDER AGAIN SINCE TASK 114. Task 106 added a second one, `ViewmodelHandsNewGun`, because two
+-- guns wanted two pairs of gloves; Karen's gun is the only gun now and her pair is the only pair, so
+-- there is one folder and the names in it are the names everything downstream has always used.
 
 HandAssets.RIGHT = "HandRight"
 HandAssets.LEFT = "HandLeft"
@@ -33,13 +30,15 @@ HandAssets.LEFT = "HandLeft"
 -- Which manifest key each published name comes from. The SERVER reads this; the client only ever
 -- needs the names, because by the time it looks the Instance is already there or it is not.
 --
--- TWO TABLES, TWO KEYS PER HAND, AND THAT IS THE POINT (task 106, round 2). The new gloves were
--- first shipped as `hand.right` version 2 -- and a new version SUPERSEDES, so `Assets.byKey` handed
--- the old gun a pair it was never posed for: upside down (its `twist` of 180 is for a palm-DOWN
--- model) and at 53 % of the size its poses assume. A different gun's hands are a different key.
+-- `gun.hand.*` AND NOT `hand.*`, AND THE KEYS ARE WHY (task 106, round 2, kept through task 114).
+-- Karen's gloves were first shipped as `hand.right` version 2 -- and a new version SUPERSEDES, so
+-- `Assets.byKey` handed the OLD gun a pair it was never posed for: upside down (its `twist` of 180 is
+-- for a palm-DOWN model) and at 53 % of the size its poses assumed. The fix was a different KEY, and
+-- these are those keys; the v1 pair and the gun they were posed for are gone, and their rows are
+-- archived under `backups/2026-10-03_task-114_v1-glove-rows.luau.txt`.
 HandAssets.KEY_OF = table.freeze({
-	[HandAssets.RIGHT] = "hand.right",
-	[HandAssets.LEFT] = "hand.left",
+	[HandAssets.RIGHT] = "gun.hand.right",
+	[HandAssets.LEFT] = "gun.hand.left",
 })
 
 -- WHICH WAY EACH GLOVE'S OWN MESH POINTS, MEASURED (task 108), and this is the whole of Karen's
@@ -59,10 +58,7 @@ HandAssets.KEY_OF = table.freeze({
 -- palm, which is what a shared number does when the two meshes disagree about which axis it turns.
 -- So `poseHands` applies a per-glove rotation that takes each mesh into ONE frame -- FINGERS ALONG
 -- +X, PALM TOWARD +Y -- on the right of the pose offset, and the pose's three angles are read in
--- THAT frame on both. All three newGun poses in `poses.json` are seeded in it.
---
--- IT REACHES THE NEW GUN ONLY. `align` returns identity unless `config.NEW_GUN`, because the old
--- gun's pair is a different model whose poses were measured against it with no alignment at all.
+-- THAT frame on both. All three poses in `poses.json` are seeded in it.
 --
 -- The palm normal is the hand cloud's flattest axis signed toward the fingertips (a curled hand's
 -- tips lie over its palm). On the right glove that is a clean slab; on the LEFT, which is a cupped C,
@@ -81,11 +77,6 @@ HandAssets.AXES = table.freeze({
 		fingers = Vector3.new(0.3172, 0.8738, -0.3686),
 		palm = Vector3.new(0.4579, 0.4884, 0.7428),
 	}),
-})
-
-HandAssets.NEW_GUN_KEY_OF = table.freeze({
-	[HandAssets.RIGHT] = "gun.hand.right",
-	[HandAssets.LEFT] = "gun.hand.left",
 })
 
 return table.freeze(HandAssets)
