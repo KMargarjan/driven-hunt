@@ -42,6 +42,12 @@ local Viewmodel = {}
 Viewmodel.OVERRIDE_ATTRIBUTE = "DHPose"
 -- The one key in that object that is not a pose path: which pose to HOLD, for a screenshot.
 Viewmodel.HOLD_KEY = "hold"
+-- ...AND THE SECOND ONE (task 102): a number `tools/pose.py fit` bumps on every candidate it writes,
+-- so the tool can tell whether the reading it just took is of the pose it just asked for or of the
+-- one before it. A search that reads one frame late searches a blurred objective and converges on
+-- nothing. It is not a pose number, it changes nothing that is drawn, and `Viewmodel.merge` skips it
+-- exactly as it skips the hold.
+Viewmodel.SERIAL_KEY = "serial"
 Viewmodel.HOLDS = table.freeze({ "carry", "raise", "aim", "reload" })
 -- The only easing `Mode.ease` implements. A spec asserts the data asks for no other one, so a typo
 -- fails the harness rather than silently becoming a linear swing nobody chose.
@@ -140,8 +146,8 @@ function Viewmodel.merge(data: any, overrides: { [string]: any }?): (any, { stri
 	table.sort(ordered) -- so two runs report the same problems in the same order
 	for _, path in ipairs(ordered) do
 		local value = overrides[path]
-		if path == Viewmodel.HOLD_KEY then
-			continue -- not a pose number; `Viewmodel.hold` reads it
+		if path == Viewmodel.HOLD_KEY or path == Viewmodel.SERIAL_KEY then
+			continue -- not pose numbers; `Viewmodel.hold` reads one and `tools/pose.py fit` the other
 		end
 		if known[path] == nil then
 			table.insert(problems, string.format("%s is not a pose number", path))
@@ -277,6 +283,31 @@ function Viewmodel.validate(data: any): { string }
 		handProblems("aim.right", aim.right, problems)
 		handProblems("aim.left", aim.left, problems)
 	end
+	-- THE LOOK BLOCK (task 102). One light, four numbers plus a colour, and it is validated here for
+	-- the same reason every pose is: `Camera.Config` reads it at boot, so a missing field is a
+	-- viewmodel with no light rather than an error anybody can trace.
+	local look = data.look
+	if type(look) ~= "table" or type(look.fill) ~= "table" then
+		table.insert(problems, "look.fill is missing")
+	else
+		local fill = look.fill
+		if not isNumber(fill.brightness) or fill.brightness < 0 then
+			table.insert(problems, "look.fill.brightness must be a number at or above 0")
+		end
+		if not isNumber(fill.rangeStuds) or fill.rangeStuds <= 0 then
+			table.insert(problems, "look.fill.rangeStuds must be a positive number")
+		end
+		vectorProblems("look.fill.offset", fill.offset, { "x", "y", "z" }, problems)
+		vectorProblems("look.fill.color", fill.color, { "r", "g", "b" }, problems)
+		if type(fill.color) == "table" then
+			for _, channel in ipairs({ "r", "g", "b" }) do
+				local value = fill.color[channel]
+				if isNumber(value) and (value < 0 or value > 255) then
+					table.insert(problems, "look.fill.color." .. channel .. " is outside 0-255")
+				end
+			end
+		end
+	end
 	local raise = data.raise
 	if type(raise) ~= "table" then
 		table.insert(problems, "raise is missing")
@@ -372,6 +403,12 @@ local function vec(node: any): Vector3
 	return Vector3.new(node.x, node.y, node.z)
 end
 
+-- 0-255 CHANNELS, because that is what a person reading `look.fill.color` in a JSON file expects and
+-- what every measured pixel in this repo's comments is written in.
+local function col(node: any): Color3
+	return Color3.fromRGB(node.r, node.g, node.b)
+end
+
 Viewmodel.vec = vec
 
 -- THE FLAT NAMES THE CAMERA HAS ALWAYS USED, computed from the data. `Camera.Config` merges this in
@@ -402,6 +439,18 @@ function Viewmodel.view(data: any, newGun: boolean?): { [string]: any }
 		HAND_LEFT_YAW_DEG = set.carry.left.rot.yaw,
 		HAND_LEFT_PITCH_DEG = set.carry.left.rot.pitch,
 		HAND_LEFT_TWIST_DEG = set.carry.left.rot.twist,
+		-- THE VIEWMODEL'S OWN FILL LIGHT (task 102), and it is `look`, not a pose: it is the same
+		-- light whichever gun is in the hands, so it is read off `data` and never off `set`.
+		--
+		-- IT IS DATA BECAUSE IT WAS MEASURED TO BE THE DEFECT. Task 100 put the action at an albedo
+		-- of (118, 120, 122) and the aimed capture still read it at (155, 161, 173) -- a pale
+		-- blue-grey slab -- and the difference is this light, inches from the lens. A colour that is
+		-- right in the file and wrong on screen is exactly the thing the content lane exists for:
+		-- `python tools/pose.py set look.fill.brightness 0.3`, look, `save`.
+		VIEWMODEL_FILL_BRIGHTNESS = data.look.fill.brightness,
+		VIEWMODEL_FILL_RANGE_STUDS = data.look.fill.rangeStuds,
+		VIEWMODEL_FILL_COLOR = col(data.look.fill.color),
+		VIEWMODEL_FILL_OFFSET_STUDS = vec(data.look.fill.offset),
 		-- the aimed pose, solved from the gun's own sight
 		EYE_RELIEF_STUDS = set.aim.eyeReliefStuds,
 		ADS_CHEEK_DEG = set.aim.cheekDeg,

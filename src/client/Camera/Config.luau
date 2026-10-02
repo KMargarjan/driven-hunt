@@ -342,22 +342,22 @@ local Config = {
 	-- workspace.CurrentCamera, so it lights the gun and nothing else the player can see): warm, weak
 	-- and short-ranged, shadows off. It does not light the world -- range 6 studs from a point inside
 	-- the camera -- and it costs one light.
-	-- 1.0, AND THE FIRST PICK OF 1.4 WAS MEASURED ON SCREEN: at 1.4 the action's own metal (the mesh
-	-- carries it at metalness 0.70 / roughness 0.35) blew out to near-white in the aimed view, which
-	-- trades one unreadable gun for another. At 1.0 the barrels and the rib keep their highlight and
-	-- the walnut still reads as walnut.
-	-- 0.8 AND MOVED FORWARD SINCE TASK 97, and the screenshot is why: the aimed view now contains
-	-- the action and the stock, and the light sat 0.9 studs BEHIND the gun's centre -- i.e. inside
-	-- them, inches from the lens -- so the stock's left flank rendered as a blown-out white patch.
-	-- The same mistake as a lamp inside the lampshade; the fix is to put it in front of what it is
-	-- meant to light. IT STAYS HERE AND IS NOT POSE DATA: it is a light, not a pose.
-	VIEWMODEL_FILL_BRIGHTNESS = 0.8,
-	VIEWMODEL_FILL_RANGE_STUDS = 6,
-	VIEWMODEL_FILL_COLOR = Color3.fromRGB(255, 244, 224),
-	-- Where the light sits relative to the gun's own pivot: up and to the left of the breech, so the
-	-- barrels and the rib catch a highlight along their length and the wood behind them is lifted out
-	-- of black. Camera space would move with the pose; the gun's own frame does not.
-	VIEWMODEL_FILL_OFFSET_STUDS = Vector3.new(-0.45, 0.60, -0.80),
+	-- IT IS CONTENT-LANE DATA SINCE TASK 102, and the four `VIEWMODEL_FILL_*` names are published at
+	-- the bottom of this file by `Viewmodel.view` out of `look.fill` in
+	-- src/shared/Viewmodel/poses.json. The history that bought the numbers stays here, because it is
+	-- what a tuner needs to read before moving them:
+	--   * 1.4 was the first pick and blew the action out to near-white in the aimed view; 1.0 kept
+	--     the barrels' highlight and the walnut.
+	--   * 0.8, and MOVED FORWARD since task 97: the light had sat 0.9 studs BEHIND the gun's centre,
+	--     i.e. inside the action and the stock, inches from the lens, and the stock's left flank
+	--     rendered as a blown-out white patch. A lamp inside the lampshade.
+	--   * 0.45 and 1.30 studs forward since task 102, and THIS one was measured: at 0.8 with the
+	--     light 0.80 studs forward it sat right on the new short action's breech, and the aimed
+	--     capture read the fences and top strap at (155, 161, 173) from an albedo of (118, 120, 122).
+	--     What the light is for is the barrels and the wood ALONG the gun, not the furniture that is
+	--     already nearest the eye.
+	-- "It stays here and is not pose data" was true until the thing being tuned turned out to be the
+	-- light rather than the colour; it is still not a POSE, which is why it is `look` and not `aim`.
 
 	-- ------------------------------------------------------ the sleeve (task 99)
 	-- KAREN, 2026-10-01: in the break-open frame the left cuff's OPEN END faces the camera as a big

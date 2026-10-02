@@ -881,6 +881,13 @@ local function screen(position)
     return { x = point.X / size.X, y = point.Y / size.Y, studs = point.Z, onScreen = visible }
 end
 local out = { viewport = { x = size.X, y = size.Y }, parts = {} }
+-- WHICH PIECES ARE LANDMARKS. The three the carry pose was solved from, plus the three task 102's
+-- `tools/pose.py fit` searches against: the open BREECH the player looks into, the MUZZLE end of the
+-- tubes and the STOCK. They are the points a person can actually find in a reference frame.
+local WANTED = {
+    HandRight = true, HandLeft = true,
+    StandingBreech = true, Stock = true, Forend = true, Action = true,
+}
 local bead, barrels = nil, nil
 for _, found in made:GetDescendants() do
     if found:IsA("BasePart") then
@@ -888,7 +895,7 @@ for _, found in made:GetDescendants() do
             bead = bead or found
         elseif found.Name == "Barrels" then
             barrels = found
-        elseif found.Name == "HandRight" or found.Name == "HandLeft" then
+        elseif WANTED[found.Name] then
             out.parts[found.Name] = screen(found.Position)
         end
     end
@@ -896,6 +903,20 @@ end
 if bead then
     out.parts.Bead = screen(bead.Position)
 end
+-- THE MUZZLE, from the attachment the rest of the system already aims with rather than from a part,
+-- so "the end of the barrels" is the same point here as it is for the flash.
+local primary = made.PrimaryPart
+local muzzle = primary and primary:FindFirstChild("Muzzle")
+if muzzle and muzzle:IsA("Attachment") then
+    out.parts.Muzzle = screen(muzzle.WorldPosition)
+end
+-- WHICH OVERRIDE THIS CLIENT CAN SEE (task 102). A search writes a candidate on the server and reads
+-- the landmarks here; without this it cannot tell a reading of the pose it just asked for from a
+-- reading of the one before it, and a search on a blurred objective converges on nothing. The raw
+-- text goes back and Python reads the serial out of it: this query decodes nothing and requires
+-- nothing.
+local holder = game:GetService("ReplicatedStorage"):FindFirstChild("Viewmodel")
+out.override = if holder then tostring(holder:GetAttribute("DHPose")) else ""
 -- THE GUN'S WIDTH WHERE IT MEETS THE BOTTOM EDGE, which is one of the three readings the carry pose
 -- was solved from. Measured off the eight corners of the barrel group (the Handle when the gun is
 -- one piece): the full silhouette's width always, and the width of just the corners inside the

@@ -170,7 +170,20 @@ local function uniformTo(natural: Vector3, length: number): Vector3
 	return Vector3.new(natural.X * scale, natural.Y * scale, natural.Z * scale)
 end
 
-local STOCK_SIZE = uniformTo(STOCK_NATURAL, Gun.WOOD_LENGTH_STUDS[Gun.STOCK_NAME])
+-- THE STOCK IS THE ONE ROW THAT IS NOT UNIFORM, AND IT WAS MEASURED (task 102). Uniform to 1.32
+-- studs long this mesh is 0.481 tall and 0.123 WIDE, which is about right for a real stock and
+-- wrong for this gun: the metal is drawn at about 1.65x life in cross-section (`BARREL_DIAMETER`
+-- 0.145 against a life-size 0.089 at this length) because a life-size pair is unreadable at arm's
+-- length, and the stock arrived at 1.0x. The aimed capture is what it cost -- a comb spanning ~15%
+-- of the half-frame's width against the video target's ~50%. So the LENGTH and the HEIGHT stay
+-- uniform, exactly as design 6.1 asks, and the WIDTH is the gun's own answer
+-- (`Gun.WOOD_WIDTH_STUDS`): 0.255, the action's width, which is 2.07x what uniform gives.
+local function widenTo(natural: Vector3, length: number, width: number): Vector3
+	local uniform = uniformTo(natural, length)
+	return Vector3.new(uniform.X, uniform.Y, width)
+end
+
+local STOCK_SIZE = widenTo(STOCK_NATURAL, Gun.WOOD_LENGTH_STUDS[Gun.STOCK_NAME], Gun.WOOD_WIDTH_STUDS[Gun.STOCK_NAME])
 local HAND_RIGHT_SIZE = uniformTo(HAND_RIGHT_NATURAL, HAND_LENGTH_STUDS)
 local HAND_LEFT_SIZE = uniformTo(HAND_LEFT_NATURAL, HAND_LENGTH_STUDS)
 
