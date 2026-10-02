@@ -46,6 +46,10 @@ change touches `src/`, `tests/client/` or `tools/studio_mcp.py` - Director decis
 driver, a tie, a team swap and half the client suite exist only with two clients, so a one-player
 run is not evidence for gameplay or for the harness that drives them. Docs, and the tools that are
 not the harness, stay exempt, because `test2` costs a human click.
+**Except when EVERY changed code file is first-person viewmodel** (`WEAPON_VIEWMODEL_PATHS`,
+Director decision 2026-10-02): that gun is drawn under one player's own camera, every other player
+sees the Tool's mesh, and a second client renders a second copy of it and answers nothing. All or
+nothing - one file outside the list and the whole change needs the line again.
 **What is still policy, not enforcement:** nothing stops a Builder committing a hand-written trailer
 (the Builder owns the repo and the commits), and `git rebase`/`--force` could drop the history the
 look-back reads. audit-002 must-fix #5 (Task 12) is about exactly that: the verdict files must be
@@ -77,7 +81,52 @@ CODE_PATHS = ("src/", "tests/", "tools/")
 # specs, the harness itself) are not evidenced by a one-player run. Everything else -- docs, and the
 # tools that are not the harness -- is exempt, because test2 costs a human click and eight minutes.
 TWO_PLAYER_PATHS = ("src/", "tests/client/", "tools/studio_mcp.py")
+
+# BLAST RADIUS: THE ONE SET OF FILES THE SECOND PLAYER CANNOT EVIDENCE (Director decision,
+# 2026-10-02). Karen, that day: "not testing everything only changed part and only where could be
+# blast radius / do not waist time on unnecassary things / ... we just focus to weapon features".
+#
+# THE REASON IS WHAT THE SECOND CLIENT IS FOR. `test2` exists because a driver, a tie, a team swap
+# and half the client suite only exist with two players. The FIRST-PERSON VIEWMODEL is the opposite
+# case: it is drawn under `workspace.CurrentCamera` for ONE player, every other player sees the
+# Tool's own mesh, and nothing in it reads a team, a role or another character. A second client
+# renders a second copy of the same thing and answers no question the first did not.
+#
+# SO A CHANGE WHOSE CODE FILES ARE ALL IN THIS LIST IS EXEMPT FROM THE TWO-PLAYER LINE. One file
+# outside it -- any server code, Match, the shot or hit path, the driver, the tie -- and the whole
+# change needs it again, because the exemption is about what the change CAN break, not about what it
+# mostly is. The one-player line is still required for everything, always.
+#
+# THE SPECS ARE NAMED, NOT PREFIXED, and that is deliberate: `tests/client/` as a whole is exactly
+# what `TWO_PLAYER_PATHS` says needs two players, so only the files that test the viewmodel and
+# nothing else may be in here. A spec that grows a driver or a team assertion must come out of this
+# list in the same commit.
+WEAPON_VIEWMODEL_PATHS = (
+    "src/shared/Gun/",
+    "src/shared/Viewmodel/",
+    "src/client/Camera/Viewmodel.luau",
+    "src/client/Camera/Poses.luau",
+    # The specs that drive only those, and only in the local player's own camera.
+    "tests/server/gun.spec.luau",
+    "tests/server/viewmodel_poses.spec.luau",
+    "tests/client/gun_client.spec.luau",
+)
 AGENT_TIMEOUT_S = 3600
+
+
+def needs_two_player(changed):
+    """Which of `changed` a ONE-player run cannot evidence. Pure: a list of paths in, a list out.
+
+    Empty when the whole change is first-person viewmodel (`WEAPON_VIEWMODEL_PATHS`, Director
+    2026-10-02). ALL OR NOTHING, and that is the point: one file outside the list -- a server script,
+    Match, the shot path, the driver, the tie -- and every two-player path is back, because the
+    question is what the change CAN break, not what most of it is.
+    """
+    norm = [f.replace("\\", "/") for f in changed]
+    two = [f for f in norm if f.startswith(TWO_PLAYER_PATHS)]
+    if two and all(f.startswith(WEAPON_VIEWMODEL_PATHS) for f in norm):
+        return []
+    return two
 
 
 class Refused(Exception):
@@ -367,7 +416,15 @@ def harness_gate(req, code_full, base, head):
     # THE TWO-PLAYER LINE, for the paths a one-player run cannot evidence (Director, 2026-09-26).
     # A driver, a tie, a team swap and half the client suite exist only with two clients, so a
     # change to gameplay or to the harness that drives them is not evidenced without one.
-    two_player = [f for f in changed if f.replace("\\", "/").startswith(TWO_PLAYER_PATHS)]
+    #
+    # ...UNLESS EVERY CODE FILE IS FIRST-PERSON VIEWMODEL (Director, 2026-10-02). See
+    # `WEAPON_VIEWMODEL_PATHS`: a second client draws a second copy of a thing only its own player
+    # can see, so it answers nothing. ALL or NOTHING -- one file outside the list and the whole
+    # change needs the line again.
+    two_player = needs_two_player(changed)
+    if not two_player and any(f.replace("\\", "/").startswith(TWO_PLAYER_PATHS) for f in changed):
+        print(f"[agents] every changed file is first-person viewmodel ({len(changed)} file(s)), so "
+              f"the two-player line is not required (Director, 2026-10-02)", flush=True)
     if two_player and not pasted(HARNESS2_RE):
         named = sorted({f.replace("\\", "/") for f in two_player})[:6]
         raise Refused(
@@ -546,9 +603,66 @@ def take_task_flag(args):
     return task, rest
 
 
+def selftest():
+    """Offline, no git and no Claude: the two rules the two-player gate rests on, both directions.
+
+    It drives `needs_two_player` with FILE LISTS rather than with a repository, which is the whole
+    point -- the decision is a pure function of the paths, so it can be proved without a branch, a
+    commit or a Studio.
+    """
+    failures = []
+
+    def check(name, ok, detail=""):
+        print("[selftest] %-62s %s %s" % (name, "ok" if ok else "FAILED", detail))
+        if not ok:
+            failures.append(name)
+
+    viewmodel = ["src/shared/Gun/init.luau", "src/client/Camera/Viewmodel.luau",
+                 "tests/client/gun_client.spec.luau", "tests/server/gun.spec.luau"]
+    check("a viewmodel-only change needs no two-player line",
+          needs_two_player(viewmodel) == [], "%s" % (needs_two_player(viewmodel),))
+    # ...AND THE OTHER DIRECTION, which is the one that matters: one file outside the list brings it
+    # all back. A server script, the shot path, the driver, the tie.
+    for stranger in ("src/server/Match/init.luau", "src/server/Weapon/Shot.luau",
+                     "tools/studio_mcp.py", "tests/client/match_client.spec.luau",
+                     "src/client/Hud/init.luau"):
+        got = needs_two_player(viewmodel + [stranger])
+        check("one %s brings the two-player line back" % stranger, len(got) > 0,
+              "%d path(s) need it" % len(got))
+    check("a docs-only change asks for nothing", needs_two_player([]) == [])
+    check("a non-code change asks for nothing", needs_two_player(["README.md"]) == [])
+    check("a Windows path is normalised",
+          needs_two_player([r"src\shared\Gun\init.luau"]) == [])
+    # EVERY EXEMPT PATH IS A CODE PATH, so nothing in this list can ever skip the ONE-player line --
+    # which is the half of the gate the Director did not relax.
+    for path in WEAPON_VIEWMODEL_PATHS:
+        check("exempt path %s still needs the one-player line" % path,
+              path.startswith(CODE_PATHS))
+    # ...and the list does something: at least one entry is a path that WOULD otherwise need the
+    # two-player line. The server specs in it are there for the ALL-OR-NOTHING rule -- a change to
+    # `src/shared/Gun/` plus `tests/server/gun.spec.luau` must still be exempt -- not because a
+    # server spec ever needed two players.
+    check("the list contains a path the two-player gate would otherwise catch",
+          any(p.startswith(TWO_PLAYER_PATHS) for p in WEAPON_VIEWMODEL_PATHS))
+    check("a viewmodel change plus its SERVER spec is still exempt",
+          needs_two_player(["src/shared/Gun/init.luau", "tests/server/gun.spec.luau"]) == [])
+    # ...and `tests/client/` as a whole is NOT exempt: only the named spec is.
+    check("tests/client/ as a whole is still a two-player path",
+          needs_two_player(["tests/client/weapon_client.spec.luau"]) != [])
+    # The one-player gate is untouched by any of this: every code path still needs `[harness]`.
+    check("the exempt paths are still CODE paths, so the one-player line is still required",
+          all(p.startswith(CODE_PATHS) for p in WEAPON_VIEWMODEL_PATHS))
+    print("[selftest] %s" % ("all ok" if not failures else "FAILED: " + ", ".join(failures)))
+    return 0 if not failures else 1
+
+
 def main(argv):
     try:
         args = argv[1:]
+        if args[:1] == ["selftest"]:
+            if len(args) > 1:
+                raise Refused("usage: selftest")
+            return selftest()
         if args[:1] == ["review"]:
             task, rest = take_task_flag(args[1:])
             # A STRAY ARGUMENT IS A REFUSAL, NOT A SHRUG (TASKS.md 21a(a)): `review --task 21 22`

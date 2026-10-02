@@ -368,7 +368,12 @@ local Config = {
 	-- A SLEEVE THAT RUNS OFF SCREEN is the fix that needs no new asset: an olive cylinder on the
 	-- hand's own long axis, starting at the cuff and running back past the near plane, so the end is
 	-- always behind the camera. It is drawn by `Camera.Viewmodel` with the hands, for one player.
-	SLEEVE_LENGTH_STUDS = 1.6, -- far enough back that the end is behind the eye in every pose
+	-- 2.6 SINCE TASK 106, AND THE RELOAD FRAME IS WHY (rule 5). 1.6 was far enough while the gloves
+	-- were 1.27 studs long and sat close to the eye; Karen's new pair is 0.67, so the hand sits
+	-- further out -- in the broken-open frame the left one is 1.6 studs away, riding the barrels, and
+	-- a 1.6-stud sleeve ended exactly at the lens. "Far enough back that the end is behind the eye in
+	-- EVERY pose" is the claim, and the open-gun pose is the one that tests it.
+	SLEEVE_LENGTH_STUDS = 2.6,
 	-- 0.20, NOT 0.30, AND THE SCREENSHOT IS WHY (rule 5). At 0.30 the sleeve read as an olive LOG
 	-- lying across the right half of the break-open frame: it is inches from the eye, so its
 	-- apparent size is nothing like its real one. A forearm at this distance is a narrow band.
@@ -376,7 +381,13 @@ local Config = {
 	SLEEVE_COLOR = Color3.fromRGB(62, 66, 48), -- the olive of the jacket cuff on Karen's gloves
 	SLEEVE_MATERIAL = Enum.Material.Fabric,
 	-- How far the sleeve's near end sits INSIDE the cuff, so there is never a seam between them.
-	SLEEVE_OVERLAP_STUDS = 0.12,
+	-- 0.30 SINCE TASK 106. Karen's new gloves carry their OWN turned cuff, and that cuff has its own
+	-- open end: in the broken-open frame it faced the camera as an olive disc beside the forend
+	-- (`.screenshots/20261002T111802Z-pose-reload.png`), which is task 99's complaint coming back on
+	-- a different model. 0.12 was measured against a 1.27-stud glove; on a 0.67-stud one the drawn
+	-- sleeve has to start nearly half a hand in to be inside the model's own cuff rather than behind
+	-- it.
+	SLEEVE_OVERLAP_STUDS = 0.30,
 
 	-- ------------------------------------------------------ recoil (task 92)
 	-- Karen, after playing S2: "shooting has to have recoil a bit" -- "a bit" is the whole brief, so

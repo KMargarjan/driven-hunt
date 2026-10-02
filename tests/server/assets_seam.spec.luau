@@ -189,15 +189,18 @@ return function()
 				local longest = math.max(row.sizeStuds.X, row.sizeStuds.Y, row.sizeStuds.Z)
 				TestKit.note(string.format("task105 %s: %.2f studs long, %d tris", key, longest, row.trisDeclared))
 			end
-			-- A HAND IS A HAND'S SIZE. 1.27 studs is 330 mm of hand and cuff at this game's scale
-			-- (the gun is 4.4 studs for 1,143 mm); anything near the gun's own length would be an arm
-			-- across the screen. THE HANDS ARE POSED BY THE CAMERA, so `rotationDeg` is zero and
-			-- nothing reads it -- asserted rather than left alone, because a non-zero rotation there
-			-- would be a number somebody wrote expecting it to do something.
+			-- A HAND IS A HAND'S SIZE, and since task 106 that is measured against the GRIP rather
+			-- than against a hand's own length: a fist closed on model B's stock wrist is about an
+			-- adult palm across, and the gloves are scaled to that. The bound here is the whole
+			-- model's longest axis -- glove plus cuff -- which must stay well under the gun's own
+			-- length, or it is an arm across the screen. THE HANDS ARE POSED BY THE CAMERA, so
+			-- `rotationDeg` is zero and nothing reads it -- asserted rather than left alone, because
+			-- a non-zero rotation there would be a number somebody wrote expecting it to do
+			-- something.
 			for _, key in ipairs({ Assets.KEYS.handLeft, Assets.KEYS.handRight }) do
 				local hand = Assets.byKey(key)
 				local longest = math.max(hand.sizeStuds.X, hand.sizeStuds.Y, hand.sizeStuds.Z)
-				expect(longest > 0.8 and longest < 1.8).to.equal(true)
+				expect(longest > 0.4 and longest < 1.0).to.equal(true)
 				expect(hand.rotationDeg).to.equal(Vector3.zero)
 			end
 			-- ...AND A GUN GROUP IS THE WHOLE GUN'S BOX, which is what makes the two halves assemble

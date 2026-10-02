@@ -63,6 +63,14 @@ jobs:
         if: success() || failure()
         run: python3 tools/pose.py selftest
 
+      # The review gate's blast-radius rule (Director, 2026-10-02): a change whose code files are
+      # ALL first-person viewmodel needs no `test2` line, and ONE file outside that list brings it
+      # back. Both directions are proved here, against file lists, with no git and no Claude -- the
+      # decision is a pure function of the paths, so it needs neither.
+      - name: Review gate selftest (no git, no Claude session)
+        if: success() || failure()
+        run: python3 tools/agents.py selftest
+
       # The Meshy tool's validators, builders and parsers, with no key and no network (Task 55).
       # CI never gets a Meshy key, and this step must never need one.
       - name: Meshy tool selftest (no key, no network)

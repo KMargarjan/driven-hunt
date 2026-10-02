@@ -367,18 +367,39 @@ return function()
 			end
 		end)
 
-		it("is back to life size, because the gun is", function()
-			-- TASK 99 CUT THIS AND TASK 105 PUT IT BACK, for the same measured reason both times. The
-			-- drawn gun's tubes were nearly twice life across, so a life-size hand beside them read as
-			-- the biggest thing in the frame; model B's are a real 12-gauge, so the hand has to be a
-			-- real hand. 330 mm of hand and cuff at 259.8 mm to the stud is 1.27.
+		it("is sized to the grip it closes on, not to a hand's own length", function()
+			-- TASK 106, AND IT IS THE THIRD TIME THIS NUMBER HAS MOVED, so it is now pinned to
+			-- something the gun can be measured against rather than to an anatomy fact. A generated
+			-- glove is chunky: at the 1.27 studs that is right for 330 mm of real hand and cuff,
+			-- Karen's glove measured 0.665 studs ACROSS THE FINGERS -- 173 mm, nearly twice an adult
+			-- palm -- and task 105's aimed capture showed exactly that.
+			--
+			-- SO THE ANCHOR IS MODEL B'S STOCK WRIST, which is what the fist has to close on: 0.320
+			-- studs from the grip's front to the comb, 83 mm at this gun's scale. A fist round a
+			-- wrist that size is about an adult palm across.
 			local right = Assets.byKey("hand.right")
+			local left = Assets.byKey("hand.left")
+			local across = right.sizeStuds.Y -- the right glove's across-the-fingers axis
+			TestKit.note(
+				string.format(
+					"task106 right glove %.3f long, %.3f across; left %.3f long",
+					right.sizeStuds.X,
+					across,
+					math.max(left.sizeStuds.X, left.sizeStuds.Y, left.sizeStuds.Z)
+				)
+			)
+			expect(math.abs(across - 0.35) < 0.005).to.equal(true)
+			-- ...and an adult palm is 85 to 95 mm, which at 259.8 mm to the stud is this band. The
+			-- old 1.27 put it at 173 mm and fails here, which is the point of the case.
+			expect(across * 259.8 > 85 and across * 259.8 < 95).to.equal(true)
+			-- THE PAIR IS ONE PAIR: two hands of different sizes is the defect nobody measures until
+			-- a screenshot shows it. Scaled uniformly to the same longest axis, they agree.
+			local rightLongest = math.max(right.sizeStuds.X, right.sizeStuds.Y, right.sizeStuds.Z)
+			local leftLongest = math.max(left.sizeStuds.X, left.sizeStuds.Y, left.sizeStuds.Z)
+			expect(math.abs(rightLongest - leftLongest) < 1e-4).to.equal(true)
+			-- A hand is still several times the width of the barrel it holds.
 			local at = Gun.layout(CONFIG)
-			TestKit.note(string.format("task105 right hand %.3f studs long", right.sizeStuds.X))
-			expect(math.abs(right.sizeStuds.X - 1.27) < 0.01).to.equal(true)
-			-- A hand is still several times the width of the barrel it holds, and on this gun that is
-			-- a bigger multiple than before precisely because the barrel is thinner.
-			expect(right.sizeStuds.X > at.barrelRadius * 8).to.equal(true)
+			expect(across > at.barrelRadius * 4).to.equal(true)
 		end)
 	end)
 

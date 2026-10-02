@@ -154,30 +154,51 @@ local NATURAL = Vector3.new(199.999, 31.314, 11.311)
 local SCALE = Shotgun.CONFIG.HANDLE_SIZE.Z / NATURAL.X
 local GUN_SIZE = Vector3.new(NATURAL.X * SCALE, NATURAL.Y * SCALE, NATURAL.Z * SCALE)
 
--- THE HANDS (task 93), by the same rule and written out the same way: scale UNIFORMLY so the long
--- axis is `HAND_LENGTH_STUDS`, and let the other two be whatever the hand's own proportions give.
--- The two natural boxes are MEASURED off each prepped model's own vertex bounds (the run's
--- `model.glb` position accessors, times the hundred Roblox's FBX import applies -- the same hundred
--- that makes the gun's two-unit model 200 units long above). See the rows for where 1.28 comes from.
--- 1.27 SINCE TASK 105, AND IT IS BACK TO LIFE SIZE BECAUSE THE GUN IS. Task 99 cut this from 1.28 to
--- 1.10 for one measured reason: the drawn gun's barrels were 0.145 studs across where a real pair at
--- this length is about 0.078, so the metal was drawn at nearly twice life and a life-size hand beside
--- it read as the biggest thing in the frame. Model B's tubes ARE 0.078 -- 21.7 mm, a 12-gauge -- so
--- the gun is life size in cross-section now and the hand has to be too. 1.27 is the original
--- measurement, not a new guess: a hand plus a cuff is about 330 mm, this game's scale is 1143 mm of
--- gun to 4.4 studs, and 330 / 259.8 = 1.27. Still the one dial for how bulky a hand reads, and still
--- the Director's to tune.
-local HAND_LENGTH_STUDS = 1.27
-local HAND_RIGHT_NATURAL = Vector3.new(190.04, 84.99, 78.93)
-local HAND_LEFT_NATURAL = Vector3.new(189.64, 95.52, 72.04)
+-- THE HANDS (task 93), by the same rule and written out the same way: scale UNIFORMLY, and let the
+-- other two axes be whatever the hand's own proportions give. Every natural box is MEASURED off that
+-- prepped model's own vertex bounds (the run's `model.glb` position accessors, times the hundred
+-- Roblox's FBX import applies -- the same hundred that makes the gun's two-unit model 200 units long
+-- above).
+--
+-- THE SIZE IS PINNED TO THE GRIP SINCE TASK 106, NOT TO THE HAND'S LENGTH, and that is the measured
+-- fix for a glove that was the biggest thing in the frame. The dial used to be the model's LONGEST
+-- axis set to 1.27 studs ("a hand plus a cuff is about 330 mm"), which is right for a real hand and
+-- wrong for a generated one: Karen's gloves are chunky, so at 1.27 long the right glove measured
+-- 0.665 studs ACROSS THE FINGERS -- 173 mm, nearly twice an adult palm -- and the aimed capture of
+-- task 105 showed exactly that.
+--
+-- SO THE ANCHOR IS THE THING THE HAND HAS TO FIT. MEASURED on model B
+-- (`tools/gltf_split.py probe`): the stock's WRIST -- the narrow grip between the action's rear and
+-- the comb -- runs from z +0.928 to +1.248, which is 0.320 studs, or 83 mm at this gun's 259.8 mm to
+-- the stud. A fist closed round a wrist that size is about an adult palm across, 90 mm, so
+-- `HAND_ACROSS_STUDS` is 0.35 and the whole model follows from it uniformly.
+local HAND_ACROSS_STUDS = 0.35
+-- MEASURED off the v2 prep runs (glove_right_v4_r1, glove_left_v4_r1). The right glove's longest
+-- axis is X and the LEFT glove's is Z: a palm-up C grip puts the forearm at an angle to the fingers,
+-- so its bounding box is a diagonal and no axis is "the hand". That is why the helper below takes
+-- the LONGEST axis rather than X.
+local HAND_RIGHT_NATURAL = Vector3.new(189.8336, 99.3031, 59.8539)
+local HAND_LEFT_NATURAL = Vector3.new(178.9431, 151.8857, 190.2365)
+-- The v1 gloves' boxes, kept beside their own rows below (rule 7: the row stays, so its numbers do).
+local HAND_RIGHT_V1_NATURAL = Vector3.new(190.04, 84.99, 78.93)
+local HAND_LEFT_V1_NATURAL = Vector3.new(189.64, 95.52, 72.04)
+-- ...so the one dial above becomes the LENGTH the helper below takes: the right glove's own
+-- longest-to-across ratio, times the palm it has to be. 0.35 x 189.83 / 99.30 = 0.669 studs, which
+-- is 174 mm of glove and cuff. The LEFT glove is scaled to the same number and the pair comes out
+-- the same size, because their longest axes are within 0.3 % of each other.
+local HAND_LENGTH_STUDS = HAND_ACROSS_STUDS * HAND_RIGHT_NATURAL.X / HAND_RIGHT_NATURAL.Y
 -- THE WOOD (task 99), by the same rule: MEASURED off the prepped model's own vertex bounds (the
 -- run's `model.glb` position accessors, times the hundred Roblox's FBX import applies), then
 -- scaled UNIFORMLY so the LONG AXIS is what `Gun` says that piece is on this gun. The other two
 -- sizes are whatever the wood's own proportions give -- a stock squashed to a chosen box measures
 -- perfectly and looks wrong (design 6.1, the squashed boar).
 local STOCK_NATURAL = Vector3.new(190.153, 69.262, 17.743)
+-- UNIFORM TO THE LONGEST AXIS, not to X (task 106). Every model before the new gloves happened to
+-- arrive long-axis-X, so `length / natural.X` was the same thing; the LEFT glove's longest axis is
+-- Z, and dividing by X there would have scaled it 6 % large against its own pair for no reason
+-- anybody could see.
 local function uniformTo(natural: Vector3, length: number): Vector3
-	local scale = length / natural.X
+	local scale = length / math.max(natural.X, natural.Y, natural.Z)
 	return Vector3.new(natural.X * scale, natural.Y * scale, natural.Z * scale)
 end
 
@@ -188,6 +209,11 @@ end
 local STOCK_SIZE = Vector3.new(1.32, 0.4808, 0.255)
 local HAND_RIGHT_SIZE = uniformTo(HAND_RIGHT_NATURAL, HAND_LENGTH_STUDS)
 local HAND_LEFT_SIZE = uniformTo(HAND_LEFT_NATURAL, HAND_LENGTH_STUDS)
+-- THE v1 GLOVES KEEP THE SIZE THEY SHIPPED AT, frozen beside their own rows: those rows stay for
+-- their ids (rule 7) and nothing loads them, so scaling them to a dial they never used would be a
+-- number pretending to mean something.
+local HAND_RIGHT_V1_SIZE = Vector3.new(1.27, 0.568, 0.527)
+local HAND_LEFT_V1_SIZE = Vector3.new(1.27, 0.640, 0.482)
 
 -- THE ONE LICENCE MODEL B IS USED UNDER, written once because it is the same condition on every row
 -- of it and a credit that drifts between copies is a credit nobody can rely on. CC-BY-4.0 asks for
@@ -803,6 +829,7 @@ Assets.ROWS = {
 	{
 		key = "hand.right",
 		version = 1,
+		supersededBy = 2, -- task 106: Karen made a pair that HOLDS something (see the block below v2)
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel",
 		-- Uploaded by tools/roblox_upload.py on 2026-09-28; the row it wrote is in
@@ -827,13 +854,13 @@ Assets.ROWS = {
 		-- MEASURED by the prep run (hand_right_r4): 2,080 triangles, against Roblox's 20,000.
 		trisDeclared = 2080,
 		texturePx = 2048,
-		sizeStuds = HAND_RIGHT_SIZE,
+		sizeStuds = HAND_RIGHT_V1_SIZE,
 		-- Read through the harness (a plugin context) off the loaded asset: a game script
 		-- cannot read `SurfaceAppearance.ColorMap`. 2026-10-01.
 		textureId = "rbxassetid://134242352363086",
 		-- The median of this model's own `_texture.png`, measured 2026-10-01: dark brown leather.
 		fallbackColor = Color3.fromRGB(54, 44, 35),
-		naturalSizeStuds = HAND_RIGHT_NATURAL,
+		naturalSizeStuds = HAND_RIGHT_V1_NATURAL,
 		offsetStuds = Vector3.zero, -- measured: the model's pivot is its bounding-box centre to
 		-- within 0.001 of a unit on every axis
 		rotationDeg = Vector3.zero, -- see the note above: the camera poses the hand
@@ -846,6 +873,7 @@ Assets.ROWS = {
 	{
 		key = "hand.left",
 		version = 1,
+		supersededBy = 2, -- task 106: Karen made a pair that HOLDS something (see the block below v2)
 		kind = "meshpart" :: Kind,
 		scope = "viewmodel",
 		-- Uploaded by tools/roblox_upload.py on 2026-09-28; the row it wrote is in
@@ -870,12 +898,12 @@ Assets.ROWS = {
 		-- MEASURED by the prep run (hand_left_r1): 2,061 triangles.
 		trisDeclared = 2061,
 		texturePx = 2048,
-		sizeStuds = HAND_LEFT_SIZE,
+		sizeStuds = HAND_LEFT_V1_SIZE,
 		-- Read through the harness (a plugin context) off the loaded asset: a game script
 		-- cannot read `SurfaceAppearance.ColorMap`. 2026-10-01.
 		textureId = "rbxassetid://104214044387030",
 		fallbackColor = Color3.fromRGB(54, 44, 35),
-		naturalSizeStuds = HAND_LEFT_NATURAL,
+		naturalSizeStuds = HAND_LEFT_V1_NATURAL,
 		offsetStuds = Vector3.zero,
 		rotationDeg = Vector3.zero,
 		renderFidelity = "Automatic",
@@ -1111,6 +1139,116 @@ Assets.ROWS = {
 		notes = "As v1 -- a red 12-gauge shotshell with a brass head -- with metalness 0.10 and "
 			.. "roughness 0.50 on the brass. Its colour is NOT recoloured: a brass head is already "
 			.. "brass, so it keeps the `model-b` preset, which moves no pixel.",
+	},
+	-- ------------------------------------------------- Karen's new gloves (task 106)
+	--
+	-- KAREN made both in her own paid Meshy account on 2026-10-02 and gave the upload OK the same day,
+	-- verbatim: "upload ok". They replace the v1 pair, whose rows stay above with their ids (rule 7).
+	--
+	-- WHAT IS DIFFERENT, AND IT IS WHY THEY WERE MADE: these two gloves HOLD SOMETHING. The v1 pair
+	-- were a closed fist and a flat cupped palm, so on model B's thin wood there was nothing for the
+	-- fingers to be round -- they read as mittens laid against the gun. The right one here grips with
+	-- three fingers round an OPEN GAP, the thumb over and the index straight along the side (the
+	-- trigger-guard finger); the left is a palm-up C with a gap between the thumb and the curled
+	-- fingers, which is a hand a forend sits IN. Both wear the olive sleeve with a turned cuff.
+	--
+	-- THEY ARE `scope = "viewmodel"` for the reason the v1 pair were: a hand is never worn by a Tool
+	-- and never replicated as part of one. The server loads it and publishes the template, and
+	-- `Camera.Viewmodel` clones it under `workspace.CurrentCamera` for the local player alone.
+	--
+	-- `rotationDeg` IS ZERO AND NOTHING READS IT, also as before: a hand is posed by
+	-- `Camera.Viewmodel` from `Viewmodel.DATA`'s own three named degrees per hand, at one conversion
+	-- site, because the pose and the orientation are the same measurement and splitting them over two
+	-- files would be two dials for one thing.
+	{
+		key = "hand.right",
+		version = 2,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel",
+		-- Uploaded by tools/roblox_upload.py on 2026-10-02; the row it wrote is in
+		-- assets/uploads.json, and this id is that row's assetId.
+		modelId = 97259644277702,
+		displayName = "Driven Hunt gloved right hand r2",
+		fileName = "model.fbx",
+		sourceSha256 = "ddb3e7d1ac1cd39679d0806619f05602544ffd52ac0bc80cbde9add097d1f9cc",
+		source = "own" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated both gloves in her own paid Meshy account on 2026-10-02 and "
+				.. "gave the upload OK the same day: upload ok. They were prepared with "
+				.. "tools/asset_prep.py's hand preset -- smooth shading, the textures down to 1024 "
+				.. "and metalness written to 0 -- and no colour was changed.",
+			quotedFrom = "assets/uploads.json (karenOk), TASKS.md row 106",
+			readOn = "2026-10-02",
+			attribution = nil,
+		},
+		added = "2026-10-02",
+		moderation = "approved" :: Moderation,
+		-- MEASURED by the prep run (glove_right_v4_r1): 6,192 triangles, against Roblox's 20,000.
+		trisDeclared = 6192,
+		texturePx = 1024,
+		sizeStuds = HAND_RIGHT_SIZE,
+		naturalSizeStuds = HAND_RIGHT_NATURAL,
+		-- MEASURED off the prepped model's bounds: the pivot is the bounding-box centre to within
+		-- 0.001 of a unit on every axis, which is 4e-6 studs at this scale.
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero, -- see the note above: the camera poses the hand
+		renderFidelity = "Automatic",
+		-- THE COLOUR MAP'S OWN ID, read through the harness off the loaded asset on 2026-10-02 (a
+		-- plugin context; a game script cannot read `SurfaceAppearance.ColorMap` at all).
+		-- IT WAS LOOKED AT FIRST, and this row was written because of what was on screen: with the
+		-- field nil the glove rendered as a WHITE blob beside the barrels
+		-- (`.screenshots/20261002T110256Z-pose-aim.png`), which is task 99's white glove exactly --
+		-- `ViewmodelAssetsBoot.showItsOwnColour` destroys the `SurfaceAppearance` whose map cannot
+		-- draw, and with no id to put on `TextureID` the part is left at Roblox's default grey.
+		textureId = "rbxassetid://97720740621443",
+		-- The median of this model's own prepped `texture_baseColor.png`, measured 2026-10-02: dark
+		-- brown leather. It is what shows if even `TextureID` fails.
+		fallbackColor = Color3.fromRGB(60, 40, 28),
+		notes = "Brown leather glove, olive jacket cuff; three fingers curled round an open gap with "
+			.. "the thumb over and the index straight along the side -- a hand closed on a stock "
+			.. "wrist rather than on itself. Smooth shading at 70 degrees. Metalness written to 0 "
+			.. "(a glove is not a metal) and the generator's own roughness kept (median 0.50). "
+			.. "Textures 2048 and 4096 down to 1024.",
+	},
+	{
+		key = "hand.left",
+		version = 2,
+		kind = "meshpart" :: Kind,
+		scope = "viewmodel",
+		modelId = 74971853808718,
+		displayName = "Driven Hunt gloved left hand r2",
+		fileName = "model.fbx",
+		sourceSha256 = "216f6a9dbe67c1ee9623ad47d00760cc197d182b0eb9b63b897c112cdb31fe2f",
+		source = "own" :: Source,
+		creator = "8167651842",
+		licence = {
+			basis = "own-work",
+			quote = "Karen generated both gloves in her own paid Meshy account on 2026-10-02 and "
+				.. "gave the upload OK the same day: upload ok. They were prepared with "
+				.. "tools/asset_prep.py's hand preset -- smooth shading, the textures down to 1024 "
+				.. "and metalness written to 0 -- and no colour was changed.",
+			quotedFrom = "assets/uploads.json (karenOk), TASKS.md row 106",
+			readOn = "2026-10-02",
+			attribution = nil,
+		},
+		added = "2026-10-02",
+		moderation = "approved" :: Moderation,
+		-- MEASURED by the prep run (glove_left_v4_r1): 6,097 triangles.
+		trisDeclared = 6097,
+		texturePx = 1024,
+		sizeStuds = HAND_LEFT_SIZE,
+		naturalSizeStuds = HAND_LEFT_NATURAL,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		textureId = "rbxassetid://116218252655092",
+		fallbackColor = Color3.fromRGB(47, 31, 26),
+		notes = "The same glove and cuff, palm up in a C: the thumb on one side, four curled fingers "
+			.. "on the other and an open gap between them for a forend to sit in. Its longest axis "
+			.. "is Z, not X -- the forearm runs at an angle to the fingers, so the bounding box is a "
+			.. "diagonal, which is why `uniformTo` pins the LONGEST axis rather than X.",
 	},
 } :: { AssetRow }
 
