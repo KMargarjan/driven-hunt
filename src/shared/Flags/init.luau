@@ -117,10 +117,14 @@ Flags.DEFAULTS = {
 	NEW_GUN = {
 		-- BORN OFF. Karen, 2026-10-01: "shooting, weapon, reload, all has to be perfect". The gun on
 		-- screen is one AI mesh cut in two, and the break-open frame shows what that costs -- a torn
-		-- breech, a shell loose in the gap, a left hand on nothing. ON draws a FIRST-PERSON gun whose
-		-- metal is exact geometry (`ReplicatedStorage.Gun`) hinging about a real pin; OFF is the
-		-- cloned Handle, unchanged, which is also what every OTHER player sees either way -- the
-		-- world gun is not in this flag's scope at all.
+		-- breech, a shell loose in the gap, a left hand on nothing.
+		--
+		-- WHAT "ON" DRAWS CHANGED UNDER THE FLAG, AND THE FLAG DID NOT (task 105). Tasks 99 to 103
+		-- built the exact-geometry gun this row used to describe -- Cylinder tubes, drawn bores, a
+		-- hinge pin -- and Karen looked at it on 2026-10-02 and said "bad". ON now draws a
+		-- professional CC-BY model, split at the hinge into two MeshParts (`ReplicatedStorage.Gun`
+		-- says where its parts are). OFF is the cloned Handle, unchanged, which is also what every
+		-- OTHER player sees either way -- the world gun is not in this flag's scope at all.
 		default = false,
 		-- The module that READS it at its boundary (`Camera.Config.NEW_GUN`) and passes it inward as
 		-- `config` -- the only permitted shape, and what keeps both guns reachable by parameter while
@@ -128,9 +132,9 @@ Flags.DEFAULTS = {
 		owner = "StarterPlayerScripts.Camera",
 		born = "2026-10-01 task 99",
 		expires = "2026-10-22", -- 21 days: the ceiling in feature-flags.md section 12
-		why = "The first-person gun is built from exact parts -- round barrels, two bores, a silver "
-			.. "action, a real hinge pin -- instead of cloning the uploaded mesh. OFF is the mesh gun "
-			.. "Karen has been playing, and is what other players see in both cases.",
+		why = "The first-person gun is Karen's chosen model -- a CC-BY side-by-side split at the "
+			.. "hinge into a barrel group and a frame group -- instead of the Tool's own mesh. OFF is "
+			.. "the gun Karen has been playing, and is what other players see in both cases.",
 	} :: FlagRow,
 	FIRST_PERSON = {
 		-- BORN OFF on 2026-09-27, ON SINCE TASK 98 (2026-10-01). Karen's word was "start": first
