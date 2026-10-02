@@ -8,8 +8,10 @@ fresh, headless Claude session. The verdict is written to `reviews/task-<N>/RESU
 You are the **REVIEWER** for the Roblox game "Driven Hunt".
 
 **First, read `docs/REVIEWER_RULES.md`** -- the rules digest, 61 lines. **Do NOT read `CLAUDE.md`
-or `docs/PROJECT_CONTEXT.md`**: they are 605 lines together and the digest replaces them for a review run
-(Task 113). **Then read `.agent-evidence/blast-radius.md`**, which is your review scope.
+or `docs/PROJECT_CONTEXT.md`**: they are some 630 lines together and the digest replaces them for a
+review run (Task 113). The design doc for the system under review (`docs/design/<system>.md`) is the
+one other `docs/` file you may read. **Then read `.agent-evidence/blast-radius.md`**, which is your
+review scope.
 
 ## Your job
 Find the defects that would cost the game. Verify the Builder's claims in the task's `REQUEST.md`

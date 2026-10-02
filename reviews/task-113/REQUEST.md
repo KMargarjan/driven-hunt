@@ -1,20 +1,20 @@
 # Task 113 — review and test only what changed, plus its blast radius
 
 Task: 113
-Round: 2
+Round: 3
 Base: `0cc60ca`
-Code commit: `d9af20d5bdfa3a70a294c0b5f108196d8154d8b7`
+Code commit: `<round 3's code commit — the Director's gate run names it>`
 
 Tools and docs only: no `src/`, no `tests/`. Karen, 2026-10-02: *"not need start from zero I
 mentioned 100 times / it has to test only parts what has been changed and what blast radius could
 be."*
 
 ```
-[harness] PASS: 32/32 checks @ d9af20d5bdfa3a70a294c0b5f108196d8154d8b7 (clean tree) scope=all
+[harness] PASS: n/n checks @ <code commit> (clean tree) scope=all      <- the Director runs this
 ```
 
-Run by the Director at this branch's head, on a clean tree (round 1's was the same 32/32 at
-`d82e675`). **`test2` is N/A**, and the Director accepted both judgement calls behind that: nothing here touches the match, the drive,
+Rounds 1 and 2 both ran 32/32 on a clean tree (`d82e675`, `d9af20d`). **`test2` is N/A**, and the
+Director accepted both judgement calls behind that: nothing here touches the match, the drive,
 the tie or the teams (`TWO_PLAYER_PATHS`), with `src/server/Weapon/SafetyArc.luau` out of that list
 and `tools/studio_mcp.py` out of it too (claim 7; the gap that leaves is queued as 113a(d)).
 
@@ -24,23 +24,21 @@ and `tools/studio_mcp.py` out of it too (claim 7; the gap that leaves is queued 
    lines) carries the blocking rule, the owner boundaries, security, rule 5 and how the Reviewer
    works; `docs/REVIEWER_PROMPT.md` and `cmd_review`'s task text in `tools/agents.py` send it there
    and forbid the two long files. Verify: read the digest against the four blocking kinds in the
-   prompt, and the "Read, in this order" text in `cmd_review`. Measured: 605 lines / 47,334 bytes of
-   fixed reading become 61 / 4,330 — 91% less, ~10.7k tokens a round.
+   prompt, and the "Read, in this order" text in `cmd_review`. Measured at this commit: **629 lines
+   / 49,665 bytes** of fixed reading become **61 / 4,330** — 91% less, ~11.3k tokens a round. No line
+   count is written into the code any more (rounds 1 and 2 both found a stale one); the code says
+   "some 630 lines" and the figure is measured per round, here.
 2. **The Reviewer's scope is the change plus its blast radius.** `blast_radius_text` writes
    `.agent-evidence/blast-radius.md`: the changed files, the symbols whose definition the diff added
    **or removed** (`symbols_in_diff`), the names other files `require` (`module_names` — a folder's
    name for an `init.luau`), and **every file in the repo's code that names one, with how many of its
-   lines do** (`reference_hits`, rendered by `blast_radius_report`). **Round 1's blocking finding is
-   fixed here: no file is cut.** The cap (`MAX_QUOTED_LINES_PER_SYMBOL`) now bounds only the quoted
-   sample; the heading prints the true total and the file count, the file list is complete with
-   per-file counts, and the quoted block says "12 of 48 line(s) quoted; the other 36 are in the files
-   above". Verify: `reference_hits` (pure — no git, no filesystem) and `blast_radius_report` (pure),
-   the 9 selftest cases that drive a symbol with 40 hits in 20 files against a cap of 12, and the
-   "What you review" section of the prompt. Mutation check: putting the old early-exit back
-   (`if len(info["lines"]) >= MAX_QUOTED_LINES_PER_SYMBOL: continue` before `total += 1`) fails 5 of
-   those cases — the heading goes back to "12 reference(s) in 6 file(s)" — and it was restored.
-   `references` scans code and config only, because a symbol like `Body` matches English prose in
-   `TASKS.md`.
+   lines do** (`reference_hits`, rendered by `blast_radius_report`; both pure — no git, no
+   filesystem). **Round 1's blocking finding is fixed: no file is cut.**
+   `MAX_QUOTED_LINES_PER_SYMBOL` bounds only the quoted sample, the heading prints the true total and
+   file count, and the quoted block says "12 of 48 line(s) quoted; the other 36 are in the files
+   above". Verify: those two functions, the 9 cases driving 40 hits in 20 files against a cap of 12,
+   and the prompt's "What you review". Mutation check: restoring the old early-exit fails 5 of them;
+   restored. `references` scans code and config only — `Body` matches English prose in `TASKS.md`.
 3. **`test --scope auto` decides whether Play happens.** `BLAST_RADIUS` maps a changed path to a
    scope name, `SCOPE_SPECS` maps the name to spec files, and `run_test` skips Play when no spec is
    in the radius — keeping every Edit-place check. Verify: `resolve_scope`, `scope_for`, the
@@ -76,6 +74,30 @@ and `tools/studio_mcp.py` out of it too (claim 7; the gap that leaves is queued 
    and `tools/studio_mcp.py` is out, which leaves `run_test2` the one thing only a two-player run
    can evidence with nothing asking for it — queued as 113a(d).
 
+8. **The evidence index belongs to its role — round 2's blocking finding.** `evidence_index` is
+   pure and takes the role: the REVIEW index carries "start with `blast-radius.md`, do NOT read
+   CLAUDE.md or docs/PROJECT_CONTEXT.md", and the ARCHITECT index carries none of it, because
+   `docs/ARCHITECT_PROMPT.md` orders that agent to read exactly those two first and judges its
+   findings against them. Verify: `evidence_index`, the `role="reviewer"` / `role="architect"`
+   arguments at the two `build_evidence` call sites, and the 5 selftest cases that render both
+   indexes. An unknown role is **refused**, not quietly given the plain index, which is how a
+   renamed caller would reintroduce the fault. Mutation check: making the block unconditional again
+   (`if True:`) fails the two Architect cases; restored.
+
+## Round-2 notes fixed in the same lines (the rest are queued as 113a(b), (e), (f), (g))
+- `MAX_SYMBOLS` no longer cuts silently: `symbols_in_diff` returns every name, `blast_radius_text`
+  applies the cap, and the report says "N of M symbols are detailed below" and **names every symbol
+  it dropped**. Mutation check: restoring `return out[:MAX_SYMBOLS]` fails that case; restored.
+- `scope_tag` (new, pure): a `--scope auto` run that resolves to the whole suite is tagged
+  `scope=all`, not `auto:all` — it played every spec, so it is full evidence and the merge gate must
+  not reject it. 5 cases, including that one.
+- `HARNESS2_RE`'s dead `scope=` group is gone, and its selftest case now asserts the line
+  `run_test2` actually prints. `harness_gate`'s unreachable viewmodel-exemption print is gone; the
+  record of why that exemption exists stays in `WEAPON_VIEWMODEL_PATHS`' comment.
+- `docs/REVIEWER_RULES.md` and `docs/REVIEWER_PROMPT.md` no longer contradict themselves: the
+  Reviewer may read the design doc for the system under review, which blocking kind 1 is judged
+  against. `FAIL_SAFE_PATHS`' comment now says which root build files it does not cover.
+
 ## What I could not verify
 - **Both runs were `scope=all`, so two paths are still unexercised against Studio**: `--scope auto`'s
   resolution from the changed paths, and the Play-skipping branch it reaches when no spec is in the
@@ -87,9 +109,8 @@ and `tools/studio_mcp.py` out of it too (claim 7; the gap that leaves is queued 
 - **No review has been replayed yet**, so the after cost/turns are unknown. The baseline is 66
   rounds on record: mean $3.36 / 38 turns, median $3.20 / 36. This task's own review is the first
   measurement.
-- Both selftests pass offline and in CI (`python tools/agents.py selftest`,
-  `python tools/studio_mcp.py selftest`): **74 new cases** — `agents.py` goes from 20 to 77, the
-  harness gains 17.
+- Every pure-python selftest passes offline and in CI: `agents.py` (20 → **88**), `studio_mcp.py`,
+  `pose.py`, `privacy_scan.py` (+ `scan`, 388 files), `meshy.py`, `roblox_upload.py`.
 - The round-1 numbers measured on the real repo after the fix: `studio_mcp` is named on 48 lines in
   **19** files, which is the file count the Reviewer measured, and `tools/pose.py` (19 lines) is in
   the list. The total counts matching LINES, not occurrences, which is why it reads 48 where the

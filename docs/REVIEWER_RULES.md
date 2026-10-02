@@ -1,7 +1,9 @@
 # Reviewer rules digest
 
-The REVIEWER reads THIS FILE and nothing else from `docs/`: it replaces `CLAUDE.md` (557 lines) and
-`docs/PROJECT_CONTEXT.md` (48) for a review run. Builder's file, kept in step with CLAUDE.md. Task 113.
+The REVIEWER reads THIS FILE, and nothing else from `docs/` except the design doc for the system
+under review (`docs/design/<system>.md`, which blocking kind 1 is judged against). It replaces
+`CLAUDE.md` and `docs/PROJECT_CONTEXT.md` -- some 630 lines, measured per round in the request --
+for a review run. Builder's file, kept in step with CLAUDE.md. Task 113.
 
 ## The game, in four lines
 "Driven Hunt", a Roblox game. Drivers push wild boar toward shooters on a line. Break-action

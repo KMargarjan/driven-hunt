@@ -67,11 +67,14 @@ data the Director tunes live and Karen OKs, so a change made only of it is treat
 a docs change. Its own one-player `test` is still required by CLAUDE.md -- what is dropped is the
 review round, not the run.
 **The REVIEWER'S EVIDENCE IS SCOPED TOO**: `.agent-evidence/blast-radius.md` holds the changed files
-and, per symbol the diff defined, EVERY file in the repo's code that names it and how many times --
-no file cut, only the quoted sample capped and counted against the true total
-(`MAX_QUOTED_LINES_PER_SYMBOL`, review round 1 finding 1) -- and the prompt tells the Reviewer to
-review only that and to read `docs/REVIEWER_RULES.md` (61 lines) instead of CLAUDE.md and
-docs/PROJECT_CONTEXT.md.
+and, per symbol the diff defined, EVERY file in the repo's code that names it and how many of its
+lines do -- no file cut, only the quoted sample capped and counted against the true total
+(`MAX_QUOTED_LINES_PER_SYMBOL`, review round 1 finding 1), and a symbol list past `MAX_SYMBOLS`
+names what it left out (round 2) -- and the prompt tells the Reviewer to review only that and to
+read `docs/REVIEWER_RULES.md` (61 lines) instead of CLAUDE.md and docs/PROJECT_CONTEXT.md.
+**THAT READING ORDER IS THE REVIEWER'S ALONE**: `evidence_index` takes the role, because an
+unconditional index told the ARCHITECT to skip the two documents its own prompt orders it to read
+first (round 2, finding 1). An unknown role is refused rather than given the plain index.
 
 **What is still policy, not enforcement:** nothing stops a Builder committing a hand-written trailer
 (the Builder owns the repo and the commits), and `git rebase`/`--force` could drop the history the
@@ -264,7 +267,8 @@ def repo_state():
 # ------------------------------------------------------------------ blast radius (Task 113)
 # KAREN, 2026-10-02: "not need start from zero I mentioned 100 times / it has to test only parts
 # what has been changed and what blast radius could be". A review used to begin by reading CLAUDE.md
-# (557 lines) and docs/PROJECT_CONTEXT.md (48) and then the whole diff with the whole repo behind it.
+# and docs/PROJECT_CONTEXT.md (together some 630 lines) and then the whole diff with the whole
+# repo behind it.
 # Now the Reviewer gets docs/REVIEWER_RULES.md (61 lines, the rules digest) and this file: the
 # changed files, the symbols whose definitions the diff touched, and every place in the repo that
 # names one of them. That IS the blast radius, and the prompt tells it to review only that.
@@ -304,7 +308,9 @@ def symbols_in_diff(diff_text):
                 if len(name) > 2 and name not in out:
                     out.append(name)
                 break
-    return out[:MAX_SYMBOLS]
+    # EVERY name, uncut: `blast_radius_text` applies `MAX_SYMBOLS` and REPORTS what it left out
+    # (review round 2, note). Truncating here hid the cut from the only code that could print it.
+    return out
 
 
 def module_names(changed):
@@ -373,7 +379,7 @@ def references(wt, names, changed):
     return reference_hits(names, documents)
 
 
-def blast_radius_report(changed, names, hits):
+def blast_radius_report(changed, names, hits, dropped=()):
     """The `.agent-evidence/blast-radius.md` body. Pure: the lists and the counts in, markdown out.
 
     Split from `blast_radius_text` so `selftest` can render a symbol with more hits than the quoted
@@ -391,6 +397,14 @@ def blast_radius_report(changed, names, hits):
            f"## Changed files ({len(changed)})", ""]
     out += [f"- `{f}`" for f in changed] or ["- none"]
     out += ["", "## Symbols the diff defines, removed or renamed, and who names them", ""]
+    # THE SYMBOL LIST SAYS WHAT IT LEFT OUT TOO (review round 2, note; same rule as round 1's
+    # finding on the per-symbol cap). `MAX_SYMBOLS` used to cut silently, and because the module
+    # names are appended last it cut exactly the names callers write in `require`.
+    if dropped:
+        out += [f"**{len(names)} of {len(names) + len(dropped)} symbols are detailed below "
+                f"(`MAX_SYMBOLS` = {MAX_SYMBOLS}).** The other {len(dropped)} are named here and "
+                "their callers are NOT listed, so treat them as in scope and grep for them "
+                "yourself: " + ", ".join(f"`{n}`" for n in dropped), ""]
     if not names:
         out.append("No function, class or constant definition changed: the diff is data, docs or "
                    "paperwork only.")
@@ -417,8 +431,10 @@ def blast_radius_text(wt, changed, diff_text):
     """`blast_radius_report` over a worktree: work out the symbols, count the references, render."""
     code = [f for f in changed if f.replace("\\", "/").endswith((".luau", ".lua", ".py"))]
     defined = symbols_in_diff(diff_text)
-    names = (defined + [n for n in module_names(code) if n not in defined])[:MAX_SYMBOLS]
-    return blast_radius_report(changed, names, references(wt, names, changed) if names else {})
+    every = defined + [n for n in module_names(code) if n not in defined]
+    names, dropped = every[:MAX_SYMBOLS], every[MAX_SYMBOLS:]
+    return blast_radius_report(changed, names, references(wt, names, changed) if names else {},
+                               dropped)
 
 # ------------------------------------------------------------------ evidence
 
@@ -433,7 +449,37 @@ def tool_output(cmd, cwd):
     return f"$ {' '.join(cmd)}\n(exit {r.returncode})\n{r.stdout}{r.stderr}"
 
 
-def build_evidence(wt, base=None, code_commit=None):
+ROLES = ("reviewer", "architect")
+
+
+def evidence_index(head, sizes, role):
+    """The `.agent-evidence/INDEX.md` body. Pure: the commit, `{file: line count}` and the role in,
+    markdown out.
+
+    THE READING ORDER BELONGS TO ONE ROLE ONLY (review round 2, finding 1). Task 113 put the
+    Reviewer's -- start at `blast-radius.md`, do not read CLAUDE.md or PROJECT_CONTEXT -- into every
+    index, and `cmd_architect` writes one too: the Architect was told, in the first file it reads, to
+    skip the two documents `docs/ARCHITECT_PROMPT.md` orders it to read first and judges its findings
+    against, and pointed at a 61-line digest written for somebody else's job. The role now decides,
+    and `selftest` drives both.
+    """
+    if role not in ROLES:
+        raise Refused(f"build_evidence: role must be one of {ROLES}; got {role!r}")
+    index = ["# Evidence index", "", f"Precomputed by tools/agents.py for commit `{head}`.",
+             "The agent cannot run commands; these are the outputs it would have needed.", ""]
+    if role == "reviewer":
+        index += ["**Start with `blast-radius.md`** (when it is listed): the changed files and the",
+                  "callers and callees of what they define. That is the whole review scope. The rules",
+                  "are in `docs/REVIEWER_RULES.md` -- do NOT read CLAUDE.md or docs/PROJECT_CONTEXT.md,",
+                  "the digest replaces them for a review run (Task 113).", ""]
+    for name in sizes:
+        index.append(f"- `.agent-evidence/{name}` ({sizes[name]} lines)")
+    index += ["", "DevPackages/ (git-ignored TestEZ) is not in the worktree, so the sourcemap omits it (optional path).",
+              "Roblox Studio is not available: harness claims can be checked only for consistency."]
+    return "\n".join(index) + "\n"
+
+
+def build_evidence(wt, base=None, code_commit=None, role="reviewer"):
     """Precompute everything the agent would otherwise have to run. Keep the lint/build commands in step
     with .github/workflows/ci.yml."""
     ev = os.path.join(wt, ".agent-evidence")
@@ -473,18 +519,10 @@ def build_evidence(wt, base=None, code_commit=None):
         # review nothing else, so this file is what stops a round from starting at zero.
         changed_now = git("diff", "--name-only", f"{base}...HEAD", cwd=wt).split()
         files["blast-radius.md"] = blast_radius_text(wt, changed_now, files["diff.patch"])
-    index = ["# Evidence index", "", f"Precomputed by tools/agents.py for commit `{head}`.",
-             "The agent cannot run commands; these are the outputs it would have needed.", "",
-             "**Start with `blast-radius.md`** (when it is listed): the changed files and the callers",
-             "and callees of what they define. That is the whole review scope. The rules are in",
-             "`docs/REVIEWER_RULES.md` -- do NOT read CLAUDE.md or docs/PROJECT_CONTEXT.md, they are",
-             "605 lines together and the digest replaces them (Task 113).", ""]
     for name, text in files.items():
         write(os.path.join(ev, name), text)
-        index.append(f"- `.agent-evidence/{name}` ({len(text.splitlines())} lines)")
-    index += ["", "DevPackages/ (git-ignored TestEZ) is not in the worktree, so the sourcemap omits it (optional path).",
-              "Roblox Studio is not available: harness claims can be checked only for consistency."]
-    write(os.path.join(ev, "INDEX.md"), "\n".join(index) + "\n")
+    write(os.path.join(ev, "INDEX.md"),
+          evidence_index(head, {n: len(x.splitlines()) for n, x in files.items()}, role))
 
 
 # ------------------------------------------------------------------ agent
@@ -621,8 +659,10 @@ HARNESS_RE = re.compile(r"\[harness\]\s+PASS:\s*\d+/\d+\s+checks\s+@\s*([0-9a-f]
                         r"(?:\s+scope=([A-Za-z0-9_,:.-]+))?")
 # The two-player line has the same shape under a different tag. Both are written by
 # tools/studio_mcp.py and nothing else; a request pastes them verbatim.
-HARNESS2_RE = re.compile(r"\[harness2\]\s+PASS:\s*\d+/\d+\s+checks\s+@\s*([0-9a-f]{7,40})\s*\(clean tree\)"
-                         r"(?:\s+scope=([A-Za-z0-9_,:.-]+))?")
+# NO `scope=` GROUP HERE, deliberately (review round 2, note): `run_test2` prints no scope, `main()`
+# takes `--scope` for `test` only, and nothing read this one -- an optional group nothing can match
+# is a test that passes for the wrong reason. Scoping is a one-player instrument.
+HARNESS2_RE = re.compile(r"\[harness2\]\s+PASS:\s*\d+/\d+\s+checks\s+@\s*([0-9a-f]{7,40})\s*\(clean tree\)")
 
 
 def scope_verdict(scope):
@@ -720,10 +760,12 @@ def harness_gate(req, code_full, base, head):
             "`python tools/studio_mcp.py test` (the whole suite) or `test --scope auto` (resolved "
             "from this branch's own changed paths) and paste that line.")
     scoped = "full" not in kinds
+    # NO VIEWMODEL-EXEMPTION MESSAGE ANY MORE (review round 2, note): it needed an empty
+    # `needs_two_player` answer together with a changed file under `TWO_PLAYER_PATHS`, which the
+    # 2026-10-03 list makes impossible -- a viewmodel path is not a two-player path at all now, and
+    # `selftest` asserts exactly that. The record of why the exemption exists is in
+    # `WEAPON_VIEWMODEL_PATHS`' own comment, which is where it belongs.
     two_player = needs_two_player(changed)
-    if not two_player and any(f.replace("\\", "/").startswith(TWO_PLAYER_PATHS) for f in changed):
-        print(f"[agents] every changed file is first-person viewmodel ({len(changed)} file(s)), so "
-              f"the two-player line is not required (Director, 2026-10-02)", flush=True)
     if two_player and scoped:
         print(f"[agents] the one-player line is scoped ({sorted(m.group(2) for m in one)}), so this "
               "is a review round and the two-player line is not required (Task 113). THE MERGE "
@@ -824,13 +866,16 @@ def cmd_review(task_arg=None):
 
     def go():
         with Worktree() as wt:
-            build_evidence(wt, base, code)
+            build_evidence(wt, base, code, role="reviewer")
             # The effective cap, not MAX_ROUNDS: the agent must be told the cap in force, which the
             # Director's DIRECTOR_MAX_ROUNDS may have raised (review round 4, finding 3).
             raised = "" if cap == MAX_ROUNDS else f" (default {MAX_ROUNDS}, raised by the Director)"
             # WHAT TO READ, AND IN WHICH ORDER (Task 113). The scope comes first and the rules come
-            # from the 61-line digest: a round used to start by reading CLAUDE.md (557 lines) and
-            # docs/PROJECT_CONTEXT.md (48) before it had seen the diff. Karen, 2026-10-02: "not need
+            # from the 61-line digest: a round used to start by reading CLAUDE.md and
+            # docs/PROJECT_CONTEXT.md, some 630 lines, before it had seen the diff. A COUNT IS NOT
+            # WRITTEN INTO THE CODE (review rounds 1 and 2 both noted a stale one): the files grow
+            # every task, and the figure that matters is measured in the request of the round that
+            # claims it. Karen, 2026-10-02: "not need
             # start from zero I mentioned 100 times".
             task_text = (f"Review commit `{head}` for **task {task}**, round {rnd} of max {cap}{raised}, "
                          f"against base `{base}`.\n"
@@ -885,7 +930,10 @@ def cmd_architect(mode, task, system=None):
 
     def go():
         with Worktree() as wt:
-            build_evidence(wt)
+            # ROLE="ARCHITECT", so the index does NOT carry the Reviewer's reading order: this
+            # agent's own prompt sends it to CLAUDE.md and docs/PROJECT_CONTEXT.md first (review
+            # round 2, finding 1).
+            build_evidence(wt, role="architect")
             return run_agent("architect", "docs/ARCHITECT_PROMPT.md",
                              task_text + "\nRead `.agent-evidence/INDEX.md`.", wt)
 
@@ -1026,8 +1074,13 @@ def selftest():
         check("the harness line parses (%s)" % (want or "no scope"),
               m is not None and m.group(1) == sha and m.group(2) == want,
               repr(m.groups() if m else None))
-    check("the two-player line parses a scope too",
-          HARNESS2_RE.search(f"[harness2] PASS: 9/9 checks @ {sha} (clean tree) scope=all") is not None)
+    # THE TWO-PLAYER LINE AS `run_test2` ACTUALLY PRINTS IT -- no scope, because scoping is a
+    # one-player instrument (review round 2, note: the old case asserted a shape nothing emits).
+    m2 = HARNESS2_RE.search(f"[harness2] PASS: 9/9 checks @ {sha} (clean tree)")
+    check("the two-player line parses", m2 is not None and m2.group(1) == sha,
+          repr(m2.groups() if m2 else None))
+    check("the two-player pattern has no scope group to read",
+          HARNESS2_RE.groups == 1, "%d group(s)" % HARNESS2_RE.groups)
     # A DIRTY-TREE line is still not evidence, scoped or not: the scope group may only follow
     # "(clean tree)".
     check("a DIRTY TREE line is still refused",
@@ -1097,6 +1150,43 @@ def selftest():
     check("a symbol nothing names says so plainly",
           "no reference outside the changed files"
           in blast_radius_report([], ["lonely"], {"lonely": {"total": 0, "files": {}, "lines": []}}))
+    # ...AND THE SYMBOL LIST SAYS WHAT IT LEFT OUT (review round 2, note): `MAX_SYMBOLS` cut
+    # silently, and the module names -- the ones callers write in `require` -- were cut first.
+    cut = blast_radius_report([], ["kept"], {}, dropped=["alsoThere", "andThis"])
+    check("the report says how many symbols it detailed and of how many",
+          "1 of 3 symbols are detailed below" in cut, cut.splitlines()[14:16])
+    check("the report names every symbol it dropped",
+          "`alsoThere`" in cut and "`andThis`" in cut)
+    check("with nothing dropped the report says nothing about it",
+          "symbols are detailed below" not in blast_radius_report([], ["kept"], {}))
+    check("symbols_in_diff does not truncate on its own, so the caller can report the cut",
+          len(symbols_in_diff("\n".join("+def f%03d(x):" % i for i in range(MAX_SYMBOLS + 5))))
+          == MAX_SYMBOLS + 5)
+
+    # ---------------------------------------------------------- Task 113 round 2, finding 1:
+    # THE EVIDENCE INDEX BELONGS TO ITS ROLE. The Reviewer is sent to blast-radius.md and told not
+    # to read CLAUDE.md or PROJECT_CONTEXT; the ARCHITECT's own prompt orders it to read exactly
+    # those two first, and it got the Reviewer's instruction because the index was unconditional.
+    sizes = {"diff.patch": 10, "blast-radius.md": 20}
+    review_index = evidence_index("a" * 40, sizes, "reviewer")
+    arch_index = evidence_index("a" * 40, sizes, "architect")
+    check("the REVIEW index carries the Reviewer's reading order",
+          "do NOT read CLAUDE.md" in review_index and "blast-radius.md`**" in review_index)
+    check("the ARCHITECT index does NOT forbid CLAUDE.md or PROJECT_CONTEXT",
+          "do NOT read" not in arch_index and "PROJECT_CONTEXT" not in arch_index,
+          [l for l in arch_index.splitlines() if "read" in l][:2])
+    check("the ARCHITECT index does not send it to the Reviewer's digest",
+          "REVIEWER_RULES" not in arch_index)
+    check("both roles still get the file list and the two standing caveats",
+          all(("`.agent-evidence/diff.patch` (10 lines)" in x and "Roblox Studio is not available" in x)
+              for x in (review_index, arch_index)))
+    # ...and a role nobody declared is REFUSED rather than silently given the plain index, which is
+    # how a renamed caller would reintroduce the fault.
+    try:
+        evidence_index("a" * 40, sizes, "auditor")
+        check("an unknown role is refused", False, "no Refused raised")
+    except Refused:
+        check("an unknown role is refused", True)
 
     print("[selftest] %s" % ("all ok" if not failures else "FAILED: " + ", ".join(failures)))
     return 0 if not failures else 1

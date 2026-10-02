@@ -684,9 +684,16 @@ SCOPE_SPECS = {
     "sync": ("tests/server/sync.spec.luau", "tests/client/client_env.spec.luau"),
 }
 
-# ANYTHING CODE-LIKE THE MAP DOES NOT RECOGNISE MEANS THE WHOLE SUITE, and that fail-safe is what
-# the scope rests on: a new folder under src/, a changed spec, the runners, TestKit or this harness
-# resolve to `all`, never to "nothing to run". The map can only ever NARROW a path it names.
+# ANY PATH UNDER src/ OR tests/, AND THIS HARNESS, THAT THE MAP DOES NOT RECOGNISE MEANS THE WHOLE
+# SUITE, and that fail-safe is what the scope rests on: a new folder under src/, a changed spec, the
+# runners, TestKit or this file resolve to `all`, never to "nothing to run". The map can only ever
+# NARROW a path it names.
+# WHAT IT DOES NOT COVER, said exactly (review round 2, note): the ROOT build and toolchain files --
+# `default.project.json` (what Rojo syncs into the DataModel), `testez.yml`, `wally.toml`,
+# `rokit.toml`, `devpackages.sha256`. They resolve to no scope and skip Play. No regression --
+# `CODE_PATHS` in tools/agents.py already asks for no harness line for them, and check 4 still
+# compares the whole synced tree -- but whether `default.project.json` should mean `all` is queued
+# as TASKS.md 113a(e).
 SCOPE_ALL = "all"
 FAIL_SAFE_PATHS = ("src/", "tests/", "tools/studio_mcp.py")
 
@@ -734,6 +741,19 @@ def scope_for(changed):
     if SCOPE_ALL in names:
         names = {SCOPE_ALL}
     return sorted(names), specs_for(names)
+
+
+def scope_tag(arg, names):
+    """What the final line's `scope=` says. Pure: the --scope argument and the resolved names in.
+
+    `--scope auto` carries the `auto:` prefix so `tools/agents.py` can tell a review-round run from
+    merge evidence -- EXCEPT when it resolved to the whole suite (review round 2, note). A run that
+    played every spec is full evidence however the scope was asked for, and tagging it `auto:all`
+    gave a complete run the one tag CLAUDE.md git workflow step 4 tells the merge gate to reject.
+    """
+    if names == [SCOPE_ALL]:
+        return SCOPE_ALL
+    return f"auto:{','.join(names)}" if arg == "auto" else ",".join(names)
 
 
 def changed_paths():
@@ -2568,8 +2588,8 @@ def run_test(studio, scope=None):
         phases.report()
         # `scope=` IS PART OF THE LINE, so the evidence says what it covered. `scope=all` is a full
         # run and the only kind the merge gate accepts; `scope=auto:<names>` is a review-round run;
-        # `scope=none` ran no Play at all. tools/agents.py reads exactly this.
-        tag = f"auto:{scope_line}" if scope == "auto" else scope_line
+        # `scope=auto:none` ran no Play at all. tools/agents.py reads exactly this.
+        tag = scope_tag(scope, scope_names)
         print(f"[harness] {'PASS' if passed else 'FAIL'}: {sum(checks)}/{len(checks)} checks @ {sha} "
               f"({tree}) scope={tag}")
         if dirty:
@@ -4115,6 +4135,16 @@ def selftest():
     # The default is UNCHANGED: no --scope is the whole suite, and that is what the merge gate reads.
     ok("no --scope is the whole suite",
        resolve_scope(None)[0] == [SCOPE_ALL] and set(resolve_scope(None)[1]) == on_disk)
+    # THE TAG IN THE FINAL LINE (review round 2, note). The dangerous case is the LAST one: a run
+    # that played every spec must not carry `auto:all`, the one tag the merge gate rejects.
+    ok("no --scope tags the line scope=all", scope_tag(None, [SCOPE_ALL]) == "all")
+    ok("a resolved scope carries the auto: prefix",
+       scope_tag("auto", ["gun", "viewmodel"]) == "auto:gun,viewmodel",
+       scope_tag("auto", ["gun", "viewmodel"]))
+    ok("an empty resolution is auto:none", scope_tag("auto", ["none"]) == "auto:none")
+    ok("a hand-named scope carries no prefix", scope_tag("gun", ["gun"]) == "gun")
+    ok("--scope auto that resolves to the whole suite is tagged scope=all, not auto:all",
+       scope_tag("auto", [SCOPE_ALL]) == "all", scope_tag("auto", [SCOPE_ALL]))
 
     # 10. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):

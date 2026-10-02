@@ -433,7 +433,9 @@ change to the test system, and don't restate it elsewhere.
     specs TestEZ runs, because `tests/TestKit.luau` loads every `*.spec` under its folder (filtering
     the suite itself is queued as Task 113a).
     The final line carries it: `... (clean tree) scope=all`, `scope=auto:gun,viewmodel`, or
-    `scope=auto:none` when nothing in the change reached a spec. **`tools/agents.py` accepts `scope=auto:…` for a REVIEW ROUND and then asks for no
+    `scope=auto:none` when nothing in the change reached a spec. A `--scope auto` run that resolves
+    to the whole suite is tagged `scope=all`, not `auto:all`: it played every spec, so it IS full
+    evidence (`scope_tag`). **`tools/agents.py` accepts `scope=auto:…` for a REVIEW ROUND and then asks for no
     `[harness2]` line at all** (a scoped line can only come from `--scope auto`, so it is a review
     run by construction, and `test2` costs a human click per round). It accepts `scope=all`, and
     every line written before Task 113, as full evidence, and it **refuses a hand-named scope** —
