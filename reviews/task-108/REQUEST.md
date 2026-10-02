@@ -3,11 +3,12 @@
 Task: 108
 Round: 2
 Base: `content-model-b-aim-1` (`1ee7ba0`)
-Code commit: PENDING -- the gate runs on the paperwork commit and the lines are pasted into it
+Code commit: `156012b9a8d88ee0941632e30617ae2213015164` (the paperwork commit; the last code commit
+is `ed6ffd7` and only this file and the TASKS row changed after it)
 
 ```
-[harness] PENDING
-[harness2] PENDING
+[harness] PASS: 32/32 checks @ 156012b9a8d88ee0941632e30617ae2213015164 (clean tree)
+[harness2] PASS: 34/34 checks @ 156012b9a8d88ee0941632e30617ae2213015164 (clean tree)
 ```
 
 `test2` is required: the branch also changes `src/shared/HandAssets.luau` and
