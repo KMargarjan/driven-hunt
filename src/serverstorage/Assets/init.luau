@@ -978,7 +978,8 @@ Assets.ROWS = {
 		-- The anchor triangles put the box's centre at the model's own, so the pivot IS the centre.
 		offsetStuds = Vector3.zero,
 		-- The model arrives with its long axis along X (the prep run measured it), and this gun's is
-		-- Z. `Gun.MESH_ROTATION_DEG` is the one place that quarter turn is written down.
+		-- Z -- and the import also brings it in REVERSED along that axis (task 107, measured on
+		-- screen). `Gun.MESH_ROTATION_DEG` is the one place both turns are written down.
 		rotationDeg = Vector3.new(0, Gun.MESH_ROTATION_DEG, 0),
 		renderFidelity = "Automatic",
 		notes = "The half that swings: two 12-gauge tubes, open at both ends, and the chequered "

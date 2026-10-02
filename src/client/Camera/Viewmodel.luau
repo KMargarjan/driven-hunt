@@ -358,16 +358,43 @@ local function gunTemplate(name: string): BasePart?
 	return if found and found:IsA("BasePart") then found :: BasePart else nil
 end
 
+-- WHICH SHELL IS BEING DRAWN, asked once and answered in one place: the uploaded cartridge when the
+-- server has published it and this is the new gun, the three drawn cylinders otherwise. Both numbers
+-- below turn on it, so they cannot disagree about which shell they are describing.
+local function shellIsMesh(config): boolean
+	return config.NEW_GUN == true and gunTemplate(Gun.SHELL_TEMPLATE_NAME) ~= nil
+end
+
 -- HOW FAR BEHIND A SHELL'S PIVOT ITS RIM IS, which is the one number that seats it: `Gun.chamber`
 -- says where the RIM goes and `PivotTo` places the PIVOT. The mesh shell's pivot is its own bounding
 -- box centre -- Roblox puts it there, and `assets/uploads.json`'s row records that the model's centre
 -- is its box's -- so half its length is the answer; the drawn one's pivot is its Body part, and
 -- `Gun.shellLayout` owns that answer.
 local function shellBack(config): number
-	if config.NEW_GUN == true and gunTemplate(Gun.SHELL_TEMPLATE_NAME) ~= nil then
+	if shellIsMesh(config) then
 		return Gun.SHELL_MESH_SIZE_STUDS.X / 2
 	end
 	return Gun.shellLayout(config.SHELL_SIZE_STUDS, config.SHELL_BASE_FRACTION).back
+end
+
+-- ...AND HOW FAR IT IS TURNED, WHICH HAS TO BE APPLIED WHERE IT SURVIVES (task 107, round 3).
+--
+-- ROUND 2'S FINDING, AND IT IS AN ENGINE FACT, NOT A STYLE POINT. The import's half turn was written
+-- onto the cloned PART, which `Viewmodel.shells` then threw away: `Model:PivotTo` moves the model so
+-- its PIVOT lands on the CFrame it is given, and with `PrimaryPart` set and `WorldPivot` never
+-- written the pivot IS that part -- the rule `Viewmodel.sight`, `camera_client.spec`'s pivot case and
+-- `Gun.shellLayout`'s `back` all already lean on. So the part's own CFrame was overwritten on the
+-- frame it was made and every frame after, and the uploaded shell kept only the file's quarter turn:
+-- brass head up the barrel, which is the pre-fix state.
+--
+-- SO THE TURN LIVES AT THE PLACEMENT SITE, composed with the quarter turn rather than fighting it.
+-- The DRAWN shell is three cylinders this file lays out mouth-at-+X and never sends through an
+-- importer, so it takes the quarter turn alone.
+local function shellTurnDeg(config): number
+	if shellIsMesh(config) then
+		return Gun.SHELL_ROTATION_DEG
+	end
+	return Gun.MESH_FILE_TURN_DEG
 end
 
 local function makeShell(name: string, config, parent: Instance): Model
@@ -375,11 +402,12 @@ local function makeShell(name: string, config, parent: Instance): Model
 	shell.Name = name
 	local size = config.SHELL_SIZE_STUDS
 	local layout = Gun.shellLayout(size, config.SHELL_BASE_FRACTION)
-	local template = if config.NEW_GUN == true then gunTemplate(Gun.SHELL_TEMPLATE_NAME) else nil
+	local template = if shellIsMesh(config) then gunTemplate(Gun.SHELL_TEMPLATE_NAME) else nil
 	if template ~= nil then
-		-- ONE PART, AT THE MODEL'S ORIGIN. Its long axis is its own X with the MOUTH at +X -- the
-		-- same convention `Gun.shellLayout` lays the drawn one out in -- so the quarter turn
-		-- `Viewmodel.shells` applies when it places the model turns both the same way.
+		-- ONE PART, AND ITS CFRAME HERE IS WORTH NOTHING: it is the model's `PrimaryPart`, so
+		-- `Viewmodel.shells`'s `PivotTo` writes over it on the frame this is built and every frame
+		-- after. Round 2 of task 107 caught exactly that -- the import's half turn was set here and
+		-- silently discarded. The turn is `shellTurnDeg`, applied where every shell is PLACED.
 		local part = template:Clone()
 		part.Name = "Body"
 		part.CFrame = CFrame.new()
@@ -1144,7 +1172,10 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 			shell = makeShell(name, config, clone)
 			stats.shellsDrawn += 1
 		end
-		(shell :: Model):PivotTo(barrelsCFrame * offset * CFrame.Angles(0, math.rad(90), 0))
+		-- THE ONE PLACE EVERY SHELL IS TURNED, drawn or uploaded (task 107, round 3). It was a
+		-- literal 90 here, which is right for the three cylinders this file lays out and wrong for a
+		-- cartridge that has been through Roblox's importer.
+		(shell :: Model):PivotTo(barrelsCFrame * offset * CFrame.Angles(0, math.rad(shellTurnDeg(config)), 0))
 	end
 end
 

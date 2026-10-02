@@ -141,6 +141,75 @@ return function()
 			)
 		end)
 
+		it("points the imported mesh's MUZZLE down the gun, not the butt", function()
+			-- TASK 107, AND IT IS THE CASE THAT WOULD HAVE CAUGHT TASK 105. The gun shipped END-FOR-END
+			-- REVERSED: the walnut stock and the action sat at the far end where the muzzle belongs
+			-- (`.screenshots/20261002T121400Z-pose-carry.png`), and the aimed eye looked into two open
+			-- muzzles a foot away (`...121329Z-pose-aim.png`). Nothing measured the composition,
+			-- because the only claim anybody had made was "the file is written muzzle-at-+X", which
+			-- was true and not enough.
+			--
+			-- SO THE CLAIM IS THE ROUND TRIP. `Gun.MESH_MUZZLE_AXIS` is where the muzzle points in the
+			-- MeshPart's OWN axes once Roblox has imported the FBX -- the file's +X, reversed by the
+			-- import, measured on screen. Turned by the gun's own `MESH_ROTATION_DEG` it has to come
+			-- out as the gun's muzzle direction, which is the Handle's -Z. Flip the sign of either
+			-- number and this fails.
+			local turned = (CFrame.Angles(0, math.rad(Gun.MESH_ROTATION_DEG), 0) * Gun.MESH_MUZZLE_AXIS).Unit
+			local wanted = Vector3.new(0, 0, -1)
+			TestKit.note(
+				string.format(
+					"task107 the mesh's muzzle axis %s turns by %.0f to (%.3f, %.3f, %.3f)",
+					tostring(Gun.MESH_MUZZLE_AXIS),
+					Gun.MESH_ROTATION_DEG,
+					turned.X,
+					turned.Y,
+					turned.Z
+				)
+			)
+			expect((turned - wanted).Magnitude < 1e-5).to.equal(true)
+			-- ...and the shell comes through the same import, so it takes the same half turn. One
+			-- number, used twice: a shell left at the gun's old turn seats its brass head up the
+			-- barrel.
+			expect(Gun.SHELL_ROTATION_DEG).to.equal(Gun.MESH_ROTATION_DEG)
+		end)
+
+		it("puts the stock and the action BEHIND the breech, with the muzzle at the far end", function()
+			-- THE SAME DEFECT STATED AS GEOMETRY, which is what a player sees: on a gun held at the
+			-- shoulder the butt is nearest the eye and the muzzle is furthest. In the Handle's frame
+			-- the muzzle is -Z and the shooter is +Z, so every part of the frame group -- the action,
+			-- the trigger, the stock -- lies BEHIND the barrels' breech, and the barrel group reaches
+			-- the muzzle end and the frame group does not.
+			local at = Gun.layout(CONFIG)
+			local barrels = byName(pieces, Gun.BARREL_GROUP_NAME)
+			local frame = byName(pieces, Gun.FRAME_GROUP_NAME)
+			local frameFront = frame.offset.Position.Z - frame.size.Z / 2
+			local frameCentre = frame.offset.Position.Z
+			local barrelFront = barrels.offset.Position.Z - barrels.size.Z / 2
+			TestKit.note(
+				string.format(
+					"task107 muzzle %.3f, barrel group front %.3f, frame front %.3f, frame centre %.3f, breech %.3f",
+					at.muzzleZ,
+					barrelFront,
+					frameFront,
+					frameCentre,
+					at.breechZ
+				)
+			)
+			-- THE BARREL GROUP REACHES THE MUZZLE and the frame group does not come near it.
+			expect(math.abs(barrelFront - at.muzzleZ) < 1e-6).to.equal(true)
+			expect(frameFront > at.muzzleZ).to.equal(true)
+			-- THE STOCK'S CENTRE IS BEHIND THE BREECH, toward the shooter: that is the whole claim.
+			expect(frameCentre > at.breechZ).to.equal(true)
+			-- ...and the butt is the furthest thing back, at the Handle's own +Z half.
+			expect(math.abs((frame.offset.Position.Z + frame.size.Z / 2) - at.half) < 1e-6).to.equal(true)
+			-- THE HINGE IS AT THE ACTION'S FRONT LOWER EDGE: ahead of the breech face, behind the
+			-- frame group's own front, and below the bore line.
+			local hinge = Gun.hinge(CONFIG)
+			expect(hinge.Z < at.breechZ).to.equal(true)
+			expect(hinge.Z >= frameFront).to.equal(true)
+			expect(hinge.Y < at.barrelY).to.equal(true)
+		end)
+
 		it("costs the budget this gun states, so growth is a decision", function()
 			local count = Gun.partCount(CONFIG)
 			TestKit.note(string.format("task105 the drawn gun is %d parts", count))

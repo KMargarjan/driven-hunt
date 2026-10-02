@@ -153,14 +153,47 @@ Gun.SHELL_KEY = "gun.shell"
 Gun.FOLDER_NAME = "ViewmodelGun"
 Gun.SHELL_TEMPLATE_NAME = "Shell"
 
--- HOW A GROUP MESH IS TURNED to lie on this gun. Both arrive with their LONG AXIS ALONG X (measured
--- by `tools/asset_prep.py`: "long axis X"), and this gun's long axis is Z with -Z the muzzle -- so a
--- quarter turn about Y lays it down. The sign is the one Karen's two halves already ship with
--- (`Assets.ROWS`, `rotationDeg = (0, 90, 0)`), because `tools/gltf_split.py` writes the model out in
--- the same convention on purpose: muzzle at the file's +X.
-Gun.MESH_ROTATION_DEG = 90
--- The shell's mouth is at the file's +X too, by the same convention, so it takes the same turn.
-Gun.SHELL_ROTATION_DEG = 90
+-- HOW A GROUP MESH IS TURNED to lie on this gun, AND IT IS TWO TURNS, NOT ONE (task 107).
+--
+-- THE FIRST IS THE FILE'S, and it is arithmetic: `tools/gltf_split.py` writes every group out with
+-- the muzzle at the FILE'S +X (`to_file`, selftested), and this gun's muzzle is its -Z.
+-- `CFrame.Angles(0, +90deg, 0)` takes (1, 0, 0) to (0, 0, -1), so a quarter turn lays it down.
+-- EXPORTED, because a placement site needs the quarter turn ALONE (round 2, note): the DRAWN shell
+-- is laid out mouth-at-+X by `Gun.shellLayout` and never goes near Roblox's importer, so it takes
+-- this and nothing else. It was a literal 90 at that site until task 107 round 3.
+Gun.MESH_FILE_TURN_DEG = 90
+local MESH_FILE_TURN_DEG = Gun.MESH_FILE_TURN_DEG
+
+-- THE SECOND IS THE IMPORT'S, AND IT WAS MEASURED ON SCREEN (task 107, rule 5). Task 105 assumed
+-- there was no second turn, because Karen's own gun's rows carry `rotationDeg = (0, 90, 0)` and this
+-- model is written in the same convention. The gun that came out was END-FOR-END REVERSED: in
+-- `.screenshots/20261002T121400Z-pose-carry.png` the walnut stock and the action sit at the FAR
+-- upper-left end of the barrels, where `compare` puts the Muzzle landmark, and the near end by the
+-- gloves has no stock at all; in `.screenshots/20261002T121329Z-pose-aim.png` (eye relief pushed to
+-- 5.2 so there is room to see) the eye looks straight into TWO OPEN MUZZLES a foot away with the
+-- gun running off behind them.
+--
+-- SO THE MODEL ARRIVES REVERSED ALONG ITS OWN LONG AXIS, and the chain that does it is somewhere in
+-- Blender's glTF import, its FBX export or Roblox's FBX import -- this correction says WHAT ARRIVES
+-- rather than which of the three did it, which is the only thing the game can check. A HALF TURN is
+-- what is applied; a MIRROR about the long axis would look the same on a gun this close to
+-- symmetric, and nothing on screen can tell the two apart, so that is written down rather than
+-- claimed either way.
+Gun.MESH_IMPORT_TURN_DEG = 180
+
+-- ...and the gun's own turn is the two composed. 270 is -90: the file's +X ends up at the gun's +Z,
+-- which is the BUTT, because that is where the import put the muzzle.
+Gun.MESH_ROTATION_DEG = MESH_FILE_TURN_DEG + Gun.MESH_IMPORT_TURN_DEG
+-- The shell's mouth is at the file's +X too, by the same convention, and it comes through the same
+-- import, so it takes the same two turns. `Camera.Viewmodel.makeShell` applies the import half turn
+-- to the mesh it clones; the quarter turn is applied once, where every shell is placed.
+Gun.SHELL_ROTATION_DEG = MESH_FILE_TURN_DEG + Gun.MESH_IMPORT_TURN_DEG
+
+-- WHERE THE MUZZLE POINTS IN THE MESHPART'S OWN AXES once Roblox has imported it: the file's +X,
+-- reversed by the import. `tests/server/gun.spec.luau` composes this with `Gun.MESH_ROTATION_DEG`
+-- and checks the answer is the gun's own muzzle direction -- which is the case that would have
+-- caught task 105, and which fails if either number's sign moves.
+Gun.MESH_MUZZLE_AXIS = Vector3.new(-1, 0, 0)
 
 -- THE SHELL'S BRASS RIM, which is what stands out of a chamber mouth and is the only part of a
 -- seated shell a player can see. Kept from task 99 for the DRAWN shell, which is what is built when
