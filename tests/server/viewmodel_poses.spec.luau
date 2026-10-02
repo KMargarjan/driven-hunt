@@ -468,6 +468,32 @@ return function()
 			expect(Mode.aimOffset(sight, resolved)).never.to.equal(Mode.aimOffset(sight, firstPerson))
 		end)
 
+		it("tunes the viewmodel's own FILL LIGHT live, because the light was the defect", function()
+			-- TASK 102, AND IT WAS MEASURED. Task 100 put the action at an albedo of (118, 120, 122)
+			-- and the aimed capture still read the fences and top strap at (155, 161, 173) -- a pale
+			-- blue-grey slab. What is pale is the LIGHT, inches from the lens, and it lived as four
+			-- literals in `Camera.Config`, so moving it cost a commit, a gate and a review round.
+			-- It is `look.fill` in poses.json now, which means it is one command and a look.
+			local resolved, _, problems = Poses.resolve(firstPerson, '{"look.fill.brightness": 0.2}')
+			expect(#problems).to.equal(0)
+			expect(resolved.VIEWMODEL_FILL_BRIGHTNESS).to.equal(0.2)
+			expect(resolved.VIEWMODEL_FILL_BRIGHTNESS).never.to.equal(firstPerson.VIEWMODEL_FILL_BRIGHTNESS)
+			-- ...and the other three are still the file's, so one dial moves one thing.
+			expect(resolved.VIEWMODEL_FILL_RANGE_STUDS).to.equal(firstPerson.VIEWMODEL_FILL_RANGE_STUDS)
+			expect(resolved.VIEWMODEL_FILL_COLOR).to.equal(firstPerson.VIEWMODEL_FILL_COLOR)
+			expect(resolved.VIEWMODEL_FILL_OFFSET_STUDS).to.equal(firstPerson.VIEWMODEL_FILL_OFFSET_STUDS)
+		end)
+
+		it("carries the fit tool's serial without treating it as a pose number", function()
+			-- `tools/pose.py fit` bumps `serial` on every candidate it writes so it can tell a
+			-- reading of the pose it just asked for from a reading of the one before it. It is not a
+			-- pose number: if `merge` refused it, every candidate the search wrote would be refused
+			-- WHOLE and the gun would never move.
+			local resolved, _, problems = Poses.resolve(firstPerson, '{"aim.cheekDeg": 9, "serial": 41, "hold": "aim"}')
+			expect(#problems).to.equal(0)
+			expect(resolved.ADS_CHEEK_DEG).to.equal(9)
+		end)
+
 		it("refuses the WHOLE override when any path is wrong", function()
 			local resolved, _, problems = Poses.resolve(firstPerson, '{"aim.cheekDeg": 9, "aim.nope": 1}')
 			expect(#problems).to.equal(1)

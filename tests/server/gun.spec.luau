@@ -549,19 +549,42 @@ return function()
 	end)
 
 	describe("the wood", function()
-		it("scales Karen's stock mesh to the length THIS gun says, uniformly", function()
+		local pieces = Gun.pieces(CONFIG)
+
+		it("scales Karen's stock mesh to the length THIS gun says, and to the WIDTH it says", function()
 			local row = Assets.byKey(Gun.WOOD_KEYS[Gun.STOCK_NAME])
 			expect(row).to.be.ok()
 			expect(row.scope).to.equal("viewmodel")
 			expect(row.modelId > 0).to.equal(true)
-			-- UNIFORM: the long axis is what the gun asks for and the other two are whatever the
-			-- wood's own proportions give. A stock squashed into a chosen box measures perfectly and
-			-- looks wrong (design 6.1, the squashed boar).
+			-- UNIFORM IN LENGTH AND HEIGHT: the long axis is what the gun asks for and the height is
+			-- whatever the wood's own proportions give. A stock squashed into a chosen box measures
+			-- perfectly and looks wrong (design 6.1, the squashed boar).
 			local wanted = Gun.WOOD_LENGTH_STUDS[Gun.STOCK_NAME]
 			expect(math.abs(row.sizeStuds.X - wanted) < 1e-6).to.equal(true)
 			local scale = wanted / row.naturalSizeStuds.X
 			expect(math.abs(row.sizeStuds.Y - row.naturalSizeStuds.Y * scale) < 1e-6).to.equal(true)
-			expect(math.abs(row.sizeStuds.Z - row.naturalSizeStuds.Z * scale) < 1e-6).to.equal(true)
+			-- ...AND THE WIDTH IS THE GUN'S OWN ANSWER, which is task 102 and the ONE deliberate
+			-- break with "uniform". Uniformly scaled this mesh is 0.123 studs wide -- about right for
+			-- a REAL stock (a 486's butt is some 1.6 in across a 45 in gun) and wrong for this one,
+			-- because the metal here is drawn at about 1.65x life in cross-section (`BARREL_DIAMETER`
+			-- 0.145 against a life-size 0.089 at this length) so that a pair of tubes is readable at
+			-- arm's length. The stock arrived at 1.0x, and the aimed capture is what it cost: a comb
+			-- spanning ~15% of the half-frame's width against the video target's ~50%.
+			local uniformWidth = row.naturalSizeStuds.Z * scale
+			expect(math.abs(row.sizeStuds.Z - Gun.WOOD_WIDTH_STUDS[Gun.STOCK_NAME]) < 1e-6).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task102 stock width %.4f studs, where uniform gives %.4f (%.2fx)",
+					row.sizeStuds.Z,
+					uniformWidth,
+					row.sizeStuds.Z / uniformWidth
+				)
+			)
+			-- IT IS THE ACTION'S WIDTH, which is the Director's rule for a side-by-side's stock: as
+			-- wide as the action at the head. Read off the drawn action rather than written down, so
+			-- the two cannot drift.
+			expect(Gun.WOOD_WIDTH_STUDS[Gun.STOCK_NAME]).to.equal(byName(pieces, "Action").size.X)
+			expect(row.sizeStuds.Z > uniformWidth).to.equal(true)
 			TestKit.note(
 				string.format(
 					"task99 stock %.3f x %.3f x %.3f studs (natural %.1f x %.1f x %.1f)",

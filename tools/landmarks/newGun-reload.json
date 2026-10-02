@@ -1,0 +1,9 @@
+{
+  "note": "TARGET-reload-open.jpg (640x357), read by hand on 2026-10-02. The frame shows the gun broken open and held to the RIGHT: the two chamber mouths face the camera close, the barrels point down-away and leave the picture through the bottom edge, and the stock runs off the lower-right corner. Pixels measured on a 3x crop of the region x 0.52-1.0, y 0.35-1.0; divide by the frame to get these fractions.",
+  "marks": {
+    "StandingBreech": { "x": 0.771, "y": 0.65, "studs": 1.1, "weight": 2 },
+    "Action": { "x": 0.765, "y": 0.724, "studs": 1.2 }
+  },
+  "offScreen": ["Muzzle"],
+  "bounds": { "posStuds": 1.5, "rotDeg": 60 }
+}

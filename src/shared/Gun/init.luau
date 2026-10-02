@@ -185,6 +185,18 @@ Gun.FOLDER_NAME = "ViewmodelGun"
 -- is this, and its other two sizes are whatever the wood's own proportions give (design 6.1's rule,
 -- and the reason the squashed boar is in it). `ServerStorage.Assets` reads these to work out each
 -- row's `sizeStuds`, so the gun's geometry decides the scale rather than a number in the manifest.
+-- HOW WIDE A WOODEN PIECE IS ON THIS GUN, where its own proportions are not the answer (task 102).
+-- MEASURED: Karen's stock mesh is 190.153 x 69.262 x 17.743 in its own units, so scaled uniformly to
+-- 1.32 studs long it is 0.481 tall and **0.123 wide** -- and a real stock IS about that narrow
+-- relative to its length (a 486's butt is about 1.6 in across a 45 in gun). The trouble is that the
+-- METAL of this gun is not at life size: `BARREL_DIAMETER` is 0.145 where life size at this length
+-- would be about 0.089, because a life-size pair is unreadable at arm's length in first person. So
+-- the gun is drawn at about 1.65x in cross-section and the stock arrived at 1.0x -- which is why the
+-- aimed capture showed a comb spanning ~15% of the half-frame's width against the video target's
+-- ~50%. It is widened to the ACTION's width, which is the Director's rule for a side-by-side's
+-- stock: as wide as the action at the head. 0.255 / 0.1231 = 2.07x, on that one axis only.
+Gun.WOOD_WIDTH_STUDS = table.freeze({ [Gun.STOCK_NAME] = ACTION_WIDTH })
+
 -- The forend's length is the SPLINTER'S WHOLE length -- the body plus the tapered tip -- because a
 -- mesh forend replaces both (`Gun.FOREND_TIP_NAME`).
 Gun.WOOD_LENGTH_STUDS = table.freeze({

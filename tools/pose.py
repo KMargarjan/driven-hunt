@@ -15,8 +15,18 @@
                                                       with two players one of them is the DRIVER and
                                                       carries no gun, and the default is simply the
                                                       first client that answered
-    python tools/pose.py selftest                     NO Studio: prove the merge, the paths and the
-                                                      file round trip (CI runs this)
+    python tools/pose.py fit <pose> --landmarks <file> [--evals N] [--settle S]
+                                        [--target <image>] [--client <name>]
+                                                      SOLVE a pose instead of guessing it: given the
+                                                      target screen positions of a few landmarks,
+                                                      search the gun's six numbers in the RUNNING
+                                                      session until what is drawn matches, then
+                                                      print the values and capture one side-by-side.
+                                                      `<pose>` is the dotted prefix of a pose that
+                                                      has a `gun` block: `reload`, `newGun.reload`,
+                                                      `carry`, `newGun.carry`
+    python tools/pose.py selftest                     NO Studio: prove the merge, the paths, the
+                                                      file round trip and the search (CI runs this)
 
 WHY IT EXISTS. Karen, 2026-10-01, after task 97 was stopped: tuning the shotgun's poses by editing
 Luau, running the gate and asking for a review cost HOURS PER TWEAK, and what is being tuned is a
@@ -37,6 +47,15 @@ must be set BEFORE the session, while a pose is read every frame, so it must be 
 override written into the Edit place would also be SAVED WITH THE PLACE and published, which is what
 the harness guard exists to catch.
 
+WHY `fit` EXISTS. Karen's bar is "perfect" and the reload is six numbers at once -- where the gun
+is and which way it points -- so hand-guessing them is guessing in six dimensions with a screenshot
+per try. The Director spent a session on the break-open pose and did not get there. A reference
+frame, though, says exactly where the breech and the stock ARE on the screen, and the session can
+already measure where ours are (`compare` prints those same numbers). So the tool closes the loop:
+write a candidate, measure it, score it, step. No screenshot per step -- the landmark query is a
+projection, not a picture -- and the search is bounded, so it cannot answer with the gun behind the
+player. One capture at the end, to be looked at (rule 5).
+
 WHAT IT NEVER DOES: send arbitrary Luau (every query is a constant in `tools/studio_mcp.py`,
 templated with JSON at most), touch git, or write anything into the repo except `poses.json` on
 `save` and a PNG under `.screenshots/` (git-ignored) on `compare`.
@@ -49,6 +68,7 @@ into a committed file (CLAUDE.md, "Public repository").
 
 import datetime
 import json
+import math
 import os
 import sys
 import time
@@ -61,6 +81,10 @@ REPO = studio_mcp.REPO
 POSES_FILE = os.path.join(REPO, "src", "shared", "Viewmodel", "poses.json")
 REFERENCE_SET = "inspiration-2026-10-01"
 HOLD_KEY = "hold"
+# THE SECOND KEY IN THE OVERRIDE THAT IS NOT A POSE NUMBER (task 102). `fit` bumps it on every
+# candidate it writes so it can tell a reading of the pose it just asked for from a reading of the
+# one before it. `Viewmodel.SERIAL_KEY` in Luau is the same string, and `Viewmodel.merge` skips it.
+SERIAL_KEY = "serial"
 HOLDS = ("carry", "raise", "aim", "reload")
 
 
@@ -115,7 +139,7 @@ def apply_overrides(data, overrides):
     known = paths_of(data)
     problems = []
     for path in sorted(overrides):
-        if path == HOLD_KEY:
+        if path in (HOLD_KEY, SERIAL_KEY):
             continue
         value = overrides[path]
         if path not in known:
@@ -281,11 +305,11 @@ def print_landmarks(marks):
     """The three readings the carry pose was solved from, as a percentage of the screen."""
     viewport = marks.get("viewport", {})
     print("[pose] viewport {:.0f}x{:.0f}".format(viewport.get("x", 0), viewport.get("y", 0)))
-    for name in ("Bead", "HandRight", "HandLeft"):
+    for name in ("Bead", "Muzzle", "StandingBreech", "Action", "Forend", "Stock",
+                 "HandRight", "HandLeft"):
         mark = (marks.get("parts") or {}).get(name)
         if not mark:
-            print(f"[pose]   {name}: not on the drawn gun")
-            continue
+            continue # not on this gun: the parts gun has no `StandingBreech`, the old one no `Stock`
         print("[pose]   {}: {:.1f} % across, {:.1f} % down, {:.2f} studs from the eye{}".format(
             name, mark["x"] * 100, mark["y"] * 100, mark["studs"],
             "" if mark.get("onScreen") else "  (OFF SCREEN)"))
@@ -384,6 +408,239 @@ def run_compare(studio, pose, explicit_target, assets_dir, client="client"):
             print(f"[pose] released the hold ({len(restore)} override(s) still set)")
 
 
+# ---------------------------------------------------------------- fit: solve a pose from a picture
+
+# THE SIX NUMBERS A POSE PUTS THE GUN AT. The aimed pose is NOT one of them and cannot be: it is
+# solved from the gun's own sight (task 90), so it has an eye relief and a cheek angle and no x/y/z.
+FIT_VARS = ("gun.pos.x", "gun.pos.y", "gun.pos.z", "gun.rot.x", "gun.rot.y", "gun.rot.z")
+FIT_BOUNDS = {"posStuds": 1.5, "rotDeg": 60.0}
+# A mark the candidate does not draw at all, or draws behind the eye, is not "zero error": it is the
+# worst thing a candidate can do, and a search that scored it as 0 would walk straight into it.
+FIT_MISSING = 2.0
+
+
+def read_landmark_file(path):
+    """The Director's hand-written target, as (spec, problem).
+
+    THE FORMAT IS WHAT A PERSON CAN READ OFF A REFERENCE FRAME with a ruler and nothing else:
+
+        {
+          "note":  "TARGET-reload-open.jpg, read by hand",
+          "marks": {
+            "StandingBreech": { "x": 0.771, "y": 0.619, "studs": 1.1, "weight": 2 },
+            "Stock":          { "x": 0.930, "y": 0.966 }
+          },
+          "offScreen": ["Muzzle"],
+          "bounds": { "posStuds": 1.5, "rotDeg": 60 }
+        }
+
+    `x` and `y` are FRACTIONS of the screen (0 = left/top, 1 = right/bottom), which is exactly what
+    `pose.py compare` already prints for every landmark, so a reading and a target are the same unit.
+    `studs` is optional and is the distance from the eye -- the one thing a flat picture cannot give
+    and the one thing six numbers need to be determined. `offScreen` names marks that must NOT be in
+    the picture, which is a real constraint and often the only thing that pins the muzzle down.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            spec = json.load(handle)
+    except (OSError, json.JSONDecodeError) as why:
+        return None, f"could not read the landmarks file: {why}"
+    if not isinstance(spec, dict) or not isinstance(spec.get("marks"), dict) or not spec["marks"]:
+        return None, 'the landmarks file needs a non-empty "marks" object'
+    for name, mark in spec["marks"].items():
+        if not isinstance(mark, dict) or not isinstance(mark.get("x"), (int, float)) \
+                or not isinstance(mark.get("y"), (int, float)):
+            return None, f"marks.{name} needs numeric x and y (fractions of the screen)"
+    if not isinstance(spec.get("offScreen", []), list):
+        return None, "\"offScreen\" must be a list of landmark names"
+    return spec, ""
+
+
+def fit_error(answer, spec):
+    """How wrong one candidate is, as (error, one line about it).
+
+    ROOT MEAN SQUARE IN SCREEN FRACTIONS, so the number means something a person can check: 0.05 is
+    five per cent of the screen out, averaged over the marks. Depth, when a mark asks for it, is
+    folded in as a fraction too -- a stud of error counts the same as 10 % of the screen -- so one
+    weight scale covers both and the search does not need two tolerances.
+    """
+    parts = (answer or {}).get("parts") or {}
+    total, weight_sum, worst, worst_name = 0.0, 0.0, 0.0, "-"
+    for name, mark in spec["marks"].items():
+        weight = float(mark.get("weight", 1.0))
+        got = parts.get(name)
+        if not got:
+            term = FIT_MISSING ** 2
+        else:
+            dx = got["x"] - float(mark["x"])
+            dy = got["y"] - float(mark["y"])
+            term = dx * dx + dy * dy
+            if mark.get("studs") is not None:
+                term += ((got["studs"] - float(mark["studs"])) * 0.1) ** 2
+            # BEHIND THE EYE IS NOT A POSITION. WorldToViewportPoint extrapolates a point behind the
+            # camera to a screen position anyway (measured twice, 2026-10-01, and it is why the gun
+            # once read as 22,425 % of the screen wide), so depth is what says it is in the picture.
+            if got["studs"] <= 0.1:
+                term += FIT_MISSING ** 2
+        total += weight * term
+        weight_sum += weight
+        if term > worst:
+            worst, worst_name = term, name
+    for name in spec.get("offScreen", []):
+        got = parts.get(name)
+        # ON SCREEN WHEN IT SHOULD NOT BE: penalised by how far INSIDE the frame it is, so the search
+        # has a gradient to follow out rather than a cliff it cannot see over.
+        inside = 0.0
+        if got and got["studs"] > 0.1:
+            inside = min(got["x"], 1 - got["x"], got["y"], 1 - got["y"])
+        term = max(0.0, inside) ** 2
+        total += term
+        weight_sum += 1.0
+        if term > worst:
+            worst, worst_name = term, name + " (should be off screen)"
+    error = math.sqrt(total / max(weight_sum, 1e-9))
+    return error, f"worst: {worst_name}"
+
+
+def search(start, bounds, evaluate, evals):
+    """A bounded compass search -> (best point, best score, how many evaluations it used).
+
+    PATTERN SEARCH AND NOT A GRADIENT ONE, because there is no gradient to have: each evaluation is a
+    round trip into a running Studio and the objective is a rendered frame. A compass search needs
+    only comparisons, is deterministic (so two runs on the same picture give the same answer), and
+    cannot step outside the bounds -- which is what keeps a solver from "solving" the reload by
+    putting the gun 40 studs behind the player.
+
+    Pattern: Hooke-Jeeves / coordinate search, the standard derivative-free method for a handful of
+    variables and an expensive objective (Kolda, Lewis & Torczon, "Optimization by direct search",
+    SIAM Review 45(3), 2003).
+    """
+    point = list(start)
+    step = [max(1e-9, b / 3.0) for b in bounds]
+    best, used = evaluate(point), 1
+    while used < evals and max(step) > 1e-4:
+        improved = False
+        for index in range(len(point)):
+            for direction in (1, -1):
+                if used >= evals:
+                    break
+                trial = list(point)
+                low, high = start[index] - bounds[index], start[index] + bounds[index]
+                trial[index] = min(high, max(low, point[index] + direction * step[index]))
+                if trial[index] == point[index]:
+                    continue
+                score = evaluate(trial)
+                used += 1
+                if score < best:
+                    point, best, improved = trial, score, True
+                    break
+        if not improved:
+            step = [value / 2.0 for value in step]
+    return point, best, used
+
+
+def run_fit(studio, prefix, landmarks_path, evals, client, assets_dir, explicit_target, settle):
+    """`pose.py fit <pose> --landmarks <file>`: search the gun's six numbers to match a picture."""
+    data = read_poses()
+    known = paths_of(data)
+    for leaf in FIT_VARS:
+        if f"{prefix}.{leaf}" not in known:
+            print(f"[pose] {prefix} has no {leaf}: fit works on a pose with a `gun` block "
+                  "(carry, reload, newGun.carry, newGun.reload). The aimed pose is solved from the "
+                  "gun's own sight and has no x/y/z to search.")
+            return 2
+    hold = prefix.split(".")[-1]
+    if hold not in HOLDS:
+        print(f"[pose] {prefix} does not end in one of: {', '.join(HOLDS)}")
+        return 2
+    spec, problem = read_landmark_file(landmarks_path)
+    if problem:
+        print("[pose] " + problem)
+        return 2
+
+    client_id, client_dm, why = running(studio, client)
+    if client_id is None:
+        print("[pose] " + why)
+        return 2
+    server_id, server_dm, server_why = running(studio, "server")
+    if server_id is None:
+        print("[pose] " + server_why)
+        return 2
+    held, problem = read_override(studio, server_id, server_dm)
+    if problem:
+        print("[pose] " + problem)
+        return 2
+    restore = {key: value for key, value in held.items()
+               if key not in (HOLD_KEY, SERIAL_KEY)}
+    effective, _ = apply_overrides(data, restore)
+    start = [paths_of(effective)[f"{prefix}.{leaf}"] for leaf in FIT_VARS]
+    limits = dict(FIT_BOUNDS)
+    limits.update(spec.get("bounds") or {})
+    bounds = [float(limits["posStuds"])] * 3 + [float(limits["rotDeg"])] * 3
+
+    serial = [0]
+    trail = []
+
+    def evaluate(point):
+        serial[0] += 1
+        wanted = dict(restore)
+        for leaf, value in zip(FIT_VARS, point):
+            wanted[f"{prefix}.{leaf}"] = round(float(value), 4)
+        wanted[HOLD_KEY] = hold
+        wanted[SERIAL_KEY] = serial[0]
+        _, problem = write_override(studio, server_id, server_dm, wanted)
+        if problem:
+            raise RuntimeError("could not write the candidate: " + problem)
+        # WAIT FOR THE FRAME THAT IS ABOUT THIS CANDIDATE. The write lands on the server and
+        # replicates; reading before it arrives measures the PREVIOUS candidate, and a search over a
+        # blurred objective converges on nothing. The client answers with the override text it can
+        # see, so the tool can tell the two apart instead of guessing a sleep.
+        answer = {}
+        for _attempt in range(40):
+            time.sleep(settle)
+            answer, problem = studio_mcp.json_answer(
+                studio, studio_mcp.QUERY_POSE_LANDMARKS, studio_id=client_id, datamodel=client_dm)
+            if problem:
+                raise RuntimeError("could not measure the drawn gun: " + problem)
+            seen = answer.get("override") or ""
+            try:
+                if json.loads(seen).get(SERIAL_KEY) == serial[0]:
+                    break
+            except (json.JSONDecodeError, AttributeError, TypeError):
+                continue
+        else:
+            raise RuntimeError("the session never showed the candidate this tool wrote")
+        # ...and one more reading, which is at least a round trip of frames after the client first
+        # reported it had the candidate.
+        answer, problem = studio_mcp.json_answer(
+            studio, studio_mcp.QUERY_POSE_LANDMARKS, studio_id=client_id, datamodel=client_dm)
+        if problem:
+            raise RuntimeError("could not measure the drawn gun: " + problem)
+        score, worst = fit_error(answer, spec)
+        trail.append((score, worst))
+        return score
+
+    print(f"[pose] fitting {prefix} to {os.path.basename(landmarks_path)}: "
+          f"{len(spec['marks'])} mark(s), {len(spec.get('offScreen', []))} off-screen, "
+          f"up to {evals} evaluations")
+    try:
+        point, best, used = search(start, bounds, evaluate, evals)
+    except RuntimeError as problem:
+        print("[pose] " + str(problem))
+        write_override(studio, server_id, server_dm, restore)
+        return 1
+    first = trail[0][0] if trail else float("nan")
+    print(f"[pose] {used} evaluation(s): error {first:.4f} -> {best:.4f} "
+          f"(screen fractions, RMS over the marks); {trail[-1][1]}")
+    print("[pose] the pose it found:")
+    for leaf, was, now in zip(FIT_VARS, start, point):
+        print(f"[pose]   python tools/pose.py set {prefix}.{leaf} {round(now, 4)}"
+              f"      (was {round(was, 4)})")
+    print("[pose] it is SET in the session. `python tools/pose.py save` writes it into poses.json; "
+          "`python tools/pose.py clear` throws it away.")
+    return run_compare(studio, hold, explicit_target, assets_dir, client)
+
+
 # ---------------------------------------------------------------- the commands
 
 def main(argv):
@@ -396,6 +653,9 @@ def main(argv):
 
     assets_dir = os.environ.get("DRIVEN_HUNT_ASSETS")
     explicit_target = None
+    landmarks = None
+    evals = 240
+    settle = 0.05
     # WHICH PLAYER TO PHOTOGRAPH. `studio_for_role` already understands "client:Player1"; this is
     # the way to say it, and it exists because a two-player session makes one of them the DRIVER,
     # who carries no gun at all -- so the default (the first client that answered) photographs an
@@ -413,13 +673,22 @@ def main(argv):
         elif args[index] == "--client" and index + 1 < len(args):
             client = "client:" + args[index + 1]
             index += 2
+        elif args[index] == "--landmarks" and index + 1 < len(args):
+            landmarks = args[index + 1]
+            index += 2
+        elif args[index] == "--evals" and index + 1 < len(args):
+            evals = max(2, int(args[index + 1]))
+            index += 2
+        elif args[index] == "--settle" and index + 1 < len(args):
+            settle = max(0.0, float(args[index + 1]))
+            index += 2
         else:
             rest.append(args[index])
             index += 1
     args = rest
 
     action = args[0] if args else "show"
-    if action not in ("show", "set", "save", "clear", "compare"):
+    if action not in ("show", "set", "save", "clear", "compare", "fit"):
         print(__doc__)
         return 2
 
@@ -432,6 +701,13 @@ def main(argv):
                       "[--client <name>]")
                 return 2
             return run_compare(studio, args[1], explicit_target, assets_dir, client)
+        if action == "fit":
+            if len(args) != 2 or not landmarks:
+                print("[pose] usage: pose.py fit <pose> --landmarks <file> [--evals N] "
+                      "[--settle S] [--target <image>] [--client <name>]")
+                return 2
+            return run_fit(studio, args[1], landmarks, evals, client, assets_dir,
+                           explicit_target, settle)
 
         # Everything else reads, and may write, the SERVER of the running session: an attribute set
         # there replicates to every client, so a two-player test tunes both guns at once.
@@ -643,12 +919,59 @@ def selftest():
        built.endswith(os.path.join("references", REFERENCE_SET, "TARGET-aim.jpg")), repr(built))
     ok("--target wins", target_for("aim", "X", "given.png") == "given.png")
 
+    # 5. THE SOLVER (task 102), driven with NO STUDIO at all -- which is the only way a search can be
+    # tested, because what it has to be right about is the SEARCH and not the engine. A synthetic
+    # projector stands in for the session: a known pose, a known answer, and the question is whether
+    # the compass search walks from a wrong start to it inside its budget and its bounds.
+    truth = [0.4, -0.3, -1.6, 12.0, -20.0, 5.0]
+
+    def synthetic(point):
+        # Each mark's screen position is some smooth function of the six numbers; what matters for
+        # the search is that the objective is a bowl with its floor at `truth`.
+        return math.sqrt(sum(((a - b) * (0.4 if index < 3 else 0.01)) ** 2
+                             for index, (a, b) in enumerate(zip(point, truth))) / 6.0)
+
+    start = [0.0, 0.0, -1.0, 0.0, 0.0, 0.0]
+    found, best, used = search(start, [1.5] * 3 + [60.0] * 3, synthetic, 240)
+    ok("the search finds a pose it cannot see", best < 0.004, f"error {best:.5f} after {used}")
+    ok("the search lands on the right numbers",
+       max(abs(a - b) for a, b in zip(found, truth[:3])) < 0.05, repr([round(v, 3) for v in found]))
+    ok("the search stays inside its budget", used <= 240, str(used))
+    # BOUNDED MEANS BOUNDED: with the truth outside the box, the answer is the box's own edge and not
+    # a gun forty studs behind the player.
+    far = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    boxed, _, _ = search(far, [0.2] * 3 + [5.0] * 3, synthetic, 240)
+    ok("the search cannot leave its bounds",
+       all(abs(value - origin) <= limit + 1e-9
+           for value, origin, limit in zip(boxed, far, [0.2] * 3 + [5.0] * 3)),
+       repr([round(v, 3) for v in boxed]))
+
+    # ...and the scoring, which is what the search is minimising.
+    spec = {"marks": {"StandingBreech": {"x": 0.5, "y": 0.5}}, "offScreen": ["Muzzle"]}
+    exact = {"parts": {"StandingBreech": {"x": 0.5, "y": 0.5, "studs": 1.0, "onScreen": True}}}
+    error, _ = fit_error(exact, spec)
+    ok("a landmark that is where it should be scores 0", error < 1e-9, f"{error}")
+    missing = {"parts": {}}
+    ok("a landmark that is not drawn is the worst case", fit_error(missing, spec)[0] > 1.0,
+       f"{fit_error(missing, spec)[0]}")
+    behind = {"parts": {"StandingBreech": {"x": 0.5, "y": 0.5, "studs": -3.0, "onScreen": False}}}
+    ok("a landmark behind the eye is not scored as a hit", fit_error(behind, spec)[0] > 1.0,
+       f"{fit_error(behind, spec)[0]}")
+    intruder = dict(exact)
+    intruder = {"parts": dict(exact["parts"],
+                              Muzzle={"x": 0.5, "y": 0.5, "studs": 2.0, "onScreen": True})}
+    ok("a mark that should be off screen is penalised for being in the middle",
+       fit_error(intruder, spec)[0] > error, f"{fit_error(intruder, spec)[0]} vs {error}")
+    bad, problem = read_landmark_file(os.path.join(REPO, "tools", "pose.py"))
+    ok("a landmarks file that is not JSON is refused", bad is None and problem != "")
+
     for failure in failures:
         print("[pose] selftest: " + failure)
     if failures:
         print(f"[pose] selftest FAIL: {len(failures)} case(s) wrong")
         return 1
-    print("[pose] selftest PASS: every pose in poses.json is reachable by path, every bad override "
+    print("[pose] selftest PASS: the search walks to a pose it cannot see and stays in its bounds; "
+          "every pose in poses.json is reachable by path, every bad override "
           "is refused, a mid keyframe is tunable, and the file is already in `save`'s format")
     return 0
 

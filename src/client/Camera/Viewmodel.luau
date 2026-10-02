@@ -287,6 +287,34 @@ local function addFillLight(clone: BasePart, config): Light
 	return light
 end
 
+-- ...AND IT FOLLOWS THE DATA WHILE THE SESSION RUNS (task 102). The four numbers moved into
+-- `poses.json`'s `look.fill` so the Director can tune them live, and a light whose properties were
+-- only written once at build time would not have moved until the next rebuild -- which is exactly
+-- the hours-per-tweak loop the content lane exists to end. Four comparisons per frame, and a write
+-- only when one of them differs.
+local function applyFill(made: Model, config)
+	local clone = made.PrimaryPart
+	local attachment = clone and clone:FindFirstChild(FILL_NAME .. "At")
+	local light = attachment and attachment:FindFirstChildOfClass("PointLight")
+	if not (attachment and attachment:IsA("Attachment") and light) then
+		return false
+	end
+	if light.Brightness ~= config.VIEWMODEL_FILL_BRIGHTNESS then
+		light.Brightness = config.VIEWMODEL_FILL_BRIGHTNESS
+	end
+	if light.Range ~= config.VIEWMODEL_FILL_RANGE_STUDS then
+		light.Range = config.VIEWMODEL_FILL_RANGE_STUDS
+	end
+	if light.Color ~= config.VIEWMODEL_FILL_COLOR then
+		light.Color = config.VIEWMODEL_FILL_COLOR
+	end
+	local wanted = CFrame.new(config.VIEWMODEL_FILL_OFFSET_STUDS)
+	if (attachment :: Attachment).CFrame.Position ~= wanted.Position then
+		(attachment :: Attachment).CFrame = wanted
+	end
+	return true
+end
+
 -- WHERE THE DRAWN GUN'S MUZZLE IS, in WORLD space, for the fired barrel (task 92) -- or nil when there
 -- is no viewmodel on screen, or the cloned gun carries no `Muzzle` attachment. The caller then draws
 -- at the world gun's muzzle instead, which is the right answer in third person.
@@ -853,6 +881,8 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	-- `PivotTo` below carries them with everything else; adding them after it would leave them one
 	-- frame behind the gun.
 	Viewmodel.hands(made, config)
+	-- THE FILL LIGHT, from the data, every frame (task 102): see `applyFill`.
+	applyFill(made, config)
 	-- THE GUN'S OWN SIGHT DECIDES THE AIMED POSE (task 90): read off the clone every frame, because
 	-- a rebuild (the mesh arriving late, `Hardware.upgrade`) can change it mid-life.
 	local gun = camCFrame * Mode.viewmodelOffset(state, Viewmodel.sight(), config)
