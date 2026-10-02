@@ -267,7 +267,11 @@ return function()
 				-- the whole repo.
 				local theirs = Shotgun.barrelMuzzleOffset(barrel, CONFIG)
 				expect(offset.X > 0).to.equal(theirs.X > 0)
-				expect(offset.Y).to.equal(at.barrelY)
+				-- WITHIN A TOLERANCE, because a Vector3 holds SINGLE precision and `at.barrelY` is a
+				-- Lua double: 0.12 comes back out of the vector as 0.11999999731779099, and the first
+				-- run of this case failed on exactly that. Every comparison here is between a number
+				-- that has been through a Vector3 and one that has not.
+				expect(math.abs(offset.Y - at.barrelY) < 1e-6).to.equal(true)
 				-- A REAL 12-GAUGE PAIR, which is why this model was chosen: the tubes' centres are one
 				-- tube apart, and that tube is about 21.7 mm at this gun's scale. The drawn gun's were
 				-- 0.145 studs across -- nearly twice life -- and `Shotgun`'s world gun is 0.09 apart.

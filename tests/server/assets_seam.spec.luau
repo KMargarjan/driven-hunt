@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 
+local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
@@ -152,42 +153,61 @@ return function()
 			end
 		end)
 
-		it("keeps the hands out of the server's preload, and gives them a scope of their own", function()
-			-- TASK 93. The two hands are loaded on the server -- `LoadAsset` is server-only -- but the
-			-- server has nothing to do with them afterwards: they are cloned under the local player's
-			-- camera and never worn by a Tool. `WeaponBoot` must not preload them (the `#keys == 2`
-			-- above is the other half of this claim) and `ViewmodelAssetsBoot` must not preload the
-			-- gun, or the two boot lines would ask the Loader for the same key at the same moment.
+		it("keeps the viewmodel's rows out of the server's preload, with a scope of their own", function()
+			-- TASK 93, AND TASK 105 ADDED THE GUN TO IT. Everything in this scope is loaded on the
+			-- server -- `LoadAsset` is server-only -- and the server has nothing to do with it
+			-- afterwards: it is cloned under the local player's camera and never worn by a Tool.
+			-- `WeaponBoot` must not preload any of it (the `#keys == 2` above is the other half of
+			-- this claim), or the two boot lines would ask the Loader for the same key at once.
 			local viewmodel = Assets.keysFor("viewmodel")
 			table.sort(viewmodel)
-			TestKit.note(string.format("task93 viewmodel keys: [%s]", table.concat(viewmodel, ", ")))
-			-- THREE SINCE TASK 99: the two hands and the new gun's walnut stock, which is the same
-			-- kind of row for the same reason -- the server loads it because `LoadAsset` is
-			-- server-only, and only the local player's camera ever draws it.
-			expect(#viewmodel).to.equal(3)
-			expect(viewmodel[1]).to.equal(Assets.KEYS.gunStock)
-			expect(viewmodel[2]).to.equal(Assets.KEYS.handLeft)
-			expect(viewmodel[3]).to.equal(Assets.KEYS.handRight)
+			TestKit.note(string.format("task105 viewmodel keys: [%s]", table.concat(viewmodel, ", ")))
+			-- FIVE SINCE TASK 105: the two hands, model B's two hinge groups and its shell. The
+			-- walnut stock that was here since task 99 is RETIRED rather than deleted -- model B's
+			-- frame group is a stock -- so its row and its id are still in the table and this scope
+			-- no longer asks for it.
+			expect(#viewmodel).to.equal(5)
+			expect(viewmodel[1]).to.equal(Assets.KEYS.gunBarrels)
+			expect(viewmodel[2]).to.equal(Assets.KEYS.gunFrame)
+			expect(viewmodel[3]).to.equal(Assets.KEYS.gunShell)
+			expect(viewmodel[4]).to.equal(Assets.KEYS.handLeft)
+			expect(viewmodel[5]).to.equal(Assets.KEYS.handRight)
+			expect(Assets.byKey(Assets.KEYS.gunStock).scope).to.equal("retired")
 			for _, key in ipairs(Assets.keysFor("runtime")) do
 				expect(key ~= Assets.KEYS.handLeft and key ~= Assets.KEYS.handRight).to.equal(true)
+				expect(key ~= Assets.KEYS.gunBarrels and key ~= Assets.KEYS.gunFrame).to.equal(true)
 			end
-			-- AND EACH HAND IS A REAL ROW: an approved id, one mesh, and a size that is a hand's
-			-- rather than the gun's. 1.28 studs is 330 mm at this game's scale (the gun is 4.4 studs
-			-- for 1,143 mm); anything near the gun's own length would be an arm across the screen.
+			-- AND EVERY ONE IS A REAL ROW: an approved id, one mesh, a licence that names its basis.
 			for _, key in ipairs(viewmodel) do
+				local row = Assets.byKey(key)
+				expect(row).to.be.ok()
+				expect(row.modelId > 0).to.equal(true)
+				expect(row.kind).to.equal("meshpart")
+				expect(row.moderation).to.equal("approved")
+				expect(row.scope).to.equal("viewmodel")
+				expect(#row.licence.basis > 0).to.equal(true)
+				local longest = math.max(row.sizeStuds.X, row.sizeStuds.Y, row.sizeStuds.Z)
+				TestKit.note(string.format("task105 %s: %.2f studs long, %d tris", key, longest, row.trisDeclared))
+			end
+			-- A HAND IS A HAND'S SIZE. 1.27 studs is 330 mm of hand and cuff at this game's scale
+			-- (the gun is 4.4 studs for 1,143 mm); anything near the gun's own length would be an arm
+			-- across the screen. THE HANDS ARE POSED BY THE CAMERA, so `rotationDeg` is zero and
+			-- nothing reads it -- asserted rather than left alone, because a non-zero rotation there
+			-- would be a number somebody wrote expecting it to do something.
+			for _, key in ipairs({ Assets.KEYS.handLeft, Assets.KEYS.handRight }) do
 				local hand = Assets.byKey(key)
-				expect(hand).to.be.ok()
-				expect(hand.modelId > 0).to.equal(true)
-				expect(hand.kind).to.equal("meshpart")
-				expect(hand.moderation).to.equal("approved")
-				expect(hand.scope).to.equal("viewmodel")
 				local longest = math.max(hand.sizeStuds.X, hand.sizeStuds.Y, hand.sizeStuds.Z)
-				TestKit.note(string.format("task93 %s: %.2f studs long, %d tris", key, longest, hand.trisDeclared))
 				expect(longest > 0.8 and longest < 1.8).to.equal(true)
-				-- THE HANDS ARE POSED BY THE CAMERA, so this field is zero and nothing reads it. It
-				-- is asserted rather than left alone because a non-zero rotation here would be a
-				-- number somebody wrote expecting it to do something.
 				expect(hand.rotationDeg).to.equal(Vector3.zero)
+			end
+			-- ...AND A GUN GROUP IS THE WHOLE GUN'S BOX, which is what makes the two halves assemble
+			-- at one CFrame (task 96's anchor triangles, task 105's model). The quarter turn that
+			-- lays the model's long axis down the gun is `Gun.MESH_ROTATION_DEG`, in one place.
+			for _, key in ipairs({ Assets.KEYS.gunBarrels, Assets.KEYS.gunFrame }) do
+				local group = Assets.byKey(key)
+				expect(group.sizeStuds).to.equal(Gun.MESH_SIZE_STUDS)
+				expect(group.offsetStuds).to.equal(Vector3.zero)
+				expect(group.rotationDeg).to.equal(Vector3.new(0, Gun.MESH_ROTATION_DEG, 0))
 			end
 		end)
 
