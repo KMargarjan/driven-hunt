@@ -3,7 +3,7 @@
 Task: 113
 Round: 1
 Base: `0cc60ca`
-Code commit: `122adcb` (the Director's gate run names the final sha; this is the only code commit on the branch)
+Code commit: `b5a5a48` (the last commit that changed src/, tests/ or tools/ on this branch)
 
 Tools and docs only: no `src/`, no `tests/`. Karen, 2026-10-02: *"not need start from zero I
 mentioned 100 times / it has to test only parts what has been changed and what blast radius could
