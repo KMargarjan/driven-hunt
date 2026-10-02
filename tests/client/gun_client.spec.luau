@@ -23,6 +23,7 @@ local Camera = require(scripts:WaitForChild("Camera"))
 local Config = Camera.Config
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local ViewmodelData = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 -- THE ON BRANCH BY PARAMETER, exactly as `camera_client.spec` builds it: nothing is flipped and
@@ -54,6 +55,17 @@ return function()
 		local newGunConfig = table.clone(firstPersonConfig) :: any
 		newGunConfig.NEW_GUN = true
 		table.freeze(newGunConfig)
+		-- ...AND A SECOND ONE THAT ALSO CARRIES MODEL B'S OWN POSE NUMBERS (task 108). `Camera.Config`
+		-- folds in ONE set at boot -- `Viewmodel.view(DATA, Config.NEW_GUN)` -- and the flag is OFF
+		-- during a harness run, so a config that only flips `NEW_GUN` draws model B at the OLD gun's
+		-- hand numbers, a pose nobody ever ships. Flipping the data too is what "reachable by
+		-- parameter as well as by flag" means here (docs/design/feature-flags.md 13.3). It is its own
+		-- config so no case that was passing has its gun moved under it.
+		local newGunPosedConfig = table.clone(newGunConfig) :: any
+		for key, value in pairs(ViewmodelData.view(ViewmodelData.DATA, true)) do
+			newGunPosedConfig[key] = value
+		end
+		table.freeze(newGunPosedConfig)
 
 		-- Its own handle, so this never depends on what the live player happens to be holding, and
 		-- the live source is always put back.
@@ -111,7 +123,7 @@ return function()
 				task.wait(0.3)
 				Camera.Viewmodel.clear()
 				Camera.Viewmodel.setReload(nil)
-				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), newGunConfig)
+				Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), newGunPosedConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local layout = Gun.layout(Shotgun.CONFIG)
 				local found = 0
@@ -150,7 +162,7 @@ return function()
 								expect(back.Z > at.Position.Z).to.equal(true)
 							end
 						end
-						expect(segments).to.equal(#Camera.Viewmodel.sleeveSegments(newGunConfig))
+						expect(segments).to.equal(#Camera.Viewmodel.sleeveSegments(newGunPosedConfig))
 					end
 				end
 				expect(found).to.equal(2)
