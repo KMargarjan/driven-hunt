@@ -31,10 +31,68 @@ local ServerStorage = game:GetService("ServerStorage")
 local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
+local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+
+-- THE ONE PLACE A PUBLISHED TEMPLATE IS MADE TO SHOW ITS OWN COLOUR (task 99), for the hands and
+-- for the gun's WOOD alike -- they come from the same generator, through the same prep, with the
+-- same fault, so the fix is one function and not two copies of it. Every prepped
+-- `texture_baseColor.png` was checked on disk: the two gloves AND the stock are mode RGB.
+-- THE WHITE GLOVE, AND ITS CAUSE (task 99). Karen, 2026-10-01: the right glove is WHITE.
+--
+-- IT IS `AlphaMode.Overlay` OVER A MAP WITH NO ALPHA CHANNEL, measured in three steps on
+-- 2026-10-01:
+--   1. both hands arrive with a `SurfaceAppearance` whose `ColorMap` id is present, and both
+--      `AlphaMode`s are `Overlay` (probed on this server in a live session);
+--   2. both prepped `texture_baseColor.png` files are mode RGB -- NO ALPHA CHANNEL -- with a
+--      median of about (55, 44, 35), i.e. dark brown leather;
+--   3. `Overlay` blends the colour map over the part's `Color` THROUGH THAT ALPHA. With no
+--      alpha to blend through, nothing is drawn and the part shows its `Color`, which was
+--      Roblox's default medium stone grey -- the pixels of the aimed screenshot read
+--      (115, 120, 131) and (132, 138, 151), beside the gun mesh's own texture at (39, 16, 13)
+--      in the same frame.
+-- PROVED BY ISOLATION: with the `SurfaceAppearance` destroyed, the same image on `TextureID`
+-- and `Color` set to pure WHITE, the glove rendered dark brown leather on screen.
+--
+-- SO THE MAP GOES DOWN THE PATH THAT DRAWS IT. `TextureID` is the classic MeshPart route and
+-- does not read an alpha channel at all; a `SurfaceAppearance` always wins over it, so the
+-- one that could not draw is destroyed rather than left to shadow the one that can. The
+-- metalness and roughness maps go with it -- a worn leather glove loses little, and a glove
+-- nobody can see the colour of loses everything.
+local function showItsOwnColour(worn: BasePart, row, material: Enum.Material)
+	worn.Material = material
+	-- THE ID COMES FROM THE ROW, NEVER OFF THE MODEL. Measured the hard way, 2026-10-01: reading
+	-- `SurfaceAppearance.ColorMap` from a game script raises "The current thread cannot read
+	-- 'ColorMap' (lacking capability Plugin)" -- which took this whole boot down and published
+	-- nothing at all, hands included. DESTROYING it needs no such capability, and the id is a
+	-- measured fact about the upload that belongs in the manifest beside the size and the sha.
+	local appearance = worn:FindFirstChildOfClass("SurfaceAppearance")
+	if appearance then
+		appearance:Destroy()
+	end
+	if row.textureId ~= nil and row.textureId ~= "" then
+		worn.TextureID = row.textureId
+		-- A MeshPart's `Color` TINTS its `TextureID`, so a textured part is left white and the
+		-- texture is shown as it is.
+		worn.Color = Color3.new(1, 1, 1)
+	elseif row.fallbackColor ~= nil then
+		-- NO MAP AT ALL: the row's own measured colour, so a part that lost its texture is the
+		-- thing it is meant to be rather than a white blob. Belt beside the braces above.
+		worn.Color = row.fallbackColor
+	end
+end
 
 local folder = Instance.new("Folder")
 folder.Name = HandAssets.FOLDER_NAME
 folder.Parent = ReplicatedStorage
+
+-- THE NEW GUN'S WOOD (task 99), parked in its own folder for the same reason the hands have one:
+-- `InsertService:LoadAsset` is server-only, so the server loads and publishes and
+-- `Camera.Viewmodel` clones. A SEPARATE folder because they are a different thing with a
+-- different owner -- `Gun` names these, `HandAssets` names those -- and because a client that
+-- draws the old gun has no use for either.
+local woodFolder = Instance.new("Folder")
+woodFolder.Name = Gun.FOLDER_NAME
+woodFolder.Parent = ReplicatedStorage
 
 local reports = Loader.preload(Assets.keysFor("viewmodel"))
 for _, loaded in ipairs(reports) do
@@ -59,6 +117,9 @@ for name, key in pairs(HandAssets.KEY_OF) do
 		-- THE CONSUMER SETS THE SIZE, ALWAYS (design 6.1), and this script is the consumer: the
 		-- Loader never writes it. Uniform, from the row, for the reason the row spells out.
 		worn.Size = row.sizeStuds
+		-- Leather: the material decides how a glove catches the viewmodel's own fill light, and one
+		-- that reads as shiny plastic is the next complaint.
+		showItsOwnColour(worn, row, Enum.Material.Fabric)
 		-- Everything that says "scenery" -- the same set `Weapon.Hardware` puts on the worn gun.
 		-- `CanQuery = false` is not decoration: the clone ends up under `workspace.CurrentCamera`,
 		-- which is a child of Workspace, so a client raycast can hit a part parented there.
@@ -73,3 +134,28 @@ for name, key in pairs(HandAssets.KEY_OF) do
 	end
 end
 print(string.format("[ViewmodelAssets] published %d of 2 hand template(s)", published))
+
+-- THE WOOD, by the same three rules as the hands: the CONSUMER sets the size (uniformly, from
+-- the row), everything says scenery, and a piece that did not load is simply absent --
+-- `Camera.Viewmodel` then draws the exact-geometry part that is already in `Gun.pieces`, so the
+-- gun has a stock either way and the silhouette does not depend on an upload.
+local wood = 0
+for name, key in pairs(Gun.WOOD_KEYS) do
+	local template = Loader.template(key)
+	local row = Assets.byKey(key)
+	if template and template:IsA("BasePart") and row then
+		local worn = (template :: BasePart):Clone()
+		worn.Name = name
+		worn.Size = row.sizeStuds
+		showItsOwnColour(worn, row, Enum.Material.Wood)
+		worn.Anchored = true
+		worn.CanCollide = false
+		worn.CanQuery = false
+		worn.CanTouch = false
+		worn.Massless = true
+		worn.CastShadow = false
+		worn.Parent = woodFolder
+		wood += 1
+	end
+end
+print(string.format("[ViewmodelAssets] published %d wooden gun piece(s)", wood))

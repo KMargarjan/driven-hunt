@@ -75,6 +75,126 @@
     "maxGunBackStuds": 0.25,
     "maxGunPitchDeg": 7.0
   },
+  "newGun": {
+    "aim": {
+      "cheekDeg": 1.2,
+      "eyeReliefStuds": 3.65,
+      "left": {
+        "pos": {
+          "x": 0.0,
+          "y": -0.02,
+          "z": -0.15
+        },
+        "rot": {
+          "pitch": -4.0,
+          "twist": 180.0,
+          "yaw": -80.0
+        }
+      },
+      "right": {
+        "pos": {
+          "x": 0.0,
+          "y": -0.16,
+          "z": 1.15
+        },
+        "rot": {
+          "pitch": 10.0,
+          "twist": -15.0,
+          "yaw": 78.0
+        }
+      }
+    },
+    "carry": {
+      "gun": {
+        "pos": {
+          "x": -0.67,
+          "y": -0.57,
+          "z": -1.22
+        },
+        "rot": {
+          "x": 23.9,
+          "y": 45.7,
+          "z": -10.0
+        }
+      },
+      "left": {
+        "pos": {
+          "x": 0.0,
+          "y": -0.02,
+          "z": -0.15
+        },
+        "rot": {
+          "pitch": -4.0,
+          "twist": 180.0,
+          "yaw": -80.0
+        }
+      },
+      "right": {
+        "pos": {
+          "x": 0.0,
+          "y": -0.16,
+          "z": 1.15
+        },
+        "rot": {
+          "pitch": 10.0,
+          "twist": -15.0,
+          "yaw": 78.0
+        }
+      }
+    },
+    "reload": {
+      "closeSeconds": 0.16,
+      "gun": {
+        "pos": {
+          "x": -0.27,
+          "y": -0.4,
+          "z": -1.72
+        },
+        "rot": {
+          "x": 8.0,
+          "y": 30.0,
+          "z": -25.0
+        }
+      },
+      "hingeStuds": {
+        "x": 0.0,
+        "y": -0.06,
+        "z": 0.5
+      },
+      "left": {
+        "pos": {
+          "x": 0.0,
+          "y": -0.02,
+          "z": -0.15
+        },
+        "rot": {
+          "pitch": -4.0,
+          "twist": 180.0,
+          "yaw": -80.0
+        }
+      },
+      "openDeg": 35.0,
+      "openSeconds": 0.22,
+      "right": {
+        "pos": {
+          "x": 0.0,
+          "y": -0.16,
+          "z": 1.15
+        },
+        "rot": {
+          "pitch": 10.0,
+          "twist": -15.0,
+          "yaw": 78.0
+        }
+      },
+      "shells": {
+        "ejectRiseStuds": 0.18,
+        "ejectSeconds": 0.35,
+        "feedFromStuds": 0.4,
+        "feedSeconds": 0.3
+      }
+    }
+  },
   "raise": {
     "easing": "quadOut",
     "keyframes": [],
@@ -133,5 +253,5 @@
       "feedSeconds": 0.3
     }
   },
-  "version": 1
+  "version": 2
 }

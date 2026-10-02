@@ -114,6 +114,24 @@ Flags.DEFAULTS = {
 			.. "`python tools/flags.py clear`. OFF is the real drive, 20 s + 20 s and boars at the "
 			.. "far end.",
 	} :: FlagRow,
+	NEW_GUN = {
+		-- BORN OFF. Karen, 2026-10-01: "shooting, weapon, reload, all has to be perfect". The gun on
+		-- screen is one AI mesh cut in two, and the break-open frame shows what that costs -- a torn
+		-- breech, a shell loose in the gap, a left hand on nothing. ON draws a FIRST-PERSON gun whose
+		-- metal is exact geometry (`ReplicatedStorage.Gun`) hinging about a real pin; OFF is the
+		-- cloned Handle, unchanged, which is also what every OTHER player sees either way -- the
+		-- world gun is not in this flag's scope at all.
+		default = false,
+		-- The module that READS it at its boundary (`Camera.Config.NEW_GUN`) and passes it inward as
+		-- `config` -- the only permitted shape, and what keeps both guns reachable by parameter while
+		-- the flag sits at one of them. Every gun spec drives BOTH with a config of its own.
+		owner = "StarterPlayerScripts.Camera",
+		born = "2026-10-01 task 99",
+		expires = "2026-10-22", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "The first-person gun is built from exact parts -- round barrels, two bores, a silver "
+			.. "action, a real hinge pin -- instead of cloning the uploaded mesh. OFF is the mesh gun "
+			.. "Karen has been playing, and is what other players see in both cases.",
+	} :: FlagRow,
 	FIRST_PERSON = {
 		-- BORN OFF on 2026-09-27, ON SINCE TASK 98 (2026-10-01). Karen's word was "start": first
 		-- person is now what the game IS, so every Studio Play shows the shotgun she is judging

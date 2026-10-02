@@ -34,6 +34,11 @@ local Config = {
 	-- THE SWITCH (task 89, S1). ON: the eye, the carry pose below, no crosshair, no occlusion cast.
 	-- OFF: everything this file said before, unchanged.
 	FIRST_PERSON = Flags.isOn("FIRST_PERSON"),
+	-- THE SECOND SWITCH (task 99), read at the same ONE boundary and passed inward as `config`.
+	-- ON: the first-person gun is built from `ReplicatedStorage.Gun`'s exact pieces and poses
+	-- from `poses.json`'s `newGun` set. OFF: the Tool's Handle, cloned, exactly as before -- and
+	-- that is what every OTHER player sees in both cases, because the world gun is not in scope.
+	NEW_GUN = Flags.isOn("NEW_GUN"),
 
 	-- field of view
 	FOV_THIRD_DEG = 70, -- the engine default; keeps the stock look
@@ -354,6 +359,25 @@ local Config = {
 	-- of black. Camera space would move with the pose; the gun's own frame does not.
 	VIEWMODEL_FILL_OFFSET_STUDS = Vector3.new(-0.45, 0.60, -0.80),
 
+	-- ------------------------------------------------------ the sleeve (task 99)
+	-- KAREN, 2026-10-01: in the break-open frame the left cuff's OPEN END faces the camera as a big
+	-- black disc. A hand model is a hand plus a short cuff and nothing behind it, so wherever the arm
+	-- would continue there is a hole -- and the open end of a tube pointed at the lens is the one
+	-- view that shows it.
+	--
+	-- A SLEEVE THAT RUNS OFF SCREEN is the fix that needs no new asset: an olive cylinder on the
+	-- hand's own long axis, starting at the cuff and running back past the near plane, so the end is
+	-- always behind the camera. It is drawn by `Camera.Viewmodel` with the hands, for one player.
+	SLEEVE_LENGTH_STUDS = 1.6, -- far enough back that the end is behind the eye in every pose
+	-- 0.20, NOT 0.30, AND THE SCREENSHOT IS WHY (rule 5). At 0.30 the sleeve read as an olive LOG
+	-- lying across the right half of the break-open frame: it is inches from the eye, so its
+	-- apparent size is nothing like its real one. A forearm at this distance is a narrow band.
+	SLEEVE_DIAMETER_STUDS = 0.20,
+	SLEEVE_COLOR = Color3.fromRGB(62, 66, 48), -- the olive of the jacket cuff on Karen's gloves
+	SLEEVE_MATERIAL = Enum.Material.Fabric,
+	-- How far the sleeve's near end sits INSIDE the cuff, so there is never a seam between them.
+	SLEEVE_OVERLAP_STUDS = 0.12,
+
 	-- ------------------------------------------------------ recoil (task 92)
 	-- Karen, after playing S2: "shooting has to have recoil a bit" -- "a bit" is the whole brief, so
 	-- these are first picks and every one of them is a dial.
@@ -427,7 +451,7 @@ local Config = {
 -- nowhere, with the one line that said why lost in a Play console.
 -- `tests/server/viewmodel_poses.spec.luau` checks the shape of the file itself, so this only
 -- ever fires for a `view` that forgot a name or a literal that came back.
-for key, value in pairs(Viewmodel.view(Viewmodel.DATA)) do
+for key, value in pairs(Viewmodel.view(Viewmodel.DATA, Config.NEW_GUN)) do
 	assert(Config[key] == nil, "Camera.Config already defines " .. key .. "; poses.json is the one source")
 	Config[key] = value
 end

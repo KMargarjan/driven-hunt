@@ -10,6 +10,168 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-10-02 · CLOSED 2026-10-02 · NEEDS DIRECTOR · Task 99: `test2` cannot stage `shoot-the-boar` -- a capability refusal in the harness, not in the game
+
+**Raised by:** Builder, Task 99 round 2 (branch `task-99-new-gun`, code commit `1232022`).
+
+**What is blocked:** the merge gate's `[harness2]` line, and therefore the review --
+`tools/agents.py` refuses a review of an `src/` change without it. Nothing else: the one-player run
+is green at the same commit.
+
+```
+[harness]  PASS: 34/34 checks @ 1232022 (clean tree)
+[harness2] FAIL: 28/34 checks @ 1232022 (clean tree)
+  FAIL [input] staged 1 scenario(s) (placed + aimed)  (shoot-the-boar: RuntimeError: execute_luau:
+       ... The current thread cannot invoke 'LookAtRequest' since 'LookAtRequest' has additional
+       values for the Capabilities property: LoadUnownedAsset (and 3 more))
+```
+
+**It is the harness's own step, and the four spec failures are its consequence.** The stage asks the
+camera owner to aim by invoking the `BindableFunction` `PlayerScripts.Camera.LookAtRequest`
+(`tools/studio_mcp.py`, "Staging a scenario"). Roblox refused the INVOKE on capability grounds, so
+`shoot-the-boar` was never aimed -- and then `shoot_boar.spec` (2), `weapon_client.spec` (3) and
+`zz_drive_boundary.spec` (1) failed waiting for a shot that never happened. The suites are otherwise
+clean: 509 server and 101 shooter assertions passed.
+
+**What is measured, and what is not.**
+- REPRODUCIBLE: two consecutive `test2` runs at `1232022`, identical message, identical 28/34.
+- ONE PLAYER IS GREEN at the same commit, and `test` stages the same scenario through the same
+  function -- so it is not the camera, the request function or this task's diff. The difference is
+  WHERE the call lands: in `test` the editor's own Play DataModel, in `test2` a separate Studio
+  process that "Clients and Servers" started.
+- `test2` was green at `f2b9667` earlier tonight, with the same staging code.
+- NOT MEASURED: why the capability set differs. The most likely thing that changed in between is
+  Studio's own session state -- this session used `execute_luau` to call
+  `InsertService:LoadAsset` while reading the stock's colour map id, which is the first time this
+  repo has asked the Assistant plugin for an asset capability. I did not verify that, and I am not
+  going to guess further in a report.
+
+**What I suggest, in order:**
+
+1. Close Studio completely, reopen the DEV place (136410205938347) in **Edit**, press Rojo
+   **Connect**, then `bash ../driven-hunt-runs/gate.sh task-99`. If that is green, the cause was
+   Studio session state and this entry closes with that sentence.
+2. If it fails the same way, it is a harness fault in the stage (rule 6) and wants its own task:
+   the stage would have to reach the camera without invoking a BindableFunction, or the capability
+   has to be granted to the plugin.
+
+**DIAGNOSED, 2026-10-02 (Builder).** It is not the place and it is not this repo. It is the
+Assistant plugin's own thread, and a `LoadAsset` call this session made through `execute_luau` is
+what gave it capabilities.
+
+Read-only measurements, all through `execute_luau` against the Edit DataModel:
+
+| probe | result |
+|---|---|
+| `Capabilities` / `Sandboxed` on `game`, `ReplicatedStorage`, `ServerScriptService`, `StarterPlayerScripts`, and the modules `Gun`, `Shotgun`, `Viewmodel`, `Viewmodel.poses`, `Flags`, `Camera` | **every one empty**, `Sandboxed = false` |
+| a brand-new `Instance.new("ModuleScript")`'s `Capabilities` | **empty** |
+| plain property read | works |
+| a plain Lua function the thread made, called | works |
+| a `BindableFunction` the thread made, invoked | works |
+| `require` of the synced `ReplicatedStorage.Shotgun` | **refused**: "The current thread cannot require 'Shotgun' since 'Shotgun' has additional values for the Capabilities property: LoadUnownedAsset (and 3 more)" |
+| `require` of a ModuleScript **the thread had just created itself**, one line of source, parentless | **refused, identically** |
+
+The last row is the one that settles it. A module the calling thread made a microsecond earlier, in
+memory, cannot be required -- so nothing about OUR instances is the cause (and their `Capabilities`
+are empty anyway). The THREAD carries `LoadUnownedAsset (and 3 more)`, and a capability-carrying
+thread may not enter a container that grants none; the message names the target but the asymmetry
+is the thread's. A full Studio close and reopen did not clear it, so it is attached to the plugin
+context rather than to the place -- and Studio's own `LocalStorage/appStorage.json`
+contains no `LoadUnownedAsset` entry, so wherever Studio keeps it, it is not there.
+
+**What set it:** this session called `InsertService:LoadAsset(115346777423870)` through
+`execute_luau`, to read the uploaded stock's `SurfaceAppearance.ColorMap` -- a property a game
+script cannot read. That is the only new thing between `f2b9667` (both runs 34/34 tonight) and the
+first refusal. **The prohibition is now in `tools/studio_mcp.py`'s Safety section with this
+measurement**, and the id it was after lives in the manifest row (`Assets.textureId`) where it is
+measured once and never asked for again.
+
+**The clicks, in order. After each one, `python tools/flags.py` is the one-command test** -- it
+goes through `FRESH_FLAGS`, which is a `require`, so it prints the flag table if the thread is
+clean and the same capability message if it is not.
+
+1. Studio -> **Assistant** settings -> turn the **MCP server OFF**, then **ON** again. That restarts
+   the Assistant's plugin context, which is what carries the capability.
+2. If still refused: **Plugins** tab -> **Manage Plugins** -> the Assistant / MCP plugin ->
+   **Permissions** -> revoke its asset access. Restart Studio afterwards.
+3. If still refused after both, it is not clearable by a click and wants its own task: every
+   `require` the harness makes from `execute_luau` would have to stop crossing that boundary
+   (`FRESH_FLAGS`, `QUERY_FLAG_TABLE`, `QUERY_REQUIRE_CACHE`, `QUERY_JSON_MODULES`) and so would the
+   stage's `LookAtRequest:Invoke`. I did not start that here: it is a large change to the gate
+   itself, and it would be the wrong fix if a click clears it.
+
+**I did not save the place, and I have not called `LoadAsset` through `execute_luau` since.**
+
+**Answer (Director, 2026-10-02).** Neither click cleared it: a full Studio close and reopen did
+not, and the Assistant's MCP server toggle OFF and ON did not either, with no Studio update. So it
+is the new normal for the MCP thread, and it was fixed in code instead -- **Task 101** (PR #90,
+Reviewer PASS, merged into this branch at `b49ae77`) rewrote every harness, flags and pose path that
+needed a module's VALUE so that none of them requires or invokes anything. The gate is green again:
+`[harness2] PASS: 34/34` and `[harness] PASS: 32/32` at `b49ae77`.
+
+**Closed** by Task 101, 2026-10-02.
+
+---
+## 2026-10-01 · CLOSED 2026-10-01 · NEEDS KAREN (or the Director's click) · Task 99: Studio is not connected to Rojo, so the gate cannot run
+
+**Raised by:** Builder, Task 99 (branch `task-99-new-gun`, code commit `8db324e`).
+
+**What is blocked:** every harness run, and the three screenshots the task asks for (`pose.py compare
+carry`, `compare aim`, and the break-open with shells going in). Nothing else: the flag, the exact
+geometry, the hinge, the chambers, the glove fix, the specs and the docs are all written, linted,
+built and committed.
+
+**Why it needs a click.** Moving between branches while `rojo serve` was live -- `task-98` to `main`
+to `task-99`, which is what CLAUDE.md's git workflow step 6 warns about -- left the Studio plugin
+disconnected. Measured, not guessed:
+
+```
+[harness] FAIL: 7/8 checks @ 8db324e (clean tree)
+  FAIL Rojo synced the fresh token from disk  (Studio has '')
+[harness] `rojo serve` answers, so the Rojo plugin is probably not connected: press Connect.
+```
+
+and, from a Play session started before the commit, Studio's own copy of the place is a build older
+than Task 98:
+
+```
+Poses is not a valid member of ModuleScript "Players.<name>.PlayerScripts.Camera"
+  Script 'Players.<name>.PlayerScripts.Camera', Line 32
+```
+
+So a Play session right now runs the pre-Task-98 camera. A screenshot taken from it would be a
+picture of the wrong build, and I did not take one and call it evidence (rule 8).
+
+**The clicks, in this order:**
+
+1. In Studio, with the DEV place (136410205938347) open in **Edit** mode, open the **Rojo** plugin
+   window and press **Connect**. Accept the sync dialog; the changes it lists are this branch's --
+   `ReplicatedStorage.Gun` is new, and `Camera.Poses` arrives if it is still missing.
+2. Then, in a terminal in the repo folder:
+
+   ```
+   python tools/flags.py clear
+   python tools/pose.py clear
+   bash ../driven-hunt-runs/gate.sh task-99
+   ```
+
+3. For the three pictures the task asks for, with the gate green and a Play session running:
+
+   ```
+   python tools/flags.py set NEW_GUN on     (Edit mode, BEFORE starting Play)
+   ... start Play ...
+   python tools/pose.py compare carry --assets-dir <assets-dir>
+   python tools/pose.py compare aim   --assets-dir <assets-dir>
+   python tools/flags.py clear
+   python tools/pose.py clear
+   ```
+
+**Answer (Director, 2026-10-01 23:33).** Connect pressed. Studio shows "Connected to session
+'DrivenHunt' at localhost:34872". The gate and the captures are the Builder's to run from here.
+
+**Closed** by the Director, 2026-10-01.
+
+---
 ## 2026-10-01 · CLOSED 2026-10-01 · Director decision · Task 98: `FIRST_PERSON` ships ON, and the poses are seeded from Task 97 round 2
 
 **Raised by:** Director, answering Reviewer finding 2 of Task 98 round 1 (and the background of finding 1).

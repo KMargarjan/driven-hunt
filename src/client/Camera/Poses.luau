@@ -71,7 +71,9 @@ function Poses.resolve(base: any, raw: string?): (any, string?, { string })
 		return base, hold, problems
 	end
 	local out = table.clone(base)
-	for key, value in pairs(Data.view(merged)) do
+	-- THE SAME GUN THE BASE WAS BUILT FOR (task 99). `base.NEW_GUN` is the flag as the owner read it
+	-- at its boundary, so a tuning override can never silently swap which gun's poses are resolved.
+	for key, value in pairs(Data.view(merged, base.NEW_GUN == true)) do
 		out[key] = value
 	end
 	return table.freeze(out), hold, problems
@@ -161,7 +163,11 @@ function Poses.holdReload(hold: string?)
 	if hold ~= "reload" then
 		return nil
 	end
-	return { open = true, spent = 2, loaded = { false, false } }
+	-- BOTH CHAMBERS FED, so the held frame is the one worth photographing: the barrels down on the
+	-- pin with two fresh shells seated in the bores. With them empty the hold showed an open gun
+	-- and nothing else -- the spent pair had already finished ejecting by the time the capture
+	-- was taken (`SHELL_EJECT_SECONDS` is 0.35 and the hold settles for a second).
+	return { open = true, spent = 2, loaded = { true, true } }
 end
 
 return Poses

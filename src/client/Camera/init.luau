@@ -57,6 +57,10 @@ local started = false
 local connections: { RBXScriptConnection } = {}
 local acquired, acquireReason = false, nil :: string?
 local lookAtRequest: BindableFunction? = nil
+-- WHERE THE HARNESS WRITES AN AIM REQUEST (task 101). One attribute on the LocalPlayer, holding the
+-- world point to look at; this module clears it to nil once it has aimed. `tools/studio_mcp.py` is
+-- its only writer and this module its only reader.
+local LOOK_AT_ATTRIBUTE = "DHLookAt"
 -- The last Camera.lookAt point that has NOT yet been seen on screen. Task 50: a caller needs to know
 -- when its request has actually been rendered, because the harness replays mouse movement into the
 -- same client and a mouse delta in the same frame takes the camera somewhere else.
@@ -424,6 +428,29 @@ function Camera.start()
 	-- FOV 70 -- so it cannot call this module's functions at all. An Instance is shared, so the
 	-- request crosses on one. This is a REQUEST, exactly as Cursor.requestFree is: the owner still
 	-- does the writing, and workspace.CurrentCamera still has one writer in the whole repo.
+	-- THE HARNESS'S OTHER WAY IN (task 101), and since 2026-10-02 the only one that works. The MCP
+	-- thread that drives a test carries capabilities and may not `Invoke` a BindableFunction a game
+	-- script created -- measured, and written up in `tools/studio_mcp.py`'s docstring -- so the
+	-- stage asks by ATTRIBUTE instead: it writes the point, this clears the attribute to nil, and
+	-- the clear is the harness's handshake that the owner took it.
+	--
+	-- IT IS THE SAME REQUEST, through the same function. `Camera.lookAt` still does the work and
+	-- `Camera.Rig` is still the only writer of `workspace.CurrentCamera` in the repo; what changed
+	-- is how the asking crosses the boundary. The BindableFunction stays beside it, because nothing
+	-- here depends on the refusal: a Studio that lifts the restriction finds both paths working.
+	table.insert(
+		connections,
+		Players.LocalPlayer:GetAttributeChangedSignal(LOOK_AT_ATTRIBUTE):Connect(function()
+			local point = Players.LocalPlayer:GetAttribute(LOOK_AT_ATTRIBUTE)
+			if typeof(point) ~= "Vector3" then
+				return -- nil is this module clearing it, which is the handshake and not a request
+			end
+			if Camera.lookAt(point) then
+				Players.LocalPlayer:SetAttribute(LOOK_AT_ATTRIBUTE, nil)
+			end
+		end)
+	)
+
 	lookAtRequest = Instance.new("BindableFunction")
 	lookAtRequest.Name = "LookAtRequest"
 	lookAtRequest.OnInvoke = function(x: any, y: any, z: any)
