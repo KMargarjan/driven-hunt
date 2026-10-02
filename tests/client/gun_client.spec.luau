@@ -339,6 +339,37 @@ return function()
 				local right = clone:FindFirstChild(HandAssets.RIGHT) :: BasePart
 				local grip = (clone.CFrame * Camera.Mode.handOffsetAt("right", state, newGunPosedConfig)).Position
 				expect((right.Position - grip).Magnitude < 1e-3).to.equal(true)
+
+				-- AND THERE IS ONLY EVER ONE ANIMATION PER SHELL. Karen, live: "either we have 2
+				-- animation when shells go inside or one go straight another from hand" -- the old
+				-- automatic feed was still sliding each shell into its chamber by itself while the
+				-- hand carried another. So at EVERY step of the loading, a barrel's fresh shell is
+				-- in one of three states and never a fourth: not drawn at all (the hand has not
+				-- picked it up), exactly where the hand is, or exactly at the chamber mouth.
+				local whole = load.fetchSeconds + load.carrySeconds + load.seatSeconds
+				local steps = 0
+				for stepAt = 0, whole + load.returnSeconds, whole / 12 do
+					drawAt(stepAt)
+					steps += 1
+					local shell = clone:FindFirstChild("FreshShell1")
+					local carriedWeight, _, carriedBarrel, carriedShell =
+						Camera.Viewmodel.loadingAt(newGunPosedConfig, fake)
+					if stepAt < load.fetchSeconds then
+						expect(shell).to.equal(nil)
+					else
+						expect(shell).to.be.ok()
+						local where = ((shell :: Model):GetPivot()).Position
+						local inHand = carriedBarrel == 1 and carriedShell ~= nil
+						local wantedAt = if inHand
+							then (clone.CFrame * (carriedShell :: CFrame)).Position
+							else (clone.CFrame * Camera.Viewmodel.shellFeedAt(1, 1, newGunPosedConfig)).Position
+						expect((where - wantedAt).Magnitude < 1e-3).to.equal(true)
+					end
+					expect(carriedWeight >= 0).to.equal(true)
+				end
+				TestKit.note(
+					string.format("task111 checked %d steps of the load; no shell ever slid in by itself", steps)
+				)
 			end)
 			Camera.Viewmodel.setReload(nil)
 			Camera.Viewmodel.setClock(nil)
