@@ -1517,12 +1517,18 @@ local FLASH_NAME = "MuzzleFlash"
 -- finish the weapon before the animal, and shooting is next; the reference is
 -- `TARGET-fire-smoke.jpg` -- a short white bloom and a grey puff that drifts up and thins out.
 --
--- WHY HERE AND NOT IN `Weapon.Effects`, which already draws a flash: that one is a part in
--- WORKSPACE, at the world muzzle, for every player's shot. This is the FIRST-PERSON gun -- the one
--- drawn at the camera, whose muzzle is 2 studs from the eye and nowhere near the world one -- so it
--- is this module's business by the same rule the hands and the shells are (one owner per system).
--- `Weapon.Effects` still draws the world flash for everybody, this one included: a player sees both,
--- and only this one is in frame.
+-- WHY HERE AND NOT IN `Weapon.Effects`, which already draws a flash: this one is parented to the
+-- VIEWMODEL, so it rides the gun through the kick instead of hanging in the world where the shot
+-- left it, and it is this module's business by the same rule the hands and the shells are (one owner
+-- per system).
+--
+-- AND `Weapon.Effects` NO LONGER DRAWS ITS OWN FOR THIS SHOT (round 2). Round 1's comment here said
+-- that one was "in the world, nowhere near" -- it was not: `Effects.muzzleFrame` has asked the
+-- viewmodel for the SHOOTER'S OWN muzzle since task 92, so its neon box and grey ball were landing
+-- on top of these, which is what Karen saw ("remove those smokes (white from previous)").
+-- `Effects.setViewmodelFlash` is the seam: this answers whether it drew, and that pair is skipped
+-- for the shot it drew. Everybody else's shot, and the flag-OFF build, are drawn there exactly as
+-- before.
 --
 -- A PARTICLE EMITTER AND A LIGHT, NOT A BOX. Task 92's flash is a neon cube and its own screenshot
 -- said so ("it read as a grey BOX hanging off the barrels"). An emitter with a one-burst rate and a
@@ -1597,8 +1603,9 @@ function Viewmodel.flash(barrel: number?, config)
 	smoke.Parent = holder
 	smoke:Emit(math.max(1, math.floor(fire.smoke.rate * fire.smoke.burstSeconds)))
 
-	-- CLEANED UP BY THE DRAWER, not by `Debris`: this lives under the camera, which this module owns,
-	-- and the holder has to outlive the longest particle rather than the shot.
+	-- ONE `Debris` ITEM FOR THE WHOLE THING, and it has to outlive the longest PARTICLE rather than
+	-- the shot: the emitters have already fired their bursts, and a holder destroyed at the flash's
+	-- own lifetime would take the smoke with it.
 	Debris:AddItem(holder, fire.smoke.seconds + fire.flash.seconds + 0.2)
 	stats.flashesDrawn += 1
 	return true

@@ -30,6 +30,26 @@ local folder: Folder? = nil
 -- other player's shot wants.
 local muzzleProvider: ((number?) -> CFrame?)? = nil
 
+-- WHO DRAWS THE SHOOTER'S OWN FLASH (task 112, round 2). Round 1 added a particle flash to the
+-- viewmodel and left this one running, and the two landed on top of each other: `muzzleFrame` below
+-- has asked the viewmodel for the shooter's OWN muzzle since task 92, so the neon box and the grey
+-- ball were already at the drawn gun, two studs from the eye -- not "in the world, nowhere near it"
+-- as round 1's comments claimed. Karen saw both: "remove those smokes (white from previous)".
+--
+-- SO THE VIEWMODEL GETS FIRST REFUSAL. This answers true when it drew its own; then the box and the
+-- ball are skipped for that shot and nothing else changes -- the tracers and the impacts are still
+-- drawn here, every other player's shot is still drawn here whole, and the flag-OFF build has no
+-- provider that answers true at all.
+local viewmodelFlash: ((number?) -> boolean)? = nil
+
+function Effects.setViewmodelFlash(fn: ((number?) -> boolean)?)
+	viewmodelFlash = fn
+end
+
+function Effects.getViewmodelFlash(): ((number?) -> boolean)?
+	return viewmodelFlash
+end
+
 function Effects.setMuzzleProvider(fn: ((number?) -> CFrame?)?)
 	muzzleProvider = fn
 end
@@ -120,29 +140,37 @@ function Effects.play(payload: any)
 	-- inside the barrel.
 	local at = Effects.muzzleFrame(payload)
 	local origin = at.Position
-	part(
-		"Flash",
-		Vector3.new(0.34, 0.34, 0.75),
-		at * CFrame.new(0, 0, -0.30),
-		Color3.fromRGB(255, 220, 140),
-		config.FLASH_LIFETIME,
-		Enum.Material.Neon
-	)
-	budget -= 1
-	-- A BALL, AND THAT IS WHAT THE FIRST SCREENSHOT OF IT CHANGED: as a block it read as a grey BOX
-	-- hanging off the barrels (`.screenshots/...t92-smoke-1.png`, the first frame that ever caught it).
-	-- A sphere at this size reads as a puff of smoke, which is what it is.
-	part(
-		"Smoke",
-		Vector3.new(0.55, 0.55, 0.55),
-		at * CFrame.new(0, 0.06, -0.45),
-		Color3.fromRGB(196, 196, 196),
-		config.SMOKE_LIFETIME,
-		Enum.Material.SmoothPlastic,
-		0.62,
-		Enum.PartType.Ball
-	)
-	budget -= 1
+	-- THE FIRST-PERSON GUN DRAWS ITS OWN (round 2). Only for the shot that is MINE, because that is
+	-- the only one the viewmodel knows about, and only when it really drew: with the flag off, with
+	-- no clone on screen, or in third person it answers false and this draws the pair as it always
+	-- has.
+	local mine = payload.shooterUserId ~= nil and payload.shooterUserId == Players.LocalPlayer.UserId
+	local drawnOnScreen = mine and viewmodelFlash ~= nil and (viewmodelFlash :: any)(payload.barrel) == true
+	if not drawnOnScreen then
+		part(
+			"Flash",
+			Vector3.new(0.34, 0.34, 0.75),
+			at * CFrame.new(0, 0, -0.30),
+			Color3.fromRGB(255, 220, 140),
+			config.FLASH_LIFETIME,
+			Enum.Material.Neon
+		)
+		budget -= 1
+		-- A BALL, AND THAT IS WHAT THE FIRST SCREENSHOT OF IT CHANGED: as a block it read as a grey BOX
+		-- hanging off the barrels (`.screenshots/...t92-smoke-1.png`, the first frame that ever caught it).
+		-- A sphere at this size reads as a puff of smoke, which is what it is.
+		part(
+			"Smoke",
+			Vector3.new(0.55, 0.55, 0.55),
+			at * CFrame.new(0, 0.06, -0.45),
+			Color3.fromRGB(196, 196, 196),
+			config.SMOKE_LIFETIME,
+			Enum.Material.SmoothPlastic,
+			0.62,
+			Enum.PartType.Ball
+		)
+		budget -= 1
+	end
 
 	for _, position in ipairs(payload.impacts or {}) do
 		if budget <= 1 then

@@ -257,6 +257,16 @@ end
 -- `CameraBoot` hands it to `Weapon.Sound` so the volumes come from `poses.json` and can be balanced
 -- live, like every other number there. A READ -- the config is frozen and this module stays its
 -- only writer.
+-- WHICH NOISE A CHANGE OF THE GUN'S STATE MAKES, or nil for "no change" (task 112, round 2).
+-- PURE, and beside `Camera.breakFrom` for the same reason that one is: the edge is the only logic in
+-- the sound path, and until this existed a spec could not drive shut -> open -> shut at all.
+function Camera.breakSound(wasOpen: boolean, isOpen: boolean): string?
+	if isOpen == wasOpen then
+		return nil
+	end
+	return if isOpen then "open" else "close"
+end
+
 function Camera.poseConfig()
 	return Poses.config(Config)
 end

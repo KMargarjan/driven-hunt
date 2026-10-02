@@ -175,11 +175,11 @@
       "maxGunBackStuds": 0.34,
       "maxGunPitchDeg": 9.5,
       "smoke": {
-        "burstSeconds": 0.09,
-        "rate": 90.0,
-        "riseStuds": 1.1,
-        "seconds": 1.4,
-        "sizeStuds": 1.5,
+        "burstSeconds": 0.07,
+        "rate": 60.0,
+        "riseStuds": 0.8,
+        "seconds": 0.7,
+        "sizeStuds": 0.75,
         "spreadDeg": 14.0,
         "transparency": 0.45
       },

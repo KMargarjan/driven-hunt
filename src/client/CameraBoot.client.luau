@@ -39,13 +39,18 @@ if weaponModule then
 	-- comes out of the pipe on screen instead of the hidden gun at the character's shoulder. Neither
 	-- owner requires the other -- this file is the only place that knows both, exactly as the aim
 	-- source above.
-	Weapon.Fired:Connect(function(payload: any)
+	Weapon.Fired:Connect(function()
 		Camera.kick()
-		-- THE SHOT'S OWN LIGHT AND NOISE (task 112). The camera owns what is drawn at the eye, so the
-		-- first-person flash and smoke are its; `Weapon.Sound` owns the noise. This file is still the
-		-- only place that knows both, exactly as the kick and the muzzle provider below are.
-		Camera.fire(if type(payload) == "table" then payload.barrel else nil)
+		-- THE SHOT'S NOISE (task 112). `Weapon.Sound` owns it; this file is still the only place that
+		-- knows both owners, exactly as the kick and the muzzle provider are.
 		Weapon.Sound.shot(Camera.poseConfig())
+	end)
+	-- THE SHOT'S LIGHT, AND WHO DRAWS IT (task 112, round 2). `Weapon.Effects` asks BEFORE drawing
+	-- its own flash and smoke, so the two cannot land on top of each other -- which is what round 1
+	-- shipped and Karen saw ("remove those smokes (white from previous)"). `Camera.fire` answers
+	-- false unless it really drew one, so the flag-OFF build and everybody else's shot are untouched.
+	Weapon.Effects.setViewmodelFlash(function(barrel: number?): boolean
+		return Camera.fire(barrel)
 	end)
 	Weapon.Effects.setMuzzleProvider(function(barrel: number?): CFrame?
 		return Camera.viewmodelMuzzle(barrel)
@@ -70,13 +75,12 @@ if weaponModule then
 				lastClosed = snapshot
 			end
 			local isOpen = snapshot ~= nil and snapshot.open == true
-			if isOpen ~= wasOpen then
-				wasOpen = isOpen
-				if isOpen then
-					Weapon.Sound.open(Camera.poseConfig())
-				else
-					Weapon.Sound.close(Camera.poseConfig())
-				end
+			local noise = Camera.breakSound(wasOpen, isOpen)
+			wasOpen = isOpen
+			if noise == "open" then
+				Weapon.Sound.open(Camera.poseConfig())
+			elseif noise == "close" then
+				Weapon.Sound.close(Camera.poseConfig())
 			end
 			return Camera.breakFrom(lastClosed, snapshot)
 		end,

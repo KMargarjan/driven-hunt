@@ -396,15 +396,25 @@ return function()
 		it("fires: its own kick, a flash on the fired barrel, and a noise", function()
 			-- THE NOISE IS ASKED FOR, which is all a spec can hear: `Weapon.Sound` counts every
 			-- request, so "the shot plays a sound" is a number even with the id still empty.
+			-- THE NOISE, BY WHAT CAME BACK (round 1, finding 4: a counter that counted the test's own
+			-- calls proved nothing). `play` answers TRUE only when an id really reached a `Sound`, so
+			-- these three say: the clicks have ids and the shot does not yet.
 			local Sound = require(scripts:WaitForChild("Weapon")).Sound
 			Sound.resetStats()
-			Sound.shot(newGunPosedConfig)
-			Sound.open(newGunPosedConfig)
-			Sound.close(newGunPosedConfig)
-			local heard = Sound.stats()
-			expect(heard.shot).to.equal(1)
-			expect(heard.open).to.equal(1)
-			expect(heard.close).to.equal(1)
+			expect(Sound.shot(newGunPosedConfig)).to.equal(false) -- the id is empty until Karen picks one
+			expect(Sound.open(newGunPosedConfig)).to.equal(true)
+			expect(Sound.close(newGunPosedConfig)).to.equal(true)
+			-- ...and NONE of it reaches the gun Karen plays: the whole task is behind the flag, and
+			-- round 1 shipped two engine clicks on her reloads.
+			expect(Sound.open(Config)).to.equal(false)
+			expect(Sound.close(Config)).to.equal(false)
+			expect(Sound.stats().open).to.equal(1)
+			-- THE EDGE IS WHERE THE ONLY LOGIC IS, and it is pure now, so a spec can drive the whole
+			-- cycle: shut -> open is one click, open -> open is none, open -> shut is the other.
+			expect(Camera.breakSound(false, true)).to.equal("open")
+			expect(Camera.breakSound(true, true)).to.equal(nil)
+			expect(Camera.breakSound(true, false)).to.equal("close")
+			expect(Camera.breakSound(false, false)).to.equal(nil)
 			-- ...and the volumes come from the pose data, so they are tunable live.
 			expect(newGunPosedConfig.FIRE.volume.shot > 0).to.equal(true)
 			-- THE KICK IS PER GUN, and the old gun's is untouched: `newGun.fire` is a different
@@ -470,6 +480,63 @@ return function()
 				-- THE FLAG-OFF BUILD DRAWS NONE OF IT: `FIRE` is the new gun's block and the old
 				-- gun's config has its own, so this says the guard is the flag and not the data.
 				expect(Camera.Viewmodel.flash(1, Config)).to.equal(false)
+
+				-- AND THE OLD EFFECTS DO NOT DRAW ON TOP OF IT (round 1, finding 1). Karen: "remove
+				-- those smokes (white from previous)". `Weapon.Effects` asks first; when the
+				-- viewmodel says it drew, the neon box and the grey ball are skipped. Driven through
+				-- `Effects.play` itself, with a payload that says the shot is mine.
+				local Effects = require(scripts:WaitForChild("Weapon")).Effects
+				local liveFlash = Effects.getViewmodelFlash()
+				local liveMuzzle = Effects.getMuzzleProvider()
+				Effects.setMuzzleProvider(function(barrel: number?): CFrame?
+					return Camera.Viewmodel.muzzle(barrel)
+				end)
+				local payload = {
+					shooterUserId = Players.LocalPlayer.UserId,
+					barrel = 1,
+					muzzle = (Camera.Viewmodel.muzzle(1) :: CFrame).Position,
+					impacts = {},
+				}
+				local function oldPartsNearMuzzle(): number
+					local found = 0
+					for _, drawn in ipairs(Effects.folder():GetChildren()) do
+						if drawn.Name == "Flash" or drawn.Name == "Smoke" then
+							found += 1
+						end
+					end
+					return found
+				end
+				for _, drawn in ipairs(Effects.folder():GetChildren()) do
+					drawn:Destroy()
+				end
+				Effects.setViewmodelFlash(function(barrel: number?): boolean
+					return Camera.Viewmodel.flash(barrel, newGunPosedConfig)
+				end)
+				Effects.play(payload)
+				TestKit.note(
+					string.format(
+						"task112 with the viewmodel drawing: %d old Flash/Smoke part(s)",
+						oldPartsNearMuzzle()
+					)
+				)
+				expect(oldPartsNearMuzzle()).to.equal(0)
+				local emitterSets = 0
+				for _, drawn in ipairs(clone:GetChildren()) do
+					if drawn.Name == "MuzzleFlash" then
+						emitterSets += 1
+					end
+				end
+				expect(emitterSets).to.equal(1)
+				-- ...and with nobody drawing the first-person one, the pair is drawn exactly as it
+				-- was before this task: the skip is the viewmodel's answer, not a deletion.
+				Effects.setViewmodelFlash(nil)
+				Effects.play(payload)
+				expect(oldPartsNearMuzzle()).to.equal(2)
+				for _, drawn in ipairs(Effects.folder():GetChildren()) do
+					drawn:Destroy()
+				end
+				Effects.setViewmodelFlash(liveFlash)
+				Effects.setMuzzleProvider(liveMuzzle)
 			end)
 			Camera.Viewmodel.clear()
 			Camera.Viewmodel.setSource(live)
