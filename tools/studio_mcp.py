@@ -887,6 +887,9 @@ local out = { viewport = { x = size.X, y = size.Y }, parts = {} }
 local WANTED = {
     HandRight = true, HandLeft = true,
     StandingBreech = true, Stock = true, Forend = true, Action = true,
+    -- The two tubes, since task 103: a tube's CENTRE is the single best reading of which way the
+    -- barrels point, which is the one thing a breech mark and a stock mark between them cannot say.
+    BarrelLeft = true, BarrelRight = true,
 }
 local bead, barrels = nil, nil
 for _, found in made:GetDescendants() do

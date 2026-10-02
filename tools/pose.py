@@ -305,8 +305,8 @@ def print_landmarks(marks):
     """The three readings the carry pose was solved from, as a percentage of the screen."""
     viewport = marks.get("viewport", {})
     print("[pose] viewport {:.0f}x{:.0f}".format(viewport.get("x", 0), viewport.get("y", 0)))
-    for name in ("Bead", "Muzzle", "StandingBreech", "Action", "Forend", "Stock",
-                 "HandRight", "HandLeft"):
+    for name in ("Bead", "Muzzle", "BarrelLeft", "BarrelRight", "StandingBreech", "Action",
+                 "Forend", "Stock", "HandRight", "HandLeft"):
         mark = (marks.get("parts") or {}).get(name)
         if not mark:
             continue # not on this gun: the parts gun has no `StandingBreech`, the old one no `Stock`
@@ -417,6 +417,8 @@ FIT_BOUNDS = {"posStuds": 1.5, "rotDeg": 60.0}
 # A mark the candidate does not draw at all, or draws behind the eye, is not "zero error": it is the
 # worst thing a candidate can do, and a search that scored it as 0 would walk straight into it.
 FIT_MISSING = 2.0
+# ...AND THE FEWEST MARKS THAT CAN PIN SIX NUMBERS. See `read_landmark_file`.
+FIT_MIN_MARKS = 3
 
 
 def read_landmark_file(path):
@@ -453,6 +455,16 @@ def read_landmark_file(path):
             return None, f"marks.{name} needs numeric x and y (fractions of the screen)"
     if not isinstance(spec.get("offScreen", []), list):
         return None, "\"offScreen\" must be a list of landmark names"
+    # AT LEAST THREE MARKS THAT ARE IN THE PICTURE, and task 102 is why (TASKS.md 102a(b)). A fit was
+    # run against TWO marks plus one off-screen constraint; the search did exactly what it was asked
+    # and answered with the gun lying FLAT across the middle of the frame, breech away from the
+    # camera. Two points and an inequality do not determine six numbers -- and a solver that answers
+    # anyway is worse than one that refuses, because the answer LOOKS like a result.
+    if len(spec["marks"]) < FIT_MIN_MARKS:
+        return None, (f"{len(spec['marks'])} mark(s) cannot pin a pose: a fit searches six numbers "
+                      f"and needs at least {FIT_MIN_MARKS}, each a DIFFERENT point along the gun "
+                      "(task 102 answered two marks with the gun lying flat across the frame). "
+                      "Names in \"offScreen\" do not count: they are an inequality, not a position.")
     return spec, ""
 
 
@@ -964,6 +976,31 @@ def selftest():
        fit_error(intruder, spec)[0] > error, f"{fit_error(intruder, spec)[0]} vs {error}")
     bad, problem = read_landmark_file(os.path.join(REPO, "tools", "pose.py"))
     ok("a landmarks file that is not JSON is refused", bad is None and problem != "")
+    # TOO FEW MARKS IS REFUSED, NOT ANSWERED (task 103, from 102a(b)). Written to a real file,
+    # because that is the path the Director's own file takes.
+    import tempfile  # noqa: PLC0415 -- the one case that needs a file on disk
+    with tempfile.TemporaryDirectory() as folder:
+        thin = os.path.join(folder, "thin.json")
+        with open(thin, "w", encoding="utf-8") as handle:
+            json.dump({"marks": {"StandingBreech": {"x": 0.5, "y": 0.5},
+                                 "Action": {"x": 0.5, "y": 0.6}},
+                       "offScreen": ["Muzzle", "Stock", "Forend"]}, handle)
+        thin_spec, thin_problem = read_landmark_file(thin)
+        ok("two marks cannot pin six numbers, and are refused",
+           thin_spec is None and "cannot pin a pose" in thin_problem, repr(thin_problem))
+        enough = os.path.join(folder, "enough.json")
+        with open(enough, "w", encoding="utf-8") as handle:
+            json.dump({"marks": {"StandingBreech": {"x": 0.5, "y": 0.5},
+                                 "Action": {"x": 0.5, "y": 0.6},
+                                 "Stock": {"x": 0.6, "y": 0.8}}}, handle)
+        ok("three marks are enough to try", read_landmark_file(enough)[0] is not None)
+    # ...and the file the Director actually runs has more than the minimum.
+    shipped, shipped_problem = read_landmark_file(
+        os.path.join(REPO, "tools", "landmarks", "newGun-reload.json"))
+    ok("the shipped reload landmarks are usable", shipped is not None, repr(shipped_problem))
+    ok("the shipped reload landmarks carry four on-screen marks",
+       shipped is not None and len(shipped["marks"]) >= 4,
+       str(len(shipped["marks"]) if shipped else 0))
 
     for failure in failures:
         print("[pose] selftest: " + failure)
