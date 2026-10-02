@@ -158,7 +158,11 @@ Gun.SHELL_TEMPLATE_NAME = "Shell"
 -- THE FIRST IS THE FILE'S, and it is arithmetic: `tools/gltf_split.py` writes every group out with
 -- the muzzle at the FILE'S +X (`to_file`, selftested), and this gun's muzzle is its -Z.
 -- `CFrame.Angles(0, +90deg, 0)` takes (1, 0, 0) to (0, 0, -1), so a quarter turn lays it down.
-local MESH_FILE_TURN_DEG = 90
+-- EXPORTED, because a placement site needs the quarter turn ALONE (round 2, note): the DRAWN shell
+-- is laid out mouth-at-+X by `Gun.shellLayout` and never goes near Roblox's importer, so it takes
+-- this and nothing else. It was a literal 90 at that site until task 107 round 3.
+Gun.MESH_FILE_TURN_DEG = 90
+local MESH_FILE_TURN_DEG = Gun.MESH_FILE_TURN_DEG
 
 -- THE SECOND IS THE IMPORT'S, AND IT WAS MEASURED ON SCREEN (task 107, rule 5). Task 105 assumed
 -- there was no second turn, because Karen's own gun's rows carry `rotationDeg = (0, 90, 0)` and this

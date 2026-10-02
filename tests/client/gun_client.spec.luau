@@ -267,6 +267,97 @@ return function()
 			end
 		end)
 
+		it("seats the uploaded shell brass-head-first, measured on the drawn part", function()
+			-- ROUND 2'S FINDING, ON THE INSTANCE. The import's half turn was written onto the cloned
+			-- PART and then thrown away: `Model:PivotTo` moves the model so its PIVOT lands on the
+			-- CFrame it is given, and with `PrimaryPart` set the pivot IS that part -- so the part's
+			-- own CFrame was overwritten on the frame it was made. The uploaded shell kept only the
+			-- file's quarter turn and seated brass-head-up-the-barrel.
+			--
+			-- IT STANDS IN A TEMPLATE, for the reason task 106's flag-OFF guard does:
+			-- `InsertService:LoadAsset` has not landed when the client specs run, so the uploaded
+			-- branch is never exercised by a harness run that waits for it. What is asserted is the
+			-- TURN THAT WAS APPLIED, read off the drawn part -- a stub stands in for the mesh
+			-- perfectly well, because the stub takes the same `shellTurnDeg` the cartridge would.
+			-- Everything made here is destroyed again.
+			local made: { Instance } = {}
+			local folder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
+			if folder == nil then
+				local new = Instance.new("Folder")
+				new.Name = Gun.FOLDER_NAME
+				new.Parent = ReplicatedStorage
+				table.insert(made, new)
+				folder = new
+			end
+			local template = (folder :: Instance):FindFirstChild(Gun.SHELL_TEMPLATE_NAME)
+			if template == nil then
+				local stand = Instance.new("Part")
+				stand.Name = Gun.SHELL_TEMPLATE_NAME
+				stand.Size = Gun.SHELL_MESH_SIZE_STUDS
+				stand.Parent = folder
+				table.insert(made, stand)
+			end
+
+			local ok, why = pcall(function()
+				withNewGun(function()
+					local at = CFrame.new(0, 16, 0)
+					local open = table.clone(stateAtBlend(0)) :: any
+					open.openTilt = 1
+					table.freeze(open)
+					-- NO YIELD, for the reason the case below gives: the live render step would
+					-- rebuild the clone from a different handle between these two calls.
+					Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { true, true } })
+					Camera.Viewmodel.update(at, open, newGunConfig)
+					local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+					local barrels = clone:FindFirstChild("Barrels") :: BasePart
+					for barrel = 1, 2 do
+						local shell = clone:FindFirstChild("FreshShell" .. barrel) :: Model
+						expect(shell).to.be.ok()
+						local body = shell:FindFirstChild("Body") :: BasePart
+						expect(body).to.be.ok()
+						-- THE UPLOADED CARTRIDGE IS ONE PART, so there is no `Rim` child to compare
+						-- against: what says which way round it is, is the part's OWN AXES. Its long
+						-- axis is its X, and after Roblox's import the BRASS HEAD is at +X (the file
+						-- is written mouth-at-+X and the import reverses it, `Gun.MESH_MUZZLE_AXIS`).
+						-- So in the barrels' own frame that +X must point at +Z -- toward the breech
+						-- face and the shooter -- and not down the tube.
+						local headAxis = barrels.CFrame:VectorToObjectSpace(body.CFrame.RightVector)
+						TestKit.note(
+							string.format(
+								"task107 fresh shell %d: its brass axis points (%.3f, %.3f, %.3f) in the barrels' frame",
+								barrel,
+								headAxis.X,
+								headAxis.Y,
+								headAxis.Z
+							)
+						)
+						expect(headAxis.Z > 0.99).to.equal(true)
+						-- ...AND THE BODY IS IN THE TUBE: the part's centre sits forward of the
+						-- chamber mouth, down the barrel, not behind it in the open air. Measured
+						-- against the gun's own seat rather than a number written here.
+						local seatZ = Gun.chamber(barrel, Shotgun.CONFIG).Position.Z
+						local centreZ = barrels.CFrame:ToObjectSpace(body.CFrame).Position.Z
+							+ Gun.layout(Shotgun.CONFIG).barrelZ
+						TestKit.note(
+							string.format(
+								"task107 fresh shell %d: centre z %.4f against the chamber mouth %.4f",
+								barrel,
+								centreZ,
+								seatZ
+							)
+						)
+						expect(centreZ < seatZ).to.equal(true)
+					end
+				end)
+			end)
+			for index = #made, 1, -1 do
+				made[index]:Destroy()
+			end
+			if not ok then
+				error(why, 0)
+			end
+		end)
+
 		it("seats a fresh shell on the bore line, its rim OUT of the breech face", function()
 			withNewGun(function()
 				local at = CFrame.new(0, 16, 0)
