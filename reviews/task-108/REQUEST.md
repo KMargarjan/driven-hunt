@@ -1,52 +1,63 @@
-# Task 108 — an instrument for the hands, and what is actually wrong with them
+# Task 108 - the hands on model B hold the gun
 
 Task: 108
 Round: 1
 Base: `content-model-b-aim-1` (`1ee7ba0`)
-Code commit: `839da1f46b37ad3f42efb09a3c5826bb9e50925a`
+Code commit: `22f6bc496de1ad4bc334a665307a96093d1004a3`
 
 ```
-[harness] PASS: 32/32 checks @ 839da1f46b37ad3f42efb09a3c5826bb9e50925a (clean tree)
-[harness2] PASS: 34/34 checks @ 839da1f46b37ad3f42efb09a3c5826bb9e50925a (clean tree)
+[harness] PASS: 32/32 checks @ 22f6bc496de1ad4bc334a665307a96093d1004a3 (clean tree)
+[harness2] PASS: PENDING -- see "What I could not verify"
 ```
 
-`test2` was needed: `src/shared/HandAssets.luau` is under `src/` and outside
-`WEAPON_VIEWMODEL_PATHS`.
-
-**THE TASK IS NOT FINISHED AND THIS SAYS SO.** The hands are not re-seeded. What ships is the
-measurement that explains Karen's bug and the instrument that makes the next pass quick; applying the
-alignment re-means every angle in `poses.json`, and of the three poses only `carry` converged in the
-hour. The aimed view — the one Karen judges — came out worse, so it is not shipped.
+`test2` is required: the branch also changes `src/shared/HandAssets.luau` and
+`src/client/Camera/Config.luau`, both outside `WEAPON_VIEWMODEL_PATHS`.
 
 ## Claims
 
-1. **The two glove meshes do not share an axis, and that is the bug.** Measured off each prepped mesh
-   by classifying every vertex by the colour its own UV samples in the base-colour map (the cuff is
-   olive, the glove brown), so one centroid to the other IS wrist→fingers: the RIGHT glove's fingers
-   run along its own **−X**, the LEFT glove's along its own **+Y**. No single yaw/pitch/twist can mean
-   the same thing on both — which is why the Director's `left.rot.twist 180` moved the glove instead
-   of rolling its palm. Verify: `HandAssets.AXES` and the comment above it.
-2. **`pose.py inspect <pose>` photographs the drawn viewmodel FROM OUTSIDE.** The viewmodel is drawn
-   at the camera, so moving the camera moves it too — and `Camera.update` writes the camera's CFrame
-   every frame, so a harness camera is put back before the shutter (measured: the first try came back
-   as empty sky). So it COPIES the model, parks it in front of the player's own view turned so the
-   lens lands where an outside observer would stand, hides the live one for the shot, and destroys
-   the copy. The pose hold is `compare`'s and is always released. Verify: `tools/pose.py run_inspect`.
-3. **A spec guards the measurement**, because it is the deliverable: the vectors are unit, each
-   glove's palm is not parallel to its own fingers (or the alignment cannot be built), and the two
-   FINGER axes really differ — a later change that quietly made them agree would be one that had
-   stopped measuring. Verify: `gun.spec` "records that the two gloves do NOT share an axis".
-4. **Nothing that is drawn changed.** `poses.json` is the Director's `content-model-b-aim-1` exactly;
-   `Camera.Viewmodel` is untouched. The hands look as they did — bad, and no worse.
+1. **Both gloves now answer the same three angles.** `Camera.Viewmodel.align` builds, per glove, the
+   rotation that takes its own measured axes (`HandAssets.AXES`, task 108's first commit) into one
+   convention -- FINGERS ALONG +X, PALM TOWARD +Y -- and `poseHands` applies it on the RIGHT of the
+   pose offset, so it turns the mesh inside the pose and never moves where the pose put it. The
+   measured palm is squared against the measured fingers, because the fingers are the axis that was
+   measured exactly (centroid to centroid) and the palm normal is a plane fit. It returns
+   `CFrame.identity` unless `config.NEW_GUN`, so the old gun is untouched. This is Karen's
+   *"left hand is oposit180deg"*: one `twist` used to turn the two meshes about different axes.
+2. **Carry, aim and reload are re-seeded in that convention**, through `pose.py set` + `pose.py save`
+   (the one writer of `poses.json`), and ONLY the `newGun` block of the file changed -- the top-level
+   poses, which are the old gun's, are byte-identical. Left hand `(0, -0.13, 0)` yaw 15 pitch -15,
+   under the forend; right hand `(0, -0.22, 1.1)` yaw 115 pitch -12 twist 60, on the wrist of the
+   stock.
+3. **The sleeve is a forearm, not a pipe.** Three segments wrist -> elbow
+   (`SLEEVE_TAPER_NEW_GUN_STUDS` 0.150 / 0.125 / 0.105 against one 0.20 cylinder), at the same TOTAL
+   length, because the length is what keeps the far end behind the eye. It NARROWS toward the elbow,
+   which is not how an arm is shaped, and the frame is why: at 0.080 the drawn sleeve was thinner
+   than the glove model's own turned cuff, so both gloves showed an open ellipse at the wrist
+   (`.screenshots/20261002T142154Z-inspect-aim-left-front.png`). The wrist segment is sized to plug
+   that cuff.
+4. **The sleeve is placed in the POSE's frame, not the hand's**, and that was a real defect: once the
+   mesh is aligned, the hand part's own X is the MESH's X, which on the left glove is not the arm at
+   all. `poseHands` passes the pre-alignment CFrame to `placeSleeve`; each segment's distance back is
+   worked out once in `addHand` from that glove's length along ITS OWN finger axis (`Size.X` is
+   wrong for the left glove, whose longest axis is Z).
+5. **One client case measures all of it on the drawn instances**, standing in its own glove-sized
+   stubs so it says the same thing on a run where the uploads have not landed: the left hand is
+   between the muzzle and the breech and BELOW the barrels (the rib stays clear), the right hand is
+   behind the breech and inside the Handle, and every sleeve segment of both hands is further from
+   the muzzle than its own hand -- which is "no open sleeve end facing the camera" as geometry. It
+   carries model B's own pose numbers in its own config, because `Camera.Config` folds in ONE set at
+   boot and the flag is OFF during a harness run; the first gate run failed exactly there.
 
 ## What I could not verify
 
-- **The seeding is not done.** `carry` converged and was looked at
-  (`.screenshots/20261002T135320Z-inspect-carry-left-front.png`): the left glove's fingers wrapped
-  round the barrels at the forend, the right at the grip, both forearms running back out of frame.
-  `aim` did not (`...135629Z-pose-aim.png`: the left glove fills the right of the frame, palm-on).
-- **The LEFT glove's palm normal is an estimate** — the flattest axis of a cupped C hand, signed
-  toward the fingertips. The right glove's is a clean slab. The pose's `twist` is the dial that
-  finishes it, and that is part of what did not converge.
-- **`pose.py inspect`'s two view angles were tuned by eye** against the carry pose; `below` missed the
-  gun entirely at its first numbers and was re-aimed once.
+- **`test2` had not come back green when this was written.** The first run after the fix was
+  `[harness2] FAIL: 32/34` with both failures in `tests/client/weapon_client.spec.luau`, a file this
+  task does not touch: that run's own notes say the shooter *"is tied to a tree"*, `equipped=false`,
+  his gun in the backpack from +54 s, so "equips on the cue and starts full" and the readout case
+  had no gun to read. The one-player run of the same commit passed 32/32 including the new case. A
+  second run is in flight; the line above is the only thing still missing.
+- **Nothing was captured of the RAISE blend**: the three poses were each held and photographed, and
+  the frames between them were not.
+- **The reload's right hand was not judged**: in that frame it is below the bottom edge
+  (`HandRight ... OFF SCREEN`), so what ships for it is the carry hand carried over, not a hand
+  measured in the open-gun view.
