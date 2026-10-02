@@ -1,7 +1,7 @@
 # Task 102 — pale metal, a narrow comb, and a pose solver (lean lane, behind `NEW_GUN`)
 
 Task: 102
-Round: 1
+Round: 2
 Base: `317a013` (main, after PR #91)
 Code commit: `c569e1e12b1079ca60c5d03c5fffa4baa83ed404`
 
@@ -10,54 +10,61 @@ Code commit: `c569e1e12b1079ca60c5d03c5fffa4baa83ed404`
 [harness2] PASS: 34/34 checks @ c569e1e12b1079ca60c5d03c5fffa4baa83ed404 (clean tree)
 ```
 
-1. **The pale metal was the LIGHT, so the light became data.** Task 100 measured it: an albedo of
-   (118, 120, 122) rendering at (155, 161, 173) in the aimed capture. `look.fill` — brightness,
-   range, colour, offset — now lives in `poses.json`, and `Viewmodel.view` publishes the same four
-   `VIEWMODEL_FILL_*` names `Camera.Config` used to define as literals, so `Camera.Poses`
-   republishes them on the next frame and `pose.py set look.fill.brightness 0.3` is one command.
-   Verify: `viewmodel_poses.spec` "tunes the viewmodel's own FILL LIGHT live…" — an override moves
-   `VIEWMODEL_FILL_BRIGHTNESS` and leaves the other three at the file's values.
-2. **And the drawn light had to learn to follow.** `addFillLight` wrote the Light's properties once
-   at build time, so a live change would not have shown until the next rebuild — the hours-per-tweak
-   loop the content lane exists to end. `Camera.Viewmodel.applyFill` runs in `update`: four
-   comparisons a frame, a write only when one differs. Verify: `applyFill` in `Camera.Viewmodel`,
-   called from `Viewmodel.update` beside `Viewmodel.hands`; `camera_client.spec`'s existing fill
-   case still compares the drawn light against `Config`.
-3. **The stock was at life size and the rest of the gun is not.** Karen's mesh is
-   190.153 × 69.262 × 17.743 in its own units, so uniform to 1.32 studs long it is 0.481 tall and
-   **0.123 wide** — about right for a real stock (a 486's butt is some 1.6 in across a 45 in gun)
-   and wrong for this one, because `BARREL_DIAMETER` is 0.145 where life size at this length is
-   about 0.089: the metal is drawn at ~1.65× so a pair of tubes is readable at arm's length. Length
-   and height stay uniform (design 6.1); the **width** is the gun's own answer,
-   `Gun.WOOD_WIDTH_STUDS` = the action's 0.255, which is **2.07×** what uniform gives. Verify:
-   `gun.spec` "scales Karen's stock mesh to the length THIS gun says, and to the WIDTH it says" —
-   it reads the width off the drawn `Action` rather than a literal, so the two cannot drift.
-4. **`pose.py fit` is a bounded compass search**, over the pose's six `gun.pos`/`gun.rot` numbers,
-   minimising the RMS **screen error** (in screen fractions) against landmarks read off a reference
-   frame. Pattern: Hooke-Jeeves coordinate search — Kolda, Lewis & Torczon, *Optimization by direct
-   search*, SIAM Review 45(3), 2003 — which is the standard derivative-free method for a handful of
-   variables and an expensive objective, needs only comparisons, is deterministic, and cannot step
-   outside its box. **No screenshot per step**: `QUERY_POSE_LANDMARKS` is a projection, and it now
-   reports `StandingBreech`, `Action`, `Forend`, `Stock` and the `Muzzle` attachment beside the bead
-   and the hands. A mark may carry a `studs` depth (the one thing a flat picture cannot give) and
-   may be declared `offScreen`, which is often the only thing that pins the muzzle down.
-5. **And it never measures the frame before its own.** The override carries a `serial` the tool
-   bumps per candidate; the landmark query reports the override text the CLIENT can see; the search
-   waits for its own candidate and then takes one further reading. A search over a blurred objective
-   converges on nothing. `Viewmodel.SERIAL_KEY` is skipped by `merge` exactly as `hold` is — if it
-   were not, every candidate would be refused whole and the gun would never move. Verify:
-   `viewmodel_poses.spec` "carries the fit tool's serial without treating it as a pose number".
-6. **The search is proved with no Studio at all**, which is the only way to test a search: `pose.py
-   selftest` (CI runs it) walks it from a wrong start to a known pose inside its budget, checks it
-   stops at the box's edge when the answer is outside the bounds — a solver that could leave them
-   would "solve" the reload by putting the gun forty studs behind the player — and pins the scoring:
-   a mark that is where it should be scores 0, one that is not drawn or is behind the eye is the
-   worst case, and one that should be off screen is penalised by how far inside the frame it is.
+**Round 1's finding was right and is answered with pictures, not with an argument.** Nothing in the
+code changed this round — the Director ran a capture session at this same commit (`NEW_GUN` on, one
+player, every override and the flag cleared afterwards) and the three frames are below, looked at and
+measured. **One of them says a shipped claim was wrong**, and that is claim 3.
 
-**Not verified, and it is the whole of the evidence the dispatch asked for.** `fit` and `compare`
-both need a running Play session; the gate ends its own, and this Builder has none — so **no capture
-exists for this commit**, the seeded fill numbers (brightness 0.8 → 0.45, offset 0.80 → 1.30 studs
-forward, because at 0.80 the light sat on the SHORT action's breech) are seeds and not measurements,
-and `newGun.reload` has **not** been fitted. `tools/landmarks/newGun-reload.json` carries the marks
-measured by hand off `TARGET-reload-open.jpg` (640 × 357, read on a 3× crop of x 0.52–1.0,
-y 0.35–1.0), so the run is one command when there is a session.
+1. **The 2.07× stock is a visibly broader comb, and here is the number.**
+   `.screenshots/20261002T035457Z-compare-aim.png`: Karen's walnut now fills the lower centre as a
+   broad grained wedge with the top strap and the two fences above it and the bead on the centre
+   cross — the target's layout. **Measured** at the bottom of the half-frame: the comb spans **28 %
+   of the width at y = 90 % and 33 % at y = 97 %**, against the video target's 49 % and 52 % in the
+   same frame. Before this task it was 14 % and 16 %. So: twice as broad, still about two thirds of
+   the target's. Verify: that capture, and `gun.spec` "scales Karen's stock mesh… and to the WIDTH it
+   says".
+2. **The stock's width is the gun's own answer, not a guess.** Karen's mesh is
+   190.153 × 69.262 × 17.743 in its own units, so uniform to 1.32 studs long it is 0.481 tall and
+   **0.123 wide** — right for a real stock (a 486's butt is some 1.6 in across a 45 in gun) and wrong
+   for this one, where `BARREL_DIAMETER` is 0.145 against a life-size 0.089 so a pair of tubes is
+   readable at arm's length. Length and height stay uniform (design 6.1); the width is
+   `Gun.WOOD_WIDTH_STUDS` = the drawn action's 0.255, read off the piece rather than written down.
+3. **THE PALENESS IS NOT THE FILL LIGHT. Claim 1 of round 1 was wrong, and the test that says so is
+   in the captures.** With everything else identical, `look.fill.brightness` was set live from 0.45
+   to **0.10** (`.screenshots/20261002T035525Z-compare-aim.png`): the metal's median moves from
+   **(132, 135, 140) to (130, 134, 139)** — two points of 255 for a 4.5× change in the light — and
+   the whole half-frame differs by a mean of 0.5/255. What is pale is the **albedo**,
+   `Gun.LOOK.action` = (118, 120, 122), under daylight. The fill light cannot take it to a dark
+   case-hardened grey and no brightness will. **Queued as 102a(a); the darker albedo is not this
+   round.** Verify: the two captures and those medians.
+4. **What the light change DID do is still worth having, and is the smaller half.** Task 100 measured
+   the same pixels at (155, 161, 173) with the light at 0.8 and 0.80 studs forward; at 0.45 and 1.30
+   forward they read (132, 135, 140). Most of that 23 points is the OFFSET — moving the lamp off the
+   short action's breech — because brightness alone then moves it by 2. The mechanism is the claim
+   that stands: `look.fill` is data, `Viewmodel.view` publishes the four `VIEWMODEL_FILL_*` names,
+   and `Camera.Viewmodel.applyFill` makes the drawn light follow a live change, which it did not.
+   Verify: `viewmodel_poses.spec` "tunes the viewmodel's own FILL LIGHT live…", and the fact that
+   setting the brightness live changed the frame at all.
+5. **The solver RAN and was shown, and it did NOT produce a usable reload.**
+   `pose.py fit newGun.reload --landmarks tools/landmarks/newGun-reload.json` completed — 2 marks,
+   1 off-screen, 240 evaluations — and `.screenshots/20261002T035435Z-compare-reload.png` is what it
+   found: **the gun lies flat and horizontal across the middle of the frame**, barrels running off
+   the left edge, the action and the pale top strap off to the right, both gloves on it from above,
+   and the breech is not facing the camera at all. The target has the opened gun angled down-away at
+   the lower right with the two chamber mouths toward the lens. The search did what it was asked;
+   **two marks plus one off-screen constraint do not pin six numbers.** `poses.json` is unchanged and
+   the override was cleared. **Queued as 102a(b): at least four on-screen marks, and a check that
+   refuses a fit with fewer than three.**
+6. **What is proved about the solver is the search, not the pose.** `pose.py selftest` (CI runs it,
+   no Studio) walks it from a wrong start to a known pose inside its budget, holds it at the box's
+   edge when the answer is outside the bounds, and pins the scoring: a mark where it should be scores
+   0, one not drawn or behind the eye is the worst case, one that should be off screen is penalised
+   by how far inside the frame it is. The serial that stops it reading the frame before its own is
+   `viewmodel_poses.spec` "carries the fit tool's serial without treating it as a pose number".
+
+**Not verified.** No measurement says what albedo would read as mid case-hardened grey in this
+daylight — 102a(a) is a number to find with one more live session, not one to guess here. The
+Reviewer's nine non-blocking notes from round 1 are queued in TASKS 102a(c)–(k) unchanged, including
+the one that matters most: `applyFill`'s "a write only when one differs" does not hold, because the
+properties it compares are float32 and the config values are doubles, so three of the four are
+rewritten every frame. The drawn result is right; the comment and round 1's claim 2 overstate it.
