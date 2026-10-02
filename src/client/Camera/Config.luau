@@ -247,6 +247,13 @@ local Config = {
 	-- fingertips are at its mesh +X and the left hand's at its -X (measured on each prepped model's
 	-- own bounds). TWIST 180 is what turns the palm UP, so the barrels lie in it rather than on the
 	-- back of the hand.
+	--
+	-- ALL OF THAT IS ABOUT THE v1 GLOVES AND THE TOP-LEVEL POSES, AND ONLY THOSE (task 106). Model B
+	-- wears a different pair under `poses.json`'s `newGun` set, measured the same way and answering
+	-- differently: its left glove is modelled PALM-UP already, so its twist is 0, not 180, and both
+	-- yaws are the full quarter turn. `Camera.Viewmodel.handTemplate` is the one place that picks a
+	-- pair, by `NEW_GUN`; `ServerStorage.Assets` keeps them under two keys so neither can supersede
+	-- the other.
 
 	-- ------------------------------------------------------ the bead sight (ON branch, task 90)
 	-- HOW FAR THE BEAD SITS FROM THE EYE when aiming. 3.5, AND IT IS MEASURED OFF KAREN'S OWN
@@ -369,6 +376,13 @@ local Config = {
 	-- hand's own long axis, starting at the cuff and running back past the near plane, so the end is
 	-- always behind the camera. It is drawn by `Camera.Viewmodel` with the hands, for one player.
 	SLEEVE_LENGTH_STUDS = 1.6, -- far enough back that the end is behind the eye in every pose
+	-- 2.6 FOR MODEL B, AND THE RELOAD FRAME IS WHY (task 106, rule 5). 1.6 is far enough while the
+	-- glove is 1.27 studs long and sits close to the eye; Karen's new pair is 0.67, so the hand sits
+	-- further out -- in the broken-open frame the left one is 1.6 studs away, riding the barrels, and
+	-- a 1.6-stud sleeve ended exactly at the lens. "Far enough back that the end is behind the eye in
+	-- EVERY pose" is the claim, and the open-gun pose is the one that tests it.
+	-- `Camera.Viewmodel.sleeveLength` is the one place that picks between them.
+	SLEEVE_LENGTH_NEW_GUN_STUDS = 2.6,
 	-- 0.20, NOT 0.30, AND THE SCREENSHOT IS WHY (rule 5). At 0.30 the sleeve read as an olive LOG
 	-- lying across the right half of the break-open frame: it is inches from the eye, so its
 	-- apparent size is nothing like its real one. A forearm at this distance is a narrow band.
@@ -377,6 +391,14 @@ local Config = {
 	SLEEVE_MATERIAL = Enum.Material.Fabric,
 	-- How far the sleeve's near end sits INSIDE the cuff, so there is never a seam between them.
 	SLEEVE_OVERLAP_STUDS = 0.12,
+	-- 0.30 FOR MODEL B (task 106). Karen's new gloves carry their OWN turned cuff, and that cuff has
+	-- its own open end: in the broken-open frame it faced the camera as an olive disc beside the
+	-- forend (`.screenshots/20261002T111802Z-pose-reload.png`), which is task 99's complaint coming
+	-- back on a different model. 0.12 was measured against a 1.27-stud glove; on a 0.67-stud one the
+	-- drawn sleeve has to start nearly half a hand in to be inside the model's own cuff rather than
+	-- behind it. It must stay under half the hand's own X, or the near end comes out through the
+	-- fingers -- `gun_client.spec` asserts that against the published glove.
+	SLEEVE_OVERLAP_NEW_GUN_STUDS = 0.30,
 
 	-- ------------------------------------------------------ recoil (task 92)
 	-- Karen, after playing S2: "shooting has to have recoil a bit" -- "a bit" is the whole brief, so

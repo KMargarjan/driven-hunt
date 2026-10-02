@@ -21,6 +21,7 @@ local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
 local Camera = require(scripts:WaitForChild("Camera"))
 local Config = Camera.Config
+local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
@@ -341,6 +342,85 @@ return function()
 					expect(inBarrels.Position.Z + layout.barrelZ >= wanted.Z - 1e-3).to.equal(true)
 				end
 			end)
+		end)
+		it("draws the OLD gun's gloves with the flag off and model B's with it on", function()
+			-- ROUND 1'S FINDING 1, ON THE INSTANCES THAT ARE REALLY DRAWN. The new gloves first
+			-- shipped as `hand.right` VERSION 2, which supersedes -- so the flag-OFF default build,
+			-- whose TOP-LEVEL poses were measured against the v1 models, was handed model B's pair:
+			-- upside down and at 53 % of the size its poses assume. The manifest half is asserted on
+			-- the server (`gun.spec`); this is the half only a client can see.
+			--
+			-- IT DOES NOT WAIT FOR THE UPLOADS, AND THAT IS DELIBERATE. `InsertService:LoadAsset`
+			-- takes seconds and the client specs run before it lands -- the task 99 gloves case below
+			-- has skipped in every harness run for that reason, which is a case that cannot fail. So
+			-- where a pair is not published this stands one in: `Camera.Viewmodel.handTemplate` reads
+			-- the folder by name, so a part of the right name in the right folder IS the thing it
+			-- looks up. Anything made here is destroyed again.
+			local made: { Instance } = {}
+			local function template(folderName: string, size: Vector3): BasePart
+				local folder = ReplicatedStorage:FindFirstChild(folderName)
+				if folder == nil then
+					local new = Instance.new("Folder")
+					new.Name = folderName
+					new.Parent = ReplicatedStorage
+					table.insert(made, new)
+					folder = new
+				end
+				local hand = (folder :: Instance):FindFirstChild(HandAssets.RIGHT)
+				if hand == nil then
+					local stand = Instance.new("Part")
+					stand.Name = HandAssets.RIGHT
+					stand.Size = size
+					stand.Parent = folder
+					table.insert(made, stand)
+					hand = stand
+				end
+				return hand :: BasePart
+			end
+
+			local ok, why = pcall(function()
+				-- Two sizes that cannot be mistaken for each other, and the published pair's own
+				-- when it IS there.
+				local oldSize = template(HandAssets.FOLDER_NAME, Vector3.new(1.27, 0.57, 0.53)).Size
+				local newSize = template(HandAssets.NEW_GUN_FOLDER_NAME, Vector3.new(0.67, 0.35, 0.21)).Size
+				TestKit.note(
+					string.format(
+						"task106 the old gun's glove is %.3f studs, model B's %.3f",
+						math.max(oldSize.X, oldSize.Y, oldSize.Z),
+						math.max(newSize.X, newSize.Y, newSize.Z)
+					)
+				)
+				expect(oldSize).never.to.equal(newSize)
+
+				local function drawnRightHandSize(config): Vector3?
+					local found: Vector3? = nil
+					withNewGun(function()
+						Camera.Viewmodel.setReload(nil)
+						Camera.Viewmodel.update(CFrame.new(0, 16, 0), stateAtBlend(0), config)
+						local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+						local hand = clone:FindFirstChild(HandAssets.RIGHT)
+						if hand and hand:IsA("BasePart") then
+							found = (hand :: BasePart).Size
+						end
+					end)
+					return found
+				end
+
+				local drawnOff = drawnRightHandSize(firstPersonConfig)
+				local drawnOn = drawnRightHandSize(newGunConfig)
+				expect(drawnOff).to.be.ok()
+				expect(drawnOn).to.be.ok()
+				-- THE FLAG-OFF BUILD DRAWS THE OLD PAIR, at the old size. A regression here is the
+				-- default build changing under a flagged task, which is exactly what round 1 shipped.
+				expect(drawnOff).to.equal(oldSize)
+				expect(drawnOn).to.equal(newSize)
+			end)
+			for index = #made, 1, -1 do
+				made[index]:Destroy()
+			end
+			if not ok then
+				error(why, 0)
+			end
 		end)
 	end)
 

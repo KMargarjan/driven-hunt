@@ -23,6 +23,7 @@
 -- Note: docs/research/2026-10-01-exact-metal-gun.md (why the gun stopped being one AI mesh)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
+local StarterPlayer = game:GetService("StarterPlayer")
 
 local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
@@ -30,6 +31,10 @@ local Poses = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+-- THE CAMERA'S OWN NUMBERS, not a copy of them: the sleeve is drawn by `Camera.Viewmodel` from
+-- `Camera.Config`, and the bound below is only worth anything if it reads the shipped values.
+local CameraConfig =
+	require(StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera"):WaitForChild("Config"))
 
 local CONFIG = Shotgun.CONFIG
 
@@ -323,9 +328,22 @@ return function()
 				-- ...and the right is BEHIND the breech, on the frame group, ahead of the butt.
 				expect(right.z > at.breechZ).to.equal(true)
 				expect(right.z < at.half).to.equal(true)
-				-- Both on the gun's centre line, because both hands wrap it.
-				expect(left.x).to.equal(0)
+				-- THE RIGHT HAND IS ON THE GUN'S CENTRE LINE, because it wraps the wrist and its own
+				-- model is symmetric about its box.
 				expect(right.x).to.equal(0)
+				-- THE LEFT ONE IS NOT, AND TASK 106 IS WHY. What this pose places is the MESH'S
+				-- BOUNDING-BOX CENTRE, not the palm, and Karen's left glove is a palm-up C whose
+				-- forearm runs at an angle to the fingers -- so its box is a diagonal and the hand
+				-- sits off-centre inside it. Asserting zero here asserted a fact about the OLD
+				-- model's symmetry, and the first gate run of task 106 caught it.
+				--
+				-- WHAT IS STILL TRUE, and is the claim worth keeping: the offset is less than the
+				-- hand's OWN half-width, so the palm is within a hand of the gun's centre line
+				-- rather than beside the gun.
+				local leftHand = Assets.byKey("hand.left")
+				local halfWidth = math.min(leftHand.sizeStuds.X, leftHand.sizeStuds.Y, leftHand.sizeStuds.Z) / 2
+				TestKit.note(string.format("task106 newGun.%s left x %.4f, half-width %.4f", pose, left.x, halfWidth))
+				expect(math.abs(left.x) < halfWidth).to.equal(true)
 			end
 		end)
 	end)
@@ -367,18 +385,149 @@ return function()
 			end
 		end)
 
-		it("is back to life size, because the gun is", function()
-			-- TASK 99 CUT THIS AND TASK 105 PUT IT BACK, for the same measured reason both times. The
-			-- drawn gun's tubes were nearly twice life across, so a life-size hand beside them read as
-			-- the biggest thing in the frame; model B's are a real 12-gauge, so the hand has to be a
-			-- real hand. 330 mm of hand and cuff at 259.8 mm to the stud is 1.27.
-			local right = Assets.byKey("hand.right")
+		it("is sized to the grip it closes on, not to a hand's own length", function()
+			-- TASK 106, AND IT IS THE THIRD TIME THIS NUMBER HAS MOVED, so it is now pinned to
+			-- something the gun can be measured against rather than to an anatomy fact. A generated
+			-- glove is chunky: at the 1.27 studs that is right for 330 mm of real hand and cuff,
+			-- Karen's glove measured 0.665 studs ACROSS THE FINGERS -- 173 mm, nearly twice an adult
+			-- palm -- and task 105's aimed capture showed exactly that.
+			--
+			-- SO THE ANCHOR IS MODEL B'S STOCK WRIST, which is what the fist has to close on: 0.320
+			-- studs from the grip's front to the comb, 83 mm at this gun's scale. A fist round a
+			-- wrist that size is about an adult palm across.
+			local right = Assets.byKey(Assets.KEYS.gunHandRight)
+			local left = Assets.byKey(Assets.KEYS.gunHandLeft)
+			local across = right.sizeStuds.Y -- the right glove's across-the-fingers axis
+			TestKit.note(
+				string.format(
+					"task106 right glove %.3f long, %.3f across; left %.3f long",
+					right.sizeStuds.X,
+					across,
+					math.max(left.sizeStuds.X, left.sizeStuds.Y, left.sizeStuds.Z)
+				)
+			)
+			expect(math.abs(across - 0.35) < 0.005).to.equal(true)
+			-- ...and an adult palm is 85 to 95 mm, which at 259.8 mm to the stud is this band. The
+			-- old 1.27 put it at 173 mm and fails here, which is the point of the case.
+			expect(across * 259.8 > 85 and across * 259.8 < 95).to.equal(true)
+			-- THE PAIR IS ONE PAIR, AND THE CLAIM IS THE SCALE FACTOR (round 1, note). Comparing the
+			-- two longest axes proves nothing: `uniformTo` pins the longest axis to the dial, so ANY
+			-- two models come out equal there. What "one pair" means is that both models were shrunk
+			-- by the same factor -- two hands drawn at different scales is the defect nobody measures
+			-- until a screenshot shows it.
+			local rightScale = right.sizeStuds.X / (right.naturalSizeStuds :: Vector3).X
+			local leftScale = left.sizeStuds.X / (left.naturalSizeStuds :: Vector3).X
+			TestKit.note(string.format("task106 scale: right %.6f, left %.6f", rightScale, leftScale))
+			expect(math.abs(rightScale - leftScale) < 1e-4).to.equal(true)
+			-- A hand is still several times the width of the barrel it holds.
 			local at = Gun.layout(CONFIG)
-			TestKit.note(string.format("task105 right hand %.3f studs long", right.sizeStuds.X))
-			expect(math.abs(right.sizeStuds.X - 1.27) < 0.01).to.equal(true)
-			-- A hand is still several times the width of the barrel it holds, and on this gun that is
-			-- a bigger multiple than before precisely because the barrel is thinner.
-			expect(right.sizeStuds.X > at.barrelRadius * 8).to.equal(true)
+			expect(across > at.barrelRadius * 4).to.equal(true)
+		end)
+
+		it("gives each gun its OWN pair, so the flag-OFF build cannot be handed model B's", function()
+			-- ROUND 1'S FINDING 1, AND THIS CASE IS THE THING THAT WOULD HAVE CAUGHT IT. The new
+			-- gloves first shipped as `hand.right` VERSION 2 -- and a new version supersedes, so
+			-- `Assets.byKey("hand.right")` answered with them for every caller, including the
+			-- flag-OFF default build whose TOP-LEVEL poses were measured against the v1 models. The
+			-- old gun drew the new left glove upside down (its `twist` of 180 belongs to a palm-DOWN
+			-- model) at 53 % of the size its poses assume.
+			--
+			-- SO THE TWO GUNS HAVE TWO KEYS, and this asserts all three halves of that: the old keys
+			-- still answer with v1, the new keys answer with the new pair, and no row of either is
+			-- superseded by the other.
+			for name, key in pairs(HandAssets.KEY_OF) do
+				local old = Assets.byKey(key)
+				local new = Assets.byKey(HandAssets.NEW_GUN_KEY_OF[name])
+				expect(old).to.be.ok()
+				expect(new).to.be.ok()
+				expect(old.modelId).never.to.equal(new.modelId)
+				-- THE OLD PAIR IS STILL THE 1.27-STUD PAIR the top-level poses were measured at. A
+				-- regression here is the flag-OFF build changing size, which is exactly what round 1
+				-- shipped.
+				local oldLongest = math.max(old.sizeStuds.X, old.sizeStuds.Y, old.sizeStuds.Z)
+				local newLongest = math.max(new.sizeStuds.X, new.sizeStuds.Y, new.sizeStuds.Z)
+				TestKit.note(
+					string.format("task106 %s: old gun %.3f studs, model B %.3f", name, oldLongest, newLongest)
+				)
+				expect(math.abs(oldLongest - 1.27) < 1e-4).to.equal(true)
+				expect(newLongest < oldLongest * 0.75).to.equal(true)
+				-- ...and neither row may be superseded by the other: that is the mechanism that
+				-- failed.
+				expect(old.supersededBy).to.equal(nil)
+				expect(new.supersededBy).to.equal(nil)
+			end
+			-- THE TWO KEY TABLES NAME DIFFERENT KEYS, which is what makes the lookup above possible
+			-- at all. One table pointing at the other's keys is the same defect wearing a hat.
+			for name, key in pairs(HandAssets.KEY_OF) do
+				expect(HandAssets.NEW_GUN_KEY_OF[name]).never.to.equal(key)
+			end
+			-- ...and the two folders they are published into are different, or one pair overwrites
+			-- the other on the client.
+			expect(HandAssets.NEW_GUN_FOLDER_NAME).never.to.equal(HandAssets.FOLDER_NAME)
+		end)
+
+		it("starts each gun's sleeve INSIDE the glove it belongs to", function()
+			-- ROUND 1'S NOTE, MADE INTO A BOUND. `Camera.Viewmodel.poseHands` places the sleeve at
+			-- `hand.Size.X / 2 + sleeve.Size.X / 2 - overlap` back along the hand's own axis: if the
+			-- overlap ever exceeds half the hand, the cylinder's near end comes out through the
+			-- fingers instead of starting inside the cuff. Model B's glove has 0.015 studs of margin
+			-- and nothing was asserting it, so the next size tweak would have shown it on screen.
+			--
+			-- IT IS A SERVER CASE because the sizes are the manifest's and the numbers are
+			-- `Camera.Config`'s, and both are readable here. The client cannot see the manifest, and
+			-- the published Instances have not landed by the time its specs run.
+			for _, case in ipairs({
+				{
+					name = "old gun",
+					key = Assets.KEYS.handRight,
+					overlap = CameraConfig.SLEEVE_OVERLAP_STUDS,
+					length = CameraConfig.SLEEVE_LENGTH_STUDS,
+				},
+				{
+					name = "model B",
+					key = Assets.KEYS.gunHandRight,
+					overlap = CameraConfig.SLEEVE_OVERLAP_NEW_GUN_STUDS,
+					length = CameraConfig.SLEEVE_LENGTH_NEW_GUN_STUDS,
+				},
+			}) do
+				local hand = Assets.byKey(case.key)
+				expect(hand).to.be.ok()
+				local halfHand = hand.sizeStuds.X / 2
+				TestKit.note(
+					string.format(
+						"task106 %s: overlap %.3f against half a hand %.3f, sleeve %.2f long",
+						case.name,
+						case.overlap,
+						halfHand,
+						case.length
+					)
+				)
+				expect(case.overlap < halfHand).to.equal(true)
+				-- ...and the sleeve is longer than the hand it joins, which is the claim that its far
+				-- end is behind the eye rather than beside the cuff.
+				expect(case.length > hand.sizeStuds.X).to.equal(true)
+			end
+		end)
+
+		it("keeps the old gun's own poses, measured for the old gun's own gloves", function()
+			-- THE OTHER HALF OF FINDING 1: the TOP-LEVEL poses are the v1 pair's, and nothing in task
+			-- 106 re-measured them. The `newGun` set answers differently BECAUSE the models differ --
+			-- Karen's new left glove is modelled palm-up, so its twist is 0 where the old one needs a
+			-- half turn to get the palm under the barrels.
+			expect(Poses.DATA.carry.left.rot.twist).to.equal(180)
+			expect(Poses.DATA.aim.left.rot.twist).to.equal(180)
+			expect(Poses.DATA.reload.left.rot.twist).to.equal(180)
+			for _, pose in ipairs({ "carry", "aim", "reload" }) do
+				TestKit.note(
+					string.format(
+						"task106 %s left twist: old gun %.0f, model B %.0f",
+						pose,
+						Poses.DATA[pose].left.rot.twist,
+						Poses.DATA.newGun[pose].left.rot.twist
+					)
+				)
+				expect(Poses.DATA.newGun[pose].left.rot.twist).never.to.equal(Poses.DATA[pose].left.rot.twist)
+			end
 		end)
 	end)
 

@@ -161,20 +161,24 @@ return function()
 			-- this claim), or the two boot lines would ask the Loader for the same key at once.
 			local viewmodel = Assets.keysFor("viewmodel")
 			table.sort(viewmodel)
-			TestKit.note(string.format("task105 viewmodel keys: [%s]", table.concat(viewmodel, ", ")))
-			-- FIVE SINCE TASK 105: the two hands, model B's two hinge groups and its shell. The
-			-- walnut stock that was here since task 99 is RETIRED rather than deleted -- model B's
-			-- frame group is a stock -- so its row and its id are still in the table and this scope
-			-- no longer asks for it.
-			expect(#viewmodel).to.equal(5)
+			TestKit.note(string.format("task106 viewmodel keys: [%s]", table.concat(viewmodel, ", ")))
+			-- SEVEN SINCE TASK 106: model B's two hinge groups, its shell, its OWN pair of gloves,
+			-- and the OLD gun's pair, which the flag-OFF default build still draws. The walnut stock
+			-- that was here since task 99 is RETIRED rather than deleted -- model B's frame group is
+			-- a stock -- so its row and its id are still in the table and this scope no longer asks
+			-- for it.
+			expect(#viewmodel).to.equal(7)
 			expect(viewmodel[1]).to.equal(Assets.KEYS.gunBarrels)
 			expect(viewmodel[2]).to.equal(Assets.KEYS.gunFrame)
-			expect(viewmodel[3]).to.equal(Assets.KEYS.gunShell)
-			expect(viewmodel[4]).to.equal(Assets.KEYS.handLeft)
-			expect(viewmodel[5]).to.equal(Assets.KEYS.handRight)
+			expect(viewmodel[3]).to.equal(Assets.KEYS.gunHandLeft)
+			expect(viewmodel[4]).to.equal(Assets.KEYS.gunHandRight)
+			expect(viewmodel[5]).to.equal(Assets.KEYS.gunShell)
+			expect(viewmodel[6]).to.equal(Assets.KEYS.handLeft)
+			expect(viewmodel[7]).to.equal(Assets.KEYS.handRight)
 			expect(Assets.byKey(Assets.KEYS.gunStock).scope).to.equal("retired")
 			for _, key in ipairs(Assets.keysFor("runtime")) do
 				expect(key ~= Assets.KEYS.handLeft and key ~= Assets.KEYS.handRight).to.equal(true)
+				expect(key ~= Assets.KEYS.gunHandLeft and key ~= Assets.KEYS.gunHandRight).to.equal(true)
 				expect(key ~= Assets.KEYS.gunBarrels and key ~= Assets.KEYS.gunFrame).to.equal(true)
 			end
 			-- AND EVERY ONE IS A REAL ROW: an approved id, one mesh, a licence that names its basis.
@@ -187,18 +191,25 @@ return function()
 				expect(row.scope).to.equal("viewmodel")
 				expect(#row.licence.basis > 0).to.equal(true)
 				local longest = math.max(row.sizeStuds.X, row.sizeStuds.Y, row.sizeStuds.Z)
-				TestKit.note(string.format("task105 %s: %.2f studs long, %d tris", key, longest, row.trisDeclared))
+				TestKit.note(string.format("task106 %s: %.2f studs long, %d tris", key, longest, row.trisDeclared))
 			end
-			-- A HAND IS A HAND'S SIZE. 1.27 studs is 330 mm of hand and cuff at this game's scale
-			-- (the gun is 4.4 studs for 1,143 mm); anything near the gun's own length would be an arm
-			-- across the screen. THE HANDS ARE POSED BY THE CAMERA, so `rotationDeg` is zero and
-			-- nothing reads it -- asserted rather than left alone, because a non-zero rotation there
-			-- would be a number somebody wrote expecting it to do something.
-			for _, key in ipairs({ Assets.KEYS.handLeft, Assets.KEYS.handRight }) do
-				local hand = Assets.byKey(key)
-				local longest = math.max(hand.sizeStuds.X, hand.sizeStuds.Y, hand.sizeStuds.Z)
-				expect(longest > 0.8 and longest < 1.8).to.equal(true)
-				expect(hand.rotationDeg).to.equal(Vector3.zero)
+			-- A HAND IS A HAND'S SIZE, and since task 106 there are TWO pairs with two dials: the
+			-- old gun's gloves at 1.27 studs -- what its top-level poses were measured against -- and
+			-- model B's at 0.669, which is a fist closed on its stock wrist. Both must stay well
+			-- under the gun's own length, or it is an arm across the screen. THE HANDS ARE POSED BY
+			-- THE CAMERA, so `rotationDeg` is zero on all four and nothing reads it -- asserted
+			-- rather than left alone, because a non-zero rotation there would be a number somebody
+			-- wrote expecting it to do something.
+			for _, pair in ipairs({
+				{ keys = { Assets.KEYS.handLeft, Assets.KEYS.handRight }, low = 1.2, high = 1.4 },
+				{ keys = { Assets.KEYS.gunHandLeft, Assets.KEYS.gunHandRight }, low = 0.4, high = 1.0 },
+			}) do
+				for _, key in ipairs(pair.keys) do
+					local hand = Assets.byKey(key)
+					local longest = math.max(hand.sizeStuds.X, hand.sizeStuds.Y, hand.sizeStuds.Z)
+					expect(longest > pair.low and longest < pair.high).to.equal(true)
+					expect(hand.rotationDeg).to.equal(Vector3.zero)
+				end
 			end
 			-- ...AND A GUN GROUP IS THE WHOLE GUN'S BOX, which is what makes the two halves assemble
 			-- at one CFrame (task 96's anchor triangles, task 105's model). The quarter turn that

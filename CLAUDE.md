@@ -188,7 +188,9 @@ dollars. The script prints each session's cost into the result file's trailer.
    - a clean-tree harness PASS names the code commit
      (`[harness] PASS: n/n checks @ <code commit> (clean tree)`), **and a clean-tree
      `[harness2] PASS` for the same commit** when the change touches `src/`, `tests/client/` or
-     `tools/studio_mcp.py` (Director decision, 2026-09-26),
+     `tools/studio_mcp.py` (Director decision, 2026-09-26) — unless every changed code file is
+     first-person viewmodel (`WEAPON_VIEWMODEL_PATHS`, Director decision 2026-10-02; see
+     "Run / test"),
    - `reviews/task-<N>/RESULT.md` line 1 is `PASS` (notes under it do not block), and its trailer
      names a commit that differs from the code commit only in paperwork,
    - CI (`.github/workflows/ci.yml`) is green on the PR head,
@@ -237,7 +239,8 @@ Paste this, filled in, at the end of every task report. Each box is checked, or 
       src/, tests/ or tools/, and only paperwork changed after it (git workflow step 4)
 - [ ] Two players, when the change touches src/, tests/client/ or tools/studio_mcp.py:
       `python tools/studio_mcp.py test2` → paste "[harness2] PASS: n/n checks @ <same sha> (clean
-      tree)". Or N/A with the reason (docs, or tools outside the harness)
+      tree)". Or N/A with the reason (docs; tools outside the harness; or EVERY changed code file is
+      first-person viewmodel — `WEAPON_VIEWMODEL_PATHS`, Director 2026-10-02, see "Run / test")
 - [ ] CI green on the PR (link to the run)
 - [ ] Screenshot inspected (rule 5), or N/A: <reason>
 - [ ] Docs updated: TASKS.md, GAME_DESIGN.md owners, research note/INDEX, PLAYTEST.md, CLAUDE.md as needed
@@ -368,6 +371,21 @@ change to the test system, and don't restate it elsewhere.
   - Exit 0 means PASS on a clean tree. 1 means FAIL. 2 means REFUSED (Studio not in Edit mode).
     3 means PASS on a dirty tree, which is **not valid evidence**.
   - The final line names the commit it tested.
+  - **BLAST RADIUS: the FIRST-PERSON VIEWMODEL is exempt from `test2`** (Director decision,
+    2026-10-02, after Karen: *"not testing everything only changed part and only where could be
+    blast radius ... we just focus to weapon features"*). `test2` exists because a driver, a tie, a
+    team swap and half the client suite only exist with two clients. The viewmodel is the opposite
+    case: it is drawn under `workspace.CurrentCamera` for ONE player, every other player sees the
+    Tool's own mesh, and nothing in it reads a team, a role or another character — a second client
+    renders a second copy of the same thing and answers no question the first did not.
+    So when **every** changed code file is in `tools/agents.py`'s `WEAPON_VIEWMODEL_PATHS`
+    (`src/shared/Gun/`, `src/shared/Viewmodel/`, `src/client/Camera/Viewmodel.luau`,
+    `src/client/Camera/Poses.luau`, and the three specs that drive only those), `test2` is N/A and
+    `tools/agents.py` does not ask for the line. **ALL OR NOTHING:** one file outside that list —
+    any server code, Match, the shot or hit path, the driver, the tie — and the whole change needs
+    `test2` again, because the question is what the change CAN break, not what most of it is. The
+    **one-player** line is still required for every code change, always.
+    `tools/agents.py selftest` proves both directions and runs in CI.
 - **Other harness commands:** `state`, `console`, `stop` (read-only / recovery). It needs Studio →
   Assistant settings → MCP server enabled.
 - **Karen's playtests do not run tests.** The runners need a harness token under 120 s old.
