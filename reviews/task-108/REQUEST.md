@@ -3,11 +3,12 @@
 Task: 108
 Round: 1
 Base: `content-model-b-aim-1` (`1ee7ba0`)
-Code commit: `22f6bc496de1ad4bc334a665307a96093d1004a3`
+Code commit: `dcec68e05483053e5bdbf73378c05fd80d9fe51c` (the paperwork commit; the last code
+commit is `22f6bc4` and only `reviews/task-108/REQUEST.md` and the TASKS row changed after it)
 
 ```
-[harness] PASS: 32/32 checks @ 22f6bc496de1ad4bc334a665307a96093d1004a3 (clean tree)
-[harness2] PASS: PENDING -- see "What I could not verify"
+[harness] PASS: 32/32 checks @ dcec68e05483053e5bdbf73378c05fd80d9fe51c (clean tree)
+[harness2] PASS: 34/34 checks @ dcec68e05483053e5bdbf73378c05fd80d9fe51c (clean tree)
 ```
 
 `test2` is required: the branch also changes `src/shared/HandAssets.luau` and
@@ -50,12 +51,13 @@ Code commit: `22f6bc496de1ad4bc334a665307a96093d1004a3`
 
 ## What I could not verify
 
-- **`test2` had not come back green when this was written.** The first run after the fix was
-  `[harness2] FAIL: 32/34` with both failures in `tests/client/weapon_client.spec.luau`, a file this
-  task does not touch: that run's own notes say the shooter *"is tied to a tree"*, `equipped=false`,
-  his gun in the backpack from +54 s, so "equips on the cue and starts full" and the readout case
-  had no gun to read. The one-player run of the same commit passed 32/32 including the new case. A
-  second run is in flight; the line above is the only thing still missing.
+- **`test2` took three runs, and the first two are worth saying.** Run 1 was
+  `[harness2] FAIL: 32/34`, both failures in `tests/client/weapon_client.spec.luau`, a file this task
+  does not touch: that run's own notes say the shooter *"is tied to a tree"*, `equipped=false`, his
+  gun in the backpack from +54 s, so "equips on the cue and starts full" had no gun to equip. Run 2
+  passed 34/34 but on a DIRTY tree -- I was writing this file while it ran -- which is not evidence.
+  Run 3 is the line above. So the tie flake is NOT reproducible and was not caused by this change,
+  but it is a real thing the two-player scenario does.
 - **Nothing was captured of the RAISE blend**: the three poses were each held and photographed, and
   the frames between them were not.
 - **The reload's right hand was not judged**: in that frame it is below the bottom edge
