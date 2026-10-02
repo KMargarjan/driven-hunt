@@ -3,10 +3,10 @@
 Task: 111
 Round: 1
 Base: `content-hands-karen-1` (`9b45c56`)
-Code commit: PENDING -- the gate runs on the paperwork commit and its line is pasted in here
+Code commit: `dd0f9378b8f8e6cbc886f68c388bb582a5c629c8`
 
 ```
-[harness] PENDING
+[harness] PASS: 33/33 checks @ dd0f9378b8f8e6cbc886f68c388bb582a5c629c8 (clean tree)
 ```
 
 `test2` is N/A: every changed file is in `WEAPON_VIEWMODEL_PATHS`
@@ -33,11 +33,14 @@ checked with `tools/agents.py`'s own `needs_two_player`, which answered `[]`.
 4. **The seated shell is still task 107's.** `Viewmodel.shells` is not touched by this task at all --
    the hand follows the shell, not the other way round -- so where a shell ends up is the same
    arithmetic and the same spec.
-5. **One client case measures all of it on the drawn instances**: mid-feed the left hand is within
-   0.45 studs of the drawn `FreshShell1` and less than half its rest distance from it, the right hand
-   is within 0.001 studs of the grip, after the feed and the return the left hand is back within
-   0.001 studs of Karen's pose, the shell is seated at the chamber mouth, and no part named `Sleeve`
-   exists with NEW_GUN on while the old gun still has one.
+5. **One client case, and it cannot use the clock** -- the first gate run proved why: the player's
+   own camera loop calls `Viewmodel.setReload(nil)` on every frame it draws, so a `task.wait` long
+   enough for half a feed had the reload state cleared and `FreshShell1` gone. The case now yields
+   nowhere between setting the state and reading it. On the DRAWN parts: the fresh shell is within
+   0.05 studs of `shellFeedAt`, the right hand within 0.001 studs of the grip, and with the gun shut
+   the left hand is within 0.001 studs of Karen's own pose and no part named `Sleeve` exists (while
+   the old gun still has one). On the ONE function both are placed from: the hand is within 0.45
+   studs of the shell at feed 0, 0.5 and 1, and the seated shell is at the chamber mouth.
 6. **Every number is tunable live**: `newGun.reload.load.{reachShare, returnSeconds, behindStuds,
    sideStuds, upStuds, fingerDownDeg}` are `pose.py set` paths, and three of them were moved that way
    while watching the screen (see below) before `pose.py save` wrote them.
@@ -50,5 +53,10 @@ checked with `tools/agents.py`'s own `needs_two_player`, which answered `[]`.
   Karen can move them live.
 - **Only one reload was photographed**, with the second shell's push caught only as the readout
   going 21 -> 19 -> both loaded; the two pushes were not captured separately.
-- **No mutation check.** The case rests on a distance, not on a guard; the lean-lane rule keeps
+- **No mutation check.** The case rests on distances, not on a guard; the lean-lane rule keeps
   mutation checks for guards, and this round had none.
+- **The hand-on-shell claim is measured through the shared function, not frame by frame**, for the
+  reason in claim 5. What a drawn frame shows is in the three screenshots.
+- **`tests/server/gun.spec.luau` had to change**: `expect(right.x).to.equal(0)` was failing on
+  Karen's own branch before this task touched anything -- she tuned the right hand to -0.0456 -- so
+  it is a bound now (inside 1.5 half-widths) rather than an assertion that nobody had moved it.
