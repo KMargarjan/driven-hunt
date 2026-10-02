@@ -50,6 +50,24 @@ not the harness, stay exempt, because `test2` costs a human click.
 Director decision 2026-10-02): that gun is drawn under one player's own camera, every other player
 sees the Tool's mesh, and a second client renders a second copy of it and answers nothing. All or
 nothing - one file outside the list and the whole change needs the line again.
+**A SCOPED one-player line is enough for a REVIEW ROUND** (Task 113; Karen, 2026-10-02: "it has to
+test only parts what has been changed and what blast radius could be"). `tools/studio_mcp.py test
+--scope auto` resolves the scope from the branch's own changed paths and writes it into its line as
+`scope=auto:<names>`; such a line can only have come from that resolution, so it is a review-round
+run by construction and the `[harness2]` line is not asked for. `scope=all`, and every line committed
+before this change, count as FULL evidence and nothing about them moves. A HAND-NAMED `scope=<names>`
+is REFUSED as evidence: a scope typed by a person is a choice, not a measurement. The MERGE gate is
+unchanged -- it wants the full `test` and, where the paths ask for it, `test2` (CLAUDE.md git
+workflow step 4).
+**The CONTENT LANE needs no round at all** (`CONTENT_PATHS`): `src/shared/Viewmodel/poses.json` is
+data the Director tunes live and Karen OKs, so a change made only of it is treated here exactly like
+a docs change. Its own one-player `test` is still required by CLAUDE.md -- what is dropped is the
+review round, not the run.
+**The REVIEWER'S EVIDENCE IS SCOPED TOO**: `.agent-evidence/blast-radius.md` holds the changed files
+and, per symbol the diff defined, every place in the repo that names it, and the prompt tells the
+Reviewer to review only that and to read `docs/REVIEWER_RULES.md` (61 lines) instead of CLAUDE.md
+and docs/PROJECT_CONTEXT.md (605 lines together).
+
 **What is still policy, not enforcement:** nothing stops a Builder committing a hand-written trailer
 (the Builder owns the repo and the commits), and `git rebase`/`--force` could drop the history the
 look-back reads. audit-002 must-fix #5 (Task 12) is about exactly that: the verdict files must be
@@ -81,6 +99,15 @@ CODE_PATHS = ("src/", "tests/", "tools/")
 # specs, the harness itself) are not evidenced by a one-player run. Everything else -- docs, and the
 # tools that are not the harness -- is exempt, because test2 costs a human click and eight minutes.
 TWO_PLAYER_PATHS = ("src/", "tests/client/", "tools/studio_mcp.py")
+
+# THE CONTENT LANE (CLAUDE.md "Content lane", Karen 2026-10-01: "too slow"; extended here in Task
+# 113). These files are DATA the Director tunes live and Karen OKs, not code: the numbers behind a
+# picture. A commit that changes only them needs no review round at all, so this gate treats them
+# the way it treats docs -- it asks for no harness line and no two-player line. It does NOT excuse
+# the data commit from `python tools/studio_mcp.py test`: `tests/server/viewmodel_poses.spec.luau`
+# reads poses.json, so the content lane's own one-player gate still runs the specs that see it.
+# What is removed is the ROUND, not the run.
+CONTENT_PATHS = ("src/shared/Viewmodel/poses.json",)
 
 # BLAST RADIUS: THE ONE SET OF FILES THE SECOND PLAYER CANNOT EVIDENCE (Director decision,
 # 2026-10-02). Karen, that day: "not testing everything only changed part and only where could be
@@ -175,6 +202,116 @@ def repo_state():
     return git("rev-parse", "HEAD").strip(), git("status", "--porcelain")
 
 
+
+# ------------------------------------------------------------------ blast radius (Task 113)
+# KAREN, 2026-10-02: "not need start from zero I mentioned 100 times / it has to test only parts
+# what has been changed and what blast radius could be". A review used to begin by reading CLAUDE.md
+# (557 lines) and docs/PROJECT_CONTEXT.md (48) and then the whole diff with the whole repo behind it.
+# Now the Reviewer gets docs/REVIEWER_RULES.md (61 lines, the rules digest) and this file: the
+# changed files, the symbols whose definitions the diff touched, and every place in the repo that
+# names one of them. That IS the blast radius, and the prompt tells it to review only that.
+#
+# GREP-BASED AND DELIBERATELY SO: a name match is a superset of the real callers, which is the safe
+# direction. A missed caller would hide a defect; an extra one costs the Reviewer one look.
+SYMBOL_RES = (
+    re.compile(r"^\s*(?:local\s+)?function\s+([A-Za-z_][A-Za-z0-9_.:]*)"),  # Luau function M.f / f
+    re.compile(r"^\s*(?:local\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*function\b"),  # f = function()
+    re.compile(r"^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)"),  # Python def
+    re.compile(r"^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)"),
+    re.compile(r"^([A-Z][A-Z0-9_]{2,})\s*="),  # a module-level constant, the other thing callers read
+)
+MAX_SYMBOLS = 40
+MAX_HITS_PER_SYMBOL = 12
+
+
+def symbols_in_diff(diff_text):
+    """The symbol names whose DEFINITION a diff adds or removes. Pure: text in, names out.
+
+    Both directions matter: a definition the diff deleted is exactly the one whose callers now
+    break, so a `-` line counts the same as a `+` line."""
+    out = []
+    for line in diff_text.splitlines():
+        if not line or line[0] not in "+-" or line[:3] in ("+++", "---"):
+            continue
+        for rx in SYMBOL_RES:
+            m = rx.match(line[1:])
+            if m:
+                name = m.group(1).split(".")[-1].split(":")[-1]
+                if len(name) > 2 and name not in out:
+                    out.append(name)
+                break
+    return out[:MAX_SYMBOLS]
+
+
+def module_names(changed):
+    """The names other files would use to reach the changed files: `Foo` for `Foo.luau`, and the
+    FOLDER's name for an `init.luau`, which is what `require` actually names. Pure."""
+    names = []
+    for raw in changed:
+        path = raw.replace("\\", "/")
+        base = path.rsplit("/", 1)[-1]
+        stem = base.split(".")[0]
+        if stem in ("init", "index") and "/" in path:
+            stem = path.rsplit("/", 2)[-2]
+        if len(stem) > 2 and stem not in names:
+            names.append(stem)
+    return names
+
+
+def references(wt, names, changed):
+    """{name: [(file, line number, text)]} for every tracked text file that names one of `names`.
+
+    The changed files themselves are left out: the diff already shows them, and what the Reviewer
+    cannot see from the diff is who else depends on them."""
+    skip = {f.replace("\\", "/") for f in changed}
+    patterns = {name: re.compile(r"\b" + re.escape(name) + r"\b") for name in names}
+    hits = {name: [] for name in names}
+    for rel in git("ls-files", cwd=wt).split():
+        rel = rel.replace("\\", "/")
+        if rel in skip or rel.startswith((".agent-evidence/", "reviews/", "backups/")):
+            continue
+        # CODE AND CONFIG ONLY. A `.md` scan was tried first and was almost all noise: a symbol
+        # called `references` or `Body` matches English prose, and ESCALATE.md and TASKS.md are
+        # full of it. A caller is in code; the docs are the Architect's business, not a caller.
+        if not rel.endswith((".luau", ".lua", ".py", ".json", ".yml", ".toml", ".ps1", ".sh")):
+            continue
+        try:
+            with open(os.path.join(wt, rel), encoding="utf-8", errors="replace") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            continue
+        for number, text in enumerate(lines, 1):
+            for name, rx in patterns.items():
+                if len(hits[name]) < MAX_HITS_PER_SYMBOL and rx.search(text):
+                    hits[name].append((rel, number, text.strip()[:140]))
+    return hits
+
+
+def blast_radius_text(wt, changed, diff_text):
+    """The `.agent-evidence/blast-radius.md` body: the change, plus who else names what it touched."""
+    code = [f for f in changed if f.replace("\\", "/").endswith((".luau", ".lua", ".py"))]
+    defined = symbols_in_diff(diff_text)
+    names = defined + [n for n in module_names(code) if n not in defined]
+    hits = references(wt, names[:MAX_SYMBOLS], changed) if names else {}
+    out = ["# Blast radius", "",
+           "**This is your whole review scope.** The files below, and the callers and callees of the",
+           "symbols below. Nothing else in the repository is yours this round (docs/REVIEWER_RULES.md,",
+           "\"What you review\"). Grep-based, so the caller list is a superset: an entry that turns out",
+           "not to call the symbol costs you one look, which is the safe direction.", "",
+           f"## Changed files ({len(changed)})", ""]
+    out += [f"- `{f}`" for f in changed] or ["- none"]
+    out += ["", "## Symbols the diff defines, removed or renamed, and who names them", ""]
+    if not names:
+        out.append("No function, class or constant definition changed: the diff is data, docs or "
+                   "paperwork only.")
+    for name in names[:MAX_SYMBOLS]:
+        found = hits.get(name) or []
+        out.append(f"### `{name}` -- {len(found)} reference(s) outside the changed files"
+                   + (" (none: nothing else in the repo names it)" if not found else ""))
+        out += [f"- `{rel}`:{number} `{text}`" for rel, number, text in found]
+        out.append("")
+    return "\n".join(out) + "\n"
+
 # ------------------------------------------------------------------ evidence
 
 def write(path, text):
@@ -223,8 +360,17 @@ def build_evidence(wt, base=None, code_commit=None):
         files["log.txt"] = git("log", "--stat", f"{base}..HEAD", cwd=wt)
         files["changed-files.txt"] = git("diff", "--name-status", f"{base}...HEAD", cwd=wt)
         files["diff.patch"] = git("diff", f"{base}...HEAD", cwd=wt)
+        # THE REVIEW SCOPE ITSELF (Task 113): the changed files plus the direct callers and callees
+        # of the symbols the diff defined. The prompt sends the Reviewer here first and tells it to
+        # review nothing else, so this file is what stops a round from starting at zero.
+        changed_now = git("diff", "--name-only", f"{base}...HEAD", cwd=wt).split()
+        files["blast-radius.md"] = blast_radius_text(wt, changed_now, files["diff.patch"])
     index = ["# Evidence index", "", f"Precomputed by tools/agents.py for commit `{head}`.",
-             "The agent cannot run commands; these are the outputs it would have needed.", ""]
+             "The agent cannot run commands; these are the outputs it would have needed.", "",
+             "**Start with `blast-radius.md`** (when it is listed): the changed files and the callers",
+             "and callees of what they define. That is the whole review scope. The rules are in",
+             "`docs/REVIEWER_RULES.md` -- do NOT read CLAUDE.md or docs/PROJECT_CONTEXT.md, they are",
+             "605 lines together and the digest replaces them (Task 113).", ""]
     for name, text in files.items():
         write(os.path.join(ev, name), text)
         index.append(f"- `.agent-evidence/{name}` ({len(text.splitlines())} lines)")
@@ -363,10 +509,28 @@ def last_committed_review(task):
     return None, None, None
 
 
-HARNESS_RE = re.compile(r"\[harness\]\s+PASS:\s*\d+/\d+\s+checks\s+@\s*([0-9a-f]{7,40})\s*\(clean tree\)")
+HARNESS_RE = re.compile(r"\[harness\]\s+PASS:\s*\d+/\d+\s+checks\s+@\s*([0-9a-f]{7,40})\s*\(clean tree\)"
+                        r"(?:\s+scope=([A-Za-z0-9_,:.-]+))?")
 # The two-player line has the same shape under a different tag. Both are written by
 # tools/studio_mcp.py and nothing else; a request pastes them verbatim.
-HARNESS2_RE = re.compile(r"\[harness2\]\s+PASS:\s*\d+/\d+\s+checks\s+@\s*([0-9a-f]{7,40})\s*\(clean tree\)")
+HARNESS2_RE = re.compile(r"\[harness2\]\s+PASS:\s*\d+/\d+\s+checks\s+@\s*([0-9a-f]{7,40})\s*\(clean tree\)"
+                         r"(?:\s+scope=([A-Za-z0-9_,:.-]+))?")
+
+
+def scope_verdict(scope):
+    """What a pasted line's `scope=` means here. Pure: the tag (or None) in, a word out.
+
+    "full"   -- `scope=all`, or no scope at all, which is every harness line committed before
+                Task 113. Evidence for a review round AND for the merge gate.
+    "auto"   -- `scope=auto:<names>`: tools/studio_mcp.py resolved the scope from the branch's own
+                changed paths. Good enough for a REVIEW ROUND -- the game was still played whenever
+                any spec was in the blast radius -- and not evidence for the merge.
+    "hand"   -- `scope=<names>` typed by a person. REFUSED as evidence: a chosen scope is a choice,
+                not a measurement, and the one thing the gate must not accept is a Builder naming
+                the scope that happens to pass."""
+    if not scope or scope == "all":
+        return "full"
+    return "auto" if scope.startswith("auto:") else "hand"
 
 
 def harness_gate(req, code_full, base, head):
@@ -398,14 +562,25 @@ def harness_gate(req, code_full, base, head):
         for f in names:
             if f.replace("\\", "/").startswith(CODE_PATHS):
                 seen[f] = True
-    changed = sorted(seen)
+    # THE CONTENT LANE IS NOT A CODE CHANGE for this gate (Task 113). `CONTENT_PATHS` is data the
+    # Director tunes live and Karen OKs; CLAUDE.md gives it no review round at all, so a request
+    # made only of it is treated exactly like a docs one. The data commit still runs `test`.
+    content = sorted(f for f in seen if f.replace("\\", "/").startswith(CONTENT_PATHS))
+    changed = sorted(f for f in seen if f not in content)
+    if content:
+        print(f"[agents] content lane: {len(content)} data file(s) "
+              f"({', '.join(content[:3])}) need no review round (CLAUDE.md \"Content lane\"); "
+              "the data commit still needs `python tools/studio_mcp.py test`", flush=True)
     if not changed:
         print("[agents] docs-only change: no harness line required", flush=True)
         return
-    def pasted(pattern):
-        return any(code_full.startswith(m.group(1)) for m in pattern.finditer(req))
 
-    if not pasted(HARNESS_RE):
+    def pasted(pattern):
+        """The pasted lines of this shape that name the code commit, in the order they appear."""
+        return [m for m in pattern.finditer(req) if code_full.startswith(m.group(1))]
+
+    one = pasted(HARNESS_RE)
+    if not one:
         roots = sorted({f.replace("\\", "/").split("/")[0] + "/" for f in changed})
         raise Refused(
             f"this change touches {', '.join(roots)} ({len(changed)} file(s)), so it must have RUN "
@@ -421,10 +596,31 @@ def harness_gate(req, code_full, base, head):
     # `WEAPON_VIEWMODEL_PATHS`: a second client draws a second copy of a thing only its own player
     # can see, so it answers nothing. ALL or NOTHING -- one file outside the list and the whole
     # change needs the line again.
+    # ...AND UNLESS THE ONE-PLAYER LINE IS A SCOPED ONE (Task 113; Director, 2026-10-02: "agents.py
+    # accepts a scoped line for review rounds; the FULL suite (and test2 where required) is required
+    # only for the PR to main"). A `scope=auto:...` line can only have come from `test --scope auto`
+    # on this branch, so it is a REVIEW-ROUND run by construction, and `test2` costs a human click
+    # and eight minutes per round. The MERGE gate is unchanged: it wants the full pair, and
+    # CLAUDE.md git workflow step 4 plus the Director check it. A HAND-NAMED scope is refused
+    # outright above -- that is the one shape a Builder could choose to make a gate pass.
+    kinds = {scope_verdict(m.group(2)) for m in one}
+    hand = sorted({m.group(2) for m in one if scope_verdict(m.group(2)) == "hand"})
+    if hand and "full" not in kinds and "auto" not in kinds:
+        raise Refused(
+            f"the pasted harness line carries a hand-named scope (scope={hand[0]}). A scope typed by "
+            "a person is a choice, not a measurement, so it is not review evidence. Re-run either "
+            "`python tools/studio_mcp.py test` (the whole suite) or `test --scope auto` (resolved "
+            "from this branch's own changed paths) and paste that line.")
+    scoped = "full" not in kinds
     two_player = needs_two_player(changed)
     if not two_player and any(f.replace("\\", "/").startswith(TWO_PLAYER_PATHS) for f in changed):
         print(f"[agents] every changed file is first-person viewmodel ({len(changed)} file(s)), so "
               f"the two-player line is not required (Director, 2026-10-02)", flush=True)
+    if two_player and scoped:
+        print(f"[agents] the one-player line is scoped ({sorted(m.group(2) for m in one)}), so this "
+              "is a review round and the two-player line is not required (Task 113). THE MERGE "
+              "STILL NEEDS the full `test` and `test2` pair for the code commit.", flush=True)
+        two_player = []
     if two_player and not pasted(HARNESS2_RE):
         named = sorted({f.replace("\\", "/") for f in two_player})[:6]
         raise Refused(
@@ -524,9 +720,19 @@ def cmd_review(task_arg=None):
             # The effective cap, not MAX_ROUNDS: the agent must be told the cap in force, which the
             # Director's DIRECTOR_MAX_ROUNDS may have raised (review round 4, finding 3).
             raised = "" if cap == MAX_ROUNDS else f" (default {MAX_ROUNDS}, raised by the Director)"
+            # WHAT TO READ, AND IN WHICH ORDER (Task 113). The scope comes first and the rules come
+            # from the 61-line digest: a round used to start by reading CLAUDE.md (557 lines) and
+            # docs/PROJECT_CONTEXT.md (48) before it had seen the diff. Karen, 2026-10-02: "not need
+            # start from zero I mentioned 100 times".
             task_text = (f"Review commit `{head}` for **task {task}**, round {rnd} of max {cap}{raised}, "
                          f"against base `{base}`.\n"
-                         f"Read `{rel}` (the Builder's request), then `.agent-evidence/INDEX.md`.\n"
+                         f"Read, in this order: `docs/REVIEWER_RULES.md` (the rules digest -- do NOT "
+                         f"read CLAUDE.md or docs/PROJECT_CONTEXT.md), "
+                         f"`.agent-evidence/blast-radius.md` (your whole review scope), `{rel}` "
+                         f"(the Builder's request), then `.agent-evidence/INDEX.md` for the rest of "
+                         f"the precomputed evidence.\n"
+                         f"Review ONLY the changed files and the callers and callees named in "
+                         f"blast-radius.md. Anything outside that is not even a note.\n"
                          f"Your verdict is written to `{task_rel(task, 'RESULT.md')}`.")
             return run_agent("reviewer", "docs/REVIEWER_PROMPT.md", task_text, wt)
 
@@ -658,6 +864,65 @@ def selftest():
     # The one-player gate is untouched by any of this: every code path still needs `[harness]`.
     check("the exempt paths are still CODE paths, so the one-player line is still required",
           all(p.startswith(CODE_PATHS) for p in WEAPON_VIEWMODEL_PATHS))
+    # ---------------------------------------------------------- Task 113: scope, content lane,
+    # blast radius. All three are pure functions of text, so all three are proved here.
+    #
+    # THE SCOPED-LINE RULE, and the direction that matters is "hand": that is the one shape a
+    # Builder could choose to make a gate pass, so it must never read as evidence.
+    check("no scope at all is full evidence", scope_verdict(None) == "full")
+    check("scope=all is full evidence", scope_verdict("all") == "full")
+    check("scope=auto:... is a review-round run", scope_verdict("auto:gun,viewmodel") == "auto")
+    for hand in ("gun", "gun,viewmodel", "none", "match"):
+        check("a hand-named scope=%s is not evidence" % hand, scope_verdict(hand) == "hand")
+    # ...and the regex still reads the lines both with and without a scope, which is what keeps
+    # every harness line committed before Task 113 valid.
+    sha = "a" * 40
+    for line, want in ((f"[harness] PASS: 32/32 checks @ {sha} (clean tree)", None),
+                       (f"[harness] PASS: 32/32 checks @ {sha} (clean tree) scope=all", "all"),
+                       (f"[harness] PASS: 12/12 checks @ {sha} (clean tree) scope=auto:gun", "auto:gun"),
+                       (f"[harness] PASS: 12/12 checks @ {sha} (clean tree) scope=none", "none")):
+        m = HARNESS_RE.search(line)
+        check("the harness line parses (%s)" % (want or "no scope"),
+              m is not None and m.group(1) == sha and m.group(2) == want,
+              repr(m.groups() if m else None))
+    check("the two-player line parses a scope too",
+          HARNESS2_RE.search(f"[harness2] PASS: 9/9 checks @ {sha} (clean tree) scope=all") is not None)
+    # A DIRTY-TREE line is still not evidence, scoped or not: the scope group may only follow
+    # "(clean tree)".
+    check("a DIRTY TREE line is still refused",
+          HARNESS_RE.search(f"[harness] PASS: 12/12 checks @ {sha} (DIRTY TREE (1 paths)) scope=all")
+          is None)
+
+    # THE CONTENT LANE. `CONTENT_PATHS` is data, so a change made only of it is a docs change here;
+    # a change that also touches code is NOT, and that is the direction that would be wrong quietly.
+    check("poses.json is a content path", "src/shared/Viewmodel/poses.json".startswith(CONTENT_PATHS))
+    check("the module that READS poses.json is not content",
+          not "src/shared/Viewmodel/init.luau".startswith(CONTENT_PATHS))
+    check("a content path is still a code path, so nothing else about it changes",
+          all(p.startswith(CODE_PATHS) for p in CONTENT_PATHS))
+
+    # THE BLAST RADIUS. The symbols come out of the diff text, in both directions: a definition the
+    # diff DELETED is exactly the one whose callers now break.
+    diff = "\n".join([
+        "--- a/src/shared/Gun/init.luau", "+++ b/src/shared/Gun/init.luau",
+        "+function Gun.reload(self)", "-local function oldHelper(x)", "+MAX_SHELLS = 2",
+        "+\tlocal unchanged = callSomethingElse()", " context line with function notAdded()",
+        "--- a/tools/agents.py", "+++ b/tools/agents.py", "+def scope_verdict(scope):",
+    ])
+    got = symbols_in_diff(diff)
+    check("an added Luau function is a symbol", "reload" in got, repr(got))
+    check("a REMOVED function is a symbol too", "oldHelper" in got, repr(got))
+    check("a module-level constant is a symbol", "MAX_SHELLS" in got, repr(got))
+    check("a Python def is a symbol", "scope_verdict" in got, repr(got))
+    check("a context line is not a symbol", "notAdded" not in got, repr(got))
+    check("a local assignment that is not a definition is not a symbol",
+          "unchanged" not in got, repr(got))
+    # And the module names other files would `require`: a folder's `init.luau` is reached by the
+    # FOLDER's name, which is the name a caller actually writes.
+    mods = module_names(["src/shared/Gun/init.luau", "src/client/Camera/Viewmodel.luau", "docs/x.md"])
+    check("an init.luau is named by its folder", "Gun" in mods, repr(mods))
+    check("a plain module is named by its file", "Viewmodel" in mods, repr(mods))
+
     print("[selftest] %s" % ("all ok" if not failures else "FAILED: " + ", ".join(failures)))
     return 0 if not failures else 1
 

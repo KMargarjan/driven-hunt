@@ -41,6 +41,7 @@ THE MCP THREAD CANNOT `require` OR `Invoke`, AND SINCE TASK 101 NOTHING HERE DOE
 
 Usage:
   python tools/studio_mcp.py test           # full checked run; exit 0 only on a clean-tree PASS
+  python tools/studio_mcp.py test --scope auto    # only what this branch changed can break (Task 113)
   python tools/studio_mcp.py test2          # the same specs in a 2-player local test (Karen starts it)
   python tools/studio_mcp.py selftest       # NO Studio: prove the concurrency helpers (CI runs this)
   (stdout is line buffered, so a run's lines appear live even when it is piped to a log)
@@ -60,6 +61,31 @@ unchanged during the run"). That sha is what a review request must write as its 
 code commit is the commit the harness lines name, which has to be at or after the last commit that
 touched src/, tests/ or tools/, with only paperwork after it (CLAUDE.md git workflow step 4).
 `tools/agents.py` refuses a request whose `Code commit:` no pasted line names.
+
+SCOPED RUNS: ONLY WHAT CHANGED, AND ITS BLAST RADIUS (Task 113; Karen, 2026-10-02: "it has to test
+only parts what has been changed and what blast radius could be")
+  `test --scope auto` reads the paths this branch changed (its diff against origin/main, plus
+  anything uncommitted), maps each through `BLAST_RADIUS` to a scope name, and takes the spec files
+  those scopes name from `SCOPE_SPECS`. Both tables are right above `spec_files_on_disk` in this
+  file, and `selftest` fails if a spec file belongs to no scope.
+    `--scope all` (and no --scope at all)   the whole suite: what every run before Task 113 did.
+    `--scope auto`                          resolved from the changed paths.
+    `--scope gun,viewmodel`                 named by hand: the Director's instrument.
+  WHAT THE SCOPE DECIDES is whether PLAY HAPPENS. A change that reaches no spec -- docs, the tools
+  that are not this harness, the loop's own paperwork -- gets the Edit-place checks (sync, the
+  script scan, spec placement, the flag and pose guards) and nothing else, in a few seconds instead
+  of ~90. A change that reaches any spec gets the whole run, unchanged. `poses.json` is NOT one of
+  the cheap ones: `tests/server/viewmodel_poses.spec.luau` reads it, so the content lane's one-player
+  gate (CLAUDE.md) is a real `test` with Play, and only the REVIEW round is what it skips.
+  WHAT IT DOES NOT DO, said plainly because the final line carries `scope=`: it does not choose
+  which specs TestEZ runs. `tests/TestKit.luau` loads every `*.spec` under its folder and this file
+  cannot change that (Task 113 is tools-only), so inside a Play run every spec of both sides still
+  runs. Filtering the suite itself is queued as TASKS.md 113a.
+  THE FINAL LINE CARRIES THE SCOPE: `... (clean tree) scope=all`, `scope=auto:gun,viewmodel`, or
+  `scope=auto:none` when nothing in the change reached a spec. `tools/agents.py` accepts `scope=all` (or a line with no scope, as every committed
+  line before this one) as full evidence, accepts `scope=auto:...` for a REVIEW ROUND only, and
+  refuses a hand-named scope as evidence -- a chosen scope is a choice, not a measurement. The merge
+  gate still wants the full pair (CLAUDE.md git workflow step 4).
 
 WHICH RUN IS EVIDENCE FOR WHAT (Director decision, 2026-09-26). `test` is the default and every
 change needs it. `test2` is ALSO part of the merge gate for a change touching `src/` (gameplay),
@@ -585,6 +611,167 @@ STAGE_TARGET_WAIT_SECONDS = 60
 STAGE_STREAM_WAIT_SECONDS = 30
 SCREENSHOT_DIR = os.path.join(REPO, ".screenshots")
 SPEC_ROOTS = {"server": ("ServerStorage", "Tests"), "client": ("ReplicatedStorage", "ClientTests")}
+
+# ---------------------------------------------------------------- blast radius (Task 113)
+# KAREN, 2026-10-02, having said it before: "it has to test only parts what has been changed and
+# what blast radius could be". So a run may be SCOPED: `test --scope auto` reads the branch's own
+# changed paths, maps each to the spec files that could possibly see it, and -- when NOTHING in the
+# change can reach a spec -- skips Play altogether. A docs, paperwork or tools-outside-the-harness
+# commit then costs a few seconds of Edit-place checks instead of ~90 s of Play.
+#
+# WHAT A SCOPE DOES AND DOES NOT DO, written plainly because the final line says `scope=` and a
+# reader will assume more than is there. This file does not choose which specs TestEZ runs:
+# `tests/TestKit.luau` loads every `*.spec` under its folder, and Task 113 is tools-only, so once
+# Play runs every spec of both sides runs exactly as before. What the scope decides is WHETHER THE
+# GAME HAS TO BE PLAYED AT ALL, and it records in the final line what the change can break.
+# Filtering the suite itself needs a TestKit change, and that is queued (TASKS.md 113a).
+#
+# THE MAP IS DELIBERATELY SMALL AND EXPLICIT. First match wins, so a longer prefix comes first.
+BLAST_RADIUS = (
+    ("src/shared/Gun/", "gun"),
+    ("src/shared/Shotgun/", "gun"),
+    ("src/shared/Viewmodel/", "viewmodel"),
+    ("src/client/Camera/Viewmodel.luau", "viewmodel"),
+    ("src/client/Camera/Poses.luau", "viewmodel"),
+    ("src/client/Camera/", "camera"),
+    ("src/client/Weapon/", "weapon"),
+    ("src/server/Weapon/", "weapon"),
+    ("src/client/Hud/", "hud"),
+    ("src/client/Match/", "match"),
+    ("src/server/Match/", "match"),
+    ("src/shared/Drive/", "match"),
+    ("src/server/Boar/", "boar"),
+    ("src/shared/Map/", "map"),
+    ("src/serverstorage/MapGen/", "map"),
+    ("src/serverstorage/Assets/", "assets"),
+    ("src/shared/Flags/", "flags"),
+)
+
+# Scope name -> the spec files it names. EVERY spec file in the repo belongs to at least one scope,
+# and `selftest` fails if one does not: a new spec nobody mapped would otherwise quietly shrink what
+# `--scope auto` considers covered.
+SCOPE_SPECS = {
+    "gun": ("tests/server/gun.spec.luau", "tests/client/gun_client.spec.luau"),
+    "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau"),
+    "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau"),
+    "weapon": ("tests/server/weapon_hits.spec.luau", "tests/server/weapon_look.spec.luau",
+               "tests/server/weapon_rearm.spec.luau", "tests/server/weapon_shot.spec.luau",
+               "tests/server/weapon_state.spec.luau", "tests/server/boar_hit.spec.luau",
+               "tests/client/weapon_client.spec.luau", "tests/client/hit_marker.spec.luau",
+               "tests/client/shoot_boar.spec.luau"),
+    "boar": ("tests/server/boar_body.spec.luau", "tests/server/boar_brain.spec.luau",
+             "tests/server/boar_hit.spec.luau", "tests/server/boar_sounder.spec.luau",
+             "tests/server/boar_wound.spec.luau", "tests/server/boar_zones.spec.luau",
+             "tests/client/shoot_boar.spec.luau"),
+    "match": ("tests/server/match_live.spec.luau", "tests/server/match_outfit.spec.luau",
+              "tests/server/match_phase.spec.luau", "tests/server/match_roster.spec.luau",
+              "tests/server/match_safety.spec.luau", "tests/server/match_score.spec.luau",
+              "tests/server/match_teams.spec.luau", "tests/server/zz_drive_boundary.spec.luau",
+              "tests/client/match_client.spec.luau", "tests/client/outfit_client.spec.luau",
+              "tests/client/zz_tie_to_a_tree.spec.luau"),
+    "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau"),
+    "assets": ("tests/server/assets_seam.spec.luau",),
+    "flags": ("tests/server/flags.spec.luau", "tests/client/flags_client.spec.luau"),
+    "hud": ("tests/client/hit_marker.spec.luau",),
+    "input": ("tests/client/input_driving.spec.luau",),
+    "sync": ("tests/server/sync.spec.luau", "tests/client/client_env.spec.luau"),
+}
+
+# ANYTHING CODE-LIKE THE MAP DOES NOT RECOGNISE MEANS THE WHOLE SUITE, and that fail-safe is what
+# the scope rests on: a new folder under src/, a changed spec, the runners, TestKit or this harness
+# resolve to `all`, never to "nothing to run". The map can only ever NARROW a path it names.
+SCOPE_ALL = "all"
+FAIL_SAFE_PATHS = ("src/", "tests/", "tools/studio_mcp.py")
+
+
+def spec_files_on_disk():
+    """Every spec file under tests/, from the filesystem. No git, so `selftest` can use it in CI."""
+    return sorted(
+        "tests/" + side + "/" + name
+        for side in ("server", "client")
+        for name in os.listdir(os.path.join(REPO, "tests", side))
+        if ".spec." in name
+    )
+
+
+def specs_for(names):
+    """The spec files a set of scope names covers. `all` means every spec in the repo."""
+    if SCOPE_ALL in names:
+        return spec_files_on_disk()
+    out = set()
+    for name in names:
+        out |= set(SCOPE_SPECS.get(name, ()))
+    return sorted(out)
+
+
+def scope_for(changed):
+    """(scope names, spec files) for a list of changed repo paths. Pure: paths in, names out.
+
+    A path the map names resolves to that scope. A path that is code but unmapped resolves to `all`
+    (FAIL_SAFE_PATHS). Anything else -- docs, the other tools, assets, the loop's paperwork --
+    resolves to nothing, and a change made only of those needs no Play at all.
+    """
+    names = set()
+    for raw in changed:
+        path = raw.replace("\\", "/")
+        hit = next((scope for prefix, scope in BLAST_RADIUS if path.startswith(prefix)), None)
+        if hit:
+            names.add(hit)
+            continue
+        owners = sorted(s for s, specs in SCOPE_SPECS.items() if path in specs)
+        if owners:
+            names.update(owners)
+            continue
+        if path.startswith(FAIL_SAFE_PATHS):
+            names.add(SCOPE_ALL)
+    if SCOPE_ALL in names:
+        names = {SCOPE_ALL}
+    return sorted(names), specs_for(names)
+
+
+def changed_paths():
+    """The paths this branch changed: its diff against origin/main, plus anything uncommitted.
+
+    Uncommitted files count: a dirty-tree run is already flagged as invalid evidence, and a scope
+    that ignored them would run the wrong subset while naming the right one in the final line.
+    """
+    base = ""
+    for ref in ("origin/main", "main", "HEAD~1"):
+        out = subprocess.run(["git", "merge-base", "HEAD", ref],
+                             capture_output=True, text=True, cwd=REPO)
+        if out.returncode == 0 and out.stdout.strip():
+            base = out.stdout.strip()
+            break
+    paths = set()
+    if base:
+        paths.update(git("diff", "--name-only", base + "...HEAD").split())
+    for line in git("status", "--porcelain").splitlines():
+        if line.strip():
+            paths.add(line[3:].split(" -> ")[-1].strip().strip('"'))
+    return sorted(paths)
+
+
+def resolve_scope(arg):
+    """The `--scope` argument -> (scope names, spec files, one line saying where they came from).
+
+    None or `all`: the whole suite, which is what an unscoped `test` has always run.
+    `auto`: from this branch's own changed paths (`changed_paths`).
+    A comma list of scope names: the Director's instrument. `tools/agents.py` REFUSES such a line as
+    review evidence, because a hand-picked scope is a choice and not a measurement.
+    """
+    if arg is None or arg == SCOPE_ALL:
+        return [SCOPE_ALL], spec_files_on_disk(), "the whole suite"
+    if arg == "auto":
+        changed = changed_paths()
+        names, specs = scope_for(changed)
+        return (names or ["none"]), specs, "auto, from %d changed path(s)" % len(changed)
+    names = [n.strip() for n in arg.split(",") if n.strip()]
+    unknown = [n for n in names if n not in SCOPE_SPECS]
+    if unknown or not names:
+        sys.exit("unknown scope %s; known: auto, all, %s"
+                 % (", ".join(unknown) or "(empty)", ", ".join(sorted(SCOPE_SPECS))))
+    return sorted(set(names)), specs_for(set(names)), "named on the command line"
+
 
 # Read-only Luau queries. Keep every query here, read-only. Templated ones take JSON via luau_json().
 QUERY_PLACE_ID = "return tostring(game.PlaceId)"
@@ -2341,8 +2528,16 @@ def replay_input(studio, data, token, check, studio_id=None, mirror_ids=(), serv
               "; ".join(failed) if failed else "; ".join(staged))
 
 
-def run_test(studio):
+def run_test(studio, scope=None):
     checks = []
+    # THE SCOPE (Task 113). `scope` is the raw --scope argument: None/"all" (the whole suite, which
+    # is what every run before this did), "auto" (resolved from the branch's changed paths), or a
+    # comma list. `play` is the one thing it decides: when no spec is in the blast radius, there is
+    # nothing for Play to prove and it is skipped. Everything above Play -- sync, the script scan,
+    # spec placement, the flag and pose guards -- runs either way.
+    scope_names, scope_specs, scope_why = resolve_scope(scope)
+    scope_line = ",".join(scope_names)
+    play = bool(scope_specs)
 
     def check(name, ok, detail=""):
         checks.append(ok)
@@ -2364,7 +2559,12 @@ def run_test(studio):
         passed = all(checks) and code is None
         tree = "clean tree" if not dirty else f"DIRTY TREE ({len(set(dirty_start + dirty_end))} paths) - NOT valid evidence"
         phases.report()
-        print(f"[harness] {'PASS' if passed else 'FAIL'}: {sum(checks)}/{len(checks)} checks @ {sha} ({tree})")
+        # `scope=` IS PART OF THE LINE, so the evidence says what it covered. `scope=all` is a full
+        # run and the only kind the merge gate accepts; `scope=auto:<names>` is a review-round run;
+        # `scope=none` ran no Play at all. tools/agents.py reads exactly this.
+        tag = f"auto:{scope_line}" if scope == "auto" else scope_line
+        print(f"[harness] {'PASS' if passed else 'FAIL'}: {sum(checks)}/{len(checks)} checks @ {sha} "
+              f"({tree}) scope={tag}")
         if dirty:
             for line in sorted(set(dirty_start + dirty_end))[:10]:
                 print("    dirty: " + line)
@@ -2375,6 +2575,8 @@ def run_test(studio):
     phases = Phases("harness")
     sha, dirty_start = git_state()
     print(f"[harness] testing {sha} ({'clean' if not dirty_start else 'DIRTY'} tree)")
+    print(f"[harness] scope={scope_line} ({scope_why}): {len(scope_specs)} spec file(s) in the blast "
+          f"radius; Play {'runs' if play else 'is SKIPPED'}")
 
     mode = studio.mode()
     if not check("Studio is in Edit mode before the run", mode == "Edit", mode):
@@ -2453,62 +2655,74 @@ def run_test(studio):
         print(f"[harness] {len(declared_flags())} flag(s) declared on disk: {', '.join(declared_flags())}")
 
         phases.mark("checks against the Edit place (sync, scripts, specs)")
-        print("[harness] Play")
-        studio.set_play(True)
-        try:
-            if scenarios is None:
-                print("[harness] no tests/client/input_scenarios.txt: nothing to replay")
-            else:
-                replay_input(studio, scenarios, token, check)
-            phases.mark("replaying the input scenarios")
-            # BOTH SIDES AGAINST ONE DEADLINE, round-robin -- the fix Task 34 already made in `test2`
-            # and this loop did not have. Read one after another, the server's whole window has to
-            # run out before the client is looked at once, and since Task 41 the server's last spec
-            # deliberately WAITS for the client to finish before it ends the drive: the server then
-            # reported at ~125 s and the sequential read had given up at 120.
-            pending = {"server": "Server", "client": "Client"}
-            deadline = time.time() + REPORT_WINDOW
-            while pending and time.time() < deadline:
-                for side, datamodel in list(pending.items()):
-                    # process_call, not a bare query: while a Play session is starting, StudioMCP
-                    # answers "place is not open" and the like, and those are what process_call
-                    # retries (still_loading; anything else it re-raises). The wait_for this loop
-                    # replaced swallowed them, and run_test2's equivalent loop has always used this
-                    # (TASKS.md 41a(a)).
-                    raw, _why = process_call(
-                        lambda: studio.query(datamodel, QUERY_REPORT[side]), timeout=0, default="")
-                    if raw:
-                        reports[side] = json.loads(raw)
-                        print(f"[harness] {side} reported after {int(time.time() - (deadline - REPORT_WINDOW))} s")
-                        del pending[side]
-                        if side == "client":
-                            # The server's last spec waits for this before it ends the drive. Wrapped
-                            # like the poll above and like run_test2's equivalent: a loading-class
-                            # error here would otherwise end the run with a traceback one second
-                            # before the handshake would have landed.
-                            process_call(
-                                lambda: studio.query("Server", QUERY_SET_CLIENTS_DONE % json.dumps(token)),
-                                timeout=10)
-                if pending:
-                    time.sleep(1)
-            phases.mark("reading both reports")
-            output = studio.console()
-        finally:
-            studio.set_play(False)
+        if not play:
+            # NOTHING IN THE CHANGE CAN REACH A SPEC, so there is nothing for Play to prove
+            # (Task 113). The Edit-place checks above are the whole run, and the final line
+            # says `scope=none` so no reader can mistake it for a full one.
+            print("[harness] no spec is in this change's blast radius: Play is SKIPPED. "
+                  "The checks above (sync, the script scan, spec placement, the flag and pose "
+                  "guards) are the whole run. Use `--scope all` for the full gate.")
+        else:
+            print("[harness] Play")
+            studio.set_play(True)
+            try:
+                if scenarios is None:
+                    print("[harness] no tests/client/input_scenarios.txt: nothing to replay")
+                else:
+                    replay_input(studio, scenarios, token, check)
+                phases.mark("replaying the input scenarios")
+                # BOTH SIDES AGAINST ONE DEADLINE, round-robin -- the fix Task 34 already made in `test2`
+                # and this loop did not have. Read one after another, the server's whole window has to
+                # run out before the client is looked at once, and since Task 41 the server's last spec
+                # deliberately WAITS for the client to finish before it ends the drive: the server then
+                # reported at ~125 s and the sequential read had given up at 120.
+                pending = {"server": "Server", "client": "Client"}
+                deadline = time.time() + REPORT_WINDOW
+                while pending and time.time() < deadline:
+                    for side, datamodel in list(pending.items()):
+                        # process_call, not a bare query: while a Play session is starting, StudioMCP
+                        # answers "place is not open" and the like, and those are what process_call
+                        # retries (still_loading; anything else it re-raises). The wait_for this loop
+                        # replaced swallowed them, and run_test2's equivalent loop has always used this
+                        # (TASKS.md 41a(a)).
+                        raw, _why = process_call(
+                            lambda: studio.query(datamodel, QUERY_REPORT[side]), timeout=0, default="")
+                        if raw:
+                            reports[side] = json.loads(raw)
+                            print(f"[harness] {side} reported after {int(time.time() - (deadline - REPORT_WINDOW))} s")
+                            del pending[side]
+                            if side == "client":
+                                # The server's last spec waits for this before it ends the drive. Wrapped
+                                # like the poll above and like run_test2's equivalent: a loading-class
+                                # error here would otherwise end the run with a traceback one second
+                                # before the handshake would have landed.
+                                process_call(
+                                    lambda: studio.query("Server", QUERY_SET_CLIENTS_DONE % json.dumps(token)),
+                                    timeout=10)
+                    if pending:
+                        time.sleep(1)
+                phases.mark("reading both reports")
+                output = studio.console()
+            finally:
+                studio.set_play(False)
     finally:
         write_token("")  # close the gate so Karen's playtests do not run tests
 
-    print("----- Studio Output -----")
-    print(output)
-    print("-------------------------")
-    for side in ("server", "client"):
+    # NO SIDES WHEN PLAY WAS SKIPPED (Task 113): a report that was never asked for must not be
+    # checked, or a scoped run would FAIL on two missing reports it deliberately did not collect.
+    sides = ("server", "client") if play else ()
+    if play:
+        print("----- Studio Output -----")
+        print(output)
+        print("-------------------------")
+    for side in sides:
         # NOTES BEFORE CHECKS, and outside the pass/fail branches: a note is a spec explaining
         # itself to whoever reads this output, and it is worth most when the run failed.
         for note in (reports.get(side) or {}).get("notes", []):
             print(f"  note   [{side}] {note}")
         for failure in (reports.get(side) or {}).get("failures", []):
             print(f"  failed [{side}] {describe_failure(failure)}")
-    for side in ("server", "client"):
+    for side in sides:
         report = reports.get(side)
         if not check(f"[{side}] runner reported within {REPORT_WINDOW} s", report is not None):
             continue
@@ -2539,8 +2753,9 @@ def run_test(studio):
     # KeyError before `verdict()` runs, and an eight-minute run ends in a traceback with no
     # "[harness] FAIL: n/m checks @ <sha>" line at all. A missing report must FAIL this check, not
     # abort the run (review round 1 of Task 48).
-    seam = (reports.get("server") or {}).get("seamClosed")
-    check("the drive-clock seam closed when the server run finished", seam is True, repr(seam))
+    if play:
+        seam = (reports.get("server") or {}).get("seamClosed")
+        check("the drive-clock seam closed when the server run finished", seam is True, repr(seam))
     phases.mark("ending Play, checking the reports")
     return verdict()
 
@@ -3841,6 +4056,59 @@ def selftest():
        and "require(" not in QUERY_STAGE_TARGET,
        f"{map_streaming_radius()} / {'require(' in QUERY_STAGE_TARGET}")
 
+    # 11. THE SCOPE MAP (Task 113), driven by file lists, which is all the decision is made of.
+    # The dangerous direction is a GAMEPLAY path that resolves to "nothing to run": every case
+    # below that matters is of that shape.
+    names, specs = scope_for(["src/shared/Gun/init.luau"])
+    ok("a gun change scopes to gun and names its specs",
+       names == ["gun"] and "tests/server/gun.spec.luau" in specs, repr((names, specs)))
+    names, specs = scope_for(["src/server/Match/Penalty.luau", "src/server/Boar/Brain.luau"])
+    ok("two areas scope to both", names == ["boar", "match"], repr(names))
+    ok("an unmapped code path falls back to the whole suite",
+       scope_for(["src/server/NewThing/init.luau"])[0] == [SCOPE_ALL],
+       repr(scope_for(["src/server/NewThing/init.luau"])[0]))
+    ok("a changed spec file scopes to the spec's own area",
+       scope_for(["tests/server/match_teams.spec.luau"])[0] == ["match"],
+       repr(scope_for(["tests/server/match_teams.spec.luau"])[0]))
+    ok("TestKit and the runners mean the whole suite",
+       scope_for(["tests/TestKit.luau"])[0] == [SCOPE_ALL]
+       and scope_for(["tests/ClientTestRunner.client.luau"])[0] == [SCOPE_ALL])
+    ok("this harness itself means the whole suite",
+       scope_for(["tools/studio_mcp.py"])[0] == [SCOPE_ALL])
+    # ...and the other half: a change that reaches no spec runs no Play. These are the ones that
+    # were costing 90 s of Studio for nothing.
+    for path in ("docs/design/camera.md", "CLAUDE.md", "tools/agents.py", "reviews/task-1/RESULT.md"):
+        ok("a %s change needs no Play" % path, scope_for([path]) == ([], []),
+           repr(scope_for([path])))
+    # ...AND `poses.json` IS NOT ONE OF THEM, which is the case that would be wrong in the quiet
+    # direction: `tests/server/viewmodel_poses.spec.luau` reads that file, so the content lane's own
+    # one-player gate is a real run with Play. Only the REVIEW round is what the content lane skips.
+    ok("a poses.json change still plays the viewmodel specs",
+       scope_for(["src/shared/Viewmodel/poses.json"])[0] == ["viewmodel"],
+       repr(scope_for(["src/shared/Viewmodel/poses.json"])))
+    # `all` ABSORBS everything else, so a mixed change can never be narrower than its widest file.
+    ok("all absorbs a narrower scope",
+       scope_for(["src/shared/Gun/init.luau", "tests/TestKit.luau"])[0] == [SCOPE_ALL])
+    # NORMALISATION, in the direction that can fail: an un-normalised Windows path matches no prefix,
+    # and without `.replace` a gameplay path would resolve to nothing at all rather than to `all`.
+    ok("a Windows path still scopes to its area",
+       scope_for([r"src\server\Match\init.luau"])[0] == ["match"],
+       repr(scope_for([r"src\server\Match\init.luau"])[0]))
+    # EVERY SPEC IN THE REPO IS MAPPED. A new spec nobody added to SCOPE_SPECS would otherwise sit
+    # outside every scope, and `--scope auto` would call its area covered when it is not.
+    mapped = set()
+    for group in SCOPE_SPECS.values():
+        mapped |= set(group)
+    on_disk = set(spec_files_on_disk())
+    ok("every spec file on disk belongs to a scope", not (on_disk - mapped),
+       repr(sorted(on_disk - mapped)))
+    ok("no scope names a spec file that does not exist", not (mapped - on_disk),
+       repr(sorted(mapped - on_disk)))
+    ok("all means every spec on disk", set(specs_for({SCOPE_ALL})) == on_disk)
+    # The default is UNCHANGED: no --scope is the whole suite, and that is what the merge gate reads.
+    ok("no --scope is the whole suite",
+       resolve_scope(None)[0] == [SCOPE_ALL] and set(resolve_scope(None)[1]) == on_disk)
+
     # 10. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):
         data = load_scenarios()
@@ -3879,8 +4147,20 @@ def main(argv):
             "test", "test2", "selftest", "state", "console", "stop", "manifest", "capture",
             "studios", "flags"):
         sys.exit(__doc__)
-    if argv[1] not in ("capture", "flags") and len(argv) != 2:
+    if argv[1] not in ("capture", "flags", "test") and len(argv) != 2:
         sys.exit(__doc__)
+    # `test [--scope auto|all|<name>[,<name>...]]` (Task 113). The SHAPE is parsed here; the NAMES
+    # are validated by `resolve_scope`, which exits with the known list.
+    scope = None
+    if argv[1] == "test":
+        rest = list(argv[2:])
+        if rest[:1] == ["--scope"] and len(rest) == 2:
+            scope, rest = rest[1], []
+        elif len(rest) == 1 and rest[0].startswith("--scope="):
+            scope, rest = rest[0].split("=", 1)[1], []
+        if rest:
+            sys.exit("usage: python tools/studio_mcp.py test [--scope auto|all|"
+                     + "|".join(sorted(SCOPE_SPECS)) + "]")
     if argv[1] == "capture" and not 3 <= len(argv) <= 6:
         sys.exit("usage: python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z] "
                  "[edit|server|client|client:<PlayerName>]")
@@ -3904,7 +4184,7 @@ def main(argv):
                 return 1
         if cmd == "test":
             try:
-                return run_test(studio)
+                return run_test(studio, scope)
             except Exception as e:  # a harness fault is a FAIL, never a silent traceback (rule 6)
                 try:
                     sha = git_state()[0]

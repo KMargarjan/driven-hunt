@@ -76,7 +76,9 @@ PRs. Karen no longer merges. The Builder still never merges and never pushes to 
 3. Build. One task, nothing extra. Commit (this is the **code commit**), then run the harness on the clean
    tree. **Harness before review** (Task 21): a change touching `src/`, `tests/` or `tools/` cannot
    be reviewed until it has run — `tools/review.sh` refuses it unless the request pastes the harness
-   PASS line for the code commit. Docs-only tasks are exempt.
+   PASS line for the code commit. Docs-only tasks are exempt, and so is a content-lane
+   `poses.json`-only change (Task 113). A **scoped** line from `test --scope auto` is accepted for
+   a review round, and then no `[harness2]` line is asked for; the merge still needs the full run.
    **And the two-player run is part of the gate** (Director decision, 2026-09-26) for a change
    touching `src/` (gameplay), `tests/client/` or `tools/studio_mcp.py`: paste the
    `[harness2] PASS: n/m checks @ <code commit> (clean tree)` line as well. A driver, a tie, a team
@@ -234,7 +236,9 @@ Paste this, filled in, at the end of every task report. Each box is checked, or 
 
 ```
 - [ ] Tests pass: `python tools/studio_mcp.py test` → paste the final line. It must read
-      "[harness] PASS: n/n checks @ <sha> (clean tree)", and that <sha> IS the **code commit**: the
+      "[harness] PASS: n/n checks @ <sha> (clean tree) scope=all" — the PR to main needs the FULL
+      run; `scope=auto:…` from `test --scope auto` is review-round evidence only (Task 113) —
+      and that <sha> IS the **code commit**: the
       request's `Code commit:` line says the same one, it is at or after the last commit that changed
       src/, tests/ or tools/, and only paperwork changed after it (git workflow step 4)
 - [ ] Two players, when the change touches src/, tests/client/ or tools/studio_mcp.py:
@@ -280,7 +284,7 @@ fails if a script exists anywhere Rojo does not manage.
 | `assets/uploads.json` | none | One row per Open Cloud upload, appended by `tools/roblox_upload.py`: asset id, creator, sha256, moderation state and the text of Karen's OK. **Ids are not secrets**; the key never appears here. Not a second id table (`docs/design/map-generator.md` 12.2) |
 | `reviews/task-<N>/` | none | One folder per task: `REQUEST.md` (Builder), `RESULT.md` (Reviewer), `ARCH_RESULT.md` (Architect). Per task so branches never conflict and the round count has a boundary (Task 21) |
 | `backups/` | none | Archived files plus notes |
-| `docs/` | none | `PROJECT_CONTEXT.md` (who, the game, why the rules exist), `research/` (notes plus INDEX), `design/` (Architect system designs), `architecture/` (Architect audits), `REVIEWER_PROMPT.md` and `ARCHITECT_PROMPT.md` (the two agent prompts) |
+| `docs/` | none | `PROJECT_CONTEXT.md` (who, the game, why the rules exist), `research/` (notes plus INDEX), `design/` (Architect system designs), `architecture/` (Architect audits), `REVIEWER_PROMPT.md` and `ARCHITECT_PROMPT.md` (the two agent prompts), `REVIEWER_RULES.md` (the Reviewer's rules digest: it reads that instead of this file and `PROJECT_CONTEXT.md`, Task 113) |
 | `tools/` | none | `studio_mcp.py` (test harness, and the one owner of the `DHFlag_*` overrides); `agents.py` plus `review.sh`/`review.ps1`/`architect.sh`/`architect.ps1` (the Reviewer and Architect gate); `privacy_scan.py` (the public-repo scan CI runs); `flags.py` (the Director's playtest switch, a thin wrapper over `studio_mcp.py flags`); `pose.py` (the Director's viewmodel tuning instrument: the **one writer** of the live pose override, and the only thing that rewrites `src/shared/Viewmodel/poses.json`; `pose.py fit` solves a pose from landmarks read off a reference frame, and `tools/landmarks/` holds those hand-written files); `meshy.py` (the Asset agent's generator; reads `MESHY_API_KEY`, writes only outside the repo) |
 | `docs/asset-briefs/` | none | **The one source** for each asset brief (Karen's decisions, as data) and the reference images beside them. `tools/meshy.py` reads this folder directly; there is no second copy. Everything the tool *writes* still goes outside the repo |
 
@@ -386,6 +390,33 @@ change to the test system, and don't restate it elsewhere.
     `test2` again, because the question is what the change CAN break, not what most of it is. The
     **one-player** line is still required for every code change, always.
     `tools/agents.py selftest` proves both directions and runs in CI.
+  - **SCOPED RUNS, for a review round: `python tools/studio_mcp.py test --scope auto`** (Task 113,
+    after Karen on 2026-10-02: *"it has to test only parts what has been changed and what blast
+    radius could be"*). It reads the paths this branch changed (its diff against `origin/main`, plus
+    anything uncommitted), maps each through `BLAST_RADIUS` in `tools/studio_mcp.py` to a scope name,
+    and takes that scope's spec files from `SCOPE_SPECS` — the two tables are in that file, and its
+    `selftest` fails if a spec file belongs to no scope or a scope names a file that does not exist.
+    The map today: `src/shared/Gun`, `src/shared/Shotgun` → gun · `src/shared/Viewmodel`,
+    `src/client/Camera/Viewmodel.luau`, `src/client/Camera/Poses.luau` → viewmodel ·
+    `src/client/Camera` → camera · `src/client/Weapon`, `src/server/Weapon` → weapon ·
+    `src/client/Hud` → hud · `src/client/Match`, `src/server/Match`, `src/shared/Drive` → match ·
+    `src/server/Boar` → boar · `src/shared/Map`, `src/serverstorage/MapGen` → map ·
+    `src/serverstorage/Assets` → assets · `src/shared/Flags` → flags. **Anything else under `src/`
+    or `tests/`, and `tools/studio_mcp.py` itself, resolves to `all`** — an unmapped code path can
+    only ever mean the whole suite, never "nothing to run".
+    **What the scope decides is whether PLAY HAPPENS.** A change that reaches no spec (docs, the
+    tools that are not the harness, the loop's paperwork) gets the Edit-place checks — sync, the
+    script scan, spec placement, the flag and pose guards — and nothing else, in seconds instead of
+    ~90. A change that reaches any spec gets the whole run: the harness does **not** choose which
+    specs TestEZ runs, because `tests/TestKit.luau` loads every `*.spec` under its folder (filtering
+    the suite itself is queued as Task 113a).
+    The final line carries it: `... (clean tree) scope=all`, `scope=auto:gun,viewmodel`, or
+    `scope=auto:none` when nothing in the change reached a spec. **`tools/agents.py` accepts `scope=auto:…` for a REVIEW ROUND and then asks for no
+    `[harness2]` line at all** (a scoped line can only come from `--scope auto`, so it is a review
+    run by construction, and `test2` costs a human click per round). It accepts `scope=all`, and
+    every line written before Task 113, as full evidence, and it **refuses a hand-named scope** —
+    a scope typed by a person is a choice, not a measurement. **The merge gate is unchanged:** the
+    PR to `main` needs the full `test`, and `test2` where the paths ask for it (git workflow step 4).
 - **Other harness commands:** `state`, `console`, `stop` (read-only / recovery). It needs Studio →
   Assistant settings → MCP server enabled.
 - **Karen's playtests do not run tests.** The runners need a harness token under 120 s old.
@@ -467,6 +498,10 @@ flag:
   tools/studio_mcp.py test`. A data-only commit touches no client spec and no harness code, so
   `test2` is N/A with that as the reason (the Director decides if a change is bigger than that);
 - **no Builder round, no Reviewer round, no research note, no Architect run** for the tuning itself.
+  `tools/agents.py` knows this since Task 113 (`CONTENT_PATHS`): a request whose only code file is
+  `poses.json` passes the harness gate like a docs change. The one-player `test` above is
+  unchanged -- `tests/server/viewmodel_poses.spec.luau` reads that file, so what is dropped is the
+  ROUND, not the run.
 
 **The ENGINEERING lane** -- anything that is code: the pose PLAYER, the override mechanism, a new
 state, a guard, an owner boundary, the harness. That keeps every rule above it: one task, a request,
