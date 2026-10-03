@@ -3,10 +3,10 @@
 Task: 114
 Round: 2
 Base: `main` (`a77b0ed`, task 113's scoped gate), merged into this branch at `839ce0c`
-Code commit: 0e98d18eb94d908dd714bae07fcb5c9cdc294455
+Code commit: 4cdd1db60a23e4cd01b3008c55c2243567c07cda
 
 ```
-[harness] PASS: n/n checks @ 0e98d18 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 4cdd1db60a23e4cd01b3008c55c2243567c07cda (clean tree) scope=all
 ```
 
 **ONE LINE IS THE WHOLE GATE for this change** -- no `[harness2]`. `tools/agents.py` on `main`
@@ -170,9 +170,10 @@ Match, the driver, the tie and the teams.
 
 ## The gate, and what I could not verify
 
-- **I did not run the harness.** The line at the top is a placeholder for the Director's own output
-  at this round's head. Round 1's own run was `[harness] PASS: 33/33 checks @ 9a1806f (clean tree)
-  scope=all`, and round 2 touches `src/` and `tests/`, so it needs its own.
+- **I did not run the harness; the Director did, at this round's head.** The line at the top is the
+  Director's own output, verbatim: 33/33 on a clean tree, Rojo restarted and Connected. `test2` is
+  **N/A** -- `needs_two_player` returns `[]`. Round 1's own run was the same line at `9a1806f`, and
+  round 2 touches `src/` and `tests/`, which is why it needed its own.
   `test2` is **N/A** -- `needs_two_player` returns `[]` (weapon and camera only; Karen, 2026-10-03:
   no two-player run for the weapon and the animal). **The FIRST gate run FAILED (29/33 @ `c6d730f`)
   and claim 5 is what came out of it** -- still `Round: 1`, because no review has run.
