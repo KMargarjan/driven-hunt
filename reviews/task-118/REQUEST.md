@@ -1,7 +1,11 @@
 # Task 118 — boar behaviour: what a boar does about what it notices
 
-Task: 118 · Round: 1 · Base: `task-117-calm-boar` (stacked; the PR targets that branch)
+Task: 118
+Round: 1
+Base: 4cefbc516e0a7eeb3ca4b96506c3e5366aab57fa
 Code commit: 2c845129552f89c4c0e763e28ee20b5ea14a454d
+
+The base is the head of `task-117-calm-boar`, the branch this PR targets: 118 is stacked on 117.
 
 ```
 [harness]  PASS: 33/33 checks @ 2c845129552f89c4c0e763e28ee20b5ea14a454d (clean tree) scope=all
