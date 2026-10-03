@@ -166,7 +166,10 @@ Assets.KEYS = table.freeze({
 	-- `AssetService:CreateAssetAsync` answered "CreateAssetAsync and CreateAssetVersionAsync are not
 	-- available yet" for both Animation and Model when it was tried here on 2026-10-03. So the ids
 	-- arrive from the Animation Editor's "Publish to Roblox", one clip at a time, and
-	-- `ESCALATE.md`'s NEEDS DIRECTOR CLICKS entry is the ten clicks. The KEYS live here anyway, now,
+	-- `ESCALATE.md`'s NEEDS DIRECTOR CLICKS entry is the ten clicks, and the rows they will become
+	-- carry `kind = "animation"` and `scope = "boar-animation"` -- `INSERTABLE` below is what keeps
+	-- them away from `InsertService`, so the scope name is a label and not a mechanism. The KEYS live
+	-- here anyway, now,
 	-- for the reason `Map.TAGS` gives: a key typed as a literal at the one place that reads it is a
 	-- silent nil nobody can explain. Until the rows exist, `byKey` answers nil, `Boar.Body` welds the
 	-- model and plays nothing, and the boar stands still -- which is honest and is tested.

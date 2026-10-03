@@ -92,6 +92,12 @@ jobs:
           python3 tools/asset_prep.py recipe > /dev/null
           python3 tools/asset_prep.py recipe --preset animal > /dev/null
 
+      - name: Boar-prep selftest (no Blender, no model, no network)
+        # Every pure rule the boar's prep tool rests on: the clip list, the per-animal texture names,
+        # the playback rate that stops the feet sliding, the repository boundary and every refusal.
+        # The Blender half cannot run here, which is exactly why the host half is all pure.
+        run: python3 tools/boar_prep.py selftest
+
       - name: Privacy and secret scan (local paths, emails, secret shapes)
         if: success() || failure()
         run: |
