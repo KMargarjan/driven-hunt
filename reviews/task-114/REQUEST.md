@@ -1,12 +1,12 @@
 # Task 114 -- ONE GUN: the new gun is the only gun
 
 Task: 114
-Round: 1
+Round: 2
 Base: `main` (`a77b0ed`, task 113's scoped gate), merged into this branch at `839ce0c`
-Code commit: 9a1806f4673259846de558404f9f0dd80e2cb968
+Code commit: 0e98d18eb94d908dd714bae07fcb5c9cdc294455
 
 ```
-[harness] PASS: 33/33 checks @ 9a1806f4673259846de558404f9f0dd80e2cb968 (clean tree) scope=all
+[harness] PASS: n/n checks @ 0e98d18 (clean tree) scope=all
 ```
 
 **ONE LINE IS THE WHOLE GATE for this change** -- no `[harness2]`. `tools/agents.py` on `main`
@@ -127,7 +127,42 @@ Match, the driver, the tie and the teams.
    third-person config and a config whose `fire` block carries no `flash` (`gun_client.spec`, the
    "fires" case), and `Weapon.Sound` refuses a caller with no resolved config without counting it.
 
-7. **`tools/pose.py` follows the data, and a stale path is refused rather than ignored.** `edit save`,
+7. **THE ROUND-1 BLOCKING FINDING: the glove bound is the DRAWN glove's.**
+   `tests/server/gun.spec.luau` / "seeds the left hand ON THE FOREND and the right ON THE GRIP" took
+   its tolerance off `Assets.byKey("hand.left")` -- the RETIRED v1 row -- while its own comment said
+   "the hand's OWN half-width". **The Reviewer is right and the numbers are exact**: 0.2412 for the
+   retired model against 0.2671 for the drawn one. It was the tighter of the two, so nothing had been
+   loosened; it was simply the wrong gun's hand, which is the one thing this task set out to remove.
+   It reads `Assets.byKey(HandAssets.KEY_OF[HandAssets.LEFT])` now -- the one definition of which
+   pair is drawn -- and asserts that row's `scope` is `"viewmodel"`, so the measurement cannot drift
+   back onto a retired row without failing. The shipped offsets are -0.080, -0.025 and -0.080, well
+   inside either number. Verify: read the case; `grep -n '"hand.left"' tests/` finds only a comment.
+
+   **THE SAME CLASS, EVERYWHERE ELSE: exactly one case, and it was that one.** I grepped every spec
+   for `hand.left` / `hand.right`, `Assets.KEYS.handLeft` / `handRight`, `HAND_*_V1` and
+   `scope = "retired"`. The six other hits are claims whose SUBJECT is the retired row, which rule 7
+   wants checked rather than removed -- `assets_seam.spec` ("FIVE SINCE TASK 114", the three retired
+   scopes, and the 1.2-1.4 size band for the retired pair) and `gun.spec` ("publishes ONE pair of
+   gloves, under the keys the old pair cannot supersede", "retires the pieces this gun replaced").
+   Two further hits are comments quoting the history, and no `HAND_*_V1` constant is referenced
+   outside the manifest. Verify with the same four greps.
+
+8. **The round-1 notes are fixed in the same lines** -- `HandAssets.KEY_OF`'s archive sentence (the
+   v1 rows stay in the manifest at `scope = "retired"`, which is what `backups/README.md` already
+   said); the two places that said Karen's left twist is 0 when the file ships -150, 110 and -150;
+   `Camera.Mode`'s reference to the removed `stats().sightMissing`; `GAME_DESIGN.md` **row 44**, the
+   Viewmodel owner row, which still said "It clones the Tool's `Handle`" and named `SightBead`;
+   `ESCALATE.md`'s playtest recipe, which keeps its words as the record and carries a dated line
+   saying the flag is retired; `Camera.Viewmodel`'s two leftover old-gun sentences plus `hinge`'s
+   duplicated "FIRST PERSON ONLY" block, and the two "flag-OFF" mentions that meant FIRST_PERSON.
+   **And one that was not a comment:** the `setViewmodelFlash(nil)` ... restore pair I added to
+   `weapon_client.spec` in round 1 was not inside a `pcall`, so a failing assertion between them
+   would have left the live first-person flash provider nil for the rest of the session -- the body
+   is wrapped now and both seams are restored before the rethrow, which also closes the same
+   pre-existing hole around `setMuzzleProvider`. Only `docs/design/camera.md` is left, and it is the
+   Architect's lane (TASKS 114a(b)).
+
+9. **`tools/pose.py` follows the data, and a stale path is refused rather than ignored.** `edit save`,
    `fit` and the shipped landmark file (`tools/landmarks/reload.json`, `git mv`) all lost the
    `newGun.` prefix. Verify: `python tools/pose.py selftest` -> PASS. It asserts
    `newGun.carry.gun.pos.x` is no longer a path AND that an override naming one is REFUSED, so a
@@ -135,8 +170,9 @@ Match, the driver, the tie and the teams.
 
 ## The gate, and what I could not verify
 
-- **I did not run the harness; the Director did, at this branch's head.** The line at the top is the
-  Director's own output, verbatim: 33/33 on a clean tree with Rojo restarted and reconnected.
+- **I did not run the harness.** The line at the top is a placeholder for the Director's own output
+  at this round's head. Round 1's own run was `[harness] PASS: 33/33 checks @ 9a1806f (clean tree)
+  scope=all`, and round 2 touches `src/` and `tests/`, so it needs its own.
   `test2` is **N/A** -- `needs_two_player` returns `[]` (weapon and camera only; Karen, 2026-10-03:
   no two-player run for the weapon and the animal). **The FIRST gate run FAILED (29/33 @ `c6d730f`)
   and claim 5 is what came out of it** -- still `Round: 1`, because no review has run.
@@ -163,6 +199,8 @@ Match, the driver, the tie and the teams.
   permanent rather than causing it. Kept because the dispatch fenced the numbers ("keep every
   `newGun.*` number byte-identical"); queued as TASKS.md 114a(a) with both ways out.
 - **`docs/design/camera.md` still describes the cloned gun** (`sightMissing` as a live counter, the
-  `build` sweep, `VIEWMODEL_AIM_OFFSET` as an "OFF + ON fallback"). `sightMissing` is still in
-  `stats()` and is now 0 by construction, because `buildNewGun` always adds the `Sight` attachment.
-  The Builder may not write designs: queued as 114a(b) for an Architect pass.
+  `build` sweep, `VIEWMODEL_AIM_OFFSET` as an "OFF + ON fallback"). **Round 1's request said
+  `sightMissing` was "still in `stats()` and now 0 by construction" -- that was wrong**, and the
+  Reviewer caught it: the field was REMOVED with the builder that could raise it (claim 2 says so),
+  and nothing in `tests/` read it. The Builder may not write designs, so the doc is queued as
+  114a(b) for an Architect pass.
