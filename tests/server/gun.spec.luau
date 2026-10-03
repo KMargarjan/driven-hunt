@@ -407,9 +407,22 @@ return function()
 				-- WHAT IS STILL TRUE, and is the claim worth keeping: the offset is less than the
 				-- hand's OWN half-width, so the palm is within a hand of the gun's centre line
 				-- rather than beside the gun.
-				local leftHand = Assets.byKey("hand.left")
+				--
+				-- AND IT IS THE DRAWN GLOVE'S HALF-WIDTH (task 114, round 1's blocking finding). This
+				-- read `Assets.byKey("hand.left")` -- the RETIRED v1 row, `scope = "retired"` since
+				-- this task -- so the comment said "the hand's OWN half-width" while the number on the
+				-- right of the comparison belonged to a model nothing draws (0.2412 against the drawn
+				-- glove's 0.2671). It happened to be the tighter of the two, so nothing was loosened;
+				-- it was simply the wrong gun's hand, which is the one thing this task set out to
+				-- remove. `HandAssets.KEY_OF` is the one definition of which pair is drawn, so the row
+				-- is reached through it and cannot drift from what the viewmodel clones.
+				local leftHand = Assets.byKey(HandAssets.KEY_OF[HandAssets.LEFT])
+				expect(leftHand).to.be.ok()
+				expect(leftHand.scope).to.equal("viewmodel")
 				local halfWidth = math.min(leftHand.sizeStuds.X, leftHand.sizeStuds.Y, leftHand.sizeStuds.Z) / 2
-				TestKit.note(string.format("task114 %s left x %.4f, half-width %.4f", pose, left.x, halfWidth))
+				TestKit.note(
+					string.format("task114 %s left x %.4f, drawn glove half-width %.4f", pose, left.x, halfWidth)
+				)
 				expect(math.abs(left.x) < halfWidth).to.equal(true)
 			end
 		end)
@@ -582,9 +595,10 @@ return function()
 			-- THE OTHER HALF OF TASK 106'S FINDING 1, AND WHAT TASK 114 LEFT OF IT. There were two
 			-- pose sets: the top level, measured against the v1 gloves, and `newGun`, measured against
 			-- the pair Karen made to hold model B. The twist is the number that says they are
-			-- different measurements -- her left glove is modelled PALM-UP, so its twist is 0 where
-			-- the v1 glove needed a half turn to get the palm under the barrels -- and the file now
-			-- carries exactly one of them: hers.
+			-- different measurements: the v1 glove was modelled palm-DOWN and needed a HALF TURN to
+			-- get the palm under the barrels, and hers is modelled palm-UP, so her twists are nothing
+			-- like that 180 -- she posed them by eye and the file ships -150, 110 and -150. The file
+			-- now carries exactly one of the two sets: hers.
 			expect(Poses.DATA.newGun).to.equal(nil)
 			for _, pose in ipairs({ "carry", "aim", "reload" }) do
 				local twist = Poses.DATA[pose].left.rot.twist

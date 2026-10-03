@@ -626,8 +626,8 @@ end
 -- because the server loads the barrels one at a time; whichever is further along wins, so the second
 -- takes over cleanly from the first.
 --
--- NEW GUN ONLY, and open only. Everything here is `Gun.chamber` arithmetic, which the old gun does
--- not have, and a shut gun is not being loaded.
+-- OPEN ONLY: a shut gun is not being loaded. ("New gun only" stood here too, until task 114 made
+-- this gun the only one.)
 -- WHERE A FRESH SHELL IS AT THIS POINT OF ITS FEED, in the barrels' frame -- the slide forward that
 -- `Viewmodel.shells` has drawn since task 99, and still what a shell does once the hand has let go.
 function Viewmodel.shellFeedAt(barrel: number, feedT: number, config): CFrame
@@ -1014,15 +1014,10 @@ end
 function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config): CFrame
 	local made = model
 	local clone = made and made.PrimaryPart
-	-- FIRST PERSON ONLY, AND THE WHOLE DRAWN RELOAD WITH IT (round 2, finding 2). The gun wears its
-	-- barrels as a separate piece in EVERY build -- the server welds them whatever the flag says --
-	-- so without this the flag-off camera, which is the default one, would swing them and draw
-	-- shells the moment a player reloaded. `Mode.breakAngleDeg` already refuses; this refuses the
-	-- rest, and clears anything a session that flipped the flag left behind.
-	-- FIRST PERSON ONLY, AND IT PUTS THINGS BACK RATHER THAN WALKING AWAY. The gun wears its barrels
-	-- as a separate piece in EVERY build -- the server welds them whatever the flag says -- so the
-	-- flag-off camera must draw no shells and swing nothing. `Mode.breakAngleDeg` already answers 0
-	-- there, so the barrels are still PLACED, at rest: returning early instead left them wherever a
+	-- FIRST PERSON ONLY, AND IT PUTS THINGS BACK RATHER THAN WALKING AWAY (round 2, finding 2). The
+	-- gun is built with its barrels as a separate piece in EVERY build, first person or not, so the
+	-- third-person camera must draw no shells and swing nothing. `Mode.breakAngleDeg` already answers
+	-- 0 there, so the barrels are still PLACED, at rest: returning early instead left them wherever a
 	-- first-person frame had last put them, which the OFF-branch case caught by finding them 35
 	-- degrees off the body.
 	local firstPerson = config.FIRST_PERSON == true
@@ -1095,7 +1090,7 @@ end
 -- Anchored and moved by hand rather than thrown: nothing under `workspace.CurrentCamera` may be
 -- simulated (a physics part parented to the camera is a part in the world that nobody can see).
 -- Every shell this module has drawn, gone. One site, because two places need it: the gun shutting,
--- and the flag-off branch refusing to draw a reload at all.
+-- and the THIRD-PERSON branch refusing to draw a reload at all.
 function Viewmodel.clearShells(clone: BasePart)
 	for _, child in ipairs(clone:GetChildren()) do
 		local name = child.Name
@@ -1145,9 +1140,9 @@ function Viewmodel.shells(barrelsCFrame: CFrame, config)
 	-- FRESH: ONE PER CHAMBER THE SERVER HAS ACTUALLY LOADED, each sliding forward from its own
 	-- moment. Round 1 drew them on a timer and for `max(spent, 1)` barrels, so a two-shell reload
 	-- showed one shell and an unfired barrel was fed one it never got.
-	-- ONE PLACE DECIDES WHERE A FRESH SHELL IS, AND WHETHER THERE IS ONE AT ALL. With the new gun
-	-- that is the hand's own frame while it carries it and the chamber once it is in; the old gun's
-	-- self-sliding feed is still exactly what `freshShellAt` answers for the old gun.
+	-- ONE PLACE DECIDES WHERE A FRESH SHELL IS, AND WHETHER THERE IS ONE AT ALL: the hand's own
+	-- frame while it carries it, and the chamber once it is in. `freshShellAt` answers both, and
+	-- since task 114 it has only the one answer to give.
 	for barrel = 1, 2 do
 		local place = Viewmodel.freshShellAt(barrel, config, now)
 		if place ~= nil then
@@ -1202,8 +1197,8 @@ end
 -- viewmodel for the SHOOTER'S OWN muzzle since task 92, so its neon box and grey ball were landing
 -- on top of these, which is what Karen saw ("remove those smokes (white from previous)").
 -- `Effects.setViewmodelFlash` is the seam: this answers whether it drew, and that pair is skipped
--- for the shot it drew. Everybody else's shot, and the flag-OFF build, are drawn there exactly as
--- before.
+-- for the shot it drew. Everybody else's shot, and the THIRD-PERSON build, are drawn there exactly
+-- as before.
 --
 -- A PARTICLE EMITTER AND A LIGHT, NOT A BOX. Task 92's flash is a neon cube and its own screenshot
 -- said so ("it read as a grey BOX hanging off the barrels"). An emitter with a one-burst rate and a

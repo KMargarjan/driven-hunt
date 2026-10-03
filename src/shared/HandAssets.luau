@@ -34,8 +34,10 @@ HandAssets.LEFT = "HandLeft"
 -- Karen's gloves were first shipped as `hand.right` version 2 -- and a new version SUPERSEDES, so
 -- `Assets.byKey` handed the OLD gun a pair it was never posed for: upside down (its `twist` of 180 is
 -- for a palm-DOWN model) and at 53 % of the size its poses assumed. The fix was a different KEY, and
--- these are those keys; the v1 pair and the gun they were posed for are gone, and their rows are
--- archived under `backups/2026-10-03_task-114_v1-glove-rows.luau.txt`.
+-- these are those keys. The v1 pair and the gun they were posed for are gone, and their ROWS STAY
+-- WHERE THEY ARE: `src/serverstorage/Assets/init.luau` keeps them at `scope = "retired"`, which is
+-- rule 7 satisfied in place -- an id that has been in a place is provenance, and nothing loads a
+-- scope no boot line asks for.
 HandAssets.KEY_OF = table.freeze({
 	[HandAssets.RIGHT] = "gun.hand.right",
 	[HandAssets.LEFT] = "gun.hand.left",

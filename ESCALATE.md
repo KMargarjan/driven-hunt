@@ -159,6 +159,8 @@ picture of the wrong build, and I did not take one and call it evidence (rule 8)
 
    ```
    python tools/flags.py set NEW_GUN on     (Edit mode, BEFORE starting Play)
+   [task 114, 2026-10-03: this flag is RETIRED -- the new gun is the only gun, so there is
+    nothing to switch on and this line now fails. Kept as the record of what was asked for.]
    ... start Play ...
    python tools/pose.py compare carry --assets-dir <assets-dir>
    python tools/pose.py compare aim   --assets-dir <assets-dir>

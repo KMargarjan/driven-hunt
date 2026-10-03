@@ -270,9 +270,11 @@ local Config = {
 	-- ALL OF THAT WAS MEASURED AGAINST THE v1 GLOVES, AND BOTH ARE GONE (task 114). The gun is
 	-- Karen's model B and the gloves are the pair she made to hold it, so the numbers above are the
 	-- HISTORY of these names, not their values: `poses.json`'s `carry`, `aim` and `reload` carry the
-	-- ones that ship. Model B's left glove is modelled PALM-UP already, so its twist is 0 rather than
-	-- 180, and both yaws are the full quarter turn; `Camera.Viewmodel.align` is what makes those three
-	-- angles mean the same thing on two meshes that do not share an axis.
+	-- ones that ship, and Karen posed them by eye with `tools/pose.py edit` (tasks 108 and 109) rather
+	-- than deriving them. The v1 left glove was modelled palm-DOWN and needed a half turn to get the
+	-- palm under the barrels; hers is modelled palm-UP, so her twists are nothing like that 180 --
+	-- `carry.left` and `reload.left` ship -150 and `aim.left` 110. `Camera.Viewmodel.align` is what
+	-- makes those three angles mean the same thing on two meshes that do not share an axis.
 
 	-- ------------------------------------------------------ the bead sight (ON branch, task 90)
 	-- HOW FAR THE BEAD SITS FROM THE EYE when aiming. 3.5, AND IT IS MEASURED OFF KAREN'S OWN
