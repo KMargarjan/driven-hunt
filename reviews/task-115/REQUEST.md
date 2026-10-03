@@ -1,12 +1,12 @@
 # Task 115 -- the wild boar arrives: a bought, rigged, animated animal, behind `BOAR_MODEL`
 
 Task: 115
-Round: 2
+Round: 3
 Base: `main` (`82a3f36`)
-Code commit: 79b6894c1d6fcaa2bb135b937b9d741c123ac6bc
+Code commit: 37ff2f45f14757dabdca0fe6043dbc391f7ebbc3
 
 ```
-[harness] PASS: 33/33 checks @ 79b6894c1d6fcaa2bb135b937b9d741c123ac6bc (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 37ff2f45f14757dabdca0fe6043dbc391f7ebbc3 (clean tree) scope=all
 ```
 
 **ONE LINE IS THE WHOLE GATE for this change** -- no `[harness2]`. `needs_two_player` over
@@ -16,39 +16,44 @@ Code commit: 79b6894c1d6fcaa2bb135b937b9d741c123ac6bc
 outfit specs. `test --scope auto` resolves to `all` anyway, so the full `test` the merge gate wants
 is the same run.
 
-## What changed since round 1
+## What changed since round 2, and what I got wrong
 
-**The one blocking finding, fixed at the cause.** A frozen death was re-rated and re-frozen on every
-frame. `Body.clipFor` answers "the death clip, rate 1" for a dead boar while the frozen track sits at
-speed 0 on purpose, so `play`'s re-rate branch wrote `AdjustSpeed(1)` and the freeze wrote
-`AdjustSpeed(0)` back -- for `CARCASS_SECONDS` and up to `maxBoars` carcasses, on a server `Animator`
-whose every write replicates.
+**Round 2's claim 2 was a false measurement, and the fault was mine.** It said round 1's code left
+the rig in the rest pose. The build I measured it on was **not round 1's**: I removed the new
+`heldClip` guard from `play` but left `heldClip` gating the *freeze*, which produces a third
+behaviour that never shipped -- re-rate every frame with nothing re-freezing it, so the track really
+did run away and stop. Round 1 had no `heldClip` anywhere; its freeze ran unconditionally, wrote 1
+then 0 before the engine stepped the animation, and the pose held.
 
-`play` now asks the new pure **`Body.shouldAdjustRate`**, which refuses to re-rate the clip the boar
-is **holding**: a held clip's speed is deliberately not the clip's rate, so "they disagree" is not a
-reason to write anything. `handle.heldClip` is set once, by the freeze, and cleared when a new clip
-starts, so the death's speed is written exactly once per kill. `Body.shouldFreeze`'s own
-"a speed already 0" guard stays as the second line of defence it was always written to be.
-
-Six of the seven notes are fixed in the same lines; the seventh is queued as `TASKS.md` 115a(a).
+The Reviewer was right that the request asserted two things that could not both be true, and the
+Director was right that a change to how a carcass is **held** is a drawn change that needed a look.
+Both are now answered by measurement: three new frames on this commit, and a faithful replica of
+round 1's three hunks measured beside it.
 
 ## Claims
 
-1. **A held clip is never re-rated, and the count proves it.** *Verify:* `boar_model.spec`,
-   "a frozen death costs nothing after it has frozen" -- `Boar.shouldAdjustRate(DEATH, DEATH, 0, 1,
-   RATE_EPSILON)` is `false` **and** the same call with nothing held is `true`, so the zero is the
-   hold and not an accident of the numbers. Over 600 frames the counts are **0 and 600** (harness
-   note: *600 frames of a frozen death -> 0 rate write(s); unheld -> 600*). A live carcass cannot
-   show this -- a spec has no loaded animation, so `shouldFreeze` refuses a `Length` of 0 -- which is
-   why the seam is the decision. `Runtime:animationOf` carries the live counter, read-only, the same
-   shape `Runtime:woundOf` has.
+1. **A held clip is never re-rated.** `play` asks the new pure `Body.shouldAdjustRate`, which
+   refuses to re-rate the clip the boar is holding: a held clip's speed is deliberately not the
+   clip's rate, so "they disagree" is not a reason to write anything. `handle.heldClip` is set once,
+   by the freeze, and cleared when a new clip starts. *Verify:* `boar_model.spec`,
+   "never re-rates the clip it is holding" -- `Boar.shouldAdjustRate(DEATH, DEATH, 0, 1,
+   RATE_EPSILON)` is `false` **and** the same call with nothing held is `true`, so the `false` is the
+   hold and not an accident of the numbers; plus "a clip that is NOT held is still re-rated when the
+   speed really changes". Round 2's 600-iteration case is **dropped**: it stepped nothing and its
+   note read as a stepped carcass (round 2, note).
 
-2. **Measured live, with round 1's code put back.** The carcass's Animator had **no playing track at
-   all**: 0 samples above weight 0.01 over 4 seconds, on the server *and* on the client. The
-   non-looped death had been driven past its end and **stopped** -- the rest pose, which is the fault
-   the freeze exists to prevent, and worse than the replication cost the finding names. With the fix:
-   `deathLeft` at full weight and **Speed 0.000** across 241 samples in 4 seconds, both sides.
-   *Verify:* `docs/research/2026-10-03-boar-skinned-model.md` section 7(d) records both runs.
+2. **WHAT ROUND 1 ACTUALLY DID, measured on a faithful replica of its three hunks.** It held the
+   pose. `deathLeft` at weight 1.00, `t=1.18/1.21`, **speed 0.00** at t+1 s, t+10 s *and* t+60 s;
+   head +0.42, hoof +0.13, lowest −0.006 of the ground, unchanged across the minute -- the same
+   numbers this commit gives (+0.45 / +0.12 / −0.008), and the frames look the same. **So Karen's
+   *"looks good now"* and the 13:16 / 13:39 frames were of code that drew the carcass correctly**,
+   and they were never evidence for something that had changed underneath them. What the fix is worth
+   is the cost the Reviewer named, not a visual fault: **two property writes per frame per carcass,
+   replicated** -- up to 1,920 a second with eight carcasses down. Whether a client ever *rendered*
+   the `speed = 1` it was sent stays the Reviewer's inference: I did not observe a client-side
+   artefact in either build and I am not claiming one. *Verify:*
+   `docs/research/2026-10-03-boar-skinned-model.md` section 7(d), which carries the correction and
+   both runs' numbers, and the two 60 s frames below.
 
 3. **With the flag OFF a boar is what it was, with one deliberate exception.** `BOAR_MODEL.default`
    is `false`, read once at `Boar.CONFIG.MODEL.ENABLED` and passed inward as `config`. The exception
@@ -85,8 +90,12 @@ Six of the seven notes are fixed in the same lines; the seventh is queued as `TA
    has hysteresis, and no gait may replace another before its own crossfade finishes. Round 1's note
    about `HOLD_EPSILON` is fixed with it: the freeze window is now `max(HOLD_EPSILON, |speed| * dt)`,
    because `stepVisual` gets the raw Heartbeat `dt` and one long frame could step a non-looped death
-   clean past its end. *Verify:* "the clip does not chatter" (note: *the measured yaw storm now makes
-   2 clip change(s)*) and "the freeze window is at least one frame of the clip wide".
+   clean past its end -- it is `Body.freezeReach` now, exported so the spec drives the production
+   formula instead of recomputing `math.max` itself (round 2, note). *Verify:* "the clip does not
+   chatter" (note: *the measured yaw storm now makes 2 clip change(s)*) and "the freeze window is
+   this repository's formula, not math.max in the spec". Its overshoot on a hitch -- freezing a death
+   a fraction short of its end rather than past it -- is written down in `freezeReach`'s own comment
+   as the trade it is (round 2, note).
 
 8. **Every asset id was loaded back before it was written down.** The ten animation ids can only be
    made inside Studio; the Director published them (`ESCALATE.md`, closed), and reading each back
@@ -95,32 +104,46 @@ Six of the seven notes are fixed in the same lines; the seventh is queued as `TA
    "every clip the boar can play has a published asset id" (note: *worst clip-length drift 0.0000 s*).
    `play` writes `track.Looped` immediately before every `Play`.
 
-## Screenshots (rule 5) -- what they actually show, looked at by me
+## Screenshots (rule 5) -- three new ones, on this commit, looked at by me
 
-Unchanged from round 1; this round's fix is invisible, and the Director confirmed no new look is
-needed. Karen has signed off: *"looks good now"* (`PLAYTEST.md`).
+A dead boar, killed in a live session with `BOAR_MODEL` and `QUICK_TEST` on, photographed from ~7
+studs to its side at **1 s, 10 s and 60 s** after death. Flags cleared afterwards.
 
-- `.screenshots/20261003T120402Z-task115f-move3.png` -- two boars trotting away at ~7 studs, legs in
-  **different phases of the stride**, feet on the ground, no tearing.
-- `.screenshots/20261003T131632Z-task115fix-dead2.png` -- the carcass lying on its flank **on** the
-  surface, head and snout on the ground with a tusk visible, the whole body above the ground.
-- `.screenshots/20261003T133938Z-task115walk-before.png` and `...133941Z-task115walk-after.png` --
-  the same carcass at the player's feet, then after 2.5 s of holding W into it: unmoved.
+- `.screenshots/r3b-carcass-1s.png` -- lying on its right flank **on** the ground, head and snout
+  flat on the surface with the lower tusk showing, the near ear up, forelegs and hind legs folded out
+  toward the camera, tail along the ground. Not standing, not sunk, not the rest pose.
+- `.screenshots/r3b-carcass-10s.png` -- the same animal in the **same pose**, in the same place.
+- `.screenshots/r3b-carcass-60s.png` -- again identical a full minute after death, which is half of
+  `CARCASS_SECONDS`. Measured alongside each frame: `deathLeft` w=1.00, t=1.18/1.21, speed 0.00, and
+  head/hoof/lowest unchanged to three decimals across all three.
+- `.screenshots/r1replica-carcass-60s.png` -- the **same shot on a faithful replica of round 1's
+  code**, for the comparison claim 2 rests on. Visually the same boar in the same pose.
+
+Carried over from earlier rounds, still accurate for what they show:
+
+- `.screenshots/20261003T120402Z-task115f-move3.png` -- two boars trotting away, legs in different
+  phases of the stride, feet on the ground, no tearing.
+- `.screenshots/20261003T133938Z-task115walk-before.png` / `...133941Z-...-after.png` -- a carcass at
+  the player's feet, then after 2.5 s of holding W into it: unmoved.
 - `.screenshots/20261003T120313Z-task115e-carcass1.png` is kept deliberately: the **buried** boar
-  Karen reported, only its legs above the surface, which my own earlier report misdescribed as "lying
-  on its flank".
+  Karen reported, only its legs above the surface, which my own report once misdescribed as "lying on
+  its flank".
 
 ## What I could not verify
 
-- **No spec can load a real animation.** `AnimationTrack.Length` is 0 without the network, which is
-  why `shouldFreeze`, `clipFor`, `shouldAdjustRate`, `carcassIsStill` and `shouldAnchorCarcass` are
-  pure functions with their own cases. That the clips really play, at the right rate, that a death
-  freezes and holds, and that `rateWrites` stops growing, are LIVE measurements recorded in the
-  research note.
-- **The Fab Standard License grant was read through a web search**, not from `fab.com/eula`, which
-  answers 403 to this machine.
+- **`play`'s call site and the `heldClip` write have no spec.** `Body.shouldAdjustRate` and
+  `Body.freezeReach` are tested as functions, but the wiring that passes `handle.heldClip` into the
+  first and sets it in `stepVisual` is not: making the freeze fire needs a loaded animation, and
+  `shouldFreeze` refuses a `Length` of 0, which is every track a spec can build. A regression that
+  stopped passing `heldClip` would leave every case green (round 2, note). It is covered by the live
+  1 s / 10 s / 60 s measurement above and by nothing else, and that is the honest state.
+- **No spec can load a real animation**, which is why `shouldFreeze`, `freezeReach`, `clipFor`,
+  `shouldAdjustRate`, `carcassIsStill` and `shouldAnchorCarcass` are pure functions with their own
+  cases.
+- **Whether a client rendered the `speed = 1` round 1 sent it.** Not observed, not claimed.
+- **The Fab Standard License grant was read through a web search**, not from `fab.com/eula` (403).
 - **A boar killed on a steep slope** could slide past the 0.25 s stillness window before anchoring;
-  the 4 s backstop bounds it. Not reproduced -- the map is flat where boars run.
-- **A multi-byte character split across a source slice** (`tools/studio_mcp.py`): the length
-  comparison is fixed to bytes, so the message is no longer misleading, but the split itself is not
-  handled. The one oversized file is ASCII; queued as 115a(a).
+  the 4 s backstop bounds it. Not reproduced.
+- **A multi-byte character split across a source slice** (`tools/studio_mcp.py`): both length checks
+  compare bytes now, so the message is right, but the split itself is not handled. The one oversized
+  file is ASCII; queued as 115a(a).
