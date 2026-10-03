@@ -167,6 +167,42 @@ declared, the wiring is complete, and `Body.hasClip` is false until a row names 
 the death is one clip and a crippled boar walks, exactly as before. The whole-body `TimePosition`
 twitch stays as the fallback and is skipped the moment a real paddle clip exists.
 
+## 4c. After the ids arrived (2026-10-03)
+
+**The published lengths are 1.000 s and 4.000 s, not 1.042 and 4.042.** Read back off the live assets
+with `Animator:LoadAnimation` and `AnimationTrack.Length`: `Cripple_Drag` 1.0000, both paddles 4.0000
+-- and, as controls, `Walk_F_IP` 1.0000 and `Death_L` 1.2083, which are the numbers
+`Boar.CONFIG.MODEL.CLIPS` already carries. **A clip's length is its INTERVALS, not its keys**: 25
+keys at 24 fps is 24 intervals. `tools/boar_prep_blender.py` reported `frames / fps` for every clip
+it has ever measured, which is why the ten package clips' lengths had to be corrected by hand after
+Task 115 and why these three arrived 42 ms long. It now reports `(frames - 1) / fps`, which agrees
+with Roblox on all thirteen.
+
+**All three were published `Loop = true`** (the Animation Editor's toggle, like the ten before them).
+`Body.play` writes `AnimationTrack.Looped` from the config immediately before every `Play`, so the
+two paddles play once and hold; `boar_shot.spec` asserts that setting rather than trusting the asset.
+
+**A pose channel an action does not key keeps the last action's value** -- a Blender hazard the
+authoring hit and survived. `pose_of` now clears the rig to rest before evaluating anything, and the
+tool reports `lowestHoofMetres` per clip so "the animal is drawn floating" is a number rather than a
+thing somebody has to notice. Re-run with both fixes, the three clips measure **identically** (same
+keys, same ground speeds, same lowest hoof), so the published ids stand and `sourceSha256` names the
+files that were actually published.
+
+**What the live frames show.** A real kill, recorded on the client at RenderStepped: `Death_L` plays,
+and at about 1.2 s `Death_Paddle_L` takes over and runs its four seconds, holding at `TimePosition`
+3.98-4.00 from then on -- the fall, the paddle, and then still, which is the design end to end. The
+carcass frames at +0.6 s and +4.0 s show the animal flat on its side ON the surface, legs out.
+
+**One thing could not be driven from here**: a replayed mouse shot cannot be steered onto a chosen
+hit zone. The camera ray meets `ZoneRear` and the slug still charges the trunk or the legs, because
+the gun's `Muzzle` attachment sits at camera-space **(-0.71, -1.69, +5.84)** -- the two rays are not
+the same ray. Shots land reliably; WHICH zone they land in does not, from this harness. So the
+crippled reaction is evidenced by `boar_shot.spec` (pure, and live through `Runtime:takeHit` with
+real physics) rather than by a replayed click, and `Cripple_Drag` was looked at by playing it on a
+live boar's own Animator -- against a control of the package's own `Walk_F_IP` played the same way,
+because the first look at it seemed to float and the control floated identically.
+
 ## 5. The numbers
 
 | | value | why |

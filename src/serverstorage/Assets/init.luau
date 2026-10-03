@@ -1743,6 +1743,10 @@ Assets.ROWS = {
 	-- somebody's animation is still their animation -- and `creator` stays the package's creator id
 	-- for the same reason.
 	--
+	-- `sourceSha256` NAMES THE FILE THAT WAS ACTUALLY PUBLISHED. A later prep run writes byte-different
+	-- FBXs (the format carries its own timestamps) but measures identically -- same keys, same ground
+	-- speeds, same lowest hoof -- so these ids stand and nothing needs re-publishing.
+	--
 	-- ALL THREE CAME BACK `clip.Loop = true` as well (the Animation Editor's loop toggle), and for
 	-- the two PADDLES that is wrong: a looping death-throe would restart the twitch every four
 	-- seconds on a carcass that is supposed to be still. `Boar.Body` writes `AnimationTrack.Looped`
@@ -1761,8 +1765,10 @@ Assets.ROWS = {
 		creator = "8167651842",
 		licence = BOAR_LICENCE,
 		added = "2026-10-03",
-		moderation = "approved" :: Moderation,
-		clipSeconds = 1.042,
+		-- READ BACK OFF THE PUBLISHED ASSET with `Animator:LoadAnimation` on a live rig, not taken
+		-- from the FBX: 25 keys at 24 fps is 24 INTERVALS = 1.0000 s, and the prep tool said 1.042
+		-- until this measurement corrected it (the same one-frame error the ten package clips had).
+		clipSeconds = 1.0,
 		trisDeclared = 0,
 		sizeStuds = NO_GEOMETRY,
 		offsetStuds = NO_GEOMETRY,
@@ -1784,7 +1790,7 @@ Assets.ROWS = {
 		licence = BOAR_LICENCE,
 		added = "2026-10-03",
 		moderation = "approved" :: Moderation,
-		clipSeconds = 4.042,
+		clipSeconds = 4.0,
 		trisDeclared = 0,
 		sizeStuds = NO_GEOMETRY,
 		offsetStuds = NO_GEOMETRY,
@@ -1806,7 +1812,7 @@ Assets.ROWS = {
 		licence = BOAR_LICENCE,
 		added = "2026-10-03",
 		moderation = "approved" :: Moderation,
-		clipSeconds = 4.042,
+		clipSeconds = 4.0,
 		trisDeclared = 0,
 		sizeStuds = NO_GEOMETRY,
 		offsetStuds = NO_GEOMETRY,

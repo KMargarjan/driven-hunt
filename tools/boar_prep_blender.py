@@ -169,6 +169,23 @@ def bone_track(armature, action, bone_names):
     return first, last, track
 
 
+def lowest_hoof(track):
+    """The lowest a hoof ever gets in this clip, in metres, and the mean of the four.
+
+    AN ANIMAL STANDS ON ITS FEET, and that is a number. A clip whose hooves never come near the
+    floor is one where the animal is drawn floating -- which is exactly what a pose baked out of
+    leftover channels looks like (see `rest_pose`). Comparing an authored clip's figure with the clip
+    it was built from is the whole test.
+    """
+    lows = []
+    for positions in track.values():
+        if positions:
+            lows.append(min(point[2] for point in positions))
+    if not lows:
+        return 0.0, 0.0
+    return min(lows), sum(lows) / len(lows)
+
+
 def ground_speed(track, fps, contact_fraction):
     """How fast the ground slides under this clip, in metres per second, at playback rate 1.0.
 
@@ -251,8 +268,24 @@ def with_floor(metres_per_second, floor):
 # every blend fraction arrive in the recipe, exactly as the rest of this file works.
 
 
+def rest_pose(armature):
+    """Put every bone back where the rig says it belongs.
+
+    THE BUG THIS EXISTS FOR, and it was visible before it was understood (task 116, 2026-10-03): a
+    pose channel an action does NOT key keeps whatever the last evaluated action left in it. So
+    reading `Death_L`'s last frame and then reading `Walk_F_IP`'s frames gave walk poses with the
+    DEATH pose still sitting in every channel the walk does not animate -- the root included -- and
+    the authored clips were baked with it. On a live rig the boar was drawn a stud above its own
+    shadow with its legs folded (`.screenshots/boar-116d-drag-*.png`). Clearing to rest first is the
+    fix, and `lowestHoofMetres` below is the measurement that would have caught it without eyes.
+    """
+    for bone in armature.pose.bones:
+        bone.matrix_basis.identity()
+
+
 def pose_of(armature, action, frame, bone_names):
     """Every named bone's pose (rotation quaternion and location) with `action` at `frame`."""
+    rest_pose(armature)
     activate(armature, action)
     bpy.context.scene.frame_set(int(round(frame)))
     bpy.context.view_layer.update()
@@ -266,7 +299,9 @@ def pose_of(armature, action, frame, bone_names):
 
 
 def write_pose(armature, action, frame, poses):
-    """Key one frame of `action` from a {bone: (quaternion, location)} map."""
+    """Key one frame of `action` from a {bone: (quaternion, location)} map. Every bone in the map is
+    written, and the rest are cleared first, so nothing carries over from the last evaluation."""
+    rest_pose(armature)
     activate(armature, action)
     for name, (rotation, location) in poses.items():
         bone = armature.pose.bones.get(name)
@@ -460,12 +495,20 @@ def main():
         if root:
             drift = max(math.hypot(p[0] - root[0][0], p[1] - root[0][1]) for p in root)
         raw, per_hoof, frames = ground_speed(track, recipe["fps"], recipe["contactFraction"])
+        floor_m, mean_floor_m = lowest_hoof(track)
         metres_per_second = with_floor(raw, recipe["minGroundMetresPerSecond"])
         measured[action.name] = {
             "firstFrame": first,
             "lastFrame": last,
             "frames": last - first + 1,
-            "seconds": (last - first + 1) / float(recipe["fps"]),
+            # A CLIP'S LENGTH IS ITS INTERVALS, NOT ITS KEYS, and this tool said keys for a whole
+            # task. MEASURED by loading each published asset back with `Animator:LoadAnimation` and
+            # reading `AnimationTrack.Length` (2026-10-03): Walk_F_IP 25 keys -> 1.0000 s, Death_L
+            # 30 -> 1.2083, Cripple_Drag 25 -> 1.0000, Death_Paddle_L 97 -> 4.0000. Every one of them
+            # is (keys - 1) / fps. `frames / fps` is one frame long, which is how the ten package
+            # clips' lengths had to be corrected by hand after Task 115 published them, and how the
+            # three this tool authored arrived 42 ms long in the same way.
+            "seconds": (last - first) / float(recipe["fps"]),
             "rootDriftMetres": drift,
             "groundMetresPerSecond": metres_per_second,
             "groundMetresPerSecondRaw": raw,
@@ -473,15 +516,19 @@ def main():
             "groundStudsPerSecond": metres_per_second * studs_per_metre,
             "perHoofMetresPerSecond": per_hoof,
             "contactFrames": frames,
+            # Where the feet are, not just how fast they move: see `lowest_hoof`.
+            "lowestHoofMetres": floor_m,
+            "meanLowestHoofMetres": mean_floor_m,
         }
         say(
-            "%-12s %3d frames  %.3f s  ground %.3f m/s -> %.3f studs/s"
+            "%-16s %3d keys  %.3f s  ground %.3f m/s -> %.3f studs/s  lowest hoof %.3f m"
             % (
                 action.name,
                 measured[action.name]["frames"],
                 measured[action.name]["seconds"],
                 metres_per_second,
                 measured[action.name]["groundStudsPerSecond"],
+                floor_m,
             )
         )
 

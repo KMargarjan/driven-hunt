@@ -433,12 +433,12 @@ local BOAR_CLIPS = {
 	-- animator made -- nothing is invented -- and `tools/boar_prep_blender.py` measures them with
 	-- the same hoof-contact rule as the other ten. Every number below is off that run:
 	--
-	--   Death_Paddle_L/R  97 frames, 4.042 s. Death_L/R's LAST frame with the four legs swinging
+	--   Death_Paddle_L/R  97 keys, 4.000 s. Death_L/R's LAST frame with the four legs swinging
 	--                     back toward Run_F_IP, decaying to nothing, so the clip ENDS on the pose
 	--                     the carcass is then held at and nothing pops. MEASURED per hoof: the legs
 	--                     on the up side travel 1.74-4.64 studs/s and the two against the ground
 	--                     0.30-0.37 -- a leg under a lying animal cannot swing, which is right.
-	--   Cripple_Drag      25 frames, 1.042 s, looped: Walk_F_IP with the hind legs pulled 85 % of
+	--   Cripple_Drag      25 keys, 1.000 s, looped: Walk_F_IP with the hind legs pulled 85 % of
 	--                     the way to the death pose. MEASURED per hoof: FRONT 2.866 and 2.863
 	--                     studs/s (Walk_F_IP's own 2.853, so a real walk cycle) and HIND 0.826 and
 	--                     0.931 (a third of it, dragging). That measurement IS Karen's "circles
@@ -450,9 +450,9 @@ local BOAR_CLIPS = {
 	--
 	-- UNTIL THE DIRECTOR PUBLISHES THEM they have no id, `trackFor` returns nil, `play` leaves the
 	-- animal on whatever it was playing, and every behaviour below is exactly what it was.
-	deathPaddleLeft = { clip = "Death_Paddle_L", seconds = 4.042, groundStudsPerSecond = 0, looped = false },
-	deathPaddleRight = { clip = "Death_Paddle_R", seconds = 4.042, groundStudsPerSecond = 0, looped = false },
-	crippleDrag = { clip = "Cripple_Drag", seconds = 1.042, groundStudsPerSecond = 2.864, looped = true },
+	deathPaddleLeft = { clip = "Death_Paddle_L", seconds = 4.0, groundStudsPerSecond = 0, looped = false },
+	deathPaddleRight = { clip = "Death_Paddle_R", seconds = 4.0, groundStudsPerSecond = 0, looped = false },
+	crippleDrag = { clip = "Cripple_Drag", seconds = 1.0, groundStudsPerSecond = 2.864, looped = true },
 }
 
 -- THE SOUND OF A BOAR (task 116). Karen, 2026-10-03: *"I just need that once they walk you can hear
