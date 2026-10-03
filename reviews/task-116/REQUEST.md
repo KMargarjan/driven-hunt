@@ -1,12 +1,12 @@
 # Task 116 -- the shot, the death and the sound of a boar, behind `BOAR_MODEL`
 
 Task: 116
-Round: 1
+Round: 2
 Base: `main` (`39da8ea`)
-Code commit: 9b2c58db2c42064ceee1e6579fd40c261d4537fc
+Code commit: 93d9381c773d1c27a02d603cb0e2969b3448a860
 
 ```
-[harness] PASS: 33/33 checks @ 9b2c58db2c42064ceee1e6579fd40c261d4537fc (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 93d9381c773d1c27a02d603cb0e2969b3448a860 (clean tree) scope=all
 ```
 
 **ONE LINE IS THE WHOLE GATE.** `needs_two_player` over `git diff --name-only origin/main...HEAD`
@@ -16,7 +16,7 @@ returns **`[]`**: nothing changed is in `TWO_PLAYER_PATHS`. It is boar, assets a
 the reason.
 
 The code commit above is a paperwork commit one step after the last commit that changed `src/`,
-`tests/` or `tools/` (`61e8719`); it is the commit the full clean-tree run names, which is the
+`tests/` or `tools/` (`969d25e`); it is the commit the full clean-tree run names, which is the
 definition the gate uses, and only `TASKS.md` changed between them.
 
 ## What this is
@@ -27,6 +27,41 @@ they walk you can hear"*. Three rounds of work: the first build, a fix round aft
 (*"body shot is a bit odd now feels late hit and odd / no cicrcle but I can see back legs
 disabled"*), and the wiring of three animation clips this project authored and the Director
 published. Her second look, on this head: ***"I thin kwe good"***.
+
+## What changed in round 2
+
+**Round 1's one blocking finding is right, and the fix is at the cause.** `ZONES.rear` was 2.0 wide
+-- exactly the trunk's own +-1.0 -- so a flank shot into the rump was decided by a raycast tie
+between two coincident faces and not by geometry, the crippling reaction could be charged to `body`
+from the angle players actually shoot from, two of the three new ray assertions passed on that tie,
+and the row's own comment claimed a rule it did not follow.
+
+The row now accounts for **every face**, and says which are proud and which are deliberately not:
+`+X/-X` and the top proud by `PROTRUSION` (2.12 wide, top +1.56 against the trunk's +1.5), the rear
+face proud by 0.15 as before, the **floor** left to `legs` with 0.2 of clear air between them, and
+the front face an interior boundary no ray reaches. **And a tie now fails:** `zoneAt` casts the same
+ray a second time with every child of the trunk excluded, so "the zone was met first" is a measured
+clearance, and `metFirst` -- which every "reachable by a real ray" case goes through, head, chest,
+rear and legs -- insists on more than half a `PROTRUSION` of it.
+
+**Does any frame differ?** With `BOAR_MODEL` **on**, no: `HIDE_BOX` sets every zone part's
+`Transparency` to 1, so nothing Karen has looked at changes. With the flag **off** the zone parts are
+opaque and tinted (`ZONE_TINT`, a grey-box teaching aid), so the rump patch on the grey box is now
+2.12 x 1.86 instead of 2.0 x 1.6 and sits 0.13 higher. **What does change for a player in both
+states is what a shot HITS:** a flank or top-of-rump slug that used to be a coin toss between `rear`
+and `body` is now `rear` by geometry. That is the finding's whole point.
+
+The non-blocking notes are fixed in the same lines where they were one-liners -- the stale 60-stud
+flight in four comments, the missing `moderation` field, two comments that still said the three clips
+were unpublished, the note's own 4.042/1.042 table, a duplicated sentence, `handle.state()` asserted
+instead of inferred, and the pre-roll's "every clip" half now asserted through a new `tracks` count
+on `Runtime:animationOf`. Three are queued as **116a**: the eager pre-roll's cost, an offline
+`selftest` for `SYNTH_CLIPS`, and whether a crippled boar should flinch at a second slug (the
+ordering is now stated in `Body.clipFor`'s comment rather than left silent).
+
+**The Reviewer's arithmetic on the flight is right too**: `FLIGHT.rear` 90 is the UNTAPERED figure,
+and `Wound.flightStuds` tapers it by how far past `MORTAL` the damage is, so one 55-point rump slug
+gets 81 studs and about **18 s** of circling, not 20. Every place that said 20 now says both numbers.
 
 ## Claims
 
@@ -41,10 +76,14 @@ published. Her second look, on this head: ***"I thin kwe good"***.
 2. **The hindquarters zone is added the way every zone exists, and nothing else moved.** A row in
    `Boar.CONFIG.ZONES` plus its `ORDER` entry, charged at the trunk's own 55 / 11 -- the rump *is*
    trunk -- so one slug is `MORTAL` and short of `LETHAL`. The existing three zone parts, their
-   boxes, the `body` fallback and every other damage number are untouched. *Verify:*
-   `boar_zones.spec`, "is one trunk and one zone part per declared zone" (counted from
-   `ZONES.ORDER`, not a literal) and "is reachable by a real ray: the hindquarters, from behind and
-   from the flank"; `boar_wound.spec`, "are the numbers production actually ships".
+   boxes, the `body` fallback and every other damage number are untouched. **It is PROUD of the
+   trunk on both flanks and on top (round 2), so which zone a rump shot charges is geometry and not
+   a raycast tie.** *Verify:* `boar_zones.spec`, "is one trunk and one zone part per declared zone"
+   (counted from `ZONES.ORDER`, not a literal); "is reachable by a real ray: the hindquarters, from
+   behind, both flanks and above" -- through `metFirst`, which fails on a tie, and which reads back
+   the two clearances the row is built on (0.060 on a flank, 0.150 at the back, printed as a note);
+   and "leaves the rump's FLOOR to the legs, with clear air between them"; `boar_wound.spec`, "are
+   the numbers production actually ships".
 
 3. **A graze does not cripple, and that is what stops a boar circling for ever.** A crippled boar is
    taken out of the escape test in `Brain._outcome` (it is going nowhere) and `Wound.advance` never
@@ -58,8 +97,8 @@ published. Her second look, on this head: ***"I thin kwe good"***.
    real crippled boar, every Heartbeat for 12 s: at 3 studs/s and 70 deg/s the radius is
    `v / w` = **2.45 studs** -- a circle 4.9 studs across on an animal 5.5 studs long, a pivot and not
    a circle, which is exactly what Karen reported. 4.5 studs/s and 45 deg/s give radius **5.73**,
-   **11.5 studs across**, an **8.0 s** lap; `FLIGHT.rear` went 60 to 90 so it still lasts the same
-   20 s. **This is the opposite of what the fix round asked for (a *tighter* turn) and the
+   **11.5 studs across**, an **8.0 s** lap; `FLIGHT.rear` went 60 to 90 so a rump slug still gets
+   about the same time -- 81 studs after `Wound.flightStuds` tapers it past `MORTAL`, so ~18 s. **This is the opposite of what the fix round asked for (a *tighter* turn) and the
    measurement is the reason.** *Verify:* `boar_shot.spec`, "a crippled boar draws a circle a player
    can SEE" -- the radius against `CONFIG.BODY_SIZE.Z`, the lap under 12 s, and the crawl still
    slower than a trot and still faster than the walk clip's own ground speed.
@@ -77,7 +116,9 @@ published. Her second look, on this head: ***"I thin kwe good"***.
    standing animal the whole clip and a running one `HIT_MOVING_SECONDS`, `clipFor` hands over to
    the gait at exactly that point, `Boar.fadeFor` cuts a hit and a death in at `HIT_FADE_SECONDS`
    and blends a gait, and "every clip and every sound is ASKED FOR before the first shot" asserts
-   the pre-roll happens AND that every volume is back afterwards.
+   the pre-roll happens -- **one loaded track per clip in `MODEL.CLIPS`, read through
+   `Runtime:animationOf().tracks` (round 2)**, and every sound playing at volume 0 -- and that every
+   volume is back afterwards.
 
 6. **Sound is `Sound` objects in the trunk, and every id is data.** 3D for free, replicated with the
    boar, no new owner and no remote -- `Body` creates them because `Body` is the only writer of a
@@ -150,7 +191,12 @@ Frames in `.screenshots/`, each inspected:
   clicking). Shots land reliably; WHICH zone they land in does not, from this harness. So the
   crippled reaction is evidenced by `boar_shot.spec` -- pure, and live through `Runtime:takeHit` in a
   Play session with real physics (699 deg of turn in one direction over 10 s; strayed 4.91 studs in
-  3 s) -- and NOT by a click. **This is the one claim in the drawn half that rests on specs alone.**
+  3 s, and since round 2 `handle.state()` asserted to be `"CRIPPLED"` rather than inferred) -- and
+  NOT by a click. **This is the one claim in the drawn half that rests on specs alone.** Round 2's
+  finding is the reason it matters: a rump shot that ties with the trunk charges `body`, and the
+  symptom this section reported in round 1 ("the camera ray meets `ZoneRear` and the slug still
+  charges the trunk or the legs") was attributed only to the muzzle offset. Both were true; the tie
+  is now gone and the muzzle offset remains.
 - **The staged drag and walk frames show the animal about a stud above its shadow**, and my first
   reading of that was a defect in the authored clip. It is not: I shot a **control** -- the package's
   own `Walk_F_IP` played by the identical method, at the same weight and priority
