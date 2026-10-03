@@ -1,0 +1,950 @@
+-- boar_behaviour.spec: WHEN A BOAR LEAVES BEING CALM, and what it does about it (task 118).
+-- Pure: no physics, no Workspace, no waiting. Every band, every timer and every transition is driven
+-- through `Brain:step(1/60, obs)` with hand-written observations, or through the exported pure
+-- functions with no boar at all.
+-- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
+--
+-- THE FLAG ARRIVES AS A PARAMETER, which is the one permitted shape and the only way both states are
+-- reachable: `python tools/studio_mcp.py test` REFUSES to start while an override is set, so a
+-- harness run can only ever see `BOAR_BEHAVIOUR`'s OFF default. Every case below passes its own
+-- `SENSE` block, and the OFF cases are the ones that prove the live game is unchanged.
+--
+-- Numbers are written out where the requirement is absolute (the 0.25 s reaction, the 25/60 split)
+-- and read from CONFIG where the assertion is a RELATIONSHIP -- the convention `boar_brain.spec`
+-- follows, for the same reason.
+-- Design: docs/design/boar-behaviour.md (section 12, the pure half)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local Boar = require(ServerScriptService:WaitForChild("Boar"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+local Brain = Boar.Brain
+local CONFIG = Boar.CONFIG
+local SENSE = CONFIG.SENSE
+
+local DT = 1 / 60
+local DESIGN_REACTION = 0.25 -- SENSE_INTERVAL + one frame, the design's own budget
+local EPSILON = 1e-4 -- float32 noise on a magnitude near SPRINT_SPEED (see boar_brain.spec)
+
+local FIELD = {
+	bounds = { minX = -200, maxX = 200, minZ = -200, maxZ = 200 },
+	exitZ = -190,
+	groundY = 0,
+}
+local START = Vector3.new(0, 0, 0)
+
+-- The whole SENSE block with `ENABLED` set and anything else overridden, merged key by key -- the
+-- same merge `Boar.newRuntime` does, because a replaced block leaves every radius nil (case 14).
+local function configWith(on: boolean, overrides)
+	local sense = table.clone(SENSE)
+	sense.ENABLED = on
+	for key, value in pairs(overrides or {}) do
+		sense[key] = value
+	end
+	local config = table.clone(CONFIG)
+	config.SENSE = sense
+	return config
+end
+
+local function stimulus(distance: number, kind: string?, speed: number?)
+	return { id = "s", position = Vector3.new(distance, 0, 0), kind = kind, speed = speed }
+end
+
+local function obs(position: Vector3, threats, extra)
+	local o = {
+		position = position,
+		velocity = Vector3.zero,
+		threats = threats or {},
+		waypoints = nil,
+		pathFailed = false,
+		blockedAhead = false,
+	}
+	for key, value in pairs(extra or {}) do
+		o[key] = value
+	end
+	return o
+end
+
+-- A FOLLOWER'S sounder observation, in the shape `Runtime:_sounderObs` builds it.
+local function follower(extra)
+	local o = {
+		isLeader = false,
+		slot = 2,
+		scattering = false,
+		leaderState = nil,
+		leader = {
+			position = Vector3.new(0, 0, 12),
+			velocity = Vector3.zero,
+			facing = Vector3.new(0, 0, 1),
+			speed = 0,
+		},
+		centroid = Vector3.new(0, 0, 6),
+		neighbours = {},
+		formation = "wedge",
+		alarm = false,
+	}
+	for key, value in pairs(extra or {}) do
+		o[key] = value
+	end
+	return o
+end
+
+local function flatDistance(a: Vector3, b: Vector3): number
+	return (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude
+end
+
+-- Steps the brain `steps` times, INTEGRATING the position from the intent so a case about getting
+-- away from something can measure the distance it got. `threatsFor(step)` returns the stimulus list
+-- for that step, so a case can move, stop or remove the cause mid-run.
+local function drive(brain, steps: number, threatsFor, start: Vector3, extraFor)
+	local position = start
+	local intents = {}
+	for step = 1, steps do
+		local intent = brain:step(DT, obs(position, threatsFor(step), extraFor and extraFor(step) or nil))
+		position += intent.targetVelocity * DT
+		table.insert(intents, { intent = intent, position = position })
+	end
+	return intents, position
+end
+
+return function()
+	-- ------------------------------------------------------------------ 1. the flag off
+	describe("boar behaviour: with the flag OFF it is the world Milestone 1.2 shipped", function()
+		local off = configWith(false)
+
+		it("cannot see a shooter at all, however long he stands there", function()
+			-- `MatchBoot` now hands the boar world the SHOOTERS as well (section 8), and this is the
+			-- whole of what keeps that from changing the live game: a stimulus whose kind is not
+			-- "driver" is dropped before any radius is consulted.
+			--
+			-- 24 STUDS IS THE DISTANCE THAT MAKES THIS A TEST. It is inside NOTICE_STANDING = 25, so
+			-- with the flag on the animal goes head-up; and it is inside DETECT_RADIUS = 40, so if
+			-- the kind filter were deleted the flag-OFF boar would BOLT rather than merely notice
+			-- something. One stimulus, two states, and neither answer can be reached by accident.
+			local brain = Brain.new(off, FIELD, START, Random.new(1))
+			local shooter = { stimulus(24, "shooter") }
+			for _ = 1, 600 do
+				brain:step(DT, obs(START, shooter))
+			end
+			expect(brain:state()).to.equal("IDLE")
+
+			local on = Brain.new(configWith(true), FIELD, START, Random.new(1))
+			for _ = 1, 60 do
+				on:step(DT, obs(START, shooter))
+			end
+			expect(on:state()).to.equal("ALERT")
+		end)
+
+		it("still flushes at DETECT_RADIUS, with the same 0.25 s budget", function()
+			local brain = Brain.new(off, FIELD, START, Random.new(1))
+			local driver = { stimulus(CONFIG.DETECT_RADIUS - 1, "driver") }
+			local elapsed = 0
+			while brain:state() ~= "FLEE" and elapsed < 1 do
+				brain:step(DT, obs(START, driver))
+				elapsed += DT
+			end
+			expect(brain:state()).to.equal("FLEE")
+			expect(elapsed <= DESIGN_REACTION).to.equal(true)
+			-- ...and a standing driver one stud FURTHER OUT is still nothing, because with the flag
+			-- off there is no notice band at all: the only two answers are flee and none.
+			local calm = Brain.new(off, FIELD, START, Random.new(1))
+			for _ = 1, 120 do
+				calm:step(DT, obs(START, { stimulus(CONFIG.DETECT_RADIUS + 1, "driver") }))
+			end
+			expect(calm:state()).to.equal("IDLE")
+		end)
+
+		it("still panics a follower off its LEADER, which is the rule the flag replaces", function()
+			local brain = Brain.new(off, FIELD, START, Random.new(1))
+			local sounder = follower({ leaderState = "FLEE" })
+			local elapsed = 0
+			while brain:state() ~= "FLEE" and elapsed < 1 do
+				brain:step(DT, obs(START, {}, { sounder = sounder }))
+				elapsed += DT
+			end
+			expect(brain:state()).to.equal("FLEE")
+			expect(elapsed <= DESIGN_REACTION).to.equal(true)
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ 2. perceive
+	describe("boar behaviour: Brain.perceive is the one function, and it is pure", function()
+		local on = configWith(true)
+
+		local function reactionAt(distance: number, kind: string?, speed: number?): string
+			return Brain.perceive(START, { stimulus(distance, kind, speed) }, on).reaction
+		end
+
+		it("answers the bands Karen gave, standing and moving", function()
+			-- STANDING: noticed at 25, bolts at 15. The 26 and 24 pair is the whole of "a boar
+			-- notices a standing person at ~25 studs" and it fails if either number moves.
+			expect(reactionAt(26)).to.equal("none")
+			expect(reactionAt(24)).to.equal("alert")
+			expect(reactionAt(14)).to.equal("flee")
+			-- MOVING: noticed at 60, bolts at DETECT_RADIUS = 40. `speed = 5` is over
+			-- MOVING_SPEED = 2 and under a walk, which is what "once move" means.
+			expect(reactionAt(61, "driver", 5)).to.equal("none")
+			expect(reactionAt(59, "driver", 5)).to.equal("avoid")
+			expect(reactionAt(39, "driver", 5)).to.equal("flee")
+			-- ...and the same person STANDING at 59 is nothing at all, which is the pair that makes
+			-- the speed term the thing under test rather than the distance.
+			expect(reactionAt(59, "driver", 0)).to.equal("none")
+		end)
+
+		it("gives a dog half again the radii, and counts it as moving even when it is not", function()
+			-- HOOK ONLY (the brief puts dogs out of scope): nothing produces `kind = "dog"` yet, and
+			-- the first dog task fills it in and touches nothing else. 80 studs is past a person's
+			-- 60 and inside a dog's 90; 55 is past a person's 40 and inside a dog's 60.
+			expect(reactionAt(80, "dog", 10)).to.equal("avoid")
+			expect(reactionAt(91, "dog", 10)).to.equal("none")
+			expect(reactionAt(55, "dog", 10)).to.equal("flee")
+			expect(reactionAt(80, "dog", 0)).to.equal("avoid") -- standing, still "moving"
+		end)
+
+		it("takes the STRONGEST reaction, not the nearest stimulus", function()
+			-- The far one is moving at 39 (inside DETECT_RADIUS) and would flush the animal; the near
+			-- one is standing at 20 and would only lift its head. Flee wins, and the CAUSE is the
+			-- one that flushed it -- which is what the route then runs away from.
+			local perception = Brain.perceive(START, {
+				{ id = "near", position = Vector3.new(20, 0, 0), kind = "shooter", speed = 0 },
+				{ id = "far", position = Vector3.new(39, 0, 0), kind = "driver", speed = 5 },
+			}, on)
+			expect(perception.reaction).to.equal("flee")
+			expect(perception.cause.id).to.equal("far")
+			-- ...and the NEAREST is still reported, because the calm test and the old centroid both
+			-- rest on it.
+			expect(math.abs(perception.nearestDistance - 20) < EPSILON).to.equal(true)
+		end)
+
+		it("reports the centroid of what is flushing it, and nil when there is nothing", function()
+			local empty = Brain.perceive(START, {}, on)
+			expect(empty.reaction).to.equal("none")
+			expect(empty.centroid).to.equal(nil)
+			expect(empty.nearestDistance).to.equal(math.huge)
+			expect(empty.calm).to.equal(true)
+			-- Two inside the flush band: the centroid is between them, which is the anchor the route
+			-- is pushed sideways from.
+			local two = Brain.perceive(START, {
+				{ id = "a", position = Vector3.new(10, 0, 0), kind = "driver", speed = 0 },
+				{ id = "b", position = Vector3.new(0, 0, 10), kind = "driver", speed = 0 },
+			}, on)
+			expect(two.reaction).to.equal("flee")
+			expect(flatDistance(two.centroid, Vector3.new(5, 0, 5)) < EPSILON).to.equal(true)
+		end)
+
+		it("keeps CALM_RADIUS - DETECT_RADIUS == SENSE.CALM_MARGIN, so the OFF branch cannot drift", function()
+			-- The calm test is per stimulus now (section 4.3). It is arithmetically today's only
+			-- while this equality holds, and this is the one assertion standing between the two.
+			expect(CONFIG.CALM_RADIUS - CONFIG.DETECT_RADIUS).to.equal(SENSE.CALM_MARGIN)
+			-- ...and both branches agree at the boundary for a standing driver, which is what the
+			-- equality is FOR: off, the hysteresis is 70; on, it is 25 + 30 = 55 for a standing
+			-- person and 40 + 30 = 70 for a moving one.
+			-- OFF: the hysteresis is one radius for everything, CALM_RADIUS = 70.
+			expect(Brain.perceive(START, { stimulus(70.5, "driver") }, configWith(false)).calm).to.equal(true)
+			expect(Brain.perceive(START, { stimulus(69.5, "driver") }, configWith(false)).calm).to.equal(false)
+			-- ON: it is the stimulus's own NOTICE radius plus the margin, so a MOVING man is 60 + 30
+			-- and a standing one 25 + 30. The pair at 89.5 / 90.5 is the moving boundary, and the
+			-- pair at 54.5 / 55.5 is the standing one -- the same stimulus, two different bands,
+			-- which is what "per stimulus" means and what one global radius could not express.
+			expect(Brain.perceive(START, { stimulus(89.5, "driver", 5) }, on).calm).to.equal(false)
+			expect(Brain.perceive(START, { stimulus(90.5, "driver", 5) }, on).calm).to.equal(true)
+			expect(Brain.perceive(START, { stimulus(54.5, "driver") }, on).calm).to.equal(false)
+			expect(Brain.perceive(START, { stimulus(55.5, "driver") }, on).calm).to.equal(true)
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ 3-5. ALERT
+	describe("boar behaviour: ALERT is head up, stopped, turned to the cause", function()
+		local on = configWith(true)
+
+		it("enters within 0.25 s of a standing man at 24 studs and faces him", function()
+			local brain = Brain.new(on, FIELD, START, Random.new(3))
+			local man = { stimulus(24, "shooter") }
+			local elapsed = 0
+			while brain:state() ~= "ALERT" and elapsed < 1 do
+				brain:step(DT, obs(START, man))
+				elapsed += DT
+			end
+			expect(brain:state()).to.equal("ALERT")
+			expect(elapsed <= DESIGN_REACTION).to.equal(true)
+
+			-- THE FACING REACHES HIM, and never faster than the existing TURN_RATE: a 180-degree
+			-- turn takes 0.79 s, so 1.0 s is the budget and the per-step bound is what makes it a
+			-- turn rather than a snap.
+			local toward = Vector3.new(1, 0, 0)
+			local previous = nil
+			local aligned, waited = false, 0
+			local fastest = 0
+			while waited < 1.0 do
+				local intent = brain:step(DT, obs(START, man))
+				local facing = Vector3.new(intent.facing.X, 0, intent.facing.Z).Unit
+				if previous then
+					local turned =
+						math.abs(math.atan2(previous.X * facing.Z - previous.Z * facing.X, previous:Dot(facing)))
+					fastest = math.max(fastest, turned / DT)
+				end
+				previous = facing
+				if math.deg(math.acos(math.clamp(facing:Dot(toward), -1, 1))) <= 10 then
+					aligned = true
+					break
+				end
+				waited += DT
+			end
+			expect(aligned).to.equal(true)
+			expect(fastest <= CONFIG.TURN_RATE + EPSILON).to.equal(true)
+			TestKit.note(
+				string.format("boar-behaviour: ALERT faced the cause in %.2f s, fastest %.2f rad/s", waited, fastest)
+			)
+		end)
+
+		it("stops: the setpoint goes to zero and never leaves it, and it asks for no route", function()
+			local brain = Brain.new(on, FIELD, START, Random.new(4))
+			local man = { stimulus(24, "shooter") }
+			-- The animal may have been wandering when it noticed him, so the ACCEL ramp has up to
+			-- WANDER_SPEED / ACCEL = 0.07 s of slowing down to do. After that it is stopped, and it
+			-- never moves again while it is alert.
+			local fastest = 0
+			for step = 1, math.ceil(SENSE.ALERT_SECONDS / DT) - 2 do
+				local intent = brain:step(DT, obs(START, man))
+				expect(intent.pathRequest).to.equal(nil)
+				if step * DT > 0.2 then
+					expect(intent.state).to.equal("ALERT")
+					fastest = math.max(fastest, intent.targetVelocity.Magnitude)
+				end
+			end
+			expect(fastest < EPSILON).to.equal(true)
+		end)
+
+		it("settles after ALERT_SECONDS, puts its home where it stands, and will not look again", function()
+			local brain = Brain.new(on, FIELD, START, Random.new(5))
+			local where = Vector3.new(0, 0, 7)
+			local man = { stimulus(24, "shooter") }
+			local held = 0
+			while brain:state() ~= "ALERT" do
+				brain:step(DT, obs(where, man))
+			end
+			while brain:state() == "ALERT" and held < SENSE.ALERT_SECONDS * 2 do
+				brain:step(DT, obs(where, man))
+				held += DT
+			end
+			expect(brain:state()).to.equal("IDLE")
+			expect(held >= SENSE.ALERT_SECONDS - DT * 2).to.equal(true)
+			expect(flatDistance(brain:debug().home, where) < EPSILON).to.equal(true)
+
+			-- THE REFRACTORY. He is still standing there, and the animal grazes instead of
+			-- flip-flopping IDLE<->ALERT every 2.5 s for ever.
+			local waited = 0
+			while waited < SENSE.ALERT_REFRACTORY_SECONDS - 0.5 do
+				brain:step(DT, obs(where, man))
+				expect(brain:state()).to.equal("IDLE")
+				waited += DT
+			end
+			-- ...and then it does look again, which is the half that makes it a refractory period
+			-- and not a one-shot.
+			local again = 0
+			while brain:state() ~= "ALERT" and again < 2 do
+				brain:step(DT, obs(where, man))
+				again += DT
+			end
+			expect(brain:state()).to.equal("ALERT")
+			TestKit.note(string.format("boar-behaviour: head up %.2f s, then %.2f s of grazing", held, waited + again))
+		end)
+
+		it("runs instead when the man closes to 14 studs", function()
+			local brain = Brain.new(on, FIELD, START, Random.new(6))
+			while brain:state() ~= "ALERT" do
+				brain:step(DT, obs(START, { stimulus(24, "shooter") }))
+			end
+			local elapsed = 0
+			while brain:state() ~= "FLEE" and elapsed < 1 do
+				brain:step(DT, obs(START, { stimulus(14, "shooter") }))
+				elapsed += DT
+			end
+			expect(brain:state()).to.equal("FLEE")
+			expect(elapsed <= DESIGN_REACTION).to.equal(true)
+		end)
+
+		it("turns away instead when the man starts moving and is outside the flush band", function()
+			-- DESIGN SECTION 12 CASE 5 SAYS "at 30 studs", WHICH ITS OWN SECTION 4.2 CONTRADICTS: a
+			-- MOVING person's flush radius is DETECT_RADIUS = 40, so a man moving at 30 studs
+			-- flushes the animal rather than making it turn away. The band where "it moved" means
+			-- AVOID is 40 to 60, so this drives 45 -- a man who has stood up and walked off to one
+			-- side, which is the behaviour the state exists for.
+			local brain = Brain.new(on, FIELD, START, Random.new(7))
+			while brain:state() ~= "ALERT" do
+				brain:step(DT, obs(START, { stimulus(24, "shooter") }))
+			end
+			local elapsed = 0
+			while brain:state() ~= "AVOID" and elapsed < 1 do
+				brain:step(DT, obs(START, { stimulus(45, "shooter", 5) }))
+				elapsed += DT
+			end
+			expect(brain:state()).to.equal("AVOID")
+			expect(elapsed <= DESIGN_REACTION).to.equal(true)
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ 6. AVOID
+	describe("boar behaviour: AVOID turns away and trots off, and costs no routes", function()
+		local on = configWith(true)
+
+		local function intoAvoid(seed: number)
+			local brain = Brain.new(on, FIELD, START, Random.new(seed))
+			local man = { stimulus(45, "shooter", 5) }
+			while brain:state() ~= "AVOID" do
+				brain:step(DT, obs(START, man))
+			end
+			return brain
+		end
+
+		it("heads at least 90 degrees off the cause within a second, and keeps opening the gap", function()
+			local brain = intoAvoid(11)
+			local cause = Vector3.new(45, 0, 0)
+			local man = function()
+				return { { id = "s", position = cause, kind = "shooter", speed = 5 } }
+			end
+			local intents, finished = drive(brain, math.ceil(3 / DT), man, START)
+
+			-- A REFUSAL, NOT A SIDESTEP (section 7.1): `AVOID_TURN_DEG` is 120, measured off the line
+			-- TOWARD the man, so inside a second the direction of travel is at least 90 degrees off
+			-- him and the radial component is negative. The turn itself costs 120 deg / TURN_RATE =
+			-- 0.52 s, which is why the window is a second and not a tick.
+			local widest, at = 0, 0
+			for index, row in ipairs(intents) do
+				local v = row.intent.targetVelocity
+				if v.Magnitude > 1 then
+					local heading = Vector3.new(v.X, 0, v.Z).Unit
+					local toward = Vector3.new(cause.X - row.position.X, 0, cause.Z - row.position.Z).Unit
+					local off = math.deg(math.acos(math.clamp(heading:Dot(toward), -1, 1)))
+					if index * DT <= 1.0 and off > widest then
+						widest, at = off, index * DT
+					end
+				end
+			end
+			expect(widest >= 90).to.equal(true)
+
+			-- ...and it is LEAVING. The window is THREE seconds and not section 12 case 6's two: the
+			-- first half-second is spent turning away from the man the animal was facing while it
+			-- was alert, and during it the distance shrinks. Measured below, both ways.
+			local twoSeconds = flatDistance(intents[math.ceil(2 / DT)].position, cause) - 45
+			local opened = flatDistance(finished, cause) - 45
+			expect(opened >= 20).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-behaviour: AVOID turned %.0f deg off the cause by %.2f s, opened %.1f studs in 2 s and %.1f in 3 s",
+					widest,
+					at,
+					twoSeconds,
+					opened
+				)
+			)
+		end)
+
+		it("converges on TROT_SPEED through the existing ACCEL ramp, and asks for no path at all", function()
+			local brain = intoAvoid(12)
+			local man = function()
+				return { stimulus(45, "shooter", 5) }
+			end
+			-- `previous` STARTS FROM A REAL STEP, not from zero: the animal is already moving when
+			-- this case picks it up (entering AVOID costs a step), so a zero start would read the
+			-- whole of that step's speed as one frame's acceleration and fail on arithmetic.
+			local previous = brain:step(DT, obs(START, man())).targetVelocity.Magnitude
+			local fastestRise = 0
+			local requests = 0
+			local final = 0
+			for _ = 1, 600 do
+				local intent = brain:step(DT, obs(START, man()))
+				if intent.pathRequest ~= nil then
+					requests += 1
+				end
+				local speed = intent.targetVelocity.Magnitude
+				fastestRise = math.max(fastestRise, (speed - previous) / DT)
+				previous = speed
+				final = speed
+			end
+			-- NO ROUTE, EVER, FROM AVOID. `ComputeAsync` is this system's one expensive call and a
+			-- behaviour task may not change the path budget (section 4.4).
+			expect(requests).to.equal(0)
+			expect(fastestRise <= CONFIG.ACCEL + EPSILON).to.equal(true)
+			expect(math.abs(final - CONFIG.TROT_SPEED) < EPSILON).to.equal(true)
+		end)
+
+		it("settles AVOID_SECONDS after the last tick anything was noticed", function()
+			local brain = intoAvoid(13)
+			-- He is still in the notice band: the clock keeps being pushed back and the animal keeps
+			-- leaving, which is what "since the last tick any stimulus was noticed" means.
+			local held = 0
+			while held < SENSE.AVOID_SECONDS * 2 do
+				brain:step(DT, obs(START, { stimulus(45, "shooter", 5) }))
+				expect(brain:state()).to.equal("AVOID")
+				held += DT
+			end
+			-- Gone: it settles, and not before the four seconds are up.
+			local waited = 0
+			while brain:state() == "AVOID" and waited < SENSE.AVOID_SECONDS * 3 do
+				brain:step(DT, obs(START, {}))
+				waited += DT
+			end
+			expect(brain:state()).to.equal("IDLE")
+			expect(waited >= SENSE.AVOID_SECONDS - DT * 2).to.equal(true)
+		end)
+
+		it("counts as escaping when it crosses the line, exactly once", function()
+			-- AVOID joins FLEE and WOUNDED in `_outcome` (section 3.4): the line is the line, and how
+			-- the animal got over it does not change that it is over it. An IDLE boar wandering over
+			-- the same line still does NOT escape, which is the pair that makes this a rule.
+			local brain = intoAvoid(14)
+			local over = Vector3.new(0, 0, FIELD.exitZ - 1)
+			local first = brain:step(DT, obs(over, { stimulus(45, "shooter", 5) }))
+			expect(first.despawn).to.equal(true)
+			expect(first.reason).to.equal("escaped")
+			local second = brain:step(DT, obs(over, {}))
+			expect(second.despawn).to.equal(false)
+
+			local idle = Brain.new(on, FIELD, START, Random.new(15))
+			local wandered = idle:step(DT, obs(over, {}))
+			expect(wandered.despawn).to.equal(false)
+			expect(idle:state()).to.equal("IDLE")
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ 7-9. a shot, and precedence
+	describe("boar behaviour: a shot is a sound", function()
+		local on = configWith(true)
+
+		local function shotAt(distance: number)
+			return { { kind = "shot", position = Vector3.new(distance, 0, 0) } }
+		end
+
+		it("sprints on the same tick inside SHOT_AUDIBLE_STUDS, and holds it for SHOT_SPRINT_SECONDS", function()
+			local brain = Brain.new(on, FIELD, START, Random.new(21))
+			local intent = brain:step(DT, obs(START, {}, { sounds = shotAt(340) }))
+			expect(intent.state).to.equal("FLEE")
+			-- The bolt kick is the existing one-off ACCEL bypass, so the setpoint on this very tick
+			-- is SPRINT_SPEED * BOLT_KICK less the one ramp step that follows it.
+			local kick = CONFIG.SPRINT_SPEED * CONFIG.WOUND.BOLT_KICK
+			expect(intent.targetVelocity.Magnitude >= kick - CONFIG.ACCEL * DT - EPSILON).to.equal(true)
+
+			-- ...and it is still sprinting most of the way through the four seconds, then stops
+			-- being told to by the bolt. With nothing in range it calms down on the existing timer.
+			local sprinting = 0
+			for _ = 1, math.ceil((SENSE.SHOT_SPRINT_SECONDS - 0.2) / DT) do
+				local next_ = brain:step(DT, obs(START, {}))
+				if next_.targetVelocity.Magnitude >= CONFIG.SPRINT_SPEED - 1 then
+					sprinting += DT
+				end
+			end
+			expect(sprinting >= SENSE.SHOT_SPRINT_SECONDS - 0.5).to.equal(true)
+			TestKit.note(string.format("boar-behaviour: a heard shot held the sprint %.2f s", sprinting))
+		end)
+
+		it("hears nothing past SHOT_AUDIBLE_STUDS, and nothing at all with the flag off", function()
+			local deaf = Brain.new(on, FIELD, START, Random.new(22))
+			for _ = 1, 120 do
+				deaf:step(DT, obs(START, {}, { sounds = shotAt(360) }))
+			end
+			expect(deaf:state()).to.equal("IDLE")
+
+			-- WITH THE FLAG OFF A BOAR DOES NOT HEAR AT ALL. `MatchBoot` wires `Weapon.ShotFired`
+			-- unconditionally, so this one test is what keeps the live game's boar exactly what it
+			-- was: before task 118 there was no server-side "a shot was fired" fact anywhere.
+			local off = Brain.new(configWith(false), FIELD, START, Random.new(22))
+			for _ = 1, 120 do
+				off:step(DT, obs(START, {}, { sounds = shotAt(10) }))
+			end
+			expect(off:state()).to.equal("IDLE")
+		end)
+
+		it("routes away from the shot, not toward wherever it was going", function()
+			-- While bolting, the shot point IS the threat -- the existing rule (hit-zones section
+			-- 6.2 item 5), reused with no new code. The route is pushed sideways AWAY from it, so a
+			-- shot from +X sends the animal's target to -X.
+			local brain = Brain.new(on, FIELD, START, Random.new(23))
+			local request = nil
+			for _ = 1, 60 do
+				local intent = brain:step(DT, obs(START, {}, { sounds = if request then nil else shotAt(200) }))
+				request = request or intent.pathRequest
+			end
+			expect(request).to.be.ok()
+			expect(request.X < 0).to.equal(true)
+		end)
+
+		it("is ignored by a carcass, a crippled animal and a terminal one", function()
+			local down = Brain.new(on, FIELD, START, Random.new(24))
+			down:step(DT, obs(START, {}, { wound = { collapse = true } }))
+			expect(down:state()).to.equal("DOWN")
+			local still = down:step(DT, obs(START, {}, { sounds = shotAt(10) }))
+			expect(still.state).to.equal("DOWN")
+			expect(still.targetVelocity.Magnitude).to.equal(0)
+
+			-- A CRIPPLED BOAR'S BACK END IS GONE AND A BANG DOES NOT GIVE IT BACK: it keeps
+			-- circling at CRIPPLE_SPEED, which is the number a bolt would destroy.
+			local crippled = Brain.new(on, FIELD, START, Random.new(25))
+			crippled:step(
+				DT,
+				obs(START, {}, {
+					hitEvents = { { severity = "mortal", class = "crippling", from = Vector3.new(0, 0, 20) } },
+				})
+			)
+			expect(crippled:state()).to.equal("CRIPPLED")
+			for _ = 1, 30 do
+				local intent = crippled:step(DT, obs(START, {}, { sounds = shotAt(5) }))
+				expect(intent.state).to.equal("CRIPPLED")
+				expect(intent.targetVelocity.Magnitude <= CONFIG.WOUND.CRIPPLE_SPEED + EPSILON).to.equal(true)
+			end
+		end)
+
+		it("never returns a WOUNDED animal to a calm state, shot or no shot", function()
+			local brain = Brain.new(on, FIELD, START, Random.new(26))
+			brain:step(DT, obs(START, {}, { hitEvents = { { severity = "mortal", class = "vital" } } }))
+			expect(brain:state()).to.equal("WOUNDED")
+			brain:step(DT, obs(START, {}, { sounds = shotAt(50) }))
+			for _ = 1, math.ceil((CONFIG.CALM_TIME + SENSE.SHOT_SPRINT_SECONDS + 4) / DT) do
+				brain:step(DT, obs(START, {}))
+			end
+			expect(brain:state()).to.equal("WOUNDED")
+		end)
+
+		it("lets a HIT beat every perception on the tick it lands", function()
+			-- Precedence row 3 is above every sense row, and it has to be: a reaction that waited for
+			-- the next sense tick would be up to SENSE_INTERVAL late, and late is indistinguishable
+			-- from nothing having happened. A standing man at 24 would make this animal ALERT.
+			local brain = Brain.new(on, FIELD, START, Random.new(27))
+			local intent = brain:step(
+				DT,
+				obs(START, { stimulus(24, "shooter") }, { hitEvents = { { severity = "light", class = "body" } } })
+			)
+			expect(intent.state).to.equal("FLEE")
+			expect(brain:state()).to.equal("FLEE")
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ 10. the alarm
+	describe("boar behaviour: panic reaches a member through the sounder's alarm", function()
+		local on = configWith(true)
+
+		it("moves an IDLE member to FLEE within one sense tick", function()
+			local brain = Brain.new(on, FIELD, START, Random.new(31))
+			local alarmed = follower({ alarm = true })
+			local elapsed = 0
+			while brain:state() ~= "FLEE" and elapsed < 1 do
+				brain:step(DT, obs(START, {}, { sounder = alarmed }))
+				elapsed += DT
+			end
+			expect(brain:state()).to.equal("FLEE")
+			expect(elapsed <= DESIGN_REACTION).to.equal(true)
+		end)
+
+		it("and the LEADER'S STATE alone no longer does, because that is the rule it replaces", function()
+			-- TWO CORRECT RULES DISAGREEING IS THIS PROJECT'S NAMED KILLER. With the flag on, panic
+			-- travels one way only: the Runtime's alarm, member to member with a delay. A leader
+			-- that is running is not by itself a reason for a member 200 studs away to run.
+			local brain = Brain.new(on, FIELD, START, Random.new(32))
+			local running = follower({ leaderState = "FLEE" })
+			for _ = 1, 600 do
+				brain:step(DT, obs(START, {}, { sounder = running }))
+			end
+			expect(brain:state()).to.equal("IDLE")
+		end)
+
+		it("lets a member settle behind an ALERT leader, which the old rule could not", function()
+			-- `leaderCalm` used to be `leaderState == "IDLE"`, so a leader with its head up would
+			-- have pinned its whole sounder in FLEE for ever. It reads `Brain.classOf` now, and
+			-- ALERT is calm.
+			local brain = Brain.new(on, FIELD, START, Random.new(33))
+			local alarmed = follower({ alarm = true })
+			while brain:state() ~= "FLEE" do
+				brain:step(DT, obs(START, {}, { sounder = alarmed }))
+			end
+			local settled = follower({ alarm = false, leaderState = "ALERT" })
+			local waited = 0
+			while brain:state() == "FLEE" and waited < CONFIG.CALM_TIME * 3 do
+				brain:step(DT, obs(START, {}, { sounder = settled }))
+				waited += DT
+			end
+			expect(brain:state()).to.equal("IDLE")
+			expect(waited >= CONFIG.CALM_TIME).to.equal(true)
+			-- ...and a PANICKED leader still holds it, so the class table is doing the work and not
+			-- the timer alone.
+			local pinned = Brain.new(on, FIELD, START, Random.new(34))
+			while pinned:state() ~= "FLEE" do
+				pinned:step(DT, obs(START, {}, { sounder = alarmed }))
+			end
+			for _ = 1, math.ceil(CONFIG.CALM_TIME * 3 / DT) do
+				pinned:step(DT, obs(START, {}, { sounder = follower({ leaderState = "WOUNDED" }) }))
+			end
+			expect(pinned:state()).to.equal("FLEE")
+		end)
+
+		it("classifies every state the system has, and nothing else", function()
+			-- One table, read by the alarm, by the herd's calm-down and by the Runtime's stats, so a
+			-- ninth state cannot be forgotten in one predicate. The list is written out here on
+			-- purpose: a state added to CLASS without a decision about its class fails this.
+			local expected = {
+				IDLE = "calm",
+				ALERT = "calm",
+				AVOID = "disturbed",
+				FLEE = "panicked",
+				WOUNDED = "panicked",
+				CRIPPLED = "down",
+				DOWN = "down",
+				GONE = "gone",
+			}
+			local count = 0
+			for state, class in pairs(Brain.CLASS) do
+				expect(expected[state]).to.equal(class)
+				count += 1
+			end
+			expect(count).to.equal(8)
+			expect(Brain.classOf("IDLE")).to.equal("calm")
+			expect(Brain.classOf(nil)).to.equal("gone")
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ the sounder's shape
+	describe("boar behaviour: a sounder runs in single file or as a loose group", function()
+		local on = configWith(true)
+
+		it("steers a column member dead astern and a wedge member out to the side", function()
+			-- Karen: "they usually do one line each after another or mixed like in real life". The
+			-- formation is drawn ONCE per sounder by the Runtime and reaches the Brain as a plain
+			-- value on the observation it already gets; this is the one expression that reads it.
+			--
+			-- INTEGRATED FOR A SECOND, not compared one step at a time, for the reason
+			-- `boar_sounder.spec`'s own column case gives: `facing` is slewed by at most
+			-- TURN_RATE * dt, so after one step two brains that want opposite things still look
+			-- almost identical. Slot 3 stands +7 studs to the leader's RIGHT in the wedge and dead
+			-- astern in the column, so where they have GOT TO is the difference the formation makes.
+			local leaderAt = Vector3.new(0, 0, -40)
+			local leader = {
+				position = leaderAt,
+				velocity = Vector3.new(0, 0, -CONFIG.TROT_SPEED),
+				facing = Vector3.new(0, 0, -1),
+				speed = CONFIG.TROT_SPEED,
+			}
+
+			local function run(formation: string): Vector3
+				local brain = Brain.new(on, FIELD, START, Random.new(77))
+				local position = START
+				for _ = 1, 60 do
+					local intent = brain:step(
+						DT,
+						obs(position, { stimulus(20, "driver", 6) }, {
+							sounder = follower({
+								slot = 3,
+								leader = leader,
+								centroid = leaderAt,
+								formation = formation,
+							}),
+						})
+					)
+					position += intent.targetVelocity * DT
+				end
+				return position
+			end
+
+			local column = run("column")
+			local wedge = run("wedge")
+			-- The leader's axis is -Z, so "across it" is X, and the wedge's slot 3 is +7 of it.
+			expect(math.abs(column.X) < math.abs(wedge.X)).to.equal(true)
+			expect(flatDistance(column, wedge) > 1).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-behaviour: slot 3 after 1 s -- column %.1f studs off the axis, wedge %.1f",
+					math.abs(column.X),
+					math.abs(wedge.X)
+				)
+			)
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ the drawn animal
+	describe("boar behaviour: the drawn animal puts its head up", function()
+		-- Section 3.6: exactly two lines, both inside the seam task 115 already built. `ALERT_CLIP`
+		-- names a ROW IN `CLIPS`, which is the whole of this task's dependency on the drawn model --
+		-- a one-word data change if the Director publishes a different clip, and no code either way.
+		local function modelWith(ids)
+			local model = table.clone(CONFIG.MODEL)
+			model.ANIMATION_IDS = ids
+			local config = table.clone(CONFIG)
+			config.MODEL = model
+			return config
+		end
+
+		local function published()
+			local ids = table.clone(CONFIG.MODEL.ANIMATION_IDS)
+			for name in pairs(CONFIG.MODEL.CLIPS) do
+				ids[name] = 30000 + #name
+			end
+			return modelWith(ids)
+		end
+
+		local function info(extra)
+			local o = {
+				collapsed = false,
+				deadFor = 0,
+				crippled = false,
+				alert = false,
+				activity = nil,
+				activityFor = 0,
+				exitClip = nil,
+				exitFor = 0,
+				hitFor = 0,
+				hitFromBehind = false,
+				speed = 0,
+				yawRate = 0,
+				currentClip = nil,
+				heldFor = 10,
+			}
+			for key, value in pairs(extra or {}) do
+				o[key] = value
+			end
+			return o
+		end
+
+		it("draws ALERT_CLIP while it is alert, and `idle` when that clip has no id", function()
+			local config = published()
+			expect(config.MODEL.ALERT_CLIP).to.equal("smell") -- the Director's choice, 2026-10-04
+			local name = Boar.clipFor(info({ alert = true }), config)
+			expect(name).to.equal(config.MODEL.ALERT_CLIP)
+			-- ...and the same animal NOT alert draws the resting clip, so the branch is the alert and
+			-- not the standing.
+			expect(Boar.clipFor(info({}), config)).to.equal("idle")
+			-- WITH NO ID PUBLISHED the behaviour is exactly what it was before task 118: the same
+			-- "if an id is missing, the current behaviour stays" rule the file already rests on.
+			local bare = modelWith({ idle = 1, walk = 2 })
+			expect(Boar.clipFor(info({ alert = true }), bare)).to.equal("idle")
+		end)
+
+		it("is beaten by a gait, a turn, a flinch, a cripple and a death", function()
+			-- It sits after all five (section 3.6): an alert boar is standing still, so the gaits
+			-- never reach it in practice -- but an animal that is alert AND moving is drawn moving,
+			-- and one that is dying is drawn dying.
+			local config = published()
+			expect(Boar.clipFor(info({ alert = true, speed = CONFIG.SPRINT_SPEED }), config)).to.equal("run")
+			expect(Boar.clipFor(info({ alert = true, yawRate = 120 }), config)).to.equal("turnLeft")
+			expect(Boar.clipFor(info({ alert = true, hitFor = CONFIG.MODEL.HIT_SECONDS }), config)).to.equal("hitFront")
+			expect(Boar.clipFor(info({ alert = true, crippled = true }), config)).to.equal("crippleDrag")
+			expect(Boar.clipFor(info({ alert = true, collapsed = true }), config)).to.equal((Boar.deathClips(config)))
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ 12-15. the properties
+	describe("boar behaviour: determinism, cost, the merge and the sight hook", function()
+		local on = configWith(true)
+
+		it("is deterministic: one seed, one sequence of intents", function()
+			local a = Brain.new(on, FIELD, START, Random.new(99))
+			local b = Brain.new(on, FIELD, START, Random.new(99))
+			local threats = { stimulus(50, "shooter", 5) }
+			for _ = 1, 600 do
+				local first = a:step(DT, obs(START, threats))
+				local second = b:step(DT, obs(START, threats))
+				expect(first.state).to.equal(second.state)
+				expect((first.targetVelocity - second.targetVelocity).Magnitude < EPSILON).to.equal(true)
+			end
+		end)
+
+		it("costs under 150 ms for 10 000 steps with four stimuli", function()
+			local brain = Brain.new(on, FIELD, START, Random.new(100))
+			local threats = {
+				{ id = "a", position = Vector3.new(80, 0, 0), kind = "driver", speed = 6 },
+				{ id = "b", position = Vector3.new(-90, 0, 10), kind = "driver", speed = 0 },
+				{ id = "c", position = Vector3.new(0, 0, 70), kind = "shooter", speed = 0 },
+				{ id = "d", position = Vector3.new(30, 0, -120), kind = "shooter", speed = 3 },
+			}
+			local started = os.clock()
+			for _ = 1, 10000 do
+				brain:step(DT, obs(START, threats))
+			end
+			local elapsed = os.clock() - started
+			expect(elapsed < 0.15).to.equal(true)
+			TestKit.note(string.format("boar-behaviour: 10000 steps, 4 stimuli, %.0f ms", elapsed * 1000))
+		end)
+
+		it("merges a partial SENSE override instead of replacing the block", function()
+			-- WITHOUT THE MERGE, a world passing `config = { SENSE = { ENABLED = true } }` gets a
+			-- block with one key in it: every radius and every timer reads nil, which is not an
+			-- error but a boar that notices nothing at any distance and never settles.
+			-- IT HAS TO BE IN WORKSPACE: `Body.create` sets the network owner, and Roblox refuses
+			-- that on a part that is not a descendant of Workspace. The folder is destroyed below, so
+			-- nothing of this case outlives it.
+			local standing = {}
+			local holder = Instance.new("Folder")
+			holder.Name = "BoarBehaviourMergeProbe"
+			holder.Parent = workspace
+			local runtime = Boar.newRuntime({
+				field = FIELD,
+				parent = holder,
+				folderName = "MergeProbe",
+				rng = Random.new(1),
+				config = { SENSE = { ENABLED = true, SHOT_AUDIBLE_STUDS = 7 } },
+				threats = function()
+					return standing
+				end,
+				-- A ROUTE SEAM THAT ANSWERS NOTHING. `hearShot` below bolts the animal into FLEE,
+				-- and FLEE asks for a route on its first step: a world without this is a nil call
+				-- inside `Runtime:step`, which is a harness fault and not a finding.
+				requestPath = function(_agentId, _from, _to, done)
+					done(nil)
+				end,
+				releasePath = function() end,
+			})
+			local merged = runtime:stats() -- forces the runtime to be real before we read its config
+			expect(merged).to.be.ok()
+			local handle = runtime:spawn(Vector3.new(0, FIELD.groundY, 0))
+			expect(handle).to.be.ok()
+			-- THE OVERRIDE APPLIED: a shot at 6 studs is heard and one at 8 is not, against the
+			-- override's own SHOT_AUDIBLE_STUDS = 7 (the default is 350, so both would be heard).
+			expect(runtime:hearShot(Vector3.new(6, FIELD.groundY, 0))).to.equal(1)
+			expect(runtime:hearShot(Vector3.new(8, FIELD.groundY, 0))).to.equal(0)
+
+			-- ...AND EVERY OTHER NUMBER IS STILL THE DEFAULT, which is the half the merge is FOR and
+			-- the half a replaced block fails: `NOTICE_STANDING` is nil in a block of two keys, so
+			-- the animal notices nothing at any distance. Stepped by hand -- this runtime is not
+			-- running -- and read back through `perceptionOf`, the one door there is.
+			standing = { { id = "man", position = Vector3.new(24, FIELD.groundY, 0), kind = "shooter" } }
+			runtime:step(DT)
+			runtime:step(DT)
+			local perception = runtime:perceptionOf(handle.id)
+			expect(perception).to.be.ok()
+			expect(perception.reaction).to.equal("alert")
+
+			runtime:destroy()
+			holder:Destroy()
+		end)
+
+		it("gates a notice on line of sight when REQUIRE_SIGHT asks it to, and only then", function()
+			local sighted = configWith(true, { REQUIRE_SIGHT = true })
+			local man = { stimulus(24, "shooter") }
+			local calls = 0
+			local blocked = function()
+				calls += 1
+				return true -- something solid, every time
+			end
+			local clear = function()
+				calls += 1
+				return false
+			end
+			expect(Brain.perceive(START, man, sighted, blocked).reaction).to.equal("none")
+			expect(Brain.perceive(START, man, sighted, clear).reaction).to.equal("alert")
+			-- ...and a FLUSH is never gated: a boar at 14 studs has smelt and heard him whatever is
+			-- in the way.
+			expect(Brain.perceive(START, { stimulus(14, "shooter") }, sighted, blocked).reaction).to.equal("flee")
+			-- With the dial at its shipped value the probe is not consulted at all.
+			calls = 0
+			expect(Brain.perceive(START, man, configWith(true), blocked).reaction).to.equal("alert")
+			expect(calls).to.equal(0)
+
+			-- AND IT IS ASKED ONCE PER SENSE TICK, NOT ONCE PER FRAME. One stimulus, 600 steps of
+			-- 1/60 s: ten seconds, so at SENSE_INTERVAL = 0.2 that is at most 1 + 10/0.2 = 51 rays.
+			local brain = Brain.new(sighted, FIELD, START, Random.new(101))
+			calls = 0
+			for _ = 1, 600 do
+				brain:step(DT, obs(START, man, { probe = clear }))
+			end
+			expect(calls <= 1 + (600 * DT) / CONFIG.SENSE_INTERVAL).to.equal(true)
+			TestKit.note(string.format("boar-behaviour: %d sight rays over 10 s of stepping", calls))
+		end)
+	end)
+end

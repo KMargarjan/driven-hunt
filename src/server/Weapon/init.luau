@@ -89,7 +89,18 @@ local ARMING_SWEEP_SECONDS = 2
 
 local hitSignal = Instance.new("BindableEvent")
 local safetySignal = Instance.new("BindableEvent")
+local shotSignal = Instance.new("BindableEvent")
 Weapon.HitReported = hitSignal.Event
+-- ({ shooterUserId: number, muzzle: Vector3, ammo: string }) -- A SHOT WAS FIRED, hit or miss, and
+-- before this there was no server-side way to know that: `HitReported` is per hit and the client
+-- remote below is per client. Fired once per ACCEPTED shot, so a rate-limited, invalid or unarmed
+-- click publishes nothing. The name deliberately matches the remote: one fact, two audiences,
+-- exactly as `HitReported` sits beside the `HitMarker` remote.
+--
+-- Its one listener is `MatchBoot`, which calls `Boar`'s `runtime:hearShot(muzzle)`: every boar
+-- inside `SENSE.SHOT_AUDIBLE_STUDS` sprints. Neither owner requires the other.
+-- Design: docs/design/boar-behaviour.md section 4.5
+Weapon.ShotFired = shotSignal.Event
 -- (player, aim: Vector3 unit, muzzle: Vector3, stopAt: number) -- stopAt is studs from the muzzle to
 -- where the shot stopped, or the ammo's range when it hit nothing. The drive needs it to tell a shot
 -- that went past a driver from one that stopped in the boar in front of him (Task 35).
@@ -464,6 +475,11 @@ local function onFireRequest(player: Player, req: any): string?
 	end
 
 	publish(player, fired, true)
+
+	-- THE SHOT AS A FACT, FOR THE SERVER (task 118). It goes out beside the client remote below so
+	-- the two can never disagree about what counted as a shot, and it carries no impacts: what a
+	-- boar hears is a bang at a place.
+	shotSignal:Fire({ shooterUserId = player.UserId, muzzle = muzzle, ammo = ammo })
 
 	local points = {}
 	for _, impact in ipairs(impacts) do

@@ -649,6 +649,17 @@ function Body.clipFor(info, config): (string?, number)
 		if math.abs(info.yawRate) >= enter then
 			return (if info.yawRate > 0 then "turnLeft" else "turnRight"), 1
 		end
+		-- HEAD UP (task 118, design section 3.6). It sits AFTER the turn hysteresis because a
+		-- boar still swinging round to face the cause is turning -- ALERT's facing goes through
+		-- the same `TURN_RATE` slew every other state's does -- and BEFORE `idle` because an
+		-- alert animal is standing still and would otherwise draw the resting clip.
+		--
+		-- `MODEL.ALERT_CLIP` NAMES A ROW IN `CLIPS`, and that string is the whole of this
+		-- task's dependency on the drawn animal: with no id published `hasClip` is false, the
+		-- boar plays `idle`, and every behaviour in task 118 is unchanged.
+		if info.alert and Body.hasClip(model.ALERT_CLIP, config) then
+			return model.ALERT_CLIP, 1
+		end
 		return "idle", 1
 	end
 
@@ -877,6 +888,7 @@ function Body.stepVisual(handle, dt: number, info, config)
 		collapsed = handle.collapsed,
 		deadFor = handle.deadFor,
 		crippled = info.crippled == true,
+		alert = info.alert == true,
 		activity = handle.activity,
 		activityFor = handle.activityFor,
 		exitClip = handle.exitClip,

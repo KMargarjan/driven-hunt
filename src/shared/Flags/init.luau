@@ -138,6 +138,28 @@ Flags.DEFAULTS = {
 		why = "The boar is a real animal that walks, trots, runs, flinches and falls over. OFF is the "
 			.. "grey box with its three tinted hit zones, exactly as before task 115.",
 	} :: FlagRow,
+	BOAR_BEHAVIOUR = {
+		-- BORN OFF on 2026-10-04 (task 118). What a boar DOES about what it notices: it notices a
+		-- standing person at 25 studs and a moving one at 60, goes head-up (ALERT), turns away and
+		-- trots off (AVOID), runs when anything comes inside its flush band, sprints at a shot it
+		-- can hear, and panic spreads through its sounder member by member. OFF is Milestone 1.2's
+		-- world exactly: one 40-stud DETECT_RADIUS, drivers only, and the leader-panic rule.
+		--
+		-- IT IS A FLAG OF ITS OWN AND NOT `BOAR_MODEL`'s, because the behaviour is independent of
+		-- the drawn animal: every state, radius and timer is Brain/Runtime state and is fully
+		-- exercised on the grey box. The one drawn line this task adds (the head-up clip) sits
+		-- behind `BOAR_MODEL`, where it already is.
+		default = false,
+		-- The owner is the module that READS it at its boundary (`Boar.CONFIG.SENSE.ENABLED`) and
+		-- passes the value inward as `config` -- the only permitted shape, and what keeps both
+		-- branches reachable by parameter while the flag itself sits at one of them.
+		owner = "ServerScriptService.Boar",
+		born = "2026-10-04 task 118",
+		expires = "2026-10-25", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "A boar notices a standing person at 25 studs and a moving one at 60, goes head-up, "
+			.. "turns away or runs, sprints at a shot, and panics through its sounder. OFF is the "
+			.. "40-stud drivers-only flush of Milestone 1.2.",
+	} :: FlagRow,
 	FIRST_PERSON = {
 		-- BORN OFF on 2026-09-27, ON SINCE TASK 98 (2026-10-01). Karen's word was "start": first
 		-- person is now what the game IS, so every Studio Play shows the shotgun she is judging

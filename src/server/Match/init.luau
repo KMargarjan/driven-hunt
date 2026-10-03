@@ -794,6 +794,25 @@ function Match.driverThreats()
 	return out
 end
 
+-- EVERYTHING A BOAR CAN PERCEIVE: the drivers above PLUS the shooters, each carrying its `kind`
+-- (task 118). It wraps `Body.boarStimuli` and keeps the quick test's phantom, which stays a
+-- `kind = "driver"` stimulus with a non-numeric id -- so `Match.playerDrivers`'s filter, which
+-- exists because of that id, is untouched.
+--
+-- `Match.driverThreats` above is NOT changed and NOT replaced: the safety rule and push credit read
+-- it, and they mean "a driver who is a person". This is what `MatchBoot` hands the boar world.
+-- Design: docs/design/boar-behaviour.md section 8
+function Match.boarThreats()
+	local out = Body.boarStimuli(function(player)
+		return state.assignment[player.UserId]
+	end, playersService())
+	local phantom = Match.quickTestPhantom(now())
+	if phantom then
+		table.insert(out, { id = "quick-test", position = phantom, kind = "driver" })
+	end
+	return out
+end
+
 -- Nil unless the quick test is on, the drive is running, its first seconds have not passed, and
 -- there is a spawn to stand behind. Exported so the spec can drive all four of those.
 function Match.quickTestPhantom(at: number): Vector3?
