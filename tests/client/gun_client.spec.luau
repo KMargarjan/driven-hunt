@@ -70,12 +70,37 @@ return function()
 			Camera.Viewmodel.clear()
 			local ok, why = pcall(body)
 			Camera.Viewmodel.setReload(nil)
+			-- AND THE CLOCK, for the same reason the source and the reload are put back: a case that
+			-- drives the load on the seam (`setClock`, task 111) and then fails would otherwise leave
+			-- every later frame of this session reading a clock that does not move.
+			Camera.Viewmodel.setClock(nil)
 			Camera.Viewmodel.clear()
 			Camera.Viewmodel.setSource(live)
 			handle:Destroy()
 			if not ok then
 				error(why, 0)
 			end
+		end
+
+		-- WHERE A FRESH SHELL COMES FROM, AND WHEN (task 111, and the only answer since task 114).
+		-- Karen, watching the first version: "either we have 2 animation when shells go inside or one
+		-- go straight another from hand" -- so a shell exists ONLY once the left hand has fetched it
+		-- and carried it in, and before the fetch is over there is nothing on screen at all. The
+		-- RETIRED gun's shells slid themselves into the chamber the instant the replica said "loaded",
+		-- which is what the two cases below used to read while the flag was off.
+		--
+		-- SO THE LOAD IS DRIVEN ON THE VIEWMODEL'S OWN CLOCK SEAM, forward past the whole
+		-- fetch-carry-seat, which is the state they measure: the shell seated in the bore, still.
+		-- `withNewGun` puts the live clock back whatever happens.
+		local function withSeatedShells(at: CFrame, state, spent: number, loaded: { boolean })
+			local load = firstPersonConfig.SHELL_LOAD
+			local fake = 4000.0
+			Camera.Viewmodel.setClock(function()
+				return fake
+			end)
+			Camera.Viewmodel.setReload({ open = true, spent = spent, loaded = loaded })
+			fake += load.fetchSeconds + load.carrySeconds + load.seatSeconds + 0.05
+			Camera.Viewmodel.update(at, state, firstPersonConfig)
 		end
 
 		-- KAREN, 2026-10-02, PLAYING: "hands are bad / left hand is oposit180deg need to turn or not
@@ -748,9 +773,10 @@ return function()
 					open.openTilt = 1
 					table.freeze(open)
 					-- NO YIELD, for the reason the case below gives: the live render step would
-					-- rebuild the clone from a different handle between these two calls.
-					Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { true, true } })
-					Camera.Viewmodel.update(at, open, firstPersonConfig)
+					-- rebuild the clone from a different handle between these two calls. The shells are
+					-- reached through `withSeatedShells`, because the hand has to have carried them in
+					-- before there is a drawn part to measure a TURN on.
+					withSeatedShells(at, open, 2, { true, true })
 					local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 					local barrels = clone:FindFirstChild("Barrels") :: BasePart
 					for barrel = 1, 2 do
@@ -821,8 +847,7 @@ return function()
 				-- SO BOTH CLAIMS ARE ONES THAT HOLD AT EVERY MOMENT OF THE FEED: the shell is ON the
 				-- tube's own bore line, and its back face is OUTSIDE the breech. A shell still
 				-- travelling in is further out than a seated one, so neither depends on a frame.
-				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { true, true } })
-				Camera.Viewmodel.update(at, open, firstPersonConfig)
+				withSeatedShells(at, open, 2, { true, true })
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local barrels = clone:FindFirstChild("Barrels") :: BasePart
 				local layout = Gun.layout(Shotgun.CONFIG)

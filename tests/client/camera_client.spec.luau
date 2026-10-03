@@ -537,17 +537,26 @@ return function()
 						expect(part.Anchored).to.equal(true)
 					end
 				end
-				-- EITHER GUN, AND THE CLAIM IS THE SAME FOR BOTH. Since Task 74 the gun may be one
-				-- MeshPart welded to the invisible Handle (Karen's model) or Task 71's ten parts,
-				-- depending on whether the asset loaded -- so the number is a range and what is
-				-- really asserted is below: the envelope is the ONLY invisible part and everything
-				-- else shows. A blank viewmodel still fails that.
-				expect(parts >= 2).to.equal(true) -- the envelope plus at least one visible thing
+				-- HOW MANY PARTS IS A RANGE, because a hinge group whose upload has not landed is
+				-- drawn as its own measured box -- so what is really asserted is below: the two
+				-- ENVELOPES are the only invisible parts and everything else shows. A blank
+				-- viewmodel still fails that.
+				expect(parts >= 3).to.equal(true) -- two envelopes plus at least one visible thing
 				-- A GUN, NOT SOMEBODY'S CHARACTER -- plus, in first person, the two gloved hands that
 				-- hold it (design section 8.2 budgets the gun at 16 and the arms at 4 on top).
 				expect(parts <= (if Config.FIRST_PERSON then 20 else 16)).to.equal(true)
-				expect((model.PrimaryPart :: BasePart).Transparency).to.equal(1)
-				expect(visible).to.equal(parts - 1)
+				-- TWO INVISIBLE ENVELOPES, AND THEY ARE NAMED (task 114). The retired gun was a CLONE
+				-- of the Tool's Handle: one invisible envelope with the visible pieces welded under
+				-- it, so "the envelope is the only invisible part" read `parts - 1`. The gun is BUILT
+				-- now (`buildNewGun`, task 99) and carries a second one -- `Barrels`, the group that
+				-- swings -- because what hinges has to be a PARENT rather than a list of names. Both
+				-- are asserted by name, which is stricter than counting them.
+				local handle = model.PrimaryPart :: BasePart
+				local barrels = handle:FindFirstChild("Barrels") :: BasePart
+				expect(handle.Transparency).to.equal(1)
+				expect(barrels).to.be.ok()
+				expect(barrels.Transparency).to.equal(1)
+				expect(visible).to.equal(parts - 2)
 
 				-- Every ancestor present, up to the DataModel: an orphaned tree is invisible however
 				-- true its properties are (docs/PROJECT_CONTEXT.md).
@@ -653,7 +662,11 @@ return function()
 				expect(model).to.be.ok()
 				local clone = (model :: Model).PrimaryPart :: BasePart
 				local sight = clone:FindFirstChild("Sight") :: Attachment
-				local bead = clone:FindFirstChild("Bead") :: BasePart
+				-- THE BEAD IS THE BARREL GROUP'S PIECE (task 114). It was looked for on the Handle
+				-- while the gun was a clone of the Tool's -- that gun's drawn marker hung there --
+				-- and `Gun.pieces` gives this one `group = "barrels"`, because a bead is a sight ON
+				-- the barrels and has to swing down with them when the gun breaks open.
+				local bead = (clone:FindFirstChild("Barrels") :: BasePart):FindFirstChild("Bead") :: BasePart
 				expect(sight).to.be.ok()
 				expect(bead).to.be.ok()
 
@@ -941,7 +954,27 @@ return function()
 				-- A CHAMBER THE SERVER HAS LOADED GETS ITS FRESH SHELL, and only that chamber: the
 				-- reload feeds one barrel at a time and the drawn shells follow the replica rather
 				-- than a timer (round 2, finding 1).
+				--
+				-- ...BUT NOT UNTIL THE HAND HAS CARRIED IT IN (task 111, and this is what task 114
+				-- made the only answer). Karen, watching the first version: "either we have 2
+				-- animation when shells go inside or one go straight another from hand" -- so a shell
+				-- exists ONLY once the left hand has fetched it, and before the fetch is over there is
+				-- nothing to see. The RETIRED gun's shells slid themselves in the instant the replica
+				-- said "loaded", which is the behaviour this block used to read while the flag was
+				-- off. So the load is driven on the viewmodel's own CLOCK SEAM, forward past the whole
+				-- fetch-carry-seat, which is the state being measured: a shell in the chamber.
+				local load = firstPersonConfig.SHELL_LOAD
+				local seatAfter = load.fetchSeconds + load.carrySeconds + load.seatSeconds + 0.05
+				local fake = 3000.0
+				Camera.Viewmodel.setClock(function()
+					return fake
+				end)
 				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { true, false } })
+				-- BEFORE THE FETCH IS OVER THERE IS NOTHING, which is the half of the claim that the
+				-- old self-sliding feed could never have made.
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				expect(clone:FindFirstChild("FreshShell1")).to.equal(nil)
+				fake += seatAfter
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
 				local drawn = {}
 				for _, child in ipairs(clone:GetChildren()) do
@@ -949,14 +982,17 @@ return function()
 				end
 				TestKit.note(
 					string.format(
-						"task96 feed: reload=%s, clone holds [%s]",
+						"task114 feed: reload=%s, %.2f s after the server loaded barrel 1, clone holds [%s]",
 						tostring(Camera.Viewmodel.reloadState().open),
+						seatAfter,
 						table.concat(drawn, ", ")
 					)
 				)
 				expect(clone:FindFirstChild("FreshShell1")).to.be.ok()
 				expect(clone:FindFirstChild("FreshShell2")).to.equal(nil)
+				-- THE SECOND BARREL IS ITS OWN LOAD, on its own clock: the server feeds one at a time.
 				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { true, true } })
+				fake += seatAfter
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
 				local after = {}
 				for _, child in ipairs(clone:GetChildren()) do
@@ -965,13 +1001,16 @@ return function()
 				local both = Camera.Viewmodel.reloadState()
 				TestKit.note(
 					string.format(
-						"task96 feed2: loaded=[%s, %s], clone holds [%s]",
+						"task114 feed2: loaded=[%s, %s], clone holds [%s]",
 						tostring(both.loaded[1]),
 						tostring(both.loaded[2]),
 						table.concat(after, ", ")
 					)
 				)
 				expect(clone:FindFirstChild("FreshShell2")).to.be.ok()
+				-- THE LIVE CLOCK IS BACK before the branch check below, which needs a spent shell to
+				-- really be on the gun -- see the note there.
+				Camera.Viewmodel.setClock(nil)
 
 				-- AND THE OFF BRANCH HINGES NOTHING: the third-person gun has no break to draw. At
 				-- BLEND 1, because that branch only draws a viewmodel while the player is aiming --
@@ -981,6 +1020,15 @@ return function()
 				openAimed.mode = "Aiming"
 				openAimed.blend = 1
 				table.freeze(openAimed)
+				-- RE-ARMED FIRST, so the claim below is not satisfied by an eject that had simply
+				-- finished (task 114). The spent shells live for `SHELL_EJECT_SECONDS` from the rising
+				-- edge of "open", and the block above has just stepped a clock well past it: without
+				-- this, "the OFF branch draws no shells" would pass with nothing to draw. A fresh
+				-- `setReload` is a new rising edge, so the shells are really there to be taken away.
+				Camera.Viewmodel.setReload({ open = false, spent = 0, loaded = { false, false } })
+				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { false, false } })
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				expect(clone:FindFirstChild("SpentShell1")).to.be.ok()
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), openAimed, thirdPersonConfig)
 				local offAngle = angleBetween()
 				TestKit.note(string.format("task96 flag off: barrels %.3f deg off the body", offAngle))
@@ -995,6 +1043,7 @@ return function()
 				Camera.Viewmodel.setReload(nil)
 				Camera.Viewmodel.clear()
 			end)
+			Camera.Viewmodel.setClock(nil) -- whatever happened above, the live clock is back
 			Camera.Viewmodel.setSource(live)
 			handle:Destroy()
 			if not ok then
@@ -1139,7 +1188,28 @@ return function()
 				)
 				expect((leftNowOnBody.Position - leftOnBody.Position).Magnitude > 0.05).to.equal(true)
 				expect((leftNowOnBarrels.Position - leftOnBarrels.Position).Magnitude < 1e-3).to.equal(true)
-				expect((rightNowOnBody.Position - rightOnBody.Position).Magnitude < 1e-3).to.equal(true)
+				-- THE RIGHT HAND IS PLACED FROM THE BODY, AND THAT IS THE CLAIM -- not that it stands
+				-- still (task 114). It used to be asserted as "moved less than a thousandth of a
+				-- stud", which was true of the RETIRED gun's pose file: task 98 seeded its carry, aim
+				-- and reload hands identical, so opening the gun moved nothing. Karen posed model B's
+				-- hands by eye and her reload really does hold the grip further forward than the
+				-- carry -- 0.12 studs -- so "it did not move" is now a claim about her picture rather
+				-- than about the owner boundary.
+				--
+				-- WHAT THE OWNER BOUNDARY ACTUALLY SAYS is that each hand is placed from the piece it
+				-- HOLDS: the right from the body's transform, the left from the barrels'. So both are
+				-- measured against `Mode.handOffsetAt` in that piece's own frame, which is the one
+				-- answer `Viewmodel.poseHands` is allowed to draw -- and it cannot pass for the wrong
+				-- reason, because a hand carried along by the wrong transform lands somewhere else.
+				-- MEASURED IN THE BODY'S FRAME, which for the RIGHT hand is the frame it is posed in:
+				-- the model's pivot IS the Handle (`PrimaryPart` set, `WorldPivot` never written), so
+				-- `clone.CFrame:ToObjectSpace` undoes exactly the transform `poseHands` applied. The
+				-- LEFT hand's own frame is the one `Viewmodel.hinge` RETURNS rather than the barrel
+				-- PART's -- the part sits at its own rest offset down the gun from it -- which is why
+				-- its claim above is "its place on the barrels did not change" and not a pose
+				-- comparison: that constant offset would have to be added back by hand here.
+				local wantOpen = Camera.Mode.handOffsetAt("right", open, firstPersonConfig)
+				expect((rightNowOnBody.Position - wantOpen.Position).Magnitude < 1e-3).to.equal(true)
 
 				-- THE FLAG-OFF CAMERA HAS NO HANDS, and it TAKES THEM OFF rather than walking away
 				-- (the lesson the barrels taught in task 96, round 2): the clone is drawn in that

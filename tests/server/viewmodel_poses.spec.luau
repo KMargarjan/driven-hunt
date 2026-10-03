@@ -428,13 +428,52 @@ return function()
 			expect(Mode.handOffsetAt("left", state, firstPerson)).to.equal(Mode.leftHandOffset(firstPerson))
 		end)
 
-		it("the shipped file seeds every pose's hands the same, so nothing moved", function()
-			for _, blend in ipairs({ 0, 0.25, 0.5, 0.75, 1 }) do
-				for _, tilt in ipairs({ 0, 0.5, 1 }) do
-					local state = stateAt(blend, tilt)
-					expect(Mode.handOffsetAt("right", state, firstPerson)).to.equal(Mode.rightHandOffset(firstPerson))
+		-- WHAT THIS CASE USED TO SAY, AND WHY IT HAD TO CHANGE (task 114). It asserted that the shipped
+		-- file seeds every pose's hands the SAME, so `handOffsetAt` answered the carry hand at every
+		-- blend and every tilt. That was a fact about the RETIRED gun's pose set -- task 98 seeded its
+		-- three poses identical so that task changed no pixel -- and it kept passing only because the
+		-- flag made `Camera.Config` read that set during a harness run. Karen then posed model B's
+		-- hands by eye (`pose.py edit`, tasks 108 and 109) and her three poses are genuinely
+		-- different: the right hand sits further forward during the reload than at the carry, and the
+		-- aimed left hand is further down the barrels than the carried one.
+		--
+		-- SO THE CLAIM IS THE ONE THAT WAS ALWAYS UNDERNEATH IT: the blend's ENDS are the poses
+		-- themselves. Each pose's own state must give back exactly that pose's own numbers, through
+		-- the one conversion site -- which is what makes `poses.json` the single source and cannot be
+		-- satisfied by a file that seeds them all alike.
+		it("answers each pose's own numbers at that pose's own state", function()
+			local states = {
+				{ pose = "carry", state = stateAt(0, 0) },
+				{ pose = "aim", state = stateAt(1, 0) },
+				{ pose = "reload", state = stateAt(0, 1) },
+			}
+			for _, case in ipairs(states) do
+				for _, side in ipairs({ "right", "left" }) do
+					local entry = Data.DATA[case.pose][side]
+					local wanted = Mode.handOffset(Data.vec(entry.pos), entry.rot.yaw, entry.rot.pitch, entry.rot.twist)
+					expect(Mode.handOffsetAt(side, case.state, firstPerson)).to.equal(wanted)
 				end
 			end
+			-- ...AND THEY ARE REALLY THREE POSES, not one written three times. Without this the case
+			-- above would pass just as well for a file that seeded them identical -- which is exactly
+			-- the state it used to assert, and what made it stop measuring anything.
+			local carriedRight = Mode.handOffsetAt("right", stateAt(0, 0), firstPerson)
+			local aimedRight = Mode.handOffsetAt("right", stateAt(1, 0), firstPerson)
+			local carriedLeft = Mode.handOffsetAt("left", stateAt(0, 0), firstPerson)
+			local aimedLeft = Mode.handOffsetAt("left", stateAt(1, 0), firstPerson)
+			TestKit.note(
+				string.format(
+					"task114 the aim moves the right hand %.3f studs and the left %.3f from the carry",
+					(aimedRight.Position - carriedRight.Position).Magnitude,
+					(aimedLeft.Position - carriedLeft.Position).Magnitude
+				)
+			)
+			expect(aimedRight).never.to.equal(carriedRight)
+			expect(aimedLeft).never.to.equal(carriedLeft)
+			-- The carry end is still bit-for-bit `rightHandOffset`, which is the half of the old case
+			-- that was about the ARITHMETIC rather than about the file (see the case above it).
+			expect(carriedRight).to.equal(Mode.rightHandOffset(firstPerson))
+			expect(carriedLeft).to.equal(Mode.leftHandOffset(firstPerson))
 		end)
 
 		it("moves a hand when its own pose says a different thing", function()
