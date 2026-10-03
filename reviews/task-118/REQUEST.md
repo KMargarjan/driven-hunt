@@ -3,18 +3,19 @@
 Task: 118
 Round: 2
 Base: 4cefbc516e0a7eeb3ca4b96506c3e5366aab57fa
-Code commit: ce299b772fdc9236b57cc2a6d6a5accbc97f88e6
+Code commit: f21260b0f8540a801882b97444248162955bb855
 
 The base is the head of `task-117-calm-boar`, the branch this PR targets: 118 is stacked on 117.
 
 ```
-[harness] PASS: 33/33 checks @ ce299b772fdc9236b57cc2a6d6a5accbc97f88e6 (clean tree) scope=all
+[harness]  PASS: 33/33 checks @ f21260b0f8540a801882b97444248162955bb855 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ f21260b0f8540a801882b97444248162955bb855 (clean tree)
 ```
-`[harness2]`: **PENDING at this sha.** Round 2's own diff is `src/server/Boar/` plus one spec and two
-docs — **not** `TWO_PLAYER_PATHS` — but the PR's diff against its base still contains
-`src/server/Match/` and `src/server/MatchBoot.server.luau` from round 1, so the merge gate still
-wants `test2`, and the `[harness2] PASS: 35/35 @ 2c84512` the Director ran for round 1 no longer
-covers this code.
+Both lines are the Director's run at this sha. Only paperwork follows the last commit that changed
+`src/`, `tests/` or `tools/` (`ce299b7`), so the evidence covers the head. Round 2's own diff is
+`src/server/Boar/` plus one spec and two docs — **not** `TWO_PLAYER_PATHS` — but the PR's diff
+against its base still contains `src/server/Match/` and `src/server/MatchBoot.server.luau` from
+round 1, which is why `test2` is in the merge gate at all.
 
 ## What changed in round 2
 
