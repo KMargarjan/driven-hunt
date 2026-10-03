@@ -237,7 +237,7 @@ function Brain.perceive(position: Vector3, threats, config, probe)
 			local mine = "none"
 			if d <= flee then
 				mine = "flee"
-			elseif on and d <= notice and Brain.sees(position, threat, d, config, probe) then
+			elseif on and d <= notice and Brain.sees(position, threat, config, probe) then
 				mine = if Brain.isMoving(threat, config) then "avoid" else "alert"
 			end
 
@@ -265,7 +265,7 @@ end
 -- LINE OF SIGHT, AND IT IS OFF (section 4.7). With `REQUIRE_SIGHT` false -- the shipped value -- this
 -- is `true` for everything and costs one comparison. With it on, a NOTICE waits on a clear ray; a
 -- FLUSH never does, because a boar that close has smelt and heard the man whatever is in the way.
-function Brain.sees(position: Vector3, threat, distance: number, config, probe): boolean
+function Brain.sees(position: Vector3, threat, config, probe): boolean
 	local sense = config.SENSE
 	if not (sense and sense.REQUIRE_SIGHT) then
 		return true
@@ -275,10 +275,16 @@ function Brain.sees(position: Vector3, threat, distance: number, config, probe):
 	end
 	local eye = position + Vector3.new(0, config.BODY_SIZE.Y / 2, 0)
 	local toward = threat.position - eye
-	if toward.Magnitude < 1e-6 then
+	-- THE RAY IS AS LONG AS THE RAY, not as long as the FLAT distance (review round 2, note): a
+	-- stimulus above or below the animal is further away along the line of sight than it is across
+	-- the ground, and the shorter length would report clear air short of the thing in the way. Every
+	-- BAND in this file is measured flat; this is the one place the two lengths differ, so the flat
+	-- one is not passed in at all any more.
+	local reach = toward.Magnitude
+	if reach < 1e-6 then
 		return true
 	end
-	return probe(eye, toward.Unit, distance) == false
+	return probe(eye, toward.Unit, reach) == false
 end
 
 -- WHERE AN AVOID GOES: away from the cause, rotated by a fixed angle, clamped inside the field.

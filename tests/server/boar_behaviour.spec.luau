@@ -242,8 +242,10 @@ return function()
 			-- OFF: the hysteresis is one radius for everything, CALM_RADIUS = 70.
 			expect(Brain.perceive(START, { stimulus(70.5, "driver") }, configWith(false)).calm).to.equal(true)
 			expect(Brain.perceive(START, { stimulus(69.5, "driver") }, configWith(false)).calm).to.equal(false)
-			-- ON: it is the stimulus's own NOTICE radius plus the margin, so a MOVING man is 60 + 30
-			-- and a standing one 25 + 30. The pair at 89.5 / 90.5 is the moving boundary, and the
+			-- ON: it is the stimulus's own NOTICE radius plus the margin, so a MOVING man is
+			-- NOTICE_MOVING + CALM_MARGIN = 60 + 30 and a standing one NOTICE_STANDING + CALM_MARGIN
+			-- = 25 + 30. The margin is added to the NOTICE radius and never to the flush radius,
+			-- which is what makes the OFF branch (one radius for both) come out at today's 70. The pair at 89.5 / 90.5 is the moving boundary, and the
 			-- pair at 54.5 / 55.5 is the standing one -- the same stimulus, two different bands,
 			-- which is what "per stimulus" means and what one global radius could not express.
 			expect(Brain.perceive(START, { stimulus(89.5, "driver", 5) }, on).calm).to.equal(false)
@@ -674,6 +676,94 @@ return function()
 				pinned:step(DT, obs(START, {}, { sounder = follower({ leaderState = "WOUNDED" }) }))
 			end
 			expect(pinned:state()).to.equal("FLEE")
+		end)
+
+		it("releases the alarm, so a sounder that panicked settles instead of running off the map", function()
+			-- REVIEW ROUND 2, FINDING 1, and it is the case that was missing rather than a case that
+			-- was wrong: every alarm assertion in this file hand-writes `follower({ alarm = ... })`,
+			-- and the defect was that the RUNTIME never stopped publishing `alarm = true`. Row 8
+			-- flushes an alarmed member and `_flush` resets `_sinceCalm`, so an alarmed member could
+			-- never go calm, so the "every member is calm again" clear was unreachable: a sounder
+			-- that panicked once ran until its last member crossed the exit line.
+			--
+			-- IT IS DRIVEN THROUGH A REAL RUNTIME, STEPPED BY HAND. There is no Heartbeat and
+			-- therefore no physics: nothing moves, so nobody can escape, nothing is timed against a
+			-- wall clock, and the only thing that can end the panic is the rule under test. The
+			-- bodies are real Instances, which is why this case owns a folder and destroys it.
+			local holder = Instance.new("Folder")
+			holder.Name = "BoarBehaviourAlarmProbe"
+			holder.Parent = workspace
+			local runtime = Boar.newRuntime({
+				field = FIELD,
+				parent = holder,
+				folderName = "AlarmProbe",
+				rng = Random.new(118),
+				config = { SENSE = { ENABLED = true } },
+				threats = function()
+					return {} -- nothing, ever: the panic has to end on its own or not at all
+				end,
+				requestPath = function(_agentId, _from, _to, done)
+					done(nil)
+				end,
+				releasePath = function() end,
+			})
+			local handles = runtime:spawnSounder(Vector3.new(0, FIELD.groundY, 0), 3)
+			expect(#handles).to.equal(3)
+
+			local function running(): number
+				local n = 0
+				for _, handle in ipairs(handles) do
+					if Brain.classOf(handle.state()) == "panicked" then
+						n += 1
+					end
+				end
+				return n
+			end
+
+			runtime:step(DT)
+			expect(running()).to.equal(0)
+			-- ONE NON-LETHAL HIT on one member, which is the only outbreak this case needs.
+			runtime:takeHit(handles[1].part, { zone = "body", ammo = "Buck", pellets = 1, at = 0 })
+
+			local spread, spreadFor = false, 0
+			for step = 1, math.ceil((SENSE.PANIC_DELAY_MAX + CONFIG.SENSE_INTERVAL + 0.5) / DT) do
+				runtime:step(DT)
+				if running() == #handles then
+					spread, spreadFor = true, step * DT
+					break
+				end
+			end
+			expect(spread).to.equal(true)
+			expect(runtime:stats().alarms >= 1).to.equal(true)
+
+			-- ...AND NOW IT ENDS. Nothing is in range and nothing ever will be, so every member is
+			-- back to IDLE. The budget is the hit boar's own bolt (`WOUND.BOLT_SECONDS`) plus
+			-- `CALM_TIME` plus a sense tick, doubled: what is asserted is that it happens AT ALL,
+			-- because with the latch it never did however long the spec waited.
+			local budget = CONFIG.WOUND.BOLT_SECONDS + CONFIG.CALM_TIME + CONFIG.SENSE_INTERVAL
+			local settled, settledFor = false, 0
+			for step = 1, math.ceil(budget * 2 / DT) do
+				runtime:step(DT)
+				if running() == 0 then
+					settled, settledFor = true, step * DT
+					break
+				end
+			end
+			expect(settled).to.equal(true)
+			for _, handle in ipairs(handles) do
+				expect(handle.state()).to.equal("IDLE")
+			end
+			TestKit.note(
+				string.format(
+					"boar-behaviour: a sounder of 3 was all running %.2f s after one hit and all IDLE again %.2f s later (budget %.1f s)",
+					spreadFor,
+					settledFor,
+					budget * 2
+				)
+			)
+
+			runtime:destroy()
+			holder:Destroy()
 		end)
 
 		it("classifies every state the system has, and nothing else", function()

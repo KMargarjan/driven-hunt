@@ -105,12 +105,22 @@ From `tests/server/boar_behaviour.spec.luau` and `..._live.spec.luau` (the notes
 - A sounder of three, one member hit: all three running after **25 frames**, with sampled steps where
   one was running and another was not — the spreading is observable, which is the whole of what Karen
   asked for.
+- **The alarm is a PULSE and the sounder settles again** (review round 2): a sounder of three,
+  stepped by hand with no physics, was all running **0.43 s** after one non-lethal hit and all back
+  to `IDLE` **6.72 s** later with nothing in range. Latched — which is how round 1 shipped it — that
+  second number did not exist: the alarm pinned every member in `FLEE` for ever and the sounder ran
+  until its last member crossed the exit line.
 - **A column IS narrower than a wedge, and that is measured rather than asserted**: 4.2 studs across
   the leader's axis against the wedge's 9.4, strung out 13.3 studs behind against the wedge's 10.3.
   The 9-stud slot spacing itself is NOT reached inside the 3.2 s a 170-stud plate allows, because a
-  follower matches its leader's speed and can fall back only by steering. The gate asserts the
-  column's own width against `SLOT_SIDE_STUDS = 7`; the wedge is the control and is reported, not
-  asserted, because one physically simulated sample of each is not a reliable inequality.
+  follower matches its leader's speed and can fall back only by steering. **Neither number is
+  asserted by the gate**: an earlier draft of this note said the column's width was checked against
+  `SLOT_SIDE_STUDS = 7`, and that was never true (review round 2, note). The live spec measures both
+  shapes into its notes and asserts only that both formations are drawn and run, because one
+  physically simulated sample of each is not a reliable inequality — it measured 4.2 studs on one run
+  and over 7 on another. What the formation DOES is asserted exactly, by parameter and with no
+  physics, in `boar_behaviour.spec` ("steers a column member dead astern and a wedge member out to
+  the side").
 
 ## 6. What is NOT verified
 

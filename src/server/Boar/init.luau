@@ -1202,6 +1202,14 @@ function Runtime:hearShot(at: Vector3): number
 		return 0
 	end
 	local sense = self._config.SENSE
+	-- WITH THE FLAG OFF NOTHING HEARS ANYTHING, so nothing is queued and nothing is counted. The
+	-- Brain's own gate in `_hearSound` is what makes that true of the BEHAVIOUR; this makes it true
+	-- of the BOOKKEEPING as well, because `MatchBoot` wires `Weapon.ShotFired` unconditionally and
+	-- a `shotsHeard` that moved in the OFF world would mean "shots fired in range" rather than
+	-- "boars told" (review round 2, note).
+	if not (sense and sense.ENABLED) then
+		return 0
+	end
 	table.insert(self._sounds, { kind = "shot", position = at })
 	local told = 0
 	for _, entry in ipairs(self._boars) do
@@ -1559,9 +1567,29 @@ function Runtime:_stepAlarm(record, members, dt: number, snapshot)
 
 	-- COUNTED WITH dt AND NOT WITH A CLOCK, so a spec is deterministic -- the same rule every timer
 	-- in the Brain follows.
+	--
+	-- AND THE ALARM IS A PULSE, NOT A LATCH (review round 2, finding 1). It is published to a member
+	-- from the step its own delay runs out until the step that member is ITSELF panicked, and then
+	-- it is spent: from there the animal's panic is its own and section 3.2's row 11 owns the
+	-- settling, which is what section 5.2 item 4 says ("a follower settles when its own CALM_TIME
+	-- has run and the leader is calm").
+	--
+	-- LATCHED, IT WAS A DEADLOCK WITH NO WAY OUT, and the Reviewer is right that nothing in the
+	-- suite could see it: row 8 of `Brain:_senseAware` flushes an alarmed member and `_flush` resets
+	-- `_sinceCalm`, so an alarmed member could never become calm; `calm` below was therefore never
+	-- true; so `record.alarmed` never dropped and the `alarmIn` that pinned them was never cleared.
+	-- Every sounder that panicked once ran until its last member crossed the exit line -- against
+	-- section 5.2 item 3, section 3.2 row 11 and section 14's own end-to-end scene.
 	for _, entry in ipairs(members) do
 		if entry.alarmIn ~= nil then
 			entry.alarmIn = math.max(0, entry.alarmIn - dt)
+			if entry.alarmIn <= 0 and Brain.classOf(entry.brain:state()) == "panicked" then
+				-- DELIVERED. The one job an alarm has is to START this animal running, and it is
+				-- running. It is cleared here and not by the Brain because the Brain is pure and
+				-- holds no sounder state: who has been told is the Runtime's bookkeeping, like
+				-- membership and the leader (CLAUDE.md rule 3).
+				entry.alarmIn = nil
+			end
 		end
 	end
 
