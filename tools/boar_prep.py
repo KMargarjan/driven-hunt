@@ -122,8 +122,9 @@ DEFAULT_CLIPS = (
     #                   _2 pulls and chews (head moves 0.098 m against _1's 0.001).
     #   EatDrink_start  the transition, 1.08 s, head 0.505 <-> 0.788 m -- standing height to
     #   EatDrink_end    grazing height and back, so the head does not teleport into the grass.
-    #   Dig_walk_IP     head low (nose -72 to -59 deg) AND hooves travelling 0.580 m, the same as
-    #                   the walk: rooting along the ground, which is Karen's "move alon".
+    #   Dig_walk_IP     head low (nose -72 to -59 deg) AND hooves travelling: 0.663 m/s, which is
+    #                   1.901 studs/s, against the walk's 0.995 m/s. Rooting along the ground, which
+    #                   is Karen's "move alon" -- slower than a walk, and not standing still.
     "Idle_5",
     "Eat_loop_1",
     "Eat_loop_2",

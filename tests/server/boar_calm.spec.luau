@@ -30,16 +30,50 @@ local FIELD = {
 return function()
 	-- A config whose calm clips all have ids, so the drawing half is reachable while the real ones
 	-- are still waiting on a publish. The ids are fake; `Body.hasClip` only asks whether one exists.
-	local function withCalmIds()
+	-- THE FLAG ARRIVES AS A PARAMETER, which is the one permitted shape and the only way both states
+	-- are reachable while `BOAR_MODEL` sits at one of them (review round 2, finding 2: the repertoire
+	-- shipped unflagged for a round). `calm` is `CALM.ENABLED`; `ids` fills in the clip ids, because
+	-- `Body.hasClip` only asks whether one exists.
+	local function configWith(calmOn: boolean, withIds: boolean)
 		local ids = table.clone(MODEL.ANIMATION_IDS)
-		for _, name in ipairs({ "smell", "grazeLoop", "grazeChew", "grazeStart", "grazeEnd", "digWalk", "idle" }) do
-			ids[name] = 30000 + #name
+		if withIds then
+			for _, name in ipairs({
+				"smell",
+				"grazeLoop",
+				"grazeChew",
+				"grazeStart",
+				"grazeEnd",
+				"digWalk",
+				"idle",
+				"walk",
+			}) do
+				ids[name] = 30000 + #name
+			end
 		end
 		local model = table.clone(MODEL)
 		model.ANIMATION_IDS = ids
+		local calmTable = table.clone(CALM)
+		calmTable.ENABLED = calmOn
 		local config = table.clone(CONFIG)
 		config.MODEL = model
+		config.CALM = calmTable
 		return config
+	end
+
+	local function withCalmIds()
+		return configWith(true, true)
+	end
+
+	-- A world with nothing in it: every case here is about what a boar does when nothing is wrong.
+	local function obs(position: Vector3)
+		return {
+			position = position,
+			velocity = Vector3.zero,
+			threats = {},
+			waypoints = nil,
+			pathFailed = false,
+			blockedAhead = false,
+		}
 	end
 
 	local function clipFor(config, info)
@@ -109,7 +143,7 @@ return function()
 		end)
 
 		it("gives the head-up smell exactly one clip length, so the lift is never cut off", function()
-			local smell = Boar.activityRow("smell", CONFIG)
+			local smell = Boar.activityRow("smell", withCalmIds())
 			expect(smell.minSeconds).to.equal(smell.maxSeconds)
 			expect(math.abs(smell.minSeconds - MODEL.CLIPS.smell.seconds) < 1e-6).to.equal(true)
 			expect(smell.speed).to.equal(0) -- it stands still to do it
@@ -138,7 +172,7 @@ return function()
 			expect(clipFor(config, { activity = "graze", activityFor = enter })).to.equal("grazeLoop")
 		end)
 
-		it("plays the EXIT clip before anything the next activity wants", function()
+		it("plays the EXIT clip before anything the next CALM activity wants", function()
 			-- The head coming out of the grass finishes first, or the animal snaps upright.
 			local config = withCalmIds()
 			expect(clipFor(config, { activity = "walk", speed = 4, exitClip = "grazeEnd", exitFor = 0.5 })).to.equal(
@@ -146,6 +180,25 @@ return function()
 			)
 			expect(clipFor(config, { activity = "walk", speed = 4, exitClip = "grazeEnd", exitFor = 0 })).to.equal(
 				"walk"
+			)
+		end)
+
+		it("DROPS the exit the moment the animal stops being calm", function()
+			-- REVIEW ROUND 2, FINDING 1. The exit used to be tested before "is this animal calm at
+			-- all", so a grazing boar that bolted drew `grazeEnd` -- an in-place eating transition --
+			-- for its whole 1.083 s while the body accelerated to SPRINT_SPEED: about 25 studs of
+			-- sliding with its head in the grass. `info.activity` is nil for every state but IDLE,
+			-- and that is the test.
+			local config = withCalmIds()
+			expect(clipFor(config, { activity = nil, speed = CONFIG.SPRINT_SPEED, exitClip = "grazeEnd", exitFor = 1 })).to.equal(
+				"run"
+			)
+			expect(clipFor(config, { activity = nil, speed = CONFIG.TROT_SPEED, exitClip = "grazeEnd", exitFor = 1 })).to.equal(
+				"trot"
+			)
+			-- ...and a dead or crippled animal never draws it either.
+			expect(clipFor(config, { activity = "graze", collapsed = true, exitClip = "grazeEnd", exitFor = 1 })).to.equal(
+				(Boar.deathClips(config))
 			)
 		end)
 
@@ -196,9 +249,12 @@ return function()
 		it("draws no calm clip at all, so the gait bands answer every time", function()
 			-- `Body.hasClip` is the one test, and it is what every clip added after this will rely
 			-- on. Driven with an EMPTY id table, because the six real ones are published now.
-			local model = table.clone(MODEL)
-			model.ANIMATION_IDS = { idle = 1, walk = 2 } -- only what task 115 published
-			local none = table.clone(CONFIG)
+			-- An id table with the two gait clips and nothing else: the calm six are published now,
+			-- so "no id" has to be built rather than found. (The comment here used to say "only what
+			-- task 115 published", which was ten clips, not two -- review round 2, note.)
+			local none = configWith(true, false)
+			local model = table.clone(none.MODEL)
+			model.ANIMATION_IDS = { idle = 1, walk = 2 }
 			none.MODEL = model
 			for _, name in ipairs({ "smell", "grazeLoop", "grazeChew", "grazeStart", "grazeEnd", "digWalk" }) do
 				expect(Boar.hasClip(name, none)).to.equal(false)
@@ -207,6 +263,26 @@ return function()
 			expect(clipFor(none, { activity = "smell" })).to.equal("idle")
 			expect(clipFor(none, { activity = "root", speed = 1.901 })).to.equal("walk")
 			expect(clipFor(none, { activity = "walk", speed = 4 })).to.equal("walk")
+		end)
+
+		it("with the FLAG off, an idle boar is exactly the boar it was before task 117", function()
+			-- `CALM.ENABLED` is `Flags.isOn("BOAR_MODEL")`, whose default is false -- the live game.
+			-- Then `_stepCalm` returns the old wander/graze answer and nothing publishes an activity.
+			local off = configWith(false, true)
+			expect(Boar.activityRow("graze", off)).to.equal(nil)
+			expect(clipFor(off, { activity = "graze" })).to.equal("idle")
+			local brain = Brain.new(off, FIELD, Vector3.zero, Random.new(5))
+			local speeds = {}
+			for _ = 1, 600 do
+				local intent = brain:step(DT, obs(Vector3.zero))
+				expect(intent.activity).to.equal(nil)
+				speeds[string.format("%.2f", intent.targetVelocity.Magnitude)] = true
+			end
+			-- The old behaviour is a boar that stands still sometimes and wanders at WANDER_SPEED
+			-- otherwise, so the speeds it reaches are bounded by that and nothing else.
+			for speed in pairs(speeds) do
+				expect(tonumber(speed) <= CONFIG.WANDER_SPEED + 1e-6).to.equal(true)
+			end
 		end)
 
 		it("plays the three one-shots ONCE and the three loops for ever, whatever the asset says", function()
@@ -232,18 +308,9 @@ return function()
 
 	describe("an idle boar really does change what it is doing", function()
 		local function newBrain(seed: number)
-			return Brain.new(CONFIG, FIELD, Vector3.zero, Random.new(seed))
-		end
-
-		local function obs(position: Vector3)
-			return {
-				position = position,
-				velocity = Vector3.zero,
-				threats = {},
-				waypoints = nil,
-				pathFailed = false,
-				blockedAhead = false,
-			}
+			-- The flag as a parameter: with `BOAR_MODEL` off -- its default, and the live game -- the
+			-- repertoire is off and an idle boar wanders as it did before task 117.
+			return Brain.new(withCalmIds(), FIELD, Vector3.zero, Random.new(seed))
 		end
 
 		it("publishes an activity while IDLE, and more than one over a minute", function()
@@ -263,33 +330,75 @@ return function()
 			TestKit.note("boar-calm: a minute of calm went " .. table.concat(order, " -> "))
 		end)
 
-		it("does NOT publish one while fleeing, so every other state draws what it drew", function()
+		it("stops publishing one on the tick it leaves IDLE", function()
+			-- REVIEW ROUND 2, FINDING 3: the case this replaces put the threat in from the first
+			-- step, so the boar went IDLE->FLEE before `_stepCalm` had ever run and `activity` was
+			-- nil for a reason that had nothing to do with the guard. This one gets a calm boar
+			-- FIRST, with an activity it is really doing, and only then frightens it.
 			local brain = newBrain(7)
-			local threat = { { id = "t", position = Vector3.new(0, 0, 10) } }
 			local intent
+			for _ = 1, 600 do
+				intent = brain:step(DT, obs(Vector3.zero))
+				if intent.activity ~= nil then
+					break
+				end
+			end
+			expect(intent.state).to.equal("IDLE")
+			expect(intent.activity).to.be.ok() -- it really is doing something before the threat
+
+			local threat = { { id = "t", position = Vector3.new(0, 0, 10) } }
+			local left = nil
 			for _ = 1, 120 do
 				local world = obs(Vector3.zero)
 				world.threats = threat
 				intent = brain:step(DT, world)
+				if intent.state ~= "IDLE" and left == nil then
+					left = intent.activity -- what it published on the very tick it stopped being calm
+				end
 			end
 			expect(intent.state).never.to.equal("IDLE")
+			expect(left).to.equal(nil) -- nil on that tick, not one frame later
 			expect(intent.activity).to.equal(nil)
 		end)
 
-		it("puts two boars out of step, so a sounder is not one animal five times", function()
-			-- The first activity starts PART-WAY through, which is the whole of the mechanism.
-			local a, b = newBrain(1), newBrain(2)
-			local same = 0
-			for _ = 1, 60 * 30 do
+		it("shortens the FIRST activity, and never the one that is a clip length", function()
+			-- REVIEW ROUND 2, FINDING 4: the case this replaces asserted "two brains with different
+			-- seeds did not agree on all 1800 frames", which is true whatever the phasing does. The
+			-- mechanism is pure now, so it is asserted directly.
+			local calm = withCalmIds().CALM
+			local graze = Boar.activityRow("graze", withCalmIds())
+			-- A roll of 0 takes nothing; anything above it takes a real bite out of the band.
+			expect(Boar.firstPhase(10, 0, graze, calm)).to.equal(10)
+			expect(Boar.firstPhase(10, 1, graze, calm)).to.equal(10 - calm.FIRST_PHASE_SECONDS)
+			expect(Boar.firstPhase(10, 0.5, graze, calm) < 10).to.equal(true)
+			-- ...and it never goes below the floor, however short the band or however big the roll.
+			expect(Boar.firstPhase(1, 1, graze, calm)).to.equal(calm.FIRST_PHASE_FLOOR)
+			-- THE HEAD LIFT IS EXEMPT: `smell` is exactly one clip length, so shortening it would cut
+			-- the 30.4 degree lift off in the middle.
+			local smell = Boar.activityRow("smell", withCalmIds())
+			expect(Boar.firstPhase(smell.minSeconds, 1, smell, calm)).to.equal(smell.minSeconds)
+		end)
+
+		it("puts two boars out of step in the shape the Runtime builds them", function()
+			-- PRODUCTION SHAPE: `Runtime:spawn` hands every `Brain.new` the runtime's own shared
+			-- `Random`, so two boars born on the same frame draw from ONE stream -- which is what the
+			-- old case missed by giving them a seed each (review round 2, finding 4).
+			local shared = Random.new(117)
+			local a = Brain.new(withCalmIds(), FIELD, Vector3.zero, shared)
+			local b = Brain.new(withCalmIds(), FIELD, Vector3.zero, shared)
+			local same, frames = 0, 60 * 30
+			for _ = 1, frames do
 				local first = a:step(DT, obs(Vector3.zero))
 				local second = b:step(DT, obs(Vector3.zero))
 				if first.activity == second.activity then
 					same += 1
 				end
 			end
-			-- Two independent draws agree sometimes; thirty seconds of lockstep would be a bug.
-			expect(same < 60 * 30).to.equal(true)
-			TestKit.note(string.format("boar-calm: two boars agreed on %.0f%% of 30 s", same / (60 * 30) * 100))
+			-- THE MEASURED BOUND, not "they differed once". Five activities drawn by weight agree
+			-- about a quarter of the time by chance; lockstep would be 100 %.
+			local share = same / frames
+			expect(share < 0.5).to.equal(true)
+			TestKit.note(string.format("boar-calm: two boars off one Random agreed on %.0f%% of 30 s", share * 100))
 		end)
 	end)
 end

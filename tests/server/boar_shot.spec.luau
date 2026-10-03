@@ -812,6 +812,21 @@ return function()
 			expect(SOUND.PITCH_JITTER > 0.02).to.equal(true)
 			expect(SOUND.PITCH_JITTER < 0.2).to.equal(true)
 		end)
+
+		it("centres the jitter on a spec's own pitch when it names one", function()
+			-- `playOneShot` multiplies the jitter by `spec.pitch`, which is how the sniff is the same
+			-- breath sample played high (task 117). The arithmetic had no case (review round 2, note).
+			local sniff = SOUND.SNIFF
+			expect(sniff.pitch > 1).to.equal(true)
+			expect(math.abs(sniff.pitch * Boar.jitteredPitch(0.5, SOUND.PITCH_JITTER) - sniff.pitch) < 1e-9).to.equal(
+				true
+			)
+			local low = sniff.pitch * Boar.jitteredPitch(0, SOUND.PITCH_JITTER)
+			local high = sniff.pitch * Boar.jitteredPitch(1, SOUND.PITCH_JITTER)
+			expect(low < sniff.pitch and high > sniff.pitch).to.equal(true)
+			-- ...and a spec with no `pitch` is centred on 1, which is every other sound.
+			expect(SOUND.HIT.pitch).to.equal(nil)
+		end)
 	end)
 
 	describe("the dying twitch", function()

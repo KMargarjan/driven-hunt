@@ -622,9 +622,8 @@ return function()
 			digWalk = "boar.anim.calm.dig.walk",
 		}
 
-		-- THE CALM REPERTOIRE (task 117), published 2026-10-03. Nothing is awaiting an id any more,
-		-- so every case below walks all nineteen clips.
-		local AWAITING_AN_ID = {}
+		-- Every one of the nineteen clips is published, so there is no skip list any more (review
+		-- round 2, note: an empty table and three `continue` guards nothing could reach).
 
 		-- THE THREE THIS PROJECT AUTHORED (task 116 fix round), PUBLISHED by the Director on
 		-- 2026-10-03 with each id verified by `AnimationClipProvider:GetAnimationClipAsync`. They are
@@ -665,11 +664,9 @@ return function()
 		it("has a row with a real asset id for every one of them", function()
 			local missing = {}
 			for name in pairs(MODEL.CLIPS) do
-				if not AWAITING_AN_ID[name] then
-					local row = Assets.byKey(KEY_OF[name])
-					if row == nil or row.kind ~= "animation" or row.modelId <= 0 then
-						table.insert(missing, name)
-					end
+				local row = Assets.byKey(KEY_OF[name])
+				if row == nil or row.kind ~= "animation" or row.modelId <= 0 then
+					table.insert(missing, name)
 				end
 			end
 			table.sort(missing)
@@ -685,10 +682,6 @@ return function()
 				expect(row).to.be.ok()
 				expect(row.source).to.equal("own")
 			end
-
-			-- NOTHING IS WAITING ON A PUBLISH. `missing` above already walks every clip; this says
-			-- the skip list is empty rather than leaving an empty table nobody notices (task 117).
-			expect(next(AWAITING_AN_ID)).to.equal(nil)
 		end)
 
 		it("agrees with the manifest about how long each clip is", function()
@@ -696,9 +689,6 @@ return function()
 			-- build, which is the half that stops it being merged. Half a frame at 24 fps.
 			local worst, worstName = 0, "none"
 			for name, clip in pairs(MODEL.CLIPS) do
-				if AWAITING_AN_ID[name] then
-					continue -- nothing published, so there is no second copy to compare with
-				end
 				local row = Assets.byKey(KEY_OF[name])
 				expect(row.clipSeconds).to.be.ok()
 				local drift = math.abs(row.clipSeconds - clip.seconds)

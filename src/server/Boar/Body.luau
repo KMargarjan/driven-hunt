@@ -502,19 +502,24 @@ end
 -- answers nil on purpose and the gait bands take it, which is how a calm boar still walks on the
 -- clip task 115 measured.
 function Body.activityClip(info, config): (string?, number)
-	-- A CRIPPLED ANIMAL IS NOT CALM, whatever it was doing a moment ago. In production this cannot
-	-- happen -- the Brain publishes `activity` only while IDLE -- but the branch above it depends on
-	-- `crippleDrag` having an id, so without this a crippled boar whose drag clip is not published
-	-- yet would go back to grazing. Found by the spec that asserts the order (task 117).
-	if info.crippled == true or info.collapsed == true then
+	-- NOT CALM, NOT A CALM CLIP -- AND THE EXIT IS INSIDE THAT, WHICH IT WAS NOT (review round 2,
+	-- finding 1). A boar that bolts stops being calm on the tick the Brain leaves IDLE, and
+	-- `info.activity` goes nil with it. The exit used to be tested FIRST, so a grazing boar that was
+	-- startled drew `grazeEnd` -- an in-place eating transition, ground speed 0 -- for its whole
+	-- 1.083 s while the body accelerated to `SPRINT_SPEED`: about 25 studs of sliding with its head
+	-- in the grass. That is the same fault task 116 measured on the flinch, re-opened and longer.
+	-- The three tests below are one statement: a calm clip is for an animal that is still calm.
+	if info.activity == nil or info.crippled == true or info.collapsed == true then
 		return nil, 1
-	end
-	if info.exitClip ~= nil and info.exitFor > 0 and Body.hasClip(info.exitClip, config) then
-		return info.exitClip, 1
 	end
 	local row = Body.activityRow(info.activity, config)
 	if row == nil then
 		return nil, 1
+	end
+	-- The exit the LAST activity asked for comes before anything the new one wants, so the head
+	-- finishes coming out of the grass -- but only while the animal is still calm.
+	if info.exitClip ~= nil and info.exitFor > 0 and Body.hasClip(info.exitClip, config) then
+		return info.exitClip, 1
 	end
 	if row.enter and Body.hasClip(row.enter, config) and info.activityFor < config.MODEL.CLIPS[row.enter].seconds then
 		return row.enter, 1
@@ -797,7 +802,14 @@ function Body.stepVisual(handle, dt: number, info, config)
 	end
 	if info.activity ~= handle.activity then
 		local leaving = Body.activityRow(handle.activity, config)
-		if leaving and leaving.exit and Body.hasClip(leaving.exit, config) then
+		-- LEAVING IDLE ALTOGETHER CANCELS THE EXIT (review round 2, finding 1). `info.activity` is
+		-- nil for every state but IDLE, so this is "the animal stopped being calm": the flee starts
+		-- on its own gait at once instead of finishing a 1.083 s eating transition in place. Moving
+		-- from one calm activity to another still arms it, which is what it is for.
+		if info.activity == nil then
+			handle.exitClip = nil
+			handle.exitFor = 0
+		elseif leaving and leaving.exit and Body.hasClip(leaving.exit, config) then
 			handle.exitClip = leaving.exit
 			handle.exitFor = config.MODEL.CLIPS[leaving.exit].seconds
 		end

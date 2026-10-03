@@ -29,6 +29,21 @@ Brain.__index = Brain
 -- WHAT A CALM BOAR DOES NEXT (task 117). Pure: a roll in [0, 1) and the table in, one activity row
 -- out, so every weight is a test case with no boar in the world. The draw is proportional to
 -- `weight`, and the last row catches any float noise at the top of the range.
+-- HOW LONG THE FIRST ACTIVITY LASTS (task 117, made pure in review round 2). A boar that has just
+-- spawned starts somewhere INSIDE its first activity, so two spawned on the same frame are not doing
+-- the same thing for the rest of their lives. Pure, because the case that claimed this used to be a
+-- tautology: two brains with different seeds disagree whatever this function does.
+--
+-- A ROW WHOSE BAND IS A SINGLE VALUE IS EXEMPT: `smell` is exactly one clip length, and cutting it
+-- short would cut the 30.4 degree head lift off in the middle.
+function Brain.firstPhase(duration: number, roll: number, row, config): number
+	if row.maxSeconds <= row.minSeconds then
+		return duration
+	end
+	local taken = math.clamp(roll, 0, 1) * config.FIRST_PHASE_SECONDS
+	return math.max(duration - taken, config.FIRST_PHASE_FLOOR)
+end
+
 function Brain.calmActivity(roll: number, config)
 	local activities = config.ACTIVITIES
 	local total = 0
@@ -105,6 +120,9 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- of five is not five animals doing the same thing on the same frame.
 	self._calm = nil :: any
 	self._calmFor = 0
+	-- Whether the first activity has been phased yet. Declared here with the rest of the block
+	-- rather than springing into existence inside `_stepCalm` (review round 2, note).
+	self._calmPhased = false
 
 	-- being shot (hit-zones design section 6.2)
 	self._boltFor = 0 -- seconds of "run whatever the threats say", counted down with dt
@@ -258,8 +276,14 @@ function Brain:_senseIdle(position: Vector3, obs)
 		self._heading = unit(rotateY(self._heading, sign * turn), self._heading)
 	end
 
-	if self._grazeFor <= 0 and rng:NextNumber() < config.GRAZE_CHANCE then
-		self._grazeFor = rng:NextNumber(config.GRAZE_MIN, config.GRAZE_MAX)
+	-- THE OLD GRAZE PAUSE, AND ONLY WHEN THE REPERTOIRE IS OFF. With `CALM.ENABLED` on, `_stepCalm`
+	-- never decrements `_grazeFor`, so arming it here latched it above zero for the boar's life and
+	-- made `GRAZE_CHANCE`, `GRAZE_MIN` and `GRAZE_MAX` dead dials (review round 2, note).
+	local calm = config.CALM
+	if not (calm and calm.ENABLED) then
+		if self._grazeFor <= 0 and rng:NextNumber() < config.GRAZE_CHANCE then
+			self._grazeFor = rng:NextNumber(config.GRAZE_MIN, config.GRAZE_MAX)
+		end
 	end
 end
 
@@ -282,11 +306,9 @@ function Brain:_stepCalm(dt: number): number
 	if self._calm == nil or self._calmFor <= 0 then
 		self._calm = Brain.calmActivity(self._rng:NextNumber(), calm)
 		self._calmFor = self._rng:NextNumber(self._calm.minSeconds, self._calm.maxSeconds)
-		if self._calmPhased ~= true then
-			-- The FIRST activity starts part-way through, so two boars spawned on the same frame are
-			-- not in step for the rest of their lives.
+		if not self._calmPhased then
 			self._calmPhased = true
-			self._calmFor = math.max(self._calmFor - self._rng:NextNumber(0, calm.FIRST_PHASE_SECONDS), 0.5)
+			self._calmFor = Brain.firstPhase(self._calmFor, self._rng:NextNumber(), self._calm, calm)
 		end
 	end
 	return self._calm.speed

@@ -69,6 +69,7 @@ Boar.hasClip = Body.hasClip
 -- ...and task 117's three: which activity a roll draws, the row for a name, and the clip an activity
 -- draws. Pure, so every weight, every clip and every transition is a case with no boar in the world.
 Boar.calmActivity = Brain.calmActivity
+Boar.firstPhase = Brain.firstPhase
 Boar.activityRow = Body.activityRow
 Boar.activityClip = Body.activityClip
 
@@ -585,10 +586,18 @@ Boar.CONFIG.SOUND = {
 -- EVERY NUMBER IS DATA and every activity is reachable by name, so the weights, the durations and
 -- which clip an activity plays are all tunable without touching code.
 Boar.CONFIG.CALM = {
-	ENABLED = true, -- rides `BOAR_MODEL`; off, an idle boar stands and wanders as it did before
+	-- THE FLAG, READ ONCE AT THIS BOUNDARY, exactly as `MODEL.ENABLED` reads it (CLAUDE.md, feature
+	-- flags). It was a literal `true` for one round, which shipped a feel-critical movement change --
+	-- an idle boar's speed setpoint drawn from this table instead of `WANDER_SPEED` -- in the FLAG
+	-- OFF path, i.e. the live game (review round 2, finding 2). Off, `Brain:_stepCalm` and
+	-- `Body.activityRow` both fall back and an idle boar stands and wanders exactly as before.
+	ENABLED = Flags.isOn("BOAR_MODEL"),
 	-- A boar that has just spawned starts somewhere INSIDE its first activity, not at the beginning
-	-- of one, so a sounder of five is not five animals doing the same thing on the same frame.
+	-- of one, so a sounder of five is not five animals doing the same thing on the same frame. A row
+	-- whose band is a single value is EXEMPT: `smell` is exactly one clip length so the 30.4 deg lift
+	-- completes, and shortening it would cut the lift off (review round 2, note).
 	FIRST_PHASE_SECONDS = 6,
+	FIRST_PHASE_FLOOR = 0.5, -- however the roll falls, a first activity lasts at least this long
 	-- `speed` is the Brain's setpoint while the activity runs; `clip` is what `Body` draws, and nil
 	-- means "let the gait bands decide", which is how `walk` gets the ordinary walk cycle. `enter`
 	-- and `exit` are one-shots played before and after, so a head does not teleport to the ground.
