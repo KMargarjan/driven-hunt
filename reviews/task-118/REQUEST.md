@@ -1,13 +1,15 @@
 # Task 118 — boar behaviour: what a boar does about what it notices
 
 Task: 118 · Round: 1 · Base: `task-117-calm-boar` (stacked; the PR targets that branch)
-Code commit: 8dc18054fe86b429bf8bd6afff1c5eeb50203e15
+Code commit: 6dbda7befa208778b58c2c3ea767cb9a219872af
 
 ```
-[harness] PASS: 33/33 checks @ 8dc18054fe86b429bf8bd6afff1c5eeb50203e15 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 6dbda7befa208778b58c2c3ea767cb9a219872af (clean tree) scope=all
 ```
 `[harness2]`: **PENDING — the Director runs it.** This task touches `src/server/Match/` and
-`src/server/MatchBoot.server.luau`, so the merge gate needs `test2` at this same sha.
+`src/server/MatchBoot.server.luau`, so the merge gate needs `test2` at this same sha. The Director's
+run at `dbb2419` found two failures; **neither is 118's code** and both are fixed in `6dbda7b` —
+see "The two `test2` failures" below.
 CI is red for ONE reason that is **task 117's and must not be fixed here**: `tools/boar_prep.py`'s
 selftest still says "ten clips" with sixteen in the tuple.
 
@@ -38,6 +40,31 @@ selftest still says "ten clips" with sixteen in the tuple.
    `MatchBoot` wires `Match.boarThreats` unconditionally and the Brain drops non-drivers when the
    flag is off. `MODEL.ALERT_CLIP = "smell"` is one string. *Verify:* `boar_behaviour.spec`'s
    flag-OFF case and its two `clipFor` cases; `match_*` specs unchanged.
+
+## The two `test2` failures at `dbb2419` — both older than 118, both fixed at their cause
+
+Neither failure is in code this task wrote, and neither assertion was weakened to pass.
+
+1. **`match_teams.spec:106` — Task 34 meeting Task 35.** "A shooter carries a gun and a driver does
+   not" was written in Task 34 (`7f4f1e3`, 2026-09-25), **one task before** Task 35 (`ed9fb0a`) added
+   `tie-the-driver`, the LAST scenario of every `test2` run. It exists FOR
+   `zz_tie_to_a_tree.spec`, it ties the SHOOTER on purpose, `TIE_UNTIL_DRIVE_END` keeps him tied, and
+   `mayCarryWeapon` refuses a tied player whatever his team is — so the case only passes while the
+   server suite reaches it BEFORE the tie lands (~55 s; the log's own `zz_drive_boundary` note says
+   "1 tied"). **This is the fourth appearance of that creep**: `ESCALATE.md`'s Task 112 entry fixed
+   two CLIENT cases for it and predicted *"the next task pushes it further whatever it changes"*.
+   118's push is real and now **measured at 13.3 s** — `boar_behaviour_live.spec` prints its own cost
+   to the server suite, so the next case to reach that edge is visible before it costs a round.
+   *Fixed:* the case reads `Match.isTied` — the same fact `mayCarryWeapon` reads — and keeps the role
+   difference by asserting a DRIVER is never tied, so his `false` can never be explained away.
+2. **`camera_client.spec:559` — Task 114 meeting Task 112.** `visible == parts - 2` came in with Task
+   114 (`696ed88`, 2026-10-03), tightened from Task 71's `parts - 1` for the gun's two named
+   envelopes. Task 112 (`a991446`, 2026-10-02) had already added a THIRD invisible part:
+   `Viewmodel.flash` creates `MuzzleFlash`, a 0.05-stud transparent Part under the clone carrying a
+   PointLight and two emitters, which `Debris` removes **1.835 s** (smoke 1.6 + flash 0.035 + 0.2)
+   after EVERY shot. `test2` has not run since Task 112 — before 114 existed — so the two had never
+   met. 118 changed no client file and nothing the viewmodel reads. *Fixed:* the holder is skipped by
+   NAME; it is not a piece of the gun, and a blank viewmodel still fails the claim.
 
 ## Two deviations from the design, both measured, both commented in the code
 
