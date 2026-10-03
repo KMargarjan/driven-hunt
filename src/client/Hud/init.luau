@@ -465,6 +465,15 @@ local function textFor(state: Shotgun.WeaponSnapshot): string
 	return string.format("%s %s %d%s%s", glyphs, string.upper(state.ammo), pocket, busyMark, notice)
 end
 
+-- PURE, AND EXPORTED (task 112, round 3). The readout case could only ever ask the LIVE text, and
+-- the live player is tied to a tree by the last scenario, so the text is empty and the case had
+-- nothing to assert -- round 2 made it return early, which is a case that proves nothing. Exporting
+-- the formatter lets a spec hand it a state it owns and assert the SHAPE, and still check that the
+-- live text is empty exactly when there is no gun.
+function Hud.readoutFor(state: Shotgun.WeaponSnapshot): string
+	return textFor(state)
+end
+
 local function clockText(seconds: number): string
 	local whole = math.max(0, math.floor(seconds))
 	return string.format("%d:%02d", math.floor(whole / 60), whole % 60)

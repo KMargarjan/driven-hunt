@@ -444,7 +444,7 @@ end
 --
 -- `sightLocal == nil` is a gun that carries no `Sight` -- an old Handle, or a mesh whose row has no
 -- measurement yet. It falls back to `VIEWMODEL_AIM_OFFSET`, the framing Task 26/47 accepted, and
--- `Viewmodel.stats().sightMissing` counts it so the fallback is visible rather than silent.
+-- `Weapon.Hardware` warns once about it so the fallback is visible rather than silent.
 function Mode.aimOffset(sightLocal: CFrame?, config): CFrame
 	if sightLocal == nil then
 		return config.VIEWMODEL_AIM_OFFSET

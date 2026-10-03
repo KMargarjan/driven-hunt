@@ -19,6 +19,10 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 -- THE GUN'S OWN BEAD EXPRESSION, not a copy of its numbers: the sight picture this file asserts is
 -- only right if it is built from the same place the gun's bead is (docs/design/camera.md 6.5).
 local Shape = require(ServerScriptService:WaitForChild("Weapon"):WaitForChild("Shape"))
+-- THE GUN THE VIEWMODEL DRAWS (task 114). Its bore line is `Gun.layout().barrelY`, which is NOT the
+-- Handle's own axis -- the tubes sit 0.12 studs above it -- so a claim about a hand being "under the
+-- barrels" has to be measured against that rather than against zero. Pure data, no Instances.
+local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 
 local cameraFolder = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera")
 local Mode = require(cameraFolder:WaitForChild("Mode"))
@@ -531,20 +535,27 @@ return function()
 			-- trigger a little behind that.
 			local length = Shotgun.CONFIG.HANDLE_SIZE.Z
 			local breechZ = -length / 2 + length * (28 / 45)
+			-- THE BORE LINE IS THE GUN'S, NOT THE HANDLE'S AXIS (task 114). Until the retired gun went,
+			-- these two claims were written as `Y < 0`: that gun was a clone of the Tool's Handle and
+			-- its tubes lay on the Handle's own axis, so zero WAS the bore. Model B's tubes sit at
+			-- `Gun.layout().barrelY`, 0.12 studs up, and its underside is what a hand must stay below.
+			-- Measured from `Gun`, never from a number copied in here.
+			local boreUnderY = Gun.layout(Shotgun.CONFIG).barrelY - Gun.layout(Shotgun.CONFIG).barrelRadius
 
 			it("puts the right hand behind the breech and the left hand under the barrels", function()
 				local right = Mode.rightHandOffset(firstPerson).Position
 				local left = Mode.leftHandOffset(firstPerson).Position
 				TestKit.note(
 					string.format(
-						"task93 hands: right (%.2f, %.2f, %.2f), left (%.2f, %.2f, %.2f), breech at %.2f",
+						"task114 hands: right (%.2f, %.2f, %.2f), left (%.2f, %.2f, %.2f), breech %.2f, bore under %.3f",
 						right.X,
 						right.Y,
 						right.Z,
 						left.X,
 						left.Y,
 						left.Z,
-						breechZ
+						breechZ,
+						boreUnderY
 					)
 				)
 				-- THE GRIP IS BEHIND THE BREECH and the forend is in front of it. That is what makes
@@ -553,44 +564,57 @@ return function()
 				expect(right.Z > breechZ).to.equal(true)
 				expect(left.Z < breechZ).to.equal(true)
 				-- BOTH ARE BELOW THE BORE LINE. A hand on top of the barrels covers the rib and the
-				-- bead, which is the one thing a player aims with.
-				expect(right.Y < 0).to.equal(true)
-				expect(left.Y < 0).to.equal(true)
+				-- bead, which is the one thing a player aims with. `boreUnderY` is the gun's own
+				-- underside; the client spec asserts the same bound on the parts that are really
+				-- drawn (`gun_client.spec`, "holds the gun like a hunter").
+				expect(right.Y < boreUnderY).to.equal(true)
+				expect(left.Y < boreUnderY).to.equal(true)
 				-- AND NEITHER IS PAST THE MUZZLE: a hand out in front of the gun is a hand being
 				-- shot through.
 				expect(left.Z > -length / 2).to.equal(true)
 			end)
 
-			it("points both hands' fingers down the gun, and turns the left one palm up", function()
-				-- THE MODEL'S LONG AXIS IS ITS OWN X, wrist to fingertip -- and the two hands run
-				-- opposite ways (measured on each prepped model's bounds: the right hand's
-				-- fingertips are at its mesh minimum and the left hand's at its maximum, and the FBX
-				-- import flips the long axis, so in Roblox they are +X and -X). So "the fingers
-				-- point at the muzzle" is a claim about DIFFERENT model axes for the two hands, and
-				-- it is asserted on where each axis ends up rather than on the yaw number.
+			it("poses the two hands differently, because the two gloves do not share an axis", function()
+				-- WHAT THIS CASE USED TO SAY, AND WHY IT CANNOT ANY MORE (task 114). It read the pose
+				-- frame's own +X as "the fingers" and -X as the left hand's, because the RETIRED gun's
+				-- v1 gloves were drawn with no alignment at all: the pose frame WAS the mesh's frame,
+				-- and the two models ran opposite ways along their own X.
+				--
+				-- MODEL B'S PAIR DO NOT SHARE AN AXIS -- the right glove's fingers run along its own
+				-- -X and the left glove's along its own +Y (`HandAssets.AXES`, measured in task 108 by
+				-- classifying every vertex by the colour its UV samples) -- so no single number can
+				-- mean the same thing on both, and `Camera.Viewmodel.align` turns each MESH into one
+				-- convention before the three pose angles are read. Which way the drawn fingers
+				-- actually end up is therefore a claim about the DRAWN PARTS, and that is where it is
+				-- asserted: `gun_client.spec`, "holds the gun like a hunter", carries each glove's own
+				-- measured `fingers` vector through the CFrame of the part really on screen.
+				--
+				-- WHAT IS STILL A RULE HERE, and is pure geometry a server can judge: the two hands
+				-- are posed DIFFERENTLY. One pose for both is the defect this pair of numbers exists
+				-- to prevent -- the Director's live `left.rot.twist 180` swung a glove to the far side
+				-- of the barrels instead of rolling its palm, which is what a shared number does.
 				local right = Mode.rightHandOffset(firstPerson)
 				local left = Mode.leftHandOffset(firstPerson)
-				local rightFingers = right.RightVector -- the model's +X
-				local leftFingers = -left.RightVector -- the model's -X
 				TestKit.note(
 					string.format(
-						"task93 fingers: right Z %.2f, left Z %.2f; left palm up %.2f",
-						rightFingers.Z,
-						leftFingers.Z,
-						left.UpVector.Y
+						"task114 hand frames: right +X (%.2f, %.2f, %.2f), left +X (%.2f, %.2f, %.2f)",
+						right.RightVector.X,
+						right.RightVector.Y,
+						right.RightVector.Z,
+						left.RightVector.X,
+						left.RightVector.Y,
+						left.RightVector.Z
 					)
 				)
-				-- FORWARD IS -Z. Both sets of fingers must point down the gun rather than back at
-				-- the player: a hand facing the wrong way is the knife held backwards for three
-				-- rounds (docs/PROJECT_CONTEXT.md).
-				expect(rightFingers.Z < -0.7).to.equal(true)
-				expect(leftFingers.Z < -0.7).to.equal(true)
-				-- THE LEFT HAND IS TURNED PALM UP, which is the whole difference between cradling
-				-- the barrels and lying on top of them. The model's +Y is the BACK of the hand, so
-				-- palm up means that axis points DOWN.
-				expect(left.UpVector.Y < -0.5).to.equal(true)
-				-- ...and the right hand is not: it wraps the grip from above.
-				expect(right.UpVector.Y > 0.5).to.equal(true)
+				expect(right).never.to.equal(left)
+				-- NOT A HAIR APART: the two frames point their own +X at least a right angle from each
+				-- other, which is the difference between a grip and a forend hold rather than a tweak.
+				expect(right.RightVector:Dot(left.RightVector) < 0.5).to.equal(true)
+				-- ...AND THE TWIST IS THE NUMBER THAT SAYS WHOSE GLOVES THESE ARE. The v1 left glove
+				-- was modelled palm-DOWN and needed a half turn to get the palm under the barrels;
+				-- Karen's is modelled palm-UP already, so a 180 here would be the retired pair's
+				-- number on this pair's model -- the picture she called broken.
+				expect(firstPerson.HAND_LEFT_TWIST_DEG).never.to.equal(180)
 			end)
 
 			it("converts its three degrees at one site, and only there", function()
@@ -977,9 +1001,10 @@ return function()
 		end)
 
 		it("falls back to the accepted framing when the gun carries no sight", function()
-			-- A DECISION, NOT AN ACCIDENT (design section 9.1 item 6): an old Handle or a mesh whose
-			-- row has no measurement yet still draws, at the framing Task 26/47 accepted, and
-			-- `Viewmodel.stats().sightMissing` counts it.
+			-- A DECISION, NOT AN ACCIDENT (design section 9.1 item 6): a gun with no `Sight` still
+			-- draws, at the framing Task 26/47 accepted, rather than being drawn nowhere. The gun
+			-- the viewmodel BUILDS always carries one (`Gun.sight`, task 114), so this is the
+			-- fallback for a caller that has no model on screen at all.
 			expect(Mode.aimOffset(nil, firstPerson)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
 			expect(Mode.aimOffset(nil, thirdPerson)).to.equal(Config.VIEWMODEL_AIM_OFFSET)
 		end)

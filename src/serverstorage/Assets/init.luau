@@ -123,9 +123,11 @@ export type AssetRow = {
 -- grey box nobody can explain.
 Assets.KEYS = table.freeze({
 	shotgunHandle = "shotgun.handle",
-	-- THE TWO FIRST-PERSON HANDS (task 93). They are not the gun and they are not the map: nobody
-	-- but the player holding the shotgun ever sees them, which is why they carry a scope of their
-	-- own below.
+	-- THE FIRST PAIR OF FIRST-PERSON HANDS (task 93), RETIRED BY TASK 114. They are not the gun and
+	-- they are not the map: nobody but the player holding the shotgun ever saw them, which is why
+	-- they carry a scope of their own below -- and that scope is now "retired", because the gun they
+	-- were posed against is gone. The keys stay for the reason `gunStock` does: an id that has been
+	-- in a place is provenance (rule 7).
 	handRight = "hand.right",
 	gunStock = "gun.stock",
 	-- MODEL B'S TWO HINGE GROUPS AND ITS SHELL (task 105). Karen picked a professional CC-BY model
@@ -135,10 +137,12 @@ Assets.KEYS = table.freeze({
 	gunBarrels = "gun.barrels",
 	gunFrame = "gun.frame",
 	gunShell = "gun.shell",
-	-- MODEL B'S OWN HANDS (task 106, round 2). They are a DIFFERENT KEY rather than a new version of
-	-- `hand.right`/`hand.left`, and that is finding 1 of round 1: a new version supersedes, and
-	-- `byKey` would then have handed the OLD gun -- the flag-OFF default build -- a pair it was never
-	-- posed for. The two guns have two pairs of hands, so they have two pairs of keys.
+	-- THE GLOVES THAT HOLD MODEL B (task 106, round 2), AND SINCE TASK 114 THE ONLY PAIR. They are a
+	-- DIFFERENT KEY rather than a new version of `hand.right`/`hand.left`, and that is finding 1 of
+	-- round 1: a new version supersedes, and `byKey` would then have handed the OLD gun -- the
+	-- flag-OFF default build -- a pair it was never posed for. The keys stay different now that the
+	-- old pair is retired, because `supersededBy` takes a VERSION of the same key and these are a
+	-- different model (the same reason `gun.stock` is not a `gun.frame` version).
 	gunHandRight = "gun.hand.right",
 	gunHandLeft = "gun.hand.left",
 	handLeft = "hand.left",
@@ -192,9 +196,10 @@ local HAND_ACROSS_STUDS = 0.35
 -- the LONGEST axis rather than X.
 local HAND_RIGHT_NATURAL = Vector3.new(189.8336, 99.3031, 59.8539)
 local HAND_LEFT_NATURAL = Vector3.new(178.9431, 151.8857, 190.2365)
--- The v1 gloves' boxes and their own dial. THE OLD GUN STILL DRAWS THESE, so this is not an archive
--- number: 1.27 studs is 330 mm of hand and cuff at this game's scale, and it is what the top-level
--- poses were measured against.
+-- The v1 gloves' boxes and their own dial. NOTHING DRAWS THESE SINCE TASK 114 -- the gun whose poses
+-- were measured at them is gone, and both rows are `scope = "retired"` below -- so this IS an archive
+-- number: 1.27 studs is 330 mm of hand and cuff at this game's scale, and it is the size the retired
+-- pair was published at.
 local HAND_V1_LENGTH_STUDS = 1.27
 local HAND_RIGHT_V1_NATURAL = Vector3.new(190.04, 84.99, 78.93)
 local HAND_LEFT_V1_NATURAL = Vector3.new(189.64, 95.52, 72.04)
@@ -225,9 +230,9 @@ end
 local STOCK_SIZE = Vector3.new(1.32, 0.4808, 0.255)
 local HAND_RIGHT_SIZE = uniformTo(HAND_RIGHT_NATURAL, HAND_LENGTH_STUDS)
 local HAND_LEFT_SIZE = uniformTo(HAND_LEFT_NATURAL, HAND_LENGTH_STUDS)
--- THE v1 GLOVES KEEP THEIR OWN DIAL, computed the same way, because the OLD gun still wears them and
--- its poses were measured at it. `uniformTo` pins the longest axis, and on both v1 models that is X,
--- so these are bit-for-bit the sizes that shipped before task 106.
+-- THE v1 GLOVES KEEP THEIR OWN DIAL, computed the same way, so their retired rows still say what
+-- they were published at. `uniformTo` pins the longest axis, and on both v1 models that is X, so
+-- these are bit-for-bit the sizes that shipped before task 106.
 local HAND_RIGHT_V1_SIZE = uniformTo(HAND_RIGHT_V1_NATURAL, HAND_V1_LENGTH_STUDS)
 local HAND_LEFT_V1_SIZE = uniformTo(HAND_LEFT_V1_NATURAL, HAND_V1_LENGTH_STUDS)
 
@@ -846,7 +851,14 @@ Assets.ROWS = {
 		key = "hand.right",
 		version = 1,
 		kind = "meshpart" :: Kind,
-		scope = "viewmodel",
+		-- RETIRED BY TASK 114, and that is what this scope says -- the same shape `gun.stock` took
+		-- when model B replaced the drawn gun. Karen accepted model B and the gloves she made to hold
+		-- it, so the gun flag retired and the gun THIS pair was posed against went with it;
+		-- nothing draws them, and `keysFor("viewmodel")` no longer answers with them, because no boot
+		-- line asks for the scope "retired". The row and its id stay (rule 7): an id that has been in
+		-- a place is provenance. `supersededBy` would be the wrong field -- it takes a VERSION of this
+		-- same key, and what replaced these is a different model under `gun.hand.right`.
+		scope = "retired" :: string?,
 		-- Uploaded by tools/roblox_upload.py on 2026-09-28; the row it wrote is in
 		-- assets/uploads.json, and this id is that row's assetId.
 		modelId = 135163569224932,
@@ -889,7 +901,7 @@ Assets.ROWS = {
 		key = "hand.left",
 		version = 1,
 		kind = "meshpart" :: Kind,
-		scope = "viewmodel",
+		scope = "retired" :: string?, -- task 114, with `hand.right` above: see that row
 		-- Uploaded by tools/roblox_upload.py on 2026-09-28; the row it wrote is in
 		-- assets/uploads.json, and this id is that row's assetId.
 		modelId = 89496857904040,
@@ -1167,7 +1179,7 @@ Assets.ROWS = {
 	-- trigger-guard finger); the left is a palm-up C with a gap between the thumb and the curled
 	-- fingers, which is a hand a forend sits IN. Both wear the olive sleeve with a turned cuff.
 	--
-	-- THEY ARE `scope = "viewmodel"` for the reason the v1 pair were: a hand is never worn by a Tool
+	-- THEY ARE `scope = "viewmodel"` for the reason the retired v1 pair were: a hand is never worn by a Tool
 	-- and never replicated as part of one. The server loads it and publishes the template, and
 	-- `Camera.Viewmodel` clones it under `workspace.CurrentCamera` for the local player alone.
 	--

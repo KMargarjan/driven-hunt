@@ -20,12 +20,9 @@ local HandAssets = {}
 -- deleted at the next Connect (CLAUDE.md); a folder a running server makes for itself lives and dies
 -- with that server, exactly as `Assets.Loader`'s own cache folder does.
 HandAssets.FOLDER_NAME = "ViewmodelHands"
--- ...AND A SECOND FOLDER, FOR A SECOND PAIR (task 106). Karen made gloves that HOLD something, for
--- model B; the old gun keeps the pair its poses were measured against. Two folders rather than two
--- NAMES, so everything downstream -- `poseHands`, `clearHands`, every spec -- still looks for
--- `HandRight` and `HandLeft` and only ONE place decides which pair that is
--- (`Camera.Viewmodel.handTemplate`).
-HandAssets.NEW_GUN_FOLDER_NAME = "ViewmodelHandsNewGun"
+-- ONE FOLDER AGAIN SINCE TASK 114. Task 106 added a second one, `ViewmodelHandsNewGun`, because two
+-- guns wanted two pairs of gloves; Karen's gun is the only gun now and her pair is the only pair, so
+-- there is one folder and the names in it are the names everything downstream has always used.
 
 HandAssets.RIGHT = "HandRight"
 HandAssets.LEFT = "HandLeft"
@@ -33,18 +30,55 @@ HandAssets.LEFT = "HandLeft"
 -- Which manifest key each published name comes from. The SERVER reads this; the client only ever
 -- needs the names, because by the time it looks the Instance is already there or it is not.
 --
--- TWO TABLES, TWO KEYS PER HAND, AND THAT IS THE POINT (task 106, round 2). The new gloves were
--- first shipped as `hand.right` version 2 -- and a new version SUPERSEDES, so `Assets.byKey` handed
--- the old gun a pair it was never posed for: upside down (its `twist` of 180 is for a palm-DOWN
--- model) and at 53 % of the size its poses assume. A different gun's hands are a different key.
+-- `gun.hand.*` AND NOT `hand.*`, AND THE KEYS ARE WHY (task 106, round 2, kept through task 114).
+-- Karen's gloves were first shipped as `hand.right` version 2 -- and a new version SUPERSEDES, so
+-- `Assets.byKey` handed the OLD gun a pair it was never posed for: upside down (its `twist` of 180 is
+-- for a palm-DOWN model) and at 53 % of the size its poses assumed. The fix was a different KEY, and
+-- these are those keys. The v1 pair and the gun they were posed for are gone, and their ROWS STAY
+-- WHERE THEY ARE: `src/serverstorage/Assets/init.luau` keeps them at `scope = "retired"`, which is
+-- rule 7 satisfied in place -- an id that has been in a place is provenance, and nothing loads a
+-- scope no boot line asks for.
 HandAssets.KEY_OF = table.freeze({
-	[HandAssets.RIGHT] = "hand.right",
-	[HandAssets.LEFT] = "hand.left",
-})
-
-HandAssets.NEW_GUN_KEY_OF = table.freeze({
 	[HandAssets.RIGHT] = "gun.hand.right",
 	[HandAssets.LEFT] = "gun.hand.left",
+})
+
+-- WHICH WAY EACH GLOVE'S OWN MESH POINTS, MEASURED (task 108), and this is the whole of Karen's
+-- "left hand is oposit180deg need to turn or not sure but broken".
+--
+-- THE TWO MODELS DO NOT SHARE AN AXIS. Measured off each prepped mesh by classifying every vertex by
+-- the colour its own UV samples in the base-colour map -- the cuff is olive, the glove is brown -- so
+-- the centroid of one to the centroid of the other IS the wrist-to-fingers direction, exactly:
+--
+--   RIGHT glove: wrist -> fingers (-0.963, 0.265, 0.048), i.e. its own -X, and the palm faces +Z
+--   LEFT  glove: wrist -> fingers ( 0.317, 0.874, -0.369), i.e. its own +Y, and the palm faces
+--                roughly (0.458, 0.488, 0.743)
+--
+-- ONE CONVENTION IS WHAT THIS IS FOR, AND `Camera.Viewmodel.align` IS WHAT READS IT. Because the two
+-- models differ, no single yaw/pitch/twist can mean the same thing on both: the Director's live try
+-- of `left.rot.twist 180` moved the glove to the far side of the barrels instead of rolling the
+-- palm, which is what a shared number does when the two meshes disagree about which axis it turns.
+-- So `poseHands` applies a per-glove rotation that takes each mesh into ONE frame -- FINGERS ALONG
+-- +X, PALM TOWARD +Y -- on the right of the pose offset, and the pose's three angles are read in
+-- THAT frame on both. All three poses in `poses.json` are seeded in it.
+--
+-- The palm normal is the hand cloud's flattest axis signed toward the fingertips (a curled hand's
+-- tips lie over its palm). On the right glove that is a clean slab; on the LEFT, which is a cupped C,
+-- it is an estimate -- `align` squares it against the fingers, which were measured exactly, so a few
+-- degrees of error there turns into a few degrees of roll and the pose's `twist` is the dial that
+-- finishes it.
+--
+-- `python tools/pose.py inspect <pose>` photographs the drawn viewmodel FROM OUTSIDE, which is how
+-- these were judged: three rounds of guessing at two dark lumps beside a barrel could not.
+HandAssets.AXES = table.freeze({
+	[HandAssets.RIGHT] = table.freeze({
+		fingers = Vector3.new(-0.9632, 0.2645, 0.0484),
+		palm = Vector3.new(-0.0660, 0.1061, 0.9922),
+	}),
+	[HandAssets.LEFT] = table.freeze({
+		fingers = Vector3.new(0.3172, 0.8738, -0.3686),
+		palm = Vector3.new(0.4579, 0.4884, 0.7428),
+	}),
 })
 
 return table.freeze(HandAssets)

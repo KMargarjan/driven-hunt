@@ -54,7 +54,7 @@
     "Action": "the metal block behind the breech, with the top lever on it, running away to the lower right; NEARER the eye than the breech, because the shooter holds the grip and the barrels hang away from it.",
     "Stock": "the walnut wrist at the lower right, nearer still -- it is the end of the gun that is in the hand.",
     "Forend": "bolted to the barrels and about a third of the way down them, so it is FARTHER than the breech. That ordering is the whole of 'down-away' and no single screen position says it.",
-    "HandLeft": "in from the left with a shell. Weight 0.5 on purpose: in this frame the hand has LEFT the forend, and its own offset is `newGun.reload.left` rather than one of the six numbers this fits -- so it is a hint, not a constraint.",
+    "HandLeft": "in from the left with a shell. Weight 0.5 on purpose: in this frame the hand has LEFT the forend, and its own offset is `reload.left` rather than one of the six numbers this fits -- so it is a hint, not a constraint.",
     "Muzzle": "off the BOTTOM edge. Task 103 had only 'off screen', and the fit satisfied it by pointing the barrels off the LEFT edge instead: a different gun entirely.",
     "directions": "from the breech to the muzzle the barrel axis runs down and slightly left: 105 degrees, where 0 points right and 90 straight down. Weight 2, because this is the reading task 103 had no way to write.",
     "TopLever": "the lever on the action's top strap, which in this frame FACES the camera -- the gun is seen from its top-left, with the trigger guard away on the far side. It is the ROLL, and it is the reading the first two fits had no way to be given: both answered with the gun standing on end, butt up, because nothing said which way round its own axis it should lie."

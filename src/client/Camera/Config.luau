@@ -10,11 +10,12 @@
 -- compare" until audit-002 must-fix 1 lands (TASKS.md row 16). Third system to make that choice,
 -- after TestArena.LAYOUT and Boar.CONFIG.
 --
--- SINCE TASK 89 IT READS ONE FLAG, and this is the first client production module in the repo to
--- read `Flags` at all. It is the ONE boundary read (CLAUDE.md, "Feature flags"): the value is
--- resolved once, here, and passed inward as `config` by every function that needs it -- which is why
--- both branches stay reachable by parameter while the flag itself sits at one of them
--- (docs/design/feature-flags.md section 13.3). On a client `Flags.isOn` reads the replicated
+-- SINCE TASK 89 IT READS ONE FLAG -- `FIRST_PERSON`, and since task 114 that is the only one; the
+-- second one, which chose which gun was drawn, retired when Karen's gun became the only gun (see
+-- TASKS.md row 114). It is the ONE boundary read
+-- (CLAUDE.md, "Feature flags"): the value is resolved once, here, and passed inward as `config` by
+-- every function that needs it -- which is why both branches stay reachable by parameter while the
+-- flag itself sits at one of them (docs/design/feature-flags.md section 13.3). On a client `Flags.isOn` reads the replicated
 -- `ReplicatedStorage.Flags.State` attributes, published by `FlagsBoot` before any player exists; the
 -- pathological case waits and falls back to the DEFAULTS with its own warning -- i.e. to the accepted
 -- shoulder camera, loudly, which is the honest failure (design section 6.6).
@@ -34,14 +35,32 @@ local Config = {
 	-- THE SWITCH (task 89, S1). ON: the eye, the carry pose below, no crosshair, no occlusion cast.
 	-- OFF: everything this file said before, unchanged.
 	FIRST_PERSON = Flags.isOn("FIRST_PERSON"),
-	-- THE SECOND SWITCH (task 99), read at the same ONE boundary and passed inward as `config`.
-	-- ON: the first-person gun is built from `ReplicatedStorage.Gun`'s exact pieces and poses
-	-- from `poses.json`'s `newGun` set. OFF: the Tool's Handle, cloned, exactly as before -- and
-	-- that is what every OTHER player sees in both cases, because the world gun is not in scope.
-	NEW_GUN = Flags.isOn("NEW_GUN"),
 
 	-- field of view
 	FOV_THIRD_DEG = 70, -- the engine default; keeps the stock look
+
+	-- THE GUN'S SOUNDS (task 112). An id is not a number, so these are configuration and not pose
+	-- data; the three VOLUMES are in `newGun.fire.volume`, where `tools/pose.py` can balance them
+	-- live while somebody listens.
+	--
+	-- THE SHOT ID IS EMPTY AND THAT IS DELIBERATE. The dispatch says library sounds only and nothing
+	-- uploaded that Karen has not OK'd; choosing a 12-gauge from the Roblox library means picking an
+	-- id I cannot hear, and an id that turns out to be wrong is worse than silence because it ships
+	-- as the gun's voice. `Weapon.Sound` treats "" as "play nothing" without a warning, so the path
+	-- is live and waiting for one line. KAREN: paste an id here.
+	-- KAREN ASKED THE DIRECTOR TO FIND ONE, and this is it: "AS_shotgun_shot-01" by Audioscape,
+	-- `rbxassetid://99008924129683`, audioType SoundEffect --
+	-- https://create.roblox.com/store/asset/99008924129683 . ROBLOX-PROVIDED LIBRARY AUDIO, NOT AN
+	-- UPLOAD: nothing was published to Karen's account for it and no asset row is needed, which is why
+	-- it sits here with its source rather than in `assets/uploads.json`.
+	--
+	-- NOBODY HERE HAS HEARD IT. The Builder cannot play audio and the Director picked it from the
+	-- store page; Karen is the first person who will know whether it sounds like a 12-gauge.
+	SOUND_SHOT_ID = "rbxassetid://99008924129683",
+	-- The break-open and the close are Studio's OWN sounds, which ship with the engine rather than
+	-- coming from the library, so they are the two I can be sure exist.
+	SOUND_OPEN_ID = "rbxasset://sounds/switch3.wav",
+	SOUND_CLOSE_ID = "rbxasset://sounds/switch.wav",
 	FOV_AIM_DEG = 50, -- feel (Karen): 1.4x magnification, a bead sight and not a scope
 	AIM_BLEND_SECONDS = 0.20, -- feel; the research note says plainly this is not derived
 	-- FIRST PERSON RAISES FASTER THAN IT LOWERS (task 95). The reference clip Karen chose does the
@@ -248,12 +267,14 @@ local Config = {
 	-- own bounds). TWIST 180 is what turns the palm UP, so the barrels lie in it rather than on the
 	-- back of the hand.
 	--
-	-- ALL OF THAT IS ABOUT THE v1 GLOVES AND THE TOP-LEVEL POSES, AND ONLY THOSE (task 106). Model B
-	-- wears a different pair under `poses.json`'s `newGun` set, measured the same way and answering
-	-- differently: its left glove is modelled PALM-UP already, so its twist is 0, not 180, and both
-	-- yaws are the full quarter turn. `Camera.Viewmodel.handTemplate` is the one place that picks a
-	-- pair, by `NEW_GUN`; `ServerStorage.Assets` keeps them under two keys so neither can supersede
-	-- the other.
+	-- ALL OF THAT WAS MEASURED AGAINST THE v1 GLOVES, AND BOTH ARE GONE (task 114). The gun is
+	-- Karen's model B and the gloves are the pair she made to hold it, so the numbers above are the
+	-- HISTORY of these names, not their values: `poses.json`'s `carry`, `aim` and `reload` carry the
+	-- ones that ship, and Karen posed them by eye with `tools/pose.py edit` (tasks 108 and 109) rather
+	-- than deriving them. The v1 left glove was modelled palm-DOWN and needed a half turn to get the
+	-- palm under the barrels; hers is modelled palm-UP, so her twists are nothing like that 180 --
+	-- `carry.left` and `reload.left` ship -150 and `aim.left` 110. `Camera.Viewmodel.align` is what
+	-- makes those three angles mean the same thing on two meshes that do not share an axis.
 
 	-- ------------------------------------------------------ the bead sight (ON branch, task 90)
 	-- HOW FAR THE BEAD SITS FROM THE EYE when aiming. 3.5, AND IT IS MEASURED OFF KAREN'S OWN
@@ -318,26 +339,6 @@ local Config = {
 	-- size, because a Studio Play window is much smaller than 1080 px and a fixed pixel count there
 	-- would be a LOOSER angular claim -- a false pass.
 	BEAD_CENTRE_TOLERANCE_DEG = 0.37,
-	-- THE DRAWN BEAD. Karen, 2026-09-27: "we are missing front knob or how it calls where you aim
-	-- and follow animal with that point". The parts gun has a real `Bead` piece; the uploaded mesh is
-	-- exactly ONE MeshPart with a painted one too small to aim with, so the viewmodel draws its own at
-	-- the `Sight` attachment when the clone has no `Bead` part of its own.
-	--
-	-- A METAL BEAD, NOT A RED DOT (task 92). Karen, after playing S2: "that red dot is not realistic,
-	-- we need to improve what actually is on Beretta Parallelo". What a Beretta 486 Parallelo actually
-	-- carries is a small BRASS BALL on the rib at the muzzle -- no glass, no electronics, no colour
-	-- that is not metal -- so this is brass, `Enum.Material.Metal`, and smaller: 0.05 studs at
-	-- EYE_RELIEF_STUDS = 3.5 is 0.82 degrees, about 13 px in a 784-px viewport at the aiming field of
-	-- view. Brass reads warm against both sky and ground, which is why every classic side-by-side uses
-	-- it; against a bright sky it goes dark rather than invisible, which is what a real one does too.
-	--
-	-- It is still NOT `Shotgun.CONFIG.LOOK.bead`: that is the off-white bead of the PARTS gun, a piece
-	-- of the weapon other players see. This is the aiming mark the camera draws for one player. Two
-	-- things, two owners -- so the client spec asserts this one is brass-coloured metal rather than
-	-- asserting the two still agree.
-	BEAD_MARKER_STUDS = 0.05,
-	BEAD_MARKER_COLOR = Color3.fromRGB(198, 158, 82),
-	BEAD_MARKER_MATERIAL = Enum.Material.Metal,
 
 	-- ------------------------------------------------------ the viewmodel's own light (task 92)
 	-- Karen, after playing S2: "Weapon color we need to improve and style now feels a bit broken, it
@@ -365,40 +366,6 @@ local Config = {
 	--     already nearest the eye.
 	-- "It stays here and is not pose data" was true until the thing being tuned turned out to be the
 	-- light rather than the colour; it is still not a POSE, which is why it is `look` and not `aim`.
-
-	-- ------------------------------------------------------ the sleeve (task 99)
-	-- KAREN, 2026-10-01: in the break-open frame the left cuff's OPEN END faces the camera as a big
-	-- black disc. A hand model is a hand plus a short cuff and nothing behind it, so wherever the arm
-	-- would continue there is a hole -- and the open end of a tube pointed at the lens is the one
-	-- view that shows it.
-	--
-	-- A SLEEVE THAT RUNS OFF SCREEN is the fix that needs no new asset: an olive cylinder on the
-	-- hand's own long axis, starting at the cuff and running back past the near plane, so the end is
-	-- always behind the camera. It is drawn by `Camera.Viewmodel` with the hands, for one player.
-	SLEEVE_LENGTH_STUDS = 1.6, -- far enough back that the end is behind the eye in every pose
-	-- 2.6 FOR MODEL B, AND THE RELOAD FRAME IS WHY (task 106, rule 5). 1.6 is far enough while the
-	-- glove is 1.27 studs long and sits close to the eye; Karen's new pair is 0.67, so the hand sits
-	-- further out -- in the broken-open frame the left one is 1.6 studs away, riding the barrels, and
-	-- a 1.6-stud sleeve ended exactly at the lens. "Far enough back that the end is behind the eye in
-	-- EVERY pose" is the claim, and the open-gun pose is the one that tests it.
-	-- `Camera.Viewmodel.sleeveLength` is the one place that picks between them.
-	SLEEVE_LENGTH_NEW_GUN_STUDS = 2.6,
-	-- 0.20, NOT 0.30, AND THE SCREENSHOT IS WHY (rule 5). At 0.30 the sleeve read as an olive LOG
-	-- lying across the right half of the break-open frame: it is inches from the eye, so its
-	-- apparent size is nothing like its real one. A forearm at this distance is a narrow band.
-	SLEEVE_DIAMETER_STUDS = 0.20,
-	SLEEVE_COLOR = Color3.fromRGB(62, 66, 48), -- the olive of the jacket cuff on Karen's gloves
-	SLEEVE_MATERIAL = Enum.Material.Fabric,
-	-- How far the sleeve's near end sits INSIDE the cuff, so there is never a seam between them.
-	SLEEVE_OVERLAP_STUDS = 0.12,
-	-- 0.30 FOR MODEL B (task 106). Karen's new gloves carry their OWN turned cuff, and that cuff has
-	-- its own open end: in the broken-open frame it faced the camera as an olive disc beside the
-	-- forend (`.screenshots/20261002T111802Z-pose-reload.png`), which is task 99's complaint coming
-	-- back on a different model. 0.12 was measured against a 1.27-stud glove; on a 0.67-stud one the
-	-- drawn sleeve has to start nearly half a hand in to be inside the model's own cuff rather than
-	-- behind it. It must stay under half the hand's own X, or the near end comes out through the
-	-- fingers -- `gun_client.spec` asserts that against the published glove.
-	SLEEVE_OVERLAP_NEW_GUN_STUDS = 0.30,
 
 	-- ------------------------------------------------------ recoil (task 92)
 	-- Karen, after playing S2: "shooting has to have recoil a bit" -- "a bit" is the whole brief, so
@@ -473,7 +440,7 @@ local Config = {
 -- nowhere, with the one line that said why lost in a Play console.
 -- `tests/server/viewmodel_poses.spec.luau` checks the shape of the file itself, so this only
 -- ever fires for a `view` that forgot a name or a literal that came back.
-for key, value in pairs(Viewmodel.view(Viewmodel.DATA, Config.NEW_GUN)) do
+for key, value in pairs(Viewmodel.view(Viewmodel.DATA)) do
 	assert(Config[key] == nil, "Camera.Config already defines " .. key .. "; poses.json is the one source")
 	Config[key] = value
 end

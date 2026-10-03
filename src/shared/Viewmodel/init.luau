@@ -10,6 +10,11 @@
 -- ModuleScript `ReplicatedStorage.Viewmodel.poses`, and `tools/pose.py` is the one writer of the
 -- live override that replaces any of them inside a running Studio session.
 --
+-- ONE POSE SET SINCE TASK 114 (version 3). Version 2 carried two: the top level for the gun this
+-- repo drew from Task 71, and `newGun` for Karen's model B behind the gun flag. She accepted
+-- model B, so its three poses ARE the poses -- moved up to the top level with every number
+-- byte-identical -- and `view` no longer takes a gun to choose.
+--
 -- `Viewmodel.view(data)` is what makes that ONE source rather than two: `Camera.Config` publishes
 -- the flat names the camera has always used (`CARRY_PITCH_DEG`, `EYE_RELIEF_STUDS`, ...) by CALLING
 -- this function on the data. There is no second copy of a number to go stale -- the names are a
@@ -223,9 +228,18 @@ function Viewmodel.validate(data: any): { string }
 	if type(data) ~= "table" then
 		return { "poses.json did not load as a table" }
 	end
-	if data.version ~= 2 then
-		table.insert(problems, "version must be 2")
+	-- VERSION 3 IS ONE POSE SET (task 114). Version 2 carried two -- the top level for the gun this
+	-- repo drew from Task 71, and `newGun` for Karen's model B behind the gun flag. She accepted
+	-- model B, the flag retired, and its three poses moved up to the top level with every number
+	-- byte-identical. The number is bumped because the SHAPE changed: a version-2 file loaded by this
+	-- code would silently be read as the retired gun's poses, which is the one failure a pose file
+	-- must not have.
+	if data.version ~= 3 then
+		table.insert(problems, "version must be 3")
 	end
+	-- THE POSES THAT ARE ABOUT THE GUN -- carry, aim and reload. The raise's timings and keyframes and
+	-- the recoil spring sit beside them rather than inside them, because they are properties of the
+	-- player's hands and the shot rather than of the gun.
 	for _, name in ipairs({ "carry", "reload" }) do
 		local pose = data[name]
 		if type(pose) ~= "table" then
@@ -234,38 +248,6 @@ function Viewmodel.validate(data: any): { string }
 			gunProblems(name .. ".gun", pose.gun, problems)
 			handProblems(name .. ".right", pose.right, problems)
 			handProblems(name .. ".left", pose.left, problems)
-		end
-	end
-	-- THE SECOND GUN'S OWN SET (task 99). `newGun` holds the three poses that are ABOUT THE GUN --
-	-- carry, aim and reload -- and nothing else: the raise's timings and keyframes and the recoil
-	-- spring are properties of the player's hands and the shot, not of which gun is in them, so both
-	-- guns share them and there is one place to tune each number.
-	local newGun = data.newGun
-	if type(newGun) ~= "table" then
-		table.insert(problems, "newGun is missing")
-	else
-		for _, name in ipairs({ "carry", "reload" }) do
-			local pose = newGun[name]
-			if type(pose) ~= "table" then
-				table.insert(problems, "newGun." .. name .. " is missing")
-			else
-				gunProblems("newGun." .. name .. ".gun", pose.gun, problems)
-				handProblems("newGun." .. name .. ".right", pose.right, problems)
-				handProblems("newGun." .. name .. ".left", pose.left, problems)
-			end
-		end
-		local newAim = newGun.aim
-		if type(newAim) ~= "table" then
-			table.insert(problems, "newGun.aim is missing")
-		else
-			if not isNumber(newAim.eyeReliefStuds) or newAim.eyeReliefStuds <= 0 then
-				table.insert(problems, "newGun.aim.eyeReliefStuds must be a positive number")
-			end
-			if not isNumber(newAim.cheekDeg) then
-				table.insert(problems, "newGun.aim.cheekDeg is not a number")
-			end
-			handProblems("newGun.aim.right", newAim.right, problems)
-			handProblems("newGun.aim.left", newAim.left, problems)
 		end
 	end
 	local aim = data.aim
@@ -383,6 +365,24 @@ function Viewmodel.validate(data: any): { string }
 			end
 		end
 		vectorProblems("reload.hingeStuds", reload.hingeStuds, { "x", "y", "z" }, problems)
+		-- THE LEFT HAND'S LOADING MOVE (task 111), CHECKED SINCE TASK 114. It was `newGun.reload.load`
+		-- and only the new gun had one, so `view` handed `SHELL_LOAD` through as nil for the other and
+		-- nothing could be asserted about its shape. One gun means one answer: the block is there, and
+		-- a missing field in it is a hand that goes to `CFrame.new(nil)` rather than to a chamber.
+		local load = reload.load
+		if type(load) ~= "table" then
+			table.insert(problems, "reload.load is missing")
+		else
+			for _, key in ipairs({ "fetchSeconds", "carrySeconds", "seatSeconds", "returnSeconds" }) do
+				if not isNumber(load[key]) or load[key] <= 0 then
+					table.insert(problems, "reload.load." .. key .. " must be a positive number")
+				end
+			end
+			for _, key in ipairs({ "fetch", "above", "seat" }) do
+				handProblems("reload.load." .. key, load[key], problems)
+			end
+			vectorProblems("reload.load.shellInHand", load.shellInHand, { "x", "y", "z" }, problems)
+		end
 		local shells = reload.shells
 		if type(shells) ~= "table" then
 			table.insert(problems, "reload.shells is missing")
@@ -418,29 +418,30 @@ Viewmodel.vec = vec
 -- Vector3 is built HERE and nowhere else, like the degree-to-radian conversion in `Camera.Mode`:
 -- three numbers in a JSON object become one Vector3 at one site (the rule the Task 19 cone-unit
 -- defect bought).
-function Viewmodel.view(data: any, newGun: boolean?): { [string]: any }
-	-- WHICH GUN'S THREE POSES (task 99). `set` is the only thing the flag changes here: carry, aim
-	-- and reload come from `newGun` when it is on, and `raise` and `fire` always come from the top
-	-- level because they belong to the swing and the shot rather than to the gun.
-	local set = if newGun == true and type(data.newGun) == "table" then data.newGun else data
+-- ONE SET SINCE TASK 114: this took a `newGun` boolean while the flag chose between two pose sets,
+-- and there is one gun now, so there is nothing to choose and no way for `Camera.Config` and
+-- `Camera.Poses` to resolve different guns.
+function Viewmodel.view(data: any): { [string]: any }
+	local loadBlock = data.reload.load
+	local fire = data.fire
 	return {
 		-- the carry pose (first person, blend 0)
-		VIEWMODEL_CARRY_POS_STUDS = vec(set.carry.gun.pos),
-		CARRY_PITCH_DEG = set.carry.gun.rot.x,
-		CARRY_YAW_DEG = set.carry.gun.rot.y,
-		CARRY_ROLL_DEG = set.carry.gun.rot.z,
+		VIEWMODEL_CARRY_POS_STUDS = vec(data.carry.gun.pos),
+		CARRY_PITCH_DEG = data.carry.gun.rot.x,
+		CARRY_YAW_DEG = data.carry.gun.rot.y,
+		CARRY_ROLL_DEG = data.carry.gun.rot.z,
 		-- the hands at the carry, which is where `Mode.rightHandOffset` and `Mode.leftHandOffset`
 		-- answer; the aimed and reloading hands come off `POSES` in `Mode.handFrame`.
-		HAND_RIGHT_POS_STUDS = vec(set.carry.right.pos),
-		HAND_RIGHT_YAW_DEG = set.carry.right.rot.yaw,
-		HAND_RIGHT_PITCH_DEG = set.carry.right.rot.pitch,
-		HAND_RIGHT_TWIST_DEG = set.carry.right.rot.twist,
-		HAND_LEFT_POS_STUDS = vec(set.carry.left.pos),
-		HAND_LEFT_YAW_DEG = set.carry.left.rot.yaw,
-		HAND_LEFT_PITCH_DEG = set.carry.left.rot.pitch,
-		HAND_LEFT_TWIST_DEG = set.carry.left.rot.twist,
+		HAND_RIGHT_POS_STUDS = vec(data.carry.right.pos),
+		HAND_RIGHT_YAW_DEG = data.carry.right.rot.yaw,
+		HAND_RIGHT_PITCH_DEG = data.carry.right.rot.pitch,
+		HAND_RIGHT_TWIST_DEG = data.carry.right.rot.twist,
+		HAND_LEFT_POS_STUDS = vec(data.carry.left.pos),
+		HAND_LEFT_YAW_DEG = data.carry.left.rot.yaw,
+		HAND_LEFT_PITCH_DEG = data.carry.left.rot.pitch,
+		HAND_LEFT_TWIST_DEG = data.carry.left.rot.twist,
 		-- THE VIEWMODEL'S OWN FILL LIGHT (task 102), and it is `look`, not a pose: it is the same
-		-- light whichever gun is in the hands, so it is read off `data` and never off `set`.
+		-- light whichever gun is in the hands, which is why it is `look` and not part of a pose.
 		--
 		-- IT IS DATA BECAUSE IT WAS MEASURED TO BE THE DEFECT. Task 100 put the action at an albedo
 		-- of (118, 120, 122) and the aimed capture still read it at (155, 161, 173) -- a pale
@@ -452,47 +453,64 @@ function Viewmodel.view(data: any, newGun: boolean?): { [string]: any }
 		VIEWMODEL_FILL_COLOR = col(data.look.fill.color),
 		VIEWMODEL_FILL_OFFSET_STUDS = vec(data.look.fill.offset),
 		-- the aimed pose, solved from the gun's own sight
-		EYE_RELIEF_STUDS = set.aim.eyeReliefStuds,
-		ADS_CHEEK_DEG = set.aim.cheekDeg,
+		EYE_RELIEF_STUDS = data.aim.eyeReliefStuds,
+		ADS_CHEEK_DEG = data.aim.cheekDeg,
 		-- the swing between them
 		AIM_RAISE_SECONDS = data.raise.raiseSeconds,
 		AIM_LOWER_SECONDS = data.raise.lowerSeconds,
 		-- the shot's kick
-		RECOIL_GUN_PITCH_DEG = data.fire.gunPitchDeg,
-		RECOIL_GUN_BACK_STUDS = data.fire.gunBackStuds,
-		RECOIL_CAM_PITCH_DEG = data.fire.camPitchDeg,
-		RECOIL_FREQUENCY_HZ = data.fire.frequencyHz,
-		RECOIL_DAMPING_RATIO = data.fire.dampingRatio,
-		RECOIL_MAX_GUN_PITCH_DEG = data.fire.maxGunPitchDeg,
-		RECOIL_MAX_GUN_BACK_STUDS = data.fire.maxGunBackStuds,
-		RECOIL_MAX_CAM_PITCH_DEG = data.fire.maxCamPitchDeg,
+		-- THE SHOT (task 112). Karen's order: finish the weapon before the animal, and shooting is
+		-- next. `fire` is this gun's kick -- harder than the retired gun's, which is what the target
+		-- video shows -- plus its flash, its smoke and the three volumes. The RECOIL_* names below
+		-- are the spring's; the `FIRE` block below carries the cosmetics.
+		RECOIL_GUN_PITCH_DEG = fire.gunPitchDeg,
+		RECOIL_GUN_BACK_STUDS = fire.gunBackStuds,
+		RECOIL_CAM_PITCH_DEG = fire.camPitchDeg,
+		RECOIL_FREQUENCY_HZ = fire.frequencyHz,
+		RECOIL_DAMPING_RATIO = fire.dampingRatio,
+		RECOIL_MAX_GUN_PITCH_DEG = fire.maxGunPitchDeg,
+		RECOIL_MAX_GUN_BACK_STUDS = fire.maxGunBackStuds,
+		RECOIL_MAX_CAM_PITCH_DEG = fire.maxCamPitchDeg,
 		-- the break-open reload
-		BREAK_OPEN_SECONDS = set.reload.openSeconds,
-		BREAK_CLOSE_SECONDS = set.reload.closeSeconds,
-		BREAK_OPEN_DEG = set.reload.openDeg,
-		BREAK_HINGE_STUDS = vec(set.reload.hingeStuds),
-		BREAK_POSE_STUDS = vec(set.reload.gun.pos),
-		BREAK_POSE_PITCH_DEG = set.reload.gun.rot.x,
-		BREAK_POSE_YAW_DEG = set.reload.gun.rot.y,
-		BREAK_POSE_ROLL_DEG = set.reload.gun.rot.z,
-		SHELL_EJECT_SECONDS = set.reload.shells.ejectSeconds,
-		SHELL_EJECT_RISE_STUDS = set.reload.shells.ejectRiseStuds,
-		SHELL_FEED_SECONDS = set.reload.shells.feedSeconds,
-		SHELL_FEED_FROM_STUDS = set.reload.shells.feedFromStuds,
+		BREAK_OPEN_SECONDS = data.reload.openSeconds,
+		BREAK_CLOSE_SECONDS = data.reload.closeSeconds,
+		BREAK_OPEN_DEG = data.reload.openDeg,
+		BREAK_HINGE_STUDS = vec(data.reload.hingeStuds),
+		BREAK_POSE_STUDS = vec(data.reload.gun.pos),
+		BREAK_POSE_PITCH_DEG = data.reload.gun.rot.x,
+		BREAK_POSE_YAW_DEG = data.reload.gun.rot.y,
+		BREAK_POSE_ROLL_DEG = data.reload.gun.rot.z,
+		SHELL_EJECT_SECONDS = data.reload.shells.ejectSeconds,
+		SHELL_EJECT_RISE_STUDS = data.reload.shells.ejectRiseStuds,
+		SHELL_FEED_SECONDS = data.reload.shells.feedSeconds,
+		SHELL_FEED_FROM_STUDS = data.reload.shells.feedFromStuds,
+		-- THE LEFT HAND'S LOADING MOVE (task 111). Karen: "can we make that i push ammo inside
+		-- pipes? just moving hand". `Viewmodel.validate` requires the whole block since task 114 --
+		-- while there were two guns only one of them had one -- so `Viewmodel.loadingAt` can read it
+		-- rather than ask whether it is there. Every number in it is a path `tools/pose.py set` moves.
+		-- THE WHOLE BLOCK, NOT SIX FLAT NAMES (task 111, round 2). The loading motion is four
+		-- moments now -- fetch, carry, above, seat -- each a position and three angles, which is a shape
+		-- and not a number; the same reason `POSES` below passes the poses themselves. ONE SOURCE: this is
+		-- a reference into `data`, so there is no second copy of a default to drift from the file -- the
+		-- round-1 fallbacks said 0.16 where the file shipped 0.1 and 0.06 where it shipped -0.3 (the other
+		-- side of the gun), and nothing would have failed if the block went missing.
+		SHELL_LOAD = loadBlock,
+		-- The flash, the smoke and the volumes live in the same block as the kick (task 112), and
+		-- they are shapes rather than numbers, so the block goes through whole.
+		FIRE = fire,
 		-- THE THREE POSES THE DRAWN GUN IS MADE OF, plus the swing and the shot, because four things
 		-- here have no flat name and never will: the raise's mid keyframes (a list) and the aimed and
 		-- reloading hands. `Camera.Mode` reads those off here.
 		--
-		-- IT IS A VIEW, NOT A SECOND SOURCE: every field is a reference into `data`, chosen by the
-		-- same `set` the flat names above were read through, so the two can never disagree about
-		-- which gun is being drawn.
+		-- IT IS A VIEW, NOT A SECOND SOURCE: every field is a reference into `data`, the same table
+		-- the flat names above were read out of, so the two can never disagree.
 		POSES = table.freeze({
 			version = data.version,
-			carry = set.carry,
-			aim = set.aim,
-			reload = set.reload,
+			carry = data.carry,
+			aim = data.aim,
+			reload = data.reload,
 			raise = data.raise,
-			fire = data.fire,
+			fire = fire,
 		}),
 	}
 end

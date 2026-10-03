@@ -542,6 +542,17 @@ The live POSE override, and the two checks it adds (Task 98)
   Play process dies with that process, and `tools/pose.py set` refuses Edit mode for exactly
   that reason. The failure prints `python tools/pose.py clear`.
 
+The hand editor's rig, and the check it adds (Task 109)
+  `tools/pose.py edit <pose>` parks a COPY of the first-person viewmodel in Workspace, named
+  `DHPoseEditor`, so Karen can turn the gloves with Studio's own Rotate tool and `edit save` can
+  read the places back. Workspace is NOT Rojo-owned (CLAUDE.md, Layout), so anything left there is
+  saved with the place and published -- and this is a second gun two studs in front of the camera.
+    "No hand editor rig is in Workspace"     -- before the token is written and before Play
+  It REFUSES rather than destroying, for the same reason as the two guards above: that rig is
+  somebody's half-finished pose. The failure prints `python tools/pose.py edit save`. The rig is
+  built inside a Play session and dies with it, so this can only ever trip on one copied out into
+  the editor -- which is the case worth refusing over.
+
 Screenshots as evidence (Task 7)
   `capture <name> [camera x,y,z] [look-at x,y,z] [role]` saves StudioMCP's screen_capture image to
   .screenshots/<UTC stamp>-<name>.png (git-ignored) and prints the path. Studio._call keeps text blocks
@@ -1053,6 +1064,17 @@ local value = if folder then folder:GetAttribute("DHPose") else nil
 return if type(value) == "string" then value else ""
 """
 
+# THE HAND EDITOR'S RIG (Task 109). `tools/pose.py edit` builds `workspace.DHPoseEditor` so Karen can
+# turn the gloves with Studio's own Rotate tool. WORKSPACE IS NOT ROJO'S: a model left there is saved
+# with the place and published, and this one is a copy of the first-person viewmodel sitting two
+# studs in front of the camera. It is built inside a Play session, which throws it away at Stop, so
+# the only way one reaches the editor is somebody copying it out -- which is exactly when this is
+# worth refusing over.
+QUERY_POSE_EDITOR = """
+local found = workspace:FindFirstChild("DHPoseEditor")
+return if found then found:GetFullName() else ""
+"""
+
 # Set or clear it. The JSON text is passed as a Luau STRING LITERAL built by json.dumps, so this
 # sends no arbitrary Luau -- the same shape as QUERY_SET_FLAG and QUERY_SET_CLIENTS_DONE. An empty
 # string clears the attribute, so "clear" is this same query and not a second one.
@@ -1113,7 +1135,7 @@ local WANTED = {
 local bead, barrels = nil, nil
 for _, found in made:GetDescendants() do
     if found:IsA("BasePart") then
-        if found.Name == "SightBead" or found.Name == "Bead" then
+        if found.Name == "Bead" then
             bead = bead or found
         elseif found.Name == "Barrels" then
             barrels = found
@@ -2201,6 +2223,29 @@ def pose_override(studio, studio_id=None):
     return studio.query("Edit", QUERY_POSE_OVERRIDE, studio_id=studio_id).strip()
 
 
+def pose_editor(studio, studio_id=None):
+    """The hand editor's rig in the EDIT DataModel, by full name, or "" when there is none."""
+    return studio.query("Edit", QUERY_POSE_EDITOR, studio_id=studio_id).strip()
+
+
+def check_no_pose_editor(studio, check, label):
+    """The hand editor's guard (Task 109), and the same rule as the pose override's one layer up.
+
+    `tools/pose.py edit` parks a copy of the first-person viewmodel in Workspace so Studio's Rotate
+    tool can reach the gloves. Workspace is NOT Rojo-owned, so anything left there is saved with the
+    place and published -- and this is a second gun two studs in front of the camera. REFUSE rather
+    than destroy: it is Karen's half-finished pose, and deleting it mid-run would lose the work and
+    hide that it had been there."""
+    found = pose_editor(studio)
+    ok = check("No hand editor rig is in Workspace", not found,
+               found or "workspace has no DHPoseEditor")
+    if not ok:
+        print(f"[{label}] `tools/pose.py edit` left its rig in the EDIT place. Workspace is not "
+              "Rojo's, so it would be SAVED WITH THE PLACE. Finish or drop it first:")
+        print("[%s]   python tools/pose.py edit save     (or `edit cancel`)" % label)
+    return ok
+
+
 def check_no_pose_override(studio, check, label):
     """The pose guard, identical in both modes (Task 98), and the same rule as the flag one.
 
@@ -2620,6 +2665,8 @@ def run_test(studio, scope=None):
     if not check_no_flag_override(studio, check, "harness"):
         return verdict()
     if not check_no_pose_override(studio, check, "harness"):
+        return verdict()
+    if not check_no_pose_editor(studio, check, "harness"):
         return verdict()
 
     scenarios = load_scenarios()
@@ -3089,6 +3136,8 @@ def run_test2(studio, wait_seconds=180):
     if not check_no_flag_override(studio, check, "harness2"):
         return verdict()
     if not check_no_pose_override(studio, check, "harness2"):
+        return verdict()
+    if not check_no_pose_editor(studio, check, "harness2"):
         return verdict()
 
     scenarios = load_scenarios()
@@ -3899,9 +3948,24 @@ def selftest():
     for empty in ("", "   ", "\n"):
         allowed, _ = pose_guard_says(empty)
         ok(f"  no override passes the pose guard ({empty!r})", allowed is True, repr(allowed))
+    # THE HAND EDITOR'S RIG FAILS THE RUN TOO (Task 109), and for a sharper reason: Workspace is not
+    # Rojo-owned, so a rig left in the editor is published with the place.
+    def editor_guard_says(answer):
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            passed = check_no_pose_editor(PoseStudio(answer), lambda name, good, detail="": good,
+                                          "harness")
+        return passed, buffer.getvalue()
+
+    refused, said = editor_guard_says("Workspace.DHPoseEditor")
+    ok("  a rig in Workspace fails the guard and names the way out",
+       refused is False and "pose.py edit save" in said, f"{refused}, {said.strip()[:140]!r}")
+    allowed, _ = editor_guard_says("")
+    ok("  no rig passes the guard", allowed is True, repr(allowed))
+
     # And the pose queries are the same shape as every other query in this file: no arbitrary Luau,
     # failure reported as JSON where there is an answer to report.
-    pose_queries = QUERY_POSE_OVERRIDE + QUERY_SET_POSE + QUERY_POSE_LANDMARKS
+    pose_queries = QUERY_POSE_OVERRIDE + QUERY_SET_POSE + QUERY_POSE_LANDMARKS + QUERY_POSE_EDITOR
     ok("  the pose queries interpolate at most one JSON value each",
        QUERY_SET_POSE.count("%s") == 1 and QUERY_POSE_LANDMARKS.count("%s") == 0
        and QUERY_POSE_OVERRIDE.count("%s") == 0,

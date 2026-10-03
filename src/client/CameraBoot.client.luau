@@ -41,6 +41,16 @@ if weaponModule then
 	-- source above.
 	Weapon.Fired:Connect(function()
 		Camera.kick()
+		-- THE SHOT'S NOISE (task 112). `Weapon.Sound` owns it; this file is still the only place that
+		-- knows both owners, exactly as the kick and the muzzle provider are.
+		Weapon.Sound.shot(Camera.poseConfig())
+	end)
+	-- THE SHOT'S LIGHT, AND WHO DRAWS IT (task 112, round 2). `Weapon.Effects` asks BEFORE drawing
+	-- its own flash and smoke, so the two cannot land on top of each other -- which is what round 1
+	-- shipped and Karen saw ("remove those smokes (white from previous)"). `Camera.fire` answers
+	-- false unless it really drew one, so the flag-OFF build and everybody else's shot are untouched.
+	Weapon.Effects.setViewmodelFlash(function(barrel: number?): boolean
+		return Camera.fire(barrel)
 	end)
 	Weapon.Effects.setMuzzleProvider(function(barrel: number?): CFrame?
 		return Camera.viewmodelMuzzle(barrel)
@@ -54,11 +64,23 @@ if weaponModule then
 	-- says "open" has already forgotten what was spent. `Camera.breakFrom` does the deciding and is
 	-- pure; this closure only keeps the memory.
 	local lastClosed = Weapon.get()
+	-- ...AND THE TWO CLICKS (task 112). The break and the close are the only other things the gun
+	-- does that make a noise, and this closure is already the one place that sees the state flip --
+	-- so the EDGE is detected here rather than by a second reader of the replica.
+	local wasOpen = lastClosed ~= nil and lastClosed.open == true
 	Camera.setBreakSource({
 		state = function()
 			local snapshot = Weapon.get()
 			if snapshot ~= nil and snapshot.open ~= true then
 				lastClosed = snapshot
+			end
+			local isOpen = snapshot ~= nil and snapshot.open == true
+			local noise = Camera.breakSound(wasOpen, isOpen)
+			wasOpen = isOpen
+			if noise == "open" then
+				Weapon.Sound.open(Camera.poseConfig())
+			elseif noise == "close" then
+				Weapon.Sound.close(Camera.poseConfig())
 			end
 			return Camera.breakFrom(lastClosed, snapshot)
 		end,

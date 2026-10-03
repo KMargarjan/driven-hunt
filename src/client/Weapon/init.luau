@@ -20,12 +20,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Effects = require(script.Effects)
+local SoundOwner = require(script.Sound)
 local Input = require(script.Input)
 
 local Weapon = {}
 
 Weapon.Input = Input
 Weapon.Effects = Effects
+-- The gun's sounds for the local player (task 112): one owner, like `Effects` one line up.
+Weapon.Sound = SoundOwner
 
 local snapshot: Shotgun.WeaponSnapshot? = nil
 local signal = Instance.new("BindableEvent")

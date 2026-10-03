@@ -27,12 +27,12 @@ local Config = require(Camera:WaitForChild("Config"))
 local Mode = require(Camera:WaitForChild("Mode"))
 local Poses = require(Camera:WaitForChild("Poses"))
 
--- A config of each branch, built here rather than read off the live one: the flag sits at one of the
--- two and both must stay reachable by parameter (docs/design/feature-flags.md 13.3).
+-- A config of each FIRST_PERSON branch, built here rather than read off the live one: the flag sits
+-- at one of the two and both must stay reachable by parameter (docs/design/feature-flags.md 13.3).
 local function configWith(firstPerson: boolean, data: any?)
 	local out = table.clone(Config) :: any
 	if data ~= nil then
-		for key, value in pairs(Data.view(data, Config.NEW_GUN)) do
+		for key, value in pairs(Data.view(data)) do
 			out[key] = value
 		end
 	end
@@ -111,6 +111,35 @@ return function()
 			end)
 			expect(#problems).to.equal(1)
 			expect(string.find(problems[1], "only quadOut is implemented") ~= nil).to.equal(true)
+		end)
+
+		-- THE VERSION IS THE SHAPE (task 114). Version 2 carried two pose sets and version 3 carries
+		-- one; a version-2 file read by this code would be read as the RETIRED gun's poses, silently,
+		-- which is the one failure a pose file must not have.
+		it("refuses a file at the version that carried two guns", function()
+			local problems = broken(function(data)
+				data.version = 2
+			end)
+			expect(#problems).to.equal(1)
+			expect(string.find(problems[1], "version must be 3") ~= nil).to.equal(true)
+		end)
+
+		-- THE LOADING MOVE IS CHECKED SINCE TASK 114. It was `newGun.reload.load` and only one of the
+		-- two guns had one, so `view` handed `SHELL_LOAD` through as nil for the other and nothing
+		-- about its shape could be asserted at all. One gun means the block is always there.
+		it("names a missing piece of the left hand's loading move", function()
+			expect(#broken(function(data)
+				data.reload.load = nil
+			end)).to.equal(1)
+			expect(#broken(function(data)
+				data.reload.load.fetchSeconds = 0
+			end)).to.equal(1)
+			expect(#broken(function(data)
+				data.reload.load.above.pos.y = nil
+			end)).to.equal(1)
+			expect(#broken(function(data)
+				data.reload.load.shellInHand.z = nil
+			end)).to.equal(1)
 		end)
 
 		it("refuses a non-positive duration", function()
@@ -209,7 +238,7 @@ return function()
 				{ ["aim.cheeckDeg"] = 1 },
 				{ ["aim"] = 1 },
 				{ ["raise.easing"] = 1 },
-				{ ["version"] = 2 },
+				{ ["version"] = 3 },
 				{ ["aim.cheekDeg"] = "4.2" },
 				{ ["aim.cheekDeg"] = true },
 			}) do
@@ -246,40 +275,52 @@ return function()
 		-- THE WHOLE OF "ONE SOURCE". `Camera.Config` does not define these numbers any more; it
 		-- computes them from the data. If the two ever disagreed, there would be two sources again.
 		it("is what the live Config carries", function()
-			for key, value in pairs(Data.view(Data.DATA, Config.NEW_GUN)) do
+			for key, value in pairs(Data.view(Data.DATA)) do
 				if typeof(value) == "number" or typeof(value) == "Vector3" then
 					expect(Config[key]).to.equal(value)
 				end
 			end
-			-- `POSES` IS A VIEW SINCE TASK 99, not the whole file: it carries the three poses of
-			-- WHICHEVER GUN the flag chose, plus the swing and the shot, which both guns share. The
-			-- fields are references into the data, so this is still one source.
-			local chosen = if Config.NEW_GUN then Data.DATA.newGun else Data.DATA
-			expect(Config.POSES.carry).to.equal(chosen.carry)
-			expect(Config.POSES.aim).to.equal(chosen.aim)
-			expect(Config.POSES.reload).to.equal(chosen.reload)
+			-- `POSES` IS A VIEW, not the whole file: the three poses that are about the gun, plus the
+			-- swing and the shot. The fields are references into the data, so this is still one
+			-- source. Until task 114 it carried whichever of TWO sets the gun flag chose.
+			expect(Config.POSES.carry).to.equal(Data.DATA.carry)
+			expect(Config.POSES.aim).to.equal(Data.DATA.aim)
+			expect(Config.POSES.reload).to.equal(Data.DATA.reload)
 			expect(Config.POSES.raise).to.equal(Data.DATA.raise)
 			expect(Config.POSES.fire).to.equal(Data.DATA.fire)
 		end)
 
-		it("gives each gun its own carry, aim and reload, and one swing and one kick", function()
-			local classic = Data.view(Data.DATA, false)
-			local fresh = Data.view(Data.DATA, true)
-			-- The two guns are held differently, so the three poses differ...
-			expect(classic.HAND_LEFT_POS_STUDS).never.to.equal(fresh.HAND_LEFT_POS_STUDS)
-			expect(classic.POSES.carry).to.equal(Data.DATA.carry)
-			expect(fresh.POSES.carry).to.equal(Data.DATA.newGun.carry)
-			-- ...and the swing's timings and the recoil spring are the player's, not the gun's.
-			expect(classic.AIM_RAISE_SECONDS).to.equal(fresh.AIM_RAISE_SECONDS)
-			expect(classic.RECOIL_GUN_PITCH_DEG).to.equal(fresh.RECOIL_GUN_PITCH_DEG)
-			expect(fresh.POSES.raise).to.equal(Data.DATA.raise)
+		-- ONE GUN, ONE POSE SET (task 114). `view` took a `newGun` boolean while the flag chose
+		-- between two; the file carries one now, so what has to be asserted is that there is NO
+		-- second set left for anything to resolve -- a `newGun` key in the data would mean the
+		-- retired gun's numbers were still shipping, unread, beside the ones Karen tuned.
+		it("reads one pose set, and poses.json carries no second one", function()
+			local view = Data.view(Data.DATA)
+			expect(Data.DATA.newGun).to.equal(nil)
+			expect(view.POSES.carry).to.equal(Data.DATA.carry)
+			expect(view.POSES.aim).to.equal(Data.DATA.aim)
+			expect(view.POSES.reload).to.equal(Data.DATA.reload)
+			-- The swing's timings and the shot's spring are read off the same one place too, so
+			-- there is nothing for a second set to have been read from.
+			expect(view.POSES.raise).to.equal(Data.DATA.raise)
+			expect(view.RECOIL_GUN_PITCH_DEG).to.equal(Data.DATA.fire.gunPitchDeg)
+			expect(view.AIM_RAISE_SECONDS).to.equal(Data.DATA.raise.raiseSeconds)
+			-- THE SHOT'S COSMETICS COME THROUGH WHOLE (task 112): the flash, the smoke and the three
+			-- volumes are shapes rather than numbers, and only the gun that survived ever had them.
+			expect(view.FIRE).to.equal(Data.DATA.fire)
+			expect(view.FIRE.flash).to.be.ok()
+			expect(view.FIRE.smoke).to.be.ok()
+			expect(view.FIRE.volume).to.be.ok()
+			-- ...and so does the left hand's loading move, which was the other half of what only one
+			-- gun had (task 111).
+			expect(view.SHELL_LOAD).to.equal(Data.DATA.reload.load)
 		end)
 
 		it("follows the data when the data changes", function()
 			local data = Data.copy(Data.DATA)
 			data.carry.gun.rot.y = 12.5
 			data.aim.eyeReliefStuds = 5.0
-			local view = Data.view(data, false)
+			local view = Data.view(data)
 			expect(view.CARRY_YAW_DEG).to.equal(12.5)
 			expect(view.EYE_RELIEF_STUDS).to.equal(5.0)
 			-- ...and the pose built from it moves, which is the point: the camera reads the view.
@@ -387,13 +428,52 @@ return function()
 			expect(Mode.handOffsetAt("left", state, firstPerson)).to.equal(Mode.leftHandOffset(firstPerson))
 		end)
 
-		it("the shipped file seeds every pose's hands the same, so nothing moved", function()
-			for _, blend in ipairs({ 0, 0.25, 0.5, 0.75, 1 }) do
-				for _, tilt in ipairs({ 0, 0.5, 1 }) do
-					local state = stateAt(blend, tilt)
-					expect(Mode.handOffsetAt("right", state, firstPerson)).to.equal(Mode.rightHandOffset(firstPerson))
+		-- WHAT THIS CASE USED TO SAY, AND WHY IT HAD TO CHANGE (task 114). It asserted that the shipped
+		-- file seeds every pose's hands the SAME, so `handOffsetAt` answered the carry hand at every
+		-- blend and every tilt. That was a fact about the RETIRED gun's pose set -- task 98 seeded its
+		-- three poses identical so that task changed no pixel -- and it kept passing only because the
+		-- flag made `Camera.Config` read that set during a harness run. Karen then posed model B's
+		-- hands by eye (`pose.py edit`, tasks 108 and 109) and her three poses are genuinely
+		-- different: the right hand sits further forward during the reload than at the carry, and the
+		-- aimed left hand is further down the barrels than the carried one.
+		--
+		-- SO THE CLAIM IS THE ONE THAT WAS ALWAYS UNDERNEATH IT: the blend's ENDS are the poses
+		-- themselves. Each pose's own state must give back exactly that pose's own numbers, through
+		-- the one conversion site -- which is what makes `poses.json` the single source and cannot be
+		-- satisfied by a file that seeds them all alike.
+		it("answers each pose's own numbers at that pose's own state", function()
+			local states = {
+				{ pose = "carry", state = stateAt(0, 0) },
+				{ pose = "aim", state = stateAt(1, 0) },
+				{ pose = "reload", state = stateAt(0, 1) },
+			}
+			for _, case in ipairs(states) do
+				for _, side in ipairs({ "right", "left" }) do
+					local entry = Data.DATA[case.pose][side]
+					local wanted = Mode.handOffset(Data.vec(entry.pos), entry.rot.yaw, entry.rot.pitch, entry.rot.twist)
+					expect(Mode.handOffsetAt(side, case.state, firstPerson)).to.equal(wanted)
 				end
 			end
+			-- ...AND THEY ARE REALLY THREE POSES, not one written three times. Without this the case
+			-- above would pass just as well for a file that seeded them identical -- which is exactly
+			-- the state it used to assert, and what made it stop measuring anything.
+			local carriedRight = Mode.handOffsetAt("right", stateAt(0, 0), firstPerson)
+			local aimedRight = Mode.handOffsetAt("right", stateAt(1, 0), firstPerson)
+			local carriedLeft = Mode.handOffsetAt("left", stateAt(0, 0), firstPerson)
+			local aimedLeft = Mode.handOffsetAt("left", stateAt(1, 0), firstPerson)
+			TestKit.note(
+				string.format(
+					"task114 the aim moves the right hand %.3f studs and the left %.3f from the carry",
+					(aimedRight.Position - carriedRight.Position).Magnitude,
+					(aimedLeft.Position - carriedLeft.Position).Magnitude
+				)
+			)
+			expect(aimedRight).never.to.equal(carriedRight)
+			expect(aimedLeft).never.to.equal(carriedLeft)
+			-- The carry end is still bit-for-bit `rightHandOffset`, which is the half of the old case
+			-- that was about the ARITHMETIC rather than about the file (see the case above it).
+			expect(carriedRight).to.equal(Mode.rightHandOffset(firstPerson))
+			expect(carriedLeft).to.equal(Mode.leftHandOffset(firstPerson))
 		end)
 
 		it("moves a hand when its own pose says a different thing", function()

@@ -6,6 +6,14 @@
     python tools/pose.py set <path> <value>           e.g. `set aim.eyeReliefStuds 4.2`
     python tools/pose.py save                         write the effective values into poses.json
     python tools/pose.py clear                        drop every override
+    python tools/pose.py inspect <pose> [left-front|below|right-rear] [--client <name>]
+                                                      LOOK AT THE HANDS FROM OUTSIDE. The viewmodel
+                                                      is drawn at the camera, so it follows the lens
+                                                      wherever it goes: this COPIES it into the sky,
+                                                      hides the live one for the length of the shot
+                                                      and photographs the copy from three fixed angles.
+                                                      Nothing about the pose or the player's own
+                                                      camera moves, and the copy is destroyed again
     python tools/pose.py compare <pose> [--target <image>] [--assets-dir <dir>]
                                         [--client <name>]
                                                       hold the pose, capture it, build ONE
@@ -15,6 +23,22 @@
                                                       with two players one of them is the DRIVER and
                                                       carries no gun, and the default is simply the
                                                       first client that answered
+    python tools/pose.py edit <carry|aim|reload>       POSE THE HANDS BY EYE. Builds the real rig
+    python tools/pose.py edit save                    -- model B plus both gloves -- as ONE model
+    python tools/pose.py edit cancel                  `workspace.DHPoseEditor`, two studs in front
+                                                      of you with the live gun hidden, and selects
+                                                      the left glove so Ctrl+2 (rotate) and Ctrl+1
+                                                      (move) work at once. `save` reads each glove's
+                                                      place back, takes the alignment off, writes the
+                                                      three numbers into poses.json and destroys the
+                                                      rig; `cancel` destroys it and writes nothing.
+                                                      IT NEEDS `pose.py play`: the gloves are
+                                                      uploaded assets and only the game's own server
+                                                      may load them (studio_mcp.py's docstring
+                                                      forbids an asset call through execute_luau),
+                                                      so an idle editor has nothing to show. Studio's
+                                                      Move and Rotate work on a Workspace model in
+                                                      Play Solo exactly as they do in Edit
     python tools/pose.py fit <pose> --landmarks <file> [--evals N] [--settle S]
                                         [--target <image>] [--client <name>]
                                                       SOLVE a pose instead of guessing it: given the
@@ -22,9 +46,8 @@
                                                       search the gun's six numbers in the RUNNING
                                                       session until what is drawn matches, then
                                                       print the values and capture one side-by-side.
-                                                      `<pose>` is the dotted prefix of a pose that
-                                                      has a `gun` block: `reload`, `newGun.reload`,
-                                                      `carry`, `newGun.carry`
+                                                      `<pose>` is the name of a pose that has a
+                                                      `gun` block: `carry` or `reload`
     python tools/pose.py play | stop                   start or end a SOLO Play session, which is the
                                                       one a capture can reach: Studio's two-player
                                                       session leaves its CLIENT processes unconnected
@@ -413,6 +436,598 @@ def run_compare(studio, pose, explicit_target, assets_dir, client="client"):
             print(f"[pose] released the hold ({len(restore)} override(s) still set)")
 
 
+
+# ---------------------------------------------------------------- inspect: the hands from outside
+
+# WHERE THE COPY IS PUT, AND THE CAMERA IS NOT MOVED TO IT -- THE COPY IS MOVED TO THE CAMERA.
+# MEASURED, 2026-10-02: the first try parked the clone 240 studs up and asked `screen_capture` for a
+# camera position beside it, and every frame came back empty sky. `Camera.update` writes
+# `CurrentCamera.CFrame` EVERY FRAME, so a camera the harness moves is put back before the shutter.
+# So the subject is placed in front of whatever the player is looking at instead, turned so the lens
+# ends up where an outside observer would stand.
+#
+# EACH VIEW IS (DISTANCE, YAW, PITCH, ALONG): the copy is put `distance` studs in front of the eye,
+# turned `yaw` about the eye's up axis and `pitch` about its right, then slid `along` studs down its
+# OWN axis so the stretch of gun the hands are on -- the forend at z 0 and the grip at z 1.2 -- is
+# what fills the frame rather than the whole 4.4 studs.
+INSPECT_VIEWS = {
+	# Three-quarter from the shooter's LEFT and FRONT, a little below: the side the left palm is on.
+	"left-front": (2.3, 62.0, -22.0, 0.55),
+	# From UNDERNEATH: the view that shows a palm, and which way the fingers curl round the wood.
+	# RE-AIMED (task 108, round 1): at (2.0, 74, -40, 0.45) the copy's own pitch carried it clean out
+	# of the frame and every shot came back as empty terrain. The pitch is the sign that was wrong --
+	# it has to roll the gun's UNDERSIDE toward the lens -- and the forward step has to stay small,
+	# because it runs along the ROTATED axis.
+	"below": (2.2, 74.0, 58.0, 0.12),
+	# From the shooter's RIGHT and BEHIND: the only view that shows the right fist on the stock's
+	# wrist, which is the half of Karen's complaint the other two cameras cannot see at all -- the
+	# stock is between them and it.
+	"right-rear": (2.3, -118.0, -16.0, 0.35),
+}
+
+# THE LIVE VIEWMODEL IS HIDDEN FOR THE SHOT, and it has to be: it is drawn at the camera every frame,
+# so it is always between the lens and the copy. Its own transparency is parked on an attribute,
+# because `execute_luau` gets a fresh module copy every call and only an Instance survives between
+# them.
+INSPECT_PLACE = """
+local camera = workspace.CurrentCamera
+local made = camera:FindFirstChild("DrivenHuntViewmodel")
+if made == nil then return {ok = false, why = "no viewmodel is drawn"} end
+local copy = workspace:FindFirstChild("DH_Inspect")
+if copy then copy:Destroy() end
+copy = made:Clone()
+copy.Name = "DH_Inspect"
+copy.Parent = workspace
+local at = camera.CFrame
+	* CFrame.new(0, 0, -%f)
+	* CFrame.Angles(0, math.rad(%f), 0)
+	* CFrame.Angles(math.rad(%f), 0, 0)
+	* CFrame.new(0, 0, -%f)
+copy:PivotTo(at)
+local hidden = 0
+for _, part in ipairs(made:GetDescendants()) do
+	if part:IsA("BasePart") then
+		if part:GetAttribute("DHInspectWas") == nil then
+			part:SetAttribute("DHInspectWas", part.Transparency)
+		end
+		part.Transparency = 1
+		hidden += 1
+	end
+end
+local parts = 0
+for _, part in ipairs(copy:GetDescendants()) do
+	if part:IsA("BasePart") then
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		-- THE HANDLE IS THE ENVELOPE AND IS INVISIBLE ON THE REAL GUN; on the copy it is the one
+		-- thing that says where the gun's own frame is, so it is drawn as a faint box.
+		if part.Name == "Handle" then
+			part.Transparency = 0.85
+		end
+		parts += 1
+	end
+end
+return {ok = true, hidden = hidden, parts = parts}
+"""
+
+INSPECT_RESTORE = """
+local copy = workspace:FindFirstChild("DH_Inspect")
+if copy then copy:Destroy() end
+local shown = 0
+local camera = workspace.CurrentCamera
+for _, part in ipairs(camera:GetDescendants()) do
+	if part:IsA("BasePart") then
+		local was = part:GetAttribute("DHInspectWas")
+		if was ~= nil then
+			part.Transparency = was
+			part:SetAttribute("DHInspectWas", nil)
+			shown += 1
+		end
+	end
+end
+return {ok = true, shown = shown}
+"""
+
+
+def run_inspect(studio, pose, client="client", views=None):
+    """Photograph the drawn viewmodel FROM OUTSIDE, without moving what the player is looking at.
+
+    WHY IT EXISTS (task 108). Karen, 2026-10-02: "hands are bad / left hand is oposit180deg need to
+    turn or not sure but broken". From the eye the hands are two dark lumps beside a barrel, so three
+    rounds of tuning them by `compare` guessed -- and the Director's own live try (`left.rot.twist
+    180`) moved the glove to the wrong side of the gun, which says the problem is the CONVENTION and
+    not one number. A convention cannot be read off a frame where the thing is edge-on and occluded.
+
+    THE CAMERA CANNOT SIMPLY BE MOVED, and that is the whole difficulty: the viewmodel is drawn at
+    `workspace.CurrentCamera` every frame, so it follows the lens wherever it goes. So this COPIES it
+    -- one frozen clone, parked in the sky, which is a static object like any other -- hides the live
+    one for the length of the shot, and photographs the copy from three fixed angles. Nothing about the
+    pose, the player or the camera's own place is changed: the hold is the same one `compare` uses and
+    is always put back.
+    """
+    if pose not in HOLDS:
+        print(f"[pose] inspect takes one of: {', '.join(HOLDS)}")
+        return 2
+    wanted_views = views or list(INSPECT_VIEWS)
+    for name in wanted_views:
+        if name not in INSPECT_VIEWS:
+            print(f"[pose] no such view: {name} (there are {', '.join(INSPECT_VIEWS)})")
+            return 2
+    client_id, client_dm, why = running(studio, client)
+    if client_id is None:
+        print("[pose] " + why)
+        return 2
+    server_id, server_dm, server_why = running(studio, "server")
+    if server_id is None:
+        print("[pose] " + server_why)
+        return 2
+    held, problem = read_override(studio, server_id, server_dm)
+    if problem:
+        print("[pose] " + problem)
+        return 2
+    restore = {key: value for key, value in held.items() if key != HOLD_KEY}
+    wanted = dict(restore)
+    wanted[HOLD_KEY] = pose
+    _, problem = write_override(studio, server_id, server_dm, wanted)
+    if problem:
+        print("[pose] could not hold the pose: " + problem)
+        return 2
+    saved = []
+    try:
+        time.sleep(1.0)  # the hold is a replication hop plus a frame, as `compare` says
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        for name in wanted_views:
+            answer, problem = studio_mcp.json_answer(
+                studio, INSPECT_PLACE % INSPECT_VIEWS[name], studio_id=client_id,
+                datamodel=client_dm)
+            if problem or not (answer or {}).get("ok"):
+                print("[pose] could not copy the viewmodel: "
+                      + (problem or (answer or {}).get("why", "?")))
+                return 1
+            shot = os.path.join(studio_mcp.SCREENSHOT_DIR, f"{stamp}-inspect-{pose}-{name}.png")
+            path, text = studio.capture(shot, studio_id=client_id)
+            if not path:
+                print(f"[pose] no image came back from Studio for {name}: {text}")
+                return 1
+            saved.append(path)
+            print(f"[pose] {name}: {os.path.relpath(path, REPO)} "
+                  f"({answer.get('parts')} part(s) copied, {answer.get('hidden')} live hidden)")
+        print("[pose] LOOK AT THEM before claiming what they show (CLAUDE.md rule 5).")
+        return 0
+    finally:
+        answer, problem = studio_mcp.json_answer(
+            studio, INSPECT_RESTORE, studio_id=client_id, datamodel=client_dm)
+        if problem:
+            print("[pose] WARNING: could not put the live viewmodel back: " + problem)
+            print("[pose]   end the session; nothing written here outlives it")
+        _, restore_problem = write_override(studio, server_id, server_dm, restore)
+        if restore_problem:
+            print("[pose] WARNING: could not release the hold: " + restore_problem)
+            print("[pose]   python tools/pose.py clear")
+        else:
+            print(f"[pose] released the hold ({len(restore)} override(s) still set)")
+
+
+
+# ---------------------------------------------------------------- edit: pose the hands by eye
+
+# THE RIG'S ONE NAME. It is a Workspace model, which Rojo does NOT own, so it must never reach the
+# edit place and be saved with it -- `tools/studio_mcp.py`'s `check_no_pose_editor` refuses a run
+# while one exists there, exactly as it refuses a live pose override.
+EDITOR_NAME = "DHPoseEditor"
+EDIT_POSES = ("carry", "aim", "reload")
+# WHERE THE RIG IS PUT, and all three numbers were measured on the first frame it drew
+# (`.screenshots/20261002T154120Z-task109-editor.png`): at 2.4 studs the butt was 0.2 studs from the
+# lens and the stock filled the screen, because the gun is 4.4 studs long and this places its CENTRE.
+# Five studs back, a little below the eye line, and TURNED, so the gun lies across the view and both
+# gloves are side-on -- which is the view a hand is posed from.
+EDITOR_STUDS = 5.0
+EDITOR_DROP = 0.4
+EDITOR_TURN_DEG = 55.0
+# How far a saved number may be from the one in the file before it counts as a move (see `save`).
+EDIT_NOISE = 0.001
+# WHICH FRAME EACH HAND IS MEASURED IN, and it is `Camera.Viewmodel.poseHands`' own rule: the right
+# hand holds the grip, which is part of the body, so it is read against the Handle; the left holds
+# the forend, which is bolted to the barrels, so it is read against the BARRELS -- and in the reload
+# those have swung down, so reading it against the Handle would save the break angle into the pose.
+EDIT_HANDS = (("right", "HandRight", "Handle"), ("left", "HandLeft", "Barrels"))
+
+EDITOR_BUILD = """
+local camera = workspace.CurrentCamera
+local made = camera:FindFirstChild("DrivenHuntViewmodel")
+if made == nil then return {ok = false, why = "no viewmodel is drawn"} end
+local old = workspace:FindFirstChild("%(name)s")
+if old then old:Destroy() end
+local copy = made:Clone()
+copy.Name = "%(name)s"
+copy.Parent = workspace
+-- IN FRONT OF THE LENS, AND STAYING THERE: a plain anchored model in Workspace, which nothing in
+-- this game writes, so Studio's Move and Rotate tools own it completely.
+copy:PivotTo(camera.CFrame * CFrame.new(0, -%(drop)f, -%(studs)f) * CFrame.Angles(0, math.rad(%(turn)f), 0))
+local parts = 0
+for _, part in ipairs(copy:GetDescendants()) do
+	if part:IsA("BasePart") then
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.Locked = false
+		if part.Name == "Handle" then part.Transparency = 0.9 end
+		parts += 1
+	end
+end
+-- THE LIVE ONE IS HIDDEN, not destroyed: it is redrawn every frame from the pose, so it would come
+-- straight back, and it is drawn AT the camera, which is exactly where the copy now is.
+local hidden = 0
+for _, part in ipairs(made:GetDescendants()) do
+	if part:IsA("BasePart") then
+		if part:GetAttribute("DHInspectWas") == nil then
+			part:SetAttribute("DHInspectWas", part.Transparency)
+		end
+		part.Transparency = 1
+		hidden += 1
+	end
+end
+local picked = ""
+local left = copy:FindFirstChild("HandLeft", true)
+if left then
+	pcall(function()
+		game:GetService("Selection"):Set({left})
+		picked = left:GetFullName()
+	end)
+end
+return {ok = true, parts = parts, hidden = hidden, selected = picked}
+"""
+
+# WHAT THE RIG IS WORTH: each glove's place in the frame the game reads it in -- and the LIVE
+# viewmodel's own answer for the same hand, which is how the alignment gets here.
+#
+# IT CANNOT ASK `Camera.Viewmodel.align` DIRECTLY, and that was measured rather than assumed
+# (2026-10-02): `require` of `PlayerScripts.Camera` from this thread is refused -- "the current
+# thread cannot require 'Camera' since 'Camera' has additional values for the Capabilities property:
+# LoadUnownedAsset (and 3 more)" -- the same capability wall `tools/studio_mcp.py`'s docstring
+# describes, from the other side. So the alignment is taken off the DRAWN HAND instead: the live
+# glove sits at `handOffset(pose) * align`, this tool knows the pose, and the rest is the alignment.
+# That is the game's own, not a copy of it.
+EDITOR_READ = """
+local copy = workspace:FindFirstChild("%(name)s")
+if copy == nil then return {ok = false, why = "no %(name)s in Workspace: run `pose.py edit <pose>` first"} end
+local root = copy.PrimaryPart
+if root == nil then return {ok = false, why = "the rig has no PrimaryPart"} end
+local live = workspace.CurrentCamera:FindFirstChild("DrivenHuntViewmodel")
+if live == nil or live.PrimaryPart == nil then
+	return {ok = false, why = "the live viewmodel is gone, so the alignment cannot be read off it"}
+end
+local function frames(model, want)
+	local hand = model:FindFirstChild(want[2], true)
+	local parent = if want[3] == "Handle" then model.PrimaryPart else model:FindFirstChild(want[3], true)
+	if hand == nil or parent == nil then return nil end
+	return {parent.CFrame:ToObjectSpace(hand.CFrame):GetComponents()}
+end
+local out = {ok = true, hands = {}}
+for _, want in ipairs(%(hands)s) do
+	local posed, drawn = frames(copy, want), frames(live, want)
+	if posed == nil then return {ok = false, why = want[2] .. " is not in the rig"} end
+	if drawn == nil then return {ok = false, why = want[2] .. " is not on the live gun"} end
+	out.hands[want[1]] = {rel = posed, live = drawn}
+end
+return out
+"""
+
+EDITOR_DESTROY = """
+local copy = workspace:FindFirstChild("%(name)s")
+local had = copy ~= nil
+if copy then copy:Destroy() end
+local shown = 0
+for _, part in ipairs(workspace.CurrentCamera:GetDescendants()) do
+	if part:IsA("BasePart") then
+		local was = part:GetAttribute("DHInspectWas")
+		if was ~= nil then
+			part.Transparency = was
+			part:SetAttribute("DHInspectWas", nil)
+			shown += 1
+		end
+	end
+end
+return {ok = true, had = had, shown = shown}
+"""
+
+
+# ---------------------------------------------------------------- the arithmetic, in one place
+
+def mat_mul(a, b):
+    """Two CFrames as Roblox's own 12 components: x, y, z, then the rotation ROW BY ROW."""
+    out = [0.0] * 12
+    for row in range(3):
+        for col in range(3):
+            out[3 + row * 3 + col] = sum(a[3 + row * 3 + k] * b[3 + k * 3 + col] for k in range(3))
+        out[row] = a[row] + sum(a[3 + row * 3 + k] * b[k] for k in range(3))
+    return tuple(out)
+
+
+def mat_inverse(m):
+    """A rigid transform's inverse: the rotation transposed, applied to the negated position."""
+    rt = tuple(m[3 + col * 3 + row] for row in range(3) for col in range(3))
+    p = tuple(-sum(rt[row * 3 + k] * m[k] for k in range(3)) for row in range(3))
+    return p + rt
+
+
+def compose_hand(pos, yaw_deg, pitch_deg, twist_deg):
+    """`Camera.Mode.handOffset` in Python: CFrame.new(pos) * Angles(0, yaw, 0) * Angles(0, 0, pitch)
+    * fromAxisAngle(X, twist).
+
+    DUPLICATED HERE FOR THE ONE REASON A DUPLICATE IS ALLOWED: `edit save` has to turn a CFrame back
+    INTO the three numbers before it writes one, and the game does not do that arithmetic anywhere,
+    so there is nothing to ask. `selftest` pins it by round trip against the shipped poses."""
+    yaw, pitch, twist = (math.radians(v) for v in (yaw_deg, pitch_deg, twist_deg))
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    ct, st = math.cos(twist), math.sin(twist)
+    zero = (0.0, 0.0, 0.0)
+    ry = zero + (cy, 0.0, sy, 0.0, 1.0, 0.0, -sy, 0.0, cy)
+    rz = zero + (cp, -sp, 0.0, sp, cp, 0.0, 0.0, 0.0, 1.0)
+    rx = zero + (1.0, 0.0, 0.0, 0.0, ct, -st, 0.0, st, ct)
+    turned = mat_mul(mat_mul(ry, rz), rx)
+    return (pos[0], pos[1], pos[2]) + turned[3:]
+
+
+def decompose_hand(m):
+    """(pos, yaw, pitch, twist), degrees: the exact inverse of `compose_hand`.
+
+    YAW AND PITCH ARE READ OFF THE HAND'S OWN +X -- the fingers, after the alignment -- because the
+    innermost twist turns about that axis and so cannot move it: with R = Ry(yaw) Rz(pitch) Rx(twist),
+    R's first column is (cos pitch cos yaw, sin pitch, -cos pitch sin yaw). The twist is then
+    whatever is left once those two are taken off, read off the up vector that Rx really turns."""
+    right = (m[3], m[6], m[9])  # the rotation's FIRST column: CFrame.RightVector
+    pitch = math.degrees(math.asin(max(-1.0, min(1.0, right[1]))))
+    yaw = math.degrees(math.atan2(-right[2], right[0]))
+    rest = mat_mul(mat_inverse(compose_hand((0, 0, 0), yaw, pitch, 0.0)), m)
+    up = (rest[4], rest[7], rest[10])  # the SECOND column: CFrame.UpVector, which Rx(twist) turns
+    return (m[0], m[1], m[2]), yaw, pitch, math.degrees(math.atan2(up[2], up[1]))
+
+
+def axes_from_source(path=None):
+    """`HandAssets.AXES` read out of the Luau file itself, for the selftest -- which has no Studio and
+    so cannot ask `Viewmodel.align`. Reading the shipped source is what makes the selftest a check
+    that the two files AGREE rather than a check of a second copy of the numbers."""
+    path = path or os.path.join(REPO, "src", "shared", "HandAssets.luau")
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    out = {}
+    for name, key in (("RIGHT", "HandRight"), ("LEFT", "HandLeft")):
+        at = text.index("[HandAssets.%s] = table.freeze({" % name)
+        chunk = text[at:text.index("}", at)]
+        found = {}
+        for axis in ("fingers", "palm"):
+            start = chunk.index(axis + " = Vector3.new(")
+            inside = chunk[chunk.index("(", start) + 1:chunk.index(")", start)]
+            found[axis] = tuple(float(part) for part in inside.split(","))
+        out[key] = found
+    return out
+
+
+def align_of(axes):
+    """`Camera.Viewmodel.align` in Python, for the selftest ONLY: the rotation that takes a glove's
+    own measured axes onto fingers = +X, palm = +Y, with the palm squared against the fingers.
+
+    `edit save` never calls this -- it asks the running game for the real one."""
+    def unit(v):
+        size = math.sqrt(sum(c * c for c in v))
+        return tuple(c / size for c in v)
+
+    def cross(a, b):
+        return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+    fingers = unit(axes["fingers"])
+    dot = sum(a * b for a, b in zip(axes["palm"], fingers))
+    palm = unit(tuple(p - f * dot for p, f in zip(axes["palm"], fingers)))
+    back = cross(fingers, palm)
+    # `CFrame.fromMatrix`'s three columns are right, up and back; this is that matrix, then inverted.
+    mesh = (0.0, 0.0, 0.0,
+            fingers[0], palm[0], back[0],
+            fingers[1], palm[1], back[1],
+            fingers[2], palm[2], back[2])
+    return mat_inverse(mesh)
+IDENTITY = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+
+
+def components(value):
+    """The twelve numbers of a CFrame, however the bridge chose to encode the table.
+
+    StudioMCP's JSON gives a Luau ARRAY back as an object keyed "1".."12" (measured 2026-10-02: a
+    straight `tuple(...)` over it iterated the KEYS and read the pose as 1, 2, 3...), so the index is
+    asked for by name rather than by position."""
+    if isinstance(value, dict):
+        return tuple(float(value[str(index)]) for index in range(1, 13))
+    return tuple(float(part) for part in value)
+
+
+IDENTITY = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+
+
+def components(value):
+    """The twelve numbers of a CFrame, however the bridge chose to encode the table.
+
+    StudioMCP's JSON gives a Luau ARRAY back as an object keyed "1".."12" (measured 2026-10-02: a
+    straight `tuple(...)` over it iterated the KEYS and read the pose back as 1, 2, 3...), so each
+    index is asked for by name rather than taken by position."""
+    if isinstance(value, dict):
+        return tuple(float(value[str(index)]) for index in range(1, 13))
+    return tuple(float(part) for part in value)
+
+
+def editor_luau(template, **extra):
+    fields = {"name": EDITOR_NAME, "studs": EDITOR_STUDS, "drop": EDITOR_DROP,
+              "turn": EDITOR_TURN_DEG,
+              "hands": "{" + ", ".join("{%s}" % ", ".join('"%s"' % part for part in hand)
+                                       for hand in EDIT_HANDS) + "}"}
+    fields.update(extra)
+    return template % fields
+
+
+def run_edit(studio, what, client="client"):
+    """POSE THE HANDS BY EYE, with Studio's own Move and Rotate tools.
+
+    WHY (task 109). Karen, after an afternoon of tuning gloves through text: "thum is lookin towards
+    me hunter but has to be towards where shooting same with fingers". Three angles per hand, two
+    hands, three poses is eighteen numbers whose meaning is a picture, and a guess costs a capture.
+    An artist does not type a hand pose; they turn it. So this builds the real rig -- model B's two
+    group meshes, both of Karen's gloves with their sleeves -- as ONE Workspace model she can grab.
+
+    IT NEEDS A RUNNING SESSION, AND THAT IS NOT A CHOICE. The gloves and the gun are uploaded assets,
+    and the only thing in this repo allowed to turn an id into an Instance is the SERVER, through
+    `ServerStorage.Assets.Loader` -- `tools/studio_mcp.py`'s own docstring forbids an asset call
+    through `execute_luau` in capitals, because one such call on 2026-10-02 left the thread carrying
+    capabilities and every later `require` was refused for the rest of the night. An idle editor runs
+    no game scripts, so it has no gloves to show. A session has them already drawn.
+
+    SO THE RIG IS A COPY, PARKED IN WORKSPACE. Nothing in the game writes `workspace.DHPoseEditor`:
+    it is anchored, it is not under the camera, and the live viewmodel is hidden for as long as it
+    exists, so what is on screen is the thing Karen is holding. Studio's Explorer, Move and Rotate
+    work on it during Play Solo exactly as they do in Edit, and `save` reads the places back out
+    before the session ends, so nothing has to survive the Stop button.
+    """
+    if what in EDIT_POSES:
+        action = "build"
+    elif what in ("save", "cancel"):
+        action = what
+    else:
+        print(f"[pose] edit takes one of {', '.join(EDIT_POSES)}, or `save`, or `cancel`")
+        return 2
+
+    client_id, client_dm, why = running(studio, client)
+    if client_id is None:
+        print("[pose] " + why)
+        print("[pose]   python tools/pose.py play     starts the session this needs")
+        return 2
+    server_id, server_dm, server_why = running(studio, "server")
+    if server_id is None:
+        print("[pose] " + server_why)
+        return 2
+    held, problem = read_override(studio, server_id, server_dm)
+    if problem:
+        print("[pose] " + problem)
+        return 2
+
+    if action == "build":
+        wanted = dict(held)
+        wanted[HOLD_KEY] = what
+        _, problem = write_override(studio, server_id, server_dm, wanted)
+        if problem:
+            print("[pose] could not hold the pose: " + problem)
+            return 2
+        time.sleep(1.0)  # the hold is a replication hop plus a frame, as `compare` says
+        answer, problem = studio_mcp.json_answer(
+            studio, editor_luau(EDITOR_BUILD), studio_id=client_id, datamodel=client_dm)
+        if problem or not (answer or {}).get("ok"):
+            print("[pose] could not build the rig: " + (problem or (answer or {}).get("why", "?")))
+            return 1
+        print(f"[pose] {EDITOR_NAME} is in Workspace, {EDITOR_STUDS:g} studs in front of you, holding "
+              f"the {what} pose ({answer.get('parts')} part(s); the live gun is hidden while it is "
+              "there).")
+        if answer.get("selected"):
+            print("[pose] the LEFT glove is selected: press Ctrl+2 to rotate it, Ctrl+1 to move it, "
+                  "and click the other glove in the Explorer to take that one.")
+        else:
+            print("[pose] NOTE: Studio did not take the selection; click HandLeft under "
+                  f"workspace.{EDITOR_NAME} in the Explorer yourself.")
+        print("[pose] when it looks right:  python tools/pose.py edit save     (or `edit cancel`)")
+        print(f"[pose] Workspace is NOT Rojo's, so {EDITOR_NAME} must never be saved with the place: "
+              "`save` and `cancel` both destroy it, and the harness refuses to run while one exists.")
+        return 0
+
+    if action == "cancel":
+        answer, problem = studio_mcp.json_answer(
+            studio, editor_luau(EDITOR_DESTROY), studio_id=client_id, datamodel=client_dm)
+        restore = {key: value for key, value in held.items() if key != HOLD_KEY}
+        write_override(studio, server_id, server_dm, restore)
+        if problem:
+            print("[pose] could not destroy the rig: " + problem)
+            return 1
+        print(f"[pose] {EDITOR_NAME} destroyed ({'it was there' if answer.get('had') else 'there was none'}); "
+              f"nothing written; the live gun is back ({answer.get('shown')} part(s)).")
+        return 0
+
+    # save
+    answer, problem = studio_mcp.json_answer(
+        studio, editor_luau(EDITOR_READ), studio_id=client_id, datamodel=client_dm)
+    if problem or not (answer or {}).get("ok"):
+        print("[pose] could not read the rig: " + (problem or (answer or {}).get("why", "?")))
+        return 1
+    pose = held.get(HOLD_KEY)
+    if pose not in EDIT_POSES:
+        print(f"[pose] the session is not holding one of {', '.join(EDIT_POSES)} "
+              f"(it holds {pose!r}), so there is no pose to save into. Run `pose.py edit <pose>` first.")
+        return 2
+    data = read_poses()
+    before = paths_of(data)
+    effective_now, _ = apply_overrides(data, {k: v for k, v in held.items()
+                                              if k not in (HOLD_KEY, SERIAL_KEY)})
+    axes = axes_from_source()
+    overrides = {}
+    for side, hand_name, parent_name in EDIT_HANDS:
+        got = (answer.get("hands") or {}).get(side)
+        if got is None:
+            print(f"[pose] the rig gave no {side} hand back")
+            return 1
+        # THE REFERENCE PART IS NOT THE FRAME THE GAME POSES IN, and that was measured rather than
+        # assumed: the left hand is placed from `Viewmodel.hinge`'s transform, while the only thing
+        # this tool can read is the Barrels PART, which sits at its own rest offset from it -- 0.84
+        # studs down the gun (2026-10-02). So the gap between them is calibrated off the LIVE
+        # viewmodel, which is at the pose this tool already knows, and then taken off the rig.
+        was = effective_now[pose][side]
+        posed = compose_hand((was["pos"]["x"], was["pos"]["y"], was["pos"]["z"]),
+                             was["rot"]["yaw"], was["rot"]["pitch"], was["rot"]["twist"])
+        align = align_of(axes[hand_name])
+        gap = mat_mul(components(got["live"]), mat_inverse(mat_mul(posed, align)))
+        if parent_name == "Handle":
+            # ...AND FOR THE RIGHT HAND THERE IS NO SUCH GAP: it is posed from the Handle, which is
+            # the part that was read. So this one is the CHECK, and it is the only one `edit save`
+            # has: it comes out as identity only if `compose_hand` is the same arithmetic as
+            # `Camera.Mode.handOffset`, `align_of` is the same as `Viewmodel.align`, and the session
+            # really is holding the pose this tool thinks it is.
+            off_by = max(abs(a - b) for a, b in zip(gap, IDENTITY))
+            if off_by > 0.02:
+                print(f"[pose] REFUSED: the drawn {side} glove is {off_by:.3f} from where "
+                      f"{pose}.{side} says it should be. Either the session is not holding "
+                      "that pose, or this tool's arithmetic and the game's have drifted apart.")
+                return 2
+            print(f"[pose] the drawn {side} glove is where {pose}.{side} says, to {off_by:.4f}")
+        # WHAT KAREN MOVED IS THE DRAWN GLOVE, which is the pose offset TIMES the alignment
+        # (`poseHands`). Taking both off again is what turns it back into a pose.
+        base = mat_mul(mat_mul(mat_inverse(gap), components(got["rel"])), mat_inverse(align))
+        pos, yaw, pitch, twist = decompose_hand(base)
+        for path, value in (("pos.x", pos[0]), ("pos.y", pos[1]), ("pos.z", pos[2]),
+                            ("rot.yaw", yaw), ("rot.pitch", pitch), ("rot.twist", twist)):
+            at = f"{pose}.{side}.{path}"
+            # A GLOVE NOBODY MOVED MUST NOT CHANGE THE FILE. A CFrame is float32 all the way
+            # through Studio and back, so an untouched hand came back as z = -0.0001 and a twist of
+            # -0.0 (measured 2026-10-02): true noise, and a diff Karen would have to read after
+            # every single save. The snap is a thousandth of a stud and a hundredth of a degree --
+            # smaller than any drag of a handle, and smaller than the mesh is modelled to.
+            value = round(value, 4) + 0.0
+            if abs(value - before[at]) < EDIT_NOISE:
+                value = before[at]
+            overrides[at] = value
+    effective, problems = apply_overrides(data, overrides)
+    if problems:
+        for trouble in problems:
+            print("[pose] REFUSED: " + trouble)
+        print("[pose] nothing was written: a half-saved pose is a pose nobody chose")
+        return 2
+    write_poses(effective)
+    after = paths_of(effective)
+    for path in sorted(overrides):
+        print(f"[pose] {path}: {before[path]:g} -> {after[path]:g}")
+    answer, problem = studio_mcp.json_answer(
+        studio, editor_luau(EDITOR_DESTROY), studio_id=client_id, datamodel=client_dm)
+    restore = {key: value for key, value in held.items() if key != HOLD_KEY}
+    write_override(studio, server_id, server_dm, restore)
+    print(f"[pose] wrote {os.path.relpath(POSES_FILE, REPO)} and destroyed {EDITOR_NAME}"
+          + ("" if not problem else " FAILED: " + problem))
+    print("[pose] it is a src/ change now: it needs `test` and a review like any other.")
+    return 0 if not problem else 1
+
 # ---------------------------------------------------------------- fit: solve a pose from a picture
 
 # THE SIX NUMBERS A POSE PUTS THE GUN AT. The aimed pose is NOT one of them and cannot be: it is
@@ -665,7 +1280,7 @@ def run_fit(studio, prefix, landmarks_path, evals, client, assets_dir, explicit_
     for leaf in FIT_VARS:
         if f"{prefix}.{leaf}" not in known:
             print(f"[pose] {prefix} has no {leaf}: fit works on a pose with a `gun` block "
-                  "(carry, reload, newGun.carry, newGun.reload). The aimed pose is solved from the "
+                  "(carry, reload). The aimed pose is solved from the "
                   "gun's own sight and has no x/y/z to search.")
             return 2
     hold = prefix.split(".")[-1]
@@ -846,7 +1461,8 @@ def main(argv):
     args = rest
 
     action = args[0] if args else "show"
-    if action not in ("show", "set", "save", "clear", "compare", "fit", "play", "stop"):
+    if action not in ("show", "set", "save", "clear", "compare", "inspect", "edit", "fit", "play",
+                      "stop"):
         print(__doc__)
         return 2
 
@@ -859,6 +1475,18 @@ def main(argv):
                       "[--client <name>]")
                 return 2
             return run_compare(studio, args[1], explicit_target, assets_dir, client)
+        if action == "inspect":
+            if not 2 <= len(args) <= 3:
+                print("[pose] usage: pose.py inspect <carry|raise|aim|reload> "
+                      f"[{'|'.join(INSPECT_VIEWS)}] [--client <name>]")
+                return 2
+            return run_inspect(studio, args[1], client, [args[2]] if len(args) == 3 else None)
+        if action == "edit":
+            if len(args) != 2:
+                print("[pose] usage: pose.py edit <" + "|".join(EDIT_POSES)
+                      + ">   |   pose.py edit save   |   pose.py edit cancel")
+                return 2
+            return run_edit(studio, args[1], client)
         if action in ("play", "stop"):
             if len(args) != 1:
                 print(f"[pose] usage: pose.py {action}")
@@ -994,13 +1622,20 @@ def selftest():
                    "reload.openSeconds", "reload.openDeg", "reload.hingeStuds.z",
                    "reload.gun.rot.z", "reload.shells.feedFromStuds"):
         ok(f"{wanted} is a tunable path", wanted in paths, "missing from poses.json")
-    # THE SECOND GUN'S OWN SET (task 99): the Director tunes it live exactly like the first one, so
-    # every one of its paths has to be reachable or the whole point of the flag is lost.
-    for wanted in ("newGun.carry.gun.pos.x", "newGun.carry.left.pos.z", "newGun.aim.eyeReliefStuds",
-                   "newGun.reload.gun.rot.y", "newGun.aim.right.rot.twist"):
+    # ONE POSE SET SINCE TASK 114, and this is what says so: the second gun's `newGun.*` paths were
+    # tunable beside the first gun's while a feature flag chose between them, and that flag retired
+    # when Karen accepted model B. Its numbers moved UP to the paths checked above, byte-identical, so
+    # a `newGun.` prefix must now be refused like any other typo -- a Director who types the old path
+    # out of habit has to be told, not silently ignored.
+    for gone in ("newGun.carry.gun.pos.x", "newGun.aim.eyeReliefStuds", "newGun.reload.left.pos.z"):
+        ok(f"{gone} is no longer a path", gone not in paths, "poses.json still carries two pose sets")
+    ok("the left hand sits on this gun's own wood", data["carry"]["left"]["pos"]["z"] != 0,
+       repr(data["carry"]["left"]["pos"]))
+    # THE LOADING MOVE IS PART OF THE ONE RELOAD POSE (task 111, promoted in 114): it was
+    # `newGun.reload.load` and only one of the two guns had one.
+    for wanted in ("reload.load.fetchSeconds", "reload.load.above.pos.y", "reload.load.shellInHand.z",
+                   "fire.flash.seconds", "fire.smoke.riseStuds", "fire.volume.shot"):
         ok(f"{wanted} is a tunable path", wanted in paths, "missing from poses.json")
-    ok("the two guns are tuned apart", data["newGun"]["carry"]["left"]["pos"] != data["carry"]["left"]["pos"],
-       "the new gun's hands must sit on the new gun's own wood")
     ok("version is NOT tunable", "version" not in paths, "version must not be settable")
     ok("raise.easing is NOT tunable", "raise.easing" not in paths, "a string is not a number")
     ok("the file ships with no mid keyframes", data["raise"]["keyframes"] == [],
@@ -1021,7 +1656,8 @@ def selftest():
     for bad, why in (({"aim.cheeckDeg": 1.0}, "a typo'd path"),
                      ({"aim": 1.0}, "a path that is a whole pose"),
                      ({"raise.easing": 1.0}, "a path whose value is a string"),
-                     ({"version": 2}, "version"),
+                     ({"version": 3}, "version"),
+                     ({"newGun.carry.gun.pos.x": 0.1}, "a retired newGun path"),
                      ({"aim.eyeReliefStuds": "4.2"}, "a string value"),
                      ({"aim.eyeReliefStuds": True}, "a boolean value")):
         _, problems = apply_overrides(data, bad)
@@ -1216,12 +1852,83 @@ def selftest():
 
     # ...and the file the Director actually runs has more than the minimum.
     shipped, shipped_problem = read_landmark_file(
-        os.path.join(REPO, "tools", "landmarks", "newGun-reload.json"))
+        os.path.join(REPO, "tools", "landmarks", "reload.json"))
     ok("the shipped reload landmarks are usable", shipped is not None, repr(shipped_problem))
     ok("the shipped reload landmarks carry four on-screen marks",
        shipped is not None and len(shipped["marks"]) >= 4,
        str(len(shipped["marks"]) if shipped else 0))
 
+
+    # 9. `edit`: THE ROUND TRIP, which is the only thing standing between Karen turning a glove and
+    # a pose nobody chose. `edit save` reads the glove's place, takes the alignment off and
+    # decomposes what is left into the three angles -- so the test is that a pose which has NOT been
+    # moved comes back as itself, and that the file written is the file that was there.
+    axes = axes_from_source()
+    ok("HandAssets.AXES is readable from the Luau source", set(axes) == {"HandRight", "HandLeft"},
+       str(sorted(axes)))
+    for name, found in axes.items():
+        size = math.sqrt(sum(c * c for c in found["fingers"]))
+        ok(f"{name}'s fingers axis is a unit vector", abs(size - 1.0) < 1e-3, f"{size:.4f}")
+    worst = 0.0
+    for pose in EDIT_POSES:
+        for side, hand_name, _ in EDIT_HANDS:
+            entry = data[pose][side]
+            pos = (entry["pos"]["x"], entry["pos"]["y"], entry["pos"]["z"])
+            base = compose_hand(pos, entry["rot"]["yaw"], entry["rot"]["pitch"], entry["rot"]["twist"])
+            # Exactly what the rig holds: the pose, times the alignment the drawn glove carries.
+            drawn = mat_mul(base, align_of(axes[hand_name]))
+            # ...and exactly what `edit save` does to it, with nothing moved in between.
+            back = decompose_hand(mat_mul(drawn, mat_inverse(align_of(axes[hand_name]))))
+            for got, wanted in zip(back[0], pos):
+                worst = max(worst, abs(got - wanted))
+            for got, wanted in ((back[1], entry["rot"]["yaw"]), (back[2], entry["rot"]["pitch"]),
+                                (back[3], entry["rot"]["twist"])):
+                worst = max(worst, abs((got - wanted + 180) % 360 - 180))
+    ok("a glove that was not moved saves as the numbers it came from", worst < 1e-6, f"{worst:g}")
+
+    # ...AND THE FILE ITSELF IS BYTE-IDENTICAL, which is the claim that matters: a round trip that
+    # is right to six places but reorders or reformats the file would still show up as a diff
+    # Karen has to read, and `save` runs after every single tweak.
+    rebuilt = json.loads(json.dumps(data))
+    moves = {}
+    for pose in EDIT_POSES:
+        for side, hand_name, _ in EDIT_HANDS:
+            entry = data[pose][side]
+            pos = (entry["pos"]["x"], entry["pos"]["y"], entry["pos"]["z"])
+            base = compose_hand(pos, entry["rot"]["yaw"], entry["rot"]["pitch"], entry["rot"]["twist"])
+            drawn = mat_mul(base, align_of(axes[hand_name]))
+            got, yaw, pitch, twist = decompose_hand(mat_mul(drawn, mat_inverse(align_of(axes[hand_name]))))
+            for path, value in (("pos.x", got[0]), ("pos.y", got[1]), ("pos.z", got[2]),
+                                ("rot.yaw", yaw), ("rot.pitch", pitch), ("rot.twist", twist)):
+                moves[f"{pose}.{side}.{path}"] = round(value, 4)
+    rebuilt, trouble = apply_overrides(rebuilt, moves)
+    ok("the round trip writes no refused path", trouble == [], str(trouble))
+    with open(POSES_FILE, encoding="utf-8") as handle:
+        on_disk = handle.read()
+    ok("edit save of an untouched rig is byte-identical to the shipped file",
+       json.dumps(rebuilt, indent=2, sort_keys=True) + "\n" == on_disk,
+       "the file would change with nothing moved")
+
+    # A REAL TURN HAS TO COME BACK AS A REAL TURN, or the round trip above is only proving that zero
+    # is zero. One glove rolled 40 degrees about its own fingers is the move Karen's "thumb towards
+    # where shooting" actually is.
+    pos = (0.12, -0.2, 0.3)
+    turned = compose_hand(pos, 15.0, -15.0, 40.0)
+    got, yaw, pitch, twist = decompose_hand(turned)
+    ok("a rolled glove decomposes to the roll it was given",
+       max(abs(yaw - 15.0), abs(pitch + 15.0), abs(twist - 40.0)) < 1e-6,
+       f"{yaw:.4f}/{pitch:.4f}/{twist:.4f}")
+    ok("and to the place it was put", max(abs(a - b) for a, b in zip(got, pos)) < 1e-9, str(got))
+    # The alignment is a pure rotation, so it never moves the hand: the position Karen sees is the
+    # position the pose carries, which is why `edit save` can take it straight off the rig.
+    for name, found in axes.items():
+        turn = align_of(found)
+        ok(f"{name}'s alignment is a pure rotation",
+           max(abs(v) for v in turn[:3]) < 1e-12, str(turn[:3]))
+        back = mat_mul(turn, mat_inverse(turn))
+        ok(f"{name}'s alignment undoes itself",
+           max(abs(a - b) for a, b in zip(back, (0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1))) < 1e-9,
+           str(back))
     for failure in failures:
         print("[pose] selftest: " + failure)
     if failures:

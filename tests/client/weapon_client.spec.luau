@@ -328,96 +328,116 @@ return function()
 			-- only thing that differs between them.
 			local Effects = Weapon.Effects
 			local live = Effects.getMuzzleProvider()
-			local worldFrame = CFrame.new(10, 20, 30) * CFrame.Angles(0, math.pi / 3, 0)
-			local drawn = CFrame.new(-5, 2, -5)
-			local askedFor: { number? } = {}
-			Effects.setMuzzleProvider(function(barrel: number?): CFrame?
-				table.insert(askedFor, barrel)
-				return drawn
-			end)
-			local function payloadFrom(userId: number)
-				return {
-					shooterUserId = userId,
-					muzzle = worldFrame.Position,
-					muzzleCFrame = worldFrame,
-					barrel = 1,
-					impacts = { worldFrame.Position + worldFrame.LookVector * 30 },
-					ammo = "Buck",
-				}
-			end
-			local mine = payloadFrom(Players.LocalPlayer.UserId)
-			-- NOT A LITERAL -1. MEASURED, in this task's two-player gate: a Studio test client gets a
-			-- NEGATIVE UserId (-1 for the first, -2 for the second), so "another player" written as -1
-			-- was the shooter's own id in that window -- the case failed on the shooter and passed on
-			-- the driver, which is a fixture fault and not the rule under test. Derived from the local
-			-- id, so it is another player wherever this runs.
-			local otherId = Players.LocalPlayer.UserId - 7
-			expect(otherId).never.to.equal(Players.LocalPlayer.UserId)
-			local theirs = payloadFrom(otherId)
+			-- NOBODY DRAWS THE FIRST-PERSON FLASH FOR THE LENGTH OF THIS CASE (task 114). `Effects`
+			-- asks the viewmodel first and skips its own pair when the answer is yes (task 112), and
+			-- since the gun flag retired the LIVE answer for my own shot is yes whenever a viewmodel
+			-- is on screen -- which depends on whether this client happens to be a shooter holding
+			-- the gun. What this case is about is WHOSE MUZZLE the parts come out of, so the other
+			-- owner is stood down and put back. The skip itself is asserted in `gun_client.spec`.
+			--
+			-- BOTH SEAMS ARE PUT BACK THROUGH A `pcall` (round 1's note). Restoring them after the
+			-- assertions only works when the assertions pass: a failure between here and the restore
+			-- would otherwise leave the live first-person flash provider nil for the whole rest of the
+			-- session, so every later shot in it would draw the world pair on top of the viewmodel's.
+			-- `gun_client.spec`'s `withNewGun` is the shape this follows.
+			local liveFlash = Effects.getViewmodelFlash()
+			Effects.setViewmodelFlash(nil)
+			local ok, why = pcall(function()
+				local worldFrame = CFrame.new(10, 20, 30) * CFrame.Angles(0, math.pi / 3, 0)
+				local drawn = CFrame.new(-5, 2, -5)
+				local askedFor: { number? } = {}
+				Effects.setMuzzleProvider(function(barrel: number?): CFrame?
+					table.insert(askedFor, barrel)
+					return drawn
+				end)
+				local function payloadFrom(userId: number)
+					return {
+						shooterUserId = userId,
+						muzzle = worldFrame.Position,
+						muzzleCFrame = worldFrame,
+						barrel = 1,
+						impacts = { worldFrame.Position + worldFrame.LookVector * 30 },
+						ammo = "Buck",
+					}
+				end
+				local mine = payloadFrom(Players.LocalPlayer.UserId)
+				-- NOT A LITERAL -1. MEASURED, in this task's two-player gate: a Studio test client gets a
+				-- NEGATIVE UserId (-1 for the first, -2 for the second), so "another player" written as -1
+				-- was the shooter's own id in that window -- the case failed on the shooter and passed on
+				-- the driver, which is a fixture fault and not the rule under test. Derived from the local
+				-- id, so it is another player wherever this runs.
+				local otherId = Players.LocalPlayer.UserId - 7
+				expect(otherId).never.to.equal(Players.LocalPlayer.UserId)
+				local theirs = payloadFrom(otherId)
 
-			-- MY SHOT: the drawn gun, and the provider is told which pipe fired.
-			expect(Effects.muzzleFrame(mine)).to.equal(drawn)
-			expect(askedFor[1]).to.equal(1)
+				-- MY SHOT: the drawn gun, and the provider is told which pipe fired.
+				expect(Effects.muzzleFrame(mine)).to.equal(drawn)
+				expect(askedFor[1]).to.equal(1)
 
-			-- SOMEBODY ELSE'S SHOT: the world, and the provider is not even asked -- the count is the
-			-- assertion, because a provider that answered nil would look the same at the call site.
-			local asked = #askedFor
-			expect(Effects.muzzleFrame(theirs)).to.equal(worldFrame)
-			expect(#askedFor).to.equal(asked)
-			-- ...and a payload with no frame at all still draws, at the bare position the payload has
-			-- always carried: an older server, or a gun with no attachment.
-			local bare = table.clone(theirs)
-			bare.muzzleCFrame = nil
-			expect(Effects.muzzleFrame(bare).Position).to.equal(worldFrame.Position)
+				-- SOMEBODY ELSE'S SHOT: the world, and the provider is not even asked -- the count is the
+				-- assertion, because a provider that answered nil would look the same at the call site.
+				local asked = #askedFor
+				expect(Effects.muzzleFrame(theirs)).to.equal(worldFrame)
+				expect(#askedFor).to.equal(asked)
+				-- ...and a payload with no frame at all still draws, at the bare position the payload has
+				-- always carried: an older server, or a gun with no attachment.
+				local bare = table.clone(theirs)
+				bare.muzzleCFrame = nil
+				expect(Effects.muzzleFrame(bare).Position).to.equal(worldFrame.Position)
 
-			-- AND IT IS REALLY WHERE THE PARTS GO, for both shots: flash, smoke AND the tracer, which
-			-- is built from the same origin and stretched from my muzzle to their impacts by the
-			-- defect this case now covers.
-			local folder = Effects.folder()
-			local function playAndMeasure(payload)
+				-- AND IT IS REALLY WHERE THE PARTS GO, for both shots: flash, smoke AND the tracer, which
+				-- is built from the same origin and stretched from my muzzle to their impacts by the
+				-- defect this case now covers.
+				local folder = Effects.folder()
+				local function playAndMeasure(payload)
+					for _, child in ipairs(folder:GetChildren()) do
+						child:Destroy()
+					end
+					Effects.play(payload)
+					local flash = folder:FindFirstChild("Flash") :: BasePart
+					local smoke = folder:FindFirstChild("Smoke") :: BasePart
+					local tracer = folder:FindFirstChild("Tracer") :: BasePart
+					expect(flash).to.be.ok()
+					expect(smoke).to.be.ok()
+					expect(tracer).to.be.ok()
+					return flash.Position, smoke.Position, tracer.Position
+				end
+
+				local flashMine, smokeMine = playAndMeasure(mine)
+				expect((flashMine - drawn.Position).Magnitude < 0.6).to.equal(true)
+				expect((smokeMine - drawn.Position).Magnitude < 0.8).to.equal(true)
+				expect((flashMine - worldFrame.Position).Magnitude > 10).to.equal(true)
+				-- Forward of the muzzle, not inside the barrel: -Z is the bore direction.
+				expect(drawn:PointToObjectSpace(flashMine).Z < 0).to.equal(true)
+
+				local flashTheirs, smokeTheirs, tracerTheirs = playAndMeasure(theirs)
+				expect((flashTheirs - worldFrame.Position).Magnitude < 0.6).to.equal(true)
+				expect((smokeTheirs - worldFrame.Position).Magnitude < 0.8).to.equal(true)
+				expect((flashTheirs - drawn.Position).Magnitude > 10).to.equal(true)
+				-- the tracer is the one the defect stretched across the map: its midpoint belongs to the
+				-- shooter's own muzzle, not to mine.
+				expect((tracerTheirs - drawn.Position).Magnitude > 10).to.equal(true)
+
+				TestKit.note(
+					string.format(
+						"task92 flash: my shot %.2f studs from my drawn muzzle; another player's %.2f studs "
+							.. "from the world muzzle and %.1f from mine",
+						(flashMine - drawn.Position).Magnitude,
+						(flashTheirs - worldFrame.Position).Magnitude,
+						(flashTheirs - drawn.Position).Magnitude
+					)
+				)
 				for _, child in ipairs(folder:GetChildren()) do
 					child:Destroy()
 				end
-				Effects.play(payload)
-				local flash = folder:FindFirstChild("Flash") :: BasePart
-				local smoke = folder:FindFirstChild("Smoke") :: BasePart
-				local tracer = folder:FindFirstChild("Tracer") :: BasePart
-				expect(flash).to.be.ok()
-				expect(smoke).to.be.ok()
-				expect(tracer).to.be.ok()
-				return flash.Position, smoke.Position, tracer.Position
-			end
-
-			local flashMine, smokeMine = playAndMeasure(mine)
-			expect((flashMine - drawn.Position).Magnitude < 0.6).to.equal(true)
-			expect((smokeMine - drawn.Position).Magnitude < 0.8).to.equal(true)
-			expect((flashMine - worldFrame.Position).Magnitude > 10).to.equal(true)
-			-- Forward of the muzzle, not inside the barrel: -Z is the bore direction.
-			expect(drawn:PointToObjectSpace(flashMine).Z < 0).to.equal(true)
-
-			local flashTheirs, smokeTheirs, tracerTheirs = playAndMeasure(theirs)
-			expect((flashTheirs - worldFrame.Position).Magnitude < 0.6).to.equal(true)
-			expect((smokeTheirs - worldFrame.Position).Magnitude < 0.8).to.equal(true)
-			expect((flashTheirs - drawn.Position).Magnitude > 10).to.equal(true)
-			-- the tracer is the one the defect stretched across the map: its midpoint belongs to the
-			-- shooter's own muzzle, not to mine.
-			expect((tracerTheirs - drawn.Position).Magnitude > 10).to.equal(true)
-
-			TestKit.note(
-				string.format(
-					"task92 flash: my shot %.2f studs from my drawn muzzle; another player's %.2f studs "
-						.. "from the world muzzle and %.1f from mine",
-					(flashMine - drawn.Position).Magnitude,
-					(flashTheirs - worldFrame.Position).Magnitude,
-					(flashTheirs - drawn.Position).Magnitude
-				)
-			)
-			for _, child in ipairs(folder:GetChildren()) do
-				child:Destroy()
-			end
+			end)
 			Effects.setMuzzleProvider(live)
-			-- THE LIVE WIRING IS PUT BACK, and it was there to begin with: `CameraBoot` installs it,
-			-- so a nil here would mean the composition root never ran.
+			Effects.setViewmodelFlash(liveFlash)
+			if not ok then
+				error(why, 0)
+			end
+			-- THE LIVE WIRING IS PUT BACK -- BOTH SEAMS -- and both were there to begin with:
+			-- `CameraBoot` installs them, so a nil here would mean the composition root never ran.
 			--
 			-- WHAT IT ANSWERS IS THE BRANCH'S OWN TRUTH. In third person the player is looking at
 			-- their character holding the real gun, so the provider answers nil and the flash is
@@ -425,6 +445,7 @@ return function()
 			-- answers the DRAWN gun's muzzle whenever there is a drawn gun, and nil when there is
 			-- none (a driver holds no Tool, so there is no viewmodel to ask).
 			expect(Effects.getMuzzleProvider()).to.be.ok()
+			expect(Effects.getViewmodelFlash()).to.be.ok()
 			--
 			-- THE CLAIM IS THAT THE PROVIDER IS THE CAMERA'S OWN ANSWER, which is what the composition
 			-- root wired, and it is one claim in both branches: third person answers nil (the player
@@ -579,12 +600,29 @@ return function()
 			end)
 
 			it("equips on the cue and starts full", function()
-				expect(waitUntil(RUN_TIMEOUT, function()
-					local state = Weapon.get()
-					return state ~= nil and state.equipped
-				end)).to.equal(true)
-				-- Over the LOG, not over Weapon.get(): by the time a later `it` runs, the scenario has
-				-- moved on, and "it started full" is a claim about the beginning.
+				-- OVER THE LOG, BOTH HALVES (task 112). This waited on `Weapon.get().equipped` and
+				-- then said, one line down, that `Weapon.get()` is the wrong thing to ask -- "by the
+				-- time a later `it` runs, the scenario has moved on". It does: the LAST scenario in
+				-- `input_scenarios.txt` is `tie-the-driver`, which exists to get this shooter TIED,
+				-- and a tied player's gun goes to his backpack. So by the time this case ran the
+				-- wait could only time out, which is what it did on three separate `test2` runs
+				-- (tasks 108 and 112). The equip is a claim about the BEGINNING of the session and
+				-- the log is where the beginning is kept.
+				local sawEquipped = false
+				for _, entry in ipairs(log) do
+					if entry.state.equipped then
+						sawEquipped = true
+						break
+					end
+				end
+				TestKit.note(
+					string.format(
+						"weapon_client: equipped in %d of %d logged snapshot(s)",
+						if sawEquipped then 1 else 0,
+						#log
+					)
+				)
+				expect(sawEquipped).to.equal(true)
 				local sawFull = false
 				for _, entry in ipairs(log) do
 					local state = entry.state
@@ -909,9 +947,38 @@ return function()
 			it("reads out the barrels, the ammo and the reserve", function()
 				local text = Hud.readoutText()
 				TestKit.note("weapon_client: readout: " .. text)
+				-- THE SHAPE IS ASKED OF A STATE THIS CASE OWNS (round 2's finding: the version before
+				-- this returned before its only assertion when the player was tied, which is every
+				-- `test2` run -- the last scenario ties him on purpose). `Hud.readoutFor` is the
+				-- formatter itself, so this asserts the thing the screen is written from rather than
+				-- whatever the screen happens to hold while he is roped to a tree.
+				--
 				-- glyphs, ammo, the pocket for that ammo, an optional " R" while busy, and an optional
 				-- one-line notice such as "NO BUCK" (Karen, 2026-09-25).
-				expect(string.match(text, "^[%[%*%-x%]]+ [A-Z]+ %d+[ A-Z]*$")).to.be.ok()
+				local SHAPE = "^[%[%*%-x%]]+ [A-Z]+ %d+[ A-Z]*$"
+				local mine = {
+					equipped = true,
+					barrels = { "Live", "Spent" },
+					loaded = { "Slug", "None" },
+					selected = 1,
+					ammo = "Slug",
+					reserve = { Slug = 24, Buck = 22 },
+					open = false,
+					busyFor = 0,
+				}
+				local shaped = Hud.readoutFor(mine :: any)
+				TestKit.note("weapon_client: readout of my own state: " .. shaped)
+				expect(string.match(shaped, SHAPE)).to.be.ok()
+				expect(string.match(shaped, "^%[%*%]x SLUG 24")).to.be.ok()
+				-- ...AND THE LIVE ONE IS EMPTY EXACTLY WHEN THERE IS NO GUN, which is the other half
+				-- of "no gun, no readout" (TASKS.md 35b(a)) and the half the tie actually exercises.
+				local state = Weapon.get()
+				local hasGun = state ~= nil and state.equipped == true
+				if hasGun then
+					expect(string.match(text, SHAPE)).to.be.ok()
+				else
+					expect(text).to.equal("")
+				end
 			end)
 		end)
 	else
