@@ -3,10 +3,10 @@
 Task: 114
 Round: 1
 Base: `main` (`a77b0ed`, task 113's scoped gate), merged into this branch at `839ce0c`
-Code commit: 696ed8812229a6d5e9019a63699122cd0fc5bbec
+Code commit: 9a1806f4673259846de558404f9f0dd80e2cb968
 
 ```
-[harness] PASS: n/n checks @ 696ed88 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 9a1806f4673259846de558404f9f0dd80e2cb968 (clean tree) scope=all
 ```
 
 **ONE LINE IS THE WHOLE GATE for this change** -- no `[harness2]`. `tools/agents.py` on `main`
@@ -135,8 +135,10 @@ Match, the driver, the tie and the teams.
 
 ## The gate, and what I could not verify
 
-- **I did not run the harness.** `python tools/studio_mcp.py test` is the Director's; the line at the
-  top is a placeholder for the Director's own output. **The first gate run FAILED (29/33 @ c6d730f)
+- **I did not run the harness; the Director did, at this branch's head.** The line at the top is the
+  Director's own output, verbatim: 33/33 on a clean tree with Rojo restarted and reconnected.
+  `test2` is **N/A** -- `needs_two_player` returns `[]` (weapon and camera only; Karen, 2026-10-03:
+  no two-player run for the weapon and the animal). **The FIRST gate run FAILED (29/33 @ `c6d730f`)
   and claim 5 is what came out of it** -- still `Round: 1`, because no review has run.
 - **I could not re-run the suite myself**, so the six fixes are reasoned from the log and from the
   data rather than observed green. Each one was checked against the shipped numbers by hand: the
