@@ -154,8 +154,8 @@ made.
 
 | clip | built from | measured per hoof |
 |---|---|---|
-| `Death_Paddle_L` / `_R` | `Death_L`/`Death_R`'s **last frame** with the four legs swinging back toward `Run_F_IP`'s leg poses, amplitude decaying to nothing over 4.042 s | the legs on the **up** side travel 1.74-4.64 studs/s; the two against the ground 0.30-0.37. A leg under a lying animal cannot swing, and the blend reproduces that without being told |
-| `Cripple_Drag` | `Walk_F_IP` everywhere, hind legs pulled 85 % toward the death pose, rear spine 30 %; 1.042 s, looped | **front 2.866 and 2.863 studs/s** (`Walk_F_IP`'s own 2.853 -- a real walk cycle) and **hind 0.826 and 0.931** (a third of it, dragging). That table *is* Karen's "circles with first legs on", in numbers |
+| `Death_Paddle_L` / `_R` | `Death_L`/`Death_R`'s **last frame** with the four legs swinging back toward `Run_F_IP`'s leg poses, amplitude decaying to nothing over 4.000 s | the legs on the **up** side travel 1.74-4.64 studs/s; the two against the ground 0.30-0.37. A leg under a lying animal cannot swing, and the blend reproduces that without being told |
+| `Cripple_Drag` | `Walk_F_IP` everywhere, hind legs pulled 85 % toward the death pose, rear spine 30 %; 1.000 s, looped | **front 2.866 and 2.863 studs/s** (`Walk_F_IP`'s own 2.853 -- a real walk cycle) and **hind 0.826 and 0.931** (a third of it, dragging). That table *is* Karen's "circles with first legs on", in numbers |
 
 The paddle **ends on the pose it began on**, so the hold frame after it is the pose the carcass keeps
 and nothing pops. The drag is keyed one frame short of repeating itself, because Roblox blends a
@@ -209,7 +209,7 @@ because the first look at it seemed to float and the control floated identically
 |---|---|---|
 | `ZONES.rear` box | 2.0 x 1.6 x 1.8 studs at (0, +0.5, +2.0) | the hindquarters: behind the chest box, above the legs box, 0.15 studs proud of the trunk's rear face so a ray meets it first (the same `PROTRUSION` rule every zone follows) |
 | `DAMAGE.rear` | Slug 55, Pellet 11 | **the trunk's own row**, because the rump *is* trunk -- as much meat and bone as a flank. The row exists so `CLASS` can call it crippling, not to make it softer. One slug is `MORTAL` (50) and well short of `LETHAL` (100), which is the whole shape of the reaction: the back end goes and the animal is alive to be finished |
-| `FLIGHT.rear` | **90** studs (was 60) | it does not run, so this is not a flight distance in the paper's sense -- it is how long it has left, carried by the same mechanism. 90 studs at `CRIPPLE_SPEED` is **20 s** of circling, inside `BLEED_OUT_MAX_SECONDS` (25), so no crippled boar can last for ever |
+| `FLIGHT.rear` | **90** studs (was 60) | it does not run, so this is not a flight distance in the paper's sense -- it is how long it has left, carried by the same mechanism. 90 studs at `CRIPPLE_SPEED` is **20 s** of circling untapered, and `Wound.flightStuds` tapers it past MORTAL -- one 55-point rump slug is 5 of the 50-point span, so 81 studs and about **18 s**. Either way inside `BLEED_OUT_MAX_SECONDS` (25), so no crippled boar can last for ever |
 | a graze does **not** cripple | `severity ~= "grazed"` | the leak this closes: a crippled boar is taken out of the escape test (it is going nowhere) and `Wound.advance` never collapses a *grazed* animal, so crippling on a graze would leave a boar turning in the arena with no way out at all. It is also right physically -- one pellet in the ham does not take the back legs off |
 | `CRIPPLE_SPEED` | **4.5** studs/s (was 3) | a crawl that still shows: see section 4b(b). The walk clip reads as walking rather than sliding, and it is still well under `TROT_SPEED` |
 | `CRIPPLE_TURN_DEG` | **45** deg/s (was 70) | radius 5.73 studs, a circle 11.5 across -- two body lengths, so it is visibly a circle from 20-40 studs. Lap 8.0 s, one direction throughout |

@@ -192,15 +192,25 @@ Boar.CONFIG = {
 		-- `DAMAGE` names, and nothing in the hit path knows the difference. The three zone parts that
 		-- were here, their boxes, the `body` fallback and every damage number are untouched.
 		--
-		-- WHERE IT SITS, so it overlaps neither neighbour: behind the chest box (which ends at
-		-- z -0.75) and above the legs box (which tops out at y -0.5). This one spans z +1.1..+2.9 and
-		-- y -0.3..+1.3, so it is the upper rump, and it stands 0.15 studs proud of the trunk's rear
-		-- face at +2.75 -- the same `PROTRUSION` trick every other zone uses, so a ray from behind
-		-- meets it before the trunk.
+		-- WHERE IT SITS, FACE BY FACE, and every face is accounted for -- because a zone part FLUSH
+		-- with the trunk is not a zone, it is a coin toss: two coincident surfaces at the same ray
+		-- distance, and which one `Raycast` returns is the engine's business (review round 2,
+		-- finding 1 -- the first version of this row was 2.0 wide, exactly the trunk's own +-1.0, so
+		-- a flank shot into the rump was decided by a tie-break and could be charged to `body`).
+		--   +X / -X  PROUD by `PROTRUSION`: 2 + 2 x 0.06 = 2.12, the same width `chest` and `legs`
+		--            take, and the flank is the angle players actually shoot from.
+		--   +Y top   PROUD by `PROTRUSION`: +1.56 against the trunk's +1.5. The top of the rump is
+		--            the animal's back and a shot from above belongs to it.
+		--   -Y floor NOT proud, deliberately: `legs` tops out at -0.5 and this starts at -0.3, so
+		--            there is 0.2 of clear air between them. Two zone parts meeting at one surface
+		--            is the same tie this row exists to remove.
+		--   +Z rear  PROUD by 0.15, against the trunk's rear face at +2.75.
+		--   -Z front NOT proud, deliberately: it is an interior boundary at +1.1: `chest` ends at
+		--            -0.75 and the trunk is all around it, so no ray reaches it from outside.
 		rear = {
 			part = "ZoneRear",
-			size = Vector3.new(2.0, 1.6, 1.8),
-			offset = Vector3.new(0, 0.5, 2.0),
+			size = Vector3.new(2.12, 1.86, 1.8),
+			offset = Vector3.new(0, 0.63, 2.0), -- spans x +-1.06, y -0.30..+1.56, z +1.1..+2.9
 			tint = Color3.fromRGB(150, 150, 190),
 		},
 		legs = {
@@ -225,10 +235,12 @@ Boar.CONFIG = {
 			-- THE TRUNK'S OWN NUMBERS, because the rump IS trunk: as much meat and bone as a flank,
 			-- and this row only exists so the CLASS table can call it crippling. One slug is MORTAL
 			-- and well short of LETHAL, which is the whole shape of the reaction -- the back end
-			-- goes, the animal is alive to be finished, and the 60-stud flight below runs it down in
-			-- about 20 s of circling at `CRIPPLE_SPEED`. Below mortal it is a graze, and `Brain`
-			-- refuses to cripple on a graze (see `_reactToHit`): a boar that could neither die nor
-			-- escape would circle in the arena for ever.
+			-- goes, the animal is alive to be finished, and the 90-stud flight below runs it down in
+			-- about 18 s of circling at `CRIPPLE_SPEED` (90 is the UNTAPERED flight;
+			-- `Wound.flightStuds` tapers it by how far past MORTAL the damage is, and one 55-point
+			-- slug is 5 of the 50-point span, so 81 studs -- review round 2, note 1). Below mortal it
+			-- is a graze, and `Brain` refuses to cripple on a graze (see `_reactToHit`): a boar that
+			-- could neither die nor escape would circle in the arena for ever.
 			rear = { Slug = 55, Pellet = 11 },
 		},
 		-- Studs run before collapsing, from the worst zone hit. Validated against Stokke et al.
@@ -237,8 +249,10 @@ Boar.CONFIG = {
 		-- `rear` is SHORT on purpose and is not a flight distance in the paper's sense: a crippled
 		-- animal does not run, it turns on the spot. The number is how long it has left, carried by
 		-- the same mechanism as every other zone's.
-		-- `rear` went 60 -> 90 with `CRIPPLE_SPEED` 3 -> 4.5, so a crippled boar still lasts the same
-		-- 20 s of circling it was tuned to last (90 / 4.5), inside `BLEED_OUT_MAX_SECONDS`.
+		-- `rear` went 60 -> 90 with `CRIPPLE_SPEED` 3 -> 4.5. UNTAPERED that is 20 s of circling
+		-- (90 / 4.5); a single rump slug is 5 points past MORTAL of a 50-point span, so
+		-- `Wound.flightStuds` gives it 81 studs and about 18 s -- either way inside
+		-- `BLEED_OUT_MAX_SECONDS`.
 		FLIGHT = { head = 0, chest = 0, body = 120, legs = 420, rear = 90 },
 
 		-- WHAT A HIT THERE MEANS, as data (task 116). The zone decides a CLASS and the class decides
@@ -957,11 +971,20 @@ end
 function Runtime:animationOf(id: string)
 	for _, entry in ipairs(self._boars) do
 		if entry.id == id then
+			-- `tracks` is HOW MANY CLIPS THIS BOAR HAS ACTUALLY LOADED, which is the one observable
+			-- the silent pre-roll leaves behind (task 116 round 2, note): `warmAssets` builds one per
+			-- entry in `MODEL.CLIPS`, where a lazily-dressed boar would hold only the two or three it
+			-- has played. Counted here because `Body`'s handle is private and stays private.
+			local tracks = 0
+			for _ in pairs(entry.body.tracks) do
+				tracks += 1
+			end
 			return {
 				clip = entry.body.clip,
 				heldClip = entry.body.heldClip,
 				rateWrites = entry.body.rateWrites,
 				collapsed = entry.body.collapsed,
+				tracks = tracks,
 			}
 		end
 	end

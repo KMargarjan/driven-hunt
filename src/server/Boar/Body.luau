@@ -530,6 +530,12 @@ function Body.clipFor(info, config): (string?, number)
 	-- THE BACK END IS GONE: it drags. One clip, looped, rated off its FRONT hooves (the legs doing
 	-- the carrying), so the walk the front legs do keeps time with the ground the animal covers.
 	-- Karen, 2026-10-03: "can be hit to back part start to do circles with first legs on".
+	--
+	-- IT SITS AHEAD OF THE FLINCH, so a crippled boar shot again does NOT play `hitFront`/`hitBack`.
+	-- That is deliberate and it is the weaker of the two readings (review round 2, note): the drag
+	-- is the animal's whole posture and a half-second in-place flinch on top of it would read as the
+	-- back legs coming back. Whether a crippled animal should still jerk at a second slug is a feel
+	-- question for Karen, queued as 116a.
 	if info.crippled and Body.hasClip("crippleDrag", config) then
 		local clip = model.CLIPS.crippleDrag
 		local rate = 1

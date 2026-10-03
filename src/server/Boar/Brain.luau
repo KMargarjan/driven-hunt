@@ -551,8 +551,9 @@ function Brain:step(dt: number, obs)
 	--
 	-- `_crippleTurn` is +-1, chosen once when it was hit, so one animal circles one way rather than
 	-- wobbling. The wound keeps running down: `Wound.advance` is charged by the distance it actually
-	-- covers, so a circling boar bleeds out on the same model as a running one -- 60 studs of rear
-	-- flight at `CRIPPLE_SPEED` is about 20 s of circling, inside `BLEED_OUT_MAX_SECONDS`.
+	-- covers, so a circling boar bleeds out on the same model as a running one -- a single rump slug
+	-- is given 81 of `FLIGHT.rear`'s 90 studs (`Wound.flightStuds` tapers it past MORTAL), which at
+	-- `CRIPPLE_SPEED` is about 18 s of circling, inside `BLEED_OUT_MAX_SECONDS`.
 	--
 	-- THE ACCEL RAMP IS BYPASSED, DOWNWARDS ONLY, and that is said out loud because the bolt above is
 	-- the only other place in the system that does it. The back legs went in one frame; a boar easing

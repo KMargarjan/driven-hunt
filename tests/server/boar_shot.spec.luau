@@ -54,6 +54,13 @@ local FAKE_IDS = {
 	deathRight = 20008,
 	hitFront = 20009,
 	hitBack = 20010,
+	-- The three this project authored. They are here so the live cases cover all THIRTEEN clips --
+	-- the pre-roll's own count among them -- and so a boar in this spec can reach the drag and the
+	-- paddle. The "with no id" half is proved separately, by `withIds({})`, which builds its own
+	-- config rather than leaning on what this table happens to leave out.
+	crippleDrag = 20011,
+	deathPaddleLeft = 20012,
+	deathPaddleRight = 20013,
 }
 
 -- Every one-shot `Body` can play, and the config row it reads. The names are the keys
@@ -290,8 +297,10 @@ return function()
 		end)
 
 		it("gives a rump wound a flight it can finish at a crawl, inside the bleed-out ceiling", function()
-			-- 60 studs at CRIPPLE_SPEED is the reaction's own length: long enough for a hunter to
-			-- walk up and finish it, short enough that no boar circles for ever.
+			-- `FLIGHT.rear` at CRIPPLE_SPEED is the reaction's own length: long enough for a hunter
+			-- to walk up and finish it, short enough that no boar circles for ever. 90 studs is the
+			-- UNTAPERED flight; `Wound.flightStuds` tapers it past MORTAL, so one 55-point rump slug
+			-- is given 81 and about 18 s (review round 2, note 1).
 			local seconds = WOUND.FLIGHT.rear / WOUND.CRIPPLE_SPEED
 			expect(seconds > 5).to.equal(true)
 			expect(seconds < WOUND.BLEED_OUT_MAX_SECONDS).to.equal(true)
@@ -485,6 +494,11 @@ return function()
 		end)
 
 		it("flag ON: every clip and every sound is ASKED FOR before the first shot", function()
+			-- The clip half of the name, which this case used not to assert at all (review round 2,
+			-- note): `warmAssets` builds a track for every clip through `trackFor`, so after the
+			-- pre-roll the handle holds one per entry in `MODEL.CLIPS` -- the thirteen, not the two
+			-- or three a boar happens to play. That is the half of the measured 364 ms that was the
+			-- animation and not the audio.
 			-- The other half of the lateness, and the half no pure function can hold: a client fetches
 			-- an asset when it is told to play it, so everything is played once, silently, when the coat
 			-- goes on. This asserts what the warm-up leaves behind -- every sound back at its configured
@@ -493,6 +507,8 @@ return function()
 			local runtime = newRuntime(true, "BoarsShotWarm", true)
 			local handle = runtime:spawn(Vector3.new(-20, GROUND_Y, -20))
 			step(runtime, 2)
+			local drawn = runtime:animationOf(handle.id)
+			expect(drawn).to.be.ok() -- the coat is on, so the pre-roll has run
 			local folder = soundsOf(handle) :: Instance
 			local warm = 0
 			for _, child in ipairs(folder:GetChildren()) do
@@ -502,6 +518,11 @@ return function()
 				end
 			end
 			expect(warm > 0).to.equal(true) -- it really did pre-roll
+			local clips = 0
+			for _ in pairs(MODEL.CLIPS) do
+				clips += 1
+			end
+			expect(drawn.tracks).to.equal(clips)
 			-- ...and it is over after WARM_SECONDS, with every volume back.
 			step(runtime, math.ceil(MODEL.WARM_SECONDS / DT) + 4)
 			-- `Sound.Volume` is a float32, so 0.8 comes back as 0.800000011920929: compared to a
@@ -1042,8 +1063,10 @@ return function()
 				end
 				far = math.max(far, flatDistance(handle.part.Position, at))
 			end
-			-- IT STAYS WHERE IT WAS HIT. A bolting boar covers 38 studs a second; three seconds of
-			-- circling at CRIPPLE_SPEED cannot leave a circle a few studs across.
+			-- IT STAYS WHERE IT WAS HIT.
+			-- IT IS CRIPPLED, SAID BY THE BRAIN AND NOT INFERRED FROM NOT STRAYING (review round 2,
+			-- note): `handle.state()` is the runtime's own read-only seam onto `Brain:state`.
+			expect(handle.state()).to.equal("CRIPPLED")
 			-- A bolting boar covers 38 studs a second; three seconds of circling at CRIPPLE_SPEED
 			-- cannot leave a circle about 11.5 studs across (see the radius case above).
 			expect(far < 18).to.equal(true)

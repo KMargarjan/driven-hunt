@@ -191,12 +191,12 @@ Assets.KEYS = table.freeze({
 	boarDeathRight = "boar.anim.death.right",
 	boarHitFront = "boar.anim.hit.front",
 	boarHitBack = "boar.anim.hit.back",
-	-- THE THREE THIS PROJECT AUTHORED (task 116 fix round), declared here before they are published
-	-- exactly as the ten above were: `tools/boar_prep.py` writes `Death_Paddle_L.fbx`,
-	-- `Death_Paddle_R.fbx` and `Cripple_Drag.fbx`, and an animation asset id can only be made by
-	-- hand in Studio's Animation Editor (see the block above, and ESCALATE.md). A declared key with
-	-- no row is the honest state until then: `Assets.byKey` answers nil, `Boar.Body.hasClip` is
-	-- false, and the boar behaves exactly as it did before these clips existed.
+	-- THE THREE THIS PROJECT AUTHORED (task 116 fix round): `tools/boar_prep.py` writes
+	-- `Death_Paddle_L.fbx`, `Death_Paddle_R.fbx` and `Cripple_Drag.fbx`, and an animation asset id
+	-- can only be made by hand in Studio's Animation Editor (see the block above, and ESCALATE.md).
+	-- The Director published all three on 2026-10-03 and their rows are further down this file. A
+	-- declared key with no row is the honest state until a publish: `Assets.byKey` answers nil,
+	-- `Boar.Body.hasClip` is false, and the boar behaves exactly as it did before the clips existed.
 	boarDeathPaddleLeft = "boar.anim.death.paddle.left",
 	boarDeathPaddleRight = "boar.anim.death.paddle.right",
 	boarCrippleDrag = "boar.anim.cripple.drag",
@@ -1765,6 +1765,7 @@ Assets.ROWS = {
 		creator = "8167651842",
 		licence = BOAR_LICENCE,
 		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
 		-- READ BACK OFF THE PUBLISHED ASSET with `Animator:LoadAnimation` on a live rig, not taken
 		-- from the FBX: 25 keys at 24 fps is 24 INTERVALS = 1.0000 s, and the prep tool said 1.042
 		-- until this measurement corrected it (the same one-frame error the ten package clips had).
