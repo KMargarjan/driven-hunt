@@ -123,7 +123,13 @@ Flags.DEFAULTS = {
 		-- collisionless and NOT raycastable, so a shot that hit before still hits exactly the same
 		-- part.
 		default = false,
-		-- The owner is the module that READS it at its boundary (`Boar.CONFIG.MODEL.ENABLED`) and
+		-- SINCE TASK 117 it also carries the calm repertoire -- what a boar does when nothing is
+		-- wrong: graze, root, lift its head to smell, stand, walk a few steps. OFF, an idle boar
+		-- wanders at `WANDER_SPEED` with the old graze pauses, exactly as before.
+		--
+		-- The owner is the module that READS it at its boundary (`Boar.CONFIG.MODEL.ENABLED` and,
+		-- since task 117, `Boar.CONFIG.CALM.ENABLED` -- the same module, the same load, so the two
+		-- reads cannot disagree) and
 		-- passes it inward as `config` -- the only permitted shape, and what keeps both branches
 		-- reachable by parameter while the flag sits at one of them.
 		owner = "ServerScriptService.Boar",

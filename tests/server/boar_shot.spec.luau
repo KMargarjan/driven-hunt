@@ -61,11 +61,20 @@ local FAKE_IDS = {
 	crippleDrag = 20011,
 	deathPaddleLeft = 20012,
 	deathPaddleRight = 20013,
+	-- The calm repertoire (task 117), here for the same reason: the live cases cover every clip the
+	-- config declares, the pre-roll's own count among them.
+	smell = 20014,
+	grazeLoop = 20015,
+	grazeChew = 20016,
+	grazeStart = 20017,
+	grazeEnd = 20018,
+	digWalk = 20019,
 }
 
 -- Every one-shot `Body` can play, and the config row it reads. The names are the keys
 -- `Body.attachSounds` puts in `handle.sounds`, so a renamed sound fails here rather than going quiet.
 local ONE_SHOTS = {
+	{ name = "sniff", spec = SOUND.SNIFF }, -- task 117: the head comes up
 	{ name = "hit", spec = SOUND.HIT },
 	{ name = "cry", spec = SOUND.CRY },
 	{ name = "death", spec = SOUND.DEATH },
@@ -137,6 +146,13 @@ return function()
 				-- section 13.3). A clone, so the runtime never writes into the module's own table.
 				MODEL = (function()
 					local copy = table.clone(MODEL)
+					copy.ENABLED = modelEnabled
+					return copy
+				end)(),
+				-- The calm repertoire rides the same flag (task 117), and these runtimes are the only
+				-- place a REAL head-lift -- and therefore a real sniff -- can happen in a spec.
+				CALM = (function()
+					local copy = table.clone(CONFIG.CALM)
 					copy.ENABLED = modelEnabled
 					return copy
 				end)(),
@@ -803,6 +819,20 @@ return function()
 			expect(SOUND.PITCH_JITTER > 0.02).to.equal(true)
 			expect(SOUND.PITCH_JITTER < 0.2).to.equal(true)
 		end)
+
+		it("gives the sniff a pitch of its own, and every other sound none", function()
+			-- THE DATA HALF ONLY, and said so (review round 3, the Director's sweep): the arithmetic
+			-- `playOneShot` does with this -- `(spec.pitch or 1) * jitteredPitch(...)` -- is asserted
+			-- END TO END in `boar_calm.spec`, "the sniff is played HIGH", which reads the live
+			-- `Sound.PlaybackSpeed` after a real head-lift. A case that multiplied the two itself
+			-- here would pass with that multiplication deleted.
+			expect(SOUND.SNIFF.pitch > 1.1).to.equal(true)
+			for _, row in ipairs(ONE_SHOTS) do
+				if row.name ~= "sniff" then
+					expect(row.spec.pitch).to.equal(nil)
+				end
+			end
+		end)
 	end)
 
 	describe("the dying twitch", function()
@@ -926,7 +956,7 @@ return function()
 			end
 			table.sort(names)
 			expect(table.concat(names, ",")).to.equal(
-				"breath,cry,death,fall,grunt,hit,lastBreath,steps_run,steps_trot,steps_walk"
+				"breath,cry,death,fall,grunt,hit,lastBreath,sniff,steps_run,steps_trot,steps_walk"
 			)
 			-- ...and only ever one folder, however many times it steps.
 			step(runtime, 60)
@@ -1020,6 +1050,39 @@ return function()
 				known = known or id == chosen
 			end
 			expect(known).to.equal(true)
+			runtime:destroy()
+		end)
+
+		it("flag ON: the sniff is played HIGH, which is the pitch centre end to end", function()
+			-- `Body.playOneShot` multiplies the jitter by the spec's own `pitch`, which is how the
+			-- sniff is the same breath sample played high (task 117). This drives the WHOLE path --
+			-- the Brain drawing `smell`, the Runtime firing the sound on that edge, `playOneShot`
+			-- doing the arithmetic -- and reads the `PlaybackSpeed` the player would hear. A case
+			-- that multiplied the two numbers itself would pass with the multiplication deleted
+			-- (review round 3, the Director's sweep).
+			local runtime = newRuntime(true, "BoarsShotSniff", true)
+			local handle = runtime:spawn(Vector3.new(40, GROUND_Y, 0))
+			warmedUp(runtime)
+			local sniff = soundNamed(handle, "sniff") :: Sound
+			local heard = false
+			for _ = 1, 40000 do
+				step(runtime)
+				if audible(sniff) then
+					heard = true
+					break
+				end
+			end
+			expect(heard).to.equal(true) -- a calm boar lifts its head sooner or later
+			local centre = SOUND.SNIFF.pitch
+			local jitter = SOUND.PITCH_JITTER
+			-- Inside the band the centre allows, and ABOVE 1 -- which is the whole point of the
+			-- field: the same sample, played high.
+			expect(sniff.PlaybackSpeed >= centre * (1 - jitter) - 1e-4).to.equal(true)
+			expect(sniff.PlaybackSpeed <= centre * (1 + jitter) + 1e-4).to.equal(true)
+			expect(sniff.PlaybackSpeed > 1 + jitter).to.equal(true)
+			TestKit.note(
+				string.format("boar-shot: the sniff played at %.3f (centre %.2f)", sniff.PlaybackSpeed, centre)
+			)
 			runtime:destroy()
 		end)
 

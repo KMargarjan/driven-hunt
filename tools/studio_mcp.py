@@ -687,6 +687,7 @@ SCOPE_SPECS = {
                "tests/client/weapon_client.spec.luau", "tests/client/hit_marker.spec.luau",
                "tests/client/shoot_boar.spec.luau"),
     "boar": ("tests/server/boar_body.spec.luau", "tests/server/boar_brain.spec.luau",
+             "tests/server/boar_calm.spec.luau",
              "tests/server/boar_hit.spec.luau", "tests/server/boar_model.spec.luau",
              "tests/server/boar_shot.spec.luau", "tests/server/boar_sounder.spec.luau",
              "tests/server/boar_wound.spec.luau", "tests/server/boar_zones.spec.luau",
@@ -702,7 +703,8 @@ SCOPE_SPECS = {
     # to either reaches it (task 115).
     "assets": ("tests/server/assets_seam.spec.luau", "tests/server/boar_model.spec.luau"),
     "flags": ("tests/server/flags.spec.luau", "tests/client/flags_client.spec.luau",
-              "tests/server/boar_model.spec.luau", "tests/server/boar_shot.spec.luau"),
+              "tests/server/boar_model.spec.luau", "tests/server/boar_shot.spec.luau",
+              "tests/server/boar_calm.spec.luau"),
     "hud": ("tests/client/hit_marker.spec.luau",),
     "input": ("tests/client/input_driving.spec.luau",),
     "sync": ("tests/server/sync.spec.luau", "tests/client/client_env.spec.luau"),

@@ -614,7 +614,16 @@ return function()
 			deathPaddleLeft = "boar.anim.death.paddle.left",
 			deathPaddleRight = "boar.anim.death.paddle.right",
 			crippleDrag = "boar.anim.cripple.drag",
+			smell = "boar.anim.calm.smell",
+			grazeLoop = "boar.anim.calm.graze.loop",
+			grazeChew = "boar.anim.calm.graze.chew",
+			grazeStart = "boar.anim.calm.graze.start",
+			grazeEnd = "boar.anim.calm.graze.end",
+			digWalk = "boar.anim.calm.dig.walk",
 		}
+
+		-- Every one of the nineteen clips is published, so there is no skip list any more (review
+		-- round 2, note: an empty table and three `continue` guards nothing could reach).
 
 		-- THE THREE THIS PROJECT AUTHORED (task 116 fix round), PUBLISHED by the Director on
 		-- 2026-10-03 with each id verified by `AnimationClipProvider:GetAnimationClipAsync`. They are
@@ -645,10 +654,10 @@ return function()
 				inKeys += 1
 				expect(MODEL.CLIPS[name]).to.be.ok()
 			end
-			-- Ten out of the package plus the three this project authored, and the two tables agree
-			-- about every one of the thirteen.
-			expect(inConfig).to.equal(13)
-			expect(inKeys).to.equal(13)
+			-- Ten out of the package, three this project authored, and six more of the package's own
+			-- for the calm repertoire (task 117). The two tables agree about every one of them.
+			expect(inConfig).to.equal(19)
+			expect(inKeys).to.equal(19)
 			expect(authored).to.equal(3)
 		end)
 
