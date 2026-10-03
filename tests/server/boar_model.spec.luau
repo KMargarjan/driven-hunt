@@ -484,6 +484,27 @@ return function()
 		end)
 	end)
 
+	describe("a field may never be named after a method", function()
+		-- THE GUARD FOR THE ONE BUG THIS TASK SHIPPED, driven with a clash built here because no spec
+		-- can make a real Runtime clash without first introducing the defect. `Runtime.__index =
+		-- Runtime`, so while a field of a method's name is nil the lookup falls through and hands
+		-- back the function -- a silent wrong value, not an error. `Boar.newRuntime` asserts on this,
+		-- and every runtime built above this line is that assertion passing.
+		it("finds a clash, ignores __index, and says nothing about a clean table", function()
+			local methods = { step = function() end, folder = function() end, __index = {} }
+			expect(#Boar.fieldMethodClashes({ _config = 1, _boars = {} }, methods)).to.equal(0)
+			expect(Boar.fieldMethodClashes({ step = nil, folder = 2 }, methods)[1]).to.equal("folder")
+			-- A nil field is not an own key at all, which is exactly why the bug was invisible: the
+			-- clash has to be caught at CONSTRUCTION, where the field is written.
+			local both = Boar.fieldMethodClashes({ step = false, folder = 2 }, methods)
+			expect(#both).to.equal(2)
+			expect(both[1]).to.equal("folder") -- sorted, so the message is the same every run
+			expect(both[2]).to.equal("step")
+			-- __index is the metatable pointing at itself, not a method anybody calls.
+			expect(#Boar.fieldMethodClashes({ __index = 1 }, methods)).to.equal(0)
+		end)
+	end)
+
 	describe("a death holds its last frame", function()
 		it("freezes at the end, and never before it or twice", function()
 			local epsilon = MODEL.HOLD_EPSILON

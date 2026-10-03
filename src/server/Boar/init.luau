@@ -474,7 +474,11 @@ function Boar.newRuntime(world)
 	self._config.MODEL.ANIMATION_IDS = table.clone(self._config.MODEL.ANIMATION_IDS)
 	-- The skinned model's two lookups, both nil until a boot script wires them: with no template the
 	-- boar is the grey box, which is what every spec before task 115 asserts.
-	self._modelTemplate = nil :: Instance?
+	-- `_heldTemplate` AND NOT `_modelTemplate`: the method below is `Runtime:_modelTemplate`, which
+	-- lives on the metatable, so a nil FIELD of that name resolves to the METHOD and the next line to
+	-- touch it reads "attempt to index function with 'Parent'". Measured the hard way: it took out
+	-- four cases of boar_model.spec on the first gate run of this task.
+	self._heldTemplate = nil :: Instance?
 	self._templateFor = nil :: (() -> Instance?)?
 	self._animationIdFor = nil :: ((string) -> number?)?
 	-- FALSE MEANS "USE THE MODULE'S", and once `Runtime:setModelSource` has been called it is true
@@ -529,7 +533,41 @@ function Boar.newRuntime(world)
 
 	self._folder = Body.ensureFolder(world.parent, world.folderName)
 	world.folder = self._folder
+
+	-- THE GUARD FOR A WHOLE CLASS OF BUG, and it is here because this task shipped one of them.
+	-- `Runtime.__index = Runtime`, so a field whose name is also a METHOD name is invisible while it
+	-- is nil: the lookup falls through to the metatable and hands back the function. `_modelTemplate`
+	-- was both, and the next line to read it said "attempt to index function with 'Parent'" -- four
+	-- cases of boar_model.spec, on the first gate run of task 115. A nil field is the normal state of
+	-- half the table above, so this is a trap every future field walks past.
+	local clashes = Boar.fieldMethodClashes(self, Runtime)
+	assert(
+		#clashes == 0,
+		string.format(
+			"Boar.newRuntime: %s is both a field and a method of Runtime. While the field is nil the"
+				.. " method answers in its place, which is a silent wrong value and not an error."
+				.. " Rename the field (src/server/Boar/init.luau).",
+			table.concat(clashes, ", ")
+		)
+	)
 	return self
+end
+
+-- Every name that is both an own field of `instance` and a key of `methods`. Pure, sorted, and its
+-- own function so the guard above is mutation-checkable: a spec can hand it a clash it built itself
+-- (tests/server/boar_model.spec.luau), which no spec can do to a real Runtime without first
+-- introducing the defect.
+function Boar.fieldMethodClashes(instance: { [string]: any }, methods: { [string]: any }): { string }
+	local out = {}
+	for name in pairs(instance) do
+		-- `__index` is Runtime pointing at itself and is not a method anybody calls; every other key
+		-- of `methods` is.
+		if name ~= "__index" and methods[name] ~= nil then
+			table.insert(out, name)
+		end
+	end
+	table.sort(out)
+	return out
 end
 
 function Runtime:folder(): Folder
@@ -577,13 +615,13 @@ function Runtime:setModelSource(templateFor: (() -> Instance?)?, animationIdFor:
 	self._templateFor = templateFor
 	self._animationIdFor = animationIdFor
 	self._modelSourceSet = true -- from here on this runtime ignores the module's, nil included
-	self._modelTemplate = nil
+	self._heldTemplate = nil
 	self._askedModelAt = -math.huge
 end
 
 -- The template, or nil, asking at most once every ASK_EVERY_SECONDS until it has one.
 function Runtime:_modelTemplate(now: number): Instance?
-	local held = self._modelTemplate
+	local held = self._heldTemplate
 	if held ~= nil and held.Parent ~= nil then
 		return held
 	end
@@ -599,7 +637,7 @@ function Runtime:_modelTemplate(now: number): Instance?
 	if template == nil then
 		return nil
 	end
-	self._modelTemplate = template
+	self._heldTemplate = template
 	local ids = self._config.MODEL.ANIMATION_IDS
 	local lookup = if self._modelSourceSet then self._animationIdFor else moduleAnimationIdFor
 	if lookup then
