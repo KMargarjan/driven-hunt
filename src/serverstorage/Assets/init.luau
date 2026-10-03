@@ -43,7 +43,11 @@ export type Source = "meshy" | "creator-store" | "roblox" | "own"
 -- "meshpart": the template is EXACTLY ONE MeshPart. The Loader returns that MeshPart and destroys
 --             the Model wrapper it arrived in. The gun is this.
 -- "model":    the template is a tree; the Loader returns the Model. Map props may be this.
-export type Kind = "meshpart" | "model" | "image"
+-- "animation": the row carries an ANIMATION ASSET ID and nothing else is inserted. `Loader` never
+--              touches one -- an animation is not an Instance you insert, it is a number you put on
+--              an `Animation.AnimationId` -- so `Assets.INSERTABLE` keeps it out of `keysFor`, and
+--              the only consumer is `Boar.Body`, which reads the id through `byKey`.
+export type Kind = "meshpart" | "model" | "image" | "animation"
 export type Moderation = "approved" | "reviewing" | "rejected" | "unknown"
 
 export type Licence = {
@@ -116,6 +120,21 @@ export type AssetRow = {
 	-- id is read ONCE through the harness when the row is written and kept here like every other
 	-- measured fact about an upload.
 	textureId: string?,
+	-- THE CONSUMER MUST NOT WRITE `Size` ON THIS ONE (task 115). Design 6.1's rule is "the consumer
+	-- sets Size, always", and for a SKINNED mesh that rule is wrong: `Size` (and `Model:ScaleTo`)
+	-- scales the mesh and NOT the bones, so the model tears the moment a clip plays -- measured by
+	-- the Director on 2026-10-03. The scale of such a model is baked into the uploaded geometry
+	-- instead (`tools/boar_prep.py`), and this field is how the row says so. `sizeStuds` then
+	-- records what it ALREADY measures rather than what to set it to, and `nil`/false is every row
+	-- that predates the boar.
+	bakedScale: boolean?,
+	-- HOW LONG THIS ANIMATION RUNS, in seconds, for a `kind = "animation"` row and nothing else
+	-- (task 115). MEASURED by reading the published asset back with
+	-- `AnimationClipProvider:GetAnimationClipAsync` and taking its last keyframe's `Time` -- which is
+	-- the only honest source, and it is not the frame count: 101 frames at 24 fps SPAN 100 intervals,
+	-- so the clip is 4.167 s and not 4.208. `BoarAssetsBoot` compares this against the number
+	-- `Boar.CONFIG.MODEL.CLIPS` carries and warns if the two copies have drifted.
+	clipSeconds: number?,
 	notes: string?,
 }
 
@@ -146,7 +165,39 @@ Assets.KEYS = table.freeze({
 	gunHandRight = "gun.hand.right",
 	gunHandLeft = "gun.hand.left",
 	handLeft = "hand.left",
+	-- THE BOAR (task 115). One key for the skinned model, and one per clip.
+	--
+	-- THE TEN CLIP KEYS HAVE NO ROWS YET, AND THAT IS NOT AN OVERSIGHT. An animation asset id can
+	-- only be made inside Studio: Open Cloud's Assets API takes an Animation as a `.rbxm`/`.rbxmx`
+	-- that was "edited inside Roblox Studio" and nothing outside Studio can write one, and
+	-- `AssetService:CreateAssetAsync` answered "CreateAssetAsync and CreateAssetVersionAsync are not
+	-- available yet" for both Animation and Model when it was tried here on 2026-10-03. So the ids
+	-- arrive from the Animation Editor's "Publish to Roblox", one clip at a time, and
+	-- `ESCALATE.md`'s NEEDS DIRECTOR CLICKS entry is the ten clicks, and the rows they will become
+	-- carry `kind = "animation"` and `scope = "boar-animation"` -- `INSERTABLE` below is what keeps
+	-- them away from `InsertService`, so the scope name is a label and not a mechanism. The KEYS live
+	-- here anyway, now,
+	-- for the reason `Map.TAGS` gives: a key typed as a literal at the one place that reads it is a
+	-- silent nil nobody can explain. Until the rows exist, `byKey` answers nil, `Boar.Body` welds the
+	-- model and plays nothing, and the boar stands still -- which is honest and is tested.
+	boarMale = "boar.male",
+	boarIdle = "boar.anim.idle",
+	boarWalk = "boar.anim.walk",
+	boarTrot = "boar.anim.trot",
+	boarRun = "boar.anim.run",
+	boarTurnLeft = "boar.anim.turn.left",
+	boarTurnRight = "boar.anim.turn.right",
+	boarDeathLeft = "boar.anim.death.left",
+	boarDeathRight = "boar.anim.death.right",
+	boarHitFront = "boar.anim.hit.front",
+	boarHitBack = "boar.anim.hit.back",
 })
+
+-- WHICH KINDS `Loader` CAN TURN INTO AN INSTANCE, and therefore which ones `keysFor` may hand a boot
+-- script to preload. An "image" is a texture id a property carries; an "animation" is a number an
+-- `Animation.AnimationId` carries. Calling `InsertService:LoadAsset` on either is a load that can
+-- only fail, and a boot script that spent its budget on one would delay the model that does need it.
+Assets.INSERTABLE = table.freeze({ meshpart = true, model = true })
 
 -- THE SIZE IS UNIFORM, AND THAT IS A DECISION WORTH READING (design 6.1 says "the consumer sets
 -- Size, always", and 6.1's table pins `shotgun.handle` to HANDLE_SIZE = (0.4, 0.5, 4.4)).
@@ -250,6 +301,42 @@ local MODEL_B_LICENCE = {
 		.. "(https://sketchfab.com/3d-models/double-barrel-shotgun-063cb20627ea40b0915f9d9eeb65c8dd) "
 		.. "by Ryan_Nein (https://sketchfab.com/Ryan_Nein) licensed under CC-BY-4.0 "
 		.. "(http://creativecommons.org/licenses/by/4.0/)",
+}
+
+-- THE BOAR'S MEASURED SIZE (task 115), read in Studio off the loaded asset 120607820179994 on
+-- 2026-10-03: one skinned MeshPart, Size (1.4011, 3.2573, 5.5000). The Z is `Boar.CONFIG.BODY_SIZE.Z`
+-- exactly, which is what the model was scaled to; the other two are the animal's own proportions.
+-- It is a constant and not a literal in the row because `Boar.Body`'s own spec asserts against the
+-- same number, and two copies of a measurement drift.
+local BOAR_MALE_SIZE = Vector3.new(1.4011, 3.2573, 5.5)
+
+-- WHAT AN ANIMATION ROW PUTS IN THE GEOMETRY FIELDS `AssetRow` REQUIRES OF EVERY ROW. Named, so a
+-- reader meets "no geometry" instead of a zero vector they have to decide about, and so a grep finds
+-- every row that is not a thing you can see.
+local NO_GEOMETRY = Vector3.zero
+local NO_FIDELITY = "n/a"
+
+-- THE ONE LICENCE THE BOAR IS USED UNDER. Karen bought the package; the licence is hers and this
+-- row is the record of it.
+--
+-- WHAT COULD NOT BE VERIFIED HERE, said plainly (rule 8): `https://www.fab.com/eula` answers 403 to
+-- this machine's fetch tool, so the grant below was read from a web search of that page on
+-- 2026-10-03 and NOT from the page itself. The two conditions that matter to this repository are not
+-- in doubt either way and are both met: the model is a COMPONENT of a game that adds its own value,
+-- and it is never distributed on a standalone basis -- the binary is never committed (`.rbxm` is
+-- banned outright), and what reaches Roblox is one asset inside Karen's own account, used by her own
+-- place. If the exact clause ever matters, Karen has the purchase and the Fab licence page.
+local BOAR_LICENCE = {
+	basis = "fab-standard",
+	quote = 'A "Standard License" grants you a non-exclusive and non-transferable license to '
+		.. "privately use, reproduce, display, perform, and modify the Content in accordance with "
+		.. "the terms of this Agreement. [...] you may not Distribute Content on a standalone basis "
+		.. "to third parties except to your collaborators",
+	quotedFrom = "fab.com/eula, read through a web search on 2026-10-03; the page itself answers 403 "
+		.. "to this machine (see the comment above)",
+	readOn = "2026-10-03",
+	attribution = 'Wild boar models and animations: "Boar Family" by RedDeer, bought on Fab '
+		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-03",
 }
 
 Assets.ROWS = {
@@ -1277,6 +1364,367 @@ Assets.ROWS = {
 			.. "is Z, not X -- the forearm runs at an angle to the fingers, so the bounding box is a "
 			.. "diagonal, which is why `uniformTo` pins the LONGEST axis rather than X.",
 	},
+	-- ------------------------------------------------- the boar (task 115)
+	--
+	-- KAREN bought RedDeer's "Boar Family" on Fab on 2026-10-03 and gave the upload OK the same day,
+	-- verbatim: "1. go 2. upload". The package is Male/Female/Cub with 74 clips each; this is the
+	-- MALE, with the ten clips the drive asks for. The female and the cub are a later task
+	-- ("we start with one bord and when this works we do with rest").
+	--
+	-- THREE ROWS FOR ONE MODEL, AND THE FIRST TWO ARE THE MEASUREMENT (rule 7: the id stays). The
+	-- scale of a skinned mesh has to be baked into the uploaded geometry, because `Size` and
+	-- `Model:ScaleTo` move the mesh and not the bones and the model tears as soon as a clip plays.
+	-- Which number to bake was not known, and two uploads settled it:
+	--   v1 (73934667856496)  the scale in the FBX UNIT HEADER (`FBX_SCALE_ALL`): arrived 1.9185
+	--                        studs long -- the model's length in Blender METRES. Roblox ignores the
+	--                        header entirely.
+	--   v2 (95872773434675)  the scale in the geometry via `FBX_SCALE_NONE` at global_scale 2.8668:
+	--                        arrived 550 studs long. Blender's exporter ALSO pushes its own
+	--                        metre-to-centimetre hundred into the geometry.
+	--   v3 (120607820179994) `FBX_SCALE_NONE` at global_scale 0.028668: arrived (1.4011, 3.2573,
+	--                        5.5000) studs, which is the length `Boar.CONFIG.BODY_SIZE.Z` asks for.
+	-- `tools/boar_prep.py` now re-opens its own export and FAILS the run on a length that is more
+	-- than 0.1 % out, so that cannot cost a third upload.
+	--
+	-- WHY THE MODEL IS 3.26 STUDS TALL AGAINST A 3-STUD BOX: the LENGTH is what it is fitted by.
+	-- Fitting all three axes would squash a real animal onto the grey box's proportions, and a
+	-- squashed boar measures perfectly (design 6.1's own words). The shoulder standing a quarter of a
+	-- stud above the physics envelope is right for an animal, and a ray cannot see it: the model is
+	-- `CanQuery = false` and every hit still lands on the box and its three zone parts.
+	{
+		key = "boar.male",
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "boar" :: string?,
+		modelId = 73934667856496,
+		supersededBy = 3,
+		displayName = "Boar Male RedDeer",
+		fileName = "model.fbx",
+		sourceSha256 = "983998c514725cf080a27ad1a0a446fe3d72e8bbf9b3dd9fed447344496e77a0",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 13976,
+		texturePx = 1024,
+		sizeStuds = Vector3.new(0.4887, 1.1362, 1.9185),
+		naturalSizeStuds = Vector3.new(0.4887, 1.1362, 1.9185),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "THE FIRST SCALE MEASUREMENT. Exported with the scale in the FBX unit header; it "
+			.. "arrived at the model's length in metres, so Roblox does not read that header.",
+	},
+	{
+		key = "boar.male",
+		version = 2,
+		kind = "model" :: Kind,
+		scope = "boar" :: string?,
+		modelId = 95872773434675,
+		supersededBy = 3,
+		displayName = "Boar Male RedDeer 5.5",
+		fileName = "model.fbx",
+		sourceSha256 = "9486b21fa2d06406a4ad0907b81295e79c14a0e0b1a7107c0683eab5114d685e",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 13976,
+		texturePx = 1024,
+		sizeStuds = Vector3.new(140.1105, 325.7303, 550.0),
+		naturalSizeStuds = Vector3.new(140.1105, 325.7303, 550.0),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "THE SECOND SCALE MEASUREMENT. The scale went into the geometry, and Blender's own "
+			.. "metre-to-centimetre hundred went in with it: a boar a hundred times too big.",
+	},
+	{
+		key = "boar.male",
+		version = 3,
+		kind = "model" :: Kind,
+		scope = "boar" :: string?,
+		modelId = 120607820179994,
+		displayName = "Boar Male RedDeer v3",
+		fileName = "model.fbx",
+		sourceSha256 = "3f74296cedcc5a21412ee0c2113a970ea47c0848e722d9d0c26e6aa188a02973",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 13976,
+		texturePx = 1024,
+		-- `sizeStuds` RECORDS WHAT THIS MODEL ALREADY MEASURES, it is not a size to write: see
+		-- `bakedScale` on the AssetRow type. MEASURED in Studio off the loaded asset, 2026-10-03.
+		sizeStuds = BOAR_MALE_SIZE,
+		naturalSizeStuds = BOAR_MALE_SIZE,
+		-- NO PIVOT CORRECTION AND NO ROTATION, and both were measured rather than hoped for. Off the
+		-- loaded asset, with the rig's origin at (0, 0, 0): the nose sits at z -2.78 and the last
+		-- tail bone at z +2.01, so the animal faces -Z, which is exactly a Part's own LookVector; a
+		-- hind hoof sits at y +0.29 and the mesh's lowest vertex at y -0.002, so the origin is the
+		-- GROUND the animal stands on. `Boar.Body` works out the one offset it needs -- feet onto the
+		-- bottom of the physics box -- from the template's own measured height, so nothing here has
+		-- to be kept in step with `BODY_SIZE`.
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "RedDeer's male wild boar: 13,976 triangles, 40 bones, one skinned MeshPart with a "
+			.. "SurfaceAppearance, 1024 albedo/normal/roughness. Prepped by tools/boar_prep.py and "
+			.. "looked at in game before it was called done (.screenshots, task 115).",
+	},
+	-- ------------------------------- the boar's ten clips (task 115, published 2026-10-03)
+	--
+	-- WHERE THESE IDS CAME FROM, and it is the one part of this task no tool could do. Open Cloud
+	-- takes an `Animation` only as a `.rbxm`/`.rbxmx` "edited inside Roblox Studio", which nothing
+	-- outside Studio can write, and `AssetService:CreateAssetAsync` answered "CreateAssetAsync and
+	-- CreateAssetVersionAsync are not available yet" for both `Animation` and `Model` when it was
+	-- tried here. So the DIRECTOR imported each clip's own FBX -- `tools/boar_prep.py` writes one per
+	-- clip for exactly this -- into Studio's Animation Editor and published it by hand. `fileName`
+	-- and `sourceSha256` are that file, so each id is tied to the bytes it was made from.
+	--
+	-- EVERY ID WAS LOADED BACK BEFORE IT WAS WRITTEN DOWN (2026-10-03), through
+	-- `AnimationClipProvider:GetAnimationClipAsync` in Edit: all ten resolve, every clip's own name
+	-- matches the row, and `clipSeconds` is its last keyframe's `Time`. That read-back is also what
+	-- corrected the lengths -- a clip of N frames at 24 fps spans N-1 intervals, so Idle is 4.167 s
+	-- and not the 4.208 the frame count suggested, and every clip was one frame out the same way.
+	--
+	-- THEY ARE ALL PUBLISHED `Loop = true`, deaths and flinches included, because the Animation
+	-- Editor's dialog does not ask. `Boar.Body` sets `AnimationTrack.Looped` from its own config
+	-- before every `Play`, so a death plays once and holds -- a looping death would stand the carcass
+	-- back up every 1.2 s, which is why that is a property write and not a hope about the asset.
+	--
+	-- THE GEOMETRY FIELDS ARE ZERO BECAUSE AN ANIMATION HAS NO GEOMETRY. `AssetRow` asks every row
+	-- for a size, an offset, a rotation and a render fidelity; `NO_GEOMETRY` and `NO_FIDELITY` say
+	-- "this row is not a thing you can see" in one word each, rather than leaving four zeros a reader
+	-- has to decide about. Nothing reads them: `Assets.INSERTABLE` keeps an animation out of
+	-- `keysFor`, so `InsertService` is never asked for one, and the only consumer is `Boar.Body`
+	-- putting `modelId` on an `Animation.AnimationId`.
+	{
+		key = Assets.KEYS.boarIdle,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 82265692105692,
+		displayName = "Arm_Boar|Idle_1",
+		fileName = "Idle_1.fbx",
+		sourceSha256 = "5fbe3b9cf5e35aac318704723907b0bbea522737c51ec8c5710ac5ebc0ed3bf6",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 4.167,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "Standing, breathing, the odd ear flick. What a boar does when nothing is pushing it.",
+	},
+	{
+		key = Assets.KEYS.boarWalk,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 78821328262922,
+		displayName = "Arm_Boar|Walk_F_IP",
+		fileName = "Walk_F_IP.fbx",
+		sourceSha256 = "47d4e066c5a34126ebb1bd2b5e599325eeb0c08cda834a8c73ddc5f636d3040c",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 1.000,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A grazing walk. Hooves travel 2.852 studs/s at rate 1, so it plays at 1.40 for WANDER_SPEED 4.",
+	},
+	{
+		key = Assets.KEYS.boarTrot,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 131287194917750,
+		displayName = "Arm_Boar|Trot_F_IP",
+		fileName = "Trot_F_IP.fbx",
+		sourceSha256 = "eb91fcd4a5279d4e7185e8b807bc8fe4f31ab625c1d0c883a60f4c2e7460a943",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.667,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A pushed trot. Hooves travel 10.244 studs/s at rate 1, so it plays at 1.76 for TROT_SPEED 18.",
+	},
+	{
+		key = Assets.KEYS.boarRun,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 80882224687243,
+		displayName = "Arm_Boar|Run_F_IP",
+		fileName = "Run_F_IP.fbx",
+		sourceSha256 = "539e11602636c46b4391da53a6dd529eca2ca4d360d469e4b9f560e490bd9f28",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.500,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A bolting gallop. Hooves travel 17.210 studs/s at rate 1, so it plays at 2.21 for SPRINT_SPEED 38.",
+	},
+	{
+		key = Assets.KEYS.boarTurnLeft,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 139483442990375,
+		displayName = "Arm_Boar|Turn_L_IP",
+		fileName = "Turn_L_IP.fbx",
+		sourceSha256 = "f083335c685c4fb8422007cee3ae66e94516a83b362d93c1a206544d83a8c67c",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.667,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A pivot to the animal's left, on the spot. Only reachable below WALK_FROM: it skates at any real speed.",
+	},
+	{
+		key = Assets.KEYS.boarTurnRight,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 88781568929523,
+		displayName = "Arm_Boar|Turn_R_IP",
+		fileName = "Turn_R_IP.fbx",
+		sourceSha256 = "d1c80f836f638cbb3189e178e18c3190b8b63d08a129182f4165033034f32e5a",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.667,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The same pivot to the right.",
+	},
+	{
+		key = Assets.KEYS.boarDeathLeft,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 128792697872198,
+		displayName = "Arm_Boar|Death_L",
+		fileName = "Death_L.fbx",
+		sourceSha256 = "683cf0e741a2a8af421333e07192530bf208828999c5ef8c4d3b6cf675eb8307",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 1.208,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "It goes down on its left side -- the side Body.collapse's positive roll tips the box onto. Played ONCE and frozen on its last frame.",
+	},
+	{
+		key = Assets.KEYS.boarDeathRight,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 88751192504828,
+		displayName = "Arm_Boar|Death_R",
+		fileName = "Death_R.fbx",
+		sourceSha256 = "849b04fe370427dc7f35774a2f0cd9a5a43459f2b605fe0178cd2c3a7b43926b",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 1.208,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The same fall to the right, for a negative COLLAPSE_ROLL_DEG. Nothing plays it today, and it is published so that flipping the sign needs no second trip through Studio.",
+	},
+	{
+		key = Assets.KEYS.boarHitFront,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 91365202020290,
+		displayName = "Arm_Boar|Hit_F",
+		fileName = "Hit_F.fbx",
+		sourceSha256 = "f0cd529511c797b9011f7d7521b79634a6351be27dbb6b79c816898f1f497ddd",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.833,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A flinch away from a shot that came from in front. Played ONCE, and it is the only hit feedback the animal itself gives now that the red flash is on an invisible box.",
+	},
+	{
+		key = Assets.KEYS.boarHitBack,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 80205641767239,
+		displayName = "Arm_Boar|Hit_B",
+		fileName = "Hit_B.fbx",
+		sourceSha256 = "1db51f4a2d94fc4120a18e3040993dbd2a04364d5d618c4247f159e5c095249c",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.833,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The same flinch for a shot from behind.",
+	},
 } :: { AssetRow }
 
 -- The newest usable row for a key, or nil -- which means "use the grey box", not "fail".
@@ -1311,7 +1759,7 @@ end
 function Assets.keysFor(scope: string): { string }
 	local out, seen = {}, {}
 	for _, row in ipairs(Assets.ROWS) do
-		if (row.scope or "runtime") == scope and row.kind ~= "image" and row.supersededBy == nil then
+		if (row.scope or "runtime") == scope and Assets.INSERTABLE[row.kind] and row.supersededBy == nil then
 			if not seen[row.key] then
 				seen[row.key] = true
 				table.insert(out, row.key)

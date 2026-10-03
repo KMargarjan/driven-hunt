@@ -10,6 +10,107 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-10-03 · CLOSED 2026-10-03 · NEEDS DIRECTOR CLICKS · Task 115: the ten boar animations can only be published from inside Studio
+
+**Raised by:** Builder, Task 115 (branch `task-115-boar-model`).
+
+**What is blocked:** the boar's legs, and nothing else. The model itself is uploaded, approved,
+measured and welded; with `BOAR_MODEL` on, a boar is RedDeer's textured male boar on the same physics
+box. It does not move, because an `Animation.AnimationId` needs an animation ASSET and there is no
+asset id for any of the ten clips yet.
+
+**Why no tool can do it, measured rather than assumed:**
+
+1. **Open Cloud will not take one from us.** The Assets API's own table gives `Animation` exactly two
+   formats, `.rbxm` and `.rbxmx`, with the restriction *"`.rbxm` or `.rbxmx` files edited outside of
+   Roblox Studio might not upload or function"*. Nothing outside Studio can write one, and `.rbxm` is
+   banned in this repository anyway.
+2. **`AssetService:CreateAssetAsync` is not available.** Tried through the harness's plugin-context
+   `execute_luau`, in Edit mode, on 2026-10-03, with a hand-built `KeyframeSequence`, for both
+   `Enum.AssetType.Animation` and `Enum.AssetType.Model`. Both answered:
+   `"CreateAssetAsync and CreateAssetVersionAsync are not available yet"`.
+3. The documented route is the Animation Editor's **Publish to Roblox**, which is a dialog.
+
+**So: ten clips, two clicks each, and the Builder has made the files for it.**
+`tools/boar_prep.py` writes one FBX per clip, each carrying the rig and that clip alone, at
+`<assets-dir>/boar/prep-male-v4/clips/`:
+
+```
+Idle_1.fbx  Walk_F_IP.fbx  Trot_F_IP.fbx  Run_F_IP.fbx  Turn_L_IP.fbx
+Turn_R_IP.fbx  Death_L.fbx  Death_R.fbx  Hit_F.fbx  Hit_B.fbx
+```
+
+**The exact clicks, in order.** Once, to get a rig to import onto:
+
+1. In Studio, on the DEV place, in **Edit** mode, drag `<assets-dir>/boar/prep-male-v4/model.fbx`
+   into the 3D Importer (**Avatar → 3D Importer**, or File → Import 3D). Accept it. One skinned
+   MeshPart with 40 Bones appears.
+2. Select the imported model. Open **Avatar → Animation Editor**. Give the rig a name when it asks.
+
+Then, for each of the ten files above:
+
+3. **⋯ → Import → From FBX Animation**, pick `<clip>.fbx`, accept.
+4. ~~Click the **Curve Editor** button beside the timeline and press **Confirm**.~~ **NOT NEEDED.**
+   This step came from Roblox's *emote* import page, where a `CurveAnimation` is required. The
+   Director found the publish dialog takes the `KeyframeSequence` directly, and all ten published
+   and load back fine without it.
+5. **⋯ → Publish to Roblox**. Title it exactly the clip's own name — `Walk_F_IP`, `Death_L` and so on
+   — and Save. **Copy the asset id** the Asset Configuration window then shows.
+
+Afterwards, two things that matter:
+
+6. **Delete `ServerStorage.RBX_ANIMSAVES` and the imported model before the next harness run.**
+   ServerStorage is Rojo-owned with `$ignoreUnknownInstances: false`, so anything left there fails
+   the harness's "no instance Rojo does not know about" check — and Workspace must contain no
+   leftovers either.
+7. Hand the Builder the ten `name = id` pairs, or add them yourself: ten rows in
+   `src/serverstorage/Assets/init.luau` with `kind = "animation"`, `scope = "boar-animation"` and
+   `key = Assets.KEYS.boar<Clip>`. **No code changes** — `BoarAssetsBoot` already reads them through
+   `Assets.byKey`, `Boar` already knows the ten clip names, and `Body` already loads a track per clip
+   from the id. Until they exist, `BoarAssetsBoot` warns `"0 of 10 boar clips have an animation asset
+   id"` on every boot and `tests/server/boar_model.spec.luau` asserts that exact state.
+
+**What the Builder did instead of waiting:** everything else. The model, the textures, the scale (two
+uploads to find the rule, now a guard that fails the run), the flag, the weld, the clip decision, the
+per-gait rates measured off the clips themselves, the specs, and a screenshot of the animal standing
+on the box. The gaits cannot be looked at until step 5 is done, and the report says so.
+
+### RESOLVED, 2026-10-03 — the Director published all ten
+
+Creator: Karen. Studio → Animation Editor → **Publish to Roblox**, per clip. **No Curve-Editor
+conversion was needed** (step 4 above is struck out and says why). Some clips were published twice by
+a mis-click; the duplicates are unused and are deliberately **not** recorded — an id nothing reads is
+an id nobody can account for.
+
+```
+Idle_1    82265692105692   Walk_F_IP  78821328262922   Trot_F_IP 131287194917750
+Run_F_IP  80882224687243   Turn_L_IP  139483442990375  Turn_R_IP 88781568929523
+Death_L   128792697872198  Death_R    88751192504828
+Hit_F     91365202020290   Hit_B      80205641767239
+```
+
+**The Builder loaded every one of them back before writing it down** (`AnimationClipProvider:`
+`GetAnimationClipAsync` in Edit, 2026-10-03), independently of the Director's own check. All ten
+resolve, each clip's own name matches its row — and the read-back found **two things the ids alone
+would not have**:
+
+1. **Every clip's length was one frame too long in the config.** N frames at 24 fps span N−1
+   intervals, so Idle is 4.167 s and not the 4.208 the frame count gave; all ten were out by exactly
+   1/24 s. `Boar.CONFIG.MODEL.CLIPS` now carries the measured length, the manifest carries it as
+   `clipSeconds`, `BoarAssetsBoot` warns if the two ever drift and `boar_model.spec` fails the build
+   on it. The per-gait ground speeds were never affected — `tools/boar_prep.py` divides by the
+   intervals it counted, not by the frame count.
+2. **All ten were published `Loop = true`**, deaths and flinches included, because the publish dialog
+   does not ask. `Boar.Body` now writes `AnimationTrack.Looped` from its own config **immediately
+   before every `Play`**, not only where the track is built: a track takes `Looped` from the asset
+   when the asset ARRIVES, which is after `LoadAnimation` returns, so a value written earlier can be
+   overwritten by the load. A looping death would stand the carcass back up every 1.2 seconds in
+   front of the player who just shot it.
+
+Studio was left clean by the Director: the import rig, `RBX_MICROBONE_NODES` and
+`ServerStorage.RBX_ANIMSAVES` all removed, no flag override set.
+
+---
 ## 2026-10-02 · CLOSED 2026-10-02 · NEEDS DIRECTOR · Task 99: `test2` cannot stage `shoot-the-boar` -- a capability refusal in the harness, not in the game
 
 **Raised by:** Builder, Task 99 round 2 (branch `task-99-new-gun`, code commit `1232022`).
