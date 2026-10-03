@@ -203,7 +203,66 @@ at 1.76 at 18, run at 1.65 at 29, idle when stopped, a turn clip blended in at a
 **freezing at t=1.18 of 1.21 with rate 0** on a carcass lying on its flank (`UpVector.Y` = −0.01). The
 feet sat within 0.01 studs of the ground throughout.
 
-## 7. What could not be verified here (rule 8)
+## 7. What Karen saw, and the two faults it found
+
+Karen played it with the flag on (`PLAYTEST.md`, 2026-10-03): *"walking, running is good / yes synced
+in when died / colour is good / head shaking sometimes vierd"*. The gaits and the colour are
+**accepted**. Two defects, and both were found by measuring rather than by looking harder.
+
+### (a) The carcass was buried, because the body was rotated twice
+
+`Body.collapse` rolls the box 45 degrees past its tipping angle so gravity lays it on its side --
+Task 28's answer to "a dead boar standing to attention". The **death clip does the same job**, in the
+rig's own frame, from standing to flat. With both, the animal ends up roughly upside down. Measured
+on a real kill, against a ground at y = 2.000:
+
+| | y | relative to the ground |
+|---|---|---|
+| box centre | 2.994 | +0.99, and its own `UpVector.Y` was −0.001, so the box itself was lying correctly |
+| `root_bone` | 2.992 | +0.99 |
+| `head` | 0.803 | **−1.20** |
+| `ear_2.R` (lowest) | 0.070 | **−1.93** |
+| `hoof_b.L` | 2.863 | +0.86 |
+
+Only the legs were above the surface, which is exactly what the screenshot shows. The same carcass's
+box was then put back upright in the same session, and the clip landed where it was authored to:
+lowest bone **−0.02**, head +0.44, hoof +0.11, nothing below the surface.
+
+So **the roll happens only when nothing is drawn on the box**. With the flag off it is Task 28's
+topple, unchanged; with a model attached the clip does the falling. Two orderings follow from it and
+both are in the code: the coat is attached **before** the collapse can run in the same tick, and a
+boar that is **already a carcass is never dressed** -- its box has been rolled, and dressing it then
+would bury it after all.
+
+### (b) The head shook because the decision outran its own crossfade
+
+Measured over three 7-second windows on standing boars:
+
+- up to **24 clip changes in 7 seconds** on one animal, several lasting **0.03 s** against a
+  `FADE_SECONDS` of 0.15;
+- **three tracks playing at once**, all writing the same bones;
+- the raw per-frame yaw swinging **−120 to +173 deg/s** on a boar whose body speed was **0.0** -- a
+  physics body under an `AlignOrientation` never sits perfectly still;
+- the head -- the end of the longest bone chain, so the biggest amplifier of a disagreement between
+  tracks -- moving at up to **8.0 studs/s** while the body was still.
+
+Three causes, all fixed at the cause rather than damped:
+
+1. **The signal was wrong.** One frame's facing delta divided by `dt` is not a turn rate. It is
+   smoothed over `YAW_SMOOTH_SECONDS` = 0.2, with the exponential constant derived from `dt` so a
+   frame-rate change does not change how much smoothing there is.
+2. **The decision was bistable.** The turn clip had one threshold, so a yaw sitting on it flipped
+   three times a second. It now enters at `TURN_FROM_DEG` 60 and leaves below `TURN_EXIT_DEG` 35.
+3. **The decision outran the transition it started.** `MIN_CLIP_SECONDS` 0.18 is a hair over
+   `FADE_SECONDS`, so a gait cannot be replaced before its own crossfade has finished and **two** is
+   the most that can ever overlap. A death and a flinch ignore the dwell -- those are what a player
+   is waiting to see. The **rate** still follows the speed every frame, so a clip held through the
+   dwell is at the wrong gait for a fifth of a second and never at the wrong tempo.
+
+Replaying the measured yaw sequence through the fixed decision produces **2 clip changes** where
+every crossing used to be one; the spec asserts that, and `boar_model.spec` carries the whole set.
+
+## 8. What could not be verified here (rule 8)
 
 - The Fab Standard License grant was read through a web search, not from `fab.com/eula` (403).
 - `Animator:LoadAnimation` on an id that does not exist returns a usable track (`IsPlaying` true,

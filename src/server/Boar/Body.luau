@@ -187,7 +187,8 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 		tracks = {} :: { [string]: AnimationTrack },
 		clip = nil :: string?, -- which clip is playing now
 		lastFacing = nil :: Vector3?, -- for the yaw rate, which nothing else measures
-		yawRate = 0, -- degrees per second, signed. + is a turn to the boar's left
+		yawRate = 0, -- degrees per second, signed, SMOOTHED. + is a turn to the boar's left
+		clipHeldFor = 0, -- seconds the current clip has been playing; the dwell reads it
 		hitFor = 0, -- seconds of flinch left
 		hitFromBehind = false,
 	}
@@ -289,6 +290,14 @@ end
 -- CanQuery: the only thing it changes about the box is whether you can see it.
 function Body.attachVisual(handle, template: Instance, config): boolean
 	if handle.visual ~= nil then
+		return false
+	end
+	-- A CARCASS IS NEVER DRESSED. If the asset arrives after this boar has already died, its box has
+	-- already been rolled by `Body.collapse` -- which rolls precisely because nothing was drawn on it
+	-- -- and putting the model on now would lay the death clip down a second time and bury it. It has
+	-- CARCASS_SECONDS left and it stays the grey box it died as, which is honest and is the state
+	-- every spec before task 115 asserts anyway.
+	if handle.collapsed then
 		return false
 	end
 	local mesh = soleMesh(template)
@@ -418,25 +427,50 @@ function Body.clipFor(info, config): (string?, number)
 		return name, math.clamp(rate, model.MIN_RATE, model.MAX_RATE)
 	end
 
+	-- A DEATH AND A FLINCH ARE IMMEDIATE AND IGNORE THE DWELL BELOW. They are the two the player is
+	-- waiting to see, and a quarter-second of politeness would read as the animal not reacting.
 	if info.collapsed then
 		return (if model.DEATH_TO_THE_LEFT then "deathLeft" else "deathRight"), 1
 	end
 	if info.hitFor > 0 then
 		return (if info.hitFromBehind then "hitBack" else "hitFront"), 1
 	end
-	if info.speed >= model.RUN_FROM then
-		return gait("run")
+
+	local function wanted(): (string, number)
+		if info.speed >= model.RUN_FROM then
+			return gait("run")
+		end
+		if info.speed >= model.TROT_FROM then
+			return gait("trot")
+		end
+		if info.speed >= model.WALK_FROM then
+			return gait("walk")
+		end
+		-- HYSTERESIS: a turn that is already running keeps running down to TURN_EXIT_DEG, and one
+		-- that is not needs TURN_FROM_DEG to start. With one threshold this flipped three times a
+		-- second on a standing animal (see `TURN_EXIT_DEG` in Boar.CONFIG.MODEL).
+		local turning = info.currentClip == "turnLeft" or info.currentClip == "turnRight"
+		local enter = if turning then model.TURN_EXIT_DEG else model.TURN_FROM_DEG
+		if math.abs(info.yawRate) >= enter then
+			return (if info.yawRate > 0 then "turnLeft" else "turnRight"), 1
+		end
+		return "idle", 1
 	end
-	if info.speed >= model.TROT_FROM then
-		return gait("trot")
+
+	local name, rate = wanted()
+	-- THE DWELL. A gait may not replace another gait before the crossfade it started has finished,
+	-- because three tracks at partial weight all writing the same bones is what "the head shakes"
+	-- looked like. The RATE still follows the speed every frame -- the animal is not held at the
+	-- wrong tempo, only at the wrong gait, and only for MIN_CLIP_SECONDS.
+	local held = info.currentClip
+	if held ~= nil and name ~= held and info.heldFor < model.MIN_CLIP_SECONDS and clips[held] ~= nil then
+		local natural = clips[held].groundStudsPerSecond
+		if natural > 0 then
+			return held, math.clamp(info.speed / natural, model.MIN_RATE, model.MAX_RATE)
+		end
+		return held, 1
 	end
-	if info.speed >= model.WALK_FROM then
-		return gait("walk")
-	end
-	if math.abs(info.yawRate) >= model.TURN_FROM_DEG then
-		return (if info.yawRate > 0 then "turnLeft" else "turnRight"), 1
-	end
-	return "idle", 1
+	return name, rate
 end
 
 -- The track for one clip name, or nil. Built once per boar per clip, from the id the asset manifest
@@ -501,6 +535,7 @@ local function play(handle, name: string, rate: number, config)
 	track.Looped = config.MODEL.CLIPS[name].looped
 	track:Play(config.MODEL.FADE_SECONDS, 1, rate)
 	handle.clip = name
+	handle.clipHeldFor = 0
 end
 
 -- Once per boar per Runtime step, with the flag on. It measures the yaw rate (nothing else does),
@@ -513,6 +548,12 @@ function Body.stepVisual(handle, dt: number, info, config)
 	-- THE YAW RATE, from the trunk's own facing. Two facings and the time between them is all a turn
 	-- is, and taking it here keeps the Brain untouched -- it is told nothing new and asked nothing
 	-- new. The signed angle about +Y is positive when the look direction swings to the boar's left.
+	--
+	-- AND IT IS SMOOTHED, because ONE frame's delta is not a turn rate. Measured on standing boars
+	-- over three 7-second windows: the raw per-frame value swung -120..+173 deg/s on an animal whose
+	-- body speed was 0.0 -- a physics body under an AlignOrientation never sits perfectly still --
+	-- and the turn clip chased every crossing of its threshold. The exponential constant is derived
+	-- from dt rather than assumed, so a frame-rate change does not change how much smoothing there is.
 	local facing = info.facing
 	if facing and dt > 0 then
 		local flat = Vector3.new(facing.X, 0, facing.Z)
@@ -521,11 +562,15 @@ function Body.stepVisual(handle, dt: number, info, config)
 			local previous = handle.lastFacing
 			if previous then
 				local radians = math.atan2(previous.X * flat.Z - previous.Z * flat.X, previous:Dot(flat))
-				handle.yawRate = math.deg(radians) / dt
+				local raw = math.deg(radians) / dt
+				local alpha = 1 - math.exp(-dt / config.MODEL.YAW_SMOOTH_SECONDS)
+				handle.yawRate += (raw - handle.yawRate) * alpha
 			end
 			handle.lastFacing = flat
 		end
 	end
+
+	handle.clipHeldFor += dt
 
 	if handle.visual == nil then
 		return
@@ -537,6 +582,8 @@ function Body.stepVisual(handle, dt: number, info, config)
 		hitFromBehind = handle.hitFromBehind,
 		speed = info.speed,
 		yawRate = handle.yawRate,
+		currentClip = handle.clip,
+		heldFor = handle.clipHeldFor,
 	}, config)
 	if name then
 		play(handle, name, rate, config)
@@ -601,13 +648,24 @@ function Body.collapse(handle, config)
 	part:SetAttribute("Carcass", true)
 	-- CanCollide stays true, so the carcass lies on the ground instead of falling through it.
 	--
-	-- The topple. ONE CFrame write, at the moment of death -- not the per-frame CFrame writing the
-	-- design forbids (boar-ai design section 6), and not the design's ApplyAngularImpulse either,
-	-- which was measured here and either does nothing or launches the animal (the number is in
-	-- Boar.CONFIG.WOUND.COLLAPSE_ROLL_DEG, with the measurements). Rolling the body past its tipping
-	-- angle lets GRAVITY lay it on its side, which is the visible difference between "dropped" and
-	-- "paused" that this step exists for.
-	part.CFrame = part.CFrame * CFrame.Angles(0, 0, math.rad(config.COLLAPSE_ROLL_DEG))
+	-- THE TOPPLE, AND WHO DOES IT. ONE CFrame write, at the moment of death -- not the per-frame
+	-- CFrame writing the design forbids (boar-ai design section 6), and not the design's
+	-- ApplyAngularImpulse either, which was measured here and either does nothing or launches the
+	-- animal (the number is in Boar.CONFIG.WOUND.COLLAPSE_ROLL_DEG, with the measurements). Rolling
+	-- the body past its tipping angle lets GRAVITY lay it on its side, which is the visible
+	-- difference between "dropped" and "paused" that this step exists for.
+	--
+	-- ...BUT ONLY WHEN THERE IS NOTHING DRAWN ON IT (Karen, 2026-10-03: "yes synced in when died").
+	-- The death CLIP already lays the animal down, in the RIG'S OWN FRAME, from standing to flat. Roll
+	-- the box as well and the rotation happens TWICE: measured on a real kill, the head finished
+	-- 1.20 studs BELOW the ground, the ear 1.93 below, and the hooves 0.85 ABOVE it -- a boar buried
+	-- upside down with its legs in the air, which is exactly what her screenshot shows. Measured again
+	-- with the same carcass's box put back upright: the lowest bone sat at -0.02 of the ground and the
+	-- animal lay on its flank. So when a visual exists the clip does the falling and the box holds
+	-- still, and when it does not the box topples exactly as it has since Task 28.
+	if handle.visual == nil then
+		part.CFrame = part.CFrame * CFrame.Angles(0, 0, math.rad(config.COLLAPSE_ROLL_DEG))
+	end
 end
 
 -- Destroys the Part (its Attachment, constraints and zone parts go with it). It never destroys the

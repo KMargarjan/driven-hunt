@@ -344,6 +344,27 @@ Boar.CONFIG.MODEL = {
 	-- the Brain's own TURN_RATE ceiling (4 rad/s = 229 deg/s), which is a deliberate turn rather
 	-- than the wander's jitter.
 	TURN_FROM_DEG = 60,
+	-- ...AND IT LEAVES AT A LOWER NUMBER THAN IT ENTERS (Karen, 2026-10-03: "head shaking sometimes
+	-- vierd"). With one threshold the turn clip chatters: MEASURED over three 7-second windows on
+	-- standing boars, the per-frame yaw swung -120..+173 deg/s, crossed 60 in both directions
+	-- constantly, and produced 24 clip changes in 7 seconds on one animal -- several of them 0.03 s
+	-- long, which is a fifth of FADE_SECONDS. 35 is a little over half of 60, so a turn has to decay
+	-- properly before the animal is called still again.
+	TURN_EXIT_DEG = 35,
+	-- THE YAW IS SMOOTHED BEFORE ANYTHING LOOKS AT IT, and that is the other half of the same fault.
+	-- One frame's facing delta divided by dt is not a turn rate, it is noise on a physics body under
+	-- an AlignOrientation -- hence the +-170 deg/s on an animal standing still. 0.2 s is long enough
+	-- to average that away and short enough that a real turn (the Brain slews at up to 229 deg/s and
+	-- holds it) reaches the threshold inside a fifth of a second.
+	YAW_SMOOTH_SECONDS = 0.2,
+	-- NO CLIP MAY BE REPLACED BEFORE ITS OWN CROSSFADE HAS FINISHED. This is the structural half: a
+	-- decision that changes faster than the transition it starts leaves THREE tracks playing at
+	-- partial weight, all writing the same bones, and the head -- the end of the longest bone chain
+	-- -- amplifies their disagreement most (measured: maxConcurrentTracks 3, and the head moving
+	-- 8.0 studs/s on a boar whose body speed was 0.0). A hair over FADE_SECONDS, so two is the most
+	-- that can ever overlap. A DEATH AND A FLINCH IGNORE IT: those must be instant, and they are the
+	-- two the player is waiting to see.
+	MIN_CLIP_SECONDS = 0.18,
 	-- WHICH WAY IT FALLS, derived from the roll `Body.collapse` applies rather than chosen: a
 	-- positive roll about the trunk's own Z tips its UpVector toward -X, which is the animal's LEFT.
 	-- Flip `COLLAPSE_ROLL_DEG`'s sign and the clip follows it, which a literal would not.
@@ -1360,6 +1381,18 @@ function Runtime:step(dt: number)
 			},
 		})
 
+		-- THE COAT GOES ON BEFORE THE ANIMAL CAN DIE IN THIS TICK, and that ordering is the fix for a
+		-- narrow but real race. `Body.collapse` decides whether to ROLL the box by asking whether
+		-- anything is drawn on it -- the death clip lays the animal down itself, so rolling as well
+		-- buries it (see that function). Attaching after the collapse meant a boar that died on the
+		-- very tick its coat arrived got both. It is attached late by design -- `Loader.preload` is
+		-- bounded at 15 s and the first boar can exist before it lands -- so a boar born grey puts
+		-- its coat on as soon as the asset arrives, the same "late is not lost" rule the loader
+		-- itself follows. With the flag off neither line runs and nothing differs from before task 115.
+		if config.MODEL.ENABLED and visualTemplate ~= nil and entry.body.visual == nil then
+			Body.attachVisual(entry.body, visualTemplate, config)
+		end
+
 		if intent.downed then
 			-- Exactly once per boar: the Brain reports `downed` on the tick it enters DOWN and never
 			-- again, so the kill cannot be published twice.
@@ -1372,19 +1405,10 @@ function Runtime:step(dt: number)
 
 		Body.stepFlash(entry.body, dt, config.WOUND)
 
-		-- THE SKINNED MODEL, AFTER EVERY DECISION AND BEFORE THE DESPAWN. It is attached late by
-		-- design -- `Loader.preload` is bounded at 15 s and the first boar can exist before it lands
-		-- -- so a boar that was born grey puts its coat on as soon as the asset arrives, which is the
-		-- same "late is not lost" rule the loader itself follows. With the flag off neither line runs
-		-- and nothing about a boar differs from before task 115.
-		--
 		-- The SPEED it is given is the Brain's own `targetVelocity`, not the body's measured one: the
 		-- setpoint is what the animal is TRYING to do, so a boar shoved into a cover block keeps
 		-- running on the spot instead of flicking to idle for the frames the physics holds it still.
 		if config.MODEL.ENABLED then
-			if visualTemplate ~= nil and entry.body.visual == nil then
-				Body.attachVisual(entry.body, visualTemplate, config)
-			end
 			Body.stepVisual(entry.body, dt, {
 				speed = Vector3.new(intent.targetVelocity.X, 0, intent.targetVelocity.Z).Magnitude,
 				facing = facing,

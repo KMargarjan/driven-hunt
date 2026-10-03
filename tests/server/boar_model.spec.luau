@@ -74,6 +74,15 @@ return function()
 			probe = function()
 				return false
 			end,
+			-- A PATHFINDER THAT ANSWERS NOTHING, which is a state the production world reaches too
+			-- (`pathFailed`), and the Brain's own Reynolds fallback is what handles it. It is here
+			-- because a WOUNDED boar asks for a route the moment it is shot, and the carcass cases
+			-- below shoot one: without these the step loop called a nil `requestPath`. A real
+			-- PathfindingService has no business in a spec about what is drawn.
+			requestPath = function(_agentId, _from, _to, done)
+				done(nil)
+			end,
+			releasePath = function() end,
 			config = {
 				-- THE FLAG'S VALUE ARRIVES AS A PARAMETER, which is the whole point of reading it at
 				-- one boundary: both branches are reachable while `Flags.DEFAULTS.BOAR_MODEL` sits at
@@ -680,6 +689,196 @@ return function()
 			expect(both[2]).to.equal("step")
 			-- __index is the metatable pointing at itself, not a method anybody calls.
 			expect(#Boar.fieldMethodClashes({ __index = 1 }, methods)).to.equal(0)
+		end)
+	end)
+
+	describe("the carcass lies ON the ground, not in it", function()
+		-- KAREN, 2026-10-03: "yes synced in when died" / "fix syncing". After a kill only the four
+		-- legs stuck out of the surface. MEASURED on a real kill: the head finished 1.20 studs BELOW
+		-- the ground, an ear 1.93 below, and a hind hoof 0.85 ABOVE it. The cause is the rotation
+		-- happening TWICE -- `Body.collapse` rolls the box 45 degrees past its tipping angle AND the
+		-- death clip lays the animal down in the rig's own frame -- so the animal ends up roughly
+		-- upside down. Measured again with the same carcass's box put back upright: the lowest bone
+		-- sat at -0.02 of the ground. So the clip does the falling and the box holds still.
+		local function readyBoar(modelEnabled: boolean, withTemplate: boolean, at: Vector3)
+			local runtime = newRuntime(modelEnabled, if withTemplate then makeTemplate() else nil, FAKE_IDS)
+			local handle = runtime:spawn(at)
+			step(runtime, 1 / 60, 3)
+			return runtime, handle
+		end
+
+		local function kill(runtime, handle)
+			-- Through the one seam a hit enters by, so this is the path a player's slug takes. The ammo
+			-- name is "Slug" with the capital the damage table uses -- `boar_hit.spec`'s own spelling --
+			-- because an ammo nothing recognises charges no damage and the boar simply does not die.
+			local taken = runtime:takeHit(handle.part, { zone = "head", ammo = "Slug", pellets = 1, at = 0 })
+			expect(taken).to.equal(true)
+			-- The collapse is decided by `Wound.advance` on a LATER step, not inside takeHit, so this
+			-- waits for the carcass rather than assuming three frames are enough.
+			local deadline = os.clock() + 3
+			while os.clock() < deadline and handle.part:GetAttribute("Carcass") ~= true do
+				step(runtime, 1 / 60)
+				RunService.Heartbeat:Wait()
+			end
+			step(runtime, 1 / 60, 3)
+		end
+
+		it("flag OFF: the grey box still topples, exactly as since Task 28", function()
+			local runtime, handle = readyBoar(false, true, Vector3.new(-40, GROUND_Y, -20))
+			kill(runtime, handle)
+			expect(handle.part:GetAttribute("Carcass")).to.equal(true)
+			-- Rolled past its tipping angle: its own up axis is no longer the world's.
+			expect(handle.part.CFrame.UpVector.Y < 0.95).to.equal(true)
+			TestKit.note(string.format("boar-model: flag OFF carcass up.y = %.3f", handle.part.CFrame.UpVector.Y))
+			runtime:destroy()
+		end)
+
+		it("flag ON: the box does NOT roll, because the clip lays the animal down", function()
+			local runtime, handle = readyBoar(true, true, Vector3.new(-40, GROUND_Y, 20))
+			expect(handle.part:FindFirstChild(MODEL.NAME)).to.be.ok() -- dressed before it can die
+			kill(runtime, handle)
+			expect(handle.part:GetAttribute("Carcass")).to.equal(true)
+			expect(handle.part.CFrame.UpVector.Y > 0.99).to.equal(true)
+			TestKit.note(string.format("boar-model: flag ON carcass up.y = %.3f", handle.part.CFrame.UpVector.Y))
+			runtime:destroy()
+		end)
+
+		it("flag ON: the box's bottom is still on the ground, which is where the clip's floor is", function()
+			-- The death clip was authored with the rig's origin on the floor, and the rig's origin is the
+			-- BOTTOM of the box (`visualOffset`). So "the animal lies on the ground" is the same statement
+			-- as "the box's bottom is still at ground level, and the mesh is still welded where it was" --
+			-- which is what this asserts, because no spec in this repository can load a real animation to
+			-- measure the mesh itself. The live measurement that it does land there is in the note.
+			local runtime, handle = readyBoar(true, true, Vector3.new(0, GROUND_Y, 40))
+			kill(runtime, handle)
+			-- IT HAS TO FALL FIRST. A boar is spawned `SPAWN_CLEARANCE` (0.5) above the ground so it
+			-- settles instead of starting embedded, and a carcass free-falls the rest of the way with its
+			-- mover and its upright constraint switched off. So this waits for the box to come to rest on
+			-- the plate rather than reading it mid-fall -- which is what `boar_body.spec` does with every
+			-- physical claim, and for the same reason.
+			local bottom = handle.part.Position.Y - CONFIG.BODY_SIZE.Y / 2
+			local settleBy = os.clock() + 3
+			while os.clock() < settleBy and math.abs(bottom - GROUND_Y) >= 0.1 do
+				RunService.Heartbeat:Wait()
+				step(runtime, 1 / 60)
+				bottom = handle.part.Position.Y - CONFIG.BODY_SIZE.Y / 2
+			end
+			-- ON the ground, and not in it: the box's own bottom face is the plane the death clip was
+			-- authored against, so this is the spec half of "the animal lies on the surface".
+			expect(math.abs(bottom - GROUND_Y) < 0.1).to.equal(true)
+			local mesh = visualsOf(handle.part)[1].PrimaryPart :: BasePart
+			local offset = handle.part.CFrame:ToObjectSpace(mesh.CFrame).Position
+			expect((offset - Boar.visualOffset(MESH_SIZE, CONFIG.BODY_SIZE)).Magnitude < 1e-3).to.equal(true)
+			TestKit.note(string.format("boar-model: carcass box bottom %.3f, ground %d", bottom, GROUND_Y))
+			runtime:destroy()
+		end)
+
+		it("never dresses a boar that is already a carcass", function()
+			-- The asset can land AFTER a boar has died (preload is bounded at 15 s). Its box has already
+			-- been rolled, so putting the model on now would lay the clip down a second time and bury it
+			-- -- the very fault this describe exists for.
+			local runtime = Boar.newRuntime(buildWorld(true))
+			local template = makeTemplate()
+			local ready = false
+			runtime:setModelSource(function()
+				return if ready then template else nil
+			end, function(name: string)
+				return FAKE_IDS[name]
+			end)
+			local handle = runtime:spawn(Vector3.new(40, GROUND_Y, -20))
+			step(runtime, 1 / 60, 3)
+			expect(#visualsOf(handle.part)).to.equal(0)
+			kill(runtime, handle)
+			expect(handle.part:GetAttribute("Carcass")).to.equal(true)
+			ready = true
+			local deadline = os.clock() + MODEL.ASK_EVERY_SECONDS + 1
+			while os.clock() < deadline do
+				RunService.Heartbeat:Wait()
+				step(runtime, 1 / 60)
+			end
+			expect(#visualsOf(handle.part)).to.equal(0) -- still the grey box it died as
+			runtime:destroy()
+		end)
+	end)
+
+	describe("the clip does not chatter", function()
+		-- KAREN, 2026-10-03: "head shaking sometimes vierd". MEASURED over three 7-second windows on
+		-- standing boars: up to 24 clip changes in 7 seconds, several lasting 0.03 s against a
+		-- FADE_SECONDS of 0.15, THREE tracks playing at once all writing the same bones, and the head
+		-- -- the end of the longest bone chain, so the biggest amplifier of their disagreement -- moving
+		-- at up to 8.0 studs/s while the body's own speed was 0.0. Two causes, both fixed at the cause.
+		local function clipWith(current: string?, heldFor: number, info)
+			local filled = {
+				collapsed = false,
+				hitFor = 0,
+				hitFromBehind = false,
+				speed = 0,
+				yawRate = 0,
+				currentClip = current,
+				heldFor = heldFor,
+			}
+			for key, value in pairs(info) do
+				filled[key] = value
+			end
+			return Boar.clipFor(filled, CONFIG)
+		end
+
+		it("needs a real turn to start one, and a real stop to end it", function()
+			expect((clipWith(nil, 10, { yawRate = MODEL.TURN_FROM_DEG - 1 }))).to.equal("idle")
+			expect((clipWith(nil, 10, { yawRate = MODEL.TURN_FROM_DEG }))).to.equal("turnLeft")
+			-- Already turning: it keeps turning well below the entry threshold...
+			expect((clipWith("turnLeft", 10, { yawRate = MODEL.TURN_EXIT_DEG }))).to.equal("turnLeft")
+			-- ...and only stops once the yaw has really decayed.
+			expect((clipWith("turnLeft", 10, { yawRate = MODEL.TURN_EXIT_DEG - 1 }))).to.equal("idle")
+			-- The band between the two is where the chatter lived: a yaw bouncing around 50 flips nothing.
+			expect(MODEL.TURN_EXIT_DEG < MODEL.TURN_FROM_DEG).to.equal(true)
+			expect((clipWith(nil, 10, { yawRate = 50 }))).to.equal("idle")
+			expect((clipWith("turnLeft", 10, { yawRate = 50 }))).to.equal("turnLeft")
+		end)
+
+		it("will not replace a gait before its own crossfade has finished", function()
+			-- The dwell, and it is why three tracks can no longer overlap.
+			expect(MODEL.MIN_CLIP_SECONDS > MODEL.FADE_SECONDS).to.equal(true)
+			expect((clipWith("idle", 0.0, { speed = CONFIG.SPRINT_SPEED }))).to.equal("idle")
+			expect((clipWith("idle", MODEL.MIN_CLIP_SECONDS - 0.01, { speed = CONFIG.SPRINT_SPEED }))).to.equal("idle")
+			expect((clipWith("idle", MODEL.MIN_CLIP_SECONDS, { speed = CONFIG.SPRINT_SPEED }))).to.equal("run")
+		end)
+
+		it("keeps following the speed with the RATE while a gait is held", function()
+			-- The animal is held at the wrong GAIT for a fifth of a second, never at the wrong tempo: a
+			-- walk clip held while the boar accelerates still speeds up with it, so the feet do not slide
+			-- during the dwell either.
+			local _, slow = clipWith("walk", 0.0, { speed = 4 })
+			local _, fast = clipWith("walk", 0.0, { speed = 10 })
+			expect(fast > slow).to.equal(true)
+			expect(math.abs(slow - 4 / MODEL.CLIPS.walk.groundStudsPerSecond) < 1e-6).to.equal(true)
+		end)
+
+		it("lets a flinch and a death through the dwell at once", function()
+			-- These two must be instant: they are what a player is waiting to see after pulling the
+			-- trigger, and a fifth of a second of politeness reads as the animal not reacting.
+			expect((clipWith("run", 0.0, { hitFor = 0.5, speed = CONFIG.SPRINT_SPEED }))).to.equal("hitFront")
+			local want = if MODEL.DEATH_TO_THE_LEFT then "deathLeft" else "deathRight"
+			expect((clipWith("run", 0.0, { collapsed = true, speed = CONFIG.SPRINT_SPEED }))).to.equal(want)
+		end)
+
+		it("cannot chatter: the measured yaw storm now produces one clip, not many", function()
+			-- THE MEASUREMENT, REPLAYED. The live log's yaw swung -120..+173 deg/s on a standing animal;
+			-- this feeds a sequence of that shape through the same decision with the dwell clock running
+			-- and counts the changes. Every crossing used to be a change.
+			local yaws = { 10, -40, 95, -30, 120, -110, 55, -70, 140, -20, 173, -120, 60, -50, 30 }
+			local current, heldFor, changes = nil, 0.0, 0
+			for _, yaw in ipairs(yaws) do
+				local name = clipWith(current, heldFor, { yawRate = yaw })
+				if name ~= current then
+					changes += 1
+					current, heldFor = name, 0.0
+				else
+					heldFor += 1 / 60
+				end
+			end
+			TestKit.note(string.format("boar-model: the measured yaw storm now makes %d clip change(s)", changes))
+			expect(changes <= 2).to.equal(true)
 		end)
 	end)
 
