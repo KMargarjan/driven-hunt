@@ -65,7 +65,7 @@ declares.
    exactly the boar it was before task 117" -- 600 steps, no activity ever published and no speed
    above `WANDER_SPEED`.
 
-2b. **The draw itself is pure.** `Brain.calmActivity(roll, config)` walks
+   **And the draw itself is pure:** `Brain.calmActivity(roll, config)` walks
    `Boar.CONFIG.CALM.ACTIVITIES` and returns one row in proportion to its `weight`; each row carries
    its own `speed`, `minSeconds`/`maxSeconds` and `clip`. *Verify:* `boar_calm.spec`, "the repertoire
    is data" -- the five names, every one drawn, each within 1 % of its weight's share over 1001
@@ -87,8 +87,8 @@ declares.
 
 5. **With no id, a calm boar draws exactly what it drew before.** `Body.hasClip` is the one test, and
    every calm path runs through it. *Verify:* `boar_calm.spec`, "with no id published..." -- driven
-   with an id table holding only what Task 115 published, every calm activity falls back to `idle` or
-   `walk`.
+   with an id table holding the two gait clips and nothing else, every calm activity falls back to
+   `idle` or `walk`.
 
 6. **Which clip does what was MEASURED, not chosen by name** (the measuring script was a one-off in
    the scratchpad and is NOT in `tools/` -- queued as 117a(a)). Over the package's 74 actions, off the
