@@ -1839,6 +1839,7 @@ function Runtime:step(dt: number)
 				-- WHAT A CALM BOAR IS DOING (task 117). Published by the Brain only while IDLE, so
 				-- every other state hands `Body` the nil it handed before.
 				activity = intent.activity,
+				activityDraw = intent.activityDraw,
 			}, config)
 			-- The same speed drives the sound, so the footsteps keep time with the legs rather than
 			-- with the body's measured velocity, which lags the setpoint by the ACCEL ramp.

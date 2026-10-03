@@ -203,6 +203,7 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 		-- before it asked for -- the head coming out of the grass, which must finish before the next
 		-- activity starts or the animal snaps upright.
 		activity = nil :: string?,
+		activityDraw = nil :: number?,
 		activityFor = 0,
 		exitClip = nil :: string?,
 		exitFor = 0,
@@ -800,12 +801,26 @@ function Body.stepVisual(handle, dt: number, info, config)
 	if handle.exitFor > 0 then
 		handle.exitFor = math.max(handle.exitFor - dt, 0)
 	end
+	-- A NEW ACTIVITY IS A NEW NAME *OR* A NEW DRAW (review round 3, note). The Brain redraws rather
+	-- than repeat a row, but a draw number is what makes "it began again" observable at all, and it
+	-- is what would restart a one-shot if the redraw ever landed on the same name anyway.
+	if info.activity ~= handle.activity or info.activityDraw ~= handle.activityDraw then
+		if info.activity == handle.activity then
+			handle.clip = nil -- same activity, new draw: make `play` replay the clip
+		end
+		handle.activityDraw = info.activityDraw
+	end
 	if info.activity ~= handle.activity then
 		local leaving = Body.activityRow(handle.activity, config)
 		-- LEAVING IDLE ALTOGETHER CANCELS THE EXIT (review round 2, finding 1). `info.activity` is
 		-- nil for every state but IDLE, so this is "the animal stopped being calm": the flee starts
 		-- on its own gait at once instead of finishing a 1.083 s eating transition in place. Moving
 		-- from one calm activity to another still arms it, which is what it is for.
+		--
+		-- IT IS BELT AND BRACES, AND MEASURED TO BE SO (review round 3): `activityClip` refuses every
+		-- calm clip when `info.activity` is nil, so deleting these two lines changes nothing any spec
+		-- can see. They are kept because leaving a stale exit armed on a running animal is the fault
+		-- this round removed, and a second line of defence against it costs two assignments.
 		if info.activity == nil then
 			handle.exitClip = nil
 			handle.exitFor = 0

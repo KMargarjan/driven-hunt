@@ -28,28 +28,11 @@ local FIELD = {
 }
 
 return function()
-	-- A config whose calm clips all have ids, so the drawing half is reachable while the real ones
-	-- are still waiting on a publish. The ids are fake; `Body.hasClip` only asks whether one exists.
 	-- THE FLAG ARRIVES AS A PARAMETER, which is the one permitted shape and the only way both states
 	-- are reachable while `BOAR_MODEL` sits at one of them (review round 2, finding 2: the repertoire
-	-- shipped unflagged for a round). `calm` is `CALM.ENABLED`; `ids` fills in the clip ids, because
-	-- `Body.hasClip` only asks whether one exists.
-	local function configWith(calmOn: boolean, withIds: boolean)
-		local ids = table.clone(MODEL.ANIMATION_IDS)
-		if withIds then
-			for _, name in ipairs({
-				"smell",
-				"grazeLoop",
-				"grazeChew",
-				"grazeStart",
-				"grazeEnd",
-				"digWalk",
-				"idle",
-				"walk",
-			}) do
-				ids[name] = 30000 + #name
-			end
-		end
+	-- shipped unflagged for a round). `calmOn` is `CALM.ENABLED`; `ids` is the whole id table, and
+	-- `Body.hasClip` only asks whether a clip has one.
+	local function configWith(calmOn: boolean, ids)
 		local model = table.clone(MODEL)
 		model.ANIMATION_IDS = ids
 		local calmTable = table.clone(CALM)
@@ -60,8 +43,14 @@ return function()
 		return config
 	end
 
+	-- Every clip the repertoire can ask for, under a fake id. The six real ones ARE published, but a
+	-- spec that leaned on that would be testing the manifest rather than the code.
 	local function withCalmIds()
-		return configWith(true, true)
+		local ids = table.clone(MODEL.ANIMATION_IDS)
+		for _, name in ipairs({ "smell", "grazeLoop", "grazeChew", "grazeStart", "grazeEnd", "digWalk", "idle", "walk" }) do
+			ids[name] = 30000 + #name
+		end
+		return configWith(true, ids)
 	end
 
 	-- A world with nothing in it: every case here is about what a boar does when nothing is wrong.
@@ -136,10 +125,18 @@ return function()
 			)
 		end)
 
-		it("clamps a roll outside the range instead of answering nil", function()
+		it("always answers a row, however the roll falls", function()
+			-- WHAT THIS PROVES AND WHAT IT DOES NOT (review round 3, note): the property is that
+			-- `calmActivity` never returns nil -- a nil row would be a Brain that indexes `.speed` on
+			-- nothing. The `math.clamp` inside it is belt and braces and is NOT observable here: a
+			-- roll of -1 falls into row 1 through `cut < seen` anyway, and a roll of 2 falls out of
+			-- the loop into the trailing `return activities[#activities]`. The case is named for
+			-- what it can actually fail on.
 			expect(Brain.calmActivity(-1, CALM).name).to.equal(CALM.ACTIVITIES[1].name)
 			expect(Brain.calmActivity(2, CALM).name).to.equal(CALM.ACTIVITIES[#CALM.ACTIVITIES].name)
-			expect(Brain.calmActivity(1, CALM)).to.be.ok() -- the top of the range is somebody's
+			for step = 0, 20 do
+				expect(Brain.calmActivity(step / 20, CALM)).to.be.ok()
+			end
 		end)
 
 		it("gives the head-up smell exactly one clip length, so the lift is never cut off", function()
@@ -203,24 +200,59 @@ return function()
 		end)
 
 		it("rates a clip that CARRIES the animal off its own ground speed", function()
+			-- REVIEW ROUND 3, FINDING 1: this case used to drive `root` at exactly `digWalk`'s own
+			-- 1.901 studs/s, where the answer is 1.0 whether the rating exists or not, and the other
+			-- half at speed 0 on a clip whose ground speed is 0 -- so deleting the whole rating
+			-- branch left both assertions true. Every speed below is chosen so the EXPECTED RATE IS
+			-- NOT 1, and the three between them walk the clamp: under `MIN_RATE`, inside the band,
+			-- and over `MAX_RATE`.
 			local config = withCalmIds()
-			local _, rate = Boar.activityClip({
-				activity = "root",
-				activityFor = 99,
-				exitClip = nil,
-				exitFor = 0,
-				speed = 1.901,
-			}, config)
-			expect(math.abs(rate - 1) < 0.01).to.equal(true)
-			-- ...and a clip that does not carry it plays at 1 whatever the speed says.
-			local _, still = Boar.activityClip({
-				activity = "graze",
-				activityFor = 99,
-				exitClip = nil,
-				exitFor = 0,
-				speed = 0,
-			}, config)
-			expect(still).to.equal(1)
+			local model = config.MODEL
+			local ground = model.CLIPS.digWalk.groundStudsPerSecond
+
+			local function rateAt(speed: number): number
+				local _, rate = Boar.activityClip({
+					activity = "root",
+					activityFor = 99,
+					exitClip = nil,
+					exitFor = 0,
+					speed = speed,
+				}, config)
+				return rate
+			end
+
+			-- INSIDE THE BAND: twice the clip's own ground speed is exactly rate 2, and half of it
+			-- is exactly 0.5 -- neither of which the constant 1 can produce.
+			expect(math.abs(rateAt(ground * 2) - 2) < 1e-6).to.equal(true)
+			expect(math.abs(rateAt(ground * 0.5) - 0.5) < 1e-6).to.equal(true)
+			-- BELOW `MIN_RATE`: a crawl asks for 0.05 and is given the floor.
+			expect(math.abs(rateAt(ground * 0.05) - model.MIN_RATE) < 1e-6).to.equal(true)
+			-- ABOVE `MAX_RATE`: sprint speed asks for 20 and is given the ceiling.
+			expect(math.abs(rateAt(ground * 20) - model.MAX_RATE) < 1e-6).to.equal(true)
+			-- ...and the two bounds really are different numbers, or the clamp proves nothing.
+			expect(model.MIN_RATE < 1 and model.MAX_RATE > 2).to.equal(true)
+
+			-- A CLIP THAT DOES NOT CARRY THE ANIMAL plays at 1 at EVERY speed, which is the other
+			-- half of the branch and was driven at speed 0 (where 1 is the only possible answer).
+			for _, speed in ipairs({ 0, 4, CONFIG.SPRINT_SPEED }) do
+				local _, still = Boar.activityClip({
+					activity = "graze",
+					activityFor = 99,
+					exitClip = nil,
+					exitFor = 0,
+					speed = speed,
+				}, config)
+				expect(still).to.equal(1)
+			end
+			TestKit.note(
+				string.format(
+					"boar-calm: the drag clip rates %.2f at %.1f studs/s and clamps at %.2f/%.2f",
+					rateAt(ground * 2),
+					ground * 2,
+					model.MIN_RATE,
+					model.MAX_RATE
+				)
+			)
 		end)
 
 		it("is beaten by a death, a cripple and a flinch, which are not calm animals", function()
@@ -250,12 +282,8 @@ return function()
 			-- `Body.hasClip` is the one test, and it is what every clip added after this will rely
 			-- on. Driven with an EMPTY id table, because the six real ones are published now.
 			-- An id table with the two gait clips and nothing else: the calm six are published now,
-			-- so "no id" has to be built rather than found. (The comment here used to say "only what
-			-- task 115 published", which was ten clips, not two -- review round 2, note.)
-			local none = configWith(true, false)
-			local model = table.clone(none.MODEL)
-			model.ANIMATION_IDS = { idle = 1, walk = 2 }
-			none.MODEL = model
+			-- so "no id" has to be built rather than found.
+			local none = configWith(true, { idle = 1, walk = 2 })
 			for _, name in ipairs({ "smell", "grazeLoop", "grazeChew", "grazeStart", "grazeEnd", "digWalk" }) do
 				expect(Boar.hasClip(name, none)).to.equal(false)
 			end
@@ -268,7 +296,7 @@ return function()
 		it("with the FLAG off, an idle boar is exactly the boar it was before task 117", function()
 			-- `CALM.ENABLED` is `Flags.isOn("BOAR_MODEL")`, whose default is false -- the live game.
 			-- Then `_stepCalm` returns the old wander/graze answer and nothing publishes an activity.
-			local off = configWith(false, true)
+			local off = configWith(false, withCalmIds().MODEL.ANIMATION_IDS)
 			expect(Boar.activityRow("graze", off)).to.equal(nil)
 			expect(clipFor(off, { activity = "graze" })).to.equal("idle")
 			local brain = Brain.new(off, FIELD, Vector3.zero, Random.new(5))
@@ -308,8 +336,8 @@ return function()
 
 	describe("an idle boar really does change what it is doing", function()
 		local function newBrain(seed: number)
-			-- The flag as a parameter: with `BOAR_MODEL` off -- its default, and the live game -- the
-			-- repertoire is off and an idle boar wanders as it did before task 117.
+			-- The repertoire ON, by parameter. The OFF state -- `BOAR_MODEL`'s default, and the live
+			-- game -- has its own case below.
 			return Brain.new(withCalmIds(), FIELD, Vector3.zero, Random.new(seed))
 		end
 
@@ -328,6 +356,39 @@ return function()
 			end
 			expect(#order >= 3).to.equal(true) -- a minute of standing still would be one
 			TestKit.note("boar-calm: a minute of calm went " .. table.concat(order, " -> "))
+		end)
+
+		it("never draws the same activity twice running, so a one-shot is always replayed", function()
+			-- `Body` draws a clip when the activity NAME changes, so the same row twice in a row is a
+			-- clip that is never re-played: `smell` is a one-shot with no enter or exit, and the boar
+			-- stood frozen on `Idle_5`'s last pose for a second 4.167 s (review round 3, note).
+			-- A NAME ALONE CANNOT SHOW THIS, which is why the Brain publishes the DRAW NUMBER too: a
+			-- row drawn twice running produces the same name, so a case watching names would pass
+			-- with the rule deleted (it did -- review round 3, the Director's own mutation ask). One
+			-- draw per name change, and never two draws on one name, is the rule in numbers.
+			local brain = newBrain(42)
+			local previousName, previousDraw, changes, draws = nil, nil, 0, 0
+			for _ = 1, 60 * 240 do
+				local intent = brain:step(DT, obs(Vector3.zero))
+				expect(intent.activityDraw).to.be.ok()
+				if intent.activityDraw ~= previousDraw then
+					draws += 1
+					if previousName ~= nil then
+						-- THE RULE: a new draw is always a different activity.
+						expect(intent.activity).never.to.equal(previousName)
+					end
+					previousDraw = intent.activityDraw
+				end
+				if intent.activity ~= previousName then
+					if previousName ~= nil then
+						changes += 1
+					end
+					previousName = intent.activity
+				end
+			end
+			expect(changes > 20).to.equal(true) -- four minutes is dozens of activities, not two
+			expect(draws).to.equal(changes + 1) -- +1 for the first draw, which changes nothing
+			TestKit.note(string.format("boar-calm: %d draws and %d name changes in 240 s", draws, changes))
 		end)
 
 		it("stops publishing one on the tick it leaves IDLE", function()
@@ -379,10 +440,15 @@ return function()
 			expect(Boar.firstPhase(smell.minSeconds, 1, smell, calm)).to.equal(smell.minSeconds)
 		end)
 
-		it("puts two boars out of step in the shape the Runtime builds them", function()
+		it("two boars built the way the Runtime builds them do not move in lockstep", function()
 			-- PRODUCTION SHAPE: `Runtime:spawn` hands every `Brain.new` the runtime's own shared
 			-- `Random`, so two boars born on the same frame draw from ONE stream -- which is what the
 			-- old case missed by giving them a seed each (review round 2, finding 4).
+			--
+			-- WHAT CARRIES THE PHASING IS THE CASE ABOVE, not this one (review round 3, note): the
+			-- shared stream alone already gives each brain its own activity and duration, so this
+			-- would pass with `Brain.firstPhase` deleted. It is here for the end-to-end statement --
+			-- two boars, built as the game builds them, are not one animal twice.
 			local shared = Random.new(117)
 			local a = Brain.new(withCalmIds(), FIELD, Vector3.zero, shared)
 			local b = Brain.new(withCalmIds(), FIELD, Vector3.zero, shared)

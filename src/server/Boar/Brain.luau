@@ -26,9 +26,6 @@
 local Brain = {}
 Brain.__index = Brain
 
--- WHAT A CALM BOAR DOES NEXT (task 117). Pure: a roll in [0, 1) and the table in, one activity row
--- out, so every weight is a test case with no boar in the world. The draw is proportional to
--- `weight`, and the last row catches any float noise at the top of the range.
 -- HOW LONG THE FIRST ACTIVITY LASTS (task 117, made pure in review round 2). A boar that has just
 -- spawned starts somewhere INSIDE its first activity, so two spawned on the same frame are not doing
 -- the same thing for the rest of their lives. Pure, because the case that claimed this used to be a
@@ -44,6 +41,9 @@ function Brain.firstPhase(duration: number, roll: number, row, config): number
 	return math.max(duration - taken, config.FIRST_PHASE_FLOOR)
 end
 
+-- WHAT A CALM BOAR DOES NEXT (task 117). Pure: a roll in [0, 1) and the table in, one activity row
+-- out, so every weight is a test case with no boar in the world. The draw is proportional to
+-- `weight`, and the last row catches any float noise at the top of the range.
 function Brain.calmActivity(roll: number, config)
 	local activities = config.ACTIVITIES
 	local total = 0
@@ -123,6 +123,11 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- Whether the first activity has been phased yet. Declared here with the rest of the block
 	-- rather than springing into existence inside `_stepCalm` (review round 2, note).
 	self._calmPhased = false
+	-- HOW MANY ACTIVITIES THIS BOAR HAS DRAWN. Published with the name, because a name alone cannot
+	-- say "a new one began": the same row drawn twice running reads as one long activity and its clip
+	-- is never replayed (review round 3, note). It is also what makes the no-repeat rule observable
+	-- from outside -- one draw per name change, and never two draws on one name.
+	self._calmDraws = 0
 
 	-- being shot (hit-zones design section 6.2)
 	self._boltFor = 0 -- seconds of "run whatever the threats say", counted down with dt
@@ -304,7 +309,20 @@ function Brain:_stepCalm(dt: number): number
 
 	self._calmFor -= dt
 	if self._calm == nil or self._calmFor <= 0 then
-		self._calm = Brain.calmActivity(self._rng:NextNumber(), calm)
+		-- NEVER THE SAME ACTIVITY TWICE RUNNING (review round 3, note). `Body` draws a clip when the
+		-- activity changes, so a row drawn twice in a row is an activity whose clip is never
+		-- re-played: `smell` is a one-shot with no enter or exit, so the boar stood frozen on
+		-- `Idle_5`'s last pose for a second 4.167 s -- no lift, no breathing. Redrawing is cheaper
+		-- than a restart signal and it is what a real animal does anyway. Bounded: after four tries
+		-- it takes what it is given, and `activityDraw` below restarts the clip even then.
+		local previous = self._calm and self._calm.name
+		for _ = 1, 4 do
+			self._calm = Brain.calmActivity(self._rng:NextNumber(), calm)
+			if self._calm.name ~= previous then
+				break
+			end
+		end
+		self._calmDraws += 1
 		self._calmFor = self._rng:NextNumber(self._calm.minSeconds, self._calm.maxSeconds)
 		if not self._calmPhased then
 			self._calmPhased = true
@@ -562,6 +580,8 @@ function Brain:step(dt: number, obs)
 		-- WHAT A CALM BOAR IS DOING (task 117), published only while IDLE so every other state draws
 		-- exactly what it drew before. `Body` turns it into a clip; nothing else reads it.
 		activity = nil :: string?,
+		-- ...and WHICH draw it is, so `Body` can tell a new activity from the same one continuing.
+		activityDraw = nil :: number?,
 	}
 
 	if self._state == "GONE" then
@@ -789,6 +809,7 @@ function Brain:step(dt: number, obs)
 	-- WHAT A CALM BOAR IS DOING (task 117), published only while IDLE so every other state draws
 	-- exactly what it drew before. `Body` turns it into a clip; nothing else reads it.
 	intent.activity = if self._state == "IDLE" and self._calm then self._calm.name else nil
+	intent.activityDraw = if intent.activity ~= nil then self._calmDraws else nil
 	intent.targetVelocity = self._desired * self._speed
 	intent.facing = self._desired
 	return intent

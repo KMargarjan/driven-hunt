@@ -149,6 +149,13 @@ return function()
 					copy.ENABLED = modelEnabled
 					return copy
 				end)(),
+				-- The calm repertoire rides the same flag (task 117), and these runtimes are the only
+				-- place a REAL head-lift -- and therefore a real sniff -- can happen in a spec.
+				CALM = (function()
+					local copy = table.clone(CONFIG.CALM)
+					copy.ENABLED = modelEnabled
+					return copy
+				end)(),
 			},
 		}
 	end
@@ -813,19 +820,18 @@ return function()
 			expect(SOUND.PITCH_JITTER < 0.2).to.equal(true)
 		end)
 
-		it("centres the jitter on a spec's own pitch when it names one", function()
-			-- `playOneShot` multiplies the jitter by `spec.pitch`, which is how the sniff is the same
-			-- breath sample played high (task 117). The arithmetic had no case (review round 2, note).
-			local sniff = SOUND.SNIFF
-			expect(sniff.pitch > 1).to.equal(true)
-			expect(math.abs(sniff.pitch * Boar.jitteredPitch(0.5, SOUND.PITCH_JITTER) - sniff.pitch) < 1e-9).to.equal(
-				true
-			)
-			local low = sniff.pitch * Boar.jitteredPitch(0, SOUND.PITCH_JITTER)
-			local high = sniff.pitch * Boar.jitteredPitch(1, SOUND.PITCH_JITTER)
-			expect(low < sniff.pitch and high > sniff.pitch).to.equal(true)
-			-- ...and a spec with no `pitch` is centred on 1, which is every other sound.
-			expect(SOUND.HIT.pitch).to.equal(nil)
+		it("gives the sniff a pitch of its own, and every other sound none", function()
+			-- THE DATA HALF ONLY, and said so (review round 3, the Director's sweep): the arithmetic
+			-- `playOneShot` does with this -- `(spec.pitch or 1) * jitteredPitch(...)` -- is asserted
+			-- END TO END in `boar_calm.spec`, "the sniff is played HIGH", which reads the live
+			-- `Sound.PlaybackSpeed` after a real head-lift. A case that multiplied the two itself
+			-- here would pass with that multiplication deleted.
+			expect(SOUND.SNIFF.pitch > 1.1).to.equal(true)
+			for _, row in ipairs(ONE_SHOTS) do
+				if row.name ~= "sniff" then
+					expect(row.spec.pitch).to.equal(nil)
+				end
+			end
 		end)
 	end)
 
@@ -1044,6 +1050,39 @@ return function()
 				known = known or id == chosen
 			end
 			expect(known).to.equal(true)
+			runtime:destroy()
+		end)
+
+		it("flag ON: the sniff is played HIGH, which is the pitch centre end to end", function()
+			-- `Body.playOneShot` multiplies the jitter by the spec's own `pitch`, which is how the
+			-- sniff is the same breath sample played high (task 117). This drives the WHOLE path --
+			-- the Brain drawing `smell`, the Runtime firing the sound on that edge, `playOneShot`
+			-- doing the arithmetic -- and reads the `PlaybackSpeed` the player would hear. A case
+			-- that multiplied the two numbers itself would pass with the multiplication deleted
+			-- (review round 3, the Director's sweep).
+			local runtime = newRuntime(true, "BoarsShotSniff", true)
+			local handle = runtime:spawn(Vector3.new(40, GROUND_Y, 0))
+			warmedUp(runtime)
+			local sniff = soundNamed(handle, "sniff") :: Sound
+			local heard = false
+			for _ = 1, 40000 do
+				step(runtime)
+				if audible(sniff) then
+					heard = true
+					break
+				end
+			end
+			expect(heard).to.equal(true) -- a calm boar lifts its head sooner or later
+			local centre = SOUND.SNIFF.pitch
+			local jitter = SOUND.PITCH_JITTER
+			-- Inside the band the centre allows, and ABOVE 1 -- which is the whole point of the
+			-- field: the same sample, played high.
+			expect(sniff.PlaybackSpeed >= centre * (1 - jitter) - 1e-4).to.equal(true)
+			expect(sniff.PlaybackSpeed <= centre * (1 + jitter) + 1e-4).to.equal(true)
+			expect(sniff.PlaybackSpeed > 1 + jitter).to.equal(true)
+			TestKit.note(
+				string.format("boar-shot: the sniff played at %.3f (centre %.2f)", sniff.PlaybackSpeed, centre)
+			)
 			runtime:destroy()
 		end)
 

@@ -122,9 +122,10 @@ DEFAULT_CLIPS = (
     #                   _2 pulls and chews (head moves 0.098 m against _1's 0.001).
     #   EatDrink_start  the transition, 1.08 s, head 0.505 <-> 0.788 m -- standing height to
     #   EatDrink_end    grazing height and back, so the head does not teleport into the grass.
-    #   Dig_walk_IP     head low (nose -72 to -59 deg) AND hooves travelling: 0.663 m/s, which is
-    #                   1.901 studs/s, against the walk's 0.995 m/s. Rooting along the ground, which
-    #                   is Karen's "move alon" -- slower than a walk, and not standing still.
+    #   Dig_walk_IP     head low (nose -72 to -59 deg) AND hooves travelling: 1.901 studs/s against
+    #                   the walk's 2.852, i.e. two thirds of a walk. (In BLENDER metres, which are
+    #                   the model's own and not this project's 1 stud = 0.28 m, that is 0.663 against
+    #                   0.995 -- the same ratio.) Rooting along the ground, Karen's "move alon".
     "Idle_5",
     "Eat_loop_1",
     "Eat_loop_2",
