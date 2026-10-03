@@ -109,7 +109,7 @@ return function()
 			testRoot:Destroy()
 		end)
 
-		it("is one trunk and three zone parts, and the folder still holds ONE part", function()
+		it("is one trunk and one zone part per declared zone, and the folder still holds ONE part", function()
 			local parts = {}
 			for _, child in ipairs(trunk:GetChildren()) do
 				if child:IsA("BasePart") then
@@ -117,8 +117,10 @@ return function()
 				end
 			end
 			table.sort(parts)
-			expect(#parts).to.equal(3)
-			expect(table.concat(parts, ",")).to.equal("ZoneChest,ZoneHead,ZoneLegs")
+			-- COUNTED FROM THE TABLE, not from a literal (task 116 added `rear` and this said 3).
+			-- `buildZones` builds whatever `ZONES.ORDER` lists, so that is what this asserts.
+			expect(#parts).to.equal(#Boar.CONFIG.ZONES.ORDER)
+			expect(table.concat(parts, ",")).to.equal("ZoneChest,ZoneHead,ZoneLegs,ZoneRear")
 
 			-- The zone parts are children of the TRUNK, not of the runtime's folder, so the count
 			-- boar_body.spec asserts is unchanged. Written down because a green suite going red for
@@ -189,6 +191,16 @@ return function()
 			expect((zoneAt(Vector3.new(0, -1.0, 2.8), Vector3.new(0, 0, 1), 20))).to.equal("legs")
 		end)
 
+		it("is reachable by a real ray: the hindquarters, from behind and from the flank", function()
+			-- TASK 116. The spine shot Karen asked for ("can be hit to back part start to do circles
+			-- with first legs on") needed a zone, and a zone is only real if a ray finds it. The box
+			-- spans z +1.1..+2.9 and y -0.3..+1.3, so it is the upper rump: above the hams, behind
+			-- the chest, and 0.15 studs proud of the trunk's rear face.
+			expect((zoneAt(Vector3.new(0, 0.5, 2.8), Vector3.new(0, 0, 1), 20))).to.equal("rear")
+			expect((zoneAt(Vector3.new(0, 0.5, 2.0), Vector3.new(1, 0, 0), 20))).to.equal("rear")
+			expect((zoneAt(Vector3.new(0, 0.5, 2.0), Vector3.new(-1, 0, 0), 20))).to.equal("rear")
+		end)
+
 		it("is the plain BODY everywhere no zone part covers", function()
 			-- Mid-flank behind the chest from both sides, and the rear ABOVE the hams: the places
 			-- Karen's "belly, flank, rear" has to mean the trunk. Design section 12.3 also asks for
@@ -196,9 +208,14 @@ return function()
 			-- spans the boar's whole length (z -2.55..2.85) and covers the entire underside. Seen
 			-- from below, a boar is all legs -- which is the right answer for a low shot, and the
 			-- deviation is reported rather than quietly dropped.
-			expect((zoneAt(Vector3.new(0, 0.6, 1.5), Vector3.new(1, 0, 0), 20))).to.equal("body")
-			expect((zoneAt(Vector3.new(0, 0.6, 1.5), Vector3.new(-1, 0, 0), 20))).to.equal("body")
-			expect((zoneAt(Vector3.new(0, 0.9, 2.7), Vector3.new(0, 0, 1), 20))).to.equal("body")
+			-- MOVED FORWARD BY TASK 116, and the move IS the point: `rear` now covers z +1.1..+2.9,
+			-- so the two old flank probes at z 1.5 and the rear one at z 2.7 are the hindquarters
+			-- now and are asserted as such above. What is still the trunk is the waist -- behind the
+			-- chest box (which ends at z -0.75), in front of the rear box, above the legs band.
+			expect((zoneAt(Vector3.new(0, 0.6, 0.2), Vector3.new(1, 0, 0), 20))).to.equal("body")
+			expect((zoneAt(Vector3.new(0, 0.6, 0.2), Vector3.new(-1, 0, 0), 20))).to.equal("body")
+			-- ...and the very top of the rump, ABOVE the rear box's +1.3 ceiling.
+			expect((zoneAt(Vector3.new(0, 1.4, 2.0), Vector3.new(1, 0, 0), 20))).to.equal("body")
 		end)
 
 		it("still drives, upright, with the server owning the whole assembly", function()

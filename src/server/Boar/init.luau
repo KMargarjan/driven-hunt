@@ -52,6 +52,12 @@ Boar.shouldAdjustRate = Body.shouldAdjustRate
 -- ...and how wide the freeze window is this frame, which decides whether a death holds its last
 -- frame or runs past it into the rest pose.
 Boar.freezeReach = Body.freezeReach
+-- ...and task 116's three: which footstep loop a speed asks for, the pitch jitter band, and the
+-- shape of the dying twitch. Pure, for the same reason as every export above it -- a spec cannot
+-- make a boar run, die or be heard.
+Boar.stepSoundFor = Body.stepSoundFor
+Boar.jitteredPitch = Body.jitteredPitch
+Boar.paddleOffset = Body.paddleOffset
 
 -- Every number the system has. Derived at 1 stud = 0.28 m (Roblox units), so a 40 km/h boar is
 -- 11.1 m/s = 39.7 studs/s, and a 1.5 m x 0.9 m x 0.5 m boar is 5.5 x 3 x 2 studs. The research note
@@ -154,7 +160,7 @@ Boar.CONFIG = {
 	-- and brisket -- whatever no zone part covers -- are the default zone. Local coordinates: the
 	-- trunk is 2 x 3 x 5.5 and its -Z is the boar's front.
 	ZONES = {
-		ORDER = { "head", "chest", "legs" }, -- creation order; also the order specs walk them in
+		ORDER = { "head", "chest", "rear", "legs" }, -- creation order; also the order specs walk them in
 		ZONE_TINT = true, -- Karen's dial: a grey-box teaching aid, off when the model arrives
 		PROTRUSION = 0.06, -- studs every zone part stands proud by, so the ray meets it first
 		head = {
@@ -168,6 +174,26 @@ Boar.CONFIG = {
 			size = Vector3.new(2.12, 2.01, 1.7),
 			offset = Vector3.new(0, 0.555, -1.6), -- heart/lungs behind the shoulder
 			tint = Color3.fromRGB(198, 150, 150),
+		},
+		-- THE HINDQUARTERS (task 116). Karen, 2026-10-03: "can be hit to back part start to do circles
+		-- with first legs on" -- the spine shot every hunting game has, and the one reaction this
+		-- model could not express because no zone covered the back end above the legs.
+		--
+		-- IT IS ADDED THE WAY EVERY ZONE EXISTS AND IN NO OTHER WAY: a row here plus its `ORDER`
+		-- entry. `Body.buildZones` builds whatever this table lists, `Wound` charges whatever
+		-- `DAMAGE` names, and nothing in the hit path knows the difference. The three zone parts that
+		-- were here, their boxes, the `body` fallback and every damage number are untouched.
+		--
+		-- WHERE IT SITS, so it overlaps neither neighbour: behind the chest box (which ends at
+		-- z -0.75) and above the legs box (which tops out at y -0.5). This one spans z +1.1..+2.9 and
+		-- y -0.3..+1.3, so it is the upper rump, and it stands 0.15 studs proud of the trunk's rear
+		-- face at +2.75 -- the same `PROTRUSION` trick every other zone uses, so a ray from behind
+		-- meets it before the trunk.
+		rear = {
+			part = "ZoneRear",
+			size = Vector3.new(2.0, 1.6, 1.8),
+			offset = Vector3.new(0, 0.5, 2.0),
+			tint = Color3.fromRGB(150, 150, 190),
 		},
 		legs = {
 			part = "ZoneLegs",
@@ -188,11 +214,42 @@ Boar.CONFIG = {
 			chest = { Slug = 100, Pellet = 25 }, -- a slug kills; 2 pellets are already mortal
 			body = { Slug = 55, Pellet = 11 }, -- one slug is mortal; 5 pellets are
 			legs = { Slug = 30, Pellet = 6 }, -- one slug is NOT enough: "several hits needed"
+			-- THE TRUNK'S OWN NUMBERS, because the rump IS trunk: as much meat and bone as a flank,
+			-- and this row only exists so the CLASS table can call it crippling. One slug is MORTAL
+			-- and well short of LETHAL, which is the whole shape of the reaction -- the back end
+			-- goes, the animal is alive to be finished, and the 60-stud flight below runs it down in
+			-- about 20 s of circling at `CRIPPLE_SPEED`. Below mortal it is a graze, and `Brain`
+			-- refuses to cripple on a graze (see `_reactToHit`): a boar that could neither die nor
+			-- escape would circle in the arena for ever.
+			rear = { Slug = 55, Pellet = 11 },
 		},
 		-- Studs run before collapsing, from the worst zone hit. Validated against Stokke et al.
 		-- (2018): efd = 1.14*M^0.73 m and mfd = 4.92*M^0.73 m give 100 and 429 studs at 80 kg
 		-- (docs/research/2026-09-25-hit-zones.md source C).
-		FLIGHT = { head = 0, chest = 0, body = 120, legs = 420 },
+		-- `rear` is SHORT on purpose and is not a flight distance in the paper's sense: a crippled
+		-- animal does not run, it turns on the spot. The number is how long it has left, carried by
+		-- the same mechanism as every other zone's.
+		FLIGHT = { head = 0, chest = 0, body = 120, legs = 420, rear = 60 },
+
+		-- WHAT A HIT THERE MEANS, as data (task 116). The zone decides a CLASS and the class decides
+		-- the reaction: `Brain` reads it on the hit tick to pick its state, `Body` reads it to pick
+		-- the sound, and neither holds a list of zone names. A zone with no row here is `nonVital`,
+		-- which is the safe answer: it flinches and runs on, exactly as every zone did before.
+		--   vital     heart and lungs. A short dash or a stumble, then down (DJV's "Zeichnen").
+		--   crippling the spine and hindquarters. The back end goes and it circles on the spot.
+		--   nonVital  belly, haunch, a leg. It cries and runs on wounded.
+		CLASS = {
+			head = "vital",
+			chest = "vital",
+			rear = "crippling",
+			body = "nonVital",
+			legs = "nonVital",
+		},
+		-- THE CRIPPLED CRAWL. Below WANDER_SPEED, because it is dragging itself; the turn rate makes
+		-- a circle about 2.5 studs across at that speed, which is tight enough to read as circling
+		-- from the shooter line rather than as a wide curve.
+		CRIPPLE_SPEED = 3,
+		CRIPPLE_TURN_DEG = 70,
 		BLEED_OUT_MAX_SECONDS = 25, -- ceiling: a wounded boar wedged against a wall still dies
 		WOUND_SPEED_START = 1.0,
 		WOUND_SPEED_END = 0.45, -- 38 -> 17 studs/s across the flight
@@ -351,6 +408,79 @@ local BOAR_CLIPS = {
 	hitBack = { clip = "Hit_B", seconds = 0.833, groundStudsPerSecond = 0, looped = false },
 }
 
+-- THE SOUND OF A BOAR (task 116). Karen, 2026-10-03: *"I just need that once they walk you can hear
+-- (as example hunter waiting and hear something comming and then boars are visible running, walking
+-- ect)"*, and on which sounds: *"you decide what sounds"*.
+--
+-- IT IS ALL DATA, ids included, so a sound Karen does not like is one number in this table and not a
+-- code change -- and a library id that is moderated away can be swapped the same way. The ids are
+-- the Director's provisional ProSoundEffects picks; nothing here was uploaded.
+--
+-- SPATIAL FOR FREE. A `Sound` parented to a `BasePart` is positional, and the boar already has one
+-- part that everything is welded to -- so `Body` creates them in the trunk, every client hears the
+-- same animal from the right direction, and there is no new remote and no client-side mixer.
+--   Sound       https://create.roblox.com/docs/reference/engine/classes/Sound
+--   RollOffMode https://create.roblox.com/docs/reference/engine/enums/RollOffMode
+-- `InverseTapered` is the mode Roblox recommends for world sounds; the docs publish no curve, so
+-- `audibleStuds` is a number to pick and then LISTEN to, which is what the playtest is for.
+Boar.CONFIG.SOUND = {
+	ENABLED = true, -- rides `BOAR_MODEL` with everything else; this is the switch for sound alone
+	FOLDER = "Sounds",
+	ROLL_OFF = "InverseTapered",
+	-- Inside this, a sound is at full volume; past its own `audibleStuds` it is gone.
+	NEAR_STUDS = 12,
+	PITCH_JITTER = 0.08, -- +-8%: a repeat must not sound like a loop
+	-- FOOTSTEPS, CHOSEN BY GAIT and rated by speed, so a walking boar is quiet and a galloping one is
+	-- not. Silent when standing: `MIN_SPEED` is below the walk band's own floor, and a standing boar
+	-- is most of what a grazing one is doing.
+	--
+	-- EVERY ROW CARRIES ITS OWN `audibleStuds`, because `makeSound` reads it off the row and a shared
+	-- one two levels up resolved to nil (a `RollOffMaxDistance` of nil is a hard error on the first
+	-- boar that moves). It is also the better answer: a walking boar at 45 studs is a noise in the
+	-- brush, a trotting one at 70 is "the last few seconds of approach" at 18 studs/s, and a
+	-- galloping one at 90 is something coming -- which is exactly the warning Karen asked to hear.
+	--
+	-- `baseSpeed` IS THE CLIP'S OWN MEASURED GROUND SPEED, taken from `BOAR_CLIPS` and not copied:
+	-- the footstep loop is rated by `speed / baseSpeed`, which is the same arithmetic that rates the
+	-- animation, so the steps land under the hooves. Typing the three numbers again would let a
+	-- re-measured clip drift away from its own sound, silently.
+	STEPS = {
+		MIN_SPEED = 0.6,
+		-- "Goat Footsteps Only 1" -- a hoof on soil, and the nearest thing the library has to a
+		-- walking pig. Karen, 2026-10-03: "sound you choose best practice you do".
+		walk = { id = 9114623726, volume = 0.35, baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond, audibleStuds = 45 },
+		trot = { id = 9114623726, volume = 0.5, baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond, audibleStuds = 70 },
+		-- "Donkey Footsteps 1" -- heavier and faster, for a gallop.
+		run = { id = 9114127078, volume = 0.7, baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond, audibleStuds = 90 },
+	},
+	-- Calm grunts while it is idling or grazing. The interval is random inside the band so a sounder
+	-- does not grunt in chorus.
+	GRUNTS = {
+		ids = { 9117357588, 9117352464, 9117344600 }, -- "Pig Grunts 2 / 3 / 6"
+		volume = 0.45,
+		audibleStuds = 70,
+		MIN_SECONDS = 3,
+		MAX_SECONDS = 8,
+		MAX_SPEED = 6, -- only while calm: a bolting boar breathes instead
+	},
+	-- Breathing and snorts while it is running.
+	BREATH = {
+		ids = { 9113629992, 9113630137 }, -- "Bull Breaths 8 / 10"
+		volume = 0.5,
+		audibleStuds = 60,
+		MIN_SECONDS = 1.5,
+		MAX_SECONDS = 3.0,
+		MIN_SPEED = 11, -- TROT_FROM: it is working
+	},
+	-- One-shots. `hit` is the bullet landing, `cry` the animal, and they play together on a non-vital
+	-- or a crippling hit -- a vital hit gets the hit sound and then the death.
+	HIT = { id = 9113519976, volume = 0.8, audibleStuds = 90 }, -- "Body Hit Wet 7"
+	CRY = { ids = { 9117369876, 9117370072 }, volume = 0.9, audibleStuds = 110 }, -- "Pig Squeals 1 / 3"
+	DEATH = { id = 9117361361, volume = 1.0, audibleStuds = 120 }, -- "Pigs Beast-Like Screams 8"
+	LAST_BREATH = { id = 9113629992, volume = 0.6, audibleStuds = 50, delay = 1.0 },
+	FALL = { id = 9113469903, volume = 0.7, audibleStuds = 80 }, -- "Body Fall Gooshy Mud 2"
+}
+
 Boar.CONFIG.MODEL = {
 	-- THE FLAG, READ ONCE AT THIS BOUNDARY and passed inward as `config` -- the only permitted shape
 	-- (CLAUDE.md, feature flags). Every function below takes the value as a parameter, so both
@@ -416,6 +546,20 @@ Boar.CONFIG.MODEL = {
 	FADE_SECONDS = 0.15, -- a gait change is a blend, not a cut
 	RATE_EPSILON = 0.02, -- do not re-adjust a track's speed for a 2 % change: it is a property write
 	HOLD_EPSILON = 0.03, -- how close to the end a death clip is frozen at, so the carcass stays down
+	-- THE TWITCH AFTER IT GOES DOWN, and it is NOT what was asked for -- see the research note.
+	-- `Bone.Transform` is the Animator's output and a script's write to it does not survive a single
+	-- frame (measured: 0 of 122 samples, server and client), so isolated paddling legs cannot be
+	-- drawn over the held death pose. What CAN be driven is the death clip's own `TimePosition`, so
+	-- the body twitches back and forth over the last of its fall and settles.
+	--
+	-- THESE ARE `MODEL` NUMBERS, NOT `WOUND` ONES: they describe a drawn thing, they are read only
+	-- behind `BOAR_MODEL`, and the code that reads them (`Body.paddleOffset`, `Body.stepVisual`)
+	-- takes them off `config.MODEL`. They sat in `WOUND` for one build and nothing in the suite
+	-- noticed, because no spec can load an animation asset and the freeze branch therefore never
+	-- ran -- it would have been a nil comparison in a live session on the first boar that died.
+	PADDLE_SECONDS = 2.5,
+	PADDLE_HZ = 3.5, -- twitches per second at the start
+	PADDLE_SPAN = 0.09, -- seconds of clip scrubbed at full amplitude, decaying to nothing
 	MIN_RATE = 0.4,
 	-- THE CEILING IS ABOVE EVERYTHING THE GAME CAN ASK FOR, so it never shapes how an animal moves --
 	-- it only refuses the absurd rate a mis-measured clip would produce. The worst real ask is the
@@ -841,7 +985,15 @@ function Runtime:takeHit(part: BasePart, hit): boolean
 			if not from and typeof(payload.normal) == "Vector3" then
 				from = Body.position(entry.body) + payload.normal * self._config.WOUND.BOLT_HINT_STUDS
 			end
-			table.insert(entry.hitEvents, { severity = severity, zone = record.zone, from = from })
+			-- THE CLASS TRAVELS WITH THE EVENT (task 116), worked out by the pure `Wound.hitClass`
+			-- here rather than in the Brain: the Brain is told what the hit MEANS, never which
+			-- zones exist, exactly as it is told a severity and never a damage number.
+			table.insert(entry.hitEvents, {
+				severity = severity,
+				zone = record.zone,
+				class = Wound.hitClass(record.zone, wound),
+				from = from,
+			})
 
 			-- THE FLINCH (task 115), from the SAME `from` the Brain bolts away from, so the clip and
 			-- the decision can never disagree about where the shot came from. Behind means behind:
@@ -858,6 +1010,17 @@ function Runtime:takeHit(part: BasePart, hit): boolean
 					end
 				end
 				Body.setHit(entry.body, self._config.MODEL.HIT_SECONDS, fromBehind)
+
+				-- THE SOUND OF THE SHOT LANDING, and the animal's answer to it (task 116). The wet
+				-- hit plays wherever the pellet went; the CRY is the animal, so it plays for a
+				-- non-vital or a crippling hit and not for one that kills outright -- a boar shot
+				-- through the heart does not squeal, it goes down and the death sound covers it.
+				local sound = self._config.SOUND
+				Body.playOneShot(entry.body, "hit", sound.HIT, self._config, self._rng)
+				local class = Wound.hitClass(record.zone, wound)
+				if class ~= "vital" and severity ~= "lethal" then
+					Body.playOneShot(entry.body, "cry", sound.CRY, self._config, self._rng)
+				end
 			end
 
 			self._hitSignal:Fire({
@@ -1459,6 +1622,12 @@ function Runtime:step(dt: number)
 			-- again, so the kill cannot be published twice.
 			self._stats.downed += 1
 			Body.collapse(entry.body, config.WOUND)
+			-- IT DIES OUT LOUD, AND THEN IT STOPS MAKING NOISE (task 116). The scream and the body
+			-- landing play together -- a boar goes down and hits the ground in one movement -- and
+			-- every looping sound is cut, because a carcass has no footsteps.
+			if config.MODEL.ENABLED then
+				Body.playDeath(entry.body, config, self._rng)
+			end
 			self._downedSignal:Fire(
 				Wound.killRecord(entry.wound, entry.id, position, os.clock() - entry.bornAt, config.WOUND)
 			)
@@ -1475,10 +1644,14 @@ function Runtime:step(dt: number)
 		-- setpoint is what the animal is TRYING to do, so a boar shoved into a cover block keeps
 		-- running on the spot instead of flicking to idle for the frames the physics holds it still.
 		if config.MODEL.ENABLED then
+			local wantSpeed = Vector3.new(intent.targetVelocity.X, 0, intent.targetVelocity.Z).Magnitude
 			Body.stepVisual(entry.body, dt, {
-				speed = Vector3.new(intent.targetVelocity.X, 0, intent.targetVelocity.Z).Magnitude,
+				speed = wantSpeed,
 				facing = facing,
 			}, config)
+			-- The same speed drives the sound, so the footsteps keep time with the legs rather than
+			-- with the body's measured velocity, which lags the setpoint by the ACCEL ramp.
+			Body.stepSound(entry.body, dt, wantSpeed, config, self._rng)
 		end
 
 		if intent.despawn then

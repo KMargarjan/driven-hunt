@@ -24,8 +24,10 @@ local WOUND = {
 		chest = { Slug = 100, Pellet = 25 },
 		body = { Slug = 55, Pellet = 11 },
 		legs = { Slug = 30, Pellet = 6 },
+		-- Task 116's hindquarters: pinned here with the rest, so a retune shows up in one place.
+		rear = { Slug = 55, Pellet = 11 },
 	},
-	FLIGHT = { head = 0, chest = 0, body = 120, legs = 420 },
+	FLIGHT = { head = 0, chest = 0, body = 120, legs = 420, rear = 60 },
 	BLEED_OUT_MAX_SECONDS = 25,
 	WOUND_SPEED_START = 1.0,
 	WOUND_SPEED_END = 0.45,

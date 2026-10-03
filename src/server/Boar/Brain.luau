@@ -100,6 +100,9 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- held for COLUMN_LATCH_SECONDS after the probe last fired.
 	self._columnFor = 0
 
+	-- Which way a crippled boar circles, chosen once when its back end goes (task 116).
+	self._crippleTurn = nil :: number?
+
 	self._despawned = false
 	return self
 end
@@ -184,6 +187,8 @@ function Brain:_outcome(position: Vector3): string?
 	-- WOUNDED escapes exactly as FLEE does: a boar that gets over the line while dying is the
 	-- brief's "an escaped wounded boar is also an event", and 1.7 -- not this system -- decides
 	-- whether that is a penalty, a partial score or nothing.
+	-- A CRIPPLED BOAR IS NOT ESCAPING, so it is not in this test: it circles where it was hit, and
+	-- the only ways out are the wound finishing it or another shot.
 	if (self._state == "FLEE" or self._state == "WOUNDED") and position.Z <= field.exitZ then
 		return "escaped"
 	end
@@ -411,18 +416,45 @@ function Brain:_reactToHit(event)
 		return
 	end
 
-	if event.severity == "mortal" then
-		self._state = "WOUNDED"
-	elseif self._state == "IDLE" then
-		self._state = "FLEE"
+	-- WHERE IT WAS HIT DECIDES WHAT IT DOES (task 116). The class comes from `Wound.hitClass`, which
+	-- is a lookup in `WOUND.CLASS`, so this knows nothing about which zones exist.
+	--
+	-- CRIPPLING WINS OVER EVERYTHING SHORT OF DEATH, and it is never left: the back end does not come
+	-- back. A later hit can still kill it (`severity == "lethal"` returns above).
+	--
+	-- A GRAZE TO THE RUMP IS A GRAZE, NOT A CRIPPLED ANIMAL, and that is not a nicety -- it is what
+	-- stops a boar circling in the arena for ever. A crippled boar is taken out of the escape test
+	-- below (it is not going anywhere), so the only two ways it can leave are another shot and
+	-- `Wound.advance` finishing it -- and `advance` never collapses a GRAZED animal. Requiring the
+	-- wound to be at least mortal makes "it dies or is shot again" true by construction, and it is
+	-- also the right answer physically: one pellet in the ham does not take the back legs off.
+	if event.class == "crippling" and event.severity ~= "grazed" then
+		self._state = "CRIPPLED"
+		self._crippleTurn = if self._rng:NextNumber() < 0.5 then -1 else 1
+	elseif self._state ~= "CRIPPLED" then
+		if event.severity == "mortal" then
+			self._state = "WOUNDED"
+		elseif self._state == "IDLE" then
+			self._state = "FLEE"
+		end
+	end
+
+	self._grazeFor = 0
+	self._sinceCalm = 0
+	self._sinceRepath = math.huge -- path immediately, as the IDLE->FLEE transition already does
+
+	-- A CRIPPLED BOAR DOES NOT BOLT. The bolt and its kick are for an animal that can run; giving
+	-- them to one whose back legs have gone would have it sprint away from the thing that just took
+	-- them off. It keeps the shot point -- it still turns away from the gun -- and nothing else.
+	if self._state == "CRIPPLED" then
+		self._boltFor = 0
+		self._speed = math.min(self._speed, wound.CRIPPLE_SPEED)
+		return
 	end
 
 	-- BOLT. The one documented bypass of the ACCEL ramp in the whole system: a shot animal does not
 	-- accelerate over 0.63 s. It is an assignment, once per hit, not a new rule.
 	self._boltFor = wound.BOLT_SECONDS
-	self._grazeFor = 0
-	self._sinceCalm = 0
-	self._sinceRepath = math.huge -- path immediately, as the IDLE->FLEE transition already does
 	self._speed = math.max(self._speed, config.SPRINT_SPEED * wound.BOLT_KICK)
 end
 
@@ -508,6 +540,33 @@ function Brain:step(dt: number, obs)
 			intent.despawn = true
 			intent.reason = "killed"
 		end
+		return intent
+	end
+
+	-- CRIPPLED: IT TURNS WHERE IT STANDS (task 116). Karen, 2026-10-03: "can be hit to back part
+	-- start to do circles with first legs on". The back legs are gone, so there is no route to
+	-- follow and nothing to flee to -- it drags itself round at a crawl until the wound finishes it.
+	-- The DECISION is here, where every decision is; the movement goes out as `targetVelocity` and
+	-- `facing` like any other, so `Body` is still the only thing that touches the boar's Instances.
+	--
+	-- `_crippleTurn` is +-1, chosen once when it was hit, so one animal circles one way rather than
+	-- wobbling. The wound keeps running down: `Wound.advance` is charged by the distance it actually
+	-- covers, so a circling boar bleeds out on the same model as a running one -- 60 studs of rear
+	-- flight at `CRIPPLE_SPEED` is about 20 s of circling, inside `BLEED_OUT_MAX_SECONDS`.
+	--
+	-- THE ACCEL RAMP IS BYPASSED, DOWNWARDS ONLY, and that is said out loud because the bolt above is
+	-- the only other place in the system that does it. The back legs went in one frame; a boar easing
+	-- from 38 studs/s to 3 over `ACCEL` would slide for half a second looking like it chose to slow
+	-- down. It can only ever LOWER the setpoint, so nothing here can make a boar outrun its ramp.
+	if self._state == "CRIPPLED" then
+		local wound = config.WOUND
+		local turn = math.rad(wound.CRIPPLE_TURN_DEG) * dt * (self._crippleTurn or 1)
+		self._desired = unit(rotateY(self._heading, turn), self._heading)
+		self._heading = self._desired
+		self._speed = wound.CRIPPLE_SPEED
+		intent.state = "CRIPPLED"
+		intent.targetVelocity = self._heading * self._speed
+		intent.facing = self._heading
 		return intent
 	end
 

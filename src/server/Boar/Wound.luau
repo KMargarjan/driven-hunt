@@ -250,6 +250,20 @@ function Wound.apply(state: WoundState, hit, config): (WoundState, Severity)
 	return freezeState(next_), severity
 end
 
+-- WHAT A HIT THERE MEANS: "vital", "crippling" or "nonVital" (task 116). Pure, and a lookup in
+-- `config.CLASS` rather than a list of zone names in code -- so adding a zone is still a row in
+-- `Boar.CONFIG` and nothing else, which is how `rear` was added.
+--
+-- AN UNKNOWN ZONE IS `nonVital`, deliberately. That is what every zone did before this function
+-- existed -- flinch and run on -- so a zone somebody adds without a class behaves as it always did
+-- instead of silently becoming a kill.
+function Wound.hitClass(zone: string?, config): string
+	if zone == nil then
+		return "nonVital"
+	end
+	return (config.CLASS and config.CLASS[zone]) or "nonVital"
+end
+
 -- 1.0 while healthy or grazed. While mortal: bleeding out ramps the speed down across the flight,
 -- and any damage in the legs multiplies a limp on top. Applied by the Brain to its speed SETPOINT,
 -- never to the physics, so it is assertable with no physics at all (design section 5.5).
