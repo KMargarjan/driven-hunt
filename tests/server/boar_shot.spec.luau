@@ -19,6 +19,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
@@ -666,6 +667,41 @@ return function()
 			expect(Boar.hasClip("crippleDrag", withIds({ crippleDrag = 0 }))).to.equal(false)
 			-- ...and a clip name nobody declared is not playable however the ids are filled in.
 			expect(Boar.hasClip("somersault", withIds({ somersault = 99 }))).to.equal(false)
+		end)
+
+		it("plays the two paddles ONCE and the drag for ever, whatever the asset says", function()
+			-- THE DIRECTOR PUBLISHED ALL THREE WITH `clip.Loop = true` (the Animation Editor's loop
+			-- toggle), and for the paddles that is wrong: a looping death-throe restarts the twitch
+			-- every four seconds on a carcass that is supposed to be lying still. `Body.play` writes
+			-- `AnimationTrack.Looped` from THIS table immediately before every `Play`, which is the
+			-- same guard the ten published clips already needed -- they are all `Loop = true` too.
+			expect(MODEL.CLIPS.deathPaddleLeft.looped).to.equal(false)
+			expect(MODEL.CLIPS.deathPaddleRight.looped).to.equal(false)
+			expect(MODEL.CLIPS.crippleDrag.looped).to.equal(true)
+			-- ...and a one-shot that ends is what the carcass is then HELD at, so the two paddles
+			-- must be the same length as each other and end where the fall ended.
+			expect(MODEL.CLIPS.deathPaddleLeft.seconds).to.equal(MODEL.CLIPS.deathPaddleRight.seconds)
+		end)
+
+		it("plays each authored clip at the id the manifest published", function()
+			-- The two copies of one number, compared where both are visible: the config knows the
+			-- clip by name and the manifest knows it by id, and `BoarAssetsBoot` is the only thing
+			-- that joins them. A wrong id here is a boar that plays somebody else's animation.
+			local Assets = require(ServerStorage:WaitForChild("Assets"))
+			local ids = {
+				crippleDrag = "boar.anim.cripple.drag",
+				deathPaddleLeft = "boar.anim.death.paddle.left",
+				deathPaddleRight = "boar.anim.death.paddle.right",
+			}
+			for name, key in pairs(ids) do
+				local row = Assets.byKey(key)
+				expect(row).to.be.ok()
+				expect(row.kind).to.equal("animation")
+				expect(row.modelId > 0).to.equal(true)
+				-- The length the config plays by and the length read back off the published asset.
+				expect(math.abs(row.clipSeconds - MODEL.CLIPS[name].seconds) <= 1 / 48).to.equal(true)
+				TestKit.note(string.format("boar-shot: %s = %d, %.3f s", name, row.modelId, row.clipSeconds))
+			end
 		end)
 
 		it("pairs each death with its own paddle, from the same side the box rolls to", function()

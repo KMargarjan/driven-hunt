@@ -616,11 +616,12 @@ return function()
 			crippleDrag = "boar.anim.cripple.drag",
 		}
 
-		-- THE THREE THIS PROJECT AUTHORED, and they have no asset id yet (task 116 fix round).
-		-- `tools/boar_prep.py` writes their FBX files; an animation id can only be made by hand in
-		-- Studio's Animation Editor, so until the Director has published them every case below that
-		-- is about PUBLISHED ids walks the ten and this list says which three it is skipping.
-		local AWAITING_AN_ID = { crippleDrag = true, deathPaddleLeft = true, deathPaddleRight = true }
+		-- THE THREE THIS PROJECT AUTHORED (task 116 fix round), PUBLISHED by the Director on
+		-- 2026-10-03 with each id verified by `AnimationClipProvider:GetAnimationClipAsync`. They are
+		-- listed because every case below treats them exactly like the package's ten -- a row, an id,
+		-- and a length that agrees with the config -- and because `source` is the one field where
+		-- they differ: "own", not "creator-store".
+		local AUTHORED_HERE = { crippleDrag = true, deathPaddleLeft = true, deathPaddleRight = true }
 
 		it("names the same ten clips the boar knows, and no others", function()
 			-- Every key string this spec uses must be one `Assets.KEYS` DECLARES. That is the
@@ -634,7 +635,7 @@ return function()
 			local inConfig, inKeys, authored = 0, 0, 0
 			for name in pairs(MODEL.CLIPS) do
 				inConfig += 1
-				if AWAITING_AN_ID[name] then
+				if AUTHORED_HERE[name] then
 					authored += 1
 				end
 				expect(KEY_OF[name]).to.be.ok()
@@ -654,25 +655,23 @@ return function()
 		it("has a row with a real asset id for every one of them", function()
 			local missing = {}
 			for name in pairs(MODEL.CLIPS) do
-				if not AWAITING_AN_ID[name] then
-					local row = Assets.byKey(KEY_OF[name])
-					if row == nil or row.kind ~= "animation" or row.modelId <= 0 then
-						table.insert(missing, name)
-					end
+				local row = Assets.byKey(KEY_OF[name])
+				if row == nil or row.kind ~= "animation" or row.modelId <= 0 then
+					table.insert(missing, name)
 				end
 			end
 			table.sort(missing)
 			-- Named, not counted: "3 missing" sends the next reader looking for which three.
 			expect(table.concat(missing, ", ")).to.equal("")
 
-			-- ...AND THE THREE AUTHORED ONES HAVE NO ID, WHICH IS ASSERTED RATHER THAN ASSUMED. The
-			-- day they are published this case fails and tells whoever did it to move the name out
-			-- of `AWAITING_AN_ID` -- which is how a declared-but-unpublished clip stops being a
-			-- thing anybody has to remember.
-			for name in pairs(AWAITING_AN_ID) do
-				expect(MODEL.CLIPS[name]).to.be.ok()
+			-- ...AND THE THREE THIS PROJECT MADE SAY SO IN THE ONE FIELD THAT MATTERS. They are built
+			-- by `tools/boar_prep.py` out of the package's own poses, so the licence is the package's
+			-- and the creator is its creator, but the FILE is this repository's: a reader asking
+			-- "where did this animation come from" gets a different answer for these three.
+			for name in pairs(AUTHORED_HERE) do
 				local row = Assets.byKey(KEY_OF[name])
-				expect(row == nil or row.modelId <= 0).to.equal(true)
+				expect(row).to.be.ok()
+				expect(row.source).to.equal("own")
 			end
 		end)
 
@@ -681,9 +680,6 @@ return function()
 			-- build, which is the half that stops it being merged. Half a frame at 24 fps.
 			local worst, worstName = 0, "none"
 			for name, clip in pairs(MODEL.CLIPS) do
-				if AWAITING_AN_ID[name] then
-					continue -- nothing published, so there is no second copy to compare with
-				end
 				local row = Assets.byKey(KEY_OF[name])
 				expect(row.clipSeconds).to.be.ok()
 				local drift = math.abs(row.clipSeconds - clip.seconds)
