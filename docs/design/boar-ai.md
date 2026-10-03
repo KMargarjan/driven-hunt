@@ -190,7 +190,7 @@ testable on its own.
 
 | State | Speed setpoint | Path | Leaves when |
 |---|---|---|---|
-| `IDLE` | `WANDER_SPEED`, or 0 while grazing | none (steering + probe only) | a threat is within `DETECT_RADIUS` (flat XZ distance) → `FLEE` |
+| `IDLE` | `WANDER_SPEED`, or 0 while grazing — and **since task 117, with `BOAR_MODEL` on, whatever the calm repertoire's current activity asks for** (see below) | none (steering + probe only) | a threat is within `DETECT_RADIUS` (flat XZ distance) → `FLEE` |
 | `FLEE` | `SPRINT_SPEED` while any threat is within `DETECT_RADIUS`, else `TROT_SPEED` | repath to `routeTarget()` every `REPATH_INTERVAL` | no threat within `CALM_RADIUS` for `CALM_TIME` → `IDLE` (home centre resets to the current position); crossing the exit line or the bounds → `GONE` |
 | `GONE` | 0 | none | terminal. `despawn = true` is returned exactly once |
 
@@ -202,6 +202,14 @@ heading; each sense tick rotate it by `rng:NextNumber(-WANDER_JITTER, WANDER_JIT
 fresh random vector per tick — that is what makes it look like an animal rather than a twitching box.
 - Beyond `HOME_RADIUS` from the home centre: `heading = unit(heading + toHome * HOME_PULL)`.
 - `blockedAhead`: rotate the heading by `±(PROBE_TURN + jitter)`, sign chosen by `rng`.
+- **The calm repertoire (task 117), with `BOAR_MODEL` on.** IDLE gains no state: `Brain:_stepCalm`
+  draws one row from `Boar.CONFIG.CALM.ACTIVITIES` — stand, graze, root, smell, walk — in proportion
+  to its `weight`, holds it for a duration inside its own band, and returns that row's `speed` as the
+  setpoint. The name goes out as `intent.activity`, which `Body` turns into a clip; nothing else
+  reads it, and it is published only while IDLE, so every other state draws what it always drew. The
+  first activity is shortened by up to `CALM.FIRST_PHASE_SECONDS` so two boars born together are not
+  in step, and the same row is never drawn twice running (a repeated one-shot would never replay).
+  **With the flag OFF, the grazing rule below is what runs, unchanged.**
 - Grazing: with probability `GRAZE_CHANCE` per tick, set the setpoint to 0 for
   `rng:NextNumber(GRAZE_MIN, GRAZE_MAX)` seconds.
 
@@ -311,7 +319,7 @@ Every one of these lives in `Boar.CONFIG` in `init.luau`, as the note promised (
 | `HOME_RADIUS` | 120 studs | Note `:32`. Feel |
 | `WANDER_JITTER` | 0.35 rad per sense tick | Reynolds wander (source 3) |
 | `HOME_PULL` | 0.6 | Returns to the home area within ~10 s from the boundary |
-| `GRAZE_CHANCE` / `GRAZE_MIN` / `GRAZE_MAX` | 0.15 per tick / 1 s / 3 s | Feel; makes IDLE read as an animal |
+| `GRAZE_CHANCE` / `GRAZE_MIN` / `GRAZE_MAX` | 0.15 per tick / 1 s / 3 s | Feel; makes IDLE read as an animal. **Flag-OFF only since task 117**: with `BOAR_MODEL` on, `_senseIdle` does not arm `_grazeFor` at all and IDLE speeds come from `CALM.ACTIVITIES` |
 | `PROBE_LENGTH` / `PROBE_TURN` | 6 studs / 1.6 rad | Reynolds obstacle avoidance (source 3). 6 studs ≈ one body length |
 | `ROUTE_SIDE_BIAS` / `EDGE_MARGIN` | 60 / 20 studs | Bias > `DETECT_RADIUS`/2 so the route leaves the threat's circle; margin keeps the target off the plate edge |
 | `STUCK_DIST` / `STUCK_TIME` | 3 studs / 2 s | Under one body length in 2 s at any non-zero setpoint is stuck |

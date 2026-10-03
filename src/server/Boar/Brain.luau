@@ -26,6 +26,41 @@
 local Brain = {}
 Brain.__index = Brain
 
+-- HOW LONG THE FIRST ACTIVITY LASTS (task 117, made pure in review round 2). A boar that has just
+-- spawned starts somewhere INSIDE its first activity, so two spawned on the same frame are not doing
+-- the same thing for the rest of their lives. Pure, because the case that claimed this used to be a
+-- tautology: two brains with different seeds disagree whatever this function does.
+--
+-- A ROW WHOSE BAND IS A SINGLE VALUE IS EXEMPT: `smell` is exactly one clip length, and cutting it
+-- short would cut the 30.4 degree head lift off in the middle.
+function Brain.firstPhase(duration: number, roll: number, row, config): number
+	if row.maxSeconds <= row.minSeconds then
+		return duration
+	end
+	local taken = math.clamp(roll, 0, 1) * config.FIRST_PHASE_SECONDS
+	return math.max(duration - taken, config.FIRST_PHASE_FLOOR)
+end
+
+-- WHAT A CALM BOAR DOES NEXT (task 117). Pure: a roll in [0, 1) and the table in, one activity row
+-- out, so every weight is a test case with no boar in the world. The draw is proportional to
+-- `weight`, and the last row catches any float noise at the top of the range.
+function Brain.calmActivity(roll: number, config)
+	local activities = config.ACTIVITIES
+	local total = 0
+	for _, row in ipairs(activities) do
+		total += row.weight
+	end
+	local cut = math.clamp(roll, 0, 1) * total
+	local seen = 0
+	for _, row in ipairs(activities) do
+		seen += row.weight
+		if cut < seen then
+			return row
+		end
+	end
+	return activities[#activities]
+end
+
 local function flat(v: Vector3): Vector3
 	return Vector3.new(v.X, 0, v.Z)
 end
@@ -79,6 +114,20 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	self._sinceRepath = math.huge
 	self._sinceCalm = 0
 	self._grazeFor = 0
+
+	-- THE CALM REPERTOIRE (task 117): which activity an idle boar is doing and how long is left of
+	-- it. nil means "pick one on the next step". The first one starts PART-WAY THROUGH, so a sounder
+	-- of five is not five animals doing the same thing on the same frame.
+	self._calm = nil :: any
+	self._calmFor = 0
+	-- Whether the first activity has been phased yet. Declared here with the rest of the block
+	-- rather than springing into existence inside `_stepCalm` (review round 2, note).
+	self._calmPhased = false
+	-- HOW MANY ACTIVITIES THIS BOAR HAS DRAWN. Published with the name, because a name alone cannot
+	-- say "a new one began": the same row drawn twice running reads as one long activity and its clip
+	-- is never replayed (review round 3, note). It is also what makes the no-repeat rule observable
+	-- from outside -- one draw per name change, and never two draws on one name.
+	self._calmDraws = 0
 
 	-- being shot (hit-zones design section 6.2)
 	self._boltFor = 0 -- seconds of "run whatever the threats say", counted down with dt
@@ -232,9 +281,55 @@ function Brain:_senseIdle(position: Vector3, obs)
 		self._heading = unit(rotateY(self._heading, sign * turn), self._heading)
 	end
 
-	if self._grazeFor <= 0 and rng:NextNumber() < config.GRAZE_CHANCE then
-		self._grazeFor = rng:NextNumber(config.GRAZE_MIN, config.GRAZE_MAX)
+	-- THE OLD GRAZE PAUSE, AND ONLY WHEN THE REPERTOIRE IS OFF. With `CALM.ENABLED` on, `_stepCalm`
+	-- never decrements `_grazeFor`, so arming it here latched it above zero for the boar's life and
+	-- made `GRAZE_CHANCE`, `GRAZE_MIN` and `GRAZE_MAX` dead dials (review round 2, note).
+	local calm = config.CALM
+	if not (calm and calm.ENABLED) then
+		if self._grazeFor <= 0 and rng:NextNumber() < config.GRAZE_CHANCE then
+			self._grazeFor = rng:NextNumber(config.GRAZE_MIN, config.GRAZE_MAX)
+		end
 	end
+end
+
+-- ONE STEP OF THE CALM REPERTOIRE, and the only thing it decides is a SPEED (task 117). It runs the
+-- current activity down, draws the next one when it expires, and leaves `self._calm` where `step`
+-- can publish it. With `CALM.ENABLED` off it answers exactly what the old boolean answered: stand
+-- still while grazing, otherwise wander.
+function Brain:_stepCalm(dt: number): number
+	local config = self._config
+	local calm = config.CALM
+	if not (calm and calm.ENABLED) then
+		if self._grazeFor > 0 then
+			self._grazeFor -= dt
+			return 0
+		end
+		return config.WANDER_SPEED
+	end
+
+	self._calmFor -= dt
+	if self._calm == nil or self._calmFor <= 0 then
+		-- NEVER THE SAME ACTIVITY TWICE RUNNING (review round 3, note). `Body` draws a clip when the
+		-- activity changes, so a row drawn twice in a row is an activity whose clip is never
+		-- re-played: `smell` is a one-shot with no enter or exit, so the boar stood frozen on
+		-- `Idle_5`'s last pose for a second 4.167 s -- no lift, no breathing. Redrawing is cheaper
+		-- than a restart signal and it is what a real animal does anyway. Bounded: after four tries
+		-- it takes what it is given, and `activityDraw` below restarts the clip even then.
+		local previous = self._calm and self._calm.name
+		for _ = 1, 4 do
+			self._calm = Brain.calmActivity(self._rng:NextNumber(), calm)
+			if self._calm.name ~= previous then
+				break
+			end
+		end
+		self._calmDraws += 1
+		self._calmFor = self._rng:NextNumber(self._calm.minSeconds, self._calm.maxSeconds)
+		if not self._calmPhased then
+			self._calmPhased = true
+			self._calmFor = Brain.firstPhase(self._calmFor, self._rng:NextNumber(), self._calm, calm)
+		end
+	end
+	return self._calm.speed
 end
 
 -- FLEE: follow the route if we have one, else fall back to Reynolds flee blended with the direction
@@ -482,6 +577,11 @@ function Brain:step(dt: number, obs)
 		despawn = false,
 		reason = nil :: string?,
 		downed = false, -- true exactly once, on the tick the boar collapses
+		-- WHAT A CALM BOAR IS DOING (task 117), published only while IDLE so every other state draws
+		-- exactly what it drew before. `Body` turns it into a clip; nothing else reads it.
+		activity = nil :: string?,
+		-- ...and WHICH draw it is, so `Body` can tell a new activity from the same one continuing.
+		activityDraw = nil :: number?,
 	}
 
 	if self._state == "GONE" then
@@ -641,12 +741,11 @@ function Brain:step(dt: number, obs)
 	local desiredDirection, desiredSpeed
 	local stuckTurn = nil :: number?
 	if self._state == "IDLE" then
-		if self._grazeFor > 0 then
-			self._grazeFor -= dt
-			desiredSpeed = 0
-		else
-			desiredSpeed = config.WANDER_SPEED
-		end
+		-- THE CALM REPERTOIRE, in place of the old "grazing or wandering" boolean (task 117). The
+		-- activity decides the speed setpoint and travels out as `intent.activity`, which is the
+		-- only thing `Body` needs to draw it. Nothing else about IDLE changes: the heading, the home
+		-- pull, the probe turn and the sounder slot are all the code they were.
+		desiredSpeed = self:_stepCalm(dt)
 		desiredDirection = if follower then self:_idleSounderDirection(position, obs) else self._heading
 	else
 		if stuck then
@@ -707,6 +806,10 @@ function Brain:step(dt: number, obs)
 	self._speed += math.clamp(desiredSpeed - self._speed, -maxStep, maxStep)
 
 	intent.state = self._state
+	-- WHAT A CALM BOAR IS DOING (task 117), published only while IDLE so every other state draws
+	-- exactly what it drew before. `Body` turns it into a clip; nothing else reads it.
+	intent.activity = if self._state == "IDLE" and self._calm then self._calm.name else nil
+	intent.activityDraw = if intent.activity ~= nil then self._calmDraws else nil
 	intent.targetVelocity = self._desired * self._speed
 	intent.facing = self._desired
 	return intent
