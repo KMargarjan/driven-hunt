@@ -161,7 +161,49 @@ written into the manifest, and the read-back found two faults that the ids alone
    every `Play`, not only where the track is built. A looping death stands the carcass back up every
    1.2 s.
 
-## 6. What could not be verified here (rule 8)
+## 6. Two faults the ids made visible, both found by looking
+
+With the ids in, the animal still did not move, and finding out why took measurement rather than
+reasoning. Both faults are the same shape: **everything reported success and nothing happened.**
+
+**(a) The asset brings its own `AnimationController`, so every boar had two.**
+`InsertService:LoadAsset` returns `Model > Model "<asset name>" > { MeshPart, InitialPoses,
+AnimationController }` — Roblox's importer writes that controller, and it has no `Animator`.
+`Boar.Body` added a second one beside it. The result was silent: every track loaded with the right
+`Length`, `WeightTarget` went to 1, and `WeightCurrent`, `TimePosition` and every `Bone.Transform`
+stayed at **zero for ever**, on the server and on the client, with no error anywhere.
+
+A/B'd in a live session against three copies of the same clone, parented three different ways:
+
+| Copy | Animation |
+|---|---|
+| keeps the asset's `AnimationController` | `t=0.000 w=0.00`, bone `Transform` identity, for ever |
+| a **fresh** `AnimationController` + `Animator` | `t=0.767 w=1.00`, bones moving |
+| a `Humanoid` + `Animator` | `t=0.767 w=1.00`, identical |
+
+So it is not `AnimationController` versus `Humanoid` — it is **two things claiming one rig**, the same
+class as the devforum's "a Humanoid disables an AnimationController". `attachVisual` strips every
+controller and animator that arrives with the template, then adds exactly one of each and **asserts**
+it, because the failure mode is an animal standing still rather than an error.
+
+**(b) A wounded boar walked with clamped feet.** The walk/trot boundary was the midpoint of Karen's
+dials, (4 + 18) / 2 = 11, which asks the walk clip — hooves 2.852 studs/s — for up to 3.86. `MAX_RATE`
+clamped it to 2.50 and the feet slid by nearly 40 %. A healthy boar crosses that band in the 0.1 s
+`ACCEL` takes and nobody sees it; a **wounded** one does not, because `Wound.speedScale` leaves it at
+whatever fraction of 18 its injury gives — **measured at 8.99 and 9.84 studs/s, held for seconds**.
+The band now ends where the walk clip reaches `WALK_MAX_RATE` (1.8), at 5.13 studs/s, and the trot
+clip takes over near rate 1.0 — which is what a boar at 9 studs/s should look like anyway. `MAX_RATE`
+is 2.8, above the worst real ask (the trot clip at the top of its band, 2.73), so it never shapes how
+an animal moves. `boar_model.spec` sweeps every speed from `WALK_FROM` to `SPRINT_SPEED` and fails if
+any of them clamps.
+
+**What was seen afterwards, in a live session, with the flag on:** walk at rate 1.40 at speed 4, trot
+at 1.76 at 18, run at 1.65 at 29, idle when stopped, a turn clip blended in at a standstill,
+`hitFront` and `hitBack` once each from the side the shot came from, and `deathLeft` playing once and
+**freezing at t=1.18 of 1.21 with rate 0** on a carcass lying on its flank (`UpVector.Y` = −0.01). The
+feet sat within 0.01 studs of the ground throughout.
+
+## 7. What could not be verified here (rule 8)
 
 - The Fab Standard License grant was read through a web search, not from `fab.com/eula` (403).
 - `Animator:LoadAnimation` on an id that does not exist returns a usable track (`IsPlaying` true,

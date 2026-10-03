@@ -328,6 +328,23 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 	weld.Part1 = cloneMesh
 	weld.Parent = cloneMesh
 
+	-- ONE RIG, ONE CONTROLLER, AND THE ASSET BRINGS ITS OWN (measured, 2026-10-03).
+	-- `InsertService:LoadAsset` hands back `Model > Model "Boar Male RedDeer v3" > { MeshPart,
+	-- InitialPoses, AnimationController }` -- Roblox's importer writes that controller, and it has no
+	-- Animator. Adding a second controller beside it left TWO on one rig, and then NEITHER stepped:
+	-- every track loaded (its `Length` was right), `WeightTarget` went to 1, and `WeightCurrent`,
+	-- `TimePosition` and every `Bone.Transform` stayed at zero for ever, on the server and on the
+	-- client. A/B'd in a live session against three copies of the same clone: the one that kept the
+	-- asset's controller never moved, while a copy with a FRESH controller and one with a Humanoid
+	-- both animated identically. So the asset's own is removed first, and there is exactly one after.
+	-- It is the same class as the devforum's "a Humanoid disables an AnimationController": two things
+	-- claiming one rig is not a fallback, it is a stalemate.
+	for _, existing in ipairs(model:GetDescendants()) do
+		if existing:IsA("AnimationController") or existing:IsA("Animator") then
+			existing:Destroy()
+		end
+	end
+
 	-- THE RIG ROOT IS THE CONTROLLER'S PARENT, so the controller goes in the Model beside the mesh
 	-- whose Bones it drives -- not on the trunk, which has no bones. On the SERVER, so every client
 	-- is shown the same animal doing the same thing and no client decides anything.
@@ -336,6 +353,27 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 	local animator = Instance.new("Animator")
 	animator.Parent = controller
 	controller.Parent = model
+
+	-- EXACTLY ONE, ASSERTED RATHER THAN ASSUMED, because the failure mode is silent: a second
+	-- controller does not error, it just means nothing ever animates (see the loop above).
+	local controllers, animators = 0, 0
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("AnimationController") then
+			controllers += 1
+		elseif descendant:IsA("Animator") then
+			animators += 1
+		end
+	end
+	assert(
+		controllers == 1 and animators == 1,
+		string.format(
+			"Boar.Body.attachVisual: the boar's visual ended up with %d AnimationController(s) and %d"
+				.. " Animator(s), not one each. Two on one rig means NEITHER steps and the animal"
+				.. " stands still for ever (measured, task 115).",
+			controllers,
+			animators
+		)
+	)
 
 	handle.visual = model
 	handle.mesh = cloneMesh

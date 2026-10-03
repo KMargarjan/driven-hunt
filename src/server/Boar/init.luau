@@ -321,13 +321,23 @@ Boar.CONFIG.MODEL = {
 	-- The grey box is not deleted, it is made invisible -- and only once the model is really there.
 	-- `CanQuery` and `CanCollide` are untouched, so every shot lands exactly where it landed before.
 	HIDE_BOX = true,
-	-- THE THREE GAITS, SPLIT HALFWAY BETWEEN THE THREE SPEEDS THE GAME ACTUALLY USES. Karen's dials
-	-- are 4 (grazing), 18 (pushed) and 38 (bolting), so these put walk on 4, trot on 18 and run on
-	-- 38 with the whole band between each pair going to the nearer one. Splitting at the CLIPS' own
-	-- natural speeds instead (2.85, 10.24, 17.21) was tried on paper and is wrong: it puts 18 on the
-	-- run clip and leaves the trot reachable only during the 0.13 s it takes ACCEL to cross its band.
+	-- THE THREE GAITS. Karen's dials are 4 (grazing), 18 (pushed) and 38 (bolting), and the three
+	-- anchors are hers: walk on 4, trot on 18, run on 38. Splitting at the CLIPS' own natural speeds
+	-- instead (2.85, 10.24, 17.21) would put 18 on the RUN clip, which is not what being pushed looks
+	-- like.
+	--
+	-- WHERE WALK ENDS IS NOT A MIDPOINT, AND THAT WAS MEASURED IN A LIVE SESSION (2026-10-03). It sat
+	-- at (4 + 18) / 2 = 11, which asks the walk clip -- whose hooves travel 2.852 studs/s -- to play
+	-- at up to 3.86. `MAX_RATE` clamped it to 2.50 and the feet slid by nearly 40 %. A healthy boar
+	-- crosses that band in the 0.1 s `ACCEL` takes and nobody sees it; a WOUNDED one does not, because
+	-- `Wound.speedScale` puts it at whatever fraction of 18 its injury says -- measured at 8.99 and
+	-- 9.84 studs/s, held for seconds, walking with clamped feet. So the walk band ends where the walk
+	-- clip reaches `WALK_MAX_RATE`, and from there the TROT clip -- natural speed 10.244 -- takes over
+	-- at a rate near 1.0, which is what a boar at 9 studs/s should look like anyway.
 	WALK_FROM = 0.5, -- anything moving at all is walking, not standing
-	TROT_FROM = (Boar.CONFIG.WANDER_SPEED + Boar.CONFIG.TROT_SPEED) / 2,
+	-- A brisk but believable walk: 1.8x is a 0.58 s stride. Past that the animal is trotting.
+	WALK_MAX_RATE = 1.8,
+	TROT_FROM = BOAR_CLIPS.walk.groundStudsPerSecond * 1.8,
 	RUN_FROM = (Boar.CONFIG.TROT_SPEED + Boar.CONFIG.SPRINT_SPEED) / 2,
 	-- A TURN IN PLACE, and it is reachable only below WALK_FROM on purpose: Turn_L/R are pivots
 	-- whose hooves travel 1.855 studs/s, so at any real speed they skate. 60 deg/s is a quarter of
@@ -345,9 +355,12 @@ Boar.CONFIG.MODEL = {
 	RATE_EPSILON = 0.02, -- do not re-adjust a track's speed for a 2 % change: it is a property write
 	HOLD_EPSILON = 0.03, -- how close to the end a death clip is frozen at, so the carcass stays down
 	MIN_RATE = 0.4,
-	-- 2.5 covers the fastest thing asked of any clip -- the run clip at SPRINT_SPEED needs 2.21 --
-	-- and refuses the absurd rates a mis-measured clip would otherwise produce.
-	MAX_RATE = 2.5,
+	-- THE CEILING IS ABOVE EVERYTHING THE GAME CAN ASK FOR, so it never shapes how an animal moves --
+	-- it only refuses the absurd rate a mis-measured clip would produce. The worst real ask is the
+	-- TROT clip at the top of its band (`RUN_FROM` 28 / 10.244 = 2.73); the run clip at SPRINT_SPEED
+	-- needs 2.21 and the walk clip is bounded by `WALK_MAX_RATE`. 2.8 clears all three, and
+	-- `boar_model.spec` sweeps every speed a boar can reach and fails if any of them clamps.
+	MAX_RATE = 2.8,
 	-- How often the runtime asks for a template it has not got yet. `Loader.preload` is bounded at
 	-- 15 s and may land after the first boar exists, so asking once at boot would leave that boar a
 	-- grey box for its whole life; asking every frame would count a miss sixty times a second in

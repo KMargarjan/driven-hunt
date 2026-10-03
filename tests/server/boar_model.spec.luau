@@ -89,9 +89,16 @@ return function()
 		return world
 	end
 
+	-- SHAPED LIKE THE REAL ONE, INCLUDING THE PARTS THAT BIT (task 115). `InsertService:LoadAsset`
+	-- hands back `Model > Model "<the asset's name>" > { MeshPart, InitialPoses, AnimationController }`
+	-- -- Roblox's importer writes that controller itself. A fake without it let the first version of
+	-- this spec pass while every boar in the game stood still for ever, because two controllers on
+	-- one rig means neither steps. The fake carries both the nesting and the controller now.
 	local function makeTemplate(): Model
 		local model = Instance.new("Model")
 		model.Name = "FakeBoarTemplate"
+		local inner = Instance.new("Model")
+		inner.Name = "Boar Male RedDeer v3"
 		local mesh = Instance.new("MeshPart")
 		mesh.Name = "BoarMale_NoAlpha"
 		mesh.Size = MESH_SIZE
@@ -103,7 +110,14 @@ return function()
 		local bone = Instance.new("Bone")
 		bone.Name = "root_bone"
 		bone.Parent = mesh
-		mesh.Parent = model
+		mesh.Parent = inner
+		local poses = Instance.new("Folder")
+		poses.Name = "InitialPoses"
+		poses.Parent = inner
+		local theirs = Instance.new("AnimationController")
+		theirs.Parent = inner
+		inner.Parent = model
+		inner.PrimaryPart = mesh
 		model.PrimaryPart = mesh
 		model.Parent = testRoot
 		return model
@@ -285,6 +299,26 @@ return function()
 			)
 		end)
 
+		it("ends up with exactly ONE AnimationController and ONE Animator", function()
+			-- THE BUG THIS TASK SHIPPED AND MEASURED ITS WAY OUT OF. The uploaded asset carries an
+			-- AnimationController of its own, so the visual had two: every track loaded with the
+			-- right `Length`, `WeightTarget` went to 1, and `WeightCurrent`, `TimePosition` and every
+			-- `Bone.Transform` stayed at zero for ever on both server and client. Nothing errored.
+			-- A/B'd live: a copy with a fresh controller animated, the one keeping the asset's did
+			-- not. `attachVisual` asserts this too, so a regression cannot even build a boar.
+			local visual = visualsOf(handle.part)[1]
+			local controllers, animators = 0, 0
+			for _, d in ipairs(visual:GetDescendants()) do
+				if d:IsA("AnimationController") then
+					controllers += 1
+				elseif d:IsA("Animator") then
+					animators += 1
+				end
+			end
+			expect(controllers).to.equal(1)
+			expect(animators).to.equal(1)
+		end)
+
 		it("gives the model its own Animator, in the model and not on the box", function()
 			local visual = visualsOf(handle.part)[1]
 			local controller = visual:FindFirstChildWhichIsA("AnimationController")
@@ -418,6 +452,53 @@ return function()
 			expect(walk > MODEL.MIN_RATE and walk < MODEL.MAX_RATE).to.equal(true)
 			expect(trot > MODEL.MIN_RATE and trot < MODEL.MAX_RATE).to.equal(true)
 			expect(run > MODEL.MIN_RATE and run < MODEL.MAX_RATE).to.equal(true)
+		end)
+
+		it("never clamps at a speed a boar can actually reach", function()
+			-- THE INVARIANT THE BAND EDGES EXIST FOR, and it is here because the first version broke
+			-- it silently. `WALK_FROM`..`SPRINT_SPEED` is every speed the Brain can ask for -- a
+			-- WOUNDED boar is not on one of Karen's three dials, it is at whatever fraction of 18
+			-- `Wound.speedScale` gives, measured live at 8.99 and 9.84 studs/s -- and at 9 the walk
+			-- clip was being asked for 3.15 and clamped to 2.50, which is feet sliding by a quarter.
+			-- Below about 1.1 studs/s the floor does bite, and that is the floor's whole job: an
+			-- animal creeping at a tenth of a stud a second is standing still, not strolling.
+			local clamped, worst, worstAt = 0, 0, 0
+			local speed = MODEL.WALK_FROM
+			while speed <= CONFIG.SPRINT_SPEED do
+				local name, rate = clip({ speed = speed })
+				local natural = MODEL.CLIPS[name].groundStudsPerSecond
+				if natural > 0 and speed >= 1.2 then
+					if rate <= MODEL.MIN_RATE or rate >= MODEL.MAX_RATE then
+						clamped += 1
+						if math.abs(speed / natural - rate) > worst then
+							worst, worstAt = math.abs(speed / natural - rate), speed
+						end
+					end
+				end
+				speed += 0.1
+			end
+			TestKit.note(
+				string.format(
+					"boar-model: swept %.1f..%.0f studs/s, %d clamped (worst %.2f at %.1f)",
+					MODEL.WALK_FROM,
+					CONFIG.SPRINT_SPEED,
+					clamped,
+					worst,
+					worstAt
+				)
+			)
+			expect(clamped).to.equal(0)
+		end)
+
+		it("hands the walk band over to the trot before the walk clip has to race", function()
+			-- The boundary is derived from the walk clip's own measured speed, not from a midpoint
+			-- between Karen's dials. A literal here would stop matching the moment a clip or a dial
+			-- changed, which is exactly how the clamped band got in.
+			expect(MODEL.TROT_FROM).to.equal(MODEL.CLIPS.walk.groundStudsPerSecond * MODEL.WALK_MAX_RATE)
+			-- ...and Karen's three anchors still land on the three gaits she named.
+			expect((clip({ speed = CONFIG.WANDER_SPEED }))).to.equal("walk")
+			expect((clip({ speed = CONFIG.TROT_SPEED }))).to.equal("trot")
+			expect((clip({ speed = CONFIG.SPRINT_SPEED }))).to.equal("run")
 		end)
 
 		it("clamps an absurd rate instead of playing it", function()
