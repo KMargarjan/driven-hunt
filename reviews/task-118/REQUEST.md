@@ -1,15 +1,17 @@
 # Task 118 — boar behaviour: what a boar does about what it notices
 
 Task: 118 · Round: 1 · Base: `task-117-calm-boar` (stacked; the PR targets that branch)
-Code commit: 6dbda7befa208778b58c2c3ea767cb9a219872af
+Code commit: 2c845129552f89c4c0e763e28ee20b5ea14a454d
 
 ```
-[harness] PASS: 33/33 checks @ 6dbda7befa208778b58c2c3ea767cb9a219872af (clean tree) scope=all
+[harness]  PASS: 33/33 checks @ 2c845129552f89c4c0e763e28ee20b5ea14a454d (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 2c845129552f89c4c0e763e28ee20b5ea14a454d (clean tree)
 ```
-`[harness2]`: **PENDING — the Director runs it.** This task touches `src/server/Match/` and
-`src/server/MatchBoot.server.luau`, so the merge gate needs `test2` at this same sha. The Director's
-run at `dbb2419` found two failures; **neither is 118's code** and both are fixed in `6dbda7b` —
-see "The two `test2` failures" below.
+Both lines are the Director's run at this sha. The code commit is `2c84512` and only paperwork
+follows the last commit that changed `src/`, `tests/` or `tools/` (`6dbda7b`), so the evidence covers
+the head. This task touches `src/server/Match/` and `src/server/MatchBoot.server.luau`, which is why
+`test2` is in the gate at all; an earlier run at `dbb2419` found two failures, **neither of them
+118's code**, both fixed in `6dbda7b` — see "The two `test2` failures" below.
 CI is red for ONE reason that is **task 117's and must not be fixed here**: `tools/boar_prep.py`'s
 selftest still says "ten clips" with sixteen in the tuple.
 
@@ -93,8 +95,10 @@ Neither failure is in code this task wrote, and neither assertion was weakened t
 ## What I could not verify
 
 - **Nobody has judged the feel.** 15 / 25 / 60, 2.5 s, 8 s, 120°, 350 studs are Karen's dials.
-- **Whether the head is RAISED in `118-alert-turn.png`** — at 25 studs I cannot judge the posture
-  from the frame. That the alert boar DRAWS `ALERT_CLIP` is asserted by spec, not by eye.
+- **The alert frames do not show the head raised.** At 25 studs I cannot judge the posture in
+  `118-alert-turn.png`, and the Director looked at the closer one: `118-alert-close.png` is the boar
+  from behind at arm's length, which shows no head at all. That an alert boar DRAWS `ALERT_CLIP` is
+  asserted by spec; that the clip READS as a raised head is still unseen by anybody.
 - **Dogs** (`kind = "dog"`, `DOG_NOTICE_SCALE`) have no producer, and **`REQUIRE_SIGHT = true`** has
   never run in a real world; both are spec-only.
 - **The LOOK's hunter had to be anchored to stand still** — something walks that character at ~5
