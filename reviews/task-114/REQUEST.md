@@ -3,10 +3,10 @@
 Task: 114
 Round: 1
 Base: `main` (`a77b0ed`, task 113's scoped gate), merged into this branch at `839ce0c`
-Code commit: 839ce0c425e52b40d13d90ce42816ccd1508844b
+Code commit: 696ed8812229a6d5e9019a63699122cd0fc5bbec
 
 ```
-[harness] PASS: n/n checks @ 839ce0c (clean tree) scope=all
+[harness] PASS: n/n checks @ 696ed88 (clean tree) scope=all
 ```
 
 **ONE LINE IS THE WHOLE GATE for this change** -- no `[harness2]`. `tools/agents.py` on `main`
@@ -73,7 +73,50 @@ Match, the driver, the tie and the teams.
    only one of the two guns ever had, so its shape could not be asserted at all, now has four
    refusal cases of its own.
 
-5. **The tests are aligned, not thinned.** Every new-gun assertion is kept and now runs against the
+5. **SIX SPECS STILL ASSERTED THE RETIRED GUN, AND THE FIRST GATE RUN FOUND THEM**
+   (`[harness] FAIL: 29/33 @ c6d730f`). Every one is a spec whose PREMISE was the retired gun or the
+   retired pose file: they kept passing only because the flag made `Camera.Config` read the old set
+   during a harness run. **No new-gun behaviour is broken and no new-gun assertion is weakened** --
+   each claim is re-anchored to this gun's own geometry, which is stricter than what it replaced.
+   Verify each by reading the case beside the number:
+   - `camera_mode.spec:558` -- `left.Y < 0` meant "under the barrels" because the retired gun was a
+     CLONE of the Tool's Handle and its tubes lay on the Handle's axis, so zero WAS the bore. Model
+     B's sit at `Gun.layout().barrelY`, 0.12 up. Now measured against `barrelY - barrelRadius`
+     (0.081); the left hand is at +0.035 and the right at -0.198, so both really are under the rib.
+   - `camera_mode.spec:586` -- it read the pose frame's own +X as "the fingers", true only while
+     `align` was identity for the v1 gloves. Model B's pair do not share an axis
+     (`HandAssets.AXES`), so each MESH is turned into one convention before the three angles are
+     read, and where the drawn fingers end up is a claim about the DRAWN PARTS --
+     `gun_client.spec`'s "holds the gun like a hunter" already carries each glove's own measured
+     vector through the CFrame really on screen, and passed. What is left here is the rule a server
+     can judge: the two hands are posed differently (their +X are 124 degrees apart), and the left
+     twist is not the retired pair's 180.
+   - the server CFrame mismatch (`viewmodel_poses.spec`) -- "the shipped file seeds every pose's
+     hands the same" was a fact about the retired FILE (task 98 seeded them identical so that task
+     moved no pixel). Karen posed model B's hands by eye and her reload holds the grip 0.12 studs
+     further forward than the carry. The claim underneath it is asserted instead: each pose's own
+     state gives back exactly that pose's own numbers (bit-exact -- `lerpHand` returns its endpoint
+     at `t >= 1`), and they really are three poses.
+   - `camera_client.spec:550` -- the built gun has TWO invisible envelopes, the `Handle` and the
+     `Barrels` group that swings; the clone had one. Both are named now rather than counted.
+   - `camera_client.spec:610` -- the bead was looked for on the Handle; `Gun.pieces` gives it
+     `group = "barrels"`, because a bead is a sight ON the barrels and swings with them.
+   - `camera_client.spec:1001`, `gun_client.spec:807` and the bore-line case with them -- a fresh
+     shell exists ONLY once the left hand has fetched and carried it (task 111, Karen: *"either we
+     have 2 animation when shells go inside or one go straight another from hand"*). The retired
+     gun's shells slid themselves in the instant the replica said "loaded". All three drive the load
+     on the viewmodel's own clock seam now, and the `camera_client` one also asserts the half the
+     old feed could never make: **before the fetch is over there is nothing on screen**. Its
+     OFF-branch "no shells" check is re-armed with a fresh rising edge first, so it cannot be
+     satisfied by an eject that had simply finished, and `withNewGun` puts the clock back whatever
+     happens.
+   - `camera_client.spec:1189` -- "the right hand did not move when the gun broke open" was the same
+     seeded-identical premise. The owner boundary it stood for is asserted directly now: the right
+     hand is where `Mode.handOffsetAt` says, in the BODY's own frame (the left stays
+     "its place on the barrels did not change", because its own frame is the one `hinge` RETURNS
+     rather than the barrel part's).
+
+6. **The tests are aligned, not thinned.** Every new-gun assertion is kept and now runs against the
    live `Config` rather than a hand-built second config (`gun_client.spec` lost `newGunConfig` and
    `newGunPosedConfig`). What went: the two old-gun comparisons in `gun_client.spec`, the
    muzzle-offset case that asserted the CLONED gun's tubes, `camera_client.spec`'s clone-sweep and
@@ -84,7 +127,7 @@ Match, the driver, the tie and the teams.
    third-person config and a config whose `fire` block carries no `flash` (`gun_client.spec`, the
    "fires" case), and `Weapon.Sound` refuses a caller with no resolved config without counting it.
 
-6. **`tools/pose.py` follows the data, and a stale path is refused rather than ignored.** `edit save`,
+7. **`tools/pose.py` follows the data, and a stale path is refused rather than ignored.** `edit save`,
    `fit` and the shipped landmark file (`tools/landmarks/reload.json`, `git mv`) all lost the
    `newGun.` prefix. Verify: `python tools/pose.py selftest` -> PASS. It asserts
    `newGun.carry.gun.pos.x` is no longer a path AND that an override naming one is REFUSED, so a
@@ -93,7 +136,14 @@ Match, the driver, the tie and the teams.
 ## The gate, and what I could not verify
 
 - **I did not run the harness.** `python tools/studio_mcp.py test` is the Director's; the line at the
-  top is a placeholder for the Director's own output.
+  top is a placeholder for the Director's own output. **The first gate run FAILED (29/33 @ c6d730f)
+  and claim 5 is what came out of it** -- still `Round: 1`, because no review has run.
+- **I could not re-run the suite myself**, so the six fixes are reasoned from the log and from the
+  data rather than observed green. Each one was checked against the shipped numbers by hand: the
+  bore underside is 0.081 and the two hands are at +0.035 and -0.198; the two hand frames' +X differ
+  by a dot of -0.55; `lerpHand` returns its endpoint exactly at `t >= 1`, so the per-pose equalities
+  are bit-exact; and the load is 0.45 s of fetch-carry-seat against a 0.35 s eject, which is why the
+  OFF-branch shell check had to be re-armed rather than left where it was.
 - **`main` is merged in (task 113's scoped gate), and that settled the two-player question**: see the
   box at the top -- `needs_two_player` returns `[]`, so the one-player line is the whole gate, for the
   review round AND for the PR to `main`. The merge's one conflict was `TASKS.md` and both sides are
