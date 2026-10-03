@@ -454,6 +454,13 @@ local function play(handle, name: string, rate: number, config)
 	if previous and previous.IsPlaying then
 		previous:Stop(config.MODEL.FADE_SECONDS)
 	end
+	-- SET AGAIN, HERE, AND NOT ONLY WHERE THE TRACK WAS BUILT. All ten clips were published with
+	-- `Loop = true` -- the Animation Editor's publish dialog does not ask -- and `AnimationTrack`
+	-- takes its `Looped` from the asset WHEN THE ASSET ARRIVES, which is after `LoadAnimation`
+	-- returns. A value written before that can be overwritten by the load; a value written
+	-- immediately before `Play` cannot. A looping death would stand the carcass back up every 1.2
+	-- seconds, in front of the player who just shot it.
+	track.Looped = config.MODEL.CLIPS[name].looped
 	track:Play(config.MODEL.FADE_SECONDS, 1, rate)
 	handle.clip = name
 end

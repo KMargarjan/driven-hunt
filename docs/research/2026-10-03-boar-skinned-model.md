@@ -140,11 +140,29 @@ geometry unit as one stud** and does not read the FBX unit header at all:
 the length is more than 0.1 % out, so that cannot cost a third upload. The guard was mutation-checked
 (`--scale-correction 100` → exit 1, "550.0000 raw units long but 5.5000 studs were asked for").
 
-## 5. What could not be verified here (rule 8)
+## 5. The ids landed, and loading them back corrected two things
 
-- **No clip has been seen playing in this game.** The ten animation ids do not exist yet, for the
-  reason in section 3, so the rates in the table above are arithmetic on measured clip speeds and not
-  an observation of a boar's feet. That is the one thing to look at when the ids land.
+The Director published all ten by hand on 2026-10-03 (`ESCALATE.md`, resolved). **No Curve-Editor
+conversion was needed** — that step came from Roblox's *emote* page, and the publish dialog takes a
+`KeyframeSequence` directly.
+
+Every id was then loaded back with `AnimationClipProvider:GetAnimationClipAsync` before it was
+written into the manifest, and the read-back found two faults that the ids alone would have hidden:
+
+1. **Every clip length in the config was one frame too long.** A clip of N frames at 24 fps spans
+   N−1 intervals, so `Idle_1` is **4.167 s**, not the 4.208 its 101 frames suggested; all ten were
+   out by exactly 1/24 s. The published asset's last keyframe is now the source for both copies —
+   `Assets`' `clipSeconds` and `Boar.CONFIG.MODEL.CLIPS[*].seconds` — `BoarAssetsBoot` warns if they
+   drift, and `boar_model.spec` fails the build at more than half a frame. **The ground speeds in
+   section 4 were never affected:** `tools/boar_prep.py` divides by the intervals it counted.
+2. **All ten were published `Loop = true`**, deaths and flinches included, because the publish dialog
+   does not ask. `AnimationTrack.Looped` is taken from the asset *when the asset arrives*, which is
+   after `LoadAnimation` returns — so `Boar.Body` writes it from its own config immediately before
+   every `Play`, not only where the track is built. A looping death stands the carcass back up every
+   1.2 s.
+
+## 6. What could not be verified here (rule 8)
+
 - The Fab Standard License grant was read through a web search, not from `fab.com/eula` (403).
 - `Animator:LoadAnimation` on an id that does not exist returns a usable track (`IsPlaying` true,
   `Speed` the rate it was played at, `Length` 0) — measured, and it is what lets the spec prove the

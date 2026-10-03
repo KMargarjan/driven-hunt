@@ -128,6 +128,13 @@ export type AssetRow = {
 	-- records what it ALREADY measures rather than what to set it to, and `nil`/false is every row
 	-- that predates the boar.
 	bakedScale: boolean?,
+	-- HOW LONG THIS ANIMATION RUNS, in seconds, for a `kind = "animation"` row and nothing else
+	-- (task 115). MEASURED by reading the published asset back with
+	-- `AnimationClipProvider:GetAnimationClipAsync` and taking its last keyframe's `Time` -- which is
+	-- the only honest source, and it is not the frame count: 101 frames at 24 fps SPAN 100 intervals,
+	-- so the clip is 4.167 s and not 4.208. `BoarAssetsBoot` compares this against the number
+	-- `Boar.CONFIG.MODEL.CLIPS` carries and warns if the two copies have drifted.
+	clipSeconds: number?,
 	notes: string?,
 }
 
@@ -302,6 +309,12 @@ local MODEL_B_LICENCE = {
 -- It is a constant and not a literal in the row because `Boar.Body`'s own spec asserts against the
 -- same number, and two copies of a measurement drift.
 local BOAR_MALE_SIZE = Vector3.new(1.4011, 3.2573, 5.5)
+
+-- WHAT AN ANIMATION ROW PUTS IN THE GEOMETRY FIELDS `AssetRow` REQUIRES OF EVERY ROW. Named, so a
+-- reader meets "no geometry" instead of a zero vector they have to decide about, and so a grep finds
+-- every row that is not a thing you can see.
+local NO_GEOMETRY = Vector3.zero
+local NO_FIDELITY = "n/a"
 
 -- THE ONE LICENCE THE BOAR IS USED UNDER. Karen bought the package; the licence is hers and this
 -- row is the record of it.
@@ -1464,6 +1477,253 @@ Assets.ROWS = {
 		notes = "RedDeer's male wild boar: 13,976 triangles, 40 bones, one skinned MeshPart with a "
 			.. "SurfaceAppearance, 1024 albedo/normal/roughness. Prepped by tools/boar_prep.py and "
 			.. "looked at in game before it was called done (.screenshots, task 115).",
+	},
+	-- ------------------------------- the boar's ten clips (task 115, published 2026-10-03)
+	--
+	-- WHERE THESE IDS CAME FROM, and it is the one part of this task no tool could do. Open Cloud
+	-- takes an `Animation` only as a `.rbxm`/`.rbxmx` "edited inside Roblox Studio", which nothing
+	-- outside Studio can write, and `AssetService:CreateAssetAsync` answered "CreateAssetAsync and
+	-- CreateAssetVersionAsync are not available yet" for both `Animation` and `Model` when it was
+	-- tried here. So the DIRECTOR imported each clip's own FBX -- `tools/boar_prep.py` writes one per
+	-- clip for exactly this -- into Studio's Animation Editor and published it by hand. `fileName`
+	-- and `sourceSha256` are that file, so each id is tied to the bytes it was made from.
+	--
+	-- EVERY ID WAS LOADED BACK BEFORE IT WAS WRITTEN DOWN (2026-10-03), through
+	-- `AnimationClipProvider:GetAnimationClipAsync` in Edit: all ten resolve, every clip's own name
+	-- matches the row, and `clipSeconds` is its last keyframe's `Time`. That read-back is also what
+	-- corrected the lengths -- a clip of N frames at 24 fps spans N-1 intervals, so Idle is 4.167 s
+	-- and not the 4.208 the frame count suggested, and every clip was one frame out the same way.
+	--
+	-- THEY ARE ALL PUBLISHED `Loop = true`, deaths and flinches included, because the Animation
+	-- Editor's dialog does not ask. `Boar.Body` sets `AnimationTrack.Looped` from its own config
+	-- before every `Play`, so a death plays once and holds -- a looping death would stand the carcass
+	-- back up every 1.2 s, which is why that is a property write and not a hope about the asset.
+	--
+	-- THE GEOMETRY FIELDS ARE ZERO BECAUSE AN ANIMATION HAS NO GEOMETRY. `AssetRow` asks every row
+	-- for a size, an offset, a rotation and a render fidelity; `NO_GEOMETRY` and `NO_FIDELITY` say
+	-- "this row is not a thing you can see" in one word each, rather than leaving four zeros a reader
+	-- has to decide about. Nothing reads them: `Assets.INSERTABLE` keeps an animation out of
+	-- `keysFor`, so `InsertService` is never asked for one, and the only consumer is `Boar.Body`
+	-- putting `modelId` on an `Animation.AnimationId`.
+	{
+		key = Assets.KEYS.boarIdle,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 82265692105692,
+		displayName = "Arm_Boar|Idle_1",
+		fileName = "Idle_1.fbx",
+		sourceSha256 = "5fbe3b9cf5e35aac318704723907b0bbea522737c51ec8c5710ac5ebc0ed3bf6",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 4.167,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "Standing, breathing, the odd ear flick. What a boar does when nothing is pushing it.",
+	},
+	{
+		key = Assets.KEYS.boarWalk,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 78821328262922,
+		displayName = "Arm_Boar|Walk_F_IP",
+		fileName = "Walk_F_IP.fbx",
+		sourceSha256 = "47d4e066c5a34126ebb1bd2b5e599325eeb0c08cda834a8c73ddc5f636d3040c",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 1.000,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A grazing walk. Hooves travel 2.852 studs/s at rate 1, so it plays at 1.40 for WANDER_SPEED 4.",
+	},
+	{
+		key = Assets.KEYS.boarTrot,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 131287194917750,
+		displayName = "Arm_Boar|Trot_F_IP",
+		fileName = "Trot_F_IP.fbx",
+		sourceSha256 = "eb91fcd4a5279d4e7185e8b807bc8fe4f31ab625c1d0c883a60f4c2e7460a943",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.667,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A pushed trot. Hooves travel 10.244 studs/s at rate 1, so it plays at 1.76 for TROT_SPEED 18.",
+	},
+	{
+		key = Assets.KEYS.boarRun,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 80882224687243,
+		displayName = "Arm_Boar|Run_F_IP",
+		fileName = "Run_F_IP.fbx",
+		sourceSha256 = "539e11602636c46b4391da53a6dd529eca2ca4d360d469e4b9f560e490bd9f28",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.500,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A bolting gallop. Hooves travel 17.210 studs/s at rate 1, so it plays at 2.21 for SPRINT_SPEED 38.",
+	},
+	{
+		key = Assets.KEYS.boarTurnLeft,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 139483442990375,
+		displayName = "Arm_Boar|Turn_L_IP",
+		fileName = "Turn_L_IP.fbx",
+		sourceSha256 = "f083335c685c4fb8422007cee3ae66e94516a83b362d93c1a206544d83a8c67c",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.667,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A pivot to the animal's left, on the spot. Only reachable below WALK_FROM: it skates at any real speed.",
+	},
+	{
+		key = Assets.KEYS.boarTurnRight,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 88781568929523,
+		displayName = "Arm_Boar|Turn_R_IP",
+		fileName = "Turn_R_IP.fbx",
+		sourceSha256 = "d1c80f836f638cbb3189e178e18c3190b8b63d08a129182f4165033034f32e5a",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.667,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The same pivot to the right.",
+	},
+	{
+		key = Assets.KEYS.boarDeathLeft,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 128792697872198,
+		displayName = "Arm_Boar|Death_L",
+		fileName = "Death_L.fbx",
+		sourceSha256 = "683cf0e741a2a8af421333e07192530bf208828999c5ef8c4d3b6cf675eb8307",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 1.208,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "It goes down on its left side -- the side Body.collapse's positive roll tips the box onto. Played ONCE and frozen on its last frame.",
+	},
+	{
+		key = Assets.KEYS.boarDeathRight,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 88751192504828,
+		displayName = "Arm_Boar|Death_R",
+		fileName = "Death_R.fbx",
+		sourceSha256 = "849b04fe370427dc7f35774a2f0cd9a5a43459f2b605fe0178cd2c3a7b43926b",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 1.208,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The same fall to the right, for a negative COLLAPSE_ROLL_DEG. Nothing plays it today, and it is published so that flipping the sign needs no second trip through Studio.",
+	},
+	{
+		key = Assets.KEYS.boarHitFront,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 91365202020290,
+		displayName = "Arm_Boar|Hit_F",
+		fileName = "Hit_F.fbx",
+		sourceSha256 = "f0cd529511c797b9011f7d7521b79634a6351be27dbb6b79c816898f1f497ddd",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.833,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A flinch away from a shot that came from in front. Played ONCE, and it is the only hit feedback the animal itself gives now that the red flash is on an invisible box.",
+	},
+	{
+		key = Assets.KEYS.boarHitBack,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 80205641767239,
+		displayName = "Arm_Boar|Hit_B",
+		fileName = "Hit_B.fbx",
+		sourceSha256 = "1db51f4a2d94fc4120a18e3040993dbd2a04364d5d618c4247f159e5c095249c",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.833,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The same flinch for a shot from behind.",
 	},
 } :: { AssetRow }
 

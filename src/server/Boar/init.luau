@@ -290,17 +290,24 @@ Boar.CONFIG = {
 -- `Runtime:setModelSource` takes both lookups from the boot script; `ANIMATION_IDS` is filled per
 -- RUNTIME, once, and is empty until then -- with it empty the boar is welded, visible and standing
 -- still, which is exactly the state until the ten clips have been published out of Studio.
+-- `seconds` IS THE PUBLISHED CLIP'S OWN LENGTH, read back out of Roblox on 2026-10-03 with
+-- `AnimationClipProvider:GetAnimationClipAsync` and taking its last keyframe's `Time`. It is NOT the
+-- frame count divided by the frame rate, which is what this table said until the ids existed and
+-- which was one frame long on every single clip: N frames at 24 fps span N-1 intervals, so Idle is
+-- 4.167 s and not 4.208. `groundStudsPerSecond` was never affected -- `tools/boar_prep.py` divides
+-- by the INTERVALS it counted, not by the frame count -- and `BoarAssetsBoot` warns if this column
+-- and the manifest's `clipSeconds` ever drift apart.
 local BOAR_CLIPS = {
-	idle = { clip = "Idle_1", seconds = 4.208, groundStudsPerSecond = 0, looped = true },
-	walk = { clip = "Walk_F_IP", seconds = 1.042, groundStudsPerSecond = 2.852, looped = true },
-	trot = { clip = "Trot_F_IP", seconds = 0.708, groundStudsPerSecond = 10.244, looped = true },
-	run = { clip = "Run_F_IP", seconds = 0.542, groundStudsPerSecond = 17.21, looped = true },
-	turnLeft = { clip = "Turn_L_IP", seconds = 0.708, groundStudsPerSecond = 1.855, looped = true },
-	turnRight = { clip = "Turn_R_IP", seconds = 0.708, groundStudsPerSecond = 1.855, looped = true },
-	deathLeft = { clip = "Death_L", seconds = 1.25, groundStudsPerSecond = 0, looped = false },
-	deathRight = { clip = "Death_R", seconds = 1.25, groundStudsPerSecond = 0, looped = false },
-	hitFront = { clip = "Hit_F", seconds = 0.875, groundStudsPerSecond = 0, looped = false },
-	hitBack = { clip = "Hit_B", seconds = 0.875, groundStudsPerSecond = 0, looped = false },
+	idle = { clip = "Idle_1", seconds = 4.167, groundStudsPerSecond = 0, looped = true },
+	walk = { clip = "Walk_F_IP", seconds = 1.0, groundStudsPerSecond = 2.852, looped = true },
+	trot = { clip = "Trot_F_IP", seconds = 0.667, groundStudsPerSecond = 10.244, looped = true },
+	run = { clip = "Run_F_IP", seconds = 0.5, groundStudsPerSecond = 17.21, looped = true },
+	turnLeft = { clip = "Turn_L_IP", seconds = 0.667, groundStudsPerSecond = 1.855, looped = true },
+	turnRight = { clip = "Turn_R_IP", seconds = 0.667, groundStudsPerSecond = 1.855, looped = true },
+	deathLeft = { clip = "Death_L", seconds = 1.208, groundStudsPerSecond = 0, looped = false },
+	deathRight = { clip = "Death_R", seconds = 1.208, groundStudsPerSecond = 0, looped = false },
+	hitFront = { clip = "Hit_F", seconds = 0.833, groundStudsPerSecond = 0, looped = false },
+	hitBack = { clip = "Hit_B", seconds = 0.833, groundStudsPerSecond = 0, looped = false },
 }
 
 Boar.CONFIG.MODEL = {

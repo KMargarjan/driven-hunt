@@ -484,6 +484,103 @@ return function()
 		end)
 	end)
 
+	describe("every clip the boar can play has a published asset id", function()
+		-- THE HOLE THIS TASK LEFT, NOW CLOSED (2026-10-03). The ten ids can only be made inside
+		-- Studio's Animation Editor by hand, so for the first half of this task `BoarAssetsBoot`
+		-- warned "0 of 10" and the animal stood still. These cases are what stops that silently
+		-- happening again -- to the female, to the cub, or to a clip somebody adds to `CLIPS`
+		-- without publishing it.
+		local Assets = require(game:GetService("ServerStorage"):WaitForChild("Assets"))
+
+		-- The same mapping `BoarAssetsBoot` holds. It is duplicated HERE on purpose: a spec that
+		-- imported the boot script's table could not notice that table being wrong.
+		local KEY_OF = {
+			idle = "boar.anim.idle",
+			walk = "boar.anim.walk",
+			trot = "boar.anim.trot",
+			run = "boar.anim.run",
+			turnLeft = "boar.anim.turn.left",
+			turnRight = "boar.anim.turn.right",
+			deathLeft = "boar.anim.death.left",
+			deathRight = "boar.anim.death.right",
+			hitFront = "boar.anim.hit.front",
+			hitBack = "boar.anim.hit.back",
+		}
+
+		it("names the same ten clips the boar knows, and no others", function()
+			-- Every key string this spec uses must be one `Assets.KEYS` DECLARES. That is the
+			-- `Map.TAGS` rule: a key typed as a literal where it is read is a silent nil nobody can
+			-- explain, and a spec that typed its own would pass while the game found no row.
+			local declared = {}
+			for _, value in pairs(Assets.KEYS) do
+				declared[value] = true
+			end
+
+			local inConfig, inKeys = 0, 0
+			for name in pairs(MODEL.CLIPS) do
+				inConfig += 1
+				expect(KEY_OF[name]).to.be.ok()
+				expect(declared[KEY_OF[name]]).to.equal(true)
+			end
+			for name in pairs(KEY_OF) do
+				inKeys += 1
+				expect(MODEL.CLIPS[name]).to.be.ok()
+			end
+			expect(inConfig).to.equal(10)
+			expect(inKeys).to.equal(10)
+		end)
+
+		it("has a row with a real asset id for every one of them", function()
+			local missing = {}
+			for name in pairs(MODEL.CLIPS) do
+				local row = Assets.byKey(KEY_OF[name])
+				if row == nil or row.kind ~= "animation" or row.modelId <= 0 then
+					table.insert(missing, name)
+				end
+			end
+			table.sort(missing)
+			-- Named, not counted: "3 missing" sends the next reader looking for which three.
+			expect(table.concat(missing, ", ")).to.equal("")
+		end)
+
+		it("agrees with the manifest about how long each clip is", function()
+			-- The two copies of one measurement. `BoarAssetsBoot` warns at boot; this fails the
+			-- build, which is the half that stops it being merged. Half a frame at 24 fps.
+			local worst, worstName = 0, "none"
+			for name, clip in pairs(MODEL.CLIPS) do
+				local row = Assets.byKey(KEY_OF[name])
+				expect(row.clipSeconds).to.be.ok()
+				local drift = math.abs(row.clipSeconds - clip.seconds)
+				if drift > worst then
+					worst, worstName = drift, name
+				end
+			end
+			TestKit.note(string.format("boar-model: worst clip-length drift %.4f s (%s)", worst, worstName))
+			expect(worst <= 1 / 48).to.equal(true)
+		end)
+
+		it("never asks InsertService to load an animation", function()
+			-- An animation is a number on an `Animation.AnimationId`, not an Instance you insert.
+			-- A boot script handed one would spend a network load that can only fail, and delay the
+			-- model that does need it.
+			for _, key in ipairs(Assets.keysFor("boar")) do
+				local row = Assets.byKey(key)
+				expect(row.kind).never.to.equal("animation")
+			end
+			expect(#Assets.keysFor("boar-animation")).to.equal(0)
+			expect(Assets.INSERTABLE.animation).to.equal(nil)
+		end)
+
+		it("plays a death and a flinch ONCE, however the asset was published", function()
+			-- All ten were published `Loop = true` (the Animation Editor's dialog does not ask), so
+			-- "it loops" is a fact about the asset and "it plays once" has to be a property write.
+			expect(MODEL.CLIPS.deathLeft.looped).to.equal(false)
+			expect(MODEL.CLIPS.deathRight.looped).to.equal(false)
+			expect(MODEL.CLIPS.hitFront.looped).to.equal(false)
+			expect(MODEL.CLIPS.hitBack.looped).to.equal(false)
+		end)
+	end)
+
 	describe("a field may never be named after a method", function()
 		-- THE GUARD FOR THE ONE BUG THIS TASK SHIPPED, driven with a clash built here because no spec
 		-- can make a real Runtime clash without first introducing the defect. `Runtime.__index =
@@ -552,9 +649,12 @@ return function()
 		end)
 
 		it("loads no Animation at all when the manifest has no id yet", function()
-			-- THE STATE THIS REPOSITORY IS ACTUALLY IN until the ten clips are published out of
-			-- Studio's Animation Editor: the boar is drawn, welded and textured, and it does not move
-			-- its legs. Silence here would be the bug; nothing half-built is.
+			-- NOT THE STATE THIS REPOSITORY IS IN ANY MORE -- the ten ids were published on
+			-- 2026-10-03 and the describe below asserts all ten -- but it is still the state a server
+			-- is in for the first moments of every session, and the state any FUTURE animal is in
+			-- between its model landing and its clips being published. The boar is drawn, welded and
+			-- textured, and it does not move its legs. Silence here would be the bug; nothing
+			-- half-built is.
 			local bare = newRuntime(true, makeTemplate(), nil)
 			local other = bare:spawn(Vector3.new(40, GROUND_Y, 20))
 			step(bare, 1 / 60, 10)

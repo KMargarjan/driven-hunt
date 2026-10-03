@@ -124,11 +124,30 @@ end
 -- state: the boar is welded, textured and standing still. A silent 0 is how a missing asset becomes
 -- a bug report about animation code.
 local have, want = 0, 0
-for name in pairs(Boar.CONFIG.MODEL.CLIPS) do
+for name, clip in pairs(Boar.CONFIG.MODEL.CLIPS) do
 	want += 1
 	local row = Assets.byKey(CLIP_KEYS[name])
 	if row and row.kind == "animation" and row.modelId > 0 then
 		have += 1
+		-- THE TWO COPIES OF ONE MEASUREMENT, COMPARED IN THE ONE PLACE THAT SEES BOTH. The clip's
+		-- length is a fact about the published asset (`row.clipSeconds`, read back out of Roblox)
+		-- and also a number the boar plays by (`clip.seconds`, which sets how long a flinch lasts).
+		-- Neither owner may require the other, so nothing but this composition root can notice them
+		-- drifting apart -- and they already did once, by exactly one frame on all ten clips, when
+		-- the lengths were frame counts rather than measurements. Half a frame at 24 fps is the
+		-- tolerance: anything smaller is rounding, anything larger is a different clip.
+		local published = row.clipSeconds
+		if published ~= nil and math.abs(published - clip.seconds) > 1 / 48 then
+			warn(
+				string.format(
+					"[BoarAssetsBoot] %s: the manifest says the clip is %.3f s and Boar plays it as"
+						.. " %.3f s. One of the two was not measured off the published asset.",
+					name,
+					published,
+					clip.seconds
+				)
+			)
+		end
 	end
 end
 if have < want then
