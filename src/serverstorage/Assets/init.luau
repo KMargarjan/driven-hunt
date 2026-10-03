@@ -191,6 +191,15 @@ Assets.KEYS = table.freeze({
 	boarDeathRight = "boar.anim.death.right",
 	boarHitFront = "boar.anim.hit.front",
 	boarHitBack = "boar.anim.hit.back",
+	-- THE THREE THIS PROJECT AUTHORED (task 116 fix round): `tools/boar_prep.py` writes
+	-- `Death_Paddle_L.fbx`, `Death_Paddle_R.fbx` and `Cripple_Drag.fbx`, and an animation asset id
+	-- can only be made by hand in Studio's Animation Editor (see the block above, and ESCALATE.md).
+	-- The Director published all three on 2026-10-03 and their rows are further down this file. A
+	-- declared key with no row is the honest state until a publish: `Assets.byKey` answers nil,
+	-- `Boar.Body.hasClip` is false, and the boar behaves exactly as it did before the clips existed.
+	boarDeathPaddleLeft = "boar.anim.death.paddle.left",
+	boarDeathPaddleRight = "boar.anim.death.paddle.right",
+	boarCrippleDrag = "boar.anim.cripple.drag",
 })
 
 -- WHICH KINDS `Loader` CAN TURN INTO AN INSTANCE, and therefore which ones `keysFor` may hand a boot
@@ -1724,6 +1733,93 @@ Assets.ROWS = {
 		rotationDeg = NO_GEOMETRY,
 		renderFidelity = NO_FIDELITY,
 		notes = "The same flinch for a shot from behind.",
+	},
+	-- THE THREE THIS PROJECT AUTHORED, published by the Director on 2026-10-03 and each id verified
+	-- by loading it back with `AnimationClipProvider:GetAnimationClipAsync` and reading its name.
+	--
+	-- `source` IS "own", NOT "creator-store", and that distinction is the point: these FBX files are
+	-- written by `tools/boar_prep.py`'s `SYNTH_CLIPS`, not shipped by RedDeer. What they are made OF
+	-- is the package's own poses, so `BOAR_LICENCE` still governs them -- a blend of two frames of
+	-- somebody's animation is still their animation -- and `creator` stays the package's creator id
+	-- for the same reason.
+	--
+	-- `sourceSha256` NAMES THE FILE THAT WAS ACTUALLY PUBLISHED. A later prep run writes byte-different
+	-- FBXs (the format carries its own timestamps) but measures identically -- same keys, same ground
+	-- speeds, same lowest hoof -- so these ids stand and nothing needs re-publishing.
+	--
+	-- ALL THREE CAME BACK `clip.Loop = true` as well (the Animation Editor's loop toggle), and for
+	-- the two PADDLES that is wrong: a looping death-throe would restart the twitch every four
+	-- seconds on a carcass that is supposed to be still. `Boar.Body` writes `AnimationTrack.Looped`
+	-- from `Boar.CONFIG.MODEL.CLIPS` immediately before every `Play` for exactly this reason, and
+	-- `boar_shot.spec` asserts the two paddles are `looped = false` and the drag `looped = true`.
+	{
+		key = Assets.KEYS.boarCrippleDrag,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 82564145780400,
+		displayName = "Arm_Boar|Cripple_Drag",
+		fileName = "Cripple_Drag.fbx",
+		sourceSha256 = "c5c81549a596b427661098d99514551d1f9dbfb6529c1404577435ee9ffa0318",
+		source = "own" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		-- READ BACK OFF THE PUBLISHED ASSET with `Animator:LoadAnimation` on a live rig, not taken
+		-- from the FBX: 25 keys at 24 fps is 24 INTERVALS = 1.0000 s, and the prep tool said 1.042
+		-- until this measurement corrected it (the same one-frame error the ten package clips had).
+		clipSeconds = 1.0,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "Walk_F_IP with the hind legs pulled 85 % toward the death pose. MEASURED per hoof: front 2.866 and 2.863 studs/s (the walk's own 2.853, a real walk cycle), hind 0.826 and 0.931 -- a third of it, dragging. Looped.",
+	},
+	{
+		key = Assets.KEYS.boarDeathPaddleLeft,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 131795481631371,
+		displayName = "Arm_Boar|Death_Paddle_L",
+		fileName = "Death_Paddle_L.fbx",
+		sourceSha256 = "4de24da23d6890b05391edc54cb70d525a3b9e32db68e4a54822eb24ea62180c",
+		source = "own" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 4.0,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "Death_L's last frame with the four legs swinging back toward Run_F_IP, decaying to nothing over 4 s, so it ENDS on the pose it began on and the carcass is held there. Published Loop = true; played with Looped FALSE.",
+	},
+	{
+		key = Assets.KEYS.boarDeathPaddleRight,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "boar-animation" :: string?,
+		modelId = 126675140902675,
+		displayName = "Arm_Boar|Death_Paddle_R",
+		fileName = "Death_Paddle_R.fbx",
+		sourceSha256 = "fdd16f80aa92725caa441e29ec921d7b39caf615c5a90d2a9407340a9046479f",
+		source = "own" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 4.0,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The same, from Death_R, for the other side.",
 	},
 } :: { AssetRow }
 

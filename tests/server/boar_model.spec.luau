@@ -536,7 +536,15 @@ return function()
 		it("flinches, from the side the shot came from, and a flinch beats any gait", function()
 			expect((clip({ hitFor = 0.2 }))).to.equal("hitFront")
 			expect((clip({ hitFor = 0.2, hitFromBehind = true }))).to.equal("hitBack")
-			expect((clip({ hitFor = 0.2, speed = CONFIG.SPRINT_SPEED }))).to.equal("hitFront")
+			-- A RUNNING animal shows only the first `HIT_MOVING_SECONDS` of the window (task 116 fix
+			-- round, Karen: "feels late hit and odd" -- the in-place flinch used to hold the whole
+			-- 0.833 s while the body bolted at sprint speed). `hitFor` counts DOWN, so a big `hitFor`
+			-- is early in the window and a small one is late in it.
+			local early = MODEL.HIT_SECONDS - MODEL.HIT_MOVING_SECONDS / 2
+			expect((clip({ hitFor = early, speed = CONFIG.SPRINT_SPEED }))).to.equal("hitFront")
+			expect((clip({ hitFor = 0.2, speed = CONFIG.SPRINT_SPEED }))).to.equal("run")
+			-- ...and a standing one still gets all of it, which is what this case has always said.
+			expect((clip({ hitFor = 0.2, speed = 0 }))).to.equal("hitFront")
 		end)
 
 		it("dies, and a death beats everything including a flinch", function()
@@ -603,7 +611,17 @@ return function()
 			deathRight = "boar.anim.death.right",
 			hitFront = "boar.anim.hit.front",
 			hitBack = "boar.anim.hit.back",
+			deathPaddleLeft = "boar.anim.death.paddle.left",
+			deathPaddleRight = "boar.anim.death.paddle.right",
+			crippleDrag = "boar.anim.cripple.drag",
 		}
+
+		-- THE THREE THIS PROJECT AUTHORED (task 116 fix round), PUBLISHED by the Director on
+		-- 2026-10-03 with each id verified by `AnimationClipProvider:GetAnimationClipAsync`. They are
+		-- listed because every case below treats them exactly like the package's ten -- a row, an id,
+		-- and a length that agrees with the config -- and because `source` is the one field where
+		-- they differ: "own", not "creator-store".
+		local AUTHORED_HERE = { crippleDrag = true, deathPaddleLeft = true, deathPaddleRight = true }
 
 		it("names the same ten clips the boar knows, and no others", function()
 			-- Every key string this spec uses must be one `Assets.KEYS` DECLARES. That is the
@@ -614,9 +632,12 @@ return function()
 				declared[value] = true
 			end
 
-			local inConfig, inKeys = 0, 0
+			local inConfig, inKeys, authored = 0, 0, 0
 			for name in pairs(MODEL.CLIPS) do
 				inConfig += 1
+				if AUTHORED_HERE[name] then
+					authored += 1
+				end
 				expect(KEY_OF[name]).to.be.ok()
 				expect(declared[KEY_OF[name]]).to.equal(true)
 			end
@@ -624,8 +645,11 @@ return function()
 				inKeys += 1
 				expect(MODEL.CLIPS[name]).to.be.ok()
 			end
-			expect(inConfig).to.equal(10)
-			expect(inKeys).to.equal(10)
+			-- Ten out of the package plus the three this project authored, and the two tables agree
+			-- about every one of the thirteen.
+			expect(inConfig).to.equal(13)
+			expect(inKeys).to.equal(13)
+			expect(authored).to.equal(3)
 		end)
 
 		it("has a row with a real asset id for every one of them", function()
@@ -639,6 +663,16 @@ return function()
 			table.sort(missing)
 			-- Named, not counted: "3 missing" sends the next reader looking for which three.
 			expect(table.concat(missing, ", ")).to.equal("")
+
+			-- ...AND THE THREE THIS PROJECT MADE SAY SO IN THE ONE FIELD THAT MATTERS. They are built
+			-- by `tools/boar_prep.py` out of the package's own poses, so the licence is the package's
+			-- and the creator is its creator, but the FILE is this repository's: a reader asking
+			-- "where did this animation come from" gets a different answer for these three.
+			for name in pairs(AUTHORED_HERE) do
+				local row = Assets.byKey(KEY_OF[name])
+				expect(row).to.be.ok()
+				expect(row.source).to.equal("own")
+			end
 		end)
 
 		it("agrees with the manifest about how long each clip is", function()
@@ -1070,7 +1104,10 @@ return function()
 		it("lets a flinch and a death through the dwell at once", function()
 			-- These two must be instant: they are what a player is waiting to see after pulling the
 			-- trigger, and a fifth of a second of politeness reads as the animal not reacting.
-			expect((clipWith("run", 0.0, { hitFor = 0.5, speed = CONFIG.SPRINT_SPEED }))).to.equal("hitFront")
+			-- Early in the flinch window, where a running animal still shows it (see the flinch case
+			-- above: the window itself is shorter at speed since the task 116 fix round).
+			local early = MODEL.HIT_SECONDS - MODEL.HIT_MOVING_SECONDS / 2
+			expect((clipWith("run", 0.0, { hitFor = early, speed = CONFIG.SPRINT_SPEED }))).to.equal("hitFront")
 			local want = if MODEL.DEATH_TO_THE_LEFT then "deathLeft" else "deathRight"
 			expect((clipWith("run", 0.0, { collapsed = true, speed = CONFIG.SPRINT_SPEED }))).to.equal(want)
 		end)

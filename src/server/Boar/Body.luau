@@ -194,6 +194,24 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 		-- WHICH CLIP IS FROZEN ON ITS LAST FRAME, or nil. A held clip's speed is deliberately NOT the
 		-- clip's rate, so `play` must know not to "correct" it (review round 1, finding 1).
 		heldClip = nil :: string?,
+		-- The dying twitch (task 116): seconds left of it, and the frame the death clip is held at.
+		paddleFor = 0,
+		-- Seconds since it went down, which is what moves the death from the fall to the paddle.
+		deadFor = 0,
+		heldAt = nil :: number?,
+		-- The sounds, created with the visual and destroyed with the boar. `sounds` is name -> Sound;
+		-- `nextGrunt` and `nextBreath` are countdowns, not clocks, so nothing here reads os.clock.
+		sounds = {} :: { [string]: Sound },
+		soundFolder = nil :: Instance?,
+		-- nil until the first step in the band arms them: see `stepSound`.
+		nextGrunt = nil :: number?,
+		nextBreath = nil :: number?,
+		-- Seconds until the last breath, armed by `playDeath`. nil means not armed.
+		lastBreathIn = nil :: number?,
+		stepClip = nil :: string?,
+		-- THE WARM-UP (task 116 fix round): seconds left of the silent pre-roll that makes the client
+		-- fetch every clip and every sound BEFORE the first shot needs one. See `Body.warmAssets`.
+		warmFor = 0,
 		-- How many times this boar's animation speed has been written. Nothing in the game reads it;
 		-- `Runtime:animationOf` hands it to a spec, the way `Runtime:woundOf` hands out a wound.
 		rateWrites = 0,
@@ -414,11 +432,19 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 		)
 	)
 
+	Body.attachSounds(handle, config)
+
 	handle.visual = model
 	handle.mesh = cloneMesh
 	handle.animator = animator
 	handle.tracks = {}
 	handle.clip = nil
+
+	-- ...and ask the clients for every clip and every sound NOW, silently, so the first shot does not
+	-- pay the fetch (see `Body.warmAssets`: measured at 364 ms of late cry and late flinch). AFTER
+	-- the four lines above, not before: `warmAssets` builds tracks through the handle's own animator,
+	-- and `handle.tracks = {}` would throw every one of them away again.
+	Body.warmAssets(handle, config)
 
 	if config.MODEL.HIDE_BOX then
 		-- ONLY NOW, and only because the model is really there: a box hidden before a load that then
@@ -430,6 +456,35 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 		end
 	end
 	return true
+end
+
+-- HOW MUCH OF THE FLINCH IS SHOWN AT THIS SPEED. Pure, so the "one motion" claim is assertable with
+-- no boar in the world: below `HIT_FULL_BELOW` the animal is not going anywhere and gets the whole
+-- clip; above it, only the first `HIT_MOVING_SECONDS` -- the head-and-shoulder jerk -- and then the
+-- gait takes over, which is the flinch BLENDING INTO the bolt rather than delaying it.
+function Body.flinchWindow(speed: number, config): number
+	local model = config.MODEL
+	if speed < model.HIT_FULL_BELOW then
+		return model.HIT_SECONDS
+	end
+	return model.HIT_MOVING_SECONDS
+end
+
+-- WHICH TWO CLIPS A DEATH IS: the fall, and the paddle that follows it. Derived from the same
+-- `DEATH_TO_THE_LEFT` the roll is, so flipping `COLLAPSE_ROLL_DEG` moves all four together.
+function Body.deathClips(config): (string, string)
+	if config.MODEL.DEATH_TO_THE_LEFT then
+		return "deathLeft", "deathPaddleLeft"
+	end
+	return "deathRight", "deathPaddleRight"
+end
+
+-- WHETHER A CLIP CAN ACTUALLY BE PLAYED, which for an authored clip means "has the Director
+-- published it yet". Pure, and the one test the whole "if an id is missing the current behaviour
+-- stays" promise rests on.
+function Body.hasClip(name: string, config): boolean
+	local id = config.MODEL.ANIMATION_IDS[name]
+	return config.MODEL.CLIPS[name] ~= nil and type(id) == "number" and id > 0
 end
 
 -- WHICH CLIP, AND HOW FAST. Pure: no Instance, no service, no state -- `info` in, two values out, so
@@ -460,9 +515,42 @@ function Body.clipFor(info, config): (string?, number)
 	-- A DEATH AND A FLINCH ARE IMMEDIATE AND IGNORE THE DWELL BELOW. They are the two the player is
 	-- waiting to see, and a quarter-second of politeness would read as the animal not reacting.
 	if info.collapsed then
-		return (if model.DEATH_TO_THE_LEFT then "deathLeft" else "deathRight"), 1
+		-- ...AND THE DEATH IS TWO CLIPS WHEN THE SECOND ONE EXISTS (task 116 fix round): the fall,
+		-- and then the legs paddling and going still. `Death_Paddle_L/R` is authored by
+		-- `tools/boar_prep.py` and ends on the same pose the fall ended on, so the hold after it is
+		-- the pose the carcass keeps. WITH NO ID PUBLISHED this returns the fall for ever and the
+		-- behaviour is exactly what it was -- which is the whole point of asking `ANIMATION_IDS`.
+		local fall, paddle = Body.deathClips(config)
+		if Body.hasClip(paddle, config) and info.deadFor >= model.CLIPS[fall].seconds then
+			return paddle, 1
+		end
+		return fall, 1
 	end
-	if info.hitFor > 0 then
+
+	-- THE BACK END IS GONE: it drags. One clip, looped, rated off its FRONT hooves (the legs doing
+	-- the carrying), so the walk the front legs do keeps time with the ground the animal covers.
+	-- Karen, 2026-10-03: "can be hit to back part start to do circles with first legs on".
+	--
+	-- IT SITS AHEAD OF THE FLINCH, so a crippled boar shot again does NOT play `hitFront`/`hitBack`.
+	-- That is deliberate and it is the weaker of the two readings (review round 2, note): the drag
+	-- is the animal's whole posture and a half-second in-place flinch on top of it would read as the
+	-- back legs coming back. Whether a crippled animal should still jerk at a second slug is a feel
+	-- question for Karen, queued as 116a.
+	if info.crippled and Body.hasClip("crippleDrag", config) then
+		local clip = model.CLIPS.crippleDrag
+		local rate = 1
+		if clip.groundStudsPerSecond > 0 then
+			rate = math.clamp(info.speed / clip.groundStudsPerSecond, model.MIN_RATE, model.MAX_RATE)
+		end
+		return "crippleDrag", rate
+	end
+	-- THE FLINCH IS CUT SHORT ON AN ANIMAL THAT IS RUNNING (task 116 fix round). Karen, 2026-10-03:
+	-- "body shot is a bit odd". The flinch clips are 0.833 s and they are IN PLACE, and a body hit
+	-- bolts the animal to `SPRINT_SPEED * BOLT_KICK` on the same tick -- so for five-sixths of a
+	-- second the boar slid across the ground with its legs still, and only then began to run. That
+	-- reads as the reaction arriving late even when it did not. A standing animal still gets the
+	-- whole clip, because there is nothing for it to fight with.
+	if info.hitFor > 0 and info.hitFor > model.HIT_SECONDS - Body.flinchWindow(info.speed, config) then
 		return (if info.hitFromBehind then "hitBack" else "hitFront"), 1
 	end
 
@@ -561,6 +649,15 @@ function Body.shouldAdjustRate(
 	return math.abs(currentSpeed - wantedRate) > epsilon
 end
 
+-- How long THIS clip takes to blend in. Pure and exported for the same reason every rule here is.
+function Body.fadeFor(name: string, config): number
+	local model = config.MODEL
+	if name == "hitFront" or name == "hitBack" or name == "deathLeft" or name == "deathRight" then
+		return model.HIT_FADE_SECONDS
+	end
+	return model.FADE_SECONDS
+end
+
 local function play(handle, name: string, rate: number, config)
 	if handle.clip == name then
 		-- A HELD CLIP IS NOT RE-RATED, AND THAT IS THE WHOLE OF REVIEW ROUND 1'S FINDING 1. A frozen
@@ -600,7 +697,11 @@ local function play(handle, name: string, rate: number, config)
 	-- immediately before `Play` cannot. A looping death would stand the carcass back up every 1.2
 	-- seconds, in front of the player who just shot it.
 	track.Looped = config.MODEL.CLIPS[name].looped
-	track:Play(config.MODEL.FADE_SECONDS, 1, rate)
+	-- A HIT AND A DEATH CUT IN; A GAIT BLENDS. The same reason `clipFor` lets them skip the dwell:
+	-- they are the two the player is waiting to see, and 0.15 s of crossfade on the way IN is 0.15 s
+	-- of the animal not yet reacting (task 116 fix round -- it was a third of the measured lateness
+	-- that was not asset loading).
+	track:Play(Body.fadeFor(name, config), 1, rate)
 	handle.clip = name
 	handle.clipHeldFor = 0
 	handle.heldClip = nil -- a new clip is running, not held
@@ -611,6 +712,18 @@ end
 function Body.stepVisual(handle, dt: number, info, config)
 	if handle.hitFor > 0 then
 		handle.hitFor = math.max(handle.hitFor - dt, 0)
+	end
+
+	if handle.collapsed then
+		handle.deadFor += dt
+	end
+
+	-- The warm-up ends here, in the one function that is already called once per boar per step.
+	if handle.warmFor > 0 then
+		handle.warmFor -= dt
+		if handle.warmFor <= 0 then
+			Body.coolAssets(handle, config)
+		end
 	end
 
 	-- THE YAW RATE, from the trunk's own facing. Two facings and the time between them is all a turn
@@ -646,6 +759,8 @@ function Body.stepVisual(handle, dt: number, info, config)
 
 	local name, rate = Body.clipFor({
 		collapsed = handle.collapsed,
+		deadFor = handle.deadFor,
+		crippled = info.crippled == true,
 		hitFor = handle.hitFor,
 		hitFromBehind = handle.hitFromBehind,
 		speed = info.speed,
@@ -674,10 +789,35 @@ function Body.stepVisual(handle, dt: number, info, config)
 			if Body.shouldFreeze(track.TimePosition, track.Length, track.Speed, reach) then
 				track:AdjustSpeed(0)
 				handle.rateWrites += 1
+				handle.heldAt = track.TimePosition
+				handle.paddleFor = config.MODEL.PADDLE_SECONDS
 				-- ONCE PER KILL. From here `play` leaves this track alone and this branch is skipped,
 				-- so the death's speed is written exactly as often as `shouldFreeze` says it is.
 				handle.heldClip = name
 			end
+		end
+	elseif
+		handle.collapsed
+		and handle.paddleFor > 0
+		and not Body.hasClip(select(2, Body.deathClips(config)), config)
+	then
+		-- THE DYING TWITCH, AND IT IS THE FALLBACK NOW (task 116 fix round). Scrubbing the held death
+		-- clip's own tail is what a script can do when there is no clip of an animal paddling; once
+		-- `Death_Paddle_L/R` is published there IS one, the branch above plays it, and this is
+		-- skipped entirely. Until then it is exactly what it was.
+		--
+		-- The one thing in this file that writes a property every frame on purpose, and it is
+		-- BOUNDED: `PADDLE_SECONDS` of it, once per kill, then the track is put back on its held
+		-- frame and never touched again.
+		local track = handle.tracks[handle.heldClip or ""]
+		local heldAt = handle.heldAt
+		if track and heldAt then
+			local elapsed = config.MODEL.PADDLE_SECONDS - handle.paddleFor
+			track.TimePosition = heldAt + Body.paddleOffset(elapsed, config)
+		end
+		handle.paddleFor = math.max(handle.paddleFor - dt, 0)
+		if handle.paddleFor <= 0 and track and heldAt then
+			track.TimePosition = heldAt -- back on the held frame, and silent from here
 		end
 	end
 end
@@ -711,6 +851,26 @@ function Body.shouldFreeze(timePosition: number, length: number, speed: number, 
 	return timePosition >= length - epsilon
 end
 
+-- THE DYING TWITCH'S SHAPE, AND IT IS NOT WHAT WAS ASKED FOR. Karen, 2026-10-03: "can fall on side
+-- and legs moving like in real life". Isolated legs cannot be moved: `Bone.Transform` is the
+-- Animator's output and a script's write to it does not survive one frame (MEASURED, 2026-10-04:
+-- 0 of 122 samples on the server, 0 of 121 on the client), and this package has no death-throes clip.
+-- What IS writable is the held death track's own `TimePosition` -- scrubbing it moved the hind hoof
+-- 0.432 studs and the head 1.641 -- so the body twitches back over the last of its fall and settles.
+-- A WHOLE-BODY twitch, then, not paddling legs. The research note says so and so does the report.
+--
+-- Pure, and negative-only: the scrub never runs the clip PAST its end, where a non-looped track
+-- stops and the animal stands back up (task 115's own fault, and it stays fixed).
+function Body.paddleOffset(elapsed: number, config): number
+	local model = config.MODEL
+	if elapsed >= model.PADDLE_SECONDS or elapsed < 0 then
+		return 0
+	end
+	-- Decays linearly to nothing, so the animal goes still rather than stopping mid-twitch.
+	local decay = 1 - elapsed / model.PADDLE_SECONDS
+	return -model.PADDLE_SPAN * decay * math.abs(math.sin(elapsed * model.PADDLE_HZ * math.pi * 2))
+end
+
 -- The flinch. Called by the runtime on the tick a pellet lands, from the same payload the flash and
 -- the wound are charged from, so the clip and the damage can never disagree about which hit this is.
 function Body.setHit(handle, seconds: number, fromBehind: boolean)
@@ -721,6 +881,285 @@ function Body.setHit(handle, seconds: number, fromBehind: boolean)
 	if handle.clip == "hitFront" or handle.clip == "hitBack" then
 		handle.clip = nil
 	end
+end
+
+-- The sound of a boar ---------------------------------------------------------------------------
+-- Task 116. Karen, 2026-10-03: "I just need that once they walk you can hear (as example hunter
+-- waiting and hear something comming and then boars are visible running, walking ect)".
+--
+-- EVERY SOUND IS A `Sound` INSIDE THE TRUNK, which makes it positional for free -- the boar already
+-- has one part that everything is welded to, so there is no new owner, no remote and no client-side
+-- mixer, and every client hears the same animal from the right direction. `Body` creates them
+-- because `Body` is the only writer of a boar's Instances, and it destroys them with the boar
+-- because they are its children.
+--   Sound        https://create.roblox.com/docs/reference/engine/classes/Sound
+--   RollOffMode  https://create.roblox.com/docs/reference/engine/enums/RollOffMode
+-- Every id, volume, range and interval is in `Boar.CONFIG.SOUND`: a sound Karen does not like is one
+-- number in a table, not a code change, and a library id that is moderated away is swapped the same
+-- way.
+
+-- One configured Sound. `audibleStuds` is the distance past which it is gone; `NEAR_STUDS` is where
+-- it stops getting louder. A spec row carries either one `id` or a list of `ids` to pick between;
+-- the first of a list is the one it is born with, and `playOneShot` re-picks on every play.
+local function makeSound(name: string, spec, config, parent: Instance): Sound
+	local sound = Instance.new("Sound")
+	sound.Name = name
+	sound.SoundId = "rbxassetid://" .. tostring(if spec.ids then spec.ids[1] else spec.id)
+	sound.Volume = spec.volume
+	sound.RollOffMode = Enum.RollOffMode[config.SOUND.ROLL_OFF]
+	sound.RollOffMinDistance = config.SOUND.NEAR_STUDS
+	sound.RollOffMaxDistance = spec.audibleStuds
+	sound.Parent = parent
+	return sound
+end
+
+-- A PITCH THAT IS NEVER TWICE THE SAME. The Director's brief: +-8%, so a grunt heard three times in
+-- ten seconds does not read as a loop. It is a pure function of a roll so a spec can check the band
+-- without a Random.
+function Body.jitteredPitch(roll: number, jitter: number): number
+	return 1 + (roll * 2 - 1) * jitter
+end
+
+-- WHICH FOOTSTEP LOOP A SPEED ASKS FOR, and how fast to play it. Pure: the same `speed / the clip's
+-- own ground speed` rule the gaits use, so the steps keep time with the legs instead of drifting
+-- against them. nil means silence -- a standing boar makes no footsteps, which is most of what a
+-- grazing one is doing.
+function Body.stepSoundFor(speed: number, config): (string?, number)
+	local sound = config.SOUND
+	local model = config.MODEL
+	if speed < sound.STEPS.MIN_SPEED then
+		return nil, 0
+	end
+	local gait = if speed >= model.RUN_FROM then "run" elseif speed >= model.TROT_FROM then "trot" else "walk"
+	local spec = sound.STEPS[gait]
+	local rate = math.clamp(speed / spec.baseSpeed, model.MIN_RATE, model.MAX_RATE)
+	return gait, rate
+end
+
+-- THE ONE-SHOT SOUNDS, name to config row, in ONE place: `attachSounds` builds them from this and
+-- `Body.warmAssets` puts their volumes back from it, so a sound cannot exist in one and not the
+-- other -- which is how `lastBreath` would go quiet after a warm-up nobody updated.
+function Body.oneShotSpecs(sound)
+	return {
+		hit = sound.HIT,
+		cry = sound.CRY,
+		death = sound.DEATH,
+		lastBreath = sound.LAST_BREATH,
+		fall = sound.FALL,
+		grunt = sound.GRUNTS,
+		breath = sound.BREATH,
+	}
+end
+
+-- Builds every sound this boar will ever make, once, beside the model. Called from `attachVisual`,
+-- so sound rides `BOAR_MODEL` with everything else this task adds.
+function Body.attachSounds(handle, config)
+	local sound = config.SOUND
+	if not sound.ENABLED or handle.soundFolder ~= nil then
+		return false
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = sound.FOLDER
+	folder.Parent = handle.part
+
+	-- The three footstep loops are built once and only one is ever playing.
+	for _, gait in ipairs({ "walk", "trot", "run" }) do
+		local steps = makeSound("steps_" .. gait, sound.STEPS[gait], config, folder)
+		steps.Looped = true
+		handle.sounds["steps_" .. gait] = steps
+	end
+	-- The one-shots. One Sound per kind, replayed, rather than an Instance per squeal.
+	for name, spec in pairs(Body.oneShotSpecs(sound)) do
+		handle.sounds[name] = makeSound(name, spec, config, folder)
+	end
+
+	handle.soundFolder = folder
+	return true
+end
+
+-- Plays one of the one-shots, picking an id from a list when the spec has several and jittering the
+-- pitch. `rng` is passed in so nothing here owns a Random (the Runtime has one, seeded).
+function Body.playOneShot(handle, name: string, spec, config, rng: Random)
+	local sound = handle.sounds[name]
+	if sound == nil then
+		return false
+	end
+	if spec.ids then
+		sound.SoundId = "rbxassetid://" .. tostring(spec.ids[rng:NextInteger(1, #spec.ids)])
+	end
+	-- THE VOLUME IS SET ON EVERY PLAY, which is what makes the warm-up safe: a sound at volume 0 is
+	-- one nobody is listening to, so `coolAssets` may stop it, and this is the line that says "this
+	-- one is real". It is also one less place for a retuned volume to be stale.
+	sound.Volume = spec.volume
+	sound.PlaybackSpeed = Body.jitteredPitch(rng:NextNumber(), config.SOUND.PITCH_JITTER)
+	sound:Play()
+	return true
+end
+
+-- THE SILENT PRE-ROLL, AND WHY A SHOT FELT LATE (task 116 fix round) -------------------------------
+-- Karen, 2026-10-03: "body shot is a bit odd now feels late hit and odd". MEASURED on the client
+-- that fired, at RenderStepped, from the frame the mouse went down:
+--   t = 0.000  the click
+--   t = 0.069  the server's answer lands: the `hit` Sound plays (it was already `IsLoaded`), the
+--              `cry` Sound is told to play -- and `cry.IsLoaded` is FALSE and its `TimePosition`
+--              stays 0.00; the flinch track exists with `WeightCurrent` 0.00 and `TimePosition` 0.00
+--   t = 0.433  the cry finally loads and starts, and the flinch's TimePosition finally moves
+--   t = 0.568  the flinch reaches full weight
+-- So the animal's answer to being shot was 364 MS LATE and only fully drawn at 568 ms, and none of
+-- that is logic: it is the CLIENT fetching an audio and an animation asset it had never been asked
+-- for. A boar that is never shot never plays its cry, so the first boar anybody shoots pays for it.
+--
+-- THE FIX IS TO ASK FOR THEM WHEN NOTHING IS WATCHING. Every clip is played at WEIGHT 0 and every
+-- sound at VOLUME 0 the moment the coat goes on, and stopped `WARM_SECONDS` later. A client fetches
+-- an asset when it is told to play it, so this is the fetch, moved from the worst moment to the
+-- least important one. `ContentProvider:PreloadAsync` is the documented tool for this and it is a
+-- CLIENT call (https://create.roblox.com/docs/reference/engine/classes/ContentProvider); this
+-- repository has no client-side boar code and inventing one would be a new owner for a job that
+-- needs no owner, so the server asks instead -- through the Instances `Body` already owns.
+--
+-- IT IS BOUNDED AND IT IS SILENT: once per boar, weight 0 and volume 0 throughout, stopped by the
+-- same `stepVisual` that draws everything else. A real play always sets its own volume first, so
+-- the cool-down below can tell a warm sound from one that is really being heard.
+function Body.warmAssets(handle, config)
+	if handle.animator == nil then
+		return false
+	end
+	for name in pairs(config.MODEL.CLIPS) do
+		local track = trackFor(handle, name, config)
+		if track then
+			track:Play(0, 0, 0) -- no fade, NO WEIGHT, no speed: fetched, and invisible
+		end
+	end
+	for _, sound in pairs(handle.sounds) do
+		sound.Volume = 0
+		sound:Play()
+	end
+	handle.warmFor = config.MODEL.WARM_SECONDS
+	return true
+end
+
+-- Ends the pre-roll. A track the animal is really playing and a sound somebody can really hear are
+-- both left alone -- the volume is the test, and every real play sets it (see `playOneShot` and
+-- `stepSound`).
+function Body.coolAssets(handle, config)
+	for name, track in pairs(handle.tracks) do
+		if name ~= handle.clip and track.IsPlaying then
+			track:Stop(0)
+		end
+	end
+	local specs = Body.oneShotSpecs(config.SOUND)
+	for name, sound in pairs(handle.sounds) do
+		if sound.Volume == 0 then
+			sound:Stop()
+			local spec = specs[name] or config.SOUND.STEPS[string.gsub(name, "^steps_", "")]
+			if spec then
+				sound.Volume = spec.volume
+			end
+		end
+	end
+	handle.warmFor = 0
+end
+
+-- IT DIES OUT LOUD, AND THEN IT STOPS MAKING NOISE. One call, so the order can never come apart:
+-- the scream and the body landing together (a boar goes down and hits the ground in one movement),
+-- every looping sound cut because a carcass has no footsteps, and the last breath ARMED rather than
+-- played -- it lands `LAST_BREATH.delay` seconds later, which is the Director's "death = the scream
+-- plus a breath" and is the only sound a dead boar ever makes.
+function Body.playDeath(handle, config, rng: Random)
+	if handle.soundFolder == nil then
+		return false
+	end
+	local sound = config.SOUND
+	Body.playOneShot(handle, "death", sound.DEATH, config, rng)
+	Body.playOneShot(handle, "fall", sound.FALL, config, rng)
+	Body.silenceLoops(handle)
+	handle.lastBreathIn = sound.LAST_BREATH.delay
+	return true
+end
+
+-- Once per boar per step, with the flag on. Footsteps follow the gait; grunts and breaths are
+-- countdowns, so a sounder does not grunt in chorus.
+function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
+	if handle.soundFolder == nil then
+		return
+	end
+	local sound = config.SOUND
+
+	-- FOOTSTEPS. Exactly one loop plays, and a standing boar is silent.
+	local gait, rate = Body.stepSoundFor(speed, config)
+	if gait ~= handle.stepClip then
+		if handle.stepClip then
+			local was = handle.sounds["steps_" .. handle.stepClip]
+			if was then
+				was:Stop()
+			end
+		end
+		handle.stepClip = gait
+		if gait then
+			local now = handle.sounds["steps_" .. gait]
+			if now then
+				now.Volume = sound.STEPS[gait].volume -- real, not warm: see `Body.coolAssets`
+				now.PlaybackSpeed = rate
+				now:Play()
+			end
+		end
+	elseif gait then
+		local now = handle.sounds["steps_" .. gait]
+		-- The same reason `play` has a RATE_EPSILON: a property write is not free, and a 2 % change
+		-- in a footstep's pitch is not audible.
+		if now and math.abs(now.PlaybackSpeed - rate) > config.MODEL.RATE_EPSILON then
+			now.PlaybackSpeed = rate
+		end
+	end
+
+	if handle.collapsed then
+		-- A dead boar neither grunts nor breathes -- it has exactly one sound left, and it is the
+		-- one `playDeath` armed. A countdown, not a clock: nothing in this file reads os.clock.
+		if handle.lastBreathIn ~= nil then
+			handle.lastBreathIn -= dt
+			if handle.lastBreathIn <= 0 then
+				handle.lastBreathIn = nil
+				Body.playOneShot(handle, "lastBreath", sound.LAST_BREATH, config, rng)
+			end
+		end
+		return
+	end
+
+	-- CALM GRUNTS while it is idling or grazing, BREATHING while it is working. Never both, and the
+	-- two bands do not touch (`GRUNTS.MAX_SPEED` < `BREATH.MIN_SPEED`), so a boar can never do both
+	-- at once and sound like two animals.
+	--
+	-- THE FIRST INTERVAL IS ARMED, NOT FIRED. A countdown starting at zero means every boar grunts on
+	-- the frame its coat goes on -- and a sounder is five boars, so they would grunt in chorus and
+	-- read as one loud animal. nil means "not armed yet": the first tick in the band picks a random
+	-- interval and plays nothing.
+	local function countdown(left: number?, row): number?
+		if left == nil then
+			return rng:NextNumber(row.MIN_SECONDS, row.MAX_SECONDS)
+		end
+		local next_ = left - dt
+		if next_ > 0 then
+			return next_
+		end
+		Body.playOneShot(handle, if row == sound.GRUNTS then "grunt" else "breath", row, config, rng)
+		return rng:NextNumber(row.MIN_SECONDS, row.MAX_SECONDS)
+	end
+
+	if speed <= sound.GRUNTS.MAX_SPEED then
+		handle.nextGrunt = countdown(handle.nextGrunt, sound.GRUNTS)
+	elseif speed >= sound.BREATH.MIN_SPEED then
+		handle.nextBreath = countdown(handle.nextBreath, sound.BREATH)
+	end
+end
+
+-- Silences everything that loops. Called when the boar dies: a carcass has no footsteps.
+function Body.silenceLoops(handle)
+	for name, sound in pairs(handle.sounds) do
+		if string.sub(name, 1, 6) == "steps_" then
+			sound:Stop()
+		end
+	end
+	handle.stepClip = nil
 end
 
 -- The collapse ----------------------------------------------------------------------------------

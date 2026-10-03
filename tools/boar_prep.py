@@ -113,6 +113,74 @@ DEFAULT_CLIPS = (
     "Hit_B",
 )
 
+# THE THREE CLIPS THE PACKAGE DOES NOT HAVE, AUTHORED OUT OF THE ONES IT DOES (task 116).
+#
+# Karen, 2026-10-03: "can fall on side and legs moving like in real life" and "can be hit to back
+# part start to do circles with first legs on". Both need a clip. The package has no animal dying on
+# the ground and none dragging a hindquarter, and there is no runtime way to make one: `Bone.Transform`
+# is the Animator's output and a script's write to it survived 0 of 122 frames on the server and 0 of
+# 121 on the client (docs/research/2026-10-04-boar-shot-and-death.md section 4).
+#
+# NOTHING IS INVENTED, which is rule 2 applied to animation. Each authored frame is a blend between
+# two poses this package's own animator made:
+#   Death_Paddle_L/R   Death_L/Death_R's LAST frame -- the pose the carcass holds -- with the four
+#                      legs swinging back toward Run_F_IP's leg poses at an amplitude that decays to
+#                      nothing over four seconds. A dying animal's legs do a slowed, failing version
+#                      of running; this is exactly that, and it ENDS where it began, so the hold
+#                      frame after it is the same pose and nothing pops.
+#   Cripple_Drag       Walk_F_IP everywhere, with the hind legs pulled 85 % of the way to the death
+#                      pose and the rear spine 30 % -- the front legs walk a real walk cycle and the
+#                      back end hangs behind them. Looped: it is the walk's own cycle length.
+#
+# The bone-group prefixes are this rig's (46 bones, measured and listed in
+# `measurements.json`): the hind chain is hip_b / thigh_b / shin_b / hoof_b (plus its Helper), and
+# the rear spine is Spine_04 / Spine_05 / tail.
+SYNTH_CLIPS = (
+    {
+        "name": "Death_Paddle_L",
+        "kind": "paddle",
+        "from": "Death_L",
+        "fromFrame": "last",
+        "gait": "Run_F_IP",
+        "legBones": ["thigh_b", "shin_b", "hoof_b", "hip_b", "thigh_f", "shin_f", "hoof_f", "hip_1_f", "hip_2_f"],
+        "softBones": ["Spine_", "Neck", "head", "tail_"],
+        "softScale": 0.25,  # the body shudders a quarter of what the legs do, not as much
+        "amplitude": 0.55,  # how far toward a running leg a paddle ever reaches: half, not a sprint
+        "hz": 1.6,  # paddles per second at the start, against the run clip's own cycle
+        "decayPower": 2.0,  # squared, so the last second is nearly still: going quiet, not switched off
+        "seconds": 4.0,
+        "keyEvery": 2,
+    },
+    {
+        "name": "Death_Paddle_R",
+        "kind": "paddle",
+        "from": "Death_R",
+        "fromFrame": "last",
+        "gait": "Run_F_IP",
+        "legBones": ["thigh_b", "shin_b", "hoof_b", "hip_b", "thigh_f", "shin_f", "hoof_f", "hip_1_f", "hip_2_f"],
+        "softBones": ["Spine_", "Neck", "head", "tail_"],
+        "softScale": 0.25,
+        "amplitude": 0.55,
+        "hz": 1.6,
+        "decayPower": 2.0,
+        "seconds": 4.0,
+        "keyEvery": 2,
+    },
+    {
+        "name": "Cripple_Drag",
+        "kind": "drag",
+        "from": "Death_L",
+        "fromFrame": "last",
+        "gait": "Walk_F_IP",
+        "legBones": ["thigh_b", "shin_b", "hoof_b", "hip_b"],
+        "softBones": ["Spine_04", "Spine_05", "tail_"],
+        "softScale": 0.35,
+        "amplitude": 0.85,  # the hind legs are nearly collapsed; 1.0 would make them rigid corpses
+        "keyEvery": 1,
+    },
+)
+
+
 # THE DEFAULT RECIPE. Every value is either measured (see the note) or a stated taste pick.
 DEFAULT_RECIPE = {
     "tool": TOOL_VERSION,
@@ -160,6 +228,9 @@ DEFAULT_RECIPE = {
     "modelFile": "model.fbx",
     "clipDir": "clips",
     "measurementsFile": "measurements.json",
+    # The clips this tool AUTHORS, above. Data, like everything else the Blender half is handed:
+    # that file takes no decisions, so every name, source, bone group, rate and blend is here.
+    "synth": list(SYNTH_CLIPS),
 }
 
 TEXTURE_ROLES = ("albedo", "normal", "roughness")
@@ -508,7 +579,14 @@ def run_prep(args):
         " %.3f). MEASURE IT: this tool cannot, the answer is Roblox's importer's."
         % (size[0], size[1], size[2], measured["lengthAxis"], size[measured["lengthAxis"]])
     )
-    say("model: %s   clips: %s/ (%d files)" % (recipe["modelFile"], recipe["clipDir"], len(recipe["clips"])))
+    # COUNTED, NOT ASSUMED: the authored clips (SYNTH_CLIPS) are exported too, so `recipe["clips"]`
+    # is not the number of files and saying it was is how a publishing step misses three of them.
+    clip_dir = os.path.join(args.out, recipe["clipDir"])
+    written = sorted(name for name in os.listdir(clip_dir) if name.endswith(".fbx"))
+    say("model: %s   clips: %s/ (%d files)" % (recipe["modelFile"], recipe["clipDir"], len(written)))
+    authored = [row["name"] + ".fbx" for row in recipe.get("synth", [])]
+    if authored:
+        say("AUTHORED BY THIS TOOL, and they need publishing like any other: " + ", ".join(authored))
     say("done: %s" % os.path.abspath(args.out))
     return 0
 

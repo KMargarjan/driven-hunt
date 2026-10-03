@@ -52,6 +52,13 @@ local CLIP_KEYS = {
 	deathRight = Assets.KEYS.boarDeathRight,
 	hitFront = Assets.KEYS.boarHitFront,
 	hitBack = Assets.KEYS.boarHitBack,
+	-- The three this project authored, published 2026-10-03, so the boot's own "n of m clips" line
+	-- below says 13 of 13. Before a publish `Assets.byKey` answers nil for them and that line says
+	-- so out loud, which is the same honest state the ten above were in on the day they were
+	-- declared.
+	deathPaddleLeft = Assets.KEYS.boarDeathPaddleLeft,
+	deathPaddleRight = Assets.KEYS.boarDeathPaddleRight,
+	crippleDrag = Assets.KEYS.boarCrippleDrag,
 }
 
 -- A CLIP NAME WITH NO KEY IS A TYPO, AND IT FAILS HERE RATHER THAN BY NOT ANIMATING. Both tables are
