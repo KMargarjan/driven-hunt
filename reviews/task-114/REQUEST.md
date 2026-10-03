@@ -2,13 +2,23 @@
 
 Task: 114
 Round: 1
-Base: `task-112-shooting` (`26c8789`), with `origin/content-hands-karen-1` merged in (`f9d33cc`)
-Code commit: 8abacd9cb3467521613cb39dcdbd3fc40cd1a066
+Base: `main` (`a77b0ed`, task 113's scoped gate), merged into this branch at `839ce0c`
+Code commit: 839ce0c425e52b40d13d90ce42816ccd1508844b
 
 ```
-[harness] PASS: n/n checks @ 8abacd9 (clean tree)   <- the Director runs it; I never run the harness
-[harness2] PASS: n/n checks @ 8abacd9 (clean tree)  <- needed on THIS branch: see "the gate", below
+[harness] PASS: n/n checks @ 839ce0c (clean tree) scope=all
 ```
+
+**ONE LINE IS THE WHOLE GATE for this change** -- no `[harness2]`. `tools/agents.py` on `main`
+(task 113) answers it: `needs_two_player` over `git diff --name-only origin/main...HEAD` returns
+**`[]`** -- not one of the 41 changed files is in `TWO_PLAYER_PATHS`. The whole PR is weapon,
+viewmodel, camera, hud, sound, assets and tools; it touches no `src/server/Match/`, no
+`MatchBoot`, no `src/client/Match/`, no `src/shared/Drive/`, no `tests/client/Role.luau` and none
+of the match / tie / outfit specs. `python tools/studio_mcp.py test --scope auto` on this branch
+resolves to **`all`** anyway (`src/shared/HandAssets.luau`, `src/server/ViewmodelAssetsBoot.server.luau`,
+`src/client/CameraBoot.client.luau` and `tools/studio_mcp.py` are not in `BLAST_RADIUS`, and an
+unmapped code path can only mean the whole suite), so the plain `test` the merge gate wants is the
+same run either way.
 
 ## What changed
 
@@ -82,17 +92,16 @@ Match, the driver, the tie and the teams.
 
 ## The gate, and what I could not verify
 
-- **I did not run the harness.** `python tools/studio_mcp.py test` is the Director's; the two lines at
-  the top are placeholders for the Director's own output.
-- **On THIS branch the review needs the `[harness2]` line as well.** `tools/agents.py` here is the
-  pre-task-113 version: `TWO_PLAYER_PATHS` is `("src/", "tests/client/", "tools/studio_mcp.py")` and
-  the only exemption is `WEAPON_VIEWMODEL_PATHS`. This change touches `src/shared/Flags/`,
-  `src/client/Camera/Config.luau`, `src/client/Weapon/Sound.luau`,
-  `src/server/ViewmodelAssetsBoot.server.luau`, `src/serverstorage/Assets/`,
-  `tests/client/camera_client.spec.luau`, `tests/client/weapon_client.spec.luau` and
-  `tools/studio_mcp.py` -- all outside that list -- so `needs_two_player` is non-empty and the review
-  is refused without it. Task 113's list would exempt the whole change, so merging 113 first makes the
-  one-player line sufficient. **Director's call.**
+- **I did not run the harness.** `python tools/studio_mcp.py test` is the Director's; the line at the
+  top is a placeholder for the Director's own output.
+- **`main` is merged in (task 113's scoped gate), and that settled the two-player question**: see the
+  box at the top -- `needs_two_player` returns `[]`, so the one-player line is the whole gate, for the
+  review round AND for the PR to `main`. The merge's one conflict was `TASKS.md` and both sides are
+  kept (rows 114/114a from here, 113/113a from main, nothing reordered); row 113's own status is left
+  exactly as main wrote it, because the queue is the Director's. `tools/studio_mcp.py` auto-merged
+  with both sides' intent in it -- 113's `BLAST_RADIUS` / `SCOPE_SPECS`, and 114's one-line landmark
+  change -- and `tools/agents.py` and `CLAUDE.md` are main's 113 versions untouched, because task 114
+  changed neither file and so had nothing to re-apply.
 - **No screenshot.** Nothing about the drawn gun's appearance is meant to change: what this removes is
   the branch that was never switched on. The one visible claim worth a picture is "the gun still looks
   the way Karen OK'd on 2026-10-02", and that is a playtest rather than a capture I can judge.
