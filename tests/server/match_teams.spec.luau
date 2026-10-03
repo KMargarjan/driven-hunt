@@ -13,9 +13,11 @@
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/drive.md (sections 5.1, 5.2, 12.6)
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Match = require(ServerScriptService:WaitForChild("Match"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local ASSIGN_TIMEOUT = 30 -- the drive assigns on entering Assigning, which follows the first join
 
@@ -100,11 +102,47 @@ return function()
 			local drivers, shooters = counts()
 			expect(drivers).to.equal(1)
 			expect(shooters).to.equal(1)
+			local tiedCount = 0
 			for _, player in ipairs(players) do
 				-- A shooter carries a gun and a driver does not: DRIVERS_MAY_SHOOT is false, and
 				-- that is the whole difference between the two roles in 1.7a.
-				expect(Match.mayCarryWeapon(player)).to.equal(player.Team.Name == "Shooters")
+				--
+				-- ...AND THE TIE IS A THIRD RULE, which this case did not allow for and which is
+				-- armed ON PURPOSE in every `test2` run. The LAST scenario in
+				-- `tests/client/input_scenarios.txt` is `tie-the-driver` (Task 35), and it exists
+				-- FOR `tests/client/zz_tie_to_a_tree.spec.luau`: it ties the SHOOTER for shooting
+				-- across a driver, `TIE_UNTIL_DRIVE_END` keeps him tied for the rest of the drive,
+				-- and `Match.mayCarryWeapon` refuses a tied player whatever his team is. This
+				-- assertion was written in Task 34, one task BEFORE that scenario existed, and it
+				-- only fails when the server suite reaches this case AFTER the tie lands at ~55 s --
+				-- which is the same creep `ESCALATE.md`'s Task 112 entry predicted ("the next task
+				-- pushes it further whatever it changes"), there on the client suite and here on the
+				-- server's. Task 118's live boar spec is ~20 s of that push.
+				--
+				-- Reading `Match.isTied` is the SAME FACT `mayCarryWeapon` reads, so this says what
+				-- it always meant to say and nothing weaker: a shooter who is free carries a gun.
+				local shooter = player.Team.Name == "Shooters"
+				local tied = Match.isTied(player.UserId)
+				if tied then
+					tiedCount += 1
+				end
+				expect(Match.mayCarryWeapon(player)).to.equal(shooter and not tied)
+				-- A DRIVER IS REFUSED FOR HIS TEAM AND FOR NOTHING ELSE. Only a shooter can be tied
+				-- (a tie is a penalty for shooting, and DRIVERS_MAY_SHOOT is false), so this is what
+				-- keeps the ROLE difference asserted even on a run where the shooter is tied: his
+				-- `false` can never be explained away by a tie.
+				if not shooter then
+					expect(tied).to.equal(false)
+				end
 			end
+			TestKit.note(
+				string.format(
+					"match_teams: %d driver(s), %d shooter(s), %d tied at the time of the check",
+					drivers,
+					shooters,
+					tiedCount
+				)
+			)
 		end)
 	end)
 end

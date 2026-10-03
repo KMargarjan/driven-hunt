@@ -101,13 +101,26 @@ return function()
 		return world
 	end
 
+	local startedAt = 0
+
 	beforeAll(function()
 		stimuli = {}
+		startedAt = os.clock()
 		runtime = Boar.newRuntime(buildWorld())
 		disconnect = runtime:run()
 	end)
 
 	afterAll(function()
+		-- HOW LONG THIS FILE COSTS THE SERVER SUITE, measured rather than guessed. It is a live
+		-- spec: every case here waits on real physics, and the suite is SEQUENTIAL -- so this number
+		-- is how much later every spec after it now runs. That matters beyond tidiness: two cases in
+		-- `test2` have already been broken by the suite creeping past the drive's tie at ~55 s
+		-- (`ESCALATE.md`, task 112, and `match_teams.spec`'s own note at task 118), and the next one
+		-- to break will be whichever case sits nearest that edge. Printed so the creep is visible
+		-- before it costs a round.
+		TestKit.note(
+			string.format("boar-behaviour-live: this file took %.1f s of the server suite", os.clock() - startedAt)
+		)
 		if disconnect then
 			disconnect()
 		end
