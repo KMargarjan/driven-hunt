@@ -626,6 +626,13 @@ SCENARIO_FILE = os.path.join(REPO, "tests", "client", "input_scenarios.txt")
 # boar to be REPLICATED to it, which is a network hop and a streaming decision, not a game clock.
 # A stage with no seed falls back to the client doing the whole wait, which is what it did before.
 STAGE_TARGET_WAIT_SECONDS = 60
+
+# HOW MUCH OF AN OVERSIZED SCRIPT'S SOURCE IS ASKED FOR AT ONCE (Task 115). StudioMCP truncates a
+# tool result at roughly 100 KB, and the answer is JSON-escaped, so a slice has to leave room for
+# every newline and quote in it doubling. 48,000 is under half the limit, which covers a Source that
+# is nothing but escapes and still reads a 95 KB module in two round trips. The run FAILS rather than
+# concatenates if any slice comes back short, so this number being wrong is loud, not silent.
+SOURCE_SLICE_CHARS = 48000
 STAGE_STREAM_WAIT_SECONDS = 30
 SCREENSHOT_DIR = os.path.join(REPO, ".screenshots")
 SPEC_ROOTS = {"server": ("ServerStorage", "Tests"), "client": ("ReplicatedStorage", "ClientTests")}
@@ -1308,6 +1315,35 @@ QUERY_REPORT = {
     "server": 'return game:GetService("ServerStorage"):GetAttribute("TestReport") or ""',
     "client": 'local p = game:GetService("Players").LocalPlayer return p and p:GetAttribute("TestReport") or ""',
 }
+# ONE SCRIPT'S SOURCE, A SLICE AT A TIME (Task 115). StudioMCP truncates a tool result at roughly
+# 100 KB and a single script's Source can be bigger than that on its own -- `src/serverstorage/
+# Assets/init.luau` passed it the moment the boar's ten animation rows landed, and the run failed as
+# "one instance is too big for a single StudioMCP result" with nothing wrong in the repository.
+# Splitting the BATCH cannot help once the batch is one instance, so the SOURCE is split instead.
+# `string.sub` is 1-based and inclusive at both ends, and both indices are sent so the Luau side
+# decides nothing.
+QUERY_SOURCE_SLICE = """
+local HttpService = game:GetService("HttpService")
+local w = HttpService:JSONDecode(%s)
+local inst = game
+for _, name in w.path do
+	local nextInst = nil
+	if inst then
+		for _, child in inst:GetChildren() do
+			if child.Name == name then
+				nextInst = nextInst or child
+			end
+		end
+	end
+	inst = nextInst
+end
+if not inst or not inst:IsA("LuaSourceContainer") then
+	return HttpService:JSONEncode({ missing = true })
+end
+local source = (inst :: any).Source
+return HttpService:JSONEncode({ total = #source, from = w.from, part = string.sub(source, w.from, w.to) })
+"""
+
 QUERY_NODES = """
 local HttpService = game:GetService("HttpService")
 local wanted = HttpService:JSONDecode(%s)
@@ -1350,10 +1386,16 @@ for i, w in wanted do
 			local v = inst:GetAttribute(a)
 			attrs[a] = if v == nil then { t = "nil", v = "" } else encode(v)
 		end
+		-- `skipSource` leaves the one field that can be megabytes out of the answer, so the REST of
+		-- an oversized script's record still fits in one StudioMCP result. `QUERY_SOURCE_SLICE`
+		-- then fetches the Source itself a slice at a time. `sourceLength` is how the caller knows
+		-- how many slices to ask for, and it is also what proves a reassembled Source is complete.
+		local isScript = inst:IsA("LuaSourceContainer")
 		out[i] = {
 			className = inst.ClassName,
 			dup = dup,
-			source = if inst:IsA("LuaSourceContainer") then (inst :: any).Source else nil,
+			source = if isScript and not w.skipSource then (inst :: any).Source else nil,
+			sourceLength = if isScript then #(inst :: any).Source else nil,
 			value = if inst:IsA("StringValue") then (inst :: any).Value else nil,
 			props = props,
 			attrs = attrs,
@@ -2081,6 +2123,61 @@ def expectations_for(path, files, problems):
     return requests
 
 
+def read_source_in_slices(studio, want, truncated_at):
+    """One oversized script: its record WITHOUT the Source, plus the Source read a slice at a time.
+
+    MODULE LEVEL so `selftest` can drive it against a scripted Studio with no Studio at all: this
+    path only fires on a script bigger than StudioMCP's ~100 KB result, which is one file in the repo
+    today, so left as a closure it would be exercised once a month by accident.
+
+    Every slice's LENGTH is checked rather than assumed. A short slice means the transport truncated
+    that slice too, and silently concatenating it would hand `compare_synced` a Source with a hole in
+    it -- which it would then report as the FILE differing from Studio, sending the next reader after
+    a sync fault that does not exist.
+    """
+    record = json.loads(studio.query("Edit", QUERY_NODES % luau_json([dict(want, skipSource=True)])))[0]
+    if record.get("missing"):
+        return record
+    total = record.get("sourceLength")
+    if not isinstance(total, int):
+        raise RuntimeError(
+            f"Studio's answer for {'.'.join(want['path'])} was truncated at {truncated_at} chars and "
+            "its record carries no sourceLength, so the Source cannot be fetched in slices")
+    parts, at = [], 1
+    while at <= total:
+        end = min(at + SOURCE_SLICE_CHARS - 1, total)
+        raw = studio.query("Edit", QUERY_SOURCE_SLICE % luau_json(
+            {"path": want["path"], "from": at, "to": end}))
+        try:
+            answer = json.loads(raw)
+        except json.JSONDecodeError:
+            # A SLICE THAT DOES NOT EVEN PARSE is the transport truncating the slice itself, which is
+            # what asking for too much at once looks like (measured, 2026-10-03: one 200,000-char
+            # slice came back unparseable). The knob is named so the next reader does not have to
+            # find it.
+            raise RuntimeError(
+                f"{'.'.join(want['path'])}: the answer for slice {at}..{end} was truncated at "
+                f"{len(raw)} chars and did not parse. Lower SOURCE_SLICE_CHARS (now "
+                f"{SOURCE_SLICE_CHARS}).") from None
+        if answer.get("missing"):
+            raise RuntimeError(f"{'.'.join(want['path'])} disappeared while its Source was being read")
+        got = answer.get("part") or ""
+        if len(got) != end - at + 1:
+            raise RuntimeError(
+                f"{'.'.join(want['path'])}: slice {at}..{end} came back {len(got)} chars, not "
+                f"{end - at + 1}. Lower SOURCE_SLICE_CHARS (now {SOURCE_SLICE_CHARS}).")
+        parts.append(got)
+        at = end + 1
+    source = "".join(parts)
+    if len(source) != total:
+        raise RuntimeError(
+            f"{'.'.join(want['path'])}: reassembled {len(source)} chars of Source, not {total}")
+    record["source"] = source
+    print(f"[harness]   {'.'.join(want['path'])}: Source read in {len(parts)} slice(s), "
+          f"{total} chars (one whole-record result truncated at {truncated_at})")
+    return record
+
+
 def compare_synced(studio, nodes):
     """Compare every synced instance and file with Studio. Returns a list of problems (empty = match)."""
     problems = []
@@ -2103,11 +2200,17 @@ def compare_synced(studio, nodes):
             return json.loads(text)
         except json.JSONDecodeError:
             if len(batch) == 1:
-                raise RuntimeError(
-                    f"Studio's answer for {'.'.join(batch[0]['path'])} was truncated at {len(text)} chars: "
-                    "one instance is too big for a single StudioMCP result")
+                # ONE INSTANCE, AND STILL TOO BIG. Splitting the batch is finished; split the SOURCE
+                # (Task 115). Before this, a script that outgrew StudioMCP's ~100 KB result failed
+                # the whole run with nothing wrong in the repository, and the only fix available was
+                # to make the file smaller -- which is a cap on every file in the repo, set by a
+                # transport.
+                return [fetch_big_source(batch[0], len(text))]
             half = len(batch) // 2
             return fetch(batch[:half]) + fetch(batch[half:])
+
+    def fetch_big_source(want, truncated_at):
+        return read_source_in_slices(studio, want, truncated_at)
 
     remote = []
     for i in range(0, len(wanted), 8):
@@ -3680,6 +3783,71 @@ def selftest():
     ok("a target of None names no studio_id",
        "studio_id" not in inputs.sent[0]["params"]["arguments"], repr(inputs.sent[0]))
     ok("a single target is reported like any other", out == {None: None}, repr(out))
+
+    # 9a2. A SCRIPT TOO BIG FOR ONE StudioMCP RESULT (Task 115). `src/serverstorage/Assets/init.luau`
+    # passed ~100 KB the moment the boar's ten animation rows landed and the whole run died as
+    # "one instance is too big for a single StudioMCP result" -- with nothing wrong in the repository.
+    # Splitting the BATCH cannot help once the batch is one instance, so the SOURCE is split. This
+    # path fires on one file in the whole repo, so it is driven here rather than left to fire by
+    # accident.
+    class SlicingStudio:
+        """Answers the record query without a Source, then hands back the Source in slices."""
+
+        def __init__(self, source, short_at=None, unparseable_at=None):
+            self.source = source
+            self.short_at = short_at              # a slice that comes back truncated
+            self.unparseable_at = unparseable_at  # ...or not even valid JSON
+            self.slices = []
+
+        def query(self, _datamodel, code, studio_id=None):
+            if '"skipSource"' in code or "skipSource" in code:
+                return json.dumps([{"className": "ModuleScript", "dup": 1, "source": None,
+                                    "sourceLength": len(self.source), "props": {}, "attrs": {}}])
+            # `luau_json` wraps the arguments in a Luau long string, and the TEMPLATE around it has
+            # braces of its own, so the payload is found by its delimiters rather than by brace
+            # matching.
+            asked = json.loads(code.split("[[", 1)[1].split("]]", 1)[0])
+            start, end = asked["from"], asked["to"]
+            self.slices.append((start, end))
+            if self.unparseable_at == start:
+                return '{"total": 1, "part": "oh no'  # what a truncated reply really looks like
+            part = self.source[start - 1:end]
+            if self.short_at == start:
+                part = part[:-1]
+            return json.dumps({"total": len(self.source), "from": start, "part": part})
+
+    big = "x" * (SOURCE_SLICE_CHARS * 2 + 17)
+    want = {"path": ["ServerStorage", "Assets"], "props": [], "attrs": []}
+    whole = SlicingStudio(big)
+    rebuilt = read_source_in_slices(whole, want, 100015)
+    ok("an oversized Source is reassembled exactly", rebuilt["source"] == big,
+       f"{len(rebuilt['source'])} vs {len(big)}")
+    ok("it is read in as few slices as the size needs", len(whole.slices) == 3, repr(whole.slices))
+    ok("the slices cover the Source with no gap and no overlap",
+       whole.slices[0][0] == 1 and all(b[0] == a[1] + 1 for a, b in zip(whole.slices, whole.slices[1:]))
+       and whole.slices[-1][1] == len(big), repr(whole.slices))
+    ok("every slice but the last is exactly SOURCE_SLICE_CHARS",
+       all(end - start + 1 == SOURCE_SLICE_CHARS for start, end in whole.slices[:-1]), repr(whole.slices))
+
+    # THE TWO WAYS A SLICE CAN BE WRONG, and neither may be concatenated into a Source. A hole here
+    # would be reported as the FILE differing from Studio, which is a sync fault that does not exist.
+    short = SlicingStudio(big, short_at=1)
+    try:
+        read_source_in_slices(short, want, 100015)
+        ok("a SHORT slice fails the run", False, "it was accepted")
+    except RuntimeError as e:
+        ok("a SHORT slice fails the run", "SOURCE_SLICE_CHARS" in str(e), str(e)[:90])
+    torn = SlicingStudio(big, unparseable_at=SOURCE_SLICE_CHARS + 1)
+    try:
+        read_source_in_slices(torn, want, 100015)
+        ok("a slice that does not parse fails the run", False, "it was accepted")
+    except RuntimeError as e:
+        ok("a slice that does not parse fails the run", "SOURCE_SLICE_CHARS" in str(e), str(e)[:90])
+
+    missing = SlicingStudio("")
+    missing.query = lambda *a, **k: json.dumps([{"missing": True}])  # noqa: E731 -- a fake
+    ok("an instance that is not there is reported, not sliced",
+       read_source_in_slices(missing, want, 100015).get("missing") is True)
 
     # 9b. SCOPING (Task 52). StudioMCP refuses any tool call that names no studio_id as soon as more
     # than one Studio is connected, and the three a local test adds outlive the session -- only
