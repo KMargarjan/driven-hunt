@@ -43,7 +43,11 @@ export type Source = "meshy" | "creator-store" | "roblox" | "own"
 -- "meshpart": the template is EXACTLY ONE MeshPart. The Loader returns that MeshPart and destroys
 --             the Model wrapper it arrived in. The gun is this.
 -- "model":    the template is a tree; the Loader returns the Model. Map props may be this.
-export type Kind = "meshpart" | "model" | "image"
+-- "animation": the row carries an ANIMATION ASSET ID and nothing else is inserted. `Loader` never
+--              touches one -- an animation is not an Instance you insert, it is a number you put on
+--              an `Animation.AnimationId` -- so `Assets.INSERTABLE` keeps it out of `keysFor`, and
+--              the only consumer is `Boar.Body`, which reads the id through `byKey`.
+export type Kind = "meshpart" | "model" | "image" | "animation"
 export type Moderation = "approved" | "reviewing" | "rejected" | "unknown"
 
 export type Licence = {
@@ -116,6 +120,14 @@ export type AssetRow = {
 	-- id is read ONCE through the harness when the row is written and kept here like every other
 	-- measured fact about an upload.
 	textureId: string?,
+	-- THE CONSUMER MUST NOT WRITE `Size` ON THIS ONE (task 115). Design 6.1's rule is "the consumer
+	-- sets Size, always", and for a SKINNED mesh that rule is wrong: `Size` (and `Model:ScaleTo`)
+	-- scales the mesh and NOT the bones, so the model tears the moment a clip plays -- measured by
+	-- the Director on 2026-10-03. The scale of such a model is baked into the uploaded geometry
+	-- instead (`tools/boar_prep.py`), and this field is how the row says so. `sizeStuds` then
+	-- records what it ALREADY measures rather than what to set it to, and `nil`/false is every row
+	-- that predates the boar.
+	bakedScale: boolean?,
 	notes: string?,
 }
 
@@ -146,7 +158,36 @@ Assets.KEYS = table.freeze({
 	gunHandRight = "gun.hand.right",
 	gunHandLeft = "gun.hand.left",
 	handLeft = "hand.left",
+	-- THE BOAR (task 115). One key for the skinned model, and one per clip.
+	--
+	-- THE TEN CLIP KEYS HAVE NO ROWS YET, AND THAT IS NOT AN OVERSIGHT. An animation asset id can
+	-- only be made inside Studio: Open Cloud's Assets API takes an Animation as a `.rbxm`/`.rbxmx`
+	-- that was "edited inside Roblox Studio" and nothing outside Studio can write one, and
+	-- `AssetService:CreateAssetAsync` answered "CreateAssetAsync and CreateAssetVersionAsync are not
+	-- available yet" for both Animation and Model when it was tried here on 2026-10-03. So the ids
+	-- arrive from the Animation Editor's "Publish to Roblox", one clip at a time, and
+	-- `ESCALATE.md`'s NEEDS DIRECTOR CLICKS entry is the ten clicks. The KEYS live here anyway, now,
+	-- for the reason `Map.TAGS` gives: a key typed as a literal at the one place that reads it is a
+	-- silent nil nobody can explain. Until the rows exist, `byKey` answers nil, `Boar.Body` welds the
+	-- model and plays nothing, and the boar stands still -- which is honest and is tested.
+	boarMale = "boar.male",
+	boarIdle = "boar.anim.idle",
+	boarWalk = "boar.anim.walk",
+	boarTrot = "boar.anim.trot",
+	boarRun = "boar.anim.run",
+	boarTurnLeft = "boar.anim.turn.left",
+	boarTurnRight = "boar.anim.turn.right",
+	boarDeathLeft = "boar.anim.death.left",
+	boarDeathRight = "boar.anim.death.right",
+	boarHitFront = "boar.anim.hit.front",
+	boarHitBack = "boar.anim.hit.back",
 })
+
+-- WHICH KINDS `Loader` CAN TURN INTO AN INSTANCE, and therefore which ones `keysFor` may hand a boot
+-- script to preload. An "image" is a texture id a property carries; an "animation" is a number an
+-- `Animation.AnimationId` carries. Calling `InsertService:LoadAsset` on either is a load that can
+-- only fail, and a boot script that spent its budget on one would delay the model that does need it.
+Assets.INSERTABLE = table.freeze({ meshpart = true, model = true })
 
 -- THE SIZE IS UNIFORM, AND THAT IS A DECISION WORTH READING (design 6.1 says "the consumer sets
 -- Size, always", and 6.1's table pins `shotgun.handle` to HANDLE_SIZE = (0.4, 0.5, 4.4)).
@@ -250,6 +291,36 @@ local MODEL_B_LICENCE = {
 		.. "(https://sketchfab.com/3d-models/double-barrel-shotgun-063cb20627ea40b0915f9d9eeb65c8dd) "
 		.. "by Ryan_Nein (https://sketchfab.com/Ryan_Nein) licensed under CC-BY-4.0 "
 		.. "(http://creativecommons.org/licenses/by/4.0/)",
+}
+
+-- THE BOAR'S MEASURED SIZE (task 115), read in Studio off the loaded asset 120607820179994 on
+-- 2026-10-03: one skinned MeshPart, Size (1.4011, 3.2573, 5.5000). The Z is `Boar.CONFIG.BODY_SIZE.Z`
+-- exactly, which is what the model was scaled to; the other two are the animal's own proportions.
+-- It is a constant and not a literal in the row because `Boar.Body`'s own spec asserts against the
+-- same number, and two copies of a measurement drift.
+local BOAR_MALE_SIZE = Vector3.new(1.4011, 3.2573, 5.5)
+
+-- THE ONE LICENCE THE BOAR IS USED UNDER. Karen bought the package; the licence is hers and this
+-- row is the record of it.
+--
+-- WHAT COULD NOT BE VERIFIED HERE, said plainly (rule 8): `https://www.fab.com/eula` answers 403 to
+-- this machine's fetch tool, so the grant below was read from a web search of that page on
+-- 2026-10-03 and NOT from the page itself. The two conditions that matter to this repository are not
+-- in doubt either way and are both met: the model is a COMPONENT of a game that adds its own value,
+-- and it is never distributed on a standalone basis -- the binary is never committed (`.rbxm` is
+-- banned outright), and what reaches Roblox is one asset inside Karen's own account, used by her own
+-- place. If the exact clause ever matters, Karen has the purchase and the Fab licence page.
+local BOAR_LICENCE = {
+	basis = "fab-standard",
+	quote = 'A "Standard License" grants you a non-exclusive and non-transferable license to '
+		.. "privately use, reproduce, display, perform, and modify the Content in accordance with "
+		.. "the terms of this Agreement. [...] you may not Distribute Content on a standalone basis "
+		.. "to third parties except to your collaborators",
+	quotedFrom = "fab.com/eula, read through a web search on 2026-10-03; the page itself answers 403 "
+		.. "to this machine (see the comment above)",
+	readOn = "2026-10-03",
+	attribution = 'Wild boar models and animations: "Boar Family" by RedDeer, bought on Fab '
+		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-03",
 }
 
 Assets.ROWS = {
@@ -1277,6 +1348,120 @@ Assets.ROWS = {
 			.. "is Z, not X -- the forearm runs at an angle to the fingers, so the bounding box is a "
 			.. "diagonal, which is why `uniformTo` pins the LONGEST axis rather than X.",
 	},
+	-- ------------------------------------------------- the boar (task 115)
+	--
+	-- KAREN bought RedDeer's "Boar Family" on Fab on 2026-10-03 and gave the upload OK the same day,
+	-- verbatim: "1. go 2. upload". The package is Male/Female/Cub with 74 clips each; this is the
+	-- MALE, with the ten clips the drive asks for. The female and the cub are a later task
+	-- ("we start with one bord and when this works we do with rest").
+	--
+	-- THREE ROWS FOR ONE MODEL, AND THE FIRST TWO ARE THE MEASUREMENT (rule 7: the id stays). The
+	-- scale of a skinned mesh has to be baked into the uploaded geometry, because `Size` and
+	-- `Model:ScaleTo` move the mesh and not the bones and the model tears as soon as a clip plays.
+	-- Which number to bake was not known, and two uploads settled it:
+	--   v1 (73934667856496)  the scale in the FBX UNIT HEADER (`FBX_SCALE_ALL`): arrived 1.9185
+	--                        studs long -- the model's length in Blender METRES. Roblox ignores the
+	--                        header entirely.
+	--   v2 (95872773434675)  the scale in the geometry via `FBX_SCALE_NONE` at global_scale 2.8668:
+	--                        arrived 550 studs long. Blender's exporter ALSO pushes its own
+	--                        metre-to-centimetre hundred into the geometry.
+	--   v3 (120607820179994) `FBX_SCALE_NONE` at global_scale 0.028668: arrived (1.4011, 3.2573,
+	--                        5.5000) studs, which is the length `Boar.CONFIG.BODY_SIZE.Z` asks for.
+	-- `tools/boar_prep.py` now re-opens its own export and FAILS the run on a length that is more
+	-- than 0.1 % out, so that cannot cost a third upload.
+	--
+	-- WHY THE MODEL IS 3.26 STUDS TALL AGAINST A 3-STUD BOX: the LENGTH is what it is fitted by.
+	-- Fitting all three axes would squash a real animal onto the grey box's proportions, and a
+	-- squashed boar measures perfectly (design 6.1's own words). The shoulder standing a quarter of a
+	-- stud above the physics envelope is right for an animal, and a ray cannot see it: the model is
+	-- `CanQuery = false` and every hit still lands on the box and its three zone parts.
+	{
+		key = "boar.male",
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "boar" :: string?,
+		modelId = 73934667856496,
+		supersededBy = 3,
+		displayName = "Boar Male RedDeer",
+		fileName = "model.fbx",
+		sourceSha256 = "983998c514725cf080a27ad1a0a446fe3d72e8bbf9b3dd9fed447344496e77a0",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 13976,
+		texturePx = 1024,
+		sizeStuds = Vector3.new(0.4887, 1.1362, 1.9185),
+		naturalSizeStuds = Vector3.new(0.4887, 1.1362, 1.9185),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "THE FIRST SCALE MEASUREMENT. Exported with the scale in the FBX unit header; it "
+			.. "arrived at the model's length in metres, so Roblox does not read that header.",
+	},
+	{
+		key = "boar.male",
+		version = 2,
+		kind = "model" :: Kind,
+		scope = "boar" :: string?,
+		modelId = 95872773434675,
+		supersededBy = 3,
+		displayName = "Boar Male RedDeer 5.5",
+		fileName = "model.fbx",
+		sourceSha256 = "9486b21fa2d06406a4ad0907b81295e79c14a0e0b1a7107c0683eab5114d685e",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 13976,
+		texturePx = 1024,
+		sizeStuds = Vector3.new(140.1105, 325.7303, 550.0),
+		naturalSizeStuds = Vector3.new(140.1105, 325.7303, 550.0),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "THE SECOND SCALE MEASUREMENT. The scale went into the geometry, and Blender's own "
+			.. "metre-to-centimetre hundred went in with it: a boar a hundred times too big.",
+	},
+	{
+		key = "boar.male",
+		version = 3,
+		kind = "model" :: Kind,
+		scope = "boar" :: string?,
+		modelId = 120607820179994,
+		displayName = "Boar Male RedDeer v3",
+		fileName = "model.fbx",
+		sourceSha256 = "3f74296cedcc5a21412ee0c2113a970ea47c0848e722d9d0c26e6aa188a02973",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-03",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 13976,
+		texturePx = 1024,
+		-- `sizeStuds` RECORDS WHAT THIS MODEL ALREADY MEASURES, it is not a size to write: see
+		-- `bakedScale` on the AssetRow type. MEASURED in Studio off the loaded asset, 2026-10-03.
+		sizeStuds = BOAR_MALE_SIZE,
+		naturalSizeStuds = BOAR_MALE_SIZE,
+		-- NO PIVOT CORRECTION AND NO ROTATION, and both were measured rather than hoped for. Off the
+		-- loaded asset, with the rig's origin at (0, 0, 0): the nose sits at z -2.78 and the last
+		-- tail bone at z +2.01, so the animal faces -Z, which is exactly a Part's own LookVector; a
+		-- hind hoof sits at y +0.29 and the mesh's lowest vertex at y -0.002, so the origin is the
+		-- GROUND the animal stands on. `Boar.Body` works out the one offset it needs -- feet onto the
+		-- bottom of the physics box -- from the template's own measured height, so nothing here has
+		-- to be kept in step with `BODY_SIZE`.
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "RedDeer's male wild boar: 13,976 triangles, 40 bones, one skinned MeshPart with a "
+			.. "SurfaceAppearance, 1024 albedo/normal/roughness. Prepped by tools/boar_prep.py and "
+			.. "looked at in game before it was called done (.screenshots, task 115).",
+	},
 } :: { AssetRow }
 
 -- The newest usable row for a key, or nil -- which means "use the grey box", not "fail".
@@ -1311,7 +1496,7 @@ end
 function Assets.keysFor(scope: string): { string }
 	local out, seen = {}, {}
 	for _, row in ipairs(Assets.ROWS) do
-		if (row.scope or "runtime") == scope and row.kind ~= "image" and row.supersededBy == nil then
+		if (row.scope or "runtime") == scope and Assets.INSERTABLE[row.kind] and row.supersededBy == nil then
 			if not seen[row.key] then
 				seen[row.key] = true
 				table.insert(out, row.key)

@@ -17,8 +17,11 @@
 -- Note:   docs/research/2026-09-24-boar-ai.md
 local PathfindingService = game:GetService("PathfindingService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 
 local Brain = require(script.Brain)
 local Body = require(script.Body)
@@ -30,6 +33,15 @@ Boar.Brain = Brain
 -- The pure damage model, exported for specs exactly as Brain is, and for the same reason: it must be
 -- drivable with no world (hit-zones design section 3.2).
 Boar.Wound = Wound
+
+-- THE THREE PURE RULES OF THE SKINNED MODEL (task 115), and ONLY those three. `Body` itself stays
+-- private, because it writes Instances and "the only writer of a boar's Instances" is a claim that an
+-- export would weaken; these take numbers and return numbers, so a spec can drive every gait, every
+-- flinch, every rate and the death's held frame with no boar in the world at all -- which is the
+-- same reason `Brain` and `Wound` are exported whole.
+Boar.clipFor = Body.clipFor
+Boar.visualOffset = Body.visualOffset
+Boar.shouldFreeze = Body.shouldFreeze
 
 -- Every number the system has. Derived at 1 stud = 0.28 m (Roblox units), so a 40 km/h boar is
 -- 11.1 m/s = 39.7 studs/s, and a 1.5 m x 0.9 m x 0.5 m boar is 5.5 x 3 x 2 studs. The research note
@@ -262,6 +274,80 @@ Boar.CONFIG = {
 	end,
 }
 
+-- THE SKINNED MODEL (task 115), behind `BOAR_MODEL`. It is a separate block and not a field above
+-- because every threshold in it is DERIVED from the speeds above: written as literals they would
+-- quietly stop matching the gaits the moment Karen turned one of her dials.
+--
+-- EVERY CLIP NUMBER HERE WAS MEASURED OFF THE CLIP, by `tools/boar_prep.py`, on 2026-10-03 at this
+-- model's own scale (5.5 studs long). `groundStudsPerSecond` is how fast the ground slides under the
+-- clip at playback rate 1: all ten clips are in place (the root bone's drift measured 0.0000), so the
+-- animal's speed is carried entirely by its feet, and the speed of a PLANTED hoof is the clip's
+-- ground speed. The rate that makes feet not slide is then `speed / that`, which is what
+-- `Body.clipFor` computes. A zero means the clip has no gait at all, and no rate can give one.
+--
+-- WHICH ASSET ID EACH CLIP IS, this file does not know and must not: ids have one home
+-- (`src/serverstorage/Assets`), and a mapping between two owners belongs in the composition root.
+-- `Runtime:setModelSource` takes both lookups from the boot script; `ANIMATION_IDS` is filled per
+-- RUNTIME, once, and is empty until then -- with it empty the boar is welded, visible and standing
+-- still, which is exactly the state until the ten clips have been published out of Studio.
+local BOAR_CLIPS = {
+	idle = { clip = "Idle_1", seconds = 4.208, groundStudsPerSecond = 0, looped = true },
+	walk = { clip = "Walk_F_IP", seconds = 1.042, groundStudsPerSecond = 2.852, looped = true },
+	trot = { clip = "Trot_F_IP", seconds = 0.708, groundStudsPerSecond = 10.244, looped = true },
+	run = { clip = "Run_F_IP", seconds = 0.542, groundStudsPerSecond = 17.21, looped = true },
+	turnLeft = { clip = "Turn_L_IP", seconds = 0.708, groundStudsPerSecond = 1.855, looped = true },
+	turnRight = { clip = "Turn_R_IP", seconds = 0.708, groundStudsPerSecond = 1.855, looped = true },
+	deathLeft = { clip = "Death_L", seconds = 1.25, groundStudsPerSecond = 0, looped = false },
+	deathRight = { clip = "Death_R", seconds = 1.25, groundStudsPerSecond = 0, looped = false },
+	hitFront = { clip = "Hit_F", seconds = 0.875, groundStudsPerSecond = 0, looped = false },
+	hitBack = { clip = "Hit_B", seconds = 0.875, groundStudsPerSecond = 0, looped = false },
+}
+
+Boar.CONFIG.MODEL = {
+	-- THE FLAG, READ ONCE AT THIS BOUNDARY and passed inward as `config` -- the only permitted shape
+	-- (CLAUDE.md, feature flags). Every function below takes the value as a parameter, so both
+	-- branches stay reachable while the flag sits at one of them.
+	ENABLED = Flags.isOn("BOAR_MODEL"),
+	NAME = "Visual", -- the one child `Body.attachVisual` adds, and the only one
+	CLIPS = BOAR_CLIPS,
+	ANIMATION_IDS = {}, -- filled per runtime by `setModelSource`; see above
+	-- The grey box is not deleted, it is made invisible -- and only once the model is really there.
+	-- `CanQuery` and `CanCollide` are untouched, so every shot lands exactly where it landed before.
+	HIDE_BOX = true,
+	-- THE THREE GAITS, SPLIT HALFWAY BETWEEN THE THREE SPEEDS THE GAME ACTUALLY USES. Karen's dials
+	-- are 4 (grazing), 18 (pushed) and 38 (bolting), so these put walk on 4, trot on 18 and run on
+	-- 38 with the whole band between each pair going to the nearer one. Splitting at the CLIPS' own
+	-- natural speeds instead (2.85, 10.24, 17.21) was tried on paper and is wrong: it puts 18 on the
+	-- run clip and leaves the trot reachable only during the 0.13 s it takes ACCEL to cross its band.
+	WALK_FROM = 0.5, -- anything moving at all is walking, not standing
+	TROT_FROM = (Boar.CONFIG.WANDER_SPEED + Boar.CONFIG.TROT_SPEED) / 2,
+	RUN_FROM = (Boar.CONFIG.TROT_SPEED + Boar.CONFIG.SPRINT_SPEED) / 2,
+	-- A TURN IN PLACE, and it is reachable only below WALK_FROM on purpose: Turn_L/R are pivots
+	-- whose hooves travel 1.855 studs/s, so at any real speed they skate. 60 deg/s is a quarter of
+	-- the Brain's own TURN_RATE ceiling (4 rad/s = 229 deg/s), which is a deliberate turn rather
+	-- than the wander's jitter.
+	TURN_FROM_DEG = 60,
+	-- WHICH WAY IT FALLS, derived from the roll `Body.collapse` applies rather than chosen: a
+	-- positive roll about the trunk's own Z tips its UpVector toward -X, which is the animal's LEFT.
+	-- Flip `COLLAPSE_ROLL_DEG`'s sign and the clip follows it, which a literal would not.
+	DEATH_TO_THE_LEFT = Boar.CONFIG.WOUND.COLLAPSE_ROLL_DEG > 0,
+	-- The flinch lasts exactly as long as the flinch clip, so the gait resumes on the frame the
+	-- animation ends instead of a tenth of a second either side of it.
+	HIT_SECONDS = BOAR_CLIPS.hitFront.seconds,
+	FADE_SECONDS = 0.15, -- a gait change is a blend, not a cut
+	RATE_EPSILON = 0.02, -- do not re-adjust a track's speed for a 2 % change: it is a property write
+	HOLD_EPSILON = 0.03, -- how close to the end a death clip is frozen at, so the carcass stays down
+	MIN_RATE = 0.4,
+	-- 2.5 covers the fastest thing asked of any clip -- the run clip at SPRINT_SPEED needs 2.21 --
+	-- and refuses the absurd rates a mis-measured clip would otherwise produce.
+	MAX_RATE = 2.5,
+	-- How often the runtime asks for a template it has not got yet. `Loader.preload` is bounded at
+	-- 15 s and may land after the first boar exists, so asking once at boot would leave that boar a
+	-- grey box for its whole life; asking every frame would count a miss sixty times a second in
+	-- `Loader.stats`.
+	ASK_EVERY_SECONDS = 1,
+}
+
 -- Production implementations of everything the Runtime needs from the world. A spec passes its own.
 function Boar.defaultWorld(field)
 	local config = Boar.CONFIG
@@ -380,6 +466,24 @@ function Boar.newRuntime(world)
 	for key, value in pairs(world.config or {}) do
 		self._config[key] = value
 	end
+	-- A MODEL BLOCK OF ITS OWN, because `table.clone` is SHALLOW and `ANIMATION_IDS` is filled at
+	-- run time: without this, one runtime's ids would be written into `Boar.CONFIG.MODEL` and read by
+	-- every other runtime and every spec in the same session. This repository has paid for a shallow
+	-- clone twice already (Drive, Task 23a note (b); Flags' own deepFreeze).
+	self._config.MODEL = table.clone(self._config.MODEL)
+	self._config.MODEL.ANIMATION_IDS = table.clone(self._config.MODEL.ANIMATION_IDS)
+	-- The skinned model's two lookups, both nil until a boot script wires them: with no template the
+	-- boar is the grey box, which is what every spec before task 115 asserts.
+	self._modelTemplate = nil :: Instance?
+	self._templateFor = nil :: (() -> Instance?)?
+	self._animationIdFor = nil :: ((string) -> number?)?
+	-- FALSE MEANS "USE THE MODULE'S", and once `Runtime:setModelSource` has been called it is true
+	-- for ever. Without this flag, `self._templateFor or moduleTemplateFor` would make "this runtime
+	-- has NO template" inexpressible -- a spec asking for the no-model branch would silently be
+	-- handed the live server's real boar, and the one case the flag's promise rests on would pass for
+	-- the wrong reason.
+	self._modelSourceSet = false
+	self._askedModelAt = -math.huge
 	self._field = world.field or self._config.field
 	self._rng = world.rng or Random.new()
 	self._boars = {}
@@ -430,6 +534,83 @@ end
 
 function Runtime:folder(): Folder
 	return self._folder
+end
+
+-- THE SKINNED MODEL'S TWO LOOKUPS, wired by a boot script and by nothing else (task 115).
+--   `templateFor()`            -> the cached template Instance, or nil. MUST NOT YIELD: it is
+--                                 called from inside the step loop. `Assets.Loader.template` is
+--                                 exactly this shape and is documented never to yield.
+--   `animationIdFor(clipName)` -> that clip's animation asset id, or nil.
+-- Both are injected rather than required, so neither owner requires the other (the property
+-- docs/design/shotgun.md section 6.3 established and `WeaponBoot` already follows), and so a spec
+-- can drive both the "no model" and the "model" branch with no network at all.
+--
+-- THERE ARE TWO SETTERS, AND THE REASON IS A MEASURED HAZARD, NOT TIDINESS.
+--   * `Boar.setModelSource` is MODULE level, because `BoarAssetsBoot` has no runtime to set it on:
+--     `MatchBoot` creates the runtime, and two Scripts in ServerScriptService have no defined order
+--     and cannot share a Luau value. This is the same shape `Weapon.Hardware.setTemplateProvider`
+--     already has here, set by `WeaponBoot` and reviewed as such.
+--   * `Runtime:setModelSource` is PER RUNTIME and wins over it, and that is what a spec uses. A spec
+--     that borrowed the module-level one would be lending its fake to the live server for as long as
+--     its case ran -- and the live runtime asks for a template once a SECOND, so it could cache that
+--     fake and hand every player a fake boar for the rest of the session. That is Task 76's defect
+--     exactly ("a spec that borrows this seam and puts back NIL"), and a runtime-local override
+--     makes it unreachable rather than unlikely.
+-- Either way the ids are read ONCE, when the template first arrives, into THIS runtime's own
+-- `CONFIG.MODEL.ANIMATION_IDS`. An id that appears later is not picked up, which is deliberate: a
+-- manifest is frozen data edited in git, so a row that was not there at boot was not there at all.
+local moduleTemplateFor: (() -> Instance?)? = nil
+local moduleAnimationIdFor: ((string) -> number?)? = nil
+
+-- Returns the pair it replaced, so a caller that must put it back can.
+function Boar.setModelSource(
+	templateFor: (() -> Instance?)?,
+	animationIdFor: ((string) -> number?)?
+): ((() -> Instance?)?, ((string) -> number?)?)
+	local previousTemplate, previousId = moduleTemplateFor, moduleAnimationIdFor
+	moduleTemplateFor = templateFor
+	moduleAnimationIdFor = animationIdFor
+	return previousTemplate, previousId
+end
+
+function Runtime:setModelSource(templateFor: (() -> Instance?)?, animationIdFor: ((string) -> number?)?)
+	self._templateFor = templateFor
+	self._animationIdFor = animationIdFor
+	self._modelSourceSet = true -- from here on this runtime ignores the module's, nil included
+	self._modelTemplate = nil
+	self._askedModelAt = -math.huge
+end
+
+-- The template, or nil, asking at most once every ASK_EVERY_SECONDS until it has one.
+function Runtime:_modelTemplate(now: number): Instance?
+	local held = self._modelTemplate
+	if held ~= nil and held.Parent ~= nil then
+		return held
+	end
+	local ask = if self._modelSourceSet then self._templateFor else moduleTemplateFor
+	if ask == nil then
+		return nil
+	end
+	if now - self._askedModelAt < self._config.MODEL.ASK_EVERY_SECONDS then
+		return nil
+	end
+	self._askedModelAt = now
+	local template = ask()
+	if template == nil then
+		return nil
+	end
+	self._modelTemplate = template
+	local ids = self._config.MODEL.ANIMATION_IDS
+	local lookup = if self._modelSourceSet then self._animationIdFor else moduleAnimationIdFor
+	if lookup then
+		for name in pairs(self._config.MODEL.CLIPS) do
+			local id = lookup(name)
+			if type(id) == "number" and id > 0 then
+				ids[name] = id
+			end
+		end
+	end
+	return template
 end
 
 function Runtime:stats()
@@ -521,6 +702,23 @@ function Runtime:takeHit(part: BasePart, hit): boolean
 				from = Body.position(entry.body) + payload.normal * self._config.WOUND.BOLT_HINT_STUDS
 			end
 			table.insert(entry.hitEvents, { severity = severity, zone = record.zone, from = from })
+
+			-- THE FLINCH (task 115), from the SAME `from` the Brain bolts away from, so the clip and
+			-- the decision can never disagree about where the shot came from. Behind means behind:
+			-- the shot's direction of arrival against the animal's own facing. With no hint at all
+			-- the answer is the front clip, which is the one a player is looking at.
+			if self._config.MODEL.ENABLED then
+				local fromBehind = false
+				if typeof(from) == "Vector3" then
+					local toShooter = from - Body.position(entry.body)
+					local flat = Vector3.new(toShooter.X, 0, toShooter.Z)
+					local facing = entry.body.part.CFrame.LookVector
+					if flat.Magnitude > 1e-6 then
+						fromBehind = flat.Unit:Dot(Vector3.new(facing.X, 0, facing.Z)) < 0
+					end
+				end
+				Body.setHit(entry.body, self._config.MODEL.HIT_SECONDS, fromBehind)
+			end
 
 			self._hitSignal:Fire({
 				id = entry.id,
@@ -1044,6 +1242,14 @@ function Runtime:step(dt: number)
 		self:_stepSounders(dt, snapshot)
 	end
 
+	-- THE SKINNED MODEL, once per step and not once per boar: the template is one Instance every
+	-- boar clones from, and asking for it per boar would multiply both the lookup and the miss
+	-- counter by however many are alive.
+	local visualTemplate: Instance? = nil
+	if config.MODEL.ENABLED then
+		visualTemplate = self:_modelTemplate(os.clock())
+	end
+
 	for index = #self._boars, 1, -1 do
 		local entry = self._boars[index]
 		local sample = snapshot[entry.id]
@@ -1107,6 +1313,25 @@ function Runtime:step(dt: number)
 		end
 
 		Body.stepFlash(entry.body, dt, config.WOUND)
+
+		-- THE SKINNED MODEL, AFTER EVERY DECISION AND BEFORE THE DESPAWN. It is attached late by
+		-- design -- `Loader.preload` is bounded at 15 s and the first boar can exist before it lands
+		-- -- so a boar that was born grey puts its coat on as soon as the asset arrives, which is the
+		-- same "late is not lost" rule the loader itself follows. With the flag off neither line runs
+		-- and nothing about a boar differs from before task 115.
+		--
+		-- The SPEED it is given is the Brain's own `targetVelocity`, not the body's measured one: the
+		-- setpoint is what the animal is TRYING to do, so a boar shoved into a cover block keeps
+		-- running on the spot instead of flicking to idle for the frames the physics holds it still.
+		if config.MODEL.ENABLED then
+			if visualTemplate ~= nil and entry.body.visual == nil then
+				Body.attachVisual(entry.body, visualTemplate, config)
+			end
+			Body.stepVisual(entry.body, dt, {
+				speed = Vector3.new(intent.targetVelocity.X, 0, intent.targetVelocity.Z).Magnitude,
+				facing = facing,
+			}, config)
+		end
 
 		if intent.despawn then
 			self:_despawn(entry, index, intent.reason or "outOfBounds", position)

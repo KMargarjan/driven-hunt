@@ -114,6 +114,24 @@ Flags.DEFAULTS = {
 			.. "`python tools/flags.py clear`. OFF is the real drive, 20 s + 20 s and boars at the "
 			.. "far end.",
 	} :: FlagRow,
+	BOAR_MODEL = {
+		-- BORN OFF on 2026-10-03 (task 115). Karen: "we start with one bord and when this works we
+		-- do with rest". OFF is the grey box every spec and every screenshot since Milestone 1.2 was
+		-- taken against; ON welds RedDeer's skinned male boar to that same box as a VISUAL child and
+		-- plays a clip chosen by what the animal is doing. The physics box, its three hit zones and
+		-- every attribute the weapon reads are byte-identical in both states: the model is massless,
+		-- collisionless and NOT raycastable, so a shot that hit before still hits exactly the same
+		-- part.
+		default = false,
+		-- The owner is the module that READS it at its boundary (`Boar.CONFIG.MODEL.ENABLED`) and
+		-- passes it inward as `config` -- the only permitted shape, and what keeps both branches
+		-- reachable by parameter while the flag sits at one of them.
+		owner = "ServerScriptService.Boar",
+		born = "2026-10-03 task 115",
+		expires = "2026-10-24", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "The boar is a real animal that walks, trots, runs, flinches and falls over. OFF is the "
+			.. "grey box with its three tinted hit zones, exactly as before task 115.",
+	} :: FlagRow,
 	FIRST_PERSON = {
 		-- BORN OFF on 2026-09-27, ON SINCE TASK 98 (2026-10-01). Karen's word was "start": first
 		-- person is now what the game IS, so every Studio Play shows the shotgun she is judging

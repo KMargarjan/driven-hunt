@@ -36,6 +36,31 @@ What was changed, and nothing else was:
   for the barrels, case-hardened grey for the action. **The walnut is his, untouched**, and so is
   every line of the model's own form.
 
+### Boar Family — RedDeer (Fab Standard License)
+
+The wild boar since task 115 (2026-10-03): the male's skinned mesh, its three colour maps and the ten
+clips it is animated by (idle, walk, trot, run, two turns, two deaths, two flinches). The package also
+contains a female and a cub, which this game does not use yet.
+
+> Wild boar models and animations: *"Boar Family"* by **RedDeer**, bought on [Fab](https://www.fab.com)
+> under the Fab Standard License on 2026-10-03.
+
+The licence grant, as the Fab EULA states it: *"A "Standard License" grants you a non-exclusive and
+non-transferable license to privately use, reproduce, display, perform, and modify the Content in
+accordance with the terms of this Agreement. [...] you may not Distribute Content on a standalone
+basis to third parties except to your collaborators"*. **Read through a web search on 2026-10-03, not
+from the page** — `fab.com/eula` answers 403 to this machine. The two conditions that bear on this
+repository are met either way: the boar is a component of a game that adds its own value, and it is
+never distributed on its own. The binary is never committed (`.rbxm` is banned outright), and what
+reaches Roblox is one asset inside Karen's own account, used by her own place.
+
+What was changed, and nothing else was:
+
+- `tools/boar_prep.py` kept ten of the package's 74 clips, resized the three 4096 maps to 1024 and
+  dropped the albedo's alpha channel, shaded the surface smooth by angle, and scaled the whole thing
+  so the animal is 5.5 studs long — the length of the physics box it is welded to.
+- No vertex was added, moved relative to its neighbours, or removed, and no animation was edited.
+
 ## Everything else
 
 The rest of the art in this game is Karen's own — generated in her own paid Meshy account or built

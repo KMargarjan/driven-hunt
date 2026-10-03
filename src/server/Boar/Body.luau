@@ -30,8 +30,23 @@
 -- called takeHit with zone = "head" directly would pass while no player could ever produce a head
 -- shot. tests/server/boar_zones.spec.luau fires twelve real rays from outside for that reason.
 --
+-- THE SKINNED MODEL IS A PASSENGER AND NOTHING ELSE (task 115, behind `BOAR_MODEL`). With the flag
+-- on, every boar gains ONE visual child: RedDeer's skinned boar, welded to the trunk, `Massless`,
+-- `CanCollide = false`, `CanQuery = false`, `CanTouch = false`, and carrying NO `Damageable` and no
+-- `HitZone`. So the physics, the raycasts, the wounds and the sounders are the same code over the
+-- same Instances as before it, and the flag's two states differ by exactly what is DRAWN.
+--   Skinned meshes      https://create.roblox.com/docs/art/modeling/rigging
+--     Bones are descendants of the MeshPart, so moving the MeshPart moves the whole rig, and the
+--     scale has to be baked into the upload: `Size` and `Model:ScaleTo` move the mesh and not the
+--     bones, which tears the animal as soon as a clip plays.
+--   AnimationController + Animator  https://create.roblox.com/docs/reference/engine/classes/AnimationController
+--     The rig root is the controller's PARENT, which is why the controller is a child of the cloned
+--     Model rather than of the trunk. `Animator:LoadAnimation` on the SERVER replicates the track to
+--     every client, so every player sees the same animal doing the same thing.
+--
 -- Design: docs/design/boar-ai.md (section 6), docs/design/hit-zones.md (sections 4, 7)
--- Note:   docs/research/2026-09-24-boar-ai.md, docs/research/2026-09-25-hit-zones.md
+-- Note:   docs/research/2026-09-24-boar-ai.md, docs/research/2026-09-25-hit-zones.md,
+--         docs/research/2026-10-03-boar-skinned-model.md
 local RunService = game:GetService("RunService")
 
 local Body = {}
@@ -164,6 +179,17 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 		flashing = false,
 		collapsed = false,
 		bornAt = os.clock(),
+		-- THE SKINNED MODEL (task 115), nil until `attachVisual` succeeds and nil for ever with
+		-- `BOAR_MODEL` off. Everything above this line is byte-identical in both states.
+		visual = nil :: Model?,
+		mesh = nil :: BasePart?,
+		animator = nil :: Animator?,
+		tracks = {} :: { [string]: AnimationTrack },
+		clip = nil :: string?, -- which clip is playing now
+		lastFacing = nil :: Vector3?, -- for the yaw rate, which nothing else measures
+		yawRate = 0, -- degrees per second, signed. + is a turn to the boar's left
+		hitFor = 0, -- seconds of flinch left
+		hitFromBehind = false,
 	}
 end
 
@@ -222,6 +248,290 @@ end
 
 function Body.isFlashing(handle): boolean
 	return handle.flashing
+end
+
+-- The skinned model ----------------------------------------------------------------------------
+-- Task 115, behind `BOAR_MODEL`. One visual child per boar, welded to the trunk, drawn and nothing
+-- else. See this file's header for why it can never change a hit.
+
+-- The one MeshPart inside a template, or nil. A template may BE the MeshPart (`kind = "meshpart"`)
+-- or contain exactly one (`kind = "model"`); anything else is a different asset than the row
+-- describes, and the honest answer to that is the grey box.
+local function soleMesh(template: Instance): BasePart?
+	if template:IsA("MeshPart") then
+		return template
+	end
+	local found: BasePart? = nil
+	for _, descendant in ipairs(template:GetDescendants()) do
+		if descendant:IsA("MeshPart") then
+			if found ~= nil then
+				return nil -- two meshes: not this asset
+			end
+			found = descendant
+		end
+	end
+	return found
+end
+
+-- WHERE THE MODEL SITS ON THE BOX, from the model's OWN measured height and nothing else.
+--
+-- The animal's feet go on the bottom of the physics box, so the mesh's centre rises by half its own
+-- height and falls by half the box's. The boar is 3.257 studs tall and the box is 3, so this is
+-- +0.129 -- and if either number ever changes it stays right, which a literal would not. X and Z are
+-- zero because the mesh is exactly `BODY_SIZE.Z` long: centring it and aligning its snout with the
+-- box's front face are the same placement.
+function Body.visualOffset(meshSize: Vector3, bodySize: Vector3): Vector3
+	return Vector3.new(0, meshSize.Y / 2 - bodySize.Y / 2, 0)
+end
+
+-- Builds the visual child. Returns true if it attached, false if it already had one or the template
+-- is not one mesh. It NEVER touches the trunk's attributes, its constraints, its zone parts or its
+-- CanQuery: the only thing it changes about the box is whether you can see it.
+function Body.attachVisual(handle, template: Instance, config): boolean
+	if handle.visual ~= nil then
+		return false
+	end
+	local mesh = soleMesh(template)
+	if mesh == nil then
+		return false
+	end
+
+	local trunk = handle.part
+	local model = Instance.new("Model")
+	model.Name = config.MODEL.NAME
+	local clone = template:Clone()
+	local cloneMesh = soleMesh(clone) :: BasePart
+	-- The template may be the MeshPart itself, in which case the clone IS the mesh and there is
+	-- nothing to unwrap; when it is a Model, its children move across and the wrapper goes.
+	if clone == cloneMesh then
+		clone.Parent = model
+	else
+		for _, child in ipairs(clone:GetChildren()) do
+			child.Parent = model
+		end
+		clone:Destroy()
+	end
+
+	cloneMesh.Massless = true -- the assembly's mass, centre of mass and inertia are untouched
+	cloneMesh.CanCollide = false -- the collision body is still the plain box
+	cloneMesh.CanQuery = false -- A RAY MUST NEVER MEET THIS: every hit stays on the box and its zones
+	cloneMesh.CanTouch = false
+	cloneMesh.Anchored = false -- an anchored part welded into an assembly anchors the whole boar
+	cloneMesh.CastShadow = true
+	cloneMesh.CFrame = trunk.CFrame * CFrame.new(Body.visualOffset(cloneMesh.Size, config.BODY_SIZE))
+	model.PrimaryPart = cloneMesh
+	model.Parent = trunk
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "VisualWeld"
+	weld.Part0 = trunk
+	weld.Part1 = cloneMesh
+	weld.Parent = cloneMesh
+
+	-- THE RIG ROOT IS THE CONTROLLER'S PARENT, so the controller goes in the Model beside the mesh
+	-- whose Bones it drives -- not on the trunk, which has no bones. On the SERVER, so every client
+	-- is shown the same animal doing the same thing and no client decides anything.
+	local controller = Instance.new("AnimationController")
+	controller.Name = "BoarAnimation"
+	local animator = Instance.new("Animator")
+	animator.Parent = controller
+	controller.Parent = model
+
+	handle.visual = model
+	handle.mesh = cloneMesh
+	handle.animator = animator
+	handle.tracks = {}
+	handle.clip = nil
+
+	if config.MODEL.HIDE_BOX then
+		-- ONLY NOW, and only because the model is really there: a box hidden before a load that then
+		-- failed would be an invisible boar. Transparency changes nothing a ray or a collision can
+		-- see -- `CanQuery` and `CanCollide` are untouched above and below this line.
+		trunk.Transparency = 1
+		for _, zonePart in ipairs(handle.zoneParts) do
+			zonePart.Transparency = 1
+		end
+	end
+	return true
+end
+
+-- WHICH CLIP, AND HOW FAST. Pure: no Instance, no service, no state -- `info` in, two values out, so
+-- every gait, every flinch and every rate is a test case with no boar in the world.
+--
+-- THE ORDER IS THE RULE. Death beats everything (a dead animal is not trotting); a flinch beats a
+-- gait (it is a quarter of a second and it is the only feedback a hit has now that the box is
+-- invisible); then the three gaits by speed; then a turn in place, which is reachable only below
+-- `WALK_FROM` because the turn clips are pivots and would skate at any real speed; then idle.
+--
+-- THE RATE IS `speed / the clip's own measured ground speed`, which is the one arithmetic that makes
+-- feet not slide: a planted hoof moves backwards at exactly the speed the body moves forward, so a
+-- clip whose hooves travel 2.852 studs/s must play at 1.40 to carry an animal at 4.
+-- `tools/boar_prep.py` measured all three off the package itself.
+function Body.clipFor(info, config): (string?, number)
+	local model = config.MODEL
+	local clips = model.CLIPS
+
+	local function gait(name: string): (string, number)
+		local clip = clips[name]
+		local rate = 1
+		if clip and clip.groundStudsPerSecond > 0 then
+			rate = info.speed / clip.groundStudsPerSecond
+		end
+		return name, math.clamp(rate, model.MIN_RATE, model.MAX_RATE)
+	end
+
+	if info.collapsed then
+		return (if model.DEATH_TO_THE_LEFT then "deathLeft" else "deathRight"), 1
+	end
+	if info.hitFor > 0 then
+		return (if info.hitFromBehind then "hitBack" else "hitFront"), 1
+	end
+	if info.speed >= model.RUN_FROM then
+		return gait("run")
+	end
+	if info.speed >= model.TROT_FROM then
+		return gait("trot")
+	end
+	if info.speed >= model.WALK_FROM then
+		return gait("walk")
+	end
+	if math.abs(info.yawRate) >= model.TURN_FROM_DEG then
+		return (if info.yawRate > 0 then "turnLeft" else "turnRight"), 1
+	end
+	return "idle", 1
+end
+
+-- The track for one clip name, or nil. Built once per boar per clip, from the id the asset manifest
+-- holds; nil when the manifest has no row for it yet, which is the honest state until the ten clips
+-- have been published out of Studio (see Assets.KEYS, the boar block).
+local function trackFor(handle, name: string, config): AnimationTrack?
+	local held = handle.tracks[name]
+	if held then
+		return held
+	end
+	local clip = config.MODEL.CLIPS[name]
+	local animator = handle.animator
+	if clip == nil or animator == nil then
+		return nil
+	end
+	local id = config.MODEL.ANIMATION_IDS[name]
+	if id == nil or id <= 0 then
+		return nil
+	end
+	local animation = Instance.new("Animation")
+	animation.Name = name
+	animation.AnimationId = "rbxassetid://" .. tostring(id)
+	animation.Parent = animator
+	local ok, track = pcall(function()
+		return animator:LoadAnimation(animation)
+	end)
+	if not ok or track == nil then
+		animation:Destroy() -- an Animation nothing can play is an orphan, not a record
+		return nil
+	end
+	track.Priority = Enum.AnimationPriority.Movement
+	track.Looped = clip.looped
+	handle.tracks[name] = track
+	return track
+end
+
+-- Plays `name` if it is not already the one playing. A one-shot clip restarts when it is re-asked
+-- for AFTER something else has played, never while it is still running, so a second pellet inside
+-- one flinch does not snap the animal back to frame zero.
+local function play(handle, name: string, rate: number, config)
+	if handle.clip == name then
+		local current = handle.tracks[name]
+		if current and current.IsPlaying and math.abs(current.Speed - rate) > config.MODEL.RATE_EPSILON then
+			current:AdjustSpeed(rate)
+		end
+		return
+	end
+	local track = trackFor(handle, name, config)
+	if track == nil then
+		return -- no id for this clip yet: the animal holds whatever pose it has
+	end
+	local previous = handle.clip and handle.tracks[handle.clip]
+	if previous and previous.IsPlaying then
+		previous:Stop(config.MODEL.FADE_SECONDS)
+	end
+	track:Play(config.MODEL.FADE_SECONDS, 1, rate)
+	handle.clip = name
+end
+
+-- Once per boar per Runtime step, with the flag on. It measures the yaw rate (nothing else does),
+-- counts the flinch down, asks `clipFor` and plays the answer.
+function Body.stepVisual(handle, dt: number, info, config)
+	if handle.hitFor > 0 then
+		handle.hitFor = math.max(handle.hitFor - dt, 0)
+	end
+
+	-- THE YAW RATE, from the trunk's own facing. Two facings and the time between them is all a turn
+	-- is, and taking it here keeps the Brain untouched -- it is told nothing new and asked nothing
+	-- new. The signed angle about +Y is positive when the look direction swings to the boar's left.
+	local facing = info.facing
+	if facing and dt > 0 then
+		local flat = Vector3.new(facing.X, 0, facing.Z)
+		if flat.Magnitude > 1e-6 then
+			flat = flat.Unit
+			local previous = handle.lastFacing
+			if previous then
+				local radians = math.atan2(previous.X * flat.Z - previous.Z * flat.X, previous:Dot(flat))
+				handle.yawRate = math.deg(radians) / dt
+			end
+			handle.lastFacing = flat
+		end
+	end
+
+	if handle.visual == nil then
+		return
+	end
+
+	local name, rate = Body.clipFor({
+		collapsed = handle.collapsed,
+		hitFor = handle.hitFor,
+		hitFromBehind = handle.hitFromBehind,
+		speed = info.speed,
+		yawRate = handle.yawRate,
+	}, config)
+	if name then
+		play(handle, name, rate, config)
+	end
+
+	-- A DEATH HOLDS ITS LAST FRAME. Letting the track stop would snap the animal back to its rest
+	-- pose -- standing up, inside a carcass that is lying on its side -- so the clip is frozen at the
+	-- end instead of ended.
+	if handle.collapsed then
+		local track = handle.tracks[name or ""]
+		if track and track.IsPlaying then
+			if Body.shouldFreeze(track.TimePosition, track.Length, track.Speed, config.MODEL.HOLD_EPSILON) then
+				track:AdjustSpeed(0)
+			end
+		end
+	end
+end
+
+-- Whether a one-shot track has reached its end and should be frozen there. Pure, because the branch
+-- above is otherwise untestable: `AnimationTrack.Length` is 0 until the asset has loaded from the
+-- network, and no spec in this repository can load one -- so a death that snapped back to the rest
+-- pose would be a bug nothing could catch. A zero length means "not loaded yet", never "already
+-- over"; a speed already 0 means it was frozen on an earlier frame.
+function Body.shouldFreeze(timePosition: number, length: number, speed: number, epsilon: number): boolean
+	if length <= 0 or speed == 0 then
+		return false
+	end
+	return timePosition >= length - epsilon
+end
+
+-- The flinch. Called by the runtime on the tick a pellet lands, from the same payload the flash and
+-- the wound are charged from, so the clip and the damage can never disagree about which hit this is.
+function Body.setHit(handle, seconds: number, fromBehind: boolean)
+	handle.hitFor = math.max(handle.hitFor, seconds)
+	handle.hitFromBehind = fromBehind
+	-- A new hit RESTARTS the flinch, which is what makes a second pellet readable: the clip is
+	-- re-asked for from frame zero rather than carrying on from where the first one left it.
+	if handle.clip == "hitFront" or handle.clip == "hitBack" then
+		handle.clip = nil
+	end
 end
 
 -- The collapse ----------------------------------------------------------------------------------
