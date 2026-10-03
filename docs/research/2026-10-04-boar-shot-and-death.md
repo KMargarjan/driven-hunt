@@ -94,17 +94,93 @@ in real life"* -- a sound, a fall, and movement on the ground. What ships for a 
 sound, the death scream, the body landing, the fall on its side and the twitch. **If the Director
 wants the dash, it is a damage-model change and a separate task.**
 
+## 4b. The fix round, after Karen's look (2026-10-03 ~19:00)
+
+Karen, verbatim: *"1. its good / 2. body shot is a bit odd now feels late hit and odd / 3. no cicrcle
+but I can see back legs disabled / 4. yes it works as expected"*. Hearing them coming (1) and the
+head/heart shot (4) are accepted. Two defects, and both were measured before anything was changed.
+
+### (a) "feels late hit and odd" -- two causes, and neither was logic
+
+**MEASURED on the client that fired**, at `RenderStepped`, from the frame `UserInputService` saw the
+mouse go down:
+
+| t (s) | what the player's own machine had |
+|---|---|
+| 0.000 | the click |
+| 0.069 | the server's answer lands: the `hit` Sound plays (it was already `IsLoaded`); the `cry` Sound is told to play with `IsLoaded = false` and its `TimePosition` stays 0.00; the flinch track exists with `WeightCurrent` 0.00 and `TimePosition` 0.00 |
+| 0.433 | the cry finally loads and starts, and the flinch's `TimePosition` finally moves |
+| 0.568 | the flinch reaches full weight |
+
+So the animal's answer to being shot was **364 ms late** and only fully drawn at **568 ms**. The
+cause is the CLIENT fetching an audio and an animation asset it had never been asked for -- a boar
+that is never shot never plays its cry, so the first boar anybody shoots pays for both.
+
+**The fix is to ask for them when nothing is watching.** Every clip is played at weight 0 and every
+sound at volume 0 the moment the coat goes on, and stopped `WARM_SECONDS` (0.5) later. A client
+fetches an asset when it is told to play it, so this is the same fetch moved from the worst moment to
+the least important one. `ContentProvider:PreloadAsync` is the documented tool and it is a **client**
+call; this repository has no client-side boar code, and inventing some would be a new owner for a job
+that needs no owner, so the server asks instead -- through the Instances `Body` already owns.
+**Re-measured after the fix: `hit` and `cry` both report `IsLoaded = true` from frame 0, before any
+shot.**
+
+**The second cause is a clip fighting the bolt.** The flinch clips are 0.833 s and they are IN PLACE,
+and a body hit bolts the animal to `SPRINT_SPEED * BOLT_KICK` on the same tick -- so for five-sixths
+of a second the boar slid some 30 studs with its legs still, and only then began to run. A running
+animal now shows only the first `HIT_MOVING_SECONDS` (0.25) of the window, and a hit or a death cuts
+in at `HIT_FADE_SECONDS` (0.03) instead of crossfading over 0.15. A standing animal still gets the
+whole clip: it has nothing to fight with.
+
+### (b) "no cicrcle but I can see back legs disabled"
+
+**MEASURED on a real crippled boar**, every Heartbeat for 12 s: it *did* circle. At 3 studs/s and
+70 deg/s the radius is `v / w` = 3 / 1.222 = **2.45 studs**, so the circle it drew was **4.9 studs
+across** and the animal is **5.5 studs long**. A path smaller than the animal is not a circle anybody
+can see -- it is a boar pivoting on the spot, which is exactly what she reported. The lap took 5.0 s.
+
+**So the fix is a BIGGER circle, not a tighter one**, which is the opposite of what the fix round
+asked for; the measurement is the reason. 4.5 studs/s and 45 deg/s give a radius of **5.73**, a
+circle **11.5 studs across** (about two body lengths) and a lap of **8.0 s**: the animal travels 36
+studs per lap, so from a post at 20-40 studs it is plainly going round. `FLIGHT.rear` went 60 to 90
+so it still lasts the same 20 s of circling.
+
+### (c) The clips the package does not have, authored out of the clips it does
+
+Measurement 4(a) says a script cannot move a bone over a playing track, so paddling legs and a
+dragged hindquarter need **clips**. `tools/boar_prep.py` now authors three, and **nothing is
+invented** (rule 2): every authored frame is a blend between two poses this package's own animator
+made.
+
+| clip | built from | measured per hoof |
+|---|---|---|
+| `Death_Paddle_L` / `_R` | `Death_L`/`Death_R`'s **last frame** with the four legs swinging back toward `Run_F_IP`'s leg poses, amplitude decaying to nothing over 4.042 s | the legs on the **up** side travel 1.74-4.64 studs/s; the two against the ground 0.30-0.37. A leg under a lying animal cannot swing, and the blend reproduces that without being told |
+| `Cripple_Drag` | `Walk_F_IP` everywhere, hind legs pulled 85 % toward the death pose, rear spine 30 %; 1.042 s, looped | **front 2.866 and 2.863 studs/s** (`Walk_F_IP`'s own 2.853 -- a real walk cycle) and **hind 0.826 and 0.931** (a third of it, dragging). That table *is* Karen's "circles with first legs on", in numbers |
+
+The paddle **ends on the pose it began on**, so the hold frame after it is the pose the carcass keeps
+and nothing pops. The drag is keyed one frame short of repeating itself, because Roblox blends a
+looping track's last frame into its first.
+
+**They have no asset id and cannot have one from a tool**: an animation asset is made by hand in
+Studio's Animation Editor (section 4 of the Task 115 note, and `ESCALATE.md`). So the keys are
+declared, the wiring is complete, and `Body.hasClip` is false until a row names an id -- with no id
+the death is one clip and a crippled boar walks, exactly as before. The whole-body `TimePosition`
+twitch stays as the fallback and is skipped the moment a real paddle clip exists.
+
 ## 5. The numbers
 
 | | value | why |
 |---|---|---|
 | `ZONES.rear` box | 2.0 x 1.6 x 1.8 studs at (0, +0.5, +2.0) | the hindquarters: behind the chest box, above the legs box, 0.15 studs proud of the trunk's rear face so a ray meets it first (the same `PROTRUSION` rule every zone follows) |
 | `DAMAGE.rear` | Slug 55, Pellet 11 | **the trunk's own row**, because the rump *is* trunk -- as much meat and bone as a flank. The row exists so `CLASS` can call it crippling, not to make it softer. One slug is `MORTAL` (50) and well short of `LETHAL` (100), which is the whole shape of the reaction: the back end goes and the animal is alive to be finished |
-| `FLIGHT.rear` | 60 studs | it does not run, so this is not a flight distance in the paper's sense -- it is how long it has left, carried by the same mechanism. 60 studs at `CRIPPLE_SPEED` is **20 s** of circling, inside `BLEED_OUT_MAX_SECONDS` (25), so no crippled boar can last for ever |
+| `FLIGHT.rear` | **90** studs (was 60) | it does not run, so this is not a flight distance in the paper's sense -- it is how long it has left, carried by the same mechanism. 90 studs at `CRIPPLE_SPEED` is **20 s** of circling, inside `BLEED_OUT_MAX_SECONDS` (25), so no crippled boar can last for ever |
 | a graze does **not** cripple | `severity ~= "grazed"` | the leak this closes: a crippled boar is taken out of the escape test (it is going nowhere) and `Wound.advance` never collapses a *grazed* animal, so crippling on a graze would leave a boar turning in the arena with no way out at all. It is also right physically -- one pellet in the ham does not take the back legs off |
-| `CRIPPLE_SPEED` | 3 studs/s | below `WANDER_SPEED`; a crawl. Measured in the spec: a crippled boar strayed **4.91 studs** in 3 s, against the 38 studs/s a bolting one covers |
-| `CRIPPLE_TURN_DEG` | 70 deg/s | a circle of roughly 2.5 studs radius at that crawl -- tight enough to read as circling. Measured: 699 deg of turn over 10 s, one direction throughout |
-| `MODEL.PADDLE_SECONDS` | 2.5 | the twitch after it goes down, decaying to nothing. A **`MODEL`** number, not a `WOUND` one: it describes a drawn thing and is read only behind `BOAR_MODEL` |
+| `CRIPPLE_SPEED` | **4.5** studs/s (was 3) | a crawl that still shows: see section 4b(b). The walk clip reads as walking rather than sliding, and it is still well under `TROT_SPEED` |
+| `CRIPPLE_TURN_DEG` | **45** deg/s (was 70) | radius 5.73 studs, a circle 11.5 across -- two body lengths, so it is visibly a circle from 20-40 studs. Lap 8.0 s, one direction throughout |
+| `MODEL.PADDLE_SECONDS` | 2.5 | the twitch after it goes down, decaying to nothing. A **`MODEL`** number, not a `WOUND` one: it describes a drawn thing and is read only behind `BOAR_MODEL`. It is the FALLBACK since the fix round: with `Death_Paddle_L/R` published there is a real clip and this is skipped |
+| `MODEL.WARM_SECONDS` | 0.5 | the silent pre-roll that killed the 364 ms (section 4b(a)) |
+| `MODEL.HIT_MOVING_SECONDS` | 0.25 | how much of the flinch a RUNNING animal shows, so the bolt is what the player sees |
+| `MODEL.HIT_FADE_SECONDS` | 0.03 | a hit and a death CUT in; a gait blends over `FADE_SECONDS` 0.15 |
 | footsteps audible to | 45 / 70 / 90 studs (walk / trot / run) | Karen's requirement is hearing them before seeing them; the shooter line is ~12 studs off the road in the quick test and boars are released 1,300 studs away in the real drive, so this is "the last few seconds of approach". Per gait rather than one number, because a walking boar at 45 studs is a noise in the brush and a galloping one at 90 is something coming -- and because `makeSound` reads the range off the row, so a shared one two levels up resolved to `nil` |
 | footstep `baseSpeed` | the clip's own `groundStudsPerSecond` | referenced, never copied: both the loop and the animation are rated by `speed / baseSpeed`, so a re-measured clip moves its sound and its legs together. The spec asserts the two rates are equal at every speed a boar can reach |
 | grunt interval | 3-8 s | the Director's brief |

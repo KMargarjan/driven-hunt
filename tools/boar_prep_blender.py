@@ -26,6 +26,7 @@ import os
 import sys
 
 import bpy  # noqa: E402  (Blender provides it; this file only ever runs inside Blender)
+import mathutils  # noqa: E402  (same: Blender's own vector and quaternion maths)
 
 
 def say(message):
@@ -223,6 +224,138 @@ def with_floor(metres_per_second, floor):
 # ---------------------------------------------------------------- exporting
 
 
+# ---------------------------------------------------------------- clips the package does not have
+#
+# TASK 116. Karen, 2026-10-03: "can fall on side and legs moving like in real life" and "can be hit
+# to back part start to do circles with first legs on". Neither can be drawn without a clip, and the
+# package's 74 have no animal dying on the ground and none dragging a hindquarter -- MEASURED
+# differently and worse first: `Bone.Transform` is the Animator's output and a script's write to it
+# survived 0 of 122 frames on the server and 0 of 121 on the client, so there is no runtime way to
+# move one leg over a playing track (docs/research/2026-10-04-boar-shot-and-death.md section 4).
+#
+# SO THE CLIPS ARE AUTHORED HERE, OUT OF THE CLIPS THAT EXIST, which is rule 2 (borrow before
+# building) applied to animation: nothing below invents a pose. Every frame is a blend between poses
+# the package's own animator made --
+#   Death_Paddle_L/R : the last frame of Death_L/Death_R, with the four legs swinging back toward
+#                      RUN_F_IP's own leg poses at an amplitude that decays to nothing. A dying
+#                      animal's legs do a slowed, failing version of running, and that is literally
+#                      what this is.
+#   Cripple_Drag     : WALK_F_IP everywhere, with the hind legs (and a little of the rear spine)
+#                      blended toward the death pose, so the front legs walk a real walk cycle and
+#                      the back end hangs and drags behind them.
+# Blending two authored poses cannot produce a bone axis that does not exist on this rig, which is
+# the failure every "rotate the leg bone about X" approach risks. Slerp:
+#   https://docs.blender.org/api/current/mathutils.html#mathutils.Quaternion.slerp
+#
+# NOTHING HERE DECIDES ANYTHING: the names, the sources, the bone groups, the rate, the length and
+# every blend fraction arrive in the recipe, exactly as the rest of this file works.
+
+
+def pose_of(armature, action, frame, bone_names):
+    """Every named bone's pose (rotation quaternion and location) with `action` at `frame`."""
+    activate(armature, action)
+    bpy.context.scene.frame_set(int(round(frame)))
+    bpy.context.view_layer.update()
+    out = {}
+    for name in bone_names:
+        bone = armature.pose.bones.get(name)
+        if bone is None:
+            continue
+        out[name] = (bone.rotation_quaternion.copy(), bone.location.copy())
+    return out
+
+
+def write_pose(armature, action, frame, poses):
+    """Key one frame of `action` from a {bone: (quaternion, location)} map."""
+    activate(armature, action)
+    for name, (rotation, location) in poses.items():
+        bone = armature.pose.bones.get(name)
+        if bone is None:
+            continue
+        bone.rotation_mode = "QUATERNION"
+        bone.rotation_quaternion = rotation
+        bone.location = location
+        bone.keyframe_insert("rotation_quaternion", frame=frame)
+        bone.keyframe_insert("location", frame=frame)
+
+
+def blended(a, b, factor):
+    """Pose `a` moved `factor` of the way toward pose `b`."""
+    rotation = a[0].slerp(b[0], factor)
+    location = a[1].lerp(b[1], factor)
+    return (rotation, location)
+
+
+def synth_actions(armature, recipe, fps):
+    """Builds every clip in `recipe['synth']` and returns the new actions, in recipe order."""
+    spec = recipe.get("synth")
+    if not spec:
+        return []
+    bones = [bone.name for bone in armature.data.bones]
+    made = []
+    for row in spec:
+        source = bpy.data.actions.get(row["from"])
+        gait = bpy.data.actions.get(row["gait"])
+        if source is None or gait is None:
+            raise SystemExit(
+                "[boar-prep-blender] clip %r needs %r and %r, and the kept set has %s"
+                % (row["name"], row["from"], row["gait"], ", ".join(sorted(a.name for a in bpy.data.actions)))
+            )
+        legs = [name for name in bones if any(name.startswith(prefix) for prefix in row["legBones"])]
+        soft = [name for name in bones if any(name.startswith(prefix) for prefix in row.get("softBones", []))]
+        if not legs:
+            raise SystemExit(
+                "[boar-prep-blender] clip %r matched no leg bone from %s; this rig has %s"
+                % (row["name"], row["legBones"], ", ".join(sorted(bones)))
+            )
+
+        base_frame = source.frame_range[1] if row["fromFrame"] == "last" else source.frame_range[0]
+        base = pose_of(armature, source, base_frame, bones)
+        gait_first, gait_last = int(round(gait.frame_range[0])), int(round(gait.frame_range[1]))
+        gait_frames = max(gait_last - gait_first + 1, 1)
+        gait_poses = [pose_of(armature, gait, gait_first + i, bones) for i in range(gait_frames)]
+
+        made_action = bpy.data.actions.new(row["name"])
+        made_action.use_fake_user = True
+        total = int(round(row["seconds"] * fps)) if row.get("seconds") else gait_frames
+        every = max(int(row.get("keyEvery", 1)), 1)
+        # A LOOPED CLIP STOPS ONE FRAME SHORT OF REPEATING ITSELF. Roblox blends a looping track's
+        # last frame into its first, so keying both as the same pose is a one-frame pause every lap.
+        # A one-shot keeps its final frame, because that is the pose the carcass is held at.
+        last_step = total if row["kind"] == "paddle" else total - 1
+        for step in range(0, last_step + 1, every):
+            t = step / float(fps)
+            if row["kind"] == "paddle":
+                # The amplitude decays to nothing and then the animal is still: `decayPower` 2 makes
+                # the last second nearly motionless, which is an animal going quiet rather than one
+                # switched off. The phase runs at the gait's own cycle times `hz`.
+                left = max(1.0 - t / row["seconds"], 0.0)
+                amplitude = row["amplitude"] * (left ** row["decayPower"])
+                phase = int((t * row["hz"] * gait_frames) % gait_frames)
+                target = gait_poses[phase]
+                frame_pose = dict(base)
+                for name in legs:
+                    if name in base and name in target:
+                        frame_pose[name] = blended(base[name], target[name], amplitude)
+                for name in soft:
+                    if name in base and name in target:
+                        frame_pose[name] = blended(base[name], target[name], amplitude * row["softScale"])
+            else:
+                # The drag: the gait everywhere, pulled toward the collapsed pose on the back end.
+                target = gait_poses[step % gait_frames]
+                frame_pose = dict(target)
+                for name in legs:
+                    if name in base and name in target:
+                        frame_pose[name] = blended(target[name], base[name], row["amplitude"])
+                for name in soft:
+                    if name in base and name in target:
+                        frame_pose[name] = blended(target[name], base[name], row["amplitude"] * row["softScale"])
+            write_pose(armature, made_action, 1 + step, frame_pose)
+        say("authored %-16s %3d frames from %s + %s" % (row["name"], last_step + 1, row["from"], row["gait"]))
+        made.append(made_action)
+    return made
+
+
 def clear_nla(armature):
     for track in list(armature.animation_data.nla_tracks):
         armature.animation_data.nla_tracks.remove(track)
@@ -288,6 +421,11 @@ def main():
     actions = keep_actions(recipe["clips"])
     say("kept %d clip(s): %s" % (len(actions), ", ".join(action.name for action in actions)))
 
+    # THE AUTHORED CLIPS ARE BUILT BEFORE ANYTHING IS MEASURED OR EXPORTED, so they are measured,
+    # exported and reported exactly like the ones that came in the package (task 116).
+    armature.animation_data_create()
+    actions = actions + synth_actions(armature, recipe, recipe["fps"])
+
     material = build_material(recipe["materialName"], recipe["maps"])
     mesh.data.materials.clear()
     mesh.data.materials.append(material)
@@ -314,7 +452,6 @@ def main():
         * recipe["scaleCorrection"]
     )
 
-    armature.animation_data_create()
     measured = {}
     for action in actions:
         first, last, track = bone_track(armature, action, recipe["hoofBones"])

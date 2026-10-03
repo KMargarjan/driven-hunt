@@ -191,13 +191,26 @@ return function()
 		return if folder then folder:FindFirstChild(name) :: Sound? else nil
 	end
 
+	-- AUDIBLE, NOT MERELY PLAYING. The warm-up (task 116 fix round) plays every clip and every sound
+	-- once at volume 0 so the client fetches them before the first shot, so `IsPlaying` alone stops
+	-- meaning "a player can hear this". The volume is what `Body.coolAssets` itself tests, and it is
+	-- the honest reading of the claim anyway.
+	local function audible(sound: Sound?): boolean
+		return sound ~= nil and sound.IsPlaying and sound.Volume > 0
+	end
+
+	-- Steps past the silent pre-roll, so a case about what can be HEARD starts from silence.
+	local function warmedUp(runtime)
+		step(runtime, math.ceil(MODEL.WARM_SECONDS / DT) + 4)
+	end
+
 	local function playingLoops(handle): { string }
 		local out = {}
 		local folder = soundsOf(handle)
 		if folder then
 			for _, child in ipairs(folder:GetChildren()) do
 				local sound = child :: Sound
-				if sound.Looped and sound.IsPlaying then
+				if sound.Looped and audible(sound) then
 					table.insert(out, sound.Name)
 				end
 			end
@@ -281,7 +294,14 @@ return function()
 			local seconds = WOUND.FLIGHT.rear / WOUND.CRIPPLE_SPEED
 			expect(seconds > 5).to.equal(true)
 			expect(seconds < WOUND.BLEED_OUT_MAX_SECONDS).to.equal(true)
-			TestKit.note(string.format("boar-shot: a crippled boar lasts %.1f s of circling", seconds))
+			TestKit.note(
+				string.format(
+					"boar-shot: a crippled boar lasts %.1f s of circling (%d studs at %.1f studs/s)",
+					seconds,
+					WOUND.FLIGHT.rear,
+					WOUND.CRIPPLE_SPEED
+				)
+			)
 		end)
 	end)
 
@@ -408,6 +428,131 @@ return function()
 		end)
 	end)
 
+	describe("the hit lands on the frame the player expects", function()
+		-- Karen, 2026-10-03: "body shot is a bit odd now feels late hit and odd". Measured on the
+		-- client that fired: the cry and the flinch both arrived 364 ms after the bullet because
+		-- nothing had ever asked the client to fetch them, and the flinch then held the animal's
+		-- animation for its whole 0.833 s while the body was already bolting at sprint speed.
+		it("shows a STANDING animal the whole flinch, which is what the clip is for", function()
+			expect(Boar.flinchWindow(0, CONFIG)).to.equal(MODEL.HIT_SECONDS)
+			expect(Boar.flinchWindow(MODEL.HIT_FULL_BELOW - 0.01, CONFIG)).to.equal(MODEL.HIT_SECONDS)
+		end)
+
+		it("cuts it short on one that is RUNNING, so the bolt is what the player sees", function()
+			expect(Boar.flinchWindow(MODEL.HIT_FULL_BELOW, CONFIG)).to.equal(MODEL.HIT_MOVING_SECONDS)
+			expect(Boar.flinchWindow(CONFIG.SPRINT_SPEED, CONFIG)).to.equal(MODEL.HIT_MOVING_SECONDS)
+			-- Short enough that the run begins while the player is still watching the impact, and long
+			-- enough to be seen at all: a frame at 60 fps is 0.017 s.
+			expect(MODEL.HIT_MOVING_SECONDS > 4 / 60).to.equal(true)
+			expect(MODEL.HIT_MOVING_SECONDS < MODEL.HIT_SECONDS / 2).to.equal(true)
+		end)
+
+		it("is the clip for the first part of the window and the gait after it", function()
+			-- `hitFor` counts DOWN from HIT_SECONDS, so this walks a bolting animal through its own
+			-- flinch and asserts where the gait takes over.
+			local function clipAt(elapsed: number, speed: number)
+				return (
+					Boar.clipFor({
+						collapsed = false,
+						hitFor = math.max(MODEL.HIT_SECONDS - elapsed, 0),
+						hitFromBehind = false,
+						speed = speed,
+						yawRate = 0,
+						currentClip = nil,
+						heldFor = 1,
+					}, CONFIG)
+				)
+			end
+			expect(clipAt(0, CONFIG.SPRINT_SPEED)).to.equal("hitFront")
+			expect(clipAt(MODEL.HIT_MOVING_SECONDS - 0.01, CONFIG.SPRINT_SPEED)).to.equal("hitFront")
+			expect(clipAt(MODEL.HIT_MOVING_SECONDS + 0.01, CONFIG.SPRINT_SPEED)).to.equal("run")
+			-- ...and a standing animal keeps it for the whole clip.
+			expect(clipAt(MODEL.HIT_MOVING_SECONDS + 0.01, 0)).to.equal("hitFront")
+			expect(clipAt(MODEL.HIT_SECONDS + 0.01, 0)).to.equal("idle")
+		end)
+
+		it("CUTS a hit and a death in, and blends a gait", function()
+			for _, name in ipairs({ "hitFront", "hitBack", "deathLeft", "deathRight" }) do
+				expect(Boar.fadeFor(name, CONFIG)).to.equal(MODEL.HIT_FADE_SECONDS)
+			end
+			for _, name in ipairs({ "idle", "walk", "trot", "run", "turnLeft", "turnRight" }) do
+				expect(Boar.fadeFor(name, CONFIG)).to.equal(MODEL.FADE_SECONDS)
+			end
+			-- A cut is under a frame at 30 fps; a blend is several.
+			expect(MODEL.HIT_FADE_SECONDS < 1 / 30).to.equal(true)
+			expect(MODEL.FADE_SECONDS > MODEL.HIT_FADE_SECONDS * 3).to.equal(true)
+		end)
+
+		it("flag ON: every clip and every sound is ASKED FOR before the first shot", function()
+			-- The other half of the lateness, and the half no pure function can hold: a client fetches
+			-- an asset when it is told to play it, so everything is played once, silently, when the coat
+			-- goes on. This asserts what the warm-up leaves behind -- every sound back at its configured
+			-- volume and nothing audible -- because a warm-up that never cooled would be a boar whose
+			-- every sound is stuck at zero.
+			local runtime = newRuntime(true, "BoarsShotWarm", true)
+			local handle = runtime:spawn(Vector3.new(-20, GROUND_Y, -20))
+			step(runtime, 2)
+			local folder = soundsOf(handle) :: Instance
+			local warm = 0
+			for _, child in ipairs(folder:GetChildren()) do
+				local sound = child :: Sound
+				if sound.IsPlaying and sound.Volume == 0 then
+					warm += 1
+				end
+			end
+			expect(warm > 0).to.equal(true) -- it really did pre-roll
+			-- ...and it is over after WARM_SECONDS, with every volume back.
+			step(runtime, math.ceil(MODEL.WARM_SECONDS / DT) + 4)
+			-- `Sound.Volume` is a float32, so 0.8 comes back as 0.800000011920929: compared to a
+			-- tolerance, not for equality (the same reason boar_brain.spec keeps an EPSILON).
+			for _, row in ipairs(ONE_SHOTS) do
+				local sound = soundNamed(handle, row.name) :: Sound
+				expect(math.abs(sound.Volume - row.spec.volume) < 1e-5).to.equal(true)
+				expect(audible(sound)).to.equal(false)
+			end
+			for _, gait in ipairs({ "walk", "trot", "run" }) do
+				local sound = soundNamed(handle, "steps_" .. gait) :: Sound
+				expect(math.abs(sound.Volume - SOUND.STEPS[gait].volume) < 1e-5).to.equal(true)
+			end
+			TestKit.note(
+				string.format("boar-shot: %d sound(s) pre-rolled, all cooled by %.2f s", warm, MODEL.WARM_SECONDS)
+			)
+			runtime:destroy()
+		end)
+	end)
+
+	describe("a crippled boar draws a circle a player can SEE", function()
+		it("is wider than the animal is long, which is what was wrong", function()
+			-- MEASURED before the fix: radius 2.45 studs, a circle 4.9 studs across on an animal 5.5
+			-- studs long -- a pivot, not a circle, and Karen saw exactly that. The radius is the whole
+			-- claim: v / w, with w in radians.
+			local radius = WOUND.CRIPPLE_SPEED / math.rad(WOUND.CRIPPLE_TURN_DEG)
+			expect(radius * 2 > CONFIG.BODY_SIZE.Z).to.equal(true)
+			-- ...and not so wide that it reads as a wounded animal simply running away.
+			expect(radius * 2 < CONFIG.BODY_SIZE.Z * 3).to.equal(true)
+			local lap = 360 / WOUND.CRIPPLE_TURN_DEG
+			expect(lap < 12).to.equal(true) -- a lap she can watch, not one she has to wait out
+			TestKit.note(
+				string.format(
+					"boar-shot: crippled circle r=%.2f studs (%.1f across), lap %.1f s",
+					radius,
+					radius * 2,
+					lap
+				)
+			)
+		end)
+
+		it("still crawls: slower than a trot, and it still dies of the wound", function()
+			expect(WOUND.CRIPPLE_SPEED < CONFIG.TROT_SPEED).to.equal(true)
+			-- Fast enough that the walk clip reads as walking rather than sliding: the clip's own ground
+			-- speed is what `clipFor` rates against.
+			expect(WOUND.CRIPPLE_SPEED > MODEL.CLIPS.walk.groundStudsPerSecond).to.equal(true)
+			local seconds = WOUND.FLIGHT.rear / WOUND.CRIPPLE_SPEED
+			expect(seconds > 10).to.equal(true)
+			expect(seconds < WOUND.BLEED_OUT_MAX_SECONDS).to.equal(true)
+		end)
+	end)
+
 	describe("which footstep loop a speed asks for", function()
 		it("is SILENCE while it stands, which is most of what a grazing boar is doing", function()
 			expect((Boar.stepSoundFor(0, CONFIG))).to.equal(nil)
@@ -475,6 +620,120 @@ return function()
 				}, CONFIG)
 				expect(math.abs(soundRate - clipRate) < 1e-6).to.equal(true)
 			end
+		end)
+	end)
+
+	describe("the clips this project authored, and the day they have no id", function()
+		-- Task 116 fix round. `tools/boar_prep.py` authors `Death_Paddle_L/R` and `Cripple_Drag` out of
+		-- the package's own poses, because a script cannot move a bone over a playing track (0 of 122
+		-- frames survived). An animation asset id can only be made by hand in Studio, so the whole
+		-- wiring has to be correct BEFORE any id exists and has to change nothing until one does.
+		local function withIds(ids)
+			local model = table.clone(MODEL)
+			model.ANIMATION_IDS = ids
+			local config = table.clone(CONFIG)
+			config.MODEL = model
+			return config
+		end
+
+		local function clipAt(config, info)
+			local filled = {
+				collapsed = false,
+				deadFor = 0,
+				crippled = false,
+				hitFor = 0,
+				hitFromBehind = false,
+				speed = 0,
+				yawRate = 0,
+				currentClip = nil,
+				heldFor = 1,
+			}
+			for key, value in pairs(info) do
+				filled[key] = value
+			end
+			return (Boar.clipFor(filled, config))
+		end
+
+		it("knows a clip it cannot play from one it can", function()
+			local none = withIds({})
+			local some = withIds({ crippleDrag = 4242, deathPaddleLeft = 4243, deathPaddleRight = 4244 })
+			for _, name in ipairs({ "crippleDrag", "deathPaddleLeft", "deathPaddleRight" }) do
+				expect(Boar.hasClip(name, none)).to.equal(false)
+				expect(Boar.hasClip(name, some)).to.equal(true)
+			end
+			-- An id of zero is a row that exists and names nothing, which is what an unpublished clip's
+			-- row will look like the moment somebody adds one: still not playable.
+			expect(Boar.hasClip("crippleDrag", withIds({ crippleDrag = 0 }))).to.equal(false)
+			-- ...and a clip name nobody declared is not playable however the ids are filled in.
+			expect(Boar.hasClip("somersault", withIds({ somersault = 99 }))).to.equal(false)
+		end)
+
+		it("pairs each death with its own paddle, from the same side the box rolls to", function()
+			local fall, paddle = Boar.deathClips(CONFIG)
+			if MODEL.DEATH_TO_THE_LEFT then
+				expect(fall).to.equal("deathLeft")
+				expect(paddle).to.equal("deathPaddleLeft")
+			else
+				expect(fall).to.equal("deathRight")
+				expect(paddle).to.equal("deathPaddleRight")
+			end
+			-- The paddle starts on the pose the fall ends on, so the two lengths are what decides when
+			-- the hand-over happens, and the paddle is the longer of the two by a wide margin.
+			expect(MODEL.CLIPS[paddle].seconds > MODEL.CLIPS[fall].seconds * 2).to.equal(true)
+			expect(MODEL.CLIPS[paddle].looped).to.equal(false) -- it ends, and the carcass holds there
+		end)
+
+		it("WITH NO ID the death is one clip and a crippled boar walks, exactly as before", function()
+			local config = withIds({})
+			local fall = (Boar.deathClips(config))
+			expect(clipAt(config, { collapsed = true, deadFor = 0 })).to.equal(fall)
+			-- ...and it is STILL the fall long after the fall has ended, which is the promise.
+			expect(clipAt(config, { collapsed = true, deadFor = 60 })).to.equal(fall)
+			-- A crippled boar falls through to the speed bands, which at CRIPPLE_SPEED is the walk.
+			expect(clipAt(config, { crippled = true, speed = WOUND.CRIPPLE_SPEED })).to.equal("walk")
+		end)
+
+		it("WITH AN ID the death becomes fall then paddle, and a crippled boar drags", function()
+			local config = withIds({ crippleDrag = 4242, deathPaddleLeft = 4243, deathPaddleRight = 4244 })
+			local fall, paddle = Boar.deathClips(config)
+			-- The fall first, for exactly its own length...
+			expect(clipAt(config, { collapsed = true, deadFor = 0 })).to.equal(fall)
+			expect(clipAt(config, { collapsed = true, deadFor = MODEL.CLIPS[fall].seconds - 0.01 })).to.equal(fall)
+			-- ...then the paddle, and it never goes back.
+			expect(clipAt(config, { collapsed = true, deadFor = MODEL.CLIPS[fall].seconds })).to.equal(paddle)
+			expect(clipAt(config, { collapsed = true, deadFor = 60 })).to.equal(paddle)
+			-- A crippled boar drags, at whatever speed it is crawling.
+			expect(clipAt(config, { crippled = true, speed = WOUND.CRIPPLE_SPEED })).to.equal("crippleDrag")
+			-- ...and a boar that is NOT crippled never does, however slowly it is moving.
+			expect(clipAt(config, { crippled = false, speed = WOUND.CRIPPLE_SPEED })).to.equal("walk")
+			-- A death still beats it: a dead crippled boar is dead.
+			expect(clipAt(config, { crippled = true, collapsed = true, deadFor = 0 })).to.equal(fall)
+		end)
+
+		it("rates the drag off its FRONT hooves, so the walking legs match the ground", function()
+			-- MEASURED by `tools/boar_prep_blender.py` on the authored clip: front hooves 2.866 and
+			-- 2.863 studs/s (Walk_F_IP's own 2.853 -- a real walk cycle) and hind 0.826 and 0.931 (a
+			-- third of it, dragging). The config carries the FRONT number, because those are the legs
+			-- carrying the animal, and `clipFor` divides the crawl by it.
+			local config = withIds({ crippleDrag = 4242 })
+			local drag = MODEL.CLIPS.crippleDrag
+			expect(drag.looped).to.equal(true)
+			expect(math.abs(drag.groundStudsPerSecond - MODEL.CLIPS.walk.groundStudsPerSecond) < 0.1).to.equal(true)
+			local _, rate = Boar.clipFor({
+				collapsed = false,
+				deadFor = 0,
+				crippled = true,
+				hitFor = 0,
+				hitFromBehind = false,
+				speed = WOUND.CRIPPLE_SPEED,
+				yawRate = 0,
+				currentClip = nil,
+				heldFor = 1,
+			}, config)
+			expect(math.abs(rate - WOUND.CRIPPLE_SPEED / drag.groundStudsPerSecond) < 1e-6).to.equal(true)
+			expect(rate > MODEL.MIN_RATE).to.equal(true)
+			expect(rate < MODEL.MAX_RATE).to.equal(true)
+			TestKit.note(string.format("boar-shot: the drag plays at %.2f at the crippled crawl", rate))
 		end)
 	end)
 
@@ -627,7 +886,7 @@ return function()
 		it("flag ON: is spatial, with the configured roll-off and each sound's own range", function()
 			local runtime = newRuntime(true, "BoarsShotSpatial", true)
 			local handle = runtime:spawn(Vector3.new(0, GROUND_Y, 20))
-			step(runtime, 10)
+			warmedUp(runtime) -- the pre-roll holds every volume at 0 while it runs
 			local folder = soundsOf(handle) :: Instance
 			for _, child in ipairs(folder:GetChildren()) do
 				local sound = child :: Sound
@@ -657,12 +916,12 @@ return function()
 			-- only been alive for a tenth of a second.
 			local runtime = newRuntime(true, "BoarsShotQuiet", true)
 			local handle = runtime:spawn(Vector3.new(-20, GROUND_Y, 20))
-			step(runtime, 10)
+			warmedUp(runtime)
 			local folder = soundsOf(handle) :: Instance
 			for _, child in ipairs(folder:GetChildren()) do
 				local sound = child :: Sound
 				if not sound.Looped then
-					expect(sound.IsPlaying).to.equal(false)
+					expect(audible(sound)).to.equal(false)
 				end
 			end
 			runtime:destroy()
@@ -673,6 +932,7 @@ return function()
 			-- asserted at one instant, because the gait changes are what could leave one behind.
 			local runtime = newRuntime(true, "BoarsShotLoops", true)
 			local handle = runtime:spawn(Vector3.new(20, GROUND_Y, 20))
+			warmedUp(runtime)
 			local worst = 0
 			for _ = 1, 120 do
 				step(runtime)
@@ -687,16 +947,16 @@ return function()
 			-- out by the production code rather than handed in.
 			local runtime = newRuntime(true, "BoarsShotHeard", true)
 			local handle = runtime:spawn(Vector3.new(-20, GROUND_Y, 0))
-			step(runtime, 10)
+			warmedUp(runtime)
 			local hit = soundNamed(handle, "hit") :: Sound
 			local cry = soundNamed(handle, "cry") :: Sound
-			expect(hit.IsPlaying).to.equal(false)
+			expect(audible(hit)).to.equal(false)
 			expect(runtime:takeHit(handle.part, { zone = "legs", ammo = "Pellet", pellets = 1, at = 0 })).to.equal(true)
 			step(runtime)
 			-- A played Sound reports IsPlaying even while its asset is still loading, and the id it
 			-- was given is one of the configured ones: that is the whole of what a spec can assert.
-			expect(hit.IsPlaying).to.equal(true)
-			expect(cry.IsPlaying).to.equal(true)
+			expect(audible(hit)).to.equal(true)
+			expect(audible(cry)).to.equal(true)
 			local chosen = tonumber(string.match(cry.SoundId, "%d+"))
 			local known = false
 			for _, id in ipairs(SOUND.CRY.ids) do
@@ -709,21 +969,21 @@ return function()
 		it("flag ON: a dead boar has no footsteps, screams once, and then only breathes out", function()
 			local runtime = newRuntime(true, "BoarsShotDeath", true)
 			local handle = runtime:spawn(Vector3.new(20, GROUND_Y, -20))
-			step(runtime, 10)
+			warmedUp(runtime)
 			local death = soundNamed(handle, "death") :: Sound
 			local fall = soundNamed(handle, "fall") :: Sound
 			local breath = soundNamed(handle, "lastBreath") :: Sound
-			expect(death.IsPlaying).to.equal(false)
+			expect(audible(death)).to.equal(false)
 			killFor(runtime, handle, "head")
 			expect(handle.part:GetAttribute("Carcass")).to.equal(true)
-			expect(death.IsPlaying).to.equal(true)
-			expect(fall.IsPlaying).to.equal(true)
+			expect(audible(death)).to.equal(true)
+			expect(audible(fall)).to.equal(true)
 			-- EVERY LOOP IS CUT: a carcass with footsteps is the thing this exists to prevent.
 			expect(#playingLoops(handle)).to.equal(0)
 			-- ...and the last breath lands AFTER its delay, not with the scream.
-			expect(breath.IsPlaying).to.equal(false)
+			expect(audible(breath)).to.equal(false)
 			step(runtime, math.ceil(SOUND.LAST_BREATH.delay / DT) + 2)
-			expect(breath.IsPlaying).to.equal(true)
+			expect(audible(breath)).to.equal(true)
 			expect(#playingLoops(handle)).to.equal(0)
 			TestKit.note(string.format("boar-shot: last breath after %.1f s, loops cut", SOUND.LAST_BREATH.delay))
 			runtime:destroy()
@@ -734,7 +994,7 @@ return function()
 			-- severity decided by production code, and measured on the body the player would see.
 			local runtime = newRuntime(true, "BoarsShotCripple", true)
 			local handle = runtime:spawn(Vector3.new(0, GROUND_Y, -20))
-			step(runtime, 10)
+			warmedUp(runtime)
 			local at = handle.part.Position
 			expect(runtime:takeHit(handle.part, { zone = "rear", ammo = "Slug", pellets = 1, at = 0 })).to.equal(true)
 			local far = 0
@@ -748,7 +1008,9 @@ return function()
 			end
 			-- IT STAYS WHERE IT WAS HIT. A bolting boar covers 38 studs a second; three seconds of
 			-- circling at CRIPPLE_SPEED cannot leave a circle a few studs across.
-			expect(far < 12).to.equal(true)
+			-- A bolting boar covers 38 studs a second; three seconds of circling at CRIPPLE_SPEED
+			-- cannot leave a circle about 11.5 studs across (see the radius case above).
+			expect(far < 18).to.equal(true)
 			TestKit.note(string.format("boar-shot: crippled boar strayed %.2f studs in 3 s", far))
 			runtime:destroy()
 		end)

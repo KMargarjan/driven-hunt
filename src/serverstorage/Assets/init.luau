@@ -191,6 +191,15 @@ Assets.KEYS = table.freeze({
 	boarDeathRight = "boar.anim.death.right",
 	boarHitFront = "boar.anim.hit.front",
 	boarHitBack = "boar.anim.hit.back",
+	-- THE THREE THIS PROJECT AUTHORED (task 116 fix round), declared here before they are published
+	-- exactly as the ten above were: `tools/boar_prep.py` writes `Death_Paddle_L.fbx`,
+	-- `Death_Paddle_R.fbx` and `Cripple_Drag.fbx`, and an animation asset id can only be made by
+	-- hand in Studio's Animation Editor (see the block above, and ESCALATE.md). A declared key with
+	-- no row is the honest state until then: `Assets.byKey` answers nil, `Boar.Body.hasClip` is
+	-- false, and the boar behaves exactly as it did before these clips existed.
+	boarDeathPaddleLeft = "boar.anim.death.paddle.left",
+	boarDeathPaddleRight = "boar.anim.death.paddle.right",
+	boarCrippleDrag = "boar.anim.cripple.drag",
 })
 
 -- WHICH KINDS `Loader` CAN TURN INTO AN INSTANCE, and therefore which ones `keysFor` may hand a boot

@@ -58,6 +58,14 @@ Boar.freezeReach = Body.freezeReach
 Boar.stepSoundFor = Body.stepSoundFor
 Boar.jitteredPitch = Body.jitteredPitch
 Boar.paddleOffset = Body.paddleOffset
+-- ...and the fix round's two: how much of the flinch a moving animal shows, and how long a clip
+-- takes to blend in. Both are what "the hit lands on the frame the player expects" reduces to.
+Boar.flinchWindow = Body.flinchWindow
+Boar.fadeFor = Body.fadeFor
+-- ...and the two the authored clips turn on: which pair a death is, and whether a clip has an id
+-- yet. The second is the whole of "if an id is missing, the current behaviour stays".
+Boar.deathClips = Body.deathClips
+Boar.hasClip = Body.hasClip
 
 -- Every number the system has. Derived at 1 stud = 0.28 m (Roblox units), so a 40 km/h boar is
 -- 11.1 m/s = 39.7 studs/s, and a 1.5 m x 0.9 m x 0.5 m boar is 5.5 x 3 x 2 studs. The research note
@@ -229,7 +237,9 @@ Boar.CONFIG = {
 		-- `rear` is SHORT on purpose and is not a flight distance in the paper's sense: a crippled
 		-- animal does not run, it turns on the spot. The number is how long it has left, carried by
 		-- the same mechanism as every other zone's.
-		FLIGHT = { head = 0, chest = 0, body = 120, legs = 420, rear = 60 },
+		-- `rear` went 60 -> 90 with `CRIPPLE_SPEED` 3 -> 4.5, so a crippled boar still lasts the same
+		-- 20 s of circling it was tuned to last (90 / 4.5), inside `BLEED_OUT_MAX_SECONDS`.
+		FLIGHT = { head = 0, chest = 0, body = 120, legs = 420, rear = 90 },
 
 		-- WHAT A HIT THERE MEANS, as data (task 116). The zone decides a CLASS and the class decides
 		-- the reaction: `Brain` reads it on the hit tick to pick its state, `Body` reads it to pick
@@ -245,11 +255,23 @@ Boar.CONFIG = {
 			body = "nonVital",
 			legs = "nonVital",
 		},
-		-- THE CRIPPLED CRAWL. Below WANDER_SPEED, because it is dragging itself; the turn rate makes
-		-- a circle about 2.5 studs across at that speed, which is tight enough to read as circling
-		-- from the shooter line rather than as a wide curve.
-		CRIPPLE_SPEED = 3,
-		CRIPPLE_TURN_DEG = 70,
+		-- THE CRIPPLED CRAWL, AND THE CIRCLE SHE CAN ACTUALLY SEE (task 116 fix round). Karen,
+		-- 2026-10-03: "no cicrcle but I can see back legs disabled".
+		--
+		-- MEASURED on a real crippled boar, every Heartbeat for 12 s: it DID circle -- but at 3
+		-- studs/s and 70 deg/s the radius is v / w = 3 / 1.222 = 2.45 studs, so the circle it drew
+		-- was 4.9 studs ACROSS and the animal is 5.5 studs LONG. A path smaller than the animal is
+		-- not a circle anybody can see: it is a boar pivoting on the spot, which is exactly what she
+		-- reported. The lap took 5.0 s.
+		--
+		-- SO THE FIX IS A BIGGER CIRCLE, NOT A TIGHTER ONE, and that is the opposite of what the
+		-- dispatch asked for -- said here because the measurement is the reason. 4.5 studs/s and
+		-- 45 deg/s give a radius of 5.73, a circle 11.5 studs across (about two body lengths) and a
+		-- lap of 8.0 s: the animal travels 36 studs per lap, so from a post at 20-40 studs it is
+		-- plainly going round rather than standing still. The speed stays a crawl -- above
+		-- `WANDER_SPEED` 4 only enough to make the walk clip read as walking rather than sliding.
+		CRIPPLE_SPEED = 4.5,
+		CRIPPLE_TURN_DEG = 45,
 		BLEED_OUT_MAX_SECONDS = 25, -- ceiling: a wounded boar wedged against a wall still dies
 		WOUND_SPEED_START = 1.0,
 		WOUND_SPEED_END = 0.45, -- 38 -> 17 studs/s across the flight
@@ -406,6 +428,31 @@ local BOAR_CLIPS = {
 	deathRight = { clip = "Death_R", seconds = 1.208, groundStudsPerSecond = 0, looped = false },
 	hitFront = { clip = "Hit_F", seconds = 0.833, groundStudsPerSecond = 0, looped = false },
 	hitBack = { clip = "Hit_B", seconds = 0.833, groundStudsPerSecond = 0, looped = false },
+	-- THE THREE THIS PROJECT AUTHORED, because the package has none of them (task 116 fix round).
+	-- `tools/boar_prep.py`'s `SYNTH_CLIPS` builds each one by blending poses the package's own
+	-- animator made -- nothing is invented -- and `tools/boar_prep_blender.py` measures them with
+	-- the same hoof-contact rule as the other ten. Every number below is off that run:
+	--
+	--   Death_Paddle_L/R  97 frames, 4.042 s. Death_L/R's LAST frame with the four legs swinging
+	--                     back toward Run_F_IP, decaying to nothing, so the clip ENDS on the pose
+	--                     the carcass is then held at and nothing pops. MEASURED per hoof: the legs
+	--                     on the up side travel 1.74-4.64 studs/s and the two against the ground
+	--                     0.30-0.37 -- a leg under a lying animal cannot swing, which is right.
+	--   Cripple_Drag      25 frames, 1.042 s, looped: Walk_F_IP with the hind legs pulled 85 % of
+	--                     the way to the death pose. MEASURED per hoof: FRONT 2.866 and 2.863
+	--                     studs/s (Walk_F_IP's own 2.853, so a real walk cycle) and HIND 0.826 and
+	--                     0.931 (a third of it, dragging). That measurement IS Karen's "circles
+	--                     with first legs on", in numbers.
+	--
+	-- `groundStudsPerSecond` is what the playback rate divides by, so it is the FRONT hooves' 2.864
+	-- for the drag -- the legs that are actually carrying the animal -- and 0 for the paddles, which
+	-- are not a gait and are always played at rate 1.
+	--
+	-- UNTIL THE DIRECTOR PUBLISHES THEM they have no id, `trackFor` returns nil, `play` leaves the
+	-- animal on whatever it was playing, and every behaviour below is exactly what it was.
+	deathPaddleLeft = { clip = "Death_Paddle_L", seconds = 4.042, groundStudsPerSecond = 0, looped = false },
+	deathPaddleRight = { clip = "Death_Paddle_R", seconds = 4.042, groundStudsPerSecond = 0, looped = false },
+	crippleDrag = { clip = "Cripple_Drag", seconds = 1.042, groundStudsPerSecond = 2.864, looped = true },
 }
 
 -- THE SOUND OF A BOAR (task 116). Karen, 2026-10-03: *"I just need that once they walk you can hear
@@ -543,7 +590,25 @@ Boar.CONFIG.MODEL = {
 	-- The flinch lasts exactly as long as the flinch clip, so the gait resumes on the frame the
 	-- animation ends instead of a tenth of a second either side of it.
 	HIT_SECONDS = BOAR_CLIPS.hitFront.seconds,
+	-- ...UNLESS THE ANIMAL IS RUNNING (task 116 fix round). Karen, 2026-10-03: "body shot is a bit
+	-- odd now feels late hit and odd". The flinch clips are IN PLACE and a body hit bolts the boar to
+	-- `SPRINT_SPEED * BOLT_KICK` on the same tick, so the full 0.833 s window slid the animal some 30
+	-- studs with its legs still before the run clip was allowed to start. 0.25 s is the jerk -- long
+	-- enough to read as being hit, short enough that the running begins while the player is still
+	-- watching the impact. `HIT_FULL_BELOW` is `WALK_FROM`: an animal that is not going anywhere has
+	-- nothing to fight with and gets the whole clip.
+	HIT_MOVING_SECONDS = 0.25,
+	HIT_FULL_BELOW = 0.5,
 	FADE_SECONDS = 0.15, -- a gait change is a blend, not a cut
+	-- ...and a HIT or a DEATH is a cut, not a blend. 0.15 s of crossfade on the way in is 0.15 s of
+	-- the animal not yet reacting, which is the part of "feels late" that was not asset loading.
+	HIT_FADE_SECONDS = 0.03,
+	-- THE SILENT PRE-ROLL, in seconds (task 116 fix round). Every clip at weight 0 and every sound at
+	-- volume 0, once, when the coat goes on, so the CLIENT has fetched them before the first shot
+	-- needs one -- measured: a cry and a flinch that arrived 364 ms after the bullet because nothing
+	-- had ever asked for them. Long enough for a fetch to be issued and for `stepVisual` to have run
+	-- a dozen times; short enough to be over before any boar is in range of a gun.
+	WARM_SECONDS = 0.5,
 	RATE_EPSILON = 0.02, -- do not re-adjust a track's speed for a 2 % change: it is a property write
 	HOLD_EPSILON = 0.03, -- how close to the end a death clip is frozen at, so the carcass stays down
 	-- THE TWITCH AFTER IT GOES DOWN, and it is NOT what was asked for -- see the research note.
@@ -1648,6 +1713,10 @@ function Runtime:step(dt: number)
 			Body.stepVisual(entry.body, dt, {
 				speed = wantSpeed,
 				facing = facing,
+				-- THE ONE PIECE OF STATE THE DRAWING NEEDS THAT SPEED CANNOT CARRY (task 116 fix
+				-- round): a crippled boar crawls at `CRIPPLE_SPEED`, which is a walking speed, so
+				-- without this it would walk normally. It travels as an intent like everything else.
+				crippled = intent.state == "CRIPPLED",
 			}, config)
 			-- The same speed drives the sound, so the footsteps keep time with the legs rather than
 			-- with the body's measured velocity, which lags the setpoint by the ACCEL ramp.
