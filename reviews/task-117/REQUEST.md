@@ -1,12 +1,12 @@
 # Task 117 -- the calm boar, behind `BOAR_MODEL`
 
 Task: 117
-Round: 2
+Round: 3
 Base: `main` (`e0a02ae`)
-Code commit: 707084544ba3a7c4ad186e81c01b54c1f23e19ff
+Code commit: b09ae516a99dc468ef852cbfc35ed2b321f291a7
 
 ```
-[harness] PASS: 33/33 checks @ 707084544ba3a7c4ad186e81c01b54c1f23e19ff (clean tree) scope=all
+[harness] PASS: 33/33 checks @ b09ae516a99dc468ef852cbfc35ed2b321f291a7 (clean tree) scope=all
 ```
 
 `test2` **N/A**: `needs_two_player` over the branch diff returns `[]` -- boar, assets and tools only,
@@ -16,6 +16,51 @@ nothing in `TWO_PLAYER_PATHS`. Everything after the code commit is paperwork (`T
 Karen, 2026-10-03: *"boar also can move alon and walk and lift head like smell ect"*. This is the
 "on easy" half only; being spooked is Task 118. Her look on this branch: *"1. yes it works / 2. yes
 it is / 3. probably / 4. yes feets on the ground"*.
+
+## What changed in round 3
+
+**Round 2's one blocking finding is right.** "rates a clip that CARRIES the animal off its own ground
+speed" drove `root` at exactly `digWalk`'s own 1.901 studs/s -- where the answer is 1.0 whether the
+rating exists or not -- and its other half at speed 0 on a clip whose ground speed is 0. It now
+drives speeds whose expected rate is **not** 1 and walks the clamp: twice the clip's ground speed is
+exactly **2.0**, half of it exactly **0.5**, a crawl is given `MIN_RATE` and twenty times is given
+`MAX_RATE`, each asserted to 1e-6; the "does not carry it" half runs at 0, 4 and `SPRINT_SPEED`.
+
+**Every mutation below was run live, one at a time, on this branch.**
+
+| what was deleted | what failed |
+|---|---|
+| the rating branch in `activityClip` | the rate case (2.0 came back as 1.0) |
+| the `math.clamp`, division kept | the two clamp assertions |
+| `Brain.firstPhase`'s body | its own case |
+| the `IDLE` guard on `intent.activity` | "stops publishing one on the tick it leaves IDLE" |
+| `hasClip`'s id test | "draws no calm clip at all" |
+| the enter-clip branch | "plays the ENTER clip for its own length" |
+| `_stepCalm`'s flag gate | "with the FLAG off, an idle boar is exactly the boar it was" |
+| the exit branch moved back above the row lookup (round 2's own bug) | "DROPS the exit the moment the animal stops being calm" |
+
+**The sweep the dispatch asked for found two more dead cases, both mine.**
+
+1. *"never draws the same activity twice running"* watched NAMES -- and a repeated draw produces the
+   same name, so it passed with the rule deleted. The Brain now publishes `activityDraw` beside the
+   name, `Body` treats a new draw as a new activity (and clears `handle.clip` so the clip replays),
+   and the case asserts **one draw per name change and never two draws on one name**. Deleting the
+   redraw now fails it.
+2. The sniff's pitch case multiplied the two numbers *itself*, so deleting `(spec.pitch or 1) *` left
+   it green. It is now asserted **end to end** in `boar_shot.spec` -- a live runtime, a real
+   head-lift, and the `Sound.PlaybackSpeed` a player would hear (**1.334** against a centre of 1.25).
+   Deleting the multiplication fails it.
+
+**One guard is redundant and the code says so.** `stepVisual` clearing the exit when the activity
+goes nil changes nothing any spec can see, because `activityClip` refuses every calm clip on the same
+condition -- measured, by deleting it. It is kept as a second line of defence against the fault round
+2 removed, and the comment records the measurement rather than implying a case covers it.
+
+The notes are fixed in the same lines: the same row is never drawn twice running (a repeated one-shot
+froze the boar on `Idle_5`'s last pose for a second 4.167 s), two cases renamed to the property they
+can actually fail on, three stale comments in `configWith`, the `Dig_walk_IP` metre figures (Blender's
+metres, not this project's studs), the `BOAR_MODEL` flag row's owner comment, and
+`docs/design/boar-ai.md`'s IDLE and `GRAZE_CHANCE` rows, which described the flag-OFF path only.
 
 ## What changed in round 2
 
@@ -71,12 +116,14 @@ declares.
    is data" -- the five names, every one drawn, each within 1 % of its weight's share over 1001
    evenly spaced rolls, and a roll outside [0, 1) clamped instead of answering nil.
 
-3. **One activity at a time, and one clip at a time.** `Body.activityClip` answers the exit clip the
-   LAST activity asked for, then the enter clip for exactly its own length, then the activity's loop;
-   a row with no `clip` (`walk`) answers nil so the gait bands take it. *Verify:* `boar_calm.spec`,
-   "one activity draws one clip, and never two" -- each activity's clip, the enter boundary at
-   `grazeStart.seconds`, the exit winning over what the next activity wants, and `digWalk` rated off
-   its own 1.901 studs/s so the feet do not slide.
+3. **One activity at a time, one clip at a time, and the clip rated so the feet do not slide.**
+   `Body.activityClip` answers the exit clip the LAST activity asked for, then the enter clip for
+   exactly its own length, then the activity's loop; a row with no `clip` (`walk`) answers nil so the
+   gait bands take it; and a clip that CARRIES the animal is rated `speed / its own ground speed`,
+   clamped. *Verify:* `boar_calm.spec`, "one activity draws one clip, and never two" -- each
+   activity's clip, the enter boundary at `grazeStart.seconds`, the exit winning over what the next
+   activity wants, and "rates a clip that CARRIES the animal off its own ground speed", which asserts
+   2.0, 0.5, `MIN_RATE` and `MAX_RATE` exactly (round 3; the mutation table above).
 
 4. **A calm clip is only ever drawn on an animal that is still calm.** `Body.activityClip`'s first
    test is `info.activity == nil or info.crippled or info.collapsed`, and `Body.stepVisual` clears
@@ -108,7 +155,12 @@ declares.
    with a real asset id for every one of them", now nineteen with no skip list; and the live
    read-back in the round-2 section above.
 
-8. **No two boars in step, and the mechanism is pure.** `Brain.firstPhase` shortens the FIRST
+8. **No two boars in step, the same activity never twice running, and both mechanisms observable.**
+   The Brain publishes `activityDraw` with the name, so "a new activity began" is a number and not an
+   inference. *Verify:* `boar_calm.spec`, "never draws the same activity twice running" -- one draw
+   per name change over four minutes, never two draws on one name.
+
+   **And the phasing is pure.** `Brain.firstPhase` shortens the FIRST
    activity by up to `CALM.FIRST_PHASE_SECONDS`, never below `FIRST_PHASE_FLOOR`, and never at all
    for a row whose band is a single value -- `smell` is exactly one clip length, so shortening it
    would cut the 30.4 degree lift off. *Verify:* `boar_calm.spec`, "shortens the FIRST activity, and
