@@ -66,6 +66,11 @@ Boar.fadeFor = Body.fadeFor
 -- yet. The second is the whole of "if an id is missing, the current behaviour stays".
 Boar.deathClips = Body.deathClips
 Boar.hasClip = Body.hasClip
+-- ...and task 117's three: which activity a roll draws, the row for a name, and the clip an activity
+-- draws. Pure, so every weight, every clip and every transition is a case with no boar in the world.
+Boar.calmActivity = Brain.calmActivity
+Boar.activityRow = Body.activityRow
+Boar.activityClip = Body.activityClip
 
 -- Every number the system has. Derived at 1 stud = 0.28 m (Roblox units), so a 40 km/h boar is
 -- 11.1 m/s = 39.7 studs/s, and a 1.5 m x 0.9 m x 0.5 m boar is 5.5 x 3 x 2 studs. The research note
@@ -467,6 +472,25 @@ local BOAR_CLIPS = {
 	deathPaddleLeft = { clip = "Death_Paddle_L", seconds = 4.0, groundStudsPerSecond = 0, looped = false },
 	deathPaddleRight = { clip = "Death_Paddle_R", seconds = 4.0, groundStudsPerSecond = 0, looped = false },
 	crippleDrag = { clip = "Cripple_Drag", seconds = 1.0, groundStudsPerSecond = 2.864, looped = true },
+	-- THE CALM BOAR (task 117). Karen, 2026-10-03: "boar also can move alon and walk and lift head
+	-- like smell ect". Six of the package's remaining 61 clips, MEASURED by `tools/boar_prep.py` with
+	-- the same hoof-contact rule as the rest, and chosen by what the HEAD does (the numbers are in
+	-- `SYNTH_CLIPS`' neighbour, `DEFAULT_CLIPS`, where the selection was made):
+	--   smell       Idle_5, the ONLY clip whose nose rises above horizontal -- -18.9 to +11.5 deg,
+	--               a 30.4 deg lift, head +0.112 m, hooves never moving. Idle_4 is its opposite
+	--               (nose to -72 deg) and Idle_2/3/6 are 9-15 deg ground-level fidgets.
+	--   grazeLoop   Eat_loop_1, head at 0.505 m and the nose at -70..-54 deg: steady grazing.
+	--   grazeChew   Eat_loop_2, the same but pulling and chewing (head moves 0.098 m, not 0.001).
+	--   grazeStart  EatDrink_start / EatDrink_end: the 1.08 s transition between standing height
+	--   grazeEnd    and grazing height, so the head does not teleport into the grass.
+	--   digWalk     Dig_walk_IP, head low AND hooves travelling 1.901 studs/s -- rooting along the
+	--               ground, which is Karen's "move alon". It is rated like a gait for that reason.
+	smell = { clip = "Idle_5", seconds = 4.167, groundStudsPerSecond = 0, looped = false },
+	grazeLoop = { clip = "Eat_loop_1", seconds = 4.167, groundStudsPerSecond = 0, looped = true },
+	grazeChew = { clip = "Eat_loop_2", seconds = 4.167, groundStudsPerSecond = 0, looped = true },
+	grazeStart = { clip = "EatDrink_start", seconds = 1.083, groundStudsPerSecond = 0, looped = false },
+	grazeEnd = { clip = "EatDrink_end", seconds = 1.083, groundStudsPerSecond = 0, looped = false },
+	digWalk = { clip = "Dig_walk_IP", seconds = 1.5, groundStudsPerSecond = 1.901, looped = true },
 }
 
 -- THE SOUND OF A BOAR (task 116). Karen, 2026-10-03: *"I just need that once they walk you can hear
@@ -540,6 +564,66 @@ Boar.CONFIG.SOUND = {
 	DEATH = { id = 9117361361, volume = 1.0, audibleStuds = 120 }, -- "Pigs Beast-Like Screams 8"
 	LAST_BREATH = { id = 9113629992, volume = 0.6, audibleStuds = 50, delay = 1.0 },
 	FALL = { id = 9113469903, volume = 0.7, audibleStuds = 80 }, -- "Body Fall Gooshy Mud 2"
+	-- THE SNIFF, when the head comes up (task 117). It REUSES a ProSoundEffects id this project has
+	-- already verified -- "Bull Breaths 10" -- played high and short, because nothing in this
+	-- toolchain can search the audio library and inventing an id would be a number nobody has heard.
+	-- It is one number in this table: the Director or Karen can swap it for a real pig snort without
+	-- touching code, and nobody here can hear either.
+	SNIFF = { id = 9113630137, volume = 0.55, audibleStuds = 55, pitch = 1.25 },
+}
+
+-- WHAT A BOAR DOES WHEN NOTHING IS WRONG (task 117). Karen, 2026-10-03: "boar also can move alon and
+-- walk and lift head like smell ect", and the scene she described -- "imagine they on easy, then see
+-- dog or person spook them they run". This is the ON EASY half only; being spooked is task 118.
+--
+-- IT IS A PICKER INSIDE THE EXISTING `IDLE`, NOT A NEW STATE. The Brain's IDLE already alternated
+-- "stand still" and "wander at WANDER_SPEED" through one boolean; this replaces that boolean with a
+-- weighted draw from the table below and publishes the answer as `intent.activity`, which `Body`
+-- turns into a clip. No state is added, so task 118 has nothing to undo: it will add the ways OUT of
+-- IDLE, and every one of them already overrides this (`activity` is published only while IDLE).
+--
+-- EVERY NUMBER IS DATA and every activity is reachable by name, so the weights, the durations and
+-- which clip an activity plays are all tunable without touching code.
+Boar.CONFIG.CALM = {
+	ENABLED = true, -- rides `BOAR_MODEL`; off, an idle boar stands and wanders as it did before
+	-- A boar that has just spawned starts somewhere INSIDE its first activity, not at the beginning
+	-- of one, so a sounder of five is not five animals doing the same thing on the same frame.
+	FIRST_PHASE_SECONDS = 6,
+	-- `speed` is the Brain's setpoint while the activity runs; `clip` is what `Body` draws, and nil
+	-- means "let the gait bands decide", which is how `walk` gets the ordinary walk cycle. `enter`
+	-- and `exit` are one-shots played before and after, so a head does not teleport to the ground.
+	ACTIVITIES = {
+		-- Standing, breathing, looking at nothing: the resting state and the one it returns to.
+		{ name = "stand", clip = "idle", speed = 0, weight = 3, minSeconds = 3, maxSeconds = 7 },
+		-- Head down in the grass, which is what a wild boar does most of the day.
+		{
+			name = "graze",
+			clip = "grazeLoop",
+			enter = "grazeStart",
+			exit = "grazeEnd",
+			speed = 0,
+			weight = 4,
+			minSeconds = 6,
+			maxSeconds = 14,
+		},
+		-- Rooting ALONG the ground: the dig clip carries the animal at its own 1.901 studs/s, so the
+		-- speed here is the clip's, and the feet do not slide.
+		{ name = "root", clip = "digWalk", speed = 1.901, weight = 2, minSeconds = 4, maxSeconds = 9 },
+		-- THE HEAD COMES UP. One clip length exactly, so the lift completes and is not cut off in
+		-- the middle; `SOUND.SNIFF` plays with it.
+		{
+			name = "smell",
+			clip = "smell",
+			speed = 0,
+			weight = 2,
+			minSeconds = 4.167,
+			maxSeconds = 4.167,
+			sound = "sniff",
+		},
+		-- A few steps somewhere else. No clip of its own: at `WANDER_SPEED` the gait bands answer
+		-- "walk", which is the clip task 115 already rated so the feet do not slide.
+		{ name = "walk", clip = nil, speed = 4, weight = 3, minSeconds = 3, maxSeconds = 8 },
+	},
 }
 
 Boar.CONFIG.MODEL = {
@@ -1515,6 +1599,9 @@ function Runtime:spawn(position: Vector3?)
 		brain = brain,
 		handle = handle,
 		pending = false, -- a path request is in flight
+		-- The calm activity drawn last frame, so a sound fires on the EDGE and not every frame
+		-- (task 117). nil until the first step, which is exactly when the first activity starts.
+		lastActivity = nil :: string?,
 		waypoints = nil,
 		pathFailed = false,
 		forceRepath = false, -- set by the world's Path.Blocked listener
@@ -1740,10 +1827,23 @@ function Runtime:step(dt: number)
 				-- round): a crippled boar crawls at `CRIPPLE_SPEED`, which is a walking speed, so
 				-- without this it would walk normally. It travels as an intent like everything else.
 				crippled = intent.state == "CRIPPLED",
+				-- WHAT A CALM BOAR IS DOING (task 117). Published by the Brain only while IDLE, so
+				-- every other state hands `Body` the nil it handed before.
+				activity = intent.activity,
 			}, config)
 			-- The same speed drives the sound, so the footsteps keep time with the legs rather than
 			-- with the body's measured velocity, which lags the setpoint by the ACCEL ramp.
 			Body.stepSound(entry.body, dt, wantSpeed, config, self._rng)
+			-- THE SNIFF, ONCE PER HEAD-LIFT (task 117). The activity carries the sound's name, so
+			-- which sound an activity makes is data like everything else, and `_lastActivity` is the
+			-- edge detector: it fires when the activity BECOMES `smell`, not every frame it is.
+			if intent.activity ~= entry.lastActivity then
+				entry.lastActivity = intent.activity
+				local row = Body.activityRow(intent.activity, config)
+				if row and row.sound and config.SOUND[string.upper(row.sound)] then
+					Body.playOneShot(entry.body, row.sound, config.SOUND[string.upper(row.sound)], config, self._rng)
+				end
+			end
 		end
 
 		if intent.despawn then

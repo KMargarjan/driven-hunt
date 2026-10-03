@@ -61,11 +61,20 @@ local FAKE_IDS = {
 	crippleDrag = 20011,
 	deathPaddleLeft = 20012,
 	deathPaddleRight = 20013,
+	-- The calm repertoire (task 117), here for the same reason: the live cases cover every clip the
+	-- config declares, the pre-roll's own count among them.
+	smell = 20014,
+	grazeLoop = 20015,
+	grazeChew = 20016,
+	grazeStart = 20017,
+	grazeEnd = 20018,
+	digWalk = 20019,
 }
 
 -- Every one-shot `Body` can play, and the config row it reads. The names are the keys
 -- `Body.attachSounds` puts in `handle.sounds`, so a renamed sound fails here rather than going quiet.
 local ONE_SHOTS = {
+	{ name = "sniff", spec = SOUND.SNIFF }, -- task 117: the head comes up
 	{ name = "hit", spec = SOUND.HIT },
 	{ name = "cry", spec = SOUND.CRY },
 	{ name = "death", spec = SOUND.DEATH },
@@ -926,7 +935,7 @@ return function()
 			end
 			table.sort(names)
 			expect(table.concat(names, ",")).to.equal(
-				"breath,cry,death,fall,grunt,hit,lastBreath,steps_run,steps_trot,steps_walk"
+				"breath,cry,death,fall,grunt,hit,lastBreath,sniff,steps_run,steps_trot,steps_walk"
 			)
 			-- ...and only ever one folder, however many times it steps.
 			step(runtime, 60)

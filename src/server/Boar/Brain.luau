@@ -26,6 +26,26 @@
 local Brain = {}
 Brain.__index = Brain
 
+-- WHAT A CALM BOAR DOES NEXT (task 117). Pure: a roll in [0, 1) and the table in, one activity row
+-- out, so every weight is a test case with no boar in the world. The draw is proportional to
+-- `weight`, and the last row catches any float noise at the top of the range.
+function Brain.calmActivity(roll: number, config)
+	local activities = config.ACTIVITIES
+	local total = 0
+	for _, row in ipairs(activities) do
+		total += row.weight
+	end
+	local cut = math.clamp(roll, 0, 1) * total
+	local seen = 0
+	for _, row in ipairs(activities) do
+		seen += row.weight
+		if cut < seen then
+			return row
+		end
+	end
+	return activities[#activities]
+end
+
 local function flat(v: Vector3): Vector3
 	return Vector3.new(v.X, 0, v.Z)
 end
@@ -79,6 +99,12 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	self._sinceRepath = math.huge
 	self._sinceCalm = 0
 	self._grazeFor = 0
+
+	-- THE CALM REPERTOIRE (task 117): which activity an idle boar is doing and how long is left of
+	-- it. nil means "pick one on the next step". The first one starts PART-WAY THROUGH, so a sounder
+	-- of five is not five animals doing the same thing on the same frame.
+	self._calm = nil :: any
+	self._calmFor = 0
 
 	-- being shot (hit-zones design section 6.2)
 	self._boltFor = 0 -- seconds of "run whatever the threats say", counted down with dt
@@ -235,6 +261,35 @@ function Brain:_senseIdle(position: Vector3, obs)
 	if self._grazeFor <= 0 and rng:NextNumber() < config.GRAZE_CHANCE then
 		self._grazeFor = rng:NextNumber(config.GRAZE_MIN, config.GRAZE_MAX)
 	end
+end
+
+-- ONE STEP OF THE CALM REPERTOIRE, and the only thing it decides is a SPEED (task 117). It runs the
+-- current activity down, draws the next one when it expires, and leaves `self._calm` where `step`
+-- can publish it. With `CALM.ENABLED` off it answers exactly what the old boolean answered: stand
+-- still while grazing, otherwise wander.
+function Brain:_stepCalm(dt: number): number
+	local config = self._config
+	local calm = config.CALM
+	if not (calm and calm.ENABLED) then
+		if self._grazeFor > 0 then
+			self._grazeFor -= dt
+			return 0
+		end
+		return config.WANDER_SPEED
+	end
+
+	self._calmFor -= dt
+	if self._calm == nil or self._calmFor <= 0 then
+		self._calm = Brain.calmActivity(self._rng:NextNumber(), calm)
+		self._calmFor = self._rng:NextNumber(self._calm.minSeconds, self._calm.maxSeconds)
+		if self._calmPhased ~= true then
+			-- The FIRST activity starts part-way through, so two boars spawned on the same frame are
+			-- not in step for the rest of their lives.
+			self._calmPhased = true
+			self._calmFor = math.max(self._calmFor - self._rng:NextNumber(0, calm.FIRST_PHASE_SECONDS), 0.5)
+		end
+	end
+	return self._calm.speed
 end
 
 -- FLEE: follow the route if we have one, else fall back to Reynolds flee blended with the direction
@@ -482,6 +537,9 @@ function Brain:step(dt: number, obs)
 		despawn = false,
 		reason = nil :: string?,
 		downed = false, -- true exactly once, on the tick the boar collapses
+		-- WHAT A CALM BOAR IS DOING (task 117), published only while IDLE so every other state draws
+		-- exactly what it drew before. `Body` turns it into a clip; nothing else reads it.
+		activity = nil :: string?,
 	}
 
 	if self._state == "GONE" then
@@ -641,12 +699,11 @@ function Brain:step(dt: number, obs)
 	local desiredDirection, desiredSpeed
 	local stuckTurn = nil :: number?
 	if self._state == "IDLE" then
-		if self._grazeFor > 0 then
-			self._grazeFor -= dt
-			desiredSpeed = 0
-		else
-			desiredSpeed = config.WANDER_SPEED
-		end
+		-- THE CALM REPERTOIRE, in place of the old "grazing or wandering" boolean (task 117). The
+		-- activity decides the speed setpoint and travels out as `intent.activity`, which is the
+		-- only thing `Body` needs to draw it. Nothing else about IDLE changes: the heading, the home
+		-- pull, the probe turn and the sounder slot are all the code they were.
+		desiredSpeed = self:_stepCalm(dt)
 		desiredDirection = if follower then self:_idleSounderDirection(position, obs) else self._heading
 	else
 		if stuck then
@@ -707,6 +764,9 @@ function Brain:step(dt: number, obs)
 	self._speed += math.clamp(desiredSpeed - self._speed, -maxStep, maxStep)
 
 	intent.state = self._state
+	-- WHAT A CALM BOAR IS DOING (task 117), published only while IDLE so every other state draws
+	-- exactly what it drew before. `Body` turns it into a clip; nothing else reads it.
+	intent.activity = if self._state == "IDLE" and self._calm then self._calm.name else nil
 	intent.targetVelocity = self._desired * self._speed
 	intent.facing = self._desired
 	return intent

@@ -198,6 +198,14 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 		paddleFor = 0,
 		-- Seconds since it went down, which is what moves the death from the fall to the paddle.
 		deadFor = 0,
+		-- THE CALM REPERTOIRE (task 117): which activity is being drawn, how long it has been
+		-- drawn for (so an `enter` clip gets its own length), and the one-shot `exit` clip the one
+		-- before it asked for -- the head coming out of the grass, which must finish before the next
+		-- activity starts or the animal snaps upright.
+		activity = nil :: string?,
+		activityFor = 0,
+		exitClip = nil :: string?,
+		exitFor = 0,
 		heldAt = nil :: number?,
 		-- The sounds, created with the visual and destroyed with the boar. `sounds` is name -> Sound;
 		-- `nextGrunt` and `nextBreath` are countdowns, not clocks, so nothing here reads os.clock.
@@ -470,6 +478,60 @@ function Body.flinchWindow(speed: number, config): number
 	return model.HIT_MOVING_SECONDS
 end
 
+-- THE ACTIVITY ROW FOR A NAME, or nil. Pure, and a linear walk of five rows -- the table is data and
+-- stays data, so nothing here holds a list of activity names (task 117).
+function Body.activityRow(name: string?, config)
+	local calm = config.CALM
+	if name == nil or not (calm and calm.ENABLED) then
+		return nil
+	end
+	for _, row in ipairs(calm.ACTIVITIES) do
+		if row.name == name then
+			return row
+		end
+	end
+	return nil
+end
+
+-- WHICH CLIP A CALM BOAR IS DRAWING, and nil for "let the gait bands answer" (task 117). Pure, so
+-- every activity, its enter clip and its exit clip are test cases with no boar in the world.
+--
+-- ONE ACTIVITY AT A TIME, AND ONE CLIP AT A TIME. The order is: the exit the LAST activity asked for
+-- (the head coming out of the grass finishes first, or the animal snaps upright), then the enter for
+-- the first `enter` clip's length, then the activity's own loop. A row with no `clip` -- `walk` --
+-- answers nil on purpose and the gait bands take it, which is how a calm boar still walks on the
+-- clip task 115 measured.
+function Body.activityClip(info, config): (string?, number)
+	-- A CRIPPLED ANIMAL IS NOT CALM, whatever it was doing a moment ago. In production this cannot
+	-- happen -- the Brain publishes `activity` only while IDLE -- but the branch above it depends on
+	-- `crippleDrag` having an id, so without this a crippled boar whose drag clip is not published
+	-- yet would go back to grazing. Found by the spec that asserts the order (task 117).
+	if info.crippled == true or info.collapsed == true then
+		return nil, 1
+	end
+	if info.exitClip ~= nil and info.exitFor > 0 and Body.hasClip(info.exitClip, config) then
+		return info.exitClip, 1
+	end
+	local row = Body.activityRow(info.activity, config)
+	if row == nil then
+		return nil, 1
+	end
+	if row.enter and Body.hasClip(row.enter, config) and info.activityFor < config.MODEL.CLIPS[row.enter].seconds then
+		return row.enter, 1
+	end
+	if row.clip == nil or not Body.hasClip(row.clip, config) then
+		return nil, 1
+	end
+	-- A clip that carries the animal is rated off its own ground speed, exactly as a gait is, so
+	-- `digWalk`'s feet do not slide at the speed the row asks the Brain for.
+	local clip = config.MODEL.CLIPS[row.clip]
+	if clip.groundStudsPerSecond > 0 then
+		local model = config.MODEL
+		return row.clip, math.clamp(info.speed / clip.groundStudsPerSecond, model.MIN_RATE, model.MAX_RATE)
+	end
+	return row.clip, 1
+end
+
 -- WHICH TWO CLIPS A DEATH IS: the fall, and the paddle that follows it. Derived from the same
 -- `DEATH_TO_THE_LEFT` the roll is, so flipping `COLLAPSE_ROLL_DEG` moves all four together.
 function Body.deathClips(config): (string, string)
@@ -552,6 +614,15 @@ function Body.clipFor(info, config): (string?, number)
 	-- whole clip, because there is nothing for it to fight with.
 	if info.hitFor > 0 and info.hitFor > model.HIT_SECONDS - Body.flinchWindow(info.speed, config) then
 		return (if info.hitFromBehind then "hitBack" else "hitFront"), 1
+	end
+
+	-- A CALM BOAR DRAWS WHAT IT IS DOING (task 117), and only a calm one: the Brain publishes
+	-- `activity` while IDLE and nothing else, so a fleeing, wounded or dead animal reaches this with
+	-- nil and every line below is the code it was. It sits after the death, the cripple and the
+	-- flinch because none of those is a calm animal.
+	local calmName, calmRate = Body.activityClip(info, config)
+	if calmName ~= nil then
+		return calmName, calmRate
 	end
 
 	local function wanted(): (string, number)
@@ -718,6 +789,24 @@ function Body.stepVisual(handle, dt: number, info, config)
 		handle.deadFor += dt
 	end
 
+	-- THE ACTIVITY CLOCK (task 117). `info.activity` is the Brain's answer this frame; when it
+	-- changes, the one before it gets its `exit` one-shot -- the head coming out of the grass -- and
+	-- the new one starts its own clock so its `enter` clip gets exactly its own length.
+	if handle.exitFor > 0 then
+		handle.exitFor = math.max(handle.exitFor - dt, 0)
+	end
+	if info.activity ~= handle.activity then
+		local leaving = Body.activityRow(handle.activity, config)
+		if leaving and leaving.exit and Body.hasClip(leaving.exit, config) then
+			handle.exitClip = leaving.exit
+			handle.exitFor = config.MODEL.CLIPS[leaving.exit].seconds
+		end
+		handle.activity = info.activity
+		handle.activityFor = 0
+	else
+		handle.activityFor += dt
+	end
+
 	-- The warm-up ends here, in the one function that is already called once per boar per step.
 	if handle.warmFor > 0 then
 		handle.warmFor -= dt
@@ -761,6 +850,10 @@ function Body.stepVisual(handle, dt: number, info, config)
 		collapsed = handle.collapsed,
 		deadFor = handle.deadFor,
 		crippled = info.crippled == true,
+		activity = handle.activity,
+		activityFor = handle.activityFor,
+		exitClip = handle.exitClip,
+		exitFor = handle.exitFor,
 		hitFor = handle.hitFor,
 		hitFromBehind = handle.hitFromBehind,
 		speed = info.speed,
@@ -948,6 +1041,7 @@ function Body.oneShotSpecs(sound)
 		fall = sound.FALL,
 		grunt = sound.GRUNTS,
 		breath = sound.BREATH,
+		sniff = sound.SNIFF, -- task 117: the head comes up
 	}
 end
 
@@ -991,7 +1085,9 @@ function Body.playOneShot(handle, name: string, spec, config, rng: Random)
 	-- one nobody is listening to, so `coolAssets` may stop it, and this is the line that says "this
 	-- one is real". It is also one less place for a retuned volume to be stale.
 	sound.Volume = spec.volume
-	sound.PlaybackSpeed = Body.jitteredPitch(rng:NextNumber(), config.SOUND.PITCH_JITTER)
+	-- A spec may carry its own `pitch` as the CENTRE of the jitter: the sniff is the same breath
+	-- sample played high (task 117), and that is a number in the table rather than a second asset.
+	sound.PlaybackSpeed = (spec.pitch or 1) * Body.jitteredPitch(rng:NextNumber(), config.SOUND.PITCH_JITTER)
 	sound:Play()
 	return true
 end

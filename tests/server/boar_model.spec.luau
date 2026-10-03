@@ -614,6 +614,26 @@ return function()
 			deathPaddleLeft = "boar.anim.death.paddle.left",
 			deathPaddleRight = "boar.anim.death.paddle.right",
 			crippleDrag = "boar.anim.cripple.drag",
+			smell = "boar.anim.calm.smell",
+			grazeLoop = "boar.anim.calm.graze.loop",
+			grazeChew = "boar.anim.calm.graze.chew",
+			grazeStart = "boar.anim.calm.graze.start",
+			grazeEnd = "boar.anim.calm.graze.end",
+			digWalk = "boar.anim.calm.dig.walk",
+		}
+
+		-- THE CALM REPERTOIRE (task 117), declared and NOT published yet: `tools/boar_prep.py`
+		-- exports their FBX files and an animation id can only be made by hand in Studio. Until the
+		-- Director has published them every case below that is about PUBLISHED ids walks the
+		-- thirteen and this list says which six it is skipping. The day they are published this
+		-- list's own case fails and says to empty it.
+		local AWAITING_AN_ID = {
+			smell = true,
+			grazeLoop = true,
+			grazeChew = true,
+			grazeStart = true,
+			grazeEnd = true,
+			digWalk = true,
 		}
 
 		-- THE THREE THIS PROJECT AUTHORED (task 116 fix round), PUBLISHED by the Director on
@@ -645,19 +665,21 @@ return function()
 				inKeys += 1
 				expect(MODEL.CLIPS[name]).to.be.ok()
 			end
-			-- Ten out of the package plus the three this project authored, and the two tables agree
-			-- about every one of the thirteen.
-			expect(inConfig).to.equal(13)
-			expect(inKeys).to.equal(13)
+			-- Ten out of the package, three this project authored, and six more of the package's own
+			-- for the calm repertoire (task 117). The two tables agree about every one of them.
+			expect(inConfig).to.equal(19)
+			expect(inKeys).to.equal(19)
 			expect(authored).to.equal(3)
 		end)
 
 		it("has a row with a real asset id for every one of them", function()
 			local missing = {}
 			for name in pairs(MODEL.CLIPS) do
-				local row = Assets.byKey(KEY_OF[name])
-				if row == nil or row.kind ~= "animation" or row.modelId <= 0 then
-					table.insert(missing, name)
+				if not AWAITING_AN_ID[name] then
+					local row = Assets.byKey(KEY_OF[name])
+					if row == nil or row.kind ~= "animation" or row.modelId <= 0 then
+						table.insert(missing, name)
+					end
 				end
 			end
 			table.sort(missing)
@@ -673,6 +695,14 @@ return function()
 				expect(row).to.be.ok()
 				expect(row.source).to.equal("own")
 			end
+
+			-- ...AND THE SIX WAITING ON A PUBLISH HAVE NO ID, asserted rather than assumed, so the
+			-- day they get one this case says to take them out of `AWAITING_AN_ID` (task 117).
+			for name in pairs(AWAITING_AN_ID) do
+				expect(MODEL.CLIPS[name]).to.be.ok()
+				local row = Assets.byKey(KEY_OF[name])
+				expect(row == nil or row.modelId <= 0).to.equal(true)
+			end
 		end)
 
 		it("agrees with the manifest about how long each clip is", function()
@@ -680,6 +710,9 @@ return function()
 			-- build, which is the half that stops it being merged. Half a frame at 24 fps.
 			local worst, worstName = 0, "none"
 			for name, clip in pairs(MODEL.CLIPS) do
+				if AWAITING_AN_ID[name] then
+					continue -- nothing published, so there is no second copy to compare with
+				end
 				local row = Assets.byKey(KEY_OF[name])
 				expect(row.clipSeconds).to.be.ok()
 				local drift = math.abs(row.clipSeconds - clip.seconds)

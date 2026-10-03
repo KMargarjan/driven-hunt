@@ -59,6 +59,14 @@ local CLIP_KEYS = {
 	deathPaddleLeft = Assets.KEYS.boarDeathPaddleLeft,
 	deathPaddleRight = Assets.KEYS.boarDeathPaddleRight,
 	crippleDrag = Assets.KEYS.boarCrippleDrag,
+	-- The calm repertoire (task 117). No row names them until the Director publishes, so the boot's
+	-- own "n of m clips" line says 13 of 19 and the boar behaves exactly as it did.
+	smell = Assets.KEYS.boarSmell,
+	grazeLoop = Assets.KEYS.boarGrazeLoop,
+	grazeChew = Assets.KEYS.boarGrazeChew,
+	grazeStart = Assets.KEYS.boarGrazeStart,
+	grazeEnd = Assets.KEYS.boarGrazeEnd,
+	digWalk = Assets.KEYS.boarDigWalk,
 }
 
 -- A CLIP NAME WITH NO KEY IS A TYPO, AND IT FAILS HERE RATHER THAN BY NOT ANIMATING. Both tables are

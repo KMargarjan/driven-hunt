@@ -200,6 +200,13 @@ Assets.KEYS = table.freeze({
 	boarDeathPaddleLeft = "boar.anim.death.paddle.left",
 	boarDeathPaddleRight = "boar.anim.death.paddle.right",
 	boarCrippleDrag = "boar.anim.cripple.drag",
+	-- THE CALM BOAR (task 117), declared before publishing exactly as the three above were.
+	boarSmell = "boar.anim.calm.smell",
+	boarGrazeLoop = "boar.anim.calm.graze.loop",
+	boarGrazeChew = "boar.anim.calm.graze.chew",
+	boarGrazeStart = "boar.anim.calm.graze.start",
+	boarGrazeEnd = "boar.anim.calm.graze.end",
+	boarDigWalk = "boar.anim.calm.dig.walk",
 })
 
 -- WHICH KINDS `Loader` CAN TURN INTO AN INSTANCE, and therefore which ones `keysFor` may hand a boot
