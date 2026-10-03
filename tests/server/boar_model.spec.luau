@@ -801,6 +801,142 @@ return function()
 		end)
 	end)
 
+	describe("a dead boar stays where it fell", function()
+		-- KAREN, 2026-10-03: "when they died and lie on ground I can move them by walking it has to stay
+		-- in same place without move". A carcass is an unanchored physics body with CanCollide on, so a
+		-- character walking into it shoves it. MEASURED, and it is NOT the model's fault: with the flag
+		-- OFF, one impulse the size of a walking character (the boar's own mass 23.1 times 16 studs/s)
+		-- moved the grey carcass 1.826 studs. The grey box has been shoveable since Task 28; nobody had
+		-- walked into one. So the fix is in BOTH flag states, and both are asserted below.
+		local function readyBoar(modelEnabled: boolean, at: Vector3)
+			local runtime = newRuntime(modelEnabled, makeTemplate(), FAKE_IDS)
+			local handle = runtime:spawn(at)
+			step(runtime, 1 / 60, 3)
+			return runtime, handle
+		end
+
+		-- Kills it and then waits for the carcass to come to rest and anchor, stepping the runtime with
+		-- real frames between so the physics actually runs. Returns how long the anchor took.
+		local function killAndSettle(runtime, handle): number
+			local taken = runtime:takeHit(handle.part, { zone = "head", ammo = "Slug", pellets = 1, at = 0 })
+			expect(taken).to.equal(true)
+			local began = os.clock()
+			local deadline = began + 8
+			while os.clock() < deadline and not handle.part.Anchored do
+				RunService.Heartbeat:Wait()
+				step(runtime, 1 / 60)
+			end
+			return os.clock() - began
+		end
+
+		-- The shove a character delivers by walking into it, as an impulse: the assembly's own mass
+		-- times a walking speed. This is the measurement from the live session, written as a test.
+		local function shove(handle): number
+			local before = handle.part.Position
+			handle.part:ApplyImpulse(Vector3.new(1, 0, 0) * handle.part.AssemblyMass * 16)
+			local deadline = os.clock() + 1.5
+			while os.clock() < deadline do
+				RunService.Heartbeat:Wait()
+			end
+			return (handle.part.Position - before).Magnitude
+		end
+
+		it("flag OFF: a shove moves it less than a tenth of a stud", function()
+			local runtime, handle = readyBoar(false, Vector3.new(-50, GROUND_Y, -40))
+			local took = killAndSettle(runtime, handle)
+			expect(handle.part:GetAttribute("Carcass")).to.equal(true)
+			expect(handle.part.Anchored).to.equal(true)
+			-- It TOPPLED before it anchored: the anchor waits for the body to stop, it does not freeze it
+			-- mid-fall. This is Task 28's claim, still true.
+			expect(math.abs(handle.part.CFrame.UpVector.Y) < 0.95).to.equal(true)
+			local moved = shove(handle)
+			TestKit.note(
+				string.format("boar-model: flag OFF carcass anchored after %.2f s, shove moved %.4f studs", took, moved)
+			)
+			expect(moved < 0.1).to.equal(true)
+			runtime:destroy()
+		end)
+
+		it("flag ON: a shove moves it less than a tenth of a stud, and it is still on the ground", function()
+			local runtime, handle = readyBoar(true, Vector3.new(50, GROUND_Y, -40))
+			expect(handle.part:FindFirstChild(MODEL.NAME)).to.be.ok()
+			local took = killAndSettle(runtime, handle)
+			expect(handle.part:GetAttribute("Carcass")).to.equal(true)
+			expect(handle.part.Anchored).to.equal(true)
+			-- ...and it did not freeze on its way down: the box's bottom is on the plate, which is where
+			-- the death clip's own floor is.
+			local bottom = handle.part.Position.Y - CONFIG.BODY_SIZE.Y / 2
+			expect(math.abs(bottom - GROUND_Y) < 0.1).to.equal(true)
+			local moved = shove(handle)
+			TestKit.note(
+				string.format(
+					"boar-model: flag ON carcass anchored after %.2f s at bottom %.3f, shove moved %.4f studs",
+					took,
+					bottom,
+					moved
+				)
+			)
+			expect(moved < 0.1).to.equal(true)
+			runtime:destroy()
+		end)
+
+		it("a LIVE boar is still unanchored, and still moves", function()
+			-- The anchor must reach nothing but a carcass. A boar anchored while alive would stand in the
+			-- field for ever and the drive would never end.
+			local runtime, handle = readyBoar(true, Vector3.new(0, GROUND_Y, -40))
+			step(runtime, 1 / 60, 30)
+			expect(handle.part.Anchored).to.equal(false)
+			runtime:destroy()
+		end)
+
+		it("the carcass still answers a ray exactly as it did", function()
+			-- Anchoring touches no property a shot reads. `Damageable` is false because it is dead, which
+			-- is Task 28's behaviour and not this fix's; the zone parts keep their `HitZone` and stay
+			-- queryable, so a ray through a carcass lands where it always did.
+			local runtime, handle = readyBoar(true, Vector3.new(-50, GROUND_Y, 40))
+			killAndSettle(runtime, handle)
+			expect(handle.part.Anchored).to.equal(true)
+			expect(handle.part.CanQuery).to.equal(true)
+			expect(handle.part.CanCollide).to.equal(true)
+			expect(handle.part:GetAttribute("Damageable")).to.equal(false)
+			expect(handle.part:GetAttribute("HitZone")).to.equal("body")
+			local zones = 0
+			for _, child in ipairs(handle.part:GetChildren()) do
+				if child:IsA("BasePart") then
+					zones += 1
+					expect(child.CanQuery).to.equal(true)
+					expect(child:GetAttribute("HitZone")).to.be.ok()
+					-- The zone parts themselves stay unanchored: an anchored part welded into an assembly
+					-- is `boar_zones.spec`'s own warning, and the trunk is what carries the anchor.
+					expect(child.Anchored).to.equal(false)
+				end
+			end
+			expect(zones).to.equal(#CONFIG.ZONES.ORDER)
+			runtime:destroy()
+		end)
+
+		it("decides to anchor on stillness, and on the backstop only when it is not falling", function()
+			-- The pure rule, because a spec cannot make a physics body topple on command. The thresholds
+			-- are 30x apart on purpose: a resting carcass measured 0.000-0.003 on both and one still
+			-- toppling peaked at 28.6 linear and 5.6 angular in the same session.
+			local w = CONFIG.WOUND
+			local still = Vector3.new(0.003, 0, 0)
+			local falling = Vector3.new(0, -20, 0)
+			expect(Boar.carcassIsStill(still, 0.001, w)).to.equal(true)
+			expect(Boar.carcassIsStill(Vector3.new(28.6, 0, 0), 0.001, w)).to.equal(false)
+			expect(Boar.carcassIsStill(still, 5.6, w)).to.equal(false)
+			-- Still for long enough: anchor.
+			expect(Boar.shouldAnchorCarcass(still, w.CARCASS_STILL_SECONDS, 0.5, w)).to.equal(true)
+			expect(Boar.shouldAnchorCarcass(still, w.CARCASS_STILL_SECONDS - 0.01, 0.5, w)).to.equal(false)
+			-- The backstop: long enough since it died, and not falling.
+			expect(Boar.shouldAnchorCarcass(still, 0, w.CARCASS_ANCHOR_BY_SECONDS, w)).to.equal(true)
+			expect(Boar.shouldAnchorCarcass(falling, 0, w.CARCASS_ANCHOR_BY_SECONDS, w)).to.equal(false)
+			-- ...and a body being SHOVED at the backstop is anchored anyway: stopping it is the point.
+			expect(Boar.shouldAnchorCarcass(Vector3.new(9, 0, 0), 0, w.CARCASS_ANCHOR_BY_SECONDS, w)).to.equal(true)
+			expect(w.CARCASS_ANCHOR_BY_SECONDS > 3).to.equal(true) -- boar_hit.spec allows the topple three
+		end)
+	end)
+
 	describe("the clip does not chatter", function()
 		-- KAREN, 2026-10-03: "head shaking sometimes vierd". MEASURED over three 7-second windows on
 		-- standing boars: up to 24 clip changes in 7 seconds, several lasting 0.03 s against a

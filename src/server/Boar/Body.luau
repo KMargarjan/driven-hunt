@@ -178,6 +178,8 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 		flashFor = 0,
 		flashing = false,
 		collapsed = false,
+		collapsedFor = 0, -- seconds since it died; the carcass anchor reads it
+		stillFor = 0, -- seconds it has been at rest; likewise
 		bornAt = os.clock(),
 		-- THE SKINNED MODEL (task 115), nil until `attachVisual` succeeds and nil for ever with
 		-- `BOAR_MODEL` off. Everything above this line is byte-identical in both states.
@@ -665,6 +667,59 @@ function Body.collapse(handle, config)
 	-- still, and when it does not the box topples exactly as it has since Task 28.
 	if handle.visual == nil then
 		part.CFrame = part.CFrame * CFrame.Angles(0, 0, math.rad(config.COLLAPSE_ROLL_DEG))
+	end
+end
+
+-- WHETHER A CARCASS HAS COME TO REST. Pure, because the branch it guards is the difference between a
+-- dead boar that stays where it fell and one a player can shove around the field, and a spec cannot
+-- make a physics body topple on command. `linear` is the whole velocity vector because the backstop
+-- has to know whether the body is still FALLING; `angular` is a magnitude because no axis of a spin
+-- matters differently.
+function Body.carcassIsStill(linear: Vector3, angular: number, config): boolean
+	return linear.Magnitude < config.CARCASS_STILL_LINEAR and angular < config.CARCASS_STILL_ANGULAR
+end
+
+-- Whether to anchor NOW. Two ways in, and the second is a backstop rather than the normal path:
+--   * it has been still for CARCASS_STILL_SECONDS -- what every carcass that is left alone does;
+--   * or CARCASS_ANCHOR_BY_SECONDS have passed since it died AND it is not falling, so somebody
+--     leaning on it cannot keep it pushable for ever.
+-- It takes `linear` and not the angular speed: a carcass still SPINNING at the backstop is one
+-- something is doing to it, and stopping it is the point. Falling is the only thing worth waiting
+-- for, because a boar frozen in mid-air is a worse bug than one that can be nudged.
+function Body.shouldAnchorCarcass(linear: Vector3, stillFor: number, collapsedFor: number, config): boolean
+	if stillFor >= config.CARCASS_STILL_SECONDS then
+		return true
+	end
+	if collapsedFor >= config.CARCASS_ANCHOR_BY_SECONDS and linear.Y > -config.CARCASS_FALLING_Y then
+		return true
+	end
+	return false
+end
+
+-- Called once per boar per Runtime step, in BOTH flag states, until the carcass is anchored. The
+-- push it closes is not the model's: the grey box has been shoveable since Task 28 and nobody had
+-- walked into one.
+--
+-- ANCHORING IS THE WHOLE FIX, and it is the one thing a walking character cannot move. It does not
+-- touch `CanQuery`, `CanCollide`, `Damageable`, `HitZone` or the welded zone parts, so a dead boar
+-- answers a ray exactly as it did before; and it happens only AFTER the body has stopped, so the
+-- carcass still falls, still topples with the flag off, and still lands on the ground.
+function Body.stepCarcass(handle, dt: number, config)
+	if not handle.collapsed or handle.part.Anchored then
+		return
+	end
+	handle.collapsedFor += dt
+	local linear = handle.part.AssemblyLinearVelocity
+	local angular = handle.part.AssemblyAngularVelocity.Magnitude
+	if Body.carcassIsStill(linear, angular, config) then
+		handle.stillFor += dt
+	else
+		handle.stillFor = 0
+	end
+	if Body.shouldAnchorCarcass(linear, handle.stillFor, handle.collapsedFor, config) then
+		-- The assembly goes with it: the zone parts are welded to this part, so anchoring the trunk
+		-- anchors the whole dead boar, model included.
+		handle.part.Anchored = true
 	end
 end
 

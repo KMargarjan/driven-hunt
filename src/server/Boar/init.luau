@@ -42,6 +42,10 @@ Boar.Wound = Wound
 Boar.clipFor = Body.clipFor
 Boar.visualOffset = Body.visualOffset
 Boar.shouldFreeze = Body.shouldFreeze
+-- ...and the two the carcass anchor rests on, for the same reason: a spec cannot make a physics
+-- body topple on command, so the DECISION is testable even where the motion is not.
+Boar.carcassIsStill = Body.carcassIsStill
+Boar.shouldAnchorCarcass = Body.shouldAnchorCarcass
 
 -- Every number the system has. Derived at 1 stud = 0.28 m (Roblox units), so a 40 km/h boar is
 -- 11.1 m/s = 39.7 studs/s, and a 1.5 m x 0.9 m x 0.5 m boar is 5.5 x 3 x 2 studs. The research note
@@ -207,6 +211,33 @@ Boar.CONFIG = {
 		-- rolling the carcass past that angle at the moment it dies makes it fall over on its own --
 		-- measured peak height 0.2 studs, final UpVector.Y = 0.00, i.e. lying on its side.
 		COLLAPSE_ROLL_DEG = 45, -- comfortably past the 33.7-degree tipping angle
+
+		-- A DEAD BOAR STAYS WHERE IT FELL (Karen, 2026-10-03: "when they died and lie on ground I can
+		-- move them by walking it has to stay in same place without move"). A carcass is an unanchored
+		-- physics body with CanCollide on, so a character walking into it shoves it -- MEASURED with the
+		-- flag OFF as well as on: one impulse the size of a walking character (the boar's own 23.1 mass
+		-- times 16 studs/s) moved it 1.826 studs. So it is ANCHORED once it has come to rest, which is
+		-- the one thing that cannot be pushed at all.
+		--
+		-- IT IS ANCHORED WHEN IT HAS STOPPED, NOT AFTER A FIXED WAIT, because the two flag states stop
+		-- at different times: with the flag off it has to ROLL past its tipping angle and fall over
+		-- first, and with it on it only drops the SPAWN_CLEARANCE it was standing above. Anchoring on a
+		-- timer would freeze one of them mid-topple.
+		--
+		-- The thresholds are MEASURED and are 30x apart, which is what makes "still" unambiguous: a
+		-- resting carcass reads 0.000-0.003 on both, and one that is still toppling peaked at 28.6
+		-- linear and 5.6 angular in the same session.
+		CARCASS_STILL_LINEAR = 0.1, -- studs/s
+		CARCASS_STILL_ANGULAR = 0.1, -- radians/s
+		-- ...held for this long, so a carcass that is momentarily slow between two bounces is not
+		-- mistaken for one that has stopped.
+		CARCASS_STILL_SECONDS = 0.25,
+		-- THE BACKSTOP, so a player cannot keep a carcass shoveable for ever by leaning on it. Four
+		-- seconds is well past both settles (`boar_hit.spec` allows the topple three). It will NOT
+		-- anchor something in mid-air: a body still falling faster than CARCASS_FALLING_Y keeps waiting,
+		-- because a boar frozen above the ground is a worse bug than one that can be nudged.
+		CARCASS_ANCHOR_BY_SECONDS = 4.0,
+		CARCASS_FALLING_Y = 1.0, -- studs/s of downward speed that still counts as falling
 	},
 
 	-- Pathfinding agent. Tunables, not structure: they decide whether the navmesh will route a
@@ -1404,6 +1435,11 @@ function Runtime:step(dt: number)
 		end
 
 		Body.stepFlash(entry.body, dt, config.WOUND)
+		-- BOTH FLAG STATES, because the push it closes is not the model's: a carcass is an
+		-- unanchored physics body and the grey box has been shoveable since Task 28 (measured
+		-- 2026-10-03: 1.826 studs from one walking-speed impulse, with the flag OFF). It does
+		-- nothing until the body has stopped, and nothing at all once it has anchored.
+		Body.stepCarcass(entry.body, dt, config.WOUND)
 
 		-- The SPEED it is given is the Brain's own `targetVelocity`, not the body's measured one: the
 		-- setpoint is what the animal is TRYING to do, so a boar shoved into a cover block keeps

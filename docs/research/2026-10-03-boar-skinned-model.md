@@ -262,6 +262,37 @@ Three causes, all fixed at the cause rather than damped:
 Replaying the measured yaw sequence through the fixed decision produces **2 clip changes** where
 every crossing used to be one; the spec asserts that, and `boar_model.spec` carries the whole set.
 
+### (c) A dead boar could be shoved around, in both flag states
+
+Karen's second look accepted the first two fixes -- *"now looks good"* -- and found a third fault:
+*"when they died and lie on ground I can move them by walking it has to stay in same place without
+move"*.
+
+A carcass is an unanchored physics body with `CanCollide` on, so a character walking into it pushes
+it. **This is not the model's fault.** Measured with `BOAR_MODEL` **off**: one impulse the size of a
+walking character -- the assembly's own mass 23.1 times 16 studs/s -- moved the grey carcass **1.826
+studs**. The grey box has been shoveable since Task 28; nobody had walked into one.
+
+So the box is **anchored once it has come to rest**, in both flag states. Anchoring is the one thing a
+walking character cannot move, and it touches no property a shot reads: `CanQuery`, `CanCollide`, the
+`HitZone` attributes and the welded zone parts are all exactly as they were, and `Damageable` is false
+because the animal is dead, which is Task 28's behaviour and not this fix's.
+
+**It anchors when it has STOPPED, not after a fixed wait,** because the two states stop at different
+times: with the flag off the box has to roll past its tipping angle and fall over, and with it on it
+only drops the half-stud it was standing above. A timer would freeze one of them mid-topple. The
+thresholds are measured and are 30x apart, which is what makes "still" unambiguous: a resting carcass
+reads 0.000--0.003 linear and angular, and one still toppling peaked at **28.6** linear and **5.6**
+angular in the same session. The body must be still for `CARCASS_STILL_SECONDS` (0.25) before it is
+anchored, with a backstop at 4 s so nobody can keep a carcass pushable by leaning on it -- and the
+backstop refuses to fire while the body is still FALLING, because a boar frozen in mid-air is a worse
+bug than one that can be nudged.
+
+Measured after the fix, in the spec, with the same shove: **0.0000 studs** in both flag states.
+Anchoring took 0.63 s with the flag off (it toppled first) and 0.52 s with it on, and the box's bottom
+finished at 619.993 against a ground of 620. Removing the one `Anchored = true` line fails three
+cases.
+
 ## 8. What could not be verified here (rule 8)
 
 - The Fab Standard License grant was read through a web search, not from `fab.com/eula` (403).
