@@ -46,6 +46,9 @@ Boar.shouldFreeze = Body.shouldFreeze
 -- body topple on command, so the DECISION is testable even where the motion is not.
 Boar.carcassIsStill = Body.carcassIsStill
 Boar.shouldAnchorCarcass = Body.shouldAnchorCarcass
+-- ...and the one review round 1's finding 1 turns on: whether a clip that is already playing needs
+-- its rate rewritten. A HELD clip never does.
+Boar.shouldAdjustRate = Body.shouldAdjustRate
 
 -- Every number the system has. Derived at 1 stud = 0.28 m (Roblox units), so a 40 km/h boar is
 -- 11.1 m/s = 39.7 studs/s, and a 1.5 m x 0.9 m x 0.5 m boar is 5.5 x 3 x 2 studs. The research note
@@ -328,6 +331,10 @@ Boar.CONFIG = {
 -- 4.167 s and not 4.208. `groundStudsPerSecond` was never affected -- `tools/boar_prep.py` divides
 -- by the INTERVALS it counted, not by the frame count -- and `BoarAssetsBoot` warns if this column
 -- and the manifest's `clipSeconds` ever drift apart.
+-- HOISTED so the band edge below is the derivation its comment claims and not the same literal
+-- written twice (review round 1, note).
+local WALK_MAX_RATE = 1.8
+
 local BOAR_CLIPS = {
 	idle = { clip = "Idle_1", seconds = 4.167, groundStudsPerSecond = 0, looped = true },
 	walk = { clip = "Walk_F_IP", seconds = 1.0, groundStudsPerSecond = 2.852, looped = true },
@@ -367,8 +374,8 @@ Boar.CONFIG.MODEL = {
 	-- at a rate near 1.0, which is what a boar at 9 studs/s should look like anyway.
 	WALK_FROM = 0.5, -- anything moving at all is walking, not standing
 	-- A brisk but believable walk: 1.8x is a 0.58 s stride. Past that the animal is trotting.
-	WALK_MAX_RATE = 1.8,
-	TROT_FROM = BOAR_CLIPS.walk.groundStudsPerSecond * 1.8,
+	WALK_MAX_RATE = WALK_MAX_RATE,
+	TROT_FROM = BOAR_CLIPS.walk.groundStudsPerSecond * WALK_MAX_RATE,
 	RUN_FROM = (Boar.CONFIG.TROT_SPEED + Boar.CONFIG.SPRINT_SPEED) / 2,
 	-- A TURN IN PLACE, and it is reachable only below WALK_FROM on purpose: Turn_L/R are pivots
 	-- whose hooves travel 1.855 studs/s, so at any real speed they skate. 60 deg/s is a quarter of
@@ -727,6 +734,26 @@ function Runtime:stats()
 	local out = table.clone(self._stats)
 	out.zoneHits = table.clone(self._stats.zoneHits) -- table.clone is shallow; this is a counter, not state
 	return out
+end
+
+-- A copy of one boar's ANIMATION state, or nil. There is no setter and nothing in the game reads it:
+-- it exists so a spec can count what `Boar.Body` did to the Animator, exactly as `woundOf` below
+-- exists so a spec can read a wound. `rateWrites` is every `AdjustSpeed` Body has issued for this
+-- boar, which is the one number review round 1's finding is about -- a frozen death must stop
+-- costing writes, and "no more writes" is not observable from `AnimationTrack.Speed` because the old
+-- fault wrote 1 and 0 inside the same frame.
+function Runtime:animationOf(id: string)
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return {
+				clip = entry.body.clip,
+				heldClip = entry.body.heldClip,
+				rateWrites = entry.body.rateWrites,
+				collapsed = entry.body.collapsed,
+			}
+		end
+	end
+	return nil
 end
 
 -- A copy of one boar's wound state, or nil. There is no setter: takeHit and step are the only

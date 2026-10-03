@@ -2162,7 +2162,12 @@ def read_source_in_slices(studio, want, truncated_at):
         if answer.get("missing"):
             raise RuntimeError(f"{'.'.join(want['path'])} disappeared while its Source was being read")
         got = answer.get("part") or ""
-        if len(got) != end - at + 1:
+        # BYTES, NOT CODE POINTS (review round 1, note). `string.sub` and `#source` on the Luau side
+        # are byte-based, so `at`/`end` are byte offsets; comparing Python's character count would
+        # call every slice of a non-ASCII script short and blame SOURCE_SLICE_CHARS, which would not
+        # be the cause. Splitting a multi-byte character ACROSS a slice boundary is a separate
+        # hazard and is queued as TASKS.md 115a; the one oversized file is ASCII today.
+        if len(got.encode("utf-8")) != end - at + 1:
             raise RuntimeError(
                 f"{'.'.join(want['path'])}: slice {at}..{end} came back {len(got)} chars, not "
                 f"{end - at + 1}. Lower SOURCE_SLICE_CHARS (now {SOURCE_SLICE_CHARS}).")

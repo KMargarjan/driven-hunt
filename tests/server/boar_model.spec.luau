@@ -198,11 +198,14 @@ return function()
 			expect(row.expires).to.equal("2026-10-24")
 		end)
 
-		it("is read once, at the boar's own boundary", function()
-			-- `Boar.CONFIG.MODEL.ENABLED` is the one place the flag is read, and every function takes
-			-- the value as a parameter from there. If this is ever a second `Flags.isOn` call
-			-- somewhere inside the boar, the two can disagree.
+		it("publishes the flag's own value at the boar's boundary", function()
+			-- RENAMED TO WHAT IT ASSERTS (review round 1, note). It cannot prove the flag is read
+			-- ONCE -- a spec cannot count `Flags.isOn` calls in another module -- so it does not
+			-- claim to. What it does check is worth checking: the value the rest of the boar is
+			-- handed is the flag's, not a copy that has drifted from it.
+			local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 			expect(type(MODEL.ENABLED)).to.equal("boolean")
+			expect(MODEL.ENABLED).to.equal(Flags.isOn("BOAR_MODEL"))
 		end)
 	end)
 
@@ -471,12 +474,17 @@ return function()
 			-- clip was being asked for 3.15 and clamped to 2.50, which is feet sliding by a quarter.
 			-- Below about 1.1 studs/s the floor does bite, and that is the floor's whole job: an
 			-- animal creeping at a tenth of a stud a second is standing still, not strolling.
+			-- THE BAND THIS COUNTS IS NOT THE BAND IT STARTS AT (review round 1, note): below about
+			-- 1.1 studs/s the floor does bite, and that is the floor's job, so the count begins at
+			-- `countFrom` and the note prints THAT -- the earlier wording said "swept 0.5..38" for a
+			-- band it was not counting.
+			local countFrom = 1.2
 			local clamped, worst, worstAt = 0, 0, 0
 			local speed = MODEL.WALK_FROM
 			while speed <= CONFIG.SPRINT_SPEED do
 				local name, rate = clip({ speed = speed })
 				local natural = MODEL.CLIPS[name].groundStudsPerSecond
-				if natural > 0 and speed >= 1.2 then
+				if natural > 0 and speed >= countFrom then
 					if rate <= MODEL.MIN_RATE or rate >= MODEL.MAX_RATE then
 						clamped += 1
 						if math.abs(speed / natural - rate) > worst then
@@ -489,7 +497,7 @@ return function()
 			TestKit.note(
 				string.format(
 					"boar-model: swept %.1f..%.0f studs/s, %d clamped (worst %.2f at %.1f)",
-					MODEL.WALK_FROM,
+					countFrom,
 					CONFIG.SPRINT_SPEED,
 					clamped,
 					worst,
@@ -934,6 +942,89 @@ return function()
 			-- ...and a body being SHOVED at the backstop is anchored anyway: stopping it is the point.
 			expect(Boar.shouldAnchorCarcass(Vector3.new(9, 0, 0), 0, w.CARCASS_ANCHOR_BY_SECONDS, w)).to.equal(true)
 			expect(w.CARCASS_ANCHOR_BY_SECONDS > 3).to.equal(true) -- boar_hit.spec allows the topple three
+		end)
+	end)
+
+	describe("a frozen death costs nothing after it has frozen", function()
+		-- REVIEW ROUND 1, FINDING 1. `clipFor` keeps answering "deathLeft, rate 1" for a dead boar while
+		-- the frozen track sits at speed 0 on purpose, so `play`'s re-rate branch wrote `AdjustSpeed(1)`
+		-- and the freeze wrote `AdjustSpeed(0)` back, EVERY FRAME, for `CARCASS_SECONDS` and up to
+		-- `maxBoars` carcasses, on a server Animator whose every write replicates.
+		--
+		-- IT IS NOT OBSERVABLE FROM `AnimationTrack.Speed`: both writes landed inside one Heartbeat, so
+		-- every sample read 0 and the live measurement saw a perfectly held pose. And it is not
+		-- observable from a LIVE carcass in a spec either, because the freeze needs a loaded animation
+		-- -- `shouldFreeze` refuses a `Length` of 0, which is every track in this file -- so the seam
+		-- the writes are counted through is `Boar.shouldAdjustRate`, the decision `play` now asks.
+		-- `Runtime:animationOf` carries the live counter for the measurement in the research note.
+		local EPSILON = MODEL.RATE_EPSILON
+		local DEATH = if MODEL.DEATH_TO_THE_LEFT then "deathLeft" else "deathRight"
+
+		it("never re-rates the clip it is holding", function()
+			-- The frozen death: speed 0, nominal rate 1, for ever.
+			expect(Boar.shouldAdjustRate(DEATH, DEATH, 0, 1, EPSILON)).to.equal(false)
+			-- ...and that is BECAUSE it is held, not because the numbers agree: the same track with
+			-- nothing held is exactly the write the old code made 120 times a second.
+			expect(Boar.shouldAdjustRate(nil, DEATH, 0, 1, EPSILON)).to.equal(true)
+		end)
+
+		it("over 600 frames of a frozen carcass, the count is zero", function()
+			-- Ten seconds at 60 fps, against a `CARCASS_SECONDS` of 120. The old code's answer here was
+			-- 600 -- one `AdjustSpeed(1)` per frame, each with an `AdjustSpeed(0)` behind it.
+			local held, loose = 0, 0
+			for _ = 1, 600 do
+				if Boar.shouldAdjustRate(DEATH, DEATH, 0, 1, EPSILON) then
+					held += 1
+				end
+				if Boar.shouldAdjustRate(nil, DEATH, 0, 1, EPSILON) then
+					loose += 1
+				end
+			end
+			TestKit.note(
+				string.format("boar-model: 600 frames of a frozen death -> %d rate write(s); unheld -> %d", held, loose)
+			)
+			expect(held).to.equal(0)
+			expect(loose).to.equal(600) -- the fault, reproduced, so the zero above cannot be a coincidence
+		end)
+
+		it("a clip that is NOT held is still re-rated when the speed really changes", function()
+			-- The fix must not freeze the living. A running gait whose rate has moved is still corrected,
+			-- and one whose rate has barely moved is still left alone (`RATE_EPSILON`'s own job).
+			expect(Boar.shouldAdjustRate(nil, "walk", 1.40, 1.76, EPSILON)).to.equal(true)
+			expect(Boar.shouldAdjustRate(nil, "walk", 1.40, 1.41, EPSILON)).to.equal(false)
+			-- Holding ONE clip does not silence another.
+			expect(Boar.shouldAdjustRate(DEATH, "walk", 1.40, 1.76, EPSILON)).to.equal(true)
+		end)
+
+		it("a live boar is never holding a clip, and the counter is there to be read", function()
+			-- `Runtime:animationOf` is the read-only seam the live measurement uses, the same shape
+			-- `Runtime:woundOf` has. This asserts it answers, and that nothing holds a clip while the
+			-- animal is alive.
+			local runtime = newRuntime(true, makeTemplate(), FAKE_IDS)
+			local handle = runtime:spawn(Vector3.new(-20, GROUND_Y, -50))
+			step(runtime, 1 / 60, 10)
+			local live = runtime:animationOf(handle.id)
+			expect(live).to.be.ok()
+			expect(live.heldClip).to.equal(nil)
+			expect(live.collapsed).to.equal(false)
+			expect(type(live.rateWrites)).to.equal("number")
+			expect(runtime:animationOf("no such boar")).to.equal(nil)
+			runtime:destroy()
+		end)
+
+		it("the freeze window is at least one frame of the clip wide", function()
+			-- REVIEW ROUND 1, NOTE. `HOLD_EPSILON` is 0.03 s, under two frames at 60 fps, and `stepVisual`
+			-- gets the RAW Heartbeat dt. One long frame steps `TimePosition` past `length`, the non-looped
+			-- death track stops, and the carcass snaps upright -- the fault the freeze exists for. The
+			-- window is now whichever is larger, the epsilon or the distance the clip covers this frame.
+			local epsilon = MODEL.HOLD_EPSILON
+			local length = MODEL.CLIPS.deathLeft.seconds
+			local reach = math.max(epsilon, 1 * 0.1) -- a 0.1 s frame at rate 1
+			expect(reach > epsilon).to.equal(true)
+			expect(Boar.shouldFreeze(length - 0.06, length, 1, epsilon)).to.equal(false)
+			expect(Boar.shouldFreeze(length - 0.06, length, 1, reach)).to.equal(true)
+			-- Once frozen the speed is 0, so the frame term vanishes and the epsilon is the window again.
+			expect(math.max(epsilon, 0 * 0.1)).to.equal(epsilon)
 		end)
 	end)
 

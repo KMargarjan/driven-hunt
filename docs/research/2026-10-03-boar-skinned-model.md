@@ -293,6 +293,33 @@ Anchoring took 0.63 s with the flag off (it toppled first) and 0.52 s with it on
 finished at 619.993 against a ground of 620. Removing the one `Anchored = true` line fails three
 cases.
 
+### (d) A frozen death was costing 120 property writes a second, invisibly
+
+Found by the **Reviewer**, round 1, not by looking at the game -- and it could not have been found by
+looking. `Body.clipFor` keeps answering "the death clip, rate 1" for a dead boar while the frozen
+track sits at speed 0 on purpose, so `play`'s re-rate branch wrote `AdjustSpeed(1)` and the freeze
+wrote `AdjustSpeed(0)` straight back, **every frame**, for `CARCASS_SECONDS` (120) and up to
+`maxBoars` (8) carcasses, on a server `Animator` whose every write replicates. Both writes landed
+inside one Heartbeat, so every sample of `AnimationTrack.Speed` read 0 and the pose looked perfectly
+held.
+
+**Measured, by running round 1's own code again with the fix removed:** the carcass's Animator had
+**no playing track at all** -- 0 samples above weight 0.01 over 4 seconds, on the server *and* on the
+client. The non-looped death track had been driven past its end and had STOPPED, which is the rest
+pose: the very thing the freeze exists to prevent. With the fix: `deathLeft` at full weight and
+**Speed 0.000** across 241 samples in 4 seconds, on both sides.
+
+The fix is at the cause. `play` now asks `Body.shouldAdjustRate`, which refuses to re-rate the clip
+the boar is **holding** -- a held clip's speed is deliberately not the clip's rate, so "they disagree"
+is not a reason to write anything. `handle.heldClip` is set once, by the freeze, and cleared when a
+new clip starts, so the death's speed is written exactly once per kill. `Body.shouldFreeze`'s own
+"a speed already 0" guard stays as the second line of defence it was always written to be, and
+`Runtime:animationOf` hands a spec the write count the way `Runtime:woundOf` hands it a wound.
+
+The same round found that `HOLD_EPSILON` alone is a window under two frames wide while `stepVisual`
+gets the raw Heartbeat `dt`, so one long frame could step a death clean past its end. The window is
+now whichever is larger, the epsilon or the distance the clip covers in that frame.
+
 ## 8. What could not be verified here (rule 8)
 
 - The Fab Standard License grant was read through a web search, not from `fab.com/eula` (403).

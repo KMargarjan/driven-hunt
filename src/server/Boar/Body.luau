@@ -191,6 +191,12 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 		lastFacing = nil :: Vector3?, -- for the yaw rate, which nothing else measures
 		yawRate = 0, -- degrees per second, signed, SMOOTHED. + is a turn to the boar's left
 		clipHeldFor = 0, -- seconds the current clip has been playing; the dwell reads it
+		-- WHICH CLIP IS FROZEN ON ITS LAST FRAME, or nil. A held clip's speed is deliberately NOT the
+		-- clip's rate, so `play` must know not to "correct" it (review round 1, finding 1).
+		heldClip = nil :: string?,
+		-- How many times this boar's animation speed has been written. Nothing in the game reads it;
+		-- `Runtime:animationOf` hands it to a spec, the way `Runtime:woundOf` hands out a wound.
+		rateWrites = 0,
 		hitFor = 0, -- seconds of flinch left
 		hitFromBehind = false,
 	}
@@ -323,11 +329,27 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 		clone:Destroy()
 	end
 
-	cloneMesh.Massless = true -- the assembly's mass, centre of mass and inertia are untouched
-	cloneMesh.CanCollide = false -- the collision body is still the plain box
-	cloneMesh.CanQuery = false -- A RAY MUST NEVER MEET THIS: every hit stays on the box and its zones
-	cloneMesh.CanTouch = false
-	cloneMesh.Anchored = false -- an anchored part welded into an assembly anchors the whole boar
+	-- EVERY BasePart THE TEMPLATE BRINGS, not just the mesh (review round 1, note). `soleMesh` only
+	-- refuses a SECOND MeshPart, so any other part an asset carried would have been cloned in
+	-- untouched -- queryable, collidable and loose inside the assembly, which would make "NO RAY CAN
+	-- SEE IT" false of exactly the thing nobody looked at. RedDeer's model has none today; this makes
+	-- the claim true of whatever arrives next.
+	local parts: { BasePart } = {}
+	if model:IsA("BasePart") then
+		table.insert(parts, model)
+	end
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			table.insert(parts, descendant)
+		end
+	end
+	for _, drawn in ipairs(parts) do
+		drawn.Massless = true -- the assembly's mass, centre of mass and inertia are untouched
+		drawn.CanCollide = false -- the collision body is still the plain box
+		drawn.CanQuery = false -- A RAY MUST NEVER MEET THIS: every hit stays on the box and its zones
+		drawn.CanTouch = false
+		drawn.Anchored = false -- an anchored part welded into an assembly anchors the whole boar
+	end
 	cloneMesh.CastShadow = true
 	cloneMesh.CFrame = trunk.CFrame * CFrame.new(Body.visualOffset(cloneMesh.Size, config.BODY_SIZE))
 	model.PrimaryPart = cloneMesh
@@ -512,11 +534,48 @@ end
 -- Plays `name` if it is not already the one playing. A one-shot clip restarts when it is re-asked
 -- for AFTER something else has played, never while it is still running, so a second pellet inside
 -- one flinch does not snap the animal back to frame zero.
+-- Whether the clip that is ALREADY playing needs its rate rewritten. Pure, because it is the whole
+-- of review round 1's finding 1 and the live path cannot be made to show it: a frozen death's two
+-- writes landed inside one Heartbeat, so every sample of `AnimationTrack.Speed` read 0 and the pose
+-- looked perfectly held while 120 property writes a second replicated to every client.
+--
+-- A HELD CLIP IS NEVER RE-RATED. Its speed is 0 on purpose while `clipFor` goes on answering the
+-- death's nominal rate of 1, so "the speed does not match the rate" is true for ever and is not a
+-- reason to write anything.
+function Body.shouldAdjustRate(
+	heldClip: string?,
+	name: string,
+	currentSpeed: number,
+	wantedRate: number,
+	epsilon: number
+): boolean
+	if heldClip == name then
+		return false
+	end
+	return math.abs(currentSpeed - wantedRate) > epsilon
+end
+
 local function play(handle, name: string, rate: number, config)
 	if handle.clip == name then
+		-- A HELD CLIP IS NOT RE-RATED, AND THAT IS THE WHOLE OF REVIEW ROUND 1'S FINDING 1. A frozen
+		-- death sits at speed 0 on purpose while `clipFor` goes on answering "deathLeft, rate 1" --
+		-- so this branch saw a 1.0 difference and wrote `AdjustSpeed(1)`, and the freeze below wrote
+		-- `AdjustSpeed(0)` back, EVERY FRAME, for `CARCASS_SECONDS` and up to `maxBoars` carcasses,
+		-- on a server Animator whose every write replicates. The pose held on the server because both
+		-- writes land in one Heartbeat; what reached the clients was a non-looped track at its end
+		-- being told to run at speed 1, which is how a carcass gets back up.
+		--
+		-- `heldClip` is the fix at the cause: the rate is the CLIP's business only while the clip is
+		-- still playing itself. `Body.shouldFreeze`'s own "a speed already 0" guard stays as the
+		-- second line of defence it was always written to be.
 		local current = handle.tracks[name]
-		if current and current.IsPlaying and math.abs(current.Speed - rate) > config.MODEL.RATE_EPSILON then
+		if
+			current
+			and current.IsPlaying
+			and Body.shouldAdjustRate(handle.heldClip, name, current.Speed, rate, config.MODEL.RATE_EPSILON)
+		then
 			current:AdjustSpeed(rate)
+			handle.rateWrites += 1
 		end
 		return
 	end
@@ -538,6 +597,7 @@ local function play(handle, name: string, rate: number, config)
 	track:Play(config.MODEL.FADE_SECONDS, 1, rate)
 	handle.clip = name
 	handle.clipHeldFor = 0
+	handle.heldClip = nil -- a new clip is running, not held
 end
 
 -- Once per boar per Runtime step, with the flag on. It measures the yaw rate (nothing else does),
@@ -594,11 +654,23 @@ function Body.stepVisual(handle, dt: number, info, config)
 	-- A DEATH HOLDS ITS LAST FRAME. Letting the track stop would snap the animal back to its rest
 	-- pose -- standing up, inside a carcass that is lying on its side -- so the clip is frozen at the
 	-- end instead of ended.
-	if handle.collapsed then
+	if handle.collapsed and handle.heldClip == nil then
 		local track = handle.tracks[name or ""]
 		if track and track.IsPlaying then
-			if Body.shouldFreeze(track.TimePosition, track.Length, track.Speed, config.MODEL.HOLD_EPSILON) then
+			-- THE WINDOW HAS TO BE AT LEAST A FRAME WIDE (review round 1, note). `HOLD_EPSILON` alone
+			-- is 0.03 s, under two frames at 60 fps, and `stepVisual` is handed the raw Heartbeat
+			-- `dt` -- `DT_CLAMP` is applied to the Brain, not here. One long frame steps
+			-- `TimePosition` clean past `length`, the non-looped track STOPS, and the carcass snaps
+			-- to its rest pose standing up: the exact fault the freeze exists to prevent. So the
+			-- window is whichever is larger, the fixed epsilon or the distance this clip covers in
+			-- this frame. Once frozen the speed is 0, so the second term vanishes.
+			local reach = math.max(config.MODEL.HOLD_EPSILON, math.abs(track.Speed) * dt)
+			if Body.shouldFreeze(track.TimePosition, track.Length, track.Speed, reach) then
 				track:AdjustSpeed(0)
+				handle.rateWrites += 1
+				-- ONCE PER KILL. From here `play` leaves this track alone and this branch is skipped,
+				-- so the death's speed is written exactly as often as `shouldFreeze` says it is.
+				handle.heldClip = name
 			end
 		end
 	end
