@@ -968,25 +968,6 @@ return function()
 			expect(Boar.shouldAdjustRate(nil, DEATH, 0, 1, EPSILON)).to.equal(true)
 		end)
 
-		it("over 600 frames of a frozen carcass, the count is zero", function()
-			-- Ten seconds at 60 fps, against a `CARCASS_SECONDS` of 120. The old code's answer here was
-			-- 600 -- one `AdjustSpeed(1)` per frame, each with an `AdjustSpeed(0)` behind it.
-			local held, loose = 0, 0
-			for _ = 1, 600 do
-				if Boar.shouldAdjustRate(DEATH, DEATH, 0, 1, EPSILON) then
-					held += 1
-				end
-				if Boar.shouldAdjustRate(nil, DEATH, 0, 1, EPSILON) then
-					loose += 1
-				end
-			end
-			TestKit.note(
-				string.format("boar-model: 600 frames of a frozen death -> %d rate write(s); unheld -> %d", held, loose)
-			)
-			expect(held).to.equal(0)
-			expect(loose).to.equal(600) -- the fault, reproduced, so the zero above cannot be a coincidence
-		end)
-
 		it("a clip that is NOT held is still re-rated when the speed really changes", function()
 			-- The fix must not freeze the living. A running gait whose rate has moved is still corrected,
 			-- and one whose rate has barely moved is still left alone (`RATE_EPSILON`'s own job).
@@ -1012,19 +993,24 @@ return function()
 			runtime:destroy()
 		end)
 
-		it("the freeze window is at least one frame of the clip wide", function()
-			-- REVIEW ROUND 1, NOTE. `HOLD_EPSILON` is 0.03 s, under two frames at 60 fps, and `stepVisual`
-			-- gets the RAW Heartbeat dt. One long frame steps `TimePosition` past `length`, the non-looped
-			-- death track stops, and the carcass snaps upright -- the fault the freeze exists for. The
-			-- window is now whichever is larger, the epsilon or the distance the clip covers this frame.
+		it("the freeze window is this repository's formula, not math.max in the spec", function()
+			-- REVIEW ROUND 2, NOTE: the old case recomputed the window itself, so the production formula
+			-- had no test at all. `Body.freezeReach` is what `stepVisual` calls.
 			local epsilon = MODEL.HOLD_EPSILON
 			local length = MODEL.CLIPS.deathLeft.seconds
-			local reach = math.max(epsilon, 1 * 0.1) -- a 0.1 s frame at rate 1
-			expect(reach > epsilon).to.equal(true)
+			-- A normal 60 fps frame at rate 1 covers less than the epsilon, so the epsilon is the window.
+			expect(Boar.freezeReach(1, 1 / 60, epsilon)).to.equal(epsilon)
+			-- A 0.1 s hitch covers more, and the window grows with it -- which is the whole point.
+			expect(Boar.freezeReach(1, 0.1, epsilon)).to.equal(0.1)
+			-- A fast clip on the same frame covers more still; the sign of the speed does not matter.
+			expect(Boar.freezeReach(2.2, 0.1, epsilon)).to.equal(0.1 * 2.2)
+			expect(Boar.freezeReach(-1, 0.1, epsilon)).to.equal(0.1)
+			-- Once frozen the speed is 0, so the window is the epsilon again and stays there.
+			expect(Boar.freezeReach(0, 0.1, epsilon)).to.equal(epsilon)
+			-- And the window is what decides: a death this close to its end is missed by the epsilon
+			-- alone and caught once the frame's own reach is taken into account.
 			expect(Boar.shouldFreeze(length - 0.06, length, 1, epsilon)).to.equal(false)
-			expect(Boar.shouldFreeze(length - 0.06, length, 1, reach)).to.equal(true)
-			-- Once frozen the speed is 0, so the frame term vanishes and the epsilon is the window again.
-			expect(math.max(epsilon, 0 * 0.1)).to.equal(epsilon)
+			expect(Boar.shouldFreeze(length - 0.06, length, 1, Boar.freezeReach(1, 0.1, epsilon))).to.equal(true)
 		end)
 	end)
 

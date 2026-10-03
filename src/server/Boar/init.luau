@@ -49,6 +49,9 @@ Boar.shouldAnchorCarcass = Body.shouldAnchorCarcass
 -- ...and the one review round 1's finding 1 turns on: whether a clip that is already playing needs
 -- its rate rewritten. A HELD clip never does.
 Boar.shouldAdjustRate = Body.shouldAdjustRate
+-- ...and how wide the freeze window is this frame, which decides whether a death holds its last
+-- frame or runs past it into the rest pose.
+Boar.freezeReach = Body.freezeReach
 
 -- Every number the system has. Derived at 1 stud = 0.28 m (Roblox units), so a 40 km/h boar is
 -- 11.1 m/s = 39.7 studs/s, and a 1.5 m x 0.9 m x 0.5 m boar is 5.5 x 3 x 2 studs. The research note

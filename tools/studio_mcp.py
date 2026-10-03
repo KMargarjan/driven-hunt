@@ -2167,16 +2167,19 @@ def read_source_in_slices(studio, want, truncated_at):
         # call every slice of a non-ASCII script short and blame SOURCE_SLICE_CHARS, which would not
         # be the cause. Splitting a multi-byte character ACROSS a slice boundary is a separate
         # hazard and is queued as TASKS.md 115a; the one oversized file is ASCII today.
-        if len(got.encode("utf-8")) != end - at + 1:
+        got_bytes = len(got.encode("utf-8"))
+        if got_bytes != end - at + 1:
             raise RuntimeError(
-                f"{'.'.join(want['path'])}: slice {at}..{end} came back {len(got)} chars, not "
+                f"{'.'.join(want['path'])}: slice {at}..{end} came back {got_bytes} bytes, not "
                 f"{end - at + 1}. Lower SOURCE_SLICE_CHARS (now {SOURCE_SLICE_CHARS}).")
         parts.append(got)
         at = end + 1
     source = "".join(parts)
-    if len(source) != total:
+    # BYTES AGAIN, for the same reason as each slice: `total` came from Luau's `#source`.
+    reassembled = len(source.encode("utf-8"))
+    if reassembled != total:
         raise RuntimeError(
-            f"{'.'.join(want['path'])}: reassembled {len(source)} chars of Source, not {total}")
+            f"{'.'.join(want['path'])}: reassembled {reassembled} bytes of Source, not {total}")
     record["source"] = source
     print(f"[harness]   {'.'.join(want['path'])}: Source read in {len(parts)} slice(s), "
           f"{total} chars (one whole-record result truncated at {truncated_at})")

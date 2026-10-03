@@ -293,32 +293,58 @@ Anchoring took 0.63 s with the flag off (it toppled first) and 0.52 s with it on
 finished at 619.993 against a ground of 620. Removing the one `Anchored = true` line fails three
 cases.
 
-### (d) A frozen death was costing 120 property writes a second, invisibly
+### (d) A frozen death was costing two property writes a frame, for ever
 
-Found by the **Reviewer**, round 1, not by looking at the game -- and it could not have been found by
-looking. `Body.clipFor` keeps answering "the death clip, rate 1" for a dead boar while the frozen
-track sits at speed 0 on purpose, so `play`'s re-rate branch wrote `AdjustSpeed(1)` and the freeze
-wrote `AdjustSpeed(0)` straight back, **every frame**, for `CARCASS_SECONDS` (120) and up to
-`maxBoars` (8) carcasses, on a server `Animator` whose every write replicates. Both writes landed
-inside one Heartbeat, so every sample of `AnimationTrack.Speed` read 0 and the pose looked perfectly
-held.
+Found by the **Reviewer**, round 1, not by looking at the game. `Body.clipFor` keeps answering "the
+death clip, rate 1" for a dead boar while the frozen track sits at speed 0 on purpose, so `play`'s
+re-rate branch wrote `AdjustSpeed(1)` and the freeze wrote `AdjustSpeed(0)` straight back, **every
+frame**, for `CARCASS_SECONDS` (120) and up to `maxBoars` (8) carcasses, on a server `Animator` whose
+every write replicates.
 
-**Measured, by running round 1's own code again with the fix removed:** the carcass's Animator had
-**no playing track at all** -- 0 samples above weight 0.01 over 4 seconds, on the server *and* on the
-client. The non-looped death track had been driven past its end and had STOPPED, which is the rest
-pose: the very thing the freeze exists to prevent. With the fix: `deathLeft` at full weight and
-**Speed 0.000** across 241 samples in 4 seconds, on both sides.
+#### A false measurement, corrected
 
-The fix is at the cause. `play` now asks `Body.shouldAdjustRate`, which refuses to re-rate the clip
-the boar is **holding** -- a held clip's speed is deliberately not the clip's rate, so "they disagree"
-is not a reason to write anything. `handle.heldClip` is set once, by the freeze, and cleared when a
-new clip starts, so the death's speed is written exactly once per kill. `Body.shouldFreeze`'s own
-"a speed already 0" guard stays as the second line of defence it was always written to be, and
+Round 2's request and an earlier version of this section said that round 1's code left the rig in the
+**rest pose** -- "no playing track at all", the death driven past its end and stopped. **That was
+wrong, and it was my own fault.** The build I measured it on was not round 1's: I removed the new
+`heldClip` guard from `play` but left `heldClip` gating the *freeze*, which produced a third
+behaviour that never shipped -- re-rate every frame with nothing re-freezing it, so the track really
+did run away and stop. Round 1's code had no `heldClip` anywhere: its freeze branch ran
+unconditionally, so each frame wrote 1 and then 0 before the engine stepped the animation, and the
+pose held.
+
+**Measured properly, on a faithful replica of round 1's three hunks (2026-10-03):**
+
+| | round 1 replica | this commit |
+|---|---|---|
+| at t+1 s | `deathLeft` w=1.00 t=1.18/1.21 spd=0.00 | `deathLeft` w=1.00 t=1.18/1.21 spd=0.00 |
+| at t+10 s | identical | identical |
+| at t+60 s | head +0.42, hoof +0.13, lowest −0.006 | head +0.45, hoof +0.12, lowest −0.008 |
+
+The frames look the same: a boar on its flank, head and snout flat on the ground, tusk showing, legs
+folded out (`.screenshots/r1replica-carcass-60s.png` against `r3b-carcass-60s.png`). **So Karen's
+*"looks good now"*, and the 13:16 and 13:39 frames carried through rounds 1 and 2, were of code that
+drew the carcass correctly** -- they were never evidence for something that had changed underneath
+them.
+
+What the fix is actually worth is therefore the cost the Reviewer named and not a visual fault: **two
+property writes per frame per carcass, replicated, for nothing** -- up to 1,920 a second with eight
+carcasses down. Whether a client ever rendered the `speed = 1` it was sent remains the Reviewer's
+inference; I did not observe a client-side artefact in either build, and I am not claiming one.
+
+#### The fix
+
+`play` asks the new pure `Body.shouldAdjustRate`, which refuses to re-rate the clip the boar is
+**holding**: a held clip's speed is deliberately not the clip's rate, so "they disagree" is not a
+reason to write anything. `handle.heldClip` is set once, by the freeze, and cleared when a new clip
+starts, so the death's speed is written exactly once per kill. `Body.shouldFreeze`'s own "a speed
+already 0" guard stays as the second line of defence it was always written to be, and
 `Runtime:animationOf` hands a spec the write count the way `Runtime:woundOf` hands it a wound.
 
 The same round found that `HOLD_EPSILON` alone is a window under two frames wide while `stepVisual`
 gets the raw Heartbeat `dt`, so one long frame could step a death clean past its end. The window is
-now whichever is larger, the epsilon or the distance the clip covers in that frame.
+now `Body.freezeReach(speed, dt, epsilon)` -- whichever is larger, the epsilon or the distance the
+clip covers in that frame -- and it is exported so the spec tests the production formula rather than
+`math.max`.
 
 ## 8. What could not be verified here (rule 8)
 

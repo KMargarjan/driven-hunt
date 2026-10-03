@@ -355,11 +355,17 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 	model.PrimaryPart = cloneMesh
 	model.Parent = trunk
 
-	local weld = Instance.new("WeldConstraint")
-	weld.Name = "VisualWeld"
-	weld.Part0 = trunk
-	weld.Part1 = cloneMesh
-	weld.Parent = cloneMesh
+	-- EVERY DRAWN PART IS WELDED, not only the mesh (review round 2, note). The loop above forces
+	-- `Anchored = false` on all of them -- an anchored part welded into an assembly anchors the whole
+	-- boar -- so a part left unwelded would be loose inside it rather than held where it was.
+	-- RedDeer's model carries one mesh and nothing else; this makes the next template safe too.
+	for _, drawn in ipairs(parts) do
+		local weld = Instance.new("WeldConstraint")
+		weld.Name = "VisualWeld"
+		weld.Part0 = trunk
+		weld.Part1 = drawn
+		weld.Parent = drawn
+	end
 
 	-- ONE RIG, ONE CONTROLLER, AND THE ASSET BRINGS ITS OWN (measured, 2026-10-03).
 	-- `InsertService:LoadAsset` hands back `Model > Model "Boar Male RedDeer v3" > { MeshPart,
@@ -664,7 +670,7 @@ function Body.stepVisual(handle, dt: number, info, config)
 			-- to its rest pose standing up: the exact fault the freeze exists to prevent. So the
 			-- window is whichever is larger, the fixed epsilon or the distance this clip covers in
 			-- this frame. Once frozen the speed is 0, so the second term vanishes.
-			local reach = math.max(config.MODEL.HOLD_EPSILON, math.abs(track.Speed) * dt)
+			local reach = Body.freezeReach(track.Speed, dt, config.MODEL.HOLD_EPSILON)
 			if Body.shouldFreeze(track.TimePosition, track.Length, track.Speed, reach) then
 				track:AdjustSpeed(0)
 				handle.rateWrites += 1
@@ -674,6 +680,23 @@ function Body.stepVisual(handle, dt: number, info, config)
 			end
 		end
 	end
+end
+
+-- HOW WIDE THE FREEZE WINDOW IS THIS FRAME. Exported and pure because the spec used to assert
+-- `math.max` rather than this repository's code (review round 2, note), and because it is the one
+-- number standing between a death clip and the rest pose.
+--
+-- `HOLD_EPSILON` alone is 0.03 s, under two frames at 60 fps, and `stepVisual` is handed the RAW
+-- Heartbeat `dt` -- `DT_CLAMP` is applied to the Brain, not here. One long frame steps `TimePosition`
+-- clean past `length`, the non-looped track STOPS, and the carcass snaps to its rest pose. So the
+-- window is whichever is larger: the fixed epsilon, or the distance this clip covers in this frame.
+--
+-- ON A BAD HITCH IT OVERSHOOTS, and that is the trade taken knowingly (review round 2, note): a
+-- quarter-second frame would freeze the death a quarter-second short of its end rather than at it.
+-- The clip is 1.21 s and its last frames are an animal settling, so a frame early is invisible; a
+-- frame late is the animal standing back up. Once frozen the speed is 0 and the second term vanishes.
+function Body.freezeReach(speed: number, dt: number, epsilon: number): number
+	return math.max(epsilon, math.abs(speed) * dt)
 end
 
 -- Whether a one-shot track has reached its end and should be frozen there. Pure, because the branch
