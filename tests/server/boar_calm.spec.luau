@@ -7,8 +7,9 @@
 -- that picks an activity, the activity that picks a clip, and the ids that decide whether the clip
 -- can be played at all.
 --
--- THE SIX NEW CLIPS HAVE NO ASSET ID YET, so the live half asserts the promise that matters until
--- they do: a calm boar draws exactly what it drew before.
+-- THE SIX CLIPS ARE PUBLISHED (2026-10-03), so the cases below drive the real config. The "no id"
+-- promise is still asserted, because it is what every future clip relies on: a config whose calm
+-- clips have no id draws exactly what it drew before.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -193,14 +194,31 @@ return function()
 
 	describe("with no id published, a calm boar is exactly what it was", function()
 		it("draws no calm clip at all, so the gait bands answer every time", function()
-			-- The six clips are exported and waiting on the Director; `Body.hasClip` is the one test.
+			-- `Body.hasClip` is the one test, and it is what every clip added after this will rely
+			-- on. Driven with an EMPTY id table, because the six real ones are published now.
+			local model = table.clone(MODEL)
+			model.ANIMATION_IDS = { idle = 1, walk = 2 } -- only what task 115 published
+			local none = table.clone(CONFIG)
+			none.MODEL = model
 			for _, name in ipairs({ "smell", "grazeLoop", "grazeChew", "grazeStart", "grazeEnd", "digWalk" }) do
-				expect(Boar.hasClip(name, CONFIG)).to.equal(false)
+				expect(Boar.hasClip(name, none)).to.equal(false)
 			end
-			expect(clipFor(CONFIG, { activity = "graze" })).to.equal("idle")
-			expect(clipFor(CONFIG, { activity = "smell" })).to.equal("idle")
-			expect(clipFor(CONFIG, { activity = "root", speed = 1.901 })).to.equal("walk")
-			expect(clipFor(CONFIG, { activity = "walk", speed = 4 })).to.equal("walk")
+			expect(clipFor(none, { activity = "graze" })).to.equal("idle")
+			expect(clipFor(none, { activity = "smell" })).to.equal("idle")
+			expect(clipFor(none, { activity = "root", speed = 1.901 })).to.equal("walk")
+			expect(clipFor(none, { activity = "walk", speed = 4 })).to.equal("walk")
+		end)
+
+		it("plays the three one-shots ONCE and the three loops for ever, whatever the asset says", function()
+			-- All six were published `Loop = true` (the Animation Editor's toggle), like the thirteen
+			-- before them. `Body.play` writes `Looped` from this table immediately before every
+			-- `Play`, so the transitions and the head-lift end instead of repeating.
+			expect(MODEL.CLIPS.smell.looped).to.equal(false)
+			expect(MODEL.CLIPS.grazeStart.looped).to.equal(false)
+			expect(MODEL.CLIPS.grazeEnd.looped).to.equal(false)
+			expect(MODEL.CLIPS.grazeLoop.looped).to.equal(true)
+			expect(MODEL.CLIPS.grazeChew.looped).to.equal(true)
+			expect(MODEL.CLIPS.digWalk.looped).to.equal(true)
 		end)
 
 		it("an unknown activity, and no activity at all, both fall through to the gait", function()

@@ -622,19 +622,9 @@ return function()
 			digWalk = "boar.anim.calm.dig.walk",
 		}
 
-		-- THE CALM REPERTOIRE (task 117), declared and NOT published yet: `tools/boar_prep.py`
-		-- exports their FBX files and an animation id can only be made by hand in Studio. Until the
-		-- Director has published them every case below that is about PUBLISHED ids walks the
-		-- thirteen and this list says which six it is skipping. The day they are published this
-		-- list's own case fails and says to empty it.
-		local AWAITING_AN_ID = {
-			smell = true,
-			grazeLoop = true,
-			grazeChew = true,
-			grazeStart = true,
-			grazeEnd = true,
-			digWalk = true,
-		}
+		-- THE CALM REPERTOIRE (task 117), published 2026-10-03. Nothing is awaiting an id any more,
+		-- so every case below walks all nineteen clips.
+		local AWAITING_AN_ID = {}
 
 		-- THE THREE THIS PROJECT AUTHORED (task 116 fix round), PUBLISHED by the Director on
 		-- 2026-10-03 with each id verified by `AnimationClipProvider:GetAnimationClipAsync`. They are
@@ -696,13 +686,9 @@ return function()
 				expect(row.source).to.equal("own")
 			end
 
-			-- ...AND THE SIX WAITING ON A PUBLISH HAVE NO ID, asserted rather than assumed, so the
-			-- day they get one this case says to take them out of `AWAITING_AN_ID` (task 117).
-			for name in pairs(AWAITING_AN_ID) do
-				expect(MODEL.CLIPS[name]).to.be.ok()
-				local row = Assets.byKey(KEY_OF[name])
-				expect(row == nil or row.modelId <= 0).to.equal(true)
-			end
+			-- NOTHING IS WAITING ON A PUBLISH. `missing` above already walks every clip; this says
+			-- the skip list is empty rather than leaving an empty table nobody notices (task 117).
+			expect(next(AWAITING_AN_ID)).to.equal(nil)
 		end)
 
 		it("agrees with the manifest about how long each clip is", function()

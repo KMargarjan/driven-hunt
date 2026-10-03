@@ -59,8 +59,8 @@ local CLIP_KEYS = {
 	deathPaddleLeft = Assets.KEYS.boarDeathPaddleLeft,
 	deathPaddleRight = Assets.KEYS.boarDeathPaddleRight,
 	crippleDrag = Assets.KEYS.boarCrippleDrag,
-	-- The calm repertoire (task 117). No row names them until the Director publishes, so the boot's
-	-- own "n of m clips" line says 13 of 19 and the boar behaves exactly as it did.
+	-- The calm repertoire (task 117), published 2026-10-03, so the boot's own "n of m clips" line
+	-- below says 19 of 19.
 	smell = Assets.KEYS.boarSmell,
 	grazeLoop = Assets.KEYS.boarGrazeLoop,
 	grazeChew = Assets.KEYS.boarGrazeChew,
