@@ -1,21 +1,55 @@
 # Task 118 — boar behaviour: what a boar does about what it notices
 
 Task: 118
-Round: 1
+Round: 2
 Base: 4cefbc516e0a7eeb3ca4b96506c3e5366aab57fa
-Code commit: 2c845129552f89c4c0e763e28ee20b5ea14a454d
+Code commit: ce299b772fdc9236b57cc2a6d6a5accbc97f88e6
 
 The base is the head of `task-117-calm-boar`, the branch this PR targets: 118 is stacked on 117.
 
 ```
-[harness]  PASS: 33/33 checks @ 2c845129552f89c4c0e763e28ee20b5ea14a454d (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 2c845129552f89c4c0e763e28ee20b5ea14a454d (clean tree)
+[harness] PASS: 33/33 checks @ ce299b772fdc9236b57cc2a6d6a5accbc97f88e6 (clean tree) scope=all
 ```
-Both lines are the Director's run at this sha. The code commit is `2c84512` and only paperwork
-follows the last commit that changed `src/`, `tests/` or `tools/` (`6dbda7b`), so the evidence covers
-the head. This task touches `src/server/Match/` and `src/server/MatchBoot.server.luau`, which is why
-`test2` is in the gate at all; an earlier run at `dbb2419` found two failures, **neither of them
-118's code**, both fixed in `6dbda7b` — see "The two `test2` failures" below.
+`[harness2]`: **PENDING at this sha.** Round 2's own diff is `src/server/Boar/` plus one spec and two
+docs — **not** `TWO_PLAYER_PATHS` — but the PR's diff against its base still contains
+`src/server/Match/` and `src/server/MatchBoot.server.luau` from round 1, so the merge gate still
+wants `test2`, and the `[harness2] PASS: 35/35 @ 2c84512` the Director ran for round 1 no longer
+covers this code.
+
+## What changed in round 2
+
+**The one blocking finding is right, and the deadlock is exactly as the Reviewer wrote it.** Row 8 of
+`Brain:_senseAware` flushes an alarmed member and `_flush` resets `_sinceCalm`, so an alarmed member
+could never become calm; the only clear for `entry.alarmIn` requires EVERY member calm; so the alarm
+never cleared and a sounder that panicked once ran until its last member crossed the exit line —
+against §5.2 items 3 and 4, §3.2 row 11 and §14's own scene.
+
+**Fixed at the cause, in `Runtime:_stepAlarm`:** the alarm is a PULSE. It is published to a member
+from the step its delay runs out until the step that member is itself panicked, and is then spent —
+its one job is to START the animal running, and from there §3.2 row 11's calm-down owns the settling,
+which is what §5.2 item 4 says. The Brain is untouched: who has been told is the Runtime's
+bookkeeping, like membership and the leader.
+
+**And the case that was missing.** `boar_behaviour.spec` now drives a REAL runtime **stepped by
+hand** — no Heartbeat, so no physics, so nothing moves, so nobody can escape and nothing is timed
+against a wall clock: a sounder of three, one non-lethal hit, then nothing in range for ever.
+Measured: all three running **0.43 s** after the hit and all back to `IDLE` **6.72 s** later.
+Mutation-checked — put the latch back and `expect(settled)` fails.
+
+**Three notes fixed because they are one-liners**, the rest queued as **118a**: `Runtime:hearShot`
+now hears and counts nothing with the flag off; `Brain.sees` casts its ray the length of the RAY and
+not of the flat distance (the flat one is no longer a parameter); the calm-margin case's prose said
+40 + 30 where the code adds the margin to the NOTICE radius, so 60 + 30. `118a` carries the
+`match_*` case for `boarStimuli`'s kinds — **not** done here on purpose, because
+`tests/server/match_*.spec.luau` is in `TWO_PLAYER_PATHS` and would cost another two-player click for
+something that is not the blocking finding — plus `REQUIRE_SIGHT`'s off-tick inconsistency and the
+quick-test phantom's 15-stud flush radius.
+
+**A live case for the settle is not cheap, and here is the arithmetic.** `boar_behaviour_live.spec`'s
+field is the design's (`exitZ = -60` on a 170-stud plate); a sounder sprinting at `SPRINT_SPEED` = 38
+covers the whole plate in ~3.3 s, which is less than `CALM_TIME` = 4 s, so a panicked sounder there
+always crosses the line before it could settle. The hand-stepped runtime case above is the same
+mechanism end to end — `_stepAlarm`, `_sounderObs` and the Brain — without that geometry.
 CI is red for ONE reason that is **task 117's and must not be fixed here**: `tools/boar_prep.py`'s
 selftest still says "ten clips" with sixteen in the tuple.
 
@@ -24,9 +58,11 @@ selftest still says "ten clips" with sixteen in the tuple.
 1. **With `BOAR_BEHAVIOUR` off, this is Milestone 1.2's world.** Every radius is `DETECT_RADIUS`,
    only `kind == "driver"` is a stimulus, nothing hears anything, and the leader-panic rule is the
    one that runs. *Verify:* `boar_behaviour.spec`, "with the flag OFF…" (three cases); every
-   existing boar/match spec passes **unchanged**. Mutation-checked: deleting the kind filter makes
-   the first case fail (a shooter at 24 studs bolts the flag-OFF boar), deleting `_hearSound`'s flag
-   gate makes the third fail.
+   existing boar spec passes **unchanged**; the one existing spec this branch edits is
+   `tests/server/match_teams.spec.luau`, for a reason that is not 118's and is set out below.
+   Mutation-checked: deleting the kind filter fails "cannot see a shooter at all", and deleting
+   `_hearSound`'s flag gate fails "hears nothing past SHOT_AUDIBLE_STUDS, and nothing at all with the
+   flag off" (which lives in the "a shot is a sound" block, not under "with the flag OFF").
 2. **One pure function decides what a boar perceives.** `Brain.perceive` replaces `_threatInfo`; a
    notice radius and a flush radius per stimulus, standing 25/15 and moving 60/40, strongest wins,
    ties to the nearest, and `CALM_RADIUS - DETECT_RADIUS == SENSE.CALM_MARGIN` is asserted so the OFF
@@ -36,11 +72,12 @@ selftest still says "ten clips" with sixteen in the tuple.
    2.52 s, then 8.10 s of grazing; AVOID opened 38.3 studs in 3 s with `pathRequest` nil on all 600
    steps). Mutation-checked: zeroing the refractory and flipping `avoidTarget`'s angle each fail
    their own case.
-4. **A shot is a sound, and panic spreads member to member.** `Weapon.ShotFired` → `MatchBoot` →
+4. **A shot is a sound, and panic spreads member to member — and then STOPS.** `Weapon.ShotFired` → `MatchBoot` →
    `Runtime:hearShot` → `obs.sounds`, reusing the existing bolt; the sounder's alarm REPLACES the
    leader-panic rule. *Verify:* the shot cases (sprint held 3.72 s, nothing past 350 studs, carcass /
    crippled / wounded unaffected) and `boar_behaviour_live.spec` (a sounder of 3 all running after 25
-   frames, with sampled steps where one ran and another did not).
+   frames, with sampled steps where one ran and another did not), and "releases the alarm, so a
+   sounder that panicked settles instead of running off the map" (round 2's own case).
 5. **Shooters are perceivable now, and the composition root keeps no conditional.**
    `Match.Body.boarStimuli` is a NEW function beside `driverPositions`, which is untouched;
    `MatchBoot` wires `Match.boarThreats` unconditionally and the Brain drops non-drivers when the
@@ -49,7 +86,11 @@ selftest still says "ten clips" with sixteen in the tuple.
 
 ## The two `test2` failures at `dbb2419` — both older than 118, both fixed at their cause
 
-Neither failure is in code this task wrote, and neither assertion was weakened to pass.
+Neither failure is in code this task wrote. Neither assertion was weakened in the sense that each
+still fails on the thing it exists for — though the Reviewer is right that in a `test2` run, where
+the shooter is tied by design, `match_teams`'s equality reduces to "both roles false" and the role
+difference then rests on the driver-is-never-tied half; in a one-player `test` it still fails if
+`mayCarryWeapon` stopped telling the roles apart.
 
 1. **`match_teams.spec:106` — Task 34 meeting Task 35.** "A shooter carries a gun and a driver does
    not" was written in Task 34 (`7f4f1e3`, 2026-09-25), **one task before** Task 35 (`ed9fb0a`) added
