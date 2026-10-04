@@ -1477,6 +1477,7 @@ class Studio:
         # and every later call that names nothing lands on the editor, which is where every
         # Edit-mode call in this file means to go anyway. An explicit studio_id always wins.
         self.default_studio_id = None
+        self.default_studio_name = None
         # THE PLAY DATAMODELS OF THE RUN THIS PROCESS STARTED, by id, once they exist.
         #
         # A Play session registers its server and its client as SEPARATE Studio ids. With exactly
@@ -1577,9 +1578,15 @@ class Studio:
                     place = ""
                 if place == HARNESS_PLACE_ID or HARNESS_PLACE_ID in (studio.get("name") or ""):
                     self.default_studio_id = studio.get("id")
+                    # WHAT THIS LINE MEANS, because it claimed too much. It said "using Driven Hunt
+                    # DEV" on every run -- including calls that passed an explicit `studio_id` for
+                    # the OTHER place, which ran there and were reported as running here. The
+                    # default is only the fallback for calls that name nothing; it is not where the
+                    # next call goes.
+                    self.default_studio_name = studio.get("name") or ("place " + place)
                     print(
-                        "[harness] %d Studios connected; using %s"
-                        % (len(studios), studio.get("name") or ("place " + place))
+                        "[harness] %d Studios connected; unscoped calls default to %s"
+                        % (len(studios), self.default_studio_name)
                     )
                     return
             time.sleep(2)
@@ -1631,6 +1638,22 @@ class Studio:
         result = self._rpc("tools/call", {"name": tool, "arguments": arguments})
         text = "\n".join(c.get("text", "") for c in result.get("content", []))
         if result.get("isError"):
+            # A STUDIO ID GOES STALE WHEN A PLAY SESSION ENDS. StudioMCP re-registers the editor
+            # under a NEW id and refuses the old one as "not connected" -- measured in the Forest
+            # Test place right after a solo Play stopped. The id a caller is holding is then wrong
+            # through no fault of its own, so the default is dropped and resolved once more before
+            # the call is given up on.
+            if chosen and "not connected" in text.lower() and tool not in self.UNSCOPED_TOOLS:
+                self.default_studio_id = None
+                self.default_studio_name = None
+                self._choose_default_studio()
+                retry = self._scoped(tool, None, arguments)
+                if retry and retry != chosen:
+                    arguments["studio_id"] = retry
+                    result = self._rpc("tools/call", {"name": tool, "arguments": arguments})
+                    text = "\n".join(c.get("text", "") for c in result.get("content", []))
+                    if not result.get("isError"):
+                        return text
             raise RuntimeError(f"{tool}: {text}")
         return text
 

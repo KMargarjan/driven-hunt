@@ -81,6 +81,14 @@ Map.WORLD_BY_PLACE = {
 Map.DEFAULT_WORLD = "map:v1"
 
 Map.EXPECTED_WORLD = Map.WORLD_BY_PLACE[game.PlaceId] or Map.DEFAULT_WORLD
+
+-- IS THIS A PLAYTEST WORLD? One named fact, so the places that have to behave differently in it ask
+-- a question instead of comparing a string each in their own way.
+--
+-- IT IS WHAT TURNS THE REAL ANIMAL ON THERE. `BOAR_MODEL` and `BOAR_BEHAVIOUR` default to false and
+-- the playtest world needs both; the alternative was a live `DHFlag_` attribute, which is not in
+-- git and is lost when the place is reopened -- so Karen would find box boars and no reason why.
+Map.PLAYTEST_WORLD = Map.EXPECTED_WORLD == "forest-test"
 Map.SEED = 1 -- the seed the committed map was built from
 -- The digest that seed produced, filled from the build that made the place this commit describes:
 -- `mapgen.py build --seed 1` prints it and `mapgen.py digest` reads it back out of Studio.

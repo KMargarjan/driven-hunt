@@ -185,20 +185,30 @@ function ForestTest.release(now: number): (number, string)
 	if runtime == nil then
 		return 0, "no runtime"
 	end
-	-- THE CAP IS CHECKED BEFORE THE SPAWN, not after. Karen: *"a lot not too much to break"*.
-	local room = Data.MAX_BOARS - runtime:count()
+	-- THE CAP IS CHECKED BEFORE THE SPAWN, not after, and it is the SMALLER of two caps.
+	--
+	-- Karen asked for *"a lot not too much to break"*, which is `Data.MAX_BOARS`. The runtime has
+	-- its own ceiling as well (`maxBoars`), and `Runtime:spawn` ASSERTS rather than refusing when it
+	-- is reached -- so asking past it is not a declined wave, it is an error that kills the
+	-- heartbeat this runs on.
+	local ceiling = math.min(Data.MAX_BOARS, runtime:capacity())
+	local room = ceiling - runtime:count()
 	if room <= 0 then
-		return 0, string.format("wave %d held: %d boars already out", state.waveIndex, runtime:count())
+		return 0, string.format("wave %d held: %d of %d boars already out", state.waveIndex, runtime:count(), ceiling)
 	end
 	local size = math.min(spec.size, room)
 	local centre = Data.holdingPosition(entry)
+	-- WHAT THESE TWO ACTUALLY RETURN, read off `Boar` rather than assumed -- the first version of
+	-- this line assumed both gave a count and crashed the whole schedule on the first wave with
+	-- "attempt to compare number < table", so NO wave ever ran:
+	--   `Runtime:spawnSounder` returns a TABLE of handles -- `{}` when it refuses, one handle when
+	--     the size is 1, otherwise one per member. Its length is the count.
+	--   `Runtime:spawn` returns a HANDLE, which is truthy and is not a number.
 	local placed = 0
 	if size <= 1 then
-		if runtime:spawn(centre, "male") then
-			placed = 1
-		end
+		placed = if runtime:spawn(centre, "male") ~= nil then 1 else 0
 	else
-		placed = runtime:spawnSounder(centre, size, 30) or 0
+		placed = #runtime:spawnSounder(centre, size, 30)
 	end
 	if placed > 0 then
 		table.insert(state.active, {

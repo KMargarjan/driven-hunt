@@ -23,8 +23,11 @@
 --
 -- Design: docs/design/asset-pipeline.md (sections 5, 6), docs/design/boar-ai.md (section 6)
 -- Note:   docs/research/2026-10-03-boar-skinned-model.md
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
+
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Assets = require(ServerStorage:WaitForChild("Assets"))
@@ -33,9 +36,22 @@ local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
 -- WITH THE FLAG OFF, NOTHING HAPPENS AT ALL: no network call, no wiring, no warning. The flag is read
 -- at the boar's own boundary (`Boar.CONFIG.MODEL.ENABLED`) and this script only reads it back, so
 -- there is still one source for it.
-if not Boar.CONFIG.MODEL.ENABLED then
+--
+-- ...OR THE WORLD ASKS FOR IT ANYWAY (task 122). The playtest world turns the model on through the
+-- boar runtime's own `config`, which is the right seam for what a boar LOOKS like -- but that is
+-- the runtime's clone, and this script reads the MODULE's flag, so the animals were drawn from
+-- assets nobody had loaded. Measured in the Forest Test place: "BOAR_MODEL is off: the boar is the
+-- grey box, and nothing was loaded."
+--
+-- The world says so at this boundary, which is where a composition decision belongs, and it is
+-- still ONE question with one answer rather than a second flag.
+local wanted = Boar.CONFIG.MODEL.ENABLED or Map.PLAYTEST_WORLD
+if not wanted then
 	print("[BoarAssetsBoot] BOAR_MODEL is off: the boar is the grey box, and nothing was loaded.")
 	return
+end
+if not Boar.CONFIG.MODEL.ENABLED then
+	print("[BoarAssetsBoot] BOAR_MODEL is off but the world is " .. Map.EXPECTED_WORLD .. ": loading anyway.")
 end
 
 -- THE ONE MAPPING FROM A CLIP'S NAME TO ITS ASSET KEY, in the composition root because that is where
