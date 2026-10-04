@@ -189,11 +189,25 @@ end)
 
 -- ONE HEARTBEAT FOR BOTH JOBS: the schedule and the leash. The boar runtime runs its own; this is
 -- only the playtest's own clock.
+--
+-- THE WAVE REPORT GOES TO THE CONSOLE, and that is not decoration. A tool connected over StudioMCP
+-- cannot read this module's state: its `require` returns ITS OWN instance of the module, with an
+-- empty `state` table -- measured, `stats()` answered "started=false boars=0" while 40 boars stood
+-- in the world. The console comes from the server that is actually running, so it is the only
+-- honest channel for "what is the push doing".
+local lastReportAt = 0
+
 RunService.Heartbeat:Connect(function()
 	local now = os.clock()
 	local line = ForestTest.step(now)
 	if line then
 		print("[ForestTest] " .. line)
+	end
+	if now - lastReportAt >= 2 then
+		lastReportAt = now
+		for _, report in ipairs(ForestTest.waveReport(now)) do
+			print("[wave] " .. report)
+		end
 	end
 	for _, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
