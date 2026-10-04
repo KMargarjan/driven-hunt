@@ -901,6 +901,46 @@ return function()
 			runtime:destroy()
 		end)
 
+		it("flag ON: lifts NOTHING when there is no death clip to fall with", function()
+			-- REVIEW ROUND 1, NOTE. The lift gives back what the DEATH CLIP takes off a smaller rig,
+			-- so in the world task 116 deliberately supports -- `BOAR_MODEL` on, no death animation
+			-- published -- there is nothing to give back, and lifting anyway would hang a cub's
+			-- carcass 1.009 studs in the air for the whole `CARCASS_SECONDS`.
+			local kindsOn = (function()
+				local kinds = table.clone(CONFIG.KINDS)
+				kinds.ENABLED = true
+				local copy = table.clone(CONFIG)
+				copy.KINDS = kinds
+				return copy
+			end)()
+			local ids = table.clone(FAKE_IDS)
+			ids.deathLeft = nil
+			ids.deathRight = nil
+			local world = buildWorld(true)
+			world.folderName = "BoarsNoDeathClip"
+			world.config.KINDS = { ENABLED = true }
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(name: string)
+				return ids[name]
+			end)
+
+			local handle = runtime:spawn(Vector3.new(0, GROUND_Y, -60), "cub")
+			step(runtime, 1 / 60, 3)
+			local mesh = visualsOf(handle.part)[1].PrimaryPart :: BasePart
+			local before = handle.part.CFrame:ToObjectSpace(mesh.CFrame).Position
+			-- The cub HAS a lift to give back -- this is the same animal as the case above...
+			expect(Boar.kindGeometry("cub", kindsOn).deathLift > 1).to.equal(true)
+			kill(runtime, handle)
+			-- ...and it stays exactly where it was drawn, because nothing laid it down.
+			local after = handle.part.CFrame:ToObjectSpace(mesh.CFrame).Position
+			expect((after - before).Magnitude < 1e-3).to.equal(true)
+			TestKit.note("boar-model: with no death clip published, a cub's carcass is not lifted")
+			runtime:destroy()
+		end)
+
 		it("never dresses a boar that is already a carcass", function()
 			-- The asset can land AFTER a boar has died (preload is bounded at 15 s). Its box has already
 			-- been rolled, so putting the model on now would lay the clip down a second time and bury it

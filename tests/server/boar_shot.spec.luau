@@ -844,9 +844,16 @@ return function()
 		end
 
 		-- Six animals, six seconds of running from a driver: the most footstep loops heard at once
-		-- across the whole sounder, how many grunts the herd managed between them, and whether any
-		-- FOLLOWER was ever heard walking.
-		local function runSounder(name: string, oneEmitter: boolean): (number, number, boolean)
+		-- across the whole sounder, and whether any FOLLOWER was ever heard walking.
+		--
+		-- WHAT THIS HALF DOES NOT PROVE, said plainly (review round 1, finding 1): a spec cannot
+		-- make six animals audibly run abreast. The silent pre-roll stops every loop it finds at
+		-- volume 0 and -- until the one-liner in `stepSound` beside this round -- a loop came back
+		-- only on a GAIT CHANGE, so even with the cap OFF this measured one audible loop. So the
+		-- footstep numbers here are a REGRESSION GUARD ("no follower is ever heard"), not an A/B;
+		-- the A/B is `Boar.isStepEmitter`, driven both ways in the pure case above. The grunt cap
+		-- has its own case below, on a CALM herd, because a fleeing one never grunts at all.
+		local function runSounder(name: string, oneEmitter: boolean): (number, boolean)
 			local runtime = crowdRuntime(name, oneEmitter)
 			local handles = runtime:spawnSounder(Vector3.new(0, GROUND_Y, -10), 6, 10)
 			expect(#handles).to.equal(6)
@@ -865,38 +872,143 @@ return function()
 				end
 				worstLoops = math.max(worstLoops, loops)
 			end
-			local grunts, fleeing = 0, 0
+			local fleeing = 0
 			for _, handle in ipairs(handles) do
-				grunts += handle.soundPlays.grunt or 0
 				if handle.state() == "FLEE" then
 					fleeing += 1
 				end
 			end
-			-- ...and they really were running from the driver, or none of this measured anything.
+			-- They really were running from the driver, or none of this measured anything. NOTHING
+			-- IS CLAIMED HERE ABOUT GRUNTS: a running herd is the one that cannot grunt
+			-- (`GRUNTS.MAX_SPEED` = 6 against a flee at 18 or 38), which is exactly why counting
+			-- them here could not fail, and why the cap has its own case on a CALM herd below.
 			expect(fleeing).to.equal(6)
 			runtime:destroy()
-			return worstLoops, grunts, follower
+			return worstLoops, follower
 		end
 
-		it("plays ONE set of hooves for a whole sounder, and one grunt at a time", function()
+		-- A CALM sounder, where a grunt can actually happen, and the gap as a PARAMETER so the cap
+		-- can be turned off without touching the config the game ships (review round 1, finding 1).
+		local function gruntsIn(name: string, seconds: number, gap: number): (number, number)
+			local world = buildWorld(true, name) -- its own `threats()` is empty: nothing to flee
+			world.config.KINDS = { ENABLED = true }
+			local sound = table.clone(CONFIG.SOUND)
+			local crowd = table.clone(CONFIG.SOUND.CROWD)
+			crowd.SOUNDER_GRUNT_GAP = gap
+			sound.CROWD = crowd
+			world.config.SOUND = sound
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(clip: string)
+				return FAKE_IDS[clip]
+			end)
+			local handles = runtime:spawnSounder(Vector3.new(0, GROUND_Y, 20), 6, 10)
+			warmedUp(runtime)
+			for _ = 1, math.ceil(seconds / DT) do
+				step(runtime)
+			end
+			local grunts, members = 0, 0
+			for _, handle in ipairs(handles) do
+				grunts += handle.soundPlays.grunt or 0
+				members += 1
+			end
+			runtime:destroy()
+			return grunts, members
+		end
+
+		it("plays ONE set of hooves for a whole sounder, whoever is running", function()
 			-- THE GATE ITSELF IS PURE and is driven both ways in "a sounder is one set of hooves"
 			-- above; what six real animals add is that nothing else in the Runtime undoes it.
-			local capped, grunts, cappedFollower = runSounder("BoarsCrowdSteps", true)
+			local capped, cappedFollower = runSounder("BoarsCrowdSteps", true)
 			local uncapped = runSounder("BoarsCrowdLoose", false)
 
 			-- NO FOLLOWER IS EVER HEARD: whatever hooves the herd has are its leader's.
 			expect(cappedFollower).to.equal(false)
 			expect(capped <= 1).to.equal(true)
+			-- ...and with the cap off it is still ONE, which is a fact about the herd and not about
+			-- the cap: MEASURED, a sounder's followers hold their slot relative to the leader, so
+			-- the leader is the only member whose setpoint speed reaches `STEPS.MIN_SPEED` even
+			-- while all six are in FLEE. That is why the A/B for this gate is the pure
+			-- `Boar.isStepEmitter` and this half is a regression guard.
 			expect(uncapped >= 1).to.equal(true)
+			TestKit.note(
+				string.format("boar-crowd: six fleeing boars -- %d footstep loop(s) at once, no follower heard", capped)
+			)
+		end)
 
-			-- AND ONE VOICE AT A TIME: six seconds of sounder at a 2.5 s gap is three grunts at the
-			-- very most, wherever in the herd they came from.
-			expect(grunts <= math.ceil(6 / SOUND.CROWD.SOUNDER_GRUNT_GAP) + 1).to.equal(true)
+		it("brings a footstep loop back when something else has stopped it", function()
+			-- REVIEW ROUND 1, NOTE, and the reason the live footstep numbers were so thin: the
+			-- silent pre-roll plays every sound at volume 0 and `Body.coolAssets` STOPS the ones it
+			-- finds there, while `stepSound` only ever played a loop on a GAIT CHANGE -- so an
+			-- animal whose gait did not change across that moment ran silently for ever. It matters
+			-- more since this task, because a sounder's hooves are now one animal's: the silent one
+			-- could be the whole herd.
+			--
+			-- Driven exactly as it happens: find the loop a running boar is playing, STOP it the way
+			-- the cool-down does, step once, and it is back.
+			local world = buildWorld(true, "BoarsLoopBack")
+			world.threats = function()
+				return { { position = Vector3.new(0, GROUND_Y, 30), kind = "driver" } }
+			end
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(clip: string)
+				return FAKE_IDS[clip]
+			end)
+			local handle = runtime:spawn(Vector3.new(0, GROUND_Y, 0))
+			warmedUp(runtime)
+
+			local playing = nil
+			for _ = 1, math.ceil(4 / DT) do
+				step(runtime)
+				local loops = playingLoops(handle)
+				if #loops > 0 then
+					playing = loops[1]
+					break
+				end
+			end
+			-- It really was making footsteps, or this proves nothing.
+			expect(playing).to.be.ok()
+			local loop = soundNamed(handle, playing) :: Sound
+			loop:Stop()
+			expect(audible(loop)).to.equal(false)
+			step(runtime)
+			expect(audible(loop)).to.equal(true)
+			TestKit.note(string.format("boar-shot: %s came back the step after it was stopped", playing))
+			runtime:destroy()
+		end)
+
+		it("rations a CALM sounder's grunts: one at a time, with a gap between them", function()
+			-- KAREN, 2026-10-04: "several sqeeng it could be anoying and shit sound". A herd mutters,
+			-- it does not chorus. Twenty seconds is several of each animal's own 3-8 s intervals, so
+			-- six boars left alone have plenty to say -- and the only difference between the two runs
+			-- is `SOUNDER_GRUNT_GAP`.
+			local seconds = 20
+			local capped, members = gruntsIn("BoarsGruntCapped", seconds, SOUND.CROWD.SOUNDER_GRUNT_GAP)
+			local uncapped = gruntsIn("BoarsGruntLoose", seconds, 0)
+			expect(members).to.equal(6)
+
+			-- THE HERD REALLY WAS TALKING, or nothing below means anything.
+			expect(uncapped >= 6).to.equal(true)
+			-- THE CAP REMOVED GRUNTS, which is the A/B the gap exists for...
+			expect(capped < uncapped).to.equal(true)
+			-- ...it removed them to the rate it promises, counting the whole herd as one voice...
+			expect(capped <= math.ceil(seconds / SOUND.CROWD.SOUNDER_GRUNT_GAP) + 1).to.equal(true)
+			-- ...and it did NOT silence the sounder: a mute herd would be a worse fault than a noisy
+			-- one, and a grunt that loses the slot is skipped rather than queued, so the herd keeps
+			-- talking at the rationed rate.
+			expect(capped >= 1).to.equal(true)
 			TestKit.note(
 				string.format(
-					"boar-crowd: six fleeing boars -- %d footstep loop(s) at once, no follower heard, %d grunt(s) in 6 s",
+					"boar-crowd: a calm sounder over %d s -- %d grunt(s) at a %.1f s gap against %d with no gap",
+					seconds,
 					capped,
-					grunts
+					SOUND.CROWD.SOUNDER_GRUNT_GAP,
+					uncapped
 				)
 			)
 		end)

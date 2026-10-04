@@ -1835,7 +1835,9 @@ function Runtime:_claimSqueal(): boolean
 		end
 	end
 	self._squeals = kept
-	if #kept >= crowd.MAX_SQUEALS then
+	-- THE COUNT COMES FROM THE PURE RULE (review round 1, note): the spec that drives
+	-- `Boar.squealsSounding` is then driving the cap itself and not a copy of it.
+	if Boar.squealsSounding(kept, now) >= crowd.MAX_SQUEALS then
 		self._stats.squealsSkipped += 1
 		return false
 	end
@@ -1855,7 +1857,9 @@ function Runtime:_voiceFor(entry, threats, now: number)
 	end
 	local at = Body.position(entry.body)
 	local nearest = nil
-	for _, threat in ipairs(threats) do
+	-- `or {}` like every other consumer of this list (review round 1, note): a world whose
+	-- `threats()` answers nil behaves instead of erroring every step.
+	for _, threat in ipairs(threats or {}) do
 		if typeof(threat.position) == "Vector3" then
 			local flat = Vector3.new(threat.position.X - at.X, 0, threat.position.Z - at.Z).Magnitude
 			if nearest == nil or flat < nearest then
@@ -2621,12 +2625,15 @@ function Runtime:step(dt: number)
 			-- Exactly once per boar: the Brain reports `downed` on the tick it enters DOWN and never
 			-- again, so the kill cannot be published twice.
 			self._stats.downed += 1
-			Body.collapse(entry.body, config.WOUND)
+			Body.collapse(entry.body, config.WOUND, config)
 			-- IT DIES OUT LOUD, AND THEN IT STOPS MAKING NOISE (task 116). The scream and the body
 			-- landing play together -- a boar goes down and hits the ground in one movement -- and
 			-- every looping sound is cut, because a carcass has no footsteps.
 			if config.MODEL.ENABLED then
-				Body.playDeath(entry.body, config, self._rng, self:_claimSqueal())
+				-- THE SLOT IS ONLY CLAIMED IF THERE IS SOMETHING TO MAKE THE NOISE (review round 1,
+				-- note): a boar with no sounds would otherwise burn one of the world's two voices
+				-- for `SQUEAL_SECONDS` without ever being heard.
+				Body.playDeath(entry.body, config, self._rng, entry.body.soundFolder ~= nil and self:_claimSqueal())
 			end
 			self._downedSignal:Fire(Wound.killRecord(
 				entry.wound,

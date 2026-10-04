@@ -297,8 +297,9 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		visual = nil :: Model?,
 		-- name -> how many times `playOneShot` has really played it (task 120).
 		soundPlays = {} :: { [string]: number },
-		-- name -> seconds of sound left before it is faded out and stopped (task 120).
-		cutIn = {} :: { [string]: number },
+		-- name -> { left = seconds of sound still to play, spec = the row it was played from },
+		-- which is what `stepCuts` fades and stops (task 120, review round 1 note).
+		cutIn = {} :: { [string]: { left: number, spec: any } },
 		-- How loud this animal's voice is right now, as a fraction of each cue's own volume: 1 near
 		-- a hunter, down to `CROWD.FAR_VOLUME` far from one. Written only by `Body.setVoiceScale`.
 		voiceScale = 1,
@@ -1534,6 +1535,17 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, 
 		if now and math.abs(now.PlaybackSpeed - rate) > config.MODEL.RATE_EPSILON then
 			now.PlaybackSpeed = rate
 		end
+		-- ...AND A LOOP SOMETHING ELSE STOPPED COMES BACK (task 120, review round 1 note). The
+		-- silent pre-roll plays every sound at volume 0 and `coolAssets` STOPS the ones it finds
+		-- there -- a boar whose gait did not change across that moment then ran silently for ever,
+		-- because the branch above only plays on a CHANGE. Measured in a spec: six boars all
+		-- fleeing, one audible loop. It matters more since this task, because a sounder's hooves
+		-- are now one animal's (`isStepEmitter`): the silent one could be the whole herd's voice,
+		-- which is the opposite of "hear them coming".
+		if now and not now.IsPlaying then
+			now.Volume = sound.STEPS[gait].volume
+			now:Play()
+		end
 	end
 
 	if handle.collapsed then
@@ -1609,7 +1621,12 @@ end
 -- now finds no damageable root, so further pellets are a miss and no second kill can be counted)
 -- and Carcass true (a marker Milestone 1.7 can read without requiring Boar). An attribute rather
 -- than a CollectionService tag because the harness compares attributes and does not compare tags.
-function Body.collapse(handle, config)
+-- `config` IS THE WOUND'S OWN TABLE, as it has been since task 28; `full` is the WHOLE config and
+-- is appended, never inserted (task 120, review round 1 note). It is here for one question -- is
+-- there a death clip to fall with? -- and a caller that does not hand it over gets no lift, which
+-- is the pre-120 behaviour and the safe way round: a carcass that was never raised is a carcass
+-- lying where the clip left it, and a carcass raised with nothing to pull it down floats.
+function Body.collapse(handle, config, full)
 	if handle.collapsed then
 		return
 	end
@@ -1658,8 +1675,15 @@ function Body.collapse(handle, config)
 	-- this corrects is the one the carcass is HELD on for CARCASS_SECONDS. What a player sees is
 	-- the dying animal start its fall a body-height high instead of ending it under the ground --
 	-- downward motion masking a lift, rather than a carcass that has to pop up at rest.
+	--
+	-- ...AND ONLY WHERE THERE IS A FALL TO CANCEL (review round 1, note). The lift gives back what
+	-- the DEATH CLIP takes off a smaller rig, so with no death clip published there is nothing to
+	-- give back -- and lifting anyway would hang a cub's carcass 1.009 studs in the air for
+	-- `CARCASS_SECONDS`. Task 116 supports that world on purpose (`stepVisual`'s twitch branch, and
+	-- `boar_shot.spec`'s `withIds({})`), so it is asked rather than assumed.
 	local lift = (handle.geometry and handle.geometry.deathLift) or 0
-	if lift > 0 then
+	local falls = full ~= nil and Body.hasClip((Body.deathClips(full)), full)
+	if lift > 0 and falls then
 		Body.liftDrawn(handle, lift)
 	end
 end
