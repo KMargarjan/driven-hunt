@@ -3,12 +3,12 @@
 Task: 119
 Round: 1
 Base: f21260b0f8540a801882b97444248162955bb855
-Code commit: f175659caa2f9255743f0bc02e8187a467773797
+Code commit: cb15e972413fa86d27f88caa600adaa316405575
 
 The base is the head of `task-118-boar-behaviour`, the branch this PR targets: 119 is stacked on 118.
 
 ```
-[harness] PASS: 33/33 checks @ f175659caa2f9255743f0bc02e8187a467773797 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ cb15e972413fa86d27f88caa600adaa316405575 (clean tree) scope=all
 ```
 `[harness2]`: **N/A.** Nothing in this task touches `src/server/Match/`, `src/server/MatchBoot...`,
 `src/client/Match/`, `src/shared/Drive/` or their specs; the branch's own diff against its base is
