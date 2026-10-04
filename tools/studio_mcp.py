@@ -699,7 +699,14 @@ SCOPE_SPECS = {
               "tests/server/match_teams.spec.luau", "tests/server/zz_drive_boundary.spec.luau",
               "tests/client/match_client.spec.luau", "tests/client/outfit_client.spec.luau",
               "tests/client/zz_tie_to_a_tree.spec.luau"),
-    "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau"),
+    # `map_perf` is the CLIENT half of the map's scope (task 121): the forest's frame cost is
+    # measured where it is drawn, and it is reported rather than asserted, so it belongs with the
+    # map and not with the camera.
+    "map": (
+        "tests/server/map_contract.spec.luau",
+        "tests/server/test_arena.spec.luau",
+        "tests/client/map_perf.spec.luau",
+    ),
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).
     "assets": ("tests/server/assets_seam.spec.luau", "tests/server/boar_model.spec.luau"),
