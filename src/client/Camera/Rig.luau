@@ -51,6 +51,18 @@ end
 local function disableStockCameras(module: Instance): (boolean, string?)
 	local ok, err = pcall(function()
 		cameras = require(module :: ModuleScript):GetCameras()
+		-- `Disable` IS NOT ON EVERY PlayerModule, and that is measured rather than assumed. In the
+		-- playtest place the call raised "attempt to call missing method 'Disable' of table" while
+		-- the DEV place never printed it -- same `StarterPlayerScripts` in both, so it is Roblox's
+		-- own injected module differing between places, not anything this project ships.
+		--
+		-- Asking first turns an alarming stack trace into a plain answer. It changes nothing about
+		-- whether the camera is ours: `CameraType` is still Scriptable and the foreign-write
+		-- detector is still what proves it (design section 10.1, which says exactly that because
+		-- `GetCameras()` is thinly documented and Roblox-controlled).
+		if typeof((cameras :: any).Disable) ~= "function" then
+			error("this PlayerModule's GetCameras() has no Disable method", 0)
+		end
 		cameras:Disable()
 	end)
 	stockDisabled = ok
