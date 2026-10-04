@@ -72,8 +72,8 @@ is the brief's: research found no Drückjagdbock model anywhere, so there was no
 | Quantity | Target | Measured, seed 1 |
 |---|---|---|
 | Map | 3,072 studs | 3,072; 10,412,356 terrain cells |
-| Terrain steps | the design estimated 668 | **752** (576 lower band passes + 176 upper), derived not typed |
-| Whole plan | ≈714 steps | **803** |
+| Terrain steps | the design estimated 668 | **576**, one band pass per tile, derived not typed (it was 752 while the rim was 120 studs) |
+| Whole plan | ≈714 steps | **627** |
 | Trees | ≈1,300, ceiling 1,800 | **1,562** planted (1,574 counting the 12 tie trees) |
 | Worst trunk-surface gap | ≥ 4 studs (the boar's `AgentRadius` × 2) | **8.02 studs** |
 | Baked triangles within one streaming radius | ≤ 7,000,000 | **6,612,000** at the worst stand (Stand5) |
@@ -159,6 +159,33 @@ ceiling doing its job. `countScatter` took `wanted` from a doubled per-hectare r
 halve it by filtering candidates, but still took `wanted` of whatever survived. It is a weighted
 acceptance now — two cells per wanted item at 0.5 — so a local doubling raises the count only over the
 ground it applies to.
+
+### M-rim — 120 studs of backdrop did not fit the design's own block rectangles
+**Measured twice by the slope spec.** First: **47.30 deg at (-1440, 1214)**, block 1's north-west
+corner, against a 15 deg ceiling -- `EDGE_BAND` is 400 studs and block 1 reaches to x = -1440, so
+`edgeCeiling(96) = 102 studs` of rim was rising through the corner of the drive. Suppressing the rim
+inside a block then moved the problem rather than fixing it: **47.71 deg at (1434, 14)**, six studs
+inside block 2's eastern edge, because the rise has to happen somewhere and holding it back in the
+block makes it a cliff at the boundary.
+
+A smoothstep's steepest gradient is `1.5 x rise / run`, and that settles it:
+
+| rise | run | steepest | |
+|---|---|---|---|
+| 120 studs | the 96-stud margin outside the blocks | 62 deg | a wall round the drive |
+| 120 studs | the whole 400-stud band | 24 deg | over the 15 deg ceiling, inside blocks |
+| **40 studs** | **the whole 400-stud band** | **8.5 deg** | gentle everywhere, no special case |
+
+**The blocks reach to +/-1,440 and the map's edge is at +/-1,536: 96 studs of margin, against a rim
+the design asked to be 120 studs tall.** Those two numbers were chosen independently and they do not
+fit. `EDGE_MAX_Y` is **40** and `Height.blockRimSuppression` was deleted rather than kept -- it
+existed only to hold back a rim that was too tall. What hides the map's edge is the backdrop wood
+standing on the bank, trees of 50-80 studs, unchanged.
+
+**The band follows:** the highest ground is now `max(fbm's 37, the rim's 40) = 40`, under
+`BAND_Y.mid = 48`, so every tile is written in ONE pass and the terrain steps fall from **752 to
+576**. The two-pass machinery stays, with its live caller and its spec, because it is what lets the
+rim go back up without anybody re-measuring what `WriteVoxels` accepts.
 
 ### M5 — the build's wall clock
 Measured from the run log: **terrain tiles 13–20 ms each after the first**, tree sub-blocks
