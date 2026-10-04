@@ -19,7 +19,8 @@ Usage:
   python tools/mapgen.py contract                                  # read-only: MapGen.verifyContract()
   python tools/mapgen.py reach                                     # read-only: pathfind the built map
   python tools/mapgen.py census                                    # read-only: what is in Workspace
-  python tools/mapgen.py shots                                     # read-only: the seven named captures
+  python tools/mapgen.py shots    [--seed N]                       # read-only: every named capture,
+                                                                   #   at MapGen.shotCameras' cameras
 
 Exit codes, deliberately the harness's shape: 0 done · 1 a step failed · 2 REFUSED.
 
@@ -67,8 +68,10 @@ and, for the evidence the design actually asks for (section 6.4), `verify`'s
 """
 
 import argparse
+import io
 import json
 import os
+import re
 import sys
 import time
 
@@ -97,34 +100,15 @@ WORKSPACE_ALLOWED = ("Terrain", "Camera")
 # as the Builder's to make: `map-stand` looks at the tie trees behind the shooter line (the only stand
 # M2.2 builds -- real spruce stands are M2.3), and there is a seventh angle on a hedgerow gate, because
 # the gate is the fix this task exists for and a screenshot is the only way to see it is really there.
-# The design's section 16.3 list. EVERY ONE IS A QUESTION, not a label: the point of a shot is the
-# answer a human gives it, and "map-road" is the shot this revision exists for.
-SHOTS = (
-    ("map-wide", (0, 1100, 1500), (0, 0, -200),
-     "is there a map, does it read as wood-with-fields, is the road visible as a line through it"),
-    ("map-road", (-500, 6, -700), (500, 6, -700),
-     "STANDING ON THE ROAD: do the posts read at 160-stud spacing, is the gravel gravel"),
-    ("map-post", (-80, 6, -700), (-80, 4, -300),
-     "a shooter's view into the drive: how far can he see, how much of the frame is trunk"),
-    ("map-drive", (0, 40, 700), (0, 0, -700),
-     "the drive from the drivers' eye height: is it woods they push through"),
-    ("map-crossing", (240, 6, -700), (-240, 6, -700),
-     "along the road between two posts: is there a gap a boar would cross"),
-    ("map-autumn", (-300, 18, -520), (-120, 6, -640),
-     "close in the wood: do the crowns read autumn, is the floor litter and not grass"),
-    ("map-stand", (0, 16, -640), (0, 6, -745),
-     "the tie trees behind the line, in the far wood: woods, or poles"),
-    ("map-edge", (600, 8, -700), (1024, 6, -700),
-     "does the map's edge read as a void where the road leaves it"),
-    # M2.8c's ONE NEW CLOSE VIEW (design section 18), and the answer to TASKS.md row 58a(a): every
-    # tagged marker is Transparency = 1, so until the stakes existed no shot could show where a
-    # stand is. Stood at the third stand looking along the road at the fourth.
-    # CHOSEN BY LOOKING (rule 5): from the stand itself the camera is in front of its own stakes and
-    # only the next stand's cap is in frame. 60 studs short of a stand puts the near cap close and
-    # the next one at 160 studs in the same picture, which is the question row 58a(a) asks.
-    ("map-stand-close", (-305, 6, -698), (-235, 5, -704),
-     "the road between two stands: does the near stake read, and the next one at 160 studs"),
-)
+# THE SHOT LIST LIVES IN THE GENERATOR, NOT HERE (`MapGen.shotCameras(seed)`), and that is the fix
+# for TASKS.md row 79a(a): this tool used to carry its own table, so the tool said seven, the run took
+# nine and the design said eight -- three numbers for one list. Now there is ONE list, the generator
+# owns it, and this tool prints its length.
+#
+# IT HAD TO MOVE, not merely "should have": four of the eleven captures are at SEEDED positions --
+# the young patch, the gap, the first fallen log and the wettest hollow all move with the seed. A
+# camera typed in here would be pointing at bare wood the first time anybody changed the seed, and a
+# screenshot aimed at nothing is worse than none, because somebody signs it off.
 
 # ---------------------------------------------------------------- talking to the generator
 
@@ -136,14 +120,132 @@ SHOTS = (
 # number the file no longer said. `require` on a parentless clone loads the CURRENT source, leaves
 # nothing in the DataModel (so the harness's "no unmanaged script" check cannot trip over it), and
 # costs nothing measurable.
-CALL = """
+# THE GENERATOR ARRIVES AS A BUNDLE, NOT AS A `require`, AND THAT IS NOT A STYLE CHOICE.
+#
+# MEASURED 2026-10-04, and tools/studio_mcp.py has carried the measurement since 2026-10-02 (its
+# header says it in capitals, and names this tool as the one thing still affected): THE MCP THREAD
+# CANNOT `require` ANY MODULESCRIPT. Not a synced one, not a parentless clone, not one the thread
+# created itself one line earlier. Every attempt answers
+#
+#   "The current thread cannot require 'X' since 'X' has additional values for the Capabilities
+#    property: LoadUnownedAsset (and 3 more)"
+#
+# and every instance in the place reports `Capabilities` empty and `Sandboxed = false` -- so it is
+# the THREAD that carries them, and a capability-carrying thread may not enter a container that
+# grants none. A full Studio restart did not clear it (Director, 2026-10-02).
+#
+# SO THIS TOOL STOPPED WORKING, and its one write path into Studio was the require. The fix is to
+# send the generator's SOURCE instead of asking Studio to load it: each module is wrapped in a
+# closure, the `require` calls are rewritten to the bundle's own table, and nothing requires
+# anything. Measured: `execute_luau` accepts a 768 KB payload, and the whole graph is about 420 KB.
+#
+# THREE THINGS THIS BUYS BEYOND BEING ABLE TO RUN AT ALL:
+#   * THE SOURCE IS THE REPO'S, read off disk here. `MapGen.Contract` exists because Studio's
+#     require cache survives between `execute_luau` calls and Rojo replacing a Source does NOT
+#     reload an already-required module -- a hazard that cannot occur when nothing is cached.
+#     Check 3 below still refuses to run when Studio's copy differs from disk, so what is sent and
+#     what Studio holds are proved equal before anything is sent.
+#   * `InsertService:LoadAsset` IS WHAT POISONS THE THREAD, and the generator has to call it to put
+#     a bought oak in the ground. With a bundle that costs nothing: there is no later `require` to
+#     refuse. Without one, the trees step would have killed every step after it.
+#   * EACH CLOSURE IS HANDED ITS OWN REAL `script` INSTANCE, so any use of `script` that is not a
+#     require behaves exactly as it does in a game session (`Flags` reads `script:FindFirstChild`).
+#
+# The modules, IN DEPENDENCY ORDER: a module may only name ones above it.
+BUNDLE_MODULES = (
+    ("Shotgun", "src/shared/Shotgun/init.luau", 'RS:WaitForChild("Shotgun")'),
+    ("Flags", "src/shared/Flags/init.luau", 'RS:WaitForChild("Flags")'),
+    ("Gun", "src/shared/Gun/init.luau", 'RS:WaitForChild("Gun")'),
+    ("Map", "src/shared/Map/init.luau", 'RS:WaitForChild("Map")'),
+    ("Assets", "src/serverstorage/Assets/init.luau", 'SS:WaitForChild("Assets")'),
+    ("Loader", "src/serverstorage/Assets/Loader.luau", 'SS.Assets:WaitForChild("Loader")'),
+    ("Contract", "src/serverstorage/MapGen/Contract.luau", 'MG:WaitForChild("Contract")'),
+    ("Config", "src/serverstorage/MapGen/Config.luau", 'MG:WaitForChild("Config")'),
+    ("Height", "src/serverstorage/MapGen/Height.luau", 'MG:WaitForChild("Height")'),
+    ("Layout", "src/serverstorage/MapGen/Layout.luau", 'MG:WaitForChild("Layout")'),
+    ("Scatter", "src/serverstorage/MapGen/Scatter.luau", 'MG:WaitForChild("Scatter")'),
+    ("Digest", "src/serverstorage/MapGen/Digest.luau", 'MG:WaitForChild("Digest")'),
+    ("Ground", "src/serverstorage/MapGen/Ground.luau", 'MG:WaitForChild("Ground")'),
+    ("Props", "src/serverstorage/MapGen/Props.luau", 'MG:WaitForChild("Props")'),
+    ("Markers", "src/serverstorage/MapGen/Markers.luau", 'MG:WaitForChild("Markers")'),
+    ("Settings", "src/serverstorage/MapGen/Settings.luau", 'MG:WaitForChild("Settings")'),
+    ("MapGen", "src/serverstorage/MapGen/init.luau", "MG"),
+)
+
+# THE BOAR, for `reach` ALONE. `MapGen.reachability` pathfinds with the boar's OWN agent parameters
+# -- the whole point of the check -- so the boar's module has to be in the bundle for that one
+# command. It is 310 KB and nothing else needs it, so it is not sent with every call.
+BOAR_MODULES = (
+    ("Wound", "src/server/Boar/Wound.luau", 'SSS.Boar:WaitForChild("Wound")'),
+    ("Body", "src/server/Boar/Body.luau", 'SSS.Boar:WaitForChild("Body")'),
+    ("Brain", "src/server/Boar/Brain.luau", 'SSS.Boar:WaitForChild("Brain")'),
+    ("Boar", "src/server/Boar/init.luau", 'SSS:WaitForChild("Boar")'),
+)
+
+# Every `require` shape the graph actually uses, mapped to the bundle's own entry. A shape that is
+# NOT in here is left alone and will fail loudly in Studio rather than silently resolving to
+# something else -- which is the right way round for a rewrite like this.
+REQUIRE_REWRITES = (
+    ('require(ReplicatedStorage:WaitForChild("Flags"))', "__dh.Flags"),
+    ('require(ReplicatedStorage:WaitForChild("Shotgun"))', "__dh.Shotgun"),
+    ('require(ReplicatedStorage:WaitForChild("Gun"))', "__dh.Gun"),
+    ('require(ReplicatedStorage:WaitForChild("Map"))', "__dh.Map"),
+    ('require(ServerStorage:WaitForChild("Assets"))', "__dh.Assets"),
+    ('require(ServerStorage.Assets:WaitForChild("Loader"))', "__dh.Loader"),
+    ('require(ServerScriptService:WaitForChild("Boar", 10))', "__dh.Boar"),
+    # `MapGen.Contract`'s whole job is to dodge Studio's require cache. A bundle has no cache, so
+    # the expression resolves to the contract itself and the module becomes a pass-through.
+    ("require(if editTime then module:Clone() else module)", "__dh.Map"),
+    ("require(script.Body)", "__dh.Body"),
+    ("require(script.Brain)", "__dh.Brain"),
+    ("require(script.Wound)", "__dh.Wound"),
+    ("require(script.Parent.Layout)", "__dh.Layout"),
+    # `Assets.Loader` sits inside the Assets folder and names its parent, which is the manifest.
+    ("require(script.Parent)", "__dh.Assets"),
+)
+
+# `require(script:WaitForChild("X"))` and `require(script.Parent:WaitForChild("X"))`, for any X.
+REQUIRE_CHILD = re.compile(r'require\(script(?:\.Parent)?:WaitForChild\("(\w+)"\)\)')
+
+
+def bundle_source(path):
+    """One module's source, with every require rewritten to the bundle's table."""
+    with io.open(os.path.join(REPO, path), encoding="utf-8") as handle:
+        text = handle.read()
+    for shape, replacement in REQUIRE_REWRITES:
+        text = text.replace(shape, replacement)
+    text = REQUIRE_CHILD.sub(lambda m: "__dh." + m.group(1), text)
+    if "require(" in re.sub(r"--.*", "", text):
+        raise RuntimeError(
+            "%s still has a require the bundler does not know how to rewrite; add its shape to "
+            "REQUIRE_REWRITES rather than letting it reach Studio" % path
+        )
+    return text
+
+
+def bundle(with_boar=False):
+    """The whole generator as one Luau prelude that requires nothing."""
+    modules = list(BUNDLE_MODULES)
+    if with_boar:
+        # After Shotgun and Flags, which the boar needs, and before MapGen, which calls into it.
+        modules = modules[:-1] + list(BOAR_MODULES) + modules[-1:]
+    parts = [
+        "local RS = game:GetService(\"ReplicatedStorage\")",
+        "local SS = game:GetService(\"ServerStorage\")",
+        "local SSS = game:GetService(\"ServerScriptService\")",
+        "local MG = SS:WaitForChild(\"MapGen\")",
+        "local __dh = {}",
+    ]
+    for name, path, instance in modules:
+        parts.append("__dh.%s = (function(script)\n%s\nend)(%s)" % (name, bundle_source(path), instance))
+    return "\n".join(parts)
+
+
+CALL_TEMPLATE = """
 local HttpService = game:GetService("HttpService")
 local ok, result = pcall(function()
-    local source = game:GetService("ServerStorage"):FindFirstChild("MapGen")
-    if not source then
-        error("ServerStorage.MapGen is missing: is Rojo connected?", 0)
-    end
-    local MapGen = require(source:Clone())
+%s
+    local MapGen = __dh.MapGen
     return %s
 end)
 if not ok then
@@ -152,7 +254,13 @@ end
 return HttpService:JSONEncode(result)
 """
 
-# THE SESSION'S CACHED CONTRACT, compared with a freshly required clone of the same script. Since
+# THE SESSION'S CACHED CONTRACT. SINCE THE BUNDLE, THIS CANNOT AFFECT A BUILD AT ALL: the contract
+# that is used is the TEXT of `src/shared/Map/init.luau`, read off disk by `bundle_source` and
+# evaluated inside the call, so Studio's require cache is not in the path. The probe is kept as a
+# printed NOTE because it still tells the operator something true -- that anything ELSE in this Edit
+# session which already required `ReplicatedStorage.Map` is holding an older copy -- and it is
+# expected to fail outright now that the thread cannot require at all, which is itself worth seeing.
+# Original note, from when the generator was reached by require: Since
 # MapGen.Contract loads the contract fresh at edit time, a stale cache no longer changes what gets
 # built -- so this is a printed NOTE, not a refusal. It is still worth knowing: it tells the operator
 # that anything else in this Edit session which already required ReplicatedStorage.Map is holding an
@@ -227,13 +335,18 @@ def parse_json(body):
     return value
 
 
-def call(studio, expression):
-    """Run one MapGen expression in the Edit DataModel and parse its JSON reply."""
+def call(studio, expression, with_boar=False):
+    """Run one MapGen expression in the Edit DataModel and parse its JSON reply.
+
+    `with_boar` adds the boar's own modules to the bundle, for `reachability` -- which pathfinds with
+    the boar's agent parameters and is the only caller that needs them.
+    """
+    code = CALL_TEMPLATE % (bundle(with_boar), expression)
     text = studio._rpc(
         "tools/call",
         {
             "name": "execute_luau",
-            "arguments": {"datamodel_type": "Edit", "code": CALL % expression},
+            "arguments": {"datamodel_type": "Edit", "code": code},
         },
         timeout=MAPGEN_CALL_TIMEOUT,
     )
@@ -424,19 +537,42 @@ def run_steps(studio, seed, indexes, plan_size, entries):
     return done
 
 
+def plan_size(studio, seed):
+    """How many steps this seed's plan has, and a line per kind.
+
+    ASKED FOR AS A SUMMARY, NOT AS THE LIST. The plan is 799 steps and its labels encode to about
+    100 KB of JSON, which is StudioMCP's own per-result truncation point -- so asking for the whole
+    list comes back as an unterminated string. Each step's own label arrives in its own report when
+    it runs, which is where a human reads it anyway.
+    """
+    summary = call(studio, f"MapGen.planSummary({seed})")
+    if summary.get("error"):
+        raise RuntimeError(summary["error"])
+    return summary
+
+
+def print_plan(summary, seed):
+    for entry in summary.get("kinds") or []:
+        print(f"  {entry['count']:>4} x {entry['kind']:<9} ~{entry['estimatedMs'] / 1000:6.0f} s  "
+              f"e.g. {entry['sample'][:84]}")
+    minutes = (summary.get("estimatedMs") or 0) / 60000.0
+    print(f"[mapgen] {summary['total']} steps, seed {seed}, estimated {minutes:.0f} min")
+
+
 def command_plan(studio, args):
-    plan = call(studio, f"MapGen.steps({args.seed or 0})")
-    for step in plan:
-        print(f"  {step['index']:>3}  {step['kind']:<9} {step['label']}  (~{step['estimatedMs']} ms)")
-    print(f"[mapgen] {len(plan)} steps, seed {args.seed or 0} (nothing was written)")
+    summary = plan_size(studio, args.seed or 0)
+    print_plan(summary, args.seed or 0)
+    print("[mapgen] nothing was written")
     return 0
 
 
 def command_build(studio, args, sha, indexes=None):
-    plan = call(studio, f"MapGen.steps({args.seed})")
-    wanted = indexes or list(range(1, len(plan) + 1))
+    summary = plan_size(studio, args.seed)
+    total = summary["total"]
+    print_plan(summary, args.seed)
+    wanted = indexes or list(range(1, total + 1))
     entries = []
-    done = run_steps(studio, args.seed, wanted, len(plan), entries)
+    done = run_steps(studio, args.seed, wanted, total, entries)
     log_run(args.seed, entries)
     if done != len(wanted):
         print(f"[mapgen] FAILED after {done}/{len(wanted)} steps @ {sha} seed={args.seed}")
@@ -454,12 +590,12 @@ def command_verify(studio, args, sha):
     """Build, digest, clear, build again, compare. The answer to "is math.noise reproducible"."""
     first, second = None, None
     for attempt in (1, 2):
-        plan = call(studio, f"MapGen.steps({args.seed})")
+        total = plan_size(studio, args.seed)["total"]
         entries = []
-        done = run_steps(studio, args.seed, list(range(1, len(plan) + 1)), len(plan), entries)
+        done = run_steps(studio, args.seed, list(range(1, total + 1)), total, entries)
         log_run(args.seed, entries)
-        if done != len(plan):
-            print(f"[mapgen] FAILED on build {attempt} after {done}/{len(plan)} steps")
+        if done != total:
+            print(f"[mapgen] FAILED on build {attempt} after {done}/{total} steps")
             return 1
         digest = call(studio, "MapGen.digest()")
         print(f"[mapgen] build {attempt}: digest={digest.get('digest')} parts={digest.get('parts')}")
@@ -511,7 +647,7 @@ def print_reach(result):
 
 
 def command_reach(studio):
-    result = call(studio, "MapGen.reachability()")
+    result = call(studio, "MapGen.reachability()", with_boar=True)
     if result.get("error"):
         print(f"[mapgen] reachability could not run: {result['error']}")
         return 1
@@ -533,15 +669,34 @@ def command_contract(studio):
     return 0 if result.get("ok") else 1
 
 
-def command_shots(studio):
+def command_shots(studio, seed=None):
+    """Every named capture the generator asks for, at the cameras the generator computes.
+
+    `seed` is the map's own seed, read off the built root when the caller does not pass one: the
+    seeded cameras have to be aimed with the SAME seed the place was built from, or they point at a
+    patch that is not there.
+    """
     if not call(studio, "MapGen.verifyContract()").get("counts"):
         return refuse("there is no map in Workspace to photograph. Run `build` first.")
+    if seed is None:
+        seed = call(studio, "MapGen.builtSeed()")
+        if not isinstance(seed, (int, float)):
+            return refuse("the map in Workspace carries no seed attribute, so the seeded cameras "
+                          "cannot be aimed. Pass --seed, or rebuild.")
+    shots = call(studio, f"MapGen.shotCameras({int(seed)})")
+    if not isinstance(shots, list) or not shots:
+        return refuse("MapGen.shotCameras returned nothing to photograph")
     failed = 0
-    for name, camera, look_at, answers in SHOTS:
+    print(f"[mapgen] {len(shots)} named capture(s), seed {int(seed)}")
+    for shot in shots:
+        name = shot["name"]
+        camera = tuple(shot["camera"])
+        look_at = tuple(shot["lookAt"])
         path = os.path.join(REPO, ".screenshots", f"{name}.png")
         saved, text = studio.capture(path, camera, look_at)
         if saved:
-            print(f"[mapgen] shot {name}: {os.path.relpath(saved, REPO)}  ({answers})")
+            print(f"[mapgen] shot {name}: {os.path.relpath(saved, REPO)}")
+            print(f"[mapgen]     asks: {shot['question']}")
         else:
             failed += 1
             print(f"[mapgen] shot {name} FAILED: {text}")
@@ -613,7 +768,7 @@ def main(argv):
         if args.command == "reach":
             return command_reach(studio)
         if args.command == "shots":
-            return command_shots(studio)
+            return command_shots(studio, args.seed)
         if args.command == "clear":
             # BRANCH ON THE MEASUREMENT. Printing "cleared" and exiting 0 while cells remain is the
             # same shape this task set out to close, in the very command its refusal points at

@@ -123,10 +123,12 @@ Match.CONFIG = {
 	-- it is long enough to spawn in, look up the drive and see them coming.
 	QUICK_TEST_FIRST_RELEASE_SECONDS = 5,
 	QUICK_TEST_SOUNDER = 3, -- K's "small group": the first release only, then the drive is normal
-	-- JUST NORTH OF THE ROAD, in front of the first shooter post. The road is the one strip of
-	-- ground the map GUARANTEES flat at groundY (`Map.ROAD`: halfWidth 8, then a 24-stud verge eased
-	-- up to the terrain), and `Runtime:spawn` OVERWRITES the caller's Y with groundY -- so a spawn
-	-- far off it puts a boar inside a hill, where nobody sees it.
+	-- JUST NORTH OF THE ROAD, in front of the shooter line. The road is the one strip of ground the
+	-- map GUARANTEES flat at groundY (since task 121 that is `Map.ROADS[block.road]` -- the active
+	-- block's own road, halfWidth 10 with a 26-stud verge eased up to the terrain), and
+	-- `Runtime:spawn` OVERWRITES the caller's Y with groundY -- so a spawn far off it puts a boar
+	-- inside a hill, where nobody sees it. 12 studs puts it on the verge, where the easing holds the
+	-- ground within a tenth of a stud of groundY.
 	--
 	-- 90 WAS TRIED AND IS NOT WHAT SHIPPED. A 90-stud run-up would be a longer look, and three
 	-- capture bursts at 90 showed an empty road: either the boars were off the flat strip and under

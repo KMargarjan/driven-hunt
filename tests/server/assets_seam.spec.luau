@@ -145,11 +145,16 @@ return function()
 			-- so the break-action can hinge, and both have to be preloaded before a player holds one.
 			expect(counted[Hardware.BARRELS_KEY]).to.equal(1)
 			expect(#keys).to.equal(2)
-			-- ...and there is no second id table: MapGen's is still empty (map-generator 12.2).
+			-- ...AND THERE IS NO SECOND ID TABLE AT ALL ANY MORE, which closes TASKS.md row 74a(a).
+			-- Until task 121 `ServerStorage.MapGen` carried its own manifest with its own `ROWS`,
+			-- and this case could only assert that the second table was EMPTY. It is archived now
+			-- (`backups/2026-10-04_task-121_MapGen-Assets.luau.txt`), `MapGen.Props` asks this
+			-- Loader, and `MapGen.Assets` IS this module -- so the assertion is that the module is
+			-- gone and that what the generator exports is this one.
 			local mapGen = ServerStorage:FindFirstChild("MapGen")
 			if mapGen then
-				local mapAssets = require(mapGen:WaitForChild("Assets"))
-				expect(#mapAssets.ROWS).to.equal(0)
+				expect(mapGen:FindFirstChild("Assets")).to.equal(nil)
+				expect(require(mapGen).Assets).to.equal(Assets)
 			end
 		end)
 

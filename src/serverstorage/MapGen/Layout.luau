@@ -3,297 +3,601 @@
 -- service, no Random, no Terrain. Every other module asks this one where a thing belongs, so the
 -- shooter line exists in exactly one place in the repo.
 --
--- The seeded half of a decision (which x a gate sits at, where a tree lands) lives in `Scatter` and
--- arrives here as an argument, so this file stays a function of the configuration alone.
+-- The seeded half of a decision (which x a gate sits at, where a tree lands, where a patch centre
+-- is) lives in `Scatter` and arrives here as an ARGUMENT, so this file stays a function of the
+-- configuration alone. That is why `treeDensity` takes the patch list and `visibleLoad` takes the
+-- planted trees rather than computing them: `Scatter` requires `Layout`, so the other direction
+-- would be a cycle, and composing them is `MapGen`'s job.
 --
--- Design: docs/design/map-generator.md (sections 2.2, 12)
+-- Design: docs/design/map-generator.md, "Roads, blocks and the ground" and "The mix model"
+local Height = require(script.Parent:WaitForChild("Height"))
+
 local Layout = {}
 
 -- No `facing`: every marker had one, always 0, and nothing read it. `Markers.place` builds every
 -- CFrame with an explicit `CFrame.lookAt(position, position + Vector3.zAxis)`, which is the fact the
 -- drive line depends on, and a second unread way of saying the same thing is the kind of duplicate
 -- rule 3 exists to stop (review round 1 of Task 44).
-export type Marker = { kind: string, name: string, x: number, z: number, size: Vector3 }
+export type Marker = { kind: string, name: string, x: number, z: number, y: number, size: Vector3 }
 export type Point = { x: number, z: number }
 export type Line = { axis: string, at: number, from: number, to: number, crossesCorridor: boolean }
+export type Rect = { minX: number, maxX: number, minZ: number, maxZ: number }
+export type Tile = { tx: number, tz: number, minX: number, minZ: number, pass: string, minY: number, maxY: number }
 
--- The tiles of the map, in a fixed order, so step 4 is always the same 128 studs. Here rather than in
--- `Ground` because it is a fact about where things are, and a spec must be able to check the tiling
--- covers the map without touching Terrain.
-function Layout.tiles(config): { { tx: number, tz: number, minX: number, minZ: number } }
+-- ---------------------------------------------------------------- blocks and roads
+
+-- The four block rectangles, in `BLOCK_ORDER`, each with the name it is known by. Frozen data
+-- assembled once in `Config`, not rebuilt here: `treeDensity` calls this twice per candidate tree,
+-- which was about 80,000 throwaway tables per build.
+function Layout.blocks(config)
+	return config.BLOCK_LIST
+end
+
+local function inRect(x: number, z: number, r: Rect): boolean
+	return x >= r.minX and x <= r.maxX and z >= r.minZ and z <= r.maxZ
+end
+
+-- The block a point is in, or nil. Blocks are disjoint (a spec asserts it), so "the" block is well
+-- defined and the first match is the only match.
+function Layout.blockAt(x: number, z: number, config)
+	for _, block in ipairs(Layout.blocks(config)) do
+		if inRect(x, z, block.bounds) then
+			return block
+		end
+	end
+	return nil
+end
+
+-- THE BLOCK THE DRIVE RUNS IN, the one `Map.ACTIVE_BLOCK` names -- read through the contract and
+-- never copied, the same rule `Config.SPAWN_PAD = Map.SPAWN_PAD` already follows.
+function Layout.activeBlock(config)
+	for _, block in ipairs(Layout.blocks(config)) do
+		if block.name == config.ACTIVE_BLOCK then
+			return block
+		end
+	end
+	error("Map.ACTIVE_BLOCK names no block in Config.BLOCKS: " .. tostring(config.ACTIVE_BLOCK), 0)
+end
+
+-- The roads, as data, so Height, Ground and the specs all read one list in one order.
+function Layout.roads(config)
+	return config.BENCHES
+end
+
+-- The road the active block's shooter line stands on.
+function Layout.activeRoad(config)
+	local block = Layout.activeBlock(config)
+	for _, road in ipairs(Layout.roads(config)) do
+		if road.name == block.road then
+			return road
+		end
+	end
+	error("block " .. block.name .. " names no road in Map.ROADS: " .. tostring(block.road), 0)
+end
+
+-- The z of the active block's shooter line: its road's centreline. There is no second concept.
+function Layout.lineZ(config): number
+	return Layout.activeRoad(config).at
+end
+
+local function alongAcross(x: number, z: number, road): (number, number)
+	if road.axis == "x" then
+		return x, math.abs(z - road.at)
+	end
+	return z, math.abs(x - road.at)
+end
+
+-- True on the GRAVEL of a road -- not its verge. `Ground` paints the road material here.
+function Layout.onRoad(x: number, z: number, config): boolean
+	for _, road in ipairs(Layout.roads(config)) do
+		local along, across = alongAcross(x, z, road)
+		if across <= road.halfWidth and along >= road.from and along <= road.to then
+			return true
+		end
+	end
+	return false
+end
+
+-- TRUE WHERE NOTHING COLLIDABLE MAY STAND: the gravel plus `keepClear`, over the road's whole
+-- length including its taper. THE ONE PREDICATE, and that is the point of it existing (design,
+-- "`keepClear` is not `verge`").
+--
+-- v3 used `onBench` -- the gravel PLUS THE WHOLE VERGE -- which cleared 62 studs (17 m) down every
+-- ride: a firebreak, not a forest road. `keepClear = 4` makes a ride 22 studs (6.2 m) of cleared
+-- corridor, inside the brief's 4.5-7 m, with trunks standing on the eased verge and crowns
+-- overhanging the gravel, which is what a European forest road looks like.
+--
+-- `Layout.treeDensity`, `Props.rejectTree`, `MapGen.verifyContract` and `map_contract.spec` all call
+-- THIS, so none of them can disagree about where the gravel is. `extra` is a caller's own clearance
+-- (half a hedge segment's length, say), so a PART's edge is kept out and not merely its centre.
+function Layout.onRoadKeepClear(x: number, z: number, config, extra: number?): boolean
+	local clearance = extra or 0
+	for _, road in ipairs(Layout.roads(config)) do
+		local along, across = alongAcross(x, z, road)
+		local width = road.halfWidth + road.keepClear + clearance
+		if across <= width and along >= road.from - road.taper and along <= road.to + road.taper then
+			return true
+		end
+	end
+	return false
+end
+
+-- TRUE ANYWHERE A ROAD OWNS THE GROUND -- the gravel AND its verge, plus `pad` studs. This is the
+-- TERRAIN question ("has the heightfield been eased here"), which is a wider band than the
+-- collision question above; keeping the two apart is this revision's point.
+function Layout.onBench(x: number, z: number, config, pad: number?): boolean
+	local clearance = pad or 0
+	for _, road in ipairs(Layout.roads(config)) do
+		local along, across = alongAcross(x, z, road)
+		local width = road.halfWidth + road.verge + clearance
+		if across <= width and along >= road.from - road.taper and along <= road.to + road.taper then
+			return true
+		end
+	end
+	return false
+end
+
+-- ---------------------------------------------------------------- the tiles, in two band passes
+
+-- The tiles of the map, in a fixed order, ONE ENTRY PER (TILE, BAND PASS).
+--
+-- The band is 168 studs and the measured `WriteVoxels` region is 96, so each tile is written in a
+-- LOWER pass ([min, mid], exactly 96 studs) and, where it is needed, an UPPER pass ([mid, max]).
+--
+-- THE UPPER PASS IS OMITTED WHERE NO COLUMN CAN REACH IT, AND THE TEST IS ANALYTIC RATHER THAN
+-- SAMPLED. `Height.at` is `max(shaped, edgeFloor)`; `shaped` is bounded by RELIEF (64, and measured
+-- at ~37), which is under `mid`; so only the rim can put ground above `mid`, and `Height.edgeCeiling`
+-- is the rim's upper bound as a function of distance to the map edge alone. A tile therefore needs
+-- the upper pass exactly when its own CLOSEST-TO-THE-EDGE corner could rise past `mid`. A spec
+-- asserts the invariant that makes the omission safe: over three seeds, no column's height leaves
+-- the band its tile was written in.
+function Layout.tiles(config): { Tile }
 	local perSide = math.floor(config.SIZE_STUDS / config.TILE_STUDS)
 	local half = config.SIZE_STUDS / 2
-	local out = {}
+	local band = config.BAND_Y
+	local out: { Tile } = {}
+	local function add(tx: number, tz: number, pass: string, minY: number, maxY: number)
+		table.insert(out, {
+			tx = tx,
+			tz = tz,
+			minX = -half + tx * config.TILE_STUDS,
+			minZ = -half + tz * config.TILE_STUDS,
+			pass = pass,
+			minY = minY,
+			maxY = maxY,
+		})
+	end
+	-- Every lower pass first, then every upper pass, so inserting a tile into the rim ring cannot
+	-- move which region an existing lower pass writes (the `ordinal` defect this ordering avoids).
 	for tz = 0, perSide - 1 do
 		for tx = 0, perSide - 1 do
-			table.insert(out, {
-				tx = tx,
-				tz = tz,
-				minX = -half + tx * config.TILE_STUDS,
-				minZ = -half + tz * config.TILE_STUDS,
-			})
+			add(tx, tz, "lower", band.min, band.mid)
+		end
+	end
+	for tz = 0, perSide - 1 do
+		for tx = 0, perSide - 1 do
+			if Layout.tileNeedsUpperPass(tx, tz, config) then
+				add(tx, tz, "upper", band.mid, band.max)
+			end
 		end
 	end
 	return out
 end
 
--- Every spawn pad the heightfield must flatten: a marker a player or a boar stands on.
--- FOUR PADS, not thirteen (design section 6.4). The eight post pads and the driver-start rectangle
--- are gone: the posts and the driver start now stand on BENCHES, which are flat at GROUND_Y anyway.
---
--- That closes TASKS.md row 45a(d) by construction. At blend 40 the old post pads (radius 10 + blend
--- 40 = 54 against a spacing of 80) merged into one flattened strip along the line -- an artefact
--- nobody chose. There is now a road there deliberately, and the strip IS the feature.
+-- Could any column in this tile rise above `BAND_Y.mid`? Pure, and an UPPER BOUND: it may say yes
+-- where the answer turns out to be no (the bench suppression can only lower the rim), and it can
+-- never say no where the answer is yes.
+function Layout.tileNeedsUpperPass(tx: number, tz: number, config): boolean
+	local half = config.SIZE_STUDS / 2
+	local minX = -half + tx * config.TILE_STUDS
+	local minZ = -half + tz * config.TILE_STUDS
+	local maxX, maxZ = minX + config.TILE_STUDS, minZ + config.TILE_STUDS
+	-- The tile's closest approach to the map's edge, which is where the rim is highest.
+	local toEdge =
+		math.min(half - math.max(math.abs(minX), math.abs(maxX)), half - math.max(math.abs(minZ), math.abs(maxZ)))
+	return Height.edgeCeiling(toEdge, config) > config.BAND_Y.mid
+end
+
+-- ---------------------------------------------------------------- the drive's geometry
+
+-- Every spawn pad the heightfield must flatten: ground a boar is released onto. FOUR, and not one
+-- per marker -- the posts stand on stand floors and the driver start stands on the assembly bench,
+-- both of which are flat at GROUND_Y already.
 function Layout.pads(config): { Point }
-	local world = config.WORLD
+	local block = Layout.activeBlock(config)
+	local z = block.bounds.maxZ - config.DRIVE.boarSpawnInset
 	local pads = {}
-	for _, x in ipairs(world.boarSpawnX) do
-		table.insert(pads, { x = x, z = world.boarSpawnZ })
+	for _, x in ipairs(config.DRIVE.boarSpawnX) do
+		table.insert(pads, { x = x, z = z })
 	end
 	return pads
 end
 
--- The benches, as data, so Height, Ground and the specs all read one list (design section 6.3).
-function Layout.benches(config)
-	return config.WORLD.benches
+-- The x of each stand, left to right: `postCount` posts at `postSpacing`, centred on `centreX`.
+function Layout.postX(index: number, config): number
+	local drive = config.DRIVE
+	return drive.centreX + (index - (drive.postCount + 1) / 2) * drive.postSpacing
 end
 
--- True on the gravel of a bench -- not its verge. Ground paints the road material here, and the
--- contract spec asserts the posts stand on it.
-function Layout.onRoad(x: number, z: number, config): boolean
-	for _, bench in ipairs(config.WORLD.benches) do
-		local along, across
-		if bench.axis == "x" then
-			along, across = x, math.abs(z - bench.at)
-		else
-			along, across = z, math.abs(x - bench.at)
-		end
-		if across <= bench.halfWidth and along >= bench.from and along <= bench.to then
-			return true
-		end
-	end
-	return false
-end
-
--- TRUE ANYWHERE A BENCH OWNS THE GROUND -- the gravel AND its verge, plus `pad` studs of clearance.
+-- WHERE THE EIGHT TIMBER STANDS GO: `Map.STAND.offsetZ` behind the active block's road centreline,
+-- which is 10 studs clear of the gravel's edge and 6 studs past `keepClear` -- so the road guard
+-- needs no exemption for them, and a spec asserts that rather than trusting it.
 --
--- ROUND 2, FINDING 1, and it is the CLASS rather than the instance. A hedge line at x = +/-760 runs
--- the full depth of the map, the corridor stops at +/-620, so `crossesCorridor` was false, so no gate
--- was cut -- and two collidable 7-stud hedge segments stood across the forest road at each end. The
--- road is 1,800 studs long and the corridor only 1,240, so "is it in the corridor" was never the
--- right question for a bench. Anything that PLACES something asks this instead: `hedgeSegments` skips
--- a segment, `rejectTree` rejects a point, and `map_contract.spec` walks the whole road proving
--- nothing collidable stands on it.
-function Layout.onBench(x: number, z: number, config, pad: number?): boolean
-	local clearance = pad or 0
-	for _, bench in ipairs(config.WORLD.benches) do
-		local along, across
-		if bench.axis == "x" then
-			along, across = x, math.abs(z - bench.at)
-		else
-			along, across = z, math.abs(x - bench.at)
-		end
-		local width = bench.halfWidth + bench.verge + clearance
-		-- The taper counts: the bench still owns the ground where it runs out.
-		if across <= width and along >= bench.from - bench.taper and along <= bench.to + bench.taper then
-			return true
-		end
-	end
-	return false
-end
-
--- The flank farmland: outside it, and off the benches, the ground is forest floor. This is what turns
--- "wood everywhere" into "a wood with fields at its edges", which is what Karen's references show.
-function Layout.inField(x: number, z: number, config): boolean
-	local f = config.WORLD.fields
-	return math.abs(x) >= f.innerX and math.abs(x) <= f.outerX and z >= f.minZ and z <= f.maxZ
-end
-
--- HOW THICK THE WOOD IS HERE, as a weight in 0..1 (design section 7.2). A candidate tree is
--- accepted when its own drawn key is below this, which makes the density a property of WHERE rather
--- than of how many cells were rejected before it.
---
--- Three tiers and a zero, and the zero is what used to be the whole rule: until M2.8b nothing could
--- stand inside the drive corridor at all, so the drive was a bare lane through a decorated backdrop.
--- The corridor is the wood now; what stays clear is the ground the game stands things on.
-function Layout.treeDensity(x: number, z: number, config): number
-	if Layout.inField(x, z, config) then
-		return 0 -- a field is a field
-	end
-	if Layout.onBench(x, z, config) or Layout.onTrack(x, z, config) then
-		return 0
-	end
-	if Layout.bogDepth(x, z, config) > 0 then
-		return 0 -- alder stands AROUND a bog, not in it
-	end
-	if Layout.distanceToHedge(x, z, config) < config.SCATTER_CLEARANCE then
-		return 0
-	end
-	-- A PAD'S SIZE IS THE CONTRACT'S, not the pad list's: `Layout.pads` is four positions, and how
-	-- wide the flat ground around one is belongs to Map.SPAWN_PAD (Config.SPAWN_PAD reads it).
-	local clear = config.SPAWN_PAD.radius + config.SPAWN_PAD.blend
-	for _, pad in ipairs(Layout.pads(config)) do
-		if (Vector3.new(x, 0, z) - Vector3.new(pad.x, 0, pad.z)).Magnitude <= clear then
-			return 0 -- a boar is released onto flat, clear ground
-		end
-	end
-	-- A HIGH SEAT STANDS IN ITS OWN CLEARING (M2.8c). It sits 40 studs behind the road, which is
-	-- inside the DENSE band, so without this a 15-stud tower would be built inside a spruce -- and
-	-- the answer "look at the screenshot" is only useful if the thing is not inside a tree.
-	local seatClear = config.FURNITURE.highSeat.clearRadius
-	for _, seat in ipairs(Layout.highSeats(config)) do
-		if (Vector3.new(x, 0, z) - Vector3.new(seat.x, 0, seat.z)).Magnitude <= seatClear then
-			return 0
-		end
-	end
-
-	local density = config.TREE_DENSITY
-	if math.abs(z - config.WORLD.lineZ) <= density.denseBandStuds and math.abs(x) <= density.denseHalfWidth then
-		return density.dense -- the band the shooter actually looks into
-	end
-	if Layout.inCorridor(x, z, config) then
-		return density.drive
-	end
-	return density.backdrop
-end
-
--- THE WOOD IS BUILT IN BLOCKS, because one step that creates ~3,000 Models is one step that can time
--- out and tells you nothing about where it was when it did. Four quadrants of the tree area, in a
--- fixed order, each its own step in the plan and its own line in the run log.
-function Layout.treeBlocks(config): { { name: string, minX: number, maxX: number, minZ: number, maxZ: number } }
-	if not (config.INCLUDE.trees or config.INCLUDE.brush) then
-		-- Task 85: the wood's quadrants are what the tree and brush steps iterate, so an empty list
-		-- is four fewer steps each rather than eight steps that place nothing.
+-- Its own function because `treeDensity` needs it for every candidate in the wood and must not
+-- build the whole stand list to find out.
+function Layout.standPoints(config): { Point }
+	if not config.INCLUDE.stands then
 		return {}
 	end
-	local area = config.WORLD.treeArea
-	local midX = (area.minX + area.maxX) / 2
-	local midZ = (area.minZ + area.maxZ) / 2
-	return {
-		{ name = "west-far", minX = area.minX, maxX = midX, minZ = midZ, maxZ = area.maxZ },
-		{ name = "east-far", minX = midX, maxX = area.maxX, minZ = midZ, maxZ = area.maxZ },
-		{ name = "west-near", minX = area.minX, maxX = midX, minZ = area.minZ, maxZ = midZ },
-		{ name = "east-near", minX = midX, maxX = area.maxX, minZ = area.minZ, maxZ = midZ },
-	}
+	local z = Layout.lineZ(config) + config.STAND.offsetZ
+	local out: { Point } = {}
+	for index = 1, config.DRIVE.postCount do
+		table.insert(out, { x = Layout.postX(index, config), z = z })
+	end
+	return out
 end
 
--- The five kinds of marker, in a stable order. Position and size only: how a marker FACES is decided
--- once, in `Markers.place`, with an explicit `CFrame.lookAt` toward +Z. That matters most for the
--- DRIVE LINE, whose LookVector must point at the drivers -- the meaning src/server/Weapon/SafetyArc.luau
--- gives it, where the other way round makes the safety rule fire on exactly the wrong shots.
+-- The five kinds of marker, in a stable order, FOR THE ACTIVE BLOCK ONLY. Position, height and size:
+-- how a marker FACES is decided once, in `Markers.place`, with an explicit `CFrame.lookAt` toward
+-- +Z. That matters most for the DRIVE LINE, whose LookVector must point at the drivers -- the
+-- meaning src/server/Weapon/SafetyArc.luau gives it, where the other way round makes the safety rule
+-- fire on exactly the wrong shots.
+--
+-- `y` is the marker's own HEIGHT ABOVE THE GROUND at its position: 0.5 for anything standing on the
+-- ground, and `Map.STAND.floorStuds + 0.5` for a shooter post, whose bottom face sits on the stand's
+-- floor. `Match.Body.placementFor` then puts a character at `post.Position + post.Size.Y/2 +
+-- STAND_HEIGHT_STUDS`, about a stud above the boards -- SO `Match.Body` IS NOT TOUCHED, `Match.CONFIG`
+-- is not touched, and no number crosses an owner boundary.
 function Layout.markers(config): { Marker }
-	local world = config.WORLD
+	local drive = config.DRIVE
+	local block = Layout.activeBlock(config)
+	local bounds = block.bounds
+	local lineZ = Layout.lineZ(config)
 	local out: { Marker } = {}
-	for index = 1, world.postCount do
-		local x = (index - (world.postCount + 1) / 2) * world.postSpacing
+	for index = 1, drive.postCount do
 		table.insert(out, {
 			kind = "shooterPost",
 			name = string.format("ShooterPost%d", index),
-			x = x,
-			z = world.lineZ,
-			-- (6, 1, 6) AT GROUND_Y + 0.5, not (4, 6, 4). Body.placementFor stands a character at
-			-- post.Position + (0, post.Size.Y/2 + STAND_HEIGHT_STUDS, 0), so a 6-stud-tall marker put
-			-- the stand point 9.5 studs over a part that does not collide -- the drop named in
-			-- TASKS.md row 43a(l) and audit-004 F9. A 1-stud marker makes it ground + 4.5, and the
-			-- bottom face sits exactly on the road bench, which is the one number the contract checks.
+			x = Layout.postX(index, config),
+			z = lineZ + config.STAND.offsetZ,
+			-- (6, 1, 6), and the 1 is load-bearing: a 6-stud-tall marker put the stand point 9.5
+			-- studs over a part that does not collide -- the drop named in TASKS.md row 43a(l) and
+			-- audit-004 F9.
+			y = config.STAND.floorStuds + 0.5,
 			size = Vector3.new(6, 1, 6),
 		})
 	end
 	table.insert(out, {
 		kind = "driveLine",
 		name = "DriveLine",
-		x = 0,
-		z = world.lineZ,
-		size = world.driveLineSize, -- CFrame.lookAt(at, at + +Z): the LookVector points at the drivers
+		x = (bounds.minX + bounds.maxX) / 2,
+		z = lineZ,
+		y = 0.5,
+		-- THE BLOCK'S FULL WIDTH. CFrame.lookAt(at, at + +Z): the LookVector points at the drivers.
+		size = Vector3.new(bounds.maxX - bounds.minX, 1, 1),
 	})
 	table.insert(out, {
 		kind = "driverStart",
 		name = "DriverStart",
-		x = 0,
-		z = world.driverStartZ,
-		size = world.driverStartSize,
+		x = drive.centreX,
+		z = config.ROADS.assembly.at,
+		y = 0.5,
+		size = drive.driverStartSize,
 	})
-	for index, x in ipairs(world.boarSpawnX) do
+	local spawnZ = bounds.maxZ - drive.boarSpawnInset
+	for index, x in ipairs(drive.boarSpawnX) do
 		table.insert(out, {
 			kind = "boarSpawn",
 			name = string.format("BoarSpawn%d", index),
 			x = x,
-			z = world.boarSpawnZ,
+			z = spawnZ,
+			y = 0.5,
 			size = Vector3.new(6, 1, 6),
 		})
 	end
 	return out
 end
 
--- The twelve tie trees, PLACED rather than chosen: evenly along the post span, 45 studs behind the
--- line, so a punished shooter is tied within sight of where they stood (design section 4.3) and
+-- The twelve tie trees, PLACED rather than chosen: evenly along the post span, in the crossing band
+-- behind the shooter line, so a punished shooter is tied within sight of where they stood and
 -- nothing stands between a shooter and the drive.
 function Layout.tieTreePoints(config): { Point }
-	local world = config.WORLD
+	if not config.INCLUDE.tieTrees then
+		return {}
+	end
+	local drive = config.DRIVE
 	local out: { Point } = {}
-	for index = 1, world.tieTrees do
-		local t = if world.tieTrees == 1 then 0.5 else (index - 1) / (world.tieTrees - 1)
-		table.insert(out, { x = -world.tieTreeSpan / 2 + t * world.tieTreeSpan, z = world.tieTreeZ })
+	for index = 1, drive.tieTrees do
+		local t = if drive.tieTrees == 1 then 0.5 else (index - 1) / (drive.tieTrees - 1)
+		table.insert(out, {
+			x = drive.centreX - drive.tieTreeSpan / 2 + t * drive.tieTreeSpan,
+			z = drive.tieTreeZ,
+		})
 	end
 	return out
 end
 
--- ---------------------------------------------------------------- the road's furniture (M2.8c)
+-- ---------------------------------------------------------------- the wood
+
+-- THE WOOD ACROSS THE ROAD (design, "The crossing: a wood on both sides of the road"). The first
+-- `crossingBandStuds` of the block BEYOND the active block's road, at the active block's `drive`
+-- density, so a boar that beats the line crosses 20 studs of gravel in front of a stand and goes
+-- into trees. nil when the active block has no character or no block lies beyond its road.
+function Layout.crossingBand(config): Rect?
+	local block = Layout.activeBlock(config)
+	local character = block.character
+	if character == nil or character.crossingBandStuds == nil then
+		return nil
+	end
+	-- The block on the far side of this block's road: same x span, its own -Z side.
+	local road = Layout.activeRoad(config)
+	for _, other in ipairs(Layout.blocks(config)) do
+		if other.name ~= block.name and other.bounds.maxZ <= road.at and other.bounds.minX == block.bounds.minX then
+			return {
+				minX = other.bounds.minX,
+				maxX = other.bounds.maxX,
+				minZ = other.bounds.maxZ - character.crossingBandStuds,
+				maxZ = other.bounds.maxZ,
+			}
+		end
+	end
+	return nil
+end
+
+-- HOW THICK THE WOOD IS HERE, as a weight in 0..1. A candidate tree is accepted when its own drawn
+-- key is below this, which makes the density a property of WHERE rather than of how many cells were
+-- rejected before it.
+--
+-- `patches` is the ACTIVE BLOCK's seeded patch list and arrives as an argument (see this file's
+-- header): a patch has its own grid, its own step and its own folder, so the main wood must return
+-- 0 inside one or the same ground would be planted twice.
+--
+-- THE ZEROES ARE THE GROUND THE GAME STANDS THINGS ON, and they are the whole reason this function
+-- is the single source of "may a tree stand here": `Props.rejectTree` is `treeDensity <= 0`, so the
+-- placing step and the predicate cannot disagree -- which is what two copies of a rule always end up
+-- doing (the hedge wall across the gravel, TASKS.md row 43a(k)).
+function Layout.treeDensity(x: number, z: number, config, patches: { any }?): number
+	if Layout.onRoadKeepClear(x, z, config) or Layout.treeDensityBlockers(x, z, config) then
+		return 0
+	end
+	-- INSIDE A PATCH -- AND FOR `PATCH_EDGE_MARGIN` STUDS OUTSIDE IT -- the patch's own step
+	-- decides. A `gap` patch has weight 0 and plants nothing, which is what makes it a clearing.
+	--
+	-- THE MARGIN IS WHY THIS IS NOT JUST `<= radiusStuds`. The wood refused to plant inside the
+	-- radius and the patch refuses to plant outside it, so without a margin a patch tree and a wood
+	-- tree can sit either side of that one line with nothing between them -- which is a hole in the
+	-- walkability guarantee at the edge of every patch, and the measurement that caught the rim's
+	-- overlap would have caught this next.
+	for _, patch in ipairs(patches or {}) do
+		local reach = patch.radiusStuds + config.PATCH_EDGE_MARGIN
+		if (Vector3.new(x, 0, z) - Vector3.new(patch.x, 0, patch.z)).Magnitude <= reach then
+			return 0
+		end
+	end
+
+	local block = Layout.blockAt(x, z, config)
+	local active = Layout.activeBlock(config)
+	local character = active.character
+	if character == nil then
+		return 0
+	end
+	local density = character.density
+	if block ~= nil and block.name == active.name then
+		-- THE BAND THE SHOOTER ACTUALLY LOOKS INTO.
+		if
+			math.abs(z - Layout.lineZ(config)) <= density.denseBandStuds
+			and math.abs(x - config.DRIVE.centreX) <= density.denseHalfWidth
+		then
+			return density.dense
+		end
+		return density.drive
+	end
+	local crossing = Layout.crossingBand(config)
+	if crossing ~= nil and inRect(x, z, crossing) then
+		return density.drive -- the wood on the far side of the road, at the drive's own thickness
+	end
+	if block ~= nil then
+		-- ANOTHER BLOCK, AND ITS CONTENT IS NOT BUILT. Blocks 2-4 are layout only in this task:
+		-- their rectangles, roads and relief exist and their ground is bare. That is visible in
+		-- `forest-wide`, and the day a block's `character` lands it is one row of data.
+		return if block.content then density.drive else 0
+	end
+	-- OUTSIDE EVERY BLOCK: the rim, where no player walks and no drive runs. Sparse backdrop wood,
+	-- so a player on a road does not look at a bare ridge.
+	return density.backdrop
+end
+
+-- THE GROUND THE GAME STANDS THINGS ON, as one predicate: a spawn pad, a stand's clearing, the
+-- drivers' strip, a tie tree, and the retired layers' own exclusions. Nothing the generator places
+-- may stand here -- not a tree, not a bush, not a fern, not a fallen log.
+--
+-- IT IS SEPARATE FROM `treeDensity` SO THE FLOOR LAYERS CAN SHARE IT. Brush, ferns and deadwood are
+-- not trees and have no density tier, but they must respect exactly the same clear ground: a fern
+-- carpet over a boar's spawn pad reads as a mistake, and a log across the drivers' strip is one
+-- eight drivers are placed inside. One predicate, four readers, so they cannot disagree.
+function Layout.treeDensityBlockers(x: number, z: number, config): boolean
+	if Layout.inField(x, z, config) or Layout.onTrack(x, z, config) then
+		return true
+	end
+	if Layout.distanceToHedge(x, z, config) < config.SCATTER_CLEARANCE then
+		return true
+	end
+	-- A PAD'S SIZE IS THE CONTRACT'S, not the pad list's: `Layout.pads` is four positions, and how
+	-- wide the flat ground around one is belongs to Map.SPAWN_PAD.
+	local clear = config.SPAWN_PAD.radius + config.SPAWN_PAD.blend
+	for _, pad in ipairs(Layout.pads(config)) do
+		if (Vector3.new(x, 0, z) - Vector3.new(pad.x, 0, pad.z)).Magnitude <= clear then
+			return true -- a boar is released onto flat, clear ground
+		end
+	end
+	-- A STAND STANDS IN ITS OWN CLEARING. It sits 20 studs behind the road, inside the DENSE band,
+	-- so without this a 7-stud tower would be built inside an oak -- and "look at the screenshot" is
+	-- only useful if the thing is not inside a tree.
+	for _, stand in ipairs(Layout.standPoints(config)) do
+		if (Vector3.new(x, 0, z) - Vector3.new(stand.x, 0, stand.z)).Magnitude <= config.STAND.clearRadius then
+			return true
+		end
+	end
+	-- THE DRIVERS' STRIP. The assembly road's keepClear is 9 studs and the DriverStart part is 20
+	-- deep, so the part's own footprint reaches past the road guard; anything inside it stands where
+	-- eight drivers are placed.
+	local start = config.DRIVE.driverStartSize
+	if
+		math.abs(z - config.ROADS.assembly.at) <= start.Z / 2 + 2
+		and math.abs(x - config.DRIVE.centreX) <= start.X / 2 + 2
+	then
+		return true
+	end
+	-- A TIE TREE STANDS ON PURPOSE, so the wood keeps off it: two trunks in one place is one trunk a
+	-- punished shooter can be tied to and one that reads as a mistake.
+	for _, tie in ipairs(Layout.tieTreePoints(config)) do
+		if (Vector3.new(x, 0, z) - Vector3.new(tie.x, 0, tie.z)).Magnitude <= 10 then
+			return true
+		end
+	end
+	return false
+end
+
+-- THE WOOD IS BUILT IN SUB-BLOCKS, because one step that creates a thousand Models is one step that
+-- can time out and tells you nothing about where it was when it did. The active block cut into
+-- `TREE_SUBBLOCK_STUDS` squares, then the crossing band cut the same way along x -- each its own
+-- step and its own line in the run log.
+function Layout.treeBlocks(config): { { name: string, minX: number, maxX: number, minZ: number, maxZ: number } }
+	if not (config.INCLUDE.trees or config.INCLUDE.brush or config.INCLUDE.ferns) then
+		-- Task 85's mechanism: an empty list is no steps rather than steps that place nothing.
+		return {}
+	end
+	local out = {}
+	local span = config.TREE_SUBBLOCK_STUDS
+	local function cut(label: string, rect: Rect)
+		local cols = math.max(1, math.ceil((rect.maxX - rect.minX) / span))
+		local rows = math.max(1, math.ceil((rect.maxZ - rect.minZ) / span))
+		for row = 0, rows - 1 do
+			for col = 0, cols - 1 do
+				table.insert(out, {
+					name = string.format("%s%d%d", label, row + 1, col + 1),
+					minX = rect.minX + col * span,
+					maxX = math.min(rect.minX + (col + 1) * span, rect.maxX),
+					minZ = rect.minZ + row * span,
+					maxZ = math.min(rect.minZ + (row + 1) * span, rect.maxZ),
+				})
+			end
+		end
+	end
+	local active = Layout.activeBlock(config)
+	cut("Block", active.bounds)
+	local crossing = Layout.crossingBand(config)
+	if crossing ~= nil then
+		cut("Crossing", crossing)
+	end
+	return out
+end
+
+-- THE RIM'S BACKDROP WOOD, as its own area list: everything outside every block, cut the same way.
+-- It is separate from `treeBlocks` because the rim is a ring and cutting a ring into squares that
+-- happen to be mostly empty would be dozens of steps that place nothing.
+function Layout.backdropBlocks(config): { { name: string, minX: number, maxX: number, minZ: number, maxZ: number } }
+	if not config.INCLUDE.trees then
+		return {}
+	end
+	local half = config.SIZE_STUDS / 2
+	local band = config.EDGE_BAND
+	return {
+		{ name = "RimWest", minX = -half, maxX = -half + band, minZ = -half, maxZ = half },
+		{ name = "RimEast", minX = half - band, maxX = half, minZ = -half, maxZ = half },
+		{ name = "RimSouth", minX = -half + band, maxX = half - band, minZ = -half, maxZ = -half + band },
+		{ name = "RimNorth", minX = -half + band, maxX = half - band, minZ = half - band, maxZ = half },
+	}
+end
+
+-- ---------------------------------------------------------------- the triangle bound
+
+-- A PURE UPPER BOUND ON BAKED GEOMETRY INSIDE ONE STREAMING RADIUS (design, "A pure upper bound,
+-- asserted"). Sum, over every tree whose planted position lies within `Map.STREAMING.targetRadius`
+-- of `point`, the triangles its (species, age, tier) declares.
+--
+-- It is PURE -- no world, no Studio -- so a server spec asserts it at all eight stands and the
+-- driver start, and the trees step fails the build if a sub-block pushes it over. It is a bound on
+-- BAKED geometry and not on what is drawn: `RenderFidelity = Automatic` reduces distant meshes and
+-- identical meshes instance. What it does is turn "hundreds of trees, LOD, streaming" into a number
+-- a machine can refuse, which is the only kind of budget this project has found to work.
+--
+-- The trees arrive as an argument, each `{ x, z, species, age, tier }` -- see this file's header.
+function Layout.visibleLoad(point: Point, trees: { any }, config, radius: number): number
+	local total = 0
+	local limit = radius * radius
+	for _, tree in ipairs(trees) do
+		local dx, dz = tree.x - point.x, tree.z - point.z
+		if dx * dx + dz * dz <= limit then
+			local species = config.SPECIES[tree.species]
+			local tier = tree.tier or tree.age
+			total += (species and species.tris[tier]) or 0
+		end
+	end
+	return total
+end
+
+-- Every point the triangle bound is asserted at: the eight stands a shooter stands on and the
+-- driver start. Those are where a player's eye actually is.
+function Layout.loadPoints(config): { { name: string, x: number, z: number } }
+	local out = {}
+	for index, stand in ipairs(Layout.standPoints(config)) do
+		table.insert(out, { name = string.format("Stand%d", index), x = stand.x, z = stand.z })
+	end
+	table.insert(out, { name = "DriverStart", x = config.DRIVE.centreX, z = config.ROADS.assembly.at })
+	return out
+end
+
+-- ---------------------------------------------------------------- the forest floor's counts
+
+-- ONE HECTARE IS 127,551 STUDS SQUARED at 1 stud = 0.28 m, and the rates are per hectare because
+-- that is the unit forestry uses and the unit the design's arithmetic is written in.
+Layout.STUDS2_PER_HECTARE = 127551
+
+function Layout.hectares(rect: Rect): number
+	return ((rect.maxX - rect.minX) * (rect.maxZ - rect.minZ)) / Layout.STUDS2_PER_HECTARE
+end
+
+-- How many of a per-hectare thing belong in one area, as a whole number.
+function Layout.countFor(rect: Rect, perHa: number): number
+	return math.max(0, math.floor(Layout.hectares(rect) * perHa + 0.5))
+end
+
+-- ---------------------------------------------------------------- the stakes
 
 export type Piece = {
-	kind: string, -- what it is, for the counts and for a spec to group by
-	name: string, -- unique inside the Furniture folder
+	kind: string,
+	name: string,
 	x: number,
 	z: number,
 	size: Vector3,
 	base: number, -- the bottom face, in studs above the ground at (anchorX, anchorZ)
-	anchorX: number, -- where the GROUND is sampled: one height per object, so a high seat's four
-	anchorZ: number, -- legs and its platform stand on one plane instead of following the terrain
+	anchorX: number, -- where the GROUND is sampled: one height per object, so a stand's four legs
+	anchorZ: number, -- and its floor stand on one plane instead of following the terrain
 	color: Color3,
 	material: Enum.Material,
 }
 
--- WHERE THE FOUR HIGH SEATS STAND. Its own function because `Layout.treeDensity` needs it for every
--- candidate in the wood and must not build the whole furniture list to find out.
-function Layout.highSeats(config): { Point }
-	if not config.INCLUDE.highSeats then
-		return {} -- task 85: no high seats, and `treeDensity` keeps no clearing for one
-	end
-	local world, seat = config.WORLD, config.FURNITURE.highSeat
-	local out: { Point } = {}
-	for _, index in ipairs(seat.atPosts) do
-		local x = (index - (world.postCount + 1) / 2) * world.postSpacing
-		table.insert(out, { x = x, z = world.lineZ + seat.offsetZ })
-	end
-	return out
-end
-
--- EVERY PIECE OF FURNITURE, AS DATA (design 18, the M2.8c row). Pure, so a spec can assert what the
--- road carries without building a map, and so `Props.furniture` decides nothing -- it is handed a
--- list and it builds it, the same division `Props.hedge` already has.
+-- TWO STAKES PER STAND, and the orange cap on top of each. With every tagged marker at
+-- `Transparency = 1` (TASKS.md row 58a(a)), the stakes are the only thing that says where a stand is
+-- from 160 studs away -- and the stand itself is the other, now that there is one.
 --
--- DETERMINISTIC WITHOUT A SEED. The reeds' jitter is modular arithmetic on the clump index rather
--- than a draw, because the one flat hash in this project lives in `Scatter`, `Scatter` requires
--- `Layout`, and a second require the other way is a cycle. Scenery on a bog rim does not need a
--- statistically good hash; it needs to be the same every build, and this is.
+-- IN FRONT of the stand, between it and the road, so nothing here ever stands between a shooter on
+-- the boards and what he is shooting at: the shooter is at z = line - 20 and the drive is at +Z, so
+-- "in front" is +Z of the stand and still short of the gravel.
 function Layout.furniture(config): { Piece }
-	local world = config.WORLD
 	local f = config.FURNITURE
 	local out: { Piece } = {}
 	local function add(piece: Piece)
 		table.insert(out, piece)
 	end
-
-	-- 1. TWO STAKES PER STAND, and the orange cap on top of each (row 58a(a): the posts have to be
-	-- visible from the road, and every tagged marker is Transparency = 1 by design).
-	--
-	-- THE ONE PIECE OF FURNITURE THE BARE WORLD KEEPS (task 85): with the wood gone, the stakes are
-	-- the only thing that says where a stand is.
-	for index = 1, (if config.INCLUDE.stakes then world.postCount else 0) do
-		local postX = (index - (world.postCount + 1) / 2) * world.postSpacing
-		local z = world.lineZ + f.stake.offsetZ
+	if not config.INCLUDE.stakes then
+		return out
+	end
+	for index, stand in ipairs(Layout.standPoints(config)) do
+		local z = stand.z + f.stake.offsetZ
 		for _, side in ipairs({ -1, 1 }) do
-			local x = postX + side * f.stake.offsetX
+			local x = stand.x + side * f.stake.offsetX
 			local suffix = if side < 0 then "L" else "R"
 			add({
 				kind = "stake",
@@ -321,264 +625,80 @@ function Layout.furniture(config): { Piece }
 			})
 		end
 	end
-
-	-- 2. FOUR HIGH SEATS: four legs, a deck, a rail across the back and a roof. Scenery: nobody
-	-- stands on it in v1, and nothing here is collidable.
-	for seatIndex, seat in ipairs(Layout.highSeats(config)) do
-		local half = f.highSeat.legSpan / 2
-		local legTop = f.highSeat.legSize.Y
-		for legIndex, corner in ipairs({
-			{ dx = -half, dz = -half },
-			{ dx = half, dz = -half },
-			{ dx = -half, dz = half },
-			{ dx = half, dz = half },
-		}) do
-			add({
-				kind = "highSeatLeg",
-				name = string.format("HighSeat%dLeg%d", seatIndex, legIndex),
-				x = seat.x + corner.dx,
-				z = seat.z + corner.dz,
-				size = f.highSeat.legSize,
-				base = 0,
-				anchorX = seat.x,
-				anchorZ = seat.z,
-				color = f.highSeat.color,
-				material = Enum.Material.Wood,
-			})
-		end
-		add({
-			kind = "highSeatDeck",
-			name = string.format("HighSeat%dDeck", seatIndex),
-			x = seat.x,
-			z = seat.z,
-			size = f.highSeat.platform,
-			base = legTop,
-			anchorX = seat.x,
-			anchorZ = seat.z,
-			color = f.highSeat.deckColor,
-			material = Enum.Material.WoodPlanks,
-		})
-		add({
-			kind = "highSeatRail",
-			name = string.format("HighSeat%dRail", seatIndex),
-			x = seat.x,
-			-- The rail is across the DRIVE side, so the seat reads as facing the wood it watches.
-			z = seat.z + f.highSeat.platform.Z / 2,
-			size = f.highSeat.rail,
-			base = legTop + f.highSeat.platform.Y,
-			anchorX = seat.x,
-			anchorZ = seat.z,
-			color = f.highSeat.color,
-			material = Enum.Material.Wood,
-		})
-		add({
-			kind = "highSeatRoof",
-			name = string.format("HighSeat%dRoof", seatIndex),
-			x = seat.x,
-			z = seat.z,
-			size = f.highSeat.roof,
-			base = legTop + f.highSeat.platform.Y + f.highSeat.rail.Y,
-			anchorX = seat.x,
-			anchorZ = seat.z,
-			color = f.highSeat.color,
-			material = Enum.Material.WoodPlanks,
-		})
-	end
-
-	-- 3. A BARRIER ACROSS EACH END OF THE ROAD: two uprights and a boom, on the flat bench inside
-	-- the road's own ends, so it stands on gravel rather than among trunks.
-	local road = Layout.benches(config)[1]
-	local barrierEnds = if config.INCLUDE.barriers
-		then { road.from + f.barrier.inset, road.to - f.barrier.inset }
-		else {}
-	for endIndex, endX in ipairs(barrierEnds) do
-		for _, side in ipairs({ -1, 1 }) do
-			add({
-				kind = "barrierPost",
-				name = string.format("Barrier%dPost%s", endIndex, if side < 0 then "L" else "R"),
-				x = endX,
-				z = world.lineZ + side * f.barrier.postOffsetZ,
-				size = f.barrier.post,
-				base = 0,
-				anchorX = endX,
-				anchorZ = world.lineZ,
-				color = f.barrier.color,
-				material = Enum.Material.Metal,
-			})
-		end
-		add({
-			kind = "barrierBoom",
-			name = string.format("Barrier%dBoom", endIndex),
-			x = endX,
-			z = world.lineZ,
-			size = f.barrier.boom,
-			base = f.barrier.boomBase,
-			anchorX = endX,
-			anchorZ = world.lineZ,
-			color = f.barrier.bandColor,
-			material = Enum.Material.SmoothPlastic,
-		})
-	end
-
-	-- 4. TWO LOG PILES ON THE VERGE, stacked 3 + 2, their long axis along the road.
-	for pileIndex, pile in ipairs(if config.INCLUDE.logPiles then f.logPile.at else {}) do
-		local z = world.lineZ + pile.side * f.logPile.offsetZ
-		local log = f.logPile.log
-		-- 3 + 2 + 1, the way a forester stacks them, and 6.6 studs tall so it reads from the road.
-		local rows = { { -log.Z, 0, log.Z }, { -log.Z / 2, log.Z / 2 }, { 0 } }
-		local logIndex = 0
-		for row, offsets in ipairs(rows) do
-			for _, dz in ipairs(offsets) do
-				logIndex += 1
-				add({
-					kind = "log",
-					name = string.format("LogPile%d_%d", pileIndex, logIndex),
-					x = pile.x,
-					z = z + dz,
-					size = log,
-					base = (row - 1) * log.Y,
-					anchorX = pile.x,
-					anchorZ = z,
-					color = if row == 1 then f.logPile.color else f.logPile.endColor,
-					material = Enum.Material.Wood,
-				})
-			end
-		end
-	end
-
-	-- 5. A FENCE ALONG A FIELD BOUNDARY, WITH A GATE where the farm track passes through it. The
-	-- gate stands OPEN, swung back on its hinge post along +z, because a closed gate across the
-	-- track would say the track goes nowhere.
-	local fence = f.fence
-	local x = fence.fromX
-	while config.INCLUDE.fence and x <= fence.toX + 1e-6 do
-		if not (x > fence.gateFromX and x < fence.gateToX) then
-			add({
-				kind = "fencePost",
-				name = string.format("FencePost%d", math.floor((x - fence.fromX) / fence.spacing) + 1),
-				x = x,
-				z = fence.z,
-				size = fence.post,
-				base = 0,
-				anchorX = x,
-				anchorZ = fence.z,
-				color = fence.color,
-				material = Enum.Material.Wood,
-			})
-		end
-		x += fence.spacing
-	end
-	local span = fence.fromX
-	local railIndex = 0
-	while config.INCLUDE.fence and span + fence.spacing <= fence.toX + 1e-6 do
-		local middle = span + fence.spacing / 2
-		if not (middle > fence.gateFromX and middle < fence.gateToX) then
-			for heightIndex, height in ipairs(fence.railHeights) do
-				railIndex += 1
-				add({
-					kind = "fenceRail",
-					name = string.format("FenceRail%d_%d", railIndex, heightIndex),
-					x = middle,
-					z = fence.z,
-					size = fence.rail,
-					base = height - fence.rail.Y / 2,
-					anchorX = middle,
-					anchorZ = fence.z,
-					color = fence.color,
-					material = Enum.Material.Wood,
-				})
-			end
-		end
-		span += fence.spacing
-	end
-	-- THE GATE IS A SEPARATE `add`, not part of the loops above, and the first bare build caught
-	-- that: the run's own furniture line read `fencePost 0 ... gate 1`, one gate standing alone in an
-	-- empty field with no fence to hang on (task 85).
-	if config.INCLUDE.fence then
-		add({
-			kind = "gate",
-			name = "FieldGate",
-			x = fence.gateFromX + 1,
-			z = fence.z + fence.gate.Z / 2,
-			size = fence.gate,
-			base = 0.4,
-			anchorX = fence.gateFromX,
-			anchorZ = fence.z,
-			color = fence.gateColor,
-			material = Enum.Material.Wood,
-		})
-	end
-
-	-- 6. REEDS ON THE BOG'S RIM.
-	local bog, reeds = world.bog, f.reeds
-	for index = 1, (if config.INCLUDE.reeds then reeds.count else 0) do
-		local angle = (index - 1) / reeds.count * math.pi * 2
-		-- Deterministic, and it is arithmetic rather than a draw: see the note above the function.
-		local wobble = ((index * 37) % (reeds.jitter * 2 + 1)) - reeds.jitter
-		local radius = bog.radius - reeds.inset + wobble
-		local rx = bog.x + math.cos(angle) * radius
-		local rz = bog.z + math.sin(angle) * radius
-		add({
-			kind = "reed",
-			name = string.format("Reeds%02d", index),
-			x = rx,
-			z = rz,
-			size = reeds.size,
-			base = -reeds.sink,
-			anchorX = rx,
-			anchorZ = rz,
-			color = reeds.color,
-			material = Enum.Material.Grass,
-		})
-	end
-
 	return out
 end
 
--- ---------------------------------------------------------------- the hedgerow network
+-- ---------------------------------------------------------------- the retired layers
+--
+-- THE HEDGEROW AND FARMLAND MECHANISMS, SWITCHED OFF AND NOT DELETED (design, "Fields, hedges and
+-- the old flank track"). `Config.INCLUDE.fields`, `.hedges` and `.tracks` are false, because there
+-- is no room for farmland inside a forest that fills the map. They keep their callers and their
+-- specs for one specific reason: the hedge-gate mechanism is the one that has already caught a
+-- collidable wall standing across a drive, and orphaning it would throw that check away (TASKS.md
+-- row 43a(m) is the opposite smell -- a function with no reader -- and this is the answer to it).
 
--- The field boundaries, as lines. `axis = "x"` runs ALONG x at a constant z; `axis = "z"` runs along
--- z at a constant x. A line that crosses the drive corridor is marked, because that is the one that
--- must be gated or the drive stops at it.
+function Layout.inField(x: number, z: number, config): boolean
+	if not config.INCLUDE.fields then
+		return false
+	end
+	local f = config.WORLD_FIELDS
+	return math.abs(x) >= f.innerX and math.abs(x) <= f.outerX and z >= f.minZ and z <= f.maxZ
+end
+
+function Layout.onTrack(x: number, z: number, config): boolean
+	if not config.INCLUDE.tracks then
+		return false
+	end
+	for _, track in ipairs(config.WORLD_TRACKS) do
+		local across = if track.axis == "x" then z else x
+		if math.abs(across - track.at) <= track.halfWidth then
+			return true
+		end
+	end
+	return false
+end
+
+-- The field boundaries, as lines. `axis = "x"` runs ALONG x at a constant z. A line that crosses the
+-- ACTIVE BLOCK is marked, because that is the one that must be gated or the drive stops at it.
 function Layout.hedgeLines(config): { Line }
 	if not config.INCLUDE.hedges then
-		return {} -- task 85: no hedgerows, so no hedgerow STEPS and no clearance around them
+		return {}
 	end
-	local world = config.WORLD
-	local span = world.hedgeHalfSpan
-	local corridor = world.corridor
+	local world = config.WORLD_HEDGES
+	local span = world.halfSpan
+	local bounds = Layout.activeBlock(config).bounds
 	local out: { Line } = {}
-	for _, z in ipairs(world.hedgeZ) do
+	for _, z in ipairs(world.alongX) do
 		table.insert(out, {
 			axis = "x",
 			at = z,
 			from = -span,
 			to = span,
-			crossesCorridor = z >= corridor.minZ and z <= corridor.maxZ,
+			crossesCorridor = z >= bounds.minZ and z <= bounds.maxZ,
 		})
 	end
-	for _, x in ipairs(world.hedgeX) do
+	for _, x in ipairs(world.alongZ) do
 		table.insert(out, {
 			axis = "z",
 			at = x,
 			from = -span,
 			to = span,
-			crossesCorridor = x >= corridor.minX and x <= corridor.maxX,
+			crossesCorridor = x >= bounds.minX and x <= bounds.maxX,
 		})
 	end
 	return out
 end
 
--- The stretch of a line that lies inside the corridor, as (from, to) along the line's own axis, or
--- nil when it never enters it. This is where a gate has to be: a gate outside the corridor is a gate
+-- The stretch of a line that lies inside the ACTIVE BLOCK, as (from, to) along the line's own axis,
+-- or nil when it never enters it. This is where a gate has to be: a gate outside the drive is a gate
 -- the drive never reaches.
 function Layout.corridorSpan(line: Line, config): (number?, number?)
 	if not line.crossesCorridor then
 		return nil, nil
 	end
-	local corridor = config.WORLD.corridor
-	local low = if line.axis == "x" then corridor.minX else corridor.minZ
-	local high = if line.axis == "x" then corridor.maxX else corridor.maxZ
+	local bounds = Layout.activeBlock(config).bounds
+	local low = if line.axis == "x" then bounds.minX else bounds.minZ
+	local high = if line.axis == "x" then bounds.maxX else bounds.maxZ
 	local from, to = math.max(line.from, low), math.min(line.to, high)
 	if to <= from then
 		return nil, nil
@@ -593,7 +713,7 @@ end
 -- segment whose centre clears the gate can still narrow it below the width the spec asserts.
 function Layout.hedgeSegments(line: Line, gates: { number }, config): { Point }
 	local half = config.HEDGE.segmentStuds / 2
-	local gateHalf = config.WORLD.gateStuds / 2
+	local gateHalf = config.WORLD_HEDGES.gateStuds / 2
 	local out: { Point } = {}
 	local count = math.max(1, math.floor((line.to - line.from) / config.HEDGE.segmentStuds))
 	for index = 0, count do
@@ -611,10 +731,10 @@ function Layout.hedgeSegments(line: Line, gates: { number }, config): { Point }
 		else
 			x, z = line.at, along
 		end
-		-- A BENCH IS A GATE NOBODY HAS TO CUT (round 2, finding 1). A hedge segment on the road is a
-		-- collidable wall across the one strip the whole revision exists to keep open; half a
-		-- segment's length of clearance keeps the part itself off the verge, not just its centre.
-		if Layout.onBench(x, z, config, config.HEDGE.segmentStuds / 2) then
+		-- A ROAD IS A GATE NOBODY HAS TO CUT (Task 58 round 2, finding 1). A hedge segment on the
+		-- gravel is a collidable wall across the one strip the whole revision exists to keep open;
+		-- half a segment's length of clearance keeps the PART off it, not just its centre.
+		if Layout.onRoadKeepClear(x, z, config, config.HEDGE.segmentStuds / 2) then
 			blocked = true
 		end
 		if not blocked then
@@ -658,45 +778,6 @@ function Layout.distanceToHedge(x: number, z: number, config): number
 		end
 	end
 	return best
-end
-
--- ---------------------------------------------------------------- tracks, bog, corridor
-
--- Is this point on a dirt track? Material only -- the track's height was already set by the
--- heightfield, so nothing here can disagree with Height about the ground.
-function Layout.onTrack(x: number, z: number, config): boolean
-	if not config.INCLUDE.tracks then
-		return false -- task 85: no dirt track, so no ground painted for one
-	end
-	for _, track in ipairs(config.WORLD.tracks) do
-		local across = if track.axis == "x" then z else x
-		if math.abs(across - track.at) <= track.halfWidth then
-			return true
-		end
-	end
-	return false
-end
-
--- How far into the bog a point is, 0 outside it and 1 at its centre, eased. Both the heightfield (a
--- shallow depression) and the material ask this one function, so the mud and the dip cannot disagree.
-function Layout.bogDepth(x: number, z: number, config): number
-	if not config.INCLUDE.bog then
-		return 0 -- task 85: no bog, so no dip and no Mud. The numbers stay in WORLD.bog.
-	end
-	local bog = config.WORLD.bog
-	local d = math.sqrt((x - bog.x) ^ 2 + (z - bog.z) ^ 2)
-	if d >= bog.radius then
-		return 0
-	end
-	local t = 1 - d / bog.radius
-	return t * t * (3 - 2 * t)
-end
-
--- Is this point inside the drive corridor? Nothing is scattered here: a tree in the corridor is an
--- obstacle in the one place the drive needs to be open.
-function Layout.inCorridor(x: number, z: number, config): boolean
-	local c = config.WORLD.corridor
-	return x >= c.minX and x <= c.maxX and z >= c.minZ and z <= c.maxZ
 end
 
 return Layout

@@ -17,7 +17,7 @@
 -- server spec can recompute the MARKER half in milliseconds from the live parts (design section 13.1
 -- check 11), while the terrain half needs 4,096 voxel reads and belongs to `mapgen.py verify`.
 --
--- Design: docs/design/map-generator.md (section 6.4)
+-- Design: docs/design/map-generator.md, "Statelessness, unchanged" and the Digest module row
 local Digest = {}
 
 export type Entry = {
@@ -145,9 +145,36 @@ function Digest.paletteText(palette): string
 	return table.concat(lines, "|")
 end
 
-function Digest.of(entries: { Entry }, samples: { Sample }, scale: number, palette): string
+-- The MATERIAL VARIANT table, as canonical text, and it is IN the digest for exactly the reason the
+-- palette is: a hand-changed ground texture is a change to the map that nothing else would notice --
+-- the voxels are identical, the markers are identical, and the place looks different. It is a
+-- role -> "what MaterialService actually holds" map, read back off the engine by
+-- `Ground.readVariants`, so an id that did not take changes the digest rather than being assumed.
+function Digest.variantText(variants): string
+	if variants == nil then
+		return ""
+	end
+	local roles = {}
+	for role in pairs(variants) do
+		table.insert(roles, role)
+	end
+	table.sort(roles)
+	local lines = {}
+	for _, role in ipairs(roles) do
+		table.insert(lines, string.format("%s=%s", role, tostring(variants[role])))
+	end
+	return table.concat(lines, "|")
+end
+
+function Digest.of(entries: { Entry }, samples: { Sample }, scale: number, palette, variants): string
 	return Digest.half(Digest.markerText(entries, scale))
-		.. Digest.half(Digest.terrainText(samples, scale) .. "|palette|" .. Digest.paletteText(palette))
+		.. Digest.half(
+			Digest.terrainText(samples, scale)
+				.. "|palette|"
+				.. Digest.paletteText(palette)
+				.. "|variants|"
+				.. Digest.variantText(variants)
+		)
 end
 
 -- The half a spec can afford to recompute.

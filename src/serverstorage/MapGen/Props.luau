@@ -1,22 +1,35 @@
 --!strict
--- MapGen.Props: THE ONLY WRITER OF `Workspace.DrivenHuntMap.Props` (design section 2.2). It writes
--- no Terrain and places no marker, and it is the only module that inserts an asset.
+-- MapGen.Props: THE ONLY WRITER OF `Workspace.DrivenHuntMap.Props`. It writes no Terrain and places
+-- no marker, and it is the only module in the map that turns an asset id into an Instance.
 --
--- EVERY STEP IS IDEMPOTENT: each call destroys its own folder and rebuilds it, so re-running a failed
--- step does not leave a second wood behind (design section 5.4).
+-- EVERY STEP IS IDEMPOTENT: each call destroys its own folder and rebuilds it, so re-running a
+-- failed step does not leave a second wood behind.
 --
--- NO TEMPLATE IS EVER CACHED OUTSIDE THE RUN. `ServerStorage` and `ReplicatedStorage` are fully
--- Rojo-owned with `$ignoreUnknownInstances: false`, so a template parked there is DELETED at Karen's
--- next Connect (CLAUDE.md, "Rojo DELETES Studio-created instances in Rojo-owned containers"). A cache
--- that empties itself between sessions is a bug generator, so the Assets folder lives under the map
--- root for the length of one run and is destroyed at the end of it (design section 8.2).
+-- IT GOES THROUGH `ServerStorage.Assets.Loader` AND NOT THROUGH AN INSERT OF ITS OWN (design, "`MapGen.Props`
+-- moves onto `Assets.Loader`"). That closes TASKS.md row 74a(a): there is now ONE id table in the
+-- repo and one seam that turns an id into an Instance. The Loader already inserts a `kind = "model"`
+-- template, REFUSES one containing a script rather than stripping it, checks the arrived mesh's
+-- aspect against the row's measured `naturalSizeStuds`, bounds the wait, adopts a late arrival, and
+-- answers nil for "wear the grey box" -- all of which this file used to half-do.
+--
+-- NO TEMPLATE EVER OUTLIVES THE RUN, and that is not tidiness. `ServerStorage` and
+-- `ReplicatedStorage` are fully Rojo-owned with `$ignoreUnknownInstances: false`, so a template
+-- parked in either is DELETED at Karen's next Connect (CLAUDE.md). `Loader.setCacheParent` points
+-- the cache at a folder under the MAP ROOT for the length of one step, and `Loader.clear()` destroys
+-- only what that state created -- so an edit-time generator run can neither reach nor leave a
+-- template a live server preloaded.
 --
 --   InsertService:LoadAsset https://create.roblox.com/docs/reference/engine/classes/InsertService
+--   Model:ScaleTo           https://create.roblox.com/docs/reference/engine/classes/Model#ScaleTo
+--   MeshPart                https://create.roblox.com/docs/reference/engine/classes/MeshPart
 --
--- Design: docs/design/map-generator.md (sections 2.2, 8.2, 8.3, 8.4)
-local InsertService = game:GetService("InsertService")
+-- Design: docs/design/map-generator.md, "Props", "A tree is a mesh plus an invisible trunk collider"
+-- and "How the trees get in"
+local ServerStorage = game:GetService("ServerStorage")
 
-local Assets = require(script.Parent:WaitForChild("Assets"))
+local Assets = require(ServerStorage:WaitForChild("Assets"))
+local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
+
 local Height = require(script.Parent:WaitForChild("Height"))
 local Layout = require(script.Parent:WaitForChild("Layout"))
 local Scatter = require(script.Parent:WaitForChild("Scatter"))
@@ -25,10 +38,18 @@ local Props = {}
 
 Props.ASSETS_FOLDER = "Assets"
 
--- The attribute every placed tree carries, naming the `Config.SPECIES` row it was built from (or
--- `Config.TREE_PROXY.name` for a tie tree). One constant, read by the spec, so a rename cannot make a
--- spec pass by looking for an attribute nothing writes.
+-- The attributes every placed tree carries, naming the `Config.SPECIES` row, the age class and the
+-- mesh tier it was built from. Constants, read by the spec, so a rename cannot make a spec pass by
+-- looking for an attribute nothing writes.
+--
+-- WHAT WAS PLANTED, ON THE THING THAT WAS PLANTED (audit-005 must-fix 2). Until these existed,
+-- every species claim in the repo was a claim about `Scatter.speciesAt` -- a pure function -- and
+-- nothing compared it against the wood in the world; a monoculture built from one template passed
+-- all of them. `Digest.of` hashes name, className, Position, Size and tags, so an attribute cannot
+-- change a map's digest.
 Props.SPECIES_ATTRIBUTE = "Species"
+Props.AGE_ATTRIBUTE = "Age"
+Props.TIER_ATTRIBUTE = "Tier"
 
 -- The map root's Props folder, created on demand. Props is its only writer, so it is also the only
 -- module that brings it into existence.
@@ -44,9 +65,9 @@ local function propsFolder(root: Instance): Folder
 end
 
 -- `fresh` defaults to TRUE: a step rebuilds its folder rather than adding to it, which is what
--- makes re-running a step idempotent. THE WOOD IS THE EXCEPTION (M2.8b): it is built in four
--- quadrant steps, so the first clears and the other three append -- and the first build of this
--- shape ended with only the last quadrant in the world, because every step wiped the one before it.
+-- makes re-running a step idempotent. THE LAYERS BUILT IN SUB-BLOCKS ARE THE EXCEPTION: the first
+-- sub-block clears and the rest append -- and the first build of that shape ended with only the
+-- last sub-block in the world, because every step wiped the one before it.
 local function folder(parent: Instance, name: string, fresh: boolean?): Folder
 	local existing = parent:FindFirstChild(name)
 	if existing and fresh ~= false then
@@ -81,18 +102,12 @@ local function part(
 	return made
 end
 
--- THE FURNITURE LAYER'S ONE RULE, IN ONE PLACE (Task 66 review note 1, audit-005): a slug passes
--- through anything a player walks through. Nothing in the furniture layer collides -- the contract
--- forbids a collidable part near the road and half the layer stands there on purpose (Config.FURNITURE
--- says why) -- so nothing in it may be QUERYABLE either, or the grey-box log pile 20 studs downrange of
--- shooter post 7 absorbs a slug a player can walk through. Before this, `part()` left `CanQuery` at its
--- default `true` and only `CanCollide` was decided, which is the "two correct pieces of code
--- disagreeing" shape: one of them stopped the player and the other stopped the bullet.
---
--- IT IS NOT A PROJECT-WIDE RULE and must not become one: a tree CROWN is `CanCollide = false` and
--- `CanQuery = true` ON PURPOSE (Props.placeTree, Task 63) -- a shot into the canopy stops in the canopy
--- while the navmesh sees trunks only. This is the FURNITURE's rule, applied to the whole layer at once
--- rather than remembered per piece, and it is the only writer of either property in `Props.furniture`.
+-- A SLUG PASSES THROUGH ANYTHING A PLAYER WALKS THROUGH, applied to a whole layer at once rather
+-- than remembered per piece (Task 66 review note 1, audit-005). Before this, `part()` left
+-- `CanQuery` at its default `true` and only `CanCollide` was decided, which is the "two correct
+-- pieces of code disagreeing" shape: one of them stopped the player and the other stopped the
+-- bullet, and the grey-box log pile 20 studs downrange of post 7 absorbed slugs a player could walk
+-- straight through.
 local function sceneryOnly(instance: Instance)
 	local function apply(candidate: Instance)
 		if candidate:IsA("BasePart") then
@@ -106,114 +121,625 @@ local function sceneryOnly(instance: Instance)
 	end
 end
 
--- A FREE MODEL WITH A SCRIPT IN IT IS REFUSED, NOT STRIPPED (design section 8.4). One surviving
--- Script under Workspace makes harness check 5 fail every run from then on, and a stripped model is
--- half-functional in ways nobody looks for: the right answer is a different asset.
-function Props.scriptIn(template: Instance): string?
-	for _, descendant in ipairs(template:GetDescendants()) do
-		if descendant:IsA("LuaSourceContainer") then
-			return descendant:GetFullName()
+-- ---------------------------------------------------------------- the asset seam
+
+local function assetsFolder(root: Instance): Folder
+	local existing = root:FindFirstChild(Props.ASSETS_FOLDER)
+	if existing and existing:IsA("Folder") then
+		return existing
+	end
+	local made = Instance.new("Folder")
+	made.Name = Props.ASSETS_FOLDER
+	made.Parent = root
+	return made
+end
+
+-- EVERY KEY THE ACTIVE BLOCK'S WOOD CAN ASK FOR, so one `preload` covers a step instead of a
+-- network call per tree. Derived from `Config.SPECIES` -- nothing here spells a key.
+function Props.treeKeys(config): { string }
+	local seen, out = {}, {}
+	for _, name in ipairs(config.SPECIES_ORDER) do
+		local row = config.SPECIES[name]
+		for _, tier in ipairs({ "mature", "young", "veteran", "backdrop" }) do
+			for _, key in ipairs(row.keys[tier] or {}) do
+				if not seen[key] then
+					seen[key] = true
+					table.insert(out, key)
+				end
+			end
 		end
 	end
-	return nil
+	return out
 end
 
--- The template for a key, inserted once per run into the run's own Assets folder, or nil when there
--- is no id yet -- which means "the caller places a proxy", not "the step failed" (section 8.3).
+-- ONE STEP'S WHOLE DEALING WITH THE LOADER, in one place, so no step can forget the teardown.
 --
--- EVERY PLACING STEP CALLS THIS FIRST, and proxies only on nil. That is the whole of section 8.3: the
--- day a row lands in `Assets.ROWS`, the same step clones the asset instead of building a box, with no
--- other change. `proxyUsed` therefore reports the keys that WERE proxied, not the keys that exist.
--- In M2.1 `Assets.ROWS` is empty, so the nil branch is the one that runs and the insertion branch
--- below -- LoadAsset, the cache, the script refusal -- is dormant until the first id (row 43a(d)).
-function Props.template(key: string, root: Instance): (Instance?, string?)
-	local row = Assets.byKey(key)
-	if row == nil then
-		return nil, nil
-	end
-	local cache = root:FindFirstChild(Props.ASSETS_FOLDER)
-	if cache == nil then
-		local made = Instance.new("Folder")
-		made.Name = Props.ASSETS_FOLDER
-		made.Parent = root
-		cache = made
-	end
-	local existing = cache:FindFirstChild(key)
-	if existing then
-		return existing, nil
-	end
-	local ok, result = pcall(function()
-		return InsertService:LoadAsset(row.id)
-	end)
-	if not ok then
-		return nil, string.format("LoadAsset(%d) for %s failed: %s", row.id, key, tostring(result))
-	end
-	local container = result :: Instance
-	local found = Props.scriptIn(container)
-	if found then
-		container:Destroy()
-		return nil, string.format("asset %d for %s contains a script (%s); refused, not stripped", row.id, key, found)
-	end
-	container.Name = key
-	container.Parent = cache
-	return container, nil
-end
-
-function Props.clearAssets(root: Instance)
+-- `Loader.setState(Loader.newState())` borrows: production's own state is handed back at the end,
+-- untouched, whatever happened in between -- so an edit-time run cannot destroy a template a live
+-- server preloaded, and `Loader.clear()` destroys only what THIS state created.
+function Props.withLoader<T>(root: Instance, keys: { string }, body: () -> T): (T, { any })
+	local live = Loader.setState(Loader.newState())
+	Loader.setCacheParent(assetsFolder(root))
+	local reports = Loader.preload(keys)
+	local ok, result = pcall(body)
+	Loader.clear()
+	Loader.setState(live)
 	local cache = root:FindFirstChild(Props.ASSETS_FOLDER)
 	if cache then
-		cache:Destroy()
+		cache:Destroy() -- no template outlives the run, and neither does the folder it sat in
 	end
+	if not ok then
+		error(result, 0)
+	end
+	return result :: T, reports
 end
 
--- One placed thing: a clone of the asset when there is one, and a proxy Part of the same footprint
--- when there is not. Returns the instance and whether it was a proxy, so the caller can count.
-local function placed(
-	template: Instance?,
+-- The reports a `preload` produced, as one short line per key that did NOT load, so a step's message
+-- names what is missing instead of being silent about it.
+function Props.loadFindings(reports: { any }): { string }
+	local out: { string } = {}
+	for _, report in ipairs(reports) do
+		if not report.ok then
+			table.insert(out, string.format("%s: %s", report.key, tostring(report.reason)))
+		end
+	end
+	return out
+end
+
+-- ---------------------------------------------------------------- a tree
+
+-- THE TREE'S OWN GEOMETRY, from its species row and its age class. One place, so the proxy, the
+-- mesh scale and the trunk collider cannot disagree about how tall this tree is.
+function Props.treeGeometry(config, species: string, age: string)
+	local row = config.SPECIES[species]
+	local scale = config.AGE[age] or config.AGE.mature
+	local height = row.heightStuds * scale.heightScale
+	local trunk = row.trunkStuds * scale.trunkScale
+	return {
+		row = row,
+		height = height,
+		trunkStuds = trunk,
+		boleStuds = height * row.boleFraction,
+		crownStuds = row.crownStuds * scale.crownScale,
+	}
+end
+
+-- ONE TREE: A MESH PLUS AN INVISIBLE TRUNK COLLIDER, and this is the load-bearing shape of the whole
+-- revision (design, "A tree is a mesh plus an invisible trunk collider").
+--
+-- A Roblox raycast and a character's collision both use a part's COLLISION GEOMETRY, not its render
+-- mesh. For a whole-tree MeshPart that means one of three bad answers: `CollisionFidelity = Box` (a
+-- 34 x 78 x 34 box -- shots stop in mid-air and the navmesh sees a wall), `Default` (a convex hull,
+-- the same but rounded), or `PreciseConvexDecomposition` (expensive and still a canopy that eats
+-- shots). And `Match.Body.tiePointFor` takes its stand-off radius from
+-- `math.max(tree.Size.X, tree.Size.Z)/2`, which on a whole-tree MeshPart is the CROWN radius -- it
+-- would tie a punished shooter 17 studs from the tree.
+--
+-- So the mesh is visuals only and a separate `Trunk` Part is the physics and the query target, and
+-- it is the Model's PrimaryPart. That keeps every existing reader correct with no change:
+-- `Props.trunks` returns `model.PrimaryPart`, `Markers.tagTieTrees` tags it, `Body.anchorFor` finds
+-- it, `Body.tiePointFor` measures a 2-stud trunk instead of a 34-stud crown, and
+-- `MapGen.reachability` paths past 2-stud obstacles.
+--
+-- THE CONSEQUENCE, STATED PLAINLY: A SHOT PASSES THROUGH LEAVES. Trunks stop shot; crowns do not.
+-- That is the opposite of v3's proxy (whose crown was queryable) and it is deliberate -- an
+-- invisible convex blob that swallows a slug near a tree is unexplainable on screen, which is this
+-- project's named failure. It is Karen's to overturn, and overturning it costs one `CanQuery` and
+-- one `CollisionFidelity`.
+--
+-- Returns true when it placed a PROXY, so a caller can report what was actually proxied.
+function Props.placeTree(
+	parent: Instance,
 	name: string,
-	size: Vector3,
-	position: Vector3,
-	color: Color3,
-	material: Enum.Material,
-	parent: Instance
-): (Instance, boolean)
-	if template then
+	tree,
+	y: number,
+	config,
+	template: Instance?,
+	row: any?
+): boolean
+	local geometry = Props.treeGeometry(config, tree.species, tree.age)
+	local model = Instance.new("Model")
+	model.Name = name
+	model.Parent = parent
+	model:SetAttribute(Props.SPECIES_ATTRIBUTE, tree.species)
+	model:SetAttribute(Props.AGE_ATTRIBUTE, tree.age)
+	model:SetAttribute(Props.TIER_ATTRIBUTE, tree.tier)
+
+	-- THE TRUNK COLLIDER, always, mesh or no mesh: it is the one part the game interacts with.
+	local trunkSize = Vector3.new(geometry.trunkStuds, geometry.boleStuds, geometry.trunkStuds)
+	local stem = part(
+		"Trunk",
+		trunkSize,
+		Vector3.new(tree.x, y + geometry.boleStuds / 2, tree.z),
+		geometry.row.trunkColor,
+		Enum.Material.Wood,
+		model
+	)
+	stem.CanCollide = true
+	stem.CanQuery = true
+	stem.CastShadow = false
+	model.PrimaryPart = stem
+
+	if template ~= nil then
 		-- InsertService:LoadAsset returns a container Model; the asset itself is its first child.
 		local source = template:GetChildren()[1] or template
 		local clone = source:Clone()
-		clone.Name = name
+		clone.Name = "Mesh"
+		-- THE TRUNK IS INVISIBLE UNDER A MESH. It is still the collider and the query target; what
+		-- a player sees is the mesh.
+		stem.Transparency = 1
+		if clone:IsA("Model") then
+			-- 1. THE ROTATION CORRECTION FIRST. Two of Karen's seven oaks were published LYING DOWN
+			--    -- measured 2026-10-04: Forest_Var02's and Var03's bounding boxes are 82 and 78
+			--    studs along Z and 35 and 25 along Y. The row carries the correction, because it is
+			--    a fact about ONE upload.
+			local rotation = (row and row.rotationDeg) or Vector3.zero
+			clone:PivotTo(CFrame.Angles(math.rad(rotation.X), math.rad(rotation.Y), math.rad(rotation.Z)))
+			-- 2. UNIFORM SCALE, so the HEIGHT is the species' own and the mesh's proportions are its
+			--    own. Writing a non-uniform Size would squash the tree, and a squashed tree measures
+			--    perfectly (the same argument `ServerStorage.Assets` makes about the gun).
+			local _, natural = clone:GetBoundingBox()
+			if natural.Y > 0 then
+				clone:ScaleTo(geometry.height / natural.Y)
+			end
+			-- 3. THEN STAND IT ON THE GROUND. The bounding box is recomputed AFTER the rotation and
+			--    the scale, so the base lands at `y` whatever the mesh's own pivot was -- a tree
+			--    floating a stud above the litter is the thing a screenshot catches and a number
+			--    does not.
+			local box, size = clone:GetBoundingBox()
+			local centre = box.Position
+			clone:PivotTo(
+				clone:GetPivot() + Vector3.new(tree.x - centre.X, (y + size.Y / 2) - centre.Y, tree.z - centre.Z)
+			)
+			-- A yaw of its own, from its own stream, so seven meshes do not all face one way.
+			local yaw = Scatter.pointKey(tree.x, tree.z, 1, Scatter.STREAM.rotation) * 360
+			local pivot = clone:GetPivot()
+			clone:PivotTo(CFrame.new(pivot.Position) * CFrame.Angles(0, math.rad(yaw), 0) * (pivot - pivot.Position))
+		end
 		for _, descendant in ipairs(clone:GetDescendants()) do
 			if descendant:IsA("BasePart") then
 				descendant.Anchored = true
 			end
+			if descendant:IsA("MeshPart") then
+				local mesh = descendant :: MeshPart
+				-- VISUALS ONLY. `CollisionFidelity = Box` is the cheapest hull and nothing queries
+				-- it, so the choice costs nothing.
+				mesh.CanCollide = false
+				mesh.CanQuery = false
+				mesh.CollisionFidelity = Enum.CollisionFidelity.Box
+				-- `RenderFidelity = Automatic` is Roblox's OWN distance level-of-detail, so baking a
+				-- mesh per distance band would be a second mechanism answering the same question.
+				-- The backdrop tier is the one exception: nobody walks the rim, so it is drawn at
+				-- `Performance` from the first frame.
+				mesh.RenderFidelity = if tree.tier == "backdrop"
+					then Enum.RenderFidelity.Performance
+					else Enum.RenderFidelity.Automatic
+			end
 		end
-		if clone:IsA("Model") then
-			clone:PivotTo(CFrame.new(position))
-		elseif clone:IsA("BasePart") then
-			clone.Anchored = true
-			clone.Position = position
+		if clone:IsA("BasePart") then
+			(clone :: BasePart).Anchored = true
 		end
-		clone.Parent = parent
-		return clone, false
+		clone.Parent = model
+		return false
 	end
-	return part(name, size, position, color, material, parent), true
+
+	-- THE PROXY: the visible bole IS the trunk collider, plus a crown box that neither collides nor
+	-- is queryable -- the same answer the mesh gives, so a screenshot of the proxy tells the truth
+	-- about how the real tree will behave.
+	local crownStuds = geometry.crownStuds
+	local crownSize = Vector3.new(crownStuds, crownStuds * 1.15, crownStuds)
+	-- The crown's TOP is the species' height, then pulled down if that would leave it floating above
+	-- its own trunk.
+	local top = math.min(
+		y + geometry.height - crownSize.Y / 2,
+		y + geometry.boleStuds + crownSize.Y / 2 - config.CROWN_MIN_OVERLAP
+	)
+	local canopy =
+		part("Crown", crownSize, Vector3.new(tree.x, top, tree.z), geometry.row.crownColor, Enum.Material.Grass, model)
+	canopy.CanCollide = false
+	canopy.CanQuery = false
+	return true
 end
 
--- ONE HEDGEROW LINE per call, so a failed line names itself and re-running it rebuilds only that
--- line. `gates` comes from Scatter and the segments from Layout, so this function decides nothing
--- about where a hedge goes -- it only builds what it is handed.
-function Props.hedge(
+-- WHERE A TREE MAY NOT STAND, and there is exactly ONE source for it: `Layout.treeDensity` returns 0
+-- in every such place, so the placing step and this predicate cannot disagree about the wood --
+-- which is what two copies of the rule always end up doing.
+function Props.rejectTree(x: number, z: number, config, patches): boolean
+	return Layout.treeDensity(x, z, config, patches) <= 0
+end
+
+-- The species row a name points at, or oak as the fallback -- the same substitution
+-- `Scatter.variantKeyFor` makes, so the geometry and the mesh agree about which tree this is.
+function Props.speciesRow(config, name: string?)
+	if name and config.SPECIES[name] then
+		return config.SPECIES[name]
+	end
+	return config.SPECIES.oak
+end
+
+-- ---------------------------------------------------------------- the wood
+
+local function placeTreeList(
+	parent: Instance,
+	trees,
+	seed: number,
+	config,
+	startIndex: number,
+	prefix: string
+): ({ [string]: number }, { [string]: boolean }, { [string]: boolean })
+	local pads = Layout.pads(config)
+	local counts: { [string]: number } = {}
+	local proxied: { [string]: boolean } = {}
+	local substituted: { [string]: boolean } = {}
+	for index, tree in ipairs(trees) do
+		local y = Height.atFlattened(tree.x, tree.z, seed, config, pads)
+		local key, swapped = Scatter.variantKeyFor(tree.x, tree.z, seed, config, tree.species, tree.tier)
+		if swapped then
+			substituted[swapped] = true
+		end
+		local template = if key then (Loader.template(key)) else nil
+		local row = if key then Assets.byKey(key) else nil
+		-- Zero-padded and CONTINUED ACROSS SUB-BLOCKS, so the lexicographic order the digest and
+		-- `trunks` sort by IS the placement order: "Tree10" sorts before "Tree2" and a diff would
+		-- then name a shuffle, not a move.
+		local name = string.format("%s%04d", prefix, startIndex + index)
+		if Props.placeTree(parent, name, tree, y, config, template, row) and key ~= nil then
+			proxied[key] = true
+		end
+		counts[tree.species] = (counts[tree.species] or 0) + 1
+	end
+	return counts, proxied, substituted
+end
+
+local function keyList(set: { [string]: boolean }): { string }
+	local out = {}
+	for key in pairs(set) do
+		table.insert(out, key)
+	end
+	table.sort(out)
+	return out
+end
+
+-- The wood, ONE SUB-BLOCK at a time, each tree a Model of a mesh plus its trunk collider.
+function Props.trees(
 	root: Instance,
 	seed: number,
 	config,
-	lineIndex: number,
-	line,
-	gates: { number }
-): (number, { string }, string?)
-	local template, why = Props.template(Assets.KEY.hedge, root)
-	if why then
-		return 0, {}, why
+	block,
+	patches,
+	startIndex: number,
+	fresh: boolean?,
+	reject: ((number, number) -> boolean)?
+): (number, { string }, { string }, { [string]: number }, { string })
+	local parent = folder(propsFolder(root), "Trees", fresh)
+	local trees = Scatter.trees(config, seed, block, patches, reject)
+	local counts, proxied, substituted, findings
+	local _result, reports = Props.withLoader(root, Props.treeKeys(config), function()
+		counts, proxied, substituted = placeTreeList(parent, trees, seed, config, startIndex, "Tree")
+		return true
+	end)
+	findings = Props.loadFindings(reports)
+	return #trees, keyList(proxied), keyList(substituted), counts, findings
+end
+
+-- ONE PATCH: its own folder, so a change to the wood can never move the thicket, and so a failed
+-- patch step names itself.
+function Props.patchTrees(
+	root: Instance,
+	seed: number,
+	config,
+	patch
+): (number, { string }, { string }, { [string]: number }, { string })
+	local parent = folder(propsFolder(root), string.format("Patch_%s%02d", patch.kind, patch.index))
+	local trees = Scatter.patchTrees(patch, config, seed)
+	local counts, proxied, substituted, findings
+	local _result, reports = Props.withLoader(root, Props.treeKeys(config), function()
+		counts, proxied, substituted = placeTreeList(parent, trees, seed, config, 0, "Patch")
+		return true
+	end)
+	findings = Props.loadFindings(reports)
+	return #trees, keyList(proxied), keyList(substituted), counts, findings
+end
+
+-- THE TIE TREES, placed on purpose behind the shooter line rather than chosen out of the wood. Their
+-- own folder, so `Markers` tags exactly these twelve.
+function Props.tieTrees(root: Instance, seed: number, config): (number, { string }, { string })
+	local parent = folder(propsFolder(root), "TieTrees")
+	local points = Layout.tieTreePoints(config)
+	local trees = {}
+	for _, point in ipairs(points) do
+		-- A MATURE OAK, by name, so a tie tree is the same OBJECT as a wood tree and `Body.tiePointFor`
+		-- measures the same trunk. It is a separate folder and not a separate kind of thing.
+		table.insert(trees, { x = point.x, z = point.z, species = "oak", age = "mature", tier = "mature" })
 	end
+	local proxied, findings
+	local _result, reports = Props.withLoader(root, Props.treeKeys(config), function()
+		local _counts, proxiedSet = placeTreeList(parent, trees, seed, config, 0, "TieTree")
+		proxied = keyList(proxiedSet)
+		return true
+	end)
+	findings = Props.loadFindings(reports)
+	return #trees, proxied, findings
+end
+
+-- ---------------------------------------------------------------- the stands
+
+-- THE EIGHT TIMBER STANDS. Research found no Drueckjagdbock model anywhere, which is rule 2's
+-- written reason for drawing one from parts (design, "The stand (ours, because none exists)"). It is
+-- replaced by one mesh later through the same key seam every other prop uses.
+--
+-- ONLY THE FLOOR COLLIDES AND ONLY THE FLOOR IS QUERYABLE, and that is the whole rule of this
+-- layer. A collidable rail traps a player on a 7-stud platform, and a queryable rail eats the shot
+-- he leans over it to take -- Task 66's log pile repeated at eye level. The floor is queryable
+-- because a shot into one's own floorboards must stop somewhere.
+function Props.stands(root: Instance, seed: number, config): (number, { string }, { string })
+	local parent = folder(propsFolder(root), "Stands")
+	local points = Layout.standPoints(config)
+	local build = config.STAND_BUILD
+	local pads = Layout.pads(config)
+	local floorTop = config.STAND.floorStuds
+	local count = 0
+	local proxied = false
+	local findings
+
+	local _result, reports = Props.withLoader(root, { build.assetKey }, function()
+		local template = Loader.template(build.assetKey)
+		for index, point in ipairs(points) do
+			local ground = Height.atFlattened(point.x, point.z, seed, config, pads)
+			local stand = Instance.new("Model")
+			stand.Name = string.format("Stand%d", index)
+			stand.Parent = parent
+			if template ~= nil then
+				-- A REAL STAND REPLACES ITS WHOLE PROXY, not one part of it.
+				local source = template:GetChildren()[1] or template
+				local clone = source:Clone()
+				clone.Name = "Mesh"
+				for _, descendant in ipairs(clone:GetDescendants()) do
+					if descendant:IsA("BasePart") then
+						descendant.Anchored = true
+					end
+				end
+				if clone:IsA("Model") then
+					local box, size = clone:GetBoundingBox()
+					clone:PivotTo(
+						clone:GetPivot()
+							+ Vector3.new(
+								point.x - box.Position.X,
+								(ground + size.Y / 2) - box.Position.Y,
+								point.z - box.Position.Z
+							)
+					)
+				end
+				clone.Parent = stand
+				sceneryOnly(clone)
+				count += 1
+				continue
+			end
+			proxied = true
+			-- FOUR LEGS.
+			local half = build.legSpan / 2
+			for legIndex, corner in ipairs({
+				{ dx = -half, dz = -half },
+				{ dx = half, dz = -half },
+				{ dx = -half, dz = half },
+				{ dx = half, dz = half },
+			}) do
+				local leg = part(
+					string.format("Leg%d", legIndex),
+					build.legSize,
+					Vector3.new(point.x + corner.dx, ground + build.legSize.Y / 2, point.z + corner.dz),
+					build.color,
+					Enum.Material.Wood,
+					stand
+				)
+				leg.CanCollide = false
+				leg.CanQuery = false
+				count += 1
+			end
+			-- THE FLOOR, and it is the only part of this model the game touches: its TOP face is at
+			-- `Map.STAND.floorStuds`, which is the number the post marker's bottom face sits on and
+			-- the number the live contract check reads.
+			local floor = part(
+				"Floor",
+				build.floor,
+				Vector3.new(point.x, ground + floorTop - build.floor.Y / 2, point.z),
+				build.deckColor,
+				Enum.Material.WoodPlanks,
+				stand
+			)
+			floor.CanCollide = true
+			floor.CanQuery = true
+			stand.PrimaryPart = floor
+			count += 1
+			-- THE RAIL, ON THREE SIDES: open toward the ladder, so a player is not boxed in.
+			for heightIndex, railHeight in ipairs(build.railHeights) do
+				for _, side in ipairs({
+					{ name = "Front", dx = 0, dz = build.floor.Z / 2, size = build.rail },
+					{
+						name = "Left",
+						dx = -build.floor.X / 2,
+						dz = 0,
+						size = Vector3.new(build.rail.Z, build.rail.Y, build.rail.X),
+					},
+					{
+						name = "Right",
+						dx = build.floor.X / 2,
+						dz = 0,
+						size = Vector3.new(build.rail.Z, build.rail.Y, build.rail.X),
+					},
+				}) do
+					local rail = part(
+						string.format("Rail%s%d", side.name, heightIndex),
+						side.size,
+						Vector3.new(point.x + side.dx, ground + floorTop + railHeight, point.z + side.dz),
+						build.color,
+						Enum.Material.Wood,
+						stand
+					)
+					rail.CanCollide = false
+					rail.CanQuery = false
+					count += 1
+				end
+			end
+			-- THE LADDER, on the back (away from the drive), so a shooter climbs from the wood side.
+			for rung = 1, build.ladderRungs do
+				local ladder = part(
+					string.format("Rung%d", rung),
+					build.ladderRung,
+					Vector3.new(
+						point.x,
+						ground + (rung / (build.ladderRungs + 1)) * floorTop,
+						point.z - build.floor.Z / 2 - build.ladderRung.Z
+					),
+					build.color,
+					Enum.Material.Wood,
+					stand
+				)
+				ladder.CanCollide = false
+				ladder.CanQuery = false
+				count += 1
+			end
+			-- THE ROOF, high enough that a 5-stud character stands under it.
+			local roof = part(
+				"Roof",
+				build.roof,
+				Vector3.new(point.x, ground + floorTop + build.roofClearStuds, point.z),
+				build.color,
+				Enum.Material.WoodPlanks,
+				stand
+			)
+			roof.CanCollide = false
+			roof.CanQuery = false
+			count += 1
+		end
+		return true
+	end)
+	findings = Props.loadFindings(reports)
+	return count, (if proxied then { build.assetKey } else {}), findings
+end
+
+-- ---------------------------------------------------------------- the forest floor
+
+-- DEADWOOD: fallen trunks, stumps and broken branches. NOTHING COLLIDES AND NOTHING IS QUERYABLE --
+-- a fallen trunk 1.6 studs high is a WALL to an agent that cannot jump (`AgentCanJump = false`), and
+-- a log that eats a slug is an invisible wall a shooter cannot see the reason for. A walk-through log
+-- is a small visible lie and it is the right one for v1; it is Karen's to overturn, and overturning
+-- it costs a proved gap and a reachability run.
+function Props.deadwood(root: Instance, seed: number, config, patches): number
+	local parent = folder(propsFolder(root), "Deadwood")
+	local pads = Layout.pads(config)
+	local spec = config.DEADWOOD
+	local count = 0
+	local index = 0
+	for _, block in ipairs(Layout.treeBlocks(config)) do
+		for _, point in ipairs(Scatter.deadwood(config, seed, block, patches)) do
+			index += 1
+			local ground = Height.atFlattened(point.x, point.z, seed, config, pads)
+			local model = Instance.new("Model")
+			model.Name = string.format("Deadwood%03d", index)
+			model.Parent = parent
+			-- A yaw of its own, so the logs do not all lie the same way.
+			local yaw = Scatter.pointKey(point.x, point.z, seed, Scatter.STREAM.rotation) * math.pi * 2
+			local log = part(
+				"Log",
+				spec.log,
+				Vector3.new(point.x, ground + spec.log.Y / 2 - spec.sink, point.z),
+				spec.color,
+				Enum.Material.Wood,
+				model
+			)
+			log.CFrame = CFrame.new(log.Position) * CFrame.Angles(0, yaw, 0)
+			part(
+				"Stump",
+				spec.stump,
+				Vector3.new(
+					point.x + math.cos(yaw) * spec.log.X / 2,
+					ground + spec.stump.Y / 2 - spec.sink,
+					point.z + math.sin(yaw) * spec.log.X / 2
+				),
+				spec.cutColor,
+				Enum.Material.Wood,
+				model
+			)
+			local branch = part(
+				"Branch",
+				spec.branch,
+				Vector3.new(
+					point.x + math.sin(yaw) * 4,
+					ground + spec.branch.Y / 2 - spec.sink,
+					point.z - math.cos(yaw) * 4
+				),
+				spec.color,
+				Enum.Material.Wood,
+				model
+			)
+			branch.CFrame = CFrame.new(branch.Position) * CFrame.Angles(0, yaw + 1.1, 0)
+			model.PrimaryPart = log
+			sceneryOnly(model)
+			count += 3
+		end
+	end
+	return count
+end
+
+-- FERNS: the ground layer that makes a forest floor read as a forest floor rather than as litter
+-- with trees on it. Cover for the eye only.
+function Props.ferns(root: Instance, seed: number, config, block, patches, startIndex: number, fresh: boolean?): number
+	local parent = folder(propsFolder(root), "Ferns", fresh)
+	local pads = Layout.pads(config)
+	local spec = config.FERNS
+	local points = Scatter.ferns(config, seed, block, patches)
+	for index, point in ipairs(points) do
+		local ground = Height.atFlattened(point.x, point.z, seed, config, pads)
+		local wet = Height.wetAt(point.x, point.z, seed, config) > 0.5
+		local fern = part(
+			string.format("Fern%04d", startIndex + index),
+			spec.size,
+			Vector3.new(point.x, ground + spec.size.Y / 2 - spec.sink, point.z),
+			if wet then spec.wetColor else spec.color,
+			Enum.Material.LeafyGrass,
+			parent
+		)
+		fern.CanCollide = false
+		fern.CanQuery = false
+		fern.CastShadow = false
+	end
+	return #points
+end
+
+-- BRUSH: low cover that hides a boar and blocks nothing.
+function Props.brush(root: Instance, seed: number, config, block, patches, startIndex: number, fresh: boolean?): number
+	local parent = folder(propsFolder(root), "Brush", fresh)
+	local pads = Layout.pads(config)
+	local spec = config.BRUSH
+	local points = Scatter.brush(config, seed, block, patches)
+	for index, point in ipairs(points) do
+		local ground = Height.atFlattened(point.x, point.z, seed, config, pads)
+		local bush = part(
+			string.format("Brush%04d", startIndex + index),
+			spec.size,
+			Vector3.new(point.x, ground + spec.size.Y / 2 - spec.sink, point.z),
+			spec.color,
+			Enum.Material.LeafyGrass,
+			parent
+		)
+		-- NEITHER COLLIDABLE NOR QUERYABLE: a bush that stops a slug is an invisible wall a shooter
+		-- cannot see the reason for, and a bush that stops a driver is worse. Cover for the eye.
+		bush.CanCollide = false
+		bush.CanQuery = false
+	end
+	return #points
+end
+
+-- ---------------------------------------------------------------- the hedgerows (retired layer)
+
+-- ONE HEDGEROW LINE per call. The layer is switched off (`Config.INCLUDE.hedges`), and this function
+-- stays with it for the reason Layout's retired-layer note gives: FLIPPING ONE ROW BACK ON HAS TO
+-- BRING THE LAYER BACK, and a step that reports a line it does not build is worse than no step.
+--
+-- `gates` comes from Scatter and the segments from Layout, so this decides nothing about where a
+-- hedge goes -- it only builds what it is handed.
+function Props.hedge(root: Instance, seed: number, config, lineIndex: number, line, gates: { number }): number
 	local parent = folder(propsFolder(root), string.format("Hedge%02d", lineIndex))
 	local pads = Layout.pads(config)
 	local points = Layout.hedgeSegments(line, gates, config)
@@ -221,11 +747,9 @@ function Props.hedge(
 	-- A hedge running along z is the same box turned a quarter: the segment's long axis follows the
 	-- line, or a z-line would be a row of 24-stud gaps with 3-stud posts in them.
 	local laid = if line.axis == "x" then size else Vector3.new(size.Z, size.Y, size.X)
-	local proxied = 0
 	for index, point in ipairs(points) do
-		local y = Height.atFlattened(point.x, point.z, seed, config, pads, Layout.bogDepth)
-		local _, wasProxy = placed(
-			template,
+		local y = Height.atFlattened(point.x, point.z, seed, config, pads)
+		part(
 			string.format("Hedge%02d_%03d", lineIndex, index),
 			laid,
 			Vector3.new(point.x, y + size.Y / 2, point.z),
@@ -233,64 +757,28 @@ function Props.hedge(
 			Enum.Material.Grass,
 			parent
 		)
-		if wasProxy then
-			proxied += 1
-		end
 	end
-	return #points, (if proxied > 0 then { Assets.KEY.hedge } else {}), nil
+	return #points
 end
 
--- THE ROAD'S FURNITURE (M2.8c), built from `Layout.furniture`'s list. Like `Props.hedge`, this
--- function decides NOTHING about where anything goes -- it is handed pieces and it places them.
+-- ---------------------------------------------------------------- the stakes
+
+-- THE STAKES BESIDE EACH STAND, built from `Layout.furniture`'s list. Like every other prop
+-- function this decides NOTHING about where anything goes -- it is handed pieces and it places them.
 --
--- NOTHING IT PLACES COLLIDES, without exception. `MapGen.verifyContract` fails the build for any
--- collidable part within `Map.ROAD.halfWidth + verge` of the road's centreline, over the road's
--- whole length (Task 58 round 1 finding 1, after a hedge wall stood across the gravel and
--- reachability pathed politely around it). Half this layer stands inside that envelope on purpose --
--- stakes beside the stand, log piles on the verge, a barrier across each end -- so the rule is
--- applied to the whole layer rather than remembered piece by piece. It also means the furniture
--- cannot change a single pathfinding answer: `reach` before and after must be identical.
---
--- ONE GROUND HEIGHT PER OBJECT: the piece carries `anchorX`/`anchorZ`, so a high seat's four legs
--- and its deck stand on one plane instead of each following the heightfield under itself.
-function Props.furniture(root: Instance, seed: number, config): (number, { string }, string?)
-	local template, why = Props.template(Assets.KEY.highSeat, root)
-	if why then
-		return 0, {}, why
-	end
+-- ONE GROUND HEIGHT PER OBJECT: the piece carries `anchorX`/`anchorZ`, so a stake and its cap stand
+-- on one plane instead of each following the heightfield under itself.
+function Props.furniture(root: Instance, seed: number, config): number
 	local parent = folder(propsFolder(root), "Furniture")
 	local pads = Layout.pads(config)
-	local pieces = Layout.furniture(config)
 	local grounds: { [string]: number } = {}
-	local proxied = false
-	local placedSeats: { [number]: boolean } = {}
 	local count = 0
-	for _, piece in ipairs(pieces) do
+	for _, piece in ipairs(Layout.furniture(config)) do
 		local anchorKey = string.format("%d:%d", math.floor(piece.anchorX * 4), math.floor(piece.anchorZ * 4))
 		local ground = grounds[anchorKey]
 		if ground == nil then
-			ground = Height.atFlattened(piece.anchorX, piece.anchorZ, seed, config, pads, Layout.bogDepth)
+			ground = Height.atFlattened(piece.anchorX, piece.anchorZ, seed, config, pads)
 			grounds[anchorKey] = ground
-		end
-		-- A REAL HIGH SEAT REPLACES ITS WHOLE PROXY, not one part of it: when `prop.highseat` has an
-		-- id, the model goes in at the seat's centre and its seven boxes are not built at all.
-		if template and string.sub(piece.kind, 1, 8) == "highSeat" then
-			local seatIndex = tonumber(string.match(piece.name, "^HighSeat(%d+)") or "") or 0
-			if not placedSeats[seatIndex] then
-				placedSeats[seatIndex] = true
-				local model = placed(
-					template,
-					string.format("HighSeat%d", seatIndex),
-					piece.size,
-					Vector3.new(piece.anchorX, ground, piece.anchorZ),
-					piece.color,
-					piece.material,
-					parent
-				)
-				sceneryOnly(model :: Instance)
-				count += 1
-			end
-			continue
 		end
 		local made = part(
 			piece.name,
@@ -302,187 +790,15 @@ function Props.furniture(root: Instance, seed: number, config): (number, { strin
 		)
 		sceneryOnly(made)
 		count += 1
-		if string.sub(piece.kind, 1, 8) == "highSeat" then
-			proxied = true
-		end
 	end
-	return count, (if proxied then { Assets.KEY.highSeat } else {}), nil
+	return count
 end
 
--- ONE TREE, and the only place in the repo that knows what a tree is made of. Returns true when it
--- placed a PROXY, so a caller can report `proxyUsed` for what was actually proxied. The wood and the
--- tie trees both come through here: two builders would drift, and a tie tree that is not the same
--- object as a wood tree is a bug waiting for M2.3.
-function Props.speciesRow(config, name: string?)
-	if name then
-		for _, row in ipairs(config.SPECIES) do
-			if row.name == name then
-				return row
-			end
-		end
-	end
-	return config.TREE_PROXY -- the tie trees, which are placed on purpose and are not of the wood
-end
-
-function Props.placeTree(
-	template: Instance?,
-	parent: Instance,
-	name: string,
-	point,
-	y: number,
-	config,
-	species: string?
-): boolean
-	local row = Props.speciesRow(config, species)
-	local trunk, crown = row.trunk, row.crown
-	if template then
-		local clone = placed(
-			template,
-			name,
-			trunk,
-			Vector3.new(point.x, y, point.z),
-			config.PROXY_COLOR.tree,
-			Enum.Material.Wood,
-			parent
-		)
-		clone:SetAttribute(Props.SPECIES_ATTRIBUTE, row.name)
-		return false
-	end
-	-- The proxy: trunk plus crown, one Model, so a tie can hold on to the trunk and a screenshot
-	-- answers "woods or poles" honestly.
-	local model = Instance.new("Model")
-	model.Name = name
-	model.Parent = parent
-	-- WHAT WAS PLANTED, ON THE THING THAT WAS PLANTED (audit-005 must-fix 2). Until this attribute
-	-- existed, every species claim in the repo was a claim about `Scatter.speciesAt` -- a pure
-	-- function -- and nothing compared it against the wood in the world; a monoculture built from one
-	-- template passed all of them. `tests/server/map_contract.spec.luau` reads it back off the BUILT
-	-- trees and compares it against the sampler tree by tree. Digest.of hashes name, className,
-	-- Position, Size and tags, so an attribute cannot change a map's digest.
-	model:SetAttribute(Props.SPECIES_ATTRIBUTE, row.name)
-	local stem =
-		part("Trunk", trunk, Vector3.new(point.x, y + trunk.Y / 2, point.z), row.trunkColor, Enum.Material.Wood, model)
-	-- THE CROWN'S TOP IS THE SPECIES' HEIGHT, which is the number docs/design/asset-pipeline.md
-	-- section 12.1 will build the mesh to -- so the grey box teaches the truth about how tall this
-	-- tree is. It is then pulled down if that would leave it floating above its own trunk.
-	local top = math.min(y + row.height - crown.Y / 2, y + trunk.Y + crown.Y / 2 - config.CROWN_MIN_OVERLAP)
-	local canopy = part("Crown", crown, Vector3.new(point.x, top, point.z), row.crownColor, Enum.Material.Grass, model)
-	-- THE CANOPY DOES NOT BLOCK THE GROUND GAME (design section 7.1): the navmesh and the boar see
-	-- trunks only, so a wooded drive is still walkable -- while a shot into the canopy still stops in
-	-- the canopy, because CanQuery stays true.
-	canopy.CanCollide = false
-	model.PrimaryPart = stem
-	return true
-end
-
--- WHERE A TREE MAY NOT STAND, and since M2.8b there is exactly ONE source for it:
--- `Layout.treeDensity` returns 0 in every such place -- a field, a bench and its verge, a track, the
--- bog, a hedge line's clearance, a spawn pad -- so the placing step and this predicate cannot
--- disagree about the wood, which is what two copies of the rule always end up doing.
---
--- THE CORRIDOR IS NO LONGER A REASON. Until M2.8b nothing could stand in the drive at all, which is
--- what made the drive a bare lane through a decorated backdrop; the wood is the drive now, and what
--- keeps it walkable is the sampler's guaranteed 11-stud separation against the boar's 4-stud need
--- (design section 7.3), measured by the walkability spec and by `MapGen.reachability`.
-function Props.rejectTree(x: number, z: number, config): boolean
-	return Layout.treeDensity(x, z, config) <= 0
-end
-
--- The wood, ONE BLOCK at a time: each tree a Model of trunk plus crown so the screenshots answer
--- "does this read as woods or as poles" (design section 13.3). Each is a PROXY while there is no
--- asset id, and a proxy is the same footprint and height as the model that replaces it.
-function Props.trees(
-	root: Instance,
-	seed: number,
-	config,
-	block,
-	startIndex: number,
-	fresh: boolean?
-): (number, { string }, string?, { [string]: number })
-	local counts: { [string]: number } = {}
-	-- ONE TEMPLATE PER SPECIES, ASKED FOR BY THE SPECIES' OWN KEY (audit-005 must-fix 2). This used to
-	-- be a single `Assets.KEY.treeSpruce` fetched once for the whole block and handed to every tree,
-	-- whatever `Scatter.speciesAt` returned -- so the first tree id would have turned the entire wood
-	-- into one mesh with every species spec still green. `Props.template` caches per key inside the
-	-- run's own Assets folder, so this is one lookup per species per step and not one per tree.
-	local templates: { [string]: Instance } = {}
-	for _, row in ipairs(config.SPECIES) do
-		local template, why = Props.template(row.assetKey, root)
-		if why then
-			return 0, {}, why, counts
-		end
-		if template then
-			templates[row.name] = template
-		end
-	end
-	local parent = folder(propsFolder(root), "Trees", fresh)
-	local pads = Layout.pads(config)
-	local points = Scatter.trees(config, seed, block, function(x, z)
-		return Props.rejectTree(x, z, config)
-	end)
-	local proxied = 0
-	local keys: { [string]: boolean } = {}
-	for index, point in ipairs(points) do
-		local y = Height.atFlattened(point.x, point.z, seed, config, pads, Layout.bogDepth)
-		local species = Scatter.speciesAt(point.x, point.z, seed, config, y)
-		counts[species] = (counts[species] or 0) + 1
-		-- Zero-padded and CONTINUED ACROSS BLOCKS, so the lexicographic order the digest and `trunks`
-		-- sort by IS the placement order: "Tree10" sorts before "Tree2" and a diff would then name a
-		-- shuffle, not a move.
-		local name = string.format("Tree%04d", startIndex + index)
-		if Props.placeTree(templates[species], parent, name, point, y, config, species) then
-			proxied += 1
-			-- THE KEY THIS SPECIES ASKED FOR, so the step's `proxyUsed` names four keys in a mixed
-			-- wood and one key in a monoculture -- which is the difference the spec asserts.
-			keys[Props.speciesRow(config, species).assetKey] = true
-		end
-	end
-	local used: { string } = {}
-	for key in pairs(keys) do
-		table.insert(used, key)
-	end
-	return #points, used, nil, counts
-end
-
--- BRUSH: low cover that hides a boar and blocks nothing (design section 7.4). One quadrant per step,
--- the same four blocks the wood uses, so a slow step names a quarter of the map rather than "props".
-function Props.brush(
-	root: Instance,
-	seed: number,
-	config,
-	block,
-	startIndex: number,
-	fresh: boolean?
-): (number, string?)
-	local parent = folder(propsFolder(root), "Brush", fresh)
-	local pads = Layout.pads(config)
-	local points = Scatter.brush(config, seed, block, function(x, z)
-		-- Brush lives in the WOOD: everywhere a tree could stand, plus nowhere a tree could not.
-		return Props.rejectTree(x, z, config)
-	end)
-	local brush = config.BRUSH
-	for index, point in ipairs(points) do
-		local y = Height.atFlattened(point.x, point.z, seed, config, pads, Layout.bogDepth)
-		local bush = part(
-			string.format("Brush%04d", startIndex + index),
-			brush.size,
-			Vector3.new(point.x, y + brush.size.Y / 2 - brush.sink, point.z),
-			brush.color,
-			Enum.Material.LeafyGrass,
-			parent
-		)
-		-- NEITHER COLLIDABLE NOR QUERYABLE: a bush that stops a slug is an invisible wall a shooter
-		-- cannot see the reason for, and a bush that stops a driver is worse. Cover for the eye.
-		bush.CanCollide = false
-		bush.CanQuery = false
-	end
-	return #points, nil
-end
+-- ---------------------------------------------------------------- reading it back
 
 -- The taggable part of every tree in one folder, in the order Props placed them, for Markers to tag
--- the tie trees from. A proxy's is its Trunk (which is also its PrimaryPart); an asset's is whatever
--- the model calls its PrimaryPart, falling back to its first BasePart -- so this works before and
--- after the ids arrive, which is the point of section 8.3.
+-- the tie trees from. It is the Model's PrimaryPart -- the TRUNK COLLIDER -- which is the part
+-- `Body.tiePointFor` must measure and never the crown or the mesh.
 function Props.trunks(root: Instance, folderName: string): { BasePart }
 	local out: { BasePart } = {}
 	local props = root:FindFirstChild("Props")
@@ -506,32 +822,6 @@ function Props.trunks(root: Instance, folderName: string): { BasePart }
 		end
 	end
 	return out
-end
-
--- THE TIE TREES, placed on purpose behind the shooter line rather than chosen out of the wood
--- (Layout.tieTreePoints says why). Their own folder, so `Markers` tags exactly these twelve and a
--- change to the wood can never move which tree a punished shooter is tied to.
-function Props.tieTrees(root: Instance, seed: number, config): (number, { string }, string?)
-	-- THE TIE TREES' OWN ROW NAMES THEIR KEY too (`Config.TREE_PROXY.assetKey`), so no call site in
-	-- this file spells an asset key out by hand any more: the row a tree is built from decides both
-	-- what it looks like and which asset replaces it.
-	local row = Props.speciesRow(config, nil)
-	local template, why = Props.template(row.assetKey, root)
-	if why then
-		return 0, {}, why
-	end
-	local parent = folder(propsFolder(root), "TieTrees")
-	local pads = Layout.pads(config)
-	local points = Layout.tieTreePoints(config)
-	local proxied = 0
-	for index, point in ipairs(points) do
-		local y = Height.atFlattened(point.x, point.z, seed, config, pads, Layout.bogDepth)
-		local wasProxy = Props.placeTree(template, parent, string.format("TieTree%03d", index), point, y, config)
-		if wasProxy then
-			proxied += 1
-		end
-	end
-	return #points, (if proxied > 0 then { row.assetKey } else {}), nil
 end
 
 return Props

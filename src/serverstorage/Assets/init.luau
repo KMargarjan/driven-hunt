@@ -39,7 +39,10 @@ local Assets = {}
 
 Assets.VERSION = "m2.7a-shotgun"
 
-export type Source = "meshy" | "creator-store" | "roblox" | "own"
+-- "bought": paid for outside the Creator Store, under a licence that allows commercial use and
+--           hosting but FORBIDS REDISTRIBUTION -- so the asset is PRIVATE in Karen's account
+--           and is never listed. The oak pack is this (task 121).
+export type Source = "meshy" | "creator-store" | "roblox" | "own" | "bought"
 -- "meshpart": the template is EXACTLY ONE MeshPart. The Loader returns that MeshPart and destroys
 --             the Model wrapper it arrived in. The gun is this.
 -- "model":    the template is a tree; the Loader returns the Model. Map props may be this.
@@ -213,6 +216,33 @@ Assets.KEYS = table.freeze({
 	boarGrazeStart = "boar.anim.calm.graze.start",
 	boarGrazeEnd = "boar.anim.calm.graze.end",
 	boarDigWalk = "boar.anim.calm.dig.walk",
+	-- THE FOREST (task 121). SEVEN DISTINCT AUTUMN OAKS, each published once as a PRIVATE Model
+	-- asset in Karen's account out of the pack she bought -- never listed on the Creator Store,
+	-- because the licence forbids redistribution and a listing IS redistribution.
+	--
+	-- SEVEN KEYS AND NOT ONE, and that is what the meshes were bought for: `Config.SPECIES.oak.keys`
+	-- names a LIST per tier and each tree draws its own index from its own hash stream, so the wood
+	-- is seven shapes at seven yaws instead of ~1,600 copies of one mesh. One mesh over a whole wood
+	-- is the colonnade TASKS.md row 79a(d) already reported.
+	oakForest01 = "tree.oak.forest01",
+	oakForest02 = "tree.oak.forest02",
+	oakForest03 = "tree.oak.forest03",
+	oakField04 = "tree.oak.field04",
+	oakField05 = "tree.oak.field05",
+	oakField06 = "tree.oak.field06",
+	oakField07 = "tree.oak.field07",
+	-- OUR OWN TIMBER STAND, declared before it exists: research found no Drueckjagdbock model
+	-- anywhere, so `MapGen.Props.stands` draws one from parts and this key is the seam one mesh
+	-- replaces it through. `byKey` answers nil, which means "draw the proxy", not "fail".
+	standTower = "prop.standtower",
+	-- THE FOUR CC0 GROUND TEXTURES, as `kind = "image"` rows when they land: an image is an id a
+	-- property carries and not an Instance to insert, which is why `INSERTABLE` below excludes the
+	-- kind. Declared before the rows exist, so a missing one is a NAMED key in the materials step's
+	-- report rather than silently grey ground.
+	groundLitter = "ground.litter",
+	groundGrassRide = "ground.grassride",
+	groundGravel = "ground.gravel",
+	groundMud = "ground.mud",
 })
 
 -- WHICH KINDS `Loader` CAN TURN INTO AN INSTANCE, and therefore which ones `keysFor` may hand a boot
@@ -366,6 +396,36 @@ local BOAR_LICENCE = {
 	attribution = 'Wild boar models and animations: "Boar Family" by RedDeer, bought on Fab '
 		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-03",
 }
+
+-- ---------------------------------------------------------------- the forest (task 121)
+
+-- THE OAK PACK'S LICENCE. Karen bought BuiltByBit's "Realistic Oak Tree Pack"; the Standard EULA
+-- allows commercial use, hosting and modification and FORBIDS redistribution and resale. The
+-- consequence is recorded on every row below and it is not a formality: each tree is published as a
+-- PRIVATE Model asset in Karen's own account, and listing one on the Creator Store would be
+-- redistribution.
+--
+-- THE QUOTE IS THE DIRECTOR'S RECORD OF THE PURCHASE, not a sentence this Builder read off the
+-- vendor's own site -- which is why `quotedFrom` names the brief rather than a URL. Saying so is
+-- the point: a licence line nobody can trace is worse than one that names where it came from.
+local OAK_LICENCE: Licence = {
+	basis = "BuiltByBit Standard EULA (paid asset pack)",
+	quote = "commercial use, hosting, modification OK; no redistribution/resale",
+	quotedFrom = "reviews/task-121/BRIEF.md, decision 4 -- the Director carrying Karen's purchase record",
+	readOn = "2026-10-04",
+	attribution = "BuiltByBit: Realistic Oak Tree Pack. Never listed on the Creator Store.",
+}
+
+-- ONE SHA FOR ALL SEVEN, because all seven came out of ONE bought file. `sourceSha256` records what
+-- arrived, and what arrived is `oak.rbxm`; seven different digests here would claim seven downloads
+-- that never happened.
+local OAK_SHA = "4f060906a68479caf3838450a307ae1f17cf7a6c0b9149fc55f4b3108e0643c3"
+
+-- THE MATURE OAK'S TARGET BOX (`Config.SPECIES.oak`: 34 studs of crown, 78 of height). It is here
+-- for the record and NOT as something a consumer writes: a tree is scaled UNIFORMLY by its height
+-- (`MapGen.Props.placeTree`), because writing a non-uniform `Size` onto a tree squashes it and a
+-- squashed tree measures perfectly -- the same argument the gun's own row makes further up.
+local OAK_TARGET = Vector3.new(34, 78, 34)
 
 Assets.ROWS = {
 	{
@@ -2043,6 +2103,160 @@ Assets.ROWS = {
 		rotationDeg = NO_GEOMETRY,
 		renderFidelity = NO_FIDELITY,
 		notes = "Rooting ALONG the ground: head low (nose -72..-59 deg) and the hooves travelling 1.901 studs/s, so it is rated like a gait -- Karen's 'move alon'. Looped.",
+	},
+	{
+		key = Assets.KEYS.oakForest01,
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "map" :: string?,
+		modelId = 75865291429319,
+		displayName = "Forest_OakTree_Var01_LOD_0",
+		fileName = "oak.rbxm",
+		sourceSha256 = OAK_SHA,
+		source = "bought" :: Source,
+		creator = "BuiltByBit: Realistic Oak Tree Pack",
+		licence = OAK_LICENCE,
+		added = "2026-10-04",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 6000,
+		sizeStuds = OAK_TARGET,
+		naturalSizeStuds = Vector3.new(31.62, 81.38, 32.73),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 0, 0),
+		renderFidelity = "Automatic",
+		notes = "Upright as published, 81.4 studs tall and narrow: the `mature` tier, at a scale of about 0.96.",
+	},
+	{
+		key = Assets.KEYS.oakForest02,
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "map" :: string?,
+		modelId = 83388490001103,
+		displayName = "Forest_OakTree_Var02_LOD_0",
+		fileName = "oak.rbxm",
+		sourceSha256 = OAK_SHA,
+		source = "bought" :: Source,
+		creator = "BuiltByBit: Realistic Oak Tree Pack",
+		licence = OAK_LICENCE,
+		added = "2026-10-04",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 6000,
+		sizeStuds = OAK_TARGET,
+		naturalSizeStuds = Vector3.new(32.80, 82.14, 35.50),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(90, 0, 0),
+		renderFidelity = "Automatic",
+		notes = "PUBLISHED LYING DOWN -- MEASURED 2026-10-04: its bounding box is 82.14 studs along Z and 35.50 along Y. `rotationDeg` stands it up and `naturalSizeStuds` records the UPRIGHT box; the Loader's aspect check sorts the axes, so it passes either way.",
+	},
+	{
+		key = Assets.KEYS.oakForest03,
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "map" :: string?,
+		modelId = 107347779714858,
+		displayName = "Forest_OakTree_Var03_LOD_0",
+		fileName = "oak.rbxm",
+		sourceSha256 = OAK_SHA,
+		source = "bought" :: Source,
+		creator = "BuiltByBit: Realistic Oak Tree Pack",
+		licence = OAK_LICENCE,
+		added = "2026-10-04",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 6000,
+		sizeStuds = OAK_TARGET,
+		naturalSizeStuds = Vector3.new(23.57, 78.34, 24.58),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(90, 0, 0),
+		renderFidelity = "Automatic",
+		notes = "PUBLISHED LYING DOWN, like Var02: 78.34 studs along Z. The same correction.",
+	},
+	{
+		key = Assets.KEYS.oakField04,
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "map" :: string?,
+		modelId = 85037810334946,
+		displayName = "Field_OakTree_Var04_LOD_0",
+		fileName = "oak.rbxm",
+		sourceSha256 = OAK_SHA,
+		source = "bought" :: Source,
+		creator = "BuiltByBit: Realistic Oak Tree Pack",
+		licence = OAK_LICENCE,
+		added = "2026-10-04",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 6000,
+		sizeStuds = OAK_TARGET,
+		naturalSizeStuds = Vector3.new(29.92, 51.57, 34.05),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 0, 0),
+		renderFidelity = "Automatic",
+		notes = "Broad and short: the `backdrop` tier, on the rim where no player walks and the mesh is drawn at RenderFidelity Performance.",
+	},
+	{
+		key = Assets.KEYS.oakField05,
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "map" :: string?,
+		modelId = 108955269036117,
+		displayName = "Field_OakTree_Var05_LOD_0",
+		fileName = "oak.rbxm",
+		sourceSha256 = OAK_SHA,
+		source = "bought" :: Source,
+		creator = "BuiltByBit: Realistic Oak Tree Pack",
+		licence = OAK_LICENCE,
+		added = "2026-10-04",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 6000,
+		sizeStuds = OAK_TARGET,
+		naturalSizeStuds = Vector3.new(41.18, 68.49, 38.31),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 0, 0),
+		renderFidelity = "Automatic",
+		notes = "The broadest of the seven: the `veteran` tier, because a veteran oak IS broad-crowned.",
+	},
+	{
+		key = Assets.KEYS.oakField06,
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "map" :: string?,
+		modelId = 88655731342330,
+		displayName = "Field_OakTree_Var06_LOD_0",
+		fileName = "oak.rbxm",
+		sourceSha256 = OAK_SHA,
+		source = "bought" :: Source,
+		creator = "BuiltByBit: Realistic Oak Tree Pack",
+		licence = OAK_LICENCE,
+		added = "2026-10-04",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 6000,
+		sizeStuds = OAK_TARGET,
+		naturalSizeStuds = Vector3.new(33.05, 58.60, 31.66),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 0, 0),
+		renderFidelity = "Automatic",
+		notes = "The second `veteran`.",
+	},
+	{
+		key = Assets.KEYS.oakField07,
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "map" :: string?,
+		modelId = 94298911590260,
+		displayName = "Field_OakTree_Var07_LOD_0",
+		fileName = "oak.rbxm",
+		sourceSha256 = OAK_SHA,
+		source = "bought" :: Source,
+		creator = "BuiltByBit: Realistic Oak Tree Pack",
+		licence = OAK_LICENCE,
+		added = "2026-10-04",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 6000,
+		sizeStuds = OAK_TARGET,
+		naturalSizeStuds = Vector3.new(29.34, 52.73, 33.13),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, 0, 0),
+		renderFidelity = "Automatic",
+		notes = "The second `backdrop`.",
 	},
 } :: { AssetRow }
 

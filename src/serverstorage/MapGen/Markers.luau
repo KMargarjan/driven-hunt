@@ -16,7 +16,7 @@
 -- on exactly the wrong shots, which is why the CFrame here is built with an explicit lookAt and not
 -- from a rotation number.
 --
--- Design: docs/design/map-generator.md (sections 2.2, 4.2, 4.3, 13.1)
+-- Design: docs/design/map-generator.md, "What the markers are, physically"
 local CollectionService = game:GetService("CollectionService")
 
 local Map = require(script.Parent:WaitForChild("Contract"))
@@ -49,14 +49,22 @@ local function markersFolder(root: Instance): Folder
 	return made
 end
 
--- Places the 14 marker parts and tags them. Returns how many of each kind were tagged.
+-- Places the 14 marker parts and tags them, FOR THE ACTIVE BLOCK ONLY. Returns how many of each
+-- kind were tagged.
+--
+-- A MARKER'S HEIGHT COMES FROM `Layout.markers`, not from this function, and that is what moved when
+-- the stands arrived: a shooter post's bottom face now sits on its stand's FLOOR
+-- (`Map.STAND.floorStuds`) instead of on the gravel, while everything else still stands on the
+-- ground. `Match.Body.placementFor` puts a character at `post.Position + post.Size.Y/2 +
+-- STAND_HEIGHT_STUDS`, so the character lands about a stud above the boards and `Match.Body` IS NOT
+-- TOUCHED.
 function Markers.place(root: Instance, seed: number, config): { [string]: number }
 	local parent = markersFolder(root)
 	local pads = Layout.pads(config)
 	local counts: { [string]: number } = {}
 	for _, marker in ipairs(Layout.markers(config)) do
-		local ground = Height.atFlattened(marker.x, marker.z, seed, config, pads, Layout.bogDepth)
-		local y = ground + marker.size.Y / 2
+		local ground = Height.atFlattened(marker.x, marker.z, seed, config, pads)
+		local y = ground + marker.y
 		local position = Vector3.new(marker.x, y, marker.z)
 		local part = Instance.new("Part")
 		part.Name = marker.name
