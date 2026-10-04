@@ -54,24 +54,39 @@ ForestTest.WAVE = {
 	pushSeconds = 26, -- long enough to walk a herd 150-250 studs to the road
 	turnAtSeconds = 9, -- a `turnsBack` wave is pushed for this long before it is turned
 	turnSeconds = 8,
-	pushStuds = 12, -- behind the herd's own centroid, inside SENSE.FLUSH_STUDS (15)
-	aheadStuds = 12, -- in front of it, to turn it
-	-- A turn is only worth staging once they are near enough for the hunter to SEE it happen.
-	turnWithinStuds = 90,
+	pushStuds = 11, -- behind the REARMOST animal, inside SENSE.FLUSH_STUDS (15)
+	aheadStuds = 11, -- in front of the FOREMOST, to turn it
+	-- WHERE A TURN-BACK TURNS: 45 studs north of the road, which is close enough that the hunter
+	-- watches them come, hesitate and break -- and far enough that they never reach the gravel.
+	turnAtDz = 45,
+	-- ...and when it is too late to bother: past this far south they are gone and the stage is over.
+	turnGiveUpDz = 25,
 }
 
 export type Phase = "push" | "turn" | "done"
 
-function ForestTest.wavePhase(elapsed: number, turnsBack: boolean): Phase
+-- A TURN IS DECIDED BY WHERE THEY ARE, NOT BY A STOPWATCH, and that is measured. On a timer at 9
+-- seconds, wave 3 had ALREADY crossed the road at about 8 -- the trace shows it at dz -53 when the
+-- turn began, so the "turn-back" was staged behind animals that were gone, and they carried on
+-- south. A turn has to happen while they are still north of the road, and near enough to it that
+-- the hunter watches them think about it.
+--
+-- `dz` is the herd's distance north of the road: positive north, negative across.
+function ForestTest.wavePhase(elapsed: number, turnsBack: boolean, dz: number?): Phase
 	local wave = ForestTest.WAVE
 	if turnsBack then
-		if elapsed < wave.turnAtSeconds then
-			return "push"
-		end
-		if elapsed < wave.turnAtSeconds + wave.turnSeconds then
+		-- Near the road and still on the right side of it: turn them.
+		if dz ~= nil and dz <= wave.turnAtDz and dz > -wave.turnGiveUpDz then
 			return "turn"
 		end
-		return "done"
+		-- Past the road already, or out of time: nothing left to stage.
+		if dz ~= nil and dz <= -wave.turnGiveUpDz then
+			return "done"
+		end
+		if elapsed >= wave.pushSeconds then
+			return "done"
+		end
+		return "push"
 	end
 	if elapsed < wave.pushSeconds then
 		return "push"
@@ -79,37 +94,65 @@ function ForestTest.wavePhase(elapsed: number, turnsBack: boolean): Phase
 	return "done"
 end
 
--- WHERE THAT WAVE'S BEATER IS, or nil when there is none.
+-- WHERE A HERD IS: its centroid, its REARMOST animal and its FOREMOST, or nil when none is left.
+-- Dead and despawned members drop out by themselves -- a handle whose part has left the world is
+-- not counted.
 --
--- `at` is the herd's LIVE centroid, not where it was released -- see `ForestTest.WAVE`. North of the
--- herd pushes it south across the road; south of it turns it back north.
-function ForestTest.beaterPosition(at: Vector3, elapsed: number, turnsBack: boolean): Vector3?
-	local wave = ForestTest.WAVE
-	local phase = ForestTest.wavePhase(elapsed, turnsBack)
-	if phase == "push" then
-		return at + Vector3.new(0, 0, wave.pushStuds)
-	end
-	if phase == "turn" then
-		return at + Vector3.new(0, 0, -wave.aheadStuds)
-	end
-	return nil
-end
-
--- THE LIVE CENTROID of whatever is left of a wave, or nil when nothing is. Dead and despawned
--- members drop out by themselves: a handle whose part has left the world is not counted.
-function ForestTest.herdCentre(handles): Vector3?
+-- REAR AND FRONT ARE WHY THIS RETURNS THREE THINGS. A sounder spreads over 30 studs and
+-- `SENSE.FLUSH_STUDS` is 15, so a beater 12 studs from the CENTROID can be 27 from the animal
+-- nearest it and flush nobody. MEASURED: lone boars crossed the road in 5 seconds while a sounder
+-- of six moved one stud in twenty-four. Pushing the REARMOST animal puts the beater inside the
+-- flush radius of at least one of them, and the panic spreads from there -- which is what
+-- `SENSE.PANIC_DELAY_SECONDS` exists for.
+function ForestTest.herdShape(handles): (Vector3?, Vector3?, Vector3?)
 	local sum, n = Vector3.zero, 0
+	local rear, front = nil, nil
 	for _, handle in ipairs(handles) do
 		local part = handle and handle.part
 		if part ~= nil and part.Parent ~= nil then
-			sum += part.Position
+			local at = part.Position
+			sum += at
 			n += 1
+			-- North is +Z here, so the REAR of a herd being pushed south is its largest Z.
+			if rear == nil or at.Z > (rear :: Vector3).Z then
+				rear = at
+			end
+			if front == nil or at.Z < (front :: Vector3).Z then
+				front = at
+			end
 		end
 	end
 	if n == 0 then
-		return nil
+		return nil, nil, nil
 	end
-	return sum / n
+	return sum / n, rear, front
+end
+
+function ForestTest.herdCentre(handles): Vector3?
+	local centre = ForestTest.herdShape(handles)
+	return centre
+end
+
+-- WHERE THAT WAVE'S BEATER IS, or nil when there is none.
+--
+-- It stands behind the REARMOST animal to push, and in front of the FOREMOST to turn -- never
+-- relative to the centroid, which is the middle of a spread nobody is standing in.
+function ForestTest.beaterPosition(
+	rear: Vector3,
+	front: Vector3,
+	elapsed: number,
+	turnsBack: boolean,
+	dz: number?
+): Vector3?
+	local wave = ForestTest.WAVE
+	local phase = ForestTest.wavePhase(elapsed, turnsBack, dz)
+	if phase == "push" then
+		return rear + Vector3.new(0, 0, wave.pushStuds)
+	end
+	if phase == "turn" then
+		return front + Vector3.new(0, 0, -wave.aheadStuds)
+	end
+	return nil
 end
 
 -- WHICH WAVE IS DUE. The cycle repeats forever, so a playtest never runs out of action.
@@ -182,9 +225,10 @@ function ForestTest.boarThreats(now: number)
 		end
 	end
 	for _, wave in ipairs(state.active) do
-		local centre = ForestTest.herdCentre(wave.handles)
+		local centre, rear, front = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
-			local at = ForestTest.beaterPosition(centre, now - wave.at, wave.turnsBack)
+			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
+			local at = ForestTest.beaterPosition(rear :: Vector3, front :: Vector3, now - wave.at, wave.turnsBack, dz)
 			if at then
 				table.insert(out, { id = wave.id, position = at, kind = "driver" })
 			end
@@ -264,8 +308,10 @@ end
 function ForestTest.retire(now: number)
 	for index = #state.active, 1, -1 do
 		local wave = state.active[index]
-		local gone = ForestTest.wavePhase(now - wave.at, wave.turnsBack) == "done"
-		if gone or ForestTest.herdCentre(wave.handles) == nil then
+		local centre = ForestTest.herdCentre(wave.handles)
+		local dz = if centre then centre.Z - Data.roadZ(centre.X) else nil
+		local gone = ForestTest.wavePhase(now - wave.at, wave.turnsBack, dz) == "done"
+		if gone or centre == nil then
 			table.remove(state.active, index)
 		end
 	end
@@ -341,10 +387,11 @@ end
 function ForestTest.waveReport(now: number): { string }
 	local out = {}
 	for _, wave in ipairs(state.active) do
-		local centre = ForestTest.herdCentre(wave.handles)
+		local centre, rear, front = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
 			local elapsed = now - wave.at
-			local at = ForestTest.beaterPosition(centre, elapsed, wave.turnsBack)
+			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
+			local at = ForestTest.beaterPosition(rear :: Vector3, front :: Vector3, elapsed, wave.turnsBack, dz)
 			local alive = 0
 			for _, handle in ipairs(wave.handles) do
 				if handle and handle.part and handle.part.Parent then
@@ -356,10 +403,10 @@ function ForestTest.waveReport(now: number): { string }
 				string.format(
 					"%s %s t=%.0fs alive=%d herd dz=%.0f beater %s",
 					wave.id,
-					ForestTest.wavePhase(elapsed, wave.turnsBack),
+					ForestTest.wavePhase(elapsed, wave.turnsBack, dz),
 					elapsed,
 					alive,
-					centre.Z - Data.roadZ(centre.X),
+					dz,
 					if at
 						then string.format("dz=%.0f gap=%.1f", at.Z - Data.roadZ(at.X), (at - centre).Magnitude)
 						else "none"
