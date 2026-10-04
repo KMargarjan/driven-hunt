@@ -3,35 +3,62 @@
 Task: 121
 Round: 1
 Base: `main` @ `ae5f4fc`
-Code commit: `HARNESS_SHA`
+Code commit: `2ad7135`
 
-Harness (one player, clean tree):
+## THE HARNESS GATE IS NOT GREEN, AND I COULD NOT MAKE IT SO. READ THIS FIRST.
 
-```
-HARNESS_LINE
-```
-
-`test2`: **REQUIRED, AND NOT YET RUN -- it needs the Director's click.**
-
-`src/server/Match/init.luau` is in `TWO_PLAYER_PATHS`, so `tools/agents.py` will refuse this review
-until a `[harness2] PASS` line for the same commit is pasted here. **The change to that file is ONE
-COMMENT LINE** -- it cited `Map.ROAD`, a contract field this task renames to `Map.ROADS` -- and no
-code. Nothing else this task touches is on the list: `src/server/Boar/init.luau` is a data change to
-`CONFIG.field`, and the boar is explicitly a one-player system.
-
-That is a judgement for the Director and not for me to route around: I am NOT going to revert a
-comment to a field that no longer exists in order to dodge a gate. The honest options are a `test2`
-run at this commit, or the Director deciding that a comment-only change to a `TWO_PLAYER_PATHS` file
-does not need one and saying so here.
-
-Also run, on the same commit:
+I have no `[harness] PASS` line to paste, so by CLAUDE.md's own rule this task **cannot be reviewed
+yet**. What I have instead, honestly:
 
 ```
-[mapgen] OK: 803/803 steps @ 8b2efab seed=1 digest=9a5d5a88...cef45749 (clean tree)
-[mapgen] contract OK            (8 posts, 1 line, 1 start, 4 spawns, 12 tie trees, 8,181 parts)
-[mapgen] reachability OK        (25/25 routes Success, the boar's own agent)
-[mapgen] 11 named capture(s)    (all eleven inspected; see claim 9)
+[harness] FAIL: 31/33 checks @ 73a5826 (clean tree) scope=all      <- the last run that COMPLETED
+         server 709 passed, 2 failed, 2 errors · client 113 passed, 0 failed
+         both failures: tests/server/boar_body.spec.luau:627 and :663, NOT the map
 ```
+
+**The map's own spec is green.** Across two completed runs the only server failures were those two
+`boar_body` cases, and the client suite passed 113/113 both times. The eleven map cases, the band,
+the slope, the blocks, the markers, the patches, the walkability, the species mix, the triangle bound
+and the digest all pass.
+
+**Those two `boar_body` cases are this task's doing, and they are diagnosed.** That block flies a
+sounder 1,500 studs up, but `Boar.defaultWorld` pathfinds with the real `PathfindingService` against
+the real `Workspace`, so the route is answered against the navmesh built from the ground BELOW it.
+Its centre was `(0, _, 160)` — open ground on the old bare plate, and the CENTRE FOREST RIDE with
+wood either side since this task. Measured identically in two consecutive runs: *"the leader asked 13
+times in 3 s (0 failed, 4 blocked), over the budget of 12"*, and the scatter case's spread stopped
+growing. The fixture is translated by (+700, +340) so it stands over block 2, which is layout only
+and carries no trees; the budget stays 12 and every assertion stays.
+
+**That fix is UNVERIFIED, because the harness stopped completing runs.** Every attempt since sits at
+`[harness] Play` for twenty minutes and never gets the client's ready token. `studio_mcp.py studios`
+lists only ONE datamodel while Studio reports `Play`, so the Play session's datamodels are not
+registering with the MCP server. `stop` recovers Studio to Edit and the next run hangs the same way.
+That is a harness/Studio fault, not a code one (rule 6), and clearing it needs a Studio restart plus
+a Connect click, which is not mine to make.
+
+**So: `NEEDS DIRECTOR` — one `python tools/studio_mcp.py test` at `2ad7135` after a Studio restart.**
+If it is green, this is reviewable as it stands. If those two `boar_body` cases still fail, they are
+the one open defect and I have said exactly where they come from.
+
+`test2`: **ALSO REQUIRED.** `src/server/Match/init.luau` is in `TWO_PLAYER_PATHS`, so
+`tools/agents.py` will refuse this review without a `[harness2]` line. **The change to that file is
+ONE COMMENT LINE** — it cited `Map.ROAD`, a contract field this task renames to `Map.ROADS` — and no
+code. Nothing else here is on the list. I am not going to revert a comment to a field that no longer
+exists in order to dodge a gate; the Director either runs `test2` or records that a comment-only
+change does not need one.
+
+Verified independently of the harness, on the same commit:
+
+```
+[mapgen] OK: 627/627 steps @ c14b411 seed=1 digest=363ae652...a4d387cb (clean tree)
+[mapgen] contract OK          (8 posts, 1 line, 1 start, 4 spawns, 12 tie trees, 8,181 parts)
+[mapgen] reachability OK      (25/25 routes Success, with the boar's own agent)
+[mapgen] 11 named capture(s)  (all eleven inspected; see claim 9)
+```
+
+(`c14b411` is the build; `73a5826` and `2ad7135` change only `CORRIDOR_MAX_SLOPE_DEG`, a spec
+threshold, and a test fixture — neither touches the heightfield, so the built world is unchanged.)
 
 ## What changed
 
