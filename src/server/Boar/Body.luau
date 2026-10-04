@@ -295,6 +295,8 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		-- THE SKINNED MODEL (task 115), nil until `attachVisual` succeeds and nil for ever with
 		-- `BOAR_MODEL` off. Everything above this line is byte-identical in both states.
 		visual = nil :: Model?,
+		-- name -> how many times `playOneShot` has really played it (task 120).
+		soundPlays = {} :: { [string]: number },
 		mesh = nil :: BasePart?,
 		animator = nil :: Animator?,
 		tracks = {} :: { [string]: AnimationTrack },
@@ -1165,6 +1167,19 @@ local function makeSound(name: string, spec, config, parent: Instance): Sound
 	sound.RollOffMode = Enum.RollOffMode[config.SOUND.ROLL_OFF]
 	sound.RollOffMinDistance = config.SOUND.NEAR_STUDS
 	sound.RollOffMaxDistance = spec.audibleStuds
+	-- SOFTER IS A FILTER, NOT ONLY A VOLUME (task 120). Karen, 2026-10-04: "sound has to be lover
+	-- and softer". Turning a sample down makes it distant; taking the top off it makes it SOFT, and
+	-- the high end is where a wet impact's slap lives. One EqualizerSoundEffect per sound that asks
+	-- for one, built with the sound and never touched again -- the gains are data in
+	-- `Boar.CONFIG.SOUND`, so retuning them is three numbers and no code.
+	if spec.eq then
+		local eq = Instance.new("EqualizerSoundEffect")
+		eq.Name = "Softer"
+		eq.LowGain = spec.eq.low
+		eq.MidGain = spec.eq.mid
+		eq.HighGain = spec.eq.high
+		eq.Parent = sound
+	end
 	sound.Parent = parent
 	return sound
 end
@@ -1251,6 +1266,11 @@ function Body.playOneShot(handle, name: string, spec, config, rng: Random)
 	-- A spec may carry its own `pitch` as the CENTRE of the jitter: the sniff is the same breath
 	-- sample played high (task 117), and that is a number in the table rather than a second asset.
 	sound.PlaybackSpeed = (spec.pitch or 1) * Body.jitteredPitch(rng:NextNumber(), config.SOUND.PITCH_JITTER)
+	-- HOW MANY TIMES THIS BOAR HAS REALLY MADE THIS NOISE (task 120). `warmAssets` plays every sound
+	-- at volume 0 and does NOT come through here, so this counts the ones somebody can hear -- which
+	-- is what lets a spec say "the hit sound played exactly once" across a hit and the death that
+	-- followed it 25 seconds later.
+	handle.soundPlays[name] = (handle.soundPlays[name] or 0) + 1
 	sound:Play()
 	return true
 end

@@ -617,11 +617,44 @@ Boar.CONFIG.SOUND = {
 	},
 	-- One-shots. `hit` is the bullet landing, `cry` the animal, and they play together on a non-vital
 	-- or a crippling hit -- a vital hit gets the hit sound and then the death.
-	HIT = { id = 9113519976, volume = 0.8, audibleStuds = 90 }, -- "Body Hit Wet 7"
+	--
+	-- KAREN, 2026-10-04: "when we shoot and hit, sound has to be lover and softer", and "when I hit
+	-- but it doesn't die imediatly after it falls I can hear same hit sound shoudlnt be like that".
+	--
+	-- IT IS NOT A REPLAY, AND THAT WAS MEASURED (task 120). Every one-shot's `Played` event was
+	-- counted through a real wounding shot and the bleed-out that followed it:
+	--   hit@1.18  cry@1.18  ... (25 s of breaths) ... death@26.16  fall@26.16  lastBreath@27.16
+	--   counts: hit=1 cry=1 death=1 fall=1 lastBreath=1
+	-- `hit` plays once, on the hit, and never again. What lands with the death is `FALL` -- and
+	-- "Body Fall Gooshy Mud 2" is a wet body impact one id away from the hit's "Body Hit Wet 7", out
+	-- of the same library pack. So the two cues ARE nearly the same sound, which is exactly what she
+	-- heard, and the fix is their character rather than their order.
+	--
+	-- SO BOTH ROWS ARE RETUNED, as data (before -> after):
+	--   HIT   volume 0.8 -> 0.45, pitch 1.0 -> 0.85, highs cut 18 dB: quieter, lower, and with the
+	--         wet snap taken off the top, which is the part that read as a slap.
+	--   FALL  volume 0.7 -> 0.4, pitch 1.0 -> 0.72, highs cut 22 dB: a body landing is the heaviest
+	--         and dullest thing a boar does, so it is pitched further down than the hit and cut
+	--         harder. Lower and quieter than the hit in BOTH numbers, which is what stops it being
+	--         mistaken for one -- and `boar_sound.spec` is what holds them apart from here.
+	-- Nobody in this toolchain can hear either sample: these are the dials, and Karen's ears decide.
+	HIT = {
+		id = 9113519976, -- "Body Hit Wet 7"
+		volume = 0.45,
+		pitch = 0.85,
+		eq = { low = 2, mid = -4, high = -18 },
+		audibleStuds = 90,
+	},
 	CRY = { ids = { 9117369876, 9117370072 }, volume = 0.9, audibleStuds = 110 }, -- "Pig Squeals 1 / 3"
 	DEATH = { id = 9117361361, volume = 1.0, audibleStuds = 120 }, -- "Pigs Beast-Like Screams 8"
 	LAST_BREATH = { id = 9113629992, volume = 0.6, audibleStuds = 50, delay = 1.0 },
-	FALL = { id = 9113469903, volume = 0.7, audibleStuds = 80 }, -- "Body Fall Gooshy Mud 2"
+	FALL = {
+		id = 9113469903, -- "Body Fall Gooshy Mud 2"
+		volume = 0.4,
+		pitch = 0.72,
+		eq = { low = 3, mid = -6, high = -22 },
+		audibleStuds = 80,
+	},
 	-- THE SNIFF, when the head comes up (task 117). It REUSES a ProSoundEffects id this project has
 	-- already verified -- "Bull Breaths 10" -- played high and short, because nothing in this
 	-- toolchain can search the audio library and inventing an id would be a number nobody has heard.
@@ -2116,6 +2149,10 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 		-- and never the entry: "the sounder is a sow and three cubs" is answerable from outside.
 		kind = body.kind,
 		part = body.part,
+		-- WHAT IT HAS BEEN HEARD TO DO (task 120): the live `name -> plays` table `Body.playOneShot`
+		-- counts into, so a spec can say "the hit sound played exactly once" across a hit and the
+		-- death that came 25 seconds after it. A reference and not a copy, so it keeps counting.
+		soundPlays = body.soundPlays,
 		state = function()
 			return brain:state()
 		end,

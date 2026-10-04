@@ -810,6 +810,60 @@ return function()
 		end)
 	end)
 
+	describe("the hit sound plays once, however long the animal takes to die", function()
+		it("is still one play after a rump wound finishes the animal later", function()
+			-- KAREN, 2026-10-04: "when I hit but it doesn't die imediatly after it falls I can hear
+			-- same hit sound shoudlnt be like that". A rump slug is MORTAL and not lethal -- the case
+			-- above pins that -- so this is exactly her shot: it is hit, it runs, and the wound
+			-- finishes it some seconds later.
+			local runtime = newRuntime(true, "SoundOnce", true)
+			local handle = runtime:spawn(Vector3.new(0, GROUND_Y, 0))
+			warmedUp(runtime) -- the pre-roll plays everything at volume 0 and does NOT count
+			expect(handle.soundPlays.hit).to.equal(nil)
+
+			-- THE SOFTENING REACHED THE INSTANCE, not just the table: the filter that takes the slap
+			-- off the hit is an EqualizerSoundEffect built beside the Sound, and this is the only
+			-- place that reads one back off a real sound.
+			local hitSound = soundNamed(handle, "hit") :: Sound
+			local eq = hitSound:FindFirstChildOfClass("EqualizerSoundEffect") :: EqualizerSoundEffect
+			expect(eq).to.be.ok()
+			expect(eq.HighGain).to.equal(SOUND.HIT.eq.high)
+			-- A Sound's Volume is a float32, so the config's 0.45 reads back as 0.44999998807907104.
+			expect(math.abs(hitSound.Volume - SOUND.HIT.volume) < 1e-6).to.equal(true)
+
+			expect(runtime:takeHit(handle.part, { zone = "rear", ammo = "Slug", pellets = 1, at = 0 })).to.equal(true)
+			step(runtime, 3)
+			-- IT IS NOT DEAD YET, which is the whole premise of her report.
+			expect(handle.part:GetAttribute("Carcass")).never.to.equal(true)
+			expect(handle.soundPlays.hit).to.equal(1)
+			expect(handle.soundPlays.death).to.equal(nil)
+
+			local deadline = os.clock() + 30
+			while os.clock() < deadline and handle.part:GetAttribute("Carcass") ~= true do
+				step(runtime)
+				RunService.Heartbeat:Wait()
+			end
+			step(runtime, 3)
+			expect(handle.part:GetAttribute("Carcass")).to.equal(true)
+
+			-- THE CLAIM: one hit, one play, however late the death arrives -- and the death brings
+			-- its own two cues and not a second hit.
+			expect(handle.soundPlays.hit).to.equal(1)
+			expect(handle.soundPlays.death).to.equal(1)
+			expect(handle.soundPlays.fall).to.equal(1)
+			TestKit.note(
+				string.format(
+					"boar-sound: a rump wound -- hit %d, cry %d, death %d, fall %d",
+					handle.soundPlays.hit,
+					handle.soundPlays.cry or 0,
+					handle.soundPlays.death,
+					handle.soundPlays.fall
+				)
+			)
+			runtime:destroy()
+		end)
+	end)
+
 	describe("a repeat must not sound like a loop", function()
 		it("is the configured band, centred on 1.0", function()
 			expect(Boar.jitteredPitch(0.5, SOUND.PITCH_JITTER)).to.equal(1)
@@ -820,18 +874,59 @@ return function()
 			expect(SOUND.PITCH_JITTER < 0.2).to.equal(true)
 		end)
 
-		it("gives the sniff a pitch of its own, and every other sound none", function()
+		it("gives the sniff, the hit and the fall pitches of their own, and nothing else one", function()
 			-- THE DATA HALF ONLY, and said so (review round 3, the Director's sweep): the arithmetic
 			-- `playOneShot` does with this -- `(spec.pitch or 1) * jitteredPitch(...)` -- is asserted
 			-- END TO END in `boar_calm.spec`, "the sniff is played HIGH", which reads the live
 			-- `Sound.PlaybackSpeed` after a real head-lift. A case that multiplied the two itself
 			-- here would pass with that multiplication deleted.
 			expect(SOUND.SNIFF.pitch > 1.1).to.equal(true)
+			-- ...AND TWO ARE PITCHED DOWN (task 120). Karen, 2026-10-04: "sound has to be lover and
+			-- softer", and the fall "I can hear same hit sound". Both are below 1, and the FALL is
+			-- below the HIT: a body landing is the heaviest, dullest thing a boar does.
+			expect(SOUND.HIT.pitch < 1).to.equal(true)
+			expect(SOUND.FALL.pitch < SOUND.HIT.pitch).to.equal(true)
+			local pitched = { sniff = true, hit = true, fall = true }
 			for _, row in ipairs(ONE_SHOTS) do
-				if row.name ~= "sniff" then
+				if not pitched[row.name] then
 					expect(row.spec.pitch).to.equal(nil)
 				end
 			end
+		end)
+
+		it("keeps the fall from sounding like the hit, which is what Karen heard", function()
+			-- MEASURED FIRST (task 120), by counting every one-shot's `Played` through a real
+			-- wounding shot and the bleed-out after it: `hit@1.18 cry@1.18 ... death@26.16
+			-- fall@26.16 lastBreath@27.16`, counts hit=1 cry=1 death=1 fall=1. So nothing replays
+			-- the hit -- the sound at the fall IS `FALL`, and "Body Fall Gooshy Mud 2" is a wet body
+			-- impact one id from the hit's "Body Hit Wet 7", out of the same pack.
+			--
+			-- They can only be told apart by their DIALS, so this is what holds them apart: the fall
+			-- is quieter AND lower than the hit, and both have the top cut off them. Nobody in this
+			-- toolchain can hear either sample; what a spec can do is refuse to let them drift back
+			-- into being the same noise.
+			expect(SOUND.FALL.id ~= SOUND.HIT.id).to.equal(true)
+			expect(SOUND.FALL.volume < SOUND.HIT.volume).to.equal(true)
+			expect(SOUND.FALL.pitch < SOUND.HIT.pitch).to.equal(true)
+			for _, row in ipairs({ SOUND.HIT, SOUND.FALL }) do
+				expect(row.eq).to.be.ok()
+				expect(row.eq.high < -6).to.equal(true) -- the slap lives in the highs
+				expect(row.eq.high >= -80).to.equal(true) -- EqualizerSoundEffect's own floor
+			end
+			-- AND SOFTER THAN IT WAS: 0.8 and 0.7 are the volumes Karen asked to come down.
+			expect(SOUND.HIT.volume < 0.8).to.equal(true)
+			expect(SOUND.FALL.volume < 0.7).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-sound: hit vol %.2f pitch %.2f high %+d dB; fall vol %.2f pitch %.2f high %+d dB",
+					SOUND.HIT.volume,
+					SOUND.HIT.pitch,
+					SOUND.HIT.eq.high,
+					SOUND.FALL.volume,
+					SOUND.FALL.pitch,
+					SOUND.FALL.eq.high
+				)
+			)
 		end)
 	end)
 
