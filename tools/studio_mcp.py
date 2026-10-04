@@ -1536,7 +1536,7 @@ class Studio:
     # The one tool that must NOT be scoped: it is the question "which Studios are there at all",
     # and scoping it to one of them is meaningless.
     def _choose_default_studio(self):
-        """With more than one Studio connected, say WHICH one every unscoped call means.
+        """With more than one Studio connected, say WHICH one every unscoped Edit call means.
 
         StudioMCP refuses any tool call that names no `studio_id` as soon as a second Studio is
         connected. Task 122 opened a second place -- "Driven Hunt Forest Test" -- beside the DEV
@@ -1544,34 +1544,50 @@ class Studio:
         missing the required studio_id argument", which looks like a broken harness and is really
         an ambiguous question.
 
-        The harness place is named (`HARNESS_PLACE_ID`) and StudioMCP puts the place id in each
-        Studio's name, so the question has an answer. It is CHOSEN, not guessed: if no connected
-        Studio is the harness place, this refuses and lists what is connected, because running the
-        suite against the wrong place would produce a PASS that means nothing.
+        IT ASKS THE STUDIO, AND ONLY FALLS BACK TO THE NAME. StudioMCP puts the place id in each
+        Studio's name, but for several seconds after a Play session ends it returns those entries
+        with no name at all -- so a resolver that trusted the name refused to start the very run
+        that had just cleaned up after itself. `game.PlaceId` is the fact; the name is a label.
 
-        `run_test2` still sets `default_studio_id` itself, and an explicit `studio_id` always wins.
+        It is CHOSEN, not guessed: if no connected Studio is the harness place this refuses and
+        lists what it found, because running the suite against the wrong place would produce a PASS
+        that means nothing. `run_test2` still sets `default_studio_id` itself, and an explicit
+        `studio_id` always wins.
         """
         if self.default_studio_id:
             return
-        try:
-            studios = json.loads(self._call("list_roblox_studios")).get("studios", [])
-        except (ValueError, RuntimeError):
-            return
-        if len(studios) <= 1:
-            return
-        for studio in studios:
-            if HARNESS_PLACE_ID in (studio.get("name") or ""):
-                self.default_studio_id = studio.get("id")
-                print(
-                    "[harness] %d Studios connected; using %s"
-                    % (len(studios), studio.get("name"))
-                )
+        seen = []
+        for _ in range(12):
+            try:
+                studios = json.loads(self._call("list_roblox_studios")).get("studios", [])
+            except (ValueError, RuntimeError):
                 return
-        names = "; ".join(s.get("name") or "?" for s in studios)
+            if len(studios) <= 1:
+                return
+            seen = studios
+            for studio in studios:
+                place = ""
+                try:
+                    place = self._call(
+                        "execute_luau",
+                        {"datamodel_type": "Edit", "code": QUERY_PLACE_ID},
+                        studio_id=studio.get("id"),
+                    ).strip()
+                except RuntimeError:
+                    place = ""
+                if place == HARNESS_PLACE_ID or HARNESS_PLACE_ID in (studio.get("name") or ""):
+                    self.default_studio_id = studio.get("id")
+                    print(
+                        "[harness] %d Studios connected; using %s"
+                        % (len(studios), studio.get("name") or ("place " + place))
+                    )
+                    return
+            time.sleep(2)
+        names = "; ".join((s.get("name") or s.get("id", "?")[:8]) for s in seen)
         sys.exit(
-            "%d Studios are connected and none is the harness place %s. "
+            "%d Studios are connected and none answered as the harness place %s. "
             "connected: %s. "
-            "Open the DEV place, or close the others." % (len(studios), HARNESS_PLACE_ID, names)
+            "Open the DEV place, or close the others." % (len(seen), HARNESS_PLACE_ID, names)
         )
 
     UNSCOPED_TOOLS = ("list_roblox_studios",)
