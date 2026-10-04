@@ -419,9 +419,11 @@ return function()
 		-- answered against the navmesh built from the ground below. While the world was a bare flat
 		-- plate that was open ground; since task 121 the old centre (x = 0, z = 160) is the CENTRE
 		-- FOREST RIDE with wood either side of it, and the herd's routes came back blocked.
-		-- MEASURED, and identically in two consecutive runs: "the leader asked 13 times in 3 s
-		-- (0 failed, 4 blocked), over the budget of 12", and the scatter case's spread stopped
-		-- growing.
+		-- MEASURED ONCE, in the one harness run that completed after the forest was built: "the
+		-- leader asked 13 times in 3 s (0 failed, 4 blocked), over the budget of 12", and the
+		-- scatter case's spread stopped growing. ONCE, not twice -- the next run never returned a
+		-- report at all, so this fixture move is a reasoned fix to a single observation and not a
+		-- reproduced one. If these two cases still fail, that is where to start.
 		--
 		-- So it stands over BLOCK 2, which is layout only and carries no trees at all -- the nearest
 		-- thing the forest has to the plate this block was written on. The budget stays 12 and the

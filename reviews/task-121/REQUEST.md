@@ -11,9 +11,13 @@ I have no `[harness] PASS` line to paste, so by CLAUDE.md's own rule this task *
 yet**. What I have instead, honestly:
 
 ```
-[harness] FAIL: 31/33 checks @ 73a5826 (clean tree) scope=all      <- the last run that COMPLETED
+[harness] FAIL: 31/33 checks @ 73a5826 (clean tree) scope=all   <- the LAST run that completed
          server 709 passed, 2 failed, 2 errors · client 113 passed, 0 failed
          both failures: tests/server/boar_body.spec.luau:627 and :663, NOT the map
+
+[harness] FAIL: 19/23 checks @ 73a5826 (clean tree) scope=all   <- the next run, and every one since
+         FAIL [server] runner reported within 300 s
+         FAIL [client] runner reported within 300 s     (390 s total, 300.8 s of it waiting)
 ```
 
 **The map's own spec is green.** Across two completed runs the only server failures were those two
@@ -25,13 +29,16 @@ and the digest all pass.
 sounder 1,500 studs up, but `Boar.defaultWorld` pathfinds with the real `PathfindingService` against
 the real `Workspace`, so the route is answered against the navmesh built from the ground BELOW it.
 Its centre was `(0, _, 160)` — open ground on the old bare plate, and the CENTRE FOREST RIDE with
-wood either side since this task. Measured identically in two consecutive runs: *"the leader asked 13
-times in 3 s (0 failed, 4 blocked), over the budget of 12"*, and the scatter case's spread stopped
-growing. The fixture is translated by (+700, +340) so it stands over block 2, which is layout only
+wood either side since this task. Measured ONCE, in that one completed run: *"the leader asked 13 times
+in 3 s (0 failed, 4 blocked), over the budget of 12"*, and the scatter case's spread stopped growing.
+**Once, not twice** -- I first wrote "identically in two consecutive runs" and that was wrong: the
+second run never returned a report, and I had read a stale console. So the fixture move is a reasoned
+fix to a single observation, not a reproduced one. The fixture is translated by (+700, +340) so it stands over block 2, which is layout only
 and carries no trees; the budget stays 12 and every assertion stays.
 
-**That fix is UNVERIFIED, because the harness stopped completing runs.** Every attempt since sits at
-`[harness] Play` for twenty minutes and never gets the client's ready token. `studio_mcp.py studios`
+**That fix is UNVERIFIED, because the harness stopped completing runs with that very next run.**
+Every attempt since either sits at `[harness] Play` and never gets the client's ready token, or
+reaches Play and then fails BOTH `runner reported within 300 s` checks. `studio_mcp.py studios`
 lists only ONE datamodel while Studio reports `Play`, so the Play session's datamodels are not
 registering with the MCP server. `stop` recovers Studio to Edit and the next run hangs the same way.
 That is a harness/Studio fault, not a code one (rule 6), and clearing it needs a Studio restart plus
