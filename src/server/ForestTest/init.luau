@@ -234,10 +234,10 @@ function ForestTest.boarThreats(now: number)
 		end
 	end
 	for _, wave in ipairs(state.active) do
-		local centre, rear, front = ForestTest.herdShape(wave.handles)
+		local centre, rear = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
 			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
-			local at = ForestTest.beaterPosition(rear :: Vector3, front :: Vector3, now - wave.at, wave.turnsBack, dz)
+			local at = ForestTest.beaterPosition(centre :: Vector3, rear :: Vector3, now - wave.at, wave.turnsBack, dz)
 			if at then
 				table.insert(out, { id = wave.id, position = at, kind = "driver" })
 			end
@@ -396,11 +396,11 @@ end
 function ForestTest.waveReport(now: number): { string }
 	local out = {}
 	for _, wave in ipairs(state.active) do
-		local centre, rear, front = ForestTest.herdShape(wave.handles)
+		local centre, rear = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
 			local elapsed = now - wave.at
 			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
-			local at = ForestTest.beaterPosition(rear :: Vector3, front :: Vector3, elapsed, wave.turnsBack, dz)
+			local at = ForestTest.beaterPosition(centre :: Vector3, rear :: Vector3, elapsed, wave.turnsBack, dz)
 			local alive = 0
 			for _, handle in ipairs(wave.handles) do
 				if handle and handle.part and handle.part.Parent then
