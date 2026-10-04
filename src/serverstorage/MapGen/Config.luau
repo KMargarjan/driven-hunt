@@ -201,7 +201,21 @@ Config.BLOCKS = {
 		character = {
 			label = "old oak over beech, a young-oak patch and a gap",
 			mix = { oak = 0.56, beech = 0.18, birch = 0.12, spruce = 0.09, alder = 0.05 },
-			ages = { mature = 0.78, young = 0.18, veteran = 0.04 },
+			-- MEASURED, AND LOOKED AT (2026-10-04, rule 5). The first build put `young = 0.18`
+			-- through the whole block and the three sight-line screenshots -- `block1-stand`,
+			-- `block1-road`, `block1-hills` -- came back as a solid wall of leaves with no ground
+			-- and no distance in them. The arithmetic says why, off the bought mesh's own parts: a
+			-- MATURE oak's `Leaves` part spans y 13.97..81.38 of an 81.38-stud model, so scaled to
+			-- 78 studs its foliage starts at 13.4 -- ABOVE a shooter's eye on a 7.1-stud stand
+			-- (11.1). A YOUNG one is the same mesh at 0.42, so its foliage starts at 5.6 studs,
+			-- which is exactly eye height. 18 % of the wood at eye height is the wall.
+			--
+			-- So the regeneration goes where a managed stand actually keeps it and where this
+			-- design already put it: THE YOUNG PATCH, 296 trees of it. Scattered young growth drops
+			-- to 4 %, which is the odd sapling rather than a screen. The canopy above is unchanged
+			-- -- mature crowns still close over at 34 studs wide on a 30-stud grid -- so the wood is
+			-- still dark and still a wood; what comes back is the ground and the distance.
+			ages = { mature = 0.92, young = 0.04, veteran = 0.04 },
 			-- Clumps read at ~84 m, so a drive crosses STANDS of one species rather than a salad.
 			clumpStuds = 300,
 			clumpStrength = 0.65,
