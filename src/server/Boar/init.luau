@@ -56,6 +56,38 @@ Boar.freezeReach = Body.freezeReach
 -- shape of the dying twitch. Pure, for the same reason as every export above it -- a spec cannot
 -- make a boar run, die or be heard.
 Boar.stepSoundFor = Body.stepSoundFor
+Boar.voicePitch = Body.voicePitch
+Boar.voiceIds = Body.voiceIds
+Boar.farScale = Body.farScale
+Boar.cutVolume = Body.cutVolume
+
+-- WHOSE HOOVES A SOUNDER PLAYS (task 120). Karen, 2026-10-04: "several walking ... could be anoying
+-- and shit sound / so we need realistic". Five animals running together are one sound with one
+-- position to anybody listening, so a sounder has ONE emitter: its leader. Pure, because the two
+-- states have to be reachable by parameter -- a spec cannot make six Brains run abreast on command.
+--
+-- A herd with no leader yet (the tick after one dies) silences nobody: a missing sound is a worse
+-- fault than a doubled one, and the next tick picks a leader.
+function Boar.isStepEmitter(leaderId: string?, memberId: string, config): boolean
+	local crowd = config.SOUND.CROWD
+	if crowd == nil or crowd.ENABLED ~= true or crowd.ONE_STEP_EMITTER ~= true then
+		return true
+	end
+	return leaderId == nil or leaderId == memberId
+end
+
+-- HOW MANY SQUEALS ARE STILL SOUNDING at `now`, out of a list of the moments each one stops being
+-- counted (task 120). Pure, so the cap that keeps a shot-at sounder from stacking five squeals can
+-- be driven by a spec with no sound in the world.
+function Boar.squealsSounding(expiries: { number }, now: number): number
+	local sounding = 0
+	for _, expiry in ipairs(expiries) do
+		if expiry > now then
+			sounding += 1
+		end
+	end
+	return sounding
+end
 Boar.jitteredPitch = Body.jitteredPitch
 Boar.paddleOffset = Body.paddleOffset
 -- ...and the fix round's two: how much of the flinch a moving animal shows, and how long a clip
@@ -638,22 +670,110 @@ Boar.CONFIG.SOUND = {
 	--         harder. Lower and quieter than the hit in BOTH numbers, which is what stops it being
 	--         mistaken for one -- and `boar_sound.spec` is what holds them apart from here.
 	-- Nobody in this toolchain can hear either sample: these are the dials, and Karen's ears decide.
+	--
+	-- KAREN'S THIRD LISTEN, 2026-10-04: "so die sound still there / I hit once in back part, after
+	-- while fallowed it falled on side and was sound of hit or whatever, it shouldnt be like that /
+	-- when it dies could be sqeeck sound short / we need also think about sound when there is
+	-- several walking and several sqeeng it could be anoying and shit sound / so we need realistic /
+	-- I think we can remove hit sound for now / animal react sound is good and when die last sqeek
+	-- need short one / pown should sqeen differen, male differen female different".
+	--
+	-- SO THE TWO IMPACT CUES ARE OFF, BY DATA AND NOT BY DELETION. `enabled = false` is the only
+	-- thing `playOneShot` reads; the rows, their ids, volumes and filters are untouched, so bringing
+	-- either back is one word. The FALL is the one she kept hearing as a second shot: it is a wet
+	-- body impact out of the same pack as the hit, and a boar dying 25 s after it was shot made it
+	-- land where a player expects nothing.
 	HIT = {
+		enabled = false, -- task 120: "I think we can remove hit sound for now"
 		id = 9113519976, -- "Body Hit Wet 7"
 		volume = 0.45,
 		pitch = 0.85,
 		eq = { low = 2, mid = -4, high = -18 },
 		audibleStuds = 90,
 	},
+	-- THE REACTION STAYS AS IT IS: "animal react sound is good". Only its VOICE changes, below.
 	CRY = { ids = { 9117369876, 9117370072 }, volume = 0.9, audibleStuds = 110 }, -- "Pig Squeals 1 / 3"
-	DEATH = { id = 9117361361, volume = 1.0, audibleStuds = 120 }, -- "Pigs Beast-Like Screams 8"
-	LAST_BREATH = { id = 9113629992, volume = 0.6, audibleStuds = 50, delay = 1.0 },
+	-- A DEATH IS ONE SHORT SQUEAL NOW: "when it dies could be sqeeck sound short". It was
+	-- "Pigs Beast-Like Screams 8", a long scream; it is the squeal samples, CUT at 0.6 s with a
+	-- 0.15 s fade so it ends rather than stops. `VOICE` gives the male his own rougher sample back.
+	DEATH = {
+		ids = { 9117369876, 9117370072 }, -- "Pig Squeals 1 / 3"
+		volume = 0.85,
+		audibleStuds = 110,
+		cut = 0.6, -- seconds of sound, whatever the sample's own length is
+		fade = 0.15, -- the last of those seconds, taken down to nothing
+	},
+	-- ...AND NOTHING FOLLOWS IT: "when die last sqeek need short one" is one squeal, not a squeal and
+	-- then a breath a second later. Off by data, like the two above.
+	LAST_BREATH = { enabled = false, id = 9113629992, volume = 0.6, audibleStuds = 50, delay = 1.0 },
 	FALL = {
+		enabled = false, -- task 120: the thud she heard as "sound of hit or whatever"
 		id = 9113469903, -- "Body Fall Gooshy Mud 2"
 		volume = 0.4,
 		pitch = 0.72,
 		eq = { low = 3, mid = -6, high = -22 },
 		audibleStuds = 80,
+	},
+	-- A VOICE PER KIND -----------------------------------------------------------------------------
+	-- Karen: "pown should sqeen differen, male differen female different" (pown = piglet). A boar's
+	-- VOICE is the three cues that come out of the animal -- its reaction, its death and its grunts.
+	-- Its hooves, its breathing and the sniff are the world and are left alone.
+	--
+	-- PITCH DOES THE WORK, because nothing in this toolchain can audition a sound library and
+	-- inventing an asset id would be a number nobody has heard. The ids below are the ones this
+	-- project has already verified and listened to; each kind gets the subset that suits it and a
+	-- pitch centre of its own, and the +-8 % jitter still rides on top. The Director or Karen can
+	-- swap any id here for a better one without touching code.
+	VOICE = {
+		ENABLED = true,
+		-- WHICH CUES ARE A VOICE. Footsteps, breath and the sniff are not.
+		APPLIES = { cry = true, death = true, grunt = true },
+		-- Deeper and rougher: the only beast-like scream in the set is his, and the two lower grunts.
+		male = {
+			pitch = 0.8,
+			death = { 9117361361 }, -- "Pigs Beast-Like Screams 8", cut to 0.6 s
+			cry = { 9117369876, 9117370072 }, -- "Pig Squeals 1 / 3"
+			grunt = { 9117357588, 9117352464 }, -- "Pig Grunts 2 / 3"
+		},
+		-- The middle, and the sample set the config carried before any of this.
+		female = {
+			pitch = 1.0,
+			death = { 9117369876, 9117370072 },
+			cry = { 9117369876, 9117370072 },
+			grunt = { 9117352464, 9117344600 }, -- "Pig Grunts 3 / 6"
+		},
+		-- Higher and thinner: one squeal, played half again as fast, which also makes it shorter.
+		cub = {
+			pitch = 1.4,
+			death = { 9117369876 }, -- "Pig Squeals 1"
+			cry = { 9117369876, 9117370072 },
+			grunt = { 9117344600 }, -- "Pig Grunts 6"
+		},
+	},
+	-- SIX ANIMALS MUST NOT SOUND LIKE SIX ANIMALS ---------------------------------------------------
+	-- Karen: "we need also think about sound when there is several walking and several sqeeng it
+	-- could be anoying and shit sound / so we need realistic". A sounder is up to six boars, each
+	-- with its own hooves and its own voice, and six copies of one sample playing together is a wall
+	-- of noise rather than a herd. Four limits, all data:
+	--
+	--   * ONE GRUNT PER SOUNDER AT A TIME, with a gap: a herd mutters, it does not chorus. A grunt
+	--     that loses the race is SKIPPED, not queued -- the boar simply waits for its next interval,
+	--     which is what a real animal that did not grunt does.
+	--   * TWO SQUEALS WORLD-WIDE. A third animal crying or dying inside the window makes no sound.
+	--     Deaths and reactions share the budget, so a sounder shot into cannot stack five squeals.
+	--   * ONE SET OF HOOVES PER SOUNDER: the leader's. Five animals running together are one sound
+	--     with one position, which is also what they are to a listener fifty studs away.
+	--   * FAR ANIMALS ARE QUIETER than the roll-off alone makes them, measured from the nearest
+	--     hunter, so a sounder crossing the far end of the field is background and not an event.
+	CROWD = {
+		ENABLED = true,
+		SOUNDER_GRUNT_GAP = 2.5, -- seconds between grunts from ONE sounder, whoever makes them
+		MAX_SQUEALS = 2, -- cries and deaths, world-wide, at once
+		SQUEAL_SECONDS = 1.2, -- how long one counts as sounding against that budget
+		ONE_STEP_EMITTER = true, -- a sounder's footsteps come from its leader and nobody else
+		FAR_STUDS = 60, -- inside this, a voice is at its own volume
+		FAR_FADE_STUDS = 60, -- and it reaches FAR_VOLUME this much further out
+		FAR_VOLUME = 0.55,
 	},
 	-- THE SNIFF, when the head comes up (task 117). It REUSES a ProSoundEffects id this project has
 	-- already verified -- "Bull Breaths 10" -- played high and short, because nothing in this
@@ -1209,6 +1329,9 @@ function Boar.newRuntime(world)
 	-- another boar and Body knows nothing about groups, so "who is in a sounder, who leads it and
 	-- how long it is scattering" has exactly one writer (CLAUDE.md rule 3).
 	self._sounders = {}
+	-- WHEN EACH SQUEAL STOPS COUNTING against `SOUND.CROWD.MAX_SQUEALS` (task 120). One list per
+	-- runtime, and production has exactly one runtime, so "two at once" is world-wide.
+	self._squeals = {}
 	self._nextSounderId = 0
 	-- EVERY STIMULUS'S MEASURED SPEED (task 118, design section 4.6), written here and nowhere else:
 	-- id -> { position, speed }. A character's own `AssemblyLinearVelocity` is network-owned by that
@@ -1234,6 +1357,7 @@ function Boar.newRuntime(world)
 		downed = 0, -- Downed fired: the animal died
 		killed = 0, -- its carcass was removed; downed - killed is how many carcasses are lying about
 		escapedWounded = 0, -- crossed the exit line carrying damage
+		squealsSkipped = 0, -- a cry or a death that found the world's two voices already busy
 		zoneHits = {}, -- PELLETS per zone, so it sums to pelletsTaken
 		unknownZoneHits = 0, -- hits carrying a zone no DAMAGE row knows: an attribute typo, not free
 		tallylessHits = 0, -- hits with no per-pellet tally, charged at the dominant zone
@@ -1613,7 +1737,9 @@ function Runtime:takeHit(part: BasePart, hit): boolean
 				local sound = self._config.SOUND
 				Body.playOneShot(entry.body, "hit", sound.HIT, self._config, self._rng)
 				local class = Wound.hitClass(record.zone, wound)
-				if class ~= "vital" and severity ~= "lethal" then
+				-- ...AND ONLY IF THE WORLD HAS A VOICE TO SPARE (task 120): two squeals at once is
+				-- the cap, and a third animal is not heard rather than heard late.
+				if class ~= "vital" and severity ~= "lethal" and self:_claimSqueal() then
 					Body.playOneShot(entry.body, "cry", sound.CRY, self._config, self._rng)
 				end
 			end
@@ -1663,6 +1789,65 @@ end
 -- Design: docs/design/drive.md ("the boar runtime's sounder interface"). Every function below
 -- returns a COPY: there is no setter, and the drive never reads any of them in production -- they
 -- exist for specs, for diagnostics, and for the step's own bookkeeping.
+
+-- ONE OF THE WORLD'S TWO VOICES, OR NOTHING (task 120). Karen, 2026-10-04: "several sqeeng it
+-- could be anoying and shit sound / so we need realistic". Prunes the squeals that have finished,
+-- then takes a slot if one is free. A refusal is a SKIP and never a queue: the animal that could not
+-- be heard simply was not heard, which is what happens in a wood full of noise.
+function Runtime:_claimSqueal(): boolean
+	local crowd = self._config.SOUND.CROWD
+	if crowd == nil or crowd.ENABLED ~= true then
+		return true
+	end
+	local now = os.clock()
+	local kept = {}
+	for _, expiry in ipairs(self._squeals) do
+		if expiry > now then
+			table.insert(kept, expiry)
+		end
+	end
+	self._squeals = kept
+	if #kept >= crowd.MAX_SQUEALS then
+		self._stats.squealsSkipped += 1
+		return false
+	end
+	table.insert(self._squeals, now + crowd.SQUEAL_SECONDS)
+	return true
+end
+
+-- WHAT ONE ANIMAL IS ALLOWED TO MAKE A NOISE WITH THIS STEP, and how loud its voice is (task 120).
+-- The Runtime answers this because it is the only thing that knows where the hunters are and what
+-- the rest of the sounder is doing. With `CROWD` off it answers nil and sets the scale to 1, which
+-- is the world every spec before this task asserts.
+function Runtime:_voiceFor(entry, threats, now: number)
+	local crowd = self._config.SOUND.CROWD
+	if crowd == nil or crowd.ENABLED ~= true then
+		Body.setVoiceScale(entry.body, 1)
+		return nil
+	end
+	local at = Body.position(entry.body)
+	local nearest = nil
+	for _, threat in ipairs(threats) do
+		if typeof(threat.position) == "Vector3" then
+			local flat = Vector3.new(threat.position.X - at.X, 0, threat.position.Z - at.Z).Magnitude
+			if nearest == nil or flat < nearest then
+				nearest = flat
+			end
+		end
+	end
+	Body.setVoiceScale(entry.body, Body.farScale(nearest, self._config))
+
+	local record = self:_sounderRecord(entry.sounderId)
+	if record == nil then
+		return { grunt = true, steps = true } -- a lone boar competes with nobody
+	end
+	return {
+		grunt = (record.gruntAgainAt or 0) <= now,
+		-- The leader is the one set of hooves. With no leader yet (the first tick after one dies)
+		-- nobody is silenced, which is the safe way round: a missing sound is worse than a late one.
+		steps = Boar.isStepEmitter(record.leaderId, entry.id, self._config),
+	}
+end
 
 function Runtime:_sounderRecord(id: string?)
 	if id == nil then
@@ -2413,7 +2598,7 @@ function Runtime:step(dt: number)
 			-- landing play together -- a boar goes down and hits the ground in one movement -- and
 			-- every looping sound is cut, because a carcass has no footsteps.
 			if config.MODEL.ENABLED then
-				Body.playDeath(entry.body, config, self._rng)
+				Body.playDeath(entry.body, config, self._rng, self:_claimSqueal())
 			end
 			self._downedSignal:Fire(Wound.killRecord(
 				entry.wound,
@@ -2457,7 +2642,17 @@ function Runtime:step(dt: number)
 			}, config)
 			-- The same speed drives the sound, so the footsteps keep time with the legs rather than
 			-- with the body's measured velocity, which lags the setpoint by the ACCEL ramp.
-			Body.stepSound(entry.body, dt, wantSpeed, config, self._rng)
+			-- WHAT THE CROWD ALLOWS IT (task 120), and the slot it books by being heard: one
+			-- grunt per sounder per `SOUNDER_GRUNT_GAP`, whoever makes it.
+			local now = os.clock()
+			local voice = self:_voiceFor(entry, threats, now)
+			local played = Body.stepSound(entry.body, dt, wantSpeed, config, self._rng, voice)
+			if played == "grunt" then
+				local record = self:_sounderRecord(entry.sounderId)
+				if record then
+					record.gruntAgainAt = now + config.SOUND.CROWD.SOUNDER_GRUNT_GAP
+				end
+			end
 			-- THE SNIFF, ONCE PER HEAD-LIFT (task 117). The activity carries the sound's name, so
 			-- which sound an activity makes is data like everything else, and `_lastActivity` is the
 			-- edge detector: it fires when the activity BECOMES `smell`, not every frame it is.

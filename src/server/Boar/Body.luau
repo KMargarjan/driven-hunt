@@ -297,6 +297,11 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		visual = nil :: Model?,
 		-- name -> how many times `playOneShot` has really played it (task 120).
 		soundPlays = {} :: { [string]: number },
+		-- name -> seconds of sound left before it is faded out and stopped (task 120).
+		cutIn = {} :: { [string]: number },
+		-- How loud this animal's voice is right now, as a fraction of each cue's own volume: 1 near
+		-- a hunter, down to `CROWD.FAR_VOLUME` far from one. Written only by `Body.setVoiceScale`.
+		voiceScale = 1,
 		mesh = nil :: BasePart?,
 		animator = nil :: Animator?,
 		tracks = {} :: { [string]: AnimationTrack },
@@ -1207,6 +1212,69 @@ function Body.stepSoundFor(speed: number, config): (string?, number)
 	return gait, rate
 end
 
+-- A VOICE PER KIND (task 120) ---------------------------------------------------------------------
+-- Karen, 2026-10-04: "pown should sqeen differen, male differen female different". Three pure
+-- functions, so a spec can ask what a cub's death squeal sounds like with no cub in the world.
+--
+-- `voiceRow` is nil whenever the voice is off, the kind is unknown, or the cue is not one of the
+-- animal's own (hooves, breath and the sniff are the world, not the animal) -- and every caller
+-- then gets exactly what it got before task 120.
+function Body.voiceRow(name: string, kind: string?, config)
+	local voice = config.SOUND.VOICE
+	if voice == nil or voice.ENABLED ~= true or kind == nil then
+		return nil
+	end
+	if voice.APPLIES[name] ~= true then
+		return nil
+	end
+	return voice[kind]
+end
+
+-- The CENTRE of the pitch jitter for one cue on one animal: the kind's own voice, or 1 (or the
+-- row's own `pitch`, which is how the sniff stays high for every kind).
+function Body.voicePitch(name: string, kind: string?, spec, config): number
+	local row = Body.voiceRow(name, kind, config)
+	if row == nil or row.pitch == nil then
+		return spec.pitch or 1
+	end
+	return row.pitch
+end
+
+-- Which samples this animal has for this cue: its own list when it has one, else the row's.
+function Body.voiceIds(name: string, kind: string?, spec, config)
+	local row = Body.voiceRow(name, kind, config)
+	if row and row[name] then
+		return row[name]
+	end
+	return spec.ids
+end
+
+-- HOW LOUD A VOICE IS AT `distance` FROM THE NEAREST HUNTER (task 120). 1 inside `FAR_STUDS`, down
+-- to `FAR_VOLUME` over the `FAR_FADE_STUDS` beyond it, and never below. Pure, and it is a fraction
+-- of the sound's own volume rather than a replacement for it -- the roll-off still does its work;
+-- this is the extra step that stops a sounder at the far end of the field being an event.
+function Body.farScale(distance: number?, config): number
+	local crowd = config.SOUND.CROWD
+	if crowd == nil or crowd.ENABLED ~= true or distance == nil then
+		return 1
+	end
+	if distance <= crowd.FAR_STUDS then
+		return 1
+	end
+	local over = (distance - crowd.FAR_STUDS) / math.max(crowd.FAR_FADE_STUDS, 1e-6)
+	return math.max(crowd.FAR_VOLUME, 1 - over * (1 - crowd.FAR_VOLUME))
+end
+
+-- A CUT SOUND'S VOLUME, `left` seconds before it is stopped. Full until the fade begins, then down
+-- to nothing in a straight line, so a squeal ENDS instead of being chopped. Pure.
+function Body.cutVolume(left: number, spec): number
+	local fade = spec.fade or 0
+	if fade <= 0 or left >= fade then
+		return spec.volume
+	end
+	return spec.volume * math.max(left, 0) / fade
+end
+
 -- THE ONE-SHOT SOUNDS, name to config row, in ONE place: `attachSounds` builds them from this and
 -- `Body.warmAssets` puts their volumes back from it, so a sound cannot exist in one and not the
 -- other -- which is how `lastBreath` would go quiet after a warm-up nobody updated.
@@ -1256,16 +1324,35 @@ function Body.playOneShot(handle, name: string, spec, config, rng: Random)
 	if sound == nil then
 		return false
 	end
-	if spec.ids then
-		sound.SoundId = "rbxassetid://" .. tostring(spec.ids[rng:NextInteger(1, #spec.ids)])
+	-- OFF BY DATA (task 120). Karen, 2026-10-04: "I think we can remove hit sound for now". The
+	-- Sound still exists, with its id and its volume: this is the only line that keeps it quiet, so
+	-- bringing a cue back is one word in `Boar.CONFIG.SOUND` and nothing else.
+	if spec.enabled == false then
+		return false
+	end
+	-- THE ANIMAL'S OWN VOICE, where the cue is one (task 120): its kind's samples and its kind's
+	-- pitch. With `VOICE` off, or for a cue that is not a voice, both answer exactly what the row
+	-- said before.
+	local ids = Body.voiceIds(name, handle.kind, spec, config)
+	if ids then
+		sound.SoundId = "rbxassetid://" .. tostring(ids[rng:NextInteger(1, #ids)])
 	end
 	-- THE VOLUME IS SET ON EVERY PLAY, which is what makes the warm-up safe: a sound at volume 0 is
 	-- one nobody is listening to, so `coolAssets` may stop it, and this is the line that says "this
 	-- one is real". It is also one less place for a retuned volume to be stale.
-	sound.Volume = spec.volume
+	-- ...AND QUIETER WHEN THE ANIMAL IS FAR (task 120). `voiceScale` is written by the Runtime,
+	-- which is the only thing that knows where the hunters are; it is 1 until something sets it.
+	sound.Volume = spec.volume * (handle.voiceScale or 1)
 	-- A spec may carry its own `pitch` as the CENTRE of the jitter: the sniff is the same breath
 	-- sample played high (task 117), and that is a number in the table rather than a second asset.
-	sound.PlaybackSpeed = (spec.pitch or 1) * Body.jitteredPitch(rng:NextNumber(), config.SOUND.PITCH_JITTER)
+	-- Task 120: a kind's voice is the same dial, chosen by which animal is making the noise.
+	sound.PlaybackSpeed = Body.voicePitch(name, handle.kind, spec, config)
+		* Body.jitteredPitch(rng:NextNumber(), config.SOUND.PITCH_JITTER)
+	-- A CUT CUE ENDS ON TIME (task 120): "when die last sqeek need short one". The countdown is
+	-- stepped in `stepSound`, which runs for a carcass too, and the fade is `Body.cutVolume`.
+	if spec.cut then
+		handle.cutIn[name] = { left = spec.cut, spec = spec }
+	end
 	-- HOW MANY TIMES THIS BOAR HAS REALLY MADE THIS NOISE (task 120). `warmAssets` plays every sound
 	-- at volume 0 and does NOT come through here, so this counts the ones somebody can hear -- which
 	-- is what lets a spec say "the hit sound played exactly once" across a hit and the death that
@@ -1344,28 +1431,67 @@ end
 -- every looping sound cut because a carcass has no footsteps, and the last breath ARMED rather than
 -- played -- it lands `LAST_BREATH.delay` seconds later, which is the Director's "death = the scream
 -- plus a breath" and is the only sound a dead boar ever makes.
-function Body.playDeath(handle, config, rng: Random)
+-- `squeal` IS THE WORLD'S PERMISSION (task 120): false when two squeals are already sounding
+-- somewhere, which is the cap that stops a sounder shot into from stacking five of them. The rest of
+-- the death -- the loops cut, the fall's own row -- happens either way.
+function Body.playDeath(handle, config, rng: Random, squeal: boolean?)
 	if handle.soundFolder == nil then
 		return false
 	end
 	local sound = config.SOUND
-	Body.playOneShot(handle, "death", sound.DEATH, config, rng)
-	Body.playOneShot(handle, "fall", sound.FALL, config, rng)
+	if squeal ~= false then
+		Body.playOneShot(handle, "death", sound.DEATH, config, rng)
+	end
+	Body.playOneShot(handle, "fall", sound.FALL, config, rng) -- off by data since task 120
 	Body.silenceLoops(handle)
-	handle.lastBreathIn = sound.LAST_BREATH.delay
+	-- ARMED ONLY IF IT EXISTS. Karen, 2026-10-04: one short squeal and nothing after it.
+	if sound.LAST_BREATH.enabled ~= false then
+		handle.lastBreathIn = sound.LAST_BREATH.delay
+	end
 	return true
+end
+
+-- EVERY CUT CUE, A STEP CLOSER TO ITS END (task 120). Called every step, carcass or not, because
+-- the one sound a dead boar makes is a squeal that has to STOP: Karen, 2026-10-04, "when die last
+-- sqeek need short one". The fade is `Body.cutVolume`, so it ends rather than being chopped.
+function Body.stepCuts(handle, dt: number)
+	for name, row in pairs(handle.cutIn) do
+		row.left -= dt
+		local sound = handle.sounds[name]
+		if row.left <= 0 then
+			handle.cutIn[name] = nil
+			if sound then
+				sound:Stop()
+			end
+		elseif sound then
+			sound.Volume = Body.cutVolume(row.left, row.spec) * (handle.voiceScale or 1)
+		end
+	end
 end
 
 -- Once per boar per step, with the flag on. Footsteps follow the gait; grunts and breaths are
 -- countdowns, so a sounder does not grunt in chorus.
-function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
+--
+-- `voice` IS WHAT THE CROWD ALLOWS THIS ANIMAL THIS STEP (task 120), from the Runtime, which is the
+-- only thing that knows what else is making a noise: `steps = false` for every member of a sounder
+-- but its leader, `grunt = false` while the sounder's one grunt slot is taken. nil means "no limits",
+-- which is what every caller written before this task passes. Returns which one-shot it played, so
+-- the Runtime can book the slot it just used.
+function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, voice): string?
 	if handle.soundFolder == nil then
-		return
+		return nil
 	end
 	local sound = config.SOUND
+	Body.stepCuts(handle, dt)
 
 	-- FOOTSTEPS. Exactly one loop plays, and a standing boar is silent.
 	local gait, rate = Body.stepSoundFor(speed, config)
+	-- ONE SET OF HOOVES PER SOUNDER: five animals running together are one sound with one position
+	-- to a listener fifty studs away, and six copies of one sample is the "wall of noise" Karen
+	-- asked not to have. The followers go silent exactly as a standing boar does.
+	if voice and voice.steps == false then
+		gait = nil
+	end
 	if gait ~= handle.stepClip then
 		if handle.stepClip then
 			local was = handle.sounds["steps_" .. handle.stepClip]
@@ -1394,6 +1520,7 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
 	if handle.collapsed then
 		-- A dead boar neither grunts nor breathes -- it has exactly one sound left, and it is the
 		-- one `playDeath` armed. A countdown, not a clock: nothing in this file reads os.clock.
+		-- (Task 120: `LAST_BREATH` is off by data, so this arms nothing until it comes back.)
 		if handle.lastBreathIn ~= nil then
 			handle.lastBreathIn -= dt
 			if handle.lastBreathIn <= 0 then
@@ -1401,7 +1528,7 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
 				Body.playOneShot(handle, "lastBreath", sound.LAST_BREATH, config, rng)
 			end
 		end
-		return
+		return nil
 	end
 
 	-- CALM GRUNTS while it is idling or grazing, BREATHING while it is working. Never both, and the
@@ -1412,6 +1539,7 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
 	-- the frame its coat goes on -- and a sounder is five boars, so they would grunt in chorus and
 	-- read as one loud animal. nil means "not armed yet": the first tick in the band picks a random
 	-- interval and plays nothing.
+	local played: string? = nil
 	local function countdown(left: number?, row): number?
 		if left == nil then
 			return rng:NextNumber(row.MIN_SECONDS, row.MAX_SECONDS)
@@ -1420,7 +1548,14 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
 		if next_ > 0 then
 			return next_
 		end
-		Body.playOneShot(handle, if row == sound.GRUNTS then "grunt" else "breath", row, config, rng)
+		local name = if row == sound.GRUNTS then "grunt" else "breath"
+		-- SKIPPED, NEVER QUEUED (task 120): a grunt that loses its sounder's one slot simply does
+		-- not happen, and the animal waits for its next interval like one that had nothing to say.
+		-- Queuing it would move the chorus a second later instead of removing it.
+		local allowed = name ~= "grunt" or voice == nil or voice.grunt ~= false
+		if allowed and Body.playOneShot(handle, name, row, config, rng) then
+			played = name
+		end
 		return rng:NextNumber(row.MIN_SECONDS, row.MAX_SECONDS)
 	end
 
@@ -1429,6 +1564,13 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
 	elseif speed >= sound.BREATH.MIN_SPEED then
 		handle.nextBreath = countdown(handle.nextBreath, sound.BREATH)
 	end
+	return played
+end
+
+-- HOW LOUD THIS ANIMAL'S VOICE IS, from the Runtime, which is the only thing that knows where the
+-- hunters are. One number, read by `playOneShot` on the next cue it plays (task 120).
+function Body.setVoiceScale(handle, scale: number)
+	handle.voiceScale = scale
 end
 
 -- Silences everything that loops. Called when the boar dies: a carcass has no footsteps.
