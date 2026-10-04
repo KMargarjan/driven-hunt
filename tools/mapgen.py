@@ -229,12 +229,17 @@ def parse_json(body):
 
 def call(studio, expression):
     """Run one MapGen expression in the Edit DataModel and parse its JSON reply."""
+    # A LONG-RUNNING CALL STILL HAS TO SAY WHICH STUDIO IT MEANS. This goes to `_rpc` rather than
+    # `Studio._call` because a build step can take minutes and needs its own timeout -- but that
+    # bypass also skipped the `studio_id`, so every mapgen command died the moment a second Studio
+    # was connected (task 122). The scoping is the same one `_call` applies.
+    arguments = {"datamodel_type": "Edit", "code": CALL % expression}
+    chosen = studio._scoped("execute_luau", None, arguments)
+    if chosen:
+        arguments["studio_id"] = chosen
     text = studio._rpc(
         "tools/call",
-        {
-            "name": "execute_luau",
-            "arguments": {"datamodel_type": "Edit", "code": CALL % expression},
-        },
+        {"name": "execute_luau", "arguments": arguments},
         timeout=MAPGEN_CALL_TIMEOUT,
     )
     body = "\n".join(c.get("text", "") for c in text.get("content", []))
