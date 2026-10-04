@@ -2943,6 +2943,16 @@ def run_test(studio, scope=None):
             # ordinary run is unchanged. `classify_studios` asks each new process what it is rather
             # than reading its name, which is the same thing `test2` has always done.
             if len(before_play) > 1:
+                # WAIT FOR THEM TO REGISTER FIRST. `set_play` returns as soon as the click is sent;
+                # the server and client processes take seconds to attach to StudioMCP. Classifying
+                # immediately found nothing fresh and reported "server=? client=?", which then fell
+                # back to an unscoped call and was refused -- the failure looked like a routing bug
+                # and was a race.
+                known_before = {e["id"] for e in before_play}
+                for _ in range(45):
+                    if len([e for e in studio.studio_list() if e["id"] not in known_before]) >= 2:
+                        break
+                    time.sleep(1)
                 server_id, client_ids, unknown = classify_studios(studio, before_play, timeout=60)
                 studio.play_ids["Server"] = server_id
                 studio.play_ids["Client"] = client_ids[0] if client_ids else None
