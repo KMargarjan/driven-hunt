@@ -343,6 +343,80 @@ return function()
 		end)
 	end)
 
+	describe("boar family, live: a sounder is a sow with young", function()
+		it("spawns a sow and cubs, each on its own box, and every one of them lives", function()
+			-- TASK 119. The makeup is asserted purely in `boar_kinds.spec`; what this case adds is
+			-- that the three animals it names can actually EXIST -- a cub is the smallest physics
+			-- body this game has ever spawned, it is dropped `SPAWN_CLEARANCE` above the plate like
+			-- every other boar, and nothing about being small may make it fall through, be ejected
+			-- or go out of bounds.
+			--
+			-- ITS OWN RUNTIME, because the kinds are behind `BOAR_MODEL` and a harness run only ever
+			-- sees that flag off: `config = { KINDS = { ENABLED = true } }` is merged key by key by
+			-- `newRuntime`, so every scale and model below is the shipped one.
+			local holder = Instance.new("Folder")
+			holder.Name = "BoarFamilySpec"
+			holder.Parent = testRoot
+			local production = Boar.defaultWorld(FIELD)
+			local family = Boar.newRuntime({
+				field = FIELD,
+				parent = holder,
+				folderName = "Family",
+				rng = Random.new(119),
+				config = { KINDS = { ENABLED = true }, maxBoars = 8 },
+				threats = function()
+					return {}
+				end,
+				requestPath = production.requestPath,
+				releasePath = production.releasePath,
+			})
+			local disconnectFamily = family:run()
+
+			local handles = family:spawnSounder(Vector3.new(40, GROUND_Y, 40), 4)
+			expect(#handles).to.equal(4)
+			expect(handles[1].kind).to.equal("female")
+			for index = 2, 4 do
+				-- A cub, or the occasional young male: never another sow.
+				expect(handles[index].kind ~= "female").to.equal(true)
+			end
+
+			-- THE BOX IS THE ANIMAL'S OWN. 0.85 and 0.45 of the male's 5.5 studs.
+			local wanted = { male = 5.5, female = 4.675, cub = 2.475 }
+			for _, handle in ipairs(handles) do
+				expect(math.abs(handle.part.Size.Z - wanted[handle.kind]) < 1e-3).to.equal(true)
+				-- ...and its hit zones with it: a cub's chest is a cub's chest.
+				local chest = handle.part:FindFirstChild("ZoneChest") :: BasePart
+				expect(chest).to.be.ok()
+				local scale = wanted[handle.kind] / 5.5
+				expect((chest.Size - CONFIG.ZONES.chest.size * scale).Magnitude < 1e-3).to.equal(true)
+			end
+
+			-- AND THEY ARE ALL STILL HERE a second later, standing on the plate rather than through
+			-- it: `count()` is the runtime's own, so a despawn of any kind fails this.
+			for _ = 1, frames(1.5) do
+				RunService.Heartbeat:Wait()
+			end
+			expect(family:count()).to.equal(4)
+			local lowest = math.huge
+			for _, handle in ipairs(handles) do
+				lowest = math.min(lowest, handle.position().Y - handle.part.Size.Y / 2)
+			end
+			expect(lowest > GROUND_Y - 1).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-family: sow + %d young alive after 1.5 s, lowest box bottom %.2f against a plate at %d",
+					#handles - 1,
+					lowest,
+					GROUND_Y
+				)
+			)
+
+			disconnectFamily()
+			family:destroy()
+			holder:Destroy()
+		end)
+	end)
+
 	describe("boar behaviour, live: single file or a loose group", function()
 		-- Karen: "they usually do one line each after another or mixed like in real life".
 		-- `COLUMN_CHANCE` is 0.5 and the draw is the runtime's own `Random`, so this asks for

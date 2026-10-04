@@ -89,10 +89,27 @@ for name, key in pairs(CLIP_KEYS) do
 	)
 end
 
-Boar.setModelSource(function(): Instance?
+-- ...AND THE ONE MAPPING FROM AN ANIMAL'S KIND TO ITS MODEL KEY (task 119), here for the same
+-- reason: `Boar` knows three kinds by the names its own config uses and must not hold a copy of an
+-- asset key. An unknown kind answers the male, which is the state every boar was in before this task.
+local MODEL_KEYS = {
+	male = Assets.KEYS.boarMale,
+	female = Assets.KEYS.boarFemale,
+	cub = Assets.KEYS.boarCub,
+}
+for kind in pairs(Boar.CONFIG.KINDS) do
+	if kind ~= "ENABLED" and kind ~= "DEFAULT" and kind ~= "ORDER" then
+		assert(
+			MODEL_KEYS[kind] ~= nil,
+			string.format("BoarAssetsBoot: Boar.CONFIG.KINDS has a kind %q that MODEL_KEYS does not name.", kind)
+		)
+	end
+end
+
+Boar.setModelSource(function(kind: string): Instance?
 	-- NEVER YIELDS, which is the condition for calling it from inside the boar's step loop
 	-- (docs/design/asset-pipeline.md 5.2). nil means "stay a grey box", not "fail".
-	local template = Loader.template(Assets.KEYS.boarMale)
+	local template = Loader.template(MODEL_KEYS[kind] or Assets.KEYS.boarMale)
 	return template
 end, function(name: string): number?
 	local row = Assets.byKey(CLIP_KEYS[name])

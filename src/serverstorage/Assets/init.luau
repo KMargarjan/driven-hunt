@@ -181,6 +181,11 @@ Assets.KEYS = table.freeze({
 	-- silent nil nobody can explain. Until the rows exist, `byKey` answers nil, `Boar.Body` welds the
 	-- model and plays nothing, and the boar stands still -- which is honest and is tested.
 	boarMale = "boar.male",
+	-- THE SOW AND THE CUB (task 119). Karen: "we need also biger smaller kids ect", and the agreed
+	-- makeup is that a sounder is a sow with young while a lone animal is a male. Same package, same
+	-- skeleton (`Arm_Boar`, 46 bones), same prep tool, different length baked in.
+	boarFemale = "boar.female",
+	boarCub = "boar.cub",
 	boarIdle = "boar.anim.idle",
 	boarWalk = "boar.anim.walk",
 	boarTrot = "boar.anim.trot",
@@ -326,6 +331,12 @@ local MODEL_B_LICENCE = {
 -- It is a constant and not a literal in the row because `Boar.Body`'s own spec asserts against the
 -- same number, and two copies of a measurement drift.
 local BOAR_MALE_SIZE = Vector3.new(1.4011, 3.2573, 5.5)
+-- ...AND THE SOW AND THE CUB (task 119), the same measurement at the two smaller lengths. Blender
+-- exports (width, length, height) and Roblox's importer lands it as (width, height, length), which is
+-- why the lengths below are the Z: 4.675 is 0.85 of the male and 2.475 is 0.45 of him, which is the
+-- Director's decision of 2026-10-04 and is what `tools/boar_prep.py` baked into the geometry.
+local BOAR_FEMALE_SIZE = Vector3.new(1.202, 2.647, 4.675)
+local BOAR_CUB_SIZE = Vector3.new(0.618, 1.439, 2.475)
 
 -- WHAT AN ANIMATION ROW PUTS IN THE GEOMETRY FIELDS `AssetRow` REQUIRES OF EVERY ROW. Named, so a
 -- reader meets "no geometry" instead of a zero vector they have to decide about, and so a grep finds
@@ -1494,6 +1505,67 @@ Assets.ROWS = {
 		notes = "RedDeer's male wild boar: 13,976 triangles, 40 bones, one skinned MeshPart with a "
 			.. "SurfaceAppearance, 1024 albedo/normal/roughness. Prepped by tools/boar_prep.py and "
 			.. "looked at in game before it was called done (.screenshots, task 115).",
+	},
+	-- ------------------------------------------------- the sow and the cub (task 119)
+	--
+	-- THE SAME PACKAGE, THE SAME PREP, THE SAME SKELETON. RedDeer's "Boar Family" ships three
+	-- animals on one rig (`Arm_Boar`, 46 bones); task 115 took the male and this takes the other
+	-- two, through `tools/boar_prep.py` with nothing changed but `--animal` and `--length-studs`.
+	-- Karen's upload OK of 2026-10-03 ("2. upload") covers the package's models, textures and
+	-- animations, and is recorded verbatim against each id in `assets/uploads.json`.
+	--
+	-- ONE UPLOAD EACH, NOT THREE: the male cost three because the scale had to be found
+	-- (`bakedScale` above). `boar_prep.py` re-opens its own export and fails on a length more than
+	-- 0.1 % out, so these two arrived at the length they were asked for the first time.
+	{
+		key = "boar.female",
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "boar" :: string?,
+		modelId = 73776255349661,
+		displayName = "Boar Female RedDeer",
+		fileName = "model.fbx",
+		sourceSha256 = "fc7058a1ef6de3b1d20e46f71a0e7d9922876afd5241c254dd1dc9b84bfafb4c",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-04",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 13644,
+		texturePx = 1024,
+		sizeStuds = BOAR_FEMALE_SIZE,
+		naturalSizeStuds = BOAR_FEMALE_SIZE,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "The sow: 13,644 triangles, 46 bones, one skinned MeshPart, 1024 albedo/normal/"
+			.. "roughness, baked to 4.675 studs (0.85 of the male).",
+	},
+	{
+		key = "boar.cub",
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "boar" :: string?,
+		modelId = 78344628955312,
+		displayName = "Boar Cub RedDeer",
+		fileName = "model.fbx",
+		sourceSha256 = "03afb09204cabd56bbdd543708d838b93c8a29ed229b89595e16d1c9182a9db0",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = BOAR_LICENCE,
+		added = "2026-10-04",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 12234,
+		texturePx = 1024,
+		sizeStuds = BOAR_CUB_SIZE,
+		naturalSizeStuds = BOAR_CUB_SIZE,
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "The striped cub: 12,234 triangles, 46 bones, one skinned MeshPart, 1024 albedo/"
+			.. "normal/roughness, baked to 2.475 studs (0.45 of the male).",
 	},
 	-- ------------------------------- the boar's ten clips (task 115, published 2026-10-03)
 	--

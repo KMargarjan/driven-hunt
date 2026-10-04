@@ -62,6 +62,58 @@ function Body.ensureFolder(parent: Instance, name: string): Folder
 	return folder
 end
 
+-- ---------------------------------------------------------------- the three animals (task 119)
+--
+-- Karen: "we need also biger smaller kids ect". RedDeer's package is a FAMILY on one skeleton
+-- (`Arm_Boar`, 46 bones, the same bone names in all three), so a sow and a cub are the same animal at
+-- a different length: `tools/boar_prep.py` baked 4.675 and 2.475 studs into their geometry against
+-- the male's 5.5, and everything this file builds around them is the male's numbers times that ratio.
+--
+-- ONE SCALE, EVERY BOX. The physics trunk and all four hit zones scale together, so a cub is a SMALL
+-- TARGET in exactly the way it looks small: its chest is 0.45 of the male's chest and its head is
+-- 0.45 of his head, and no number anywhere says so twice.
+--
+-- THE PROTRUSION SCALES WITH THEM, deliberately. `ZONES.PROTRUSION` is the clearance that stops a
+-- zone part being FLUSH with the trunk, because two coincident surfaces at one ray distance is a
+-- coin toss and not a hit zone (task 116, review round 2). Scaled, a cub's zones stand 0.027 studs
+-- proud instead of 0.06 -- smaller, but still a clearance a float comparison settles the same way
+-- every time, and still proportionally what the male has.
+--
+-- WITH `BOAR_MODEL` OFF EVERY KIND IS THE MALE, box for box: the flag gates the whole block, so the
+-- grey-box world is the one Milestone 1.2 shipped and every spec written against it still holds.
+function Body.kindRow(kind: string?, config)
+	local kinds = config.KINDS
+	if kinds == nil or kinds.ENABLED ~= true then
+		return kinds and kinds[kinds.DEFAULT] or { scale = 1, clipScale = 1, model = "male" }
+	end
+	return kinds[kind or kinds.DEFAULT] or kinds[kinds.DEFAULT]
+end
+
+-- Every box one kind's body is made of. Pure, so a spec can measure a cub with no cub in the world.
+function Body.kindGeometry(kind: string?, config)
+	local row = Body.kindRow(kind, config)
+	local scale = row.scale
+	local zones = {}
+	for _, name in ipairs(config.ZONES.ORDER) do
+		local spec = config.ZONES[name]
+		zones[name] = {
+			part = spec.part,
+			size = spec.size * scale,
+			offset = spec.offset * scale,
+			tint = spec.tint,
+		}
+	end
+	return {
+		kind = row.name,
+		scale = scale,
+		clipScale = row.clipScale,
+		model = row.model,
+		bodySize = config.BODY_SIZE * scale,
+		protrusion = config.ZONES.PROTRUSION * scale,
+		zones = zones,
+	}
+end
+
 -- The three hit-zone parts (hit-zones design section 4.2). Massless, so the assembly's mass, centre
 -- of mass and inertia are untouched and MAX_FORCE / MAX_TORQUE / ACCEL stay correct; CanCollide
 -- false, so the collision body is still the plain box and a protruding head cannot catch on the
@@ -69,11 +121,13 @@ end
 -- false, because an anchored part welded into an assembly anchors the whole boar. Damageable is NOT
 -- set on them: it belongs to the target root alone, and two damageable instances in one ancestor
 -- chain is an ambiguity, not a feature.
-local function buildZones(config, trunk: BasePart): { BasePart }
+local function buildZones(config, trunk: BasePart, geometry): { BasePart }
 	local zones = config.ZONES
 	local parts = {}
 	for _, zone in ipairs(zones.ORDER) do
-		local spec = zones[zone]
+		-- THE KIND'S OWN BOX, not the male's (task 119). `geometry.zones` is the male's table times
+		-- this animal's scale, and with `BOAR_MODEL` off it IS the male's table.
+		local spec = geometry.zones[zone]
 		local zonePart = Instance.new("Part")
 		zonePart.Name = spec.part
 		zonePart.Size = spec.size
@@ -105,10 +159,11 @@ end
 -- Builds one boar body at `position` and returns a handle the Runtime keeps. The Part is parented
 -- last, then the zone parts are welded on and the network owner is set: all of those need the part
 -- to be in the DataModel.
-function Body.create(config, folder: Folder, id: string, position: Vector3)
+function Body.create(config, folder: Folder, id: string, position: Vector3, kind: string?)
+	local geometry = Body.kindGeometry(kind, config)
 	local part = Instance.new("Part")
 	part.Name = id
-	part.Size = config.BODY_SIZE
+	part.Size = geometry.bodySize
 	part.Color = config.BODY_COLOR
 	part.Material = Enum.Material.SmoothPlastic
 	part.TopSurface = Enum.SurfaceType.Smooth
@@ -150,7 +205,7 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 
 	part.Parent = folder
 
-	local zoneParts = buildZones(config, part)
+	local zoneParts = buildZones(config, part, geometry)
 
 	-- Only the server may own the boar: a client must not be able to push it. This errors on an
 	-- anchored part, which is why the body is unanchored. It is also server-only, so a Studio Play
@@ -169,6 +224,10 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 
 	return {
 		id = id,
+		-- WHICH ANIMAL THIS IS (task 119): "male", "female" or "cub". It decides the boxes above, the
+		-- model that is drawn on it and the rate its clips play at, and it never changes after this.
+		kind = geometry.kind,
+		geometry = geometry,
 		part = part,
 		attachment = attachment,
 		mover = mover,
@@ -378,7 +437,10 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 		drawn.Anchored = false -- an anchored part welded into an assembly anchors the whole boar
 	end
 	cloneMesh.CastShadow = true
-	cloneMesh.CFrame = trunk.CFrame * CFrame.new(Body.visualOffset(cloneMesh.Size, config.BODY_SIZE))
+	-- THE KIND'S OWN BOX (task 119): the offset is worked out from the template's measured height
+	-- against the box this animal actually has, so a cub's feet land on a cub's box.
+	local boxSize = (handle.geometry and handle.geometry.bodySize) or config.BODY_SIZE
+	cloneMesh.CFrame = trunk.CFrame * CFrame.new(Body.visualOffset(cloneMesh.Size, boxSize))
 	model.PrimaryPart = cloneMesh
 	model.Parent = trunk
 
@@ -533,7 +595,9 @@ function Body.activityClip(info, config): (string?, number)
 	local clip = config.MODEL.CLIPS[row.clip]
 	if clip.groundStudsPerSecond > 0 then
 		local model = config.MODEL
-		return row.clip, math.clamp(info.speed / clip.groundStudsPerSecond, model.MIN_RATE, model.MAX_RATE)
+		-- The kind's own stride, exactly as `clipFor`'s gaits read it (task 119).
+		local scale = if info.clipScale and info.clipScale > 0 then info.clipScale else 1
+		return row.clip, math.clamp(info.speed / (clip.groundStudsPerSecond * scale), model.MIN_RATE, model.MAX_RATE)
 	end
 	return row.clip, 1
 end
@@ -571,11 +635,17 @@ function Body.clipFor(info, config): (string?, number)
 	local model = config.MODEL
 	local clips = model.CLIPS
 
+	-- A SMALLER ANIMAL COVERS LESS GROUND PER STRIDE, and `clipScale` is that ratio MEASURED rather
+	-- than assumed (task 119): `tools/boar_prep.py` reports each animal's own ground speed for every
+	-- clip, and the female's came out 0.8553 of the male's and the cub's 0.4372, the same ratio on
+	-- all four locomotion clips. So the rate that stops the feet sliding divides by the male's
+	-- number times this animal's scale. It is 1 for the male and 1 with `BOAR_MODEL` off.
+	local clipScale = if info.clipScale and info.clipScale > 0 then info.clipScale else 1
 	local function gait(name: string): (string, number)
 		local clip = clips[name]
 		local rate = 1
 		if clip and clip.groundStudsPerSecond > 0 then
-			rate = info.speed / clip.groundStudsPerSecond
+			rate = info.speed / (clip.groundStudsPerSecond * clipScale)
 		end
 		return name, math.clamp(rate, model.MIN_RATE, model.MAX_RATE)
 	end
@@ -608,7 +678,7 @@ function Body.clipFor(info, config): (string?, number)
 		local clip = model.CLIPS.crippleDrag
 		local rate = 1
 		if clip.groundStudsPerSecond > 0 then
-			rate = math.clamp(info.speed / clip.groundStudsPerSecond, model.MIN_RATE, model.MAX_RATE)
+			rate = math.clamp(info.speed / (clip.groundStudsPerSecond * clipScale), model.MIN_RATE, model.MAX_RATE)
 		end
 		return "crippleDrag", rate
 	end

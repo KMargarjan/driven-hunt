@@ -688,7 +688,7 @@ SCOPE_SPECS = {
                "tests/client/shoot_boar.spec.luau"),
     "boar": ("tests/server/boar_behaviour.spec.luau", "tests/server/boar_behaviour_live.spec.luau",
              "tests/server/boar_body.spec.luau", "tests/server/boar_brain.spec.luau",
-             "tests/server/boar_calm.spec.luau",
+             "tests/server/boar_calm.spec.luau", "tests/server/boar_kinds.spec.luau",
              "tests/server/boar_hit.spec.luau", "tests/server/boar_model.spec.luau",
              "tests/server/boar_shot.spec.luau", "tests/server/boar_sounder.spec.luau",
              "tests/server/boar_wound.spec.luau", "tests/server/boar_zones.spec.luau",

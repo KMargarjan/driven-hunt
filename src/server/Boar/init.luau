@@ -66,6 +66,11 @@ Boar.fadeFor = Body.fadeFor
 -- yet. The second is the whole of "if an id is missing, the current behaviour stays".
 Boar.deathClips = Body.deathClips
 Boar.hasClip = Body.hasClip
+-- ...and task 119's two: which row an animal's kind is, and every box that kind's body is made of.
+-- Pure, for the same reason as every export above it -- a spec can measure a cub with no cub in the
+-- world, and the one that matters is that a cub's hit zones are a cub's size.
+Boar.kindRow = Body.kindRow
+Boar.kindGeometry = Body.kindGeometry
 -- ...and task 117's three: which activity a roll draws, the row for a name, and the clip an activity
 -- draws. Pure, so every weight, every clip and every transition is a case with no boar in the world.
 Boar.calmActivity = Brain.calmActivity
@@ -177,16 +182,46 @@ Boar.CONFIG = {
 		ORDER = { "head", "chest", "rear", "legs" }, -- creation order; also the order specs walk them in
 		ZONE_TINT = true, -- Karen's dial: a grey-box teaching aid, off when the model arrives
 		PROTRUSION = 0.06, -- studs every zone part stands proud by, so the ray meets it first
+		-- THE HEAD IS ON THE DRAWN HEAD (task 119), and until this task it was not: it was a box
+		-- hanging in the air 1.15 studs in FRONT of the snout, which is where the grey box's "head"
+		-- was when no animal was drawn on it. A shot at the animal's face landed on the trunk and
+		-- was charged to `body`.
+		--
+		-- MEASURED OFF THE LOADED MODEL, 2026-10-04, in a Play session, reading the rig's own bones
+		-- out of `ServerStorage.AssetCache` (mesh object space, then +0.1286 on Y to put it in the
+		-- trunk's frame -- the offset `Body.visualOffset` applies to stand the feet on the box):
+		--     nose  z -2.388, y 0.666      head  z -1.279, y 0.912
+		--     eye   z -1.779, y 1.087      Neck  z -0.866, y 0.872
+		--     ears  z -1.208, y 1.570      the mesh's own front face z -2.750
+		-- So the drawn skull runs z -2.75 to about -1.10 and y 0.35 to 1.65, and these two boxes are
+		-- that, with the same PROTRUSION rules task 116 wrote for the rump:
+		--   -Z front  PROUD by 0.06 (-2.81 against the trunk's -2.75): the face is the one angle a
+		--             head shot is actually taken from, and nothing else of the animal is there.
+		--   +Y top    PROUD by 0.15 (+1.65 against +1.50): the top of the skull is the head.
+		--   +-X       NOT proud, deliberately, and it is the one thing this box cannot fix: the
+		--             drawn head is 1.1 studs wide and the trunk is 2.0, so a ray from the FLANK
+		--             meets the trunk before it meets the head and is charged to `body`. That was
+		--             already true -- the old box was narrower than the trunk too -- and the only
+		--             fix is a narrower trunk at the front, which is a change to the animal's
+		--             collision shape that nobody asked for. Front, above and ahead of the shoulder
+		--             are head; a pure flank is body.
+		--   +Z rear   an interior boundary at -1.45, where `chest` now begins.
 		head = {
 			part = "ZoneHead",
-			size = Vector3.new(1.2, 1.2, 1.4),
-			offset = Vector3.new(0, 0.5, -3.2), -- 1.15 studs proud of the front face
+			size = Vector3.new(1.2, 1.3, 1.36),
+			offset = Vector3.new(0, 1.0, -2.13), -- spans y 0.35..1.65, z -2.81..-1.45
 			tint = Color3.fromRGB(206, 120, 120),
 		},
+		-- ...AND THE CHEST MOVED BACK ONTO THE SHOULDER, because it had to: it was at z -2.45..-0.75,
+		-- which on the drawn animal is the NECK AND THE BACK OF THE SKULL, and the head cannot sit
+		-- where it belongs while another zone part is already there (two boxes at one ray distance is
+		-- the coin toss task 116's review removed). It keeps its box and its damage exactly; only the
+		-- Z moves, by one stud, onto the shoulder its own comment has always named: the front legs
+		-- attach at z -0.53 to -0.70 (`hip_1_f`, `thigh_f`), so heart and lungs are -1.45 to +0.25.
 		chest = {
 			part = "ZoneChest",
 			size = Vector3.new(2.12, 2.01, 1.7),
-			offset = Vector3.new(0, 0.555, -1.6), -- heart/lungs behind the shoulder
+			offset = Vector3.new(0, 0.555, -0.6), -- heart/lungs behind the shoulder: z -1.45..+0.25
 			tint = Color3.fromRGB(198, 150, 150),
 		},
 		-- THE HINDQUARTERS (task 116). Karen, 2026-10-03: "can be hit to back part start to do circles
@@ -406,6 +441,20 @@ Boar.CONFIG = {
 		SCATTER_ON_HIT = true, -- ANY hit, not only a kill. Karen's dial
 		LEAVE_ON_MORTAL = true, -- a mortally wounded animal drops out of the sounder. Karen's dial
 		LEADER_PATHS_ONLY = true, -- one ComputeAsync per sounder (design, "one route per sounder")
+		-- WHO IS IN A SOUNDER (task 119, behind `BOAR_MODEL`). A sounder is a sow with her young;
+		-- a lone animal is a male. That is the agreed makeup (Director, 2026-10-04) and it is also
+		-- what a real sounder is -- the boars that travel alone are the mature males.
+		--
+		-- THE OCCASIONAL YOUNG MALE is the one draw here: a yearling still running with its mother.
+		-- It is a MALE-sized animal in a group of cubs, so it is also the thing that makes "aim at
+		-- the big one" a decision rather than a reflex. Karen's dial.
+		MAKEUP = {
+			SOW = "female",
+			YOUNG = "cub",
+			YOUNG_MALE = "male",
+			YOUNG_MALE_CHANCE = 0.25,
+			LONE = "male",
+		},
 	},
 
 	-- The one function that decides who scares a boar (design section 4). v1: every player.
@@ -732,6 +781,34 @@ Boar.CONFIG.SENSE = {
 	REQUIRE_SIGHT = false,
 }
 
+-- WHICH ANIMAL A BOAR IS (task 119). Karen, 2026-10-03: "we start with one bord and when this works
+-- we do with rest" and "we need also biger smaller kids ect". RedDeer's package is a FAMILY on one
+-- skeleton, so the sow and the cub are this same animal at a different length -- and the agreed
+-- makeup (Director, 2026-10-04) is that a SOUNDER is a sow with young while a LONE animal is a male.
+--
+-- `scale` IS THE BOX and `clipScale` IS THE STRIDE, and they are two different measurements:
+--   scale      the length the model was baked to, over the male's 5.5 studs. The Director's numbers:
+--              0.85 for the sow, 0.45 for a striped cub. Every box -- the physics trunk and all four
+--              hit zones -- is the male's times this, so a cub is a small target because it IS small.
+--   clipScale  how far THIS animal's feet carry it per stride, over the male's. MEASURED by
+--              `tools/boar_prep.py` on each animal's own export, and it is not the same number: the
+--              female came out 0.8553 and the cub 0.4372, identically on all four locomotion clips
+--              (walk 2.440/1.247 against the male's 2.852, trot 8.762/4.480 against 10.244, run
+--              14.720/7.526 against 17.21, dig 1.626/0.831 against 1.901). The male's published clip
+--              ids are what all three play -- same bone names, same rig -- so the rate that stops a
+--              sow's feet sliding is her own number and not his.
+--
+-- BEHIND `BOAR_MODEL`, with everything else about the drawn animal: off, every boar is a male-sized
+-- grey box and a sounder is five of them, which is the world every spec before this task asserts.
+Boar.CONFIG.KINDS = {
+	ENABLED = Flags.isOn("BOAR_MODEL"),
+	DEFAULT = "male",
+	ORDER = { "male", "female", "cub" },
+	male = { name = "male", scale = 1.0, clipScale = 1.0, model = "male" },
+	female = { name = "female", scale = 0.85, clipScale = 0.8553, model = "female" },
+	cub = { name = "cub", scale = 0.45, clipScale = 0.4372, model = "cub" },
+}
+
 Boar.CONFIG.MODEL = {
 	-- THE FLAG, READ ONCE AT THIS BOUNDARY and passed inward as `config` -- the only permitted shape
 	-- (CLAUDE.md, feature flags). Every function below takes the value as a parameter, so both
@@ -853,6 +930,32 @@ Boar.CONFIG.MODEL = {
 }
 
 -- Production implementations of everything the Runtime needs from the world. A spec passes its own.
+-- WHO A SOUNDER IS MADE OF (task 119). Pure: a size and a roll per member in, a list of kinds out,
+-- so the makeup is a spec case with no boar in the world. The first member is the SOW and the rest
+-- are her young, each of which may be the occasional young male.
+--
+-- IT IS NOT THE LEADER THAT IS THE SOW. The leader is whoever is nearest the exit line
+-- (`_chooseLeader`) and it changes while they run; which animal each member IS is decided once, at
+-- the spawn, and never again. A sow that falls behind her cubs is still the sow.
+function Boar.sounderKinds(size: number, rolls: { number }, config)
+	local kinds = {}
+	local makeup = config.SOUNDER.MAKEUP
+	local on = config.KINDS ~= nil and config.KINDS.ENABLED == true
+	for index = 1, math.max(0, math.floor(size)) do
+		if not on then
+			-- With `BOAR_MODEL` off every animal is the male-sized box this game has always spawned.
+			table.insert(kinds, config.KINDS and config.KINDS.DEFAULT or "male")
+		elseif index == 1 then
+			table.insert(kinds, makeup.SOW)
+		elseif (rolls[index] or 1) < makeup.YOUNG_MALE_CHANCE then
+			table.insert(kinds, makeup.YOUNG_MALE)
+		else
+			table.insert(kinds, makeup.YOUNG)
+		end
+	end
+	return kinds
+end
+
 function Boar.defaultWorld(field)
 	local config = Boar.CONFIG
 	local params = RaycastParams.new()
@@ -994,14 +1097,27 @@ function Boar.newRuntime(world)
 			self._config.SENSE[key] = value
 		end
 	end
+	-- ...AND THE KINDS BLOCK, for exactly the same reason (task 119): a world that passes
+	-- `config = { KINDS = { ENABLED = true } }` would otherwise replace the whole table and every
+	-- animal's scale, stride and model would read nil -- which is not an error, it is three boars
+	-- with no size.
+	local kindsOverride = (world.config or {}).KINDS
+	self._config.KINDS = table.clone(Boar.CONFIG.KINDS)
+	if type(kindsOverride) == "table" then
+		for key, value in pairs(kindsOverride) do
+			self._config.KINDS[key] = value
+		end
+	end
 	-- The skinned model's two lookups, both nil until a boot script wires them: with no template the
 	-- boar is the grey box, which is what every spec before task 115 asserts.
 	-- `_heldTemplate` AND NOT `_modelTemplate`: the method below is `Runtime:_modelTemplate`, which
 	-- lives on the metatable, so a nil FIELD of that name resolves to the METHOD and the next line to
 	-- touch it reads "attempt to index function with 'Parent'". Measured the hard way: it took out
 	-- four cases of boar_model.spec on the first gate run of this task.
-	self._heldTemplate = nil :: Instance?
-	self._templateFor = nil :: (() -> Instance?)?
+	-- ONE HELD TEMPLATE PER KIND (task 119): male, female and cub are three different assets and a
+	-- single slot would hand a cub the sow's coat. Keyed by the kind's own name.
+	self._heldTemplate = {} :: { [string]: Instance }
+	self._templateFor = nil :: ((string) -> Instance?)?
 	self._animationIdFor = nil :: ((string) -> number?)?
 	-- FALSE MEANS "USE THE MODULE'S", and once `Runtime:setModelSource` has been called it is true
 	-- for ever. Without this flag, `self._templateFor or moduleTemplateFor` would make "this runtime
@@ -1135,31 +1251,31 @@ end
 -- Either way the ids are read ONCE, when the template first arrives, into THIS runtime's own
 -- `CONFIG.MODEL.ANIMATION_IDS`. An id that appears later is not picked up, which is deliberate: a
 -- manifest is frozen data edited in git, so a row that was not there at boot was not there at all.
-local moduleTemplateFor: (() -> Instance?)? = nil
+local moduleTemplateFor: ((string) -> Instance?)? = nil
 local moduleAnimationIdFor: ((string) -> number?)? = nil
 
 -- Returns the pair it replaced, so a caller that must put it back can.
 function Boar.setModelSource(
-	templateFor: (() -> Instance?)?,
+	templateFor: ((string) -> Instance?)?,
 	animationIdFor: ((string) -> number?)?
-): ((() -> Instance?)?, ((string) -> number?)?)
+): (((string) -> Instance?)?, ((string) -> number?)?)
 	local previousTemplate, previousId = moduleTemplateFor, moduleAnimationIdFor
 	moduleTemplateFor = templateFor
 	moduleAnimationIdFor = animationIdFor
 	return previousTemplate, previousId
 end
 
-function Runtime:setModelSource(templateFor: (() -> Instance?)?, animationIdFor: ((string) -> number?)?)
+function Runtime:setModelSource(templateFor: ((string) -> Instance?)?, animationIdFor: ((string) -> number?)?)
 	self._templateFor = templateFor
 	self._animationIdFor = animationIdFor
 	self._modelSourceSet = true -- from here on this runtime ignores the module's, nil included
-	self._heldTemplate = nil
+	self._heldTemplate = {}
 	self._askedModelAt = -math.huge
 end
 
 -- The template, or nil, asking at most once every ASK_EVERY_SECONDS until it has one.
-function Runtime:_modelTemplate(now: number): Instance?
-	local held = self._heldTemplate
+function Runtime:_modelTemplate(kind: string, now: number): Instance?
+	local held = self._heldTemplate[kind]
 	if held ~= nil and held.Parent ~= nil then
 		return held
 	end
@@ -1171,11 +1287,11 @@ function Runtime:_modelTemplate(now: number): Instance?
 		return nil
 	end
 	self._askedModelAt = now
-	local template = ask()
+	local template = ask(kind)
 	if template == nil then
 		return nil
 	end
-	self._heldTemplate = template
+	self._heldTemplate[kind] = template
 	local ids = self._config.MODEL.ANIMATION_IDS
 	local lookup = if self._modelSourceSet then self._animationIdFor else moduleAnimationIdFor
 	if lookup then
@@ -1892,11 +2008,19 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
 		alarmed = false,
 	}
 
+	-- WHO THEY ARE (task 119): a sow and her young, drawn before any of them exists so the draw is
+	-- one pure call on one list of rolls rather than a decision inside the loop.
+	local rolls = {}
+	for index = 1, size do
+		rolls[index] = self._rng:NextNumber()
+	end
+	local kinds = Boar.sounderKinds(size, rolls, config)
+
 	local handles = {}
 	for index = 1, size do
 		local angle = phase + (index - 1) * (math.pi * 2 / size)
 		local at = center + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
-		local handle = self:spawn(at)
+		local handle = self:spawn(at, kinds[index])
 		local entry = self._boars[#self._boars]
 		entry.sounderId = record.id
 		entry.slot = index
@@ -1911,21 +2035,40 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
 	return handles
 end
 
-function Runtime:spawn(position: Vector3?)
+function Runtime:spawn(position: Vector3?, kind: string?)
 	assert(not self._destroyed, "Boar runtime is destroyed")
 	assert(#self._boars < self._config.maxBoars, "Boar runtime is at maxBoars")
 
 	local config = self._config
+	-- WHICH ANIMAL (task 119). A lone boar is a male -- `SOUNDER.MAKEUP.LONE` -- and a member of a
+	-- sounder is told which one it is by `spawnSounder`. The geometry follows from it, so the spawn
+	-- height has to be this animal's own half-height and not the male's.
+	local geometry = Body.kindGeometry(kind or config.SOUNDER.MAKEUP.LONE, config)
 	local at = position or config.spawnPoint
+	-- DROPPED FROM THE MALE'S HEIGHT, WHATEVER THE ANIMAL IS, and that is MEASURED and not tidy
+	-- (task 119, 2026-10-04). `field.groundY` is the FIELD's ground and the map's real surface is not
+	-- always on it: in the generated map a released sow settled with her box bottom 2.0 studs ABOVE
+	-- `groundY`, so every boar is spawned embedded and pushed out by the physics. A male's box is 3
+	-- studs tall and its top clears that; a CUB's whole box is 1.35 studs and would sit entirely
+	-- below the surface -- and a fully embedded part is ejected, not settled. Every cub the drive
+	-- released vanished inside a second while the sows and young males beside it lived, and this is
+	-- that bug: a cub now falls 0.8 studs further and lands on whatever is actually under it.
+	--
+	-- IT IS THE MALE'S NUMBER FOR EVERY KIND, so the flag-OFF world spawns at exactly the height it
+	-- always did. The right long-term answer is to ask the world how high the ground under the spawn
+	-- point is, which is a new seam on `world` and not this task's.
 	at = Vector3.new(at.X, self._field.groundY + config.BODY_SIZE.Y / 2 + config.SPAWN_CLEARANCE, at.Z)
 
 	self._nextId += 1
 	local id = string.format("Boar%d", self._nextId)
-	local body = Body.create(config, self._folder, id, at)
+	local body = Body.create(config, self._folder, id, at, geometry.kind)
 	local brain = Brain.new(config, self._field, at, self._rng)
 
 	local handle = {
 		id = id,
+		-- WHICH ANIMAL IT IS (task 119), on the handle because the drive and the specs read handles
+		-- and never the entry: "the sounder is a sow and three cubs" is answerable from outside.
+		kind = body.kind,
 		part = body.part,
 		state = function()
 			return brain:state()
@@ -2084,9 +2227,14 @@ function Runtime:step(dt: number)
 	-- THE SKINNED MODEL, once per step and not once per boar: the template is one Instance every
 	-- boar clones from, and asking for it per boar would multiply both the lookup and the miss
 	-- counter by however many are alive.
-	local visualTemplate: Instance? = nil
+	-- ONE LOOKUP PER KIND PER STEP (task 119), not one per boar: a sounder of five is a sow and four
+	-- cubs, which is two assets however many animals are standing in it.
+	local visualTemplates: { [string]: Instance? } = {}
 	if config.MODEL.ENABLED then
-		visualTemplate = self:_modelTemplate(os.clock())
+		local now = os.clock()
+		for _, kind in ipairs(config.KINDS.ORDER) do
+			visualTemplates[kind] = self:_modelTemplate(kind, now)
+		end
 	end
 
 	for index = #self._boars, 1, -1 do
@@ -2154,6 +2302,7 @@ function Runtime:step(dt: number)
 		-- bounded at 15 s and the first boar can exist before it lands -- so a boar born grey puts
 		-- its coat on as soon as the asset arrives, the same "late is not lost" rule the loader
 		-- itself follows. With the flag off neither line runs and nothing differs from before task 115.
+		local visualTemplate = visualTemplates[entry.body.kind or config.KINDS.DEFAULT]
 		if config.MODEL.ENABLED and visualTemplate ~= nil and entry.body.visual == nil then
 			Body.attachVisual(entry.body, visualTemplate, config)
 		end
@@ -2204,6 +2353,9 @@ function Runtime:step(dt: number)
 				-- round): a crippled boar crawls at `CRIPPLE_SPEED`, which is a walking speed, so
 				-- without this it would walk normally. It travels as an intent like everything else.
 				crippled = intent.state == "CRIPPLED",
+				-- HOW FAR THIS ANIMAL'S OWN STRIDE CARRIES IT, over the male's (task 119). It rates
+				-- every clip that moves the ground, so a cub playing the male's walk does not skate.
+				clipScale = entry.body.geometry and entry.body.geometry.clipScale,
 				-- ...AND HEAD UP (task 118, section 3.6), the same shape and for the same reason: a
 				-- stopped animal and an alert one are both standing still, so speed cannot carry it.
 				alert = intent.state == "ALERT",

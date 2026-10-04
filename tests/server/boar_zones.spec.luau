@@ -207,18 +207,46 @@ return function()
 		-- THE ASSERTION THAT MATTERS. Twelve directions, every one of them a real ray from outside
 		-- the boar (the design asks for nine at least). Shrink a zone part back inside the trunk and
 		-- these go red.
-		it("is reachable by a real ray: head from the front, both sides and above", function()
-			-- -Z is the boar's front.
-			metFirst(Vector3.new(0, 0.5, -3.5), Vector3.new(0, 0, -1), 20, "head")
-			metFirst(Vector3.new(0, 0.5, -3.2), Vector3.new(1, 0, 0), 20, "head")
-			metFirst(Vector3.new(0, 0.5, -3.2), Vector3.new(-1, 0, 0), 20, "head")
-			metFirst(Vector3.new(0, 1.0, -3.2), Vector3.new(0, 1, 0), 20, "head")
+		it("is reachable by a real ray: head from the front and from above", function()
+			-- -Z is the boar's front. MOVED BY TASK 119, and the move is the point: the head box used
+			-- to hang in the air at z -3.9..-2.5, a stud and a bit in FRONT of the drawn snout, so
+			-- these probes used to be aimed at nothing but the box itself.
+			metFirst(Vector3.new(0, 1.0, -2.6), Vector3.new(0, 0, -1), 20, "head")
+			metFirst(Vector3.new(0, 1.5, -2.0), Vector3.new(0, 1, 0), 20, "head")
+		end)
+
+		-- THE ONE THE TASK WAS SET FOR (task 119): a shot at the SNOUT THE PLAYER CAN SEE is a head
+		-- shot. The point is not chosen, it is the rig's own `nose` bone, measured off the loaded
+		-- model in a Play session on 2026-10-04 at mesh (0, 0.538, -2.388) and written here in the
+		-- trunk's frame -- mesh Y plus the 0.1286 `Body.visualOffset` applies to stand the feet on
+		-- the box. Before this task that ray answered `body`.
+		it("is a HEAD shot at the drawn snout, which is what task 119 was set for", function()
+			local nose = Vector3.new(0, 0.538 + 0.1286, -2.388)
+			metFirst(nose, Vector3.new(0, 0, -1), 20, "head")
+			-- ...and a hand's breadth further forward, which is the mesh's own front face at -2.75:
+			-- still the head, because the box stands 0.06 proud of the trunk there and nothing else
+			-- of the animal is in front of it.
+			metFirst(Vector3.new(0, 0.667, -2.78), Vector3.new(0, 0, -1), 20, "head")
+		end)
+
+		it("is the BODY from a pure flank at head height, and that is the geometry's limit", function()
+			-- SAID OUT LOUD RATHER THAN HIDDEN (task 119). The drawn head is 1.1 studs wide and the
+			-- trunk is 2.0, so a ray from the side meets the trunk before it meets the head and is
+			-- charged to `body`. That was already true -- the old box was narrower than the trunk
+			-- too -- and the only fix is a narrower trunk at the front, which is a change to the
+			-- animal's collision shape nobody asked for. Front and above are head; a flank is body.
+			expect((zoneAt(Vector3.new(0, 1.0, -2.0), Vector3.new(1, 0, 0), 20))).to.equal("body")
+			expect((zoneAt(Vector3.new(0, 1.0, -2.0), Vector3.new(-1, 0, 0), 20))).to.equal("body")
 		end)
 
 		it("is reachable by a real ray: chest from both flanks and from above", function()
-			metFirst(Vector3.new(0, 0.55, -1.6), Vector3.new(1, 0, 0), 20, "chest")
-			metFirst(Vector3.new(0, 0.55, -1.6), Vector3.new(-1, 0, 0), 20, "chest")
-			metFirst(Vector3.new(0, 1.5, -1.6), Vector3.new(0, 1, 0), 20, "chest")
+			-- MOVED BY TASK 119 from z -2.45..-0.75 to -1.45..+0.25: the old box was on the drawn
+			-- animal's NECK and the back of its skull, and the head could not sit where it belongs
+			-- while another zone part was already there. The front legs attach at z -0.53 to -0.70,
+			-- so this is the shoulder its own comment has always named.
+			metFirst(Vector3.new(0, 0.55, -0.6), Vector3.new(1, 0, 0), 20, "chest")
+			metFirst(Vector3.new(0, 0.55, -0.6), Vector3.new(-1, 0, 0), 20, "chest")
+			metFirst(Vector3.new(0, 1.5, -0.6), Vector3.new(0, 1, 0), 20, "chest")
 		end)
 
 		it("is reachable by a real ray: legs low on a flank and at the rear", function()
@@ -274,8 +302,10 @@ return function()
 			-- so the two old flank probes at z 1.5 and the rear one at z 2.7 are the hindquarters
 			-- now and are asserted as such above. What is still the trunk is the waist -- behind the
 			-- chest box (which ends at z -0.75), in front of the rear box, above the legs band.
-			expect((zoneAt(Vector3.new(0, 0.6, 0.2), Vector3.new(1, 0, 0), 20))).to.equal("body")
-			expect((zoneAt(Vector3.new(0, 0.6, 0.2), Vector3.new(-1, 0, 0), 20))).to.equal("body")
+			-- MOVED AGAIN BY TASK 119: the chest now ends at z +0.25, so the waist starts there and
+			-- the old probes at z 0.2 are the chest. z 0.6 is between the chest and the rump.
+			expect((zoneAt(Vector3.new(0, 0.6, 0.6), Vector3.new(1, 0, 0), 20))).to.equal("body")
+			expect((zoneAt(Vector3.new(0, 0.6, 0.6), Vector3.new(-1, 0, 0), 20))).to.equal("body")
 			-- ...and the band between the rump and the hams, which round 2 left to the trunk on
 			-- purpose (see "leaves the rump's FLOOR to the legs"). The top of the rump is NOT here
 			-- any more: raising the rear box to +1.56 to clear the trunk made it the rump's.
