@@ -1396,8 +1396,9 @@ Assets.ROWS = {
 	--
 	-- KAREN bought RedDeer's "Boar Family" on Fab on 2026-10-03 and gave the upload OK the same day,
 	-- verbatim: "1. go 2. upload". The package is Male/Female/Cub with 74 clips each; this is the
-	-- MALE, with the ten clips the drive asks for. The female and the cub are a later task
-	-- ("we start with one bord and when this works we do with rest").
+	-- MALE, with the ten clips the drive asks for. The female and the cub followed in TASK 119
+	-- ("we start with one bord and when this works we do with rest"); their rows are below, and all
+	-- three play these same clip ids.
 	--
 	-- THREE ROWS FOR ONE MODEL, AND THE FIRST TWO ARE THE MEASUREMENT (rule 7: the id stays). The
 	-- scale of a skinned mesh has to be baked into the uploaded geometry, because `Size` and
