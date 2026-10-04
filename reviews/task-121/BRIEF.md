@@ -40,3 +40,17 @@ a revision of v3, not a new system.
 ## Out of scope
 
 Blocks 2–4 content (layout only), the animal count per drive (Karen: after the map), rounds/score/penalties, purchases.
+
+## Addendum — the Director's answers to the design's §19 (2026-10-04, delegated by Karen)
+
+**Oak test facts (Director, Studio, 2026-10-04):** the `.rbxm` holds **no scripts**; **14 tree models** (7 shapes × Summer/Autumn, each named `*_LOD_0` — only one detail level is in the file); each tree is Trunk + Branch + Leaves MeshParts with SurfaceAppearance (`AlphaMode.Overlay`); **the seller's meshes load in Karen's place** (42/42 MeshParts have geometry); ~70 studs tall. Ids, offsets and map ids exported to `<assets-dir>/forest/oak-test/oak-ids.json`. Triangle counts could not be read (no API) — M7 measures the cost in Play.
+
+- **A — the map grows to 3,072 studs:** accepted.
+- **B — 2×2 blocks:** confirmed.
+- **C — route A:** confirmed. The Director publishes each tree as a **PRIVATE** Model asset in Karen's account (never listed on the Creator Store — the EULA forbids redistribution), from a scratch place, and hands the ids to the Builder.
+- **D — markers for one block, named by a committed string:** confirmed; block rotation is a later drive task.
+- **E — no farmland in this map:** accepted.
+- **F — spawn:** the map builds one tagged spawn pad beside the assembly track (one marker kind, one `EXPECTED_COUNTS` row).
+- **G — CC0 textures:** the Director uploads them by hand (Karen's upload OK, 2026-10-04) and records the ids.
+- **H:** agreed; any M3/M7 failure is a `TASKS.md` row with the measurement, never a quiet tweak.
+- **Karen's taste items 1–7:** the design's defaults, until she walks block 1. Item 7: blocks 2–4 carry the backdrop tier only if M7 allows it; otherwise bare.
