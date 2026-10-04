@@ -90,7 +90,15 @@ BACKUP_MAX_AGE_HOURS = 6
 RUN_LOG_DIR = os.path.join(REPO, ".mapgen")
 
 # The generator's own instances, plus the two the engine always puts there.
-WORKSPACE_ALLOWED = ("Terrain", "Camera")
+WORKSPACE_ALLOWED = (
+    "Terrain",
+    "Camera",
+    # ROUTE C's TEMPLATE CONTAINER, which task 121 put in the DEV place and which this branch's
+    # code does not yet know about (that task is unmerged). It is generator-owned, not hand-made:
+    # nothing here writes it, every build only reads it, and destroying it would cost somebody a
+    # by-hand re-insert of a 1.4 MB file. Allowed rather than deleted for exactly that reason.
+    "MapAssetTemplates",
+)
 
 # The seven captures (design section 13.3's six, plus map-gate), at the full 2048-stud map's own scale. Milestone 2.1's
 # cameras were scaled down for the 512 slice; these are the design's table, with two changes it names
