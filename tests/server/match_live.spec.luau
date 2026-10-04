@@ -359,6 +359,48 @@ return function()
 			)
 		end)
 
+		it("tells the boar what KIND each person is, and gives the phantom a driver's", function()
+			-- TASK 120, taking 118a(a). `MatchBoot` routes production's whole stimulus list through
+			-- `Match.boarThreats` -> `Body.boarStimuli`, and the ONE line that keeps the flag-OFF
+			-- world intact is the ternary that tags a shooter `"shooter"` and not `"driver"`: with
+			-- `BOAR_BEHAVIOUR` off the Brain drops every stimulus that is not a driver, so if that
+			-- ternary ever said "driver" a man on a post would flush boars at 40 studs in the game
+			-- that shipped. Nothing asserted it.
+			local people = {
+				{ UserId = 11, Character = nil },
+			}
+			local teams = { [11] = "Shooters" }
+			local stimuli = Match.Body.boarStimuli(function(player)
+				return teams[player.UserId]
+			end, {
+				GetPlayers = function()
+					return people
+				end,
+			})
+			-- No character, so nothing is published: a stimulus needs a position.
+			expect(#stimuli).to.equal(0)
+
+			-- EVERY KIND THE BOAR KNOWS, and no other string. A team that is neither is not a
+			-- stimulus at all, which is what keeps a spectator out of the list.
+			for _, threat in ipairs(Match.boarThreats()) do
+				expect(threat.kind == "driver" or threat.kind == "shooter").to.equal(true)
+				expect(typeof(threat.position)).to.equal("Vector3")
+				-- THE QUICK TEST'S PHANTOM IS A DRIVER WITH A NON-NUMERIC ID, and both halves
+				-- matter: the kind is what pushes a boar, and the id is what keeps it out of
+				-- `Match.playerDrivers` (task 83's own defect, `credit[nil] = at`).
+				if tonumber(threat.id) == nil then
+					expect(threat.id).to.equal("quick-test")
+					expect(threat.kind).to.equal("driver")
+				end
+			end
+			TestKit.note(
+				string.format(
+					"task120: boarStimuli publishes drivers and shooters; %d stimulus(es) now",
+					#Match.boarThreats()
+				)
+			)
+		end)
+
 		it("reads the flag once, at the boundary, and it is the REVIEWED value on a clean run", function()
 			expect(Match.CONFIG.SOUNDER.ENABLED).to.equal(Flags.isOn("BOAR_SOUNDERS"))
 			-- FLIPPED ON IN TASK 82 (Karen's OK, PLAYTEST.md 2026-09-26 and 2026-09-27), so "and it

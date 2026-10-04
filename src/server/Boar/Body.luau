@@ -113,6 +113,11 @@ function Body.kindGeometry(kind: string?, config)
 		model = row.model,
 		bodySize = config.BODY_SIZE * scale,
 		zones = zones,
+		-- HOW FAR THIS ANIMAL'S CARCASS HAS TO BE PUT BACK UP (task 120), travelling with the rest
+		-- of its geometry because that is what it is. Measured per kind; the derivation and the
+		-- numbers are in `Boar.CONFIG.KINDS`. Zero for the male, and zero for every kind with
+		-- `KINDS` off, so the grey-box world and the animal Karen accepted are untouched.
+		deathLift = row.deathLiftStuds or 0,
 	}
 end
 
@@ -1455,6 +1460,65 @@ function Body.collapse(handle, config)
 	-- still, and when it does not the box topples exactly as it has since Task 28.
 	if handle.visual == nil then
 		part.CFrame = part.CFrame * CFrame.Angles(0, 0, math.rad(config.COLLAPSE_ROLL_DEG))
+		return
+	end
+
+	-- ...AND WHEN THERE IS SOMETHING DRAWN, THE CLIP THAT DOES THE FALLING OVERSHOOTS ON A SMALL
+	-- ANIMAL (task 120). Karen, 2026-10-04: "when shoot cub he is gone not remaining". The cub was
+	-- not gone -- its box was there, anchored, `Carcass = true` -- it was drawn 1.01 studs UNDER THE
+	-- FLOOR, which on an animal 1.44 studs tall is the whole of it. All three kinds play the male's
+	-- clips, a KeyframeSequence's bone translations are absolute studs, and the fall is built out of
+	-- child-bone translations: on geometry baked smaller every one of them is too long and they all
+	-- point down. The numbers, the measurements and why this is data and not a formula are in
+	-- `Boar.CONFIG.KINDS`.
+	--
+	-- ONE WRITE, AT THE MOMENT OF DEATH, exactly like the roll above and for the same reason: the
+	-- design forbids per-frame CFrame writing on the boar (boar-ai design section 6), and the pose
+	-- this corrects is the one the carcass is HELD on for CARCASS_SECONDS. What a player sees is
+	-- the dying animal start its fall a body-height high instead of ending it under the ground --
+	-- downward motion masking a lift, rather than a carcass that has to pop up at rest.
+	local lift = (handle.geometry and handle.geometry.deathLift) or 0
+	if lift > 0 then
+		Body.liftDrawn(handle, lift)
+	end
+end
+
+-- Moves everything drawn up by `studs` and leaves it welded. A WeldConstraint stores the relative
+-- transform at the moment it is ENABLED, so the offset is changed by disabling it, moving the part
+-- and enabling it again -- all inside this one call, so no physics step runs while anything is
+-- loose and nothing can drift. Every weld is off before any part moves, so the order of the drawn
+-- parts cannot matter.
+--
+-- IT TOUCHES NOTHING A SHOT READS. The trunk, its attributes, its zone parts, its CanQuery and its
+-- CanCollide are not in this function: the hit boxes stay exactly where the animal died, which is
+-- also why a lifted carcass is no harder to hit (and `Damageable` is already false by here anyway).
+function Body.liftDrawn(handle, studs: number)
+	local model = handle.visual
+	if model == nil or studs <= 0 then
+		return
+	end
+	local parts: { BasePart } = {}
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			table.insert(parts, descendant)
+		end
+	end
+	local function welds(drawn: BasePart, enabled: boolean)
+		for _, child in ipairs(drawn:GetChildren()) do
+			if child:IsA("WeldConstraint") then
+				child.Enabled = enabled
+			end
+		end
+	end
+	for _, drawn in ipairs(parts) do
+		welds(drawn, false)
+	end
+	local up = Vector3.new(0, studs, 0)
+	for _, drawn in ipairs(parts) do
+		drawn.CFrame = drawn.CFrame + up
+	end
+	for _, drawn in ipairs(parts) do
+		welds(drawn, true)
 	end
 end
 

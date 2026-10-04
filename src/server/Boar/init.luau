@@ -803,13 +803,48 @@ Boar.CONFIG.SENSE = {
 --
 -- BEHIND `BOAR_MODEL`, with everything else about the drawn animal: off, every boar is a male-sized
 -- grey box and a sounder is five of them, which is the world every spec before this task asserts.
+--   deathLiftStuds
+--              HOW FAR THE DEAD ANIMAL HAS TO BE PUT BACK UP (task 120). Karen, 2026-10-04: "when
+--              shoot cub he is gone not remaining" -- and it was not gone. MEASURED, in a live
+--              session and then in the lab: a killed cub's drawn body ends 0.97 studs BELOW the
+--              ground, and a cub is 1.44 studs tall, so the carcass is UNDER THE FLOOR. The box is
+--              still there, anchored, `Carcass = true`, for the whole CARCASS_SECONDS; what is gone
+--              is the picture.
+--
+--              WHY. A KeyframeSequence's rotations are scale-free but its TRANSLATIONS are absolute
+--              studs (the same fact `tools/boar_prep.py` records about reusing one rig's clips), and
+--              all three kinds play the MALE's published clips on geometry `boar_prep` baked
+--              smaller. The root bone is not the culprit -- measured, it never moves: `root_bone`
+--              sat at +0.002 for the whole clip on all three rigs. The fall is built out of CHILD
+--              bone translations, and on a smaller rig every one of them is too long.
+--
+--              MEASURED 2026-10-04 on the real published clips (Death_L 128792697872198 and
+--              Death_Paddle_L 131795481631371), at the frame `Body.stepVisual` freezes the death at
+--              (`length - HOLD_EPSILON`), as the lowest bone against the rig's own bottom plane --
+--              which is the plane `Body.visualOffset` puts on the box's bottom, i.e. the ground:
+--
+--                            held fall    held paddle   lowest bone
+--                male          +0.002       +0.002      root_bone
+--                female        -0.191       -0.205      tail_3
+--                cub           -1.009       -1.009      hip_b.L
+--
+--              The paddle agrees with the fall, which is what its own asset note promises ("ENDS on
+--              the pose it began on"), so this IS the pose the carcass keeps. Cross-checked against
+--              a REAL kill in a live session: -0.97 on a cub whose box bottom was on the ground.
+--
+--              IT IS DATA AND NOT A FORMULA, because the obvious formula is wrong: scaling by
+--              (1 - scale) predicts -0.26 for the sow against the measured -0.205, and no single
+--              power of (1 - scale) fits both animals either. The translations are per bone, so
+--              each rig's answer is its own measurement. A FOURTH KIND MUST BE MEASURED THE SAME
+--              WAY -- and if it is not, `boar_model.spec`'s "the dead animal is drawn on the
+--              ground" case is what says so.
 Boar.CONFIG.KINDS = {
 	ENABLED = Flags.isOn("BOAR_MODEL"),
 	DEFAULT = "male",
 	ORDER = { "male", "female", "cub" },
-	male = { name = "male", scale = 1.0, clipScale = 1.0, model = "male" },
-	female = { name = "female", scale = 0.85, clipScale = 0.8553, model = "female" },
-	cub = { name = "cub", scale = 0.45, clipScale = 0.4372, model = "cub" },
+	male = { name = "male", scale = 1.0, clipScale = 1.0, model = "male", deathLiftStuds = 0 },
+	female = { name = "female", scale = 0.85, clipScale = 0.8553, model = "female", deathLiftStuds = 0.205 },
+	cub = { name = "cub", scale = 0.45, clipScale = 0.4372, model = "cub", deathLiftStuds = 1.009 },
 }
 
 Boar.CONFIG.MODEL = {
@@ -2188,6 +2223,9 @@ function Runtime:_despawn(entry, index: number, reason: string, position: Vector
 	-- written against the Milestone 1.2 payload still works (hit-zones design section 2.2).
 	self._signal:Fire({
 		id = entry.id,
+		-- WHICH ANIMAL IT WAS (task 120), on the despawn payload as well as the kill one: a rule
+		-- about cubs has to be able to tell a cub that was killed from a cub that got away.
+		kind = entry.body.kind,
 		reason = reason,
 		position = position,
 		aliveFor = os.clock() - entry.bornAt,
@@ -2340,9 +2378,14 @@ function Runtime:step(dt: number)
 			if config.MODEL.ENABLED then
 				Body.playDeath(entry.body, config, self._rng)
 			end
-			self._downedSignal:Fire(
-				Wound.killRecord(entry.wound, entry.id, position, os.clock() - entry.bornAt, config.WOUND)
-			)
+			self._downedSignal:Fire(Wound.killRecord(
+				entry.wound,
+				entry.id,
+				position,
+				os.clock() - entry.bornAt,
+				config.WOUND,
+				entry.body.kind -- WHICH ANIMAL DIED (task 120): what a cub penalty will read
+			))
 		end
 
 		Body.stepFlash(entry.body, dt, config.WOUND)
