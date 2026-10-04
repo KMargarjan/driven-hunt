@@ -1477,6 +1477,15 @@ class Studio:
         # and every later call that names nothing lands on the editor, which is where every
         # Edit-mode call in this file means to go anyway. An explicit studio_id always wins.
         self.default_studio_id = None
+        # THE PLAY DATAMODELS OF THE RUN THIS PROCESS STARTED, by id, once they exist.
+        #
+        # A Play session registers its server and its client as SEPARATE Studio ids. With exactly
+        # one Studio open, `datamodel_type` alone is enough and these stay None -- which is every
+        # run before task 122. With a second Studio open (the playtest place), an unscoped call is
+        # REFUSED and a call pinned to the editor goes to the wrong datamodel, so the run has to
+        # say which server and which client it means. `run_test` fills these in from
+        # `classify_studios`, which tells the new processes apart by identity rather than by name.
+        self.play_ids = {"Server": None, "Client": None}
         self._rpc("initialize", {
             "protocolVersion": "2025-03-26",
             "capabilities": {},
@@ -1581,8 +1590,11 @@ class Studio:
             return studio_id
         if tool in self.UNSCOPED_TOOLS:
             return None
-        if (arguments or {}).get("datamodel_type") in ("Server", "Client"):
-            return None
+        datamodel = (arguments or {}).get("datamodel_type")
+        if datamodel in ("Server", "Client"):
+            # The Play datamodel of THIS run when it is known, and otherwise the old behaviour --
+            # unscoped, which is correct and sufficient while only one Studio is open.
+            return self.play_ids.get(datamodel)
         return self.default_studio_id
 
     def _call(self, tool, args=None, studio_id=None):
@@ -2924,7 +2936,24 @@ def run_test(studio, scope=None):
                   "guards) are the whole run. Use `--scope all` for the full gate.")
         else:
             print("[harness] Play")
+            before_play = studio.studio_list()
             studio.set_play(True)
+            # WHICH PROCESSES THIS RUN JUST MADE. Only needed when something else is open -- with a
+            # single Studio the datamodel type alone addresses them and this is skipped, so the
+            # ordinary run is unchanged. `classify_studios` asks each new process what it is rather
+            # than reading its name, which is the same thing `test2` has always done.
+            if len(before_play) > 1:
+                server_id, client_ids, unknown = classify_studios(studio, before_play, timeout=60)
+                studio.play_ids["Server"] = server_id
+                studio.play_ids["Client"] = client_ids[0] if client_ids else None
+                print(
+                    "[harness] Play datamodels: server=%s client=%s%s"
+                    % (
+                        (server_id or "?")[:8],
+                        ((client_ids[0] if client_ids else None) or "?")[:8],
+                        (" unclassified=%d" % len(unknown)) if unknown else "",
+                    )
+                )
             try:
                 if scenarios is None:
                     print("[harness] no tests/client/input_scenarios.txt: nothing to replay")
