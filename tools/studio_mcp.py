@@ -2965,16 +2965,29 @@ def run_test(studio, scope=None):
                 # back to an unscoped call and was refused -- the failure looked like a routing bug
                 # and was a race.
                 known_before = {e["id"] for e in before_play}
+                fresh = []
                 for _ in range(45):
-                    if len([e for e in studio.studio_list() if e["id"] not in known_before]) >= 2:
+                    fresh = [e["id"] for e in studio.studio_list() if e["id"] not in known_before]
+                    if fresh:
+                        time.sleep(3)  # let the rest of them attach before asking
+                        fresh = [e["id"] for e in studio.studio_list() if e["id"] not in known_before]
                         break
                     time.sleep(1)
                 server_id, client_ids, unknown = classify_studios(studio, before_play, timeout=60)
+                # A SOLO PLAY MAY BE ONE PROCESS THAT IS BOTH. `classify_studios` answers the
+                # two-player question -- which of these is the server -- and when the run made a
+                # single datamodel there is nothing to choose between: it is both, and addressing
+                # it by id is still better than an unscoped call that a second Studio gets refused.
+                if server_id is None and len(fresh) == 1:
+                    server_id = fresh[0]
+                if not client_ids and len(fresh) == 1:
+                    client_ids = [fresh[0]]
                 studio.play_ids["Server"] = server_id
                 studio.play_ids["Client"] = client_ids[0] if client_ids else None
                 print(
-                    "[harness] Play datamodels: server=%s client=%s%s"
+                    "[harness] Play datamodels: %d new, server=%s client=%s%s"
                     % (
+                        len(fresh),
                         (server_id or "?")[:8],
                         ((client_ids[0] if client_ids else None) or "?")[:8],
                         (" unclassified=%d" % len(unknown)) if unknown else "",
