@@ -410,12 +410,29 @@ return function()
 		-- every frame and the path budget read 29 in 3 s. The arena the other specs use is 400
 		-- studs across and routes fine, so this one is sized like it.
 		local SOUNDER_SPAN = 600
+		-- MOVED IN TASK 121, AND NOT ONE ASSERTION WITH IT. The whole fixture is translated by
+		-- (+700, +340); every distance in it is what it was.
+		--
+		-- IT FLIES THE HERD 1,500 STUDS UP AND IT STILL DEPENDS ON WHAT IS UNDERNEATH, which is the
+		-- thing this block did not know about itself: `Boar.defaultWorld` pathfinds with the REAL
+		-- `PathfindingService` against the REAL `Workspace`, and a route asked for at y = 1,500 is
+		-- answered against the navmesh built from the ground below. While the world was a bare flat
+		-- plate that was open ground; since task 121 the old centre (x = 0, z = 160) is the CENTRE
+		-- FOREST RIDE with wood either side of it, and the herd's routes came back blocked.
+		-- MEASURED, and identically in two consecutive runs: "the leader asked 13 times in 3 s
+		-- (0 failed, 4 blocked), over the budget of 12", and the scatter case's spread stopped
+		-- growing.
+		--
+		-- So it stands over BLOCK 2, which is layout only and carries no trees at all -- the nearest
+		-- thing the forest has to the plate this block was written on. The budget stays 12 and the
+		-- spread assertion stays exactly as it was: what moved is where the fixture stands, not what
+		-- it claims.
 		local SOUNDER_FIELD = {
-			bounds = { minX = -250, maxX = 250, minZ = -250, maxZ = 250 },
-			exitZ = -220,
+			bounds = { minX = 450, maxX = 950, minZ = 90, maxZ = 590 },
+			exitZ = 120,
 			groundY = SOUNDER_Y,
 		}
-		local CENTER = Vector3.new(0, SOUNDER_Y, 160)
+		local CENTER = Vector3.new(700, SOUNDER_Y, 500)
 		local SETTINGS = CONFIG.SOUNDER
 
 		local root, herd, herdWorld, herdThreat, herdRecords, stop
