@@ -3,12 +3,14 @@
 Task: 120
 Round: 2
 Base: 25e84c031b4dd1c1e4a3967ce51fba51eaf92ebe
-Code commit: 44a7c5ec1aad444835fc2ded2c242772a819a3fc
+Code commit: 576f94f950583baad83cddabe3865cf03bf1df45
 
-[harness] PASS: 33/33 checks @ 44a7c5ec1aad444835fc2ded2c242772a819a3fc (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 576f94f950583baad83cddabe3865cf03bf1df45 (clean tree)
+[harness] PASS: 33/33 checks @ 576f94f950583baad83cddabe3865cf03bf1df45 (clean tree) scope=all
 
-`match_live.spec` (TWO_PLAYER_PATHS) changed again this round, so the `[harness2]` line for this
-code commit is the Director's to run; round 1's was `[harness2] PASS: 35/35 @ dc00d57 (clean tree)`.
+Both run by the Director at the branch head. `match_live.spec` is in `TWO_PLAYER_PATHS`, so this
+round needed its own two-player line; `576f94f` is the paperwork commit after `44a7c5e`, which is
+the last commit that changed `src/`, `tests/` or `tools/`.
 
 ## Claims
 
