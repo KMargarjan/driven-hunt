@@ -55,12 +55,21 @@ ForestTest.WAVE = {
 	turnAtSeconds = 9, -- a `turnsBack` wave is pushed for this long before it is turned
 	turnSeconds = 8,
 	pushStuds = 11, -- behind the REARMOST animal, inside SENSE.FLUSH_STUDS (15)
-	aheadStuds = 11, -- in front of the FOREMOST, to turn it
+	-- 26, AND IT MUST BE OUTSIDE THE FLUSH RADIUS. MEASURED: at 11 studs the turn-back wave ran
+	-- HARDER south -- `Brain._senseAware` row 7 is "anything inside a flush radius, whatever state
+	-- the animal was in" -> `_flush()` -> FLEE, and FLEE heads for `exitZ`, which is south. A beater
+	-- standing in front of a fleeing boar at flush range is not an obstacle, it is more drive.
+	--
+	-- What turns an animal is AVOID, which rotates it `SENSE.AVOID_TURN_DEG` (120) away from the
+	-- cause -- and AVOID is the reaction to something NOTICED but not flushing. So the turning
+	-- beater stands between the notice radius (25 standing, 60 moving) and the flush radius (15):
+	-- near enough to be seen, far enough to be gone round.
+	aheadStuds = 26, -- in front of the FOREMOST, to turn it
 	-- WHERE A TURN-BACK TURNS: 45 studs north of the road, which is close enough that the hunter
 	-- watches them come, hesitate and break -- and far enough that they never reach the gravel.
 	turnAtDz = 45,
 	-- ...and when it is too late to bother: past this far south they are gone and the stage is over.
-	turnGiveUpDz = 25,
+	turnGiveUpDz = 45, -- an AVOID takes a few seconds to swing; do not give up while it is working
 }
 
 export type Phase = "push" | "turn" | "done"
