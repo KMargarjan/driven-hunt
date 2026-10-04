@@ -1368,3 +1368,28 @@ AFTER that scenario had run:
   Anything that is not empty must still match the shape.
 
 No gameplay file is touched, `Match` is untouched, and `zz_tie_to_a_tree.spec` still gets its tie.
+
+## 2026-10-04 · OPEN · Task 117: round 3 failed — a 4th round needs Karen's authorisation
+
+**Raised by:** the Director, during the overnight autonomous run (Karen, 2026-10-03: "you need to work
+now atonomous and take decission until tomorrow morning").
+
+**What failed.** Round 3's one blocking finding (`reviews/task-117/RESULT.md`): `tools/boar_prep.py`'s
+offline selftest still asserts `check("ten clips", len(DEFAULT_CLIPS), 10)` while the task grew the
+tuple to sixteen clips, so CI's `Build and lint` is red on PR #108 (verified by the Director: two
+failing runs on the branch). Round 1 and 2 findings were real code/test defects and were fixed.
+
+**Why the Director did not authorise round 4.** CLAUDE.md allows one extra round only when the last
+round's findings were documentation-only. This one is a test assertion, so the rule does not allow it,
+and the Director will not bend it. The fix itself is one line.
+
+**Decision needed (Karen):** authorise one extra round for Task 117 (`DIRECTOR_MAX_ROUNDS=4`, this
+task, round 4 only), or say how else to proceed.
+
+**Meanwhile:** Task 118 (behaviour) is built as a stacked branch on `task-117-calm-boar`; it does not
+touch `tools/boar_prep.py` and does not fix this line. It cannot merge before 117.
+
+**KAREN'S ANSWER, 2026-10-04 (CLOSED by authorisation).** Asked "allow one extra round for Task 117?",
+Karen answered, verbatim: "yes". So Task 117 may run **round 4, and round 4 only**, with
+`DIRECTOR_MAX_ROUNDS=4` set for that one review and never committed. A failing round 4 is a new entry,
+not a request for round 5.

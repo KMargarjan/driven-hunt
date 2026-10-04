@@ -3,8 +3,10 @@
 It drives **headless Blender** (`--background --python`) with `tools/boar_prep_blender.py` and does
 the four things a bought animal needs before a boar in this game can be it:
 
-  (a) KEEP THE TEN CLIPS the drive actually asks for, out of the package's 74, renamed to their
-      short names (the package calls `Walk_F_IP` "Arm_Boar.001|Arm_Boar|Walk_F_IP");
+  (a) KEEP THE CLIPS THE GAME ASKS FOR, out of the package's 74, renamed to their short names (the
+      package calls `Walk_F_IP` "Arm_Boar.001|Arm_Boar|Walk_F_IP"). `DEFAULT_CLIPS` is that list --
+      the drive's ten since task 115 and the calm repertoire's six since task 117 -- and `selftest`
+      names every one of them, so a dropped or misspelt clip fails offline in a second;
   (b) SCALE THE WHOLE THING so the model is `--length-studs` long, baked into the FBX -- because a
       skinned MeshPart cannot be scaled after import without tearing (`Size`/`ScaleTo` moves the
       mesh and not the bones), which the Director measured on 2026-10-03;
@@ -111,6 +113,27 @@ DEFAULT_CLIPS = (
     "Death_R",
     "Hit_F",
     "Hit_B",
+    # TASK 117, THE CALM BOAR. Karen, 2026-10-03: "boar also can move alon and walk and lift head
+    # like smell ect". Which clip does what was MEASURED off the head and nose bones in Blender,
+    # over the whole package (`docs/` has no note for this task; the numbers are in the config):
+    #   Idle_5          the ONLY clip whose nose rises ABOVE horizontal: -18.9 to +11.5 deg, a
+    #                   30.4 deg lift, head +0.112 m, and the hooves never move (travel 0.000 m).
+    #                   That is the head-up smell. Idle_4 is its opposite (nose to -72 deg, head
+    #                   DOWN 0.279 m), and Idle_2/3/6 are ground-level fidgets of 9-15 deg.
+    #   Eat_loop_1/2    head at 0.45-0.55 m and the nose at -70 to -40 deg: grazing. _1 is steady,
+    #                   _2 pulls and chews (head moves 0.098 m against _1's 0.001).
+    #   EatDrink_start  the transition, 1.08 s, head 0.505 <-> 0.788 m -- standing height to
+    #   EatDrink_end    grazing height and back, so the head does not teleport into the grass.
+    #   Dig_walk_IP     head low (nose -72 to -59 deg) AND hooves travelling: 1.901 studs/s against
+    #                   the walk's 2.852, i.e. two thirds of a walk. (In BLENDER metres, which are
+    #                   the model's own and not this project's 1 stud = 0.28 m, that is 0.663 against
+    #                   0.995 -- the same ratio.) Rooting along the ground, Karen's "move alon".
+    "Idle_5",
+    "Eat_loop_1",
+    "Eat_loop_2",
+    "EatDrink_start",
+    "EatDrink_end",
+    "Dig_walk_IP",
 )
 
 # THE THREE CLIPS THE PACKAGE DOES NOT HAVE, AUTHORED OUT OF THE ONES IT DOES (task 116).
@@ -328,9 +351,9 @@ def validate(args, recipe):
     for clip in recipe["clips"]:
         if clip not in DEFAULT_CLIPS:
             problems.append(
-                "clip %r is not one of the ten this game asks for (%s). Add it to DEFAULT_CLIPS with "
+                "clip %r is not one of the %d this game asks for (%s). Add it to DEFAULT_CLIPS with "
                 "a reason first: an animation nothing can reach is an asset id nobody reviewed."
-                % (clip, ", ".join(DEFAULT_CLIPS))
+                % (clip, len(DEFAULT_CLIPS), ", ".join(DEFAULT_CLIPS))
             )
     if args.out and inside_repo(args.out):
         problems.append("--out is inside the repository; everything this tool writes stays outside it")
@@ -415,7 +438,7 @@ def run_probe(args):
                 say("%-9s %s  %.1f MB" % (role, name, os.path.getsize(path) / 1e6))
             else:
                 say("%-9s MISSING: %s" % (role, name))
-    say("the ten clips this game asks for: " + ", ".join(DEFAULT_CLIPS))
+    say("the %d clips this game asks for: %s" % (len(DEFAULT_CLIPS), ", ".join(DEFAULT_CLIPS)))
     return 0
 
 
@@ -606,9 +629,38 @@ def run_selftest(_args):
         if abs(got - want) > tolerance:
             failures.append("%s: got %r, want %r (+-%r)" % (name, got, want, tolerance))
 
-    # 1. The clip list is exactly the ten the drive asks for, with no duplicate.
-    check("ten clips", len(DEFAULT_CLIPS), 10)
-    check("no duplicate clip", len(set(DEFAULT_CLIPS)), 10)
+    # 1. THE CLIP LIST IS THE CLIPS, BY NAME. This was a bare count -- `len(DEFAULT_CLIPS) == 10` --
+    #    and a count is the one thing about a list that does not say which list it is: task 117 added
+    #    six calm clips and the count went to sixteen, so CI went red while saying "ten clips" and
+    #    nothing anywhere said WHICH clip had gone (review round 3, the finding this round fixes).
+    #    Named, a clip that is dropped or misspelt fails here -- offline, in a second -- instead of
+    #    twenty minutes into a Blender run or, worse, in a silent config whose row has no id.
+    #    An ADDITION fails too, deliberately: this list is the declaration that the change was meant.
+    wanted = (
+        # The drive's own ten (task 115): stand, the three gaits, the two turns, the two deaths and
+        # the two flinches.
+        "Idle_1",
+        "Walk_F_IP",
+        "Trot_F_IP",
+        "Run_F_IP",
+        "Turn_L_IP",
+        "Turn_R_IP",
+        "Death_L",
+        "Death_R",
+        "Hit_F",
+        "Hit_B",
+        # The calm repertoire (task 117): the head-up smell, the two grazing loops, the two
+        # transitions into and out of the grass, and rooting along the ground.
+        "Idle_5",
+        "Eat_loop_1",
+        "Eat_loop_2",
+        "EatDrink_start",
+        "EatDrink_end",
+        "Dig_walk_IP",
+    )
+    check("every clip this game asks for is in the tuple", sorted(set(wanted) - set(DEFAULT_CLIPS)), [])
+    check("and nothing else is", sorted(set(DEFAULT_CLIPS) - set(wanted)), [])
+    check("no duplicate clip", len(set(DEFAULT_CLIPS)), len(DEFAULT_CLIPS))
 
     # 2. The texture names, per animal. One underscore of difference between the male and the rest.
     check("male albedo 1", texture_names("BoarMale", 1)["albedo"], "Boar_Male_Albedo1.png")
