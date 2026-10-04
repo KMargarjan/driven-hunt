@@ -359,6 +359,106 @@ return function()
 			)
 		end)
 
+		it("tells the boar what KIND each person is, and gives the phantom a driver's", function()
+			-- TASK 120, taking 118a(a). `MatchBoot` routes production's whole stimulus list through
+			-- `Match.boarThreats` -> `Body.boarStimuli`, and the ONE line that keeps the flag-OFF
+			-- world intact is the ternary that tags a shooter `"shooter"` and not `"driver"`: with
+			-- `BOAR_BEHAVIOUR` off the Brain drops every stimulus that is not a driver, so if that
+			-- ternary ever said "driver" a man on a post would flush boars at 40 studs in the game
+			-- that shipped. Nothing asserted it.
+			-- FOUR PEOPLE, EACH WITH A BODY, so the ternary is actually reached (review round 1,
+			-- finding 2: a cast with no Character asserted nothing but `#stimuli == 0`).
+			local function person(userId: number, hasBody: boolean)
+				if not hasBody then
+					return { UserId = userId, Character = nil }
+				end
+				local character = Instance.new("Model")
+				character.Name = "Body" .. tostring(userId)
+				local root = Instance.new("Part")
+				root.Name = "HumanoidRootPart"
+				root.Anchored = true
+				root.Position = Vector3.new(userId, 5, userId)
+				root.Parent = character
+				character.PrimaryPart = root
+				return { UserId = userId, Character = character }
+			end
+
+			local people = {
+				person(11, true), -- Shooters, with a body
+				person(12, true), -- Drivers, with a body
+				person(13, true), -- on no team at all
+				person(14, false), -- Shooters, but nothing drawn yet
+			}
+			local teams = { [11] = "Shooters", [12] = "Drivers", [13] = "Spectators" }
+			local stimuli = Match.Body.boarStimuli(function(player)
+				return teams[player.UserId]
+			end, {
+				GetPlayers = function()
+					return people
+				end,
+			})
+
+			-- THE TERNARY, BOTH WAYS. A shooter is tagged "shooter" and NOT "driver": with
+			-- `BOAR_BEHAVIOUR` off the Brain drops every stimulus that is not a driver, so one
+			-- wrong branch here would have a man on a post flushing boars at 40 studs in the game
+			-- that shipped.
+			local byId = {}
+			for _, stimulus in ipairs(stimuli) do
+				byId[stimulus.id] = stimulus
+			end
+			expect(#stimuli).to.equal(2)
+			expect(byId["11"]).to.be.ok()
+			expect(byId["11"].kind).to.equal("shooter")
+			expect(byId["11"].position).to.equal(Vector3.new(11, 5, 11))
+			expect(byId["12"]).to.be.ok()
+			expect(byId["12"].kind).to.equal("driver")
+			expect(byId["12"].position).to.equal(Vector3.new(12, 5, 12))
+			-- A TEAM THAT IS NEITHER IS NOT A STIMULUS AT ALL, which is what keeps a spectator out
+			-- of the list -- and a player with no body is not one either, because a stimulus needs
+			-- a position.
+			expect(byId["13"]).to.equal(nil)
+			expect(byId["14"]).to.equal(nil)
+			for _, player in ipairs(people) do
+				if player.Character then
+					player.Character:Destroy()
+				end
+			end
+
+			-- AND THE PHANTOM, ASKED DIRECTLY rather than hoped for in a list that can be empty
+			-- (review round 1, finding 2). `Match.quickTestPhantom` answers a POSITION or nil, and
+			-- it is `Match.boarThreats` that dresses it -- so this asserts BOTH states: when the
+			-- quick test is pushing, the published list carries that exact phantom as a DRIVER with
+			-- a non-numeric id (which is what keeps it out of `Match.playerDrivers`, task 83's own
+			-- defect, `credit[nil] = at`); when it is not, the list carries no phantom at all.
+			local phantomAt = Match.quickTestPhantom(os.clock())
+			local live = Match.boarThreats()
+			local phantom = nil
+			for _, threat in ipairs(live) do
+				expect(threat.kind == "driver" or threat.kind == "shooter").to.equal(true)
+				expect(typeof(threat.position)).to.equal("Vector3")
+				if threat.id == "quick-test" then
+					phantom = threat
+				end
+			end
+			if phantomAt then
+				expect(phantom).to.be.ok()
+				expect(phantom.kind).to.equal("driver")
+				expect(tonumber(phantom.id)).to.equal(nil)
+				expect((phantom.position - phantomAt).Magnitude < 1e-3).to.equal(true)
+			else
+				expect(phantom).to.equal(nil)
+			end
+			TestKit.note(
+				string.format(
+					"task120: boarStimuli tagged %d of 4 people (shooter + driver, spectator and bodiless dropped); "
+						.. "phantom=%s; %d live stimulus(es)",
+					#stimuli,
+					if phantom then phantom.kind .. "/" .. phantom.id else "none",
+					#live
+				)
+			)
+		end)
+
 		it("reads the flag once, at the boundary, and it is the REVIEWED value on a clean run", function()
 			expect(Match.CONFIG.SOUNDER.ENABLED).to.equal(Flags.isOn("BOAR_SOUNDERS"))
 			-- FLIPPED ON IN TASK 82 (Karen's OK, PLAYTEST.md 2026-09-26 and 2026-09-27), so "and it

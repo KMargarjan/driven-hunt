@@ -802,6 +802,17 @@ return function()
 			-- PERSON: `Camera.kick()` really does move the camera a player is looking through, and
 			-- then brings it back to EXACTLY where it was. Both halves are asserted here, because
 			-- "it kicked" without "it came home" is a camera that drifts a degree per shot.
+			-- IT STARTS FROM REST, AND THAT IS WAITED FOR RATHER THAN ASSUMED (task 120). The input
+			-- scenario fires REAL shots into this client, so a kick from another case's shot can
+			-- still be settling when this one begins: on the stack gate of 2026-10-04 this read
+			-- 0.0000136 and failed a spec about a camera that was behaving perfectly. Waiting is the
+			-- promise itself and not a weakening of it -- `Mode.recoiling` is true while ANY recoil
+			-- field is non-zero, and the spring snaps all six to EXACT zero together below
+			-- `RECOIL_REST_EPSILON`, so "not recoiling" and "pitch is exactly 0" are the same fact.
+			-- The "it came home" assertion after the kick is untouched.
+			expect(waitUntil(3, function()
+				return not Camera.Mode.recoiling(Camera.getState())
+			end)).to.equal(true)
 			local kicks = Camera.stats().recoilKicks
 			local before = Camera.getState()
 			expect(before.recoilCamPitchDeg).to.equal(0)

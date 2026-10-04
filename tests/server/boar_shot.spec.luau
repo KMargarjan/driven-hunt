@@ -810,6 +810,305 @@ return function()
 		end)
 	end)
 
+	describe("six animals must not sound like six animals", function()
+		-- KAREN, 2026-10-04: "we need also think about sound when there is several walking and
+		-- several sqeeng it could be anoying and shit sound / so we need realistic". A sounder is up
+		-- to six boars with six sets of hooves and six voices; the caps are in `SOUND.CROWD` and this
+		-- is the case that holds them with a real six-member sounder on a real plate.
+		local function crowdRuntime(name: string, oneEmitter: boolean)
+			local world = buildWorld(true, name)
+			-- A HUNTER TO RUN FROM, so the animals are really moving and really have footsteps to
+			-- play: a standing sounder would pass a footstep cap by making no footsteps at all.
+			world.threats = function()
+				-- INSIDE `DETECT_RADIUS`, or nothing runs and a footstep cap proves nothing: the
+				-- sounder is dropped at z -10 and the driver stands 18 studs up-field of it.
+				return { { position = Vector3.new(0, GROUND_Y, 8), kind = "driver" } }
+			end
+			world.config.KINDS = { ENABLED = true } -- a sow and her young, which is what a sounder is
+			-- THE CAP AS A PARAMETER, which is the only way both of its states are reachable while
+			-- the config sits at one of them -- and it is what makes the case below an A/B rather
+			-- than a hope: the same six animals, with and without one emitter.
+			local sound = table.clone(CONFIG.SOUND)
+			local crowd = table.clone(CONFIG.SOUND.CROWD)
+			crowd.ONE_STEP_EMITTER = oneEmitter
+			sound.CROWD = crowd
+			world.config.SOUND = sound
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(clip: string)
+				return FAKE_IDS[clip]
+			end)
+			return runtime
+		end
+
+		-- Six animals, six seconds of running from a driver: the most footstep loops heard at once
+		-- across the whole sounder, and whether any FOLLOWER was ever heard walking.
+		--
+		-- WHAT THIS HALF DOES NOT PROVE, said plainly (review round 1, finding 1): a spec cannot
+		-- make six animals audibly run abreast. The silent pre-roll stops every loop it finds at
+		-- volume 0 and -- until the one-liner in `stepSound` beside this round -- a loop came back
+		-- only on a GAIT CHANGE, so even with the cap OFF this measured one audible loop. So the
+		-- footstep numbers here are a REGRESSION GUARD ("no follower is ever heard"), not an A/B;
+		-- the A/B is `Boar.isStepEmitter`, driven both ways in the pure case above. The grunt cap
+		-- has its own case below, on a CALM herd, because a fleeing one never grunts at all.
+		local function runSounder(name: string, oneEmitter: boolean): (number, boolean)
+			local runtime = crowdRuntime(name, oneEmitter)
+			local handles = runtime:spawnSounder(Vector3.new(0, GROUND_Y, -10), 6, 10)
+			expect(#handles).to.equal(6)
+			warmedUp(runtime)
+			local worstLoops, follower = 0, false
+			for _ = 1, math.ceil(6 / DT) do
+				step(runtime)
+				local loops = 0
+				local leaderId = runtime:sounderOf(handles[1].id).leaderId
+				for _, handle in ipairs(handles) do
+					local playing = #playingLoops(handle)
+					loops += playing
+					if playing > 0 and handle.id ~= leaderId then
+						follower = true
+					end
+				end
+				worstLoops = math.max(worstLoops, loops)
+			end
+			local fleeing = 0
+			for _, handle in ipairs(handles) do
+				if handle.state() == "FLEE" then
+					fleeing += 1
+				end
+			end
+			-- They really were running from the driver, or none of this measured anything. NOTHING
+			-- IS CLAIMED HERE ABOUT GRUNTS: a running herd is the one that cannot grunt
+			-- (`GRUNTS.MAX_SPEED` = 6 against a flee at 18 or 38), which is exactly why counting
+			-- them here could not fail, and why the cap has its own case on a CALM herd below.
+			expect(fleeing).to.equal(6)
+			runtime:destroy()
+			return worstLoops, follower
+		end
+
+		-- A CALM sounder, where a grunt can actually happen, and the gap as a PARAMETER so the cap
+		-- can be turned off without touching the config the game ships (review round 1, finding 1).
+		local function gruntsIn(name: string, seconds: number, gap: number): (number, number)
+			local world = buildWorld(true, name) -- its own `threats()` is empty: nothing to flee
+			world.config.KINDS = { ENABLED = true }
+			local sound = table.clone(CONFIG.SOUND)
+			local crowd = table.clone(CONFIG.SOUND.CROWD)
+			crowd.SOUNDER_GRUNT_GAP = gap
+			sound.CROWD = crowd
+			world.config.SOUND = sound
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(clip: string)
+				return FAKE_IDS[clip]
+			end)
+			local handles = runtime:spawnSounder(Vector3.new(0, GROUND_Y, 20), 6, 10)
+			warmedUp(runtime)
+			for _ = 1, math.ceil(seconds / DT) do
+				step(runtime)
+			end
+			local grunts, members = 0, 0
+			for _, handle in ipairs(handles) do
+				grunts += handle.soundPlays.grunt or 0
+				members += 1
+			end
+			runtime:destroy()
+			return grunts, members
+		end
+
+		it("plays ONE set of hooves for a whole sounder, whoever is running", function()
+			-- THE GATE ITSELF IS PURE and is driven both ways in "a sounder is one set of hooves"
+			-- above; what six real animals add is that nothing else in the Runtime undoes it.
+			local capped, cappedFollower = runSounder("BoarsCrowdSteps", true)
+			local uncapped = runSounder("BoarsCrowdLoose", false)
+
+			-- NO FOLLOWER IS EVER HEARD: whatever hooves the herd has are its leader's.
+			expect(cappedFollower).to.equal(false)
+			expect(capped <= 1).to.equal(true)
+			-- ...and with the cap off it is still ONE, which is a fact about the herd and not about
+			-- the cap: MEASURED, a sounder's followers hold their slot relative to the leader, so
+			-- the leader is the only member whose setpoint speed reaches `STEPS.MIN_SPEED` even
+			-- while all six are in FLEE. That is why the A/B for this gate is the pure
+			-- `Boar.isStepEmitter` and this half is a regression guard.
+			expect(uncapped >= 1).to.equal(true)
+			TestKit.note(
+				string.format("boar-crowd: six fleeing boars -- %d footstep loop(s) at once, no follower heard", capped)
+			)
+		end)
+
+		it("brings a footstep loop back when something else has stopped it", function()
+			-- REVIEW ROUND 1, NOTE, and the reason the live footstep numbers were so thin: the
+			-- silent pre-roll plays every sound at volume 0 and `Body.coolAssets` STOPS the ones it
+			-- finds there, while `stepSound` only ever played a loop on a GAIT CHANGE -- so an
+			-- animal whose gait did not change across that moment ran silently for ever. It matters
+			-- more since this task, because a sounder's hooves are now one animal's: the silent one
+			-- could be the whole herd.
+			--
+			-- Driven exactly as it happens: find the loop a running boar is playing, STOP it the way
+			-- the cool-down does, step once, and it is back.
+			local world = buildWorld(true, "BoarsLoopBack")
+			world.threats = function()
+				return { { position = Vector3.new(0, GROUND_Y, 30), kind = "driver" } }
+			end
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(clip: string)
+				return FAKE_IDS[clip]
+			end)
+			local handle = runtime:spawn(Vector3.new(0, GROUND_Y, 0))
+			warmedUp(runtime)
+
+			local playing = nil
+			for _ = 1, math.ceil(4 / DT) do
+				step(runtime)
+				local loops = playingLoops(handle)
+				if #loops > 0 then
+					playing = loops[1]
+					break
+				end
+			end
+			-- It really was making footsteps, or this proves nothing.
+			expect(playing).to.be.ok()
+			local loop = soundNamed(handle, playing) :: Sound
+			loop:Stop()
+			expect(audible(loop)).to.equal(false)
+			step(runtime)
+			expect(audible(loop)).to.equal(true)
+			TestKit.note(string.format("boar-shot: %s came back the step after it was stopped", playing))
+			runtime:destroy()
+		end)
+
+		it("rations a CALM sounder's grunts: one at a time, with a gap between them", function()
+			-- KAREN, 2026-10-04: "several sqeeng it could be anoying and shit sound". A herd mutters,
+			-- it does not chorus. Twenty seconds is several of each animal's own 3-8 s intervals, so
+			-- six boars left alone have plenty to say -- and the only difference between the two runs
+			-- is `SOUNDER_GRUNT_GAP`.
+			local seconds = 20
+			local capped, members = gruntsIn("BoarsGruntCapped", seconds, SOUND.CROWD.SOUNDER_GRUNT_GAP)
+			local uncapped = gruntsIn("BoarsGruntLoose", seconds, 0)
+			expect(members).to.equal(6)
+
+			-- THE HERD REALLY WAS TALKING, or nothing below means anything.
+			expect(uncapped >= 6).to.equal(true)
+			-- THE CAP REMOVED GRUNTS, which is the A/B the gap exists for...
+			expect(capped < uncapped).to.equal(true)
+			-- ...it removed them to the rate it promises, counting the whole herd as one voice...
+			expect(capped <= math.ceil(seconds / SOUND.CROWD.SOUNDER_GRUNT_GAP) + 1).to.equal(true)
+			-- ...and it did NOT silence the sounder: a mute herd would be a worse fault than a noisy
+			-- one, and a grunt that loses the slot is skipped rather than queued, so the herd keeps
+			-- talking at the rationed rate.
+			expect(capped >= 1).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-crowd: a calm sounder over %d s -- %d grunt(s) at a %.1f s gap against %d with no gap",
+					seconds,
+					capped,
+					SOUND.CROWD.SOUNDER_GRUNT_GAP,
+					uncapped
+				)
+			)
+		end)
+
+		it("lets two squeals be heard and SKIPS the third, rather than queuing it", function()
+			local runtime = crowdRuntime("BoarsCrowdSqueals", true)
+			local handles = runtime:spawnSounder(Vector3.new(0, GROUND_Y, -10), 6, 10)
+			warmedUp(runtime)
+
+			-- Three animals shot in the same instant. Each would cry; the world has two voices.
+			local cried = 0
+			for index = 1, 3 do
+				local handle = handles[index]
+				expect(runtime:takeHit(handle.part, { zone = "legs", ammo = "Pellet", pellets = 1, at = 0 })).to.equal(
+					true
+				)
+				step(runtime)
+				cried += handle.soundPlays.cry or 0
+			end
+			expect(cried).to.equal(SOUND.CROWD.MAX_SQUEALS)
+			expect(runtime:stats().squealsSkipped).to.equal(1)
+
+			-- SKIPPED, NOT QUEUED: the animal that was not heard stays not heard. Stepping on past
+			-- the window must not make its cry arrive late.
+			step(runtime, math.ceil((SOUND.CROWD.SQUEAL_SECONDS + 0.5) / DT))
+			local after = 0
+			for index = 1, 3 do
+				after += handles[index].soundPlays.cry or 0
+			end
+			expect(after).to.equal(cried)
+			TestKit.note(
+				string.format(
+					"boar-crowd: three animals hit at once -- %d heard, %d skipped and never queued",
+					cried,
+					runtime:stats().squealsSkipped
+				)
+			)
+			runtime:destroy()
+		end)
+	end)
+
+	describe("the hit sound plays once, however long the animal takes to die", function()
+		it("is still one play after a rump wound finishes the animal later", function()
+			-- KAREN, 2026-10-04: "when I hit but it doesn't die imediatly after it falls I can hear
+			-- same hit sound shoudlnt be like that". A rump slug is MORTAL and not lethal -- the case
+			-- above pins that -- so this is exactly her shot: it is hit, it runs, and the wound
+			-- finishes it some seconds later.
+			local runtime = newRuntime(true, "SoundOnce", true)
+			local handle = runtime:spawn(Vector3.new(0, GROUND_Y, 0))
+			warmedUp(runtime) -- the pre-roll plays everything at volume 0 and does NOT count
+			expect(handle.soundPlays.hit).to.equal(nil)
+
+			-- THE SOFTENING REACHED THE INSTANCE, not just the table: the filter that takes the slap
+			-- off the hit is an EqualizerSoundEffect built beside the Sound, and this is the only
+			-- place that reads one back off a real sound.
+			local hitSound = soundNamed(handle, "hit") :: Sound
+			local eq = hitSound:FindFirstChildOfClass("EqualizerSoundEffect") :: EqualizerSoundEffect
+			expect(eq).to.be.ok()
+			expect(eq.HighGain).to.equal(SOUND.HIT.eq.high)
+			-- A Sound's Volume is a float32, so the config's 0.45 reads back as 0.44999998807907104.
+			expect(math.abs(hitSound.Volume - SOUND.HIT.volume) < 1e-6).to.equal(true)
+
+			expect(runtime:takeHit(handle.part, { zone = "rear", ammo = "Slug", pellets = 1, at = 0 })).to.equal(true)
+			step(runtime, 3)
+			-- IT IS NOT DEAD YET, which is the whole premise of her report.
+			expect(handle.part:GetAttribute("Carcass")).never.to.equal(true)
+			-- TASK 120, Karen's third listen: the bullet hit is OFF, so the only thing a wounding
+			-- shot makes is the animal's own answer. The cue she kept hearing at the fall cannot
+			-- happen now, because neither impact sound exists to play.
+			expect(handle.soundPlays.hit).to.equal(nil)
+			expect(handle.soundPlays.cry).to.equal(1)
+			expect(handle.soundPlays.death).to.equal(nil)
+
+			local deadline = os.clock() + 30
+			while os.clock() < deadline and handle.part:GetAttribute("Carcass") ~= true do
+				step(runtime)
+				RunService.Heartbeat:Wait()
+			end
+			step(runtime, 3)
+			expect(handle.part:GetAttribute("Carcass")).to.equal(true)
+
+			-- THE CLAIM, as it stands after her third listen: ONE cry when it is hit, ONE squeal
+			-- when it dies, and no impact sound at either moment, however late the death arrives.
+			expect(handle.soundPlays.hit).to.equal(nil)
+			expect(handle.soundPlays.fall).to.equal(nil)
+			expect(handle.soundPlays.cry).to.equal(1)
+			expect(handle.soundPlays.death).to.equal(1)
+			TestKit.note(
+				string.format(
+					"boar-sound: a rump wound -- cry %d, death %d, hit %s, fall %s",
+					handle.soundPlays.cry,
+					handle.soundPlays.death,
+					tostring(handle.soundPlays.hit),
+					tostring(handle.soundPlays.fall)
+				)
+			)
+			runtime:destroy()
+		end)
+	end)
+
 	describe("a repeat must not sound like a loop", function()
 		it("is the configured band, centred on 1.0", function()
 			expect(Boar.jitteredPitch(0.5, SOUND.PITCH_JITTER)).to.equal(1)
@@ -820,18 +1119,177 @@ return function()
 			expect(SOUND.PITCH_JITTER < 0.2).to.equal(true)
 		end)
 
-		it("gives the sniff a pitch of its own, and every other sound none", function()
+		it("gives the sniff, the hit and the fall pitches of their own, and nothing else one", function()
 			-- THE DATA HALF ONLY, and said so (review round 3, the Director's sweep): the arithmetic
 			-- `playOneShot` does with this -- `(spec.pitch or 1) * jitteredPitch(...)` -- is asserted
 			-- END TO END in `boar_calm.spec`, "the sniff is played HIGH", which reads the live
 			-- `Sound.PlaybackSpeed` after a real head-lift. A case that multiplied the two itself
 			-- here would pass with that multiplication deleted.
 			expect(SOUND.SNIFF.pitch > 1.1).to.equal(true)
+			-- ...AND TWO ARE PITCHED DOWN (task 120). Karen, 2026-10-04: "sound has to be lover and
+			-- softer", and the fall "I can hear same hit sound". Both are below 1, and the FALL is
+			-- below the HIT: a body landing is the heaviest, dullest thing a boar does.
+			expect(SOUND.HIT.pitch < 1).to.equal(true)
+			expect(SOUND.FALL.pitch < SOUND.HIT.pitch).to.equal(true)
+			local pitched = { sniff = true, hit = true, fall = true }
 			for _, row in ipairs(ONE_SHOTS) do
-				if row.name ~= "sniff" then
+				if not pitched[row.name] then
 					expect(row.spec.pitch).to.equal(nil)
 				end
 			end
+		end)
+
+		it("has both impact cues OFF, by data and not by deletion", function()
+			-- KAREN, 2026-10-04 (third listen): "so die sound still there / I hit once in back part,
+			-- after while fallowed it falled on side and was sound of hit or whatever, it shouldnt
+			-- be like that ... I think we can remove hit sound for now". Both the bullet and the
+			-- body-fall thud are off, and so is the breath that followed the death.
+			expect(SOUND.HIT.enabled).to.equal(false)
+			expect(SOUND.FALL.enabled).to.equal(false)
+			expect(SOUND.LAST_BREATH.enabled).to.equal(false)
+			-- ...AND EVERY ONE OF THEM IS STILL FULLY DESCRIBED, which is what "for now" means: one
+			-- word brings any of them back, with the id, the volume and the filter it was tuned to.
+			for _, row in ipairs({ SOUND.HIT, SOUND.FALL, SOUND.LAST_BREATH }) do
+				expect(row.id).to.be.ok()
+				expect(row.volume > 0).to.equal(true)
+				expect(row.audibleStuds > 0).to.equal(true)
+			end
+			-- The reaction and the death are NOT off: she kept those.
+			expect(SOUND.CRY.enabled).to.equal(nil)
+			expect(SOUND.DEATH.enabled).to.equal(nil)
+		end)
+
+		it("makes a death ONE SHORT squeal rather than a scream", function()
+			-- "when it dies could be sqeeck sound short". The Director's band is 0.4 to 0.8 s, with a
+			-- fade so it ends instead of being chopped, and the samples are the squeals rather than
+			-- the beast-like scream the row carried before.
+			expect(SOUND.DEATH.cut >= 0.4).to.equal(true)
+			expect(SOUND.DEATH.cut <= 0.8).to.equal(true)
+			expect(SOUND.DEATH.fade > 0).to.equal(true)
+			expect(SOUND.DEATH.fade < SOUND.DEATH.cut).to.equal(true)
+			for _, id in ipairs(SOUND.DEATH.ids) do
+				local shared = false
+				for _, cryId in ipairs(SOUND.CRY.ids) do
+					shared = shared or cryId == id
+				end
+				expect(shared).to.equal(true) -- a squeal, out of the set Karen already accepted
+			end
+			-- THE FADE IS A RAMP, not a cliff: full volume until it starts, nothing at the end.
+			expect(Boar.cutVolume(SOUND.DEATH.cut, SOUND.DEATH)).to.equal(SOUND.DEATH.volume)
+			expect(Boar.cutVolume(SOUND.DEATH.fade, SOUND.DEATH)).to.equal(SOUND.DEATH.volume)
+			local half = Boar.cutVolume(SOUND.DEATH.fade / 2, SOUND.DEATH)
+			expect(math.abs(half - SOUND.DEATH.volume / 2) < 1e-9).to.equal(true)
+			expect(Boar.cutVolume(0, SOUND.DEATH)).to.equal(0)
+		end)
+
+		it("gives each kind a voice of its own: a cub thin, a male deep", function()
+			-- KAREN: "pown should sqeen differen, male differen female different" (pown = piglet).
+			local male = Boar.voicePitch("death", "male", SOUND.DEATH, CONFIG)
+			local female = Boar.voicePitch("death", "female", SOUND.DEATH, CONFIG)
+			local cub = Boar.voicePitch("death", "cub", SOUND.DEATH, CONFIG)
+			expect(male < female).to.equal(true)
+			expect(female < cub).to.equal(true)
+			expect(male <= 0.85).to.equal(true)
+			expect(cub >= 1.3).to.equal(true)
+
+			-- IT IS A VOICE, so it is the three cues that come OUT of the animal and nothing else:
+			-- its hooves, its breathing and the sniff are the world and are untouched by kind.
+			for _, name in ipairs({ "cry", "death", "grunt" }) do
+				expect(SOUND.VOICE.APPLIES[name]).to.equal(true)
+			end
+			expect(Boar.voicePitch("breath", "cub", SOUND.BREATH, CONFIG)).to.equal(1)
+			expect(Boar.voicePitch("sniff", "cub", SOUND.SNIFF, CONFIG)).to.equal(SOUND.SNIFF.pitch)
+
+			-- ...AND A SAMPLE OF ITS OWN WHERE THERE IS A BETTER ONE: the only beast-like scream in
+			-- the verified set is the male's death. Nothing here can audition a library, so every id
+			-- is one this project has already listened to, and every one is live in `Assets.ROWS`.
+			local maleDeath = Boar.voiceIds("death", "male", SOUND.DEATH, CONFIG)
+			local cubDeath = Boar.voiceIds("death", "cub", SOUND.DEATH, CONFIG)
+			expect(#maleDeath).to.equal(1)
+			expect(maleDeath[1] ~= cubDeath[1]).to.equal(true)
+			-- With no kind, or with the voice off, every cue answers exactly what the row says.
+			expect(Boar.voicePitch("death", nil, SOUND.DEATH, CONFIG)).to.equal(1)
+			expect(Boar.voiceIds("death", nil, SOUND.DEATH, CONFIG)).to.equal(SOUND.DEATH.ids)
+			TestKit.note(string.format("boar-sound: voices -- male %.2f, sow %.2f, cub %.2f", male, female, cub))
+		end)
+
+		it("turns a far animal down, and never below the floor", function()
+			-- "we need also think about sound when there is several walking ... we need realistic".
+			-- Inside FAR_STUDS a voice is its own volume; beyond it, it fades to FAR_VOLUME and
+			-- stops there, so a sounder at the far end of the field is background.
+			local crowd = SOUND.CROWD
+			expect(Boar.farScale(0, CONFIG)).to.equal(1)
+			expect(Boar.farScale(crowd.FAR_STUDS, CONFIG)).to.equal(1)
+			expect(Boar.farScale(crowd.FAR_STUDS + crowd.FAR_FADE_STUDS, CONFIG)).to.equal(crowd.FAR_VOLUME)
+			expect(Boar.farScale(10000, CONFIG)).to.equal(crowd.FAR_VOLUME)
+			local half = Boar.farScale(crowd.FAR_STUDS + crowd.FAR_FADE_STUDS / 2, CONFIG)
+			expect(half < 1 and half > crowd.FAR_VOLUME).to.equal(true)
+			-- A boar nobody is near has nothing to be far from.
+			expect(Boar.farScale(nil, CONFIG)).to.equal(1)
+		end)
+
+		it("makes a sounder ONE set of hooves: the leader's", function()
+			-- KAREN, 2026-10-04: "several walking ... could be anoying and shit sound". Pure, so
+			-- both states are reachable while the config sits at one of them -- six Brains cannot be
+			-- made to run abreast on command, and the live case below says nothing undoes this.
+			local off = (function()
+				local sound = table.clone(SOUND)
+				local crowd = table.clone(SOUND.CROWD)
+				crowd.ONE_STEP_EMITTER = false
+				sound.CROWD = crowd
+				local copy = table.clone(CONFIG)
+				copy.SOUND = sound
+				return copy
+			end)()
+			expect(Boar.isStepEmitter("leader", "leader", CONFIG)).to.equal(true)
+			expect(Boar.isStepEmitter("leader", "follower", CONFIG)).to.equal(false)
+			-- A herd with no leader this tick silences nobody: a missing sound is the worse fault.
+			expect(Boar.isStepEmitter(nil, "follower", CONFIG)).to.equal(true)
+			-- ...and with the cap off every animal is its own emitter, exactly as before task 120.
+			expect(Boar.isStepEmitter("leader", "follower", off)).to.equal(true)
+		end)
+
+		it("counts only the squeals that are still sounding", function()
+			-- The world-wide cap is two AT ONCE, so the count has to forget the ones that ended.
+			expect(Boar.squealsSounding({}, 100)).to.equal(0)
+			expect(Boar.squealsSounding({ 99, 101, 102 }, 100)).to.equal(2)
+			expect(Boar.squealsSounding({ 99, 99.5 }, 100)).to.equal(0)
+			expect(SOUND.CROWD.MAX_SQUEALS).to.equal(2)
+		end)
+
+		it("keeps the fall from sounding like the hit, which is what Karen heard", function()
+			-- MEASURED FIRST (task 120), by counting every one-shot's `Played` through a real
+			-- wounding shot and the bleed-out after it: `hit@1.18 cry@1.18 ... death@26.16
+			-- fall@26.16 lastBreath@27.16`, counts hit=1 cry=1 death=1 fall=1. So nothing replays
+			-- the hit -- the sound at the fall IS `FALL`, and "Body Fall Gooshy Mud 2" is a wet body
+			-- impact one id from the hit's "Body Hit Wet 7", out of the same pack.
+			--
+			-- They can only be told apart by their DIALS, so this is what holds them apart: the fall
+			-- is quieter AND lower than the hit, and both have the top cut off them. Nobody in this
+			-- toolchain can hear either sample; what a spec can do is refuse to let them drift back
+			-- into being the same noise.
+			expect(SOUND.FALL.id ~= SOUND.HIT.id).to.equal(true)
+			expect(SOUND.FALL.volume < SOUND.HIT.volume).to.equal(true)
+			expect(SOUND.FALL.pitch < SOUND.HIT.pitch).to.equal(true)
+			for _, row in ipairs({ SOUND.HIT, SOUND.FALL }) do
+				expect(row.eq).to.be.ok()
+				expect(row.eq.high < -6).to.equal(true) -- the slap lives in the highs
+				expect(row.eq.high >= -80).to.equal(true) -- EqualizerSoundEffect's own floor
+			end
+			-- AND SOFTER THAN IT WAS: 0.8 and 0.7 are the volumes Karen asked to come down.
+			expect(SOUND.HIT.volume < 0.8).to.equal(true)
+			expect(SOUND.FALL.volume < 0.7).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-sound: hit vol %.2f pitch %.2f high %+d dB; fall vol %.2f pitch %.2f high %+d dB",
+					SOUND.HIT.volume,
+					SOUND.HIT.pitch,
+					SOUND.HIT.eq.high,
+					SOUND.FALL.volume,
+					SOUND.FALL.pitch,
+					SOUND.FALL.eq.high
+				)
+			)
 		end)
 	end)
 
@@ -866,6 +1324,51 @@ return function()
 	end)
 
 	describe("every sound is configured, spatial and swappable", function()
+		it("lets a waiting hunter HEAR the approach long before he sees it", function()
+			-- KAREN, 2026-10-04: "and when its verry fal I cant hear them / when close only" -- and
+			-- her scene from task 116: "hunter waiting and hear something comming and then boars are
+			-- visible running, walking". So the cue order is hooves, then voices, then the animal.
+			local steps = SOUND.STEPS
+			-- A RUNNING SOUNDER IS THE FIRST THING HE GETS, and it has to reach past the band the
+			-- Director set (80-120 studs) because it is the warning, not the arrival.
+			expect(steps.run.audibleStuds >= 120).to.equal(true)
+			expect(Boar.heardAt(steps.run, 100, CONFIG) > 0.15).to.equal(true)
+			expect(Boar.heardAt(steps.run, steps.run.audibleStuds - 1, CONFIG) > 0).to.equal(true)
+			expect(Boar.heardAt(steps.run, steps.run.audibleStuds, CONFIG)).to.equal(0)
+			-- FAINT FIRST, GROWING: the same loop is several times louder by the time it is close.
+			expect(Boar.heardAt(steps.run, 30, CONFIG) > 3 * Boar.heardAt(steps.run, 110, CONFIG)).to.equal(true)
+			-- The harder it is working the further it carries, which is the whole reading.
+			expect(steps.run.audibleStuds > steps.trot.audibleStuds).to.equal(true)
+			expect(steps.trot.audibleStuds > steps.walk.audibleStuds).to.equal(true)
+			expect(steps.run.volume > steps.trot.volume).to.equal(true)
+			expect(steps.trot.volume > steps.walk.volume).to.equal(true)
+
+			-- GRUNTS COME IN AT 60-80, which is the Director's band for the herd's own voice.
+			expect(SOUND.GRUNTS.audibleStuds >= 60).to.equal(true)
+			expect(SOUND.GRUNTS.audibleStuds <= 90).to.equal(true)
+			expect(Boar.heardAt(SOUND.GRUNTS, 75, CONFIG) > 0).to.equal(true)
+			-- An animal that is WORKING is heard about as far as it is running.
+			expect(SOUND.BREATH.audibleStuds >= 90).to.equal(true)
+
+			-- AND THE CROWD CAP MUST NOT UNDO ANY OF IT (the same listen, both halves): the far fade
+			-- is there to stop a distant herd being an EVENT, so it may not begin before the
+			-- distance at which a grunt is supposed to be heard at all, and it never reaches zero.
+			expect(SOUND.CROWD.FAR_STUDS >= SOUND.GRUNTS.audibleStuds).to.equal(true)
+			expect(SOUND.CROWD.FAR_VOLUME >= 0.5).to.equal(true)
+			expect(Boar.farScale(SOUND.GRUNTS.audibleStuds - 1, CONFIG)).to.equal(1)
+			TestKit.note(
+				string.format(
+					"boar-far: run hooves reach %d studs (%.2f of full at 100), trot %d, walk %d, grunts %d, breath %d",
+					steps.run.audibleStuds,
+					Boar.heardAt(steps.run, 100, CONFIG),
+					steps.trot.audibleStuds,
+					steps.walk.audibleStuds,
+					SOUND.GRUNTS.audibleStuds,
+					SOUND.BREATH.audibleStuds
+				)
+			)
+		end)
+
 		it("names a real RollOffMode and a near distance inside every audible range", function()
 			expect(Enum.RollOffMode[SOUND.ROLL_OFF]).to.be.ok()
 			expect(SOUND.NEAR_STUDS > 0).to.equal(true)
@@ -1029,9 +1532,13 @@ return function()
 			runtime:destroy()
 		end)
 
-		it("flag ON: a REAL shot plays the hit and the cry, from the configured ids", function()
+		it("flag ON: a REAL shot plays the CRY and NOT the bullet hit, which is now off", function()
 			-- Through `takeHit`, so this is the path a player's slug takes, and the class is worked
 			-- out by the production code rather than handed in.
+			--
+			-- TASK 120. Karen, 2026-10-04: "I think we can remove hit sound for now" / "animal react
+			-- sound is good". So the animal still answers and the bullet does not: `HIT.enabled` is
+			-- false, and this case is what says the row -- not a deleted call -- is doing it.
 			local runtime = newRuntime(true, "BoarsShotHeard", true)
 			local handle = runtime:spawn(Vector3.new(-20, GROUND_Y, 0))
 			warmedUp(runtime)
@@ -1042,7 +1549,8 @@ return function()
 			step(runtime)
 			-- A played Sound reports IsPlaying even while its asset is still loading, and the id it
 			-- was given is one of the configured ones: that is the whole of what a spec can assert.
-			expect(audible(hit)).to.equal(true)
+			expect(audible(hit)).to.equal(false) -- the Sound exists and stays silent
+			expect(handle.soundPlays.hit).to.equal(nil)
 			expect(audible(cry)).to.equal(true)
 			local chosen = tonumber(string.match(cry.SoundId, "%d+"))
 			local known = false
@@ -1086,7 +1594,10 @@ return function()
 			runtime:destroy()
 		end)
 
-		it("flag ON: a dead boar has no footsteps, screams once, and then only breathes out", function()
+		it("flag ON: a dead boar has no footsteps and ONE SHORT squeal, and nothing after it", function()
+			-- TASK 120. Karen, 2026-10-04: "when it dies could be sqeeck sound short" and "when die
+			-- last sqeek need short one". It was a long scream, a wet thud and a breath a second
+			-- later; it is one squeal that ENDS, and the two cues she did not want are off by data.
 			local runtime = newRuntime(true, "BoarsShotDeath", true)
 			local handle = runtime:spawn(Vector3.new(20, GROUND_Y, -20))
 			warmedUp(runtime)
@@ -1097,15 +1608,32 @@ return function()
 			killFor(runtime, handle, "head")
 			expect(handle.part:GetAttribute("Carcass")).to.equal(true)
 			expect(audible(death)).to.equal(true)
-			expect(audible(fall)).to.equal(true)
+			expect(audible(fall)).to.equal(false) -- the thud she heard as a second shot
 			-- EVERY LOOP IS CUT: a carcass with footsteps is the thing this exists to prevent.
 			expect(#playingLoops(handle)).to.equal(0)
-			-- ...and the last breath lands AFTER its delay, not with the scream.
+
+			-- IT IS SHORT, AND IT FADES. A head shot collapses on the tick it lands, so the squeal
+			-- started a handful of frames ago: stepping to half a fade before the cut lands INSIDE
+			-- the fade, where the volume is below the row's own, and stepping past it finds the
+			-- squeal over. Both numbers come from the config, so retuning the cut moves the case.
+			step(runtime, math.ceil((SOUND.DEATH.cut - SOUND.DEATH.fade / 2) / DT))
+			expect(death.Volume < SOUND.DEATH.volume).to.equal(true)
+			expect(death.Volume > 0).to.equal(true)
+			step(runtime, math.ceil(SOUND.DEATH.fade / DT) + 2)
+			expect(audible(death)).to.equal(false)
+
+			-- ...AND NOTHING FOLLOWS IT: no breath, ever, however long this waits.
+			step(runtime, math.ceil(SOUND.LAST_BREATH.delay / DT) + 30)
 			expect(audible(breath)).to.equal(false)
-			step(runtime, math.ceil(SOUND.LAST_BREATH.delay / DT) + 2)
-			expect(audible(breath)).to.equal(true)
+			expect(handle.soundPlays.lastBreath).to.equal(nil)
 			expect(#playingLoops(handle)).to.equal(0)
-			TestKit.note(string.format("boar-shot: last breath after %.1f s, loops cut", SOUND.LAST_BREATH.delay))
+			TestKit.note(
+				string.format(
+					"boar-shot: the death squeal is cut at %.2f s (fade %.2f), fall and last breath silent",
+					SOUND.DEATH.cut,
+					SOUND.DEATH.fade
+				)
+			)
 			runtime:destroy()
 		end)
 

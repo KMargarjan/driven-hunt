@@ -824,6 +824,123 @@ return function()
 			runtime:destroy()
 		end)
 
+		it("flag ON: a cub's carcass is given back what the male's death clip takes off it", function()
+			-- KAREN, 2026-10-04: "when shoot cub he is gone not remaining". It was not gone: the box
+			-- was there, anchored, `Carcass = true`, for the whole CARCASS_SECONDS -- the PICTURE was
+			-- 1.01 studs under the floor, on an animal 1.44 studs tall. All three kinds play the
+			-- male's published clips, a KeyframeSequence's bone translations are absolute studs, and
+			-- the fall is built out of child-bone translations, so on geometry baked smaller they
+			-- are all too long and they all point down. Measured per kind at the frame the death is
+			-- frozen on; the numbers are in `Boar.CONFIG.KINDS`.
+			--
+			-- NO REAL CLIP IS NEEDED TO ASSERT THE FIX, because the fix is a weld offset: the drawn
+			-- body's transform IN THE TRUNK'S FRAME is `visualOffset` before the kill and
+			-- `visualOffset + deathLift` after it. That is exactly the number the clip's overshoot
+			-- cancels, and it is readable with the fake template.
+			-- `KINDS.ENABLED` as a parameter on both sides: the runtime is built with it on, and
+			-- the expected numbers are read from the same module with the same value.
+			local kindsOn = (function()
+				local kinds = table.clone(CONFIG.KINDS)
+				kinds.ENABLED = true
+				local copy = table.clone(CONFIG)
+				copy.KINDS = kinds
+				return copy
+			end)()
+			local world = buildWorld(true)
+			world.folderName = "BoarsKindsCarcass"
+			world.config.KINDS = { ENABLED = true } -- merged, not replaced: `newRuntime` deep-merges
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(name: string)
+				return FAKE_IDS[name]
+			end)
+
+			local measured = {}
+			for index, kind in ipairs({ "male", "cub" }) do
+				local handle = runtime:spawn(Vector3.new(-10 + index * 20, GROUND_Y, -40), kind)
+				expect(handle.kind).to.equal(kind)
+				step(runtime, 1 / 60, 3)
+				local mesh = visualsOf(handle.part)[1].PrimaryPart :: BasePart
+				local geometry = Boar.kindGeometry(kind, kindsOn)
+				local before = handle.part.CFrame:ToObjectSpace(mesh.CFrame).Position
+				expect((before - Boar.visualOffset(MESH_SIZE, geometry.bodySize)).Magnitude < 1e-3).to.equal(true)
+
+				kill(runtime, handle)
+				local after = handle.part.CFrame:ToObjectSpace(mesh.CFrame).Position
+				-- STRAIGHT UP IN THE TRUNK'S OWN FRAME, and nothing sideways: the carcass must not
+				-- slide, only rise.
+				expect(math.abs(after.X - before.X) < 1e-3).to.equal(true)
+				expect(math.abs(after.Z - before.Z) < 1e-3).to.equal(true)
+				expect(math.abs((after.Y - before.Y) - geometry.deathLift) < 1e-3).to.equal(true)
+				-- AND IT IS STILL WELDED THERE. The lift is done by disabling the weld, moving the
+				-- part and enabling it again, so a weld left off would leave the drawn body loose
+				-- inside the assembly -- which this is what refuses.
+				local weld = mesh:FindFirstChild("VisualWeld") :: WeldConstraint
+				expect(weld).to.be.ok()
+				expect(weld.Enabled).to.equal(true)
+				expect(weld.Part0).to.equal(handle.part)
+				-- The box is untouched by the lift: it is the drawn body that was wrong.
+				expect(handle.part.CFrame.UpVector.Y > 0.99).to.equal(true)
+				measured[kind] = after.Y - before.Y
+			end
+
+			-- THE MALE IS UNCHANGED, which is half the claim: his clip was authored on his own rig,
+			-- measured +0.002 of the ground, and Karen accepted that animal. A fix that moved him
+			-- would be a regression dressed as a fix.
+			expect(math.abs(measured.male) < 1e-3).to.equal(true)
+			expect(measured.cub > 1.0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-model: death lift -- male %.3f, cub %.3f studs given back to the drawn body",
+					measured.male,
+					measured.cub
+				)
+			)
+			runtime:destroy()
+		end)
+
+		it("flag ON: lifts NOTHING when there is no death clip to fall with", function()
+			-- REVIEW ROUND 1, NOTE. The lift gives back what the DEATH CLIP takes off a smaller rig,
+			-- so in the world task 116 deliberately supports -- `BOAR_MODEL` on, no death animation
+			-- published -- there is nothing to give back, and lifting anyway would hang a cub's
+			-- carcass 1.009 studs in the air for the whole `CARCASS_SECONDS`.
+			local kindsOn = (function()
+				local kinds = table.clone(CONFIG.KINDS)
+				kinds.ENABLED = true
+				local copy = table.clone(CONFIG)
+				copy.KINDS = kinds
+				return copy
+			end)()
+			local ids = table.clone(FAKE_IDS)
+			ids.deathLeft = nil
+			ids.deathRight = nil
+			local world = buildWorld(true)
+			world.folderName = "BoarsNoDeathClip"
+			world.config.KINDS = { ENABLED = true }
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(name: string)
+				return ids[name]
+			end)
+
+			local handle = runtime:spawn(Vector3.new(0, GROUND_Y, -60), "cub")
+			step(runtime, 1 / 60, 3)
+			local mesh = visualsOf(handle.part)[1].PrimaryPart :: BasePart
+			local before = handle.part.CFrame:ToObjectSpace(mesh.CFrame).Position
+			-- The cub HAS a lift to give back -- this is the same animal as the case above...
+			expect(Boar.kindGeometry("cub", kindsOn).deathLift > 1).to.equal(true)
+			kill(runtime, handle)
+			-- ...and it stays exactly where it was drawn, because nothing laid it down.
+			local after = handle.part.CFrame:ToObjectSpace(mesh.CFrame).Position
+			expect((after - before).Magnitude < 1e-3).to.equal(true)
+			TestKit.note("boar-model: with no death clip published, a cub's carcass is not lifted")
+			runtime:destroy()
+		end)
+
 		it("never dresses a boar that is already a carcass", function()
 			-- The asset can land AFTER a boar has died (preload is bounded at 15 s). Its box has already
 			-- been rolled, so putting the model on now would lay the clip down a second time and bury it
