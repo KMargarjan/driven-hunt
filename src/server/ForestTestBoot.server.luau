@@ -19,6 +19,8 @@ if Map.EXPECTED_WORLD ~= "forest-test" then
 	return
 end
 
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
@@ -147,15 +149,28 @@ Weapon.setArmingPolicy(function(_player)
 	return true
 end)
 
--- THE DRIVE LINE IS THE ROAD, so the weapon's safety arc has something to be measured against.
--- Without it the arc has no line and every shot reads as safe, which would make the one thing
--- Karen wants to test -- shooting -- test nothing.
-Weapon.setDriveLineProvider(function()
-	return {
-		from = Vector3.new(Data.CENTRE.X - Data.HALF_SPAN, Data.CENTRE.Y, Data.roadZ(Data.CENTRE.X - Data.HALF_SPAN)),
-		to = Vector3.new(Data.CENTRE.X + Data.HALF_SPAN, Data.CENTRE.Y, Data.roadZ(Data.CENTRE.X + Data.HALF_SPAN)),
-	}
-end)
+-- THIS WORLD HAS NO DRIVE LINE, AND REGISTERING ONE CRASHED EVERY SHOT.
+--
+-- The first version returned `{ from, to }`. `Shotgun.DriveLine` is `{ position, normal }`, so
+-- `line.normal` was nil and every single shot died in the safety arc:
+--
+--   ServerScriptService.Weapon.SafetyArc:15: attempt to index nil with 'Magnitude'
+--   Script 'ServerScriptService.Weapon', Line 462 - function onFireRequest
+--
+-- It was also wrong for a second and better reason, which is why this is a deletion and not a
+-- repair. THE SAFETY ARC EXISTS TO PROTECT DRIVERS. There are no drivers in this world -- the
+-- beaters are phantoms with nobody standing on them -- and a line whose normal pointed north would
+-- flag every shot at the boars Karen is here to shoot. The old comment claimed the opposite ("every
+-- shot reads as safe, which would make the one thing Karen wants to test test nothing"); that was
+-- reasoning about a drive this place does not have.
+--
+-- `Weapon.setDriveLineProvider` takes `Shotgun.DriveLineProvider`, which may answer nil, and the
+-- weapon already treats "no line" as "nothing to be unsafe toward". The annotation is deliberate:
+-- the wrong shape was a runtime crash and should have been a type error.
+local noDriveLine: Shotgun.DriveLineProvider = function()
+	return nil
+end
+Weapon.setDriveLineProvider(noDriveLine)
 
 -- ---------------------------------------------------------------- the hunter's stand
 
