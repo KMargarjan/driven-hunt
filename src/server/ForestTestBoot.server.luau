@@ -169,7 +169,13 @@ Players.PlayerAdded:Connect(function(player)
 		-- He lands on the road at the default stand; where he WALKS in the next ten seconds is the
 		-- choice, and the timer below is the save.
 		task.defer(function()
-			(root :: BasePart).CFrame = CFrame.new(ForestTest.spawnPosition())
+			-- FACING THE DRIVE. `CFrame.new(position)` carries no rotation, so the character landed
+			-- looking down -Z -- SOUTH, with his back to every animal in the world; the console's
+			-- own camera line said look z = -0.99. North is +Z here (a holding at
+			-- `roadZ + northStuds` has the larger z), so he is turned to face it.
+			local at = ForestTest.spawnPosition()
+			local root3 = root :: BasePart
+			root3.CFrame = CFrame.lookAt(at, at + Vector3.zAxis)
 		end)
 		task.delay(Data.PICK.seconds, function()
 			if player.Parent == nil or root.Parent == nil then
