@@ -20,11 +20,54 @@
 -- be made to disagree with Boar.Wound: it does not hold a copy of the model. `collapse` arrives as a
 -- boolean for the same reason.
 --
--- Design: docs/design/boar-ai.md (sections 4, 5, 7), docs/design/hit-zones.md (section 6)
--- Note:   docs/research/2026-09-24-boar-ai.md, docs/research/2026-09-25-hit-zones.md
+-- Since task 118 it has EIGHT states, and the two new ones are what a boar does about something it
+-- has noticed but is not yet running from: ALERT (head up, stopped, turned to the cause) and AVOID
+-- (turned away, trotting off on a new heading). Both are behind `SENSE.ENABLED`; with it off this
+-- file decides exactly what it decided before, on one 40-stud radius and drivers only.
+--
+-- Pattern for that half: awareness LEVELS with a dwell time and a refractory period, fed by ONE
+-- sensory function, with a separate notice and flush radius per stimulus, and hearing as a world
+-- event rather than a query.
+--   Tom Leonard, "Building an AI Sensory System: Examining the Design of Thief: The Dark Project"
+--     (GDC 2003) https://www.gamedeveloper.com/programming/building-an-ai-sensory-system-examining-the-design-of-i-thief-the-dark-project-i-
+--   Unreal Engine AIPerception (per-sense configs, gain radius != lose radius, stimulus age)
+--     https://dev.epicgames.com/documentation/en-us/unreal-engine/ai-perception-in-unreal-engine
+--     -- pattern only, no code (Unreal EULA)
+--
+-- Design: docs/design/boar-ai.md (sections 4, 5, 7), docs/design/hit-zones.md (section 6),
+--         docs/design/boar-behaviour.md (sections 3, 4, 5)
+-- Note:   docs/research/2026-09-24-boar-ai.md, docs/research/2026-09-25-hit-zones.md,
+--         docs/research/2026-10-04-boar-behaviour.md
 
 local Brain = {}
 Brain.__index = Brain
+
+-- ONE TABLE SAYS WHICH STATES ARE CALM AND WHICH ARE PANICKED (task 118, design section 3.1), and
+-- every consumer reads it -- the sounder's alarm, the herd's calm-down, and the specs -- so a ninth
+-- state cannot be forgotten in one predicate somewhere. The classes are deliberately coarser than
+-- the states: what the rest of the system ever needs to know is "is this animal settled, disturbed,
+-- running, finished".
+Brain.CLASS = {
+	IDLE = "calm",
+	ALERT = "calm",
+	AVOID = "disturbed",
+	FLEE = "panicked",
+	WOUNDED = "panicked",
+	CRIPPLED = "down",
+	DOWN = "down",
+	GONE = "gone",
+}
+
+-- A STATE THIS TABLE HAS NEVER HEARD OF reads as "gone": the conservative answer, because `gone` is
+-- the one class that neither panics a sounder nor counts as calm, so a typo cannot start a stampede
+-- and cannot pin a group in FLEE either. Every state in the system comes from `Brain:state()`, so in
+-- practice the fallback is unreachable; it is here so that the function is total.
+function Brain.classOf(state: string?): string
+	if state == nil then
+		return "gone"
+	end
+	return Brain.CLASS[state] or "gone"
+end
 
 -- HOW LONG THE FIRST ACTIVITY LASTS (task 117, made pure in review round 2). A boar that has just
 -- spawned starts somewhere INSIDE its first activity, so two spawned on the same frame are not doing
@@ -98,6 +141,192 @@ local function slew(from: Vector3, to: Vector3, maxRadians: number): Vector3
 	return unit(rotateY(from, maxRadians * math.sign(delta)), from)
 end
 
+-- ---------------------------------------------------------------- perception: ONE function
+--
+-- Design: docs/design/boar-behaviour.md section 4. All of it is pure, module-level and exported on
+-- `Brain` (and through `Boar`) for the reason `Brain` and `Wound` are already exported: every band,
+-- every radius and every tie is then a spec case with no boar in the world at all.
+--
+-- A stimulus is anything a boar can perceive: `{ id, position, kind?, speed? }`. `kind` nil means
+-- "driver", which is today's meaning, so a provider written before this task is unchanged. `speed`
+-- is studs/s, flat, and is filled by the RUNTIME and never by the provider (section 4.6): a
+-- character's own velocity is network-owned by its client, and a measured displacement of the
+-- replicated position is not.
+
+-- `flee` > `avoid` > `alert` > `none`: the strongest reaction any one stimulus produces is what the
+-- animal does, and a tie goes to the nearest.
+local REACTION_RANK = { flee = 3, avoid = 2, alert = 1, none = 0 }
+
+function Brain.isMoving(threat, config): boolean
+	-- A DOG IS ALWAYS COUNTED AS MOVING (section 4.2's radii table). A dog that is standing still is
+	-- a dog that is about to not be, and a flusher's radii are its moving ones whatever it is doing
+	-- at the instant it is looked at. HOOK ONLY: nothing produces `kind = "dog"` yet.
+	if threat.kind == "dog" then
+		return true
+	end
+	return (threat.speed or 0) >= config.SENSE.MOVING_SPEED
+end
+
+-- HOW FAR AWAY THIS STIMULUS IS NOTICED (head up, or turned away from). With the flag OFF there is
+-- one radius for everything, which IS today: `DETECT_RADIUS`.
+function Brain.noticeRadius(threat, config): number
+	local sense = config.SENSE
+	if not (sense and sense.ENABLED) then
+		return config.DETECT_RADIUS
+	end
+	-- A DOG'S RADII ARE HALF AGAIN A PERSON'S, because a dog is a flusher -- and it always counts as
+	-- moving (see `isMoving`), so a dog is noticed at 90 studs.
+	local scale = if threat.kind == "dog" then sense.DOG_NOTICE_SCALE else 1
+	return (if Brain.isMoving(threat, config) then sense.NOTICE_MOVING else sense.NOTICE_STANDING) * scale
+end
+
+-- ...AND HOW CLOSE IT HAS TO BE TO MAKE THE ANIMAL RUN. A man this close bolts a boar whatever it
+-- was doing. `DETECT_RADIUS` keeps its value and its meaning for a MOVING person, so the number
+-- Milestone 1.2 was built and reviewed on is untouched.
+function Brain.fleeRadius(threat, config): number
+	local sense = config.SENSE
+	if not (sense and sense.ENABLED) then
+		return config.DETECT_RADIUS
+	end
+	local scale = if threat.kind == "dog" then sense.DOG_NOTICE_SCALE else 1
+	return (if Brain.isMoving(threat, config) then config.DETECT_RADIUS else sense.FLUSH_STUDS) * scale
+end
+
+-- WHAT THIS BOAR CAN PERCEIVE AND WHAT IT SHOULD DO ABOUT IT, in one answer. It replaces
+-- `Brain:_threatInfo` rather than sitting beside it: two functions answering the same question is
+-- how two correct rules come to disagree.
+--
+-- `probe` is optional and is used ONLY when `SENSE.REQUIRE_SIGHT` is on, which it is not: it is the
+-- hook of section 4.7, and the Runtime hands it in on a sense tick only, so a notice costs at most
+-- one raycast per stimulus per 0.2 s rather than one per frame.
+function Brain.perceive(position: Vector3, threats, config, probe)
+	local sense = config.SENSE
+	local on = sense ~= nil and sense.ENABLED == true
+
+	local reaction, cause, distance = "none", nil, math.huge
+	local nearest, nearestDistance = nil, math.huge
+	local sum, inside = Vector3.zero, 0
+	local calm = true
+
+	for _, threat in ipairs(threats or {}) do
+		-- WITH THE FLAG OFF, ONLY A DRIVER IS A STIMULUS AT ALL. `MatchBoot` wires the shooters in
+		-- unconditionally (section 8), so this one test is the whole of "a shooter standing on a
+		-- post is invisible to a boar, exactly as before task 118" -- one assertion in a pure spec
+		-- instead of a branch at the composition root that nothing can test.
+		if on or (threat.kind or "driver") == "driver" then
+			local d = flatDistance(position, threat.position)
+			if d < nearestDistance then
+				nearest, nearestDistance = flat(threat.position), d
+			end
+
+			local flee = Brain.fleeRadius(threat, config)
+			local notice = Brain.noticeRadius(threat, config)
+			if d <= flee then
+				-- The centroid is the ROUTE'S ANCHOR and it is the centroid of what is actually
+				-- flushing the animal, which with the flag off is "inside DETECT_RADIUS": today.
+				sum += flat(threat.position)
+				inside += 1
+			end
+			-- THE CALM TEST (section 4.3), per stimulus rather than against one global radius. With
+			-- the flag off `notice` is `DETECT_RADIUS` and the margin is `CALM_RADIUS -
+			-- DETECT_RADIUS`, so this is arithmetically `nearestDistance > CALM_RADIUS`: today.
+			if d <= notice + (if on then sense.CALM_MARGIN else config.CALM_RADIUS - config.DETECT_RADIUS) then
+				calm = false
+			end
+
+			local mine = "none"
+			if d <= flee then
+				mine = "flee"
+			elseif on and d <= notice and Brain.sees(position, threat, config, probe) then
+				mine = if Brain.isMoving(threat, config) then "avoid" else "alert"
+			end
+
+			local better = REACTION_RANK[mine] > REACTION_RANK[reaction]
+				or (mine ~= "none" and REACTION_RANK[mine] == REACTION_RANK[reaction] and d < distance)
+			if better then
+				reaction, cause, distance = mine, threat, d
+			end
+		end
+	end
+
+	return {
+		reaction = reaction,
+		cause = cause,
+		distance = distance,
+		-- nil when there is nothing at all, and the nearest stimulus when there is one but nothing
+		-- is inside a flush radius: the two answers `_threatInfo` gave, unchanged.
+		centroid = if inside > 0 then sum / inside else nearest,
+		nearest = nearest,
+		nearestDistance = nearestDistance,
+		calm = calm,
+	}
+end
+
+-- LINE OF SIGHT, AND IT IS OFF (section 4.7). With `REQUIRE_SIGHT` false -- the shipped value -- this
+-- is `true` for everything and costs one comparison. With it on, a NOTICE waits on a clear ray; a
+-- FLUSH never does, because a boar that close has smelt and heard the man whatever is in the way.
+function Brain.sees(position: Vector3, threat, config, probe): boolean
+	local sense = config.SENSE
+	if not (sense and sense.REQUIRE_SIGHT) then
+		return true
+	end
+	if probe == nil then
+		return true -- nobody handed us one: do not invent a wall
+	end
+	local eye = position + Vector3.new(0, config.BODY_SIZE.Y / 2, 0)
+	local toward = threat.position - eye
+	-- THE RAY IS AS LONG AS THE RAY, not as long as the FLAT distance (review round 2, note): a
+	-- stimulus above or below the animal is further away along the line of sight than it is across
+	-- the ground, and the shorter length would report clear air short of the thing in the way. Every
+	-- BAND in this file is measured flat; this is the one place the two lengths differ, so the flat
+	-- one is not passed in at all any more.
+	local reach = toward.Magnitude
+	if reach < 1e-6 then
+		return true
+	end
+	return probe(eye, toward.Unit, reach) == false
+end
+
+-- WHERE AN AVOID GOES: away from the cause, rotated by a fixed angle, clamped inside the field.
+--
+-- INVENTED HERE, with the reason (CLAUDE.md rule 2): no source addresses "flee at an ANGLE rather
+-- than away" -- Reynolds' flee is straight away and his wander has no cause at all -- it is three
+-- lines of arithmetic, and it is one spec assertion. Karen asked for "turn around and go another
+-- direction", which is neither of the two things steering already had.
+--
+-- THE SIGNATURE DIFFERS FROM design section 7.2's sketch, `(position, cause, config, rng)`, in two
+-- ways and both are deliberate. It takes the FIELD, because section 4.4's own formula clamps to the
+-- bounds and a function cannot clamp to bounds it was not given. And it takes the SIGN rather than a
+-- `Random`: the sign is drawn once when the animal enters AVOID and kept in `_avoidTurn` (section
+-- 4.4), so drawing it here would mean a new one on every call -- an animal that mirrors its heading
+-- every sense tick instead of committing to one.
+--
+-- AND THE ANGLE IS MEASURED FROM THE LINE *TOWARD* THE CAUSE, not from the line away from it, which
+-- is where section 4.4's pseudocode (`rotateY(away, 120 deg)`) says to measure it. That reading
+-- cannot be what the design means, by its own arithmetic: 120 degrees off AWAY is 60 degrees off
+-- TOWARD, whose radial component is cos 60 = +0.5, so the animal would CLOSE with the man at 9
+-- studs a second -- against section 7.1's "past 90 degrees, so it is visibly a refusal, not a
+-- sidestep" and against section 12 case 6's "the flat distance to the cause grows". Measured from
+-- TOWARD, the dial reads as it is documented: 90 is a pure sidestep, 180 is a straight flee, and
+-- 120 opens the distance at cos 120 = -0.5.
+function Brain.avoidTarget(position: Vector3, cause: Vector3, sign: number, config, field): Vector3
+	local toward = unit(flat(cause) - flat(position), Vector3.new(0, 0, -1))
+	local turn = math.rad(config.SENSE.AVOID_TURN_DEG) * (if sign < 0 then -1 else 1)
+	return Brain.insideField(flat(position) + rotateY(toward, turn) * config.SENSE.AVOID_STUDS, config, field)
+end
+
+-- One steering target, kept off the edge by the same `EDGE_MARGIN` the route already uses, so an
+-- AVOID never aims the animal at a wall it would then be stuck against.
+function Brain.insideField(point: Vector3, config, field): Vector3
+	local bounds = field.bounds
+	local margin = config.EDGE_MARGIN
+	return Vector3.new(
+		math.clamp(point.X, bounds.minX + margin, bounds.maxX - margin),
+		field.groundY,
+		math.clamp(point.Z, bounds.minZ + margin, bounds.maxZ - margin)
+	)
+end
+
 function Brain.new(config, field, start: Vector3, rng: Random)
 	local self = setmetatable({}, Brain)
 	self._config = config
@@ -149,6 +378,24 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- held for COLUMN_LATCH_SECONDS after the probe last fired.
 	self._columnFor = 0
 
+	-- THE AWARENESS TIMERS (task 118): how much of the head-up hold is left, how long until the
+	-- animal may go head-up again, and how much of the turn-away is left. All counted with dt and
+	-- never from a clock, so a spec is deterministic -- the same rule `_boltFor` follows.
+	self._alertFor = 0
+	self._refractoryFor = 0
+	self._avoidFor = 0
+	-- Which way an AVOID swings, drawn ONCE on entering it, and the single steering target that goes
+	-- with it. Redrawing either per tick is an animal mirroring its heading instead of committing.
+	self._avoidTurn = 1
+	self._avoidPoint = nil :: Vector3?
+	-- What an ALERT boar is looking at. Remembered rather than re-read, so the head does not swing
+	-- back and forth when the cause steps out of the notice band mid-hold.
+	self._alertPoint = nil :: Vector3?
+	-- The last perception (task 118, design section 4.2), kept so `Runtime:perceptionOf` can show a
+	-- spec WHY the animal did something instead of inferring it from a velocity. Nothing in the game
+	-- reads it, and there is no setter.
+	self._perception = nil :: any
+
 	-- Which way a crippled boar circles, chosen once when its back end goes (task 116).
 	self._crippleTurn = nil :: number?
 
@@ -173,31 +420,22 @@ function Brain:debug()
 		heading = self._heading,
 		target = self._target,
 		sinceThreat = self._sinceCalm,
+		-- TASK 118's timers, for the same reason the four above are here: a spec can see that the
+		-- refractory is what kept a boar grazing rather than guess it from two states that match.
+		alertFor = self._alertFor,
+		refractoryFor = self._refractoryFor,
+		avoidFor = self._avoidFor,
+		avoidPoint = self._avoidPoint,
 	}
 end
 
--- Nearest threat and the centroid of those inside `radius`, both flat. Returns nil when there are none.
-function Brain:_threatInfo(position: Vector3, threats)
-	local nearest, nearestDistance = nil, math.huge
-	local sum, count = Vector3.zero, 0
-	local radius = self._config.DETECT_RADIUS
-
-	for _, threat in ipairs(threats) do
-		local d = flatDistance(position, threat.position)
-		if d < nearestDistance then
-			nearest, nearestDistance = flat(threat.position), d
-		end
-		if d <= radius then
-			sum += flat(threat.position)
-			count += 1
-		end
+-- A COPY of the last perception, or nil before the first step. No setter, and nothing in the game
+-- reads it: `Runtime:perceptionOf` hands it to a live spec so that "why" is observable (section 7.2).
+function Brain:perception()
+	if self._perception == nil then
+		return nil
 	end
-
-	if not nearest then
-		return nil, math.huge
-	end
-	local centroid = if count > 0 then sum / count else nearest
-	return centroid, nearestDistance
+	return table.clone(self._perception)
 end
 
 -- The ROUTE rule (design section 5): flee TOWARD the exit line, pushed sideways away from the
@@ -238,7 +476,10 @@ function Brain:_outcome(position: Vector3): string?
 	-- whether that is a penalty, a partial score or nothing.
 	-- A CRIPPLED BOAR IS NOT ESCAPING, so it is not in this test: it circles where it was hit, and
 	-- the only ways out are the wound finishing it or another shot.
-	if (self._state == "FLEE" or self._state == "WOUNDED") and position.Z <= field.exitZ then
+	-- AVOID COUNTS AS ESCAPING TOO (task 118, design section 3.4). The line is the line: how the
+	-- animal got over it does not change that it is over it, and the drive scores on `Despawned`'s
+	-- reason. With `SENSE.ENABLED` off the state is unreachable, so this adds nothing to today.
+	if (self._state == "FLEE" or self._state == "WOUNDED" or self._state == "AVOID") and position.Z <= field.exitZ then
 		return "escaped"
 	end
 	if
@@ -381,7 +622,12 @@ function Brain:_slotPoint(sounder): Vector3
 	local right = Vector3.new(forward.Z, 0, -forward.X)
 	local slot = math.max(sounder.slot or 2, 2)
 	local column = Vector3.new(0, 0, (slot - 1) * settings.COLUMN_SPACING_STUDS)
-	local offset = if self._columnFor > 0 then column else (settings.FORMATION[slot] or column)
+	-- A COLUMN WHEN THE SOUNDER IS A COLUMN, or when the probe latch says so (task 118, design
+	-- section 5.1). One expression and no new function: `formation` is nil for every sounder built
+	-- before this task and for every one built with the flag off, and then this is exactly the
+	-- latch it was.
+	local inFile = self._columnFor > 0 or (sounder.formation == "column")
+	local offset = if inFile then column else (settings.FORMATION[slot] or column)
 	return flat(leader.position) - forward * offset.Z + right * offset.X
 end
 
@@ -565,6 +811,216 @@ function Brain:_collapse()
 	self._carcassFor = self._config.WOUND.CARCASS_SECONDS
 end
 
+-- ---------------------------------------------------------------- awareness (task 118)
+--
+-- Four transitions, each in one place, so "what state is this animal in and why" has one answer.
+-- Design: docs/design/boar-behaviour.md sections 3.2, 3.3, 3.4.
+
+-- HEAD DOWN AGAIN. Both ALERT and AVOID end on their own timer, and both end the same way: calm,
+-- home reset to where the animal now stands, nothing routed. Leaving ALERT also arms the refractory,
+-- which is what stops a 2.5 s IDLE<->ALERT flip-flop in front of a motionless hunter.
+function Brain:_settle(position: Vector3)
+	if self._state == "ALERT" then
+		self._refractoryFor = self._config.SENSE.ALERT_REFRACTORY_SECONDS
+	end
+	self._state = "IDLE"
+	self._home = flat(position)
+	self._waypoints = nil
+	self._target = nil
+	self._sinceCalm = 0
+	self._alertFor = 0
+	self._avoidFor = 0
+	self._avoidPoint = nil
+	self._alertPoint = nil
+end
+
+-- IT RUNS. This is today's IDLE->FLEE transition, lifted into a function so that precedence rules 7
+-- (something inside a flush radius) and 8 (the sounder's alarm) cannot drift apart from it.
+function Brain:_flush()
+	if self._state == "FLEE" then
+		self._sinceCalm = 0
+		return
+	end
+	self._state = "FLEE"
+	self._sinceCalm = 0
+	self._sinceRepath = math.huge -- path immediately, exactly as the old IDLE->FLEE branch did
+	self._grazeFor = 0
+	self._alertFor = 0
+	self._avoidFor = 0
+	self._avoidPoint = nil
+end
+
+-- HEAD UP, STOPPED, TURNED TO THE CAUSE. The hold is `ALERT_SECONDS` from the moment it began and is
+-- never refreshed by a later tick: a hunter who stands still gets one head-up, then the animal
+-- settles and will not look again for `ALERT_REFRACTORY_SECONDS`.
+function Brain:_enterAlert(cause)
+	self._state = "ALERT"
+	self._alertFor = self._config.SENSE.ALERT_SECONDS
+	self._alertPoint = flat(cause.position)
+	self._waypoints = nil -- ALERT does not route (section 3.1: no paths)
+	self._target = nil
+	self._sinceCalm = 0
+	self._avoidFor = 0
+	self._avoidPoint = nil
+end
+
+-- TURNED AWAY AND TROTTING OFF, on ONE steering target drawn on entry (section 4.4). No path
+-- request is ever made from here: AVOID lasts `AVOID_SECONDS`, it is local, and `ComputeAsync` is
+-- the system's one expensive call -- the path budget must not change in a behaviour task.
+function Brain:_enterAvoid(position: Vector3, cause)
+	local config = self._config
+	self._avoidTurn = if self._rng:NextNumber() < 0.5 then -1 else 1
+	self._state = "AVOID"
+	self._waypoints = nil
+	self._target = nil
+	self._sinceCalm = 0
+	self._alertFor = 0
+	self._alertPoint = nil
+	self._avoidFor = config.SENSE.AVOID_SECONDS
+	self._avoidPoint = Brain.avoidTarget(position, cause.position, self._avoidTurn, config, self._field)
+end
+
+-- A SHOT IS A SOUND, NOT A HIT (section 4.5). It arrives through the same door a hit does, and it
+-- reuses the EXISTING bolt: `_boltFor` is already "run whatever the threats say" and
+-- `_lastShotPoint` is already "while bolting, the shot point IS the threat". There is no second
+-- sprint rule, only a second way to start the one that exists.
+function Brain:_hearSound(sound, position: Vector3)
+	if sound.kind ~= "shot" then
+		return
+	end
+	local config = self._config
+	local sense = config.SENSE
+	-- WITH THE FLAG OFF A BOAR DOES NOT HEAR AT ALL, and that is not a nicety: before this task
+	-- there was no server-side "a shot was fired" fact anywhere, so reacting to one IS a change to
+	-- the flag-OFF world. `MatchBoot` wires the event unconditionally (section 8) and the decision
+	-- stays here, at the one boundary that reads the flag.
+	if not (sense and sense.ENABLED) then
+		return
+	end
+	local state = self._state
+	-- A CARCASS, A TERMINAL BOAR AND A CRIPPLED ONE DO NOT HEAR: the same guard `_reactToHit` uses,
+	-- and precedence rows 2-4 say the same thing. A crippled animal's back end is gone; a bang does
+	-- not give it back.
+	if state == "GONE" or state == "DOWN" or state == "CRIPPLED" then
+		return
+	end
+	if flatDistance(position, sound.position) > sense.SHOT_AUDIBLE_STUDS then
+		return
+	end
+	self._boltFor = math.max(self._boltFor, sense.SHOT_SPRINT_SECONDS)
+	self._lastShotPoint = flat(sound.position)
+	self._sinceCalm = 0
+	-- WOUNDED is left in WOUNDED: it is already an animal that never calms down, and the bolt above
+	-- is the whole of what the sprint is.
+	if state == "IDLE" or state == "ALERT" or state == "AVOID" then
+		self:_flush()
+	end
+	-- THE BOLT KICK, the same documented ACCEL bypass a hit uses: a boar at a shotgun blast does not
+	-- accelerate over 0.63 s. An assignment, once per sound, not a new rule.
+	self._speed = math.max(self._speed, config.SPRINT_SPEED * config.WOUND.BOLT_KICK)
+end
+
+-- ONE SENSE TICK, with the flag ON: the precedence table of design section 3.2, rows 5 to 11, read
+-- top to bottom with the first match winning. Rows 1 to 4 (despawn, carcass, hit, crippled) are
+-- above this in `step` and are untouched.
+--
+-- IT IS A SEPARATE FUNCTION FROM THE OLD BRANCH ON PURPOSE. With `SENSE.ENABLED` off, `step` runs
+-- the code it ran before this task, line for line -- which is what makes "every existing spec is
+-- testing the same world it tested before" a fact rather than a hope.
+function Brain:_senseAware(position: Vector3, obs, perception, follower: boolean)
+	local config = self._config
+	local sounder = obs.sounder
+	local state = self._state
+
+	-- ROW 5 and ROW 6: a wounded animal never returns to a calm state, and while it is bolting the
+	-- bolt decides. Both are exactly what the old `elseif` said.
+	if state == "WOUNDED" or self._boltFor > 0 then
+		self._sinceCalm = 0
+		return
+	end
+
+	local reaction = perception.reaction
+
+	-- ROW 7: anything inside a flush radius, whatever state the animal was in.
+	if reaction == "flee" then
+		self:_flush()
+		return
+	end
+	-- ROW 8: panic has reached this member (section 5.2). This REPLACES the leader-only rule rather
+	-- than running beside it -- two correct rules disagreeing is this project's named killer.
+	--
+	-- IT IS NOT GATED ON `follower`, AND THAT IS THE WHOLE POINT OF THE NEW RULE: the old one ran
+	-- leader -> followers, so a leader could never be told anything. Panic now travels member to
+	-- member from whichever animal panicked first, and that animal is as often the one at the front.
+	-- Gating this on `follower` cost the live spec its third member -- the leader stood there while
+	-- the other two ran (measured, this task's first gate run).
+	if sounder ~= nil and sounder.alarm == true then
+		self:_flush()
+		return
+	end
+
+	if state == "AVOID" then
+		-- Section 3.4: the clock is "`AVOID_SECONDS` since the last tick any stimulus was noticed",
+		-- so a stimulus still in a notice band HOLDS the animal in AVOID. That is also why row 10
+		-- cannot fire from here: section 3.4's table has no AVOID->ALERT, and a boar that has
+		-- decided to leave does not stop to look.
+		if reaction ~= "none" then
+			self._avoidFor = config.SENSE.AVOID_SECONDS
+		end
+		-- THE EXISTING PROBE TURN, on the sense tick exactly as `_senseIdle` applies it: something
+		-- solid ahead swings the one steering target aside instead of letting the animal push into
+		-- it. No path request, here or anywhere else in AVOID.
+		if obs.blockedAhead and self._avoidPoint then
+			local away = unit(flat(self._avoidPoint) - flat(position), self._heading)
+			local sign = if self._rng:NextNumber() < 0.5 then -1 else 1
+			self._avoidPoint = Brain.insideField(
+				flat(position) + rotateY(away, sign * config.PROBE_TURN) * config.SENSE.AVOID_STUDS,
+				config,
+				self._field
+			)
+		end
+		return
+	end
+
+	-- ROW 9: noticed, and moving. "once move it start to run or turn around and go another
+	-- direction" -- this is the turning-away half.
+	if reaction == "avoid" then
+		self:_enterAvoid(position, perception.cause)
+		return
+	end
+
+	if state == "ALERT" then
+		return -- the hold runs on its own timer (section 3.3); nothing a sense tick sees refreshes it
+	end
+
+	-- ROW 10: noticed, standing, and the animal is willing to look again.
+	if reaction == "alert" and self._refractoryFor <= 0 then
+		self:_enterAlert(perception.cause)
+		return
+	end
+
+	-- ROW 11: nothing to react to.
+	if state == "IDLE" then
+		self:_senseIdle(position, obs)
+		return
+	end
+
+	-- FLEE, with nothing in range: today's calm-down, on the per-stimulus calm test of section 4.3
+	-- and the herd rule of section 5.2.
+	if perception.calm then
+		self._sinceCalm += config.SENSE_INTERVAL
+		-- HERD CALM, through the one class table (section 3.1), so a leader that is ALERT no longer
+		-- pins the whole group in FLEE for ever. While scattering there is no leader, and then the
+		-- timer alone decides, as it does for a lone boar.
+		local leaderCalm = (not follower) or sounder.leaderState == nil or Brain.classOf(sounder.leaderState) == "calm"
+		if self._sinceCalm >= config.CALM_TIME and leaderCalm then
+			self:_settle(position)
+		end
+	else
+		self._sinceCalm = 0
+	end
+end
+
 function Brain:step(dt: number, obs)
 	local config = self._config
 	dt = math.clamp(dt, 0, config.DT_CLAMP)
@@ -615,7 +1071,26 @@ function Brain:step(dt: number, obs)
 	if obs.wound and obs.wound.collapse then
 		self:_collapse()
 	end
+	-- A SHOT IS HEARD HERE, beside the hits and for the same reason: a reaction that waited for the
+	-- next sense tick would be up to SENSE_INTERVAL late (task 118, section 4.5). Every boar is
+	-- handed every drained sound; the Brain owns the audible radius, which is why the test is in
+	-- `_hearSound` and not in the Runtime's fan-out.
+	if obs.sounds then
+		for _, sound in ipairs(obs.sounds) do
+			self:_hearSound(sound, position)
+		end
+	end
 	self._boltFor = math.max(0, self._boltFor - dt)
+	-- THE AWARENESS TIMERS (task 118), counted with dt beside the bolt. With the flag off they are
+	-- never set, so this is three subtractions and nothing else.
+	self._alertFor = math.max(0, self._alertFor - dt)
+	self._refractoryFor = math.max(0, self._refractoryFor - dt)
+	self._avoidFor = math.max(0, self._avoidFor - dt)
+	-- ...AND WHAT RUNNING OUT MEANS (sections 3.3 and 3.4). Both are TIMER transitions and not
+	-- sense-tick ones, so `ALERT_SECONDS` is 2.5 s and not 2.5 s rounded up to the next tick.
+	if (self._state == "ALERT" and self._alertFor <= 0) or (self._state == "AVOID" and self._avoidFor <= 0) then
+		self:_settle(position)
+	end
 	-- The column latch is ticked for every boar and SET only for a follower, so a lone boar's
 	-- timers are untouched by this task.
 	self._columnFor = math.max(0, self._columnFor - dt)
@@ -685,7 +1160,14 @@ function Brain:step(dt: number, obs)
 		self._sinceSense = 0
 	end
 
-	local centroid, nearestDistance = self:_threatInfo(position, obs.threats)
+	-- PERCEPTION, EVERY STEP (task 118, section 4.2), because the route's anchor and the bolt's
+	-- threat point below are read every frame today: perceiving at 5 Hz instead would leave a
+	-- fleeing boar's away-vector up to 0.2 s stale, which is a change to the FLAG-OFF world and this
+	-- task may not make one. The `probe` is the expensive half and the only per-tick half -- it is
+	-- handed in on a sense tick only, and only when `REQUIRE_SIGHT` asks for it at all.
+	local perception = Brain.perceive(position, obs.threats, config, if sensing then obs.probe else nil)
+	self._perception = perception
+	local centroid, nearestDistance = perception.centroid, perception.nearestDistance
 	self._threatPoint = centroid
 	-- While bolting, the shot point IS the threat, even when the shooter is 200 studs away and would
 	-- never have registered as one. That is what makes the existing route code run the boar away
@@ -699,7 +1181,12 @@ function Brain:step(dt: number, obs)
 	local sounder = obs.sounder
 	local follower = sounder ~= nil and not sounder.isLeader
 
-	if sensing then
+	local aware = config.SENSE ~= nil and config.SENSE.ENABLED == true
+	if sensing and aware then
+		-- THE PRECEDENCE TABLE (task 118, section 3.2). Everything below `elseif sensing then` is
+		-- the code this file ran before task 118 and is reached whenever the flag is off.
+		self:_senseAware(position, obs, perception, follower)
+	elseif sensing then
 		if self._state == "IDLE" then
 			-- HERD PANIC. A sounder bolts as one animal: without this rule the first contact tears
 			-- the group in half, because only the members with the driver inside their own
@@ -740,7 +1227,27 @@ function Brain:step(dt: number, obs)
 
 	local desiredDirection, desiredSpeed
 	local stuckTurn = nil :: number?
-	if self._state == "IDLE" then
+	if self._state == "ALERT" then
+		-- HEAD UP, STOPPED, TURNED TO THE CAUSE (section 4.4). Both limits are the existing ones:
+		-- the facing goes through the `TURN_RATE` slew below (a 180-degree turn takes 0.79 s) and
+		-- the setpoint through the `ACCEL` ramp, so an animal that was walking stops over 0.07 s
+		-- rather than snapping. No new mechanism, and no path: ALERT never routes.
+		local toward = self._alertPoint
+		desiredDirection = if toward then unit(flat(toward) - flat(position), self._desired) else self._desired
+		desiredSpeed = 0
+	elseif self._state == "AVOID" then
+		-- TURNED AWAY AND TROTTING OFF toward the one target `_enterAvoid` drew. The existing
+		-- Reynolds fallback, one target, and no `pathRequest` anywhere in this branch.
+		local target = self._avoidPoint
+		desiredDirection = if target then unit(flat(target) - flat(position), self._heading) else self._heading
+		self._heading = desiredDirection
+		desiredSpeed = config.TROT_SPEED
+		-- The wound scales the SETPOINT here exactly as it does in FLEE below: an animal that is
+		-- bleeding does not trot away at full speed.
+		if obs.wound and obs.wound.speedScale then
+			desiredSpeed *= obs.wound.speedScale
+		end
+	elseif self._state == "IDLE" then
 		-- THE CALM REPERTOIRE, in place of the old "grazing or wandering" boolean (task 117). The
 		-- activity decides the speed setpoint and travels out as `intent.activity`, which is the
 		-- only thing `Body` needs to draw it. Nothing else about IDLE changes: the heading, the home
@@ -780,7 +1287,10 @@ function Brain:step(dt: number, obs)
 			self._waypoints = nil -- the route led into whatever we are stuck on
 		end
 		self._heading = desiredDirection
-		local threatened = nearestDistance <= config.DETECT_RADIUS or self._boltFor > 0
+		-- SPRINT INSIDE THE FLUSH BAND, TROT OUTSIDE IT (section 3.1). With the flag off every
+		-- flush radius IS `DETECT_RADIUS`, so `reaction == "flee"` is exactly the old
+		-- `nearestDistance <= DETECT_RADIUS` and this line is one rule instead of a branch.
+		local threatened = perception.reaction == "flee" or self._boltFor > 0
 		desiredSpeed = if threatened then config.SPRINT_SPEED else config.TROT_SPEED
 		-- A FOLLOWER MATCHES ITS LEADER instead of deciding for itself, so the sounder does not
 		-- concertina. With no leader -- scattering, or promoted away this tick -- the rule above

@@ -521,9 +521,18 @@ return function()
 				-- trigger. What is asserted is therefore "the ENVELOPE is the only invisible part",
 				-- which is a stronger claim than the old "every part is visible" and still fails on
 				-- the thing that check existed for -- a viewmodel that is on screen but blank.
+				-- THE MUZZLE FLASH IS NOT A PIECE OF THE GUN (task 112, `Viewmodel.flash`): it is an
+				-- invisible 0.05-stud Part named `MuzzleFlash`, created under the clone to carry a
+				-- PointLight and two emitters, and `Debris` takes it away `smoke.seconds +
+				-- flash.seconds + 0.2` = 1.835 s after each shot. While it is alive the clone has a
+				-- THIRD invisible part and `visible == parts - 2` is false -- which is exactly how
+				-- `test2` failed at task 118's head, in a file task 118 does not touch. It is
+				-- skipped by NAME rather than counted: the claim below is about the gun's own
+				-- pieces, and a blank viewmodel still fails it.
+				local FLASH_NAME = "MuzzleFlash"
 				local parts, visible = 0, 0
 				for _, part in ipairs(model:GetDescendants()) do
-					if part:IsA("BasePart") then
+					if part:IsA("BasePart") and part.Name ~= FLASH_NAME then
 						parts += 1
 						if part.Transparency < 1 then
 							visible += 1

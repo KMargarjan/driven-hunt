@@ -54,13 +54,24 @@ local world = Boar.defaultWorld()
 -- `threats` closes over the MODULE-level Boar.CONFIG, not over the runtime's merged clone, so
 -- passing `config = { isThreat = ... }` into the world would change the Brain's copy and not the one
 -- that actually filters threats. Replace the function itself, here, at the composition root.
--- Only DRIVERS scare boars: a shooter standing on a post must not push the boar back into the wood
--- before it reaches the line.
-world.threats = Match.driverThreats
+-- EVERYTHING A BOAR CAN PERCEIVE, drivers and shooters alike, each carrying its own `kind` (task
+-- 118). WHO SCARES IT IS STILL NOT THIS LINE'S DECISION: with `BOAR_BEHAVIOUR` off the Brain drops
+-- every stimulus that is not a driver, so a shooter on a post is invisible and cannot push the boar
+-- back into the wood -- exactly as before. With the flag on he is noticed at 25 studs and flushes it
+-- only at 15, which is what lets a boar come down to the line at all.
+-- Design: docs/design/boar-behaviour.md section 8
+world.threats = Match.boarThreats
 
 local runtime = Boar.newRuntime(world)
 -- The Heartbeat is boot; WHEN a boar exists is the Match's call, so nothing is spawned here.
 runtime:run()
+
+-- A SHOT IS A SOUND (task 118, docs/design/boar-behaviour.md section 4.5): every boar inside
+-- `SENSE.SHOT_AUDIBLE_STUDS` sprints, hit or miss. The mirror of the `HitReported` line below, in
+-- the same composition root and for the same reason -- neither owner requires the other.
+Weapon.ShotFired:Connect(function(shot)
+	runtime:hearShot(shot.muzzle)
+end)
 
 -- Unchanged from BoarBoot. The weapon publishes hits; the boar's own owner decides what a hit means.
 Weapon.HitReported:Connect(function(report)

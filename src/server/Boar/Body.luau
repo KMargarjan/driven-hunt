@@ -62,6 +62,105 @@ function Body.ensureFolder(parent: Instance, name: string): Folder
 	return folder
 end
 
+-- ---------------------------------------------------------------- the three animals (task 119)
+--
+-- Karen: "we need also biger smaller kids ect". RedDeer's package is a FAMILY on one skeleton
+-- (`Arm_Boar`; 40 `Bone` instances arrive in Studio, the same 40 names in all three -- counted off
+-- the three loaded templates on 2026-10-04), so a sow and a cub are the same animal at
+-- a different length: `tools/boar_prep.py` baked 4.675 and 2.475 studs into their geometry against
+-- the male's 5.5, and everything this file builds around them is the male's numbers times that ratio.
+--
+-- ONE SCALE, EVERY BOX. The physics trunk and all four hit zones scale together, so a cub is a SMALL
+-- TARGET in exactly the way it looks small: its chest is 0.45 of the male's chest and its head is
+-- 0.45 of his head, and no number anywhere says so twice.
+--
+-- THE PROTRUSION SCALES WITH THEM, deliberately. `ZONES.PROTRUSION` is the clearance that stops a
+-- zone part being FLUSH with the trunk, because two coincident surfaces at one ray distance is a
+-- coin toss and not a hit zone (task 116, review round 2). Scaled, a cub's zones stand 0.027 studs
+-- proud instead of 0.06 -- smaller, but still a clearance a float comparison settles the same way
+-- every time, and still proportionally what the male has.
+--
+-- WITH `BOAR_MODEL` OFF EVERY KIND IS THE MALE, box for box: the flag gates the whole block, so the
+-- grey-box world is the one Milestone 1.2 shipped and every spec written against it still holds.
+function Body.kindRow(kind: string?, config)
+	local kinds = config.KINDS
+	if kinds == nil or kinds.ENABLED ~= true then
+		-- The no-KINDS fallback carries its own `name`, so `kindGeometry(...).kind` is never nil
+		-- and `Body.create` cannot stamp a handle with no kind (review round 2, note).
+		return kinds and kinds[kinds.DEFAULT] or { name = "male", scale = 1, clipScale = 1, model = "male" }
+	end
+	return kinds[kind or kinds.DEFAULT] or kinds[kinds.DEFAULT]
+end
+
+-- Every box one kind's body is made of. Pure, so a spec can measure a cub with no cub in the world.
+function Body.kindGeometry(kind: string?, config)
+	local row = Body.kindRow(kind, config)
+	local scale = row.scale
+	local zones = {}
+	for _, name in ipairs(config.ZONES.ORDER) do
+		local spec = config.ZONES[name]
+		zones[name] = {
+			part = spec.part,
+			size = spec.size * scale,
+			offset = spec.offset * scale,
+			tint = spec.tint,
+		}
+	end
+	return {
+		kind = row.name,
+		scale = scale,
+		clipScale = row.clipScale,
+		model = row.model,
+		bodySize = config.BODY_SIZE * scale,
+		zones = zones,
+	}
+end
+
+-- EVERY BAND EDGE AND BOTH RATE RAILS, FOR ONE ANIMAL (task 119, review round 2, finding 1).
+--
+-- `MAX_RATE`'s own derivation says what it is for: "THE CEILING IS ABOVE EVERYTHING THE GAME CAN ASK
+-- FOR, so it never shapes how an animal moves -- it only refuses the absurd rate a mis-measured clip
+-- would produce". 2.8 clears everything the MALE can ask for. It does not come close to clearing what
+-- a CUB asks for, and the Reviewer measured it: a cub's trot clip carries 10.244 x 0.4372 = 4.479
+-- studs/s, so the ceiling is reached at 12.5 while the animal is pushed to `TROT_SPEED` = 18 and runs
+-- at `SPRINT_SPEED` = 38 -- rates of 4.02 and 5.05, both clamped, so the feet carried 12.5 and 21.1
+-- studs/s while the body travelled 18 and 38. A 30 % and a 45 % slide, on a cub running beside its
+-- mother, which is the one thing in this task a player looks straight at.
+--
+-- SO THE RAILS ARE THE ANIMAL'S OWN, and so are the gait edges. Both are the male's numbers
+-- expressed in this animal's stride:
+--   * the CEILING is a cadence. The male's legs may be played at up to 2.8 of the clip's own speed;
+--     a cub's stride is 0.4372 of his, so the same cadence ceiling in the cub's units is 2.8 /
+--     0.4372 = 6.40. That is not a licence to look silly -- it is what keeps the rail ABOVE
+--     everything the game can ask for, which is the only promise the number ever made. The FLOOR
+--     stays where it is, for the reason written on it below.
+--   * a band edge is a WORLD SPEED at which an animal changes gait, and the two that matter are
+--     derived from the male's clips (`TROT_FROM` is where the walk clip reaches `WALK_MAX_RATE`). A
+--     small animal changes gait at a lower absolute speed -- a piglet is running where its mother
+--     trots -- so the edges scale with the stride too. The cub then plays `run` at 2.39 when the
+--     sounder is at 18 and 5.05 at a sprint, instead of trotting at a 4x blur.
+-- With `BOAR_MODEL` off, and for the male in either state, `clipScale` is 1 and every number here is
+-- the literal `MODEL` value: the flag-OFF world is arithmetically untouched.
+function Body.gaitBands(clipScale: number?, config)
+	local model = config.MODEL
+	local scale = if clipScale and clipScale > 0 then clipScale else 1
+	return {
+		scale = scale,
+		walkFrom = model.WALK_FROM * scale,
+		trotFrom = model.TROT_FROM * scale,
+		runFrom = model.RUN_FROM * scale,
+		-- THE FLOOR DOES NOT SCALE AND THE CEILING DOES, and the difference is what each rail is
+		-- about. `MIN_RATE` says a clip may not be played so slowly that it reads as slow motion --
+		-- a property of the CLIP, the same 0.4 whatever is wearing it; scaling it up put a cub's
+		-- floor at 0.915 and clamped the trot clip at the BOTTOM of its own band, where every animal
+		-- asks for 0.501. `MAX_RATE` says the opposite thing about the game rather than the clip --
+		-- "the ceiling is above everything the game can ask for" is its own derivation -- and what
+		-- the game asks of a cub is its stride's worth more.
+		minRate = model.MIN_RATE,
+		maxRate = model.MAX_RATE / scale,
+	}
+end
+
 -- The three hit-zone parts (hit-zones design section 4.2). Massless, so the assembly's mass, centre
 -- of mass and inertia are untouched and MAX_FORCE / MAX_TORQUE / ACCEL stay correct; CanCollide
 -- false, so the collision body is still the plain box and a protruding head cannot catch on the
@@ -69,11 +168,13 @@ end
 -- false, because an anchored part welded into an assembly anchors the whole boar. Damageable is NOT
 -- set on them: it belongs to the target root alone, and two damageable instances in one ancestor
 -- chain is an ambiguity, not a feature.
-local function buildZones(config, trunk: BasePart): { BasePart }
+local function buildZones(config, trunk: BasePart, geometry): { BasePart }
 	local zones = config.ZONES
 	local parts = {}
 	for _, zone in ipairs(zones.ORDER) do
-		local spec = zones[zone]
+		-- THE KIND'S OWN BOX, not the male's (task 119). `geometry.zones` is the male's table times
+		-- this animal's scale, and with `BOAR_MODEL` off it IS the male's table.
+		local spec = geometry.zones[zone]
 		local zonePart = Instance.new("Part")
 		zonePart.Name = spec.part
 		zonePart.Size = spec.size
@@ -105,10 +206,11 @@ end
 -- Builds one boar body at `position` and returns a handle the Runtime keeps. The Part is parented
 -- last, then the zone parts are welded on and the network owner is set: all of those need the part
 -- to be in the DataModel.
-function Body.create(config, folder: Folder, id: string, position: Vector3)
+function Body.create(config, folder: Folder, id: string, position: Vector3, kind: string?)
+	local geometry = Body.kindGeometry(kind, config)
 	local part = Instance.new("Part")
 	part.Name = id
-	part.Size = config.BODY_SIZE
+	part.Size = geometry.bodySize
 	part.Color = config.BODY_COLOR
 	part.Material = Enum.Material.SmoothPlastic
 	part.TopSurface = Enum.SurfaceType.Smooth
@@ -150,7 +252,7 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 
 	part.Parent = folder
 
-	local zoneParts = buildZones(config, part)
+	local zoneParts = buildZones(config, part, geometry)
 
 	-- Only the server may own the boar: a client must not be able to push it. This errors on an
 	-- anchored part, which is why the body is unanchored. It is also server-only, so a Studio Play
@@ -169,6 +271,10 @@ function Body.create(config, folder: Folder, id: string, position: Vector3)
 
 	return {
 		id = id,
+		-- WHICH ANIMAL THIS IS (task 119): "male", "female" or "cub". It decides the boxes above, the
+		-- model that is drawn on it and the rate its clips play at, and it never changes after this.
+		kind = geometry.kind,
+		geometry = geometry,
 		part = part,
 		attachment = attachment,
 		mover = mover,
@@ -378,7 +484,10 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 		drawn.Anchored = false -- an anchored part welded into an assembly anchors the whole boar
 	end
 	cloneMesh.CastShadow = true
-	cloneMesh.CFrame = trunk.CFrame * CFrame.new(Body.visualOffset(cloneMesh.Size, config.BODY_SIZE))
+	-- THE KIND'S OWN BOX (task 119): the offset is worked out from the template's measured height
+	-- against the box this animal actually has, so a cub's feet land on a cub's box.
+	local boxSize = (handle.geometry and handle.geometry.bodySize) or config.BODY_SIZE
+	cloneMesh.CFrame = trunk.CFrame * CFrame.new(Body.visualOffset(cloneMesh.Size, boxSize))
 	model.PrimaryPart = cloneMesh
 	model.Parent = trunk
 
@@ -532,8 +641,11 @@ function Body.activityClip(info, config): (string?, number)
 	-- `digWalk`'s feet do not slide at the speed the row asks the Brain for.
 	local clip = config.MODEL.CLIPS[row.clip]
 	if clip.groundStudsPerSecond > 0 then
-		local model = config.MODEL
-		return row.clip, math.clamp(info.speed / clip.groundStudsPerSecond, model.MIN_RATE, model.MAX_RATE)
+		-- The kind's own stride AND the kind's own rails, exactly as `clipFor`'s gaits read them
+		-- (task 119, review round 2).
+		local bands = Body.gaitBands(info.clipScale, config)
+		return row.clip,
+			math.clamp(info.speed / (clip.groundStudsPerSecond * bands.scale), bands.minRate, bands.maxRate)
 	end
 	return row.clip, 1
 end
@@ -571,13 +683,20 @@ function Body.clipFor(info, config): (string?, number)
 	local model = config.MODEL
 	local clips = model.CLIPS
 
+	-- A SMALLER ANIMAL COVERS LESS GROUND PER STRIDE, and `clipScale` is that ratio MEASURED rather
+	-- than assumed (task 119): `tools/boar_prep.py` reports each animal's own ground speed for every
+	-- clip, and the female's came out 0.8553 of the male's and the cub's 0.4372, the same ratio on
+	-- all four locomotion clips. So the rate that stops the feet sliding divides by the male's
+	-- number times this animal's scale. It is 1 for the male and 1 with `BOAR_MODEL` off.
+	local bands = Body.gaitBands(info.clipScale, config)
+	local clipScale = bands.scale
 	local function gait(name: string): (string, number)
 		local clip = clips[name]
 		local rate = 1
 		if clip and clip.groundStudsPerSecond > 0 then
-			rate = info.speed / clip.groundStudsPerSecond
+			rate = info.speed / (clip.groundStudsPerSecond * clipScale)
 		end
-		return name, math.clamp(rate, model.MIN_RATE, model.MAX_RATE)
+		return name, math.clamp(rate, bands.minRate, bands.maxRate)
 	end
 
 	-- A DEATH AND A FLINCH ARE IMMEDIATE AND IGNORE THE DWELL BELOW. They are the two the player is
@@ -608,7 +727,7 @@ function Body.clipFor(info, config): (string?, number)
 		local clip = model.CLIPS.crippleDrag
 		local rate = 1
 		if clip.groundStudsPerSecond > 0 then
-			rate = math.clamp(info.speed / clip.groundStudsPerSecond, model.MIN_RATE, model.MAX_RATE)
+			rate = math.clamp(info.speed / (clip.groundStudsPerSecond * clipScale), bands.minRate, bands.maxRate)
 		end
 		return "crippleDrag", rate
 	end
@@ -632,13 +751,13 @@ function Body.clipFor(info, config): (string?, number)
 	end
 
 	local function wanted(): (string, number)
-		if info.speed >= model.RUN_FROM then
+		if info.speed >= bands.runFrom then
 			return gait("run")
 		end
-		if info.speed >= model.TROT_FROM then
+		if info.speed >= bands.trotFrom then
 			return gait("trot")
 		end
-		if info.speed >= model.WALK_FROM then
+		if info.speed >= bands.walkFrom then
 			return gait("walk")
 		end
 		-- HYSTERESIS: a turn that is already running keeps running down to TURN_EXIT_DEG, and one
@@ -648,6 +767,17 @@ function Body.clipFor(info, config): (string?, number)
 		local enter = if turning then model.TURN_EXIT_DEG else model.TURN_FROM_DEG
 		if math.abs(info.yawRate) >= enter then
 			return (if info.yawRate > 0 then "turnLeft" else "turnRight"), 1
+		end
+		-- HEAD UP (task 118, design section 3.6). It sits AFTER the turn hysteresis because a
+		-- boar still swinging round to face the cause is turning -- ALERT's facing goes through
+		-- the same `TURN_RATE` slew every other state's does -- and BEFORE `idle` because an
+		-- alert animal is standing still and would otherwise draw the resting clip.
+		--
+		-- `MODEL.ALERT_CLIP` NAMES A ROW IN `CLIPS`, and that string is the whole of this
+		-- task's dependency on the drawn animal: with no id published `hasClip` is false, the
+		-- boar plays `idle`, and every behaviour in task 118 is unchanged.
+		if info.alert and Body.hasClip(model.ALERT_CLIP, config) then
+			return model.ALERT_CLIP, 1
 		end
 		return "idle", 1
 	end
@@ -877,6 +1007,7 @@ function Body.stepVisual(handle, dt: number, info, config)
 		collapsed = handle.collapsed,
 		deadFor = handle.deadFor,
 		crippled = info.crippled == true,
+		alert = info.alert == true,
 		activity = handle.activity,
 		activityFor = handle.activityFor,
 		exitClip = handle.exitClip,

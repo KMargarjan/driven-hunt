@@ -633,4 +633,34 @@ function Body.driverPositions(teamOf: (Player) -> TeamName?, service: any?): { {
 	return out
 end
 
+-- EVERYTHING A BOAR CAN PERCEIVE, with what KIND each one is (task 118). A new function beside
+-- `driverPositions` and deliberately not a change to it: that one answers "who is pushing, and who
+-- may be tied", this one answers "what can a boar perceive". One predicate answering two unrelated
+-- questions is a named cause of death of the previous project, and `Match.playerDrivers` and
+-- `Penalty` keep reading the old one unchanged.
+--
+-- A SHOOTER STANDING ON A POST IS NOW PERCEIVABLE, and that is what makes Karen's central scene
+-- possible: he is noticed at 25 studs and flushes the animal only at 15, so a boar can come down
+-- the corridor to the line instead of turning back at the first man it can see. Whether it reacts
+-- to him at all is `Boar.CONFIG.SENSE.ENABLED`'s decision, in the Brain, not this function's.
+-- Design: docs/design/boar-behaviour.md section 8
+function Body.boarStimuli(
+	teamOf: (Player) -> TeamName?,
+	service: any?
+): { { id: string, position: Vector3, kind: string } }
+	local out = {}
+	for _, player in ipairs((service or Players):GetPlayers()) do
+		local team = teamOf(player)
+		local kind = if team == "Drivers" then "driver" elseif team == "Shooters" then "shooter" else nil
+		if kind then
+			local character = player.Character
+			local root = character and character.PrimaryPart
+			if root then
+				table.insert(out, { id = tostring(player.UserId), position = root.Position, kind = kind })
+			end
+		end
+	end
+	return out
+end
+
 return Body

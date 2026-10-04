@@ -66,6 +66,14 @@ Boar.fadeFor = Body.fadeFor
 -- yet. The second is the whole of "if an id is missing, the current behaviour stays".
 Boar.deathClips = Body.deathClips
 Boar.hasClip = Body.hasClip
+-- ...and task 119's two: which row an animal's kind is, and every box that kind's body is made of.
+-- Pure, for the same reason as every export above it -- a spec can measure a cub with no cub in the
+-- world, and the one that matters is that a cub's hit zones are a cub's size.
+Boar.kindRow = Body.kindRow
+Boar.kindGeometry = Body.kindGeometry
+-- ...and the one review round 2 added: every gait edge and both rate rails for one animal, so "a cub
+-- is never asked for a rate its own ceiling refuses" is a sweep with no boar in the world.
+Boar.gaitBands = Body.gaitBands
 -- ...and task 117's three: which activity a roll draws, the row for a name, and the clip an activity
 -- draws. Pure, so every weight, every clip and every transition is a case with no boar in the world.
 Boar.calmActivity = Brain.calmActivity
@@ -177,16 +185,46 @@ Boar.CONFIG = {
 		ORDER = { "head", "chest", "rear", "legs" }, -- creation order; also the order specs walk them in
 		ZONE_TINT = true, -- Karen's dial: a grey-box teaching aid, off when the model arrives
 		PROTRUSION = 0.06, -- studs every zone part stands proud by, so the ray meets it first
+		-- THE HEAD IS ON THE DRAWN HEAD (task 119), and until this task it was not: it was a box
+		-- hanging in the air 1.15 studs in FRONT of the snout, which is where the grey box's "head"
+		-- was when no animal was drawn on it. A shot at the animal's face landed on the trunk and
+		-- was charged to `body`.
+		--
+		-- MEASURED OFF THE LOADED MODEL, 2026-10-04, in a Play session, reading the rig's own bones
+		-- out of `ServerStorage.AssetCache` (mesh object space, then +0.1286 on Y to put it in the
+		-- trunk's frame -- the offset `Body.visualOffset` applies to stand the feet on the box):
+		--     nose  z -2.388, y 0.666      head  z -1.279, y 0.912
+		--     eye   z -1.779, y 1.087      Neck  z -0.866, y 0.872
+		--     ears  z -1.208, y 1.570      the mesh's own front face z -2.750
+		-- So the drawn skull runs z -2.75 to about -1.10 and y 0.35 to 1.65, and these two boxes are
+		-- that, with the same PROTRUSION rules task 116 wrote for the rump:
+		--   -Z front  PROUD by 0.06 (-2.81 against the trunk's -2.75): the face is the one angle a
+		--             head shot is actually taken from, and nothing else of the animal is there.
+		--   +Y top    PROUD by 0.15 (+1.65 against +1.50): the top of the skull is the head.
+		--   +-X       NOT proud, deliberately, and it is the one thing this box cannot fix: the
+		--             drawn head is 1.1 studs wide and the trunk is 2.0, so a ray from the FLANK
+		--             meets the trunk before it meets the head and is charged to `body`. That was
+		--             already true -- the old box was narrower than the trunk too -- and the only
+		--             fix is a narrower trunk at the front, which is a change to the animal's
+		--             collision shape that nobody asked for. Front, above and ahead of the shoulder
+		--             are head; a pure flank is body.
+		--   +Z rear   an interior boundary at -1.45, where `chest` now begins.
 		head = {
 			part = "ZoneHead",
-			size = Vector3.new(1.2, 1.2, 1.4),
-			offset = Vector3.new(0, 0.5, -3.2), -- 1.15 studs proud of the front face
+			size = Vector3.new(1.2, 1.3, 1.36),
+			offset = Vector3.new(0, 1.0, -2.13), -- spans y 0.35..1.65, z -2.81..-1.45
 			tint = Color3.fromRGB(206, 120, 120),
 		},
+		-- ...AND THE CHEST MOVED BACK ONTO THE SHOULDER, because it had to: it was at z -2.45..-0.75,
+		-- which on the drawn animal is the NECK AND THE BACK OF THE SKULL, and the head cannot sit
+		-- where it belongs while another zone part is already there (two boxes at one ray distance is
+		-- the coin toss task 116's review removed). It keeps its box and its damage exactly; only the
+		-- Z moves, by one stud, onto the shoulder its own comment has always named: the front legs
+		-- attach at z -0.53 to -0.70 (`hip_1_f`, `thigh_f`), so heart and lungs are -1.45 to +0.25.
 		chest = {
 			part = "ZoneChest",
 			size = Vector3.new(2.12, 2.01, 1.7),
-			offset = Vector3.new(0, 0.555, -1.6), -- heart/lungs behind the shoulder
+			offset = Vector3.new(0, 0.555, -0.6), -- heart/lungs behind the shoulder: z -1.45..+0.25
 			tint = Color3.fromRGB(198, 150, 150),
 		},
 		-- THE HINDQUARTERS (task 116). Karen, 2026-10-03: "can be hit to back part start to do circles
@@ -379,6 +417,11 @@ Boar.CONFIG = {
 			[5] = Vector3.new(3.5, 0, 18),
 		},
 		COLUMN_SPACING_STUDS = 9, -- single file: slot i -> (0, 0, (i-1) * 9)
+		-- SINGLE FILE OR A LOOSE GROUP, DRAWN ONCE PER SOUNDER (task 118). Karen: "they
+		-- usually do one line each after another or mixed like in real life" -- so half and
+		-- half. Behind `SENSE.ENABLED`: with it off every sounder is the wedge and the probe
+		-- latch below is the only column, which is exactly today. Karen's dial.
+		COLUMN_CHANCE = 0.5,
 		COLUMN_LATCH_SECONDS = 1.5, -- how long blockedAhead holds the column after the probe clears
 		SLOT_TOLERANCE_STUDS = 5, -- inside it, cohesion is 0 (arrival) and the speed matches the leader
 		NEIGHBOUR_STUDS = 25, -- the boids neighbourhood: a boid only sees flockmates within a radius
@@ -401,6 +444,20 @@ Boar.CONFIG = {
 		SCATTER_ON_HIT = true, -- ANY hit, not only a kill. Karen's dial
 		LEAVE_ON_MORTAL = true, -- a mortally wounded animal drops out of the sounder. Karen's dial
 		LEADER_PATHS_ONLY = true, -- one ComputeAsync per sounder (design, "one route per sounder")
+		-- WHO IS IN A SOUNDER (task 119, behind `BOAR_MODEL`). A sounder is a sow with her young;
+		-- a lone animal is a male. That is the agreed makeup (Director, 2026-10-04) and it is also
+		-- what a real sounder is -- the boars that travel alone are the mature males.
+		--
+		-- THE OCCASIONAL YOUNG MALE is the one draw here: a yearling still running with its mother.
+		-- It is a MALE-sized animal in a group of cubs, so it is also the thing that makes "aim at
+		-- the big one" a decision rather than a reflex. Karen's dial.
+		MAKEUP = {
+			SOW = "female",
+			YOUNG = "cub",
+			YOUNG_MALE = "male",
+			YOUNG_MALE_CHANCE = 0.25,
+			LONE = "male",
+		},
 	},
 
 	-- The one function that decides who scares a boar (design section 4). v1: every player.
@@ -635,6 +692,126 @@ Boar.CONFIG.CALM = {
 	},
 }
 
+-- WHAT A BOAR NOTICES, AND WHAT IT DOES ABOUT IT (task 118), behind `BOAR_BEHAVIOUR`. Karen's scene:
+-- "imagine they on easy, then see dog or person spook them they run", "it can be they relaxed if
+-- hunter doesnt move", "once move it start to run or turn around and go another direction", "so
+-- after shoot they will start sprint", and panic "spreading agree with you".
+--
+-- Pattern: awareness LEVELS with a dwell time and a refractory period, fed by ONE sensory function,
+-- with a separate "notice" and "flush" radius per stimulus and hearing as a world event rather than
+-- a query.
+--   Tom Leonard, "Building an AI Sensory System: Examining the Design of Thief: The Dark Project"
+--     (GDC 2003) https://www.gamedeveloper.com/programming/building-an-ai-sensory-system-examining-the-design-of-i-thief-the-dark-project-i-
+--   Unreal Engine AIPerception (per-sense configs, gain radius != lose radius, stimulus age)
+--     https://dev.epicgames.com/documentation/en-us/unreal-engine/ai-perception-in-unreal-engine
+--     -- pattern only, no code (Unreal EULA)
+-- The 25/60 split is Karen's, and it is also what flight-initiation-distance theory reports:
+-- distance to flight grows with the approacher's speed and directness (Stankowich & Blumstein,
+-- Proc. R. Soc. B 272 (2005) 2627-2634).
+--
+-- Design: docs/design/boar-behaviour.md (sections 3, 4, 5, 7.1)
+-- Note:   docs/research/2026-10-04-boar-behaviour.md
+Boar.CONFIG.SENSE = {
+	-- THE FLAG, READ ONCE AT THIS BOUNDARY, exactly as `MODEL.ENABLED` and `CALM.ENABLED` read
+	-- theirs (CLAUDE.md, feature flags). Every function below takes the value through `config`, so
+	-- both branches are reachable by parameter while the flag sits at one of them -- which is the
+	-- only way either branch can be tested, because the harness refuses to start with an override.
+	ENABLED = Flags.isOn("BOAR_BEHAVIOUR"),
+
+	-- THE TWO RADII KAREN GAVE (brief decision 1, "agree"). A standing person is noticed at 25; a
+	-- moving one at 60, which is `Match.CONFIG.POINTS.PUSH_RADIUS` exactly, so push credit and the
+	-- boar's own reaction begin at the same distance.
+	NOTICE_STANDING = 25,
+	NOTICE_MOVING = 60,
+	-- ...and the third number, the one the playtest answers: how close a man gets before the animal
+	-- bolts whatever it is doing. 0.6 x NOTICE_STANDING leaves a 10-stud band of "head up" first.
+	FLUSH_STUDS = 15,
+
+	-- WHAT COUNTS AS MOVING. The default Humanoid.WalkSpeed is 16 studs/s, and a standing
+	-- character's server-measured displacement stays well under 1 (the smoothing below is why).
+	MOVING_SPEED = 2,
+	-- ...measured over this window and not over one frame, for the same reason
+	-- `MODEL.YAW_SMOOTH_SECONDS` exists: one frame's delta on a replicated body is noise, not a
+	-- rate. Longer than the yaw's 0.2 because this one is a gameplay threshold.
+	SPEED_SMOOTH_SECONDS = 0.3,
+
+	-- THE HYSTERESIS, AND THE ONE RELATIONSHIP THAT MUST NOT DRIFT. A boar is calm when nothing is
+	-- inside its own notice radius PLUS this margin, and 30 is exactly CALM_RADIUS - DETECT_RADIUS
+	-- (70 - 40), so with the flag OFF the calm test is arithmetically today's. `boar_behaviour.spec`
+	-- asserts that equality so the two can never drift apart silently.
+	CALM_MARGIN = 30,
+
+	-- HEAD UP, THEN SETTLE. A 180-degree turn costs 0.79 s at TURN_RATE = 4 rad/s, which leaves
+	-- ~1.7 s of actual head-up hold. Karen's dial.
+	ALERT_SECONDS = 2.5,
+	-- ...and then it will not go head-up again for this long. Without it a boar standing 20 studs
+	-- from a motionless hunter flips IDLE->ALERT->IDLE every 2.5 s for ever; with it the animal
+	-- grazes and lifts its head occasionally, which is what Karen asked for ("they relaxed").
+	ALERT_REFRACTORY_SECONDS = 8,
+
+	-- TURNED AWAY AND TROTTING OFF. The seconds are `CALM_TIME`: the same "it has stopped caring"
+	-- span the system already uses. The angle is past 90 degrees so it reads as a refusal and not a
+	-- sidestep ("turn around and go another direction"), and the distance is 2 s of trot plus
+	-- margin -- one steering target, drawn on entry and never a path request.
+	AVOID_SECONDS = 4,
+	AVOID_TURN_DEG = 120,
+	AVOID_STUDS = 80,
+
+	-- A SHOT IS A SOUND, HIT OR MISS. 350 studs is ~98 m at 1 stud = 0.28 m. A 12-gauge is really
+	-- audible for kilometres, and the whole 1,240 x 1,680 corridor bolting at the first shot would
+	-- end a drive in 30 seconds -- so this is a GAMEPLAY number with no real-world anchor, and it is
+	-- the one in this block most likely to change. Karen's dial.
+	SHOT_AUDIBLE_STUDS = 350,
+	-- ...held one second longer than `WOUND.BOLT_SECONDS` = 3: a hit boar carries on because it is
+	-- hurt, an unhit one only has the bang.
+	SHOT_SPRINT_SECONDS = 4,
+
+	-- PANIC SPREADS MEMBER TO MEMBER, nearest first, so it reads as spreading rather than as a group
+	-- teleporting into panic (Karen: "spreading agree with you"). 0.15 s is ~9 frames per hop, and a
+	-- sounder of five is fully alarmed inside 0.6 s.
+	PANIC_DELAY_SECONDS = 0.15,
+	PANIC_DELAY_MAX = 0.6,
+
+	-- A DOG IS A FLUSHER, so its radii are half again a person's. HOOK ONLY: dogs are out of scope
+	-- (the brief), nothing produces `kind = "dog"` yet, and the first dog task fills it in and
+	-- touches nothing else here.
+	DOG_NOTICE_SCALE = 1.5,
+
+	-- LINE OF SIGHT: NO, and this is the dial rather than the argument. A boar is a nose and a pair
+	-- of ears first, and a hedge does not hide a man from one. `true` makes a NOTICE (not a flush)
+	-- wait on `world.probe`; `docs/design/boar-ai.md` section 12 item 3 left this as Karen's call
+	-- with "no line-of-sight" as the default, and this keeps that default.
+	REQUIRE_SIGHT = false,
+}
+
+-- WHICH ANIMAL A BOAR IS (task 119). Karen, 2026-10-03: "we start with one bord and when this works
+-- we do with rest" and "we need also biger smaller kids ect". RedDeer's package is a FAMILY on one
+-- skeleton, so the sow and the cub are this same animal at a different length -- and the agreed
+-- makeup (Director, 2026-10-04) is that a SOUNDER is a sow with young while a LONE animal is a male.
+--
+-- `scale` IS THE BOX and `clipScale` IS THE STRIDE, and they are two different measurements:
+--   scale      the length the model was baked to, over the male's 5.5 studs. The Director's numbers:
+--              0.85 for the sow, 0.45 for a striped cub. Every box -- the physics trunk and all four
+--              hit zones -- is the male's times this, so a cub is a small target because it IS small.
+--   clipScale  how far THIS animal's feet carry it per stride, over the male's. MEASURED by
+--              `tools/boar_prep.py` on each animal's own export, and it is not the same number: the
+--              female came out 0.8553 and the cub 0.4372, identically on all four locomotion clips
+--              (walk 2.440/1.247 against the male's 2.852, trot 8.762/4.480 against 10.244, run
+--              14.720/7.526 against 17.21, dig 1.626/0.831 against 1.901). The male's published clip
+--              ids are what all three play -- same bone names, same rig -- so the rate that stops a
+--              sow's feet sliding is her own number and not his.
+--
+-- BEHIND `BOAR_MODEL`, with everything else about the drawn animal: off, every boar is a male-sized
+-- grey box and a sounder is five of them, which is the world every spec before this task asserts.
+Boar.CONFIG.KINDS = {
+	ENABLED = Flags.isOn("BOAR_MODEL"),
+	DEFAULT = "male",
+	ORDER = { "male", "female", "cub" },
+	male = { name = "male", scale = 1.0, clipScale = 1.0, model = "male" },
+	female = { name = "female", scale = 0.85, clipScale = 0.8553, model = "female" },
+	cub = { name = "cub", scale = 0.45, clipScale = 0.4372, model = "cub" },
+}
+
 Boar.CONFIG.MODEL = {
 	-- THE FLAG, READ ONCE AT THIS BOUNDARY and passed inward as `config` -- the only permitted shape
 	-- (CLAUDE.md, feature flags). Every function below takes the value as a parameter, so both
@@ -690,6 +867,15 @@ Boar.CONFIG.MODEL = {
 	-- that can ever overlap. A DEATH AND A FLINCH IGNORE IT: those must be instant, and they are the
 	-- two the player is waiting to see.
 	MIN_CLIP_SECONDS = 0.18,
+	-- THE HEAD-UP CLIP AN ALERT BOAR DRAWS (task 118), as a STRING naming a row in `CLIPS` -- which
+	-- is the whole of this task's dependency on task 117 and on the Director's publishing. The
+	-- Director's decision, 2026-10-04: it is 117's `smell` (Idle_5, 4.1667 s, the nose 30.4 degrees
+	-- up), so a boar that has winded somebody stands in the same posture it uses to scent the air.
+	-- With no id published `Body.hasClip` is false, the animal plays `idle`, and every behaviour in
+	-- task 118 is unchanged -- the same "if an id is missing, the current behaviour stays" rule the
+	-- file already rests on. It is a ONE-SHOT, so an ALERT longer than the clip holds its last pose;
+	-- `ALERT_SECONDS` = 2.5 is well inside 4.1667.
+	ALERT_CLIP = "smell",
 	-- WHICH WAY IT FALLS, derived from the roll `Body.collapse` applies rather than chosen: a
 	-- positive roll about the trunk's own Z tips its UpVector toward -X, which is the animal's LEFT.
 	-- Flip `COLLAPSE_ROLL_DEG`'s sign and the clip follows it, which a literal would not.
@@ -747,6 +933,32 @@ Boar.CONFIG.MODEL = {
 }
 
 -- Production implementations of everything the Runtime needs from the world. A spec passes its own.
+-- WHO A SOUNDER IS MADE OF (task 119). Pure: a size and a roll per member in, a list of kinds out,
+-- so the makeup is a spec case with no boar in the world. The first member is the SOW and the rest
+-- are her young, each of which may be the occasional young male.
+--
+-- IT IS NOT THE LEADER THAT IS THE SOW. The leader is whoever is nearest the exit line
+-- (`_chooseLeader`) and it changes while they run; which animal each member IS is decided once, at
+-- the spawn, and never again. A sow that falls behind her cubs is still the sow.
+function Boar.sounderKinds(size: number, rolls: { number }, config)
+	local kinds = {}
+	local makeup = config.SOUNDER.MAKEUP
+	local on = config.KINDS ~= nil and config.KINDS.ENABLED == true
+	for index = 1, math.max(0, math.floor(size)) do
+		if not on then
+			-- With `BOAR_MODEL` off every animal is the male-sized box this game has always spawned.
+			table.insert(kinds, config.KINDS and config.KINDS.DEFAULT or "male")
+		elseif index == 1 then
+			table.insert(kinds, makeup.SOW)
+		elseif (rolls[index] or 1) < makeup.YOUNG_MALE_CHANCE then
+			table.insert(kinds, makeup.YOUNG_MALE)
+		else
+			table.insert(kinds, makeup.YOUNG)
+		end
+	end
+	return kinds
+end
+
 function Boar.defaultWorld(field)
 	local config = Boar.CONFIG
 	local params = RaycastParams.new()
@@ -857,6 +1069,12 @@ end
 local Runtime = {}
 Runtime.__index = Runtime
 
+-- Flat (XZ) copy of a position. Every distance this file measures is a flat one: a boar on a slope
+-- is not further away than one on the level.
+local function flatOf(v: Vector3): Vector3
+	return Vector3.new(v.X, 0, v.Z)
+end
+
 function Boar.newRuntime(world)
 	local self = setmetatable({}, Runtime)
 	self._world = world
@@ -870,14 +1088,39 @@ function Boar.newRuntime(world)
 	-- clone twice already (Drive, Task 23a note (b); Flags' own deepFreeze).
 	self._config.MODEL = table.clone(self._config.MODEL)
 	self._config.MODEL.ANIMATION_IDS = table.clone(self._config.MODEL.ANIMATION_IDS)
+	-- ...AND A SENSE BLOCK MERGED KEY BY KEY (task 118, design section 6), for the same shallow-clone
+	-- reason and one worse consequence: a spec or a world passing `config = { SENSE = { ENABLED =
+	-- true } }` would REPLACE the whole block, and then every radius and every timer reads nil --
+	-- which is not an error, it is a boar that notices nothing at any distance and never settles.
+	-- The merge is what makes "the flag's value is the only thing a caller has to say" true.
+	local senseOverride = (world.config or {}).SENSE
+	self._config.SENSE = table.clone(Boar.CONFIG.SENSE)
+	if type(senseOverride) == "table" then
+		for key, value in pairs(senseOverride) do
+			self._config.SENSE[key] = value
+		end
+	end
+	-- ...AND THE KINDS BLOCK, for exactly the same reason (task 119): a world that passes
+	-- `config = { KINDS = { ENABLED = true } }` would otherwise replace the whole table and every
+	-- animal's scale, stride and model would read nil -- which is not an error, it is three boars
+	-- with no size.
+	local kindsOverride = (world.config or {}).KINDS
+	self._config.KINDS = table.clone(Boar.CONFIG.KINDS)
+	if type(kindsOverride) == "table" then
+		for key, value in pairs(kindsOverride) do
+			self._config.KINDS[key] = value
+		end
+	end
 	-- The skinned model's two lookups, both nil until a boot script wires them: with no template the
 	-- boar is the grey box, which is what every spec before task 115 asserts.
 	-- `_heldTemplate` AND NOT `_modelTemplate`: the method below is `Runtime:_modelTemplate`, which
 	-- lives on the metatable, so a nil FIELD of that name resolves to the METHOD and the next line to
 	-- touch it reads "attempt to index function with 'Parent'". Measured the hard way: it took out
 	-- four cases of boar_model.spec on the first gate run of this task.
-	self._heldTemplate = nil :: Instance?
-	self._templateFor = nil :: (() -> Instance?)?
+	-- ONE HELD TEMPLATE PER KIND (task 119): male, female and cub are three different assets and a
+	-- single slot would hand a cub the sow's coat. Keyed by the kind's own name.
+	self._heldTemplate = {} :: { [string]: Instance }
+	self._templateFor = nil :: ((string) -> Instance?)?
 	self._animationIdFor = nil :: ((string) -> number?)?
 	-- FALSE MEANS "USE THE MODULE'S", and once `Runtime:setModelSource` has been called it is true
 	-- for ever. Without this flag, `self._templateFor or moduleTemplateFor` would make "this runtime
@@ -885,7 +1128,11 @@ function Boar.newRuntime(world)
 	-- handed the live server's real boar, and the one case the flag's promise rests on would pass for
 	-- the wrong reason.
 	self._modelSourceSet = false
-	self._askedModelAt = -math.huge
+	-- ONE "WHEN DID I LAST ASK" PER KIND (task 119, review round 2, note). With one scalar for all
+	-- three, `Runtime:step` asking for every kind in the same frame let only the FIRST through per
+	-- `ASK_EVERY_SECONDS`: the sow's coat could not arrive until a second after the male's and the
+	-- cub's until two, and anything born meanwhile stayed a grey box for that long.
+	self._askedModelAt = {} :: { [string]: number }
 	self._field = world.field or self._config.field
 	self._rng = world.rng or Random.new()
 	self._boars = {}
@@ -895,6 +1142,15 @@ function Boar.newRuntime(world)
 	-- how long it is scattering" has exactly one writer (CLAUDE.md rule 3).
 	self._sounders = {}
 	self._nextSounderId = 0
+	-- EVERY STIMULUS'S MEASURED SPEED (task 118, design section 4.6), written here and nowhere else:
+	-- id -> { position, speed }. A character's own `AssemblyLinearVelocity` is network-owned by that
+	-- character's client, so a client that wants to be unnoticed could simply report nothing; a
+	-- server-measured displacement of the replicated position cannot be faked, and a provider that
+	-- forgets to fill `speed` cannot make every boar think a sprinting driver is standing still.
+	self._motion = {}
+	-- HEARD SHOTS IN FLIGHT (section 4.5): appended by `Runtime:hearShot`, drained by `Runtime:step`
+	-- and handed to every Brain as `obs.sounds`, exactly as `entry.hitEvents` is drained and handed.
+	self._sounds = {}
 	self._signal = Instance.new("BindableEvent")
 	self._connection = nil
 	self._destroyed = false
@@ -918,6 +1174,13 @@ function Boar.newRuntime(world)
 		leaderPromotions = 0,
 		membersLeft = 0, -- left ALIVE: mortally wounded, or too far for too long. A despawn is not one
 		scatters = 0, -- a hit on any member latches the whole sounder's scatter
+		-- TASK 118. `shotsHeard` is boars HANDED a shot sound (the Brain decides what to do with
+		-- it); `alarms` is outbreaks of panic spread through a sounder, one per outbreak and not one
+		-- per member; `alerts` and `avoids` are counted on the EDGE, so 2.5 s of head-up is one.
+		shotsHeard = 0,
+		alarms = 0,
+		alerts = 0,
+		avoids = 0,
 	}
 
 	self.Despawned = self._signal.Event
@@ -995,31 +1258,31 @@ end
 -- Either way the ids are read ONCE, when the template first arrives, into THIS runtime's own
 -- `CONFIG.MODEL.ANIMATION_IDS`. An id that appears later is not picked up, which is deliberate: a
 -- manifest is frozen data edited in git, so a row that was not there at boot was not there at all.
-local moduleTemplateFor: (() -> Instance?)? = nil
+local moduleTemplateFor: ((string) -> Instance?)? = nil
 local moduleAnimationIdFor: ((string) -> number?)? = nil
 
 -- Returns the pair it replaced, so a caller that must put it back can.
 function Boar.setModelSource(
-	templateFor: (() -> Instance?)?,
+	templateFor: ((string) -> Instance?)?,
 	animationIdFor: ((string) -> number?)?
-): ((() -> Instance?)?, ((string) -> number?)?)
+): (((string) -> Instance?)?, ((string) -> number?)?)
 	local previousTemplate, previousId = moduleTemplateFor, moduleAnimationIdFor
 	moduleTemplateFor = templateFor
 	moduleAnimationIdFor = animationIdFor
 	return previousTemplate, previousId
 end
 
-function Runtime:setModelSource(templateFor: (() -> Instance?)?, animationIdFor: ((string) -> number?)?)
+function Runtime:setModelSource(templateFor: ((string) -> Instance?)?, animationIdFor: ((string) -> number?)?)
 	self._templateFor = templateFor
 	self._animationIdFor = animationIdFor
 	self._modelSourceSet = true -- from here on this runtime ignores the module's, nil included
-	self._heldTemplate = nil
-	self._askedModelAt = -math.huge
+	self._heldTemplate = {}
+	self._askedModelAt = {}
 end
 
 -- The template, or nil, asking at most once every ASK_EVERY_SECONDS until it has one.
-function Runtime:_modelTemplate(now: number): Instance?
-	local held = self._heldTemplate
+function Runtime:_modelTemplate(kind: string, now: number): Instance?
+	local held = self._heldTemplate[kind]
 	if held ~= nil and held.Parent ~= nil then
 		return held
 	end
@@ -1027,15 +1290,15 @@ function Runtime:_modelTemplate(now: number): Instance?
 	if ask == nil then
 		return nil
 	end
-	if now - self._askedModelAt < self._config.MODEL.ASK_EVERY_SECONDS then
+	if now - (self._askedModelAt[kind] or -math.huge) < self._config.MODEL.ASK_EVERY_SECONDS then
 		return nil
 	end
-	self._askedModelAt = now
-	local template = ask()
+	self._askedModelAt[kind] = now
+	local template = ask(kind)
 	if template == nil then
 		return nil
 	end
-	self._heldTemplate = template
+	self._heldTemplate[kind] = template
 	local ids = self._config.MODEL.ANIMATION_IDS
 	local lookup = if self._modelSourceSet then self._animationIdFor else moduleAnimationIdFor
 	if lookup then
@@ -1047,6 +1310,89 @@ function Runtime:_modelTemplate(now: number): Instance?
 		end
 	end
 	return template
+end
+
+-- THE ONE WAY A SOUND ENTERS THIS SYSTEM (task 118, design section 4.5), and it is the shape
+-- `takeHit` below already has: `ServerScriptService.Weapon` publishes `ShotFired`, `MatchBoot` --
+-- the composition root that already knows both systems -- calls this, and neither owner requires the
+-- other. A MISS is a sound too, which is the whole point: "so after shoot they will start sprint".
+--
+-- Returns how many live boars will be TOLD. The Brain owns the audible radius (`_hearSound` tests it
+-- again, because a pure spec must be able to drive a sound at any distance with no runtime at all),
+-- so this number is a diagnostic and a fan-out count, not the rule.
+function Runtime:hearShot(at: Vector3): number
+	if self._destroyed then
+		return 0
+	end
+	local sense = self._config.SENSE
+	-- WITH THE FLAG OFF NOTHING HEARS ANYTHING, so nothing is queued and nothing is counted. The
+	-- Brain's own gate in `_hearSound` is what makes that true of the BEHAVIOUR; this makes it true
+	-- of the BOOKKEEPING as well, because `MatchBoot` wires `Weapon.ShotFired` unconditionally and
+	-- a `shotsHeard` that moved in the OFF world would mean "shots fired in range" rather than
+	-- "boars told" (review round 2, note).
+	if not (sense and sense.ENABLED) then
+		return 0
+	end
+	table.insert(self._sounds, { kind = "shot", position = at })
+	local told = 0
+	for _, entry in ipairs(self._boars) do
+		local state = entry.brain:state()
+		-- The same three states `_hearSound` refuses: a carcass, a terminal boar and a crippled one.
+		if state ~= "DOWN" and state ~= "GONE" and state ~= "CRIPPLED" then
+			if (flatOf(Body.position(entry.body)) - flatOf(at)).Magnitude <= sense.SHOT_AUDIBLE_STUDS then
+				told += 1
+			end
+		end
+	end
+	self._stats.shotsHeard += told
+	return told
+end
+
+-- A COPY of one boar's last PERCEPTION, or nil. It follows `woundOf` and `animationOf` exactly: a
+-- copy, no setter, and nothing in the game reads it. It exists so a live spec can prove WHY a boar
+-- did something instead of inferring it from a velocity (design section 7.2).
+function Runtime:perceptionOf(id: string)
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return entry.brain:perception()
+		end
+	end
+	return nil
+end
+
+-- EVERY STIMULUS'S SPEED, MEASURED HERE AND NOWHERE ELSE (section 4.6). An exponential average over
+-- `SPEED_SMOOTH_SECONDS` of the FLAT displacement between steps, for the same measured reason
+-- `MODEL.YAW_SMOOTH_SECONDS` exists: one frame's delta on a physics body is noise, not a rate.
+--
+-- It builds NEW records rather than mutating the provider's -- a provider may cache its list one day
+-- -- which costs one small table per stimulus per step, over the <= 16 a corridor can hold.
+--
+-- A stimulus seen for the first time has no previous sample and reads as standing for exactly one
+-- step (16 ms): it can only ever under-react, never over-react.
+function Runtime:_measureMotion(threats, dt: number)
+	local sense = self._config.SENSE
+	local motion = self._motion
+	local alpha = if dt > 0 then math.clamp(dt / math.max(sense.SPEED_SMOOTH_SECONDS, 1e-6), 0, 1) else 0
+	local out = {}
+	local seen = {}
+	for _, threat in ipairs(threats) do
+		local id = threat.id
+		seen[id] = true
+		local previous = motion[id]
+		local speed = 0
+		if previous and dt > 0 then
+			local moved = (flatOf(threat.position) - flatOf(previous.position)).Magnitude
+			speed = previous.speed + (moved / dt - previous.speed) * alpha
+		end
+		motion[id] = { position = threat.position, speed = speed }
+		table.insert(out, { id = id, position = threat.position, kind = threat.kind, speed = speed })
+	end
+	for id in pairs(motion) do
+		if not seen[id] then
+			motion[id] = nil -- it left: forget it, so a rejoin reads as standing for one step
+		end
+	end
+	return out
 end
 
 function Runtime:stats()
@@ -1250,10 +1596,6 @@ end
 -- returns a COPY: there is no setter, and the drive never reads any of them in production -- they
 -- exist for specs, for diagnostics, and for the step's own bookkeeping.
 
-local function flatOf(v: Vector3): Vector3
-	return Vector3.new(v.X, 0, v.Z)
-end
-
 function Runtime:_sounderRecord(id: string?)
 	if id == nil then
 		return nil
@@ -1321,12 +1663,105 @@ function Runtime:_leaveSounder(record, entry, counted: boolean)
 	entry.sounderId = nil
 	entry.slot = nil
 	entry.awayFor = 0
+	-- ...AND THE ALARM GOES WITH THE MEMBERSHIP (task 118, section 5.2 item 3). A lone boar has no
+	-- group to be alarmed by, and a stale `alarmIn` would keep it fleeing for ever.
+	entry.alarmIn = nil
 	if counted then
 		self._stats.membersLeft += 1
 	end
 	if record.leaderId == entry.id then
 		record.leaderId = nil
 	end
+end
+
+-- PANIC SPREADS, MEMBER TO MEMBER, WITH A DELAY (task 118, design section 5.2). It REPLACES the
+-- leader-only rule in the Brain when the flag is on -- it does not run beside it -- because two
+-- correct rules disagreeing is this project's named killer (docs/PROJECT_CONTEXT.md).
+--
+-- Karen: "spreading agree with you". ALERT does not spread: one animal with its head up while the
+-- others graze is what a sounder actually looks like, and only panic is contagious.
+function Runtime:_stepAlarm(record, members, dt: number, snapshot)
+	local sense = self._config.SENSE
+
+	local function positionOf(entry): Vector3
+		local sample = snapshot[entry.id]
+		return flatOf(if sample then sample.position else Body.position(entry.body))
+	end
+
+	-- COUNTED WITH dt AND NOT WITH A CLOCK, so a spec is deterministic -- the same rule every timer
+	-- in the Brain follows.
+	--
+	-- AND THE ALARM IS A PULSE, NOT A LATCH (review round 2, finding 1). It is published to a member
+	-- from the step its own delay runs out until the step that member is ITSELF panicked, and then
+	-- it is spent: from there the animal's panic is its own and section 3.2's row 11 owns the
+	-- settling, which is what section 5.2 item 4 says ("a follower settles when its own CALM_TIME
+	-- has run and the leader is calm").
+	--
+	-- LATCHED, IT WAS A DEADLOCK WITH NO WAY OUT, and the Reviewer is right that nothing in the
+	-- suite could see it: row 8 of `Brain:_senseAware` flushes an alarmed member and `_flush` resets
+	-- `_sinceCalm`, so an alarmed member could never become calm; `calm` below was therefore never
+	-- true; so `record.alarmed` never dropped and the `alarmIn` that pinned them was never cleared.
+	-- Every sounder that panicked once ran until its last member crossed the exit line -- against
+	-- section 5.2 item 3, section 3.2 row 11 and section 14's own end-to-end scene.
+	for _, entry in ipairs(members) do
+		if entry.alarmIn ~= nil then
+			entry.alarmIn = math.max(0, entry.alarmIn - dt)
+			if entry.alarmIn <= 0 and Brain.classOf(entry.brain:state()) == "panicked" then
+				-- DELIVERED. The one job an alarm has is to START this animal running, and it is
+				-- running. It is cleared here and not by the Brain because the Brain is pure and
+				-- holds no sounder state: who has been told is the Runtime's bookkeeping, like
+				-- membership and the leader (CLAUDE.md rule 3).
+				entry.alarmIn = nil
+			end
+		end
+	end
+
+	local first, calm = nil, true
+	for _, entry in ipairs(members) do
+		if Brain.classOf(entry.brain:state()) == "panicked" then
+			calm = false
+			if first == nil then
+				first = entry
+			end
+		end
+	end
+
+	if calm then
+		-- IT CLEARS WHEN EVERY MEMBER IS CALM AGAIN, and then the next outbreak spreads afresh.
+		if record.alarmed then
+			record.alarmed = false
+			for _, entry in ipairs(members) do
+				entry.alarmIn = nil
+			end
+		end
+		return
+	end
+	if record.alarmed then
+		return -- one alarm per outbreak: "no alarm is running for that sounder"
+	end
+
+	record.alarmed = true
+	self._stats.alarms += 1
+	local from = positionOf(first)
+	local others = {}
+	for _, entry in ipairs(members) do
+		if entry.id ~= first.id then
+			table.insert(others, entry)
+		end
+	end
+	-- NEAREST FIRST, tie-broken by id exactly as `_chooseLeader` breaks its own tie: the order a
+	-- panic travels in must not depend on the order of a list.
+	table.sort(others, function(a, b)
+		local da, db = (positionOf(a) - from).Magnitude, (positionOf(b) - from).Magnitude
+		if da == db then
+			return a.id < b.id
+		end
+		return da < db
+	end)
+	for rank, entry in ipairs(others) do
+		entry.alarmIn = math.min(sense.PANIC_DELAY_SECONDS * rank, sense.PANIC_DELAY_MAX)
+	end
+	first.alarmIn = 0 -- it is already running; this only makes the record uniform
 end
 
 -- Per step, before any boar is asked to decide anything: membership, the leader, the scatter timer,
@@ -1391,6 +1826,13 @@ function Runtime:_stepSounders(dt: number, snapshot)
 		record.memberIds = {}
 		for _, entry in ipairs(members) do
 			table.insert(record.memberIds, entry.id)
+		end
+
+		-- PANIC SPREADS (task 118, section 5.2), after membership is rebuilt and before any Brain is
+		-- asked anything. Behind the flag: with it off no `alarmIn` is ever set, `obs.sounder.alarm`
+		-- is false for every member, and the Brain's own leader-panic rule is the only one running.
+		if self._config.SENSE.ENABLED and #members > 1 then
+			self:_stepAlarm(record, members, dt, snapshot)
 		end
 
 		if #members <= 1 then
@@ -1463,6 +1905,10 @@ function Runtime:_sounderObs(entry, snapshot)
 		leader = leader,
 		centroid = if count > 0 then sum / count else at,
 		neighbours = neighbours,
+		-- TASK 118, as plain values like everything else here: which shape this sounder moves in,
+		-- and whether the panic has reached THIS member yet (sections 5.1 and 5.2).
+		formation = record.formation or "wedge",
+		alarm = entry.alarmIn ~= nil and entry.alarmIn <= 0,
 	}
 end
 
@@ -1489,6 +1935,7 @@ function Runtime:_sounderView(record)
 		memberIds = memberIds,
 		scatterFor = record.scatterFor,
 		bornAt = record.bornAt,
+		formation = record.formation or "wedge", -- task 118, section 5.1
 	}
 end
 
@@ -1557,13 +2004,35 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
 		memberIds = {},
 		scatterFor = 0,
 		bornAt = os.clock(),
+		-- SINGLE FILE OR A LOOSE GROUP, DRAWN ONCE AND NEVER WRITTEN AGAIN (task 118, section 5.1).
+		-- Karen: "they usually do one line each after another or mixed like in real life". The flag
+		-- is tested FIRST so that with it off no number is drawn at all and the runtime's `Random`
+		-- stream is bit-for-bit the one every existing spec was written against.
+		formation = (if config.SENSE.ENABLED and self._rng:NextNumber() < sounderConfig.COLUMN_CHANCE
+			then "column"
+			else "wedge"),
+		-- Whether a panic is already spreading through this sounder (section 5.2).
+		alarmed = false,
 	}
+
+	-- WHO THEY ARE (task 119): a sow and her young, drawn before any of them exists so the draw is
+	-- one pure call on one list of rolls rather than a decision inside the loop.
+	-- GATED, like the formation draw three lines up and for the same reason (review round 2,
+	-- note): with `BOAR_MODEL` off no number is drawn at all, so the runtime's `Random` stream is
+	-- bit-for-bit the one every spec written before this task was written against.
+	local rolls = {}
+	if config.KINDS.ENABLED then
+		for index = 1, size do
+			rolls[index] = self._rng:NextNumber()
+		end
+	end
+	local kinds = Boar.sounderKinds(size, rolls, config)
 
 	local handles = {}
 	for index = 1, size do
 		local angle = phase + (index - 1) * (math.pi * 2 / size)
 		local at = center + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
-		local handle = self:spawn(at)
+		local handle = self:spawn(at, kinds[index])
 		local entry = self._boars[#self._boars]
 		entry.sounderId = record.id
 		entry.slot = index
@@ -1578,21 +2047,39 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
 	return handles
 end
 
-function Runtime:spawn(position: Vector3?)
+function Runtime:spawn(position: Vector3?, kind: string?)
 	assert(not self._destroyed, "Boar runtime is destroyed")
 	assert(#self._boars < self._config.maxBoars, "Boar runtime is at maxBoars")
 
 	local config = self._config
+	-- WHICH ANIMAL (task 119). A lone boar is a male -- `SOUNDER.MAKEUP.LONE` -- and a member of a
+	-- sounder is told which one it is by `spawnSounder`.
+	local geometry = Body.kindGeometry(kind or config.SOUNDER.MAKEUP.LONE, config)
 	local at = position or config.spawnPoint
+	-- DROPPED FROM THE MALE'S HEIGHT, WHATEVER THE ANIMAL IS, and that is MEASURED and not tidy
+	-- (task 119, 2026-10-04). `field.groundY` is the FIELD's ground and the map's real surface is not
+	-- always on it: in the generated map a released sow settled with her box bottom 2.0 studs ABOVE
+	-- `groundY`, so every boar is spawned embedded and pushed out by the physics. A male's box is 3
+	-- studs tall and its top clears that; a CUB's whole box is 1.35 studs and would sit entirely
+	-- below the surface -- and a fully embedded part is ejected, not settled. Every cub the drive
+	-- released vanished inside a second while the sows and young males beside it lived, and this is
+	-- that bug: a cub now falls 0.8 studs further and lands on whatever is actually under it.
+	--
+	-- IT IS THE MALE'S NUMBER FOR EVERY KIND, so the flag-OFF world spawns at exactly the height it
+	-- always did. The right long-term answer is to ask the world how high the ground under the spawn
+	-- point is, which is a new seam on `world` and not this task's.
 	at = Vector3.new(at.X, self._field.groundY + config.BODY_SIZE.Y / 2 + config.SPAWN_CLEARANCE, at.Z)
 
 	self._nextId += 1
 	local id = string.format("Boar%d", self._nextId)
-	local body = Body.create(config, self._folder, id, at)
+	local body = Body.create(config, self._folder, id, at, geometry.kind)
 	local brain = Brain.new(config, self._field, at, self._rng)
 
 	local handle = {
 		id = id,
+		-- WHICH ANIMAL IT IS (task 119), on the handle because the drive and the specs read handles
+		-- and never the entry: "the sounder is a sow and three cubs" is answerable from outside.
+		kind = body.kind,
 		part = body.part,
 		state = function()
 			return brain:state()
@@ -1616,6 +2103,12 @@ function Runtime:spawn(position: Vector3?)
 		forceRepath = false, -- set by the world's Path.Blocked listener
 		wound = Wound.new(), -- the ONE wound state, written only by takeHit and step
 		hitEvents = {}, -- hits since the last step; handed to the Brain and cleared
+		-- How long until the sounder's panic reaches THIS member, or nil for "no alarm" (task 118,
+		-- section 5.2). Written only by `_stepAlarm` and cleared by `_leaveSounder`.
+		alarmIn = nil :: number?,
+		-- The state the last intent carried, so ALERT and AVOID are counted on the EDGE: 2.5 s of
+		-- head-up is one alert, not 150.
+		lastState = nil :: string?,
 		lastPosition = at,
 		bornAt = os.clock(),
 		lastPathAt = 0, -- when this boar last asked for a route; the forced-repath cooldown reads it
@@ -1712,6 +2205,19 @@ function Runtime:step(dt: number)
 	end
 	local config = self._config
 	local threats = self._world.threats()
+	-- THE SPEED OF EVERY STIMULUS, MEASURED (task 118, section 4.6), and only when the flag is on:
+	-- with it off nothing reads `speed`, and the OFF world keeps the exact allocation profile it had.
+	if config.SENSE.ENABLED then
+		threats = self:_measureMotion(threats, dt)
+	end
+	-- HEARD SHOTS, DRAINED ONCE PER STEP and handed to every boar, exactly as `hitEvents` are
+	-- drained per boar: the Brain owns the audible radius (section 4.5). nil when there are none, so
+	-- every existing spec is handed the nil it was handed before this task.
+	local sounds = nil
+	if #self._sounds > 0 then
+		sounds = self._sounds
+		self._sounds = {}
+	end
 
 	-- ONE SNAPSHOT FIRST. A sounder is about where its members are THIS tick: assembling the
 	-- observations inside the loop below would let one member see a neighbour before it moved and
@@ -1732,9 +2238,14 @@ function Runtime:step(dt: number)
 	-- THE SKINNED MODEL, once per step and not once per boar: the template is one Instance every
 	-- boar clones from, and asking for it per boar would multiply both the lookup and the miss
 	-- counter by however many are alive.
-	local visualTemplate: Instance? = nil
+	-- ONE LOOKUP PER KIND PER STEP (task 119), not one per boar: a sounder of five is a sow and four
+	-- cubs, which is two assets however many animals are standing in it.
+	local visualTemplates: { [string]: Instance? } = {}
 	if config.MODEL.ENABLED then
-		visualTemplate = self:_modelTemplate(os.clock())
+		local now = os.clock()
+		for _, kind in ipairs(config.KINDS.ORDER) do
+			visualTemplates[kind] = self:_modelTemplate(kind, now)
+		end
 	end
 
 	for index = #self._boars, 1, -1 do
@@ -1782,6 +2293,11 @@ function Runtime:step(dt: number)
 			blockedAhead = blockedAhead,
 			forceRepath = forceRepath,
 			hitEvents = hitEvents,
+			-- TASK 118: the shots drained above, and the sight probe -- handed in ONLY when
+			-- `REQUIRE_SIGHT` asks for it (section 4.7), so the default costs nothing and the hook
+			-- is real rather than described.
+			sounds = sounds,
+			probe = if config.SENSE.REQUIRE_SIGHT then self._world.probe else nil,
 			wound = {
 				severity = entry.wound.severity,
 				speedScale = Wound.speedScale(entry.wound, config.WOUND),
@@ -1797,8 +2313,20 @@ function Runtime:step(dt: number)
 		-- bounded at 15 s and the first boar can exist before it lands -- so a boar born grey puts
 		-- its coat on as soon as the asset arrives, the same "late is not lost" rule the loader
 		-- itself follows. With the flag off neither line runs and nothing differs from before task 115.
+		local visualTemplate = visualTemplates[entry.body.kind or config.KINDS.DEFAULT]
 		if config.MODEL.ENABLED and visualTemplate ~= nil and entry.body.visual == nil then
 			Body.attachVisual(entry.body, visualTemplate, config)
+		end
+
+		-- ALERT AND AVOID, COUNTED ON THE EDGE (task 118): one per transition, so a stat says how
+		-- often the animal reacted and not how many frames it spent reacting.
+		if intent.state ~= entry.lastState then
+			if intent.state == "ALERT" then
+				self._stats.alerts += 1
+			elseif intent.state == "AVOID" then
+				self._stats.avoids += 1
+			end
+			entry.lastState = intent.state
 		end
 
 		if intent.downed then
@@ -1836,6 +2364,12 @@ function Runtime:step(dt: number)
 				-- round): a crippled boar crawls at `CRIPPLE_SPEED`, which is a walking speed, so
 				-- without this it would walk normally. It travels as an intent like everything else.
 				crippled = intent.state == "CRIPPLED",
+				-- HOW FAR THIS ANIMAL'S OWN STRIDE CARRIES IT, over the male's (task 119). It rates
+				-- every clip that moves the ground, so a cub playing the male's walk does not skate.
+				clipScale = entry.body.geometry and entry.body.geometry.clipScale,
+				-- ...AND HEAD UP (task 118, section 3.6), the same shape and for the same reason: a
+				-- stopped animal and an alert one are both standing still, so speed cannot carry it.
+				alert = intent.state == "ALERT",
 				-- WHAT A CALM BOAR IS DOING (task 117). Published by the Brain only while IDLE, so
 				-- every other state hands `Body` the nil it handed before.
 				activity = intent.activity,

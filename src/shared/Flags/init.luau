@@ -118,10 +118,12 @@ Flags.DEFAULTS = {
 		-- BORN OFF on 2026-10-03 (task 115). Karen: "we start with one bord and when this works we
 		-- do with rest". OFF is the grey box every spec and every screenshot since Milestone 1.2 was
 		-- taken against; ON welds RedDeer's skinned male boar to that same box as a VISUAL child and
-		-- plays a clip chosen by what the animal is doing. The physics box, its three hit zones and
-		-- every attribute the weapon reads are byte-identical in both states: the model is massless,
-		-- collisionless and NOT raycastable, so a shot that hit before still hits exactly the same
-		-- part.
+		-- plays a clip chosen by what the animal is doing. Every attribute the weapon reads is
+		-- byte-identical in both states and the model is massless, collisionless and NOT
+		-- raycastable, so a shot still lands on the box and its FOUR hit zones and never on the
+		-- animal. THE BOX ITSELF IS NO LONGER IDENTICAL, since task 119: with the flag ON a sounder
+		-- is a sow and her young, so a trunk and its zones are 0.85 or 0.45 of the male's. OFF,
+		-- every boar is the male-sized box Milestone 1.2 shipped.
 		default = false,
 		-- SINCE TASK 117 it also carries the calm repertoire -- what a boar does when nothing is
 		-- wrong: graze, root, lift its head to smell, stand, walk a few steps. OFF, an idle boar
@@ -137,6 +139,28 @@ Flags.DEFAULTS = {
 		expires = "2026-10-24", -- 21 days: the ceiling in feature-flags.md section 12
 		why = "The boar is a real animal that walks, trots, runs, flinches and falls over. OFF is the "
 			.. "grey box with its three tinted hit zones, exactly as before task 115.",
+	} :: FlagRow,
+	BOAR_BEHAVIOUR = {
+		-- BORN OFF on 2026-10-04 (task 118). What a boar DOES about what it notices: it notices a
+		-- standing person at 25 studs and a moving one at 60, goes head-up (ALERT), turns away and
+		-- trots off (AVOID), runs when anything comes inside its flush band, sprints at a shot it
+		-- can hear, and panic spreads through its sounder member by member. OFF is Milestone 1.2's
+		-- world exactly: one 40-stud DETECT_RADIUS, drivers only, and the leader-panic rule.
+		--
+		-- IT IS A FLAG OF ITS OWN AND NOT `BOAR_MODEL`'s, because the behaviour is independent of
+		-- the drawn animal: every state, radius and timer is Brain/Runtime state and is fully
+		-- exercised on the grey box. The one drawn line this task adds (the head-up clip) sits
+		-- behind `BOAR_MODEL`, where it already is.
+		default = false,
+		-- The owner is the module that READS it at its boundary (`Boar.CONFIG.SENSE.ENABLED`) and
+		-- passes the value inward as `config` -- the only permitted shape, and what keeps both
+		-- branches reachable by parameter while the flag itself sits at one of them.
+		owner = "ServerScriptService.Boar",
+		born = "2026-10-04 task 118",
+		expires = "2026-10-25", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "A boar notices a standing person at 25 studs and a moving one at 60, goes head-up, "
+			.. "turns away or runs, sprints at a shot, and panics through its sounder. OFF is the "
+			.. "40-stud drivers-only flush of Milestone 1.2.",
 	} :: FlagRow,
 	FIRST_PERSON = {
 		-- BORN OFF on 2026-09-27, ON SINCE TASK 98 (2026-10-01). Karen's word was "start": first
