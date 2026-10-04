@@ -671,6 +671,10 @@ return function()
 			for _, seed in ipairs({ 1, 7, 42 }) do
 				for _, block in ipairs(MapGen.Layout.blocks(c)) do
 					local b = block.bounds
+					-- THE NEIGHBOUR IS DELIBERATELY NOT CLAMPED TO THE BLOCK. A sample at the edge compares
+					-- against ground 20 studs OUTSIDE it, so this case also catches a CLIFF at a block's
+					-- boundary -- which is exactly what the first attempt at the rim produced (47.71 deg at
+					-- (1434, 14), six studs inside block 2's eastern edge) and what clamping would hide.
 					for x = b.minX, b.maxX, 20 do
 						for z = b.minZ, b.maxZ, 20 do
 							local h = MapGen.Height.atFlattened(x, z, seed, c, pads)
@@ -741,7 +745,19 @@ return function()
 			expect(highest <= c.EDGE_MAX_Y + 1e-6).to.equal(true)
 			-- ...and the rim actually rises, or `EDGE_MAX_Y` is a bound on nothing.
 			expect(highest > c.EDGE_MAX_Y * 0.9).to.equal(true)
-			TestKit.note(string.format("rim: highest edge floor %.1f studs of %d", highest, c.EDGE_MAX_Y))
+			-- AND IT RISES GENTLY ENOUGH TO WALK, which is what makes a block's outer margin ground
+			-- rather than a wall round the drive. A smoothstep's steepest gradient is 1.5 x rise/run,
+			-- and the first attempt at this rim -- 120 studs -- failed exactly here.
+			local steepest = math.deg(math.atan(1.5 * c.EDGE_MAX_Y / c.EDGE_BAND))
+			TestKit.note(
+				string.format(
+					"rim: highest edge floor %.1f studs of %d, steepest %.1f deg",
+					highest,
+					c.EDGE_MAX_Y,
+					steepest
+				)
+			)
+			expect(steepest < c.CORRIDOR_MAX_SLOPE_DEG).to.equal(true)
 		end)
 
 		it("flattens every spawn pad to exactly the ground the contract asserts", function()
@@ -838,11 +854,31 @@ return function()
 				end
 				-- Exactly one lower pass per tile, covering the map.
 				expect(lower).to.equal(perSide * perSide)
-				-- ...and the upper pass is a RING, not the whole map: that omission is the difference
-				-- between 752 terrain steps and 1,152.
-				expect(upper > 0).to.equal(true)
-				expect(upper < lower / 2).to.equal(true)
-				TestKit.note(string.format("tiles: %d lower + %d upper = %d terrain steps", lower, upper, #tiles))
+				-- THE UPPER PASS IS ASSERTED AS A DERIVATION AND NOT AS A COUNT, because today the count
+				-- is ZERO: the rim is 40 studs and the fbm reaches 37, so no column anywhere reaches
+				-- `BAND_Y.mid` and every tile is written in one pass. A bare `upper > 0` would be a bound
+				-- on a number that is allowed to be nothing. What must hold either way is that a tile has
+				-- an upper pass EXACTLY when `tileNeedsUpperPass` says so -- the predicate `Layout.tiles`
+				-- itself uses, and the one the band case above proves safe.
+				local wanted = 0
+				for tz = 0, perSide - 1 do
+					for tx = 0, perSide - 1 do
+						if MapGen.Layout.tileNeedsUpperPass(tx, tz, c) then
+							wanted += 1
+						end
+					end
+				end
+				expect(upper).to.equal(wanted)
+				TestKit.note(
+					string.format(
+						"tiles: %d lower + %d upper = %d terrain steps (rim %d studs, band mid %d)",
+						lower,
+						upper,
+						#tiles,
+						c.EDGE_MAX_Y,
+						c.BAND_Y.mid
+					)
+				)
 			end
 		)
 	end)

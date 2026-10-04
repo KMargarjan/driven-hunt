@@ -133,18 +133,21 @@ Config.TILE_STUDS = 128 -- 24 x 24 = 576 tiles for the 3,072-stud map
 --     a void where a hollow should be. `min` is -48, which is both outside the measured extreme
 --     with 11 studs of margin and the value the 2,048-stud map already shipped.
 --
--- WRITTEN IN TWO PASSES OF THE ONE REGION SIZE THAT HAS BEEN MEASURED. 168 studs is past the
--- measured 96, and nothing has ever measured a taller region, so the band is cut at `mid`: the
--- LOWER pass covers [-48, +48] (96 studs, exactly the measured region) and the UPPER pass covers
--- [+48, +120] (72 studs, comfortably smaller). Borrowing the measured region instead of guessing a
--- bigger one is rule 2. If somebody later measures that a 168-stud region is accepted, the second
--- pass is deleted and nothing else changes.
+-- WRITTEN IN PASSES OF THE ONE REGION SIZE THAT HAS BEEN MEASURED. The band is cut at `mid`: the
+-- LOWER pass covers [-48, +48] -- 96 studs, exactly the measured region -- and an UPPER pass covers
+-- [+48, +96] where any column needs it. Borrowing the measured region instead of guessing a bigger
+-- one is rule 2.
 --
 -- `mid` IS LOAD-BEARING TWICE: it splits the passes, and it is what lets `Layout.tiles` OMIT the
--- upper pass where no column can reach it. Only `Height.edgeFloor` can exceed it (the fbm term is
--- bounded by RELIEF = 64... and measured at 37, either way under 48), so the omission is an
--- ANALYTIC test on the rim, not a sampled one, and a spec asserts the invariant that makes it safe.
-Config.BAND_Y = { min = -48, max = 120, mid = 48 }
+-- upper pass where no column can reach it. Only `Height.edgeFloor` can exceed the fbm term (bounded
+-- by RELIEF = 64, measured at 37), so the omission is an ANALYTIC test on the rim and not a sampled
+-- one, and a spec asserts the invariant that makes it safe.
+--
+-- TODAY NO TILE NEEDS THE UPPER PASS AT ALL, and that is a derived fact rather than a decision: the
+-- rim is 40 studs and the fbm reaches 37, so the highest ground anywhere is 40 -- under `mid`. The
+-- machinery stays, with its live caller and its spec, because it is what lets the rim go back up
+-- without anybody re-measuring what `WriteVoxels` accepts.
+Config.BAND_Y = { min = -48, max = 96, mid = 48 }
 
 -- ---------------------------------------------------------------- the heightfield
 
@@ -160,20 +163,29 @@ Config.BENCH_BAND = 140
 -- maximum height stays EDGE_MAX_Y -- inside BAND_Y.max, which is why the measured tile size does
 -- not change. Suppressed within BENCH_BAND of a road, so a road runs off the map flat and the edge
 -- is hidden by trees rather than by a ridge across the end of the ride.
-Config.EDGE_MAX_Y = 120 -- K, 34 m of hill
-Config.EDGE_BAND = 400
--- HOW FAR OUTSIDE A BLOCK THE RIM IS BACK TO FULL HEIGHT, and why the rim is kept out of a block at
--- all. MEASURED 2026-10-04 by the slope spec on the first full run: 47.30 degrees at (-1440, 1214),
--- block 1's north-west corner, against a 15-degree ceiling. `EDGE_BAND` is 400 studs and block 1
--- reaches to x = -1440, which is 96 studs from the map's edge -- so `edgeCeiling(96)` was lifting
--- 102 studs of backdrop ridge THROUGH the corner of the drive.
+-- 40 STUDS (11 m) OF BANK, AND THE DESIGN'S 120 DID NOT FIT ITS OWN BLOCK RECTANGLES.
 --
--- The rim is scenery: it exists so a player on a road does not look at a void, and no drive, no
--- driver and no boar ever goes there. A block is where the game is played. So the rim is suppressed
--- inside a block exactly as it already was in a road's lateral band, and it comes back over this
--- many studs outside one. THE CONSEQUENCE IS THAT THE RIM IS STEEP in the 96-stud margin beyond the
--- blocks, which is a backdrop question (`forest-edge` asks it) and not a walkability one.
-Config.EDGE_BLOCK_BLEND = 48
+-- MEASURED TWICE by the slope spec: 47.30 deg inside block 1's north-west corner, and then 47.71 deg
+-- at block 2's edge after the rim was suppressed inside a block -- because the rise has to happen
+-- somewhere, and suppressing it in the block only moved it to the boundary as a cliff.
+--
+-- A smoothstep's steepest gradient is 1.5 x rise / run, so the choice was never really open:
+--
+--     120 studs over the 96-stud margin outside the blocks  = 1.90 = 62 deg, a wall round the drive
+--     120 studs over the whole 400-stud band                = 0.45 = 24 deg, over the 15 deg ceiling
+--      40 studs over the whole 400-stud band                = 0.15 =  8.5 deg, gentle everywhere
+--
+-- The blocks reach to +/-1,440 and the map's edge is at +/-1,536: 96 studs of margin, against a rim
+-- the design asked to be 120 studs tall. Those two numbers were chosen independently and they do not
+-- fit. The rim comes down, rises across the whole band as it always did, and needs NO special case
+-- inside a block -- which is why `Height.blockRimSuppression` was deleted rather than kept.
+--
+-- WHAT HIDES THE MAP'S EDGE IS THE BACKDROP WOOD STANDING ON THE BANK, trees of 50 to 80 studs, and
+-- that is unchanged. Raising the rim again means moving the blocks in, which is a layout decision
+-- and not a taste value (TASKS.md row 121a).
+Config.EDGE_MAX_Y = 40 -- K, 11 m of bank
+Config.EDGE_BAND = 400
+
 Config.CORRIDOR_MAX_SLOPE_DEG = 15 -- the design's conservative ceiling, enforced in ALL FOUR blocks
 Config.OCTAVES = 4
 Config.BASE_FREQUENCY = 1 / 420 -- studs^-1; one broad rise per ~420 studs
