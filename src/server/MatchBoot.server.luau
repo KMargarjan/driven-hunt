@@ -23,6 +23,23 @@ local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestArena = require(ServerScriptService:WaitForChild("TestArena"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 
+-- THE PLAYTEST WORLD HAS ITS OWN COMPOSITION ROOT, AND THIS ONE STANDS ASIDE FOR IT (task 122).
+--
+-- "Driven Hunt Forest Test" is a hand-built place where Karen stands on a road and shoots animals
+-- that cross it. There is no drive there, no roster and no tagged markers -- `Match.Markers.read`
+-- would find none, the match would sit in `Waiting` forever, and `Match.mayCarryWeapon` would
+-- therefore hand nobody a gun. That is not a broken match; it is a world this match was never
+-- about.
+--
+-- SO THE DECISION IS MADE ONCE, HERE, at the only place that already decides which world is the
+-- world. `ForestTestBoot` wires that world's boar runtime and weapon exactly as the lines below
+-- wire this one's. Two composition roots, one per world, neither requiring the other -- which is
+-- the property this file's header exists to protect.
+if Map.EXPECTED_WORLD == "forest-test" then
+	print("[MatchBoot] the world is forest-test: ForestTestBoot owns this place")
+	return
+end
+
 -- Unchanged from BoarBoot: the arena rectangle is carried as data, so when the Milestone 2 map
 -- generator replaces the arena this fails loudly here instead of routing boars to an edge that no
 -- longer exists.

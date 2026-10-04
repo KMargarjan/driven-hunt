@@ -54,7 +54,33 @@ Map.GENERATOR = "m2.8c-road-furniture"
 --
 -- It cannot be half-on, and it is never answered by looking for a folder in Workspace: a predicate
 -- like that lies the moment a run half-finishes.
-Map.EXPECTED_WORLD = "map:v1"
+--
+-- IT IS NOW SELECTED BY PLACE, AND THAT CHANGES NOTHING ABOUT THE RULE ABOVE (task 122).
+--
+-- A SECOND PLACE EXISTS: "Driven Hunt Forest Test", a hand-built playtest world the Director made
+-- from a bought terrain so Karen can stand on a road and shoot things that cross it. The game's
+-- code has to reach it -- Rojo now serves both place ids -- and it must not become the DEV place's
+-- world by accident.
+--
+-- WHY A TABLE AND NOT A FLAG, which is the same answer Task 79 measured: the world lives in the
+-- PLACE. A flag is one value for every place a build is served into, and the whole failure Task 79
+-- recorded was a world that could not be switched off per place. A place id IS the place, so this
+-- cannot be half-right: the DEV place resolves to exactly the string it resolved to before this
+-- commit, and the harness that runs there sees no change at all.
+--
+-- EVERY VALUE BELOW -- FIELD, ROADS, BLOCKS, STAND, SEED, DIGEST -- still describes the GENERATED
+-- MAP and is still only meaningful while the world is "map:v1". The forest test world carries its
+-- own data in `ReplicatedStorage.ForestTest` and reads none of them.
+Map.WORLD_BY_PLACE = {
+	[136410205938347] = "map:v1", -- Driven Hunt DEV: the generated map and the harness
+	[130094961655666] = "forest-test", -- Driven Hunt Forest Test: the playtest world (task 122)
+}
+
+-- The world when the place id is in no row -- a fresh file, a local build, a spec. It is the DEV
+-- answer, so nothing that ran before this commit behaves differently.
+Map.DEFAULT_WORLD = "map:v1"
+
+Map.EXPECTED_WORLD = Map.WORLD_BY_PLACE[game.PlaceId] or Map.DEFAULT_WORLD
 Map.SEED = 1 -- the seed the committed map was built from
 -- The digest that seed produced, filled from the build that made the place this commit describes:
 -- `mapgen.py build --seed 1` prints it and `mapgen.py digest` reads it back out of Studio.
