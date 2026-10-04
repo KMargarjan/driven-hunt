@@ -60,6 +60,7 @@ Boar.voicePitch = Body.voicePitch
 Boar.voiceIds = Body.voiceIds
 Boar.farScale = Body.farScale
 Boar.cutVolume = Body.cutVolume
+Boar.heardAt = Body.heardAt
 
 -- WHOSE HOOVES A SOUNDER PLAYS (task 120). Karen, 2026-10-04: "several walking ... could be anoying
 -- and shit sound / so we need realistic". Five animals running together are one sound with one
@@ -603,7 +604,14 @@ Boar.CONFIG.SOUND = {
 	FOLDER = "Sounds",
 	ROLL_OFF = "InverseTapered",
 	-- Inside this, a sound is at full volume; past its own `audibleStuds` it is gone.
-	NEAR_STUDS = 12,
+	-- ...AND IT IS THE WHOLE FAR END OF THE CURVE (task 120). Karen, 2026-10-04: "and when its
+	-- verry fal I cant hear them / when close only". `RollOffMode.InverseTapered` is inverse near
+	-- the source and tapers to silence at `RollOffMaxDistance`, so the level a hunter hears at
+	-- distance `d` goes as `NEAR_STUDS / d` -- the PLATEAU sets the far tail, not just the near
+	-- one. At 12, a running sounder 100 studs away arrived at 12/100 = 0.12 of its own volume,
+	-- which is what "I cant hear them" is. At 24 the same animal arrives at 0.24, twice as loud,
+	-- without changing anything a player hears standing next to one.
+	NEAR_STUDS = 24,
 	PITCH_JITTER = 0.08, -- +-8%: a repeat must not sound like a loop
 	-- FOOTSTEPS, CHOSEN BY GAIT and rated by speed, so a walking boar is quiet and a galloping one is
 	-- not. Silent when standing: `MIN_SPEED` is below the walk band's own floor, and a standing boar
@@ -623,17 +631,29 @@ Boar.CONFIG.SOUND = {
 		MIN_SPEED = 0.6,
 		-- "Goat Footsteps Only 1" -- a hoof on soil, and the nearest thing the library has to a
 		-- walking pig. Karen, 2026-10-03: "sound you choose best practice you do".
-		walk = { id = 9114623726, volume = 0.35, baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond, audibleStuds = 45 },
-		trot = { id = 9114623726, volume = 0.5, baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond, audibleStuds = 70 },
+		-- THE APPROACH IS HEARD BEFORE IT IS SEEN (task 120). Karen's scene, from task 116:
+		-- "hunter waiting and hear something comming and then boars are visible running, walking".
+		-- Each gait's reach is what the animal doing it should carry: a walking boar is a noise in
+		-- the brush, a trotting one is the last seconds of approach, and a RUNNING sounder is
+		-- something coming -- which is the one a waiting hunter must get first.
+		--   walk  45 ->  80 studs, volume 0.35 -> 0.45
+		--   trot  70 -> 110 studs, volume 0.50 -> 0.65
+		--   run   90 -> 130 studs, volume 0.70 -> 0.85
+		-- With `NEAR_STUDS` at 24 that puts the run loop at 0.24 x 0.85 = 0.20 of full scale at 100
+		-- studs and still above zero at 129, against 0.08 at 100 and silence past 90 before.
+		walk = { id = 9114623726, volume = 0.45, baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond, audibleStuds = 80 },
+		trot = { id = 9114623726, volume = 0.65, baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond, audibleStuds = 110 },
 		-- "Donkey Footsteps 1" -- heavier and faster, for a gallop.
-		run = { id = 9114127078, volume = 0.7, baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond, audibleStuds = 90 },
+		run = { id = 9114127078, volume = 0.85, baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond, audibleStuds = 130 },
 	},
 	-- Calm grunts while it is idling or grazing. The interval is random inside the band so a sounder
 	-- does not grunt in chorus.
 	GRUNTS = {
 		ids = { 9117357588, 9117352464, 9117344600 }, -- "Pig Grunts 2 / 3 / 6"
-		volume = 0.45,
-		audibleStuds = 70,
+		-- 0.45 -> 0.5, 70 -> 85 studs (task 120): a herd muttering is the second thing a waiting
+		-- hunter gets, after its hooves and before it is visible.
+		volume = 0.5,
+		audibleStuds = 85,
 		MIN_SECONDS = 3,
 		MAX_SECONDS = 8,
 		MAX_SPEED = 6, -- only while calm: a bolting boar breathes instead
@@ -641,8 +661,10 @@ Boar.CONFIG.SOUND = {
 	-- Breathing and snorts while it is running.
 	BREATH = {
 		ids = { 9113629992, 9113630137 }, -- "Bull Breaths 8 / 10"
-		volume = 0.5,
-		audibleStuds = 60,
+		-- 0.5 -> 0.55, 60 -> 95 studs (task 120): an animal that is WORKING is heard about as far
+		-- as it is running, which is the cue that says the thing coming is moving fast.
+		volume = 0.55,
+		audibleStuds = 95,
 		MIN_SECONDS = 1.5,
 		MAX_SECONDS = 3.0,
 		MIN_SPEED = 11, -- TROT_FROM: it is working
@@ -771,9 +793,15 @@ Boar.CONFIG.SOUND = {
 		MAX_SQUEALS = 2, -- cries and deaths, world-wide, at once
 		SQUEAL_SECONDS = 1.2, -- how long one counts as sounding against that budget
 		ONE_STEP_EMITTER = true, -- a sounder's footsteps come from its leader and nobody else
-		FAR_STUDS = 60, -- inside this, a voice is at its own volume
-		FAR_FADE_STUDS = 60, -- and it reaches FAR_VOLUME this much further out
-		FAR_VOLUME = 0.55,
+		-- THE FAR FADE STARTS WHERE THE APPROACH IS ALREADY HEARD (task 120, Karen the same day:
+		-- "when its verry fal I cant hear them"). Its job is to stop a herd two fields away being
+		-- an EVENT, not to make it inaudible -- so it begins at 90 studs, past the distance a
+		-- running sounder's hooves carry the news, and bottoms out at 0.75 rather than 0.55. It
+		-- touches the one-shot VOICES only: the footstep loops are the approach cue and are never
+		-- scaled by it.
+		FAR_STUDS = 90, -- inside this, a voice is at its own volume
+		FAR_FADE_STUDS = 40, -- and it reaches FAR_VOLUME this much further out
+		FAR_VOLUME = 0.75,
 	},
 	-- THE SNIFF, when the head comes up (task 117). It REUSES a ProSoundEffects id this project has
 	-- already verified -- "Bull Breaths 10" -- played high and short, because nothing in this

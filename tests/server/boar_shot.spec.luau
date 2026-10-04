@@ -1212,6 +1212,51 @@ return function()
 	end)
 
 	describe("every sound is configured, spatial and swappable", function()
+		it("lets a waiting hunter HEAR the approach long before he sees it", function()
+			-- KAREN, 2026-10-04: "and when its verry fal I cant hear them / when close only" -- and
+			-- her scene from task 116: "hunter waiting and hear something comming and then boars are
+			-- visible running, walking". So the cue order is hooves, then voices, then the animal.
+			local steps = SOUND.STEPS
+			-- A RUNNING SOUNDER IS THE FIRST THING HE GETS, and it has to reach past the band the
+			-- Director set (80-120 studs) because it is the warning, not the arrival.
+			expect(steps.run.audibleStuds >= 120).to.equal(true)
+			expect(Boar.heardAt(steps.run, 100, CONFIG) > 0.15).to.equal(true)
+			expect(Boar.heardAt(steps.run, steps.run.audibleStuds - 1, CONFIG) > 0).to.equal(true)
+			expect(Boar.heardAt(steps.run, steps.run.audibleStuds, CONFIG)).to.equal(0)
+			-- FAINT FIRST, GROWING: the same loop is several times louder by the time it is close.
+			expect(Boar.heardAt(steps.run, 30, CONFIG) > 3 * Boar.heardAt(steps.run, 110, CONFIG)).to.equal(true)
+			-- The harder it is working the further it carries, which is the whole reading.
+			expect(steps.run.audibleStuds > steps.trot.audibleStuds).to.equal(true)
+			expect(steps.trot.audibleStuds > steps.walk.audibleStuds).to.equal(true)
+			expect(steps.run.volume > steps.trot.volume).to.equal(true)
+			expect(steps.trot.volume > steps.walk.volume).to.equal(true)
+
+			-- GRUNTS COME IN AT 60-80, which is the Director's band for the herd's own voice.
+			expect(SOUND.GRUNTS.audibleStuds >= 60).to.equal(true)
+			expect(SOUND.GRUNTS.audibleStuds <= 90).to.equal(true)
+			expect(Boar.heardAt(SOUND.GRUNTS, 75, CONFIG) > 0).to.equal(true)
+			-- An animal that is WORKING is heard about as far as it is running.
+			expect(SOUND.BREATH.audibleStuds >= 90).to.equal(true)
+
+			-- AND THE CROWD CAP MUST NOT UNDO ANY OF IT (the same listen, both halves): the far fade
+			-- is there to stop a distant herd being an EVENT, so it may not begin before the
+			-- distance at which a grunt is supposed to be heard at all, and it never reaches zero.
+			expect(SOUND.CROWD.FAR_STUDS >= SOUND.GRUNTS.audibleStuds).to.equal(true)
+			expect(SOUND.CROWD.FAR_VOLUME >= 0.5).to.equal(true)
+			expect(Boar.farScale(SOUND.GRUNTS.audibleStuds - 1, CONFIG)).to.equal(1)
+			TestKit.note(
+				string.format(
+					"boar-far: run hooves reach %d studs (%.2f of full at 100), trot %d, walk %d, grunts %d, breath %d",
+					steps.run.audibleStuds,
+					Boar.heardAt(steps.run, 100, CONFIG),
+					steps.trot.audibleStuds,
+					steps.walk.audibleStuds,
+					SOUND.GRUNTS.audibleStuds,
+					SOUND.BREATH.audibleStuds
+				)
+			)
+		end)
+
 		it("names a real RollOffMode and a near distance inside every audible range", function()
 			expect(Enum.RollOffMode[SOUND.ROLL_OFF]).to.be.ok()
 			expect(SOUND.NEAR_STUDS > 0).to.equal(true)

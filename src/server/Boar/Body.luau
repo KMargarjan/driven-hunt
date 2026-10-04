@@ -1265,6 +1265,25 @@ function Body.farScale(distance: number?, config): number
 	return math.max(crowd.FAR_VOLUME, 1 - over * (1 - crowd.FAR_VOLUME))
 end
 
+-- WHAT A HUNTER HEARS OF ONE SOUND AT `distance` (task 120). Karen, 2026-10-04: "and when its verry
+-- fal I cant hear them / when close only".
+--
+-- `RollOffMode.InverseTapered` is inverse close in and tapers to silence at the row's own
+-- `audibleStuds`, so the level goes as `NEAR_STUDS / d` and the MAX is a hard cut. That is the model
+-- these numbers were chosen with: it is not Roblox's exact blend -- nothing in this toolchain can
+-- read back the level a client renders, and that is said in the request -- but it has the two
+-- properties that matter, that the plateau sets the far tail and that nothing is heard past the max.
+function Body.heardAt(spec, distance: number, config): number
+	if distance >= spec.audibleStuds then
+		return 0
+	end
+	local near = config.SOUND.NEAR_STUDS
+	if distance <= near then
+		return spec.volume
+	end
+	return spec.volume * (near / distance)
+end
+
 -- A CUT SOUND'S VOLUME, `left` seconds before it is stopped. Full until the fade begins, then down
 -- to nothing in a straight line, so a squeal ENDS instead of being chopped. Pure.
 function Body.cutVolume(left: number, spec): number
