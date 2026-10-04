@@ -29,6 +29,39 @@ return function()
 		local on = configWith(true)
 		local off = configWith(false)
 
+		it("carries the studs each kind's carcass has to be given back", function()
+			-- TASK 120, Karen 2026-10-04: "when shoot cub he is gone not remaining". The shared death
+			-- clip's bone translations are absolute studs, so on a rig baked smaller they overshoot
+			-- DOWNWARD: measured at the frame the death is frozen on, a sow's lowest bone ends 0.205
+			-- studs under the ground and a cub's 1.009 under it, while the male's sits +0.002 above.
+			-- The derivation and the measurements are in `Boar.CONFIG.KINDS`.
+			expect(Boar.kindGeometry("male", on).deathLift).to.equal(0)
+			expect(math.abs(Boar.kindGeometry("female", on).deathLift - 0.205) < EPSILON).to.equal(true)
+			expect(math.abs(Boar.kindGeometry("cub", on).deathLift - 1.009) < EPSILON).to.equal(true)
+
+			-- IT IS NOT A FORMULA, and this is the case that says so: (1 - scale) predicts 0.26 for
+			-- the sow, which is 27 % over the 0.205 that was measured. A fourth kind is measured,
+			-- not computed -- and `boar_model.spec`'s death-lift case is what fails if one is added
+			-- without the trip.
+			local predicted = (1 - CONFIG.KINDS.female.scale)
+				* (Boar.kindGeometry("cub", on).deathLift / (1 - CONFIG.KINDS.cub.scale))
+			expect(math.abs(predicted - 0.205) > 0.05).to.equal(true)
+
+			-- WITH THE FLAG OFF every kind is the male and nothing is given back, because with the
+			-- flag off nothing is drawn to give it back to.
+			for _, kind in ipairs(CONFIG.KINDS.ORDER) do
+				expect(Boar.kindGeometry(kind, off).deathLift).to.equal(0)
+			end
+			TestKit.note(
+				string.format(
+					"boar-kinds: death lift male %.3f, sow %.3f, cub %.3f studs",
+					Boar.kindGeometry("male", on).deathLift,
+					Boar.kindGeometry("female", on).deathLift,
+					Boar.kindGeometry("cub", on).deathLift
+				)
+			)
+		end)
+
 		it("scales every box with the animal, so a cub is a small target", function()
 			local male = Boar.kindGeometry("male", on)
 			local female = Boar.kindGeometry("female", on)

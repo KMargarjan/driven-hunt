@@ -53,6 +53,9 @@ export type WoundState = {
 
 export type KillRecord = {
 	id: string,
+	-- WHICH ANIMAL DIED (task 120): "male", "female" or "cub", or nil for a caller that predates
+	-- kinds. The one thing a cub penalty cannot be written without.
+	kind: string?,
 	at: number,
 	position: Vector3,
 	killedByUserId: number?,
@@ -310,10 +313,23 @@ end
 -- Everything Milestone 1.7 needs to score a kill, assembled once when the boar goes down. It carries
 -- userIds and names, never Player instances: a boar can outlive a disconnect by 16 seconds and a
 -- stored Player pins the instance (design section 8.4).
-function Wound.killRecord(state: WoundState, id: string, position: Vector3, aliveFor: number, config): KillRecord
+-- `kind` IS APPENDED, NOT INSERTED (task 120): every caller written before it still works and
+-- reads nil, which is what a payload that may only grow means. Karen, 2026-10-04: "if shoot
+-- cub will get penalty" -- the penalty is NOT built here and is hers to design, but the one
+-- thing it cannot be written without is WHICH ANIMAL was killed, and this is where a listener
+-- reads it. `Match`'s `onDowned` is the listener that will carry it to the rule.
+function Wound.killRecord(
+	state: WoundState,
+	id: string,
+	position: Vector3,
+	aliveFor: number,
+	config,
+	kind: string?
+): KillRecord
 	local killing = state.mortalWound
 	return freeze({
 		id = id,
+		kind = kind,
 		at = if killing then killing.at else 0,
 		position = position,
 		killedByUserId = killing and killing.shooterUserId,

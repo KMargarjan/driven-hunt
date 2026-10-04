@@ -113,6 +113,11 @@ function Body.kindGeometry(kind: string?, config)
 		model = row.model,
 		bodySize = config.BODY_SIZE * scale,
 		zones = zones,
+		-- HOW FAR THIS ANIMAL'S CARCASS HAS TO BE PUT BACK UP (task 120), travelling with the rest
+		-- of its geometry because that is what it is. Measured per kind; the derivation and the
+		-- numbers are in `Boar.CONFIG.KINDS`. Zero for the male, and zero for every kind with
+		-- `KINDS` off, so the grey-box world and the animal Karen accepted are untouched.
+		deathLift = row.deathLiftStuds or 0,
 	}
 end
 
@@ -290,6 +295,14 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		-- THE SKINNED MODEL (task 115), nil until `attachVisual` succeeds and nil for ever with
 		-- `BOAR_MODEL` off. Everything above this line is byte-identical in both states.
 		visual = nil :: Model?,
+		-- name -> how many times `playOneShot` has really played it (task 120).
+		soundPlays = {} :: { [string]: number },
+		-- name -> { left = seconds of sound still to play, spec = the row it was played from },
+		-- which is what `stepCuts` fades and stops (task 120, review round 1 note).
+		cutIn = {} :: { [string]: { left: number, spec: any } },
+		-- How loud this animal's voice is right now, as a fraction of each cue's own volume: 1 near
+		-- a hunter, down to `CROWD.FAR_VOLUME` far from one. Written only by `Body.setVoiceScale`.
+		voiceScale = 1,
 		mesh = nil :: BasePart?,
 		animator = nil :: Animator?,
 		tracks = {} :: { [string]: AnimationTrack },
@@ -1160,6 +1173,19 @@ local function makeSound(name: string, spec, config, parent: Instance): Sound
 	sound.RollOffMode = Enum.RollOffMode[config.SOUND.ROLL_OFF]
 	sound.RollOffMinDistance = config.SOUND.NEAR_STUDS
 	sound.RollOffMaxDistance = spec.audibleStuds
+	-- SOFTER IS A FILTER, NOT ONLY A VOLUME (task 120). Karen, 2026-10-04: "sound has to be lover
+	-- and softer". Turning a sample down makes it distant; taking the top off it makes it SOFT, and
+	-- the high end is where a wet impact's slap lives. One EqualizerSoundEffect per sound that asks
+	-- for one, built with the sound and never touched again -- the gains are data in
+	-- `Boar.CONFIG.SOUND`, so retuning them is three numbers and no code.
+	if spec.eq then
+		local eq = Instance.new("EqualizerSoundEffect")
+		eq.Name = "Softer"
+		eq.LowGain = spec.eq.low
+		eq.MidGain = spec.eq.mid
+		eq.HighGain = spec.eq.high
+		eq.Parent = sound
+	end
 	sound.Parent = parent
 	return sound
 end
@@ -1185,6 +1211,88 @@ function Body.stepSoundFor(speed: number, config): (string?, number)
 	local spec = sound.STEPS[gait]
 	local rate = math.clamp(speed / spec.baseSpeed, model.MIN_RATE, model.MAX_RATE)
 	return gait, rate
+end
+
+-- A VOICE PER KIND (task 120) ---------------------------------------------------------------------
+-- Karen, 2026-10-04: "pown should sqeen differen, male differen female different". Three pure
+-- functions, so a spec can ask what a cub's death squeal sounds like with no cub in the world.
+--
+-- `voiceRow` is nil whenever the voice is off, the kind is unknown, or the cue is not one of the
+-- animal's own (hooves, breath and the sniff are the world, not the animal) -- and every caller
+-- then gets exactly what it got before task 120.
+function Body.voiceRow(name: string, kind: string?, config)
+	local voice = config.SOUND.VOICE
+	if voice == nil or voice.ENABLED ~= true or kind == nil then
+		return nil
+	end
+	if voice.APPLIES[name] ~= true then
+		return nil
+	end
+	return voice[kind]
+end
+
+-- The CENTRE of the pitch jitter for one cue on one animal: the kind's own voice, or 1 (or the
+-- row's own `pitch`, which is how the sniff stays high for every kind).
+function Body.voicePitch(name: string, kind: string?, spec, config): number
+	local row = Body.voiceRow(name, kind, config)
+	if row == nil or row.pitch == nil then
+		return spec.pitch or 1
+	end
+	return row.pitch
+end
+
+-- Which samples this animal has for this cue: its own list when it has one, else the row's.
+function Body.voiceIds(name: string, kind: string?, spec, config)
+	local row = Body.voiceRow(name, kind, config)
+	if row and row[name] then
+		return row[name]
+	end
+	return spec.ids
+end
+
+-- HOW LOUD A VOICE IS AT `distance` FROM THE NEAREST HUNTER (task 120). 1 inside `FAR_STUDS`, down
+-- to `FAR_VOLUME` over the `FAR_FADE_STUDS` beyond it, and never below. Pure, and it is a fraction
+-- of the sound's own volume rather than a replacement for it -- the roll-off still does its work;
+-- this is the extra step that stops a sounder at the far end of the field being an event.
+function Body.farScale(distance: number?, config): number
+	local crowd = config.SOUND.CROWD
+	if crowd == nil or crowd.ENABLED ~= true or distance == nil then
+		return 1
+	end
+	if distance <= crowd.FAR_STUDS then
+		return 1
+	end
+	local over = (distance - crowd.FAR_STUDS) / math.max(crowd.FAR_FADE_STUDS, 1e-6)
+	return math.max(crowd.FAR_VOLUME, 1 - over * (1 - crowd.FAR_VOLUME))
+end
+
+-- WHAT A HUNTER HEARS OF ONE SOUND AT `distance` (task 120). Karen, 2026-10-04: "and when its verry
+-- fal I cant hear them / when close only".
+--
+-- `RollOffMode.InverseTapered` is inverse close in and tapers to silence at the row's own
+-- `audibleStuds`, so the level goes as `NEAR_STUDS / d` and the MAX is a hard cut. That is the model
+-- these numbers were chosen with: it is not Roblox's exact blend -- nothing in this toolchain can
+-- read back the level a client renders, and that is said in the request -- but it has the two
+-- properties that matter, that the plateau sets the far tail and that nothing is heard past the max.
+function Body.heardAt(spec, distance: number, config): number
+	if distance >= spec.audibleStuds then
+		return 0
+	end
+	local near = config.SOUND.NEAR_STUDS
+	if distance <= near then
+		return spec.volume
+	end
+	return spec.volume * (near / distance)
+end
+
+-- A CUT SOUND'S VOLUME, `left` seconds before it is stopped. Full until the fade begins, then down
+-- to nothing in a straight line, so a squeal ENDS instead of being chopped. Pure.
+function Body.cutVolume(left: number, spec): number
+	local fade = spec.fade or 0
+	if fade <= 0 or left >= fade then
+		return spec.volume
+	end
+	return spec.volume * math.max(left, 0) / fade
 end
 
 -- THE ONE-SHOT SOUNDS, name to config row, in ONE place: `attachSounds` builds them from this and
@@ -1236,16 +1344,40 @@ function Body.playOneShot(handle, name: string, spec, config, rng: Random)
 	if sound == nil then
 		return false
 	end
-	if spec.ids then
-		sound.SoundId = "rbxassetid://" .. tostring(spec.ids[rng:NextInteger(1, #spec.ids)])
+	-- OFF BY DATA (task 120). Karen, 2026-10-04: "I think we can remove hit sound for now". The
+	-- Sound still exists, with its id and its volume: this is the only line that keeps it quiet, so
+	-- bringing a cue back is one word in `Boar.CONFIG.SOUND` and nothing else.
+	if spec.enabled == false then
+		return false
+	end
+	-- THE ANIMAL'S OWN VOICE, where the cue is one (task 120): its kind's samples and its kind's
+	-- pitch. With `VOICE` off, or for a cue that is not a voice, both answer exactly what the row
+	-- said before.
+	local ids = Body.voiceIds(name, handle.kind, spec, config)
+	if ids then
+		sound.SoundId = "rbxassetid://" .. tostring(ids[rng:NextInteger(1, #ids)])
 	end
 	-- THE VOLUME IS SET ON EVERY PLAY, which is what makes the warm-up safe: a sound at volume 0 is
 	-- one nobody is listening to, so `coolAssets` may stop it, and this is the line that says "this
 	-- one is real". It is also one less place for a retuned volume to be stale.
-	sound.Volume = spec.volume
+	-- ...AND QUIETER WHEN THE ANIMAL IS FAR (task 120). `voiceScale` is written by the Runtime,
+	-- which is the only thing that knows where the hunters are; it is 1 until something sets it.
+	sound.Volume = spec.volume * (handle.voiceScale or 1)
 	-- A spec may carry its own `pitch` as the CENTRE of the jitter: the sniff is the same breath
 	-- sample played high (task 117), and that is a number in the table rather than a second asset.
-	sound.PlaybackSpeed = (spec.pitch or 1) * Body.jitteredPitch(rng:NextNumber(), config.SOUND.PITCH_JITTER)
+	-- Task 120: a kind's voice is the same dial, chosen by which animal is making the noise.
+	sound.PlaybackSpeed = Body.voicePitch(name, handle.kind, spec, config)
+		* Body.jitteredPitch(rng:NextNumber(), config.SOUND.PITCH_JITTER)
+	-- A CUT CUE ENDS ON TIME (task 120): "when die last sqeek need short one". The countdown is
+	-- stepped in `stepSound`, which runs for a carcass too, and the fade is `Body.cutVolume`.
+	if spec.cut then
+		handle.cutIn[name] = { left = spec.cut, spec = spec }
+	end
+	-- HOW MANY TIMES THIS BOAR HAS REALLY MADE THIS NOISE (task 120). `warmAssets` plays every sound
+	-- at volume 0 and does NOT come through here, so this counts the ones somebody can hear -- which
+	-- is what lets a spec say "the hit sound played exactly once" across a hit and the death that
+	-- followed it 25 seconds later.
+	handle.soundPlays[name] = (handle.soundPlays[name] or 0) + 1
 	sound:Play()
 	return true
 end
@@ -1319,28 +1451,67 @@ end
 -- every looping sound cut because a carcass has no footsteps, and the last breath ARMED rather than
 -- played -- it lands `LAST_BREATH.delay` seconds later, which is the Director's "death = the scream
 -- plus a breath" and is the only sound a dead boar ever makes.
-function Body.playDeath(handle, config, rng: Random)
+-- `squeal` IS THE WORLD'S PERMISSION (task 120): false when two squeals are already sounding
+-- somewhere, which is the cap that stops a sounder shot into from stacking five of them. The rest of
+-- the death -- the loops cut, the fall's own row -- happens either way.
+function Body.playDeath(handle, config, rng: Random, squeal: boolean?)
 	if handle.soundFolder == nil then
 		return false
 	end
 	local sound = config.SOUND
-	Body.playOneShot(handle, "death", sound.DEATH, config, rng)
-	Body.playOneShot(handle, "fall", sound.FALL, config, rng)
+	if squeal ~= false then
+		Body.playOneShot(handle, "death", sound.DEATH, config, rng)
+	end
+	Body.playOneShot(handle, "fall", sound.FALL, config, rng) -- off by data since task 120
 	Body.silenceLoops(handle)
-	handle.lastBreathIn = sound.LAST_BREATH.delay
+	-- ARMED ONLY IF IT EXISTS. Karen, 2026-10-04: one short squeal and nothing after it.
+	if sound.LAST_BREATH.enabled ~= false then
+		handle.lastBreathIn = sound.LAST_BREATH.delay
+	end
 	return true
+end
+
+-- EVERY CUT CUE, A STEP CLOSER TO ITS END (task 120). Called every step, carcass or not, because
+-- the one sound a dead boar makes is a squeal that has to STOP: Karen, 2026-10-04, "when die last
+-- sqeek need short one". The fade is `Body.cutVolume`, so it ends rather than being chopped.
+function Body.stepCuts(handle, dt: number)
+	for name, row in pairs(handle.cutIn) do
+		row.left -= dt
+		local sound = handle.sounds[name]
+		if row.left <= 0 then
+			handle.cutIn[name] = nil
+			if sound then
+				sound:Stop()
+			end
+		elseif sound then
+			sound.Volume = Body.cutVolume(row.left, row.spec) * (handle.voiceScale or 1)
+		end
+	end
 end
 
 -- Once per boar per step, with the flag on. Footsteps follow the gait; grunts and breaths are
 -- countdowns, so a sounder does not grunt in chorus.
-function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
+--
+-- `voice` IS WHAT THE CROWD ALLOWS THIS ANIMAL THIS STEP (task 120), from the Runtime, which is the
+-- only thing that knows what else is making a noise: `steps = false` for every member of a sounder
+-- but its leader, `grunt = false` while the sounder's one grunt slot is taken. nil means "no limits",
+-- which is what every caller written before this task passes. Returns which one-shot it played, so
+-- the Runtime can book the slot it just used.
+function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, voice): string?
 	if handle.soundFolder == nil then
-		return
+		return nil
 	end
 	local sound = config.SOUND
+	Body.stepCuts(handle, dt)
 
 	-- FOOTSTEPS. Exactly one loop plays, and a standing boar is silent.
 	local gait, rate = Body.stepSoundFor(speed, config)
+	-- ONE SET OF HOOVES PER SOUNDER: five animals running together are one sound with one position
+	-- to a listener fifty studs away, and six copies of one sample is the "wall of noise" Karen
+	-- asked not to have. The followers go silent exactly as a standing boar does.
+	if voice and voice.steps == false then
+		gait = nil
+	end
 	if gait ~= handle.stepClip then
 		if handle.stepClip then
 			local was = handle.sounds["steps_" .. handle.stepClip]
@@ -1364,11 +1535,23 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
 		if now and math.abs(now.PlaybackSpeed - rate) > config.MODEL.RATE_EPSILON then
 			now.PlaybackSpeed = rate
 		end
+		-- ...AND A LOOP SOMETHING ELSE STOPPED COMES BACK (task 120, review round 1 note). The
+		-- silent pre-roll plays every sound at volume 0 and `coolAssets` STOPS the ones it finds
+		-- there -- a boar whose gait did not change across that moment then ran silently for ever,
+		-- because the branch above only plays on a CHANGE. Measured in a spec: six boars all
+		-- fleeing, one audible loop. It matters more since this task, because a sounder's hooves
+		-- are now one animal's (`isStepEmitter`): the silent one could be the whole herd's voice,
+		-- which is the opposite of "hear them coming".
+		if now and not now.IsPlaying then
+			now.Volume = sound.STEPS[gait].volume
+			now:Play()
+		end
 	end
 
 	if handle.collapsed then
 		-- A dead boar neither grunts nor breathes -- it has exactly one sound left, and it is the
 		-- one `playDeath` armed. A countdown, not a clock: nothing in this file reads os.clock.
+		-- (Task 120: `LAST_BREATH` is off by data, so this arms nothing until it comes back.)
 		if handle.lastBreathIn ~= nil then
 			handle.lastBreathIn -= dt
 			if handle.lastBreathIn <= 0 then
@@ -1376,7 +1559,7 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
 				Body.playOneShot(handle, "lastBreath", sound.LAST_BREATH, config, rng)
 			end
 		end
-		return
+		return nil
 	end
 
 	-- CALM GRUNTS while it is idling or grazing, BREATHING while it is working. Never both, and the
@@ -1387,6 +1570,7 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
 	-- the frame its coat goes on -- and a sounder is five boars, so they would grunt in chorus and
 	-- read as one loud animal. nil means "not armed yet": the first tick in the band picks a random
 	-- interval and plays nothing.
+	local played: string? = nil
 	local function countdown(left: number?, row): number?
 		if left == nil then
 			return rng:NextNumber(row.MIN_SECONDS, row.MAX_SECONDS)
@@ -1395,7 +1579,14 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
 		if next_ > 0 then
 			return next_
 		end
-		Body.playOneShot(handle, if row == sound.GRUNTS then "grunt" else "breath", row, config, rng)
+		local name = if row == sound.GRUNTS then "grunt" else "breath"
+		-- SKIPPED, NEVER QUEUED (task 120): a grunt that loses its sounder's one slot simply does
+		-- not happen, and the animal waits for its next interval like one that had nothing to say.
+		-- Queuing it would move the chorus a second later instead of removing it.
+		local allowed = name ~= "grunt" or voice == nil or voice.grunt ~= false
+		if allowed and Body.playOneShot(handle, name, row, config, rng) then
+			played = name
+		end
 		return rng:NextNumber(row.MIN_SECONDS, row.MAX_SECONDS)
 	end
 
@@ -1404,6 +1595,13 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random)
 	elseif speed >= sound.BREATH.MIN_SPEED then
 		handle.nextBreath = countdown(handle.nextBreath, sound.BREATH)
 	end
+	return played
+end
+
+-- HOW LOUD THIS ANIMAL'S VOICE IS, from the Runtime, which is the only thing that knows where the
+-- hunters are. One number, read by `playOneShot` on the next cue it plays (task 120).
+function Body.setVoiceScale(handle, scale: number)
+	handle.voiceScale = scale
 end
 
 -- Silences everything that loops. Called when the boar dies: a carcass has no footsteps.
@@ -1423,7 +1621,12 @@ end
 -- now finds no damageable root, so further pellets are a miss and no second kill can be counted)
 -- and Carcass true (a marker Milestone 1.7 can read without requiring Boar). An attribute rather
 -- than a CollectionService tag because the harness compares attributes and does not compare tags.
-function Body.collapse(handle, config)
+-- `config` IS THE WOUND'S OWN TABLE, as it has been since task 28; `full` is the WHOLE config and
+-- is appended, never inserted (task 120, review round 1 note). It is here for one question -- is
+-- there a death clip to fall with? -- and a caller that does not hand it over gets no lift, which
+-- is the pre-120 behaviour and the safe way round: a carcass that was never raised is a carcass
+-- lying where the clip left it, and a carcass raised with nothing to pull it down floats.
+function Body.collapse(handle, config, full)
 	if handle.collapsed then
 		return
 	end
@@ -1455,6 +1658,72 @@ function Body.collapse(handle, config)
 	-- still, and when it does not the box topples exactly as it has since Task 28.
 	if handle.visual == nil then
 		part.CFrame = part.CFrame * CFrame.Angles(0, 0, math.rad(config.COLLAPSE_ROLL_DEG))
+		return
+	end
+
+	-- ...AND WHEN THERE IS SOMETHING DRAWN, THE CLIP THAT DOES THE FALLING OVERSHOOTS ON A SMALL
+	-- ANIMAL (task 120). Karen, 2026-10-04: "when shoot cub he is gone not remaining". The cub was
+	-- not gone -- its box was there, anchored, `Carcass = true` -- it was drawn 1.01 studs UNDER THE
+	-- FLOOR, which on an animal 1.44 studs tall is the whole of it. All three kinds play the male's
+	-- clips, a KeyframeSequence's bone translations are absolute studs, and the fall is built out of
+	-- child-bone translations: on geometry baked smaller every one of them is too long and they all
+	-- point down. The numbers, the measurements and why this is data and not a formula are in
+	-- `Boar.CONFIG.KINDS`.
+	--
+	-- ONE WRITE, AT THE MOMENT OF DEATH, exactly like the roll above and for the same reason: the
+	-- design forbids per-frame CFrame writing on the boar (boar-ai design section 6), and the pose
+	-- this corrects is the one the carcass is HELD on for CARCASS_SECONDS. What a player sees is
+	-- the dying animal start its fall a body-height high instead of ending it under the ground --
+	-- downward motion masking a lift, rather than a carcass that has to pop up at rest.
+	--
+	-- ...AND ONLY WHERE THERE IS A FALL TO CANCEL (review round 1, note). The lift gives back what
+	-- the DEATH CLIP takes off a smaller rig, so with no death clip published there is nothing to
+	-- give back -- and lifting anyway would hang a cub's carcass 1.009 studs in the air for
+	-- `CARCASS_SECONDS`. Task 116 supports that world on purpose (`stepVisual`'s twitch branch, and
+	-- `boar_shot.spec`'s `withIds({})`), so it is asked rather than assumed.
+	local lift = (handle.geometry and handle.geometry.deathLift) or 0
+	local falls = full ~= nil and Body.hasClip((Body.deathClips(full)), full)
+	if lift > 0 and falls then
+		Body.liftDrawn(handle, lift)
+	end
+end
+
+-- Moves everything drawn up by `studs` and leaves it welded. A WeldConstraint stores the relative
+-- transform at the moment it is ENABLED, so the offset is changed by disabling it, moving the part
+-- and enabling it again -- all inside this one call, so no physics step runs while anything is
+-- loose and nothing can drift. Every weld is off before any part moves, so the order of the drawn
+-- parts cannot matter.
+--
+-- IT TOUCHES NOTHING A SHOT READS. The trunk, its attributes, its zone parts, its CanQuery and its
+-- CanCollide are not in this function: the hit boxes stay exactly where the animal died, which is
+-- also why a lifted carcass is no harder to hit (and `Damageable` is already false by here anyway).
+function Body.liftDrawn(handle, studs: number)
+	local model = handle.visual
+	if model == nil or studs <= 0 then
+		return
+	end
+	local parts: { BasePart } = {}
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			table.insert(parts, descendant)
+		end
+	end
+	local function welds(drawn: BasePart, enabled: boolean)
+		for _, child in ipairs(drawn:GetChildren()) do
+			if child:IsA("WeldConstraint") then
+				child.Enabled = enabled
+			end
+		end
+	end
+	for _, drawn in ipairs(parts) do
+		welds(drawn, false)
+	end
+	local up = Vector3.new(0, studs, 0)
+	for _, drawn in ipairs(parts) do
+		drawn.CFrame = drawn.CFrame + up
+	end
+	for _, drawn in ipairs(parts) do
+		welds(drawn, true)
 	end
 end
 

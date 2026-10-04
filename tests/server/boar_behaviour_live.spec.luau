@@ -434,6 +434,116 @@ return function()
 		end)
 	end)
 
+	describe("boar family, live: a dead animal of any kind lies where it fell", function()
+		it("leaves a carcass on the ground for a male, a sow and a cub alike", function()
+			-- KAREN, 2026-10-04: "when shoot cub he is gone not remaining". The BODY was never the
+			-- part that went: measured on the merged build, a cub killed at 16 studs became a
+			-- carcass, anchored, and was still lying there 14 s later with `Carcass = true` and
+			-- `Damageable = false`, exactly as a male and a sow do. What was gone was the PICTURE,
+			-- 1.01 studs under the floor -- that half is `boar_model.spec`'s death-lift case and
+			-- `Boar.CONFIG.KINDS`' measurements.
+			--
+			-- THIS CASE IS THE OTHER HALF, for all three kinds at once: the carcass path has no
+			-- number in it that is keyed on size today, and after this it cannot grow one unnoticed.
+			local holder = Instance.new("Folder")
+			holder.Name = "BoarCarcassSpec"
+			holder.Parent = testRoot
+			local production = Boar.defaultWorld(FIELD)
+			local morgue = Boar.newRuntime({
+				field = FIELD,
+				parent = holder,
+				folderName = "Carcasses",
+				rng = Random.new(120),
+				config = { KINDS = { ENABLED = true }, maxBoars = 8 },
+				threats = function()
+					return {}
+				end,
+				requestPath = production.requestPath,
+				releasePath = production.releasePath,
+			})
+			local disconnectMorgue = morgue:run()
+
+			-- One of each, well apart, so a falling body cannot land on another.
+			local handles = {}
+			for index, kind in ipairs({ "male", "female", "cub" }) do
+				handles[kind] = morgue:spawn(Vector3.new(-40 + index * 20, GROUND_Y, 0), kind)
+				expect(handles[kind].kind).to.equal(kind)
+			end
+			for _ = 1, frames(1.0) do
+				RunService.Heartbeat:Wait()
+			end
+
+			-- KILLED, through the one door a hit comes through. A slug to the head is lethal for
+			-- every kind: the damage model is the animal's, not the box's.
+			for _, kind in ipairs({ "male", "female", "cub" }) do
+				local handle = handles[kind]
+				expect(morgue:takeHit(handle.part, { zone = "head", ammo = "Slug", pellets = 1, at = os.clock() })).to.equal(
+					true
+				)
+			end
+			local dead = stepUntil(frames(1.0), function()
+				for _, kind in ipairs({ "male", "female", "cub" }) do
+					if handles[kind].state() ~= "DOWN" then
+						return false
+					end
+				end
+				return true
+			end)
+			expect(dead).to.equal(true)
+
+			-- IT LIES THERE. Anchored once it has come to rest, on the plate rather than through it,
+			-- and still there seconds later -- which is the whole of Karen's "not remaining".
+			local settled = stepUntil(frames(4.0), function()
+				for _, kind in ipairs({ "male", "female", "cub" }) do
+					if handles[kind].part.Anchored ~= true then
+						return false
+					end
+				end
+				return true
+			end)
+			expect(settled).to.equal(true)
+
+			local resting = {}
+			for _, kind in ipairs({ "male", "female", "cub" }) do
+				local part = handles[kind].part
+				expect(part:GetAttribute("Carcass")).to.equal(true)
+				expect(part:GetAttribute("Damageable")).to.equal(false)
+				expect(part.Position.Y - part.Size.Y / 2 > GROUND_Y - 1).to.equal(true)
+				resting[kind] = part.Position
+			end
+
+			-- AND IT CANNOT BE PUSHED. A character walking into a carcass is what Karen asked about
+			-- in task 115 ("it has to stay in same place without move"); the shove is a velocity on
+			-- an unanchored body, so this is the same shove, and an anchored one does not take it.
+			for _, kind in ipairs({ "male", "female", "cub" }) do
+				handles[kind].part.AssemblyLinearVelocity = Vector3.new(40, 0, 40)
+			end
+			for _ = 1, frames(1.5) do
+				RunService.Heartbeat:Wait()
+			end
+			local worst = 0
+			for _, kind in ipairs({ "male", "female", "cub" }) do
+				local moved = (handles[kind].part.Position - resting[kind]).Magnitude
+				worst = math.max(worst, moved)
+				expect(moved < 0.05).to.equal(true)
+				-- ...and it is STILL THERE: `count` is the runtime's own, so a despawn of any kind
+				-- -- "killed", "escaped" or out of bounds -- fails this.
+				expect(handles[kind].part.Parent).to.be.ok()
+			end
+			expect(morgue:count()).to.equal(3)
+			TestKit.note(
+				string.format(
+					"boar-carcass: male, sow and cub all anchored carcasses; the worst shove moved one %.3f studs",
+					worst
+				)
+			)
+
+			disconnectMorgue()
+			morgue:destroy()
+			holder:Destroy()
+		end)
+	end)
+
 	describe("boar behaviour, live: single file or a loose group", function()
 		-- Karen: "they usually do one line each after another or mixed like in real life".
 		-- `COLUMN_CHANCE` is 0.5 and the draw is the runtime's own `Random`, so this asks for
