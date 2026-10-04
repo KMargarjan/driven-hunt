@@ -3,9 +3,10 @@
 Task: 120
 Round: 1
 Base: 25e84c031b4dd1c1e4a3967ce51fba51eaf92ebe
-Code commit: 914af8463533e7b74402ba9ddf638f204c703369
+Code commit: dc00d5775eea77193ff241aa7fa759c0a59946b3
 
-[harness] PASS: 33/33 checks @ 914af8463533e7b74402ba9ddf638f204c703369 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ dc00d5775eea77193ff241aa7fa759c0a59946b3 (clean tree)
+[harness] PASS: 33/33 checks @ dc00d5775eea77193ff241aa7fa759c0a59946b3 (clean tree) scope=all
 
 ## Claims
 
@@ -56,9 +57,11 @@ false before asserting the rest state is exactly zero. Also 118a(a), `match_live
 - `Boar.heardAt` is a MODEL, not a measurement: nothing here can read back the level a client
   renders, and Roblox does not publish the exact InverseTapered blend. It has the two properties the
   numbers were chosen on -- the plateau sets the far tail, the max is a hard cut.
-- Nothing in this toolchain can hear a sample: every sound claim is a dial or an instance property,
-  and Karen's ears decide. The death lift lands at the moment of death, so a cub starts its 1.2 s
-  fall a body-height high.
+- **NOBODY HAS HEARD ANY OF IT.** Nothing in this toolchain can hear a sample, and Karen skipped the
+  listen ("skip me for testing", 2026-10-04), so every sound claim here -- the two cues off, the
+  short squeal, the per-kind voices, the crowd caps and the audible distances -- is a dial or an
+  instance property and not a judgement that it SOUNDS right. The death lift lands at the moment of
+  death, so a cub starts its 1.2 s fall a body-height high; nobody has judged that either.
 - The one-emitter cap is proved on the pure gate and by "no follower was ever heard": after the
   silent pre-roll a footstep loop is re-played only when the GAIT changes, so a spec cannot make six
   animals audibly run abreast. That quirk is queued in `TASKS.md` under 120, with
