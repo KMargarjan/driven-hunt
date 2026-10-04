@@ -1608,9 +1608,15 @@ class Studio:
             return None
         datamodel = (arguments or {}).get("datamodel_type")
         if datamodel in ("Server", "Client"):
-            # The Play datamodel of THIS run when it is known, and otherwise the old behaviour --
-            # unscoped, which is correct and sufficient while only one Studio is open.
-            return self.play_ids.get(datamodel)
+            # THE PLAY DATAMODELS OF A SOLO RUN ARE NOT SEPARATE STUDIOS, and that was measured
+            # rather than assumed: `classify_studios` reported "0 new" after Play started, so the
+            # same Studio id hosts Edit, Server and Client and `datamodel_type` chooses between
+            # them. `play_ids` therefore stays empty in a one-player run and this falls through to
+            # the editor's id, which is the right place to send it.
+            #
+            # A TWO-PLAYER RUN IS DIFFERENT -- there the processes really are separate ids -- which
+            # is why the lookup comes first and `run_test2` keeps setting its own.
+            return self.play_ids.get(datamodel) or self.default_studio_id
         return self.default_studio_id
 
     def _call(self, tool, args=None, studio_id=None):
