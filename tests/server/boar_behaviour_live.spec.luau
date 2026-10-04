@@ -380,6 +380,23 @@ return function()
 				expect(handles[index].kind ~= "female").to.equal(true)
 			end
 
+			-- EVERY KIND IS DROPPED FROM THE SAME HEIGHT, and that is a DECISION rather than an
+			-- accident of arithmetic (review round 2, note). `field.groundY` is the FIELD's ground
+			-- and the map's real surface need not be on it: a cub spawned at its own half-height sat
+			-- entirely below the surface and was ejected, which is why every cub the drive released
+			-- vanished. Read before a single Heartbeat, so these are the SPAWN heights and not where
+			-- the physics has since put them.
+			local spawnY = {}
+			for _, handle in ipairs(handles) do
+				spawnY[handle.kind] = handle.position().Y
+			end
+			expect(spawnY.female).to.be.ok()
+			for kind, y in pairs(spawnY) do
+				expect(math.abs(y - spawnY.female) < 1e-3).to.equal(true)
+				expect(y > GROUND_Y + CONFIG.BODY_SIZE.Y / 2).to.equal(true)
+				expect(kind).to.be.ok()
+			end
+
 			-- THE BOX IS THE ANIMAL'S OWN. 0.85 and 0.45 of the male's 5.5 studs.
 			local wanted = { male = 5.5, female = 4.675, cub = 2.475 }
 			for _, handle in ipairs(handles) do

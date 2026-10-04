@@ -65,7 +65,8 @@ end
 -- ---------------------------------------------------------------- the three animals (task 119)
 --
 -- Karen: "we need also biger smaller kids ect". RedDeer's package is a FAMILY on one skeleton
--- (`Arm_Boar`, 46 bones, the same bone names in all three), so a sow and a cub are the same animal at
+-- (`Arm_Boar`; 40 `Bone` instances arrive in Studio, the same 40 names in all three -- counted off
+-- the three loaded templates on 2026-10-04), so a sow and a cub are the same animal at
 -- a different length: `tools/boar_prep.py` baked 4.675 and 2.475 studs into their geometry against
 -- the male's 5.5, and everything this file builds around them is the male's numbers times that ratio.
 --
@@ -84,7 +85,9 @@ end
 function Body.kindRow(kind: string?, config)
 	local kinds = config.KINDS
 	if kinds == nil or kinds.ENABLED ~= true then
-		return kinds and kinds[kinds.DEFAULT] or { scale = 1, clipScale = 1, model = "male" }
+		-- The no-KINDS fallback carries its own `name`, so `kindGeometry(...).kind` is never nil
+		-- and `Body.create` cannot stamp a handle with no kind (review round 2, note).
+		return kinds and kinds[kinds.DEFAULT] or { name = "male", scale = 1, clipScale = 1, model = "male" }
 	end
 	return kinds[kind or kinds.DEFAULT] or kinds[kinds.DEFAULT]
 end
@@ -109,8 +112,52 @@ function Body.kindGeometry(kind: string?, config)
 		clipScale = row.clipScale,
 		model = row.model,
 		bodySize = config.BODY_SIZE * scale,
-		protrusion = config.ZONES.PROTRUSION * scale,
 		zones = zones,
+	}
+end
+
+-- EVERY BAND EDGE AND BOTH RATE RAILS, FOR ONE ANIMAL (task 119, review round 2, finding 1).
+--
+-- `MAX_RATE`'s own derivation says what it is for: "THE CEILING IS ABOVE EVERYTHING THE GAME CAN ASK
+-- FOR, so it never shapes how an animal moves -- it only refuses the absurd rate a mis-measured clip
+-- would produce". 2.8 clears everything the MALE can ask for. It does not come close to clearing what
+-- a CUB asks for, and the Reviewer measured it: a cub's trot clip carries 10.244 x 0.4372 = 4.479
+-- studs/s, so the ceiling is reached at 12.5 while the animal is pushed to `TROT_SPEED` = 18 and runs
+-- at `SPRINT_SPEED` = 38 -- rates of 4.02 and 5.05, both clamped, so the feet carried 12.5 and 21.1
+-- studs/s while the body travelled 18 and 38. A 30 % and a 45 % slide, on a cub running beside its
+-- mother, which is the one thing in this task a player looks straight at.
+--
+-- SO THE RAILS ARE THE ANIMAL'S OWN, and so are the gait edges. Both are the male's numbers
+-- expressed in this animal's stride:
+--   * the CEILING is a cadence. The male's legs may be played at up to 2.8 of the clip's own speed;
+--     a cub's stride is 0.4372 of his, so the same cadence ceiling in the cub's units is 2.8 /
+--     0.4372 = 6.40. That is not a licence to look silly -- it is what keeps the rail ABOVE
+--     everything the game can ask for, which is the only promise the number ever made. The FLOOR
+--     stays where it is, for the reason written on it below.
+--   * a band edge is a WORLD SPEED at which an animal changes gait, and the two that matter are
+--     derived from the male's clips (`TROT_FROM` is where the walk clip reaches `WALK_MAX_RATE`). A
+--     small animal changes gait at a lower absolute speed -- a piglet is running where its mother
+--     trots -- so the edges scale with the stride too. The cub then plays `run` at 2.39 when the
+--     sounder is at 18 and 5.05 at a sprint, instead of trotting at a 4x blur.
+-- With `BOAR_MODEL` off, and for the male in either state, `clipScale` is 1 and every number here is
+-- the literal `MODEL` value: the flag-OFF world is arithmetically untouched.
+function Body.gaitBands(clipScale: number?, config)
+	local model = config.MODEL
+	local scale = if clipScale and clipScale > 0 then clipScale else 1
+	return {
+		scale = scale,
+		walkFrom = model.WALK_FROM * scale,
+		trotFrom = model.TROT_FROM * scale,
+		runFrom = model.RUN_FROM * scale,
+		-- THE FLOOR DOES NOT SCALE AND THE CEILING DOES, and the difference is what each rail is
+		-- about. `MIN_RATE` says a clip may not be played so slowly that it reads as slow motion --
+		-- a property of the CLIP, the same 0.4 whatever is wearing it; scaling it up put a cub's
+		-- floor at 0.915 and clamped the trot clip at the BOTTOM of its own band, where every animal
+		-- asks for 0.501. `MAX_RATE` says the opposite thing about the game rather than the clip --
+		-- "the ceiling is above everything the game can ask for" is its own derivation -- and what
+		-- the game asks of a cub is its stride's worth more.
+		minRate = model.MIN_RATE,
+		maxRate = model.MAX_RATE / scale,
 	}
 end
 
@@ -594,10 +641,11 @@ function Body.activityClip(info, config): (string?, number)
 	-- `digWalk`'s feet do not slide at the speed the row asks the Brain for.
 	local clip = config.MODEL.CLIPS[row.clip]
 	if clip.groundStudsPerSecond > 0 then
-		local model = config.MODEL
-		-- The kind's own stride, exactly as `clipFor`'s gaits read it (task 119).
-		local scale = if info.clipScale and info.clipScale > 0 then info.clipScale else 1
-		return row.clip, math.clamp(info.speed / (clip.groundStudsPerSecond * scale), model.MIN_RATE, model.MAX_RATE)
+		-- The kind's own stride AND the kind's own rails, exactly as `clipFor`'s gaits read them
+		-- (task 119, review round 2).
+		local bands = Body.gaitBands(info.clipScale, config)
+		return row.clip,
+			math.clamp(info.speed / (clip.groundStudsPerSecond * bands.scale), bands.minRate, bands.maxRate)
 	end
 	return row.clip, 1
 end
@@ -640,14 +688,15 @@ function Body.clipFor(info, config): (string?, number)
 	-- clip, and the female's came out 0.8553 of the male's and the cub's 0.4372, the same ratio on
 	-- all four locomotion clips. So the rate that stops the feet sliding divides by the male's
 	-- number times this animal's scale. It is 1 for the male and 1 with `BOAR_MODEL` off.
-	local clipScale = if info.clipScale and info.clipScale > 0 then info.clipScale else 1
+	local bands = Body.gaitBands(info.clipScale, config)
+	local clipScale = bands.scale
 	local function gait(name: string): (string, number)
 		local clip = clips[name]
 		local rate = 1
 		if clip and clip.groundStudsPerSecond > 0 then
 			rate = info.speed / (clip.groundStudsPerSecond * clipScale)
 		end
-		return name, math.clamp(rate, model.MIN_RATE, model.MAX_RATE)
+		return name, math.clamp(rate, bands.minRate, bands.maxRate)
 	end
 
 	-- A DEATH AND A FLINCH ARE IMMEDIATE AND IGNORE THE DWELL BELOW. They are the two the player is
@@ -678,7 +727,7 @@ function Body.clipFor(info, config): (string?, number)
 		local clip = model.CLIPS.crippleDrag
 		local rate = 1
 		if clip.groundStudsPerSecond > 0 then
-			rate = math.clamp(info.speed / (clip.groundStudsPerSecond * clipScale), model.MIN_RATE, model.MAX_RATE)
+			rate = math.clamp(info.speed / (clip.groundStudsPerSecond * clipScale), bands.minRate, bands.maxRate)
 		end
 		return "crippleDrag", rate
 	end
@@ -702,13 +751,13 @@ function Body.clipFor(info, config): (string?, number)
 	end
 
 	local function wanted(): (string, number)
-		if info.speed >= model.RUN_FROM then
+		if info.speed >= bands.runFrom then
 			return gait("run")
 		end
-		if info.speed >= model.TROT_FROM then
+		if info.speed >= bands.trotFrom then
 			return gait("trot")
 		end
-		if info.speed >= model.WALK_FROM then
+		if info.speed >= bands.walkFrom then
 			return gait("walk")
 		end
 		-- HYSTERESIS: a turn that is already running keeps running down to TURN_EXIT_DEG, and one

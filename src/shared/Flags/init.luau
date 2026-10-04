@@ -118,10 +118,12 @@ Flags.DEFAULTS = {
 		-- BORN OFF on 2026-10-03 (task 115). Karen: "we start with one bord and when this works we
 		-- do with rest". OFF is the grey box every spec and every screenshot since Milestone 1.2 was
 		-- taken against; ON welds RedDeer's skinned male boar to that same box as a VISUAL child and
-		-- plays a clip chosen by what the animal is doing. The physics box, its three hit zones and
-		-- every attribute the weapon reads are byte-identical in both states: the model is massless,
-		-- collisionless and NOT raycastable, so a shot that hit before still hits exactly the same
-		-- part.
+		-- plays a clip chosen by what the animal is doing. Every attribute the weapon reads is
+		-- byte-identical in both states and the model is massless, collisionless and NOT
+		-- raycastable, so a shot still lands on the box and its FOUR hit zones and never on the
+		-- animal. THE BOX ITSELF IS NO LONGER IDENTICAL, since task 119: with the flag ON a sounder
+		-- is a sow and her young, so a trunk and its zones are 0.85 or 0.45 of the male's. OFF,
+		-- every boar is the male-sized box Milestone 1.2 shipped.
 		default = false,
 		-- SINCE TASK 117 it also carries the calm repertoire -- what a boar does when nothing is
 		-- wrong: graze, root, lift its head to smell, stand, walk a few steps. OFF, an idle boar

@@ -71,6 +71,9 @@ Boar.hasClip = Body.hasClip
 -- world, and the one that matters is that a cub's hit zones are a cub's size.
 Boar.kindRow = Body.kindRow
 Boar.kindGeometry = Body.kindGeometry
+-- ...and the one review round 2 added: every gait edge and both rate rails for one animal, so "a cub
+-- is never asked for a rate its own ceiling refuses" is a sweep with no boar in the world.
+Boar.gaitBands = Body.gaitBands
 -- ...and task 117's three: which activity a roll draws, the row for a name, and the clip an activity
 -- draws. Pure, so every weight, every clip and every transition is a case with no boar in the world.
 Boar.calmActivity = Brain.calmActivity
@@ -1125,7 +1128,11 @@ function Boar.newRuntime(world)
 	-- handed the live server's real boar, and the one case the flag's promise rests on would pass for
 	-- the wrong reason.
 	self._modelSourceSet = false
-	self._askedModelAt = -math.huge
+	-- ONE "WHEN DID I LAST ASK" PER KIND (task 119, review round 2, note). With one scalar for all
+	-- three, `Runtime:step` asking for every kind in the same frame let only the FIRST through per
+	-- `ASK_EVERY_SECONDS`: the sow's coat could not arrive until a second after the male's and the
+	-- cub's until two, and anything born meanwhile stayed a grey box for that long.
+	self._askedModelAt = {} :: { [string]: number }
 	self._field = world.field or self._config.field
 	self._rng = world.rng or Random.new()
 	self._boars = {}
@@ -1270,7 +1277,7 @@ function Runtime:setModelSource(templateFor: ((string) -> Instance?)?, animation
 	self._animationIdFor = animationIdFor
 	self._modelSourceSet = true -- from here on this runtime ignores the module's, nil included
 	self._heldTemplate = {}
-	self._askedModelAt = -math.huge
+	self._askedModelAt = {}
 end
 
 -- The template, or nil, asking at most once every ASK_EVERY_SECONDS until it has one.
@@ -1283,10 +1290,10 @@ function Runtime:_modelTemplate(kind: string, now: number): Instance?
 	if ask == nil then
 		return nil
 	end
-	if now - self._askedModelAt < self._config.MODEL.ASK_EVERY_SECONDS then
+	if now - (self._askedModelAt[kind] or -math.huge) < self._config.MODEL.ASK_EVERY_SECONDS then
 		return nil
 	end
-	self._askedModelAt = now
+	self._askedModelAt[kind] = now
 	local template = ask(kind)
 	if template == nil then
 		return nil
@@ -2010,9 +2017,14 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
 
 	-- WHO THEY ARE (task 119): a sow and her young, drawn before any of them exists so the draw is
 	-- one pure call on one list of rolls rather than a decision inside the loop.
+	-- GATED, like the formation draw three lines up and for the same reason (review round 2,
+	-- note): with `BOAR_MODEL` off no number is drawn at all, so the runtime's `Random` stream is
+	-- bit-for-bit the one every spec written before this task was written against.
 	local rolls = {}
-	for index = 1, size do
-		rolls[index] = self._rng:NextNumber()
+	if config.KINDS.ENABLED then
+		for index = 1, size do
+			rolls[index] = self._rng:NextNumber()
+		end
 	end
 	local kinds = Boar.sounderKinds(size, rolls, config)
 
@@ -2041,8 +2053,7 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 
 	local config = self._config
 	-- WHICH ANIMAL (task 119). A lone boar is a male -- `SOUNDER.MAKEUP.LONE` -- and a member of a
-	-- sounder is told which one it is by `spawnSounder`. The geometry follows from it, so the spawn
-	-- height has to be this animal's own half-height and not the male's.
+	-- sounder is told which one it is by `spawnSounder`.
 	local geometry = Body.kindGeometry(kind or config.SOUNDER.MAKEUP.LONE, config)
 	local at = position or config.spawnPoint
 	-- DROPPED FROM THE MALE'S HEIGHT, WHATEVER THE ANIMAL IS, and that is MEASURED and not tidy

@@ -1540,7 +1540,7 @@ Assets.ROWS = {
 		rotationDeg = Vector3.zero,
 		renderFidelity = "Automatic",
 		bakedScale = true,
-		notes = "The sow: 13,644 triangles, 46 bones, one skinned MeshPart, 1024 albedo/normal/"
+		notes = "The sow: 13,644 triangles, 40 Bone instances (Blender counts 46 in the armature; the six the exporter drops carry no skin weight), one skinned MeshPart, 1024 albedo/normal/"
 			.. "roughness, baked to 4.675 studs (0.85 of the male).",
 	},
 	{
@@ -1565,7 +1565,7 @@ Assets.ROWS = {
 		rotationDeg = Vector3.zero,
 		renderFidelity = "Automatic",
 		bakedScale = true,
-		notes = "The striped cub: 12,234 triangles, 46 bones, one skinned MeshPart, 1024 albedo/"
+		notes = "The striped cub: 12,234 triangles, 40 Bone instances (Blender counts 46), one skinned MeshPart, 1024 albedo/"
 			.. "normal/roughness, baked to 2.475 studs (0.45 of the male).",
 	},
 	-- ------------------------------- the boar's ten clips (task 115, published 2026-10-03)
