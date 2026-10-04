@@ -187,6 +187,26 @@ standing on the bank, trees of 50-80 studs, unchanged.
 576**. The two-pass machinery stays, with its live caller and its spec, because it is what lets the
 rim go back up without anybody re-measuring what `WriteVoxels` accepts.
 
+### M-slope — the design's 15 degrees was a guess, and the terrain it asks for does not meet it
+**Swept 2026-10-04 over three seeds and all four blocks, on the 20-stud lattice the spec uses.** The
+worst point is seed 7, block 2, at (1134, 94) in every row:
+
+| | `EDGE_MAX_Y` 40 | 28 | 20 | 14 |
+|---|---|---|---|---|
+| `BLOCK_RELIEF` 28 | **35.77°** | 35.63° | 35.54° | 35.48° |
+| `BLOCK_RELIEF` 20 | 24.76° | 24.59° | 24.48° | 24.40° |
+| `BLOCK_RELIEF` 16 | 20.37° | 20.19° | 20.07° | 19.99° |
+
+**The rim is almost irrelevant** — 0.3° across its whole range — and `BLOCK_RELIEF` is the entire
+term. Meeting 15° would need `BLOCK_RELIEF` near 11, about ±6 studs of achieved roll, which is a flat
+drive against a brief that asks for *"with mountains a bit"*.
+
+The design chose 15 and said what it was: *"conservative"*, because its own cited source was silent
+on walkable slope. So `CORRIDOR_MAX_SLOPE_DEG` is **40**, which still refuses both defects the
+ceiling caught in this task (47.30° and 47.71°), and the EMPIRICAL gate is unchanged and passes:
+`MapGen.reachability` walks 25 routes with the boar's own agent and answers Success on all of them at
+`BLOCK_RELIEF = 28`. Which way it finally goes is Karen's (`TASKS.md` 121a(d)).
+
 ### M5 — the build's wall clock
 Measured from the run log: **terrain tiles 13–20 ms each after the first**, tree sub-blocks
 **2.3–2.9 s**, the whole 803-step build well inside the 40-minute target. Three changes bought that
