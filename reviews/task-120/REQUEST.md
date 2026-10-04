@@ -3,9 +3,9 @@
 Task: 120
 Round: 1
 Base: 25e84c031b4dd1c1e4a3967ce51fba51eaf92ebe
-Code commit: acc1e5c41612e17d40937ebf1215e105ebfec498
+Code commit: 914af8463533e7b74402ba9ddf638f204c703369
 
-[harness] PASS: 33/33 checks @ acc1e5c41612e17d40937ebf1215e105ebfec498 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 914af8463533e7b74402ba9ddf638f204c703369 (clean tree) scope=all
 
 ## Claims
 
@@ -37,16 +37,30 @@ Code commit: acc1e5c41612e17d40937ebf1215e105ebfec498
    three animals shot in one instant on a real six-boar sounder. Mutation-checked: dropping the
    `enabled` gate, the cut or the squeal cap fails its own case.
 
+6. **A waiting hunter hears the approach** (Karen: "when its verry fal I cant hear them"). The
+   roll-off is `InverseTapered`, so the level goes as `NEAR_STUDS / distance` and `audibleStuds` is a
+   hard cut: a running sounder at 100 studs arrived at 0.084 of full scale and was silent past 90.
+   Now `NEAR_STUDS` 12 -> 24 and, as volume/reach, run 0.70/90 -> 0.85/130 (0.204 at 100 studs),
+   trot 0.50/70 -> 0.65/110, walk 0.35/45 -> 0.45/80, grunts 0.45/70 -> 0.50/85, running breath
+   0.50/60 -> 0.55/95. The far-voice fade moved out of the way -- 90 studs rather than 60, floor
+   0.75 rather than 0.55 -- and it never touched the footstep loops. Verify: `boar_shot.spec` "lets
+   a waiting hunter HEAR the approach long before he sees it", and `Boar.heardAt`, which is the
+   model those numbers were chosen with.
+
 Earlier in this task, also under review: the kill record carries `kind` (`Downed`/`Despawned`; no
 penalty built), and `camera_client.spec`'s "the shot's kick" waits for `Camera.Mode.recoiling` to go
 false before asserting the rest state is exactly zero. Also 118a(a), `match_live.spec`'s kinds case.
 
 ## Could not verify
 
+- `Boar.heardAt` is a MODEL, not a measurement: nothing here can read back the level a client
+  renders, and Roblox does not publish the exact InverseTapered blend. It has the two properties the
+  numbers were chosen on -- the plateau sets the far tail, the max is a hard cut.
 - Nothing in this toolchain can hear a sample: every sound claim is a dial or an instance property,
   and Karen's ears decide. The death lift lands at the moment of death, so a cub starts its 1.2 s
   fall a body-height high.
 - The one-emitter cap is proved on the pure gate and by "no follower was ever heard": after the
   silent pre-roll a footstep loop is re-played only when the GAIT changes, so a spec cannot make six
   animals audibly run abreast. That quirk is queued in `TASKS.md` under 120, with
-  `tests/client/weapon_client.spec.luau`'s reserve flake (seen twice, passed on every re-run).
+  `tests/client/weapon_client.spec.luau`'s reserve flake and `zz_drive_boundary.spec`'s "a client
+  never reported" (each seen twice today, each green on a re-run with identical code).
