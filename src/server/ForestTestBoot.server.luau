@@ -73,6 +73,10 @@ local calm = table.clone(Boar.CONFIG.CALM)
 calm.ENABLED = true
 
 local world = Boar.defaultWorld(field)
+-- WHERE THIS WORLD'S GROUND IS, per position. See `ForestTest.groundAt`: `field.groundY` is one
+-- number and this terrain climbs 56 studs in 400, so without this every released boar was spawned
+-- inside a hill.
+world.groundAt = Data.groundAt
 world.config = {
 	MODEL = model,
 	CALM = calm,

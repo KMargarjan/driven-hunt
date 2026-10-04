@@ -16,6 +16,8 @@
 -- THIS IS A PLAYTEST WORLD, NOT THE GAME'S MAP. The real map is `Map` + `MapGen` and still builds
 -- in the DEV place. This describes a hand-built place the Director made from a bought terrain, and
 -- its whole job is to let one person stand on a road and shoot things that cross it.
+local Workspace = game:GetService("Workspace")
+
 local ForestTest = {}
 
 -- THE PLACE. Everything below is only ever read when `Map.EXPECTED_WORLD` resolves to
@@ -103,13 +105,24 @@ ForestTest.EXIT_Z = ForestTest.CENTRE.Z - ForestTest.ROAD.amplitudeStuds - 250
 -- point north of the road with a sounder size; the schedule below decides when each one moves.
 --
 -- SIZES ARE KAREN'S: *"we have make a groups 10 8 20 25"*, plus the lone big males she asked for.
+--
+-- THEY MOVED IN AND THEY MOVED CLOSER TO THE MIDDLE, and both are measured rather than tidied.
+--
+-- DISTANCE: at 240-450 studs a pushed herd needs minutes to reach the road, and Karen's whole test
+-- is action inside 20 seconds. A flushed boar runs at roughly 20 studs a second, so 130-210 studs
+-- is 7-11 seconds of running -- which lands a wave on the road inside the 20-second beat with time
+-- to be seen coming.
+--
+-- SIDEWAYS: she stands at stand 5, x = 3030. The first spread ran to +-610, so the far ones crossed
+-- 600 studs away and she would never have seen them. These sit within +-330, which at the road is
+-- inside a few seconds' walk of her and well within sight down a 40-stud lane.
 ForestTest.HOLDING = {
-	{ name = "west-hollow", offsetX = -540, northStuds = 330, size = 10 },
-	{ name = "centre-thicket", offsetX = -120, northStuds = 420, size = 8 },
-	{ name = "east-ridge", offsetX = 300, northStuds = 300, size = 20 },
-	{ name = "far-east", offsetX = 610, northStuds = 450, size = 25 },
-	{ name = "west-single", offsetX = -330, northStuds = 240, size = 1 },
-	{ name = "east-single", offsetX = 470, northStuds = 260, size = 1 },
+	{ name = "west-hollow", offsetX = -300, northStuds = 185, size = 10 },
+	{ name = "centre-thicket", offsetX = -90, northStuds = 160, size = 8 },
+	{ name = "east-ridge", offsetX = 150, northStuds = 175, size = 20 },
+	{ name = "far-east", offsetX = 330, northStuds = 205, size = 25 },
+	{ name = "west-single", offsetX = -170, northStuds = 135, size = 1 },
+	{ name = "east-single", offsetX = 230, northStuds = 145, size = 1 },
 }
 
 function ForestTest.holdingPosition(entry): Vector3
@@ -141,6 +154,33 @@ ForestTest.SCHEDULE = {
 	-- hunter to see it and raise the gun, which is the whole point of letting it refuse.
 	turnBackStuds = 70,
 }
+
+-- WHERE THE GROUND IS, ASKED OF THE WORLD ITSELF.
+--
+-- `Boar`'s `field.groundY` is ONE number for a whole field. That is true of the generated map, whose
+-- drive corridor is flat, and FALSE here: MEASURED in this place, the ground is y 140 at the road,
+-- 149 at 200 studs north and 196 at 400. Every boar released up there was spawned at 140 -- inside
+-- the hill -- which is why they stood still and why fresh ones vanished within a second.
+--
+-- `Runtime:spawn` now asks the world through `world.groundAt`, a seam the boar's own comment
+-- predicted and deferred. A world that does not supply one behaves exactly as before.
+--
+-- IT IGNORES THE FOREST AND THE ANIMALS. A boar must be put on the GROUND, not on a fern or on the
+-- back of the boar spawned a moment earlier.
+function ForestTest.groundAt(x: number, z: number): number?
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore = {}
+	for _, name in ipairs({ "OurForest", "Foliage", "Boars" }) do
+		local found = Workspace:FindFirstChild(name)
+		if found then
+			table.insert(ignore, found)
+		end
+	end
+	params.FilterDescendantsInstances = ignore
+	local hit = Workspace:Raycast(Vector3.new(x, 600, z), Vector3.new(0, -1200, 0), params)
+	return if hit then hit.Position.Y else nil
+end
 
 -- HOW MANY BOARS MAY EXIST AT ONCE. Karen: *"make them a lot not too much to break but enough to
 -- test"*. The number itself is MEASURED on the machine and lives in the server system's own

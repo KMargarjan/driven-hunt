@@ -40,12 +40,24 @@ ForestTest.Data = Data
 --          front of them, near the road. They break back north. This is Karen's *"several go
 --          back"*, and it is what stops the road being a shooting gallery.
 --   DONE   no beater at all. Whatever is still on its feet drifts and settles.
+--
+-- THE BEATER FOLLOWS THE HERD, AND THAT IS THE WHOLE CORRECTION. The first version walked a beater
+-- along a line from where the wave was RELEASED, at the field's single `groundY`. Two things were
+-- wrong with it and the Director measured both: the animals drift, so a line from where they WERE
+-- stops being behind them; and `SENSE.FLUSH_STUDS` is 15 -- a 3D distance -- while the beater stood
+-- at y 138 and the animals on ground 40 to 56 studs higher, so the gap alone exceeded the radius
+-- and nothing was ever flushed. A beater that cannot be reached is not a beater.
+--
+-- So a wave keeps its members' handles, takes their live centroid, and stands `pushStuds` behind it
+-- AT THEIR OWN HEIGHT. 12 is inside the 15-stud flush radius with room for the centroid to lag.
 ForestTest.WAVE = {
-	pushSeconds = 14,
-	turnAtSeconds = 7, -- a `turnsBack` wave is pushed for this long before it is turned
-	turnSeconds = 6,
-	behindStuds = 70, -- how far behind the group the pushing beater stands
-	aheadStuds = 55, -- how far in front of it the turning beater stands
+	pushSeconds = 26, -- long enough to walk a herd 150-250 studs to the road
+	turnAtSeconds = 9, -- a `turnsBack` wave is pushed for this long before it is turned
+	turnSeconds = 8,
+	pushStuds = 12, -- behind the herd's own centroid, inside SENSE.FLUSH_STUDS (15)
+	aheadStuds = 12, -- in front of it, to turn it
+	-- A turn is only worth staging once they are near enough for the hunter to SEE it happen.
+	turnWithinStuds = 90,
 }
 
 export type Phase = "push" | "turn" | "done"
@@ -67,21 +79,37 @@ function ForestTest.wavePhase(elapsed: number, turnsBack: boolean): Phase
 	return "done"
 end
 
--- WHERE THAT WAVE'S BEATER IS, or nil when there is none. `centre` is where the wave was released.
-function ForestTest.beaterPosition(centre: Vector3, elapsed: number, turnsBack: boolean): Vector3?
+-- WHERE THAT WAVE'S BEATER IS, or nil when there is none.
+--
+-- `at` is the herd's LIVE centroid, not where it was released -- see `ForestTest.WAVE`. North of the
+-- herd pushes it south across the road; south of it turns it back north.
+function ForestTest.beaterPosition(at: Vector3, elapsed: number, turnsBack: boolean): Vector3?
 	local wave = ForestTest.WAVE
 	local phase = ForestTest.wavePhase(elapsed, turnsBack)
 	if phase == "push" then
-		-- Behind them and closing, so the push does not stall when they outrun it.
-		local closed = math.min(elapsed, wave.pushSeconds) * 6
-		return centre + Vector3.new(0, 0, wave.behindStuds - closed)
+		return at + Vector3.new(0, 0, wave.pushStuds)
 	end
 	if phase == "turn" then
-		-- In front of them, near the road: what they see when they get there.
-		local roadZ = Data.roadZ(centre.X)
-		return Vector3.new(centre.X, centre.Y, roadZ - wave.aheadStuds)
+		return at + Vector3.new(0, 0, -wave.aheadStuds)
 	end
 	return nil
+end
+
+-- THE LIVE CENTROID of whatever is left of a wave, or nil when nothing is. Dead and despawned
+-- members drop out by themselves: a handle whose part has left the world is not counted.
+function ForestTest.herdCentre(handles): Vector3?
+	local sum, n = Vector3.zero, 0
+	for _, handle in ipairs(handles) do
+		local part = handle and handle.part
+		if part ~= nil and part.Parent ~= nil then
+			sum += part.Position
+			n += 1
+		end
+	end
+	if n == 0 then
+		return nil
+	end
+	return sum / n
 end
 
 -- WHICH WAVE IS DUE. The cycle repeats forever, so a playtest never runs out of action.
@@ -121,7 +149,7 @@ local state = {
 	startedAt = 0,
 	nextWaveAt = 0,
 	waveIndex = 0,
-	active = {} :: { { centre: Vector3, at: number, turnsBack: boolean, id: string } },
+	active = {} :: { { centre: Vector3, handles: { any }, at: number, turnsBack: boolean, id: string } },
 	picks = {} :: { [number]: { index: number, lockedAt: number? } },
 	released = 0,
 }
@@ -154,9 +182,12 @@ function ForestTest.boarThreats(now: number)
 		end
 	end
 	for _, wave in ipairs(state.active) do
-		local at = ForestTest.beaterPosition(wave.centre, now - wave.at, wave.turnsBack)
-		if at then
-			table.insert(out, { id = wave.id, position = at, kind = "driver" })
+		local centre = ForestTest.herdCentre(wave.handles)
+		if centre ~= nil then
+			local at = ForestTest.beaterPosition(centre, now - wave.at, wave.turnsBack)
+			if at then
+				table.insert(out, { id = wave.id, position = at, kind = "driver" })
+			end
 		end
 	end
 	return out
@@ -204,15 +235,21 @@ function ForestTest.release(now: number): (number, string)
 	--   `Runtime:spawnSounder` returns a TABLE of handles -- `{}` when it refuses, one handle when
 	--     the size is 1, otherwise one per member. Its length is the count.
 	--   `Runtime:spawn` returns a HANDLE, which is truthy and is not a number.
-	local placed = 0
+	-- THE HANDLES ARE KEPT, because the beater follows the herd and a herd is its members.
+	local handles = {}
 	if size <= 1 then
-		placed = if runtime:spawn(centre, "male") ~= nil then 1 else 0
+		local handle = runtime:spawn(centre, "male")
+		if handle ~= nil then
+			table.insert(handles, handle)
+		end
 	else
-		placed = #runtime:spawnSounder(centre, size, 30)
+		handles = runtime:spawnSounder(centre, size, 30)
 	end
+	local placed = #handles
 	if placed > 0 then
 		table.insert(state.active, {
 			centre = centre,
+			handles = handles,
 			at = now,
 			turnsBack = spec.turnsBack == true,
 			id = string.format("beater-%d", state.waveIndex),
@@ -222,11 +259,13 @@ function ForestTest.release(now: number): (number, string)
 	return placed, string.format("wave %d: %s, %d animal(s) -- %s", state.waveIndex, spec.holding, placed, spec.note)
 end
 
--- Drops waves whose beater has gone. The wave's animals stay; only the push is over.
+-- Drops waves whose beater has gone, and waves with nothing left to push. The wave's surviving
+-- animals stay; only the push is over.
 function ForestTest.retire(now: number)
 	for index = #state.active, 1, -1 do
 		local wave = state.active[index]
-		if ForestTest.wavePhase(now - wave.at, wave.turnsBack) == "done" then
+		local gone = ForestTest.wavePhase(now - wave.at, wave.turnsBack) == "done"
+		if gone or ForestTest.herdCentre(wave.handles) == nil then
 			table.remove(state.active, index)
 		end
 	end

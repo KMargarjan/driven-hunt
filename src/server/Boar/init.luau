@@ -2351,9 +2351,26 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 	-- that bug: a cub now falls 0.8 studs further and lands on whatever is actually under it.
 	--
 	-- IT IS THE MALE'S NUMBER FOR EVERY KIND, so the flag-OFF world spawns at exactly the height it
-	-- always did. The right long-term answer is to ask the world how high the ground under the spawn
-	-- point is, which is a new seam on `world` and not this task's.
-	at = Vector3.new(at.X, self._field.groundY + config.BODY_SIZE.Y / 2 + config.SPAWN_CLEARANCE, at.Z)
+	-- always did.
+	--
+	-- ...AND THE WORLD MAY NOW SAY WHERE ITS GROUND IS (task 122), which is the seam this comment
+	-- used to predict and defer. `field.groundY` is ONE number for a whole field, which is true of
+	-- the generated map -- a flat drive corridor -- and false of a hilly one. MEASURED in the
+	-- playtest world: the ground is y 140 at the road, 149 at 200 studs north and 196 at 400, so
+	-- every boar released up there was spawned at 140, INSIDE the hill. They did not wander off:
+	-- they were embedded, and the fresh ones were ejected and culled by the fall test within a
+	-- second. Both of the Director's measured faults are this one line.
+	--
+	-- A WORLD WITHOUT `groundAt` IS UNCHANGED, which is every world but the playtest one: the
+	-- expression below is exactly what it was.
+	local groundHere = self._field.groundY
+	if self._world.groundAt then
+		local asked = self._world.groundAt(at.X, at.Z)
+		if typeof(asked) == "number" then
+			groundHere = asked
+		end
+	end
+	at = Vector3.new(at.X, groundHere + config.BODY_SIZE.Y / 2 + config.SPAWN_CLEARANCE, at.Z)
 
 	self._nextId += 1
 	local id = string.format("Boar%d", self._nextId)
