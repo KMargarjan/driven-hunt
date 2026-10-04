@@ -162,6 +162,18 @@ Config.BENCH_BAND = 140
 -- is hidden by trees rather than by a ridge across the end of the ride.
 Config.EDGE_MAX_Y = 120 -- K, 34 m of hill
 Config.EDGE_BAND = 400
+-- HOW FAR OUTSIDE A BLOCK THE RIM IS BACK TO FULL HEIGHT, and why the rim is kept out of a block at
+-- all. MEASURED 2026-10-04 by the slope spec on the first full run: 47.30 degrees at (-1440, 1214),
+-- block 1's north-west corner, against a 15-degree ceiling. `EDGE_BAND` is 400 studs and block 1
+-- reaches to x = -1440, which is 96 studs from the map's edge -- so `edgeCeiling(96)` was lifting
+-- 102 studs of backdrop ridge THROUGH the corner of the drive.
+--
+-- The rim is scenery: it exists so a player on a road does not look at a void, and no drive, no
+-- driver and no boar ever goes there. A block is where the game is played. So the rim is suppressed
+-- inside a block exactly as it already was in a road's lateral band, and it comes back over this
+-- many studs outside one. THE CONSEQUENCE IS THAT THE RIM IS STEEP in the 96-stud margin beyond the
+-- blocks, which is a backdrop question (`forest-edge` asks it) and not a walkability one.
+Config.EDGE_BLOCK_BLEND = 48
 Config.CORRIDOR_MAX_SLOPE_DEG = 15 -- the design's conservative ceiling, enforced in ALL FOUR blocks
 Config.OCTAVES = 4
 Config.BASE_FREQUENCY = 1 / 420 -- studs^-1; one broad rise per ~420 studs

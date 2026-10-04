@@ -106,8 +106,9 @@ function Height.benchBand(x: number, z: number, config): number
 end
 
 -- THE RIM'S CEILING AT A GIVEN DISTANCE FROM THE MAP'S EDGE, as a pure function of that distance
--- alone. It is the UPPER BOUND of `edgeFloor` there (the bench suppression can only lower it), and
--- it is what lets `Layout.tiles` prove a tile needs no upper band pass instead of sampling for it.
+-- alone. It is the UPPER BOUND of `edgeFloor` there -- BOTH suppressions, the road's lateral band and
+-- the block's, can only LOWER it -- and it is what lets `Layout.tiles` prove a tile needs no upper
+-- band pass instead of sampling for it.
 function Height.edgeCeiling(toEdge: number, config): number
 	if toEdge >= config.EDGE_BAND then
 		return -math.huge
@@ -115,10 +116,30 @@ function Height.edgeCeiling(toEdge: number, config): number
 	return config.GROUND_Y + config.EDGE_MAX_Y * (1 - smoothstep(toEdge / config.EDGE_BAND))
 end
 
+-- HOW MUCH OF THE RIM SURVIVES HERE: 0 inside any block, 1 `EDGE_BLOCK_BLEND` studs outside one.
+--
+-- MEASURED 2026-10-04: without this the rim rose 102 studs inside block 1's north-west corner and the
+-- slope spec read 47.30 degrees against a ceiling of 15. The rim is scenery and a block is where the
+-- game is played, so the rim keeps out of a block -- the same answer, and the same smoothstep, that
+-- a road's lateral band already got.
+function Height.blockRimSuppression(x: number, z: number, config): number
+	local nearest = math.huge
+	for _, name in ipairs(config.BLOCK_ORDER) do
+		local b = config.BLOCKS[name].bounds
+		local dx = math.max(b.minX - x, x - b.maxX, 0)
+		local dz = math.max(b.minZ - z, z - b.maxZ, 0)
+		nearest = math.min(nearest, math.max(dx, dz))
+	end
+	if nearest <= 0 then
+		return 0
+	end
+	return smoothstep(nearest / config.EDGE_BLOCK_BLEND)
+end
+
 -- The outer ring, as a FLOOR and never a sum: the maximum height stays EDGE_MAX_Y, inside the voxel
 -- band, so the measured tile size does not change. Suppressed within BENCH_BAND of a road, so a road
 -- runs off the map flat and the edge is hidden by trees instead of by a ridge across the end of the
--- ride.
+-- ride -- and suppressed inside a block, so the backdrop never becomes the drive's floor.
 function Height.edgeFloor(x: number, z: number, config): number
 	local half = config.SIZE_STUDS / 2
 	local toEdge = math.min(half - math.abs(x), half - math.abs(z))
@@ -137,7 +158,7 @@ function Height.edgeFloor(x: number, z: number, config): number
 		local across, _outside = benchDistance(x, z, bench)
 		nearest = math.min(nearest, across)
 	end
-	local suppress = smoothstep(nearest / config.BENCH_BAND)
+	local suppress = smoothstep(nearest / config.BENCH_BAND) * Height.blockRimSuppression(x, z, config)
 	return config.GROUND_Y + (rise - config.GROUND_Y) * suppress
 end
 
