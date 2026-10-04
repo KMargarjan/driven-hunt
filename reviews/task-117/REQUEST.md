@@ -1,13 +1,15 @@
 # Task 117 -- the calm boar, behind `BOAR_MODEL`
 
 Task: 117
-Round: 3
-Base: `main` (`e0a02ae`)
-Code commit: b09ae516a99dc468ef852cbfc35ed2b321f291a7
+Round: 4
+Base: e0a02ae
+Code commit: 715a064ef431b3be8729848e937cdf894b31eaa3
 
 ```
-[harness] PASS: 33/33 checks @ b09ae516a99dc468ef852cbfc35ed2b321f291a7 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 715a064ef431b3be8729848e937cdf894b31eaa3 (clean tree) scope=all
 ```
+
+Round 4 is authorised by Karen for this round only (`ESCALATE.md`, 2026-10-04, verbatim "yes").
 
 `test2` **N/A**: `needs_two_player` over the branch diff returns `[]` -- boar, assets and tools only,
 nothing in `TWO_PLAYER_PATHS`. Everything after the code commit is paperwork (`TASKS.md`,
@@ -16,6 +18,30 @@ nothing in `TWO_PLAYER_PATHS`. Everything after the code commit is paperwork (`T
 Karen, 2026-10-03: *"boar also can move alon and walk and lift head like smell ect"*. This is the
 "on easy" half only; being spooked is Task 118. Her look on this branch: *"1. yes it works / 2. yes
 it is / 3. probably / 4. yes feets on the ground"*.
+
+## What changed in round 4
+
+**Round 3's one finding is right and it was breaking CI.** `selftest` asserted
+`len(DEFAULT_CLIPS) == 10` while the tuple had sixteen, so `python3 tools/boar_prep.py selftest`
+exited 1 and the job was red — and a count is the one thing about a list that cannot say WHICH list
+it is: it said "ten clips" and named nothing.
+
+**It asserts the NAMES now**, in two groups with a line each saying what they are for: the drive's
+ten (task 115) and the calm repertoire's six (task 117). A clip that is dropped or misspelt fails
+offline in a second and is NAMED in the failure — measured, by dropping one:
+
+```
+FAIL every clip this game asks for is in the tuple: got ['Dig_walk_IP'], want []
+```
+
+An addition fails too, deliberately: this list is the declaration that a new clip was meant, which is
+the bar `validate` already holds a `--clips` argument to. The duplicate check is against the tuple's
+own length rather than a second literal.
+
+**The three sentences that still said "ten" go with it** — the file's own docstring, `validate`'s
+refusal message and `probe`'s summary line all count the tuple now. **Nothing else changed**, and
+every selftest CI runs passes locally: `boar_prep`, `studio_mcp`, `pose`, `agents`, `meshy`,
+`roblox_upload`, `privacy_scan`.
 
 ## What changed in round 3
 
