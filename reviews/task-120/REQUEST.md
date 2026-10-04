@@ -9,25 +9,23 @@ Code commit: eaf75b3fdde1cf2c1aff239a632c3af4765d6c57
 
 ## Claims
 
-1. **The shot cub was the DRAWING, not the carcass.** Its body was drawn 1.01 studs under the floor
-   on an animal 1.44 studs tall while the box stayed anchored with `Carcass = true`. Cause: every
-   kind plays the male's clips, a KeyframeSequence's bone translations are absolute studs, and the
-   fall is child-bone translations, so a rig baked smaller is driven too far down (the root bone
-   never moves -- measured). Verify: `Boar.CONFIG.KINDS`' `deathLiftStuds` block (method + numbers)
-   and `Body.collapse` giving them back in one write through `Body.liftDrawn`.
-2. **The numbers are MEASURED, not computed**, at the frame `Body.stepVisual` freezes the death on:
-   male +0.002, sow -0.205, cub -1.009. Verify: `boar_kinds.spec` "carries the studs each kind's
-   carcass has to be given back" -- all three, `(1 - scale)` shown not to predict the sow's, and 0
-   for every kind with `KINDS` off.
+1. **The shot cub was the DRAWING, not the carcass**: drawn 1.01 studs under the floor on an animal
+   1.44 studs tall, while the box stayed anchored with `Carcass = true`. Every kind plays the male's
+   clips; a KeyframeSequence's bone translations are absolute studs and the fall is child-bone
+   translations, so a rig baked smaller is driven too far down (the root bone never moves --
+   measured). Verify: `Boar.CONFIG.KINDS`' `deathLiftStuds` block, and `Body.collapse` giving the
+   studs back in one write through `Body.liftDrawn`.
+2. **The numbers are MEASURED**, at the frame `Body.stepVisual` freezes the death on: male +0.002,
+   sow -0.205, cub -1.009. Verify: `boar_kinds.spec` "carries the studs each kind's carcass has to
+   be given back" -- all three, `(1 - scale)` shown not to predict the sow's, 0 with `KINDS` off.
 3. **The write reaches the drawn body and nothing else.** Verify: `boar_model.spec` "a cub's carcass
    is given back what the male's death clip takes off it" -- the mesh moves straight up in the
-   trunk's frame by exactly the kind's lift, stays welded, and the male moves 0. Mutation-checked:
-   disabling the lift fails that case.
-4. **A kill carries which animal died.** `Wound.killRecord` takes a trailing `kind`, and `Downed`
-   and `Despawned` both carry it -- where a later cub penalty reads it. No penalty built.
-5. **The flaky kick, at its cause.** `camera_client.spec`'s "the shot's kick" now waits for
+   trunk's frame by exactly the kind's lift, stays welded, the male moves 0. Mutation-checked.
+4. **A kill carries which animal died**: `Wound.killRecord` takes a trailing `kind`, and `Downed`
+   and `Despawned` both carry it, which is where a later cub penalty reads it. No penalty built.
+5. **The flaky kick, at its cause**: `camera_client.spec`'s "the shot's kick" waits for
    `Camera.Mode.recoiling` to go false before asserting the rest state is exactly zero -- true only
-   when all six recoil fields are at exact zero, so "it came home" is not weakened. Also 118a(a):
+   when all six recoil fields are zero, so "it came home" is not weakened. Also 118a(a):
    `match_live.spec`'s `boarStimuli` kinds case.
 
 ## Could not verify
