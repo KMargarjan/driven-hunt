@@ -82,6 +82,12 @@ world.config = {
 	CALM = calm,
 	SENSE = { ENABLED = true },
 	KINDS = { ENABLED = true },
+	-- 8 IS THE DRIVE'S CEILING AND IT IS NOT THIS WORLD'S. MEASURED from the server console:
+	-- "wave 5 held: 8 of 8 boars already out" -- waves 1 to 4 filled the world and every wave after
+	-- them was refused, so the schedule ran but nothing new ever appeared. `Boar.CONFIG.maxBoars`
+	-- is 8 because the real drive releases a sounder at a time into a corridor; Karen asked for
+	-- *"a lot not too much to break"* and this world has no drive to balance against.
+	maxBoars = Data.MAX_BOARS,
 }
 
 -- THE CLOSURE TRAP, and the same line as MatchBoot for the same reason (design section 6.5):

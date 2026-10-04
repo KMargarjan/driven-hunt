@@ -335,6 +335,41 @@ end
 
 -- ONE TICK. Returns a line when something happened and nil otherwise, so the boot script can print
 -- the drive's own account of itself rather than guessing at it.
+-- WHAT EACH LIVE WAVE IS DOING, as one line per wave. It exists because "the beater had no visible
+-- effect" is the kind of claim that needs a number beside it: where the herd is, where its beater
+-- is, and how far apart they are against `SENSE.FLUSH_STUDS`.
+function ForestTest.waveReport(now: number): { string }
+	local out = {}
+	for _, wave in ipairs(state.active) do
+		local centre = ForestTest.herdCentre(wave.handles)
+		if centre ~= nil then
+			local elapsed = now - wave.at
+			local at = ForestTest.beaterPosition(centre, elapsed, wave.turnsBack)
+			local alive = 0
+			for _, handle in ipairs(wave.handles) do
+				if handle and handle.part and handle.part.Parent then
+					alive += 1
+				end
+			end
+			table.insert(
+				out,
+				string.format(
+					"%s %s t=%.0fs alive=%d herd dz=%.0f beater %s",
+					wave.id,
+					ForestTest.wavePhase(elapsed, wave.turnsBack),
+					elapsed,
+					alive,
+					centre.Z - Data.roadZ(centre.X),
+					if at
+						then string.format("dz=%.0f gap=%.1f", at.Z - Data.roadZ(at.X), (at - centre).Magnitude)
+						else "none"
+				)
+			)
+		end
+	end
+	return out
+end
+
 function ForestTest.step(now: number): string?
 	if not state.started then
 		return nil
