@@ -1567,11 +1567,21 @@ class Studio:
 
     UNSCOPED_TOOLS = ("list_roblox_studios",)
 
-    def _scoped(self, tool, studio_id):
-        """The studio_id to send: the explicit one, else the default, else none (Task 52)."""
+    def _scoped(self, tool, studio_id, arguments=None):
+        """The studio_id to send: the explicit one, else the default, else none (Task 52).
+
+        THE DEFAULT IS FOR EDIT-MODE CALLS, and task 122 is why that is now written down. A Play
+        session registers its server and its client as SEPARATE Studio ids, so a default pinned to
+        the editor would send `datamodel_type="Server"` to the editor's id -- which is not the
+        server, and the symptom is the runner never reporting rather than an error anybody can
+        read. A call that names a Play datamodel therefore routes exactly as it did before there
+        was a default at all.
+        """
         if studio_id:
             return studio_id
         if tool in self.UNSCOPED_TOOLS:
+            return None
+        if (arguments or {}).get("datamodel_type") in ("Server", "Client"):
             return None
         return self.default_studio_id
 
@@ -1581,7 +1591,7 @@ class Studio:
         # With a local 2-player test running there are FOUR (Task 34), so every call that must land
         # somewhere particular names it -- and since Task 52 anything that named nothing lands on
         # the editor rather than being refused.
-        chosen = self._scoped(tool, studio_id)
+        chosen = self._scoped(tool, studio_id, arguments)
         if chosen:
             arguments["studio_id"] = chosen
         result = self._rpc("tools/call", {"name": tool, "arguments": arguments})
