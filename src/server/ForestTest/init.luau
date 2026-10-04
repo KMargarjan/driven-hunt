@@ -90,13 +90,26 @@ export type Phase = "push" | "turn" | "done"
 -- `dz` is the herd's distance north of the road: positive north, negative across.
 function ForestTest.wavePhase(elapsed: number, turnsBack: boolean, dz: number?): Phase
 	local wave = ForestTest.WAVE
+	-- A TURN-BACK IS A PUSH THAT STOPS, AND THAT IS WHAT THIS BRAIN CAN ACTUALLY DO.
+	--
+	-- Three versions were measured against the live world and all three CROSSED:
+	--   a beater 11 studs ahead  -- inside `SENSE.FLUSH_STUDS` (15), so row 7 of `_senseAware`
+	--                               fires and FLEE heads for `exitZ`. More drive, not a turn.
+	--   a beater 26 studs ahead  -- outside flush, but staged on the FOREMOST animal it chased the
+	--                               one that had bolted: gap 261 studs, visible to nobody.
+	--   staged on the centroid   -- correct place, but the herd closes on it, the gap falls under
+	--                               15 (measured 12.8) and row 7 fires anyway.
+	--
+	-- What turns an animal is AVOID, and AVOID is a reaction a CALM animal has. One that is already
+	-- fleeing past a threat cannot be swung by it. Making that work reliably is a change to
+	-- `Brain`'s precedence -- a different task, and the Director's instruction was not to touch the
+	-- boar's axis -- so this does the thing that is honestly available: it STOPS PUSHING at
+	-- `turnAtDz`. They coast in, come off FLEE and settle north of the road, which from a stand
+	-- reads as a group that came down and thought better of it.
+	--
+	-- WHAT IT IS NOT is Karen's "go back" as an animation of refusal. That gap is in the report.
 	if turnsBack then
-		-- Near the road and still on the right side of it: turn them.
-		if dz ~= nil and dz <= wave.turnAtDz and dz > -wave.turnGiveUpDz then
-			return "turn"
-		end
-		-- Past the road already, or out of time: nothing left to stage.
-		if dz ~= nil and dz <= -wave.turnGiveUpDz then
+		if dz ~= nil and dz <= wave.turnAtDz then
 			return "done"
 		end
 		if elapsed >= wave.pushSeconds then
