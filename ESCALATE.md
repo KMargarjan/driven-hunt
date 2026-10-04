@@ -1388,3 +1388,8 @@ task, round 4 only), or say how else to proceed.
 
 **Meanwhile:** Task 118 (behaviour) is built as a stacked branch on `task-117-calm-boar`; it does not
 touch `tools/boar_prep.py` and does not fix this line. It cannot merge before 117.
+
+**KAREN'S ANSWER, 2026-10-04 (CLOSED by authorisation).** Asked "allow one extra round for Task 117?",
+Karen answered, verbatim: "yes". So Task 117 may run **round 4, and round 4 only**, with
+`DIRECTOR_MAX_ROUNDS=4` set for that one review and never committed. A failing round 4 is a new entry,
+not a request for round 5.
