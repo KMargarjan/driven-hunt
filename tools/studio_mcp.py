@@ -1486,6 +1486,7 @@ class Studio:
         # Studio polls localhost:13469 roughly every 5s, so wait for it to attach.
         for _ in range(20):
             if '"studios":[]' not in self._call("list_roblox_studios"):
+                self._choose_default_studio()
                 return
             time.sleep(1)
         sys.exit("No Studio connected. Is a place open and the MCP server enabled in Assistant settings?")
@@ -1525,6 +1526,45 @@ class Studio:
 
     # The one tool that must NOT be scoped: it is the question "which Studios are there at all",
     # and scoping it to one of them is meaningless.
+    def _choose_default_studio(self):
+        """With more than one Studio connected, say WHICH one every unscoped call means.
+
+        StudioMCP refuses any tool call that names no `studio_id` as soon as a second Studio is
+        connected. Task 122 opened a second place -- "Driven Hunt Forest Test" -- beside the DEV
+        one, and every harness run then died at the first `get_studio_state` with "This call is
+        missing the required studio_id argument", which looks like a broken harness and is really
+        an ambiguous question.
+
+        The harness place is named (`HARNESS_PLACE_ID`) and StudioMCP puts the place id in each
+        Studio's name, so the question has an answer. It is CHOSEN, not guessed: if no connected
+        Studio is the harness place, this refuses and lists what is connected, because running the
+        suite against the wrong place would produce a PASS that means nothing.
+
+        `run_test2` still sets `default_studio_id` itself, and an explicit `studio_id` always wins.
+        """
+        if self.default_studio_id:
+            return
+        try:
+            studios = json.loads(self._call("list_roblox_studios")).get("studios", [])
+        except (ValueError, RuntimeError):
+            return
+        if len(studios) <= 1:
+            return
+        for studio in studios:
+            if HARNESS_PLACE_ID in (studio.get("name") or ""):
+                self.default_studio_id = studio.get("id")
+                print(
+                    "[harness] %d Studios connected; using %s"
+                    % (len(studios), studio.get("name"))
+                )
+                return
+        names = "; ".join(s.get("name") or "?" for s in studios)
+        sys.exit(
+            "%d Studios are connected and none is the harness place %s. "
+            "connected: %s. "
+            "Open the DEV place, or close the others." % (len(studios), HARNESS_PLACE_ID, names)
+        )
+
     UNSCOPED_TOOLS = ("list_roblox_studios",)
 
     def _scoped(self, tool, studio_id):
@@ -1674,12 +1714,28 @@ def git_state():
     return git("rev-parse", "HEAD").strip(), [l for l in git("status", "--porcelain").splitlines() if l.strip()]
 
 
+# THE PLACE THE HARNESS RUNS IN, by name rather than by "the only one".
+#
+# Rojo serves more than one place id since task 122: the DEV place, where the harness and every spec
+# live, and "Driven Hunt Forest Test", a playtest world Karen shoots in. Both get the same code, and
+# only one of them is evidence.
+#
+# This used to read `servePlaceIds` and refuse anything but a single entry, which made adding the
+# second place a harness failure rather than a configuration. Naming the harness place says the
+# thing that is actually true -- the suite is about THIS place -- and the assertion below still
+# catches the real mistake, which is serving a place the harness then cannot find.
+HARNESS_PLACE_ID = "136410205938347"
+
+
 def expected_place_id():
     with open(PROJECT, encoding="utf-8") as f:
-        ids = json.load(f).get("servePlaceIds") or []
-    if len(ids) != 1:
-        raise RuntimeError("default.project.json must list exactly one servePlaceIds entry")
-    return str(ids[0])
+        ids = [str(x) for x in (json.load(f).get("servePlaceIds") or [])]
+    if HARNESS_PLACE_ID not in ids:
+        raise RuntimeError(
+            "default.project.json does not serve the harness place %s (it serves %s)"
+            % (HARNESS_PLACE_ID, ", ".join(ids) or "nothing")
+        )
+    return HARNESS_PLACE_ID
 
 
 def spec_files_in_repo():
