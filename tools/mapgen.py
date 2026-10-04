@@ -679,7 +679,9 @@ def command_shots(studio, seed=None):
     if not call(studio, "MapGen.verifyContract()").get("counts"):
         return refuse("there is no map in Workspace to photograph. Run `build` first.")
     if seed is None:
-        seed = call(studio, "MapGen.builtSeed()")
+        # WRAPPED IN A TABLE, because `JSONEncode(1)` is the text "1" and `parse_json` looks for the
+        # first bracket of either kind -- a bare scalar has none.
+        seed = call(studio, "{ seed = MapGen.builtSeed() }").get("seed")
         if not isinstance(seed, (int, float)):
             return refuse("the map in Workspace carries no seed attribute, so the seeded cameras "
                           "cannot be aimed. Pass --seed, or rebuild.")
