@@ -545,8 +545,18 @@ end
 
 -- ---------------------------------------------------------------- the forest floor
 
--- A COUNT-BASED SCATTER over one sub-block, used by brush, ferns and deadwood: the rate is per
--- hectare, so the count comes from the area and the caller asks for a number.
+-- A RATE-BASED SCATTER over one sub-block, used by brush, ferns and deadwood.
+--
+-- A WEIGHTED ACCEPTANCE, the same shape the wood uses, and the first version of this got it wrong in
+-- a way the budget caught: it took `wanted` from a DOUBLED per-hectare rate and then tried to halve
+-- it again by filtering candidates -- but it still took `wanted` of whatever survived, so the
+-- doubling was real and the halving was not. The build failed at step 791 with "780 ferns, over
+-- Map.BUDGET.ferns = 700", which is exactly what a ceiling is for.
+--
+-- So: TWO CANDIDATE CELLS PER WANTED ITEM, ACCEPTED AT 0.5. A local doubling -- the gap's ferns and
+-- deadwood, a wet hollow's ferns -- is then an acceptance of 1.0 rather than a second scatter, and
+-- it raises the count only over the ground it applies to. The count that comes out is a MEASUREMENT
+-- of the rate and not a number asked for, which is what makes it a tripwire rather than a promise.
 local function countScatter(
 	config,
 	seed: number,
@@ -560,37 +570,13 @@ local function countScatter(
 	if wanted <= 0 then
 		return {}
 	end
-	local spacing = Scatter.spacingFor(block, math.ceil(wanted * config.SCATTER_OVERSAMPLE))
-	local candidates = Scatter.jitteredGrid(block, spacing, config.SCATTER_JITTER, rng, function(x, z)
+	local spacing = Scatter.spacingFor(block, wanted * 2)
+	local points = Scatter.weighted(block, spacing, config.SCATTER_JITTER, rng, function(x, z)
+		return 0.5 * (if scale then scale(x, z) else 1)
+	end, function(x, z)
 		return Layout.onRoadKeepClear(x, z, config) or Layout.treeDensityBlockers(x, z, config)
 	end)
-	-- A LOCAL RATE, so the gap carries double ferns and double deadwood without a second scatter:
-	-- the candidate's own drawn key is compared against the local multiplier.
-	local accepted: { Point } = {}
-	for _, point in ipairs(candidates) do
-		local multiplier = if scale then scale(point.x, point.z) else 1
-		local keep = multiplier >= 1 or (point :: any).key < multiplier
-		if keep then
-			table.insert(accepted, point)
-		end
-	end
-	-- Order by the drawn key and take the first `wanted`: the count is the rate's, and which
-	-- candidates win is the seed's.
-	for index, point in ipairs(accepted) do
-		(point :: any).order = index
-	end
-	table.sort(accepted, function(a, b)
-		local ka, kb = (a :: any).key, (b :: any).key
-		if ka ~= kb then
-			return ka < kb
-		end
-		return (a :: any).order < (b :: any).order
-	end)
-	local out: { Point } = {}
-	for index = 1, math.min(wanted, #accepted) do
-		table.insert(out, { x = accepted[index].x, z = accepted[index].z })
-	end
-	return sortSpatially(out)
+	return sortSpatially(points)
 end
 
 -- How much more of a floor layer a patch asks for at this point: the `gap` patch doubles its ferns
@@ -623,15 +609,14 @@ function Scatter.ferns(config, seed: number, block, patches: { Patch }): { Point
 	if character == nil or not config.INCLUDE.ferns then
 		return {}
 	end
-	-- The rate is the block's; the gap and the wet hollows ask for more of it in their own places.
-	return countScatter(config, seed, block, Scatter.LAYER.ferns, character.fernsPerHa * 2, function(x, z)
+	-- The rate is the block's own; the gap and the wet hollows ask for twice it in their own
+	-- places, which `countScatter` expresses as an acceptance of 1.0 instead of 0.5.
+	return countScatter(config, seed, block, Scatter.LAYER.ferns, character.fernsPerHa, function(x, z)
 		local scale = Scatter.floorScale(x, z, patches, "fernsScale")
 		if Height.wetAt(x, z, seed, config) > 0.5 then
-			scale *= 2
+			scale *= 2 -- ferns like a damp hollow
 		end
-		-- The base rate is doubled above and halved here, so an ordinary square of wood gets the
-		-- block's own number and a gap or a hollow gets twice it.
-		return scale / 2
+		return scale
 	end)
 end
 
@@ -640,8 +625,8 @@ function Scatter.deadwood(config, seed: number, block, patches: { Patch }): { Po
 	if character == nil or not config.INCLUDE.deadwood then
 		return {}
 	end
-	return countScatter(config, seed, block, Scatter.LAYER.deadwood, character.deadwoodPerHa * 2, function(x, z)
-		return Scatter.floorScale(x, z, patches, "deadwoodScale") / 2
+	return countScatter(config, seed, block, Scatter.LAYER.deadwood, character.deadwoodPerHa, function(x, z)
+		return Scatter.floorScale(x, z, patches, "deadwoodScale")
 	end)
 end
 

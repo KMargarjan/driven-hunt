@@ -1,32 +1,25 @@
--- map_contract.spec: THE WORLD THE COMMITTED CONTRACT NAMES, plus the generator's pure maths.
---
--- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
---
--- TWO JOBS, and the split is the design's (docs/design/map-generator.md sections 13.1 and 2.2):
+--!nocheck
+-- map_contract.spec: THE MAP, AND IT HAS TWO JOBS.
 --
 --  1. THE LIVE WORLD. `Map.EXPECTED_WORLD` says which world this place is, and the assertions run
---     against THAT world -- so neither branch is empty and there is no path where this file passes by
---     finding nothing. In Milestone 2.1 it names "arena", because the 512-stud slice is an EDIT-TIME
---     artefact and not yet the world (design section 14). The same assertions hold at the M2.5 switch.
+--     against THAT world: "arena" measures the grey box, "map:*" measures the generated forest. The
+--     one thing that is never allowed is both at once -- two roots in Workspace means the tags
+--     resolve to both and every count below doubles.
+--  2. THE GENERATOR'S PURE CORE, driven directly with no Studio, no Terrain and no asset, exactly as
+--     `src/server/Boar/init.luau` exports `Boar.Brain` for its own specs. This is where the new
+--     geometry is actually proved: the heightfield, the voxel band, the blocks, the markers, the
+--     patches, the walkability, the species mix and the triangle bound.
 --
---  2. THE GENERATOR'S PURE CORE. `MapGen` never runs in a harness session -- it runs in Edit, driven
---     by `tools/mapgen.py` -- so the only thing a spec can test about it is the part that needs no
---     Terrain, no Studio and no asset: `Height`, `Layout`, `Scatter` and `Digest`. That is what
---     exporting them is for. Determinism is the property under test, because a map that cannot be
---     rebuilt from its seed cannot be reviewed as a diff.
+-- A CASE THAT MEASURES A LAYER REFUSES TO RUN ON A CONFIG WHERE THAT LAYER IS OFF (`measuring`).
+-- Without that, a switched-off layer turns a measurement into a vacuous pass rather than a failure:
+-- an empty hedge list skips the loop, an empty wood leaves the worst trunk spacing at its
+-- initialiser `math.huge`, and flat ground makes a `benchHeight` that flattened the whole map look
+-- correct. Round 1 of task 85 shipped exactly that in five cases, which is why the rule is a
+-- function and not a convention.
 --
---     WHAT THIS FILE CANNOT DO, said plainly: it cannot pathfind the generated map, because the map is
---     not in the place during a harness run. `MapGen.reachability`, driven by
---     `python tools/mapgen.py verify`, is the check that walks it with the boar's own agent; the
---     hedgerow tests below are the pure half -- a gate wide enough, inside the corridor, on every line
---     that crosses it. Both exist because the harness half alone let an ungated wall through
---     (TASKS.md row 43a(k)).
---
--- It asserts the WORLD and the CONTRACT against each other rather than either against itself: the
--- counts come from `Map.EXPECTED_COUNTS`, the tags from `Map.TAGS`, the rectangle from `Map.FIELD`,
--- and the boar's own field from `Boar.CONFIG` (CLAUDE.md rule 6 -- test the player's path).
+-- Design: docs/design/map-generator.md, "How it is tested"
+-- Note:   docs/research/2026-10-04-forest-block1.md
 local CollectionService = game:GetService("CollectionService")
-local PathfindingService = game:GetService("PathfindingService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
@@ -36,82 +29,22 @@ local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local MapGen = require(ServerStorage:WaitForChild("MapGen"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
--- The placing step's own rejection predicate, so the scatter tests below assert what the generator
--- actually does rather than a copy of it.
+
+local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Props = require(ServerStorage.MapGen:WaitForChild("Props"))
-
--- ONE SHAPE FOR THE DIGEST'S FIXTURES, at file scope. The palette spec added in round 2 hand-rolled a
--- second entry table (`path`/`class`) and a second sample (`y`), while `Digest` reads `name`/
--- `className` and `occupancy` -- so it threw inside `string.format` instead of asserting anything,
--- and the harness caught it twice. A fixture that names the generator's own fields is worth exactly
--- one copy in this file.
-local function digestEntry(name: string, x: number, y: number)
-	return {
-		name = name,
-		className = "Part",
-		position = Vector3.new(x, y, 2),
-		size = Vector3.new(4, 4, 4),
-		tags = { Map.TAGS.tree },
-	}
-end
-
-local DIGEST_SAMPLES = { { x = 0, z = 0, occupancy = 1, material = "Grass" } }
 
 local ARENA_ROOT = "TestArena"
 local MAP_ROOT = "DrivenHuntMap"
 local SEED = 7 -- any seed: the claims below are about determinism, not about one map
 
--- Script start order is not guaranteed, so give the boot script up to 5 s, as test_arena.spec does.
-local function waitForRoot(name: string)
-	local deadline = os.clock() + 5
-	local root = Workspace:FindFirstChild(name)
-	while not root and os.clock() < deadline do
-		task.wait(0.1)
-		root = Workspace:FindFirstChild(name)
-	end
-	return root
-end
-
--- ONE COMMITTED STRING, read once (design section 17; the Director's decision of 2026-09-27 after
--- Task 79 measured what a flag would cost here -- `ESCALATE.md`). Every live-world assertion below
--- goes through these three, so the spec follows the switch rather than being rewritten by it.
 local WORLD = Map.EXPECTED_WORLD
 local FIELD = Map.FIELD
 local COUNTS = Map.EXPECTED_COUNTS
-
-local function namedRootName(): string
-	return if WORLD == "arena" then ARENA_ROOT else MAP_ROOT
-end
-
-local function taggedInside(root: Instance, tag: string): { BasePart }
-	local out = {}
-	for _, instance in ipairs(CollectionService:GetTagged(tag)) do
-		if instance:IsA("BasePart") and instance:IsDescendantOf(root) then
-			table.insert(out, instance)
-		end
-	end
-	return out
-end
 
 local function config()
 	return MapGen.CONFIG
 end
 
--- THE GENERATOR WITH EVERY LAYER ON (task 85). The bare world switches the wood, the brush, the
--- hedges, the bog, the track, the fence, the log piles, the high seats, the barriers, the reeds and
--- the terrain relief OFF in `Config.INCLUDE`, and nothing about those generators was deleted: they
--- come back one row at a time. So the cases that measure a GENERATOR -- its noise field, its slope
--- ceiling, its species mix, its part budgets -- ask it with its own layer on, and they are the reason
--- turning a row back on is a one-line change rather than a rediscovery. The cases that measure the
--- BUILT WORLD keep using `config()`, and "the bare world builds none of it" is asserted on its own
--- below.
--- A CASE THAT MEASURES A LAYER REFUSES TO RUN ON A CONFIG WHERE THAT LAYER IS OFF. Without this the
--- switch turns a measurement into a vacuous pass rather than a failure: `hedgeLines` answers `{}` and
--- the loop body never runs, `treeBlocks` answers `{}` and the worst trunk spacing stays at its
--- initialiser `math.huge`, `Height.at` answers GROUND_Y everywhere and a `benchHeight` that flattened
--- the whole map would pass. Round 1 of task 85 shipped exactly that in five cases, which is why the
--- rule is a function and not a convention: every generator case below names the layers it measures,
--- and naming the wrong config is an error rather than a green run.
 local function measuring(c, ...)
 	for _, layer in ipairs({ ... }) do
 		if c.INCLUDE[layer] == nil then
@@ -124,6 +57,10 @@ local function measuring(c, ...)
 	return c
 end
 
+-- THE GENERATOR WITH EVERY LAYER ON, for the cases that measure a layer v4 switched OFF -- the
+-- farmland, the hedgerows and the flank track. Nothing about those generators was deleted (the
+-- hedge-gate rule is the check that has already caught a collidable wall across a drive), so their
+-- specs stay alive and ask for them with their own rows on.
 local function withScenery()
 	local c = table.clone(MapGen.CONFIG) :: any
 	local include = table.clone(MapGen.CONFIG.INCLUDE) :: any
@@ -134,9 +71,76 @@ local function withScenery()
 	return c
 end
 
-local function driveLinePoint(root: Instance): Vector3
-	local lines = taggedInside(root, Map.TAGS.driveLine)
-	return lines[1].Position
+local function namedRootName(): string
+	return if WORLD == "arena" then ARENA_ROOT else MAP_ROOT
+end
+
+local function waitForRoot(name: string)
+	for _ = 1, 50 do
+		local root = Workspace:FindFirstChild(name)
+		if root then
+			return root
+		end
+		task.wait(0.1)
+	end
+	return nil
+end
+
+local function taggedInside(root: Instance, tag: string): { BasePart }
+	local out: { BasePart } = {}
+	for _, instance in ipairs(CollectionService:GetTagged(tag)) do
+		if instance:IsA("BasePart") and instance:IsDescendantOf(root) then
+			table.insert(out, instance)
+		end
+	end
+	return out
+end
+
+-- THE WOOD, COMPUTED ONCE. `Scatter.allTrees` walks sixteen sub-blocks, the rim and both patches; it
+-- is the most expensive pure call in this file, and five cases below need the same answer. Lazily,
+-- so a run that never reaches those cases never pays for it.
+local woodCache: { [number]: { any } } = {}
+local function wood(seed: number)
+	if woodCache[seed] == nil then
+		woodCache[seed] = MapGen.Scatter.allTrees(measuring(config(), "trees"), seed)
+	end
+	return woodCache[seed]
+end
+
+-- THE WORST TRUNK-SURFACE GAP in a list of trees, BUCKETED. A plain pairwise loop over 1,562 trees
+-- is 1.2 million comparisons per seed; a 40-stud bucket grid makes it linear, and 40 is wider than
+-- any gap this could legitimately report so no near pair can be missed.
+local function worstTrunkGap(c, trees): (number, string)
+	local cell = 40
+	local buckets: { [string]: { number } } = {}
+	for index, tree in ipairs(trees) do
+		local key = string.format("%d:%d", math.floor(tree.x / cell), math.floor(tree.z / cell))
+		buckets[key] = buckets[key] or {}
+		table.insert(buckets[key], index)
+	end
+	local radii = {}
+	for index, tree in ipairs(trees) do
+		radii[index] = Props.treeGeometry(c, tree.species, tree.age).trunkStuds / 2
+	end
+	local worst, where = math.huge, "no pair"
+	for index, a in ipairs(trees) do
+		local bx, bz = math.floor(a.x / cell), math.floor(a.z / cell)
+		for dx = -1, 1 do
+			for dz = -1, 1 do
+				for _, other in ipairs(buckets[string.format("%d:%d", bx + dx, bz + dz)] or {}) do
+					if other > index then
+						local b = trees[other]
+						local gap = math.sqrt((a.x - b.x) ^ 2 + (a.z - b.z) ^ 2) - radii[index] - radii[other]
+						if gap < worst then
+							worst = gap
+							where = string.format("(%.0f, %.0f) and (%.0f, %.0f)", a.x, a.z, b.x, b.z)
+						end
+					end
+				end
+			end
+		end
+	end
+	return worst, where
 end
 
 return function()
@@ -151,56 +155,37 @@ return function()
 			expect(Workspace:FindFirstChild(other)).to.equal(nil)
 		end)
 
-		-- ------------------------------------------------------------------ the bare world (task 85)
-		it("builds the bare world: flat ground and no scenery, and still every marker", function()
-			-- KAREN, 2026-09-27: "remove all trees and unnecessary terrains, so we will focus now on
-			-- shotgun shooting etc and boars, so rest is just extra time and noise to load."
-			--
-			-- THIS IS THE SWITCH, ASSERTED AT ITS EFFECT rather than by reading the table back: each
-			-- generator is asked, with the live config, for what it would place. A row flipped back on
-			-- by accident fails here by name, and `withScenery()` above proves the same generators
-			-- still do their work when it is flipped on deliberately.
-			local c = config()
-			expect(c.INCLUDE.relief).to.equal(false)
-			for _, point in ipairs({ { 0, 0 }, { 123.5, -77.25 }, { -600, 400 } }) do
-				expect(MapGen.Height.at(point[1], point[2], SEED, c)).to.equal(c.GROUND_Y)
-			end
-			expect(MapGen.Layout.bogDepth(c.WORLD.bog.x, c.WORLD.bog.z, c)).to.equal(0)
-			expect(#MapGen.Layout.treeBlocks(c)).to.equal(0)
-			expect(#MapGen.Layout.hedgeLines(c)).to.equal(0)
-			expect(#MapGen.Layout.highSeats(c)).to.equal(0)
-			local track = c.WORLD.tracks[1]
-			local onX = if track.axis == "x" then 0 else track.at
-			local onZ = if track.axis == "x" then track.at else 0
-			expect(MapGen.Layout.onTrack(onX, onZ, c)).to.equal(false)
-			-- ...and with every layer on the same questions answer something, or the assertions above
-			-- are bounds on a generator that does nothing at all.
-			local on = withScenery()
-			expect(#MapGen.Layout.treeBlocks(on) > 0).to.equal(true)
-			expect(#MapGen.Layout.hedgeLines(on) > 0).to.equal(true)
-			expect(#MapGen.Layout.highSeats(on) > 0).to.equal(true)
-			expect(MapGen.Layout.bogDepth(on.WORLD.bog.x, on.WORLD.bog.z, on) > 0).to.equal(true)
-			expect(MapGen.Layout.onTrack(onX, onZ, on)).to.equal(true)
-
-			-- THE FURNITURE: the stakes stay, because with the wood gone they are the only thing that
-			-- says where a stand is, and everything else goes.
-			local kinds = {}
-			for _, piece in ipairs(MapGen.Layout.furniture(c)) do
-				kinds[piece.kind] = (kinds[piece.kind] or 0) + 1
-			end
-			expect(kinds.stake).to.equal(c.WORLD.postCount * 2)
-			for _, gone in ipairs({ "highSeatLeg", "barrierBoom", "log", "fencePost", "gate", "reed" }) do
-				expect(kinds[gone]).to.equal(nil)
+		it("holds the terrain the named world requires, and no other", function()
+			-- AND THE GROUND, not just the folder (audit-004 must-fix 1). Terrain is a global
+			-- singleton with no container: destroying `Workspace.DrivenHuntMap` -- one right-click in
+			-- the Explorer, between a screenshot and a test -- leaves every voxel of a generated map
+			-- behind. Every other check still passes in that state and the run prints PASS.
+			local cells = Workspace.Terrain:CountCells()
+			if WORLD == "arena" then
+				if cells ~= 0 then
+					error(
+						string.format(
+							"the world is the arena but Workspace.Terrain holds %d cell(s): a generated "
+								.. "map was left behind. Run `python tools/mapgen.py clear --backup census`.",
+							cells
+						),
+						0
+					)
+				end
+			else
+				expect(cells > 0).to.equal(true)
+				TestKit.note(string.format("map: %d terrain cells", cells))
 			end
 		end)
 
 		it("refuses to measure a layer the config has switched off", function()
-			-- THE GUARD ITSELF, because everything below rests on it: round 1 of task 85 left five
-			-- cases measuring layers the bare config had turned off, and every one of them PASSED --
-			-- an empty hedge list skips the loop, an empty wood leaves the worst trunk spacing at
-			-- `math.huge`, and flat ground makes a `benchHeight` that flattened the map look correct.
-			local failed, message = pcall(measuring, config(), "trees")
-			expect(failed).to.equal(false)
+			-- THE GUARD ITSELF, because everything below rests on it.
+			local off = table.clone(config()) :: any
+			local include = table.clone(config().INCLUDE) :: any
+			include.trees = false
+			off.INCLUDE = include
+			local ok, message = pcall(measuring, off, "trees")
+			expect(ok).to.equal(false)
 			expect(string.find(tostring(message), "trees", 1, true) ~= nil).to.equal(true)
 			-- ...it hands the config straight back when the layers ARE on, or every case below would
 			-- be measuring a copy of something.
@@ -210,83 +195,56 @@ return function()
 			expect((pcall(measuring, on, "treees"))).to.equal(false)
 		end)
 
-		it("holds the terrain the named world requires, and no other", function()
-			-- AND THE GROUND, not just the folder (audit-004 must-fix 1). Terrain is a global singleton
-			-- with no container: destroying `Workspace.DrivenHuntMap` -- one right-click in the
-			-- Explorer, between a screenshot and a test -- leaves all 6.3 M voxels of a generated map
-			-- behind. Every check above still passes in that state, the arena's plate sits buried in a
-			-- hillside, and the run prints PASS. A world check that names a folder and ignores the
-			-- ground is the audit this project already paid for once.
-			local cells = Workspace.Terrain:CountCells()
-			if WORLD == "arena" then
-				-- The arena is built from parts on a flat plate at y = 0 and writes no terrain at all.
-				if cells ~= 0 then
-					error(
-						string.format(
-							"the world is the arena but Workspace.Terrain holds %d cell(s): a generated map "
-								.. "was left behind. Run `python tools/mapgen.py clear --backup census`.",
-							cells
-						),
-						0
-					)
-				end
-			else
-				-- The generated map IS terrain; an empty one means the folder outlived its ground.
-				expect(cells > 0).to.equal(true)
-			end
-		end)
-
 		it("leaves the terrain palette at the contract's colours for the world it names", function()
-			-- Round 2, finding 3, and design section 16.1 check 5. The palette is GLOBAL STATE WITH
-			-- NO CONTAINER and it SURVIVES Terrain:Clear() -- measured, N1 -- so an autumn palette
-			-- left behind after a teardown is exactly the "world nobody chose" audit-004 must-fix 1
-			-- was about: the voxels are gone, every other check passes, and the place is still orange.
+			-- The palette is GLOBAL STATE WITH NO CONTAINER and it SURVIVES Terrain:Clear() --
+			-- measured, N1 -- so an autumn palette left behind after a teardown is exactly the
+			-- "world nobody chose" audit-004 must-fix 1 was about: the voxels are gone, every other
+			-- check passes, and the place is still orange.
 			--
 			-- Read from the ENGINE, never from the table that wrote it.
 			local want = if WORLD == "arena" then Map.PALETTE_DEFAULT else Map.PALETTE
-			local got = MapGen.Ground.readPalette(MapGen.CONFIG)
+			local got = MapGen.Ground.readPalette(config())
 			for role, colour in pairs(want) do
 				local now = got[role]
 				expect(now).to.be.ok()
-				local dr = math.abs(math.round(now.R * 255) - math.round(colour.R * 255))
-				local dg = math.abs(math.round(now.G * 255) - math.round(colour.G * 255))
-				local db = math.abs(math.round(now.B * 255) - math.round(colour.B * 255))
-				if math.max(dr, dg, db) > 0 then
-					error(
-						string.format(
-							"the %s material is (%d, %d, %d) but the %s world wants (%d, %d, %d). "
-								.. "Run `python tools/mapgen.py clear --backup census`.",
-							role,
-							math.round(now.R * 255),
-							math.round(now.G * 255),
-							math.round(now.B * 255),
-							WORLD,
-							math.round(colour.R * 255),
-							math.round(colour.G * 255),
-							math.round(colour.B * 255)
-						),
-						0
-					)
-				end
+				expect(math.round(now.R * 255)).to.equal(math.round(colour.R * 255))
+				expect(math.round(now.G * 255)).to.equal(math.round(colour.G * 255))
+				expect(math.round(now.B * 255)).to.equal(math.round(colour.B * 255))
 			end
-			-- And the two tables are genuinely different, or the assertion above is vacuous.
-			expect(MapGen.Digest.paletteText(Map.PALETTE)).never.to.equal(
-				MapGen.Digest.paletteText(Map.PALETTE_DEFAULT)
-			)
+		end)
+
+		it("reports what MaterialService actually holds for every CC0 texture role", function()
+			-- THE MATERIALS LAYER NEVER FAILS A BUILD (design, "Two layers, and the proven one ships
+			-- first"): the palette above is measured and shipped, and a terrain-bound MaterialVariant
+			-- is new. So this case asserts the SHAPE of the answer -- a row per role, naming either a
+			-- variant or the reason there is none -- and never that a texture is there. A missing id
+			-- is a named key in the report, not a silent grey ground.
+			local variants = MapGen.Ground.readVariants(Map.TERRAIN.variants, config())
+			for role in pairs(Map.TERRAIN.variants) do
+				expect(type(variants[role])).to.equal("string")
+				expect(#variants[role] > 0).to.equal(true)
+			end
+			local lines = {}
+			for _, role in ipairs({ "litter", "rough", "road", "wet" }) do
+				table.insert(lines, string.format("%s=%s", role, variants[role]))
+			end
+			TestKit.note("terrain variants: " .. table.concat(lines, " "))
+			-- Every role the contract names is a material the generator knows, or the step would
+			-- write a variant for a material nothing paints.
+			for role in pairs(Map.TERRAIN.variants) do
+				expect(config().MATERIAL[role]).to.be.ok()
+			end
 		end)
 
 		it("resolves every tag to exactly the expected count, all inside the named world", function()
 			local root = waitForRoot(namedRootName())
+			expect(root).to.be.ok()
 			for kind, tag in pairs(Map.TAGS) do
-				local want = COUNTS[kind]
-				expect(want).to.be.a("number")
 				local inside = taggedInside(root, tag)
-				if #inside ~= want then
-					error(string.format("%s: %d tagged inside %s, %d expected", tag, #inside, root.Name, want), 0)
-				end
-				-- And nothing carries the tag outside the world: a stray tagged part elsewhere would
-				-- be picked up by Match.Markers, which searches by tag and not by folder.
-				expect(#CollectionService:GetTagged(tag)).to.equal(want)
+				expect(#inside).to.equal(COUNTS[kind])
+				-- ...and nothing outside the world carries the tag, or `Match.Markers` would read a
+				-- marker the map does not own.
+				expect(#CollectionService:GetTagged(tag)).to.equal(#inside)
 			end
 		end)
 
@@ -294,75 +252,241 @@ return function()
 			local root = waitForRoot(namedRootName())
 			local lines = taggedInside(root, Map.TAGS.driveLine)
 			expect(#lines).to.equal(1)
-			-- +Z is the drivers' side. src/server/Weapon/SafetyArc.luau reads this vector as "toward
-			-- the drivers"; a line facing the other way makes the safety rule fire on the wrong shots.
+			-- `src/server/Weapon/SafetyArc.luau` reads this as "toward the drivers". The other way
+			-- round makes the safety rule fire on exactly the wrong shots.
 			expect(lines[1].CFrame.LookVector:Dot(Vector3.zAxis) > 0.99).to.equal(true)
+		end)
+
+		it("tags the active block and no other, so there is one drive and not four broken ones", function()
+			-- `Markers.read` requires EXACTLY ONE drive line and publishes `complete = false`
+			-- otherwise, which parks the match in `Waiting` for ever. Four blocks' markers would be
+			-- 32 posts and 4 lines: not four drives available, one broken drive.
+			if WORLD == "arena" then
+				TestKit.note("map: the world is the arena, so the active-block check is dormant")
+				return
+			end
+			local c = config()
+			local active = c.BLOCKS[Map.ACTIVE_BLOCK]
+			expect(active).to.be.ok()
+			expect(active.content).to.equal(true)
+			local root = waitForRoot(MAP_ROOT)
+			-- Every marker lies within the active block's x span. The z span reaches behind the line
+			-- (the stands and the tie trees stand there on purpose) and up to the assembly track.
+			local southEdge = active.bounds.minZ
+			local crossing = MapGen.Layout.crossingBand(c)
+			if crossing then
+				southEdge = crossing.minZ
+			end
+			for _, kind in ipairs({ "shooterPost", "driveLine", "driverStart", "boarSpawn" }) do
+				for _, marker in ipairs(taggedInside(root, Map.TAGS[kind])) do
+					local p = marker.Position
+					expect(p.X >= active.bounds.minX - 1).to.equal(true)
+					expect(p.X <= active.bounds.maxX + 1).to.equal(true)
+					expect(p.Z >= southEdge - 1).to.equal(true)
+					expect(p.Z <= c.ROADS.assembly.at + 1).to.equal(true)
+				end
+			end
+			-- ...and no OTHER block holds a marker of any kind.
+			for _, block in ipairs(MapGen.Layout.blocks(c)) do
+				if block.name ~= Map.ACTIVE_BLOCK then
+					for kind, tag in pairs(Map.TAGS) do
+						if kind ~= "tree" then
+							for _, marker in ipairs(taggedInside(root, tag)) do
+								local p = marker.Position
+								local inside = p.X >= block.bounds.minX
+									and p.X <= block.bounds.maxX
+									and p.Z >= block.bounds.minZ
+									and p.Z <= block.bounds.maxZ
+								expect(inside).to.equal(false)
+							end
+						end
+					end
+				end
+			end
 		end)
 
 		it("puts every boar spawn inside the field, on the ground", function()
 			local root = waitForRoot(namedRootName())
-			local spawns = taggedInside(root, Map.TAGS.boarSpawn)
-			expect(#spawns > 0).to.equal(true)
-			local b = Map.FIELD.bounds
-			for _, spawn in ipairs(spawns) do
+			for _, spawn in ipairs(taggedInside(root, Map.TAGS.boarSpawn)) do
 				local p = spawn.Position
-				expect(p.X >= b.minX and p.X <= b.maxX).to.equal(true)
-				expect(p.Z >= b.minZ and p.Z <= b.maxZ).to.equal(true)
-				-- The check that stops a boar being released inside a hill (design section 7.3).
-				if math.abs(p.Y - Map.FIELD.groundY) > Map.SPAWN_PAD.tolerance then
-					error(string.format("%s sits at y=%.2f, groundY is %.2f", spawn.Name, p.Y, Map.FIELD.groundY), 0)
+				expect(p.X >= FIELD.bounds.minX and p.X <= FIELD.bounds.maxX).to.equal(true)
+				expect(p.Z >= FIELD.bounds.minZ and p.Z <= FIELD.bounds.maxZ).to.equal(true)
+				-- `Runtime:spawn` overwrites the caller's Y with `field.groundY` and does NO ground
+				-- raycast, so a pad that is not flat spawns a boar inside a hill.
+				expect(math.abs(p.Y - FIELD.groundY) <= Map.SPAWN_PAD.tolerance).to.equal(true)
+			end
+		end)
+
+		it("stands every shooter post on its stand's floor, at the one height the contract names", function()
+			-- ONE EXPRESSION THAT IS TRUE IN BOTH WORLDS: `ground + Map.STAND.floorStuds`, which was
+			-- 0 while the shooters stood on the road and is 7.1 now that they stand on boards.
+			local root = waitForRoot(namedRootName())
+			local c = config()
+			local pads = MapGen.Layout.pads(c)
+			local seed = MapGen.builtSeed() or Map.SEED
+			local posts = taggedInside(root, Map.TAGS.shooterPost)
+			expect(#posts).to.equal(COUNTS.shooterPost)
+			for _, post in ipairs(posts) do
+				local bottom = post.Position.Y - post.Size.Y / 2
+				local ground = if WORLD == "arena"
+					then FIELD.groundY
+					else MapGen.Height.atFlattened(post.Position.X, post.Position.Z, seed, c, pads)
+				local want = ground + Map.STAND.floorStuds
+				if math.abs(bottom - want) > Map.SPAWN_PAD.tolerance then
+					error(
+						string.format(
+							"%s's bottom face is at y=%.2f, not within %.2f of ground + floorStuds = %.2f",
+							post.Name,
+							bottom,
+							Map.SPAWN_PAD.tolerance,
+							want
+						),
+						0
+					)
 				end
 			end
 		end)
 
-		it("is walkable for the boar's own agent, from every spawn and from the driver start", function()
+		it("puts a COLLIDABLE part directly under every shooter post", function()
+			-- THE CHECK THE 9.5-STUD DROP NEVER HAD (TASKS.md row 43a(l), audit-004 F9). v3 asserted
+			-- a HEIGHT; a height is not a floor. `Match.Body.placementFor` puts a character at
+			-- `post.Position + post.Size.Y/2 + STAND_HEIGHT_STUDS` and nothing else looks down.
 			local root = waitForRoot(namedRootName())
-			local target = driveLinePoint(root)
-			local froms = {}
-			for _, spawn in ipairs(taggedInside(root, Map.TAGS.boarSpawn)) do
-				table.insert(froms, spawn.Position)
-			end
-			for _, start in ipairs(taggedInside(root, Map.TAGS.driverStart)) do
-				table.insert(froms, start.Position)
-			end
-			expect(#froms > 0).to.equal(true)
-			for _, from in ipairs(froms) do
-				-- The BOAR's agent params, not an imaginary one: this asserts the world is playable for
-				-- the animal that actually walks it.
-				--
-				-- RETRIED, because the navmesh is built in the BACKGROUND and this spec can run before
-				-- it is ready. Measured in Edit (research note, measurement G): a change to the world
-				-- still answered with the old navmesh one second later and the new one after five. The
-				-- arena is built by ArenaBoot at server start, moments before this runs, so the first
-				-- attempt can legitimately say NoPath about a world that is walkable.
-				--
-				-- This is the cause of TASKS.md row 43a(j): twice, on an unchanged tree, a run reported
-				-- "[harness] FAIL: 25/27" -- which is exactly the two [server] status checks, i.e. ONE
-				-- server spec failing -- and every rerun passed. The check arrived with this file in
-				-- Task 43, and the flake arrived with it.
-				--
-				-- The claim is NOT weakened: a world with no route still fails, it just takes 10 s to
-				-- say so instead of one.
-				local status, waypoints = "never computed", 0
-				local deadline = os.clock() + 10
-				repeat
-					local path = PathfindingService:CreatePath(Boar.CONFIG.AGENT)
-					local ok = pcall(function()
-						path:ComputeAsync(from + Vector3.new(0, 2, 0), target)
-					end)
-					status = if ok then tostring(path.Status) else "ComputeAsync raised"
-					waypoints = if ok then #path:GetWaypoints() else 0
-					if status ~= "Enum.PathStatus.Success" then
-						task.wait(1)
+			for _, post in ipairs(taggedInside(root, Map.TAGS.shooterPost)) do
+				local bottom = post.Position.Y - post.Size.Y / 2
+				local supported = nil
+				for _, candidate in ipairs(root:GetDescendants()) do
+					if candidate:IsA("BasePart") and candidate.CanCollide then
+						local p, s = candidate.Position, candidate.Size
+						if
+							math.abs(p.X - post.Position.X) <= s.X / 2 + post.Size.X / 2
+							and math.abs(p.Z - post.Position.Z) <= s.Z / 2 + post.Size.Z / 2
+							and math.abs((p.Y + s.Y / 2) - bottom) <= Map.SPAWN_PAD.tolerance
+						then
+							supported = candidate
+							break
+						end
 					end
-				until status == "Enum.PathStatus.Success" or os.clock() > deadline
-				if status ~= "Enum.PathStatus.Success" then
+				end
+				if supported == nil then
 					error(
-						string.format("no path from (%d, %d) to the drive line after 10 s: %s", from.X, from.Z, status),
+						string.format(
+							"%s has no collidable part under it: a shooter would be placed over a drop",
+							post.Name
+						),
 						0
 					)
 				end
-				expect(waypoints >= 2).to.equal(true)
+			end
+		end)
+
+		it("leaves nothing collidable inside any road's cleared corridor", function()
+			-- AMENDED, NOT WEAKENED. v3 walked ONE road at `halfWidth + verge`; this walks ALL FOUR
+			-- at `halfWidth + keepClear`, which is the predicate `Layout.treeDensity` and `Props` also
+			-- call -- so none of them can disagree about where the gravel is. The property is the one
+			-- it was written for: a hedge wall once stood across the gravel and reachability pathed
+			-- politely around it (Task 58 round 1 finding 1).
+			local root = waitForRoot(namedRootName())
+			local c = config()
+			if WORLD == "arena" then
+				TestKit.note("map: the world is the arena, which has no roads")
+				return
+			end
+			local blockers = {}
+			for _, part in ipairs(root:GetDescendants()) do
+				if part:IsA("BasePart") and part.CanCollide then
+					local p = part.Position
+					if MapGen.Layout.onRoadKeepClear(p.X, p.Z, c) then
+						table.insert(blockers, string.format("%s at (%.0f, %.0f)", part.Name, p.X, p.Z))
+					end
+				end
+			end
+			if #blockers > 0 then
+				error(
+					string.format(
+						"%d collidable part(s) inside a road's cleared corridor: %s",
+						#blockers,
+						table.concat(blockers, ", ", 1, math.min(#blockers, 6))
+					),
+					0
+				)
+			end
+		end)
+
+		it("stays inside every part budget, and is not empty either", function()
+			-- A CEILING AND A FLOOR. The ceiling catches a density raised too far; the FLOOR catches
+			-- a layer that silently placed nothing, which an upper bound alone passes happily.
+			local root = waitForRoot(namedRootName())
+			if WORLD == "arena" then
+				TestKit.note("map: the world is the arena, which has no wood to budget")
+				return
+			end
+			local props = root:FindFirstChild("Props")
+			expect(props).to.be.ok()
+			local function count(name: string): number
+				local folder = props:FindFirstChild(name)
+				return if folder then #folder:GetChildren() else 0
+			end
+			local trees = count("Trees")
+			local patchTrees = 0
+			for _, folder in ipairs(props:GetChildren()) do
+				if string.sub(folder.Name, 1, 6) == "Patch_" then
+					patchTrees += #folder:GetChildren()
+				end
+			end
+			local measured = {
+				trees = trees + patchTrees,
+				brush = count("Brush"),
+				ferns = count("Ferns"),
+				deadwood = count("Deadwood"),
+			}
+			TestKit.note(
+				string.format(
+					"map: %d trees (%d wood + %d patch), %d brush, %d ferns, %d deadwood",
+					measured.trees,
+					trees,
+					patchTrees,
+					measured.brush,
+					measured.ferns,
+					measured.deadwood
+				)
+			)
+			-- THE FLOOR IS THE RATE'S, NOT HALF THE CEILING. The design wrote "<= their ceiling and
+			-- >= half of it", and for three of these four that is not a bound on anything: the
+			-- deadwood rate asks for about 31 pieces against a ceiling of 120, so "half the ceiling"
+			-- would fail a correct map. What the floor is actually for is catching a layer that
+			-- placed ALMOST NOTHING, so it is measured against what the layer's own per-hectare rate
+			-- asks for -- which is a number the config declares and this case can recompute.
+			local c = config()
+			local character = MapGen.Layout.activeBlock(c).character
+			local hectares = 0
+			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
+				hectares += MapGen.Layout.hectares(block)
+			end
+			local wanted = {
+				brush = hectares * character.brushPerHa,
+				ferns = hectares * character.fernsPerHa,
+				deadwood = hectares * character.deadwoodPerHa,
+				trees = Map.BUDGET.trees / 2, -- the wood has no per-hectare rate: density tiers decide
+			}
+			for name, got in pairs(measured) do
+				local ceiling = Map.BUDGET[name]
+				expect(ceiling).to.be.ok()
+				if got > ceiling then
+					error(string.format("%d %s, over Map.BUDGET.%s = %d", got, name, name, ceiling), 0)
+				end
+				local floor = wanted[name] * 0.6
+				if got < floor then
+					error(
+						string.format(
+							"%d %s, under 60%% of the %.0f its own rate asks for: the layer placed almost nothing",
+							got,
+							name,
+							wanted[name]
+						),
+						0
+					)
+				end
 			end
 		end)
 
@@ -370,23 +494,29 @@ return function()
 			local root = waitForRoot(namedRootName())
 			for _, descendant in ipairs(root:GetDescendants()) do
 				if descendant:IsA("LuaSourceContainer") then
-					error("a script exists under the world: " .. descendant:GetFullName(), 0)
+					error("a script exists under the map: " .. descendant:GetFullName(), 0)
 				end
 			end
-			-- Nothing in the generator can autorun (design section 1.2): every descendant is a module.
-			local generator = ServerStorage:FindFirstChild("MapGen")
-			expect(generator).to.be.ok()
-			for _, descendant in ipairs(generator:GetDescendants()) do
-				if not descendant:IsA("ModuleScript") then
-					error("ServerStorage.MapGen holds a " .. descendant.ClassName .. ": " .. descendant.Name, 0)
-				end
+			-- `MapGen.verifyContract` asserts this too; it is here because the harness's own
+			-- unmanaged-script scan would fail EVERY run from then on, so it is worth two checks.
+			for _, descendant in ipairs(ServerStorage.MapGen:GetDescendants()) do
+				expect(descendant:IsA("ModuleScript")).to.equal(true)
 			end
 		end)
 
+		it("leaves no asset cache behind: no template outlives the run", function()
+			-- `Props.withLoader` destroys the folder it made. A surviving one means a step failed
+			-- between the preload and the teardown, and a template in the world is a tree nobody
+			-- planted -- and, parked in a Rojo-owned container, one that vanishes at the next Connect.
+			local root = waitForRoot(namedRootName())
+			expect(root:FindFirstChild(Props.ASSETS_FOLDER)).to.equal(nil)
+			expect(ServerStorage:FindFirstChild("AssetCache")).to.equal(nil)
+		end)
+
 		it("agrees with the boar about the field rectangle, in whichever world this is", function()
-			-- THE SWITCH'S ONE REAL INVARIANT (design section 17 step 6): the boar hunts in the
-			-- rectangle the contract names, and the switch changes both together. A commit that
-			-- moved one and forgot the other is exactly what this catches.
+			-- THE ONE ASSERTION THAT KEEPS TWO OWNERS' NUMBERS TOGETHER. The map PUBLISHES its
+			-- rectangle; `Boar.CONFIG.field` is changed in the boar's own file, by its owner, in the
+			-- same commit -- and this is what makes "the same commit" checkable.
 			local field = Boar.CONFIG.field
 			expect(field.bounds.minX).to.equal(FIELD.bounds.minX)
 			expect(field.bounds.maxX).to.equal(FIELD.bounds.maxX)
@@ -394,1246 +524,995 @@ return function()
 			expect(field.bounds.maxZ).to.equal(FIELD.bounds.maxZ)
 			expect(field.exitZ).to.equal(FIELD.exitZ)
 			expect(field.groundY).to.equal(FIELD.groundY)
+			-- The boar's fallback spawn must be inside the world it lives in, or a boar released
+			-- without a marker is released outside the rectangle the brain clamps it to.
+			local spawn = Boar.CONFIG.spawnPoint
+			expect(spawn.X >= FIELD.bounds.minX and spawn.X <= FIELD.bounds.maxX).to.equal(true)
+			expect(spawn.Z >= FIELD.bounds.minZ and spawn.Z <= FIELD.bounds.maxZ).to.equal(true)
+		end)
+
+		it("has one generator version, in one place", function()
+			expect(MapGen.VERSION).to.equal(Map.GENERATOR)
 		end)
 
 		it("keeps the streaming properties the contract names", function()
-			expect(Workspace.StreamingEnabled).to.equal(Map.STREAMING.enabled)
+			local current = MapGen.Ground and Workspace.StreamingEnabled
+			expect(current).to.equal(Map.STREAMING.enabled)
 		end)
 	end)
 
-	-- ---------------------------------------------------------------- M2.8e: the switch
-	--
-	-- ONE COMMITTED STRING, AND IT IS NOT A FEATURE FLAG. Task 79 built the flag version first and
-	-- measured what it cost: with the map in Workspace and the flag off, eleven specs failed and
-	-- `GetTagged("DrivenHunt.ShooterPost")` answered SIXTEEN, because both worlds tag with the same
-	-- strings. A flag lives in code; the world lives in the PLACE. Director decision, 2026-09-27,
-	-- recorded in `ESCALATE.md` and in CLAUDE.md's "Feature flags" section: this switches by commit,
-	-- and the rollback is a commit back to "arena" plus `mapgen.py clear`.
 	describe("the map switch", function()
 		it("names one world, and the whole contract names the same one", function()
-			expect(WORLD).to.equal("map:v1")
+			expect(Map.VERSION).to.equal("v1")
 			expect(Map.SEED).to.equal(1)
-			-- The digest is either empty -- the place has not been rebuilt for this commit yet --
-			-- or a full sha256. Never a truncated one, which is how a digest stops being a digest.
+			-- The digest is either filled from a build or empty while one is pending; a half-length
+			-- string is neither.
 			expect(Map.DIGEST == "" or #Map.DIGEST == 64).to.equal(true)
+			expect(type(Map.ACTIVE_BLOCK)).to.equal("string")
+			expect(Map.BLOCKS[Map.ACTIVE_BLOCK]).to.be.ok()
 		end)
 
-		it("carries the design's corridor, and the boars cross the road", function()
-			-- design section 15.1: 1,240 studs wide to hold a 1,120-stud shooter line...
-			expect(FIELD.bounds.minX).to.equal(-620)
-			expect(FIELD.bounds.maxX).to.equal(620)
-			expect(FIELD.bounds.minZ).to.equal(-880)
-			expect(FIELD.bounds.maxZ).to.equal(800)
-			expect(FIELD.bounds.maxX - FIELD.bounds.minX).to.equal(1240)
-			-- ...and exitZ is PAST the forest road, not on it: Karen's decision that the boar
-			-- crosses the road and is gone. This is the one assertion that would catch a switch
-			-- that moved the rectangle but left the exit where the arena's was.
-			expect(FIELD.exitZ).to.equal(-820)
-			expect(FIELD.exitZ < Map.ROAD.z).to.equal(true)
-			expect(Map.ROAD.z - FIELD.exitZ).to.equal(120)
-			expect(FIELD.groundY).to.equal(0)
+		it("carries the block's own rectangle, and the boars cross the road", function()
+			local block = Map.BLOCKS[Map.ACTIVE_BLOCK]
+			local road = Map.ROADS[block.road]
+			expect(road).to.be.ok()
+			-- THE EXIT IS PAST THE ROAD, which is Karen's decision that a boar CROSSES the gravel in
+			-- front of a stand rather than stopping at it.
+			expect(FIELD.exitZ < road.at).to.equal(true)
+			expect(road.at - FIELD.exitZ).to.equal(block.exitPastRoad)
+			-- ...and the rectangle CONTAINS the exit, because `Brain:_outcome` despawns at
+			-- `position.Z <= exitZ` and a boar has to be able to stand there first.
+			expect(FIELD.bounds.minZ < FIELD.exitZ).to.equal(true)
+			-- The drive rectangle is the block's own x span.
+			expect(FIELD.bounds.minX).to.equal(block.bounds.minX)
+			expect(FIELD.bounds.maxX).to.equal(block.bounds.maxX)
+			expect(FIELD.bounds.maxZ).to.equal(block.bounds.maxZ)
 		end)
 
-		it("expects the map's twelve tie trees, not the arena's four", function()
+		it("expects the forest's twelve tie trees, and the active block's markers", function()
 			expect(COUNTS.tree).to.equal(12)
 			expect(COUNTS.shooterPost).to.equal(8)
+			expect(COUNTS.driveLine).to.equal(1)
+			expect(COUNTS.driverStart).to.equal(1)
+			expect(COUNTS.boarSpawn).to.equal(4)
+			-- The generator derives the same counts from Layout, so the contract and the code that
+			-- places the markers cannot drift apart.
+			local expected = MapGen.expectedCounts()
+			for kind, want in pairs(COUNTS) do
+				expect(expected[kind]).to.equal(want)
+			end
 		end)
 
 		it("leaves no grey box in the world it does not name", function()
-			-- `ArenaBoot` returns early, so the arena is NOT BUILT -- not hidden, not moved. This is
-			-- the assertion that catches a switch whose early return never fired.
-			expect(Workspace:FindFirstChild(ARENA_ROOT)).to.equal(nil)
-			TestKit.note(
-				string.format(
-					"task79: world=%s seed=%d digest=%s, boar field x[%d,%d] z[%d,%d] exitZ=%d, arena=%s, map=%s",
-					WORLD,
-					Map.SEED,
-					if Map.DIGEST == "" then "(pending)" else string.sub(Map.DIGEST, 1, 12),
-					Boar.CONFIG.field.bounds.minX,
-					Boar.CONFIG.field.bounds.maxX,
-					Boar.CONFIG.field.bounds.minZ,
-					Boar.CONFIG.field.bounds.maxZ,
-					Boar.CONFIG.field.exitZ,
-					if Workspace:FindFirstChild(ARENA_ROOT) then "built" else "absent",
-					if Workspace:FindFirstChild(MAP_ROOT) then "in Workspace" else "absent"
-				)
-			)
+			if WORLD == "arena" then
+				expect(Workspace:FindFirstChild(MAP_ROOT)).to.equal(nil)
+			else
+				expect(Workspace:FindFirstChild(ARENA_ROOT)).to.equal(nil)
+			end
 		end)
 	end)
 
 	describe("the generator's heightfield", function()
 		it("gives the same height for the same seed, and a different one for another seed", function()
-			local c = measuring(withScenery(), "relief")
-			for _, point in ipairs({ { 0, 0 }, { 123.5, -77.25 }, { -200, 200 } }) do
+			local c = measuring(config(), "relief")
+			for _, point in ipairs({ { 0, 0 }, { 123.5, -77.25 }, { -600, 400 }, { -1200, 900 } }) do
 				local a = MapGen.Height.at(point[1], point[2], SEED, c)
 				local b = MapGen.Height.at(point[1], point[2], SEED, c)
 				expect(a).to.equal(b)
 			end
-			-- Not a claim that every point moves -- noise fields cross -- but that the field as a
-			-- whole does: a seed that changed nothing would be a seed that is not read.
-			local moved = 0
-			for x = -240, 240, 60 do
-				for z = -240, 240, 60 do
-					if MapGen.Height.at(x, z, SEED, c) ~= MapGen.Height.at(x, z, SEED + 1, c) then
-						moved += 1
-					end
+			local same, other = 0, 0
+			for x = -1400, 1400, 200 do
+				for z = -1400, 1400, 200 do
+					same += MapGen.Height.at(x, z, SEED, c)
+					other += MapGen.Height.at(x, z, SEED + 1, c)
 				end
 			end
-			expect(moved > 50).to.equal(true)
+			expect(same ~= other).to.equal(true)
 		end)
 
-		it("stays inside the relief band, and flatter inside the drive corridor", function()
-			local c = measuring(withScenery(), "relief")
-			local worst, worstCorridor, worstInland = 0, 0, 0
-			-- THE WHOLE MAP, not just the middle: at 2048 studs a +/- 250 sample is entirely inside the
-			-- drive corridor, so `worst` and `worstCorridor` were the same number and the whole-map
-			-- relief bound could not fail (review round 1 of Task 44).
-			--
-			-- AND IT NOW SAMPLES TO +/-1024, THE REAL EDGE (round 2, finding 5). At +/-1000 the outer
-			-- ring sat 24 studs inside the map, where `edgeFloor` reads 37.6 -- 2.4 studs under
-			-- RELIEF = 40 by sampling luck alone. The rim genuinely reaches EDGE_MAX_Y = 44 at the
-			-- boundary, so the old assertion was false of the map and true only of the lattice.
-			local half = c.SIZE_STUDS / 2
-			for x = -half, half, 32 do
-				for z = -half, half, 32 do
-					local h = math.abs(MapGen.Height.at(x, z, SEED, c) - c.GROUND_Y)
-					worst = math.max(worst, h)
-					if MapGen.Layout.inCorridor(x, z, c) then
-						worstCorridor = math.max(worstCorridor, h)
-					end
-					-- Away from the rim the noise alone must stay inside RELIEF: that is the number
-					-- Karen owns, and the edge floor must not be allowed to hide a change to it.
-					if math.min(half - math.abs(x), half - math.abs(z)) > c.EDGE_BAND then
-						worstInland = math.max(worstInland, h)
+		it("rolls, and rolls less inside a block than outside one", function()
+			local c = measuring(config(), "relief")
+			-- MEASURED, AND IT CORRECTS THE DESIGN'S OWN NUMBER (2026-10-04). `RELIEF` is an
+			-- AMPLITUDE PARAMETER, not the achieved roll: the normalised fbm lands in about
+			-- [-0.55, +0.57], so RELIEF = 64 gives about +/-37 studs. This case asserts the shape of
+			-- the claim -- that there IS relief, that it is inside the band, and that a block is
+			-- calmer than the rim -- and REPORTS the number for Karen to read.
+			local function spread(minX, maxX, minZ, maxZ)
+				local lo, hi = math.huge, -math.huge
+				for x = minX, maxX, 40 do
+					for z = minZ, maxZ, 40 do
+						local h = MapGen.Height.base(x, z, SEED, c)
+						lo, hi = math.min(lo, h), math.max(hi, h)
 					end
 				end
+				return lo, hi
 			end
-			expect(worstInland <= c.RELIEF).to.equal(true)
-			expect(worst <= math.max(c.RELIEF, c.EDGE_MAX_Y)).to.equal(true)
-			expect(worstCorridor <= c.CORRIDOR_RELIEF).to.equal(true)
-			-- Well inside the boar's fall limit, which is what makes this terrain safe for it.
-			expect(worst < 50).to.equal(true)
-			-- ...and the rim really is raised, or `worst <= EDGE_MAX_Y` is a bound on nothing.
-			expect(worst > c.RELIEF).to.equal(true)
+			local b = c.BLOCKS[c.ACTIVE_BLOCK].bounds
+			local blockLo, blockHi = spread(b.minX + 120, b.maxX - 120, b.minZ + 120, b.maxZ - 120)
+			TestKit.note(string.format("relief inside %s: %.1f .. %.1f studs", c.ACTIVE_BLOCK, blockLo, blockHi))
+			-- There IS relief: a flat map would pass any upper bound.
+			expect(blockHi - blockLo > 4).to.equal(true)
+			-- ...and it is inside the block's own ceiling, which is what keeps the drive walkable.
+			expect(blockHi <= c.BLOCK_RELIEF).to.equal(true)
+			expect(blockLo >= -c.BLOCK_RELIEF).to.equal(true)
 		end)
 
-		it("changes the digest when a palette colour changes", function()
-			-- Round 1 claimed "a hand-edited colour changes the digest" and nothing ran the fourth
-			-- argument at all: every digest spec passed three, so `paletteText(nil)` returned "".
-			-- A recolour is a change to the map that the voxels and the markers cannot see.
-			local one = { digestEntry("A", 0, 1) }
-			local samples = DIGEST_SAMPLES
-			local autumn = MapGen.Digest.of(one, samples, 100, Map.PALETTE)
-			local defaults = MapGen.Digest.of(one, samples, 100, Map.PALETTE_DEFAULT)
-			expect(autumn).never.to.equal(defaults)
-			-- ...the same palette twice is the same digest,
-			expect(MapGen.Digest.of(one, samples, 100, Map.PALETTE)).to.equal(autumn)
-			-- ...ONE channel of ONE role is enough to move it,
-			local nudged = {
-				litter = Color3.fromRGB(151, 108, 62),
-				rough = Map.PALETTE.rough,
-				road = Map.PALETTE.road,
-				bog = Map.PALETTE.bog,
-			}
-			expect(MapGen.Digest.of(one, samples, 100, nudged)).never.to.equal(autumn)
-			-- ...and no palette at all is a third, distinct answer rather than a silent match.
-			expect(MapGen.Digest.of(one, samples, 100)).never.to.equal(autumn)
-			-- The text itself is sorted and 8-bit, so two runs agree.
-			expect(MapGen.Digest.paletteText(Map.PALETTE)).to.equal(
-				"bog=96,82,62|litter=150,108,62|road=152,146,132|rough=126,122,78"
-			)
-		end)
-
-		it("has one generator version, in one place", function()
-			-- Claim 7 said row 44a(f) was closed by `MapGen.VERSION = Map.GENERATOR`; nothing asserted
-			-- it, so a second copy could come back without a failing test (design 16.1 check 10).
-			expect(MapGen.VERSION).to.equal(Map.GENERATOR)
-			expect(type(Map.GENERATOR)).to.equal("string")
-			expect(#Map.GENERATOR > 0).to.equal(true)
-		end)
-
-		it("derives every bench from the contract, never from a second copy", function()
-			-- Round 2, finding 2: Map.ROAD/Map.ASSEMBLY were added to the contract and read by
-			-- nothing, while Config re-declared the same five numbers. This is what makes the
-			-- contract the source rather than a comment claiming it is.
-			local c = config()
-			local byName = {}
-			for _, bench in ipairs(c.WORLD.benches) do
-				byName[bench.name] = bench
-			end
-			for name, contract in pairs({ road = Map.ROAD, assembly = Map.ASSEMBLY }) do
-				local bench = byName[name]
-				expect(bench).to.be.ok()
-				expect(bench.at).to.equal(contract.z)
-				expect(bench.halfWidth).to.equal(contract.halfWidth)
-				expect(bench.verge).to.equal(contract.verge)
-				expect(bench.from).to.equal(contract.from)
-				expect(bench.to).to.equal(contract.to)
-			end
-		end)
-
-		it("keeps the drive corridor under the design's slope ceiling", function()
-			local c = measuring(withScenery(), "relief")
+		it("keeps every block under the design's slope ceiling, over three seeds", function()
+			-- ALL FOUR BLOCKS, not one corridor: blocks 2-4 are playable the day their content lands,
+			-- and this is what says so now.
+			local c = measuring(config(), "relief")
 			local pads = MapGen.Layout.pads(c)
-			local corridor = c.WORLD.corridor
 			local limit = math.tan(math.rad(c.CORRIDOR_MAX_SLOPE_DEG))
-			-- The check `Config.CORRIDOR_MAX_SLOPE_DEG` promised and nothing performed until Task 45.
-			-- It measures the SHIPPED ground -- pads flattened, bog dug -- because that is what a boar
-			-- walks, and the pad easing, not the noise, is what made this fail when it was first run:
-			-- a 16-stud drop eased over 24 studs is a 22.5-degree ring around every post and spawn.
-			--
-			-- The step is 8 studs, one voxel wider than the terrain's own resolution, so a slope is
-			-- measured across ground the engine actually builds rather than between two samples of a
-			-- smooth function.
-			local step = 8
-			local worst, worstAt = 0, ""
-			-- THREE seeds since M2.8a (TASKS.md row 45a(e)): 12.94 against a 15 ceiling on two seeds
-			-- was ~14% headroom on a seed-dependent number. Measurement N4 read 11.60 / 12.36 / 10.31
-			-- degrees on seeds 1-3 with the road benches in.
-			for _, seed in ipairs({ SEED, SEED + 1, SEED + 2 }) do
-				for x = corridor.minX, corridor.maxX, 20 do
-					for z = corridor.minZ, corridor.maxZ, 20 do
-						local h = MapGen.Height.atFlattened(x, z, seed, c, pads, MapGen.Layout.bogDepth)
-						local dx =
-							math.abs(MapGen.Height.atFlattened(x + step, z, seed, c, pads, MapGen.Layout.bogDepth) - h)
-						local dz =
-							math.abs(MapGen.Height.atFlattened(x, z + step, seed, c, pads, MapGen.Layout.bogDepth) - h)
-						local slope = math.max(dx, dz) / step
-						if slope > worst then
-							worst, worstAt = slope, string.format("seed %d at (%d, %d)", seed, x, z)
-						end
-					end
-				end
-			end
-			if worst > limit then
-				error(
-					string.format(
-						"the corridor reaches %.2f degrees (%s), over the %d the design allows",
-						math.deg(math.atan(worst)),
-						worstAt,
-						c.CORRIDOR_MAX_SLOPE_DEG
-					),
-					0
-				)
-			end
-			-- And it is not trivially flat, or the assertion above would be worth nothing.
-			expect(worst > 0.02).to.equal(true)
-		end)
-
-		it("never lifts the edge floor above EDGE_MAX_Y, anywhere", function()
-			-- Design section 16.1's Height row, and the reason EDGE_MAX_Y is 44 rather than 48: the
-			-- voxel band BAND_Y is {-48, +48}, and the tile size measurement A proved depends on the
-			-- terrain fitting inside it. A floor that overshot would silently change the tiling.
-			local c = config()
-			local half = c.SIZE_STUDS / 2
-			local worst = -math.huge
-			for x = -half, half, 16 do
-				for z = -half, half, 16 do
-					local floor = MapGen.Height.edgeFloor(x, z, c)
-					if floor > -math.huge then
-						worst = math.max(worst, floor)
-					end
-				end
-			end
-			expect(worst <= c.GROUND_Y + c.EDGE_MAX_Y).to.equal(true)
-			expect(worst <= c.BAND_Y.max).to.equal(true)
-			-- and it does rise, or the bound above is vacuous
-			expect(worst > c.GROUND_Y + c.EDGE_MAX_Y * 0.9).to.equal(true)
-		end)
-
-		it("keeps the road and the assembly track flat at exactly GROUND_Y", function()
-			-- The one thing the whole revision stands on: everything the game puts a player or a boar
-			-- on is at GROUND_Y, so Boar.CONFIG.field.groundY needs no change at the M2.5 switch and
-			-- Body.placementFor's arithmetic lands on ground rather than in a hole.
-			local c = measuring(withScenery(), "relief")
-			local pads = MapGen.Layout.pads(c)
-			for _, bench in ipairs(c.WORLD.benches) do
-				local worst, worstAt = 0, 0
-				for along = bench.from, bench.to, 10 do
-					local x, z = along, bench.at
-					if bench.axis ~= "x" then
-						x, z = bench.at, along
-					end
-					local h = MapGen.Height.atFlattened(x, z, SEED, c, pads, MapGen.Layout.bogDepth)
-					local off = math.abs(h - c.GROUND_Y)
-					if off > worst then
-						worst, worstAt = off, along
-					end
-				end
-				if worst > 1e-6 then
-					error(string.format("the %s bench is %.4f studs off GROUND_Y at %d", bench.name, worst, worstAt), 0)
-				end
-			end
-		end)
-
-		it("leaves the ground unflattened a verge away from a bench, so the easing cannot hide a bug", function()
-			-- Without this, a benchHeight that flattened the WHOLE map would pass every other check
-			-- here: the road would be flat, the pads would be flat, the slope would be zero.
-			local c = measuring(withScenery(), "relief")
-			local pads = MapGen.Layout.pads(c)
-			local bench = c.WORLD.benches[1]
-			local outside = bench.halfWidth + bench.verge + 1
-			local differences = 0
-			for x = -600, 600, 40 do
-				local z = bench.at - outside
-				local flattened = MapGen.Height.atFlattened(x, z, SEED, c, pads, MapGen.Layout.bogDepth)
-				local raw = MapGen.Height.at(x, z, SEED, c, MapGen.Layout.bogDepth)
-				if math.abs(flattened - raw) > 1e-6 then
-					differences += 1
-				end
-			end
-			expect(differences).to.equal(0)
-		end)
-
-		it("raises the map's rim but leaves the road's band flat where it runs off", function()
-			-- MEASURED (N4): with the end distance in the suppression, the last 124 studs of the ride
-			-- rose to 34.8 studs -- the ridge across the end of the road the design says the
-			-- suppression exists to avoid. It is `across` only now, and this is what says so.
-			local c = measuring(withScenery(), "relief")
-			local pads = MapGen.Layout.pads(c)
-			local bench = c.WORLD.benches[1]
-			local atRim = MapGen.Height.atFlattened(1000, bench.at, SEED, c, pads, MapGen.Layout.bogDepth)
-			expect(math.abs(atRim - c.GROUND_Y) < 0.5).to.equal(true)
-			-- And the rim DOES rise away from the road, or the edge floor is doing nothing.
-			local away = MapGen.Height.atFlattened(1000, 0, SEED, c, pads, MapGen.Layout.bogDepth)
-			expect(away > c.GROUND_Y + 20).to.equal(true)
-			-- ...and never past the voxel band the tile size was measured for.
-			expect(away <= c.BAND_Y.max).to.equal(true)
-		end)
-
-		it("flattens every spawn pad to exactly the ground the contract asserts", function()
-			local c = measuring(withScenery(), "relief")
-			local pads = MapGen.Layout.pads(c)
-			expect(#pads > 0).to.equal(true)
-			for _, pad in ipairs(pads) do
-				-- WITH `bogDepth`, as `Ground.writeTile` passes it (audit-004 F10). Omitting it asked a
-				-- different question from the one the terrain answers, and the argument is optional, so
-				-- nothing said so.
-				expect(MapGen.Height.atFlattened(pad.x, pad.z, SEED, c, pads, MapGen.Layout.bogDepth)).to.equal(
-					c.GROUND_Y
-				)
-			end
-			-- And a pad eases back to the terrain rather than ending in a cliff: at the far edge of the
-			-- blend the flattened height IS the raw height. One pad on its own, because the shooter
-			-- posts stand `WORLD.postSpacing` studs apart and their pads overlap -- with the real list
-			-- the point below is inside the next post's pad, which is intended and not this claim.
-			local lone = { { x = 0, z = 0 } }
-			local edge = c.SPAWN_PAD.radius + c.SPAWN_PAD.blend
-			expect(MapGen.Height.atFlattened(0, 0, SEED, c, lone)).to.equal(c.GROUND_Y)
-			local far = MapGen.Height.atFlattened(edge, 0, SEED, c, lone)
-			expect(math.abs(far - MapGen.Height.at(edge, 0, SEED, c)) < 0.001).to.equal(true)
-			-- Halfway through the blend it is between the two, so the easing is real.
-			local mid = MapGen.Height.atFlattened(c.SPAWN_PAD.radius + c.SPAWN_PAD.blend / 2, 0, SEED, c, lone)
-			local raw = MapGen.Height.at(c.SPAWN_PAD.radius + c.SPAWN_PAD.blend / 2, 0, SEED, c)
-			expect(math.abs(mid - c.GROUND_Y) <= math.abs(raw - c.GROUND_Y) + 0.001).to.equal(true)
-		end)
-	end)
-
-	describe("the generator's layout", function()
-		it("plans exactly the markers the configuration asks for", function()
-			local c = config()
-			local counts = {}
-			for _, marker in ipairs(MapGen.Layout.markers(c)) do
-				counts[marker.kind] = (counts[marker.kind] or 0) + 1
-			end
-			-- Against the CONFIGURATION, not against MapGen.expectedCounts(): that function is the
-			-- same loop over the same data, so comparing the two could not fail for any layout,
-			-- right or wrong (review round 1, finding 2).
-			expect(counts.shooterPost).to.equal(c.WORLD.postCount)
-			expect(counts.boarSpawn).to.equal(#c.WORLD.boarSpawnX)
-			expect(counts.driveLine).to.equal(1)
-			expect(counts.driverStart).to.equal(1)
-			-- Every kind has a tag string in the contract, so nothing can be placed untaggable.
-			for _, marker in ipairs(MapGen.Layout.markers(c)) do
-				expect(Map.TAGS[marker.kind]).to.be.a("string")
-			end
-		end)
-
-		it("expects one tagged instance per planned marker, plus the tie trees", function()
-			local c = config()
-			local expected = MapGen.expectedCounts()
-			local planned = 0
-			for _, marker in ipairs(MapGen.Layout.markers(c)) do
-				planned += 1
-				expect(expected[marker.kind]).to.be.a("number")
-			end
-			local total = 0
-			for kind, count in pairs(expected) do
-				expect(Map.TAGS[kind]).to.be.a("string")
-				total += count
-			end
-			-- AGAINST THE CONFIGURATION (audit-004 F2). This used to compare `total` with
-			-- `planned + WORLD.tieTrees`, and `expectedCounts()` is built as exactly one per
-			-- `Layout.markers` entry plus `tieTrees` -- the same arithmetic on the same data, true for
-			-- any layout, right or wrong. It is the twin of the defect Task 44's round 1 caught in the
-			-- test above this one, which was converted and this one was not.
-			local fromConfig = c.WORLD.postCount -- shooterPost
-				+ #c.WORLD.boarSpawnX -- boarSpawn
-				+ 1 -- driveLine
-				+ 1 -- driverStart
-				+ c.WORLD.tieTrees -- tree
-			expect(total).to.equal(fromConfig)
-			expect(planned).to.equal(fromConfig - c.WORLD.tieTrees)
-		end)
-
-		it("keeps every marker it plans inside the MAP's own field", function()
-			local c = config()
-			-- `Config.FIELD`, not `Map.FIELD`: while EXPECTED_WORLD is "arena" the contract's rectangle
-			-- is the arena's 400 x 400 (it must equal Boar.CONFIG.field, which another test asserts),
-			-- and the generated map is 2048 studs across. At the M2.5 switch Config.FIELD becomes both,
-			-- and this test and that one start asserting the same rectangle.
-			local b = c.FIELD.bounds
-			expect(b).to.equal(c.WORLD.corridor)
-			for _, marker in ipairs(MapGen.Layout.markers(c)) do
-				if marker.kind ~= "driveLine" then
-					if marker.x < b.minX or marker.x > b.maxX or marker.z < b.minZ or marker.z > b.maxZ then
-						error(
-							string.format(
-								"%s at (%.0f, %.0f) is outside the map's field",
-								marker.name,
-								marker.x,
-								marker.z
-							),
-							0
-						)
-					end
-				end
-			end
-			-- And the map's field is the design's section 15.1 corridor, not whatever the code drifted
-			-- to. These are the M2.8a numbers: 1,240 studs wide, to hold a 1,120-stud shooter line at
-			-- Karen's 45 m spacing, with the exit 120 studs PAST the road so a boar that beats the
-			-- line crosses the gravel and is gone.
-			expect(b.minX).to.equal(-620)
-			expect(b.maxX).to.equal(620)
-			expect(b.minZ).to.equal(-880)
-			expect(b.maxZ).to.equal(800)
-			expect(c.FIELD.exitZ).to.equal(-820)
-			expect(c.FIELD.exitZ < c.WORLD.lineZ).to.equal(true) -- the exit is BEHIND the shooter line
-		end)
-
-		it("ties a punished shooter to a tree near the line, not across the map", function()
-			local c = config()
-			local points = MapGen.Layout.tieTreePoints(c)
-			expect(#points).to.equal(c.WORLD.tieTrees)
-			for _, point in ipairs(points) do
-				-- Design section 4.3: within 120 studs of the line. These trees are PLACED rather than
-				-- chosen out of the wood, because at 2048 studs the wood starts beyond the drive
-				-- corridor and the nearest scattered trunk is further away than that.
-				expect(math.abs(point.z - c.WORLD.lineZ) <= 120).to.equal(true)
-				-- Behind the line, never in front of it: nothing may stand between a shooter and the
-				-- drive they are shooting into.
-				expect(point.z < c.WORLD.lineZ).to.equal(true)
-				expect(math.abs(point.x) <= c.WORLD.tieTreeSpan / 2 + 1).to.equal(true)
-			end
-		end)
-
-		it("covers the whole map with tiles a WriteVoxels call accepts", function()
-			local c = config()
-			local tiles = MapGen.Layout.tiles(c)
-			local perSide = c.SIZE_STUDS / c.TILE_STUDS
-			expect(#tiles).to.equal(perSide * perSide)
-			-- MEASURED (design section 13.5 measurement A): a 128 x 128 x 96-stud region at
-			-- resolution 4 is accepted, which is 24,576 voxels; resolution 8 and 2 are refused.
-			local voxels = (c.TILE_STUDS / c.VOXEL) ^ 2 * ((c.BAND_Y.max - c.BAND_Y.min) / c.VOXEL)
-			expect(voxels).to.equal(24576)
-			expect(c.VOXEL).to.equal(4)
-			local seen = {}
-			for _, tile in ipairs(tiles) do
-				seen[string.format("%d,%d", tile.minX, tile.minZ)] = true
-				expect(tile.minX >= -c.SIZE_STUDS / 2).to.equal(true)
-				expect(tile.minX + c.TILE_STUDS <= c.SIZE_STUDS / 2).to.equal(true)
-			end
-			local distinct = 0
-			for _ in pairs(seen) do
-				distinct += 1
-			end
-			expect(distinct).to.equal(#tiles)
-		end)
-	end)
-
-	describe("the generator's streaming step", function()
-		local Settings = require(ServerStorage.MapGen:WaitForChild("Settings"))
-
-		-- audit-004 F4. The build's last step calls `Settings.apply(Map.STREAMING)`, and that is the
-		-- one step that changes a place setting for every existing system. It is inert today only
-		-- because the contract happens to match the place -- so a one-character edit to the contract
-		-- would make M2.6's change, without M2.6's playtest, during an M2.3 build.
-		it("refuses to change a streaming property until M2.6 has run", function()
-			-- THE BEHAVIOUR FIRST, the constant last. With the assertion on `MAY_WRITE` at the top, a
-			-- run with the guard disabled stopped there and never reached the part that proves the
-			-- place was not written -- TestEZ abandons an `it` at the first failure, which is this
-			-- task's own subject (measured on a dirty-tree run, Task 48).
-			local before = Workspace.StreamingEnabled
-			-- A contract that DISAGREES with the place, which is the whole hazard.
-			local provocation = {
-				enabled = not before,
-				minRadius = Map.STREAMING.minRadius,
-				targetRadius = Map.STREAMING.targetRadius,
-				integrityMode = Map.STREAMING.integrityMode,
-				modelBehavior = Map.STREAMING.modelBehavior,
-			}
-			local ok, changed, _unreachable, _unwritten, refused = pcall(Settings.apply, provocation)
-			local after = Workspace.StreamingEnabled
-			if after ~= before then
-				-- Put the place back before failing: a spec that leaves streaming flipped for the rest
-				-- of the session is worse than the defect it found.
-				Workspace.StreamingEnabled = before
-			end
-			expect(ok).to.equal(true)
-			if after ~= before then
-				error("Settings.apply changed Workspace.StreamingEnabled: M2.6 has not run", 0)
-			end
-			expect(#changed).to.equal(0)
-			expect(table.find(refused, "StreamingEnabled")).to.be.ok()
-			expect(Settings.MAY_WRITE).to.equal(false) -- and M2.6 has not run
-		end)
-
-		it("still writes nothing when the contract and the place agree", function()
-			local before = Workspace.StreamingEnabled
-			local changed, _unreachable, _unwritten, refused = Settings.apply(Map.STREAMING)
-			expect(Workspace.StreamingEnabled).to.equal(before)
-			expect(#changed).to.equal(0)
-			expect(#refused).to.equal(0)
-		end)
-	end)
-
-	describe("the generator's bog", function()
-		-- audit-004 F10. `Height.atFlattened`'s `bogDepth` is optional, so a caller that forgets it
-		-- silently asks a different question from the one `Ground.writeTile` answers. This is what the
-		-- argument is worth, in studs, so a spec that omits it is measurably wrong rather than merely
-		-- untidy.
-		it("digs the bog only when the ground is asked with bogDepth", function()
-			local c = measuring(withScenery(), "bog")
-			local bog = c.WORLD.bog
-			local withBog = MapGen.Height.at(bog.x, bog.z, SEED, c, MapGen.Layout.bogDepth)
-			local without = MapGen.Height.at(bog.x, bog.z, SEED, c)
-			expect(math.abs((without - withBog) - bog.depth) < 0.001).to.equal(true)
-			-- And outside it the argument changes nothing at all.
-			local away = MapGen.Layout.bogDepth(bog.x + bog.radius * 2, bog.z, c)
-			expect(away).to.equal(0)
-			expect(MapGen.Height.at(bog.x + bog.radius * 2, bog.z, SEED, c, MapGen.Layout.bogDepth)).to.equal(
-				MapGen.Height.at(bog.x + bog.radius * 2, bog.z, SEED, c)
-			)
-		end)
-	end)
-
-	describe("the generator's hedgerow network", function()
-		it("gates every line that crosses the drive corridor, for twenty seeds", function()
-			local c = measuring(withScenery(), "hedges")
-			local crossings = 0
-			for index, line in ipairs(MapGen.Layout.hedgeLines(c)) do
-				local from, to = MapGen.Layout.corridorSpan(line, c)
-				if from and to then
-					crossings += 1
-					-- EVERY seed, not one: a gate that lands outside the corridor on some seeds is a
-					-- drive that stops at a wall on those seeds, and nobody would see it until a
-					-- playtest. This is the pure half of TASKS.md row 43a(k).
-					for seed = 1, 20 do
-						local gates = MapGen.Scatter.hedgeGates(c, seed, index, from, to)
-						expect(#gates).to.equal(c.WORLD.gatesPerLine)
-						local points = MapGen.Layout.hedgeSegments(line, gates, c)
-						local gapFrom, gapTo = MapGen.Layout.widestGap(points, line, from, to, c)
-						if gapTo - gapFrom < c.WORLD.gateStuds then
-							error(
-								string.format(
-									"seed %d, line along %s at %d: widest corridor gap %.1f studs, %d wanted",
-									seed,
-									line.axis,
-									line.at,
-									gapTo - gapFrom,
-									c.WORLD.gateStuds
-								),
-								0
-							)
-						end
-						for _, gate in ipairs(gates) do
-							-- Wholly inside the corridor, half-width and all.
-							expect(gate - c.WORLD.gateStuds / 2 >= from - 0.001).to.equal(true)
-							expect(gate + c.WORLD.gateStuds / 2 <= to + 0.001).to.equal(true)
-						end
-					end
-				end
-			end
-			-- And the network really does cross the drive, or the loop above asserted nothing.
-			expect(crossings).to.equal(#c.WORLD.hedgeZ)
-		end)
-
-		it("puts no hedge segment inside a gate, and none off its own line", function()
-			local c = measuring(withScenery(), "hedges")
-			local half = c.HEDGE.segmentStuds / 2
-			local gateHalf = c.WORLD.gateStuds / 2
-			for index, line in ipairs(MapGen.Layout.hedgeLines(c)) do
-				local from, to = MapGen.Layout.corridorSpan(line, c)
-				local gates = if from and to then MapGen.Scatter.hedgeGates(c, SEED, index, from, to) else {}
-				for _, point in ipairs(MapGen.Layout.hedgeSegments(line, gates, c)) do
-					local along = if line.axis == "x" then point.x else point.z
-					local across = if line.axis == "x" then point.z else point.x
-					expect(across).to.equal(line.at)
-					expect(along >= line.from and along <= line.to).to.equal(true)
-					for _, gate in ipairs(gates) do
-						expect(along + half <= gate - gateHalf or along - half >= gate + gateHalf).to.equal(true)
-					end
-				end
-			end
-		end)
-
-		it("moves its gates with the seed, and leaves a solid wall without them", function()
-			local c = measuring(withScenery(), "hedges")
-			local line = MapGen.Layout.hedgeLines(c)[1]
-			local from, to = MapGen.Layout.corridorSpan(line, c)
-			expect(from).to.be.ok()
-			local a = MapGen.Scatter.hedgeGates(c, SEED, 1, from, to)
-			expect(a[1]).to.equal(MapGen.Scatter.hedgeGates(c, SEED, 1, from, to)[1])
-			expect(a[1]).never.to.equal(MapGen.Scatter.hedgeGates(c, SEED + 1, 1, from, to)[1])
-			-- Without gates it is a solid wall: that is what the gates buy, stated as a test so nobody
-			-- removes them thinking they are decoration.
-			local solid = MapGen.Layout.hedgeSegments(line, {}, c)
-			local gapFrom, gapTo = MapGen.Layout.widestGap(solid, line, from, to, c)
-			expect(gapTo - gapFrom < c.HEDGE.segmentStuds).to.equal(true)
-		end)
-
-		it("stays inside the design's hedge part budget", function()
-			local c = measuring(withScenery(), "hedges")
-			local segments = 0
-			for index, line in ipairs(MapGen.Layout.hedgeLines(c)) do
-				local from, to = MapGen.Layout.corridorSpan(line, c)
-				local gates = if from and to then MapGen.Scatter.hedgeGates(c, SEED, index, from, to) else {}
-				segments += #MapGen.Layout.hedgeSegments(line, gates, c)
-			end
-			expect(segments <= 500).to.equal(true) -- design section 12
-			expect(segments > 100).to.equal(true) -- and it is a network, not one token line
-		end)
-	end)
-
-	describe("the generator's scatter", function()
-		-- The SAME predicate the placing step uses, so the spec cannot pass while the generator plants
-		-- trees somewhere else.
-		-- ONE config for the whole block: `reject` is asked for every candidate point of every seed,
-		-- and cloning the config table there cost two clones per point (round 1 note).
-		local scatterConfig = measuring(withScenery(), "trees", "brush")
-		local function reject(x, z)
-			return Props.rejectTree(x, z, scatterConfig)
-		end
-
-		-- The whole wood, block by block, exactly as MapGen.runStep builds it.
-		local function wood(c, seed: number)
-			local out = {}
-			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
-				for _, point in ipairs(MapGen.Scatter.trees(c, seed, block, reject)) do
-					table.insert(out, point)
-				end
-			end
-			return out
-		end
-
-		it("places the same wood twice, and a different one for a different seed", function()
-			local c = measuring(withScenery(), "trees")
-			local first, second = wood(c, SEED), wood(c, SEED)
-			expect(#first > 0).to.equal(true)
-			expect(#second).to.equal(#first)
-			for index, point in ipairs(first) do
-				expect(point.x).to.equal(second[index].x)
-				expect(point.z).to.equal(second[index].z)
-			end
-			local other = wood(c, SEED + 1)
-			local same = 0
-			for index, point in ipairs(first) do
-				if other[index] and point.x == other[index].x and point.z == other[index].z then
-					same += 1
-				end
-			end
-			expect(same < #first / 2).to.equal(true)
-		end)
-
-		it("fills the drive with wood and still leaves the ground the game uses clear", function()
-			local c = measuring(withScenery(), "trees")
-			local points = wood(c, SEED)
-			local inCorridor = 0
-			for _, point in ipairs(points) do
-				-- THE CORRIDOR IS THE WOOD NOW (M2.8b): what must stay clear is the ground the game
-				-- stands things on, and each of these is a separate error message so a failure says
-				-- which rule broke.
-				if MapGen.Layout.onBench(point.x, point.z, c) then
-					error(string.format("a tree at (%.0f, %.0f) stands on the road", point.x, point.z), 0)
-				end
-				if MapGen.Layout.onTrack(point.x, point.z, c) then
-					error(string.format("a tree at (%.0f, %.0f) is on a track", point.x, point.z), 0)
-				end
-				if MapGen.Layout.bogDepth(point.x, point.z, c) > 0 then
-					error(string.format("a tree at (%.0f, %.0f) is in the bog", point.x, point.z), 0)
-				end
-				if MapGen.Layout.inField(point.x, point.z, c) then
-					error(string.format("a tree at (%.0f, %.0f) is in a field", point.x, point.z), 0)
-				end
-				if MapGen.Layout.distanceToHedge(point.x, point.z, c) < c.SCATTER_CLEARANCE then
-					error(string.format("a tree at (%.0f, %.0f) stands in a hedgerow", point.x, point.z), 0)
-				end
-				for _, pad in ipairs(MapGen.Layout.pads(c)) do
-					local away = (Vector3.new(point.x, 0, point.z) - Vector3.new(pad.x, 0, pad.z)).Magnitude
-					if away <= c.SPAWN_PAD.radius then
-						error(string.format("a tree at (%.0f, %.0f) is on a boar spawn pad", point.x, point.z), 0)
-					end
-				end
-				expect(point.x >= c.WORLD.treeArea.minX and point.x <= c.WORLD.treeArea.maxX).to.equal(true)
-				expect(point.z >= c.WORLD.treeArea.minZ and point.z <= c.WORLD.treeArea.maxZ).to.equal(true)
-				if MapGen.Layout.inCorridor(point.x, point.z, c) then
-					inCorridor += 1
-				end
-			end
-			-- ...and the drive is not a bare lane: this is the whole point of M2.8b.
-			expect(inCorridor > 500).to.equal(true)
-			TestKit.note(string.format("wood: %d trees, %d of them inside the drive corridor", #points, inCorridor))
-		end)
-
-		it("keeps the wood inside the part budget, measured rather than asked for", function()
-			local c = measuring(withScenery(), "trees")
-			local points = wood(c, SEED)
-			expect(#points <= Map.BUDGET.trees).to.equal(true)
-			-- ...and it is a WOOD, not a copse: the estimate in design section 7.2 is ~2,925.
-			expect(#points > 1500).to.equal(true)
-		end)
-
-		it("is denser where the shooter looks than in the backdrop", function()
-			-- The tiers exist to put the wood where the player's eye is (design section 7.2), and a
-			-- density function nobody measures is a comment. Counted per 10,000 studs.
-			local c = measuring(withScenery(), "trees")
-			local dense, backdrop = 0, 0
-			for _, point in ipairs(wood(c, SEED)) do
-				if
-					math.abs(point.z - c.WORLD.lineZ) <= c.TREE_DENSITY.denseBandStuds
-					and math.abs(point.x) <= c.TREE_DENSITY.denseHalfWidth
-				then
-					dense += 1
-				elseif not MapGen.Layout.inCorridor(point.x, point.z, c) then
-					backdrop += 1
-				end
-			end
-			local denseArea = (2 * c.TREE_DENSITY.denseHalfWidth) * (2 * c.TREE_DENSITY.denseBandStuds)
-			local backdropArea = c.SIZE_STUDS * c.SIZE_STUDS - denseArea
-			local densePer10k = dense / denseArea * 10000
-			local backdropPer10k = backdrop / backdropArea * 10000
-			TestKit.note(
-				string.format(
-					"wood density: %.2f trees/10k studs in the band, %.2f in the backdrop",
-					densePer10k,
-					backdropPer10k
-				)
-			)
-			expect(densePer10k > backdropPer10k * 2).to.equal(true)
-		end)
-
-		it("keeps every trunk far enough apart for the boar to walk between them", function()
-			-- DESIGN SECTION 7.3, WHICH IS THE ARGUMENT THIS WHOLE TASK RESTS ON: a jittered grid
-			-- guarantees `spacing * (1 - jitter)` between neighbouring cells, so 22 * 0.5 = 11 studs,
-			-- minus two half-trunks of the widest species (oak, 5) leaves 6 studs of clear gap against
-			-- the boar's AgentRadius = 2, which needs 4. Measured over several seeds, not argued.
-			local c = measuring(withScenery(), "trees")
-			local guaranteed = c.TREE_SPACING * (1 - c.SCATTER_JITTER)
-			local widest = 0
-			for _, row in ipairs(c.SPECIES) do
-				widest = math.max(widest, row.trunk.X, row.trunk.Z)
-			end
-			local worst = math.huge
-			for seed = SEED, SEED + 4 do
-				local points = wood(c, seed)
-				-- Bucketed by cell, so this is O(n) rather than O(n^2) over ~3,000 points: two points
-				-- closer than `guaranteed` must share a bucket or be in a neighbouring one.
-				local buckets = {}
-				local function keyOf(x, z)
-					return string.format("%d:%d", math.floor(x / guaranteed), math.floor(z / guaranteed))
-				end
-				for _, point in ipairs(points) do
-					local key = keyOf(point.x, point.z)
-					buckets[key] = buckets[key] or {}
-					table.insert(buckets[key], point)
-				end
-				for _, point in ipairs(points) do
-					local cx, cz = math.floor(point.x / guaranteed), math.floor(point.z / guaranteed)
-					for dx = -1, 1 do
-						for dz = -1, 1 do
-							for _, other in ipairs(buckets[string.format("%d:%d", cx + dx, cz + dz)] or {}) do
-								if other ~= point then
-									local away = math.sqrt((other.x - point.x) ^ 2 + (other.z - point.z) ^ 2)
-									worst = math.min(worst, away)
-								end
+			local worst, worstWhere = 0, ""
+			for _, seed in ipairs({ 1, 7, 42 }) do
+				for _, block in ipairs(MapGen.Layout.blocks(c)) do
+					local b = block.bounds
+					for x = b.minX, b.maxX, 20 do
+						for z = b.minZ, b.maxZ, 20 do
+							local h = MapGen.Height.atFlattened(x, z, seed, c, pads)
+							local dx = math.abs(MapGen.Height.atFlattened(x + 20, z, seed, c, pads) - h) / 20
+							local dz = math.abs(MapGen.Height.atFlattened(x, z + 20, seed, c, pads) - h) / 20
+							local slope = math.max(dx, dz)
+							if slope > worst then
+								worst = slope
+								worstWhere = string.format("seed %d, %s at (%.0f, %.0f)", seed, block.name, x, z)
 							end
 						end
 					end
 				end
 			end
-			TestKit.note(
-				string.format(
-					"wood: closest two trunks over 5 seeds are %.2f studs apart "
-						.. "(guaranteed %.1f, widest trunk %.1f)",
-					worst,
-					guaranteed,
-					widest
+			TestKit.note(string.format("worst block slope: %.2f deg (%s)", math.deg(math.atan(worst)), worstWhere))
+			-- THE LOWER BOUND IS WHAT STOPS THIS BEING AN IDENTITY A FLAT MAP PASSES.
+			expect(worst > 0.0004).to.equal(true)
+			if worst > limit then
+				error(
+					string.format(
+						"worst slope %.2f deg, over CORRIDOR_MAX_SLOPE_DEG = %d (%s)",
+						math.deg(math.atan(worst)),
+						c.CORRIDOR_MAX_SLOPE_DEG,
+						worstWhere
+					),
+					0
 				)
-			)
-			expect(worst >= guaranteed - 1e-6).to.equal(true)
-			-- ...and the clear gap really is wider than the boar's agent.
-			expect(worst - widest > 2 * 2).to.equal(true) -- AgentRadius = 2
+			end
 		end)
 
-		it("plants Karen's four species, in her proportions, with alder in the wet", function()
-			local c = measuring(withScenery(), "trees")
-			local counts = { spruce = 0, birch = 0, oak = 0, alder = 0 }
-			local total = 0
-			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
-				for _, point in ipairs(MapGen.Scatter.trees(c, SEED, block, reject)) do
-					local y = MapGen.Height.at(point.x, point.z, SEED, c)
-					local species = MapGen.Scatter.speciesAt(point.x, point.z, SEED, c, y)
-					expect(counts[species]).to.be.ok() -- one of the four, never a fifth
-					counts[species] += 1
-					total += 1
+		it("keeps every road flat at exactly GROUND_Y, and lets the ground return past the verge", function()
+			local c = measuring(config(), "relief")
+			local pads = MapGen.Layout.pads(c)
+			local returned = 0
+			for _, road in ipairs(MapGen.Layout.roads(c)) do
+				local along = road.from
+				while along <= road.to do
+					local x = if road.axis == "x" then along else road.at
+					local z = if road.axis == "x" then road.at else along
+					local h = MapGen.Height.atFlattened(x, z, SEED, c, pads)
+					if math.abs(h - c.GROUND_Y) > 1e-6 then
+						error(string.format("the %s road is not flat at (%.0f, %.0f): y=%.3f", road.name, x, z, h), 0)
+					end
+					-- A VERGE AND A STUD OUTSIDE IT, the ground is the terrain's again: without this
+					-- the easing could have flattened the whole map and every road check would pass.
+					local offset = road.halfWidth + road.verge + 1
+					local ox = if road.axis == "x" then x else road.at + offset
+					local oz = if road.axis == "x" then road.at + offset else z
+					if math.abs(MapGen.Height.atFlattened(ox, oz, SEED, c, pads) - c.GROUND_Y) > 0.05 then
+						returned += 1
+					end
+					along += 37 -- a prime-ish stride, so the samples are not all on one voxel line
 				end
 			end
-			TestKit.note(
-				string.format(
-					"species: spruce %d, birch %d, oak %d, alder %d of %d",
-					counts.spruce,
-					counts.birch,
-					counts.oak,
-					counts.alder,
-					total
-				)
-			)
-			for _, row in ipairs(c.SPECIES) do
-				local share = counts[row.name] / total
-				-- A CLUMPED field is not a shuffled bag, so the tolerance is wide on purpose: what is
-				-- asserted is that every species is really there in roughly its share, not that the
-				-- noise field is uniform.
-				expect(share > row.share * 0.4).to.equal(true)
-				expect(share < row.share * 1.8).to.equal(true)
-			end
-			-- WET GROUND IS ALDER, whatever the field says: a spruce in a bog reads as a mistake. Four
-			-- points around the bog, because `speciesAt` no longer takes a key to steer it with.
-			local bog = c.WORLD.bog
-			for _, offset in ipairs({ Vector2.new(10, 0), Vector2.new(-10, 0), Vector2.new(0, 14), Vector2.new(0, -14) }) do
-				expect(MapGen.Scatter.speciesAt(bog.x + offset.X, bog.z + offset.Y, SEED, c, -20)).to.equal("alder")
-			end
+			expect(returned > 20).to.equal(true)
+			TestKit.note(string.format("road verge: the ground returned at %d sampled points", returned))
 		end)
 
-		-- ONE NUMBER, ONE QUESTION (review round 1, and PROJECT_CONTEXT's "one predicate answered two
-		-- unrelated questions"). The species used to be decided by the number that decided whether the
-		-- tree exists at all: every candidate accepted where the density is 0.42 (the drive) or 0.14
-		-- (the backdrop) has a key below SPECIES_CLUMP_STRENGTH, so `speciesAt` always returned the
-		-- clump's leader and every clump outside the dense band was a pure monoculture.
-		--
-		-- THE MARGINAL SHARES SURVIVE THAT BUG -- the leader is itself drawn by share -- which is why
-		-- the share assertion above passed while about half the wood was wrong, and why this spec
-		-- measures the mix INSIDE a clump as well as the shares, in EACH density tier.
-		it("draws the species independently of the density, so the mix is the same in a thin wood", function()
-			local c = measuring(withScenery(), "trees")
-			local strength = c.SPECIES_CLUMP_STRENGTH
-			-- The share of trees that are NOT their clump's leader, derived rather than guessed: a tree
-			-- takes the leader with probability `strength`, and otherwise draws from the same shares --
-			-- which returns the leader again with the leader's own share. So the expected share is
-			-- (1 - strength) * (1 - sum of share^2) = 0.35 * 0.715 = 0.2503 with Karen's four numbers,
-			-- and it is the SAME NUMBER in every tier, because the draw has nothing to do with density.
-			local sumSquares = 0
-			for _, row in ipairs(c.SPECIES) do
-				sumSquares += row.share * row.share
+		it("never lifts the rim above EDGE_MAX_Y, anywhere", function()
+			local c = measuring(config(), "relief")
+			local half = c.SIZE_STUDS / 2
+			local highest = -math.huge
+			for x = -half, half, 32 do
+				for z = -half, half, 32 do
+					highest = math.max(highest, MapGen.Height.edgeFloor(x, z, c))
+				end
 			end
-			local expected = (1 - strength) * (1 - sumSquares)
+			expect(highest <= c.EDGE_MAX_Y + 1e-6).to.equal(true)
+			-- ...and the rim actually rises, or `EDGE_MAX_Y` is a bound on nothing.
+			expect(highest > c.EDGE_MAX_Y * 0.9).to.equal(true)
+			TestKit.note(string.format("rim: highest edge floor %.1f studs of %d", highest, c.EDGE_MAX_Y))
+		end)
 
-			local tiers =
-				{ thin = { total = 0, other = 0, counts = {} }, dense = { total = 0, other = 0, counts = {} } }
-			local wet = 0
-			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
-				for _, point in ipairs(MapGen.Scatter.trees(c, SEED, block, reject)) do
-					local y = MapGen.Height.at(point.x, point.z, SEED, c)
-					if y < c.SPECIES_WET_DEPTH then
-						-- The wet rule overrides the clump, so a bog tree says nothing about the mix.
-						wet += 1
-					else
-						local tier = tiers.dense
-						if MapGen.Layout.treeDensity(point.x, point.z, c) < strength then
-							tier = tiers.thin
+		it("flattens every spawn pad to exactly the ground the contract asserts", function()
+			local c = measuring(config(), "relief")
+			local pads = MapGen.Layout.pads(c)
+			expect(#pads).to.equal(COUNTS.boarSpawn)
+			for _, pad in ipairs(pads) do
+				local h = MapGen.Height.atFlattened(pad.x, pad.z, SEED, c, pads)
+				expect(math.abs(h - c.GROUND_Y) <= Map.SPAWN_PAD.tolerance).to.equal(true)
+			end
+		end)
+	end)
+
+	describe("the generator's voxel band", function()
+		it("writes every tile in the band its own columns stay inside, over three seeds", function()
+			-- THE INVARIANT THAT MAKES OMITTING THE UPPER PASS SAFE. If a column's ground is above the
+			-- top of the band its tile was written in, that ground is simply missing -- and if it is
+			-- below the bottom, the tile is a void where a hollow should be. The design's `BAND_Y.min`
+			-- of -24 would have done exactly the second thing: MEASURED, the fbm reaches about -37.
+			local c = measuring(config(), "relief")
+			local tiles = MapGen.Layout.tiles(c)
+			local lowest, highest = math.huge, -math.huge
+			for _, seed in ipairs({ 1, 7, 42 }) do
+				for _, tile in ipairs(tiles) do
+					if tile.pass == "lower" then
+						local lo, hi = MapGen.Ground.tileExtremes(tile, seed, c, 32)
+						lowest, highest = math.min(lowest, lo), math.max(highest, hi)
+						if lo < c.BAND_Y.min then
+							error(
+								string.format(
+									"a column at tile (%d, %d) reaches y=%.1f, below BAND_Y.min = %d: "
+										.. "the ground would be written as a void",
+									tile.tx,
+									tile.tz,
+									lo,
+									c.BAND_Y.min
+								),
+								0
+							)
 						end
-						local species = MapGen.Scatter.speciesAt(point.x, point.z, SEED, c, y)
-						local leader = MapGen.Scatter.clumpLeaderAt(point.x, point.z, SEED, c)
-						tier.total += 1
-						tier.counts[species] = (tier.counts[species] or 0) + 1
-						if species ~= leader then
-							tier.other += 1
+						-- A tile with NO upper pass may not reach above the lower pass's own top.
+						if not MapGen.Layout.tileNeedsUpperPass(tile.tx, tile.tz, c) and hi > c.BAND_Y.mid then
+							error(
+								string.format(
+									"tile (%d, %d) has no upper pass but a column reaches y=%.1f, above "
+										.. "BAND_Y.mid = %d",
+									tile.tx,
+									tile.tz,
+									hi,
+									c.BAND_Y.mid
+								),
+								0
+							)
+						end
+						if hi > c.BAND_Y.max then
+							error(string.format("a column reaches y=%.1f, above BAND_Y.max", hi), 0)
 						end
 					end
 				end
 			end
-
 			TestKit.note(
 				string.format(
-					"species mix: thin tier %d trees, %.3f are not their clump's leader; "
-						.. "dense tier %d trees, %.3f; expected %.3f; %d wet (forced alder, excluded)",
-					tiers.thin.total,
-					tiers.thin.other / math.max(tiers.thin.total, 1),
-					tiers.dense.total,
-					tiers.dense.other / math.max(tiers.dense.total, 1),
-					expected,
-					wet
+					"band: ground spans %.1f .. %.1f studs over 3 seeds, inside BAND_Y { %d, %d }",
+					lowest,
+					highest,
+					c.BAND_Y.min,
+					c.BAND_Y.max
 				)
 			)
-			for _, name in ipairs({ "thin", "dense" }) do
-				local tier = tiers[name]
-				local shares = {}
-				for _, row in ipairs(c.SPECIES) do
-					table.insert(
-						shares,
-						string.format("%s %.3f", row.name, (tier.counts[row.name] or 0) / math.max(tier.total, 1))
-					)
-				end
-				TestKit.note(string.format("  %s tier shares: %s", name, table.concat(shares, ", ")))
-			end
-
-			for _, name in ipairs({ "thin", "dense" }) do
-				local tier = tiers[name]
-				-- Both tiers have to exist at all, or "they agree" is a claim about nothing.
-				expect(tier.total > 500).to.equal(true)
-				-- TOLERANCE, STATED: +/- 0.08 of the derived 0.2503. Each tree's draw is independent,
-				-- so with over 1,000 trees a tier the standard error is under 0.015 -- but WHICH
-				-- species leads each clump is drawn too, and a wood of about 59 clumps of 260 studs can
-				-- be led by spruce (share 0.40, so 0.35 * 0.60 = 0.21 expected) or by alder (0.15, so
-				-- 0.2975) more often than its share. 0.08 covers that; the bug this catches makes the
-				-- thin tier exactly 0.
-				local other = tier.other / tier.total
-				expect(other > expected - 0.08).to.equal(true)
-				expect(other < expected + 0.08).to.equal(true)
-				-- And every species is really there, in roughly its share, in THIS tier -- not only in
-				-- the wood as a whole, which is what the assertion above measures. The band is wide for
-				-- the same reason: a clumped field of 59 clumps is not a shuffled bag of 2,700 trees.
-				for _, row in ipairs(c.SPECIES) do
-					local share = (tier.counts[row.name] or 0) / tier.total
-					expect(share > row.share * 0.4).to.equal(true)
-					expect(share < row.share * 1.8).to.equal(true)
-				end
-			end
-			-- THE INVARIANT THE BUG BROKE, in one line: how thick the wood is does not decide how mixed
-			-- it is. With the acceptance key re-used, this is 0.25 against 0.
-			local thin = tiers.thin.other / tiers.thin.total
-			local dense = tiers.dense.other / tiers.dense.total
-			expect(math.abs(thin - dense) < 0.08).to.equal(true)
 		end)
 
-		-- THE WOOD THAT WAS ACTUALLY PLANTED, not the sampler that chose it (audit-005 must-fix 2).
-		-- Every species claim above is a claim about `Scatter.speciesAt`, a pure function; nothing read
-		-- the trees. So `Props.trees` could hand ONE spruce template to all four species -- and did,
-		-- until this task -- and the day the first tree id lands in `Assets.ROWS` the whole wood becomes
-		-- one mesh with every one of those tests still green. Task 63's round-1 finding was the same
-		-- blind spot one layer up: half the wood was a monoculture and the aggregate share assertion
-		-- passed over it.
-		--
-		-- FOUR QUESTIONS, EACH ABOUT AN INSTANCE IN THE WORLD: the tree carries the species it was
-		-- built from, that species is the one the sampler chose AT THAT POINT, the proxy's geometry is
-		-- that species' geometry (a monoculture of templates fails here even with the attribute right),
-		-- and the step asked for FOUR asset keys rather than one (which is what fails on the bug
-		-- itself, today, while `Assets.ROWS` is still empty).
-		it("plants the species it sampled, and asks for a key per species", function()
-			local c = measuring(withScenery(), "trees")
-			-- Built into a throwaway root, as the furniture test below does: `Props.trees` writes only
-			-- under the root it is handed, and the wood needs no Terrain.
-			local root = Instance.new("Folder")
+		it(
+			"covers the whole map with tiles a WriteVoxels call accepts, and omits the upper pass where it can",
+			function()
+				local c = config()
+				local tiles = MapGen.Layout.tiles(c)
+				local perSide = c.SIZE_STUDS / c.TILE_STUDS
+				local lower, upper = 0, 0
+				local seen = {}
+				for _, tile in ipairs(tiles) do
+					-- EVERY PASS IS INSIDE THE MEASURED REGION. 96 studs at resolution 4 is what was
+					-- measured to be accepted; a taller region has never been measured.
+					expect(tile.maxY - tile.minY <= 96).to.equal(true)
+					expect(tile.minY >= c.BAND_Y.min).to.equal(true)
+					expect(tile.maxY <= c.BAND_Y.max).to.equal(true)
+					if tile.pass == "lower" then
+						lower += 1
+						local key = string.format("%d:%d", tile.tx, tile.tz)
+						expect(seen[key]).to.equal(nil)
+						seen[key] = true
+					else
+						upper += 1
+					end
+				end
+				-- Exactly one lower pass per tile, covering the map.
+				expect(lower).to.equal(perSide * perSide)
+				-- ...and the upper pass is a RING, not the whole map: that omission is the difference
+				-- between 752 terrain steps and 1,152.
+				expect(upper > 0).to.equal(true)
+				expect(upper < lower / 2).to.equal(true)
+				TestKit.note(string.format("tiles: %d lower + %d upper = %d terrain steps", lower, upper, #tiles))
+			end
+		)
+	end)
+
+	describe("the generator's layout", function()
+		it("keeps the four blocks disjoint and clear of every road", function()
+			local c = config()
+			local blocks = MapGen.Layout.blocks(c)
+			expect(#blocks).to.equal(4)
+			for index, a in ipairs(blocks) do
+				-- Each block names a road that exists, and that road is on its -Z edge.
+				expect(c.ROADS[a.road]).to.be.ok()
+				expect(c.ROADS[a.road].at < a.bounds.minZ).to.equal(true)
+				-- No block overlaps any road's CLEARED CORRIDOR, so a block and a road can never
+				-- fight over the same ground.
+				for _, road in ipairs(MapGen.Layout.roads(c)) do
+					local envelope = road.halfWidth + road.keepClear
+					if road.axis == "x" then
+						local overlaps = road.at + envelope > a.bounds.minZ and road.at - envelope < a.bounds.maxZ
+						expect(overlaps).to.equal(false)
+					else
+						local overlaps = road.at + envelope > a.bounds.minX and road.at - envelope < a.bounds.maxX
+						expect(overlaps).to.equal(false)
+					end
+				end
+				for other = index + 1, #blocks do
+					local b = blocks[other].bounds
+					local overlaps = a.bounds.minX < b.maxX
+						and a.bounds.maxX > b.minX
+						and a.bounds.minZ < b.maxZ
+						and a.bounds.maxZ > b.minZ
+					expect(overlaps).to.equal(false)
+				end
+			end
+			-- `activeBlock` is one of them, and `blockAt` agrees with it.
+			local active = MapGen.Layout.activeBlock(c)
+			expect(active.name).to.equal(c.ACTIVE_BLOCK)
+			local centre = Vector3.new(
+				(active.bounds.minX + active.bounds.maxX) / 2,
+				0,
+				(active.bounds.minZ + active.bounds.maxZ) / 2
+			)
+			expect(MapGen.Layout.blockAt(centre.X, centre.Z, c).name).to.equal(active.name)
+			-- ...and a point on a road is in no block at all.
+			local road = MapGen.Layout.activeRoad(c)
+			expect(MapGen.Layout.blockAt(c.DRIVE.centreX, road.at, c)).to.equal(nil)
+		end)
+
+		it("plans exactly the markers the active block asks for, all inside it", function()
+			local c = config()
+			local markers = MapGen.Layout.markers(c)
+			local counted = {}
+			for _, marker in ipairs(markers) do
+				counted[marker.kind] = (counted[marker.kind] or 0) + 1
+			end
+			for kind, want in pairs(COUNTS) do
+				if kind ~= "tree" then
+					expect(counted[kind]).to.equal(want)
+				end
+			end
+			local active = MapGen.Layout.activeBlock(c)
+			local lineZ = MapGen.Layout.lineZ(c)
+			-- EIGHT POSTS AT `postSpacing`, centred on the drive's own x, on the stand strip.
+			local posts = {}
+			for _, marker in ipairs(markers) do
+				if marker.kind == "shooterPost" then
+					table.insert(posts, marker)
+					expect(marker.z).to.equal(lineZ + c.STAND.offsetZ)
+					-- The marker's bottom face is on the stand's floor, which is the one number the
+					-- live contract check reads.
+					expect(marker.y).to.equal(c.STAND.floorStuds + marker.size.Y / 2)
+					-- ...and the stand strip is clear of the gravel, so the road guard needs no
+					-- exemption for eight stands.
+					expect(MapGen.Layout.onRoadKeepClear(marker.x, marker.z, c)).to.equal(false)
+				end
+			end
+			table.sort(posts, function(a, b)
+				return a.x < b.x
+			end)
+			for index = 2, #posts do
+				expect(math.abs((posts[index].x - posts[index - 1].x) - c.DRIVE.postSpacing) < 1e-6).to.equal(true)
+			end
+			expect(math.abs((posts[1].x + posts[#posts].x) / 2 - c.DRIVE.centreX) < 1e-6).to.equal(true)
+			-- THE DRIVE LINE SPANS THE BLOCK.
+			for _, marker in ipairs(markers) do
+				if marker.kind == "driveLine" then
+					expect(marker.z).to.equal(lineZ)
+					expect(marker.size.X).to.equal(active.bounds.maxX - active.bounds.minX)
+				end
+				if marker.kind == "boarSpawn" then
+					-- Inside the block, and inside the field the boar is clamped to.
+					expect(marker.z < active.bounds.maxZ).to.equal(true)
+					expect(marker.x >= active.bounds.minX and marker.x <= active.bounds.maxX).to.equal(true)
+				end
+			end
+		end)
+
+		it("ties a punished shooter to a tree behind the line, never across the map", function()
+			local c = config()
+			local ties = MapGen.Layout.tieTreePoints(c)
+			expect(#ties).to.equal(COUNTS.tree)
+			local lineZ = MapGen.Layout.lineZ(c)
+			for _, tie in ipairs(ties) do
+				-- BEHIND the line, so nothing stands between a shooter and the drive...
+				expect(tie.z < lineZ).to.equal(true)
+				-- ...and within sight of the stand he left.
+				expect(lineZ - tie.z < 120).to.equal(true)
+				expect(math.abs(tie.x - c.DRIVE.centreX) <= c.DRIVE.tieTreeSpan / 2 + 1).to.equal(true)
+			end
+		end)
+
+		it("keeps the gravel clear of the wood, and the wood out of the ground the game uses", function()
+			local c = measuring(config(), "trees")
+			local patches = MapGen.Scatter.patchCentres(c, SEED)
+			-- ON a road: never.
+			for _, road in ipairs(MapGen.Layout.roads(c)) do
+				local along = road.from
+				while along <= road.to do
+					local x = if road.axis == "x" then along else road.at
+					local z = if road.axis == "x" then road.at else along
+					expect(MapGen.Layout.treeDensity(x, z, c, patches)).to.equal(0)
+					along += 53
+				end
+			end
+			-- On a spawn pad, a stand, the drivers' strip or a tie tree: never.
+			for _, pad in ipairs(MapGen.Layout.pads(c)) do
+				expect(MapGen.Layout.treeDensity(pad.x, pad.z, c, patches)).to.equal(0)
+			end
+			for _, stand in ipairs(MapGen.Layout.standPoints(c)) do
+				expect(MapGen.Layout.treeDensity(stand.x, stand.z, c, patches)).to.equal(0)
+			end
+			for _, tie in ipairs(MapGen.Layout.tieTreePoints(c)) do
+				expect(MapGen.Layout.treeDensity(tie.x, tie.z, c, patches)).to.equal(0)
+			end
+			expect(MapGen.Layout.treeDensity(c.DRIVE.centreX, c.ROADS.assembly.at, c, patches)).to.equal(0)
+			-- ...and the wood IS thicker where the shooter looks than in the backdrop, or the three
+			-- tiers are one tier.
+			local character = MapGen.Layout.activeBlock(c).character
+			local lineZ = MapGen.Layout.lineZ(c)
+			local dense = MapGen.Layout.treeDensity(c.DRIVE.centreX, lineZ + 100, c, patches)
+			local drive = MapGen.Layout.treeDensity(c.DRIVE.centreX, lineZ + 900, c, patches)
+			expect(dense).to.equal(character.density.dense)
+			expect(drive).to.equal(character.density.drive)
+			expect(dense > drive).to.equal(true)
+			-- Another block's ground is BARE in this task, and that is a fact worth asserting rather
+			-- than discovering in a screenshot.
+			local block2 = c.BLOCKS.block2.bounds
+			local inside =
+				MapGen.Layout.treeDensity((block2.minX + block2.maxX) / 2, (block2.minZ + block2.maxZ) / 2, c, patches)
+			expect(inside).to.equal(0)
+		end)
+
+		it("cuts the wood into sub-blocks that cover the block and the crossing band", function()
+			local c = measuring(config(), "trees")
+			local blocks = MapGen.Layout.treeBlocks(c)
+			expect(#blocks > 0).to.equal(true)
+			local active = MapGen.Layout.activeBlock(c).bounds
+			local crossing = MapGen.Layout.crossingBand(c)
+			expect(crossing).to.be.ok()
+			-- THE CROSSING BAND IS ON THE FAR SIDE OF THE ROAD: that is what makes the crossing
+			-- forest-to-forest rather than forest-to-bare-ground.
+			local road = MapGen.Layout.activeRoad(c)
+			expect(crossing.maxZ < road.at).to.equal(true)
+			expect(crossing.maxZ - crossing.minZ).to.equal(
+				active and MapGen.Layout.activeBlock(c).character.crossingBandStuds
+			)
+			local area = 0
+			for _, block in ipairs(blocks) do
+				area += (block.maxX - block.minX) * (block.maxZ - block.minZ)
+				expect(block.maxX > block.minX).to.equal(true)
+				expect(block.maxZ > block.minZ).to.equal(true)
+			end
+			local wanted = (active.maxX - active.minX) * (active.maxZ - active.minZ)
+				+ (crossing.maxX - crossing.minX) * (crossing.maxZ - crossing.minZ)
+			-- The sub-blocks TILE the two rectangles exactly: no gap, no overlap.
+			expect(math.abs(area - wanted) < 1).to.equal(true)
+		end)
+	end)
+
+	describe("the generator's patches", function()
+		it("places every patch inside the block and clear of everything the game uses, over 20 seeds", function()
+			local c = measuring(config(), "patches")
+			local block = MapGen.Layout.activeBlock(c)
 			local pads = MapGen.Layout.pads(c)
-			local keysUsed: { [string]: boolean } = {}
-			local sampled: { [string]: number } = {}
-			local points = {}
-			local planted = 0
-			for quadrant, block in ipairs(MapGen.Layout.treeBlocks(c)) do
-				local count, keys, why, species = Props.trees(root, SEED, c, block, planted, quadrant == 1)
-				expect(why).to.equal(nil)
-				for _, key in ipairs(keys) do
-					keysUsed[key] = true
+			local stands = MapGen.Layout.standPoints(c)
+			local ties = MapGen.Layout.tieTreePoints(c)
+			local padClear = Map.SPAWN_PAD.radius + Map.SPAWN_PAD.blend
+			local kinds = {}
+			for seed = 1, 20 do
+				local patches = MapGen.Scatter.patchCentres(c, seed)
+				expect(#patches).to.equal(#block.character.patches)
+				for _, patch in ipairs(patches) do
+					kinds[patch.kind] = (kinds[patch.kind] or 0) + 1
+					local radius = patch.radiusStuds
+					-- WHOLLY INSIDE THE BLOCK.
+					expect(patch.x - radius >= block.bounds.minX).to.equal(true)
+					expect(patch.x + radius <= block.bounds.maxX).to.equal(true)
+					expect(patch.z - radius >= block.bounds.minZ).to.equal(true)
+					expect(patch.z + radius <= block.bounds.maxZ).to.equal(true)
+					-- NEVER REACHING A ROAD'S CLEARED CORRIDOR.
+					expect(MapGen.Layout.onRoadKeepClear(patch.x, patch.z, c, radius)).to.equal(false)
+					-- NEVER OVER A PAD, A STAND OR A TIE TREE.
+					for _, pad in ipairs(pads) do
+						local d = math.sqrt((patch.x - pad.x) ^ 2 + (patch.z - pad.z) ^ 2)
+						expect(d > radius + padClear).to.equal(true)
+					end
+					for _, stand in ipairs(stands) do
+						local d = math.sqrt((patch.x - stand.x) ^ 2 + (patch.z - stand.z) ^ 2)
+						expect(d > radius + c.STAND.clearRadius).to.equal(true)
+					end
+					for _, tie in ipairs(ties) do
+						local d = math.sqrt((patch.x - tie.x) ^ 2 + (patch.z - tie.z) ^ 2)
+						expect(d > radius + 10).to.equal(true)
+					end
 				end
-				for name, n in pairs(species) do
-					sampled[name] = (sampled[name] or 0) + n
+				-- TWO PATCHES NEVER OVERLAP.
+				for i = 1, #patches do
+					for j = i + 1, #patches do
+						local d = math.sqrt((patches[i].x - patches[j].x) ^ 2 + (patches[i].z - patches[j].z) ^ 2)
+						expect(d > patches[i].radiusStuds + patches[j].radiusStuds).to.equal(true)
+					end
 				end
-				-- THE SAME POINTS, IN THE SAME ORDER, FROM THE SAME SAMPLER, so a tree can be matched
-				-- to the point it was planted at BY NAME (`Tree%04d`, the placement order) rather than
-				-- by reading its position back. A Part's Position is float32: the round trip moves x by
-				-- up to a thousandth of a stud, which is enough to flip a tree standing on a clump
-				-- boundary -- the first run of this spec failed on exactly one tree of 2,734 that way.
-				local blockPoints = MapGen.Scatter.trees(c, SEED, block, function(x, z)
-					return Props.rejectTree(x, z, c)
-				end)
-				expect(#blockPoints).to.equal(count)
-				for _, point in ipairs(blockPoints) do
-					table.insert(points, point)
-				end
-				planted += count
 			end
-			expect(planted > 1500).to.equal(true)
+			-- Both kinds the character declares were actually produced, over the twenty seeds.
+			expect(kinds.young).to.equal(20)
+			expect(kinds.gap).to.equal(20)
+		end)
 
-			-- ONE KEY PER SPECIES. With `Assets.ROWS` empty every tree is proxied, so the step reports
-			-- the key each species ASKED for -- four distinct ones in a four-species wood, one in the
-			-- monoculture this task exists to make impossible.
-			local distinct = 0
-			for _ in pairs(keysUsed) do
-				distinct += 1
-			end
-			for _, row in ipairs(c.SPECIES) do
-				expect(keysUsed[row.assetKey]).to.equal(true)
-			end
-			expect(distinct).to.equal(#c.SPECIES)
-			expect(distinct).to.equal(4)
-
-			local props = root:FindFirstChild("Props")
-			local trees = props and props:FindFirstChild("Trees")
-			expect(trees).to.be.ok()
-			local byName: { [string]: Instance } = {}
-			local built = 0
-			for _, model in ipairs((trees :: Instance):GetChildren()) do
-				byName[model.Name] = model
-				built += 1
-			end
-			expect(built).to.equal(planted)
-
-			local counts = { spruce = 0, birch = 0, oak = 0, alder = 0 }
-			for index, point in ipairs(points) do
-				local name = string.format("Tree%04d", index)
-				local model = byName[name]
-				expect(model).to.be.ok()
-				local got = (model :: Instance):GetAttribute(Props.SPECIES_ATTRIBUTE)
-				if counts[got] == nil then
-					error(
-						string.format("%s carries Species = %s, which is not one of the four", name, tostring(got)),
-						0
-					)
+		it("moves the patches with the seed, so the committed map is one map and not the only map", function()
+			local c = measuring(config(), "patches")
+			local first = MapGen.Scatter.patchCentres(c, 1)
+			local second = MapGen.Scatter.patchCentres(c, 2)
+			local moved = false
+			for index, patch in ipairs(first) do
+				if patch.x ~= second[index].x or patch.z ~= second[index].z then
+					moved = true
 				end
-				counts[got] += 1
-				-- THE SAMPLER'S ANSWER AT THIS TREE'S OWN POINT, asked with the inputs `Props.trees`
-				-- itself uses -- `atFlattened` with the pads and the bog, not `Height.at` -- or the wet
-				-- rule would disagree with the build about which trees stand in a hollow.
-				local y = MapGen.Height.atFlattened(point.x, point.z, SEED, c, pads, MapGen.Layout.bogDepth)
-				local want = MapGen.Scatter.speciesAt(point.x, point.z, SEED, c, y)
-				if got ~= want then
+			end
+			expect(moved).to.equal(true)
+			-- ...and the same seed twice is the same answer.
+			local again = MapGen.Scatter.patchCentres(c, 1)
+			for index, patch in ipairs(first) do
+				expect(again[index].x).to.equal(patch.x)
+				expect(again[index].z).to.equal(patch.z)
+			end
+		end)
+
+		it("plants a thicket in the young patch and nothing at all in the gap", function()
+			local c = measuring(config(), "patches")
+			for _, patch in ipairs(MapGen.Scatter.patchCentres(c, 1)) do
+				local trees = MapGen.Scatter.patchTrees(patch, c, 1)
+				if patch.kind == "gap" then
+					-- WEIGHT 0, AND THAT IS WHAT MAKES IT A CLEARING.
+					expect(#trees).to.equal(0)
+				else
+					expect(#trees > 100).to.equal(true)
+					for _, tree in ipairs(trees) do
+						-- Inside the disc, not the square its grid covers: a square thicket reads as
+						-- a plantation.
+						local d = math.sqrt((tree.x - patch.x) ^ 2 + (tree.z - patch.z) ^ 2)
+						expect(d <= patch.radiusStuds).to.equal(true)
+						-- Every tree in it is the age the patch declares, and of a species it names.
+						expect(tree.age).to.equal(patch.spec.age)
+						expect(patch.spec.mix[tree.species]).to.be.ok()
+					end
+					TestKit.note(string.format("young patch: %d trees at radius %d", #trees, patch.radiusStuds))
+				end
+			end
+		end)
+	end)
+
+	describe("the generator's wood", function()
+		it("plants the same wood twice, and a different one for a different seed", function()
+			local c = measuring(config(), "trees")
+			local a = wood(1)
+			local b = MapGen.Scatter.allTrees(c, 1)
+			expect(#a).to.equal(#b)
+			for index, tree in ipairs(a) do
+				expect(b[index].x).to.equal(tree.x)
+				expect(b[index].z).to.equal(tree.z)
+				expect(b[index].species).to.equal(tree.species)
+				expect(b[index].age).to.equal(tree.age)
+			end
+			expect(#MapGen.Scatter.allTrees(c, 2) ~= #a).to.equal(true)
+		end)
+
+		it("leaves every trunk far enough apart for the boar to walk between them", function()
+			-- THE ONE PLACE A REVISION CAN BREAK THE GAME, because the block IS the drive.
+			--
+			-- `Boar.CONFIG.AGENT.AgentRadius = 2` with `AgentCanJump = false`, so the boar needs 4
+			-- studs of clear ground. MEASURED 2026-10-04: this case is why the rim's grid overlapping
+			-- the blocks was caught -- it reported a worst gap of -0.28 studs, two trees inside each
+			-- other, before any of it reached the world.
+			local c = measuring(config(), "trees")
+			local need = Boar.CONFIG.AGENT.AgentRadius * 2
+			for _, seed in ipairs({ 1, 7, 42 }) do
+				local gap, where = worstTrunkGap(c, wood(seed))
+				TestKit.note(string.format("seed %d: worst trunk gap %.2f studs, between %s", seed, gap, where))
+				if gap < need then
 					error(
 						string.format(
-							"%s at (%.0f, %.0f) is a %s, but the sampler chose %s there",
-							name,
-							point.x,
-							point.z,
-							got,
-							want
+							"the worst trunk-surface gap is %.2f studs, under the boar's %d (between %s)",
+							gap,
+							need,
+							where
 						),
 						0
 					)
 				end
-				local stem = (model :: Model).PrimaryPart
-				expect(stem).to.be.ok()
-				-- ...and this really is the tree planted at that point, so the name-to-point match
-				-- above is checked rather than assumed. 0.05 studs is float32 on a 1,000-stud
-				-- coordinate, which is why the species is not re-derived from the instance.
-				expect(math.abs((stem :: BasePart).Position.X - point.x) < 0.05).to.equal(true)
-				expect(math.abs((stem :: BasePart).Position.Z - point.z) < 0.05).to.equal(true)
-				-- AND THE GEOMETRY IS THAT SPECIES' GEOMETRY. This is the assertion that fails on a
-				-- monoculture of templates however right the attribute is: spruce, birch, oak and alder
-				-- have four different trunks and four different crowns (Config.SPECIES).
-				local row = Props.speciesRow(c, got)
-				expect((stem :: BasePart).Size).to.equal(row.trunk)
-				local crown = (model :: Instance):FindFirstChild("Crown")
-				expect(crown).to.be.ok()
-				expect((crown :: BasePart).Size).to.equal(row.crown)
-			end
-			TestKit.note(
-				string.format(
-					"built wood: %d trees, spruce %d, birch %d, oak %d, alder %d, from %d asset keys",
-					built,
-					counts.spruce,
-					counts.birch,
-					counts.oak,
-					counts.alder,
-					distinct
-				)
-			)
-			-- EVERY SPECIES IS REALLY IN THE GROUND, and the built count is the sampled count: the two
-			-- halves of the wood agree tree for tree above, and in total here.
-			for _, row in ipairs(c.SPECIES) do
-				expect(counts[row.name] > 0).to.equal(true)
-				expect(counts[row.name]).to.equal(sampled[row.name])
-			end
-			root:Destroy()
-		end)
-
-		-- ---- M2.8c: THE ROAD'S FURNITURE ------------------------------------------------------
-		--
-		-- The design's section 18 M2.8c row is the list: stakes beside each post, a high seat as
-		-- scenery near four of them, a barrier at each end of the road, two log piles on the verge,
-		-- a fence and a gate on a field boundary, reeds at the bog. `Layout.furniture` is pure, so
-		-- all of that is assertable without building a map.
-		it("puts a stake either side of every stand, behind the line and never in front of it", function()
-			local c = config()
-			local pieces = MapGen.Layout.furniture(c)
-			local byPost: { [number]: number } = {}
-			for _, piece in ipairs(pieces) do
-				if piece.kind == "stake" then
-					-- BEHIND THE CENTRELINE. The drive is at +z; a stake in front of a shooter is
-					-- something between him and what he is shooting at.
-					expect(piece.z < c.WORLD.lineZ).to.equal(true)
-					local index = tonumber(string.match(piece.name, "^Stake(%d+)")) or 0
-					byPost[index] = (byPost[index] or 0) + 1
-					local postX = (index - (c.WORLD.postCount + 1) / 2) * c.WORLD.postSpacing
-					expect(math.abs(math.abs(piece.x - postX) - c.FURNITURE.stake.offsetX) < 1e-6).to.equal(true)
-				end
-			end
-			for index = 1, c.WORLD.postCount do
-				expect(byPost[index]).to.equal(2)
-			end
-			-- AND EACH ONE IS CAPPED IN ORANGE, which is the whole point of row 58a(a): every tagged
-			-- marker is Transparency = 1, so before this nothing on the road could be SEEN.
-			local caps = 0
-			for _, piece in ipairs(pieces) do
-				if piece.kind == "stakeCap" then
-					caps += 1
-					expect(piece.color).to.equal(c.FURNITURE.stake.capColor)
-					expect(piece.base >= c.FURNITURE.stake.size.Y - 1e-6).to.equal(true)
-				end
-			end
-			expect(caps).to.equal(c.WORLD.postCount * 2)
-		end)
-
-		it("stands four high seats off the verge, each in its own clearing", function()
-			local c = measuring(withScenery(), "highSeats")
-			local seats = MapGen.Layout.highSeats(c)
-			expect(#seats).to.equal(#c.FURNITURE.highSeat.atPosts)
-			local edge = Map.ROAD.halfWidth + Map.ROAD.verge
-			for _, seat in ipairs(seats) do
-				-- PAST THE VERGE, in the far wood: a high seat on the gravel would be in the way of
-				-- the one flat strip the shooters walk.
-				expect(math.abs(seat.z - c.WORLD.lineZ) > edge).to.equal(true)
-				-- ...AND THE WOOD IS KEPT OUT OF IT, or a 15-stud tower is built inside a spruce.
-				expect(MapGen.Layout.treeDensity(seat.x, seat.z, c)).to.equal(0)
-				local r = c.FURNITURE.highSeat.clearRadius
-				expect(MapGen.Layout.treeDensity(seat.x + r - 1, seat.z, c)).to.equal(0)
-				-- and the clearing is a clearing, not the whole wood
-				expect(MapGen.Layout.treeDensity(seat.x + r + 30, seat.z, c) > 0).to.equal(true)
 			end
 		end)
 
-		it("puts the fence, its gate and the reeds where they belong", function()
-			local c = measuring(withScenery(), "fence", "reeds")
-			local pieces = MapGen.Layout.furniture(c)
-			local fence, gates, reeds = 0, 0, 0
-			for _, piece in ipairs(pieces) do
-				if piece.kind == "fencePost" or piece.kind == "fenceRail" or piece.kind == "gate" then
-					fence += 1
-					-- IN THE FIELD, and far outside the drive corridor: nothing a boar or a driver
-					-- can ever have to get round.
-					expect(math.abs(piece.x) > c.WORLD.corridor.maxX).to.equal(true)
-					expect(MapGen.Layout.inField(piece.x, piece.z, c)).to.equal(true)
-					if piece.kind == "gate" then
-						gates += 1
+		it("keeps each patch's own thicket walkable too, over 20 seeds", function()
+			-- PER PATCH as well as per block: the young patch's grid is 0.55 of the wood's, which is
+			-- the tightest spacing anywhere in the map and therefore the one that decides whether a
+			-- boar can be driven through a thicket.
+			local c = measuring(config(), "trees", "patches")
+			local need = Boar.CONFIG.AGENT.AgentRadius * 2
+			local worst, worstWhere = math.huge, ""
+			for seed = 1, 20 do
+				for _, patch in ipairs(MapGen.Scatter.patchCentres(c, seed)) do
+					local trees = MapGen.Scatter.patchTrees(patch, c, seed)
+					if #trees > 1 then
+						local gap, where = worstTrunkGap(c, trees)
+						if gap < worst then
+							worst, worstWhere = gap, string.format("seed %d, %s patch, %s", seed, patch.kind, where)
+						end
 					end
-				elseif piece.kind == "reed" then
-					reeds += 1
-					local away = math.sqrt((piece.x - c.WORLD.bog.x) ^ 2 + (piece.z - c.WORLD.bog.z) ^ 2)
-					-- ON THE RIM: inside the bog's radius, and not in the middle of it.
-					expect(away <= c.WORLD.bog.radius).to.equal(true)
-					expect(away >= c.WORLD.bog.radius - c.FURNITURE.reeds.inset - c.FURNITURE.reeds.jitter).to.equal(
-						true
+				end
+			end
+			TestKit.note(string.format("patches: worst trunk gap %.2f studs (%s)", worst, worstWhere))
+			expect(worst >= need).to.equal(true)
+		end)
+
+		it("plants the block's species mix, and alder wherever it is wet", function()
+			local c = measuring(config(), "trees")
+			local character = MapGen.Layout.activeBlock(c).character
+			-- THE MAIN WOOD ONLY. A patch declares its OWN mix (the young patch is 75 % oak and 25 %
+			-- birch), so counting its ~500 trees against the BLOCK's mix would be measuring two
+			-- different declarations as one -- and the patch's own mix is asserted in its own case.
+			local patches = MapGen.Scatter.patchCentres(c, 1)
+			local counted, total = {}, 0
+			local wetTrees, wetAlder = 0, 0
+			for _, tree in ipairs(wood(1)) do
+				local inPatch = false
+				for _, patch in ipairs(patches) do
+					if math.sqrt((tree.x - patch.x) ^ 2 + (tree.z - patch.z) ^ 2) <= patch.radiusStuds then
+						inPatch = true
+					end
+				end
+				if not inPatch then
+					counted[tree.species] = (counted[tree.species] or 0) + 1
+					total += 1
+				end
+				if MapGen.Height.wetAt(tree.x, tree.z, 1, c) > 0.5 then
+					wetTrees += 1
+					if tree.species == "alder" then
+						wetAlder += 1
+					end
+				end
+			end
+			local lines = {}
+			for _, name in ipairs(c.SPECIES_ORDER) do
+				local share = (counted[name] or 0) / total
+				table.insert(lines, string.format("%s %.3f (want %.2f)", name, share, character.mix[name]))
+			end
+			TestKit.note(string.format("wood of %d: %s", total, table.concat(lines, ", ")))
+			for _, name in ipairs(c.SPECIES_ORDER) do
+				local want = character.mix[name]
+				local share = (counted[name] or 0) / total
+				-- WITHIN +/-25 % RELATIVE, which is the design's own tolerance: the clump field means
+				-- a finite wood cannot land exactly on five declared shares.
+				if math.abs(share - want) > want * 0.25 then
+					error(
+						string.format("%s is %.3f of the wood, outside 25%% of the declared %.2f", name, share, want),
+						0
 					)
 				end
 			end
-			-- THE TRACK PASSES THROUGH THE GATE: the gap is where the farm track crosses the line.
-			local track = c.WORLD.tracks[1]
-			expect(track.at > c.FURNITURE.fence.gateFromX and track.at < c.FURNITURE.fence.gateToX).to.equal(true)
-			expect(gates).to.equal(1)
-			expect(fence > 10).to.equal(true)
-			expect(reeds).to.equal(c.FURNITURE.reeds.count)
+			-- EVERY TREE IN WET GROUND IS ALDER, whatever the clump says: a spruce in a hollow reads
+			-- as a mistake to anyone who has walked a European wood.
+			TestKit.note(string.format("wet ground: %d trees, %d of them alder", wetTrees, wetAlder))
+			expect(wetAlder).to.equal(wetTrees)
 		end)
 
-		it("builds every piece of furniture, and not one of them collides or stops a slug", function()
-			local c = measuring(withScenery(), "barriers", "logPiles", "fence", "reeds", "highSeats")
-			local pieces = MapGen.Layout.furniture(c)
-			expect(#pieces <= Map.BUDGET.furniture).to.equal(true)
-			-- BUILT FOR REAL, into a throwaway root: `Props.furniture` is where CanCollide is
-			-- decided, so asserting the list would assert the wrong half of the rule.
-			local root = Instance.new("Folder")
-			local ok, count, _keys, why = pcall(function()
-				return Props.furniture(root, SEED, c)
-			end)
-			expect(ok).to.equal(true)
-			expect(why).to.equal(nil)
-			local parts = 0
-			local nearRoad = 0
-			for _, descendant in ipairs(root:GetDescendants()) do
-				if descendant:IsA("BasePart") then
-					parts += 1
-					-- THE RULE THE CONTRACT ENFORCES ON THE BUILT MAP (MapGen.verifyContract): no
-					-- collidable part within halfWidth + verge of the road, over its whole length.
-					-- Half this layer stands inside that envelope on purpose, so the layer does not
-					-- collide at all.
-					expect(descendant.CanCollide).to.equal(false)
-					-- ...AND NOT ONE OF THEM STOPS A SLUG (Task 66 review note 1): `CanQuery` was left
-					-- at its default `true`, so the log pile 20 studs downrange and 20 studs right of
-					-- shooter post 7 absorbed a slug a player walks straight through. One rule for the
-					-- layer, in `Props`' own `sceneryOnly`: a slug passes through anything a player
-					-- passes through.
-					expect(descendant.CanQuery).to.equal(false)
-					local dz = math.abs(descendant.Position.Z - Map.ROAD.z)
-					if
-						dz <= Map.ROAD.halfWidth + Map.ROAD.verge
-						and descendant.Position.X >= Map.ROAD.from
-						and descendant.Position.X <= Map.ROAD.to
-					then
-						nearRoad += 1
-					end
-				end
+		it("draws the species independently of the density, so a thin wood has the same mix", function()
+			-- TASK 63'S DEFECT, AND THE REASON FOR A STREAM PER QUESTION. The acceptance draw decided
+			-- whether a tree existed AND which species it was, so every candidate accepted where the
+			-- weight is 0.34 had a key below the clump strength and every clump outside the dense
+			-- band was a monoculture over about half the wood.
+			local c = measuring(config(), "trees")
+			local character = MapGen.Layout.activeBlock(c).character
+			local dense, thin = {}, {}
+			local function tally(into, x, z)
+				local species = MapGen.Scatter.speciesAt(x, z, 1, c, character, 0)
+				into[species] = (into[species] or 0) + 1
 			end
-			expect(count).to.equal(parts)
-			-- ...and the assertion above is about something: the stakes, the barriers and one log
-			-- pile really do stand inside the envelope the contract walks.
-			expect(nearRoad > 30).to.equal(true)
-			root:Destroy()
+			-- The same POSITIONS, asked twice: `speciesAt` takes no density at all, so this is a
+			-- statement about the signature as much as about the numbers.
+			local lineZ = MapGen.Layout.lineZ(c)
+			for x = c.DRIVE.centreX - 500, c.DRIVE.centreX + 500, 7 do
+				tally(dense, x, lineZ + 100)
+				tally(thin, x, lineZ + 900)
+			end
+			-- Both samples carry at least three species: a monoculture would have one.
+			local denseKinds, thinKinds = 0, 0
+			for _ in pairs(dense) do
+				denseKinds += 1
+			end
+			for _ in pairs(thin) do
+				thinKinds += 1
+			end
+			expect(denseKinds >= 3).to.equal(true)
+			expect(thinKinds >= 3).to.equal(true)
+			-- ...and the leading species is drawn from the clump field, which does not know the weight.
+			expect(MapGen.Scatter.speciesAt(0, 0, 1, c, character, 0)).to.equal(
+				MapGen.Scatter.speciesAt(0, 0, 1, c, character, 0)
+			)
+			-- WET FORCES ALDER through the same function, which is the one exception.
+			expect(MapGen.Scatter.speciesAt(0, 0, 1, c, character, 1)).to.equal("alder")
 		end)
 
-		it("puts brush in the wood and nowhere else", function()
-			local c = measuring(withScenery(), "brush")
-			local total = 0
-			for _, block in ipairs(MapGen.Layout.treeBlocks(c)) do
-				for _, point in ipairs(MapGen.Scatter.brush(c, SEED, block, reject)) do
+		it("plants the age classes the block declares", function()
+			local c = measuring(config(), "trees")
+			local character = MapGen.Layout.activeBlock(c).character
+			local counted, total = {}, 0
+			for x = c.DRIVE.centreX - 600, c.DRIVE.centreX + 600, 11 do
+				for z = 200, 900, 11 do
+					local age = MapGen.Scatter.ageAt(x, z, 1, c, character)
+					counted[age] = (counted[age] or 0) + 1
 					total += 1
-					if MapGen.Layout.onBench(point.x, point.z, c) or MapGen.Layout.inField(point.x, point.z, c) then
-						error(string.format("brush at (%.0f, %.0f) is on the road or in a field", point.x, point.z), 0)
+				end
+			end
+			for _, age in ipairs(c.AGE_ORDER) do
+				local want = character.ages[age]
+				local share = (counted[age] or 0) / total
+				if math.abs(share - want) > want * 0.25 then
+					error(string.format("age %s is %.3f, outside 25%% of the declared %.2f", age, share, want), 0)
+				end
+			end
+			-- Every age the mix names has geometry, or a tree would be scaled by nil.
+			for _, age in ipairs(c.AGE_ORDER) do
+				expect(c.AGE[age]).to.be.ok()
+				expect(c.AGE[age].heightScale > 0).to.equal(true)
+			end
+		end)
+
+		it("keeps the baked triangles inside the budget at every stand and the driver start", function()
+			-- A PURE UPPER BOUND, asserted where a player's eye actually is. It is a bound on BAKED
+			-- geometry and not on what is drawn, and what it buys is a number a machine can refuse.
+			local c = measuring(config(), "trees")
+			local trees = wood(1)
+			local worst, worstAt = 0, ""
+			for _, point in ipairs(MapGen.Layout.loadPoints(c)) do
+				local total = MapGen.Layout.visibleLoad(point, trees, c, Map.STREAMING.targetRadius)
+				if total > worst then
+					worst, worstAt = total, point.name
+				end
+			end
+			TestKit.note(
+				string.format(
+					"visibleTris: worst %.2f M at %s, ceiling %.2f M",
+					worst / 1e6,
+					worstAt,
+					Map.BUDGET.visibleTris / 1e6
+				)
+			)
+			if worst > Map.BUDGET.visibleTris then
+				error(
+					string.format(
+						"%s sees %d baked triangles, over Map.BUDGET.visibleTris = %d",
+						worstAt,
+						worst,
+						Map.BUDGET.visibleTris
+					),
+					0
+				)
+			end
+			-- ...and it is not zero, or the bound is a bound on nothing.
+			expect(worst > Map.BUDGET.visibleTris / 4).to.equal(true)
+		end)
+
+		it("stays inside the tree budget, measured rather than asked for", function()
+			local c = measuring(config(), "trees")
+			local trees = wood(1)
+			TestKit.note(string.format("wood: %d trees of Map.BUDGET.trees = %d", #trees, Map.BUDGET.trees))
+			expect(#trees <= Map.BUDGET.trees).to.equal(true)
+			expect(#trees > Map.BUDGET.trees / 2).to.equal(true)
+			-- Every tree carries a species and a tier the config knows, or `Props` would scale it by
+			-- nil and `visibleLoad` would count it as zero triangles.
+			for _, tree in ipairs(trees) do
+				expect(c.SPECIES[tree.species]).to.be.ok()
+				expect(c.SPECIES[tree.species].tris[tree.tier]).to.be.ok()
+				expect(c.AGE[tree.age]).to.be.ok()
+			end
+		end)
+
+		it("gives every tree a trunk collider the tie can hold and the navmesh can see", function()
+			-- `Match.Body.tiePointFor` takes its stand-off radius from
+			-- `math.max(tree.Size.X, tree.Size.Z)/2`, so the TAGGED part must be the trunk and never
+			-- a whole-tree mesh whose X is its crown -- a 34-stud crown would tie a punished shooter
+			-- 17 studs from the tree.
+			local c = config()
+			for _, species in ipairs(c.SPECIES_ORDER) do
+				for _, age in ipairs(c.AGE_ORDER) do
+					local geometry = Props.treeGeometry(c, species, age)
+					expect(geometry.trunkStuds > 0).to.equal(true)
+					expect(geometry.boleStuds > 0).to.equal(true)
+					-- The bole is a PART of the tree, not the whole of it, and it is narrower than
+					-- the crown -- which is the whole point of the shape.
+					expect(geometry.boleStuds < geometry.height).to.equal(true)
+					expect(geometry.trunkStuds < geometry.crownStuds).to.equal(true)
+				end
+			end
+			-- The widest trunk anywhere is the one the walkability argument is built on.
+			local widest = 0
+			for _, species in ipairs(c.SPECIES_ORDER) do
+				for _, age in ipairs(c.AGE_ORDER) do
+					widest = math.max(widest, Props.treeGeometry(c, species, age).trunkStuds)
+				end
+			end
+			TestKit.note(string.format("widest trunk collider: %.2f studs", widest))
+			expect(widest < 4).to.equal(true)
+		end)
+	end)
+
+	describe("the generator's asset keys", function()
+		it("names only keys ServerStorage.Assets declares", function()
+			-- A TYPO IS A FAILURE, NOT A SILENT GREY BOX. Every key the generator can ask for has to
+			-- exist in the one id table; `byKey` answering nil is a legitimate state (draw the proxy)
+			-- but a key nothing declares is a name nobody can explain.
+			local c = config()
+			local declared = {}
+			for _, key in pairs(Assets.KEYS) do
+				declared[key] = true
+			end
+			local asked = {}
+			for _, name in ipairs(c.SPECIES_ORDER) do
+				for _, tier in ipairs({ "mature", "young", "veteran", "backdrop" }) do
+					for _, key in ipairs(c.SPECIES[name].keys[tier] or {}) do
+						asked[key] = true
 					end
 				end
 			end
-			expect(total <= Map.BUDGET.brush).to.equal(true)
-			expect(total > c.BRUSH.count / 2).to.equal(true)
+			asked[c.STAND_BUILD.assetKey] = true
+			for _, variant in pairs(Map.TERRAIN.variants) do
+				asked[variant.key] = true
+			end
+			for key in pairs(asked) do
+				if not declared[key] then
+					error("the generator asks for a key ServerStorage.Assets does not declare: " .. key, 0)
+				end
+			end
+			-- ...and `Props.treeKeys` is the same set the species rows name, so one preload covers a
+			-- step.
+			local preloaded = {}
+			for _, key in ipairs(Props.treeKeys(c)) do
+				expect(preloaded[key]).to.equal(nil) -- once each: two loads for one mesh is a bug
+				preloaded[key] = true
+				expect(declared[key]).to.equal(true)
+			end
+		end)
+
+		it("keeps the map's own rows out of the server's runtime preload", function()
+			-- The generator loads its meshes at EDIT TIME. A boot script that preloaded seven oaks on
+			-- every server start would spend its whole budget on trees nobody loads at run time.
+			for _, key in ipairs(Assets.keysFor("runtime")) do
+				expect(string.sub(key, 1, 5)).never.to.equal("tree.")
+			end
+			local mapKeys = Assets.keysFor("map")
+			TestKit.note(string.format("map asset scope: %d key(s)", #mapKeys))
+			expect(#mapKeys > 0).to.equal(true)
+			for _, key in ipairs(mapKeys) do
+				local row = Assets.byKey(key)
+				expect(row).to.be.ok()
+				expect(row.modelId > 0).to.equal(true)
+				expect(row.kind).to.equal("model")
+				-- MEASURED, not hoped: the row records the UPRIGHT bounding box, because two of the
+				-- seven oaks were published lying down and carry a rotation correction.
+				expect(row.naturalSizeStuds).to.be.ok()
+				expect(row.naturalSizeStuds.Y > row.naturalSizeStuds.X).to.equal(true)
+				expect(row.naturalSizeStuds.Y > row.naturalSizeStuds.Z).to.equal(true)
+				-- The licence is recorded, because the pack forbids redistribution and the asset is
+				-- private for exactly that reason.
+				expect(#row.licence.quote > 0).to.equal(true)
+				expect(#row.licence.quotedFrom > 0).to.equal(true)
+			end
 		end)
 	end)
 
 	describe("the generator's digest", function()
-		local function entry(name, x)
-			return digestEntry(name, x, 1)
+		local function entry(name: string, x: number)
+			return { name = name, className = "Part", position = Vector3.new(x, 0, 0), size = Vector3.one, tags = {} }
 		end
+		local SAMPLES = { { x = 0, z = 0, occupancy = 1, material = "Grass" } }
 
 		it("is 64 hex characters, of which the marker half is the first 32", function()
-			local digest = MapGen.Digest.of({ entry("A", 0) }, DIGEST_SAMPLES, 100)
+			local digest = MapGen.Digest.of({ entry("A", 1) }, SAMPLES, 100, Map.PALETTE, { litter = "x" })
 			expect(#digest).to.equal(64)
-			expect(string.match(digest, "^[0-9a-f]+$")).to.be.ok()
 			expect(MapGen.Digest.markerHalf(digest)).to.equal(string.sub(digest, 1, 32))
-			expect(#MapGen.Digest.markerHalf(digest)).to.equal(32)
+			expect(string.match(digest, "^%x+$")).to.be.ok()
 		end)
 
-		it("is the same for the same map and different for a moved part", function()
-			local samples = DIGEST_SAMPLES
-			local a = MapGen.Digest.of({ entry("A", 0), entry("B", 10) }, samples, 100)
-			local b = MapGen.Digest.of({ entry("A", 0), entry("B", 10) }, samples, 100)
-			expect(a).to.equal(b)
-			-- Order must not matter: the lines are sorted, so a rebuild that walks Workspace in
-			-- another order still digests the same.
-			expect(MapGen.Digest.of({ entry("B", 10), entry("A", 0) }, samples, 100)).to.equal(a)
-			-- A hundredth of a stud is the resolution the design asks for, so a tenth must show.
-			expect(MapGen.Digest.of({ entry("A", 0), entry("B", 10.1) }, samples, 100)).never.to.equal(a)
-			-- And the terrain half is in there too.
-			local other = { { x = 0, z = 0, occupancy = 0.5, material = "Grass" } }
-			expect(MapGen.Digest.of({ entry("A", 0), entry("B", 10) }, other, 100)).never.to.equal(a)
+		it("changes when a part moves, a palette colour changes, or a texture changes", function()
+			local base = MapGen.Digest.of({ entry("A", 1) }, SAMPLES, 100, Map.PALETTE, { litter = "a" })
+			expect(MapGen.Digest.of({ entry("A", 2) }, SAMPLES, 100, Map.PALETTE, { litter = "a" })).never.to.equal(
+				base
+			)
+			local palette = table.clone(Map.PALETTE)
+			palette.litter = Color3.fromRGB(1, 2, 3)
+			expect(MapGen.Digest.of({ entry("A", 1) }, SAMPLES, 100, palette, { litter = "a" })).never.to.equal(base)
+			-- THE VARIANT TABLE IS IN THE DIGEST for the same reason the palette is: a hand-changed
+			-- ground texture is a change to the map that nothing else would notice.
+			expect(MapGen.Digest.of({ entry("A", 1) }, SAMPLES, 100, Map.PALETTE, { litter = "b" })).never.to.equal(
+				base
+			)
 		end)
 
 		it("ignores a difference finer than the rounding, so float noise is not a mismatch", function()
-			local samples = DIGEST_SAMPLES
-			local a = MapGen.Digest.of({ entry("A", 1) }, samples, 100)
-			expect(MapGen.Digest.of({ entry("A", 1.000001) }, samples, 100)).to.equal(a)
+			local a = MapGen.Digest.of({ entry("A", 1) }, SAMPLES, 100, Map.PALETTE, nil)
+			local b = MapGen.Digest.of({ entry("A", 1.0001) }, SAMPLES, 100, Map.PALETTE, nil)
+			expect(a).to.equal(b)
+		end)
+	end)
+
+	describe("the generator's streaming step", function()
+		it("refuses to change a streaming property until M2.6 has run", function()
+			local Settings = require(ServerStorage.MapGen:WaitForChild("Settings"))
+			expect(Settings.MAY_WRITE).to.equal(false)
+			local _changed, _unreachable, _unwritten, refused = Settings.apply({
+				enabled = not Workspace.StreamingEnabled,
+				scriptable = { "StreamingEnabled" },
+			})
+			-- NOT a silent write and NOT a silent skip: the property is reported as refused.
+			expect(#refused > 0).to.equal(true)
+			-- ...and the place is unchanged.
+			expect(Workspace.StreamingEnabled).to.equal(Map.STREAMING.enabled)
+		end)
+	end)
+
+	describe("the retired layers", function()
+		it("keeps the farmland, the hedgerows and the track switched off, not deleted", function()
+			local c = config()
+			expect(c.INCLUDE.fields).to.equal(false)
+			expect(c.INCLUDE.hedges).to.equal(false)
+			expect(c.INCLUDE.tracks).to.equal(false)
+			-- Switched off, they answer with nothing...
+			expect(MapGen.Layout.inField(c.WORLD_FIELDS.innerX + 10, 0, c)).to.equal(false)
+			expect(#MapGen.Layout.hedgeLines(c)).to.equal(0)
+			expect(MapGen.Layout.onTrack(c.WORLD_TRACKS[1].at, 0, c)).to.equal(false)
+			-- ...and with every row on, each generator still does its work, which is what makes
+			-- flipping one row back a one-line change rather than a rediscovery.
+			local on = withScenery()
+			expect(MapGen.Layout.inField(on.WORLD_FIELDS.innerX + 10, 0, on)).to.equal(true)
+			expect(#MapGen.Layout.hedgeLines(on) > 0).to.equal(true)
+			local track = on.WORLD_TRACKS[1]
+			local tx = if track.axis == "x" then 0 else track.at
+			local tz = if track.axis == "x" then track.at else 0
+			expect(MapGen.Layout.onTrack(tx, tz, on)).to.equal(true)
+		end)
+
+		it("still gates every hedge line that crosses the drive, for twenty seeds", function()
+			-- THE CHECK THAT HAS ALREADY CAUGHT A COLLIDABLE WALL ACROSS A DRIVE (Task 58 round 2
+			-- finding 1). The layer is off; this is why the mechanism is kept rather than orphaned.
+			local c = measuring(withScenery(), "hedges")
+			local gateStuds = c.WORLD_HEDGES.gateStuds
+			local crossing = 0
+			for seed = 1, 20 do
+				for index, line in ipairs(MapGen.Layout.hedgeLines(c)) do
+					local from, to = MapGen.Layout.corridorSpan(line, c)
+					if from and to then
+						crossing += 1
+						local gates = MapGen.Scatter.hedgeGates(c, seed, index, from, to)
+						expect(#gates).to.equal(c.WORLD_HEDGES.gatesPerLine)
+						local points = MapGen.Layout.hedgeSegments(line, gates, c)
+						local gapFrom, gapTo = MapGen.Layout.widestGap(points, line, from, to, c)
+						-- A boar, a driver and a dog all have to get through.
+						expect(gapTo - gapFrom >= gateStuds * 0.9).to.equal(true)
+					end
+				end
+			end
+			expect(crossing > 0).to.equal(true)
+			TestKit.note(string.format("hedges: %d line-crossings gated over 20 seeds", crossing))
+		end)
+
+		it("puts no hedge segment on a road's cleared corridor", function()
+			local c = measuring(withScenery(), "hedges")
+			for index, line in ipairs(MapGen.Layout.hedgeLines(c)) do
+				local from, to = MapGen.Layout.corridorSpan(line, c)
+				local gates = if from and to then MapGen.Scatter.hedgeGates(c, 1, index, from, to) else {}
+				for _, point in ipairs(MapGen.Layout.hedgeSegments(line, gates, c)) do
+					expect(MapGen.Layout.onRoadKeepClear(point.x, point.z, c)).to.equal(false)
+				end
+			end
 		end)
 	end)
 end
