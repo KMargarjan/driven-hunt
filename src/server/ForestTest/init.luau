@@ -65,9 +65,16 @@ ForestTest.WAVE = {
 	-- beater stands between the notice radius (25 standing, 60 moving) and the flush radius (15):
 	-- near enough to be seen, far enough to be gone round.
 	aheadStuds = 26, -- in front of the FOREMOST, to turn it
-	-- WHERE A TURN-BACK TURNS: 45 studs north of the road, which is close enough that the hunter
-	-- watches them come, hesitate and break -- and far enough that they never reach the gravel.
-	turnAtDz = 45,
+	-- WHERE A TURN-BACK STOPS BEING PUSHED: 95 studs north of the road, and that is measured too.
+	--
+	-- At 45 the push was still on when they reached it, so they arrived AT A RUN -- FLEE, heading
+	-- for `exitZ` -- and crossed before the turning beater could do anything: dz 16 one tick, -8
+	-- the next. AVOID cannot swing an animal that is already fleeing past it.
+	--
+	-- Ending the push at 95 lets them coast the last stretch and come off FLEE, so what meets them
+	-- near the road is noticed by a calm animal -- which is the state AVOID is a reaction from. It
+	-- also looks like what it is meant to look like: a group that comes down, slows, and thinks.
+	turnAtDz = 95,
 	-- ...and when it is too late to bother: past this far south they are gone and the stage is over.
 	turnGiveUpDz = 45, -- an AVOID takes a few seconds to swing; do not give up while it is working
 }
