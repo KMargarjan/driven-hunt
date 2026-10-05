@@ -829,6 +829,7 @@ return function()
 			crowd.MAX_STEP_VOICES = math.huge
 			crowd.MAX_BREATH_VOICES = math.huge
 			crowd.MAX_MUTTER_VOICES = math.huge
+			crowd.GRUNT_GAP_SECONDS = 0 -- task 123 round 2: no world-wide gap between grunt starts
 			sound.CROWD = crowd
 			return sound
 		end
@@ -1121,6 +1122,8 @@ return function()
 			expect(capped < uncapped).to.equal(true)
 			-- ...down to the rate it promises: at most `GRUNTS_PER_SOUNDER` per MIN_SECONDS, plus
 			-- one for the interval that was already running when the clock started.
+			-- ...AND THE WORLD-WIDE GAP CAN ONLY MAKE IT FEWER, so the per-sounder bound is still the
+			-- ceiling to assert (task 123 round 2).
 			local most = math.ceil(seconds / SOUND.GRUNTS.MIN_SECONDS) * SOUND.CROWD.GRUNTS_PER_SOUNDER + 1
 			expect(capped <= most).to.equal(true)
 			-- ...and it did NOT silence the sounder: a mute herd would be a worse fault than a noisy

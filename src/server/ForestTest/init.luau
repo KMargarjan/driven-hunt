@@ -51,7 +51,9 @@ ForestTest.Data = Data
 -- So a wave keeps its members' handles, takes their live centroid, and stands `pushStuds` behind it
 -- AT THEIR OWN HEIGHT. 12 is inside the 15-stud flush radius with room for the centroid to lag.
 ForestTest.WAVE = {
-	pushSeconds = 26, -- long enough to walk a herd 150-250 studs to the road
+	-- LONG ENOUGH FOR A WALK (task 123 round 2): a herd now crosses at 4.5-11 studs/s rather than
+	-- 38, so a holding 60-110 studs out takes 13-24 s and the push has to outlast it.
+	pushSeconds = 45,
 	turnAtSeconds = 9, -- a `turnsBack` wave is pushed for this long before it is turned
 	turnSeconds = 8,
 	pushStuds = 11, -- behind the REARMOST animal, inside SENSE.FLUSH_STUDS (15)
@@ -74,7 +76,10 @@ ForestTest.WAVE = {
 	-- Ending the push at 95 lets them coast the last stretch and come off FLEE, so what meets them
 	-- near the road is noticed by a calm animal -- which is the state AVOID is a reaction from. It
 	-- also looks like what it is meant to look like: a group that comes down, slows, and thinks.
-	turnAtDz = 95,
+	-- ...AND THE TURN IS STAGED CLOSER IN (task 123 round 2), because the holdings moved in: 95
+	-- studs north of the road was further out than three of the six holdings now start, so a
+	-- turning wave would have turned before it had walked anywhere.
+	turnAtDz = 40,
 	-- ...and when it is too late to bother: past this far south they are gone and the stage is over.
 	turnGiveUpDz = 45, -- an AVOID takes a few seconds to swing; do not give up while it is working
 }
@@ -316,7 +321,11 @@ function ForestTest.release(now: number): (number, string)
 			table.insert(handles, handle)
 		end
 	else
-		handles = runtime:spawnSounder(centre, size, 30)
+		-- 90 AND NOT 30 (task 123 round 2): `Runtime:spawnSounder` now sizes its ring to the group
+		-- (`SOUNDER.SPAWN_SPACING`) and then clamps it inside this, so a sounder of 25 needs ~26
+		-- studs of radius to not spawn inside itself. There is no pad to stay on in this world --
+		-- `world.groundAt` raycasts the real terrain for every member.
+		handles = runtime:spawnSounder(centre, size, 90)
 	end
 	local placed = #handles
 	if placed > 0 then

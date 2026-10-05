@@ -1163,15 +1163,21 @@ end
 -- way.
 
 -- One configured Sound. `audibleStuds` is the distance past which it is gone; `NEAR_STUDS` is where
--- it stops getting louder. A spec row carries either one `id` or a list of `ids` to pick between;
--- the first of a list is the one it is born with, and `playOneShot` re-picks on every play.
+-- it stops getting louder, and a row may name its OWN `nearStuds` instead (task 123). A spec row
+-- carries either one `id` or a list of `ids` to pick between; the first of a list is the one it is
+-- born with, and `playOneShot` re-picks on every play.
+--
+-- WHY A ROW NEEDS ITS OWN PLATEAU. `InverseTapered` falls as `RollOffMinDistance / distance`, so the
+-- plateau sets the FAR tail and not only the near one -- and one shared number cannot make a pig's
+-- voice carry 120 studs while a hoof on soil dies at 40. Karen, 2026-10-05: *"I hear only when it;s
+-- close inaf to me if it's far away I don't hear"*.
 local function makeSound(name: string, spec, config, parent: Instance): Sound
 	local sound = Instance.new("Sound")
 	sound.Name = name
 	sound.SoundId = "rbxassetid://" .. tostring(if spec.ids then spec.ids[1] else spec.id)
 	sound.Volume = spec.volume
 	sound.RollOffMode = Enum.RollOffMode[config.SOUND.ROLL_OFF]
-	sound.RollOffMinDistance = config.SOUND.NEAR_STUDS
+	sound.RollOffMinDistance = spec.nearStuds or config.SOUND.NEAR_STUDS
 	sound.RollOffMaxDistance = spec.audibleStuds
 	-- SOFTER IS A FILTER, NOT ONLY A VOLUME (task 120). Karen, 2026-10-04: "sound has to be lover
 	-- and softer". Turning a sample down makes it distant; taking the top off it makes it SOFT, and
@@ -1563,9 +1569,14 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, 
 		return nil
 	end
 
-	-- CALM GRUNTS while it is idling or grazing, BREATHING while it is working. Never both, and the
-	-- two bands do not touch (`GRUNTS.MAX_SPEED` < `BREATH.MIN_SPEED`), so a boar can never do both
-	-- at once and sound like two animals.
+	-- GRUNTS WHILE IT WALKS OR TROTS, BREATH WHILE IT RUNS. Never both: since task 123 the two
+	-- bands MEET at `MODEL.RUN_FROM` rather than leaving a gap, and the `if ... elseif` below gives
+	-- the meeting point to the grunt, so no speed can satisfy both and sound like two animals.
+	--
+	-- IT USED TO BE "CALM GRUNTS, BREATH WHILE WORKING", with the grunt band ending at 6 studs/s --
+	-- grazing pace. Karen, 2026-10-05: *"when they cross road or they close they don't make any pig
+	-- sound besides walking"*. A crossing herd moves at 4 to 18 studs/s, so it grunted at none of
+	-- the speeds anybody ever watches it at.
 	--
 	-- THE FIRST INTERVAL IS ARMED, NOT FIRED. A countdown starting at zero means every boar grunts on
 	-- the frame its coat goes on -- and a sounder is five boars, so they would grunt in chorus and

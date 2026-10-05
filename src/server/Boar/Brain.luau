@@ -207,6 +207,12 @@ function Brain.perceive(position: Vector3, threats, config, probe)
 	local nearest, nearestDistance = nil, math.huge
 	local sum, inside = Vector3.zero, 0
 	local calm = true
+	-- IS ANYTHING HERE A SPOOK RATHER THAN A PUSH (task 123 round 2)? A separate answer from
+	-- `reaction`, because `reaction` keeps only the BEST single cause and a hunter 25 studs away
+	-- loses that comparison to a beater 11 studs away -- which is the one case where getting it
+	-- wrong matters, since the beater is always closer by construction.
+	local pace = config.PACE
+	local spook = false
 
 	for _, threat in ipairs(threats or {}) do
 		-- WITH THE FLAG OFF, ONLY A DRIVER IS A STIMULUS AT ALL. `MatchBoot` wires the shooters in
@@ -217,6 +223,13 @@ function Brain.perceive(position: Vector3, threats, config, probe)
 			local d = flatDistance(position, threat.position)
 			if d < nearestDistance then
 				nearest, nearestDistance = flat(threat.position), d
+			end
+			-- A nil kind is a DRIVER, exactly as the test above reads it: that is what every
+			-- stimulus was before kinds existed, and a world that names none still pushes.
+			if pace ~= nil and pace.ENABLED == true and (threat.kind or "driver") ~= "driver" then
+				if d <= pace.SPOOK_STUDS then
+					spook = true
+				end
 			end
 
 			local flee = Brain.fleeRadius(threat, config)
@@ -259,6 +272,8 @@ function Brain.perceive(position: Vector3, threats, config, probe)
 		nearest = nearest,
 		nearestDistance = nearestDistance,
 		calm = calm,
+		-- True when something that is NOT a driver is inside `PACE.SPOOK_STUDS` (task 123 round 2).
+		spook = spook,
 	}
 end
 
@@ -1297,6 +1312,26 @@ function Brain:step(dt: number, obs)
 		-- applies, which is the lone boar's rule.
 		if follower and sounder.leader and not sounder.scattering then
 			desiredSpeed = self:_followerSpeed(position, obs)
+		end
+		-- A PUSH IS NOT A SPOOK (task 123 round 2). Karen: *"they seems walking to fast / they has
+		-- to trot or walk when spook then fast"*. Above this line a fleeing animal has exactly two
+		-- speeds, 38 and 18, and the Forest Test's beater stands 11 studs behind the rearmost
+		-- against a 15-stud flush radius -- so every crossing was a 40 km/h gallop. See
+		-- `Boar.CONFIG.PACE`.
+		--
+		-- A CLAMP, AND THE ORDER MATTERS: it is applied AFTER the follower's leader-matching (so a
+		-- herd is paced as a herd) and BEFORE the wound's scale (so a bleeding animal is still
+		-- slower than a healthy one at the same pace, rather than being pulled back up to it).
+		local pace = config.PACE
+		if pace ~= nil and pace.ENABLED == true then
+			local spooked = self._boltFor > 0 or perception.spook == true
+			if spooked then
+				-- A shot, a hit, or a man who is not driving: run, whatever the push said.
+				desiredSpeed = math.max(desiredSpeed, config.SPRINT_SPEED)
+			else
+				local crowded = perception.reaction == "flee" and perception.distance <= pace.TROT_WITHIN_STUDS
+				desiredSpeed = math.min(desiredSpeed, if crowded then pace.TROT_SPEED else pace.WALK_SPEED)
+			end
 		end
 		-- The wound scales the SETPOINT, never the physics (hit-zones design section 5.5): bleeding
 		-- out ramps it down over the flight and a leg hit multiplies a limp on top. The ACCEL ramp

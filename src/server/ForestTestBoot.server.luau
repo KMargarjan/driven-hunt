@@ -73,6 +73,13 @@ local model = table.clone(Boar.CONFIG.MODEL)
 model.ENABLED = true
 local calm = table.clone(Boar.CONFIG.CALM)
 calm.ENABLED = true
+-- ...AND SO IS THE PACE (task 123 round 2). Karen, after playing this world: *"they seems walking to
+-- fast / they has to trot or walk when spook then fast"*. `Boar.CONFIG.PACE` makes a pushed animal
+-- WALK and a spooked one RUN; it is born off because it changes what a fleeing boar does and the DEV
+-- drive is a world of fleeing boars that she has already signed off. A full clone with one value
+-- flipped, for the same reason as MODEL and CALM: the block is replaced wholesale, not merged.
+local pace = table.clone(Boar.CONFIG.PACE)
+pace.ENABLED = true
 
 local world = Boar.defaultWorld(field)
 -- WHERE THIS WORLD'S GROUND IS, per position. See `ForestTest.groundAt`: `field.groundY` is one
@@ -84,6 +91,7 @@ world.config = {
 	CALM = calm,
 	SENSE = { ENABLED = true },
 	KINDS = { ENABLED = true },
+	PACE = pace,
 	-- 8 IS THE DRIVE'S CEILING AND IT IS NOT THIS WORLD'S. MEASURED from the server console:
 	-- "wave 5 held: 8 of 8 boars already out" -- waves 1 to 4 filled the world and every wave after
 	-- them was refused, so the schedule ran but nothing new ever appeared. `Boar.CONFIG.maxBoars`

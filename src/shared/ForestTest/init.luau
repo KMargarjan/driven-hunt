@@ -116,13 +116,20 @@ ForestTest.EXIT_Z = ForestTest.CENTRE.Z - ForestTest.ROAD.amplitudeStuds - 250
 -- SIDEWAYS: she stands at stand 5, x = 3030. The first spread ran to +-610, so the far ones crossed
 -- 600 studs away and she would never have seen them. These sit within +-330, which at the road is
 -- inside a few seconds' walk of her and well within sight down a 40-stud lane.
+-- HOW FAR NORTH EACH HOLDING SITS, AND THEY MOVED IN FOR THE NEW PACE (task 123 round 2). A
+-- pushed herd now WALKS at `Boar.CONFIG.PACE.WALK_SPEED` = 4.5 studs/s instead of galloping at 38
+-- (Karen: *"they seems walking to fast"*), so the 135-205 studs these sat at would be a 30-45 second
+-- walk to the road and the "a crossing every 20 s" the schedule promises would stop being true.
+--
+-- 60-110 studs is 13-24 s at a walk, which is the 10-30 s window the crossing has to land in, and a
+-- herd crowded by the beater covers it faster still at `PACE.TROT_SPEED` = 11.
 ForestTest.HOLDING = {
-	{ name = "west-hollow", offsetX = -300, northStuds = 185, size = 10 },
-	{ name = "centre-thicket", offsetX = -90, northStuds = 160, size = 8 },
-	{ name = "east-ridge", offsetX = 150, northStuds = 175, size = 20 },
-	{ name = "far-east", offsetX = 330, northStuds = 205, size = 25 },
-	{ name = "west-single", offsetX = -170, northStuds = 135, size = 1 },
-	{ name = "east-single", offsetX = 230, northStuds = 145, size = 1 },
+	{ name = "west-hollow", offsetX = -300, northStuds = 95, size = 10 },
+	{ name = "centre-thicket", offsetX = -90, northStuds = 80, size = 8 },
+	{ name = "east-ridge", offsetX = 150, northStuds = 90, size = 20 },
+	{ name = "far-east", offsetX = 330, northStuds = 110, size = 25 },
+	{ name = "west-single", offsetX = -170, northStuds = 60, size = 1 },
+	{ name = "east-single", offsetX = 230, northStuds = 70, size = 1 },
 }
 
 function ForestTest.holdingPosition(entry): Vector3

@@ -46,6 +46,16 @@ local function configWith(on: boolean, overrides)
 	return config
 end
 
+-- ...and the same thing for `PACE`, which is a BLOCK OF ITS OWN and is replaced wholesale rather
+-- than merged (task 123 round 2, `Boar.newRuntime`): the config a world passes IS the block.
+local function paceConfig(on: boolean, senseOn: boolean?)
+	local config = configWith(if senseOn == nil then true else senseOn)
+	local pace = table.clone(CONFIG.PACE)
+	pace.ENABLED = on
+	config.PACE = pace
+	return config
+end
+
 local function stimulus(distance: number, kind: string?, speed: number?)
 	return { id = "s", position = Vector3.new(distance, 0, 0), kind = kind, speed = speed }
 end
@@ -164,6 +174,126 @@ return function()
 			end
 			expect(brain:state()).to.equal("FLEE")
 			expect(elapsed <= DESIGN_REACTION).to.equal(true)
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ 1b. a push is not a spook
+	describe("boar behaviour: a pushed animal walks and a spooked one runs (task 123)", function()
+		local PACE = CONFIG.PACE
+		local on = paceConfig(true)
+		local off = paceConfig(false)
+
+		-- The pace is a clamp on the SETPOINT, and the setpoint is ramped by ACCEL -- so a case about
+		-- which speed was ASKED FOR has to let the ramp finish. 2 s is three times the 0.63 s a
+		-- sprint takes and a hundred times the 0.07 s a walk does.
+		local function settledSpeed(config, threats)
+			local brain = Brain.new(config, FIELD, START, Random.new(7))
+			local intents = drive(brain, math.ceil(2 / DT), function()
+				return threats
+			end, START)
+			local last = intents[#intents].intent
+			return last.targetVelocity.Magnitude, brain:state()
+		end
+
+		it("reports a spook only for something that is NOT a driver", function()
+			-- The beater is ALWAYS the closer of the two by construction (it is placed 11 studs
+			-- behind the rearmost animal against a 15-stud flush radius), so `reaction`'s
+			-- single best cause can never be the hunter -- which is why `spook` is its own answer.
+			local both = Brain.perceive(START, {
+				{ id = "beater", position = Vector3.new(11, 0, 0), kind = "driver", speed = 5 },
+				{ id = "hunter", position = Vector3.new(25, 0, 0), kind = "shooter", speed = 0 },
+			}, on)
+			expect(both.reaction).to.equal("flee")
+			expect(both.cause.id).to.equal("beater")
+			expect(both.spook).to.equal(true)
+			-- A DRIVER at the same distance is a push and not a spook, which is the whole rule.
+			local pushed = Brain.perceive(START, {
+				{ id = "beater", position = Vector3.new(11, 0, 0), kind = "driver", speed = 5 },
+				{ id = "second", position = Vector3.new(25, 0, 0), kind = "driver", speed = 5 },
+			}, on)
+			expect(pushed.reaction).to.equal("flee")
+			expect(pushed.spook).to.equal(false)
+			-- A hunter one stud outside `SPOOK_STUDS` is not one either...
+			local far = Brain.perceive(START, {
+				{ id = "hunter", position = Vector3.new(PACE.SPOOK_STUDS + 1, 0, 0), kind = "shooter", speed = 0 },
+			}, on)
+			expect(far.spook).to.equal(false)
+			-- ...and with PACE off nothing is ever a spook, so the field cannot change the old world.
+			local none = Brain.perceive(START, {
+				{ id = "hunter", position = Vector3.new(5, 0, 0), kind = "shooter", speed = 0 },
+			}, off)
+			expect(none.spook).to.equal(false)
+		end)
+
+		it("walks away from a beater, trots when it is crowded, and runs from a man", function()
+			-- THE DEFECT KAREN FELT, as a number. `Brain:_step`'s flee branch asks for
+			-- SPRINT_SPEED whenever anything is inside a flush radius, and the Forest Test's phantom
+			-- beater is inside one by construction -- so every pushed herd crossed the road at 38
+			-- studs/s, a real boar's 40 km/h. Karen: "they seems walking to fast".
+			local beaterFar = { stimulus(14, "driver", 5) } -- inside the 15-stud flush, outside 12
+			local walk, walkState = settledSpeed(on, beaterFar)
+			expect(walkState).to.equal("FLEE")
+			expect(math.abs(walk - PACE.WALK_SPEED) < 0.5).to.equal(true)
+			-- ...and it is DRAWN walking too, which is the other half of "they seems walking to fast":
+			-- the gait bands and the pace have to agree or the feet slide.
+			expect((Boar.stepSoundFor(PACE.WALK_SPEED, CONFIG))).to.equal("walk")
+
+			-- CROWDED: the beater inside `TROT_WITHIN_STUDS` lifts it to a trot, not to a bolt.
+			local crowded = settledSpeed(on, { stimulus(PACE.TROT_WITHIN_STUDS - 1, "driver", 5) })
+			expect(math.abs(crowded - PACE.TROT_SPEED) < 0.5).to.equal(true)
+			expect((Boar.stepSoundFor(PACE.TROT_SPEED, CONFIG))).to.equal("trot")
+
+			-- SPOOKED: a hunter inside `SPOOK_STUDS` and it runs, whatever the push said.
+			local spooked = settledSpeed(on, {
+				{ id = "beater", position = Vector3.new(14, 0, 0), kind = "driver", speed = 5 },
+				{ id = "hunter", position = Vector3.new(PACE.SPOOK_STUDS - 1, 0, 0), kind = "shooter", speed = 0 },
+			})
+			expect(math.abs(spooked - CONFIG.SPRINT_SPEED) < 0.5).to.equal(true)
+			expect((Boar.stepSoundFor(CONFIG.SPRINT_SPEED, CONFIG))).to.equal("run")
+
+			-- WITH PACE OFF IT IS THE OLD WORLD, line for line: the same beater, SPRINT_SPEED.
+			local old = settledSpeed(off, beaterFar)
+			expect(math.abs(old - CONFIG.SPRINT_SPEED) < 0.5).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-pace: pushed %.1f, crowded %.1f, spooked %.1f studs/s -- against %.1f with PACE off",
+					walk,
+					crowded,
+					spooked,
+					old
+				)
+			)
+		end)
+
+		it("makes a shot run the herd, which is the existing bolt and not a second rule", function()
+			-- A shot already sets `_boltFor` and kicks `_speed`; the pace clamp must not undo that,
+			-- and `_boltFor > 0` is the first half of `spooked` for exactly this reason.
+			local brain = Brain.new(on, FIELD, START, Random.new(7))
+			local beater = { stimulus(14, "driver", 5) }
+			drive(brain, math.ceil(1 / DT), function()
+				return beater
+			end, START)
+			-- ...walking, because a beater is a push...
+			local before = brain:step(DT, obs(START, beater)).targetVelocity.Magnitude
+			expect(before < PACE.TROT_SPEED).to.equal(true)
+			-- ...and then a bang, inside SHOT_AUDIBLE_STUDS.
+			local intents = drive(
+				brain,
+				math.ceil(0.5 / DT),
+				function()
+					return beater
+				end,
+				START,
+				function(step)
+					return if step == 1
+						then { sounds = { { kind = "shot", position = Vector3.new(0, 0, 60) } } }
+						else nil
+				end
+			)
+			local after = intents[#intents].intent.targetVelocity.Magnitude
+			expect(after > PACE.TROT_SPEED).to.equal(true)
+			expect((Boar.stepSoundFor(after, CONFIG))).to.equal("run")
+			TestKit.note(string.format("boar-pace: a shot took the herd from %.1f to %.1f studs/s", before, after))
 		end)
 	end)
 
