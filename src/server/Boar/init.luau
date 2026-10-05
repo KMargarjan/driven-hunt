@@ -793,6 +793,20 @@ Boar.CONFIG.PACE = {
 	-- number; `SENSE`'s own flee radius for a standing stimulus is 15 and for a moving one 40, so
 	-- 30 sits between them and does not depend on whether the hunter is walking.
 	SPOOK_STUDS = 30,
+	-- ...AND A REAL DRIVER THIS CLOSE DOES IT TOO (task 123 round 5). Karen: *"when driver is close
+	-- or shoot is made they run"*. Round 2 made a driver a PUSH and nothing else, which is right for
+	-- the approach and wrong for the moment a man walks onto the animal: 25 studs is inside
+	-- `SENSE.NOTICE_STANDING` (25) and well inside the 40 a MOVING stimulus is noticed at, so it is
+	-- the "he is on top of me" distance rather than the "he is coming" one.
+	--
+	-- A PHANTOM BEATER IS NOT A DRIVER FOR THIS RULE, and that is the whole difficulty: the Forest
+	-- Test's beater is placed `WAVE.pushStuds` = 11 studs behind the rearmost animal BY
+	-- CONSTRUCTION, so a rule that ran from any close driver would run every wave for its whole
+	-- crossing -- which is the opposite of what round 4 just built. The drive MARKS its own
+	-- phantoms (`phantom = true` on the stimulus), because the thing that knows a beater is nobody
+	-- is the code that invented it: `ForestTest.boarThreats` and `Match.quickTestPhantom`. A
+	-- stimulus with a real player behind it carries no such mark, so the default is "real".
+	DRIVER_RUN_STUDS = 25,
 
 	-- HOW IT TURNS (task 123 round 3). Karen: *"they feels like walkin strange like with mouse
 	-- turning here there has to be more natural"*.

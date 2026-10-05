@@ -808,7 +808,10 @@ function Match.boarThreats()
 	end, playersService())
 	local phantom = Match.quickTestPhantom(now())
 	if phantom then
-		table.insert(out, { id = "quick-test", position = phantom, kind = "driver" })
+		-- `phantom = true` (task 123 round 5): the same mark the Forest Test's beater carries, for
+		-- the same reason -- `Boar.CONFIG.PACE` runs a herd from a REAL driver this close, and there
+		-- is nobody standing on this one.
+		table.insert(out, { id = "quick-test", position = phantom, kind = "driver", phantom = true })
 	end
 	return out
 end

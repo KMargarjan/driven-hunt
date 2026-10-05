@@ -277,7 +277,11 @@ function ForestTest.boarThreats(now: number)
 			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
 			local at = ForestTest.beaterPosition(centre :: Vector3, rear :: Vector3, now - wave.at, wave.turnsBack, dz)
 			if at then
-				table.insert(out, { id = wave.id, position = at, kind = "driver" })
+				-- `phantom = true` (task 123 round 5): NOBODY IS STANDING HERE. A real driver inside
+				-- `PACE.DRIVER_RUN_STUDS` makes a herd run; this beater is 11 studs behind the
+				-- rearmost animal by construction, so without the mark every wave would run for its
+				-- whole crossing -- which is exactly what round 4 stopped.
+				table.insert(out, { id = wave.id, position = at, kind = "driver", phantom = true })
 			end
 		end
 	end
@@ -530,15 +534,17 @@ function ForestTest.urgeAcrossRoad()
 		return
 	end
 	local wave = ForestTest.WAVE
-	for _, active in ipairs(state.active) do
-		local centre = ForestTest.herdCentre(active.handles)
-		if centre ~= nil then
-			local dz = centre.Z - Data.roadZ(centre.X)
-			if dz <= wave.crossTrotDz and dz >= -wave.crossTrotPastDz then
-				for _, handle in ipairs(active.handles) do
-					runtime:urge(handle.id, 1)
-				end
-			end
+	-- EVERY ANIMAL NEAR THE ROAD, not every animal in an ACTIVE WAVE. MEASURED: two crossings at
+	-- 4.0 studs/s -- a walk -- because their wave's push had already retired (`WAVE.pushSeconds`),
+	-- so `state.active` no longer held them and nothing asked them for a trot. A straggler crossing
+	-- the road is exactly as much "crossing" as the rest of its herd was, and it is the one a hunter
+	-- is still watching. Reading each animal's own position is also simpler than the herd centroid
+	-- it replaced: no wave, no centroid, no empty-handle case.
+	for _, handle in ipairs(runtime:boars()) do
+		local at = handle.position()
+		local dz = at.Z - Data.roadZ(at.X)
+		if dz <= wave.crossTrotDz and dz >= -wave.crossTrotPastDz then
+			runtime:urge(handle.id, 1)
 		end
 	end
 end

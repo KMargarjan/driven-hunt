@@ -225,6 +225,60 @@ return function()
 			expect(none.spook).to.equal(false)
 		end)
 
+		it("runs from a REAL driver this close, and never from the phantom beater", function()
+			-- KAREN, 2026-10-05: "when driver is close or shoot is made they run". Round 2 made a
+			-- driver a PUSH and nothing else, which is right for the approach and wrong for the
+			-- moment a man walks onto the animal.
+			--
+			-- THE WHOLE DIFFICULTY IS TELLING THEM APART, and it is a pure case because it has to
+			-- be: the Forest Test's beater stands 11 studs behind the rearmost animal BY
+			-- CONSTRUCTION, so a rule that ran from any close driver would run every wave for its
+			-- whole crossing. The drive MARKS its own invention; a player never carries the mark.
+			local close = PACE.DRIVER_RUN_STUDS - 1
+			local real = Brain.perceive(START, {
+				{ id = "42", position = Vector3.new(close, 0, 0), kind = "driver", speed = 5 },
+			}, on)
+			expect(real.spook).to.equal(true)
+
+			local beater = Brain.perceive(START, {
+				{ id = "beater-3", position = Vector3.new(close, 0, 0), kind = "driver", speed = 5, phantom = true },
+			}, on)
+			expect(beater.spook).to.equal(false)
+			-- ...and it is still a PUSH, so the herd keeps moving: the mark removes the run, not the
+			-- drive.
+			expect(beater.reaction).to.equal("flee")
+
+			-- A real driver one stud further out is the push again, which is what makes the distance
+			-- the thing under test rather than the kind.
+			local far = Brain.perceive(START, {
+				{ id = "42", position = Vector3.new(PACE.DRIVER_RUN_STUDS + 1, 0, 0), kind = "driver", speed = 5 },
+			}, on)
+			expect(far.spook).to.equal(false)
+			-- ...and with PACE off nothing is ever a spook, so the DEV drive cannot change.
+			expect(Brain.perceive(START, {
+				{ id = "42", position = Vector3.new(1, 0, 0), kind = "driver", speed = 5 },
+			}, off).spook).to.equal(false)
+
+			-- AND THE SPEED FOLLOWS: the real driver runs it, the beater at the same distance does
+			-- not. `settledSpeed` lets the ACCEL ramp finish, so these are the asked-for speeds.
+			local ran = settledSpeed(on, {
+				{ id = "42", position = Vector3.new(close, 0, 0), kind = "driver", speed = 5 },
+			})
+			expect(math.abs(ran - PACE.RUN_SPEED) < 0.5).to.equal(true)
+			local pushed = settledSpeed(on, {
+				{ id = "beater-3", position = Vector3.new(close, 0, 0), kind = "driver", speed = 5, phantom = true },
+			})
+			expect(pushed <= PACE.TROT_SPEED + 0.5).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-pace: a real driver %.0f studs off runs it at %.1f; the phantom beater at the same distance pushes it at %.1f",
+					close,
+					ran,
+					pushed
+				)
+			)
+		end)
+
 		it("walks away from a beater, trots when it is crowded, and runs from a man", function()
 			-- THE DEFECT KAREN FELT, as a number. `Brain:_step`'s flee branch asks for
 			-- SPRINT_SPEED whenever anything is inside a flush radius, and the Forest Test's phantom
@@ -248,8 +302,10 @@ return function()
 				{ id = "beater", position = Vector3.new(14, 0, 0), kind = "driver", speed = 5 },
 				{ id = "hunter", position = Vector3.new(PACE.SPOOK_STUDS - 1, 0, 0), kind = "shooter", speed = 0 },
 			})
-			expect(math.abs(spooked - CONFIG.SPRINT_SPEED) < 0.5).to.equal(true)
-			expect((Boar.stepSoundFor(CONFIG.SPRINT_SPEED, CONFIG))).to.equal("run")
+			-- `PACE.RUN_SPEED` and not `SPRINT_SPEED` since round 4: Karen, *"when they fleet make
+			-- speed slover it's to fast"*. 38 studs/s IS a real boar's 40 km/h and does not read as
+			-- something a hunter can follow.
+			expect(math.abs(spooked - PACE.RUN_SPEED) < 0.5).to.equal(true)
 
 			-- WITH PACE OFF IT IS THE OLD WORLD, line for line: the same beater, SPRINT_SPEED.
 			local old = settledSpeed(off, beaterFar)
@@ -292,7 +348,11 @@ return function()
 			)
 			local after = intents[#intents].intent.targetVelocity.Magnitude
 			expect(after > PACE.TROT_SPEED).to.equal(true)
-			expect((Boar.stepSoundFor(after, CONFIG))).to.equal("run")
+			-- `PACE.RUN_SPEED`, not the gait band: round 4 slowed a flight to 24 studs/s and the
+			-- band that calls 24 a RUN is the playtest world's (`ForestTestBoot` sets
+			-- `MODEL.RUN_FROM` to `(TROT_SPEED + RUN_SPEED) / 2`), not the module's 28. Asserting
+			-- `stepSoundFor` against the MODULE config here would be asserting the wrong world.
+			expect(math.abs(after - PACE.RUN_SPEED) < 1).to.equal(true)
 			TestKit.note(string.format("boar-pace: a shot took the herd from %.1f to %.1f studs/s", before, after))
 		end)
 	end)
@@ -481,7 +541,7 @@ return function()
 				return {}
 			end, START)
 			local speed = intents[#intents].intent.targetVelocity.Magnitude
-			expect((Boar.stepSoundFor(speed, CONFIG))).to.equal("run")
+			expect(math.abs(speed - PACE.RUN_SPEED) < 1).to.equal(true)
 			-- ...and a carcass is past being frightened.
 			TestKit.note(string.format("boar-pace: a bang 200 studs off put a calm boar at %.1f studs/s", speed))
 		end)

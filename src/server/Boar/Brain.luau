@@ -226,9 +226,20 @@ function Brain.perceive(position: Vector3, threats, config, probe)
 			end
 			-- A nil kind is a DRIVER, exactly as the test above reads it: that is what every
 			-- stimulus was before kinds existed, and a world that names none still pushes.
-			if pace ~= nil and pace.ENABLED == true and (threat.kind or "driver") ~= "driver" then
-				if d <= pace.SPOOK_STUDS then
-					spook = true
+			if pace ~= nil and pace.ENABLED == true then
+				if (threat.kind or "driver") ~= "driver" then
+					-- A man who is not driving -- a hunter at a stand -- at `SPOOK_STUDS`.
+					if d <= pace.SPOOK_STUDS then
+						spook = true
+					end
+				elseif threat.phantom ~= true and pace.DRIVER_RUN_STUDS ~= nil then
+					-- A REAL driver right on top of the animal (task 123 round 5). `phantom` is the
+					-- drive's own mark on the beater it invented; a stimulus with a player behind it
+					-- never carries it, so "real" is the default and a world that marks nothing
+					-- behaves as Karen asked.
+					if d <= pace.DRIVER_RUN_STUDS then
+						spook = true
+					end
 				end
 			end
 
