@@ -85,9 +85,11 @@ Map.EXPECTED_WORLD = Map.WORLD_BY_PLACE[game.PlaceId] or Map.DEFAULT_WORLD
 -- IS THIS A PLAYTEST WORLD? One named fact, so the places that have to behave differently in it ask
 -- a question instead of comparing a string each in their own way.
 --
--- IT IS WHAT TURNS THE REAL ANIMAL ON THERE. `BOAR_MODEL` and `BOAR_BEHAVIOUR` default to false and
--- the playtest world needs both; the alternative was a live `DHFlag_` attribute, which is not in
--- git and is lost when the place is reopened -- so Karen would find box boars and no reason why.
+-- WHAT IT ACTUALLY DOES, narrowed (task 122 round 2): its one reader is `BoarAssetsBoot`, which
+-- loads the boar's MESH AND ANIMATIONS in a world that wants them -- `local wanted =
+-- Boar.CONFIG.MODEL.ENABLED or Map.PLAYTEST_WORLD`. The behaviour itself is turned on by
+-- `ForestTestBoot`'s world config, not by this line, and the alternative to both was a live
+-- `DHFlag_` attribute, which is not in git and is lost when the place is reopened.
 Map.PLAYTEST_WORLD = Map.EXPECTED_WORLD == "forest-test"
 Map.SEED = 1 -- the seed the committed map was built from
 -- The digest that seed produced, filled from the build that made the place this commit describes:

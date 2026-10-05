@@ -697,7 +697,7 @@ SCOPE_SPECS = {
              "tests/server/boar_hit.spec.luau", "tests/server/boar_model.spec.luau",
              "tests/server/boar_shot.spec.luau", "tests/server/boar_sounder.spec.luau",
              "tests/server/boar_wound.spec.luau", "tests/server/boar_zones.spec.luau",
-             "tests/server/forest_line.spec.luau",
+             "tests/server/forest_line.spec.luau", "tests/server/forest_stand.spec.luau",
              "tests/server/report_silhouette.spec.luau",
              "tests/client/shoot_boar.spec.luau"),
     "match": ("tests/server/match_live.spec.luau", "tests/server/match_outfit.spec.luau",

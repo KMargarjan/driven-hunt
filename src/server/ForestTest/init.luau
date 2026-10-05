@@ -62,8 +62,6 @@ ForestTest.WAVE = {
 	-- LONG ENOUGH FOR A WALK (task 123 round 2): a herd now crosses at 4.5-11 studs/s rather than
 	-- 38, so a holding 60-110 studs out takes 13-24 s and the push has to outlast it.
 	pushSeconds = 45,
-	turnAtSeconds = 9, -- a `turnsBack` wave is pushed for this long before it is turned
-	turnSeconds = 8,
 	pushStuds = 11, -- behind the REARMOST animal, inside SENSE.FLUSH_STUDS (15)
 	-- 26, AND IT MUST BE OUTSIDE THE FLUSH RADIUS. MEASURED: at 11 studs the turn-back wave ran
 	-- HARDER south -- `Brain._senseAware` row 7 is "anything inside a flush radius, whatever state
@@ -74,7 +72,6 @@ ForestTest.WAVE = {
 	-- cause -- and AVOID is the reaction to something NOTICED but not flushing. So the turning
 	-- beater stands between the notice radius (25 standing, 60 moving) and the flush radius (15):
 	-- near enough to be seen, far enough to be gone round.
-	aheadStuds = 26, -- in front of the FOREMOST, to turn it
 	-- WHERE A TURN-BACK STOPS BEING PUSHED: 95 studs north of the road, and that is measured too.
 	--
 	-- At 45 the push was still on when they reached it, so they arrived AT A RUN -- FLEE, heading
@@ -97,7 +94,6 @@ ForestTest.WAVE = {
 	-- gravel in front of the gun.
 	crossTrotPastDz = 35,
 	-- ...and when it is too late to bother: past this far south they are gone and the stage is over.
-	turnGiveUpDz = 45, -- an AVOID takes a few seconds to swing; do not give up while it is working
 	-- THE PASS ACROSS HER FRONT (task 123 round 8). Karen: *"they has to cross like from left to
 	-- right or opositi so I can shoot straigh also not only on sides"*.
 	--
@@ -143,7 +139,12 @@ ForestTest.WAVE = {
 	lateralPushStuds = 22,
 }
 
-export type Phase = "push" | "turn" | "lateral" | "done"
+-- "turn" IS GONE (task 122 round 2). `wavePhase`'s `turnsBack` branch only ever answered "done" or
+-- "push" -- the turn was tried three ways against the live world, all three crossed anyway, and what
+-- shipped was a push that STOPS. The branch that read the word, and the four numbers that fed it,
+-- were unreachable for every wave. Archived with the measurements in
+-- `backups/2026-10-06-forest-test-turn-phase.md` (rule 7).
+export type Phase = "push" | "lateral" | "done"
 
 -- A TURN IS DECIDED BY WHERE THEY ARE, NOT BY A STOPWATCH, and that is measured. On a timer at 9
 -- seconds, wave 3 had ALREADY crossed the road at about 8 -- the trace shows it at dz -53 when the
@@ -294,9 +295,12 @@ end
 -- staged on the centroid while the signature said rear, and the turn on the rearmost while the
 -- signature said front. The arithmetic below is byte-for-byte what it was; only the names changed,
 -- because a parameter that lies is how the next reader stages a beater in the wrong place.
+-- `rear` WENT WITH THE TURN (task 122 round 2): the only phase that used the herd's rearmost animal
+-- was the unreachable one, and a parameter nothing reads is the next reader's trap. `herdShape`
+-- still ANSWERS the rear and the foremost -- they are facts about a herd, and a later phase may want
+-- them -- but the two callers now take only the centroid they use.
 function ForestTest.beaterPosition(
 	centre: Vector3,
-	rear: Vector3,
 	elapsed: number,
 	turnsBack: boolean,
 	dz: number?,
@@ -314,9 +318,6 @@ function ForestTest.beaterPosition(
 	end
 	if phase == "push" then
 		return centre + Vector3.new(0, 0, wave.pushStuds)
-	end
-	if phase == "turn" then
-		return rear + Vector3.new(0, 0, -wave.aheadStuds)
 	end
 	return nil
 end
@@ -381,6 +382,24 @@ local state = {
 	stuck = 0,
 }
 
+-- THIS WORLD'S BOAR CONFIG, AND NOT THE MODULE'S (task 122 round 2).
+--
+-- `ForestTestBoot` builds the boar runtime with a world config -- `KINDS` on, `MODEL`, `CALM`,
+-- `PACE`, `MOVE` and `LINE` turned on -- and `Boar.newRuntime` merges that over the module's own
+-- table. `Boar.CONFIG` is therefore the DEFAULTS, which in this place are the wrong answer to every
+-- question this file asks: the Reviewer found `releaseLine` reading `KINDS.ENABLED` from it and
+-- spawning a line of nine males because the flag it follows is off by default.
+--
+-- One source of truth, asked once, with the module as the answer only before a runtime exists (a
+-- spec driving the pure half, or the moments before `ForestTest.start`).
+local function boarConfig()
+	local runtime = state.runtime
+	if runtime ~= nil and type(runtime.config) == "function" then
+		return runtime:config()
+	end
+	return Boar.CONFIG
+end
+
 function ForestTest.stats()
 	return {
 		started = state.started,
@@ -412,12 +431,11 @@ function ForestTest.boarThreats(now: number)
 		end
 	end
 	for _, wave in ipairs(state.active) do
-		local centre, rear = ForestTest.herdShape(wave.handles)
+		local centre = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
 			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
 			local at = ForestTest.beaterPosition(
 				centre :: Vector3,
-				rear :: Vector3,
 				now - wave.at,
 				wave.turnsBack,
 				dz,
@@ -439,7 +457,10 @@ end
 -- THE LIVE READER over this world's own start time (task 124). It lives below `state` because that is
 -- where `state` exists; the arithmetic above it is pure and testable without one.
 function ForestTest.drive(now: number)
-	local index, left = ForestTest.driveIndexAt(state.startedAt or now, now, Data.DRIVE.seconds)
+	-- `state.startedAt` IS A NUMBER, ALWAYS: it is initialised to 0 and `ForestTest.start` sets it
+	-- before the first heartbeat. The `or now` that used to be here could never fire -- 0 is truthy
+	-- in Luau -- so it read as a guard and was none (task 122 round 2).
+	local index, left = ForestTest.driveIndexAt(state.startedAt, now, Data.DRIVE.seconds)
 	return { index = index, secondsLeft = left }
 end
 
@@ -462,11 +483,15 @@ end
 -- action in it and no line saying why.
 function ForestTest.release(now: number): (number, string)
 	local spec = ForestTest.waveAt(state.waveIndex + 1)
-	state.waveIndex += 1
 	local runtime = state.runtime
 	if runtime == nil then
+		-- A WAVE SLOT IS NOT BURNED BY A WORLD THAT CANNOT SPAWN (task 122 round 2). The counter used
+		-- to advance above this line, so a nil runtime walked the cycle forward and the wave that
+		-- WOULD have been released never happened at all -- the first real wave came out as number
+		-- two, with number one's composition skipped.
 		return 0, "no runtime"
 	end
+	state.waveIndex += 1
 	-- THE CAP IS CHECKED BEFORE THE SPAWN, not after, and it is the SMALLER of two caps.
 	--
 	-- Karen asked for *"a lot not too much to break"*, which is `Data.MAX_BOARS`. The runtime has
@@ -482,7 +507,7 @@ function ForestTest.release(now: number): (number, string)
 	-- and kids / 2 males or 5 males and 3 famales ect"*. `spec.composition` indexes
 	-- `Boar.CONFIG.SOUNDER.COMPOSITIONS`, because who is in a flock is the boar system's fact and
 	-- which flock comes next is the drive's. A composition carries its own size.
-	local composition = Boar.CONFIG.SOUNDER.COMPOSITIONS[spec.composition]
+	local composition = boarConfig().SOUNDER.COMPOSITIONS[spec.composition]
 	local wanted = if composition then Boar.compositionSize(composition) else (spec.size or 1)
 	local size = math.min(wanted, room)
 	-- ...AND IF THERE IS NOT ROOM FOR THE WHOLE FLOCK the SHAPE is dropped rather than quietly
@@ -528,7 +553,7 @@ function ForestTest.release(now: number): (number, string)
 	-- `PACE.SPOOK_MEMORY_SECONDS`); the DRIVER half is this, because only the drive knows where its
 	-- own beaters are -- and the beater belonging to THIS wave does not exist yet, which is what
 	-- makes "was there a driver here already" a question with a meaning.
-	local notice = Boar.CONFIG.SENSE.NOTICE_MOVING
+	local notice = boarConfig().SENSE.NOTICE_MOVING
 	local spookedBy = nil
 	for _, threat in ipairs(ForestTest.boarThreats(now)) do
 		local away = Vector3.new(threat.position.X - centre.X, 0, threat.position.Z - centre.Z)
@@ -564,7 +589,7 @@ function ForestTest.release(now: number): (number, string)
 		how = string.format(
 			" (RUNNING: %d of them heard a shot in the last %ds)",
 			bornRunning,
-			Boar.CONFIG.PACE.SPOOK_MEMORY_SECONDS
+			boarConfig().PACE.SPOOK_MEMORY_SECONDS
 		)
 	end
 	return placed,
@@ -677,13 +702,12 @@ end
 function ForestTest.waveReport(now: number): { string }
 	local out = {}
 	for _, wave in ipairs(state.active) do
-		local centre, rear = ForestTest.herdShape(wave.handles)
+		local centre = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
 			local elapsed = now - wave.at
 			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
 			local at = ForestTest.beaterPosition(
 				centre :: Vector3,
-				rear :: Vector3,
 				elapsed,
 				wave.turnsBack,
 				dz,
@@ -949,6 +973,7 @@ function ForestTest.releaseLine(now: number): string?
 	if runtime == nil then
 		return nil
 	end
+	local boar = boarConfig()
 	local lineData = Data.LINE
 	local rng = state.rng
 	local standX = ForestTest.hunterStandX()
@@ -971,7 +996,7 @@ function ForestTest.releaseLine(now: number): string?
 	local count = rng:NextInteger(4, 9)
 	local lines = if rng:NextNumber() < lineData.twoLineChance then 2 else 1
 	local pace = ForestTest.paceFor(rng:NextNumber(), lineData.paceMix)
-	local speed = ForestTest.paceSpeed(pace, Boar.CONFIG)
+	local speed = ForestTest.paceSpeed(pace, boar)
 
 	-- THE ROUTES FIRST, BEFORE A SINGLE ANIMAL EXISTS, and that ordering is the whole of a bug this
 	-- round paid for. MEASURED: `releaseLine` reported `placed=9 routes made=0` every wave, while the
@@ -979,30 +1004,47 @@ function ForestTest.releaseLine(now: number): string?
 	-- boars: they are `CanCollide`, they had just been spawned ON the start point, and
 	-- `ComputeAsync` from inside a pile of colliders fails. Computing first also means a wave whose
 	-- route cannot be found never spawns anything, instead of leaving nine loose animals behind.
+	-- ONLY THE LINES THAT HAVE A ROUTE ARE RELEASED (task 122 round 2). With two lines and one
+	-- route, every animal used to be spawned and the group whose route was missing was led by
+	-- nobody, retired by nothing, and counted against `maxBoars` until it happened to wander past
+	-- `exitZ`. A line that cannot be walked is a line that is not released.
+	--
+	-- EACH SURVIVOR KEEPS ITS OWN LATERAL OFFSET, so the animals are spawned on the route that was
+	-- actually computed rather than on the one its index would have had.
 	local routes = {}
 	for which = 1, lines do
 		local lateral = (which - 1 - (lines - 1) / 2) * lineData.lineGapStuds
-		routes[which] = ForestTest.computeRoute(
+		local route = ForestTest.computeRoute(
 			start + Vector3.new(lateral, 0, 0),
 			crossing + Vector3.new(lateral, 0, 0),
 			exitPoint + Vector3.new(lateral, 0, 0)
 		)
-	end
-	local anyRoute = false
-	for _, route in ipairs(routes) do
 		if route ~= nil then
-			anyRoute = true
+			table.insert(routes, { route = route, lateral = lateral })
 		end
 	end
-	if not anyRoute then
+	if #routes == 0 then
 		return nil
 	end
+	local asked = lines
+	lines = #routes
 
 	-- THE ANIMALS, spawned one at a time ALONG the approach so they are already a file. Not
 	-- `spawnSounder`: that places a RING, which is the spread Karen is complaining about.
 	local toward = Vector3.new(0, 0, -1) -- the road is south of the spawn
 	local members = {}
-	local kinds = Boar.sounderKinds(count, {}, Boar.CONFIG, nil)
+	-- THE WORLD'S CONFIG, AND REAL ROLLS (task 122 round 2, the Reviewer's blocking finding). Asking
+	-- `Boar.CONFIG` asks the MODULE, whose `KINDS.ENABLED` follows the `BOAR_MODEL` flag and is off
+	-- by default -- so every animal in every line came out "male", `Line.order`'s rank table saw one
+	-- rank for all of them, and the sow-led file this mode exists for could not happen. The runtime
+	-- holds what this world was actually built with (`Runtime:config`). The rolls were `{}` as well,
+	-- which made `(rolls[index] or 1) < YOUNG_MALE_CHANCE` false for ever: a line of sow plus
+	-- piglets and never a young male.
+	local rolls = {}
+	for index = 1, count do
+		rolls[index] = rng:NextNumber()
+	end
+	local kinds = Boar.sounderKinds(count, rolls, boar, nil)
 	for index = 1, count do
 		local lane = ((index - 1) % lines)
 		local along = math.floor((index - 1) / lines)
@@ -1026,48 +1068,46 @@ function ForestTest.releaseLine(now: number): string?
 	local made = 0
 	for which, group in ipairs(groups) do
 		if #group > 0 then
-			local route = routes[which]
-			if route ~= nil then
-				-- THE TRAIL IS SEEDED WITH THE LINE ITSELF, and that is a measured fix rather than a
-				-- tidy-up. `Line.pointBack` answers nil until the leader has walked as far as the
-				-- station being asked for, so with an empty trail every follower was told "walk at
-				-- the leader" for the first few seconds -- they bunched onto her and then strung out
-				-- behind, and the measured nose-to-nose gap came out at a 9.6 median against a
-				-- `spacingStuds` of 3. Seeding with the points the followers are ALREADY STANDING ON
-				-- -- behind her, along the approach -- means station k exists on the very first step
-				-- and the line is formed from the moment it is released.
-				local seeded = {}
-				for back = math.ceil((#group + 1) * lineData.spacingStuds), 0, -1 do
-					table.insert(seeded, { at = start - toward * back, s = 0 })
-				end
-				for index = 2, #seeded do
-					seeded[index].s = seeded[index - 1].s
-						+ (Vector3.new(
-							seeded[index].at.X - seeded[index - 1].at.X,
-							0,
-							seeded[index].at.Z - seeded[index - 1].at.Z
-						)).Magnitude
-				end
-				table.insert(state.lines, {
-					id = string.format("line-%d-%d", state.waveIndex, which),
-					members = group,
-					route = route,
-					leg = 1,
-					trail = seeded,
-					speed = speed,
-					-- The pace this wave was drawn at, kept so the sow's "wait for the tail" slow-down
-					-- eases back to it rather than to whatever she was doing a moment ago.
-					baseSpeed = speed,
-					pace = pace,
-					bornAt = now,
-					crossing = crossing,
-					crossed = false,
-					stuckFrom = {},
-					stuckAt = {},
-					repaths = 0,
-				})
-				made += #group
+			local route = routes[which].route
+			-- THE TRAIL IS SEEDED WITH THE LINE ITSELF, and that is a measured fix rather than a
+			-- tidy-up. `Line.pointBack` answers nil until the leader has walked as far as the
+			-- station being asked for, so with an empty trail every follower was told "walk at
+			-- the leader" for the first few seconds -- they bunched onto her and then strung out
+			-- behind, and the measured nose-to-nose gap came out at a 9.6 median against a
+			-- `spacingStuds` of 3. Seeding with the points the followers are ALREADY STANDING ON
+			-- -- behind her, along the approach -- means station k exists on the very first step
+			-- and the line is formed from the moment it is released.
+			local seeded = {}
+			for back = math.ceil((#group + 1) * lineData.spacingStuds), 0, -1 do
+				table.insert(seeded, { at = start - toward * back, s = 0 })
 			end
+			for index = 2, #seeded do
+				seeded[index].s = seeded[index - 1].s
+					+ (Vector3.new(
+						seeded[index].at.X - seeded[index - 1].at.X,
+						0,
+						seeded[index].at.Z - seeded[index - 1].at.Z
+					)).Magnitude
+			end
+			table.insert(state.lines, {
+				id = string.format("line-%d-%d", state.waveIndex, which),
+				members = group,
+				route = route,
+				leg = 1,
+				trail = seeded,
+				speed = speed,
+				-- The pace this wave was drawn at, kept so the sow's "wait for the tail" slow-down
+				-- eases back to it rather than to whatever she was doing a moment ago.
+				baseSpeed = speed,
+				pace = pace,
+				bornAt = now,
+				crossing = crossing,
+				crossed = false,
+				stuckFrom = {},
+				stuckAt = {},
+				repaths = 0,
+			})
+			made += #group
 		end
 	end
 	if made == 0 then
@@ -1075,10 +1115,16 @@ function ForestTest.releaseLine(now: number): string?
 	end
 	state.released += made
 	return string.format(
-		"line %d: %d animal(s) in %d line(s) at a %s, crossing %+d studs from the stand",
+		-- MADE *OF SPAWNED*, because the two can only differ if an animal was left behind by a line
+		-- that was not released -- which is the orphan the Reviewer found and this round closed. A
+		-- wave that reads "5 of 5 animal(s) in 1 of 2 line(s)" is the case: one route failed, one
+		-- line was released, and nobody was spawned for the line that could not be walked.
+		"line %d: %d of %d animal(s) in %d of %d line(s) at a %s, crossing %+d studs from the stand",
 		state.waveIndex,
 		made,
-		#state.lines > 0 and lines or 0,
+		#members,
+		lines,
+		asked,
 		pace,
 		offset
 	)
@@ -1195,7 +1241,7 @@ function ForestTest.stepLines(now: number)
 		-- a line that has broken. `Line.leaderSpeed` eases her down toward `tailSlow` of her pace once
 		-- the last animal is more than `tailPatienceStuds` behind its station.
 		line.speed = Line.leaderSpeed(
-			line.pace == "run" and Boar.CONFIG.PACE.RUN_SPEED or line.baseSpeed,
+			line.pace == "run" and boarConfig().PACE.RUN_SPEED or line.baseSpeed,
 			tailLag,
 			lineData.tailPatienceStuds,
 			lineData.tailSlow
@@ -1204,8 +1250,8 @@ function ForestTest.stepLines(now: number)
 		-- ONCE ACROSS, THEY RUN AWAY. Karen: *"once they in another side of road they run away"*.
 		if not line.crossed and at.Z < Data.roadZ(at.X) - Data.ROAD.halfWidthStuds then
 			line.crossed = true
-			line.speed = Boar.CONFIG.PACE.RUN_SPEED
-			line.baseSpeed = Boar.CONFIG.PACE.RUN_SPEED
+			line.speed = boarConfig().PACE.RUN_SPEED
+			line.baseSpeed = boarConfig().PACE.RUN_SPEED
 		end
 
 		-- STUCK = 0, AND IT IS COUNTED. An animal that has not covered `stuckStuds` in `stuckSeconds`

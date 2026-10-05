@@ -2369,6 +2369,20 @@ function Runtime:_measureMotion(threats, dt: number)
 	return out
 end
 
+-- WHAT THIS RUNTIME WAS BUILT WITH, which is NOT `Boar.CONFIG` (task 122 round 2).
+--
+-- `newRuntime` clones the module's config and merges the world's over it, so the live answer to "are
+-- kinds on here?" lives on the runtime and nowhere else. A world that asked for females and piglets
+-- and then read `Boar.CONFIG` would be told the flag's default -- which is exactly the bug the
+-- Reviewer found in `ForestTest.releaseLine`: every animal in every line spawned "male", so the
+-- sow-led file the whole line mode is built around could not exist.
+--
+-- RETURNED AS IT IS, not cloned: the caller READS it. `newRuntime` froze nothing here before and a
+-- clone per call would be a lie about ownership -- this table is the runtime's.
+function Runtime:config()
+	return self._config
+end
+
 function Runtime:stats()
 	local out = table.clone(self._stats)
 	out.zoneHits = table.clone(self._stats.zoneHits) -- table.clone is shallow; this is a counter, not state
