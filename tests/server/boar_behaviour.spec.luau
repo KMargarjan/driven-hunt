@@ -198,6 +198,33 @@ return function()
 			return last.targetVelocity.Magnitude, brain:state()
 		end
 
+		-- A PUSHER THAT KEEPS PUSHING (task 129). `settledSpeed` holds its threat at a fixed WORLD
+		-- point, so an animal asked to run leaves it behind in a few frames -- at 24 studs/s a driver
+		-- 24 studs away is 70 studs behind before the ACCEL ramp has finished, and the speed the case
+		-- then reads is the speed of an animal with nothing near it. That is why four of these cases
+		-- could never be green whichever way the code went.
+		--
+		-- A driver drives: he STAYS behind the animal. This keeps the stimulus `distance` studs behind
+		-- it every step, which is what a beater walking a sounder on actually does, and returns the
+		-- speed once the ramp has settled.
+		local function pushedSpeed(config, distance: number, phantom: boolean?)
+			local brain = Brain.new(config, FIELD, START, Random.new(7))
+			local position = START
+			local last
+			for _ = 1, math.ceil(2 / DT) do
+				local behind = Vector3.new(position.X + distance, 0, position.Z)
+				last = brain:step(
+					DT,
+					obs(
+						position,
+						{ { id = "pusher", position = behind, kind = "driver", speed = 5, phantom = phantom } }
+					)
+				)
+				position += last.targetVelocity * DT
+			end
+			return last.targetVelocity.Magnitude, brain:state()
+		end
+
 		it("reports a spook only for something that is NOT a driver", function()
 			-- The beater is ALWAYS the closer of the two by construction (it is placed 11 studs
 			-- behind the rearmost animal against a 15-stud flush radius), so `reaction`'s
@@ -274,23 +301,10 @@ return function()
 
 			-- AND THE SPEED FOLLOWS: the real driver runs it, the beater at the same distance does
 			-- not. `settledSpeed` lets the ACCEL ramp finish, so these are the asked-for speeds.
-			-- MEASURED WHILE HE IS STILL THERE, which is the whole claim: `settledSpeed` lets the
-			-- animal RUN AWAY, and after two seconds at 24 studs/s a driver 24 studs off is 70 behind
-			-- and no longer a spook -- so the end-of-run speed answers a different question. The
-			-- threat is therefore held at `close` for the whole two seconds (the animal's position is
-			-- what moves in `drive`, and this threat follows it).
-			local ranBrain = Brain.new(on, FIELD, START, Random.new(7))
-			local ranIntents = drive(ranBrain, math.ceil(2 / DT), function()
-				return { { id = "42", position = Vector3.new(close, 0, 0), kind = "driver", speed = 5 } }
-			end, START)
-			local ran = 0
-			for _, row in ipairs(ranIntents) do
-				ran = math.max(ran, row.intent.targetVelocity.Magnitude)
-			end
+			-- MEASURED WHILE HE IS STILL THERE, which is the whole claim: see `pushedSpeed`.
+			local ran = pushedSpeed(on, close)
 			expect(math.abs(ran - PACE.RUN_SPEED) < 0.5).to.equal(true)
-			local pushed = settledSpeed(on, {
-				{ id = "beater-3", position = Vector3.new(close, 0, 0), kind = "driver", speed = 5, phantom = true },
-			})
+			local pushed = pushedSpeed(on, close, true)
 			expect(pushed <= PACE.TROT_SPEED + 0.5).to.equal(true)
 			expect(pushed < ran).to.equal(true)
 			TestKit.note(
@@ -311,8 +325,8 @@ return function()
 			-- PHANTOM, because the rungs below are the beater's. Measured on this commit: a beater
 			-- 14 studs off is walked at 4.5, one at 11 is trotted at 11, and the same two WITHOUT the
 			-- mark are a real driver inside `DRIVER_RUN_STUDS` and run at 24 (task 123 round 5).
-			local beaterFar = { stimulus(14, "driver", 5, true) } -- inside the 15-stud flush, outside 12
-			local walk, walkState = settledSpeed(on, beaterFar)
+			-- 14 studs: inside the 15-stud flush, outside the 12 that lifts it to a trot.
+			local walk, walkState = pushedSpeed(on, 14, true)
 			expect(walkState).to.equal("FLEE")
 			expect(math.abs(walk - PACE.WALK_SPEED) < 0.5).to.equal(true)
 			-- ...and it is DRAWN walking too, which is the other half of "they seems walking to fast":
@@ -320,7 +334,7 @@ return function()
 			expect((Boar.stepSoundFor(PACE.WALK_SPEED, CONFIG))).to.equal("walk")
 
 			-- CROWDED: the beater inside `TROT_WITHIN_STUDS` lifts it to a trot, not to a bolt.
-			local crowded = settledSpeed(on, { stimulus(PACE.TROT_WITHIN_STUDS - 1, "driver", 5, true) })
+			local crowded = pushedSpeed(on, PACE.TROT_WITHIN_STUDS - 1, true)
 			expect(math.abs(crowded - PACE.TROT_SPEED) < 0.5).to.equal(true)
 			expect((Boar.stepSoundFor(PACE.TROT_SPEED, CONFIG))).to.equal("trot")
 
@@ -527,7 +541,7 @@ return function()
 				-- mark is a real driver inside `DRIVER_RUN_STUDS` and the animal RUNS (measured: 24),
 				-- so the walking cap was being asked about a running animal. 14 studs is the rung
 				-- that walks -- measured 4.5 studs/s on this commit, which is `PACE.WALK_SPEED`.
-				local threats = { stimulus(14, "driver", 0, true) }
+				local threats = { stimulus(14, "driver", 0, true) } -- the walking rung: see `pushedSpeed`
 				drive(brain, math.ceil(2 / DT), function()
 					return threats
 				end, START)

@@ -973,6 +973,10 @@ return function()
 			end, function(clip: string)
 				return FAKE_IDS[clip]
 			end)
+			-- TWELVE IN A WORLD THAT ALLOWS TWELVE (task 129). `Boar.CONFIG.maxBoars` is 8 -- the
+			-- drive's own ceiling, because a real drive releases a sounder at a time -- and this case
+			-- is about a WORLD-WIDE voice ration, which only means anything above that ceiling. The
+			-- Forest Test raises it the same way, by world config (`Data.MAX_BOARS`).
 			local handles = {}
 			for index = 1, 12 do
 				-- Spread along the line so each is its OWN distance from the driver -- 20 studs for
@@ -1045,6 +1049,15 @@ return function()
 			-- nothing in the Runtime hands the loop to a third animal.
 			expect(voices <= SOUND.CROWD.MAX_STEP_VOICES).to.equal(true)
 			expect(capped <= SOUND.CROWD.MAX_STEP_VOICES).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-crowd DIAG: breaths capped=%d loose=%d, voices capped=%d loose=%d",
+					breaths,
+					looseBreaths,
+					voices,
+					looseVoices
+				)
+			)
 			-- THE HERD REALLY WAS WORKING, or the breath numbers mean nothing. Four and not six:
 			-- how many 1.5-3 s intervals fit in six seconds is decided by physics ramping six
 			-- bodies up to flee speed, not by the seeded Random, so the floor is the loose one.
@@ -1127,6 +1140,13 @@ return function()
 					break
 				end
 			end
+			TestKit.note(
+				string.format(
+					"boar-shot DIAG: loop after 4 s = %s, sounds = %d",
+					tostring(playing),
+					#((soundsOf(handle) :: Instance):GetChildren())
+				)
+			)
 			-- It really was making footsteps, or this proves nothing.
 			expect(playing).to.be.ok()
 			local loop = soundNamed(handle, playing) :: Sound
