@@ -226,6 +226,12 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	-- flank, rear and brisket -- whatever no zone part covers -- are the default zone.
 	part:SetAttribute("Damageable", true)
 	part:SetAttribute("HitZone", "body")
+	-- WHICH ANIMAL THIS IS, on the trunk (task 123 round 3). The march order is a fact about kinds,
+	-- and without this it is a fact nobody outside the server can see -- not in the Explorer, not in
+	-- a diagnostic, not in the frame Karen is looking at.
+	if kind ~= nil then
+		part:SetAttribute("Kind", kind)
+	end
 	part.Anchored = false
 	part.CanCollide = true
 	part.CFrame = CFrame.new(position)
@@ -250,7 +256,18 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	upright.Mode = Enum.OrientationAlignmentMode.OneAttachment
 	upright.Attachment0 = attachment
 	upright.RigidityEnabled = false
-	upright.Responsiveness = config.ALIGN_RESPONSIVENESS
+	-- HOW FAST THE DRAWN BODY SWINGS TO ITS HEADING (task 123 round 3). The Brain's per-gait turn
+	-- cap bounds the STEERING SETPOINT; this bounds the body that chases it, and MEASURED they are
+	-- different numbers -- capping the setpoint at 90 deg/s took the mean body turn from 50-85 to
+	-- 28-34 deg/s and left the WORST sample near 600, because an `AlignOrientation` at
+	-- responsiveness 25 snaps. `PACE.ALIGN_RESPONSIVENESS` is the playtest world's softer value;
+	-- with PACE off it is `config.ALIGN_RESPONSIVENESS`, which is the DEV world unchanged.
+	local pace = config.PACE
+	upright.Responsiveness = if pace ~= nil
+			and pace.ENABLED == true
+			and pace.ALIGN_RESPONSIVENESS ~= nil
+		then pace.ALIGN_RESPONSIVENESS
+		else config.ALIGN_RESPONSIVENESS
 	upright.MaxTorque = config.MAX_TORQUE
 	upright.CFrame = CFrame.new(position)
 	upright.Parent = part

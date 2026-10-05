@@ -297,6 +297,196 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------------------------------ 1c. the march order
+	describe("boar behaviour: a sounder marches sow, young, males (task 123)", function()
+		-- KAREN, 2026-10-05: "always first go famale and then kids behind / male can walk together
+		-- or on the end or alone". And Animal Diversity Web on Sus scrofa, verbatim: "When
+		-- traveling, mothers keep their young in the middle, with adults in the lead and rear."
+		--   https://animaldiversity.org/accounts/Sus_scrofa/
+		-- Note: docs/research/2026-10-05-sounder-march-order.md
+		local function row(id: string, kind: string?, key: number)
+			return { id = id, kind = kind, key = key }
+		end
+
+		it("puts the females first, the cubs behind them and the males last", function()
+			-- Deliberately handed in the WRONG order and with the males nearest the front, so the
+			-- answer cannot come from the input order or from the distance alone.
+			local order = Boar.marchOrder({
+				row("male1", "male", 1),
+				row("cub2", "cub", 50),
+				row("sow", "female", 40),
+				row("cub1", "cub", 20),
+			}, CONFIG)
+			expect(order[1]).to.equal("sow")
+			expect(order[2]).to.equal("cub1")
+			expect(order[3]).to.equal("cub2")
+			expect(order[4]).to.equal("male1")
+		end)
+
+		it("orders within a kind by distance to the exit line, then by id", function()
+			local order = Boar.marchOrder({
+				row("b", "cub", 10),
+				row("a", "cub", 10),
+				row("far", "cub", 90),
+			}, CONFIG)
+			-- Same distance: the id breaks it, so the order is the same every time it is drawn.
+			expect(order[1]).to.equal("a")
+			expect(order[2]).to.equal("b")
+			expect(order[3]).to.equal("far")
+		end)
+
+		it("sends the hindmost female BEHIND the cubs once there are two of them", function()
+			-- ADW's stricter claim: adults in the lead AND rear, the young between them. Today's
+			-- MAKEUP builds one sow and her young, so this is reachable by parameter only -- which
+			-- is why it is a spec and not a thing nobody can see.
+			local order = Boar.marchOrder({
+				row("sow", "female", 10),
+				row("aunt", "female", 20),
+				row("cub1", "cub", 30),
+				row("cub2", "cub", 40),
+				row("male1", "male", 50),
+			}, CONFIG)
+			expect(order[1]).to.equal("sow")
+			expect(order[2]).to.equal("cub1")
+			expect(order[3]).to.equal("cub2")
+			expect(order[4]).to.equal("aunt") -- the rear guard
+			expect(order[5]).to.equal("male1")
+			-- ...and one word of data turns it off again.
+			local off = table.clone(CONFIG)
+			local sounder = table.clone(CONFIG.SOUNDER)
+			local makeup = table.clone(CONFIG.SOUNDER.MAKEUP)
+			makeup.REAR_GUARD = false
+			sounder.MAKEUP = makeup
+			off.SOUNDER = sounder
+			local plain = Boar.marchOrder({
+				row("sow", "female", 10),
+				row("aunt", "female", 20),
+				row("cub1", "cub", 30),
+			}, off)
+			expect(plain[2]).to.equal("aunt")
+		end)
+
+		it("is exactly the old rule when every animal is the same kind", function()
+			-- With `BOAR_MODEL` off `Boar.sounderKinds` gives every member the same kind, so the
+			-- rank is uniform and this is the "nearest the exit line, tie-broken by id" rule the DEV
+			-- drive has always used. That equality is what keeps the flag-OFF world unchanged.
+			local kinds = Boar.sounderKinds(4, {}, CONFIG)
+			local rows = {}
+			for index, kind in ipairs(kinds) do
+				table.insert(rows, row(string.format("b%d", index), kind, 100 - index * 10))
+			end
+			local order = Boar.marchOrder(rows, CONFIG)
+			expect(order[1]).to.equal("b4") -- key 60, the nearest the exit
+			expect(order[4]).to.equal("b1") -- key 90, the furthest
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ 1d. trunks and turning
+	describe("boar behaviour: round the trunk, and no mouse turning (task 123)", function()
+		local on = paceConfig(true)
+		local off = paceConfig(false)
+		local PACE = CONFIG.PACE
+		local NORTH = Vector3.new(0, 0, 1)
+
+		local function degreesBetween(a: Vector3, b: Vector3): number
+			return math.deg(math.acos(math.clamp(a.Unit:Dot(b.Unit), -1, 1)))
+		end
+
+		it("turns toward the side that is CLEAR, and only nudges off a flank", function()
+			-- Something on the LEFT and the way ahead blocked: it goes right.
+			local right = Brain.steerAroundTrunk(NORTH, { ahead = true, left = true, right = false }, on, 1)
+			expect(right.X > 0).to.equal(true)
+			expect(math.abs(degreesBetween(right, NORTH) - PACE.WHISKER_TURN_DEG) < 0.01).to.equal(true)
+			-- ...and the mirror, which is the half that a RANDOM sign could not promise.
+			local left = Brain.steerAroundTrunk(NORTH, { ahead = true, left = false, right = true }, on, 1)
+			expect(left.X < 0).to.equal(true)
+
+			-- A FLANK TOUCH ALONE IS HALF THE ANGLE: brushing past a trunk is a lean, not a swerve.
+			local nudge = Brain.steerAroundTrunk(NORTH, { ahead = false, left = true, right = false }, on, 1)
+			expect(math.abs(degreesBetween(nudge, NORTH) - PACE.WHISKER_TURN_DEG / 2) < 0.01).to.equal(true)
+
+			-- BOXED IN: both flanks and ahead. Twice the angle, the animal's OWN way -- and the two
+			-- animals go opposite ways, which a shared coin flip could not give either.
+			local boxedA = Brain.steerAroundTrunk(NORTH, { ahead = true, left = true, right = true }, on, 1)
+			local boxedB = Brain.steerAroundTrunk(NORTH, { ahead = true, left = true, right = true }, on, -1)
+			expect(boxedA.X > 0).to.equal(true)
+			expect(boxedB.X < 0).to.equal(true)
+
+			-- Nothing in the way, and nothing to decide.
+			expect(Brain.steerAroundTrunk(NORTH, { ahead = false, left = false, right = false }, on, 1)).to.equal(NORTH)
+			-- ...and with PACE off the whiskers are not consulted at all.
+			expect(Brain.steerAroundTrunk(NORTH, { ahead = true, left = true, right = false }, off, 1)).to.equal(NORTH)
+		end)
+
+		it("caps a WALKING animal's turn at PACE.WALK_TURN_DEG, and lets a running one swerve", function()
+			-- MEASURED BEFORE THIS TASK, in Karen's own place over 106 s of crossings: a walking
+			-- boar's facing changed by up to 688 deg/s. `Boar.CONFIG.TURN_RATE` is one number for
+			-- every gait -- 4 rad/s = 229 deg/s -- so there was no walking turn rate to exceed.
+			--
+			-- Driven here with the stimulus BEHIND the animal, so the flee direction is a full
+			-- 180 degrees from where it is facing and the cap is the only thing deciding the rate.
+			local function turnRate(config): number
+				local brain = Brain.new(config, FIELD, START, Random.new(3))
+				-- Hand it a threat right on top of it so it flushes at once, then let the ACCEL ramp
+				-- reach the speed we are measuring the turn at.
+				local threats = { stimulus(6, "driver", 0) }
+				drive(brain, math.ceil(2 / DT), function()
+					return threats
+				end, START)
+				local worst = 0
+				local before = nil
+				for _ = 1, math.ceil(1 / DT) do
+					local intent = brain:step(DT, obs(START, threats))
+					local facing = intent.facing
+					if before ~= nil and facing.Magnitude > 1e-6 then
+						worst = math.max(worst, degreesBetween(before, facing) / DT)
+					end
+					before = facing
+				end
+				return worst
+			end
+
+			-- A pushed animal is WALKING (`PACE.WALK_SPEED` is inside the walk band), so the walking
+			-- cap is the one that binds, and it binds with a frame of float slack.
+			local walking = turnRate(on)
+			expect(walking <= PACE.WALK_TURN_DEG + 1).to.equal(true)
+			-- ...and with PACE off the same animal may turn at the one global rate, which is nearly
+			-- three times as fast. This is the A/B, and it is why the complaint was a number.
+			local loose = turnRate(off)
+			expect(math.deg(CONFIG.TURN_RATE) > PACE.WALK_TURN_DEG * 2).to.equal(true)
+			expect(loose > walking).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-pace: a walking turn is capped at %.0f deg/s (measured %.0f) against %.0f with PACE off",
+					PACE.WALK_TURN_DEG,
+					walking,
+					loose
+				)
+			)
+		end)
+
+		it("runs every animal that HEARS a shot, not only the one that was hit", function()
+			-- KAREN: "after shoot all run away". The radius is `SENSE.SHOT_AUDIBLE_STUDS` = 350, and
+			-- `Runtime:hearShot` hands the sound to every live boar, so the radius IS the rule.
+			expect(SENSE.SHOT_AUDIBLE_STUDS).to.equal(350)
+			local brain = Brain.new(on, FIELD, START, Random.new(3))
+			for _ = 1, 30 do
+				brain:step(DT, obs(START, {}))
+			end
+			expect(brain:state()).to.equal("IDLE")
+			-- A bang 200 studs away, which no threat radius in the game would have noticed.
+			expect(brain:spook(Vector3.new(0, 0, 200))).to.equal(true)
+			expect(brain:state()).to.equal("FLEE")
+			local intents = drive(brain, math.ceil(0.5 / DT), function()
+				return {}
+			end, START)
+			local speed = intents[#intents].intent.targetVelocity.Magnitude
+			expect((Boar.stepSoundFor(speed, CONFIG))).to.equal("run")
+			-- ...and a carcass is past being frightened.
+			TestKit.note(string.format("boar-pace: a bang 200 studs off put a calm boar at %.1f studs/s", speed))
+		end)
+	end)
+
 	-- ------------------------------------------------------------------ 2. perceive
 	describe("boar behaviour: Brain.perceive is the one function, and it is pure", function()
 		local on = configWith(true)

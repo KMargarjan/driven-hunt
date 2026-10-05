@@ -23,7 +23,12 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+-- READ, NEVER WIRED: this module asks `Boar` for ONE number -- how far a boar notices a moving
+-- stimulus -- so "was a driver already pushing here" uses the animal's own radius rather than a
+-- second copy of it. `Boar` does not require this module, so there is no cycle.
+local Boar = require(ServerScriptService:WaitForChild("Boar"))
 
 local ForestTest = {}
 ForestTest.Data = Data
@@ -314,6 +319,11 @@ function ForestTest.release(now: number): (number, string)
 	--     the size is 1, otherwise one per member. Its length is the count.
 	--   `Runtime:spawn` returns a HANDLE, which is truthy and is not a number.
 	-- THE HANDLES ARE KEPT, because the beater follows the herd and a herd is its members.
+	-- HOW MANY ANIMALS ARRIVE ALREADY RUNNING, counted across the spawn (task 123 round 3). The
+	-- SHOT clause lives in `Runtime:spawn` -- it remembers the bang for `PACE.SPOOK_MEMORY_SECONDS`
+	-- and hands it to whatever it creates -- so this is the only place the drive can SEE it happen,
+	-- and Karen's console is where "the next flock came in running" has to be visible.
+	local spookedBefore = runtime:stats().spawnedSpooked
 	local handles = {}
 	if size <= 1 then
 		local handle = runtime:spawn(centre, "male")
@@ -328,6 +338,25 @@ function ForestTest.release(now: number): (number, string)
 		handles = runtime:spawnSounder(centre, size, 90)
 	end
 	local placed = #handles
+	-- A WAVE RELEASED NEXT TO A BEATER THAT WAS ALREADY WORKING ARRIVES RUNNING (task 123 round 3).
+	-- Karen: *"next flot comes without spook if there wasant driver or shoot withing 5s otherwise
+	-- running"*. The SHOT half lives in `Runtime:spawn` (it remembers the bang for
+	-- `PACE.SPOOK_MEMORY_SECONDS`); the DRIVER half is this, because only the drive knows where its
+	-- own beaters are -- and the beater belonging to THIS wave does not exist yet, which is what
+	-- makes "was there a driver here already" a question with a meaning.
+	local notice = Boar.CONFIG.SENSE.NOTICE_MOVING
+	local spookedBy = nil
+	for _, threat in ipairs(ForestTest.boarThreats(now)) do
+		local away = Vector3.new(threat.position.X - centre.X, 0, threat.position.Z - centre.Z)
+		if threat.kind == "driver" and away.Magnitude <= notice then
+			spookedBy = threat.id
+		end
+	end
+	if spookedBy ~= nil then
+		for _, handle in ipairs(handles) do
+			runtime:spook(handle.id, Data.holdingPosition(entry))
+		end
+	end
 	if placed > 0 then
 		table.insert(state.active, {
 			centre = centre,
@@ -338,7 +367,19 @@ function ForestTest.release(now: number): (number, string)
 		})
 		state.released += placed
 	end
-	return placed, string.format("wave %d: %s, %d animal(s) -- %s", state.waveIndex, spec.holding, placed, spec.note)
+	local bornRunning = runtime:stats().spawnedSpooked - spookedBefore
+	local how = ""
+	if spookedBy ~= nil then
+		how = string.format(" (RUNNING: %s was already pushing here)", spookedBy)
+	elseif bornRunning > 0 then
+		how = string.format(
+			" (RUNNING: %d of them heard a shot in the last %ds)",
+			bornRunning,
+			Boar.CONFIG.PACE.SPOOK_MEMORY_SECONDS
+		)
+	end
+	return placed,
+		string.format("wave %d: %s, %d animal(s) -- %s%s", state.waveIndex, spec.holding, placed, spec.note, how)
 end
 
 -- Drops waves whose beater has gone, and waves with nothing left to push. The wave's surviving

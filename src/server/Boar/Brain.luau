@@ -302,6 +302,42 @@ function Brain.sees(position: Vector3, threat, config, probe): boolean
 	return probe(eye, toward.Unit, reach) == false
 end
 
+-- ROUND A TRUNK, NOT INTO IT (task 123 round 3). Karen: *"they has to avoid trees to not stuck"*.
+-- Pure: a direction and three boolean casts in, a direction out.
+--
+-- THREE CASTS AND NOT ONE. `obs.blockedAhead` already existed and all it could say was "something is
+-- in front"; the animal's answer to that was `PROBE_TURN` with a RANDOM sign, redrawn on every sense
+-- tick -- so it was as likely to turn back into the trunk as away from it, and the turning itself
+-- read as twitch. With a whisker on each side the animal turns toward the side that is CLEAR, and
+-- the ambiguous case uses the animal's OWN fixed side (`_whiskerSide`) rather than a fresh coin.
+--
+-- A FLANK TOUCH IS A NUDGE, NOT A SWERVE: half the angle, so an animal brushing past a trunk leans
+-- off it instead of veering across the drive.
+function Brain.steerAroundTrunk(direction: Vector3, whisker, config, prefer: number): Vector3
+	local pace = config.PACE
+	if pace == nil or pace.ENABLED ~= true or whisker == nil then
+		return direction
+	end
+	if not (whisker.ahead or whisker.left or whisker.right) then
+		return direction
+	end
+	local turn = math.rad(pace.WHISKER_TURN_DEG)
+	local side = if prefer < 0 then -1 else 1
+	if whisker.left and not whisker.right then
+		side = 1 -- something on the left: go right
+	elseif whisker.right and not whisker.left then
+		side = -1
+	elseif whisker.left and whisker.right and whisker.ahead then
+		-- Boxed in. Turn harder, the animal's own way, and let the existing stuck sidestep take over
+		-- if that fails: this function never has to solve a dead end, only not to walk into a trunk.
+		turn *= 2
+	end
+	if not whisker.ahead then
+		turn *= 0.5
+	end
+	return rotateY(direction, side * turn)
+end
+
 -- WHERE AN AVOID GOES: away from the cause, rotated by a fixed angle, clamped inside the field.
 --
 -- INVENTED HERE, with the reason (CLAUDE.md rule 2): no source addresses "flee at an ANGLE rather
@@ -387,6 +423,14 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	self._stuckFrom = flat(start)
 	self._stuckTime = 0
 	self._stuckCount = 0
+
+	-- WHICH WAY THIS ANIMAL GOES ROUND A TRUNK when both sides are equally clear (task 123 round 3).
+	-- Drawn ONCE, from the shared Random, and kept: a sign drawn per frame is a nose that hunts left
+	-- and right in front of the same tree, which is the "mouse turning" this round is about.
+	self._whiskerSide = if rng:NextNumber() < 0.5 then -1 else 1
+	-- The smoothed steering TARGET. nil until the first step, so the first frame is not smoothed
+	-- toward a direction the animal never had.
+	self._wanted = nil :: Vector3?
 
 	-- THE COLUMN LATCH (the sounder). `blockedAhead` is momentary -- a probe that clears on the next
 	-- frame would flip the formation back and forth between a wedge and a file -- so the column is
@@ -899,6 +943,31 @@ end
 -- reuses the EXISTING bolt: `_boltFor` is already "run whatever the threats say" and
 -- `_lastShotPoint` is already "while bolting, the shot point IS the threat". There is no second
 -- sprint rule, only a second way to start the one that exists.
+-- SOMETHING FRIGHTENED THIS ANIMAL, and it is the one bolt this file has (task 123 round 3). It
+-- is what `_hearSound` does once it has decided the bang was audible, lifted out so the Runtime can
+-- hand the same fact to an animal that was not alive when the gun went off -- Karen: *"next flot
+-- comes without spook if there wasant driver or shoot withing 5s otherwise running"*.
+--
+-- NO SECOND SPRINT RULE: `_boltFor` is already "run whatever the threats say" and `_lastShotPoint`
+-- is already "while bolting, this IS the threat".
+function Brain:spook(from: Vector3?, seconds: number?)
+	local config = self._config
+	local state = self._state
+	if state == "GONE" or state == "DOWN" or state == "CRIPPLED" then
+		return false
+	end
+	self._boltFor = math.max(self._boltFor, seconds or config.SENSE.SHOT_SPRINT_SECONDS)
+	if from ~= nil then
+		self._lastShotPoint = flat(from)
+	end
+	self._sinceCalm = 0
+	if state == "IDLE" or state == "ALERT" or state == "AVOID" then
+		self:_flush()
+	end
+	self._speed = math.max(self._speed, config.SPRINT_SPEED * config.WOUND.BOLT_KICK)
+	return true
+end
+
 function Brain:_hearSound(sound, position: Vector3)
 	if sound.kind ~= "shot" then
 		return
@@ -922,17 +991,11 @@ function Brain:_hearSound(sound, position: Vector3)
 	if flatDistance(position, sound.position) > sense.SHOT_AUDIBLE_STUDS then
 		return
 	end
-	self._boltFor = math.max(self._boltFor, sense.SHOT_SPRINT_SECONDS)
-	self._lastShotPoint = flat(sound.position)
-	self._sinceCalm = 0
-	-- WOUNDED is left in WOUNDED: it is already an animal that never calms down, and the bolt above
-	-- is the whole of what the sprint is.
-	if state == "IDLE" or state == "ALERT" or state == "AVOID" then
-		self:_flush()
-	end
-	-- THE BOLT KICK, the same documented ACCEL bypass a hit uses: a boar at a shotgun blast does not
-	-- accelerate over 0.63 s. An assignment, once per sound, not a new rule.
-	self._speed = math.max(self._speed, config.SPRINT_SPEED * config.WOUND.BOLT_KICK)
+	-- EVERY ANIMAL THAT HEARS IT RUNS, not only the one that was hit (Karen, 2026-10-05: *"after
+	-- shoot all run away"*). `SENSE.SHOT_AUDIBLE_STUDS` is 350 studs and this is reached from
+	-- `Runtime:hearShot` for every live boar, so the radius is the whole of the rule. The bolt, the
+	-- flush and the ACCEL bypass are all `Brain:spook`, which a freshly released wave also uses.
+	self:spook(sound.position)
 end
 
 -- ONE SENSE TICK, with the flag ON: the precedence table of design section 3.2, rows 5 to 11, read
@@ -1341,9 +1404,61 @@ function Brain:step(dt: number, obs)
 		end
 	end
 
+	-- ROUND THE TRUNK FIRST (task 123 round 3), so every state -- idle, avoiding, fleeing -- gets
+	-- the same answer to "something solid is in front of me" and the blends above do not each need
+	-- their own.
+	if obs.whisker ~= nil then
+		desiredDirection = Brain.steerAroundTrunk(desiredDirection, obs.whisker, config, self._whiskerSide)
+	end
+
+	-- ...AND WEDGED IS WEDGED, IN ANY STATE (task 123 round 3). The existing sidestep lives in the
+	-- FLEE branch and waits for the SECOND stuck report -- two `STUCK_TIME`s, four seconds -- so a
+	-- grazing or avoiding animal pressed against a trunk had no recovery at all, and a fleeing one
+	-- had four seconds of pushing first. MEASURED after the whiskers went in: one animal of twenty
+	-- still sat with a 4.5 setpoint and a 0.3 body speed for five seconds.
+	--
+	-- `stuck` IS THE REPORT, NOT A TIMER: `_updateStuck` runs a clock that resets every
+	-- `STUCK_TIME` and answers true on the tick it finds the animal has not covered `STUCK_DIST`.
+	-- So this is "the FIRST time anyone noticed", against the flee branch's second, and it reuses
+	-- that branch's own `stuckTurn` -- which is applied to `_desired` AFTER the slew, so it
+	-- persists instead of being smoothed away over the next third of a second.
+	if stuck and self._stuckCount >= 1 and config.PACE ~= nil and config.PACE.ENABLED == true then
+		stuckTurn = stuckTurn or (self._whiskerSide * math.pi / 2)
+		self._waypoints = nil -- whatever the route said, it leads into this
+	end
+
+	-- HOW IT TURNS (task 123 round 3). Karen: *"they feels like walkin strange like with mouse
+	-- turning here there has to be more natural"*. MEASURED before this: a walking boar's facing
+	-- changed by up to 688 deg/s. Three things, all data in `Boar.CONFIG.PACE`, and all off with it:
+	--   1. the TARGET is smoothed over `HEADING_SMOOTH_SECONDS` -- one frame of a steering blend is
+	--      noise, not an intention, exactly as `SPEED_SMOOTH_SECONDS` says of one frame of motion;
+	--   2. inside `TURN_DEADBAND_DEG` the animal does not turn at all, which is what stops the nose
+	--      hunting left and right on a straight line;
+	--   3. the slew is capped by GAIT rather than by one `TURN_RATE` for all three.
+	local turnRate = config.TURN_RATE
+	local pace = config.PACE
+	if pace ~= nil and pace.ENABLED == true then
+		local wantedNow = unit(desiredDirection, self._desired)
+		local blendIn = math.clamp(dt / math.max(pace.HEADING_SMOOTH_SECONDS, 1e-6), 0, 1)
+		local previous = self._wanted or wantedNow
+		self._wanted = unit(previous * (1 - blendIn) + wantedNow * blendIn, wantedNow)
+		desiredDirection = self._wanted
+		local degrees = pace.WALK_TURN_DEG
+		if self._speed >= config.MODEL.RUN_FROM then
+			degrees = pace.RUN_TURN_DEG
+		elseif self._speed >= config.MODEL.TROT_FROM then
+			degrees = pace.TROT_TURN_DEG
+		end
+		turnRate = math.rad(degrees)
+		local dot = math.clamp(self._desired:Dot(unit(desiredDirection, self._desired)), -1, 1)
+		if math.deg(math.acos(dot)) <= pace.TURN_DEADBAND_DEG then
+			desiredDirection = self._desired
+		end
+	end
+
 	-- Turn rate and acceleration limit the SETPOINT, not the physics, so both are assertable with no
 	-- physics at all (design section 5).
-	self._desired = slew(self._desired, unit(desiredDirection, self._desired), config.TURN_RATE * dt)
+	self._desired = slew(self._desired, unit(desiredDirection, self._desired), turnRate * dt)
 	if stuckTurn then
 		self._desired = unit(rotateY(self._desired, stuckTurn), self._desired)
 	end
