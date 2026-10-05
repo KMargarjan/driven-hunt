@@ -232,9 +232,34 @@ return function()
 					waitFrames(5)
 					expect(Camera.Viewmodel.isParented()).to.equal(false)
 				else
-					expect(waitUntil(25, function()
+					local parented = waitUntil(25, function()
 						return Camera.Viewmodel.isParented()
-					end)).to.equal(true)
+					end)
+					if not parented then
+						local tool, where = "none", "none"
+						local character = player.Character
+						for _, child in ipairs(character and character:GetChildren() or {}) do
+							if child:IsA("Tool") then
+								tool, where = child.Name, "character"
+							end
+						end
+						local backpack = player:FindFirstChildOfClass("Backpack")
+						for _, child in ipairs(backpack and backpack:GetChildren() or {}) do
+							if child:IsA("Tool") then
+								tool, where = child.Name, "backpack"
+							end
+						end
+						TestKit.note(
+							string.format(
+								"camera_client DIAG: no viewmodel after 25 s -- tool=%s in %s, blend=%.2f, driver=%s",
+								tool,
+								where,
+								Camera.getBlend(),
+								tostring(Role.isDriver())
+							)
+						)
+					end
+					expect(parented).to.equal(true)
 				end
 			end)
 

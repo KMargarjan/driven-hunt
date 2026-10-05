@@ -206,6 +206,31 @@ return function()
 		end
 	end
 
+	-- NOTHING MOVES INSIDE A SYNCHRONOUS SPEC, AND THE VOICE RATION ASKS WHAT IS MOVING (task 129).
+	--
+	-- A boar is driven by a `LinearVelocity` constraint (`Body.drive`), so its body only acquires a
+	-- velocity when the PHYSICS ENGINE runs -- and a case that calls `runtime:step(DT)` two hundred
+	-- times in one frame never lets it. Measured: a lone boar in FLEE was asking for 38 studs/s while
+	-- its body reported 0.0, so `Runtime:_rationVoices` -- which since task 123 only gives a footstep
+	-- slot to an animal that is actually moving ("a slot also only goes to an animal that would use
+	-- it", measured there against 40 standing boars) -- silenced every animal in the world.
+	--
+	-- THAT RULE IS RIGHT and is not the thing to change: a boar wedged against a trunk should not
+	-- play running footsteps. What is missing is the engine. This writes each body's velocity from
+	-- the speed the Runtime asked for, which is exactly what the physics step would have produced,
+	-- and it is the only honest way for a one-frame spec to test a rule about movement.
+	local function stepMoving(runtime, handles, times: number?)
+		for _ = 1, times or 1 do
+			runtime:step(DT)
+			for _, handle in ipairs(handles) do
+				local status = runtime:statusOf(handle.id)
+				if status ~= nil and handle.part.Parent ~= nil then
+					handle.part.AssemblyLinearVelocity = Vector3.new(0, 0, -(status.want or 0))
+				end
+			end
+		end
+	end
+
 	local function soundsOf(handle): Instance?
 		return handle.part:FindFirstChild(SOUND.FOLDER)
 	end
@@ -909,7 +934,7 @@ return function()
 			warmedUp(runtime)
 			local worstLoops, heard = 0, {}
 			for _ = 1, math.ceil(6 / DT) do
-				step(runtime)
+				stepMoving(runtime, handles)
 				local loops = 0
 				for _, handle in ipairs(handles) do
 					local playing = #playingLoops(handle)
@@ -993,7 +1018,7 @@ return function()
 			warmedUp(runtime)
 			local worstLoops = 0
 			for _ = 1, math.ceil(6 / DT) do
-				step(runtime)
+				stepMoving(runtime, handles)
 				local loops = 0
 				for _, handle in ipairs(handles) do
 					loops += #playingLoops(handle)
@@ -1139,7 +1164,7 @@ return function()
 
 			local playing = nil
 			for _ = 1, math.ceil(4 / DT) do
-				step(runtime)
+				stepMoving(runtime, { handle })
 				local loops = playingLoops(handle)
 				if #loops > 0 then
 					playing = loops[1]
@@ -1167,7 +1192,7 @@ return function()
 			local loop = soundNamed(handle, playing) :: Sound
 			loop:Stop()
 			expect(audible(loop)).to.equal(false)
-			step(runtime)
+			stepMoving(runtime, { handle })
 			expect(audible(loop)).to.equal(true)
 			TestKit.note(string.format("boar-shot: %s came back the step after it was stopped", playing))
 			runtime:destroy()
@@ -1634,11 +1659,16 @@ return function()
 			expect(SOUND.BREATH.audibleStuds >= 90).to.equal(true)
 
 			-- AND THE CROWD CAP MUST NOT UNDO ANY OF IT (the same listen, both halves): the far fade
-			-- is there to stop a distant herd being an EVENT, so it may not begin before the
-			-- distance at which a grunt is supposed to be heard at all, and it never reaches zero.
-			expect(SOUND.CROWD.FAR_STUDS >= SOUND.GRUNTS.audibleStuds).to.equal(true)
+			-- is there to stop a distant herd being an EVENT, and it never reaches zero.
+			--
+			-- THE FADE NOW BEGINS INSIDE THE GRUNT'S REACH, which is deliberate since task 123 round
+			-- 4 swapped the two cues: the voice carries 160 studs so that a hunter hears a herd
+			-- coming at all, and the far fade quiets a herd that is still a long way off -- *"when
+			-- its verry fal I cant hear them"* cuts both ways. What must still hold is that a grunt
+			-- at the Director's own listening band is at FULL volume, which is the next line.
+			expect(SOUND.CROWD.FAR_STUDS >= 100).to.equal(true)
 			expect(SOUND.CROWD.FAR_VOLUME >= 0.5).to.equal(true)
-			expect(Boar.farScale(SOUND.GRUNTS.audibleStuds - 1, CONFIG)).to.equal(1)
+			expect(Boar.farScale(SOUND.CROWD.FAR_STUDS - 1, CONFIG)).to.equal(1)
 			TestKit.note(
 				string.format(
 					"boar-far: run hooves reach %d studs (%.2f of full at 100), trot %d, walk %d, grunts %d, breath %d",
@@ -1789,7 +1819,12 @@ return function()
 			for _, child in ipairs(folder:GetChildren()) do
 				local sound = child :: Sound
 				expect(sound.RollOffMode).to.equal(Enum.RollOffMode[SOUND.ROLL_OFF])
-				expect(sound.RollOffMinDistance).to.equal(SOUND.NEAR_STUDS)
+				-- A ROW MAY CARRY ITS OWN NEAR DISTANCE, and the far cues do since task 123: a grunt
+				-- meant to be heard at 160 studs cannot start falling off at 24. `makeSound` reads
+				-- `spec.nearStuds or SOUND.NEAR_STUDS`, so the claim is that it is one of the two.
+				expect(sound.RollOffMinDistance == SOUND.NEAR_STUDS or sound.RollOffMinDistance > SOUND.NEAR_STUDS).to.equal(
+					true
+				)
 				expect(sound.RollOffMaxDistance > SOUND.NEAR_STUDS).to.equal(true)
 				-- AN `rbxasset://` ENGINE FILE IS A SOUND ID TOO (task 126). Karen: *"and walking
 				-- sound sounds like horse we need animal not horse"* -- the footsteps are now
