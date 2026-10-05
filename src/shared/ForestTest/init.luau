@@ -85,6 +85,16 @@ ForestTest.PICK = {
 -- round, which is what makes it about a minute in practice. It is NORTH of the road because the
 -- boar's escape axis is baked southward (`Boar.CONFIG.field.exitZ`), and the Director's instruction
 -- was not to change that axis.
+-- WHICH WAY THE DRIVE COMES FROM, as a compass bearing (task 125). Karen, 2026-10-05: *"we need to
+-- indicate from what side drive is comming"* and *"compass and showing where drive come direction"*.
+--
+-- DERIVED, NOT CHOSEN. `DRIVERS.startNorthStuds` is 700 and `driverStart` puts them at
+-- `roadZ(x) + that` -- so the beaters begin 700 studs NORTH of the road and push south onto it.
+-- North is +Z and is bearing 0, so the drive comes from 0. It is written down as its own value
+-- because the HUD must not re-derive a fact from a position: the drive's direction is this world's
+-- to state and the compass's to draw.
+ForestTest.DRIVE_BEARING_DEG = 0
+
 ForestTest.DRIVERS = {
 	startNorthStuds = 700,
 	walkSpeed = 16,

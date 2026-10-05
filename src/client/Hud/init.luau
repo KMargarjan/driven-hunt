@@ -31,8 +31,12 @@ local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+-- Which world this is, so the compass knows whether anybody has said where the drive comes from
+-- (task 125). Read, never written: `Map.EXPECTED_WORLD` is a commit, not a flag.
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
@@ -42,6 +46,9 @@ local Sound = require(script.Sound)
 -- builds the frame with everything else here, and `ReportPanel` is the one writer of what goes inside
 -- it. One ScreenGui, built once, so a visibility audit has one place to look.
 local ReportPanel = require(script.ReportPanel)
+-- ...and the compass strip (task 125). Same shape as the report panel: the Hud builds the frame
+-- with everything else, and `Compass` is the one writer of what goes inside it.
+local Compass = require(script.Compass)
 
 local Hud = {}
 
@@ -58,6 +65,7 @@ local feedLines: { TextLabel } = {}
 local feedEntries: { { text: string, at: number } } = {}
 local scorePanel: Frame? = nil
 local reportFrame: Frame? = nil
+local compassFrame: Frame? = nil
 local scoreTitle: TextLabel? = nil
 local scoreLines: { TextLabel } = {}
 local scoreFooter: TextLabel? = nil
@@ -101,6 +109,13 @@ end
 function Hud.scorePanel(): Frame?
 	return scorePanel
 end
+
+-- The compass strip, and the module that fills it (task 125).
+function Hud.compass(): Frame?
+	return compassFrame
+end
+
+Hud.Compass = Compass
 
 -- The report's frame, so a spec can read its visibility without reaching through PlayerGui by name.
 function Hud.reportPanel(): Frame?
@@ -400,6 +415,21 @@ local function build(): ScreenGui
 	tiedStroke.Parent = tied
 	tied.Parent = screen
 
+	-- THE COMPASS (task 125). Karen: *"we need to indicate from what side drive is comming"*. Top
+	-- centre, thin, and built empty -- `Compass.start` fills it and this file writes nothing inside.
+	local compass = Instance.new("Frame")
+	compass.Name = "Compass"
+	compass.BackgroundColor3 = Compass.CONFIG.BACKGROUND
+	compass.BackgroundTransparency = Compass.CONFIG.TRANSPARENCY
+	compass.BorderSizePixel = 0
+	compass.AnchorPoint = Vector2.new(0.5, 0)
+	compass.Position = UDim2.new(0.5, 0, 0, Compass.CONFIG.TOP)
+	compass.Size = UDim2.fromOffset(Compass.CONFIG.WIDTH, Compass.CONFIG.HEIGHT)
+	compass.ZIndex = Compass.CONFIG.Z_INDEX
+	compass.ClipsDescendants = true -- a mark that has scrolled off the end must not spill onto the sky
+	compass.Visible = false
+	compass.Parent = screen
+
 	-- THE REPORT, over everything: it is a thing you stop and read. Empty and hidden until
 	-- `ReportPanel.start` fills it -- this file creates the box and writes nothing inside it.
 	local report = Instance.new("Frame")
@@ -438,6 +468,7 @@ local function build(): ScreenGui
 	feedFrame = feed
 	scorePanel = panel
 	reportFrame = report
+	compassFrame = compass
 	scoreTitle = title
 	scoreFooter = footer
 	tiedBanner = tied
@@ -819,6 +850,32 @@ function Hud.start()
 	-- THE REPORT PANEL, handed its frame and its collaborators. Every one of them may be nil and the
 	-- panel says so in its own header: with no camera there is no `Cursor`, and then the keyboard is
 	-- the only way to drive it -- which is why the keyboard path exists.
+	-- THE COMPASS, AND WHERE ITS DRIVE BEARING COMES FROM (task 125).
+	--
+	-- THE WORLD STATES IT AND THE HUD DRAWS IT. `ForestTest.DRIVE_BEARING_DEG` is derived in that
+	-- world's own data from `DRIVERS.startNorthStuds` -- the beaters begin 700 studs north of the
+	-- road -- so the HUD never works out a direction from a position. Any other world has not said
+	-- yet, and then the strip is a plain compass with no marker rather than a marker pointing at a
+	-- guess; `Compass.setBearing` is the one line a later Match drive needs.
+	if compassFrame then
+		local bearing = nil
+		if Map.EXPECTED_WORLD == "forest-test" then
+			local forest = ReplicatedStorage:FindFirstChild("ForestTest")
+			local data = if forest then require(forest) else nil
+			bearing = data and data.DRIVE_BEARING_DEG
+		end
+		Compass.start(compassFrame, bearing)
+		-- ONCE A FRAME, because it tracks the view: everything else in this file is event-driven,
+		-- and a compass that updates on an event is a compass that lags the turn that caused it.
+		-- `RenderStepped` is the client's own draw tick and this writes nothing but its own frame.
+		RunService.RenderStepped:Connect(function()
+			local camera = Workspace.CurrentCamera
+			if camera then
+				Compass.render(Compass.headingDeg(camera.CFrame.LookVector))
+			end
+		end)
+	end
+
 	if reportFrame then
 		ReportPanel.start(reportFrame, {
 			Report = ReportSystem,
