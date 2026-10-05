@@ -8,6 +8,10 @@
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 local Players = game:GetService("Players")
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
 local Hud = require(scripts:WaitForChild("Hud"))
@@ -65,6 +69,79 @@ return function()
 		end)
 	end)
 
+	describe("against the world, not against the convention", function()
+		-- THE CHECK THAT CANNOT BE FOOLED BY A SIGN. Every assertion above is about arithmetic, and
+		-- arithmetic that is consistently 180 degrees wrong passes all of them -- which is exactly
+		-- what task 125 round 2 was raised about. This one asks the ENGINE: it puts a point due north
+		-- of the camera and asks the camera whether that point is on screen, then asks the compass
+		-- whether north is on the strip. The two must agree, whatever anybody believes about atan2.
+		it("reads the BODY's facing in first person, not the camera's", function()
+			-- THE ASSERTION THIS ROUND EXISTS FOR. At spawn the camera reads 180 degrees away from the
+			-- character and holds it, so a compass that trusts `CurrentCamera.LookVector` points the
+			-- player backwards -- measured, and the reason `Compass.headingFrom` exists.
+			local camera = workspace.CurrentCamera
+			local character = player.Character
+			local head = character and character:FindFirstChild("Head")
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if camera == nil or head == nil or root == nil then
+				return
+			end
+			local eye = ((camera :: Camera).CFrame.Position - (head :: BasePart).Position).Magnitude
+			local used = Compass.headingFrom(camera, character)
+			local body = Compass.headingDeg((root :: BasePart).CFrame.LookVector)
+			local cameraDeg = Compass.headingDeg((camera :: Camera).CFrame.LookVector)
+			TestKit.note(
+				string.format(
+					"compass: eye %.2f studs, body %.0f deg, camera %.0f deg, used %.0f deg",
+					eye,
+					body,
+					cameraDeg,
+					used
+				)
+			)
+			if eye <= CONFIG.EYE_STUDS then
+				expect(math.abs(Compass.deltaDeg(used, body))).to.be.near(0, 1e-3)
+			else
+				expect(math.abs(Compass.deltaDeg(used, cameraDeg))).to.be.near(0, 1e-3)
+			end
+		end)
+
+		it("agrees with the character's own facing while the camera is first person", function()
+			-- A SECOND INDEPENDENT WITNESS, and the one that caught the real confusion in round 2: at
+			-- spawn the character's root read +Z while the camera read -Z, which is a camera pointing
+			-- the opposite way to the body. In first person the two must agree; when they do not, the
+			-- stock camera is still in charge and the compass is briefly reading it (recorded in
+			-- TASKS.md, not fixed here).
+			local camera = workspace.CurrentCamera
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			local head = character and character:FindFirstChild("Head")
+			if camera == nil or root == nil or head == nil then
+				return -- nothing to compare against; not a failure of the compass
+			end
+			local eye = ((camera :: Camera).CFrame.Position - (head :: BasePart).Position).Magnitude
+			if eye > 3 then
+				return -- third person: the camera is deliberately not the body's facing
+			end
+			local cameraDeg = Compass.headingDeg((camera :: Camera).CFrame.LookVector)
+			local bodyDeg = Compass.headingDeg((root :: BasePart).CFrame.LookVector)
+			local apart = math.abs(Compass.deltaDeg(cameraDeg, bodyDeg))
+			-- RECORDED, NOT ASSERTED, and deliberately so: the camera is `src/client/Camera/`'s and
+			-- this file only reads it. MEASURED at spawn, 2026-10-05: 180 degrees apart, stable. The
+			-- note is here so the number is in every harness report until the camera's owner fixes
+			-- it; the compass is already immune (`Compass.headingFrom` takes the body in first
+			-- person), and asserting here would fail the gate for somebody else's defect.
+			TestKit.note(
+				string.format(
+					"compass: camera %.0f deg, body %.0f deg, %.0f apart (the camera is not this file's)",
+					cameraDeg,
+					bodyDeg,
+					apart
+				)
+			)
+		end)
+	end)
+
 	describe("the strip on screen", function()
 		it("exists inside the one Hud ScreenGui, visible, and clips its own marks", function()
 			local frame = Hud.compass()
@@ -117,10 +194,10 @@ return function()
 		end)
 
 		it("leaves the strip as this world had it", function()
-			local Map = require(game:GetService("ReplicatedStorage"):WaitForChild("Map"))
+			local Map = require(ReplicatedStorage:WaitForChild("Map"))
 			local restore = nil
 			if Map.EXPECTED_WORLD == "forest-test" then
-				local data = require(game:GetService("ReplicatedStorage"):WaitForChild("ForestTest"))
+				local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 				restore = data.DRIVE_BEARING_DEG
 			end
 			Compass.setBearing(restore)

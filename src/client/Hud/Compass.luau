@@ -64,6 +64,10 @@ Compass.CONFIG = {
 	-- and real are not the same picture.
 	PINNED_TRANSPARENCY = 0.45,
 
+	-- How near the camera must sit to the head to count as first person, and so to take its heading
+	-- from the BODY rather than from itself. 3 studs: the first-person camera measures 0.4.
+	EYE_STUDS = 3,
+
 	-- The centre mark: where the player is actually looking.
 	CENTRE_COLOR = Color3.fromRGB(255, 232, 150), -- the same cream the score panel highlights your own row with
 }
@@ -98,6 +102,42 @@ function Compass.headingDeg(look: Vector3): number
 	end
 	local degrees = math.deg(math.atan2(flat.X, flat.Z))
 	return (degrees + 360) % 360
+end
+
+-- WHICH LOOK VECTOR IS "WHERE THE HUNTER IS FACING", and it is NOT always the camera's (task 125
+-- round 2).
+--
+-- MEASURED IN KAREN'S OWN PLACE, AT SPAWN, STABLE FOR OVER A HUNDRED SECONDS:
+--     body   LookVector = (-0.02, 0.00,  1.00)  ->  359 deg  -- north, at the drive
+--     camera LookVector = ( 0.00, -0.14, -0.99) ->  180 deg  -- south
+-- The character is standing at his post looking north at the birch edge the drive comes through, and
+-- `workspace.CurrentCamera.CFrame.LookVector` reads the OPPOSITE WAY. The compass was reporting the
+-- camera faithfully, so it read S with the drive pinned behind -- 180 degrees wrong for the player,
+-- which is the defect this round was raised about.
+--
+-- WHY THE BODY IS THE TRUTH HERE. In first person the view and the body ARE the same thing by
+-- construction -- `Camera.Rig` puts the camera at the head -- so when the two disagree by half a
+-- turn, one of them is wrong and it is not the body: `HumanoidRootPart.CFrame.LookVector` is what
+-- the player steers and what the gun points along. (The camera owner is `src/client/Camera/`, not
+-- this file; a second writer of `CurrentCamera` is a known open item from task 123 and is recorded
+-- in TASKS.md rather than fixed here, because the Hud reads the camera and never writes it.)
+--
+-- THIRD PERSON IS DIFFERENT AND IS LEFT ALONE: there the camera is deliberately not the body's
+-- facing -- it is swung round the shoulder on purpose -- so the camera is the view and is used.
+-- `EYE_STUDS` is how near the camera has to sit to the head to count as first person.
+function Compass.headingFrom(camera: Camera?, character: Model?): number
+	if camera == nil then
+		return 0
+	end
+	local head = character and character:FindFirstChild("Head")
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if head ~= nil and root ~= nil then
+		local eye = (camera.CFrame.Position - (head :: BasePart).Position).Magnitude
+		if eye <= Compass.CONFIG.EYE_STUDS then
+			return Compass.headingDeg((root :: BasePart).CFrame.LookVector)
+		end
+	end
+	return Compass.headingDeg(camera.CFrame.LookVector)
 end
 
 -- THE SHORTEST WAY ROUND, in degrees, from `heading` to `bearing`: negative is to the left.

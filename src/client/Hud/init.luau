@@ -869,10 +869,11 @@ function Hud.start()
 		-- and a compass that updates on an event is a compass that lags the turn that caused it.
 		-- `RenderStepped` is the client's own draw tick and this writes nothing but its own frame.
 		RunService.RenderStepped:Connect(function()
-			local camera = Workspace.CurrentCamera
-			if camera then
-				Compass.render(Compass.headingDeg(camera.CFrame.LookVector))
-			end
+			-- THE BODY IN FIRST PERSON, THE CAMERA OTHERWISE (task 125 round 2): measured at spawn,
+			-- `CurrentCamera.CFrame.LookVector` reads 180 degrees away from the character's own
+			-- facing and stays there, so a compass that trusts it points the player backwards. See
+			-- `Compass.headingFrom`.
+			Compass.render(Compass.headingFrom(Workspace.CurrentCamera, player.Character))
 		end)
 	end
 
