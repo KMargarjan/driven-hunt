@@ -78,13 +78,17 @@ return function()
 		--      view turned right round and the body's look never moved, because in first person the
 		--      camera system turns the VIEW and not the BODY.
 		-- The owner of the view publishes the view, and that is what the compass reads.
-		-- THE CONVERSION, DRIVEN WITH THE CAMERA MODULE'S OWN REAL YAW VALUES (round 4). Three rounds
-		-- were spent on a compass that was exactly half a turn out, and no assertion caught it because
-		-- every one of them tested `headingDeg` against a vector I had written down myself. This walks
-		-- the four cardinals through the CAMERA's own arithmetic -- its inverse (`Mode.lookAt` uses
-		-- `atan2(-x, -z)`) and its forward (`Mode.cameraCFrame` uses `fromEulerAnglesYXZ`) -- and then
-		-- through `Camera.viewHeadingDeg`'s conversion, and demands a world bearing at the far end.
+		-- THE CONVERSION, DRIVEN THROUGH THE CAMERA'S OWN FUNCTION (task 129). Four rounds of task
+		-- 125 were spent on a compass that was exactly half a turn out, and this case did not catch
+		-- it because it COPIED the expression under test into itself -- so it agreed with the wrong
+		-- one. It now calls `Camera.headingOfLookDeg`, which is the one the view really goes through.
+		--
+		-- THE EXPECTATIONS BELOW WERE ALWAYS RIGHT, and task 129 settled that against the picture
+		-- rather than against another CFrame: four neon posts 60 studs out, one per world axis, and
+		-- a photograph. The blue post at -Z filled the middle of the frame while the strip read N.
+		-- See `.screenshots/t129-turn-A.png` and `Camera.headingOfLookDeg`'s own comment.
 		it("turns the camera's own yaw into a world bearing for all four cardinals", function()
+			local CameraSystem = require(scripts:WaitForChild("Camera"))
 			local cases = {
 				{ look = Vector3.new(0, 0, 1), name = "north", bearing = 0 },
 				{ look = Vector3.new(1, 0, 0), name = "east", bearing = 90 },
@@ -97,8 +101,8 @@ return function()
 				-- ...its FORWARD: the CFrame it would then build and apply
 				local built = CFrame.fromEulerAnglesYXZ(0, math.rad(yaw), 0)
 				local flat = Vector3.new(built.LookVector.X, 0, built.LookVector.Z)
-				-- ...and the published conversion, which is the one line this round added.
-				local bearing = (math.deg(math.atan2(flat.X, flat.Z)) + 180) % 360
+				-- ...and the CAMERA's own conversion, called rather than copied.
+				local bearing = CameraSystem.headingOfLookDeg(flat)
 				local off = math.abs(Compass.deltaDeg(bearing, case.bearing))
 				if off > 0.5 then
 					error(
@@ -134,10 +138,13 @@ return function()
 				return -- the camera system has not applied a frame yet; nothing to compare
 			end
 			local used = Compass.headingFrom(CameraSystem)
-			-- HALF A TURN FROM THE RAW LookVector, and that IS the contract: the camera's yaw zero
-			-- looks down -Z and a bearing's looks down +Z (see `Camera.viewHeadingDeg`).
+			-- THE SAME BEARING AS THE VIEW'S OWN LookVector, with nothing carried on top of it
+			-- (task 129). This used to demand `fromView + 180`, which is the bug it was written to
+			-- defend against: a LookVector IS the direction the camera faces, so its bearing IS the
+			-- view's bearing. Settled against a photograph of four known posts, not against another
+			-- CFrame -- see `Camera.headingOfLookDeg`.
 			local fromView = Compass.headingDeg((view :: CFrame).LookVector)
-			expect(math.abs(Compass.deltaDeg(used, fromView + 180))).to.be.near(0, 1e-3)
+			expect(math.abs(Compass.deltaDeg(used, fromView))).to.be.near(0, 1e-3)
 
 			-- ...and it is RECORDED, not asserted, how far the other two sources are from it: both
 			-- belong to other owners, and failing this gate for their state helps nobody.
@@ -166,8 +173,17 @@ return function()
 			plain:Destroy()
 		end)
 
-		it("answers 0 rather than erroring with nothing to read", function()
-			expect(Compass.headingFrom(nil, nil)).to.equal(0)
+		it("keeps the heading it last had when there is nothing trustworthy to read", function()
+			-- THE CONTRACT CHANGED IN TASK 125 ROUND 4, and this case still asserted the old one.
+			-- The Director's rule for that round: *"if CurrentCamera.CFrame is not what is rendered,
+			-- do not use it"* -- so with no camera system and no camera of its own the strip does NOT
+			-- fall back to the engine camera and does NOT snap to north; it holds the last heading it
+			-- published. A compass that lags a few frames at spawn is not a compass that lies.
+			local held = Compass.headingFrom(nil, nil)
+			expect(type(held)).to.equal("number")
+			expect(held).to.equal(Compass.lastHeadingDeg())
+			-- ...and it never errors, which is the half of the old case that still stands.
+			expect(Compass.headingFrom({}, nil)).to.equal(held)
 		end)
 	end)
 

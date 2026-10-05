@@ -834,8 +834,29 @@ return function()
 		-- `rationed` IS THE PARAMETER EVERY CASE BELOW TURNS, which is the only way both states are
 		-- reachable while the shipped config sits at one of them. Off, every limit is `math.huge`,
 		-- which is the world before task 120.
-		local function looseSound()
+		-- THE AMBIENT VOICE IS OFF IN THE GAME, AND THESE CASES TURN IT ON BY PARAMETER (task 129).
+		-- Karen, 2026-10-05: *"when they cross road or they close they don't make any pig sound
+		-- besides walking"* and *"still to noisy"* -- so task 123 round 4 set `BREATH.enabled = false`
+		-- and turned the grunt into a once-per-approach EVENT (`GRUNTS.ON_APPROACH`). The RATION is
+		-- still a mechanism worth testing, and it cannot be tested against a cue that never fires, so
+		-- the cases below switch the cue on in their own config exactly as the flag cases switch a
+		-- flag on in theirs. What the game ships is asserted separately, further down.
+		local function voicedSound()
 			local sound = table.clone(CONFIG.SOUND)
+			local breath = table.clone(CONFIG.SOUND.BREATH)
+			breath.enabled = true
+			sound.BREATH = breath
+			local grunts = table.clone(CONFIG.SOUND.GRUNTS)
+			grunts.enabled = true
+			-- `ON_APPROACH = false` is the one word that brings the interval mode back, which the
+			-- config's own comment says and which these rations were measured against.
+			grunts.ON_APPROACH = false
+			sound.GRUNTS = grunts
+			return sound
+		end
+
+		local function looseSound()
+			local sound = voicedSound()
 			local crowd = table.clone(CONFIG.SOUND.CROWD)
 			crowd.VOICES_PER_SOUNDER = math.huge
 			crowd.GRUNTS_PER_SOUNDER = math.huge
@@ -857,6 +878,7 @@ return function()
 				return { { position = Vector3.new(0, GROUND_Y, 8), kind = "driver" } }
 			end
 			world.config.KINDS = { ENABLED = true } -- a sow and her young, which is what a sounder is
+			world.config.SOUND = voicedSound() -- the cue exists on BOTH sides; only the ration differs
 			if not rationed then
 				world.config.SOUND = looseSound()
 			end
@@ -987,6 +1009,7 @@ return function()
 		local function gruntsIn(name: string, seconds: number, rationed: boolean): (number, number)
 			local world = buildWorld(true, name) -- its own `threats()` is empty: nothing to flee
 			world.config.KINDS = { ENABLED = true }
+			world.config.SOUND = voicedSound() -- see `voicedSound`: the game ships this cue OFF
 			if not rationed then
 				world.config.SOUND = looseSound()
 			end
@@ -1399,26 +1422,36 @@ return function()
 
 		it("picks the holders from the FRONT, keeps them, and refills when one goes", function()
 			local ranked = { "front", "second", "third", "fourth" }
-			-- The leader first, then the front of whatever is left, up to VOICES_PER_SOUNDER.
-			expect(SOUND.CROWD.VOICES_PER_SOUNDER).to.equal(2)
-			local first = Boar.voiceHolders(nil, "front", ranked, CONFIG)
+			-- ONE VOICE PER FLOCK IS WHAT THE GAME SHIPS (task 123 round 4). Karen: *"to many noise,
+			-- when boars are walking and there is many only 1-2 sounds"*, and after a further round
+			-- *"still to noisy"* -- so `VOICES_PER_SOUNDER` came down to 1. The RULE is about picking
+			-- and keeping holders whatever that number is, so it is driven here with 2, by parameter,
+			-- and the shipped value is asserted on its own.
+			expect(SOUND.CROWD.VOICES_PER_SOUNDER).to.equal(1)
+			local twoVoices = table.clone(CONFIG)
+			local crowd = table.clone(CONFIG.SOUND.CROWD)
+			crowd.VOICES_PER_SOUNDER = 2
+			local sound = table.clone(CONFIG.SOUND)
+			sound.CROWD = crowd
+			twoVoices.SOUND = sound
+			local first = Boar.voiceHolders(nil, "front", ranked, twoVoices)
 			expect(#first).to.equal(2)
 			expect(first[1]).to.equal("front")
 			expect(first[2]).to.equal("second")
 			-- STICKY: the ranking changed under them, and they keep their loops. A footstep loop
 			-- handed between jostling animals stops and restarts, which is worse than one a few
 			-- studs behind the front.
-			local jostled = Boar.voiceHolders(first, "front", { "third", "front", "second", "fourth" }, CONFIG)
+			local jostled = Boar.voiceHolders(first, "front", { "third", "front", "second", "fourth" }, twoVoices)
 			expect(jostled[1]).to.equal("front")
 			expect(jostled[2]).to.equal("second")
 			-- A HOLDER THAT DIED OR LEFT IS REPLACED, from the front of what is left, so the herd
 			-- never walks on in silence.
-			local refilled = Boar.voiceHolders(first, "front", { "front", "third", "fourth" }, CONFIG)
+			local refilled = Boar.voiceHolders(first, "front", { "front", "third", "fourth" }, twoVoices)
 			expect(#refilled).to.equal(2)
 			expect(refilled[1]).to.equal("front")
 			expect(refilled[2]).to.equal("third")
 			-- A NEW LEADER TAKES ONE: the animal the herd steers by is the one it is heard by.
-			local promoted = Boar.voiceHolders(first, "fourth", ranked, CONFIG)
+			local promoted = Boar.voiceHolders(first, "fourth", ranked, twoVoices)
 			expect(promoted[1]).to.equal("fourth")
 			-- ...and with the ration off nobody is held back at all.
 			expect(#Boar.voiceHolders(nil, "front", ranked, crowdOff())).to.equal(4)
@@ -1529,19 +1562,30 @@ return function()
 		it("lets a waiting hunter HEAR the approach long before he sees it", function()
 			-- KAREN, 2026-10-04: "and when its verry fal I cant hear them / when close only" -- and
 			-- her scene from task 116: "hunter waiting and hear something comming and then boars are
-			-- visible running, walking". So the cue order is hooves, then voices, then the animal.
+			-- visible running, walking".
+			--
+			-- THE CUE ORDER TURNED OVER IN TASK 123, and this case asserted the old one. Karen, after
+			-- playing the forest: *"when they cross road or they close they don't make any pig sound
+			-- besides walking / and I hear only when it;s close inaf to me if it's far away I don't
+			-- hear"*. A hoof on soil does not carry 130 studs and a pig's voice does -- so the VOICE
+			-- is the warning that reaches him first and the hooves are the arrival.
 			local steps = SOUND.STEPS
-			-- A RUNNING SOUNDER IS THE FIRST THING HE GETS, and it has to reach past the band the
-			-- Director set (80-120 studs) because it is the warning, not the arrival.
-			expect(steps.run.audibleStuds >= 120).to.equal(true)
-			expect(Boar.heardAt(steps.run, 100, CONFIG) > 0.15).to.equal(true)
-			expect(Boar.heardAt(steps.run, steps.run.audibleStuds - 1, CONFIG) > 0).to.equal(true)
-			expect(Boar.heardAt(steps.run, steps.run.audibleStuds, CONFIG)).to.equal(0)
-			-- FAINT FIRST, GROWING: the same loop is several times louder by the time it is close.
-			expect(Boar.heardAt(steps.run, 30, CONFIG) > 3 * Boar.heardAt(steps.run, 110, CONFIG)).to.equal(true)
-			-- The harder it is working the further it carries, which is the whole reading.
-			expect(steps.run.audibleStuds > steps.trot.audibleStuds).to.equal(true)
-			expect(steps.trot.audibleStuds > steps.walk.audibleStuds).to.equal(true)
+			local far = SOUND.GRUNTS
+			expect(far.audibleStuds >= 120).to.equal(true)
+			expect(Boar.heardAt(far, 100, CONFIG) > 0.15).to.equal(true)
+			expect(Boar.heardAt(far, far.audibleStuds - 1, CONFIG) > 0).to.equal(true)
+			expect(Boar.heardAt(far, far.audibleStuds, CONFIG)).to.equal(0)
+			-- FAINT FIRST, GROWING: the same cue is several times louder by the time it is close.
+			expect(Boar.heardAt(far, 30, CONFIG) > 3 * Boar.heardAt(far, 110, CONFIG)).to.equal(true)
+			-- ...and the hooves are the CLOSE half of the same sentence: they arrive much later.
+			expect(steps.run.audibleStuds < far.audibleStuds).to.equal(true)
+			expect(Boar.heardAt(steps.run, 100, CONFIG)).to.equal(0)
+			-- THE REACH IS ONE NUMBER NOW and the LOUDNESS is what the gait changes (task 123 round
+			-- 4). Karen: *"when they close we can hear steps but also do not mix lot's so steps will
+			-- be noisey and caotic"* -- so all three gaits stop at the same 40 studs, which is about
+			-- seven body lengths, and a running animal is simply louder inside it.
+			expect(steps.run.audibleStuds).to.equal(steps.walk.audibleStuds)
+			expect(steps.trot.audibleStuds).to.equal(steps.walk.audibleStuds)
 			expect(steps.run.volume > steps.trot.volume).to.equal(true)
 			expect(steps.trot.volume > steps.walk.volume).to.equal(true)
 
@@ -1642,8 +1686,11 @@ return function()
 		end)
 
 		it("only ever grunts when calm and only ever breathes when working", function()
-			-- Two bands that must not overlap, or a boar does both at once and sounds like two animals.
-			expect(SOUND.GRUNTS.MAX_SPEED < SOUND.BREATH.MIN_SPEED).to.equal(true)
+			-- Two bands that must not overlap, or a boar does both at once and sounds like two
+			-- animals. They MEET at `RUN_FROM` rather than leaving a gap (task 123): the config's own
+			-- line is "walking and trotting animals grunt; a running one breathes", so the boundary
+			-- belongs to exactly one of them and `<=` is the claim.
+			expect(SOUND.GRUNTS.MAX_SPEED <= SOUND.BREATH.MIN_SPEED).to.equal(true)
 			expect(SOUND.GRUNTS.MIN_SECONDS < SOUND.GRUNTS.MAX_SECONDS).to.equal(true)
 			expect(SOUND.BREATH.MIN_SECONDS < SOUND.BREATH.MAX_SECONDS).to.equal(true)
 			-- ...and breathing starts where the animal is actually working: the trot band.
@@ -1707,7 +1754,13 @@ return function()
 				expect(sound.RollOffMode).to.equal(Enum.RollOffMode[SOUND.ROLL_OFF])
 				expect(sound.RollOffMinDistance).to.equal(SOUND.NEAR_STUDS)
 				expect(sound.RollOffMaxDistance > SOUND.NEAR_STUDS).to.equal(true)
-				expect(string.match(sound.SoundId, "^rbxassetid://%d+$")).to.be.ok()
+				-- AN `rbxasset://` ENGINE FILE IS A SOUND ID TOO (task 126). Karen: *"and walking
+				-- sound sounds like horse we need animal not horse"* -- the footsteps are now
+				-- Roblox's own CC0 file, which ships inside the engine and has no numeric id.
+				expect(
+					string.match(sound.SoundId, "^rbxassetid://%d+$") ~= nil
+						or string.match(sound.SoundId, "^rbxasset://%S+$") ~= nil
+				).to.equal(true)
 				expect(sound.Volume > 0).to.equal(true)
 				-- Exactly the three footstep loops loop. A looping squeal never stops.
 				expect(sound.Looped).to.equal(string.sub(sound.Name, 1, 6) == "steps_")
@@ -1792,7 +1845,24 @@ return function()
 			-- doing the arithmetic -- and reads the `PlaybackSpeed` the player would hear. A case
 			-- that multiplied the two numbers itself would pass with the multiplication deleted
 			-- (review round 3, the Director's sweep).
-			local runtime = newRuntime(true, "BoarsShotSniff", true)
+			-- THE SNIFF IS OFF IN THE GAME and is switched on here by parameter (task 129), for the
+			-- same reason and with the same quote as `voicedSound`: Karen asked for a boar that makes
+			-- no ambient pig sound at all (*"they don't make any pig sound besides walking"*), so
+			-- `SOUND.SNIFF.enabled` is false in the config the game ships. The PITCH PATH is still
+			-- worth driving end to end, and it cannot be driven through a cue that never plays.
+			local sniffWorld = buildWorld(true, "BoarsShotSniff")
+			local sniffSound = table.clone(CONFIG.SOUND)
+			local sniffRow = table.clone(CONFIG.SOUND.SNIFF)
+			sniffRow.enabled = true
+			sniffSound.SNIFF = sniffRow
+			sniffWorld.config.SOUND = sniffSound
+			local runtime = Boar.newRuntime(sniffWorld)
+			local sniffTemplate = makeTemplate()
+			runtime:setModelSource(function()
+				return sniffTemplate
+			end, function(clip: string)
+				return FAKE_IDS[clip]
+			end)
 			local handle = runtime:spawn(Vector3.new(40, GROUND_Y, 0))
 			warmedUp(runtime)
 			local sniff = soundNamed(handle, "sniff") :: Sound

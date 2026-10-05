@@ -460,10 +460,16 @@ return function()
 					same += 1
 				end
 			end
-			-- THE MEASURED BOUND, not "they differed once". Five activities drawn by weight agree
-			-- about a quarter of the time by chance; lockstep would be 100 %.
+			-- THE MEASURED BOUND, not "they differed once", and it was RE-MEASURED in task 129 after
+			-- task 123 changed the repertoire: two boars off the shared stream now agree on **54 %**
+			-- of 30 seconds, where the old bound was 0.5. Agreement by chance is not 1/5: the
+			-- weights are lopsided (grazing dominates) and an activity LASTS for seconds, so two
+			-- animals that pick the same long activity agree for every frame of it. What the case is
+			-- actually about is lockstep -- one animal twice would be 100 % -- so the bound is set
+			-- where that claim lives and the number goes in the note, where a later change to the
+			-- weights will show up as a moving percentage rather than as a red test.
 			local share = same / frames
-			expect(share < 0.5).to.equal(true)
+			expect(share < 0.75).to.equal(true)
 			TestKit.note(string.format("boar-calm: two boars off one Random agreed on %.0f%% of 30 s", share * 100))
 		end)
 	end)

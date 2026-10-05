@@ -1209,6 +1209,10 @@ Boar.CONFIG.SOUND = {
 			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
 			was = 9114623726, -- "Goat Footsteps Only 1"
 			volume = 0.15,
+			-- `steps = true` MARKS THIS AS A FOOTSTEP ROW, which is what tells `Body.makeSound`
+			-- to apply `pitch` as a PitchShiftSoundEffect instead of as a playback speed
+			-- (task 129): a footstep has a stride to keep and a squeal does not.
+			steps = true,
 			pitch = 0.7,
 			baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond,
 			audibleStuds = 40,
@@ -1217,6 +1221,10 @@ Boar.CONFIG.SOUND = {
 			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
 			was = 9114623726, -- "Goat Footsteps Only 1"
 			volume = 0.2,
+			-- `steps = true` MARKS THIS AS A FOOTSTEP ROW, which is what tells `Body.makeSound`
+			-- to apply `pitch` as a PitchShiftSoundEffect instead of as a playback speed
+			-- (task 129): a footstep has a stride to keep and a squeal does not.
+			steps = true,
 			pitch = 0.8,
 			baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond,
 			audibleStuds = 40,
@@ -1225,6 +1233,10 @@ Boar.CONFIG.SOUND = {
 			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
 			was = 9114127078, -- "Donkey Footsteps 1"
 			volume = 0.3,
+			-- `steps = true` MARKS THIS AS A FOOTSTEP ROW, which is what tells `Body.makeSound`
+			-- to apply `pitch` as a PitchShiftSoundEffect instead of as a playback speed
+			-- (task 129): a footstep has a stride to keep and a squeal does not.
+			steps = true,
 			pitch = 0.95,
 			baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond,
 			audibleStuds = 40,

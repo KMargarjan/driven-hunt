@@ -521,38 +521,43 @@ function Camera.viewportCamera(): Camera?
 	return Workspace.CurrentCamera
 end
 
--- WHERE THE VIEW IS POINTING, AS A COMPASS BEARING (task 125 round 4). North is +Z, east is +X,
--- clockwise -- the world convention `ForestTest.DRIVE_BEARING_DEG` is written in.
+-- WHERE A LOOK DIRECTION POINTS, AS A COMPASS BEARING. North is +Z, east is +X, clockwise -- the
+-- world convention `ForestTest.DRIVE_BEARING_DEG` is written in, and the same one `Compass.headingDeg`
+-- uses. A LookVector IS the direction the camera faces, so the bearing of the vector is the bearing
+-- of the view and there is nothing to carry.
 --
--- THE CONVERSION IS HERE, ONCE, AND NOT IN THE HUD, because the thing being converted is this
--- system's own convention and this system is the only place that should know it. `Mode.cameraCFrame`
--- builds the view from `CFrame.fromEulerAnglesYXZ(pitch, yaw, 0)`, whose LookVector its own comment
--- writes out as `(-sin(yaw)cos(pitch), sin(pitch), -cos(yaw)cos(pitch))` -- so **yaw 0 looks down
--- -Z**, while a compass bearing of 0 looks down +Z. The two zeros are half a turn apart.
+-- THE `+ 180` THAT USED TO BE HERE WAS A BUG, AND IT SHIPPED (task 125 round 4, found in task 129).
+-- It made the strip read N while the player looked south, for four rounds, and the measurement that
+-- "proved" it was wrong in a way worth writing down: it compared the spawn frame against a reference
+-- frame I had labelled "facing north" from task 122's note that the spawn look is (0, 0, 1) -- which
+-- is the CHARACTER's facing. In first person the camera starts half a turn from the body, so the
+-- reference frame was a south-facing picture with a north label on it, and every pixel comparison
+-- after that was comparing one wrong thing with another.
 --
--- MEASURED, NOT ASSUMED, and three rounds of this task were spent believing the arithmetic instead:
--- the spawn frame was compared pixel by pixel against the known north-facing reference
--- `.screenshots/20261005T000513Z-ft-facing-north.png` (Task 122 measured that spawn as look
--- (0, 0, 1) = north, at the birch edge the drive comes through). RMS difference of the spawn frames
--- **36.5 and 36.7**, against **55.0** for a frame taken after a deliberate turn -- so the spawn view
--- IS north, while `Rig.appliedCFrame().LookVector` read 180. Half a turn, exactly as the two zeros
--- predict.
---
--- THE SIGN WAS ALREADY RIGHT and is left alone: forty real mouse moves to the right took the
--- computed bearing 180 -> 33.5, which is +213 degrees CLOCKWISE, the way a right turn goes.
+-- HOW IT WAS SETTLED, AND THE METHOD IS THE POINT (task 129): four neon posts were put 60 studs from
+-- the player, one per world axis -- +Z red, +X green, -Z blue, -X yellow -- and the frame was
+-- PHOTOGRAPHED. The blue post (-Z) filled the middle of the picture, the engine camera's LookVector
+-- read (0.00, -0.99), and the strip published 0 (N). Two real mouse turns to the right then moved
+-- the camera 180 -> 183 -> 186 while the strip went 0 -> 3 -> 6: the sign was right, the zero was
+-- half a turn out. A picture of a known post cannot be argued with; a CFrame can.
+--   .screenshots/t129-turn-A.png
+function Camera.headingOfLookDeg(look: Vector3): number?
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 1e-6 then
+		return nil
+	end
+	return (math.deg(math.atan2(flat.X, flat.Z)) + 360) % 360
+end
+
+-- ...and the view's own bearing: the direction `Rig` last applied, converted by the one function
+-- above. Split in two so a spec can drive the CONVERSION with values it chooses -- the old case
+-- could only copy the expression into itself, which is why it agreed with a wrong one.
 function Camera.viewHeadingDeg(): number?
 	local view = Rig.appliedCFrame()
 	if view == nil then
 		return nil
 	end
-	local look = view.LookVector
-	local flat = Vector3.new(look.X, 0, look.Z)
-	if flat.Magnitude < 1e-6 then
-		return nil
-	end
-	-- `atan2(x, z)` is the bearing of the vector itself; `+ 180` carries this system's zero onto the
-	-- world's. One expression, one place, and the only place that knows both conventions.
-	return (math.deg(math.atan2(flat.X, flat.Z)) + 180) % 360
+	return Camera.headingOfLookDeg(view.LookVector)
 end
 
 -- WHERE THE VIEW IS ACTUALLY POINTING (task 125 round 3). `Rig` is the one writer of

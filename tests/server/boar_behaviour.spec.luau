@@ -56,8 +56,11 @@ local function paceConfig(on: boolean, senseOn: boolean?)
 	return config
 end
 
-local function stimulus(distance: number, kind: string?, speed: number?)
-	return { id = "s", position = Vector3.new(distance, 0, 0), kind = kind, speed = speed }
+-- `phantom` IS PART OF A STIMULUS since task 123 round 5: it is the drive's mark on a beater it
+-- invented, and a real driver never carries it. The two behave differently inside
+-- `PACE.DRIVER_RUN_STUDS`, so a case has to say which it means.
+local function stimulus(distance: number, kind: string?, speed: number?, phantom: boolean?)
+	return { id = "s", position = Vector3.new(distance, 0, 0), kind = kind, speed = speed, phantom = phantom }
 end
 
 local function obs(position: Vector3, threats, extra)
@@ -206,13 +209,23 @@ return function()
 			expect(both.reaction).to.equal("flee")
 			expect(both.cause.id).to.equal("beater")
 			expect(both.spook).to.equal(true)
-			-- A DRIVER at the same distance is a push and not a spook, which is the whole rule.
+			-- THE DRIVE'S OWN BEATER at the same distance is a push and not a spook -- and since task
+			-- 123 round 5 it has to carry `phantom = true` to be one. Karen asked for a REAL driver
+			-- on top of an animal to make it run (*"if driver is close they run"*), so "driver" alone
+			-- inside `DRIVER_RUN_STUDS` IS a spook now; the mark is what the Forest Test's invented
+			-- beaters carry (`ForestTest.boarThreats`) and a player never does.
 			local pushed = Brain.perceive(START, {
-				{ id = "beater", position = Vector3.new(11, 0, 0), kind = "driver", speed = 5 },
-				{ id = "second", position = Vector3.new(25, 0, 0), kind = "driver", speed = 5 },
+				{ id = "beater", position = Vector3.new(11, 0, 0), kind = "driver", speed = 5, phantom = true },
+				{ id = "second", position = Vector3.new(25, 0, 0), kind = "driver", speed = 5, phantom = true },
 			}, on)
 			expect(pushed.reaction).to.equal("flee")
 			expect(pushed.spook).to.equal(false)
+			-- ...and the same two WITHOUT the mark are two real drivers on top of it, which is a run.
+			local real = Brain.perceive(START, {
+				{ id = "beater", position = Vector3.new(11, 0, 0), kind = "driver", speed = 5 },
+				{ id = "second", position = Vector3.new(25, 0, 0), kind = "driver", speed = 5 },
+			}, on)
+			expect(real.spook).to.equal(true)
 			-- A hunter one stud outside `SPOOK_STUDS` is not one either...
 			local far = Brain.perceive(START, {
 				{ id = "hunter", position = Vector3.new(PACE.SPOOK_STUDS + 1, 0, 0), kind = "shooter", speed = 0 },
@@ -261,14 +274,25 @@ return function()
 
 			-- AND THE SPEED FOLLOWS: the real driver runs it, the beater at the same distance does
 			-- not. `settledSpeed` lets the ACCEL ramp finish, so these are the asked-for speeds.
-			local ran = settledSpeed(on, {
-				{ id = "42", position = Vector3.new(close, 0, 0), kind = "driver", speed = 5 },
-			})
+			-- MEASURED WHILE HE IS STILL THERE, which is the whole claim: `settledSpeed` lets the
+			-- animal RUN AWAY, and after two seconds at 24 studs/s a driver 24 studs off is 70 behind
+			-- and no longer a spook -- so the end-of-run speed answers a different question. The
+			-- threat is therefore held at `close` for the whole two seconds (the animal's position is
+			-- what moves in `drive`, and this threat follows it).
+			local ranBrain = Brain.new(on, FIELD, START, Random.new(7))
+			local ranIntents = drive(ranBrain, math.ceil(2 / DT), function()
+				return { { id = "42", position = Vector3.new(close, 0, 0), kind = "driver", speed = 5 } }
+			end, START)
+			local ran = 0
+			for _, row in ipairs(ranIntents) do
+				ran = math.max(ran, row.intent.targetVelocity.Magnitude)
+			end
 			expect(math.abs(ran - PACE.RUN_SPEED) < 0.5).to.equal(true)
 			local pushed = settledSpeed(on, {
 				{ id = "beater-3", position = Vector3.new(close, 0, 0), kind = "driver", speed = 5, phantom = true },
 			})
 			expect(pushed <= PACE.TROT_SPEED + 0.5).to.equal(true)
+			expect(pushed < ran).to.equal(true)
 			TestKit.note(
 				string.format(
 					"boar-pace: a real driver %.0f studs off runs it at %.1f; the phantom beater at the same distance pushes it at %.1f",
@@ -284,7 +308,10 @@ return function()
 			-- SPRINT_SPEED whenever anything is inside a flush radius, and the Forest Test's phantom
 			-- beater is inside one by construction -- so every pushed herd crossed the road at 38
 			-- studs/s, a real boar's 40 km/h. Karen: "they seems walking to fast".
-			local beaterFar = { stimulus(14, "driver", 5) } -- inside the 15-stud flush, outside 12
+			-- PHANTOM, because the rungs below are the beater's. Measured on this commit: a beater
+			-- 14 studs off is walked at 4.5, one at 11 is trotted at 11, and the same two WITHOUT the
+			-- mark are a real driver inside `DRIVER_RUN_STUDS` and run at 24 (task 123 round 5).
+			local beaterFar = { stimulus(14, "driver", 5, true) } -- inside the 15-stud flush, outside 12
 			local walk, walkState = settledSpeed(on, beaterFar)
 			expect(walkState).to.equal("FLEE")
 			expect(math.abs(walk - PACE.WALK_SPEED) < 0.5).to.equal(true)
@@ -293,7 +320,7 @@ return function()
 			expect((Boar.stepSoundFor(PACE.WALK_SPEED, CONFIG))).to.equal("walk")
 
 			-- CROWDED: the beater inside `TROT_WITHIN_STUDS` lifts it to a trot, not to a bolt.
-			local crowded = settledSpeed(on, { stimulus(PACE.TROT_WITHIN_STUDS - 1, "driver", 5) })
+			local crowded = settledSpeed(on, { stimulus(PACE.TROT_WITHIN_STUDS - 1, "driver", 5, true) })
 			expect(math.abs(crowded - PACE.TROT_SPEED) < 0.5).to.equal(true)
 			expect((Boar.stepSoundFor(PACE.TROT_SPEED, CONFIG))).to.equal("trot")
 
@@ -453,13 +480,20 @@ return function()
 		end
 
 		it("turns toward the side that is CLEAR, and only nudges off a flank", function()
-			-- Something on the LEFT and the way ahead blocked: it goes right.
+			-- WHICH WAY IS RIGHT, derived rather than assumed (task 129: this case had it mirrored
+			-- and said so for six tasks, because no gate could reach it). Facing NORTH = (0, 0, 1),
+			-- Roblox's `RightVector` is (-1, 0, 0): the basis is `X = Y x Z` with `Z = -LookVector`,
+			-- so cross((0,1,0), (0,0,-1)) = (-1, 0, 0). **Right is -X when you face +Z.** The whisker
+			-- agrees with that by construction -- `Runtime` casts `right` at `turnFlat(nose, +sweep)`
+			-- and `steerAroundTrunk` rotates by `+turn` to escape something on the left, and
+			-- `turnFlat(NORTH, +a).X = -sin(a)`. Measured on this commit: X = -0.819 at the 55-degree
+			-- turn.
 			local right = Brain.steerAroundTrunk(NORTH, { ahead = true, left = true, right = false }, on, 1)
-			expect(right.X > 0).to.equal(true)
+			expect(right.X < 0).to.equal(true)
 			expect(math.abs(degreesBetween(right, NORTH) - PACE.WHISKER_TURN_DEG) < 0.01).to.equal(true)
 			-- ...and the mirror, which is the half that a RANDOM sign could not promise.
 			local left = Brain.steerAroundTrunk(NORTH, { ahead = true, left = false, right = true }, on, 1)
-			expect(left.X < 0).to.equal(true)
+			expect(left.X > 0).to.equal(true)
 
 			-- A FLANK TOUCH ALONE IS HALF THE ANGLE: brushing past a trunk is a lean, not a swerve.
 			local nudge = Brain.steerAroundTrunk(NORTH, { ahead = false, left = true, right = false }, on, 1)
@@ -469,8 +503,8 @@ return function()
 			-- animals go opposite ways, which a shared coin flip could not give either.
 			local boxedA = Brain.steerAroundTrunk(NORTH, { ahead = true, left = true, right = true }, on, 1)
 			local boxedB = Brain.steerAroundTrunk(NORTH, { ahead = true, left = true, right = true }, on, -1)
-			expect(boxedA.X > 0).to.equal(true)
-			expect(boxedB.X < 0).to.equal(true)
+			expect(boxedA.X < 0).to.equal(true) -- prefer +1 is the animal's RIGHT, which is -X
+			expect(boxedB.X > 0).to.equal(true)
 
 			-- Nothing in the way, and nothing to decide.
 			expect(Brain.steerAroundTrunk(NORTH, { ahead = false, left = false, right = false }, on, 1)).to.equal(NORTH)
@@ -489,7 +523,11 @@ return function()
 				local brain = Brain.new(config, FIELD, START, Random.new(3))
 				-- Hand it a threat right on top of it so it flushes at once, then let the ACCEL ramp
 				-- reach the speed we are measuring the turn at.
-				local threats = { stimulus(6, "driver", 0) }
+				-- THE BEATER'S MARK AND THE BEATER'S DISTANCE (task 129). A threat 6 studs off with no
+				-- mark is a real driver inside `DRIVER_RUN_STUDS` and the animal RUNS (measured: 24),
+				-- so the walking cap was being asked about a running animal. 14 studs is the rung
+				-- that walks -- measured 4.5 studs/s on this commit, which is `PACE.WALK_SPEED`.
+				local threats = { stimulus(14, "driver", 0, true) }
 				drive(brain, math.ceil(2 / DT), function()
 					return threats
 				end, START)

@@ -1235,6 +1235,21 @@ local function makeSound(name: string, spec, config, parent: Instance): Sound
 	-- the high end is where a wet impact's slap lives. One EqualizerSoundEffect per sound that asks
 	-- for one, built with the sound and never touched again -- the gains are data in
 	-- `Boar.CONFIG.SOUND`, so retuning them is three numbers and no code.
+	-- HOW HEAVY THE ANIMAL SOUNDS, without touching how fast it walks (task 129). Karen, 2026-10-05:
+	-- *"and walking sound sounds like horse we need animal not horse"* -- `pitch` on a FOOTSTEP row
+	-- is that dial, and it is a `PitchShiftSoundEffect` because `PlaybackSpeed` would drag the
+	-- cadence with it and slide the feet. `Octave` is a multiplier on the frequency, so the row's
+	-- number means the same thing it always did; a row without one gets no effect at all.
+	--   https://create.roblox.com/docs/reference/engine/classes/PitchShiftSoundEffect
+	--
+	-- ONE-SHOTS ARE NOT TOUCHED: their `pitch` is the CENTRE of `Body.jitteredPitch`, applied to
+	-- `PlaybackSpeed` by `playOneShot`, and a squeal has no stride to keep.
+	if spec.steps == true and spec.pitch ~= nil and spec.pitch ~= 1 then
+		local shift = Instance.new("PitchShiftSoundEffect")
+		shift.Name = "Heavier"
+		shift.Octave = spec.pitch
+		shift.Parent = sound
+	end
 	if spec.eq then
 		local eq = Instance.new("EqualizerSoundEffect")
 		eq.Name = "Softer"
@@ -1275,12 +1290,15 @@ function Body.stepSoundFor(speed: number, config): (string?, number)
 	end
 	local gait = if speed >= model.RUN_FROM then "run" elseif speed >= model.TROT_FROM then "trot" else "walk"
 	local spec = sound.STEPS[gait]
-	local rate = math.clamp(speed / spec.baseSpeed, model.MIN_RATE, model.MAX_RATE)
-	-- A PITCH DIAL PER GAIT (task 126). Karen: *"and walking sound sounds like horse we need animal
-	-- not horse"*. The rate above matches the stride to the ground and must keep doing that; this is
-	-- a separate multiplier that says how HEAVY the animal sounds, so the two cannot be confused.
-	-- Absent (every row before this task) it is 1 and this line changes nothing.
-	return gait, rate * (spec.pitch or 1)
+	-- THE RATE IS THE STRIDE AND NOTHING ELSE, and task 126 broke that by multiplying the gait's
+	-- `pitch` into it (fixed in task 129). `PlaybackSpeed` is cadence AND pitch at once, so a 0.7
+	-- "make it heavier" dial also played the footfalls at 70 % of the speed the legs move at -- the
+	-- feet slid, which is the exact fault `baseSpeed` exists to prevent, and it put the rate below
+	-- `MIN_RATE` at a walk. The timbre is applied where it belongs instead: a
+	-- `PitchShiftSoundEffect` on the loop itself (see `makeSound`), which shifts the pitch and
+	-- leaves the speed alone.
+	--   https://create.roblox.com/docs/reference/engine/classes/PitchShiftSoundEffect
+	return gait, math.clamp(speed / spec.baseSpeed, model.MIN_RATE, model.MAX_RATE)
 end
 
 -- A VOICE PER KIND (task 120) ---------------------------------------------------------------------
