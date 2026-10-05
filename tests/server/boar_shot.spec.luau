@@ -1146,16 +1146,16 @@ return function()
 					break
 				end
 			end
-			local speed = (handle.part.AssemblyLinearVelocity * Vector3.new(1, 0, 1)).Magnitude
-			local gait, rate = Boar.stepSoundFor(speed, CONFIG)
+			local status = runtime:statusOf(handle.id)
 			TestKit.note(
 				string.format(
-					"boar-shot DIAG: loop=%s sounds=%d speed=%.1f gait=%s rate=%.2f stepClip=%s steps_run=%s vol=%.2f",
+					"boar-shot DIAG: loop=%s sounds=%d state=%s statusSpeed=%.1f at=(%.0f,%.0f) stepClip=%s steps_run playing=%s vol=%.2f",
 					tostring(playing),
 					#((soundsOf(handle) :: Instance):GetChildren()),
-					speed,
-					tostring(gait),
-					rate,
+					tostring(status and status.state),
+					(status and status.speed) or -1,
+					handle.part.Position.X,
+					handle.part.Position.Z,
 					tostring(handle.stepClip),
 					tostring((soundNamed(handle, "steps_run") :: Sound).IsPlaying),
 					(soundNamed(handle, "steps_run") :: Sound).Volume

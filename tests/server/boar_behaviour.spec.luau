@@ -186,17 +186,10 @@ return function()
 		local on = paceConfig(true)
 		local off = paceConfig(false)
 
-		-- The pace is a clamp on the SETPOINT, and the setpoint is ramped by ACCEL -- so a case about
-		-- which speed was ASKED FOR has to let the ramp finish. 2 s is three times the 0.63 s a
-		-- sprint takes and a hundred times the 0.07 s a walk does.
-		local function settledSpeed(config, threats)
-			local brain = Brain.new(config, FIELD, START, Random.new(7))
-			local intents = drive(brain, math.ceil(2 / DT), function()
-				return threats
-			end, START)
-			local last = intents[#intents].intent
-			return last.targetVelocity.Magnitude, brain:state()
-		end
+		-- `settledSpeed` WAS HERE AND IS GONE (task 129): it held its threat at a fixed world point,
+		-- so every case that asked "how fast does a pushed animal go" was really asking how fast an
+		-- animal goes two seconds after it has outrun the thing pushing it. `pushedBy` keeps the
+		-- party behind the animal, which is what a beater does.
 
 		-- A PUSHER THAT KEEPS PUSHING (task 129). `settledSpeed` holds its threat at a fixed WORLD
 		-- point, so an animal asked to run leaves it behind in a few frames -- at 24 studs/s a driver
@@ -207,22 +200,29 @@ return function()
 		-- A driver drives: he STAYS behind the animal. This keeps the stimulus `distance` studs behind
 		-- it every step, which is what a beater walking a sounder on actually does, and returns the
 		-- speed once the ramp has settled.
-		local function pushedSpeed(config, distance: number, phantom: boolean?)
+		local function pushedBy(config, party: { { distance: number, kind: string?, phantom: boolean? } })
 			local brain = Brain.new(config, FIELD, START, Random.new(7))
 			local position = START
 			local last
 			for _ = 1, math.ceil(2 / DT) do
-				local behind = Vector3.new(position.X + distance, 0, position.Z)
-				last = brain:step(
-					DT,
-					obs(
-						position,
-						{ { id = "pusher", position = behind, kind = "driver", speed = 5, phantom = phantom } }
-					)
-				)
+				local threats = {}
+				for index, member in ipairs(party) do
+					table.insert(threats, {
+						id = "pusher-" .. index,
+						position = Vector3.new(position.X + member.distance, 0, position.Z),
+						kind = member.kind or "driver",
+						speed = 5,
+						phantom = member.phantom,
+					})
+				end
+				last = brain:step(DT, obs(position, threats))
 				position += last.targetVelocity * DT
 			end
 			return last.targetVelocity.Magnitude, brain:state()
+		end
+
+		local function pushedSpeed(config, distance: number, phantom: boolean?)
+			return pushedBy(config, { { distance = distance, phantom = phantom } })
 		end
 
 		it("reports a spook only for something that is NOT a driver", function()
@@ -326,7 +326,8 @@ return function()
 			-- 14 studs off is walked at 4.5, one at 11 is trotted at 11, and the same two WITHOUT the
 			-- mark are a real driver inside `DRIVER_RUN_STUDS` and run at 24 (task 123 round 5).
 			-- 14 studs: inside the 15-stud flush, outside the 12 that lifts it to a trot.
-			local walk, walkState = pushedSpeed(on, 14, true)
+			local beaterFar = { { distance = 14, phantom = true } }
+			local walk, walkState = pushedBy(on, beaterFar)
 			expect(walkState).to.equal("FLEE")
 			expect(math.abs(walk - PACE.WALK_SPEED) < 0.5).to.equal(true)
 			-- ...and it is DRAWN walking too, which is the other half of "they seems walking to fast":
@@ -339,9 +340,11 @@ return function()
 			expect((Boar.stepSoundFor(PACE.TROT_SPEED, CONFIG))).to.equal("trot")
 
 			-- SPOOKED: a hunter inside `SPOOK_STUDS` and it runs, whatever the push said.
-			local spooked = settledSpeed(on, {
-				{ id = "beater", position = Vector3.new(14, 0, 0), kind = "driver", speed = 5 },
-				{ id = "hunter", position = Vector3.new(PACE.SPOOK_STUDS - 1, 0, 0), kind = "shooter", speed = 0 },
+			-- MEASURED WHILE HE IS STILL THERE, like the rungs above: a hunter the animal has already
+			-- outrun is not a spook, and `settledSpeed` reads the end of a two-second escape.
+			local spooked = pushedBy(on, {
+				{ distance = 14, phantom = true },
+				{ distance = PACE.SPOOK_STUDS - 1, kind = "shooter" },
 			})
 			-- `PACE.RUN_SPEED` and not `SPRINT_SPEED` since round 4: Karen, *"when they fleet make
 			-- speed slover it's to fast"*. 38 studs/s IS a real boar's 40 km/h and does not read as
@@ -349,7 +352,7 @@ return function()
 			expect(math.abs(spooked - PACE.RUN_SPEED) < 0.5).to.equal(true)
 
 			-- WITH PACE OFF IT IS THE OLD WORLD, line for line: the same beater, SPRINT_SPEED.
-			local old = settledSpeed(off, beaterFar)
+			local old = pushedBy(off, beaterFar)
 			expect(math.abs(old - CONFIG.SPRINT_SPEED) < 0.5).to.equal(true)
 			TestKit.note(
 				string.format(
