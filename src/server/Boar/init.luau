@@ -62,19 +62,97 @@ Boar.farScale = Body.farScale
 Boar.cutVolume = Body.cutVolume
 Boar.heardAt = Body.heardAt
 
--- WHOSE HOOVES A SOUNDER PLAYS (task 120). Karen, 2026-10-04: "several walking ... could be anoying
--- and shit sound / so we need realistic". Five animals running together are one sound with one
--- position to anybody listening, so a sounder has ONE emitter: its leader. Pure, because the two
--- states have to be reachable by parameter -- a spec cannot make six Brains run abreast on command.
+-- WHOSE HOOVES AND BREATH A SOUNDER PLAYS (task 123, after task 120's leader-only rule). Karen,
+-- 2026-10-05: *"to many noise, when boars are walking and there is many only 1-2 sounds"*. Twenty
+-- animals running together are one sound with one position to anybody listening, so a sounder has at
+-- most `VOICES_PER_SOUNDER` emitters. Pure, because the two states have to be reachable by
+-- parameter -- a spec cannot make twenty Brains run abreast on command.
 --
--- A herd with no leader yet (the tick after one dies) silences nobody: a missing sound is a worse
--- fault than a doubled one, and the next tick picks a leader.
-function Boar.isStepEmitter(leaderId: string?, memberId: string, config): boolean
+-- A HERD WITH NO LIST YET SILENCES NOBODY -- the tick a sounder forms, or the tick after its last
+-- holder died. A missing sound is a worse fault than a doubled one, and the next tick picks holders.
+function Boar.hasVoice(voiceIds: { string }?, memberId: string, config): boolean
 	local crowd = config.SOUND.CROWD
-	if crowd == nil or crowd.ENABLED ~= true or crowd.ONE_STEP_EMITTER ~= true then
+	if crowd == nil or crowd.ENABLED ~= true then
 		return true
 	end
-	return leaderId == nil or leaderId == memberId
+	if voiceIds == nil or #voiceIds == 0 then
+		return true
+	end
+	for _, id in ipairs(voiceIds) do
+		if id == memberId then
+			return true
+		end
+	end
+	return false
+end
+
+-- WHO HOLDS THOSE VOICES, re-picked only when a holder dies or leaves (task 123). Pure: the current
+-- holders in, the membership FRONT FIRST in, the new holders out.
+--
+-- THREE RULES, IN THIS ORDER, and each is a decision:
+--   1. THE LEADER ALWAYS HOLDS ONE. The animal the herd steers by is the animal it is heard by, so
+--      the sound comes from where the herd is going.
+--   2. A HOLDER THAT IS STILL A MEMBER KEEPS ITS VOICE. Re-ranking every step would hand the
+--      footstep loop from one jostling animal to another, and a loop that stops and restarts is
+--      worse than one a few studs behind the front.
+--   3. EMPTY SLOTS FILL FROM THE FRONT, which is the same ordering the leader is chosen by.
+function Boar.voiceHolders(current: { string }?, leaderId: string?, rankedIds: { string }, config): { string }
+	local crowd = config.SOUND.CROWD
+	local limit = math.huge
+	if crowd ~= nil and crowd.ENABLED == true then
+		limit = crowd.VOICES_PER_SOUNDER or 1
+	end
+	local member = {}
+	for _, id in ipairs(rankedIds) do
+		member[id] = true
+	end
+	local held, taken = {}, {}
+	local function take(id: string?)
+		if id ~= nil and member[id] and not taken[id] and #held < limit then
+			table.insert(held, id)
+			taken[id] = true
+		end
+	end
+	take(leaderId)
+	for _, id in ipairs(current or {}) do
+		take(id)
+	end
+	for _, id in ipairs(rankedIds) do
+		take(id)
+	end
+	return held
+end
+
+-- WHICH ANIMALS THE WHOLE WORLD HEARS OF ONE LAYER, nearest a listener first (task 123). Pure:
+-- `rows` is one `{ id, distance }` per live animal -- distance to the nearest hunter -- and the
+-- answer is the set of ids allowed to make that layer's noise.
+--
+-- WHY NEAREST AND NOT OLDEST OR RANDOM. MEASURED in the Forest Test: 23 boars out formed only
+-- three sounders of 3, 3 and 4, so THIRTEEN were lone animals and a per-sounder ration governed ten
+-- of twenty-three. A ceiling has to be keyed on something every animal has, and "how far it is from
+-- the man listening" is both the only such thing and the realistic answer: a hunter hears what is
+-- close to him. It also cannot go silent on him -- whatever walks past is, by definition, nearest.
+--
+-- A tie is broken by id so the set is deterministic, which is what lets a spec drive it at all.
+function Boar.nearestVoices(rows: { { id: string, distance: number } }, limit: number?): { [string]: boolean }
+	local allowed = {}
+	if limit == nil or limit == math.huge then
+		for _, row in ipairs(rows) do
+			allowed[row.id] = true
+		end
+		return allowed
+	end
+	local order = table.clone(rows)
+	table.sort(order, function(a, b)
+		if a.distance == b.distance then
+			return a.id < b.id
+		end
+		return a.distance < b.distance
+	end)
+	for index = 1, math.min(math.floor(limit), #order) do
+		allowed[order[index].id] = true
+	end
+	return allowed
 end
 
 -- HOW MANY SQUEALS ARE STILL SOUNDING at `now`, out of a list of the moments each one stops being
@@ -772,27 +850,57 @@ Boar.CONFIG.SOUND = {
 			grunt = { 9117344600 }, -- "Pig Grunts 6"
 		},
 	},
-	-- SIX ANIMALS MUST NOT SOUND LIKE SIX ANIMALS ---------------------------------------------------
-	-- Karen: "we need also think about sound when there is several walking and several sqeeng it
-	-- could be anoying and shit sound / so we need realistic". A sounder is up to six boars, each
-	-- with its own hooves and its own voice, and six copies of one sample playing together is a wall
-	-- of noise rather than a herd. Four limits, all data:
+	-- TWENTY ANIMALS MUST NOT SOUND LIKE TWENTY ANIMALS --------------------------------------------
+	-- Karen, 2026-10-04: "we need also think about sound when there is several walking and several
+	-- sqeeng it could be anoying and shit sound / so we need realistic", and after playing the
+	-- Forest Test on 2026-10-05: *"to many noise, when boars are walking and there is many only 1-2
+	-- sounds"*. Every boar's trunk carries its own footstep loop, its own grunts and its own
+	-- breathing, so twenty walking animals are twenty of each, which is a wall of noise rather than
+	-- a herd.
 	--
-	--   * ONE GRUNT PER SOUNDER AT A TIME, with a gap: a herd mutters, it does not chorus. A grunt
-	--     that loses the race is SKIPPED, not queued -- the boar simply waits for its next interval,
-	--     which is what a real animal that did not grunt does.
+	-- TWO RATIONS, AND THEY MULTIPLY. An animal is heard only if BOTH allow it.
+	--
+	--   1. PER SOUNDER: at most `VOICES_PER_SOUNDER` members carry the footstep loop and the
+	--      breathing, and the sounder grunts `GRUNTS_PER_SOUNDER` times per `GRUNTS` interval --
+	--      the GROUP grunts, not each animal in it. Who holds a voice is the FRONT of the herd:
+	--      its leader plus the next members by the same "nearest the exit line" rule the leader is
+	--      chosen by, so there is one answer to "where is the front" and not two. It is STICKY --
+	--      re-picked only when a holder dies or leaves -- because a loop handed between jostling
+	--      animals every step stops and restarts, which is worse than one slightly behind the front.
+	--
+	--   2. WORLD-WIDE, NEAREST A LISTENER FIRST: at most `MAX_STEP_VOICES` footstep loops,
+	--      `MAX_BREATH_VOICES` breaths and `MAX_MUTTER_VOICES` grunts/sniffs sound anywhere at
+	--      once, and the animals CLOSEST to a hunter get them.
+	--
+	-- WHY THE SECOND ONE EXISTS, MEASURED (task 123). The per-sounder ration alone was already on
+	-- for a whole task and Karen still heard twenty animals, because A RELEASE OF TWENTY IS NOT A
+	-- SOUNDER FOR LONG. Counted in the Forest Test with 23 boars out: THREE sounders, holding 3, 3
+	-- and 4 animals -- the other THIRTEEN were lone boars, each with a full voice, because members
+	-- leave (`SOUNDER.BREAK_STUDS` for `BREAK_SECONDS`, `LEAVE_ON_MORTAL`) and a ring of twenty
+	-- inside `SEPARATION_STUDS` shoves itself apart. What a hunter actually heard was 13 footstep
+	-- loops and 14 grunts at once. A rule keyed on MEMBERSHIP governed ten animals out of
+	-- twenty-three; a rule keyed on WHAT IS NEAR THE LISTENER governs all of them, and "you hear
+	-- what is close to you" is also the realistic answer.
+	--
 	--   * TWO SQUEALS WORLD-WIDE. A third animal crying or dying inside the window makes no sound.
 	--     Deaths and reactions share the budget, so a sounder shot into cannot stack five squeals.
-	--   * ONE SET OF HOOVES PER SOUNDER: the leader's. Five animals running together are one sound
-	--     with one position, which is also what they are to a listener fifty studs away.
+	--     THE ONE-SHOTS ARE NOT IN THE VOICE RATION: the hit, the cry, the death and the last
+	--     breath belong to the animal that was shot, and a budget that could silence the animal
+	--     Karen just hit would hide the one thing a shot has to tell her.
 	--   * FAR ANIMALS ARE QUIETER than the roll-off alone makes them, measured from the nearest
 	--     hunter, so a sounder crossing the far end of the field is background and not an event.
 	CROWD = {
 		ENABLED = true,
-		SOUNDER_GRUNT_GAP = 2.5, -- seconds between grunts from ONE sounder, whoever makes them
+		-- 2, because Karen asked for "only 1-2 sounds": the leader and one behind it.
+		VOICES_PER_SOUNDER = 2, -- members of ONE sounder carrying footsteps and breathing
+		GRUNTS_PER_SOUNDER = 1, -- grunts from ONE sounder per GRUNTS interval, whoever makes them
+		-- THE WORLD CEILINGS. Three sets of hooves is "several animals moving over there"; two
+		-- breaths and two mutters are a herd working. Karen's dials: one number each.
+		MAX_STEP_VOICES = 3,
+		MAX_BREATH_VOICES = 2,
+		MAX_MUTTER_VOICES = 2, -- grunts and the sniff: the same ambient muttering to a listener
 		MAX_SQUEALS = 2, -- cries and deaths, world-wide, at once
 		SQUEAL_SECONDS = 1.2, -- how long one counts as sounding against that budget
-		ONE_STEP_EMITTER = true, -- a sounder's footsteps come from its leader and nobody else
 		-- THE FAR FADE STARTS WHERE THE APPROACH IS ALREADY HEARD (task 120, Karen the same day:
 		-- "when its verry fal I cant hear them"). Its job is to stop a herd two fields away being
 		-- an EVENT, not to make it inaudible -- so it begins at 90 studs, past the distance a
@@ -1845,39 +1953,113 @@ function Runtime:_claimSqueal(): boolean
 	return true
 end
 
--- WHAT ONE ANIMAL IS ALLOWED TO MAKE A NOISE WITH THIS STEP, and how loud its voice is (task 120).
--- The Runtime answers this because it is the only thing that knows where the hunters are and what
--- the rest of the sounder is doing. With `CROWD` off it answers nil and sets the scale to 1, which
--- is the world every spec before this task asserts.
-function Runtime:_voiceFor(entry, threats, now: number)
+-- HOW FAR EVERY ANIMAL IS FROM THE NEAREST HUNTER, AND WHO THE WORLD HEARS (task 123). Once per
+-- step, before any boar is asked to make a noise, because a ceiling on "how many footstep loops
+-- sound at once" cannot be answered one animal at a time.
+--
+-- IT IS ALSO WHERE THE DISTANCE IS MEASURED, once, for both jobs: the far fade (task 120) wants the
+-- same number, and measuring it twice would be the same arithmetic in two places.
+--
+-- THE TWO RATIONS RUN IN SERIES, AND THAT ORDER IS THE DESIGN. The sounder's gate comes FIRST --
+-- is this animal one of its herd's two voices, is its herd's grunt slot open -- and the world's
+-- ceiling is then awarded among whoever is left. ANDing two independent answers looks equivalent
+-- and is not: the herd ranks its own voices at its FRONT (nearest the exit line, the same rule its
+-- leader is chosen by) while the world ranks by distance to the hunter, and a FLEEING herd's front
+-- is its farthest animal from him. The two sets can be disjoint, and then a whole running sounder
+-- is silent with slots to spare. In series a slot is never spent on an animal something else has
+-- already silenced.
+--
+-- A SLOT ALSO ONLY GOES TO AN ANIMAL THAT WOULD USE IT. MEASURED: with the ceilings in and 40 boars
+-- out, three samples in a row counted ZERO sounds playing -- the three footstep slots had gone to
+-- the three animals nearest the hunter, which were standing still, while a herd walked past a
+-- hundred studs away. "A herd never goes silent while it moves" is the one thing this task must not
+-- break. The bands below are `Body.stepSound`'s own, so eligibility and the cue cannot disagree.
+--
+-- With `CROWD` off every animal is allowed everything, which is the world every spec written before
+-- task 120 asserts.
+function Runtime:_rationVoices(snapshot, threats, now: number)
+	local sound = self._config.SOUND
+	local crowd = sound.CROWD
+	local rationing = crowd ~= nil and crowd.ENABLED == true
+	local stepRows, breathRows, mutterRows = {}, {}, {}
+	for _, entry in ipairs(self._boars) do
+		local sample = snapshot and snapshot[entry.id]
+		local at = if sample then sample.position else Body.position(entry.body)
+		local nearest = nil
+		-- `or {}` like every other consumer of this list (task 120, review round 1 note): a world
+		-- whose `threats()` answers nil behaves instead of erroring every step.
+		for _, threat in ipairs(threats or {}) do
+			if typeof(threat.position) == "Vector3" then
+				local flat = Vector3.new(threat.position.X - at.X, 0, threat.position.Z - at.Z).Magnitude
+				if nearest == nil or flat < nearest then
+					nearest = flat
+				end
+			end
+		end
+		entry.voiceNearest = nearest
+		if not rationing then
+			entry.stepVoice, entry.breathVoice, entry.mutterVoice = true, true, true
+		else
+			-- NOTHING TO LISTEN TO MEANS INFINITELY FAR, not nearest: a world with no hunter in it
+			-- still has to rank deterministically, and `math.huge` plus the id tie-break does that.
+			local row = { id = entry.id, distance = nearest or math.huge }
+			-- The body's MEASURED speed, which lags the setpoint by the ACCEL ramp -- so an animal
+			-- just starting to move waits a frame or two for its slot. That is the right way round:
+			-- the alternative hands a slot to an animal that has not moved yet.
+			local velocity = if sample then sample.velocity else Body.velocity(entry.body)
+			local speed = (velocity * Vector3.new(1, 0, 1)).Magnitude
+			-- THE SOUNDER GATE, FIRST. A lone boar -- which is most of a released group within a
+			-- minute, measured -- passes it with nothing to check.
+			local record = self:_sounderRecord(entry.sounderId)
+			local holder = record == nil or Boar.hasVoice(record.voiceIds, entry.id, self._config)
+			-- ONE SOUNDER, ONE GRUNT PER INTERVAL: the group mutters, not each animal in it. A
+			-- grunt that finds the slot taken is SKIPPED, never queued -- the boar waits for its
+			-- next interval like a real animal that had nothing to say. Queuing it would move the
+			-- chorus a second later rather than remove it.
+			local mayGrunt = record == nil or (record.gruntAgainAt or 0) <= now
+			if not entry.body.collapsed then
+				if holder and speed >= sound.STEPS.MIN_SPEED then
+					table.insert(stepRows, row)
+				end
+				if holder and speed >= sound.BREATH.MIN_SPEED then
+					table.insert(breathRows, row)
+				end
+				if mayGrunt and speed <= sound.GRUNTS.MAX_SPEED then
+					table.insert(mutterRows, row)
+				end
+			end
+		end
+	end
+	if not rationing then
+		return
+	end
+	local steps = Boar.nearestVoices(stepRows, crowd.MAX_STEP_VOICES)
+	local breaths = Boar.nearestVoices(breathRows, crowd.MAX_BREATH_VOICES)
+	local mutters = Boar.nearestVoices(mutterRows, crowd.MAX_MUTTER_VOICES)
+	for _, entry in ipairs(self._boars) do
+		entry.stepVoice = steps[entry.id] == true
+		entry.breathVoice = breaths[entry.id] == true
+		entry.mutterVoice = mutters[entry.id] == true
+	end
+end
+
+-- WHAT ONE ANIMAL IS ALLOWED TO MAKE A NOISE WITH THIS STEP, and how loud its voice is (task 120,
+-- rationed per layer in task 123). Both answers were decided for the whole world one pass ago, by
+-- `_rationVoices`; this is where one animal reads its own. With `CROWD` off it answers nil and sets
+-- the scale to 1, which is the world every spec before task 120 asserts.
+function Runtime:_voiceFor(entry)
 	local crowd = self._config.SOUND.CROWD
 	if crowd == nil or crowd.ENABLED ~= true then
 		Body.setVoiceScale(entry.body, 1)
 		return nil
 	end
-	local at = Body.position(entry.body)
-	local nearest = nil
-	-- `or {}` like every other consumer of this list (review round 1, note): a world whose
-	-- `threats()` answers nil behaves instead of erroring every step.
-	for _, threat in ipairs(threats or {}) do
-		if typeof(threat.position) == "Vector3" then
-			local flat = Vector3.new(threat.position.X - at.X, 0, threat.position.Z - at.Z).Magnitude
-			if nearest == nil or flat < nearest then
-				nearest = flat
-			end
-		end
-	end
-	Body.setVoiceScale(entry.body, Body.farScale(nearest, self._config))
-
-	local record = self:_sounderRecord(entry.sounderId)
-	if record == nil then
-		return { grunt = true, steps = true } -- a lone boar competes with nobody
-	end
+	Body.setVoiceScale(entry.body, Body.farScale(entry.voiceNearest, self._config))
+	-- `~= false` AND NOT `== true`: an animal that spawned after the ration ran has no answer yet,
+	-- and the safe way round is audible. A missing sound is a worse fault than a doubled one.
 	return {
-		grunt = (record.gruntAgainAt or 0) <= now,
-		-- The leader is the one set of hooves. With no leader yet (the first tick after one dies)
-		-- nobody is silenced, which is the safe way round: a missing sound is worse than a late one.
-		steps = Boar.isStepEmitter(record.leaderId, entry.id, self._config),
+		steps = entry.stepVoice ~= false,
+		breath = entry.breathVoice ~= false,
+		grunt = entry.mutterVoice ~= false,
 	}
 end
 
@@ -1905,21 +2087,47 @@ function Runtime:_entryById(id: string?)
 	return nil
 end
 
--- The member nearest the exit line leads, tie-broken by id: the animal at the front leads, and it
--- is one line and deterministic. `promoted` is false the first time (a spawn is not a promotion).
-function Runtime:_chooseLeader(record, promoted: boolean)
-	local best, bestKey = nil, nil
+-- THE MEMBERS, FRONT FIRST: nearest the exit line, tie-broken by id. ONE rule, because the leader
+-- and the voice holders (task 123) are both "the front of the herd", and two sorts would be two
+-- answers to one question -- this project's named killer (docs/PROJECT_CONTEXT.md).
+function Runtime:_frontRanked(record)
+	local ordered, key = {}, {}
 	for _, id in ipairs(record.memberIds) do
 		local entry = self:_entryById(id)
 		if entry then
-			local key = math.abs(Body.position(entry.body).Z - self._field.exitZ)
-			if best == nil or key < bestKey or (key == bestKey and entry.id < best.id) then
-				best, bestKey = entry, key
-			end
+			table.insert(ordered, entry)
+			key[entry.id] = math.abs(Body.position(entry.body).Z - self._field.exitZ)
 		end
 	end
+	table.sort(ordered, function(a, b)
+		if key[a.id] == key[b.id] then
+			return a.id < b.id
+		end
+		return key[a.id] < key[b.id]
+	end)
+	return ordered
+end
+
+-- WHO CARRIES THIS HERD'S HOOVES AND BREATH (task 123). The rule is pure (`Boar.voiceHolders`); this
+-- is the membership it reads, front first. Called wherever membership can change -- a spawn, a
+-- promotion, and every step after the member list is rebuilt -- so a holder that died or left is
+-- replaced and the herd never walks on in silence.
+function Runtime:_refreshVoices(record, ranked)
+	local ids = {}
+	for _, entry in ipairs(ranked or self:_frontRanked(record)) do
+		table.insert(ids, entry.id)
+	end
+	record.voiceIds = Boar.voiceHolders(record.voiceIds, record.leaderId, ids, self._config)
+end
+
+-- The member nearest the exit line leads, tie-broken by id: the animal at the front leads, and it
+-- is one line and deterministic. `promoted` is false the first time (a spawn is not a promotion).
+function Runtime:_chooseLeader(record, promoted: boolean)
+	local ranked = self:_frontRanked(record)
+	local best = ranked[1]
 	if best == nil then
 		record.leaderId = nil
+		record.voiceIds = {}
 		return
 	end
 	-- SLOTS STAY DISTINCT: the new leader takes slot 1 and hands its own slot to whoever held 1.
@@ -1936,6 +2144,8 @@ function Runtime:_chooseLeader(record, promoted: boolean)
 	end
 	record.leaderId = best.id
 	best.slot = 1
+	-- The leader always holds a voice, so this has to run after `leaderId` is written.
+	self:_refreshVoices(record, ranked)
 	if promoted then
 		self._stats.leaderPromotions += 1
 	end
@@ -2113,6 +2323,12 @@ function Runtime:_stepSounders(dt: number, snapshot)
 			table.insert(record.memberIds, entry.id)
 		end
 
+		-- THE VOICES GO WITH THE MEMBERSHIP (task 123). A holder that died, bled out of the group or
+		-- walked out of it is replaced here, from the front of whatever is left -- which is the
+		-- whole of "a herd never goes silent while it moves". The holders that are still members
+		-- keep their loops untouched, so nothing restarts.
+		self:_refreshVoices(record)
+
 		-- PANIC SPREADS (task 118, section 5.2), after membership is rebuilt and before any Brain is
 		-- asked anything. Behind the flag: with it off no `alarmIn` is ever set, `obs.sounder.alarm`
 		-- is false for every member, and the Brain's own leader-panic rule is the only one running.
@@ -2217,6 +2433,9 @@ function Runtime:_sounderView(record)
 	return {
 		id = record.id,
 		leaderId = record.leaderId,
+		-- WHO IS HEARD (task 123). A copy like everything else here: it is for the specs and for a
+		-- diagnostic that wants to know why a herd of twenty is two sets of hooves.
+		voiceIds = table.clone(record.voiceIds or {}),
 		memberIds = memberIds,
 		scatterFor = record.scatterFor,
 		bornAt = record.bornAt,
@@ -2286,6 +2505,11 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
 	local record = {
 		id = string.format("Sounder%d", self._nextSounderId),
 		leaderId = nil :: string?,
+		-- WHICH MEMBERS ARE HEARD, and how many grunts the GROUP has left (task 123). Both are
+		-- written by the Runtime and read by nothing outside it.
+		voiceIds = {} :: { string },
+		gruntsUsed = 0,
+		gruntAgainAt = 0,
 		memberIds = {},
 		scatterFor = 0,
 		bornAt = os.clock(),
@@ -2544,6 +2768,11 @@ function Runtime:step(dt: number)
 		self:_stepSounders(dt, snapshot)
 	end
 
+	-- WHO THE WORLD HEARS THIS STEP (task 123), after the sounders have settled their membership and
+	-- before any animal is asked to make a noise. One pass, so the ceiling is a fact about the whole
+	-- world rather than a race between the boars in list order.
+	self:_rationVoices(snapshot, threats, os.clock())
+
 	-- THE SKINNED MODEL, once per step and not once per boar: the template is one Instance every
 	-- boar clones from, and asking for it per boar would multiply both the lookup and the miss
 	-- counter by however many are alive.
@@ -2694,15 +2923,24 @@ function Runtime:step(dt: number)
 			}, config)
 			-- The same speed drives the sound, so the footsteps keep time with the legs rather than
 			-- with the body's measured velocity, which lags the setpoint by the ACCEL ramp.
-			-- WHAT THE CROWD ALLOWS IT (task 120), and the slot it books by being heard: one
-			-- grunt per sounder per `SOUNDER_GRUNT_GAP`, whoever makes it.
+			-- WHAT THE CROWD ALLOWS IT (task 120, per layer since task 123), and the slot it books
+			-- by being heard: `GRUNTS_PER_SOUNDER` grunts from the group, then the group waits out
+			-- one of its own `GRUNTS` intervals. The BAND is the gap, not a separate number -- a
+			-- fixed 2.5 s gap (what this was) made a herd mutter every 2.5 s for ever, whatever the
+			-- interval the animals themselves were drawing from.
 			local now = os.clock()
-			local voice = self:_voiceFor(entry, threats, now)
+			local voice = self:_voiceFor(entry)
 			local played = Body.stepSound(entry.body, dt, wantSpeed, config, self._rng, voice)
 			if played == "grunt" then
 				local record = self:_sounderRecord(entry.sounderId)
 				if record then
-					record.gruntAgainAt = now + config.SOUND.CROWD.SOUNDER_GRUNT_GAP
+					local crowd = config.SOUND.CROWD
+					record.gruntsUsed = (record.gruntsUsed or 0) + 1
+					if record.gruntsUsed >= (crowd.GRUNTS_PER_SOUNDER or 1) then
+						record.gruntsUsed = 0
+						record.gruntAgainAt = now
+							+ self._rng:NextNumber(config.SOUND.GRUNTS.MIN_SECONDS, config.SOUND.GRUNTS.MAX_SECONDS)
+					end
 				end
 			end
 			-- THE SNIFF, ONCE PER HEAD-LIFT (task 117). The activity carries the sound's name, so
@@ -2711,7 +2949,12 @@ function Runtime:step(dt: number)
 			if intent.activity ~= entry.lastActivity then
 				entry.lastActivity = intent.activity
 				local row = Body.activityRow(intent.activity, config)
-				if row and row.sound and config.SOUND[string.upper(row.sound)] then
+				-- ...AND IT RIDES THE MUTTER RATION (task 123). A head coming up is the same ambient
+				-- muttering as a grunt to anybody listening, and MEASURED in the Forest Test it was
+				-- up to four of the thirty-one sounds playing at once. It is not a one-shot that
+				-- belongs to a shot animal, so unlike the hit, the cry and the death it is rationed.
+				local allowed = voice == nil or voice.grunt ~= false
+				if allowed and row and row.sound and config.SOUND[string.upper(row.sound)] then
 					Body.playOneShot(entry.body, row.sound, config.SOUND[string.upper(row.sound)], config, self._rng)
 				end
 			end

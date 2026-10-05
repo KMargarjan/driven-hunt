@@ -810,12 +810,30 @@ return function()
 		end)
 	end)
 
-	describe("six animals must not sound like six animals", function()
+	describe("many animals must not sound like many animals", function()
 		-- KAREN, 2026-10-04: "we need also think about sound when there is several walking and
-		-- several sqeeng it could be anoying and shit sound / so we need realistic". A sounder is up
-		-- to six boars with six sets of hooves and six voices; the caps are in `SOUND.CROWD` and this
-		-- is the case that holds them with a real six-member sounder on a real plate.
-		local function crowdRuntime(name: string, oneEmitter: boolean)
+		-- several sqeeng it could be anoying and shit sound / so we need realistic", and after
+		-- playing the Forest Test on 2026-10-05: *"to many noise, when boars are walking and there
+		-- is many only 1-2 sounds"*. Every animal has its own hooves, its own grunts and its own
+		-- breathing; the rations are in `SOUND.CROWD` and these are the cases that hold them with
+		-- real animals on a real plate.
+		--
+		-- `rationed` IS THE PARAMETER EVERY CASE BELOW TURNS, which is the only way both states are
+		-- reachable while the shipped config sits at one of them. Off, every limit is `math.huge`,
+		-- which is the world before task 120.
+		local function looseSound()
+			local sound = table.clone(CONFIG.SOUND)
+			local crowd = table.clone(CONFIG.SOUND.CROWD)
+			crowd.VOICES_PER_SOUNDER = math.huge
+			crowd.GRUNTS_PER_SOUNDER = math.huge
+			crowd.MAX_STEP_VOICES = math.huge
+			crowd.MAX_BREATH_VOICES = math.huge
+			crowd.MAX_MUTTER_VOICES = math.huge
+			sound.CROWD = crowd
+			return sound
+		end
+
+		local function crowdRuntime(name: string, rationed: boolean)
 			local world = buildWorld(true, name)
 			-- A HUNTER TO RUN FROM, so the animals are really moving and really have footsteps to
 			-- play: a standing sounder would pass a footstep cap by making no footsteps at all.
@@ -825,14 +843,9 @@ return function()
 				return { { position = Vector3.new(0, GROUND_Y, 8), kind = "driver" } }
 			end
 			world.config.KINDS = { ENABLED = true } -- a sow and her young, which is what a sounder is
-			-- THE CAP AS A PARAMETER, which is the only way both of its states are reachable while
-			-- the config sits at one of them -- and it is what makes the case below an A/B rather
-			-- than a hope: the same six animals, with and without one emitter.
-			local sound = table.clone(CONFIG.SOUND)
-			local crowd = table.clone(CONFIG.SOUND.CROWD)
-			crowd.ONE_STEP_EMITTER = oneEmitter
-			sound.CROWD = crowd
-			world.config.SOUND = sound
+			if not rationed then
+				world.config.SOUND = looseSound()
+			end
 			local runtime = Boar.newRuntime(world)
 			local template = makeTemplate()
 			runtime:setModelSource(function()
@@ -843,60 +856,111 @@ return function()
 			return runtime
 		end
 
-		-- Six animals, six seconds of running from a driver: the most footstep loops heard at once
-		-- across the whole sounder, and whether any FOLLOWER was ever heard walking.
+		-- Six animals, six seconds of running from a driver: the most footstep loops heard AT ONCE
+		-- across the whole sounder, how many animals were ever heard at all, and how many BREATHS
+		-- the six of them got out between them.
 		--
-		-- WHAT THIS HALF DOES NOT PROVE, said plainly (review round 1, finding 1): a spec cannot
-		-- make six animals audibly run abreast. The silent pre-roll stops every loop it finds at
-		-- volume 0 and -- until the one-liner in `stepSound` beside this round -- a loop came back
-		-- only on a GAIT CHANGE, so even with the cap OFF this measured one audible loop. So the
-		-- footstep numbers here are a REGRESSION GUARD ("no follower is ever heard"), not an A/B;
-		-- the A/B is `Boar.isStepEmitter`, driven both ways in the pure case above. The grunt cap
-		-- has its own case below, on a CALM herd, because a fleeing one never grunts at all.
-		local function runSounder(name: string, oneEmitter: boolean): (number, boolean)
-			local runtime = crowdRuntime(name, oneEmitter)
+		-- THE BREATH IS THE A/B THIS TASK TURNS, and it is a real one. A fleeing sounder runs at 18
+		-- to 38 studs/s against `BREATH.MIN_SPEED` = 11, so every member is working and every member
+		-- wants to breathe every 1.5-3 s -- so the unrationed run really does make six animals'
+		-- worth of noise, and the rationed one cannot. Task 120's own note is why the FOOTSTEP half
+		-- stays a regression guard rather than an A/B: a follower holds its slot relative to the
+		-- leader, so the leader is often the only member whose setpoint reaches `STEPS.MIN_SPEED`.
+		local function runSounder(name: string, rationed: boolean): (number, number, number)
+			local runtime = crowdRuntime(name, rationed)
 			local handles = runtime:spawnSounder(Vector3.new(0, GROUND_Y, -10), 6, 10)
 			expect(#handles).to.equal(6)
 			warmedUp(runtime)
-			local worstLoops, follower = 0, false
+			local worstLoops, heard = 0, {}
 			for _ = 1, math.ceil(6 / DT) do
 				step(runtime)
 				local loops = 0
-				local leaderId = runtime:sounderOf(handles[1].id).leaderId
 				for _, handle in ipairs(handles) do
 					local playing = #playingLoops(handle)
 					loops += playing
-					if playing > 0 and handle.id ~= leaderId then
-						follower = true
+					if playing > 0 then
+						heard[handle.id] = true
 					end
 				end
 				worstLoops = math.max(worstLoops, loops)
 			end
-			local fleeing = 0
+			local fleeing, voices, breaths = 0, 0, 0
 			for _, handle in ipairs(handles) do
 				if handle.state() == "FLEE" then
 					fleeing += 1
+				end
+				breaths += handle.soundPlays.breath or 0
+				if heard[handle.id] then
+					voices += 1
 				end
 			end
 			-- They really were running from the driver, or none of this measured anything. NOTHING
 			-- IS CLAIMED HERE ABOUT GRUNTS: a running herd is the one that cannot grunt
 			-- (`GRUNTS.MAX_SPEED` = 6 against a flee at 18 or 38), which is exactly why counting
-			-- them here could not fail, and why the cap has its own case on a CALM herd below.
+			-- them here could not fail, and why that ration has its own case on a CALM herd below.
 			expect(fleeing).to.equal(6)
 			runtime:destroy()
-			return worstLoops, follower
+			return worstLoops, voices, breaths
 		end
 
-		-- A CALM sounder, where a grunt can actually happen, and the gap as a PARAMETER so the cap
-		-- can be turned off without touching the config the game ships (review round 1, finding 1).
-		local function gruntsIn(name: string, seconds: number, gap: number): (number, number)
+		-- TWELVE LONE ANIMALS, which is what a released group of twenty actually becomes. MEASURED
+		-- in the Forest Test with 23 boars out: three sounders holding 3, 3 and 4, and THIRTEEN lone
+		-- boars -- so this is the case the world ceiling exists for, and the one a per-sounder rule
+		-- cannot touch at all. Returns the most footstep loops heard at once and the breaths between
+		-- them.
+		local function runLoose(name: string, rationed: boolean): (number, number)
+			local world = buildWorld(true, name)
+			world.threats = function()
+				return { { position = Vector3.new(0, GROUND_Y, 40), kind = "driver" } }
+			end
+			if not rationed then
+				world.config.SOUND = looseSound()
+			end
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(clip: string)
+				return FAKE_IDS[clip]
+			end)
+			local handles = {}
+			for index = 1, 12 do
+				-- Spread along the line so each is its OWN distance from the driver: the ceiling is
+				-- awarded nearest-first, and animals stacked on one spot would not test that.
+				table.insert(handles, runtime:spawn(Vector3.new((index - 6) * 6, GROUND_Y, 0)))
+			end
+			warmedUp(runtime)
+			local worstLoops = 0
+			for _ = 1, math.ceil(6 / DT) do
+				step(runtime)
+				local loops = 0
+				for _, handle in ipairs(handles) do
+					loops += #playingLoops(handle)
+				end
+				worstLoops = math.max(worstLoops, loops)
+			end
+			local breaths, fleeing = 0, 0
+			for _, handle in ipairs(handles) do
+				breaths += handle.soundPlays.breath or 0
+				if handle.state() == "FLEE" then
+					fleeing += 1
+				end
+			end
+			-- NONE OF THEM IS IN A SOUNDER, which is the whole point of this case.
+			expect(runtime:sounderOf(handles[1].id)).to.equal(nil)
+			expect(fleeing >= 6).to.equal(true)
+			runtime:destroy()
+			return worstLoops, breaths
+		end
+
+		-- A CALM sounder, where a grunt can actually happen, rationed or loose (task 120, review
+		-- round 1, finding 1: both states reachable without touching the config the game ships).
+		local function gruntsIn(name: string, seconds: number, rationed: boolean): (number, number)
 			local world = buildWorld(true, name) -- its own `threats()` is empty: nothing to flee
 			world.config.KINDS = { ENABLED = true }
-			local sound = table.clone(CONFIG.SOUND)
-			local crowd = table.clone(CONFIG.SOUND.CROWD)
-			crowd.SOUNDER_GRUNT_GAP = gap
-			sound.CROWD = crowd
-			world.config.SOUND = sound
+			if not rationed then
+				world.config.SOUND = looseSound()
+			end
 			local runtime = Boar.newRuntime(world)
 			local template = makeTemplate()
 			runtime:setModelSource(function()
@@ -918,23 +982,59 @@ return function()
 			return grunts, members
 		end
 
-		it("plays ONE set of hooves for a whole sounder, whoever is running", function()
-			-- THE GATE ITSELF IS PURE and is driven both ways in "a sounder is one set of hooves"
-			-- above; what six real animals add is that nothing else in the Runtime undoes it.
-			local capped, cappedFollower = runSounder("BoarsCrowdSteps", true)
-			local uncapped = runSounder("BoarsCrowdLoose", false)
+		it("gives a whole sounder one or two sets of hooves, and rations its breathing", function()
+			-- THE RULES THEMSELVES ARE PURE and are driven both ways in the pure cases above; what
+			-- six real animals add is that nothing else in the Runtime undoes them.
+			local capped, voices, breaths = runSounder("BoarsCrowdSteps", true)
+			local _, looseVoices, looseBreaths = runSounder("BoarsCrowdLoose", false)
 
-			-- NO FOLLOWER IS EVER HEARD: whatever hooves the herd has are its leader's.
-			expect(cappedFollower).to.equal(false)
-			expect(capped <= 1).to.equal(true)
-			-- ...and with the cap off it is still ONE, which is a fact about the herd and not about
-			-- the cap: MEASURED, a sounder's followers hold their slot relative to the leader, so
-			-- the leader is the only member whose setpoint speed reaches `STEPS.MIN_SPEED` even
-			-- while all six are in FLEE. That is why the A/B for this gate is the pure
-			-- `Boar.isStepEmitter` and this half is a regression guard.
-			expect(uncapped >= 1).to.equal(true)
+			-- NO MORE ANIMALS OF ONE SOUNDER ARE EVER HEARD THAN IT HAS VOICES.
+			expect(voices <= SOUND.CROWD.VOICES_PER_SOUNDER).to.equal(true)
+			expect(capped <= SOUND.CROWD.VOICES_PER_SOUNDER).to.equal(true)
+			-- THE HERD REALLY WAS WORKING, or the breath numbers mean nothing...
+			expect(looseBreaths >= 6).to.equal(true)
+			-- ...AND THE RATION REMOVED BREATHS, which is this task's A/B: six animals running
+			-- breathe six animals' worth unrationed, and at most two of them rationed.
+			expect(breaths < looseBreaths).to.equal(true)
+			-- ...WITHOUT SILENCING THE HERD. A mute herd is a worse fault than a noisy one.
+			expect(breaths >= 1).to.equal(true)
+			expect(looseVoices >= 1).to.equal(true)
 			TestKit.note(
-				string.format("boar-crowd: six fleeing boars -- %d footstep loop(s) at once, no follower heard", capped)
+				string.format(
+					"boar-crowd: six fleeing boars -- %d footstep loop(s) at once from %d animal(s), %d breath(s) against %d loose",
+					capped,
+					voices,
+					breaths,
+					looseBreaths
+				)
+			)
+		end)
+
+		it("rations TWELVE LONE boars too, nearest the hunter first", function()
+			-- THE CASE THE FOREST TEST FOUND (task 123). Karen: "to many noise, when boars are
+			-- walking and there is many only 1-2 sounds". A per-sounder ration was already shipped
+			-- and she still heard twenty animals, because a release of twenty sheds its members: 23
+			-- boars out were three sounders of 3, 3 and 4 plus THIRTEEN lone animals, each with a
+			-- full voice. So the ceiling is world-wide and keyed on distance to a hunter.
+			local capped, breaths = runLoose("BoarsLooseCapped", true)
+			local loose, looseBreaths = runLoose("BoarsLooseLoud", false)
+
+			-- TWELVE ANIMALS REALLY DID MAKE MORE THAN THREE ANIMALS' NOISE unrationed, or the
+			-- ceiling below is being compared with nothing.
+			expect(loose > SOUND.CROWD.MAX_STEP_VOICES).to.equal(true)
+			-- ...AND THE CEILING HELD: never more loops at once than the world allows.
+			expect(capped <= SOUND.CROWD.MAX_STEP_VOICES).to.equal(true)
+			expect(breaths < looseBreaths).to.equal(true)
+			-- ...and something was still heard, which is the point of awarding it nearest-first.
+			expect(capped >= 1).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-crowd: twelve lone boars -- %d footstep loop(s) at once against %d loose, %d breath(s) against %d",
+					capped,
+					loose,
+					breaths,
+					looseBreaths
+				)
 			)
 		end)
 
@@ -982,32 +1082,40 @@ return function()
 			runtime:destroy()
 		end)
 
-		it("rations a CALM sounder's grunts: one at a time, with a gap between them", function()
+		it("rations a CALM sounder's grunts: the GROUP grunts, once per interval", function()
 			-- KAREN, 2026-10-04: "several sqeeng it could be anoying and shit sound". A herd mutters,
 			-- it does not chorus. Twenty seconds is several of each animal's own 3-8 s intervals, so
-			-- six boars left alone have plenty to say -- and the only difference between the two runs
-			-- is `SOUNDER_GRUNT_GAP`.
+			-- six boars left alone have plenty to say.
+			--
+			-- THE GAP IS THE `GRUNTS` BAND ITSELF (task 123), not a number of its own: after
+			-- `GRUNTS_PER_SOUNDER` grunts the group waits out one 3-8 s interval, so the herd grunts
+			-- at the rate ONE animal would. The old `SOUNDER_GRUNT_GAP` was a flat 2.5 s whatever
+			-- the band said, which is a herd muttering every 2.5 s for ever.
 			local seconds = 20
-			local capped, members = gruntsIn("BoarsGruntCapped", seconds, SOUND.CROWD.SOUNDER_GRUNT_GAP)
-			local uncapped = gruntsIn("BoarsGruntLoose", seconds, 0)
+			local capped, members = gruntsIn("BoarsGruntCapped", seconds, true)
+			local uncapped = gruntsIn("BoarsGruntLoose", seconds, false)
 			expect(members).to.equal(6)
 
 			-- THE HERD REALLY WAS TALKING, or nothing below means anything.
 			expect(uncapped >= 6).to.equal(true)
-			-- THE CAP REMOVED GRUNTS, which is the A/B the gap exists for...
+			-- THE RATION REMOVED GRUNTS, which is the A/B it exists for...
 			expect(capped < uncapped).to.equal(true)
-			-- ...it removed them to the rate it promises, counting the whole herd as one voice...
-			expect(capped <= math.ceil(seconds / SOUND.CROWD.SOUNDER_GRUNT_GAP) + 1).to.equal(true)
+			-- ...down to the rate it promises: at most `GRUNTS_PER_SOUNDER` per MIN_SECONDS, plus
+			-- one for the interval that was already running when the clock started.
+			local most = math.ceil(seconds / SOUND.GRUNTS.MIN_SECONDS) * SOUND.CROWD.GRUNTS_PER_SOUNDER + 1
+			expect(capped <= most).to.equal(true)
 			-- ...and it did NOT silence the sounder: a mute herd would be a worse fault than a noisy
 			-- one, and a grunt that loses the slot is skipped rather than queued, so the herd keeps
 			-- talking at the rationed rate.
 			expect(capped >= 1).to.equal(true)
 			TestKit.note(
 				string.format(
-					"boar-crowd: a calm sounder over %d s -- %d grunt(s) at a %.1f s gap against %d with no gap",
+					"boar-crowd: a calm sounder over %d s -- %d grunt(s) at %d per %.0f-%.0f s band against %d loose",
 					seconds,
 					capped,
-					SOUND.CROWD.SOUNDER_GRUNT_GAP,
+					SOUND.CROWD.GRUNTS_PER_SOUNDER,
+					SOUND.GRUNTS.MIN_SECONDS,
+					SOUND.GRUNTS.MAX_SECONDS,
 					uncapped
 				)
 			)
@@ -1228,25 +1336,84 @@ return function()
 			expect(Boar.farScale(nil, CONFIG)).to.equal(1)
 		end)
 
-		it("makes a sounder ONE set of hooves: the leader's", function()
-			-- KAREN, 2026-10-04: "several walking ... could be anoying and shit sound". Pure, so
-			-- both states are reachable while the config sits at one of them -- six Brains cannot be
-			-- made to run abreast on command, and the live case below says nothing undoes this.
-			local off = (function()
-				local sound = table.clone(SOUND)
-				local crowd = table.clone(SOUND.CROWD)
-				crowd.ONE_STEP_EMITTER = false
-				sound.CROWD = crowd
-				local copy = table.clone(CONFIG)
-				copy.SOUND = sound
-				return copy
-			end)()
-			expect(Boar.isStepEmitter("leader", "leader", CONFIG)).to.equal(true)
-			expect(Boar.isStepEmitter("leader", "follower", CONFIG)).to.equal(false)
-			-- A herd with no leader this tick silences nobody: a missing sound is the worse fault.
-			expect(Boar.isStepEmitter(nil, "follower", CONFIG)).to.equal(true)
-			-- ...and with the cap off every animal is its own emitter, exactly as before task 120.
-			expect(Boar.isStepEmitter("leader", "follower", off)).to.equal(true)
+		local function crowdOff()
+			local sound = table.clone(SOUND)
+			local crowd = table.clone(SOUND.CROWD)
+			crowd.ENABLED = false
+			sound.CROWD = crowd
+			local copy = table.clone(CONFIG)
+			copy.SOUND = sound
+			return copy
+		end
+
+		it("gives a sounder's hooves and breath to its few voice holders", function()
+			-- KAREN, 2026-10-05: "to many noise, when boars are walking and there is many only 1-2
+			-- sounds". Pure, so both states are reachable while the config sits at one of them --
+			-- twenty Brains cannot be made to run abreast on command, and the live cases say
+			-- nothing undoes this.
+			local off = crowdOff()
+			expect(Boar.hasVoice({ "a", "b" }, "a", CONFIG)).to.equal(true)
+			expect(Boar.hasVoice({ "a", "b" }, "b", CONFIG)).to.equal(true)
+			expect(Boar.hasVoice({ "a", "b" }, "c", CONFIG)).to.equal(false)
+			-- A herd with no list this tick silences nobody: a missing sound is the worse fault.
+			expect(Boar.hasVoice(nil, "c", CONFIG)).to.equal(true)
+			expect(Boar.hasVoice({}, "c", CONFIG)).to.equal(true)
+			-- ...and with the ration off every animal is its own voice, exactly as before task 120.
+			expect(Boar.hasVoice({ "a", "b" }, "c", off)).to.equal(true)
+		end)
+
+		it("picks the holders from the FRONT, keeps them, and refills when one goes", function()
+			local ranked = { "front", "second", "third", "fourth" }
+			-- The leader first, then the front of whatever is left, up to VOICES_PER_SOUNDER.
+			expect(SOUND.CROWD.VOICES_PER_SOUNDER).to.equal(2)
+			local first = Boar.voiceHolders(nil, "front", ranked, CONFIG)
+			expect(#first).to.equal(2)
+			expect(first[1]).to.equal("front")
+			expect(first[2]).to.equal("second")
+			-- STICKY: the ranking changed under them, and they keep their loops. A footstep loop
+			-- handed between jostling animals stops and restarts, which is worse than one a few
+			-- studs behind the front.
+			local jostled = Boar.voiceHolders(first, "front", { "third", "front", "second", "fourth" }, CONFIG)
+			expect(jostled[1]).to.equal("front")
+			expect(jostled[2]).to.equal("second")
+			-- A HOLDER THAT DIED OR LEFT IS REPLACED, from the front of what is left, so the herd
+			-- never walks on in silence.
+			local refilled = Boar.voiceHolders(first, "front", { "front", "third", "fourth" }, CONFIG)
+			expect(#refilled).to.equal(2)
+			expect(refilled[1]).to.equal("front")
+			expect(refilled[2]).to.equal("third")
+			-- A NEW LEADER TAKES ONE: the animal the herd steers by is the one it is heard by.
+			local promoted = Boar.voiceHolders(first, "fourth", ranked, CONFIG)
+			expect(promoted[1]).to.equal("fourth")
+			-- ...and with the ration off nobody is held back at all.
+			expect(#Boar.voiceHolders(nil, "front", ranked, crowdOff())).to.equal(4)
+		end)
+
+		it("hands the world's few voices to the animals NEAREST a hunter", function()
+			-- MEASURED in the Forest Test: 23 boars out were three sounders of 3, 3 and 4 plus
+			-- thirteen LONE animals, so a per-sounder ration governed ten of twenty-three and Karen
+			-- heard 13 footstep loops at once. The ceiling is keyed on the one thing every animal
+			-- has -- how far it is from the man listening.
+			local rows = {
+				{ id = "far", distance = 300 },
+				{ id = "near", distance = 10 },
+				{ id = "middle", distance = 90 },
+			}
+			local two = Boar.nearestVoices(rows, 2)
+			expect(two.near).to.equal(true)
+			expect(two.middle).to.equal(true)
+			expect(two.far).to.equal(nil)
+			-- A ceiling of nothing silences everything, and no ceiling silences nobody.
+			expect(next(Boar.nearestVoices(rows, 0))).to.equal(nil)
+			local all = Boar.nearestVoices(rows, math.huge)
+			expect(all.near and all.middle and all.far).to.equal(true)
+			-- A TIE IS BROKEN BY ID, so the set is the same every step and a spec can drive it.
+			local tied = Boar.nearestVoices({
+				{ id = "b", distance = 5 },
+				{ id = "a", distance = 5 },
+			}, 1)
+			expect(tied.a).to.equal(true)
+			expect(tied.b).to.equal(nil)
 		end)
 
 		it("counts only the squeals that are still sounding", function()

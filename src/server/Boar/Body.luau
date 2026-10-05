@@ -1492,11 +1492,12 @@ end
 -- Once per boar per step, with the flag on. Footsteps follow the gait; grunts and breaths are
 -- countdowns, so a sounder does not grunt in chorus.
 --
--- `voice` IS WHAT THE CROWD ALLOWS THIS ANIMAL THIS STEP (task 120), from the Runtime, which is the
--- only thing that knows what else is making a noise: `steps = false` for every member of a sounder
--- but its leader, `grunt = false` while the sounder's one grunt slot is taken. nil means "no limits",
--- which is what every caller written before this task passes. Returns which one-shot it played, so
--- the Runtime can book the slot it just used.
+-- `voice` IS WHAT THE CROWD ALLOWS THIS ANIMAL THIS STEP (task 120, one key per LAYER since task
+-- 123), from the Runtime, which is the only thing that knows what else is making a noise:
+-- `steps = false` for an animal that is not one of its herd's or the world's few footstep voices,
+-- `breath = false` likewise, `grunt = false` while the sounder's grunt slot is taken or the world's
+-- mutter ceiling is full. nil means "no limits", which is what every caller written before task 120
+-- passes. Returns which one-shot it played, so the Runtime can book the slot it just used.
 function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, voice): string?
 	if handle.soundFolder == nil then
 		return nil
@@ -1506,9 +1507,9 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, 
 
 	-- FOOTSTEPS. Exactly one loop plays, and a standing boar is silent.
 	local gait, rate = Body.stepSoundFor(speed, config)
-	-- ONE SET OF HOOVES PER SOUNDER: five animals running together are one sound with one position
-	-- to a listener fifty studs away, and six copies of one sample is the "wall of noise" Karen
-	-- asked not to have. The followers go silent exactly as a standing boar does.
+	-- ONE OR TWO SETS OF HOOVES, NOT TWENTY: animals running together are one sound with one
+	-- position to a listener fifty studs away, and twenty copies of one sample is the "to many
+	-- noise" Karen asked not to have. The rest go silent exactly as a standing boar does.
 	if voice and voice.steps == false then
 		gait = nil
 	end
@@ -1540,7 +1541,7 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, 
 		-- there -- a boar whose gait did not change across that moment then ran silently for ever,
 		-- because the branch above only plays on a CHANGE. Measured in a spec: six boars all
 		-- fleeing, one audible loop. It matters more since this task, because a sounder's hooves
-		-- are now one animal's (`isStepEmitter`): the silent one could be the whole herd's voice,
+		-- are now one or two animals's (`Boar.hasVoice`): a silent one could be the whole herd's voice,
 		-- which is the opposite of "hear them coming".
 		if now and not now.IsPlaying then
 			now.Volume = sound.STEPS[gait].volume
@@ -1580,10 +1581,15 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, 
 			return next_
 		end
 		local name = if row == sound.GRUNTS then "grunt" else "breath"
-		-- SKIPPED, NEVER QUEUED (task 120): a grunt that loses its sounder's one slot simply does
-		-- not happen, and the animal waits for its next interval like one that had nothing to say.
-		-- Queuing it would move the chorus a second later instead of removing it.
-		local allowed = name ~= "grunt" or voice == nil or voice.grunt ~= false
+		-- SKIPPED, NEVER QUEUED (task 120): a cue that loses its slot simply does not happen, and
+		-- the animal waits for its next interval like one that had nothing to say. Queuing it would
+		-- move the chorus a second later instead of removing it.
+		--
+		-- THE LAYER'S OWN NAME IS THE KEY (task 123). It was `name ~= "grunt" or ...`, which let
+		-- BREATH through unrationed -- and twenty animals working is twenty breaths, measured at 8
+		-- of the 31 sounds playing at once in the Forest Test. Reading `voice[name]` means a third
+		-- layer would add a row to the ration and no branch here.
+		local allowed = voice == nil or voice[name] ~= false
 		if allowed and Body.playOneShot(handle, name, row, config, rng) then
 			played = name
 		end
