@@ -118,14 +118,20 @@ return function()
 				local stats = Weapon.stats()
 				TestKit.note(
 					string.format(
-						"match_live: %s (%s) may carry=%s holds=%s | weapon granted=%d grantsMissed=%d revoked=%d",
+						"match_live: %s (%s) may carry=%s holds=%s | weapon granted=%d grantsMissed=%d revoked=%d"
+							.. " | equip now=%d late=%d deferred=%d noChar=%d gaveUp=%d",
 						player.Name,
 						player.Team.Name,
 						tostring(expected),
 						tostring(holdsGun()),
 						stats.granted,
 						stats.grantsMissed,
-						stats.revoked
+						stats.revoked,
+						stats.equipNow,
+						stats.equipLate,
+						stats.equipDeferred,
+						stats.equipNoCharacter,
+						stats.equipGaveUp
 					)
 				)
 				expect(held).to.equal(true)

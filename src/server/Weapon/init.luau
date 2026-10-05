@@ -71,6 +71,8 @@ local stats = {
 	grantsMissed = 0, -- a tool built for a player with no Backpack: nothing recorded, tried again later
 	revoked = 0,
 	armingRepairs = 0, -- a sweep found a player who should be holding a gun and was not
+	-- HOW EVERY EQUIP ENDED (task 129): see `Hardware.equipStats`. Copied out in `Weapon.stats`
+	-- rather than kept here, because the equip itself is Hardware's.
 	armingSweeps = 0, -- passes of the sweep below: 0 in a running server means it is not running
 	meshUpgrades = 0, -- guns that were wearing the parts fallback when the mesh arrived (Task 76)
 	meshUpgradeFails = 0, -- passes of that upgrade that ERRORED, so a silent one cannot look like a no-op
@@ -206,7 +208,14 @@ function Weapon.refreshArming(player: Player)
 end
 
 function Weapon.stats()
-	return table.clone(stats)
+	local out = table.clone(stats)
+	-- ...AND HOW THE EQUIPS ENDED, which is Hardware's own tally (task 129).
+	out.equipNow = Hardware.equipStats.now
+	out.equipNoCharacter = Hardware.equipStats.noCharacter
+	out.equipDeferred = Hardware.equipStats.deferred
+	out.equipLate = Hardware.equipStats.late
+	out.equipGaveUp = Hardware.equipStats.gaveUp
+	return out
 end
 
 -- Tells ONE player that something of theirs landed. One way, server -> that client only, and it

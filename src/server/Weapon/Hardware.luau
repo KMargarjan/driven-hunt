@@ -530,16 +530,24 @@ end
 -- thread so the grant does not block, and it gives up quietly if the character has been replaced
 -- again in the meantime. A player who holsters his gun later is untouched -- this fires once, on the
 -- grant, exactly like the direct call above it.
+-- WHAT HAPPENED, COUNTED (task 129). A grant that silently fails to equip is indistinguishable from
+-- a player who put his gun away, and that is how a shooter stood at a stand with it in his Backpack
+-- for a whole drive. One table, read by `Weapon.stats`.
+Hardware.equipStats = { now = 0, noCharacter = 0, deferred = 0, late = 0, gaveUp = 0 }
+
 function Hardware.equip(tool: Tool, player: Player)
 	local character = player.Character
 	if character == nil then
+		Hardware.equipStats.noCharacter += 1
 		return
 	end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		humanoid:EquipTool(tool)
+		Hardware.equipStats.now += 1
 		return
 	end
+	Hardware.equipStats.deferred += 1
 	task.spawn(function()
 		local arrived = character:WaitForChild("Humanoid", 5)
 		if arrived == nil then
@@ -552,14 +560,17 @@ function Hardware.equip(tool: Tool, player: Player)
 		-- else's grant to finish.
 		for _ = 1, 20 do
 			if player.Character ~= character or tool.Parent == nil then
+				Hardware.equipStats.gaveUp += 1
 				return
 			end
 			if tool.Parent == character then
+				Hardware.equipStats.late += 1
 				return
 			end
 			(arrived :: Humanoid):EquipTool(tool)
 			task.wait(0.1)
 		end
+		Hardware.equipStats.gaveUp += 1
 	end)
 end
 
