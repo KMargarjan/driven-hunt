@@ -1,63 +1,57 @@
-# Task 128 — unblock DEV's gate
+# Task 128 - unblock DEV's gate: the generator arrives as source
 
 Task: 128
 Round: 1
-Base: `93ce904` (task-127-boar-line)
-Code commit: `50f0503ba3a1e897055f2f79b10964fda76efe2d`
+Base: main
+Code commit: `831a06fbe759608129b15f1fbfdfb2f5abebfb16`
 
-One Python file changed: `tools/mapgen.py`. No Luau, no spec, no `src/`.
+```
+[harness] PASS: 33/33 checks @ 831a06fbe759608129b15f1fbfdfb2f5abebfb16 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 831a06fbe759608129b15f1fbfdfb2f5abebfb16 (clean tree)
+```
 
-**THE REVIEW CANNOT RUN YET, AND THIS SAYS SO UP FRONT.** The gate at the code commit is
-`[harness] FAIL: 29/33 checks @ 50f0503ba3a1e897055f2f79b10964fda76efe2d (clean tree) scope=all`.
-It fails on specs this task did not touch — see claim 6 — and `tools/agents.py` refuses a request
-touching `tools/` without a harness PASS for the code commit. This file is written so the claims are
-on the record for whoever picks the chain up.
+**THIS TASK IS ONE OF NINE IN ONE PR** (122-130, `task-130-spawn-view` -> `main`). Director
+decision, recorded in `ESCALATE.md`: no branch below 128 can pass the gate on its own -- DEV's
+map could only be rebuilt once 128's bundler existed, and 129 fixed the specs 123-127 broke --
+so the evidence for every task in the stack is the gate AT THE HEAD, and every task still gets
+its own review.
+
 
 ## What changed
 
-`mapgen build/verify/clear/contract/plan/digest/reach/shots` could not reach the generator at all:
-the MCP thread refuses every `require` ("additional values for the Capabilities property:
-LoadUnownedAsset"), which `tools/studio_mcp.py`'s header has carried since 2026-10-02. The generator
-is now sent as SOURCE instead: each module is wrapped in a closure that is handed its own real
-`script` instance, and every `require` is rewritten to the bundle's own table.
-
-Ported from `origin/task-121-forest-block1`, and only the bundling.
+One Python file. `mapgen build/verify/clear` had been dead since the MCP thread started refusing
+every `require`, which is why DEV still held hand-made experiments and its gate had failed 18 runs of
+23 since task 122.
 
 ## Claims
 
-1. **The bundler is the only thing ported.** `BUNDLE_MODULES` names this branch's
-   `src/serverstorage/MapGen` — including `MapGen/Assets.luau`, which 121's generator does not have —
-   and 121's `planSummary`, `shotCameras`, its `MapGen`/`Config`/`Layout`/`Props`/`Scatter`, `Map` v4
-   and its specs are absent. Verify: `git diff 93ce904..50f0503` is one file; `git diff 50f0503
-   origin/task-121-forest-block1 -- tools/mapgen.py` still shows all of 121's generator-side changes.
-2. **The `studio_id` scoping task 122 added is kept.** `call` still goes through `studio._scoped`;
-   121's own `call` dropped it. Verify: read `call` in `tools/mapgen.py`. It matters here because two
-   Studios are open and connected.
-3. **An unknown require shape cannot reach Studio.** `bundle_source` raises unless every `require`
-   outside a comment has been rewritten. Verify: read it; or add a `require(workspace.Nothing)` to any
-   bundled module and run `python tools/mapgen.py plan --seed 1`.
-4. **It works.** `python tools/mapgen.py contract` in DEV returns counts and a marker digest where it
-   used to die at step 1. Verify: run it.
-5. **DEV is rebuilt from the seed the contract expects.** `Map.SEED` is 1 ("the seed the committed map
-   was built from"); `build --seed 1 --backup census` ran 262/262 steps and printed digest
+1. **The generator is sent as SOURCE.** Each module of this branch's `src/serverstorage/MapGen` is
+   wrapped in a closure handed its own real `script` instance and every `require` is rewritten to the
+   bundle's table. Verify: `BUNDLE_MODULES`, `REQUIRE_REWRITES`, `bundle_source`, `bundle` in
+   `tools/mapgen.py`.
+2. **An unknown require shape cannot reach Studio**: `bundle_source` raises unless every `require`
+   outside a comment has been rewritten.
+3. **Only the bundler was ported** from `task-121-forest-block1`. That branch's `MapGen`, `Config`,
+   `Layout`, `Props`, `Scatter`, `Map` v4, its specs, `planSummary` and `shotCameras` are not here;
+   the module list is this branch's graph, including `MapGen/Assets.luau`, which 121 does not have.
+4. **The `studio_id` scoping task 122 added to `call` is KEPT** -- 121's own copy dropped it, and
+   both places were open and connected while this ran.
+5. **It works**: `mapgen contract` returns counts and a marker digest in DEV where it used to die at
+   step 1.
+6. **DEV is rebuilt from the seed the contract expects.** `Map.SEED` is 1; `build --seed 1 --backup
+   census` ran 262/262 steps and printed digest
    `15183f41211b3ba32453bf012277a323182fa95e07824a0479c68a8e884d8534`, which is `Map.DIGEST` in
    `src/shared/Map/init.luau` character for character. `mapgen contract` is now OK: 8 shooter posts,
-   4 boar spawns, 1 drive line, 1 driver start, 12 trees. Verify: `python tools/mapgen.py contract`
-   and `python tools/mapgen.py digest`.
-6. **The gate now runs in DEV and fails on the 123–127 stack, not on this change.** Server 728 passed
-   / 17 failed, client 143 / 3: `boar_shot.spec` (642, 672, 1028, 1108, 1133, 1403, 1536, 1646, 1710,
-   1807), `boar_behaviour.spec` (215, 267, 297, 458, 512), `boar_calm.spec` (466),
-   `camera_client.spec` (237), `compass.spec` (104, 170). This task changes one Python file and no
-   Luau, and every one of those specs covers tasks 123–127, whose rows all read GATE BLOCKED. Verify:
-   `git diff --stat 93ce904..50f0503`, then read the failing assertions.
+   4 boar spawns, 1 drive line, 1 driver start, 12 trees.
+7. **The measured payload**: 196 KB, 639 KB with the boar's modules for `reach`, against the 768 KB
+   `execute_luau` was measured to accept.
 
-## What I could not verify
+## What could not be verified
 
-- **That the gate passes.** It does not, and claim 6 is the reason. `test2` was not run: the change
-  touches no path in `TWO_PLAYER_PATHS`, and a two-player run cannot pass while the one-player run
-  fails.
-- **The names of what the rebuild destroyed.** The Director's dispatch says DEV held
-  Scene / Scene2 / VerdantTest experiments inside `Workspace.DrivenHuntMap`. What I measured myself is
-  that the folder held 7,460 descendants with 0 tagged markers before, and the generated bare world
-  after. I did not list its children before destroying them, and `--backup census` only inspects
-  Workspace's top level.
+- **What the rebuild destroyed, by name.** The Director's dispatch says DEV held Scene / Scene2 /
+  VerdantTest experiments inside `Workspace.DrivenHuntMap`. What I measured myself is that the folder
+  held 7,460 descendants with 0 tagged markers before and the generated bare world after. I did not
+  list its children before destroying them, and `--backup census` only inspects Workspace's top level.
+- **The generated map's LOOK.** `map-road` shows the road with its stakes at even spacing; `map-wide`
+  from 1,100 studs is flat fog colour and shows nothing, which I am not counting as evidence. This
+  branch's digest is task 85's BARE world, so there is no wood to photograph.
