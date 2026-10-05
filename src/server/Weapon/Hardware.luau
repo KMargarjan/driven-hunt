@@ -542,22 +542,28 @@ function Hardware.equip(tool: Tool, player: Player)
 		return
 	end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
+	if humanoid ~= nil then
 		humanoid:EquipTool(tool)
 		Hardware.equipStats.now += 1
-		return
+	else
+		Hardware.equipStats.deferred += 1
 	end
-	Hardware.equipStats.deferred += 1
+	-- ...AND THEN IT CHECKS, which is the half that was missing (task 129). MEASURED in the DEV gate
+	-- run: `EquipTool` was CALLED for all three grants with a live Humanoid in hand -- "equip now=3
+	-- late=0 noChar=0" -- and the client still found the gun in the Backpack from +76 s to the end of
+	-- the drive. A call is not an outcome: during the drive's placement respawn the humanoid exists
+	-- but is not ready to carry anything, and `EquipTool` then does nothing and says nothing.
+	--
+	-- So the outcome is verified on the following frames and the equip is retried for two seconds,
+	-- which is the width of the window measured, and the loop stops the moment the Tool is in the
+	-- character -- or the character is replaced again, which is the next grant's business. A player
+	-- who holsters his gun more than two seconds after being handed it is never touched.
 	task.spawn(function()
-		local arrived = character:WaitForChild("Humanoid", 5)
-		if arrived == nil then
+		local waited = humanoid or character:WaitForChild("Humanoid", 5)
+		if waited == nil then
+			Hardware.equipStats.gaveUp += 1
 			return
 		end
-		-- ...AND `EquipTool` ITSELF IS NOT READY THE INSTANT THE HUMANOID EXISTS: it needs the
-		-- character's root part, which arrives on its own frame, and it fails SILENTLY before then.
-		-- So the equip is retried for a bounded second and a bit, and stops the moment the Tool is
-		-- where it was asked to be -- or the character has been replaced again, which is somebody
-		-- else's grant to finish.
 		for _ = 1, 20 do
 			if player.Character ~= character or tool.Parent == nil then
 				Hardware.equipStats.gaveUp += 1
@@ -567,7 +573,7 @@ function Hardware.equip(tool: Tool, player: Player)
 				Hardware.equipStats.late += 1
 				return
 			end
-			(arrived :: Humanoid):EquipTool(tool)
+			(waited :: Humanoid):EquipTool(tool)
 			task.wait(0.1)
 		end
 		Hardware.equipStats.gaveUp += 1
