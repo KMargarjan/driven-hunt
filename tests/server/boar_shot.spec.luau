@@ -894,6 +894,16 @@ return function()
 					voices += 1
 				end
 			end
+			-- THE RECORD'S OWN BOUND, which is the exact one: whatever happened to the loops, a
+			-- rationed sounder never held more voices than the config allows it. The loose run has
+			-- no bound to check -- that is what makes it the other half of the A/B.
+			local record = runtime:sounderOf(handles[1].id)
+			expect(record).to.be.ok()
+			if rationed then
+				expect(#record.voiceIds <= SOUND.CROWD.VOICES_PER_SOUNDER).to.equal(true)
+			else
+				expect(#record.voiceIds).to.equal(6)
+			end
 			-- They really were running from the driver, or none of this measured anything. NOTHING
 			-- IS CLAIMED HERE ABOUT GRUNTS: a running herd is the one that cannot grunt
 			-- (`GRUNTS.MAX_SPEED` = 6 against a flee at 18 or 38), which is exactly why counting
@@ -911,6 +921,10 @@ return function()
 		local function runLoose(name: string, rationed: boolean): (number, number)
 			local world = buildWorld(true, name)
 			world.threats = function()
+				-- INSIDE `SENSE.DETECT_RADIUS` (40) OF ALL TWELVE, or most of them never run and a
+				-- footstep ceiling proves nothing: the farthest animal below stands 38.5 studs from
+				-- this. They start at z 20 rather than 0 so six seconds of fleeing cannot carry any
+				-- of them over the plate's exit line at z -40.
 				return { { position = Vector3.new(0, GROUND_Y, 40), kind = "driver" } }
 			end
 			if not rationed then
@@ -925,9 +939,10 @@ return function()
 			end)
 			local handles = {}
 			for index = 1, 12 do
-				-- Spread along the line so each is its OWN distance from the driver: the ceiling is
-				-- awarded nearest-first, and animals stacked on one spot would not test that.
-				table.insert(handles, runtime:spawn(Vector3.new((index - 6) * 6, GROUND_Y, 0)))
+				-- Spread along the line so each is its OWN distance from the driver -- 20 studs for
+				-- the middle pair out to 38.5 for the ends. The ceiling is awarded nearest-first,
+				-- and animals stacked on one spot would not test that at all.
+				table.insert(handles, runtime:spawn(Vector3.new((index - 6.5) * 6, GROUND_Y, 20)))
 			end
 			warmedUp(runtime)
 			local worstLoops = 0
@@ -988,11 +1003,15 @@ return function()
 			local capped, voices, breaths = runSounder("BoarsCrowdSteps", true)
 			local _, looseVoices, looseBreaths = runSounder("BoarsCrowdLoose", false)
 
-			-- NO MORE ANIMALS OF ONE SOUNDER ARE EVER HEARD THAN IT HAS VOICES.
-			expect(voices <= SOUND.CROWD.VOICES_PER_SOUNDER).to.equal(true)
-			expect(capped <= SOUND.CROWD.VOICES_PER_SOUNDER).to.equal(true)
-			-- THE HERD REALLY WAS WORKING, or the breath numbers mean nothing...
-			expect(looseBreaths >= 6).to.equal(true)
+			-- NO MORE ANIMALS OF ONE SOUNDER ARE EVER HEARD THAN IT HAS VOICES. The exact bound
+			-- is asserted on the record itself inside `runSounder`; what these two say is that
+			-- nothing in the Runtime hands the loop to a third animal.
+			expect(voices <= SOUND.CROWD.MAX_STEP_VOICES).to.equal(true)
+			expect(capped <= SOUND.CROWD.MAX_STEP_VOICES).to.equal(true)
+			-- THE HERD REALLY WAS WORKING, or the breath numbers mean nothing. Four and not six:
+			-- how many 1.5-3 s intervals fit in six seconds is decided by physics ramping six
+			-- bodies up to flee speed, not by the seeded Random, so the floor is the loose one.
+			expect(looseBreaths >= 4).to.equal(true)
 			-- ...AND THE RATION REMOVED BREATHS, which is this task's A/B: six animals running
 			-- breathe six animals' worth unrationed, and at most two of them rationed.
 			expect(breaths < looseBreaths).to.equal(true)
