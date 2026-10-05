@@ -124,10 +124,14 @@ end
 -- `camera` is the LAST resort and only for a world with no camera system at all: a plain
 -- `Camera` instance, used as it comes.
 function Compass.headingFrom(cameraSystem: any, camera: Camera?): number
-	if cameraSystem ~= nil and type(cameraSystem.viewCFrame) == "function" then
-		local view = cameraSystem.viewCFrame()
-		if view ~= nil then
-			return Compass.headingDeg(view.LookVector)
+	-- THE CAMERA SYSTEM CONVERTS ITS OWN CONVENTION (task 125 round 4). Reading its CFrame and
+	-- applying `headingDeg` here is what made the strip 180 degrees out for three rounds: the camera's
+	-- yaw zero looks down -Z and a compass bearing's looks down +Z, and that is the camera's fact to
+	-- know, not the Hud's. `Camera.viewHeadingDeg` is already a world bearing.
+	if cameraSystem ~= nil and type(cameraSystem.viewHeadingDeg) == "function" then
+		local bearing = cameraSystem.viewHeadingDeg()
+		if bearing ~= nil then
+			return bearing
 		end
 	end
 	-- `CurrentCamera` IS NEVER PASSED IN BY THE HUD, and that is the whole of the Director's rule

@@ -78,6 +78,54 @@ return function()
 		--      view turned right round and the body's look never moved, because in first person the
 		--      camera system turns the VIEW and not the BODY.
 		-- The owner of the view publishes the view, and that is what the compass reads.
+		-- THE CONVERSION, DRIVEN WITH THE CAMERA MODULE'S OWN REAL YAW VALUES (round 4). Three rounds
+		-- were spent on a compass that was exactly half a turn out, and no assertion caught it because
+		-- every one of them tested `headingDeg` against a vector I had written down myself. This walks
+		-- the four cardinals through the CAMERA's own arithmetic -- its inverse (`Mode.lookAt` uses
+		-- `atan2(-x, -z)`) and its forward (`Mode.cameraCFrame` uses `fromEulerAnglesYXZ`) -- and then
+		-- through `Camera.viewHeadingDeg`'s conversion, and demands a world bearing at the far end.
+		it("turns the camera's own yaw into a world bearing for all four cardinals", function()
+			local cases = {
+				{ look = Vector3.new(0, 0, 1), name = "north", bearing = 0 },
+				{ look = Vector3.new(1, 0, 0), name = "east", bearing = 90 },
+				{ look = Vector3.new(0, 0, -1), name = "south", bearing = 180 },
+				{ look = Vector3.new(-1, 0, 0), name = "west", bearing = 270 },
+			}
+			for _, case in ipairs(cases) do
+				-- the camera's INVERSE: the yaw it would store to look this way
+				local yaw = math.deg(math.atan2(-case.look.X, -case.look.Z))
+				-- ...its FORWARD: the CFrame it would then build and apply
+				local built = CFrame.fromEulerAnglesYXZ(0, math.rad(yaw), 0)
+				local flat = Vector3.new(built.LookVector.X, 0, built.LookVector.Z)
+				-- ...and the published conversion, which is the one line this round added.
+				local bearing = (math.deg(math.atan2(flat.X, flat.Z)) + 180) % 360
+				local off = math.abs(Compass.deltaDeg(bearing, case.bearing))
+				if off > 0.5 then
+					error(
+						string.format(
+							"%s: camera yaw %.0f deg should publish bearing %.0f, got %.1f (%.0f off)",
+							case.name,
+							yaw,
+							case.bearing,
+							bearing,
+							off
+						)
+					)
+				end
+			end
+		end)
+
+		it("publishes a bearing, and the compass uses it unchanged", function()
+			local CameraSystem = require(scripts:WaitForChild("Camera"))
+			expect(type(CameraSystem.viewHeadingDeg)).to.equal("function")
+			local published = CameraSystem.viewHeadingDeg()
+			if published == nil then
+				return -- the camera system has not applied a frame yet
+			end
+			expect(math.abs(Compass.deltaDeg(Compass.headingFrom(CameraSystem), published))).to.be.near(0, 1e-3)
+			TestKit.note(string.format("compass: camera publishes %.0f deg", published))
+		end)
+
 		it("asks the camera system for the view, not the engine's camera or the body", function()
 			local CameraSystem = require(scripts:WaitForChild("Camera"))
 			expect(type(CameraSystem.viewCFrame)).to.equal("function")
@@ -86,8 +134,10 @@ return function()
 				return -- the camera system has not applied a frame yet; nothing to compare
 			end
 			local used = Compass.headingFrom(CameraSystem)
+			-- HALF A TURN FROM THE RAW LookVector, and that IS the contract: the camera's yaw zero
+			-- looks down -Z and a bearing's looks down +Z (see `Camera.viewHeadingDeg`).
 			local fromView = Compass.headingDeg((view :: CFrame).LookVector)
-			expect(math.abs(Compass.deltaDeg(used, fromView))).to.be.near(0, 1e-3)
+			expect(math.abs(Compass.deltaDeg(used, fromView + 180))).to.be.near(0, 1e-3)
 
 			-- ...and it is RECORDED, not asserted, how far the other two sources are from it: both
 			-- belong to other owners, and failing this gate for their state helps nobody.

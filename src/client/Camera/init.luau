@@ -521,6 +521,40 @@ function Camera.viewportCamera(): Camera?
 	return Workspace.CurrentCamera
 end
 
+-- WHERE THE VIEW IS POINTING, AS A COMPASS BEARING (task 125 round 4). North is +Z, east is +X,
+-- clockwise -- the world convention `ForestTest.DRIVE_BEARING_DEG` is written in.
+--
+-- THE CONVERSION IS HERE, ONCE, AND NOT IN THE HUD, because the thing being converted is this
+-- system's own convention and this system is the only place that should know it. `Mode.cameraCFrame`
+-- builds the view from `CFrame.fromEulerAnglesYXZ(pitch, yaw, 0)`, whose LookVector its own comment
+-- writes out as `(-sin(yaw)cos(pitch), sin(pitch), -cos(yaw)cos(pitch))` -- so **yaw 0 looks down
+-- -Z**, while a compass bearing of 0 looks down +Z. The two zeros are half a turn apart.
+--
+-- MEASURED, NOT ASSUMED, and three rounds of this task were spent believing the arithmetic instead:
+-- the spawn frame was compared pixel by pixel against the known north-facing reference
+-- `.screenshots/20261005T000513Z-ft-facing-north.png` (Task 122 measured that spawn as look
+-- (0, 0, 1) = north, at the birch edge the drive comes through). RMS difference of the spawn frames
+-- **36.5 and 36.7**, against **55.0** for a frame taken after a deliberate turn -- so the spawn view
+-- IS north, while `Rig.appliedCFrame().LookVector` read 180. Half a turn, exactly as the two zeros
+-- predict.
+--
+-- THE SIGN WAS ALREADY RIGHT and is left alone: forty real mouse moves to the right took the
+-- computed bearing 180 -> 33.5, which is +213 degrees CLOCKWISE, the way a right turn goes.
+function Camera.viewHeadingDeg(): number?
+	local view = Rig.appliedCFrame()
+	if view == nil then
+		return nil
+	end
+	local look = view.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 1e-6 then
+		return nil
+	end
+	-- `atan2(x, z)` is the bearing of the vector itself; `+ 180` carries this system's zero onto the
+	-- world's. One expression, one place, and the only place that knows both conventions.
+	return (math.deg(math.atan2(flat.X, flat.Z)) + 180) % 360
+end
+
 -- WHERE THE VIEW IS ACTUALLY POINTING (task 125 round 3). `Rig` is the one writer of
 -- `workspace.CurrentCamera` and remembers the CFrame it last applied, so this is the view this
 -- system intends -- which is what a HUD element that has to agree with the picture must read.
