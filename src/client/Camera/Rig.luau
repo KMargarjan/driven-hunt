@@ -172,6 +172,19 @@ function Rig.apply(cf: CFrame, fovDeg: number)
 	lastCFrame, lastFov = cf, fovDeg
 end
 
+-- THE VIEW THIS SYSTEM LAST ASKED FOR (task 125 round 3), which is not the same thing as
+-- `CurrentCamera.CFrame`: this file already counts FOREIGN WRITES to that property, so by its own
+-- evidence the engine's copy can be something nobody here asked for. `lastCFrame` is what the camera
+-- system intends and therefore what is rendered the instant after it is applied.
+--
+-- IT EXISTS BECAUSE THE HUD NEEDED THE YAW AND HAD NOWHERE HONEST TO GET IT. A compass driven by
+-- `CurrentCamera` reads whatever the second writer left; one driven by the character's
+-- `HumanoidRootPart` never moves at all, because in first person this system turns the VIEW and not
+-- the body. The owner of the view publishes the view: one owner, one reader.
+function Rig.appliedCFrame(): CFrame?
+	return lastCFrame
+end
+
 -- The local character only, and only its own parts: LocalTransparencyModifier is client-side, so no
 -- other player sees any of this.
 --

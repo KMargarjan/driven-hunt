@@ -69,76 +69,55 @@ return function()
 		end)
 	end)
 
-	describe("against the world, not against the convention", function()
-		-- THE CHECK THAT CANNOT BE FOOLED BY A SIGN. Every assertion above is about arithmetic, and
-		-- arithmetic that is consistently 180 degrees wrong passes all of them -- which is exactly
-		-- what task 125 round 2 was raised about. This one asks the ENGINE: it puts a point due north
-		-- of the camera and asks the camera whether that point is on screen, then asks the compass
-		-- whether north is on the strip. The two must agree, whatever anybody believes about atan2.
-		it("reads the BODY's facing in first person, not the camera's", function()
-			-- THE ASSERTION THIS ROUND EXISTS FOR. At spawn the camera reads 180 degrees away from the
-			-- character and holds it, so a compass that trusts `CurrentCamera.LookVector` points the
-			-- player backwards -- measured, and the reason `Compass.headingFrom` exists.
-			local camera = workspace.CurrentCamera
-			local character = player.Character
-			local head = character and character:FindFirstChild("Head")
-			local root = character and character:FindFirstChild("HumanoidRootPart")
-			if camera == nil or head == nil or root == nil then
-				return
+	describe("where the heading comes from", function()
+		-- THE ASSERTION THIS WHOLE TASK TURNED ON, and it took three rounds to get right. Two sources
+		-- look correct and are not:
+		--   `CurrentCamera.CFrame` -- measured 180 degrees away from the view at spawn, because
+		--      `Camera.Rig` has a counted, warned-about FOREIGN WRITER of that property since task 123;
+		--   the character's `HumanoidRootPart` -- measured by the Director with real mouse input: the
+		--      view turned right round and the body's look never moved, because in first person the
+		--      camera system turns the VIEW and not the BODY.
+		-- The owner of the view publishes the view, and that is what the compass reads.
+		it("asks the camera system for the view, not the engine's camera or the body", function()
+			local CameraSystem = require(scripts:WaitForChild("Camera"))
+			expect(type(CameraSystem.viewCFrame)).to.equal("function")
+			local view = CameraSystem.viewCFrame()
+			if view == nil then
+				return -- the camera system has not applied a frame yet; nothing to compare
 			end
-			local eye = ((camera :: Camera).CFrame.Position - (head :: BasePart).Position).Magnitude
-			local used = Compass.headingFrom(camera, character)
-			local body = Compass.headingDeg((root :: BasePart).CFrame.LookVector)
-			local cameraDeg = Compass.headingDeg((camera :: Camera).CFrame.LookVector)
+			local used = Compass.headingFrom(CameraSystem)
+			local fromView = Compass.headingDeg((view :: CFrame).LookVector)
+			expect(math.abs(Compass.deltaDeg(used, fromView))).to.be.near(0, 1e-3)
+
+			-- ...and it is RECORDED, not asserted, how far the other two sources are from it: both
+			-- belong to other owners, and failing this gate for their state helps nobody.
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			local camera = workspace.CurrentCamera
+			local bodyDeg = if root then Compass.headingDeg((root :: BasePart).CFrame.LookVector) else -1
+			local engineDeg = if camera then Compass.headingDeg((camera :: Camera).CFrame.LookVector) else -1
 			TestKit.note(
 				string.format(
-					"compass: eye %.2f studs, body %.0f deg, camera %.0f deg, used %.0f deg",
-					eye,
-					body,
-					cameraDeg,
-					used
+					"compass: view %.0f deg | engine camera %.0f (%.0f off) | body %.0f (%.0f off)",
+					fromView,
+					engineDeg,
+					math.abs(Compass.deltaDeg(fromView, engineDeg)),
+					bodyDeg,
+					math.abs(Compass.deltaDeg(fromView, bodyDeg))
 				)
 			)
-			if eye <= CONFIG.EYE_STUDS then
-				expect(math.abs(Compass.deltaDeg(used, body))).to.be.near(0, 1e-3)
-			else
-				expect(math.abs(Compass.deltaDeg(used, cameraDeg))).to.be.near(0, 1e-3)
-			end
 		end)
 
-		it("agrees with the character's own facing while the camera is first person", function()
-			-- A SECOND INDEPENDENT WITNESS, and the one that caught the real confusion in round 2: at
-			-- spawn the character's root read +Z while the camera read -Z, which is a camera pointing
-			-- the opposite way to the body. In first person the two must agree; when they do not, the
-			-- stock camera is still in charge and the compass is briefly reading it (recorded in
-			-- TASKS.md, not fixed here).
-			local camera = workspace.CurrentCamera
-			local character = player.Character
-			local root = character and character:FindFirstChild("HumanoidRootPart")
-			local head = character and character:FindFirstChild("Head")
-			if camera == nil or root == nil or head == nil then
-				return -- nothing to compare against; not a failure of the compass
-			end
-			local eye = ((camera :: Camera).CFrame.Position - (head :: BasePart).Position).Magnitude
-			if eye > 3 then
-				return -- third person: the camera is deliberately not the body's facing
-			end
-			local cameraDeg = Compass.headingDeg((camera :: Camera).CFrame.LookVector)
-			local bodyDeg = Compass.headingDeg((root :: BasePart).CFrame.LookVector)
-			local apart = math.abs(Compass.deltaDeg(cameraDeg, bodyDeg))
-			-- RECORDED, NOT ASSERTED, and deliberately so: the camera is `src/client/Camera/`'s and
-			-- this file only reads it. MEASURED at spawn, 2026-10-05: 180 degrees apart, stable. The
-			-- note is here so the number is in every harness report until the camera's owner fixes
-			-- it; the compass is already immune (`Compass.headingFrom` takes the body in first
-			-- person), and asserting here would fail the gate for somebody else's defect.
-			TestKit.note(
-				string.format(
-					"compass: camera %.0f deg, body %.0f deg, %.0f apart (the camera is not this file's)",
-					cameraDeg,
-					bodyDeg,
-					apart
-				)
-			)
+		it("falls back to a plain camera when there is no camera system at all", function()
+			local plain = Instance.new("Camera")
+			plain.CFrame = CFrame.lookAt(Vector3.zero, Vector3.new(1, 0, 0))
+			expect(Compass.headingFrom(nil, plain)).to.be.near(90, 1e-3)
+			expect(Compass.headingFrom({}, plain)).to.be.near(90, 1e-3)
+			plain:Destroy()
+		end)
+
+		it("answers 0 rather than erroring with nothing to read", function()
+			expect(Compass.headingFrom(nil, nil)).to.equal(0)
 		end)
 	end)
 

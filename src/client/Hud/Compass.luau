@@ -64,10 +64,6 @@ Compass.CONFIG = {
 	-- and real are not the same picture.
 	PINNED_TRANSPARENCY = 0.45,
 
-	-- How near the camera must sit to the head to count as first person, and so to take its heading
-	-- from the BODY rather than from itself. 3 studs: the first-person camera measures 0.4.
-	EYE_STUDS = 3,
-
 	-- The centre mark: where the player is actually looking.
 	CENTRE_COLOR = Color3.fromRGB(255, 232, 150), -- the same cream the score panel highlights your own row with
 }
@@ -83,6 +79,10 @@ Compass.POINTS = {
 	{ deg = 270, text = "W" },
 	{ deg = 315, text = "NW" },
 }
+
+-- The heading the strip was last drawn at. Held so that a frame with no trustworthy source keeps
+-- the last good answer instead of swinging to a wrong one (task 125 round 3).
+local lastHeading = 0
 
 -- ---------------------------------------------------------------- the arithmetic, pure
 
@@ -104,40 +104,52 @@ function Compass.headingDeg(look: Vector3): number
 	return (degrees + 360) % 360
 end
 
--- WHICH LOOK VECTOR IS "WHERE THE HUNTER IS FACING", and it is NOT always the camera's (task 125
--- round 2).
+-- WHERE THE VIEW IS POINTING, ASKED OF THE SYSTEM THAT OWNS THE VIEW (task 125 round 3).
 --
--- MEASURED IN KAREN'S OWN PLACE, AT SPAWN, STABLE FOR OVER A HUNDRED SECONDS:
---     body   LookVector = (-0.02, 0.00,  1.00)  ->  359 deg  -- north, at the drive
---     camera LookVector = ( 0.00, -0.14, -0.99) ->  180 deg  -- south
--- The character is standing at his post looking north at the birch edge the drive comes through, and
--- `workspace.CurrentCamera.CFrame.LookVector` reads the OPPOSITE WAY. The compass was reporting the
--- camera faithfully, so it read S with the drive pinned behind -- 180 degrees wrong for the player,
--- which is the defect this round was raised about.
+-- THIS TOOK THREE GOES AND BOTH WRONG ANSWERS ARE WORTH WRITING DOWN, because each looks right.
 --
--- WHY THE BODY IS THE TRUTH HERE. In first person the view and the body ARE the same thing by
--- construction -- `Camera.Rig` puts the camera at the head -- so when the two disagree by half a
--- turn, one of them is wrong and it is not the body: `HumanoidRootPart.CFrame.LookVector` is what
--- the player steers and what the gun points along. (The camera owner is `src/client/Camera/`, not
--- this file; a second writer of `CurrentCamera` is a known open item from task 123 and is recorded
--- in TASKS.md rather than fixed here, because the Hud reads the camera and never writes it.)
+--   1. `workspace.CurrentCamera.CFrame.LookVector`. MEASURED at spawn: 180 degrees away from where
+--      the player was looking, and stable. `Camera.Rig` counts FOREIGN WRITES to that property and
+--      has warned about one since task 123 -- so the engine's copy is not reliably the view.
+--   2. The character's `HumanoidRootPart.CFrame.LookVector`. MEASURED by the Director with real
+--      mouse input: forty moves of dx = 25 turned the rendered view right round, and the body's look
+--      stayed at (0, 1) and the strip never moved a pixel. **In first person the camera system turns
+--      the VIEW without turning the BODY**, so a compass driven by the body is nailed to the spot.
 --
--- THIRD PERSON IS DIFFERENT AND IS LEFT ALONE: there the camera is deliberately not the body's
--- facing -- it is swung round the shoulder on purpose -- so the camera is the view and is used.
--- `EYE_STUDS` is how near the camera has to sit to the head to count as first person.
-function Compass.headingFrom(camera: Camera?, character: Model?): number
-	if camera == nil then
-		return 0
-	end
-	local head = character and character:FindFirstChild("Head")
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if head ~= nil and root ~= nil then
-		local eye = (camera.CFrame.Position - (head :: BasePart).Position).Magnitude
-		if eye <= Compass.CONFIG.EYE_STUDS then
-			return Compass.headingDeg((root :: BasePart).CFrame.LookVector)
+-- THE OWNER OF THE VIEW PUBLISHES THE VIEW. `Camera.viewCFrame()` is the CFrame `Rig.apply` last
+-- wrote -- what this system INTENDS, rather than what the property currently holds -- which is the
+-- only source that is both what is rendered and nobody else's to change. One owner, one reader; the
+-- Hud still never writes the camera.
+--
+-- `camera` is the LAST resort and only for a world with no camera system at all: a plain
+-- `Camera` instance, used as it comes.
+function Compass.headingFrom(cameraSystem: any, camera: Camera?): number
+	if cameraSystem ~= nil and type(cameraSystem.viewCFrame) == "function" then
+		local view = cameraSystem.viewCFrame()
+		if view ~= nil then
+			return Compass.headingDeg(view.LookVector)
 		end
 	end
-	return Compass.headingDeg(camera.CFrame.LookVector)
+	-- `CurrentCamera` IS NEVER PASSED IN BY THE HUD, and that is the whole of the Director's rule
+	-- for this round: "if CurrentCamera.CFrame is not what is rendered, do not use it". Handing it in
+	-- as a fallback is how the bug came BACK on the first attempt: before the camera system has
+	-- applied its first frame `viewCFrame()` is nil, the fallback ran, and the strip read S at a view
+	-- that was not pointing south. With nothing trustworthy to read, the strip keeps the heading it
+	-- last had -- a compass that lags by a few frames at spawn is not a compass that lies.
+	--
+	-- `camera` exists for a caller that has its OWN camera and means it: a spec with a plain
+	-- `Instance.new("Camera")`, or a world with no camera system at all.
+	if camera ~= nil then
+		return Compass.headingDeg(camera.CFrame.LookVector)
+	end
+	return lastHeading
+end
+
+-- What the strip is actually drawn at, published so a reader does not have to guess which source
+-- won. It is also an attribute on the frame (see `render`), because a sandboxed `require` from the
+-- harness answers a COPY with empty state and cannot see this.
+function Compass.lastHeadingDeg(): number
+	return lastHeading
 end
 
 -- THE SHORTEST WAY ROUND, in degrees, from `heading` to `bearing`: negative is to the left.
@@ -331,6 +343,10 @@ function Compass.render(headingDeg: number)
 	end
 	local config = Compass.CONFIG
 	stats.renders += 1
+	lastHeading = headingDeg
+	-- ON THE FRAME ITSELF, because MCP's `require` answers a sandboxed COPY with empty state, so the
+	-- only honest way to read what the LIVE compass used is a property of a real Instance.
+	strip:SetAttribute("Heading", headingDeg)
 	for _, mark in ipairs(marks) do
 		local x, onStrip = Compass.offsetPx(headingDeg, mark.deg, config)
 		mark.node.Visible = onStrip

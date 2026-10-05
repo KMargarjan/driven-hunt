@@ -521,4 +521,15 @@ function Camera.viewportCamera(): Camera?
 	return Workspace.CurrentCamera
 end
 
+-- WHERE THE VIEW IS ACTUALLY POINTING (task 125 round 3). `Rig` is the one writer of
+-- `workspace.CurrentCamera` and remembers the CFrame it last applied, so this is the view this
+-- system intends -- which is what a HUD element that has to agree with the picture must read.
+--
+-- NOT `viewportCamera().CFrame`: `Rig.apply` counts foreign writes to that property and has warned
+-- about one since task 123, so the engine's copy is not reliably ours. nil before the first frame
+-- the camera system has applied, and a caller then falls back to whatever it likes.
+function Camera.viewCFrame(): CFrame?
+	return Rig.appliedCFrame()
+end
+
 return Camera
