@@ -116,26 +116,23 @@ ForestTest.EXIT_Z = ForestTest.CENTRE.Z - ForestTest.ROAD.amplitudeStuds - 250
 -- SIDEWAYS: she stands at stand 5, x = 3030. The first spread ran to +-610, so the far ones crossed
 -- 600 studs away and she would never have seen them. These sit within +-330, which at the road is
 -- inside a few seconds' walk of her and well within sight down a 40-stud lane.
--- HOW FAR NORTH EACH HOLDING SITS, AND THEY MOVED IN FOR THE NEW PACE (task 123 round 2). A
--- pushed herd now WALKS at `Boar.CONFIG.PACE.WALK_SPEED` = 4.5 studs/s instead of galloping at 38
--- (Karen: *"they seems walking to fast"*), so the 135-205 studs these sat at would be a 30-45 second
--- walk to the road and the "a crossing every 20 s" the schedule promises would stop being true.
---
--- 60-110 studs is 13-24 s at a walk, which is the 10-30 s window the crossing has to land in, and a
--- herd crowded by the beater covers it faster still at `PACE.TROT_SPEED` = 11.
-ForestTest.HOLDING = {
-	{ name = "west-hollow", offsetX = -300, northStuds = 95, size = 10 },
-	{ name = "centre-thicket", offsetX = -90, northStuds = 80, size = 8 },
-	{ name = "east-ridge", offsetX = 150, northStuds = 90, size = 20 },
-	{ name = "far-east", offsetX = 330, northStuds = 110, size = 25 },
-	{ name = "west-single", offsetX = -170, northStuds = 60, size = 1 },
-	{ name = "east-single", offsetX = 230, northStuds = 70, size = 1 },
-}
-
-function ForestTest.holdingPosition(entry): Vector3
-	local x = ForestTest.CENTRE.X + entry.offsetX
-	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x) + entry.northStuds)
+-- WHERE A WAVE IS RELEASED, relative to the stand the hunter actually locked (task 123 round 8).
+-- With nobody playing, `standX` is the default stand's, which is what the drive used before.
+function ForestTest.wavePoint(standX: number, spec): Vector3
+	local x = standX + (spec.offsetX or 0)
+	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x) + (spec.northStuds or 100))
 end
+
+-- THE NAMED HOLDINGS ARE GONE (task 123 round 8), and what replaced them is above:
+-- `ForestTest.wavePoint` plus the `offsetX`/`northStuds` the SCHEDULE now carries per wave.
+--
+-- They were six fixed points on the map -- west-hollow, centre-thicket, east-ridge, far-east and two
+-- singles, 60 to 110 studs north of the road at x offsets of -300 to +330 from the map's centre --
+-- and the indirection was a name in the schedule looked up in a table. It had to go because every
+-- one of those x values was absolute: stands are 150 studs apart, so a wave released at a fixed
+-- point could be 300 studs from the stand Karen had actually picked, and whether she ever got a
+-- close crossing was luck. The distances they encoded (`northStuds` 60-110, which is 13-24 s at a
+-- walk) are carried forward in the schedule's own numbers.
 
 -- THE AMBIENT DRIVE: ACTION WITHOUT ANOTHER PLAYER.
 --
@@ -146,16 +143,60 @@ end
 -- `turnsBack` IS THE HALF SHE ASKED FOR TWICE. A drive where every animal crosses is a shooting
 -- gallery; the ones that come to the edge, think better of it and go back are what makes a hunter
 -- wait. It is per-entry data so the rhythm is readable rather than random.
+-- EVERY WAVE IS AIMED AT THE HUNTER (task 123 round 8). Karen, 2026-10-05: *"also they has to
+-- cross close to me also / ... they has to cross like from left to right or opositi so I can shoot
+-- straigh also not only on sides"*.
+--
+-- `offsetX` IS RELATIVE TO THE STAND SHE LOCKED, not to the middle of the map. Before this round the
+-- holdings sat at fixed world positions and whether a crossing was near her was luck -- stands are
+-- 150 studs apart, so a wave released at a fixed x could be 300 studs away from the one she picked.
+-- `ForestTest.wavePoint` adds her stand's x to this, so "55 studs west of me" means that wherever
+-- she stands.
+--
+-- `lateral` IS THE PASS ACROSS HER VIEW. She faces NORTH (+Z), so -- and this is the half that is
+-- easy to get backwards -- her RIGHT is -X and her LEFT is +X (a CFrame looking down +Z has
+-- RightVector -X). So a LEFT-TO-RIGHT pass travels from +X to -X, and `"LtoR"` means exactly that.
+-- A lateral wave comes south to `WAVE.lateralDz` first, walks ACROSS her front for
+-- `WAVE.lateralSpan` studs, and only then is pushed over the road -- which is the broadside shot she
+-- asked for. It is a beater POSITION, not a new behaviour: see `ForestTest.beaterPosition`.
+--
+-- `composition` IS AN INDEX INTO `Boar.CONFIG.SOUNDER.COMPOSITIONS`, because who is in a flock is
+-- the boar system's fact and which flock comes next is the drive's.
 ForestTest.SCHEDULE = {
 	intervalSeconds = 20,
-	-- The cycle repeats. `holding` names a `HOLDING` entry; `size` overrides how many of it move.
 	cycle = {
-		{ holding = "east-ridge", size = 6, turnsBack = false, note = "a flock across the middle" },
-		{ holding = "west-single", size = 1, turnsBack = false, note = "one big lone male" },
-		{ holding = "centre-thicket", size = 3, turnsBack = true, note = "three come down and go back" },
-		{ holding = "far-east", size = 8, turnsBack = false, note = "a big flock on the east side" },
-		{ holding = "east-single", size = 1, turnsBack = true, note = "a male thinks better of it" },
-		{ holding = "west-hollow", size = 5, turnsBack = false, note = "five across the west end" },
+		-- Close, straight down across the road: 2 females, 3 males, 4 cubs.
+		{ offsetX = -55, northStuds = 95, composition = 1, turnsBack = false, note = "a mixed flock, close and west" },
+		-- Across her front, left to right, then over the road.
+		{
+			offsetX = 95,
+			northStuds = 115,
+			composition = 3,
+			lateral = "LtoR",
+			turnsBack = false,
+			note = "five males and three females, across the front left to right",
+		},
+		-- Far out on the east, so it is not always the same spot.
+		{ offsetX = 140, northStuds = 100, composition = 4, turnsBack = false, note = "sows and piglets, far east" },
+		-- Across her front the other way.
+		{
+			offsetX = -95,
+			northStuds = 115,
+			composition = 2,
+			lateral = "RtoL",
+			turnsBack = false,
+			note = "two males, across the front right to left",
+		},
+		-- Close again, and this one thinks better of it.
+		{
+			offsetX = 45,
+			northStuds = 90,
+			composition = 5,
+			turnsBack = true,
+			note = "a sow and her young, close, and back",
+		},
+		-- The lone big male, close enough to be worth the barrel.
+		{ offsetX = -40, northStuds = 85, composition = 6, turnsBack = false, note = "one big lone male, close" },
 	},
 	-- HOW FAR SHORT OF THE ROAD A TURNED-BACK GROUP STOPS before it goes home. Close enough for the
 	-- hunter to see it and raise the gun, which is the whole point of letting it refuse.

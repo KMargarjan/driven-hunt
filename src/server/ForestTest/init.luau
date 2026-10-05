@@ -95,9 +95,30 @@ ForestTest.WAVE = {
 	crossTrotPastDz = 35,
 	-- ...and when it is too late to bother: past this far south they are gone and the stage is over.
 	turnGiveUpDz = 45, -- an AVOID takes a few seconds to swing; do not give up while it is working
+	-- THE PASS ACROSS HER FRONT (task 123 round 8). Karen: *"they has to cross like from left to
+	-- right or opositi so I can shoot straigh also not only on sides"*.
+	--
+	-- A lateral wave is pushed SOUTH until it is this far north of the road -- inside the open ground
+	-- she is looking at, far enough out to be a shot and near enough to be one -- and then the beater
+	-- moves to its FLANK and walks it across her view for `lateralSpan` studs before going back
+	-- behind it and putting it over the road.
+	-- 55, AND 85 WAS TRIED AND IS WORSE (task 123 round 8). Both were traced against live waves.
+	--   55: the `LtoR` wave walked across her front from +86 to -16 studs relative to her stand --
+	--       102 studs of broadside, at dz 78 down to 16 -- and then crossed the road 12 studs from
+	--       her. That is the pass Karen asked for.
+	--   85: the same wave PARKED. Centroid at +127, dz 26, unmoved for 37 seconds: entering the
+	--       lateral phase that much earlier leaves the flank beater pushing a herd that has nowhere
+	--       it wants to go, and a herd standing still in front of a gun is worse than one that never
+	--       came across.
+	-- So this is the measured value and the other one is written down rather than re-discovered.
+	lateralDz = 55,
+	lateralSpan = 150, -- studs across her front: from ~95 studs one side to ~55 the other
+	-- The beater stands this far off the flank, inside `SENSE.FLUSH_STUDS` (15) like `pushStuds`,
+	-- because a flank beater has to flush as well as a rear one.
+	lateralPushStuds = 11,
 }
 
-export type Phase = "push" | "turn" | "done"
+export type Phase = "push" | "turn" | "lateral" | "done"
 
 -- A TURN IS DECIDED BY WHERE THEY ARE, NOT BY A STOPWATCH, and that is measured. On a timer at 9
 -- seconds, wave 3 had ALREADY crossed the road at about 8 -- the trace shows it at dz -53 when the
@@ -106,7 +127,13 @@ export type Phase = "push" | "turn" | "done"
 -- the hunter watches them think about it.
 --
 -- `dz` is the herd's distance north of the road: positive north, negative across.
-function ForestTest.wavePhase(elapsed: number, turnsBack: boolean, dz: number?): Phase
+function ForestTest.wavePhase(
+	elapsed: number,
+	turnsBack: boolean,
+	dz: number?,
+	lateral: string?,
+	travelled: number?
+): Phase
 	local wave = ForestTest.WAVE
 	-- A TURN-BACK IS A PUSH THAT STOPS, AND THAT IS WHAT THIS BRAIN CAN ACTUALLY DO.
 	--
@@ -126,6 +153,24 @@ function ForestTest.wavePhase(elapsed: number, turnsBack: boolean, dz: number?):
 	-- reads as a group that came down and thought better of it.
 	--
 	-- WHAT IT IS NOT is Karen's "go back" as an animation of refusal. That gap is in the report.
+	--
+	-- ACROSS HER FRONT FIRST, THEN OVER THE ROAD (task 123 round 8). Three steps and no new state
+	-- machine: come south into the band, walk ACROSS it, then carry on south. `travelled` is how far
+	-- the herd has moved along the lateral axis since the walk began, and the DRIVE measures it
+	-- (`ForestTest.lateralTravel`) so this stays pure and a spec can drive all three steps with no
+	-- boars at all.
+	if lateral ~= nil then
+		if dz ~= nil and dz > wave.lateralDz then
+			return "push" -- still coming south: get into the band she is looking at
+		end
+		if elapsed >= wave.pushSeconds then
+			return "done"
+		end
+		if (travelled or 0) < wave.lateralSpan then
+			return "lateral"
+		end
+		return "push" -- the pass is done; put them over the road
+	end
 	if turnsBack then
 		if dz ~= nil and dz <= wave.turnAtDz then
 			return "done"
@@ -184,20 +229,69 @@ end
 --
 -- It stands behind the REARMOST animal to push, and in front of the FOREMOST to turn -- never
 -- relative to the centroid, which is the middle of a spread nobody is standing in.
+-- WHICH WAY A LATERAL PASS TRAVELS, in world X. Pure, and it is the ONE place the mapping from
+-- Karen's left and right to the world's axes is written down: she faces NORTH (+Z), and a CFrame
+-- looking down +Z has `RightVector` -X -- so her RIGHT is -X, her LEFT is +X, and a LEFT-TO-RIGHT
+-- pass travels from +X toward -X. Getting this backwards would put every "broadside" pass behind
+-- her, so it is a named function rather than a sign buried in an expression.
+function ForestTest.lateralSign(lateral: string?): number
+	if lateral == "LtoR" then
+		return -1
+	elseif lateral == "RtoL" then
+		return 1
+	end
+	return 0
+end
+
+-- HOW FAR A LATERAL WAVE HAS WALKED ACROSS HER FRONT, in studs, or nil before it has reached the
+-- band at all (task 123 round 8). The DRIVE measures it, because the drive owns the wave record;
+-- the pure rule above only has to be told the number.
+--
+-- THE ORIGIN IS LATCHED WHEN THE BAND IS REACHED, not taken from the release point: a wave that
+-- comes south at an angle has already moved in X by the time it arrives, and measuring the span
+-- from where it was RELEASED would end the walk before it had begun. Signed, so drifting back the
+-- way it came does not count as progress.
+function ForestTest.lateralTravel(wave, centre: Vector3, dz: number): number?
+	if wave.lateral == nil then
+		return nil
+	end
+	if wave.lateralFromX == nil then
+		if dz > ForestTest.WAVE.lateralDz then
+			return nil
+		end
+		wave.lateralFromX = centre.X
+	end
+	return (centre.X - wave.lateralFromX) * ForestTest.lateralSign(wave.lateral)
+end
+
+-- THE PARAMETERS ARE NAMED FOR WHAT THEY ACTUALLY RECEIVE (task 123 round 8). They were `rear` and
+-- `front`, and both callers pass the herd's CENTROID and its REARMOST -- so the push was being
+-- staged on the centroid while the signature said rear, and the turn on the rearmost while the
+-- signature said front. The arithmetic below is byte-for-byte what it was; only the names changed,
+-- because a parameter that lies is how the next reader stages a beater in the wrong place.
 function ForestTest.beaterPosition(
+	centre: Vector3,
 	rear: Vector3,
-	front: Vector3,
 	elapsed: number,
 	turnsBack: boolean,
-	dz: number?
+	dz: number?,
+	lateral: string?,
+	travelled: number?
 ): Vector3?
 	local wave = ForestTest.WAVE
-	local phase = ForestTest.wavePhase(elapsed, turnsBack, dz)
+	local phase = ForestTest.wavePhase(elapsed, turnsBack, dz, lateral, travelled)
+	if phase == "lateral" then
+		-- ON THE FLANK THEY CAME FROM, so the push is ACROSS her view and not into it -- and at the
+		-- herd's OWN z, because a beater north of them pushes them south, which is the one thing
+		-- this phase exists to postpone.
+		local sign = ForestTest.lateralSign(lateral)
+		return Vector3.new(centre.X - sign * wave.lateralPushStuds, centre.Y, centre.Z)
+	end
 	if phase == "push" then
-		return rear + Vector3.new(0, 0, wave.pushStuds)
+		return centre + Vector3.new(0, 0, wave.pushStuds)
 	end
 	if phase == "turn" then
-		return front + Vector3.new(0, 0, -wave.aheadStuds)
+		return rear + Vector3.new(0, 0, -wave.aheadStuds)
 	end
 	return nil
 end
@@ -275,7 +369,15 @@ function ForestTest.boarThreats(now: number)
 		local centre, rear = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
 			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
-			local at = ForestTest.beaterPosition(centre :: Vector3, rear :: Vector3, now - wave.at, wave.turnsBack, dz)
+			local at = ForestTest.beaterPosition(
+				centre :: Vector3,
+				rear :: Vector3,
+				now - wave.at,
+				wave.turnsBack,
+				dz,
+				wave.lateral,
+				ForestTest.lateralTravel(wave, centre :: Vector3, dz)
+			)
 			if at then
 				-- `phantom = true` (task 123 round 5): NOBODY IS STANDING HERE. A real driver inside
 				-- `PACE.DRIVER_RUN_STUDS` makes a herd run; this beater is 11 studs behind the
@@ -288,13 +390,18 @@ function ForestTest.boarThreats(now: number)
 	return out
 end
 
-local function holdingByName(name: string)
-	for _, entry in ipairs(Data.HOLDING) do
-		if entry.name == name then
-			return entry
+-- WHERE THE HUNTER IS STANDING, in world X, for aiming the waves at him (task 123 round 8). The
+-- stand he LOCKED; the default stand's x until he has locked one, which is also the answer with
+-- nobody playing at all.
+function ForestTest.hunterStandX(): number
+	-- The LOCKED pick wins: an OPEN one is a hunter still choosing, and aiming a wave at a stand he
+	-- is about to walk away from is worse than aiming at the default.
+	for _, pick in pairs(state.picks) do
+		if pick.lockedAt ~= nil then
+			return Data.standX(pick.index)
 		end
 	end
-	return nil
+	return Data.standX(Data.PICK.defaultIndex)
 end
 
 -- RELEASES ONE WAVE. Returns how many animals it actually put on the ground, which is never assumed
@@ -303,10 +410,6 @@ end
 function ForestTest.release(now: number): (number, string)
 	local spec = ForestTest.waveAt(state.waveIndex + 1)
 	state.waveIndex += 1
-	local entry = holdingByName(spec.holding)
-	if entry == nil then
-		return 0, string.format("wave %d: no holding called %q", state.waveIndex, spec.holding)
-	end
 	local runtime = state.runtime
 	if runtime == nil then
 		return 0, "no runtime"
@@ -322,8 +425,24 @@ function ForestTest.release(now: number): (number, string)
 	if room <= 0 then
 		return 0, string.format("wave %d held: %d of %d boars already out", state.waveIndex, runtime:count(), ceiling)
 	end
-	local size = math.min(spec.size, room)
-	local centre = Data.holdingPosition(entry)
+	-- WHO IS IN THIS FLOCK (task 123 round 8). Karen: *"they move in floks meaning 2 feamles 3 males
+	-- and kids / 2 males or 5 males and 3 famales ect"*. `spec.composition` indexes
+	-- `Boar.CONFIG.SOUNDER.COMPOSITIONS`, because who is in a flock is the boar system's fact and
+	-- which flock comes next is the drive's. A composition carries its own size.
+	local composition = Boar.CONFIG.SOUNDER.COMPOSITIONS[spec.composition]
+	local wanted = if composition then Boar.compositionSize(composition) else (spec.size or 1)
+	local size = math.min(wanted, room)
+	-- ...AND IF THERE IS NOT ROOM FOR THE WHOLE FLOCK the SHAPE is dropped rather than quietly
+	-- half-filled: "five males and three females" arriving as three animals of whichever kind the
+	-- loop reached first is not the flock she asked for.
+	if composition ~= nil and size < wanted then
+		composition = nil
+	end
+	-- AIMED AT THE STAND SHE LOCKED, not at a fixed point on the map (task 123 round 8). Karen:
+	-- *"also they has to cross close to me also"*. Stands are 150 studs apart, so a wave released at
+	-- a fixed x could be 300 studs from the one she picked -- which is why "close" was luck before.
+	local standX = ForestTest.hunterStandX()
+	local centre = Data.wavePoint(standX, spec)
 	-- WHAT THESE TWO ACTUALLY RETURN, read off `Boar` rather than assumed -- the first version of
 	-- this line assumed both gave a count and crashed the whole schedule on the first wave with
 	-- "attempt to compare number < table", so NO wave ever ran:
@@ -347,7 +466,7 @@ function ForestTest.release(now: number): (number, string)
 		-- (`SOUNDER.SPAWN_SPACING`) and then clamps it inside this, so a sounder of 25 needs ~26
 		-- studs of radius to not spawn inside itself. There is no pad to stay on in this world --
 		-- `world.groundAt` raycasts the real terrain for every member.
-		handles = runtime:spawnSounder(centre, size, 90)
+		handles = runtime:spawnSounder(centre, size, 90, composition)
 	end
 	local placed = #handles
 	-- A WAVE RELEASED NEXT TO A BEATER THAT WAS ALREADY WORKING ARRIVES RUNNING (task 123 round 3).
@@ -366,7 +485,7 @@ function ForestTest.release(now: number): (number, string)
 	end
 	if spookedBy ~= nil then
 		for _, handle in ipairs(handles) do
-			runtime:spook(handle.id, Data.holdingPosition(entry))
+			runtime:spook(handle.id, centre)
 		end
 	end
 	if placed > 0 then
@@ -375,6 +494,11 @@ function ForestTest.release(now: number): (number, string)
 			handles = handles,
 			at = now,
 			turnsBack = spec.turnsBack == true,
+			-- THE PASS ACROSS HER FRONT (task 123 round 8), and where it began measuring from:
+			-- `lateralFromX` is latched by `ForestTest.lateralTravel` the first time the herd reaches
+			-- the band, so the span is measured from where the walk STARTED.
+			lateral = spec.lateral,
+			lateralFromX = nil :: number?,
 			id = string.format("beater-%d", state.waveIndex),
 		})
 		state.released += placed
@@ -401,7 +525,13 @@ function ForestTest.retire(now: number)
 		local wave = state.active[index]
 		local centre = ForestTest.herdCentre(wave.handles)
 		local dz = if centre then centre.Z - Data.roadZ(centre.X) else nil
-		local gone = ForestTest.wavePhase(now - wave.at, wave.turnsBack, dz) == "done"
+		local gone = ForestTest.wavePhase(
+			now - wave.at,
+			wave.turnsBack,
+			dz,
+			wave.lateral,
+			if centre then ForestTest.lateralTravel(wave, centre, dz :: number) else nil
+		) == "done"
 		if gone or centre == nil then
 			table.remove(state.active, index)
 		end
@@ -482,7 +612,15 @@ function ForestTest.waveReport(now: number): { string }
 		if centre ~= nil then
 			local elapsed = now - wave.at
 			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
-			local at = ForestTest.beaterPosition(centre :: Vector3, rear :: Vector3, elapsed, wave.turnsBack, dz)
+			local at = ForestTest.beaterPosition(
+				centre :: Vector3,
+				rear :: Vector3,
+				elapsed,
+				wave.turnsBack,
+				dz,
+				wave.lateral,
+				ForestTest.lateralTravel(wave, centre :: Vector3, dz)
+			)
 			local alive = 0
 			for _, handle in ipairs(wave.handles) do
 				if handle and handle.part and handle.part.Parent then

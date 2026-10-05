@@ -632,6 +632,25 @@ Boar.CONFIG = {
 		-- THE OCCASIONAL YOUNG MALE is the one draw here: a yearling still running with its mother.
 		-- It is a MALE-sized animal in a group of cubs, so it is also the thing that makes "aim at
 		-- the big one" a decision rather than a reflex. Karen's dial.
+		-- WHAT A FLOCK IS MADE OF (task 123 round 8). Karen, 2026-10-05: *"they move in floks meaning
+		-- 2 feamles 3 males and kids / 2 males or 5 males and 3 famales ect"*.
+		--
+		-- `MAKEUP` below is the RANDOM shape -- a sow and her young, which is what a sounder drawn
+		-- from nothing should be. These are the NAMED shapes a drive can ask for instead, so a wave
+		-- is a decision ("five males and three females") rather than a size and a dice roll. The
+		-- drive picks from this list in a cycle; `Boar.sounderKinds` turns one into a kind per
+		-- animal, and `Boar.marchOrder` puts them in order (females, cubs, males) exactly as before.
+		--
+		-- AN ALL-MALE GROUP IS A GROUP, not a mistake: `{ males = 2 }` and `{ males = 5, females = 3 }`
+		-- are both Karen's own examples, and the march order simply has nothing to put in front.
+		COMPOSITIONS = {
+			{ females = 2, males = 3, cubs = 4 },
+			{ males = 2 },
+			{ males = 5, females = 3 },
+			{ females = 3, cubs = 6 },
+			{ females = 1, cubs = 4, males = 1 },
+			{ males = 1 }, -- a lone big male, which is what a mature boar actually is
+		},
 		MAKEUP = {
 			SOW = "female",
 			YOUNG = "cub",
@@ -1530,9 +1549,43 @@ Boar.CONFIG.MODEL = {
 -- IT IS NOT THE LEADER THAT IS THE SOW. The leader is whoever is nearest the exit line
 -- (`_chooseLeader`) and it changes while they run; which animal each member IS is decided once, at
 -- the spawn, and never again. A sow that falls behind her cubs is still the sow.
-function Boar.sounderKinds(size: number, rolls: { number }, config)
-	local kinds = {}
+-- HOW MANY ANIMALS A NAMED COMPOSITION IS (task 123 round 8). Pure, and the only place the three
+-- counts are added up, so "the size of this wave" and "who is in it" can never disagree.
+function Boar.compositionSize(composition): number
+	if type(composition) ~= "table" then
+		return 0
+	end
+	return math.max(0, math.floor(composition.females or 0))
+		+ math.max(0, math.floor(composition.cubs or 0))
+		+ math.max(0, math.floor(composition.males or 0))
+end
+
+-- WHO IS IN A SOUNDER. With a `composition` it is a DECISION and no number is drawn at all -- the
+-- counts are the answer (task 123 round 8). Without one it is the old random shape: a sow and her
+-- young, with a chance of a yearling male among them.
+function Boar.sounderKinds(size: number, rolls: { number }, config, composition)
 	local makeup = config.SOUNDER.MAKEUP
+	if type(composition) == "table" then
+		local named = {}
+		for _ = 1, math.max(0, math.floor(composition.females or 0)) do
+			table.insert(named, makeup.SOW)
+		end
+		for _ = 1, math.max(0, math.floor(composition.cubs or 0)) do
+			table.insert(named, makeup.YOUNG)
+		end
+		for _ = 1, math.max(0, math.floor(composition.males or 0)) do
+			table.insert(named, makeup.LONE)
+		end
+		-- WITH `KINDS` OFF EVERY ANIMAL IS STILL THE ONE BOX THIS GAME HAS ALWAYS SPAWNED, because
+		-- the kinds are what the flag turns on -- a composition asks for a shape, not for a flag.
+		if not (config.KINDS ~= nil and config.KINDS.ENABLED == true) then
+			for index = 1, #named do
+				named[index] = config.KINDS and config.KINDS.DEFAULT or "male"
+			end
+		end
+		return named
+	end
+	local kinds = {}
 	local on = config.KINDS ~= nil and config.KINDS.ENABLED == true
 	for index = 1, math.max(0, math.floor(size)) do
 		if not on then
@@ -2891,14 +2944,24 @@ end
 -- and the drive's budget arithmetic can never disagree with the world. A size of 1 is exactly
 -- Runtime:spawn and creates NO sounder record -- which is why the flag-OFF world has no group code
 -- running anywhere: obs.sounder is nil and every existing path applies unchanged.
-function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
+function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?, composition)
 	assert(not self._destroyed, "Boar runtime is destroyed")
+	-- A COMPOSITION IS ALSO THE SIZE (task 123 round 8), and it is read through `Boar.compositionSize`
+	-- rather than added up here, so there is one place that knows what a composition weighs.
+	if type(composition) == "table" then
+		size = Boar.compositionSize(composition)
+	end
 	size = math.floor(tonumber(size) or 0)
 	if size < 1 or #self._boars + size > self._config.maxBoars then
 		return {}
 	end
 	if size == 1 then
-		return { self:spawn(center) }
+		-- ONE ANIMAL IS NOT A SOUNDER, and with a composition it is whatever that composition named
+		-- -- a lone big male for `{ males = 1 }`, which is the one Karen asks for by name.
+		local only = if type(composition) == "table"
+			then Boar.sounderKinds(1, {}, self._config, composition)[1]
+			else nil
+		return { self:spawn(center, only) }
 	end
 
 	local config = self._config
@@ -2956,7 +3019,7 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
 			rolls[index] = self._rng:NextNumber()
 		end
 	end
-	local kinds = Boar.sounderKinds(size, rolls, config)
+	local kinds = Boar.sounderKinds(size, rolls, config, composition)
 
 	local handles = {}
 	for index = 1, size do
