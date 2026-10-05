@@ -963,6 +963,12 @@ return function()
 				-- of them over the plate's exit line at z -40.
 				return { { position = Vector3.new(0, GROUND_Y, 40), kind = "driver" } }
 			end
+			-- ROOM FOR TWELVE (task 129). `Boar.CONFIG.maxBoars` is 8 -- the drive's own ceiling,
+			-- because a real drive releases a sounder at a time -- and a WORLD-WIDE voice ration only
+			-- means anything above it. Raised here by world config, the way the Forest Test raises it
+			-- (`Data.MAX_BOARS`); before task 129 this case asked for twelve and got eight.
+			world.config.maxBoars = 20
+			world.config.SOUND = voicedSound() -- the cue exists on both sides; only the ration differs
 			if not rationed then
 				world.config.SOUND = looseSound()
 			end
@@ -1140,11 +1146,19 @@ return function()
 					break
 				end
 			end
+			local speed = (handle.part.AssemblyLinearVelocity * Vector3.new(1, 0, 1)).Magnitude
+			local gait, rate = Boar.stepSoundFor(speed, CONFIG)
 			TestKit.note(
 				string.format(
-					"boar-shot DIAG: loop after 4 s = %s, sounds = %d",
+					"boar-shot DIAG: loop=%s sounds=%d speed=%.1f gait=%s rate=%.2f stepClip=%s steps_run=%s vol=%.2f",
 					tostring(playing),
-					#((soundsOf(handle) :: Instance):GetChildren())
+					#((soundsOf(handle) :: Instance):GetChildren()),
+					speed,
+					tostring(gait),
+					rate,
+					tostring(handle.stepClip),
+					tostring((soundNamed(handle, "steps_run") :: Sound).IsPlaying),
+					(soundNamed(handle, "steps_run") :: Sound).Volume
 				)
 			)
 			-- It really was making footsteps, or this proves nothing.
@@ -1609,9 +1623,11 @@ return function()
 			expect(steps.run.volume > steps.trot.volume).to.equal(true)
 			expect(steps.trot.volume > steps.walk.volume).to.equal(true)
 
-			-- GRUNTS COME IN AT 60-80, which is the Director's band for the herd's own voice.
-			expect(SOUND.GRUNTS.audibleStuds >= 60).to.equal(true)
-			expect(SOUND.GRUNTS.audibleStuds <= 90).to.equal(true)
+			-- THE GRUNT IS THE FAR CUE NOW (task 123 round 4), and this band was the old one. Karen:
+			-- *"I hear only when it;s close inaf to me if it's far away I don't hear"* -- the answer
+			-- was to swap the two reaches, so the voice carries 160 studs and the hooves 40.
+			expect(SOUND.GRUNTS.audibleStuds >= 120).to.equal(true)
+			expect(SOUND.GRUNTS.audibleStuds > SOUND.STEPS.run.audibleStuds * 2).to.equal(true)
 			expect(Boar.heardAt(SOUND.GRUNTS, 75, CONFIG) > 0).to.equal(true)
 			-- An animal that is WORKING is heard about as far as it is running.
 			expect(SOUND.BREATH.audibleStuds >= 90).to.equal(true)
