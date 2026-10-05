@@ -7,13 +7,10 @@ Code commit: `54d68f46bb87c98d9e5081b7f17682e7ea463dad`
 
 ```
 [harness] PASS: 33/33 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 831a06fbe759608129b15f1fbfdfb2f5abebfb16 (clean tree)
+[harness2] PASS: 35/35 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree)
 ```
 
-The `[harness2]` line is the Director's, run at `831a06f` -- the stack head before this round's
-code commit, which changed `src/server/ForestTest/init.luau`, `src/server/Boar/init.luau`
-and `src/shared/Map/init.luau` only. He runs it: it needs one Studio open, and this round's
-live proof needed two.
+The `[harness2]` line is the Director's, run at the code commit `54d68f4` itself (detached checkout; only these requests differ at the head), 2026-10-06 ~01:30, DEV the only Studio open: server 758 / shooter 146 / driver 140 passed, 0 failed.
 
 **THIS TASK IS ONE OF NINE IN ONE PR** (122-130, `task-130-spawn-view` -> `main`). Director
 decision, recorded in `ESCALATE.md`: no branch below 128 can pass the gate on its own -- DEV's
