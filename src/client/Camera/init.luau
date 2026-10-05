@@ -87,6 +87,8 @@ local stats = {
 	-- drawn since boot (task 96). The first is what a screenshot is checked against; the second says
 	-- the reload was drawn at all.
 	breakAngleDeg = 0,
+	-- How many times the view has been started from the body's facing (task 130): one per spawn.
+	spawnFacings = 0,
 	-- Shots this camera has kicked for, and the largest camera pitch offset any of them reached
 	-- (task 92). The second number is what says the kick is "a bit" rather than a lurch, and the
 	-- client spec asserts both it and the return to zero.
@@ -242,6 +244,34 @@ function Camera.lookAt(point: Vector3): boolean
 	-- "I asked" and "it is on screen" are two different moments and the caller needs the second.
 	pendingLookAt = point
 	stats.lookAtRequests += 1
+	return true
+end
+
+-- THE VIEW STARTS FACING THE WAY THE BODY DOES (task 130).
+--
+-- KAREN'S HUNTER SPAWNED WITH HIS BACK TO THE DRIVE. The Forest Test puts the shooter on the road
+-- facing +Z -- the beaters start 700 studs north of it and push south -- and `Mode.initial` opened
+-- the view at yaw 0, which in this system's convention looks down **-Z**. So the first thing she saw
+-- was the empty south while everything happened behind her. Measured with neon posts on each axis,
+-- in both places, before and after: `.screenshots/t130-forest-spawn-*.png`.
+--
+-- ONE CONVERSION, IN `Mode.yawForLook`, and no world knows about it: the camera follows the BODY, so
+-- a place that spawns its players facing another way is right by construction rather than by a
+-- second rule. It runs once per spawn -- the player's own mouse owns the view from the next frame.
+--
+-- IT IS NOT A SECOND WRITER OF THE CAMERA: this sets the state's yaw, and `Rig.apply` remains the
+-- one thing that writes `workspace.CurrentCamera` (the foreign-write counter is untouched by it).
+function Camera.faceCharacter(): boolean
+	local _, root = characterParts()
+	if root == nil then
+		return false
+	end
+	local yaw = Mode.yawForLook(root.CFrame.LookVector)
+	if yaw == nil then
+		return false
+	end
+	state = Mode.withYaw(state, yaw)
+	stats.spawnFacings += 1
 	return true
 end
 
@@ -435,12 +465,22 @@ function Camera.start()
 
 	table.insert(
 		connections,
-		Players.LocalPlayer.CharacterAdded:Connect(function()
+		Players.LocalPlayer.CharacterAdded:Connect(function(character: Model)
 			-- The engine restores CameraType on respawn, so the rig is re-asserted rather than
 			-- assumed (design section 5.3).
 			acquired, acquireReason = Rig.acquire()
+			-- ...AND THE VIEW STARTS WHERE THE BODY IS FACING (task 130). See `Camera.faceCharacter`.
+			task.spawn(function()
+				if character:WaitForChild("HumanoidRootPart", 10) ~= nil then
+					Camera.faceCharacter()
+				end
+			end)
 		end)
 	)
+	-- THE CHARACTER THAT IS ALREADY THERE, because `CharacterAdded` has already fired for the first
+	-- spawn by the time this module starts on a slow client -- and that first spawn is the one Karen
+	-- sees (task 130).
+	Camera.faceCharacter()
 
 	table.insert(
 		connections,
