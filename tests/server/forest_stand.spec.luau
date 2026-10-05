@@ -28,10 +28,14 @@ return function()
 				local stand = Data.standPosition(index)
 				worst = math.max(worst, math.abs(stand.Z - Data.roadZ(stand.X)))
 			end
-			-- The road is a sine curve and a stand's z is READ off it, so this is exact arithmetic
-			-- rather than a tolerance about geometry: anything above float noise means two
-			-- definitions of where the road is.
-			expect(worst < 1e-4).to.equal(true)
+			-- A STAND'S z IS READ OFF THE CURVE, so the only difference between the two is the
+			-- FLOAT32 a `Vector3` stores: this world sits at z = -2097, and float32 carries about
+			-- seven digits, so a round trip there costs ~1e-4 studs. MEASURED on this commit, in the
+			-- live module: 0.000110, 0.000043, 0.000106, 0.000020, 0.000000 and back out again --
+			-- symmetric about the middle stand, which is what a rounding error looks like and what a
+			-- second definition of the road would not. The bound is a thousandth of a stud: tight
+			-- enough to catch a real disagreement, loose enough not to assert float32 away.
+			expect(worst < 1e-3).to.equal(true)
 			for index = 2, Data.STAND_COUNT do
 				local gap = Data.standX(index) - Data.standX(index - 1)
 				expect(math.abs(gap - Data.STAND_SPACING) < 1e-6).to.equal(true)
@@ -109,13 +113,13 @@ return function()
 
 		it("walks a lateral wave ACROSS her front before it goes over the road", function()
 			-- Coming south, still too far north to be worth watching: keep pushing.
-			expect(ForestTest.wavePhase(1, false, WAVE.lateralDz + 10, "left", 0)).to.equal("push")
+			expect(ForestTest.wavePhase(1, false, WAVE.lateralDz + 10, "LtoR", 0)).to.equal("push")
 			-- In the band and the pass has not been walked yet: across.
-			expect(ForestTest.wavePhase(1, false, WAVE.lateralDz - 1, "left", 0)).to.equal("lateral")
+			expect(ForestTest.wavePhase(1, false, WAVE.lateralDz - 1, "LtoR", 0)).to.equal("lateral")
 			-- The pass is done: over the road.
-			expect(ForestTest.wavePhase(1, false, WAVE.lateralDz - 1, "left", WAVE.lateralSpan)).to.equal("push")
+			expect(ForestTest.wavePhase(1, false, WAVE.lateralDz - 1, "LtoR", WAVE.lateralSpan)).to.equal("push")
 			-- Out of time is out of time, whatever it was doing.
-			expect(ForestTest.wavePhase(WAVE.pushSeconds, false, WAVE.lateralDz - 1, "left", 0)).to.equal("done")
+			expect(ForestTest.wavePhase(WAVE.pushSeconds, false, WAVE.lateralDz - 1, "LtoR", 0)).to.equal("done")
 		end)
 
 		it("never answers a phase that no longer exists", function()
@@ -133,21 +137,25 @@ return function()
 
 	describe("which way a lateral wave walks", function()
 		it("reads a side as a sign, and anything else as none", function()
-			expect(ForestTest.lateralSign("left")).to.equal(-1)
-			expect(ForestTest.lateralSign("right")).to.equal(1)
+			-- THE WAVE SPECS NAME THE DIRECTION OF TRAVEL, not a side: "LtoR" is a herd walking from
+			-- her left to her right (`src/shared/ForestTest/init.luau`), and the sign is the flank
+			-- the BEATER takes, which is the one they came from.
+			expect(ForestTest.lateralSign("LtoR")).to.equal(-1)
+			expect(ForestTest.lateralSign("RtoL")).to.equal(1)
 			expect(ForestTest.lateralSign(nil)).to.equal(0)
+			expect(ForestTest.lateralSign("sideways")).to.equal(0)
 		end)
 
 		it("puts the beater on the flank they came from, at the herd's own z", function()
 			local centre = Vector3.new(100, 5, -600)
-			local at = ForestTest.beaterPosition(centre, 1, false, ForestTest.WAVE.lateralDz - 1, "left", 0)
+			local at = ForestTest.beaterPosition(centre, 1, false, ForestTest.WAVE.lateralDz - 1, "LtoR", 0)
 			expect(at).to.be.ok()
 			-- A beater NORTH of them pushes them south, which is the one thing the lateral phase
 			-- exists to postpone: it stands beside them, not behind them.
 			expect(math.abs((at :: Vector3).Z - centre.Z) < 1e-6).to.equal(true)
 			expect((at :: Vector3).X > centre.X).to.equal(true)
 			-- ...and the mirror.
-			local other = ForestTest.beaterPosition(centre, 1, false, ForestTest.WAVE.lateralDz - 1, "right", 0)
+			local other = ForestTest.beaterPosition(centre, 1, false, ForestTest.WAVE.lateralDz - 1, "RtoL", 0)
 			expect((other :: Vector3).X < centre.X).to.equal(true)
 		end)
 
