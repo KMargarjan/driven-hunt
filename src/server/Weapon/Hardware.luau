@@ -459,12 +459,21 @@ end
 -- Every gun already in a hand, upgraded. Walks the players rather than a table of this module's own,
 -- for the same reason `toolsOf` does: a Tool nobody recorded is still a Tool a player is looking at.
 -- NEVER YIELDS, so it is safe from the arming sweep and from a boot line.
-function Hardware.upgradeAll(): number
+-- `after` IS CALLED ONCE PER GUN THIS PASS ACTUALLY UPGRADED (task 123 round 9), with the player it
+-- belongs to. It exists because of Karen's *"There is no weapon something is broken"*: when the
+-- barrels template lands AFTER the gun was handed out -- measured in her session at 2096 ms against
+-- a 416 ms handle -- the upgraded Tool ended up in the BACKPACK, and she stood at the stand with
+-- empty hands. Putting it back in the hand is `Weapon`'s decision, not this module's: `AUTO_EQUIP`
+-- lives there, and `Hardware.upgrade`'s own promise is that it is blind to everything but the look.
+function Hardware.upgradeAll(after: ((Player, Tool) -> ())?): number
 	local upgraded = 0
 	for _, player in ipairs(Players:GetPlayers()) do
 		for _, tool in Hardware.toolsOf(player) do
 			if Hardware.upgrade(tool) then
 				upgraded += 1
+				if after then
+					after(player, tool)
+				end
 			end
 		end
 	end

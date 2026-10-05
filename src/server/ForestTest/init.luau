@@ -515,7 +515,19 @@ function ForestTest.release(now: number): (number, string)
 		)
 	end
 	return placed,
-		string.format("wave %d: %s, %d animal(s) -- %s%s", state.waveIndex, spec.holding, placed, spec.note, how)
+		-- `spec.holding` IS GONE (task 123 round 9, and it was my own round-8 breakage): round 8
+		-- removed the named holdings and this line still formatted one, so every single release
+		-- raised "invalid argument #3 to 'format' (string expected, got nil)" and the schedule died
+		-- inside `step`. The wave is described by what it now HAS -- where it was aimed, relative to
+		-- the hunter's stand, and what was in it.
+		string.format(
+			"wave %d: %+d studs from the stand, %d animal(s) -- %s%s",
+			state.waveIndex,
+			spec.offsetX or 0,
+			placed,
+			spec.note,
+			how
+		)
 end
 
 -- Drops waves whose beater has gone, and waves with nothing left to push. The wave's surviving
