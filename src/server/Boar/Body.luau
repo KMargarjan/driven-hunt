@@ -47,6 +47,7 @@
 -- Design: docs/design/boar-ai.md (section 6), docs/design/hit-zones.md (sections 4, 7)
 -- Note:   docs/research/2026-09-24-boar-ai.md, docs/research/2026-09-25-hit-zones.md,
 --         docs/research/2026-10-03-boar-skinned-model.md
+local ContentProvider = game:GetService("ContentProvider")
 local RunService = game:GetService("RunService")
 
 local Body = {}
@@ -1452,10 +1453,35 @@ function Body.warmAssets(handle, config)
 			track:Play(0, 0, 0) -- no fade, NO WEIGHT, no speed: fetched, and invisible
 		end
 	end
+	-- THE SOUNDS ARE FETCHED, NOT PLAYED (task 126 round 2).
+	--
+	-- THE DIRECTOR'S SMOKE COUNTED 67 PLAYING SOUNDS WITH 34 BOARS OUT, against task 123's 1-3, and
+	-- read it as the footsteps escaping the voice ration. THEY HAD NOT -- measured, the steady state
+	-- is `steps=1` and `total<=3` across a whole 125 s run, and the spike was THIS LOOP: at the
+	-- sampled instant, 8 of EVERY ONE of the eleven sound names, which is eight freshly-released
+	-- boars times eleven sounds and the signature of a pre-roll rather than of hooves. Task 126 made
+	-- it visible by moving the footsteps to `rbxasset://` engine assets, which load on the same frame
+	-- where a marketplace id was still loading and so not yet `IsPlaying`.
+	--
+	-- They were SILENT (`Volume = 0`), so this was never audible -- but a silent Sound still holds a
+	-- voice, and a count nobody can read is a measurement nobody can use.
+	--
+	-- `ContentProvider:PreloadAsync` IS THE THING THAT EXISTS FOR THIS: it fetches an asset without
+	-- playing it, which is the whole of what the pre-roll was for ("make the client fetch every clip
+	-- and every sound BEFORE the first shot needs one" -- the comment this replaces). It is spawned
+	-- because it YIELDS, and `warmAssets` is called from `Body.create` on a server step.
+	--   https://create.roblox.com/docs/reference/engine/classes/ContentProvider#PreloadAsync
+	-- The ANIMATION half above still plays its tracks: a track is not an asset request, it is how a
+	-- clip's own asset is resolved, and nothing in this round measured it as a cost.
+	local list = {}
 	for _, sound in pairs(handle.sounds) do
-		sound.Volume = 0
-		sound:Play()
+		table.insert(list, sound)
 	end
+	task.spawn(function()
+		pcall(function()
+			ContentProvider:PreloadAsync(list)
+		end)
+	end)
 	handle.warmFor = config.MODEL.WARM_SECONDS
 	return true
 end

@@ -533,7 +533,16 @@ return function()
 					warm += 1
 				end
 			end
-			expect(warm > 0).to.equal(true) -- it really did pre-roll
+			-- NOTHING IS PRE-ROLLED ANY MORE, AND THAT IS THE POINT (task 126 round 2). The warm-up
+			-- used to PLAY every sound at volume 0 to make the client fetch it; it now hands the list
+			-- to `ContentProvider:PreloadAsync`, which fetches without playing. The Director's smoke
+			-- counted 67 playing Sounds with 34 boars out and read it as the footstep ration failing
+			-- -- it was this loop, 8 of every one of eleven sound names on one freshly-released wave.
+			-- A silent Sound is still a voice, and a count nobody can read is a measurement nobody
+			-- can use. So what is asserted is the opposite of what it was: no sound is playing
+			-- silently, and the two things the pre-roll was FOR -- every track built, every volume at
+			-- its configured value -- are checked exactly as before, below.
+			expect(warm).to.equal(0)
 			local clips = 0
 			for _ in pairs(MODEL.CLIPS) do
 				clips += 1
@@ -553,7 +562,11 @@ return function()
 				expect(math.abs(sound.Volume - SOUND.STEPS[gait].volume) < 1e-5).to.equal(true)
 			end
 			TestKit.note(
-				string.format("boar-shot: %d sound(s) pre-rolled, all cooled by %.2f s", warm, MODEL.WARM_SECONDS)
+				string.format(
+					"boar-shot: %d sound(s) pre-rolled (preloaded instead, task 126), all volumes back by %.2f s",
+					warm,
+					MODEL.WARM_SECONDS
+				)
 			)
 			runtime:destroy()
 		end)

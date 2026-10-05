@@ -911,10 +911,14 @@ Boar.CONFIG.MOVE = {
 	-- correction is degrees on the clock. The line is a third tighter and the turning is up by the
 	-- same sort of margin.
 	--
-	-- IT IS SHIPPED **ON**, because the line is the thing she described twice and the circles she
-	-- described once; and it is left as ONE WORD so that if she says the opposite after playing it,
-	-- the answer is `FILE = false` and no code change at all.
-	FILE = true,
+	-- IT IS SHIPPED **OFF** (Director, 2026-10-05, round 2): the circles are Karen's explicit
+	-- complaint, the frames showed that the file does not read as a line from the stand anyway, and
+	-- half the turning is worth more than a third of the gap. A real line comes back as its own task
+	-- -- follow-the-leader along a PATH, rather than steering at a point that is itself moving, which
+	-- is what makes a file a weave.
+	--
+	-- Everything the file needs is still here and still tested; this one word is the whole switch.
+	FILE = false,
 	-- CENTRE TO CENTRE, and the arithmetic is written out because the Director's figure is a GAP:
 	-- "1.5-3 studs between animals" with a 5.5-stud body (`BODY_SIZE.Z`) is 7.0 to 8.5 centre to
 	-- centre, so 7.5 is a 2.0-stud gap -- a boar's nose about a third of a body behind the tail in
