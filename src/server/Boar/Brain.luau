@@ -491,6 +491,13 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- reads it, and there is no setter.
 	self._perception = nil :: any
 
+	-- TASK 127: the order the drive is giving this animal right now -- a point, a speed and a
+	-- dead-man's timer. nil/0 means "nobody is driving me", which is every world but the Forest
+	-- Test's line mode and every animal in it that is not in a line.
+	self._orderPoint = nil :: Vector3?
+	self._orderSpeed = 0
+	self._orderFor = 0
+
 	-- Which way a crippled boar circles, chosen once when its back end goes (task 116).
 	self._crippleTurn = nil :: number?
 
@@ -592,7 +599,14 @@ function Brain:_outcome(position: Vector3): string?
 	-- AVOID COUNTS AS ESCAPING TOO (task 118, design section 3.4). The line is the line: how the
 	-- animal got over it does not change that it is over it, and the drive scores on `Despawned`'s
 	-- reason. With `SENSE.ENABLED` off the state is unreachable, so this adds nothing to today.
-	if (self._state == "FLEE" or self._state == "WOUNDED" or self._state == "AVOID") and position.Z <= field.exitZ then
+	-- ...AND AN ORDERED ANIMAL ESCAPES TOO (task 127). Karen: *"once they in another side of road they
+	-- run away"* -- a line walks its route to the exit in no particular mood, so without this it
+	-- would reach the line and stand there. The line is the line: how the animal got over it does not
+	-- change that it is over it.
+	if
+		(self._state == "FLEE" or self._state == "WOUNDED" or self._state == "AVOID" or self:ordered())
+		and position.Z <= field.exitZ
+	then
 		return "escaped"
 	end
 	if
@@ -1218,6 +1232,35 @@ function Brain:check(seconds: number?): boolean
 	return true
 end
 
+-- WALK TO THIS POINT AT THIS SPEED, AND DECIDE NOTHING (task 127). Karen: *"imagine they come from
+-- one side in one line and crossing road thats it"*.
+--
+-- The same shape as `urge`, `spook` and `check`: the drive states a need and the Brain resolves it.
+-- It is re-issued every step by the caller and expires by itself (`LINE.ORDER_SECONDS`), so a wave
+-- that retires, or an animal that leaves it, becomes an ordinary boar again without anybody having
+-- to remember to cancel.
+--
+-- IT DOES NOT OVERRIDE DYING. A DOWN, GONE or CRIPPLED animal ignores it, because those branches of
+-- `step` return before this one is read -- a carcass does not walk to a waypoint.
+function Brain:leadTo(point: Vector3, speed: number): boolean
+	local line = self._config.LINE
+	if line == nil or line.ENABLED ~= true then
+		return false
+	end
+	local state = self._state
+	if state == "GONE" or state == "DOWN" or state == "CRIPPLED" then
+		return false
+	end
+	self._orderPoint = flat(point)
+	self._orderSpeed = math.max(0, speed)
+	self._orderFor = line.ORDER_SECONDS
+	return true
+end
+
+function Brain:ordered(): boolean
+	return self._orderFor > 0 and self._orderPoint ~= nil
+end
+
 function Brain:checking(): boolean
 	return self._checkFor > 0
 end
@@ -1418,6 +1461,7 @@ function Brain:step(dt: number, obs)
 	-- them is ever set, so this is three subtractions and nothing else.
 	self._flightFor = math.max(0, self._flightFor - dt)
 	self._whiskerFor = math.max(0, self._whiskerFor - dt)
+	self._orderFor = math.max(0, self._orderFor - dt)
 	self._checkFor = math.max(0, self._checkFor - dt)
 	-- HOW FAR THE FLIGHT HAS RUN, which is what ends it: distance covered, never a clock.
 	if self._flightHeading ~= nil then
@@ -1572,7 +1616,27 @@ function Brain:step(dt: number, obs)
 
 	local desiredDirection, desiredSpeed
 	local stuckTurn = nil :: number?
-	if self._checkFor > 0 then
+	-- ORDERED (task 127). It is tested FIRST because it outranks every mood: a line crossing a road
+	-- does not stop to look at the edge, does not blend with its sounder and does not pick its own
+	-- route. The states above this -- despawn, carcass, hit, collapse, CRIPPLED -- already returned.
+	local ordered = self:ordered()
+	if ordered then
+		local target = self._orderPoint :: Vector3
+		local toTarget = target - flat(position)
+		local line = config.LINE
+		if toTarget.Magnitude <= line.ARRIVE_STUDS then
+			-- ARRIVED: hold the heading and stop, rather than jittering on top of the point.
+			desiredDirection = self._desired
+			desiredSpeed = 0
+		else
+			desiredDirection = unit(toTarget, self._desired)
+			desiredSpeed = self._orderSpeed
+		end
+		-- The wound still slows it: an animal bleeding out does not keep station.
+		if obs.wound and obs.wound.speedScale then
+			desiredSpeed *= obs.wound.speedScale
+		end
+	elseif self._checkFor > 0 then
 		-- STOPPED AT THE EDGE, LOOKING THE WAY IT IS GOING (task 126). Karen: *"they can stop before
 		-- entering the road"*. It is ALERT's own shape -- a zero setpoint and the facing left alone
 		-- -- without entering ALERT, because ALERT is about a THREAT and has its own timers, its own
@@ -1757,7 +1821,12 @@ function Brain:step(dt: number, obs)
 	-- ROUND THE TRUNK FIRST (task 123 round 3), so every state -- idle, avoiding, fleeing -- gets
 	-- the same answer to "something solid is in front of me" and the blends above do not each need
 	-- their own.
-	if obs.whisker ~= nil then
+	-- NO WHISKERS WHILE ORDERED (task 127), and the Director's brief says so in as many words: the
+	-- route was computed by `PathfindingService` against the same trunks the whiskers would find, and
+	-- a follower is walking where the leader already walked. A 55-degree deflection on top of that is
+	-- an animal arguing with a path that was already correct -- and it is what takes it off the trail
+	-- and into the tree beside it.
+	if obs.whisker ~= nil and not ordered then
 		-- WHICH WAY ROUND, DECIDED ONCE PER OBSTACLE (task 126). While `WHISKER_HOLD_SECONDS` has not
 		-- run out the side is held, so a flickering pair of side casts cannot swap a 55-degree
 		-- deflection every frame and leave the animal turning on the spot.
@@ -1795,7 +1864,7 @@ function Brain:step(dt: number, obs)
 	-- So this is "the FIRST time anyone noticed", against the flee branch's second, and it reuses
 	-- that branch's own `stuckTurn` -- which is applied to `_desired` AFTER the slew, so it
 	-- persists instead of being smoothed away over the next third of a second.
-	if stuck and self._stuckCount >= 1 and config.PACE ~= nil and config.PACE.ENABLED == true then
+	if stuck and self._stuckCount >= 1 and not ordered and config.PACE ~= nil and config.PACE.ENABLED == true then
 		stuckTurn = stuckTurn or (self._whiskerSide * math.pi / 2)
 		self._waypoints = nil -- whatever the route said, it leads into this
 	end
@@ -1821,6 +1890,11 @@ function Brain:step(dt: number, obs)
 			degrees = pace.RUN_TURN_DEG
 		elseif self._speed >= config.MODEL.TROT_FROM then
 			degrees = pace.TROT_TURN_DEG
+		end
+		if ordered then
+			-- A ROUTE'S CORNER IS REAL, so it may be taken at a real rate: `LINE.TURN_SCALE` above
+			-- the gait's own cap. Still a cap, and still per gait -- a walking boar does not pivot.
+			degrees *= config.LINE.TURN_SCALE
 		end
 		turnRate = math.rad(degrees)
 		local dot = math.clamp(self._desired:Dot(unit(desiredDirection, self._desired)), -1, 1)

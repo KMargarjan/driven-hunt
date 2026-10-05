@@ -869,6 +869,36 @@ Boar.CONFIG.PACE = {
 	SPOOK_MEMORY_SECONDS = 5,
 }
 
+-- WALKING WHERE YOU ARE TOLD (task 127). Karen, 2026-10-05: *"imagine they come from one side in one
+-- line and crossing road thats it"*.
+--
+-- THE WORLD DRIVES, THE BRAIN EXECUTES, and that is the same door `urge`, `spook` and `check`
+-- already use -- only this one carries a POINT and a SPEED instead of a mood. The drive owns the
+-- route (it is the thing that knows where the road is); the Brain owns how an animal turns and
+-- accelerates toward a point, which is what it has always owned.
+--
+-- WHY A MODE AT ALL, rather than more steering: three rounds of task 126 measured what steering does
+-- in a wood -- it wanders, it circles, and it brushes trunks -- and Karen's answer was not "steer
+-- better", it was *"it's simple"*. An animal in a line does not decide anything: it walks where the
+-- one in front walked. So in this mode every blend is switched OFF: no whiskers, no route of its
+-- own, no sounder cohesion, no flee vector.
+--
+-- BORN OFF, like every block before it, and switched on by the world that wants it.
+Boar.CONFIG.LINE = {
+	ENABLED = false,
+	-- HOW LONG AN ORDER LASTS without being renewed. The drive re-issues every step, so this is a
+	-- dead-man's handle: if the drive stops driving -- the wave retired, the animal left it -- the
+	-- animal goes back to being an ordinary boar within half a second instead of walking to a point
+	-- nobody is updating any more.
+	ORDER_SECONDS = 0.6,
+	-- Inside this of the ordered point, stop rather than jitter on top of it.
+	ARRIVE_STUDS = 1.0,
+	-- An ordered animal still turns at its gait's rate (`PACE.*_TURN_DEG`) -- it is an animal, not a
+	-- tram -- but it may turn HARDER than one steering for itself, because it is following a route
+	-- that was already checked for trunks and a sharp corner in that route is real.
+	TURN_SCALE = 1.6,
+}
+
 -- HOW A DRIVEN SOUNDER MOVES (task 126). Karen, 2026-10-05, in one sentence: *"so they comming we
 -- can hear them as now is / then they can stop before entering the road or walk or trot if there are
 -- spook or shoot they run and run straigh like in real life"*. That is four states -- approach,
@@ -3469,6 +3499,36 @@ function Runtime:leads(id: string): boolean
 		end
 	end
 	return false
+end
+
+-- WALK TO THIS POINT AT THIS SPEED (task 127), through the same door as `urge`, `spook` and `check`.
+-- The drive re-issues it every step; it expires by itself. Answers false for an animal that is not
+-- here, is dying, or is in a world with `LINE.ENABLED` off.
+function Runtime:leadTo(id: string, point: Vector3, speed: number): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return entry.brain:leadTo(point, speed) == true
+		end
+	end
+	return false
+end
+
+-- Where an animal is and what it is doing, for the drive that is steering a line: it needs the
+-- leader's real speed to pace the followers, and it needs to know an animal has died or gone.
+function Runtime:statusOf(id: string)
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			local part = entry.body and entry.body.part
+			return {
+				position = Body.position(entry.body),
+				speed = flatOf(Body.velocity(entry.body)).Magnitude,
+				state = entry.brain:state(),
+				kind = entry.body and entry.body.kind,
+				alive = part ~= nil and part.Parent ~= nil and part:GetAttribute("Carcass") ~= true,
+			}
+		end
+	end
+	return nil
 end
 
 -- THE EDGE CHECK, through the same door `urge` and `spook` use (task 126). Karen: *"they can stop

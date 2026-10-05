@@ -181,6 +181,74 @@ end
 -- 300 seconds is the Director's number: about fifteen waves at the 20 s interval.
 ForestTest.DRIVE = { seconds = 300 }
 
+-- ONE SIDE TO THE OTHER, IN A LINE (task 127). Karen, 2026-10-05: *"imagine they have to go from one
+-- side to another / crossing roud with one line could be 2 i line ect how in real life ... imagine
+-- they come from one side in one line and crossing road thats it"* -- and, about the whole thing,
+-- *"it's simple"*.
+--
+-- THIS REPLACES THE WAVE BEHAVIOUR AND DOES NOT DELETE IT. With `enabled = false` the world does
+-- exactly what tasks 122, 123 and 126 left it doing -- pushes, turn-backs, lateral passes, phantom
+-- beaters -- and every one of those code paths is still there and still tested. One word switches
+-- between them, because Karen has accepted parts of the old behaviour before and may want them back.
+ForestTest.LINE = {
+	enabled = true,
+
+	-- HOW MANY LINES. *"could be 2 i line"* -- the Director's figure: about a quarter of waves come
+	-- as two parallel lines, the rest as one.
+	twoLineChance = 0.25,
+	-- Two leaders this far apart across the direction of travel. 5 studs is a body's width plus a
+	-- gap: close enough to read as one group, far enough that the two files do not merge.
+	lineGapStuds = 5,
+
+	-- NOSE TO TAIL IS 3 STUDS, AND THE STATION SPACING IS THEREFORE 8.5, because a boar is 5.5 studs
+	-- long (`Boar.CONFIG.BODY_SIZE.Z`). The Director's figure is the GAP a hunter sees; this number is
+	-- centre to centre, and the two are a body apart.
+	--
+	-- MEASURED, AND THE FIRST VERSION HAD IT WRONG. With `spacingStuds = 3` as a centre-to-centre
+	-- station, eight 5.5-stud bodies were asked to stand 3 studs apart -- so they overlapped by 2.5
+	-- studs each and the physics solver spent every frame shoving them out of one another. The line
+	-- never settled: nose-to-nose gaps came out at a 9.9-stud median with a p90 of 176, 29 trunk
+	-- contacts and 23 animals that moved less than a stud in three seconds. None of that was the
+	-- following rule; all of it was eight animals standing inside each other.
+	spacingStuds = 8.5,
+	-- How far the leader walks between breadcrumbs. 1 stud is a third of the spacing, so a follower's
+	-- station is interpolated between crumbs that are always close together.
+	crumbStuds = 1,
+	-- Inside this of its station a follower just matches the leader's speed; outside it, it closes at
+	-- +-`catchup`. +-20 % is the Director's clamp: a line that closes gently instead of concertinaing.
+	stationToleranceStuds = 1.5,
+	catchup = 0.2,
+
+	-- THE PACE OF A WAVE, drawn once when it is released. *"then trot sometimes walk sometimes run"*
+	-- -- so a trot is the common case and the other two are the variation. Weights, not percentages,
+	-- so adding a fourth is one row.
+	paceMix = {
+		{ pace = "walk", weight = 25 },
+		{ pace = "trot", weight = 55 },
+		{ pace = "run", weight = 20 },
+	},
+
+	-- WHERE A LINE STARTS: this far north of the road, in the trees on the drive side.
+	spawnNorthStuds = 180,
+	-- ...and how far east or west of the hunter's own stand it crosses. Task 123 round 8's close/far
+	-- choice, kept: some waves cross in front of her and some give her a longer shot.
+	crossOffsets = { -70, -35, 20, 55, 95 },
+	-- The line is spawned pointing at its crossing point, so the first thing a hunter sees is a file
+	-- already aimed at the road rather than a group turning round.
+	spawnSpreadStuds = 3,
+
+	-- STUCK IS ZERO, AND THIS IS HOW IT IS CAUGHT. Karen: *"also I saw that some boars stuck in
+	-- tree"*. An animal that has moved less than a stud in three seconds while it was asked to move
+	-- is re-pathed (a leader) or snapped back onto the trail (a follower), and every occurrence is
+	-- counted so "zero" is a number in the report rather than a hope.
+	stuckSeconds = 3,
+	stuckStuds = 1,
+
+	-- How long a line lives before the drive gives up on it, whatever it is doing. A route of about
+	-- 600 studs at a walk (4.5) is 130 s; this is the ceiling that stops a wedged wave living for ever.
+	maxSeconds = 150,
+}
+
 ForestTest.SCHEDULE = {
 	intervalSeconds = 20,
 	cycle = {

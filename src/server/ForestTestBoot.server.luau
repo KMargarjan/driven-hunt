@@ -99,6 +99,13 @@ model.RUN_FROM = (Boar.CONFIG.TROT_SPEED + pace.RUN_SPEED) / 2
 local move = table.clone(Boar.CONFIG.MOVE)
 move.ENABLED = true
 
+-- ...AND WALKING WHERE THE DRIVE SAYS (task 127). Karen: *"imagine they come from one side in one
+-- line and crossing road thats it"*. `Boar.CONFIG.LINE` is the mode in which an animal stops deciding
+-- and simply walks to the point it was given; the drive computes the route and the trail. Born off,
+-- turned on here, a full clone with one value flipped like every block before it.
+local lineMode = table.clone(Boar.CONFIG.LINE)
+lineMode.ENABLED = true
+
 local world = Boar.defaultWorld(field)
 -- WHERE THIS WORLD'S GROUND IS, per position. See `ForestTest.groundAt`: `field.groundY` is one
 -- number and this terrain climbs 56 studs in 400, so without this every released boar was spawned
@@ -111,6 +118,7 @@ world.config = {
 	KINDS = { ENABLED = true },
 	PACE = pace,
 	MOVE = move,
+	LINE = lineMode,
 	-- 8 IS THE DRIVE'S CEILING AND IT IS NOT THIS WORLD'S. MEASURED from the server console:
 	-- "wave 5 held: 8 of 8 boars already out" -- waves 1 to 4 filled the world and every wave after
 	-- them was refused, so the schedule ran but nothing new ever appeared. `Boar.CONFIG.maxBoars`

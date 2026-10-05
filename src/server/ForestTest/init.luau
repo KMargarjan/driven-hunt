@@ -22,6 +22,7 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
+local PathfindingService = game:GetService("PathfindingService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
@@ -29,6 +30,8 @@ local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 -- stimulus -- so "was a driver already pushing here" uses the animal's own radius rather than a
 -- second copy of it. `Boar` does not require this module, so there is no cycle.
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+
+local Line = require(script.Line)
 
 local ForestTest = {}
 ForestTest.Data = Data
@@ -370,6 +373,12 @@ local state = {
 	active = {} :: { { centre: Vector3, handles: { any }, at: number, turnsBack: boolean, id: string } },
 	picks = {} :: { [number]: { index: number, lockedAt: number? } },
 	released = 0,
+	-- TASK 127. Declared here rather than springing into existence in `start`, so `stats()` on a
+	-- module that has not been started -- which is exactly what a harness query gets, because MCP's
+	-- `require` answers a fresh copy -- reads zeros instead of indexing nil.
+	lines = {} :: { any },
+	rng = Random.new(),
+	stuck = 0,
 }
 
 function ForestTest.stats()
@@ -377,6 +386,9 @@ function ForestTest.stats()
 		started = state.started,
 		waves = state.waveIndex,
 		released = state.released,
+		-- TASK 127: what the line mode is doing, so the proof reads numbers rather than inferring them.
+		lines = #(state.lines or {}),
+		stuck = state.stuck or 0,
 		active = #state.active,
 		boars = if state.runtime then state.runtime:count() else 0,
 	}
@@ -651,6 +663,10 @@ function ForestTest.start(runtime, now: number)
 	state.waveIndex = 0
 	state.released = 0
 	state.active = {}
+	-- TASK 127: the live lines, their own Random, and the stuck counter the proof reads.
+	state.lines = {}
+	state.rng = Random.new()
+	state.stuck = 0
 end
 
 -- ONE TICK. Returns a line when something happened and nil otherwise, so the boot script can print
@@ -703,6 +719,20 @@ function ForestTest.step(now: number): string?
 	if not state.started then
 		return nil
 	end
+	-- ONE SIDE TO THE OTHER, IN A LINE (task 127). With `LINE.enabled` the drive does ONE thing:
+	-- release a line and walk it across. The pushes, the turn-backs, the lateral passes and the
+	-- phantom beaters below are untouched and come back with one word, because Karen has accepted
+	-- parts of them before.
+	if Data.LINE ~= nil and Data.LINE.enabled == true then
+		ForestTest.stepLines(now)
+		if now < state.nextWaveAt then
+			return nil
+		end
+		state.nextWaveAt = now + Data.SCHEDULE.intervalSeconds
+		state.waveIndex += 1
+		return ForestTest.releaseLine(now)
+	end
+
 	ForestTest.retire(now)
 	ForestTest.urgeAcrossRoad()
 	ForestTest.checkAtTheEdge()
@@ -765,6 +795,326 @@ function ForestTest.checkAtTheEdge()
 		local dz = at.Z - Data.roadZ(at.X)
 		if dz > wave.edgeNearDz and dz <= wave.edgeFarDz and runtime:leads(handle.id) then
 			runtime:check(handle.id)
+		end
+	end
+end
+
+-- ======================================================================= THE LINE (task 127)
+--
+-- Karen: *"imagine they come from one side in one line and crossing road thats it"*, and *"it's
+-- simple"*. One route, computed once; one leader walking it; everybody else walking HER TRAIL.
+--
+-- WHY THE DRIVE OWNS THIS AND NOT THE BOAR. The route is a fact about this world -- where the road
+-- is, where the hunter is standing, where the exit is -- and `Boar` has never heard of a road. The
+-- Brain's job is unchanged and is one sentence: walk to the point you were given at the speed you
+-- were given (`Brain:leadTo`). Everything below decides WHICH point.
+
+-- WHICH PACE THIS WAVE TRAVELS AT. Pure: a roll in, a pace name out, drawn from `LINE.paceMix`'s
+-- weights -- *"then trot sometimes walk sometimes run"*.
+function ForestTest.paceFor(roll: number, mix): string
+	local total = 0
+	for _, row in ipairs(mix) do
+		total += row.weight
+	end
+	local want = math.clamp(roll, 0, 0.999999) * total
+	local seen = 0
+	for _, row in ipairs(mix) do
+		seen += row.weight
+		if want < seen then
+			return row.pace
+		end
+	end
+	return mix[#mix].pace
+end
+
+-- ...and what that pace is in studs per second, in the BOAR's own numbers rather than new ones.
+function ForestTest.paceSpeed(pace: string, config): number
+	local boarPace = config.PACE
+	if pace == "run" then
+		return boarPace.RUN_SPEED
+	elseif pace == "walk" then
+		return boarPace.WALK_SPEED
+	end
+	return boarPace.TROT_SPEED
+end
+
+-- THE ROUTE, COMPUTED ONCE (task 127). Spawn -> a crossing point on the road -> the exit, far south.
+--
+-- `PathfindingService` AND NOT A STRAIGHT LINE, and that is the whole answer to *"some boars stuck in
+-- tree"*: the agent is sized to the animal, the trunks are `CanCollide` so the mesh treats them as
+-- obstacles, and the route therefore goes ROUND them before anybody walks it. The leader never
+-- steers by whiskers in this mode -- there is nothing left for a whisker to find.
+--
+-- TWO LEGS, NOT ONE. A single path from the forest to the exit would be free to cross the road
+-- wherever it liked; this one is pinned through the crossing point the drive chose, which is what
+-- makes "it crosses in front of the hunter" true rather than lucky.
+function ForestTest.computeRoute(from: Vector3, crossing: Vector3, exit_: Vector3): { Vector3 }?
+	local path = PathfindingService:CreatePath({
+		-- The boar's own half-width plus a margin: `Boar.CONFIG.BODY_SIZE` is 2 wide, so 1 is the
+		-- half-width and 2.5 leaves a body's worth of clearance past a trunk.
+		AgentRadius = 2.5,
+		AgentHeight = 4,
+		AgentCanJump = false,
+		AgentCanClimb = false,
+		WaypointSpacing = 8,
+	})
+	local points = {}
+	for _, leg in ipairs({ { from, crossing }, { crossing, exit_ } }) do
+		local ok = pcall(function()
+			path:ComputeAsync(leg[1], leg[2])
+		end)
+		if not ok or path.Status ~= Enum.PathStatus.Success then
+			return nil
+		end
+		for index, waypoint in ipairs(path:GetWaypoints()) do
+			-- The first waypoint of a leg is where the leg starts, which is the previous leg's last.
+			if index > 1 or #points == 0 then
+				table.insert(points, waypoint.Position)
+			end
+		end
+	end
+	return if #points >= 2 then points else nil
+end
+
+-- RELEASES ONE WAVE AS A LINE. Returns the log line, or nil when nothing could be placed.
+function ForestTest.releaseLine(now: number): string?
+	local runtime = state.runtime
+	if runtime == nil then
+		return nil
+	end
+	local lineData = Data.LINE
+	local rng = state.rng
+	local standX = ForestTest.hunterStandX()
+
+	-- WHERE IT CROSSES, and it is relative to the stand she locked (task 123 round 8): stands are
+	-- 150 studs apart, so a fixed x would be luck.
+	local offset = lineData.crossOffsets[rng:NextInteger(1, #lineData.crossOffsets)]
+	local crossX = standX + offset
+	local crossing = Vector3.new(crossX, Data.CENTRE.Y, Data.roadZ(crossX))
+	local startZ = crossing.Z + lineData.spawnNorthStuds
+	local start = Vector3.new(crossX, Data.groundAt(crossX, startZ) or Data.CENTRE.Y, startZ)
+	-- PAST THE DESPAWN LINE, NOT UP TO IT, and that was a measured bug: the route ended at
+	-- `EXIT_Z + 20`, which is twenty studs NORTH of the line `Brain:_outcome` despawns at -- so every
+	-- line walked its whole route, arrived, and then stood on the last waypoint for ever. The stuck
+	-- counter showed it as a cluster of animals all going still at 134-152 s, which is exactly how
+	-- long a 600-stud route takes. Ending ten studs PAST the line means the last thing they do is
+	-- cross it, which is Karen's *"once they in another side of road they run away"*.
+	local exitPoint = Vector3.new(crossX, Data.CENTRE.Y, Data.EXIT_Z - 10)
+
+	local count = rng:NextInteger(4, 9)
+	local lines = if rng:NextNumber() < lineData.twoLineChance then 2 else 1
+	local pace = ForestTest.paceFor(rng:NextNumber(), lineData.paceMix)
+	local speed = ForestTest.paceSpeed(pace, Boar.CONFIG)
+
+	-- THE ROUTES FIRST, BEFORE A SINGLE ANIMAL EXISTS, and that ordering is the whole of a bug this
+	-- round paid for. MEASURED: `releaseLine` reported `placed=9 routes made=0` every wave, while the
+	-- same call from a bare console answered `Success, 32 waypoints`. The difference was the nine
+	-- boars: they are `CanCollide`, they had just been spawned ON the start point, and
+	-- `ComputeAsync` from inside a pile of colliders fails. Computing first also means a wave whose
+	-- route cannot be found never spawns anything, instead of leaving nine loose animals behind.
+	local routes = {}
+	for which = 1, lines do
+		local lateral = (which - 1 - (lines - 1) / 2) * lineData.lineGapStuds
+		routes[which] = ForestTest.computeRoute(
+			start + Vector3.new(lateral, 0, 0),
+			crossing + Vector3.new(lateral, 0, 0),
+			exitPoint + Vector3.new(lateral, 0, 0)
+		)
+	end
+	local anyRoute = false
+	for _, route in ipairs(routes) do
+		if route ~= nil then
+			anyRoute = true
+		end
+	end
+	if not anyRoute then
+		return nil
+	end
+
+	-- THE ANIMALS, spawned one at a time ALONG the approach so they are already a file. Not
+	-- `spawnSounder`: that places a RING, which is the spread Karen is complaining about.
+	local toward = Vector3.new(0, 0, -1) -- the road is south of the spawn
+	local members = {}
+	local kinds = Boar.sounderKinds(count, {}, Boar.CONFIG, nil)
+	for index = 1, count do
+		local lane = ((index - 1) % lines)
+		local along = math.floor((index - 1) / lines)
+		local side = Vector3.new(1, 0, 0)
+		local at = start
+			+ toward * (along * lineData.spacingStuds)
+			+ side * ((lane - (lines - 1) / 2) * lineData.lineGapStuds)
+		local ground = Data.groundAt(at.X, at.Z)
+		local handle = runtime:spawn(Vector3.new(at.X, (ground or Data.CENTRE.Y) + 2, at.Z), kinds[index])
+		if handle ~= nil then
+			table.insert(members, { id = handle.id, kind = kinds[index] })
+		end
+	end
+	if #members == 0 then
+		return nil
+	end
+
+	-- ORDER AND SPLIT: sow, females, piglets, males last, dealt between the lines so each has a sow
+	-- at its head (`Line.order`, `Line.split`).
+	local groups = Line.split(Line.order(members), lines)
+	local made = 0
+	for which, group in ipairs(groups) do
+		if #group > 0 then
+			local route = routes[which]
+			if route ~= nil then
+				-- THE TRAIL IS SEEDED WITH THE LINE ITSELF, and that is a measured fix rather than a
+				-- tidy-up. `Line.pointBack` answers nil until the leader has walked as far as the
+				-- station being asked for, so with an empty trail every follower was told "walk at
+				-- the leader" for the first few seconds -- they bunched onto her and then strung out
+				-- behind, and the measured nose-to-nose gap came out at a 9.6 median against a
+				-- `spacingStuds` of 3. Seeding with the points the followers are ALREADY STANDING ON
+				-- -- behind her, along the approach -- means station k exists on the very first step
+				-- and the line is formed from the moment it is released.
+				local seeded = {}
+				for back = math.ceil((#group + 1) * lineData.spacingStuds), 0, -1 do
+					table.insert(seeded, { at = start - toward * back, s = 0 })
+				end
+				for index = 2, #seeded do
+					seeded[index].s = seeded[index - 1].s
+						+ (Vector3.new(
+							seeded[index].at.X - seeded[index - 1].at.X,
+							0,
+							seeded[index].at.Z - seeded[index - 1].at.Z
+						)).Magnitude
+				end
+				table.insert(state.lines, {
+					id = string.format("line-%d-%d", state.waveIndex, which),
+					members = group,
+					route = route,
+					leg = 1,
+					trail = seeded,
+					speed = speed,
+					pace = pace,
+					bornAt = now,
+					crossing = crossing,
+					crossed = false,
+					stuckFrom = {},
+					stuckAt = {},
+					repaths = 0,
+				})
+				made += #group
+			end
+		end
+	end
+	if made == 0 then
+		return nil
+	end
+	state.released += made
+	return string.format(
+		"line %d: %d animal(s) in %d line(s) at a %s, crossing %+d studs from the stand",
+		state.waveIndex,
+		made,
+		#state.lines > 0 and lines or 0,
+		pace,
+		offset
+	)
+end
+
+-- ONE STEP OF EVERY LIVE LINE. The leader walks her route; everybody else rides her trail.
+function ForestTest.stepLines(now: number)
+	local runtime = state.runtime
+	if runtime == nil then
+		return
+	end
+	local lineData = Data.LINE
+	for index = #state.lines, 1, -1 do
+		local line = state.lines[index]
+		-- DEAD AND GONE MEMBERS DROP OUT, and the line closes up behind them: a shot animal must not
+		-- leave a hole its followers keep station on.
+		local live = {}
+		for _, member in ipairs(line.members) do
+			local status = runtime:statusOf(member.id)
+			if status ~= nil and status.alive then
+				table.insert(live, { id = member.id, kind = member.kind, status = status })
+			end
+		end
+		line.members = {}
+		for _, row in ipairs(live) do
+			table.insert(line.members, { id = row.id, kind = row.kind })
+		end
+		if #live == 0 or now - line.bornAt > lineData.maxSeconds then
+			table.remove(state.lines, index)
+			continue
+		end
+
+		local leader = live[1]
+		local at = leader.status.position
+		-- THE LEADER WALKS THE ROUTE. One waypoint at a time, consumed when she is within a body
+		-- length -- the same `WAYPOINT_RADIUS` idea the Brain's own route follower uses.
+		while line.leg < #line.route do
+			local target = line.route[line.leg]
+			if (Vector3.new(target.X - at.X, 0, target.Z - at.Z)).Magnitude <= 6 then
+				line.leg += 1
+			else
+				break
+			end
+		end
+		local target = line.route[math.min(line.leg, #line.route)]
+		runtime:leadTo(leader.id, target, line.speed)
+
+		-- ...AND DROPS A BREADCRUMB BEHIND HER.
+		Line.addCrumb(line.trail, at, lineData.crumbStuds)
+		Line.trim(line.trail, (#live + 2) * lineData.spacingStuds + 20)
+
+		-- EVERYBODY ELSE RIDES THE TRAIL at `k * spacing` behind her, measured ALONG it.
+		for rank = 2, #live do
+			local follower = live[rank]
+			local back = (rank - 1) * lineData.spacingStuds
+			local point = Line.pointBack(line.trail, back)
+			if point == nil then
+				-- The line is still forming: walk at her, not at a station that does not exist yet.
+				runtime:leadTo(follower.id, at, line.speed)
+			else
+				local here = follower.status.position
+				local slack = (Vector3.new(point.X - here.X, 0, point.Z - here.Z)).Magnitude
+				local speed = Line.followerSpeed(
+					math.max(line.speed, leader.status.speed),
+					slack,
+					lineData.stationToleranceStuds,
+					lineData.catchup
+				)
+				runtime:leadTo(follower.id, point, speed)
+			end
+		end
+
+		-- ONCE ACROSS, THEY RUN AWAY. Karen: *"once they in another side of road they run away"*.
+		if not line.crossed and at.Z < Data.roadZ(at.X) - Data.ROAD.halfWidthStuds then
+			line.crossed = true
+			line.speed = Boar.CONFIG.PACE.RUN_SPEED
+		end
+
+		-- STUCK = 0, AND IT IS COUNTED. An animal that has not covered `stuckStuds` in `stuckSeconds`
+		-- while it was asked to move is re-pathed (the leader) or snapped back onto the trail (a
+		-- follower, by having its station handed to it directly on the next step).
+		for rank, member in ipairs(live) do
+			local was = line.stuckFrom[member.id]
+			if was == nil or (now - (line.stuckAt[member.id] or 0)) >= lineData.stuckSeconds then
+				if
+					was ~= nil
+					and (Vector3.new(member.status.position.X - was.X, 0, member.status.position.Z - was.Z)).Magnitude
+						< lineData.stuckStuds
+				then
+					state.stuck += 1
+					line.repaths += 1
+					if rank == 1 then
+						local route = ForestTest.computeRoute(
+							member.status.position,
+							line.crossing,
+							Vector3.new(line.crossing.X, Data.CENTRE.Y, Data.EXIT_Z - 10)
+						)
+						if route ~= nil then
+							line.route = route
+							line.leg = 1
+						end
+					end
+				end
+				line.stuckFrom[member.id] = member.status.position
+				line.stuckAt[member.id] = now
+			end
 		end
 	end
 end
