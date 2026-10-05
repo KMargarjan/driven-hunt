@@ -948,14 +948,28 @@ Boar.CONFIG.SOUND = {
 	-- 4-9 s rather than 3-8: ONE animal of a sounder grunts per interval now (see `CROWD`), so the
 	-- band is the herd's own rate and a slower one is a calmer wood.
 	GRUNTS = {
-		-- OFF (task 123 round 4). Karen, 2026-10-05, having asked for this voice two rounds ago and
-		-- then heard it: *"Do not make any pig sound when they cross or come close, we just make
-		-- sound when they get a hit"*. `enabled = false` is the one line `Body.playOneShot` reads,
-		-- so the ids, the volume, the reach and the band below are all untouched and bringing the
-		-- voice back is one word. Everything round 2 and 3 built for it -- the band that lets a
-		-- walking animal grunt, the 160-stud reach, the per-sounder slot, the world-wide gap --
-		-- stays exactly as it is and simply never fires.
-		enabled = false,
+		-- BACK, AND ONCE PER FLOCK (task 123 round 6). Karen, after a round with no pig voice at
+		-- all: *"we can have one hriu sound per flack when they are close"*.
+		--
+		-- IT IS NO LONGER AN INTERVAL CUE, IT IS AN EVENT. `ON_APPROACH` tells `Body.stepSound` to
+		-- stop running the grunt countdown entirely, and `Runtime:_stepApproachGrunts` plays exactly
+		-- ONE grunt per GROUP -- a sounder, or a lone animal -- the first time that group comes
+		-- within `CLOSE_STUDS` of a hunter. It then stays silent until the group has gone back
+		-- beyond `REARM_STUDS` and come in again, so a herd milling about on the road does not
+		-- mutter at him for a minute.
+		--
+		-- `MAX_SPEED`, `MIN_SECONDS` and `MAX_SECONDS` below belong to the interval mode and are
+		-- kept rather than deleted: they are what rounds 2 and 3 measured, and `ON_APPROACH = false`
+		-- is the one word that brings that mode back.
+		enabled = true,
+		ON_APPROACH = true,
+		-- "WHEN THEY ARE CLOSE" as a number. 50 studs is a little past the 40 the footsteps carry,
+		-- so the grunt arrives just BEFORE a hunter can hear hooves -- which is the order he wants
+		-- them in.
+		CLOSE_STUDS = 50,
+		-- ...and it re-arms only once the group has gone properly away again: a little over twice
+		-- `CLOSE_STUDS`, so an animal loitering at 55 studs cannot re-trigger it by drifting.
+		REARM_STUDS = 110,
 		ids = { 9117357588, 9117352464, 9117344600 }, -- "Pig Grunts 2 / 3 / 6"
 		volume = 0.8,
 		audibleStuds = 160,
@@ -1764,6 +1778,8 @@ function Boar.newRuntime(world)
 		-- ...of which this many arrived already running, because a shot had gone off inside
 		-- `PACE.SPOOK_MEMORY_SECONDS` (task 123 round 3).
 		spawnedSpooked = 0,
+		-- One per flock per approach (task 123 round 6).
+		approachGrunts = 0,
 		despawned = 0,
 		hits = 0,
 		pelletsTaken = 0,
@@ -2269,6 +2285,10 @@ function Runtime:_rationVoices(snapshot, threats, now: number)
 		local sample = snapshot and snapshot[entry.id]
 		local at = if sample then sample.position else Body.position(entry.body)
 		local nearest = nil
+		-- ...AND THE NEAREST HUNTER SEPARATELY (task 123 round 6). The approach grunt is about a MAN,
+		-- and `nearest` is the nearest ANYTHING -- which in this world is almost always the phantom
+		-- beater 11 studs behind the herd. A driver is not somebody to grunt at.
+		local hunterNearest = nil
 		-- `or {}` like every other consumer of this list (task 120, review round 1 note): a world
 		-- whose `threats()` answers nil behaves instead of erroring every step.
 		for _, threat in ipairs(threats or {}) do
@@ -2277,9 +2297,13 @@ function Runtime:_rationVoices(snapshot, threats, now: number)
 				if nearest == nil or flat < nearest then
 					nearest = flat
 				end
+				if (threat.kind or "driver") ~= "driver" and (hunterNearest == nil or flat < hunterNearest) then
+					hunterNearest = flat
+				end
 			end
 		end
 		entry.voiceNearest = nearest
+		entry.hunterNearest = hunterNearest
 		if not rationing then
 			entry.stepVoice, entry.breathVoice, entry.mutterVoice = true, true, true
 		else
@@ -2353,6 +2377,67 @@ function Runtime:_rationVoices(snapshot, threats, now: number)
 		entry.stepVoice = steps[entry.id] == true
 		entry.breathVoice = breaths[entry.id] == true
 		entry.mutterVoice = mutters[entry.id] == true
+	end
+end
+
+-- ONE GRUNT PER FLOCK, ON APPROACH (task 123 round 6). Karen: *"we can have one hriu sound per
+-- flack when they are close"*.
+--
+-- A GROUP IS A SOUNDER OR ONE LONE ANIMAL, and the arming state lives on whichever of the two owns
+-- it -- the sounder record, or the boar's own entry. It is armed when it is born, fires once inside
+-- `GRUNTS.CLOSE_STUDS` of a HUNTER, and re-arms only past `REARM_STUDS`.
+--
+-- THREE THINGS CAN REFUSE IT, AND NONE OF THEM DISARMS THE GROUP: a running animal (a fleeing herd
+-- is silent apart from the shot animal's own cries), the world-wide `GRUNT_GAP_SECONDS` so two
+-- flocks arriving together do not grunt on top of each other, and `playOneShot` itself. A refusal is
+-- a SKIP, like every other refusal in this file: the group tries again next step, still armed.
+function Runtime:_stepApproachGrunts(now: number)
+	local sound = self._config.SOUND
+	local grunts = sound.GRUNTS
+	if grunts.enabled == false or grunts.ON_APPROACH ~= true then
+		return
+	end
+	local crowd = sound.CROWD
+	local gap = if crowd ~= nil and crowd.ENABLED == true then crowd.GRUNT_GAP_SECONDS else nil
+	-- WHO SPEAKS FOR EACH GROUP, and how near that group is: the leader of a sounder, or the lone
+	-- animal itself. One pass over the boars, so a sounder of twenty costs one lookup each.
+	local voice, near = {}, {}
+	for _, entry in ipairs(self._boars) do
+		if not entry.body.collapsed then
+			local record = self:_sounderRecord(entry.sounderId)
+			local key = if record ~= nil then record.id else entry.id
+			local distance = entry.hunterNearest
+			if distance ~= nil and (near[key] == nil or distance < near[key]) then
+				near[key] = distance
+			end
+			-- The leader speaks. Until there is one -- the tick a herd forms, or the tick after its
+			-- leader died -- whoever came first does, because a missing sound is a worse fault than
+			-- an early one.
+			if record == nil or record.leaderId == entry.id or voice[key] == nil then
+				voice[key] = entry
+			end
+		end
+	end
+	for key, entry in pairs(voice) do
+		local record = self:_sounderRecord(entry.sounderId)
+		local owner = if record ~= nil then record else entry
+		local distance = near[key]
+		if distance ~= nil then
+			if owner.gruntArmed == false then
+				if distance > grunts.REARM_STUDS then
+					owner.gruntArmed = true
+				end
+			elseif distance <= grunts.CLOSE_STUDS then
+				local speed = (Body.velocity(entry.body) * Vector3.new(1, 0, 1)).Magnitude
+				local quiet = speed < self._config.MODEL.RUN_FROM
+				local spaced = gap == nil or now - self._lastGruntAt >= gap
+				if quiet and spaced and Body.playOneShot(entry.body, "grunt", grunts, self._config, self._rng) then
+					owner.gruntArmed = false
+					self._lastGruntAt = now
+					self._stats.approachGrunts += 1
+				end
+			end
+		end
 	end
 end
 
@@ -3146,6 +3231,7 @@ function Runtime:step(dt: number)
 	-- before any animal is asked to make a noise. One pass, so the ceiling is a fact about the whole
 	-- world rather than a race between the boars in list order.
 	self:_rationVoices(snapshot, threats, os.clock())
+	self:_stepApproachGrunts(os.clock())
 
 	-- THE SKINNED MODEL, once per step and not once per boar: the template is one Instance every
 	-- boar clones from, and asking for it per boar would multiply both the lookup and the miss

@@ -1618,6 +1618,14 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, 
 		-- of the 31 sounds playing at once in the Forest Test. Reading `voice[name]` means a third
 		-- layer would add a row to the ration and no branch here.
 		local allowed = voice == nil or voice[name] ~= false
+		-- THE GRUNT IS AN EVENT, NOT AN INTERVAL, SINCE TASK 123 ROUND 6. Karen asked for "one hriu
+		-- sound per flack when they are close", which is an approach and not a clock, so
+		-- `Runtime:_stepApproachGrunts` owns it and this countdown must not fire one as well -- two
+		-- owners for one cue is how a herd ends up muttering again. `ON_APPROACH = false` gives the
+		-- interval mode back and costs nothing else.
+		if name == "grunt" and sound.GRUNTS.ON_APPROACH == true then
+			allowed = false
+		end
 		if allowed and Body.playOneShot(handle, name, row, config, rng) then
 			played = name
 		end
