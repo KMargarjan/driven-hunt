@@ -1082,7 +1082,7 @@ return function()
 			expect(capped <= SOUND.CROWD.MAX_STEP_VOICES).to.equal(true)
 			TestKit.note(
 				string.format(
-					"boar-crowd DIAG: breaths capped=%d loose=%d, voices capped=%d loose=%d",
+					"boar-crowd: six fleeing boars -- breaths %d rationed against %d loose, footstep voices %d against %d",
 					breaths,
 					looseBreaths,
 					voices,
@@ -1174,7 +1174,8 @@ return function()
 			local status = runtime:statusOf(handle.id)
 			TestKit.note(
 				string.format(
-					"boar-shot DIAG: loop=%s sounds=%d state=%s want=%.1f statusSpeed=%.1f at=(%.0f,%.0f) stepClip=%s steps_run playing=%s vol=%.2f",
+					"boar-shot: a fleeing boar plays %s of its %d sounds -- state=%s, asked for %.1f studs/s,"
+						.. " body at %.1f, at (%.0f, %.0f), clip=%s, run loop playing=%s at volume %.2f",
 					tostring(playing),
 					#((soundsOf(handle) :: Instance):GetChildren()),
 					tostring(status and status.state),
