@@ -542,8 +542,23 @@ function Hardware.equip(tool: Tool, player: Player)
 	end
 	task.spawn(function()
 		local arrived = character:WaitForChild("Humanoid", 5)
-		if arrived ~= nil and tool.Parent ~= nil and player.Character == character then
+		if arrived == nil then
+			return
+		end
+		-- ...AND `EquipTool` ITSELF IS NOT READY THE INSTANT THE HUMANOID EXISTS: it needs the
+		-- character's root part, which arrives on its own frame, and it fails SILENTLY before then.
+		-- So the equip is retried for a bounded second and a bit, and stops the moment the Tool is
+		-- where it was asked to be -- or the character has been replaced again, which is somebody
+		-- else's grant to finish.
+		for _ = 1, 20 do
+			if player.Character ~= character or tool.Parent == nil then
+				return
+			end
+			if tool.Parent == character then
+				return
+			end
 			(arrived :: Humanoid):EquipTool(tool)
+			task.wait(0.1)
 		end
 	end)
 end
