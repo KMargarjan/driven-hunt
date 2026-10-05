@@ -428,6 +428,9 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- Drawn ONCE, from the shared Random, and kept: a sign drawn per frame is a nose that hunts left
 	-- and right in front of the same tree, which is the "mouse turning" this round is about.
 	self._whiskerSide = if rng:NextNumber() < 0.5 then -1 else 1
+	-- HOW LONG THE DRIVE HAS ASKED THIS ANIMAL TO GET A MOVE ON (task 123 round 4): seconds, counted
+	-- down with dt like every other timer here. Karen: *"they can trot when crossing"*.
+	self._urgeFor = 0
 	-- The smoothed steering TARGET. nil until the first step, so the first frame is not smoothed
 	-- toward a direction the animal never had.
 	self._wanted = nil :: Vector3?
@@ -855,7 +858,7 @@ function Brain:_reactToHit(event)
 	-- BOLT. The one documented bypass of the ACCEL ramp in the whole system: a shot animal does not
 	-- accelerate over 0.63 s. It is an assignment, once per hit, not a new rule.
 	self._boltFor = wound.BOLT_SECONDS
-	self._speed = math.max(self._speed, config.SPRINT_SPEED * wound.BOLT_KICK)
+	self._speed = math.max(self._speed, self:_runSpeed() * wound.BOLT_KICK)
 end
 
 -- It has run out of blood or out of time. Entered from any live state, once.
@@ -950,6 +953,25 @@ end
 --
 -- NO SECOND SPRINT RULE: `_boltFor` is already "run whatever the threats say" and `_lastShotPoint`
 -- is already "while bolting, this IS the threat".
+-- HOW FAST THIS ANIMAL RUNS WHEN IT IS FRIGHTENED (task 123 round 4). `SPRINT_SPEED` is a real
+-- boar's 40 km/h and Karen asked for slower: *"when they fleet make speed slover it's to fast"*. One
+-- function, so the bolt, the hit and the pace clamp cannot disagree about what "running" is.
+function Brain:_runSpeed(): number
+	local config = self._config
+	local pace = config.PACE
+	if pace ~= nil and pace.ENABLED == true and pace.RUN_SPEED ~= nil then
+		return pace.RUN_SPEED
+	end
+	return config.SPRINT_SPEED
+end
+
+-- THE DRIVE ASKS FOR A TROT (task 123 round 4). Karen: *"they can trot when crossing"*. The drive
+-- knows where its road is and this file does not, so "get across" arrives as seconds of urgency and
+-- the pace clamp turns it into `PACE.TROT_SPEED`. It never makes an animal RUN -- only a spook does.
+function Brain:urge(seconds: number)
+	self._urgeFor = math.max(self._urgeFor, seconds)
+end
+
 function Brain:spook(from: Vector3?, seconds: number?)
 	local config = self._config
 	local state = self._state
@@ -964,7 +986,7 @@ function Brain:spook(from: Vector3?, seconds: number?)
 	if state == "IDLE" or state == "ALERT" or state == "AVOID" then
 		self:_flush()
 	end
-	self._speed = math.max(self._speed, config.SPRINT_SPEED * config.WOUND.BOLT_KICK)
+	self._speed = math.max(self._speed, self:_runSpeed() * config.WOUND.BOLT_KICK)
 	return true
 end
 
@@ -1159,6 +1181,7 @@ function Brain:step(dt: number, obs)
 		end
 	end
 	self._boltFor = math.max(0, self._boltFor - dt)
+	self._urgeFor = math.max(0, self._urgeFor - dt)
 	-- THE AWARENESS TIMERS (task 118), counted with dt beside the bolt. With the flag off they are
 	-- never set, so this is three subtractions and nothing else.
 	self._alertFor = math.max(0, self._alertFor - dt)
@@ -1389,11 +1412,23 @@ function Brain:step(dt: number, obs)
 		if pace ~= nil and pace.ENABLED == true then
 			local spooked = self._boltFor > 0 or perception.spook == true
 			if spooked then
-				-- A shot, a hit, or a man who is not driving: run, whatever the push said.
-				desiredSpeed = math.max(desiredSpeed, config.SPRINT_SPEED)
+				-- A shot, a hit, or a man who is not driving: run, whatever the push said -- and
+				-- `_runSpeed` is what running is, which Karen slowed in round 4.
+				--
+				-- IT IS SET, NOT RAISED, AND THAT WAS A BUG FOR TWO ROUNDS. `math.max` cannot LOWER
+				-- the `SPRINT_SPEED` the line above assigns whenever `threatened` is true -- and a
+				-- spooked animal is threatened by construction -- so every frightened boar still
+				-- bolted at 38 studs/s however low `RUN_SPEED` was set. MEASURED: animals crossing
+				-- within `SPOOK_STUDS` of the hunter at 37.7-38.0 while the rest of their wave
+				-- trotted at 11-18, which is exactly Karen's *"when they fleet make speed slover
+				-- it's to fast"*. The pace is the pace: one assignment, no arithmetic with the
+				-- number it is replacing.
+				desiredSpeed = self:_runSpeed()
 			else
+				-- CROWDED BY A BEATER, or asked by the drive to get across the road: a trot.
 				local crowded = perception.reaction == "flee" and perception.distance <= pace.TROT_WITHIN_STUDS
-				desiredSpeed = math.min(desiredSpeed, if crowded then pace.TROT_SPEED else pace.WALK_SPEED)
+				local pushedOn = crowded or self._urgeFor > 0
+				desiredSpeed = math.min(desiredSpeed, if pushedOn then pace.TROT_SPEED else pace.WALK_SPEED)
 			end
 		end
 		-- The wound scales the SETPOINT, never the physics (hit-zones design section 5.5): bleeding

@@ -80,6 +80,11 @@ calm.ENABLED = true
 -- flipped, for the same reason as MODEL and CALM: the block is replaced wholesale, not merged.
 local pace = table.clone(Boar.CONFIG.PACE)
 pace.ENABLED = true
+-- ...AND THE GAIT BAND FOLLOWS THE SLOWER FLIGHT (task 123 round 4). Karen: *"when they fleet make
+-- speed slover it's to fast"*. `PACE.RUN_SPEED` is 24 and `MODEL.RUN_FROM` is 28, so without this an
+-- animal bolting at 24 would be DRAWN trotting. The same formula the module uses for the band, with
+-- this world's run speed in it: (18 + 24) / 2 = 21.
+model.RUN_FROM = (Boar.CONFIG.TROT_SPEED + pace.RUN_SPEED) / 2
 
 local world = Boar.defaultWorld(field)
 -- WHERE THIS WORLD'S GROUND IS, per position. See `ForestTest.groundAt`: `field.groundY` is one

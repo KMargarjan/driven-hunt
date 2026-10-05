@@ -85,6 +85,14 @@ ForestTest.WAVE = {
 	-- studs north of the road was further out than three of the six holdings now start, so a
 	-- turning wave would have turned before it had walked anywhere.
 	turnAtDz = 40,
+	-- ...AND THEY TROT THE LAST STRETCH (task 123 round 4). Karen: *"they can trot when crossing"*.
+	-- Inside this far from the road a pushed wave is asked for `PACE.TROT_SPEED` instead of a walk,
+	-- so the crossing -- the one part a hunter at a stand actually watches -- is brisker than the
+	-- approach, and it is still not a run: only a spook runs them.
+	crossTrotDz = 40,
+	-- ...and it keeps trotting this far PAST the road, so they clear it instead of slowing on the
+	-- gravel in front of the gun.
+	crossTrotPastDz = 35,
 	-- ...and when it is too late to bother: past this far south they are gone and the stage is over.
 	turnGiveUpDz = 45, -- an AVOID takes a few seconds to swing; do not give up while it is working
 }
@@ -501,12 +509,38 @@ function ForestTest.step(now: number): string?
 		return nil
 	end
 	ForestTest.retire(now)
+	ForestTest.urgeAcrossRoad()
 	if now < state.nextWaveAt then
 		return nil
 	end
 	state.nextWaveAt = now + Data.SCHEDULE.intervalSeconds
 	local _placed, line = ForestTest.release(now)
 	return line
+end
+
+-- ASKS EVERY WAVE THAT IS NEAR THE ROAD FOR A TROT (task 123 round 4). Karen: *"they can trot when
+-- crossing"*. Re-asked every step rather than latched, because `Brain:urge` takes SECONDS and a wave
+-- that turns back should go straight back to a walk -- so the urgency has to expire by itself.
+--
+-- THE DRIVE OWNS THIS AND THE BRAIN DOES NOT: where the road is is this world's fact, and `Brain`
+-- has never heard of a road. All it is told is "for the next second, a trot is fine".
+function ForestTest.urgeAcrossRoad()
+	local runtime = state.runtime
+	if runtime == nil then
+		return
+	end
+	local wave = ForestTest.WAVE
+	for _, active in ipairs(state.active) do
+		local centre = ForestTest.herdCentre(active.handles)
+		if centre ~= nil then
+			local dz = centre.Z - Data.roadZ(centre.X)
+			if dz <= wave.crossTrotDz and dz >= -wave.crossTrotPastDz then
+				for _, handle in ipairs(active.handles) do
+					runtime:urge(handle.id, 1)
+				end
+			end
+		end
+	end
 end
 
 -- Where a hunter who has not picked yet should be put: on the road, at the default stand.

@@ -771,8 +771,21 @@ Boar.CONFIG.PACE = {
 	-- 4.5 studs/s is inside the WALK gait band (`MODEL.TROT_FROM` is 2.852 x 1.8 = 5.13), so a
 	-- pushed animal is DRAWN walking as well as moving at a walk. Karen's dial.
 	WALK_SPEED = 4.5,
-	-- ...and 11 is a trot (the band runs to `RUN_FROM` = 28), for a herd with a beater on top of it.
+	-- ...and 11 is a trot (the band runs to `RUN_FROM`), for a herd with a beater on top of it, or
+	-- for one the drive has asked to get across the road (`Runtime:urge`).
 	TROT_SPEED = 11,
+	-- AND A FLIGHT IS SLOWER THAN A REAL BOAR'S SPRINT (task 123 round 4). Karen: *"when they fleet
+	-- make speed slover it's to fast"*. `SPRINT_SPEED` is 38 studs/s, which IS a wild boar's 40 km/h
+	-- at 1 stud = 0.28 m -- it is correct and it does not read as something a hunter can follow. 24
+	-- is a hard canter: the run clip's own ground speed is 17.21 studs/s, so it plays at
+	-- 24 / 17.21 = 1.39, well inside `MODEL.MIN_RATE` 0.4 and `MAX_RATE` 2.8, and the feet keep up
+	-- with the ground exactly as they do at any other speed -- `Body.clipFor` rates every clip by
+	-- `speed / the clip's own measured ground speed` and has since task 116.
+	--
+	-- THE GAIT BAND MOVES WITH IT, and it has to: `MODEL.RUN_FROM` is 28, so an animal fleeing at 24
+	-- would be DRAWN trotting while it bolted. `ForestTestBoot` lowers the band to
+	-- `(TROT_SPEED + RUN_SPEED) / 2` for this world, which is the same formula the module uses.
+	RUN_SPEED = 24,
 	-- 12 and not 11: the beater stands `WAVE.pushStuds` = 11 studs behind the REARMOST animal, so
 	-- this is "the one being crowded trots" while the rest of the herd walks. Karen's dial.
 	TROT_WITHIN_STUDS = 12,
@@ -881,9 +894,15 @@ Boar.CONFIG.SOUND = {
 		-- crossing in front of her was hooves and nothing else, and a herd further out was nothing.
 		--
 		-- A hoof on soil does not carry 130 studs and a pig's voice does. So:
-		--   walk  80 ->  50 studs, volume 0.45 -> 0.30 -> 0.15
-		--   trot 110 ->  50 studs, volume 0.65 -> 0.40 -> 0.20
-		--   run  130 ->  50 studs, volume 0.85 -> 0.60 -> 0.30
+		--   walk  80 ->  50 -> 40 studs, volume 0.45 -> 0.30 -> 0.15
+		--   trot 110 ->  50 -> 40 studs, volume 0.65 -> 0.40 -> 0.20
+		--   run  130 ->  50 -> 40 studs, volume 0.85 -> 0.60 -> 0.30
+		-- 40 IN ROUND 4. Karen: *"when they close we can hear steps but also do not mix lot's so
+		-- steps will be noisey and caotic"*. Hooves are now the ONLY sound a live animal makes, so
+		-- the reach is what decides whether "close" means close: 40 studs is about seven body
+		-- lengths. THERE IS NO PITCH JITTER ON A LOOP and never was -- `PITCH_JITTER` is applied by
+		-- `playOneShot` to one-shots; `stepSound` sets `PlaybackSpeed` from the gait's own rate, so
+		-- what varies with it is the stride matching the ground, not a wobble.
 		-- and `GRUNTS` below goes the other way, to 160 studs on its own 60-stud plateau.
 		--
 		-- HALVED AGAIN IN ROUND 3. Karen, having heard the first halving: *"still to noisy / when
@@ -891,10 +910,10 @@ Boar.CONFIG.SOUND = {
 		-- she hears and the grunt is meant to be. With `NEAR_STUDS` at 24 a walking boar is now 0.15
 		-- at 24 studs, 0.09 at 40 and gone at 50, against a grunt's 0.40 at 120: the voice is five
 		-- times the footstep at any distance a hunter waits at.
-		walk = { id = 9114623726, volume = 0.15, baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond, audibleStuds = 50 },
-		trot = { id = 9114623726, volume = 0.2, baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond, audibleStuds = 50 },
+		walk = { id = 9114623726, volume = 0.15, baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond, audibleStuds = 40 },
+		trot = { id = 9114623726, volume = 0.2, baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond, audibleStuds = 40 },
 		-- "Donkey Footsteps 1" -- heavier and faster, for a gallop.
-		run = { id = 9114127078, volume = 0.3, baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond, audibleStuds = 50 },
+		run = { id = 9114127078, volume = 0.3, baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond, audibleStuds = 40 },
 	},
 	-- GRUNTS, AND THEY ARE THE SOUND THAT TELLS A HUNTER SOMETHING IS COMING (task 123). Karen,
 	-- 2026-10-05: *"when they cross road or they close they don't make any pig sound besides walking
@@ -915,6 +934,14 @@ Boar.CONFIG.SOUND = {
 	-- 4-9 s rather than 3-8: ONE animal of a sounder grunts per interval now (see `CROWD`), so the
 	-- band is the herd's own rate and a slower one is a calmer wood.
 	GRUNTS = {
+		-- OFF (task 123 round 4). Karen, 2026-10-05, having asked for this voice two rounds ago and
+		-- then heard it: *"Do not make any pig sound when they cross or come close, we just make
+		-- sound when they get a hit"*. `enabled = false` is the one line `Body.playOneShot` reads,
+		-- so the ids, the volume, the reach and the band below are all untouched and bringing the
+		-- voice back is one word. Everything round 2 and 3 built for it -- the band that lets a
+		-- walking animal grunt, the 160-stud reach, the per-sounder slot, the world-wide gap --
+		-- stays exactly as it is and simply never fires.
+		enabled = false,
 		ids = { 9117357588, 9117352464, 9117344600 }, -- "Pig Grunts 2 / 3 / 6"
 		volume = 0.8,
 		audibleStuds = 160,
@@ -925,6 +952,9 @@ Boar.CONFIG.SOUND = {
 	},
 	-- Breathing and snorts while it is running.
 	BREATH = {
+		-- OFF (task 123 round 4), for the same sentence and in the same way as `GRUNTS`: the only
+		-- sound a boar makes now is the one it makes when it is shot.
+		enabled = false,
 		ids = { 9113629992, 9113630137 }, -- "Bull Breaths 8 / 10"
 		-- 0.5 -> 0.55, 60 -> 95 studs (task 120): an animal that is WORKING is heard about as far
 		-- as it is running, which is the cue that says the thing coming is moving fast.
@@ -1092,6 +1122,12 @@ Boar.CONFIG.SOUND = {
 		-- hooves plus two mutters is three; the breaths only exist while something runs, and a
 		-- running animal does not grunt, so the running total is the same three. Karen's dials.
 		MAX_STEP_VOICES = 1,
+		-- ...AND IT DOES NOT CHANGE HANDS QUICKLY (task 123 round 4). Karen: *"do not mix lot's so
+		-- steps will be noisey and caotic"*. The ceiling is awarded nearest-first and the nearest
+		-- animal changes several times a second in a moving herd, so one voice world-wide can still
+		-- read as many: each swap STOPS one loop and STARTS another, which is the mixing. The holder
+		-- keeps it for this long while it is still moving and still a candidate.
+		STEP_HOLD_SECONDS = 3,
 		MAX_BREATH_VOICES = 2,
 		MAX_MUTTER_VOICES = 2, -- grunts and the sniff: the same ambient muttering to a listener
 		-- ...AND NO TWO GRUNTS START TOGETHER ANYWHERE (task 123 round 2). Karen: *"it shouldnt be
@@ -1117,7 +1153,8 @@ Boar.CONFIG.SOUND = {
 	-- toolchain can search the audio library and inventing an id would be a number nobody has heard.
 	-- It is one number in this table: the Director or Karen can swap it for a real pig snort without
 	-- touching code, and nobody here can hear either.
-	SNIFF = { id = 9113630137, volume = 0.55, audibleStuds = 55, pitch = 1.25 },
+	-- ...AND OFF TOO (task 123 round 4): a head coming up is a pig sound, and Karen asked for none.
+	SNIFF = { enabled = false, id = 9113630137, volume = 0.55, audibleStuds = 55, pitch = 1.25 },
 }
 
 -- WHAT A BOAR DOES WHEN NOTHING IS WRONG (task 117). Karen, 2026-10-03: "boar also can move alon and
@@ -1689,6 +1726,9 @@ function Boar.newRuntime(world)
 	-- The last shot this runtime heard, for `PACE.SPOOK_MEMORY_SECONDS`.
 	self._lastShotAt = -math.huge
 	self._lastShotPos = nil :: Vector3?
+	-- WHO HOLDS THE WORLD'S ONE FOOTSTEP VOICE, and since when (task 123 round 4).
+	self._stepVoiceId = nil :: string?
+	self._stepVoiceAt = 0
 	self._nextSounderId = 0
 	-- EVERY STIMULUS'S MEASURED SPEED (task 118, design section 4.6), written here and nowhere else:
 	-- id -> { position, speed }. A character's own `AssemblyLinearVelocity` is network-owned by that
@@ -2270,6 +2310,29 @@ function Runtime:_rationVoices(snapshot, threats, now: number)
 		return
 	end
 	local steps = Boar.nearestVoices(stepRows, crowd.MAX_STEP_VOICES)
+	-- ONE SET OF HOOVES, AND IT STAYS WITH THE SAME ANIMAL (task 123 round 4). Without this the
+	-- world's single footstep voice is re-awarded every step to whoever is nearest, and a herd
+	-- walking past hands it along the line -- each hand-off stopping one loop and starting another,
+	-- which is exactly the "noisey and caotic" mixing. The holder keeps it for `STEP_HOLD_SECONDS`
+	-- as long as it is still a candidate; when it stops moving or walks out of earshot the next
+	-- nearest takes it on the same frame, so the herd is never silent while it moves.
+	local hold = crowd.STEP_HOLD_SECONDS
+	if hold ~= nil and self._stepVoiceId ~= nil and now - self._stepVoiceAt < hold then
+		for _, row in ipairs(stepRows) do
+			if row.id == self._stepVoiceId then
+				steps = { [self._stepVoiceId] = true }
+				break
+			end
+		end
+	end
+	if steps[self._stepVoiceId] ~= true then
+		self._stepVoiceId = nil
+		for id in pairs(steps) do
+			self._stepVoiceId = id
+			self._stepVoiceAt = now
+			break
+		end
+	end
 	local breaths = Boar.nearestVoices(breathRows, crowd.MAX_BREATH_VOICES)
 	local mutters = Boar.nearestVoices(mutterRows, crowd.MAX_MUTTER_VOICES)
 	for _, entry in ipairs(self._boars) do
@@ -2925,6 +2988,19 @@ end
 -- Test's drive uses it when a wave is released next to a beater that was already pushing another
 -- group (task 123 round 3). Returns false for an id that is not here, or an animal past being
 -- frightened.
+-- THE DRIVE ASKS ONE ANIMAL FOR A TROT (task 123 round 4). Karen: *"they can trot when crossing"*.
+-- Seconds of urgency, re-asked every step by whoever is pushing: the drive owns "where my road is"
+-- and the Brain owns "what a trot is", so neither has to learn the other's facts.
+function Runtime:urge(id: string, seconds: number): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			entry.brain:urge(seconds)
+			return true
+		end
+	end
+	return false
+end
+
 function Runtime:spook(id: string, from: Vector3?): boolean
 	for _, entry in ipairs(self._boars) do
 		if entry.id == id then
