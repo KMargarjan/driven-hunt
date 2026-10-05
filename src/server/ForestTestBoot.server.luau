@@ -89,6 +89,16 @@ pace.ENABLED = true
 -- this world's run speed in it: (18 + 24) / 2 = 21.
 model.RUN_FROM = (Boar.CONFIG.TROT_SPEED + pace.RUN_SPEED) / 2
 
+-- ...AND HOW A DRIVEN SOUNDER MOVES (task 126). Karen, after watching this world: *"it could be
+-- lines of boars like in real life"*, *"they shouldn do circles like I see now"*, *"when I shoot it
+-- runs awai a lot until I can;t see them"*, *"and not hitting the trees and hang"*. `Boar.CONFIG.MOVE`
+-- is the file, the edge stop, the straight flight, the turn budget and the speed-scaled whisker; it
+-- is born off for the same reason `PACE` is -- it changes what every animal does -- and it is turned
+-- on here, by the world that asked for it, as a full clone with one value flipped because the block
+-- is replaced wholesale rather than merged.
+local move = table.clone(Boar.CONFIG.MOVE)
+move.ENABLED = true
+
 local world = Boar.defaultWorld(field)
 -- WHERE THIS WORLD'S GROUND IS, per position. See `ForestTest.groundAt`: `field.groundY` is one
 -- number and this terrain climbs 56 studs in 400, so without this every released boar was spawned
@@ -100,6 +110,7 @@ world.config = {
 	SENSE = { ENABLED = true },
 	KINDS = { ENABLED = true },
 	PACE = pace,
+	MOVE = move,
 	-- 8 IS THE DRIVE'S CEILING AND IT IS NOT THIS WORLD'S. MEASURED from the server console:
 	-- "wave 5 held: 8 of 8 boars already out" -- waves 1 to 4 filled the world and every wave after
 	-- them was refused, so the schedule ran but nothing new ever appeared. `Boar.CONFIG.maxBoars`

@@ -1191,7 +1191,7 @@ end
 local function makeSound(name: string, spec, config, parent: Instance): Sound
 	local sound = Instance.new("Sound")
 	sound.Name = name
-	sound.SoundId = "rbxassetid://" .. tostring(if spec.ids then spec.ids[1] else spec.id)
+	sound.SoundId = Body.soundUri(if spec.ids then spec.ids[1] else spec.id)
 	sound.Volume = spec.volume
 	sound.RollOffMode = Enum.RollOffMode[config.SOUND.ROLL_OFF]
 	sound.RollOffMinDistance = spec.nearStuds or config.SOUND.NEAR_STUDS
@@ -1224,6 +1224,15 @@ end
 -- own ground speed` rule the gaits use, so the steps keep time with the legs instead of drifting
 -- against them. nil means silence -- a standing boar makes no footsteps, which is most of what a
 -- grazing one is doing.
+-- A BARE NUMBER IS AN ASSET ID; ANYTHING WITH A SCHEME IS ALREADY A URI (task 126). The footsteps
+-- are now `rbxasset://` engine assets -- Roblox's OWN files, which ship inside the engine -- and
+-- gluing "rbxassetid://" in front of one makes a path that resolves to nothing and plays silence with
+-- no error. Every other row in `SOUND` is still a number and goes through the same line unchanged.
+function Body.soundUri(id: any): string
+	local text = tostring(id)
+	return if string.find(text, "://", 1, true) then text else "rbxassetid://" .. text
+end
+
 function Body.stepSoundFor(speed: number, config): (string?, number)
 	local sound = config.SOUND
 	local model = config.MODEL
@@ -1233,7 +1242,11 @@ function Body.stepSoundFor(speed: number, config): (string?, number)
 	local gait = if speed >= model.RUN_FROM then "run" elseif speed >= model.TROT_FROM then "trot" else "walk"
 	local spec = sound.STEPS[gait]
 	local rate = math.clamp(speed / spec.baseSpeed, model.MIN_RATE, model.MAX_RATE)
-	return gait, rate
+	-- A PITCH DIAL PER GAIT (task 126). Karen: *"and walking sound sounds like horse we need animal
+	-- not horse"*. The rate above matches the stride to the ground and must keep doing that; this is
+	-- a separate multiplier that says how HEAVY the animal sounds, so the two cannot be confused.
+	-- Absent (every row before this task) it is 1 and this line changes nothing.
+	return gait, rate * (spec.pitch or 1)
 end
 
 -- A VOICE PER KIND (task 120) ---------------------------------------------------------------------
@@ -1378,7 +1391,7 @@ function Body.playOneShot(handle, name: string, spec, config, rng: Random)
 	-- said before.
 	local ids = Body.voiceIds(name, handle.kind, spec, config)
 	if ids then
-		sound.SoundId = "rbxassetid://" .. tostring(ids[rng:NextInteger(1, #ids)])
+		sound.SoundId = Body.soundUri(ids[rng:NextInteger(1, #ids)])
 	end
 	-- THE VOLUME IS SET ON EVERY PLAY, which is what makes the warm-up safe: a sound at volume 0 is
 	-- one nobody is listening to, so `coolAssets` may stop it, and this is the line that says "this

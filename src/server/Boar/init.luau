@@ -56,6 +56,9 @@ Boar.freezeReach = Body.freezeReach
 -- shape of the dying twitch. Pure, for the same reason as every export above it -- a spec cannot
 -- make a boar run, die or be heard.
 Boar.stepSoundFor = Body.stepSoundFor
+-- Pure, and exported for the same reason: a spec can ask what SoundId a config row turns into
+-- without a boar, a sound or a world (task 126).
+Boar.soundUri = Body.soundUri
 Boar.voicePitch = Body.voicePitch
 Boar.voiceIds = Body.voiceIds
 Boar.farScale = Body.farScale
@@ -866,6 +869,171 @@ Boar.CONFIG.PACE = {
 	SPOOK_MEMORY_SECONDS = 5,
 }
 
+-- HOW A DRIVEN SOUNDER MOVES (task 126). Karen, 2026-10-05, in one sentence: *"so they comming we
+-- can hear them as now is / then they can stop before entering the road or walk or trot if there are
+-- spook or shoot they run and run straigh like in real life"*. That is four states -- approach,
+-- edge, cross, flight -- and every number either of them needs is here.
+--
+-- BORN OFF, like `PACE`, `MODEL`, `CALM` and `SENSE` before it, and switched on by the world that
+-- wants it (`ForestTestBoot`). With it off every function below returns what it returned before this
+-- task, which is what keeps the DEV drive the drive Karen has already signed off.
+--
+-- Note: docs/research/2026-10-05-sounder-movement.md
+Boar.CONFIG.MOVE = {
+	ENABLED = false,
+
+	-- ---------------------------------------------------------------- the file
+	--
+	-- Karen: *"it could be lines of boars like in real life"*. MEASURED BEFORE THIS TASK, in her own
+	-- place over 130 s: the gap between consecutive members of a moving sounder had a median of
+	-- **35.2 studs** and a p90 of 87, and the sideways offset from the leader's own line a median of
+	-- **17.6 studs**. That is not a line; it is a field of animals.
+	--
+	-- THE CAUSE WAS THE TARGET, NOT THE SPACING. `Brain:_slotPoint` put every follower's target
+	-- behind THE LEADER -- slot 3 aimed 18 studs behind the leader whatever slot 2 was doing -- so
+	-- nine animals converged on nine points on one line through a moving leader and cut every corner
+	-- it turned. The fix is Reynolds' own `leader following`, applied one link at a time: each animal
+	-- follows THE ONE AHEAD OF IT. A chain cannot cut a corner, because each link only ever knows
+	-- about the link in front.
+	--   https://www.red3d.com/cwr/steer/gdc99/
+	-- THIS ONE WORD IS A TRADE-OFF KAREN HAS TO SETTLE, AND BOTH SIDES OF IT ARE MEASURED. She asked
+	-- for two things in the same breath -- *"it could be lines of boars like in real life"* and
+	-- *"they shouldn do circles like I see now"* -- and as built, this round can deliver one of them
+	-- at a time. The same 130 s trace of the same world, scored the same way:
+	--
+	--                     gap between consecutive members      turning >= 300 deg in 10 s WHILE MOVING
+	--   before the task              35.2 studs                             295 windows
+	--   FILE = false                 33-37 studs                            149 windows
+	--   FILE = true                  23.3 studs                             417 windows
+	--
+	-- A FILE IS A WEAVE, which is why: a follower steers continuously at a point behind an animal
+	-- that is itself turning, closes on it at `FILE_CATCHUP`, overshoots and corrects -- and every
+	-- correction is degrees on the clock. The line is a third tighter and the turning is up by the
+	-- same sort of margin.
+	--
+	-- IT IS SHIPPED **ON**, because the line is the thing she described twice and the circles she
+	-- described once; and it is left as ONE WORD so that if she says the opposite after playing it,
+	-- the answer is `FILE = false` and no code change at all.
+	FILE = true,
+	-- CENTRE TO CENTRE, and the arithmetic is written out because the Director's figure is a GAP:
+	-- "1.5-3 studs between animals" with a 5.5-stud body (`BODY_SIZE.Z`) is 7.0 to 8.5 centre to
+	-- centre, so 7.5 is a 2.0-stud gap -- a boar's nose about a third of a body behind the tail in
+	-- front of it.
+	FILE_PITCH_STUDS = 7.5,
+	-- Arrival: inside this the follower stops steering at the point, or it oscillates on the spot.
+	-- Smaller than `SOUNDER.SLOT_TOLERANCE_STUDS` because a file is a tighter thing than a wedge.
+	FILE_TOLERANCE_STUDS = 1.5,
+	-- A grazing sounder is a loose group and not a queue, so the file only forms above this.
+	FILE_FROM_SPEED = 2.0,
+	-- HOW MUCH FASTER A STRAGGLER MAY GO, and it is NOT `SOUNDER.CATCHUP` (1.15). That number was
+	-- picked for a wedge whose members are a few studs out of place; a file member 30 studs behind
+	-- closes a 15 % surplus at 0.67 studs/s, which is 45 seconds -- and `SOUNDER.BREAK_SECONDS` is 4.
+	-- At 1.8 it closes in under 8 s, and it is capped at `TROT_SPEED` by the caller so a file forms up
+	-- at the pace Karen accepted for a crossing rather than sprinting.
+	FILE_CATCHUP = 1.8,
+
+	-- ---------------------------------------------------------------- no circles
+	--
+	-- Karen: *"they shouldn do circles like I see now"*. MEASURED BEFORE THIS TASK: **4,660** ten-
+	-- second windows in which an animal below run speed turned 300 degrees or more, the worst of them
+	-- **742 degrees** -- two full orbits in ten seconds, by one animal (Boar26), which is exactly
+	-- what she saw.
+	--
+	-- THE CAUSE IS STEERING AT A POINT, and the research note names it: anything that continuously
+	-- steers toward a position it is already near will orbit it, because the steering direction
+	-- rotates faster than the animal can converge. There were two such points -- the sounder's
+	-- CENTROID (`_idleSounderDirection`) and HOME (`_senseIdle`'s `HOME_PULL`) -- and both are gone:
+	-- the centroid is replaced by the file, and the home pull by a latched destination.
+	--
+	-- THIS IS THE BACKSTOP, and it is deliberately a budget rather than a rule about any one cause:
+	-- an animal that has spent more than `TURN_BUDGET_DEG` of turning inside `TURN_WINDOW_SECONDS`
+	-- holds the heading it has for `TURN_HOLD_SECONDS`. 200 degrees is a comfortable U-turn plus a
+	-- correction; 360 is the thing being banned, so the budget sits well below it.
+	--
+	-- A RUNNING ANIMAL IS EXEMPT, and so is a spooked one: the budget's job is to stop an idle boar
+	-- milling, not to stop a bolting one swerving round a tree.
+	TURN_WINDOW_SECONDS = 6,
+	TURN_BUDGET_DEG = 200,
+	TURN_HOLD_SECONDS = 3,
+
+	-- WHERE A WANDERING BOAR GOES when it has strayed past `HOME_RADIUS`. The old rule rotated the
+	-- heading toward home every sense tick, which is the orbit above. This draws ONE point near home
+	-- and walks to it, and only draws another when it arrives -- a destination, not a pull.
+	HOME_ARRIVE_STUDS = 8,
+	HOME_SCATTER_STUDS = 14, -- the destination is home +- this, so a herd does not stack on one spot
+
+	-- ---------------------------------------------------------------- the edge
+	--
+	-- Karen: *"they can stop before entering the road"*. **NOT MEASURED, AND NOT MEASURABLE FROM THE
+	-- SOURCES** -- the research note says so in its own section: the pause at a forest edge before a
+	-- ride is well-known hunting practice and is quantified nowhere I could find. These three are the
+	-- Director's dial and nothing more. If it reads wrong it is one number.
+	--
+	-- THE WORLD DECIDES WHEN, THE BRAIN DECIDES WHAT. `Brain:check(seconds)` is the same shape as
+	-- `Brain:urge` and `Brain:spook`, which `ForestTest` already calls: the thing that knows where
+	-- the road is is the world, and the thing that knows how an animal stands and looks is the Brain.
+	EDGE_CHANCE = 0.55,
+	EDGE_MIN_SECONDS = 1.0,
+	EDGE_MAX_SECONDS = 4.0,
+
+	-- ---------------------------------------------------------------- the flight
+	--
+	-- Karen: *"after shoot animals usually run straight when they spook ofc avoiding opsticals"* and
+	-- *"it runs awai a lot until I can;t see them like in real life not run a bit and stop"*.
+	-- MEASURED BEFORE THIS TASK, over three real shots: the heading an animal was running on deviated
+	-- from the one it set off on by a median of **84-99 degrees** and a maximum of **180** -- it ran
+	-- in a curve and sometimes turned round -- and it covered a median of **94-115 studs** in the
+	-- thirteen seconds after the shot.
+	--
+	-- THE CAUSE IS THAT THERE WAS NO HEADING. `_fleeDirection` recomputes "away from the threat"
+	-- every frame from the CURRENT position, so the away-vector rotates as the animal moves past the
+	-- shooter, and the pathfinder's route curves round whatever is in the way. A latch fixes both:
+	-- the heading is taken ONCE, at the moment of the spook, and every frame after that the animal
+	-- runs THAT line -- deflected by `Brain.steerAroundTrunk` and by nothing else, which is Karen's
+	-- *"ofc avoiding opsticals"* exactly.
+	FLIGHT = true,
+	-- HOW FAR, and section 3 of the research note is about this number: the literature's mean
+	-- post-hunt flight is 1.80 km (Scientific Reports 2024), which at 0.28 m/stud is 6,400 studs --
+	-- eight times the width of this world. So 300 is the DIRECTOR's playable figure and NOT a
+	-- converted biological fact: it is longer than the sightline down the road and about half the
+	-- field, so an animal that runs it has left the picture. That is Karen's own test.
+	FLIGHT_MIN_STUDS = 300,
+	-- A ceiling, so nothing can run for ever if it is penned in by the bounds: at `PACE.RUN_SPEED`
+	-- 24 studs/s, 300 studs takes 12.5 s, so 45 is three times the headroom.
+	FLIGHT_MAX_SECONDS = 45,
+	-- A flight does not re-latch on every bang: a second shot inside this window keeps the heading
+	-- the first one set, so a volley does not make an animal pirouette.
+	FLIGHT_RELATCH_SECONDS = 2.0,
+
+	-- ---------------------------------------------------------------- the trees
+	--
+	-- Karen: *"and not hitting the trees and hang"*. MEASURED BEFORE THIS TASK: **19 distinct
+	-- (boar, trunk) contacts** in 130 s -- and, to be exact about what was and was not wrong,
+	-- **nothing was stuck**: no animal moved less than a stud in five seconds while its setpoint
+	-- asked for more. So they were brushing trunks, not hanging on them, and the fix is lookahead
+	-- rather than a new recovery.
+	--
+	-- THE WHISKER IS 9 STUDS FOR EVERY GAIT, which is the bug: at `PACE.RUN_SPEED` 24 studs/s that
+	-- is 0.37 s of warning, and `WALK_TURN_DEG`/`RUN_TURN_DEG` need longer than that to take the
+	-- animal round a trunk. The whisker now scales with the speed the animal is actually doing --
+	-- the lookahead is a TIME, which is what a braking distance is.
+	-- MEASURED AND SET TO 0, WHICH PINS THE REACH AT `WHISKER_MIN_STUDS` -- today's flat 9 studs.
+	-- The idea was that a braking distance is a TIME, so an animal at 24 studs/s should look further
+	-- ahead than one at 4.5. It was built, measured, and is off: at 0.55 s (a reach of up to 22) the
+	-- trunk contacts were 24 distinct (boar, trunk) pairs and at a flat 9 they were 24 -- it bought
+	-- nothing -- while the turning went UP, because `Brain.steerAroundTrunk` rotates by
+	-- `WHISKER_TURN_DEG` (55) every time a whisker fires and a longer whisker fires far more often in
+	-- a wood. Left as a dial with its measurement beside it.
+	WHISKER_SECONDS = 0,
+	-- HOW LONG A CHOSEN SIDE IS COMMITTED TO. Three raycasts a frame against thin trunks flicker, and
+	-- each flicker used to swap a 55-degree deflection -- which the slew then chased at up to 90
+	-- deg/s, so a wedged animal turned on the spot. 0.6 s is about two body lengths at a walk: long
+	-- enough to actually get past the trunk it committed to going round.
+	WHISKER_HOLD_SECONDS = 0.6,
+	WHISKER_MIN_STUDS = 9, -- never shorter than what task 123 measured and Karen accepted
+	WHISKER_MAX_STUDS = 22,
+}
+
 -- THE SOUND OF A BOAR (task 116). Karen, 2026-10-03: *"I just need that once they walk you can hear
 -- (as example hunter waiting and hear something comming and then boars are visible running, walking
 -- ect)"*, and on which sounds: *"you decide what sounds"*.
@@ -943,10 +1111,54 @@ Boar.CONFIG.SOUND = {
 		-- she hears and the grunt is meant to be. With `NEAR_STUDS` at 24 a walking boar is now 0.15
 		-- at 24 studs, 0.09 at 40 and gone at 50, against a grunt's 0.40 at 120: the voice is five
 		-- times the footstep at any distance a hunter waits at.
-		walk = { id = 9114623726, volume = 0.15, baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond, audibleStuds = 40 },
-		trot = { id = 9114623726, volume = 0.2, baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond, audibleStuds = 40 },
-		-- "Donkey Footsteps 1" -- heavier and faster, for a gallop.
-		run = { id = 9114127078, volume = 0.3, baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond, audibleStuds = 40 },
+		-- AN ANIMAL ON A FOREST FLOOR, NOT A HORSE ON A ROAD (task 126). Karen, 2026-10-05: *"and
+		-- walking sound sounds like horse we need animal not horse"* -- and she is describing what
+		-- these actually were: `9114623726` is **"Goat Footsteps Only 1"** and `9114127078` is
+		-- **"Donkey Footsteps 1"**, two hooves on a hard surface out of the same library pack. Both
+		-- ids are kept below so one word brings either back.
+		--
+		-- WHAT IS AVAILABLE TO PUT THERE INSTEAD, MEASURED RATHER THAN ASSUMED, and the answer is
+		-- narrower than it looks. The Roblox audio catalogue was searched (six queries, ten results
+		-- each) and every id it returned was user-uploaded music -- "Vibe Footsteps", "Brazilian Funk
+		-- Phonk FootSteps" -- and **not one of them loaded**: since Roblox's 2022 audio-privacy
+		-- change, audio uploaded by another user is private to that user's own experiences. Twelve
+		-- plausible ProSoundEffects ids near this pack's own numbers were tried directly: ten did not
+		-- exist. So the usable pool is exactly three things -- the ids this repo already has, a
+		-- Roblox-OWNED `rbxasset://` engine asset, and an upload Karen pays for.
+		--
+		-- `rbxasset://sounds/action_footsteps_plastic.mp3` is the engine's own walking loop
+		-- (MEASURED: loads, 2.48 s) and it is a soft muffled step rather than a clop, which is the
+		-- half of her sentence this can honestly fix. It is pitched DOWN so it reads as something
+		-- heavier than a person on soft ground -- `pitch` multiplies the stride rate, which still
+		-- matches the ground, and the two are separate numbers so they cannot be confused.
+		--
+		-- NOBODY IN THIS TOOLCHAIN CAN HEAR A SAMPLE, which is the standing rule of every sound round
+		-- since task 116: **Karen's ears decide**. If this is still wrong the honest next step is an
+		-- upload, not another guess.
+		walk = {
+			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
+			was = 9114623726, -- "Goat Footsteps Only 1"
+			volume = 0.15,
+			pitch = 0.7,
+			baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond,
+			audibleStuds = 40,
+		},
+		trot = {
+			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
+			was = 9114623726, -- "Goat Footsteps Only 1"
+			volume = 0.2,
+			pitch = 0.8,
+			baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond,
+			audibleStuds = 40,
+		},
+		run = {
+			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
+			was = 9114127078, -- "Donkey Footsteps 1"
+			volume = 0.3,
+			pitch = 0.95,
+			baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond,
+			audibleStuds = 40,
+		},
 	},
 	-- GRUNTS, AND THEY ARE THE SOUND THAT TELLS A HUNTER SOMETHING IS COMING (task 123). Karen,
 	-- 2026-10-05: *"when they cross road or they close they don't make any pig sound besides walking
@@ -2762,11 +2974,48 @@ function Runtime:_stepSounders(dt: number, snapshot)
 		-- four ways").
 		if leader then
 			local leaderAt = flatOf(snapshot[leader.id] and snapshot[leader.id].position or Body.position(leader.body))
+			-- A FILE IS HELD TOGETHER LINK BY LINK, SO IT IS MEASURED LINK BY LINK (task 126).
+			--
+			-- THIS WAS THE WHOLE REASON THERE WERE NO LINES, and it took a live read of the sounder
+			-- records to find -- three guesses at the steering before it had moved the measured gap
+			-- from 35 studs to 39. MEASURED, in Karen's own place: a wave arrives as a sounder of
+			-- eight with slots 1..8, and **within about eight seconds it is a sounder of two** and the
+			-- other six are lone boars. By 72 s there were 24 lone animals and one pair.
+			--
+			-- The rule above expels a member that is more than `BREAK_STUDS` (60) from THE LEADER for
+			-- `BREAK_SECONDS` (4), and "a member that left never rejoins". A column of eight at the
+			-- file's own `FILE_PITCH_STUDS` of 7.5 is 52 studs long nose to tail -- and at the 35-stud
+			-- median gap this world actually had, 245 studs long. So every animal but the front two
+			-- was expelled before any formation could form, and then it could not rejoin: the file
+			-- could not exist because the sounder did not.
+			--
+			-- Measuring to the animal AHEAD instead is the same idea as the steering: a queue is a
+			-- chain, and a link is lost when it falls behind the link in front of it -- not when it is
+			-- far from the front of a long column. The distance, the clock and "never rejoins" are all
+			-- unchanged, and with `MOVE.ENABLED` off this is the leader, exactly as before.
+			local move = self._config.MOVE
+			local inFile = move ~= nil and move.ENABLED == true
+			local aheadOf = {}
+			if inFile then
+				local ordered = table.clone(members)
+				table.sort(ordered, function(a, b)
+					local sa, sb = a.slot or math.huge, b.slot or math.huge
+					if sa == sb then
+						return a.id < b.id
+					end
+					return sa < sb
+				end)
+				for link = 2, #ordered do
+					local front = ordered[link - 1]
+					aheadOf[ordered[link].id] =
+						flatOf(snapshot[front.id] and snapshot[front.id].position or Body.position(front.body))
+				end
+			end
 			for position = #members, 1, -1 do
 				local entry = members[position]
 				if entry.id ~= leader.id then
 					local at = snapshot[entry.id] and snapshot[entry.id].position or Body.position(entry.body)
-					if (flatOf(at) - leaderAt).Magnitude > sounderConfig.BREAK_STUDS then
+					if (flatOf(at) - (aheadOf[entry.id] or leaderAt)).Magnitude > sounderConfig.BREAK_STUDS then
 						entry.awayFor += dt
 						if entry.awayFor >= sounderConfig.BREAK_SECONDS then
 							self:_leaveSounder(record, entry, true)
@@ -2850,6 +3099,45 @@ function Runtime:_sounderObs(entry, snapshot)
 		end
 	end
 
+	-- WHO IS IMMEDIATELY AHEAD OF ME IN THE FILE (task 126). Karen: *"it could be lines of boars
+	-- like in real life"*.
+	--
+	-- THE ORDER IS THE MARCH ORDER, UNCHANGED. `entry.slot` is what task 123 already assigns from
+	-- `Boar.marchOrder` -- sow first, then females, then cubs, males last -- so the file is that
+	-- order made into a queue, and no sorting rule is invented here. The member one slot in front of
+	-- this one is what the Brain steers behind; the leader has nobody ahead and so gets nil, which is
+	-- the test `_filePoint` uses to leave a leader's steering exactly as it was.
+	local ahead = nil
+	if not isLeader and not scattering then
+		local ordered = {}
+		for _, id in ipairs(record.memberIds) do
+			local member = self:_entryById(id)
+			if member ~= nil and snapshot[id] ~= nil then
+				table.insert(ordered, { id = id, slot = member.slot or math.huge })
+			end
+		end
+		table.sort(ordered, function(a, b)
+			if a.slot == b.slot then
+				return a.id < b.id
+			end
+			return a.slot < b.slot
+		end)
+		for index, row in ipairs(ordered) do
+			if row.id == entry.id and index > 1 then
+				local sample = snapshot[ordered[index - 1].id]
+				if sample then
+					ahead = {
+						position = sample.position,
+						velocity = sample.velocity,
+						facing = sample.facing,
+						speed = flatOf(sample.velocity).Magnitude,
+					}
+				end
+				break
+			end
+		end
+	end
+
 	-- WHILE SCATTERING THERE IS NO LEADER, for everybody: cohesion and alignment have nothing to
 	-- point at, and each member runs its own route with the existing Reynolds fallback.
 	local leader, leaderState = nil, nil
@@ -2873,6 +3161,8 @@ function Runtime:_sounderObs(entry, snapshot)
 		scattering = scattering,
 		leaderState = leaderState,
 		leader = leader,
+		-- nil for the leader and while scattering, so both run exactly the code they ran before.
+		ahead = ahead,
 		centroid = if count > 0 then sum / count else at,
 		neighbours = neighbours,
 		-- TASK 118, as plain values like everything else here: which shape this sounder moves in,
@@ -3163,6 +3453,32 @@ function Runtime:urge(id: string, seconds: number): boolean
 	return false
 end
 
+-- WHETHER THIS ANIMAL IS AT THE FRONT OF ITS FILE (task 126). A lone boar leads itself; a member
+-- leads only if it is its sounder's leader. The drive asks this before it tells anybody they have
+-- reached the edge of the open: a file stops because the animal at the front stopped, and the eight
+-- behind it close up by themselves.
+function Runtime:leads(id: string): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			local record = self:_sounderRecord(entry.sounderId)
+			return record == nil or record.leaderId == entry.id
+		end
+	end
+	return false
+end
+
+-- THE EDGE CHECK, through the same door `urge` and `spook` use (task 126). Karen: *"they can stop
+-- before entering the road"*. The world says WHICH animal and the Brain decides whether it stops, for
+-- how long, and whether it has already had its check on this approach.
+function Runtime:check(id: string, seconds: number?): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return entry.brain:check(seconds) == true
+		end
+	end
+	return false
+end
+
 function Runtime:spook(id: string, from: Vector3?): boolean
 	for _, entry in ipairs(self._boars) do
 		if entry.id == id then
@@ -3342,10 +3658,22 @@ function Runtime:step(dt: number)
 			if flatFacing.Magnitude > 1e-6 then
 				local nose = flatFacing.Unit
 				local sweep = math.rad(pace.WHISKER_DEG)
+				-- HOW FAR AHEAD IT LOOKS IS A TIME, NOT A DISTANCE (task 126). Karen: *"and not
+				-- hitting the trees and hang"*. MEASURED before this task: 19 distinct (boar, trunk)
+				-- contacts in 130 s -- and nothing actually STUCK, so they were brushing trunks
+				-- rather than hanging on them. The whisker was 9 studs for every gait, which at
+				-- `PACE.RUN_SPEED` 24 studs/s is 0.37 s of warning, and `RUN_TURN_DEG` cannot take
+				-- an animal round a trunk in that. A braking distance is a time; this is one.
+				local reach = pace.WHISKER_STUDS
+				local move = config.MOVE
+				if move ~= nil and move.ENABLED == true then
+					local speed = flatOf(Body.velocity(entry.body)).Magnitude
+					reach = math.clamp(speed * move.WHISKER_SECONDS, move.WHISKER_MIN_STUDS, move.WHISKER_MAX_STUDS)
+				end
 				whisker = {
-					ahead = self._world.probe(position, nose, pace.WHISKER_STUDS),
-					left = self._world.probe(position, turnFlat(nose, -sweep), pace.WHISKER_STUDS),
-					right = self._world.probe(position, turnFlat(nose, sweep), pace.WHISKER_STUDS),
+					ahead = self._world.probe(position, nose, reach),
+					left = self._world.probe(position, turnFlat(nose, -sweep), reach),
+					right = self._world.probe(position, turnFlat(nose, sweep), reach),
 				}
 			end
 		end

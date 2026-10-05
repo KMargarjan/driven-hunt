@@ -1570,24 +1570,38 @@ return function()
 			end
 		end)
 
-		it("has a numeric id, a volume and a range for every sound the code can play", function()
+		it("has a playable id, a volume and a range for every sound the code can play", function()
 			-- IDS ARE DATA, on purpose: the Director's picks are provisional and a library sound can
-			-- be moderated away, so a swap is one number in `Boar.CONFIG.SOUND` and no code change.
+			-- be moderated away, so a swap is one value in `Boar.CONFIG.SOUND` and no code change.
+			--
+			-- A ROW MAY NOW BE A STRING (task 126). The footsteps are `rbxasset://` ENGINE assets --
+			-- Roblox's own files, which ship inside the engine and so cannot 404 or be moderated --
+			-- because the audio catalogue turned out to hold nothing usable: every id a search
+			-- returned was user-uploaded music and none of it loaded, since audio uploaded by another
+			-- user is private to that user's experiences. `Body.soundUri` is what tells the two
+			-- apart, and this asserts the same thing it tests.
 			local function checkSpec(what: string, spec)
 				local ids = spec.ids or { spec.id }
 				expect(#ids > 0).to.equal(true)
 				for _, id in ipairs(ids) do
-					expect(type(id)).to.equal("number")
-					expect(id > 0).to.equal(true)
+					if type(id) == "string" then
+						expect(string.find(id, "://", 1, true) ~= nil).to.equal(true)
+						expect(Boar.soundUri(id)).to.equal(id)
+					else
+						expect(type(id)).to.equal("number")
+						expect(id > 0).to.equal(true)
+						expect(Boar.soundUri(id)).to.equal("rbxassetid://" .. tostring(id))
+					end
 				end
 				expect(spec.volume > 0).to.equal(true)
 				expect(spec.volume <= 1).to.equal(true)
 				expect(type(spec.audibleStuds)).to.equal("number")
 				TestKit.note(
 					string.format(
-						"boar-shot: %s = %d id(s), vol %.2f, %d studs",
+						"boar-shot: %s = %d id(s) (%s), vol %.2f, %d studs",
 						what,
 						#ids,
+						tostring(ids[1]),
 						spec.volume,
 						spec.audibleStuds
 					)
@@ -1600,10 +1614,18 @@ return function()
 			for _, row in ipairs(ONE_SHOTS) do
 				checkSpec(row.name, row.spec)
 			end
-			-- ...and a boar can be heard coming from a post, which is what Karen asked for: the
-			-- Director's brief is 60-80 studs, and a gallop carries further than a walk.
-			expect(SOUND.STEPS.run.audibleStuds >= 60).to.equal(true)
-			expect(SOUND.STEPS.run.audibleStuds > SOUND.STEPS.walk.audibleStuds).to.equal(true)
+			-- ...AND THE HOOVES ARE THE CLOSE SOUND, NOT THE APPROACH ONE, which is the opposite of
+			-- what this file used to assert and the opposite of what task 120 built.
+			--
+			-- THIS ASSERTION WAS WRONG AND HAD BEEN SINCE TASK 123 ROUND 4 (found in task 126, and
+			-- reported rather than quietly fixed): it demanded `run.audibleStuds >= 60` and
+			-- `run > walk`, while the config Karen accepted in that round sets all three to 40 --
+			-- *"when they close we can hear steps but also do not mix lot's so steps will be noisey
+			-- and caotic"*. The gate has not run since (the DEV place has not been open), so nobody
+			-- saw it fail. What is asserted now is the rule those numbers express: a hoof is a CLOSE
+			-- sound and the GRUNT is the one that carries, which is the whole of task 123's finding.
+			expect(SOUND.STEPS.run.audibleStuds <= 60).to.equal(true)
+			expect(SOUND.GRUNTS.audibleStuds > SOUND.STEPS.run.audibleStuds).to.equal(true)
 		end)
 
 		it("only ever grunts when calm and only ever breathes when working", function()

@@ -112,10 +112,32 @@ ForestTest.WAVE = {
 	--       came across.
 	-- So this is the measured value and the other one is written down rather than re-discovered.
 	lateralDz = 55,
-	lateralSpan = 150, -- studs across her front: from ~95 studs one side to ~55 the other
+	lateralSpan = 150,
+	-- WHERE THE EDGE OF THE OPEN IS, for `checkAtTheEdge`. The road's own half width is 20, so 24 is
+	-- just outside the verge and 60 is about three body lengths of approach: a band an animal walks
+	-- into a few seconds before it would step out onto the ride.
+	edgeNearDz = 24,
+	edgeFarDz = 60, -- studs across her front: from ~95 studs one side to ~55 the other
 	-- The beater stands this far off the flank, inside `SENSE.FLUSH_STUDS` (15) like `pushStuds`,
 	-- because a flank beater has to flush as well as a rear one.
-	lateralPushStuds = 11,
+	-- 22 AND NOT 11, AND THE REASON WAS ALREADY WRITTEN DOWN IN `wavePhase` ABOVE (task 126).
+	--
+	-- MEASURED before this task, over a 130 s trace of two lateral waves: the LEFT-TO-RIGHT pass
+	-- travelled **18.9 studs** across her front and the RIGHT-TO-LEFT one **68.0**, against a
+	-- `lateralSpan` of 150 -- so neither pass finished, which is the open item from task 123 round 8
+	-- ("the R-to-L pass never crosses her front"). THE DIRECTION WAS NEVER WRONG: LtoR moved -X and
+	-- RtoL moved +X, both correct, and the measurement is what showed that. The span was.
+	--
+	-- WHY IT WAS SHORT: a beater 11 studs away is INSIDE `SENSE.FLUSH_STUDS` (15), so row 7 of
+	-- `Brain:_senseAware` fires, the herd goes to FLEE, and FLEE heads for `field.exitZ` -- SOUTH.
+	-- The lateral push and the southward route add up to a diagonal, and the herd reaches the road
+	-- long before it has walked 150 studs across her front. `wavePhase`'s own comment measured
+	-- exactly this effect for the turn-back case and never applied it here.
+	--
+	-- At 22 studs the beater is outside the flush band and inside the notice band, so the herd AVOIDs
+	-- instead of fleeing -- and `Brain.avoidTarget` turns `SENSE.AVOID_TURN_DEG` off the line toward
+	-- the cause, which IS a lateral escape. The after-trace is what says whether that is enough.
+	lateralPushStuds = 22,
 }
 
 export type Phase = "push" | "turn" | "lateral" | "done"
@@ -683,6 +705,7 @@ function ForestTest.step(now: number): string?
 	end
 	ForestTest.retire(now)
 	ForestTest.urgeAcrossRoad()
+	ForestTest.checkAtTheEdge()
 	if now < state.nextWaveAt then
 		return nil
 	end
@@ -714,6 +737,34 @@ function ForestTest.urgeAcrossRoad()
 		local dz = at.Z - Data.roadZ(at.X)
 		if dz <= wave.crossTrotDz and dz >= -wave.crossTrotPastDz then
 			runtime:urge(handle.id, 1)
+		end
+	end
+end
+
+-- STOPPING AT THE EDGE OF THE OPEN (task 126). Karen: *"so they comming we can hear them as now is
+-- / then they can stop before entering the road"*.
+--
+-- THE SAME SHAPE AS `urgeAcrossRoad` ABOVE, AND FOR THE SAME REASON: where the road is is this
+-- world's fact and `Brain` has never heard of a road, so all the animal is told is "you are at the
+-- edge of the open now". Whether it stops, for how long, and whether it has already had its look are
+-- the Brain's (`Brain:check` -- a chance, a duration, and one check per approach).
+--
+-- ONLY THE ANIMAL AT THE FRONT IS ASKED, because a file that stops at the edge is one animal
+-- stopping and eight closing up behind it -- which is what the file already does for free, since
+-- every follower steers at a point behind the one ahead. Asking all nine would be nine animals each
+-- deciding separately to stop, which is a traffic jam and not a sounder.
+function ForestTest.checkAtTheEdge()
+	local runtime = state.runtime
+	if runtime == nil then
+		return
+	end
+	local wave = ForestTest.WAVE
+	-- The band is OUTSIDE the road and north of it: from the road's near verge out to `edgeDz`.
+	for _, handle in ipairs(runtime:boars()) do
+		local at = handle.position()
+		local dz = at.Z - Data.roadZ(at.X)
+		if dz > wave.edgeNearDz and dz <= wave.edgeFarDz and runtime:leads(handle.id) then
+			runtime:check(handle.id)
 		end
 	end
 end

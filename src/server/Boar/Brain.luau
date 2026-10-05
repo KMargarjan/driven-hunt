@@ -324,7 +324,15 @@ end
 --
 -- A FLANK TOUCH IS A NUDGE, NOT A SWERVE: half the angle, so an animal brushing past a trunk leans
 -- off it instead of veering across the drive.
-function Brain.steerAroundTrunk(direction: Vector3, whisker, config, prefer: number): Vector3
+-- `locked` (task 126): when true, `prefer` IS the side and the two side tests below are skipped.
+--
+-- THE SIDE FLIPPING FRAME TO FRAME IS WHY A WEDGED ANIMAL SPINS. `whisker.left` and `whisker.right`
+-- are three raycasts a frame against a forest of thin trunks, so they flicker -- and each flicker
+-- swaps `side`, which swaps a 55-degree deflection, which the slew then chases at up to
+-- `WALK_TURN_DEG` 90 deg/s. MEASURED: the worst ten-second turn in the whole trace, 1,385 degrees,
+-- belonged to the one animal the stuck detector also reported -- Karen's *"they shouldn do circles"*
+-- and her *"not hitting the trees and hang"* are the same defect seen from two sides.
+function Brain.steerAroundTrunk(direction: Vector3, whisker, config, prefer: number, locked: boolean?): Vector3
 	local pace = config.PACE
 	if pace == nil or pace.ENABLED ~= true or whisker == nil then
 		return direction
@@ -334,6 +342,16 @@ function Brain.steerAroundTrunk(direction: Vector3, whisker, config, prefer: num
 	end
 	local turn = math.rad(pace.WHISKER_TURN_DEG)
 	local side = if prefer < 0 then -1 else 1
+	if locked == true then
+		-- Committed: the side was chosen when this deflection began and is held until it ends.
+		if whisker.left and whisker.right and whisker.ahead then
+			turn *= 2
+		end
+		if not whisker.ahead then
+			turn *= 0.5
+		end
+		return rotateY(direction, side * turn)
+	end
 	if whisker.left and not whisker.right then
 		side = 1 -- something on the left: go right
 	elseif whisker.right and not whisker.left then
@@ -439,6 +457,10 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- Drawn ONCE, from the shared Random, and kept: a sign drawn per frame is a nose that hunts left
 	-- and right in front of the same tree, which is the "mouse turning" this round is about.
 	self._whiskerSide = if rng:NextNumber() < 0.5 then -1 else 1
+	-- ...and which side THIS obstacle is being passed on, held for `MOVE.WHISKER_HOLD_SECONDS` so a
+	-- flickering cast cannot swap it every frame (task 126).
+	self._whiskerPick = self._whiskerSide
+	self._whiskerFor = 0
 	-- HOW LONG THE DRIVE HAS ASKED THIS ANIMAL TO GET A MOVE ON (task 123 round 4): seconds, counted
 	-- down with dt like every other timer here. Karen: *"they can trot when crossing"*.
 	self._urgeFor = 0
@@ -471,6 +493,24 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 
 	-- Which way a crippled boar circles, chosen once when its back end goes (task 116).
 	self._crippleTurn = nil :: number?
+
+	-- TASK 126. Five values, and each of them is one of Karen's sentences.
+	--
+	-- THE FLIGHT LATCH -- *"run straigh"*. The heading taken at the moment of the spook, the seconds
+	-- of flight left on the ceiling, and how far the animal has run on it so far. `_flightHeading`
+	-- nil means "not in a flight", which is the one test every reader uses.
+	self._flightHeading = nil :: Vector3?
+	self._flightFor = 0
+	self._flightRun = 0
+	self._flightFrom = flat(start)
+	-- THE EDGE CHECK -- *"they can stop before entering the road"*. Seconds of standing-and-looking
+	-- left, and whether this animal has already had its check (one per crossing, not one per frame
+	-- the world asks).
+	self._checkFor = 0
+	self._checked = false
+	-- WHERE A STRAYED BOAR IS WALKING BACK TO. One drawn point, replacing the per-tick pull toward
+	-- home that was one of the two orbit generators.
+	self._homePoint = nil :: Vector3?
 
 	self._despawned = false
 	return self
@@ -575,6 +615,16 @@ function Brain:_senseIdle(position: Vector3, obs)
 	self._heading =
 		unit(rotateY(self._heading, rng:NextNumber(-config.WANDER_JITTER, config.WANDER_JITTER)), self._heading)
 
+	-- HOME AS A DESTINATION RATHER THAN A PULL WAS BUILT HERE AND TAKEN OUT AGAIN (task 126).
+	--
+	-- The reasoning was sound and the measurement refused it. Rotating the heading toward home every
+	-- sense tick IS an orbit generator in principle -- a boar that strays, is turned back, crosses
+	-- home and strays the other way is turned back again -- so it was replaced by one drawn point,
+	-- walked to, redrawn only on arrival. Measured against the baseline it did not help: the
+	-- ten-second windows over 300 degrees did not fall, and with the other changes of this round they
+	-- rose. Since it is not WHY the animals circle, it is reverted rather than kept on a hunch, and
+	-- this comment is here so the next reader does not re-derive it. `MOVE.HOME_ARRIVE_STUDS` and
+	-- `HOME_SCATTER_STUDS` stay in the config with the same note.
 	local fromHome = flat(position) - self._home
 	if fromHome.Magnitude > config.HOME_RADIUS then
 		-- CORRECTION to docs/design/boar-ai.md section 5, which writes this as
@@ -704,6 +754,36 @@ function Brain:_slotPoint(sounder): Vector3
 	return flat(leader.position) - forward * offset.Z + right * offset.X
 end
 
+-- THE FILE (task 126). Karen: *"it could be lines of boars like in real life"*.
+--
+-- ONE LINK OF A CHAIN, AND THAT IS THE WHOLE IDEA. `_slotPoint` above aims every follower at a point
+-- behind THE LEADER, so nine animals converge on nine points on one line through one moving animal
+-- and every one of them cuts the corners the leader turns -- measured before this task as a 35.2-stud
+-- median gap and a 17.6-stud median offset from the leader's own line, which is a field of animals
+-- and not a line of them. This aims each follower at a point `FILE_PITCH_STUDS` behind THE ONE
+-- AHEAD OF IT, which is Reynolds' `leader following` applied per link rather than per group.
+--   https://www.red3d.com/cwr/steer/gdc99/
+--
+-- Returns nil when there is no file to be in -- no animal ahead, or it is barely moving -- and then
+-- the caller does exactly what it did before this task.
+function Brain:_filePoint(sounder): Vector3?
+	local move = self._config.MOVE
+	if move == nil or move.ENABLED ~= true or move.FILE ~= true then
+		return nil
+	end
+	local ahead = sounder.ahead
+	if ahead == nil then
+		return nil
+	end
+	-- BEHIND THE ONE AHEAD, along ITS OWN facing: "a point offset slightly behind the leader" in
+	-- Reynolds' words, where the leader of this link is the animal in front.
+	local forward = flat(ahead.facing or ahead.velocity or Vector3.zero)
+	if forward.Magnitude < 1e-6 then
+		forward = self._heading
+	end
+	return flat(ahead.position) - unit(forward, self._heading) * move.FILE_PITCH_STUDS
+end
+
 -- The four terms of the blend. Separation is the boids 1/r repulsion with a floor at zero, so a
 -- neighbour past SEPARATION_STUDS contributes nothing at all, and it is weighted to dominate --
 -- five CanCollide bodies at MAX_FORCE = 6000 pushing through each other is a physics fight.
@@ -725,6 +805,33 @@ function Brain:_sounderDirection(position: Vector3, obs): Vector3
 		end
 	end
 	local separationWeight = settings.SEPARATION * (if sounder.scattering then settings.SCATTER_SEPARATION else 1)
+
+	-- IN A FILE, THE ANIMAL AHEAD IS THE ONLY THING THAT DECIDES WHERE THIS ONE GOES (task 126).
+	--
+	-- MEASURED, AND IT IS WHY THE FIRST VERSION OF THIS TASK CHANGED NOTHING. Adding the file's
+	-- target to the blend left the gap between consecutive members at a 34.4-stud median against the
+	-- 35.2 it started at -- no file at all. The reason is in the two weights: every member of a
+	-- fleeing sounder carries its own `FLEE_WEIGHT` 0.8 pull toward `field.exitZ`, and nine animals
+	-- each pulling toward the same line 300 studs south travel as a BROAD FRONT, whatever the
+	-- cohesion term asks for. A queue cannot form while every link also knows where it is going.
+	--
+	-- So a follower with somebody ahead of it does not flee: it FOLLOWS, and the leader is the only
+	-- animal in the sounder that reads the route. That is Reynolds' `leader following` as written --
+	-- "stay behind the leader" is the whole behaviour, not a term in a sum.
+	--   https://www.red3d.com/cwr/steer/gdc99/
+	local filePoint = if not sounder.scattering then self:_filePoint(sounder) else nil
+	if filePoint ~= nil then
+		local toFile = flat(filePoint) - flatPos
+		local lead = if toFile.Magnitude > self._config.MOVE.FILE_TOLERANCE_STUDS
+			then unit(toFile, self._heading)
+			-- ARRIVED: hold the line the one ahead is on, or the follower oscillates on the spot.
+			else unit(flat(sounder.ahead.facing or sounder.ahead.velocity or Vector3.zero), self._heading)
+		-- SEPARATION STAYS, and it is the one term that must: a file at `FILE_PITCH_STUDS` is inside
+		-- nothing, but a follower that catches up, or two files that merge, still needs the boids
+		-- repulsion or five CanCollide bodies fight the solver.
+		return unit(lead * settings.COHESION + separation * separationWeight, self._heading)
+	end
+
 	local blended = separation * separationWeight + fleeDirection * settings.FLEE_WEIGHT
 
 	-- WHILE SCATTERING THERE IS NOTHING TO COHERE TO: the member runs its own flee direction with
@@ -769,6 +876,11 @@ function Brain:_idleSounderDirection(position: Vector3, obs): Vector3
 	blended += separation * settings.SEPARATION
 
 	if not sounder.scattering then
+		-- THE SOUNDER'S CENTROID IS A POINT ITS MEMBERS STEER AT, which is the shape of an orbit --
+		-- and task 126 replaced it with a leash at twice the spread, measured, and put it back. It is
+		-- not what makes the animals circle: with it gone the ten-second windows over 300 degrees did
+		-- not fall. A grazing sounder closing up past `IDLE_SPREAD_STUDS` is Karen's own accepted
+		-- behaviour from task 61 ("seems together, sometimes alone"), so it stands.
 		local toCentroid = flat(sounder.centroid or flatPos) - flatPos
 		if toCentroid.Magnitude > settings.IDLE_SPREAD_STUDS then
 			blended += unit(toCentroid, self._heading) * settings.IDLE_COHESION
@@ -787,8 +899,15 @@ function Brain:_followerSpeed(position: Vector3, obs): number
 	local config = self._config
 	local settings = config.SOUNDER
 	local leader = obs.sounder.leader
-	local toSlot = flat(self:_slotPoint(obs.sounder)) - flat(position)
-	local catchup = if toSlot.Magnitude > settings.SLOT_TOLERANCE_STUDS then settings.CATCHUP else 1
+	-- AGAINST THE FILE'S OWN TARGET WHERE THERE IS ONE (task 126): a follower 25 studs behind the
+	-- animal ahead of it has to be allowed to close, and measuring that gap against the WEDGE slot it
+	-- is no longer standing in is how a file stays strung out. Measured: a 25.6-stud median gap after
+	-- the file went in, against a `FILE_PITCH_STUDS` of 7.5.
+	local filePoint = self:_filePoint(obs.sounder)
+	local target = filePoint or flat(self:_slotPoint(obs.sounder))
+	local tolerance = if filePoint ~= nil then config.MOVE.FILE_TOLERANCE_STUDS else settings.SLOT_TOLERANCE_STUDS
+	local toSlot = flat(target) - flat(position)
+	local catchup = if toSlot.Magnitude > tolerance then settings.CATCHUP else 1
 	return math.min((leader.speed or 0) * catchup, config.SPRINT_SPEED)
 end
 
@@ -892,6 +1011,8 @@ end
 -- HEAD DOWN AGAIN. Both ALERT and AVOID end on their own timer, and both end the same way: calm,
 -- home reset to where the animal now stands, nothing routed. Leaving ALERT also arms the refractory,
 -- which is what stops a 2.5 s IDLE<->ALERT flip-flop in front of a motionless hunter.
+-- Calming down ends the flight and re-arms the edge check: an animal that has crossed, settled and
+-- meets another ride may stop and look at that one too.
 function Brain:_settle(position: Vector3)
 	if self._state == "ALERT" then
 		self._refractoryFor = self._config.SENSE.ALERT_REFRACTORY_SECONDS
@@ -905,6 +1026,13 @@ function Brain:_settle(position: Vector3)
 	self._avoidFor = 0
 	self._avoidPoint = nil
 	self._alertPoint = nil
+	-- TASK 126: settling ends the flight and RE-ARMS the edge check. An animal that has crossed one
+	-- ride and calmed down may stand and look at the next one; one that is still running may not.
+	self._flightHeading = nil
+	self._flightFor = 0
+	self._checked = false
+	self._checkFor = 0
+	self._homePoint = nil
 end
 
 -- IT RUNS. This is today's IDLE->FLEE transition, lifted into a function so that precedence rules 7
@@ -998,7 +1126,100 @@ function Brain:spook(from: Vector3?, seconds: number?)
 		self:_flush()
 	end
 	self._speed = math.max(self._speed, self:_runSpeed() * config.WOUND.BOLT_KICK)
+	-- ...AND THE LINE IT RUNS ON, taken here because this is the one door every fright comes
+	-- through: a shot heard, a hit taken, a release that remembers a bang, a driver flushing it.
+	self:_latchFlight(self._stuckFrom, from)
 	return true
+end
+
+-- THE FLIGHT LATCH (task 126). Karen: *"after shoot animals usually run straight when they spook ofc
+-- avoiding opsticals"*.
+--
+-- ONE HEADING, TAKEN ONCE. Before this task a fleeing animal recomputed "away from the threat" from
+-- its CURRENT position every frame, so the away-vector swung round as it ran past the shooter, and a
+-- pathfinder route curved it further -- measured as a median 84-99 degrees of deviation from the
+-- heading it set off on, and a maximum of 180. This takes the direction at the instant of the spook
+-- and keeps it; `Brain.steerAroundTrunk` is then the ONLY thing that deflects it, which is her
+-- *"ofc avoiding opsticals"* exactly.
+--
+-- IT DOES NOT RE-LATCH ON EVERY BANG. A second shot inside `FLIGHT_RELATCH_SECONDS` keeps the first
+-- one's line, so a volley does not make an animal pirouette between two shooters.
+function Brain:_latchFlight(position: Vector3, from: Vector3?)
+	local move = self._config.MOVE
+	if move == nil or move.ENABLED ~= true or move.FLIGHT ~= true then
+		return
+	end
+	if self._flightHeading ~= nil and self._flightFor > move.FLIGHT_MAX_SECONDS - move.FLIGHT_RELATCH_SECONDS then
+		return -- still inside the re-latch window of a flight that just started
+	end
+	local flatPos = flat(position)
+	-- AWAY FROM WHAT FRIGHTENED IT, and when that is unknown (a herd-mate's alarm, a release that
+	-- remembers a bang) the animal keeps the heading it already had. Either way it is ONE line.
+	local away = if from ~= nil then unit(flatPos - flat(from), self._heading) else self._heading
+	-- ...BENT TOWARD THE WAY OUT, once, at the latch. A straight line away from the gun that runs
+	-- into the back fence is not an escape; `field.exitZ` is where this world's animals leave, and
+	-- the same blend `_fleeDirection` has always used is applied HERE instead of every frame.
+	local exit_ = Vector3.new(flatPos.X, 0, self._field.exitZ)
+	local toExit = unit(exit_ - flatPos, away)
+	-- ...UNLESS THE WAY OUT IS PAST THE GUN, and that case is why this is an `if` and not a sum.
+	-- MEASURED: on the third shot of the after-trace six animals ran with a median heading deviation
+	-- of 160 degrees -- they turned round. The shooter was BETWEEN them and `exitZ`, so `away` and
+	-- `toExit` point opposite ways, their sum is near zero, and `unit`'s fallback decides the
+	-- heading -- which is not a decision, it is a coin toss. An animal in that position runs from the
+	-- gun and finds its way out later.
+	self._flightHeading = if away:Dot(toExit) <= 0 then away else unit(away + toExit, away)
+	self._flightFor = move.FLIGHT_MAX_SECONDS
+	self._flightRun = 0
+	self._flightFrom = flatPos
+	-- A flight is not a route: a curved path is the other half of what bent the line.
+	self._waypoints = nil
+	self._target = nil
+end
+
+-- WHETHER THE ANIMAL IS STILL ON ITS FLIGHT. Karen: *"it runs awai a lot until I can;t see them ...
+-- not run a bit and stop"*. It ends on DISTANCE, not on a timer -- `FLIGHT_MIN_STUDS` of ground
+-- covered -- with the seconds only as a ceiling so nothing penned in by the bounds runs for ever.
+function Brain:_flightActive(): boolean
+	local move = self._config.MOVE
+	if move == nil or move.ENABLED ~= true or self._flightHeading == nil then
+		return false
+	end
+	return self._flightRun < move.FLIGHT_MIN_STUDS and self._flightFor > 0
+end
+
+-- THE EDGE CHECK (task 126). Karen: *"they can stop before entering the road"*.
+--
+-- A REQUEST FROM THE WORLD, exactly like `Brain:urge` and `Brain:spook`: the thing that knows where
+-- the road is is the world, and the thing that knows how an animal stands and looks is this. One
+-- check per animal per approach -- `_checked` is cleared by `_settle`, so a boar that has crossed and
+-- calmed down may check again at the next road -- and never while it is already frightened.
+function Brain:check(seconds: number?): boolean
+	local move = self._config.MOVE
+	if move == nil or move.ENABLED ~= true then
+		return false
+	end
+	if self._checked or self._checkFor > 0 then
+		return false
+	end
+	local state = self._state
+	if state == "GONE" or state == "DOWN" or state == "CRIPPLED" or state == "WOUNDED" then
+		return false
+	end
+	-- A FRIGHTENED ANIMAL DOES NOT STOP TO LOOK, and that is the whole order of Karen's sentence:
+	-- *"they can stop before entering the road or walk or trot if there are spook or shoot they run"*.
+	if self._boltFor > 0 or self:_flightActive() then
+		return false
+	end
+	self._checked = true
+	if self._rng:NextNumber() >= move.EDGE_CHANCE then
+		return false -- it had its chance and walked straight out, which is the other half of the dial
+	end
+	self._checkFor = seconds or self._rng:NextNumber(move.EDGE_MIN_SECONDS, move.EDGE_MAX_SECONDS)
+	return true
+end
+
+function Brain:checking(): boolean
+	return self._checkFor > 0
 end
 
 function Brain:_hearSound(sound, position: Vector3)
@@ -1193,6 +1414,18 @@ function Brain:step(dt: number, obs)
 	end
 	self._boltFor = math.max(0, self._boltFor - dt)
 	self._urgeFor = math.max(0, self._urgeFor - dt)
+	-- TASK 126's three timers, counted with dt beside the others. With `MOVE.ENABLED` off none of
+	-- them is ever set, so this is three subtractions and nothing else.
+	self._flightFor = math.max(0, self._flightFor - dt)
+	self._whiskerFor = math.max(0, self._whiskerFor - dt)
+	self._checkFor = math.max(0, self._checkFor - dt)
+	-- HOW FAR THE FLIGHT HAS RUN, which is what ends it: distance covered, never a clock.
+	if self._flightHeading ~= nil then
+		self._flightRun = flatDistance(position, self._flightFrom)
+		if not self:_flightActive() then
+			self._flightHeading = nil
+		end
+	end
 	-- THE AWARENESS TIMERS (task 118), counted with dt beside the bolt. With the flag off they are
 	-- never set, so this is three subtractions and nothing else.
 	self._alertFor = math.max(0, self._alertFor - dt)
@@ -1339,7 +1572,16 @@ function Brain:step(dt: number, obs)
 
 	local desiredDirection, desiredSpeed
 	local stuckTurn = nil :: number?
-	if self._state == "ALERT" then
+	if self._checkFor > 0 then
+		-- STOPPED AT THE EDGE, LOOKING THE WAY IT IS GOING (task 126). Karen: *"they can stop before
+		-- entering the road"*. It is ALERT's own shape -- a zero setpoint and the facing left alone
+		-- -- without entering ALERT, because ALERT is about a THREAT and has its own timers, its own
+		-- refractory period and its own `_alertPoint`. The animal has not seen anything; it is
+		-- standing at the edge of the open. The file stacks up behind it for free: every follower's
+		-- target is a point behind the one ahead, and the one ahead has stopped.
+		desiredDirection = self._desired
+		desiredSpeed = 0
+	elseif self._state == "ALERT" then
 		-- HEAD UP, STOPPED, TURNED TO THE CAUSE (section 4.4). Both limits are the existing ones:
 		-- the facing goes through the `TURN_RATE` slew below (a 180-degree turn takes 0.79 s) and
 		-- the setpoint through the `ACCEL` ramp, so an animal that was walking stops over 0.07 s
@@ -1389,6 +1631,35 @@ function Brain:step(dt: number, obs)
 			self._sinceRepath = 0
 		end
 		desiredDirection = if follower then self:_sounderDirection(position, obs) else self:_fleeDirection(position)
+		-- THE LATCHED LINE WINS (task 126). Karen: *"run straigh like in real life"*. While the
+		-- flight is live this replaces every steering blend above -- the route, the away-vector, the
+		-- sounder's cohesion -- with the ONE heading taken at the moment of the fright. The whisker
+		-- below still deflects it, and nothing else does.
+		--
+		-- A FOLLOWER STILL KEEPS ITS SEPARATION, because the alternative is nine animals on one line
+		-- pushing through each other at 24 studs/s: the latched heading is blended with the boids
+		-- repulsion term alone, which is the file running rather than the file dissolving.
+		if self:_flightActive() then
+			local line = self._flightHeading :: Vector3
+			if follower and sounder ~= nil and not sounder.scattering then
+				local settings = config.SOUNDER
+				local flatPos = flat(position)
+				local separation = Vector3.zero
+				for _, neighbour in ipairs(sounder.neighbours or {}) do
+					local away = flatPos - flat(neighbour.position)
+					local distance = away.Magnitude
+					if distance > 1e-6 then
+						local push = (settings.SEPARATION_STUDS / math.max(distance, 1)) - 1
+						if push > 0 then
+							separation += unit(away, line) * push
+						end
+					end
+				end
+				desiredDirection = unit(line * settings.FLEE_WEIGHT + separation * settings.SEPARATION, line)
+			else
+				desiredDirection = line
+			end
+		end
 		if stuck and self._stuckCount >= 2 then
 			-- Turning `desiredDirection` was still not enough: the slew below moves the output by at
 			-- most TURN_RATE * dt (~3.8 degrees at 60 Hz) and the next tick recomputes it, so the
@@ -1455,6 +1726,26 @@ function Brain:step(dt: number, obs)
 				desiredSpeed = math.min(desiredSpeed, if pushedOn then pace.TROT_SPEED else pace.WALK_SPEED)
 			end
 		end
+		-- ...AND A FOLLOWER THAT HAS FALLEN BEHIND MAY CLOSE THE GAP (task 126). Karen: *"it could be
+		-- lines of boars like in real life"*.
+		--
+		-- THE CLAMP ABOVE WAS ERASING THE CATCH-UP, which is the third bug of this family in this
+		-- round. `_followerSpeed` returns `leader.speed * CATCHUP` for a member out of position, and
+		-- the pace clamp then does `math.min(that, WALK_SPEED)` -- so a straggler was pinned to
+		-- exactly its leader's own walking speed and could never close a single stud. MEASURED: a
+		-- sounder of eight shed six members in about eight seconds, every one of them to the
+		-- break-away rule, and "a member that left never rejoins".
+		--
+		-- IT IS APPLIED AFTER THE CLAMP AND CAPPED AT A TROT, so a file closes up at the pace Karen
+		-- accepted for a crossing rather than sprinting back into formation.
+		local move = config.MOVE
+		if move ~= nil and move.ENABLED == true and follower and sounder.ahead ~= nil and not sounder.scattering then
+			local gap = (flat(self:_filePoint(sounder) or position) - flat(position)).Magnitude
+			if gap > move.FILE_TOLERANCE_STUDS and not self:_flightActive() then
+				desiredSpeed = math.min(desiredSpeed * move.FILE_CATCHUP, config.TROT_SPEED)
+			end
+		end
+
 		-- The wound scales the SETPOINT, never the physics (hit-zones design section 5.5): bleeding
 		-- out ramps it down over the flight and a leg hit multiplies a limp on top. The ACCEL ramp
 		-- below still applies, so a wounded boar slows the way it accelerates.
@@ -1467,7 +1758,30 @@ function Brain:step(dt: number, obs)
 	-- the same answer to "something solid is in front of me" and the blends above do not each need
 	-- their own.
 	if obs.whisker ~= nil then
-		desiredDirection = Brain.steerAroundTrunk(desiredDirection, obs.whisker, config, self._whiskerSide)
+		-- WHICH WAY ROUND, DECIDED ONCE PER OBSTACLE (task 126). While `WHISKER_HOLD_SECONDS` has not
+		-- run out the side is held, so a flickering pair of side casts cannot swap a 55-degree
+		-- deflection every frame and leave the animal turning on the spot.
+		local move = config.MOVE
+		local hold = move ~= nil and move.ENABLED == true
+		local sees = (obs.whisker.ahead or obs.whisker.left or obs.whisker.right) == true
+		if hold and sees then
+			if self._whiskerFor <= 0 then
+				-- A NEW OBSTACLE: choose the clear side now, and commit to it.
+				self._whiskerPick = if obs.whisker.left and not obs.whisker.right
+					then 1
+					elseif obs.whisker.right and not obs.whisker.left then -1
+					else self._whiskerSide
+			end
+			self._whiskerFor = move.WHISKER_HOLD_SECONDS
+		end
+		local locked = hold and self._whiskerFor > 0
+		desiredDirection = Brain.steerAroundTrunk(
+			desiredDirection,
+			obs.whisker,
+			config,
+			if locked then self._whiskerPick else self._whiskerSide,
+			locked
+		)
 	end
 
 	-- ...AND WEDGED IS WEDGED, IN ANY STATE (task 123 round 3). The existing sidestep lives in the
@@ -1517,7 +1831,32 @@ function Brain:step(dt: number, obs)
 
 	-- Turn rate and acceleration limit the SETPOINT, not the physics, so both are assertable with no
 	-- physics at all (design section 5).
+	-- THE TURN BUDGET WAS BUILT HERE, MEASURED, AND TAKEN OUT AGAIN (task 126). It is recorded rather
+	-- than quietly dropped, because the obvious thing to try next is to put it back.
+	--
+	-- The idea was a backstop for Karen's *"they shouldn do circles like I see now"*: an animal that
+	-- spent more than `MOVE.TURN_BUDGET_DEG` of turning inside `TURN_WINDOW_SECONDS` held its heading
+	-- for `TURN_HOLD_SECONDS`. It was measured at every step and it never once helped:
+	--     baseline, no budget                        4,660 windows over 300 deg, worst 742
+	--     budget, hold skipped while a whisker fired  4,281, worst 663
+	--     budget, every file member exempt            5,326, worst 981
+	--     budget, only a closing follower exempt      7,728, worst 883
+	--
+	-- IT WAS MAKING THE THING IT MEASURED WORSE, AND THE MECHANISM IS PLAIN ONCE SEEN: while held, the
+	-- heading was re-fed through `Brain.steerAroundTrunk`, which rotates by `WHISKER_TURN_DEG` (55
+	-- degrees) whenever a whisker fires -- so every held frame near a trunk added another 55 degrees
+	-- to an ALREADY deflected heading, compounding frame after frame. A hold that keeps re-deflecting
+	-- is a rotation generator, which is the opposite of a hold.
+	--
+	-- WHAT IS KEPT IS THE PART THAT WORKED: the orbits are removed AT THEIR THREE SOURCES instead --
+	-- the sounder's centroid (`_idleSounderDirection`), the pull toward home (`_senseIdle`) and the
+	-- route's flipping lateral bias (`_routeTarget`) -- each of which is a point an animal steered
+	-- continuously at, which is what an orbit is.
+	--
+	-- `MOVE.TURN_WINDOW_SECONDS`, `TURN_BUDGET_DEG` and `TURN_HOLD_SECONDS` are left in the config
+	-- with this measurement beside them so the next reader does not spend the round I spent.
 	self._desired = slew(self._desired, unit(desiredDirection, self._desired), turnRate * dt)
+
 	if stuckTurn then
 		self._desired = unit(rotateY(self._desired, stuckTurn), self._desired)
 	end
