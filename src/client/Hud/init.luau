@@ -645,7 +645,12 @@ local function render(Weapon, CameraSystem)
 		-- The Hud asks the CAMERA, which is the state, not the weapon's aim flag, which is the
 		-- request -- and it asks the same camera which view this build is running.
 		local aiming = CameraSystem ~= nil and CameraSystem.getMode() == "Aiming"
-		local firstPerson = CameraSystem ~= nil and CameraSystem.isFirstPerson()
+		-- NO CAMERA MEANS NO CROSSHAIR, AND THE ASYMMETRY IS DELIBERATE (task 123 round 7). `aiming`
+		-- defaults to false because an unknown aim is a hipfire; `firstPerson` defaults to TRUE
+		-- because Karen's rule is "no crosshair at any time" in first person and a question nobody
+		-- can answer must not be the thing that overrides her. The crosshair exists for the
+		-- third-person shoulder camera, so no camera system is also no third person to draw it for.
+		local firstPerson = CameraSystem == nil or CameraSystem.isFirstPerson()
 		crosshair.Visible = Hud.crosshairVisible(state, aiming, firstPerson)
 	end
 	if readout then
@@ -666,9 +671,19 @@ function Hud.start()
 	local player = Players.LocalPlayer
 	local scripts = player:WaitForChild("PlayerScripts")
 	local Weapon = require(scripts:WaitForChild("Weapon"))
-	-- The camera may not exist (it is its own task); the Hud works without it and simply never
-	-- hides the crosshair for aiming. One-way: the camera has no reference to the Hud.
-	local cameraModule = scripts:FindFirstChild("Camera")
+	-- `WaitForChild` AND NOT `FindFirstChild`, AND THAT WAS THE BUG (task 123 round 7). Karen, in a
+	-- first-person session: *"why there is corss? we dont need a cross, I mentione crossing road"*.
+	-- MEASURED in her own running client: `Camera.isFirstPerson()` answered TRUE and
+	-- `HunterHud.Crosshair.Visible` was TRUE anyway -- because this line ran before the engine had
+	-- copied `Camera` into `PlayerScripts` (it was the LAST of thirteen children in that session),
+	-- so `CameraSystem` was nil, `firstPerson` read false, and the `CameraSystem.Changed` connection
+	-- below was never made either, so nothing ever corrected it.
+	--
+	-- IT IS A RACE AND NOT A PROPERTY OF THAT WORLD: `WeaponBoot` and `CameraBoot` are two scripts
+	-- with no defined order, so the DEV place is exposed to exactly the same one and has simply been
+	-- winning it. A bounded wait keeps the old promise -- the Hud still works if the camera never
+	-- arrives -- and removes the race. One-way: the camera has no reference to the Hud.
+	local cameraModule = scripts:WaitForChild("Camera", 5)
 	local CameraSystem = if cameraModule then require(cameraModule) else nil
 	-- The drive may not exist (it is its own system, and 1.7a is the first task that ships it); the
 	-- Hud works without it and simply draws no bar. One-way: the match has no reference to the Hud.
