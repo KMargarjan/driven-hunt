@@ -1421,7 +1421,20 @@ function Brain:step(dt: number, obs)
 		-- slower than a healthy one at the same pace, rather than being pulled back up to it).
 		local pace = config.PACE
 		if pace ~= nil and pace.ENABLED == true then
-			local spooked = self._boltFor > 0 or perception.spook == true
+			-- A WOUNDED ANIMAL IS SPOOKED BY DEFINITION, and leaving it out was the bug Karen
+			-- photographed: *"potential bug shooted boar stands and stay"* (task 124 step 0).
+			--
+			-- MEASURED. A body slug charges 55 damage -- mortal -- and buys the animal a 108-stud
+			-- flight, and `Wound.advance` spends that flight on the distance it ACTUALLY covers. The
+			-- bolt runs for `WOUND.BOLT_SECONDS` = 3; after that `spooked` was false, so the clamp
+			-- below put a dying boar on `PACE.WALK_SPEED` = 4.5 and the wound's own `speedScale`
+			-- took it from there: traced at 21.8 -> 19.3 -> 17.0 -> 15.0 -> 6.1 -> **2.3 studs/s**,
+			-- with 11 studs of its flight still to run. At 2 studs/s that is most of a minute, and
+			-- `BLEED_OUT_MAX_SECONDS` (25) is the only reason it ends at all -- twenty-five seconds
+			-- of a boar standing on the road, which is exactly what she saw.
+			--
+			-- The wound's `speedScale` is still what slows it down; what it now scales is a RUN.
+			local spooked = self._boltFor > 0 or perception.spook == true or self._state == "WOUNDED"
 			if spooked then
 				-- A shot, a hit, or a man who is not driving: run, whatever the push said -- and
 				-- `_runSpeed` is what running is, which Karen slowed in round 4.
