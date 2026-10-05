@@ -1149,10 +1149,11 @@ return function()
 			local status = runtime:statusOf(handle.id)
 			TestKit.note(
 				string.format(
-					"boar-shot DIAG: loop=%s sounds=%d state=%s statusSpeed=%.1f at=(%.0f,%.0f) stepClip=%s steps_run playing=%s vol=%.2f",
+					"boar-shot DIAG: loop=%s sounds=%d state=%s want=%.1f statusSpeed=%.1f at=(%.0f,%.0f) stepClip=%s steps_run playing=%s vol=%.2f",
 					tostring(playing),
 					#((soundsOf(handle) :: Instance):GetChildren()),
 					tostring(status and status.state),
+					(status and status.want) or -1,
 					(status and status.speed) or -1,
 					handle.part.Position.X,
 					handle.part.Position.Z,

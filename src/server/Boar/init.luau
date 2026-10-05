@@ -3598,6 +3598,8 @@ function Runtime:statusOf(id: string)
 				position = Body.position(entry.body),
 				speed = flatOf(Body.velocity(entry.body)).Magnitude,
 				state = entry.brain:state(),
+				-- The speed it was ASKED for this step; `speed` above is what the body is doing.
+				want = entry.lastWant or 0,
 				kind = entry.body and entry.body.kind,
 				alive = part ~= nil and part.Parent ~= nil and part:GetAttribute("Carcass") ~= true,
 			}
@@ -3912,6 +3914,11 @@ function Runtime:step(dt: number)
 		-- running on the spot instead of flicking to idle for the frames the physics holds it still.
 		if config.MODEL.ENABLED then
 			local wantSpeed = Vector3.new(intent.targetVelocity.X, 0, intent.targetVelocity.Z).Magnitude
+			-- WHAT IT WAS ASKED FOR, kept beside what it is doing (task 129). A body's measured
+			-- velocity is zero wherever physics does not run -- a spec's world, a part outside
+			-- Workspace -- so "is it moving?" and "was it told to move?" are different questions and
+			-- only one of them has an answer everywhere. `statusOf` publishes both.
+			entry.lastWant = wantSpeed
 			Body.stepVisual(entry.body, dt, {
 				speed = wantSpeed,
 				facing = facing,
