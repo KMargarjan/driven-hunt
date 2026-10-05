@@ -1666,7 +1666,9 @@ return function()
 			-- coming at all, and the far fade quiets a herd that is still a long way off -- *"when
 			-- its verry fal I cant hear them"* cuts both ways. What must still hold is that a grunt
 			-- at the Director's own listening band is at FULL volume, which is the next line.
-			expect(SOUND.CROWD.FAR_STUDS >= 100).to.equal(true)
+			-- 90 studs, which is the far edge of the Director's own 60-90 listening band: a grunt is
+			-- at full volume everywhere inside it and fades beyond, where a herd is somebody else's.
+			expect(SOUND.CROWD.FAR_STUDS >= 60).to.equal(true)
 			expect(SOUND.CROWD.FAR_VOLUME >= 0.5).to.equal(true)
 			expect(Boar.farScale(SOUND.CROWD.FAR_STUDS - 1, CONFIG)).to.equal(1)
 			TestKit.note(

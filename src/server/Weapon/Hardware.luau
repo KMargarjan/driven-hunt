@@ -515,12 +515,37 @@ function Hardware.toolsOf(player: Player): { Tool }
 	return found
 end
 
+-- THE HUMANOID IS NOT THERE YET WHEN THE GUN IS GRANTED, AND THAT IS WHY THE GUN WAS IN THE
+-- BACKPACK (task 129, found by the gate the moment it could run again).
+--
+-- `Weapon.watchPlayer` grants on `CharacterAdded`, and at that instant the character model is still
+-- being assembled: `FindFirstChildOfClass("Humanoid")` answers nil, this function did nothing, and
+-- the Tool stayed in the Backpack with nothing to equip it afterwards. MEASURED in the DEV gate run:
+-- three guns handed over, "+2.5s hand, +75.9s backpack, +75.9s backpack" -- the first grant (before
+-- a respawn) was equipped and the two after the drive's placement respawn were not, so the player
+-- stood at his stand with empty hands and no viewmodel. It is Karen's *"There is no weapon something
+-- is broken"* from task 123 round 9 arriving by a second road.
+--
+-- IT WAITS FOR THE HUMANOID RATHER THAN RETRYING FOR EVER: `WaitForChild` with a timeout, in its own
+-- thread so the grant does not block, and it gives up quietly if the character has been replaced
+-- again in the meantime. A player who holsters his gun later is untouched -- this fires once, on the
+-- grant, exactly like the direct call above it.
 function Hardware.equip(tool: Tool, player: Player)
 	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if character == nil then
+		return
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		humanoid:EquipTool(tool)
+		return
 	end
+	task.spawn(function()
+		local arrived = character:WaitForChild("Humanoid", 5)
+		if arrived ~= nil and tool.Parent ~= nil and player.Character == character then
+			(arrived :: Humanoid):EquipTool(tool)
+		end
+	end)
 end
 
 function Hardware.muzzlePosition(tool: Tool): Vector3?
