@@ -66,21 +66,58 @@ function Line.pointBack(trail: { Crumb }, back: number): (Vector3?, Vector3?)
 	if want < 0 then
 		return nil, nil
 	end
-	-- Walk from the head backwards: the answer is almost always within the last few crumbs, so this
-	-- is O(1) in practice even though the trail is long.
+	return Line.pointAt(trail, want)
+end
+
+-- THE POINT AT AN ARC LENGTH ALONG THE TRAIL, plus the direction of travel there. This is the one
+-- primitive; `pointBack` is it measured from the head.
+function Line.pointAt(trail: { Crumb }, s: number): (Vector3?, Vector3?)
+	local head = trail[#trail]
+	if head == nil then
+		return nil, nil
+	end
+	if s >= head.s then
+		return head.at, nil
+	end
+	if s <= trail[1].s then
+		return trail[1].at, nil
+	end
 	for index = #trail, 2, -1 do
 		local ahead, behind = trail[index], trail[index - 1]
-		if behind.s <= want then
+		if behind.s <= s then
 			local span = ahead.s - behind.s
-			local t = if span > 1e-6 then (want - behind.s) / span else 0
-			local point = behind.at:Lerp(ahead.at, t)
+			local t = if span > 1e-6 then (s - behind.s) / span else 0
 			local travel = Vector3.new(ahead.at.X - behind.at.X, 0, ahead.at.Z - behind.at.Z)
-			local facing = if travel.Magnitude > 1e-6 then travel.Unit else nil
-			return point, facing
+			return behind.at:Lerp(ahead.at, t), if travel.Magnitude > 1e-6 then travel.Unit else nil
 		end
 	end
-	local first = trail[1]
-	return first.at, nil
+	return trail[1].at, nil
+end
+
+-- WHERE AN ANIMAL IS *ON* THE TRAIL, as an arc length: the nearest point of the polyline to it.
+--
+-- THIS IS WHAT MAKES A FOLLOWER WALK THE TRAIL RATHER THAN ACROSS IT (task 127 round 2). Ordering an
+-- animal straight at a station that is round a corner is ordering it to CUT that corner -- through
+-- whatever the leader had gone round, which is a trunk. Knowing its own arc position means the next
+-- order can be a point a little FURTHER ALONG the same polyline, so it walks the leader's path
+-- instead of a chord across it.
+function Line.arcAt(trail: { Crumb }, at: Vector3): number
+	local best, bestD = 0, math.huge
+	for index = #trail, 2, -1 do
+		local ahead, behind = trail[index], trail[index - 1]
+		local segment = Vector3.new(ahead.at.X - behind.at.X, 0, ahead.at.Z - behind.at.Z)
+		local length = segment.Magnitude
+		if length > 1e-6 then
+			local to = Vector3.new(at.X - behind.at.X, 0, at.Z - behind.at.Z)
+			local t = math.clamp(to:Dot(segment) / (length * length), 0, 1)
+			local closest = behind.at:Lerp(ahead.at, t)
+			local d = (Vector3.new(at.X - closest.X, 0, at.Z - closest.Z)).Magnitude
+			if d < bestD then
+				bestD, best = d, behind.s + t * length
+			end
+		end
+	end
+	return best
 end
 
 -- FORGETS THE TAIL NOBODY IS STANDING ON any more, so a wave that walks 800 studs does not keep 800
@@ -143,12 +180,29 @@ end
 -- THE CLAMP IS THE POINT. Without it a follower that falls 20 studs behind sprints to catch up and
 -- overshoots, which is the oscillation task 126 measured; with it the line closes gently and the
 -- whole thing stays at the leader's pace, which is what "in one line" looks like.
+-- `slack` IS AN ARC-LENGTH ERROR NOW, SIGNED: positive means the animal is BEHIND its station, which
+-- is the only reading that lets "ahead" and "behind" be told apart. The euclidean distance this used
+-- to take could not: a follower that had overshot and one that had fallen behind both read positive,
+-- so both sped up, which is half of why the measured gaps stayed at a 12.7 median.
 function Line.followerSpeed(leaderSpeed: number, slack: number, tolerance: number, catchup: number): number
 	if math.abs(slack) <= tolerance then
 		return leaderSpeed
 	end
 	local scale = if slack > 0 then 1 + catchup else 1 - catchup
 	return math.max(0, leaderSpeed * scale)
+end
+
+-- ...AND THE LEADER WAITS FOR HER TAIL, which is what a sow does and what stops a line becoming a
+-- procession of singletons. `lag` is how far the LAST animal is behind its own station; past
+-- `patience` she comes down to `slow` of her pace until it has closed.
+function Line.leaderSpeed(pace: number, lag: number, patience: number, slow: number): number
+	if lag <= patience then
+		return pace
+	end
+	-- Linear from full pace at `patience` to `slow` at twice it, then flat: a sow eases up, she does
+	-- not stop dead and leave a gap in the file.
+	local over = math.clamp((lag - patience) / math.max(patience, 1e-6), 0, 1)
+	return pace * (1 - over * (1 - slow))
 end
 
 return Line

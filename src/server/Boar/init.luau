@@ -3513,6 +3513,33 @@ function Runtime:leadTo(id: string, point: Vector3, speed: number): boolean
 	return false
 end
 
+-- PUT THIS ANIMAL BACK ON THE TRAIL (task 127 round 2). The drive calls it for a follower the stuck
+-- detector has reported: a few studs onto a path the leader has already walked, which is the one
+-- place that is certainly clear.
+--
+-- IT IS A LAST RESORT AND IT SAYS SO. Moving a body is normally `Body`'s business through the
+-- physics; this writes the CFrame directly, because the case it exists for is an animal the SOLVER
+-- has pinned against a trunk -- and a setpoint cannot free something the solver is holding. The
+-- velocity is cleared with it, or the body keeps the momentum that wedged it.
+function Runtime:placeAt(id: string, point: Vector3): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			local part = entry.body and entry.body.part
+			if part == nil or part.Parent == nil or part:GetAttribute("Carcass") == true then
+				return false
+			end
+			local ground = self._world.groundAt and self._world.groundAt(point.X, point.Z)
+			local y = (ground or part.Position.Y) + (part.Size.Y / 2)
+			part.CFrame = CFrame.new(Vector3.new(point.X, y, point.Z)) * (part.CFrame - part.CFrame.Position)
+			part.AssemblyLinearVelocity = Vector3.zero
+			part.AssemblyAngularVelocity = Vector3.zero
+			self._stats.placedBack = (self._stats.placedBack or 0) + 1
+			return true
+		end
+	end
+	return false
+end
+
 -- Where an animal is and what it is doing, for the drive that is steering a line: it needs the
 -- leader's real speed to pace the followers, and it needs to know an animal has died or gone.
 function Runtime:statusOf(id: string)

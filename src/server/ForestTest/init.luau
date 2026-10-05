@@ -873,7 +873,64 @@ function ForestTest.computeRoute(from: Vector3, crossing: Vector3, exit_: Vector
 			end
 		end
 	end
-	return if #points >= 2 then points else nil
+	if #points < 2 then
+		return nil
+	end
+	return ForestTest.clearRoute(points)
+end
+
+-- EVERY SEGMENT SWEPT WITH THE ANIMAL'S OWN BODY, and a detour inserted where it clips (task 127
+-- round 2, the Director's item 1a).
+--
+-- WHY THE NAVMESH IS NOT ENOUGH: `PathfindingService` guarantees the WAYPOINTS are reachable for an
+-- agent of the given radius, not that the straight line between two of them is clear -- and
+-- `WaypointSpacing` is 8 studs, so a trunk can sit inside a span the animal is about to walk in a
+-- straight line. The measured symptom was 16-41 distinct (boar, trunk) contact pairs.
+--
+-- `Blockcast` IS THE RIGHT CAST: a box the size of the body, swept along the segment, which is what
+-- the animal actually is -- a raycast down the centreline would miss a trunk its shoulder hits.
+--   https://create.roblox.com/docs/reference/engine/classes/WorldRoot#Blockcast
+function ForestTest.clearRoute(points: { Vector3 }): { Vector3 }
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { Workspace:FindFirstChild("Boars") :: any, Workspace.Terrain }
+	params.IgnoreWater = true
+	-- The boar's own box, a little proud of it: `Boar.CONFIG.BODY_SIZE` is 2 wide and 3 tall.
+	local body = Vector3.new(3, 3, 1)
+	local out = { points[1] }
+	for index = 2, #points do
+		local from, to = points[index - 1], points[index]
+		local span = Vector3.new(to.X - from.X, 0, to.Z - from.Z)
+		local length = span.Magnitude
+		if length > 1e-3 then
+			local direction = span.Unit
+			local start = CFrame.lookAt(from + Vector3.new(0, 1.5, 0), from + direction + Vector3.new(0, 1.5, 0))
+			local hit = Workspace:Blockcast(start, body, direction * length, params)
+			if hit ~= nil then
+				-- SIDESTEP THE MIDPOINT, both ways, and keep the first side that is clear. One
+				-- insertion per segment: this is a nudge round a trunk the navmesh allowed, not a
+				-- second pathfinder.
+				local side = Vector3.new(direction.Z, 0, -direction.X)
+				local middle = from:Lerp(to, 0.5)
+				for _, offset in ipairs({ 4, -4, 7, -7 }) do
+					local detour = middle + side * offset
+					local a = CFrame.lookAt(from + Vector3.new(0, 1.5, 0), detour + Vector3.new(0, 1.5, 0))
+					local toDetour = Vector3.new(detour.X - from.X, 0, detour.Z - from.Z)
+					local b = CFrame.lookAt(detour + Vector3.new(0, 1.5, 0), to + Vector3.new(0, 1.5, 0))
+					local toEnd = Vector3.new(to.X - detour.X, 0, to.Z - detour.Z)
+					if
+						Workspace:Blockcast(a, body, toDetour, params) == nil
+						and Workspace:Blockcast(b, body, toEnd, params) == nil
+					then
+						table.insert(out, Vector3.new(detour.X, middle.Y, detour.Z))
+						break
+					end
+				end
+			end
+		end
+		table.insert(out, to)
+	end
+	return out
 end
 
 -- RELEASES ONE WAVE AS A LINE. Returns the log line, or nil when nothing could be placed.
@@ -988,6 +1045,9 @@ function ForestTest.releaseLine(now: number): string?
 					leg = 1,
 					trail = seeded,
 					speed = speed,
+					-- The pace this wave was drawn at, kept so the sow's "wait for the tail" slow-down
+					-- eases back to it rather than to whatever she was doing a moment ago.
+					baseSpeed = speed,
 					pace = pace,
 					bornAt = now,
 					crossing = crossing,
@@ -1055,36 +1115,65 @@ function ForestTest.stepLines(now: number)
 		end
 		local target = line.route[math.min(line.leg, #line.route)]
 		runtime:leadTo(leader.id, target, line.speed)
+		line.baseSpeed = line.baseSpeed or line.speed
 
 		-- ...AND DROPS A BREADCRUMB BEHIND HER.
 		Line.addCrumb(line.trail, at, lineData.crumbStuds)
 		Line.trim(line.trail, (#live + 2) * lineData.spacingStuds + 20)
 
-		-- EVERYBODY ELSE RIDES THE TRAIL at `k * spacing` behind her, measured ALONG it.
+		-- EVERYBODY ELSE WALKS THE TRAIL. Not AT its station -- ALONG the polyline toward it.
+		--
+		-- THE DIFFERENCE IS THE WHOLE OF ROUND 2 (task 127). Ordering a follower straight at a station
+		-- that is round a corner orders it to CUT that corner, through whatever the leader had gone
+		-- round -- which is a trunk. Measured before this change: 16-41 distinct (boar, trunk) contact
+		-- pairs and a 12.7-14.1 stud median gap against an 8.5 station. Now each follower is told
+		-- where it is ON the trail (`Line.arcAt`), and ordered to a point a short way FURTHER ALONG it
+		-- (`Line.pointAt`), so the thing it walks is the leader's own path.
+		local tailLag = 0
 		for rank = 2, #live do
 			local follower = live[rank]
-			local back = (rank - 1) * lineData.spacingStuds
-			local point = Line.pointBack(line.trail, back)
-			if point == nil then
-				-- The line is still forming: walk at her, not at a station that does not exist yet.
-				runtime:leadTo(follower.id, at, line.speed)
-			else
-				local here = follower.status.position
-				local slack = (Vector3.new(point.X - here.X, 0, point.Z - here.Z)).Magnitude
-				local speed = Line.followerSpeed(
-					math.max(line.speed, leader.status.speed),
-					slack,
-					lineData.stationToleranceStuds,
-					lineData.catchup
-				)
-				runtime:leadTo(follower.id, point, speed)
+			local here = follower.status.position
+			local stationS = Line.length(line.trail) - (rank - 1) * lineData.spacingStuds
+			if stationS < line.trail[1].s then
+				-- The line is still forming behind the seed: hold the back of the trail.
+				stationS = line.trail[1].s
 			end
+			local ownS = Line.arcAt(line.trail, here)
+			-- SIGNED: positive means behind its station, which is the only reading that can tell
+			-- "catch up" from "ease off". The euclidean distance this used to use could not.
+			local slack = stationS - ownS
+			if rank == #live then
+				tailLag = math.max(0, slack)
+			end
+			-- ONE LOOKAHEAD ALONG THE TRAIL, never past the station: a point the animal can walk to in
+			-- a straight line because the leader already did.
+			local aim = math.min(ownS + lineData.lookaheadStuds, stationS)
+			local point = Line.pointAt(line.trail, aim)
+			local speed = Line.followerSpeed(
+				math.max(line.speed, leader.status.speed),
+				slack,
+				lineData.stationToleranceStuds,
+				lineData.catchup
+			)
+			runtime:leadTo(follower.id, point or here, speed)
 		end
+
+		-- ...AND THE SOW WAITS FOR HER TAIL. Karen asked for a line, and a line whose leader never
+		-- looks back is a procession of singletons: measured, the gap p90 was 142-213 studs, which is
+		-- a line that has broken. `Line.leaderSpeed` eases her down toward `tailSlow` of her pace once
+		-- the last animal is more than `tailPatienceStuds` behind its station.
+		line.speed = Line.leaderSpeed(
+			line.pace == "run" and Boar.CONFIG.PACE.RUN_SPEED or line.baseSpeed,
+			tailLag,
+			lineData.tailPatienceStuds,
+			lineData.tailSlow
+		)
 
 		-- ONCE ACROSS, THEY RUN AWAY. Karen: *"once they in another side of road they run away"*.
 		if not line.crossed and at.Z < Data.roadZ(at.X) - Data.ROAD.halfWidthStuds then
 			line.crossed = true
 			line.speed = Boar.CONFIG.PACE.RUN_SPEED
+			line.baseSpeed = Boar.CONFIG.PACE.RUN_SPEED
 		end
 
 		-- STUCK = 0, AND IT IS COUNTED. An animal that has not covered `stuckStuds` in `stuckSeconds`
@@ -1109,6 +1198,16 @@ function ForestTest.stepLines(now: number)
 						if route ~= nil then
 							line.route = route
 							line.leg = 1
+						end
+					else
+						-- A WEDGED FOLLOWER IS PUT BACK ON THE TRAIL, behind the one ahead of it. It is
+						-- a teleport of a few studs onto a path the leader has already walked, which is
+						-- the one place it is certainly clear -- and it is the only thing that can free
+						-- an animal the solver has pinned against a trunk.
+						local back = Line.length(line.trail) - (rank - 1) * lineData.spacingStuds
+						local onto = Line.pointAt(line.trail, back)
+						if onto ~= nil then
+							runtime:placeAt(member.id, onto)
 						end
 					end
 				end

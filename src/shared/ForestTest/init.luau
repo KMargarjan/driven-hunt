@@ -217,7 +217,17 @@ ForestTest.LINE = {
 	-- Inside this of its station a follower just matches the leader's speed; outside it, it closes at
 	-- +-`catchup`. +-20 % is the Director's clamp: a line that closes gently instead of concertinaing.
 	stationToleranceStuds = 1.5,
-	catchup = 0.2,
+	-- +-40 % (the Director's round-2 figure, up from 20): a follower that has fallen behind has to be
+	-- able to close faster than the line walks, or the gap is permanent.
+	catchup = 0.4,
+	-- HOW FAR ALONG THE TRAIL a follower aims each step. Short, because it is a straight-line order
+	-- and the only guarantee is that the leader walked this bit: 4 studs is under a body length, so
+	-- the chord it cuts is never wide enough to leave her path.
+	lookaheadStuds = 4,
+	-- THE SOW WAITS. Past this much arc-length lag on the LAST animal she eases toward `tailSlow` of
+	-- her pace. 12 studs is about one and a half stations -- a gap a hunter would notice.
+	tailPatienceStuds = 12,
+	tailSlow = 0.45,
 
 	-- THE PACE OF A WAVE, drawn once when it is released. *"then trot sometimes walk sometimes run"*
 	-- -- so a trot is the common case and the other two are the variation. Weights, not percentages,
