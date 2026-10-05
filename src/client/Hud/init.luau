@@ -28,6 +28,7 @@
 --         docs/design/drive.md (section 9.3)
 -- Note:   docs/research/2026-09-24-shotgun.md
 local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -37,6 +38,10 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 -- The Hud's own 2-D feedback sounds have one writer, and this is it (task 124).
 local Sound = require(script.Sound)
+-- THE REPORT PANEL (task 124 stage B). It is a sibling module and not a second ScreenGui: the Hud
+-- builds the frame with everything else here, and `ReportPanel` is the one writer of what goes inside
+-- it. One ScreenGui, built once, so a visibility audit has one place to look.
+local ReportPanel = require(script.ReportPanel)
 
 local Hud = {}
 
@@ -52,6 +57,7 @@ local feedFrame: Frame? = nil -- kept for the client spec's ancestor walk
 local feedLines: { TextLabel } = {}
 local feedEntries: { { text: string, at: number } } = {}
 local scorePanel: Frame? = nil
+local reportFrame: Frame? = nil
 local scoreTitle: TextLabel? = nil
 local scoreLines: { TextLabel } = {}
 local scoreFooter: TextLabel? = nil
@@ -95,6 +101,14 @@ end
 function Hud.scorePanel(): Frame?
 	return scorePanel
 end
+
+-- The report's frame, so a spec can read its visibility without reaching through PlayerGui by name.
+function Hud.reportPanel(): Frame?
+	return reportFrame
+end
+
+-- The panel module itself, for the same reason: the Hud starts it, so the Hud is where it is found.
+Hud.Report = ReportPanel
 
 function Hud.isScorePanelVisible(): boolean
 	return scorePanel ~= nil and scorePanel.Visible
@@ -386,6 +400,20 @@ local function build(): ScreenGui
 	tiedStroke.Parent = tied
 	tied.Parent = screen
 
+	-- THE REPORT, over everything: it is a thing you stop and read. Empty and hidden until
+	-- `ReportPanel.start` fills it -- this file creates the box and writes nothing inside it.
+	local report = Instance.new("Frame")
+	report.Name = "ReportPanel"
+	report.BackgroundColor3 = Report.CONFIG.PANEL_COLOR
+	report.BackgroundTransparency = Report.CONFIG.PANEL_TRANSPARENCY
+	report.BorderSizePixel = 0
+	report.AnchorPoint = Vector2.new(0.5, 0.5)
+	report.Position = UDim2.fromScale(0.5, 0.5)
+	report.Size = UDim2.fromOffset(Report.CONFIG.PANEL_WIDTH, Report.CONFIG.PANEL_HEIGHT)
+	report.ZIndex = Report.CONFIG.PANEL_Z_INDEX
+	report.Visible = false
+	report.Parent = screen
+
 	local label = Instance.new("TextLabel")
 	label.Name = "Readout"
 	label.BackgroundTransparency = 1
@@ -409,6 +437,7 @@ local function build(): ScreenGui
 	driveBar = bar
 	feedFrame = feed
 	scorePanel = panel
+	reportFrame = report
 	scoreTitle = title
 	scoreFooter = footer
 	tiedBanner = tied
@@ -503,6 +532,14 @@ local function scoreRowText(rank: number, row): string
 	)
 end
 
+-- WHETHER THE SCORE PANEL SHOWS, and the one new clause in it: NOT WHILE THE REPORT IS OPEN. Two
+-- centred panels at once is two panels nobody can read, and the report is the one the player asked
+-- for by pressing Tab. Pure and exported for the same reason the renderer below is -- a drive is 600
+-- seconds long, so no harness run ever reaches the Scoring phase.
+function Hud.scorePanelVisible(snapshot, reportOpen: boolean?): boolean
+	return snapshot ~= nil and snapshot.phase == "Scoring" and Drive.CONFIG.SCOREBOARD_ENABLED and reportOpen ~= true
+end
+
 -- THE ONE WRITER of the score panel, and it is PUBLIC on purpose: a drive is 600 seconds long, so no
 -- harness run ever reaches the Scoring phase, and the design's visibility assertion (section 12.7
 -- item 4) could not be written at all unless a spec can hand this the snapshot the wire would. It is
@@ -513,7 +550,7 @@ function Hud.renderScore(snapshot, secondsLeft: number?)
 	if not panel then
 		return
 	end
-	local show = snapshot ~= nil and snapshot.phase == "Scoring" and Drive.CONFIG.SCOREBOARD_ENABLED
+	local show = Hud.scorePanelVisible(snapshot, ReportPanel.isOpen())
 	panel.Visible = show
 	if not show then
 		-- Cleared, not just hidden: a stale board must not flash for a frame at the next Scoring.
@@ -766,6 +803,30 @@ function Hud.start()
 			table.insert(feedEntries, { text = Hud.killLineText(event), at = os.clock() })
 			renderFeed(os.clock())
 		end)
+	end
+
+	-- TAB BELONGS TO THE ROBLOX PLAYER LIST ON PC, and a `ContextActionService` binding cannot take a
+	-- CoreGui key -- so the stock list is turned off and the key becomes ours. The Hud is the ONE
+	-- writer of `SetCoreGuiEnabled` (it already owns screen space) and this is its only call.
+	--
+	-- `pcall`, because `SetCoreGuiEnabled` is one of the calls that errors when the CoreGui is not
+	-- ready yet, and a Hud that fails to boot over a player list is a blank screen -- the exact
+	-- failure `docs/PROJECT_CONTEXT.md` records twice.
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+	end)
+
+	-- THE REPORT PANEL, handed its frame and its collaborators. Every one of them may be nil and the
+	-- panel says so in its own header: with no camera there is no `Cursor`, and then the keyboard is
+	-- the only way to drive it -- which is why the keyboard path exists.
+	if reportFrame then
+		ReportPanel.start(reportFrame, {
+			Report = ReportSystem,
+			Input = Weapon.Input,
+			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
+			Match = MatchSystem,
+			userId = player.UserId,
+		})
 	end
 
 	Weapon.Changed:Connect(function()

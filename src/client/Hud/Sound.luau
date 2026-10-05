@@ -55,7 +55,11 @@ function Sound.tick(kind: string?)
 		return false
 	end
 	local sound = Instance.new("Sound")
-	sound.SoundId = "rbxassetid://" .. id
+	-- A BARE NUMBER IS AN ASSET ID; ANYTHING WITH A SCHEME IS ALREADY A URI. The two ids this repo
+	-- ships are `rbxasset://sounds/...` -- engine assets, not Marketplace uploads -- and gluing
+	-- "rbxassetid://" in front of one would make a path that resolves to nothing and plays silence
+	-- with no error, which is the worst of the three possible outcomes.
+	sound.SoundId = if string.find(id, "://", 1, true) then id else "rbxassetid://" .. id
 	sound.Volume = config.HIT_MARK_VOLUME or 0.35
 	sound.Parent = SoundService
 	sound:Play()

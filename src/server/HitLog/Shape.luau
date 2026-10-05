@@ -42,6 +42,34 @@ function Shape.dot(cframe: CFrame, size: Vector3, impact: Vector3): (number, num
 	return u, v, side
 end
 
+-- ONE ZONE BOX, PROJECTED INTO THE SILHOUETTE'S UNIT SQUARE. The same mapping `Shape.dot` uses, run
+-- over a BOX instead of a point, so the rectangles the panel draws and the dots it puts on them come
+-- out of one piece of arithmetic and cannot drift apart.
+--
+-- `size` and `offset` are the zone part's, in the trunk's frame (`Boar.CONFIG.ZONES[zone]`); `body` is
+-- the trunk's own size. Pure, and it knows nothing about boars for the same reason `dot` does not.
+--
+-- `tests/server/report_silhouette.spec.luau` runs this over `Boar.CONFIG.ZONES` and compares the
+-- answer with the constants in `Report.CONFIG.SILHOUETTE`, so a zone box that moves fails the harness
+-- instead of quietly mispainting the report.
+function Shape.rectOf(size: Vector3, offset: Vector3, body: Vector3): { u0: number, u1: number, v0: number, v1: number }
+	local halfLength = if body.Z > 1e-6 then body.Z / 2 else 0
+	local halfHeight = if body.Y > 1e-6 then body.Y / 2 else 0
+	local function u(z: number): number
+		return if body.Z > 1e-6 then math.clamp((z + halfLength) / body.Z, 0, 1) else 0
+	end
+	-- v grows DOWNWARD, so the box's TOP (+y) is v0 and its bottom is v1.
+	local function v(y: number): number
+		return if body.Y > 1e-6 then math.clamp((halfHeight - y) / body.Y, 0, 1) else 0
+	end
+	return {
+		u0 = u(offset.Z - size.Z / 2),
+		u1 = u(offset.Z + size.Z / 2),
+		v0 = v(offset.Y + size.Y / 2),
+		v1 = v(offset.Y - size.Y / 2),
+	}
+end
+
 -- WHICH DOT WAS THE KILLING ONE. `Wound.killRecord` carries the mortal wound's `zone` and `at`, and
 -- the dots carry the same two from the same reports -- so the join is on the pair and not on an
 -- identity nothing preserved.

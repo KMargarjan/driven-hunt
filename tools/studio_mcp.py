@@ -662,6 +662,11 @@ BLAST_RADIUS = (
     ("src/client/Weapon/", "weapon"),
     ("src/server/Weapon/", "weapon"),
     ("src/client/Hud/", "hud"),
+    # The drive report (task 124): the wire contract, the server's record and the panel. The panel
+    # lives under src/client/Hud/ and so resolves to `hud` by the line above; these two are the
+    # shared and server halves of the same system.
+    ("src/shared/Report/", "report"),
+    ("src/server/HitLog/", "report"),
     ("src/client/Match/", "match"),
     ("src/server/Match/", "match"),
     ("src/shared/Drive/", "match"),
@@ -692,6 +697,7 @@ SCOPE_SPECS = {
              "tests/server/boar_hit.spec.luau", "tests/server/boar_model.spec.luau",
              "tests/server/boar_shot.spec.luau", "tests/server/boar_sounder.spec.luau",
              "tests/server/boar_wound.spec.luau", "tests/server/boar_zones.spec.luau",
+             "tests/server/report_silhouette.spec.luau",
              "tests/client/shoot_boar.spec.luau"),
     "match": ("tests/server/match_live.spec.luau", "tests/server/match_outfit.spec.luau",
               "tests/server/match_phase.spec.luau", "tests/server/match_roster.spec.luau",
@@ -706,7 +712,10 @@ SCOPE_SPECS = {
     "flags": ("tests/server/flags.spec.luau", "tests/client/flags_client.spec.luau",
               "tests/server/boar_model.spec.luau", "tests/server/boar_shot.spec.luau",
               "tests/server/boar_calm.spec.luau"),
-    "hud": ("tests/client/hit_marker.spec.luau",),
+    "hud": ("tests/client/hit_marker.spec.luau", "tests/client/report_panel.spec.luau"),
+    # The report's geometry is asserted against `Boar.CONFIG`, so a boar zone box that moves reaches
+    # this spec too -- which is why it is in the `boar` scope as well.
+    "report": ("tests/server/report_silhouette.spec.luau", "tests/client/report_panel.spec.luau"),
     "input": ("tests/client/input_driving.spec.luau",),
     "sync": ("tests/server/sync.spec.luau", "tests/client/client_env.spec.luau"),
 }

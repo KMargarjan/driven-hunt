@@ -250,8 +250,24 @@ Shotgun.CONFIG = {
 	-- same cue. EMPTY IDS PLAY NOTHING AND THAT IS NOT AN ERROR -- the rule `Weapon.Sound` already
 	-- states for `SOUND_SHOT_ID`: "a gun that is silent is the gun this repo has had all along; a
 	-- warn per shot would be worse than the silence". Picking the two ids is Karen's.
-	HIT_MARK_SOUND_ID = "",
-	HIT_MARK_KILL_SOUND_ID = "",
+	-- THE TWO TICKS. Karen delegated the choice ("styling decisions are mine and I delegate this one
+	-- to you; Karen tunes later"), so these are the Builder's pick and they are hers to change.
+	--
+	-- THEY ARE ENGINE ASSETS, NOT MARKETPLACE IDS, and that is the whole reason for choosing them: a
+	-- `rbxasset://` path ships inside Roblox itself, so it cannot 404, cannot be moderated away and
+	-- needs no upload and no `assets/uploads.json` row. MEASURED in this place on 2026-10-05 with
+	-- `ContentProvider:PreloadAsync`, reading `IsLoaded` and `TimeLength` off the real Sound:
+	--     sounds/switch.wav              loaded=true  0.24 s   <- the hit
+	--     sounds/electronicpingshort.wav loaded=true  0.72 s   <- the kill
+	--     sounds/clickfast.wav           loaded=true  0.29 s
+	--     sounds/button.wav              loaded=true  0.58 s
+	--     sounds/switch3.wav             loaded=true  0.37 s
+	--     sounds/impact_generic.mp3      loaded=FALSE 0.00 s   <- does not exist; not used
+	--     rbxassetid://9118823103        loaded=FALSE 0.00 s   <- does not exist; not used
+	-- A hit is the shortest dry tick of the five; a kill is the one sound that is unmistakably a
+	-- different event, because "it died" has to be audible without looking at the colour.
+	HIT_MARK_SOUND_ID = "rbxasset://sounds/switch.wav",
+	HIT_MARK_KILL_SOUND_ID = "rbxasset://sounds/electronicpingshort.wav",
 	HIT_MARK_VOLUME = 0.35,
 
 	CROSSHAIR_ENABLED = true,
