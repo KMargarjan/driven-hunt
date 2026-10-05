@@ -20,6 +20,10 @@ local Map = require(ReplicatedStorage:WaitForChild("Map"))
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
+-- THE HIT RECORD (task 124). Wired here for the same reason the boar runtime and the weapon are:
+-- `HitLog` requires neither of them and neither requires it. The DEV world's drive boundary is
+-- `Match.PhaseChanged`; the Forest Test latches on its own window.
+local HitLog = require(ServerScriptService:WaitForChild("HitLog"))
 local TestArena = require(ServerScriptService:WaitForChild("TestArena"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 
@@ -93,6 +97,8 @@ end)
 -- Unchanged from BoarBoot. The weapon publishes hits; the boar's own owner decides what a hit means.
 Weapon.HitReported:Connect(function(report)
 	if report.target:IsA("BasePart") then
+		-- THE RECORD, BESIDE THE DAMAGE AND NOT INSTEAD OF IT (task 124).
+		HitLog.recordHit(report)
 		local shooter = report.shooter
 		local character = shooter and shooter.Character
 		local root = character and character.PrimaryPart
@@ -113,7 +119,21 @@ end)
 
 -- The kill marker: the boar's runtime is the only thing that knows the animal died, the weapon owns
 -- the one-way remote to the shooter, and the Hud draws it (Task 28).
+-- THE REPORTING WINDOW IS THE DRIVE (task 124). This world HAS a drive, so the record's window is
+-- simply its phases: a drive opens when teams are assigned and closes when the scoring starts. Both
+-- calls are idempotent at the other end, so a phase that fires twice cannot open two drives.
+Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
+	if phase == "Assigning" then
+		HitLog.openDrive(driveNumber or 1, os.clock())
+	elseif phase == "Scoring" then
+		HitLog.closeDrive(os.clock())
+	end
+end)
+HitLog.start()
+
 runtime.Downed:Connect(function(record)
+	-- ...AND THE DEATH, which is the kill line everybody sees and the row the report draws.
+	HitLog.recordDown(record)
 	local userId = record.killedByUserId
 	local shooter = if userId then Players:GetPlayerByUserId(userId) else nil
 	if shooter then

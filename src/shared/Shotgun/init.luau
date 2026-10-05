@@ -241,8 +241,18 @@ Shotgun.CONFIG = {
 	HIT_MARK_THICK_PX = 2,
 	HIT_MARK_COLOR = Color3.fromRGB(255, 255, 255),
 	HIT_MARK_KILL_COLOR = Color3.fromRGB(235, 70, 55),
-	HIT_MARK_SECONDS = 0.15,
-	HIT_MARK_KILL_SECONDS = 0.45,
+	-- 0.35 AND 0.80, NOT 0.15 AND 0.45 (task 124). 0.15 s is four frames at 30 fps: readable only if
+	-- you were already looking at the centre of the screen, which during a crossing you are not.
+	-- Karen: *"we need to indicate a hit"*. Design: docs/design/drive-report.md section 4.1.
+	HIT_MARK_SECONDS = 0.35,
+	HIT_MARK_KILL_SECONDS = 0.8,
+	-- A SOFT TICK FOR THE SHOOTER ALONE, drawn beside the marker's other numbers because it is the
+	-- same cue. EMPTY IDS PLAY NOTHING AND THAT IS NOT AN ERROR -- the rule `Weapon.Sound` already
+	-- states for `SOUND_SHOT_ID`: "a gun that is silent is the gun this repo has had all along; a
+	-- warn per shot would be worse than the silence". Picking the two ids is Karen's.
+	HIT_MARK_SOUND_ID = "",
+	HIT_MARK_KILL_SOUND_ID = "",
+	HIT_MARK_VOLUME = 0.35,
 
 	CROSSHAIR_ENABLED = true,
 	CROSSHAIR_ARM_PX = 8,

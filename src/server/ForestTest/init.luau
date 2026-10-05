@@ -296,6 +296,18 @@ function ForestTest.beaterPosition(
 	return nil
 end
 
+-- WHICH REPORTING PERIOD WE ARE IN (task 124). Pure: when the world started and what time it is now,
+-- in; the drive's number (counting from 1) and how many seconds are left in it, out.
+--
+-- It is a WINDOW OVER A CLOCK and not a state machine, which is why it needs no state: at any instant
+-- the answer is the same arithmetic, so a restarted script, a late join and a spec all agree.
+function ForestTest.driveIndexAt(startedAt: number, now: number, seconds: number): (number, number)
+	local length = math.max(1, seconds)
+	local elapsed = math.max(0, now - startedAt)
+	local index = math.floor(elapsed / length) + 1
+	return index, length - (elapsed % length)
+end
+
 -- WHICH WAVE IS DUE. The cycle repeats forever, so a playtest never runs out of action.
 function ForestTest.waveAt(index: number)
 	local cycle = Data.SCHEDULE.cycle
@@ -388,6 +400,13 @@ function ForestTest.boarThreats(now: number)
 		end
 	end
 	return out
+end
+
+-- THE LIVE READER over this world's own start time (task 124). It lives below `state` because that is
+-- where `state` exists; the arithmetic above it is pure and testable without one.
+function ForestTest.drive(now: number)
+	local index, left = ForestTest.driveIndexAt(state.startedAt or now, now, Data.DRIVE.seconds)
+	return { index = index, secondsLeft = left }
 end
 
 -- WHERE THE HUNTER IS STANDING, in world X, for aiming the waves at him (task 123 round 8). The

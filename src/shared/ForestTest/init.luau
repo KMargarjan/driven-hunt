@@ -162,6 +162,15 @@ end
 --
 -- `composition` IS AN INDEX INTO `Boar.CONFIG.SOUNDER.COMPOSITIONS`, because who is in a flock is
 -- the boar system's fact and which flock comes next is the drive's.
+-- THE REPORTING WINDOW, AND NOTHING ELSE (task 124). This world has no drive to end, so it is given
+-- one -- but it moves no animal and resets no schedule. "The next drive starts" here means exactly
+-- one thing: the report's window rolls over. The wave cycle, the active waves, the boars on the ground
+-- and the hunter's stand are all untouched, because resetting them would change the push rhythm Karen
+-- accepted in task 123 and nothing asked for that.
+--
+-- 300 seconds is the Director's number: about fifteen waves at the 20 s interval.
+ForestTest.DRIVE = { seconds = 300 }
+
 ForestTest.SCHEDULE = {
 	intervalSeconds = 20,
 	cycle = {

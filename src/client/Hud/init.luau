@@ -32,7 +32,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+
+-- The Hud's own 2-D feedback sounds have one writer, and this is it (task 124).
+local Sound = require(script.Sound)
 
 local Hud = {}
 
@@ -429,6 +433,10 @@ function Hud.showHitMark(kind: string?)
 		end
 	end
 	mark.Visible = true
+	-- THE TICK RIDES WITH THE PICTURE (task 124). It is called from here and nowhere else, because
+	-- this is the one writer of the marker -- so what you hear and what you see cannot disagree about
+	-- what happened. An empty id plays nothing and counts itself; see `Hud.Sound`.
+	Sound.tick(hitKind)
 
 	hitToken += 1
 	local token = hitToken
@@ -590,10 +598,34 @@ local function renderDrive(MatchSystem)
 	bar.Visible = true
 end
 
-local function feedTextFor(entry): string
+-- THE KILL LINE, AS A PURE FORMATTER (task 124). Karen: *"we need to show when is killed logg or
+-- something similar"*, and her shape: who, which animal, where it was hit, how far.
+--
+--     KAREN         MALE BOAR   chest   42 m
+--     <name,-12>    <KIND> BOAR <zone>  <metres> m
+--
+-- `animalKind == nil` -- which is what a world with `KINDS` off sends -- reads `BOAR` with no kind
+-- word rather than `NIL BOAR`.
+--
+-- Exported and pure so a spec can assert the shape with no wire, no drive and no kill: the same
+-- reason `Hud.crosshairVisible` and `Hud.renderScore`'s predicate are exported.
+function Hud.killLineText(event): string
+	local who = tostring((event and event.name) or (event and event.userId) or "?")
+	local kind = event and event.animalKind
+	local animal = if type(kind) == "string" and kind ~= "" then string.upper(kind) .. " BOAR" else "BOAR"
+	local zone = tostring((event and event.zone) or "?")
+	return string.format("%-12s %-11s %-6s %d m", who, animal, zone, Report.metres(event and event.distance))
+end
+
+local function feedTextFor(entry): string?
 	local who = entry.name or (if entry.userId then tostring(entry.userId) else "")
 	if entry.kind == "kill" then
-		return string.format("%s  BOAR  %s", who, tostring(entry.zone or "?"))
+		-- `Match`'s FEED OWNS THE DRIVE'S EVENTS -- escape, violation, join, leave. `HitLog`'s line
+		-- OWNS THE KILL, in both worlds, over its own remote (design section 4.2): its line carries
+		-- the animal's KIND, which Karen's report needs and which this entry has never had. Returning
+		-- nil here is how the duplicate goes away without touching `src/server/Match/`, which is in
+		-- TWO_PLAYER_PATHS and not in this task's blast radius.
+		return nil
 	elseif entry.kind == "escape" then
 		return "a boar got away"
 	elseif entry.kind == "violation" then
@@ -701,8 +733,12 @@ function Hud.start()
 			renderDrive(MatchSystem)
 		end)
 		MatchSystem.Feed:Connect(function(entry)
-			table.insert(feedEntries, { text = feedTextFor(entry), at = os.clock() })
-			renderFeed(os.clock())
+			-- NO TEXT, NO LINE: `feedTextFor` answers nil for an entry another owner now draws.
+			local text = feedTextFor(entry)
+			if text ~= nil then
+				table.insert(feedEntries, { text = text, at = os.clock() })
+				renderFeed(os.clock())
+			end
 		end)
 		-- The timer is the one thing that has to be redrawn without an event, because it counts
 		-- down locally from a server timestamp (docs/design/drive.md section 9.1). Once a second,
@@ -718,6 +754,18 @@ function Hud.start()
 			renderFeed(os.clock())
 		end)
 		renderDrive(MatchSystem)
+	end
+
+	-- THE KILL LOG (task 124). `PlayerScripts.Report` is the replica that hears the server; the Hud
+	-- draws. It may not exist yet in a world that has not booted it, and the Hud works without it --
+	-- the same shape as the camera and the match above.
+	local reportModule = scripts:WaitForChild("Report", 5)
+	local ReportSystem = if reportModule then require(reportModule) else nil
+	if ReportSystem then
+		ReportSystem.Killed:Connect(function(event)
+			table.insert(feedEntries, { text = Hud.killLineText(event), at = os.clock() })
+			renderFeed(os.clock())
+		end)
 	end
 
 	Weapon.Changed:Connect(function()

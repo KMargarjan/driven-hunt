@@ -24,6 +24,9 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
+-- THE HIT RECORD (task 124). It is wired here, at the composition root, exactly as the boar runtime
+-- and the weapon are: `HitLog` requires neither of them and neither requires it.
+local HitLog = require(ServerScriptService:WaitForChild("HitLog"))
 local Data = ForestTest.Data
 
 print(
@@ -130,6 +133,9 @@ Weapon.HitReported:Connect(function(report)
 		local shooter = report.shooter
 		local character = shooter and shooter.Character
 		local root = character and character.PrimaryPart
+		-- THE RECORD, BESIDE THE DAMAGE AND NOT INSTEAD OF IT (task 124). `HitReported` is already one
+		-- report per (shot, target), so nine pellets on one boar are one dot and not nine.
+		HitLog.recordHit(report)
 		runtime:takeHit(report.target, {
 			zone = report.zone,
 			zones = report.zones,
@@ -146,6 +152,9 @@ Weapon.HitReported:Connect(function(report)
 end)
 
 runtime.Downed:Connect(function(record)
+	-- ...AND THE DEATH. `HitLog` turns this into the kill line everybody sees and the row the report
+	-- draws; `Weapon.markHit` below is still what puts the KILL marker on the shooter's screen.
+	HitLog.recordDown(record)
 	local userId = record.killedByUserId
 	local shooter = if userId then Players:GetPlayerByUserId(userId) else nil
 	if shooter then
@@ -230,9 +239,26 @@ end)
 -- in the world. The console comes from the server that is actually running, so it is the only
 -- honest channel for "what is the push doing".
 local lastReportAt = 0
+-- WHICH REPORTING PERIOD THE RECORD IS IN (task 124). This world has no phase signal to listen to, so
+-- the root latches on `ForestTest.drive`'s own window: when the index moves, the old drive closes and
+-- a new one opens. It moves nothing else -- see `ForestTest.DRIVE`.
+local lastDriveIndex = 0
 
 RunService.Heartbeat:Connect(function()
 	local now = os.clock()
+	local drive = ForestTest.drive(now)
+	if drive.index ~= lastDriveIndex then
+		if lastDriveIndex > 0 then
+			HitLog.closeDrive(now)
+		end
+		lastDriveIndex = drive.index
+		HitLog.openDrive(drive.index, now)
+		-- ONE LINE PER DRIVE, which in this world is one per five minutes. It is the only way anybody
+		-- outside the server can see that the reporting window rolled over: a tool that `require`s
+		-- this module over StudioMCP gets a SANDBOXED COPY with empty state (measured, task 122), so
+		-- the console is the only honest channel for "what is the record doing".
+		print(string.format("[report] drive %d opened (%ds windows)", drive.index, Data.DRIVE.seconds))
+	end
 	local line = ForestTest.step(now)
 	if line then
 		print("[ForestTest] " .. line)
@@ -252,4 +278,5 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
+HitLog.start()
 ForestTest.start(runtime, os.clock())
