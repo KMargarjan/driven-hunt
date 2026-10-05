@@ -869,6 +869,42 @@ Boar.CONFIG.PACE = {
 	SPOOK_MEMORY_SECONDS = 5,
 }
 
+-- BOARS DO NOT SHOVE EACH OTHER (task 127 round 3). The Director's hypothesis, and the measurement
+-- below bears it out: a real sounder walks nose to tail, touching, and ours could not -- the solver
+-- pushed a follower sideways off the trail the instant it caught the one ahead, and a shoved animal
+-- then wedged against a trunk. That is one mechanism behind all three of the numbers that would not
+-- come down: the side-by-side pairs, the loose gaps and the stuck count.
+--
+-- A COLLISION GROUP IS THE ENGINE'S OWN ANSWER and costs nothing per frame: the group is registered
+-- once and told not to collide with itself.
+--   https://create.roblox.com/docs/reference/engine/classes/PhysicsService#RegisterCollisionGroup
+--
+-- WHAT DOES NOT CHANGE, and each of these was checked rather than assumed: the trunk still collides
+-- with TERRAIN and with TREES (a collision group only changes which groups collide with which, and
+-- everything else stays in `Default`); `CanQuery` stays true, so a shot still finds the animal; the
+-- hit zones are children with their own `CanQuery` and are untouched; and the carcass still rests on
+-- the ground.
+--
+-- IT IS OFF IN EVERY WORLD, BECAUSE IT WAS MEASURED AND IT DID NOT HELP. Two 160-second traces of
+-- the Forest Test, same code either side of this one switch, verified live as applied
+-- (`CollisionGroupsAreCollidable("DrivenHuntBoars", "DrivenHuntBoars") == false`, against `Default`
+-- still true, and boar bodies seen overlapping, so they really did pass through one another):
+--
+--   metric                              shoving (off)   passing through (on)
+--   pairs abreast (< one station along)      36 %            34 %
+--   gap median / p90                     10.2 / 26.2      10.6 / 34.2
+--   stuck animals                             18              19
+--   distinct trunk contacts                   12              21
+--
+-- So the shoving was not what kept the file loose. The mechanism is real -- bodies did stop pushing
+-- each other -- and the picture did not change, which means the loose gaps come from the FOLLOWING
+-- RULE and from flight, not from contact. Kept, off, with the numbers, so nobody spends another
+-- round on the same idea; flip `ENABLED` to try it again against a changed follower.
+Boar.CONFIG.BOAR_COLLISION = {
+	ENABLED = false,
+	GROUP = "DrivenHuntBoars",
+}
+
 -- WALKING WHERE YOU ARE TOLD (task 127). Karen, 2026-10-05: *"imagine they come from one side in one
 -- line and crossing road thats it"*.
 --

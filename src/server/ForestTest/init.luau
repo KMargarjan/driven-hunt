@@ -852,6 +852,16 @@ function ForestTest.computeRoute(from: Vector3, crossing: Vector3, exit_: Vector
 	local path = PathfindingService:CreatePath({
 		-- The boar's own half-width plus a margin: `Boar.CONFIG.BODY_SIZE` is 2 wide, so 1 is the
 		-- half-width and 2.5 leaves a body's worth of clearance past a trunk.
+		--
+		-- AND THE ROUTE IS NOT WHAT TOUCHES THE TREES (round 3), which was worth knowing before
+		-- widening anything. 4 was tried, and the measured trunk contacts did not move (16 distinct
+		-- pairs, 11 of them leaders, against 12 and 6 at 2.5 -- inside the run-to-run spread). Then
+		-- the navmesh itself was asked, in the Edit place: a path computed straight through a trunk
+		-- of radius 0.9 came back Success with its nearest waypoint 3.9 studs from the trunk's
+		-- centre, so the mesh DOES see the trunks and DOES hold the requested clearance. A leader
+		-- who still touches one is therefore not following this route at that moment -- she is
+		-- spooked and running straight (`MOVE.FLIGHT`), which is what Karen asked for, or she is
+		-- sliding through a turn. That is where the remaining contacts live.
 		AgentRadius = 2.5,
 		AgentHeight = 4,
 		AgentCanJump = false,
@@ -1145,9 +1155,20 @@ function ForestTest.stepLines(now: number)
 			if rank == #live then
 				tailLag = math.max(0, slack)
 			end
-			-- ONE LOOKAHEAD ALONG THE TRAIL, never past the station: a point the animal can walk to in
-			-- a straight line because the leader already did.
-			local aim = math.min(ownS + lineData.lookaheadStuds, stationS)
+			-- ONE LOOKAHEAD ALONG THE TRAIL -- and it is NOT clamped to the station any more, which
+			-- was the bug behind the stuck count (round 3).
+			--
+			-- MEASURED: 33 animals moved less than a stud in three seconds while the speed they had
+			-- been ordered was above 2. They were not wedged against anything. `aim` used to be
+			-- `min(ownS + lookahead, stationS)`, so a follower sitting within a lookahead of its
+			-- station was handed a point UNDER ITS OWN FEET -- inside `LINE.ARRIVE_STUDS` -- and the
+			-- Brain quite correctly reported it had arrived and stood there, while the line walked on
+			-- and the gap opened. A follower's TARGET is a direction, and its STATION is a speed;
+			-- mixing the two into one clamped point meant neither worked. The aim is now always a
+			-- lookahead further along the trail (bounded only by how far the leader has walked), and
+			-- the station is regulated by `Line.followerSpeed` and by the wait below, which is what
+			-- they are for.
+			local aim = math.min(ownS + lineData.lookaheadStuds, Line.length(line.trail))
 			local point = Line.pointAt(line.trail, aim)
 			local speed = Line.followerSpeed(
 				math.max(line.speed, leader.status.speed),
@@ -1155,6 +1176,17 @@ function ForestTest.stepLines(now: number)
 				lineData.stationToleranceStuds,
 				lineData.catchup
 			)
+			-- ...AND ONE THAT IS PAST ITS STATION WAITS FOR IT, rather than being walked backwards.
+			--
+			-- `aim` is clamped to the station, so a follower that has overrun -- the leader slows for
+			-- her tail, or it closed faster than the clamp expected -- was being ordered to a point
+			-- BEHIND itself at 60 % of the pace. It cannot reverse, so it shuffled on the spot, which
+			-- is both the twitch visible from the stand and most of what the stuck count was
+			-- counting: told to move, not moving, and right to not move. Standing still is the
+			-- correct answer, and it is the same answer the sow gives when she waits (`leaderSpeed`).
+			if slack < -lineData.stationToleranceStuds then
+				point, speed = here, 0
+			end
 			runtime:leadTo(follower.id, point or here, speed)
 		end
 
@@ -1229,5 +1261,9 @@ function ForestTest.spawnPosition(): Vector3
 	local y = if hit then hit.Position.Y else at.Y
 	return Vector3.new(at.X, y + 4, at.Z)
 end
+
+-- THE ARITHMETIC IS REACHABLE ON ITS OWN, so `tests/server/forest_line.spec.luau` can drive the
+-- rules a line stands on with hand-written tables instead of a running world.
+ForestTest.Line = Line
 
 return ForestTest

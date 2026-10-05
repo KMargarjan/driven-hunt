@@ -48,6 +48,7 @@
 -- Note:   docs/research/2026-09-24-boar-ai.md, docs/research/2026-09-25-hit-zones.md,
 --         docs/research/2026-10-03-boar-skinned-model.md
 local ContentProvider = game:GetService("ContentProvider")
+local PhysicsService = game:GetService("PhysicsService")
 local RunService = game:GetService("RunService")
 
 local Body = {}
@@ -209,6 +210,33 @@ local function buildZones(config, trunk: BasePart, geometry): { BasePart }
 	return parts
 end
 
+-- REGISTERED ONCE, PER SERVER, and then every trunk joins it. `RegisterCollisionGroup` throws if the
+-- name is already taken, which is why this is wrapped and latched: `Body.create` runs once per
+-- animal and the registration must not.
+local collisionGroupReady = false
+
+function Body.useCollisionGroup(part: BasePart, config)
+	local rule = config.BOAR_COLLISION
+	if rule == nil or rule.ENABLED ~= true then
+		return false
+	end
+	if not collisionGroupReady then
+		collisionGroupReady = true
+		pcall(function()
+			PhysicsService:RegisterCollisionGroup(rule.GROUP)
+		end)
+		-- THE WHOLE POINT, in one line: the group does not collide with ITSELF. Every other pair --
+		-- boar against Default, which is the terrain, the trees and the players -- is untouched.
+		pcall(function()
+			PhysicsService:CollisionGroupSetCollidable(rule.GROUP, rule.GROUP, false)
+		end)
+	end
+	local ok = pcall(function()
+		part.CollisionGroup = rule.GROUP
+	end)
+	return ok
+end
+
 -- Builds one boar body at `position` and returns a handle the Runtime keeps. The Part is parented
 -- last, then the zone parts are welded on and the network owner is set: all of those need the part
 -- to be in the DataModel.
@@ -235,6 +263,11 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	end
 	part.Anchored = false
 	part.CanCollide = true
+	-- ...AND IT DOES NOT SHOVE ITS OWN KIND (task 127 round 3). See `Boar.CONFIG.BOAR_COLLISION`:
+	-- the group is registered once and told not to collide with itself, so a file can close up nose
+	-- to tail the way a real sounder does. Everything else -- terrain, trunks, the player -- is in
+	-- `Default` and still collides exactly as before.
+	Body.useCollisionGroup(part, config)
 	part.CFrame = CFrame.new(position)
 
 	local attachment = Instance.new("Attachment")
