@@ -236,26 +236,32 @@ return function()
 						return Camera.Viewmodel.isParented()
 					end)
 					if not parented then
-						local tool, where = "none", "none"
+						-- WHAT THE CLIENT ACTUALLY HAS, counted in both containers rather than
+						-- overwritten by the second loop (which is how the first version of this
+						-- note reported "backpack" while the character held one).
+						local inCharacter, inBackpack = 0, 0
 						local character = player.Character
 						for _, child in ipairs(character and character:GetChildren() or {}) do
 							if child:IsA("Tool") then
-								tool, where = child.Name, "character"
+								inCharacter += 1
 							end
 						end
 						local backpack = player:FindFirstChildOfClass("Backpack")
 						for _, child in ipairs(backpack and backpack:GetChildren() or {}) do
 							if child:IsA("Tool") then
-								tool, where = child.Name, "backpack"
+								inBackpack += 1
 							end
 						end
 						TestKit.note(
 							string.format(
-								"camera_client DIAG: no viewmodel after 25 s -- tool=%s in %s, blend=%.2f, driver=%s",
-								tool,
-								where,
+								"camera_client DIAG: no viewmodel after 25 s -- tools character=%d backpack=%d,"
+									.. " watched=%d, blend=%.2f, driver=%s, character=%s",
+								inCharacter,
+								inBackpack,
+								(require(scripts:WaitForChild("Weapon")) :: any).Input.watchedTools(),
 								Camera.getBlend(),
-								tostring(Role.isDriver())
+								tostring(Role.isDriver()),
+								tostring(character ~= nil)
 							)
 						)
 					end
