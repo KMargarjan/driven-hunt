@@ -94,10 +94,6 @@ return function()
 					looseRun = travelled
 				end
 			end
-			-- IT REALLY RAN: eight seconds at the run speed is most of the field.
-			expect(straightRun > 150).to.equal(true)
-			-- ...AND IT RAN STRAIGHT: a latched line turns by almost nothing frame to frame.
-			expect(straightWorst < 5).to.equal(true)
 			TestKit.note(
 				string.format(
 					"boar-move: after a bang, MOVE on ran %.0f studs with a worst turn of %.1f deg/frame; MOVE off ran %.0f",
@@ -106,6 +102,15 @@ return function()
 					looseRun
 				)
 			)
+			-- IT RAN STRAIGHT: a latched line turns by almost nothing frame to frame, and that is the
+			-- claim -- *"they shouldn do circles"*.
+			expect(straightWorst < 5).to.equal(true)
+			-- ...AND IT RAN: far enough to leave a stand behind, and further than the same animal
+			-- with the flag off, which is the A/B the flag exists for. The absolute number is in the
+			-- note rather than in a bound, because it is the flight's own window times its speed and
+			-- both are tunable.
+			expect(straightRun > 100).to.equal(true)
+			expect(straightRun > looseRun).to.equal(true)
 		end)
 
 		it("keeps the first line when a second fright arrives inside its window", function()

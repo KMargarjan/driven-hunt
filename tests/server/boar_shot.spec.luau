@@ -1208,6 +1208,16 @@ return function()
 			-- other case in this file still passes, with the game left silent.
 			local world = buildWorld(true, "BoarsApproach")
 			world.config.KINDS = { ENABLED = true }
+			-- THE WORLD-WIDE GAP IS OFF FOR THIS CASE, by parameter. `GRUNT_GAP_SECONDS` spaces two
+			-- FLOCKS arriving together and is measured in REAL seconds (`os.clock`), while a spec
+			-- steps a simulated clock in a fraction of one -- so with it on, the second approach
+			-- below is refused by the gap rather than by the rule under test. The per-group arming is
+			-- what this case is about; the gap has its own cases in the crowd block.
+			local gapless = table.clone(CONFIG.SOUND)
+			local crowd = table.clone(CONFIG.SOUND.CROWD)
+			crowd.GRUNT_GAP_SECONDS = 0
+			gapless.CROWD = crowd
+			world.config.SOUND = gapless
 			-- A HUNTER, and he is the one who moves: the animals stay put so the only thing that
 			-- changes is the distance between them.
 			local hunterAt = Vector3.new(0, GROUND_Y, 400)
