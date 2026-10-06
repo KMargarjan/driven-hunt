@@ -1,14 +1,16 @@
 # Task 122 - the forest drive test: a small playable drive in its own place
 
 Task: 122
-Round: 2
+Round: 3
 Base: main
-Code commit: `54d68f46bb87c98d9e5081b7f17682e7ea463dad`
+Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
 
 ```
-[harness] PASS: 33/33 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree)
+[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree)
 ```
+
+DIRECTOR NOTE (round 3): round 2 PASSed at 54d68f4. The stack's fix round 2 (7970e3c..b414f4d) then changed code this task owns — `ForestTest.releaseLine` (127 #1: spawn order) and the stuck rule in `ForestTest.stepLines` — so the PASS no longer covers the final code commit and this is a re-review at b414f4d. Claims are unchanged; verify them at the new commit.
 
 The `[harness2]` line is the Director's, run at the code commit `54d68f4` itself (detached checkout; only these requests differ at the head), 2026-10-06 ~01:30, DEV the only Studio open: server 758 / shooter 146 / driver 140 passed, 0 failed.
 
