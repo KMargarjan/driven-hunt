@@ -31,7 +31,16 @@ Compass.CONFIG = {
 	-- animals do.
 	WIDTH = 360,
 	HEIGHT = 26,
-	TOP = 10,
+	-- BELOW THE DRIVE BAR, NOT ON TOP OF IT (task 125 round 2, the Reviewer's blocking finding). The
+	-- bar is 26 px tall at `Drive.CONFIG.BAR_TOP_OFFSET` = 8, so it owns y 8..34, and the tied banner
+	-- sits at `TIED_TOP_OFFSET` = 44 and is 24 tall, so it owns 44..68. The strip was at 10 and
+	-- covered 360 of the bar's 520 px -- the clock, the boars left and the team badge -- in every
+	-- world that HAS a drive. It was not seen because the frames were taken in the Forest Test, where
+	-- `MatchBoot` stands aside and there is no bar at all.
+	--
+	-- 76 puts the strip under both, 8 px clear of the banner, and it is still the top of the screen:
+	-- a compass belongs up there, and nothing else in the Hud draws between 76 and 102.
+	TOP = 76,
 	SPAN_DEG = 120, -- degrees of bearing visible across the whole strip
 	Z_INDEX = 6, -- over the feed (1) and the score panel (5), under the report (10)
 

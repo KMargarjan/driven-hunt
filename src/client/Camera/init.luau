@@ -480,7 +480,22 @@ function Camera.start()
 	-- THE CHARACTER THAT IS ALREADY THERE, because `CharacterAdded` has already fired for the first
 	-- spawn by the time this module starts on a slow client -- and that first spawn is the one Karen
 	-- sees (task 130).
-	Camera.faceCharacter()
+	--
+	-- IT WAITS EXACTLY AS THE RESPAWN PATH DOES (round 2, the Reviewer's blocking finding). A bare
+	-- call here read the root through `characterParts`, which does a plain `FindFirstChild` -- and a
+	-- character whose root has not replicated on the first frame answered nil, `faceCharacter`
+	-- returned false, `CharacterAdded` had already fired, and nothing ever ran again: the view stayed
+	-- at yaw 0 for that whole life, which in the Forest Test is the bug this task exists to fix. That
+	-- the root can be missing on the first frame is measured in this file already -- see
+	-- `characterParts`, round 1 finding 3.
+	local existing = Players.LocalPlayer.Character
+	if existing ~= nil then
+		task.spawn(function()
+			if existing:WaitForChild("HumanoidRootPart", 10) ~= nil then
+				Camera.faceCharacter()
+			end
+		end)
+	end
 
 	table.insert(
 		connections,

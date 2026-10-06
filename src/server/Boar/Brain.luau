@@ -450,6 +450,12 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	self._threatPoint = nil :: Vector3?
 
 	self._stuckFrom = flat(start)
+	-- WHERE IT IS, kept every step (task 126 round 2). `spook` is called from OUTSIDE -- a shot, a
+	-- hit, a herd-mate's alarm -- and had nothing but `_stuckFrom` to latch a flight from, which is
+	-- only refreshed every `STUCK_TIME` (2 s) while moving: at 24 studs/s that is a point the animal
+	-- left up to 48 studs ago, so both the flight HEADING and its odometer were measured from
+	-- somewhere it no longer was.
+	self._at = flat(start)
 	self._stuckTime = 0
 	self._stuckCount = 0
 
@@ -1142,7 +1148,7 @@ function Brain:spook(from: Vector3?, seconds: number?)
 	self._speed = math.max(self._speed, self:_runSpeed() * config.WOUND.BOLT_KICK)
 	-- ...AND THE LINE IT RUNS ON, taken here because this is the one door every fright comes
 	-- through: a shot heard, a hit taken, a release that remembers a bang, a driver flushing it.
-	self:_latchFlight(self._stuckFrom, from)
+	self:_latchFlight(self._at, from)
 	return true
 end
 
@@ -1259,6 +1265,12 @@ end
 
 function Brain:ordered(): boolean
 	return self._orderFor > 0 and self._orderPoint ~= nil
+end
+
+-- IS IT RUNNING ON A LATCHED LINE? The drive reads this to leave a frightened animal alone (task
+-- 126 round 2); `_flightActive` is the same answer `_step` uses, so the two cannot disagree.
+function Brain:flying(): boolean
+	return self:_flightActive()
 end
 
 function Brain:checking(): boolean
@@ -1612,6 +1624,7 @@ function Brain:step(dt: number, obs)
 		end
 	end
 
+	self._at = flat(position)
 	local stuck = self:_updateStuck(dt, position)
 
 	local desiredDirection, desiredSpeed
@@ -1620,6 +1633,18 @@ function Brain:step(dt: number, obs)
 	-- does not stop to look at the edge, does not blend with its sounder and does not pick its own
 	-- route. The states above this -- despawn, carcass, hit, collapse, CRIPPLED -- already returned.
 	local ordered = self:ordered()
+	-- A FRIGHT OUTRANKS AN ORDER (task 126 round 2, the Reviewer's blocking finding). The drive
+	-- re-orders every member of a line every Heartbeat, so with the order tested first the straight
+	-- flight and the edge stop -- the two things this task is FOR -- could never move an animal in
+	-- the only world that turns `MOVE` on: a shot boar kept walking its trail at the ordered speed.
+	-- The order is dropped outright rather than suspended, because the drive will hand out a new one
+	-- within `LINE.ORDER_SECONDS` anyway, and a line that re-forms behind a bolted animal is the
+	-- behaviour Karen described: *"they run and run straigh like in real life"*.
+	if ordered and (self:_flightActive() or self._checkFor > 0) then
+		self._orderFor = 0
+		self._orderPoint = nil
+		ordered = false
+	end
 	if ordered then
 		local target = self._orderPoint :: Vector3
 		local toTarget = target - flat(position)

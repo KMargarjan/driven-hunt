@@ -1045,26 +1045,48 @@ function ForestTest.releaseLine(now: number): string?
 		rolls[index] = rng:NextNumber()
 	end
 	local kinds = Boar.sounderKinds(count, rolls, boar, nil)
+
+	-- THE MARCHING ORDER IS DECIDED BEFORE ANYBODY IS PLACED, AND THE FILE IS LAID OUT BEHIND ITS
+	-- LEADER (task 127 round 2, the Reviewer's blocking finding -- and it is why the line never
+	-- formed).
+	--
+	-- It used to spawn along the direction of TRAVEL and order afterwards: spawn index 1 stood at
+	-- `start` and every later index stood further SOUTH, further along the route -- while
+	-- `Line.order` made the sow (index 1) the LEADER. So the leader was the REARMOST animal on the
+	-- ground and every follower was already past the head of her trail: `Line.arcAt` clamped each of
+	-- them to that head, `slack = stationS - ownS` came out negative for all of them, and the
+	-- "a follower that has overrun waits" rule froze the whole line while the sow walked through it.
+	-- For a wave of nine the tail animal needed her to walk ~135 studs of a 180-stud approach before
+	-- its station even reached it.
+	--
+	-- Now the kinds are ordered and dealt FIRST, and rank k is placed `(k - 1) * spacing` studs
+	-- BEHIND the head -- `start - toward * ...`, which is north, the side the drive comes from --
+	-- which is exactly where the seeded trail puts station k. Every follower starts ON its station
+	-- and the line is a line from the first step.
+	local order = {}
 	for index = 1, count do
-		local lane = ((index - 1) % lines)
-		local along = math.floor((index - 1) / lines)
-		local side = Vector3.new(1, 0, 0)
-		local at = start
-			+ toward * (along * lineData.spacingStuds)
-			+ side * ((lane - (lines - 1) / 2) * lineData.lineGapStuds)
-		local ground = Data.groundAt(at.X, at.Z)
-		local handle = runtime:spawn(Vector3.new(at.X, (ground or Data.CENTRE.Y) + 2, at.Z), kinds[index])
-		if handle ~= nil then
-			table.insert(members, { id = handle.id, kind = kinds[index] })
+		table.insert(order, { kind = kinds[index] })
+	end
+	local plans = Line.split(Line.order(order), lines)
+
+	local groups = {}
+	for which, plan in ipairs(plans) do
+		groups[which] = {}
+		local lateral = routes[which].lateral
+		for rank, member in ipairs(plan) do
+			local at = start - toward * ((rank - 1) * lineData.spacingStuds) + Vector3.new(lateral, 0, 0)
+			local ground = Data.groundAt(at.X, at.Z)
+			local handle = runtime:spawn(Vector3.new(at.X, (ground or Data.CENTRE.Y) + 2, at.Z), member.kind)
+			if handle ~= nil then
+				local row = { id = handle.id, kind = member.kind }
+				table.insert(groups[which], row)
+				table.insert(members, row)
+			end
 		end
 	end
 	if #members == 0 then
 		return nil
 	end
-
-	-- ORDER AND SPLIT: sow, females, piglets, males last, dealt between the lines so each has a sow
-	-- at its head (`Line.order`, `Line.split`).
-	local groups = Line.split(Line.order(members), lines)
 	local made = 0
 	for which, group in ipairs(groups) do
 		if #group > 0 then
@@ -1103,6 +1125,7 @@ function ForestTest.releaseLine(now: number): string?
 				bornAt = now,
 				crossing = crossing,
 				crossed = false,
+				checked = false,
 				stuckFrom = {},
 				stuckAt = {},
 				repaths = 0,
@@ -1157,6 +1180,19 @@ function ForestTest.stepLines(now: number)
 			continue
 		end
 
+		-- AN ANIMAL IN FLIGHT IS NOT IN THE LINE ANY MORE (task 126 round 2, the Reviewer's blocking
+		-- finding). `Brain` now drops an order the moment a fright latches, and the drive must not
+		-- hand it a new one on the next Heartbeat -- re-ordering every member every frame is what
+		-- kept a shot boar walking its trail at the ordered speed instead of running straight.
+		-- `Runtime:flying` asks the Brain; a frightened animal is skipped here until its flight ends,
+		-- and then it rejoins the file at whatever station is free.
+		local function leadIfFree(id: string, point: Vector3, speed: number)
+			if runtime:flying(id) then
+				return
+			end
+			runtime:leadTo(id, point, speed)
+		end
+
 		local leader = live[1]
 		local at = leader.status.position
 		-- THE LEADER WALKS THE ROUTE. One waypoint at a time, consumed when she is within a body
@@ -1170,7 +1206,19 @@ function ForestTest.stepLines(now: number)
 			end
 		end
 		local target = line.route[math.min(line.leg, #line.route)]
-		runtime:leadTo(leader.id, target, line.speed)
+		leadIfFree(leader.id, target, line.speed)
+
+		-- ...AND SHE LOOKS BEFORE SHE CROSSES (task 126 round 2). Karen: *"they can stop before
+		-- entering the road"*. `checkAtTheEdge` -- the wave path's only caller of `Runtime:check` --
+		-- is unreachable while `LINE.enabled` is true, so the edge stop shipped DORMANT in the one
+		-- world that has it. The leader is offered the check once per line as she comes into the band
+		-- north of the road; the Brain decides whether she takes it, for how long, and refuses
+		-- outright if she is already frightened. The file stacks up behind her for free: every
+		-- follower's station is a point on her trail, and she has stopped moving along it.
+		if not line.checked and at.Z - Data.roadZ(at.X) <= lineData.checkWithinStuds then
+			line.checked = true
+			runtime:check(leader.id)
+		end
 		line.baseSpeed = line.baseSpeed or line.speed
 
 		-- ...AND DROPS A BREADCRUMB BEHIND HER.
@@ -1233,7 +1281,7 @@ function ForestTest.stepLines(now: number)
 			if slack < -lineData.stationToleranceStuds then
 				point, speed = here, 0
 			end
-			runtime:leadTo(follower.id, point or here, speed)
+			leadIfFree(follower.id, point or here, speed)
 		end
 
 		-- ...AND THE SOW WAITS FOR HER TAIL. Karen asked for a line, and a line whose leader never
@@ -1258,6 +1306,19 @@ function ForestTest.stepLines(now: number)
 		-- while it was asked to move is re-pathed (the leader) or snapped back onto the trail (a
 		-- follower, by having its station handed to it directly on the next step).
 		for rank, member in ipairs(live) do
+			-- ONLY AN ANIMAL THAT WAS ASKED TO MOVE CAN BE STUCK (task 127 round 2). The rule in
+			-- `LINE` always read "while it was asked to move" and the code tested displacement alone,
+			-- so the followers this very step froze ON PURPOSE -- the overrun rule sets `speed = 0`
+			-- -- were counted as stuck and then SNAPPED BACKWARDS onto a station behind them, which
+			-- is the opposite of waiting. The ordered speed is published for exactly this
+			-- (`Runtime:statusOf().want`), and a waiting animal's clock starts again when it moves
+			-- off, so a long and legitimate wait cannot be banked against it.
+			local asked = (member.status.want or 0) > lineData.stuckAskedSpeed
+			if not asked then
+				line.stuckFrom[member.id] = member.status.position
+				line.stuckAt[member.id] = now
+				continue
+			end
 			local was = line.stuckFrom[member.id]
 			if was == nil or (now - (line.stuckAt[member.id] or 0)) >= lineData.stuckSeconds then
 				if

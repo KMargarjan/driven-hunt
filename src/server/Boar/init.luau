@@ -3622,6 +3622,18 @@ function Runtime:statusOf(id: string)
 	return nil
 end
 
+-- IS THIS ANIMAL IN FLIGHT? (task 126 round 2). The drive asks before it hands out an order: a
+-- frightened animal has dropped out of the file and must not be ordered back into it on the next
+-- Heartbeat, which is what kept a shot boar walking its trail at the ordered speed.
+function Runtime:flying(id: string): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return entry.brain:flying()
+		end
+	end
+	return false
+end
+
 -- THE EDGE CHECK, through the same door `urge` and `spook` use (task 126). Karen: *"they can stop
 -- before entering the road"*. The world says WHICH animal and the Brain decides whether it stops, for
 -- how long, and whether it has already had its check on this approach.

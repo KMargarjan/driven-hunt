@@ -95,12 +95,22 @@ RUN_LOG_DIR = os.path.join(REPO, ".mapgen")
 WORKSPACE_ALLOWED = (
     "Terrain",
     "Camera",
-    # ROUTE C's TEMPLATE CONTAINER, which task 121 put in the DEV place and which this branch's
-    # code does not yet know about (that task is unmerged). It is generator-owned, not hand-made:
-    # nothing here writes it, every build only reads it, and destroying it would cost somebody a
-    # by-hand re-insert of a 1.4 MB file. Allowed rather than deleted for exactly that reason.
-    "MapAssetTemplates",
 )
+# "MapAssetTemplates" WAS HERE AND IS GONE (task 128 round 2, the Reviewer's blocking finding).
+#
+# It was allowed on the grounds that "nothing here writes it, every build only reads it" -- and a
+# repo-wide grep for the name returns this file alone, so no build on this branch reads it either.
+# An allow-list entry nothing in the repository owns disables the one refusal that forces a saved
+# place before an irreversible rebuild: the census is the only thing standing between `mapgen build`
+# and a Workspace object no tool can put back.
+#
+# WHAT THIS MEANS FOR DEV TODAY, said plainly rather than worked around: the DEV place still holds
+# `MapAssetTemplates` (a Model, 630 descendants, left by the task 121 experiments), so the next
+# `mapgen build`/`clear`/`verify` in DEV will REFUSE with the NEEDS KAREN block until somebody either
+# saves the place to a .rbxl and passes it as `--backup`, or deletes the model in Studio. That is the
+# refusal doing its job. The Builder did NOT delete it and did not archive it: it is Studio content,
+# `.rbxm`/`.rbxl` are banned from this repository (CLAUDE.md), and rule 7 cannot be honoured for it
+# from here -- saving the place is a Studio action, and it is the Director's or Karen's call.
 
 # The seven captures (design section 13.3's six, plus map-gate), at the full 2048-stud map's own scale. Milestone 2.1's
 # cameras were scaled down for the 512 slice; these are the design's table, with two changes it names
@@ -613,7 +623,11 @@ def command_verify(studio, args, sha):
     if first.get("digest") and first["digest"] == second["digest"]:
         # The map is reproducible. Now the other half of the question: is it WALKABLE? A hedgerow with
         # no gate builds and digests perfectly and stops the drive dead (TASKS.md row 43a(k)).
-        reach = call(studio, "MapGen.reachability()")
+        # WITH THE BOAR, like `command_reach` (task 128 round 2). Without it `__dh.Boar` is nil, the
+        # generator's own `reachability` takes its "the boar's agent is unknown" early return, and
+        # `verify` printed FAILED at every seed -- the design's standing determinism gate, broken by
+        # the bundler that was meant to make it runnable again.
+        reach = call(studio, "MapGen.reachability()", with_boar=True)
         if reach.get("error"):
             print(f"[mapgen] FAILED: reachability could not run: {reach['error']}")
             return 1

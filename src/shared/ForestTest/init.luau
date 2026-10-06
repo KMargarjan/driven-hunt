@@ -251,6 +251,16 @@ ForestTest.LINE = {
 	-- tree"*. An animal that has moved less than a stud in three seconds while it was asked to move
 	-- is re-pathed (a leader) or snapped back onto the trail (a follower), and every occurrence is
 	-- counted so "zero" is a number in the report rather than a hope.
+	-- AND IT ONLY COUNTS WHILE THE ANIMAL WAS ASKED TO MOVE (task 127 round 2): a follower that has
+	-- overrun its station is told to stand still on purpose, and standing still on purpose is not
+	-- being stuck. 2 studs/s is below every gait this world uses and above the float noise of a
+	-- speed that is meant to be zero.
+	-- HOW CLOSE TO THE ROAD THE LEADER IS OFFERED HER LOOK (task 126 round 2). Karen: *"they can stop
+	-- before entering the road"*. 45 studs is about two seconds at a trot, so the stop happens in the
+	-- open where a hunter can see it rather than on the gravel; the Brain decides whether she takes
+	-- it at all (`MOVE.EDGE_CHANCE`) and refuses outright if she is already frightened.
+	checkWithinStuds = 45,
+	stuckAskedSpeed = 2,
 	stuckSeconds = 3,
 	stuckStuds = 1,
 

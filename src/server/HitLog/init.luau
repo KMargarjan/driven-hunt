@@ -182,7 +182,12 @@ function HitLog.recordHit(report, now: number?)
 	if typeof(part) ~= "Instance" or not part:IsA("BasePart") then
 		return false
 	end
-	local at = now or os.clock()
+	-- THE DOT'S CLOCK IS THE SHOT'S OWN (task 124 round 2, the Reviewer's blocking finding). It used
+	-- to be a fresh `os.clock()` taken on THIS side of the signal, while the wound the kill is joined
+	-- to carries `report.at` from `Weapon.Hits.group` -- two different samples of the same instant,
+	-- so `Shape.fatalDot`'s `|dot.at - at| < 1e-6` could never match and the X on the silhouette was
+	-- always the shooter's LAST hit rather than the one that killed.
+	local at = report.at or now or os.clock()
 	-- THE ID IS THE PART'S NAME, and that is a fact with a grep behind it: `Body.create` sets
 	-- `part.Name = id` and nothing in `Body.luau` ever reassigns it, and `Wound.killRecord` is called
 	-- with the same `entry.id`. Keyed by the string and never by the Instance -- an Instance key pins
@@ -239,10 +244,20 @@ function HitLog.recordDown(record, now: number?)
 	if record.kind ~= nil then
 		animal.kind = record.kind
 	end
-	local killing = record.wounds and record.wounds[#record.wounds]
-	local index = Shape.fatalDot(animal.dots, record.killingZone, killing and killing.at, record.killedByUserId)
+	-- THE MORTAL WOUND, NOT THE LAST ONE (task 124 round 2). `Wound` latches the mortal wound --
+	-- "later pellets into a dying animal do not steal the kill" -- and `killRecord` already carries
+	-- it as `record.at` and `record.killingZone`; `record.wounds[#record.wounds]` is simply the most
+	-- recent pellet group, which on a carcass that was shot twice is the wrong one.
+	local index = Shape.fatalDot(animal.dots, record.killingZone, record.at, record.killedByUserId)
 	if index ~= nil then
 		animal.dots[index].fatal = true
+		-- ...AND THE MISS IS COUNTED WHERE IT HAPPENS. `fatalDot` falls back to the shooter's last
+		-- dot, and the fallback used to be invisible from here: `unmatchedFatal` only rose when the
+		-- killer had NO dot at all, so design section 12's "`unmatchedFatal == 0` after a live kill"
+		-- measured nothing. It now rises whenever the join itself failed.
+		if Shape.fatalDot(animal.dots, record.killingZone, record.at, nil) == nil then
+			stats.unmatchedFatal += 1
+		end
 	else
 		stats.unmatchedFatal += 1
 	end

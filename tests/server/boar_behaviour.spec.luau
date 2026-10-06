@@ -369,7 +369,12 @@ return function()
 			-- A shot already sets `_boltFor` and kicks `_speed`; the pace clamp must not undo that,
 			-- and `_boltFor > 0` is the first half of `spooked` for exactly this reason.
 			local brain = Brain.new(on, FIELD, START, Random.new(7))
-			local beater = { stimulus(14, "driver", 5) }
+			-- PHANTOM, like every other case in this block (tasks 123 and 129 round 2, the same
+			-- finding from two Reviewers). Without the mark this is a REAL driver 14 studs away,
+			-- which is inside `DRIVER_RUN_STUDS` and spooks the animal on its own -- so the case
+			-- passed with the shot path deleted, and the comment "a beater is a push" was false of
+			-- the stimulus it was written over.
+			local beater = { stimulus(14, "driver", 5, true) }
 			drive(brain, math.ceil(1 / DT), function()
 				return beater
 			end, START)

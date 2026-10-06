@@ -1483,13 +1483,27 @@ end
 -- that is logic: it is the CLIENT fetching an audio and an animation asset it had never been asked
 -- for. A boar that is never shot never plays its cry, so the first boar anybody shoots pays for it.
 --
--- THE FIX IS TO ASK FOR THEM WHEN NOTHING IS WATCHING. Every clip is played at WEIGHT 0 and every
--- sound at VOLUME 0 the moment the coat goes on, and stopped `WARM_SECONDS` later. A client fetches
--- an asset when it is told to play it, so this is the fetch, moved from the worst moment to the
--- least important one. `ContentProvider:PreloadAsync` is the documented tool for this and it is a
--- CLIENT call (https://create.roblox.com/docs/reference/engine/classes/ContentProvider); this
--- repository has no client-side boar code and inventing one would be a new owner for a job that
--- needs no owner, so the server asks instead -- through the Instances `Body` already owns.
+-- WHAT THIS ACTUALLY DOES, AND WHAT IT DOES NOT (task 126 round 4, after the Reviewer caught the
+-- comment claiming more than the code delivers).
+--
+-- THE CLIPS ARE STILL ASKED FOR THE OLD WAY: every animation is played at WEIGHT 0 when the coat
+-- goes on and stopped `WARM_SECONDS` later. An animation plays on the SERVER too -- the Animator is
+-- the server's -- so that fetch is real and the flinch is no longer 568 ms late.
+--
+-- THE SOUNDS ARE NOT WARMED ON ANY CLIENT, and nothing here can warm them. `PreloadAsync` is a
+-- CLIENT call (https://create.roblox.com/docs/reference/engine/classes/ContentProvider): run from
+-- the server it fills the SERVER's cache, which no listener hears from. The measured 364 ms-late
+-- cry is therefore still there for the first boar anybody shoots in a fresh session, and saying
+-- otherwise in a comment is worse than the lateness.
+--
+-- WHY IT IS STILL CALLED: it costs one spawned pcall per boar and it does warm the server's own
+-- copy, which is where `Body` reads `IsLoaded` from; and it replaced a loop that PLAYED all eleven
+-- sounds at volume 0, which held eleven voices per animal and made the sound counts unreadable (the
+-- Director's smoke read 67 playing sounds with 34 boars out and the steady state was 3).
+--
+-- WHAT WOULD ACTUALLY FIX IT is a client-side preload of the boar's sound ids -- one small owner on
+-- the client, given the id list the server already has. That is a task, not a comment, and it is
+-- queued in `TASKS.md` under before-release rather than implied here.
 --
 -- IT IS BOUNDED AND IT IS SILENT: once per boar, weight 0 and volume 0 throughout, stopped by the
 -- same `stepVisual` that draws everything else. A real play always sets its own volume first, so

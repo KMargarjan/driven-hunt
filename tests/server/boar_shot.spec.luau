@@ -1199,6 +1199,67 @@ return function()
 			runtime:destroy()
 		end)
 
+		it("the GROUP grunts once as it comes in, and not again until it has gone back out", function()
+			-- THE MODE THE GAME SHIPS, and nothing drove it (task 123 round 2, the Reviewer's second
+			-- finding). `GRUNTS.ON_APPROACH = true` turns the grunt from an interval cue into an
+			-- EVENT: one per group the first time it comes within `CLOSE_STUDS` of a HUNTER, re-armed
+			-- only once the group has gone back beyond `REARM_STUDS`. Karen: *"we can have one hriu
+			-- sound per flack when they are close"*. Delete `Runtime:_stepApproachGrunts` and every
+			-- other case in this file still passes, with the game left silent.
+			local world = buildWorld(true, "BoarsApproach")
+			world.config.KINDS = { ENABLED = true }
+			-- A HUNTER, and he is the one who moves: the animals stay put so the only thing that
+			-- changes is the distance between them.
+			local hunterAt = Vector3.new(0, GROUND_Y, 400)
+			world.threats = function()
+				return { { id = "hunter", position = hunterAt, kind = "shooter", speed = 0 } }
+			end
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(clip: string)
+				return FAKE_IDS[clip]
+			end)
+			local handles = runtime:spawnSounder(Vector3.new(0, GROUND_Y, 0), 4, 8)
+			warmedUp(runtime)
+			local function gruntsHeard(): number
+				local total = 0
+				for _, handle in ipairs(handles) do
+					total += handle.soundPlays.grunt or 0
+				end
+				return total
+			end
+
+			-- FAR OUT: nothing to say.
+			step(runtime, math.ceil(2 / DT))
+			expect(gruntsHeard()).to.equal(0)
+
+			-- IN: one grunt for the whole group, however long it stays.
+			hunterAt = Vector3.new(0, GROUND_Y, SOUND.GRUNTS.CLOSE_STUDS - 10)
+			step(runtime, math.ceil(4 / DT))
+			local afterApproach = gruntsHeard()
+			expect(afterApproach).to.equal(1)
+			step(runtime, math.ceil(6 / DT))
+			expect(gruntsHeard()).to.equal(afterApproach) -- still one: it does not mutter
+
+			-- OUT PAST `REARM_STUDS` AND BACK IN: it may speak again.
+			hunterAt = Vector3.new(0, GROUND_Y, SOUND.GRUNTS.REARM_STUDS + 20)
+			step(runtime, math.ceil(3 / DT))
+			hunterAt = Vector3.new(0, GROUND_Y, SOUND.GRUNTS.CLOSE_STUDS - 10)
+			step(runtime, math.ceil(4 / DT))
+			expect(gruntsHeard()).to.equal(afterApproach + 1)
+			TestKit.note(
+				string.format(
+					"boar-approach: a group of %d grunted once inside %d studs, once more after going back past %d",
+					#handles,
+					SOUND.GRUNTS.CLOSE_STUDS,
+					SOUND.GRUNTS.REARM_STUDS
+				)
+			)
+			runtime:destroy()
+		end)
+
 		it("rations a CALM sounder's grunts: the GROUP grunts, once per interval", function()
 			-- KAREN, 2026-10-04: "several sqeeng it could be anoying and shit sound". A herd mutters,
 			-- it does not chorus. Twenty seconds is several of each animal's own 3-8 s intervals, so
