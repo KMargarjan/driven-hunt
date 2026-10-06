@@ -71,48 +71,59 @@ end
 
 return function()
 	describe("the straight flight (MOVE on)", function()
-		it("runs a long way in ONE line after a bang, and wanders without the flag", function()
-			-- KAREN: *"wildboar has to cross then when I shoot it runs awai a lot until I can;t see
-			-- them like in real life"* and *"they shouldn do circles like I see now"*.
-			local straightRun, straightWorst
-			local looseRun, looseWorst
-			for _, on in ipairs({ true, false }) do
+		it("holds ONE line past a threat that would otherwise bend it", function()
+			-- KAREN: *"after shoot animals usually run straight when they spook"*, *"they shouldn do
+			-- circles like I see now"*, *"it runs awai a lot until I can;t see them"*.
+			--
+			-- THE LATCH ONLY SHOWS UP WHEN SOMETHING WOULD TURN THE ANIMAL. Measured first with an
+			-- empty field, where it showed nothing at all: an animal fleeing an empty world already
+			-- runs straight at the exit, so both states ran 101 studs turning 2.3 deg/frame and the
+			-- A/B proved nothing. What the latch changes is what happens when a SECOND thing appears
+			-- beside the line -- a driver on the flank, a man at a stand -- which with the flag off
+			-- bends the flee vector every frame and with it on does not.
+			local function runPast(on: boolean)
 				local brain = Brain.new(moveConfig(on), FIELD, START, Random.new(9))
-				-- The bang comes from behind: a gun 40 studs north of an animal facing south.
-				brain:spook(Vector3.new(0, 0, 40))
-				local landed, headings = run(brain, 8, {})
-				local travelled = (Vector3.new(landed.X, 0, landed.Z)).Magnitude
-				-- The worst turn between any two frames of the run, in degrees.
-				local worst = 0
-				for index = 2, #headings do
-					local dot = math.clamp(headings[index - 1]:Dot(headings[index]), -1, 1)
-					worst = math.max(worst, math.deg(math.acos(dot)))
+				brain:spook(Vector3.new(0, 0, 40)) -- the bang, from behind
+				local position = START
+				local first, last = nil, nil
+				for frame = 1, math.ceil(6 / DT) do
+					-- A DRIVER WALKING ALONG THE ANIMAL'S FLANK, 20 studs to its left and keeping up.
+					local threats = {
+						{ id = "flank", position = position + Vector3.new(-20, 0, 0), kind = "driver", speed = 5 },
+					}
+					local intent = brain:step(DT, obs(position, threats))
+					position += intent.targetVelocity * DT
+					if intent.facing.Magnitude > 1e-6 then
+						last = intent.facing.Unit
+						if frame > 30 then
+							first = first or last
+						end
+					end
 				end
-				if on then
-					straightRun, straightWorst = travelled, worst
-				else
-					looseRun, looseWorst = travelled, worst
+				local bend = 0
+				if first ~= nil and last ~= nil then
+					bend = math.deg(math.acos(math.clamp(first:Dot(last), -1, 1)))
 				end
+				return (Vector3.new(position.X, 0, position.Z)).Magnitude, bend
 			end
+
+			local straightRun, straightBend = runPast(true)
+			local looseRun, looseBend = runPast(false)
 			TestKit.note(
 				string.format(
-					"boar-move: after a bang, MOVE on ran %.0f studs turning at most %.1f deg/frame;"
-						.. " MOVE off ran %.0f turning at most %.1f",
+					"boar-move: running past a driver on its flank -- MOVE on %.0f studs, bent %.1f deg;"
+						.. " MOVE off %.0f studs, bent %.1f deg",
 					straightRun,
-					straightWorst,
+					straightBend,
 					looseRun,
-					looseWorst
+					looseBend
 				)
 			)
-			-- IT RAN STRAIGHT, AND THAT IS THE WHOLE OF THE A/B. Measured on this commit: with the
-			-- flag on the worst frame-to-frame turn of the whole run is a couple of degrees; with it
-			-- off the same animal wanders, and that wander is Karen's *"they shouldn do circles like
-			-- I see now"*.
-			expect(straightWorst < 5).to.equal(true)
-			expect(straightWorst < looseWorst).to.equal(true)
-			-- ...AND IT RAN FAR ENOUGH TO LEAVE A STAND BEHIND. The DISTANCE is not what the latch
-			-- changes -- both run at the flee speed, which is why the two numbers in the note are
-			-- within a stud of each other -- so this is a floor, not a comparison.
+			-- THE LINE HOLDS: the latched animal ends the run on the heading it started it on.
+			expect(straightBend < 5).to.equal(true)
+			-- ...AND THE SAME ANIMAL WITHOUT THE FLAG IS BENT BY THE MAN BESIDE IT.
+			expect(looseBend > straightBend + 10).to.equal(true)
+			-- ...and it still covers ground: far enough to leave a stand behind.
 			expect(straightRun > 100).to.equal(true)
 		end)
 
