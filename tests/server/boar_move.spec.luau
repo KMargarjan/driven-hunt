@@ -75,7 +75,7 @@ return function()
 			-- KAREN: *"wildboar has to cross then when I shoot it runs awai a lot until I can;t see
 			-- them like in real life"* and *"they shouldn do circles like I see now"*.
 			local straightRun, straightWorst
-			local looseRun
+			local looseRun, looseWorst
 			for _, on in ipairs({ true, false }) do
 				local brain = Brain.new(moveConfig(on), FIELD, START, Random.new(9))
 				-- The bang comes from behind: a gun 40 studs north of an animal facing south.
@@ -91,26 +91,29 @@ return function()
 				if on then
 					straightRun, straightWorst = travelled, worst
 				else
-					looseRun = travelled
+					looseRun, looseWorst = travelled, worst
 				end
 			end
 			TestKit.note(
 				string.format(
-					"boar-move: after a bang, MOVE on ran %.0f studs with a worst turn of %.1f deg/frame; MOVE off ran %.0f",
+					"boar-move: after a bang, MOVE on ran %.0f studs turning at most %.1f deg/frame;"
+						.. " MOVE off ran %.0f turning at most %.1f",
 					straightRun,
 					straightWorst,
-					looseRun
+					looseRun,
+					looseWorst
 				)
 			)
-			-- IT RAN STRAIGHT: a latched line turns by almost nothing frame to frame, and that is the
-			-- claim -- *"they shouldn do circles"*.
+			-- IT RAN STRAIGHT, AND THAT IS THE WHOLE OF THE A/B. Measured on this commit: with the
+			-- flag on the worst frame-to-frame turn of the whole run is a couple of degrees; with it
+			-- off the same animal wanders, and that wander is Karen's *"they shouldn do circles like
+			-- I see now"*.
 			expect(straightWorst < 5).to.equal(true)
-			-- ...AND IT RAN: far enough to leave a stand behind, and further than the same animal
-			-- with the flag off, which is the A/B the flag exists for. The absolute number is in the
-			-- note rather than in a bound, because it is the flight's own window times its speed and
-			-- both are tunable.
+			expect(straightWorst < looseWorst).to.equal(true)
+			-- ...AND IT RAN FAR ENOUGH TO LEAVE A STAND BEHIND. The DISTANCE is not what the latch
+			-- changes -- both run at the flee speed, which is why the two numbers in the note are
+			-- within a stud of each other -- so this is a floor, not a comparison.
 			expect(straightRun > 100).to.equal(true)
-			expect(straightRun > looseRun).to.equal(true)
 		end)
 
 		it("keeps the first line when a second fright arrives inside its window", function()

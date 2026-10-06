@@ -171,11 +171,15 @@ return function()
 			local drive = HitLog.currentDrive()
 			expect(drive).to.be.ok()
 			expect((drive :: any).number).to.equal(9)
-			-- A SECOND OPEN WHILE ONE IS RUNNING CHANGES NOTHING, or two reports would share a
-			-- record. Asserted on the observable -- which drive is current -- rather than on a return
-			-- value these two functions do not promise.
+			-- A SECOND OPEN CLOSES THE FIRST, which is the contract and the right one: the drive
+			-- that was running is finished at that instant rather than left open for ever, and the
+			-- new one starts clean. Two reports can never share a record.
 			HitLog.openDrive(10, 905)
-			expect((HitLog.currentDrive() :: any).number).to.equal(9)
+			expect((drive :: any).closedAt).to.equal(905)
+			local second = HitLog.currentDrive()
+			expect((second :: any).number).to.equal(10)
+			expect((second :: any).animals["Boar1"]).to.equal(nil)
+			drive = second
 			HitLog.closeDrive(960)
 			expect((drive :: any).closedAt).to.equal(960)
 			-- ...and closing twice does not move the time it closed at.
