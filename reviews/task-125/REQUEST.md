@@ -7,7 +7,7 @@ Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
 
 ```
 [harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
-[harness2] <the Director runs this at the code commit and pastes it here>
+[harness2] PASS: 35/35 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree)
 ```
 
 The `[harness2]` line is the Director's: it needs one Studio open, and this round's live proof
