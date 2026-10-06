@@ -12,7 +12,7 @@ Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
 
 DIRECTOR NOTE (round 3): round 2 PASSed at 54d68f4. The stack's fix round 2 (7970e3c..b414f4d) then changed code this task owns — `ForestTest.releaseLine` (127 #1: spawn order) and the stuck rule in `ForestTest.stepLines` — so the PASS no longer covers the final code commit and this is a re-review at b414f4d. Claims are unchanged; verify them at the new commit.
 
-The `[harness2]` line is the Director's, run at the code commit `54d68f4` itself (detached checkout; only these requests differ at the head), 2026-10-06 ~01:30, DEV the only Studio open: server 758 / shooter 146 / driver 140 passed, 0 failed.
+The `[harness2]` line is the Director's, run at the code commit `b414f4d` itself (detached checkout; only paperwork differs at the head), 2026-10-06 ~03:40, DEV the only Studio open: server 773 / shooter 146 / driver 140 passed, 0 failed.
 
 
 **THIS TASK IS ONE OF NINE IN ONE PR** (122-130, `task-130-spawn-view` -> `main`). Director decision,
