@@ -1,16 +1,17 @@
 # Task 129 - a green gate for the forest-test stack
 
 Task: 129
-Round: 1
+Round: 2
 Base: main
-Code commit: `54d68f46bb87c98d9e5081b7f17682e7ea463dad`
+Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
 
 ```
-[harness] PASS: 33/33 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree)
+[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
+[harness2] <the Director runs this at the code commit and pastes it here>
 ```
 
-The `[harness2]` line is the Director's, run at the code commit `54d68f4` itself (detached checkout; only these requests differ at the head), 2026-10-06 ~01:30, DEV the only Studio open: server 758 / shooter 146 / driver 140 passed, 0 failed.
+The `[harness2]` line is the Director's: it needs one Studio open, and this round's live proof
+needed the Forest Test open beside DEV.
 
 **THIS TASK IS ONE OF NINE IN ONE PR** (122-130, `task-130-spawn-view` -> `main`). Director
 decision, recorded in `ESCALATE.md`: no branch below 128 can pass the gate on its own -- DEV's
@@ -24,6 +25,10 @@ its own review.
 Task 128's bundler let DEV's gate run again and it found **20 failures across tasks 123-127** that
 six blocked gates had hidden. Three were real bugs in shipped code; the rest were specs holding a
 contract Karen has since changed, or cases that could never have passed either way.
+
+## What round 1 found, and what round 2 did
+
+**ROUND 2.** #1 the same vacuous case as task 123's #1, fixed the same way (the beater is a push again). #2 the claim that the shipped silence is asserted somewhere was false; it is asserted now, in `tests/server/boar_move.spec.luau`, and this request no longer claims otherwise.
 
 ## Claims
 

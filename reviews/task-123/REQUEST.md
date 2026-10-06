@@ -1,16 +1,17 @@
 # Task 123 - a group is heard as one or two animals, not twenty
 
 Task: 123
-Round: 1
+Round: 2
 Base: main
-Code commit: `54d68f46bb87c98d9e5081b7f17682e7ea463dad`
+Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
 
 ```
-[harness] PASS: 33/33 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree)
+[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
+[harness2] <the Director runs this at the code commit and pastes it here>
 ```
 
-The `[harness2]` line is the Director's, run at the code commit `54d68f4` itself (detached checkout; only these requests differ at the head), 2026-10-06 ~01:30, DEV the only Studio open: server 758 / shooter 146 / driver 140 passed, 0 failed.
+The `[harness2]` line is the Director's: it needs one Studio open, and this round's live proof
+needed the Forest Test open beside DEV.
 
 **THIS TASK IS ONE OF NINE IN ONE PR** (122-130, `task-130-spawn-view` -> `main`). Director
 decision, recorded in `ESCALATE.md`: no branch below 128 can pass the gate on its own -- DEV's
@@ -24,6 +25,10 @@ its own review.
 The sound of a herd. Measured first in Karen's own place with her own waves: **31 playing sounds at
 once with 36 boars out**. The final state is a drive whose animals are nearly silent until they are
 close, with one voice per flock on the approach.
+
+## What round 1 found, and what round 2 did
+
+**ROUND 2.** #1 the shot case's beater is marked `phantom = true`, so the pre-shot speed is a push and the post-shot speed is the bolt -- without it a real driver 14 studs away spooked the animal and the case passed with the shot path deleted. #2 `tests/server/boar_shot.spec.luau` gains **the approach grunt driven end to end in the mode the game ships** (`ON_APPROACH = true`): a group of four, a hunter walked in to `CLOSE_STUDS`, exactly one grunt however long he stays, and one more only after the group has gone back past `REARM_STUDS`. `tests/server/boar_move.spec.luau` asserts the shipped silence itself (`BREATH.enabled`, `SNIFF.enabled`, `GRUNTS.ON_APPROACH`, one voice per sounder).
 
 ## Claims
 

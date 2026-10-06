@@ -1,16 +1,17 @@
 # Task 127 - one side to the other, in a line
 
 Task: 127
-Round: 1
+Round: 2
 Base: main
-Code commit: `54d68f46bb87c98d9e5081b7f17682e7ea463dad`
+Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
 
 ```
-[harness] PASS: 33/33 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree)
+[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
+[harness2] <the Director runs this at the code commit and pastes it here>
 ```
 
-The `[harness2]` line is the Director's, run at the code commit `54d68f4` itself (detached checkout; only these requests differ at the head), 2026-10-06 ~01:30, DEV the only Studio open: server 758 / shooter 146 / driver 140 passed, 0 failed.
+The `[harness2]` line is the Director's: it needs one Studio open, and this round's live proof
+needed the Forest Test open beside DEV.
 
 **THIS TASK IS ONE OF NINE IN ONE PR** (122-130, `task-130-spawn-view` -> `main`). Director
 decision, recorded in `ESCALATE.md`: no branch below 128 can pass the gate on its own -- DEV's
@@ -23,6 +24,10 @@ its own review.
 
 Karen: *"imagine they come from one side in one line and crossing road thats it"*, *"it's simple"*.
 The Forest Test's waves now walk one route, nose to tail, and run once they are across.
+
+## What round 1 found, and what round 2 did
+
+**ROUND 2.** #1 **the file was spawned BACK TO FRONT** -- the leader stood at the tail, so every follower was past the head of her trail, every `slack` was negative and the overrun rule froze the whole line while the sow walked through it. The marching order is now decided before anybody is placed and rank k is laid out k stations BEHIND the head, where the seeded trail already puts its station. #2 the stuck rule reads the ORDER (`statusOf().want > LINE.stuckAskedSpeed`): the followers the overrun rule froze on purpose were being counted as stuck and snapped backwards onto crumbs behind them.
 
 ## Claims
 
@@ -55,8 +60,26 @@ The Forest Test's waves now walk one route, nose to tail, and run once they are 
    group, verified live as applied, and refuted: pairs abreast 36 % -> 34 %, gap median 10.2 -> 10.6,
    stuck 18 -> 19, trunk contacts 12 -> 21.
 
+## What round 2 measured, live, after the fix
+
+* **The file forms.** Seven animals of one line, read off the stand by distance along one bearing:
+  **92, 101, 109, 117, 125, 134, 141 studs** -- eight or nine studs apart, nose to tail, against a
+  station of 8.5.
+* **Stuck: 0** in a 160-second trace, against 12 before this round.
+* **The order is the sow's**: `[female>cub>cub>cub>cub>cub>male>male]`, wave after wave.
+* **Nobody comes back across**: of the animals that moved north after a shot, **0 had already
+  crossed** -- every one was still on the drive side, running from the gun, which is what the flight
+  is for.
+
 ## What could not be verified
 
+- **The frames still do not SHOW it.** The four captures from the stand have the animals at 90-141
+  studs among birch trunks, in shadow: the distances above are a file and the picture is not legible
+  as one. A frame taken from closer, or a line crossing nearer the stand, is what would settle it,
+  and I did not get one inside this round.
+- **The old gap and offset numbers could not be re-measured.** They came from a temporary probe that
+  publishes the line id and rank on each body; that probe is not in the shipped code, so this round's
+  trace reports the distances above and the stuck count rather than a gap median.
 - **The line is a loose band, not a file.** Gap median 10.1 studs against an 8.5 station, p90 34.5,
   and 40 % of consecutive pairs are closer than one station along the trail. I looked at four frames
   from the stand and said so: in the best of them the animals are a loose row at one depth.

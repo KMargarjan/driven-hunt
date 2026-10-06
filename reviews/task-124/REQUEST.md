@@ -1,16 +1,17 @@
 # Task 124 - the hit indicator, the kill log and the drive report
 
 Task: 124
-Round: 1
+Round: 2
 Base: main
-Code commit: `54d68f46bb87c98d9e5081b7f17682e7ea463dad`
+Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
 
 ```
-[harness] PASS: 33/33 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree)
+[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
+[harness2] <the Director runs this at the code commit and pastes it here>
 ```
 
-The `[harness2]` line is the Director's, run at the code commit `54d68f4` itself (detached checkout; only these requests differ at the head), 2026-10-06 ~01:30, DEV the only Studio open: server 758 / shooter 146 / driver 140 passed, 0 failed.
+The `[harness2]` line is the Director's: it needs one Studio open, and this round's live proof
+needed the Forest Test open beside DEV.
 
 **THIS TASK IS ONE OF NINE IN ONE PR** (122-130, `task-130-spawn-view` -> `main`). Director
 decision, recorded in `ESCALATE.md`: no branch below 128 can pass the gate on its own -- DEV's
@@ -23,6 +24,10 @@ its own review.
 
 Karen: *"we need to indicate a hit / we need to show when is killed logg / and we need to show on the
 end what has been killed where was the hit"*. Three parts, one record.
+
+## What round 1 found, and what round 2 did
+
+**ROUND 2.** #1 the fatal dot now joins the KILLING shot: `recordHit` takes the dot's clock from `report.at` (the shot's own, set in `Weapon.Hits.group`) instead of a fresh `os.clock()` on the other side of the signal, and `recordDown` joins on `record.at`/`record.killingZone` -- the MORTAL wound `Wound` latches -- rather than on `wounds[#wounds]`, which on a carcass shot twice is the wrong one. `unmatchedFatal` now rises when the JOIN fails, which is what design section 12 reads. #2 `tests/server/hitlog.spec.luau` is new and covers the server half: the join, the fallback and its counter, a death with no record, a refused hit, `Shape.hunterRows` (kills, lost, hits, no points field), and open/close.
 
 ## Claims
 

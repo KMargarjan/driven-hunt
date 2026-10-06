@@ -1,16 +1,17 @@
 # Task 126 - a driven sounder moves like the real thing
 
 Task: 126
-Round: 1
+Round: 2
 Base: main
-Code commit: `54d68f46bb87c98d9e5081b7f17682e7ea463dad`
+Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
 
 ```
-[harness] PASS: 33/33 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree)
+[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
+[harness2] <the Director runs this at the code commit and pastes it here>
 ```
 
-The `[harness2]` line is the Director's, run at the code commit `54d68f4` itself (detached checkout; only these requests differ at the head), 2026-10-06 ~01:30, DEV the only Studio open: server 758 / shooter 146 / driver 140 passed, 0 failed.
+The `[harness2]` line is the Director's: it needs one Studio open, and this round's live proof
+needed the Forest Test open beside DEV.
 
 **THIS TASK IS ONE OF NINE IN ONE PR** (122-130, `task-130-spawn-view` -> `main`). Director
 decision, recorded in `ESCALATE.md`: no branch below 128 can pass the gate on its own -- DEV's
@@ -24,6 +25,10 @@ its own review.
 Karen, watching the Forest Test: *"after shoot animals usually run straight when they spook ofc
 avoiding opsticals"*, *"they shouldn do circles like I see now"*, *"and not hitting the trees and
 hang"*, *"and walking sound sounds like horse we need animal not horse"*.
+
+## What round 1 found, and what round 2 did
+
+**ROUND 2.** #1 a FRIGHT NOW OUTRANKS AN ORDER (`Brain:step` drops the order when `_flightActive()` or a check is running), the drive leaves a flying animal alone (`Runtime:flying`, `leadIfFree`), and the leader is offered the edge check as she comes within `LINE.checkWithinStuds` of the road -- all three were unreachable in the only world that turns `MOVE` on, so the straight flight and the edge stop shipped dormant. #2 the flight is latched from `self._at`, the position the Brain updates every step, not from `_stuckFrom`, which at 24 studs/s is up to 48 studs stale. #3 `tests/server/boar_move.spec.luau` is new: the flight in both flag states, the edge stop in both, and the whisker's `locked` branch. #4 `Body.warmAssets`' comment now says what the code does -- the CLIPS are warmed on the server, the SOUNDS are not warmed on any client, because `PreloadAsync` is a client call; the client-side preload is queued rather than implied.
 
 ## Claims
 

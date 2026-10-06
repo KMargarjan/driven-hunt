@@ -1,16 +1,17 @@
 # Task 130 - the hunter's view starts facing the drive
 
 Task: 130
-Round: 1
+Round: 2
 Base: main
-Code commit: `54d68f46bb87c98d9e5081b7f17682e7ea463dad`
+Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
 
 ```
-[harness] PASS: 33/33 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree)
+[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
+[harness2] <the Director runs this at the code commit and pastes it here>
 ```
 
-The `[harness2]` line is the Director's, run at the code commit `54d68f4` itself (detached checkout; only these requests differ at the head), 2026-10-06 ~01:30, DEV the only Studio open: server 758 / shooter 146 / driver 140 passed, 0 failed.
+The `[harness2]` line is the Director's: it needs one Studio open, and this round's live proof
+needed the Forest Test open beside DEV.
 
 **THIS TASK IS ONE OF NINE IN ONE PR** (122-130, `task-130-spawn-view` -> `main`). Director
 decision, recorded in `ESCALATE.md`: no branch below 128 can pass the gate on its own -- DEV's
@@ -23,6 +24,10 @@ its own review.
 
 Karen's hunter spawned with his back to the drive. The first-person camera now starts at the
 character's own facing.
+
+## What round 1 found, and what round 2 did
+
+**ROUND 2.** #1 the start-time `Camera.faceCharacter()` now waits for the HumanoidRootPart in its own thread, exactly as the `CharacterAdded` path does -- a bare call read the root through a plain `FindFirstChild`, and on a character whose root had not replicated it returned false with nothing left to re-run it, which is the original bug on the one spawn that matters.
 
 ## Claims
 

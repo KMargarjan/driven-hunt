@@ -1,16 +1,17 @@
 # Task 128 - unblock DEV's gate: the generator arrives as source
 
 Task: 128
-Round: 1
+Round: 2
 Base: main
-Code commit: `54d68f46bb87c98d9e5081b7f17682e7ea463dad`
+Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
 
 ```
-[harness] PASS: 33/33 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 54d68f46bb87c98d9e5081b7f17682e7ea463dad (clean tree)
+[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
+[harness2] <the Director runs this at the code commit and pastes it here>
 ```
 
-The `[harness2]` line is the Director's, run at the code commit `54d68f4` itself (detached checkout; only these requests differ at the head), 2026-10-06 ~01:30, DEV the only Studio open: server 758 / shooter 146 / driver 140 passed, 0 failed.
+The `[harness2]` line is the Director's: it needs one Studio open, and this round's live proof
+needed the Forest Test open beside DEV.
 
 **THIS TASK IS ONE OF NINE IN ONE PR** (122-130, `task-130-spawn-view` -> `main`). Director
 decision, recorded in `ESCALATE.md`: no branch below 128 can pass the gate on its own -- DEV's
@@ -24,6 +25,10 @@ its own review.
 One Python file. `mapgen build/verify/clear` had been dead since the MCP thread started refusing
 every `require`, which is why DEV still held hand-made experiments and its gate had failed 18 runs of
 23 since task 122.
+
+## What round 1 found, and what round 2 did
+
+**ROUND 2.** #1 `command_verify`'s reachability call gets `with_boar=True`, like `command_reach` -- without it `__dh.Boar` was nil, `MapGen.reachability` took its early return and `verify` printed FAILED at every seed, which is the design's standing determinism gate. #2 `MapAssetTemplates` is out of `WORKSPACE_ALLOWED`; what that means for DEV is written where the list is, and said plainly in this request.
 
 ## Claims
 
