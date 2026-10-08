@@ -684,7 +684,11 @@ function Hud.killLineText(event): string
 	return string.format("%-12s %-11s %-6s %d m", who, animal, zone, Report.metres(event and event.distance))
 end
 
-local function feedTextFor(entry): string?
+-- WHAT ONE FEED ENTRY READS AS, or nil when another owner draws it. Exported for the same reason
+-- `Hud.killLineText` is (task 124 round 3): the rule "a Match `kill` entry draws NO line, because
+-- `HitLog`'s own line draws it with the animal's kind" is the whole of why one kill is not two, and
+-- a local function cannot be asserted.
+function Hud.feedTextFor(entry): string?
 	local who = entry.name or (if entry.userId then tostring(entry.userId) else "")
 	if entry.kind == "kill" then
 		-- `Match`'s FEED OWNS THE DRIVE'S EVENTS -- escape, violation, join, leave. `HitLog`'s line
@@ -760,6 +764,13 @@ local function render(Weapon, CameraSystem)
 		readout.Text = if state and state.equipped then textFor(state) else ""
 	end
 end
+-- ONE KILL, ONE LINE. The replica hears the server and fires `Killed`; this draws it. A NAMED
+-- handler rather than a closure, exactly as `Hud.onHitMarker` is, so the client half of the kill log
+-- can be driven in a spec instead of only by a live drive (task 124 round 3).
+function Hud.onKilled(event)
+	table.insert(feedEntries, { text = Hud.killLineText(event), at = os.clock() })
+	renderFeed(os.clock())
+end
 
 function Hud.start()
 	if started then
@@ -801,7 +812,7 @@ function Hud.start()
 		end)
 		MatchSystem.Feed:Connect(function(entry)
 			-- NO TEXT, NO LINE: `feedTextFor` answers nil for an entry another owner now draws.
-			local text = feedTextFor(entry)
+			local text = Hud.feedTextFor(entry)
 			if text ~= nil then
 				table.insert(feedEntries, { text = text, at = os.clock() })
 				renderFeed(os.clock())
@@ -829,10 +840,7 @@ function Hud.start()
 	local reportModule = scripts:WaitForChild("Report", 5)
 	local ReportSystem = if reportModule then require(reportModule) else nil
 	if ReportSystem then
-		ReportSystem.Killed:Connect(function(event)
-			table.insert(feedEntries, { text = Hud.killLineText(event), at = os.clock() })
-			renderFeed(os.clock())
-		end)
+		ReportSystem.Killed:Connect(Hud.onKilled)
 	end
 
 	-- TAB BELONGS TO THE ROBLOX PLAYER LIST ON PC, and a `ContextActionService` binding cannot take a

@@ -19,6 +19,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -298,6 +299,71 @@ return function()
 			Panel.onDriveChanged({ kind = "driveOpened", drive = 42 })
 			expect(Panel.isOpen()).to.equal(false)
 			expect(Panel.page()).to.equal(1)
+		end)
+
+		it("draws ONE line for one kill, and the Match feed draws none", function()
+			-- KAREN'S FIRST-NAMED ASK: *"we need to show when is killed logg or something similar"*.
+			-- THE WHOLE CLIENT HALF OF IT WAS UNASSERTED (task 124 rounds 1-3): the suite passed with
+			-- `killLineText` and the feed rule deleted, and what would have gone silently is the only
+			-- kill line either world draws.
+			--
+			-- ONE KILL IS ONE LINE, and that is a rule with two halves: `HitLog`'s own event draws the
+			-- line (it carries the animal's KIND, which the Match feed has never had), and the Match
+			-- feed's own `kill` entry therefore draws NOTHING. Both halves are asserted here.
+			local before = #Hud.feedText()
+			Hud.onKilled({ name = "Anna", animalKind = "female", zone = "chest", distance = 35 })
+			local after = Hud.feedText()
+			expect(#after).to.equal(before + 1)
+			expect(after[#after]).to.equal(
+				Hud.killLineText({ name = "Anna", animalKind = "female", zone = "chest", distance = 35 })
+			)
+			-- ...and the Match entry for the same kill adds no second line.
+			expect(Hud.feedTextFor({ kind = "kill", name = "Anna", userId = 101 })).to.equal(nil)
+			-- The feed's other events are untouched by that rule.
+			expect(Hud.feedTextFor({ kind = "escape" })).to.be.ok()
+			expect(Hud.feedTextFor({ kind = "violation", name = "Anna" })).to.be.ok()
+		end)
+
+		it("names the animal when it knows its kind, and never says NIL BOAR", function()
+			local named = Hud.killLineText({ name = "Anna", animalKind = "female", zone = "chest", distance = 40 })
+			expect(string.find(named, "FEMALE BOAR", 1, true)).to.be.ok()
+			expect(string.find(named, "Anna", 1, true)).to.be.ok()
+			expect(string.find(named, "chest", 1, true)).to.be.ok()
+			-- WITHOUT A KIND IT IS STILL A BOAR. A kill event whose `animalKind` never arrived used to
+			-- be the next reader's "NIL BOAR" waiting to happen.
+			local plain = Hud.killLineText({ name = "Anna", zone = "rear", distance = 40 })
+			expect(string.find(plain, "BOAR", 1, true)).to.be.ok()
+			expect(string.find(plain, "NIL", 1, true)).to.equal(nil)
+			-- ...and an event with nothing in it at all draws a line rather than raising.
+			expect(type(Hud.killLineText({}))).to.equal("string")
+			expect(type(Hud.killLineText(nil))).to.equal("string")
+		end)
+
+		it("ticks once per hit marker, and an empty id plays nothing and raises nothing", function()
+			-- DESIGN SECTION 13, ITEM 8. The tick is what Karen hears when she connects; a path that
+			-- stops running is silent in exactly the way a missing sample is, so the COUNT is the
+			-- assertion.
+			local Sound = require(scripts:WaitForChild("Hud"):WaitForChild("Sound"))
+			Sound.resetStats()
+			Hud.showHitMark("hit")
+			Hud.showHitMark("kill")
+			local stats = Sound.stats()
+			-- Either a sound was asked for or the id is empty and it was counted as silent: both are
+			-- the path running. The two ids this repo ships are engine assets, so in a normal build
+			-- these are `hit = 1, kill = 1`.
+			expect(stats.hit + stats.kill + stats.silent).to.equal(2)
+			-- AN EMPTY ID PLAYS NOTHING AND IS NOT AN ERROR -- the rule `Weapon.Sound` already states.
+			local emptied = { HIT_MARK_SOUND_ID = "", HIT_MARK_KILL_SOUND_ID = "" }
+			expect(Sound.idFor("hit", emptied)).to.equal("")
+			expect(Sound.idFor("kill", emptied)).to.equal("")
+			TestKit.note(
+				string.format(
+					"report-feed: one kill drew one line; ticks hit=%d kill=%d silent=%d",
+					stats.hit,
+					stats.kill,
+					stats.silent
+				)
+			)
 		end)
 
 		it("leaves the screen as it found it", function()

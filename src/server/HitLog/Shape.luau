@@ -200,6 +200,13 @@ function Shape.resolveRequest(request, driveNumbers: { number }, current: number
 	end
 	local hunter = if type(request) == "table" and type(request.hunter) == "number" then request.hunter else nil
 	local page = if type(request) == "table" and type(request.page) == "number" then math.floor(request.page) else 1
+	-- NaN IS A NUMBER AND IT IS NOT A PAGE (task 124 round 3, the Reviewer's note). A client that
+	-- sends `0/0` arrives here as a number, `math.floor` keeps it NaN, and NaN fails `page < 1` and
+	-- every clamp -- so it travels all the way to the panel's `string.format("PAGE %d/%d", ...)`,
+	-- which RAISES on the client that asked. `page == page` is false only for NaN.
+	if page ~= page then
+		page = 1
+	end
 	if page < 1 then
 		page = 1
 	end

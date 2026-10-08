@@ -1099,9 +1099,18 @@ function ForestTest.releaseLine(now: number): string?
 			-- `spacingStuds` of 3. Seeding with the points the followers are ALREADY STANDING ON
 			-- -- behind her, along the approach -- means station k exists on the very first step
 			-- and the line is formed from the moment it is released.
+			-- ON THE LINE'S OWN AXIS, NOT THE CENTRELINE (task 127 round 3, the Reviewer's finding).
+			-- The bodies carry `+ lateral` and so does the route, and the seed did not -- so a
+			-- two-line wave gave BOTH files the same seeded polyline down the middle, 2.5 studs from
+			-- where either of them stood. Followers are ordered to points on that polyline while
+			-- their stations are still inside the seed, so the two files were pulled together into
+			-- exactly the body overlap `spacingStuds` exists to prevent, and the seam between the
+			-- seed and the leader's real crumbs had a 2.5-stud jog in it. It bit a ONE-line wave too
+			-- whenever the route that survived was not the first.
 			local seeded = {}
+			local origin = start + Vector3.new(routes[which].lateral, 0, 0)
 			for back = math.ceil((#group + 1) * lineData.spacingStuds), 0, -1 do
-				table.insert(seeded, { at = start - toward * back, s = 0 })
+				table.insert(seeded, { at = origin - toward * back, s = 0 })
 			end
 			for index = 2, #seeded do
 				seeded[index].s = seeded[index - 1].s
