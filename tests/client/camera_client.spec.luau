@@ -88,6 +88,89 @@ local function rootPart(): BasePart?
 end
 
 return function()
+	-- KAREN, 2026-10-09: *"no weapon when it loads"*. Two windows, both measured in the Forest Test
+	-- with a per-frame trace from t = 0, and one assertion each -- see task 133.
+	describe("there is a gun on screen when the session starts", function()
+		it("has its sources wired by the composition root, every single boot", function()
+			-- THE ONE THAT MADE HER SESSION GUNLESS. `CameraBoot` read `PlayerScripts.Weapon` with
+			-- `FindFirstChild`, so on a boot where that module had not replicated yet the whole
+			-- wiring block was skipped FOR THE SESSION: no aim source, no muzzle provider, no break
+			-- source, and no viewmodel source -- which draws no gun at all, for ever, while the Tool
+			-- sits correctly in the character.
+			--
+			-- MEASURED: 4 of 10 fresh Plays on this machine. A failing one read `frames=465
+			-- parented=false fp=true/true src=false tool=HAND(Shotgun,handle=true,Part)`.
+			--
+			-- THIS IS THE ASSERTION THAT CATCHES IT, and it is why "no source" may not be treated as
+			-- an acceptable state anywhere in this file: the aim-path case below reads the source to
+			-- decide whether this client has a gun, and a source that was never installed answers
+			-- "no handle" -- so the bug PASSED every case in this spec.
+			-- WAITED FOR, NOT SAMPLED: the fix is a `WaitForChild` with a ten-second bound, so the
+			-- claim is "they are wired within the boot window", which is the same shape the mode
+			-- assertion below uses. A nil after that is the bug, not a slow boot.
+			expect(waitUntil(20, function()
+				return Camera.Viewmodel.getSource() ~= nil
+			end)).to.equal(true)
+			expect(Camera.getAimSource()).to.be.ok()
+			expect(Camera.getBreakSource()).to.be.ok()
+			TestKit.note("camera_client: the composition root wired the viewmodel, aim and break sources")
+		end)
+
+		it("never wears a mesh this client has not downloaded", function()
+			-- THE SECOND WINDOW. The gun is built from `Gun.pieces`, and each piece is either model
+			-- B's published MESH or the measured BOX beside it. The build took the mesh as soon as
+			-- the server had published it -- but a `MeshPart` whose mesh has not been downloaded
+			-- renders as NOTHING, and the box had already been dropped. Measured: from 2.942 s to
+			-- 3.332 s the whole gun on screen was the bead.
+			--
+			-- `Viewmodel.meshReady` is the rule that closed it, and this drives both of its answers
+			-- without a network: a plain Part has nothing to download, and a MeshPart with no mesh at
+			-- all can never be drawn.
+			local plain = Instance.new("Part")
+			expect(Camera.Viewmodel.meshReady(plain)).to.equal(true)
+			plain:Destroy()
+			local empty = Instance.new("MeshPart")
+			expect(Camera.Viewmodel.meshReady(empty)).to.equal(false)
+			empty:Destroy()
+
+			-- ...AND THERE IS ALWAYS SOMETHING TO DRAW INSTEAD, which is what makes the rule safe:
+			-- every piece that CAN be a mesh carries its own box, so withholding the mesh is a plain
+			-- dark gun and never a hole where a gun should be.
+			local boxed = 0
+			for _, piece in ipairs(Gun.pieces(Shotgun.CONFIG)) do
+				if piece.meshKey ~= nil then
+					expect(piece.size).to.be.ok()
+					expect(piece.shape).to.be.ok()
+					expect(piece.color).to.be.ok()
+					boxed += 1
+				end
+			end
+			expect(boxed >= 2).to.equal(true)
+
+			-- ...AND NOTHING ON THE GUN THAT IS ON SCREEN RIGHT NOW is a mesh this client cannot
+			-- draw. The live half of the claim: by the time the suite runs the downloads have long
+			-- landed, so this asserts the END state the rebuild is supposed to reach -- the meshes,
+			-- not the boxes it started with.
+			Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(1), firstPersonConfig)
+			local gun = Camera.Viewmodel.current()
+			if gun ~= nil then
+				local waiting = 0
+				for _, part in ipairs(gun:GetDescendants()) do
+					if part:IsA("MeshPart") and not Camera.Viewmodel.meshReady(part) then
+						waiting += 1
+					end
+				end
+				expect(waiting).to.equal(0)
+				TestKit.note(
+					string.format(
+						"camera_client: the drawn gun wears %d mesh(es) and 0 it cannot draw",
+						Camera.Viewmodel.stats().meshesDrawn
+					)
+				)
+			end
+		end)
+	end)
+
 	describe("the camera owns the camera", function()
 		it("holds the camera, and says whether a stock module had to be disabled", function()
 			expect(waitUntil(20, function()

@@ -17,7 +17,38 @@ local Players = game:GetService("Players")
 local scripts = Players.LocalPlayer:WaitForChild("PlayerScripts")
 local Camera = require(scripts:WaitForChild("Camera"))
 
-local weaponModule = scripts:FindFirstChild("Weapon")
+-- HOW LONG THE CAMERA WAITS FOR THE WEAPON TO REPLICATE, and it is a wait rather than a look
+-- (task 133). Karen: *"no weapon when it loads"*.
+--
+-- `FindFirstChild` WAS THE WHOLE BUG. `PlayerScripts` is replicated to this client, and nothing
+-- promises that `Weapon` has arrived by the time this script runs -- line 18 above already waits for
+-- `Camera` for exactly that reason. When it had not arrived, this block was SKIPPED FOR THE WHOLE
+-- SESSION: no aim source, no muzzle provider, no break source and -- the one the player sees -- no
+-- viewmodel source, which means NO GUN ON SCREEN AT ALL, for ever, with the Tool sitting correctly
+-- in his hand the entire time.
+--
+-- MEASURED in the Forest Test, 10 fresh Plays with a per-frame trace from t = 0: it happened in 4 of
+-- them. The trace of a bad one reads `frames=465 parented=false fp=true/true src=false rebuilds=0
+-- tool=HAND(Shotgun,handle=true,Part)` -- the camera running, first person on, the gun in the
+-- character, and the viewmodel source never installed. That is why it could not be reproduced on
+-- demand: it is a replication race, not a code path.
+--
+-- A TIMEOUT, NOT AN ETERNAL WAIT, so the case the comment above describes -- a place with no weapon
+-- in it -- still boots a working camera, and says so instead of being silently gunless. Ten seconds
+-- is the same bound this repo uses for a `WaitForChild` on something that should already be there
+-- (`ForestTestBoot`'s HumanoidRootPart, `Camera.faceCharacter`).
+local WEAPON_WAIT_SECONDS = 10
+
+local weaponModule = scripts:WaitForChild("Weapon", WEAPON_WAIT_SECONDS)
+if weaponModule == nil then
+	warn(
+		string.format(
+			"[CameraBoot] no PlayerScripts.Weapon after %d s: the camera starts with no aim source and "
+				.. "NO VIEWMODEL -- there will be no gun on screen (task 133)",
+			WEAPON_WAIT_SECONDS
+		)
+	)
+end
 if weaponModule then
 	local Weapon = require(weaponModule)
 	Camera.setAimSource({

@@ -22,6 +22,7 @@
 -- Design: docs/design/camera.md (sections 3.2, 5.5)
 local Workspace = game:GetService("Workspace")
 
+local ContentProvider = game:GetService("ContentProvider")
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -60,6 +61,23 @@ local stale = false
 -- `stats().meshesDrawn` said 0. Counted rather than told: this module still knows nothing about
 -- asset ids or load order.
 local builtMeshes = -1
+-- ...AND HOW MANY OF THEM THIS CLIENT HAD ACTUALLY DOWNLOADED (task 133). Karen: *"no weapon when
+-- it loads"*. `builtMeshes` above counts the templates the server has PUBLISHED, which is a fact
+-- about the server; whether this client can DRAW one is a different fact, and the gun was built
+-- against the first.
+local builtReady = -1
+-- Every mesh id this client has been ASKED to fetch, so it is asked once. A template parked in
+-- `ReplicatedStorage` is never rendered, so nothing fetches it on its own: `GetAssetFetchStatus`
+-- would answer `None` for ever and the gun would wear its fallback boxes for the whole session.
+-- `PreloadAsync` is what turns "published" into "downloaded", and it yields, so it is spawned.
+local requested: { [string]: boolean } = {}
+-- ...AND EVERY ID THAT HAS EVER READ `Success` ON THIS CLIENT, which stays ready for the rest of the
+-- session. MEASURED: the frame after the gun was rebuilt with its meshes, both groups read `Loading`
+-- again for about 250 ms and then `Success` -- the fresh clone asks for content the client already
+-- has, so the status describes a REQUEST and not the cache behind it. Without this the gun went
+-- mesh -> box -> mesh in a quarter of a second, three builds where one was needed. Downloaded is a
+-- one-way fact: nothing takes a mesh off a client mid-session.
+local arrived: { [string]: boolean } = {}
 
 -- THE NAME THIS MODULE WRITES ON THE GUN IT BUILDS (task 90; one gun since task 114). `Sight` is
 -- where `Mode.aimOffset` solves the aimed pose from, and `buildNewGun` adds it. The drawn `SightBead`
@@ -77,6 +95,77 @@ local BARRELS_NAME = "Barrels"
 local SPENT_NAME = "SpentShell"
 local FRESH_NAME = "FreshShell"
 
+-- CAN THIS CLIENT DRAW THIS MESH YET? The question task 133 was missing.
+--
+-- MEASURED IN THE FOREST TEST, with a per-frame trace from t = 0: the gun was built from the
+-- measured boxes at 2.050 s (3 of its 5 parts on screen), the server published model B at 2.7 s, the
+-- rebuild swapped both hinge groups for their MESHES at 2.942 s -- and from there to 3.332 s the
+-- whole gun on screen was the BEAD: `VISIBLE=1`, because a `MeshPart` whose mesh has not been
+-- downloaded renders as NOTHING and the boxes behind it had been dropped. 390 ms on this machine,
+-- whose content cache was warm. On a cold or slow client that is Karen's *"no weapon when it
+-- loads"*, for as long as the download takes.
+--
+-- SO READINESS IS READ, NOT ASSUMED, and the one signal for it is the engine's own:
+--   ContentProvider:GetAssetFetchStatus
+--   https://create.roblox.com/docs/reference/engine/classes/ContentProvider#GetAssetFetchStatus
+-- `Success` is the only value that means "the renderer has this". `None` means nobody has asked yet,
+-- so this asks -- see `requested` -- and `Loading`/`Failure`/`TimedOut` all mean the same thing to a
+-- player looking at his hands: draw the box instead.
+--
+-- A NON-MESH PART IS ALWAYS READY: the fallback pieces are plain `Part`s built here, with nothing to
+-- download. And a status this cannot read at all answers READY rather than withholding the real gun,
+-- because a guard that failed closed would ship the boxes to everybody for ever.
+function Viewmodel.meshReady(part: Instance): boolean
+	if not part:IsA("MeshPart") then
+		return true
+	end
+	local id = (part :: MeshPart).MeshId
+	if id == nil or id == "" then
+		return false
+	end
+	local ok, status = pcall(function()
+		return ContentProvider:GetAssetFetchStatus(id)
+	end)
+	if not ok then
+		return true
+	end
+	if status == Enum.AssetFetchStatus.Success then
+		arrived[id] = true
+		return true
+	end
+	if arrived[id] then
+		return true -- it came down earlier in this session; see `arrived`
+	end
+	-- NOBODY HAS ASKED FOR IT YET, SO ASK. Once per id per session: `PreloadAsync` yields, and a
+	-- call per frame per piece would be a queue nothing drains.
+	if not requested[id] then
+		requested[id] = true
+		task.spawn(function()
+			pcall(function()
+				ContentProvider:PreloadAsync({ part })
+			end)
+		end)
+	end
+	return false
+end
+
+-- How much of the published model this client can actually draw RIGHT NOW. The second half of the
+-- staleness signal: when a download lands this number moves, the gun is rebuilt, and the mesh
+-- replaces its box IN PLACE -- so there is never a frame with neither.
+local function readyMeshes(): number
+	local folder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
+	if folder == nil then
+		return 0
+	end
+	local ready = 0
+	for _, child in ipairs(folder:GetChildren()) do
+		if Viewmodel.meshReady(child) then
+			ready += 1
+		end
+	end
+	return ready
+end
+
 local stats = {
 	rebuilds = 0,
 	parts = 0,
@@ -89,6 +178,10 @@ local stats = {
 	-- list's own part (task 99). A gun with plain wood is a real state -- the upload did not load --
 	-- and it must be visible in a number rather than only on screen.
 	meshesDrawn = 0,
+	-- ...AND HOW MANY WERE PUBLISHED BUT NOT DOWNLOADED YET (task 133), so "the gun is wearing its
+	-- boxes because the mesh has not arrived" is a NUMBER and not only a picture. Per build, like
+	-- `meshesDrawn`.
+	meshesWaiting = 0,
 }
 
 -- THE HANDS (task 93). `handsOn` is not a cache of what is on screen -- the Instances are that -- it
@@ -202,6 +295,7 @@ function Viewmodel.clear()
 	table.clear(ridersLocal)
 	builtFrom = nil
 	builtMeshes = -1 -- the next build counts its own wood (task 99)
+	builtReady = -1
 	stale = false
 end
 
@@ -860,8 +954,17 @@ local function buildNewGun(config): Model
 	-- never reset, so after one stale rebuild it read 4 for a two-piece gun. It answers "how much of
 	-- the real model is on the gun that is on screen", which is a fact about THIS build.
 	stats.meshesDrawn = 0
+	stats.meshesWaiting = 0
 	for _, piece in ipairs(Gun.pieces(Shotgun.CONFIG)) do
 		local mesh = if piece.meshKey ~= nil then meshFor(piece.name) else nil
+		-- PUBLISHED IS NOT DOWNLOADED (task 133). A mesh this client has not got renders as nothing,
+		-- so wearing it means wearing a hole: the measured box below is drawn instead, and the mesh
+		-- takes its place the moment it lands, through the same stale-and-rebuild path the folder
+		-- appearing already uses.
+		if mesh ~= nil and not Viewmodel.meshReady(mesh) then
+			mesh = nil
+			stats.meshesWaiting += 1
+		end
 		local part: BasePart
 		local offset = piece.offset
 		if mesh ~= nil then
@@ -911,6 +1014,7 @@ local function buildNewGun(config): Model
 	end
 
 	builtMeshes = if gunFolder then #gunFolder:GetChildren() else 0
+	builtReady = readyMeshes()
 	stats.rebuilds += 1
 	local parts = 0
 	for _, descendant in ipairs(made:GetDescendants()) do
@@ -941,21 +1045,38 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	-- The source walks the character for a Tool, so it is asked four times a second rather than
 	-- every frame (the pose below is what has to be per frame, and it is one PivotTo).
 	local now = clock()
-	if source and (now - lastSourceCheck > 0.25 or (cachedHandle and not cachedHandle.Parent)) then
-		lastSourceCheck = now
+	-- EVERY FRAME WHILE THERE IS NO GUN IN HAND, a quarter of a second apart once there is (task
+	-- 133). MEASURED in the Forest Test with a per-frame trace: the Tool reached the character 208 ms
+	-- before the viewmodel noticed it, and that delay is this throttle and nothing else -- a quarter
+	-- of a second of empty hands on every spawn, after the server had already done its part. The
+	-- lookup is one `FindFirstChildOfClass` on the local character, so paying for it per frame while
+	-- the player has nothing to hold is the cheap half of the trade; once the handle is cached the
+	-- cadence is exactly what it was.
+	if source and (cachedHandle == nil or not cachedHandle.Parent or now - lastSourceCheck > 0.25) then
 		cachedHandle = source()
-		-- AND WHETHER THE MESHES HAVE ARRIVED SINCE THE GUN WAS BUILT (task 99). On the same
-		-- throttle as the source, for the same reason: it is a container lookup, not something a frame
-		-- needs. `builtMeshes` is -1 until a gun has been built, so this never fires before the first
-		-- build.
+	elseif not source then
+		cachedHandle = nil
+	end
+	-- AND WHETHER THE MESHES HAVE ARRIVED SINCE THE GUN WAS BUILT (task 99). STILL ON THE QUARTER
+	-- SECOND, deliberately: it walks the published folder and asks the engine for a fetch status per
+	-- piece, which is a container lookup and not something a frame needs -- only the source lookup
+	-- above got cheap enough to run per frame. `builtMeshes` is -1 until a gun has been built, so
+	-- this never fires before the first build.
+	if now - lastSourceCheck > 0.25 then
+		lastSourceCheck = now
 		if builtMeshes >= 0 then
 			local folder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
 			if (if folder then #folder:GetChildren() else 0) ~= builtMeshes then
 				stale = true
 			end
+			-- ...AND WHEN A PUBLISHED MESH FINISHES DOWNLOADING (task 133). Two numbers rather than
+			-- one, because they are two facts and either can move without the other: the server can
+			-- publish a piece this client cannot draw yet, and this client can finish the download of
+			-- a piece that was published long before.
+			if readyMeshes() ~= builtReady then
+				stale = true
+			end
 		end
-	elseif not source then
-		cachedHandle = nil
 	end
 	local handle = cachedHandle
 
