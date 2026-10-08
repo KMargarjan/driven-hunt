@@ -40,7 +40,7 @@
 --   * TASK 123 ROUND 9's re-equip: a gun wearing the fallback, upgraded by `Weapon.upgradeLook`,
 --     ends in the CHARACTER -- and nothing but the `after` callback puts it there.
 --
--- Design: docs/design/weapon.md (the arming policy). TASKS.md rows 123a, 129, 131.
+-- Design: docs/design/shotgun.md (`AUTO_EQUIP`, the grant/revoke lifecycle). TASKS.md rows 123a, 129, 131.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -61,23 +61,36 @@ local function somebody(): Player?
 	return nil
 end
 
--- A Tool that cannot be equipped yet: it requires a handle and has none.
-local function handlelessTool(name: string): Tool
+-- A Tool this spec can hand to a humanoid: a real handle, because a handleless one is equipped and
+-- then bounced straight back out (measured; see the header).
+local function probeTool(name: string): Tool
 	local tool = Instance.new("Tool")
 	tool.Name = name
 	tool.RequiresHandle = true
 	tool.CanBeDropped = false
-	return tool
-end
-
-local function addHandle(tool: Tool): BasePart
 	local handle = Instance.new("Part")
 	handle.Name = "Handle"
 	handle.Size = Vector3.new(1, 1, 3)
 	handle.CanCollide = false
 	handle.Massless = true
 	handle.Parent = tool
-	return handle
+	return tool
+end
+
+-- THE PLAYER'S OWN GUN, REMEMBERED BEFORE THIS SPEC MAKES ANY OF ITS OWN -- and put back in his
+-- hand afterwards, asserted rather than hoped for.
+--
+-- `Humanoid:EquipTool` UNEQUIPS WHATEVER IS HELD before it equips the new Tool, so a spec that
+-- equips a probe onto the live player leaves his real Shotgun in the Backpack: exactly the state
+-- Karen complained about and this file exists to prevent (round 1, the Reviewer's finding -- and
+-- `Weapon.armingAction`'s own comment records the same trap from Task 34: "a spec that did that
+-- broke three client specs, which were right to complain"). Nothing else puts it back: `holdsTool`
+-- is record-based, so a gun in the Backpack still reads as held and the arming sweep does nothing.
+local function realGunOf(player: Player): Tool?
+	for _, tool in Hardware.toolsOf(player) do
+		return tool
+	end
+	return nil
 end
 
 local function waitUntil(seconds: number, predicate: () -> boolean): boolean
@@ -91,6 +104,21 @@ local function waitUntil(seconds: number, predicate: () -> boolean): boolean
 	return predicate()
 end
 
+-- Put the player's gun back where this spec found it, and prove it landed. Called at the end of
+-- every case that equipped anything -- and through `pcall` around the body, so a FAILING assertion
+-- cannot leave the session gunless either (TestEZ's `expect` throws).
+local function restore(player: Player, gun: Tool?)
+	if gun == nil or gun.Parent == nil then
+		return
+	end
+	Hardware.equip(gun, player)
+	if not waitUntil(3, function()
+		return gun.Parent == player.Character
+	end) then
+		error("the spec could not put the player's own gun back in his hand", 0)
+	end
+end
+
 return function()
 	describe("the gun ends up in the hand", function()
 		it("reports the OUTCOME of an equip, not the fact that it called EquipTool", function()
@@ -101,36 +129,45 @@ return function()
 			local backpack = player:FindFirstChildOfClass("Backpack")
 			expect(backpack).to.be.ok()
 
-			local tool = handlelessTool(PROBE_NAME)
-			addHandle(tool)
+			local realGun = realGunOf(player)
+			local tool = probeTool(PROBE_NAME)
 			tool.Parent = backpack
 			local before = Weapon.stats()
 
-			Hardware.equip(tool, player)
+			local ok, err = pcall(function()
+				Hardware.equip(tool, player)
 
-			-- THE TOOL IS IN THE HAND, which is the only thing Karen can see. Before task 129 this
-			-- function called `EquipTool` and returned without ever asking whether it had worked.
-			expect(waitUntil(2, function()
-				return tool.Parent == player.Character
-			end)).to.equal(true)
-			local after = Weapon.stats()
-			-- ...AND THE VERIFY RAN. `equipLate` is incremented in ONE place -- the loop that checks,
-			-- on a LATER frame, that the Tool really did arrive -- so this is the assertion that
-			-- fails the moment task 129's retry is deleted. Measured on this commit: one equip moves
-			-- `now` by one (the call) and `late` by one (the outcome, seen a frame later).
-			expect(after.equipLate > before.equipLate).to.equal(true)
-			expect(after.equipNow > before.equipNow).to.equal(true)
-			expect(after.equipNoCharacter).to.equal(before.equipNoCharacter)
-			TestKit.note(
-				string.format(
-					"weapon-equip: an equip ended in the hand and was counted (now %d->%d, late %d->%d)",
-					before.equipNow,
-					after.equipNow,
-					before.equipLate,
-					after.equipLate
+				-- THE TOOL IS IN THE HAND, which is the only thing Karen can see. Before task 129
+				-- this function called `EquipTool` and returned without ever asking whether it had
+				-- worked.
+				expect(waitUntil(2, function()
+					return tool.Parent == player.Character
+				end)).to.equal(true)
+				local after = Weapon.stats()
+				-- ...AND THE VERIFY RAN. `equipLate` is incremented in ONE place -- the loop that
+				-- CHECKS that the Tool really did arrive -- so this is the assertion that fails the
+				-- moment task 129's retry is deleted. (`task.spawn` runs that loop's first iteration
+				-- synchronously, so on this path the check lands in the same frame as the call; the
+				-- counter is the proof that the check happened at all, not that a frame passed.)
+				expect(after.equipLate > before.equipLate).to.equal(true)
+				expect(after.equipNow > before.equipNow).to.equal(true)
+				TestKit.note(
+					string.format(
+						"weapon-equip: an equip ended in the hand and was counted (now %d->%d, late %d->%d)",
+						before.equipNow,
+						after.equipNow,
+						before.equipLate,
+						after.equipLate
+					)
 				)
-			)
+			end)
+			-- THE SESSION IS LEFT AS IT WAS FOUND, whether the case passed or failed: the probe goes,
+			-- the player's own gun comes back, and the restore is asserted too.
 			tool:Destroy()
+			restore(player, realGun)
+			if not ok then
+				error(err, 0)
+			end
 		end)
 
 		it("hands a gun out only to somebody who may carry one, and takes it back otherwise", function()
@@ -149,55 +186,67 @@ return function()
 	describe("a gun that gets its mesh late", function()
 		it("is put back in the hand by the upgrade, and not yanked back twice", function()
 			local player = somebody()
-			expect(player).to.be.ok()
-			local backpack = (player :: Player):FindFirstChildOfClass("Backpack")
+			if player == nil then
+				error("no player with a character: this case needs the harness's own player", 0)
+			end
+			local backpack = player:FindFirstChildOfClass("Backpack")
+			local realGun = realGunOf(player)
 
 			-- A GUN WEARING THE FALLBACK: the real Tool name, a Handle, and no mesh -- which is
-			-- exactly what a player who spawned inside the server's first second was holding.
-			local tool = Instance.new("Tool")
-			tool.Name = Hardware.TOOL_NAME
-			tool.RequiresHandle = true
-			tool.CanBeDropped = false
-			addHandle(tool)
+			-- exactly what a player who spawned inside the server's first second was holding. It
+			-- carries the real name because `Hardware.toolsOf` filters by it and `upgradeAll` walks
+			-- that list; it is destroyed at the end of the case, pass or fail, because a second Tool
+			-- of that name breaks the one-gun-per-player rule `Weapon.grant` enforces.
+			local tool = probeTool(Hardware.TOOL_NAME)
 			tool.Parent = backpack
-			expect(Hardware.wearsMesh(tool)).to.equal(false)
 
-			-- THE MESH LANDS. `Weapon.upgradeLook` is the one path both callers use (`WeaponBoot`
-			-- once, the arming sweep after that), and its `after` callback is task 123 round 9.
-			local upgraded = Weapon.upgradeLook()
-			if not Hardware.wearsMesh(tool) then
-				-- The template is not loaded in this session, so there is nothing to upgrade TO and
-				-- this case cannot say anything. It fails rather than passing on nothing: a silent
-				-- skip is how the fault it guards came back twice.
-				tool:Destroy()
-				error("the gun mesh template is not available in this session, so the upgrade path could not run", 0)
-			end
-			expect(upgraded >= 1).to.equal(true)
+			local ok, err = pcall(function()
+				expect(Hardware.wearsMesh(tool)).to.equal(false)
 
-			-- ...AND IT IS BACK IN THE HAND. Nothing else in this path parents the Tool to the
-			-- character: delete the `after` callback and the gun stays in the Backpack, which is
-			-- what Karen saw.
-			expect(waitUntil(3, function()
-				return tool.Parent == (player :: Player).Character
-			end)).to.equal(true)
+				-- THE MESH LANDS. `Weapon.upgradeLook` is the one path both callers use (`WeaponBoot`
+				-- once, the arming sweep after that), and its `after` callback is task 123 round 9.
+				local upgraded = Weapon.upgradeLook()
+				if not Hardware.wearsMesh(tool) then
+					-- The template is not loaded in this session, so there is nothing to upgrade TO.
+					-- It FAILS rather than passing on nothing: a silent skip is how the fault this
+					-- file guards came back twice.
+					error(
+						"the gun mesh template is not available in this session, so the upgrade path could not run",
+						0
+					)
+				end
+				expect(upgraded >= 1).to.equal(true)
 
-			-- ONCE PER UPGRADED GUN, NOT EVERY SWEEP. The second pass finds nothing to upgrade, so
-			-- `after` does not run -- which is what lets a player holster a gun and keep it holstered.
-			local again = Weapon.upgradeLook()
-			expect(again).to.equal(0)
-			local backpackAgain = (player :: Player):FindFirstChildOfClass("Backpack")
-			tool.Parent = backpackAgain
-			expect(Weapon.upgradeLook()).to.equal(0)
-			task.wait(0.2)
-			expect(tool.Parent).to.equal(backpackAgain)
-			TestKit.note(
-				string.format(
-					"weapon-equip: a fallback gun was upgraded (%d this pass) and put back in the hand; a second pass upgraded 0",
-					upgraded
+				-- ...AND IT IS BACK IN THE HAND. Nothing else in this path parents the Tool to the
+				-- character: delete the `after` callback and the gun stays in the Backpack, which is
+				-- what Karen saw.
+				expect(waitUntil(3, function()
+					return tool.Parent == player.Character
+				end)).to.equal(true)
+
+				-- ONCE PER UPGRADED GUN, NOT EVERY SWEEP. The second pass finds nothing to upgrade,
+				-- so `after` does not run -- which is what lets a player holster a gun and keep it
+				-- holstered.
+				local backpackAgain = player:FindFirstChildOfClass("Backpack")
+				tool.Parent = backpackAgain
+				expect(Weapon.upgradeLook()).to.equal(0)
+				task.wait(0.2)
+				expect(tool.Parent).to.equal(backpackAgain)
+				TestKit.note(
+					string.format(
+						"weapon-equip: a fallback gun was upgraded (%d this pass) and put back in the hand;"
+							.. " a second pass upgraded 0",
+						upgraded
+					)
 				)
-			)
+			end)
 
+			-- THE SESSION IS LEFT AS IT WAS FOUND, pass or fail.
 			tool:Destroy()
+			restore(player, realGun)
+			if not ok then
+				error(err, 0)
+			end
 		end)
 	end)
 end
