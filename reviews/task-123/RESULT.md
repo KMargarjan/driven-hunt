@@ -1,0 +1,13 @@
+PASS
+
+## Notes (non-blocking)
+- `src/server/Boar/init.luau` / `Runtime:_stepApproachGrunts` — the arming state lives on whichever of the sounder record or the boar entry owns the group *this tick*, and neither inherits from the other. `Runtime:_leaveSounder` sets `entry.sounderId = nil` and a dissolved record is dropped from `self._sounders`, so an animal whose group has just grunted becomes a lone group with `gruntArmed == nil` — armed — and may grunt again without ever passing `REARM_STUDS`; the reverse happens when a lone animal that has fired joins a record. Only `GRUNT_GAP_SECONDS` limits it. Carrying the arming across the join/leave would close it.
+- `src/server/Boar/init.luau` / `Runtime:_rationVoices` — unchanged from round 1: the step hold replaces the whole allowed set with one id (`steps = { [self._stepVoiceId] = true }`), so with `MAX_STEP_VOICES > 1` the hold would cut the world to a single footstep voice. Harmless at the shipped `MAX_STEP_VOICES = 1`.
+- `tests/server/boar_shot.spec.luau` / `runSounder` — stale citation still present: "a running herd is the one that cannot grunt (`GRUNTS.MAX_SPEED` = 6 against a flee at 18 or 38)". `GRUNTS.MAX_SPEED` is `RUN_FROM` = 28 since this task.
+- `tests/server/boar_move.spec.luau` / "the voice the game actually ships" — both cases assert config constants only, so they would pass with `_stepApproachGrunts` deleted. Legitimate as data guards (the behaviour is driven in `boar_shot.spec`), but the second case's name, "names the distances the approach grunt is armed and re-armed at", reads as behaviour when it only checks ordering of the two numbers.
+- `src/server/Boar/Body.luau` / `Body.stepSound` — unchanged from round 1: "the two bands MEET at `MODEL.RUN_FROM`" is not true in the world that ships them (`GRUNTS.MAX_SPEED`/`BREATH.MIN_SPEED` are the module's `RUN_FROM` = 28, while `ForestTestBoot` sets `model.RUN_FROM` to 17.5). Costs nothing while both interval cues are off.
+- `Boar.CONFIG.PACE` — still no entry in `src/shared/Flags/init.luau` with `owner`/`born`/`expires`/`why`, unlike `BOAR_MODEL` and `BOAR_BEHAVIOUR`. The substance is met (`ENABLED = false` by default, both states reachable by parameter), but a feel-critical path that is live in the playtest world has no expiry.
+- `docs/design/boar-behaviour.md` open question 6 — "Today the calm grunt loop keeps running while it stands (`SOUND.GRUNTS.MAX_SPEED = 6`)" and "No sound change is in this task" remain stale after rounds 4–6 turned the grunt into an approach event. The design doc was not in this change; queue it.
+
+---
+REVIEWER verdict on commit `6f8935db01b0fb0800fac67be12a8427cabd46fc` (round 2) · 2026-10-06 01:49 UTC · session cost $2.60, 44 turns · written by tools/agents.py

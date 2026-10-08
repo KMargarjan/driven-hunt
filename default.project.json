@@ -1,6 +1,6 @@
 {
   "name": "DrivenHunt",
-  "servePlaceIds": [136410205938347],
+  "servePlaceIds": [136410205938347, 130094961655666],
   "tree": {
     "$className": "DataModel",
     "ServerScriptService": {

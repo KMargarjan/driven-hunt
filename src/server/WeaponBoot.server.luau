@@ -104,7 +104,11 @@ end
 -- This is the moment the template exists, so it is the moment to look. `Hardware.upgrade` is
 -- idempotent and touches nothing but the visible model, and `Weapon`'s arming sweep repeats the call
 -- every 2 s for the other case -- a load that arrived later than the budget.
-local upgraded = Weapon.Hardware.upgradeAll()
+-- `Weapon.upgradeLook` AND NOT `Hardware.upgradeAll` (task 123 round 9): the gun has to end up in
+-- the hand it was in, and whether a grant goes to the hand at all is `Weapon.CONFIG.AUTO_EQUIP`'s
+-- decision. Karen played a session where the barrels landed 2096 ms after the gun was handed out and
+-- the upgrade left it in her Backpack -- *"There is no weapon something is broken"*.
+local upgraded = Weapon.upgradeLook()
 if upgraded > 0 then
 	print(string.format("[WeaponBoot] upgraded %d gun(s) that were handed out before the mesh landed", upgraded))
 end

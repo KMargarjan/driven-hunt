@@ -71,6 +71,8 @@ local stats = {
 	grantsMissed = 0, -- a tool built for a player with no Backpack: nothing recorded, tried again later
 	revoked = 0,
 	armingRepairs = 0, -- a sweep found a player who should be holding a gun and was not
+	-- HOW EVERY EQUIP ENDED (task 129): see `Hardware.equipStats`. Copied out in `Weapon.stats`
+	-- rather than kept here, because the equip itself is Hardware's.
 	armingSweeps = 0, -- passes of the sweep below: 0 in a running server means it is not running
 	meshUpgrades = 0, -- guns that were wearing the parts fallback when the mesh arrived (Task 76)
 	meshUpgradeFails = 0, -- passes of that upgrade that ERRORED, so a silent one cannot look like a no-op
@@ -206,7 +208,14 @@ function Weapon.refreshArming(player: Player)
 end
 
 function Weapon.stats()
-	return table.clone(stats)
+	local out = table.clone(stats)
+	-- ...AND HOW THE EQUIPS ENDED, which is Hardware's own tally (task 129).
+	out.equipNow = Hardware.equipStats.now
+	out.equipNoCharacter = Hardware.equipStats.noCharacter
+	out.equipDeferred = Hardware.equipStats.deferred
+	out.equipLate = Hardware.equipStats.late
+	out.equipGaveUp = Hardware.equipStats.gaveUp
+	return out
 end
 
 -- Tells ONE player that something of theirs landed. One way, server -> that client only, and it
@@ -328,6 +337,33 @@ function Weapon.grant(player: Player): Tool?
 	stats.granted += 1
 	publish(player, stateOf(player) :: WeaponState, true)
 	return tool
+end
+
+-- EVERY GUN'S LOOK BROUGHT UP TO DATE, AND EVERY ONE OF THEM BACK IN ITS HAND (task 123 round 9).
+--
+-- KAREN, playing: *"There is no weapon something is broken"*. Measured in her session, in this
+-- order: the barrels template was missing when the gun was built, the handle mesh landed at 416 ms,
+-- the barrels at 2096 ms, and then "upgraded 1 gun(s)". The upgrade put the mesh on and left the
+-- Tool in the BACKPACK, so she stood at the stand with empty hands.
+--
+-- IT IS A RACE, NOT A FOREST-TEST FACT: `WeaponBoot` starts the weapon system BEFORE the preload
+-- finishes, deliberately (task 74, review round 1: a stalled `LoadAsset` must not mean a gunless
+-- player), so any place whose barrels asset is slow on the day hits it -- DEV included. This is the
+-- one path both callers use, so both are fixed by it.
+--
+-- RE-EQUIPPED ONLY ON THE FRAME THE LOOK CHANGED, which is the narrow rule on purpose: a sweep that
+-- re-equipped every tick would make putting the gun away impossible, and `AUTO_EQUIP` is about the
+-- grant, not about overriding a player who holstered.
+function Weapon.upgradeLook(): number
+	return Hardware.upgradeAll(function(player: Player, tool: Tool)
+		if not CONFIG.AUTO_EQUIP then
+			return
+		end
+		local character = player.Character
+		if character ~= nil and tool.Parent ~= character then
+			Hardware.equip(tool, player)
+		end
+	end)
 end
 
 function Weapon.revoke(player: Player)
@@ -687,7 +723,7 @@ function Weapon.start()
 			-- that timed out is late rather than lost (`Loader` adopts it), and there is no signal
 			-- for that. `Hardware.upgrade` is idempotent and never yields, so a pass that has
 			-- nothing to do costs one child lookup per carried Tool.
-			local ok, upgraded = pcall(Hardware.upgradeAll)
+			local ok, upgraded = pcall(Weapon.upgradeLook)
 			if ok then
 				stats.meshUpgrades += upgraded
 			else

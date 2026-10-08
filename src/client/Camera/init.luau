@@ -87,6 +87,8 @@ local stats = {
 	-- drawn since boot (task 96). The first is what a screenshot is checked against; the second says
 	-- the reload was drawn at all.
 	breakAngleDeg = 0,
+	-- How many times the view has been started from the body's facing (task 130): one per spawn.
+	spawnFacings = 0,
 	-- Shots this camera has kicked for, and the largest camera pitch offset any of them reached
 	-- (task 92). The second number is what says the kick is "a bit" rather than a lurch, and the
 	-- client spec asserts both it and the return to zero.
@@ -242,6 +244,34 @@ function Camera.lookAt(point: Vector3): boolean
 	-- "I asked" and "it is on screen" are two different moments and the caller needs the second.
 	pendingLookAt = point
 	stats.lookAtRequests += 1
+	return true
+end
+
+-- THE VIEW STARTS FACING THE WAY THE BODY DOES (task 130).
+--
+-- KAREN'S HUNTER SPAWNED WITH HIS BACK TO THE DRIVE. The Forest Test puts the shooter on the road
+-- facing +Z -- the beaters start 700 studs north of it and push south -- and `Mode.initial` opened
+-- the view at yaw 0, which in this system's convention looks down **-Z**. So the first thing she saw
+-- was the empty south while everything happened behind her. Measured with neon posts on each axis,
+-- in both places, before and after: `.screenshots/t130-forest-spawn-*.png`.
+--
+-- ONE CONVERSION, IN `Mode.yawForLook`, and no world knows about it: the camera follows the BODY, so
+-- a place that spawns its players facing another way is right by construction rather than by a
+-- second rule. It runs once per spawn -- the player's own mouse owns the view from the next frame.
+--
+-- IT IS NOT A SECOND WRITER OF THE CAMERA: this sets the state's yaw, and `Rig.apply` remains the
+-- one thing that writes `workspace.CurrentCamera` (the foreign-write counter is untouched by it).
+function Camera.faceCharacter(): boolean
+	local _, root = characterParts()
+	if root == nil then
+		return false
+	end
+	local yaw = Mode.yawForLook(root.CFrame.LookVector)
+	if yaw == nil then
+		return false
+	end
+	state = Mode.withYaw(state, yaw)
+	stats.spawnFacings += 1
 	return true
 end
 
@@ -435,12 +465,37 @@ function Camera.start()
 
 	table.insert(
 		connections,
-		Players.LocalPlayer.CharacterAdded:Connect(function()
+		Players.LocalPlayer.CharacterAdded:Connect(function(character: Model)
 			-- The engine restores CameraType on respawn, so the rig is re-asserted rather than
 			-- assumed (design section 5.3).
 			acquired, acquireReason = Rig.acquire()
+			-- ...AND THE VIEW STARTS WHERE THE BODY IS FACING (task 130). See `Camera.faceCharacter`.
+			task.spawn(function()
+				if character:WaitForChild("HumanoidRootPart", 10) ~= nil then
+					Camera.faceCharacter()
+				end
+			end)
 		end)
 	)
+	-- THE CHARACTER THAT IS ALREADY THERE, because `CharacterAdded` has already fired for the first
+	-- spawn by the time this module starts on a slow client -- and that first spawn is the one Karen
+	-- sees (task 130).
+	--
+	-- IT WAITS EXACTLY AS THE RESPAWN PATH DOES (round 2, the Reviewer's blocking finding). A bare
+	-- call here read the root through `characterParts`, which does a plain `FindFirstChild` -- and a
+	-- character whose root has not replicated on the first frame answered nil, `faceCharacter`
+	-- returned false, `CharacterAdded` had already fired, and nothing ever ran again: the view stayed
+	-- at yaw 0 for that whole life, which in the Forest Test is the bug this task exists to fix. That
+	-- the root can be missing on the first frame is measured in this file already -- see
+	-- `characterParts`, round 1 finding 3.
+	local existing = Players.LocalPlayer.Character
+	if existing ~= nil then
+		task.spawn(function()
+			if existing:WaitForChild("HumanoidRootPart", 10) ~= nil then
+				Camera.faceCharacter()
+			end
+		end)
+	end
 
 	table.insert(
 		connections,
@@ -519,6 +574,56 @@ end
 
 function Camera.viewportCamera(): Camera?
 	return Workspace.CurrentCamera
+end
+
+-- WHERE A LOOK DIRECTION POINTS, AS A COMPASS BEARING. North is +Z, east is +X, clockwise -- the
+-- world convention `ForestTest.DRIVE_BEARING_DEG` is written in, and the same one `Compass.headingDeg`
+-- uses. A LookVector IS the direction the camera faces, so the bearing of the vector is the bearing
+-- of the view and there is nothing to carry.
+--
+-- THE `+ 180` THAT USED TO BE HERE WAS A BUG, AND IT SHIPPED (task 125 round 4, found in task 129).
+-- It made the strip read N while the player looked south, for four rounds, and the measurement that
+-- "proved" it was wrong in a way worth writing down: it compared the spawn frame against a reference
+-- frame I had labelled "facing north" from task 122's note that the spawn look is (0, 0, 1) -- which
+-- is the CHARACTER's facing. In first person the camera starts half a turn from the body, so the
+-- reference frame was a south-facing picture with a north label on it, and every pixel comparison
+-- after that was comparing one wrong thing with another.
+--
+-- HOW IT WAS SETTLED, AND THE METHOD IS THE POINT (task 129): four neon posts were put 60 studs from
+-- the player, one per world axis -- +Z red, +X green, -Z blue, -X yellow -- and the frame was
+-- PHOTOGRAPHED. The blue post (-Z) filled the middle of the picture, the engine camera's LookVector
+-- read (0.00, -0.99), and the strip published 0 (N). Two real mouse turns to the right then moved
+-- the camera 180 -> 183 -> 186 while the strip went 0 -> 3 -> 6: the sign was right, the zero was
+-- half a turn out. A picture of a known post cannot be argued with; a CFrame can.
+--   .screenshots/t129-turn-A.png
+function Camera.headingOfLookDeg(look: Vector3): number?
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 1e-6 then
+		return nil
+	end
+	return (math.deg(math.atan2(flat.X, flat.Z)) + 360) % 360
+end
+
+-- ...and the view's own bearing: the direction `Rig` last applied, converted by the one function
+-- above. Split in two so a spec can drive the CONVERSION with values it chooses -- the old case
+-- could only copy the expression into itself, which is why it agreed with a wrong one.
+function Camera.viewHeadingDeg(): number?
+	local view = Rig.appliedCFrame()
+	if view == nil then
+		return nil
+	end
+	return Camera.headingOfLookDeg(view.LookVector)
+end
+
+-- WHERE THE VIEW IS ACTUALLY POINTING (task 125 round 3). `Rig` is the one writer of
+-- `workspace.CurrentCamera` and remembers the CFrame it last applied, so this is the view this
+-- system intends -- which is what a HUD element that has to agree with the picture must read.
+--
+-- NOT `viewportCamera().CFrame`: `Rig.apply` counts foreign writes to that property and has warned
+-- about one since task 123, so the engine's copy is not reliably ours. nil before the first frame
+-- the camera system has applied, and a caller then falls back to whatever it likes.
+function Camera.viewCFrame(): CFrame?
+	return Rig.appliedCFrame()
 end
 
 return Camera

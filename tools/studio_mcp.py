@@ -662,6 +662,11 @@ BLAST_RADIUS = (
     ("src/client/Weapon/", "weapon"),
     ("src/server/Weapon/", "weapon"),
     ("src/client/Hud/", "hud"),
+    # The drive report (task 124): the wire contract, the server's record and the panel. The panel
+    # lives under src/client/Hud/ and so resolves to `hud` by the line above; these two are the
+    # shared and server halves of the same system.
+    ("src/shared/Report/", "report"),
+    ("src/server/HitLog/", "report"),
     ("src/client/Match/", "match"),
     ("src/server/Match/", "match"),
     ("src/shared/Drive/", "match"),
@@ -692,6 +697,9 @@ SCOPE_SPECS = {
              "tests/server/boar_hit.spec.luau", "tests/server/boar_model.spec.luau",
              "tests/server/boar_shot.spec.luau", "tests/server/boar_sounder.spec.luau",
              "tests/server/boar_wound.spec.luau", "tests/server/boar_zones.spec.luau",
+             "tests/server/forest_line.spec.luau", "tests/server/forest_stand.spec.luau",
+             "tests/server/boar_move.spec.luau", "tests/server/hitlog.spec.luau",
+             "tests/server/report_silhouette.spec.luau",
              "tests/client/shoot_boar.spec.luau"),
     "match": ("tests/server/match_live.spec.luau", "tests/server/match_outfit.spec.luau",
               "tests/server/match_phase.spec.luau", "tests/server/match_roster.spec.luau",
@@ -706,7 +714,11 @@ SCOPE_SPECS = {
     "flags": ("tests/server/flags.spec.luau", "tests/client/flags_client.spec.luau",
               "tests/server/boar_model.spec.luau", "tests/server/boar_shot.spec.luau",
               "tests/server/boar_calm.spec.luau"),
-    "hud": ("tests/client/hit_marker.spec.luau",),
+    "hud": ("tests/client/hit_marker.spec.luau", "tests/client/report_panel.spec.luau",
+            "tests/client/compass.spec.luau"),
+    # The report's geometry is asserted against `Boar.CONFIG`, so a boar zone box that moves reaches
+    # this spec too -- which is why it is in the `boar` scope as well.
+    "report": ("tests/server/report_silhouette.spec.luau", "tests/client/report_panel.spec.luau"),
     "input": ("tests/client/input_driving.spec.luau",),
     "sync": ("tests/server/sync.spec.luau", "tests/client/client_env.spec.luau"),
 }
@@ -1477,6 +1489,16 @@ class Studio:
         # and every later call that names nothing lands on the editor, which is where every
         # Edit-mode call in this file means to go anyway. An explicit studio_id always wins.
         self.default_studio_id = None
+        self.default_studio_name = None
+        # THE PLAY DATAMODELS OF THE RUN THIS PROCESS STARTED, by id, once they exist.
+        #
+        # A Play session registers its server and its client as SEPARATE Studio ids. With exactly
+        # one Studio open, `datamodel_type` alone is enough and these stay None -- which is every
+        # run before task 122. With a second Studio open (the playtest place), an unscoped call is
+        # REFUSED and a call pinned to the editor goes to the wrong datamodel, so the run has to
+        # say which server and which client it means. `run_test` fills these in from
+        # `classify_studios`, which tells the new processes apart by identity rather than by name.
+        self.play_ids = {"Server": None, "Client": None}
         self._rpc("initialize", {
             "protocolVersion": "2025-03-26",
             "capabilities": {},
@@ -1486,6 +1508,7 @@ class Studio:
         # Studio polls localhost:13469 roughly every 5s, so wait for it to attach.
         for _ in range(20):
             if '"studios":[]' not in self._call("list_roblox_studios"):
+                self._choose_default_studio()
                 return
             time.sleep(1)
         sys.exit("No Studio connected. Is a place open and the MCP server enabled in Assistant settings?")
@@ -1525,14 +1548,94 @@ class Studio:
 
     # The one tool that must NOT be scoped: it is the question "which Studios are there at all",
     # and scoping it to one of them is meaningless.
+    def _choose_default_studio(self):
+        """With more than one Studio connected, say WHICH one every unscoped Edit call means.
+
+        StudioMCP refuses any tool call that names no `studio_id` as soon as a second Studio is
+        connected. Task 122 opened a second place -- "Driven Hunt Forest Test" -- beside the DEV
+        one, and every harness run then died at the first `get_studio_state` with "This call is
+        missing the required studio_id argument", which looks like a broken harness and is really
+        an ambiguous question.
+
+        IT ASKS THE STUDIO, AND ONLY FALLS BACK TO THE NAME. StudioMCP puts the place id in each
+        Studio's name, but for several seconds after a Play session ends it returns those entries
+        with no name at all -- so a resolver that trusted the name refused to start the very run
+        that had just cleaned up after itself. `game.PlaceId` is the fact; the name is a label.
+
+        It is CHOSEN, not guessed: if no connected Studio is the harness place this refuses and
+        lists what it found, because running the suite against the wrong place would produce a PASS
+        that means nothing. `run_test2` still sets `default_studio_id` itself, and an explicit
+        `studio_id` always wins.
+        """
+        if self.default_studio_id:
+            return
+        seen = []
+        for _ in range(12):
+            try:
+                studios = json.loads(self._call("list_roblox_studios")).get("studios", [])
+            except (ValueError, RuntimeError):
+                return
+            if len(studios) <= 1:
+                return
+            seen = studios
+            for studio in studios:
+                place = ""
+                try:
+                    place = self._call(
+                        "execute_luau",
+                        {"datamodel_type": "Edit", "code": QUERY_PLACE_ID},
+                        studio_id=studio.get("id"),
+                    ).strip()
+                except RuntimeError:
+                    place = ""
+                if place == HARNESS_PLACE_ID or HARNESS_PLACE_ID in (studio.get("name") or ""):
+                    self.default_studio_id = studio.get("id")
+                    # WHAT THIS LINE MEANS, because it claimed too much. It said "using Driven Hunt
+                    # DEV" on every run -- including calls that passed an explicit `studio_id` for
+                    # the OTHER place, which ran there and were reported as running here. The
+                    # default is only the fallback for calls that name nothing; it is not where the
+                    # next call goes.
+                    self.default_studio_name = studio.get("name") or ("place " + place)
+                    print(
+                        "[harness] %d Studios connected; unscoped calls default to %s"
+                        % (len(studios), self.default_studio_name)
+                    )
+                    return
+            time.sleep(2)
+        names = "; ".join((s.get("name") or s.get("id", "?")[:8]) for s in seen)
+        sys.exit(
+            "%d Studios are connected and none answered as the harness place %s. "
+            "connected: %s. "
+            "Open the DEV place, or close the others." % (len(seen), HARNESS_PLACE_ID, names)
+        )
+
     UNSCOPED_TOOLS = ("list_roblox_studios",)
 
-    def _scoped(self, tool, studio_id):
-        """The studio_id to send: the explicit one, else the default, else none (Task 52)."""
+    def _scoped(self, tool, studio_id, arguments=None):
+        """The studio_id to send: the explicit one, else the default, else none (Task 52).
+
+        THE DEFAULT IS FOR EDIT-MODE CALLS, and task 122 is why that is now written down. A Play
+        session registers its server and its client as SEPARATE Studio ids, so a default pinned to
+        the editor would send `datamodel_type="Server"` to the editor's id -- which is not the
+        server, and the symptom is the runner never reporting rather than an error anybody can
+        read. A call that names a Play datamodel therefore routes exactly as it did before there
+        was a default at all.
+        """
         if studio_id:
             return studio_id
         if tool in self.UNSCOPED_TOOLS:
             return None
+        datamodel = (arguments or {}).get("datamodel_type")
+        if datamodel in ("Server", "Client"):
+            # THE PLAY DATAMODELS OF A SOLO RUN ARE NOT SEPARATE STUDIOS, and that was measured
+            # rather than assumed: `classify_studios` reported "0 new" after Play started, so the
+            # same Studio id hosts Edit, Server and Client and `datamodel_type` chooses between
+            # them. `play_ids` therefore stays empty in a one-player run and this falls through to
+            # the editor's id, which is the right place to send it.
+            #
+            # A TWO-PLAYER RUN IS DIFFERENT -- there the processes really are separate ids -- which
+            # is why the lookup comes first and `run_test2` keeps setting its own.
+            return self.play_ids.get(datamodel) or self.default_studio_id
         return self.default_studio_id
 
     def _call(self, tool, args=None, studio_id=None):
@@ -1541,12 +1644,28 @@ class Studio:
         # With a local 2-player test running there are FOUR (Task 34), so every call that must land
         # somewhere particular names it -- and since Task 52 anything that named nothing lands on
         # the editor rather than being refused.
-        chosen = self._scoped(tool, studio_id)
+        chosen = self._scoped(tool, studio_id, arguments)
         if chosen:
             arguments["studio_id"] = chosen
         result = self._rpc("tools/call", {"name": tool, "arguments": arguments})
         text = "\n".join(c.get("text", "") for c in result.get("content", []))
         if result.get("isError"):
+            # A STUDIO ID GOES STALE WHEN A PLAY SESSION ENDS. StudioMCP re-registers the editor
+            # under a NEW id and refuses the old one as "not connected" -- measured in the Forest
+            # Test place right after a solo Play stopped. The id a caller is holding is then wrong
+            # through no fault of its own, so the default is dropped and resolved once more before
+            # the call is given up on.
+            if chosen and "not connected" in text.lower() and tool not in self.UNSCOPED_TOOLS:
+                self.default_studio_id = None
+                self.default_studio_name = None
+                self._choose_default_studio()
+                retry = self._scoped(tool, None, arguments)
+                if retry and retry != chosen:
+                    arguments["studio_id"] = retry
+                    result = self._rpc("tools/call", {"name": tool, "arguments": arguments})
+                    text = "\n".join(c.get("text", "") for c in result.get("content", []))
+                    if not result.get("isError"):
+                        return text
             raise RuntimeError(f"{tool}: {text}")
         return text
 
@@ -1674,12 +1793,28 @@ def git_state():
     return git("rev-parse", "HEAD").strip(), [l for l in git("status", "--porcelain").splitlines() if l.strip()]
 
 
+# THE PLACE THE HARNESS RUNS IN, by name rather than by "the only one".
+#
+# Rojo serves more than one place id since task 122: the DEV place, where the harness and every spec
+# live, and "Driven Hunt Forest Test", a playtest world Karen shoots in. Both get the same code, and
+# only one of them is evidence.
+#
+# This used to read `servePlaceIds` and refuse anything but a single entry, which made adding the
+# second place a harness failure rather than a configuration. Naming the harness place says the
+# thing that is actually true -- the suite is about THIS place -- and the assertion below still
+# catches the real mistake, which is serving a place the harness then cannot find.
+HARNESS_PLACE_ID = "136410205938347"
+
+
 def expected_place_id():
     with open(PROJECT, encoding="utf-8") as f:
-        ids = json.load(f).get("servePlaceIds") or []
-    if len(ids) != 1:
-        raise RuntimeError("default.project.json must list exactly one servePlaceIds entry")
-    return str(ids[0])
+        ids = [str(x) for x in (json.load(f).get("servePlaceIds") or [])]
+    if HARNESS_PLACE_ID not in ids:
+        raise RuntimeError(
+            "default.project.json does not serve the harness place %s (it serves %s)"
+            % (HARNESS_PLACE_ID, ", ".join(ids) or "nothing")
+        )
+    return HARNESS_PLACE_ID
 
 
 def spec_files_in_repo():
@@ -2858,7 +2993,47 @@ def run_test(studio, scope=None):
                   "guards) are the whole run. Use `--scope all` for the full gate.")
         else:
             print("[harness] Play")
+            before_play = studio.studio_list()
             studio.set_play(True)
+            # WHICH PROCESSES THIS RUN JUST MADE. Only needed when something else is open -- with a
+            # single Studio the datamodel type alone addresses them and this is skipped, so the
+            # ordinary run is unchanged. `classify_studios` asks each new process what it is rather
+            # than reading its name, which is the same thing `test2` has always done.
+            if len(before_play) > 1:
+                # WAIT FOR THEM TO REGISTER FIRST. `set_play` returns as soon as the click is sent;
+                # the server and client processes take seconds to attach to StudioMCP. Classifying
+                # immediately found nothing fresh and reported "server=? client=?", which then fell
+                # back to an unscoped call and was refused -- the failure looked like a routing bug
+                # and was a race.
+                known_before = {e["id"] for e in before_play}
+                fresh = []
+                for _ in range(45):
+                    fresh = [e["id"] for e in studio.studio_list() if e["id"] not in known_before]
+                    if fresh:
+                        time.sleep(3)  # let the rest of them attach before asking
+                        fresh = [e["id"] for e in studio.studio_list() if e["id"] not in known_before]
+                        break
+                    time.sleep(1)
+                server_id, client_ids, unknown = classify_studios(studio, before_play, timeout=60)
+                # A SOLO PLAY MAY BE ONE PROCESS THAT IS BOTH. `classify_studios` answers the
+                # two-player question -- which of these is the server -- and when the run made a
+                # single datamodel there is nothing to choose between: it is both, and addressing
+                # it by id is still better than an unscoped call that a second Studio gets refused.
+                if server_id is None and len(fresh) == 1:
+                    server_id = fresh[0]
+                if not client_ids and len(fresh) == 1:
+                    client_ids = [fresh[0]]
+                studio.play_ids["Server"] = server_id
+                studio.play_ids["Client"] = client_ids[0] if client_ids else None
+                print(
+                    "[harness] Play datamodels: %d new, server=%s client=%s%s"
+                    % (
+                        len(fresh),
+                        (server_id or "?")[:8],
+                        ((client_ids[0] if client_ids else None) or "?")[:8],
+                        (" unclassified=%d" % len(unknown)) if unknown else "",
+                    )
+                )
             try:
                 if scenarios is None:
                     print("[harness] no tests/client/input_scenarios.txt: nothing to replay")

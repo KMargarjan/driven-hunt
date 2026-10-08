@@ -56,25 +56,170 @@ Boar.freezeReach = Body.freezeReach
 -- shape of the dying twitch. Pure, for the same reason as every export above it -- a spec cannot
 -- make a boar run, die or be heard.
 Boar.stepSoundFor = Body.stepSoundFor
+-- Pure, and exported for the same reason: a spec can ask what SoundId a config row turns into
+-- without a boar, a sound or a world (task 126).
+Boar.soundUri = Body.soundUri
 Boar.voicePitch = Body.voicePitch
 Boar.voiceIds = Body.voiceIds
 Boar.farScale = Body.farScale
 Boar.cutVolume = Body.cutVolume
 Boar.heardAt = Body.heardAt
 
--- WHOSE HOOVES A SOUNDER PLAYS (task 120). Karen, 2026-10-04: "several walking ... could be anoying
--- and shit sound / so we need realistic". Five animals running together are one sound with one
--- position to anybody listening, so a sounder has ONE emitter: its leader. Pure, because the two
--- states have to be reachable by parameter -- a spec cannot make six Brains run abreast on command.
+-- WHOSE HOOVES AND BREATH A SOUNDER PLAYS (task 123, after task 120's leader-only rule). Karen,
+-- 2026-10-05: *"to many noise, when boars are walking and there is many only 1-2 sounds"*. Twenty
+-- animals running together are one sound with one position to anybody listening, so a sounder has at
+-- most `VOICES_PER_SOUNDER` emitters. Pure, because the two states have to be reachable by
+-- parameter -- a spec cannot make twenty Brains run abreast on command.
 --
--- A herd with no leader yet (the tick after one dies) silences nobody: a missing sound is a worse
--- fault than a doubled one, and the next tick picks a leader.
-function Boar.isStepEmitter(leaderId: string?, memberId: string, config): boolean
+-- A HERD WITH NO LIST YET SILENCES NOBODY -- the tick a sounder forms, or the tick after its last
+-- holder died. A missing sound is a worse fault than a doubled one, and the next tick picks holders.
+function Boar.hasVoice(voiceIds: { string }?, memberId: string, config): boolean
 	local crowd = config.SOUND.CROWD
-	if crowd == nil or crowd.ENABLED ~= true or crowd.ONE_STEP_EMITTER ~= true then
+	if crowd == nil or crowd.ENABLED ~= true then
 		return true
 	end
-	return leaderId == nil or leaderId == memberId
+	if voiceIds == nil or #voiceIds == 0 then
+		return true
+	end
+	for _, id in ipairs(voiceIds) do
+		if id == memberId then
+			return true
+		end
+	end
+	return false
+end
+
+-- WHO HOLDS THOSE VOICES, re-picked only when a holder dies or leaves (task 123). Pure: the current
+-- holders in, the membership FRONT FIRST in, the new holders out.
+--
+-- THREE RULES, IN THIS ORDER, and each is a decision:
+--   1. THE LEADER ALWAYS HOLDS ONE. The animal the herd steers by is the animal it is heard by, so
+--      the sound comes from where the herd is going.
+--   2. A HOLDER THAT IS STILL A MEMBER KEEPS ITS VOICE. Re-ranking every step would hand the
+--      footstep loop from one jostling animal to another, and a loop that stops and restarts is
+--      worse than one a few studs behind the front.
+--   3. EMPTY SLOTS FILL FROM THE FRONT, which is the same ordering the leader is chosen by.
+function Boar.voiceHolders(current: { string }?, leaderId: string?, rankedIds: { string }, config): { string }
+	local crowd = config.SOUND.CROWD
+	local limit = math.huge
+	if crowd ~= nil and crowd.ENABLED == true then
+		limit = crowd.VOICES_PER_SOUNDER or 1
+	end
+	local member = {}
+	for _, id in ipairs(rankedIds) do
+		member[id] = true
+	end
+	local held, taken = {}, {}
+	local function take(id: string?)
+		if id ~= nil and member[id] and not taken[id] and #held < limit then
+			table.insert(held, id)
+			taken[id] = true
+		end
+	end
+	take(leaderId)
+	for _, id in ipairs(current or {}) do
+		take(id)
+	end
+	for _, id in ipairs(rankedIds) do
+		take(id)
+	end
+	return held
+end
+
+-- THE ORDER A SOUNDER MARCHES IN (task 123 round 3). Pure: one `{ id, kind, key }` per member in,
+-- the ids front-first out. `key` is how far the animal is from the exit line, so a smaller key is
+-- further along the march -- the same number `Runtime:_chooseLeader` has always ranked by, which is
+-- what keeps "where is the front of this herd" a single answer.
+--
+-- KAREN, 2026-10-05: *"always first go famale and then kids behind / male can walk together or on
+-- the end or alone"*. And the Animal Diversity Web account of *Sus scrofa*, verbatim: *"When
+-- traveling, mothers keep their young in the middle, with adults in the lead and rear."* The two
+-- agree, and ADW is the stricter: an adult at the BACK as well, with the young between them.
+--   https://animaldiversity.org/accounts/Sus_scrofa/
+-- Note: docs/research/2026-10-05-sounder-march-order.md
+--
+-- SO: females, then cubs, then males -- and when a sounder holds two or more adult females, the
+-- hindmost female drops in BEHIND the cubs as the rear guard. Today's `SOUNDER.MAKEUP` builds one
+-- sow and her young, so that branch is unreachable in the game and reachable by parameter in a
+-- spec; it is written now because Karen's roadmap already asks for three of each kind.
+--
+-- WITH `KINDS` OFF EVERY ANIMAL IS THE SAME KIND, so the rank is uniform and this is exactly the
+-- "nearest the exit line, tie-broken by id" rule the DEV drive has always used.
+local MARCH_RANK = { female = 1, cub = 2, male = 3 }
+
+function Boar.marchOrder(members: { { id: string, kind: string?, key: number } }, config): { string }
+	local order = table.clone(members)
+	table.sort(order, function(a, b)
+		local ra = MARCH_RANK[a.kind or ""] or 2
+		local rb = MARCH_RANK[b.kind or ""] or 2
+		if ra ~= rb then
+			return ra < rb
+		end
+		if a.key == b.key then
+			return a.id < b.id
+		end
+		return a.key < b.key
+	end)
+	local females = 0
+	for _, row in ipairs(order) do
+		if (row.kind or "") == "female" then
+			females += 1
+		end
+	end
+	local ids = {}
+	for _, row in ipairs(order) do
+		table.insert(ids, row.id)
+	end
+	-- THE REAR GUARD, and only when there is an adult to spare: ADW's "adults in the lead AND rear".
+	-- With one female she leads and nothing moves; with two or more the hindmost goes to the back of
+	-- the cubs, so the young are between two adults and the males are still last.
+	local makeup = config.SOUNDER ~= nil and config.SOUNDER.MAKEUP or nil
+	local rearGuard = makeup == nil or makeup.REAR_GUARD ~= false
+	if rearGuard and females >= 2 then
+		local guard = table.remove(ids, females) -- the hindmost female
+		local lastCub = 0
+		for index, id in ipairs(ids) do
+			for _, row in ipairs(order) do
+				if row.id == id and (row.kind or "") == "cub" then
+					lastCub = index
+				end
+			end
+		end
+		table.insert(ids, math.max(lastCub, females - 1) + 1, guard)
+	end
+	return ids
+end
+
+-- WHICH ANIMALS THE WHOLE WORLD HEARS OF ONE LAYER, nearest a listener first (task 123). Pure:
+-- `rows` is one `{ id, distance }` per live animal -- distance to the nearest hunter -- and the
+-- answer is the set of ids allowed to make that layer's noise.
+--
+-- WHY NEAREST AND NOT OLDEST OR RANDOM. MEASURED in the Forest Test: 23 boars out formed only
+-- three sounders of 3, 3 and 4, so THIRTEEN were lone animals and a per-sounder ration governed ten
+-- of twenty-three. A ceiling has to be keyed on something every animal has, and "how far it is from
+-- the man listening" is both the only such thing and the realistic answer: a hunter hears what is
+-- close to him. It also cannot go silent on him -- whatever walks past is, by definition, nearest.
+--
+-- A tie is broken by id so the set is deterministic, which is what lets a spec drive it at all.
+function Boar.nearestVoices(rows: { { id: string, distance: number } }, limit: number?): { [string]: boolean }
+	local allowed = {}
+	if limit == nil or limit == math.huge then
+		for _, row in ipairs(rows) do
+			allowed[row.id] = true
+		end
+		return allowed
+	end
+	local order = table.clone(rows)
+	table.sort(order, function(a, b)
+		if a.distance == b.distance then
+			return a.id < b.id
+		end
+		return a.distance < b.distance
+	end)
+	for index = 1, math.min(math.floor(limit), #order) do
+		allowed[order[index].id] = true
+	end
+	return allowed
 end
 
 -- HOW MANY SQUEALS ARE STILL SOUNDING at `now`, out of a list of the moments each one stops being
@@ -437,6 +582,12 @@ Boar.CONFIG = {
 	-- https://www.red3d.com/cwr/boids/ -- technique taken, no code.
 	SOUNDER = {
 		SPAWN_RING_STUDS = 10, -- 5 on a ring of 10 stand 11.8 studs apart with a 5.5-long body
+		-- ...AND THE RING GROWS WITH THE SOUNDER (task 123 round 2). MEASURED: 20 animals on a ring
+		-- of 10 stand 3.1 studs apart with a 5.5-stud body, so they spawn INSIDE each other, and the
+		-- solver throws them apart -- bodies at 33-38 studs/s while their own speed setpoint read
+		-- 4.5, which is a stampede the Brain never asked for and the "to fast" Karen saw. 1.2 body
+		-- lengths of arc per animal, so the ring is as big as the group needs and no bigger.
+		SPAWN_SPACING = 1.2,
 		PAD_MARGIN_STUDS = 4, -- clamped inside spawnRadius - 4, so it is 10 at a pad radius of 14 and of 30
 		SLOT_BACK_STUDS = 9, -- ~1.6 body lengths behind the leader. Karen's dial
 		SLOT_SIDE_STUDS = 7, -- two abreast, clear of each other. Karen's dial
@@ -484,12 +635,34 @@ Boar.CONFIG = {
 		-- THE OCCASIONAL YOUNG MALE is the one draw here: a yearling still running with its mother.
 		-- It is a MALE-sized animal in a group of cubs, so it is also the thing that makes "aim at
 		-- the big one" a decision rather than a reflex. Karen's dial.
+		-- WHAT A FLOCK IS MADE OF (task 123 round 8). Karen, 2026-10-05: *"they move in floks meaning
+		-- 2 feamles 3 males and kids / 2 males or 5 males and 3 famales ect"*.
+		--
+		-- `MAKEUP` below is the RANDOM shape -- a sow and her young, which is what a sounder drawn
+		-- from nothing should be. These are the NAMED shapes a drive can ask for instead, so a wave
+		-- is a decision ("five males and three females") rather than a size and a dice roll. The
+		-- drive picks from this list in a cycle; `Boar.sounderKinds` turns one into a kind per
+		-- animal, and `Boar.marchOrder` puts them in order (females, cubs, males) exactly as before.
+		--
+		-- AN ALL-MALE GROUP IS A GROUP, not a mistake: `{ males = 2 }` and `{ males = 5, females = 3 }`
+		-- are both Karen's own examples, and the march order simply has nothing to put in front.
+		COMPOSITIONS = {
+			{ females = 2, males = 3, cubs = 4 },
+			{ males = 2 },
+			{ males = 5, females = 3 },
+			{ females = 3, cubs = 6 },
+			{ females = 1, cubs = 4, males = 1 },
+			{ males = 1 }, -- a lone big male, which is what a mature boar actually is
+		},
 		MAKEUP = {
 			SOW = "female",
 			YOUNG = "cub",
 			YOUNG_MALE = "male",
 			YOUNG_MALE_CHANCE = 0.25,
 			LONE = "male",
+			-- ADW's "adults in the lead AND rear": with two or more adult females the hindmost one
+			-- marches behind the cubs. One word turns it off (task 123 round 3).
+			REAR_GUARD = true,
 		},
 	},
 
@@ -584,6 +757,353 @@ local BOAR_CLIPS = {
 	digWalk = { clip = "Dig_walk_IP", seconds = 1.5, groundStudsPerSecond = 1.901, looped = true },
 }
 
+-- HOW FAST A PUSHED ANIMAL MOVES, AND WHAT MAKES IT RUN (task 123 round 2).
+--
+-- KAREN, 2026-10-05: *"also they feel to fast once thye spooked it's ok but they seems walking to
+-- fast / they has to trot or walk when spook then fast"*.
+--
+-- THE CAUSE, MEASURED IN THE CODE: `Brain:_step`'s flee branch reads
+-- `desiredSpeed = if threatened then SPRINT_SPEED else TROT_SPEED`, and `threatened` is
+-- "something is inside my flush radius" -- which the Forest Test's phantom beater is BY
+-- CONSTRUCTION, because it is placed `WAVE.pushStuds` = 11 studs behind the rearmost animal against
+-- a `SENSE.FLUSH_STUDS` of 15. So every pushed herd ran at 38 studs/s, a real boar's 40 km/h, for
+-- the whole crossing. There was no slow pace available at all: the two speeds a fleeing boar could
+-- have were 38 and 18.
+--
+-- A BEATER IS NOT A GUN. Drivers walk a wood to MOVE the animals, and animals being moved walk or
+-- trot ahead of them; they break into a run when something frightens them -- a shot, a man they did
+-- not know was there, a wound. So the pace is decided by WHAT is close, not only by how close:
+--
+--   * a DRIVER inside a flush radius pushes the animal to `WALK_SPEED`, and to `TROT_SPEED` only
+--     once it is within `TROT_WITHIN_STUDS` -- a herd being crowded moves off, it does not bolt;
+--   * ANYTHING ELSE inside `SPOOK_STUDS` -- a hunter, which `ForestTest.boarThreats` already marks
+--     `kind = "shooter"` -- is a spook, and so is a heard shot or a hit (both already set
+--     `Brain._boltFor`, so this adds no second rule for either).
+--
+-- IT IS A CLAMP ON TOP OF THE EXISTING RULES, not a replacement for them: the follower's
+-- leader-matching, the wound's `speedScale` and the `ACCEL` ramp all still apply. `ENABLED = false`
+-- is the world before this task, line for line, and it is its own flag rather than a key under
+-- `SENSE` so that a spec can drive a SPOOKED herd without turning the whole sense model on.
+Boar.CONFIG.PACE = {
+	-- BORN OFF, like `MODEL`, `CALM` and `SENSE`, and for the same reason (CLAUDE.md, feature
+	-- flags): this changes what a FLEEING animal does, and a fleeing animal is the live DEV drive
+	-- that Karen has already signed off. `ForestTestBoot` turns it on for the playtest world through
+	-- `world.config`, which is where that world turns on everything else it wants.
+	ENABLED = false,
+	-- 4.5 studs/s is inside the WALK gait band (`MODEL.TROT_FROM` is 2.852 x 1.8 = 5.13), so a
+	-- pushed animal is DRAWN walking as well as moving at a walk. Karen's dial.
+	WALK_SPEED = 4.5,
+	-- ...and 11 is a trot (the band runs to `RUN_FROM`), for a herd with a beater on top of it, or
+	-- for one the drive has asked to get across the road (`Runtime:urge`).
+	TROT_SPEED = 11,
+	-- AND A FLIGHT IS SLOWER THAN A REAL BOAR'S SPRINT (task 123 round 4). Karen: *"when they fleet
+	-- make speed slover it's to fast"*. `SPRINT_SPEED` is 38 studs/s, which IS a wild boar's 40 km/h
+	-- at 1 stud = 0.28 m -- it is correct and it does not read as something a hunter can follow. 24
+	-- is a hard canter: the run clip's own ground speed is 17.21 studs/s, so it plays at
+	-- 24 / 17.21 = 1.39, well inside `MODEL.MIN_RATE` 0.4 and `MAX_RATE` 2.8, and the feet keep up
+	-- with the ground exactly as they do at any other speed -- `Body.clipFor` rates every clip by
+	-- `speed / the clip's own measured ground speed` and has since task 116.
+	--
+	-- THE GAIT BAND MOVES WITH IT, and it has to: `MODEL.RUN_FROM` is 28, so an animal fleeing at 24
+	-- would be DRAWN trotting while it bolted. `ForestTestBoot` lowers the band to
+	-- `(TROT_SPEED + RUN_SPEED) / 2` for this world, which is the same formula the module uses.
+	RUN_SPEED = 24,
+	-- 12 and not 11: the beater stands `WAVE.pushStuds` = 11 studs behind the REARMOST animal, so
+	-- this is "the one being crowded trots" while the rest of the herd walks. Karen's dial.
+	TROT_WITHIN_STUDS = 12,
+	-- A MAN WHO IS NOT DRIVING, this close, is a spook whatever else is happening. The Director's
+	-- number; `SENSE`'s own flee radius for a standing stimulus is 15 and for a moving one 40, so
+	-- 30 sits between them and does not depend on whether the hunter is walking.
+	SPOOK_STUDS = 30,
+	-- ...AND A REAL DRIVER THIS CLOSE DOES IT TOO (task 123 round 5). Karen: *"when driver is close
+	-- or shoot is made they run"*. Round 2 made a driver a PUSH and nothing else, which is right for
+	-- the approach and wrong for the moment a man walks onto the animal: 25 studs is inside
+	-- `SENSE.NOTICE_STANDING` (25) and well inside the 40 a MOVING stimulus is noticed at, so it is
+	-- the "he is on top of me" distance rather than the "he is coming" one.
+	--
+	-- A PHANTOM BEATER IS NOT A DRIVER FOR THIS RULE, and that is the whole difficulty: the Forest
+	-- Test's beater is placed `WAVE.pushStuds` = 11 studs behind the rearmost animal BY
+	-- CONSTRUCTION, so a rule that ran from any close driver would run every wave for its whole
+	-- crossing -- which is the opposite of what round 4 just built. The drive MARKS its own
+	-- phantoms (`phantom = true` on the stimulus), because the thing that knows a beater is nobody
+	-- is the code that invented it: `ForestTest.boarThreats` and `Match.quickTestPhantom`. A
+	-- stimulus with a real player behind it carries no such mark, so the default is "real".
+	DRIVER_RUN_STUDS = 25,
+
+	-- HOW IT TURNS (task 123 round 3). Karen: *"they feels like walkin strange like with mouse
+	-- turning here there has to be more natural"*.
+	--
+	-- MEASURED FIRST, in her place, over 106 s of real crossings: a WALKING boar's facing changed by
+	-- up to **688 deg/s** (mean 50-85) and a trotting one by up to 247. `Boar.CONFIG.TURN_RATE` is
+	-- 4 rad/s = 229 deg/s for every gait, and the body exceeds even that because an
+	-- `AlignOrientation` chases a target that moves every frame -- so the cap is per GAIT now, and
+	-- the target is smoothed before the cap sees it. Research note:
+	-- docs/research/2026-10-05-sounder-march-order.md.
+	WALK_TURN_DEG = 90, -- the Director's number: a walking pig does not pivot
+	TROT_TURN_DEG = 140,
+	RUN_TURN_DEG = 220, -- a bolting animal does swerve; this is near today's 229
+	-- NO WOBBLE ON A STRAIGHT LINE: inside this the animal does not turn at all. Without it the
+	-- slew chases a blend that recomputes every frame and the nose hunts left and right for ever.
+	TURN_DEADBAND_DEG = 4,
+	-- ...AND THE BODY THAT CHASES THAT SETPOINT, softer than the DEV world's 25. See `Body.create`:
+	-- the turn cap alone left the worst measured body turn near 600 deg/s because the
+	-- `AlignOrientation` snaps to a target the cap has already smoothed.
+	ALIGN_RESPONSIVENESS = 12,
+	-- ONE EXPONENTIAL ON THE TARGET DIRECTION, which is the same trick -- and the same reason --
+	-- as `SENSE.SPEED_SMOOTH_SECONDS` and `MODEL.YAW_SMOOTH_SECONDS`: one frame of a steering blend
+	-- is noise, not an intention.
+	HEADING_SMOOTH_SECONDS = 0.35,
+
+	-- TRUNKS, AND NOT GETTING WEDGED ON ONE. Karen: *"they has to avoid trees to not stuck"*. Three
+	-- casts instead of one: ahead, and one to each side, so the animal steers round the side that is
+	-- CLEAR instead of turning a random way after it is already stuck. 9 studs is ~1.6 body lengths
+	-- -- far enough ahead to turn at a walk, near enough that not every trunk in a wood is "ahead".
+	WHISKER_DEG = 35,
+	WHISKER_STUDS = 9,
+	WHISKER_TURN_DEG = 55,
+
+	-- A WAVE RELEASED JUST AFTER A SHOT ARRIVES RUNNING (task 123 round 3). Karen: *"next flot comes
+	-- without spook if there wasant driver or shoot withing 5s otherwise running"*. The Director's
+	-- number. An animal that did not exist when the gun went off cannot have heard it, so the
+	-- runtime remembers the bang and hands it to whatever it spawns inside this window.
+	SPOOK_MEMORY_SECONDS = 5,
+}
+
+-- BOARS DO NOT SHOVE EACH OTHER (task 127 round 3). The Director's hypothesis, and the measurement
+-- below bears it out: a real sounder walks nose to tail, touching, and ours could not -- the solver
+-- pushed a follower sideways off the trail the instant it caught the one ahead, and a shoved animal
+-- then wedged against a trunk. That is one mechanism behind all three of the numbers that would not
+-- come down: the side-by-side pairs, the loose gaps and the stuck count.
+--
+-- A COLLISION GROUP IS THE ENGINE'S OWN ANSWER and costs nothing per frame: the group is registered
+-- once and told not to collide with itself.
+--   https://create.roblox.com/docs/reference/engine/classes/PhysicsService#RegisterCollisionGroup
+--
+-- WHAT DOES NOT CHANGE, and each of these was checked rather than assumed: the trunk still collides
+-- with TERRAIN and with TREES (a collision group only changes which groups collide with which, and
+-- everything else stays in `Default`); `CanQuery` stays true, so a shot still finds the animal; the
+-- hit zones are children with their own `CanQuery` and are untouched; and the carcass still rests on
+-- the ground.
+--
+-- IT IS OFF IN EVERY WORLD, BECAUSE IT WAS MEASURED AND IT DID NOT HELP. Two 160-second traces of
+-- the Forest Test, same code either side of this one switch, verified live as applied
+-- (`CollisionGroupsAreCollidable("DrivenHuntBoars", "DrivenHuntBoars") == false`, against `Default`
+-- still true, and boar bodies seen overlapping, so they really did pass through one another):
+--
+--   metric                              shoving (off)   passing through (on)
+--   pairs abreast (< one station along)      36 %            34 %
+--   gap median / p90                     10.2 / 26.2      10.6 / 34.2
+--   stuck animals                             18              19
+--   distinct trunk contacts                   12              21
+--
+-- So the shoving was not what kept the file loose. The mechanism is real -- bodies did stop pushing
+-- each other -- and the picture did not change, which means the loose gaps come from the FOLLOWING
+-- RULE and from flight, not from contact. Kept, off, with the numbers, so nobody spends another
+-- round on the same idea; flip `ENABLED` to try it again against a changed follower.
+Boar.CONFIG.BOAR_COLLISION = {
+	ENABLED = false,
+	GROUP = "DrivenHuntBoars",
+}
+
+-- WALKING WHERE YOU ARE TOLD (task 127). Karen, 2026-10-05: *"imagine they come from one side in one
+-- line and crossing road thats it"*.
+--
+-- THE WORLD DRIVES, THE BRAIN EXECUTES, and that is the same door `urge`, `spook` and `check`
+-- already use -- only this one carries a POINT and a SPEED instead of a mood. The drive owns the
+-- route (it is the thing that knows where the road is); the Brain owns how an animal turns and
+-- accelerates toward a point, which is what it has always owned.
+--
+-- WHY A MODE AT ALL, rather than more steering: three rounds of task 126 measured what steering does
+-- in a wood -- it wanders, it circles, and it brushes trunks -- and Karen's answer was not "steer
+-- better", it was *"it's simple"*. An animal in a line does not decide anything: it walks where the
+-- one in front walked. So in this mode every blend is switched OFF: no whiskers, no route of its
+-- own, no sounder cohesion, no flee vector.
+--
+-- BORN OFF, like every block before it, and switched on by the world that wants it.
+Boar.CONFIG.LINE = {
+	ENABLED = false,
+	-- HOW LONG AN ORDER LASTS without being renewed. The drive re-issues every step, so this is a
+	-- dead-man's handle: if the drive stops driving -- the wave retired, the animal left it -- the
+	-- animal goes back to being an ordinary boar within half a second instead of walking to a point
+	-- nobody is updating any more.
+	ORDER_SECONDS = 0.6,
+	-- Inside this of the ordered point, stop rather than jitter on top of it.
+	ARRIVE_STUDS = 1.0,
+	-- An ordered animal still turns at its gait's rate (`PACE.*_TURN_DEG`) -- it is an animal, not a
+	-- tram -- but it may turn HARDER than one steering for itself, because it is following a route
+	-- that was already checked for trunks and a sharp corner in that route is real.
+	TURN_SCALE = 1.6,
+}
+
+-- HOW A DRIVEN SOUNDER MOVES (task 126). Karen, 2026-10-05, in one sentence: *"so they comming we
+-- can hear them as now is / then they can stop before entering the road or walk or trot if there are
+-- spook or shoot they run and run straigh like in real life"*. That is four states -- approach,
+-- edge, cross, flight -- and every number either of them needs is here.
+--
+-- BORN OFF, like `PACE`, `MODEL`, `CALM` and `SENSE` before it, and switched on by the world that
+-- wants it (`ForestTestBoot`). With it off every function below returns what it returned before this
+-- task, which is what keeps the DEV drive the drive Karen has already signed off.
+--
+-- Note: docs/research/2026-10-05-sounder-movement.md
+Boar.CONFIG.MOVE = {
+	ENABLED = false,
+
+	-- ---------------------------------------------------------------- the file
+	--
+	-- Karen: *"it could be lines of boars like in real life"*. MEASURED BEFORE THIS TASK, in her own
+	-- place over 130 s: the gap between consecutive members of a moving sounder had a median of
+	-- **35.2 studs** and a p90 of 87, and the sideways offset from the leader's own line a median of
+	-- **17.6 studs**. That is not a line; it is a field of animals.
+	--
+	-- THE CAUSE WAS THE TARGET, NOT THE SPACING. `Brain:_slotPoint` put every follower's target
+	-- behind THE LEADER -- slot 3 aimed 18 studs behind the leader whatever slot 2 was doing -- so
+	-- nine animals converged on nine points on one line through a moving leader and cut every corner
+	-- it turned. The fix is Reynolds' own `leader following`, applied one link at a time: each animal
+	-- follows THE ONE AHEAD OF IT. A chain cannot cut a corner, because each link only ever knows
+	-- about the link in front.
+	--   https://www.red3d.com/cwr/steer/gdc99/
+	-- THIS ONE WORD IS A TRADE-OFF KAREN HAS TO SETTLE, AND BOTH SIDES OF IT ARE MEASURED. She asked
+	-- for two things in the same breath -- *"it could be lines of boars like in real life"* and
+	-- *"they shouldn do circles like I see now"* -- and as built, this round can deliver one of them
+	-- at a time. The same 130 s trace of the same world, scored the same way:
+	--
+	--                     gap between consecutive members      turning >= 300 deg in 10 s WHILE MOVING
+	--   before the task              35.2 studs                             295 windows
+	--   FILE = false                 33-37 studs                            149 windows
+	--   FILE = true                  23.3 studs                             417 windows
+	--
+	-- A FILE IS A WEAVE, which is why: a follower steers continuously at a point behind an animal
+	-- that is itself turning, closes on it at `FILE_CATCHUP`, overshoots and corrects -- and every
+	-- correction is degrees on the clock. The line is a third tighter and the turning is up by the
+	-- same sort of margin.
+	--
+	-- IT IS SHIPPED **OFF** (Director, 2026-10-05, round 2): the circles are Karen's explicit
+	-- complaint, the frames showed that the file does not read as a line from the stand anyway, and
+	-- half the turning is worth more than a third of the gap. A real line comes back as its own task
+	-- -- follow-the-leader along a PATH, rather than steering at a point that is itself moving, which
+	-- is what makes a file a weave.
+	--
+	-- Everything the file needs is still here and still tested; this one word is the whole switch.
+	FILE = false,
+	-- CENTRE TO CENTRE, and the arithmetic is written out because the Director's figure is a GAP:
+	-- "1.5-3 studs between animals" with a 5.5-stud body (`BODY_SIZE.Z`) is 7.0 to 8.5 centre to
+	-- centre, so 7.5 is a 2.0-stud gap -- a boar's nose about a third of a body behind the tail in
+	-- front of it.
+	FILE_PITCH_STUDS = 7.5,
+	-- Arrival: inside this the follower stops steering at the point, or it oscillates on the spot.
+	-- Smaller than `SOUNDER.SLOT_TOLERANCE_STUDS` because a file is a tighter thing than a wedge.
+	FILE_TOLERANCE_STUDS = 1.5,
+	-- A grazing sounder is a loose group and not a queue, so the file only forms above this.
+	FILE_FROM_SPEED = 2.0,
+	-- HOW MUCH FASTER A STRAGGLER MAY GO, and it is NOT `SOUNDER.CATCHUP` (1.15). That number was
+	-- picked for a wedge whose members are a few studs out of place; a file member 30 studs behind
+	-- closes a 15 % surplus at 0.67 studs/s, which is 45 seconds -- and `SOUNDER.BREAK_SECONDS` is 4.
+	-- At 1.8 it closes in under 8 s, and it is capped at `TROT_SPEED` by the caller so a file forms up
+	-- at the pace Karen accepted for a crossing rather than sprinting.
+	FILE_CATCHUP = 1.8,
+
+	-- ---------------------------------------------------------------- no circles
+	--
+	-- Karen: *"they shouldn do circles like I see now"*. MEASURED BEFORE THIS TASK: **4,660** ten-
+	-- second windows in which an animal below run speed turned 300 degrees or more, the worst of them
+	-- **742 degrees** -- two full orbits in ten seconds, by one animal (Boar26), which is exactly
+	-- what she saw.
+	--
+	-- THE CAUSE IS STEERING AT A POINT, and the research note names it: anything that continuously
+	-- steers toward a position it is already near will orbit it, because the steering direction
+	-- rotates faster than the animal can converge. There were two such points -- the sounder's
+	-- CENTROID (`_idleSounderDirection`) and HOME (`_senseIdle`'s `HOME_PULL`) -- and both are gone:
+	-- the centroid is replaced by the file, and the home pull by a latched destination.
+	--
+	-- THIS IS THE BACKSTOP, and it is deliberately a budget rather than a rule about any one cause:
+	-- an animal that has spent more than `TURN_BUDGET_DEG` of turning inside `TURN_WINDOW_SECONDS`
+	-- holds the heading it has for `TURN_HOLD_SECONDS`. 200 degrees is a comfortable U-turn plus a
+	-- correction; 360 is the thing being banned, so the budget sits well below it.
+	--
+	-- A RUNNING ANIMAL IS EXEMPT, and so is a spooked one: the budget's job is to stop an idle boar
+	-- milling, not to stop a bolting one swerving round a tree.
+	TURN_WINDOW_SECONDS = 6,
+	TURN_BUDGET_DEG = 200,
+	TURN_HOLD_SECONDS = 3,
+
+	-- WHERE A WANDERING BOAR GOES when it has strayed past `HOME_RADIUS`. The old rule rotated the
+	-- heading toward home every sense tick, which is the orbit above. This draws ONE point near home
+	-- and walks to it, and only draws another when it arrives -- a destination, not a pull.
+	HOME_ARRIVE_STUDS = 8,
+	HOME_SCATTER_STUDS = 14, -- the destination is home +- this, so a herd does not stack on one spot
+
+	-- ---------------------------------------------------------------- the edge
+	--
+	-- Karen: *"they can stop before entering the road"*. **NOT MEASURED, AND NOT MEASURABLE FROM THE
+	-- SOURCES** -- the research note says so in its own section: the pause at a forest edge before a
+	-- ride is well-known hunting practice and is quantified nowhere I could find. These three are the
+	-- Director's dial and nothing more. If it reads wrong it is one number.
+	--
+	-- THE WORLD DECIDES WHEN, THE BRAIN DECIDES WHAT. `Brain:check(seconds)` is the same shape as
+	-- `Brain:urge` and `Brain:spook`, which `ForestTest` already calls: the thing that knows where
+	-- the road is is the world, and the thing that knows how an animal stands and looks is the Brain.
+	EDGE_CHANCE = 0.55,
+	EDGE_MIN_SECONDS = 1.0,
+	EDGE_MAX_SECONDS = 4.0,
+
+	-- ---------------------------------------------------------------- the flight
+	--
+	-- Karen: *"after shoot animals usually run straight when they spook ofc avoiding opsticals"* and
+	-- *"it runs awai a lot until I can;t see them like in real life not run a bit and stop"*.
+	-- MEASURED BEFORE THIS TASK, over three real shots: the heading an animal was running on deviated
+	-- from the one it set off on by a median of **84-99 degrees** and a maximum of **180** -- it ran
+	-- in a curve and sometimes turned round -- and it covered a median of **94-115 studs** in the
+	-- thirteen seconds after the shot.
+	--
+	-- THE CAUSE IS THAT THERE WAS NO HEADING. `_fleeDirection` recomputes "away from the threat"
+	-- every frame from the CURRENT position, so the away-vector rotates as the animal moves past the
+	-- shooter, and the pathfinder's route curves round whatever is in the way. A latch fixes both:
+	-- the heading is taken ONCE, at the moment of the spook, and every frame after that the animal
+	-- runs THAT line -- deflected by `Brain.steerAroundTrunk` and by nothing else, which is Karen's
+	-- *"ofc avoiding opsticals"* exactly.
+	FLIGHT = true,
+	-- HOW FAR, and section 3 of the research note is about this number: the literature's mean
+	-- post-hunt flight is 1.80 km (Scientific Reports 2024), which at 0.28 m/stud is 6,400 studs --
+	-- eight times the width of this world. So 300 is the DIRECTOR's playable figure and NOT a
+	-- converted biological fact: it is longer than the sightline down the road and about half the
+	-- field, so an animal that runs it has left the picture. That is Karen's own test.
+	FLIGHT_MIN_STUDS = 300,
+	-- A ceiling, so nothing can run for ever if it is penned in by the bounds: at `PACE.RUN_SPEED`
+	-- 24 studs/s, 300 studs takes 12.5 s, so 45 is three times the headroom.
+	FLIGHT_MAX_SECONDS = 45,
+	-- A flight does not re-latch on every bang: a second shot inside this window keeps the heading
+	-- the first one set, so a volley does not make an animal pirouette.
+	FLIGHT_RELATCH_SECONDS = 2.0,
+
+	-- ---------------------------------------------------------------- the trees
+	--
+	-- Karen: *"and not hitting the trees and hang"*. MEASURED BEFORE THIS TASK: **19 distinct
+	-- (boar, trunk) contacts** in 130 s -- and, to be exact about what was and was not wrong,
+	-- **nothing was stuck**: no animal moved less than a stud in five seconds while its setpoint
+	-- asked for more. So they were brushing trunks, not hanging on them, and the fix is lookahead
+	-- rather than a new recovery.
+	--
+	-- THE WHISKER IS 9 STUDS FOR EVERY GAIT, which is the bug: at `PACE.RUN_SPEED` 24 studs/s that
+	-- is 0.37 s of warning, and `WALK_TURN_DEG`/`RUN_TURN_DEG` need longer than that to take the
+	-- animal round a trunk. The whisker now scales with the speed the animal is actually doing --
+	-- the lookahead is a TIME, which is what a braking distance is.
+	-- MEASURED AND SET TO 0, WHICH PINS THE REACH AT `WHISKER_MIN_STUDS` -- today's flat 9 studs.
+	-- The idea was that a braking distance is a TIME, so an animal at 24 studs/s should look further
+	-- ahead than one at 4.5. It was built, measured, and is off: at 0.55 s (a reach of up to 22) the
+	-- trunk contacts were 24 distinct (boar, trunk) pairs and at a flat 9 they were 24 -- it bought
+	-- nothing -- while the turning went UP, because `Brain.steerAroundTrunk` rotates by
+	-- `WHISKER_TURN_DEG` (55) every time a whisker fires and a longer whisker fires far more often in
+	-- a wood. Left as a dial with its measurement beside it.
+	WHISKER_SECONDS = 0,
+	-- HOW LONG A CHOSEN SIDE IS COMMITTED TO. Three raycasts a frame against thin trunks flicker, and
+	-- each flicker used to swap a 55-degree deflection -- which the slew then chased at up to 90
+	-- deg/s, so a wedged animal turned on the spot. 0.6 s is about two body lengths at a walk: long
+	-- enough to actually get past the trunk it committed to going round.
+	WHISKER_HOLD_SECONDS = 0.6,
+	WHISKER_MIN_STUDS = 9, -- never shorter than what task 123 measured and Karen accepted
+	WHISKER_MAX_STUDS = 22,
+}
+
 -- THE SOUND OF A BOAR (task 116). Karen, 2026-10-03: *"I just need that once they walk you can hear
 -- (as example hunter waiting and hear something comming and then boars are visible running, walking
 -- ect)"*, and on which sounds: *"you decide what sounds"*.
@@ -599,6 +1119,12 @@ local BOAR_CLIPS = {
 --   RollOffMode https://create.roblox.com/docs/reference/engine/enums/RollOffMode
 -- `InverseTapered` is the mode Roblox recommends for world sounds; the docs publish no curve, so
 -- `audibleStuds` is a number to pick and then LISTEN to, which is what the playtest is for.
+-- WHERE RUNNING BEGINS, and it is defined ONCE. `MODEL.RUN_FROM` is the gait band the animation
+-- uses and `SOUND.GRUNTS.MAX_SPEED` / `SOUND.BREATH.MIN_SPEED` are the bands the VOICE uses, and
+-- after task 123 they are the same number: a boar grunts while it walks and trots and breathes while
+-- it runs, so "which gait is this" must have one answer or the animal will snort while it trots.
+local RUN_FROM = (Boar.CONFIG.TROT_SPEED + Boar.CONFIG.SPRINT_SPEED) / 2
+
 Boar.CONFIG.SOUND = {
 	ENABLED = true, -- rides `BOAR_MODEL` with everything else; this is the switch for sound alone
 	FOLDER = "Sounds",
@@ -631,43 +1157,158 @@ Boar.CONFIG.SOUND = {
 		MIN_SPEED = 0.6,
 		-- "Goat Footsteps Only 1" -- a hoof on soil, and the nearest thing the library has to a
 		-- walking pig. Karen, 2026-10-03: "sound you choose best practice you do".
-		-- THE APPROACH IS HEARD BEFORE IT IS SEEN (task 120). Karen's scene, from task 116:
-		-- "hunter waiting and hear something comming and then boars are visible running, walking".
-		-- Each gait's reach is what the animal doing it should carry: a walking boar is a noise in
-		-- the brush, a trotting one is the last seconds of approach, and a RUNNING sounder is
-		-- something coming -- which is the one a waiting hunter must get first.
-		--   walk  45 ->  80 studs, volume 0.35 -> 0.45
-		--   trot  70 -> 110 studs, volume 0.50 -> 0.65
-		--   run   90 -> 130 studs, volume 0.70 -> 0.85
-		-- With `NEAR_STUDS` at 24 that puts the run loop at 0.24 x 0.85 = 0.20 of full scale at 100
-		-- studs and still above zero at 129, against 0.08 at 100 and silence past 90 before.
-		walk = { id = 9114623726, volume = 0.45, baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond, audibleStuds = 80 },
-		trot = { id = 9114623726, volume = 0.65, baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond, audibleStuds = 110 },
-		-- "Donkey Footsteps 1" -- heavier and faster, for a gallop.
-		run = { id = 9114127078, volume = 0.85, baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond, audibleStuds = 130 },
+		-- HOOVES ARE A CLOSE SOUND, AND THE VOICE IS THE FAR ONE (task 123). Karen, 2026-10-05:
+		-- *"when they cross road or they close they don't make any pig sound besides walking / and I
+		-- hear only when it;s close inaf to me if it's far away I don't hear"*. Task 120 had this
+		-- the wrong way round: the FOOTSTEP loops were the approach cue and carried 80 to 130 studs
+		-- while the grunt stopped at 85 and stopped altogether above walking pace -- so a herd
+		-- crossing in front of her was hooves and nothing else, and a herd further out was nothing.
+		--
+		-- A hoof on soil does not carry 130 studs and a pig's voice does. So:
+		--   walk  80 ->  50 -> 40 studs, volume 0.45 -> 0.30 -> 0.15
+		--   trot 110 ->  50 -> 40 studs, volume 0.65 -> 0.40 -> 0.20
+		--   run  130 ->  50 -> 40 studs, volume 0.85 -> 0.60 -> 0.30
+		-- 40 IN ROUND 4. Karen: *"when they close we can hear steps but also do not mix lot's so
+		-- steps will be noisey and caotic"*. Hooves are now the ONLY sound a live animal makes, so
+		-- the reach is what decides whether "close" means close: 40 studs is about seven body
+		-- lengths. THERE IS NO PITCH JITTER ON A LOOP and never was -- `PITCH_JITTER` is applied by
+		-- `playOneShot` to one-shots; `stepSound` sets `PlaybackSpeed` from the gait's own rate, so
+		-- what varies with it is the stride matching the ground, not a wobble.
+		-- and `GRUNTS` below goes the other way, to 160 studs on its own 60-stud plateau.
+		--
+		-- HALVED AGAIN IN ROUND 3. Karen, having heard the first halving: *"still to noisy / when
+		-- they walk only walk sound / and hriu sound should bee"* -- the hooves are still the thing
+		-- she hears and the grunt is meant to be. With `NEAR_STUDS` at 24 a walking boar is now 0.15
+		-- at 24 studs, 0.09 at 40 and gone at 50, against a grunt's 0.40 at 120: the voice is five
+		-- times the footstep at any distance a hunter waits at.
+		-- AN ANIMAL ON A FOREST FLOOR, NOT A HORSE ON A ROAD (task 126). Karen, 2026-10-05: *"and
+		-- walking sound sounds like horse we need animal not horse"* -- and she is describing what
+		-- these actually were: `9114623726` is **"Goat Footsteps Only 1"** and `9114127078` is
+		-- **"Donkey Footsteps 1"**, two hooves on a hard surface out of the same library pack. Both
+		-- ids are kept below so one word brings either back.
+		--
+		-- WHAT IS AVAILABLE TO PUT THERE INSTEAD, MEASURED RATHER THAN ASSUMED, and the answer is
+		-- narrower than it looks. The Roblox audio catalogue was searched (six queries, ten results
+		-- each) and every id it returned was user-uploaded music -- "Vibe Footsteps", "Brazilian Funk
+		-- Phonk FootSteps" -- and **not one of them loaded**: since Roblox's 2022 audio-privacy
+		-- change, audio uploaded by another user is private to that user's own experiences. Twelve
+		-- plausible ProSoundEffects ids near this pack's own numbers were tried directly: ten did not
+		-- exist. So the usable pool is exactly three things -- the ids this repo already has, a
+		-- Roblox-OWNED `rbxasset://` engine asset, and an upload Karen pays for.
+		--
+		-- `rbxasset://sounds/action_footsteps_plastic.mp3` is the engine's own walking loop
+		-- (MEASURED: loads, 2.48 s) and it is a soft muffled step rather than a clop, which is the
+		-- half of her sentence this can honestly fix. It is pitched DOWN so it reads as something
+		-- heavier than a person on soft ground -- `pitch` multiplies the stride rate, which still
+		-- matches the ground, and the two are separate numbers so they cannot be confused.
+		--
+		-- NOBODY IN THIS TOOLCHAIN CAN HEAR A SAMPLE, which is the standing rule of every sound round
+		-- since task 116: **Karen's ears decide**. If this is still wrong the honest next step is an
+		-- upload, not another guess.
+		walk = {
+			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
+			was = 9114623726, -- "Goat Footsteps Only 1"
+			volume = 0.15,
+			-- `steps = true` MARKS THIS AS A FOOTSTEP ROW, which is what tells `Body.makeSound`
+			-- to apply `pitch` as a PitchShiftSoundEffect instead of as a playback speed
+			-- (task 129): a footstep has a stride to keep and a squeal does not.
+			steps = true,
+			pitch = 0.7,
+			baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond,
+			audibleStuds = 40,
+		},
+		trot = {
+			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
+			was = 9114623726, -- "Goat Footsteps Only 1"
+			volume = 0.2,
+			-- `steps = true` MARKS THIS AS A FOOTSTEP ROW, which is what tells `Body.makeSound`
+			-- to apply `pitch` as a PitchShiftSoundEffect instead of as a playback speed
+			-- (task 129): a footstep has a stride to keep and a squeal does not.
+			steps = true,
+			pitch = 0.8,
+			baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond,
+			audibleStuds = 40,
+		},
+		run = {
+			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
+			was = 9114127078, -- "Donkey Footsteps 1"
+			volume = 0.3,
+			-- `steps = true` MARKS THIS AS A FOOTSTEP ROW, which is what tells `Body.makeSound`
+			-- to apply `pitch` as a PitchShiftSoundEffect instead of as a playback speed
+			-- (task 129): a footstep has a stride to keep and a squeal does not.
+			steps = true,
+			pitch = 0.95,
+			baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond,
+			audibleStuds = 40,
+		},
 	},
-	-- Calm grunts while it is idling or grazing. The interval is random inside the band so a sounder
-	-- does not grunt in chorus.
+	-- GRUNTS, AND THEY ARE THE SOUND THAT TELLS A HUNTER SOMETHING IS COMING (task 123). Karen,
+	-- 2026-10-05: *"when they cross road or they close they don't make any pig sound besides walking
+	-- / and I hear only when it;s close inaf to me if it's far away I don't hear"*.
+	--
+	-- TWO THINGS CHANGE, AND BOTH WERE WRONG RATHER THAN MISTUNED.
+	--
+	--   * `MAX_SPEED` WAS 6, so a boar grunted only while GRAZING. A pushed herd moves at 4 to 18
+	--     studs/s, so every crossing Karen watched was hooves and no pig at all. It is `RUN_FROM`
+	--     now: an animal grunts while it WALKS and TROTS, and a RUNNING one snorts instead
+	--     (`BREATH.MIN_SPEED` is the same number, so the two bands meet and cannot overlap).
+	--   * IT IS THE LONG-RANGE CUE: 85 -> 160 studs, volume 0.5 -> 0.8, and a PLATEAU OF ITS OWN at
+	--     60 studs. `RollOffMode.InverseTapered` falls as `nearStuds / distance`, so on the shared
+	--     24-stud plateau a grunt at 120 studs arrived at 24/120 x 0.5 = 0.10 -- inaudible, which is
+	--     exactly "if it's far away I don't hear". At 60/120 x 0.8 = 0.40 it is a pig in the wood a
+	--     hundred studs off, and it still tapers to nothing by 160.
+	--
+	-- 4-9 s rather than 3-8: ONE animal of a sounder grunts per interval now (see `CROWD`), so the
+	-- band is the herd's own rate and a slower one is a calmer wood.
 	GRUNTS = {
+		-- BACK, AND ONCE PER FLOCK (task 123 round 6). Karen, after a round with no pig voice at
+		-- all: *"we can have one hriu sound per flack when they are close"*.
+		--
+		-- IT IS NO LONGER AN INTERVAL CUE, IT IS AN EVENT. `ON_APPROACH` tells `Body.stepSound` to
+		-- stop running the grunt countdown entirely, and `Runtime:_stepApproachGrunts` plays exactly
+		-- ONE grunt per GROUP -- a sounder, or a lone animal -- the first time that group comes
+		-- within `CLOSE_STUDS` of a hunter. It then stays silent until the group has gone back
+		-- beyond `REARM_STUDS` and come in again, so a herd milling about on the road does not
+		-- mutter at him for a minute.
+		--
+		-- `MAX_SPEED`, `MIN_SECONDS` and `MAX_SECONDS` below belong to the interval mode and are
+		-- kept rather than deleted: they are what rounds 2 and 3 measured, and `ON_APPROACH = false`
+		-- is the one word that brings that mode back.
+		enabled = true,
+		ON_APPROACH = true,
+		-- "WHEN THEY ARE CLOSE" as a number. 50 studs is a little past the 40 the footsteps carry,
+		-- so the grunt arrives just BEFORE a hunter can hear hooves -- which is the order he wants
+		-- them in.
+		CLOSE_STUDS = 50,
+		-- ...and it re-arms only once the group has gone properly away again: a little over twice
+		-- `CLOSE_STUDS`, so an animal loitering at 55 studs cannot re-trigger it by drifting.
+		REARM_STUDS = 110,
 		ids = { 9117357588, 9117352464, 9117344600 }, -- "Pig Grunts 2 / 3 / 6"
-		-- 0.45 -> 0.5, 70 -> 85 studs (task 120): a herd muttering is the second thing a waiting
-		-- hunter gets, after its hooves and before it is visible.
-		volume = 0.5,
-		audibleStuds = 85,
-		MIN_SECONDS = 3,
-		MAX_SECONDS = 8,
-		MAX_SPEED = 6, -- only while calm: a bolting boar breathes instead
+		volume = 0.8,
+		audibleStuds = 160,
+		nearStuds = 60, -- its own roll-off plateau: the one cue that has to carry
+		MIN_SECONDS = 4,
+		MAX_SECONDS = 9,
+		MAX_SPEED = RUN_FROM, -- walking and trotting animals grunt; a running one breathes
 	},
 	-- Breathing and snorts while it is running.
 	BREATH = {
+		-- OFF (task 123 round 4), for the same sentence and in the same way as `GRUNTS`: the only
+		-- sound a boar makes now is the one it makes when it is shot.
+		enabled = false,
 		ids = { 9113629992, 9113630137 }, -- "Bull Breaths 8 / 10"
 		-- 0.5 -> 0.55, 60 -> 95 studs (task 120): an animal that is WORKING is heard about as far
 		-- as it is running, which is the cue that says the thing coming is moving fast.
 		volume = 0.55,
-		audibleStuds = 95,
+		audibleStuds = 90,
 		MIN_SECONDS = 1.5,
 		MAX_SECONDS = 3.0,
-		MIN_SPEED = 11, -- TROT_FROM: it is working
+		-- RUNNING, NOT MERELY TROTTING (task 123). It was 11 -- a trot -- which is the band the
+		-- grunt now owns, and a trotting herd that snorts instead of grunting is the "pig sound"
+		-- Karen could not hear. The same number as `GRUNTS.MAX_SPEED`, so the two bands MEET: the
+		-- `if speed <= GRUNTS.MAX_SPEED ... elseif speed >= BREATH.MIN_SPEED` in `Body.stepSound`
+		-- gives the meeting point to the grunt, and no animal can ever do both.
+		MIN_SPEED = RUN_FROM,
 	},
 	-- One-shots. `hit` is the bullet landing, `cry` the animal, and they play together on a non-vital
 	-- or a crippling hit -- a vital hit gets the hit sound and then the death.
@@ -772,27 +1413,72 @@ Boar.CONFIG.SOUND = {
 			grunt = { 9117344600 }, -- "Pig Grunts 6"
 		},
 	},
-	-- SIX ANIMALS MUST NOT SOUND LIKE SIX ANIMALS ---------------------------------------------------
-	-- Karen: "we need also think about sound when there is several walking and several sqeeng it
-	-- could be anoying and shit sound / so we need realistic". A sounder is up to six boars, each
-	-- with its own hooves and its own voice, and six copies of one sample playing together is a wall
-	-- of noise rather than a herd. Four limits, all data:
+	-- TWENTY ANIMALS MUST NOT SOUND LIKE TWENTY ANIMALS --------------------------------------------
+	-- Karen, 2026-10-04: "we need also think about sound when there is several walking and several
+	-- sqeeng it could be anoying and shit sound / so we need realistic", and after playing the
+	-- Forest Test on 2026-10-05: *"to many noise, when boars are walking and there is many only 1-2
+	-- sounds"*. Every boar's trunk carries its own footstep loop, its own grunts and its own
+	-- breathing, so twenty walking animals are twenty of each, which is a wall of noise rather than
+	-- a herd.
 	--
-	--   * ONE GRUNT PER SOUNDER AT A TIME, with a gap: a herd mutters, it does not chorus. A grunt
-	--     that loses the race is SKIPPED, not queued -- the boar simply waits for its next interval,
-	--     which is what a real animal that did not grunt does.
+	-- TWO RATIONS, AND THEY MULTIPLY. An animal is heard only if BOTH allow it.
+	--
+	--   1. PER SOUNDER: at most `VOICES_PER_SOUNDER` members carry the footstep loop and the
+	--      breathing, and the sounder grunts `GRUNTS_PER_SOUNDER` times per `GRUNTS` interval --
+	--      the GROUP grunts, not each animal in it. Who holds a voice is the FRONT of the herd:
+	--      its leader plus the next members by the same "nearest the exit line" rule the leader is
+	--      chosen by, so there is one answer to "where is the front" and not two. It is STICKY --
+	--      re-picked only when a holder dies or leaves -- because a loop handed between jostling
+	--      animals every step stops and restarts, which is worse than one slightly behind the front.
+	--
+	--   2. WORLD-WIDE, NEAREST A LISTENER FIRST: at most `MAX_STEP_VOICES` footstep loops,
+	--      `MAX_BREATH_VOICES` breaths and `MAX_MUTTER_VOICES` grunts/sniffs sound anywhere at
+	--      once, and the animals CLOSEST to a hunter get them.
+	--
+	-- WHY THE SECOND ONE EXISTS, MEASURED (task 123). The per-sounder ration alone was already on
+	-- for a whole task and Karen still heard twenty animals, because A RELEASE OF TWENTY IS NOT A
+	-- SOUNDER FOR LONG. Counted in the Forest Test with 23 boars out: THREE sounders, holding 3, 3
+	-- and 4 animals -- the other THIRTEEN were lone boars, each with a full voice, because members
+	-- leave (`SOUNDER.BREAK_STUDS` for `BREAK_SECONDS`, `LEAVE_ON_MORTAL`) and a ring of twenty
+	-- inside `SEPARATION_STUDS` shoves itself apart. What a hunter actually heard was 13 footstep
+	-- loops and 14 grunts at once. A rule keyed on MEMBERSHIP governed ten animals out of
+	-- twenty-three; a rule keyed on WHAT IS NEAR THE LISTENER governs all of them, and "you hear
+	-- what is close to you" is also the realistic answer.
+	--
 	--   * TWO SQUEALS WORLD-WIDE. A third animal crying or dying inside the window makes no sound.
 	--     Deaths and reactions share the budget, so a sounder shot into cannot stack five squeals.
-	--   * ONE SET OF HOOVES PER SOUNDER: the leader's. Five animals running together are one sound
-	--     with one position, which is also what they are to a listener fifty studs away.
+	--     THE ONE-SHOTS ARE NOT IN THE VOICE RATION: the hit, the cry, the death and the last
+	--     breath belong to the animal that was shot, and a budget that could silence the animal
+	--     Karen just hit would hide the one thing a shot has to tell her.
 	--   * FAR ANIMALS ARE QUIETER than the roll-off alone makes them, measured from the nearest
 	--     hunter, so a sounder crossing the far end of the field is background and not an event.
 	CROWD = {
 		ENABLED = true,
-		SOUNDER_GRUNT_GAP = 2.5, -- seconds between grunts from ONE sounder, whoever makes them
+		-- 1 AND NOT 2 (task 123 round 2). Karen, having heard two: *"Still to much noise ... and it
+		-- shouldnt be chaotic sounds"*. A herd has ONE set of hooves.
+		VOICES_PER_SOUNDER = 1, -- members of ONE sounder carrying footsteps and breathing
+		GRUNTS_PER_SOUNDER = 1, -- grunts from ONE sounder per GRUNTS interval, whoever makes them
+		-- THE WORLD CEILINGS, and after round 3 they add up to THREE. Karen: *"still to noisy"*,
+		-- and the Director's number is "never more than ~3 boar sounds at once anywhere". One set of
+		-- hooves plus two mutters is three; the breaths only exist while something runs, and a
+		-- running animal does not grunt, so the running total is the same three. Karen's dials.
+		MAX_STEP_VOICES = 1,
+		-- ...AND IT DOES NOT CHANGE HANDS QUICKLY (task 123 round 4). Karen: *"do not mix lot's so
+		-- steps will be noisey and caotic"*. The ceiling is awarded nearest-first and the nearest
+		-- animal changes several times a second in a moving herd, so one voice world-wide can still
+		-- read as many: each swap STOPS one loop and STARTS another, which is the mixing. The holder
+		-- keeps it for this long while it is still moving and still a candidate.
+		STEP_HOLD_SECONDS = 3,
+		MAX_BREATH_VOICES = 2,
+		MAX_MUTTER_VOICES = 2, -- grunts and the sniff: the same ambient muttering to a listener
+		-- ...AND NO TWO GRUNTS START TOGETHER ANYWHERE (task 123 round 2). Karen: *"it shouldnt be
+		-- chaotic sounds"*. The ceilings bound how many are SOUNDING; this bounds how often one
+		-- STARTS, world-wide and across sounders -- which is the difference between a wood with pigs
+		-- in it and a wood where four pigs grunt on the same frame. A refused grunt is skipped, like
+		-- every other refusal here, and the animal waits for its own next interval.
+		GRUNT_GAP_SECONDS = 1.2,
 		MAX_SQUEALS = 2, -- cries and deaths, world-wide, at once
 		SQUEAL_SECONDS = 1.2, -- how long one counts as sounding against that budget
-		ONE_STEP_EMITTER = true, -- a sounder's footsteps come from its leader and nobody else
 		-- THE FAR FADE STARTS WHERE THE APPROACH IS ALREADY HEARD (task 120, Karen the same day:
 		-- "when its verry fal I cant hear them"). Its job is to stop a herd two fields away being
 		-- an EVENT, not to make it inaudible -- so it begins at 90 studs, past the distance a
@@ -808,7 +1494,8 @@ Boar.CONFIG.SOUND = {
 	-- toolchain can search the audio library and inventing an id would be a number nobody has heard.
 	-- It is one number in this table: the Director or Karen can swap it for a real pig snort without
 	-- touching code, and nobody here can hear either.
-	SNIFF = { id = 9113630137, volume = 0.55, audibleStuds = 55, pitch = 1.25 },
+	-- ...AND OFF TOO (task 123 round 4): a head coming up is a pig sound, and Karen asked for none.
+	SNIFF = { enabled = false, id = 9113630137, volume = 0.55, audibleStuds = 55, pitch = 1.25 },
 }
 
 -- WHAT A BOAR DOES WHEN NOTHING IS WRONG (task 117). Karen, 2026-10-03: "boar also can move alon and
@@ -1056,7 +1743,7 @@ Boar.CONFIG.MODEL = {
 	-- A brisk but believable walk: 1.8x is a 0.58 s stride. Past that the animal is trotting.
 	WALK_MAX_RATE = WALK_MAX_RATE,
 	TROT_FROM = BOAR_CLIPS.walk.groundStudsPerSecond * WALK_MAX_RATE,
-	RUN_FROM = (Boar.CONFIG.TROT_SPEED + Boar.CONFIG.SPRINT_SPEED) / 2,
+	RUN_FROM = RUN_FROM,
 	-- A TURN IN PLACE, and it is reachable only below WALK_FROM on purpose: Turn_L/R are pivots
 	-- whose hooves travel 1.855 studs/s, so at any real speed they skate. 60 deg/s is a quarter of
 	-- the Brain's own TURN_RATE ceiling (4 rad/s = 229 deg/s), which is a deliberate turn rather
@@ -1156,9 +1843,43 @@ Boar.CONFIG.MODEL = {
 -- IT IS NOT THE LEADER THAT IS THE SOW. The leader is whoever is nearest the exit line
 -- (`_chooseLeader`) and it changes while they run; which animal each member IS is decided once, at
 -- the spawn, and never again. A sow that falls behind her cubs is still the sow.
-function Boar.sounderKinds(size: number, rolls: { number }, config)
-	local kinds = {}
+-- HOW MANY ANIMALS A NAMED COMPOSITION IS (task 123 round 8). Pure, and the only place the three
+-- counts are added up, so "the size of this wave" and "who is in it" can never disagree.
+function Boar.compositionSize(composition): number
+	if type(composition) ~= "table" then
+		return 0
+	end
+	return math.max(0, math.floor(composition.females or 0))
+		+ math.max(0, math.floor(composition.cubs or 0))
+		+ math.max(0, math.floor(composition.males or 0))
+end
+
+-- WHO IS IN A SOUNDER. With a `composition` it is a DECISION and no number is drawn at all -- the
+-- counts are the answer (task 123 round 8). Without one it is the old random shape: a sow and her
+-- young, with a chance of a yearling male among them.
+function Boar.sounderKinds(size: number, rolls: { number }, config, composition)
 	local makeup = config.SOUNDER.MAKEUP
+	if type(composition) == "table" then
+		local named = {}
+		for _ = 1, math.max(0, math.floor(composition.females or 0)) do
+			table.insert(named, makeup.SOW)
+		end
+		for _ = 1, math.max(0, math.floor(composition.cubs or 0)) do
+			table.insert(named, makeup.YOUNG)
+		end
+		for _ = 1, math.max(0, math.floor(composition.males or 0)) do
+			table.insert(named, makeup.LONE)
+		end
+		-- WITH `KINDS` OFF EVERY ANIMAL IS STILL THE ONE BOX THIS GAME HAS ALWAYS SPAWNED, because
+		-- the kinds are what the flag turns on -- a composition asks for a shape, not for a flag.
+		if not (config.KINDS ~= nil and config.KINDS.ENABLED == true) then
+			for index = 1, #named do
+				named[index] = config.KINDS and config.KINDS.DEFAULT or "male"
+			end
+		end
+		return named
+	end
+	local kinds = {}
 	local on = config.KINDS ~= nil and config.KINDS.ENABLED == true
 	for index = 1, math.max(0, math.floor(size)) do
 		if not on then
@@ -1180,6 +1901,13 @@ function Boar.defaultWorld(field)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = {}
+	-- SOLID THINGS ONLY (task 123 round 3). The question this probe is asked is "is there something
+	-- in front of me that I cannot walk through", and leaves are not. `Workspace:Raycast` hits
+	-- non-colliding parts unless told otherwise, so in a wood of 1,549 trees the foliage answered
+	-- for the trunks. MEASURED in the Forest Test: 4.3 % of forward casts hit SOMETHING against
+	-- 2.2 % that hit something solid -- so leaves were doubling it, on a rate that is small either
+	-- way. A correctness fix, not the cause of the twitch.
+	params.RespectCanCollide = true
 	local paths = {} -- agentId -> Path, one per boar, created once
 	local blockedListeners = {} -- agentId -> the Runtime's onBlocked for that boar
 	local pathProblems = {} -- reason -> count, EVERY ComputeAsync failure, not just the last
@@ -1287,6 +2015,13 @@ Runtime.__index = Runtime
 
 -- Flat (XZ) copy of a position. Every distance this file measures is a flat one: a boar on a slope
 -- is not further away than one on the level.
+-- A FLAT DIRECTION ROTATED ABOUT Y (task 123 round 3), for the trunk whiskers. The Brain has its own
+-- `rotateY`; this is the Runtime's, because the Runtime is what casts the rays.
+local function turnFlat(v: Vector3, radians: number): Vector3
+	local cosine, sine = math.cos(radians), math.sin(radians)
+	return Vector3.new(v.X * cosine - v.Z * sine, 0, v.X * sine + v.Z * cosine)
+end
+
 local function flatOf(v: Vector3): Vector3
 	return Vector3.new(v.X, 0, v.Z)
 end
@@ -1360,6 +2095,15 @@ function Boar.newRuntime(world)
 	-- WHEN EACH SQUEAL STOPS COUNTING against `SOUND.CROWD.MAX_SQUEALS` (task 120). One list per
 	-- runtime, and production has exactly one runtime, so "two at once" is world-wide.
 	self._squeals = {}
+	-- WHEN THE LAST GRUNT STARTED, anywhere (task 123 round 2). Karen: *"it shouldnt be chaotic
+	-- sounds"*. The ceilings bound how many grunts are SOUNDING; this bounds how often one STARTS.
+	self._lastGruntAt = -math.huge
+	-- The last shot this runtime heard, for `PACE.SPOOK_MEMORY_SECONDS`.
+	self._lastShotAt = -math.huge
+	self._lastShotPos = nil :: Vector3?
+	-- WHO HOLDS THE WORLD'S ONE FOOTSTEP VOICE, and since when (task 123 round 4).
+	self._stepVoiceId = nil :: string?
+	self._stepVoiceAt = 0
 	self._nextSounderId = 0
 	-- EVERY STIMULUS'S MEASURED SPEED (task 118, design section 4.6), written here and nowhere else:
 	-- id -> { position, speed }. A character's own `AssemblyLinearVelocity` is network-owned by that
@@ -1378,6 +2122,11 @@ function Boar.newRuntime(world)
 		pathFailures = 0,
 		pathBlocked = 0,
 		spawned = 0,
+		-- ...of which this many arrived already running, because a shot had gone off inside
+		-- `PACE.SPOOK_MEMORY_SECONDS` (task 123 round 3).
+		spawnedSpooked = 0,
+		-- One per flock per approach (task 123 round 6).
+		approachGrunts = 0,
 		despawned = 0,
 		hits = 0,
 		pelletsTaken = 0,
@@ -1554,6 +2303,11 @@ function Runtime:hearShot(at: Vector3): number
 		return 0
 	end
 	table.insert(self._sounds, { kind = "shot", position = at })
+	-- WHEN AND WHERE THE LAST BANG WAS (task 123 round 3). Karen: *"next flot comes without spook if
+	-- there wasant driver or shoot withing 5s otherwise running"*. An animal spawned inside
+	-- `PACE.SPOOK_MEMORY_SECONDS` of this did not exist to hear it, so `Runtime:spawn` hands it on.
+	self._lastShotAt = os.clock()
+	self._lastShotPos = at
 	local told = 0
 	for _, entry in ipairs(self._boars) do
 		local state = entry.brain:state()
@@ -1613,6 +2367,20 @@ function Runtime:_measureMotion(threats, dt: number)
 		end
 	end
 	return out
+end
+
+-- WHAT THIS RUNTIME WAS BUILT WITH, which is NOT `Boar.CONFIG` (task 122 round 2).
+--
+-- `newRuntime` clones the module's config and merges the world's over it, so the live answer to "are
+-- kinds on here?" lives on the runtime and nowhere else. A world that asked for females and piglets
+-- and then read `Boar.CONFIG` would be told the flag's default -- which is exactly the bug the
+-- Reviewer found in `ForestTest.releaseLine`: every animal in every line spawned "male", so the
+-- sow-led file the whole line mode is built around could not exist.
+--
+-- RETURNED AS IT IS, not cloned: the caller READS it. `newRuntime` froze nothing here before and a
+-- clone per call would be a lie about ownership -- this table is the runtime's.
+function Runtime:config()
+	return self._config
 end
 
 function Runtime:stats()
@@ -1845,39 +2613,212 @@ function Runtime:_claimSqueal(): boolean
 	return true
 end
 
--- WHAT ONE ANIMAL IS ALLOWED TO MAKE A NOISE WITH THIS STEP, and how loud its voice is (task 120).
--- The Runtime answers this because it is the only thing that knows where the hunters are and what
--- the rest of the sounder is doing. With `CROWD` off it answers nil and sets the scale to 1, which
--- is the world every spec before this task asserts.
-function Runtime:_voiceFor(entry, threats, now: number)
+-- HOW FAR EVERY ANIMAL IS FROM THE NEAREST HUNTER, AND WHO THE WORLD HEARS (task 123). Once per
+-- step, before any boar is asked to make a noise, because a ceiling on "how many footstep loops
+-- sound at once" cannot be answered one animal at a time.
+--
+-- IT IS ALSO WHERE THE DISTANCE IS MEASURED, once, for both jobs: the far fade (task 120) wants the
+-- same number, and measuring it twice would be the same arithmetic in two places.
+--
+-- THE TWO RATIONS RUN IN SERIES, AND THAT ORDER IS THE DESIGN. The sounder's gate comes FIRST --
+-- is this animal one of its herd's two voices, is its herd's grunt slot open -- and the world's
+-- ceiling is then awarded among whoever is left. ANDing two independent answers looks equivalent
+-- and is not: the herd ranks its own voices at its FRONT (nearest the exit line, the same rule its
+-- leader is chosen by) while the world ranks by distance to the hunter, and a FLEEING herd's front
+-- is its farthest animal from him. The two sets can be disjoint, and then a whole running sounder
+-- is silent with slots to spare. In series a slot is never spent on an animal something else has
+-- already silenced.
+--
+-- A SLOT ALSO ONLY GOES TO AN ANIMAL THAT WOULD USE IT. MEASURED: with the ceilings in and 40 boars
+-- out, three samples in a row counted ZERO sounds playing -- the three footstep slots had gone to
+-- the three animals nearest the hunter, which were standing still, while a herd walked past a
+-- hundred studs away. "A herd never goes silent while it moves" is the one thing this task must not
+-- break. The bands below are `Body.stepSound`'s own, so eligibility and the cue cannot disagree.
+--
+-- With `CROWD` off every animal is allowed everything, which is the world every spec written before
+-- task 120 asserts.
+function Runtime:_rationVoices(snapshot, threats, now: number)
+	local sound = self._config.SOUND
+	local crowd = sound.CROWD
+	local rationing = crowd ~= nil and crowd.ENABLED == true
+	local stepRows, breathRows, mutterRows = {}, {}, {}
+	for _, entry in ipairs(self._boars) do
+		local sample = snapshot and snapshot[entry.id]
+		local at = if sample then sample.position else Body.position(entry.body)
+		local nearest = nil
+		-- ...AND THE NEAREST HUNTER SEPARATELY (task 123 round 6). The approach grunt is about a MAN,
+		-- and `nearest` is the nearest ANYTHING -- which in this world is almost always the phantom
+		-- beater 11 studs behind the herd. A driver is not somebody to grunt at.
+		local hunterNearest = nil
+		-- `or {}` like every other consumer of this list (task 120, review round 1 note): a world
+		-- whose `threats()` answers nil behaves instead of erroring every step.
+		for _, threat in ipairs(threats or {}) do
+			if typeof(threat.position) == "Vector3" then
+				local flat = Vector3.new(threat.position.X - at.X, 0, threat.position.Z - at.Z).Magnitude
+				if nearest == nil or flat < nearest then
+					nearest = flat
+				end
+				if (threat.kind or "driver") ~= "driver" and (hunterNearest == nil or flat < hunterNearest) then
+					hunterNearest = flat
+				end
+			end
+		end
+		entry.voiceNearest = nearest
+		entry.hunterNearest = hunterNearest
+		if not rationing then
+			entry.stepVoice, entry.breathVoice, entry.mutterVoice = true, true, true
+		else
+			-- NOTHING TO LISTEN TO MEANS INFINITELY FAR, not nearest: a world with no hunter in it
+			-- still has to rank deterministically, and `math.huge` plus the id tie-break does that.
+			local row = { id = entry.id, distance = nearest or math.huge }
+			-- The body's MEASURED speed, which lags the setpoint by the ACCEL ramp -- so an animal
+			-- just starting to move waits a frame or two for its slot. That is the right way round:
+			-- the alternative hands a slot to an animal that has not moved yet.
+			local velocity = if sample then sample.velocity else Body.velocity(entry.body)
+			local speed = (velocity * Vector3.new(1, 0, 1)).Magnitude
+			-- THE SOUNDER GATE, FIRST. A lone boar -- which is most of a released group within a
+			-- minute, measured -- passes it with nothing to check.
+			local record = self:_sounderRecord(entry.sounderId)
+			local holder = record == nil or Boar.hasVoice(record.voiceIds, entry.id, self._config)
+			-- ONE SOUNDER, ONE GRUNT PER INTERVAL: the group mutters, not each animal in it. A
+			-- grunt that finds the slot taken is SKIPPED, never queued -- the boar waits for its
+			-- next interval like a real animal that had nothing to say. Queuing it would move the
+			-- chorus a second later rather than remove it.
+			local mayGrunt = record == nil or (record.gruntAgainAt or 0) <= now
+			-- ...AND NOBODY AT ALL GRUNTS WITHIN `GRUNT_GAP_SECONDS` OF THE LAST ONE (task 123
+			-- round 2). This is the rule that stops two sounders and three lone boars grunting on
+			-- the same frame: the per-sounder slot cannot see across groups, and most of a released
+			-- group is lone animals, so without it "one grunt per sounder" is still a chorus.
+			if crowd.GRUNT_GAP_SECONDS ~= nil and now - self._lastGruntAt < crowd.GRUNT_GAP_SECONDS then
+				mayGrunt = false
+			end
+			if not entry.body.collapsed then
+				if holder and speed >= sound.STEPS.MIN_SPEED then
+					table.insert(stepRows, row)
+				end
+				if holder and speed >= sound.BREATH.MIN_SPEED then
+					table.insert(breathRows, row)
+				end
+				if mayGrunt and speed <= sound.GRUNTS.MAX_SPEED then
+					table.insert(mutterRows, row)
+				end
+			end
+		end
+	end
+	if not rationing then
+		return
+	end
+	local steps = Boar.nearestVoices(stepRows, crowd.MAX_STEP_VOICES)
+	-- ONE SET OF HOOVES, AND IT STAYS WITH THE SAME ANIMAL (task 123 round 4). Without this the
+	-- world's single footstep voice is re-awarded every step to whoever is nearest, and a herd
+	-- walking past hands it along the line -- each hand-off stopping one loop and starting another,
+	-- which is exactly the "noisey and caotic" mixing. The holder keeps it for `STEP_HOLD_SECONDS`
+	-- as long as it is still a candidate; when it stops moving or walks out of earshot the next
+	-- nearest takes it on the same frame, so the herd is never silent while it moves.
+	local hold = crowd.STEP_HOLD_SECONDS
+	if hold ~= nil and self._stepVoiceId ~= nil and now - self._stepVoiceAt < hold then
+		for _, row in ipairs(stepRows) do
+			if row.id == self._stepVoiceId then
+				steps = { [self._stepVoiceId] = true }
+				break
+			end
+		end
+	end
+	if steps[self._stepVoiceId] ~= true then
+		self._stepVoiceId = nil
+		for id in pairs(steps) do
+			self._stepVoiceId = id
+			self._stepVoiceAt = now
+			break
+		end
+	end
+	local breaths = Boar.nearestVoices(breathRows, crowd.MAX_BREATH_VOICES)
+	local mutters = Boar.nearestVoices(mutterRows, crowd.MAX_MUTTER_VOICES)
+	for _, entry in ipairs(self._boars) do
+		entry.stepVoice = steps[entry.id] == true
+		entry.breathVoice = breaths[entry.id] == true
+		entry.mutterVoice = mutters[entry.id] == true
+	end
+end
+
+-- ONE GRUNT PER FLOCK, ON APPROACH (task 123 round 6). Karen: *"we can have one hriu sound per
+-- flack when they are close"*.
+--
+-- A GROUP IS A SOUNDER OR ONE LONE ANIMAL, and the arming state lives on whichever of the two owns
+-- it -- the sounder record, or the boar's own entry. It is armed when it is born, fires once inside
+-- `GRUNTS.CLOSE_STUDS` of a HUNTER, and re-arms only past `REARM_STUDS`.
+--
+-- THREE THINGS CAN REFUSE IT, AND NONE OF THEM DISARMS THE GROUP: a running animal (a fleeing herd
+-- is silent apart from the shot animal's own cries), the world-wide `GRUNT_GAP_SECONDS` so two
+-- flocks arriving together do not grunt on top of each other, and `playOneShot` itself. A refusal is
+-- a SKIP, like every other refusal in this file: the group tries again next step, still armed.
+function Runtime:_stepApproachGrunts(now: number)
+	local sound = self._config.SOUND
+	local grunts = sound.GRUNTS
+	if grunts.enabled == false or grunts.ON_APPROACH ~= true then
+		return
+	end
+	local crowd = sound.CROWD
+	local gap = if crowd ~= nil and crowd.ENABLED == true then crowd.GRUNT_GAP_SECONDS else nil
+	-- WHO SPEAKS FOR EACH GROUP, and how near that group is: the leader of a sounder, or the lone
+	-- animal itself. One pass over the boars, so a sounder of twenty costs one lookup each.
+	local voice, near = {}, {}
+	for _, entry in ipairs(self._boars) do
+		if not entry.body.collapsed then
+			local record = self:_sounderRecord(entry.sounderId)
+			local key = if record ~= nil then record.id else entry.id
+			local distance = entry.hunterNearest
+			if distance ~= nil and (near[key] == nil or distance < near[key]) then
+				near[key] = distance
+			end
+			-- The leader speaks. Until there is one -- the tick a herd forms, or the tick after its
+			-- leader died -- whoever came first does, because a missing sound is a worse fault than
+			-- an early one.
+			if record == nil or record.leaderId == entry.id or voice[key] == nil then
+				voice[key] = entry
+			end
+		end
+	end
+	for key, entry in pairs(voice) do
+		local record = self:_sounderRecord(entry.sounderId)
+		local owner = if record ~= nil then record else entry
+		local distance = near[key]
+		if distance ~= nil then
+			if owner.gruntArmed == false then
+				if distance > grunts.REARM_STUDS then
+					owner.gruntArmed = true
+				end
+			elseif distance <= grunts.CLOSE_STUDS then
+				local speed = (Body.velocity(entry.body) * Vector3.new(1, 0, 1)).Magnitude
+				local quiet = speed < self._config.MODEL.RUN_FROM
+				local spaced = gap == nil or now - self._lastGruntAt >= gap
+				if quiet and spaced and Body.playOneShot(entry.body, "grunt", grunts, self._config, self._rng) then
+					owner.gruntArmed = false
+					self._lastGruntAt = now
+					self._stats.approachGrunts += 1
+				end
+			end
+		end
+	end
+end
+
+-- WHAT ONE ANIMAL IS ALLOWED TO MAKE A NOISE WITH THIS STEP, and how loud its voice is (task 120,
+-- rationed per layer in task 123). Both answers were decided for the whole world one pass ago, by
+-- `_rationVoices`; this is where one animal reads its own. With `CROWD` off it answers nil and sets
+-- the scale to 1, which is the world every spec before task 120 asserts.
+function Runtime:_voiceFor(entry)
 	local crowd = self._config.SOUND.CROWD
 	if crowd == nil or crowd.ENABLED ~= true then
 		Body.setVoiceScale(entry.body, 1)
 		return nil
 	end
-	local at = Body.position(entry.body)
-	local nearest = nil
-	-- `or {}` like every other consumer of this list (review round 1, note): a world whose
-	-- `threats()` answers nil behaves instead of erroring every step.
-	for _, threat in ipairs(threats or {}) do
-		if typeof(threat.position) == "Vector3" then
-			local flat = Vector3.new(threat.position.X - at.X, 0, threat.position.Z - at.Z).Magnitude
-			if nearest == nil or flat < nearest then
-				nearest = flat
-			end
-		end
-	end
-	Body.setVoiceScale(entry.body, Body.farScale(nearest, self._config))
-
-	local record = self:_sounderRecord(entry.sounderId)
-	if record == nil then
-		return { grunt = true, steps = true } -- a lone boar competes with nobody
-	end
+	Body.setVoiceScale(entry.body, Body.farScale(entry.voiceNearest, self._config))
+	-- `~= false` AND NOT `== true`: an animal that spawned after the ration ran has no answer yet,
+	-- and the safe way round is audible. A missing sound is a worse fault than a doubled one.
 	return {
-		grunt = (record.gruntAgainAt or 0) <= now,
-		-- The leader is the one set of hooves. With no leader yet (the first tick after one dies)
-		-- nobody is silenced, which is the safe way round: a missing sound is worse than a late one.
-		steps = Boar.isStepEmitter(record.leaderId, entry.id, self._config),
+		steps = entry.stepVoice ~= false,
+		breath = entry.breathVoice ~= false,
+		grunt = entry.mutterVoice ~= false,
 	}
 end
 
@@ -1905,37 +2846,75 @@ function Runtime:_entryById(id: string?)
 	return nil
 end
 
--- The member nearest the exit line leads, tie-broken by id: the animal at the front leads, and it
--- is one line and deterministic. `promoted` is false the first time (a spawn is not a promotion).
-function Runtime:_chooseLeader(record, promoted: boolean)
-	local best, bestKey = nil, nil
+-- THE MEMBERS, FRONT FIRST: `Boar.marchOrder` -- the sow, then the young, then the males, and
+-- within a kind the one nearest the exit line. ONE rule, because the leader, the formation slots and
+-- the voice holders (task 123) are all "the front of the herd", and three sorts would be three
+-- answers to one question -- this project's named killer (docs/PROJECT_CONTEXT.md).
+function Runtime:_frontRanked(record)
+	local members, rows = {}, {}
 	for _, id in ipairs(record.memberIds) do
 		local entry = self:_entryById(id)
 		if entry then
-			local key = math.abs(Body.position(entry.body).Z - self._field.exitZ)
-			if best == nil or key < bestKey or (key == bestKey and entry.id < best.id) then
-				best, bestKey = entry, key
-			end
+			members[entry.id] = entry
+			table.insert(rows, {
+				id = entry.id,
+				kind = entry.kind,
+				key = math.abs(Body.position(entry.body).Z - self._field.exitZ),
+			})
 		end
 	end
+	local ordered = {}
+	for _, id in ipairs(Boar.marchOrder(rows, self._config)) do
+		table.insert(ordered, members[id])
+	end
+	return ordered
+end
+
+-- ...AND THE FORMATION SLOTS FOLLOW IT (task 123 round 3). A slot is where a member steers to
+-- relative to its leader (`Brain:_slotPoint`), so the march order is expressed by WHICH SLOT each
+-- animal holds and nothing about how slots work changes.
+--
+-- DRAWN ONCE, NOT PER STEP, and that is a decision with a measurement behind it: the kind rank is
+-- stable but the distance-to-exit is not, so two animals abreast swap order several times a second.
+-- Re-sorting every step would hand each of them a different slot every frame, which is a cause of
+-- the twitching Karen complained about. It is redrawn when the leader changes or a member leaves,
+-- which is exactly when the order can actually be wrong.
+function Runtime:_assignMarchSlots(record, ranked)
+	for index, entry in ipairs(ranked or self:_frontRanked(record)) do
+		entry.slot = index
+	end
+end
+
+-- WHO CARRIES THIS HERD'S HOOVES AND BREATH (task 123). The rule is pure (`Boar.voiceHolders`); this
+-- is the membership it reads, front first. Called wherever membership can change -- a spawn, a
+-- promotion, and every step after the member list is rebuilt -- so a holder that died or left is
+-- replaced and the herd never walks on in silence.
+function Runtime:_refreshVoices(record, ranked)
+	local ids = {}
+	for _, entry in ipairs(ranked or self:_frontRanked(record)) do
+		table.insert(ids, entry.id)
+	end
+	record.voiceIds = Boar.voiceHolders(record.voiceIds, record.leaderId, ids, self._config)
+end
+
+-- The member nearest the exit line leads, tie-broken by id: the animal at the front leads, and it
+-- is one line and deterministic. `promoted` is false the first time (a spawn is not a promotion).
+function Runtime:_chooseLeader(record, promoted: boolean)
+	local ranked = self:_frontRanked(record)
+	local best = ranked[1]
 	if best == nil then
 		record.leaderId = nil
+		record.voiceIds = {}
 		return
 	end
-	-- SLOTS STAY DISTINCT: the new leader takes slot 1 and hands its own slot to whoever held 1.
-	-- Two members sharing a slot would steer at the same point in the formation, which is the one
-	-- way a wedge turns into a collision.
-	local vacated = best.slot
-	if vacated ~= nil and vacated ~= 1 then
-		for _, id in ipairs(record.memberIds) do
-			local other = self:_entryById(id)
-			if other and other.id ~= best.id and other.slot == 1 then
-				other.slot = vacated
-			end
-		end
-	end
+	-- SLOTS STAY DISTINCT, and since task 123 round 3 they are the MARCH ORDER: 1..n down the
+	-- ranked list, so the leader holds slot 1 by construction and nothing has to be swapped. The old
+	-- code moved the new leader into slot 1 and handed its own slot to whoever held it, which kept
+	-- the slots distinct but left the rest of the group in spawn order.
 	record.leaderId = best.id
-	best.slot = 1
+	self:_assignMarchSlots(record, ranked)
+	-- The leader always holds a voice, so this has to run after `leaderId` is written.
+	self:_refreshVoices(record, ranked)
 	if promoted then
 		self._stats.leaderPromotions += 1
 	end
@@ -2091,11 +3070,48 @@ function Runtime:_stepSounders(dt: number, snapshot)
 		-- four ways").
 		if leader then
 			local leaderAt = flatOf(snapshot[leader.id] and snapshot[leader.id].position or Body.position(leader.body))
+			-- A FILE IS HELD TOGETHER LINK BY LINK, SO IT IS MEASURED LINK BY LINK (task 126).
+			--
+			-- THIS WAS THE WHOLE REASON THERE WERE NO LINES, and it took a live read of the sounder
+			-- records to find -- three guesses at the steering before it had moved the measured gap
+			-- from 35 studs to 39. MEASURED, in Karen's own place: a wave arrives as a sounder of
+			-- eight with slots 1..8, and **within about eight seconds it is a sounder of two** and the
+			-- other six are lone boars. By 72 s there were 24 lone animals and one pair.
+			--
+			-- The rule above expels a member that is more than `BREAK_STUDS` (60) from THE LEADER for
+			-- `BREAK_SECONDS` (4), and "a member that left never rejoins". A column of eight at the
+			-- file's own `FILE_PITCH_STUDS` of 7.5 is 52 studs long nose to tail -- and at the 35-stud
+			-- median gap this world actually had, 245 studs long. So every animal but the front two
+			-- was expelled before any formation could form, and then it could not rejoin: the file
+			-- could not exist because the sounder did not.
+			--
+			-- Measuring to the animal AHEAD instead is the same idea as the steering: a queue is a
+			-- chain, and a link is lost when it falls behind the link in front of it -- not when it is
+			-- far from the front of a long column. The distance, the clock and "never rejoins" are all
+			-- unchanged, and with `MOVE.ENABLED` off this is the leader, exactly as before.
+			local move = self._config.MOVE
+			local inFile = move ~= nil and move.ENABLED == true
+			local aheadOf = {}
+			if inFile then
+				local ordered = table.clone(members)
+				table.sort(ordered, function(a, b)
+					local sa, sb = a.slot or math.huge, b.slot or math.huge
+					if sa == sb then
+						return a.id < b.id
+					end
+					return sa < sb
+				end)
+				for link = 2, #ordered do
+					local front = ordered[link - 1]
+					aheadOf[ordered[link].id] =
+						flatOf(snapshot[front.id] and snapshot[front.id].position or Body.position(front.body))
+				end
+			end
 			for position = #members, 1, -1 do
 				local entry = members[position]
 				if entry.id ~= leader.id then
 					local at = snapshot[entry.id] and snapshot[entry.id].position or Body.position(entry.body)
-					if (flatOf(at) - leaderAt).Magnitude > sounderConfig.BREAK_STUDS then
+					if (flatOf(at) - (aheadOf[entry.id] or leaderAt)).Magnitude > sounderConfig.BREAK_STUDS then
 						entry.awayFor += dt
 						if entry.awayFor >= sounderConfig.BREAK_SECONDS then
 							self:_leaveSounder(record, entry, true)
@@ -2111,6 +3127,20 @@ function Runtime:_stepSounders(dt: number, snapshot)
 		record.memberIds = {}
 		for _, entry in ipairs(members) do
 			table.insert(record.memberIds, entry.id)
+		end
+
+		-- THE VOICES GO WITH THE MEMBERSHIP (task 123). A holder that died, bled out of the group or
+		-- walked out of it is replaced here, from the front of whatever is left -- which is the
+		-- whole of "a herd never goes silent while it moves". The holders that are still members
+		-- keep their loops untouched, so nothing restarts.
+		self:_refreshVoices(record)
+
+		-- ...AND SO DOES THE MARCH ORDER, but only when the membership actually CHANGED (task 123
+		-- round 3). Redrawing it every step would re-slot animals that are merely abreast; redrawing
+		-- it never would leave a gap in the line where a shot animal used to walk.
+		if record.lastCount ~= #members then
+			record.lastCount = #members
+			self:_assignMarchSlots(record)
 		end
 
 		-- PANIC SPREADS (task 118, section 5.2), after membership is rebuilt and before any Brain is
@@ -2165,6 +3195,45 @@ function Runtime:_sounderObs(entry, snapshot)
 		end
 	end
 
+	-- WHO IS IMMEDIATELY AHEAD OF ME IN THE FILE (task 126). Karen: *"it could be lines of boars
+	-- like in real life"*.
+	--
+	-- THE ORDER IS THE MARCH ORDER, UNCHANGED. `entry.slot` is what task 123 already assigns from
+	-- `Boar.marchOrder` -- sow first, then females, then cubs, males last -- so the file is that
+	-- order made into a queue, and no sorting rule is invented here. The member one slot in front of
+	-- this one is what the Brain steers behind; the leader has nobody ahead and so gets nil, which is
+	-- the test `_filePoint` uses to leave a leader's steering exactly as it was.
+	local ahead = nil
+	if not isLeader and not scattering then
+		local ordered = {}
+		for _, id in ipairs(record.memberIds) do
+			local member = self:_entryById(id)
+			if member ~= nil and snapshot[id] ~= nil then
+				table.insert(ordered, { id = id, slot = member.slot or math.huge })
+			end
+		end
+		table.sort(ordered, function(a, b)
+			if a.slot == b.slot then
+				return a.id < b.id
+			end
+			return a.slot < b.slot
+		end)
+		for index, row in ipairs(ordered) do
+			if row.id == entry.id and index > 1 then
+				local sample = snapshot[ordered[index - 1].id]
+				if sample then
+					ahead = {
+						position = sample.position,
+						velocity = sample.velocity,
+						facing = sample.facing,
+						speed = flatOf(sample.velocity).Magnitude,
+					}
+				end
+				break
+			end
+		end
+	end
+
 	-- WHILE SCATTERING THERE IS NO LEADER, for everybody: cohesion and alignment have nothing to
 	-- point at, and each member runs its own route with the existing Reynolds fallback.
 	local leader, leaderState = nil, nil
@@ -2188,6 +3257,8 @@ function Runtime:_sounderObs(entry, snapshot)
 		scattering = scattering,
 		leaderState = leaderState,
 		leader = leader,
+		-- nil for the leader and while scattering, so both run exactly the code they ran before.
+		ahead = ahead,
 		centroid = if count > 0 then sum / count else at,
 		neighbours = neighbours,
 		-- TASK 118, as plain values like everything else here: which shape this sounder moves in,
@@ -2217,6 +3288,9 @@ function Runtime:_sounderView(record)
 	return {
 		id = record.id,
 		leaderId = record.leaderId,
+		-- WHO IS HEARD (task 123). A copy like everything else here: it is for the specs and for a
+		-- diagnostic that wants to know why a herd of twenty is two sets of hooves.
+		voiceIds = table.clone(record.voiceIds or {}),
 		memberIds = memberIds,
 		scatterFor = record.scatterFor,
 		bornAt = record.bornAt,
@@ -2256,14 +3330,24 @@ end
 -- and the drive's budget arithmetic can never disagree with the world. A size of 1 is exactly
 -- Runtime:spawn and creates NO sounder record -- which is why the flag-OFF world has no group code
 -- running anywhere: obs.sounder is nil and every existing path applies unchanged.
-function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
+function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?, composition)
 	assert(not self._destroyed, "Boar runtime is destroyed")
+	-- A COMPOSITION IS ALSO THE SIZE (task 123 round 8), and it is read through `Boar.compositionSize`
+	-- rather than added up here, so there is one place that knows what a composition weighs.
+	if type(composition) == "table" then
+		size = Boar.compositionSize(composition)
+	end
 	size = math.floor(tonumber(size) or 0)
 	if size < 1 or #self._boars + size > self._config.maxBoars then
 		return {}
 	end
 	if size == 1 then
-		return { self:spawn(center) }
+		-- ONE ANIMAL IS NOT A SOUNDER, and with a composition it is whatever that composition named
+		-- -- a lone big male for `{ males = 1 }`, which is the one Karen asks for by name.
+		local only = if type(composition) == "table"
+			then Boar.sounderKinds(1, {}, self._config, composition)[1]
+			else nil
+		return { self:spawn(center, only) }
 	end
 
 	local config = self._config
@@ -2271,10 +3355,15 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
 	-- The ring is clamped inside the pad the MAP guarantees, because Runtime:spawn overwrites the
 	-- caller's Y with groundY + BODY_SIZE.Y/2 + SPAWN_CLEARANCE: a member placed on a slope off the
 	-- pad would be spawned inside a hill (docs/design/map-generator.md section 11).
+	-- THE RING IS AS BIG AS THE GROUP NEEDS (task 123 round 2), then clamped inside the pad: members
+	-- are spaced `SPAWN_SPACING` body lengths of ARC apart, which for 5 is the 10-stud ring it always
+	-- was and for 20 is 21 studs instead of a pile.
+	local spacing = config.BODY_SIZE.Z * (sounderConfig.SPAWN_SPACING or 1)
+	local needed = spacing * size / (2 * math.pi)
 	local radius = math.max(
 		config.BODY_SIZE.Z,
 		math.min(
-			sounderConfig.SPAWN_RING_STUDS,
+			math.max(sounderConfig.SPAWN_RING_STUDS, needed),
 			(maxSpread or sounderConfig.SPAWN_RING_STUDS) - sounderConfig.PAD_MARGIN_STUDS
 		)
 	)
@@ -2286,6 +3375,11 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
 	local record = {
 		id = string.format("Sounder%d", self._nextSounderId),
 		leaderId = nil :: string?,
+		-- WHICH MEMBERS ARE HEARD, and how many grunts the GROUP has left (task 123). Both are
+		-- written by the Runtime and read by nothing outside it.
+		voiceIds = {} :: { string },
+		gruntsUsed = 0,
+		gruntAgainAt = 0,
 		memberIds = {},
 		scatterFor = 0,
 		bornAt = os.clock(),
@@ -2311,7 +3405,7 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?)
 			rolls[index] = self._rng:NextNumber()
 		end
 	end
-	local kinds = Boar.sounderKinds(size, rolls, config)
+	local kinds = Boar.sounderKinds(size, rolls, config, composition)
 
 	local handles = {}
 	for index = 1, size do
@@ -2351,9 +3445,26 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 	-- that bug: a cub now falls 0.8 studs further and lands on whatever is actually under it.
 	--
 	-- IT IS THE MALE'S NUMBER FOR EVERY KIND, so the flag-OFF world spawns at exactly the height it
-	-- always did. The right long-term answer is to ask the world how high the ground under the spawn
-	-- point is, which is a new seam on `world` and not this task's.
-	at = Vector3.new(at.X, self._field.groundY + config.BODY_SIZE.Y / 2 + config.SPAWN_CLEARANCE, at.Z)
+	-- always did.
+	--
+	-- ...AND THE WORLD MAY NOW SAY WHERE ITS GROUND IS (task 122), which is the seam this comment
+	-- used to predict and defer. `field.groundY` is ONE number for a whole field, which is true of
+	-- the generated map -- a flat drive corridor -- and false of a hilly one. MEASURED in the
+	-- playtest world: the ground is y 140 at the road, 149 at 200 studs north and 196 at 400, so
+	-- every boar released up there was spawned at 140, INSIDE the hill. They did not wander off:
+	-- they were embedded, and the fresh ones were ejected and culled by the fall test within a
+	-- second. Both of the Director's measured faults are this one line.
+	--
+	-- A WORLD WITHOUT `groundAt` IS UNCHANGED, which is every world but the playtest one: the
+	-- expression below is exactly what it was.
+	local groundHere = self._field.groundY
+	if self._world.groundAt then
+		local asked = self._world.groundAt(at.X, at.Z)
+		if typeof(asked) == "number" then
+			groundHere = asked
+		end
+	end
+	at = Vector3.new(at.X, groundHere + config.BODY_SIZE.Y / 2 + config.SPAWN_CLEARANCE, at.Z)
 
 	self._nextId += 1
 	local id = string.format("Boar%d", self._nextId)
@@ -2383,6 +3494,9 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 		body = body,
 		brain = brain,
 		handle = handle,
+		-- WHICH ANIMAL THIS IS (task 123 round 3). The handle already carried it; the entry needs it
+		-- too, because `Boar.marchOrder` ranks a sounder by kind and the record only holds ids.
+		kind = body.kind,
 		pending = false, -- a path request is in flight
 		-- The calm activity drawn last frame, so a sound fires on the EDGE and not every frame
 		-- (task 117). nil until the first step, which is exactly when the first activity starts.
@@ -2406,7 +3520,139 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 		awayFor = 0,
 	})
 	self._stats.spawned += 1
+
+	-- A WAVE RELEASED JUST AFTER A SHOT ARRIVES RUNNING (task 123 round 3), and one released into a
+	-- quiet wood walks in. This is the whole of "otherwise running": the animal is handed the bang it
+	-- was not alive for, through the same `Brain:spook` a heard shot uses.
+	local pace = config.PACE
+	if pace ~= nil and pace.ENABLED == true and os.clock() - self._lastShotAt <= pace.SPOOK_MEMORY_SECONDS then
+		brain:spook(self._lastShotPos)
+		self._stats.spawnedSpooked += 1
+	end
 	return handle
+end
+
+-- SPOOK ONE ANIMAL BY ID, for a caller that knows something this runtime does not -- the Forest
+-- Test's drive uses it when a wave is released next to a beater that was already pushing another
+-- group (task 123 round 3). Returns false for an id that is not here, or an animal past being
+-- frightened.
+-- THE DRIVE ASKS ONE ANIMAL FOR A TROT (task 123 round 4). Karen: *"they can trot when crossing"*.
+-- Seconds of urgency, re-asked every step by whoever is pushing: the drive owns "where my road is"
+-- and the Brain owns "what a trot is", so neither has to learn the other's facts.
+function Runtime:urge(id: string, seconds: number): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			entry.brain:urge(seconds)
+			return true
+		end
+	end
+	return false
+end
+
+-- WHETHER THIS ANIMAL IS AT THE FRONT OF ITS FILE (task 126). A lone boar leads itself; a member
+-- leads only if it is its sounder's leader. The drive asks this before it tells anybody they have
+-- reached the edge of the open: a file stops because the animal at the front stopped, and the eight
+-- behind it close up by themselves.
+function Runtime:leads(id: string): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			local record = self:_sounderRecord(entry.sounderId)
+			return record == nil or record.leaderId == entry.id
+		end
+	end
+	return false
+end
+
+-- WALK TO THIS POINT AT THIS SPEED (task 127), through the same door as `urge`, `spook` and `check`.
+-- The drive re-issues it every step; it expires by itself. Answers false for an animal that is not
+-- here, is dying, or is in a world with `LINE.ENABLED` off.
+function Runtime:leadTo(id: string, point: Vector3, speed: number): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return entry.brain:leadTo(point, speed) == true
+		end
+	end
+	return false
+end
+
+-- PUT THIS ANIMAL BACK ON THE TRAIL (task 127 round 2). The drive calls it for a follower the stuck
+-- detector has reported: a few studs onto a path the leader has already walked, which is the one
+-- place that is certainly clear.
+--
+-- IT IS A LAST RESORT AND IT SAYS SO. Moving a body is normally `Body`'s business through the
+-- physics; this writes the CFrame directly, because the case it exists for is an animal the SOLVER
+-- has pinned against a trunk -- and a setpoint cannot free something the solver is holding. The
+-- velocity is cleared with it, or the body keeps the momentum that wedged it.
+function Runtime:placeAt(id: string, point: Vector3): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			local part = entry.body and entry.body.part
+			if part == nil or part.Parent == nil or part:GetAttribute("Carcass") == true then
+				return false
+			end
+			local ground = self._world.groundAt and self._world.groundAt(point.X, point.Z)
+			local y = (ground or part.Position.Y) + (part.Size.Y / 2)
+			part.CFrame = CFrame.new(Vector3.new(point.X, y, point.Z)) * (part.CFrame - part.CFrame.Position)
+			part.AssemblyLinearVelocity = Vector3.zero
+			part.AssemblyAngularVelocity = Vector3.zero
+			self._stats.placedBack = (self._stats.placedBack or 0) + 1
+			return true
+		end
+	end
+	return false
+end
+
+-- Where an animal is and what it is doing, for the drive that is steering a line: it needs the
+-- leader's real speed to pace the followers, and it needs to know an animal has died or gone.
+function Runtime:statusOf(id: string)
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			local part = entry.body and entry.body.part
+			return {
+				position = Body.position(entry.body),
+				speed = flatOf(Body.velocity(entry.body)).Magnitude,
+				state = entry.brain:state(),
+				-- The speed it was ASKED for this step; `speed` above is what the body is doing.
+				want = entry.lastWant or 0,
+				kind = entry.body and entry.body.kind,
+				alive = part ~= nil and part.Parent ~= nil and part:GetAttribute("Carcass") ~= true,
+			}
+		end
+	end
+	return nil
+end
+
+-- IS THIS ANIMAL IN FLIGHT? (task 126 round 2). The drive asks before it hands out an order: a
+-- frightened animal has dropped out of the file and must not be ordered back into it on the next
+-- Heartbeat, which is what kept a shot boar walking its trail at the ordered speed.
+function Runtime:flying(id: string): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return entry.brain:flying()
+		end
+	end
+	return false
+end
+
+-- THE EDGE CHECK, through the same door `urge` and `spook` use (task 126). Karen: *"they can stop
+-- before entering the road"*. The world says WHICH animal and the Brain decides whether it stops, for
+-- how long, and whether it has already had its check on this approach.
+function Runtime:check(id: string, seconds: number?): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return entry.brain:check(seconds) == true
+		end
+	end
+	return false
+end
+
+function Runtime:spook(id: string, from: Vector3?): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return entry.brain:spook(from) == true
+		end
+	end
+	return false
 end
 
 function Runtime:_requestPath(entry, to: Vector3)
@@ -2527,6 +3773,12 @@ function Runtime:step(dt: number)
 		self:_stepSounders(dt, snapshot)
 	end
 
+	-- WHO THE WORLD HEARS THIS STEP (task 123), after the sounders have settled their membership and
+	-- before any animal is asked to make a noise. One pass, so the ceiling is a fact about the whole
+	-- world rather than a race between the boars in list order.
+	self:_rationVoices(snapshot, threats, os.clock())
+	self:_stepApproachGrunts(os.clock())
+
 	-- THE SKINNED MODEL, once per step and not once per boar: the template is one Instance every
 	-- boar clones from, and asking for it per boar would multiply both the lookup and the miss
 	-- counter by however many are alive.
@@ -2563,6 +3815,36 @@ function Runtime:step(dt: number)
 			blockedAhead = self._world.probe(position, facing, config.PROBE_LENGTH)
 		end
 
+		-- THE THREE CASTS A BOAR STEERS ROUND A TRUNK WITH (task 123 round 3): ahead, and one to
+		-- each side. The Runtime casts them because it owns the world seam; `Brain.steerAroundTrunk`
+		-- decides what to do about them. Behind `PACE.ENABLED`, so the DEV world pays for nothing.
+		local whisker = nil
+		local pace = config.PACE
+		if self._world.probe and pace ~= nil and pace.ENABLED == true then
+			local flatFacing = flatOf(facing)
+			if flatFacing.Magnitude > 1e-6 then
+				local nose = flatFacing.Unit
+				local sweep = math.rad(pace.WHISKER_DEG)
+				-- HOW FAR AHEAD IT LOOKS IS A TIME, NOT A DISTANCE (task 126). Karen: *"and not
+				-- hitting the trees and hang"*. MEASURED before this task: 19 distinct (boar, trunk)
+				-- contacts in 130 s -- and nothing actually STUCK, so they were brushing trunks
+				-- rather than hanging on them. The whisker was 9 studs for every gait, which at
+				-- `PACE.RUN_SPEED` 24 studs/s is 0.37 s of warning, and `RUN_TURN_DEG` cannot take
+				-- an animal round a trunk in that. A braking distance is a time; this is one.
+				local reach = pace.WHISKER_STUDS
+				local move = config.MOVE
+				if move ~= nil and move.ENABLED == true then
+					local speed = flatOf(Body.velocity(entry.body)).Magnitude
+					reach = math.clamp(speed * move.WHISKER_SECONDS, move.WHISKER_MIN_STUDS, move.WHISKER_MAX_STUDS)
+				end
+				whisker = {
+					ahead = self._world.probe(position, nose, reach),
+					left = self._world.probe(position, turnFlat(nose, -sweep), reach),
+					right = self._world.probe(position, turnFlat(nose, sweep), reach),
+				}
+			end
+		end
+
 		local waypoints = entry.waypoints
 		entry.waypoints = nil -- the Brain takes ownership of the list it is handed
 		local pathFailed = entry.pathFailed
@@ -2583,6 +3865,7 @@ function Runtime:step(dt: number)
 			waypoints = waypoints,
 			pathFailed = pathFailed,
 			blockedAhead = blockedAhead,
+			whisker = whisker,
 			forceRepath = forceRepath,
 			hitEvents = hitEvents,
 			-- TASK 118: the shots drained above, and the sight probe -- handed in ONLY when
@@ -2657,6 +3940,11 @@ function Runtime:step(dt: number)
 		-- running on the spot instead of flicking to idle for the frames the physics holds it still.
 		if config.MODEL.ENABLED then
 			local wantSpeed = Vector3.new(intent.targetVelocity.X, 0, intent.targetVelocity.Z).Magnitude
+			-- WHAT IT WAS ASKED FOR, kept beside what it is doing (task 129). A body's measured
+			-- velocity is zero wherever physics does not run -- a spec's world, a part outside
+			-- Workspace -- so "is it moving?" and "was it told to move?" are different questions and
+			-- only one of them has an answer everywhere. `statusOf` publishes both.
+			entry.lastWant = wantSpeed
 			Body.stepVisual(entry.body, dt, {
 				speed = wantSpeed,
 				facing = facing,
@@ -2677,15 +3965,25 @@ function Runtime:step(dt: number)
 			}, config)
 			-- The same speed drives the sound, so the footsteps keep time with the legs rather than
 			-- with the body's measured velocity, which lags the setpoint by the ACCEL ramp.
-			-- WHAT THE CROWD ALLOWS IT (task 120), and the slot it books by being heard: one
-			-- grunt per sounder per `SOUNDER_GRUNT_GAP`, whoever makes it.
+			-- WHAT THE CROWD ALLOWS IT (task 120, per layer since task 123), and the slot it books
+			-- by being heard: `GRUNTS_PER_SOUNDER` grunts from the group, then the group waits out
+			-- one of its own `GRUNTS` intervals. The BAND is the gap, not a separate number -- a
+			-- fixed 2.5 s gap (what this was) made a herd mutter every 2.5 s for ever, whatever the
+			-- interval the animals themselves were drawing from.
 			local now = os.clock()
-			local voice = self:_voiceFor(entry, threats, now)
+			local voice = self:_voiceFor(entry)
 			local played = Body.stepSound(entry.body, dt, wantSpeed, config, self._rng, voice)
 			if played == "grunt" then
+				self._lastGruntAt = now
 				local record = self:_sounderRecord(entry.sounderId)
 				if record then
-					record.gruntAgainAt = now + config.SOUND.CROWD.SOUNDER_GRUNT_GAP
+					local crowd = config.SOUND.CROWD
+					record.gruntsUsed = (record.gruntsUsed or 0) + 1
+					if record.gruntsUsed >= (crowd.GRUNTS_PER_SOUNDER or 1) then
+						record.gruntsUsed = 0
+						record.gruntAgainAt = now
+							+ self._rng:NextNumber(config.SOUND.GRUNTS.MIN_SECONDS, config.SOUND.GRUNTS.MAX_SECONDS)
+					end
 				end
 			end
 			-- THE SNIFF, ONCE PER HEAD-LIFT (task 117). The activity carries the sound's name, so
@@ -2694,7 +3992,12 @@ function Runtime:step(dt: number)
 			if intent.activity ~= entry.lastActivity then
 				entry.lastActivity = intent.activity
 				local row = Body.activityRow(intent.activity, config)
-				if row and row.sound and config.SOUND[string.upper(row.sound)] then
+				-- ...AND IT RIDES THE MUTTER RATION (task 123). A head coming up is the same ambient
+				-- muttering as a grunt to anybody listening, and MEASURED in the Forest Test it was
+				-- up to four of the thirty-one sounds playing at once. It is not a one-shot that
+				-- belongs to a shot animal, so unlike the hit, the cry and the death it is rationed.
+				local allowed = voice == nil or voice.grunt ~= false
+				if allowed and row and row.sound and config.SOUND[string.upper(row.sound)] then
 					Body.playOneShot(entry.body, row.sound, config.SOUND[string.upper(row.sound)], config, self._rng)
 				end
 			end

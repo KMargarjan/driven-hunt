@@ -51,6 +51,18 @@ end
 local function disableStockCameras(module: Instance): (boolean, string?)
 	local ok, err = pcall(function()
 		cameras = require(module :: ModuleScript):GetCameras()
+		-- `Disable` IS NOT ON EVERY PlayerModule, and that is measured rather than assumed. In the
+		-- playtest place the call raised "attempt to call missing method 'Disable' of table" while
+		-- the DEV place never printed it -- same `StarterPlayerScripts` in both, so it is Roblox's
+		-- own injected module differing between places, not anything this project ships.
+		--
+		-- Asking first turns an alarming stack trace into a plain answer. It changes nothing about
+		-- whether the camera is ours: `CameraType` is still Scriptable and the foreign-write
+		-- detector is still what proves it (design section 10.1, which says exactly that because
+		-- `GetCameras()` is thinly documented and Roblox-controlled).
+		if typeof((cameras :: any).Disable) ~= "function" then
+			error("this PlayerModule's GetCameras() has no Disable method", 0)
+		end
 		cameras:Disable()
 	end)
 	stockDisabled = ok
@@ -158,6 +170,19 @@ function Rig.apply(cf: CFrame, fovDeg: number)
 	cam.CFrame = cf
 	cam.FieldOfView = fovDeg
 	lastCFrame, lastFov = cf, fovDeg
+end
+
+-- THE VIEW THIS SYSTEM LAST ASKED FOR (task 125 round 3), which is not the same thing as
+-- `CurrentCamera.CFrame`: this file already counts FOREIGN WRITES to that property, so by its own
+-- evidence the engine's copy can be something nobody here asked for. `lastCFrame` is what the camera
+-- system intends and therefore what is rendered the instant after it is applied.
+--
+-- IT EXISTS BECAUSE THE HUD NEEDED THE YAW AND HAD NOWHERE HONEST TO GET IT. A compass driven by
+-- `CurrentCamera` reads whatever the second writer left; one driven by the character's
+-- `HumanoidRootPart` never moves at all, because in first person this system turns the VIEW and not
+-- the body. The owner of the view publishes the view: one owner, one reader.
+function Rig.appliedCFrame(): CFrame?
+	return lastCFrame
 end
 
 -- The local character only, and only its own parts: LocalTransparencyModifier is client-side, so no

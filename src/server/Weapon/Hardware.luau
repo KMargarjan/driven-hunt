@@ -459,12 +459,21 @@ end
 -- Every gun already in a hand, upgraded. Walks the players rather than a table of this module's own,
 -- for the same reason `toolsOf` does: a Tool nobody recorded is still a Tool a player is looking at.
 -- NEVER YIELDS, so it is safe from the arming sweep and from a boot line.
-function Hardware.upgradeAll(): number
+-- `after` IS CALLED ONCE PER GUN THIS PASS ACTUALLY UPGRADED (task 123 round 9), with the player it
+-- belongs to. It exists because of Karen's *"There is no weapon something is broken"*: when the
+-- barrels template lands AFTER the gun was handed out -- measured in her session at 2096 ms against
+-- a 416 ms handle -- the upgraded Tool ended up in the BACKPACK, and she stood at the stand with
+-- empty hands. Putting it back in the hand is `Weapon`'s decision, not this module's: `AUTO_EQUIP`
+-- lives there, and `Hardware.upgrade`'s own promise is that it is blind to everything but the look.
+function Hardware.upgradeAll(after: ((Player, Tool) -> ())?): number
 	local upgraded = 0
 	for _, player in ipairs(Players:GetPlayers()) do
 		for _, tool in Hardware.toolsOf(player) do
 			if Hardware.upgrade(tool) then
 				upgraded += 1
+				if after then
+					after(player, tool)
+				end
 			end
 		end
 	end
@@ -506,12 +515,69 @@ function Hardware.toolsOf(player: Player): { Tool }
 	return found
 end
 
+-- THE HUMANOID IS NOT THERE YET WHEN THE GUN IS GRANTED, AND THAT IS WHY THE GUN WAS IN THE
+-- BACKPACK (task 129, found by the gate the moment it could run again).
+--
+-- `Weapon.watchPlayer` grants on `CharacterAdded`, and at that instant the character model is still
+-- being assembled: `FindFirstChildOfClass("Humanoid")` answers nil, this function did nothing, and
+-- the Tool stayed in the Backpack with nothing to equip it afterwards. MEASURED in the DEV gate run:
+-- three guns handed over, "+2.5s hand, +75.9s backpack, +75.9s backpack" -- the first grant (before
+-- a respawn) was equipped and the two after the drive's placement respawn were not, so the player
+-- stood at his stand with empty hands and no viewmodel. It is Karen's *"There is no weapon something
+-- is broken"* from task 123 round 9 arriving by a second road.
+--
+-- IT WAITS FOR THE HUMANOID RATHER THAN RETRYING FOR EVER: `WaitForChild` with a timeout, in its own
+-- thread so the grant does not block, and it gives up quietly if the character has been replaced
+-- again in the meantime. A player who holsters his gun later is untouched -- this fires once, on the
+-- grant, exactly like the direct call above it.
+-- WHAT HAPPENED, COUNTED (task 129). A grant that silently fails to equip is indistinguishable from
+-- a player who put his gun away, and that is how a shooter stood at a stand with it in his Backpack
+-- for a whole drive. One table, read by `Weapon.stats`.
+Hardware.equipStats = { now = 0, noCharacter = 0, deferred = 0, late = 0, gaveUp = 0 }
+
 function Hardware.equip(tool: Tool, player: Player)
 	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid:EquipTool(tool)
+	if character == nil then
+		Hardware.equipStats.noCharacter += 1
+		return
 	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid ~= nil then
+		humanoid:EquipTool(tool)
+		Hardware.equipStats.now += 1
+	else
+		Hardware.equipStats.deferred += 1
+	end
+	-- ...AND THEN IT CHECKS, which is the half that was missing (task 129). MEASURED in the DEV gate
+	-- run: `EquipTool` was CALLED for all three grants with a live Humanoid in hand -- "equip now=3
+	-- late=0 noChar=0" -- and the client still found the gun in the Backpack from +76 s to the end of
+	-- the drive. A call is not an outcome: during the drive's placement respawn the humanoid exists
+	-- but is not ready to carry anything, and `EquipTool` then does nothing and says nothing.
+	--
+	-- So the outcome is verified on the following frames and the equip is retried for two seconds,
+	-- which is the width of the window measured, and the loop stops the moment the Tool is in the
+	-- character -- or the character is replaced again, which is the next grant's business. A player
+	-- who holsters his gun more than two seconds after being handed it is never touched.
+	task.spawn(function()
+		local waited = humanoid or character:WaitForChild("Humanoid", 5)
+		if waited == nil then
+			Hardware.equipStats.gaveUp += 1
+			return
+		end
+		for _ = 1, 20 do
+			if player.Character ~= character or tool.Parent == nil then
+				Hardware.equipStats.gaveUp += 1
+				return
+			end
+			if tool.Parent == character then
+				Hardware.equipStats.late += 1
+				return
+			end
+			(waited :: Humanoid):EquipTool(tool)
+			task.wait(0.1)
+		end
+		Hardware.equipStats.gaveUp += 1
+	end)
 end
 
 function Hardware.muzzlePosition(tool: Tool): Vector3?

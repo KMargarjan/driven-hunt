@@ -20,8 +20,29 @@ local Map = require(ReplicatedStorage:WaitForChild("Map"))
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
+-- THE HIT RECORD (task 124). Wired here for the same reason the boar runtime and the weapon are:
+-- `HitLog` requires neither of them and neither requires it. The DEV world's drive boundary is
+-- `Match.PhaseChanged`; the Forest Test latches on its own window.
+local HitLog = require(ServerScriptService:WaitForChild("HitLog"))
 local TestArena = require(ServerScriptService:WaitForChild("TestArena"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+
+-- THE PLAYTEST WORLD HAS ITS OWN COMPOSITION ROOT, AND THIS ONE STANDS ASIDE FOR IT (task 122).
+--
+-- "Driven Hunt Forest Test" is a hand-built place where Karen stands on a road and shoots animals
+-- that cross it. There is no drive there, no roster and no tagged markers -- `Match.Markers.read`
+-- would find none, the match would sit in `Waiting` forever, and `Match.mayCarryWeapon` would
+-- therefore hand nobody a gun. That is not a broken match; it is a world this match was never
+-- about.
+--
+-- SO THE DECISION IS MADE ONCE, HERE, at the only place that already decides which world is the
+-- world. `ForestTestBoot` wires that world's boar runtime and weapon exactly as the lines below
+-- wire this one's. Two composition roots, one per world, neither requiring the other -- which is
+-- the property this file's header exists to protect.
+if Map.EXPECTED_WORLD == "forest-test" then
+	print("[MatchBoot] the world is forest-test: ForestTestBoot owns this place")
+	return
+end
 
 -- Unchanged from BoarBoot: the arena rectangle is carried as data, so when the Milestone 2 map
 -- generator replaces the arena this fails loudly here instead of routing boars to an edge that no
@@ -76,6 +97,8 @@ end)
 -- Unchanged from BoarBoot. The weapon publishes hits; the boar's own owner decides what a hit means.
 Weapon.HitReported:Connect(function(report)
 	if report.target:IsA("BasePart") then
+		-- THE RECORD, BESIDE THE DAMAGE AND NOT INSTEAD OF IT (task 124).
+		HitLog.recordHit(report)
 		local shooter = report.shooter
 		local character = shooter and shooter.Character
 		local root = character and character.PrimaryPart
@@ -96,7 +119,21 @@ end)
 
 -- The kill marker: the boar's runtime is the only thing that knows the animal died, the weapon owns
 -- the one-way remote to the shooter, and the Hud draws it (Task 28).
+-- THE REPORTING WINDOW IS THE DRIVE (task 124). This world HAS a drive, so the record's window is
+-- simply its phases: a drive opens when teams are assigned and closes when the scoring starts. Both
+-- calls are idempotent at the other end, so a phase that fires twice cannot open two drives.
+Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
+	if phase == "Assigning" then
+		HitLog.openDrive(driveNumber or 1, os.clock())
+	elseif phase == "Scoring" then
+		HitLog.closeDrive(os.clock())
+	end
+end)
+HitLog.start()
+
 runtime.Downed:Connect(function(record)
+	-- ...AND THE DEATH, which is the kill line everybody sees and the row the report draws.
+	HitLog.recordDown(record)
 	local userId = record.killedByUserId
 	local shooter = if userId then Players:GetPlayerByUserId(userId) else nil
 	if shooter then

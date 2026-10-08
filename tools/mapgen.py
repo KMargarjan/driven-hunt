@@ -67,8 +67,10 @@ and, for the evidence the design actually asks for (section 6.4), `verify`'s
 """
 
 import argparse
+import io
 import json
 import os
+import re
 import sys
 import time
 
@@ -90,7 +92,25 @@ BACKUP_MAX_AGE_HOURS = 6
 RUN_LOG_DIR = os.path.join(REPO, ".mapgen")
 
 # The generator's own instances, plus the two the engine always puts there.
-WORKSPACE_ALLOWED = ("Terrain", "Camera")
+WORKSPACE_ALLOWED = (
+    "Terrain",
+    "Camera",
+)
+# "MapAssetTemplates" WAS HERE AND IS GONE (task 128 round 2, the Reviewer's blocking finding).
+#
+# It was allowed on the grounds that "nothing here writes it, every build only reads it" -- and a
+# repo-wide grep for the name returns this file alone, so no build on this branch reads it either.
+# An allow-list entry nothing in the repository owns disables the one refusal that forces a saved
+# place before an irreversible rebuild: the census is the only thing standing between `mapgen build`
+# and a Workspace object no tool can put back.
+#
+# WHAT THIS MEANS FOR DEV TODAY, said plainly rather than worked around: the DEV place still holds
+# `MapAssetTemplates` (a Model, 630 descendants, left by the task 121 experiments), so the next
+# `mapgen build`/`clear`/`verify` in DEV will REFUSE with the NEEDS KAREN block until somebody either
+# saves the place to a .rbxl and passes it as `--backup`, or deletes the model in Studio. That is the
+# refusal doing its job. The Builder did NOT delete it and did not archive it: it is Studio content,
+# `.rbxm`/`.rbxl` are banned from this repository (CLAUDE.md), and rule 7 cannot be honoured for it
+# from here -- saving the place is a Studio action, and it is the Director's or Karen's call.
 
 # The seven captures (design section 13.3's six, plus map-gate), at the full 2048-stud map's own scale. Milestone 2.1's
 # cameras were scaled down for the 512 slice; these are the design's table, with two changes it names
@@ -126,6 +146,131 @@ SHOTS = (
      "the road between two stands: does the near stake read, and the next one at 160 studs"),
 )
 
+# ---------------------------------------------------------------- the generator, as source
+
+# THE GENERATOR ARRIVES AS A BUNDLE, NOT AS A `require`, AND THAT IS NOT A STYLE CHOICE.
+#
+# MEASURED 2026-10-04 on task-121-forest-block1 (commit "Task 121 round 1: block 1 of the forest, and
+# the bundler that could reach it"), and `tools/studio_mcp.py` has carried the measurement since
+# 2026-10-02: THE MCP THREAD CANNOT `require` ANY MODULESCRIPT. Not a synced one, not a parentless
+# clone, not one the thread created itself one line earlier. Every attempt answers
+#
+#   "The current thread cannot require 'X' since 'X' has additional values for the Capabilities
+#    property: LoadUnownedAsset (and 3 more)"
+#
+# and every instance in the place reports `Capabilities` empty and `Sandboxed = false` -- so it is
+# the THREAD that carries them, and a capability-carrying thread may not enter a container that
+# grants none. A full Studio restart did not clear it (Director, 2026-10-02).
+#
+# SO THIS TOOL STOPPED WORKING, and its one write path into Studio was that require: `mapgen build`
+# died at step 1, and DEV's gate has failed 18 runs of 23 since task 122 because the place still
+# holds hand-made experiments that only a rebuild can replace. The fix is to send the generator's
+# SOURCE instead of asking Studio to load it: each module is wrapped in a closure, the `require`
+# calls are rewritten to the bundle's own table, and nothing requires anything. Measured on 121:
+# `execute_luau` accepts a 768 KB payload.
+#
+# THREE THINGS THIS BUYS BEYOND BEING ABLE TO RUN AT ALL:
+#   * THE SOURCE IS THE REPO'S, read off disk here. `MapGen.Contract` exists because Studio's
+#     require cache survives between `execute_luau` calls and Rojo replacing a Source does NOT
+#     reload an already-required module -- a hazard that cannot occur when nothing is cached.
+#     Check 3 below still refuses to run when Studio's copy differs from disk, so what is sent and
+#     what Studio holds are proved equal before anything is sent.
+#   * `InsertService:LoadAsset` IS WHAT POISONS THE THREAD, and the generator calls it to put a
+#     bought model in the ground. With a bundle that costs nothing: there is no later `require` to
+#     refuse.
+#   * EACH CLOSURE IS HANDED ITS OWN REAL `script` INSTANCE, so any use of `script` that is not a
+#     require behaves exactly as it does in a game session.
+#
+# PORTED, AND ONLY THIS (task 128). Task 121 is a map-generator v4 that the Forest Test superseded
+# and it is NOT merged (Director decision, 2026-10-05); its MapGen, Config, Layout, Props, Scatter,
+# Map v4 and specs stay there. What came across is the bundling, against THIS branch's generator:
+# the module list below is `src/serverstorage/MapGen` as it is on main, and the two things 121
+# changed that belong to ITS generator -- `MapGen.planSummary` and `MapGen.shotCameras` -- are
+# deliberately not here, because this branch's generator does not have them.
+#
+# The modules, IN DEPENDENCY ORDER: a module may only name ones above it. Checked against every
+# `require` in the graph; `bundle_source` raises if a shape it does not know reaches Studio.
+BUNDLE_MODULES = (
+    ("Shotgun", "src/shared/Shotgun/init.luau", 'RS:WaitForChild("Shotgun")'),
+    ("Map", "src/shared/Map/init.luau", 'RS:WaitForChild("Map")'),
+    ("Contract", "src/serverstorage/MapGen/Contract.luau", 'MG:WaitForChild("Contract")'),
+    ("Assets", "src/serverstorage/MapGen/Assets.luau", 'MG:WaitForChild("Assets")'),
+    ("Config", "src/serverstorage/MapGen/Config.luau", 'MG:WaitForChild("Config")'),
+    ("Height", "src/serverstorage/MapGen/Height.luau", 'MG:WaitForChild("Height")'),
+    ("Layout", "src/serverstorage/MapGen/Layout.luau", 'MG:WaitForChild("Layout")'),
+    ("Scatter", "src/serverstorage/MapGen/Scatter.luau", 'MG:WaitForChild("Scatter")'),
+    ("Digest", "src/serverstorage/MapGen/Digest.luau", 'MG:WaitForChild("Digest")'),
+    ("Ground", "src/serverstorage/MapGen/Ground.luau", 'MG:WaitForChild("Ground")'),
+    ("Props", "src/serverstorage/MapGen/Props.luau", 'MG:WaitForChild("Props")'),
+    ("Markers", "src/serverstorage/MapGen/Markers.luau", 'MG:WaitForChild("Markers")'),
+    ("Settings", "src/serverstorage/MapGen/Settings.luau", 'MG:WaitForChild("Settings")'),
+    ("MapGen", "src/serverstorage/MapGen/init.luau", "MG"),
+)
+
+# THE BOAR, for `reach` ALONE. `MapGen.reachability` pathfinds with the boar's OWN agent parameters
+# -- the whole point of the check -- so the boar's modules have to be in the bundle for that one
+# command. Nothing else needs them, so they are not sent with every call.
+BOAR_MODULES = (
+    ("Flags", "src/shared/Flags/init.luau", 'RS:WaitForChild("Flags")'),
+    ("Wound", "src/server/Boar/Wound.luau", 'SSS.Boar:WaitForChild("Wound")'),
+    ("Body", "src/server/Boar/Body.luau", 'SSS.Boar:WaitForChild("Body")'),
+    ("Brain", "src/server/Boar/Brain.luau", 'SSS.Boar:WaitForChild("Brain")'),
+    ("Boar", "src/server/Boar/init.luau", 'SSS:WaitForChild("Boar")'),
+)
+
+# Every `require` shape the graph actually uses, mapped to the bundle's own entry. A shape that is
+# NOT in here is left alone and makes `bundle_source` raise rather than silently resolving to
+# something else -- which is the right way round for a rewrite like this.
+REQUIRE_REWRITES = (
+    ('require(ReplicatedStorage:WaitForChild("Shotgun"))', "__dh.Shotgun"),
+    ('require(ReplicatedStorage:WaitForChild("Flags"))', "__dh.Flags"),
+    ('require(ServerScriptService:WaitForChild("Boar", 10))', "__dh.Boar"),
+    # `MapGen.Contract`'s whole job is to dodge Studio's require cache. A bundle has no cache, so
+    # the expression resolves to the contract itself and the module becomes a pass-through.
+    ("require(if editTime then module:Clone() else module)", "__dh.Map"),
+    ("require(script.Parent.Layout)", "__dh.Layout"),
+    ("require(script.Body)", "__dh.Body"),
+    ("require(script.Brain)", "__dh.Brain"),
+    ("require(script.Wound)", "__dh.Wound"),
+)
+
+# `require(script:WaitForChild("X"))` and `require(script.Parent:WaitForChild("X"))`, for any X.
+REQUIRE_CHILD = re.compile(r'require\(script(?:\.Parent)?:WaitForChild\("(\w+)"\)\)')
+
+
+def bundle_source(path):
+    """One module's source, with every require rewritten to the bundle's table."""
+    with io.open(os.path.join(REPO, path), encoding="utf-8") as handle:
+        text = handle.read()
+    for shape, replacement in REQUIRE_REWRITES:
+        text = text.replace(shape, replacement)
+    text = REQUIRE_CHILD.sub(lambda m: "__dh." + m.group(1), text)
+    if "require(" in re.sub(r"--.*", "", text):
+        raise RuntimeError(
+            "%s still has a require the bundler does not know how to rewrite; add its shape to "
+            "REQUIRE_REWRITES rather than letting it reach Studio" % path
+        )
+    return text
+
+
+def bundle(with_boar=False):
+    """The whole generator as one Luau prelude that requires nothing."""
+    modules = list(BUNDLE_MODULES)
+    if with_boar:
+        # Before MapGen, which is the only module that calls into the boar.
+        modules = modules[:-1] + list(BOAR_MODULES) + modules[-1:]
+    parts = [
+        'local RS = game:GetService("ReplicatedStorage")',
+        'local SS = game:GetService("ServerStorage")',
+        'local SSS = game:GetService("ServerScriptService")',
+        'local MG = SS:WaitForChild("MapGen")',
+        "local __dh = {}",
+    ]
+    for name, path, instance in modules:
+        parts.append("__dh.%s = (function(script)\n%s\nend)(%s)" % (name, bundle_source(path), instance))
+    return "\n".join(parts)
+
+
 # ---------------------------------------------------------------- talking to the generator
 
 # Every call returns JSON, so an MCP reply is machine-readable and lands in the run log verbatim --
@@ -136,14 +281,11 @@ SHOTS = (
 # number the file no longer said. `require` on a parentless clone loads the CURRENT source, leaves
 # nothing in the DataModel (so the harness's "no unmanaged script" check cannot trip over it), and
 # costs nothing measurable.
-CALL = """
+CALL_TEMPLATE = """
 local HttpService = game:GetService("HttpService")
 local ok, result = pcall(function()
-    local source = game:GetService("ServerStorage"):FindFirstChild("MapGen")
-    if not source then
-        error("ServerStorage.MapGen is missing: is Rojo connected?", 0)
-    end
-    local MapGen = require(source:Clone())
+%s
+    local MapGen = __dh.MapGen
     return %s
 end)
 if not ok then
@@ -227,14 +369,25 @@ def parse_json(body):
     return value
 
 
-def call(studio, expression):
-    """Run one MapGen expression in the Edit DataModel and parse its JSON reply."""
+def call(studio, expression, with_boar=False):
+    """Run one MapGen expression in the Edit DataModel and parse its JSON reply.
+
+    `with_boar` adds the boar's own modules to the bundle, for `reachability` -- which pathfinds with
+    the boar's agent parameters and is the only caller that needs them.
+    """
+    # A LONG-RUNNING CALL STILL HAS TO SAY WHICH STUDIO IT MEANS. This goes to `_rpc` rather than
+    # `Studio._call` because a build step can take minutes and needs its own timeout -- but that
+    # bypass also skipped the `studio_id`, so every mapgen command died the moment a second Studio
+    # was connected (task 122). The scoping is the same one `_call` applies, and it matters more than
+    # ever now that the DEV place and the Forest Test place are both open and connected: task 121's
+    # own copy of this function dropped the scoping, and THAT is not ported.
+    arguments = {"datamodel_type": "Edit", "code": CALL_TEMPLATE % (bundle(with_boar), expression)}
+    chosen = studio._scoped("execute_luau", None, arguments)
+    if chosen:
+        arguments["studio_id"] = chosen
     text = studio._rpc(
         "tools/call",
-        {
-            "name": "execute_luau",
-            "arguments": {"datamodel_type": "Edit", "code": CALL % expression},
-        },
+        {"name": "execute_luau", "arguments": arguments},
         timeout=MAPGEN_CALL_TIMEOUT,
     )
     body = "\n".join(c.get("text", "") for c in text.get("content", []))
@@ -470,7 +623,11 @@ def command_verify(studio, args, sha):
     if first.get("digest") and first["digest"] == second["digest"]:
         # The map is reproducible. Now the other half of the question: is it WALKABLE? A hedgerow with
         # no gate builds and digests perfectly and stops the drive dead (TASKS.md row 43a(k)).
-        reach = call(studio, "MapGen.reachability()")
+        # WITH THE BOAR, like `command_reach` (task 128 round 2). Without it `__dh.Boar` is nil, the
+        # generator's own `reachability` takes its "the boar's agent is unknown" early return, and
+        # `verify` printed FAILED at every seed -- the design's standing determinism gate, broken by
+        # the bundler that was meant to make it runnable again.
+        reach = call(studio, "MapGen.reachability()", with_boar=True)
         if reach.get("error"):
             print(f"[mapgen] FAILED: reachability could not run: {reach['error']}")
             return 1
@@ -511,7 +668,7 @@ def print_reach(result):
 
 
 def command_reach(studio):
-    result = call(studio, "MapGen.reachability()")
+    result = call(studio, "MapGen.reachability()", with_boar=True)
     if result.get("error"):
         print(f"[mapgen] reachability could not run: {result['error']}")
         return 1

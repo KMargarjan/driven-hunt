@@ -77,10 +77,40 @@ local function atRest()
 	}
 end
 
+-- THE YAW THAT LOOKS ALONG `look`, and the ONE place that knows which way this system's zero
+-- points (task 130).
+--
+-- `Mode.cameraCFrame` builds the view from `CFrame.fromEulerAnglesYXZ(pitch, yaw, 0)`, whose
+-- LookVector is `(-sin(yaw)cos(pitch), sin(pitch), -cos(yaw)cos(pitch))`: **yaw 0 looks down -Z**.
+-- A character spawned facing +Z is therefore half a turn from a camera at yaw 0, which is exactly
+-- what Karen saw -- a hunter who begins with his back to the drive. The answer is not a +180
+-- anywhere; it is to start the yaw from the body instead of from a constant, and to convert it here,
+-- where the convention lives.
+--
+-- Returns nil for a vector with no flat part (straight up or zero), because such a look names no
+-- yaw at all and a caller must keep the one it has.
+function Mode.yawForLook(look: Vector3): number?
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 1e-6 then
+		return nil
+	end
+	return wrapDeg(math.deg(math.atan2(-flat.X, -flat.Z)))
+end
+
+-- The same state with one angle replaced, frozen like every other state in this module. Pure, so
+-- `tests/server/camera_mode.spec.luau` drives the whole spawn rule with no client at all.
+function Mode.withYaw(state: State, yawDeg: number): State
+	local next_ = table.clone(state) :: any
+	next_.yawDeg = wrapDeg(yawDeg)
+	return table.freeze(next_)
+end
+
 function Mode.initial(config): State
 	local state = atRest()
 	state.mode = "Loading" :: ModeName
 	state.blend = 0
+	-- 0 IS A PLACEHOLDER UNTIL THERE IS A BODY TO READ (task 130). `Camera.faceCharacter` replaces it
+	-- with the character's own facing the moment one spawns; before that there is nothing to follow.
 	state.yawDeg = 0
 	state.pitchDeg = config.SPAWN_PITCH_DEG
 	state.sinceModeChange = 0
@@ -360,7 +390,7 @@ function Mode.anglesToward(state: State, rootCFrame: CFrame, point: Vector3, con
 		-- (-sin(yaw)cos(pitch), sin(pitch), -cos(yaw)cos(pitch)).
 		local pitch =
 			math.clamp(math.deg(math.asin(math.clamp(direction.Y, -1, 1))), config.PITCH_MIN_DEG, config.PITCH_MAX_DEG)
-		local yaw = wrapDeg(math.deg(math.atan2(-direction.X, -direction.Z)))
+		local yaw = Mode.yawForLook(direction) or result.yawDeg
 		-- Cloned rather than rebuilt field by field, for the reason `Mode.step` gives: this
 		-- function changes exactly two numbers, and listing the other fourteen is how one goes
 		-- missing.

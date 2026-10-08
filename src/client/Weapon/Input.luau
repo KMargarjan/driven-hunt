@@ -44,6 +44,59 @@ function Input.isAiming(): boolean
 	return aiming
 end
 
+-- THE TAGGED HOLD (drive-report design section 4.3). While any tag is out, every one of this module's
+-- four handlers still RUNS and still returns `Pass` -- it simply does not act.
+--
+-- WHY IT HAS TO EXIST. With the report panel open the cursor is free and the player clicks a row. The
+-- handlers are still bound and every one of them returns `Pass` by design (see the header: sinking
+-- MouseButton2 would break the stock camera and sinking MouseButton1 would swallow the Task 6 input
+-- probe) -- so without this, clicking a row in the report would also fire the gun. Relying on a
+-- `TextButton` to swallow the click is a guess about engine behaviour, and `GuiButton.Modal` would
+-- free the mouse itself and fight `Camera.Cursor`, which is the one writer of `MouseBehavior`.
+--
+-- IT IS A REQUEST AND THE OWNER RESOLVES IT, borrowed verbatim from this repo's own
+-- `Camera.Cursor.requestFree`: a caller states a need under a tag it owns, several callers can hold at
+-- once, and `Input` is still the only firer of `FireRequest` and `ActionRequest`. The one caller today
+-- is `Hud.ReportPanel`, with the tag "report".
+local holds: { [string]: boolean } = {}
+
+-- Entering the held state clears the aim, exactly as `unbind()` does -- a trigger that cannot fire
+-- must not leave the viewmodel shouldered either.
+local function dropAim()
+	if aiming then
+		aiming = false
+		signal:Fire(false)
+	end
+end
+
+function Input.requestHold(tag: string)
+	assert(type(tag) == "string" and tag ~= "", "Input.requestHold needs a non-empty tag")
+	if holds[tag] then
+		return
+	end
+	holds[tag] = true
+	dropAim()
+end
+
+function Input.releaseHold(tag: string)
+	assert(type(tag) == "string" and tag ~= "", "Input.releaseHold needs a non-empty tag")
+	holds[tag] = nil
+end
+
+function Input.isHeld(): boolean
+	return next(holds) ~= nil
+end
+
+-- Sorted, so a spec reads a stable list and not a hash order.
+function Input.holdTags(): { string }
+	local tags = {}
+	for tag in pairs(holds) do
+		table.insert(tags, tag)
+	end
+	table.sort(tags)
+	return tags
+end
+
 local function remotes()
 	return Shotgun.remotes()
 end
@@ -51,7 +104,7 @@ end
 -- The camera ray: the client sends {origin, direction} and NOTHING else. There is no claimed
 -- target, so there is nothing for the server to reconcile (design section 5.7).
 local function onFire(_name: string, state: Enum.UserInputState)
-	if state == Enum.UserInputState.Begin then
+	if state == Enum.UserInputState.Begin and not Input.isHeld() then
 		local camera = Workspace.CurrentCamera
 		if camera then
 			local cframe = camera.CFrame
@@ -62,14 +115,14 @@ local function onFire(_name: string, state: Enum.UserInputState)
 end
 
 local function onReload(_name: string, state: Enum.UserInputState)
-	if state == Enum.UserInputState.Begin then
+	if state == Enum.UserInputState.Begin and not Input.isHeld() then
 		remotes().ActionRequest:FireServer("Reload")
 	end
 	return Enum.ContextActionResult.Pass
 end
 
 local function onSelectAmmo(_name: string, state: Enum.UserInputState)
-	if state == Enum.UserInputState.Begin then
+	if state == Enum.UserInputState.Begin and not Input.isHeld() then
 		local Weapon = require(script.Parent)
 		local current = Weapon.get()
 		local other = if current and current.ammo == "Slug" then "Buck" else "Slug"
@@ -81,7 +134,9 @@ end
 -- Nothing visible happens in this task: the flag and the signal are the whole of it, and the stock
 -- camera keeps doing what it does while the button is held.
 local function onAim(_name: string, state: Enum.UserInputState)
-	if state == Enum.UserInputState.Begin or state == Enum.UserInputState.End then
+	-- HELD MEANS "NOT SHOULDERED", not "frozen": a Begin that arrives while the panel is open is
+	-- dropped, and `requestHold` has already cleared any aim that was live when it opened.
+	if (state == Enum.UserInputState.Begin or state == Enum.UserInputState.End) and not Input.isHeld() then
 		local next = state == Enum.UserInputState.Begin
 		if next ~= aiming then
 			aiming = next

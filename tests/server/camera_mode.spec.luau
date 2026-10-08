@@ -1124,6 +1124,36 @@ return function()
 			end).to.throw()
 		end)
 
+		it("starts the view where the BODY is facing, for every cardinal", function()
+			-- TASK 130, AND THE BUG IT CLOSES: Karen's hunter spawned looking SOUTH while his body --
+			-- and the whole drive -- faced north, because `Mode.initial` opens at yaw 0 and this
+			-- system's yaw 0 looks down -Z. The fix is one conversion, `Mode.yawForLook`, and the
+			-- claim is a ROUND TRIP: take a body facing, ask for the yaw, build the camera that yaw
+			-- produces, and its LookVector must be the body's facing again.
+			local root = CFrame.new(0, 3, 0)
+			local level = table.clone(firstPerson) :: any
+			level.PITCH_MIN_DEG, level.PITCH_MAX_DEG = 0, 0 -- a level view, so only the yaw is read
+			for _, look in ipairs({
+				Vector3.new(0, 0, 1), -- north, which is the drive in the Forest Test
+				Vector3.new(1, 0, 0),
+				Vector3.new(0, 0, -1),
+				Vector3.new(-1, 0, 0),
+				Vector3.new(0.6, 0, 0.8),
+			}) do
+				local yaw = Mode.yawForLook(look)
+				expect(yaw).to.be.ok()
+				local state = Mode.withYaw(Mode.initial(level), yaw :: number)
+				expect(state.yawDeg).to.equal(yaw)
+				local _, built = Mode.cameraCFrame(root, state, level)
+				local flat = Vector3.new(built.LookVector.X, 0, built.LookVector.Z).Unit
+				expect(flat:Dot(look.Unit) > 0.9999).to.equal(true)
+			end
+			-- A LOOK WITH NO FLAT PART NAMES NO YAW, and the caller keeps the one it has: a body
+			-- cannot face straight up, but a nil here is better than a NaN downstream.
+			expect(Mode.yawForLook(Vector3.new(0, 1, 0))).to.equal(nil)
+			expect(Mode.yawForLook(Vector3.zero)).to.equal(nil)
+		end)
+
 		it("leaves the angles alone when the target is where the camera already is", function()
 			local root = CFrame.new(0, 3, 0)
 			local state = Mode.initial(Config)

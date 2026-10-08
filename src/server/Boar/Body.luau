@@ -47,6 +47,8 @@
 -- Design: docs/design/boar-ai.md (section 6), docs/design/hit-zones.md (sections 4, 7)
 -- Note:   docs/research/2026-09-24-boar-ai.md, docs/research/2026-09-25-hit-zones.md,
 --         docs/research/2026-10-03-boar-skinned-model.md
+local ContentProvider = game:GetService("ContentProvider")
+local PhysicsService = game:GetService("PhysicsService")
 local RunService = game:GetService("RunService")
 
 local Body = {}
@@ -208,6 +210,33 @@ local function buildZones(config, trunk: BasePart, geometry): { BasePart }
 	return parts
 end
 
+-- REGISTERED ONCE, PER SERVER, and then every trunk joins it. `RegisterCollisionGroup` throws if the
+-- name is already taken, which is why this is wrapped and latched: `Body.create` runs once per
+-- animal and the registration must not.
+local collisionGroupReady = false
+
+function Body.useCollisionGroup(part: BasePart, config)
+	local rule = config.BOAR_COLLISION
+	if rule == nil or rule.ENABLED ~= true then
+		return false
+	end
+	if not collisionGroupReady then
+		collisionGroupReady = true
+		pcall(function()
+			PhysicsService:RegisterCollisionGroup(rule.GROUP)
+		end)
+		-- THE WHOLE POINT, in one line: the group does not collide with ITSELF. Every other pair --
+		-- boar against Default, which is the terrain, the trees and the players -- is untouched.
+		pcall(function()
+			PhysicsService:CollisionGroupSetCollidable(rule.GROUP, rule.GROUP, false)
+		end)
+	end
+	local ok = pcall(function()
+		part.CollisionGroup = rule.GROUP
+	end)
+	return ok
+end
+
 -- Builds one boar body at `position` and returns a handle the Runtime keeps. The Part is parented
 -- last, then the zone parts are welded on and the network owner is set: all of those need the part
 -- to be in the DataModel.
@@ -226,8 +255,19 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	-- flank, rear and brisket -- whatever no zone part covers -- are the default zone.
 	part:SetAttribute("Damageable", true)
 	part:SetAttribute("HitZone", "body")
+	-- WHICH ANIMAL THIS IS, on the trunk (task 123 round 3). The march order is a fact about kinds,
+	-- and without this it is a fact nobody outside the server can see -- not in the Explorer, not in
+	-- a diagnostic, not in the frame Karen is looking at.
+	if kind ~= nil then
+		part:SetAttribute("Kind", kind)
+	end
 	part.Anchored = false
 	part.CanCollide = true
+	-- ...AND IT DOES NOT SHOVE ITS OWN KIND (task 127 round 3). See `Boar.CONFIG.BOAR_COLLISION`:
+	-- the group is registered once and told not to collide with itself, so a file can close up nose
+	-- to tail the way a real sounder does. Everything else -- terrain, trunks, the player -- is in
+	-- `Default` and still collides exactly as before.
+	Body.useCollisionGroup(part, config)
 	part.CFrame = CFrame.new(position)
 
 	local attachment = Instance.new("Attachment")
@@ -250,7 +290,18 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	upright.Mode = Enum.OrientationAlignmentMode.OneAttachment
 	upright.Attachment0 = attachment
 	upright.RigidityEnabled = false
-	upright.Responsiveness = config.ALIGN_RESPONSIVENESS
+	-- HOW FAST THE DRAWN BODY SWINGS TO ITS HEADING (task 123 round 3). The Brain's per-gait turn
+	-- cap bounds the STEERING SETPOINT; this bounds the body that chases it, and MEASURED they are
+	-- different numbers -- capping the setpoint at 90 deg/s took the mean body turn from 50-85 to
+	-- 28-34 deg/s and left the WORST sample near 600, because an `AlignOrientation` at
+	-- responsiveness 25 snaps. `PACE.ALIGN_RESPONSIVENESS` is the playtest world's softer value;
+	-- with PACE off it is `config.ALIGN_RESPONSIVENESS`, which is the DEV world unchanged.
+	local pace = config.PACE
+	upright.Responsiveness = if pace ~= nil
+			and pace.ENABLED == true
+			and pace.ALIGN_RESPONSIVENESS ~= nil
+		then pace.ALIGN_RESPONSIVENESS
+		else config.ALIGN_RESPONSIVENESS
 	upright.MaxTorque = config.MAX_TORQUE
 	upright.CFrame = CFrame.new(position)
 	upright.Parent = part
@@ -1163,21 +1214,42 @@ end
 -- way.
 
 -- One configured Sound. `audibleStuds` is the distance past which it is gone; `NEAR_STUDS` is where
--- it stops getting louder. A spec row carries either one `id` or a list of `ids` to pick between;
--- the first of a list is the one it is born with, and `playOneShot` re-picks on every play.
+-- it stops getting louder, and a row may name its OWN `nearStuds` instead (task 123). A spec row
+-- carries either one `id` or a list of `ids` to pick between; the first of a list is the one it is
+-- born with, and `playOneShot` re-picks on every play.
+--
+-- WHY A ROW NEEDS ITS OWN PLATEAU. `InverseTapered` falls as `RollOffMinDistance / distance`, so the
+-- plateau sets the FAR tail and not only the near one -- and one shared number cannot make a pig's
+-- voice carry 120 studs while a hoof on soil dies at 40. Karen, 2026-10-05: *"I hear only when it;s
+-- close inaf to me if it's far away I don't hear"*.
 local function makeSound(name: string, spec, config, parent: Instance): Sound
 	local sound = Instance.new("Sound")
 	sound.Name = name
-	sound.SoundId = "rbxassetid://" .. tostring(if spec.ids then spec.ids[1] else spec.id)
+	sound.SoundId = Body.soundUri(if spec.ids then spec.ids[1] else spec.id)
 	sound.Volume = spec.volume
 	sound.RollOffMode = Enum.RollOffMode[config.SOUND.ROLL_OFF]
-	sound.RollOffMinDistance = config.SOUND.NEAR_STUDS
+	sound.RollOffMinDistance = spec.nearStuds or config.SOUND.NEAR_STUDS
 	sound.RollOffMaxDistance = spec.audibleStuds
 	-- SOFTER IS A FILTER, NOT ONLY A VOLUME (task 120). Karen, 2026-10-04: "sound has to be lover
 	-- and softer". Turning a sample down makes it distant; taking the top off it makes it SOFT, and
 	-- the high end is where a wet impact's slap lives. One EqualizerSoundEffect per sound that asks
 	-- for one, built with the sound and never touched again -- the gains are data in
 	-- `Boar.CONFIG.SOUND`, so retuning them is three numbers and no code.
+	-- HOW HEAVY THE ANIMAL SOUNDS, without touching how fast it walks (task 129). Karen, 2026-10-05:
+	-- *"and walking sound sounds like horse we need animal not horse"* -- `pitch` on a FOOTSTEP row
+	-- is that dial, and it is a `PitchShiftSoundEffect` because `PlaybackSpeed` would drag the
+	-- cadence with it and slide the feet. `Octave` is a multiplier on the frequency, so the row's
+	-- number means the same thing it always did; a row without one gets no effect at all.
+	--   https://create.roblox.com/docs/reference/engine/classes/PitchShiftSoundEffect
+	--
+	-- ONE-SHOTS ARE NOT TOUCHED: their `pitch` is the CENTRE of `Body.jitteredPitch`, applied to
+	-- `PlaybackSpeed` by `playOneShot`, and a squeal has no stride to keep.
+	if spec.steps == true and spec.pitch ~= nil and spec.pitch ~= 1 then
+		local shift = Instance.new("PitchShiftSoundEffect")
+		shift.Name = "Heavier"
+		shift.Octave = spec.pitch
+		shift.Parent = sound
+	end
 	if spec.eq then
 		local eq = Instance.new("EqualizerSoundEffect")
 		eq.Name = "Softer"
@@ -1201,6 +1273,15 @@ end
 -- own ground speed` rule the gaits use, so the steps keep time with the legs instead of drifting
 -- against them. nil means silence -- a standing boar makes no footsteps, which is most of what a
 -- grazing one is doing.
+-- A BARE NUMBER IS AN ASSET ID; ANYTHING WITH A SCHEME IS ALREADY A URI (task 126). The footsteps
+-- are now `rbxasset://` engine assets -- Roblox's OWN files, which ship inside the engine -- and
+-- gluing "rbxassetid://" in front of one makes a path that resolves to nothing and plays silence with
+-- no error. Every other row in `SOUND` is still a number and goes through the same line unchanged.
+function Body.soundUri(id: any): string
+	local text = tostring(id)
+	return if string.find(text, "://", 1, true) then text else "rbxassetid://" .. text
+end
+
 function Body.stepSoundFor(speed: number, config): (string?, number)
 	local sound = config.SOUND
 	local model = config.MODEL
@@ -1209,8 +1290,15 @@ function Body.stepSoundFor(speed: number, config): (string?, number)
 	end
 	local gait = if speed >= model.RUN_FROM then "run" elseif speed >= model.TROT_FROM then "trot" else "walk"
 	local spec = sound.STEPS[gait]
-	local rate = math.clamp(speed / spec.baseSpeed, model.MIN_RATE, model.MAX_RATE)
-	return gait, rate
+	-- THE RATE IS THE STRIDE AND NOTHING ELSE, and task 126 broke that by multiplying the gait's
+	-- `pitch` into it (fixed in task 129). `PlaybackSpeed` is cadence AND pitch at once, so a 0.7
+	-- "make it heavier" dial also played the footfalls at 70 % of the speed the legs move at -- the
+	-- feet slid, which is the exact fault `baseSpeed` exists to prevent, and it put the rate below
+	-- `MIN_RATE` at a walk. The timbre is applied where it belongs instead: a
+	-- `PitchShiftSoundEffect` on the loop itself (see `makeSound`), which shifts the pitch and
+	-- leaves the speed alone.
+	--   https://create.roblox.com/docs/reference/engine/classes/PitchShiftSoundEffect
+	return gait, math.clamp(speed / spec.baseSpeed, model.MIN_RATE, model.MAX_RATE)
 end
 
 -- A VOICE PER KIND (task 120) ---------------------------------------------------------------------
@@ -1355,7 +1443,7 @@ function Body.playOneShot(handle, name: string, spec, config, rng: Random)
 	-- said before.
 	local ids = Body.voiceIds(name, handle.kind, spec, config)
 	if ids then
-		sound.SoundId = "rbxassetid://" .. tostring(ids[rng:NextInteger(1, #ids)])
+		sound.SoundId = Body.soundUri(ids[rng:NextInteger(1, #ids)])
 	end
 	-- THE VOLUME IS SET ON EVERY PLAY, which is what makes the warm-up safe: a sound at volume 0 is
 	-- one nobody is listening to, so `coolAssets` may stop it, and this is the line that says "this
@@ -1395,13 +1483,27 @@ end
 -- that is logic: it is the CLIENT fetching an audio and an animation asset it had never been asked
 -- for. A boar that is never shot never plays its cry, so the first boar anybody shoots pays for it.
 --
--- THE FIX IS TO ASK FOR THEM WHEN NOTHING IS WATCHING. Every clip is played at WEIGHT 0 and every
--- sound at VOLUME 0 the moment the coat goes on, and stopped `WARM_SECONDS` later. A client fetches
--- an asset when it is told to play it, so this is the fetch, moved from the worst moment to the
--- least important one. `ContentProvider:PreloadAsync` is the documented tool for this and it is a
--- CLIENT call (https://create.roblox.com/docs/reference/engine/classes/ContentProvider); this
--- repository has no client-side boar code and inventing one would be a new owner for a job that
--- needs no owner, so the server asks instead -- through the Instances `Body` already owns.
+-- WHAT THIS ACTUALLY DOES, AND WHAT IT DOES NOT (task 126 round 4, after the Reviewer caught the
+-- comment claiming more than the code delivers).
+--
+-- THE CLIPS ARE STILL ASKED FOR THE OLD WAY: every animation is played at WEIGHT 0 when the coat
+-- goes on and stopped `WARM_SECONDS` later. An animation plays on the SERVER too -- the Animator is
+-- the server's -- so that fetch is real and the flinch is no longer 568 ms late.
+--
+-- THE SOUNDS ARE NOT WARMED ON ANY CLIENT, and nothing here can warm them. `PreloadAsync` is a
+-- CLIENT call (https://create.roblox.com/docs/reference/engine/classes/ContentProvider): run from
+-- the server it fills the SERVER's cache, which no listener hears from. The measured 364 ms-late
+-- cry is therefore still there for the first boar anybody shoots in a fresh session, and saying
+-- otherwise in a comment is worse than the lateness.
+--
+-- WHY IT IS STILL CALLED: it costs one spawned pcall per boar and it does warm the server's own
+-- copy, which is where `Body` reads `IsLoaded` from; and it replaced a loop that PLAYED all eleven
+-- sounds at volume 0, which held eleven voices per animal and made the sound counts unreadable (the
+-- Director's smoke read 67 playing sounds with 34 boars out and the steady state was 3).
+--
+-- WHAT WOULD ACTUALLY FIX IT is a client-side preload of the boar's sound ids -- one small owner on
+-- the client, given the id list the server already has. That is a task, not a comment, and it is
+-- queued in `TASKS.md` under before-release rather than implied here.
 --
 -- IT IS BOUNDED AND IT IS SILENT: once per boar, weight 0 and volume 0 throughout, stopped by the
 -- same `stepVisual` that draws everything else. A real play always sets its own volume first, so
@@ -1416,10 +1518,35 @@ function Body.warmAssets(handle, config)
 			track:Play(0, 0, 0) -- no fade, NO WEIGHT, no speed: fetched, and invisible
 		end
 	end
+	-- THE SOUNDS ARE FETCHED, NOT PLAYED (task 126 round 2).
+	--
+	-- THE DIRECTOR'S SMOKE COUNTED 67 PLAYING SOUNDS WITH 34 BOARS OUT, against task 123's 1-3, and
+	-- read it as the footsteps escaping the voice ration. THEY HAD NOT -- measured, the steady state
+	-- is `steps=1` and `total<=3` across a whole 125 s run, and the spike was THIS LOOP: at the
+	-- sampled instant, 8 of EVERY ONE of the eleven sound names, which is eight freshly-released
+	-- boars times eleven sounds and the signature of a pre-roll rather than of hooves. Task 126 made
+	-- it visible by moving the footsteps to `rbxasset://` engine assets, which load on the same frame
+	-- where a marketplace id was still loading and so not yet `IsPlaying`.
+	--
+	-- They were SILENT (`Volume = 0`), so this was never audible -- but a silent Sound still holds a
+	-- voice, and a count nobody can read is a measurement nobody can use.
+	--
+	-- `ContentProvider:PreloadAsync` IS THE THING THAT EXISTS FOR THIS: it fetches an asset without
+	-- playing it, which is the whole of what the pre-roll was for ("make the client fetch every clip
+	-- and every sound BEFORE the first shot needs one" -- the comment this replaces). It is spawned
+	-- because it YIELDS, and `warmAssets` is called from `Body.create` on a server step.
+	--   https://create.roblox.com/docs/reference/engine/classes/ContentProvider#PreloadAsync
+	-- The ANIMATION half above still plays its tracks: a track is not an asset request, it is how a
+	-- clip's own asset is resolved, and nothing in this round measured it as a cost.
+	local list = {}
 	for _, sound in pairs(handle.sounds) do
-		sound.Volume = 0
-		sound:Play()
+		table.insert(list, sound)
 	end
+	task.spawn(function()
+		pcall(function()
+			ContentProvider:PreloadAsync(list)
+		end)
+	end)
 	handle.warmFor = config.MODEL.WARM_SECONDS
 	return true
 end
@@ -1492,11 +1619,12 @@ end
 -- Once per boar per step, with the flag on. Footsteps follow the gait; grunts and breaths are
 -- countdowns, so a sounder does not grunt in chorus.
 --
--- `voice` IS WHAT THE CROWD ALLOWS THIS ANIMAL THIS STEP (task 120), from the Runtime, which is the
--- only thing that knows what else is making a noise: `steps = false` for every member of a sounder
--- but its leader, `grunt = false` while the sounder's one grunt slot is taken. nil means "no limits",
--- which is what every caller written before this task passes. Returns which one-shot it played, so
--- the Runtime can book the slot it just used.
+-- `voice` IS WHAT THE CROWD ALLOWS THIS ANIMAL THIS STEP (task 120, one key per LAYER since task
+-- 123), from the Runtime, which is the only thing that knows what else is making a noise:
+-- `steps = false` for an animal that is not one of its herd's or the world's few footstep voices,
+-- `breath = false` likewise, `grunt = false` while the sounder's grunt slot is taken or the world's
+-- mutter ceiling is full. nil means "no limits", which is what every caller written before task 120
+-- passes. Returns which one-shot it played, so the Runtime can book the slot it just used.
 function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, voice): string?
 	if handle.soundFolder == nil then
 		return nil
@@ -1506,9 +1634,9 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, 
 
 	-- FOOTSTEPS. Exactly one loop plays, and a standing boar is silent.
 	local gait, rate = Body.stepSoundFor(speed, config)
-	-- ONE SET OF HOOVES PER SOUNDER: five animals running together are one sound with one position
-	-- to a listener fifty studs away, and six copies of one sample is the "wall of noise" Karen
-	-- asked not to have. The followers go silent exactly as a standing boar does.
+	-- ONE OR TWO SETS OF HOOVES, NOT TWENTY: animals running together are one sound with one
+	-- position to a listener fifty studs away, and twenty copies of one sample is the "to many
+	-- noise" Karen asked not to have. The rest go silent exactly as a standing boar does.
 	if voice and voice.steps == false then
 		gait = nil
 	end
@@ -1540,7 +1668,7 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, 
 		-- there -- a boar whose gait did not change across that moment then ran silently for ever,
 		-- because the branch above only plays on a CHANGE. Measured in a spec: six boars all
 		-- fleeing, one audible loop. It matters more since this task, because a sounder's hooves
-		-- are now one animal's (`isStepEmitter`): the silent one could be the whole herd's voice,
+		-- are now one or two animals's (`Boar.hasVoice`): a silent one could be the whole herd's voice,
 		-- which is the opposite of "hear them coming".
 		if now and not now.IsPlaying then
 			now.Volume = sound.STEPS[gait].volume
@@ -1562,9 +1690,14 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, 
 		return nil
 	end
 
-	-- CALM GRUNTS while it is idling or grazing, BREATHING while it is working. Never both, and the
-	-- two bands do not touch (`GRUNTS.MAX_SPEED` < `BREATH.MIN_SPEED`), so a boar can never do both
-	-- at once and sound like two animals.
+	-- GRUNTS WHILE IT WALKS OR TROTS, BREATH WHILE IT RUNS. Never both: since task 123 the two
+	-- bands MEET at `MODEL.RUN_FROM` rather than leaving a gap, and the `if ... elseif` below gives
+	-- the meeting point to the grunt, so no speed can satisfy both and sound like two animals.
+	--
+	-- IT USED TO BE "CALM GRUNTS, BREATH WHILE WORKING", with the grunt band ending at 6 studs/s --
+	-- grazing pace. Karen, 2026-10-05: *"when they cross road or they close they don't make any pig
+	-- sound besides walking"*. A crossing herd moves at 4 to 18 studs/s, so it grunted at none of
+	-- the speeds anybody ever watches it at.
 	--
 	-- THE FIRST INTERVAL IS ARMED, NOT FIRED. A countdown starting at zero means every boar grunts on
 	-- the frame its coat goes on -- and a sounder is five boars, so they would grunt in chorus and
@@ -1580,10 +1713,23 @@ function Body.stepSound(handle, dt: number, speed: number, config, rng: Random, 
 			return next_
 		end
 		local name = if row == sound.GRUNTS then "grunt" else "breath"
-		-- SKIPPED, NEVER QUEUED (task 120): a grunt that loses its sounder's one slot simply does
-		-- not happen, and the animal waits for its next interval like one that had nothing to say.
-		-- Queuing it would move the chorus a second later instead of removing it.
-		local allowed = name ~= "grunt" or voice == nil or voice.grunt ~= false
+		-- SKIPPED, NEVER QUEUED (task 120): a cue that loses its slot simply does not happen, and
+		-- the animal waits for its next interval like one that had nothing to say. Queuing it would
+		-- move the chorus a second later instead of removing it.
+		--
+		-- THE LAYER'S OWN NAME IS THE KEY (task 123). It was `name ~= "grunt" or ...`, which let
+		-- BREATH through unrationed -- and twenty animals working is twenty breaths, measured at 8
+		-- of the 31 sounds playing at once in the Forest Test. Reading `voice[name]` means a third
+		-- layer would add a row to the ration and no branch here.
+		local allowed = voice == nil or voice[name] ~= false
+		-- THE GRUNT IS AN EVENT, NOT AN INTERVAL, SINCE TASK 123 ROUND 6. Karen asked for "one hriu
+		-- sound per flack when they are close", which is an approach and not a clock, so
+		-- `Runtime:_stepApproachGrunts` owns it and this countdown must not fire one as well -- two
+		-- owners for one cue is how a herd ends up muttering again. `ON_APPROACH = false` gives the
+		-- interval mode back and costs nothing else.
+		if name == "grunt" and sound.GRUNTS.ON_APPROACH == true then
+			allowed = false
+		end
 		if allowed and Body.playOneShot(handle, name, row, config, rng) then
 			played = name
 		end

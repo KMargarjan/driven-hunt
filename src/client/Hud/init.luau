@@ -28,11 +28,26 @@
 --         docs/design/drive.md (section 9.3)
 -- Note:   docs/research/2026-09-24-shotgun.md
 local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+-- Which world this is, so the compass knows whether anybody has said where the drive comes from
+-- (task 125). Read, never written: `Map.EXPECTED_WORLD` is a commit, not a flag.
+local Map = require(ReplicatedStorage:WaitForChild("Map"))
+local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+
+-- The Hud's own 2-D feedback sounds have one writer, and this is it (task 124).
+local Sound = require(script.Sound)
+-- THE REPORT PANEL (task 124 stage B). It is a sibling module and not a second ScreenGui: the Hud
+-- builds the frame with everything else here, and `ReportPanel` is the one writer of what goes inside
+-- it. One ScreenGui, built once, so a visibility audit has one place to look.
+local ReportPanel = require(script.ReportPanel)
+-- ...and the compass strip (task 125). Same shape as the report panel: the Hud builds the frame
+-- with everything else, and `Compass` is the one writer of what goes inside it.
+local Compass = require(script.Compass)
 
 local Hud = {}
 
@@ -48,6 +63,8 @@ local feedFrame: Frame? = nil -- kept for the client spec's ancestor walk
 local feedLines: { TextLabel } = {}
 local feedEntries: { { text: string, at: number } } = {}
 local scorePanel: Frame? = nil
+local reportFrame: Frame? = nil
+local compassFrame: Frame? = nil
 local scoreTitle: TextLabel? = nil
 local scoreLines: { TextLabel } = {}
 local scoreFooter: TextLabel? = nil
@@ -91,6 +108,21 @@ end
 function Hud.scorePanel(): Frame?
 	return scorePanel
 end
+
+-- The compass strip, and the module that fills it (task 125).
+function Hud.compass(): Frame?
+	return compassFrame
+end
+
+Hud.Compass = Compass
+
+-- The report's frame, so a spec can read its visibility without reaching through PlayerGui by name.
+function Hud.reportPanel(): Frame?
+	return reportFrame
+end
+
+-- The panel module itself, for the same reason: the Hud starts it, so the Hud is where it is found.
+Hud.Report = ReportPanel
 
 function Hud.isScorePanelVisible(): boolean
 	return scorePanel ~= nil and scorePanel.Visible
@@ -382,6 +414,35 @@ local function build(): ScreenGui
 	tiedStroke.Parent = tied
 	tied.Parent = screen
 
+	-- THE COMPASS (task 125). Karen: *"we need to indicate from what side drive is comming"*. Top
+	-- centre, thin, and built empty -- `Compass.start` fills it and this file writes nothing inside.
+	local compass = Instance.new("Frame")
+	compass.Name = "Compass"
+	compass.BackgroundColor3 = Compass.CONFIG.BACKGROUND
+	compass.BackgroundTransparency = Compass.CONFIG.TRANSPARENCY
+	compass.BorderSizePixel = 0
+	compass.AnchorPoint = Vector2.new(0.5, 0)
+	compass.Position = UDim2.new(0.5, 0, 0, Compass.CONFIG.TOP)
+	compass.Size = UDim2.fromOffset(Compass.CONFIG.WIDTH, Compass.CONFIG.HEIGHT)
+	compass.ZIndex = Compass.CONFIG.Z_INDEX
+	compass.ClipsDescendants = true -- a mark that has scrolled off the end must not spill onto the sky
+	compass.Visible = false
+	compass.Parent = screen
+
+	-- THE REPORT, over everything: it is a thing you stop and read. Empty and hidden until
+	-- `ReportPanel.start` fills it -- this file creates the box and writes nothing inside it.
+	local report = Instance.new("Frame")
+	report.Name = "ReportPanel"
+	report.BackgroundColor3 = Report.CONFIG.PANEL_COLOR
+	report.BackgroundTransparency = Report.CONFIG.PANEL_TRANSPARENCY
+	report.BorderSizePixel = 0
+	report.AnchorPoint = Vector2.new(0.5, 0.5)
+	report.Position = UDim2.fromScale(0.5, 0.5)
+	report.Size = UDim2.fromOffset(Report.CONFIG.PANEL_WIDTH, Report.CONFIG.PANEL_HEIGHT)
+	report.ZIndex = Report.CONFIG.PANEL_Z_INDEX
+	report.Visible = false
+	report.Parent = screen
+
 	local label = Instance.new("TextLabel")
 	label.Name = "Readout"
 	label.BackgroundTransparency = 1
@@ -405,6 +466,8 @@ local function build(): ScreenGui
 	driveBar = bar
 	feedFrame = feed
 	scorePanel = panel
+	reportFrame = report
+	compassFrame = compass
 	scoreTitle = title
 	scoreFooter = footer
 	tiedBanner = tied
@@ -429,6 +492,10 @@ function Hud.showHitMark(kind: string?)
 		end
 	end
 	mark.Visible = true
+	-- THE TICK RIDES WITH THE PICTURE (task 124). It is called from here and nowhere else, because
+	-- this is the one writer of the marker -- so what you hear and what you see cannot disagree about
+	-- what happened. An empty id plays nothing and counts itself; see `Hud.Sound`.
+	Sound.tick(hitKind)
 
 	hitToken += 1
 	local token = hitToken
@@ -495,6 +562,14 @@ local function scoreRowText(rank: number, row): string
 	)
 end
 
+-- WHETHER THE SCORE PANEL SHOWS, and the one new clause in it: NOT WHILE THE REPORT IS OPEN. Two
+-- centred panels at once is two panels nobody can read, and the report is the one the player asked
+-- for by pressing Tab. Pure and exported for the same reason the renderer below is -- a drive is 600
+-- seconds long, so no harness run ever reaches the Scoring phase.
+function Hud.scorePanelVisible(snapshot, reportOpen: boolean?): boolean
+	return snapshot ~= nil and snapshot.phase == "Scoring" and Drive.CONFIG.SCOREBOARD_ENABLED and reportOpen ~= true
+end
+
 -- THE ONE WRITER of the score panel, and it is PUBLIC on purpose: a drive is 600 seconds long, so no
 -- harness run ever reaches the Scoring phase, and the design's visibility assertion (section 12.7
 -- item 4) could not be written at all unless a spec can hand this the snapshot the wire would. It is
@@ -505,7 +580,7 @@ function Hud.renderScore(snapshot, secondsLeft: number?)
 	if not panel then
 		return
 	end
-	local show = snapshot ~= nil and snapshot.phase == "Scoring" and Drive.CONFIG.SCOREBOARD_ENABLED
+	local show = Hud.scorePanelVisible(snapshot, ReportPanel.isOpen())
 	panel.Visible = show
 	if not show then
 		-- Cleared, not just hidden: a stale board must not flash for a frame at the next Scoring.
@@ -590,10 +665,38 @@ local function renderDrive(MatchSystem)
 	bar.Visible = true
 end
 
-local function feedTextFor(entry): string
+-- THE KILL LINE, AS A PURE FORMATTER (task 124). Karen: *"we need to show when is killed logg or
+-- something similar"*, and her shape: who, which animal, where it was hit, how far.
+--
+--     KAREN         MALE BOAR   chest   42 m
+--     <name,-12>    <KIND> BOAR <zone>  <metres> m
+--
+-- `animalKind == nil` -- which is what a world with `KINDS` off sends -- reads `BOAR` with no kind
+-- word rather than `NIL BOAR`.
+--
+-- Exported and pure so a spec can assert the shape with no wire, no drive and no kill: the same
+-- reason `Hud.crosshairVisible` and `Hud.renderScore`'s predicate are exported.
+function Hud.killLineText(event): string
+	local who = tostring((event and event.name) or (event and event.userId) or "?")
+	local kind = event and event.animalKind
+	local animal = if type(kind) == "string" and kind ~= "" then string.upper(kind) .. " BOAR" else "BOAR"
+	local zone = tostring((event and event.zone) or "?")
+	return string.format("%-12s %-11s %-6s %d m", who, animal, zone, Report.metres(event and event.distance))
+end
+
+-- WHAT ONE FEED ENTRY READS AS, or nil when another owner draws it. Exported for the same reason
+-- `Hud.killLineText` is (task 124 round 3): the rule "a Match `kill` entry draws NO line, because
+-- `HitLog`'s own line draws it with the animal's kind" is the whole of why one kill is not two, and
+-- a local function cannot be asserted.
+function Hud.feedTextFor(entry): string?
 	local who = entry.name or (if entry.userId then tostring(entry.userId) else "")
 	if entry.kind == "kill" then
-		return string.format("%s  BOAR  %s", who, tostring(entry.zone or "?"))
+		-- `Match`'s FEED OWNS THE DRIVE'S EVENTS -- escape, violation, join, leave. `HitLog`'s line
+		-- OWNS THE KILL, in both worlds, over its own remote (design section 4.2): its line carries
+		-- the animal's KIND, which Karen's report needs and which this entry has never had. Returning
+		-- nil here is how the duplicate goes away without touching `src/server/Match/`, which is in
+		-- TWO_PLAYER_PATHS and not in this task's blast radius.
+		return nil
 	elseif entry.kind == "escape" then
 		return "a boar got away"
 	elseif entry.kind == "violation" then
@@ -645,7 +748,12 @@ local function render(Weapon, CameraSystem)
 		-- The Hud asks the CAMERA, which is the state, not the weapon's aim flag, which is the
 		-- request -- and it asks the same camera which view this build is running.
 		local aiming = CameraSystem ~= nil and CameraSystem.getMode() == "Aiming"
-		local firstPerson = CameraSystem ~= nil and CameraSystem.isFirstPerson()
+		-- NO CAMERA MEANS NO CROSSHAIR, AND THE ASYMMETRY IS DELIBERATE (task 123 round 7). `aiming`
+		-- defaults to false because an unknown aim is a hipfire; `firstPerson` defaults to TRUE
+		-- because Karen's rule is "no crosshair at any time" in first person and a question nobody
+		-- can answer must not be the thing that overrides her. The crosshair exists for the
+		-- third-person shoulder camera, so no camera system is also no third person to draw it for.
+		local firstPerson = CameraSystem == nil or CameraSystem.isFirstPerson()
 		crosshair.Visible = Hud.crosshairVisible(state, aiming, firstPerson)
 	end
 	if readout then
@@ -655,6 +763,13 @@ local function render(Weapon, CameraSystem)
 		-- stayed on screen, which is what the Task 35 screenshot shows.
 		readout.Text = if state and state.equipped then textFor(state) else ""
 	end
+end
+-- ONE KILL, ONE LINE. The replica hears the server and fires `Killed`; this draws it. A NAMED
+-- handler rather than a closure, exactly as `Hud.onHitMarker` is, so the client half of the kill log
+-- can be driven in a spec instead of only by a live drive (task 124 round 3).
+function Hud.onKilled(event)
+	table.insert(feedEntries, { text = Hud.killLineText(event), at = os.clock() })
+	renderFeed(os.clock())
 end
 
 function Hud.start()
@@ -666,9 +781,19 @@ function Hud.start()
 	local player = Players.LocalPlayer
 	local scripts = player:WaitForChild("PlayerScripts")
 	local Weapon = require(scripts:WaitForChild("Weapon"))
-	-- The camera may not exist (it is its own task); the Hud works without it and simply never
-	-- hides the crosshair for aiming. One-way: the camera has no reference to the Hud.
-	local cameraModule = scripts:FindFirstChild("Camera")
+	-- `WaitForChild` AND NOT `FindFirstChild`, AND THAT WAS THE BUG (task 123 round 7). Karen, in a
+	-- first-person session: *"why there is corss? we dont need a cross, I mentione crossing road"*.
+	-- MEASURED in her own running client: `Camera.isFirstPerson()` answered TRUE and
+	-- `HunterHud.Crosshair.Visible` was TRUE anyway -- because this line ran before the engine had
+	-- copied `Camera` into `PlayerScripts` (it was the LAST of thirteen children in that session),
+	-- so `CameraSystem` was nil, `firstPerson` read false, and the `CameraSystem.Changed` connection
+	-- below was never made either, so nothing ever corrected it.
+	--
+	-- IT IS A RACE AND NOT A PROPERTY OF THAT WORLD: `WeaponBoot` and `CameraBoot` are two scripts
+	-- with no defined order, so the DEV place is exposed to exactly the same one and has simply been
+	-- winning it. A bounded wait keeps the old promise -- the Hud still works if the camera never
+	-- arrives -- and removes the race. One-way: the camera has no reference to the Hud.
+	local cameraModule = scripts:WaitForChild("Camera", 5)
 	local CameraSystem = if cameraModule then require(cameraModule) else nil
 	-- The drive may not exist (it is its own system, and 1.7a is the first task that ships it); the
 	-- Hud works without it and simply draws no bar. One-way: the match has no reference to the Hud.
@@ -686,8 +811,12 @@ function Hud.start()
 			renderDrive(MatchSystem)
 		end)
 		MatchSystem.Feed:Connect(function(entry)
-			table.insert(feedEntries, { text = feedTextFor(entry), at = os.clock() })
-			renderFeed(os.clock())
+			-- NO TEXT, NO LINE: `feedTextFor` answers nil for an entry another owner now draws.
+			local text = Hud.feedTextFor(entry)
+			if text ~= nil then
+				table.insert(feedEntries, { text = text, at = os.clock() })
+				renderFeed(os.clock())
+			end
 		end)
 		-- The timer is the one thing that has to be redrawn without an event, because it counts
 		-- down locally from a server timestamp (docs/design/drive.md section 9.1). Once a second,
@@ -703,6 +832,66 @@ function Hud.start()
 			renderFeed(os.clock())
 		end)
 		renderDrive(MatchSystem)
+	end
+
+	-- THE KILL LOG (task 124). `PlayerScripts.Report` is the replica that hears the server; the Hud
+	-- draws. It may not exist yet in a world that has not booted it, and the Hud works without it --
+	-- the same shape as the camera and the match above.
+	local reportModule = scripts:WaitForChild("Report", 5)
+	local ReportSystem = if reportModule then require(reportModule) else nil
+	if ReportSystem then
+		ReportSystem.Killed:Connect(Hud.onKilled)
+	end
+
+	-- TAB BELONGS TO THE ROBLOX PLAYER LIST ON PC, and a `ContextActionService` binding cannot take a
+	-- CoreGui key -- so the stock list is turned off and the key becomes ours. The Hud is the ONE
+	-- writer of `SetCoreGuiEnabled` (it already owns screen space) and this is its only call.
+	--
+	-- `pcall`, because `SetCoreGuiEnabled` is one of the calls that errors when the CoreGui is not
+	-- ready yet, and a Hud that fails to boot over a player list is a blank screen -- the exact
+	-- failure `docs/PROJECT_CONTEXT.md` records twice.
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+	end)
+
+	-- THE REPORT PANEL, handed its frame and its collaborators. Every one of them may be nil and the
+	-- panel says so in its own header: with no camera there is no `Cursor`, and then the keyboard is
+	-- the only way to drive it -- which is why the keyboard path exists.
+	-- THE COMPASS, AND WHERE ITS DRIVE BEARING COMES FROM (task 125).
+	--
+	-- THE WORLD STATES IT AND THE HUD DRAWS IT. `ForestTest.DRIVE_BEARING_DEG` is derived in that
+	-- world's own data from `DRIVERS.startNorthStuds` -- the beaters begin 700 studs north of the
+	-- road -- so the HUD never works out a direction from a position. Any other world has not said
+	-- yet, and then the strip is a plain compass with no marker rather than a marker pointing at a
+	-- guess; `Compass.setBearing` is the one line a later Match drive needs.
+	if compassFrame then
+		local bearing = nil
+		if Map.EXPECTED_WORLD == "forest-test" then
+			local forest = ReplicatedStorage:FindFirstChild("ForestTest")
+			local data = if forest then require(forest) else nil
+			bearing = data and data.DRIVE_BEARING_DEG
+		end
+		Compass.start(compassFrame, bearing)
+		-- ONCE A FRAME, because it tracks the view: everything else in this file is event-driven,
+		-- and a compass that updates on an event is a compass that lags the turn that caused it.
+		-- `RenderStepped` is the client's own draw tick and this writes nothing but its own frame.
+		RunService.RenderStepped:Connect(function()
+			-- ASK THE SYSTEM THAT OWNS THE VIEW (task 125 round 3). Neither `CurrentCamera` (a second
+			-- writer flips it) nor the character's body (in first person the camera turns the VIEW
+			-- and not the body, so the strip never moved) is the view. `Camera.viewCFrame` is.
+			-- See `Compass.headingFrom` for both measurements.
+			Compass.render(Compass.headingFrom(CameraSystem))
+		end)
+	end
+
+	if reportFrame then
+		ReportPanel.start(reportFrame, {
+			Report = ReportSystem,
+			Input = Weapon.Input,
+			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
+			Match = MatchSystem,
+			userId = player.UserId,
+		})
 	end
 
 	Weapon.Changed:Connect(function()

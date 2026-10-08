@@ -10,6 +10,47 @@ For the Director and Karen. The Builder (or any agent) writes here and stops whe
 Newest first. The Director or Karen answers under each entry, and the entry is closed with a date.
 
 ---
+## 2026-10-06 · DIRECTOR DECISION · Tasks 122-130 merge as ONE pull request
+
+**Raised by:** the Director, transcribed here by the Builder because the decision has to live where
+the next reader of the merge gate will look for it.
+
+**The decision:** the stack `122 -> 130` goes to `main` as a single PR (`task-130-spawn-view` ->
+`main`), not as nine stacked PRs. Task 121 is NOT in it; PR #112 stays open and is to be closed as
+superseded with Karen's OK.
+
+**The reason, which is a fact about the gate and not a preference:** no branch below 128 can pass the
+gate on its own.
+
+* The gate's DEV place could not be rebuilt until task **128** existed. `tools/mapgen.py` had been
+  dead since the MCP thread began refusing every `require`, so `Workspace.DrivenHuntMap` still held
+  hand-made experiments with **0 tagged markers** against the 8 shooter posts, 4 boar spawns, drive
+  line, driver start and 12 trees that `map_contract.spec` requires. Every run from task 122 onward
+  failed on that, 18 of 23.
+* Tasks **123-127** then shipped against a gate that could not run, and **129** found and fixed the
+  20 spec failures that had accumulated -- three of them real bugs in shipped code. So 123-127 cannot
+  be green before 129 exists, and 129 cannot be green before 128 is.
+
+**What the evidence is, therefore:** the gate AT THE HEAD of the stack, both runs, clean tree, DEV:
+
+```
+[harness] PASS: 33/33 checks @ 831a06fbe759608129b15f1fbfdfb2f5abebfb16 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 831a06fbe759608129b15f1fbfdfb2f5abebfb16 (clean tree)
+```
+
+**What does NOT change:** every task still gets its own review. There is one
+`reviews/task-<N>/REQUEST.md` for each N in {122, 123, 124, 125, 126, 127, 128, 129, 130}, each with
+its own claims about that task's final state and its own list of what could not be verified, and the
+Director runs the reviews one per task.
+
+**One honest note about the gate at that head** (and it is queued in `TASKS.md` as a before-release
+item rather than hidden here): the FIRST one-player run at this commit reported `FAIL 31/33` and the
+immediate re-run on the same commit reported `PASS 33/33`. The failing check was not captured. A
+gate that answers two different things about one commit is a gate with a flake in it, and the Builder
+has seen one candidate on identical code -- `boar_body.spec`'s "the sounder scatters after its leader
+dies", which failed 2 runs in 9 during task 129.
+
+---
 ## 2026-10-03 · CLOSED 2026-10-03 · NEEDS DIRECTOR CLICKS · Task 115: the ten boar animations can only be published from inside Studio
 
 **Raised by:** Builder, Task 115 (branch `task-115-boar-model`).
