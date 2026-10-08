@@ -114,10 +114,12 @@ return function()
 				return tool.Parent == player.Character
 			end)).to.equal(true)
 			local after = Weapon.stats()
-			-- ...AND THE OUTCOME WAS RECORDED. `equipNow` is the equip that took on the spot and
-			-- `equipLate` the one a later frame had to finish; a build that stopped verifying moves
-			-- neither, because neither counter exists outside the verify-and-retry path.
-			expect((after.equipNow + after.equipLate) > (before.equipNow + before.equipLate)).to.equal(true)
+			-- ...AND THE VERIFY RAN. `equipLate` is incremented in ONE place -- the loop that checks,
+			-- on a LATER frame, that the Tool really did arrive -- so this is the assertion that
+			-- fails the moment task 129's retry is deleted. Measured on this commit: one equip moves
+			-- `now` by one (the call) and `late` by one (the outcome, seen a frame later).
+			expect(after.equipLate > before.equipLate).to.equal(true)
+			expect(after.equipNow > before.equipNow).to.equal(true)
 			expect(after.equipNoCharacter).to.equal(before.equipNoCharacter)
 			TestKit.note(
 				string.format(
