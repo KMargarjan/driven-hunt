@@ -29,6 +29,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local ServerStorage = game:GetService("ServerStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -88,35 +89,41 @@ return function()
 			local backpack = player:FindFirstChildOfClass("Backpack")
 			expect(backpack).to.be.ok()
 
+			-- HOW A FAILING EQUIP IS PRODUCED, WITHOUT A STUB, and two earlier ideas did not work --
+			-- both measured on this commit rather than reasoned about:
+			--   * a Tool with `RequiresHandle` and no Handle IS parented to the character by
+			--     `EquipTool` (the case read the player's name where it expected the Backpack), and
+			--     then bounces back out -- so it is not a refusal, it is a flicker;
+			--   * putting the Tool back in the Backpack AFTER the call is too late: `task.spawn` runs
+			--     the retry's first iteration synchronously, it sees the Tool in the character, and
+			--     the loop RETURNS before the spec can undo anything.
+			-- A Tool that is in neither the Backpack nor the character cannot be equipped at all:
+			-- `EquipTool` has nothing to move. That is a real refusal, repeated every 0.1 s by the
+			-- loop, and it is the same shape as the placement respawn -- the call runs and the Tool
+			-- does not arrive.
 			local tool = handlelessTool(PROBE_NAME)
-			tool.Parent = backpack
+			addHandle(tool)
+			tool.Parent = ServerStorage
 			local before = Weapon.stats().equipLate
 
-			-- HOW "THE EQUIP DID NOT TAKE" IS REPRODUCED, and the first idea did not work: a Tool
-			-- with `RequiresHandle` and no Handle IS still parented to the character by `EquipTool`
-			-- (measured on this commit -- the case read `Alhamdulilah824` where it expected the
-			-- Backpack), so a handleless tool is not a failing equip.
-			--
-			-- What the bug actually looked like is simpler and is reproduced exactly: the call ran,
-			-- and the Tool was in the BACKPACK afterwards anyway. During the drive's placement
-			-- respawn the humanoid exists but will not carry anything yet and `EquipTool` does
-			-- nothing silently; here the Tool is put back by hand on the same frame. Either way the
-			-- outcome on the next frame is the thing `Hardware.equip` has to notice.
 			Hardware.equip(tool, player)
-			tool.Parent = backpack
-			expect(tool.Parent).to.equal(backpack)
+			-- THE FIRST ATTEMPT FAILED, SILENTLY, which is the fault this case guards.
+			expect(tool.Parent).to.equal(ServerStorage)
 
+			-- ...and now the character can take it, exactly as it can when a respawn has finished.
+			tool.Parent = backpack
 			local landed = waitUntil(3, function()
 				return tool.Parent == player.Character
 			end)
 			expect(landed).to.equal(true)
-			-- THE RETRY IS WHAT PUT IT THERE. `equipLate` is incremented in one place only -- the
-			-- loop in `Hardware.equip` that checks the OUTCOME on a later frame -- so this assertion
-			-- fails the moment that loop is deleted, which is what a regression of task 129 is.
+			-- THE RETRY IS WHAT PUT IT THERE: nothing else touched this Tool, and `equipLate` is
+			-- incremented in one place only -- the loop in `Hardware.equip` that checks the OUTCOME
+			-- on a later frame. Delete that loop and both assertions fail, which is what a regression
+			-- of task 129 is.
 			expect(Weapon.stats().equipLate >= before + 1).to.equal(true)
 			TestKit.note(
 				string.format(
-					"weapon-equip: an equip that did not take was retried into the hand (late %d -> %d)",
+					"weapon-equip: an equip that could not take was retried into the hand (late %d -> %d)",
 					before,
 					Weapon.stats().equipLate
 				)
@@ -128,18 +135,19 @@ return function()
 		it("gives up quietly when the Tool goes away, instead of retrying for ever", function()
 			local player = somebody()
 			expect(player).to.be.ok()
-			-- A Tool that is in no container at all: `EquipTool` cannot take it anywhere, so the loop
-			-- runs and finds `tool.Parent == nil` -- the shape of a revoke, or of a respawn that took
+			-- The same unequippable Tool, and then it is destroyed: a revoke, or a respawn that took
 			-- the old character with it. The retry has an exit, which is what keeps it from leaking a
 			-- thread per grant.
 			local tool = handlelessTool(PROBE_NAME)
+			addHandle(tool)
+			tool.Parent = ServerStorage
 			local before = Weapon.stats().equipGaveUp
 
 			Hardware.equip(tool, player :: Player)
+			tool:Destroy()
 			expect(waitUntil(3, function()
 				return Weapon.stats().equipGaveUp > before
 			end)).to.equal(true)
-			tool:Destroy()
 		end)
 	end)
 
