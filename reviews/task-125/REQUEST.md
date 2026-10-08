@@ -5,9 +5,9 @@ Round: 3
 Base: main
 Code commit: `cced90502fddfbeda8efd3ba74e27779834fe879`
 
-```
-
 DIRECTOR NOTE (re-review at cced905): the stack's round-3 fix changed this task's owned code (`src/server/ForestTest/init.luau` and/or `src/client/Hud/init.luau`); round 2 PASSed before it, so this re-reviews the same claims at the final code commit cced905.
+
+```
 [harness] PASS: 33/33 checks @ cced90502fddfbeda8efd3ba74e27779834fe879 (clean tree) scope=all
 [harness2] PASS: 35/35 checks @ cced90502fddfbeda8efd3ba74e27779834fe879 (clean tree)
 ```
@@ -20,7 +20,6 @@ decision, recorded in `ESCALATE.md`: no branch below 128 can pass the gate on it
 map could only be rebuilt once 128's bundler existed, and 129 fixed the specs 123-127 broke --
 so the evidence for every task in the stack is the gate AT THE HEAD, and every task still gets
 its own review.
-
 
 ## What changed
 
