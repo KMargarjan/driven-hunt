@@ -58,6 +58,15 @@ local hitMark: Frame? = nil
 local hitKind: string? = nil
 local hitToken = 0 -- so a second hit during the first mark's life cannot hide it early
 local markerConnection: RBXScriptConnection? = nil
+-- WHETHER THE DRIVE BAR IS ACTUALLY WIRED TO THE MATCH (task 134). Not a cache of what is drawn --
+-- `renderDrive` is that -- but the answer to "did the Hud ever find the system it draws from", which
+-- was silently NO for a whole session whenever `PlayerScripts.Match` lost a replication race.
+local matchConnected = false
+-- ...AND THE SYSTEM ITSELF, kept because two things need it at two different times: the connections
+-- in `Hud.useMatch`, and the report panel, which is handed its collaborators further down `start`.
+-- When `Match` wins its race -- the common case -- this is set before the panel is built and the
+-- panel gets it the way it always did; when it loses, `useMatch` hands it over afterwards.
+local matchSystem: any = nil
 local driveBar: TextLabel? = nil
 local feedFrame: Frame? = nil -- kept for the client spec's ancestor walk
 local feedLines: { TextLabel } = {}
@@ -171,6 +180,13 @@ end
 -- Whether this Hud is actually listening to the server's one-way marker remote.
 function Hud.hitMarkerConnected(): boolean
 	return markerConnection ~= nil and markerConnection.Connected
+end
+
+-- ...AND WHETHER IT IS LISTENING TO THE DRIVE (task 134), which is the same question for the bar, the
+-- clock and the feed. Read by `tests/client/hud_boot.spec.luau`, and the one honest answer to "is
+-- there going to be a drive bar this session".
+function Hud.driveConnected(): boolean
+	return matchConnected
 end
 
 local function arm(parent: Frame, name: string, size: UDim2, anchor: Vector2, position: UDim2, color: Color3)
@@ -772,6 +788,95 @@ function Hud.onKilled(event)
 	renderFeed(os.clock())
 end
 
+-- HOW LONG THE HUD WILL WAIT FOR A SYSTEM IT DRAWS, before it says out loud that it gave up.
+-- Ten seconds, the same bound `CameraBoot` uses for the same race (task 133).
+local LATE_MODULE_SECONDS = 10
+
+-- "NOT THERE YET" IS NOT "NOT THERE AT ALL", AND THAT WAS THE BUG (task 134).
+--
+-- `Hud.start` read `PlayerScripts.Match` with `FindFirstChild` -- on the line after it WAITED for
+-- `PlayerScripts.Camera`, in a comment that describes this exact race and was written because of it
+-- (task 123 round 7: the crosshair that would not go away). `PlayerScripts` is replicated, so when
+-- `Match` had not arrived yet `MatchSystem` was nil FOR THE SESSION and none of the three
+-- connections below was ever made: no drive bar, no clock, no feed, all drive, and not a word
+-- anywhere saying why. It is the same shape as task 133's gunless session, in a different owner --
+-- found while fixing that one and queued as TASKS row 133c.
+--
+-- SO IT CONNECTS WHENEVER THE MODULE LANDS: at once when it is already there -- which is the common
+-- case and costs exactly the `FindFirstChild` it costs today -- and otherwise from a spawned wait,
+-- so `Hud.start` is never blocked by a system the Hud is designed to work without. A module that
+-- never arrives is a WARNING and not a silence.
+--
+-- IT TAKES THE CONTAINER AND THE NAME, not a module, because the thing being tested is the RACE:
+-- a spec cannot create a requireable ModuleScript (`Source` is not writable outside a plugin), but
+-- it can hand this a folder, add a child to it a moment later, and prove the callback still ran.
+-- Returns whether the child was already there, which is what "did this cost a frame" means.
+function Hud.whenReady(container: Instance, name: string, use: (Instance) -> ()): boolean
+	local existing = container:FindFirstChild(name)
+	if existing ~= nil then
+		use(existing)
+		return true
+	end
+	task.spawn(function()
+		local late = container:WaitForChild(name, LATE_MODULE_SECONDS)
+		if late == nil then
+			warn(
+				string.format(
+					"[Hud] no %s.%s after %d s: the Hud will draw nothing for it this session (task 134)",
+					container.Name,
+					name,
+					LATE_MODULE_SECONDS
+				)
+			)
+			return
+		end
+		use(late)
+	end)
+	return false
+end
+
+-- EVERYTHING THE HUD DRAWS FROM THE DRIVE, AS ONE CALL. It was inline in `Hud.start`, which is why
+-- it could only ever happen at start: pulled out so it can also happen a quarter of a second later,
+-- when `Match` wins its race late. IDEMPOTENT -- a second call connects nothing twice, so the early
+-- path and the late path cannot both land.
+function Hud.useMatch(MatchSystem): boolean
+	if matchConnected or MatchSystem == nil then
+		return false
+	end
+	matchConnected = true
+	matchSystem = MatchSystem
+	-- THE PANEL READS THE SCORE OFF THE MATCH (design section 8.1), and it may already have been
+	-- built with nothing. One setter, so a late match reaches it too rather than leaving the report
+	-- without points for the session.
+	ReportPanel.setMatch(MatchSystem)
+	MatchSystem.Changed:Connect(function()
+		renderDrive(MatchSystem)
+	end)
+	MatchSystem.Feed:Connect(function(entry)
+		-- NO TEXT, NO LINE: `feedTextFor` answers nil for an entry another owner now draws.
+		local text = Hud.feedTextFor(entry)
+		if text ~= nil then
+			table.insert(feedEntries, { text = text, at = os.clock() })
+			renderFeed(os.clock())
+		end
+	end)
+	-- The timer is the one thing that has to be redrawn without an event, because it counts
+	-- down locally from a server timestamp (docs/design/drive.md section 9.1). Once a second,
+	-- not once a frame: the text only changes that often.
+	local sinceTick = 0
+	RunService.Heartbeat:Connect(function(dt)
+		sinceTick += dt
+		if sinceTick < 0.25 then
+			return
+		end
+		sinceTick = 0
+		renderDrive(MatchSystem)
+		renderFeed(os.clock())
+	end)
+	renderDrive(MatchSystem)
+	return true
+end
+
 function Hud.start()
 	if started then
 		return
@@ -794,11 +899,13 @@ function Hud.start()
 	-- winning it. A bounded wait keeps the old promise -- the Hud still works if the camera never
 	-- arrives -- and removes the race. One-way: the camera has no reference to the Hud.
 	local cameraModule = scripts:WaitForChild("Camera", 5)
+	if cameraModule == nil then
+		-- NEVER A SILENT NIL (task 134). The wait below is left exactly as task 123 round 7 measured
+		-- it -- the Hud reads `CameraSystem` synchronously a few lines down, so this one cannot move
+		-- to `whenReady` without moving what reads it -- but giving up is now said out loud.
+		warn("[Hud] no PlayerScripts.Camera after 5 s: the crosshair will not follow the camera this session")
+	end
 	local CameraSystem = if cameraModule then require(cameraModule) else nil
-	-- The drive may not exist (it is its own system, and 1.7a is the first task that ships it); the
-	-- Hud works without it and simply draws no bar. One-way: the match has no reference to the Hud.
-	local matchModule = scripts:FindFirstChild("Match")
-	local MatchSystem = if matchModule then require(matchModule) else nil
 
 	gui = build();
 	(gui :: ScreenGui).Parent = player:WaitForChild("PlayerGui")
@@ -806,38 +913,22 @@ function Hud.start()
 	-- One way: the server tells this client that something of theirs landed. The Hud never fires it.
 	markerConnection = Shotgun.remotes().HitMarker.OnClientEvent:Connect(Hud.onHitMarker)
 
-	if MatchSystem then
-		MatchSystem.Changed:Connect(function()
-			renderDrive(MatchSystem)
-		end)
-		MatchSystem.Feed:Connect(function(entry)
-			-- NO TEXT, NO LINE: `feedTextFor` answers nil for an entry another owner now draws.
-			local text = Hud.feedTextFor(entry)
-			if text ~= nil then
-				table.insert(feedEntries, { text = text, at = os.clock() })
-				renderFeed(os.clock())
-			end
-		end)
-		-- The timer is the one thing that has to be redrawn without an event, because it counts
-		-- down locally from a server timestamp (docs/design/drive.md section 9.1). Once a second,
-		-- not once a frame: the text only changes that often.
-		local sinceTick = 0
-		RunService.Heartbeat:Connect(function(dt)
-			sinceTick += dt
-			if sinceTick < 0.25 then
-				return
-			end
-			sinceTick = 0
-			renderDrive(MatchSystem)
-			renderFeed(os.clock())
-		end)
-		renderDrive(MatchSystem)
-	end
+	-- THE DRIVE BAR, THE CLOCK AND THE FEED (task 134). The drive may not exist -- it is its own
+	-- system, and 1.7a is the first task that ships it -- and the Hud works without it and simply
+	-- draws no bar. But "not shipped" and "not replicated YET" are different things, and this line
+	-- used to answer both with nil: see `Hud.whenReady`. One-way: the match has no reference to the
+	-- Hud.
+	Hud.whenReady(scripts, "Match", function(module)
+		Hud.useMatch(require(module))
+	end)
 
 	-- THE KILL LOG (task 124). `PlayerScripts.Report` is the replica that hears the server; the Hud
 	-- draws. It may not exist yet in a world that has not booted it, and the Hud works without it --
 	-- the same shape as the camera and the match above.
 	local reportModule = scripts:WaitForChild("Report", 5)
+	if reportModule == nil then
+		warn("[Hud] no PlayerScripts.Report after 5 s: there will be no kill log this session")
+	end
 	local ReportSystem = if reportModule then require(reportModule) else nil
 	if ReportSystem then
 		ReportSystem.Killed:Connect(Hud.onKilled)
@@ -867,9 +958,18 @@ function Hud.start()
 	if compassFrame then
 		local bearing = nil
 		if Map.EXPECTED_WORLD == "forest-test" then
-			local forest = ReplicatedStorage:FindFirstChild("ForestTest")
-			local data = if forest then require(forest) else nil
-			bearing = data and data.DRIVE_BEARING_DEG
+			-- WAITED FOR, FOR THE SAME REASON AS THE MATCH (task 134). This was the Hud's SECOND
+			-- `FindFirstChild` on a replicated module, found by the sweep this task asked for, and it
+			-- fails the same silent way: no `ForestTest` yet means no bearing, and a compass with no
+			-- DRIVE marker on it is the thing Karen asked for in task 125 -- *"we need to indicate
+			-- from what side drive is comming"* -- quietly not there. `Compass.setBearing` is public
+			-- exactly so it can be told later; in the common case this closure runs here and now, and
+			-- `Compass.start` two lines down sets the same number again.
+			Hud.whenReady(ReplicatedStorage, "ForestTest", function(module)
+				local data = require(module)
+				bearing = data and data.DRIVE_BEARING_DEG
+				Compass.setBearing(bearing)
+			end)
 		end
 		Compass.start(compassFrame, bearing)
 		-- ONCE A FRAME, because it tracks the view: everything else in this file is event-driven,
@@ -889,7 +989,7 @@ function Hud.start()
 			Report = ReportSystem,
 			Input = Weapon.Input,
 			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
-			Match = MatchSystem,
+			Match = matchSystem,
 			userId = player.UserId,
 		})
 	end

@@ -692,6 +692,14 @@ end
 
 ReportPanel.onDriveChanged = onDriveChanged
 
+-- THE MATCH CAN ARRIVE AFTER THIS PANEL DOES (task 134). `PlayerScripts.Match` is replicated, so
+-- the Hud cannot promise it exists when the panel is built -- and the points column is the only
+-- thing here that reads it, so a panel built without one must be able to be given one rather than
+-- going scoreless for the session. The Hud is the only caller; see `Hud.useMatch`.
+function ReportPanel.setMatch(system: any)
+	MatchSystem = system
+end
+
 function ReportPanel.start(frame: Frame, collaborators: any)
 	if started then
 		return
