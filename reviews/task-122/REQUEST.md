@@ -1,13 +1,15 @@
 # Task 122 - the forest drive test: a small playable drive in its own place
 
 Task: 122
-Round: 1
+Round: 2
 Base: main
-Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
+Code commit: `cced90502fddfbeda8efd3ba74e27779834fe879`
 
 ```
-[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree)
+
+DIRECTOR NOTE (re-review at cced905): the stack's round-3 fix changed this task's owned code (`src/server/ForestTest/init.luau` and/or `src/client/Hud/init.luau`); round 1 PASSed before it, so this re-reviews the same claims at the final code commit cced905.
+[harness] PASS: 33/33 checks @ cced90502fddfbeda8efd3ba74e27779834fe879 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ cced90502fddfbeda8efd3ba74e27779834fe879 (clean tree)
 ```
 
 DIRECTOR NOTE (re-review, Round 1 of a new cycle after the round-2 PASS): round 2 PASSed at 54d68f4. The stack's fix round 2 (7970e3c..b414f4d) then changed code this task owns — `ForestTest.releaseLine` (127 #1: spawn order) and the stuck rule in `ForestTest.stepLines` — so the PASS no longer covers the final code commit and this is a re-review at b414f4d. Claims are unchanged; verify them at the new commit.

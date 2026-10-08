@@ -1,13 +1,15 @@
 # Task 126 - a driven sounder moves like the real thing
 
 Task: 126
-Round: 2
+Round: 3
 Base: main
-Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
+Code commit: `cced90502fddfbeda8efd3ba74e27779834fe879`
 
 ```
-[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree)
+
+DIRECTOR NOTE (re-review at cced905): the stack's round-3 fix changed this task's owned code (`src/server/ForestTest/init.luau` and/or `src/client/Hud/init.luau`); round 2 PASSed before it, so this re-reviews the same claims at the final code commit cced905.
+[harness] PASS: 33/33 checks @ cced90502fddfbeda8efd3ba74e27779834fe879 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ cced90502fddfbeda8efd3ba74e27779834fe879 (clean tree)
 ```
 
 The `[harness2]` line is the Director's: it needs one Studio open, and this round's live proof
