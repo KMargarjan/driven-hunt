@@ -16,20 +16,34 @@
 --     exists but will not carry anything yet and `EquipTool` fails silently. It now verifies the
 --     outcome and retries for two seconds.
 --
--- HOW THE FAILING EQUIP IS PRODUCED, WITHOUT A STUB: a `Tool` with `RequiresHandle = true` and no
--- `Handle` CANNOT be equipped -- `Humanoid:EquipTool` does nothing and says nothing, which is the
--- same shape as the respawn window. Giving it a Handle a moment later makes the next attempt
--- succeed. The engine's own `EquipTool` is the thing under test either way; nothing is faked.
+-- WHAT THIS SPEC CAN PIN, AND WHAT IT CANNOT, said here because the difference cost three gate runs
+-- and is the honest answer to "add a spec for the retry".
 --
--- WHAT MAKES EACH CASE LOAD-BEARING is named in it: the retry case asserts `Weapon.stats().equipLate`,
--- a counter only the retry loop can move, and the upgrade case asserts the Tool is in the CHARACTER
--- after `upgradeLook`, which only the `after` callback puts it there.
+-- THE TASK 129 RETRY CANNOT BE DRIVEN FROM A SPEC, because the failure it guards cannot be produced
+-- outside a respawn: `Humanoid:EquipTool` on a LIVE humanoid always takes the Tool. Measured, in
+-- this order, each a separate gate run:
+--   * a Tool with `RequiresHandle` and no `Handle` -- equipped anyway (the case read the player's
+--     name where it expected the Backpack), then bounced back out: a flicker, not a refusal;
+--   * the Tool put back in the Backpack right after the call -- too late: `task.spawn` runs the
+--     retry's first iteration SYNCHRONOUSLY, it sees the Tool in the character and the loop returns
+--     before a spec can touch anything;
+--   * the Tool parented to `ServerStorage`, in neither the Backpack nor the character -- `EquipTool`
+--     moved it to the character from there too.
+-- So the retry's own loop is unreachable with a healthy humanoid, which is itself worth knowing: the
+-- window it exists for is the placement respawn, and only a respawn makes it.
+--
+-- WHAT IS PINNED INSTEAD, and each of these fails if its fix is deleted:
+--   * the equip reports an OUTCOME rather than a call -- the Tool ends in the character and
+--     `equipNow`/`equipLate` move. Those counters exist only inside the verify-and-retry path that
+--     task 129 added;
+--   * the arming POLICY that decides whether there is a gun at all (`Weapon.armingAction`);
+--   * TASK 123 ROUND 9's re-equip: a gun wearing the fallback, upgraded by `Weapon.upgradeLook`,
+--     ends in the CHARACTER -- and nothing but the `after` callback puts it there.
 --
 -- Design: docs/design/weapon.md (the arming policy). TASKS.md rows 123a, 129, 131.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local ServerStorage = game:GetService("ServerStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -79,75 +93,54 @@ end
 
 return function()
 	describe("the gun ends up in the hand", function()
-		it("retries the equip until the character can actually take it", function()
+		it("reports the OUTCOME of an equip, not the fact that it called EquipTool", function()
 			local player = somebody()
 			if player == nil then
-				-- A server spec runs inside a Play session with a player in it; if there is none, say
-				-- so rather than passing on nothing.
 				error("no player with a character: this case needs the harness's own player", 0)
 			end
 			local backpack = player:FindFirstChildOfClass("Backpack")
 			expect(backpack).to.be.ok()
 
-			-- HOW A FAILING EQUIP IS PRODUCED, WITHOUT A STUB, and two earlier ideas did not work --
-			-- both measured on this commit rather than reasoned about:
-			--   * a Tool with `RequiresHandle` and no Handle IS parented to the character by
-			--     `EquipTool` (the case read the player's name where it expected the Backpack), and
-			--     then bounces back out -- so it is not a refusal, it is a flicker;
-			--   * putting the Tool back in the Backpack AFTER the call is too late: `task.spawn` runs
-			--     the retry's first iteration synchronously, it sees the Tool in the character, and
-			--     the loop RETURNS before the spec can undo anything.
-			-- A Tool that is in neither the Backpack nor the character cannot be equipped at all:
-			-- `EquipTool` has nothing to move. That is a real refusal, repeated every 0.1 s by the
-			-- loop, and it is the same shape as the placement respawn -- the call runs and the Tool
-			-- does not arrive.
 			local tool = handlelessTool(PROBE_NAME)
 			addHandle(tool)
-			tool.Parent = ServerStorage
-			local before = Weapon.stats().equipLate
+			tool.Parent = backpack
+			local before = Weapon.stats()
 
 			Hardware.equip(tool, player)
-			-- THE FIRST ATTEMPT FAILED, SILENTLY, which is the fault this case guards.
-			expect(tool.Parent).to.equal(ServerStorage)
 
-			-- ...and now the character can take it, exactly as it can when a respawn has finished.
-			tool.Parent = backpack
-			local landed = waitUntil(3, function()
+			-- THE TOOL IS IN THE HAND, which is the only thing Karen can see. Before task 129 this
+			-- function called `EquipTool` and returned without ever asking whether it had worked.
+			expect(waitUntil(2, function()
 				return tool.Parent == player.Character
-			end)
-			expect(landed).to.equal(true)
-			-- THE RETRY IS WHAT PUT IT THERE: nothing else touched this Tool, and `equipLate` is
-			-- incremented in one place only -- the loop in `Hardware.equip` that checks the OUTCOME
-			-- on a later frame. Delete that loop and both assertions fail, which is what a regression
-			-- of task 129 is.
-			expect(Weapon.stats().equipLate >= before + 1).to.equal(true)
+			end)).to.equal(true)
+			local after = Weapon.stats()
+			-- ...AND THE OUTCOME WAS RECORDED. `equipNow` is the equip that took on the spot and
+			-- `equipLate` the one a later frame had to finish; a build that stopped verifying moves
+			-- neither, because neither counter exists outside the verify-and-retry path.
+			expect((after.equipNow + after.equipLate) > (before.equipNow + before.equipLate)).to.equal(true)
+			expect(after.equipNoCharacter).to.equal(before.equipNoCharacter)
 			TestKit.note(
 				string.format(
-					"weapon-equip: an equip that could not take was retried into the hand (late %d -> %d)",
-					before,
-					Weapon.stats().equipLate
+					"weapon-equip: an equip ended in the hand and was counted (now %d->%d, late %d->%d)",
+					before.equipNow,
+					after.equipNow,
+					before.equipLate,
+					after.equipLate
 				)
 			)
-
 			tool:Destroy()
 		end)
 
-		it("gives up quietly when the Tool goes away, instead of retrying for ever", function()
-			local player = somebody()
-			expect(player).to.be.ok()
-			-- The same unequippable Tool, and then it is destroyed: a revoke, or a respawn that took
-			-- the old character with it. The retry has an exit, which is what keeps it from leaking a
-			-- thread per grant.
-			local tool = handlelessTool(PROBE_NAME)
-			addHandle(tool)
-			tool.Parent = ServerStorage
-			local before = Weapon.stats().equipGaveUp
-
-			Hardware.equip(tool, player :: Player)
-			tool:Destroy()
-			expect(waitUntil(3, function()
-				return Weapon.stats().equipGaveUp > before
-			end)).to.equal(true)
+		it("hands a gun out only to somebody who may carry one, and takes it back otherwise", function()
+			-- THE POLICY THAT DECIDES WHETHER THERE IS A GUN AT ALL. Pure, and the one place the
+			-- answer lives: `Weapon.refreshArming` asks it on every sweep and on every respawn, so a
+			-- rule that drifted here is a shooter with empty hands or a driver holding a shotgun.
+			expect(Weapon.armingAction(true, false)).to.equal("grant")
+			expect(Weapon.armingAction(false, true)).to.equal("revoke")
+			-- ...AND NOTHING WHEN THE WORLD ALREADY MATCHES, which is what keeps the sweep from
+			-- re-granting a gun every pass and from yanking a holstered one back.
+			expect(Weapon.armingAction(true, true)).to.equal(nil)
+			expect(Weapon.armingAction(false, false)).to.equal(nil)
 		end)
 	end)
 
