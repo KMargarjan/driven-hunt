@@ -1,13 +1,13 @@
 # Task 124 - the hit indicator, the kill log and the drive report
 
 Task: 124
-Round: 2
+Round: 3
 Base: main
-Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
+Code commit: `cced90502fddfbeda8efd3ba74e27779834fe879`
 
 ```
-[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree)
+[harness] PASS: 33/33 checks @ cced90502fddfbeda8efd3ba74e27779834fe879 (clean tree) scope=all
+[harness2] <the Director runs this at the code commit and pastes it here>
 ```
 
 The `[harness2]` line is the Director's: it needs one Studio open, and this round's live proof
@@ -24,6 +24,26 @@ its own review.
 
 Karen: *"we need to indicate a hit / we need to show when is killed logg / and we need to show on the
 end what has been killed where was the hit"*. Three parts, one record.
+
+## What round 2 found, and what round 3 did
+
+**The client half of the kill log had no assertion anywhere, and the suite passed with it deleted** --
+which would have taken Karen's first-named ask (*"we need to show when is killed logg"*) out of both
+worlds in silence. Two seams were named rather than invented: `Hud.onKilled(event)` is the handler
+the replica's `Killed` signal connects to (the same shape as `Hud.onHitMarker`), and `Hud.feedTextFor`
+is exported beside `Hud.killLineText`. `tests/client/report_panel.spec.luau` now asserts:
+
+* **one kill draws exactly ONE line** -- `Hud.feedText()` grows by one and the line is
+  `killLineText`'s -- and the Match feed's own `kill` entry draws none, which is the two halves of
+  that rule;
+* **a kill with no `animalKind` says BOAR and never NIL BOAR**, and an empty event draws a line
+  rather than raising;
+* **the tick counts once per marker** (`Sound.stats()` moved by 2 over a hit and a kill: `hit=1
+  kill=1 silent=0`), and an empty id answers `""` and plays nothing.
+
+**Also fixed, the note that would crash a client:** a NaN `page` (a client sending `0/0`) passed
+`page < 1` and every clamp and reached the panel's `string.format("PAGE %d/%d")`, which raises.
+`Shape.resolveRequest` now stops it with `page ~= page`.
 
 ## What round 1 found, and what round 2 did
 

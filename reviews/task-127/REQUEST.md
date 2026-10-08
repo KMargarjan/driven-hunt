@@ -1,13 +1,13 @@
 # Task 127 - one side to the other, in a line
 
 Task: 127
-Round: 2
+Round: 3
 Base: main
-Code commit: `b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1`
+Code commit: `cced90502fddfbeda8efd3ba74e27779834fe879`
 
 ```
-[harness] PASS: 33/33 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ b414f4d5c88f0a2bb01cb67c8465c06f3e3f9dd1 (clean tree)
+[harness] PASS: 33/33 checks @ cced90502fddfbeda8efd3ba74e27779834fe879 (clean tree) scope=all
+[harness2] <the Director runs this at the code commit and pastes it here>
 ```
 
 The `[harness2]` line is the Director's: it needs one Studio open, and this round's live proof
@@ -24,6 +24,25 @@ its own review.
 
 Karen: *"imagine they come from one side in one line and crossing road thats it"*, *"it's simple"*.
 The Forest Test's waves now walk one route, nose to tail, and run once they are across.
+
+## What round 2 found, and what round 3 did
+
+**The seeded breadcrumb trail was built on the centreline while the bodies and the route carried the
+line's lateral offset.** With two lines that gave BOTH files the same polyline, 2.5 studs from where
+either of them stood -- pulling them together into exactly the body overlap `spacingStuds` exists to
+prevent -- and it left a 2.5-stud jog at the seam where the leader's real crumbs began. It bit a
+one-line wave too whenever the route that survived was not the first. The seed now starts from
+`start + Vector3.new(routes[which].lateral, 0, 0)`: bodies, route and seed share one origin.
+
+**Measured live in the Forest Test, two lines forced on every wave** (temporary probe publishing the
+line id, rank and flight; removed before the code commit), excluding animals the Brain has latched
+into a flight, since a frightened animal has left the file on purpose:
+
+| per line | median | p90 | max |
+|---|---|---|---|
+| best lines (6-1, 6-2, 2-2) | 0.28-0.36 | 1.07-1.66 | 5.1-9.0 |
+| all lines, one run | **1.13** | 4.60 | 18.78 |
+| all lines, another run | **1.38** | 7.07 | 26.9 |
 
 ## What round 1 found, and what round 2 did
 
@@ -70,6 +89,14 @@ The Forest Test's waves now walk one route, nose to tail, and run once they are 
 * **Nobody comes back across**: of the animals that moved north after a shot, **0 had already
   crossed** -- every one was still on the drive side, running from the gun, which is what the flight
   is for.
+
+**WHAT THAT PROVES AND WHAT IT DOES NOT.** The medians are the fix: a follower now walks within a
+stud or two of ITS OWN line's trail, where before the two files shared one polyline neither of them
+stood on. **The Director's bar was a MAX of 1.5 studs on both lines and the maxima do not meet it**
+-- they are 5 to 27 studs, and they are not the seed: they are animals deflected round a trunk by
+the whisker, animals rejoining the file after a flight has ended, and the leader's own corners, where
+a follower cutting inside the turn is briefly off a trail that doubles back. Saying so is the
+honest answer; the number to chase next is the p90, not the max.
 
 ## What could not be verified
 
