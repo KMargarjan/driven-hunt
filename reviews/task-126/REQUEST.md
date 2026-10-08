@@ -1,7 +1,7 @@
 # Task 126 - a driven sounder moves like the real thing
 
 Task: 126
-Round: 3
+Round: 2
 Base: main
 Code commit: `cced90502fddfbeda8efd3ba74e27779834fe879`
 

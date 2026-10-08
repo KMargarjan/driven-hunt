@@ -1,7 +1,7 @@
 # Task 125 - a compass that shows where the drive comes from
 
 Task: 125
-Round: 3
+Round: 2
 Base: main
 Code commit: `cced90502fddfbeda8efd3ba74e27779834fe879`
 
