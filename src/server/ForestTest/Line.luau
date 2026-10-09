@@ -150,6 +150,37 @@ function Line.arcAt(trail: { Crumb }, at: Vector3, fromS: number?, window: numbe
 	return best
 end
 
+-- WHERE A FOLLOWER AIMS, AS AN ARC LENGTH. Pure arithmetic, pulled out of the drive so it can be
+-- driven by a spec without a world (task 136).
+--
+-- FOUR RULES, IN THIS ORDER, AND THE ORDER IS THE POINT:
+--   1. a lookahead further along the trail -- short, because the only promise is that the leader
+--      walked this bit (task 127 round 3);
+--   2. NEVER PAST THE ONE IN FRONT: `aheadS` is the arc position measured for the rank above, not
+--      its station, so a file that has bunched up is regulated against where the animals ARE;
+--   3. NEVER UNDER ITS OWN FEET: a clamp that pulls the aim inside `LINE.ARRIVE_STUDS` stops the
+--      animal dead, and a stopped follower is a broken line. MEASURED: with rule 2 at a body length
+--      and no rule 3, a 6.5-stud station aimed an animal 1.0 stud ahead -- exactly `ARRIVE_STUDS` --
+--      and the run went from 15 stuck to 58;
+--   4. and it stays on the trail that exists, between its tail and its head.
+-- Rule 3 can therefore beat rule 2 when a follower is right on the bumper of the one in front. That
+-- is deliberate: holding it back is the SPEED's job (`Line.followerSpeed`), not the aim's.
+function Line.aimFor(
+	ownS: number,
+	lookahead: number,
+	aheadS: number,
+	noOvertake: number,
+	minAim: number,
+	headS: number,
+	tailS: number
+): number
+	local aim = math.min(ownS + lookahead, headS)
+	aim = math.min(aim, aheadS - noOvertake)
+	aim = math.max(aim, ownS + minAim)
+	aim = math.min(aim, headS)
+	return math.max(aim, tailS)
+end
+
 -- FORGETS THE TAIL NOBODY IS STANDING ON any more, so a wave that walks 800 studs does not keep 800
 -- crumbs for ever. `keepBack` is how far behind the head the last follower is, plus a margin.
 function Line.trim(trail: { Crumb }, keepBack: number)

@@ -239,6 +239,23 @@ ForestTest.LINE = {
 	-- enough that an order is always a direction; the SPEED is what holds a closed-up animal back,
 	-- which is `Line.followerSpeed`'s job and not the aim's.
 	minAimStuds = 2.5,
+	-- HOW LONG A WEDGED LEADER IS LEFT TO FREE HERSELF (task 136).
+	--
+	-- THE ASYMMETRY WAS THE BUG, AND IT COST A WHOLE FILE AT A TIME. A wedged FOLLOWER is put back on
+	-- the trail -- a few studs onto ground the leader has already walked. A wedged LEADER was handed
+	-- another route, computed from the position she is wedged IN, through the trunk she is wedged
+	-- AGAINST; if the pathfinder answered the same way, she stayed there. MEASURED in a 150 s trace:
+	-- `Boar6` sat at one point 17 studs north of the road for 110 SECONDS with an ordered speed of
+	-- 24, and the stuck detector counted it every three seconds -- 464 of the run's stuck reports
+	-- were a handful of animals doing exactly that, and the file behind each of them never crossed.
+	--
+	-- SO SHE IS LET GO OF, BRIEFLY. An ordered animal runs no whiskers and no wedge recovery, by
+	-- design (task 127: the route was already checked for trunks). Dropping the order for a moment
+	-- hands her back to `Brain`'s own machinery -- `steerAroundTrunk` and the `stuckTurn` sidestep,
+	-- both of which are gated on `not ordered` and both of which exist to get an animal off a trunk.
+	-- The drive takes her back when the window closes. Nothing new is invented here; a thing that was
+	-- switched off for a good reason is switched on again for the one case that reason does not cover.
+	leaderFreeSeconds = 1.5,
 	-- HOW FAR ALONG THE TRAIL `Line.arcAt` will look for an animal, given where it was last step.
 	-- Generous against one step of a running boar (RUN_SPEED is ~24 studs/s and the drive steps on
 	-- Heartbeat), and far tighter than the length of a doubled-back loop round a trunk, which is

@@ -1240,8 +1240,15 @@ function ForestTest.stepLines(now: number)
 		-- kept a shot boar walking its trail at the ordered speed instead of running straight.
 		-- `Runtime:flying` asks the Brain; a frightened animal is skipped here until its flight ends,
 		-- and then it rejoins the file at whatever station is free.
+		line.freeUntil = line.freeUntil or {}
 		local function leadIfFree(id: string, point: Vector3, speed: number)
 			if runtime:flying(id) then
+				return
+			end
+			-- ...AND A WEDGED LEADER IS LEFT ALONE FOR A MOMENT (task 136). See
+			-- `LINE.leaderFreeSeconds`: while this window is open she is NOT ordered, so the Brain's
+			-- own whiskers and wedge sidestep -- both gated on `not ordered` -- can free her.
+			if (line.freeUntil[id] or 0) > now then
 				return
 			end
 			runtime:leadTo(id, point, speed)
@@ -1325,19 +1332,17 @@ function ForestTest.stepLines(now: number)
 			-- lookahead further along the trail (bounded only by how far the leader has walked), and
 			-- the station is regulated by `Line.followerSpeed` and by the wait below, which is what
 			-- they are for.
-			local aim = math.min(ownS + lineData.lookaheadStuds, Line.length(line.trail))
-			-- ...AND NEVER PAST THE ONE IN FRONT (task 136). The lookahead is four studs and a
-			-- station is six and a half, so a follower that has closed right up could be handed a
-			-- point ON the animal ahead of it -- which it then walks into and shoulders past, and a
-			-- file whose ranks swap is a band. Clamped against the arc position actually measured for
-			-- the rank ahead, not against its station.
-			aim = math.min(aim, aheadS - lineData.noOvertakeStuds)
-			-- ...BUT NEVER BEHIND ITS OWN NOSE. See `LINE.minAimStuds`: a clamp that pulls the aim
-			-- inside `ARRIVE_STUDS` stops the animal dead, which is how the first version of this
-			-- change turned 15 stuck into 58.
-			aim = math.max(aim, ownS + lineData.minAimStuds)
-			aim = math.min(aim, Line.length(line.trail))
-			aim = math.max(aim, line.trail[1].s)
+			-- WHERE IT AIMS: a lookahead along the trail, never past the one in front and never
+			-- under its own feet. `Line.aimFor` is that arithmetic and its own comment is the why.
+			local aim = Line.aimFor(
+				ownS,
+				lineData.lookaheadStuds,
+				aheadS,
+				lineData.noOvertakeStuds,
+				lineData.minAimStuds,
+				Line.length(line.trail),
+				line.trail[1].s
+			)
 			local point = Line.pointAt(line.trail, aim)
 			local speed = Line.followerSpeed(
 				math.max(line.speed, leader.status.speed),
@@ -1429,6 +1434,12 @@ function ForestTest.stepLines(now: number)
 							line.route = route
 							line.leg = 1
 						end
+						-- ...AND THE ROUTE ON ITS OWN IS NOT ENOUGH, which is the whole of this fix: a
+						-- route computed from the spot she is wedged in can lead straight back into
+						-- the trunk she is wedged against. She is let go of for a moment as well, so
+						-- the Brain can do what it does for every unordered animal that meets
+						-- something solid.
+						line.freeUntil[member.id] = now + lineData.leaderFreeSeconds
 					else
 						-- A WEDGED FOLLOWER IS PUT BACK ON THE TRAIL, behind the one ahead of it. It is
 						-- a teleport of a few studs onto a path the leader has already walked, which is
