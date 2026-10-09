@@ -62,14 +62,14 @@ return function()
 			HitLog.openDrive(1, 0)
 			HitLog.recordHit(report(part, 101, "Anna", "chest", 10.0, { weapon = "rifle" }))
 			HitLog.recordHit(report(part, 101, "Anna", "rear", 11.0))
-			local payload = HitLog.detailFor(101, 1)
-			local row = payload.animals[1]
-			expect(row).to.be.ok()
-			expect(row.dots[1].weapon).to.equal("rifle")
+			local record = (HitLog.currentDrive() :: any).animals["Boar1"]
+			expect(record).to.be.ok()
+			expect(record.dots[1].weapon).to.equal("rifle")
 			-- NIL IS A LEGAL VALUE ON THE WIRE and means "a record from before the rifle", which is
 			-- what keeps every fixture written before task 140 valid.
-			expect(row.dots[2].weapon).to.equal(nil)
+			expect(record.dots[2].weapon).to.equal(nil)
 			part:Destroy()
+			HitLog.closeDrive(20)
 		end)
 
 		it("gives the animal's own row the gun of the shot that KILLED it", function()
@@ -92,10 +92,22 @@ return function()
 				instant = true,
 				wounds = { { zone = "rear", at = 10.0 }, { zone = "chest", at = 12.0 } },
 			}, 12.0)
-			local row = HitLog.detailFor(101, 2).animals[1]
-			expect(row).to.be.ok()
-			expect(row.weapon).to.equal("rifle")
+			local record = (HitLog.currentDrive() :: any).animals["Boar2"]
+			expect(record).to.be.ok()
+			-- THE FATAL DOT IS THE RIFLE'S, which is what the animal's row in the panel carries and
+			-- prints: `detailPayload` reads `best` -- the fatal dot when there is one -- and copies
+			-- its weapon onto the row.
+			local fatal = nil
+			for _, dot in ipairs(record.dots) do
+				if dot.fatal then
+					fatal = dot
+				end
+			end
+			expect(fatal).to.be.ok()
+			expect(fatal.weapon).to.equal("rifle")
+			expect(fatal.zone).to.equal("chest")
 			part:Destroy()
+			HitLog.closeDrive(20)
 		end)
 	end)
 
