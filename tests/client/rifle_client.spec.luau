@@ -107,6 +107,10 @@ return function()
 			-- ...and at full blend it wanders, inside its own amplitude, without ever moving the
 			-- player's own aim.
 			local aimed = hip
+			-- THE PLAYER'S OWN AIM, as it stands: this starts from the LIVE camera state, whose
+			-- pitch is wherever the session is looking (the spawn pitch, for one), so "the sway does
+			-- not move the player's aim" is asserted against those numbers and not against zero.
+			local pitch0, yaw0 = hip.pitchDeg, hip.yawDeg
 			local worst = 0
 			for _ = 1, 600 do
 				aimed = Mode.step(aimed, {
@@ -118,8 +122,8 @@ return function()
 					aimFovDeg = Rifle.CONFIG.scope.aimFovDeg,
 				}, 1 / 60, firstPerson)
 				worst = math.max(worst, math.abs(aimed.scopeSwayDeg.X), math.abs(aimed.scopeSwayDeg.Y))
-				expect(aimed.pitchDeg).to.equal(0)
-				expect(aimed.yawDeg).to.equal(0)
+				expect(aimed.pitchDeg).to.equal(pitch0)
+				expect(aimed.yawDeg).to.equal(yaw0)
 			end
 			expect(worst > 0).to.equal(true)
 			expect(worst <= sway.ampDeg + 1e-9).to.equal(true)

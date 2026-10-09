@@ -106,13 +106,13 @@ return function()
 		-- shipped file is clean would be asserting nothing.
 		it("names a missing field", function()
 			expect(#broken(function(data)
-				data.carry.gun.pos.y = nil
+				data.weapons.shotgun.carry.gun.pos.y = nil
 			end)).to.equal(1)
 		end)
 
 		it("refuses an easing nobody implemented", function()
 			local problems = broken(function(data)
-				data.raise.easing = "cubicInOut"
+				data.weapons.shotgun.raise.easing = "cubicInOut"
 			end)
 			expect(#problems).to.equal(1)
 			expect(string.find(problems[1], "only quadOut is implemented") ~= nil).to.equal(true)
@@ -126,7 +126,7 @@ return function()
 				data.version = 2
 			end)
 			expect(#problems).to.equal(1)
-			expect(string.find(problems[1], "version must be 3") ~= nil).to.equal(true)
+			expect(string.find(problems[1], "version must be 4") ~= nil).to.equal(true)
 		end)
 
 		-- THE LOADING MOVE IS CHECKED SINCE TASK 114. It was `newGun.reload.load` and only one of the
@@ -134,25 +134,25 @@ return function()
 		-- about its shape could be asserted at all. One gun means the block is always there.
 		it("names a missing piece of the left hand's loading move", function()
 			expect(#broken(function(data)
-				data.reload.load = nil
+				data.weapons.shotgun.reload.load = nil
 			end)).to.equal(1)
 			expect(#broken(function(data)
-				data.reload.load.fetchSeconds = 0
+				data.weapons.shotgun.reload.load.fetchSeconds = 0
 			end)).to.equal(1)
 			expect(#broken(function(data)
-				data.reload.load.above.pos.y = nil
+				data.weapons.shotgun.reload.load.above.pos.y = nil
 			end)).to.equal(1)
 			expect(#broken(function(data)
-				data.reload.load.shellInHand.z = nil
+				data.weapons.shotgun.reload.load.shellInHand.z = nil
 			end)).to.equal(1)
 		end)
 
 		it("refuses a non-positive duration", function()
 			expect(#broken(function(data)
-				data.raise.raiseSeconds = 0
+				data.weapons.shotgun.raise.raiseSeconds = 0
 			end)).to.equal(1)
 			expect(#broken(function(data)
-				data.reload.openSeconds = -1
+				data.weapons.shotgun.reload.openSeconds = -1
 			end)).to.equal(1)
 		end)
 
@@ -164,7 +164,7 @@ return function()
 				local one = Data.copy(frame)
 				one.t = time
 				local problems = broken(function(data)
-					data.raise.keyframes = { one }
+					data.weapons.shotgun.raise.keyframes = { one }
 				end)
 				expect(#problems).to.equal(1)
 			end
@@ -173,7 +173,7 @@ return function()
 			local first, second = Data.copy(frame), Data.copy(frame)
 			first.t, second.t = 0.6, 0.3
 			expect(#broken(function(data)
-				data.raise.keyframes = { first, second }
+				data.weapons.shotgun.raise.keyframes = { first, second }
 			end)).to.equal(1)
 		end)
 
@@ -183,18 +183,18 @@ return function()
 				gun = { pos = { x = 0, y = 0, z = -1 }, rot = { x = 0, y = 0, z = 0 } },
 			}
 			expect(#broken(function(data)
-				data.raise.keyframes = { frame }
+				data.weapons.shotgun.raise.keyframes = { frame }
 			end)).to.equal(0)
 			local withHand = Data.copy(frame)
 			withHand.right = Data.copy(SET.carry.right)
 			expect(#broken(function(data)
-				data.raise.keyframes = { withHand }
+				data.weapons.shotgun.raise.keyframes = { withHand }
 			end)).to.equal(0)
 			-- ...and a hand that IS named must be a whole hand.
 			local halfHand = Data.copy(frame)
 			halfHand.left = { pos = { x = 0, y = 0, z = 0 } }
 			expect(#broken(function(data)
-				data.raise.keyframes = { halfHand }
+				data.weapons.shotgun.raise.keyframes = { halfHand }
 			end) > 0).to.equal(true)
 		end)
 	end)
@@ -266,7 +266,7 @@ return function()
 
 		it("reaches into a keyframe by index, counting from 1 like Luau", function()
 			local data = Data.copy(Data.DATA)
-			data.raise.keyframes = {
+			data.weapons.shotgun.raise.keyframes = {
 				{ t = 0.5, gun = { pos = { x = 0, y = 0, z = -1 }, rot = { x = 0, y = 0, z = 0 } } },
 			}
 			expect(Data.paths(data)["weapons.shotgun.raise.keyframes.1.gun.pos.z"]).to.equal(-1)
@@ -352,7 +352,7 @@ return function()
 		it("a mid keyframe is passed through, exactly, at its own time", function()
 			local data = Data.copy(Data.DATA)
 			local mid = { pos = { x = 0.5, y = -0.25, z = -3.0 }, rot = { x = 10, y = -20, z = 5 } }
-			data.raise.keyframes = { { t = 0.5, gun = mid } }
+			data.weapons.shotgun.raise.keyframes = { { t = 0.5, gun = mid } }
 			local config = configWith(true, data)
 			-- `blend` is eased, so the frame at `t = 0.5` is reached at the blend whose ease is 0.5:
 			-- 1 - (1 - b)^2 = 0.5 => b = 1 - sqrt(0.5).
@@ -380,7 +380,7 @@ return function()
 
 		it("a mid keyframe takes the gun somewhere the plain ease never goes", function()
 			local data = Data.copy(Data.DATA)
-			data.raise.keyframes = {
+			data.weapons.shotgun.raise.keyframes = {
 				{ t = 0.5, gun = { pos = { x = 2.0, y = 2.0, z = -1.0 }, rot = { x = 0, y = 0, z = 0 } } },
 			}
 			local bent = configWith(true, data)
@@ -395,7 +395,7 @@ return function()
 
 		it("the third-person branch takes no keyframes at all", function()
 			local data = Data.copy(Data.DATA)
-			data.raise.keyframes = {
+			data.weapons.shotgun.raise.keyframes = {
 				{ t = 0.5, gun = { pos = { x = 9, y = 9, z = -9 }, rot = { x = 0, y = 0, z = 0 } } },
 			}
 			local third = configWith(false, data)
@@ -483,7 +483,7 @@ return function()
 
 		it("moves a hand when its own pose says a different thing", function()
 			local data = Data.copy(Data.DATA)
-			data.aim.right.pos.y = data.carry.right.pos.y + 1.0
+			data.weapons.shotgun.aim.right.pos.y = data.weapons.shotgun.carry.right.pos.y + 1.0
 			local config = configWith(true, data)
 			local carried = Mode.handOffsetAt("right", stateAt(0, 0), config)
 			local aimed = Mode.handOffsetAt("right", stateAt(1, 0), config)
@@ -495,7 +495,7 @@ return function()
 
 		it("a mid keyframe that names no hand leaves the plain blend alone", function()
 			local data = Data.copy(Data.DATA)
-			data.aim.left.pos.x = data.carry.left.pos.x + 1.0
+			data.weapons.shotgun.aim.left.pos.x = data.weapons.shotgun.carry.left.pos.x + 1.0
 			local plain = configWith(true, data)
 			local framed = Data.copy(data)
 			framed.raise.keyframes = {
@@ -517,7 +517,7 @@ return function()
 			local data = Data.copy(Data.DATA)
 			local hand = Data.copy(SET.carry.right)
 			hand.pos.z = hand.pos.z + 2.0
-			data.raise.keyframes = {
+			data.weapons.shotgun.raise.keyframes = {
 				{
 					t = 0.5,
 					gun = { pos = { x = 0, y = 0, z = -1 }, rot = { x = 0, y = 0, z = 0 } },
