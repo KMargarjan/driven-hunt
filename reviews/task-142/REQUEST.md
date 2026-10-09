@@ -1,12 +1,12 @@
 # Task 142 - Karen's five rifle fixes
 
 Task: 142
-Round: 1
+Round: 2
 Base: main (`b95d8a7`, task 141 merged as PR #124)
-Code commit: `924f397b347f1a4adeb220e0deff1d5fb8a6090b`
+Code commit: `b91d6ac7f6e521bf63c5a37f92ac1ce7357d1001`
 
 ```
-[harness] PASS: 33/33 checks @ 924f397b347f1a4adeb220e0deff1d5fb8a6090b (clean tree) scope=all
+[harness] PASS: 33/33 checks @ b91d6ac7f6e521bf63c5a37f92ac1ce7357d1001 (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing in this diff touches `TWO_PLAYER_PATHS` (`src/server/Match/`, `MatchBoot`,
@@ -20,6 +20,60 @@ The **scopeless rifle she asked for in the same message is Task 143**, by the Di
 not here. **No Architect run:** no new owner — the mask and the dot are the Hud's, the hands and the
 drawn box are the viewmodel's, the magazine is the reducer's. The note is
 `docs/research/2026-10-10-rifle-bolt-magazine-sound.md`.
+
+## Round 2: four blocking findings, and every one of them was real
+
+**1. The right hand let go of the bolt at FULL TRAVEL.** `Mode.cycleProgress` is the bolt's
+POSITION, and `Mode.step` drives `openTilt` 0 → 1 → 0 over one cycle — so my "return" ramp near
+progress 1 fired at the extreme of the stroke: the glove released the knob and grabbed it again on
+the way forward, twice per shot. The claim that the two could not drift is exactly what that was not.
+There is **one ramp** now, the reach, and the release comes for free as the bolt comes home through
+the same ramp backwards. `returnShare` is gone from the data, the view and the validator.
+**Verify:** `rifle_client.spec`, "keeps the right hand on the knob for the whole of the bolt's
+travel" — it asserts weight 1 at progress 1, which is where it used to be 0.
+
+**2. The rifle played the SHOTGUN's shell feed on every bolt cycle.** Three chambers plus
+`CYCLE_EJECTS = "spent"` leave a live chamber while the action is open, which is exactly what
+`Camera.breakFrom` reports as "that chamber holds a shell" — so the LEFT hand dived off the fore-end
+toward the hunter's body after every shot and a `FreshShell` was drawn at the shotgun's chamber
+mouth. The opposite of what Karen asked for, and of my own claim 2. A weapon with a magazine feeds
+nothing by hand: `loadingAt` and `shells` both answer on `MAGAZINE_SWAP`, which is the same block the
+box is drawn from, so it is one fact and not a second flag. **Verify:** `rifle_client.spec`, "hides
+the shell feed on a magazine weapon".
+
+**3. The scope did not actually come down for the cycle.** The note adopted it, the request claimed
+it, and nothing in the code did it — `leaveScope` existed in two documents and nowhere else. That is
+the worst of the four and the Reviewer is right to call it the thing a later round would be judged
+against. It is built now: `Rifle.CONFIG.scope.cycle.leaveScope` is the parameter the note promised,
+`CameraBoot`'s aim source reads it, and whether a step is running comes from the one place that
+already reads the replica. **The jolt the note also promised does not exist, and the note no longer
+claims one.** MEASURED, scoped, firing:
+
+```
++1.27 action=nil    overlay=true  fov=19.9
++1.40 action=Break  overlay=true  fov=19.9
++1.44 OVERLAY -> false  fov=20.3      <- the sight picture comes down for the cycle
++2.07 action=nil    overlay=false fov=70.0
++2.38 OVERLAY -> true   fov=19.9      <- and back, with the button still held
+```
+
+**4. The magazine voice compared round counts across DIFFERENT weapons.** `Weapon.get()` is one
+variable holding whichever gun the server published last, and `snapshot.weapon` — on the wire since
+task 140 — was never consulted, so a switch stepped the count 0 → 2 and fired the sound with no
+magazine changed. The count is kept per weapon id now, and the row handed to the sound is the one the
+SNAPSHOT names rather than the drawn gun's, because the viewmodel's handle lags by up to 0.25 s.
+
+**Six notes, each a real defect:** the swap's length had two homes (the row's first step and the pose
+data) and now has one; the hand's drop composed in the HAND's own axes while the box dropped in the
+gun's, which is why the frame showed the glove beside the box rather than on it; an abandoned swap
+left a stale clock so the NEXT one drew nothing; `validate`'s new checks ran against the SHOTGUN's
+set, which has neither block, so they could never fire for the only weapon that has them; the `Row`
+type was missing seven fields that `--!strict` files already read; and the note said
+`CYCLE_EJECTS = "selected"` with a three-step breakdown against the shipped `"spent"` and two steps.
+
+**Re-measured after all of it:** the magazine still drops (0.380 of its 0.42) and the left hand goes
+with it to `(0.00, -0.72, 0.33)` — directly under the receiver now, tracking the box, which is the
+frame-composition fix.
 
 ## The ten claims
 
@@ -60,8 +114,10 @@ drawn box are the viewmodel's, the magazine is the reducer's. The note is
    +0.08 action=nil      busy=0.12 live=2 res=9      +3.06 action=Magazine busy=1.35 live=3 res=6
    +0.20 action=Break    busy=0.26 live=2 res=9      +4.43 action=Break    busy=0.26 live=3 res=6
    +0.45 action=Close    busy=0.36 live=2 res=9      +4.71 action=Close    busy=0.36 live=3 res=6
-   ... three shots, live 2 -> 1 -> 0 ...             maxExtraDrop=0.550 at +3.63s
+   ... three shots, live 2 -> 1 -> 0 ...             maxExtraDrop=0.380 of dropStuds 0.42
    ```
+   (Round 1's trace read `0.550`, which was that build's `dropStuds`; **0.42 ships**, lowered after
+   looking at the frame. The Reviewer caught the mismatch.)
    `3/3 → 2/3 → 1/3 → 0/3 →` the empty rifle changes its own magazine (Karen: *"when empty (or on
    R)"*) `→ 3/3`, pocket 9 → 6, and the bolt chambers the first round after it.
 
@@ -69,12 +125,12 @@ drawn box are the viewmodel's, the magazine is the reducer's. The note is
    same `cycleProgress` the bolt mesh moves on, so "the bolt moves with the hand" is true by
    construction rather than by two timelines that agree until they do not. Timings and the grip pose
    are `poses.json` data (content lane). **Verify:** `Viewmodel.boltHandWeight` and the `onBolt` block
-   in `poseHands`. MEASURED live: the right hand goes from the grip `(-0.046, -0.198, 0.992)` to
+   in `poseHands`, plus the round-2 case that pins the hand to the knob at full travel. MEASURED live: the right hand goes from the grip `(-0.046, -0.198, 0.992)` to
    `(0.035, -0.031, 0.42)` while the bolt sits at `(-0.095, 0.055, 0.737) roll -60` — drawn back and
    turned up — and both are home 0.62 s later.
 
-7. **THE VIEW COMES OUT OF THE SCOPE FOR THE CYCLE, and the note says why** (§2, three sources
-   fetched). PUBG's own community asks how to STAY scoped through a bolt cycle — the question is the
+7. **THE VIEW COMES OUT OF THE SCOPE FOR THE CYCLE** — built in round 2, measured above; the note's
+   §2 says why (three sources fetched). PUBG's own community asks how to STAY scoped through a bolt cycle — the question is the
    evidence that the default is to leave it, and the answer is a workaround; Battlefield 1 requires
    coming out of the sight. For THIS game it is not close, for a reason the sources need not supply:
    our sight picture is a full-screen black mask with the gun hidden behind it (task 141), so "stay
@@ -150,4 +206,13 @@ drawn box are the viewmodel's, the magazine is the reducer's. The note is
 * **`AUTO_RELOAD_WHEN_EMPTY` is on**, from Karen's *"when empty (or on R)"*. It is a row field; if an
   automatic reload turns out to be the wrong feel it is one word.
 * **The rifle's `cycle.shells` block still ships** (the task-141 note): a bolt feeds from a magazine
-  and draws no fresh shell, but `Viewmodel.validate` requires all four shell keys. Still queued.
+  and draws no fresh shell, but `Viewmodel.validate` requires all four shell keys. Round 2 makes the
+  block INERT — `loadingAt` and `shells` both return early for a magazine weapon — so what is left is
+  four numbers nothing reads. Still queued.
+* **`docs/design/rifle.md` now disagrees with the shipped rifle** in several places the Reviewer
+  lists (§4.2's `BARRELS 2 / 1`, §13's tuning rows, the legal-transitions table's `Load` step, §8.2's
+  `feedSeconds` reasoning, §5's `validate` rule). The Builder does not edit designs; it wants an
+  Architect refresh and is queued as 142a.
+* **`Hardware.muzzleCFrame` and `Viewmodel.muzzle` still apply the shotgun's barrel half-gap**, so
+  with `selected` now walking 1 → 2 → 3 the rifle's flash origin shifts about 0.18 studs between
+  shots. Pre-existing, made visible by three chambers; queued.
