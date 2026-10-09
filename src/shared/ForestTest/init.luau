@@ -195,7 +195,7 @@ ForestTest.LINE = {
 
 	-- HOW MANY LINES. *"could be 2 i line"* -- the Director's figure: about a quarter of waves come
 	-- as two parallel lines, the rest as one.
-	twoLineChance = 1.0, -- TEMPORARY (task 136): force the harder case
+	twoLineChance = 0.25,
 	-- Two leaders this far apart across the direction of travel. 5 studs is a body's width plus a
 	-- gap: close enough to read as one group, far enough that the two files do not merge.
 	lineGapStuds = 5,
@@ -210,23 +210,30 @@ ForestTest.LINE = {
 	-- never settled: nose-to-nose gaps came out at a 9.9-stud median with a p90 of 176, 29 trunk
 	-- contacts and 23 animals that moved less than a stud in three seconds. None of that was the
 	-- following rule; all of it was eight animals standing inside each other.
-	-- 6.5 SINCE TASK 136, and the arithmetic is the same one: a boar is 5.5 studs long, so 6.5
-	-- centre to centre is a ONE-STUD nose-to-tail gap. 8.5 was a three-stud gap, and measured over
-	-- 150 s of two-line waves it read as a loose band rather than a file -- Karen's *"they not in one
-	-- line crossing all is spread"*.
+	-- 8.5 STAYS, AND TASK 136 TRIED 6.5 AND MEASURED IT WORSE. The Director asked for "body length
+	-- + ~1 stud, try ~6.5 if 8.5 still reads loose", which is the right instinct -- a boar is 5.5
+	-- studs long, so 6.5 centre to centre is a one-stud nose-to-tail gap and 8.5 is three.
 	--
-	-- IT IS SAFE AT THIS SPACING BECAUSE THE BODIES DO NOT COLLIDE: `Boar.CONFIG.BOAR_COLLISION` is
-	-- OFF (task 127 measured the hypothesis and refuted it, and the numbers are in its comment). The
-	-- 3-stud disaster that comment describes was eight 5.5-stud bodies asked to OVERLAP by 2.5 studs
-	-- each; one stud of clear air between them is a different thing entirely.
-	spacingStuds = 6.5,
+	-- WHAT IT ACTUALLY DID, over 150 s of two-line waves, measured on the APPROACH AND THE CROSSING
+	-- (the half of the trace north of the road, which is the half a hunter watches):
+	--
+	--                     offset median   p75    p90    gap median
+	--   8.5 (this)            0.23        0.65   1.89      8.79
+	--   6.5                   0.77        1.97   4.02      7.39
+	--
+	-- The gap does close by a stud and a half, which is what the number is for -- and the file gets
+	-- LATERALLY looser doing it, by more than twice. Thirteen animals packed into two thirds of the
+	-- length have two thirds of the room to settle in, and what a hunter sees at that point is not a
+	-- tighter file but a wider one. The nose-to-tail reading was bought at the cost of the thing it
+	-- was bought for, so it is not bought.
+	spacingStuds = 8.5,
 	-- HOW CLOSE A FOLLOWER MAY AIM TO THE ONE IN FRONT, measured along the trail: just short of its
 	-- tail, which is what "no follower ever ahead of the one in front" means when the thing being
 	-- regulated is an arc length.
 	--
-	-- IT WAS A BODY LENGTH FIRST, AND THAT BROKE THE LINE. At a 6.5-stud station an animal standing
-	-- exactly where it belongs has the one ahead 6.5 studs along, so a 5.5-stud margin handed it a
-	-- point 1.0 stud in front of its own nose -- inside `LINE.ARRIVE_STUDS`, which is 1.0. The Brain
+	-- IT WAS A BODY LENGTH FIRST, AND THAT BROKE THE LINE. An animal standing exactly where it
+	-- belongs has the one ahead a station along, so with the 6.5-stud station this task was trying at
+	-- the time, a 5.5-stud margin handed it a point 1.0 stud in front of its own nose -- inside `LINE.ARRIVE_STUDS`, which is 1.0. The Brain
 	-- quite correctly answered "arrived", the animal stopped, the file walked on and the gap opened:
 	-- MEASURED at 58 stuck and 18.2 % breaks against 15 and 9.0 % before the change. It is the same
 	-- trap task 127 round 3 dug itself with `aim = min(ownS + lookahead, stationS)`, in a new place.

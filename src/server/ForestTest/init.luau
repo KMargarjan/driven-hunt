@@ -1365,21 +1365,6 @@ function ForestTest.stepLines(now: number)
 			aheadS = ownS
 		end
 
-		-- TEMPORARY (task 136): what the tracer reads.
-		local probeFolder = runtime:folder()
-		for probeRank, probeMember in ipairs(live) do
-			local probePart = probeFolder and probeFolder:FindFirstChild(probeMember.id)
-			if probePart ~= nil then
-				probePart:SetAttribute("T136Line", line.id or index)
-				probePart:SetAttribute("T136Rank", probeRank)
-				probePart:SetAttribute("T136Flying", runtime:flying(probeMember.id))
-				probePart:SetAttribute("T136Want", probeMember.status.want or 0)
-			end
-		end
-		if probeFolder ~= nil then
-			probeFolder:SetAttribute("T136Stuck", state.stuck or 0)
-		end
-
 		-- ...AND THE SOW WAITS FOR HER TAIL. Karen asked for a line, and a line whose leader never
 		-- looks back is a procession of singletons: measured, the gap p90 was 142-213 studs, which is
 		-- a line that has broken. `Line.leaderSpeed` eases her down toward `tailSlow` of her pace once
