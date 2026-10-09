@@ -1,102 +1,109 @@
-# Task 139 - Karen's five boar complaints
+# Task 139 - Karen's boar complaints
 
 Task: 139
-Round: 1 (the Director's round 2 of the DISPATCH; no Reviewer has run on this task -- the
-first dispatch round shipped nothing and is an `ESCALATE.md` entry, so this is the first
-verdict the script will write)
+Round: 2
 Base: main (`0c7f736`)
-Code commit: `d796c4898af323a2ed0d17ec6d19bbb0b050e117`
+Code commit: `36bbcb6776abd62e09eca6435a8c89721df29e16`
 
 ```
-[harness] PASS: 33/33 checks @ d796c4898af323a2ed0d17ec6d19bbb0b050e117 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 36bbcb6776abd62e09eca6435a8c89721df29e16 (clean tree) scope=all
 ```
 
 `test2` is N/A: no path in `TWO_PLAYER_PATHS` is touched.
 
+## THE SLIDING IS SOLVED, AND THE CAUSE WAS THE CONSTANT I COULD NOT EXPLAIN
+
+For six 150 s runs across two builds the median gap between the ground a boar covered and the ground
+its clip was rated for was **56.2 %, stable to ±0.1**. I said in round 1 that I did not trust it.
+Both halves turned out to be real bugs, and the number named the second one:
+
+1. **`Body.stepVisual` was handed `speed = wantSpeed`** — the speed the animal was *asked* for.
+   A boar pressed against a trunk is still ordered to run, so it drew the RUN clip rated for 24
+   studs/s while covering no ground. That is Karen's *"sometimes boar stuck tree, hits and run in
+   place"* exactly. It now reads the same velocity every other measurement in the file reads.
+2. **`clipFor` was never handed `clipScale`.** It has asked for `info.clipScale` since task 119 —
+   `gaitBands` divides every rate by it, because a female covers 0.8553 of a male's ground per stride
+   and a cub 0.4372 — and the call site never put it in the table. So `bands.scale` was 1 for every
+   animal and the whole per-kind correction was dead. **1 − 0.4372 = 0.5628**, which is the constant
+   to within a rounding. A cub was stepping at 0.44 of the rate it needed.
+
+**Measured: slide median 56.2 % → 0.0 %, p90 1.8 %.**
+
 ## The table
 
 Three 150 s Forest Test runs per build, hunter at a stand, shots through the real `FireRequest`
-route, reload after two. Round 1's lesson was that one run cannot tell an effect from noise.
+route, reload after two.
 
-| | main (3 runs) | round 2 (3 runs) | target |
+| | main (3 runs) | round 3 (3 runs) | final build |
 |---|---|---|---|
-| ran NORTH after a shot | 8 / 6 / 4 — **mean 6.0** | 0 / 0 / 0 — **mean 0.0** | 0 ✓ |
-| came back north over the road | 0 / 0 / 0 | 0 / 0 / 0 | 0 ✓ |
-| stood after a shot | 1 / 0 / 1 — mean 0.7 | 0 / 0 / 1 — **mean 0.3** | 0 ✗ |
-| moving with NO locomotion clip | 22.2 / 26.0 / 27.0 % — **mean 25.1 %** | 1.0 / 1.3 / 1.3 % — **mean 1.2 %** | — ✓ |
-| slide, median gap feet vs ground | 56.2 / 56.2 / 56.1 % | 56.2 / 56.2 / 56.2 % | — ✗ |
-| worst sounds, one pack | 2 / 2 / 2 | 2 / 3 / 2 | ≤ 2 ~ |
-| worst sounds, world | 2 / 2 / 2 | 2 / 3 / 3 | ≤ 3 ✓ |
-| shots fired | 10 / 7 / 8 | 10 / 10 / 9 | — |
+| **slide, median gap** | 56.2 / 56.2 / 56.1 | 56.2 / 55.9 / 56.2 | **0.0** (p90 1.8) |
+| moving with NO locomotion clip | 22.2 / 26.0 / 27.0 % | 2.8 / 2.0 / 3.1 % | 2.5 % |
+| **ran NORTH after a shot** | 8 / 6 / 4 — **6.0** | 0 / 0 / 0 — **0.0** | 0 |
+| **stood after a shot** | 1 / 0 / 1 — 0.7 | 0 / 0 / 0 — **0.0** | 1 |
+| came back north over the road | 0 / 0 / 0 | 0 / 0 / 1 | 1 |
+| running in place (new metric) | — | 13 / 14 / 28 | 41 |
+| worst sounds, one pack | 2 / 2 / 2 | 3 / 2 / 2 | 3 |
+| worst sounds, world | 2 / 2 / 2 | 3 / 3 / 3 | 3 |
 
-**What the no-clip figure was**, by the clip that was playing instead of a walk cycle — main:
-`idle` 2,151 samples, **`grazeLoop` 2,052**, `smell` 377, `grazeStart` 181. Round 2: `grazeStart` 78,
-`idle` 76, `smell` 35, `grazeLoop` 4.
+The three round-3 runs were taken **before** the `clipScale` fix; the final column is one run of the
+shipped build. The `clipScale` fix cannot affect any position or state number — it only changes a
+playback rate — so the movement columns stand; the slide column is the one it moved.
 
-## A — fled or crossed leaves the drive, and the exit wins
+## The nine
 
-1. **The rejoin rule was round 1's regression, and the Director named it.** Task 136 sent an animal
-   whose flight had ended back to the TAIL of its line — and the tail is NORTH of the road, so with
-   flights pointed south every fled animal was ordered straight back into the view Karen had just
-   shot into (19–26 came back north in round 1, against 0 on main). It is deleted, archived under
-   `backups/2026-10-09-line-rejoin-at-tail.md` with its spec case (rule 7).
-2. **One permanent rule replaces it:** `line.gone` in `ForestTest.stepLines`. Flying, hurt, or south
-   of the road means out of the file **for good** — never ordered again, never rejoined. What the
-   animal does next is `Brain`'s business.
-3. **`Brain:_latchFlight` lets the exit win even past the gun.** That line used to take `away` when
-   the shooter stood between the animal and `exitZ` — and **in a drive he always does**. The
-   away-vector is kept as a sideways swerve (`MOVE.FLIGHT_SWERVE`), so the animal still breaks left
-   or right of the gun; it just never breaks backwards. **6.0 → 0.0.**
-
-## B — a line is a pack, then the approach is audible
-
-4. **`Runtime:formSounder(ids)`, called once by `releaseLine`.** This is the structural half the
-   Director asked for first, and it was missing entirely: `releaseLine` spawns with `Runtime:spawn`
-   per animal (not `spawnSounder`, which places a ring), so **no line member had a `sounderId`** and
-   `Boar.hasVoice`'s "a herd with no list silences nobody" let every one of them speak. The voice
-   ration never applied to the one formation the game actually uses.
-5. **Then the step reach went 40 → 70 studs**, one number for all three gaits, volumes untouched.
-   70 and not more because `boar_shot.spec` holds the other half of task 123 round 4 — the grunt
-   carries more than **twice** as far as the hooves (160 against 70) — so the far cue is still the
-   voice and the near cue is still the feet.
-
-## C — the feet keep up
-
-6. **The calm activity clip sat ahead of the gait selection** and answered for ANY calm animal, so a
-   boar the drive was walking along at 4 studs/s with its head down played the grazing LOOP and
-   skated. It is now for an animal that is standing still — **except** a calm clip that carries its
-   own ground (`digWalk`, a boar rooting as it walks) and **except** an exit clip already in progress
-   (`grazeEnd`, the head coming out of the grass). Both exceptions were taught to me by existing
-   specs that failed, and both are tested by the clip's own `groundStudsPerSecond` rather than by a
-   list of names.
-7. **Anything moving above `MODEL.STILL_SPEED` (0.6) now walks**, so a follower easing onto its
-   station has a walk cycle under it instead of `idle`.
-8. **The dwell path divided by the clip's ground speed without `clipScale`**, where every other rate
-   in the file includes it — a real defect, fixed. It did **not** move the slide median (below).
+1. **The dead `STILL_SPEED` branch is deleted**, and request item 7 of the last round with it. The
+   Reviewer was right: `WALK_FROM` is 0.5 and the gate was 0.6, so it could never run.
+2. **Four rules pinned**, each load-bearing: a moving grazer walks (`boar_calm.spec`); a cub's held
+   gait is rated by its own stride (`boar_model.spec`); a flight with the gun **between** animal and
+   exit goes to the exit and passes him to one side (`boar_move.spec`); and `Line.stillInFile` —
+   extracted pure, because `releaseLine` cannot be driven in DEV (it needs `PathfindingService` at
+   the Forest Test's own coordinates, task 137) — pins that `gone` is **permanent**.
+3. **`stylua src tests` is clean** and CI's format gate will pass.
+4. **`FLIGHT_SWERVE` always passes him to one side.** The Reviewer's note was exactly right: when the
+   shooter stands directly between animal and exit, `away` is `-toExit`, `sideways` is **zero**, and
+   the animal ran straight down the barrel. It now falls back to the animal's own `_whiskerSide`, so
+   two animals abreast break the same way every frame instead of flipping. Comment corrected; case
+   added.
+5. **One shot flushing the whole line is KEPT**, on the Director's decision and Karen's own word —
+   *"after shoot all run away"* (2026-10-05). It is a consequence of a line being a real sounder:
+   `_stepAlarm` now reaches line members, so the panic spreads member to member and `line.gone` takes
+   them all out of the file.
+6. **Step audibility: 70 studs**, one reach for all three gaits (`SOUND.STEPS.*.audibleStuds`), with
+   the volumes untouched. It is 70 rather than more because `boar_shot.spec` holds the other half of
+   task 123 round 4 — the grunt carries more than twice as far (160 against 70). Sounds at once:
+   **worst 3 in one pack, 3 in the world**.
+7. **Running in place** is fixed at the cause (the drawing reads the real speed) — see the top.
+8. **`SHOT_AUDIBLE_STUDS` 350 → 120.** 350 was the whole field: the Forest Test is ~600 studs from
+   the spawn line to the exit, so one shot emptied every line in the world. 120 is about twice the
+   range Karen shoots at (task 138 measured her hits at 30–71 m).
+9. **A calm wave walks or trots and never runs.** `paceMix` drops the `run` row (it was a fifth of
+   all waves, drawn before anything had happened). A run is a reaction — a shot inside the radius, a
+   beater close, or a hit. **The smoke shows it**: four waves, three at a walk and one at a trot.
 
 ## What could not be verified
 
-- **The slide median did not move: 56.2 % on both builds, across six runs, to ±0.1.** That stability
-  is itself the finding: it is not noise, and it is not plausibly a property of six different
-  animals in two different builds. I believe my probe's `footed = groundStudsPerSecond × clipScale ×
-  track.Speed` is measuring the wrong thing — `1 − 0.4372` (the cub's `clipScale`) is 0.5628, which
-  is the number to within a rounding — but I could not prove where in the remaining time. **The
-  figure I DO trust is the no-clip one**, 25.1 % → 1.2 %, which is the one that corresponds to what
-  Karen can see: an animal translating with no walk cycle at all. I am not claiming the sliding is
-  fixed; I am claiming the largest measured cause of it is.
-- **"Stood after a shot" is 0.3, not 0.** One case in three runs survives (`top speed 4.5, moved 11
-  studs in 12 s`). `line.gone` removes the animal from the file the moment it is hurt, so the drive
-  is no longer ordering it to stand — what is left is something in `Brain`, and I have not found it.
-- **THE TABLE WAS MEASURED ON AN INTERMEDIATE BUILD.** The three round-2 runs were taken before the
-  last two commits, which differ in exactly two ways: the step reach is 70 for all three gaits rather
-  than 75/85/95 (sound only — cannot affect any movement number), and `digWalk` and an in-progress
-  graze exit now pass the activity gate. The second would, if anything, raise the no-clip figure
-  slightly from 1.2 %. I could not re-measure because the probe is temporary instrumentation and the
-  tree has to be clean at the code commit.
+- **"Running in place" is not zero: 13 / 14 / 28, and 41 on the final build.** This is NOT the case
+  Karen reported — that one was a run clip at full tilt on a wedged animal, and it is gone with the
+  `wantSpeed` fix. What the counter now sees is `MODEL.MIN_RATE`, the 0.4 floor that exists to stop a
+  clip reading as slow motion: an animal below about 1.1 studs/s has its walk clip floored there, so
+  the feet move at ~1.14 studs/s while the body does less. It is a shuffle, not a gallop, and the
+  floor is a deliberate rail. Whether to trade it for a hard stop below `WALK_FROM` is a feel
+  question I am not deciding here.
+- **MY PER-SHOT REACTION COUNT IS BROKEN and I am not reporting a number for item 8.** The metric
+  keyed its set on `(id, distance)`, so one animal appears many times as it moves and the "count"
+  came out above the number of boars alive. What IS evidenced for item 8 is the config change and the
+  two specs that pin the rule — inside the radius sprints on the same tick, outside grazes on — both
+  of which now read the distance off `SENSE.SHOT_AUDIBLE_STUDS` instead of typing it, so they cannot
+  go stale against it again.
+- **One animal came back north in two of the four final runs.** Not zero, and down from the 19–26 of
+  the first attempt. I have not chased the last one.
+- **Four existing specs encoded the old numbers** (`shotAt(340)`, `shotAt(200)`, the live spec's 345
+  and 395, and `expect(SHOT_AUDIBLE_STUDS).to.equal(350)`). Each is updated **with its reason** and
+  three of them now read the config rather than a literal. The rule each case exists for is
+  unchanged; only the number it is measured against moved.
 - **Standing rule A, Forest Test, 85 s:** the Tool in the CHARACTER at 15 s and at the end
-  (`tool=true backpack=false` both), **0 fault lines in 22**, four wave lines released at a trot, 1
-  and 2 lines per wave.
-- **Studio:** I opened DEV from the Forest Test window for the gate, read the Rojo sync dialog in
-  full (four edits — `Boar/Body`, `Boar/Brain`, `ForestTest/Line`, `Tests` — **no removals**),
-  accepted, ran the gate, then closed the place with Save and closed the empty window. Karen has one
-  Studio, the Forest Test, in Edit.
+  (`tool=true backpack=false` both), **0 fault lines in 24**, four wave lines released — and all four
+  at a walk or a trot, which is item 9 running.
+- **Studio:** I opened DEV from the Forest Test window, read the sync dialog (edits only — no files
+  were removed this round, so no instance removal was possible), accepted, gated, then closed the
+  place with **Save** and closed the empty window. Karen has one Studio, the Forest Test, in Edit.
