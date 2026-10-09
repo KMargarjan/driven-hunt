@@ -30,6 +30,19 @@ local firstPerson = table.clone(Config) :: any
 firstPerson.FIRST_PERSON = true
 table.freeze(firstPerson)
 
+-- AT REST, FABRICATED, not `Camera.getState()` (the Reviewer's note, round 2): the live state's
+-- blend is whatever the session is doing, and `amp = Mode.ease(blend) * ampDeg`, so "the sway is zero
+-- in the hip view" held only because the blend happened to be 0. This is the shape
+-- `camera_mode.spec`'s own `stateAtBlend` has.
+local function atRest(): any
+	local state = table.clone(Mode.initial(firstPerson)) :: any
+	state.mode = "Third"
+	state.blend = 0
+	state.scopePhase = 0
+	state.scopeSwayDeg = Vector2.zero
+	return table.freeze(state)
+end
+
 local function frames(n: number)
 	for _ = 1, n do
 		RunService.Heartbeat:Wait()
@@ -90,7 +103,7 @@ return function()
 	describe("the sway moves the VIEW, and only while scoped", function()
 		it("is exactly zero in the hip view and non-zero at full blend", function()
 			local sway = Rifle.CONFIG.scope.sway
-			local state = Camera.getState()
+			local state = atRest()
 			-- At blend 0 the sway is scaled to nothing: you cannot see a wobble at 1x, and no
 			-- hip-fire scenario can ever be touched by it.
 			local hip = Mode.step(state, {
@@ -107,9 +120,9 @@ return function()
 			-- ...and at full blend it wanders, inside its own amplitude, without ever moving the
 			-- player's own aim.
 			local aimed = hip
-			-- THE PLAYER'S OWN AIM, as it stands: this starts from the LIVE camera state, whose
-			-- pitch is wherever the session is looking (the spawn pitch, for one), so "the sway does
-			-- not move the player's aim" is asserted against those numbers and not against zero.
+			-- THE PLAYER'S OWN AIM, as the fabricated state left it: read off `hip` rather than
+			-- assumed to be zero, so this asserts "the sway does not move the player's aim" against
+			-- whatever the mode's own step did with the pitch.
 			local pitch0, yaw0 = hip.pitchDeg, hip.yawDeg
 			local worst = 0
 			for _ = 1, 600 do
@@ -131,7 +144,7 @@ return function()
 		end)
 
 		it("does not advance its clock for a weapon with no scope", function()
-			local state = Camera.getState()
+			local state = atRest()
 			for _ = 1, 30 do
 				state = Mode.step(state, {
 					aiming = true,
@@ -213,6 +226,42 @@ return function()
 			expect(Hud.crosshairVisible(state, false, true)).to.equal(false)
 			expect(Hud.crosshairVisible(state, true, true)).to.equal(false)
 			expect(Hud.isCrosshairVisible()).to.equal(false)
+		end)
+	end)
+
+	describe("the drive report's detail row", function()
+		it("prints the gun's WORD after the distance, and nothing at all for an old record", function()
+			-- DESIGN SECTION 9, and the one half of the report path a spec can reach: the row is
+			-- built by `HitLog`'s own local `detailPayload` (only `onRequest`'s remote returns it),
+			-- but what the SCREEN does with `row.weapon` is this function and it is public.
+			local Report = Hud.Report
+			local row = {
+				kind = "female",
+				result = "down",
+				zone = "chest",
+				distance = 45,
+				hits = 1,
+				weapon = "rifle",
+			}
+			local text = Report.detailRowText(row)
+			local label = Weapons.row("rifle").label
+			expect(string.find(text, label, 1, true)).to.be.ok()
+			-- AFTER THE DISTANCE AND BEFORE THE HITS, which is the order the header names.
+			local atRange = string.find(text, "45 m", 1, true)
+			local atGun = string.find(text, label, 1, true)
+			expect(atRange).to.be.ok()
+			expect((atGun :: number) > (atRange :: number)).to.equal(true)
+			local header = Report.detailHeaderText()
+			expect((string.find(header, "GUN", 1, true) :: number) > (string.find(header, "RANGE", 1, true) :: number)).to.equal(
+				true
+			)
+			-- A RECORD FROM BEFORE THE RIFLE NAMES NO GUN, and prints no word rather than "nil".
+			local old = table.clone(row)
+			old.weapon = nil
+			local plain = Report.detailRowText(old)
+			expect(string.find(plain, "nil", 1, true)).to.equal(nil)
+			expect(string.find(plain, label, 1, true)).to.equal(nil)
+			TestKit.note("rifle: detail row = '" .. text .. "'")
 		end)
 	end)
 

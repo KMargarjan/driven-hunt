@@ -585,6 +585,20 @@ return function()
 			expect(hold).to.equal(nil)
 			expect(#problems).to.equal(0)
 			expect((Poses.resolve(firstPerson, ""))).to.equal(firstPerson)
+			-- ...BUT A SECOND WEAPON WITH NO OVERRIDE IS NOT `base` (task 140, design 13.1): this is
+			-- the branch a PUBLISHED server takes for the rifle, where there is no attribute to
+			-- read, and it must recompute the flat names from that weapon's own set.
+			local rifle, rifleHold, rifleProblems = Poses.resolve(firstPerson, nil, "rifle")
+			expect(#rifleProblems).to.equal(0)
+			expect(rifleHold).to.equal(nil)
+			expect(rifle).never.to.equal(firstPerson)
+			local expected = Data.view(Data.DATA, "rifle")
+			for key, value in pairs(expected) do
+				expect(rifle[key]).to.equal(value)
+			end
+			expect(rifle.FIRST_PERSON).to.equal(firstPerson.FIRST_PERSON)
+			-- ...and naming the default weapon explicitly is the same answer as naming none.
+			expect((Poses.resolve(firstPerson, nil, Data.DEFAULT_WEAPON))).to.equal(firstPerson)
 		end)
 
 		it("a good override changes the config the camera is handed", function()

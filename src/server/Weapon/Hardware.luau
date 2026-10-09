@@ -51,6 +51,10 @@ local sightWarned = false
 function Hardware.setTemplateProvider(fn: ((string) -> (Instance?, any))?)
 	templateFor = fn
 	warned = false
+	-- THE PER-KEY FLAGS TOO (the Reviewer's note, round 2): a spec that borrows this seam twice
+	-- would otherwise silence the second borrow's missing-template warning, which is the one thing
+	-- this seam exists to make visible.
+	pieceWarned = {}
 end
 
 -- So a spec can borrow the seam and PUT THE LIVE ONE BACK. Without this a spec that injects a fake

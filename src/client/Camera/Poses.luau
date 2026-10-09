@@ -109,9 +109,13 @@ function Poses.config(base: any, weaponId: string?): any
 		local attribute = if folder then folder:GetAttribute(Data.OVERRIDE_ATTRIBUTE) else nil
 		raw = if type(attribute) == "string" then attribute :: string else nil
 	end
-	if raw == nil and wanted == Data.DEFAULT_WEAPON then
-		return base
-	end
+	-- NO EARLY RETURN AT ALL, and that is the Reviewer's round-2 finding (task 140): one that
+	-- answered `base` before the cache was written left `cachedHold` holding whatever the LAST
+	-- override said, so `tools/pose.py clear` -- which clears by REMOVING the attribute, so the next
+	-- frame reads nil -- never released the hold, and `Camera.update` kept forcing `mode = "Aiming"`,
+	-- `blend = 1` on every frame for the rest of the session. The cache below is keyed on exactly
+	-- the two things that decide the answer, so it IS the fast path: nil and the default weapon
+	-- resolve to `base` itself once and then cost one string compare and one table read.
 	if raw == cachedRaw and wanted == cachedWeapon and cachedConfig ~= nil then
 		return cachedConfig
 	end
@@ -160,6 +164,12 @@ function Poses.holdState(state: Mode.State, hold: string?): Mode.State
 		return state
 	end
 	local next_ = table.clone(state) :: any
+	-- AND THE SCOPE SITS STILL (design 7.3, the Reviewer's note rounds 1 and 2): the sway is a VIEW
+	-- term, so a held frame taken mid-wander is off by up to `ampDeg` in each axis -- which is the
+	-- whole point of a hold, and is invisible in the frame itself. The phase goes back to the start
+	-- too, so two captures of the same hold are the same picture.
+	next_.scopeSwayDeg = Vector2.zero
+	next_.scopePhase = 0
 	if hold == "carry" then
 		next_.mode = "Third"
 		next_.blend = 0

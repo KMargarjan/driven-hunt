@@ -72,7 +72,7 @@ return function()
 			HitLog.closeDrive(20)
 		end)
 
-		it("gives the animal's own row the gun of the shot that KILLED it", function()
+		it("marks the FATAL dot with the gun of the shot that KILLED it", function()
 			local part = fakeBoar("Boar2", "female")
 			HitLog.openDrive(2, 0)
 			-- Two guns on one animal: a shotgun hit in the rear first, then the rifle's chest shot,
@@ -94,9 +94,12 @@ return function()
 			}, 12.0)
 			local record = (HitLog.currentDrive() :: any).animals["Boar2"]
 			expect(record).to.be.ok()
-			-- THE FATAL DOT IS THE RIFLE'S, which is what the animal's row in the panel carries and
-			-- prints: `detailPayload` reads `best` -- the fatal dot when there is one -- and copies
-			-- its weapon onto the row.
+			-- THE FATAL DOT IS THE RIFLE'S, which is the fact this case measures. The ROW that
+			-- carries it onto the screen is built by `detailPayload`, which is local to the module
+			-- and reachable only through `onRequest`'s remote, so the row's own copy of the weapon
+			-- is not asserted here (the Reviewer's note, round 2: the old name claimed it was).
+			-- What IS asserted of the screen half is `ReportPanel.detailRowText` in
+			-- `tests/client/rifle_client.spec.luau`.
 			local fatal = nil
 			for _, dot in ipairs(record.dots) do
 				if dot.fatal then

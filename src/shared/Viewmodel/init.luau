@@ -252,8 +252,10 @@ function Viewmodel.validate(data: any): { string }
 	-- must not have.
 	-- VERSION 4 IS ONE POSE SET PER WEAPON (task 140), which re-opens the door version 2 had and
 	-- version 3 closed -- keyed by weapon id this time, and by nothing else. Every shotgun number
-	-- moved one level down and not one digit sideways; `viewmodel_poses.spec` asserts the whole
-	-- `weapons.shotgun` block against the v3 file archived under `backups/`.
+	-- moved one level down and not one digit sideways. The v3 file is archived at
+	-- `backups/2026-10-09_task-140_poses-v3.json` and `weapons.shotgun` is field for field its top
+	-- level -- checked by hand twice (the Builder's migration, the Reviewer's round 2) and NOT by a
+	-- spec: a spec runs inside the place and `backups/` is a path on disk that nothing syncs.
 	if data.version ~= 4 then
 		table.insert(problems, "version must be 4")
 	end

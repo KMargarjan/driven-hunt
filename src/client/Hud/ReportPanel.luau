@@ -330,7 +330,7 @@ function ReportPanel.listRowText(rank: number, row: any, points: number?): strin
 end
 
 function ReportPanel.detailHeaderText(): string
-	return "ANIMAL   RESULT   ZONE     RANGE  HITS  GUN"
+	return "ANIMAL   RESULT   ZONE     RANGE  GUN       HITS"
 end
 
 -- ONE ANIMAL'S LINE. `result` is the record's own word: "down" is a carcass, "wounded" is Karen's
@@ -343,14 +343,17 @@ function ReportPanel.detailRowText(row: any): string
 	-- record from before the rifle has no id and prints nothing rather than the word "nil", the rule
 	-- `Hud.killLineText` already follows for `animalKind`.
 	local gun = Weapons.row(row and row.weapon)
+	-- AFTER THE DISTANCE, not after the hits (design section 9, the Reviewer's note round 2): the
+	-- zone, the range and the gun are the three facts about the SHOT, and the hit count is a fact
+	-- about the animal.
 	return string.format(
-		"%-8s %-8s %-8s %3d m %4d  %s",
+		"%-8s %-8s %-8s %3d m %-9s %4d",
 		kind,
 		result,
 		tostring((row and row.zone) or "-"),
 		Report.metres(row and row.distance),
-		(row and row.hits) or 0,
-		if gun ~= nil then gun.label else ""
+		if gun ~= nil then gun.label else "",
+		(row and row.hits) or 0
 	)
 end
 
