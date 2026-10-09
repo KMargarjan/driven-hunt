@@ -202,25 +202,31 @@ local function buildSilhouette(parent: Frame): Frame
 	art.Position = UDim2.fromOffset(8, 6)
 	art.Size = UDim2.fromOffset(CONFIG.SILHOUETTE_WIDTH, CONFIG.SILHOUETTE_HEIGHT)
 	art.Parent = parent
-	-- `body` FIRST and underneath, because it is the fallback zone and covers the whole trunk; the
-	-- four named zones are drawn on top of it in nose-to-tail order.
-	for _, zone in ipairs(CONFIG.ZONES) do
-		local rect = CONFIG.SILHOUETTE[zone]
-		if rect ~= nil then
-			local box = Instance.new("Frame")
-			box.Name = "Zone_" .. zone
-			box.BackgroundColor3 = rect.tint
-			-- ALL FIVE OPAQUE. They were 0.35 and 0.15 over a transparent panel, which is how three
-			-- animals came out as one stripe of washed-out colour; `body` at 0.35 then vanished into
-			-- the backing, which is how the silhouette read as floating bars instead of an animal.
-			-- The trunk is the SHAPE and the four named zones are markings on it.
-			box.BackgroundTransparency = 0
-			box.BorderSizePixel = 0
-			box.Position = UDim2.fromScale(rect.u0, rect.v0)
-			box.Size = UDim2.fromScale(rect.u1 - rect.u0, rect.v1 - rect.v0)
-			box.ZIndex = if zone == "body" then Z + 3 else Z + 4
-			box.Parent = art
-		end
+	-- THE ANIMAL, IN ONE FILL (task 135). Until now this loop painted `Report.CONFIG.SILHOUETTE`
+	-- itself -- the five zone rectangles, each in its own tint -- and task 124 round 3's own note
+	-- said what that looked like: "a colour-coded bar, not a boar's outline". The rectangles are
+	-- still the record every dot is placed against; they are no longer the picture.
+	--
+	-- ONE COLOUR, ELEVEN PARTS, NO ART FILE. Every number is a SCALE of this frame, so the same
+	-- eleven parts draw the same animal at 104 x 56 in a row and at any size a larger view asks for.
+	for _, piece in ipairs(CONFIG.BOAR) do
+		local part = Instance.new("Frame")
+		part.Name = piece.name
+		part.BackgroundColor3 = CONFIG.BOAR_FILL
+		part.BackgroundTransparency = 0
+		part.BorderSizePixel = 0
+		part.Position = UDim2.fromScale(piece.u0, piece.v0)
+		part.Size = UDim2.fromScale(piece.u1 - piece.u0, piece.v1 - piece.v0)
+		-- ONE ZINDEX FOR THE WHOLE ANIMAL: the parts are the same colour, so there is nothing for a
+		-- stacking order to decide, and the dots sit above all of them at Z + 5.
+		part.ZIndex = Z + 3
+		-- THE CORNER IS A FRACTION OF THE PART'S OWN SHORTER SIDE, in SCALE, so a leg does not turn
+		-- into a lozenge when the silhouette is drawn larger. `UICorner`'s Scale is relative to the
+		-- shorter side already (https://create.roblox.com/docs/reference/engine/classes/UICorner).
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(piece.corner, 0)
+		corner.Parent = part
+		part.Parent = art
 	end
 	return art
 end
@@ -339,6 +345,20 @@ end
 
 -- ---------------------------------------------------------------- drawing
 
+-- THE RING COLOUR PER ZONE, built once from the list of zones this panel draws (task 135).
+--
+-- `Report.CONFIG.ZONES` is that list, and this is its reader: it lost its old one when the five
+-- tinted rectangles stopped being the picture, and a list in a shared config that nothing reads is
+-- the kind of lie `Penalty.expired`'s own comment warns about. It is also the right shape for the
+-- job -- a string off the wire indexes one small table, built at load, rather than two.
+local RING: { [string]: Color3 } = {}
+for _, zone in ipairs(CONFIG.ZONES) do
+	local rect = CONFIG.SILHOUETTE[zone]
+	if rect ~= nil then
+		RING[zone] = rect.tint
+	end
+end
+
 local function clearDots(art: Frame)
 	for _, child in ipairs(art:GetChildren()) do
 		if child:IsA("Frame") and child.Name == "Dot" then
@@ -373,13 +393,29 @@ local function drawDots(art: Frame, row: any)
 		pip.BackgroundTransparency = if (dot.side or 1) < 0 then CONFIG.FAR_SIDE_TRANSPARENCY else 0
 		pip.BorderSizePixel = 0
 		pip.ZIndex = Z + 5
-		-- A BLACK OUTLINE, because a white dot on a pale chest and a red dot on a red head are both
-		-- invisible without one. The same `UIStroke` every other label in this Hud wears.
+		-- AN OUTLINE IN THE ZONE'S OWN COLOUR (task 135). It was black, for a reason that has gone:
+		-- a white dot was invisible on the pale chest rectangle and a red one on the red head
+		-- rectangle, and the animal is now a single mid fill that both read against. So the ring
+		-- carries the zone instead -- head, chest, rear, legs or body at a glance -- which is the
+		-- one thing the old tinted rectangles told you that a plain silhouette does not. The tints
+		-- are `Boar.CONFIG.ZONES`' own, mirrored into `Report.CONFIG.SILHOUETTE` and asserted
+		-- against the source by `tests/server/report_silhouette.spec.luau`.
 		local edge = Instance.new("UIStroke")
 		edge.Thickness = 1
-		edge.Color = Color3.new(0, 0, 0)
+		-- A zone this panel does not draw falls back to the trunk's own colour rather than erroring
+		-- on a string that came off the wire.
+		edge.Color = RING[tostring(dot.zone or "")] or RING.body or Color3.new(0, 0, 0)
 		edge.Parent = pip
 		pip.Rotation = if dot.fatal then 45 else 0 -- the fatal dot reads as an X at a glance
+		-- ...WHICH ONLY WORKS IF THE OTHERS ARE ROUND (task 135). They were all squares, so the
+		-- fatal one was a square turned 45 degrees among squares; a round hit beside a turned one
+		-- reads as a different KIND of mark rather than the same mark at a different angle. The
+		-- fatal marker itself is untouched -- same size, same kill colour, same turn.
+		if not dot.fatal then
+			local round = Instance.new("UICorner")
+			round.CornerRadius = UDim.new(0.5, 0)
+			round.Parent = pip
+		end
 		-- The numbers a spec reads, on the thing itself: no second table to drift from the picture.
 		pip:SetAttribute("U", dot.u or 0)
 		pip:SetAttribute("V", dot.v or 0)

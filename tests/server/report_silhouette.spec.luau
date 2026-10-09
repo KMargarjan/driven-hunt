@@ -47,7 +47,12 @@ return function()
 			end
 		end)
 
-		it("carries each zone's own tint, so the dot's colour and the box's agree", function()
+		it("carries each zone's own tint, which is what a dot's ring is drawn in", function()
+			-- THE TINTS OUTLIVED THE BOXES (task 135). They used to paint the five rectangles; the
+			-- animal is one fill now, so the panel draws them as the RING around each dot instead --
+			-- head, chest, rear, legs or body at a glance, which is the one thing the rectangles
+			-- told you that a plain silhouette does not. Mirrored from `Boar.CONFIG.ZONES`, and this
+			-- is still what fails if the two drift.
 			for _, zone in ipairs(Boar.CONFIG.ZONES.ORDER) do
 				local tint = Report.CONFIG.SILHOUETTE[zone].tint
 				local want = Boar.CONFIG.ZONES[zone].tint
@@ -81,6 +86,91 @@ return function()
 						error(string.format("%s and %s overlap on the silhouette", named[i], named[j]))
 					end
 				end
+			end
+		end)
+	end)
+
+	describe("the drawn boar", function()
+		-- THE PICTURE AND THE RECORD ARE TWO THINGS (task 135), and this is what keeps them one
+		-- animal. `SILHOUETTE` above is `Boar.CONFIG.ZONES` projected and decides where every dot
+		-- goes; `BOAR` is thirteen rounded rectangles drawn by eye. Nothing stops the drawing
+		-- wandering off the record except these cases.
+		local function partNamed(name: string)
+			for _, piece in ipairs(Report.CONFIG.BOAR) do
+				if piece.name == name then
+					return piece
+				end
+			end
+			return nil
+		end
+
+		local function covers(piece, u: number, v: number): boolean
+			return piece ~= nil and u >= piece.u0 and u <= piece.u1 and v >= piece.v0 and v <= piece.v1
+		end
+
+		local function onTheAnimal(u: number, v: number): boolean
+			for _, piece in ipairs(Report.CONFIG.BOAR) do
+				if covers(piece, u, v) then
+					return true
+				end
+			end
+			return false
+		end
+
+		it("puts the HEAD where the head zone is, and the HAUNCH where the rear zone is", function()
+			-- THE TWO THE DIRECTOR ASKED FOR, and they are the two that would look wrong first: a
+			-- head shot drawn on the shoulder, or a rump shot drawn in the air behind the animal.
+			--
+			-- THE HEAD IS HIGH IN THIS MODEL, and the drawing follows the model rather than a
+			-- photograph: `Boar.CONFIG.ZONES.head` sits at y 0.35..1.65 on a trunk 3 studs tall,
+			-- which projects to v 0..0.383 -- the TOP of the box. A prettier boar with its nose near
+			-- the ground would put the head's own dots off its head.
+			local head = Report.CONFIG.SILHOUETTE.head
+			local rear = Report.CONFIG.SILHOUETTE.rear
+			expect(covers(partNamed("Head"), (head.u0 + head.u1) / 2, (head.v0 + head.v1) / 2)).to.equal(true)
+			expect(covers(partNamed("Haunch"), (rear.u0 + rear.u1) / 2, (rear.v0 + rear.v1) / 2)).to.equal(true)
+		end)
+
+		it("has something drawn under the centre of every zone it draws", function()
+			-- The weaker claim over all five, because a dot in empty space is the one way this
+			-- picture can be worse than the rectangles it replaced.
+			for _, zone in ipairs(Report.CONFIG.ZONES) do
+				local rect = Report.CONFIG.SILHOUETTE[zone]
+				local u, v = (rect.u0 + rect.u1) / 2, (rect.v0 + rect.v1) / 2
+				if not onTheAnimal(u, v) then
+					error(string.format("the centre of the %s zone (%.3f, %.3f) is off the drawn animal", zone, u, v))
+				end
+			end
+		end)
+
+		it("stays inside the frame it is drawn in, and carries what the panel reads", function()
+			expect(#Report.CONFIG.BOAR >= 8).to.equal(true)
+			local seen = {}
+			for _, piece in ipairs(Report.CONFIG.BOAR) do
+				expect(type(piece.name)).to.equal("string")
+				expect(seen[piece.name]).to.equal(nil) -- two frames of one name is one lost frame
+				seen[piece.name] = true
+				-- EVERY NUMBER IS A SCALE OF THE ART FRAME, so the same parts draw the same animal at
+				-- the 104 x 56 of a row and at whatever a larger view asks for. Outside 0..1 is
+				-- outside the picture.
+				expect(piece.u0 >= 0 and piece.u1 <= 1 and piece.u1 > piece.u0).to.equal(true)
+				expect(piece.v0 >= 0 and piece.v1 <= 1 and piece.v1 > piece.v0).to.equal(true)
+				expect(piece.corner >= 0 and piece.corner <= 0.5).to.equal(true)
+			end
+			-- IT REACHES THE EDGES IT SHOULD: the snout at the nose and the tail at the tail, because
+			-- `Shape.dot` puts u = 0 at the nose and u = 1 at the tail and a dot at either end has to
+			-- land on the animal.
+			expect(onTheAnimal(0.01, 0.38)).to.equal(true)
+			expect(onTheAnimal(0.99, 0.34)).to.equal(true)
+		end)
+
+		it("is drawn in ONE fill, which is what makes it a silhouette", function()
+			-- `BOAR_FILL` is the whole animal's colour; a part carrying its own would be the
+			-- colour-coded bar this task replaced coming back one piece at a time.
+			expect(Report.CONFIG.BOAR_FILL).to.be.ok()
+			for _, piece in ipairs(Report.CONFIG.BOAR) do
+				expect((piece :: any).tint).to.equal(nil)
+				expect((piece :: any).color).to.equal(nil)
 			end
 		end)
 	end)
