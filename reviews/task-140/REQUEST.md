@@ -1,12 +1,12 @@
 # Task 140 - the rifle with a scope
 
 Task: 140
-Round: 2
+Round: 3
 Base: main (`482a611`)
-Code commit: `b5ec4218b8535187b04715f6717527f2b3211803`
+Code commit: `02a8927d9a4c1c4edd3f90e94c4b646105c6552c`
 
 ```
-[harness] PASS: 33/33 checks @ b5ec4218b8535187b04715f6717527f2b3211803 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 02a8927d9a4c1c4edd3f90e94c4b646105c6552c (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing in this diff touches `TWO_PLAYER_PATHS` (`src/server/Match/`, `MatchBoot`,
@@ -16,34 +16,52 @@ Built to `docs/design/rifle.md` (Architect PASS, `reviews/task-140/ARCH_RESULT.m
 *"afther this fixes we need to add rifle with scope"*, and she picked the model because *"it's already
 with scope"*. Behind the `RIFLE` flag, born OFF.
 
-## Round 2: both blocking findings, and five notes that were real defects
+## Round 3: the one blocking finding, and six notes
 
-1. **The arming sweep counted a repair on every pass.** `holdsTool` became per weapon and the
-   sweep's call was not updated, so the table read answered nil, the call answered false and
-   `stats.armingRepairs` rose unconditionally -- which would have destroyed the one instrument this
-   repo has for "a player who should be holding a gun and is not" (0 in every run since task 34).
-   It counts against the loadout now. **Verify:** the sweep's loop in `Weapon.start`.
-2. **Claim 10 was false and is now true.** Version 4's three refusals -- a missing weapon set, one
-   carrying both actions, one carrying neither -- were reachable by no test. `viewmodel_poses.spec`
-   drives all three through its own `broken()` helper, plus "one flat name set, whichever weapon is
-   asked for". **Verify:** "names a weapon set that is missing, and one that carries two actions or
-   none".
+**The blocking one was a real defect and the Reviewer is right about every step of it.**
+`Poses.config` grew an early return this task -- `if raw == nil and wanted == DEFAULT_WEAPON then
+return base end` -- and it answered BEFORE the cache was written. `tools/pose.py clear`, and
+`pose.py compare`'s own release path, both clear by REMOVING the attribute, so the next frame reads
+nil, took that return, and `cachedHold` went on holding whatever the last override said.
+`Camera.update` applies `Poses.holdState` every frame, so the camera and the drawn gun stayed pinned
+at `mode = "Aiming"`, `blend = 1` for the rest of the session -- and the path WORKED before this
+task. The early return is gone: the `(raw, weaponId)` cache below it is the fast path on its own
+(nil and the default weapon resolve to `base` itself once, then cost one string compare and one
+table read). **Verify:** `camera_client.spec`, "releases a held pose when the attribute is removed,
+not just when it changes" -- it sets `{"hold": "aim"}`, REMOVES the attribute, and expects
+`Poses.hold()` nil and `Poses.config` back to the base table. MEASURED LIVE in the Forest Test:
+`hold set=aim after the attribute was REMOVED=nil`.
 
-...and five notes, each a real defect rather than a wording fix: the **dead third copy** of the
-rifle's asset keys, in a DIFFERENT order from the two that are read (and the order decides which key
-is worn as `Model`); the Validator's **hardcoded shotgun ammo list**; **one warn flag shared by every
-mesh key**, so a missing `rifle.scope` was silent once `shotgun.barrels` had warned; the **reticle
-laid out from the weapon's target FOV** rather than the frame's own, which is wrong for the 0.2 s of
-the raise; and a comment claiming a call to `Mode.segmentAt` the code never made.
+**Six notes, each a real defect:** `setTemplateProvider` reset the old single warn flag but not the
+per-key table this task added, so a second borrow of the seam was silent; the detail row's GUN column
+sat after HITS and design section 9 says after the DISTANCE; `holdState` zeroed `blend` and
+`openTilt` but not `scopeSwayDeg`/`scopePhase`, so a held frame was photographed mid-wander (design
+7.3, the Reviewer's note in rounds 1 and 2 -- closed now); a comment claimed `viewmodel_poses.spec`
+asserts `weapons.shotgun` against the archived v3 file, which no spec can do (`backups/` is a path on
+disk that nothing syncs) and it now says so; BOTH sway cases started from `Camera.getState()`, so
+"the sway is zero in the hip view" held only because the live blend happened to be 0, and they start
+from a fabricated at-rest state now; and the hitlog case's name claimed a row it never built.
 
-Two of the Reviewer's other notes are also closed: the **drive report's detail row names the gun**
-(design section 9, which round 1 did not build), and `hitlog.spec` asserts the weapon reaches the dot
-and the FATAL dot's weapon reaches the row.
+**MEASURED LIVE in Karen's own place**, one probe through the running client, which is the half a
+spec cannot show -- the header and the row as the panel prints them, and the release:
 
-**`boar_body.spec:663` is flaky and it is not mine.** It failed once at this exact commit (the
-sounder's scatter-spread assertion) and passed on the next run of the SAME commit with nothing
-changed; it flipped the same way during task 139. Reported rather than hidden: the PASS line above
-is the second run.
+```
+holdState sway=(0.000, 0.000) phase=0.000
+header='ANIMAL   RESULT   ZONE     RANGE  GUN       HITS'
+row='FEMALE   DOWN     chest     13 m RIFLE        1'
+hold set=aim after the attribute was REMOVED=nil
+```
+
+**Two new cases failed the first gate run of this round, and both were my test's fault rather than
+the code's** (reported per rule 8): `Data.view` rebuilds its table-valued names on every call, so
+comparing the second weapon's whole view by identity was the wrong question -- it compares by value
+for every scalar now, and asserts at least one differs from the shotgun's; and the detail row's
+`distance` is in STUDS while the column prints METRES (45 studs is 13 m), so the range field is
+matched as a pattern. Second run: 33/33.
+
+**`boar_body.spec:663` PASSED both gate runs of this round.** It failed one of round 2's on the
+identical commit and passed the next; it is a physics scatter-spread assertion that flips, and it is
+not this task's.
 
 ## The ten claims
 
@@ -52,7 +70,8 @@ is the second run.
    BUILT from `Shotgun.CONFIG`, never copied out of it. **Verify:** `tests/server/rifle.spec.luau`
    asserts the row field by field against that config, including the four `RELOAD_*` numbers as the
    `CYCLE` list and `CYCLE_TOTAL == RELOAD_TOTAL`; `git diff` on `src/shared/Shotgun/init.luau`
-   touches only the two type blocks and one new system number (`EQUIP_RATE_LIMIT`).
+   touches only the two type blocks, one new system number (`EQUIP_RATE_LIMIT`) and `snapshot`'s new
+   `weapon: string?` parameter -- **no shotgun NUMBER moved**, which is the substance of the claim.
 
 2. **No row may carry a rule of the drive or of the protocol.** The safety arc, the camera-origin
    tolerance, the rate limits, `AUTO_EQUIP` and `shouldArm` stay in `Shotgun.CONFIG`. **Verify:**
@@ -98,7 +117,10 @@ is the second run.
 9. **The report names the gun.** The weapon enters at `Hits.group` -- the one constructor of a
    `HitReport` -- and `HitLog` copies it as it copies `zone`. **Verify:** `rifle.spec` asserts the
    report carries it and that a caller naming no weapon still works (nil on the wire is legal);
-   MEASURED live, the kill line read `Alhamdulilah824 FEMALE BOAR chest 45 m RIFLE` at 161 studs.
+   `hitlog.spec` asserts the FATAL dot carries it; `rifle_client.spec` asserts the panel's own
+   `detailRowText` prints the gun's WORD after the distance and prints nothing at all (not "nil") for
+   a record from before the rifle. MEASURED live, the kill line read
+   `Alhamdulilah824 FEMALE BOAR chest 45 m RIFLE` at 161 studs.
 
 10. **`poses.json` is version 4 and every shotgun number moved a LEVEL, not a digit.** One set per
     weapon under `weapons.<id>`; `look` stays at the top because it is a light. **Verify:**
@@ -115,11 +137,12 @@ is the second run.
 | `t140-bolt-mid.png` | The bolt is hard to identify by eye: its underside is unlit, so it reads as a pale wedge over the action rather than a cylinder with a handle. The gun has NOT swung anywhere (the identity-lerp claim, as a picture) and the bolt group is measurably displaced; the readout says `.416 9 R` |
 | `t140-report-weapon.png` | The kill line with the weapon's word in it, which is the claim; the detail view of the report panel is NOT in this frame |
 
-## Standing rule A, Forest Test, 85 s, with the flag OFF (how it ships)
+## Standing rule A, Forest Test, 85 s, with the flag OFF (how it ships) -- re-run this round
 
-* the Tool is in the CHARACTER at 15 s and at the end -- `tool=true backpack=false` both times
-* **0 fault lines in 28**
-* four waves released, and `[ViewmodelAssets] published 4 of 4 rifle piece(s)`
+* the Tool is in the CHARACTER at 15 s and at 85 s (`gun in hand @15s=1 @85s=1`)
+* **0 "Stack Begin" and 0 error lines** in the whole console, and 0 again in the separate probe run
+* **five waves released**, worst 2 boar sounds at once over 10 s with 29 boars alive
+* the changed feature ran: the probe above is that session's own client
 
 ## What I could not verify, and what I changed outside the design
 
@@ -144,5 +167,19 @@ is the second run.
 * **`Weapon.upgradeLook` now re-equips only the weapon the player was already holding.** With two
   Tools the old sweep put the RIFLE in the hand at a spawn, against `AUTO_EQUIP`'s own rule. Found by
   the first live session, not by a spec.
+* **`weapons.rifle.cycle.shells.feedSeconds` still ships, against design 8.2**, and this is the
+  disclosure the Reviewer asked for rather than a fix. `Viewmodel.validate` REQUIRES all four shell
+  keys and `Viewmodel.view` reads `feedSeconds` into `SHELL_FEED_SECONDS`, so removing it from the
+  rifle's block is a schema change plus a branch in the drawn feed -- engineering, in the last round
+  this task has, to change a shell nobody has complained about. Queued as 140a.
+* **`detailPayload`'s own copy of the weapon onto the row is asserted by no spec.** It is a `local`
+  function reachable only through `onRequest`'s remote, which a server spec cannot read back. The
+  SCREEN half is a spec (`rifle_client.spec`, above) and the wire half rests on the live kill.
+* **`weapon_state.spec` and `camera_mode.spec` still have none of design 13.1's named cases** --
+  `Registry:forget` dropping both weapons' states, a switch leaving the other weapon's state identical
+  by value, the view pitch inside its clamp with sway and recoil both at full, `cycleProgress` at
+  three frame rates. Noted in rounds 1 and 2, queued as 140a, not fixed here.
+* **`Poses.resolve`'s `weaponId` argument now has a spec** (`viewmodel_poses.spec`, the
+  second-weapon-no-override branch a published server takes), which was a round-2 note.
 * **The carry pose and the eye relief are seeds, not measurements.** They are content-lane data
   (`weapons.rifle.*` in `poses.json`) and the Director tunes them live with `tools/pose.py`.
