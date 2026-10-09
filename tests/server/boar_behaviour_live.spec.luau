@@ -267,10 +267,14 @@ return function()
 
 	describe("boar behaviour, live: a shot is heard at a distance", function()
 		it("sprints the boar inside the audible radius and leaves the far one grazing", function()
+			-- READ OFF THE CONFIG, NOT TYPED (task 139 round 3): the radius came down from 350 to 120
+			-- when Karen asked for a blast radius -- *"once shoot they have to run around so blast
+			-- radius is a bit"* -- and these three numbers were written against the old one. The
+			-- claim is unchanged: one animal inside the radius, one outside, one shot between them.
+			local radius = CONFIG.SENSE.SHOT_AUDIBLE_STUDS
 			local near = runtime:spawn(Vector3.new(0, GROUND_Y, 20))
 			local far = runtime:spawn(Vector3.new(0, GROUND_Y, -30))
-			-- 345 studs from the near one and 395 from the far one, across SHOT_AUDIBLE_STUDS = 350.
-			local shot = Vector3.new(0, GROUND_Y, 365)
+			local shot = Vector3.new(0, GROUND_Y, 20 + radius - 5)
 			RunService.Heartbeat:Wait()
 
 			expect(runtime:hearShot(shot)).to.equal(1)

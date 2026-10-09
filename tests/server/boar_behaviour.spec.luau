@@ -958,9 +958,15 @@ return function()
 			return { { kind = "shot", position = Vector3.new(distance, 0, 0) } }
 		end
 
+		-- THE DISTANCES ARE READ OFF THE CONFIG, NOT TYPED (task 139 round 3). Karen, 2026-10-09:
+		-- *"once shoot they have to run around so blast radius is a bit"* -- the radius came down
+		-- from 350 to 120 because 350 was the whole field, and these cases had 340, 200, 345 and 395
+		-- hard-coded against it. The RULE is what they are for -- inside sprints, outside grazes on
+		-- -- and it is unchanged; only the number it is measured against moved, and it moves with the
+		-- config now.
 		it("sprints on the same tick inside SHOT_AUDIBLE_STUDS, and holds it for SHOT_SPRINT_SECONDS", function()
 			local brain = Brain.new(on, FIELD, START, Random.new(21))
-			local intent = brain:step(DT, obs(START, {}, { sounds = shotAt(340) }))
+			local intent = brain:step(DT, obs(START, {}, { sounds = shotAt(CONFIG.SENSE.SHOT_AUDIBLE_STUDS - 10) }))
 			expect(intent.state).to.equal("FLEE")
 			-- The bolt kick is the existing one-off ACCEL bypass, so the setpoint on this very tick
 			-- is SPRINT_SPEED * BOLT_KICK less the one ramp step that follows it.
@@ -1004,7 +1010,10 @@ return function()
 			local brain = Brain.new(on, FIELD, START, Random.new(23))
 			local request = nil
 			for _ = 1, 60 do
-				local intent = brain:step(DT, obs(START, {}, { sounds = if request then nil else shotAt(200) }))
+				local intent = brain:step(
+					DT,
+					obs(START, {}, { sounds = if request then nil else shotAt(CONFIG.SENSE.SHOT_AUDIBLE_STUDS * 0.6) })
+				)
 				request = request or intent.pathRequest
 			end
 			expect(request).to.be.ok()
