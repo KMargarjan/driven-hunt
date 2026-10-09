@@ -831,8 +831,14 @@ function Body.clipFor(info, config): (string?, number)
 		-- grazing LOOP and skated. MEASURED over three 150 s runs: 25.1 % of samples in which a boar
 		-- was moving above 1 stud/s had no locomotion clip under it, and the clips playing instead
 		-- were `idle` (2,151 samples), `grazeLoop` (2,052), `smell` (377) and `grazeStart` (181).
+		-- ...AND A CALM CLIP THAT CARRIES ITS OWN GROUND IS A LOCOMOTION CLIP: `digWalk` is a boar
+		-- rooting AS IT WALKS, and `boar_calm.spec` is right to ask for it at 1.9 studs/s. The test
+		-- is the clip's own `groundStudsPerSecond`, so it is a fact about the clip and not a list of
+		-- names to keep in step.
+		local calmRow = clips[calmName]
+		local walks = calmRow ~= nil and (calmRow.groundStudsPerSecond or 0) > 0
 		local exiting = info.exitClip ~= nil and info.exitFor > 0 and calmName == info.exitClip
-		if exiting or info.speed <= model.STILL_SPEED then
+		if walks or exiting or info.speed <= model.STILL_SPEED then
 			return calmName, calmRate
 		end
 	end
