@@ -162,7 +162,10 @@ end
 -- rifle built while its four groups were still downloading therefore had nothing left that could
 -- ever mark it stale. `meshReady` requests the fetch itself, so the downloads did land -- nobody
 -- asked again afterwards.
-local function readyMeshesIn(folderName: string): number
+-- PUBLIC so a spec can prove the folder NAME is what it counts (the Reviewer's note, round 1):
+-- the whole defect was that this counted one weapon's folder whatever weapon was drawn, and a
+-- file-local function cannot be shown to have stopped doing that.
+function Viewmodel.readyMeshesIn(folderName: string): number
 	local folder = ReplicatedStorage:FindFirstChild(folderName)
 	if folder == nil then
 		return 0
@@ -322,8 +325,9 @@ end
 -- WHY IT EXISTS (task 141). The Director, looking at the task 140 frames: the scope's own 3D tube
 -- sat in front of the eye with the reticle painted over it. Through a real scope you see the sight
 -- picture and no gun at all -- the eye is AT the ocular lens, so the rifle is behind the eye. The
--- `Hud`'s mask arrives at the same blend, from the same `atBlend` number, so there is never a frame
--- with a mask and a gun or with a gun and no mask.
+-- `Hud`'s mask arrives at the same blend, from the same `atBlend` number, so the two can disagree
+-- by AT MOST ONE FRAME (the Reviewer's note, round 1: not "never"). They are two render-step
+-- bindings reading the same state, so the Hud can act on the blend the camera resolved last frame.
 --
 -- THE CLONE IS NOT DESTROYED, only unparented: `Viewmodel.sight()` reads the attachment off `model`
 -- rather than off its parent, so `Mode.aimOffset` keeps solving the aimed pose from the same gun and
@@ -1058,7 +1062,7 @@ local function buildNewGun(config, geometry, row): Model
 
 	builtMeshes = if gunFolder then #gunFolder:GetChildren() else 0
 	-- AGAINST THE FOLDER THIS GUN WAS BUILT FROM (task 141), which is the weapon's own.
-	builtReady = readyMeshesIn(geometry.FOLDER_NAME)
+	builtReady = Viewmodel.readyMeshesIn(geometry.FOLDER_NAME)
 	stats.rebuilds += 1
 	local parts = 0
 	for _, descendant in ipairs(made:GetDescendants()) do
@@ -1142,7 +1146,7 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 			-- a piece that was published long before.
 			-- ...OF THE WEAPON IN THE PLAYER'S HANDS, not of whichever one this module was written
 			-- around (task 141): see `readyMeshesIn`.
-			if readyMeshesIn(folderName) ~= builtReady then
+			if Viewmodel.readyMeshesIn(folderName) ~= builtReady then
 				stale = true
 			end
 		end

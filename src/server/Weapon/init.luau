@@ -225,6 +225,20 @@ end
 -- ...FOR EVERY WEAPON IN THE LOADOUT (task 140). `armingAction` stays pure and per weapon: a
 -- hunter either carries this gun or does not, and the rifle is simply a second answer to the same
 -- question. With the `RIFLE` flag off the loadout is one weapon and this is what it always was.
+-- MUST THE PRIMARY'S EQUIP WAIT FOR THE ENGINE'S OWN BACKPACK GUI? PURE, public, and a function
+-- of the loadout alone -- which is what makes both answers reachable in a spec while the `RIFLE`
+-- flag sits at one of them (CLAUDE.md, feature flags: "a flagged path must be reachable by
+-- parameter as well as by flag, or its two states cannot be tested").
+--
+-- ONLY WHEN MORE THAN ONE TOOL IS HANDED OVER. The hotbar bug needs two: the GUI numbers a slot the
+-- first time it sees a Tool, so equipping inside the grant hides the shotgun from it and the rifle
+-- takes slot 1. With ONE weapon there is no order to get wrong, and a spawn in the shipped build is
+-- then bit-for-bit what it was before the rifle existed -- no half second of empty hands for a bug
+-- that cannot happen (the Reviewer's note, round 1).
+function Weapon.equipDelayFor(wanted: { string }): number
+	return if #wanted > 1 then CONFIG.AUTO_EQUIP_DELAY_SECONDS else 0
+end
+
 function Weapon.refreshArming(player: Player)
 	local allowed = mayArm(player)
 	local wanted = Weapons.loadout()
@@ -250,19 +264,26 @@ function Weapon.refreshArming(player: Player)
 	if CONFIG.AUTO_EQUIP and granted > 0 and Weapon.heldId(player) == nil then
 		local primary = toolsOfPlayer(player)[Weapons.PRIMARY]
 		if primary ~= nil then
-			-- NOT IN THIS FRAME: see `Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS` for the whole of why.
-			-- The guard is re-read when the delay fires rather than captured: a player who picked up
-			-- the rifle, holstered, died or left in that half second must not have a shotgun pushed
-			-- into their hands, and the Tool itself may be gone by then.
-			task.delay(CONFIG.AUTO_EQUIP_DELAY_SECONDS, function()
-				if primary.Parent == nil or toolsOfPlayer(player)[Weapons.PRIMARY] ~= primary then
-					return
-				end
-				if Weapon.heldId(player) ~= nil then
-					return
-				end
+			local delay = Weapon.equipDelayFor(wanted)
+			if delay <= 0 then
+				-- ONE WEAPON: no hotbar order to protect, so the spawn is exactly what it was.
 				Hardware.equip(primary, player)
-			end)
+			else
+				-- NOT IN THIS FRAME: see `Weapon.equipDelayFor` and
+				-- `Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS`. The guards are re-read when the delay
+				-- fires rather than captured: a player who picked up the rifle, holstered, died or
+				-- left in that half second must not have a shotgun pushed into their hands, and the
+				-- Tool itself may be gone by then.
+				task.delay(delay, function()
+					if primary.Parent == nil or toolsOfPlayer(player)[Weapons.PRIMARY] ~= primary then
+						return
+					end
+					if Weapon.heldId(player) ~= nil then
+						return
+					end
+					Hardware.equip(primary, player)
+				end)
+			end
 		end
 	end
 	-- ...AND ANY WEAPON THAT IS NO LONGER IN IT GOES. Turning the flag off mid-session must take the

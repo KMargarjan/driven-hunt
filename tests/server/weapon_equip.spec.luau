@@ -187,6 +187,31 @@ return function()
 	end)
 
 	describe("the hotbar's order is the loadout's order", function()
+		it("waits for the engine's own hotbar only when there is an order to protect", function()
+			-- THE DECISION, PURE, AND BOTH WORLDS BY PARAMETER. This is the assertion that fails on
+			-- the pre-fix code, and it has to be a pure one: the gate refuses to run with a flag
+			-- override set, so `RIFLE` is at its default and `#Weapons.loadout()` is 1 -- and with
+			-- ONE weapon the old code reached the bag first too (`Hardware.give` parents to the
+			-- Backpack, and the equip it then did ran after). So a live one-weapon case cannot tell
+			-- the fix from the bug, whatever it measures, and the Reviewer was right to say so.
+			--
+			-- CLAUDE.md's own feature-flag rule is the shape: a flagged path must be reachable by
+			-- parameter as well as by flag, or its two states cannot be tested while the flag sits
+			-- at one of them.
+			expect(Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS > 0).to.equal(true)
+			-- TWO TOOLS: the hand waits, because the engine's Backpack GUI numbers a slot the first
+			-- time it SEES a Tool and equipping inside the grant hides the shotgun from it.
+			expect(Weapon.equipDelayFor({ "shotgun", "rifle" })).to.equal(Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS)
+			-- ONE TOOL: no order to get wrong, so the spawn is bit-for-bit what it was before the
+			-- rifle existed -- no half second of empty hands for a bug that cannot happen.
+			expect(Weapon.equipDelayFor({ "shotgun" })).to.equal(0)
+			expect(Weapon.equipDelayFor({})).to.equal(0)
+			-- ...and the real loadout resolves through the same function, whichever world this is.
+			expect(Weapon.equipDelayFor(Weapons.loadout())).to.equal(
+				if #Weapons.loadout() > 1 then Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS else 0
+			)
+		end)
+
 		it("puts the whole loadout in the BACKPACK before it puts anything in the hand", function()
 			-- THE DIRECTOR'S THIRD BUG (task 141): the hotbar read `1 Rifle, 2 Shotgun`, against the
 			-- design and against Karen. THE SLOT NUMBERS ARE NOT OURS -- the engine's own Backpack
@@ -207,16 +232,17 @@ return function()
 			expect(backpack).to.be.ok()
 			local character = player.Character :: Model
 
-			local order: { string } = {}
+			type Arrival = { where: string, name: string, at: number }
+			local order: { Arrival } = {}
 			local started = os.clock()
 			local intoBag = (backpack :: Backpack).ChildAdded:Connect(function(child)
 				if child:IsA("Tool") and Weapons.isToolName(child.Name) then
-					table.insert(order, string.format("bag:%s@%.2f", child.Name, os.clock() - started))
+					table.insert(order, { where = "bag", name = child.Name, at = os.clock() - started })
 				end
 			end)
 			local intoHand = character.ChildAdded:Connect(function(child)
 				if child:IsA("Tool") and Weapons.isToolName(child.Name) then
-					table.insert(order, string.format("hand:%s@%.2f", child.Name, os.clock() - started))
+					table.insert(order, { where = "hand", name = child.Name, at = os.clock() - started })
 				end
 			end)
 
@@ -226,45 +252,72 @@ return function()
 				for _, tool in ipairs(Hardware.toolsOf(player)) do
 					tool:Destroy()
 				end
+				local wanted = Weapons.loadout()
 				Weapon.refreshArming(player)
+				-- WITH AN ORDER TO PROTECT, NOTHING IS IN THE HAND WHEN THE SWEEP RETURNS: nothing
+				-- in `refreshArming` yields and `Hardware.equip` parents through `EquipTool`
+				-- synchronously, so this is the fix, in one line, at the only moment it is visible.
+				-- With ONE weapon the equip is deliberately immediate (`Weapon.equipDelayFor`), so
+				-- the opposite is asserted -- and in the gate's own world that is the branch taken.
+				if #wanted > 1 then
+					expect(Weapon.heldId(player)).to.equal(nil)
+				else
+					-- ONE WEAPON: the equip is deliberately immediate, and what is asserted is the
+					-- OUTCOME rather than `heldId` -- that field is written by `watchEquipped`'s own
+					-- signal, which the engine may defer by a frame, and a spec that raced it would
+					-- be flaky about something it is not testing.
+					expect(waitUntil(2, function()
+						return #Hardware.toolsOf(player) > 0 and Weapon.heldId(player) == Weapons.PRIMARY
+					end)).to.equal(true)
+				end
 				expect(waitUntil(6, function()
-					return #Hardware.toolsOf(player) >= #Weapons.loadout()
+					return #Hardware.toolsOf(player) >= #wanted
 				end)).to.equal(true)
 				expect(waitUntil(4, function()
 					for _, entry in ipairs(order) do
-						if string.sub(entry, 1, 5) == "hand:" then
+						if entry.where == "hand" then
 							return true
 						end
 					end
 					return false
 				end)).to.equal(true)
-				TestKit.note("weapon-equip: arrivals " .. table.concat(order, " "))
+				local shown = {}
+				for _, entry in ipairs(order) do
+					table.insert(shown, string.format("%s:%s@%.2f", entry.where, entry.name, entry.at))
+				end
+				TestKit.note("weapon-equip: arrivals " .. table.concat(shown, " "))
 				-- EVERY BAG ARRIVAL COMES BEFORE THE FIRST HAND ARRIVAL. That is the whole rule, and
 				-- it is what the hotbar reads.
-				local firstHand = nil
+				local firstHand, lastBag = nil, nil
 				for index, entry in ipairs(order) do
-					if string.sub(entry, 1, 5) == "hand:" and firstHand == nil then
+					if entry.where == "hand" and firstHand == nil then
 						firstHand = index
+					end
+					if entry.where == "bag" then
+						lastBag = index
 					end
 				end
 				expect(firstHand).to.be.ok()
 				local bagged = 0
 				for index, entry in ipairs(order) do
-					if string.sub(entry, 1, 4) == "bag:" then
+					if entry.where == "bag" then
 						expect(index < (firstHand :: number)).to.equal(true)
 						bagged += 1
 					end
 				end
-				expect(bagged).to.equal(#Weapons.loadout())
+				expect(bagged).to.equal(#wanted)
+				-- ...AND THE HAND WAITED THE DELAY, when there was an order to protect.
+				if #wanted > 1 then
+					local gap = order[firstHand :: number].at - order[lastBag :: number].at
+					expect(gap >= Weapon.equipDelayFor(wanted) * 0.9).to.equal(true)
+				end
 				-- ...AND THE BAG ARRIVALS ARE IN `Weapons.ORDER`, which is what makes slot 1 the
 				-- shotgun. With the rifle flag off the loadout is one weapon and this is one name.
-				local wanted = Weapons.loadout()
 				local seen = 0
 				for _, entry in ipairs(order) do
-					if string.sub(entry, 1, 4) == "bag:" then
+					if entry.where == "bag" then
 						seen += 1
-						local name = string.match(entry, "^bag:(%a+)@")
-						expect(name).to.equal((Weapons.row(wanted[seen]) :: any).toolName)
+						expect(entry.name).to.equal((Weapons.row(wanted[seen]) :: any).toolName)
 					end
 				end
 			end)

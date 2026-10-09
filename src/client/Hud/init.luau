@@ -474,6 +474,11 @@ local function build(): ScreenGui
 	local rowHeight = Drive.CONFIG.SCORE_ROW_HEIGHT
 	local panel = Instance.new("Frame")
 	panel.Name = "ScorePanel"
+	-- OVER THE SCOPE'S MASK (task 141, the Reviewer's note round 1): this is drawn at the centre of
+	-- the screen, which is inside the eyepiece, so at the default 1 a player who could still hold
+	-- the aim in `Scoring` would read a score board cut off at the glass. Same class as the compass
+	-- and the drive report -- a panel the GAME put up outranks a sight picture.
+	panel.ZIndex = Report.CONFIG.PANEL_Z_INDEX
 	panel.BackgroundColor3 = Drive.CONFIG.SCORE_PANEL_COLOR
 	panel.BackgroundTransparency = Drive.CONFIG.SCORE_PANEL_TRANSPARENCY
 	panel.BorderSizePixel = 0
@@ -906,7 +911,8 @@ end
 -- crosshair's is about the gun and first person. Two predicates, two questions -- the rule the
 -- previous project's "one predicate answered two unrelated questions" is made of.
 -- HAS THE SIGHT PICTURE ARRIVED? One number compared, and it is the blend rather than a clock: the
--- raise's own easing is what decides when the eye is at the glass.
+-- raise's own easing is what decides when the eye is at the glass. (This had the RETICLE's header
+-- over it for one round -- a comment describing the function below the one it sat on.)
 --
 -- `blend` nil means "assume it has", which is what a caller without one means: the question THEY are
 -- asking is the other half -- is this a scoped weapon at all.
@@ -941,7 +947,7 @@ end
 
 -- THE EYEPIECE, LAID OUT IN PIXELS FROM ITS DEGREES -- the same conversion and the same
 -- recompute-only-on-change rule as the duplex's.
-local lastScopeFov, lastScopeY, lastScopeSpec = -1, -1, nil :: any
+local lastScopeFov, lastScopeX, lastScopeY, lastScopeSpec = -1, -1, -1, nil :: any
 function Hud.layoutScope(overlay: Frame, optics: any, fovDeg: number)
 	local camera = Workspace.CurrentCamera
 	local spec = if optics ~= nil then optics.eyepiece else nil
@@ -949,10 +955,17 @@ function Hud.layoutScope(overlay: Frame, optics: any, fovDeg: number)
 	if spec == nil or viewport.Y <= 0 then
 		return
 	end
-	if math.abs(fovDeg - lastScopeFov) < 1e-3 and viewport.Y == lastScopeY and spec == lastScopeSpec then
+	-- THE WIDTH IS IN THE KEY TOO (the Reviewer's note, round 1): both the diameter clamp and the
+	-- stroke's thickness are computed from X as well as Y, so a width-only resize must re-lay-out.
+	if
+		math.abs(fovDeg - lastScopeFov) < 1e-3
+		and viewport.X == lastScopeX
+		and viewport.Y == lastScopeY
+		and spec == lastScopeSpec
+	then
 		return
 	end
-	lastScopeFov, lastScopeY, lastScopeSpec = fovDeg, viewport.Y, spec
+	lastScopeFov, lastScopeX, lastScopeY, lastScopeSpec = fovDeg, viewport.X, viewport.Y, spec
 	-- NEVER WIDER THAN THE SCREEN'S SHORT SIDE: a circle that ran off the edges would be a black
 	-- border rather than an eyepiece, and the duplex's degrees would then lie about where the edge is.
 	local diameter = math.max(
@@ -1031,6 +1044,11 @@ function Hud.renderScope(CameraSystem)
 		-- IT PUTS BACK EXACTLY WHAT IT HID, which is why the flag exists rather than a plain
 		-- `not scoped`: the strip is invisible until `Compass.start` runs, and a Hud that switched
 		-- it on would draw an empty band in a world that has no compass yet.
+		--
+		-- `compassFrame.Visible` therefore has TWO writers and that is deliberate (rule 3): both are
+		-- in this file -- `Compass.start`'s single switch-on at boot, and this, per frame -- and
+		-- `Compass` itself never touches it. It also self-heals: a strip switched on while the mask
+		-- is in is hidden again on the next frame.
 		local compass = Hud.compass()
 		if compass ~= nil then
 			if scoped then

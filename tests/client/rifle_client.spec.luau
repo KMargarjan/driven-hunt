@@ -385,6 +385,49 @@ return function()
 		end)
 	end)
 
+	describe("the downloaded count follows the folder it is asked about", function()
+		it("counts the folder it is HANDED, which is the whole of the first bug", function()
+			-- THE DEFECT, PINNED (the Reviewer's note, round 1). The live case above is vacuous in
+			-- DEV -- there are no downloaded templates there -- and the real fix was that this
+			-- count took one weapon's folder name whatever weapon was drawn. A stub folder of this
+			-- spec's own proves the count follows the NAME, in any place.
+			local ready = ReplicatedStorage:FindFirstChild("DHSpecReadyProbe")
+			if ready then
+				ready:Destroy()
+			end
+			expect(Camera.Viewmodel.readyMeshesIn("DHSpecReadyProbe")).to.equal(0)
+			local folder = Instance.new("Folder")
+			folder.Name = "DHSpecReadyProbe"
+			-- PLAIN PARTS, which `meshReady` answers true for: this case is about the COUNT and the
+			-- name, not about the engine's fetch status, which the live gun exercises.
+			for index = 1, 3 do
+				local part = Instance.new("Part")
+				part.Name = "Piece" .. index
+				part.Parent = folder
+			end
+			folder.Parent = ReplicatedStorage
+			local ok, why = pcall(function()
+				expect(Camera.Viewmodel.readyMeshesIn("DHSpecReadyProbe")).to.equal(3)
+				-- ...AND A DIFFERENT NAME IS A DIFFERENT ANSWER, which is the assertion the bug
+				-- fails: before the fix this function ignored its argument entirely.
+				expect(Camera.Viewmodel.readyMeshesIn("DHSpecReadyProbeMissing")).to.equal(0)
+				-- ...and every weapon's own folder is askable by name, which is how the viewmodel
+				-- uses it.
+				for _, id in ipairs(Weapons.ids()) do
+					local geometry = Weapons.geometry(id)
+					expect(geometry).to.be.ok()
+					local name = (geometry :: any).FOLDER_NAME
+					expect(type(name)).to.equal("string")
+					expect(Camera.Viewmodel.readyMeshesIn(name) >= 0).to.equal(true)
+				end
+			end)
+			folder:Destroy()
+			if not ok then
+				error(why, 0)
+			end
+		end)
+	end)
+
 	describe("the drive report's detail row", function()
 		it("prints the gun's WORD after the distance, and nothing at all for an old record", function()
 			-- DESIGN SECTION 9, and the one half of the report path a spec can reach: the row is

@@ -184,6 +184,10 @@ Shotgun.CONFIG = {
 	-- Half a second is after the GUI's own enumeration and far inside the time a player takes to
 	-- look at anything. It is a SYSTEM number, not a weapon's: every weapon is granted by the same
 	-- sweep into the same hotbar.
+	--
+	-- IT IS ONLY SPENT WHEN THERE IS MORE THAN ONE TOOL (`Weapon.equipDelayFor`): with one weapon
+	-- there is no slot order to get wrong, and a spawn in the shipped build must stay bit-for-bit
+	-- what it was before the rifle existed.
 	AUTO_EQUIP_DELAY_SECONDS = 0.5,
 
 	-- validation

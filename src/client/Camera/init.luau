@@ -462,7 +462,7 @@ local function update(dt: number)
 		stats.maxDistanceFromRoot = math.max(stats.maxDistanceFromRoot, (position - root.Position).Magnitude)
 		-- ...AND WHAT THIS FRAME IS LOOKING THROUGH (task 141), so the gun can take itself out of
 		-- the sight picture. The same `lastOptics` the Hud reads through `Camera.scope()`, so the
-		-- mask and the gun cannot disagree about which frame the eye arrived on.
+		-- mask and the gun can disagree about the arriving frame by at most one.
 		Viewmodel.update(applied, state, config, lastOptics)
 	end
 
