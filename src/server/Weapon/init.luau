@@ -228,12 +228,41 @@ end
 function Weapon.refreshArming(player: Player)
 	local allowed = mayArm(player)
 	local wanted = Weapons.loadout()
+	-- IN `Weapons.ORDER`, AND THE ORDER IS THE HOTBAR (task 141): see `Weapon.grant`. The engine
+	-- numbers a Backpack slot by the order the Tool arrives, so granting in order IS the fix, and it
+	-- only works because nothing equips in the middle of this loop any more.
+	local granted = 0
 	for _, id in ipairs(wanted) do
 		local action = Weapon.armingAction(allowed, holdsTool(player, id))
 		if action == "grant" then
-			Weapon.grant(player, id)
+			if Weapon.grant(player, id) ~= nil then
+				granted += 1
+			end
 		elseif action == "revoke" then
 			Weapon.revoke(player, id)
+		end
+	end
+	-- THE PRIMARY GOES IN THE HAND, ONCE THE WHOLE LOADOUT IS IN THE BAG -- and only when this pass
+	-- actually handed something over and the player is holding nothing. The narrow rule is
+	-- deliberate, and it is the same one `Weapon.upgradeLook` follows: `AUTO_EQUIP` is about the
+	-- GRANT, so a sweep must never take the rifle out of the hands of a player who chose it, and
+	-- must never undo a holster.
+	if CONFIG.AUTO_EQUIP and granted > 0 and Weapon.heldId(player) == nil then
+		local primary = toolsOfPlayer(player)[Weapons.PRIMARY]
+		if primary ~= nil then
+			-- NOT IN THIS FRAME: see `Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS` for the whole of why.
+			-- The guard is re-read when the delay fires rather than captured: a player who picked up
+			-- the rifle, holstered, died or left in that half second must not have a shotgun pushed
+			-- into their hands, and the Tool itself may be gone by then.
+			task.delay(CONFIG.AUTO_EQUIP_DELAY_SECONDS, function()
+				if primary.Parent == nil or toolsOfPlayer(player)[Weapons.PRIMARY] ~= primary then
+					return
+				end
+				if Weapon.heldId(player) ~= nil then
+					return
+				end
+				Hardware.equip(primary, player)
+			end)
 		end
 	end
 	-- ...AND ANY WEAPON THAT IS NO LONGER IN IT GOES. Turning the flag off mid-session must take the
@@ -448,12 +477,15 @@ function Weapon.grant(player: Player, id: string?): Tool?
 	toolsOfPlayer(player)[weaponId] = tool
 	watchTool(player, tool, weaponId)
 	watchEquipped(player, tool, weaponId)
-	-- AUTO_EQUIP PUTS THE PRIMARY IN THE HAND, and only the primary (task 140): a spawn is
-	-- bit-for-bit what it was before the rifle existed -- the shotgun equipped, the rifle sitting in
-	-- slot 2 of the hotbar.
-	if CONFIG.AUTO_EQUIP and weaponId == Weapons.PRIMARY then
-		Hardware.equip(tool, player)
-	end
+	-- THE EQUIP IS NOT HERE ANY MORE (task 141), and that is the whole of the hotbar-order bug.
+	-- Measured by the Director in the Forest Test: the hotbar read `1 Rifle, 2 Shotgun`, against the
+	-- design and against Karen's own words. The engine's Backpack numbers its slots in the order
+	-- Tools ARRIVE in it, and this equipped the shotgun the instant it was granted -- which moved it
+	-- OUT of the Backpack before the rifle was ever put in. So the rifle arrived into an empty
+	-- Backpack and took slot 1, and the shotgun came back to slot 2 the first time it was holstered.
+	--
+	-- `Weapon.refreshArming` grants the whole loadout in `Weapons.ORDER` and equips the primary
+	-- AFTERWARDS, so both Tools reach the Backpack in order and the hotbar is the order of the list.
 	stats.granted += 1
 	publish(player, weaponId, stateOf(player, weaponId) :: WeaponState, true)
 	return tool

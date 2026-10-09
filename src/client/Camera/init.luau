@@ -127,6 +127,10 @@ export type Optics = {
 	aimFovDeg: number,
 	reticle: any?,
 	sway: { ampDeg: number, periodSeconds: number }?,
+	-- THE SIGHT PICTURE (task 141): where the mask goes and when it arrives. The camera itself does
+	-- nothing with it -- it hands it to the Hud through `Camera.scope()` and to the viewmodel, which
+	-- takes the gun out of the picture at the same blend.
+	eyepiece: any?,
 }
 export type OpticsSource = { optics: () -> Optics? }
 
@@ -456,7 +460,10 @@ local function update(dt: number)
 			end
 		end
 		stats.maxDistanceFromRoot = math.max(stats.maxDistanceFromRoot, (position - root.Position).Magnitude)
-		Viewmodel.update(applied, state, config)
+		-- ...AND WHAT THIS FRAME IS LOOKING THROUGH (task 141), so the gun can take itself out of
+		-- the sight picture. The same `lastOptics` the Hud reads through `Camera.scope()`, so the
+		-- mask and the gun cannot disagree about which frame the eye arrived on.
+		Viewmodel.update(applied, state, config, lastOptics)
 	end
 
 	-- Every frame, whatever the mode. Round 2, finding 2: this used to live inside the `elseif root`

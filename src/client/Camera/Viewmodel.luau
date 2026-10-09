@@ -153,8 +153,17 @@ end
 -- How much of the published model this client can actually draw RIGHT NOW. The second half of the
 -- staleness signal: when a download lands this number moves, the gun is rebuilt, and the mesh
 -- replaces its box IN PLACE -- so there is never a frame with neither.
-local function readyMeshes(): number
-	local folder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
+-- THE FOLDER IS A PARAMETER, NOT `Gun.FOLDER_NAME` (task 141). Measured by the Director in the
+-- Forest Test: switch to the rifle and the viewmodel reads `mesh=2 box=7` at +0/+4/+8/+12 s and
+-- never changes -- the two meshes are the gloves and the whole rifle is its fallback boxes, for the
+-- rest of the session. This function was the reason. One weapon's folder was hardcoded here, so for
+-- the RIFLE both halves of the staleness signal were constants: its own folder's child count had not
+-- moved since boot, and this counted the SHOTGUN's folder, whose meshes had arrived long before. A
+-- rifle built while its four groups were still downloading therefore had nothing left that could
+-- ever mark it stale. `meshReady` requests the fetch itself, so the downloads did land -- nobody
+-- asked again afterwards.
+local function readyMeshesIn(folderName: string): number
+	local folder = ReplicatedStorage:FindFirstChild(folderName)
 	if folder == nil then
 		return 0
 	end
@@ -169,6 +178,9 @@ end
 
 local stats = {
 	rebuilds = 0,
+	-- How many frames the gun was behind the scope's own mask (task 141), so a session can say
+	-- whether the sight picture was ever actually entered.
+	scopeHiddenFrames = 0,
 	parts = 0,
 	breaksDrawn = 0,
 	shellsDrawn = 0,
@@ -304,6 +316,26 @@ end
 -- `PrimaryPart` is the Handle `buildNewGun` makes and `WorldPivot` is never written, so an
 -- attachment's CFrame is already relative to the model's pivot -- exactly the frame `Mode.aimOffset`
 -- wants.
+-- IS THE GUN BEHIND THE SIGHT PICTURE? PURE, public, and the Viewmodel's own decision -- it is the
+-- one writer of the drawn gun, so nobody else may unparent it (rule 3).
+--
+-- WHY IT EXISTS (task 141). The Director, looking at the task 140 frames: the scope's own 3D tube
+-- sat in front of the eye with the reticle painted over it. Through a real scope you see the sight
+-- picture and no gun at all -- the eye is AT the ocular lens, so the rifle is behind the eye. The
+-- `Hud`'s mask arrives at the same blend, from the same `atBlend` number, so there is never a frame
+-- with a mask and a gun or with a gun and no mask.
+--
+-- THE CLONE IS NOT DESTROYED, only unparented: `Viewmodel.sight()` reads the attachment off `model`
+-- rather than off its parent, so `Mode.aimOffset` keeps solving the aimed pose from the same gun and
+-- coming out of the scope puts it back exactly where it was.
+function Viewmodel.hiddenByScope(state: Mode.State, optics: any): boolean
+	if optics == nil or optics.eyepiece == nil or state.mode ~= "Aiming" then
+		return false
+	end
+	local at = optics.eyepiece.atBlend
+	return at ~= nil and state.blend >= at
+end
+
 function Viewmodel.sight(): CFrame?
 	local made = model
 	local clone = made and made.PrimaryPart
@@ -1025,7 +1057,8 @@ local function buildNewGun(config, geometry, row): Model
 	end
 
 	builtMeshes = if gunFolder then #gunFolder:GetChildren() else 0
-	builtReady = readyMeshes()
+	-- AGAINST THE FOLDER THIS GUN WAS BUILT FROM (task 141), which is the weapon's own.
+	builtReady = readyMeshesIn(geometry.FOLDER_NAME)
 	stats.rebuilds += 1
 	local parts = 0
 	for _, descendant in ipairs(made:GetDescendants()) do
@@ -1071,7 +1104,9 @@ local function geometryNow(): any
 end
 Viewmodel.geometryNow = geometryNow
 
-function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
+-- `optics` IS THE FOURTH ARGUMENT AND IT IS OPTIONAL (task 141): every caller that does not have a
+-- scope passes three, exactly as they did, and nil optics can never hide a gun.
+function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: any?)
 	local cam = Workspace.CurrentCamera
 	-- The source walks the character for a Tool, so it is asked four times a second rather than
 	-- every frame (the pose below is what has to be per frame, and it is one PivotTo).
@@ -1096,7 +1131,8 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	if now - lastSourceCheck > 0.25 then
 		lastSourceCheck = now
 		if builtMeshes >= 0 then
-			local folder = ReplicatedStorage:FindFirstChild(geometryNow().FOLDER_NAME)
+			local folderName = geometryNow().FOLDER_NAME
+			local folder = ReplicatedStorage:FindFirstChild(folderName)
 			if (if folder then #folder:GetChildren() else 0) ~= builtMeshes then
 				stale = true
 			end
@@ -1104,7 +1140,9 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 			-- one, because they are two facts and either can move without the other: the server can
 			-- publish a piece this client cannot draw yet, and this client can finish the download of
 			-- a piece that was published long before.
-			if readyMeshes() ~= builtReady then
+			-- ...OF THE WEAPON IN THE PLAYER'S HANDS, not of whichever one this module was written
+			-- around (task 141): see `readyMeshesIn`.
+			if readyMeshesIn(folderName) ~= builtReady then
 				stale = true
 			end
 		end
@@ -1132,6 +1170,16 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	end
 
 	local made = model :: Model
+	-- THE SIGHT PICTURE HAS NO GUN IN IT (task 141): see `Viewmodel.hiddenByScope`. AFTER the build,
+	-- so a weapon switch made while scoped still rebuilds, and the gun that comes back when the aim
+	-- is released is the right one.
+	if Viewmodel.hiddenByScope(state, optics) then
+		if made.Parent ~= nil then
+			made.Parent = nil
+		end
+		stats.scopeHiddenFrames += 1
+		return
+	end
 	if made.Parent ~= cam then
 		made.Parent = cam
 	end

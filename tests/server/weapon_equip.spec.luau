@@ -49,6 +49,9 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Hardware = Weapon.Hardware
+-- The weapon table and the system numbers, for the hotbar-order case (task 141).
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local PROBE_NAME = "SpecEquipProbe"
 
@@ -180,6 +183,98 @@ return function()
 			-- re-granting a gun every pass and from yanking a holstered one back.
 			expect(Weapon.armingAction(true, true)).to.equal(nil)
 			expect(Weapon.armingAction(false, false)).to.equal(nil)
+		end)
+	end)
+
+	describe("the hotbar's order is the loadout's order", function()
+		it("puts the whole loadout in the BACKPACK before it puts anything in the hand", function()
+			-- THE DIRECTOR'S THIRD BUG (task 141): the hotbar read `1 Rifle, 2 Shotgun`, against the
+			-- design and against Karen. THE SLOT NUMBERS ARE NOT OURS -- the engine's own Backpack
+			-- GUI numbers a slot the first time it SEES a Tool and then keeps it (MEASURED in the
+			-- Forest Test: unequipping left both slots exactly where they were) -- so the only lever
+			-- the server has is WHAT THAT GUI SEES FIRST. Granting the shotgun and equipping it in
+			-- the same frame put it in the CHARACTER before the GUI looked, so the rifle was the
+			-- first thing in the bag and took slot 1.
+			--
+			-- This is that rule, and it holds with ONE weapon in the loadout as well as two: a grant
+			-- reaches the Backpack, and the hand comes after, by `AUTO_EQUIP_DELAY_SECONDS`.
+			expect(Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS > 0).to.equal(true)
+			local player = somebody()
+			if player == nil then
+				error("no player with a character: this case needs the harness's own player", 0)
+			end
+			local backpack = player:FindFirstChildOfClass("Backpack")
+			expect(backpack).to.be.ok()
+			local character = player.Character :: Model
+
+			local order: { string } = {}
+			local started = os.clock()
+			local intoBag = (backpack :: Backpack).ChildAdded:Connect(function(child)
+				if child:IsA("Tool") and Weapons.isToolName(child.Name) then
+					table.insert(order, string.format("bag:%s@%.2f", child.Name, os.clock() - started))
+				end
+			end)
+			local intoHand = character.ChildAdded:Connect(function(child)
+				if child:IsA("Tool") and Weapons.isToolName(child.Name) then
+					table.insert(order, string.format("hand:%s@%.2f", child.Name, os.clock() - started))
+				end
+			end)
+
+			local ok, err = pcall(function()
+				-- Take every gun away and let the owner's own sweep hand the loadout back, which is
+				-- the path a spawn takes.
+				for _, tool in ipairs(Hardware.toolsOf(player)) do
+					tool:Destroy()
+				end
+				Weapon.refreshArming(player)
+				expect(waitUntil(6, function()
+					return #Hardware.toolsOf(player) >= #Weapons.loadout()
+				end)).to.equal(true)
+				expect(waitUntil(4, function()
+					for _, entry in ipairs(order) do
+						if string.sub(entry, 1, 5) == "hand:" then
+							return true
+						end
+					end
+					return false
+				end)).to.equal(true)
+				TestKit.note("weapon-equip: arrivals " .. table.concat(order, " "))
+				-- EVERY BAG ARRIVAL COMES BEFORE THE FIRST HAND ARRIVAL. That is the whole rule, and
+				-- it is what the hotbar reads.
+				local firstHand = nil
+				for index, entry in ipairs(order) do
+					if string.sub(entry, 1, 5) == "hand:" and firstHand == nil then
+						firstHand = index
+					end
+				end
+				expect(firstHand).to.be.ok()
+				local bagged = 0
+				for index, entry in ipairs(order) do
+					if string.sub(entry, 1, 4) == "bag:" then
+						expect(index < (firstHand :: number)).to.equal(true)
+						bagged += 1
+					end
+				end
+				expect(bagged).to.equal(#Weapons.loadout())
+				-- ...AND THE BAG ARRIVALS ARE IN `Weapons.ORDER`, which is what makes slot 1 the
+				-- shotgun. With the rifle flag off the loadout is one weapon and this is one name.
+				local wanted = Weapons.loadout()
+				local seen = 0
+				for _, entry in ipairs(order) do
+					if string.sub(entry, 1, 4) == "bag:" then
+						seen += 1
+						local name = string.match(entry, "^bag:(%a+)@")
+						expect(name).to.equal((Weapons.row(wanted[seen]) :: any).toolName)
+					end
+				end
+			end)
+			intoBag:Disconnect()
+			intoHand:Disconnect()
+			-- The session is left armed whatever happened, which is what every case in this file does.
+			Weapon.refreshArming(player)
+			if not ok then
+				error(err, 0)
+			end
 		end)
 	end)
 

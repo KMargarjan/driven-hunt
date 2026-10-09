@@ -262,7 +262,10 @@ Report.CONFIG = {
 	-- note's "one screen, no scrolling for 8 hunters".
 	PANEL_WIDTH = 760,
 	PANEL_HEIGHT = 640,
-	PANEL_Z_INDEX = 10, -- over the feed at 1 and the score panel at 5
+	-- OVER EVERYTHING THE HUD DRAWS, the scope's own mask included (task 141): the panel is a
+	-- thing the player deliberately opened, and a mask that hid it would read as a broken game.
+	-- The stack, bottom to top: feed 1, score panel 5, compass 6-10, scope 11-13, this.
+	PANEL_Z_INDEX = 15,
 	TITLE_HEIGHT = 28,
 	HEADER_HEIGHT = 22,
 	FOOTER_HEIGHT = 24,
