@@ -110,6 +110,52 @@ return function()
 			end)).to.equal(1)
 		end)
 
+		-- THE PER-WEAPON SHAPE (task 140, the Reviewer's finding 2). Version 4 added three refusals
+		-- and the first round shipped them reachable by nothing: a weapon set that is missing, one
+		-- that carries BOTH actions, and one that carries neither. A weapon has ONE action -- a
+		-- break-action opens (`reload`) and a bolt cycles (`cycle`) -- and a file with both is a file
+		-- nobody can say which of them is drawn from.
+		it("names a weapon set that is missing, and one that carries two actions or none", function()
+			expect(#broken(function(data)
+				data.weapons.rifle = nil
+			end)).to.equal(1)
+			local both = broken(function(data)
+				data.weapons.rifle.reload = data.weapons.shotgun.reload
+			end)
+			expect(#both).to.equal(1)
+			expect(string.find(both[1], "carries both reload and cycle") ~= nil).to.equal(true)
+			local neither = broken(function(data)
+				data.weapons.rifle.cycle = nil
+			end)
+			expect(#neither).to.equal(1)
+			expect(string.find(neither[1], "carries neither reload nor cycle") ~= nil).to.equal(true)
+			-- ...and the shotgun's own set is checked by the same rule, from the other side.
+			local shotgunBoth = broken(function(data)
+				data.weapons.shotgun.cycle = data.weapons.rifle.cycle
+			end)
+			expect(#shotgunBoth).to.equal(1)
+		end)
+
+		-- ...AND THE VIEW ANSWERS FOR EITHER WEAPON, with the same flat names (task 140). A reader
+		-- that got a nil for one gun and a number for the other is the shape version 3 existed to
+		-- remove, and this is what stops it coming back.
+		it("publishes one flat name set, whichever weapon is asked for", function()
+			local shotgunView = Data.view(Data.DATA, "shotgun")
+			local rifleView = Data.view(Data.DATA, "rifle")
+			local missing = {}
+			for key in pairs(shotgunView) do
+				if rifleView[key] == nil then
+					table.insert(missing, key)
+				end
+			end
+			expect(#missing).to.equal(0)
+			-- The default is the shotgun's, which is what `Camera.Config` publishes at boot, so
+			-- every reader written before the rifle gets exactly what it got before.
+			expect(Data.view(Data.DATA).CARRY_PITCH_DEG).to.equal(shotgunView.CARRY_PITCH_DEG)
+			expect(rifleView.BOLT_LIFT_DEG).to.be.ok()
+			expect(shotgunView.BOLT_LIFT_DEG).to.equal(nil)
+		end)
+
 		it("refuses an easing nobody implemented", function()
 			local problems = broken(function(data)
 				data.weapons.shotgun.raise.easing = "cubicInOut"

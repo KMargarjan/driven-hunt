@@ -108,8 +108,11 @@ Rifle.CONFIG = {
 		scope = Color3.fromRGB(42, 43, 46),
 	},
 
-	-- The manifest keys this weapon wears, in wear order (`ServerStorage.Assets`).
-	ASSET_KEYS = { "rifle.stock", "rifle.action", "rifle.bolt", "rifle.scope" },
+	-- THE MANIFEST KEYS ARE NOT HERE, and that is deliberate (the Reviewer's note, round 1). A
+	-- third copy of them lived here, read by nothing and in a DIFFERENT ORDER from the two that
+	-- are read -- `Weapons.ROWS.rifle.ASSET_KEYS` (the world Tool) and `Rifle.Geometry.ASSET_KEYS`
+	-- (the drawn gun). The order decides which key is worn as `Model`, which is the one fact
+	-- `MESH_NAMES`' own comment says nothing may change, so a copy that disagrees is a trap.
 
 	-- ---------------------------------------------------------------- the optics
 	-- THE ONE NUMBER THE CAMERA IS TOLD is `aimFovDeg`. Everything else here is drawn by the Hud or

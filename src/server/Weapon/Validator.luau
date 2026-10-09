@@ -8,6 +8,10 @@
 --
 -- Design: docs/design/shotgun.md (section 5.3)
 -- Note:   docs/research/2026-09-24-shotgun.md
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+
 local Validator = {}
 
 local function isFinite(v: Vector3): boolean
@@ -57,7 +61,10 @@ function Validator.checkRequest(kind: unknown, ammo: unknown, row: any?): (boole
 		return true, nil
 	end
 	if kind == "SelectAmmo" then
-		local kinds = if row ~= nil then row.AMMO_KINDS else { "Slug", "Buck" }
+		-- THE SHOTGUN'S OWN LIST FOR A NIL ROW, from its row rather than typed again here (the
+		-- Reviewer's note, round 1): a second copy of a weapon's ammo kinds living outside that
+		-- weapon is exactly what the table exists to stop.
+		local kinds = if row ~= nil then row.AMMO_KINDS else Weapons.ROWS.shotgun.AMMO_KINDS
 		for _, allowed in ipairs(kinds) do
 			if ammo == allowed then
 				return true, nil

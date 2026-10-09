@@ -1204,8 +1204,10 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config): CFrame
 	if geometry.CYCLE_KIND == "slide" then
 		-- A BOLT, NOT A HINGE (task 140). The same one number -- how far through its action the gun
 		-- is -- read as TWO segments: the handle turns up over the first `BOLT_LIFT_FRACTION` of it,
-		-- and the bolt then draws straight back over the rest. `Mode.segmentAt` is the two-segment
-		-- map the raise's keyframes already use, so there is not a second one here.
+		-- and the bolt then draws straight back over the rest. Two lines of arithmetic rather than
+		-- `Mode.segmentAt`, which maps a time onto a KEYFRAME LIST and would have to be handed a
+		-- list of two to answer this -- the Reviewer's note, round 1: the first version of this
+		-- comment claimed that call and did not make it.
 		local lift = math.clamp(config.BOLT_LIFT_FRACTION or 0.35, 1e-3, 1)
 		local turn = math.min(progress, lift) / lift
 		local draw = if progress > lift then (progress - lift) / (1 - lift) else 0

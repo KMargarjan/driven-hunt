@@ -43,12 +43,62 @@ local function report(part: BasePart, userId: number, name: string, zone: string
 		position = part.Position + Vector3.new(0, 0.4, 1),
 		nearest = (extra and extra.nearest) or 40,
 		pellets = (extra and extra.pellets) or 3,
+		-- WHICH GUN MADE IT (task 140): nil unless a case says otherwise, because nil on the wire is
+		-- legal and means "a record from before the rifle" -- which is what every fixture here was.
+		weapon = extra and extra.weapon,
 		at = at,
 	}
 	return row
 end
 
 return function()
+	-- THE WEAPON TRAVELS WITH THE SHOT (task 140). `Weapon.Hits.group` is the one constructor of a
+	-- `HitReport` and puts the id on it; this file's claim is that `HitLog` COPIES it, exactly as it
+	-- copies the zone, and derives nothing -- so the drive report can name the gun and a record
+	-- written before the rifle existed is still legal.
+	describe("the weapon on the record", function()
+		it("copies the shot's weapon onto the dot, and nil is legal", function()
+			local part = fakeBoar("Boar1", "male")
+			HitLog.openDrive(1, 0)
+			HitLog.recordHit(report(part, 101, "Anna", "chest", 10.0, { weapon = "rifle" }))
+			HitLog.recordHit(report(part, 101, "Anna", "rear", 11.0))
+			local payload = HitLog.detailFor(101, 1)
+			local row = payload.animals[1]
+			expect(row).to.be.ok()
+			expect(row.dots[1].weapon).to.equal("rifle")
+			-- NIL IS A LEGAL VALUE ON THE WIRE and means "a record from before the rifle", which is
+			-- what keeps every fixture written before task 140 valid.
+			expect(row.dots[2].weapon).to.equal(nil)
+			part:Destroy()
+		end)
+
+		it("gives the animal's own row the gun of the shot that KILLED it", function()
+			local part = fakeBoar("Boar2", "female")
+			HitLog.openDrive(2, 0)
+			-- Two guns on one animal: a shotgun hit in the rear first, then the rifle's chest shot,
+			-- which is the mortal one. The row carries the FATAL dot's weapon, which is the shot
+			-- whose zone and range the panel prints beside it -- and the fatal dot is the MORTAL
+			-- wound rather than the last one that landed (task 124 round 2).
+			HitLog.recordHit(report(part, 101, "Anna", "rear", 10.0, { weapon = "shotgun", nearest = 90 }))
+			HitLog.recordHit(report(part, 101, "Anna", "chest", 12.0, { weapon = "rifle", nearest = 30 }))
+			HitLog.recordDown({
+				id = "Boar2",
+				kind = "female",
+				killedByUserId = 101,
+				killedByName = "Anna",
+				killingZone = "chest",
+				killingDistance = 30,
+				at = 12.0,
+				instant = true,
+				wounds = { { zone = "rear", at = 10.0 }, { zone = "chest", at = 12.0 } },
+			}, 12.0)
+			local row = HitLog.detailFor(101, 2).animals[1]
+			expect(row).to.be.ok()
+			expect(row.weapon).to.equal("rifle")
+			part:Destroy()
+		end)
+	end)
+
 	describe("one drive's record", function()
 		it("joins the death to the shot that caused it, not to the last one", function()
 			HitLog.openDrive(1, 0)

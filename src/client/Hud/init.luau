@@ -839,17 +839,19 @@ end
 -- THE DUPLEX, LAID OUT IN PIXELS FROM ITS DEGREES. Recomputed only when the field of view or the
 -- viewport has changed -- two numbers compared -- so a scoped frame costs no more per-frame work
 -- than an unscoped one.
-local lastReticleFov, lastReticleY = -1, -1
+-- ...AND WHICH SPEC IT DREW, not only at what size (the Reviewer's note, round 1): two scopes at
+-- the same magnification with different reticles would otherwise reuse the first one's pixels.
+local lastReticleFov, lastReticleY, lastReticleSpec = -1, -1, nil :: any
 function Hud.layoutReticle(reticle: Frame, spec: any, fovDeg: number)
 	local camera = Workspace.CurrentCamera
 	local viewportY = if camera then camera.ViewportSize.Y else 0
 	if viewportY <= 0 or spec == nil then
 		return
 	end
-	if math.abs(fovDeg - lastReticleFov) < 1e-3 and viewportY == lastReticleY then
+	if math.abs(fovDeg - lastReticleFov) < 1e-3 and viewportY == lastReticleY and spec == lastReticleSpec then
 		return
 	end
-	lastReticleFov, lastReticleY = fovDeg, viewportY
+	lastReticleFov, lastReticleY, lastReticleSpec = fovDeg, viewportY, spec
 	local function px(deg: number): number
 		return Hud.reticleDegToPx(deg, fovDeg, viewportY)
 	end
@@ -941,7 +943,13 @@ local function render(Weapon, CameraSystem)
 		local visible = Hud.reticleVisible(mode, optics)
 		reticle.Visible = visible
 		if visible then
-			Hud.layoutReticle(reticle, optics.reticle, optics.aimFovDeg)
+			-- THE FRAME'S OWN FIELD OF VIEW, not the weapon's target (the Reviewer's note, round 1):
+			-- the mode is `Aiming` from the first frame of the raise while the blend is still
+			-- easing, so laying the duplex out at `aimFovDeg` would draw the wrong degrees for the
+			-- 0.2 s of `AIM_RAISE_SECONDS`. The camera is the one that knows what it is rendering.
+			local camera = Workspace.CurrentCamera
+			local liveFov = if camera then camera.FieldOfView else optics.aimFovDeg
+			Hud.layoutReticle(reticle, optics.reticle, liveFov)
 		end
 	end
 	if readout then

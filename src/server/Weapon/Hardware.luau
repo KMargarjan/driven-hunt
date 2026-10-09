@@ -42,7 +42,9 @@ local Hardware = {}
 -- The same shape as `Weapon.setDriveLineProvider` and `Viewmodel.setSource`.
 local templateFor: ((string) -> (Instance?, any))? = nil
 local warned = false
-local barrelsWarned = false
+-- ONE FLAG PER KEY, not one for all of them (task 140, the Reviewer's note): a shared flag meant
+-- that once `shotgun.barrels` had warned, a missing `rifle.scope` was silent for the session.
+local pieceWarned: { [string]: boolean } = {}
 -- Once per server, not once per grant: see the warning itself (task 90).
 local sightWarned = false
 
@@ -181,8 +183,8 @@ function Hardware.addPieceMesh(handle: BasePart, key: string, name: string, size
 	end
 	local barrels, report = templateFor(key)
 	if not (barrels and barrels:IsA("BasePart")) then
-		if not barrelsWarned then
-			barrelsWarned = true
+		if not pieceWarned[key] then
+			pieceWarned[key] = true
 			warn(
 				string.format(
 					"[Weapon] no %s template (%s); the gun wears its body alone and cannot break open",

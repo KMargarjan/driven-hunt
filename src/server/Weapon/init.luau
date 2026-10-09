@@ -888,8 +888,19 @@ function Weapon.start()
 			stats.armingSweeps += 1
 			for _, player in ipairs(Players:GetPlayers()) do
 				local wanted = mayArm(player)
-				if wanted and not holdsTool(player) then
-					stats.armingRepairs += 1
+				if wanted then
+					-- ...AND IT IS COUNTED PER WEAPON (task 140, the Reviewer's finding 1). This read
+					-- `holdsTool(player)` with no weapon id after that function became per weapon, so
+					-- the table read answered nil, the call answered false, and the counter rose on
+					-- EVERY sweep for EVERY armable player -- which would have destroyed the one
+					-- instrument this repo has for "a player who should be holding a gun and is
+					-- not" (`reviews/task-34/REQUEST.md`: *"armingRepairs has been 0 in every run
+					-- since"*).
+					for _, id in ipairs(Weapons.loadout()) do
+						if not holdsTool(player, id) then
+							stats.armingRepairs += 1
+						end
+					end
 				end
 				pcall(Weapon.refreshArming, player)
 			end
