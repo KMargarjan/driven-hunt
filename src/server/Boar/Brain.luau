@@ -1196,10 +1196,21 @@ function Brain:_latchFlight(position: Vector3, from: Vector3?)
 	-- the cause" once the part along the exit line is removed, so the animal still breaks left or
 	-- right of him; it just never breaks backwards. Frightened by nothing in particular (`from` nil),
 	-- it keeps its own heading exactly as before.
+	-- ...AND IT ALWAYS PASSES HIM TO ONE SIDE (task 139 round 3, the Reviewer's note, which was
+	-- right and said so with the geometry). `sideways` is what is left of "away from the cause" once
+	-- the part along the exit line is removed -- and when the shooter stands DIRECTLY between the
+	-- animal and the exit, which is the case this whole paragraph is about, `away` is exactly
+	-- `-toExit`, `sideways` is ZERO, and the animal ran straight at the gun.
+	--
+	-- SO A SIDE IS CHOSEN WHEN THE GEOMETRY DOES NOT CHOOSE ONE, and it is the animal's OWN side
+	-- (`_whiskerSide`, drawn once when it was born) rather than a fresh coin: two animals abreast
+	-- break the same way every frame of the same flight, and the herd does not split and re-split.
+	-- The cross product with Y is the left/right of the exit line.
 	local sideways = away - toExit * away:Dot(toExit)
-	self._flightHeading = if from == nil
-		then away
-		else unit(toExit + sideways * (move.FLIGHT_SWERVE or 1), toExit)
+	if sideways.Magnitude < 1e-3 then
+		sideways = Vector3.new(0, 1, 0):Cross(toExit) * (if self._whiskerSide < 0 then -1 else 1)
+	end
+	self._flightHeading = if from == nil then away else unit(toExit + sideways.Unit * (move.FLIGHT_SWERVE or 1), toExit)
 	self._flightFor = move.FLIGHT_MAX_SECONDS
 	self._flightRun = 0
 	self._flightFrom = flatPos

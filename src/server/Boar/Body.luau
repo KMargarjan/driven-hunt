@@ -853,16 +853,6 @@ function Body.clipFor(info, config): (string?, number)
 		if info.speed >= bands.walkFrom then
 			return gait("walk")
 		end
-		-- ...AND ANYTHING THAT IS MOVING AT ALL STILL WALKS (task 139).
-		--
-		-- BELOW `WALK_FROM` THERE WAS NO LOCOMOTION CLIP AT ALL, so an animal creeping along -- a
-		-- follower easing onto its station, one the sow has slowed to a crawl, one just placed back
-		-- on the trail -- played `idle` or a turn pivot while the ground went past under it. The walk
-		-- clip at its own floor rate IS a slow walk, which is what a creeping animal is, and
-		-- `MIN_RATE` is what stops it reading as slow motion.
-		if info.speed > model.STILL_SPEED then
-			return gait("walk")
-		end
 		-- HYSTERESIS: a turn that is already running keeps running down to TURN_EXIT_DEG, and one
 		-- that is not needs TURN_FROM_DEG to start. With one threshold this flipped three times a
 		-- second on a standing animal (see `TURN_EXIT_DEG` in Boar.CONFIG.MODEL).

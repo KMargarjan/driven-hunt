@@ -1653,7 +1653,17 @@ Boar.CONFIG.SENSE = {
 	-- audible for kilometres, and the whole 1,240 x 1,680 corridor bolting at the first shot would
 	-- end a drive in 30 seconds -- so this is a GAMEPLAY number with no real-world anchor, and it is
 	-- the one in this block most likely to change. Karen's dial.
-	SHOT_AUDIBLE_STUDS = 350,
+	-- HOW FAR A SHOT CARRIES AS A FRIGHT. Karen, 2026-10-09: *"once shoot they have to run around
+	-- so blast radius is a bit"* -- the animals AROUND the shot run; the rest of the wood does not.
+	--
+	-- 350 WAS THE WHOLE FIELD. The Forest Test is about 600 studs from the spawn line to the exit, so
+	-- a single shot emptied every line in the world at once and there was nothing left to watch. 120
+	-- is about twice the distance she shoots at (her hits in task 138 were at 30 to 71 m) so the
+	-- pack she fires into always runs, and a line crossing 200 studs down the road keeps its pace.
+	--
+	-- THE ANIMAL THAT WAS HIT IS NOT GOVERNED BY THIS: `takeHit` spooks it directly, and its own
+	-- sounder's panic spreads member to member (`_stepAlarm`). This is only the BANG.
+	SHOT_AUDIBLE_STUDS = 120,
 	-- ...held one second longer than `WOUND.BOLT_SECONDS` = 3: a hit boar carries on because it is
 	-- hurt, an unhit one only has the bang.
 	SHOT_SPRINT_SECONDS = 4,
@@ -4025,7 +4035,22 @@ function Runtime:step(dt: number)
 			-- only one of them has an answer everywhere. `statusOf` publishes both.
 			entry.lastWant = wantSpeed
 			Body.stepVisual(entry.body, dt, {
-				speed = wantSpeed,
+				-- WHAT THE BODY IS DOING, NOT WHAT IT WAS ASKED FOR (task 139 round 3). Karen,
+				-- 2026-10-09: *"sometimes boar stuck tree, hits and run in place"*.
+				--
+				-- THIS LINE WAS `wantSpeed` AND THAT IS THE WHOLE BUG. An animal pressed against a
+				-- trunk is still ORDERED to run, so it was handed 24 studs/s -- `clipFor` picked the
+				-- RUN clip and rated it for 24 -- while the body covered no ground at all. That is
+				-- running on the spot, and it is also most of the *"sliding"* from her earlier
+				-- session: MEASURED over six 150 s runs, the median gap between the speed the clip
+				-- was drawn for and the speed the body actually had was 56.2 %, stable to 0.1 across
+				-- two different builds. It was never the clip arithmetic; it was the input.
+				--
+				-- The drawing now reads the SAME velocity every other measurement in this file reads
+				-- (`Runtime:statusOf().speed`), so a boar that is not moving is not running, a boar
+				-- accelerating out of a walk draws the walk until it is trotting, and a wedged one
+				-- stands with its feet still -- which is what makes it visible as wedged.
+				speed = flatOf(Body.velocity(entry.body)).Magnitude,
 				facing = facing,
 				-- THE ONE PIECE OF STATE THE DRAWING NEEDS THAT SPEED CANNOT CARRY (task 116 fix
 				-- round): a crippled boar crawls at `CRIPPLE_SPEED`, which is a walking speed, so

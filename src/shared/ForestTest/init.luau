@@ -292,10 +292,18 @@ ForestTest.LINE = {
 	-- THE PACE OF A WAVE, drawn once when it is released. *"then trot sometimes walk sometimes run"*
 	-- -- so a trot is the common case and the other two are the variation. Weights, not percentages,
 	-- so adding a fourth is one row.
+	-- A CALM WAVE WALKS OR TROTS, AND NEVER RUNS (task 139 round 3). Karen, 2026-10-09: *"when no
+	-- shoot not moving they come to road cal trot when spooked run and same when beater close"*.
+	--
+	-- `run` WAS A FIFTH OF ALL WAVES, drawn before anything had happened, so a hunter at a stand
+	-- regularly watched a line come out of the trees at a flat gallop with nothing chasing it. A run
+	-- is a REACTION in this world and it still happens: a shot inside `SENSE.SHOT_AUDIBLE_STUDS`, a
+	-- beater inside the flush radius, or a hit -- all three reach `Brain:spook` and all three
+	-- override the wave's pace. What this mix decides is only the pace of a wave that nothing has
+	-- happened to yet, and the answer to that is a trot.
 	paceMix = {
-		{ pace = "walk", weight = 25 },
-		{ pace = "trot", weight = 55 },
-		{ pace = "run", weight = 20 },
+		{ pace = "walk", weight = 30 },
+		{ pace = "trot", weight = 70 },
 	},
 
 	-- WHERE A LINE STARTS: this far north of the road, in the trees on the drive side.

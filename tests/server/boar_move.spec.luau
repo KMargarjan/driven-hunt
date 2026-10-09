@@ -72,6 +72,7 @@ end
 return function()
 	describe("the straight flight (MOVE on)", function()
 		it("holds ONE line past a threat that would otherwise bend it", function()
+			-- (see the case below for the shooter standing BETWEEN the animal and the way out)
 			-- KAREN: *"after shoot animals usually run straight when they spook"*, *"they shouldn do
 			-- circles like I see now"*, *"it runs awai a lot until I can;t see them"*.
 			--
@@ -164,6 +165,34 @@ return function()
 			brain:spook(Vector3.new(60, 0, 0)) -- a bang from the side, inside the re-latch window
 			local after = headingAfter(0.5)
 			expect(before:Dot(after) > 0.99).to.equal(true)
+		end)
+
+		it("runs for the WAY OUT even when the gun is between, and never back past it", function()
+			-- KAREN, 2026-10-09: *"when boars crossing road they can't come back to same view, they
+			-- just move on a specially after spook or shoot"*. MEASURED on `0c7f736` over nine shots
+			-- in the Forest Test: **five animals ran NORTH afterwards**, back into the view she had
+			-- just shot into.
+			--
+			-- THE CASE THE OLD CODE GOT WRONG IS THIS ONE, and in a drive it is every shot: the
+			-- shooter stands between the animal and the exit. `_latchFlight` used to answer `away`
+			-- there -- straight back the way it came -- and its comment said so on purpose. A drive
+			-- exists to break game PAST the guns.
+			--
+			-- `FIELD.exitZ` is -380, so the way out is -Z. The shooter is at -60: directly between.
+			local brain = Brain.new(moveConfig(true), FIELD, START, Random.new(13))
+			brain:spook(Vector3.new(0, 0, -60))
+			local position = START
+			for _ = 1, math.ceil(3 / DT) do
+				local intent = brain:step(DT, obs(position, {}))
+				position += intent.targetVelocity * DT
+			end
+			-- IT WENT TOWARD THE EXIT, not back up the field. This is the assertion that fails the
+			-- moment the old `if away:Dot(toExit) <= 0 then away` comes back.
+			expect(position.Z < START.Z - 20).to.equal(true)
+			-- ...AND IT PASSED HIM TO ONE SIDE rather than running straight down his barrel, which is
+			-- what `MOVE.FLIGHT_SWERVE` is for. With the shooter square on the exit line the
+			-- away-vector cancels exactly, so the side comes from the animal's own `_whiskerSide`.
+			expect(math.abs(position.X) > 5).to.equal(true)
 		end)
 
 		it("does not latch at all with the flag off", function()
