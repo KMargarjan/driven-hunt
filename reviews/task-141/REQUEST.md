@@ -1,12 +1,12 @@
 # Task 141 - the three rifle bugs, before Karen tests
 
 Task: 141
-Round: 1
+Round: 2
 Base: main (`f05d91b`, task 140 merged as PR #123)
-Code commit: `790974ef285380078fa0c678ad7a74c0a38f951e`
+Code commit: `d1a712e733b381268c0fda6baa60942e09817c4c`
 
 ```
-[harness] PASS: 33/33 checks @ 790974ef285380078fa0c678ad7a74c0a38f951e (clean tree) scope=all
+[harness] PASS: 33/33 checks @ d1a712e733b381268c0fda6baa60942e09817c4c (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing in this diff touches `TWO_PLAYER_PATHS` (`src/server/Match/`, `MatchBoot`,
@@ -19,6 +19,48 @@ the mask is the Hud's, which already owns everything drawn, and taking the gun o
 picture is the viewmodel's, which is already the one writer of the drawn gun. The three owner rows
 this moved are amended in `GAME_DESIGN.md`.
 
+## Round 2: the blocking finding, which was right, and six notes
+
+**The Reviewer is right and the reasoning is worth restating, because it changed the fix.** My live
+case could not tell the fix from the bug in the world the gate runs in: the gate refuses to start
+with a flag override set, so `RIFLE` is at its default and the loadout is ONE weapon -- and with one
+weapon the old code reached the Backpack first too (`Hardware.give` parents to the bag, and the
+equip it then did ran after). Every assertion in that case held for the bug as well.
+
+So the decision moved out of the sweep and became **`Weapon.equipDelayFor(wanted)`** -- pure, public,
+a function of the loadout alone. That is CLAUDE.md's own feature-flag rule applied to a path gated by
+a flag: reachable by parameter as well as by flag, or its two states cannot be tested while the flag
+sits at one of them. **Verify:** `weapon_equip.spec`, "waits for the engine's own hotbar only when
+there is an order to protect" -- two Tools give `AUTO_EQUIP_DELAY_SECONDS`, one gives 0, none gives 0.
+
+**And the delay is now spent only when there are two Tools**, which is the Reviewer's first note and
+a real improvement rather than a concession: with one weapon there is no slot order to get wrong, so
+the shipped build's spawn stays bit-for-bit what it was instead of gaining half a second of empty
+hands for a bug it cannot have. `Weapons.ORDER`'s own promise and design 5 stay true.
+
+**`Viewmodel.readyMeshesIn` is public now**, because the first bug was that it ignored its argument
+and a file-local function cannot be shown to have stopped doing that. **Verify:** `rifle_client.spec`,
+"counts the folder it is HANDED" -- a stub folder of the spec's own, which works in DEV where the
+live case is vacuous, plus "a different name is a different answer", which is exactly what the bug
+got wrong.
+
+**Five more notes, each a real defect:** the score board is drawn at screen CENTRE, so at its old
+ZIndex it sat inside the eyepiece and a player aiming in `Scoring` would have read a board cut off at
+the glass -- it joins the drive report above the mask; `layoutScope`'s cache key missed the viewport
+WIDTH, which two of its own numbers depend on, so a width-only resize while scoped did not re-lay-out;
+the reticle's four-line header had been left sitting over `eyepieceIn`, describing the wrong function;
+`Compass.CONFIG.Z_INDEX`'s stack comment was stale twice over; and "the mask and the gun cannot
+disagree" is now "by at most one frame", which is what two render-step bindings reading one state
+actually give.
+
+**Three counts in round 1's claims were wrong and are corrected below** (`readyMeshesIn` has two call
+sites, not three; `Hud.renderScope` has two, not three; `scopeVisible` is driven with seven cases,
+not eight). Thank you for counting them.
+
+**Re-measured after all of it, in the Forest Test with `RIFLE` on:** the hotbar still reads
+`1 Shotgun, 2 Rifle`; the switch still works both ways through the real keys (`drawnMeshes` 4 <-> 6);
+the sight picture is unchanged (`fov=19.87`, `viewmodel in camera = false`, mask 670 px, stroke 1247).
+
 ## The ten claims
 
 1. **The rifle was drawn as boxes for ever, and the cause was one hardcoded folder name.**
@@ -27,9 +69,9 @@ this moved are amended in `GAME_DESIGN.md`.
    `Gun.FOLDER_NAME`, the shotgun's. So for the rifle BOTH halves were constants: its own folder's
    child count had not moved since boot, and the ready count belonged to another weapon whose meshes
    had arrived long before. A rifle built while its four groups were still downloading had nothing
-   left that could ever mark it stale. **Verify:** `readyMeshesIn(folderName)` in
-   `src/client/Camera/Viewmodel.luau` and its three call sites -- the build uses `geometry.FOLDER_NAME`
-   and the per-quarter-second tick uses `geometryNow().FOLDER_NAME`. MEASURED in the Forest Test:
+   left that could ever mark it stale. **Verify:** `Viewmodel.readyMeshesIn(folderName)` in
+   `src/client/Camera/Viewmodel.luau` and its two call sites -- the build passes `geometry.FOLDER_NAME`
+   and the per-quarter-second tick passes `geometryNow().FOLDER_NAME`. MEASURED in the Forest Test:
    before, `mesh=2 box=7` at +0/+4/+8/+12 s (the two meshes were the gloves); after,
    `Bolt* Stock* Action* Scope*` -- six meshes and one box, the box being the drawn `Lens`.
 
@@ -58,7 +100,7 @@ this moved are amended in `GAME_DESIGN.md`.
 5. **The sight picture is a THIRD predicate, and the duplex waits for it.**
    `Hud.scopeVisible(mode, optics, blend)` is pure and public; its answer blacks out the screen, so
    it may never be the same question as "does this gun have a reticle". **Verify:** `rifle_client.spec`
-   drives eight cases of it, including `atBlend - 0.01` and `atBlend`, plus the two
+   drives seven cases of it, including `atBlend - 0.01` and `atBlend`, plus the two
    `Hud.reticleVisible` cases that prove the duplex is hidden during the raise and that a caller
    passing no blend still gets the old answer.
 
@@ -67,7 +109,8 @@ this moved are amended in `GAME_DESIGN.md`.
    picture gated on the blend was computed exactly once, at the only moment it is false. MEASURED:
    the camera read `fov=19.87`, the gun had already taken itself out of the view, and the overlay was
    still hidden. `Hud.renderScope` is now on its own `RenderStepped`, the same reason the compass has
-   one. **Verify:** `Hud.renderScope`'s three call sites, and that the connection is NOT inside
+   one. **Verify:** `Hud.renderScope`'s two call sites in `src` -- `render`, and the `RenderStepped` in
+   `Hud.start` -- and that the connection is NOT inside
    `if compassFrame then` -- a scope that only worked in a world with a compass strip is the next
    place's bug. The per-frame cost is three reads and a boolean; both layout functions return
    immediately unless the fov, the viewport or the spec moved.
@@ -87,8 +130,10 @@ this moved are amended in `GAME_DESIGN.md`.
    unequipping a weapon moved neither slot. Equipping the shotgun inside the grant's own frame put it
    in the CHARACTER before that GUI looked, so the rifle was the first thing in the bag and took slot
    1. `Weapon.grant` no longer equips; `Weapon.refreshArming` grants the whole loadout into the
-   Backpack in `Weapons.ORDER` and equips the primary afterwards, by
-   `Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS`. **Verify:** `weapon_equip.spec`, "puts the whole
+   Backpack in `Weapons.ORDER` and equips the primary afterwards, by `Weapon.equipDelayFor(wanted)`
+   -- which is `Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS` for two Tools and **zero for one**, so the
+   shipped build's spawn is unchanged (round 2). **Verify:** `weapon_equip.spec`, "waits for the
+   engine's own hotbar only when there is an order to protect" for the decision, and "puts the whole
    loadout in the BACKPACK before it puts anything in the hand" -- it takes every gun away, lets the
    owner's own sweep hand them back, and asserts every bag arrival precedes the first hand arrival
    and that the bag arrivals are in `Weapons.ORDER`. MEASURED live, reading the CoreGui hotbar
@@ -121,7 +166,8 @@ this moved are amended in `GAME_DESIGN.md`.
 
 * the Tool is in the CHARACTER at 15 s and at 85 s (`gun in hand @15s=1 @85s=1`)
 * **0 "Stack Begin" and 0 error lines** in the whole console
-* **five waves released**, worst 1 boar sound at once over 10 s with 23 boars alive
+* **five waves released**, worst 1 boar sound at once over 10 s with 26 boars alive (re-run after
+  round 2; round 1's run read 23 boars and was otherwise identical)
 * the changed features ran: that session is the one the hotbar, switch and sight-picture
   measurements above were taken in
 
@@ -143,14 +189,15 @@ this moved are amended in `GAME_DESIGN.md`.
   re-armed correctly, so it is a long-session state rather than a clean reproduction. Queued for the
   Director; it wants its own task, because guessing at the arming sweep is how this repo has
   produced gunless players before.
-* **The "wears a mesh for every downloaded piece" case is vacuous in DEV.** Its own note reads
-  `shotgun wears 0 of 0 downloaded piece(s)` -- DEV has no ready templates in that folder, so the
-  assertion passes trivially there. The rule is real and weapon-agnostic, but the evidence for bug 1
-  is the Forest Test measurement in claim 1, not that case.
-* **`AUTO_EQUIP_DELAY_SECONDS` is half a second of empty hands at a spawn.** Measured as enough for
-  the engine's GUI to enumerate, and far inside the time a player takes to look at anything -- but it
-  is a timing number against another system's initialisation, so if the hotbar ever reads `1 Rifle`
-  again this is the first dial to turn.
+* **The "wears a mesh for every downloaded piece" case is still vacuous in DEV.** Its own note
+  reads `shotgun wears 0 of 0 downloaded piece(s)` -- DEV has no ready templates in that folder. It
+  is kept because it is the rule a real place proves, and round 2 adds the case that is NOT vacuous
+  anywhere: "counts the folder it is HANDED", which drives a stub folder and the wrong name.
+* **`AUTO_EQUIP_DELAY_SECONDS` is half a second of empty hands at a spawn WITH TWO WEAPONS**, and
+  nothing at all with one (round 2). Measured as enough for the engine's GUI to enumerate, and far
+  inside the time a player takes to look at anything -- but it is a timing number against another
+  system's initialisation, so if the hotbar ever reads `1 Rifle` again this is the first dial to
+  turn.
 * **The duplex's posts are short and read as a cross.** `postArmDeg` 1.50 against an eyepiece of 17
   degrees; a real duplex's thick posts run to the field edge. Content-lane data in
   `Rifle.CONFIG.scope.reticle`, for the Director to tune -- not changed here, because the Director
