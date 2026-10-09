@@ -18,8 +18,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Data = require(ReplicatedStorage:WaitForChild("Viewmodel"))
+-- POSES.JSON IS VERSION 4 (task 140): every pose set lives under `weapons.<id>`, and this file is
+-- about the SHOTGUN's, which is what it has always been about. One alias, so the cases below read
+-- exactly as they did.
+local SET = Data.DATA.weapons.shotgun
 
 local scripts = StarterPlayer:WaitForChild("StarterPlayerScripts")
 local Camera = scripts:WaitForChild("Camera")
@@ -60,15 +65,15 @@ return function()
 
 		it("is deep frozen, so nothing in the game can write a pose number", function()
 			expect(table.isfrozen(Data.DATA)).to.equal(true)
-			expect(table.isfrozen(Data.DATA.carry)).to.equal(true)
-			expect(table.isfrozen(Data.DATA.carry.gun.pos)).to.equal(true)
+			expect(table.isfrozen(SET.carry)).to.equal(true)
+			expect(table.isfrozen(SET.carry.gun.pos)).to.equal(true)
 			expect(function()
-				(Data.DATA.carry.gun.pos :: any).x = 99
+				(SET.carry.gun.pos :: any).x = 99
 			end).to.throw()
 		end)
 
 		it("ships with no mid keyframes, which is the swing the camera has had since task 89", function()
-			expect(#Data.DATA.raise.keyframes).to.equal(0)
+			expect(#SET.raise.keyframes).to.equal(0)
 		end)
 
 		-- A RULE ABOUT THE GAME AND NOT A TASTE, so it is asserted rather than left to a comment: the
@@ -78,14 +83,14 @@ return function()
 			TestKit.note(
 				string.format(
 					"task98 break: drawn %.2f s vs server %.2f s; close drawn %.2f s vs server %.2f s",
-					Data.DATA.reload.openSeconds,
+					SET.reload.openSeconds,
 					Shotgun.CONFIG.RELOAD_BREAK,
-					Data.DATA.reload.closeSeconds,
+					SET.reload.closeSeconds,
 					Shotgun.CONFIG.RELOAD_CLOSE
 				)
 			)
-			expect(Data.DATA.reload.openSeconds < Shotgun.CONFIG.RELOAD_BREAK).to.equal(true)
-			expect(Data.DATA.reload.closeSeconds < Shotgun.CONFIG.RELOAD_CLOSE).to.equal(true)
+			expect(SET.reload.openSeconds < Shotgun.CONFIG.RELOAD_BREAK).to.equal(true)
+			expect(SET.reload.closeSeconds < Shotgun.CONFIG.RELOAD_CLOSE).to.equal(true)
 		end)
 	end)
 
@@ -101,13 +106,59 @@ return function()
 		-- shipped file is clean would be asserting nothing.
 		it("names a missing field", function()
 			expect(#broken(function(data)
-				data.carry.gun.pos.y = nil
+				data.weapons.shotgun.carry.gun.pos.y = nil
 			end)).to.equal(1)
+		end)
+
+		-- THE PER-WEAPON SHAPE (task 140, the Reviewer's finding 2). Version 4 added three refusals
+		-- and the first round shipped them reachable by nothing: a weapon set that is missing, one
+		-- that carries BOTH actions, and one that carries neither. A weapon has ONE action -- a
+		-- break-action opens (`reload`) and a bolt cycles (`cycle`) -- and a file with both is a file
+		-- nobody can say which of them is drawn from.
+		it("names a weapon set that is missing, and one that carries two actions or none", function()
+			expect(#broken(function(data)
+				data.weapons.rifle = nil
+			end)).to.equal(1)
+			local both = broken(function(data)
+				data.weapons.rifle.reload = data.weapons.shotgun.reload
+			end)
+			expect(#both).to.equal(1)
+			expect(string.find(both[1], "carries both reload and cycle") ~= nil).to.equal(true)
+			local neither = broken(function(data)
+				data.weapons.rifle.cycle = nil
+			end)
+			expect(#neither).to.equal(1)
+			expect(string.find(neither[1], "carries neither reload nor cycle") ~= nil).to.equal(true)
+			-- ...and the shotgun's own set is checked by the same rule, from the other side.
+			local shotgunBoth = broken(function(data)
+				data.weapons.shotgun.cycle = data.weapons.rifle.cycle
+			end)
+			expect(#shotgunBoth).to.equal(1)
+		end)
+
+		-- ...AND THE VIEW ANSWERS FOR EITHER WEAPON, with the same flat names (task 140). A reader
+		-- that got a nil for one gun and a number for the other is the shape version 3 existed to
+		-- remove, and this is what stops it coming back.
+		it("publishes one flat name set, whichever weapon is asked for", function()
+			local shotgunView = Data.view(Data.DATA, "shotgun")
+			local rifleView = Data.view(Data.DATA, "rifle")
+			local missing = {}
+			for key in pairs(shotgunView) do
+				if rifleView[key] == nil then
+					table.insert(missing, key)
+				end
+			end
+			expect(#missing).to.equal(0)
+			-- The default is the shotgun's, which is what `Camera.Config` publishes at boot, so
+			-- every reader written before the rifle gets exactly what it got before.
+			expect(Data.view(Data.DATA).CARRY_PITCH_DEG).to.equal(shotgunView.CARRY_PITCH_DEG)
+			expect(rifleView.BOLT_LIFT_DEG).to.be.ok()
+			expect(shotgunView.BOLT_LIFT_DEG).to.equal(nil)
 		end)
 
 		it("refuses an easing nobody implemented", function()
 			local problems = broken(function(data)
-				data.raise.easing = "cubicInOut"
+				data.weapons.shotgun.raise.easing = "cubicInOut"
 			end)
 			expect(#problems).to.equal(1)
 			expect(string.find(problems[1], "only quadOut is implemented") ~= nil).to.equal(true)
@@ -121,7 +172,7 @@ return function()
 				data.version = 2
 			end)
 			expect(#problems).to.equal(1)
-			expect(string.find(problems[1], "version must be 3") ~= nil).to.equal(true)
+			expect(string.find(problems[1], "version must be 4") ~= nil).to.equal(true)
 		end)
 
 		-- THE LOADING MOVE IS CHECKED SINCE TASK 114. It was `newGun.reload.load` and only one of the
@@ -129,25 +180,25 @@ return function()
 		-- about its shape could be asserted at all. One gun means the block is always there.
 		it("names a missing piece of the left hand's loading move", function()
 			expect(#broken(function(data)
-				data.reload.load = nil
+				data.weapons.shotgun.reload.load = nil
 			end)).to.equal(1)
 			expect(#broken(function(data)
-				data.reload.load.fetchSeconds = 0
+				data.weapons.shotgun.reload.load.fetchSeconds = 0
 			end)).to.equal(1)
 			expect(#broken(function(data)
-				data.reload.load.above.pos.y = nil
+				data.weapons.shotgun.reload.load.above.pos.y = nil
 			end)).to.equal(1)
 			expect(#broken(function(data)
-				data.reload.load.shellInHand.z = nil
+				data.weapons.shotgun.reload.load.shellInHand.z = nil
 			end)).to.equal(1)
 		end)
 
 		it("refuses a non-positive duration", function()
 			expect(#broken(function(data)
-				data.raise.raiseSeconds = 0
+				data.weapons.shotgun.raise.raiseSeconds = 0
 			end)).to.equal(1)
 			expect(#broken(function(data)
-				data.reload.openSeconds = -1
+				data.weapons.shotgun.reload.openSeconds = -1
 			end)).to.equal(1)
 		end)
 
@@ -159,7 +210,7 @@ return function()
 				local one = Data.copy(frame)
 				one.t = time
 				local problems = broken(function(data)
-					data.raise.keyframes = { one }
+					data.weapons.shotgun.raise.keyframes = { one }
 				end)
 				expect(#problems).to.equal(1)
 			end
@@ -168,7 +219,7 @@ return function()
 			local first, second = Data.copy(frame), Data.copy(frame)
 			first.t, second.t = 0.6, 0.3
 			expect(#broken(function(data)
-				data.raise.keyframes = { first, second }
+				data.weapons.shotgun.raise.keyframes = { first, second }
 			end)).to.equal(1)
 		end)
 
@@ -178,18 +229,18 @@ return function()
 				gun = { pos = { x = 0, y = 0, z = -1 }, rot = { x = 0, y = 0, z = 0 } },
 			}
 			expect(#broken(function(data)
-				data.raise.keyframes = { frame }
+				data.weapons.shotgun.raise.keyframes = { frame }
 			end)).to.equal(0)
 			local withHand = Data.copy(frame)
-			withHand.right = Data.copy(Data.DATA.carry.right)
+			withHand.right = Data.copy(SET.carry.right)
 			expect(#broken(function(data)
-				data.raise.keyframes = { withHand }
+				data.weapons.shotgun.raise.keyframes = { withHand }
 			end)).to.equal(0)
 			-- ...and a hand that IS named must be a whole hand.
 			local halfHand = Data.copy(frame)
 			halfHand.left = { pos = { x = 0, y = 0, z = 0 } }
 			expect(#broken(function(data)
-				data.raise.keyframes = { halfHand }
+				data.weapons.shotgun.raise.keyframes = { halfHand }
 			end) > 0).to.equal(true)
 		end)
 	end)
@@ -198,27 +249,27 @@ return function()
 		it("lists every pose number by dotted path, and no string or version", function()
 			local paths = Data.paths(Data.DATA)
 			for _, wanted in ipairs({
-				"carry.gun.pos.x",
-				"carry.gun.rot.y",
-				"carry.right.rot.twist",
-				"aim.eyeReliefStuds",
-				"aim.cheekDeg",
-				"raise.raiseSeconds",
-				"fire.gunPitchDeg",
-				"reload.openDeg",
-				"reload.shells.feedSeconds",
+				"weapons.shotgun.carry.gun.pos.x",
+				"weapons.shotgun.carry.gun.rot.y",
+				"weapons.shotgun.carry.right.rot.twist",
+				"weapons.shotgun.aim.eyeReliefStuds",
+				"weapons.shotgun.aim.cheekDeg",
+				"weapons.shotgun.raise.raiseSeconds",
+				"weapons.shotgun.fire.gunPitchDeg",
+				"weapons.shotgun.reload.openDeg",
+				"weapons.shotgun.reload.shells.feedSeconds",
 			}) do
 				expect(paths[wanted]).to.be.ok()
 			end
 			expect(paths["version"]).to.equal(nil)
-			expect(paths["raise.easing"]).to.equal(nil)
+			expect(paths["weapons.shotgun.raise.easing"]).to.equal(nil)
 			expect(paths["carry"]).to.equal(nil) -- a pose is not a number
 		end)
 
 		it("applies an override and moves nothing else", function()
-			local merged, problems = Data.merge(Data.DATA, { ["aim.cheekDeg"] = 7.5 })
+			local merged, problems = Data.merge(Data.DATA, { ["weapons.shotgun.aim.cheekDeg"] = 7.5 })
 			expect(#problems).to.equal(0)
-			expect(merged.aim.cheekDeg).to.equal(7.5)
+			expect(merged.weapons.shotgun.aim.cheekDeg).to.equal(7.5)
 			local before, after = Data.paths(Data.DATA), Data.paths(merged)
 			local moved = 0
 			for path, value in pairs(after) do
@@ -229,22 +280,22 @@ return function()
 			expect(moved).to.equal(1)
 			-- The source is untouched and the result is frozen: the data is the one source, and a
 			-- merge is a new table rather than an edit of it.
-			expect(Data.DATA.aim.cheekDeg).to.equal(before["aim.cheekDeg"])
-			expect(table.isfrozen(merged.aim)).to.equal(true)
+			expect(SET.aim.cheekDeg).to.equal(before["weapons.shotgun.aim.cheekDeg"])
+			expect(table.isfrozen(merged.weapons.shotgun.aim)).to.equal(true)
 		end)
 
 		it("refuses a path that is not a pose number, and keeps the data as it was", function()
 			for _, bad in ipairs({
-				{ ["aim.cheeckDeg"] = 1 },
+				{ ["weapons.shotgun.aim.cheeckDeg"] = 1 },
 				{ ["aim"] = 1 },
-				{ ["raise.easing"] = 1 },
+				{ ["weapons.shotgun.raise.easing"] = 1 },
 				{ ["version"] = 3 },
-				{ ["aim.cheekDeg"] = "4.2" },
-				{ ["aim.cheekDeg"] = true },
+				{ ["weapons.shotgun.aim.cheekDeg"] = "4.2" },
+				{ ["weapons.shotgun.aim.cheekDeg"] = true },
 			}) do
 				local merged, problems = Data.merge(Data.DATA, bad)
 				expect(#problems).to.equal(1)
-				expect(merged.aim.cheekDeg).to.equal(Data.DATA.aim.cheekDeg)
+				expect(merged.weapons.shotgun.aim.cheekDeg).to.equal(SET.aim.cheekDeg)
 			end
 		end)
 
@@ -261,13 +312,13 @@ return function()
 
 		it("reaches into a keyframe by index, counting from 1 like Luau", function()
 			local data = Data.copy(Data.DATA)
-			data.raise.keyframes = {
+			data.weapons.shotgun.raise.keyframes = {
 				{ t = 0.5, gun = { pos = { x = 0, y = 0, z = -1 }, rot = { x = 0, y = 0, z = 0 } } },
 			}
-			expect(Data.paths(data)["raise.keyframes.1.gun.pos.z"]).to.equal(-1)
-			local merged, problems = Data.merge(data, { ["raise.keyframes.1.gun.pos.z"] = -2 })
+			expect(Data.paths(data)["weapons.shotgun.raise.keyframes.1.gun.pos.z"]).to.equal(-1)
+			local merged, problems = Data.merge(data, { ["weapons.shotgun.raise.keyframes.1.gun.pos.z"] = -2 })
 			expect(#problems).to.equal(0)
-			expect(merged.raise.keyframes[1].gun.pos.z).to.equal(-2)
+			expect(merged.weapons.shotgun.raise.keyframes[1].gun.pos.z).to.equal(-2)
 		end)
 	end)
 
@@ -283,11 +334,11 @@ return function()
 			-- `POSES` IS A VIEW, not the whole file: the three poses that are about the gun, plus the
 			-- swing and the shot. The fields are references into the data, so this is still one
 			-- source. Until task 114 it carried whichever of TWO sets the gun flag chose.
-			expect(Config.POSES.carry).to.equal(Data.DATA.carry)
-			expect(Config.POSES.aim).to.equal(Data.DATA.aim)
-			expect(Config.POSES.reload).to.equal(Data.DATA.reload)
-			expect(Config.POSES.raise).to.equal(Data.DATA.raise)
-			expect(Config.POSES.fire).to.equal(Data.DATA.fire)
+			expect(Config.POSES.carry).to.equal(SET.carry)
+			expect(Config.POSES.aim).to.equal(SET.aim)
+			expect(Config.POSES.reload).to.equal(SET.reload)
+			expect(Config.POSES.raise).to.equal(SET.raise)
+			expect(Config.POSES.fire).to.equal(SET.fire)
 		end)
 
 		-- ONE GUN, ONE POSE SET (task 114). `view` took a `newGun` boolean while the flag chose
@@ -297,29 +348,29 @@ return function()
 		it("reads one pose set, and poses.json carries no second one", function()
 			local view = Data.view(Data.DATA)
 			expect(Data.DATA.newGun).to.equal(nil)
-			expect(view.POSES.carry).to.equal(Data.DATA.carry)
-			expect(view.POSES.aim).to.equal(Data.DATA.aim)
-			expect(view.POSES.reload).to.equal(Data.DATA.reload)
+			expect(view.POSES.carry).to.equal(SET.carry)
+			expect(view.POSES.aim).to.equal(SET.aim)
+			expect(view.POSES.reload).to.equal(SET.reload)
 			-- The swing's timings and the shot's spring are read off the same one place too, so
 			-- there is nothing for a second set to have been read from.
-			expect(view.POSES.raise).to.equal(Data.DATA.raise)
-			expect(view.RECOIL_GUN_PITCH_DEG).to.equal(Data.DATA.fire.gunPitchDeg)
-			expect(view.AIM_RAISE_SECONDS).to.equal(Data.DATA.raise.raiseSeconds)
+			expect(view.POSES.raise).to.equal(SET.raise)
+			expect(view.RECOIL_GUN_PITCH_DEG).to.equal(SET.fire.gunPitchDeg)
+			expect(view.AIM_RAISE_SECONDS).to.equal(SET.raise.raiseSeconds)
 			-- THE SHOT'S COSMETICS COME THROUGH WHOLE (task 112): the flash, the smoke and the three
 			-- volumes are shapes rather than numbers, and only the gun that survived ever had them.
-			expect(view.FIRE).to.equal(Data.DATA.fire)
+			expect(view.FIRE).to.equal(SET.fire)
 			expect(view.FIRE.flash).to.be.ok()
 			expect(view.FIRE.smoke).to.be.ok()
 			expect(view.FIRE.volume).to.be.ok()
 			-- ...and so does the left hand's loading move, which was the other half of what only one
 			-- gun had (task 111).
-			expect(view.SHELL_LOAD).to.equal(Data.DATA.reload.load)
+			expect(view.SHELL_LOAD).to.equal(SET.reload.load)
 		end)
 
 		it("follows the data when the data changes", function()
 			local data = Data.copy(Data.DATA)
-			data.carry.gun.rot.y = 12.5
-			data.aim.eyeReliefStuds = 5.0
+			data.weapons.shotgun.carry.gun.rot.y = 12.5
+			data.weapons.shotgun.aim.eyeReliefStuds = 5.0
 			local view = Data.view(data)
 			expect(view.CARRY_YAW_DEG).to.equal(12.5)
 			expect(view.EYE_RELIEF_STUDS).to.equal(5.0)
@@ -347,7 +398,7 @@ return function()
 		it("a mid keyframe is passed through, exactly, at its own time", function()
 			local data = Data.copy(Data.DATA)
 			local mid = { pos = { x = 0.5, y = -0.25, z = -3.0 }, rot = { x = 10, y = -20, z = 5 } }
-			data.raise.keyframes = { { t = 0.5, gun = mid } }
+			data.weapons.shotgun.raise.keyframes = { { t = 0.5, gun = mid } }
 			local config = configWith(true, data)
 			-- `blend` is eased, so the frame at `t = 0.5` is reached at the blend whose ease is 0.5:
 			-- 1 - (1 - b)^2 = 0.5 => b = 1 - sqrt(0.5).
@@ -375,7 +426,7 @@ return function()
 
 		it("a mid keyframe takes the gun somewhere the plain ease never goes", function()
 			local data = Data.copy(Data.DATA)
-			data.raise.keyframes = {
+			data.weapons.shotgun.raise.keyframes = {
 				{ t = 0.5, gun = { pos = { x = 2.0, y = 2.0, z = -1.0 }, rot = { x = 0, y = 0, z = 0 } } },
 			}
 			local bent = configWith(true, data)
@@ -390,7 +441,7 @@ return function()
 
 		it("the third-person branch takes no keyframes at all", function()
 			local data = Data.copy(Data.DATA)
-			data.raise.keyframes = {
+			data.weapons.shotgun.raise.keyframes = {
 				{ t = 0.5, gun = { pos = { x = 9, y = 9, z = -9 }, rot = { x = 0, y = 0, z = 0 } } },
 			}
 			local third = configWith(false, data)
@@ -449,7 +500,7 @@ return function()
 			}
 			for _, case in ipairs(states) do
 				for _, side in ipairs({ "right", "left" }) do
-					local entry = Data.DATA[case.pose][side]
+					local entry = SET[case.pose][side]
 					local wanted = Mode.handOffset(Data.vec(entry.pos), entry.rot.yaw, entry.rot.pitch, entry.rot.twist)
 					expect(Mode.handOffsetAt(side, case.state, firstPerson)).to.equal(wanted)
 				end
@@ -478,7 +529,7 @@ return function()
 
 		it("moves a hand when its own pose says a different thing", function()
 			local data = Data.copy(Data.DATA)
-			data.aim.right.pos.y = data.carry.right.pos.y + 1.0
+			data.weapons.shotgun.aim.right.pos.y = data.weapons.shotgun.carry.right.pos.y + 1.0
 			local config = configWith(true, data)
 			local carried = Mode.handOffsetAt("right", stateAt(0, 0), config)
 			local aimed = Mode.handOffsetAt("right", stateAt(1, 0), config)
@@ -490,10 +541,10 @@ return function()
 
 		it("a mid keyframe that names no hand leaves the plain blend alone", function()
 			local data = Data.copy(Data.DATA)
-			data.aim.left.pos.x = data.carry.left.pos.x + 1.0
+			data.weapons.shotgun.aim.left.pos.x = data.weapons.shotgun.carry.left.pos.x + 1.0
 			local plain = configWith(true, data)
 			local framed = Data.copy(data)
-			framed.raise.keyframes = {
+			framed.weapons.shotgun.raise.keyframes = {
 				{ t = 0.5, gun = { pos = { x = 0, y = 0, z = -1 }, rot = { x = 0, y = 0, z = 0 } } },
 			}
 			local withFrame = configWith(true, framed)
@@ -510,9 +561,9 @@ return function()
 
 		it("a mid keyframe that DOES name a hand puts it there", function()
 			local data = Data.copy(Data.DATA)
-			local hand = Data.copy(Data.DATA.carry.right)
+			local hand = Data.copy(SET.carry.right)
 			hand.pos.z = hand.pos.z + 2.0
-			data.raise.keyframes = {
+			data.weapons.shotgun.raise.keyframes = {
 				{
 					t = 0.5,
 					gun = { pos = { x = 0, y = 0, z = -1 }, rot = { x = 0, y = 0, z = 0 } },
@@ -534,10 +585,41 @@ return function()
 			expect(hold).to.equal(nil)
 			expect(#problems).to.equal(0)
 			expect((Poses.resolve(firstPerson, ""))).to.equal(firstPerson)
+			-- ...BUT A SECOND WEAPON WITH NO OVERRIDE IS NOT `base` (task 140, design 13.1): this is
+			-- the branch a PUBLISHED server takes for the rifle, where there is no attribute to
+			-- read, and it must recompute the flat names from that weapon's own set.
+			local rifle, rifleHold, rifleProblems = Poses.resolve(firstPerson, nil, "rifle")
+			expect(#rifleProblems).to.equal(0)
+			expect(rifleHold).to.equal(nil)
+			expect(rifle).never.to.equal(firstPerson)
+			-- BY VALUE FOR THE NUMBERS AND BY PRESENCE FOR THE REST: `Data.view` builds its
+			-- table-valued names (the Vector-shaped ones) fresh on every call, so identity is the
+			-- wrong question for those and the right one for every scalar.
+			local expected = Data.view(Data.DATA, "rifle")
+			local shotgunView = Data.view(Data.DATA, "shotgun")
+			local compared, differed = 0, 0
+			for key, value in pairs(expected) do
+				if type(value) == "table" then
+					expect(rifle[key]).to.be.ok()
+				else
+					expect(rifle[key]).to.equal(value)
+					compared += 1
+					if shotgunView[key] ~= value then
+						differed += 1
+					end
+				end
+			end
+			expect(compared > 0).to.equal(true)
+			-- ...AND THEY ARE THE RIFLE'S OWN NUMBERS, not the shotgun's handed back under a new
+			-- name: at least one scalar must differ, or this branch proved nothing.
+			expect(differed > 0).to.equal(true)
+			expect(rifle.FIRST_PERSON).to.equal(firstPerson.FIRST_PERSON)
+			-- ...and naming the default weapon explicitly is the same answer as naming none.
+			expect((Poses.resolve(firstPerson, nil, Data.DEFAULT_WEAPON))).to.equal(firstPerson)
 		end)
 
 		it("a good override changes the config the camera is handed", function()
-			local resolved, hold, problems = Poses.resolve(firstPerson, '{"aim.cheekDeg": 9}')
+			local resolved, hold, problems = Poses.resolve(firstPerson, '{"weapons.shotgun.aim.cheekDeg": 9}')
 			expect(#problems).to.equal(0)
 			expect(hold).to.equal(nil)
 			expect(resolved.ADS_CHEEK_DEG).to.equal(9)
@@ -569,13 +651,15 @@ return function()
 			-- reading of the pose it just asked for from a reading of the one before it. It is not a
 			-- pose number: if `merge` refused it, every candidate the search wrote would be refused
 			-- WHOLE and the gun would never move.
-			local resolved, _, problems = Poses.resolve(firstPerson, '{"aim.cheekDeg": 9, "serial": 41, "hold": "aim"}')
+			local resolved, _, problems =
+				Poses.resolve(firstPerson, '{"weapons.shotgun.aim.cheekDeg": 9, "serial": 41, "hold": "aim"}')
 			expect(#problems).to.equal(0)
 			expect(resolved.ADS_CHEEK_DEG).to.equal(9)
 		end)
 
 		it("refuses the WHOLE override when any path is wrong", function()
-			local resolved, _, problems = Poses.resolve(firstPerson, '{"aim.cheekDeg": 9, "aim.nope": 1}')
+			local resolved, _, problems =
+				Poses.resolve(firstPerson, '{"weapons.shotgun.aim.cheekDeg": 9, "weapons.shotgun.aim.nope": 1}')
 			expect(#problems).to.equal(1)
 			-- The good path is NOT applied: a half-applied override is a pose in no file and in no
 			-- command, which is the one thing a tuning session must never show.
@@ -583,7 +667,7 @@ return function()
 		end)
 
 		it("survives anything that is not an override", function()
-			for _, rubbish in ipairs({ "not json", "[1,2,3]", "null", '{"aim.cheekDeg": "high"}', "{" }) do
+			for _, rubbish in ipairs({ "not json", "[1,2,3]", "null", '{"weapons.shotgun.aim.cheekDeg": "high"}', "{" }) do
 				local resolved, _, problems = Poses.resolve(firstPerson, rubbish)
 				expect(resolved).to.equal(firstPerson)
 				expect(#problems > 0).to.equal(true)

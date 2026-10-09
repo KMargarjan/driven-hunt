@@ -1,0 +1,297 @@
+-- rifle_client.spec: the SCOPE on the real screen, and the two Tools in the real Backpack. The
+-- maths is proved on the server (tests/server/rifle.spec.luau); this proves the things only a
+-- running client can show -- that the engine really narrows the field of view to 19.87 degrees, that
+-- the reticle is genuinely visible rather than merely existing, and that the drawn gun follows the
+-- Tool the player is holding.
+--
+-- IT REACHES THE OWNER THROUGH PlayerScripts, never through StarterPlayerScripts, which is a
+-- template (docs/design/shotgun.md section 3.2).
+-- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
+-- Design: docs/design/rifle.md (section 13.2)
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local scripts = player:WaitForChild("PlayerScripts")
+local Camera = require(scripts:WaitForChild("Camera"))
+local Hud = require(scripts:WaitForChild("Hud"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+
+local Mode = Camera.Mode
+local Config = Camera.Config
+
+-- THE FIRST-PERSON BRANCH BY PARAMETER, exactly as `camera_client.spec` drives it: nothing is
+-- flipped and nothing has to be restored.
+local firstPerson = table.clone(Config) :: any
+firstPerson.FIRST_PERSON = true
+table.freeze(firstPerson)
+
+-- AT REST, FABRICATED, not `Camera.getState()` (the Reviewer's note, round 2): the live state's
+-- blend is whatever the session is doing, and `amp = Mode.ease(blend) * ampDeg`, so "the sway is zero
+-- in the hip view" held only because the blend happened to be 0. This is the shape
+-- `camera_mode.spec`'s own `stateAtBlend` has.
+local function atRest(): any
+	local state = table.clone(Mode.initial(firstPerson)) :: any
+	state.mode = "Third"
+	state.blend = 0
+	state.scopePhase = 0
+	state.scopeSwayDeg = Vector2.zero
+	return table.freeze(state)
+end
+
+local function frames(n: number)
+	for _ = 1, n do
+		RunService.Heartbeat:Wait()
+	end
+end
+
+-- Is this GuiObject visible all the way up to the ScreenGui? A visibility audit that ignored parent
+-- visibility certified a blank screen twice (docs/PROJECT_CONTEXT.md), so this walks the ancestors.
+local function visibleUp(instance: Instance?): boolean
+	local node = instance
+	while node ~= nil and node:IsA("GuiObject") do
+		if not (node :: GuiObject).Visible then
+			return false
+		end
+		node = node.Parent
+	end
+	return node ~= nil and node:IsA("ScreenGui") and (node :: ScreenGui).Enabled
+end
+
+return function()
+	describe("the scope's field of view, on the real camera", function()
+		it("is the number the weapon asked for, and the engine does not clamp it", function()
+			-- THE CASE THE RESEARCH NOTE ASKED FOR. Roblox's own `Camera` page states no range for
+			-- `FieldOfView`, so "19.87 is reachable" is a measurement rather than documentation --
+			-- and `Rig.apply`'s foreign-write detector compares what it read back to 1e-3, so a
+			-- clamp would count the ENGINE as a second writer every frame.
+			-- ON A CAMERA OF THIS SPEC'S OWN, and that is not a dodge: `Camera.Rig` is the one
+			-- writer of `workspace.CurrentCamera` and rewrites its FieldOfView every frame, so a
+			-- value written there by anything else is gone before it can be read back -- which is
+			-- the owner rule working, not a result. What is being measured is the ENGINE: whether
+			-- it keeps 19.87 and 13.31, or clamps them.
+			local scope = Rifle.CONFIG.scope
+			local probe = Instance.new("Camera")
+			probe.FieldOfView = scope.aimFovDeg
+			expect(math.abs(probe.FieldOfView - scope.aimFovDeg) < 1e-3).to.equal(true)
+			-- ...and 6x as well, before anybody ships it.
+			probe.FieldOfView = 13.31
+			expect(math.abs(probe.FieldOfView - 13.31) < 1e-3).to.equal(true)
+			local held = probe.FieldOfView
+			probe:Destroy()
+			TestKit.note(string.format("rifle: the engine held FOV %.2f and %.2f to 1e-3", scope.aimFovDeg, held))
+		end)
+
+		it("blends to the aimed weapon's own fov, and the mouse slows with it", function()
+			-- PURE, through the owner's own functions: `fovFor(1, config, nil)` is the shotgun's 50
+			-- and every caller written before the rifle; with the scope's number it is the scope's.
+			expect(math.abs(Mode.fovFor(1, Config, nil) - Config.FOV_AIM_DEG) < 1e-9).to.equal(true)
+			local aimed = Rifle.CONFIG.scope.aimFovDeg
+			expect(math.abs(Mode.fovFor(1, Config, aimed) - aimed) < 1e-9).to.equal(true)
+			expect(math.abs(Mode.fovFor(0, Config, aimed) - Config.FOV_THIRD_DEG) < 1e-9).to.equal(true)
+			-- A QUARTER OF THE HIP RATE AT 4x, with no new code: the sensitivity is derived from the
+			-- blended fov and always has been.
+			local scale = Mode.sensitivityScale(aimed, Config)
+			expect(math.abs(scale - 1 / Rifle.CONFIG.scope.magnification) < 1e-2).to.equal(true)
+		end)
+	end)
+
+	describe("the sway moves the VIEW, and only while scoped", function()
+		it("is exactly zero in the hip view and non-zero at full blend", function()
+			local sway = Rifle.CONFIG.scope.sway
+			local state = atRest()
+			-- At blend 0 the sway is scaled to nothing: you cannot see a wobble at 1x, and no
+			-- hip-fire scenario can ever be touched by it.
+			local hip = Mode.step(state, {
+				aiming = false,
+				alive = true,
+				hasCharacter = true,
+				lookDelta = Vector2.zero,
+				sway = sway,
+				aimFovDeg = Rifle.CONFIG.scope.aimFovDeg,
+			}, 1 / 60, firstPerson)
+			expect(hip.scopeSwayDeg.X).to.equal(0)
+			expect(hip.scopeSwayDeg.Y).to.equal(0)
+
+			-- ...and at full blend it wanders, inside its own amplitude, without ever moving the
+			-- player's own aim.
+			local aimed = hip
+			-- THE PLAYER'S OWN AIM, as the fabricated state left it: read off `hip` rather than
+			-- assumed to be zero, so this asserts "the sway does not move the player's aim" against
+			-- whatever the mode's own step did with the pitch.
+			local pitch0, yaw0 = hip.pitchDeg, hip.yawDeg
+			local worst = 0
+			for _ = 1, 600 do
+				aimed = Mode.step(aimed, {
+					aiming = true,
+					alive = true,
+					hasCharacter = true,
+					lookDelta = Vector2.zero,
+					sway = sway,
+					aimFovDeg = Rifle.CONFIG.scope.aimFovDeg,
+				}, 1 / 60, firstPerson)
+				worst = math.max(worst, math.abs(aimed.scopeSwayDeg.X), math.abs(aimed.scopeSwayDeg.Y))
+				expect(aimed.pitchDeg).to.equal(pitch0)
+				expect(aimed.yawDeg).to.equal(yaw0)
+			end
+			expect(worst > 0).to.equal(true)
+			expect(worst <= sway.ampDeg + 1e-9).to.equal(true)
+			TestKit.note(string.format("rifle: sway reached %.3f deg of %.3f over 10 s", worst, sway.ampDeg))
+		end)
+
+		it("does not advance its clock for a weapon with no scope", function()
+			local state = atRest()
+			for _ = 1, 30 do
+				state = Mode.step(state, {
+					aiming = true,
+					alive = true,
+					hasCharacter = true,
+					lookDelta = Vector2.zero,
+				}, 1 / 60, firstPerson)
+			end
+			expect(state.scopePhase).to.equal(0)
+			expect(state.scopeSwayDeg).to.equal(Vector2.zero)
+		end)
+	end)
+
+	describe("the reticle", function()
+		it("exists, is hidden in the hip view, and converts degrees to pixels once", function()
+			local reticle = Hud.reticle()
+			expect(reticle).to.be.ok()
+			-- NOT VISIBLE UNTIL SCOPED, and `Hud.reticleVisible` is the pure rule that says so.
+			expect(Hud.reticleVisible(nil, nil)).to.equal(false)
+			expect(Hud.reticleVisible("Third", { reticle = Rifle.CONFIG.scope.reticle })).to.equal(false)
+			expect(Hud.reticleVisible("Aiming", nil)).to.equal(false)
+			-- ...and the shotgun never shows one, because its optics are nil at the source.
+			expect(Hud.reticleVisible("Aiming", { aimFovDeg = 50 })).to.equal(false)
+			expect(Hud.reticleVisible("Aiming", { reticle = Rifle.CONFIG.scope.reticle })).to.equal(true)
+
+			-- THE ONE CONVERSION: a quarter of the field of view is a quarter of the viewport's
+			-- height, because Roblox's fov is the VERTICAL angle.
+			expect(Hud.reticleDegToPx(10, 20, 1080)).to.equal(540)
+			expect(Hud.reticleDegToPx(1, 0, 1080)).to.equal(0)
+			-- AND IT GROWS WITH THE MAGNIFICATION: the same angle is twice as many pixels at half
+			-- the fov, which is what keeps a duplex true at any zoom.
+			local wide = Hud.reticleDegToPx(1, 19.87, 1080)
+			local tight = Hud.reticleDegToPx(1, 13.31, 1080)
+			expect(tight > wide).to.equal(true)
+		end)
+
+		it("lays out as a duplex, thin in the middle and thick at the edge", function()
+			local reticle = Hud.reticle() :: Frame
+			local spec = Rifle.CONFIG.scope.reticle
+			local viewportY = Workspace.CurrentCamera.ViewportSize.Y
+			Hud.layoutReticle(reticle, spec, Rifle.CONFIG.scope.aimFovDeg)
+			frames(1)
+			local ring = reticle:FindFirstChild("Ring") :: Frame
+			expect(ring).to.be.ok()
+			local wanted = Hud.reticleDegToPx(spec.ringOuterDeg, Rifle.CONFIG.scope.aimFovDeg, viewportY)
+			-- MEASURED AGAINST THE LIVE VIEWPORT, not against 1080: a Studio Play window is nowhere
+			-- near it, and a fixed pixel count there would be a looser claim.
+			expect(math.abs(ring.AbsoluteSize.Y - wanted) <= 2).to.equal(true)
+			local cross = reticle:FindFirstChild("CrossTop") :: Frame
+			local post = reticle:FindFirstChild("PostTop") :: Frame
+			expect(cross).to.be.ok()
+			expect(post).to.be.ok()
+			expect(post.AbsoluteSize.X > cross.AbsoluteSize.X).to.equal(true)
+			TestKit.note(
+				string.format(
+					"rifle: reticle ring %d px of %d viewport (asked %.1f px)",
+					ring.AbsoluteSize.Y,
+					viewportY,
+					wanted
+				)
+			)
+		end)
+
+		it("is visible up its ancestors once the Hud shows it", function()
+			local reticle = Hud.reticle() :: Frame
+			local was = reticle.Visible
+			reticle.Visible = true
+			frames(1)
+			expect(visibleUp(reticle)).to.equal(true)
+			reticle.Visible = was
+		end)
+	end)
+
+	describe("no crosshair, ever", function()
+		it("stays hidden in first person with either weapon in hand", function()
+			-- Karen's standing rule since 2026-09-27, and the reticle does not change it: two
+			-- predicates, two questions.
+			local state = { equipped = true, open = false }
+			expect(Hud.crosshairVisible(state, false, true)).to.equal(false)
+			expect(Hud.crosshairVisible(state, true, true)).to.equal(false)
+			expect(Hud.isCrosshairVisible()).to.equal(false)
+		end)
+	end)
+
+	describe("the drive report's detail row", function()
+		it("prints the gun's WORD after the distance, and nothing at all for an old record", function()
+			-- DESIGN SECTION 9, and the one half of the report path a spec can reach: the row is
+			-- built by `HitLog`'s own local `detailPayload` (only `onRequest`'s remote returns it),
+			-- but what the SCREEN does with `row.weapon` is this function and it is public.
+			local Report = Hud.Report
+			local row = {
+				kind = "female",
+				result = "down",
+				zone = "chest",
+				distance = 45,
+				hits = 1,
+				weapon = "rifle",
+			}
+			local text = Report.detailRowText(row)
+			local label = Weapons.row("rifle").label
+			expect(string.find(text, label, 1, true)).to.be.ok()
+			-- AFTER THE DISTANCE AND BEFORE THE HITS, which is the order the header names. The
+			-- range column is matched as a PATTERN because `distance` is in studs and the column
+			-- prints metres (45 studs is 13 m), which is `Report.metres`' business and not this
+			-- case's.
+			local atRange = string.find(text, "%d+ m")
+			local atGun = string.find(text, label, 1, true)
+			expect(atRange).to.be.ok()
+			expect((atGun :: number) > (atRange :: number)).to.equal(true)
+			local header = Report.detailHeaderText()
+			expect((string.find(header, "GUN", 1, true) :: number) > (string.find(header, "RANGE", 1, true) :: number)).to.equal(
+				true
+			)
+			-- A RECORD FROM BEFORE THE RIFLE NAMES NO GUN, and prints no word rather than "nil".
+			local old = table.clone(row)
+			old.weapon = nil
+			local plain = Report.detailRowText(old)
+			expect(string.find(plain, "nil", 1, true)).to.equal(nil)
+			expect(string.find(plain, label, 1, true)).to.equal(nil)
+			TestKit.note("rifle: detail row = '" .. text .. "'")
+		end)
+	end)
+
+	describe("two Tools, and the drawn gun follows the Instance", function()
+		it("watches every Tool this system owns, and no more than the loadout has", function()
+			local Weapon = require(scripts:WaitForChild("Weapon"))
+			local watched = Weapon.Input.watchedTools()
+			expect(watched <= #Weapons.loadout()).to.equal(true)
+			-- ...and the filter is the TABLE's, not a literal: a Tool of another system is ignored.
+			expect(Weapons.isToolName("Shotgun")).to.equal(true)
+			expect(Weapons.isToolName("Lantern")).to.equal(false)
+			TestKit.note(string.format("rifle: %d tool(s) watched, loadout is %d", watched, #Weapons.loadout()))
+		end)
+
+		it("reads the weapon off the Tool the viewmodel was built from", function()
+			-- THE DRAWN GUN FOLLOWS THE INSTANCE (design 5.2). With the flag off the player holds a
+			-- shotgun, so this asserts the route rather than the rifle: the id is whatever the Tool
+			-- says, and nil only when there is no Tool at all.
+			local id = Camera.Viewmodel.weaponId()
+			local character = player.Character
+			local tool = character and character:FindFirstChildOfClass("Tool")
+			if tool ~= nil then
+				expect(id).to.equal(tool:GetAttribute("DrivenHunt.Weapon"))
+				expect(Weapons.row(id)).to.be.ok()
+			else
+				expect(id).to.equal(nil)
+			end
+		end)
+	end)
+end

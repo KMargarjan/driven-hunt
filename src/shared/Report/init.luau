@@ -36,6 +36,10 @@ export type WireDot = {
 	pellets: number,
 	at: number,
 	fatal: boolean,
+	-- WHICH GUN MADE THIS HIT (task 140): a weapon id, nil for a record from before the rifle. The
+	-- WIRE carries the id and the SCREEN carries the word, which `Weapons.row(id).label` resolves --
+	-- the same split `AMMO_LABEL` has.
+	weapon: string?,
 }
 
 export type AnimalRow = {
@@ -47,6 +51,7 @@ export type AnimalRow = {
 	hits: number,
 	droppedHits: number,
 	at: number,
+	weapon: string?, -- task 140: the gun the best shot came from
 	dots: { WireDot },
 }
 
@@ -91,6 +96,7 @@ export type Event = {
 	animalKind: string?,
 	zone: string?,
 	distance: number?,
+	weapon: string?, -- task 140; see `WireDot.weapon`
 	at: number,
 }
 

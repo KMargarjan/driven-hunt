@@ -223,6 +223,22 @@ end
 -- FAILS THE HARNESS and therefore blocks the merge gate -- the same shape as the flag `expires`
 -- check (docs/design/feature-flags.md). A pose file that half-loads would otherwise show up as a gun
 -- in the wrong place with nothing saying why.
+-- WHICH WEAPON'S POSES ARE THE DEFAULT (task 140): the one `Camera.Config` publishes at boot, so
+-- every reader written before the rifle gets exactly what it got before.
+Viewmodel.DEFAULT_WEAPON = "shotgun"
+
+-- The pose set of one weapon, or nil. Version 4 keyed the sets by weapon id; before that there was
+-- one set at the top level and this answers that.
+function Viewmodel.setFor(data: any, weaponId: string?): any
+	if type(data) ~= "table" then
+		return nil
+	end
+	if type(data.weapons) ~= "table" then
+		return data -- a version-3 file: one set, at the top
+	end
+	return data.weapons[weaponId or Viewmodel.DEFAULT_WEAPON]
+end
+
 function Viewmodel.validate(data: any): { string }
 	local problems = {}
 	if type(data) ~= "table" then
@@ -234,9 +250,55 @@ function Viewmodel.validate(data: any): { string }
 	-- byte-identical. The number is bumped because the SHAPE changed: a version-2 file loaded by this
 	-- code would silently be read as the retired gun's poses, which is the one failure a pose file
 	-- must not have.
-	if data.version ~= 3 then
-		table.insert(problems, "version must be 3")
+	-- VERSION 4 IS ONE POSE SET PER WEAPON (task 140), which re-opens the door version 2 had and
+	-- version 3 closed -- keyed by weapon id this time, and by nothing else. Every shotgun number
+	-- moved one level down and not one digit sideways. The v3 file is archived at
+	-- `backups/2026-10-09_task-140_poses-v3.json` and `weapons.shotgun` is field for field its top
+	-- level -- checked by hand twice (the Builder's migration, the Reviewer's round 2) and NOT by a
+	-- spec: a spec runs inside the place and `backups/` is a path on disk that nothing syncs.
+	if data.version ~= 4 then
+		table.insert(problems, "version must be 4")
 	end
+	if type(data.weapons) ~= "table" then
+		table.insert(problems, "weapons is missing")
+		return problems
+	end
+	for _, id in ipairs({ "shotgun", "rifle" }) do
+		if type(data.weapons[id]) ~= "table" then
+			table.insert(problems, "weapons." .. id .. " is missing")
+		end
+	end
+	if #problems > 0 then
+		return problems
+	end
+	-- EVERY WEAPON'S SET IS CHECKED, and the ACTION block is named by what the weapon has: a
+	-- two-chamber gun breaks open (`reload`) and a one-chamber gun works a bolt (`cycle`). Both at
+	-- once is refused: a weapon has one action, and a file that carries two is a file nobody can say
+	-- which one is drawn from.
+	for _, id in ipairs({ "shotgun", "rifle" }) do
+		local set = data.weapons[id]
+		local hasReload = type(set.reload) == "table"
+		local hasCycle = type(set.cycle) == "table"
+		if hasReload and hasCycle then
+			table.insert(problems, "weapons." .. id .. " carries both reload and cycle")
+		elseif not hasReload and not hasCycle then
+			table.insert(problems, "weapons." .. id .. " carries neither reload nor cycle")
+		end
+	end
+	-- EVERY CHECK BELOW IS THE ONE IT ALWAYS WAS, run against the DEFAULT weapon's set plus the
+	-- file's own `look`: the shotgun's poses are the ones Karen accepted and the ones every number
+	-- in this file was written for. The rifle's set is checked structurally above (it has an action
+	-- block, and exactly one), and by `rifle.spec` for the numbers that are its own.
+	local default = data.weapons[Viewmodel.DEFAULT_WEAPON]
+	data = {
+		version = data.version,
+		look = data.look,
+		carry = default.carry,
+		aim = default.aim,
+		reload = default.reload,
+		raise = default.raise,
+		fire = default.fire,
+	}
 	-- THE POSES THAT ARE ABOUT THE GUN -- carry, aim and reload. The raise's timings and keyframes and
 	-- the recoil spring sit beside them rather than inside them, because they are properties of the
 	-- player's hands and the shot rather than of the gun.
@@ -421,8 +483,19 @@ Viewmodel.vec = vec
 -- ONE SET SINCE TASK 114: this took a `newGun` boolean while the flag chose between two pose sets,
 -- and there is one gun now, so there is nothing to choose and no way for `Camera.Config` and
 -- `Camera.Poses` to resolve different guns.
-function Viewmodel.view(data: any): { [string]: any }
-	local loadBlock = data.reload.load
+-- `weaponId` NAMES WHICH SET (task 140). nil is the default weapon, which is what every caller
+-- written before the rifle means -- and `Camera.Config` still publishes that one at boot, so the
+-- flat names, every existing reader and every existing spec are untouched.
+--
+-- THE ACTION BLOCK IS `reload` OR `cycle`, and the flat names it feeds are the same either way: a
+-- break-action's hinge and a bolt's lift are both "the amount the moving group has moved", which is
+-- `Mode.cycleProgress`'s own number. `Rifle.Geometry.CYCLE_KIND` is what decides whether that
+-- amount is drawn as a rotation about a hinge or as a lift and a draw.
+function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
+	local whole = data
+	data = Viewmodel.setFor(data, weaponId) or data
+	local action = data.reload or data.cycle
+	local loadBlock = action.load
 	local fire = data.fire
 	return {
 		-- the carry pose (first person, blend 0)
@@ -448,10 +521,12 @@ function Viewmodel.view(data: any): { [string]: any }
 		-- blue-grey slab -- and the difference is this light, inches from the lens. A colour that is
 		-- right in the file and wrong on screen is exactly the thing the content lane exists for:
 		-- `python tools/pose.py set look.fill.brightness 0.3`, look, `save`.
-		VIEWMODEL_FILL_BRIGHTNESS = data.look.fill.brightness,
-		VIEWMODEL_FILL_RANGE_STUDS = data.look.fill.rangeStuds,
-		VIEWMODEL_FILL_COLOR = col(data.look.fill.color),
-		VIEWMODEL_FILL_OFFSET_STUDS = vec(data.look.fill.offset),
+		-- ...AND IT COMES OFF THE WHOLE FILE, not off a weapon's set (task 140): one light, both
+		-- guns, which is why `look` stayed at the top level when the poses moved down.
+		VIEWMODEL_FILL_BRIGHTNESS = whole.look.fill.brightness,
+		VIEWMODEL_FILL_RANGE_STUDS = whole.look.fill.rangeStuds,
+		VIEWMODEL_FILL_COLOR = col(whole.look.fill.color),
+		VIEWMODEL_FILL_OFFSET_STUDS = vec(whole.look.fill.offset),
 		-- the aimed pose, solved from the gun's own sight
 		EYE_RELIEF_STUDS = data.aim.eyeReliefStuds,
 		ADS_CHEEK_DEG = data.aim.cheekDeg,
@@ -472,18 +547,23 @@ function Viewmodel.view(data: any): { [string]: any }
 		RECOIL_MAX_GUN_BACK_STUDS = fire.maxGunBackStuds,
 		RECOIL_MAX_CAM_PITCH_DEG = fire.maxCamPitchDeg,
 		-- the break-open reload
-		BREAK_OPEN_SECONDS = data.reload.openSeconds,
-		BREAK_CLOSE_SECONDS = data.reload.closeSeconds,
-		BREAK_OPEN_DEG = data.reload.openDeg,
-		BREAK_HINGE_STUDS = vec(data.reload.hingeStuds),
-		BREAK_POSE_STUDS = vec(data.reload.gun.pos),
-		BREAK_POSE_PITCH_DEG = data.reload.gun.rot.x,
-		BREAK_POSE_YAW_DEG = data.reload.gun.rot.y,
-		BREAK_POSE_ROLL_DEG = data.reload.gun.rot.z,
-		SHELL_EJECT_SECONDS = data.reload.shells.ejectSeconds,
-		SHELL_EJECT_RISE_STUDS = data.reload.shells.ejectRiseStuds,
-		SHELL_FEED_SECONDS = data.reload.shells.feedSeconds,
-		SHELL_FEED_FROM_STUDS = data.reload.shells.feedFromStuds,
+		BREAK_OPEN_SECONDS = action.openSeconds,
+		BREAK_CLOSE_SECONDS = action.closeSeconds,
+		BREAK_OPEN_DEG = action.openDeg,
+		BREAK_HINGE_STUDS = vec(action.hingeStuds),
+		BREAK_POSE_STUDS = vec(action.gun.pos),
+		BREAK_POSE_PITCH_DEG = action.gun.rot.x,
+		BREAK_POSE_YAW_DEG = action.gun.rot.y,
+		BREAK_POSE_ROLL_DEG = action.gun.rot.z,
+		-- THE BOLT'S OWN TWO NUMBERS, nil for a weapon that hinges instead. `Camera.Viewmodel`
+		-- reads them only on the `"slide"` path.
+		BOLT_LIFT_DEG = action.liftDeg,
+		BOLT_DRAW_STUDS = action.drawStuds,
+		BOLT_LIFT_FRACTION = action.liftFraction,
+		SHELL_EJECT_SECONDS = action.shells.ejectSeconds,
+		SHELL_EJECT_RISE_STUDS = action.shells.ejectRiseStuds,
+		SHELL_FEED_SECONDS = action.shells.feedSeconds,
+		SHELL_FEED_FROM_STUDS = action.shells.feedFromStuds,
 		-- THE LEFT HAND'S LOADING MOVE (task 111). Karen: "can we make that i push ammo inside
 		-- pipes? just moving hand". `Viewmodel.validate` requires the whole block since task 114 --
 		-- while there were two guns only one of them had one -- so `Viewmodel.loadingAt` can read it
@@ -505,10 +585,13 @@ function Viewmodel.view(data: any): { [string]: any }
 		-- IT IS A VIEW, NOT A SECOND SOURCE: every field is a reference into `data`, the same table
 		-- the flat names above were read out of, so the two can never disagree.
 		POSES = table.freeze({
-			version = data.version,
+			version = whole.version,
+			weapon = weaponId or Viewmodel.DEFAULT_WEAPON,
 			carry = data.carry,
 			aim = data.aim,
-			reload = data.reload,
+			-- `reload` IS THE ACTION, whichever it is called in the file: `Mode.handFrame` asks for
+			-- "the pose the hands are in while the gun is being worked", and a bolt is that too.
+			reload = action,
 			raise = data.raise,
 			fire = fire,
 		}),

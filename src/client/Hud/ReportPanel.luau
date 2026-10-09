@@ -31,6 +31,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local CONFIG = Report.CONFIG
@@ -329,7 +330,7 @@ function ReportPanel.listRowText(rank: number, row: any, points: number?): strin
 end
 
 function ReportPanel.detailHeaderText(): string
-	return "ANIMAL   RESULT   ZONE     RANGE  HITS"
+	return "ANIMAL   RESULT   ZONE     RANGE  GUN       HITS"
 end
 
 -- ONE ANIMAL'S LINE. `result` is the record's own word: "down" is a carcass, "wounded" is Karen's
@@ -337,12 +338,21 @@ end
 function ReportPanel.detailRowText(row: any): string
 	local kind = string.upper(tostring((row and row.kind) or "boar"))
 	local result = if (row and row.result) == "down" then "DOWN" else "LOST"
+	-- ...AND WHICH GUN (task 140, design section 9). The WIRE carries the weapon's id and the SCREEN
+	-- carries its word -- `Weapons.row(id).label` -- which is the same split `AMMO_LABEL` has. A
+	-- record from before the rifle has no id and prints nothing rather than the word "nil", the rule
+	-- `Hud.killLineText` already follows for `animalKind`.
+	local gun = Weapons.row(row and row.weapon)
+	-- AFTER THE DISTANCE, not after the hits (design section 9, the Reviewer's note round 2): the
+	-- zone, the range and the gun are the three facts about the SHOT, and the hit count is a fact
+	-- about the animal.
 	return string.format(
-		"%-8s %-8s %-8s %3d m %4d",
+		"%-8s %-8s %-8s %3d m %-9s %4d",
 		kind,
 		result,
 		tostring((row and row.zone) or "-"),
 		Report.metres(row and row.distance),
+		if gun ~= nil then gun.label else "",
 		(row and row.hits) or 0
 	)
 end

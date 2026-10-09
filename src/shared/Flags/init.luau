@@ -162,6 +162,22 @@ Flags.DEFAULTS = {
 			.. "turns away or runs, sprints at a shot, and panics through its sounder. OFF is the "
 			.. "40-stud drivers-only flush of Milestone 1.2.",
 	} :: FlagRow,
+	RIFLE = {
+		-- BORN OFF (task 140, 2026-10-09). Karen: *"afther this fixes we need to add rifle with
+		-- scope"*. A whole second weapon is feel-critical -- the switch, the scope's magnification,
+		-- the sway and the bolt are all things only she can judge -- so it merges dark and she
+		-- turns it on for a playtest (`python tools/flags.py set RIFLE on`).
+		default = false,
+		-- The owner is the module that READS it, at its boundary: `Weapons.loadout()` resolves the
+		-- list of weapons a hunter carries and hands that list inward. Nothing else in the weapon
+		-- system reads a flag, and `Weapons.loadoutFor(rifleOn)` is pure, so both worlds are
+		-- reachable by parameter while the flag sits at one of them.
+		owner = "ReplicatedStorage.Weapons",
+		born = "2026-10-09 task 140",
+		expires = "2026-10-30", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "A bolt-action rifle with a telescopic sight, carried beside the shotgun and selected "
+			.. "with 2. OFF is exactly the game before it: one Tool, the shotgun, in the hand.",
+	} :: FlagRow,
 	FIRST_PERSON = {
 		-- BORN OFF on 2026-09-27, ON SINCE TASK 98 (2026-10-01). Karen's word was "start": first
 		-- person is now what the game IS, so every Studio Play shows the shotgun she is judging

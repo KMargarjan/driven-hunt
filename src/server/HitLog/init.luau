@@ -199,6 +199,9 @@ function HitLog.recordHit(report, now: number?)
 		userId = if shooter then shooter.UserId else nil,
 		name = if shooter then shooter.Name else nil,
 		zone = tostring(report.zone or "unknown"),
+		-- WHICH GUN MADE IT (task 140). Copied, never derived -- exactly as `zone` is -- and nil for
+		-- a record from before the rifle, which is a legal value on the wire.
+		weapon = report.weapon,
 		u = u,
 		v = v,
 		side = side,
@@ -275,6 +278,10 @@ function HitLog.recordDown(record, now: number?)
 		animalKind = animal.kind,
 		zone = record.killingZone,
 		distance = record.killingDistance,
+		-- WHICH GUN KILLED IT (task 140): the FATAL dot's weapon, which is the shot that did it
+		-- rather than the last one that landed. nil when the join failed or the record predates the
+		-- rifle, and the kill line prints nothing for it rather than the word "nil".
+		weapon = if index ~= nil then animal.dots[index].weapon else nil,
 		at = sinceOpen(at),
 	})
 	return true
@@ -327,6 +334,7 @@ local function detailPayload(drive, userId: number, page: number): Report.Detail
 					pellets = dot.pellets,
 					at = math.max(0, dot.at - drive.openedAt),
 					fatal = dot.fatal,
+					weapon = dot.weapon, -- task 140: the wire carries the id, the panel the word
 				})
 			end
 			table.insert(mine, {
@@ -337,6 +345,9 @@ local function detailPayload(drive, userId: number, page: number): Report.Detail
 				distance = (best and best.distance) or 0,
 				hits = animal.hits,
 				droppedHits = animal.droppedDots,
+				-- THE GUN THE BEST (or fatal) SHOT CAME FROM, so the animal's own row can name it
+				-- without the panel searching the dots (task 140).
+				weapon = (best and best.weapon) or nil,
 				at = math.max(0, animal.firstAt - drive.openedAt),
 				dots = wire,
 			})

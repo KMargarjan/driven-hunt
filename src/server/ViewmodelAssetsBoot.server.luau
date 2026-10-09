@@ -32,6 +32,7 @@ local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
 
 -- THE ONE PLACE A PUBLISHED TEMPLATE IS MADE TO SHOW ITS OWN COLOUR (task 99), for the hands and
 -- for the gun's WOOD alike -- they come from the same generator, through the same prep, with the
@@ -93,6 +94,14 @@ local gunFolder = Instance.new("Folder")
 gunFolder.Name = Gun.FOLDER_NAME
 gunFolder.Parent = ReplicatedStorage
 
+-- ...AND THE RIFLE'S OWN FOLDER (task 140), for the same reason and by the same rule: one folder per
+-- weapon, named by that weapon's geometry module, so the camera clones from the one place its own
+-- geometry names. The rifle's four groups serve BOTH guns -- the world Tool wears the same meshes --
+-- because unlike model B there is one model here, not a world gun and a viewmodel gun.
+local rifleFolder = Instance.new("Folder")
+rifleFolder.Name = RifleGeometry.FOLDER_NAME
+rifleFolder.Parent = ReplicatedStorage
+
 local reports = Loader.preload(Assets.keysFor("viewmodel"))
 for _, loaded in ipairs(reports) do
 	if not loaded.ok then
@@ -152,7 +161,7 @@ print(string.format("[ViewmodelAssets] published %d of 2 hand template(s)", publ
 -- TWO HINGE GROUPS AND A SHELL, under one folder, named by `Gun.MESH_KEYS` and `Gun.SHELL_KEY` so
 -- the server and the camera cannot disagree about which half swings.
 local gunParts = 0
-local function publishGunPiece(name: string, key: string)
+local function publishGunPiece(name: string, key: string, into: Folder?)
 	local template = Loader.template(key)
 	local row = Assets.byKey(key)
 	if not (template and template:IsA("BasePart") and row) then
@@ -176,7 +185,7 @@ local function publishGunPiece(name: string, key: string)
 	worn.CanTouch = false
 	worn.Massless = true
 	worn.CastShadow = false
-	worn.Parent = gunFolder
+	worn.Parent = into or gunFolder
 	gunParts += 1
 end
 
@@ -187,3 +196,25 @@ end
 -- comes from the same model, through the same loader, into the same folder.
 publishGunPiece(Gun.SHELL_TEMPLATE_NAME, Gun.SHELL_KEY)
 print(string.format("[ViewmodelAssets] published %d of 3 model B gun piece(s)", gunParts))
+
+-- THE RIFLE (task 140). Its pieces are published whatever the `RIFLE` flag says: publishing is not
+-- arming, the folder costs four parts in ReplicatedStorage, and a flag switched on mid-session for a
+-- playtest must find the meshes already there rather than wait for a reboot.
+local rifleParts = 0
+-- PRELOADED HERE, because the rifle's four keys are `runtime` ones: the WORLD Tool wears the same
+-- meshes this viewmodel clones, so they belong to the scope the server preloads for a grant -- and
+-- `Loader.preload` is idempotent (it answers from `state.templates` for a key already in), so
+-- asking again costs a table lookup rather than a second network load.
+for _, loaded in ipairs(Loader.preload(RifleGeometry.ASSET_KEYS)) do
+	if not loaded.ok then
+		warn(string.format("[ViewmodelAssets] rifle %s did not load (%s)", loaded.key, tostring(loaded.reason)))
+	end
+end
+for name, key in pairs(RifleGeometry.MESH_KEYS) do
+	local before = gunParts
+	publishGunPiece(name, key, rifleFolder)
+	if gunParts > before then
+		rifleParts += 1
+	end
+end
+print(string.format("[ViewmodelAssets] published %d of 4 rifle piece(s)", rifleParts))

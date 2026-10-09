@@ -66,6 +66,10 @@ export type Piece = {
 	material: Enum.Material,
 	shape: Enum.PartType,
 	reflectance: number?,
+	-- HOW MUCH OF THE WORLD SHOWS THROUGH IT (task 140). A scope's objective lens is the first piece
+	-- in this game that is meant to be looked THROUGH: drawn opaque it fills the sight picture with
+	-- a grey disc, which is what the first scoped frame showed.
+	transparency: number?,
 	-- THE MANIFEST KEY OF THE MESH THIS PIECE REALLY IS, when one is published. `size`, `shape` and
 	-- `color` above are then the FALLBACK -- the box drawn in its place when the upload did not
 	-- load -- and `meshOffset` is where the mesh goes instead, because the two need not be the same

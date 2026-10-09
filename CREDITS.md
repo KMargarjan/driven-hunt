@@ -36,6 +36,43 @@ What was changed, and nothing else was:
   for the barrels, case-hardened grey for the action. **The walnut is his, untouched**, and so is
   every line of the model's own form.
 
+### DAE - Rigby Hunting Rifle — Martijn Vaes (CC-BY-4.0)
+
+The first-person rifle since task 140 (2026-10-09): its stock, its action, its bolt and its scope.
+Karen chose the model herself, *"I think we inaf this one it's already with scope"*.
+
+> This work is based on ["DAE -  Rigby Hunting Rifle - Game Ready Asset"](https://sketchfab.com/3d-models/dae-rigby-hunting-rifle-game-ready-asset-e77855f0c3ea4340a4d67a4ece4b87ac)
+> by [Martijn Vaes](https://sketchfab.com/MartijnVaes) licensed under
+> [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/)
+
+The licence's own words, from the `license.txt` shipped with the download: *"license type: CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/); requirements: Author must be credited. Commercial use
+is allowed."*
+
+What was changed, and nothing else was:
+
+- `tools/gltf_split.py` (the `rigby` plan) split the model into four groups -- stock, action, bolt
+  and scope -- and aligned them to the game's frame at 4.4 studs over all, the shotgun's own length.
+  No vertex was added, moved relative to its neighbours, or removed, except the two anchor triangles
+  every group carries at the whole model's corners so that they import at one size and one origin.
+- The **lens** (`Lens_Low`, the model's only material-1 node) is **not uploaded at all**: its
+  material carries no base colour texture, and a scope lens is a flat glass disc, which the game
+  draws from a Roblox part exactly as it draws the shotgun's bore discs.
+- `tools/asset_prep.py` (the `model-b` preset, unchanged) shaded it smooth by angle, resized the
+  textures to 1024, split the packed occlusion-roughness-metalness map into the two single-channel
+  maps Roblox reads, and wrote metalness down to 0.10 with roughness 0.50 for the metal -- the same
+  measured correction the shotgun needed, for the same reason (Roblox's environment over a field is
+  the sky, and a conductor at metalness 0.98 mirrors it). **Every base colour is the artist's, and
+  none was recoloured**: measured off his own atlas, his barrel is RGB(51, 43, 39) and his scope
+  RGB(42, 37, 36), which are already dark where the shotgun model's were pale.
+- **THREE MAKER'S MARKS WERE PAINTED OUT OF THE ATLAS BEFORE ANYTHING WAS UPLOADED**, and this is a
+  trademark matter rather than a look one: CC-BY-4.0 licenses the geometry and the texture, not the
+  brands printed on them. The scope's **maker name** (a 20x140-pixel band), its **"Made in Austria"
+  line and serial**, its **two bird logos**, and the stock's **gold double-R monogram** are gone --
+  the first four replaced by the body colour under them, the monogram cloned over with the walnut
+  220 pixels below it. The scope's magnification numerals are generic and were kept. The original
+  download is untouched and is proved so by a hash manifest in the task's own request.
+
 ### Boar Family — RedDeer (Fab Standard License)
 
 The wild boar since task 115 (2026-10-03): the male's skinned mesh, its three colour maps and the ten

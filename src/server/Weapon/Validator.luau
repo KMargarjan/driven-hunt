@@ -8,6 +8,10 @@
 --
 -- Design: docs/design/shotgun.md (section 5.3)
 -- Note:   docs/research/2026-09-24-shotgun.md
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+
 local Validator = {}
 
 local function isFinite(v: Vector3): boolean
@@ -43,15 +47,29 @@ end
 
 -- The ONLY strings ActionRequest accepts. Everything else, including every reducer primitive, is
 -- "bad-request".
-function Validator.checkRequest(kind: unknown, ammo: unknown): (boolean, string?)
+--
+-- `row` IS THE WEAPON THE PLAYER IS HOLDING (task 140), and the ammo whitelist is ITS kinds rather
+-- than the two shotgun literals this used to carry. That is the whole of what "the rifle has one
+-- ammo kind" costs: `X` on the rifle is a `bad-request` at the wire and `stats.badRequests` counts
+-- it, with no new branch in the owner. A nil row keeps the old behaviour, which is what every
+-- caller written before two weapons existed expects.
+function Validator.checkRequest(kind: unknown, ammo: unknown, row: any?): (boolean, string?)
 	if kind == "Reload" then
 		if ammo ~= nil then
 			return false, "bad-request"
 		end
 		return true, nil
 	end
-	if kind == "SelectAmmo" and (ammo == "Slug" or ammo == "Buck") then
-		return true, nil
+	if kind == "SelectAmmo" then
+		-- THE SHOTGUN'S OWN LIST FOR A NIL ROW, from its row rather than typed again here (the
+		-- Reviewer's note, round 1): a second copy of a weapon's ammo kinds living outside that
+		-- weapon is exactly what the table exists to stop.
+		local kinds = if row ~= nil then row.AMMO_KINDS else Weapons.ROWS.shotgun.AMMO_KINDS
+		for _, allowed in ipairs(kinds) do
+			if ammo == allowed then
+				return true, nil
+			end
+		end
 	end
 	return false, "bad-request"
 end

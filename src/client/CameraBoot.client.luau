@@ -15,7 +15,10 @@
 local Players = game:GetService("Players")
 
 local scripts = Players.LocalPlayer:WaitForChild("PlayerScripts")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local Camera = require(scripts:WaitForChild("Camera"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 -- HOW LONG THE CAMERA WAITS FOR THE WEAPON TO REPLICATE, and it is a wait rather than a look
 -- (task 133). Karen: *"no weapon when it loads"*.
@@ -55,6 +58,24 @@ if weaponModule then
 		isAiming = function()
 			local state = Weapon.get()
 			return Weapon.Input.isAiming() and state ~= nil and state.equipped
+		end,
+	})
+	-- THE OPTICS OF THE WEAPON ON SCREEN (task 140), which is the third injected source on this
+	-- camera and the same idiom as the two around it: the camera is told a field of view, a reticle
+	-- and a sway, and still requires no weapon. The id comes off the drawn gun -- the Tool's own
+	-- attribute -- so what the camera zooms for is the gun the player is looking at.
+	Camera.setOpticsSource({
+		optics = function()
+			local row = Weapons.row(Camera.Viewmodel.weaponId())
+			local scope = row and row.scope
+			if scope == nil then
+				return nil -- a bead: `config.FOV_AIM_DEG`, no reticle, no sway
+			end
+			return {
+				aimFovDeg = scope.aimFovDeg,
+				reticle = scope.reticle,
+				sway = scope.sway,
+			}
 		end,
 	})
 	-- The viewmodel clones the Handle of the Tool the character is holding. A READ of the weapon's

@@ -39,6 +39,7 @@ local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 -- SHARED, AND ONLY FOR THE EXACT GEOMETRY OF THE NEW GUN (task 99). Pure data: a piece list, the
 -- hinge axis, the two chambers and the bead. This module still knows nothing about weapon STATE.
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local Viewmodel = {}
 
@@ -906,7 +907,14 @@ end
 -- PrimaryPart (so every pose, the pivot and the near-plane arithmetic are unchanged), a `Barrels`
 -- envelope holds everything that swings, and the `Sight` and `Muzzle` attachments are where the rest
 -- of the system already looks for them.
-local function buildNewGun(config): Model
+-- `geometry` IS THE WEAPON'S OWN (task 140): `Gun` for the shotgun, `Rifle.Geometry` for the
+-- rifle. Everything this function does -- an invisible Handle of the row's size, one envelope for
+-- the group that moves, a clone per published mesh with that group's measured box where the mesh is
+-- missing, then the `Sight` and `Muzzle` attachments -- was already weapon-independent; what it
+-- needed was to stop naming `Gun` and `Shotgun.CONFIG` directly.
+local function buildNewGun(config, geometry, row): Model
+	geometry = geometry or Gun
+	row = row or Shotgun.CONFIG
 	local made = Instance.new("Model")
 	made.Name = "DrivenHuntViewmodel"
 
@@ -921,7 +929,7 @@ local function buildNewGun(config): Model
 
 	local handle = Instance.new("Part")
 	handle.Name = "Handle"
-	handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+	handle.Size = row.HANDLE_SIZE
 	handle.Transparency = 1 -- the envelope, exactly as the worn gun's Handle is (Task 71)
 	dress(handle)
 	handle.Parent = made
@@ -930,13 +938,15 @@ local function buildNewGun(config): Model
 	-- THE BARREL GROUP'S OWN ENVELOPE, and it is what `Viewmodel.hinge` turns. Every piece in the
 	-- group is a CHILD of it, so "what swings" is a parent rather than a list in two files -- the
 	-- same rule the old mesh gun's `Barrels` piece already set.
-	local at = Gun.layout(Shotgun.CONFIG)
+	local at = geometry.layout(row)
 	local barrels = Instance.new("Part")
-	barrels.Name = BARRELS_NAME
-	barrels.Size = Vector3.new(0.3, 0.2, at.barrelLength)
+	-- THE NAME OF THE GROUP THAT MOVES, from the geometry: `Barrels` on a break-action, `Bolt` on a
+	-- bolt rifle. `Viewmodel.hinge` looks for this name and nothing else.
+	barrels.Name = geometry.CYCLE_GROUP_NAME or BARRELS_NAME
+	barrels.Size = Vector3.new(0.3, 0.2, at.barrelLength or (at.bolt and at.bolt.size.Z) or 0.6)
 	barrels.Transparency = 1
 	dress(barrels)
-	barrels.CFrame = handle.CFrame * CFrame.new(0, 0, at.barrelZ)
+	barrels.CFrame = handle.CFrame * CFrame.new(0, 0, at.barrelZ or (at.bolt and at.bolt.at.Z) or 0)
 	barrels.Parent = handle
 
 	-- MODEL B WHERE THE SERVER HAS PUBLISHED IT (task 105), and the measured box where it has not.
@@ -944,7 +954,7 @@ local function buildNewGun(config): Model
 	-- ViewmodelAssetsBoot` loads its two hinge groups and parks them in `Gun.FOLDER_NAME`, and this
 	-- clones them. A group whose upload did not load is drawn as the box `Gun.pieces` carries for it,
 	-- so a gun that failed to load is a plain dark gun and not a hole where a gun should be.
-	local gunFolder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
+	local gunFolder = ReplicatedStorage:FindFirstChild(geometry.FOLDER_NAME)
 	local function meshFor(name: string): BasePart?
 		local found = if gunFolder then gunFolder:FindFirstChild(name) else nil
 		return if found and found:IsA("BasePart") then found :: BasePart else nil
@@ -955,7 +965,7 @@ local function buildNewGun(config): Model
 	-- the real model is on the gun that is on screen", which is a fact about THIS build.
 	stats.meshesDrawn = 0
 	stats.meshesWaiting = 0
-	for _, piece in ipairs(Gun.pieces(Shotgun.CONFIG)) do
+	for _, piece in ipairs(geometry.pieces(row)) do
 		local mesh = if piece.meshKey ~= nil then meshFor(piece.name) else nil
 		-- PUBLISHED IS NOT DOWNLOADED (task 133). A mesh this client has not got renders as nothing,
 		-- so wearing it means wearing a hole: the measured box below is drawn instead, and the mesh
@@ -982,6 +992,7 @@ local function buildNewGun(config): Model
 			made_.Color = piece.color
 			made_.Material = piece.material
 			made_.Reflectance = piece.reflectance or 0
+			made_.Transparency = piece.transparency or 0
 			part = made_
 		end
 		part.Name = piece.name
@@ -995,12 +1006,12 @@ local function buildNewGun(config): Model
 	-- added here rather than left to a gun that was never cloned from a Tool.
 	local sight = Instance.new("Attachment")
 	sight.Name = SIGHT_NAME
-	sight.CFrame = Gun.sight(Shotgun.CONFIG)
+	sight.CFrame = geometry.sight(row)
 	sight.Parent = handle
 
 	local muzzle = Instance.new("Attachment")
 	muzzle.Name = MUZZLE_NAME
-	muzzle.CFrame = Gun.muzzle(Shotgun.CONFIG)
+	muzzle.CFrame = geometry.muzzle(row)
 	muzzle.Parent = handle
 
 	-- NO DRAWN BEAD MARKER: this gun carries its own `Bead` piece, on the rib, at exactly
@@ -1040,6 +1051,26 @@ end
 local cachedHandle: BasePart? = nil
 local lastSourceCheck = 0
 
+-- WHICH WEAPON IS ON SCREEN, read off the TOOL the source handed us (task 140). The attribute is
+-- written by `Weapon.Hardware.build`, so the drawn gun follows the INSTANCE: a state replica that
+-- arrives a frame later can never make this draw the wrong gun.
+function Viewmodel.weaponId(): string?
+	local handle = cachedHandle
+	local tool = handle and handle.Parent
+	if tool == nil or not tool:IsA("Tool") then
+		return nil
+	end
+	local id = tool:GetAttribute("DrivenHunt.Weapon")
+	return if type(id) == "string" then id :: string else nil
+end
+
+-- The geometry module of the weapon on screen, and the shotgun's when there is nothing to go on --
+-- which is every session before this task and every Tool built by an older server.
+local function geometryNow(): any
+	return Weapons.geometry(Viewmodel.weaponId()) or Gun
+end
+Viewmodel.geometryNow = geometryNow
+
 function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	local cam = Workspace.CurrentCamera
 	-- The source walks the character for a Tool, so it is asked four times a second rather than
@@ -1065,7 +1096,7 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 	if now - lastSourceCheck > 0.25 then
 		lastSourceCheck = now
 		if builtMeshes >= 0 then
-			local folder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
+			local folder = ReplicatedStorage:FindFirstChild(geometryNow().FOLDER_NAME)
 			if (if folder then #folder:GetChildren() else 0) ~= builtMeshes then
 				stale = true
 			end
@@ -1094,7 +1125,9 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config)
 		-- ONE GUN (task 114): built from `ReplicatedStorage.Gun`'s pieces, with model B's two hinge
 		-- groups where the server has published them. The Tool's Handle is still what every OTHER
 		-- player sees, and it is still untouched.
-		model = buildNewGun(config)
+		-- THE WEAPON THE TOOL SAYS IT IS (task 140). `builtFrom` is the Handle, and a switch is a
+		-- different Handle, so a rebuild happens on exactly the frame the player's hands change.
+		model = buildNewGun(config, geometryNow(), Weapons.row(Viewmodel.weaponId()) or Shotgun.CONFIG)
 		builtFrom = handle
 	end
 
@@ -1145,26 +1178,47 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config): CFrame
 	if clone and not firstPerson then
 		Viewmodel.clearShells(clone)
 	end
-	local barrels = clone and clone:FindFirstChild(BARRELS_NAME)
+	local geometry = geometryNow()
+	local barrels = clone and clone:FindFirstChild(geometry.CYCLE_GROUP_NAME or BARRELS_NAME)
 	if not (barrels and barrels:IsA("BasePart")) then
 		return gunCFrame -- one piece: the barrels' frame IS the gun's frame
 	end
 	if barrelsLocal == nil then
 		barrelsLocal = clone.CFrame:ToObjectSpace((barrels :: BasePart).CFrame)
 	end
-	local angle = Mode.breakAngleDeg(state, config)
+	local progress = Mode.cycleProgress(state, config)
+	local angle = progress * config.BREAK_OPEN_DEG
 	-- THE AXIS THE BARRELS TURN ABOUT. The gun has a PIN, drawn at `Gun.hinge`, and the barrels must
 	-- turn about exactly that line or the pin is something they swing around rather than on -- so the
 	-- number comes from the gun's own geometry rather than from a pose the Director tunes.
 	-- `BREAK_HINGE_STUDS` is where the RETIRED gun's knuckle was measured and is read by nothing
 	-- since task 114; it is still published, because `reload.hingeStuds` is one of Karen's tuned
 	-- numbers and removing a number nobody reads is the Director's call, not this task's (TASKS 114a).
-	local hinge = CFrame.new(Gun.hinge(Shotgun.CONFIG))
+	local row = Weapons.row(Viewmodel.weaponId())
+	local hinge = CFrame.new(geometry.hinge(row or Shotgun.CONFIG))
 	-- NEGATIVE ABOUT X IS THE MUZZLE GOING DOWN, which is what "break open" means: a part's
 	-- LookVector is its -Z, and `CFrame.Angles(+t, 0, 0)` takes (0, 0, -1) to (0, sin t, -cos t) --
 	-- i.e. UP. Measured the hard way: the first run of `camera_client.spec` caught the barrels
 	-- swinging toward the sky.
-	local swing = hinge * CFrame.Angles(-math.rad(angle), 0, 0) * hinge:Inverse()
+	local swing
+	if geometry.CYCLE_KIND == "slide" then
+		-- A BOLT, NOT A HINGE (task 140). The same one number -- how far through its action the gun
+		-- is -- read as TWO segments: the handle turns up over the first `BOLT_LIFT_FRACTION` of it,
+		-- and the bolt then draws straight back over the rest. Two lines of arithmetic rather than
+		-- `Mode.segmentAt`, which maps a time onto a KEYFRAME LIST and would have to be handed a
+		-- list of two to answer this -- the Reviewer's note, round 1: the first version of this
+		-- comment claimed that call and did not make it.
+		local lift = math.clamp(config.BOLT_LIFT_FRACTION or 0.35, 1e-3, 1)
+		local turn = math.min(progress, lift) / lift
+		local draw = if progress > lift then (progress - lift) / (1 - lift) else 0
+		swing = hinge
+			* CFrame.Angles(0, 0, -math.rad((config.BOLT_LIFT_DEG or 0) * turn))
+			* hinge:Inverse()
+			* CFrame.new(0, 0, (config.BOLT_DRAW_STUDS or 0) * draw)
+	else
+		-- NEGATIVE ABOUT X IS THE MUZZLE GOING DOWN, which is what "break open" means.
+		swing = hinge * CFrame.Angles(-math.rad(angle), 0, 0) * hinge:Inverse()
+	end
 	local swungGun = gunCFrame * swing
 	local barrelPart = barrels :: BasePart
 	barrelPart.CFrame = swungGun * (barrelsLocal :: CFrame)

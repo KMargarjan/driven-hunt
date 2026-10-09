@@ -1786,7 +1786,10 @@ return function()
 			-- THE ATTRIBUTE IS SET LOCALLY, which is enough and is the honest test: a client write
 			-- does not replicate, and the claim is that THIS client's camera reads it.
 			-- `tools/pose.py` writes it on the server, where it reaches every client the same way.
-			folder:SetAttribute("DHPose", '{"aim.eyeReliefStuds": 9.5}')
+			-- THE PATH CARRIES THE WEAPON SINCE TASK 140: `poses.json` is version 4 and every pose set
+			-- lives under `weapons.<id>`, so a v3 path is refused whole -- which is the behaviour this
+			-- case would otherwise mistake for "the override did not reach the camera".
+			folder:SetAttribute("DHPose", '{"weapons.shotgun.aim.eyeReliefStuds": 9.5}')
 			local ok, why = pcall(function()
 				local resolved = Camera.Poses.config(firstPersonConfig)
 				expect(resolved).never.to.equal(firstPersonConfig)
@@ -1830,6 +1833,37 @@ return function()
 			-- AND THE OVERRIDE IS GONE FOR THE CAMERA TOO, not just for the attribute: the resolver
 			-- caches on the attribute's own text, so this is what proves the cache follows it back.
 			expect(Camera.Poses.config(firstPersonConfig)).to.equal(firstPersonConfig)
+		end)
+
+		-- THE HOLD IS RELEASED WHEN THE OVERRIDE GOES AWAY, which is the Reviewer's round-2 finding
+		-- on task 140 as a test. `tools/pose.py clear` and `pose.py compare`'s own release path both
+		-- clear by REMOVING the attribute, so the next frame reads nil -- and a `Poses.config` that
+		-- answered the base config before writing its cache left `cachedHold` holding the last
+		-- override's pose. `Camera.update` applies `Poses.holdState` every frame, so the camera and
+		-- the drawn gun stayed pinned at `mode = "Aiming"`, `blend = 1` for the rest of the session.
+		it("releases a held pose when the attribute is removed, not just when it changes", function()
+			local folder = ReplicatedStorage:WaitForChild("Viewmodel")
+			local before = folder:GetAttribute("DHPose")
+			local ok, why = pcall(function()
+				folder:SetAttribute("DHPose", '{"hold": "aim"}')
+				expect(Camera.Poses.config(firstPersonConfig)).never.to.equal(firstPersonConfig)
+				expect(Camera.Poses.hold()).to.equal("aim")
+				-- REMOVED, not set to another pose: this is the shape `tools/pose.py` writes.
+				folder:SetAttribute("DHPose", nil)
+				expect(folder:GetAttribute("DHPose")).to.equal(nil)
+				expect(Camera.Poses.config(firstPersonConfig)).to.equal(firstPersonConfig)
+				expect(Camera.Poses.hold()).to.equal(nil)
+				-- ...and the state it would have forced is the state it is handed.
+				local rest = stateAtBlend(0)
+				expect(Camera.Poses.holdState(rest, Camera.Poses.hold())).to.equal(rest)
+			end)
+			folder:SetAttribute("DHPose", before)
+			-- The cache follows the attribute back, which the case above already proves; this only
+			-- leaves the session as it found it.
+			Camera.Poses.config(firstPersonConfig)
+			if not ok then
+				error(why, 0)
+			end
 		end)
 	end)
 

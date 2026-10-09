@@ -25,6 +25,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local Cast = require(script.Cast)
 local Hardware = require(script.Hardware)
@@ -33,7 +34,7 @@ local Limits = require(script.Limits)
 local Pattern = require(script.Pattern)
 local Registry = require(script.Registry)
 local SafetyArc = require(script.SafetyArc)
-local Shape = require(script.Shape)
+local Shapes = require(script.Shapes)
 local StateMachine = require(script.StateMachine)
 local Validator = require(script.Validator)
 
@@ -49,19 +50,28 @@ Weapon.Limits = Limits
 Weapon.Registry = Registry
 Weapon.Pattern = Pattern
 Weapon.Hits = Hits
+-- The weapon table and the world shape map, exported for the specs: the same reason every module
+-- above is here, and the reason `rifle.spec` can drive two weapons with no Studio.
+Weapon.Weapons = Weapons
+Weapon.Shapes = Shapes
 Weapon.SafetyArc = SafetyArc
 Weapon.Cast = Cast
 Weapon.Hardware = Hardware
-Weapon.Shape = Shape
+Weapon.Shape = Shapes.BY_ID.shotgun
 
 local CONFIG = Shotgun.CONFIG
 
 local registry = Registry.new()
-local tools: { [Player]: Tool } = {}
+-- ONE TOOL PER WEAPON PER PLAYER (task 140). Two Tools, because the engine's own hotbar is then the
+-- switch: `1` and `2` are its keys, a switch changes `Tool.Parent` and nothing on the server runs
+-- but the `sync()` that already watches exactly that signal. The alternative -- one Tool rebuilt on
+-- a keypress -- puts a remote into `Hardware.equip`, which is the most expensive path in the system
+-- and the one that produced "the gun is in the Backpack" in tasks 34, 123, 129 and 133.
+local tools: { [Player]: { [string]: Tool } } = {}
 local connections: { [Player]: { RBXScriptConnection } } = {}
-local toolWatchers: { [Player]: RBXScriptConnection } = {}
+local toolWatchers: { [Player]: { [string]: RBXScriptConnection } } = {}
 -- One per player: the connection that notices the granted Tool being destroyed (Task 34).
-local toolLifeWatchers: { [Player]: RBXScriptConnection } = {}
+local toolLifeWatchers: { [Player]: { [string]: RBXScriptConnection } } = {}
 local stats = {
 	shots = 0,
 	reports = 0,
@@ -150,19 +160,33 @@ end
 -- the Backpack that respawn is about to replace, and the gun dies with it a frame later. Without
 -- this the record outlives the Tool, refreshArming believes the player is armed, and nobody is
 -- ever granted anything again -- a Shooter walked a whole ten-minute drive with empty hands.
-local function watchTool(player: Player, tool: Tool)
-	-- ONE per player, replaced at each grant rather than appended: a player who is granted every few
-	-- seconds would otherwise leave a dead connection behind every time, for the whole session.
-	local previous = toolLifeWatchers[player]
+local function toolsOfPlayer(player: Player): { [string]: Tool }
+	local held = tools[player]
+	if held == nil then
+		held = {}
+		tools[player] = held
+	end
+	return held
+end
+
+local function watchTool(player: Player, tool: Tool, id: string)
+	-- ONE per weapon per player, replaced at each grant rather than appended: a player who is granted
+	-- every few seconds would otherwise leave a dead connection behind every time, for the session.
+	local watchers = toolLifeWatchers[player]
+	if watchers == nil then
+		watchers = {}
+		toolLifeWatchers[player] = watchers
+	end
+	local previous = watchers[id]
 	if previous then
 		previous:Disconnect()
 	end
-	toolLifeWatchers[player] = tool.AncestryChanged:Connect(function()
+	watchers[id] = tool.AncestryChanged:Connect(function()
 		if tool.Parent ~= nil then
 			return -- equipping moves it Backpack -> Character; that is not losing it
 		end
-		if tools[player] == tool then
-			tools[player] = nil
+		if toolsOfPlayer(player)[id] == tool then
+			toolsOfPlayer(player)[id] = nil
 		end
 	end)
 end
@@ -172,13 +196,13 @@ end
 -- destroys it, and a Tool that never reached a Backpack is parented to nil from the start. Either
 -- way the record is stale, and believing it leaves the player unarmed for the rest of the drive
 -- with nothing ever re-granting (Task 34).
-local function holdsTool(player: Player): boolean
-	local tool = tools[player]
+local function holdsTool(player: Player, id: string): boolean
+	local tool = toolsOfPlayer(player)[id]
 	if tool == nil then
 		return false
 	end
 	if tool.Parent == nil then
-		tools[player] = nil
+		toolsOfPlayer(player)[id] = nil
 		return false
 	end
 	return true
@@ -198,12 +222,33 @@ end
 
 -- Re-evaluate now, and grant or revoke to match. The drive calls this when a team is assigned after
 -- the character already spawned -- the join-mid-drive race -- and the weapon still does the writing.
+-- ...FOR EVERY WEAPON IN THE LOADOUT (task 140). `armingAction` stays pure and per weapon: a
+-- hunter either carries this gun or does not, and the rifle is simply a second answer to the same
+-- question. With the `RIFLE` flag off the loadout is one weapon and this is what it always was.
 function Weapon.refreshArming(player: Player)
-	local action = Weapon.armingAction(mayArm(player), holdsTool(player))
-	if action == "grant" then
-		Weapon.grant(player)
-	elseif action == "revoke" then
-		Weapon.revoke(player)
+	local allowed = mayArm(player)
+	local wanted = Weapons.loadout()
+	for _, id in ipairs(wanted) do
+		local action = Weapon.armingAction(allowed, holdsTool(player, id))
+		if action == "grant" then
+			Weapon.grant(player, id)
+		elseif action == "revoke" then
+			Weapon.revoke(player, id)
+		end
+	end
+	-- ...AND ANY WEAPON THAT IS NO LONGER IN IT GOES. Turning the flag off mid-session must take the
+	-- rifle away rather than leave an unreachable Tool in the Backpack.
+	for _, id in ipairs(Weapons.ids()) do
+		local inLoadout = false
+		for _, want in ipairs(wanted) do
+			if want == id then
+				inLoadout = true
+				break
+			end
+		end
+		if not inLoadout and holdsTool(player, id) then
+			Weapon.revoke(player, id)
+		end
 	end
 end
 
@@ -246,78 +291,150 @@ function Weapon.trackedPlayers(): number
 	return registry:count()
 end
 
-local function stateOf(player: Player): WeaponState?
-	return registry:get(player)
+-- ONE ENTRY PER PLAYER, HOLDING ONE STATE PER WEAPON (task 140). `Registry` still keys by player
+-- and still has one `forget`, which is what defect (c)'s leak assertion reads -- what changed is the
+-- VALUE it holds.
+type PlayerWeapons = {
+	held: string?,
+	states: { [string]: WeaponState },
+}
+
+local function entryOf(player: Player): PlayerWeapons
+	local entry = registry:get(player) :: PlayerWeapons?
+	if entry == nil then
+		entry = { held = nil, states = {} }
+		registry:set(player, entry)
+	end
+	return entry :: PlayerWeapons
 end
 
+local function stateOf(player: Player, id: string?): WeaponState?
+	local entry = registry:get(player) :: PlayerWeapons?
+	if entry == nil then
+		return nil
+	end
+	return entry.states[id or entry.held or Weapons.PRIMARY]
+end
+
+-- WHICH WEAPON THIS PLAYER IS HOLDING, derived from the Tool's Parent and never stored by anybody
+-- else (design 5.2). `watchEquipped`'s `sync()` is its one writer, and it writes `equipped` in the
+-- same breath, so the two cannot disagree.
+function Weapon.heldId(player: Player): string?
+	local entry = registry:get(player) :: PlayerWeapons?
+	return if entry then entry.held else nil
+end
+
+-- The row of the weapon in the player's hands, or the primary's when their hands are empty: the
+-- fire path has to validate against SOMETHING, and a request from a player holding nothing is
+-- refused by the reducer's own `not-equipped` a line later.
+local function rowOf(player: Player)
+	return Weapons.row(Weapon.heldId(player)) or Weapons.ROWS[Weapons.PRIMARY]
+end
+Weapon.rowOf = rowOf
+
 function Weapon.getSnapshot(player: Player): Shotgun.WeaponSnapshot?
-	local state = stateOf(player)
-	return if state then Shotgun.snapshot(state, os.clock()) else nil
+	local id = Weapon.heldId(player) or Weapons.PRIMARY
+	local state = stateOf(player, id)
+	return if state then Shotgun.snapshot(state, os.clock(), nil, id) else nil
 end
 
 -- Publishing is rate-limited per player, so a spammer cannot make the server flood its own client.
-local function publish(player: Player, state: WeaponState, force: boolean?, notice: string?)
+-- `bucket` NAMES WHICH BUDGET THIS PUBLISH SPENDS (task 140). nil is the old behaviour: the
+-- `state` bucket at `STATE_RATE_LIMIT`, or nothing at all when `force` is set. A switch publishes
+-- through the `equip` bucket instead, because the Parent-change publish used to be forced past
+-- every limit and a player mashing 1/2 would flood `StateChanged` at input rate.
+local function publish(
+	player: Player,
+	id: string,
+	state: WeaponState,
+	force: boolean?,
+	notice: string?,
+	bucket: string?
+)
 	local now = os.clock()
-	if not force then
-		local allowed, bucket = Limits.allow(registry:bucket(player, "state"), now, CONFIG.STATE_RATE_LIMIT)
-		registry:setBucket(player, "state", bucket)
+	if not force or bucket ~= nil then
+		local name = bucket or "state"
+		local limit = if name == "equip" then CONFIG.EQUIP_RATE_LIMIT else CONFIG.STATE_RATE_LIMIT
+		local allowed, next = Limits.allow(registry:bucket(player, name), now, limit)
+		registry:setBucket(player, name, next)
 		if not allowed then
 			return
 		end
 	end
 	local channel = remotes or Shotgun.remotes()
-	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now, notice))
+	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now, notice, id))
 end
 
-local function setState(player: Player, state: WeaponState)
-	registry:set(player, state)
+local function setState(player: Player, id: string, state: WeaponState)
+	entryOf(player).states[id] = state
 end
 
 -- `equipped` is derived from the Tool's Parent, never from a client claim and never from
 -- Tool.Equipped on the server (design section 5.4).
-local function watchEquipped(player: Player, tool: Tool)
+local function watchEquipped(player: Player, tool: Tool, id: string)
 	local function sync()
-		local state = stateOf(player)
+		local entry = entryOf(player)
+		local state = entry.states[id]
 		if not state then
 			return
 		end
 		local equipped = tool.Parent ~= nil and tool.Parent == player.Character
+		-- ...AND WHICH WEAPON IS IN THE HAND, written by the same function in the same frame (task
+		-- 140, design 5.2). Two fields that cannot disagree, because one `sync()` writes both.
+		if equipped then
+			entry.held = id
+		elseif entry.held == id then
+			entry.held = nil
+		end
 		local next = StateMachine.setEquipped(state, equipped)
 		if next ~= state then
-			setState(player, next)
-			publish(player, next, true)
+			setState(player, id, next)
+			-- THROUGH THE `equip` BUCKET rather than forced: see `publish`.
+			publish(player, id, next, true, nil, "equip")
 		end
 	end
-	-- One watcher per player: grant() runs again on every respawn, and the old Tool's connection
-	-- would otherwise live until the player left (round 1 note).
-	local previous = toolWatchers[player]
+	-- One watcher per weapon per player: grant() runs again on every respawn, and the old Tool's
+	-- connection would otherwise live until the player left (round 1 note).
+	local watchers = toolWatchers[player]
+	if watchers == nil then
+		watchers = {}
+		toolWatchers[player] = watchers
+	end
+	local previous = watchers[id]
 	if previous then
 		previous:Disconnect()
 	end
-	toolWatchers[player] = tool:GetPropertyChangedSignal("Parent"):Connect(sync)
+	watchers[id] = tool:GetPropertyChangedSignal("Parent"):Connect(sync)
 	sync()
 end
 
-function Weapon.grant(player: Player): Tool?
-	Hardware.destroy(tools[player])
-	local previous = stateOf(player)
-	local state = StateMachine.initial(CONFIG)
+-- `id` IS WHICH WEAPON (task 140); nil is the primary, which is what every caller written before
+-- the rifle means.
+function Weapon.grant(player: Player, id: string?): Tool?
+	local weaponId = id or Weapons.PRIMARY
+	local row = Weapons.row(weaponId)
+	if row == nil then
+		return nil
+	end
+	Hardware.destroy(toolsOfPlayer(player)[weaponId])
+	local previous = stateOf(player, weaponId)
+	local state = StateMachine.initial(row)
 	if previous then
 		local bumped = table.clone(state) :: any
 		bumped.epoch = previous.epoch + 1
 		state = Shotgun.deepFreeze(bumped)
 	end
-	setState(player, state)
+	setState(player, weaponId, state)
 
 	-- ONE TOOL PER PLAYER, enforced. A stray Shotgun -- one this owner lost track of, or one a
 	-- caller produced while an older grant was in flight -- would survive a revoke, because revoke
 	-- destroys the RECORDED tool. Nothing between build and the record below yields, so no second
 	-- grant can start inside this one.
-	for _, stray in Hardware.toolsOf(player) do
+	for _, stray in Hardware.toolsOf(player, weaponId) do
 		Hardware.destroy(stray)
 	end
 
-	local tool = Hardware.build()
+	local tool = Hardware.build(row)
 	connections[player] = connections[player] or {}
 	if not Hardware.give(tool, player) then
 		-- No Backpack at this instant: the character is still coming, or the player is leaving.
@@ -328,14 +445,17 @@ function Weapon.grant(player: Player): Tool?
 		stats.grantsMissed += 1
 		return nil
 	end
-	tools[player] = tool
-	watchTool(player, tool)
-	watchEquipped(player, tool)
-	if CONFIG.AUTO_EQUIP then
+	toolsOfPlayer(player)[weaponId] = tool
+	watchTool(player, tool, weaponId)
+	watchEquipped(player, tool, weaponId)
+	-- AUTO_EQUIP PUTS THE PRIMARY IN THE HAND, and only the primary (task 140): a spawn is
+	-- bit-for-bit what it was before the rifle existed -- the shotgun equipped, the rifle sitting in
+	-- slot 2 of the hotbar.
+	if CONFIG.AUTO_EQUIP and weaponId == Weapons.PRIMARY then
 		Hardware.equip(tool, player)
 	end
 	stats.granted += 1
-	publish(player, stateOf(player) :: WeaponState, true)
+	publish(player, weaponId, stateOf(player, weaponId) :: WeaponState, true)
 	return tool
 end
 
@@ -360,28 +480,55 @@ function Weapon.upgradeLook(): number
 			return
 		end
 		local character = player.Character
-		if character ~= nil and tool.Parent ~= character then
-			Hardware.equip(tool, player)
+		if character == nil or tool.Parent == character then
+			return
 		end
+		-- ...AND ONLY THE WEAPON THE PLAYER IS ACTUALLY CARRYING IN THEIR HANDS (task 140). With two
+		-- Tools this sweep would otherwise put BOTH in the character -- whichever upgraded last
+		-- winning -- and a player who picked the shotgun would find a rifle in their hands when a
+		-- mesh landed. MEASURED in the first live session of this task: the rifle ended up equipped
+		-- at the spawn, against `AUTO_EQUIP`'s own rule that the PRIMARY is what goes in the hand.
+		--
+		-- The rule is the narrow one: re-equip the weapon that was already held, and when the
+		-- player holds nothing, only the primary.
+		local id = Weapons.idForToolName(tool.Name)
+		local held = Weapon.heldId(player)
+		if id ~= (held or Weapons.PRIMARY) then
+			return
+		end
+		Hardware.equip(tool, player)
 	end)
 end
 
-function Weapon.revoke(player: Player)
-	Hardware.destroy(tools[player])
-	tools[player] = nil
-	local previous = stateOf(player)
+-- `id` IS WHICH WEAPON; **nil is every weapon**, which is what `Match` means when it takes a
+-- player's gun away at a tie and is therefore the behaviour that must not change (task 140).
+function Weapon.revoke(player: Player, id: string?)
+	if id == nil then
+		for _, each in ipairs(Weapons.ids()) do
+			Weapon.revoke(player, each)
+		end
+		return
+	end
+	local weaponId = id
+	local row = Weapons.row(weaponId)
+	if row == nil then
+		return
+	end
+	Hardware.destroy(toolsOfPlayer(player)[weaponId])
+	toolsOfPlayer(player)[weaponId] = nil
+	local previous = stateOf(player, weaponId)
 	if previous then
-		local state = table.clone(StateMachine.initial(CONFIG)) :: any
+		local state = table.clone(StateMachine.initial(row)) :: any
 		state.epoch = previous.epoch + 1
 		local reset = Shotgun.deepFreeze(state)
-		setState(player, reset)
+		setState(player, weaponId, reset)
 		stats.revoked += 1
 		-- AND TELL THE CLIENT (TASKS.md 35b(a)). Resetting the state without publishing it left the
 		-- replica holding the snapshot from before the gun was taken, so a player tied to a tree
 		-- kept an ammo readout on screen for a gun that no longer exists -- visible in
 		-- .screenshots/task35-tied-to-a-tree.png. grant() publishes; revoke has to as well, or the
 		-- two halves of the same owner disagree about what the player is holding.
-		publish(player, reset, true)
+		publish(player, weaponId, reset, true)
 	end
 end
 
@@ -390,14 +537,15 @@ end
 function Weapon.forget(player: Player)
 	Weapon.revoke(player)
 	registry:forget(player)
-	if toolWatchers[player] then
-		toolWatchers[player]:Disconnect()
-		toolWatchers[player] = nil
+	for _, watcher in pairs(toolWatchers[player] or {}) do
+		watcher:Disconnect()
 	end
-	if toolLifeWatchers[player] then
-		toolLifeWatchers[player]:Disconnect()
-		toolLifeWatchers[player] = nil
+	toolWatchers[player] = nil
+	for _, watcher in pairs(toolLifeWatchers[player] or {}) do
+		watcher:Disconnect()
 	end
+	toolLifeWatchers[player] = nil
+	tools[player] = nil
 	for _, connection in ipairs(connections[player] or {}) do
 		connection:Disconnect()
 	end
@@ -438,6 +586,11 @@ end
 -- across its own window, and `stats` is ONE module-level table for the whole server, so the shooter's
 -- legitimate replayed click landed in the spec's numbers and read as a forged request being accepted.
 -- A return value belongs to one call and one player and cannot be raced by anybody.
+-- FORWARD: the fire path starts the bolt and the sequence runner is defined below, so the name has
+-- to exist first. `local` here and `function runCycle` below means the assignment lands on THIS
+-- local rather than creating a global.
+local runCycle
+
 local function onFireRequest(player: Player, req: any): string?
 	local now = os.clock()
 	local allowed, bucket = Limits.allow(registry:bucket(player, "fire"), now, CONFIG.FIRE_RATE_LIMIT)
@@ -447,7 +600,12 @@ local function onFireRequest(player: Player, req: any): string?
 		return "rate-limited"
 	end
 
-	local state = stateOf(player)
+	-- WHICH WEAPON THIS SHOT IS (task 140), and every ballistic number below comes from its row.
+	-- The SYSTEM's numbers -- the arc, the origin tolerance, the rate limits -- stay in
+	-- `Shotgun.CONFIG`, where they belong: a rule of the drive is not a property of a gun.
+	local id = Weapon.heldId(player) or Weapons.PRIMARY
+	local row = Weapons.row(id) or Weapons.ROWS[Weapons.PRIMARY]
+	local state = stateOf(player, id)
 	if not state then
 		return "untracked"
 	end
@@ -455,26 +613,26 @@ local function onFireRequest(player: Player, req: any): string?
 	local ok, why = Validator.checkShot(req, rootPositionOf(player), CONFIG)
 	if not ok then
 		stats.badRequests += 1
-		publish(player, state)
+		publish(player, id, state)
 		return why or "bad-request"
 	end
 
-	local fired, reason = StateMachine.apply(state, { kind = "Fire" }, now)
+	local fired, reason = StateMachine.apply(state, { kind = "Fire" }, now, row)
 	if reason then
-		publish(player, state)
+		publish(player, id, state)
 		return reason
 	end
 	local ammo = state.loaded[state.selected]
-	setState(player, fired)
+	setState(player, id, fired)
 
-	local tool = tools[player]
+	local tool = toolsOfPlayer(player)[id]
 	local muzzle = tool and Hardware.muzzlePosition(tool)
 	if not muzzle then
-		publish(player, fired)
+		publish(player, id, fired)
 		return "no-muzzle"
 	end
 
-	local range = CONFIG.RANGE_STUDS[ammo]
+	local range = row.RANGE_STUDS[ammo]
 	local ignore = ignoreFor(player)
 	local aimImpact = castFn(req.origin, req.direction * range, ignore)
 	local aimPoint = if aimImpact then aimImpact.position else req.origin + req.direction * range
@@ -482,8 +640,8 @@ local function onFireRequest(player: Player, req: any): string?
 	local toAim = aimPoint - muzzle
 	local aim = if toAim.Magnitude < CONFIG.MIN_AIM_DISTANCE then req.direction else toAim.Unit
 
-	local impacts = Hits.resolve(muzzle, Pattern.directions(ammo, aim, rng, CONFIG), range, castFn, ignore)
-	local reports = Hits.group(player, impacts, ammo, now)
+	local impacts = Hits.resolve(muzzle, Pattern.directions(ammo, aim, rng, row), range, castFn, ignore)
+	local reports = Hits.group(player, impacts, ammo, now, id)
 	stats.shots += 1
 	stats.reports += #reports
 	for _, report in ipairs(reports) do
@@ -510,7 +668,21 @@ local function onFireRequest(player: Player, req: any): string?
 		end
 	end
 
-	publish(player, fired, true)
+	publish(player, id, fired, true)
+
+	-- ...AND THE BOLT WORKS ITSELF (task 140). With one chamber a manual cycle means pressing R
+	-- after EVERY shot, which is a reload and not a bolt, so a weapon whose row says `AUTO_CYCLE`
+	-- runs its own sequence once the trigger's own dwell has elapsed. `runCycle` is the same
+	-- function `R` runs, so there is one sequence runner in the system and not two.
+	if row.AUTO_CYCLE then
+		task.spawn(function()
+			task.wait(row.BARREL_DELAY)
+			local after = stateOf(player, id)
+			if after and after.epoch == fired.epoch then
+				runCycle(player, id, fired.epoch)
+			end
+		end)
+	end
 
 	-- THE SHOT AS A FACT, FOR THE SERVER (task 118). It goes out beside the client remote below so
 	-- the two can never disagree about what counted as a shot, and it carries no impacts: what a
@@ -543,19 +715,18 @@ end
 -- Break -> Load -> Load -> Close, the 2.0 s window both R and X run through. Uninterruptibility is
 -- the reducer's, not a flag: from the first Break until Close, a second Reload is refused "is-open"
 -- and every Fire is refused "is-open" (design section 5.5).
-local function runReload(player: Player, epoch: number)
-	local steps = {
-		{ kind = "Break" :: Shotgun.ActionKind, wait = CONFIG.RELOAD_BREAK },
-		{ kind = "Load" :: Shotgun.ActionKind, wait = CONFIG.RELOAD_SHELL },
-		{ kind = "Load" :: Shotgun.ActionKind, wait = CONFIG.RELOAD_SHELL },
-		{ kind = "Close" :: Shotgun.ActionKind, wait = CONFIG.RELOAD_CLOSE },
-	}
-	for _, step in ipairs(steps) do
-		local state = stateOf(player)
+-- ONE SEQUENCE RUNNER FOR BOTH WEAPONS (task 140). The steps are `row.CYCLE` -- the shotgun's
+-- four, the rifle's three -- read from data instead of built in code, and everything else here is
+-- what it was: the `"no-reserve"` exception, the `"is-open"` recovery that closes a gun it left
+-- open, and the trailing publish that clears the Hud's R.
+function runCycle(player: Player, id: string, epoch: number)
+	local row = Weapons.row(id) or Weapons.ROWS[Weapons.PRIMARY]
+	for _, step in ipairs(row.CYCLE) do
+		local state = stateOf(player, id)
 		if not state or state.epoch ~= epoch then
 			return -- the player respawned, was revoked, or left: abandon the sequence
 		end
-		local next, reason = StateMachine.apply(state, { kind = step.kind }, os.clock())
+		local next, reason = StateMachine.apply(state, { kind = step.kind }, os.clock(), row)
 		-- An empty pocket is the ONE rejection this sequence walks past: closing a gun with one
 		-- shell, or none, is correct. Any other reason means the world moved under it (round 1
 		-- note), so it stops and republishes rather than closing a gun the player did not ask for.
@@ -574,25 +745,25 @@ local function runReload(player: Player, epoch: number)
 				if remaining > 0 then
 					task.wait(remaining)
 				end
-				local closed, refused = StateMachine.apply(state, { kind = "Close" }, os.clock())
+				local closed, refused = StateMachine.apply(state, { kind = "Close" }, os.clock(), row)
 				if not refused then
-					setState(player, closed)
+					setState(player, id, closed)
 				end
 			end
 			-- BREAK, NOT RETURN: the trailing publish below is what clears the Hud's "R" once the
 			-- last window has elapsed, and an abort needs it exactly as much as a finished sequence.
 			break
 		end
-		setState(player, next)
-		publish(player, next, true)
+		setState(player, id, next)
+		publish(player, id, next, true)
 		task.wait(step.wait)
 	end
 	-- One last publish once the final window has elapsed. Without it the newest snapshot a client
 	-- ever sees is the one made at Close, whose busyFor is RELOAD_CLOSE, so the Hud keeps its "R"
 	-- until something else changes the state -- which a player would read as a gun stuck reloading.
-	local state = stateOf(player)
+	local state = stateOf(player, id)
 	if state and state.epoch == epoch then
-		publish(player, state, true)
+		publish(player, id, state, true)
 	end
 end
 
@@ -607,15 +778,19 @@ local function onActionRequest(player: Player, kind: any, ammo: any): string?
 		return "rate-limited"
 	end
 
-	local state = stateOf(player)
+	local id = Weapon.heldId(player) or Weapons.PRIMARY
+	local row = Weapons.row(id) or Weapons.ROWS[Weapons.PRIMARY]
+	local state = stateOf(player, id)
 	if not state then
 		return "untracked"
 	end
 
-	local ok, why = Validator.checkRequest(kind, ammo)
+	-- THE AMMO WHITELIST IS THIS WEAPON'S (task 140): `X` on a rifle with one kind is a
+	-- `bad-request` at the wire, counted like any other, with no new branch below.
+	local ok, why = Validator.checkRequest(kind, ammo, row)
 	if not ok then
 		stats.badRequests += 1
-		publish(player, state)
+		publish(player, id, state)
 		return why or "bad-request"
 	end
 
@@ -625,38 +800,39 @@ local function onActionRequest(player: Player, kind: any, ammo: any): string?
 	-- of the new type does nothing at all, and says so on the Hud.
 	if kind == "SelectAmmo" then
 		if not state.equipped or state.open or now < state.busyUntil then
-			publish(player, state)
+			publish(player, id, state)
 			return "not-ready"
 		end
 		if (state.reserve[ammo] or 0) <= 0 then
 			stats.emptySwaps += 1
-			publish(player, state, true, "NO " .. string.upper(ammo))
+			publish(player, id, state, true, "NO " .. string.upper(ammo))
 			return "empty-pocket"
 		end
-		local swapped = StateMachine.apply(state, { kind = "SelectAmmo", ammo = ammo }, now)
-		setState(player, swapped)
-		publish(player, swapped, true)
-		task.spawn(runReload, player, swapped.epoch)
+		local swapped = StateMachine.apply(state, { kind = "SelectAmmo", ammo = ammo }, now, row)
+		setState(player, id, swapped)
+		publish(player, id, swapped, true)
+		task.spawn(runCycle, player, id, swapped.epoch)
 		return nil -- the swap was accepted
 	end
 
 	-- "Reload": one thread per player. A second Reload while the action is open is rejected by the
 	-- reducer's own "is-open", which is what makes the 2.0 s window uninterruptible (feel default 2).
 	if not state.equipped or state.open or now < state.busyUntil then
-		publish(player, state)
+		publish(player, id, state)
 		return "not-ready"
 	end
 	local epoch = state.epoch
-	task.spawn(runReload, player, epoch)
+	task.spawn(runCycle, player, id, epoch)
 	return nil -- the reload was accepted
 end
 
 local function watchPlayer(player: Player)
 	connections[player] = connections[player] or {}
 	local function onCharacter()
-		if mayArm(player) then
-			Weapon.grant(player)
-		end
+		-- EVERY WEAPON IN THE LOADOUT, not just the primary (task 140). `refreshArming` grants what
+		-- is missing and revokes what is no longer allowed, so it is idempotent and is the one path
+		-- that knows how many guns a hunter carries.
+		Weapon.refreshArming(player)
 	end
 	table.insert(connections[player], player.CharacterAdded:Connect(onCharacter))
 	-- A NEW BACKPACK IS A NEW CHANCE. A respawn replaces it, and whichever order the engine
@@ -712,8 +888,19 @@ function Weapon.start()
 			stats.armingSweeps += 1
 			for _, player in ipairs(Players:GetPlayers()) do
 				local wanted = mayArm(player)
-				if wanted and not holdsTool(player) then
-					stats.armingRepairs += 1
+				if wanted then
+					-- ...AND IT IS COUNTED PER WEAPON (task 140, the Reviewer's finding 1). This read
+					-- `holdsTool(player)` with no weapon id after that function became per weapon, so
+					-- the table read answered nil, the call answered false, and the counter rose on
+					-- EVERY sweep for EVERY armable player -- which would have destroyed the one
+					-- instrument this repo has for "a player who should be holding a gun and is
+					-- not" (`reviews/task-34/REQUEST.md`: *"armingRepairs has been 0 in every run
+					-- since"*).
+					for _, id in ipairs(Weapons.loadout()) do
+						if not holdsTool(player, id) then
+							stats.armingRepairs += 1
+						end
+					end
 				end
 				pcall(Weapon.refreshArming, player)
 			end

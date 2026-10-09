@@ -20,6 +20,9 @@ type Action = Shotgun.Action
 
 local StateMachine = {}
 
+-- THE ROW IS THE CONFIG (task 140). `initial` always read `BARRELS`, `INITIAL_AMMO` and
+-- `START_RESERVE` off whatever it was handed, and a weapon row carries all three -- so a two-barrel
+-- shotgun and a one-chamber rifle start from the same function with no branch in it.
 function StateMachine.initial(config): WeaponState
 	local barrels, loaded = {}, {}
 	for index = 1, config.BARRELS do
@@ -72,11 +75,28 @@ local function nextLive(barrels, from: number): number
 	return from
 end
 
+-- HOW LONG THIS WEAPON'S ACTION IS BUSY AFTER ONE STEP OF ITS CYCLE (task 140). The sequence and
+-- its timings are data on the row (`CYCLE`), because a bolt is not a break-action with different
+-- numbers: it is three steps where the shotgun has four. The first step of that kind is the answer,
+-- which is exactly right for the shotgun's two identical `Load`s.
+local function waitFor(row, kind: string): number
+	for _, step in ipairs(row.CYCLE) do
+		if step.kind == kind then
+			return step.wait
+		end
+	end
+	return 0
+end
+
 -- Returns (newState, nil) or (the SAME state, reason). Rejection reasons are a closed set, so the
 -- owner and the specs can name them: "busy", "is-open", "is-closed", "not-equipped",
 -- "barrel-empty", "no-reserve", "barrel-full", "bad-action".
-function StateMachine.apply(state: WeaponState, action: Action, now: number): (WeaponState, string?)
-	local config = Shotgun.CONFIG
+--
+-- `row` IS REQUIRED AND HAS NO DEFAULT (task 140). This function used to read `Shotgun.CONFIG` at
+-- its top, which with two weapons is a rifle timed like a shotgun, silently. No default means every
+-- caller has to say which weapon it means.
+function StateMachine.apply(state: WeaponState, action: Action, now: number, row): (WeaponState, string?)
+	local config = row
 	local kind = action.kind
 
 	if kind ~= "SelectAmmo" and now < state.busyUntil then
@@ -122,7 +142,7 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number): (W
 			next.barrels[index] = "Empty"
 			next.loaded[index] = "None"
 		end
-		next.busyUntil = now + config.RELOAD_BREAK
+		next.busyUntil = now + waitFor(row, "Break")
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "Load" then
 		if not state.open then
@@ -145,7 +165,7 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number): (W
 		next.barrels[target] = "Live"
 		next.loaded[target] = state.ammo
 		next.reserve[state.ammo] = next.reserve[state.ammo] - 1
-		next.busyUntil = now + config.RELOAD_SHELL
+		next.busyUntil = now + waitFor(row, "Load")
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "Close" then
 		if not state.open then
@@ -154,11 +174,21 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number): (W
 		local next = draft(state)
 		next.open = false
 		next.selected = nextLive(next.barrels, #next.barrels)
-		next.busyUntil = now + config.RELOAD_CLOSE
+		next.busyUntil = now + waitFor(row, "Close")
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "SelectAmmo" then
 		local ammo = action.ammo
-		if ammo ~= "Slug" and ammo ~= "Buck" then
+		-- THE KINDS THIS WEAPON CAN CARRY, from its row (task 140), where this used to be the two
+		-- shotgun literals. A rifle with one kind refuses every SelectAmmo, which is what makes `X`
+		-- on it a `bad-request` at the wire rather than a branch in the owner.
+		local known = false
+		for _, allowed in ipairs(row.AMMO_KINDS) do
+			if ammo == allowed then
+				known = true
+				break
+			end
+		end
+		if not known then
 			return state, "bad-action"
 		end
 		local next = draft(state)
