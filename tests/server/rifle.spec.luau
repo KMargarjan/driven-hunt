@@ -176,6 +176,13 @@ return function()
 			expect(Weapons.ROWS.shotgun.RELOAD).to.equal(nil)
 			expect(Weapons.ROWS.shotgun.CYCLE_EJECTS).to.equal(nil)
 			expect(row.CYCLE_EJECTS).to.equal("spent")
+			-- THE SWAP'S LENGTH HAS TWO HOMES AND THEY MUST AGREE (the Reviewer's note): the SERVER
+			-- times the window with `RELOAD[1].wait` and the CLIENT animates the box over
+			-- `cycle.magazine.seconds`, so a drift between them is a box still sliding when the gun
+			-- is ready, or home before it is. One of them is the pose data the Director tunes live,
+			-- which is why this is asserted rather than one of them deleted.
+			local swap = Viewmodel.DATA.weapons.rifle.cycle.magazine
+			expect(math.abs(swap.seconds - row.RELOAD[1].wait) < 1e-9).to.equal(true)
 		end)
 
 		it("states a magnification that IS its field of view", function()

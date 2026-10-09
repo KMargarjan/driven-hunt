@@ -1038,10 +1038,12 @@ function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mo
 	local right = clone:FindFirstChild(HandAssets.RIGHT)
 	if right and right:IsA("BasePart") then
 		local base = gunCFrame * Mode.handOffsetAt("right", state, config)
-		-- ...AND IT LEAVES THE GRIP TO WORK THE BOLT (task 142). The pose is measured in the BOLT
-		-- group's own frame, and `barrelsCFrame` is where that group ended up this frame, so the
-		-- glove is on the knob however far back the bolt has been drawn. At weight 0 this is
-		-- bit-for-bit the grip pose every build before this one had.
+		-- ...AND IT LEAVES THE GRIP TO WORK THE BOLT (task 142). `barrelsCFrame` is what
+		-- `Viewmodel.hinge` returned -- the GUN's transform with the cycle group's swing applied, not
+		-- the bolt part's own CFrame (the Reviewer's note: the first comment here named the wrong
+		-- frame). So `grip` is an offset from the Handle's origin CARRIED BY THE BOLT'S SWING, which
+		-- is what puts the glove on the knob however far back the bolt has been drawn. At weight 0
+		-- this is bit-for-bit the grip pose every build before this one had.
 		local onBolt = config.BOLT_HAND
 		if onBolt ~= nil and onBolt.grip ~= nil then
 			local weight = Viewmodel.boltHandWeight(Mode.cycleProgress(state, config), config)

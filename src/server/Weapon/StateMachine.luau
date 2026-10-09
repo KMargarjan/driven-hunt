@@ -223,6 +223,11 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number, row
 		end
 		local next = draft(state)
 		local fed = 0
+		-- IT FILLS A SPENT CHAMBER TOO, and that is deliberate rather than overlooked (the
+		-- Reviewer's note): pressing R with a fired case still in the chamber swaps the box AND
+		-- discards that case with it, which costs one round from the pocket and is what the sequence
+		-- then chambers. Requiring `Empty` would leave the spent case in a gun whose own bolt cycle
+		-- has already run, with nothing left to eject it.
 		for index = 1, #next.barrels do
 			if next.barrels[index] ~= "Live" and fed < pocket then
 				next.barrels[index] = "Live"

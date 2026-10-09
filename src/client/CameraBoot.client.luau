@@ -57,7 +57,7 @@ if weaponModule then
 	-- IS THE SERVER RUNNING A CYCLE STEP RIGHT NOW? Written by the break-source closure below, which
 	-- is already this file's one reader of the replica, and read by the aim source above it. Two
 	-- owners, one fact, and no second reader (rule 3).
-	local cyclingNow = false
+	local cyclingNow: string? = nil
 	Camera.setAimSource({
 		isAiming = function()
 			local state = Weapon.get()
@@ -71,11 +71,10 @@ if weaponModule then
 			-- either -- this is the camera being told the eye is not at the glass, so the mask comes
 			-- down, the gun comes back and the hands are visible working the action, which is the
 			-- whole of what Karen asked to see.
-			if cyclingNow then
-				local scope = (Weapons.row(Camera.Viewmodel.weaponId()) or {}).scope
-				if scope ~= nil and scope.cycle ~= nil and scope.cycle.leaveScope then
-					return false
-				end
+			-- `Camera.leavesScopeFor` IS THE DECISION, and it is pure and public so a spec can drive
+			-- both branches (the Reviewer's note, round 2): this closure only supplies the two facts.
+			if Camera.leavesScopeFor(cyclingNow, (Weapons.row(Camera.Viewmodel.weaponId()) or {}).scope) then
+				return false
 			end
 			return true
 		end,
@@ -151,31 +150,15 @@ if weaponModule then
 	-- does that make a noise, and this closure is already the one place that sees the state flip --
 	-- so the EDGE is detected here rather than by a second reader of the replica.
 	local wasOpen = lastClosed ~= nil and lastClosed.open == true
-	-- ...AND THE MAGAZINE (task 142), which is an edge the break source cannot see: a box going in
-	-- does not open or close the action, it just makes the gun full. Counting live chambers is the
-	-- one signal that says so, and it is counted HERE because this closure already sees every
-	-- snapshot -- a second reader of the replica is what rule 3 exists to stop.
-	local function liveIn(snapshot): number
-		if snapshot == nil or snapshot.barrels == nil then
-			return 0
-		end
-		local live = 0
-		for _, chamber in ipairs(snapshot.barrels) do
-			if chamber == "Live" then
-				live += 1
-			end
-		end
-		return live
-	end
-	-- ...PER WEAPON, which is the Reviewer's round-1 finding and a real one: `Weapon.get()` is ONE
-	-- variable holding whichever gun the server published last, so comparing a count across two
-	-- snapshots that belong to DIFFERENT guns steps it 2 -> 3 or 0 -> 2 on a switch and fires the
-	-- magazine voice when no magazine changed. `snapshot.weapon` has been on the wire since task 140
-	-- and is what says whose count this is.
-	local wasLive: { [string]: number } = {}
-	if lastClosed ~= nil and lastClosed.weapon ~= nil then
-		wasLive[lastClosed.weapon] = liveIn(lastClosed)
-	end
+	-- ...AND THE MAGAZINE (task 142), which is the SERVER'S OWN STEP and not a count of rounds.
+	--
+	-- ROUND 1 COUNTED LIVE CHAMBERS AND ROUND 2 COUNTED THEM PER WEAPON, and the Reviewer was right
+	-- both times: `Weapon.get()` is one variable holding whichever gun was published last, so a
+	-- SWITCH stepped the count and fired the sound; and keying it per weapon still fires on a
+	-- RE-GRANT, where a fresh full magazine steps the stored count with no magazine changed. A round
+	-- count is simply not the question. `snapshot.action` IS the question, it has been on the wire
+	-- since this task, and the edge into `"Magazine"` is exactly one magazine change.
+	local wasAction: string? = nil
 	Camera.setBreakSource({
 		state = function()
 			local snapshot = Weapon.get()
@@ -184,18 +167,16 @@ if weaponModule then
 			end
 			local isOpen = snapshot ~= nil and snapshot.open == true
 			local row = Weapons.row(Camera.Viewmodel.weaponId())
-			local nowLive = liveIn(snapshot)
-			local whose = snapshot ~= nil and snapshot.weapon or nil
-			if whose ~= nil then
-				local before = wasLive[whose]
+			local nowAction = if snapshot ~= nil then snapshot.action else nil
+			if nowAction == "Magazine" and wasAction ~= "Magazine" then
 				-- THE ROW IS THE ONE THE SNAPSHOT NAMES, not the drawn gun's: the viewmodel's handle
 				-- is refreshed at most every 0.25 s, so during a switch those two disagree.
-				local voiced = Weapons.row(whose)
-				if before ~= nil and nowLive > before and Weapon.Sound.voiceFor(voiced, "magazine") ~= nil then
+				local voiced = Weapons.row(snapshot ~= nil and snapshot.weapon or nil)
+				if Weapon.Sound.voiceFor(voiced, "magazine") ~= nil then
 					Weapon.Sound.magazine(Camera.poseConfig(), voiced)
 				end
-				wasLive[whose] = nowLive
 			end
+			wasAction = nowAction
 			-- HOW FAR THROUGH A MAGAZINE CHANGE THE GUN IS (task 142). The SERVER SAYS WHICH STEP IT
 			-- IS RUNNING (`snapshot.action`) and `busyFor` is that step's own clock, so this is a
 			-- read and not a guess. The first build of this inferred the step from "no live rounds,
@@ -218,7 +199,7 @@ if weaponModule then
 			end
 			-- A CYCLE STEP IS RUNNING: see `cyclingNow` above. `Magazine` counts, because the hands
 			-- are busy with the box and the scope has no business being up for that either.
-			cyclingNow = snapshot ~= nil and snapshot.action ~= nil
+			cyclingNow = if snapshot ~= nil then snapshot.action else nil
 			local noise = Camera.breakSound(wasOpen, isOpen)
 			wasOpen = isOpen
 			-- A BOLT IS NOT A BREAK, AND IT DOES NOT SOUND LIKE ONE (task 142). The same two edges

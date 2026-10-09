@@ -454,11 +454,64 @@ return function()
 			-- chamber while the action is open, which the shell-feed animation reads as "that
 			-- chamber was just loaded" -- so the LEFT hand dived off the fore-end on every bolt
 			-- cycle, which is the opposite of what Karen asked for.
-			local config = table.clone(firstPerson) :: any
-			config.MAGAZINE_SWAP =
+			--
+			-- IT DRIVES THE PLAYER'S PATH, which is round 3's correction: round 2's version asserted
+			-- 0 from a function that returns 0 on an EARLIER guard, so it passed with the fix
+			-- deleted. The state below is what `Camera.breakFrom` produces after a rifle `Break` --
+			-- the action open, one case spent, chamber 2 still holding a round -- and the clock is
+			-- the module's own, which is what `loadedAt` is stamped from.
+			local before = Camera.Viewmodel.reloadState()
+			local base = table.clone(firstPerson) :: any
+			base.SHELL_LOAD = {
+				fetchSeconds = 0.15,
+				carrySeconds = 0.17,
+				seatSeconds = 0.13,
+				returnSeconds = 0.12,
+				fetch = CFrame.new(-0.34, -0.62, 1.15),
+				above = CFrame.new(-0.05, 0.34, 0.1),
+				seat = CFrame.new(-0.05, 0.1, 0.02),
+				shellInHand = Vector3.new(0.16, 0, 0),
+			}
+			local plain = table.freeze(table.clone(base))
+			local magazine = table.clone(base)
+			magazine.MAGAZINE_SWAP =
 				{ outShare = 0.38, inShare = 0.4, dropStuds = 0.42, seconds = 1.35, hand = CFrame.new() }
-			table.freeze(config)
-			expect((Camera.Viewmodel.loadingAt(config, 0))).to.equal(0)
+			table.freeze(magazine)
+			local ok, why = pcall(function()
+				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { false, true } })
+				-- A BREAK ACTION IS MID-FEED HERE, which is what makes the case able to fail: the
+				-- weight is non-zero without the magazine block...
+				local now = os.clock() + base.SHELL_LOAD.fetchSeconds * 0.5
+				expect((Camera.Viewmodel.loadingAt(plain, now)) > 0).to.equal(true)
+				-- ...and exactly zero with it, which is the whole fix.
+				expect((Camera.Viewmodel.loadingAt(magazine, now))).to.equal(0)
+			end)
+			Camera.Viewmodel.setReload(before)
+			if not ok then
+				error(why, 0)
+			end
+		end)
+
+		it("takes the eye off the glass to work the bolt, and only for a scope that asks", function()
+			-- THE ADOPTED BEHAVIOUR, BOTH BRANCHES, BY PARAMETER (task 142 round 3). The note's
+			-- section 2: PUBG's own community asks how to STAY scoped through a bolt cycle, which is
+			-- evidence that the default is to leave it, and BF1 requires coming out of the sight --
+			-- and for THIS game the sight picture is a black mask with the gun behind it, so staying
+			-- would hide the thing Karen asked to see.
+			local scope = Rifle.CONFIG.scope
+			expect(scope.cycle.leaveScope).to.equal(true)
+			-- a step is running and the scope says to come down
+			expect(Camera.leavesScopeFor("Break", scope)).to.equal(true)
+			expect(Camera.leavesScopeFor("Close", scope)).to.equal(true)
+			expect(Camera.leavesScopeFor("Magazine", scope)).to.equal(true)
+			-- ...nothing is running, so the eye stays where the player put it
+			expect(Camera.leavesScopeFor(nil, scope)).to.equal(false)
+			-- ...a weapon with no scope has none to leave
+			expect(Camera.leavesScopeFor("Break", nil)).to.equal(false)
+			expect(Camera.leavesScopeFor("Break", Weapons.row("shotgun").scope)).to.equal(false)
+			-- ...AND THE OTHER PATTERN IS ONE NUMBER: a scope that says false keeps the picture up.
+			local stays = { cycle = { leaveScope = false } }
+			expect(Camera.leavesScopeFor("Break", stays)).to.equal(false)
 		end)
 
 		it("prints rounds over capacity for a magazine, and glyphs for a break action", function()
