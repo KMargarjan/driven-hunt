@@ -189,6 +189,59 @@ return function()
 			expect(Report.ringColor(clear, fill)).to.equal(clear)
 		end)
 
+		it("has animal under a FRONT-ON hit, which is the commonest shot in the game", function()
+			-- TASK 138, AND THE FINDING IS THAT THE RECORD WAS RIGHT ALL ALONG. Task 137a called a
+			-- `body` dot at u = 0 a bug and guessed at a wrong impact position or a stale CFrame. It
+			-- is neither: MEASURED over seven real shots in the Forest Test, every `body` hit landed
+			-- in the front quarter -- u 0.000, 0.005, 0.170, 0.194, 0.210, 0.236 -- and four of them
+			-- struck the trunk box's front FACE exactly (`local.Z` = -size.Z/2), which projects to
+			-- u = 0 by construction. The drive walks the animals straight AT the hunter, so the first
+			-- surface a pellet meets is the front of the body. The arithmetic was telling the truth
+			-- and the PICTURE had nothing there to receive it.
+			--
+			-- So this is the case that would have caught it: the hits a real session produces have to
+			-- land on the drawn animal. `Brisket` is what catches them.
+			local measured = {
+				{ 0.000, 0.441 },
+				{ 0.000, 0.549 },
+				{ 0.000, 0.567 },
+				{ 0.000, 0.606 },
+				{ 0.005, 0.600 },
+				{ 0.048, 0.525 },
+				{ 0.170, 0.564 },
+				{ 0.194, 0.561 },
+				{ 0.210, 0.500 },
+				{ 0.236, 0.576 },
+			}
+			local insetU = (Report.CONFIG.DOT_PIXELS / 2) / Report.CONFIG.SILHOUETTE_WIDTH
+			local insetV = (Report.CONFIG.DOT_PIXELS / 2) / Report.CONFIG.SILHOUETTE_HEIGHT
+			for _, hit in ipairs(measured) do
+				-- WHERE THE PANEL ACTUALLY DRAWS IT, half-dot inset and all, because that is the
+				-- point that has to have animal under it.
+				local u = insetU + hit[1] * (1 - 2 * insetU)
+				local v = insetV + hit[2] * (1 - 2 * insetV)
+				if not onTheAnimal(u, v) then
+					error(string.format("a measured body hit (%.3f, %.3f) is drawn off the animal", u, v))
+				end
+			end
+		end)
+
+		it("puts a dot that still falls in the air onto the nearest bit of animal", function()
+			-- THE BOX HAS CORNERS AND AN ANIMAL DOES NOT. `Report.ontoBoar` is a DRAWING decision --
+			-- the pip's attributes still carry the true (u, v) the server measured -- and it is the
+			-- same line the half-dot inset already draws.
+			--
+			-- The bottom-front corner is the one a real session produced (u = 0.000, v = 0.890): in
+			-- front of the forelegs at ground level, where there is no animal and should not be one.
+			local u, v = Report.ontoBoar(0.034, 0.841)
+			expect(onTheAnimal(u, v)).to.equal(true)
+			-- ...AND A DOT THAT IS ALREADY ON THE ANIMAL IS NOT MOVED AT ALL, which is what keeps
+			-- this from quietly repositioning every hit in the report.
+			local keptU, keptV = Report.ontoBoar(0.5, 0.4)
+			expect(keptU).to.equal(0.5)
+			expect(keptV).to.equal(0.4)
+		end)
+
 		it("is drawn in ONE fill, which is what makes it a silhouette", function()
 			-- `BOAR_FILL` is the whole animal's colour; a part carrying its own would be the
 			-- colour-coded bar this task replaced coming back one piece at a time.
@@ -228,6 +281,26 @@ return function()
 	end)
 
 	describe("Shape.dot and the rects together", function()
+		it("maps a BROADSIDE hit to the middle of the body, and a front-on one to the nose end", function()
+			-- THE TWO ENDS OF TASK 138's FINDING, as arithmetic. A pellet that meets the SIDE of the
+			-- trunk half way along is a flank hit and lands mid-body; one that meets the FRONT FACE
+			-- is a head-on hit and lands at u = 0, which is correct and is not a defect.
+			local body = Boar.CONFIG.BODY_SIZE
+			local cframe = CFrame.new(0, 0, 0)
+			-- Broadside: on the +X flank, mid-length, a little under the spine.
+			local u, v, side = Shape.dot(cframe, body, Vector3.new(body.X / 2, 0.2, 0))
+			expect(math.abs(u - 0.5) < 1e-6).to.equal(true)
+			expect(side).to.equal(1)
+			local chest = Report.CONFIG.SILHOUETTE.chest
+			expect(v > chest.v0 and v < 1).to.equal(true)
+			-- Head-on: on the front face (-Z is the nose end), on the centreline.
+			local nose = Shape.dot(cframe, body, Vector3.new(0, 0, -body.Z / 2))
+			expect(nose).to.equal(0)
+			-- ...and the back face is the other end.
+			local tail = Shape.dot(cframe, body, Vector3.new(0, 0, body.Z / 2))
+			expect(tail).to.equal(1)
+		end)
+
 		it("lands a nose-on impact inside the head's own rectangle", function()
 			-- The trunk at the origin, facing -Z, and a point on the drawn skull (`Boar.CONFIG.ZONES`
 			-- measures the head at z -2.81..-1.45, y 0.35..1.65).

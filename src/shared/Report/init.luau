@@ -196,6 +196,16 @@ Report.CONFIG = {
 		{ name = "Head", u0 = 0.04, u1 = 0.33, v0 = 0.10, v1 = 0.52, corner = 0.38 },
 		-- ...tapering forward and DOWN into the snout, which is the wedge.
 		{ name = "Snout", u0 = 0.00, u1 = 0.13, v0 = 0.27, v1 = 0.48, corner = 0.45 },
+		-- THE BRISKET: the deep front of the chest, under the jaw and in front of the forelegs.
+		--
+		-- IT IS ANATOMY AND IT IS ALSO WHERE THE HITS ARE (task 138). MEASURED over seven real shots
+		-- in the Forest Test: EVERY `body` hit landed in the front quarter of the animal -- u 0.000,
+		-- 0.005, 0.170, 0.194, 0.210, 0.236 -- with v 0.50 to 0.61, because the drive walks the
+		-- animals straight AT the hunter and the first surface a pellet meets is the front of the
+		-- trunk. Four of the seven struck the box's front FACE exactly (`local.Z` = -size.Z/2), which
+		-- projects to u = 0 by construction and is the truth about the shot. The drawn boar had
+		-- nothing there below the snout, so the commonest hit in the game was drawn under the chin.
+		{ name = "Brisket", u0 = 0.02, u1 = 0.36, v0 = 0.42, v1 = 0.68, corner = 0.40 },
 		{ name = "Ear", u0 = 0.23, u1 = 0.32, v0 = 0.00, v1 = 0.15, corner = 0.35 },
 		-- Four short legs. The near pair reaches the ground line and the far pair stops short, which
 		-- is the cheapest way to read as four legs rather than two.
@@ -316,6 +326,42 @@ function Report.ringColor(tint: Color3, fill: Color3, want: number?): Color3
 		end
 	end
 	return toward
+end
+
+-- A DOT THAT FALLS OFF THE DRAWN ANIMAL IS MOVED TO THE NEAREST POINT ON IT (task 138).
+--
+-- IT IS A DRAWING DECISION AND THE RECORD IS UNTOUCHED, which is the same line `drawDots`' half-dot
+-- inset already draws: the attributes on the pip still carry the true `(u, v)` the server measured,
+-- and `SILHOUETTE` -- the rectangles every dot is placed against -- is not consulted here at all.
+--
+-- WHY IT IS NEEDED AT ALL, and the honest version of task 137a's claim: a hit is recorded where the
+-- pellet MET THE BOX, and the box is a rectangle while the animal is not. A shot into the front face
+-- projects to u = 0 exactly -- correct arithmetic, and the commonest shot there is, because the
+-- drive walks the animals at the hunter. The corners of that box are air above the snout and behind
+-- the rump, and an animal cannot be drawn into them. So the rare dot that still lands in one is put
+-- on the nearest bit of animal rather than left floating in front of its nose.
+--
+-- `u` AND `v` ARE NOT THE SAME LENGTH: the art is 104 x 56, so "nearest" is measured in PIXELS and
+-- not in the unit square, or a dot would always be pulled sideways.
+function Report.ontoBoar(u: number, v: number): (number, number)
+	for _, piece in ipairs(Report.CONFIG.BOAR) do
+		if u >= piece.u0 and u <= piece.u1 and v >= piece.v0 and v <= piece.v1 then
+			return u, v
+		end
+	end
+	local wide = Report.CONFIG.SILHOUETTE_WIDTH
+	local tall = Report.CONFIG.SILHOUETTE_HEIGHT
+	local bestU, bestV, bestD = u, v, math.huge
+	for _, piece in ipairs(Report.CONFIG.BOAR) do
+		local onU = math.clamp(u, piece.u0, piece.u1)
+		local onV = math.clamp(v, piece.v0, piece.v1)
+		local dx, dy = (onU - u) * wide, (onV - v) * tall
+		local far = dx * dx + dy * dy
+		if far < bestD then
+			bestD, bestU, bestV = far, onU, onV
+		end
+	end
+	return bestU, bestV
 end
 
 function Report.metres(studs: number?): number

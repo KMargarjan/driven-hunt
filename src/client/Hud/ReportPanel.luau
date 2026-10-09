@@ -390,10 +390,14 @@ local function drawDots(art: Frame, row: any)
 		-- still carry the true (u, v).
 		local insetU = (size / 2) / CONFIG.SILHOUETTE_WIDTH
 		local insetV = (size / 2) / CONFIG.SILHOUETTE_HEIGHT
-		pip.Position = UDim2.fromScale(
+		-- ...AND THEN ONTO THE ANIMAL, if the inset still leaves it in the air (task 138). The
+		-- nudge is applied to the DRAWN position, because that is the space `Report.CONFIG.BOAR`'s
+		-- parts are laid out in; the attributes below still carry the true `(u, v)`.
+		local drawnU, drawnV = Report.ontoBoar(
 			insetU + math.clamp(dot.u or 0, 0, 1) * (1 - 2 * insetU),
 			insetV + math.clamp(dot.v or 0, 0, 1) * (1 - 2 * insetV)
 		)
+		pip.Position = UDim2.fromScale(drawnU, drawnV)
 		pip.Size = UDim2.fromOffset(size, size)
 		pip.BackgroundColor3 = if dot.fatal then Shotgun.CONFIG.HIT_MARK_KILL_COLOR else Color3.new(1, 1, 1)
 		pip.BackgroundTransparency = if (dot.side or 1) < 0 then CONFIG.FAR_SIDE_TRANSPARENCY else 0
