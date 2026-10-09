@@ -27,8 +27,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
-local Shape = require(script.Parent.Shape)
+local Shapes = require(script.Parent.Shapes)
 
 local Hardware = {}
 
@@ -59,10 +60,40 @@ end
 
 -- The key this system asks for. A string literal on purpose: the weapon's config must not require
 -- the manifest (docs/design/asset-pipeline.md section 4.2), and a spec asserts it resolves.
+--
+-- SINCE TASK 140 THE KEYS COME FROM THE WEAPON'S ROW (`row.ASSET_KEYS`), in wear order, and these
+-- two constants are the SHOTGUN's -- kept because they are what `shotgun.handle` means to every
+-- spec and every manifest row written before the rifle existed, and because a row that does not say
+-- otherwise is the shotgun's.
 Hardware.ASSET_KEY = "shotgun.handle"
 
--- The name every granted Tool carries. One per player, so it is also how a stray one is found.
+-- The name every granted Tool carries. One per weapon per player, so it is also how a stray one is
+-- found. `row.toolName` is the authority; this is the shotgun's.
 Hardware.TOOL_NAME = "Shotgun"
+
+-- THE ROW, RESOLVED ONCE, so every function below can be called the way it always was. A nil row
+-- means the shotgun -- the weapon this file was written for and the one every existing caller
+-- means.
+local function rowOf(row: any?): any
+	return row or Weapons.ROWS.shotgun
+end
+
+-- The WORLD shape module for a row: `Weapon.Shape` for the shotgun, `Weapon.ShapeRifle` for the
+-- rifle. The map is on the server side because a shared module may not require a server one.
+local function shapeOf(row: any?): any
+	return Shapes.for_(rowOf(row).id)
+end
+
+-- The Instance name each of a weapon's meshes is worn as, in the row's own key order. The FIRST is
+-- always `MODEL_NAME`, because "does this Handle have a Model child" is what `wearsMesh` and the
+-- upgrade sweep read and nothing may change that answer.
+local function meshNames(row: any?): { string }
+	local resolved = rowOf(row)
+	if resolved.MESH_NAMES then
+		return resolved.MESH_NAMES
+	end
+	return { Hardware.MODEL_NAME, Hardware.BARRELS_NAME }
+end
 
 -- THE NAME OF THE WORN MESH, AND IT IS ALSO THE ONE FACT THE UPGRADE PATH READS. A Handle either has
 -- this child -- the loaded gun -- or it does not, in which case what is on it is Task 71's parts
@@ -81,10 +112,14 @@ Hardware.BARRELS_NAME = "Barrels"
 -- the CLONE by the same name.
 Hardware.SIGHT_NAME = "Sight"
 
-function Hardware.build(): Tool
-	local config = Shotgun.CONFIG
+function Hardware.build(row: any?): Tool
+	local config = rowOf(row)
 	local tool = Instance.new("Tool")
-	tool.Name = Hardware.TOOL_NAME
+	tool.Name = config.toolName
+	-- WHICH WEAPON THIS TOOL IS, ON THE TOOL ITSELF (task 140). The first-person viewmodel reads it
+	-- off the Tool its source already hands it, so the DRAWN gun follows the Instance and can never
+	-- be a frame behind the state (design 5.2). The server never reads it back.
+	tool:SetAttribute("DrivenHunt.Weapon", config.id)
 	tool.RequiresHandle = true
 	tool.CanBeDropped = false
 	tool.Grip = config.GRIP
@@ -92,7 +127,7 @@ function Hardware.build(): Tool
 	local handle = Instance.new("Part")
 	handle.Name = "Handle"
 	handle.Size = config.HANDLE_SIZE
-	handle.Color = config.HANDLE_COLOR
+	handle.Color = config.HANDLE_COLOR or Shotgun.CONFIG.HANDLE_COLOR
 	handle.Material = Enum.Material.Wood
 	handle.CanCollide = false
 	handle.Massless = true
@@ -116,7 +151,7 @@ function Hardware.build(): Tool
 	-- with the view axis -- but the gun is what knows where its own bead is, and a mesh and the parts
 	-- fallback answer differently. `addMesh` overwrites it from the manifest row when that row has a
 	-- measurement (docs/design/camera.md section 6.5).
-	Hardware.setSight(handle, Shape.sight(config))
+	Hardware.setSight(handle, shapeOf(config).sight(config))
 
 	if not Hardware.addMesh(handle, config) then
 		Hardware.addParts(handle, config)
@@ -133,21 +168,25 @@ end
 -- into each half by `asset_prep` as anchor triangles, so the two pieces assemble at ONE CFrame with
 -- no measured offset. A missing barrels template is not an error -- the body alone is still a gun --
 -- and the warning says so once.
-function Hardware.addBarrels(handle: BasePart, size: Vector3, pose: CFrame): boolean
-	if handle:FindFirstChild(Hardware.BARRELS_NAME) ~= nil then
+-- ONE MORE WELDED PIECE, BY KEY AND BY NAME (task 140). This was `addBarrels` and it is the same
+-- function: the shotgun's barrels are the second of its two keys, and the rifle's stock, bolt and
+-- scope are the second, third and fourth of its four. Every piece of every weapon is welded by this
+-- one path, so "a gun handed out between two templates landing" is one rule rather than one per gun.
+function Hardware.addPieceMesh(handle: BasePart, key: string, name: string, size: Vector3, pose: CFrame): boolean
+	if handle:FindFirstChild(name) ~= nil then
 		return true
 	end
 	if templateFor == nil then
 		return false
 	end
-	local barrels, report = templateFor(Hardware.BARRELS_KEY)
+	local barrels, report = templateFor(key)
 	if not (barrels and barrels:IsA("BasePart")) then
 		if not barrelsWarned then
 			barrelsWarned = true
 			warn(
 				string.format(
 					"[Weapon] no %s template (%s); the gun wears its body alone and cannot break open",
-					Hardware.BARRELS_KEY,
+					key,
 					if typeof(report) == "table" and report.reason then report.reason else "not preloaded"
 				)
 			)
@@ -155,7 +194,7 @@ function Hardware.addBarrels(handle: BasePart, size: Vector3, pose: CFrame): boo
 		return false
 	end
 	local worn = (barrels :: BasePart):Clone()
-	worn.Name = Hardware.BARRELS_NAME
+	worn.Name = name
 	worn.Size = size
 	worn.Anchored = false
 	worn.CanCollide = false
@@ -166,12 +205,17 @@ function Hardware.addBarrels(handle: BasePart, size: Vector3, pose: CFrame): boo
 	worn.CFrame = handle.CFrame * pose
 	worn.Parent = handle
 	local weld = Instance.new("Weld")
-	weld.Name = "BarrelsWeld"
+	weld.Name = name .. "Weld"
 	weld.Part0 = handle
 	weld.Part1 = worn
 	weld.C0 = pose
 	weld.Parent = handle
 	return true
+end
+
+-- The shotgun's own second piece, by the name every spec written before task 140 uses.
+function Hardware.addBarrels(handle: BasePart, size: Vector3, pose: CFrame): boolean
+	return Hardware.addPieceMesh(handle, Hardware.BARRELS_KEY, Hardware.BARRELS_NAME, size, pose)
 end
 
 -- CREATE-OR-UPDATE, never a second one. The attachment IS the state, so `build`, `addMesh` and
@@ -202,7 +246,10 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 	if templateFor == nil then
 		return false
 	end
-	local template, report = templateFor(Hardware.ASSET_KEY)
+	local row = rowOf(config)
+	local keys = row.ASSET_KEYS or { Hardware.ASSET_KEY, Hardware.BARRELS_KEY }
+	local names = meshNames(row)
+	local template, report = templateFor(keys[1])
 	if template == nil then
 		-- ONCE, NOT PER GRANT. A gun is granted on every spawn; a warning per spawn is a log nobody
 		-- reads and a frame nobody gets back.
@@ -211,7 +258,7 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 			warn(
 				string.format(
 					"[Weapon] no %s template (%s); wearing the grey box",
-					Hardware.ASSET_KEY,
+					keys[1],
 					if typeof(report) == "table" and report.reason then report.reason else "not preloaded"
 				)
 			)
@@ -219,15 +266,15 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 		return false
 	end
 
-	local row = if typeof(report) == "table" then report.row else nil
-	local size = if typeof(row) == "table" and typeof(row.sizeStuds) == "Vector3"
-		then row.sizeStuds
-		else config.HANDLE_SIZE
-	local rotation = if typeof(row) == "table" and typeof(row.rotationDeg) == "Vector3"
-		then row.rotationDeg
+	local manifest = if typeof(report) == "table" then report.row else nil
+	local size = if typeof(manifest) == "table" and typeof(manifest.sizeStuds) == "Vector3"
+		then manifest.sizeStuds
+		else row.HANDLE_SIZE
+	local rotation = if typeof(manifest) == "table" and typeof(manifest.rotationDeg) == "Vector3"
+		then manifest.rotationDeg
 		else Vector3.zero
-	local offset = if typeof(row) == "table" and typeof(row.offsetStuds) == "Vector3"
-		then row.offsetStuds
+	local offset = if typeof(manifest) == "table" and typeof(manifest.offsetStuds) == "Vector3"
+		then manifest.offsetStuds
 		else Vector3.zero
 
 	-- THE MESH'S OWN SIGHT, when the row carries a measurement. It cannot be derived: the uploaded
@@ -235,8 +282,8 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 	-- measured on screen in ADS and recorded in the row (docs/design/camera.md section 6.5, Director
 	-- item C). Without it the parts-gun bead is the fallback and this warns ONCE, because a gun is
 	-- granted on every spawn and a warning per spawn is a log nobody reads.
-	local sightOffset = if typeof(row) == "table" and typeof(row.sightOffsetStuds) == "Vector3"
-		then row.sightOffsetStuds
+	local sightOffset = if typeof(manifest) == "table" and typeof(manifest.sightOffsetStuds) == "Vector3"
+		then manifest.sightOffsetStuds
 		else nil
 	if sightOffset then
 		Hardware.setSight(handle, CFrame.new(sightOffset))
@@ -246,8 +293,8 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 			string.format(
 				"[Weapon] the %s row carries no sightOffsetStuds; the first-person sight falls back "
 					.. "to the parts gun's bead at %s",
-				Hardware.ASSET_KEY,
-				tostring(Shape.beadOffset(config))
+				keys[1],
+				tostring(shapeOf(row).sight(row).Position)
 			)
 		)
 	end
@@ -257,8 +304,21 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 	-- EACH PIECE ON ITS OWN (task 96). A gun that already wears the body and is missing the barrels
 	-- -- which is every gun handed out between the two templates landing -- must get the barrels and
 	-- not a second body.
+	-- EVERY PIECE AFTER THE BODY, in the row's own order. A gun that already wears the body and is
+	-- missing one of the rest -- which is every gun handed out between two templates landing -- gets
+	-- the rest and not a second body.
+	local function wearTheRest(): boolean
+		local all = true
+		for index = 2, #keys do
+			if not Hardware.addPieceMesh(handle, keys[index], names[index] or keys[index], size, pose) then
+				all = false
+			end
+		end
+		return all
+	end
+
 	if handle:FindFirstChild(Hardware.MODEL_NAME) ~= nil then
-		return Hardware.addBarrels(handle, size, pose)
+		return wearTheRest()
 	end
 
 	local model = template:Clone()
@@ -316,7 +376,7 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 			warn(
 				string.format(
 					"[Weapon] the %s template is a %s, which cannot be worn; wearing the " .. "grey box",
-					Hardware.ASSET_KEY,
+					keys[1],
 					template.ClassName
 				)
 			)
@@ -327,7 +387,7 @@ function Hardware.addMesh(handle: BasePart, config): boolean
 	-- `Model` branch alone, so a body that arrives as a MeshPart -- which is what this gun is --
 	-- never got them: the spec's own note read `body=true barrels=false` while the game, where the
 	-- gun is upgraded through the other path, looked right. One call, after either branch.
-	Hardware.addBarrels(handle, size, pose)
+	wearTheRest()
 	return true
 end
 
@@ -378,7 +438,7 @@ end
 -- opposite: naming both means the list of what the parts gun is made of is walked in one place,
 -- forwards and backwards, instead of being spelled out wherever a parts gun is put on or taken off.
 function Hardware.addParts(handle: BasePart, config)
-	for _, piece in ipairs(Shape.pieces(config)) do
+	for _, piece in ipairs(shapeOf(config).pieces(rowOf(config))) do
 		Hardware.addPiece(handle, piece)
 	end
 end
@@ -390,7 +450,7 @@ end
 -- made of, and the first thing it deleted would be the attachment every shot is measured from.
 function Hardware.removeParts(handle: BasePart, config): number
 	local removed = 0
-	for _, piece in ipairs(Shape.pieces(config)) do
+	for _, piece in ipairs(shapeOf(config).pieces(rowOf(config))) do
 		local part = handle:FindFirstChild(piece.name)
 		if part then
 			part:Destroy()
@@ -407,8 +467,23 @@ end
 -- Is this Tool wearing the loaded gun, or the parts fallback? Read off the Instance, never off a
 -- table this module keeps: a Tool granted by a server that has since reloaded, or one the sweep found
 -- and this module never recorded, answers correctly anyway.
-function Hardware.wearsMesh(tool: Tool): boolean
+function Hardware.wearsMesh(tool: Tool, row: any?): boolean
 	local handle = tool:FindFirstChild("Handle")
+	-- EVERY PIECE THIS WEAPON HAS, not just two (task 140). A rifle wearing its action and no scope
+	-- is as half-dressed as a shotgun wearing its body and no barrels, and that matters for the same
+	-- reason: `wearsMesh` is what stops the upgrade sweep from ever giving it the rest.
+	local resolved = row or Weapons.row(tool:GetAttribute("DrivenHunt.Weapon") :: any)
+	if resolved ~= nil and resolved.MESH_NAMES ~= nil then
+		if handle == nil then
+			return false
+		end
+		for _, name in ipairs(resolved.MESH_NAMES) do
+			if handle:FindFirstChild(name) == nil then
+				return false
+			end
+		end
+		return true
+	end
 	-- BOTH PIECES SINCE TASK 96. A gun wearing the body and no barrels is half a gun, and saying it
 	-- "wears the mesh" is what stopped the upgrade sweep from ever giving it the rest: the first
 	-- Play session of that task handed out a body-only gun and nothing ever fixed it, because the
@@ -440,15 +515,18 @@ end
 -- The ADS viewmodel follows from its one source without being told: it CLONES this Handle
 -- (docs/design/camera.md 3.2) and `Camera.Viewmodel` rebuilds the clone when the source's children
 -- change, so the first-person gun cannot be left wearing a look the third-person gun has dropped.
-function Hardware.upgrade(tool: Tool): boolean
+function Hardware.upgrade(tool: Tool, row: any?): boolean
 	local handle = tool:FindFirstChild("Handle")
 	if handle == nil or not handle:IsA("BasePart") then
 		return false
 	end
-	if Hardware.wearsMesh(tool) then
+	-- WHICH WEAPON THIS TOOL IS, off the Tool itself (task 140): the attribute `build` wrote. A Tool
+	-- from a server that has since reloaded, or one the sweep found and nobody recorded, still
+	-- answers correctly -- the same reason `wearsMesh` reads the Instance rather than a table.
+	local config = row or Weapons.row(tool:GetAttribute("DrivenHunt.Weapon") :: any) or Weapons.ROWS.shotgun
+	if Hardware.wearsMesh(tool, config) then
 		return false
 	end
-	local config = Shotgun.CONFIG
 	if not Hardware.addMesh(handle, config) then
 		return false
 	end
@@ -501,13 +579,22 @@ end
 
 -- Every Tool of ours this player is carrying, Backpack and character both. Arming is one-tool-per
 -- -player, and this is how that is enforced rather than assumed.
-function Hardware.toolsOf(player: Player): { Tool }
+-- `id` NARROWS IT TO ONE WEAPON (task 140); nil is every weapon this system owns, which is what
+-- the stray sweep and the upgrade pass want. The names come from the table, so no caller carries
+-- the literal "Shotgun" again.
+function Hardware.toolsOf(player: Player, id: string?): { Tool }
 	local found = {}
+	local wanted = if id ~= nil then Weapons.row(id) else nil
 	for _, container in { player:FindFirstChildOfClass("Backpack"), player.Character } do
 		if container then
 			for _, child in container:GetChildren() do
-				if child:IsA("Tool") and child.Name == Hardware.TOOL_NAME then
-					table.insert(found, child)
+				if child:IsA("Tool") then
+					local matches = if wanted ~= nil
+						then child.Name == wanted.toolName
+						else Weapons.isToolName(child.Name)
+					if matches then
+						table.insert(found, child)
+					end
 				end
 			end
 		end

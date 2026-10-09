@@ -655,6 +655,10 @@ SPEC_ROOTS = {"server": ("ServerStorage", "Tests"), "client": ("ReplicatedStorag
 BLAST_RADIUS = (
     ("src/shared/Gun/", "gun"),
     ("src/shared/Shotgun/", "gun"),
+    # The rifle (task 140): its numbers and its drawn geometry are a gun's, and the table that
+    # holds BOTH weapons' rows is the weapon system's.
+    ("src/shared/Rifle/", "gun"),
+    ("src/shared/Weapons/", "weapon"),
     ("src/shared/Viewmodel/", "viewmodel"),
     ("src/client/Camera/Viewmodel.luau", "viewmodel"),
     ("src/client/Camera/Poses.luau", "viewmodel"),
@@ -690,7 +694,9 @@ SCOPE_SPECS = {
                "tests/server/weapon_state.spec.luau", "tests/server/weapon_equip.spec.luau",
                "tests/server/boar_hit.spec.luau",
                "tests/server/boar_shot.spec.luau",
+               "tests/server/rifle.spec.luau",
                "tests/client/weapon_client.spec.luau", "tests/client/hit_marker.spec.luau",
+               "tests/client/rifle_client.spec.luau",
                "tests/client/shoot_boar.spec.luau"),
     "boar": ("tests/server/boar_behaviour.spec.luau", "tests/server/boar_behaviour_live.spec.luau",
              "tests/server/boar_body.spec.luau", "tests/server/boar_brain.spec.luau",

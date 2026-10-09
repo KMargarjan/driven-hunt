@@ -14,11 +14,16 @@ local StateMachine = Weapon.StateMachine
 local Registry = Weapon.Registry
 local Limits = Weapon.Limits
 local CONFIG = Shotgun.CONFIG
+-- THE WEAPON'S ROW (task 140). `StateMachine.apply` takes it and has no default, so every one of
+-- these cases says which weapon it means -- and `ROW` is built from `Shotgun.CONFIG`, so every
+-- number this file has ever asserted is still that config's.
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+local ROW = Weapons.ROWS.shotgun
 
 return function()
 	describe("weapon state machine", function()
 		it("starts closed, loaded and unequipped, and is frozen all the way down", function()
-			local state = StateMachine.initial(CONFIG)
+			local state = StateMachine.initial(ROW)
 			expect(state.open).to.equal(false)
 			expect(state.equipped).to.equal(false)
 			expect(state.barrels[1]).to.equal("Live")
@@ -50,15 +55,15 @@ return function()
 		end)
 
 		it("refuses to fire an unequipped gun, and changes nothing", function()
-			local state = StateMachine.initial(CONFIG)
-			local next, reason = StateMachine.apply(state, { kind = "Fire" }, 0)
+			local state = StateMachine.initial(ROW)
+			local next, reason = StateMachine.apply(state, { kind = "Fire" }, 0, ROW)
 			expect(reason).to.equal("not-equipped")
 			expect(next).to.equal(state)
 		end)
 
 		it("fires the selected barrel, spends it, and moves to the other one", function()
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
-			local next, reason = StateMachine.apply(state, { kind = "Fire" }, 100)
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
+			local next, reason = StateMachine.apply(state, { kind = "Fire" }, 100, ROW)
 			expect(reason).to.equal(nil)
 			expect(next.barrels[1]).to.equal("Spent")
 			expect(next.loaded[1]).to.equal("None") -- a value, never a hole
@@ -68,39 +73,39 @@ return function()
 		end)
 
 		it("rejects a second shot inside the barrel delay, returning the same table", function()
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
-			local fired = StateMachine.apply(state, { kind = "Fire" }, 100)
-			local next, reason = StateMachine.apply(fired, { kind = "Fire" }, 100.1)
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
+			local fired = StateMachine.apply(state, { kind = "Fire" }, 100, ROW)
+			local next, reason = StateMachine.apply(fired, { kind = "Fire" }, 100.1, ROW)
 			expect(reason).to.equal("busy")
 			expect(next).to.equal(fired)
 		end)
 
 		it("rejects a spent barrel and does not shuffle the selection when both are spent", function()
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
-			local one = StateMachine.apply(state, { kind = "Fire" }, 100)
-			local two = StateMachine.apply(one, { kind = "Fire" }, 101)
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
+			local one = StateMachine.apply(state, { kind = "Fire" }, 100, ROW)
+			local two = StateMachine.apply(one, { kind = "Fire" }, 101, ROW)
 			expect(two.barrels[2]).to.equal("Spent")
 			local selected = two.selected
-			local next, reason = StateMachine.apply(two, { kind = "Fire" }, 102)
+			local next, reason = StateMachine.apply(two, { kind = "Fire" }, 102, ROW)
 			expect(reason).to.equal("barrel-empty")
 			expect(next.selected).to.equal(selected)
 		end)
 
 		it("runs break, load, load, close and never lets a second break in", function()
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
-			local fired = StateMachine.apply(state, { kind = "Fire" }, 0)
-			local open = StateMachine.apply(fired, { kind = "Break" }, 1)
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
+			local fired = StateMachine.apply(state, { kind = "Fire" }, 0, ROW)
+			local open = StateMachine.apply(fired, { kind = "Break" }, 1, ROW)
 			expect(open.open).to.equal(true)
 			expect(open.barrels[1]).to.equal("Empty")
 			expect(open.loaded[2]).to.equal("None")
 
 			-- This rejection IS the uninterruptible reload (feel default 2).
-			local again, reason = StateMachine.apply(open, { kind = "Break" }, 2)
+			local again, reason = StateMachine.apply(open, { kind = "Break" }, 2, ROW)
 			expect(reason).to.equal("is-open")
 			expect(again).to.equal(open)
 
-			local one = StateMachine.apply(open, { kind = "Load" }, 2)
-			local two = StateMachine.apply(one, { kind = "Load" }, 3)
+			local one = StateMachine.apply(open, { kind = "Load" }, 2, ROW)
+			local two = StateMachine.apply(one, { kind = "Load" }, 3, ROW)
 			expect(two.barrels[1]).to.equal("Live")
 			expect(two.barrels[2]).to.equal("Live")
 			expect(two.loaded[1]).to.equal("Slug")
@@ -108,22 +113,22 @@ return function()
 			-- barrel was spent by the Fire above): 23. Karen, 2026-09-25.
 			expect(two.reserve.Slug).to.equal(23)
 
-			local full, closeReason = StateMachine.apply(two, { kind = "Load" }, 4)
+			local full, closeReason = StateMachine.apply(two, { kind = "Load" }, 4, ROW)
 			expect(closeReason).to.equal("barrel-full")
 			expect(full).to.equal(two)
 
-			local closed = StateMachine.apply(two, { kind = "Close" }, 5)
+			local closed = StateMachine.apply(two, { kind = "Close" }, 5, ROW)
 			expect(closed.open).to.equal(false)
 			expect(closed.selected).to.equal(1)
 
-			local firing, fireReason = StateMachine.apply(open, { kind = "Fire" }, 6)
+			local firing, fireReason = StateMachine.apply(open, { kind = "Fire" }, 6, ROW)
 			expect(fireReason).to.equal("is-open")
 			expect(firing).to.equal(open)
 		end)
 
 		it("will not load a closed gun, or one with nothing left", function()
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
-			local closedReason = select(2, StateMachine.apply(state, { kind = "Load" }, 0))
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
+			local closedReason = select(2, StateMachine.apply(state, { kind = "Load" }, 0, ROW))
 			expect(closedReason).to.equal("is-closed")
 
 			local empty = table.clone(state) :: any
@@ -131,7 +136,7 @@ return function()
 			empty.reserve = { Slug = 0, Buck = 0 }
 			empty.barrels = { "Empty", "Empty" }
 			empty.loaded = { "None", "None" }
-			local next, reason = StateMachine.apply(Shotgun.deepFreeze(empty), { kind = "Load" }, 0)
+			local next, reason = StateMachine.apply(Shotgun.deepFreeze(empty), { kind = "Load" }, 0, ROW)
 			expect(reason).to.equal("no-reserve")
 			expect(next.barrels[1]).to.equal("Empty")
 		end)
@@ -139,20 +144,20 @@ return function()
 		it("selects the kind the NEXT load uses, and rejects an unknown action", function()
 			-- The primitive still does one thing. Since Karen's playtest the OWNER follows it with a
 			-- full Break/Load/Load/Close, which is what makes X change the shells in the gun.
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
-			local next = StateMachine.apply(state, { kind = "SelectAmmo", ammo = "Buck" }, 0)
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
+			local next = StateMachine.apply(state, { kind = "SelectAmmo", ammo = "Buck" }, 0, ROW)
 			expect(next.ammo).to.equal("Buck")
 			expect(next.loaded[1]).to.equal("Slug") -- this primitive alone does not rewrite them
-			expect(select(2, StateMachine.apply(state, { kind = "Nope" :: any }, 0))).to.equal("bad-action")
-			expect(select(2, StateMachine.apply(state, { kind = "SelectAmmo", ammo = "Grenade" :: any }, 0))).to.equal(
+			expect(select(2, StateMachine.apply(state, { kind = "Nope" :: any }, 0, ROW))).to.equal("bad-action")
+			expect(select(2, StateMachine.apply(state, { kind = "SelectAmmo", ammo = "Grenade" :: any }, 0, ROW))).to.equal(
 				"bad-action"
 			)
 		end)
 
 		it("never mutates the state it was given", function()
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
 			local before = { state.barrels[1], state.barrels[2], state.loaded[1], state.reserve.Slug }
-			local next = StateMachine.apply(state, { kind = "Fire" }, 0)
+			local next = StateMachine.apply(state, { kind = "Fire" }, 0, ROW)
 			expect(next).never.to.equal(state)
 			expect(state.barrels[1]).to.equal(before[1])
 			expect(state.barrels[2]).to.equal(before[2])
@@ -162,24 +167,24 @@ return function()
 
 		it("returns unfired shells to their own pocket when the action is broken", function()
 			-- Karen, 2026-09-25: "the unfired shells of the old type go back to the reserve".
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
-			local open = StateMachine.apply(state, { kind = "Break" }, 0)
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
+			local open = StateMachine.apply(state, { kind = "Break" }, 0, ROW)
 			expect(open.reserve.Slug).to.equal(26) -- the two live slugs came back
 			expect(open.reserve.Buck).to.equal(24)
 
-			local fired = StateMachine.apply(state, { kind = "Fire" }, 0)
-			local half = StateMachine.apply(fired, { kind = "Break" }, 1)
+			local fired = StateMachine.apply(state, { kind = "Fire" }, 0, ROW)
+			local half = StateMachine.apply(fired, { kind = "Break" }, 1, ROW)
 			expect(half.reserve.Slug).to.equal(25) -- one spent case is gone, one live shell returned
 		end)
 
 		it("swaps the gun to the other type, pocket by pocket", function()
 			-- The sequence the owner runs on X: SelectAmmo, then Break/Load/Load/Close.
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
-			local swapped = StateMachine.apply(state, { kind = "SelectAmmo", ammo = "Buck" }, 0)
-			local open = StateMachine.apply(swapped, { kind = "Break" }, 1)
-			local one = StateMachine.apply(open, { kind = "Load" }, 2)
-			local two = StateMachine.apply(one, { kind = "Load" }, 3)
-			local closed = StateMachine.apply(two, { kind = "Close" }, 4)
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
+			local swapped = StateMachine.apply(state, { kind = "SelectAmmo", ammo = "Buck" }, 0, ROW)
+			local open = StateMachine.apply(swapped, { kind = "Break" }, 1, ROW)
+			local one = StateMachine.apply(open, { kind = "Load" }, 2, ROW)
+			local two = StateMachine.apply(one, { kind = "Load" }, 3, ROW)
+			local closed = StateMachine.apply(two, { kind = "Close" }, 4, ROW)
 
 			expect(closed.ammo).to.equal("Buck")
 			expect(closed.loaded[1]).to.equal("Buck")
@@ -191,14 +196,14 @@ return function()
 		end)
 
 		it("cannot load a type the player has none of", function()
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
 			local drained = table.clone(state) :: any
 			drained.reserve = { Slug = 24, Buck = 0 }
 			drained.ammo = "Buck"
 			drained.open = true
 			drained.barrels = { "Empty", "Empty" }
 			drained.loaded = { "None", "None" }
-			local next, reason = StateMachine.apply(Shotgun.deepFreeze(drained), { kind = "Load" }, 0)
+			local next, reason = StateMachine.apply(Shotgun.deepFreeze(drained), { kind = "Load" }, 0, ROW)
 			expect(reason).to.equal("no-reserve")
 			expect(next.barrels[1]).to.equal("Empty")
 		end)
@@ -210,10 +215,10 @@ return function()
 		end)
 
 		it("applies 10000 times in under 100 ms", function()
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
 			local started = os.clock()
 			for index = 1, 10000 do
-				StateMachine.apply(state, { kind = "Fire" }, index)
+				StateMachine.apply(state, { kind = "Fire" }, index, ROW)
 			end
 			expect(os.clock() - started < 0.1).to.equal(true)
 		end)
@@ -221,8 +226,8 @@ return function()
 
 	describe("weapon snapshot", function()
 		it("turns the deadline into a duration, drops the server-only fields, and freezes", function()
-			local state = StateMachine.setEquipped(StateMachine.initial(CONFIG), true)
-			local fired = StateMachine.apply(state, { kind = "Fire" }, 10)
+			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
+			local fired = StateMachine.apply(state, { kind = "Fire" }, 10, ROW)
 			local snapshot = Shotgun.snapshot(fired, 10.1, "NO BUCK")
 			expect(snapshot.notice).to.equal("NO BUCK")
 			expect(Shotgun.snapshot(fired, 10.1).notice).to.equal(nil)

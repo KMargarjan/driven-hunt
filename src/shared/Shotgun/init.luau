@@ -46,6 +46,9 @@ export type WeaponSnapshot = {
 	reserve: { [string]: number },
 	busyFor: number,
 	notice: string?, -- one short line for the Hud ("NO BUCK"); nil most of the time
+	-- WHICH WEAPON THIS STATE BELONGS TO (task 140). The readout follows the STATE, and the drawn
+	-- gun follows the Instance -- the two routes and the boundary between them are design 5.2.
+	weapon: string?,
 }
 
 export type ActionKind = "Fire" | "Break" | "Load" | "Close" | "SelectAmmo"
@@ -64,6 +67,9 @@ export type HitReport = {
 	position: Vector3,
 	normal: Vector3,
 	ammo: AmmoKind,
+	-- WHICH GUN MADE THIS HIT (task 140): a `Weapons.WeaponId`, carried as a plain string so this
+	-- module keeps requiring nothing. nil is legal and means "a record from before the rifle".
+	weapon: string?,
 	at: number,
 }
 export type ShotPayload = {
@@ -98,7 +104,7 @@ end
 
 -- The one converter from server state to what crosses the wire: a deadline becomes a duration,
 -- because os.clock() on the server means nothing on a client (design section 5.1).
-function Shotgun.snapshot(state: WeaponState, now: number, notice: string?): WeaponSnapshot
+function Shotgun.snapshot(state: WeaponState, now: number, notice: string?, weapon: string?): WeaponSnapshot
 	return Shotgun.deepFreeze({
 		equipped = state.equipped,
 		open = state.open,
@@ -109,6 +115,7 @@ function Shotgun.snapshot(state: WeaponState, now: number, notice: string?): Wea
 		reserve = table.clone(state.reserve),
 		busyFor = math.max(0, state.busyUntil - now),
 		notice = notice,
+		weapon = weapon,
 	})
 end
 
@@ -176,6 +183,11 @@ Shotgun.CONFIG = {
 	FIRE_RATE_LIMIT = 6, -- received requests/s
 	ACTION_RATE_LIMIT = 10,
 	STATE_RATE_LIMIT = 20,
+	-- A SWITCH HAS NO REMOTE (task 140) -- the engine's own hotbar moves the Tool -- but it does have
+	-- a PUBLISH, and that publish used to be forced past `STATE_RATE_LIMIT` because it rides the same
+	-- `sync()` as a grant. A player mashing 1/2 would flood `StateChanged` at input rate, so the
+	-- Parent-change publish takes its own bucket. Eight a second is instant to a human.
+	EQUIP_RATE_LIMIT = 8,
 
 	-- the hardware
 	HANDLE_SIZE = Vector3.new(0.4, 0.5, 4.4), -- 4.4 studs ~ 1.23 m

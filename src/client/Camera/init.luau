@@ -52,6 +52,11 @@ export type BreakSource = { state: () -> { open: boolean, spent: number, loaded:
 local state = Mode.initial(Config)
 local lookDelta = Vector2.zero
 local aimSource: AimSource? = nil
+-- THE THIRD INJECTED SOURCE (task 140), beside the aim source and the break source and for exactly
+-- the same reason: the camera must not require the weapon. It is told a field of view, a reticle to
+-- hand on to the Hud, and a sway -- and it still does not know what a rifle is.
+local opticsSource: OpticsSource? = nil
+local lastOptics: Optics? = nil
 local breakSource: BreakSource? = nil
 local started = false
 local connections: { RBXScriptConnection } = {}
@@ -114,6 +119,29 @@ end
 
 function Camera.modeHistory(): { string }
 	return table.clone(history)
+end
+
+-- WHAT THE AIMED WEAPON'S SIGHT DOES TO THE VIEW. nil is a bead: `config.FOV_AIM_DEG`, no reticle
+-- and no sway, which is the shotgun and every caller written before the rifle.
+export type Optics = {
+	aimFovDeg: number,
+	reticle: any?,
+	sway: { ampDeg: number, periodSeconds: number }?,
+}
+export type OpticsSource = { optics: () -> Optics? }
+
+function Camera.setOpticsSource(source: OpticsSource?)
+	opticsSource = source
+end
+
+function Camera.getOpticsSource(): OpticsSource?
+	return opticsSource
+end
+
+-- THE OPTICS THIS FRAME RESOLVED TO, republished as a fact about the VIEW rather than about the
+-- weapon. The Hud reads this and never the weapon table, exactly as it reads `isFirstPerson()`.
+function Camera.scope(): Optics?
+	return lastOptics
 end
 
 function Camera.setAimSource(source: AimSource?)
@@ -181,7 +209,14 @@ function Camera.stats()
 	out.foreignCameraWrites = Rig.stats().foreignCameraWrites
 	out.cursorReasserts = Cursor.stats().reasserts
 	out.viewmodelParented = Viewmodel.isParented()
-	out.breakAngleDeg = Mode.breakAngleDeg(state, Poses.config(Config))
+	local poseConfig = Poses.config(Config, Viewmodel.weaponId())
+	out.breakAngleDeg = Mode.breakAngleDeg(state, poseConfig)
+	-- HOW FAR THROUGH ITS ACTION THE GUN IS (task 140): the one number both the break-open and the
+	-- bolt are drawn from, published so a spec can watch a cycle happen rather than infer it.
+	out.cycleProgress = Mode.cycleProgress(state, poseConfig)
+	out.scopeSwayDeg = state.scopeSwayDeg
+	out.aimFovDeg = state.aimFovDeg
+	out.weapon = Viewmodel.weaponId()
 	local drawn = Viewmodel.stats()
 	out.shellsDrawn = drawn.shellsDrawn
 	-- THE HANDS (task 93): how many the viewmodel has drawn since boot, and how many clones went
@@ -298,7 +333,7 @@ function Camera.breakSound(wasOpen: boolean, isOpen: boolean): string?
 end
 
 function Camera.poseConfig()
-	return Poses.config(Config)
+	return Poses.config(Config, Viewmodel.weaponId())
 end
 
 -- THE SHOT'S FLASH AND SMOKE, ON THE DRAWN GUN (task 112). The gun on screen is not the gun in the
@@ -348,8 +383,13 @@ local function update(dt: number)
 	-- exactly the shape the flag read has. Outside Studio this IS `Config`, the same frozen table;
 	-- inside one, it is `Config` with whatever `tools/pose.py set` has put in the live override, so
 	-- the Director sees a changed number on the next frame rather than after a commit and a review.
-	local config = Poses.config(Config)
+	-- THE POSES OF THE WEAPON ON SCREEN (task 140). The DRAWN gun follows the INSTANCE -- the
+	-- viewmodel reads the id off the Tool its source hands it -- so the poses cannot be a frame
+	-- behind a state replica, which is what would draw the shotgun in the rifle's hands.
+	local config = Poses.config(Config, Viewmodel.weaponId())
 	local hold = Poses.hold()
+	-- ...AND THE OPTICS, ONCE A FRAME, at the same boundary that resolves the poses and the break.
+	lastOptics = if opticsSource then opticsSource.optics() else nil
 	local character, root, humanoid = characterParts()
 	local alive = humanoid ~= nil and humanoid.Health > 0
 	local aiming = aimSource ~= nil and aimSource.isAiming()
@@ -372,6 +412,8 @@ local function update(dt: number)
 		hasCharacter = character ~= nil and root ~= nil,
 		lookDelta = lookDelta,
 		breaking = breaking ~= nil and breaking.open,
+		aimFovDeg = if lastOptics then lastOptics.aimFovDeg else nil,
+		sway = if lastOptics then lastOptics.sway else nil,
 	}, dt, config)
 	-- THE HOLD, AFTER THE STEP AND EVERY FRAME. It forces the blend and the break tilt to one named
 	-- pose so a screenshot catches the gun still; it refuses to touch Loading or Dead, so it can

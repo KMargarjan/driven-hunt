@@ -24,6 +24,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local Input = {}
 
@@ -238,7 +239,11 @@ local function pruneWatched()
 end
 
 local function watchTool(tool: Instance)
-	if not tool:IsA("Tool") or tool.Name ~= "Shotgun" then
+	-- ANY TOOL THIS SYSTEM OWNS (task 140), from the table rather than from a literal here: with two
+	-- weapons a player carries two Tools, and the machinery below was already written for a dead
+	-- Tool coexisting with a live one -- `bind(tool)` records which Tool the four actions belong to,
+	-- `Tool.Unequipped` unbinds, and `forgetTool` unbinds only when it was the bound one.
+	if not tool:IsA("Tool") or not Weapons.isToolName(tool.Name) then
 		return
 	end
 	pruneWatched()

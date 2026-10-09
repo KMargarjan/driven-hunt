@@ -34,6 +34,7 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- piece is on that gun. The gun decides the scale, so the manifest does not carry a second copy
 -- of it -- the rule `Gun.beadOffset` and `Shape.beadOffset` already follow one layer over.
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
 
 local Assets = {}
 
@@ -330,6 +331,27 @@ local MODEL_B_LICENCE = {
 -- exactly, which is what the model was scaled to; the other two are the animal's own proportions.
 -- It is a constant and not a literal in the row because `Boar.Body`'s own spec asserts against the
 -- same number, and two copies of a measurement drift.
+-- THE RIGBY'S LICENCE (task 140), read off the `license.txt` shipped with the Sketchfab download.
+-- Karen chose the model herself on 2026-10-09 (*"I think we inaf this one it's already with scope"*)
+-- and gave the upload OK in the same breath (*"it's in download you upload your self"*).
+--
+-- WHAT CC-BY DOES NOT COVER, and it is why the texture is not the artist's byte for byte: the
+-- trademarks printed on it. The scope's maker name, its "Made in Austria" line and serial, its two
+-- bird logos and the stock's gold double-R monogram were painted out of the base colour atlas before
+-- anything was uploaded. `CREDITS.md` records exactly what was changed, as the licence asks.
+local RIGBY_LICENCE = {
+	basis = "cc-by-4.0",
+	quote = "Model License: license type: CC-BY-4.0 "
+		.. "(http://creativecommons.org/licenses/by/4.0/); requirements: Author must be "
+		.. "credited. Commercial use is allowed.",
+	quotedFrom = "license.txt, shipped with the Sketchfab download of the model",
+	readOn = "2026-10-09",
+	attribution = 'This work is based on "DAE -  Rigby Hunting Rifle - Game Ready Asset" '
+		.. "(https://sketchfab.com/3d-models/dae-rigby-hunting-rifle-game-ready-asset-"
+		.. "e77855f0c3ea4340a4d67a4ece4b87ac) by Martijn Vaes (https://sketchfab.com/MartijnVaes) "
+		.. "licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+}
+
 local BOAR_MALE_SIZE = Vector3.new(1.4011, 3.2573, 5.5)
 -- ...AND THE SOW AND THE CUB (task 119), the same measurement at the two smaller lengths. Blender
 -- exports (width, length, height) and Roblox's importer lands it as (width, height, length), which is
@@ -2043,6 +2065,123 @@ Assets.ROWS = {
 		rotationDeg = NO_GEOMETRY,
 		renderFidelity = NO_FIDELITY,
 		notes = "Rooting ALONG the ground: head low (nose -72..-59 deg) and the hooves travelling 1.901 studs/s, so it is rated like a gait -- Karen's 'move alon'. Looped.",
+	},
+	-- ------------------------------------------------- the rifle (task 140)
+	--
+	-- FOUR GROUPS OF ONE GUN, and every one of them carries the WHOLE gun's bounding box: the anchor
+	-- triangles `tools/gltf_split.py` adds at the model's opposite corners, so all four import at one
+	-- size and one origin and assemble at ONE CFrame with no measured per-piece offset. That is why
+	-- every row below has the same `sizeStuds`, the same zero offset and the same rotation.
+	--
+	-- THE SAME TWO TURNS THE SHOTGUN'S MESHES NEED (`Gun.MESH_ROTATION_DEG`): the splitter writes the
+	-- muzzle at the file's +X and the Blender export plus the Roblox import reverse the model along
+	-- its own long axis (task 107, measured on screen).
+	--
+	-- THE LENS IS NOT HERE ON PURPOSE. The model's lens node is its only material-1 node and that
+	-- material carries no base colour texture at all, so `asset_prep` refused it -- correctly, there
+	-- being nothing to prepare. `Rifle.Geometry` draws the lens as a glass disc, exactly as task 99
+	-- draws the shotgun's bore discs.
+	{
+		key = "rifle.action",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 87834050806483,
+		displayName = "Driven Hunt rifle action r1",
+		fileName = "model.fbx",
+		sourceSha256 = "b9fd6b60dd7452e565401bdcb771dc7a0526d1b6ca63a3101a7f9cef87803fb7",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = RIGBY_LICENCE,
+		added = "2026-10-09",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 8258,
+		texturePx = 1024,
+		sizeStuds = RifleGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(440.0, 90.9786, 22.8694),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, RifleGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The barrel, the receiver with its scope base, the trigger, the guard and the safety "
+			.. "-- everything that does not move. Looked at before it was called done "
+			.. "(render_three-quarter.png): a long thin barrel out of an engraved receiver, with the "
+			.. "trigger guard under it. The artist's own maps at 1024, the packed ORM split into the "
+			.. "two single-channel maps Roblox reads, metalness written down to 0.10 and roughness to "
+			.. "0.50 so the steel does not mirror the sky; NO base colour was recoloured.",
+	},
+	{
+		key = "rifle.stock",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 72872036682045,
+		displayName = "Driven Hunt rifle stock r1",
+		fileName = "model.fbx",
+		sourceSha256 = "61bf44f27631a7b62f1d61d794fb16fe6fc1e80b8580aed088f9290d0000110f",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = RIGBY_LICENCE,
+		added = "2026-10-09",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 5452,
+		texturePx = 1024,
+		sizeStuds = RifleGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(440.0, 90.9786, 22.8694),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, RifleGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The walnut: butt, comb, pistol grip and fore-end in one piece. Looked at "
+			.. "(render_side.png): figured walnut with a dark fore-end tip and a recoil pad. The gold "
+			.. "double-R monogram that was on the grip cap is painted out of the atlas (CREDITS.md).",
+	},
+	{
+		key = "rifle.bolt",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 113594395292031,
+		displayName = "Driven Hunt rifle bolt r1",
+		fileName = "model.fbx",
+		sourceSha256 = "81ce7c2f5b897226b17cab5cadf692d88735fe43f66c7e394bed4bab03df184d",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = RIGBY_LICENCE,
+		added = "2026-10-09",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 2102,
+		texturePx = 1024,
+		sizeStuds = RifleGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(440.0, 90.9786, 22.8694),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, RifleGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "THE PIECE THAT MOVES: the bolt body and its turned-down handle, in one node. Which "
+			.. "node that was is a measurement rather than a name -- the model's `TriggerHandle` is the "
+			.. "trigger GUARD, and `Midden1`'s extreme +X vertices are a knob at the rear of the action, "
+			.. "below the bore. `tools/gltf_split.py`'s `rigby` plan writes it down.",
+	},
+	{
+		key = "rifle.scope",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 97629895591062,
+		displayName = "Driven Hunt rifle scope r1",
+		fileName = "model.fbx",
+		sourceSha256 = "21b37fc6b83f9711471296fbda09cef41a8c69ccb4436a7596455b47d77f621b",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = RIGBY_LICENCE,
+		added = "2026-10-09",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 2860,
+		texturePx = 1024,
+		sizeStuds = RifleGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(440.0, 90.9786, 22.8694),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, RifleGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The tube, its rings and its turrets. Looked at (render_three-quarter.png): a dark "
+			.. "grey tube with a windage turret and an elevation turret, which is the one group of the "
+			.. "four whose preview reads exactly like the real thing. Every maker's mark it carried -- "
+			.. "the name, the 'Made in Austria' line, the serial and both bird logos -- is painted out "
+			.. "of the atlas; the magnification numerals are generic and were kept.",
 	},
 } :: { AssetRow }
 

@@ -62,7 +62,11 @@ end
 -- ONE report per (shot, target): nine pellets on one boar are one report with pellets = 9, never
 -- nine reports. The dominant zone wins; a tie is broken by the nearest impact, so a tie is decided
 -- by geometry rather than by table order.
-function Hits.group(shooter: Player, impacts: { Impact }, ammo: string, now: number): { HitReport }
+-- `weapon` IS THE WEAPON'S ID, AND THIS IS THE ONE PLACE IT ENTERS THE SYSTEM (task 140). A weapon
+-- is a property of the SHOT, exactly as `ammo` is, and `group` is the only constructor of a
+-- `HitReport` -- so `HitLog` copies it the way it copies `zone`, and the drive report can name the
+-- gun without anybody deriving anything.
+function Hits.group(shooter: Player, impacts: { Impact }, ammo: string, now: number, weapon: string?): { HitReport }
 	local order, byTarget = {}, {}
 	for _, impact in ipairs(impacts) do
 		local target, zone = Hits.targetOf(impact.instance)
@@ -104,6 +108,7 @@ function Hits.group(shooter: Player, impacts: { Impact }, ammo: string, now: num
 			position = entry.position,
 			normal = entry.normal,
 			ammo = ammo,
+			weapon = weapon,
 			at = now,
 		}
 	end

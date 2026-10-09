@@ -41,6 +41,15 @@ export type State = {
 	recoilCamPitchDeg: number,
 	recoilCamPitchRate: number,
 	openTilt: number,
+	-- THE SCOPE'S TWO (task 140), and `scopeSwayDeg` is a VIEW term rather than a gun term -- which
+	-- is the whole distinction, written here because the state carries both: `swayDeg` above is "the
+	-- gun wanders in the frame", cosmetic and still at its rest since task 89; this one is "the view
+	-- wanders", which moves the point of impact with it and is what makes a long shot hard.
+	scopeSwayDeg: Vector2,
+	scopePhase: number,
+	-- The aimed field of view this frame's weapon asked for, kept on the state so `cameraCFrame`
+	-- and the sensitivity read the same number `step` was given.
+	aimFovDeg: number?,
 }
 
 export type StepInput = {
@@ -52,6 +61,10 @@ export type StepInput = {
 	-- reload and its clock -- and the camera only draws what it says. Absent means closed, which is
 	-- what every caller that predates the break-open reload means.
 	breaking: boolean?,
+	-- THE AIMED WEAPON'S OPTICS (task 140). nil is the shotgun's bead: `config.FOV_AIM_DEG` and no
+	-- sway at all, which is every caller written before the rifle.
+	aimFovDeg: number?,
+	sway: { ampDeg: number, periodSeconds: number }?,
 }
 
 -- (-180, 180]. Without this, yaw drifts without bound over a session.
@@ -72,6 +85,9 @@ local function atRest()
 		recoilGunBackStuds = 0,
 		recoilGunBackRate = 0,
 		recoilCamPitchDeg = 0,
+		scopeSwayDeg = Vector2.zero,
+		scopePhase = 0,
+		aimFovDeg = nil,
 		recoilCamPitchRate = 0,
 		openTilt = 0,
 	}
@@ -145,9 +161,14 @@ function Mode.blendSeconds(config, aiming: boolean): number
 end
 
 -- The blended field of view for a blend value, eased.
-local function fovFor(blend: number, config): number
+-- `aimFovDeg` IS THE AIMED WEAPON'S OWN (task 140), and nil is `config.FOV_AIM_DEG` -- the
+-- shotgun's 50, which is what every caller written before the rifle means. A scope is this one
+-- number: at 19.87 the view is 4x, and `Mode.sensitivityScale` already derives the mouse rate from
+-- the BLENDED fov, so the view slows down in step with the zoom and no new code does it.
+local function fovFor(blend: number, config, aimFovDeg: number?): number
 	local eased = Mode.ease(blend)
-	return config.FOV_THIRD_DEG + (config.FOV_AIM_DEG - config.FOV_THIRD_DEG) * eased
+	local aimed = aimFovDeg or config.FOV_AIM_DEG
+	return config.FOV_THIRD_DEG + (aimed - config.FOV_THIRD_DEG) * eased
 end
 
 Mode.fovFor = fovFor
@@ -258,7 +279,7 @@ function Mode.step(state: State, input: StepInput, dt: number, config): State
 
 	-- Look first: the sensitivity depends on the CURRENT blended FOV, so a player turning while the
 	-- zoom eases gets a continuous rate rather than a step at the threshold.
-	local scale = Mode.sensitivityScale(fovFor(state.blend, config), config)
+	local scale = Mode.sensitivityScale(fovFor(state.blend, config, state.aimFovDeg), config)
 	local yaw = state.yawDeg
 	local pitch = state.pitchDeg
 	-- No look input while Loading OR Dead (design section 4.1: Dead is "no orbit, no input"). Round
@@ -312,6 +333,35 @@ function Mode.step(state: State, input: StepInput, dt: number, config): State
 	next_.openTilt = if breaking then math.min(1, state.openTilt + openStep) else math.max(0, state.openTilt - openStep)
 	next_.yawDeg = yaw
 	next_.pitchDeg = pitch
+
+	-- THE SCOPE'S SWAY (task 140), and three things about it are deliberate.
+	--
+	-- IT MOVES THE VIEW, NOT THE GUN. The reticle is a flat overlay at screen centre and the shot ray
+	-- is the camera's own LookVector, so a sway that moved only the drawn gun would leave both the
+	-- mark and the point of impact dead centre -- decoration the player can ignore. Moving the view
+	-- makes the reticle still mark where the bullet goes while the whole sight picture wanders.
+	--
+	-- IT IS SCALED BY THE BLEND, so it is EXACTLY zero in the hip view: you cannot see a wobble at
+	-- 1x, and no hip-fire scenario or shotgun spec can ever be touched by it.
+	--
+	-- IT IS A FIGURE-EIGHT, vertical at 1x and horizontal at 0.5x -- the shape Arma 3's own OPREP
+	-- describes (two predictable forces) and the genre convention. Predictable, so it can be waited
+	-- out rather than fought.
+	next_.aimFovDeg = input.aimFovDeg
+	local sway = input.sway
+	if sway ~= nil and sway.ampDeg > 0 and sway.periodSeconds > 0 then
+		local phase = (state.scopePhase + dt / sway.periodSeconds) % 1
+		local amp = Mode.ease(next_.blend) * sway.ampDeg
+		next_.scopePhase = phase
+		next_.scopeSwayDeg =
+			Vector2.new(amp * 0.5 * math.sin(2 * phase * 2 * math.pi), amp * math.sin(phase * 2 * math.pi))
+	else
+		-- NO OPTICS, NO CLOCK: the phase does not advance for a weapon with no scope, so a shotgun
+		-- session is bit-for-bit what it was.
+		next_.scopePhase = state.scopePhase
+		next_.scopeSwayDeg = Vector2.zero
+	end
+
 	next_.sinceModeChange = if mode == state.mode then state.sinceModeChange + dt else 0
 	return table.freeze(next_)
 end
@@ -324,8 +374,15 @@ function Mode.cameraCFrame(rootCFrame: CFrame, state: State, config): (Vector3, 
 	-- THE VIEW PITCH IS THE PLAYER'S PITCH PLUS RECOIL, and the recoil term is not the player's aim
 	-- (task 92): it decays to exactly zero, so the view returns to `pitchDeg` and the bead to the
 	-- point it left. Clamped together, so a kick at the top of the look range cannot gimbal the camera.
-	local viewPitch = math.clamp(state.pitchDeg + state.recoilCamPitchDeg, config.PITCH_MIN_DEG, config.PITCH_MAX_DEG)
-	local look = CFrame.fromEulerAnglesYXZ(math.rad(viewPitch), math.rad(state.yawDeg), 0)
+	-- ...AND THE SCOPE'S SWAY, INSIDE THE SAME CLAMP (task 140): a wander at the top of the look
+	-- range must not gimbal the camera any more than a kick may. `state.pitchDeg` and `yawDeg` --
+	-- the player's own aim -- are untouched by it, exactly as they are by the recoil.
+	local viewPitch = math.clamp(
+		state.pitchDeg + state.recoilCamPitchDeg + state.scopeSwayDeg.Y,
+		config.PITCH_MIN_DEG,
+		config.PITCH_MAX_DEG
+	)
+	local look = CFrame.fromEulerAnglesYXZ(math.rad(viewPitch), math.rad(state.yawDeg + state.scopeSwayDeg.X), 0)
 
 	-- FIRST PERSON (task 89): the eye, at every blend. There is no boom and no shoulder to ease
 	-- between, so `blend` changes the field of view and the viewmodel's pose and moves the camera
@@ -361,7 +418,7 @@ function Mode.cameraCFrame(rootCFrame: CFrame, state: State, config): (Vector3, 
 		position = rootCFrame.Position + fromRoot.Unit * config.MAX_DISTANCE_STUDS
 	end
 
-	return pivot, CFrame.lookAt(position, position + look.LookVector), fovFor(state.blend, config)
+	return pivot, CFrame.lookAt(position, position + look.LookVector), fovFor(state.blend, config, state.aimFovDeg)
 end
 
 -- The yaw and pitch that point the CAMERA at `point`, for a character at `rootCFrame`.
@@ -617,7 +674,19 @@ function Mode.breakAngleDeg(state: State, config): number
 	if not config.FIRST_PERSON then
 		return 0
 	end
-	return math.clamp(state.openTilt, 0, 1) * config.BREAK_OPEN_DEG
+	return Mode.cycleProgress(state, config) * config.BREAK_OPEN_DEG
+end
+
+-- HOW FAR THROUGH ITS ACTION THE GUN IS, 0 to 1 (task 140). The ONE number both guns are drawn from:
+-- a break-action turns it into degrees about a hinge (`breakAngleDeg`, above) and a bolt turns it
+-- into a lift and a draw (`Camera.Viewmodel.hinge`'s `"slide"` path). It is `openTilt` -- the same
+-- 0..1 blend the replica's `open` has driven since task 96 -- named for what it means now that two
+-- weapons read it.
+function Mode.cycleProgress(state: State, config): number
+	if not config.FIRST_PERSON then
+		return 0
+	end
+	return math.clamp(state.openTilt, 0, 1)
 end
 
 -- Where the viewmodel sits, relative to the camera. The POSE is the eased mix of the hip/carry pose

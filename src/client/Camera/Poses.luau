@@ -36,6 +36,8 @@ local Poses = {}
 -- JSON string, so "has anything changed" is a string comparison, and the merge plus the view run
 -- once per change rather than sixty times a second.
 local cachedRaw: string? = nil
+-- ...AND WHICH WEAPON THAT RESOLVED CONFIG IS FOR (task 140): the same cache, one key wider.
+local cachedWeapon: string? = nil
 local cachedConfig: any = nil
 local cachedHold: string? = nil
 local warnedFor: string? = nil
@@ -53,9 +55,22 @@ end
 -- `raw` is the attribute's text. Anything it cannot use leaves the BASE config untouched and comes
 -- back as a problem: a half-applied override is a build nobody can name, and the Director would be
 -- looking at a gun whose numbers are not the ones they typed.
-function Poses.resolve(base: any, raw: string?): (any, string?, { string })
-	if raw == nil or raw == "" then
+function Poses.resolve(base: any, raw: string?, weaponId: string?): (any, string?, { string })
+	-- NOTHING TO DO FOR THE DEFAULT WEAPON WITH NO OVERRIDE: `base` is already `Camera.Config`,
+	-- which was built from that weapon's own view at boot.
+	local wanted = weaponId or Data.DEFAULT_WEAPON
+	if (raw == nil or raw == "") and wanted == Data.DEFAULT_WEAPON then
 		return base, nil, {}
+	end
+	if raw == nil or raw == "" then
+		-- A SECOND WEAPON, NO OVERRIDE: recompute the flat names from that weapon's own set. This is
+		-- the path the rifle takes in a published server, which is why `Poses.config` no longer
+		-- returns early outside Studio.
+		local out = table.clone(base)
+		for key, value in pairs(Data.view(Data.DATA, wanted)) do
+			out[key] = value
+		end
+		return table.freeze(out), nil, {}
 	end
 	local ok, decoded = pcall(function()
 		return HttpService:JSONDecode(raw)
@@ -73,25 +88,36 @@ function Poses.resolve(base: any, raw: string?): (any, string?, { string })
 	local out = table.clone(base)
 	-- THE SAME VIEW `Camera.Config` WAS BUILT FROM, recomputed over the merged data: one gun since
 	-- task 114, so there is no second pose set a tuning override could silently swap to.
-	for key, value in pairs(Data.view(merged)) do
+	for key, value in pairs(Data.view(merged, wanted)) do
 		out[key] = value
 	end
 	return table.freeze(out), hold, problems
 end
 
--- The config for THIS FRAME: `base` itself unless a Studio session has a usable override.
-function Poses.config(base: any): any
-	if not RunService:IsStudio() then
+-- The config for THIS FRAME: `base` itself unless this is a second weapon, or a Studio session has
+-- a usable override.
+--
+-- IT NO LONGER RETURNS EARLY OUTSIDE STUDIO (task 140), and that was a real defect waiting to
+-- happen: the early return meant a published server never recomputed the view, so the RIFLE's poses
+-- would never have applied anywhere but in Studio. The production cost is one table lookup against
+-- a cache keyed by `(raw, weaponId)` -- exactly as the raw-string cache was keyed before.
+function Poses.config(base: any, weaponId: string?): any
+	local wanted = weaponId or Data.DEFAULT_WEAPON
+	local raw: string? = nil
+	if RunService:IsStudio() then
+		local folder = ReplicatedStorage:FindFirstChild("Viewmodel")
+		local attribute = if folder then folder:GetAttribute(Data.OVERRIDE_ATTRIBUTE) else nil
+		raw = if type(attribute) == "string" then attribute :: string else nil
+	end
+	if raw == nil and wanted == Data.DEFAULT_WEAPON then
 		return base
 	end
-	local folder = ReplicatedStorage:FindFirstChild("Viewmodel")
-	local attribute = if folder then folder:GetAttribute(Data.OVERRIDE_ATTRIBUTE) else nil
-	local raw = if type(attribute) == "string" then attribute :: string else nil
-	if raw == cachedRaw and cachedConfig ~= nil then
+	if raw == cachedRaw and wanted == cachedWeapon and cachedConfig ~= nil then
 		return cachedConfig
 	end
-	local resolved, hold, problems = Poses.resolve(base, raw)
+	local resolved, hold, problems = Poses.resolve(base, raw, wanted)
 	cachedRaw = raw
+	cachedWeapon = wanted
 	cachedConfig = resolved
 	cachedHold = hold
 	if #problems > 0 then

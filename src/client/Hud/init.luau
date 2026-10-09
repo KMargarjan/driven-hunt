@@ -31,6 +31,7 @@ local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 -- Which world this is, so the compass knows whether anybody has said where the drive comes from
@@ -38,6 +39,7 @@ local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 -- The Hud's own 2-D feedback sounds have one writer, and this is it (task 124).
 local Sound = require(script.Sound)
@@ -258,6 +260,58 @@ local function build(): ScreenGui
 		UDim2.new(0.5, gap, 0.5, 0),
 		config.CROSSHAIR_COLOR
 	)
+
+	-- THE SCOPE'S RETICLE (task 140): a duplex -- a ring you look through, a thin cross and four
+	-- thick outer posts -- drawn from UI primitives with NO upload, exactly as the drive report's
+	-- silhouette is. A SIBLING of the crosshair and of the hit marker, for the reason the hit marker
+	-- is one: three marks, three questions, and no predicate that answers two of them.
+	--
+	-- EVERY SIZE IS IN DEGREES AND IS CONVERTED ONCE (`Hud.reticleDegToPx`). Roblox's field of view
+	-- is VERTICAL, so `px = deg / fov * viewportY` is exact -- which is what makes one duplex true
+	-- at any screen size AND at any magnification: change the scope's `aimFovDeg` and every element
+	-- of the sight picture grows by exactly the magnification, as a real scope's does.
+	local reticle = Instance.new("Frame")
+	reticle.Name = "Reticle"
+	reticle.BackgroundTransparency = 1
+	reticle.Size = UDim2.fromScale(1, 1)
+	reticle.AnchorPoint = Vector2.new(0.5, 0.5)
+	reticle.Position = UDim2.fromScale(0.5, 0.5)
+	reticle.Visible = false
+	reticle.Parent = screen
+
+	local ring = Instance.new("Frame")
+	ring.Name = "Ring"
+	ring.BackgroundTransparency = 1
+	ring.AnchorPoint = Vector2.new(0.5, 0.5)
+	ring.Position = UDim2.fromScale(0.5, 0.5)
+	ring.Size = UDim2.fromOffset(2, 2)
+	ring.Parent = reticle
+	local round = Instance.new("UICorner")
+	round.CornerRadius = UDim.new(0.5, 0)
+	round.Parent = ring
+	local edge = Instance.new("UIStroke")
+	edge.Name = "Edge"
+	edge.Thickness = 1
+	edge.Parent = ring
+
+	for _, piece in ipairs({
+		{ name = "CrossTop", vertical = true, sign = -1, post = false },
+		{ name = "CrossBottom", vertical = true, sign = 1, post = false },
+		{ name = "CrossLeft", vertical = false, sign = -1, post = false },
+		{ name = "CrossRight", vertical = false, sign = 1, post = false },
+		{ name = "PostTop", vertical = true, sign = -1, post = true },
+		{ name = "PostBottom", vertical = true, sign = 1, post = true },
+		{ name = "PostLeft", vertical = false, sign = -1, post = true },
+		{ name = "PostRight", vertical = false, sign = 1, post = true },
+	}) do
+		local bar = Instance.new("Frame")
+		bar.Name = piece.name
+		bar.BorderSizePixel = 0
+		bar.AnchorPoint = Vector2.new(0.5, 0.5)
+		bar.Position = UDim2.fromScale(0.5, 0.5)
+		bar.Size = UDim2.fromOffset(1, 1)
+		bar.Parent = reticle
+	end
 
 	-- The hit marker: four diagonal arms around the centre, hidden until something lands. It is a
 	-- sibling of the crosshair and not a child, because it must still show in ADS, where the
@@ -534,7 +588,11 @@ end
 
 -- `[*]* SLUG 24`: barrel glyphs (* Live, x Spent, - Empty) with the selected barrel in brackets,
 -- then the ammo the NEXT load uses, the reserve, and " R" while an action is running.
-local function textFor(state: Shotgun.WeaponSnapshot): string
+-- `row` IS THE WEAPON THIS STATE BELONGS TO (task 140), and all it decides is the WORD: the wire
+-- says `Slug` for both guns because `Boar.Wound.damageFor` branches on that string, and a rifle
+-- printing "SLUG" would be a lie on screen. `row.AMMO_LABEL` is the one mapping, here in the one
+-- module that draws. nil is the shotgun's own words, which is every caller before the rifle.
+local function textFor(state: Shotgun.WeaponSnapshot, row: any?): string
 	local glyphs = ""
 	for index, barrel in ipairs(state.barrels) do
 		local glyph = if barrel == "Live" then "*" elseif barrel == "Spent" then "x" else "-"
@@ -545,7 +603,9 @@ local function textFor(state: Shotgun.WeaponSnapshot): string
 	-- the server's one-line notice ("NO BUCK") is what tells the player why X did nothing.
 	local pocket = state.reserve[state.ammo] or 0
 	local notice = if state.notice then " " .. state.notice else ""
-	return string.format("%s %s %d%s%s", glyphs, string.upper(state.ammo), pocket, busyMark, notice)
+	local resolved = row or Weapons.row(state.weapon)
+	local label = (resolved and resolved.AMMO_LABEL and resolved.AMMO_LABEL[state.ammo]) or string.upper(state.ammo)
+	return string.format("%s %s %d%s%s", glyphs, label, pocket, busyMark, notice)
 end
 
 -- PURE, AND EXPORTED (task 112, round 3). The readout case could only ever ask the LIVE text, and
@@ -553,8 +613,8 @@ end
 -- nothing to assert -- round 2 made it return early, which is a case that proves nothing. Exporting
 -- the formatter lets a spec hand it a state it owns and assert the SHAPE, and still check that the
 -- live text is empty exactly when there is no gun.
-function Hud.readoutFor(state: Shotgun.WeaponSnapshot): string
-	return textFor(state)
+function Hud.readoutFor(state: Shotgun.WeaponSnapshot, row: any?): string
+	return textFor(state, row)
 end
 
 local function clockText(seconds: number): string
@@ -697,7 +757,13 @@ function Hud.killLineText(event): string
 	local kind = event and event.animalKind
 	local animal = if type(kind) == "string" and kind ~= "" then string.upper(kind) .. " BOAR" else "BOAR"
 	local zone = tostring((event and event.zone) or "?")
-	return string.format("%-12s %-11s %-6s %d m", who, animal, zone, Report.metres(event and event.distance))
+	-- ...AND WHICH GUN (task 140). The WIRE carries the weapon's id and the SCREEN carries its word:
+	-- `Weapons.row(id).label`, the same split `AMMO_LABEL` has. A record from before the rifle has
+	-- no id, and prints nothing rather than the word "nil" -- the rule this function already follows
+	-- for `animalKind`.
+	local row = Weapons.row(event and event.weapon)
+	local gun = if row ~= nil then " " .. row.label else ""
+	return string.format("%-12s %-11s %-6s %d m%s", who, animal, zone, Report.metres(event and event.distance), gun)
 end
 
 -- WHAT ONE FEED ENTRY READS AS, or nil when another owner draws it. Exported for the same reason
@@ -751,6 +817,99 @@ end
 -- `firstPerson` comes from `Camera.isFirstPerson()` and NOT from a second `Flags.isOn` call: the
 -- camera owns the switch and republishes it as a fact about the view, the Hud decides the drawing,
 -- and there is one writer of the crosshair and one source for the fact.
+-- THE ONE CONVERSION from an angle to pixels (task 140). Roblox's `FieldOfView` is the VERTICAL
+-- angle, so a fraction of it is the same fraction of the viewport's height -- and `Camera.Config`'s
+-- own `BEAD_CENTRE_TOLERANCE_DEG` comment measures the same thing the same way (50 degrees over
+-- 1080 px). One site, which is the rule the task 19 cone-unit defect bought.
+function Hud.reticleDegToPx(deg: number, fovDeg: number, viewportY: number): number
+	if fovDeg <= 0 or viewportY <= 0 then
+		return 0
+	end
+	return deg / fovDeg * viewportY
+end
+
+-- IS THE SCOPE'S RETICLE ON SCREEN? PURE, and a different question from the crosshair's: this one
+-- is about the VIEW's optics (what `Camera.scope()` resolved for this frame) and the mode, and the
+-- crosshair's is about the gun and first person. Two predicates, two questions -- the rule the
+-- previous project's "one predicate answered two unrelated questions" is made of.
+function Hud.reticleVisible(mode: string?, optics: any): boolean
+	return optics ~= nil and optics.reticle ~= nil and mode == "Aiming"
+end
+
+-- THE DUPLEX, LAID OUT IN PIXELS FROM ITS DEGREES. Recomputed only when the field of view or the
+-- viewport has changed -- two numbers compared -- so a scoped frame costs no more per-frame work
+-- than an unscoped one.
+local lastReticleFov, lastReticleY = -1, -1
+function Hud.layoutReticle(reticle: Frame, spec: any, fovDeg: number)
+	local camera = Workspace.CurrentCamera
+	local viewportY = if camera then camera.ViewportSize.Y else 0
+	if viewportY <= 0 or spec == nil then
+		return
+	end
+	if math.abs(fovDeg - lastReticleFov) < 1e-3 and viewportY == lastReticleY then
+		return
+	end
+	lastReticleFov, lastReticleY = fovDeg, viewportY
+	local function px(deg: number): number
+		return Hud.reticleDegToPx(deg, fovDeg, viewportY)
+	end
+
+	local ring = reticle:FindFirstChild("Ring")
+	if ring and ring:IsA("Frame") then
+		local outer = math.max(2, px(spec.ringOuterDeg))
+		ring.Size = UDim2.fromOffset(outer, outer)
+		local edge = ring:FindFirstChild("Edge")
+		if edge and edge:IsA("UIStroke") then
+			edge.Thickness = math.max(1, px(spec.ringThickDeg))
+			edge.Color = spec.color
+		end
+	end
+
+	-- Each bar hangs from the centre: a gap, then its own length, on its own side.
+	local function place(
+		name: string,
+		vertical: boolean,
+		sign: number,
+		thickDeg: number,
+		armDeg: number,
+		gapDeg: number
+	)
+		local bar = reticle:FindFirstChild(name)
+		if not (bar and bar:IsA("Frame")) then
+			return
+		end
+		local thick = math.max(1, px(thickDeg))
+		local length = math.max(1, px(armDeg))
+		local gap = px(gapDeg)
+		bar.BackgroundColor3 = spec.color
+		if vertical then
+			bar.Size = UDim2.fromOffset(thick, length)
+			bar.Position = UDim2.new(0.5, 0, 0.5, sign * (gap + length / 2))
+		else
+			bar.Size = UDim2.fromOffset(length, thick)
+			bar.Position = UDim2.new(0.5, sign * (gap + length / 2), 0.5, 0)
+		end
+	end
+
+	place("CrossTop", true, -1, spec.crossThickDeg, spec.crossArmDeg, spec.crossGapDeg)
+	place("CrossBottom", true, 1, spec.crossThickDeg, spec.crossArmDeg, spec.crossGapDeg)
+	place("CrossLeft", false, -1, spec.crossThickDeg, spec.crossArmDeg, spec.crossGapDeg)
+	place("CrossRight", false, 1, spec.crossThickDeg, spec.crossArmDeg, spec.crossGapDeg)
+	-- THE POSTS START WHERE THE THIN CROSS ENDS, which is what a duplex IS: a thick bar from the
+	-- edge of the view in to a point, and a hair from there to the centre.
+	local postGap = spec.crossGapDeg + spec.crossArmDeg
+	place("PostTop", true, -1, spec.postThickDeg, spec.postArmDeg, postGap)
+	place("PostBottom", true, 1, spec.postThickDeg, spec.postArmDeg, postGap)
+	place("PostLeft", false, -1, spec.postThickDeg, spec.postArmDeg, postGap)
+	place("PostRight", false, 1, spec.postThickDeg, spec.postArmDeg, postGap)
+end
+
+function Hud.reticle(): Frame?
+	local screen = gui
+	local found = screen and screen:FindFirstChild("Reticle")
+	return if found and found:IsA("Frame") then found :: Frame else nil
+end
+
 function Hud.crosshairVisible(state, aiming: boolean, firstPerson: boolean): boolean
 	if not Shotgun.CONFIG.CROSSHAIR_ENABLED or firstPerson or aiming then
 		return false
@@ -771,6 +930,19 @@ local function render(Weapon, CameraSystem)
 		-- third-person shoulder camera, so no camera system is also no third person to draw it for.
 		local firstPerson = CameraSystem == nil or CameraSystem.isFirstPerson()
 		crosshair.Visible = Hud.crosshairVisible(state, aiming, firstPerson)
+	end
+	-- THE SCOPE'S RETICLE, from the VIEW's own optics (task 140). `Camera.scope()` is what the
+	-- camera resolved for this frame, so the Hud never reads the weapon table to decide whether to
+	-- draw it -- exactly as it never reads the weapon to decide whether it is in first person.
+	local reticle = Hud.reticle()
+	if reticle then
+		local optics = if CameraSystem ~= nil and CameraSystem.scope then CameraSystem.scope() else nil
+		local mode = if CameraSystem ~= nil then CameraSystem.getMode() else nil
+		local visible = Hud.reticleVisible(mode, optics)
+		reticle.Visible = visible
+		if visible then
+			Hud.layoutReticle(reticle, optics.reticle, optics.aimFovDeg)
+		end
 	end
 	if readout then
 		-- NO GUN, NO READOUT (TASKS.md 35b(a)). The server publishes a reset state when it revokes a
