@@ -461,19 +461,13 @@ return function()
 			-- the action open, one case spent, chamber 2 still holding a round -- and the clock is
 			-- the module's own, which is what `loadedAt` is stamped from.
 			local before = Camera.Viewmodel.reloadState()
-			local base = table.clone(firstPerson) :: any
-			base.SHELL_LOAD = {
-				fetchSeconds = 0.15,
-				carrySeconds = 0.17,
-				seatSeconds = 0.13,
-				returnSeconds = 0.12,
-				fetch = CFrame.new(-0.34, -0.62, 1.15),
-				above = CFrame.new(-0.05, 0.34, 0.1),
-				seat = CFrame.new(-0.05, 0.1, 0.02),
-				shellInHand = Vector3.new(0.16, 0, 0),
-			}
-			local plain = table.freeze(table.clone(base))
-			local magazine = table.clone(base)
+			-- THE REAL `SHELL_LOAD`, not a fabricated one: it is the raw pose block out of
+			-- `poses.json` (`{pos = ..., rot = ...}` per keyframe), and a hand-built table of CFrames
+			-- fails inside `loadStep` with "pos is not a valid member of CFrame" -- which is how the
+			-- first version of this case failed the gate rather than measuring anything.
+			local plain = firstPerson
+			expect((plain :: any).SHELL_LOAD).to.be.ok()
+			local magazine = table.clone(plain) :: any
 			magazine.MAGAZINE_SWAP =
 				{ outShare = 0.38, inShare = 0.4, dropStuds = 0.42, seconds = 1.35, hand = CFrame.new() }
 			table.freeze(magazine)
@@ -481,7 +475,7 @@ return function()
 				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { false, true } })
 				-- A BREAK ACTION IS MID-FEED HERE, which is what makes the case able to fail: the
 				-- weight is non-zero without the magazine block...
-				local now = os.clock() + base.SHELL_LOAD.fetchSeconds * 0.5
+				local now = os.clock() + (plain :: any).SHELL_LOAD.fetchSeconds * 0.5
 				expect((Camera.Viewmodel.loadingAt(plain, now)) > 0).to.equal(true)
 				-- ...and exactly zero with it, which is the whole fix.
 				expect((Camera.Viewmodel.loadingAt(magazine, now))).to.equal(0)
