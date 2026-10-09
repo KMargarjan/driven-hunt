@@ -1203,14 +1203,16 @@ function ForestTest.stepLines(now: number)
 			local status = runtime:statusOf(member.id)
 			if status ~= nil and status.alive then
 				local wound = runtime:woundOf(member.id)
-				local out = line.gone[member.id] == true
-					or runtime:flying(member.id)
-					or (wound ~= nil and wound.severity ~= nil and wound.severity ~= "healthy")
-					or status.position.Z < Data.roadZ(status.position.X) - Data.ROAD.halfWidthStuds
-				if out then
-					line.gone[member.id] = true
-				else
+				local stays = Line.stillInFile(
+					line.gone[member.id] == true,
+					runtime:flying(member.id),
+					wound ~= nil and wound.severity ~= nil and wound.severity ~= "healthy",
+					status.position.Z - (Data.roadZ(status.position.X) - Data.ROAD.halfWidthStuds)
+				)
+				if stays then
 					table.insert(live, { id = member.id, kind = member.kind, status = status })
+				else
+					line.gone[member.id] = true
 				end
 			end
 		end

@@ -182,6 +182,27 @@ function Line.aimFor(
 	return math.max(aim, tailS)
 end
 
+-- IS THIS ANIMAL STILL IN THE FILE? Pure, and pulled out of the drive so a spec can drive it without
+-- a world (task 139 round 3, the Reviewer's finding 2).
+--
+-- ONE RULE AND IT IS PERMANENT. Karen, 2026-10-05 and again 2026-10-09: *"they don't come back from
+-- that side ... once they in another side of road they run away"*, *"when boars crossing road they
+-- can't come back to same view, they just move on a specially after spook or shoot"*. Flying, hurt,
+-- or over the road means OUT -- and `gone` is what makes it permanent, because an animal whose
+-- flight has ended is still out.
+--
+-- IT REPLACED A REJOIN RULE THAT WAS THE REGRESSION (task 136, archived under
+-- `backups/2026-10-09-line-rejoin-at-tail.md`): that one sent a fled animal back to the TAIL of its
+-- line, and the tail is NORTH of the road, so with the flight pointed south every fled animal was
+-- ordered straight back into the view it had just left -- 19 to 26 of them per 150 s run.
+function Line.stillInFile(gone: boolean, flying: boolean, hurt: boolean, dz: number): boolean
+	if gone or flying or hurt then
+		return false
+	end
+	-- `dz` is how far NORTH of the road's near edge the animal is: negative means it is over.
+	return dz >= 0
+end
+
 -- FORGETS THE TAIL NOBODY IS STANDING ON any more, so a wave that walks 800 studs does not keep 800
 -- crumbs for ever. `keepBack` is how far behind the head the last follower is, plus a margin.
 function Line.trim(trail: { Crumb }, keepBack: number)

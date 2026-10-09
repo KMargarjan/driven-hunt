@@ -116,6 +116,23 @@ return function()
 			expect(Line.aimFor(5, 4, 6, 1.5, 2.5, 60, 9)).to.equal(9)
 		end)
 
+		it("takes a fled or crossed animal out of the file FOR GOOD (task 139)", function()
+			-- KAREN, 2026-10-09: *"when boars crossing road they can't come back to same view, they
+			-- just move on a specially after spook or shoot"*. Measured on `0c7f736`: five of nine
+			-- shot animals ran north afterwards, back into the view she had just shot into.
+			--
+			-- A calm animal north of the road is in the file...
+			expect(Line.stillInFile(false, false, false, 12)).to.equal(true)
+			-- ...and each of the three ways out takes it out, on its own.
+			expect(Line.stillInFile(false, true, false, 12)).to.equal(false) -- flying
+			expect(Line.stillInFile(false, false, true, 12)).to.equal(false) -- hurt
+			expect(Line.stillInFile(false, false, false, -1)).to.equal(false) -- over the road
+			-- ...AND IT IS PERMANENT, which is the whole rule: an animal whose flight has ENDED, and
+			-- which is back north of the road and unhurt, is still out. This is the assertion that
+			-- fails if `gone` is dropped and the old rejoin-at-the-tail comes back.
+			expect(Line.stillInFile(true, false, false, 12)).to.equal(false)
+		end)
+
 		it("forgets the tail nobody stands on", function()
 			local trail = elbow()
 			Line.trim(trail, 10)
