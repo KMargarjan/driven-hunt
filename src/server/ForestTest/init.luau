@@ -1189,14 +1189,78 @@ function ForestTest.stepLines(now: number)
 			continue
 		end
 
+		-- ...AND ONE THAT HAS JUST STOPPED FLYING REJOINS AT THE BACK (task 136). Karen's line is a
+		-- file, and an animal that bolted and came back used to keep the RANK it had: a boar that had
+		-- been third was handed the third station again, which is somewhere up the middle of a file
+		-- that closed up behind it while it was away -- so it walked ACROSS the line to get there.
+		-- Moving it to the end of `line.members` means its station is the tail, which is behind
+		-- everybody and reachable by walking the trail. Its arc memory goes with it, so the next
+		-- `Line.arcAt` re-acquires from scratch rather than from where it was before it bolted.
+		line.flyingWas = line.flyingWas or {}
+		line.arcOf = line.arcOf or {}
+		-- ...AND NEVER THE LEADER, which round 1 got wrong and the Reviewer caught (finding 1).
+		--
+		-- THE LEADER HAS NO MID-FILE STATION, so the reason this rule exists does not apply to her:
+		-- the comment above says "somewhere up the middle of a file that closed up behind it", and
+		-- nothing closes up in front of the animal at the front. Demoting her was reachable by the
+		-- central action of this game -- shoot at a line and the sow bolts -- and it did real damage:
+		-- `line.trail` follows whoever is `live[1]`, so the step her flight ended the crumb after the
+		-- hand-over ran from HER position to the position of the animal that replaced her, one
+		-- segment backwards across the whole gap she had bolted. `Line.trim` then cut the forward
+		-- trail by that jump, every station leapt onto the backward segment while the hinted `ownS`
+		-- of each follower stayed on the forward branch, and the file was driven on up the dead
+		-- flight path. It also handed `line.route` and `line.leg` -- computed for the sow -- to a cub.
+		local rejoined = {}
+		for place, member in ipairs(line.members) do
+			local flying = runtime:flying(member.id)
+			if place > 1 and line.flyingWas[member.id] == true and not flying then
+				table.insert(rejoined, member.id)
+				line.arcOf[member.id] = nil
+			end
+			line.flyingWas[member.id] = flying
+		end
+		if #rejoined > 0 then
+			local kept, moved = {}, {}
+			for _, member in ipairs(line.members) do
+				local back = false
+				for _, id in ipairs(rejoined) do
+					if id == member.id then
+						back = true
+					end
+				end
+				table.insert(if back then moved else kept, member)
+			end
+			for _, member in ipairs(moved) do
+				table.insert(kept, member)
+			end
+			line.members = kept
+			-- `live` was built from the old order, so it is rebuilt from the new one.
+			local reordered = {}
+			for _, member in ipairs(line.members) do
+				for _, row in ipairs(live) do
+					if row.id == member.id then
+						table.insert(reordered, row)
+					end
+				end
+			end
+			live = reordered
+		end
+
 		-- AN ANIMAL IN FLIGHT IS NOT IN THE LINE ANY MORE (task 126 round 2, the Reviewer's blocking
 		-- finding). `Brain` now drops an order the moment a fright latches, and the drive must not
 		-- hand it a new one on the next Heartbeat -- re-ordering every member every frame is what
 		-- kept a shot boar walking its trail at the ordered speed instead of running straight.
 		-- `Runtime:flying` asks the Brain; a frightened animal is skipped here until its flight ends,
 		-- and then it rejoins the file at whatever station is free.
+		line.freeUntil = line.freeUntil or {}
 		local function leadIfFree(id: string, point: Vector3, speed: number)
 			if runtime:flying(id) then
+				return
+			end
+			-- ...AND A WEDGED LEADER IS LEFT ALONE FOR A MOMENT (task 136). See
+			-- `LINE.leaderFreeSeconds`: while this window is open she is NOT ordered, so the Brain's
+			-- own whiskers and wedge sidestep -- both gated on `not ordered` -- can free her.
+			if (line.freeUntil[id] or 0) > now then
 				return
 			end
 			runtime:leadTo(id, point, speed)
@@ -1243,6 +1307,13 @@ function ForestTest.stepLines(now: number)
 		-- where it is ON the trail (`Line.arcAt`), and ordered to a point a short way FURTHER ALONG it
 		-- (`Line.pointAt`), so the thing it walks is the leader's own path.
 		local tailLag = 0
+		-- WHERE THE ONE IN FRONT IS, ON THE TRAIL. The leader is at the head of it by construction;
+		-- each follower then carries its own arc position down to the next rank, so "no follower ever
+		-- ahead of the one in front" is enforced against a measured position rather than assumed from
+		-- the stations.
+		-- The leader is at the head of it by construction, and that is also the right bound when SHE
+		-- is the one flying: the head of the trail is the furthest anything may aim either way.
+		local aheadS = Line.length(line.trail)
 		for rank = 2, #live do
 			local follower = live[rank]
 			local here = follower.status.position
@@ -1251,7 +1322,11 @@ function ForestTest.stepLines(now: number)
 				-- The line is still forming behind the seed: hold the back of the trail.
 				stationS = line.trail[1].s
 			end
-			local ownS = Line.arcAt(line.trail, here)
+			-- FROM WHERE IT WAS LAST STEP (task 136): see `Line.arcAt`. Without the hint a follower
+			-- standing beside a loop the leader walked round a trunk reads as being on the far side
+			-- of it, and is then either frozen as "overrun" or ordered straight across the loop.
+			local ownS = Line.arcAt(line.trail, here, line.arcOf[follower.id], lineData.arcWindowStuds)
+			line.arcOf[follower.id] = ownS
 			-- SIGNED: positive means behind its station, which is the only reading that can tell
 			-- "catch up" from "ease off". The euclidean distance this used to use could not.
 			local slack = stationS - ownS
@@ -1271,7 +1346,17 @@ function ForestTest.stepLines(now: number)
 			-- lookahead further along the trail (bounded only by how far the leader has walked), and
 			-- the station is regulated by `Line.followerSpeed` and by the wait below, which is what
 			-- they are for.
-			local aim = math.min(ownS + lineData.lookaheadStuds, Line.length(line.trail))
+			-- WHERE IT AIMS: a lookahead along the trail, never past the one in front and never
+			-- under its own feet. `Line.aimFor` is that arithmetic and its own comment is the why.
+			local aim = Line.aimFor(
+				ownS,
+				lineData.lookaheadStuds,
+				aheadS,
+				lineData.noOvertakeStuds,
+				lineData.minAimStuds,
+				Line.length(line.trail),
+				line.trail[1].s
+			)
 			local point = Line.pointAt(line.trail, aim)
 			local speed = Line.followerSpeed(
 				math.max(line.speed, leader.status.speed),
@@ -1291,6 +1376,13 @@ function ForestTest.stepLines(now: number)
 				point, speed = here, 0
 			end
 			leadIfFree(follower.id, point or here, speed)
+			-- ...AND THE ONE IN FRONT HAS TO BE IN THE LINE (round 2, the Reviewer's note). `live` is
+			-- filtered on alive, not on flying, so a bolting animal keeps its rank -- and handing its
+			-- arc position down as "the one in front" regulates the file against an animal that is,
+			-- two dozen lines above, declared not to be in the line any more.
+			if not runtime:flying(follower.id) then
+				aheadS = ownS
+			end
 		end
 
 		-- ...AND THE SOW WAITS FOR HER TAIL. Karen asked for a line, and a line whose leader never
@@ -1347,6 +1439,12 @@ function ForestTest.stepLines(now: number)
 							line.route = route
 							line.leg = 1
 						end
+						-- ...AND THE ROUTE ON ITS OWN IS NOT ENOUGH, which is the whole of this fix: a
+						-- route computed from the spot she is wedged in can lead straight back into
+						-- the trunk she is wedged against. She is let go of for a moment as well, so
+						-- the Brain can do what it does for every unordered animal that meets
+						-- something solid.
+						line.freeUntil[member.id] = now + lineData.leaderFreeSeconds
 					else
 						-- A WEDGED FOLLOWER IS PUT BACK ON THE TRAIL, behind the one ahead of it. It is
 						-- a teleport of a few studs onto a path the leader has already walked, which is

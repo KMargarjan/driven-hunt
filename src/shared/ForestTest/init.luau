@@ -210,7 +210,67 @@ ForestTest.LINE = {
 	-- never settled: nose-to-nose gaps came out at a 9.9-stud median with a p90 of 176, 29 trunk
 	-- contacts and 23 animals that moved less than a stud in three seconds. None of that was the
 	-- following rule; all of it was eight animals standing inside each other.
+	-- 8.5 STAYS, AND TASK 136 TRIED 6.5 AND MEASURED IT WORSE. The Director asked for "body length
+	-- + ~1 stud, try ~6.5 if 8.5 still reads loose", which is the right instinct -- a boar is 5.5
+	-- studs long, so 6.5 centre to centre is a one-stud nose-to-tail gap and 8.5 is three.
+	--
+	-- WHAT IT ACTUALLY DID, over 150 s of two-line waves, measured on the APPROACH AND THE CROSSING
+	-- (the half of the trace north of the road, which is the half a hunter watches):
+	--
+	--                   offset median   p75           p90           gap median
+	--   8.5 (this)        0.23 / 0.42   0.65 / 1.72   1.89 / 4.27   8.79 / 9.15
+	--   6.5               0.77          1.97          4.02          7.39
+	--
+	-- BOTH RUNS OF 8.5 ARE CARRIED, AND THEY HAVE TO BE (round 2, the Reviewer's note -- round 1's
+	-- comment quoted the better one as fact). They are the same build 150 s apart and they disagree
+	-- by more than the difference being measured. So the honest reading is NOT "8.5 is twice as
+	-- tight": it is that 6.5 closes the gap by a stud and a half, nothing here says the file gets
+	-- laterally tighter for it, and one of the two 8.5 runs says it gets looser. 8.5 stays because it
+	-- is the incumbent and 6.5 did not earn the change -- not because 6.5 was shown to be worse.
+	-- Settling it needs a longer trace or a per-wave statistic; this was neither.
 	spacingStuds = 8.5,
+	-- HOW CLOSE A FOLLOWER MAY AIM TO THE ONE IN FRONT, measured along the trail: just short of its
+	-- tail, which is what "no follower ever ahead of the one in front" means when the thing being
+	-- regulated is an arc length.
+	--
+	-- IT WAS A BODY LENGTH FIRST, AND THAT BROKE THE LINE. An animal standing exactly where it
+	-- belongs has the one ahead a station along, so with the 6.5-stud station this task was trying at
+	-- the time, a 5.5-stud margin handed it a point 1.0 stud in front of its own nose -- inside `Boar.CONFIG.LINE.ARRIVE_STUDS`, which is 1.0. The Brain
+	-- quite correctly answered "arrived", the animal stopped, the file walked on and the gap opened:
+	-- MEASURED at 58 stuck and 18.2 % breaks against 15 and 9.0 % before the change. It is the same
+	-- trap task 127 round 3 dug itself with `aim = min(ownS + lookahead, stationS)`, in a new place.
+	--
+	-- 1.5 studs bites only when a follower has closed to within a body length of the one ahead, which
+	-- is the case it is for; the floor below (`minAimStuds`) makes sure it can never bite into a
+	-- point the animal is already standing on.
+	noOvertakeStuds = 1.5,
+	-- A FOLLOWER IS NEVER AIMED AT A POINT UNDER ITS OWN FEET. Above
+	-- `Boar.CONFIG.LINE.ARRIVE_STUDS` (1.0) by
+	-- enough that an order is always a direction; the SPEED is what holds a closed-up animal back,
+	-- which is `Line.followerSpeed`'s job and not the aim's.
+	minAimStuds = 2.5,
+	-- HOW LONG A WEDGED LEADER IS LEFT TO FREE HERSELF (task 136).
+	--
+	-- THE ASYMMETRY WAS THE BUG, AND IT COST A WHOLE FILE AT A TIME. A wedged FOLLOWER is put back on
+	-- the trail -- a few studs onto ground the leader has already walked. A wedged LEADER was handed
+	-- another route, computed from the position she is wedged IN, through the trunk she is wedged
+	-- AGAINST; if the pathfinder answered the same way, she stayed there. MEASURED in a 150 s trace:
+	-- `Boar6` sat at one point 17 studs north of the road for 110 SECONDS with an ordered speed of
+	-- 24, and the stuck detector counted it every three seconds -- 464 of the run's stuck reports
+	-- were a handful of animals doing exactly that, and the file behind each of them never crossed.
+	--
+	-- SO SHE IS LET GO OF, BRIEFLY. An ordered animal runs no whiskers and no wedge recovery, by
+	-- design (task 127: the route was already checked for trunks). Dropping the order for a moment
+	-- hands her back to `Brain`'s own machinery -- `steerAroundTrunk` and the `stuckTurn` sidestep,
+	-- both of which are gated on `not ordered` and both of which exist to get an animal off a trunk.
+	-- The drive takes her back when the window closes. Nothing new is invented here; a thing that was
+	-- switched off for a good reason is switched on again for the one case that reason does not cover.
+	leaderFreeSeconds = 1.5,
+	-- HOW FAR ALONG THE TRAIL `Line.arcAt` will look for an animal, given where it was last step.
+	-- Generous against one step of a running boar (RUN_SPEED is ~24 studs/s and the drive steps on
+	-- Heartbeat), and far tighter than the length of a doubled-back loop round a trunk, which is
+	-- what it exists to refuse.
+	arcWindowStuds = 14,
 	-- How far the leader walks between breadcrumbs. 1 stud is a third of the spacing, so a follower's
 	-- station is interpolated between crumbs that are always close together.
 	crumbStuds = 1,
