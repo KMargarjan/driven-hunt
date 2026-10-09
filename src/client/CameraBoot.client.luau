@@ -161,14 +161,21 @@ if weaponModule then
 				Weapon.Sound.magazine(Camera.poseConfig(), row)
 			end
 			wasLive = nowLive
-			-- HOW FAR THROUGH A MAGAZINE CHANGE THE GUN IS (task 142). The server's own `busyFor` is
-			-- the clock -- the `Magazine` step's window -- and "no live rounds, action shut, still
-			-- busy" is what that step looks like from here. A weapon with no magazine never matches,
-			-- so nothing about the shotgun changes.
+			-- HOW FAR THROUGH A MAGAZINE CHANGE THE GUN IS (task 142). The SERVER SAYS WHICH STEP IT
+			-- IS RUNNING (`snapshot.action`) and `busyFor` is that step's own clock, so this is a
+			-- read and not a guess. The first build of this inferred the step from "no live rounds,
+			-- action shut, still busy" -- which can never be true, because the magazine fills at the
+			-- START of its window -- and the drawn box measurably never moved.
 			local swapSeconds = if row ~= nil and row.RELOAD ~= nil then row.RELOAD[1].wait else nil
-			if swapSeconds ~= nil and snapshot ~= nil and nowLive == 0 and not isOpen and snapshot.busyFor > 0 then
-				Camera.Viewmodel.setMagazine(math.clamp(1 - snapshot.busyFor / swapSeconds, 0, 1))
-			else
+			--
+			-- A SNAPSHOT WITH NO ACTION DOES NOT END IT, and that was measured: the arming sweep and
+			-- the equip watcher publish on their own schedule with `action = nil`, and a clear on
+			-- every one of those cut the swap off 0.31 s into its 1.35 -- the drawn box reached 0.313
+			-- studs of its 0.55 and stopped. The swap ends when its own clock runs out
+			-- (`Viewmodel.magazineProgress`) or when the server starts a DIFFERENT step.
+			if swapSeconds ~= nil and snapshot ~= nil and snapshot.action == "Magazine" then
+				Camera.Viewmodel.setMagazine(swapSeconds)
+			elseif snapshot ~= nil and snapshot.action ~= nil then
 				Camera.Viewmodel.setMagazine(nil)
 			end
 			local noise = Camera.breakSound(wasOpen, isOpen)

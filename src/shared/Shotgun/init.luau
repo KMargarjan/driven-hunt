@@ -45,6 +45,9 @@ export type WeaponSnapshot = {
 	ammo: AmmoKind,
 	reserve: { [string]: number },
 	busyFor: number,
+	-- The step the server's own sequence is running (task 142): "Magazine", "Break", "Close",
+	-- "Load", or nil when nothing is. The client draws from this instead of guessing it.
+	action: string?,
 	notice: string?, -- one short line for the Hud ("NO BUCK"); nil most of the time
 	-- WHICH WEAPON THIS STATE BELONGS TO (task 140). The readout follows the STATE, and the drawn
 	-- gun follows the Instance -- the two routes and the boundary between them are design 5.2.
@@ -107,8 +110,24 @@ end
 
 -- The one converter from server state to what crosses the wire: a deadline becomes a duration,
 -- because os.clock() on the server means nothing on a client (design section 5.1).
-function Shotgun.snapshot(state: WeaponState, now: number, notice: string?, weapon: string?): WeaponSnapshot
+-- `action` IS THE STEP THE SERVER IS RUNNING RIGHT NOW (task 142), nil when it is running none.
+--
+-- IT IS ON THE WIRE BECAUSE IT CANNOT BE INFERRED. The magazine change applies at the START of its
+-- own window -- the chambers are full for the whole 1.35 s the hands are still swapping the box --
+-- so a client watching the replica sees a full gun and a `busyFor`, which is also what the first
+-- moments of a bolt cycle look like. The first build of this guessed from "no live rounds, action
+-- shut, still busy" and the condition could never be true: measured in the Forest Test, the drawn
+-- magazine never moved once. What the client is drawing is the SERVER's action, so the server says
+-- which one it is.
+function Shotgun.snapshot(
+	state: WeaponState,
+	now: number,
+	notice: string?,
+	weapon: string?,
+	action: string?
+): WeaponSnapshot
 	return Shotgun.deepFreeze({
+		action = action,
 		equipped = state.equipped,
 		open = state.open,
 		barrels = table.clone(state.barrels),

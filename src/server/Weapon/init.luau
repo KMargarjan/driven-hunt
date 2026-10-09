@@ -416,7 +416,10 @@ local function publish(
 	state: WeaponState,
 	force: boolean?,
 	notice: string?,
-	bucket: string?
+	bucket: string?,
+	-- The sequence step being run right now (task 142), so the client draws the server's action
+	-- instead of inferring it from a state that looks the same for two different steps.
+	action: string?
 )
 	local now = os.clock()
 	if not force or bucket ~= nil then
@@ -429,7 +432,7 @@ local function publish(
 		end
 	end
 	local channel = remotes or Shotgun.remotes()
-	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now, notice, id))
+	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now, notice, id, action))
 end
 
 local function setState(player: Player, id: string, state: WeaponState)
@@ -830,7 +833,7 @@ function runCycle(player: Player, id: string, epoch: number, steps: { any }?)
 			break
 		end
 		setState(player, id, next)
-		publish(player, id, next, true)
+		publish(player, id, next, true, nil, nil, step.kind)
 		task.wait(step.wait)
 	end
 	-- One last publish once the final window has elapsed. Without it the newest snapshot a client

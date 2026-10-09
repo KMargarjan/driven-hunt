@@ -117,12 +117,14 @@ function Geometry.layout(config)
 		-- underside (`actionY - actionH/2`), is as wide as the action and a little shorter, and
 		-- sticks out far enough to be something a hand can be seen taking hold of.
 		magazine = {
-			size = Vector3.new(actionW * 0.82, MAGAZINE_DROP * k, actionL * 0.17),
-			at = Vector3.new(
-				actionX,
-				actionY - actionH / 2 - (MAGAZINE_DROP * k) / 2 + 0.02 * k,
-				actionZ + actionL * 0.16
-			),
+			size = Vector3.new(actionW * 0.78, MAGAZINE_DROP * k, 0.52 * k),
+			-- UNDER THE RECEIVER, NOT UNDER THE BARREL, and that distinction was measured on screen:
+			-- the `action` GROUP spans -2.2 to +0.909 because it holds the barrel as well, so its
+			-- centre is a stud and a half out along the bore -- a magazine placed from it hangs in
+			-- mid-air beside the fore-end, which is exactly what the first frame showed. The BOLT's
+			-- box is over the receiver (that is what a bolt sits in), so the magazine is placed from
+			-- that, a little forward of the bolt's own centre where the well is.
+			at = Vector3.new(actionX, actionY - actionH / 2 - (MAGAZINE_DROP * k) / 2 + 0.06 * k, boltZ - 0.17 * k),
 		},
 	})
 end

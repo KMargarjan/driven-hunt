@@ -79,10 +79,20 @@ end
 -- its timings are data on the row (`CYCLE`), because a bolt is not a break-action with different
 -- numbers: it is three steps where the shotgun has four. The first step of that kind is the answer,
 -- which is exactly right for the shotgun's two identical `Load`s.
+-- IT SEARCHES BOTH OF THE WEAPON'S SEQUENCES (task 142), not just `CYCLE`. A magazine rifle has
+-- two -- the bolt (`CYCLE`) and the magazine change (`RELOAD`) -- and `Magazine` appears only in the
+-- second, so a lookup that read `CYCLE` alone answered 0 for it: MEASURED in the Forest Test, the
+-- step published `action=Magazine busy=0.00` and the whole 1.35 s window did not exist, which is
+-- why the drawn box never moved. `Break` and `Close` are in both lists with the same waits, so the
+-- order between them decides nothing.
 local function waitFor(row, kind: string): number
-	for _, step in ipairs(row.CYCLE) do
-		if step.kind == kind then
-			return step.wait
+	for _, list in ipairs({ row.CYCLE, row.RELOAD }) do
+		if list ~= nil then
+			for _, step in ipairs(list) do
+				if step.kind == kind then
+					return step.wait
+				end
+			end
 		end
 	end
 	return 0

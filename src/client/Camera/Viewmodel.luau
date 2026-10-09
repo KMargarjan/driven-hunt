@@ -182,8 +182,9 @@ end
 -- Is the gun behind the scope's mask right now? Written by `Viewmodel.update` and read by
 -- `Viewmodel.flash`, which must not draw a muzzle flash onto a model nobody can see (task 141).
 local hiddenNow = false
--- How far through a magazine change the gun is, or nil. See `Viewmodel.setMagazine`.
+-- When the running magazine change started, and how long it lasts. See `Viewmodel.setMagazine`.
 local magazineAt: number? = nil
+local magazineSeconds: number? = nil
 -- The drawn box's rest offset in the Handle's frame, read off the clone once per build.
 local magazineLocal: CFrame? = nil
 
@@ -271,15 +272,36 @@ function Viewmodel.setReload(state: { open: boolean, spent: number, loaded: { bo
 	reload = { open = open, spent = math.clamp(next_.spent or 0, 0, 2), loaded = loaded }
 end
 
--- HOW FAR THROUGH A MAGAZINE CHANGE THE GUN IS (task 142), 0 when there is none. Fed by
+-- A MAGAZINE CHANGE IS RUNNING, AND IT LASTS `seconds` (task 142). nil ends it. Fed by
 -- `CameraBoot`'s break-source closure, which is already the one reader of the replica -- a second
 -- reader is what rule 3 exists to stop.
-function Viewmodel.setMagazine(progress: number?)
-	magazineAt = if progress == nil then nil else math.clamp(progress, 0, 1)
+--
+-- THE CLOCK IS THE CLIENT'S, which is the same reason `loadedAt` keeps one for each shell: the
+-- replica's `busyFor` is a NUMBER IN A SNAPSHOT, measured when the server sent it, and the server
+-- sends one per step -- so reading it every frame gives the same figure every frame. The server
+-- says WHICH step and HOW LONG; how far through it we are is this module's business.
+function Viewmodel.setMagazine(seconds: number?)
+	if seconds == nil or seconds <= 0 then
+		magazineAt, magazineSeconds = nil, nil
+		return
+	end
+	magazineSeconds = seconds
+	if magazineAt == nil then
+		magazineAt = clock()
+	end
 end
 
+-- How far through it, 0..1, or nil when there is none -- and nil again once it has finished, so a
+-- swap that the server never ended cannot leave the box hanging out of the gun.
 function Viewmodel.magazineProgress(): number?
-	return magazineAt
+	if magazineAt == nil or magazineSeconds == nil then
+		return nil
+	end
+	local t = (clock() - (magazineAt :: number)) / (magazineSeconds :: number)
+	if t >= 1 then
+		return nil
+	end
+	return math.clamp(t, 0, 1)
 end
 
 -- WHERE THE BOX IS AND HOW MUCH OF THE LEFT HAND IS ON IT, as one pure pair. PURE, so a spec drives
@@ -1024,7 +1046,7 @@ function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mo
 			-- is, and the hand drops with the box because both read the same one progress.
 			local swap = config.MAGAZINE_SWAP
 			if swap ~= nil and swap.hand ~= nil then
-				local away, onBox = Viewmodel.magazineAtProgress(magazineAt, config)
+				local away, onBox = Viewmodel.magazineAtProgress(Viewmodel.magazineProgress(), config)
 				if onBox > 0 then
 					held = held:Lerp(swap.hand * CFrame.new(0, -away, 0), onBox)
 				end
@@ -1324,7 +1346,7 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 		if magazineLocal == nil then
 			magazineLocal = (made.PrimaryPart :: BasePart).CFrame:ToObjectSpace((box :: BasePart).CFrame)
 		end
-		local away = Viewmodel.magazineAtProgress(magazineAt, config);
+		local away = Viewmodel.magazineAtProgress(Viewmodel.magazineProgress(), config);
 		(box :: BasePart).CFrame = gun * (magazineLocal :: CFrame) * CFrame.new(0, -away, 0)
 	end
 	Viewmodel.poseHands(gun, barrels, state, config)
