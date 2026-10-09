@@ -1227,6 +1227,19 @@ return function()
 			expect(math.abs(slow - 4 / MODEL.CLIPS.walk.groundStudsPerSecond) < 1e-6).to.equal(true)
 		end)
 
+		it("rates a HELD gait by the animal's own stride, not the male's (task 139)", function()
+			-- THE DWELL FORGOT `clipScale`, where every other rate in `Body.clipFor` includes it. A
+			-- cub's stride is 0.4372 of a male's, so for the whole `MIN_CLIP_SECONDS` it played at
+			-- 0.4372 of the rate it needed -- and the dwell is entered on EVERY gait change.
+			local walk = MODEL.CLIPS.walk.groundStudsPerSecond
+			local _, male = clipWith("walk", 0.0, { speed = 4 })
+			local _, cub = clipWith("walk", 0.0, { speed = 4, clipScale = 0.4372 })
+			expect(math.abs(male - 4 / walk) < 1e-6).to.equal(true)
+			-- A SMALLER ANIMAL COVERS LESS GROUND PER STRIDE, so it has to step FASTER to keep up.
+			expect(cub > male).to.equal(true)
+			expect(math.abs(cub - 4 / (walk * 0.4372)) < 1e-6).to.equal(true)
+		end)
+
 		it("lets a flinch and a death through the dwell at once", function()
 			-- These two must be instant: they are what a player is waiting to see after pulling the
 			-- trigger, and a fifth of a second of politeness reads as the animal not reacting.

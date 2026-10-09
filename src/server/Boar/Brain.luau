@@ -1181,13 +1181,42 @@ function Brain:_latchFlight(position: Vector3, from: Vector3?)
 	-- the same blend `_fleeDirection` has always used is applied HERE instead of every frame.
 	local exit_ = Vector3.new(flatPos.X, 0, self._field.exitZ)
 	local toExit = unit(exit_ - flatPos, away)
-	-- ...UNLESS THE WAY OUT IS PAST THE GUN, and that case is why this is an `if` and not a sum.
-	-- MEASURED: on the third shot of the after-trace six animals ran with a median heading deviation
-	-- of 160 degrees -- they turned round. The shooter was BETWEEN them and `exitZ`, so `away` and
-	-- `toExit` point opposite ways, their sum is near zero, and `unit`'s fallback decides the
-	-- heading -- which is not a decision, it is a coin toss. An animal in that position runs from the
-	-- gun and finds its way out later.
-	self._flightHeading = if away:Dot(toExit) <= 0 then away else unit(away + toExit, away)
+	-- ...AND THE WAY OUT ALWAYS WINS, EVEN PAST THE GUN (task 139, the Director's decision A).
+	-- Karen, 2026-10-09: *"when boars crossing road they can't come back to same view, they just move
+	-- on a specially after spook or shoot"*, and in task 126 *"they don't come back from that side"*.
+	--
+	-- THIS LINE USED TO SAY THE OPPOSITE and it said why: when the shooter stood between the animal
+	-- and `exitZ` it took `away` -- straight back the way it came. IN A DRIVE THE SHOOTER IS ALWAYS
+	-- IN THAT POSITION: he stands on the road and the way out is past him. MEASURED at `0c7f736`,
+	-- nine shots, **five animals ran north afterwards**, back into the view she had just shot into.
+	-- The old reasoning -- "an animal in that position runs from the gun and finds its way out later"
+	-- -- is the thing a drive exists to stop: driven game breaks PAST the guns.
+	--
+	-- SO THE EXIT IS THE HEADING AND THE GUN IS A SWERVE. `sideways` is what is left of "away from
+	-- the cause" once the part along the exit line is removed, so the animal still breaks left or
+	-- right of him; it just never breaks backwards. Frightened by nothing in particular (`from` nil),
+	-- it keeps its own heading exactly as before.
+	--
+	-- ...AND IT ALWAYS PASSES HIM TO ONE SIDE (task 139 round 3, the Reviewer's note, which was
+	-- right and said so with the geometry). When the shooter stands DIRECTLY between the animal and
+	-- the exit -- which is the case this whole paragraph is about -- `away` is exactly `-toExit`,
+	-- `sideways` is ZERO, and the animal ran straight at the gun.
+	--
+	-- A SIDE IS THEREFORE CHOSEN WHEN THE GEOMETRY DOES NOT CHOOSE ONE, and it is the animal's OWN
+	-- side (`_whiskerSide`, drawn once when it was born) rather than a fresh coin: two animals
+	-- abreast break the same way every frame of the same flight, and the herd does not split and
+	-- re-split. The cross product with Y is the left/right of the exit line, so the fallback is a
+	-- UNIT sideways -- a full `FLIGHT_SWERVE` of break, about 45 degrees with the swerve at 1.
+	--
+	-- EVERY OTHER FLIGHT KEEPS THE GEOMETRY IT HAD (round 3, the Reviewer's note, which was right
+	-- again): `sideways` is NOT normalised in the general case, so the break is still
+	-- `atan(|away.X|)`-ish -- a flush from nearly due north runs nearly straight down the exit line,
+	-- and only a shooter square on the line gets the full 45 degrees.
+	local sideways = away - toExit * away:Dot(toExit)
+	if sideways.Magnitude < 1e-3 then
+		sideways = Vector3.new(0, 1, 0):Cross(toExit) * (if self._whiskerSide < 0 then -1 else 1)
+	end
+	self._flightHeading = if from == nil then away else unit(toExit + sideways * (move.FLIGHT_SWERVE or 1), toExit)
 	self._flightFor = move.FLIGHT_MAX_SECONDS
 	self._flightRun = 0
 	self._flightFrom = flatPos

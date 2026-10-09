@@ -586,9 +586,17 @@ return function()
 		end)
 
 		it("runs every animal that HEARS a shot, not only the one that was hit", function()
-			-- KAREN: "after shoot all run away". The radius is `SENSE.SHOT_AUDIBLE_STUDS` = 350, and
-			-- `Runtime:hearShot` hands the sound to every live boar, so the radius IS the rule.
-			expect(SENSE.SHOT_AUDIBLE_STUDS).to.equal(350)
+			-- KAREN: *"after shoot all run away"* (2026-10-05), and `Runtime:hearShot` hands the sound
+			-- to every live boar, so the RADIUS is the rule and this case is about the radius being
+			-- obeyed rather than about its value.
+			--
+			-- 350 WAS THE WHOLE FIELD, and Karen said so herself on 2026-10-09: *"once shoot they
+			-- have to run around so blast radius is a bit"*. The Forest Test is about 600 studs from
+			-- the spawn line to the exit, so one shot emptied every line in the world and there was
+			-- nothing left to watch. 120 is about twice the range she shoots at. Both sentences are
+			-- hers and they are not in conflict: everything that HEARS it runs, and a shot is no
+			-- longer heard three hundred studs away.
+			expect(SENSE.SHOT_AUDIBLE_STUDS).to.equal(120)
 			local brain = Brain.new(on, FIELD, START, Random.new(3))
 			for _ = 1, 30 do
 				brain:step(DT, obs(START, {}))
@@ -958,9 +966,15 @@ return function()
 			return { { kind = "shot", position = Vector3.new(distance, 0, 0) } }
 		end
 
+		-- THE DISTANCES ARE READ OFF THE CONFIG, NOT TYPED (task 139 round 3). Karen, 2026-10-09:
+		-- *"once shoot they have to run around so blast radius is a bit"* -- the radius came down
+		-- from 350 to 120 because 350 was the whole field, and these cases had 340, 200, 345 and 395
+		-- hard-coded against it. The RULE is what they are for -- inside sprints, outside grazes on
+		-- -- and it is unchanged; only the number it is measured against moved, and it moves with the
+		-- config now.
 		it("sprints on the same tick inside SHOT_AUDIBLE_STUDS, and holds it for SHOT_SPRINT_SECONDS", function()
 			local brain = Brain.new(on, FIELD, START, Random.new(21))
-			local intent = brain:step(DT, obs(START, {}, { sounds = shotAt(340) }))
+			local intent = brain:step(DT, obs(START, {}, { sounds = shotAt(CONFIG.SENSE.SHOT_AUDIBLE_STUDS - 10) }))
 			expect(intent.state).to.equal("FLEE")
 			-- The bolt kick is the existing one-off ACCEL bypass, so the setpoint on this very tick
 			-- is SPRINT_SPEED * BOLT_KICK less the one ramp step that follows it.
@@ -1004,7 +1018,10 @@ return function()
 			local brain = Brain.new(on, FIELD, START, Random.new(23))
 			local request = nil
 			for _ = 1, 60 do
-				local intent = brain:step(DT, obs(START, {}, { sounds = if request then nil else shotAt(200) }))
+				local intent = brain:step(
+					DT,
+					obs(START, {}, { sounds = if request then nil else shotAt(CONFIG.SENSE.SHOT_AUDIBLE_STUDS * 0.6) })
+				)
 				request = request or intent.pathRequest
 			end
 			expect(request).to.be.ok()

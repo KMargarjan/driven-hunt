@@ -116,58 +116,50 @@ return function()
 			expect(Line.aimFor(5, 4, 6, 1.5, 2.5, 60, 9)).to.equal(9)
 		end)
 
-		it("sends a follower that has stopped flying to the TAIL, and never the leader", function()
-			-- TASK 136's ROUND-1 BLOCKING FINDING, AS A TEST (task 137). The rank guard was proved by
-			-- reading only, so it could have been deleted green -- which is how it shipped broken in
-			-- the first place. `Line.rejoinOrder`'s own comment is the why.
-			local function file(...)
-				local out = {}
-				for _, id in ipairs({ ... }) do
-					table.insert(out, { id = id, kind = "female" })
-				end
-				return out
+		it("takes a fled or crossed animal out of the file FOR GOOD (task 139)", function()
+			-- KAREN, 2026-10-09: *"when boars crossing road they can't come back to same view, they
+			-- just move on a specially after spook or shoot"*. Measured on `0c7f736`: five of nine
+			-- shot animals ran north afterwards, back into the view she had just shot into.
+			--
+			-- A calm animal north of the road is in the file...
+			expect(Line.stillInFile(false, false, false, 12)).to.equal(true)
+			-- ...and each of the three ways out takes it out, on its own.
+			expect(Line.stillInFile(false, true, false, 12)).to.equal(false) -- flying
+			expect(Line.stillInFile(false, false, true, 12)).to.equal(false) -- hurt
+			expect(Line.stillInFile(false, false, false, -1)).to.equal(false) -- over the road
+			-- ...AND IT IS PERMANENT, which is the whole rule: an animal whose flight has ENDED, and
+			-- which is back north of the road and unhurt, is still out. This is the assertion that
+			-- fails if `gone` is dropped and the old rejoin-at-the-tail comes back.
+			expect(Line.stillInFile(true, false, false, 12)).to.equal(false)
+		end)
+
+		it("shoves the animal that leaves because it CROSSED, and only that one (task 139)", function()
+			-- KAREN, 2026-10-09: *"and they run away when cross the road"*. The rule used to be a
+			-- line-level speed-up tested on the LEADER -- `at.Z < roadZ(at.X) - halfWidth`, the same
+			-- inequality `stillInFile` ends on -- and once the exit became permanent the filter ran
+			-- first in the same step, so she was out of `live` before the test and `line.crossed`
+			-- could never become true. The Reviewer found it; this is the assertion that would have.
+			--
+			-- Over the road and nothing else wrong: it gets the shove.
+			expect(Line.crossedOut(false, false, false, -1)).to.equal(true)
+			-- ...and it is the ONLY way out that does. An animal already running is already running,
+			-- a hurt one is the Brain's cripple, and one already `gone` was shoved on its own step --
+			-- re-spooking it every step is what task 126 round 2 took out of this file.
+			expect(Line.crossedOut(true, false, false, -1)).to.equal(false)
+			expect(Line.crossedOut(false, true, false, -1)).to.equal(false)
+			expect(Line.crossedOut(false, false, true, -1)).to.equal(false)
+			-- ...AND AN ANIMAL STILL IN THE FILE IS NOT SHOVED AT ALL, which is the other half: a
+			-- calm line walks to the road, it does not bolt at it (task 139 item 9).
+			expect(Line.crossedOut(false, false, false, 12)).to.equal(false)
+			expect(Line.stillInFile(false, false, false, 12)).to.equal(true)
+			-- The two rules partition every live member: in the file, or out of it with exactly one
+			-- of the four reasons -- so "it left because it crossed" is never also "it stays".
+			for _, dz in ipairs({ -40, -0.01, 0, 5 }) do
+				local stays = Line.stillInFile(false, false, false, dz)
+				local shoved = Line.crossedOut(false, false, false, dz)
+				expect(stays and shoved).to.equal(false)
+				expect(stays or shoved).to.equal(true)
 			end
-			local function ids(members)
-				local out = {}
-				for _, m in ipairs(members) do
-					table.insert(out, m.id)
-				end
-				return table.concat(out, ",")
-			end
-			local none = function(_id: string)
-				return false
-			end
-
-			-- A FOLLOWER COMES BACK: it goes behind everybody, and the rest keep their order.
-			local back, moved = Line.rejoinOrder(file("sow", "b", "c", "d"), none, { c = true })
-			expect(ids(back)).to.equal("sow,b,d,c")
-			expect(#moved).to.equal(1)
-			expect(moved[1]).to.equal("c")
-
-			-- TWO OF THEM COME BACK: both go to the tail, in the order they stood in.
-			local two = Line.rejoinOrder(file("sow", "b", "c", "d"), none, { b = true, d = true })
-			expect(ids(two)).to.equal("sow,c,b,d")
-
-			-- THE LEADER COMES BACK AND NOTHING MOVES AT ALL. This is the guard: with it gone the
-			-- answer is "b,c,d,sow", the trail's next crumb runs backwards across the gap the sow
-			-- bolted, and the whole file is driven up her dead flight path.
-			local sow, sowMoved = Line.rejoinOrder(file("sow", "b", "c", "d"), none, { sow = true })
-			expect(ids(sow)).to.equal("sow,b,c,d")
-			expect(#sowMoved).to.equal(0)
-
-			-- ...AND THE LEADER IS STILL NOT MOVED WHEN A FOLLOWER IS, so the guard cannot be
-			-- satisfied by the "nothing moved" shortcut alone.
-			local both = Line.rejoinOrder(file("sow", "b", "c", "d"), none, { sow = true, b = true })
-			expect(ids(both)).to.equal("sow,c,d,b")
-
-			-- STILL FLYING IS NOT REJOINING: the rule fires on the step the flight ENDS.
-			local air = Line.rejoinOrder(file("sow", "b", "c"), function(id)
-				return id == "b"
-			end, { b = true })
-			expect(ids(air)).to.equal("sow,b,c")
-			-- ...and an animal that never flew is never moved.
-			local calm = Line.rejoinOrder(file("sow", "b", "c"), none, {})
-			expect(ids(calm)).to.equal("sow,b,c")
 		end)
 
 		it("forgets the tail nobody stands on", function()

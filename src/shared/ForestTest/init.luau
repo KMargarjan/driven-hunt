@@ -292,10 +292,18 @@ ForestTest.LINE = {
 	-- THE PACE OF A WAVE, drawn once when it is released. *"then trot sometimes walk sometimes run"*
 	-- -- so a trot is the common case and the other two are the variation. Weights, not percentages,
 	-- so adding a fourth is one row.
+	-- A CALM WAVE WALKS OR TROTS, AND NEVER RUNS (task 139 round 3). Karen, 2026-10-09: *"when no
+	-- shoot not moving they come to road cal trot when spooked run and same when beater close"*.
+	--
+	-- `run` WAS A FIFTH OF ALL WAVES, drawn before anything had happened, so a hunter at a stand
+	-- regularly watched a line come out of the trees at a flat gallop with nothing chasing it. A run
+	-- is a REACTION in this world and it still happens: a shot inside `SENSE.SHOT_AUDIBLE_STUDS`, a
+	-- beater inside the flush radius, or a hit -- all three reach `Brain:spook` and all three
+	-- override the wave's pace. What this mix decides is only the pace of a wave that nothing has
+	-- happened to yet, and the answer to that is a trot.
 	paceMix = {
-		{ pace = "walk", weight = 25 },
-		{ pace = "trot", weight = 55 },
-		{ pace = "run", weight = 20 },
+		{ pace = "walk", weight = 30 },
+		{ pace = "trot", weight = 70 },
 	},
 
 	-- WHERE A LINE STARTS: this far north of the road, in the trees on the drive side.
@@ -320,6 +328,12 @@ ForestTest.LINE = {
 	-- open where a hunter can see it rather than on the gravel; the Brain decides whether she takes
 	-- it at all (`MOVE.EDGE_CHANCE`) and refuses outright if she is already frightened.
 	checkWithinStuds = 45,
+	-- WHERE THE DRIVE IS, FOR AN ANIMAL THAT HAS JUST CROSSED (task 139 round 3). Karen: *"and they
+	-- run away when cross the road"*. `ForestTest.stepLines` spooks the member it is dropping and
+	-- has to say what from; this is how far NORTH of it that is, so the Brain's one latched heading
+	-- points south at `field.exitZ` and not back over the road. 40 studs is the width of the push
+	-- behind a crossing line -- far enough to be the drive and not the animal's own shadow.
+	runAwayFromStuds = 40,
 	stuckAskedSpeed = 2,
 	stuckSeconds = 3,
 	stuckStuds = 1,

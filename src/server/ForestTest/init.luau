@@ -1120,6 +1120,14 @@ function ForestTest.releaseLine(now: number): string?
 						seeded[index].at.Z - seeded[index - 1].at.Z
 					)).Magnitude
 			end
+			-- A LINE IS A PACK FOR THE EARS TOO (task 139). Without this its members have no
+			-- `sounderId` and `Boar.hasVoice` lets every one of them speak -- see
+			-- `Runtime:formSounder`.
+			local pack = {}
+			for _, member in ipairs(group) do
+				table.insert(pack, member.id)
+			end
+			runtime:formSounder(pack)
 			table.insert(state.lines, {
 				id = string.format("line-%d-%d", state.waveIndex, which),
 				members = group,
@@ -1133,7 +1141,6 @@ function ForestTest.releaseLine(now: number): string?
 				pace = pace,
 				bornAt = now,
 				crossing = crossing,
-				crossed = false,
 				checked = false,
 				stuckFrom = {},
 				stuckAt = {},
@@ -1173,11 +1180,51 @@ function ForestTest.stepLines(now: number)
 		local line = state.lines[index]
 		-- DEAD AND GONE MEMBERS DROP OUT, and the line closes up behind them: a shot animal must not
 		-- leave a hole its followers keep station on.
+		-- ...AND SO HAS ONE THAT HAS FLED OR CROSSED: IT HAS LEFT THE DRIVE FOR GOOD (task 139, the
+		-- Director's decision A, and Karen's own model -- *"they don't come back from that side ...
+		-- once they in another side of road they run away"*).
+		--
+		-- THE REJOIN RULE WAS THE REGRESSION. Task 136 sent an animal whose flight had ended back to
+		-- the TAIL of its line -- and the tail is NORTH of the road, so with the flight now pointed
+		-- south (`Brain:_latchFlight`) every fled animal was ordered straight back into the view it
+		-- had just left: MEASURED in round 1 at 19 to 26 animals coming back north, against 0 on
+		-- main. The same mechanism is the "stands and stays" Karen saw -- the line takes a shot
+		-- animal back, hands it the tail station, and the overrun rule orders `point = here,
+		-- speed = 0`, which is a wounded boar standing perfectly still in the open.
+		--
+		-- SO IT IS ONE RULE AND IT IS PERMANENT, and `line.gone` remembers it. Flying, hurt, or south
+		-- of the road: out of the file, never ordered again, never rejoined. What it does next is
+		-- `Brain`'s business -- the flight, the cripple, the bleed-out -- and none of this file's.
+		-- The rejoin path is deleted; `backups/2026-10-09-line-rejoin-at-tail.md` keeps it.
+		line.gone = line.gone or {}
 		local live = {}
 		for _, member in ipairs(line.members) do
 			local status = runtime:statusOf(member.id)
 			if status ~= nil and status.alive then
-				table.insert(live, { id = member.id, kind = member.kind, status = status })
+				local wound = runtime:woundOf(member.id)
+				local already = line.gone[member.id] == true
+				local flying = runtime:flying(member.id)
+				local hurt = wound ~= nil and wound.severity ~= nil and wound.severity ~= "healthy"
+				local dz = status.position.Z - (Data.roadZ(status.position.X) - Data.ROAD.halfWidthStuds)
+				local stays = Line.stillInFile(already, flying, hurt, dz)
+				if stays then
+					table.insert(live, { id = member.id, kind = member.kind, status = status })
+				else
+					-- ...AND THE ONE THAT HAS JUST CROSSED RUNS AWAY (task 139 round 3, the
+					-- Reviewer's finding 1). Karen: *"and they run away when cross the road"*. See
+					-- `Line.crossedOut`: of the four ways out of the file this is the only one that
+					-- gets a shove, and it gets it ONCE, on the step it leaves -- a flying animal is
+					-- already running, a hurt one is the Brain's cripple, and an animal already
+					-- `gone` was shoved on its own step.
+					--
+					-- THE THING IT RUNS FROM IS THE DRIVE, which is behind it: the point handed to
+					-- `spook` is `LINE.runAwayFromStuds` north of the animal, so `Brain:_latchFlight`
+					-- takes a heading south, toward `field.exitZ`, where it despawns.
+					if Line.crossedOut(already, flying, hurt, dz) then
+						runtime:spook(member.id, status.position + Vector3.new(0, 0, lineData.runAwayFromStuds))
+					end
+					line.gone[member.id] = true
+				end
 			end
 		end
 		line.members = {}
@@ -1189,49 +1236,16 @@ function ForestTest.stepLines(now: number)
 			continue
 		end
 
-		-- ...AND ONE THAT HAS JUST STOPPED FLYING REJOINS AT THE BACK (task 136). Karen's line is a
-		-- file, and an animal that bolted and came back used to keep the RANK it had: a boar that had
-		-- been third was handed the third station again, which is somewhere up the middle of a file
-		-- that closed up behind it while it was away -- so it walked ACROSS the line to get there.
-		-- Moving it to the end of `line.members` means its station is the tail, which is behind
-		-- everybody and reachable by walking the trail. Its arc memory goes with it, so the next
-		-- `Line.arcAt` re-acquires from scratch rather than from where it was before it bolted.
-		line.flyingWas = line.flyingWas or {}
 		line.arcOf = line.arcOf or {}
-		-- ...AND NEVER THE LEADER, which round 1 got wrong and the Reviewer caught. Both rules, and
-		-- the whole of why, are `Line.rejoinOrder` -- pure, and driven by `forest_line.spec` (task
-		-- 137), because a rank guard proved by reading is a rank guard that can be deleted green.
-		local reordered, moved = Line.rejoinOrder(line.members, function(id: string): boolean
-			return runtime:flying(id)
-		end, line.flyingWas)
-		for _, member in ipairs(line.members) do
-			line.flyingWas[member.id] = runtime:flying(member.id)
-		end
-		if #moved > 0 then
-			line.members = reordered
-			for _, id in ipairs(moved) do
-				-- Its arc memory goes with it, so the next `Line.arcAt` re-acquires from scratch
-				-- rather than from where it was before it bolted.
-				line.arcOf[id] = nil
-			end
-			-- `live` was built from the old order, so it is rebuilt from the new one.
-			local rebuilt = {}
-			for _, member in ipairs(line.members) do
-				for _, row in ipairs(live) do
-					if row.id == member.id then
-						table.insert(rebuilt, row)
-					end
-				end
-			end
-			live = rebuilt
-		end
 
 		-- AN ANIMAL IN FLIGHT IS NOT IN THE LINE ANY MORE (task 126 round 2, the Reviewer's blocking
 		-- finding). `Brain` now drops an order the moment a fright latches, and the drive must not
 		-- hand it a new one on the next Heartbeat -- re-ordering every member every frame is what
 		-- kept a shot boar walking its trail at the ordered speed instead of running straight.
-		-- `Runtime:flying` asks the Brain; a frightened animal is skipped here until its flight ends,
-		-- and then it rejoins the file at whatever station is free.
+		-- `Runtime:flying` asks the Brain. SINCE TASK 139 IT IS ALSO FILTERED OUT above and never
+		-- rejoins, so these two guards can no longer be true for a member of `live`; they are kept
+		-- because they are the ONE OWNER boundary this file has -- the drive must not order an
+		-- animal the Brain is flying, whoever adds the next way into `live`.
 		line.freeUntil = line.freeUntil or {}
 		local function leadIfFree(id: string, point: Vector3, speed: number)
 			if runtime:flying(id) then
@@ -1356,10 +1370,11 @@ function ForestTest.stepLines(now: number)
 				point, speed = here, 0
 			end
 			leadIfFree(follower.id, point or here, speed)
-			-- ...AND THE ONE IN FRONT HAS TO BE IN THE LINE (round 2, the Reviewer's note). `live` is
-			-- filtered on alive, not on flying, so a bolting animal keeps its rank -- and handing its
-			-- arc position down as "the one in front" regulates the file against an animal that is,
-			-- two dozen lines above, declared not to be in the line any more.
+			-- ...AND THE ONE IN FRONT HAS TO BE IN THE LINE (round 2, the Reviewer's note). When
+			-- `live` was filtered on alive alone a bolting animal kept its rank, and handing its arc
+			-- position down as "the one in front" regulated the file against an animal that was, two
+			-- dozen lines above, declared not to be in the line any more. Task 139's filter is what
+			-- made that impossible; this is the same boundary, kept for the same reason.
 			if not runtime:flying(follower.id) then
 				aheadS = ownS
 			end
@@ -1375,13 +1390,6 @@ function ForestTest.stepLines(now: number)
 			lineData.tailPatienceStuds,
 			lineData.tailSlow
 		)
-
-		-- ONCE ACROSS, THEY RUN AWAY. Karen: *"once they in another side of road they run away"*.
-		if not line.crossed and at.Z < Data.roadZ(at.X) - Data.ROAD.halfWidthStuds then
-			line.crossed = true
-			line.speed = boarConfig().PACE.RUN_SPEED
-			line.baseSpeed = boarConfig().PACE.RUN_SPEED
-		end
 
 		-- STUCK = 0, AND IT IS COUNTED. An animal that has not covered `stuckStuds` in `stuckSeconds`
 		-- while it was asked to move is re-pathed (the leader) or snapped back onto the trail (a

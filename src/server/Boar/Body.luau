@@ -809,9 +809,32 @@ function Body.clipFor(info, config): (string?, number)
 	-- `activity` while IDLE and nothing else, so a fleeing, wounded or dead animal reaches this with
 	-- nil and every line below is the code it was. It sits after the death, the cripple and the
 	-- flinch because none of those is a calm animal.
+	-- ...AND ONLY WHILE IT IS ACTUALLY STANDING STILL (task 139), which was the LARGEST cause of
+	-- Karen's *"sliding"*. The measurement and the reasoning are inside the `if` below, where the
+	-- test is; they were written out twice and the Reviewer asked for one of them.
 	local calmName, calmRate = Body.activityClip(info, config)
 	if calmName ~= nil then
-		return calmName, calmRate
+		-- THE EXIT STILL PLAYS WHILE IT MOVES, AND NOTHING ELSE CALM DOES (task 139). `grazeEnd` is
+		-- the head coming out of the grass: a one-second transition the animal has already begun,
+		-- and `boar_calm.spec`'s "plays the EXIT clip before anything the next CALM activity wants"
+		-- is right that walking must not cut it off.
+		--
+		-- EVERY OTHER CALM CLIP IS FOR AN ANIMAL STANDING STILL, and that is the largest cause of
+		-- Karen's *"sliding"*: this branch sits ahead of the gait selection and answered for ANY calm
+		-- animal, so a boar the drive was walking along at 4 studs/s with its head down played the
+		-- grazing LOOP and skated. MEASURED over three 150 s runs: 25.1 % of samples in which a boar
+		-- was moving above 1 stud/s had no locomotion clip under it, and the clips playing instead
+		-- were `idle` (2,151 samples), `grazeLoop` (2,052), `smell` (377) and `grazeStart` (181).
+		-- ...AND A CALM CLIP THAT CARRIES ITS OWN GROUND IS A LOCOMOTION CLIP: `digWalk` is a boar
+		-- rooting AS IT WALKS, and `boar_calm.spec` is right to ask for it at 1.9 studs/s. The test
+		-- is the clip's own `groundStudsPerSecond`, so it is a fact about the clip and not a list of
+		-- names to keep in step.
+		local calmRow = clips[calmName]
+		local walks = calmRow ~= nil and (calmRow.groundStudsPerSecond or 0) > 0
+		local exiting = info.exitClip ~= nil and info.exitFor > 0 and calmName == info.exitClip
+		if walks or exiting or info.speed <= model.STILL_SPEED then
+			return calmName, calmRate
+		end
 	end
 
 	local function wanted(): (string, number)
@@ -855,7 +878,15 @@ function Body.clipFor(info, config): (string?, number)
 	if held ~= nil and name ~= held and info.heldFor < model.MIN_CLIP_SECONDS and clips[held] ~= nil then
 		local natural = clips[held].groundStudsPerSecond
 		if natural > 0 then
-			return held, math.clamp(info.speed / natural, model.MIN_RATE, model.MAX_RATE)
+			-- ...TIMES THE ANIMAL'S OWN STRIDE, WHICH THIS LINE FORGOT (task 139). Karen, 2026-10-09:
+			-- *"I can see some boars are sliding"*.
+			--
+			-- EVERY OTHER RATE IN THIS FILE divides by `clip.groundStudsPerSecond * clipScale` -- see
+			-- `gait` above and the cripple drag. This one divided by the clip alone, so for the whole
+			-- `MIN_CLIP_SECONDS` dwell a female played at 0.855 of the rate she needed and a cub at
+			-- 0.437 of it, and the dwell is entered on EVERY gait change. The clamps are the bands'
+			-- too, for the same reason: `MIN_RATE` does not scale and `MAX_RATE` does.
+			return held, math.clamp(info.speed / (natural * clipScale), bands.minRate, bands.maxRate)
 		end
 		return held, 1
 	end
@@ -1079,6 +1110,22 @@ function Body.stepVisual(handle, dt: number, info, config)
 		hitFor = handle.hitFor,
 		hitFromBehind = handle.hitFromBehind,
 		speed = info.speed,
+		-- THIS ANIMAL'S OWN STRIDE, AND IT WAS NEVER PASSED (task 139 round 3). `Body.clipFor` has
+		-- asked for `info.clipScale` since task 119 -- `gaitBands` divides every rate by it, because
+		-- a female covers 0.8553 of a male's ground per stride and a cub 0.4372 -- and this call site
+		-- has never put it in the table, so `bands.scale` was 1 for every animal in the game and the
+		-- whole per-kind correction was dead.
+		--
+		-- THE CALLER'S VALUE WINS AND THE HANDLE IS THE FALLBACK (round 3, the Reviewer's note: the
+		-- two routes carried the same number and only one was read). `Runtime:step` publishes it in
+		-- `info`; a caller that does not -- a spec driving `stepVisual` on a bare handle -- gets the
+		-- geometry the body was built with.
+		--
+		-- MEASURED, and it is where the constant came from: across six 150 s runs the median gap
+		-- between the ground a boar covered and the ground its clip was rated for was 56.2 %, stable
+		-- to 0.1 -- and 1 - 0.4372 is 0.5628. A cub was stepping at 0.44 of the rate it needed, which
+		-- is a cub skating, which is Karen's *"I can see some boars are sliding"*.
+		clipScale = info.clipScale or (handle.geometry and handle.geometry.clipScale),
 		yawRate = handle.yawRate,
 		currentClip = handle.clip,
 		heldFor = handle.clipHeldFor,

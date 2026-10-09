@@ -1,5 +1,74 @@
 # Escalations
 
+## 2026-10-09 — Task 139 (Karen's five boar complaints): BLOCKER, and the measurements
+
+**ROUND 1 ONLY. Nothing was shipped in round 1: `src/` went back to `main` exactly and the only
+change on the branch was Karen's words in `PLAYTEST.md`.** I stopped rather than merge a change set
+that made two of her five complaints measurably worse. Rounds 2, 3 and 4 then shipped on the
+Director's decisions; what this entry records is the stop and the measurements that caused it, not
+the state of the branch.
+
+### Why I stopped
+
+I built a trace that measures all five from one 150 s Forest Test run (hunter at a stand, shots
+through the real `FireRequest` route, reload after two). Three runs of the SAME build disagree by
+more than the effects I was trying to measure:
+
+| | main (before) | with fixes | fixes minus one |
+|---|---|---|---|
+| slide, median % gap between ground covered and feet | 56.2 | 56.2 | **44.8** |
+| moving with no locomotion clip | 21.0 % | 20.4 % | **31.8 %** |
+| shot animals that stood | 0 of 9 | 0 of 10 | 1 of 10 |
+| ran NORTH after a shot | **5 of 9** | **1 of 10** | 3 of 10 |
+| came back north over the road | 0 | **19** | **26** |
+| worst sounds, one pack / world | 2 / 2 | 3 / 3 | 3 / 3 |
+
+The slide figure moves by 11 points between runs of builds that differ in ways that cannot affect
+it, so it is noise at this sample size and I cannot use it to show a fix works. "Came back north"
+went from 0 to 19–26 and I could not attribute it: I reverted the change I suspected and it got
+worse, not better. Shipping that would trade one of Karen's complaints for another.
+
+### What IS established, and is worth keeping
+
+1. **Item 3 has a located root cause and a real measurement.** `Brain:_latchFlight` reads, in its
+   own comment: *"UNLESS THE WAY OUT IS PAST THE GUN … an animal in that position runs from the gun
+   and finds its way out later"* — `self._flightHeading = if away:Dot(toExit) <= 0 then away else …`.
+   **In a drive the shooter is ALWAYS in that position**: he stands on the road and the way out is
+   past him. Measured on `main`: **5 of 9 shot animals ran north**, back into the view Karen had just
+   shot into. Making the exit win took that to 1 of 10 — but that same change (or something it
+   interacts with) is my first suspect for the "came back north" regression.
+2. **Item 5 is already satisfied on `main` by this measure, and it fights item 4.** The worst moment
+   in a 150 s run with nine shots was **2 sounds in one pack and 2 in the world**. Karen's *"max 2"*
+   is met; what she is describing in *"I can't hear a sound walking"* is the other side of the same
+   coin — the step rows are capped at `audibleStuds = 40` while a hunter watches animals from 120.
+   Raising them to 75/85/95 made the approach audible AND took the worst count to 3. **These two
+   cannot both be satisfied by range alone** — the cap has to become structural first.
+3. **The line drive bypasses the voice cap entirely.** `ForestTest.releaseLine` spawns with
+   `runtime:spawn` per animal, not `spawnSounder`, so line members have no `sounderId`; `Boar.hasVoice`
+   answers "a herd with no list silences nobody" and **every animal in a line may voice**. That the
+   count is 2 today is luck, not the cap. A `Runtime:formSounder(ids)` called once at release is the
+   fix, and it is the prerequisite for item 4.
+4. **Item 2 could not be reproduced in 29 shots across three runs** (0, 0 and 1 "stood"). The one
+   mechanism I can see is real but unproven: a shot animal's flight ends, the line takes it back, the
+   overrun rule orders `point = here, speed = 0`, and it stands. The one occurrence I did catch
+   (`top speed 4.5, moved 12 studs in 12 s`) is consistent with it.
+5. **Item 1's arithmetic does not explain the number.** The dwell path in `Body.clipFor` divides by
+   `clips[held].groundStudsPerSecond` and omits `clipScale`, which every other rate in the file
+   includes — a real defect. But fixing it did not move the measured gap at all, so either it is not
+   the dominant path or my probe's `footed = groundStudsPerSecond × clipScale × track.Speed` is
+   measuring the wrong thing. **I will not report a 56 % sliding figure as fact when I cannot
+   reproduce it to better than ±11 points.**
+
+### What I need from the Director
+
+- **Item 4 vs item 5 is a decision, not a bug.** Audible from 60–80 studs and "max 2 sounds per pack"
+  require the cap to become structural (point 3) before the range goes up. Confirm that ordering.
+- **The trace needs to be longer or per-wave** before any of these can be shown fixed; 150 s of
+  samples is not enough to see an 11-point effect.
+
+Everything above is reproducible: the instrument is a temporary `Runtime:t139Publish` plus
+`scratchpad/t139_trace.py`, and both are described in this entry rather than left in the tree.
+
 For the Director and Karen. The Builder (or any agent) writes here and stops when:
 - the same item has failed 3 review rounds
 - it believes the Reviewer or Architect is factually wrong

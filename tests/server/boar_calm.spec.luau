@@ -169,6 +169,24 @@ return function()
 			expect(clipFor(config, { activity = "graze", activityFor = enter })).to.equal("grazeLoop")
 		end)
 
+		it("hands a MOVING animal its gait, however calm it is (task 139)", function()
+			-- KAREN, 2026-10-09: *"I can see some boars are sliding"*. This branch used to sit ahead
+			-- of the gait selection and answer for ANY calm animal, so a boar the drive was walking
+			-- along at 4 studs/s with its head down played the grazing LOOP and skated. MEASURED over
+			-- three 150 s runs before the fix: 25.1 % of all samples in which a boar was moving above
+			-- 1 stud/s had no locomotion clip under it, and `grazeLoop` was 2,052 of them.
+			local config = withCalmIds()
+			-- Standing still it still grazes, which is the whole point of the activity...
+			expect(clipFor(config, { activity = "graze", speed = 0 })).to.equal("grazeLoop")
+			-- ...and the moment it is walking, it walks.
+			expect(clipFor(config, { activity = "graze", speed = 4 })).to.equal("walk")
+			expect(clipFor(config, { activity = "stand", speed = 4 })).to.equal("walk")
+			expect(clipFor(config, { activity = "smell", speed = 4 })).to.equal("walk")
+			-- ...EXCEPT a calm clip that carries its own ground: a boar rooting AS it walks. The test
+			-- is the clip's own `groundStudsPerSecond`, never a list of names.
+			expect(clipFor(config, { activity = "root", speed = 1.901 })).to.equal("digWalk")
+		end)
+
 		it("plays the EXIT clip before anything the next CALM activity wants", function()
 			-- The head coming out of the grass finishes first, or the animal snaps upright.
 			local config = withCalmIds()

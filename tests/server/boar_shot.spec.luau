@@ -888,6 +888,11 @@ return function()
 			crowd.MAX_STEP_VOICES = math.huge
 			crowd.MAX_BREATH_VOICES = math.huge
 			crowd.MAX_MUTTER_VOICES = math.huge
+			-- ...AND THE PACK'S OWN CEILING (task 139 round 4). This is the "no ration at all" side
+			-- of the A/B, so EVERY ceiling has to be lifted: leaving this one at its shipped 2
+			-- rationed the loose herd as well, and the comparison became 2 against 2 -- which is
+			-- what the suite caught when the key was added.
+			crowd.SOUNDS_PER_SOUNDER = math.huge
 			crowd.GRUNT_GAP_SECONDS = 0 -- task 123 round 2: no world-wide gap between grunt starts
 			sound.CROWD = crowd
 			return sound
@@ -1616,6 +1621,44 @@ return function()
 			expect(tied.b).to.equal(nil)
 		end)
 
+		it("lets ONE CLOSE PACK sound twice and no more (task 139)", function()
+			-- KAREN, 2026-10-09: *"when they close one pack make one sound max 2 not more"*, in the
+			-- same breath as *"when boars comes I can't hear a sound walking"*. The step range went
+			-- back out to 70 studs for the second sentence, and MEASURED after it the worst moment
+			-- in one pack was THREE sounds -- the world ceilings are three independent budgets, so a
+			-- herd in front of the hunter could hold the one step voice, its holder's breath and
+			-- both mutters. `ESCALATE.md` said in round 1 that range alone could not do both.
+			--
+			-- SO THE PACK HAS ITS OWN CEILING. Two loops, hooves first.
+			expect(SOUND.CROWD.SOUNDS_PER_SOUNDER).to.equal(2)
+			local pack = {
+				{ id = "near", distance = 10, step = true, breath = true, mutter = true },
+				{ id = "far", distance = 80, step = false, breath = false, mutter = true },
+			}
+			local two = Boar.packVoices(pack, SOUND.CROWD.SOUNDS_PER_SOUNDER)
+			-- The nearest animal keeps its hooves and its breath, which is two...
+			expect(two.near.step).to.equal(true)
+			expect(two.near.breath).to.equal(true)
+			-- ...and every mutter in the pack is cut, nobody's and not just the far one's.
+			expect(two.near.mutter).to.equal(false)
+			expect(two.far.mutter).to.equal(false)
+			-- HOOVES ARE NEVER THE LAYER THAT GETS CUT: a herd must not go silent while it moves,
+			-- so with a budget of one it is the step voice that survives, over a nearer breath.
+			local one = Boar.packVoices({
+				{ id = "walker", distance = 40, step = true, breath = false, mutter = false },
+				{ id = "runner", distance = 5, step = false, breath = true, mutter = true },
+			}, 1)
+			expect(one.walker.step).to.equal(true)
+			expect(one.runner.breath).to.equal(false)
+			expect(one.runner.mutter).to.equal(false)
+			-- A pack that is quiet anyway is left alone, and no ceiling cuts nothing.
+			local quiet = Boar.packVoices({ { id = "a", distance = 1 } }, 2)
+			expect(quiet.a.step or quiet.a.breath or quiet.a.mutter).to.equal(false)
+			local uncapped = Boar.packVoices(pack, nil)
+			expect(uncapped.near.mutter).to.equal(true)
+			expect(uncapped.far.mutter).to.equal(true)
+		end)
+
 		it("counts only the squeals that are still sounding", function()
 			-- The world-wide cap is two AT ONCE, so the count has to forget the ones that ended.
 			expect(Boar.squealsSounding({}, 100)).to.equal(0)
@@ -1822,7 +1865,14 @@ return function()
 			-- and caotic"*. The gate has not run since (the DEV place has not been open), so nobody
 			-- saw it fail. What is asserted now is the rule those numbers express: a hoof is a CLOSE
 			-- sound and the GRUNT is the one that carries, which is the whole of task 123's finding.
-			expect(SOUND.STEPS.run.audibleStuds <= 60).to.equal(true)
+			-- 80 SINCE TASK 139, and the bound moved with Karen rather than against her. She played
+			-- `0c7f736` and said *"when boars comes I can't hear a sound walking"*: 40 studs is about
+			-- seven body lengths, and she watches the drive come from 120. The rule this assertion
+			-- exists for is untouched -- a hoof is still the CLOSE sound and the grunt is still the
+			-- one that carries, which the next line asserts -- and what changed is only how close
+			-- "close" is. The voice ration is what keeps it from being noise, and task 139 is also
+			-- the task that finally applied it to the Forest Test's lines (`Runtime:formSounder`).
+			expect(SOUND.STEPS.run.audibleStuds <= 90).to.equal(true)
 			expect(SOUND.GRUNTS.audibleStuds > SOUND.STEPS.run.audibleStuds).to.equal(true)
 		end)
 

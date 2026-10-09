@@ -182,54 +182,50 @@ function Line.aimFor(
 	return math.max(aim, tailS)
 end
 
--- WHO IS IN THE FILE, AND IN WHAT ORDER, AFTER A FLIGHT ENDS. Pure, and pulled out of the drive so
--- a spec can drive it without a world (task 137; the Reviewer's first note on task 136, and the one
--- that mattered -- the rank guard below was round 1's BLOCKING finding and was proved by reading
--- only, so it could have been deleted green).
+-- IS THIS ANIMAL STILL IN THE FILE? Pure, and pulled out of the drive so a spec can drive it without
+-- a world (task 139 round 3, the Reviewer's finding 2).
 --
--- TWO RULES:
---   1. AN ANIMAL WHOSE FLIGHT HAS JUST ENDED GOES TO THE TAIL. It used to keep its rank, which is a
---      station up the middle of a file that closed up behind it while it was away -- so it walked
---      ACROSS the line to reach it. The tail is behind everybody and reachable by walking the trail.
---   2. NEVER THE LEADER. She has no mid-file station, so rule 1's reason does not apply to her -- and
---      demoting her was reachable by the central action of this game. Shoot at a line, the sow bolts,
---      and the step her flight ends she was moved to the back: `line.trail` follows whoever is
---      `live[1]`, so the next crumb ran from HER position to the position of the animal that replaced
---      her -- one segment BACKWARDS across the whole gap she had bolted. Every follower's station
---      then leapt onto that segment while its hinted arc position stayed on the forward branch, and
---      the file was driven on up the dead flight path. It also handed `line.route` and `line.leg`,
---      computed for the sow, to a cub.
+-- ONE RULE AND IT IS PERMANENT. Karen, 2026-10-05 and again 2026-10-09: *"they don't come back from
+-- that side ... once they in another side of road they run away"*, *"when boars crossing road they
+-- can't come back to same view, they just move on a specially after spook or shoot"*. Flying, hurt,
+-- or over the road means OUT -- and `gone` is what makes it permanent, because an animal whose
+-- flight has ended is still out.
 --
--- `members` is `{ id, kind }` in file order. `flying(id)` is now and `was[id]` is last step. The
--- answer is the new order and the ids that moved, and the order is STABLE for everybody else.
-function Line.rejoinOrder(
-	members: { { id: string, kind: string? } },
-	flying: (string) -> boolean,
-	was: { [string]: boolean }
-): ({ { id: string, kind: string? } }, { string })
-	local moved: { string } = {}
-	local back: { [string]: boolean } = {}
-	for place, member in ipairs(members) do
-		if place > 1 and was[member.id] == true and not flying(member.id) then
-			table.insert(moved, member.id)
-			back[member.id] = true
-		end
+-- IT REPLACED A REJOIN RULE THAT WAS THE REGRESSION (task 136, archived under
+-- `backups/2026-10-09-line-rejoin-at-tail.md`): that one sent a fled animal back to the TAIL of its
+-- line, and the tail is NORTH of the road, so with the flight pointed south every fled animal was
+-- ordered straight back into the view it had just left -- 19 to 26 of them per 150 s run.
+function Line.stillInFile(gone: boolean, flying: boolean, hurt: boolean, dz: number): boolean
+	if gone or flying or hurt then
+		return false
 	end
-	if #moved == 0 then
-		return members, moved
+	-- `dz` is how far NORTH of the road's FAR edge the animal is -- the south one, the last line it
+	-- has to cross to be out of the drive: negative means it is over.
+	return dz >= 0
+end
+
+-- ...AND WHY IT LEFT, because one of the four reasons gets a parting shove. Pure, and the companion
+-- to the rule above: true exactly when this animal is leaving the file BECAUSE IT IS OVER THE ROAD
+-- and for no other reason.
+--
+-- "ONCE ACROSS, THEY RUN AWAY" LIVES HERE NOW (task 139 round 3, the Reviewer's finding 1, which was
+-- right). The rule used to be a line-level speed-up tested on the LEADER's position -- `at.Z <
+-- roadZ(at.X) - halfWidth`, the same inequality `stillInFile` ends on -- and once the exit became
+-- permanent the filter ran first in the same step, so the leader was out of `live` before the test
+-- and `line.crossed` could never become true. Karen's *"and they run away when cross the road"* had
+-- no code left: a calm line was dropped at its walking pace twenty studs past the road and left
+-- standing in the open, where before it was walked on to `EXIT_Z - 10` and despawned.
+--
+-- IT IS PER ANIMAL AND NOT PER LINE, which is both what she describes and the only place it can be:
+-- the file is dissolving one member at a time, and the member that has just crossed is the one that
+-- should run. A flight is the one door a fright comes through (`Brain:spook`), so the drive asks for
+-- one and the Brain owns everything after it -- the heading (south, `field.exitZ`), the pace, the
+-- herd-mates it alarms (`Runtime:_stepAlarm`) and the despawn at the exit line.
+function Line.crossedOut(gone: boolean, flying: boolean, hurt: boolean, dz: number): boolean
+	if gone or flying or hurt then
+		return false
 	end
-	local kept = {}
-	for _, member in ipairs(members) do
-		if not back[member.id] then
-			table.insert(kept, member)
-		end
-	end
-	for _, member in ipairs(members) do
-		if back[member.id] then
-			table.insert(kept, member)
-		end
-	end
-	return kept, moved
+	return dz < 0
 end
 
 -- FORGETS THE TAIL NOBODY IS STANDING ON any more, so a wave that walks 800 studs does not keep 800
