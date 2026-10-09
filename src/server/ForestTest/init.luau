@@ -1198,10 +1198,22 @@ function ForestTest.stepLines(now: number)
 		-- `Line.arcAt` re-acquires from scratch rather than from where it was before it bolted.
 		line.flyingWas = line.flyingWas or {}
 		line.arcOf = line.arcOf or {}
+		-- ...AND NEVER THE LEADER, which round 1 got wrong and the Reviewer caught (finding 1).
+		--
+		-- THE LEADER HAS NO MID-FILE STATION, so the reason this rule exists does not apply to her:
+		-- the comment above says "somewhere up the middle of a file that closed up behind it", and
+		-- nothing closes up in front of the animal at the front. Demoting her was reachable by the
+		-- central action of this game -- shoot at a line and the sow bolts -- and it did real damage:
+		-- `line.trail` follows whoever is `live[1]`, so the step her flight ended the crumb after the
+		-- hand-over ran from HER position to the position of the animal that replaced her, one
+		-- segment backwards across the whole gap she had bolted. `Line.trim` then cut the forward
+		-- trail by that jump, every station leapt onto the backward segment while the hinted `ownS`
+		-- of each follower stayed on the forward branch, and the file was driven on up the dead
+		-- flight path. It also handed `line.route` and `line.leg` -- computed for the sow -- to a cub.
 		local rejoined = {}
-		for _, member in ipairs(line.members) do
+		for place, member in ipairs(line.members) do
 			local flying = runtime:flying(member.id)
-			if line.flyingWas[member.id] == true and not flying then
+			if place > 1 and line.flyingWas[member.id] == true and not flying then
 				table.insert(rejoined, member.id)
 				line.arcOf[member.id] = nil
 			end
@@ -1299,6 +1311,8 @@ function ForestTest.stepLines(now: number)
 		-- each follower then carries its own arc position down to the next rank, so "no follower ever
 		-- ahead of the one in front" is enforced against a measured position rather than assumed from
 		-- the stations.
+		-- The leader is at the head of it by construction, and that is also the right bound when SHE
+		-- is the one flying: the head of the trail is the furthest anything may aim either way.
 		local aheadS = Line.length(line.trail)
 		for rank = 2, #live do
 			local follower = live[rank]
@@ -1362,7 +1376,13 @@ function ForestTest.stepLines(now: number)
 				point, speed = here, 0
 			end
 			leadIfFree(follower.id, point or here, speed)
-			aheadS = ownS
+			-- ...AND THE ONE IN FRONT HAS TO BE IN THE LINE (round 2, the Reviewer's note). `live` is
+			-- filtered on alive, not on flying, so a bolting animal keeps its rank -- and handing its
+			-- arc position down as "the one in front" regulates the file against an animal that is,
+			-- two dozen lines above, declared not to be in the line any more.
+			if not runtime:flying(follower.id) then
+				aheadS = ownS
+			end
 		end
 
 		-- ...AND THE SOW WAITS FOR HER TAIL. Karen asked for a line, and a line whose leader never

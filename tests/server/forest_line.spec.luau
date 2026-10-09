@@ -80,8 +80,9 @@ return function()
 			for x = 30, 0, -1 do
 				Line.addCrumb(trail, Vector3.new(x, 0, 3), 0.5)
 			end
-			-- An animal at (10, 1.2) is 1.2 studs from the OUTBOUND pass (arc 10) and 1.8 from the
-			-- RETURN pass (arc ~53). Nearest wins without a hint...
+			-- An animal at (10, 1.6) is 1.6 studs from the OUTBOUND pass (arc 10) and 1.4 from the
+			-- RETURN pass (arc ~53) -- so the RETURN branch is the nearer one, and nearest wins
+			-- without a hint...
 			local blind = Line.arcAt(trail, Vector3.new(10, 0, 1.6))
 			-- ...so this is the number the drive used to get, and it is on the far branch.
 			expect(blind > 40).to.equal(true)

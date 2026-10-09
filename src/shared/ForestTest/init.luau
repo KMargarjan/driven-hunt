@@ -217,15 +217,17 @@ ForestTest.LINE = {
 	-- WHAT IT ACTUALLY DID, over 150 s of two-line waves, measured on the APPROACH AND THE CROSSING
 	-- (the half of the trace north of the road, which is the half a hunter watches):
 	--
-	--                     offset median   p75    p90    gap median
-	--   8.5 (this)            0.23        0.65   1.89      8.79
-	--   6.5                   0.77        1.97   4.02      7.39
+	--                   offset median   p75           p90           gap median
+	--   8.5 (this)        0.23 / 0.42   0.65 / 1.72   1.89 / 4.27   8.79 / 9.15
+	--   6.5               0.77          1.97          4.02          7.39
 	--
-	-- The gap does close by a stud and a half, which is what the number is for -- and the file gets
-	-- LATERALLY looser doing it, by more than twice. Thirteen animals packed into two thirds of the
-	-- length have two thirds of the room to settle in, and what a hunter sees at that point is not a
-	-- tighter file but a wider one. The nose-to-tail reading was bought at the cost of the thing it
-	-- was bought for, so it is not bought.
+	-- BOTH RUNS OF 8.5 ARE CARRIED, AND THEY HAVE TO BE (round 2, the Reviewer's note -- round 1's
+	-- comment quoted the better one as fact). They are the same build 150 s apart and they disagree
+	-- by more than the difference being measured. So the honest reading is NOT "8.5 is twice as
+	-- tight": it is that 6.5 closes the gap by a stud and a half, nothing here says the file gets
+	-- laterally tighter for it, and one of the two 8.5 runs says it gets looser. 8.5 stays because it
+	-- is the incumbent and 6.5 did not earn the change -- not because 6.5 was shown to be worse.
+	-- Settling it needs a longer trace or a per-wave statistic; this was neither.
 	spacingStuds = 8.5,
 	-- HOW CLOSE A FOLLOWER MAY AIM TO THE ONE IN FRONT, measured along the trail: just short of its
 	-- tail, which is what "no follower ever ahead of the one in front" means when the thing being
@@ -233,7 +235,7 @@ ForestTest.LINE = {
 	--
 	-- IT WAS A BODY LENGTH FIRST, AND THAT BROKE THE LINE. An animal standing exactly where it
 	-- belongs has the one ahead a station along, so with the 6.5-stud station this task was trying at
-	-- the time, a 5.5-stud margin handed it a point 1.0 stud in front of its own nose -- inside `LINE.ARRIVE_STUDS`, which is 1.0. The Brain
+	-- the time, a 5.5-stud margin handed it a point 1.0 stud in front of its own nose -- inside `Boar.CONFIG.LINE.ARRIVE_STUDS`, which is 1.0. The Brain
 	-- quite correctly answered "arrived", the animal stopped, the file walked on and the gap opened:
 	-- MEASURED at 58 stuck and 18.2 % breaks against 15 and 9.0 % before the change. It is the same
 	-- trap task 127 round 3 dug itself with `aim = min(ownS + lookahead, stationS)`, in a new place.
@@ -242,7 +244,8 @@ ForestTest.LINE = {
 	-- is the case it is for; the floor below (`minAimStuds`) makes sure it can never bite into a
 	-- point the animal is already standing on.
 	noOvertakeStuds = 1.5,
-	-- A FOLLOWER IS NEVER AIMED AT A POINT UNDER ITS OWN FEET. Above `LINE.ARRIVE_STUDS` (1.0) by
+	-- A FOLLOWER IS NEVER AIMED AT A POINT UNDER ITS OWN FEET. Above
+	-- `Boar.CONFIG.LINE.ARRIVE_STUDS` (1.0) by
 	-- enough that an order is always a direction; the SPEED is what holds a closed-up animal back,
 	-- which is `Line.followerSpeed`'s job and not the aim's.
 	minAimStuds = 2.5,

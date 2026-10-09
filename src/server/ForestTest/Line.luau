@@ -158,7 +158,8 @@ end
 --      walked this bit (task 127 round 3);
 --   2. NEVER PAST THE ONE IN FRONT: `aheadS` is the arc position measured for the rank above, not
 --      its station, so a file that has bunched up is regulated against where the animals ARE;
---   3. NEVER UNDER ITS OWN FEET: a clamp that pulls the aim inside `LINE.ARRIVE_STUDS` stops the
+--   3. NEVER UNDER ITS OWN FEET: a clamp that pulls the aim inside
+--      `Boar.CONFIG.LINE.ARRIVE_STUDS` stops the
 --      animal dead, and a stopped follower is a broken line. MEASURED: with rule 2 at a body length
 --      and no rule 3, a 6.5-stud station aimed an animal 1.0 stud ahead -- exactly `ARRIVE_STUDS` --
 --      and the run went from 15 stuck to 58;
