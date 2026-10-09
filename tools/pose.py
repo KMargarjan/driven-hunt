@@ -617,6 +617,21 @@ def run_inspect(studio, pose, client="client", views=None):
 # while one exists there, exactly as it refuses a live pose override.
 EDITOR_NAME = "DHPoseEditor"
 EDIT_POSES = ("carry", "aim", "reload")
+
+# THE DEFAULT WEAPON'S POSE SET (task 140). `poses.json` is version 4: one set per weapon, under
+# `weapons.<id>`, so every path this tool prints and writes begins `weapons.shotgun.` for the gun it
+# has always edited. The rifle's are `weapons.rifle.`, and `pose.py set` reaches them the same way --
+# `Viewmodel.paths` walks the file and is the authority for which paths exist, which is the property
+# this tool was built on.
+EDIT_WEAPON = "shotgun"
+
+
+def weapon_set(data, weapon=EDIT_WEAPON):
+    """One weapon's pose set, for a version-4 file; the file itself for anything older."""
+    weapons = data.get("weapons")
+    if not isinstance(weapons, dict):
+        return data
+    return weapons.get(weapon, {})
 # WHERE THE RIG IS PUT, and all three numbers were measured on the first frame it drew
 # (`.screenshots/20261002T154120Z-task109-editor.png`): at 2.4 studs the butt was 0.2 studs from the
 # lens and the stock filled the screen, because the gun is 4.4 studs long and this places its CENTRE.
@@ -975,7 +990,7 @@ def run_edit(studio, what, client="client"):
         # this tool can read is the Barrels PART, which sits at its own rest offset from it -- 0.84
         # studs down the gun (2026-10-02). So the gap between them is calibrated off the LIVE
         # viewmodel, which is at the pose this tool already knows, and then taken off the rig.
-        was = effective_now[pose][side]
+        was = weapon_set(effective_now)[pose][side]
         posed = compose_hand((was["pos"]["x"], was["pos"]["y"], was["pos"]["z"]),
                              was["rot"]["yaw"], was["rot"]["pitch"], was["rot"]["twist"])
         align = align_of(axes[hand_name])
@@ -999,7 +1014,7 @@ def run_edit(studio, what, client="client"):
         pos, yaw, pitch, twist = decompose_hand(base)
         for path, value in (("pos.x", pos[0]), ("pos.y", pos[1]), ("pos.z", pos[2]),
                             ("rot.yaw", yaw), ("rot.pitch", pitch), ("rot.twist", twist)):
-            at = f"{pose}.{side}.{path}"
+            at = f"weapons.{EDIT_WEAPON}.{pose}.{side}.{path}"
             # A GLOVE NOBODY MOVED MUST NOT CHANGE THE FILE. A CFrame is float32 all the way
             # through Studio and back, so an untouched hand came back as z = -0.0001 and a twist of
             # -0.0 (measured 2026-10-02): true noise, and a diff Karen would have to read after
@@ -1615,12 +1630,19 @@ def selftest():
 
     # 1. THE SHIPPED FILE'S OWN SHAPE. If a pose stops being reachable by path, live tuning silently
     # stops covering it -- which is the whole feature going missing without a single failure.
-    for wanted in ("carry.gun.pos.x", "carry.gun.rot.y", "carry.right.rot.twist", "carry.left.pos.z",
-                   "aim.eyeReliefStuds", "aim.cheekDeg", "aim.right.rot.yaw",
-                   "raise.raiseSeconds", "raise.lowerSeconds",
-                   "fire.gunPitchDeg", "fire.frequencyHz", "fire.maxCamPitchDeg",
-                   "reload.openSeconds", "reload.openDeg", "reload.hingeStuds.z",
-                   "reload.gun.rot.z", "reload.shells.feedFromStuds"):
+    for wanted in ("weapons.shotgun.carry.gun.pos.x", "weapons.shotgun.carry.gun.rot.y",
+                   "weapons.shotgun.carry.right.rot.twist", "weapons.shotgun.carry.left.pos.z",
+                   "weapons.shotgun.aim.eyeReliefStuds", "weapons.shotgun.aim.cheekDeg",
+                   "weapons.shotgun.aim.right.rot.yaw",
+                   "weapons.shotgun.raise.raiseSeconds", "weapons.shotgun.raise.lowerSeconds",
+                   "weapons.shotgun.fire.gunPitchDeg", "weapons.shotgun.fire.frequencyHz",
+                   "weapons.shotgun.fire.maxCamPitchDeg",
+                   "weapons.shotgun.reload.openSeconds", "weapons.shotgun.reload.openDeg",
+                   "weapons.shotgun.reload.hingeStuds.z", "weapons.shotgun.reload.gun.rot.z",
+                   "weapons.shotgun.reload.shells.feedFromStuds",
+                   # ...AND THE RIFLE'S OWN, which is what the version-4 shape is for (task 140).
+                   "weapons.rifle.aim.eyeReliefStuds", "weapons.rifle.cycle.liftDeg",
+                   "weapons.rifle.cycle.drawStuds", "weapons.rifle.carry.gun.pos.z"):
         ok(f"{wanted} is a tunable path", wanted in paths, "missing from poses.json")
     # ONE POSE SET SINCE TASK 114, and this is what says so: the second gun's `newGun.*` paths were
     # tunable beside the first gun's while a feature flag chose between them, and that flag retired
@@ -1629,37 +1651,41 @@ def selftest():
     # out of habit has to be told, not silently ignored.
     for gone in ("newGun.carry.gun.pos.x", "newGun.aim.eyeReliefStuds", "newGun.reload.left.pos.z"):
         ok(f"{gone} is no longer a path", gone not in paths, "poses.json still carries two pose sets")
-    ok("the left hand sits on this gun's own wood", data["carry"]["left"]["pos"]["z"] != 0,
-       repr(data["carry"]["left"]["pos"]))
+    ok("the left hand sits on this gun's own wood", data["weapons"]["shotgun"]["carry"]["left"]["pos"]["z"] != 0,
+       repr(data["weapons"]["shotgun"]["carry"]["left"]["pos"]))
     # THE LOADING MOVE IS PART OF THE ONE RELOAD POSE (task 111, promoted in 114): it was
     # `newGun.reload.load` and only one of the two guns had one.
-    for wanted in ("reload.load.fetchSeconds", "reload.load.above.pos.y", "reload.load.shellInHand.z",
-                   "fire.flash.seconds", "fire.smoke.riseStuds", "fire.volume.shot"):
+    for wanted in ("weapons.shotgun.reload.load.fetchSeconds",
+                   "weapons.shotgun.reload.load.above.pos.y",
+                   "weapons.shotgun.reload.load.shellInHand.z",
+                   "weapons.shotgun.fire.flash.seconds", "weapons.shotgun.fire.smoke.riseStuds",
+                   "weapons.shotgun.fire.volume.shot"):
         ok(f"{wanted} is a tunable path", wanted in paths, "missing from poses.json")
     ok("version is NOT tunable", "version" not in paths, "version must not be settable")
-    ok("raise.easing is NOT tunable", "raise.easing" not in paths, "a string is not a number")
-    ok("the file ships with no mid keyframes", data["raise"]["keyframes"] == [],
-       repr(data["raise"]["keyframes"]))
+    ok("raise.easing is NOT tunable", "weapons.shotgun.raise.easing" not in paths, "a string is not a number")
+    ok("the file ships with no mid keyframes", data["weapons"]["shotgun"]["raise"]["keyframes"] == [],
+       repr(data["weapons"]["shotgun"]["raise"]["keyframes"]))
 
     # 2. A GOOD OVERRIDE APPLIES, and nothing else moves.
-    effective, problems = apply_overrides(data, {"aim.eyeReliefStuds": 4.25})
-    ok("a good override applies", problems == [] and effective["aim"]["eyeReliefStuds"] == 4.25,
-       f"{problems} / {effective['aim']['eyeReliefStuds']}")
+    effective, problems = apply_overrides(data, {"weapons.shotgun.aim.eyeReliefStuds": 4.25})
+    ok("a good override applies", problems == [] and effective["weapons"]["shotgun"]["aim"]["eyeReliefStuds"] == 4.25,
+       f"{problems} / {effective['weapons']['shotgun']['aim']['eyeReliefStuds']}")
     untouched = [p for p, v in paths_of(effective).items()
-                 if p != "aim.eyeReliefStuds" and abs(v - paths[p]) > 1e-12]
+                 if p != "weapons.shotgun.aim.eyeReliefStuds" and abs(v - paths[p]) > 1e-12]
     ok("it moves exactly one number", untouched == [], repr(untouched))
-    ok("the source data is not mutated", data["aim"]["eyeReliefStuds"] == paths["aim.eyeReliefStuds"],
-       repr(data["aim"]["eyeReliefStuds"]))
+    ok("the source data is not mutated", data["weapons"]["shotgun"]["aim"]["eyeReliefStuds"]
+       == paths["weapons.shotgun.aim.eyeReliefStuds"],
+       repr(data["weapons"]["shotgun"]["aim"]["eyeReliefStuds"]))
 
     # 3. EVERY REFUSAL. A typo must leave the gun where it was: the Director would otherwise be
     # looking at an unchanged picture wondering which of the two of them was wrong.
-    for bad, why in (({"aim.cheeckDeg": 1.0}, "a typo'd path"),
+    for bad, why in (({"weapons.shotgun.aim.cheeckDeg": 1.0}, "a typo'd path"),
                      ({"aim": 1.0}, "a path that is a whole pose"),
                      ({"raise.easing": 1.0}, "a path whose value is a string"),
                      ({"version": 3}, "version"),
                      ({"newGun.carry.gun.pos.x": 0.1}, "a retired newGun path"),
-                     ({"aim.eyeReliefStuds": "4.2"}, "a string value"),
-                     ({"aim.eyeReliefStuds": True}, "a boolean value")):
+                     ({"weapons.shotgun.aim.eyeReliefStuds": "4.2"}, "a string value"),
+                     ({"weapons.shotgun.aim.eyeReliefStuds": True}, "a boolean value")):
         _, problems = apply_overrides(data, bad)
         ok(f"{why} is refused", len(problems) == 1, repr(problems))
     ok("the hold key is not treated as a path", apply_overrides(data, {HOLD_KEY: "aim"})[1] == [],
@@ -1668,16 +1694,18 @@ def selftest():
     # 4. A MID KEYFRAME IS REACHABLE BY PATH, which is what makes the raise tunable at all once the
     # Director adds one. Indexed from 1, like Luau.
     with_frame = json.loads(json.dumps(data))
-    with_frame["raise"]["keyframes"] = [
+    with_frame["weapons"]["shotgun"]["raise"]["keyframes"] = [
         {"t": 0.5, "gun": {"pos": {"x": 0.0, "y": 0.0, "z": -1.0}, "rot": {"x": 0.0, "y": 0.0, "z": 0.0}}}
     ]
     framed = paths_of(with_frame)
-    ok("a mid keyframe's time is a path", "raise.keyframes.1.t" in framed, repr(sorted(framed)[:4]))
-    ok("a mid keyframe's gun position is a path", "raise.keyframes.1.gun.pos.z" in framed)
-    moved, problems = apply_overrides(with_frame, {"raise.keyframes.1.gun.pos.z": -2.0})
+    first = "weapons.shotgun.raise.keyframes.1."
+    ok("a mid keyframe's time is a path", first + "t" in framed, repr(sorted(framed)[:4]))
+    ok("a mid keyframe's gun position is a path", first + "gun.pos.z" in framed)
+    moved, problems = apply_overrides(with_frame, {first + "gun.pos.z": -2.0})
+    frames_ = moved["weapons"]["shotgun"]["raise"]["keyframes"]
     ok("a mid keyframe can be overridden",
-       problems == [] and moved["raise"]["keyframes"][0]["gun"]["pos"]["z"] == -2.0,
-       f"{problems} / {moved['raise']['keyframes'][0]['gun']['pos']['z']}")
+       problems == [] and frames_[0]["gun"]["pos"]["z"] == -2.0,
+       f"{problems} / {frames_[0]['gun']['pos']['z']}")
 
     # 5. THE FILE ROUND TRIP IS IDEMPOTENT, which is what makes `save` a one-line diff rather than a
     # reordered file nobody can review.
@@ -1872,7 +1900,7 @@ def selftest():
     worst = 0.0
     for pose in EDIT_POSES:
         for side, hand_name, _ in EDIT_HANDS:
-            entry = data[pose][side]
+            entry = weapon_set(data)[pose][side]
             pos = (entry["pos"]["x"], entry["pos"]["y"], entry["pos"]["z"])
             base = compose_hand(pos, entry["rot"]["yaw"], entry["rot"]["pitch"], entry["rot"]["twist"])
             # Exactly what the rig holds: the pose, times the alignment the drawn glove carries.
@@ -1893,14 +1921,14 @@ def selftest():
     moves = {}
     for pose in EDIT_POSES:
         for side, hand_name, _ in EDIT_HANDS:
-            entry = data[pose][side]
+            entry = weapon_set(data)[pose][side]
             pos = (entry["pos"]["x"], entry["pos"]["y"], entry["pos"]["z"])
             base = compose_hand(pos, entry["rot"]["yaw"], entry["rot"]["pitch"], entry["rot"]["twist"])
             drawn = mat_mul(base, align_of(axes[hand_name]))
             got, yaw, pitch, twist = decompose_hand(mat_mul(drawn, mat_inverse(align_of(axes[hand_name]))))
             for path, value in (("pos.x", got[0]), ("pos.y", got[1]), ("pos.z", got[2]),
                                 ("rot.yaw", yaw), ("rot.pitch", pitch), ("rot.twist", twist)):
-                moves[f"{pose}.{side}.{path}"] = round(value, 4)
+                moves[f"weapons.{EDIT_WEAPON}.{pose}.{side}.{path}"] = round(value, 4)
     rebuilt, trouble = apply_overrides(rebuilt, moves)
     ok("the round trip writes no refused path", trouble == [], str(trouble))
     with open(POSES_FILE, encoding="utf-8") as handle:

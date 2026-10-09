@@ -18,8 +18,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterPlayer = game:GetService("StarterPlayer")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Data = require(ReplicatedStorage:WaitForChild("Viewmodel"))
+-- POSES.JSON IS VERSION 4 (task 140): every pose set lives under `weapons.<id>`, and this file is
+-- about the SHOTGUN's, which is what it has always been about. One alias, so the cases below read
+-- exactly as they did.
+local SET = Data.DATA.weapons.shotgun
 
 local scripts = StarterPlayer:WaitForChild("StarterPlayerScripts")
 local Camera = scripts:WaitForChild("Camera")
@@ -60,15 +65,15 @@ return function()
 
 		it("is deep frozen, so nothing in the game can write a pose number", function()
 			expect(table.isfrozen(Data.DATA)).to.equal(true)
-			expect(table.isfrozen(Data.DATA.carry)).to.equal(true)
-			expect(table.isfrozen(Data.DATA.carry.gun.pos)).to.equal(true)
+			expect(table.isfrozen(SET.carry)).to.equal(true)
+			expect(table.isfrozen(SET.carry.gun.pos)).to.equal(true)
 			expect(function()
-				(Data.DATA.carry.gun.pos :: any).x = 99
+				(SET.carry.gun.pos :: any).x = 99
 			end).to.throw()
 		end)
 
 		it("ships with no mid keyframes, which is the swing the camera has had since task 89", function()
-			expect(#Data.DATA.raise.keyframes).to.equal(0)
+			expect(#SET.raise.keyframes).to.equal(0)
 		end)
 
 		-- A RULE ABOUT THE GAME AND NOT A TASTE, so it is asserted rather than left to a comment: the
@@ -78,14 +83,14 @@ return function()
 			TestKit.note(
 				string.format(
 					"task98 break: drawn %.2f s vs server %.2f s; close drawn %.2f s vs server %.2f s",
-					Data.DATA.reload.openSeconds,
+					SET.reload.openSeconds,
 					Shotgun.CONFIG.RELOAD_BREAK,
-					Data.DATA.reload.closeSeconds,
+					SET.reload.closeSeconds,
 					Shotgun.CONFIG.RELOAD_CLOSE
 				)
 			)
-			expect(Data.DATA.reload.openSeconds < Shotgun.CONFIG.RELOAD_BREAK).to.equal(true)
-			expect(Data.DATA.reload.closeSeconds < Shotgun.CONFIG.RELOAD_CLOSE).to.equal(true)
+			expect(SET.reload.openSeconds < Shotgun.CONFIG.RELOAD_BREAK).to.equal(true)
+			expect(SET.reload.closeSeconds < Shotgun.CONFIG.RELOAD_CLOSE).to.equal(true)
 		end)
 	end)
 
@@ -181,7 +186,7 @@ return function()
 				data.raise.keyframes = { frame }
 			end)).to.equal(0)
 			local withHand = Data.copy(frame)
-			withHand.right = Data.copy(Data.DATA.carry.right)
+			withHand.right = Data.copy(SET.carry.right)
 			expect(#broken(function(data)
 				data.raise.keyframes = { withHand }
 			end)).to.equal(0)
@@ -198,25 +203,25 @@ return function()
 		it("lists every pose number by dotted path, and no string or version", function()
 			local paths = Data.paths(Data.DATA)
 			for _, wanted in ipairs({
-				"carry.gun.pos.x",
-				"carry.gun.rot.y",
-				"carry.right.rot.twist",
-				"aim.eyeReliefStuds",
-				"aim.cheekDeg",
-				"raise.raiseSeconds",
-				"fire.gunPitchDeg",
-				"reload.openDeg",
-				"reload.shells.feedSeconds",
+				"weapons.shotgun.carry.gun.pos.x",
+				"weapons.shotgun.carry.gun.rot.y",
+				"weapons.shotgun.carry.right.rot.twist",
+				"weapons.shotgun.aim.eyeReliefStuds",
+				"weapons.shotgun.aim.cheekDeg",
+				"weapons.shotgun.raise.raiseSeconds",
+				"weapons.shotgun.fire.gunPitchDeg",
+				"weapons.shotgun.reload.openDeg",
+				"weapons.shotgun.reload.shells.feedSeconds",
 			}) do
 				expect(paths[wanted]).to.be.ok()
 			end
 			expect(paths["version"]).to.equal(nil)
-			expect(paths["raise.easing"]).to.equal(nil)
+			expect(paths["weapons.shotgun.raise.easing"]).to.equal(nil)
 			expect(paths["carry"]).to.equal(nil) -- a pose is not a number
 		end)
 
 		it("applies an override and moves nothing else", function()
-			local merged, problems = Data.merge(Data.DATA, { ["aim.cheekDeg"] = 7.5 })
+			local merged, problems = Data.merge(Data.DATA, { ["weapons.shotgun.aim.cheekDeg"] = 7.5 })
 			expect(#problems).to.equal(0)
 			expect(merged.aim.cheekDeg).to.equal(7.5)
 			local before, after = Data.paths(Data.DATA), Data.paths(merged)
@@ -229,22 +234,22 @@ return function()
 			expect(moved).to.equal(1)
 			-- The source is untouched and the result is frozen: the data is the one source, and a
 			-- merge is a new table rather than an edit of it.
-			expect(Data.DATA.aim.cheekDeg).to.equal(before["aim.cheekDeg"])
+			expect(SET.aim.cheekDeg).to.equal(before["weapons.shotgun.aim.cheekDeg"])
 			expect(table.isfrozen(merged.aim)).to.equal(true)
 		end)
 
 		it("refuses a path that is not a pose number, and keeps the data as it was", function()
 			for _, bad in ipairs({
-				{ ["aim.cheeckDeg"] = 1 },
+				{ ["weapons.shotgun.aim.cheeckDeg"] = 1 },
 				{ ["aim"] = 1 },
-				{ ["raise.easing"] = 1 },
+				{ ["weapons.shotgun.raise.easing"] = 1 },
 				{ ["version"] = 3 },
-				{ ["aim.cheekDeg"] = "4.2" },
-				{ ["aim.cheekDeg"] = true },
+				{ ["weapons.shotgun.aim.cheekDeg"] = "4.2" },
+				{ ["weapons.shotgun.aim.cheekDeg"] = true },
 			}) do
 				local merged, problems = Data.merge(Data.DATA, bad)
 				expect(#problems).to.equal(1)
-				expect(merged.aim.cheekDeg).to.equal(Data.DATA.aim.cheekDeg)
+				expect(merged.aim.cheekDeg).to.equal(SET.aim.cheekDeg)
 			end
 		end)
 
@@ -264,8 +269,8 @@ return function()
 			data.raise.keyframes = {
 				{ t = 0.5, gun = { pos = { x = 0, y = 0, z = -1 }, rot = { x = 0, y = 0, z = 0 } } },
 			}
-			expect(Data.paths(data)["raise.keyframes.1.gun.pos.z"]).to.equal(-1)
-			local merged, problems = Data.merge(data, { ["raise.keyframes.1.gun.pos.z"] = -2 })
+			expect(Data.paths(data)["weapons.shotgun.raise.keyframes.1.gun.pos.z"]).to.equal(-1)
+			local merged, problems = Data.merge(data, { ["weapons.shotgun.raise.keyframes.1.gun.pos.z"] = -2 })
 			expect(#problems).to.equal(0)
 			expect(merged.raise.keyframes[1].gun.pos.z).to.equal(-2)
 		end)
@@ -283,11 +288,11 @@ return function()
 			-- `POSES` IS A VIEW, not the whole file: the three poses that are about the gun, plus the
 			-- swing and the shot. The fields are references into the data, so this is still one
 			-- source. Until task 114 it carried whichever of TWO sets the gun flag chose.
-			expect(Config.POSES.carry).to.equal(Data.DATA.carry)
-			expect(Config.POSES.aim).to.equal(Data.DATA.aim)
-			expect(Config.POSES.reload).to.equal(Data.DATA.reload)
-			expect(Config.POSES.raise).to.equal(Data.DATA.raise)
-			expect(Config.POSES.fire).to.equal(Data.DATA.fire)
+			expect(Config.POSES.carry).to.equal(SET.carry)
+			expect(Config.POSES.aim).to.equal(SET.aim)
+			expect(Config.POSES.reload).to.equal(SET.reload)
+			expect(Config.POSES.raise).to.equal(SET.raise)
+			expect(Config.POSES.fire).to.equal(SET.fire)
 		end)
 
 		-- ONE GUN, ONE POSE SET (task 114). `view` took a `newGun` boolean while the flag chose
@@ -297,29 +302,29 @@ return function()
 		it("reads one pose set, and poses.json carries no second one", function()
 			local view = Data.view(Data.DATA)
 			expect(Data.DATA.newGun).to.equal(nil)
-			expect(view.POSES.carry).to.equal(Data.DATA.carry)
-			expect(view.POSES.aim).to.equal(Data.DATA.aim)
-			expect(view.POSES.reload).to.equal(Data.DATA.reload)
+			expect(view.POSES.carry).to.equal(SET.carry)
+			expect(view.POSES.aim).to.equal(SET.aim)
+			expect(view.POSES.reload).to.equal(SET.reload)
 			-- The swing's timings and the shot's spring are read off the same one place too, so
 			-- there is nothing for a second set to have been read from.
-			expect(view.POSES.raise).to.equal(Data.DATA.raise)
-			expect(view.RECOIL_GUN_PITCH_DEG).to.equal(Data.DATA.fire.gunPitchDeg)
-			expect(view.AIM_RAISE_SECONDS).to.equal(Data.DATA.raise.raiseSeconds)
+			expect(view.POSES.raise).to.equal(SET.raise)
+			expect(view.RECOIL_GUN_PITCH_DEG).to.equal(SET.fire.gunPitchDeg)
+			expect(view.AIM_RAISE_SECONDS).to.equal(SET.raise.raiseSeconds)
 			-- THE SHOT'S COSMETICS COME THROUGH WHOLE (task 112): the flash, the smoke and the three
 			-- volumes are shapes rather than numbers, and only the gun that survived ever had them.
-			expect(view.FIRE).to.equal(Data.DATA.fire)
+			expect(view.FIRE).to.equal(SET.fire)
 			expect(view.FIRE.flash).to.be.ok()
 			expect(view.FIRE.smoke).to.be.ok()
 			expect(view.FIRE.volume).to.be.ok()
 			-- ...and so does the left hand's loading move, which was the other half of what only one
 			-- gun had (task 111).
-			expect(view.SHELL_LOAD).to.equal(Data.DATA.reload.load)
+			expect(view.SHELL_LOAD).to.equal(SET.reload.load)
 		end)
 
 		it("follows the data when the data changes", function()
 			local data = Data.copy(Data.DATA)
-			data.carry.gun.rot.y = 12.5
-			data.aim.eyeReliefStuds = 5.0
+			data.weapons.shotgun.carry.gun.rot.y = 12.5
+			data.weapons.shotgun.aim.eyeReliefStuds = 5.0
 			local view = Data.view(data)
 			expect(view.CARRY_YAW_DEG).to.equal(12.5)
 			expect(view.EYE_RELIEF_STUDS).to.equal(5.0)
@@ -510,7 +515,7 @@ return function()
 
 		it("a mid keyframe that DOES name a hand puts it there", function()
 			local data = Data.copy(Data.DATA)
-			local hand = Data.copy(Data.DATA.carry.right)
+			local hand = Data.copy(SET.carry.right)
 			hand.pos.z = hand.pos.z + 2.0
 			data.raise.keyframes = {
 				{
@@ -537,7 +542,7 @@ return function()
 		end)
 
 		it("a good override changes the config the camera is handed", function()
-			local resolved, hold, problems = Poses.resolve(firstPerson, '{"aim.cheekDeg": 9}')
+			local resolved, hold, problems = Poses.resolve(firstPerson, '{"weapons.shotgun.aim.cheekDeg": 9}')
 			expect(#problems).to.equal(0)
 			expect(hold).to.equal(nil)
 			expect(resolved.ADS_CHEEK_DEG).to.equal(9)
@@ -569,13 +574,15 @@ return function()
 			-- reading of the pose it just asked for from a reading of the one before it. It is not a
 			-- pose number: if `merge` refused it, every candidate the search wrote would be refused
 			-- WHOLE and the gun would never move.
-			local resolved, _, problems = Poses.resolve(firstPerson, '{"aim.cheekDeg": 9, "serial": 41, "hold": "aim"}')
+			local resolved, _, problems =
+				Poses.resolve(firstPerson, '{"weapons.shotgun.aim.cheekDeg": 9, "serial": 41, "hold": "aim"}')
 			expect(#problems).to.equal(0)
 			expect(resolved.ADS_CHEEK_DEG).to.equal(9)
 		end)
 
 		it("refuses the WHOLE override when any path is wrong", function()
-			local resolved, _, problems = Poses.resolve(firstPerson, '{"aim.cheekDeg": 9, "aim.nope": 1}')
+			local resolved, _, problems =
+				Poses.resolve(firstPerson, '{"weapons.shotgun.aim.cheekDeg": 9, "weapons.shotgun.aim.nope": 1}')
 			expect(#problems).to.equal(1)
 			-- The good path is NOT applied: a half-applied override is a pose in no file and in no
 			-- command, which is the one thing a tuning session must never show.
@@ -583,7 +590,7 @@ return function()
 		end)
 
 		it("survives anything that is not an override", function()
-			for _, rubbish in ipairs({ "not json", "[1,2,3]", "null", '{"aim.cheekDeg": "high"}', "{" }) do
+			for _, rubbish in ipairs({ "not json", "[1,2,3]", "null", '{"weapons.shotgun.aim.cheekDeg": "high"}', "{" }) do
 				local resolved, _, problems = Poses.resolve(firstPerson, rubbish)
 				expect(resolved).to.equal(firstPerson)
 				expect(#problems > 0).to.equal(true)

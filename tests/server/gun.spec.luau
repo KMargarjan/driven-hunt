@@ -240,14 +240,14 @@ return function()
 			-- break angle and it must end up ABOVE where it started: that is what "breaks open" means,
 			-- and a hinge behind the breech would take it backwards into the action instead.
 			local hinge = CFrame.new(Gun.hinge(CONFIG))
-			local angle = math.rad(Poses.DATA.reload.openDeg)
+			local angle = math.rad(Poses.DATA.weapons.shotgun.reload.openDeg)
 			local swing = hinge * CFrame.Angles(-angle, 0, 0) * hinge:Inverse()
 			local breech = Vector3.new(0, at.barrelY, at.breechZ)
 			local moved = (swing * CFrame.new(breech)).Position
 			TestKit.note(
 				string.format(
 					"task105 at %.0f degrees the breech rises %.3f and moves %.3f forward",
-					Poses.DATA.reload.openDeg,
+					Poses.DATA.weapons.shotgun.reload.openDeg,
 					moved.Y - breech.Y,
 					breech.Z - moved.Z
 				)
@@ -383,8 +383,8 @@ return function()
 			-- the glove at the breech in the other -- two hands at the grip and none on the wood.
 			local at = Gun.layout(CONFIG)
 			for _, pose in ipairs({ "carry", "aim", "reload" }) do
-				local left = Poses.DATA[pose].left.pos
-				local right = Poses.DATA[pose].right.pos
+				local left = Poses.DATA.weapons.shotgun[pose].left.pos
+				local right = Poses.DATA.weapons.shotgun[pose].right.pos
 				TestKit.note(string.format("task114 %s left z %.4f, right z %.4f", pose, left.z, right.z))
 				-- The left hand is somewhere along the barrels, ahead of the breech.
 				expect(left.z < at.breechZ).to.equal(true)
@@ -601,7 +601,7 @@ return function()
 			-- now carries exactly one of the two sets: hers.
 			expect(Poses.DATA.newGun).to.equal(nil)
 			for _, pose in ipairs({ "carry", "aim", "reload" }) do
-				local twist = Poses.DATA[pose].left.rot.twist
+				local twist = Poses.DATA.weapons.shotgun[pose].left.rot.twist
 				TestKit.note(string.format("task114 %s left twist: %.0f", pose, twist))
 				-- The v1 pair's 180 would be this glove drawn palm-DOWN, which is the picture Karen
 				-- called broken.

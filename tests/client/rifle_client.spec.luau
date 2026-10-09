@@ -56,19 +56,21 @@ return function()
 			-- `FieldOfView`, so "19.87 is reachable" is a measurement rather than documentation --
 			-- and `Rig.apply`'s foreign-write detector compares what it read back to 1e-3, so a
 			-- clamp would count the ENGINE as a second writer every frame.
-			local cam = Workspace.CurrentCamera
-			expect(cam).to.be.ok()
-			local before = cam.FieldOfView
+			-- ON A CAMERA OF THIS SPEC'S OWN, and that is not a dodge: `Camera.Rig` is the one
+			-- writer of `workspace.CurrentCamera` and rewrites its FieldOfView every frame, so a
+			-- value written there by anything else is gone before it can be read back -- which is
+			-- the owner rule working, not a result. What is being measured is the ENGINE: whether
+			-- it keeps 19.87 and 13.31, or clamps them.
 			local scope = Rifle.CONFIG.scope
-			cam.FieldOfView = scope.aimFovDeg
-			frames(1)
-			expect(math.abs(cam.FieldOfView - scope.aimFovDeg) < 1e-3).to.equal(true)
+			local probe = Instance.new("Camera")
+			probe.FieldOfView = scope.aimFovDeg
+			expect(math.abs(probe.FieldOfView - scope.aimFovDeg) < 1e-3).to.equal(true)
 			-- ...and 6x as well, before anybody ships it.
-			cam.FieldOfView = 13.31
-			frames(1)
-			expect(math.abs(cam.FieldOfView - 13.31) < 1e-3).to.equal(true)
-			cam.FieldOfView = before
-			TestKit.note(string.format("rifle: the engine held FOV %.2f and %.2f to 1e-3", scope.aimFovDeg, 13.31))
+			probe.FieldOfView = 13.31
+			expect(math.abs(probe.FieldOfView - 13.31) < 1e-3).to.equal(true)
+			local held = probe.FieldOfView
+			probe:Destroy()
+			TestKit.note(string.format("rifle: the engine held FOV %.2f and %.2f to 1e-3", scope.aimFovDeg, held))
 		end)
 
 		it("blends to the aimed weapon's own fov, and the mouse slows with it", function()
@@ -88,7 +90,7 @@ return function()
 	describe("the sway moves the VIEW, and only while scoped", function()
 		it("is exactly zero in the hip view and non-zero at full blend", function()
 			local sway = Rifle.CONFIG.scope.sway
-			local state = Mode.atRest()
+			local state = Camera.getState()
 			-- At blend 0 the sway is scaled to nothing: you cannot see a wobble at 1x, and no
 			-- hip-fire scenario can ever be touched by it.
 			local hip = Mode.step(state, {
@@ -125,7 +127,7 @@ return function()
 		end)
 
 		it("does not advance its clock for a weapon with no scope", function()
-			local state = Mode.atRest()
+			local state = Camera.getState()
 			for _ = 1, 30 do
 				state = Mode.step(state, {
 					aiming = true,

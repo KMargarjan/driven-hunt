@@ -1786,7 +1786,10 @@ return function()
 			-- THE ATTRIBUTE IS SET LOCALLY, which is enough and is the honest test: a client write
 			-- does not replicate, and the claim is that THIS client's camera reads it.
 			-- `tools/pose.py` writes it on the server, where it reaches every client the same way.
-			folder:SetAttribute("DHPose", '{"aim.eyeReliefStuds": 9.5}')
+			-- THE PATH CARRIES THE WEAPON SINCE TASK 140: `poses.json` is version 4 and every pose set
+			-- lives under `weapons.<id>`, so a v3 path is refused whole -- which is the behaviour this
+			-- case would otherwise mistake for "the override did not reach the camera".
+			folder:SetAttribute("DHPose", '{"weapons.shotgun.aim.eyeReliefStuds": 9.5}')
 			local ok, why = pcall(function()
 				local resolved = Camera.Poses.config(firstPersonConfig)
 				expect(resolved).never.to.equal(firstPersonConfig)

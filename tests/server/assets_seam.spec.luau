@@ -15,6 +15,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Assets = require(ServerStorage:WaitForChild("Assets"))
@@ -144,7 +145,17 @@ return function()
 			-- TWO KEYS SINCE TASK 96, each exactly once: the gun ships as a body and a barrel group
 			-- so the break-action can hinge, and both have to be preloaded before a player holds one.
 			expect(counted[Hardware.BARRELS_KEY]).to.equal(1)
-			expect(#keys).to.equal(2)
+			-- ...AND FOUR MORE SINCE TASK 140, each exactly once: the rifle is one model in four
+			-- groups and the WORLD tool wears all four, so all four are `runtime` keys. The count is
+			-- read off the weapon table rather than typed, so a third weapon moves it by itself.
+			local wanted = 0
+			for _, id in ipairs(Weapons.ids()) do
+				for _, key in ipairs(Weapons.ROWS[id].ASSET_KEYS) do
+					expect(counted[key]).to.equal(1)
+					wanted += 1
+				end
+			end
+			expect(#keys).to.equal(wanted)
 			-- ...and there is no second id table: MapGen's is still empty (map-generator 12.2).
 			local mapGen = ServerStorage:FindFirstChild("MapGen")
 			if mapGen then

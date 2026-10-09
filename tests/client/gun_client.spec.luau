@@ -430,9 +430,9 @@ return function()
 			-- against a top-level block while there were two guns (task 112); task 114 moved it up,
 			-- byte-identical, so the one thing left to assert is that the spring the camera reads IS
 			-- the file's and not a literal that came back.
-			expect(firstPersonConfig.RECOIL_GUN_PITCH_DEG).to.equal(ViewmodelData.DATA.fire.gunPitchDeg)
+			expect(firstPersonConfig.RECOIL_GUN_PITCH_DEG).to.equal(ViewmodelData.DATA.weapons.shotgun.fire.gunPitchDeg)
 			expect(firstPersonConfig.RECOIL_GUN_PITCH_DEG > 0).to.equal(true)
-			expect(firstPersonConfig.FIRE).to.equal(ViewmodelData.DATA.fire)
+			expect(firstPersonConfig.FIRE).to.equal(ViewmodelData.DATA.weapons.shotgun.fire)
 			TestKit.note(string.format("task114 kick: %.2f deg", firstPersonConfig.RECOIL_GUN_PITCH_DEG))
 
 			local handle = Instance.new("Part")
