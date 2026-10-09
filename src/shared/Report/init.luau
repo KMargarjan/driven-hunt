@@ -138,18 +138,28 @@ Report.CONFIG = {
 	-- and rump, the brisket under the head, the band above the legs -- which is exactly what the
 	-- trunk's own comment says `body` is ("belly, flank, rear and brisket -- whatever no zone part
 	-- covers"). So the picture tells the truth about the model, including where the model is vague.
+	SILHOUETTE = {
+		-- Nose at u = 0, tail at u = 1; back at v = 0, belly at v = 1.
+		head = { u0 = 0.000, u1 = 0.236, v0 = 0.000, v1 = 0.383, tint = Color3.fromRGB(206, 120, 120) },
+		chest = { u0 = 0.236, u1 = 0.545, v0 = 0.000, v1 = 0.650, tint = Color3.fromRGB(198, 150, 150) },
+		rear = { u0 = 0.700, u1 = 1.000, v0 = 0.000, v1 = 0.600, tint = Color3.fromRGB(150, 150, 190) },
+		legs = { u0 = 0.036, u1 = 1.000, v0 = 0.667, v1 = 1.000, tint = Color3.fromRGB(150, 128, 104) },
+		-- The trunk itself, drawn under the four: `body` is the fallback zone and covers all of it.
+		body = { u0 = 0.000, u1 = 1.000, v0 = 0.000, v1 = 1.000, tint = Color3.fromRGB(96, 84, 76) },
+	},
+
 	-- A WILD BOAR, SIDE ON, IN THE SAME UNIT SQUARE AS THE DOTS (task 135). Karen, 2026-10-05:
 	-- *"something simple but cool"*, and *"see boars where was the hit"*. What this panel drew until
-	-- now was `SILHOUETTE` below painted straight onto the screen -- five tinted rectangles, which
+	-- now was `SILHOUETTE` above painted straight onto the screen -- five tinted rectangles, which
 	-- task 124 round 3's own note called "a colour-coded bar, not a boar's outline".
 	--
 	-- THE RECTANGLES BELOW ARE STILL THE TRUTH ABOUT WHERE A SHOT LANDED; this is the PICTURE. The
-	-- two are deliberately separate: `SILHOUETTE` is `Boar.CONFIG.ZONES` projected and a spec fails
+	-- two are deliberately separate: `SILHOUETTE` above is `Boar.CONFIG.ZONES` projected and a spec fails
 	-- the harness if it drifts, while this is drawn by eye against a photograph of the animal and
 	-- nothing about the record depends on it. A dot's (u, v) is placed in the square exactly as
 	-- before -- this file changed no dot by a pixel.
 	--
-	-- NO UPLOAD, NO IMAGE, NO MESH: eleven `Frame`s with a `UICorner` each, so it costs what the five
+	-- NO UPLOAD, NO IMAGE, NO MESH: thirteen `Frame`s with a `UICorner` each, so it costs what the five
 	-- rectangles cost, renders at any size (every number is a SCALE), and needs no asset id -- which
 	-- matters because the asset tool is models-only and an image cannot be uploaded from here.
 	--
@@ -197,16 +207,6 @@ Report.CONFIG = {
 		{ name = "Tail", u0 = 0.94, u1 = 1.00, v0 = 0.20, v1 = 0.40, corner = 0.45 },
 	},
 
-	SILHOUETTE = {
-		-- Nose at u = 0, tail at u = 1; back at v = 0, belly at v = 1.
-		head = { u0 = 0.000, u1 = 0.236, v0 = 0.000, v1 = 0.383, tint = Color3.fromRGB(206, 120, 120) },
-		chest = { u0 = 0.236, u1 = 0.545, v0 = 0.000, v1 = 0.650, tint = Color3.fromRGB(198, 150, 150) },
-		rear = { u0 = 0.700, u1 = 1.000, v0 = 0.000, v1 = 0.600, tint = Color3.fromRGB(150, 150, 190) },
-		legs = { u0 = 0.036, u1 = 1.000, v0 = 0.667, v1 = 1.000, tint = Color3.fromRGB(150, 128, 104) },
-		-- The trunk itself, drawn under the four: `body` is the fallback zone and covers all of it.
-		body = { u0 = 0.000, u1 = 1.000, v0 = 0.000, v1 = 1.000, tint = Color3.fromRGB(96, 84, 76) },
-	},
-
 	-- HOW SOLID THE PANEL IS, and it is NOT `Drive.CONFIG.SCORE_PANEL_TRANSPARENCY`. That number is
 	-- 0.25 and it was tuned over the ARENA, which is a dark grey box; the first frame of this panel
 	-- was taken over a sunlit forest and the trees, the grass and the player's own gun read straight
@@ -228,6 +228,19 @@ Report.CONFIG = {
 	-- backing is not a silhouette, it is nothing. This is the old `body` tint (96, 84, 76) lifted
 	-- until it carries against the backing while staying well under the white dots drawn on top.
 	BOAR_FILL = Color3.fromRGB(112, 99, 88),
+	-- HOW FAR A DOT'S RING HAS TO BE FROM THE FILL IT SITS ON, in relative luminance (task 137).
+	--
+	-- THE `body` RING WAS INVISIBLE AND THE REVIEWER MEASURED IT: `SILHOUETTE.body.tint` is
+	-- (96, 84, 76) and `BOAR_FILL` is (112, 99, 88) -- about 16 of 255 per channel, which at one
+	-- pixel is no ring at all. So of the five zones task 135 called readable "at a glance", the
+	-- commonest one -- `body` is the fallback zone, the flank and the belly, whatever no zone part
+	-- covers -- was the one you could not read.
+	--
+	-- 0.22 is a fifth of the full range, chosen so the WORST case (body, 0.06 apart) is lifted well
+	-- clear while the two that already pass (chest at 0.23) are not touched at all. See
+	-- `Report.ringColor`.
+	RING_MIN_LUMA = 0.22,
+	RING_THICKNESS = 1.5,
 
 	-- THE PANEL (design section 8.3). 640 px tall leaves 440 px of a 1080p screen spare, which is the
 	-- note's "one screen, no scrolling for 8 hunters".
@@ -266,6 +279,45 @@ end
 
 -- METRES, ROUNDED THE WAY A HUNTER SAYS THEM. Pure and exported so the kill line and the detail row
 -- cannot disagree about what "42 m" means.
+-- THE COLOUR A DOT'S RING IS ACTUALLY DRAWN IN: the zone's own tint, lifted until it can be read
+-- against the animal it is drawn on (task 137).
+--
+-- THE TINT IS THE RECORD AND THIS IS THE DRAWING, which is the same split `SILHOUETTE` and `BOAR`
+-- already have. `SILHOUETTE[zone].tint` is mirrored from `Boar.CONFIG.ZONES` and a spec fails the
+-- harness if the two drift; nothing about that may be bent to make a picture legible. So this leaves
+-- the record alone and moves the PIXEL instead.
+--
+-- RELATIVE LUMINANCE, not an RGB distance: a ring is one pixel wide, and what makes one pixel
+-- readable against a flat field is how much lighter or darker it is, not how far round the colour
+-- wheel it sits. The coefficients are the Rec. 709 ones every contrast formula uses
+-- (https://www.w3.org/TR/WCAG20/#relativeluminancedef, without the gamma step -- these are already
+-- the values the engine draws).
+--
+-- IT PUSHES AWAY FROM THE FILL, toward whichever of white or black has the room: the fill is dark
+-- (luma 0.40), so every lifted ring goes pale, which is also the direction that reads over the
+-- dark panel behind the animal. A tint that is already far enough away is returned untouched, so
+-- chest and rear keep exactly the colours task 135 shipped.
+function Report.luma(colour: Color3): number
+	return 0.2126 * colour.R + 0.7152 * colour.G + 0.0722 * colour.B
+end
+
+function Report.ringColor(tint: Color3, fill: Color3, want: number?): Color3
+	local need = want or Report.CONFIG.RING_MIN_LUMA
+	local base = Report.luma(fill)
+	if math.abs(Report.luma(tint) - base) >= need then
+		return tint
+	end
+	-- Toward the end of the range with more room, so the lift cannot run out of headroom.
+	local toward = if base < 0.5 then Color3.new(1, 1, 1) else Color3.new(0, 0, 0)
+	for step = 1, 20 do
+		local mixed = tint:Lerp(toward, step / 20)
+		if math.abs(Report.luma(mixed) - base) >= need then
+			return mixed
+		end
+	end
+	return toward
+end
+
 function Report.metres(studs: number?): number
 	return math.round((studs or 0) * Report.CONFIG.METRES_PER_STUD)
 end

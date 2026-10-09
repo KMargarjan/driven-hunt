@@ -116,6 +116,60 @@ return function()
 			expect(Line.aimFor(5, 4, 6, 1.5, 2.5, 60, 9)).to.equal(9)
 		end)
 
+		it("sends a follower that has stopped flying to the TAIL, and never the leader", function()
+			-- TASK 136's ROUND-1 BLOCKING FINDING, AS A TEST (task 137). The rank guard was proved by
+			-- reading only, so it could have been deleted green -- which is how it shipped broken in
+			-- the first place. `Line.rejoinOrder`'s own comment is the why.
+			local function file(...)
+				local out = {}
+				for _, id in ipairs({ ... }) do
+					table.insert(out, { id = id, kind = "female" })
+				end
+				return out
+			end
+			local function ids(members)
+				local out = {}
+				for _, m in ipairs(members) do
+					table.insert(out, m.id)
+				end
+				return table.concat(out, ",")
+			end
+			local none = function(_id: string)
+				return false
+			end
+
+			-- A FOLLOWER COMES BACK: it goes behind everybody, and the rest keep their order.
+			local back, moved = Line.rejoinOrder(file("sow", "b", "c", "d"), none, { c = true })
+			expect(ids(back)).to.equal("sow,b,d,c")
+			expect(#moved).to.equal(1)
+			expect(moved[1]).to.equal("c")
+
+			-- TWO OF THEM COME BACK: both go to the tail, in the order they stood in.
+			local two = Line.rejoinOrder(file("sow", "b", "c", "d"), none, { b = true, d = true })
+			expect(ids(two)).to.equal("sow,c,b,d")
+
+			-- THE LEADER COMES BACK AND NOTHING MOVES AT ALL. This is the guard: with it gone the
+			-- answer is "b,c,d,sow", the trail's next crumb runs backwards across the gap the sow
+			-- bolted, and the whole file is driven up her dead flight path.
+			local sow, sowMoved = Line.rejoinOrder(file("sow", "b", "c", "d"), none, { sow = true })
+			expect(ids(sow)).to.equal("sow,b,c,d")
+			expect(#sowMoved).to.equal(0)
+
+			-- ...AND THE LEADER IS STILL NOT MOVED WHEN A FOLLOWER IS, so the guard cannot be
+			-- satisfied by the "nothing moved" shortcut alone.
+			local both = Line.rejoinOrder(file("sow", "b", "c", "d"), none, { sow = true, b = true })
+			expect(ids(both)).to.equal("sow,c,d,b")
+
+			-- STILL FLYING IS NOT REJOINING: the rule fires on the step the flight ENDS.
+			local air = Line.rejoinOrder(file("sow", "b", "c"), function(id)
+				return id == "b"
+			end, { b = true })
+			expect(ids(air)).to.equal("sow,b,c")
+			-- ...and an animal that never flew is never moved.
+			local calm = Line.rejoinOrder(file("sow", "b", "c"), none, {})
+			expect(ids(calm)).to.equal("sow,b,c")
+		end)
+
 		it("forgets the tail nobody stands on", function()
 			local trail = elbow()
 			Line.trim(trail, 10)

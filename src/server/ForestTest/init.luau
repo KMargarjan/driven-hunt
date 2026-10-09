@@ -1198,52 +1198,32 @@ function ForestTest.stepLines(now: number)
 		-- `Line.arcAt` re-acquires from scratch rather than from where it was before it bolted.
 		line.flyingWas = line.flyingWas or {}
 		line.arcOf = line.arcOf or {}
-		-- ...AND NEVER THE LEADER, which round 1 got wrong and the Reviewer caught (finding 1).
-		--
-		-- THE LEADER HAS NO MID-FILE STATION, so the reason this rule exists does not apply to her:
-		-- the comment above says "somewhere up the middle of a file that closed up behind it", and
-		-- nothing closes up in front of the animal at the front. Demoting her was reachable by the
-		-- central action of this game -- shoot at a line and the sow bolts -- and it did real damage:
-		-- `line.trail` follows whoever is `live[1]`, so the step her flight ended the crumb after the
-		-- hand-over ran from HER position to the position of the animal that replaced her, one
-		-- segment backwards across the whole gap she had bolted. `Line.trim` then cut the forward
-		-- trail by that jump, every station leapt onto the backward segment while the hinted `ownS`
-		-- of each follower stayed on the forward branch, and the file was driven on up the dead
-		-- flight path. It also handed `line.route` and `line.leg` -- computed for the sow -- to a cub.
-		local rejoined = {}
-		for place, member in ipairs(line.members) do
-			local flying = runtime:flying(member.id)
-			if place > 1 and line.flyingWas[member.id] == true and not flying then
-				table.insert(rejoined, member.id)
-				line.arcOf[member.id] = nil
-			end
-			line.flyingWas[member.id] = flying
+		-- ...AND NEVER THE LEADER, which round 1 got wrong and the Reviewer caught. Both rules, and
+		-- the whole of why, are `Line.rejoinOrder` -- pure, and driven by `forest_line.spec` (task
+		-- 137), because a rank guard proved by reading is a rank guard that can be deleted green.
+		local reordered, moved = Line.rejoinOrder(line.members, function(id: string): boolean
+			return runtime:flying(id)
+		end, line.flyingWas)
+		for _, member in ipairs(line.members) do
+			line.flyingWas[member.id] = runtime:flying(member.id)
 		end
-		if #rejoined > 0 then
-			local kept, moved = {}, {}
-			for _, member in ipairs(line.members) do
-				local back = false
-				for _, id in ipairs(rejoined) do
-					if id == member.id then
-						back = true
-					end
-				end
-				table.insert(if back then moved else kept, member)
+		if #moved > 0 then
+			line.members = reordered
+			for _, id in ipairs(moved) do
+				-- Its arc memory goes with it, so the next `Line.arcAt` re-acquires from scratch
+				-- rather than from where it was before it bolted.
+				line.arcOf[id] = nil
 			end
-			for _, member in ipairs(moved) do
-				table.insert(kept, member)
-			end
-			line.members = kept
 			-- `live` was built from the old order, so it is rebuilt from the new one.
-			local reordered = {}
+			local rebuilt = {}
 			for _, member in ipairs(line.members) do
 				for _, row in ipairs(live) do
 					if row.id == member.id then
-						table.insert(reordered, row)
+						table.insert(rebuilt, row)
 					end
 				end
 			end
-			live = reordered
+			live = rebuilt
 		end
 
 		-- AN ANIMAL IN FLIGHT IS NOT IN THE LINE ANY MORE (task 126 round 2, the Reviewer's blocking
