@@ -1,12 +1,12 @@
 # Task 141 - the three rifle bugs, before Karen tests
 
 Task: 141
-Round: 2
+Round: 3
 Base: main (`f05d91b`, task 140 merged as PR #123)
-Code commit: `d1a712e733b381268c0fda6baa60942e09817c4c`
+Code commit: `7d4d4af27e71dd2d754ea21fa72ca26a553ef800`
 
 ```
-[harness] PASS: 33/33 checks @ d1a712e733b381268c0fda6baa60942e09817c4c (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 7d4d4af27e71dd2d754ea21fa72ca26a553ef800 (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing in this diff touches `TWO_PLAYER_PATHS` (`src/server/Match/`, `MatchBoot`,
@@ -19,47 +19,54 @@ the mask is the Hud's, which already owns everything drawn, and taking the gun o
 picture is the viewmodel's, which is already the one writer of the drawn gun. The three owner rows
 this moved are amended in `GAME_DESIGN.md`.
 
-## Round 2: the blocking finding, which was right, and six notes
+## Round 3: the dead write, and four notes
 
-**The Reviewer is right and the reasoning is worth restating, because it changed the fix.** My live
-case could not tell the fix from the bug in the world the gate runs in: the gate refuses to start
-with a flag override set, so `RIFLE` is at its default and the loadout is ONE weapon -- and with one
-weapon the old code reached the Backpack first too (`Hardware.give` parents to the bag, and the
-equip it then did ran after). Every assertion in that case held for the bug as well.
+**The blocking finding is right and the mistake is worth naming plainly.** Round 2 added
+`panel.ZIndex = Report.CONFIG.PANEL_Z_INDEX` **seven lines above** the existing `panel.ZIndex = 5`,
+which then overwrote it. The score board never moved, and round 2's request claimed a fix that had
+not happened -- while claim 7's own stack in the same request still said "score 5", so the request
+contradicted itself and the Reviewer caught both halves. There is ONE assignment now, where the old
+one was, and the two stack sentences that described the wrong world agree with it.
+**Verify:** `grep -n "panel.ZIndex" src/client/Hud/init.luau` is one line; `Report.CONFIG.PANEL_Z_INDEX`'s
+and `Compass.CONFIG.Z_INDEX`'s comments both read "feed and drive bar 1, compass 6-10, scope 11-13,
+report and score board 15".
 
-So the decision moved out of the sweep and became **`Weapon.equipDelayFor(wanted)`** -- pure, public,
-a function of the loadout alone. That is CLAUDE.md's own feature-flag rule applied to a path gated by
-a flag: reachable by parameter as well as by flag, or its two states cannot be tested while the flag
-sits at one of them. **Verify:** `weapon_equip.spec`, "waits for the engine's own hotbar only when
-there is an order to protect" -- two Tools give `AUTO_EQUIP_DELAY_SECONDS`, one gives 0, none gives 0.
+**A scoped shot drew no flash and no smoke at all, by accident.** The clone is unparented while the
+mask is in and not destroyed, so `Viewmodel.flash` still found it, parented a flash to a model that
+renders nothing, counted it in `stats.flashesDrawn`, and thereby told `Weapon.Effects` not to draw
+the WORLD pair "for the shot it drew". It answers false while the gun is hidden now, so the world
+pair draws it. **Verify:** `hiddenNow` in `src/client/Camera/Viewmodel.luau` -- written in `update`
+on both branches, read in `flash`.
 
-**And the delay is now spent only when there are two Tools**, which is the Reviewer's first note and
-a real improvement rather than a concession: with one weapon there is no slot order to get wrong, so
-the shipped build's spawn stays bit-for-bit what it was instead of gaining half a second of empty
-hands for a bug it cannot have. `Weapons.ORDER`'s own promise and design 5 stay true.
+**The ORDER itself is pinned now, with two Tools, in the world the gate runs in.**
+`Weapon.refreshArming(player, loadout?)` takes the loadout as an optional parameter -- the same
+medicine `Weapon.equipDelayFor` got one level up, and the rule CLAUDE.md states for anything behind a
+flag. **Verify:** `weapon_equip.spec`, "hands TWO Tools over in order, and the hand comes last". It
+is the case that fails if the equip ever moves back inside `Weapon.grant`, and the gate's own note
+reads: `two-Tool arrivals bag:Shotgun@0.00 bag:Rifle@0.00 hand:Shotgun@0.51`.
 
-**`Viewmodel.readyMeshesIn` is public now**, because the first bug was that it ignored its argument
-and a file-local function cannot be shown to have stopped doing that. **Verify:** `rifle_client.spec`,
-"counts the folder it is HANDED" -- a stub folder of the spec's own, which works in DEV where the
-live case is vacuous, plus "a different name is a different answer", which is exactly what the bug
-got wrong.
+**Two more notes, both real:** `eyepiece.atBlend`'s stated reason was wrong -- `Mode.step` raises the
+blend LINEARLY (`math.min(1, blend + dt / seconds)`) and reaches exactly 1, so 0.98 is never a sample
+at 60 fps and what the hundredth actually buys is a frame rate low enough to step past it; and the
+"per-frame cost is three reads" comment undercounted its own two `FindFirstChild` calls.
 
-**Five more notes, each a real defect:** the score board is drawn at screen CENTRE, so at its old
-ZIndex it sat inside the eyepiece and a player aiming in `Scoring` would have read a board cut off at
-the glass -- it joins the drive report above the mask; `layoutScope`'s cache key missed the viewport
-WIDTH, which two of its own numbers depend on, so a width-only resize while scoped did not re-lay-out;
-the reticle's four-line header had been left sitting over `eyepieceIn`, describing the wrong function;
-`Compass.CONFIG.Z_INDEX`'s stack comment was stale twice over; and "the mask and the gun cannot
-disagree" is now "by at most one frame", which is what two render-step bindings reading one state
-actually give.
+**The two design sections this task retired are recorded in `reviews/task-141/DESIGN_DELTA.md`**
+(the Builder never edits `docs/design/`, rule 3), in the shape task 24's and task 32's already have:
+7.2's `Camera.Changed`-driven reticle, 13.2 case 3's signature, the new `eyepiece` block read by two
+owners, and 5's auto-equip leaving `Weapon.grant`. `GAME_DESIGN.md`'s viewmodel row -- the fourth
+this change moved, and the one for the owner that gained the behaviour -- now says the clone is
+unparented while a sight picture is in.
 
-**Three counts in round 1's claims were wrong and are corrected below** (`readyMeshesIn` has two call
-sites, not three; `Hud.renderScope` has two, not three; `scopeVisible` is driven with seven cases,
-not eight). Thank you for counting them.
+**Re-measured after all of it, in the Forest Test with `RIFLE` on:** hotbar `1 Shotgun, 2 Rifle`;
+the switch both ways through the real keys (`drawnMeshes` 4 <-> 6); `fov=19.87`,
+`viewmodel in camera = false`, mask 670 px, stroke 1247.
 
-**Re-measured after all of it, in the Forest Test with `RIFLE` on:** the hotbar still reads
-`1 Shotgun, 2 Rifle`; the switch still works both ways through the real keys (`drawnMeshes` 4 <-> 6);
-the sight picture is unchanged (`fov=19.87`, `viewmodel in camera = false`, mask 670 px, stroke 1247).
+**`boar_body.spec:663` is flaky and it is not this task's.** FIVE runs at this exact commit: one
+harness error (the two-Studio `studio_id` flicker, not a test), **two PASS 33/33**, and two FAIL --
+of which the one I captured failed on `boar_body.spec:663` alone, the sounder's scatter-spread
+assertion that flipped the same way in task 139 and in task 140 round 2. The second failure I did not
+capture the detail of, and I am not going to claim it was the same case. The PASS line above is a
+clean-tree run naming the code commit; the honest tally is 2 of 4 completed runs.
 
 ## The ten claims
 
@@ -122,8 +129,10 @@ the sight picture is unchanged (`fov=19.87`, `viewmodel in camera = false`, mask
    It puts back exactly what it hid (`compassHiddenByScope`), because the strip is invisible until
    `Compass.start` runs and a Hud that switched it on would draw an empty band in a world with no
    compass. **Verify:** the `compassHiddenByScope` branch in `Hud.renderScope`; the stack is now
-   feed 1, score 5, compass 6-10, scope 11-13, report 15 (`Report.CONFIG.PANEL_Z_INDEX`, raised so
-   that a panel the player deliberately opened is never masked).
+   feed and drive bar 1, compass 6-10, scope 11-13, and the drive report **and the score board**
+   together at 15 (`Report.CONFIG.PANEL_Z_INDEX`, raised so that a panel the game or the player put
+   up is never masked -- the board is drawn at screen centre, so at its old 5 it sat inside the
+   eyepiece). Round 2 claimed this and did not do it; round 3 does.
 
 8. **The hotbar's slot numbers are the ENGINE's, and the only lever is what its GUI sees first.**
    Roblox's Backpack GUI numbers a slot the first time it sees a Tool and then keeps it -- MEASURED:
@@ -166,8 +175,8 @@ the sight picture is unchanged (`fov=19.87`, `viewmodel in camera = false`, mask
 
 * the Tool is in the CHARACTER at 15 s and at 85 s (`gun in hand @15s=1 @85s=1`)
 * **0 "Stack Begin" and 0 error lines** in the whole console
-* **five waves released**, worst 1 boar sound at once over 10 s with 26 boars alive (re-run after
-  round 2; round 1's run read 23 boars and was otherwise identical)
+* **five waves released**, worst 1 boar sound at once over 10 s with 18 boars alive (re-run after
+  round 3; rounds 1 and 2 read 23 and 26 boars and were otherwise identical)
 * the changed features ran: that session is the one the hotbar, switch and sight-picture
   measurements above were taken in
 
@@ -198,6 +207,11 @@ the sight picture is unchanged (`fov=19.87`, `viewmodel in camera = false`, mask
   inside the time a player takes to look at anything -- but it is a timing number against another
   system's initialisation, so if the hotbar ever reads `1 Rifle` again this is the first dial to
   turn.
+* **A scoped shot now draws its flash and smoke in the WORLD rather than on the viewmodel**, which
+  is a change of look nobody asked for and the only honest alternative to the accident it replaces
+  (round 2 drew neither). If the Director wants no flash at all through the glass, that is one line
+  in `Viewmodel.flash` and a note beside `hiddenByScope`, and it should be a decision rather than a
+  side effect.
 * **The duplex's posts are short and read as a cross.** `postArmDeg` 1.50 against an eyepiece of 17
   degrees; a real duplex's thick posts run to the field edge. Content-lane data in
   `Rifle.CONFIG.scope.reticle`, for the Director to tune -- not changed here, because the Director
