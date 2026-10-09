@@ -212,6 +212,99 @@ return function()
 			)
 		end)
 
+		it("hands TWO Tools over in order, and the hand comes last", function()
+			-- THE ORDER ITSELF, with two Tools, in the world the gate actually runs in (the
+			-- Reviewer's note, round 2). `Weapons.loadout()` is one weapon here because the gate
+			-- refuses to start with a flag override set -- so the loadout is passed as a PARAMETER
+			-- instead, which is the same rule `Weapon.equipDelayFor` follows and the same rule
+			-- CLAUDE.md states for anything behind a flag. The rifle's row, geometry and meshes all
+			-- exist with the flag off; only the loadout is shorter.
+			--
+			-- This is the case that fails if the equip moves back inside `Weapon.grant`.
+			local player = somebody()
+			if player == nil then
+				error("no player with a character: this case needs the harness's own player", 0)
+			end
+			local backpack = player:FindFirstChildOfClass("Backpack") :: Backpack
+			local character = player.Character :: Model
+			local both = { "shotgun", "rifle" }
+
+			type Arrival = { where: string, name: string, at: number }
+			local order: { Arrival } = {}
+			local started = os.clock()
+			local intoBag = backpack.ChildAdded:Connect(function(child)
+				if child:IsA("Tool") and Weapons.isToolName(child.Name) then
+					table.insert(order, { where = "bag", name = child.Name, at = os.clock() - started })
+				end
+			end)
+			local intoHand = character.ChildAdded:Connect(function(child)
+				if child:IsA("Tool") and Weapons.isToolName(child.Name) then
+					table.insert(order, { where = "hand", name = child.Name, at = os.clock() - started })
+				end
+			end)
+
+			local ok, why = pcall(function()
+				for _, tool in ipairs(Hardware.toolsOf(player)) do
+					tool:Destroy()
+				end
+				Weapon.refreshArming(player, both)
+				-- NOTHING IS IN THE HAND WHEN THE SWEEP RETURNS. Nothing in `refreshArming` yields
+				-- and `Hardware.equip` parents through `EquipTool` synchronously, so this is the
+				-- whole fix in one line, at the only moment it is visible.
+				expect(Weapon.heldId(player)).to.equal(nil)
+				expect(waitUntil(6, function()
+					return #Hardware.toolsOf(player) >= 2
+				end)).to.equal(true)
+				expect(waitUntil(4, function()
+					for _, entry in ipairs(order) do
+						if entry.where == "hand" then
+							return true
+						end
+					end
+					return false
+				end)).to.equal(true)
+				local shown = {}
+				for _, entry in ipairs(order) do
+					table.insert(shown, string.format("%s:%s@%.2f", entry.where, entry.name, entry.at))
+				end
+				TestKit.note("weapon-equip: two-Tool arrivals " .. table.concat(shown, " "))
+				-- BOTH BAGS BEFORE THE FIRST HAND, and in `Weapons.ORDER` -- which is what the
+				-- engine's hotbar reads, because it numbers a slot the first time it sees a Tool.
+				local bagged = {}
+				local firstHand, lastBag = nil, nil
+				for index, entry in ipairs(order) do
+					if entry.where == "bag" then
+						table.insert(bagged, entry.name)
+						lastBag = index
+					elseif firstHand == nil then
+						firstHand = index
+					end
+				end
+				expect(firstHand).to.be.ok()
+				expect(lastBag).to.be.ok()
+				expect((lastBag :: number) < (firstHand :: number)).to.equal(true)
+				expect(#bagged).to.equal(2)
+				expect(bagged[1]).to.equal((Weapons.row("shotgun") :: any).toolName)
+				expect(bagged[2]).to.equal((Weapons.row("rifle") :: any).toolName)
+				-- ...AND THE HAND WAITED THE DELAY the two-Tool loadout asks for.
+				local gap = order[firstHand :: number].at - order[lastBag :: number].at
+				expect(gap >= Weapon.equipDelayFor(both) * 0.9).to.equal(true)
+				-- ...and the shotgun is what ends up in it, never the rifle.
+				expect(order[firstHand :: number].name).to.equal((Weapons.row(Weapons.PRIMARY) :: any).toolName)
+			end)
+			intoBag:Disconnect()
+			intoHand:Disconnect()
+			-- BACK TO THIS WORLD'S OWN LOADOUT, which takes the rifle away again: `refreshArming`
+			-- with no argument revokes anything the real loadout does not carry.
+			Weapon.refreshArming(player)
+			expect(waitUntil(4, function()
+				return #Hardware.toolsOf(player) == #Weapons.loadout()
+			end)).to.equal(true)
+			if not ok then
+				error(why, 0)
+			end
+		end)
+
 		it("puts the whole loadout in the BACKPACK before it puts anything in the hand", function()
 			-- THE DIRECTOR'S THIRD BUG (task 141): the hotbar read `1 Rifle, 2 Shotgun`, against the
 			-- design and against Karen. THE SLOT NUMBERS ARE NOT OURS -- the engine's own Backpack

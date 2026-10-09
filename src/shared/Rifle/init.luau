@@ -150,8 +150,14 @@ Rifle.CONFIG = {
 		--
 		-- 17 degrees of the 19.87 the scope renders is 0.86 of the screen's height -- a circle with
 		-- the ground visible past its edge, which is what looking through a scope held correctly
-		-- gives you. `atBlend` is 0.98 rather than 1 because `Mode.ease` approaches 1 and the last
-		-- hundredth of the raise is below the eye's own threshold for "arrived".
+		-- gives you.
+		--
+		-- `atBlend` IS 0.98 AS A TOLERANCE, NOT AS A THRESHOLD, and round 2's comment here had the
+		-- reason wrong (the Reviewer caught it): `Mode.step` raises the blend LINEARLY --
+		-- `math.min(1, blend + dt / seconds)` -- so it reaches exactly 1 and 0.98 is never a sample
+		-- at 60 fps. What the hundredth buys is a frame rate low enough to step past it, and the
+		-- predicates compare with `>=`, so the picture arrives on the frame the raise finishes
+		-- either way. The Director asked for "snaps in when blend ~ 1" and that is what it does.
 		eyepiece = {
 			atBlend = 0.98,
 			diameterDeg = 17.0,

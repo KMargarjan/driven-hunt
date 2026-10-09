@@ -474,18 +474,21 @@ local function build(): ScreenGui
 	local rowHeight = Drive.CONFIG.SCORE_ROW_HEIGHT
 	local panel = Instance.new("Frame")
 	panel.Name = "ScorePanel"
-	-- OVER THE SCOPE'S MASK (task 141, the Reviewer's note round 1): this is drawn at the centre of
-	-- the screen, which is inside the eyepiece, so at the default 1 a player who could still hold
-	-- the aim in `Scoring` would read a score board cut off at the glass. Same class as the compass
-	-- and the drive report -- a panel the GAME put up outranks a sight picture.
-	panel.ZIndex = Report.CONFIG.PANEL_Z_INDEX
 	panel.BackgroundColor3 = Drive.CONFIG.SCORE_PANEL_COLOR
 	panel.BackgroundTransparency = Drive.CONFIG.SCORE_PANEL_TRANSPARENCY
 	panel.BorderSizePixel = 0
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
 	panel.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH, 60 + rows * rowHeight + 30)
-	panel.ZIndex = 5 -- over the feed and the bar, because it is the thing to read
+	-- OVER THE FEED AND THE BAR, because it is the thing to read -- AND OVER THE SCOPE'S MASK
+	-- (task 141): this is drawn at the centre of the screen, which is inside the eyepiece, so at the
+	-- old 5 a player who could still hold the aim in `Scoring` would read a board cut off at the
+	-- glass. Same class as the compass and the drive report: a panel the GAME put up outranks a
+	-- sight picture, and it shares the report's own number for that reason.
+	--
+	-- (Round 2 added this as a SECOND assignment seven lines above the old `= 5`, which the old one
+	-- then overwrote -- a dead write, and a fix claimed in a request that had not happened.)
+	panel.ZIndex = Report.CONFIG.PANEL_Z_INDEX
 	panel.Visible = false
 	panel.Parent = screen
 
@@ -1010,8 +1013,10 @@ end
 -- It is still called from `render` as well, so a mode change that happens between two frames (a
 -- death, a weapon taken away) turns the mask off on that frame rather than the next.
 --
--- The per-frame cost is three reads and a boolean; `layoutScope` and `layoutReticle` both return
--- immediately unless the field of view, the viewport or the spec actually moved.
+-- The per-frame cost is two `FindFirstChild`s on the ScreenGui plus three camera reads and a
+-- boolean; `layoutScope` and `layoutReticle` both return immediately unless the field of view, the
+-- viewport or the spec actually moved. (The two lookups are counted here because this file throttles
+-- its own staleness tick for exactly that kind of cost.)
 function Hud.renderScope(CameraSystem)
 	local reticle = Hud.reticle()
 	local overlay = Hud.scopeOverlay()

@@ -42,10 +42,10 @@ Compass.CONFIG = {
 	-- a compass belongs up there, and nothing else in the Hud draws between 76 and 102.
 	TOP = 76,
 	SPAN_DEG = 120, -- degrees of bearing visible across the whole strip
-	-- Over the feed (1), under the scope's mask (11-13) and under the drive report and the score
-	-- board, which share `Report.CONFIG.PANEL_Z_INDEX` (15). Task 141 restacked the three above it;
-	-- the compass is also HIDDEN while a sight picture is in, because a mask cannot cover what is
-	-- drawn inside its own circle.
+	-- Over the feed and the drive bar (1), under the scope's mask (11-13), and under the drive
+	-- report and the score board, which share `Report.CONFIG.PANEL_Z_INDEX` (15). Task 141 restacked
+	-- the three above it; the compass is also HIDDEN while a sight picture is in, because a mask
+	-- cannot cover what is drawn inside its own circle.
 	Z_INDEX = 6,
 
 	-- The strip itself: dark enough to read against sky AND against sunlit grass, which is the one

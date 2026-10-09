@@ -179,6 +179,10 @@ function Viewmodel.readyMeshesIn(folderName: string): number
 	return ready
 end
 
+-- Is the gun behind the scope's mask right now? Written by `Viewmodel.update` and read by
+-- `Viewmodel.flash`, which must not draw a muzzle flash onto a model nobody can see (task 141).
+local hiddenNow = false
+
 local stats = {
 	rebuilds = 0,
 	-- How many frames the gun was behind the scope's own mask (task 141), so a session can say
@@ -1181,9 +1185,11 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 		if made.Parent ~= nil then
 			made.Parent = nil
 		end
+		hiddenNow = true
 		stats.scopeHiddenFrames += 1
 		return
 	end
+	hiddenNow = false
 	if made.Parent ~= cam then
 		made.Parent = cam
 	end
@@ -1441,6 +1447,15 @@ function Viewmodel.flash(barrel: number?, config)
 	-- task 114 the gun flag was asked here too, and the retired gun's `fire` block was exactly such
 	-- a block -- its cosmetics were `Weapon.Effects`' parts in the world.
 	if clone == nil or config == nil or config.FIRST_PERSON ~= true then
+		return false
+	end
+	-- ...AND NOT ONTO A GUN THAT IS BEHIND THE SCOPE'S MASK (task 141, the Reviewer's note round 2).
+	-- The clone is unparented while the sight picture is in, not destroyed, so this would have
+	-- happily parented a flash to a model that renders nothing, counted it drawn, and told
+	-- `Weapon.Effects` not to draw the WORLD pair "for the shot it drew" -- so a scoped shot had no
+	-- flash and no smoke anywhere, by accident. Answering false hands the shot back to the world
+	-- pair, which is where a shot nobody can see the gun for belongs.
+	if hiddenNow then
 		return false
 	end
 	if config.FIRE == nil or config.FIRE.flash == nil or config.FIRE.smoke == nil then

@@ -239,9 +239,14 @@ function Weapon.equipDelayFor(wanted: { string }): number
 	return if #wanted > 1 then CONFIG.AUTO_EQUIP_DELAY_SECONDS else 0
 end
 
-function Weapon.refreshArming(player: Player)
+-- `wanted` IS A PARAMETER WITH A DEFAULT (task 141, the Reviewer's note round 2), and it is the
+-- same medicine as `Weapon.equipDelayFor` one level up: the flag's two worlds must both be
+-- reachable without the flag, or the ORDER this function exists to get right can only be tested in
+-- whichever world the gate happens to run in. Production passes nothing and gets `Weapons.loadout()`
+-- -- the one flag read in the whole weapon system, still at that one boundary.
+function Weapon.refreshArming(player: Player, loadout: { string }?)
 	local allowed = mayArm(player)
-	local wanted = Weapons.loadout()
+	local wanted = loadout or Weapons.loadout()
 	-- IN `Weapons.ORDER`, AND THE ORDER IS THE HOTBAR (task 141): see `Weapon.grant`. The engine
 	-- numbers a Backpack slot by the order the Tool arrives, so granting in order IS the fix, and it
 	-- only works because nothing equips in the middle of this loop any more.

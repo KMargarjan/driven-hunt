@@ -264,7 +264,10 @@ Report.CONFIG = {
 	PANEL_HEIGHT = 640,
 	-- OVER EVERYTHING THE HUD DRAWS, the scope's own mask included (task 141): the panel is a
 	-- thing the player deliberately opened, and a mask that hid it would read as a broken game.
-	-- The stack, bottom to top: feed 1, score panel 5, compass 6-10, scope 11-13, this.
+	-- The SCORE BOARD shares this number for the same reason -- it is drawn at screen centre, so a
+	-- mask would cut it off at the glass.
+	-- The stack, bottom to top: feed 1, drive bar 1, compass 6-10, scope 11-13, this and the score
+	-- board.
 	PANEL_Z_INDEX = 15,
 	TITLE_HEIGHT = 28,
 	HEADER_HEIGHT = 22,
