@@ -27,8 +27,22 @@ export type CycleStep = { kind: Shotgun.ActionKind, wait: number }
 -- and at any magnification: Roblox's field of view is VERTICAL, so `px = deg / fovDeg * viewportY`
 -- is exact and the Hud converts once (`Hud.reticleDegToPx`). Change `aimFovDeg` from 19.87 to 13.31
 -- and every element of the sight picture grows by exactly the magnification, as a real scope's does.
+-- AN ILLUMINATED DOT AT THE CENTRE (task 142). Karen: *"we need a dot in scope center red dot"*.
+-- In DEGREES like every other length here, and with a HALO as well as a core, because a 4.6-pixel
+-- red square on a sunlit birch is a red square on a sunlit birch: the halo is a second, softer ring
+-- around it that gives the dot an edge against a bright background, which is what an illuminated
+-- reticle does with glass.
+export type Dot = {
+	deg: number,
+	color: Color3,
+	haloDeg: number,
+	haloColor: Color3,
+	haloTransparency: number,
+}
+
 export type Reticle = {
 	kind: string,
+	dot: Dot,
 	ringOuterDeg: number,
 	ringThickDeg: number,
 	crossGapDeg: number,
@@ -167,6 +181,17 @@ Rifle.CONFIG = {
 		},
 		reticle = {
 			kind = "duplex",
+			-- THE RED DOT. 0.085 degrees at this scope's 19.87 is about 4.6 px on a 1080-high
+			-- viewport: a dot you can hold on a boar's chest at 150 studs, and not a blob that
+			-- hides it. The halo is three times it at 0.55 transparency -- enough of an edge to
+			-- read against sky, snow or a pale trunk, which a bare red square does not.
+			dot = {
+				deg = 0.085,
+				color = Color3.fromRGB(255, 48, 36),
+				haloDeg = 0.26,
+				haloColor = Color3.fromRGB(120, 0, 0),
+				haloTransparency = 0.55,
+			},
 			-- 4.0 degrees at FOV 19.87 is a fifth of the screen height: a ring you look THROUGH.
 			ringOuterDeg = 4.0,
 			ringThickDeg = 0.10,

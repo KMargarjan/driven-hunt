@@ -366,6 +366,22 @@ local function build(): ScreenGui
 	edge.Thickness = 1
 	edge.Parent = ring
 
+	-- THE ILLUMINATED DOT (task 142), two frames: a soft halo and the core on top of it. Last in
+	-- build order and highest in the stack, because it is the thing the eye goes to.
+	for _, name in ipairs({ "DotHalo", "Dot" }) do
+		local dot = Instance.new("Frame")
+		dot.Name = name
+		dot.BorderSizePixel = 0
+		dot.AnchorPoint = Vector2.new(0.5, 0.5)
+		dot.Position = UDim2.fromScale(0.5, 0.5)
+		dot.Size = UDim2.fromOffset(1, 1)
+		dot.ZIndex = if name == "Dot" then RETICLE_Z + 2 else RETICLE_Z + 1
+		dot.Parent = reticle
+		local dotRound = Instance.new("UICorner")
+		dotRound.CornerRadius = UDim.new(0.5, 0)
+		dotRound.Parent = dot
+	end
+
 	for _, piece in ipairs({
 		{ name = "CrossTop", vertical = true, sign = -1, post = false },
 		{ name = "CrossBottom", vertical = true, sign = 1, post = false },
@@ -1146,6 +1162,27 @@ function Hud.layoutReticle(reticle: Frame, spec: any, fovDeg: number)
 	-- THE POSTS START WHERE THE THIN CROSS ENDS, which is what a duplex IS: a thick bar from the
 	-- edge of the view in to a point, and a hair from there to the centre.
 	local postGap = spec.crossGapDeg + spec.crossArmDeg
+	-- THE DOT, IN THE SAME DEGREES (task 142). A weapon whose reticle carries no `dot` draws none,
+	-- which is what keeps this one conversion honest for a scope that is a plain duplex.
+	local function circle(name: string, deg: number?, color: Color3?, transparency: number)
+		local node = reticle:FindFirstChild(name)
+		if not (node and node:IsA("Frame")) then
+			return
+		end
+		if deg == nil or deg <= 0 or color == nil then
+			node.Visible = false
+			return
+		end
+		node.Visible = true
+		local size = math.max(1, px(deg))
+		node.Size = UDim2.fromOffset(size, size)
+		node.BackgroundColor3 = color
+		node.BackgroundTransparency = transparency
+	end
+	local dot = spec.dot
+	circle("DotHalo", dot and dot.haloDeg, dot and dot.haloColor, (dot and dot.haloTransparency) or 0.5)
+	circle("Dot", dot and dot.deg, dot and dot.color, 0)
+
 	place("PostTop", true, -1, spec.postThickDeg, spec.postArmDeg, postGap)
 	place("PostBottom", true, 1, spec.postThickDeg, spec.postArmDeg, postGap)
 	place("PostLeft", false, -1, spec.postThickDeg, spec.postArmDeg, postGap)

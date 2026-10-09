@@ -68,8 +68,6 @@ Geometry.MESH_KEYS = table.freeze({
 local SCOPE_AXIS_Y = 0.2972
 local SCOPE_OCULAR_Z = 0.9291 -- the rear lens: what the eye looks into
 local SCOPE_OBJECTIVE_Z = -0.2081 -- the front lens
-local LENS_DIAMETER = 0.16
-local LENS_THICK = 0.012
 
 -- The bolt turns about its own body's centre line, which is a hair below the bore.
 local BOLT_AXIS_Y = 0.11
@@ -111,10 +109,6 @@ function Geometry.layout(config)
 		action = { size = Vector3.new(actionW, actionH, actionL), at = Vector3.new(actionX, actionY, actionZ) },
 		bolt = { size = Vector3.new(boltW, boltH, boltL), at = Vector3.new(boltX, boltY, boltZ) },
 		scope = { size = Vector3.new(scopeW, scopeH, scopeL), at = Vector3.new(scopeX, scopeY, scopeZ) },
-		lens = {
-			size = Vector3.new(LENS_THICK * k, LENS_DIAMETER * k, LENS_DIAMETER * k),
-			at = Vector3.new(0, SCOPE_AXIS_Y * k, (SCOPE_OBJECTIVE_Z - LENS_THICK / 2) * k),
-		},
 	})
 end
 
@@ -146,10 +140,14 @@ end
 
 -- Every piece of the first-person rifle, in build order. Pure.
 --
--- FOUR MESHES AND ONE DRAWN DISC. The lens is drawn rather than uploaded because the model's lens
--- node is its only material-1 node and that material carries no base colour texture at all --
--- `asset_prep` refuses it, correctly, there being nothing to prepare. A lens is a flat glass disc,
--- which is exactly what task 99 already draws for the shotgun's bores.
+-- FOUR MESHES AND NO LENS. The drawn lens is GONE (task 142) and that is Karen's own finding:
+-- *"in front of scope when not aiming has circle transperent it shouldn't be like that"*. It was a
+-- faceted translucent cylinder on the objective, and from the carry pose it read as a pale grey plug
+-- stuck on the end of the tube -- task 141's own frame description had already called it that and
+-- done nothing. The scope MESH has its own objective end and needs no help; the disc only ever
+-- existed for the build where the mesh had not loaded, which task 141 made rare and task 142 makes
+-- somebody else's problem. Archived with its numbers in
+-- `backups/2026-10-10-rifle-drawn-lens.md`.
 function Geometry.pieces(config): { Piece }
 	local at = Geometry.layout(config)
 	local meshAt = CFrame.new(0, at.meshCentreY, 0) * CFrame.Angles(0, math.rad(Geometry.MESH_ROTATION_DEG), 0)
@@ -205,23 +203,6 @@ function Geometry.pieces(config): { Piece }
 			-- a hollow mesh and you see the world through it; until it lands you see a ghost of one
 			-- and can still aim.
 			transparency = 0.75,
-		},
-		{
-			-- THE OBJECTIVE LENS, DRAWN. A Roblox Cylinder's axis is its own X, so the quarter turn
-			-- lays it across the gun and the disc faces down the barrel.
-			name = "Lens",
-			group = "body" :: Gun.Group,
-			size = at.lens.size,
-			offset = CFrame.new(at.lens.at) * CFrame.Angles(0, math.rad(90), 0),
-			color = Color3.fromRGB(150, 170, 190),
-			material = Enum.Material.Glass,
-			shape = Enum.PartType.Cylinder,
-			reflectance = 0.15,
-			-- MOSTLY TRANSPARENT, AND THE FIRST SCOPED FRAME IS WHY (task 140, rule 5): drawn opaque
-			-- this disc sits at the far end of the tube and fills the sight picture with a grey
-			-- circle -- a scope you cannot see through. It is still visible from outside as a glint
-			-- on the objective, which is the half of the job it is here for.
-			transparency = 0.9,
 		},
 	}
 end

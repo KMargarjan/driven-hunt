@@ -927,7 +927,14 @@ function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mo
 			if loading ~= nil and weight > 0 then
 				held = held:Lerp(loading :: CFrame, weight)
 			end
-			local base = barrelsCFrame * held;
+			-- IT RIDES THE CYCLE GROUP ONLY WHEN THAT GROUP IS WHAT IT IS HOLDING (task 142). On a
+			-- BREAK action the left hand holds the barrels and they swing with it, which is why this
+			-- was written against `barrelsCFrame` at all. On a BOLT the cycle group is the bolt, and
+			-- a fore-end hand that followed the bolt back and forth would be a hand sliding up and
+			-- down the stock -- so `CYCLE_KIND` decides, exactly as it already decides how the group
+			-- moves at all (`Viewmodel.hinge`).
+			local follows = (Viewmodel.geometryNow().CYCLE_KIND or "hinge") == "hinge"
+			local base = (if follows then barrelsCFrame else gunCFrame) * held;
 			(descendant :: BasePart).CFrame = base * Viewmodel.align(HandAssets.LEFT)
 		end
 	end
