@@ -66,8 +66,17 @@ Geometry.MESH_KEYS = table.freeze({
 -- is 0.177 above the bore -- a scope sits high over a bolt action, and the aim pose is solved from
 -- it rather than from a number somebody liked (`Mode.aimOffset`).
 local SCOPE_AXIS_Y = 0.2972
--- How far the drawn magazine hangs below the action, in the mesh's own units before scaling.
-local MAGAZINE_DROP = 0.21
+-- THE DRAWN MAGAZINE, SIZED OFF THE WOOD IT SITS UNDER (task 143). Task 142's was a brick: 0.21
+-- studs deep, hung from the ACTION box's underside, which on this model is -0.2058 -- a quarter of a
+-- stud below the stock line, so it read as a block bolted on rather than a box magazine.
+--
+-- MEASURED on the Rigby's own `Wood_Low` node, in the Handle's frame, over the two slices that cover
+-- the magazine well: at z +0.35..+0.55 the stock's underside is -0.0659 and at +0.55..+0.75 it is
+-- -0.0786. A real bolt-action box sits NEARLY FLUSH -- a few hundredths proud of that line -- so the
+-- box is 0.11 deep and its floor lands at -0.145, which is 0.072 below the wood instead of 0.28.
+local STOCK_UNDERSIDE_AT_WELL = -0.0725 -- the mean of the two measured slices
+local MAGAZINE_DROP = 0.11 -- how deep the box is, not how far it hangs
+local MAGAZINE_PROUD = 0.072 -- how far its floor sits below the wood
 local SCOPE_OCULAR_Z = 0.9291 -- the rear lens: what the eye looks into
 local SCOPE_OBJECTIVE_Z = -0.2081 -- the front lens
 
@@ -114,17 +123,25 @@ function Geometry.layout(config)
 		-- THE MAGAZINE IS DRAWN, BECAUSE THE MODEL HAS NONE (task 142). The Rigby's four groups are
 		-- stock, action, bolt and scope -- there is no detachable box in the file to upload, so this
 		-- is a part, exactly as the shotgun's bore discs are. It hangs under the ACTION's own
-		-- underside (`actionY - actionH/2`), is as wide as the action and a little shorter, and
+		-- stock line (see the constants above), is a little narrower than the action and short, and
 		-- sticks out far enough to be something a hand can be seen taking hold of.
 		magazine = {
-			size = Vector3.new(actionW * 0.78, MAGAZINE_DROP * k, 0.52 * k),
+			size = Vector3.new(actionW * 0.74, MAGAZINE_DROP * k, 0.42 * k),
 			-- UNDER THE RECEIVER, NOT UNDER THE BARREL, and that distinction was measured on screen:
 			-- the `action` GROUP spans -2.2 to +0.909 because it holds the barrel as well, so its
 			-- centre is a stud and a half out along the bore -- a magazine placed from it hangs in
-			-- mid-air beside the fore-end, which is exactly what the first frame showed. The BOLT's
-			-- box is over the receiver (that is what a bolt sits in), so the magazine is placed from
-			-- that, a little forward of the bolt's own centre where the well is.
-			at = Vector3.new(actionX, actionY - actionH / 2 - (MAGAZINE_DROP * k) / 2 + 0.06 * k, boltZ - 0.17 * k),
+			-- mid-air beside the fore-end, which is exactly what task 142's first frame showed. The
+			-- BOLT's box is over the receiver (that is what a bolt sits in), so the magazine is placed
+			-- from that, a little forward of the bolt's own centre where the well is.
+			--
+			-- ...AND ITS FLOOR IS SET FROM THE WOOD, not from the action box (task 143): see
+			-- `STOCK_UNDERSIDE_AT_WELL`. The centre is half the box above its own floor, which puts
+			-- the floor 0.072 studs under the stock line instead of 0.28.
+			at = Vector3.new(
+				actionX,
+				(STOCK_UNDERSIDE_AT_WELL - MAGAZINE_PROUD + MAGAZINE_DROP / 2) * k,
+				boltZ - 0.17 * k
+			),
 		},
 	})
 end
