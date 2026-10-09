@@ -888,6 +888,11 @@ return function()
 			crowd.MAX_STEP_VOICES = math.huge
 			crowd.MAX_BREATH_VOICES = math.huge
 			crowd.MAX_MUTTER_VOICES = math.huge
+			-- ...AND THE PACK'S OWN CEILING (task 139 round 4). This is the "no ration at all" side
+			-- of the A/B, so EVERY ceiling has to be lifted: leaving this one at its shipped 2
+			-- rationed the loose herd as well, and the comparison became 2 against 2 -- which is
+			-- what the suite caught when the key was added.
+			crowd.SOUNDS_PER_SOUNDER = math.huge
 			crowd.GRUNT_GAP_SECONDS = 0 -- task 123 round 2: no world-wide gap between grunt starts
 			sound.CROWD = crowd
 			return sound
