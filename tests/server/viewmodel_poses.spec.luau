@@ -223,7 +223,7 @@ return function()
 		it("applies an override and moves nothing else", function()
 			local merged, problems = Data.merge(Data.DATA, { ["weapons.shotgun.aim.cheekDeg"] = 7.5 })
 			expect(#problems).to.equal(0)
-			expect(merged.aim.cheekDeg).to.equal(7.5)
+			expect(merged.weapons.shotgun.aim.cheekDeg).to.equal(7.5)
 			local before, after = Data.paths(Data.DATA), Data.paths(merged)
 			local moved = 0
 			for path, value in pairs(after) do
@@ -249,7 +249,7 @@ return function()
 			}) do
 				local merged, problems = Data.merge(Data.DATA, bad)
 				expect(#problems).to.equal(1)
-				expect(merged.aim.cheekDeg).to.equal(SET.aim.cheekDeg)
+				expect(merged.weapons.shotgun.aim.cheekDeg).to.equal(SET.aim.cheekDeg)
 			end
 		end)
 
@@ -272,7 +272,7 @@ return function()
 			expect(Data.paths(data)["weapons.shotgun.raise.keyframes.1.gun.pos.z"]).to.equal(-1)
 			local merged, problems = Data.merge(data, { ["weapons.shotgun.raise.keyframes.1.gun.pos.z"] = -2 })
 			expect(#problems).to.equal(0)
-			expect(merged.raise.keyframes[1].gun.pos.z).to.equal(-2)
+			expect(merged.weapons.shotgun.raise.keyframes[1].gun.pos.z).to.equal(-2)
 		end)
 	end)
 
@@ -454,7 +454,7 @@ return function()
 			}
 			for _, case in ipairs(states) do
 				for _, side in ipairs({ "right", "left" }) do
-					local entry = Data.DATA[case.pose][side]
+					local entry = SET[case.pose][side]
 					local wanted = Mode.handOffset(Data.vec(entry.pos), entry.rot.yaw, entry.rot.pitch, entry.rot.twist)
 					expect(Mode.handOffsetAt(side, case.state, firstPerson)).to.equal(wanted)
 				end
@@ -498,7 +498,7 @@ return function()
 			data.weapons.shotgun.aim.left.pos.x = data.weapons.shotgun.carry.left.pos.x + 1.0
 			local plain = configWith(true, data)
 			local framed = Data.copy(data)
-			framed.raise.keyframes = {
+			framed.weapons.shotgun.raise.keyframes = {
 				{ t = 0.5, gun = { pos = { x = 0, y = 0, z = -1 }, rot = { x = 0, y = 0, z = 0 } } },
 			}
 			local withFrame = configWith(true, framed)
