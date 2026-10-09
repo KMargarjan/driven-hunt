@@ -185,7 +185,13 @@ that it discards a spent case with the box.
   such layers — it is one id (`Camera.Config.SOUND_SHOT_ID`) — so what is built is one voice per
   weapon per event, which is what the shotgun actually has. A distant layer is a real idea and a
   separate one.
-* **`AUTO_RELOAD_WHEN_EMPTY` is on**, from Karen's *"when empty (or on R)"*. It is a row field; if an
+* **I PUT WORDS IN KAREN'S MOUTH, in two code comments and here** (the Reviewer's round-3 note, and
+  it is right). *"when empty (or on R)"* and *"then the right hand cycles the bolt to chamber"* are
+  the **DIRECTOR's brief**, not her message — her transcribed words are in `PLAYTEST.md` and contain
+  neither. The behaviour is unchanged and was always disclosed as a dial; the attribution was wrong.
+  Corrected here; **the two code comments are queued as 142a rather than fixed**, because this is
+  round 3 of 3 and touching `src/` now would need a fourth review round for two comments.
+* **`AUTO_RELOAD_WHEN_EMPTY` is on**, from the DIRECTOR's brief (*"when empty (or on R)"*). It is a row field; if an
   automatic reload turns out to be the wrong feel it is one word.
 * **The rifle's `cycle.shells` block still ships** (the task-141 note): a bolt feeds from a magazine
   and draws no fresh shell, but `Viewmodel.validate` requires all four shell keys. Round 2 makes the
