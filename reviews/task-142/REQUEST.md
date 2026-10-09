@@ -1,12 +1,12 @@
 # Task 142 - Karen's five rifle fixes
 
 Task: 142
-Round: 2
+Round: 3
 Base: main (`b95d8a7`, task 141 merged as PR #124)
-Code commit: `b91d6ac7f6e521bf63c5a37f92ac1ce7357d1001`
+Code commit: `7ea2e5cd59e6b75483c0b4803d92b47184275d9a`
 
 ```
-[harness] PASS: 33/33 checks @ b91d6ac7f6e521bf63c5a37f92ac1ce7357d1001 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 7ea2e5cd59e6b75483c0b4803d92b47184275d9a (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing in this diff touches `TWO_PLAYER_PATHS` (`src/server/Match/`, `MatchBoot`,
@@ -21,59 +21,41 @@ not here. **No Architect run:** no new owner — the mask and the dot are the Hu
 drawn box are the viewmodel's, the magazine is the reducer's. The note is
 `docs/research/2026-10-10-rifle-bolt-magazine-sound.md`.
 
-## Round 2: four blocking findings, and every one of them was real
+## Round 3: the cycle pose, and a spec that could not fail
 
-**1. The right hand let go of the bolt at FULL TRAVEL.** `Mode.cycleProgress` is the bolt's
-POSITION, and `Mode.step` drives `openTilt` 0 → 1 → 0 over one cycle — so my "return" ramp near
-progress 1 fired at the extreme of the stroke: the glove released the knob and grabbed it again on
-the way forward, twice per shot. The claim that the two could not drift is exactly what that was not.
-There is **one ramp** now, the reach, and the release comes for free as the bolt comes home through
-the same ramp backwards. `returnShare` is gone from the data, the view and the validator.
-**Verify:** `rifle_client.spec`, "keeps the right hand on the knob for the whole of the bolt's
-travel" — it asserts weight 1 at progress 1, which is where it used to be 0.
+**1. The cycle pose still held the OLD left hand, and this is the sharpest finding of the task.**
+Round 2 moved the rifle's left hand onto the fore-end in `carry` and `aim` and left
+`weapons.rifle.cycle.left` at the value it replaced — **bit for bit the pose claim 1 identifies as
+the circle Karen complained about**. `Mode.handFrame` lerps toward the action pose on `openTilt`, so
+the glove slid a stud back up the stock and returned on **every bolt cycle**: the motion claim 2 says
+no longer happens, landing on the pose claim 1 says is gone, at the exact moment round 2 made the
+scope come down and she is looking at it. Before round 2 `carry.left == cycle.left` so the lerp was
+identity; my own change created the jump. A hand holding the stock does not move while the bolt is
+worked, so `cycle.left` is the fore-end now and the lerp is identity again.
+**MEASURED, scoped, firing:** the left hand moves **0.0008 studs** from rest across the whole cycle,
+against the 1.019 studs in Z the Reviewer computed.
 
-**2. The rifle played the SHOTGUN's shell feed on every bolt cycle.** Three chambers plus
-`CYCLE_EJECTS = "spent"` leave a live chamber while the action is open, which is exactly what
-`Camera.breakFrom` reports as "that chamber holds a shell" — so the LEFT hand dived off the fore-end
-toward the hunter's body after every shot and a `FreshShell` was drawn at the shotgun's chamber
-mouth. The opposite of what Karen asked for, and of my own claim 2. A weapon with a magazine feeds
-nothing by hand: `loadingAt` and `shells` both answer on `MAGAZINE_SWAP`, which is the same block the
-box is drawn from, so it is one fact and not a second flag. **Verify:** `rifle_client.spec`, "hides
-the shell feed on a magazine weapon".
+**2. The shell-feed case could not fail.** It asserted 0 from a function that returns 0 on an
+EARLIER guard — `reload.open` is false and the spec never called `setReload` — so it passed with the
+round-2 fix deleted, while the request named it as that fix's verification. It drives the player's
+path now: the state `Camera.breakFrom` produces after a rifle `Break` (open, one case spent, chamber
+2 still loaded), on the module's own clock, asserting a **non-zero** weight without `MAGAZINE_SWAP`
+and **zero** with it, and restoring the state afterwards. (Its first version then failed the gate
+with *"pos is not a valid member of CFrame"* — `SHELL_LOAD` is the raw pose block out of
+`poses.json`, not engine values — so it uses the real one.)
 
-**3. The scope did not actually come down for the cycle.** The note adopted it, the request claimed
-it, and nothing in the code did it — `leaveScope` existed in two documents and nowhere else. That is
-the worst of the four and the Reviewer is right to call it the thing a later round would be judged
-against. It is built now: `Rifle.CONFIG.scope.cycle.leaveScope` is the parameter the note promised,
-`CameraBoot`'s aim source reads it, and whether a step is running comes from the one place that
-already reads the replica. **The jolt the note also promised does not exist, and the note no longer
-claims one.** MEASURED, scoped, firing:
+**The magazine voice is the SERVER's own step now, not a count of rounds at all.** Round 1 counted
+live chambers, round 2 counted them per weapon, and the Reviewer was right both times: per-weapon
+still fires on a RE-GRANT, where a fresh full magazine steps the stored count with no magazine
+changed. A round count is simply not the question — `snapshot.action` is, and the edge into
+`"Magazine"` is exactly one magazine change. `liveIn`/`wasLive` are gone.
 
-```
-+1.27 action=nil    overlay=true  fov=19.9
-+1.40 action=Break  overlay=true  fov=19.9
-+1.44 OVERLAY -> false  fov=20.3      <- the sight picture comes down for the cycle
-+2.07 action=nil    overlay=false fov=70.0
-+2.38 OVERLAY -> true   fov=19.9      <- and back, with the button still held
-```
-
-**4. The magazine voice compared round counts across DIFFERENT weapons.** `Weapon.get()` is one
-variable holding whichever gun the server published last, and `snapshot.weapon` — on the wire since
-task 140 — was never consulted, so a switch stepped the count 0 → 2 and fired the sound with no
-magazine changed. The count is kept per weapon id now, and the row handed to the sound is the one the
-SNAPSHOT names rather than the drawn gun's, because the viewmodel's handle lags by up to 0.25 s.
-
-**Six notes, each a real defect:** the swap's length had two homes (the row's first step and the pose
-data) and now has one; the hand's drop composed in the HAND's own axes while the box dropped in the
-gun's, which is why the frame showed the glove beside the box rather than on it; an abandoned swap
-left a stale clock so the NEXT one drew nothing; `validate`'s new checks ran against the SHOTGUN's
-set, which has neither block, so they could never fire for the only weapon that has them; the `Row`
-type was missing seven fields that `--!strict` files already read; and the note said
-`CYCLE_EJECTS = "selected"` with a three-step breakdown against the shipped `"spent"` and two steps.
-
-**Re-measured after all of it:** the magazine still drops (0.380 of its 0.42) and the left hand goes
-with it to `(0.00, -0.72, 0.33)` — directly under the receiver now, tracking the box, which is the
-frame-composition fix.
+**`Camera.leavesScopeFor(action, scope)` is pure and public**, so both branches of the adopted
+behaviour are driven by a spec instead of by a pasted trace — including the "stay scoped" branch,
+which is one number. **One assertion pins the swap's two homes equal** (the server times the window
+with `RELOAD[1].wait`, the client animates over `cycle.magazine.seconds`). The comment that named the
+bolt part's frame now names the one `hinge` actually returns, and the `Magazine` step says out loud
+that it discards a spent case with the box.
 
 ## The ten claims
 
