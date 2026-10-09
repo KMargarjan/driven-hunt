@@ -1,7 +1,9 @@
 # Task 139 - Karen's five boar complaints
 
 Task: 139
-Round: 2 (round 1 shipped nothing and is an `ESCALATE.md` entry)
+Round: 1 (the Director's round 2 of the DISPATCH; no Reviewer has run on this task -- the
+first dispatch round shipped nothing and is an `ESCALATE.md` entry, so this is the first
+verdict the script will write)
 Base: main (`0c7f736`)
 Code commit: `d796c4898af323a2ed0d17ec6d19bbb0b050e117`
 
