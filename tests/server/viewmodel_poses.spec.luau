@@ -592,10 +592,27 @@ return function()
 			expect(#rifleProblems).to.equal(0)
 			expect(rifleHold).to.equal(nil)
 			expect(rifle).never.to.equal(firstPerson)
+			-- BY VALUE FOR THE NUMBERS AND BY PRESENCE FOR THE REST: `Data.view` builds its
+			-- table-valued names (the Vector-shaped ones) fresh on every call, so identity is the
+			-- wrong question for those and the right one for every scalar.
 			local expected = Data.view(Data.DATA, "rifle")
+			local shotgunView = Data.view(Data.DATA, "shotgun")
+			local compared, differed = 0, 0
 			for key, value in pairs(expected) do
-				expect(rifle[key]).to.equal(value)
+				if type(value) == "table" then
+					expect(rifle[key]).to.be.ok()
+				else
+					expect(rifle[key]).to.equal(value)
+					compared += 1
+					if shotgunView[key] ~= value then
+						differed += 1
+					end
+				end
 			end
+			expect(compared > 0).to.equal(true)
+			-- ...AND THEY ARE THE RIFLE'S OWN NUMBERS, not the shotgun's handed back under a new
+			-- name: at least one scalar must differ, or this branch proved nothing.
+			expect(differed > 0).to.equal(true)
 			expect(rifle.FIRST_PERSON).to.equal(firstPerson.FIRST_PERSON)
 			-- ...and naming the default weapon explicitly is the same answer as naming none.
 			expect((Poses.resolve(firstPerson, nil, Data.DEFAULT_WEAPON))).to.equal(firstPerson)

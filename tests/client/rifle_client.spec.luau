@@ -246,8 +246,11 @@ return function()
 			local text = Report.detailRowText(row)
 			local label = Weapons.row("rifle").label
 			expect(string.find(text, label, 1, true)).to.be.ok()
-			-- AFTER THE DISTANCE AND BEFORE THE HITS, which is the order the header names.
-			local atRange = string.find(text, "45 m", 1, true)
+			-- AFTER THE DISTANCE AND BEFORE THE HITS, which is the order the header names. The
+			-- range column is matched as a PATTERN because `distance` is in studs and the column
+			-- prints metres (45 studs is 13 m), which is `Report.metres`' business and not this
+			-- case's.
+			local atRange = string.find(text, "%d+ m")
 			local atGun = string.find(text, label, 1, true)
 			expect(atRange).to.be.ok()
 			expect((atGun :: number) > (atRange :: number)).to.equal(true)
