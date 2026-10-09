@@ -586,9 +586,17 @@ return function()
 		end)
 
 		it("runs every animal that HEARS a shot, not only the one that was hit", function()
-			-- KAREN: "after shoot all run away". The radius is `SENSE.SHOT_AUDIBLE_STUDS` = 350, and
-			-- `Runtime:hearShot` hands the sound to every live boar, so the radius IS the rule.
-			expect(SENSE.SHOT_AUDIBLE_STUDS).to.equal(350)
+			-- KAREN: *"after shoot all run away"* (2026-10-05), and `Runtime:hearShot` hands the sound
+			-- to every live boar, so the RADIUS is the rule and this case is about the radius being
+			-- obeyed rather than about its value.
+			--
+			-- 350 WAS THE WHOLE FIELD, and Karen said so herself on 2026-10-09: *"once shoot they
+			-- have to run around so blast radius is a bit"*. The Forest Test is about 600 studs from
+			-- the spawn line to the exit, so one shot emptied every line in the world and there was
+			-- nothing left to watch. 120 is about twice the range she shoots at. Both sentences are
+			-- hers and they are not in conflict: everything that HEARS it runs, and a shot is no
+			-- longer heard three hundred studs away.
+			expect(SENSE.SHOT_AUDIBLE_STUDS).to.equal(120)
 			local brain = Brain.new(on, FIELD, START, Random.new(3))
 			for _ = 1, 30 do
 				brain:step(DT, obs(START, {}))
