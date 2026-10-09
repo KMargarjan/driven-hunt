@@ -133,7 +133,9 @@ return function()
 			-- FLATTER IS A SPREAD HERE AND NOT A DROP CURVE: nothing in this game models bullet
 			-- drop, which the research note records as considered and rejected (FastCast2).
 			expect(row.SPREAD_FULL_DEG.Slug < CONFIG.SPREAD_FULL_DEG.Slug).to.equal(true)
-			expect(row.BARRELS).to.equal(1)
+			-- THREE CHAMBERS SINCE TASK 142, because the magazine holds three (Karen).
+			expect(row.BARRELS).to.equal(3)
+			expect(row.MAGAZINE).to.equal(3)
 		end)
 
 		it("carries ONE ammo kind, and that kind is Slug on the wire", function()
@@ -146,19 +148,34 @@ return function()
 			expect(row.AMMO_LABEL.Slug).never.to.equal("SLUG")
 		end)
 
-		it("works its bolt in three steps, automatically, and the total is the sum", function()
+		it("works its bolt in TWO steps and changes its magazine in three, and both totals are sums", function()
 			local row = Weapons.ROWS.rifle
 			expect(row.AUTO_CYCLE).to.equal(true)
-			expect(#row.CYCLE).to.equal(3)
+			-- BACK, THEN FORWARD. There is no `Load` in a bolt cycle since task 142: the magazine
+			-- already holds the rounds, which is the whole difference from the shotgun.
+			expect(#row.CYCLE).to.equal(2)
 			expect(row.CYCLE[1].kind).to.equal("Break")
-			expect(row.CYCLE[2].kind).to.equal("Load")
-			expect(row.CYCLE[3].kind).to.equal("Close")
-			local sum = 0
-			for _, step in ipairs(row.CYCLE) do
-				sum += step.wait
+			expect(row.CYCLE[2].kind).to.equal("Close")
+			local function sumOf(steps)
+				local sum = 0
+				for _, step in ipairs(steps) do
+					sum += step.wait
+				end
+				return sum
 			end
-			expect(math.abs(sum - row.CYCLE_TOTAL) < 1e-9).to.equal(true)
-			expect(row.CYCLE_TOTAL).to.equal(0.9)
+			expect(math.abs(sumOf(row.CYCLE) - row.CYCLE_TOTAL) < 1e-9).to.equal(true)
+			expect(row.CYCLE_TOTAL).to.equal(0.62)
+			-- THE MAGAZINE CHANGE IS ITS OWN SEQUENCE, and it ends by chambering a round.
+			expect(#row.RELOAD).to.equal(3)
+			expect(row.RELOAD[1].kind).to.equal("Magazine")
+			expect(row.RELOAD[2].kind).to.equal("Break")
+			expect(row.RELOAD[3].kind).to.equal("Close")
+			expect(math.abs(sumOf(row.RELOAD) - row.RELOAD_TOTAL) < 1e-9).to.equal(true)
+			-- ...and the SHOTGUN has no second sequence at all, which is what keeps its four steps
+			-- the only thing `R` has ever run on it.
+			expect(Weapons.ROWS.shotgun.RELOAD).to.equal(nil)
+			expect(Weapons.ROWS.shotgun.CYCLE_EJECTS).to.equal(nil)
+			expect(row.CYCLE_EJECTS).to.equal("spent")
 		end)
 
 		it("states a magnification that IS its field of view", function()
@@ -211,22 +228,92 @@ return function()
 			expect(busy).to.equal("busy")
 		end)
 
-		it("walks the bolt: open, feed, close -- and refuses to fire while it is open", function()
+		it("works the bolt without touching the rest of the magazine", function()
+			-- THE DEFECT THIS CASE EXISTS FOR (task 142): the shotgun's `Break` empties EVERY chamber
+			-- and returns the unfired shells to the pocket, which on a magazine would throw two live
+			-- rounds on the ground after every shot. `CYCLE_EJECTS = "spent"` is the whole fix and
+			-- this is what proves it.
 			local row = Weapons.ROWS.rifle
 			local fired = StateMachine.apply(equipped(row), { kind = "Fire" }, 0, row)
+			expect(fired.barrels[1]).to.equal("Spent")
 			local open = StateMachine.apply(fired, { kind = "Break" }, 1, row)
 			expect(open.open).to.equal(true)
 			expect(open.barrels[1]).to.equal("Empty")
+			-- THE OTHER TWO ARE STILL IN IT, and the pocket did not grow.
+			expect(open.barrels[2]).to.equal("Live")
+			expect(open.barrels[3]).to.equal("Live")
+			expect(open.reserve.Slug).to.equal(row.START_RESERVE.Slug)
 			expect(math.abs(open.busyUntil - (1 + row.CYCLE[1].wait)) < 1e-9).to.equal(true)
 			-- THE ONE RULE EVERY SECOND TRIGGER PULL MEETS, and it lives in one place.
 			local _, isOpen = StateMachine.apply(open, { kind = "Fire" }, 2, row)
 			expect(isOpen).to.equal("is-open")
-			local fed = StateMachine.apply(open, { kind = "Load" }, 2, row)
-			expect(fed.barrels[1]).to.equal("Live")
-			expect(fed.reserve.Slug).to.equal(row.START_RESERVE.Slug - 1)
-			local shut = StateMachine.apply(fed, { kind = "Close" }, 3, row)
+			-- Closing chambers the next round: no `Load`, because the magazine fed it.
+			local shut = StateMachine.apply(open, { kind = "Close" }, 3, row)
 			expect(shut.open).to.equal(false)
-			expect(shut.selected).to.equal(1)
+			expect(shut.selected).to.equal(2)
+			expect(Weapon.roundsLeft(shut)).to.equal(2)
+		end)
+
+		it("empties in three shots and a magazine change fills it from the pocket", function()
+			local row = Weapons.ROWS.rifle
+			local state = equipped(row)
+			expect(Weapon.roundsLeft(state)).to.equal(3)
+			local clock = 0
+			for shot = 1, 3 do
+				local fired = StateMachine.apply(state, { kind = "Fire" }, clock, row)
+				clock += 1
+				local open = StateMachine.apply(fired, { kind = "Break" }, clock, row)
+				clock += 1
+				state = StateMachine.apply(open, { kind = "Close" }, clock, row)
+				clock += 1
+				expect(Weapon.roundsLeft(state)).to.equal(3 - shot)
+			end
+			-- EMPTY, AND THE POCKET IS UNTOUCHED: three fired cases went on the ground.
+			expect(Weapon.roundsLeft(state)).to.equal(0)
+			expect(state.reserve.Slug).to.equal(row.START_RESERVE.Slug)
+			-- ...and a fourth trigger pull has nothing to fire.
+			local _, dry = StateMachine.apply(state, { kind = "Fire" }, clock, row)
+			expect(dry).to.equal("barrel-empty")
+			-- THE MAGAZINE CHANGE: three rounds out of the pocket in ONE step.
+			local full = StateMachine.apply(state, { kind = "Magazine" }, clock, row)
+			expect(Weapon.roundsLeft(full)).to.equal(3)
+			expect(full.reserve.Slug).to.equal(row.START_RESERVE.Slug - 3)
+			expect(math.abs(full.busyUntil - (clock + row.RELOAD[1].wait)) < 1e-9).to.equal(true)
+			-- ...and a FULL magazine refuses one, so the sequence cannot empty the pocket by itself.
+			local _, refused = StateMachine.apply(full, { kind = "Magazine" }, clock + 10, row)
+			expect(refused).to.equal("barrel-full")
+		end)
+
+		it("takes what the pocket has when it cannot fill the magazine", function()
+			local row = Weapons.ROWS.rifle
+			local state = table.clone(equipped(row)) :: any
+			state.barrels = { "Empty", "Empty", "Empty" }
+			state.loaded = { "None", "None", "None" }
+			state.reserve = { Slug = 2 }
+			local part = StateMachine.apply(Shotgun.deepFreeze(state), { kind = "Magazine" }, 0, row)
+			expect(Weapon.roundsLeft(part)).to.equal(2)
+			expect(part.reserve.Slug).to.equal(0)
+			-- ...and an empty pocket is the rejection the sequence walks past, as it always was.
+			local _, why = StateMachine.apply(part, { kind = "Magazine" }, 10, row)
+			expect(why).to.equal("barrel-full")
+			local dry = table.clone(part) :: any
+			dry.barrels = { "Empty", "Empty", "Empty" }
+			dry.loaded = { "None", "None", "None" }
+			local _, none = StateMachine.apply(Shotgun.deepFreeze(dry), { kind = "Magazine" }, 10, row)
+			expect(none).to.equal("no-reserve")
+		end)
+
+		it("leaves the SHOTGUN's break action exactly as it was", function()
+			-- THE HALF THAT MUST NOT CHANGE. `CYCLE_EJECTS` is nil on the shotgun's row, so `Break`
+			-- takes its old path: every chamber emptied and every UNFIRED shell back in its pocket.
+			local row = Weapons.ROWS.shotgun
+			local state = equipped(row)
+			local fired = StateMachine.apply(state, { kind = "Fire" }, 0, row)
+			local open = StateMachine.apply(fired, { kind = "Break" }, 1, row)
+			expect(open.barrels[1]).to.equal("Empty")
+			expect(open.barrels[2]).to.equal("Empty")
+			-- The unfired one went back: one more in the pocket than it started with.
+			expect(open.reserve[state.ammo]).to.equal(state.reserve[state.ammo] + 1)
 		end)
 
 		it("refuses to feed an empty pocket, which is the one rejection the sequence walks past", function()
@@ -234,8 +321,8 @@ return function()
 			local state = equipped(row)
 			local empty = table.clone(state) :: any
 			empty.reserve = { Slug = 0 }
-			empty.barrels = { "Empty" }
-			empty.loaded = { "None" }
+			empty.barrels = { "Empty", "Empty", "Empty" }
+			empty.loaded = { "None", "None", "None" }
 			empty.open = true
 			local _, reason = StateMachine.apply(Shotgun.deepFreeze(empty), { kind = "Load" }, 5, row)
 			expect(reason).to.equal("no-reserve")
