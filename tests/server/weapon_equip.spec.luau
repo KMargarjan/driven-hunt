@@ -49,6 +49,9 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Hardware = Weapon.Hardware
+-- The weapon table and the system numbers, for the hotbar-order case (task 141).
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local PROBE_NAME = "SpecEquipProbe"
 
@@ -180,6 +183,244 @@ return function()
 			-- re-granting a gun every pass and from yanking a holstered one back.
 			expect(Weapon.armingAction(true, true)).to.equal(nil)
 			expect(Weapon.armingAction(false, false)).to.equal(nil)
+		end)
+	end)
+
+	describe("the hotbar's order is the loadout's order", function()
+		it("waits for the engine's own hotbar only when there is an order to protect", function()
+			-- THE DECISION, PURE, AND BOTH WORLDS BY PARAMETER. This is the assertion that fails on
+			-- the pre-fix code, and it has to be a pure one: the gate refuses to run with a flag
+			-- override set, so `RIFLE` is at its default and `#Weapons.loadout()` is 1 -- and with
+			-- ONE weapon the old code reached the bag first too (`Hardware.give` parents to the
+			-- Backpack, and the equip it then did ran after). So a live one-weapon case cannot tell
+			-- the fix from the bug, whatever it measures, and the Reviewer was right to say so.
+			--
+			-- CLAUDE.md's own feature-flag rule is the shape: a flagged path must be reachable by
+			-- parameter as well as by flag, or its two states cannot be tested while the flag sits
+			-- at one of them.
+			expect(Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS > 0).to.equal(true)
+			-- TWO TOOLS: the hand waits, because the engine's Backpack GUI numbers a slot the first
+			-- time it SEES a Tool and equipping inside the grant hides the shotgun from it.
+			expect(Weapon.equipDelayFor({ "shotgun", "rifle" })).to.equal(Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS)
+			-- ONE TOOL: no order to get wrong, so the spawn is bit-for-bit what it was before the
+			-- rifle existed -- no half second of empty hands for a bug that cannot happen.
+			expect(Weapon.equipDelayFor({ "shotgun" })).to.equal(0)
+			expect(Weapon.equipDelayFor({})).to.equal(0)
+			-- ...and the real loadout resolves through the same function, whichever world this is.
+			expect(Weapon.equipDelayFor(Weapons.loadout())).to.equal(
+				if #Weapons.loadout() > 1 then Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS else 0
+			)
+		end)
+
+		it("hands TWO Tools over in order, and the hand comes last", function()
+			-- THE ORDER ITSELF, with two Tools, in the world the gate actually runs in (the
+			-- Reviewer's note, round 2). `Weapons.loadout()` is one weapon here because the gate
+			-- refuses to start with a flag override set -- so the loadout is passed as a PARAMETER
+			-- instead, which is the same rule `Weapon.equipDelayFor` follows and the same rule
+			-- CLAUDE.md states for anything behind a flag. The rifle's row, geometry and meshes all
+			-- exist with the flag off; only the loadout is shorter.
+			--
+			-- This is the case that fails if the equip moves back inside `Weapon.grant`.
+			local player = somebody()
+			if player == nil then
+				error("no player with a character: this case needs the harness's own player", 0)
+			end
+			local backpack = player:FindFirstChildOfClass("Backpack") :: Backpack
+			local character = player.Character :: Model
+			local both = { "shotgun", "rifle" }
+
+			type Arrival = { where: string, name: string, at: number }
+			local order: { Arrival } = {}
+			local started = os.clock()
+			local intoBag = backpack.ChildAdded:Connect(function(child)
+				if child:IsA("Tool") and Weapons.isToolName(child.Name) then
+					table.insert(order, { where = "bag", name = child.Name, at = os.clock() - started })
+				end
+			end)
+			local intoHand = character.ChildAdded:Connect(function(child)
+				if child:IsA("Tool") and Weapons.isToolName(child.Name) then
+					table.insert(order, { where = "hand", name = child.Name, at = os.clock() - started })
+				end
+			end)
+
+			local ok, why = pcall(function()
+				for _, tool in ipairs(Hardware.toolsOf(player)) do
+					tool:Destroy()
+				end
+				Weapon.refreshArming(player, both)
+				-- NOTHING IS IN THE HAND WHEN THE SWEEP RETURNS. Nothing in `refreshArming` yields
+				-- and `Hardware.equip` parents through `EquipTool` synchronously, so this is the
+				-- whole fix in one line, at the only moment it is visible.
+				expect(Weapon.heldId(player)).to.equal(nil)
+				expect(waitUntil(6, function()
+					return #Hardware.toolsOf(player) >= 2
+				end)).to.equal(true)
+				expect(waitUntil(4, function()
+					for _, entry in ipairs(order) do
+						if entry.where == "hand" then
+							return true
+						end
+					end
+					return false
+				end)).to.equal(true)
+				local shown = {}
+				for _, entry in ipairs(order) do
+					table.insert(shown, string.format("%s:%s@%.2f", entry.where, entry.name, entry.at))
+				end
+				TestKit.note("weapon-equip: two-Tool arrivals " .. table.concat(shown, " "))
+				-- BOTH BAGS BEFORE THE FIRST HAND, and in `Weapons.ORDER` -- which is what the
+				-- engine's hotbar reads, because it numbers a slot the first time it sees a Tool.
+				local bagged = {}
+				local firstHand, lastBag = nil, nil
+				for index, entry in ipairs(order) do
+					if entry.where == "bag" then
+						table.insert(bagged, entry.name)
+						lastBag = index
+					elseif firstHand == nil then
+						firstHand = index
+					end
+				end
+				expect(firstHand).to.be.ok()
+				expect(lastBag).to.be.ok()
+				expect((lastBag :: number) < (firstHand :: number)).to.equal(true)
+				expect(#bagged).to.equal(2)
+				expect(bagged[1]).to.equal((Weapons.row("shotgun") :: any).toolName)
+				expect(bagged[2]).to.equal((Weapons.row("rifle") :: any).toolName)
+				-- ...AND THE HAND WAITED THE DELAY the two-Tool loadout asks for.
+				local gap = order[firstHand :: number].at - order[lastBag :: number].at
+				expect(gap >= Weapon.equipDelayFor(both) * 0.9).to.equal(true)
+				-- ...and the shotgun is what ends up in it, never the rifle.
+				expect(order[firstHand :: number].name).to.equal((Weapons.row(Weapons.PRIMARY) :: any).toolName)
+			end)
+			intoBag:Disconnect()
+			intoHand:Disconnect()
+			-- BACK TO THIS WORLD'S OWN LOADOUT, which takes the rifle away again: `refreshArming`
+			-- with no argument revokes anything the real loadout does not carry.
+			Weapon.refreshArming(player)
+			expect(waitUntil(4, function()
+				return #Hardware.toolsOf(player) == #Weapons.loadout()
+			end)).to.equal(true)
+			if not ok then
+				error(why, 0)
+			end
+		end)
+
+		it("puts the whole loadout in the BACKPACK before it puts anything in the hand", function()
+			-- THE DIRECTOR'S THIRD BUG (task 141): the hotbar read `1 Rifle, 2 Shotgun`, against the
+			-- design and against Karen. THE SLOT NUMBERS ARE NOT OURS -- the engine's own Backpack
+			-- GUI numbers a slot the first time it SEES a Tool and then keeps it (MEASURED in the
+			-- Forest Test: unequipping left both slots exactly where they were) -- so the only lever
+			-- the server has is WHAT THAT GUI SEES FIRST. Granting the shotgun and equipping it in
+			-- the same frame put it in the CHARACTER before the GUI looked, so the rifle was the
+			-- first thing in the bag and took slot 1.
+			--
+			-- This is that rule, and it holds with ONE weapon in the loadout as well as two: a grant
+			-- reaches the Backpack, and the hand comes after, by `AUTO_EQUIP_DELAY_SECONDS`.
+			expect(Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS > 0).to.equal(true)
+			local player = somebody()
+			if player == nil then
+				error("no player with a character: this case needs the harness's own player", 0)
+			end
+			local backpack = player:FindFirstChildOfClass("Backpack")
+			expect(backpack).to.be.ok()
+			local character = player.Character :: Model
+
+			type Arrival = { where: string, name: string, at: number }
+			local order: { Arrival } = {}
+			local started = os.clock()
+			local intoBag = (backpack :: Backpack).ChildAdded:Connect(function(child)
+				if child:IsA("Tool") and Weapons.isToolName(child.Name) then
+					table.insert(order, { where = "bag", name = child.Name, at = os.clock() - started })
+				end
+			end)
+			local intoHand = character.ChildAdded:Connect(function(child)
+				if child:IsA("Tool") and Weapons.isToolName(child.Name) then
+					table.insert(order, { where = "hand", name = child.Name, at = os.clock() - started })
+				end
+			end)
+
+			local ok, err = pcall(function()
+				-- Take every gun away and let the owner's own sweep hand the loadout back, which is
+				-- the path a spawn takes.
+				for _, tool in ipairs(Hardware.toolsOf(player)) do
+					tool:Destroy()
+				end
+				local wanted = Weapons.loadout()
+				Weapon.refreshArming(player)
+				-- WITH AN ORDER TO PROTECT, NOTHING IS IN THE HAND WHEN THE SWEEP RETURNS: nothing
+				-- in `refreshArming` yields and `Hardware.equip` parents through `EquipTool`
+				-- synchronously, so this is the fix, in one line, at the only moment it is visible.
+				-- With ONE weapon the equip is deliberately immediate (`Weapon.equipDelayFor`), so
+				-- the opposite is asserted -- and in the gate's own world that is the branch taken.
+				if #wanted > 1 then
+					expect(Weapon.heldId(player)).to.equal(nil)
+				else
+					-- ONE WEAPON: the equip is deliberately immediate, and what is asserted is the
+					-- OUTCOME rather than `heldId` -- that field is written by `watchEquipped`'s own
+					-- signal, which the engine may defer by a frame, and a spec that raced it would
+					-- be flaky about something it is not testing.
+					expect(waitUntil(2, function()
+						return #Hardware.toolsOf(player) > 0 and Weapon.heldId(player) == Weapons.PRIMARY
+					end)).to.equal(true)
+				end
+				expect(waitUntil(6, function()
+					return #Hardware.toolsOf(player) >= #wanted
+				end)).to.equal(true)
+				expect(waitUntil(4, function()
+					for _, entry in ipairs(order) do
+						if entry.where == "hand" then
+							return true
+						end
+					end
+					return false
+				end)).to.equal(true)
+				local shown = {}
+				for _, entry in ipairs(order) do
+					table.insert(shown, string.format("%s:%s@%.2f", entry.where, entry.name, entry.at))
+				end
+				TestKit.note("weapon-equip: arrivals " .. table.concat(shown, " "))
+				-- EVERY BAG ARRIVAL COMES BEFORE THE FIRST HAND ARRIVAL. That is the whole rule, and
+				-- it is what the hotbar reads.
+				local firstHand, lastBag = nil, nil
+				for index, entry in ipairs(order) do
+					if entry.where == "hand" and firstHand == nil then
+						firstHand = index
+					end
+					if entry.where == "bag" then
+						lastBag = index
+					end
+				end
+				expect(firstHand).to.be.ok()
+				local bagged = 0
+				for index, entry in ipairs(order) do
+					if entry.where == "bag" then
+						expect(index < (firstHand :: number)).to.equal(true)
+						bagged += 1
+					end
+				end
+				expect(bagged).to.equal(#wanted)
+				-- ...AND THE HAND WAITED THE DELAY, when there was an order to protect.
+				if #wanted > 1 then
+					local gap = order[firstHand :: number].at - order[lastBag :: number].at
+					expect(gap >= Weapon.equipDelayFor(wanted) * 0.9).to.equal(true)
+				end
+				-- ...AND THE BAG ARRIVALS ARE IN `Weapons.ORDER`, which is what makes slot 1 the
+				-- shotgun. With the rifle flag off the loadout is one weapon and this is one name.
+				local seen = 0
+				for _, entry in ipairs(order) do
+					if entry.where == "bag" then
+						seen += 1
+						expect(entry.name).to.equal((Weapons.row(wanted[seen]) :: any).toolName)
+					end
+				end
+			end)
+			intoBag:Disconnect()
+			intoHand:Disconnect()
+			-- The session is left armed whatever happened, which is what every case in this file does.
+			Weapon.refreshArming(player)
+			if not ok then
+				error(err, 0)
+			end
 		end)
 	end)
 

@@ -24,6 +24,15 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Mode = Camera.Mode
 local Config = Camera.Config
 
+-- A state at a given blend, fabricated: the same shape `camera_mode.spec`'s own helper has, and the
+-- reason is the same -- the live state's blend is whatever the session is doing.
+local function stateAtBlend(blend: number): any
+	local made = table.clone(Mode.initial(Config)) :: any
+	made.mode = if blend > 0 then "Aiming" else "Third"
+	made.blend = blend
+	return table.freeze(made)
+end
+
 -- THE FIRST-PERSON BRANCH BY PARAMETER, exactly as `camera_client.spec` drives it: nothing is
 -- flipped and nothing has to be restored.
 local firstPerson = table.clone(Config) :: any
@@ -212,7 +221,14 @@ return function()
 			local reticle = Hud.reticle() :: Frame
 			local was = reticle.Visible
 			reticle.Visible = true
-			frames(1)
+			-- NO FRAME IS WAITED FOR, and that is the task-141 change rather than a weakening: the
+			-- Hud is the ONE writer of this frame's `Visible` and since task 141 it writes it every
+			-- frame (`Hud.renderScope`), so a spec that set the flag and then yielded would be
+			-- measuring the Hud's own answer for a player who is not aiming. What this case is about
+			-- is the ANCESTOR CHAIN -- that showing the reticle really shows it, rather than putting
+			-- it inside something hidden -- and that is a property of the tree, not of a rendered
+			-- frame. (Measured: with the yield this case failed, because the next frame's render
+			-- correctly set it back to false.)
 			expect(visibleUp(reticle)).to.equal(true)
 			reticle.Visible = was
 		end)
@@ -226,6 +242,189 @@ return function()
 			expect(Hud.crosshairVisible(state, false, true)).to.equal(false)
 			expect(Hud.crosshairVisible(state, true, true)).to.equal(false)
 			expect(Hud.isCrosshairVisible()).to.equal(false)
+		end)
+	end)
+
+	describe("the sight picture", function()
+		-- THE THREE PREDICATES, PURE. The crosshair's, the reticle's and now the mask's: three marks,
+		-- three questions, and the mask's answer blacks out the screen, so it may never be the same
+		-- predicate as "does this gun have a reticle" (task 141).
+		it("is in only while the eye is at the glass, and the duplex waits for it", function()
+			local scope = Rifle.CONFIG.scope
+			local eyepiece = scope.eyepiece
+			local optics = { aimFovDeg = scope.aimFovDeg, reticle = scope.reticle, eyepiece = eyepiece }
+			expect(eyepiece.atBlend > 0).to.equal(true)
+			-- not aiming, no optics, and a weapon with no eyepiece at all: three ways to be out.
+			expect(Hud.scopeVisible("Third", optics, 1)).to.equal(false)
+			expect(Hud.scopeVisible("Aiming", nil, 1)).to.equal(false)
+			expect(Hud.scopeVisible("Aiming", { aimFovDeg = 50 }, 1)).to.equal(false)
+			-- ...and the raise itself: the gun is still coming up, so the mask is not in yet.
+			expect(Hud.scopeVisible("Aiming", optics, 0)).to.equal(false)
+			expect(Hud.scopeVisible("Aiming", optics, eyepiece.atBlend - 0.01)).to.equal(false)
+			expect(Hud.scopeVisible("Aiming", optics, eyepiece.atBlend)).to.equal(true)
+			expect(Hud.scopeVisible("Aiming", optics, 1)).to.equal(true)
+			-- THE DUPLEX WAITS FOR THE MASK, which is the defect the Director's frames showed: a
+			-- reticle drawn over the gun half way up the swing is a mark floating in the world.
+			expect(Hud.reticleVisible("Aiming", optics, 0)).to.equal(false)
+			expect(Hud.reticleVisible("Aiming", optics, 1)).to.equal(true)
+			-- ...and a scope with no eyepiece block has nothing to wait for, which is what every
+			-- caller without a blend means.
+			expect(Hud.reticleVisible("Aiming", { reticle = scope.reticle })).to.equal(true)
+			expect(Hud.reticleVisible("Aiming", optics)).to.equal(true)
+		end)
+
+		it("is a circle of the scope's own degrees, and black to the corners", function()
+			local overlay = Hud.scopeOverlay()
+			expect(overlay).to.be.ok()
+			local scope = Rifle.CONFIG.scope
+			local optics = { aimFovDeg = scope.aimFovDeg, reticle = scope.reticle, eyepiece = scope.eyepiece }
+			Hud.layoutScope(overlay :: Frame, optics, scope.aimFovDeg)
+			local viewport = Workspace.CurrentCamera.ViewportSize
+			local mask = (overlay :: Frame):FindFirstChild("Mask") :: Frame
+			expect(mask).to.be.ok()
+			local wanted = math.min(
+				Hud.reticleDegToPx(scope.eyepiece.diameterDeg, scope.aimFovDeg, viewport.Y),
+				math.min(viewport.X, viewport.Y)
+			)
+			expect(math.abs(mask.AbsoluteSize.X - wanted) <= 2).to.equal(true)
+			expect(math.abs(mask.AbsoluteSize.Y - mask.AbsoluteSize.X) <= 1).to.equal(true)
+			-- THE MASK REACHES EVERY CORNER. A stroke is drawn outward from the circle, so anything
+			-- short of the screen's own diagonal leaves a lit wedge at the corners.
+			local edge = mask:FindFirstChild("Edge") :: UIStroke
+			expect(edge).to.be.ok()
+			local diagonal = math.sqrt(viewport.X * viewport.X + viewport.Y * viewport.Y)
+			expect(edge.Thickness >= diagonal).to.equal(true)
+			-- ...AND THE DUPLEX IS OVER IT, not behind it: a reticle is etched on the glass.
+			local reticle = Hud.reticle()
+			expect(reticle).to.be.ok()
+			expect((reticle :: Frame).ZIndex > (overlay :: Frame).ZIndex).to.equal(true)
+			TestKit.note(
+				string.format(
+					"rifle: eyepiece %d px of %d viewport (asked %.1f), mask stroke %d of %d diagonal",
+					mask.AbsoluteSize.X,
+					viewport.Y,
+					wanted,
+					edge.Thickness,
+					math.ceil(diagonal)
+				)
+			)
+		end)
+
+		it("has no gun in it, and the gun comes back when the eye leaves", function()
+			-- THROUGH A SCOPE YOU SEE NO RIFLE: the eye is AT the ocular lens, so the gun is behind
+			-- it. The viewmodel owns this, because it is the one writer of the drawn gun, and it
+			-- reads the SAME `atBlend` the mask does -- so there is never a frame with a mask and a
+			-- gun, or a gun and no mask.
+			local scope = Rifle.CONFIG.scope
+			local optics = { aimFovDeg = scope.aimFovDeg, eyepiece = scope.eyepiece }
+			local aimed = stateAtBlend(1)
+			local half = stateAtBlend(scope.eyepiece.atBlend - 0.01)
+			expect(Camera.Viewmodel.hiddenByScope(aimed, optics)).to.equal(true)
+			expect(Camera.Viewmodel.hiddenByScope(half, optics)).to.equal(false)
+			expect(Camera.Viewmodel.hiddenByScope(stateAtBlend(0), optics)).to.equal(false)
+			-- ...and a weapon with no scope is never hidden, whatever the blend.
+			expect(Camera.Viewmodel.hiddenByScope(aimed, nil)).to.equal(false)
+			expect(Camera.Viewmodel.hiddenByScope(aimed, { aimFovDeg = 50 })).to.equal(false)
+		end)
+	end)
+
+	describe("the published model reaches the drawn gun", function()
+		it("wears a mesh for every piece this client has actually downloaded", function()
+			-- THE DIRECTOR'S FIRST BUG, AS A RULE (task 141): switch to the rifle and the viewmodel
+			-- read `mesh=2 box=7` at +0/+4/+8/+12 s and never changed -- the two meshes were the
+			-- gloves and the whole rifle was its fallback boxes, for the rest of the session. The
+			-- cause was one weapon's folder name hardcoded in the staleness check, so for any OTHER
+			-- weapon both halves of the signal were constants and nothing could ever mark the gun
+			-- stale again.
+			--
+			-- The rule is weapon-agnostic on purpose: whatever is in the player's hands, a piece
+			-- whose template this client can draw must be drawn as that template and not as a box.
+			local id = Camera.Viewmodel.weaponId()
+			if id == nil then
+				TestKit.note("rifle: no weapon in hand, so nothing to compare")
+				return
+			end
+			local geometry = Weapons.geometry(id)
+			expect(geometry).to.be.ok()
+			local folder = ReplicatedStorage:FindFirstChild((geometry :: any).FOLDER_NAME)
+			if folder == nil then
+				TestKit.note("rifle: " .. tostring((geometry :: any).FOLDER_NAME) .. " is not published in this place")
+				return
+			end
+			-- Give a late download the quarter-second the viewmodel's own staleness tick runs on.
+			frames(60)
+			local model = Camera.Viewmodel.current()
+			expect(model).to.be.ok()
+			local worn: { [string]: boolean } = {}
+			for _, part in ipairs((model :: Model):GetDescendants()) do
+				if part:IsA("MeshPart") then
+					worn[part.Name] = true
+				end
+			end
+			local ready, drawn, missing = 0, 0, {}
+			for _, template in ipairs(folder:GetChildren()) do
+				if Camera.Viewmodel.meshReady(template) then
+					ready += 1
+					if worn[template.Name] then
+						drawn += 1
+					else
+						table.insert(missing, template.Name)
+					end
+				end
+			end
+			TestKit.note(
+				string.format(
+					"rifle: %s wears %d of %d downloaded piece(s)%s",
+					id,
+					drawn,
+					ready,
+					if #missing > 0 then " missing " .. table.concat(missing, ",") else ""
+				)
+			)
+			expect(drawn).to.equal(ready)
+		end)
+	end)
+
+	describe("the downloaded count follows the folder it is asked about", function()
+		it("counts the folder it is HANDED, which is the whole of the first bug", function()
+			-- THE DEFECT, PINNED (the Reviewer's note, round 1). The live case above is vacuous in
+			-- DEV -- there are no downloaded templates there -- and the real fix was that this
+			-- count took one weapon's folder name whatever weapon was drawn. A stub folder of this
+			-- spec's own proves the count follows the NAME, in any place.
+			local ready = ReplicatedStorage:FindFirstChild("DHSpecReadyProbe")
+			if ready then
+				ready:Destroy()
+			end
+			expect(Camera.Viewmodel.readyMeshesIn("DHSpecReadyProbe")).to.equal(0)
+			local folder = Instance.new("Folder")
+			folder.Name = "DHSpecReadyProbe"
+			-- PLAIN PARTS, which `meshReady` answers true for: this case is about the COUNT and the
+			-- name, not about the engine's fetch status, which the live gun exercises.
+			for index = 1, 3 do
+				local part = Instance.new("Part")
+				part.Name = "Piece" .. index
+				part.Parent = folder
+			end
+			folder.Parent = ReplicatedStorage
+			local ok, why = pcall(function()
+				expect(Camera.Viewmodel.readyMeshesIn("DHSpecReadyProbe")).to.equal(3)
+				-- ...AND A DIFFERENT NAME IS A DIFFERENT ANSWER, which is the assertion the bug
+				-- fails: before the fix this function ignored its argument entirely.
+				expect(Camera.Viewmodel.readyMeshesIn("DHSpecReadyProbeMissing")).to.equal(0)
+				-- ...and every weapon's own folder is askable by name, which is how the viewmodel
+				-- uses it.
+				for _, id in ipairs(Weapons.ids()) do
+					local geometry = Weapons.geometry(id)
+					expect(geometry).to.be.ok()
+					local name = (geometry :: any).FOLDER_NAME
+					expect(type(name)).to.equal("string")
+					expect(Camera.Viewmodel.readyMeshesIn(name) >= 0).to.equal(true)
+				end
+			end)
+			folder:Destroy()
+			if not ok then
+				error(why, 0)
+			end
 		end)
 	end)
 

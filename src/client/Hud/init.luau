@@ -53,6 +53,16 @@ local Compass = require(script.Compass)
 
 local Hud = {}
 
+-- WHERE THE SIGHT PICTURE SITS IN THE STACK (task 141). The mask blacks out the screen, so it must
+-- be over everything the Hud draws on top of the world -- and the compass reaches `Z_INDEX + 4`, so
+-- 11 rather than the 7 the first version used. MEASURED: at 7 the compass strip, the DRIVE marker
+-- and both bearing labels were drawn INSIDE the eyepiece, floating in the glass.
+--
+-- The duplex is over the mask, because a reticle is etched on the glass and not behind it. The
+-- drive report's panel is over BOTH (`Report.CONFIG.PANEL_Z_INDEX`): the player opened that.
+local SCOPE_Z = 11
+local RETICLE_Z = SCOPE_Z + 2
+
 local gui: ScreenGui? = nil
 local crosshair: Frame? = nil
 local readout: TextLabel? = nil
@@ -76,6 +86,8 @@ local feedEntries: { { text: string, at: number } } = {}
 local scorePanel: Frame? = nil
 local reportFrame: Frame? = nil
 local compassFrame: Frame? = nil
+-- Did the scope's own mask hide the compass strip? See `Hud.renderScope`.
+local compassHiddenByScope = false
 local scoreTitle: TextLabel? = nil
 local scoreLines: { TextLabel } = {}
 local scoreFooter: TextLabel? = nil
@@ -270,12 +282,71 @@ local function build(): ScreenGui
 	-- is VERTICAL, so `px = deg / fov * viewportY` is exact -- which is what makes one duplex true
 	-- at any screen size AND at any magnification: change the scope's `aimFovDeg` and every element
 	-- of the sight picture grows by exactly the magnification, as a real scope's does.
+	-- THE SIGHT PICTURE (task 141): black everywhere except a round eyepiece, with the magnified
+	-- world inside it. A SIBLING of the reticle and of the crosshair, for the reason they are
+	-- siblings of each other -- a mark and a mask are two things, and no predicate answers for both.
+	--
+	-- THE MASK IS A `UIStroke` ON A CIRCLE, which is the one way to paint "everything except a
+	-- circle" out of UI primitives with no upload: a `UICorner` of 0.5 scale makes the frame a
+	-- circle, and a stroke is drawn OUTSIDE that border, so a stroke thicker than the screen's own
+	-- diagonal fills the whole screen and leaves the circle untouched. The alternative needed an
+	-- uploaded mask image, which needs Karen's OK and a moderation wait for a shape four lines of
+	-- UI already make. MEASURED on screen -- see the frames in the request.
+	local overlay = Instance.new("Frame")
+	overlay.Name = "ScopeOverlay"
+	overlay.BackgroundTransparency = 1
+	overlay.Size = UDim2.fromScale(1, 1)
+	overlay.AnchorPoint = Vector2.new(0.5, 0.5)
+	overlay.Position = UDim2.fromScale(0.5, 0.5)
+	overlay.ZIndex = SCOPE_Z
+	overlay.Visible = false
+	overlay.Parent = screen
+
+	local mask = Instance.new("Frame")
+	mask.Name = "Mask"
+	mask.BackgroundTransparency = 1
+	mask.AnchorPoint = Vector2.new(0.5, 0.5)
+	mask.Position = UDim2.fromScale(0.5, 0.5)
+	mask.Size = UDim2.fromOffset(2, 2)
+	mask.ZIndex = SCOPE_Z
+	mask.Parent = overlay
+	local maskRound = Instance.new("UICorner")
+	maskRound.CornerRadius = UDim.new(0.5, 0)
+	maskRound.Parent = mask
+	local maskEdge = Instance.new("UIStroke")
+	maskEdge.Name = "Edge"
+	maskEdge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	maskEdge.Thickness = 1
+	maskEdge.Parent = mask
+
+	-- The ocular lens's own rim, drawn INSIDE the circle: a stroke goes outward, so this frame is
+	-- smaller than the mask by exactly its own thickness and its stroke lands against the mask's
+	-- edge. Without it the sight picture ends on a hard mathematical line, which no glass does.
+	local rim = Instance.new("Frame")
+	rim.Name = "Rim"
+	rim.BackgroundTransparency = 1
+	rim.AnchorPoint = Vector2.new(0.5, 0.5)
+	rim.Position = UDim2.fromScale(0.5, 0.5)
+	rim.Size = UDim2.fromOffset(2, 2)
+	rim.ZIndex = SCOPE_Z + 1
+	rim.Parent = overlay
+	local rimRound = Instance.new("UICorner")
+	rimRound.CornerRadius = UDim.new(0.5, 0)
+	rimRound.Parent = rim
+	local rimEdge = Instance.new("UIStroke")
+	rimEdge.Name = "Edge"
+	rimEdge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	rimEdge.Thickness = 1
+	rimEdge.Parent = rim
+
 	local reticle = Instance.new("Frame")
 	reticle.Name = "Reticle"
 	reticle.BackgroundTransparency = 1
 	reticle.Size = UDim2.fromScale(1, 1)
 	reticle.AnchorPoint = Vector2.new(0.5, 0.5)
 	reticle.Position = UDim2.fromScale(0.5, 0.5)
+	-- ON TOP OF THE MASK, which is the whole point of a reticle: it is etched on the glass.
+	reticle.ZIndex = RETICLE_Z
 	reticle.Visible = false
 	reticle.Parent = screen
 
@@ -286,6 +357,7 @@ local function build(): ScreenGui
 	ring.Position = UDim2.fromScale(0.5, 0.5)
 	ring.Size = UDim2.fromOffset(2, 2)
 	ring.Parent = reticle
+	ring.ZIndex = RETICLE_Z
 	local round = Instance.new("UICorner")
 	round.CornerRadius = UDim.new(0.5, 0)
 	round.Parent = ring
@@ -310,6 +382,7 @@ local function build(): ScreenGui
 		bar.AnchorPoint = Vector2.new(0.5, 0.5)
 		bar.Position = UDim2.fromScale(0.5, 0.5)
 		bar.Size = UDim2.fromOffset(1, 1)
+		bar.ZIndex = RETICLE_Z
 		bar.Parent = reticle
 	end
 
@@ -407,7 +480,15 @@ local function build(): ScreenGui
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
 	panel.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH, 60 + rows * rowHeight + 30)
-	panel.ZIndex = 5 -- over the feed and the bar, because it is the thing to read
+	-- OVER THE FEED AND THE BAR, because it is the thing to read -- AND OVER THE SCOPE'S MASK
+	-- (task 141): this is drawn at the centre of the screen, which is inside the eyepiece, so at the
+	-- old 5 a player who could still hold the aim in `Scoring` would read a board cut off at the
+	-- glass. Same class as the compass and the drive report: a panel the GAME put up outranks a
+	-- sight picture, and it shares the report's own number for that reason.
+	--
+	-- (Round 2 added this as a SECOND assignment seven lines above the old `= 5`, which the old one
+	-- then overwrote -- a dead write, and a fix claimed in a request that had not happened.)
+	panel.ZIndex = Report.CONFIG.PANEL_Z_INDEX
 	panel.Visible = false
 	panel.Parent = screen
 
@@ -832,8 +913,173 @@ end
 -- is about the VIEW's optics (what `Camera.scope()` resolved for this frame) and the mode, and the
 -- crosshair's is about the gun and first person. Two predicates, two questions -- the rule the
 -- previous project's "one predicate answered two unrelated questions" is made of.
-function Hud.reticleVisible(mode: string?, optics: any): boolean
-	return optics ~= nil and optics.reticle ~= nil and mode == "Aiming"
+-- HAS THE SIGHT PICTURE ARRIVED? One number compared, and it is the blend rather than a clock: the
+-- raise's own easing is what decides when the eye is at the glass. (This had the RETICLE's header
+-- over it for one round -- a comment describing the function below the one it sat on.)
+--
+-- `blend` nil means "assume it has", which is what a caller without one means: the question THEY are
+-- asking is the other half -- is this a scoped weapon at all.
+local function eyepieceIn(optics: any, blend: number?): boolean
+	local at = if optics ~= nil and optics.eyepiece ~= nil then optics.eyepiece.atBlend else nil
+	if at == nil then
+		return true
+	end
+	return (blend or 1) >= at
+end
+
+-- IS THE SCOPE'S SIGHT PICTURE ON SCREEN? PURE and public, and a THIRD question beside the
+-- crosshair's and the reticle's: this one is "is the eye at the glass", and its answer blacks out
+-- the screen, so it may never be the same predicate as "does this gun have a reticle".
+function Hud.scopeVisible(mode: string?, optics: any, blend: number?): boolean
+	if optics == nil or optics.eyepiece == nil or mode ~= "Aiming" then
+		return false
+	end
+	return eyepieceIn(optics, blend)
+end
+
+-- IS THE SCOPE'S RETICLE ON SCREEN? PURE, and a different question from the crosshair's: this one
+-- is about the VIEW's optics (what `Camera.scope()` resolved for this frame) and the mode, and the
+-- crosshair's is about the gun and first person. Two predicates, two questions -- the rule the
+-- previous project's "one predicate answered two unrelated questions" is made of.
+--
+-- IT WAITS FOR THE EYEPIECE (task 141): a duplex drawn over the gun half way through the raise is a
+-- mark floating in the world, which is what the Director's frames of task 140 show.
+function Hud.reticleVisible(mode: string?, optics: any, blend: number?): boolean
+	return optics ~= nil and optics.reticle ~= nil and mode == "Aiming" and eyepieceIn(optics, blend)
+end
+
+-- THE EYEPIECE, LAID OUT IN PIXELS FROM ITS DEGREES -- the same conversion and the same
+-- recompute-only-on-change rule as the duplex's.
+local lastScopeFov, lastScopeX, lastScopeY, lastScopeSpec = -1, -1, -1, nil :: any
+function Hud.layoutScope(overlay: Frame, optics: any, fovDeg: number)
+	local camera = Workspace.CurrentCamera
+	local spec = if optics ~= nil then optics.eyepiece else nil
+	local viewport = if camera then camera.ViewportSize else Vector2.zero
+	if spec == nil or viewport.Y <= 0 then
+		return
+	end
+	-- THE WIDTH IS IN THE KEY TOO (the Reviewer's note, round 1): both the diameter clamp and the
+	-- stroke's thickness are computed from X as well as Y, so a width-only resize must re-lay-out.
+	if
+		math.abs(fovDeg - lastScopeFov) < 1e-3
+		and viewport.X == lastScopeX
+		and viewport.Y == lastScopeY
+		and spec == lastScopeSpec
+	then
+		return
+	end
+	lastScopeFov, lastScopeX, lastScopeY, lastScopeSpec = fovDeg, viewport.X, viewport.Y, spec
+	-- NEVER WIDER THAN THE SCREEN'S SHORT SIDE: a circle that ran off the edges would be a black
+	-- border rather than an eyepiece, and the duplex's degrees would then lie about where the edge is.
+	local diameter = math.max(
+		2,
+		math.min(Hud.reticleDegToPx(spec.diameterDeg, fovDeg, viewport.Y), math.min(viewport.X, viewport.Y))
+	)
+	local rimPx = math.max(1, Hud.reticleDegToPx(spec.rimThickDeg, fovDeg, viewport.Y))
+	local mask = overlay:FindFirstChild("Mask")
+	if mask and mask:IsA("Frame") then
+		mask.Size = UDim2.fromOffset(diameter, diameter)
+		local edge = mask:FindFirstChild("Edge")
+		if edge and edge:IsA("UIStroke") then
+			edge.Color = spec.maskColor
+			-- THE SCREEN'S DIAGONAL: the smallest thickness certain to reach every corner from the
+			-- circle's edge, whatever the aspect ratio.
+			edge.Thickness = math.ceil(math.sqrt(viewport.X * viewport.X + viewport.Y * viewport.Y))
+		end
+	end
+	local rim = overlay:FindFirstChild("Rim")
+	if rim and rim:IsA("Frame") then
+		local inner = math.max(2, diameter - 2 * rimPx)
+		rim.Size = UDim2.fromOffset(inner, inner)
+		local edge = rim:FindFirstChild("Edge")
+		if edge and edge:IsA("UIStroke") then
+			edge.Color = spec.rimColor
+			edge.Thickness = rimPx
+		end
+	end
+end
+
+-- THE WHOLE SIGHT PICTURE FOR THIS FRAME -- the mask, and the duplex on it.
+--
+-- IT IS ONCE A FRAME AND NOT ON AN EVENT (task 141), which is the second half of the Director's
+-- "the scope view is wrong". Everything else in this file is event-driven, and `Camera.Changed`
+-- fires on a MODE TRANSITION: at the instant `Third -> Aiming` arrives the blend is still 0, so a
+-- sight picture that waits for the blend was computed exactly once, at the only moment it is false,
+-- and never again. MEASURED in the Forest Test: the camera read fov 19.87 and the gun had already
+-- taken itself out of the view, while the overlay was still hidden. This is the same reason the
+-- compass has a `RenderStepped` of its own -- a thing that tracks the VIEW cannot be told by an
+-- event about the MODE.
+--
+-- It is still called from `render` as well, so a mode change that happens between two frames (a
+-- death, a weapon taken away) turns the mask off on that frame rather than the next.
+--
+-- The per-frame cost is two `FindFirstChild`s on the ScreenGui plus three camera reads and a
+-- boolean; `layoutScope` and `layoutReticle` both return immediately unless the field of view, the
+-- viewport or the spec actually moved. (The two lookups are counted here because this file throttles
+-- its own staleness tick for exactly that kind of cost.)
+function Hud.renderScope(CameraSystem)
+	local reticle = Hud.reticle()
+	local overlay = Hud.scopeOverlay()
+	if reticle == nil and overlay == nil then
+		return
+	end
+	local optics = if CameraSystem ~= nil and CameraSystem.scope then CameraSystem.scope() else nil
+	local mode = if CameraSystem ~= nil then CameraSystem.getMode() else nil
+	-- THE RAISE'S OWN PROGRESS, from the camera that is doing it. `getBlend` reads the state this
+	-- frame resolved, so the mask arrives on the frame the eye does.
+	local blend = if CameraSystem ~= nil and CameraSystem.getBlend then CameraSystem.getBlend() else nil
+	-- THE FRAME'S OWN FIELD OF VIEW, not the weapon's target (the Reviewer's note, task 140 round
+	-- 1): the mode is `Aiming` from the first frame of the raise while the blend is still easing, so
+	-- laying the duplex out at `aimFovDeg` would draw the wrong degrees for the 0.2 s of
+	-- `AIM_RAISE_SECONDS`. The camera is the one that knows what it is rendering.
+	local camera = Workspace.CurrentCamera
+	local liveFov = if camera then camera.FieldOfView else (if optics ~= nil then optics.aimFovDeg else nil) or 0
+	if overlay ~= nil then
+		local scoped = Hud.scopeVisible(mode, optics, blend)
+		overlay.Visible = scoped
+		if scoped then
+			Hud.layoutScope(overlay, optics, liveFov)
+		end
+		-- THE COMPASS IS HIDDEN, NOT COVERED (task 141). A mask blacks out everything OUTSIDE the
+		-- eyepiece, so no ZIndex in the world can take a mark that is drawn in the middle of the
+		-- screen out of the glass -- and the compass strip is the one Hud element that is. MEASURED:
+		-- with the mask at 11, over the compass's own 6-10, the band and its labels vanished and the
+		-- red DRIVE marker and three ticks went on floating in the sight picture.
+		--
+		-- IT PUTS BACK EXACTLY WHAT IT HID, which is why the flag exists rather than a plain
+		-- `not scoped`: the strip is invisible until `Compass.start` runs, and a Hud that switched
+		-- it on would draw an empty band in a world that has no compass yet.
+		--
+		-- `compassFrame.Visible` therefore has TWO writers and that is deliberate (rule 3): both are
+		-- in this file -- `Compass.start`'s single switch-on at boot, and this, per frame -- and
+		-- `Compass` itself never touches it. It also self-heals: a strip switched on while the mask
+		-- is in is hidden again on the next frame.
+		local compass = Hud.compass()
+		if compass ~= nil then
+			if scoped then
+				if compass.Visible then
+					compassHiddenByScope = true
+					compass.Visible = false
+				end
+			elseif compassHiddenByScope then
+				compassHiddenByScope = false
+				compass.Visible = true
+			end
+		end
+	end
+	if reticle ~= nil then
+		local visible = Hud.reticleVisible(mode, optics, blend)
+		reticle.Visible = visible
+		if visible then
+			Hud.layoutReticle(reticle, optics.reticle, liveFov)
+		end
+	end
+end
+
+function Hud.scopeOverlay(): Frame?
+	local screen = gui
+	local found = screen and screen:FindFirstChild("ScopeOverlay")
+	return if found and found:IsA("Frame") then found :: Frame else nil
 end
 
 -- THE DUPLEX, LAID OUT IN PIXELS FROM ITS DEGREES. Recomputed only when the field of view or the
@@ -936,22 +1182,7 @@ local function render(Weapon, CameraSystem)
 	-- THE SCOPE'S RETICLE, from the VIEW's own optics (task 140). `Camera.scope()` is what the
 	-- camera resolved for this frame, so the Hud never reads the weapon table to decide whether to
 	-- draw it -- exactly as it never reads the weapon to decide whether it is in first person.
-	local reticle = Hud.reticle()
-	if reticle then
-		local optics = if CameraSystem ~= nil and CameraSystem.scope then CameraSystem.scope() else nil
-		local mode = if CameraSystem ~= nil then CameraSystem.getMode() else nil
-		local visible = Hud.reticleVisible(mode, optics)
-		reticle.Visible = visible
-		if visible then
-			-- THE FRAME'S OWN FIELD OF VIEW, not the weapon's target (the Reviewer's note, round 1):
-			-- the mode is `Aiming` from the first frame of the raise while the blend is still
-			-- easing, so laying the duplex out at `aimFovDeg` would draw the wrong degrees for the
-			-- 0.2 s of `AIM_RAISE_SECONDS`. The camera is the one that knows what it is rendering.
-			local camera = Workspace.CurrentCamera
-			local liveFov = if camera then camera.FieldOfView else optics.aimFovDeg
-			Hud.layoutReticle(reticle, optics.reticle, liveFov)
-		end
-	end
+	Hud.renderScope(CameraSystem)
 	if readout then
 		-- NO GUN, NO READOUT (TASKS.md 35b(a)). The server publishes a reset state when it revokes a
 		-- Tool, and `equipped` is false in it -- so a player tied to a tree stops reading an ammo
@@ -1135,6 +1366,15 @@ function Hud.start()
 	-- road -- so the HUD never works out a direction from a position. Any other world has not said
 	-- yet, and then the strip is a plain compass with no marker rather than a marker pointing at a
 	-- guess; `Compass.setBearing` is the one line a later Match drive needs.
+	-- ONCE A FRAME, FOR THE SIGHT PICTURE (task 141): see `Hud.renderScope`. Its own connection
+	-- rather than the compass's, because the compass's lives inside `if compassFrame then` and a
+	-- scope that only worked in a world with a compass strip is a bug waiting for the next place.
+	if CameraSystem then
+		RunService.RenderStepped:Connect(function()
+			Hud.renderScope(CameraSystem)
+		end)
+	end
+
 	if compassFrame then
 		local bearing = nil
 		if Map.EXPECTED_WORLD == "forest-test" then

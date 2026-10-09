@@ -225,15 +225,70 @@ end
 -- ...FOR EVERY WEAPON IN THE LOADOUT (task 140). `armingAction` stays pure and per weapon: a
 -- hunter either carries this gun or does not, and the rifle is simply a second answer to the same
 -- question. With the `RIFLE` flag off the loadout is one weapon and this is what it always was.
-function Weapon.refreshArming(player: Player)
+-- MUST THE PRIMARY'S EQUIP WAIT FOR THE ENGINE'S OWN BACKPACK GUI? PURE, public, and a function
+-- of the loadout alone -- which is what makes both answers reachable in a spec while the `RIFLE`
+-- flag sits at one of them (CLAUDE.md, feature flags: "a flagged path must be reachable by
+-- parameter as well as by flag, or its two states cannot be tested").
+--
+-- ONLY WHEN MORE THAN ONE TOOL IS HANDED OVER. The hotbar bug needs two: the GUI numbers a slot the
+-- first time it sees a Tool, so equipping inside the grant hides the shotgun from it and the rifle
+-- takes slot 1. With ONE weapon there is no order to get wrong, and a spawn in the shipped build is
+-- then bit-for-bit what it was before the rifle existed -- no half second of empty hands for a bug
+-- that cannot happen (the Reviewer's note, round 1).
+function Weapon.equipDelayFor(wanted: { string }): number
+	return if #wanted > 1 then CONFIG.AUTO_EQUIP_DELAY_SECONDS else 0
+end
+
+-- `wanted` IS A PARAMETER WITH A DEFAULT (task 141, the Reviewer's note round 2), and it is the
+-- same medicine as `Weapon.equipDelayFor` one level up: the flag's two worlds must both be
+-- reachable without the flag, or the ORDER this function exists to get right can only be tested in
+-- whichever world the gate happens to run in. Production passes nothing and gets `Weapons.loadout()`
+-- -- the one flag read in the whole weapon system, still at that one boundary.
+function Weapon.refreshArming(player: Player, loadout: { string }?)
 	local allowed = mayArm(player)
-	local wanted = Weapons.loadout()
+	local wanted = loadout or Weapons.loadout()
+	-- IN `Weapons.ORDER`, AND THE ORDER IS THE HOTBAR (task 141): see `Weapon.grant`. The engine
+	-- numbers a Backpack slot by the order the Tool arrives, so granting in order IS the fix, and it
+	-- only works because nothing equips in the middle of this loop any more.
+	local granted = 0
 	for _, id in ipairs(wanted) do
 		local action = Weapon.armingAction(allowed, holdsTool(player, id))
 		if action == "grant" then
-			Weapon.grant(player, id)
+			if Weapon.grant(player, id) ~= nil then
+				granted += 1
+			end
 		elseif action == "revoke" then
 			Weapon.revoke(player, id)
+		end
+	end
+	-- THE PRIMARY GOES IN THE HAND, ONCE THE WHOLE LOADOUT IS IN THE BAG -- and only when this pass
+	-- actually handed something over and the player is holding nothing. The narrow rule is
+	-- deliberate, and it is the same one `Weapon.upgradeLook` follows: `AUTO_EQUIP` is about the
+	-- GRANT, so a sweep must never take the rifle out of the hands of a player who chose it, and
+	-- must never undo a holster.
+	if CONFIG.AUTO_EQUIP and granted > 0 and Weapon.heldId(player) == nil then
+		local primary = toolsOfPlayer(player)[Weapons.PRIMARY]
+		if primary ~= nil then
+			local delay = Weapon.equipDelayFor(wanted)
+			if delay <= 0 then
+				-- ONE WEAPON: no hotbar order to protect, so the spawn is exactly what it was.
+				Hardware.equip(primary, player)
+			else
+				-- NOT IN THIS FRAME: see `Weapon.equipDelayFor` and
+				-- `Shotgun.CONFIG.AUTO_EQUIP_DELAY_SECONDS`. The guards are re-read when the delay
+				-- fires rather than captured: a player who picked up the rifle, holstered, died or
+				-- left in that half second must not have a shotgun pushed into their hands, and the
+				-- Tool itself may be gone by then.
+				task.delay(delay, function()
+					if primary.Parent == nil or toolsOfPlayer(player)[Weapons.PRIMARY] ~= primary then
+						return
+					end
+					if Weapon.heldId(player) ~= nil then
+						return
+					end
+					Hardware.equip(primary, player)
+				end)
+			end
 		end
 	end
 	-- ...AND ANY WEAPON THAT IS NO LONGER IN IT GOES. Turning the flag off mid-session must take the
@@ -448,12 +503,15 @@ function Weapon.grant(player: Player, id: string?): Tool?
 	toolsOfPlayer(player)[weaponId] = tool
 	watchTool(player, tool, weaponId)
 	watchEquipped(player, tool, weaponId)
-	-- AUTO_EQUIP PUTS THE PRIMARY IN THE HAND, and only the primary (task 140): a spawn is
-	-- bit-for-bit what it was before the rifle existed -- the shotgun equipped, the rifle sitting in
-	-- slot 2 of the hotbar.
-	if CONFIG.AUTO_EQUIP and weaponId == Weapons.PRIMARY then
-		Hardware.equip(tool, player)
-	end
+	-- THE EQUIP IS NOT HERE ANY MORE (task 141), and that is the whole of the hotbar-order bug.
+	-- Measured by the Director in the Forest Test: the hotbar read `1 Rifle, 2 Shotgun`, against the
+	-- design and against Karen's own words. The engine's Backpack numbers its slots in the order
+	-- Tools ARRIVE in it, and this equipped the shotgun the instant it was granted -- which moved it
+	-- OUT of the Backpack before the rifle was ever put in. So the rifle arrived into an empty
+	-- Backpack and took slot 1, and the shotgun came back to slot 2 the first time it was holstered.
+	--
+	-- `Weapon.refreshArming` grants the whole loadout in `Weapons.ORDER` and equips the primary
+	-- AFTERWARDS, so both Tools reach the Backpack in order and the hotbar is the order of the list.
 	stats.granted += 1
 	publish(player, weaponId, stateOf(player, weaponId) :: WeaponState, true)
 	return tool

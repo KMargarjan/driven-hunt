@@ -172,6 +172,23 @@ Shotgun.CONFIG = {
 	START_RESERVE = { Slug = 24, Buck = 24 },
 	INITIAL_AMMO = "Slug" :: AmmoKind,
 	AUTO_EQUIP = true, -- a grey-box playtest should not start by hunting for the hotbar
+	-- ...AND NOT IN THE SAME FRAME AS THE GRANT (task 141). THE HOTBAR'S ORDER IS NOT OURS: the
+	-- engine's own Backpack GUI numbers a slot the first time it SEES a Tool, and once numbered the
+	-- slot is stable -- MEASURED: unequipping a weapon left both slots exactly where they were. At a
+	-- spawn that GUI is still being built when the grant lands, so it learns the loadout by
+	-- enumerating what it finds: the Backpack first, and the equipped Tool after. Equipping the
+	-- shotgun in the grant's own frame therefore put it in the CHARACTER before the GUI looked, so
+	-- the rifle took slot 1 and the shotgun slot 2 -- against the design and against Karen, who
+	-- asked for 1 = shotgun, 2 = rifle.
+	--
+	-- Half a second is after the GUI's own enumeration and far inside the time a player takes to
+	-- look at anything. It is a SYSTEM number, not a weapon's: every weapon is granted by the same
+	-- sweep into the same hotbar.
+	--
+	-- IT IS ONLY SPENT WHEN THERE IS MORE THAN ONE TOOL (`Weapon.equipDelayFor`): with one weapon
+	-- there is no slot order to get wrong, and a spawn in the shipped build must stay bit-for-bit
+	-- what it was before the rifle existed.
+	AUTO_EQUIP_DELAY_SECONDS = 0.5,
 
 	-- validation
 	CAMERA_ORIGIN_TOLERANCE = 30, -- studs from HumanoidRootPart; the stock camera sits behind you

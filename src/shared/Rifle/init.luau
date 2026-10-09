@@ -40,10 +40,24 @@ export type Reticle = {
 	strokeColor: Color3,
 }
 
+-- THE SIGHT PICTURE (task 141). Every length here is in DEGREES for the same reason the reticle's
+-- are: Roblox's field of view is vertical, so one number is true at any screen size and grows by
+-- exactly the magnification when `aimFovDeg` changes.
+export type Eyepiece = {
+	-- At what blend the sight picture SNAPS IN: the gun rises first and the overlay arrives at the
+	-- top of the swing, which is what the eye does when it comes to a scope.
+	atBlend: number,
+	diameterDeg: number,
+	rimThickDeg: number,
+	rimColor: Color3,
+	maskColor: Color3,
+}
+
 export type Scope = {
 	aimFovDeg: number,
 	magnification: number,
 	sway: { ampDeg: number, periodSeconds: number },
+	eyepiece: Eyepiece,
 	reticle: Reticle,
 }
 
@@ -128,6 +142,29 @@ Rifle.CONFIG = {
 		-- numbers at all, so these are mine: 0.25 degrees at 150 studs is 0.65 studs of wander,
 		-- which is inside a boar's chest zone. `ampDeg = 0` turns it off.
 		sway = { ampDeg = 0.25, periodSeconds = 4.0 },
+		-- WHAT A SCOPE ACTUALLY LOOKS LIKE (task 141). The Director, testing task 140 in the Forest
+		-- Test: the drawn scope's own tube was in front of the eye with the reticle painted over it,
+		-- which is what you see when you hold a rifle up to your face and look PAST the glass. A
+		-- sight picture is the other thing: the gun is gone, everything outside the eyepiece is
+		-- black, and the magnified world sits in a circle with the duplex on it.
+		--
+		-- 17 degrees of the 19.87 the scope renders is 0.86 of the screen's height -- a circle with
+		-- the ground visible past its edge, which is what looking through a scope held correctly
+		-- gives you.
+		--
+		-- `atBlend` IS 0.98 AS A TOLERANCE, NOT AS A THRESHOLD, and round 2's comment here had the
+		-- reason wrong (the Reviewer caught it): `Mode.step` raises the blend LINEARLY --
+		-- `math.min(1, blend + dt / seconds)` -- so it reaches exactly 1 and 0.98 is never a sample
+		-- at 60 fps. What the hundredth buys is a frame rate low enough to step past it, and the
+		-- predicates compare with `>=`, so the picture arrives on the frame the raise finishes
+		-- either way. The Director asked for "snaps in when blend ~ 1" and that is what it does.
+		eyepiece = {
+			atBlend = 0.98,
+			diameterDeg = 17.0,
+			rimThickDeg = 0.45,
+			rimColor = Color3.fromRGB(26, 26, 28),
+			maskColor = Color3.fromRGB(0, 0, 0),
+		},
 		reticle = {
 			kind = "duplex",
 			-- 4.0 degrees at FOV 19.87 is a fifth of the screen height: a ring you look THROUGH.

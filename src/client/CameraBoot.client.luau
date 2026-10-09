@@ -75,6 +75,13 @@ if weaponModule then
 				aimFovDeg = scope.aimFovDeg,
 				reticle = scope.reticle,
 				sway = scope.sway,
+				-- ...AND THE SIGHT PICTURE (task 141). This adapter names every field it hands on,
+				-- deliberately -- the camera is told what a view needs and never the weapon's whole
+				-- row -- which is why a field added to `Rifle.CONFIG.scope` and not added HERE
+				-- reaches nothing. Measured in the Forest Test: with `eyepiece` missing from this
+				-- list the overlay never drew, while the reticle did, because the Hud's
+				-- `eyepieceIn` reads "no eyepiece" as "nothing to wait for".
+				eyepiece = scope.eyepiece,
 			}
 		end,
 	})
