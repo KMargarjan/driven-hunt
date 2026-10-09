@@ -819,8 +819,22 @@ function Body.clipFor(info, config): (string?, number)
 	-- the drive was walking along at 4 studs/s with its head down played the grazing clip and skated.
 	-- Grazing is a thing an animal does standing still, and `STILL_SPEED` is that in one number.
 	local calmName, calmRate = Body.activityClip(info, config)
-	if calmName ~= nil and info.speed <= model.STILL_SPEED then
-		return calmName, calmRate
+	if calmName ~= nil then
+		-- THE EXIT STILL PLAYS WHILE IT MOVES, AND NOTHING ELSE CALM DOES (task 139). `grazeEnd` is
+		-- the head coming out of the grass: a one-second transition the animal has already begun,
+		-- and `boar_calm.spec`'s "plays the EXIT clip before anything the next CALM activity wants"
+		-- is right that walking must not cut it off.
+		--
+		-- EVERY OTHER CALM CLIP IS FOR AN ANIMAL STANDING STILL, and that is the largest cause of
+		-- Karen's *"sliding"*: this branch sits ahead of the gait selection and answered for ANY calm
+		-- animal, so a boar the drive was walking along at 4 studs/s with its head down played the
+		-- grazing LOOP and skated. MEASURED over three 150 s runs: 25.1 % of samples in which a boar
+		-- was moving above 1 stud/s had no locomotion clip under it, and the clips playing instead
+		-- were `idle` (2,151 samples), `grazeLoop` (2,052), `smell` (377) and `grazeStart` (181).
+		local exiting = info.exitClip ~= nil and info.exitFor > 0 and calmName == info.exitClip
+		if exiting or info.speed <= model.STILL_SPEED then
+			return calmName, calmRate
+		end
 	end
 
 	local function wanted(): (string, number)

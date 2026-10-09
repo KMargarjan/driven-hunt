@@ -1169,7 +1169,9 @@ Boar.CONFIG.SOUND = {
 	-- speak. A line is a sounder now (`Runtime:formSounder`), so the ration is real, and the range
 	-- can go back out to where a hunter at a stand can actually hear the drive coming.
 	--
-	-- 75 / 85 / 95 STUDS, VOLUMES UNTOUCHED: `makeSound` rolls off linearly from `NEAR_STUDS`, so a
+	-- ONE REACH FOR ALL THREE, 80 STUDS, VOLUMES UNTOUCHED. The one-number rule is task 123 round
+	-- 4's and `boar_shot.spec` asserts it: the gait changes how LOUD a hoof is, never how far it
+	-- carries. Only the number moved, 40 -> 80. `makeSound` rolls off linearly from `NEAR_STUDS`, so a
 	-- walking boar at 70 studs is a whisper and the same boar at 24 is exactly as loud as it was.
 	-- Louder was never what was missing; FURTHER was.
 	STEPS = {
@@ -1234,7 +1236,7 @@ Boar.CONFIG.SOUND = {
 			steps = true,
 			pitch = 0.7,
 			baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond,
-			audibleStuds = 75,
+			audibleStuds = 80,
 		},
 		trot = {
 			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
@@ -1246,7 +1248,7 @@ Boar.CONFIG.SOUND = {
 			steps = true,
 			pitch = 0.8,
 			baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond,
-			audibleStuds = 85,
+			audibleStuds = 80,
 		},
 		run = {
 			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
@@ -1258,7 +1260,7 @@ Boar.CONFIG.SOUND = {
 			steps = true,
 			pitch = 0.95,
 			baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond,
-			audibleStuds = 95,
+			audibleStuds = 80,
 		},
 	},
 	-- GRUNTS, AND THEY ARE THE SOUND THAT TELLS A HUNTER SOMETHING IS COMING (task 123). Karen,

@@ -1822,7 +1822,14 @@ return function()
 			-- and caotic"*. The gate has not run since (the DEV place has not been open), so nobody
 			-- saw it fail. What is asserted now is the rule those numbers express: a hoof is a CLOSE
 			-- sound and the GRUNT is the one that carries, which is the whole of task 123's finding.
-			expect(SOUND.STEPS.run.audibleStuds <= 60).to.equal(true)
+			-- 80 SINCE TASK 139, and the bound moved with Karen rather than against her. She played
+			-- `0c7f736` and said *"when boars comes I can't hear a sound walking"*: 40 studs is about
+			-- seven body lengths, and she watches the drive come from 120. The rule this assertion
+			-- exists for is untouched -- a hoof is still the CLOSE sound and the grunt is still the
+			-- one that carries, which the next line asserts -- and what changed is only how close
+			-- "close" is. The voice ration is what keeps it from being noise, and task 139 is also
+			-- the task that finally applied it to the Forest Test's lines (`Runtime:formSounder`).
+			expect(SOUND.STEPS.run.audibleStuds <= 90).to.equal(true)
 			expect(SOUND.GRUNTS.audibleStuds > SOUND.STEPS.run.audibleStuds).to.equal(true)
 		end)
 
