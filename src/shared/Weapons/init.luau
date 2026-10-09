@@ -54,6 +54,23 @@ export type Row = {
 	CYCLE: { CycleStep },
 	CYCLE_TOTAL: number,
 
+	-- THE MAGAZINE WEAPON'S OWN FIELDS (task 142), every one optional: a break action has none of
+	-- them and the shotgun's row carries none. They were written into the rifle's literal and read
+	-- in `--!strict` files for a round without being in the type, which is a sealed type telling a
+	-- lie (the Reviewer's note).
+	--
+	-- `CYCLE_EJECTS` is "all" (the default, and the shotgun) or "spent" -- what opening the action
+	-- throws away. `RELOAD` is the second sequence, the magazine change; `MAGAZINE` is what one box
+	-- holds; `READOUT` is "magazine" where the Hud prints rounds over capacity instead of one glyph
+	-- per chamber; `SOUND` is this weapon's own voices.
+	CYCLE_EJECTS: string?,
+	RELOAD: { CycleStep }?,
+	RELOAD_TOTAL: number?,
+	MAGAZINE: number?,
+	AUTO_RELOAD_WHEN_EMPTY: boolean?,
+	READOUT: string?,
+	SOUND: { [string]: any }?,
+
 	HANDLE_SIZE: Vector3,
 	HANDLE_TRANSPARENCY: number,
 	GRIP: CFrame,

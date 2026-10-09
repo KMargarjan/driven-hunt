@@ -57,12 +57,14 @@ circle while the thing she asked to see happens behind it. She asked to SEE the 
 bolt. Coming out of the scope is what makes that animation exist at all.
 
 **The other branch is reachable by a parameter, not by an edit** — `scope.cycle.leaveScope`, data on
-the row. Setting it false keeps the sight picture up and applies `scope.cycle.joltDeg` instead, which
-is the "stay scoped with a jolt" pattern, so the Director can look at both live without a build.
+the weapon's scope. Setting it false keeps the sight picture up through the cycle, which is the
+"stay scoped" pattern, so the Director can look at both live without a build. **There is no jolt**:
+an earlier draft of this note promised a `joltDeg` as well and nothing implements one, which is the
+kind of sentence a design doc must not carry.
 
-**ADOPTED: the cycle is FAST.** Source 3. The three steps total **0.62 s** (lift-and-draw 0.26,
-forward-and-down 0.22, settle 0.14), against the shotgun's 2.0 s break-load-load-close. A bolt that
-takes a second reads as a jam.
+**ADOPTED: the cycle is FAST.** Source 3. The two steps total **0.62 s** — back 0.26, forward 0.36 —
+against the shotgun's 2.0 s break-load-load-close. Two steps and not three: there is no `Load`,
+because the magazine already holds the rounds. A bolt that takes a second reads as a jam.
 
 ---
 
@@ -74,10 +76,12 @@ is that array with three entries. Nothing else about the reducer changes shape.
 
 Two row fields carry the difference, because a bolt is not a break action:
 
-* **`CYCLE_EJECTS = "selected"`.** The shotgun's `Break` empties **every** chamber — correct for a
+* **`CYCLE_EJECTS = "spent"`.** The shotgun's `Break` empties **every** chamber — correct for a
   gun you crack open over your arm, and catastrophic for a magazine, where it would dump the two
-  unfired rounds on the ground after every shot. The rifle's bolt ejects **the chamber that was just
-  fired** and leaves the rest of the magazine alone.
+  unfired rounds on the ground after every shot. The rifle's bolt ejects **the SPENT chamber** and
+  leaves the rest of the magazine alone. (It is `"spent"` and not `"selected"`: `Fire` has already
+  moved `selected` on to the next live chamber by the time the bolt opens, so "the selected one" is
+  the round about to be fired, not the case to throw.)
 * **`Magazine` — one new action.** It fills every empty chamber from the reserve in **one step**,
   which is what swapping a magazine is. Feeding three rounds one at a time through the existing
   `Load` would be a stripper clip, not what Karen described.

@@ -67,8 +67,16 @@ export type Eyepiece = {
 	maskColor: Color3,
 }
 
+-- WHAT A BOLT CYCLE DOES TO THE SIGHT PICTURE (task 142). `leaveScope` true drops the view out of
+-- the scope while the server is running a cycle step and puts it back when the step ends; false
+-- keeps the picture up. Both branches are reachable by this one number and never by an edit.
+export type Cycle = {
+	leaveScope: boolean,
+}
+
 export type Scope = {
 	aimFovDeg: number,
+	cycle: Cycle,
 	magnification: number,
 	sway: { ampDeg: number, periodSeconds: number },
 	eyepiece: Eyepiece,
@@ -224,6 +232,14 @@ Rifle.CONFIG = {
 		-- numbers at all, so these are mine: 0.25 degrees at 150 studs is 0.65 studs of wander,
 		-- which is inside a boar's chest zone. `ampDeg = 0` turns it off.
 		sway = { ampDeg = 0.25, periodSeconds = 4.0 },
+		-- THE VIEW COMES OUT OF THE SCOPE TO WORK THE BOLT, and the note's section 2 is the argument:
+		-- PUBG's own community asks how to STAY scoped through a bolt cycle, which is evidence that
+		-- the default is to leave it; Battlefield 1 requires coming out of the sight to get a grip on
+		-- the rifle. For THIS game it is not close, for a reason those sources need not supply --
+		-- our sight picture is a full-screen black mask with the gun hidden behind it (task 141), so
+		-- "stay scoped" means watching a black circle while the thing Karen asked to see happens
+		-- behind it. Set it false and the picture stays up: one number, no edit.
+		cycle = { leaveScope = true },
 		-- WHAT A SCOPE ACTUALLY LOOKS LIKE (task 141). The Director, testing task 140 in the Forest
 		-- Test: the drawn scope's own tube was in front of the eye with the reticle painted over it,
 		-- which is what you see when you hold a rifle up to your face and look PAST the glass. A

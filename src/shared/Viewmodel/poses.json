@@ -112,8 +112,7 @@
               "yaw": 150.0
             }
           },
-          "reachShare": 0.22,
-          "returnShare": 0.28
+          "reachShare": 0.22
         },
         "hingeStuds": {
           "x": 0.0,

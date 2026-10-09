@@ -239,6 +239,49 @@ function Viewmodel.setFor(data: any, weaponId: string?): any
 	return data.weapons[weaponId or Viewmodel.DEFAULT_WEAPON]
 end
 
+-- THE TWO OPTIONAL BLOCKS, CHECKED ON EVERY WEAPON THAT HAS THEM (task 142 round 2, the Reviewer's
+-- note). They used to sit inside the default-weapon section above, which checks the SHOTGUN's set --
+-- and the shotgun has neither block, so neither check could ever fire for the only weapon that does.
+-- The content lane the Director edits live was unguarded.
+--
+-- A HALF OF ONE OF THESE IS A `CFrame.new(nil)`, which is the whole reason they are checked at all.
+local function actionExtras(where: string, action: any, problems: { string })
+	if type(action) ~= "table" then
+		return
+	end
+	local hand = action.hand
+	if hand ~= nil then
+		if type(hand) ~= "table" then
+			table.insert(problems, where .. ".hand is not a table")
+		else
+			-- ONE SHARE, NOT TWO (round 2): the bolt's own travel runs 0 -> 1 -> 0, so the ramp that
+			-- puts the hand on the knob is the same one that takes it off.
+			if not isNumber(hand.reachShare) or hand.reachShare <= 0 or hand.reachShare >= 1 then
+				table.insert(problems, where .. ".hand.reachShare must be between 0 and 1")
+			end
+			handProblems(where .. ".hand.grip", hand.grip, problems)
+		end
+	end
+	local magazine = action.magazine
+	if magazine ~= nil then
+		if type(magazine) ~= "table" then
+			table.insert(problems, where .. ".magazine is not a table")
+		else
+			for _, key in ipairs({ "outShare", "inShare" }) do
+				if not isNumber(magazine[key]) or magazine[key] <= 0 or magazine[key] >= 0.5 then
+					table.insert(problems, where .. ".magazine." .. key .. " must be between 0 and 0.5")
+				end
+			end
+			for _, key in ipairs({ "dropStuds", "seconds" }) do
+				if not isNumber(magazine[key]) or magazine[key] <= 0 then
+					table.insert(problems, where .. ".magazine." .. key .. " must be a positive number")
+				end
+			end
+			handProblems(where .. ".magazine.hand", magazine.hand, problems)
+		end
+	end
+end
+
 function Viewmodel.validate(data: any): { string }
 	local problems = {}
 	if type(data) ~= "table" then
@@ -284,6 +327,7 @@ function Viewmodel.validate(data: any): { string }
 		elseif not hasReload and not hasCycle then
 			table.insert(problems, "weapons." .. id .. " carries neither reload nor cycle")
 		end
+		actionExtras("weapons." .. id .. ".action", set.reload or set.cycle, problems)
 	end
 	-- EVERY CHECK BELOW IS THE ONE IT ALWAYS WAS, run against the DEFAULT weapon's set plus the
 	-- file's own `look`: the shotgun's poses are the ones Karen accepted and the ones every number
@@ -455,40 +499,6 @@ function Viewmodel.validate(data: any): { string }
 				end
 			end
 		end
-		-- THE BOLT HAND AND THE MAGAZINE (task 142) ARE OPTIONAL BLOCKS, because a break action has
-		-- neither -- but a HALF of one is the `CFrame.new(nil)` the comment above this is about, so
-		-- a block that is there is checked whole.
-		local hand = reload.hand
-		if hand ~= nil then
-			if type(hand) ~= "table" then
-				table.insert(problems, "reload.hand is not a table")
-			else
-				for _, key in ipairs({ "reachShare", "returnShare" }) do
-					if not isNumber(hand[key]) or hand[key] <= 0 or hand[key] >= 1 then
-						table.insert(problems, "reload.hand." .. key .. " must be between 0 and 1")
-					end
-				end
-				handProblems("reload.hand.grip", hand.grip, problems)
-			end
-		end
-		local magazine = reload.magazine
-		if magazine ~= nil then
-			if type(magazine) ~= "table" then
-				table.insert(problems, "reload.magazine is not a table")
-			else
-				for _, key in ipairs({ "outShare", "inShare" }) do
-					if not isNumber(magazine[key]) or magazine[key] <= 0 or magazine[key] >= 0.5 then
-						table.insert(problems, "reload.magazine." .. key .. " must be between 0 and 0.5")
-					end
-				end
-				for _, key in ipairs({ "dropStuds", "seconds" }) do
-					if not isNumber(magazine[key]) or magazine[key] <= 0 then
-						table.insert(problems, "reload.magazine." .. key .. " must be a positive number")
-					end
-				end
-				handProblems("reload.magazine.hand", magazine.hand, problems)
-			end
-		end
 	end
 	return problems
 end
@@ -558,7 +568,6 @@ function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
 		local hand = action.hand
 		boltHand = table.freeze({
 			reachShare = hand.reachShare,
-			returnShare = hand.returnShare,
 			grip = CFrame.new(vec(hand.grip.pos)) * CFrame.Angles(
 				math.rad(hand.grip.rot.pitch),
 				math.rad(hand.grip.rot.yaw),

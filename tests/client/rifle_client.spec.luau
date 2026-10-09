@@ -385,6 +385,139 @@ return function()
 		end)
 	end)
 
+	describe("the bolt, the magazine and the voice", function()
+		-- THE DEFECT THIS CASE EXISTS FOR (task 142, the Reviewer's round-1 finding): the hand's
+		-- weight was a function of the bolt's POSITION, and `Mode.cycleProgress` runs 0 -> 1 -> 0
+		-- over one cycle -- so a "return" ramp near progress 1 let go of the knob at FULL TRAVEL and
+		-- grabbed it again on the way forward, twice per shot.
+		it("keeps the right hand on the knob for the whole of the bolt's travel", function()
+			local config = table.clone(firstPerson) :: any
+			config.BOLT_HAND = { reachShare = 0.25, grip = CFrame.new(0.14, 0.07, 0.2) }
+			table.freeze(config)
+			local weight = Camera.Viewmodel.boltHandWeight
+			-- the reach, as the bolt starts to move
+			expect(weight(0, config)).to.equal(0)
+			expect(math.abs(weight(0.125, config) - 0.5) < 1e-6).to.equal(true)
+			-- ...and ON for everything past it, INCLUDING full travel, which is where it used to
+			-- let go.
+			for _, at in ipairs({ 0.25, 0.5, 0.75, 0.9, 1.0 }) do
+				expect(weight(at, config)).to.equal(1)
+			end
+			-- The release is the same ramp, run backwards: the bolt coming home takes the hand off.
+			expect(weight(0.1, config) < 1).to.equal(true)
+			-- ...and a weapon with no bolt never moves that hand at all.
+			expect(weight(0.5, firstPerson)).to.equal(0)
+		end)
+
+		it("drops the magazine and takes the hand with it, on one progress", function()
+			local config = table.clone(firstPerson) :: any
+			config.MAGAZINE_SWAP = {
+				outShare = 0.38,
+				inShare = 0.4,
+				dropStuds = 0.42,
+				seconds = 1.35,
+				hand = CFrame.new(0, -0.3, 0.33),
+			}
+			table.freeze(config)
+			local at = Camera.Viewmodel.magazineAtProgress
+			-- no swap running: the box is home and no hand is on it
+			local away, onBox = at(nil, config)
+			expect(away).to.equal(0)
+			expect(onBox).to.equal(0)
+			-- out, hold, and back in -- and the hand's weight tracks the box the whole way
+			local half = select(1, at(0.19, config))
+			expect(half > 0 and half < 0.42).to.equal(true)
+			expect(math.abs(select(1, at(0.6, config)) - 0.42) < 1e-6).to.equal(true)
+			expect(select(2, at(0.6, config))).to.equal(1)
+			expect(select(1, at(0.9, config)) < 0.42).to.equal(true)
+			-- ...and a weapon with no magazine never draws one.
+			expect(select(1, at(0.5, firstPerson))).to.equal(0)
+		end)
+
+		it("gives the rifle its own voice and leaves a weapon without one silent", function()
+			local Sound = require(scripts:WaitForChild("Weapon")).Sound
+			local rifle = Weapons.row("rifle")
+			expect(Sound.voiceFor(rifle, "shot")).to.be.ok()
+			expect((Sound.voiceFor(rifle, "shot") :: any).id).never.to.equal("")
+			-- A CUT IS NOT OPTIONAL: a library "Single Shots" sample is a take, not a round.
+			expect((Sound.voiceFor(rifle, "shot") :: any).cut > 0).to.equal(true)
+			expect(Sound.voiceFor(rifle, "bolt")).to.be.ok()
+			expect(Sound.voiceFor(rifle, "magazine")).to.be.ok()
+			-- ...and the SHOTGUN has none of its own, which is what keeps it on the camera config's
+			-- single id -- the gun this repo has had all along.
+			expect(Sound.voiceFor(Weapons.row("shotgun"), "shot")).to.equal(nil)
+			expect(Sound.voiceFor(nil, "shot")).to.equal(nil)
+		end)
+
+		it("hides the shell feed on a magazine weapon, which has nothing to feed by hand", function()
+			-- THE OTHER ROUND-1 FINDING: three chambers plus `CYCLE_EJECTS = "spent"` leave a live
+			-- chamber while the action is open, which the shell-feed animation reads as "that
+			-- chamber was just loaded" -- so the LEFT hand dived off the fore-end on every bolt
+			-- cycle, which is the opposite of what Karen asked for.
+			local config = table.clone(firstPerson) :: any
+			config.MAGAZINE_SWAP =
+				{ outShare = 0.38, inShare = 0.4, dropStuds = 0.42, seconds = 1.35, hand = CFrame.new() }
+			table.freeze(config)
+			expect((Camera.Viewmodel.loadingAt(config, 0))).to.equal(0)
+		end)
+
+		it("prints rounds over capacity for a magazine, and glyphs for a break action", function()
+			local rifle = Weapons.row("rifle")
+			local full = {
+				equipped = true,
+				open = false,
+				barrels = { "Live", "Live", "Live" },
+				loaded = { "Slug", "Slug", "Slug" },
+				selected = 1,
+				ammo = "Slug",
+				reserve = { Slug = 9 },
+				busyFor = 0,
+				weapon = "rifle",
+			}
+			expect(string.find(Hud.readoutFor(full :: any, rifle), "3/3", 1, true)).to.be.ok()
+			local one = table.clone(full)
+			one.barrels = { "Spent", "Spent", "Live" }
+			expect(string.find(Hud.readoutFor(one :: any, rifle), "1/3", 1, true)).to.be.ok()
+			-- ...and the shotgun still prints one glyph per chamber, which is what it has always done.
+			local sg = table.clone(full)
+			sg.barrels = { "Live", "Live" }
+			sg.loaded = { "Slug", "Slug" }
+			sg.weapon = "shotgun"
+			local text = Hud.readoutFor(sg :: any, Weapons.row("shotgun"))
+			expect(string.find(text, "/", 1, true)).to.equal(nil)
+			expect(string.find(text, "[*]", 1, true)).to.be.ok()
+		end)
+
+		it("puts a red dot at the centre of the duplex, sized in the same degrees", function()
+			local scope = Rifle.CONFIG.scope
+			local dot = scope.reticle.dot
+			expect(dot).to.be.ok()
+			local reticle = Hud.reticle() :: Frame
+			Hud.layoutReticle(reticle, scope.reticle, scope.aimFovDeg)
+			frames(1)
+			local core = reticle:FindFirstChild("Dot") :: Frame
+			local halo = reticle:FindFirstChild("DotHalo") :: Frame
+			expect(core).to.be.ok()
+			expect(halo).to.be.ok()
+			local viewportY = Workspace.CurrentCamera.ViewportSize.Y
+			local wanted = Hud.reticleDegToPx(dot.deg, scope.aimFovDeg, viewportY)
+			expect(math.abs(core.AbsoluteSize.X - math.max(1, wanted)) <= 1).to.equal(true)
+			-- THE HALO IS BIGGER AND SOFTER, which is what gives the dot an edge on a bright trunk.
+			expect(halo.AbsoluteSize.X > core.AbsoluteSize.X).to.equal(true)
+			expect(halo.BackgroundTransparency > core.BackgroundTransparency).to.equal(true)
+			-- ...and it is ON TOP of the duplex, because a dot behind a post is not a dot.
+			expect(core.ZIndex > (reticle:FindFirstChild("PostTop") :: Frame).ZIndex).to.equal(true)
+			TestKit.note(
+				string.format(
+					"rifle: red dot %d px, halo %d px of %d viewport",
+					core.AbsoluteSize.X,
+					halo.AbsoluteSize.X,
+					viewportY
+				)
+			)
+		end)
+	end)
+
 	describe("the downloaded count follows the folder it is asked about", function()
 		it("counts the folder it is HANDED, which is the whole of the first bug", function()
 			-- THE DEFECT, PINNED (the Reviewer's note, round 1). The live case above is vacuous in

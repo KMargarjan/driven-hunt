@@ -54,10 +54,30 @@ if weaponModule == nil then
 end
 if weaponModule then
 	local Weapon = require(weaponModule)
+	-- IS THE SERVER RUNNING A CYCLE STEP RIGHT NOW? Written by the break-source closure below, which
+	-- is already this file's one reader of the replica, and read by the aim source above it. Two
+	-- owners, one fact, and no second reader (rule 3).
+	local cyclingNow = false
 	Camera.setAimSource({
 		isAiming = function()
 			local state = Weapon.get()
-			return Weapon.Input.isAiming() and state ~= nil and state.equipped
+			local wants = Weapon.Input.isAiming() and state ~= nil and state.equipped
+			if not wants then
+				return false
+			end
+			-- ...AND THE SCOPE COMES DOWN TO WORK THE BOLT (task 142). `scope.cycle.leaveScope` is
+			-- the weapon's own say-so; a gun without a scope, or one whose scope says false, is
+			-- untouched and so is every build before the rifle. The player's BUTTON is not touched
+			-- either -- this is the camera being told the eye is not at the glass, so the mask comes
+			-- down, the gun comes back and the hands are visible working the action, which is the
+			-- whole of what Karen asked to see.
+			if cyclingNow then
+				local scope = (Weapons.row(Camera.Viewmodel.weaponId()) or {}).scope
+				if scope ~= nil and scope.cycle ~= nil and scope.cycle.leaveScope then
+					return false
+				end
+			end
+			return true
 		end,
 	})
 	-- THE OPTICS OF THE WEAPON ON SCREEN (task 140), which is the third injected source on this
@@ -147,7 +167,15 @@ if weaponModule then
 		end
 		return live
 	end
-	local wasLive = liveIn(lastClosed)
+	-- ...PER WEAPON, which is the Reviewer's round-1 finding and a real one: `Weapon.get()` is ONE
+	-- variable holding whichever gun the server published last, so comparing a count across two
+	-- snapshots that belong to DIFFERENT guns steps it 2 -> 3 or 0 -> 2 on a switch and fires the
+	-- magazine voice when no magazine changed. `snapshot.weapon` has been on the wire since task 140
+	-- and is what says whose count this is.
+	local wasLive: { [string]: number } = {}
+	if lastClosed ~= nil and lastClosed.weapon ~= nil then
+		wasLive[lastClosed.weapon] = liveIn(lastClosed)
+	end
 	Camera.setBreakSource({
 		state = function()
 			local snapshot = Weapon.get()
@@ -157,16 +185,26 @@ if weaponModule then
 			local isOpen = snapshot ~= nil and snapshot.open == true
 			local row = Weapons.row(Camera.Viewmodel.weaponId())
 			local nowLive = liveIn(snapshot)
-			if nowLive > wasLive and Weapon.Sound.voiceFor(row, "magazine") ~= nil then
-				Weapon.Sound.magazine(Camera.poseConfig(), row)
+			local whose = snapshot ~= nil and snapshot.weapon or nil
+			if whose ~= nil then
+				local before = wasLive[whose]
+				-- THE ROW IS THE ONE THE SNAPSHOT NAMES, not the drawn gun's: the viewmodel's handle
+				-- is refreshed at most every 0.25 s, so during a switch those two disagree.
+				local voiced = Weapons.row(whose)
+				if before ~= nil and nowLive > before and Weapon.Sound.voiceFor(voiced, "magazine") ~= nil then
+					Weapon.Sound.magazine(Camera.poseConfig(), voiced)
+				end
+				wasLive[whose] = nowLive
 			end
-			wasLive = nowLive
 			-- HOW FAR THROUGH A MAGAZINE CHANGE THE GUN IS (task 142). The SERVER SAYS WHICH STEP IT
 			-- IS RUNNING (`snapshot.action`) and `busyFor` is that step's own clock, so this is a
 			-- read and not a guess. The first build of this inferred the step from "no live rounds,
 			-- action shut, still busy" -- which can never be true, because the magazine fills at the
 			-- START of its window -- and the drawn box measurably never moved.
-			local swapSeconds = if row ~= nil and row.RELOAD ~= nil then row.RELOAD[1].wait else nil
+			-- THE SWAP'S LENGTH COMES FROM THE POSE DATA (the Reviewer's note), which is where the
+			-- rest of its shape lives -- `outShare`, `inShare`, `dropStuds` -- and not from the
+			-- row's first step, which was a second home for one number.
+			local swapSeconds = (Camera.poseConfig() or {}).MAGAZINE_SWAP
 			--
 			-- A SNAPSHOT WITH NO ACTION DOES NOT END IT, and that was measured: the arming sweep and
 			-- the equip watcher publish on their own schedule with `action = nil`, and a clear on
@@ -174,10 +212,13 @@ if weaponModule then
 			-- studs of its 0.55 and stopped. The swap ends when its own clock runs out
 			-- (`Viewmodel.magazineProgress`) or when the server starts a DIFFERENT step.
 			if swapSeconds ~= nil and snapshot ~= nil and snapshot.action == "Magazine" then
-				Camera.Viewmodel.setMagazine(swapSeconds)
+				Camera.Viewmodel.setMagazine(swapSeconds.seconds)
 			elseif snapshot ~= nil and snapshot.action ~= nil then
 				Camera.Viewmodel.setMagazine(nil)
 			end
+			-- A CYCLE STEP IS RUNNING: see `cyclingNow` above. `Magazine` counts, because the hands
+			-- are busy with the box and the scope has no business being up for that either.
+			cyclingNow = snapshot ~= nil and snapshot.action ~= nil
 			local noise = Camera.breakSound(wasOpen, isOpen)
 			wasOpen = isOpen
 			-- A BOLT IS NOT A BREAK, AND IT DOES NOT SOUND LIKE ONE (task 142). The same two edges
