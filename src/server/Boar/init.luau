@@ -1067,6 +1067,11 @@ Boar.CONFIG.MOVE = {
 	-- eight times the width of this world. So 300 is the DIRECTOR's playable figure and NOT a
 	-- converted biological fact: it is longer than the sightline down the road and about half the
 	-- field, so an animal that runs it has left the picture. That is Karen's own test.
+	-- HOW HARD A FLEEING ANIMAL BREAKS AROUND THE GUN (task 139). The heading is the way OUT; this
+	-- is how much of "away from whatever frightened it" is mixed ACROSS that, so it passes the gun to
+	-- one side instead of running at him. 1 is an even blend, about 45 degrees off the exit line when
+	-- the shooter is square on -- a boar breaking past a gun, not a boar ignoring one.
+	FLIGHT_SWERVE = 1,
 	FLIGHT_MIN_STUDS = 300,
 	-- A ceiling, so nothing can run for ever if it is penned in by the bounds: at `PACE.RUN_SPEED`
 	-- 24 studs/s, 300 studs takes 12.5 s, so 45 is three times the headroom.
@@ -1153,6 +1158,20 @@ Boar.CONFIG.SOUND = {
 	-- the footstep loop is rated by `speed / baseSpeed`, which is the same arithmetic that rates the
 	-- animation, so the steps land under the hooves. Typing the three numbers again would let a
 	-- re-measured clip drift away from its own sound, silently.
+	-- THE RANGES WENT BACK OUT IN TASK 139, AND THE VOICE CAP IS WHY THEY CAN. Karen, 2026-10-09,
+	-- in one breath: *"when boars comes I can't hear a sound walking"* and *"when they close one pack
+	-- make one sound max 2 not more"*.
+	--
+	-- ROUND 4 CUT THESE TO 40 STUDS because a herd was noisy, and what made it noisy was the NUMBER
+	-- of emitters. That is `SOUND.CROWD`'s job -- and until task 139 the Forest Test's lines were
+	-- outside it entirely: `releaseLine` spawns with `Runtime:spawn` per animal, so no member had a
+	-- `sounderId`, and `Boar.hasVoice`'s "a herd with no list silences nobody" let every one of them
+	-- speak. A line is a sounder now (`Runtime:formSounder`), so the ration is real, and the range
+	-- can go back out to where a hunter at a stand can actually hear the drive coming.
+	--
+	-- 75 / 85 / 95 STUDS, VOLUMES UNTOUCHED: `makeSound` rolls off linearly from `NEAR_STUDS`, so a
+	-- walking boar at 70 studs is a whisper and the same boar at 24 is exactly as loud as it was.
+	-- Louder was never what was missing; FURTHER was.
 	STEPS = {
 		MIN_SPEED = 0.6,
 		-- "Goat Footsteps Only 1" -- a hoof on soil, and the nearest thing the library has to a
@@ -1215,7 +1234,7 @@ Boar.CONFIG.SOUND = {
 			steps = true,
 			pitch = 0.7,
 			baseSpeed = BOAR_CLIPS.walk.groundStudsPerSecond,
-			audibleStuds = 40,
+			audibleStuds = 75,
 		},
 		trot = {
 			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
@@ -1227,7 +1246,7 @@ Boar.CONFIG.SOUND = {
 			steps = true,
 			pitch = 0.8,
 			baseSpeed = BOAR_CLIPS.trot.groundStudsPerSecond,
-			audibleStuds = 40,
+			audibleStuds = 85,
 		},
 		run = {
 			id = "rbxasset://sounds/action_footsteps_plastic.mp3",
@@ -1239,7 +1258,7 @@ Boar.CONFIG.SOUND = {
 			steps = true,
 			pitch = 0.95,
 			baseSpeed = BOAR_CLIPS.run.groundStudsPerSecond,
-			audibleStuds = 40,
+			audibleStuds = 95,
 		},
 	},
 	-- GRUNTS, AND THEY ARE THE SOUND THAT TELLS A HUNTER SOMETHING IS COMING (task 123). Karen,
@@ -1769,6 +1788,10 @@ Boar.CONFIG.MODEL = {
 	-- 8.0 studs/s on a boar whose body speed was 0.0). A hair over FADE_SECONDS, so two is the most
 	-- that can ever overlap. A DEATH AND A FLINCH IGNORE IT: those must be instant, and they are the
 	-- two the player is waiting to see.
+	-- WHAT COUNTS AS STANDING STILL, for the one question "is there ground going past under this
+	-- animal" (task 139). Below it a boar may idle, turn in place or stand alert; above it something
+	-- has to be walking or the feet are sliding. 0.6 studs/s is a fifth of the walk clip's own 2.852.
+	STILL_SPEED = 0.6,
 	MIN_CLIP_SECONDS = 0.18,
 	-- THE HEAD-UP CLIP AN ALERT BOAR DRAWS (task 118), as a STRING naming a row in `CLIPS` -- which
 	-- is the whole of this task's dependency on task 117 and on the Director's publishing. The
@@ -3424,6 +3447,57 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?,
 	self._stats.soundersSpawned += 1
 	self:_chooseLeader(record, false)
 	return handles
+end
+
+-- A GROUP THAT WAS SPAWNED ONE AT A TIME, MADE INTO A SOUNDER (task 139). Karen: *"when they
+-- close one pack make one sound max 2 not more"*.
+--
+-- `spawnSounder` places a RING, which is the spread Karen complained about in task 127, so the Forest
+-- Test's lines are spawned one animal at a time with `Runtime:spawn` -- and that left them with no
+-- `sounderId` at all. `Boar.hasVoice` answers "a herd with no list silences nobody", so every animal
+-- in a line could speak and the voice ration never applied to the one formation the game actually
+-- uses. That the count stayed low was luck.
+--
+-- This makes the record AFTER the fact, from ids that already exist: same shape as `spawnSounder`'s,
+-- same `_chooseLeader`, same everything downstream. The ORDER is the file's order, so the leader the
+-- herd is heard by is the leader it is steered by. Ids it does not recognise are skipped, and a group
+-- of one is still a group -- it just rations one voice to one animal.
+function Runtime:formSounder(ids: { string }): string?
+	assert(not self._destroyed, "Boar runtime is destroyed")
+	self._nextSounderId += 1
+	local record = {
+		id = string.format("Sounder%d", self._nextSounderId),
+		leaderId = nil :: string?,
+		voiceIds = {} :: { string },
+		gruntsUsed = 0,
+		gruntAgainAt = 0,
+		memberIds = {},
+		scatterFor = 0,
+		bornAt = os.clock(),
+		-- A FILE, BECAUSE THAT IS WHAT IT IS: the caller laid these animals out nose to tail.
+		formation = "column",
+		alarmed = false,
+	}
+	local slot = 0
+	for _, id in ipairs(ids) do
+		for _, entry in ipairs(self._boars) do
+			if entry.id == id and entry.sounderId == nil then
+				slot += 1
+				entry.sounderId = record.id
+				entry.slot = slot
+				entry.awayFor = 0
+				table.insert(record.memberIds, entry.id)
+			end
+		end
+	end
+	if #record.memberIds == 0 then
+		self._nextSounderId -= 1
+		return nil
+	end
+	table.insert(self._sounders, record)
+	self._stats.soundersSpawned += 1
+	self:_chooseLeader(record, false)
+	return record.id
 end
 
 function Runtime:spawn(position: Vector3?, kind: string?)

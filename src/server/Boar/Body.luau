@@ -809,8 +809,17 @@ function Body.clipFor(info, config): (string?, number)
 	-- `activity` while IDLE and nothing else, so a fleeing, wounded or dead animal reaches this with
 	-- nil and every line below is the code it was. It sits after the death, the cripple and the
 	-- flinch because none of those is a calm animal.
+	-- ...AND ONLY WHILE IT IS ACTUALLY STANDING STILL (task 139), which is the LARGEST cause of
+	-- Karen's *"sliding"*.
+	--
+	-- MEASURED over three 150 s runs: 25.1 % of all samples in which a boar was moving faster than
+	-- 1 stud/s had no locomotion clip under it at all, and the clips playing instead were `idle`
+	-- (2,151 samples) and the GRAZE pair -- `grazeLoop` 2,052, `smell` 377, `grazeStart` 181. This
+	-- branch is why: it sits ahead of the gait selection and answers for any calm animal, so a boar
+	-- the drive was walking along at 4 studs/s with its head down played the grazing clip and skated.
+	-- Grazing is a thing an animal does standing still, and `STILL_SPEED` is that in one number.
 	local calmName, calmRate = Body.activityClip(info, config)
-	if calmName ~= nil then
+	if calmName ~= nil and info.speed <= model.STILL_SPEED then
 		return calmName, calmRate
 	end
 
@@ -822,6 +831,16 @@ function Body.clipFor(info, config): (string?, number)
 			return gait("trot")
 		end
 		if info.speed >= bands.walkFrom then
+			return gait("walk")
+		end
+		-- ...AND ANYTHING THAT IS MOVING AT ALL STILL WALKS (task 139).
+		--
+		-- BELOW `WALK_FROM` THERE WAS NO LOCOMOTION CLIP AT ALL, so an animal creeping along -- a
+		-- follower easing onto its station, one the sow has slowed to a crawl, one just placed back
+		-- on the trail -- played `idle` or a turn pivot while the ground went past under it. The walk
+		-- clip at its own floor rate IS a slow walk, which is what a creeping animal is, and
+		-- `MIN_RATE` is what stops it reading as slow motion.
+		if info.speed > model.STILL_SPEED then
 			return gait("walk")
 		end
 		-- HYSTERESIS: a turn that is already running keeps running down to TURN_EXIT_DEG, and one
@@ -855,7 +874,15 @@ function Body.clipFor(info, config): (string?, number)
 	if held ~= nil and name ~= held and info.heldFor < model.MIN_CLIP_SECONDS and clips[held] ~= nil then
 		local natural = clips[held].groundStudsPerSecond
 		if natural > 0 then
-			return held, math.clamp(info.speed / natural, model.MIN_RATE, model.MAX_RATE)
+			-- ...TIMES THE ANIMAL'S OWN STRIDE, WHICH THIS LINE FORGOT (task 139). Karen, 2026-10-09:
+			-- *"I can see some boars are sliding"*.
+			--
+			-- EVERY OTHER RATE IN THIS FILE divides by `clip.groundStudsPerSecond * clipScale` -- see
+			-- `gait` above and the cripple drag. This one divided by the clip alone, so for the whole
+			-- `MIN_CLIP_SECONDS` dwell a female played at 0.855 of the rate she needed and a cub at
+			-- 0.437 of it, and the dwell is entered on EVERY gait change. The clamps are the bands'
+			-- too, for the same reason: `MIN_RATE` does not scale and `MAX_RATE` does.
+			return held, math.clamp(info.speed / (natural * clipScale), bands.minRate, bands.maxRate)
 		end
 		return held, 1
 	end

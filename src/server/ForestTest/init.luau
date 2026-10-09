@@ -1120,6 +1120,14 @@ function ForestTest.releaseLine(now: number): string?
 						seeded[index].at.Z - seeded[index - 1].at.Z
 					)).Magnitude
 			end
+			-- A LINE IS A PACK FOR THE EARS TOO (task 139). Without this its members have no
+			-- `sounderId` and `Boar.hasVoice` lets every one of them speak -- see
+			-- `Runtime:formSounder`.
+			local pack = {}
+			for _, member in ipairs(group) do
+				table.insert(pack, member.id)
+			end
+			runtime:formSounder(pack)
 			table.insert(state.lines, {
 				id = string.format("line-%d-%d", state.waveIndex, which),
 				members = group,
@@ -1173,11 +1181,37 @@ function ForestTest.stepLines(now: number)
 		local line = state.lines[index]
 		-- DEAD AND GONE MEMBERS DROP OUT, and the line closes up behind them: a shot animal must not
 		-- leave a hole its followers keep station on.
+		-- ...AND SO HAS ONE THAT HAS FLED OR CROSSED: IT HAS LEFT THE DRIVE FOR GOOD (task 139, the
+		-- Director's decision A, and Karen's own model -- *"they don't come back from that side ...
+		-- once they in another side of road they run away"*).
+		--
+		-- THE REJOIN RULE WAS THE REGRESSION. Task 136 sent an animal whose flight had ended back to
+		-- the TAIL of its line -- and the tail is NORTH of the road, so with the flight now pointed
+		-- south (`Brain:_latchFlight`) every fled animal was ordered straight back into the view it
+		-- had just left: MEASURED in round 1 at 19 to 26 animals coming back north, against 0 on
+		-- main. The same mechanism is the "stands and stays" Karen saw -- the line takes a shot
+		-- animal back, hands it the tail station, and the overrun rule orders `point = here,
+		-- speed = 0`, which is a wounded boar standing perfectly still in the open.
+		--
+		-- SO IT IS ONE RULE AND IT IS PERMANENT, and `line.gone` remembers it. Flying, hurt, or south
+		-- of the road: out of the file, never ordered again, never rejoined. What it does next is
+		-- `Brain`'s business -- the flight, the cripple, the bleed-out -- and none of this file's.
+		-- The rejoin path is deleted; `backups/2026-10-09-line-rejoin-at-tail.md` keeps it.
+		line.gone = line.gone or {}
 		local live = {}
 		for _, member in ipairs(line.members) do
 			local status = runtime:statusOf(member.id)
 			if status ~= nil and status.alive then
-				table.insert(live, { id = member.id, kind = member.kind, status = status })
+				local wound = runtime:woundOf(member.id)
+				local out = line.gone[member.id] == true
+					or runtime:flying(member.id)
+					or (wound ~= nil and wound.severity ~= nil and wound.severity ~= "healthy")
+					or status.position.Z < Data.roadZ(status.position.X) - Data.ROAD.halfWidthStuds
+				if out then
+					line.gone[member.id] = true
+				else
+					table.insert(live, { id = member.id, kind = member.kind, status = status })
+				end
 			end
 		end
 		line.members = {}
@@ -1189,42 +1223,7 @@ function ForestTest.stepLines(now: number)
 			continue
 		end
 
-		-- ...AND ONE THAT HAS JUST STOPPED FLYING REJOINS AT THE BACK (task 136). Karen's line is a
-		-- file, and an animal that bolted and came back used to keep the RANK it had: a boar that had
-		-- been third was handed the third station again, which is somewhere up the middle of a file
-		-- that closed up behind it while it was away -- so it walked ACROSS the line to get there.
-		-- Moving it to the end of `line.members` means its station is the tail, which is behind
-		-- everybody and reachable by walking the trail. Its arc memory goes with it, so the next
-		-- `Line.arcAt` re-acquires from scratch rather than from where it was before it bolted.
-		line.flyingWas = line.flyingWas or {}
 		line.arcOf = line.arcOf or {}
-		-- ...AND NEVER THE LEADER, which round 1 got wrong and the Reviewer caught. Both rules, and
-		-- the whole of why, are `Line.rejoinOrder` -- pure, and driven by `forest_line.spec` (task
-		-- 137), because a rank guard proved by reading is a rank guard that can be deleted green.
-		local reordered, moved = Line.rejoinOrder(line.members, function(id: string): boolean
-			return runtime:flying(id)
-		end, line.flyingWas)
-		for _, member in ipairs(line.members) do
-			line.flyingWas[member.id] = runtime:flying(member.id)
-		end
-		if #moved > 0 then
-			line.members = reordered
-			for _, id in ipairs(moved) do
-				-- Its arc memory goes with it, so the next `Line.arcAt` re-acquires from scratch
-				-- rather than from where it was before it bolted.
-				line.arcOf[id] = nil
-			end
-			-- `live` was built from the old order, so it is rebuilt from the new one.
-			local rebuilt = {}
-			for _, member in ipairs(line.members) do
-				for _, row in ipairs(live) do
-					if row.id == member.id then
-						table.insert(rebuilt, row)
-					end
-				end
-			end
-			live = rebuilt
-		end
 
 		-- AN ANIMAL IN FLIGHT IS NOT IN THE LINE ANY MORE (task 126 round 2, the Reviewer's blocking
 		-- finding). `Brain` now drops an order the moment a fright latches, and the drive must not

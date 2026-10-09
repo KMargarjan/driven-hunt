@@ -1181,13 +1181,25 @@ function Brain:_latchFlight(position: Vector3, from: Vector3?)
 	-- the same blend `_fleeDirection` has always used is applied HERE instead of every frame.
 	local exit_ = Vector3.new(flatPos.X, 0, self._field.exitZ)
 	local toExit = unit(exit_ - flatPos, away)
-	-- ...UNLESS THE WAY OUT IS PAST THE GUN, and that case is why this is an `if` and not a sum.
-	-- MEASURED: on the third shot of the after-trace six animals ran with a median heading deviation
-	-- of 160 degrees -- they turned round. The shooter was BETWEEN them and `exitZ`, so `away` and
-	-- `toExit` point opposite ways, their sum is near zero, and `unit`'s fallback decides the
-	-- heading -- which is not a decision, it is a coin toss. An animal in that position runs from the
-	-- gun and finds its way out later.
-	self._flightHeading = if away:Dot(toExit) <= 0 then away else unit(away + toExit, away)
+	-- ...AND THE WAY OUT ALWAYS WINS, EVEN PAST THE GUN (task 139, the Director's decision A).
+	-- Karen, 2026-10-09: *"when boars crossing road they can't come back to same view, they just move
+	-- on a specially after spook or shoot"*, and in task 126 *"they don't come back from that side"*.
+	--
+	-- THIS LINE USED TO SAY THE OPPOSITE and it said why: when the shooter stood between the animal
+	-- and `exitZ` it took `away` -- straight back the way it came. IN A DRIVE THE SHOOTER IS ALWAYS
+	-- IN THAT POSITION: he stands on the road and the way out is past him. MEASURED at `0c7f736`,
+	-- nine shots, **five animals ran north afterwards**, back into the view she had just shot into.
+	-- The old reasoning -- "an animal in that position runs from the gun and finds its way out later"
+	-- -- is the thing a drive exists to stop: driven game breaks PAST the guns.
+	--
+	-- SO THE EXIT IS THE HEADING AND THE GUN IS A SWERVE. `sideways` is what is left of "away from
+	-- the cause" once the part along the exit line is removed, so the animal still breaks left or
+	-- right of him; it just never breaks backwards. Frightened by nothing in particular (`from` nil),
+	-- it keeps its own heading exactly as before.
+	local sideways = away - toExit * away:Dot(toExit)
+	self._flightHeading = if from == nil
+		then away
+		else unit(toExit + sideways * (move.FLIGHT_SWERVE or 1), toExit)
 	self._flightFor = move.FLIGHT_MAX_SECONDS
 	self._flightRun = 0
 	self._flightFrom = flatPos
