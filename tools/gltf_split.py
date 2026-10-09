@@ -139,7 +139,66 @@ MODEL_B_PLAN = {
     "dropNodes": ["shell_low.001"],
 }
 
-PLANS = {"model-b": MODEL_B_PLAN}
+# THE RIFLE (task 140). Karen, 2026-10-09: *"we need to add rifle with scope"*, and she picked the
+# model: "DAE - Rigby Hunting Rifle - Game Ready Asset" by Martijn Vaes, CC-BY-4.0.
+#
+# IT IS THE SAME 4.4 STUDS AS THE SHOTGUN, and that is a fact about the guns rather than a
+# convenience: a Rigby stalking rifle and a 486 Parallelo are both about 45 inches over all, so one
+# scale keeps the hands, the grip and `MUZZLE_OFFSET` arithmetic identical for both weapons.
+#
+# THE NODE NAMES ARE WRONG ABOUT THE BOLT, AND THE GEOMETRY SAYS SO. The dispatch read the names and
+# expected `TriggerHandle_Low` to be the bolt handle. Measured in the Handle frame (muzzle at
+# z = -2.2, butt at +2.2, bore line at y = +0.12):
+#   * `TriggerHandle_Low` is X[-0.048 +0.028] Y[-0.206 -0.037] Z[+0.131 +0.909] -- centred, BELOW
+#     the bore for its whole length, and 0.78 studs long. That is the TRIGGER GUARD and floorplate.
+#   * `Midden1_Low` ("midden" is Dutch for middle) is X[-0.064 +0.115] Z[+0.203 +0.826], and its 37
+#     extreme +X vertices are a tight knob at Z[+0.62 +0.65] Y[+0.02 +0.06]: a handle turned down
+#     off one side at the REAR of the action. That is the BOLT, body and handle in one node.
+#   * `Midden2_Low` reaches Y +0.337, which is scope height, so it is the receiver with the scope
+#     base on it. A bolt does not reach up there.
+#   * `Circle_Low` is 138 triangles at X[-0.094 -0.078] Z[+0.11 +0.18] -- a small disc outboard on
+#     one side at the FRONT of the action: a sling swivel or a bolt release, not the handle.
+# So the bolt group is `Midden1_Low` and everything else that does not move is the action. Same
+# lesson as model-b's `pasted__base_upper`, which IS the forend whatever its name says.
+RIGBY_PLAN = {
+    "tool": TOOL_VERSION,
+    "name": "rigby",
+    "lengthStuds": 4.4,
+    "boreUpStuds": 0.12,
+    # The barrel's own principal axis IS the bore line (one tube here, not a pair).
+    "axisFromNode": "Barrel_Low",
+    # The scope is the thing that is certainly ABOVE the bores on a scoped rifle.
+    "upTowardNode": "Scope_Low",
+    # ...and the stock is certainly behind the muzzle.
+    "backTowardNode": "Wood_Low",
+    "anchorSize": 1.0e-4,
+    # FIVE GROUPS, and only one of them moves. The bolt is its own so it can cycle; the scope is its
+    # own so that a later task can take it off or put another sight on (Karen also asked for an
+    # Aimpoint, which the Director cut out of task 140).
+    #
+    # THE LENS IS THE FIFTH BECAUSE THE TOOL REFUSED THE FOURTH, and the refusal was right: `Lens_Low`
+    # is the file's material 1 (its own `Lens_metallicRoughness` map) where every other node is
+    # material 0, and one MeshPart is one material. It wants to be separate anyway -- a glass disc
+    # is the one surface on this gun that is not metal, wood or rubber.
+    "groups": [
+        {"name": "stock", "nodes": ["Wood_Low"]},
+        {"name": "action", "nodes": ["Midden2_Low", "Barrel_Low", "Circle_Low", "Vijsjes_Low",
+                                     "Trigger_Low", "Safety_Low", "TriggerHandle_Low"]},
+        {"name": "bolt", "nodes": ["Midden1_Low"]},
+        {"name": "scope", "nodes": ["Scope_Low", "ScopeKnop_Low"]},
+    ],
+    # THE LENS IS NOT UPLOADED, AND THE SHOTGUN ALREADY SETTLED THIS SHAPE. `Lens_Low` is the file's
+    # only material-1 node and that material has NO base colour texture at all -- `asset_prep` refuses
+    # it, correctly: there is nothing to prepare. A scope lens is a flat disc of glass, which is
+    # exactly what task 99 drew for the shotgun's bores ("a near-black disc standing PROUD of each
+    # end face"), so it is DRAWN in the viewmodel from a Roblox part and the glint is a dial rather
+    # than a 1,522-triangle upload. It is listed here so it is dropped ON PURPOSE rather than caught
+    # by refusal 4, and because it lies entirely inside `Scope_Low`'s own box, dropping it does not
+    # move the anchors of any other group.
+    "dropNodes": ["Lens_Low"],
+}
+
+PLANS = {"model-b": MODEL_B_PLAN, "rigby": RIGBY_PLAN}
 
 
 class Refused(Exception):
