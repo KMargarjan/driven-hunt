@@ -293,14 +293,18 @@ return function()
 			local part = StateMachine.apply(Shotgun.deepFreeze(state), { kind = "Magazine" }, 0, row)
 			expect(Weapon.roundsLeft(part)).to.equal(2)
 			expect(part.reserve.Slug).to.equal(0)
-			-- ...and an empty pocket is the rejection the sequence walks past, as it always was.
+			-- ...AND THE THIRD CHAMBER IS STILL EMPTY, so the rejection is the POCKET's and not the
+			-- magazine's: `no-reserve`, which is the one the sequence walks past. (This case asserted
+			-- `barrel-full` for one gate run -- the spec was wrong, not the reducer: a magazine with
+			-- a hole in it is not full.)
 			local _, why = StateMachine.apply(part, { kind = "Magazine" }, 10, row)
-			expect(why).to.equal("barrel-full")
-			local dry = table.clone(part) :: any
-			dry.barrels = { "Empty", "Empty", "Empty" }
-			dry.loaded = { "None", "None", "None" }
-			local _, none = StateMachine.apply(Shotgun.deepFreeze(dry), { kind = "Magazine" }, 10, row)
-			expect(none).to.equal("no-reserve")
+			expect(why).to.equal("no-reserve")
+			-- ...and a magazine that really IS full refuses for the other reason, pocket or no pocket.
+			local full = table.clone(part) :: any
+			full.barrels = { "Live", "Live", "Live" }
+			full.loaded = { "Slug", "Slug", "Slug" }
+			local _, nope = StateMachine.apply(Shotgun.deepFreeze(full), { kind = "Magazine" }, 10, row)
+			expect(nope).to.equal("barrel-full")
 		end)
 
 		it("leaves the SHOTGUN's break action exactly as it was", function()
