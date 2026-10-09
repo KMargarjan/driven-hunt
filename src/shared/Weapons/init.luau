@@ -128,6 +128,14 @@ Weapons.ROWS = {
 		AUTO_CYCLE = Rifle.CONFIG.AUTO_CYCLE,
 		CYCLE = Rifle.CONFIG.CYCLE,
 		CYCLE_TOTAL = Rifle.CONFIG.CYCLE_TOTAL,
+		-- The bolt's own rules (task 142): what it ejects, what a magazine change is, and what the
+		-- Hud prints. A row without them is a break action, which is what the shotgun's row is.
+		CYCLE_EJECTS = Rifle.CONFIG.CYCLE_EJECTS,
+		RELOAD = Rifle.CONFIG.RELOAD,
+		RELOAD_TOTAL = Rifle.CONFIG.RELOAD_TOTAL,
+		MAGAZINE = Rifle.CONFIG.MAGAZINE,
+		AUTO_RELOAD_WHEN_EMPTY = Rifle.CONFIG.AUTO_RELOAD_WHEN_EMPTY,
+		READOUT = Rifle.CONFIG.READOUT,
 		HANDLE_SIZE = Rifle.CONFIG.HANDLE_SIZE,
 		HANDLE_TRANSPARENCY = Rifle.CONFIG.HANDLE_TRANSPARENCY,
 		GRIP = Rifle.CONFIG.GRIP,
@@ -138,6 +146,7 @@ Weapons.ROWS = {
 		-- count as dressed -- and the other three hang off the Handle beside it.
 		ASSET_KEYS = { "rifle.action", "rifle.stock", "rifle.bolt", "rifle.scope" },
 		MESH_NAMES = { "Model", "Stock", "Bolt", "Scope" },
+		SOUND = Rifle.CONFIG.SOUND,
 		scope = Rifle.CONFIG.scope,
 	} :: Row,
 }

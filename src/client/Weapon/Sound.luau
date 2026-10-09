@@ -19,7 +19,7 @@ local Debris = game:GetService("Debris")
 
 local Sound = {}
 
-local played = { shot = 0, open = 0, close = 0 }
+local played = { shot = 0, open = 0, close = 0, bolt = 0, magazine = 0 }
 
 -- So a spec can hear what was asked for without a speaker.
 function Sound.stats()
@@ -27,10 +27,50 @@ function Sound.stats()
 end
 
 function Sound.resetStats()
-	played = { shot = 0, open = 0, close = 0 }
+	played = { shot = 0, open = 0, close = 0, bolt = 0, magazine = 0 }
 end
 
-local function play(kind: string, config, id: string?, volume: number?): boolean
+-- WHICH SOUND THIS WEAPON MAKES FOR THIS EVENT, and nil when it has nothing of its own (task 142).
+-- A row's `SOUND` block beats the camera config's single id, which is what every caller before the
+-- rifle used and what the shotgun still uses: one id for the whole game was exactly the bug Karen
+-- heard -- *"for rifle has to be another gun fire sound"*.
+function Sound.voiceFor(row: any?, kind: string): any?
+	if row == nil or row.SOUND == nil then
+		return nil
+	end
+	return row.SOUND[kind]
+end
+
+-- A SAMPLE FROM A LIBRARY IS A TAKE, NOT A ROUND (task 142): see `Rifle.CONFIG.SOUND`. `cut` is how
+-- many seconds of it to play and `fade` is how much of that is spent going quiet, so one crack and
+-- its tail comes out of a three-second clip of a man emptying a magazine into a hillside.
+local function cutAfter(made: Sound, cut: number?, fade: number?)
+	if cut == nil or cut <= 0 then
+		return
+	end
+	local full = made.Volume
+	local fadeFor = math.clamp(fade or 0, 0, cut)
+	task.delay(cut - fadeFor, function()
+		if made.Parent == nil then
+			return
+		end
+		local started = os.clock()
+		while fadeFor > 0 and made.Parent ~= nil do
+			local t = (os.clock() - started) / fadeFor
+			if t >= 1 then
+				break
+			end
+			made.Volume = full * (1 - t)
+			task.wait()
+		end
+		if made.Parent ~= nil then
+			made:Stop()
+			made:Destroy()
+		end
+	end)
+end
+
+local function play(kind: string, config, id: string?, volume: number?, voice: any?): boolean
 	-- NO CONFIG, NO SOUND. Task 112 asked the gun flag here as well, which kept the two clicks
 	-- off the gun Karen was playing while it was still flagged; the flag retired with that gun in
 	-- task 114, and what is left is the honest check -- a caller with no resolved config has no
@@ -47,17 +87,41 @@ local function play(kind: string, config, id: string?, volume: number?): boolean
 	local made = Instance.new("Sound")
 	made.SoundId = id
 	made.Volume = volume or 0.5
+	if voice ~= nil and voice.pitch ~= nil then
+		made.PlaybackSpeed = voice.pitch
+	end
 	made.Parent = SoundService
 	made:Play()
+	if voice ~= nil then
+		cutAfter(made, voice.cut, voice.fade)
+	end
 	Debris:AddItem(made, 8)
 	return true
 end
 
 -- The three things the gun does that make a noise. `config` is the resolved camera config, so the
 -- volumes come from `poses.json` and change on the next shot while a session runs.
-function Sound.shot(config): boolean
+-- `row` IS THE WEAPON (task 142) and is optional: a caller that does not pass one gets the camera
+-- config's single id, which is what the shotgun has always used.
+function Sound.shot(config, row: any?): boolean
 	local volume = config ~= nil and config.FIRE ~= nil and config.FIRE.volume or nil
-	return play("shot", config, config and config.SOUND_SHOT_ID, volume and volume.shot)
+	local voice = Sound.voiceFor(row, "shot")
+	local id = if voice ~= nil then voice.id else (config and config.SOUND_SHOT_ID)
+	return play("shot", config, id, volume and volume.shot, voice)
+end
+
+-- THE BOLT AND THE MAGAZINE (task 142), which only a weapon that has them ever asks for. A row with
+-- no voice for one plays nothing, and that is not an error -- the rule `SOUND_SHOT_ID` set.
+function Sound.bolt(config, row: any?): boolean
+	local volume = config ~= nil and config.FIRE ~= nil and config.FIRE.volume or nil
+	local voice = Sound.voiceFor(row, "bolt")
+	return play("bolt", config, voice and voice.id, volume and volume.open, voice)
+end
+
+function Sound.magazine(config, row: any?): boolean
+	local volume = config ~= nil and config.FIRE ~= nil and config.FIRE.volume or nil
+	local voice = Sound.voiceFor(row, "magazine")
+	return play("magazine", config, voice and voice.id, volume and volume.close, voice)
 end
 
 function Sound.open(config): boolean

@@ -690,17 +690,31 @@ end
 -- printing "SLUG" would be a lie on screen. `row.AMMO_LABEL` is the one mapping, here in the one
 -- module that draws. nil is the shotgun's own words, which is every caller before the rifle.
 local function textFor(state: Shotgun.WeaponSnapshot, row: any?): string
+	local resolvedRow = row or Weapons.row(state.weapon)
 	local glyphs = ""
-	for index, barrel in ipairs(state.barrels) do
-		local glyph = if barrel == "Live" then "*" elseif barrel == "Spent" then "x" else "-"
-		glyphs ..= if index == state.selected then "[" .. glyph .. "]" else glyph
+	if resolvedRow ~= nil and resolvedRow.READOUT == "magazine" then
+		-- A MAGAZINE RIFLE SHOWS ROUNDS LEFT, NOT ONE GLYPH PER CHAMBER (task 142). Karen asked for
+		-- *"3 shells"* in the magazine and the readout she would check it against is `3/3`; three
+		-- bracketed asterisks is what a THREE-BARRELLED SHOTGUN would print, which is not this gun.
+		local live = 0
+		for _, chamber in ipairs(state.barrels) do
+			if chamber == "Live" then
+				live += 1
+			end
+		end
+		glyphs = string.format("%d/%d", live, resolvedRow.MAGAZINE or #state.barrels)
+	else
+		for index, barrel in ipairs(state.barrels) do
+			local glyph = if barrel == "Live" then "*" elseif barrel == "Spent" then "x" else "-"
+			glyphs ..= if index == state.selected then "[" .. glyph .. "]" else glyph
+		end
 	end
 	local busyMark = if state.busyFor > 0 then " R" else ""
 	-- Shells are carried per type, so the count shown is the pocket the next load comes from, and
 	-- the server's one-line notice ("NO BUCK") is what tells the player why X did nothing.
 	local pocket = state.reserve[state.ammo] or 0
 	local notice = if state.notice then " " .. state.notice else ""
-	local resolved = row or Weapons.row(state.weapon)
+	local resolved = resolvedRow
 	local label = (resolved and resolved.AMMO_LABEL and resolved.AMMO_LABEL[state.ammo]) or string.upper(state.ammo)
 	return string.format("%s %s %d%s%s", glyphs, label, pocket, busyMark, notice)
 end

@@ -455,6 +455,40 @@ function Viewmodel.validate(data: any): { string }
 				end
 			end
 		end
+		-- THE BOLT HAND AND THE MAGAZINE (task 142) ARE OPTIONAL BLOCKS, because a break action has
+		-- neither -- but a HALF of one is the `CFrame.new(nil)` the comment above this is about, so
+		-- a block that is there is checked whole.
+		local hand = reload.hand
+		if hand ~= nil then
+			if type(hand) ~= "table" then
+				table.insert(problems, "reload.hand is not a table")
+			else
+				for _, key in ipairs({ "reachShare", "returnShare" }) do
+					if not isNumber(hand[key]) or hand[key] <= 0 or hand[key] >= 1 then
+						table.insert(problems, "reload.hand." .. key .. " must be between 0 and 1")
+					end
+				end
+				handProblems("reload.hand.grip", hand.grip, problems)
+			end
+		end
+		local magazine = reload.magazine
+		if magazine ~= nil then
+			if type(magazine) ~= "table" then
+				table.insert(problems, "reload.magazine is not a table")
+			else
+				for _, key in ipairs({ "outShare", "inShare" }) do
+					if not isNumber(magazine[key]) or magazine[key] <= 0 or magazine[key] >= 0.5 then
+						table.insert(problems, "reload.magazine." .. key .. " must be between 0 and 0.5")
+					end
+				end
+				for _, key in ipairs({ "dropStuds", "seconds" }) do
+					if not isNumber(magazine[key]) or magazine[key] <= 0 then
+						table.insert(problems, "reload.magazine." .. key .. " must be a positive number")
+					end
+				end
+				handProblems("reload.magazine.hand", magazine.hand, problems)
+			end
+		end
 	end
 	return problems
 end
@@ -497,6 +531,41 @@ function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
 	local action = data.reload or data.cycle
 	local loadBlock = action.load
 	local fire = data.fire
+	-- THE HAND THAT WORKS THE BOLT (task 142), and nil for a weapon that has no bolt -- which is
+	-- what keeps the shotgun's view exactly the set it has always been. `grip` is a CFrame in the
+	-- BOLT GROUP's own frame, built here for the same reason every Vector3 is: three numbers in a
+	-- JSON object become one engine value at ONE site.
+	-- THE MAGAZINE CHANGE (task 142), nil for a weapon that has no box. `hand` is a CFrame in the
+	-- GUN's own frame -- under the action, where the box lives -- built here for the same reason
+	-- every other engine value is.
+	local magazineSwap = nil
+	if action.magazine ~= nil then
+		local swap = action.magazine
+		magazineSwap = table.freeze({
+			outShare = swap.outShare,
+			inShare = swap.inShare,
+			dropStuds = swap.dropStuds,
+			seconds = swap.seconds,
+			hand = CFrame.new(vec(swap.hand.pos)) * CFrame.Angles(
+				math.rad(swap.hand.rot.pitch),
+				math.rad(swap.hand.rot.yaw),
+				math.rad(swap.hand.rot.twist)
+			),
+		})
+	end
+	local boltHand = nil
+	if action.hand ~= nil then
+		local hand = action.hand
+		boltHand = table.freeze({
+			reachShare = hand.reachShare,
+			returnShare = hand.returnShare,
+			grip = CFrame.new(vec(hand.grip.pos)) * CFrame.Angles(
+				math.rad(hand.grip.rot.pitch),
+				math.rad(hand.grip.rot.yaw),
+				math.rad(hand.grip.rot.twist)
+			),
+		})
+	end
 	return {
 		-- the carry pose (first person, blend 0)
 		VIEWMODEL_CARRY_POS_STUDS = vec(data.carry.gun.pos),
@@ -557,6 +626,8 @@ function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
 		BREAK_POSE_ROLL_DEG = action.gun.rot.z,
 		-- THE BOLT'S OWN TWO NUMBERS, nil for a weapon that hinges instead. `Camera.Viewmodel`
 		-- reads them only on the `"slide"` path.
+		BOLT_HAND = boltHand,
+		MAGAZINE_SWAP = magazineSwap,
 		BOLT_LIFT_DEG = action.liftDeg,
 		BOLT_DRAW_STUDS = action.drawStuds,
 		BOLT_LIFT_FRACTION = action.liftFraction,

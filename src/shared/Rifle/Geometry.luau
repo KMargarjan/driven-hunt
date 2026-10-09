@@ -66,6 +66,8 @@ Geometry.MESH_KEYS = table.freeze({
 -- is 0.177 above the bore -- a scope sits high over a bolt action, and the aim pose is solved from
 -- it rather than from a number somebody liked (`Mode.aimOffset`).
 local SCOPE_AXIS_Y = 0.2972
+-- How far the drawn magazine hangs below the action, in the mesh's own units before scaling.
+local MAGAZINE_DROP = 0.21
 local SCOPE_OCULAR_Z = 0.9291 -- the rear lens: what the eye looks into
 local SCOPE_OBJECTIVE_Z = -0.2081 -- the front lens
 
@@ -109,6 +111,19 @@ function Geometry.layout(config)
 		action = { size = Vector3.new(actionW, actionH, actionL), at = Vector3.new(actionX, actionY, actionZ) },
 		bolt = { size = Vector3.new(boltW, boltH, boltL), at = Vector3.new(boltX, boltY, boltZ) },
 		scope = { size = Vector3.new(scopeW, scopeH, scopeL), at = Vector3.new(scopeX, scopeY, scopeZ) },
+		-- THE MAGAZINE IS DRAWN, BECAUSE THE MODEL HAS NONE (task 142). The Rigby's four groups are
+		-- stock, action, bolt and scope -- there is no detachable box in the file to upload, so this
+		-- is a part, exactly as the shotgun's bore discs are. It hangs under the ACTION's own
+		-- underside (`actionY - actionH/2`), is as wide as the action and a little shorter, and
+		-- sticks out far enough to be something a hand can be seen taking hold of.
+		magazine = {
+			size = Vector3.new(actionW * 0.82, MAGAZINE_DROP * k, actionL * 0.17),
+			at = Vector3.new(
+				actionX,
+				actionY - actionH / 2 - (MAGAZINE_DROP * k) / 2 + 0.02 * k,
+				actionZ + actionL * 0.16
+			),
+		},
 	})
 end
 
@@ -174,6 +189,20 @@ function Geometry.pieces(config): { Piece }
 			color = look.action,
 			material = STEEL_MATERIAL,
 			shape = Enum.PartType.Block,
+		},
+		{
+			-- THE MAGAZINE (task 142). Karen: *"in magazine 3 shells then it changes with left hand
+			-- magazine"*. Dark blued steel, square, under the action where a box magazine lives, and
+			-- its own piece rather than part of the body group so `Viewmodel.magazine` can drop it
+			-- out of the gun and put a fresh one in without touching anything else.
+			name = "Magazine",
+			group = "body" :: Gun.Group,
+			size = at.magazine.size,
+			offset = CFrame.new(at.magazine.at),
+			color = look.magazine or look.barrel,
+			material = Enum.Material.Metal,
+			shape = Enum.PartType.Block,
+			reflectance = 0.04,
 		},
 		{
 			name = Geometry.CYCLE_GROUP_NAME,

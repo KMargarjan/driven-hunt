@@ -51,7 +51,10 @@ export type WeaponSnapshot = {
 	weapon: string?,
 }
 
-export type ActionKind = "Fire" | "Break" | "Load" | "Close" | "SelectAmmo"
+-- `Magazine` IS TASK 142'S ONE NEW PRIMITIVE, and it is one because a magazine change is ONE
+-- movement: the left hand takes the empty box out from under the action and puts a full one in.
+-- Feeding three rounds through `Load` would be a stripper clip, which is a different gun.
+export type ActionKind = "Fire" | "Break" | "Load" | "Close" | "SelectAmmo" | "Magazine"
 export type Action = { kind: ActionKind, ammo: AmmoKind? }
 export type RequestKind = "Reload" | "SelectAmmo"
 export type ShotRequest = { origin: Vector3, direction: Vector3 }

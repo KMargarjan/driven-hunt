@@ -182,6 +182,10 @@ end
 -- Is the gun behind the scope's mask right now? Written by `Viewmodel.update` and read by
 -- `Viewmodel.flash`, which must not draw a muzzle flash onto a model nobody can see (task 141).
 local hiddenNow = false
+-- How far through a magazine change the gun is, or nil. See `Viewmodel.setMagazine`.
+local magazineAt: number? = nil
+-- The drawn box's rest offset in the Handle's frame, read off the clone once per build.
+local magazineLocal: CFrame? = nil
 
 local stats = {
 	rebuilds = 0,
@@ -267,6 +271,41 @@ function Viewmodel.setReload(state: { open: boolean, spent: number, loaded: { bo
 	reload = { open = open, spent = math.clamp(next_.spent or 0, 0, 2), loaded = loaded }
 end
 
+-- HOW FAR THROUGH A MAGAZINE CHANGE THE GUN IS (task 142), 0 when there is none. Fed by
+-- `CameraBoot`'s break-source closure, which is already the one reader of the replica -- a second
+-- reader is what rule 3 exists to stop.
+function Viewmodel.setMagazine(progress: number?)
+	magazineAt = if progress == nil then nil else math.clamp(progress, 0, 1)
+end
+
+function Viewmodel.magazineProgress(): number?
+	return magazineAt
+end
+
+-- WHERE THE BOX IS AND HOW MUCH OF THE LEFT HAND IS ON IT, as one pure pair. PURE, so a spec drives
+-- it with no session: the empty magazine drops away over the first `outShare`, there is a moment
+-- with no magazine in the gun at all, and a fresh one rises into place over the last `inShare`.
+-- Karen: *"it changes with left hand magazine"*.
+function Viewmodel.magazineAtProgress(progress: number?, config): (number, number)
+	local spec = config ~= nil and config.MAGAZINE_SWAP or nil
+	if spec == nil or progress == nil or progress <= 0 or progress >= 1 then
+		return 0, 0
+	end
+	local out = math.clamp(spec.outShare or 0.4, 1e-3, 0.49)
+	local back = math.clamp(spec.inShare or 0.4, 1e-3, 0.49)
+	local drop = spec.dropStuds or 0.6
+	-- `away` is how far the box is from home, in studs; `weight` is how much of the hand is on it.
+	if progress < out then
+		local t = progress / out
+		return drop * t, t
+	end
+	if progress > 1 - back then
+		local t = (1 - progress) / back
+		return drop * t, t
+	end
+	return drop, 1
+end
+
 function Viewmodel.reloadState()
 	return { open = reload.open, spent = reload.spent, loaded = table.clone(reload.loaded), openedAt = openedAt }
 end
@@ -305,6 +344,7 @@ function Viewmodel.current(): Model?
 end
 
 function Viewmodel.clear()
+	magazineLocal = nil
 	if model then
 		model:Destroy()
 		model = nil
@@ -421,6 +461,20 @@ end
 -- learn it. (`Shotgun.barrelMuzzleOffset` is the same answer for the WORLD gun, whose tubes are a
 -- different model's.)
 function Viewmodel.muzzle(barrel: number?): CFrame?
+	-- NOT WHILE THE GUN IS BEHIND THE SCOPE'S MASK (task 142, the Reviewer's note on 141). The
+	-- hidden branch of `update` returns before `PivotTo`, so the clone keeps the WORLD position it
+	-- had on the frame the mask arrived -- and `Weapon.Effects` prefers this provider for the
+	-- shooter's own shot, which drew every scoped shot's flash, smoke and tracer from where the gun
+	-- used to be. Answering nil hands `Effects` the payload's own world muzzle, which is where the
+	-- shot really came from.
+	--
+	-- AND IT IS WHAT KEEPS THE SMOKE OUT OF THE SIGHT PICTURE: a 0.55-stud ball 2.7 studs down the
+	-- bore subtends about 11 of the eyepiece's 17 degrees, so a scoped shot used to fill the glass
+	-- with grey for `SMOKE_LIFETIME` -- 1.1 s -- which is the thing Karen asked to have removed in
+	-- task 112 (*"remove those smokes (white from previous)"*).
+	if hiddenNow then
+		return nil
+	end
 	local made = Viewmodel.current()
 	local clone = made and made.PrimaryPart
 	local attachment = clone and clone:FindFirstChild(MUZZLE_NAME)
@@ -885,6 +939,33 @@ function Viewmodel.loading(config): (number, CFrame?, number?, CFrame?)
 	return Viewmodel.loadingAt(config, clock())
 end
 
+-- HOW MUCH OF THE RIGHT HAND IS ON THE BOLT (task 142). Karen: *"reload has to be done for rifle
+-- with right hand like it happen in real life"*.
+--
+-- PURE, AND A FUNCTION OF THE SAME ONE NUMBER THE BOLT MESH MOVES ON. `Mode.cycleProgress` is how
+-- far through its action the gun is, and `Viewmodel.hinge` turns that into where the bolt IS -- so
+-- placing the hand from the BOLT'S OWN TRANSFORM, weighted by this, is what makes "the bolt moves
+-- with the hand" true by construction instead of by two timelines that agree until they do not.
+--
+-- The shape is a reach, a hold and a return: the hand arrives over the first `reachShare` of the
+-- cycle, stays on the knob through the middle, and is back on the grip by the end. Both shares are
+-- DATA (`cycle.hand` in poses.json), so the Director tunes the feel live.
+function Viewmodel.boltHandWeight(progress: number, config): number
+	local hand = config ~= nil and config.BOLT_HAND or nil
+	if hand == nil or progress <= 0 or progress >= 1 then
+		return 0
+	end
+	local reach = math.clamp(hand.reachShare or 0.25, 1e-3, 0.9)
+	local back = math.clamp(hand.returnShare or 0.25, 1e-3, 0.9)
+	if progress < reach then
+		return progress / reach
+	end
+	if progress > 1 - back then
+		return (1 - progress) / back
+	end
+	return 1
+end
+
 -- BOTH HANDS, PLACED FROM THIS FRAME'S POSE (task 98), and this is the one site that places them.
 --
 -- WHY EVERY FRAME. Until task 98 a hand was posed once, when the clone was built, and carried along
@@ -913,7 +994,18 @@ function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mo
 	-- gloves answer the same three angles.
 	local right = clone:FindFirstChild(HandAssets.RIGHT)
 	if right and right:IsA("BasePart") then
-		local base = gunCFrame * Mode.handOffsetAt("right", state, config);
+		local base = gunCFrame * Mode.handOffsetAt("right", state, config)
+		-- ...AND IT LEAVES THE GRIP TO WORK THE BOLT (task 142). The pose is measured in the BOLT
+		-- group's own frame, and `barrelsCFrame` is where that group ended up this frame, so the
+		-- glove is on the knob however far back the bolt has been drawn. At weight 0 this is
+		-- bit-for-bit the grip pose every build before this one had.
+		local onBolt = config.BOLT_HAND
+		if onBolt ~= nil and onBolt.grip ~= nil then
+			local weight = Viewmodel.boltHandWeight(Mode.cycleProgress(state, config), config)
+			if weight > 0 then
+				base = base:Lerp(barrelsCFrame * onBolt.grip, weight)
+			end
+		end
 		(right :: BasePart).CFrame = base * Viewmodel.align(HandAssets.RIGHT)
 	end
 	-- Walked rather than remembered, for the reason `clearHands` gives: the left hand's parent is the
@@ -926,6 +1018,16 @@ function Viewmodel.poseHands(gunCFrame: CFrame, barrelsCFrame: CFrame, state: Mo
 			local weight, loading = Viewmodel.loading(config)
 			if loading ~= nil and weight > 0 then
 				held = held:Lerp(loading :: CFrame, weight)
+			end
+			-- ...AND IT CHANGES THE MAGAZINE (task 142). Karen: *"it changes with left hand
+			-- magazine"*. The pose is measured in the GUN's frame, under the action where the box
+			-- is, and the hand drops with the box because both read the same one progress.
+			local swap = config.MAGAZINE_SWAP
+			if swap ~= nil and swap.hand ~= nil then
+				local away, onBox = Viewmodel.magazineAtProgress(magazineAt, config)
+				if onBox > 0 then
+					held = held:Lerp(swap.hand * CFrame.new(0, -away, 0), onBox)
+				end
 			end
 			-- IT RIDES THE CYCLE GROUP ONLY WHEN THAT GROUP IS WHAT IT IS HOLDING (task 142). On a
 			-- BREAK action the left hand holds the barrels and they swing with it, which is why this
@@ -1214,6 +1316,17 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 	-- barrel group ended up at -- the gun's own when there is nothing to hinge -- and the left hand
 	-- is placed from that, because it holds a forend that swings with them.
 	local barrels = Viewmodel.hinge(gun, state, config)
+	-- THE MAGAZINE LEAVES THE GUN (task 142). It is a child of the Handle and anchored, so like
+	-- every other rider it is placed by hand from the gun's own transform, with its rest offset read
+	-- off the clone once.
+	local box = made.PrimaryPart and (made.PrimaryPart :: BasePart):FindFirstChild("Magazine")
+	if box and box:IsA("BasePart") then
+		if magazineLocal == nil then
+			magazineLocal = (made.PrimaryPart :: BasePart).CFrame:ToObjectSpace((box :: BasePart).CFrame)
+		end
+		local away = Viewmodel.magazineAtProgress(magazineAt, config);
+		(box :: BasePart).CFrame = gun * (magazineLocal :: CFrame) * CFrame.new(0, -away, 0)
+	end
 	Viewmodel.poseHands(gun, barrels, state, config)
 end
 
