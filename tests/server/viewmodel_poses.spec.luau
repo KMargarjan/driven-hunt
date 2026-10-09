@@ -235,7 +235,7 @@ return function()
 			-- The source is untouched and the result is frozen: the data is the one source, and a
 			-- merge is a new table rather than an edit of it.
 			expect(SET.aim.cheekDeg).to.equal(before["weapons.shotgun.aim.cheekDeg"])
-			expect(table.isfrozen(merged.aim)).to.equal(true)
+			expect(table.isfrozen(merged.weapons.shotgun.aim)).to.equal(true)
 		end)
 
 		it("refuses a path that is not a pose number, and keeps the data as it was", function()
