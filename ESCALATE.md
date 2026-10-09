@@ -2,9 +2,11 @@
 
 ## 2026-10-09 — Task 139 (Karen's five boar complaints): BLOCKER, and the measurements
 
-**Nothing is shipped. `src/` is back at `main` exactly; the only change on this branch is Karen's
-words in `PLAYTEST.md`.** I am stopping rather than merging a change set that made two of her five
-complaints measurably worse.
+**ROUND 1 ONLY. Nothing was shipped in round 1: `src/` went back to `main` exactly and the only
+change on the branch was Karen's words in `PLAYTEST.md`.** I stopped rather than merge a change set
+that made two of her five complaints measurably worse. Rounds 2, 3 and 4 then shipped on the
+Director's decisions; what this entry records is the stop and the measurements that caused it, not
+the state of the branch.
 
 ### Why I stopped
 
