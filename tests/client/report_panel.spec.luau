@@ -222,14 +222,28 @@ return function()
 			expect(found["rear:0.85:0.25:false"]).to.equal(true)
 		end)
 
-		it("draws the five zone rectangles under the dots, once per row", function()
+		it("draws the ANIMAL under the dots, in one fill, once per row", function()
+			-- IT WAS THE FIVE ZONE RECTANGLES UNTIL TASK 135, named `Zone_head` and so on, and this
+			-- case asserted them by name. They were a colour-coded bar rather than a boar (task 124
+			-- round 3's own note), so the row draws `Report.CONFIG.BOAR` now -- the same animal, in
+			-- one colour, in the same unit square. The claim is not weaker: it was five frames and
+			-- it is thirteen, and the fill is asserted too.
 			Panel.render(detailPayload())
 			local frame = Hud.reportPanel() :: Frame
 			local row = frame:FindFirstChild("DetailRow1")
 			local art = row and row:FindFirstChild("Silhouette")
 			expect(art).to.be.ok()
+			for _, piece in ipairs(Report.CONFIG.BOAR) do
+				local part = (art :: Frame):FindFirstChild(piece.name)
+				expect(part).to.be.ok()
+				-- ONE FILL IS WHAT MAKES IT A SILHOUETTE: a part drawn in a colour of its own would
+				-- be the old bar coming back one piece at a time.
+				expect((part :: Frame).BackgroundColor3).to.equal(Report.CONFIG.BOAR_FILL)
+			end
+			-- ...AND THE RECTANGLES ARE GONE FROM THE SCREEN, while `Report.CONFIG.SILHOUETTE`
+			-- itself stays exactly what every dot is placed against.
 			for _, zone in ipairs(Report.CONFIG.ZONES) do
-				expect((art :: Frame):FindFirstChild("Zone_" .. zone)).to.be.ok()
+				expect((art :: Frame):FindFirstChild("Zone_" .. zone)).to.equal(nil)
 			end
 		end)
 
