@@ -1116,6 +1116,17 @@ function Body.stepVisual(handle, dt: number, info, config)
 		hitFor = handle.hitFor,
 		hitFromBehind = handle.hitFromBehind,
 		speed = info.speed,
+		-- THIS ANIMAL'S OWN STRIDE, AND IT WAS NEVER PASSED (task 139 round 3). `Body.clipFor` has
+		-- asked for `info.clipScale` since task 119 -- `gaitBands` divides every rate by it, because
+		-- a female covers 0.8553 of a male's ground per stride and a cub 0.4372 -- and this call site
+		-- has never put it in the table, so `bands.scale` was 1 for every animal in the game and the
+		-- whole per-kind correction was dead.
+		--
+		-- MEASURED, and it is where the constant came from: across six 150 s runs the median gap
+		-- between the ground a boar covered and the ground its clip was rated for was 56.2 %, stable
+		-- to 0.1 -- and 1 - 0.4372 is 0.5628. A cub was stepping at 0.44 of the rate it needed, which
+		-- is a cub skating, which is Karen's *"I can see some boars are sliding"*.
+		clipScale = handle.geometry and handle.geometry.clipScale,
 		yawRate = handle.yawRate,
 		currentClip = handle.clip,
 		heldFor = handle.clipHeldFor,
