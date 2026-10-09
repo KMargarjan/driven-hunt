@@ -1189,6 +1189,51 @@ function ForestTest.stepLines(now: number)
 			continue
 		end
 
+		-- ...AND ONE THAT HAS JUST STOPPED FLYING REJOINS AT THE BACK (task 136). Karen's line is a
+		-- file, and an animal that bolted and came back used to keep the RANK it had: a boar that had
+		-- been third was handed the third station again, which is somewhere up the middle of a file
+		-- that closed up behind it while it was away -- so it walked ACROSS the line to get there.
+		-- Moving it to the end of `line.members` means its station is the tail, which is behind
+		-- everybody and reachable by walking the trail. Its arc memory goes with it, so the next
+		-- `Line.arcAt` re-acquires from scratch rather than from where it was before it bolted.
+		line.flyingWas = line.flyingWas or {}
+		line.arcOf = line.arcOf or {}
+		local rejoined = {}
+		for _, member in ipairs(line.members) do
+			local flying = runtime:flying(member.id)
+			if line.flyingWas[member.id] == true and not flying then
+				table.insert(rejoined, member.id)
+				line.arcOf[member.id] = nil
+			end
+			line.flyingWas[member.id] = flying
+		end
+		if #rejoined > 0 then
+			local kept, moved = {}, {}
+			for _, member in ipairs(line.members) do
+				local back = false
+				for _, id in ipairs(rejoined) do
+					if id == member.id then
+						back = true
+					end
+				end
+				table.insert(if back then moved else kept, member)
+			end
+			for _, member in ipairs(moved) do
+				table.insert(kept, member)
+			end
+			line.members = kept
+			-- `live` was built from the old order, so it is rebuilt from the new one.
+			local reordered = {}
+			for _, member in ipairs(line.members) do
+				for _, row in ipairs(live) do
+					if row.id == member.id then
+						table.insert(reordered, row)
+					end
+				end
+			end
+			live = reordered
+		end
+
 		-- AN ANIMAL IN FLIGHT IS NOT IN THE LINE ANY MORE (task 126 round 2, the Reviewer's blocking
 		-- finding). `Brain` now drops an order the moment a fright latches, and the drive must not
 		-- hand it a new one on the next Heartbeat -- re-ordering every member every frame is what
@@ -1243,6 +1288,11 @@ function ForestTest.stepLines(now: number)
 		-- where it is ON the trail (`Line.arcAt`), and ordered to a point a short way FURTHER ALONG it
 		-- (`Line.pointAt`), so the thing it walks is the leader's own path.
 		local tailLag = 0
+		-- WHERE THE ONE IN FRONT IS, ON THE TRAIL. The leader is at the head of it by construction;
+		-- each follower then carries its own arc position down to the next rank, so "no follower ever
+		-- ahead of the one in front" is enforced against a measured position rather than assumed from
+		-- the stations.
+		local aheadS = Line.length(line.trail)
 		for rank = 2, #live do
 			local follower = live[rank]
 			local here = follower.status.position
@@ -1251,7 +1301,11 @@ function ForestTest.stepLines(now: number)
 				-- The line is still forming behind the seed: hold the back of the trail.
 				stationS = line.trail[1].s
 			end
-			local ownS = Line.arcAt(line.trail, here)
+			-- FROM WHERE IT WAS LAST STEP (task 136): see `Line.arcAt`. Without the hint a follower
+			-- standing beside a loop the leader walked round a trunk reads as being on the far side
+			-- of it, and is then either frozen as "overrun" or ordered straight across the loop.
+			local ownS = Line.arcAt(line.trail, here, line.arcOf[follower.id], lineData.arcWindowStuds)
+			line.arcOf[follower.id] = ownS
 			-- SIGNED: positive means behind its station, which is the only reading that can tell
 			-- "catch up" from "ease off". The euclidean distance this used to use could not.
 			local slack = stationS - ownS
@@ -1272,6 +1326,18 @@ function ForestTest.stepLines(now: number)
 			-- the station is regulated by `Line.followerSpeed` and by the wait below, which is what
 			-- they are for.
 			local aim = math.min(ownS + lineData.lookaheadStuds, Line.length(line.trail))
+			-- ...AND NEVER PAST THE ONE IN FRONT (task 136). The lookahead is four studs and a
+			-- station is six and a half, so a follower that has closed right up could be handed a
+			-- point ON the animal ahead of it -- which it then walks into and shoulders past, and a
+			-- file whose ranks swap is a band. Clamped against the arc position actually measured for
+			-- the rank ahead, not against its station.
+			aim = math.min(aim, aheadS - lineData.noOvertakeStuds)
+			-- ...BUT NEVER BEHIND ITS OWN NOSE. See `LINE.minAimStuds`: a clamp that pulls the aim
+			-- inside `ARRIVE_STUDS` stops the animal dead, which is how the first version of this
+			-- change turned 15 stuck into 58.
+			aim = math.max(aim, ownS + lineData.minAimStuds)
+			aim = math.min(aim, Line.length(line.trail))
+			aim = math.max(aim, line.trail[1].s)
 			local point = Line.pointAt(line.trail, aim)
 			local speed = Line.followerSpeed(
 				math.max(line.speed, leader.status.speed),
@@ -1291,6 +1357,22 @@ function ForestTest.stepLines(now: number)
 				point, speed = here, 0
 			end
 			leadIfFree(follower.id, point or here, speed)
+			aheadS = ownS
+		end
+
+		-- TEMPORARY (task 136): what the tracer reads.
+		local probeFolder = runtime:folder()
+		for probeRank, probeMember in ipairs(live) do
+			local probePart = probeFolder and probeFolder:FindFirstChild(probeMember.id)
+			if probePart ~= nil then
+				probePart:SetAttribute("T136Line", line.id or index)
+				probePart:SetAttribute("T136Rank", probeRank)
+				probePart:SetAttribute("T136Flying", runtime:flying(probeMember.id))
+				probePart:SetAttribute("T136Want", probeMember.status.want or 0)
+			end
+		end
+		if probeFolder ~= nil then
+			probeFolder:SetAttribute("T136Stuck", state.stuck or 0)
 		end
 
 		-- ...AND THE SOW WAITS FOR HER TAIL. Karen asked for a line, and a line whose leader never

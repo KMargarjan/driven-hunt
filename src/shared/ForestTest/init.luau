@@ -195,7 +195,7 @@ ForestTest.LINE = {
 
 	-- HOW MANY LINES. *"could be 2 i line"* -- the Director's figure: about a quarter of waves come
 	-- as two parallel lines, the rest as one.
-	twoLineChance = 0.25,
+	twoLineChance = 1.0, -- TEMPORARY (task 136): force the harder case
 	-- Two leaders this far apart across the direction of travel. 5 studs is a body's width plus a
 	-- gap: close enough to read as one group, far enough that the two files do not merge.
 	lineGapStuds = 5,
@@ -210,7 +210,40 @@ ForestTest.LINE = {
 	-- never settled: nose-to-nose gaps came out at a 9.9-stud median with a p90 of 176, 29 trunk
 	-- contacts and 23 animals that moved less than a stud in three seconds. None of that was the
 	-- following rule; all of it was eight animals standing inside each other.
-	spacingStuds = 8.5,
+	-- 6.5 SINCE TASK 136, and the arithmetic is the same one: a boar is 5.5 studs long, so 6.5
+	-- centre to centre is a ONE-STUD nose-to-tail gap. 8.5 was a three-stud gap, and measured over
+	-- 150 s of two-line waves it read as a loose band rather than a file -- Karen's *"they not in one
+	-- line crossing all is spread"*.
+	--
+	-- IT IS SAFE AT THIS SPACING BECAUSE THE BODIES DO NOT COLLIDE: `Boar.CONFIG.BOAR_COLLISION` is
+	-- OFF (task 127 measured the hypothesis and refuted it, and the numbers are in its comment). The
+	-- 3-stud disaster that comment describes was eight 5.5-stud bodies asked to OVERLAP by 2.5 studs
+	-- each; one stud of clear air between them is a different thing entirely.
+	spacingStuds = 6.5,
+	-- HOW CLOSE A FOLLOWER MAY AIM TO THE ONE IN FRONT, measured along the trail: just short of its
+	-- tail, which is what "no follower ever ahead of the one in front" means when the thing being
+	-- regulated is an arc length.
+	--
+	-- IT WAS A BODY LENGTH FIRST, AND THAT BROKE THE LINE. At a 6.5-stud station an animal standing
+	-- exactly where it belongs has the one ahead 6.5 studs along, so a 5.5-stud margin handed it a
+	-- point 1.0 stud in front of its own nose -- inside `LINE.ARRIVE_STUDS`, which is 1.0. The Brain
+	-- quite correctly answered "arrived", the animal stopped, the file walked on and the gap opened:
+	-- MEASURED at 58 stuck and 18.2 % breaks against 15 and 9.0 % before the change. It is the same
+	-- trap task 127 round 3 dug itself with `aim = min(ownS + lookahead, stationS)`, in a new place.
+	--
+	-- 1.5 studs bites only when a follower has closed to within a body length of the one ahead, which
+	-- is the case it is for; the floor below (`minAimStuds`) makes sure it can never bite into a
+	-- point the animal is already standing on.
+	noOvertakeStuds = 1.5,
+	-- A FOLLOWER IS NEVER AIMED AT A POINT UNDER ITS OWN FEET. Above `LINE.ARRIVE_STUDS` (1.0) by
+	-- enough that an order is always a direction; the SPEED is what holds a closed-up animal back,
+	-- which is `Line.followerSpeed`'s job and not the aim's.
+	minAimStuds = 2.5,
+	-- HOW FAR ALONG THE TRAIL `Line.arcAt` will look for an animal, given where it was last step.
+	-- Generous against one step of a running boar (RUN_SPEED is ~24 studs/s and the drive steps on
+	-- Heartbeat), and far tighter than the length of a doubled-back loop round a trunk, which is
+	-- what it exists to refuse.
+	arcWindowStuds = 14,
 	-- How far the leader walks between breadcrumbs. 1 stud is a third of the spacing, so a follower's
 	-- station is interpolated between crumbs that are always close together.
 	crumbStuds = 1,

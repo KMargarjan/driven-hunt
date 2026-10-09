@@ -101,21 +101,51 @@ end
 -- whatever the leader had gone round, which is a trunk. Knowing its own arc position means the next
 -- order can be a point a little FURTHER ALONG the same polyline, so it walks the leader's path
 -- instead of a chord across it.
-function Line.arcAt(trail: { Crumb }, at: Vector3): number
+-- ...AND IT REMEMBERS WHERE THE ANIMAL WAS, WHICH IS THE WHOLE OF TASK 136's FIRST FIX.
+--
+-- THE NEAREST POINT ON THE WHOLE POLYLINE IS THE WRONG ANSWER WHEN THE TRAIL DOUBLES BACK, and the
+-- leader doubles back every time she rounds a trunk. The two passes come within a few studs of each
+-- other, so a follower walking the FIRST pass is geometrically nearest the SECOND -- and this
+-- answered with the second one's arc length. Everything downstream then went wrong at once: `slack`
+-- came out negative, so the animal was told it had overrun and stopped; and `ownS + lookahead` was a
+-- point on the far branch, so when it did move it cut straight across the loop the leader had just
+-- walked round. That is "followers cutting inside where the trail doubles back" from task 127 round
+-- 3's own note, and it is why the offset p90 was 7 studs against a 1.3 median: the median is the
+-- file walking normally and the tail is this.
+--
+-- SO THE SEARCH IS LOCAL. `fromS` is where this animal was on the trail last step and `window` is how
+-- far it could credibly have moved since; only segments overlapping that window are considered. An
+-- animal with no history -- a new line, or one rejoining after a flight -- passes `nil` and gets the
+-- old global search, which is the right answer exactly once.
+--
+-- A WINDOW THAT FINDS NOTHING FALLS BACK rather than returning a stale number: the trail is trimmed
+-- from behind, so a hint can fall off the back of it.
+function Line.arcAt(trail: { Crumb }, at: Vector3, fromS: number?, window: number?): number
 	local best, bestD = 0, math.huge
-	for index = #trail, 2, -1 do
-		local ahead, behind = trail[index], trail[index - 1]
-		local segment = Vector3.new(ahead.at.X - behind.at.X, 0, ahead.at.Z - behind.at.Z)
-		local length = segment.Magnitude
-		if length > 1e-6 then
-			local to = Vector3.new(at.X - behind.at.X, 0, at.Z - behind.at.Z)
-			local t = math.clamp(to:Dot(segment) / (length * length), 0, 1)
-			local closest = behind.at:Lerp(ahead.at, t)
-			local d = (Vector3.new(at.X - closest.X, 0, at.Z - closest.Z)).Magnitude
-			if d < bestD then
-				bestD, best = d, behind.s + t * length
+	local low, high = -math.huge, math.huge
+	if fromS ~= nil and window ~= nil then
+		low, high = fromS - window, fromS + window
+	end
+	for _pass = 1, 2 do
+		for index = #trail, 2, -1 do
+			local ahead, behind = trail[index], trail[index - 1]
+			local segment = Vector3.new(ahead.at.X - behind.at.X, 0, ahead.at.Z - behind.at.Z)
+			local length = segment.Magnitude
+			if length > 1e-6 and ahead.s >= low and behind.s <= high then
+				local to = Vector3.new(at.X - behind.at.X, 0, at.Z - behind.at.Z)
+				local t = math.clamp(to:Dot(segment) / (length * length), 0, 1)
+				local closest = behind.at:Lerp(ahead.at, t)
+				local d = (Vector3.new(at.X - closest.X, 0, at.Z - closest.Z)).Magnitude
+				if d < bestD then
+					bestD, best = d, behind.s + t * length
+				end
 			end
 		end
+		if bestD < math.huge then
+			break
+		end
+		-- Nothing in the window: widen to the whole trail and try once more.
+		low, high = -math.huge, math.huge
 	end
 	return best
 end
