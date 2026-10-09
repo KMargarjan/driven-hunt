@@ -198,6 +198,13 @@ function Geometry.pieces(config): { Piece }
 			color = look.scope,
 			material = STEEL_MATERIAL,
 			shape = Enum.PartType.Block,
+			-- A GHOST, NOT A WALL, AND THE SECOND SCOPED FRAME IS WHY (task 140, rule 5). Every
+			-- other fallback box in this game sits BESIDE the sight line; this one sits ON it -- the
+			-- eye looks straight down the tube's own axis -- so drawn solid it is a grey slab across
+			-- the whole sight picture for however long the upload takes to arrive. The real scope is
+			-- a hollow mesh and you see the world through it; until it lands you see a ghost of one
+			-- and can still aim.
+			transparency = 0.75,
 		},
 		{
 			-- THE OBJECTIVE LENS, DRAWN. A Roblox Cylinder's axis is its own X, so the quarter turn
@@ -206,10 +213,15 @@ function Geometry.pieces(config): { Piece }
 			group = "body" :: Gun.Group,
 			size = at.lens.size,
 			offset = CFrame.new(at.lens.at) * CFrame.Angles(0, math.rad(90), 0),
-			color = Color3.fromRGB(28, 36, 46),
+			color = Color3.fromRGB(150, 170, 190),
 			material = Enum.Material.Glass,
 			shape = Enum.PartType.Cylinder,
-			reflectance = 0.35,
+			reflectance = 0.15,
+			-- MOSTLY TRANSPARENT, AND THE FIRST SCOPED FRAME IS WHY (task 140, rule 5): drawn opaque
+			-- this disc sits at the far end of the tube and fills the sight picture with a grey
+			-- circle -- a scope you cannot see through. It is still visible from outside as a glint
+			-- on the objective, which is the half of the job it is here for.
+			transparency = 0.9,
 		},
 	}
 end

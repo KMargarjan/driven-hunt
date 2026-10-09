@@ -480,9 +480,23 @@ function Weapon.upgradeLook(): number
 			return
 		end
 		local character = player.Character
-		if character ~= nil and tool.Parent ~= character then
-			Hardware.equip(tool, player)
+		if character == nil or tool.Parent == character then
+			return
 		end
+		-- ...AND ONLY THE WEAPON THE PLAYER IS ACTUALLY CARRYING IN THEIR HANDS (task 140). With two
+		-- Tools this sweep would otherwise put BOTH in the character -- whichever upgraded last
+		-- winning -- and a player who picked the shotgun would find a rifle in their hands when a
+		-- mesh landed. MEASURED in the first live session of this task: the rifle ended up equipped
+		-- at the spawn, against `AUTO_EQUIP`'s own rule that the PRIMARY is what goes in the hand.
+		--
+		-- The rule is the narrow one: re-equip the weapon that was already held, and when the
+		-- player holds nothing, only the primary.
+		local id = Weapons.idForToolName(tool.Name)
+		local held = Weapon.heldId(player)
+		if id ~= (held or Weapons.PRIMARY) then
+			return
+		end
+		Hardware.equip(tool, player)
 	end)
 end
 

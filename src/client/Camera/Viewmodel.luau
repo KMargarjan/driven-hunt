@@ -992,6 +992,7 @@ local function buildNewGun(config, geometry, row): Model
 			made_.Color = piece.color
 			made_.Material = piece.material
 			made_.Reflectance = piece.reflectance or 0
+			made_.Transparency = piece.transparency or 0
 			part = made_
 		end
 		part.Name = piece.name

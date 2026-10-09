@@ -519,10 +519,12 @@ function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
 		-- blue-grey slab -- and the difference is this light, inches from the lens. A colour that is
 		-- right in the file and wrong on screen is exactly the thing the content lane exists for:
 		-- `python tools/pose.py set look.fill.brightness 0.3`, look, `save`.
-		VIEWMODEL_FILL_BRIGHTNESS = data.look.fill.brightness,
-		VIEWMODEL_FILL_RANGE_STUDS = data.look.fill.rangeStuds,
-		VIEWMODEL_FILL_COLOR = col(data.look.fill.color),
-		VIEWMODEL_FILL_OFFSET_STUDS = vec(data.look.fill.offset),
+		-- ...AND IT COMES OFF THE WHOLE FILE, not off a weapon's set (task 140): one light, both
+		-- guns, which is why `look` stayed at the top level when the poses moved down.
+		VIEWMODEL_FILL_BRIGHTNESS = whole.look.fill.brightness,
+		VIEWMODEL_FILL_RANGE_STUDS = whole.look.fill.rangeStuds,
+		VIEWMODEL_FILL_COLOR = col(whole.look.fill.color),
+		VIEWMODEL_FILL_OFFSET_STUDS = vec(whole.look.fill.offset),
 		-- the aimed pose, solved from the gun's own sight
 		EYE_RELIEF_STUDS = data.aim.eyeReliefStuds,
 		ADS_CHEEK_DEG = data.aim.cheekDeg,

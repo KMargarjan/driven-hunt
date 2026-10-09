@@ -414,6 +414,8 @@ function Hardware.addPiece(handle: BasePart, piece): BasePart
 	part.Size = piece.size
 	part.Color = piece.color
 	part.Material = piece.material
+	part.Reflectance = piece.reflectance or 0
+	part.Transparency = piece.transparency or 0
 	part.CFrame = handle.CFrame * piece.offset
 	part.Anchored = false
 	part.CanCollide = false
