@@ -222,6 +222,48 @@ function Boar.nearestVoices(rows: { { id: string, distance: number } }, limit: n
 	return allowed
 end
 
+-- WHAT ONE PACK IS ALLOWED TO SOUND AT ONCE (task 139 round 3, the Reviewer's finding 3). Karen,
+-- 2026-10-09: *"when they close one pack make one sound max 2 not more"*. Pure, like every other
+-- rule in this ration: `rows` is one `{ id, distance, step, breath, mutter }` per member of ONE
+-- sounder -- the flags being what the world's ceilings have already allowed it -- and the answer is
+-- the same three flags per id with everything past `cap` cleared.
+--
+-- NEAREST FIRST, AND HOOVES BEFORE ANYTHING ELSE. The step loop is the approach cue ("a herd never
+-- goes silent while it moves", task 123) so it is never the layer that gets cut; the breath is next
+-- because it only sounds while something is running, which is when a pack must be loudest; the
+-- muttering goes last, and a refused mutter is a SKIP like every other refusal here.
+function Boar.packVoices(
+	rows: { { id: string, distance: number, step: boolean?, breath: boolean?, mutter: boolean? } },
+	cap: number?
+): { [string]: { step: boolean, breath: boolean, mutter: boolean } }
+	local out = {}
+	local order = table.clone(rows)
+	-- The same tie-break as `nearestVoices` and `_stepAlarm`: who is heard must not depend on the
+	-- order of a list.
+	table.sort(order, function(a, b)
+		if a.distance == b.distance then
+			return a.id < b.id
+		end
+		return a.distance < b.distance
+	end)
+	for _, row in ipairs(order) do
+		out[row.id] = { step = false, breath = false, mutter = false }
+	end
+	local budget = if cap == nil then math.huge else math.max(0, math.floor(cap))
+	for _, layer in ipairs({ "step", "breath", "mutter" }) do
+		for _, row in ipairs(order) do
+			if budget <= 0 then
+				return out
+			end
+			if row[layer] == true then
+				out[row.id][layer] = true
+				budget -= 1
+			end
+		end
+	end
+	return out
+end
+
 -- HOW MANY SQUEALS ARE STILL SOUNDING at `now`, out of a list of the moments each one stops being
 -- counted (task 120). Pure, so the cap that keeps a shot-at sounder from stacking five squeals can
 -- be driven by a spec with no sound in the world.
@@ -1172,11 +1214,11 @@ Boar.CONFIG.SOUND = {
 	-- ONE REACH FOR ALL THREE, 70 STUDS, VOLUMES UNTOUCHED. 70 and not more because
 	-- `boar_shot.spec` holds the other half of task 123 round 4's finding -- the GRUNT carries more
 	-- than twice as far as the hooves (160 against 70), so the far cue is still the voice and the
-	-- near cue is still the feet. 70 is the Director's floor for "audible from a pack". The one-number rule is task 123 round
-	-- 4's and `boar_shot.spec` asserts it: the gait changes how LOUD a hoof is, never how far it
-	-- carries. Only the number moved, 40 -> 80. `makeSound` rolls off linearly from `NEAR_STUDS`, so a
-	-- walking boar at 70 studs is a whisper and the same boar at 24 is exactly as loud as it was.
-	-- Louder was never what was missing; FURTHER was.
+	-- near cue is still the feet. 70 is also the Director's floor for "audible from a pack". The
+	-- one-number rule is task 123 round 4's and `boar_shot.spec` asserts it: the gait changes how
+	-- LOUD a hoof is, never how far it carries. Only the number moved, 40 -> 70. `makeSound` rolls
+	-- off linearly from `NEAR_STUDS`, so a walking boar at 70 studs is a whisper and the same boar
+	-- at 24 is exactly as loud as it was. Louder was never what was missing; FURTHER was.
 	STEPS = {
 		MIN_SPEED = 0.6,
 		-- "Goat Footsteps Only 1" -- a hoof on soil, and the nearest thing the library has to a
@@ -1482,10 +1524,27 @@ Boar.CONFIG.SOUND = {
 		-- shouldnt be chaotic sounds"*. A herd has ONE set of hooves.
 		VOICES_PER_SOUNDER = 1, -- members of ONE sounder carrying footsteps and breathing
 		GRUNTS_PER_SOUNDER = 1, -- grunts from ONE sounder per GRUNTS interval, whoever makes them
-		-- THE WORLD CEILINGS, and after round 3 they add up to THREE. Karen: *"still to noisy"*,
-		-- and the Director's number is "never more than ~3 boar sounds at once anywhere". One set of
-		-- hooves plus two mutters is three; the breaths only exist while something runs, and a
-		-- running animal does not grunt, so the running total is the same three. Karen's dials.
+		-- ...AND ONE CLOSE PACK SOUNDS TWICE, AT MOST (task 139 round 3, the Reviewer's finding 3).
+		-- Karen, 2026-10-09: *"when they close one pack make one sound max 2 not more"*.
+		--
+		-- THE WORLD CEILINGS COULD NOT DELIVER THAT AND `ESCALATE.md` SAID SO IN ROUND 1: they are
+		-- three independent budgets awarded nearest-first, so one herd standing in front of the
+		-- hunter could hold the single step voice, its holder's breath AND the two mutters -- and
+		-- MEASURED after the step range went back out to 70 studs, the worst moment in a pack was
+		-- three. A range that lets her hear the drive and a ceiling she can count are both hers, so
+		-- the ceiling is now structural: `Boar.packVoices` trims every SOUNDER to this many sounding
+		-- loops, hooves first, then the breath, then the muttering, nearest the listener first.
+		--
+		-- IT BOUNDS THE LOOPS, NOT THE ONE-SHOTS. A squeal, a death and the approach grunt are
+		-- events with their own budgets (`MAX_SQUEALS`, `GRUNT_GAP_SECONDS`) and are exempt here by
+		-- design, as they have been since task 120: a hit animal must be able to cry out over its
+		-- own herd. So a close pack can have a third SOUND for the length of one grunt, and never a
+		-- third LOOP.
+		SOUNDS_PER_SOUNDER = 2,
+		-- THE WORLD CEILINGS. Karen: *"still to noisy"*, and the Director's number is "never more
+		-- than ~3 boar sounds at once anywhere". One set of hooves plus two mutters is three; the
+		-- breaths only exist while something runs, and a running animal does not grunt, so the
+		-- running total is the same three. Karen's dials.
 		MAX_STEP_VOICES = 1,
 		-- ...AND IT DOES NOT CHANGE HANDS QUICKLY (task 123 round 4). Karen: *"do not mix lot's so
 		-- steps will be noisey and caotic"*. The ceiling is awarded nearest-first and the nearest
@@ -2772,10 +2831,37 @@ function Runtime:_rationVoices(snapshot, threats, now: number)
 	end
 	local breaths = Boar.nearestVoices(breathRows, crowd.MAX_BREATH_VOICES)
 	local mutters = Boar.nearestVoices(mutterRows, crowd.MAX_MUTTER_VOICES)
+	-- ...AND THE PACK'S OWN CEILING LAST, over whatever the world has allowed (see
+	-- `SOUNDS_PER_SOUNDER`). It runs third for the same reason the sounder gate runs first: a
+	-- world slot must never be spent on an animal something else has already silenced, and a pack
+	-- slot must never be awarded to one the world has.
+	local trimmed = {}
+	if crowd.SOUNDS_PER_SOUNDER ~= nil then
+		local packs = {}
+		for _, entry in ipairs(self._boars) do
+			if entry.sounderId ~= nil then
+				local rows = packs[entry.sounderId] or {}
+				table.insert(rows, {
+					id = entry.id,
+					distance = entry.voiceNearest or math.huge,
+					step = steps[entry.id] == true,
+					breath = breaths[entry.id] == true,
+					mutter = mutters[entry.id] == true,
+				})
+				packs[entry.sounderId] = rows
+			end
+		end
+		for _, rows in pairs(packs) do
+			for id, flags in pairs(Boar.packVoices(rows, crowd.SOUNDS_PER_SOUNDER)) do
+				trimmed[id] = flags
+			end
+		end
+	end
 	for _, entry in ipairs(self._boars) do
-		entry.stepVoice = steps[entry.id] == true
-		entry.breathVoice = breaths[entry.id] == true
-		entry.mutterVoice = mutters[entry.id] == true
+		local flags = trimmed[entry.id]
+		entry.stepVoice = if flags ~= nil then flags.step else steps[entry.id] == true
+		entry.breathVoice = if flags ~= nil then flags.breath else breaths[entry.id] == true
+		entry.mutterVoice = if flags ~= nil then flags.mutter else mutters[entry.id] == true
 	end
 end
 
@@ -3474,9 +3560,15 @@ end
 -- uses. That the count stayed low was luck.
 --
 -- This makes the record AFTER the fact, from ids that already exist: same shape as `spawnSounder`'s,
--- same `_chooseLeader`, same everything downstream. The ORDER is the file's order, so the leader the
--- herd is heard by is the leader it is steered by. Ids it does not recognise are skipped, and a group
--- of one is still a group -- it just rations one voice to one animal.
+-- same `_chooseLeader`, same everything downstream. Ids it does not recognise are skipped.
+--
+-- TWO THINGS IT DOES NOT DO, both the Reviewer's notes and both true (round 3). The file's order
+-- does NOT survive: `_stepSounders` finds `record.lastCount` nil on its first step and
+-- `_assignMarchSlots` re-ranks the members by `_frontRanked`, so the leader the herd is HEARD by is
+-- the one nearest the exit line, not the sow at the front of the file. And a group of one does not
+-- stay a group: the same step dissolves a record down to one member and clears its `sounderId`,
+-- which puts a lone animal back under "a herd with no list silences nobody" -- the right answer for
+-- one animal, and the reason neither of these is a defect to fix here.
 function Runtime:formSounder(ids: { string }): string?
 	assert(not self._destroyed, "Boar runtime is destroyed")
 	self._nextSounderId += 1
@@ -4024,33 +4116,34 @@ function Runtime:step(dt: number)
 		-- nothing until the body has stopped, and nothing at all once it has anchored.
 		Body.stepCarcass(entry.body, dt, config.WOUND)
 
-		-- The SPEED it is given is the Brain's own `targetVelocity`, not the body's measured one: the
-		-- setpoint is what the animal is TRYING to do, so a boar shoved into a cover block keeps
-		-- running on the spot instead of flicking to idle for the frames the physics holds it still.
+		-- THE DRAWING AND THE SOUND ARE RATED BY WHAT THE BODY IS DOING (task 139 round 3 and the
+		-- Reviewer's finding 2 on it). Karen, 2026-10-09: *"sometimes boar stuck tree, hits and run
+		-- in place"*.
+		--
+		-- IT USED TO BE THE SETPOINT, FOR BOTH, and that is the bug she was looking at: an animal
+		-- pressed against a trunk is still ORDERED to run, so the legs drew the RUN clip rated for
+		-- 24 studs/s and the hooves played the RUN loop at `24 / 17.21`, on a body covering no
+		-- ground at all. MEASURED over six 150 s runs, the median gap between the speed the clip was
+		-- drawn for and the speed the body actually had was 56.2 %, stable to 0.1 across two builds.
+		--
+		-- SO THERE IS ONE SPEED AND BOTH SENSES READ IT. That is what `SOUND.CROWD`'s header means
+		-- by "the same arithmetic that rates the animation, so the steps land under the hooves" --
+		-- and `_rationVoices` has always decided WHO may be heard off the measured velocity, so
+		-- before this the eligibility and the cue disagreed by the ACCEL ramp as well.
 		if config.MODEL.ENABLED then
 			local wantSpeed = Vector3.new(intent.targetVelocity.X, 0, intent.targetVelocity.Z).Magnitude
+			local realSpeed = flatOf(Body.velocity(entry.body)).Magnitude
 			-- WHAT IT WAS ASKED FOR, kept beside what it is doing (task 129). A body's measured
 			-- velocity is zero wherever physics does not run -- a spec's world, a part outside
 			-- Workspace -- so "is it moving?" and "was it told to move?" are different questions and
 			-- only one of them has an answer everywhere. `statusOf` publishes both.
 			entry.lastWant = wantSpeed
 			Body.stepVisual(entry.body, dt, {
-				-- WHAT THE BODY IS DOING, NOT WHAT IT WAS ASKED FOR (task 139 round 3). Karen,
-				-- 2026-10-09: *"sometimes boar stuck tree, hits and run in place"*.
-				--
-				-- THIS LINE WAS `wantSpeed` AND THAT IS THE WHOLE BUG. An animal pressed against a
-				-- trunk is still ORDERED to run, so it was handed 24 studs/s -- `clipFor` picked the
-				-- RUN clip and rated it for 24 -- while the body covered no ground at all. That is
-				-- running on the spot, and it is also most of the *"sliding"* from her earlier
-				-- session: MEASURED over six 150 s runs, the median gap between the speed the clip
-				-- was drawn for and the speed the body actually had was 56.2 %, stable to 0.1 across
-				-- two different builds. It was never the clip arithmetic; it was the input.
-				--
-				-- The drawing now reads the SAME velocity every other measurement in this file reads
-				-- (`Runtime:statusOf().speed`), so a boar that is not moving is not running, a boar
-				-- accelerating out of a walk draws the walk until it is trotting, and a wedged one
-				-- stands with its feet still -- which is what makes it visible as wedged.
-				speed = flatOf(Body.velocity(entry.body)).Magnitude,
+				-- The same velocity `Runtime:statusOf().speed` publishes: a boar that is not moving
+				-- is not running, one accelerating out of a walk draws the walk until it is
+				-- trotting, and a wedged one stands with its feet still -- which is what makes it
+				-- visible as wedged.
+				speed = realSpeed,
 				facing = facing,
 				-- THE ONE PIECE OF STATE THE DRAWING NEEDS THAT SPEED CANNOT CARRY (task 116 fix
 				-- round): a crippled boar crawls at `CRIPPLE_SPEED`, which is a walking speed, so
@@ -4067,8 +4160,8 @@ function Runtime:step(dt: number)
 				activity = intent.activity,
 				activityDraw = intent.activityDraw,
 			}, config)
-			-- The same speed drives the sound, so the footsteps keep time with the legs rather than
-			-- with the body's measured velocity, which lags the setpoint by the ACCEL ramp.
+			-- The same speed drives the sound, so the hooves keep time with the legs: the gait and
+			-- the rate `Body.stepSoundFor` picks are the arithmetic `Body.clipFor` just used.
 			-- WHAT THE CROWD ALLOWS IT (task 120, per layer since task 123), and the slot it books
 			-- by being heard: `GRUNTS_PER_SOUNDER` grunts from the group, then the group waits out
 			-- one of its own `GRUNTS` intervals. The BAND is the gap, not a separate number -- a
@@ -4076,7 +4169,7 @@ function Runtime:step(dt: number)
 			-- interval the animals themselves were drawing from.
 			local now = os.clock()
 			local voice = self:_voiceFor(entry)
-			local played = Body.stepSound(entry.body, dt, wantSpeed, config, self._rng, voice)
+			local played = Body.stepSound(entry.body, dt, realSpeed, config, self._rng, voice)
 			if played == "grunt" then
 				self._lastGruntAt = now
 				local record = self:_sounderRecord(entry.sounderId)

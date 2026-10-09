@@ -1616,6 +1616,44 @@ return function()
 			expect(tied.b).to.equal(nil)
 		end)
 
+		it("lets ONE CLOSE PACK sound twice and no more (task 139)", function()
+			-- KAREN, 2026-10-09: *"when they close one pack make one sound max 2 not more"*, in the
+			-- same breath as *"when boars comes I can't hear a sound walking"*. The step range went
+			-- back out to 70 studs for the second sentence, and MEASURED after it the worst moment
+			-- in one pack was THREE sounds -- the world ceilings are three independent budgets, so a
+			-- herd in front of the hunter could hold the one step voice, its holder's breath and
+			-- both mutters. `ESCALATE.md` said in round 1 that range alone could not do both.
+			--
+			-- SO THE PACK HAS ITS OWN CEILING. Two loops, hooves first.
+			expect(SOUND.CROWD.SOUNDS_PER_SOUNDER).to.equal(2)
+			local pack = {
+				{ id = "near", distance = 10, step = true, breath = true, mutter = true },
+				{ id = "far", distance = 80, step = false, breath = false, mutter = true },
+			}
+			local two = Boar.packVoices(pack, SOUND.CROWD.SOUNDS_PER_SOUNDER)
+			-- The nearest animal keeps its hooves and its breath, which is two...
+			expect(two.near.step).to.equal(true)
+			expect(two.near.breath).to.equal(true)
+			-- ...and every mutter in the pack is cut, nobody's and not just the far one's.
+			expect(two.near.mutter).to.equal(false)
+			expect(two.far.mutter).to.equal(false)
+			-- HOOVES ARE NEVER THE LAYER THAT GETS CUT: a herd must not go silent while it moves,
+			-- so with a budget of one it is the step voice that survives, over a nearer breath.
+			local one = Boar.packVoices({
+				{ id = "walker", distance = 40, step = true, breath = false, mutter = false },
+				{ id = "runner", distance = 5, step = false, breath = true, mutter = true },
+			}, 1)
+			expect(one.walker.step).to.equal(true)
+			expect(one.runner.breath).to.equal(false)
+			expect(one.runner.mutter).to.equal(false)
+			-- A pack that is quiet anyway is left alone, and no ceiling cuts nothing.
+			local quiet = Boar.packVoices({ { id = "a", distance = 1 } }, 2)
+			expect(quiet.a.step or quiet.a.breath or quiet.a.mutter).to.equal(false)
+			local uncapped = Boar.packVoices(pack, nil)
+			expect(uncapped.near.mutter).to.equal(true)
+			expect(uncapped.far.mutter).to.equal(true)
+		end)
+
 		it("counts only the squeals that are still sounding", function()
 			-- The world-wide cap is two AT ONCE, so the count has to forget the ones that ended.
 			expect(Boar.squealsSounding({}, 100)).to.equal(0)

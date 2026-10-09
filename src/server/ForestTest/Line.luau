@@ -199,8 +199,33 @@ function Line.stillInFile(gone: boolean, flying: boolean, hurt: boolean, dz: num
 	if gone or flying or hurt then
 		return false
 	end
-	-- `dz` is how far NORTH of the road's near edge the animal is: negative means it is over.
+	-- `dz` is how far NORTH of the road's FAR edge the animal is -- the south one, the last line it
+	-- has to cross to be out of the drive: negative means it is over.
 	return dz >= 0
+end
+
+-- ...AND WHY IT LEFT, because one of the four reasons gets a parting shove. Pure, and the companion
+-- to the rule above: true exactly when this animal is leaving the file BECAUSE IT IS OVER THE ROAD
+-- and for no other reason.
+--
+-- "ONCE ACROSS, THEY RUN AWAY" LIVES HERE NOW (task 139 round 3, the Reviewer's finding 1, which was
+-- right). The rule used to be a line-level speed-up tested on the LEADER's position -- `at.Z <
+-- roadZ(at.X) - halfWidth`, the same inequality `stillInFile` ends on -- and once the exit became
+-- permanent the filter ran first in the same step, so the leader was out of `live` before the test
+-- and `line.crossed` could never become true. Karen's *"and they run away when cross the road"* had
+-- no code left: a calm line was dropped at its walking pace twenty studs past the road and left
+-- standing in the open, where before it was walked on to `EXIT_Z - 10` and despawned.
+--
+-- IT IS PER ANIMAL AND NOT PER LINE, which is both what she describes and the only place it can be:
+-- the file is dissolving one member at a time, and the member that has just crossed is the one that
+-- should run. A flight is the one door a fright comes through (`Brain:spook`), so the drive asks for
+-- one and the Brain owns everything after it -- the heading (south, `field.exitZ`), the pace, the
+-- herd-mates it alarms (`Runtime:_stepAlarm`) and the despawn at the exit line.
+function Line.crossedOut(gone: boolean, flying: boolean, hurt: boolean, dz: number): boolean
+	if gone or flying or hurt then
+		return false
+	end
+	return dz < 0
 end
 
 -- FORGETS THE TAIL NOBODY IS STANDING ON any more, so a wave that walks 800 studs does not keep 800

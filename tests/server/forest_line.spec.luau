@@ -133,6 +133,35 @@ return function()
 			expect(Line.stillInFile(true, false, false, 12)).to.equal(false)
 		end)
 
+		it("shoves the animal that leaves because it CROSSED, and only that one (task 139)", function()
+			-- KAREN, 2026-10-09: *"and they run away when cross the road"*. The rule used to be a
+			-- line-level speed-up tested on the LEADER -- `at.Z < roadZ(at.X) - halfWidth`, the same
+			-- inequality `stillInFile` ends on -- and once the exit became permanent the filter ran
+			-- first in the same step, so she was out of `live` before the test and `line.crossed`
+			-- could never become true. The Reviewer found it; this is the assertion that would have.
+			--
+			-- Over the road and nothing else wrong: it gets the shove.
+			expect(Line.crossedOut(false, false, false, -1)).to.equal(true)
+			-- ...and it is the ONLY way out that does. An animal already running is already running,
+			-- a hurt one is the Brain's cripple, and one already `gone` was shoved on its own step --
+			-- re-spooking it every step is what task 126 round 2 took out of this file.
+			expect(Line.crossedOut(true, false, false, -1)).to.equal(false)
+			expect(Line.crossedOut(false, true, false, -1)).to.equal(false)
+			expect(Line.crossedOut(false, false, true, -1)).to.equal(false)
+			-- ...AND AN ANIMAL STILL IN THE FILE IS NOT SHOVED AT ALL, which is the other half: a
+			-- calm line walks to the road, it does not bolt at it (task 139 item 9).
+			expect(Line.crossedOut(false, false, false, 12)).to.equal(false)
+			expect(Line.stillInFile(false, false, false, 12)).to.equal(true)
+			-- The two rules partition every live member: in the file, or out of it with exactly one
+			-- of the four reasons -- so "it left because it crossed" is never also "it stays".
+			for _, dz in ipairs({ -40, -0.01, 0, 5 }) do
+				local stays = Line.stillInFile(false, false, false, dz)
+				local shoved = Line.crossedOut(false, false, false, dz)
+				expect(stays and shoved).to.equal(false)
+				expect(stays or shoved).to.equal(true)
+			end
+		end)
+
 		it("forgets the tail nobody stands on", function()
 			local trail = elbow()
 			Line.trim(trail, 10)

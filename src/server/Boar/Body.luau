@@ -809,15 +809,9 @@ function Body.clipFor(info, config): (string?, number)
 	-- `activity` while IDLE and nothing else, so a fleeing, wounded or dead animal reaches this with
 	-- nil and every line below is the code it was. It sits after the death, the cripple and the
 	-- flinch because none of those is a calm animal.
-	-- ...AND ONLY WHILE IT IS ACTUALLY STANDING STILL (task 139), which is the LARGEST cause of
-	-- Karen's *"sliding"*.
-	--
-	-- MEASURED over three 150 s runs: 25.1 % of all samples in which a boar was moving faster than
-	-- 1 stud/s had no locomotion clip under it at all, and the clips playing instead were `idle`
-	-- (2,151 samples) and the GRAZE pair -- `grazeLoop` 2,052, `smell` 377, `grazeStart` 181. This
-	-- branch is why: it sits ahead of the gait selection and answers for any calm animal, so a boar
-	-- the drive was walking along at 4 studs/s with its head down played the grazing clip and skated.
-	-- Grazing is a thing an animal does standing still, and `STILL_SPEED` is that in one number.
+	-- ...AND ONLY WHILE IT IS ACTUALLY STANDING STILL (task 139), which was the LARGEST cause of
+	-- Karen's *"sliding"*. The measurement and the reasoning are inside the `if` below, where the
+	-- test is; they were written out twice and the Reviewer asked for one of them.
 	local calmName, calmRate = Body.activityClip(info, config)
 	if calmName ~= nil then
 		-- THE EXIT STILL PLAYS WHILE IT MOVES, AND NOTHING ELSE CALM DOES (task 139). `grazeEnd` is
@@ -1122,11 +1116,16 @@ function Body.stepVisual(handle, dt: number, info, config)
 		-- has never put it in the table, so `bands.scale` was 1 for every animal in the game and the
 		-- whole per-kind correction was dead.
 		--
+		-- THE CALLER'S VALUE WINS AND THE HANDLE IS THE FALLBACK (round 3, the Reviewer's note: the
+		-- two routes carried the same number and only one was read). `Runtime:step` publishes it in
+		-- `info`; a caller that does not -- a spec driving `stepVisual` on a bare handle -- gets the
+		-- geometry the body was built with.
+		--
 		-- MEASURED, and it is where the constant came from: across six 150 s runs the median gap
 		-- between the ground a boar covered and the ground its clip was rated for was 56.2 %, stable
 		-- to 0.1 -- and 1 - 0.4372 is 0.5628. A cub was stepping at 0.44 of the rate it needed, which
 		-- is a cub skating, which is Karen's *"I can see some boars are sliding"*.
-		clipScale = handle.geometry and handle.geometry.clipScale,
+		clipScale = info.clipScale or (handle.geometry and handle.geometry.clipScale),
 		yawRate = handle.yawRate,
 		currentClip = handle.clip,
 		heldFor = handle.clipHeldFor,

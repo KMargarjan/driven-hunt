@@ -328,6 +328,12 @@ ForestTest.LINE = {
 	-- open where a hunter can see it rather than on the gravel; the Brain decides whether she takes
 	-- it at all (`MOVE.EDGE_CHANCE`) and refuses outright if she is already frightened.
 	checkWithinStuds = 45,
+	-- WHERE THE DRIVE IS, FOR AN ANIMAL THAT HAS JUST CROSSED (task 139 round 3). Karen: *"and they
+	-- run away when cross the road"*. `ForestTest.stepLines` spooks the member it is dropping and
+	-- has to say what from; this is how far NORTH of it that is, so the Brain's one latched heading
+	-- points south at `field.exitZ` and not back over the road. 40 studs is the width of the push
+	-- behind a crossing line -- far enough to be the drive and not the animal's own shadow.
+	runAwayFromStuds = 40,
 	stuckAskedSpeed = 2,
 	stuckSeconds = 3,
 	stuckStuds = 1,
