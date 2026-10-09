@@ -164,6 +164,31 @@ return function()
 			expect(onTheAnimal(0.99, 0.34)).to.equal(true)
 		end)
 
+		it("lifts every zone's dot ring until it can be read on the animal", function()
+			-- KAREN CANNOT SEE A RING THAT IS THE COLOUR OF THE ANIMAL (task 137). `body`'s tint is
+			-- (96, 84, 76) and `BOAR_FILL` is (112, 99, 88) -- about 16 of 255 per channel, which at
+			-- one pixel is no ring at all, and `body` is the commonest zone there is.
+			local fill = Report.CONFIG.BOAR_FILL
+			local want = Report.CONFIG.RING_MIN_LUMA
+			for _, zone in ipairs(Report.CONFIG.ZONES) do
+				local tint = Report.CONFIG.SILHOUETTE[zone].tint
+				local ring = Report.ringColor(tint, fill)
+				local apart = math.abs(Report.luma(ring) - Report.luma(fill))
+				if apart < want - 1e-6 then
+					error(string.format("the %s ring is %.3f from the fill, under %.2f", zone, apart, want))
+				end
+			end
+			-- THE `body` ONE IS THE CASE THIS EXISTS FOR, so it is named: its raw tint fails and the
+			-- lifted one passes.
+			local body = Report.CONFIG.SILHOUETTE.body.tint
+			expect(math.abs(Report.luma(body) - Report.luma(fill)) < want).to.equal(true)
+			expect(math.abs(Report.luma(Report.ringColor(body, fill)) - Report.luma(fill)) >= want).to.equal(true)
+			-- A TINT THAT IS ALREADY CLEAR IS LEFT ALONE, so task 135's colours are not repainted for
+			-- the sake of a rule that does not apply to them.
+			local clear = Color3.new(1, 1, 1)
+			expect(Report.ringColor(clear, fill)).to.equal(clear)
+		end)
+
 		it("is drawn in ONE fill, which is what makes it a silhouette", function()
 			-- `BOAR_FILL` is the whole animal's colour; a part carrying its own would be the
 			-- colour-coded bar this task replaced coming back one piece at a time.

@@ -182,6 +182,56 @@ function Line.aimFor(
 	return math.max(aim, tailS)
 end
 
+-- WHO IS IN THE FILE, AND IN WHAT ORDER, AFTER A FLIGHT ENDS. Pure, and pulled out of the drive so
+-- a spec can drive it without a world (task 137; the Reviewer's first note on task 136, and the one
+-- that mattered -- the rank guard below was round 1's BLOCKING finding and was proved by reading
+-- only, so it could have been deleted green).
+--
+-- TWO RULES:
+--   1. AN ANIMAL WHOSE FLIGHT HAS JUST ENDED GOES TO THE TAIL. It used to keep its rank, which is a
+--      station up the middle of a file that closed up behind it while it was away -- so it walked
+--      ACROSS the line to reach it. The tail is behind everybody and reachable by walking the trail.
+--   2. NEVER THE LEADER. She has no mid-file station, so rule 1's reason does not apply to her -- and
+--      demoting her was reachable by the central action of this game. Shoot at a line, the sow bolts,
+--      and the step her flight ends she was moved to the back: `line.trail` follows whoever is
+--      `live[1]`, so the next crumb ran from HER position to the position of the animal that replaced
+--      her -- one segment BACKWARDS across the whole gap she had bolted. Every follower's station
+--      then leapt onto that segment while its hinted arc position stayed on the forward branch, and
+--      the file was driven on up the dead flight path. It also handed `line.route` and `line.leg`,
+--      computed for the sow, to a cub.
+--
+-- `members` is `{ id, kind }` in file order. `flying(id)` is now and `was[id]` is last step. The
+-- answer is the new order and the ids that moved, and the order is STABLE for everybody else.
+function Line.rejoinOrder(
+	members: { { id: string, kind: string? } },
+	flying: (string) -> boolean,
+	was: { [string]: boolean }
+): ({ { id: string, kind: string? } }, { string })
+	local moved: { string } = {}
+	local back: { [string]: boolean } = {}
+	for place, member in ipairs(members) do
+		if place > 1 and was[member.id] == true and not flying(member.id) then
+			table.insert(moved, member.id)
+			back[member.id] = true
+		end
+	end
+	if #moved == 0 then
+		return members, moved
+	end
+	local kept = {}
+	for _, member in ipairs(members) do
+		if not back[member.id] then
+			table.insert(kept, member)
+		end
+	end
+	for _, member in ipairs(members) do
+		if back[member.id] then
+			table.insert(kept, member)
+		end
+	end
+	return kept, moved
+end
+
 -- FORGETS THE TAIL NOBODY IS STANDING ON any more, so a wave that walks 800 studs does not keep 800
 -- crumbs for ever. `keepBack` is how far behind the head the last follower is, plus a margin.
 function Line.trim(trail: { Crumb }, keepBack: number)

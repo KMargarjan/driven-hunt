@@ -186,9 +186,13 @@ local function label(parent: Instance, name: string, size: number, position: UDi
 	return text
 end
 
--- ONE SILHOUETTE: the trunk, then the four zone rectangles over it, from `Report.CONFIG.SILHOUETTE`.
--- Five `Frame`s and no art, no mesh and no `ViewportFrame` -- a 60-px picture of a boar does not need
--- a camera, and a `ViewportFrame` per row would be eight of them.
+-- ONE SILHOUETTE: a side-view boar, from `Report.CONFIG.BOAR`, in the single fill `BOAR_FILL`.
+-- Thirteen `Frame`s with a `UICorner` each and no art, no mesh and no `ViewportFrame` -- a 104-px
+-- picture of a boar does not need a camera, and a `ViewportFrame` per row would be eight of them.
+--
+-- IT DREW `Report.CONFIG.SILHOUETTE` ITSELF UNTIL TASK 135 -- five tinted zone rectangles, which
+-- task 124 round 3's own note called "a colour-coded bar, not a boar's outline". Those rectangles
+-- are still the record every dot is placed against; they are no longer the picture.
 local function buildSilhouette(parent: Frame): Frame
 	local art = Instance.new("Frame")
 	art.Name = "Silhouette"
@@ -207,8 +211,8 @@ local function buildSilhouette(parent: Frame): Frame
 	-- said what that looked like: "a colour-coded bar, not a boar's outline". The rectangles are
 	-- still the record every dot is placed against; they are no longer the picture.
 	--
-	-- ONE COLOUR, ELEVEN PARTS, NO ART FILE. Every number is a SCALE of this frame, so the same
-	-- eleven parts draw the same animal at 104 x 56 in a row and at any size a larger view asks for.
+	-- ONE COLOUR, THIRTEEN PARTS, NO ART FILE. Every number is a SCALE of this frame, so the same
+	-- thirteen parts draw the same animal at 104 x 56 in a row and at any size a larger view asks for.
 	for _, piece in ipairs(CONFIG.BOAR) do
 		local part = Instance.new("Frame")
 		part.Name = piece.name
@@ -355,7 +359,9 @@ local RING: { [string]: Color3 } = {}
 for _, zone in ipairs(CONFIG.ZONES) do
 	local rect = CONFIG.SILHOUETTE[zone]
 	if rect ~= nil then
-		RING[zone] = rect.tint
+		-- ...LIFTED UNTIL IT CAN BE READ ON THE ANIMAL (task 137). `body`'s tint is 16 of 255 per
+		-- channel from `BOAR_FILL`, so that ring was not a ring; see `Report.ringColor`.
+		RING[zone] = Report.ringColor(rect.tint, CONFIG.BOAR_FILL)
 	end
 end
 
@@ -401,7 +407,7 @@ local function drawDots(art: Frame, row: any)
 		-- are `Boar.CONFIG.ZONES`' own, mirrored into `Report.CONFIG.SILHOUETTE` and asserted
 		-- against the source by `tests/server/report_silhouette.spec.luau`.
 		local edge = Instance.new("UIStroke")
-		edge.Thickness = 1
+		edge.Thickness = CONFIG.RING_THICKNESS
 		-- A zone this panel does not draw falls back to the trunk's own colour rather than erroring
 		-- on a string that came off the wire.
 		edge.Color = RING[tostring(dot.zone or "")] or RING.body or Color3.new(0, 0, 0)
