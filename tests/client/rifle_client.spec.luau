@@ -221,7 +221,14 @@ return function()
 			local reticle = Hud.reticle() :: Frame
 			local was = reticle.Visible
 			reticle.Visible = true
-			frames(1)
+			-- NO FRAME IS WAITED FOR, and that is the task-141 change rather than a weakening: the
+			-- Hud is the ONE writer of this frame's `Visible` and since task 141 it writes it every
+			-- frame (`Hud.renderScope`), so a spec that set the flag and then yielded would be
+			-- measuring the Hud's own answer for a player who is not aiming. What this case is about
+			-- is the ANCESTOR CHAIN -- that showing the reticle really shows it, rather than putting
+			-- it inside something hidden -- and that is a property of the tree, not of a rendered
+			-- frame. (Measured: with the yield this case failed, because the next frame's render
+			-- correctly set it back to false.)
 			expect(visibleUp(reticle)).to.equal(true)
 			reticle.Visible = was
 		end)
