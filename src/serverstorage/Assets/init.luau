@@ -2079,8 +2079,10 @@ Assets.ROWS = {
 	--
 	-- THE LENS IS NOT HERE ON PURPOSE. The model's lens node is its only material-1 node and that
 	-- material carries no base colour texture at all, so `asset_prep` refused it -- correctly, there
-	-- being nothing to prepare. `Rifle.Geometry` draws the lens as a glass disc, exactly as task 99
-	-- draws the shotgun's bore discs.
+	-- being nothing to prepare. `Rifle.Geometry` DREW one as a glass disc until task 142; Karen saw
+	-- it from the carry pose -- *"in front of scope when not aiming has circle transperent it
+	-- shouldn't be like that"* -- and it is gone. The scope mesh's own objective end is the lens
+	-- now, which is what the four uploaded groups always carried.
 	{
 		key = "rifle.action",
 		version = 1,

@@ -239,6 +239,49 @@ function Viewmodel.setFor(data: any, weaponId: string?): any
 	return data.weapons[weaponId or Viewmodel.DEFAULT_WEAPON]
 end
 
+-- THE TWO OPTIONAL BLOCKS, CHECKED ON EVERY WEAPON THAT HAS THEM (task 142 round 2, the Reviewer's
+-- note). They used to sit inside the default-weapon section above, which checks the SHOTGUN's set --
+-- and the shotgun has neither block, so neither check could ever fire for the only weapon that does.
+-- The content lane the Director edits live was unguarded.
+--
+-- A HALF OF ONE OF THESE IS A `CFrame.new(nil)`, which is the whole reason they are checked at all.
+local function actionExtras(where: string, action: any, problems: { string })
+	if type(action) ~= "table" then
+		return
+	end
+	local hand = action.hand
+	if hand ~= nil then
+		if type(hand) ~= "table" then
+			table.insert(problems, where .. ".hand is not a table")
+		else
+			-- ONE SHARE, NOT TWO (round 2): the bolt's own travel runs 0 -> 1 -> 0, so the ramp that
+			-- puts the hand on the knob is the same one that takes it off.
+			if not isNumber(hand.reachShare) or hand.reachShare <= 0 or hand.reachShare >= 1 then
+				table.insert(problems, where .. ".hand.reachShare must be between 0 and 1")
+			end
+			handProblems(where .. ".hand.grip", hand.grip, problems)
+		end
+	end
+	local magazine = action.magazine
+	if magazine ~= nil then
+		if type(magazine) ~= "table" then
+			table.insert(problems, where .. ".magazine is not a table")
+		else
+			for _, key in ipairs({ "outShare", "inShare" }) do
+				if not isNumber(magazine[key]) or magazine[key] <= 0 or magazine[key] >= 0.5 then
+					table.insert(problems, where .. ".magazine." .. key .. " must be between 0 and 0.5")
+				end
+			end
+			for _, key in ipairs({ "dropStuds", "seconds" }) do
+				if not isNumber(magazine[key]) or magazine[key] <= 0 then
+					table.insert(problems, where .. ".magazine." .. key .. " must be a positive number")
+				end
+			end
+			handProblems(where .. ".magazine.hand", magazine.hand, problems)
+		end
+	end
+end
+
 function Viewmodel.validate(data: any): { string }
 	local problems = {}
 	if type(data) ~= "table" then
@@ -284,6 +327,7 @@ function Viewmodel.validate(data: any): { string }
 		elseif not hasReload and not hasCycle then
 			table.insert(problems, "weapons." .. id .. " carries neither reload nor cycle")
 		end
+		actionExtras("weapons." .. id .. ".action", set.reload or set.cycle, problems)
 	end
 	-- EVERY CHECK BELOW IS THE ONE IT ALWAYS WAS, run against the DEFAULT weapon's set plus the
 	-- file's own `look`: the shotgun's poses are the ones Karen accepted and the ones every number
@@ -497,6 +541,40 @@ function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
 	local action = data.reload or data.cycle
 	local loadBlock = action.load
 	local fire = data.fire
+	-- THE HAND THAT WORKS THE BOLT (task 142), and nil for a weapon that has no bolt -- which is
+	-- what keeps the shotgun's view exactly the set it has always been. `grip` is a CFrame in the
+	-- BOLT GROUP's own frame, built here for the same reason every Vector3 is: three numbers in a
+	-- JSON object become one engine value at ONE site.
+	-- THE MAGAZINE CHANGE (task 142), nil for a weapon that has no box. `hand` is a CFrame in the
+	-- GUN's own frame -- under the action, where the box lives -- built here for the same reason
+	-- every other engine value is.
+	local magazineSwap = nil
+	if action.magazine ~= nil then
+		local swap = action.magazine
+		magazineSwap = table.freeze({
+			outShare = swap.outShare,
+			inShare = swap.inShare,
+			dropStuds = swap.dropStuds,
+			seconds = swap.seconds,
+			hand = CFrame.new(vec(swap.hand.pos)) * CFrame.Angles(
+				math.rad(swap.hand.rot.pitch),
+				math.rad(swap.hand.rot.yaw),
+				math.rad(swap.hand.rot.twist)
+			),
+		})
+	end
+	local boltHand = nil
+	if action.hand ~= nil then
+		local hand = action.hand
+		boltHand = table.freeze({
+			reachShare = hand.reachShare,
+			grip = CFrame.new(vec(hand.grip.pos)) * CFrame.Angles(
+				math.rad(hand.grip.rot.pitch),
+				math.rad(hand.grip.rot.yaw),
+				math.rad(hand.grip.rot.twist)
+			),
+		})
+	end
 	return {
 		-- the carry pose (first person, blend 0)
 		VIEWMODEL_CARRY_POS_STUDS = vec(data.carry.gun.pos),
@@ -557,6 +635,8 @@ function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
 		BREAK_POSE_ROLL_DEG = action.gun.rot.z,
 		-- THE BOLT'S OWN TWO NUMBERS, nil for a weapon that hinges instead. `Camera.Viewmodel`
 		-- reads them only on the `"slide"` path.
+		BOLT_HAND = boltHand,
+		MAGAZINE_SWAP = magazineSwap,
 		BOLT_LIFT_DEG = action.liftDeg,
 		BOLT_DRAW_STUDS = action.drawStuds,
 		BOLT_LIFT_FRACTION = action.liftFraction,

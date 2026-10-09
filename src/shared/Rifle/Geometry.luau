@@ -66,10 +66,10 @@ Geometry.MESH_KEYS = table.freeze({
 -- is 0.177 above the bore -- a scope sits high over a bolt action, and the aim pose is solved from
 -- it rather than from a number somebody liked (`Mode.aimOffset`).
 local SCOPE_AXIS_Y = 0.2972
+-- How far the drawn magazine hangs below the action, in the mesh's own units before scaling.
+local MAGAZINE_DROP = 0.21
 local SCOPE_OCULAR_Z = 0.9291 -- the rear lens: what the eye looks into
 local SCOPE_OBJECTIVE_Z = -0.2081 -- the front lens
-local LENS_DIAMETER = 0.16
-local LENS_THICK = 0.012
 
 -- The bolt turns about its own body's centre line, which is a hair below the bore.
 local BOLT_AXIS_Y = 0.11
@@ -111,9 +111,20 @@ function Geometry.layout(config)
 		action = { size = Vector3.new(actionW, actionH, actionL), at = Vector3.new(actionX, actionY, actionZ) },
 		bolt = { size = Vector3.new(boltW, boltH, boltL), at = Vector3.new(boltX, boltY, boltZ) },
 		scope = { size = Vector3.new(scopeW, scopeH, scopeL), at = Vector3.new(scopeX, scopeY, scopeZ) },
-		lens = {
-			size = Vector3.new(LENS_THICK * k, LENS_DIAMETER * k, LENS_DIAMETER * k),
-			at = Vector3.new(0, SCOPE_AXIS_Y * k, (SCOPE_OBJECTIVE_Z - LENS_THICK / 2) * k),
+		-- THE MAGAZINE IS DRAWN, BECAUSE THE MODEL HAS NONE (task 142). The Rigby's four groups are
+		-- stock, action, bolt and scope -- there is no detachable box in the file to upload, so this
+		-- is a part, exactly as the shotgun's bore discs are. It hangs under the ACTION's own
+		-- underside (`actionY - actionH/2`), is as wide as the action and a little shorter, and
+		-- sticks out far enough to be something a hand can be seen taking hold of.
+		magazine = {
+			size = Vector3.new(actionW * 0.78, MAGAZINE_DROP * k, 0.52 * k),
+			-- UNDER THE RECEIVER, NOT UNDER THE BARREL, and that distinction was measured on screen:
+			-- the `action` GROUP spans -2.2 to +0.909 because it holds the barrel as well, so its
+			-- centre is a stud and a half out along the bore -- a magazine placed from it hangs in
+			-- mid-air beside the fore-end, which is exactly what the first frame showed. The BOLT's
+			-- box is over the receiver (that is what a bolt sits in), so the magazine is placed from
+			-- that, a little forward of the bolt's own centre where the well is.
+			at = Vector3.new(actionX, actionY - actionH / 2 - (MAGAZINE_DROP * k) / 2 + 0.06 * k, boltZ - 0.17 * k),
 		},
 	})
 end
@@ -146,10 +157,14 @@ end
 
 -- Every piece of the first-person rifle, in build order. Pure.
 --
--- FOUR MESHES AND ONE DRAWN DISC. The lens is drawn rather than uploaded because the model's lens
--- node is its only material-1 node and that material carries no base colour texture at all --
--- `asset_prep` refuses it, correctly, there being nothing to prepare. A lens is a flat glass disc,
--- which is exactly what task 99 already draws for the shotgun's bores.
+-- FOUR MESHES AND NO LENS. The drawn lens is GONE (task 142) and that is Karen's own finding:
+-- *"in front of scope when not aiming has circle transperent it shouldn't be like that"*. It was a
+-- faceted translucent cylinder on the objective, and from the carry pose it read as a pale grey plug
+-- stuck on the end of the tube -- task 141's own frame description had already called it that and
+-- done nothing. The scope MESH has its own objective end and needs no help; the disc only ever
+-- existed for the build where the mesh had not loaded, which task 141 made rare and task 142 makes
+-- somebody else's problem. Archived with its numbers in
+-- `backups/2026-10-10-rifle-drawn-lens.md`.
 function Geometry.pieces(config): { Piece }
 	local at = Geometry.layout(config)
 	local meshAt = CFrame.new(0, at.meshCentreY, 0) * CFrame.Angles(0, math.rad(Geometry.MESH_ROTATION_DEG), 0)
@@ -176,6 +191,20 @@ function Geometry.pieces(config): { Piece }
 			color = look.action,
 			material = STEEL_MATERIAL,
 			shape = Enum.PartType.Block,
+		},
+		{
+			-- THE MAGAZINE (task 142). Karen: *"in magazine 3 shells then it changes with left hand
+			-- magazine"*. Dark blued steel, square, under the action where a box magazine lives, and
+			-- its own piece rather than part of the body group so `Viewmodel.magazine` can drop it
+			-- out of the gun and put a fresh one in without touching anything else.
+			name = "Magazine",
+			group = "body" :: Gun.Group,
+			size = at.magazine.size,
+			offset = CFrame.new(at.magazine.at),
+			color = look.magazine or look.barrel,
+			material = Enum.Material.Metal,
+			shape = Enum.PartType.Block,
+			reflectance = 0.04,
 		},
 		{
 			name = Geometry.CYCLE_GROUP_NAME,
@@ -205,23 +234,6 @@ function Geometry.pieces(config): { Piece }
 			-- a hollow mesh and you see the world through it; until it lands you see a ghost of one
 			-- and can still aim.
 			transparency = 0.75,
-		},
-		{
-			-- THE OBJECTIVE LENS, DRAWN. A Roblox Cylinder's axis is its own X, so the quarter turn
-			-- lays it across the gun and the disc faces down the barrel.
-			name = "Lens",
-			group = "body" :: Gun.Group,
-			size = at.lens.size,
-			offset = CFrame.new(at.lens.at) * CFrame.Angles(0, math.rad(90), 0),
-			color = Color3.fromRGB(150, 170, 190),
-			material = Enum.Material.Glass,
-			shape = Enum.PartType.Cylinder,
-			reflectance = 0.15,
-			-- MOSTLY TRANSPARENT, AND THE FIRST SCOPED FRAME IS WHY (task 140, rule 5): drawn opaque
-			-- this disc sits at the far end of the tube and fills the sight picture with a grey
-			-- circle -- a scope you cannot see through. It is still visible from outside as a glint
-			-- on the objective, which is the half of the job it is here for.
-			transparency = 0.9,
 		},
 	}
 end

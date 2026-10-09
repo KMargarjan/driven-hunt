@@ -79,10 +79,20 @@ end
 -- its timings are data on the row (`CYCLE`), because a bolt is not a break-action with different
 -- numbers: it is three steps where the shotgun has four. The first step of that kind is the answer,
 -- which is exactly right for the shotgun's two identical `Load`s.
+-- IT SEARCHES BOTH OF THE WEAPON'S SEQUENCES (task 142), not just `CYCLE`. A magazine rifle has
+-- two -- the bolt (`CYCLE`) and the magazine change (`RELOAD`) -- and `Magazine` appears only in the
+-- second, so a lookup that read `CYCLE` alone answered 0 for it: MEASURED in the Forest Test, the
+-- step published `action=Magazine busy=0.00` and the whole 1.35 s window did not exist, which is
+-- why the drawn box never moved. `Break` and `Close` are in both lists with the same waits, so the
+-- order between them decides nothing.
 local function waitFor(row, kind: string): number
-	for _, step in ipairs(row.CYCLE) do
-		if step.kind == kind then
-			return step.wait
+	for _, list in ipairs({ row.CYCLE, row.RELOAD }) do
+		if list ~= nil then
+			for _, step in ipairs(list) do
+				if step.kind == kind then
+					return step.wait
+				end
+			end
 		end
 	end
 	return 0
@@ -131,12 +141,22 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number, row
 		end
 		local next = draft(state)
 		next.open = true
+		-- WHAT OPENING THE ACTION EJECTS IS THE WEAPON'S OWN RULE (task 142), because a bolt is not
+		-- a break action with different numbers. `"all"` is the shotgun: you crack it over your arm
+		-- and everything in it comes out. `"spent"` is a magazine rifle: working the bolt throws the
+		-- FIRED CASE and leaves the rest of the magazine where it is -- and without this the rifle's
+		-- own auto-cycle would have dumped two live rounds on the ground after every shot.
+		local ejects = config.CYCLE_EJECTS or "all"
 		for index = 1, #next.barrels do
-			-- Breaking the action ejects what is in it. An UNFIRED shell goes back into its own
-			-- pocket (Karen, 2026-09-25: "the unfired shells of the old type go back to the
-			-- reserve"); a spent case is gone. One rule, in the one place that owns the action.
+			local chamber = next.barrels[index]
+			if ejects == "spent" and chamber ~= "Spent" then
+				continue
+			end
+			-- An UNFIRED shell goes back into its own pocket (Karen, 2026-09-25: "the unfired shells
+			-- of the old type go back to the reserve"); a spent case is gone. One rule, in the one
+			-- place that owns the action.
 			local loadedKind = next.loaded[index]
-			if next.barrels[index] == "Live" and loadedKind ~= "None" then
+			if chamber == "Live" and loadedKind ~= "None" then
 				next.reserve[loadedKind] = (next.reserve[loadedKind] or 0) + 1
 			end
 			next.barrels[index] = "Empty"
@@ -175,6 +195,51 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number, row
 		next.open = false
 		next.selected = nextLive(next.barrels, #next.barrels)
 		next.busyUntil = now + waitFor(row, "Close")
+		return Shotgun.deepFreeze(next), nil
+	elseif kind == "Magazine" then
+		-- THE MAGAZINE CHANGE, IN ONE STEP. Karen: *"in magazine 3 shells then it changes with left
+		-- hand magazine"*. Every empty chamber is filled from the pocket at once, which is what
+		-- swapping a box of three IS; the bolt that chambers the first of them is the `Break`/`Close`
+		-- the reload sequence runs straight after (`row.RELOAD`).
+		--
+		-- IT DOES NOT NEED THE ACTION OPEN, and that is the honest model: you change a magazine with
+		-- the bolt wherever it is. It does need the gun equipped, and `busyUntil` is what makes it
+		-- uninterruptible like every other step.
+		if not state.equipped then
+			return state, "not-equipped"
+		end
+		local empty = 0
+		for index = 1, #state.barrels do
+			if state.barrels[index] ~= "Live" then
+				empty += 1
+			end
+		end
+		if empty == 0 then
+			return state, "barrel-full"
+		end
+		local pocket = state.reserve[state.ammo] or 0
+		if pocket <= 0 then
+			return state, "no-reserve"
+		end
+		local next = draft(state)
+		local fed = 0
+		-- IT FILLS A SPENT CHAMBER TOO, and that is deliberate rather than overlooked (the
+		-- Reviewer's note): pressing R with a fired case still in the chamber swaps the box AND
+		-- discards that case with it, which costs one round from the pocket and is what the sequence
+		-- then chambers. Requiring `Empty` would leave the spent case in a gun whose own bolt cycle
+		-- has already run, with nothing left to eject it.
+		for index = 1, #next.barrels do
+			if next.barrels[index] ~= "Live" and fed < pocket then
+				next.barrels[index] = "Live"
+				next.loaded[index] = state.ammo
+				fed += 1
+			end
+		end
+		next.reserve[state.ammo] = pocket - fed
+		-- The first live chamber is what the bolt will feed, so the selection follows it rather than
+		-- staying on whatever was fired last.
+		next.selected = nextLive(next.barrels, #next.barrels)
+		next.busyUntil = now + waitFor(row, "Magazine")
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "SelectAmmo" then
 		local ammo = action.ammo

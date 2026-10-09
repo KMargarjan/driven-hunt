@@ -54,10 +54,29 @@ if weaponModule == nil then
 end
 if weaponModule then
 	local Weapon = require(weaponModule)
+	-- IS THE SERVER RUNNING A CYCLE STEP RIGHT NOW? Written by the break-source closure below, which
+	-- is already this file's one reader of the replica, and read by the aim source above it. Two
+	-- owners, one fact, and no second reader (rule 3).
+	local cyclingNow: string? = nil
 	Camera.setAimSource({
 		isAiming = function()
 			local state = Weapon.get()
-			return Weapon.Input.isAiming() and state ~= nil and state.equipped
+			local wants = Weapon.Input.isAiming() and state ~= nil and state.equipped
+			if not wants then
+				return false
+			end
+			-- ...AND THE SCOPE COMES DOWN TO WORK THE BOLT (task 142). `scope.cycle.leaveScope` is
+			-- the weapon's own say-so; a gun without a scope, or one whose scope says false, is
+			-- untouched and so is every build before the rifle. The player's BUTTON is not touched
+			-- either -- this is the camera being told the eye is not at the glass, so the mask comes
+			-- down, the gun comes back and the hands are visible working the action, which is the
+			-- whole of what Karen asked to see.
+			-- `Camera.leavesScopeFor` IS THE DECISION, and it is pure and public so a spec can drive
+			-- both branches (the Reviewer's note, round 2): this closure only supplies the two facts.
+			if Camera.leavesScopeFor(cyclingNow, (Weapons.row(Camera.Viewmodel.weaponId()) or {}).scope) then
+				return false
+			end
+			return true
 		end,
 	})
 	-- THE OPTICS OF THE WEAPON ON SCREEN (task 140), which is the third injected source on this
@@ -102,7 +121,11 @@ if weaponModule then
 		Camera.kick()
 		-- THE SHOT'S NOISE (task 112). `Weapon.Sound` owns it; this file is still the only place that
 		-- knows both owners, exactly as the kick and the muzzle provider are.
-		Weapon.Sound.shot(Camera.poseConfig())
+		-- ...AND IT IS THE WEAPON'S OWN NOISE SINCE TASK 142. Karen: *"for rifle has to be another
+		-- gun fire sound"*. The id comes off the row the DRAWN gun says it is, the same read the
+		-- optics source above makes, so a switch changes the voice on the same frame it changes the
+		-- gun.
+		Weapon.Sound.shot(Camera.poseConfig(), Weapons.row(Camera.Viewmodel.weaponId()))
 	end)
 	-- THE SHOT'S LIGHT, AND WHO DRAWS IT (task 112, round 2). `Weapon.Effects` asks BEFORE drawing
 	-- its own flash and smoke, so the two cannot land on top of each other -- which is what round 1
@@ -127,6 +150,15 @@ if weaponModule then
 	-- does that make a noise, and this closure is already the one place that sees the state flip --
 	-- so the EDGE is detected here rather than by a second reader of the replica.
 	local wasOpen = lastClosed ~= nil and lastClosed.open == true
+	-- ...AND THE MAGAZINE (task 142), which is the SERVER'S OWN STEP and not a count of rounds.
+	--
+	-- ROUND 1 COUNTED LIVE CHAMBERS AND ROUND 2 COUNTED THEM PER WEAPON, and the Reviewer was right
+	-- both times: `Weapon.get()` is one variable holding whichever gun was published last, so a
+	-- SWITCH stepped the count and fired the sound; and keying it per weapon still fires on a
+	-- RE-GRANT, where a fresh full magazine steps the stored count with no magazine changed. A round
+	-- count is simply not the question. `snapshot.action` IS the question, it has been on the wire
+	-- since this task, and the edge into `"Magazine"` is exactly one magazine change.
+	local wasAction: string? = nil
 	Camera.setBreakSource({
 		state = function()
 			local snapshot = Weapon.get()
@@ -134,12 +166,59 @@ if weaponModule then
 				lastClosed = snapshot
 			end
 			local isOpen = snapshot ~= nil and snapshot.open == true
+			local row = Weapons.row(Camera.Viewmodel.weaponId())
+			local nowAction = if snapshot ~= nil then snapshot.action else nil
+			if nowAction == "Magazine" and wasAction ~= "Magazine" then
+				-- THE ROW IS THE ONE THE SNAPSHOT NAMES, not the drawn gun's: the viewmodel's handle
+				-- is refreshed at most every 0.25 s, so during a switch those two disagree.
+				local voiced = Weapons.row(snapshot ~= nil and snapshot.weapon or nil)
+				if Weapon.Sound.voiceFor(voiced, "magazine") ~= nil then
+					Weapon.Sound.magazine(Camera.poseConfig(), voiced)
+				end
+			end
+			wasAction = nowAction
+			-- HOW FAR THROUGH A MAGAZINE CHANGE THE GUN IS (task 142). The SERVER SAYS WHICH STEP IT
+			-- IS RUNNING (`snapshot.action`) and `busyFor` is that step's own clock, so this is a
+			-- read and not a guess. The first build of this inferred the step from "no live rounds,
+			-- action shut, still busy" -- which can never be true, because the magazine fills at the
+			-- START of its window -- and the drawn box measurably never moved.
+			-- THE SWAP'S LENGTH COMES FROM THE POSE DATA (the Reviewer's note), which is where the
+			-- rest of its shape lives -- `outShare`, `inShare`, `dropStuds` -- and not from the
+			-- row's first step, which was a second home for one number.
+			local swapSeconds = (Camera.poseConfig() or {}).MAGAZINE_SWAP
+			--
+			-- A SNAPSHOT WITH NO ACTION DOES NOT END IT, and that was measured: the arming sweep and
+			-- the equip watcher publish on their own schedule with `action = nil`, and a clear on
+			-- every one of those cut the swap off 0.31 s into its 1.35 -- the drawn box reached 0.313
+			-- studs of its 0.55 and stopped. The swap ends when its own clock runs out
+			-- (`Viewmodel.magazineProgress`) or when the server starts a DIFFERENT step.
+			if swapSeconds ~= nil and snapshot ~= nil and snapshot.action == "Magazine" then
+				Camera.Viewmodel.setMagazine(swapSeconds.seconds)
+			elseif snapshot ~= nil and snapshot.action ~= nil then
+				Camera.Viewmodel.setMagazine(nil)
+			end
+			-- A CYCLE STEP IS RUNNING: see `cyclingNow` above. `Magazine` counts, because the hands
+			-- are busy with the box and the scope has no business being up for that either.
+			cyclingNow = if snapshot ~= nil then snapshot.action else nil
 			local noise = Camera.breakSound(wasOpen, isOpen)
 			wasOpen = isOpen
+			-- A BOLT IS NOT A BREAK, AND IT DOES NOT SOUND LIKE ONE (task 142). The same two edges
+			-- carry both: on a weapon whose row has a `bolt` voice they are the bolt going back and
+			-- coming forward, and on one that has none they are Studio's own two clicks, which is
+			-- every build before the rifle.
+			local hasBolt = Weapon.Sound.voiceFor(row, "bolt") ~= nil
 			if noise == "open" then
-				Weapon.Sound.open(Camera.poseConfig())
+				if hasBolt then
+					Weapon.Sound.bolt(Camera.poseConfig(), row)
+				else
+					Weapon.Sound.open(Camera.poseConfig())
+				end
 			elseif noise == "close" then
-				Weapon.Sound.close(Camera.poseConfig())
+				if hasBolt then
+					Weapon.Sound.bolt(Camera.poseConfig(), row)
+				else
+					Weapon.Sound.close(Camera.poseConfig())
+				end
 			end
 			return Camera.breakFrom(lastClosed, snapshot)
 		end,

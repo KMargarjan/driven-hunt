@@ -148,6 +148,22 @@ function Camera.scope(): Optics?
 	return lastOptics
 end
 
+-- SHOULD THE EYE LEAVE THE GLASS FOR THIS STEP? PURE and public (task 142 round 3, the Reviewer's
+-- note): the decision used to live inside a closure in `CameraBoot`, which no spec can reach, so the
+-- only evidence for it was a pasted trace.
+--
+-- `action` is the sequence step the server says it is running (`snapshot.action`), nil when none;
+-- `scope` is the weapon's own optics. A weapon with no scope never leaves one, and a scope whose
+-- `cycle.leaveScope` is false keeps the sight picture up through the cycle -- which is the "stay
+-- scoped" pattern, reachable by that one number and never by an edit.
+function Camera.leavesScopeFor(action: string?, scope: any?): boolean
+	if action == nil or scope == nil then
+		return false
+	end
+	local cycle = scope.cycle
+	return cycle ~= nil and cycle.leaveScope == true
+end
+
 function Camera.setAimSource(source: AimSource?)
 	aimSource = source
 end

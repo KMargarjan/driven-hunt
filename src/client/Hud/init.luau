@@ -366,6 +366,22 @@ local function build(): ScreenGui
 	edge.Thickness = 1
 	edge.Parent = ring
 
+	-- THE ILLUMINATED DOT (task 142), two frames: a soft halo and the core on top of it. Last in
+	-- build order and highest in the stack, because it is the thing the eye goes to.
+	for _, name in ipairs({ "DotHalo", "Dot" }) do
+		local dot = Instance.new("Frame")
+		dot.Name = name
+		dot.BorderSizePixel = 0
+		dot.AnchorPoint = Vector2.new(0.5, 0.5)
+		dot.Position = UDim2.fromScale(0.5, 0.5)
+		dot.Size = UDim2.fromOffset(1, 1)
+		dot.ZIndex = if name == "Dot" then RETICLE_Z + 2 else RETICLE_Z + 1
+		dot.Parent = reticle
+		local dotRound = Instance.new("UICorner")
+		dotRound.CornerRadius = UDim.new(0.5, 0)
+		dotRound.Parent = dot
+	end
+
 	for _, piece in ipairs({
 		{ name = "CrossTop", vertical = true, sign = -1, post = false },
 		{ name = "CrossBottom", vertical = true, sign = 1, post = false },
@@ -674,17 +690,31 @@ end
 -- printing "SLUG" would be a lie on screen. `row.AMMO_LABEL` is the one mapping, here in the one
 -- module that draws. nil is the shotgun's own words, which is every caller before the rifle.
 local function textFor(state: Shotgun.WeaponSnapshot, row: any?): string
+	local resolvedRow = row or Weapons.row(state.weapon)
 	local glyphs = ""
-	for index, barrel in ipairs(state.barrels) do
-		local glyph = if barrel == "Live" then "*" elseif barrel == "Spent" then "x" else "-"
-		glyphs ..= if index == state.selected then "[" .. glyph .. "]" else glyph
+	if resolvedRow ~= nil and resolvedRow.READOUT == "magazine" then
+		-- A MAGAZINE RIFLE SHOWS ROUNDS LEFT, NOT ONE GLYPH PER CHAMBER (task 142). Karen asked for
+		-- *"3 shells"* in the magazine and the readout she would check it against is `3/3`; three
+		-- bracketed asterisks is what a THREE-BARRELLED SHOTGUN would print, which is not this gun.
+		local live = 0
+		for _, chamber in ipairs(state.barrels) do
+			if chamber == "Live" then
+				live += 1
+			end
+		end
+		glyphs = string.format("%d/%d", live, resolvedRow.MAGAZINE or #state.barrels)
+	else
+		for index, barrel in ipairs(state.barrels) do
+			local glyph = if barrel == "Live" then "*" elseif barrel == "Spent" then "x" else "-"
+			glyphs ..= if index == state.selected then "[" .. glyph .. "]" else glyph
+		end
 	end
 	local busyMark = if state.busyFor > 0 then " R" else ""
 	-- Shells are carried per type, so the count shown is the pocket the next load comes from, and
 	-- the server's one-line notice ("NO BUCK") is what tells the player why X did nothing.
 	local pocket = state.reserve[state.ammo] or 0
 	local notice = if state.notice then " " .. state.notice else ""
-	local resolved = row or Weapons.row(state.weapon)
+	local resolved = resolvedRow
 	local label = (resolved and resolved.AMMO_LABEL and resolved.AMMO_LABEL[state.ammo]) or string.upper(state.ammo)
 	return string.format("%s %s %d%s%s", glyphs, label, pocket, busyMark, notice)
 end
@@ -1146,6 +1176,27 @@ function Hud.layoutReticle(reticle: Frame, spec: any, fovDeg: number)
 	-- THE POSTS START WHERE THE THIN CROSS ENDS, which is what a duplex IS: a thick bar from the
 	-- edge of the view in to a point, and a hair from there to the centre.
 	local postGap = spec.crossGapDeg + spec.crossArmDeg
+	-- THE DOT, IN THE SAME DEGREES (task 142). A weapon whose reticle carries no `dot` draws none,
+	-- which is what keeps this one conversion honest for a scope that is a plain duplex.
+	local function circle(name: string, deg: number?, color: Color3?, transparency: number)
+		local node = reticle:FindFirstChild(name)
+		if not (node and node:IsA("Frame")) then
+			return
+		end
+		if deg == nil or deg <= 0 or color == nil then
+			node.Visible = false
+			return
+		end
+		node.Visible = true
+		local size = math.max(1, px(deg))
+		node.Size = UDim2.fromOffset(size, size)
+		node.BackgroundColor3 = color
+		node.BackgroundTransparency = transparency
+	end
+	local dot = spec.dot
+	circle("DotHalo", dot and dot.haloDeg, dot and dot.haloColor, (dot and dot.haloTransparency) or 0.5)
+	circle("Dot", dot and dot.deg, dot and dot.color, 0)
+
 	place("PostTop", true, -1, spec.postThickDeg, spec.postArmDeg, postGap)
 	place("PostBottom", true, 1, spec.postThickDeg, spec.postArmDeg, postGap)
 	place("PostLeft", false, -1, spec.postThickDeg, spec.postArmDeg, postGap)

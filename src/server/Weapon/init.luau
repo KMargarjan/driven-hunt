@@ -307,6 +307,18 @@ function Weapon.refreshArming(player: Player, loadout: { string }?)
 	end
 end
 
+-- HOW MANY LIVE ROUNDS ARE IN THE GUN. PURE and public: the owner asks it to decide whether an
+-- empty rifle should change its own magazine, and a spec asks it without a session (task 142).
+function Weapon.roundsLeft(state): number
+	local live = 0
+	for _, chamber in ipairs(state.barrels) do
+		if chamber == "Live" then
+			live += 1
+		end
+	end
+	return live
+end
+
 function Weapon.stats()
 	local out = table.clone(stats)
 	-- ...AND HOW THE EQUIPS ENDED, which is Hardware's own tally (task 129).
@@ -404,7 +416,10 @@ local function publish(
 	state: WeaponState,
 	force: boolean?,
 	notice: string?,
-	bucket: string?
+	bucket: string?,
+	-- The sequence step being run right now (task 142), so the client draws the server's action
+	-- instead of inferring it from a state that looks the same for two different steps.
+	action: string?
 )
 	local now = os.clock()
 	if not force or bucket ~= nil then
@@ -417,7 +432,7 @@ local function publish(
 		end
 	end
 	local channel = remotes or Shotgun.remotes()
-	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now, notice, id))
+	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now, notice, id, action))
 end
 
 local function setState(player: Player, id: string, state: WeaponState)
@@ -777,9 +792,14 @@ end
 -- four, the rifle's three -- read from data instead of built in code, and everything else here is
 -- what it was: the `"no-reserve"` exception, the `"is-open"` recovery that closes a gun it left
 -- open, and the trailing publish that clears the Hud's R.
-function runCycle(player: Player, id: string, epoch: number)
+-- `steps` NAMES WHICH SEQUENCE (task 142), and nil is the weapon's own cycle. A magazine rifle has
+-- TWO: working the bolt after a shot (`CYCLE` -- back, forward) and changing the magazine
+-- (`RELOAD` -- the box, then a bolt cycle to chamber the first round). The shotgun has one, so its
+-- row carries no `RELOAD` and both callers get the same four steps they always did.
+function runCycle(player: Player, id: string, epoch: number, steps: { any }?)
 	local row = Weapons.row(id) or Weapons.ROWS[Weapons.PRIMARY]
-	for _, step in ipairs(row.CYCLE) do
+	local sequence = steps or row.CYCLE
+	for _, step in ipairs(sequence) do
 		local state = stateOf(player, id)
 		if not state or state.epoch ~= epoch then
 			return -- the player respawned, was revoked, or left: abandon the sequence
@@ -813,7 +833,7 @@ function runCycle(player: Player, id: string, epoch: number)
 			break
 		end
 		setState(player, id, next)
-		publish(player, id, next, true)
+		publish(player, id, next, true, nil, nil, step.kind)
 		task.wait(step.wait)
 	end
 	-- One last publish once the final window has elapsed. Without it the newest snapshot a client
@@ -822,6 +842,14 @@ function runCycle(player: Player, id: string, epoch: number)
 	local state = stateOf(player, id)
 	if state and state.epoch == epoch then
 		publish(player, id, state, true)
+	end
+	-- AN EMPTY RIFLE CHANGES ITS OWN MAGAZINE. Karen: *"when empty (or on R)"*. Only after the
+	-- weapon's own CYCLE -- never after a reload, which would be a loop -- and only when the row
+	-- asks for it, so the shotgun is untouched.
+	if steps == nil and row.AUTO_RELOAD_WHEN_EMPTY and row.RELOAD ~= nil and state and state.epoch == epoch then
+		if Weapon.roundsLeft(state) == 0 and (state.reserve[state.ammo] or 0) > 0 then
+			runCycle(player, id, epoch, row.RELOAD)
+		end
 	end
 end
 
@@ -869,7 +897,7 @@ local function onActionRequest(player: Player, kind: any, ammo: any): string?
 		local swapped = StateMachine.apply(state, { kind = "SelectAmmo", ammo = ammo }, now, row)
 		setState(player, id, swapped)
 		publish(player, id, swapped, true)
-		task.spawn(runCycle, player, id, swapped.epoch)
+		task.spawn(runCycle, player, id, swapped.epoch, row.RELOAD)
 		return nil -- the swap was accepted
 	end
 
@@ -880,7 +908,9 @@ local function onActionRequest(player: Player, kind: any, ammo: any): string?
 		return "not-ready"
 	end
 	local epoch = state.epoch
-	task.spawn(runCycle, player, id, epoch)
+	-- R IS THE MAGAZINE CHANGE ON A WEAPON THAT HAS ONE (task 142), and the break-open sequence on
+	-- one that does not: `row.RELOAD` is the whole of the difference.
+	task.spawn(runCycle, player, id, epoch, row.RELOAD)
 	return nil -- the reload was accepted
 end
 

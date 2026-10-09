@@ -54,6 +54,23 @@ export type Row = {
 	CYCLE: { CycleStep },
 	CYCLE_TOTAL: number,
 
+	-- THE MAGAZINE WEAPON'S OWN FIELDS (task 142), every one optional: a break action has none of
+	-- them and the shotgun's row carries none. They were written into the rifle's literal and read
+	-- in `--!strict` files for a round without being in the type, which is a sealed type telling a
+	-- lie (the Reviewer's note).
+	--
+	-- `CYCLE_EJECTS` is "all" (the default, and the shotgun) or "spent" -- what opening the action
+	-- throws away. `RELOAD` is the second sequence, the magazine change; `MAGAZINE` is what one box
+	-- holds; `READOUT` is "magazine" where the Hud prints rounds over capacity instead of one glyph
+	-- per chamber; `SOUND` is this weapon's own voices.
+	CYCLE_EJECTS: string?,
+	RELOAD: { CycleStep }?,
+	RELOAD_TOTAL: number?,
+	MAGAZINE: number?,
+	AUTO_RELOAD_WHEN_EMPTY: boolean?,
+	READOUT: string?,
+	SOUND: { [string]: any }?,
+
 	HANDLE_SIZE: Vector3,
 	HANDLE_TRANSPARENCY: number,
 	GRIP: CFrame,
@@ -128,6 +145,14 @@ Weapons.ROWS = {
 		AUTO_CYCLE = Rifle.CONFIG.AUTO_CYCLE,
 		CYCLE = Rifle.CONFIG.CYCLE,
 		CYCLE_TOTAL = Rifle.CONFIG.CYCLE_TOTAL,
+		-- The bolt's own rules (task 142): what it ejects, what a magazine change is, and what the
+		-- Hud prints. A row without them is a break action, which is what the shotgun's row is.
+		CYCLE_EJECTS = Rifle.CONFIG.CYCLE_EJECTS,
+		RELOAD = Rifle.CONFIG.RELOAD,
+		RELOAD_TOTAL = Rifle.CONFIG.RELOAD_TOTAL,
+		MAGAZINE = Rifle.CONFIG.MAGAZINE,
+		AUTO_RELOAD_WHEN_EMPTY = Rifle.CONFIG.AUTO_RELOAD_WHEN_EMPTY,
+		READOUT = Rifle.CONFIG.READOUT,
 		HANDLE_SIZE = Rifle.CONFIG.HANDLE_SIZE,
 		HANDLE_TRANSPARENCY = Rifle.CONFIG.HANDLE_TRANSPARENCY,
 		GRIP = Rifle.CONFIG.GRIP,
@@ -138,6 +163,7 @@ Weapons.ROWS = {
 		-- count as dressed -- and the other three hang off the Handle beside it.
 		ASSET_KEYS = { "rifle.action", "rifle.stock", "rifle.bolt", "rifle.scope" },
 		MESH_NAMES = { "Model", "Stock", "Bolt", "Scope" },
+		SOUND = Rifle.CONFIG.SOUND,
 		scope = Rifle.CONFIG.scope,
 	} :: Row,
 }
