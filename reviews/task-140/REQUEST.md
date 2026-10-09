@@ -1,12 +1,12 @@
 # Task 140 - the rifle with a scope
 
 Task: 140
-Round: 1
+Round: 2
 Base: main (`482a611`)
-Code commit: `bb3b535342a97fac633e031815b17bf00d2061e5`
+Code commit: `b5ec4218b8535187b04715f6717527f2b3211803`
 
 ```
-[harness] PASS: 33/33 checks @ bb3b535342a97fac633e031815b17bf00d2061e5 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ b5ec4218b8535187b04715f6717527f2b3211803 (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing in this diff touches `TWO_PLAYER_PATHS` (`src/server/Match/`, `MatchBoot`,
@@ -15,6 +15,35 @@ Code commit: `bb3b535342a97fac633e031815b17bf00d2061e5`
 Built to `docs/design/rifle.md` (Architect PASS, `reviews/task-140/ARCH_RESULT.md`). Karen, 2026-10-09:
 *"afther this fixes we need to add rifle with scope"*, and she picked the model because *"it's already
 with scope"*. Behind the `RIFLE` flag, born OFF.
+
+## Round 2: both blocking findings, and five notes that were real defects
+
+1. **The arming sweep counted a repair on every pass.** `holdsTool` became per weapon and the
+   sweep's call was not updated, so the table read answered nil, the call answered false and
+   `stats.armingRepairs` rose unconditionally -- which would have destroyed the one instrument this
+   repo has for "a player who should be holding a gun and is not" (0 in every run since task 34).
+   It counts against the loadout now. **Verify:** the sweep's loop in `Weapon.start`.
+2. **Claim 10 was false and is now true.** Version 4's three refusals -- a missing weapon set, one
+   carrying both actions, one carrying neither -- were reachable by no test. `viewmodel_poses.spec`
+   drives all three through its own `broken()` helper, plus "one flat name set, whichever weapon is
+   asked for". **Verify:** "names a weapon set that is missing, and one that carries two actions or
+   none".
+
+...and five notes, each a real defect rather than a wording fix: the **dead third copy** of the
+rifle's asset keys, in a DIFFERENT order from the two that are read (and the order decides which key
+is worn as `Model`); the Validator's **hardcoded shotgun ammo list**; **one warn flag shared by every
+mesh key**, so a missing `rifle.scope` was silent once `shotgun.barrels` had warned; the **reticle
+laid out from the weapon's target FOV** rather than the frame's own, which is wrong for the 0.2 s of
+the raise; and a comment claiming a call to `Mode.segmentAt` the code never made.
+
+Two of the Reviewer's other notes are also closed: the **drive report's detail row names the gun**
+(design section 9, which round 1 did not build), and `hitlog.spec` asserts the weapon reaches the dot
+and the FATAL dot's weapon reaches the row.
+
+**`boar_body.spec:663` is flaky and it is not mine.** It failed once at this exact commit (the
+sounder's scatter-spread assertion) and passed on the next run of the SAME commit with nothing
+changed; it flipped the same way during task 139. Reported rather than hidden: the PASS line above
+is the second run.
 
 ## The ten claims
 
