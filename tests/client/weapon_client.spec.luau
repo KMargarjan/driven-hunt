@@ -32,6 +32,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+-- THE WEAPON TABLE, for the one assertion that is about HOW MANY Tools a hunter carries
+-- (task 149): the RIFLE flag's default went ON, so the loadout is two and a literal 1 was a
+-- count of the world before it.
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 -- NOTES, NOT PRINTS, for anything that explains a failure. TestKit's own header says why: "Studio's
 -- console comes back truncated from a long session -- every two-player run so far lost the head of
 -- it". Task 80 lost a whole diagnostic run to exactly that: the map world's console came back
@@ -611,13 +616,26 @@ return function()
 			end)).to.equal(true)
 		end)
 
-		it("listens to ONE Tool, however many the session has destroyed", function()
+		it("listens to the LOADOUT's Tools, however many the session has destroyed", function()
 			-- TASKS.md 24a(c). The Tool dies with the Backpack or the character every time the drive
 			-- places a player (Match.Body.place -> LoadCharacter), and the watcher used to keep the
 			-- dead one's key and both its connections for ever -- one set per respawn, cleared only
 			-- by Input.stop(), which nothing calls. This session has already respawned at least once
-			-- by the time the drive assigns teams, so a count above one is the leak.
-			expect(Weapon.Input.watchedTools() <= 1).to.equal(true)
+			-- by the time the drive assigns teams, so a count above the loadout is the leak.
+			--
+			-- IT WAS A LITERAL 1 UNTIL TASK 149, which was the whole loadout when it was written and
+			-- stopped being so the moment the RIFLE flag's default went ON. The leak this guards is
+			-- "one more set per respawn", so the honest bound is what the hunter actually carries --
+			-- and now a third weapon would not quietly turn the guard into a tautology either.
+			-- ...AND THE LOADOUT ITSELF IS TWO IN THIS WORLD, which is what makes the bound mean
+			-- something: `#Weapons.loadout() >= 1` is true by construction (`loadoutFor` returns at
+			-- least the primary), so asserting that would have been a tautology.
+			local carried = #Weapons.loadout()
+			expect(carried).to.equal(#Weapons.loadoutFor(Flags.isOn(Weapons.FLAG)))
+			expect(Weapon.Input.watchedTools() <= carried).to.equal(true)
+			TestKit.note(
+				string.format("weapon-client: %d tool(s) watched, loadout is %d", Weapon.Input.watchedTools(), carried)
+			)
 		end)
 	end)
 
