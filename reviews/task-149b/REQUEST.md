@@ -9,8 +9,16 @@ Code commit: `8468e383e653ca63bbf83c0796da6751a832225a`
 [harness] PASS: 33/33 checks @ 8468e383e653ca63bbf83c0796da6751a832225a (clean tree) scope=all
 ```
 
-`test2` is N/A: the diff is `Boar`, `Weapon`, two boots, `Flags` and one spec — nothing in
-`TWO_PLAYER_PATHS`.
+**`test2` IS REQUIRED AND I DO NOT HAVE IT. THIS REQUEST CANNOT BE REVIEWED YET** —
+`ESCALATE.md`, 2026-10-10, has both blockers and the exact clicks. An earlier draft of this line
+said `test2` was N/A. **That was wrong**, and I am correcting my own paperwork rather than leaving
+the Reviewer to catch it: the diff touches `src/server/MatchBoot.server.luau` (one line,
+`runtime:hearShot(shot.muzzle, shot.at)`), which is in `TWO_PLAYER_PATHS`, so `tools/agents.py`
+refuses the review until a `[harness2] PASS` line for `8468e38` is pasted here. My own run produced
+`[harness2] NEEDS KAREN: nobody pressed Start` — one Studio opened instead of three — and
+`FAIL: 10/12 checks @ c4cda6d`. **Nothing is claimed from it.** The second blocker is this folder's
+name: `tools/review.ps1` refuses `149b` (*"task number must be digits"*) and with no argument picks
+the already-merged `reviews/task-149/`, so the review has not run at all.
 
 Karen, 2026-10-10 ~18:10, on the three items (full text in `PLAYTEST.md`): *"yes boars still
 sometimes stand after dead and stays / also when I shoot sometimes they dont run ... I shoot and few
