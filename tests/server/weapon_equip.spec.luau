@@ -65,22 +65,27 @@ local PROBE_NAME = "SpecEquipProbe"
 -- one-player run always found the hunter and a two-player run found whichever client connected
 -- first. Every case in this file is about what the weapon system does to an ARMED player.
 --
--- THE TEAM IS THE ANSWER, because it is the same server-authoritative fact `tests/client/Role.luau`
--- resolves a client's own role from (`Match.Body` is its one writer). A player with no team at all
--- is a one-player session, where the Director's decision F makes the lone player a Shooter -- so an
--- unteamed `Team == nil` counts as armed, which is exactly the world every case here was written in.
+-- AND THE WEAPON'S OWN POLICY IS THE ANSWER, not the team. The team was the first guess and the
+-- two-player run refused it too (`[harness2] FAIL: 31/35`, the same three assertions): `Match`
+-- decides who may carry through an arming POLICY that `Weapon` reads, and what that policy says
+-- depends on the drive's phase as well as the roster -- so "not on the Drivers team" is not the same
+-- question as "the weapon system will arm this player", and only the second one is what every case
+-- in this file is about. `Weapon.mayArmForTests` is that exact answer, exported for exactly this
+-- (TASKS.md 32a(d)) -- it decides nothing and writes nothing.
+--
+-- A ONE-PLAYER SESSION IS UNCHANGED: the Director's decision F makes the lone player a Shooter, the
+-- policy says yes, and the first live character is returned as it always was.
 local function somebody(): Player?
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player.Character ~= nil and player.Character:FindFirstChildOfClass("Humanoid") ~= nil then
-			local team = player.Team
-			if team == nil or team.Name ~= "Drivers" then
+			if Weapon.mayArmForTests(player) then
 				return player
 			end
 		end
 	end
-	-- EVERY PLAYER ON THE DRIVING TEAM answers nil, exactly as an empty server does, and each case's
-	-- own `if player == nil` guard notes it and returns. That is this file's existing behaviour for
-	-- "there is nobody here to arm" and it is not widened here: a world with no armed player is a
+	-- NOBODY THE POLICY WILL ARM answers nil, exactly as an empty server does, and each case's own
+	-- `if player == nil` guard notes it and returns. That is this file's existing behaviour for
+	-- "there is nobody here to arm" and it is not widened here: a world with no armable player is a
 	-- world where these claims have no subject, and inventing a failure out of it would be a
 	-- different claim than the one the case makes.
 	return nil

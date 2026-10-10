@@ -379,27 +379,40 @@ return function()
 				TestKit.note("rifle: " .. tostring((geometry :: any).FOLDER_NAME) .. " is not published in this place")
 				return
 			end
-			-- Give a late download the quarter-second the viewmodel's own staleness tick runs on.
-			frames(60)
-			local model = Camera.Viewmodel.current()
-			expect(model).to.be.ok()
-			local worn: { [string]: boolean } = {}
-			for _, part in ipairs((model :: Model):GetDescendants()) do
-				if part:IsA("MeshPart") then
-					worn[part.Name] = true
-				end
-			end
+			-- IT IS A RACE, AND THE TWO-PLAYER RUN IS WHAT SHOWED IT (task 150). With one client this
+			-- read `3 of 3`; with two it read `2 of 3` and failed, because a single `frames(60)` is
+			-- not a wait for anything in particular -- a template that finished downloading between
+			-- the two loops below counted as READY and could not yet be WORN, and the viewmodel only
+			-- re-dresses on its own quarter-second staleness tick. So this waits for the thing the
+			-- rule is about -- every downloaded piece drawn as itself -- and only then asserts, which
+			-- is the same claim with a deadline instead of a guess.
 			local ready, drawn, missing = 0, 0, {}
-			for _, template in ipairs(folder:GetChildren()) do
-				if Camera.Viewmodel.meshReady(template) then
-					ready += 1
-					if worn[template.Name] then
-						drawn += 1
-					else
-						table.insert(missing, template.Name)
+			local model = nil
+			local deadline = os.clock() + 8
+			repeat
+				frames(15)
+				model = Camera.Viewmodel.current()
+				local worn: { [string]: boolean } = {}
+				if model ~= nil then
+					for _, part in ipairs((model :: Model):GetDescendants()) do
+						if part:IsA("MeshPart") then
+							worn[part.Name] = true
+						end
 					end
 				end
-			end
+				ready, drawn, missing = 0, 0, {}
+				for _, template in ipairs(folder:GetChildren()) do
+					if Camera.Viewmodel.meshReady(template) then
+						ready += 1
+						if worn[template.Name] then
+							drawn += 1
+						else
+							table.insert(missing, template.Name)
+						end
+					end
+				end
+			until (model ~= nil and ready > 0 and drawn == ready) or os.clock() >= deadline
+			expect(model).to.be.ok()
 			TestKit.note(
 				string.format(
 					"rifle: %s wears %d of %d downloaded piece(s)%s",
