@@ -190,29 +190,51 @@ return function()
 			expect(tight > wide).to.equal(true)
 		end)
 
-		it("lays out as a duplex, thin in the middle and thick at the edge", function()
+		it("lays out as a cross that spans the glass, with no ring and no posts", function()
 			local reticle = Hud.reticle() :: Frame
-			local spec = Rifle.CONFIG.scope.reticle
+			local scope = Rifle.CONFIG.scope
 			local viewportY = Workspace.CurrentCamera.ViewportSize.Y
-			Hud.layoutReticle(reticle, spec, Rifle.CONFIG.scope.aimFovDeg)
+			Hud.layoutReticle(reticle, scope, scope.aimFovDeg)
 			frames(1)
+			-- KAREN'S FRAME, ELEMENT BY ELEMENT (task 146). The ring round the centre and the duplex
+			-- posts are not in her picture, so they are not in the data, so they are not drawn.
 			local ring = reticle:FindFirstChild("Ring") :: Frame
 			expect(ring).to.be.ok()
-			local wanted = Hud.reticleDegToPx(spec.ringOuterDeg, Rifle.CONFIG.scope.aimFovDeg, viewportY)
+			expect(ring.Visible).to.equal(false)
+			local post = reticle:FindFirstChild("PostTop") :: Frame
+			expect(post).to.be.ok()
+			expect(post.Visible).to.equal(false)
+			-- ...AND THE HAIR RUNS FROM THE CENTRE TO THE INSIDE OF THE TUBE. The arm is the lens's
+			-- own radius less the body's thickness, so the cross cannot disagree with the glass.
+			local cross = reticle:FindFirstChild("CrossTop") :: Frame
+			expect(cross).to.be.ok()
+			expect(cross.Visible).to.equal(true)
+			local arm = scope.eyepiece.diameterDeg / 2 - scope.eyepiece.rimThickDeg
+			local wanted = Hud.reticleDegToPx(arm, scope.aimFovDeg, viewportY)
 			-- MEASURED AGAINST THE LIVE VIEWPORT, not against 1080: a Studio Play window is nowhere
 			-- near it, and a fixed pixel count there would be a looser claim.
-			expect(math.abs(ring.AbsoluteSize.Y - wanted) <= 2).to.equal(true)
-			local cross = reticle:FindFirstChild("CrossTop") :: Frame
-			local post = reticle:FindFirstChild("PostTop") :: Frame
-			expect(cross).to.be.ok()
-			expect(post).to.be.ok()
-			expect(post.AbsoluteSize.X > cross.AbsoluteSize.X).to.equal(true)
+			expect(math.abs(cross.AbsoluteSize.Y - wanted) <= 2).to.equal(true)
+			-- ...AND THE DRAWN GLASS IS KAREN'S 0.889 OF THE VIEWPORT (the Reviewer's finding 1).
+			-- This is the assertion that would have caught round 1: it reads the RIM frame, which is
+			-- the clear lens itself, off the live screen rather than trusting a config number.
+			Hud.layoutScope(Hud.scopeOverlay() :: Frame, scope, scope.aimFovDeg)
+			frames(1)
+			local lens = (Hud.scopeOverlay() :: Frame):FindFirstChild("Rim") :: Frame
+			expect(lens).to.be.ok()
+			local share = lens.AbsoluteSize.Y / viewportY
+			TestKit.note(string.format("rifle: clear glass %.3f of the viewport (Karen's frame: 0.889)", share))
+			expect(math.abs(share - 0.889) < 0.03).to.equal(true)
+			-- ...and it starts AT the centre: no gap, which is the whole difference from a duplex.
+			expect(math.abs(math.abs(cross.Position.Y.Offset) - wanted / 2) <= 2).to.equal(true)
+			-- ...and it is a hair across, not a bar.
+			expect(cross.AbsoluteSize.X <= 6).to.equal(true)
 			TestKit.note(
 				string.format(
-					"rifle: reticle ring %d px of %d viewport (asked %.1f px)",
-					ring.AbsoluteSize.Y,
+					"rifle: cross arm %d px of %d viewport (asked %.1f px), %d px thick",
+					cross.AbsoluteSize.Y,
 					viewportY,
-					wanted
+					wanted,
+					cross.AbsoluteSize.X
 				)
 			)
 		end)
@@ -282,11 +304,17 @@ return function()
 			local viewport = Workspace.CurrentCamera.ViewportSize
 			local mask = (overlay :: Frame):FindFirstChild("Mask") :: Frame
 			expect(mask).to.be.ok()
+			-- THE CLAMP IS ON THE GLASS, NOT ON THE WHOLE CIRCLE (task 146): the tube may run off the
+			-- top and bottom -- it does in Karen's own reference -- and what may not leave the screen
+			-- is the lens, because the reticle's degrees are measured against it.
+			local rimPx = math.max(1, Hud.reticleDegToPx(scope.eyepiece.rimThickDeg, scope.aimFovDeg, viewport.Y))
 			local wanted = math.min(
 				Hud.reticleDegToPx(scope.eyepiece.diameterDeg, scope.aimFovDeg, viewport.Y),
-				math.min(viewport.X, viewport.Y)
+				math.min(viewport.X, viewport.Y) + 2 * rimPx
 			)
 			expect(math.abs(mask.AbsoluteSize.X - wanted) <= 2).to.equal(true)
+			-- ...and the glass inside it never does leave the screen.
+			expect(mask.AbsoluteSize.Y - 2 * rimPx <= math.min(viewport.X, viewport.Y) + 2).to.equal(true)
 			expect(math.abs(mask.AbsoluteSize.Y - mask.AbsoluteSize.X) <= 1).to.equal(true)
 			-- THE MASK REACHES EVERY CORNER. A stroke is drawn outward from the circle, so anything
 			-- short of the screen's own diagonal leaves a lit wedge at the corners.
@@ -535,12 +563,15 @@ return function()
 			expect(string.find(text, "[*]", 1, true)).to.be.ok()
 		end)
 
-		it("puts a red dot at the centre of the duplex, sized in the same degrees", function()
+		it("puts a red dot at the centre of the cross, sized in the same degrees", function()
 			local scope = Rifle.CONFIG.scope
 			local dot = scope.reticle.dot
 			expect(dot).to.be.ok()
+			-- IT IS A TOGGLE SINCE TASK 146, defaulting on: Karen asked for the dot on 2026-10-09
+			-- and the reference she sent on 2026-10-10 has none, so the answer is one data line.
+			expect((dot :: any).enabled).to.equal(true)
 			local reticle = Hud.reticle() :: Frame
-			Hud.layoutReticle(reticle, scope.reticle, scope.aimFovDeg)
+			Hud.layoutReticle(reticle, scope, scope.aimFovDeg)
 			frames(1)
 			local core = reticle:FindFirstChild("Dot") :: Frame
 			local halo = reticle:FindFirstChild("DotHalo") :: Frame
@@ -552,8 +583,8 @@ return function()
 			-- THE HALO IS BIGGER AND SOFTER, which is what gives the dot an edge on a bright trunk.
 			expect(halo.AbsoluteSize.X > core.AbsoluteSize.X).to.equal(true)
 			expect(halo.BackgroundTransparency > core.BackgroundTransparency).to.equal(true)
-			-- ...and it is ON TOP of the duplex, because a dot behind a post is not a dot.
-			expect(core.ZIndex > (reticle:FindFirstChild("PostTop") :: Frame).ZIndex).to.equal(true)
+			-- ...and it is ON TOP of the cross, because a dot behind a hair is not a dot.
+			expect(core.ZIndex > (reticle:FindFirstChild("CrossTop") :: Frame).ZIndex).to.equal(true)
 			TestKit.note(
 				string.format(
 					"rifle: red dot %d px, halo %d px of %d viewport",
