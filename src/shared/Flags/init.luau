@@ -163,11 +163,16 @@ Flags.DEFAULTS = {
 			.. "40-stud drivers-only flush of Milestone 1.2.",
 	} :: FlagRow,
 	RIFLE = {
-		-- BORN OFF (task 140, 2026-10-09). Karen: *"afther this fixes we need to add rifle with
-		-- scope"*. A whole second weapon is feel-critical -- the switch, the scope's magnification,
-		-- the sway and the bolt are all things only she can judge -- so it merges dark and she
-		-- turns it on for a playtest (`python tools/flags.py set RIFLE on`).
-		default = false,
+		-- BORN OFF (task 140, 2026-10-09), ON SINCE TASK 149 (2026-10-10). Karen: *"afther this
+		-- fixes we need to add rifle with scope"*. A whole second weapon is feel-critical -- the
+		-- switch, the scope's magnification, the sway and the bolt are all things only she can judge
+		-- -- so it merged dark and she turned it on for playtests. She has now judged it:
+		-- **"weapons is ok for now"** (2026-10-10 ~18:10, `PLAYTEST.md`), after eight rounds of her
+		-- own notes on the sight picture, the hands, the bolt and the magazine.
+		--
+		-- THE ROW STAYS, AND THAT IS THE ROLLBACK: one line back to `false` returns the game to one
+		-- Tool in the hand, which is what every build before task 140 was.
+		default = true,
 		-- The owner is the module that READS it, at its boundary: `Weapons.loadout()` resolves the
 		-- list of weapons a hunter carries and hands that list inward. Nothing else in the weapon
 		-- system reads a flag, and `Weapons.loadoutFor(rifleOn)` is pure, so both worlds are
@@ -175,9 +180,10 @@ Flags.DEFAULTS = {
 		owner = "ReplicatedStorage.Weapons",
 		born = "2026-10-09 task 140",
 		expires = "2026-10-30", -- 21 days: the ceiling in feature-flags.md section 12
-		why = "A bolt-action rifle, carried beside the shotgun: slot 2 with its telescopic sight and "
-			.. "slot 3 with the glass off, over open sights (task 143). OFF is exactly the game "
-			.. "before it: one Tool, the shotgun, in the hand.",
+		why = "A bolt-action rifle with a telescopic sight, carried beside the shotgun on slot 2. "
+			.. "Task 143 added a third weapon on slot 3 -- the same rifle over open sights -- and "
+			.. "task 148 retired it at Karen's word. OFF is exactly the game before the rifle: "
+			.. "one Tool, the shotgun, in the hand.",
 	} :: FlagRow,
 	FIRST_PERSON = {
 		-- BORN OFF on 2026-09-27, ON SINCE TASK 98 (2026-10-01). Karen's word was "start": first
