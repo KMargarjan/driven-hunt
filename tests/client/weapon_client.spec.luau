@@ -36,6 +36,7 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- (task 149): the RIFLE flag's default went ON, so the loadout is two and a literal 1 was a
 -- count of the world before it.
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 -- NOTES, NOT PRINTS, for anything that explains a failure. TestKit's own header says why: "Studio's
 -- console comes back truncated from a long session -- every two-player run so far lost the head of
 -- it". Task 80 lost a whole diagnostic run to exactly that: the map world's console came back
@@ -626,8 +627,11 @@ return function()
 			-- stopped being so the moment the RIFLE flag's default went ON. The leak this guards is
 			-- "one more set per respawn", so the honest bound is what the hunter actually carries --
 			-- and now a third weapon would not quietly turn the guard into a tautology either.
+			-- ...AND THE LOADOUT ITSELF IS TWO IN THIS WORLD, which is what makes the bound mean
+			-- something: `#Weapons.loadout() >= 1` is true by construction (`loadoutFor` returns at
+			-- least the primary), so asserting that would have been a tautology.
 			local carried = #Weapons.loadout()
-			expect(carried >= 1).to.equal(true)
+			expect(carried).to.equal(#Weapons.loadoutFor(Flags.isOn(Weapons.FLAG)))
 			expect(Weapon.Input.watchedTools() <= carried).to.equal(true)
 			TestKit.note(
 				string.format("weapon-client: %d tool(s) watched, loadout is %d", Weapon.Input.watchedTools(), carried)

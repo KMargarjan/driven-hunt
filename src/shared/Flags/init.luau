@@ -179,7 +179,12 @@ Flags.DEFAULTS = {
 		-- reachable by parameter while the flag sits at one of them.
 		owner = "ReplicatedStorage.Weapons",
 		born = "2026-10-09 task 140",
-		expires = "2026-10-30", -- 21 days: the ceiling in feature-flags.md section 12
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS (feature-flags.md section 11 step 6a, and the
+		-- three rows below this one say it in words). The 21-day ceiling is for a flag nobody has
+		-- judged yet; this one has been judged, and the date it keeps is the retirement task's --
+		-- when the OFF branch is archived and the row goes. Left at 2026-10-30 it would fail
+		-- `flags.spec`'s rot tripwire on the 31st and block whatever gate ran that day.
+		expires = "2026-12-31",
 		why = "A bolt-action rifle with a telescopic sight, carried beside the shotgun on slot 2. "
 			.. "Task 143 added a third weapon on slot 3 -- the same rifle over open sights -- and "
 			.. "task 148 retired it at Karen's word. OFF is exactly the game before the rifle: "

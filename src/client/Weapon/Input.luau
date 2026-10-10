@@ -283,7 +283,7 @@ local function watchTool(tool: Instance)
 	end
 end
 
--- How many Tools this client is still listening to. One, normally; a spec reads it to prove the
+-- How many Tools this client is still listening to. As many as the loadout has -- two since the RIFLE flag was lit in task 149; a spec reads it to prove the
 -- count does not climb with respawns.
 function Input.watchedTools(): number
 	local n = 0
