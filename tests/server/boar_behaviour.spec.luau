@@ -601,11 +601,13 @@ return function()
 			local impact = START + Vector3.new(6, 0, 0)
 			-- the muzzle alone: too far, nothing happens
 			local quiet = brain:step(DT, obs(START, {}, { sounds = { { kind = "shot", position = shooter } } }))
-			expect(quiet.targetSpeed < CONFIG.SPRINT_SPEED).to.equal(true)
+			expect(quiet.targetVelocity.Magnitude < CONFIG.SPRINT_SPEED - 1).to.equal(true)
+			expect(brain:state()).never.to.equal("FLEE")
 			-- ...the same bang, now carrying where it landed
 			local loud =
 				brain:step(DT, obs(START, {}, { sounds = { { kind = "shot", position = shooter, impact = impact } } }))
-			expect(loud.targetSpeed >= CONFIG.SPRINT_SPEED).to.equal(true)
+			expect(brain:state()).to.equal("FLEE")
+			expect(loud.targetVelocity.Magnitude > quiet.targetVelocity.Magnitude).to.equal(true)
 		end)
 
 		it("runs every animal that HEARS a shot, not only the one that was hit", function()
