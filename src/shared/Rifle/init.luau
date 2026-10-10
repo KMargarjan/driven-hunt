@@ -172,6 +172,9 @@ Rifle.CONFIG = {
 		-- The drawn magazine (task 142): darker than the barrel, so the box reads as a separate
 		-- thing bolted under the action rather than as more of the same steel.
 		magazine = Color3.fromRGB(38, 39, 42),
+		-- The open-sighted rifle's drawn front sight (task 143): brass, like the shotgun's, because a
+		-- bead's whole job is to catch the light and be seen against a dark animal.
+		bead = Color3.fromRGB(214, 176, 96),
 		barrel = Color3.fromRGB(58, 60, 64),
 		action = Color3.fromRGB(78, 79, 82),
 		wood = Color3.fromRGB(104, 64, 38),

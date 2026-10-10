@@ -19,6 +19,9 @@ local Shapes = {}
 Shapes.BY_ID = table.freeze({
 	shotgun = Shape,
 	rifle = ShapeRifle,
+	-- The open-sighted rifle is the same world gun (task 143): what the OTHER players see is a
+	-- rifle, and whether its owner has glass on it is the owner's business and the viewmodel's.
+	rifle_open = ShapeRifle,
 })
 
 -- `for_` rather than `for`, which is a Luau keyword. A weapon this map does not know gets the

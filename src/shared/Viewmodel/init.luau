@@ -306,7 +306,11 @@ function Viewmodel.validate(data: any): { string }
 		table.insert(problems, "weapons is missing")
 		return problems
 	end
-	for _, id in ipairs({ "shotgun", "rifle" }) do
+	-- EVERY WEAPON THE GAME CAN PUT IN A HAND MUST HAVE A SET, and the list is written out rather
+	-- than taken from `Weapons.ROWS` because this is a SHARED module that the weapon table itself
+	-- reaches through: a require back the other way is a cycle. The cost of the literal is that a
+	-- new weapon adds a line here, which is the line task 143 added for `rifle_open`.
+	for _, id in ipairs({ "shotgun", "rifle", "rifle_open" }) do
 		if type(data.weapons[id]) ~= "table" then
 			table.insert(problems, "weapons." .. id .. " is missing")
 		end
@@ -318,8 +322,9 @@ function Viewmodel.validate(data: any): { string }
 	-- two-chamber gun breaks open (`reload`) and a one-chamber gun works a bolt (`cycle`). Both at
 	-- once is refused: a weapon has one action, and a file that carries two is a file nobody can say
 	-- which one is drawn from.
-	for _, id in ipairs({ "shotgun", "rifle" }) do
-		local set = data.weapons[id]
+	-- ...AND THE STRUCTURAL CHECK WALKS WHAT THE FILE ACTUALLY CARRIES, so a set nobody listed above
+	-- is still checked rather than skipped (task 143).
+	for id, set in pairs(data.weapons) do
 		local hasReload = type(set.reload) == "table"
 		local hasCycle = type(set.cycle) == "table"
 		if hasReload and hasCycle then

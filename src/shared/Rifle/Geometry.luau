@@ -74,6 +74,18 @@ local SCOPE_AXIS_Y = 0.2972
 -- the magazine well: at z +0.35..+0.55 the stock's underside is -0.0659 and at +0.55..+0.75 it is
 -- -0.0786. A real bolt-action box sits NEARLY FLUSH -- a few hundredths proud of that line -- so the
 -- box is 0.11 deep and its floor lands at -0.145, which is 0.072 below the wood instead of 0.28.
+-- THE FRONT SIGHT IS DRAWN, BECAUSE THE MODEL HAS NONE (task 143). Karen asked for a rifle
+-- *"where aiming true nozzle"* -- down the barrel to a front sight -- and the Rigby's twelve nodes
+-- carry no sight at all: `Circle_Low` is a 138-triangle swivel on the LEFT FLANK of the action
+-- (x -0.095..-0.078, z +0.11..+0.18) and `Safety_Low` is the safety on top at z +0.77. It is a
+-- scope-only rifle. So the bead is a drawn ball, exactly as the shotgun's is (`Gun.pieces`'s `Bead`),
+-- and for the same reason: there is nothing in the file to upload.
+--
+-- MEASURED: `Barrel_Low` spans y +0.0556..+0.1844, so its TOP LINE is +0.1844 and the bore axis is
+-- the plan's own `boreUpStuds` = 0.12. The bead sits on the top line, one diameter back from the
+-- muzzle so it is not half in the air.
+local BEAD_DIAMETER = 0.055
+local BARREL_TOP_Y = 0.1844
 local STOCK_UNDERSIDE_AT_WELL = -0.0725 -- the mean of the two measured slices
 local MAGAZINE_DROP = 0.11 -- how deep the box is, not how far it hangs
 local MAGAZINE_PROUD = 0.072 -- how far its floor sits below the wood
@@ -120,6 +132,9 @@ function Geometry.layout(config)
 		action = { size = Vector3.new(actionW, actionH, actionL), at = Vector3.new(actionX, actionY, actionZ) },
 		bolt = { size = Vector3.new(boltW, boltH, boltL), at = Vector3.new(boltX, boltY, boltZ) },
 		scope = { size = Vector3.new(scopeW, scopeH, scopeL), at = Vector3.new(scopeX, scopeY, scopeZ) },
+		-- The drawn front sight, on the barrel's measured top line (task 143).
+		beadY = BARREL_TOP_Y * k,
+		beadDiameter = BEAD_DIAMETER * k,
 		-- THE MAGAZINE IS DRAWN, BECAUSE THE MODEL HAS NONE (task 142). The Rigby's four groups are
 		-- stock, action, bolt and scope -- there is no detachable box in the file to upload, so this
 		-- is a part, exactly as the shotgun's bore discs are. It hangs under the ACTION's own
@@ -146,12 +161,30 @@ function Geometry.layout(config)
 	})
 end
 
--- WHERE THE EYE LOOKS, and for a scoped rifle that is the OCULAR lens rather than a bead: the aim
--- pose puts this point `EYE_RELIEF_STUDS` in front of the eye on the camera's axis
--- (`Mode.aimOffset`), so the tube then runs away from the eye down the view axis and the scope
--- picture is centred BECAUSE OF WHERE THE SCOPE IS. Nothing here is tuned by eye.
+-- WHICH SIGHT THIS ROW CARRIES (task 143). `"bead"` is the open-sighted rifle; anything else --
+-- including a row written before this task -- is the scope. One gun, one geometry module, and the
+-- ROW decides, exactly as `CYCLE_EJECTS` decides what the bolt throws.
+function Geometry.sightKind(config): string
+	return (config and config.SIGHT) or "scope"
+end
+
+-- WHERE THE EYE LOOKS, and that is the whole difference between the two rifles.
+--
+-- FOR THE SCOPE it is the OCULAR lens rather than a bead: the aim pose puts this point
+-- `EYE_RELIEF_STUDS` in front of the eye on the camera's axis (`Mode.aimOffset`), so the tube then
+-- runs away from the eye down the view axis and the scope picture is centred BECAUSE OF WHERE THE
+-- SCOPE IS.
+--
+-- FOR OPEN SIGHTS it is the BEAD at the muzzle, on the barrel's top line -- so the same machinery
+-- lays the eye along the barrel to the front sight, which is Karen's *"aiming true nozzle"* and is
+-- bit-for-bit how the shotgun's bead already works (`Gun.sight`). Nothing here is tuned by eye.
 function Geometry.sight(config): CFrame
 	local at = Geometry.layout(config)
+	if Geometry.sightKind(config) == "bead" then
+		-- Identity rotation: (0, 0, -1) is already the muzzle direction in this frame and the bead is
+		-- on the gun's centre line, so the sight looks exactly where the barrel points.
+		return CFrame.new(0, at.beadY, at.muzzleZ + at.beadDiameter)
+	end
 	return CFrame.new(0, at.scopeAxisY, at.scopeOcularZ)
 end
 
@@ -186,7 +219,21 @@ function Geometry.pieces(config): { Piece }
 	local at = Geometry.layout(config)
 	local meshAt = CFrame.new(0, at.meshCentreY, 0) * CFrame.Angles(0, math.rad(Geometry.MESH_ROTATION_DEG), 0)
 	local look = (config and config.LOOK) or Rifle.CONFIG.LOOK
-	return {
+	local sight = Geometry.sightKind(config)
+	-- ONE LIST, FILTERED BY THE ROW'S SIGHT (task 143). `skipFor` drops a piece for that sight and
+	-- `onlyFor` keeps one just for it, so the two rifles are the SAME gun with the glass on or off
+	-- rather than two piece lists that drift apart.
+	local function wanted(piece): boolean
+		if piece.skipFor ~= nil and piece.skipFor == sight then
+			return false
+		end
+		if piece.onlyFor ~= nil and piece.onlyFor ~= sight then
+			return false
+		end
+		return true
+	end
+	local kept = {}
+	for _, piece in ipairs({
 		{
 			name = "Stock",
 			group = "body" :: Gun.Group,
@@ -236,6 +283,11 @@ function Geometry.pieces(config): { Piece }
 		},
 		{
 			name = "Scope",
+			-- `skipFor` IS READ BY `Geometry.pieces` BELOW (task 143): the open-sighted rifle wears
+			-- the same four groups minus this one. The scope's RINGS stay, because they are part of
+			-- the `action` group's own mesh (`Vijsjes_Low`, the screws) and not a piece of their own
+			-- -- and a rifle with its mounts still on is what a hunter who took the glass off has.
+			skipFor = "bead",
 			group = "body" :: Gun.Group,
 			meshKey = Geometry.MESH_KEYS.Scope,
 			meshOffset = meshAt,
@@ -252,7 +304,25 @@ function Geometry.pieces(config): { Piece }
 			-- and can still aim.
 			transparency = 0.75,
 		},
-	}
+		{
+			-- THE FRONT SIGHT, DRAWN (task 143): see `BEAD_DIAMETER` above for why it is drawn and
+			-- where its height came from. `onlyFor` is the mirror of `skipFor`.
+			name = "Bead",
+			onlyFor = "bead",
+			group = "body" :: Gun.Group,
+			size = Vector3.new(at.beadDiameter, at.beadDiameter, at.beadDiameter),
+			offset = CFrame.new(0, at.beadY, at.muzzleZ + at.beadDiameter),
+			color = look.bead or Color3.fromRGB(214, 176, 96),
+			material = Enum.Material.Metal,
+			shape = Enum.PartType.Ball,
+			reflectance = 0.25,
+		},
+	}) do
+		if wanted(piece) then
+			table.insert(kept, piece)
+		end
+	end
+	return kept
 end
 
 function Geometry.partCount(config): number
