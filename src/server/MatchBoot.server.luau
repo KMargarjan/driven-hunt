@@ -91,7 +91,9 @@ runtime:run()
 -- `SENSE.SHOT_AUDIBLE_STUDS` sprints, hit or miss. The mirror of the `HitReported` line below, in
 -- the same composition root and for the same reason -- neither owner requires the other.
 Weapon.ShotFired:Connect(function(shot)
-	runtime:hearShot(shot.muzzle)
+	-- BOTH ENDS OF THE SHOT (task 149b): the bang at the muzzle and the strike at the far end,
+	-- each with its own radius. `shot.at` is nil for any caller older than this task.
+	runtime:hearShot(shot.muzzle, shot.at)
 end)
 
 -- Unchanged from BoarBoot. The weapon publishes hits; the boar's own owner decides what a hit means.

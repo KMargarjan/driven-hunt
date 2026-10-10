@@ -441,6 +441,9 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- being shot (hit-zones design section 6.2)
 	self._boltFor = 0 -- seconds of "run whatever the threats say", counted down with dt
 	self._lastShotPoint = nil :: Vector3?
+	-- HAS IT PASSED THE GUNS? One way, set the first sense tick a threat is on the far side from the
+	-- exit, read by `_senseAware`'s row 10b (task 149b).
+	self._crossed = false
 	self._carcassFor = 0
 	self._downedReported = false
 
@@ -1326,14 +1329,24 @@ function Brain:_hearSound(sound, position: Vector3)
 	if state == "GONE" or state == "DOWN" or state == "CRIPPLED" then
 		return
 	end
-	if flatDistance(position, sound.position) > sense.SHOT_AUDIBLE_STUDS then
+	-- TWO CIRCLES, AND THE NEARER POINT IS WHAT IT RUNS FROM (task 149b). A shot is heard from the
+	-- shooter AND from where the bullet landed, because the animals are at the far end: with one
+	-- circle at the muzzle, the pack Karen fired into was outside the radius whenever she shot
+	-- further than 33.6 m, which is most of the time (`SENSE`'s own comment has the arithmetic).
+	local fromShooter = flatDistance(position, sound.position)
+	local fromImpact = if sound.impact ~= nil then flatDistance(position, sound.impact) else math.huge
+	local impactStuds = sense.SHOT_AUDIBLE_FROM_IMPACT_STUDS or 0
+	if fromShooter > sense.SHOT_AUDIBLE_STUDS and fromImpact > impactStuds then
 		return
 	end
 	-- EVERY ANIMAL THAT HEARS IT RUNS, not only the one that was hit (Karen, 2026-10-05: *"after
-	-- shoot all run away"*). `SENSE.SHOT_AUDIBLE_STUDS` is 350 studs and this is reached from
-	-- `Runtime:hearShot` for every live boar, so the radius is the whole of the rule. The bolt, the
-	-- flush and the ACCEL bypass are all `Brain:spook`, which a freshly released wave also uses.
-	self:spook(sound.position)
+	-- shoot all run away"*). This is reached from `Runtime:hearShot` for every live boar, so the two
+	-- radii are the whole of the rule. The bolt, the flush and the ACCEL bypass are all
+	-- `Brain:spook`, which a freshly released wave also uses.
+	--
+	-- IT RUNS FROM THE NEARER BANG. An animal standing beside the one that was hit should break away
+	-- from the impact, not from a hunter 200 studs behind it.
+	self:spook(if fromImpact < fromShooter then sound.impact else sound.position)
 end
 
 -- ONE SENSE TICK, with the flag ON: the precedence table of design section 3.2, rows 5 to 11, read
@@ -1356,6 +1369,21 @@ function Brain:_senseAware(position: Vector3, obs, perception, follower: boolean
 	end
 
 	local reaction = perception.reaction
+
+	-- HAS IT CROSSED? A threat on the FAR SIDE from the exit is a threat the animal has gone past,
+	-- which is what "the other side of the road" means to an animal that has no idea where the road
+	-- is (task 149b). Latched one way: an animal cannot un-cross, so a hunter wandering south later
+	-- does not put it back in the drive.
+	local pace = config.PACE
+	if not self._crossed and pace ~= nil and pace.LEAVE_AFTER_CROSSING == true then
+		local toExit = self._field.exitZ - position.Z
+		for _, threat in ipairs(obs.threats or {}) do
+			if (threat.position.Z - position.Z) * toExit < 0 then
+				self._crossed = true
+				break
+			end
+		end
+	end
 
 	-- ROW 7: anything inside a flush radius, whatever state the animal was in.
 	if reaction == "flee" then
@@ -1412,6 +1440,16 @@ function Brain:_senseAware(position: Vector3, obs, perception, follower: boolean
 	-- ROW 10: noticed, standing, and the animal is willing to look again.
 	if reaction == "alert" and self._refractoryFor <= 0 then
 		self:_enterAlert(perception.cause)
+		return
+	end
+
+	-- ROW 10b: IT IS PAST THE GUNS, SO IT IS LEAVING (task 149b). This sits ABOVE the idle row on
+	-- purpose: with nothing to react to, an animal that has crossed used to fall through to
+	-- `_senseIdle` and graze where it stood. It keeps its flight instead, and `_outcome` takes it off
+	-- the board at `field.exitZ`. The GAIT is still the pace system's -- a walk or a trot with
+	-- nothing near, a run if something is -- so this says "keep going", not "sprint for ever".
+	if self._crossed and pace ~= nil and pace.LEAVE_AFTER_CROSSING == true then
+		self:_flush()
 		return
 	end
 

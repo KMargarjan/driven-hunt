@@ -834,6 +834,20 @@ Boar.CONFIG.PACE = {
 	ENABLED = false,
 	-- 4.5 studs/s is inside the WALK gait band (`MODEL.TROT_FROM` is 2.852 x 1.8 = 5.13), so a
 	-- pushed animal is DRAWN walking as well as moving at a walk. Karen's dial.
+	-- ONCE IT IS PAST THE GUNS IT KEEPS GOING (task 149b). Karen, 2026-10-10: *"when they cross
+	-- another side they have to run away not stay and od circles"*, and task 127 already wrote her
+	-- earlier words into `_outcome`: *"once they in another side of road they run away"*.
+	--
+	-- MEASURED, 82 crossings over 150 s: max dwell 60.7 s under 1 stud/s and 120 windows of 300
+	-- degrees of turning in 10 s. EVERY dwelling animal was playing a CALM clip -- `idle` 19,
+	-- `grazeEnd` 18, `digWalk` 6, `grazeLoop` 9, `smell` 5 -- so what they were doing was going back
+	-- to the task-117 repertoire and grazing where they stood. The wandering IS the circles.
+	--
+	-- THE BRAIN DOES NOT KNOW WHERE THE ROAD IS, and it does not need to: crossing means the people
+	-- are BEHIND you. Once a threat has been on the far side from the exit, the animal has crossed,
+	-- and from then on it does not go calm again -- it holds its flight to `field.exitZ`, where
+	-- `_outcome` despawns it. One way: an animal cannot un-cross.
+	LEAVE_AFTER_CROSSING = true,
 	WALK_SPEED = 4.5,
 	-- ...and 11 is a trot (the band runs to `RUN_FROM`), for a herd with a beater on top of it, or
 	-- for one the drive has asked to get across the road (`Runtime:urge`).
@@ -1708,21 +1722,36 @@ Boar.CONFIG.SENSE = {
 	AVOID_TURN_DEG = 120,
 	AVOID_STUDS = 80,
 
-	-- A SHOT IS A SOUND, HIT OR MISS. 350 studs is ~98 m at 1 stud = 0.28 m. A 12-gauge is really
-	-- audible for kilometres, and the whole 1,240 x 1,680 corridor bolting at the first shot would
-	-- end a drive in 30 seconds -- so this is a GAMEPLAY number with no real-world anchor, and it is
-	-- the one in this block most likely to change. Karen's dial.
-	-- HOW FAR A SHOT CARRIES AS A FRIGHT. Karen, 2026-10-09: *"once shoot they have to run around
-	-- so blast radius is a bit"* -- the animals AROUND the shot run; the rest of the wood does not.
+	-- A SHOT IS A SOUND, HIT OR MISS, AND IT IS HEARD FROM TWO PLACES (task 149b).
 	--
-	-- 350 WAS THE WHOLE FIELD. The Forest Test is about 600 studs from the spawn line to the exit, so
-	-- a single shot emptied every line in the world at once and there was nothing left to watch. 120
-	-- is about twice the distance she shoots at (her hits in task 138 were at 30 to 71 m) so the
-	-- pack she fires into always runs, and a line crossing 200 studs down the road keeps its pace.
+	-- KAREN, 2026-10-10: *"when I shoot sometimes they dont run ... now looks odd I shoot and few run
+	-- and next to them another group walk"*. The cause was arithmetic, and it was written into the
+	-- comment this one replaces: it claimed 120 studs was *"about twice the distance she shoots at
+	-- (her hits in task 138 were at 30 to 71 m)"* -- **comparing studs with metres**. At
+	-- `METRES_PER_STUD` 0.28, 120 studs is 33.6 m against her 30-71 m shots, so the radius was 0.47
+	-- to 1.12 of her own shooting distance. The few that ran were the ones near HER; the group
+	-- standing next to the animal she hit never heard it, because the radius was measured from the
+	-- MUZZLE alone.
+	--
+	-- SO THE UNIT IS METRES NOW, with the conversion in the open, and there are two radii: one
+	-- around the shooter and a bigger one around the IMPACT. The impact is where the animals are, so
+	-- it is the one that has to reach the pack she fired into; the shooter's is the bang at her end.
+	-- `Runtime:hearShot` takes both points and an animal inside EITHER circle runs.
+	--
+	-- NOT THE WHOLE WOOD, which Karen also ruled out (*"blast radius is a bit"*, 2026-10-09): 350
+	-- studs emptied every line in the world at once and left nothing to watch. 60 m around the
+	-- impact is a quarter of the Forest Test's 600-stud depth.
+	METRES_PER_STUD = 0.28, -- the same number `Report.CONFIG` publishes; `boar_behaviour.spec` pins it
+	SHOT_HEARD_FROM_SHOOTER_M = 40,
+	SHOT_HEARD_FROM_IMPACT_M = 60,
+	-- ...IN STUDS, which is what the distances are measured in. Written out rather than computed so
+	-- that an override in a world's own `config.SENSE` (every spec does this) can set either unit and
+	-- be read, and `boar_behaviour.spec` asserts the two agree to the stud.
+	SHOT_AUDIBLE_STUDS = 143, -- 40 m / 0.28
+	SHOT_AUDIBLE_FROM_IMPACT_STUDS = 214, -- 60 m / 0.28
 	--
 	-- THE ANIMAL THAT WAS HIT IS NOT GOVERNED BY THIS: `takeHit` spooks it directly, and its own
 	-- sounder's panic spreads member to member (`_stepAlarm`). This is only the BANG.
-	SHOT_AUDIBLE_STUDS = 120,
 	-- ...held one second longer than `WOUND.BOLT_SECONDS` = 3: a hit boar carries on because it is
 	-- hurt, an unhit one only has the bang.
 	SHOT_SPRINT_SECONDS = 4,
@@ -2386,7 +2415,11 @@ end
 -- Returns how many live boars will be TOLD. The Brain owns the audible radius (`_hearSound` tests it
 -- again, because a pure spec must be able to drive a sound at any distance with no runtime at all),
 -- so this number is a diagnostic and a fan-out count, not the rule.
-function Runtime:hearShot(at: Vector3): number
+-- `impact` IS WHERE THE BULLET LANDED (task 149b), and it is optional: every caller written before
+-- this task passes the muzzle alone and gets exactly the behaviour it had, with the shooter's own
+-- radius. With both, an animal inside EITHER circle hears the shot -- which is what makes the pack
+-- she fired into run however far away she was standing.
+function Runtime:hearShot(at: Vector3, impact: Vector3?): number
 	if self._destroyed then
 		return 0
 	end
@@ -2399,7 +2432,7 @@ function Runtime:hearShot(at: Vector3): number
 	if not (sense and sense.ENABLED) then
 		return 0
 	end
-	table.insert(self._sounds, { kind = "shot", position = at })
+	table.insert(self._sounds, { kind = "shot", position = at, impact = impact })
 	-- WHEN AND WHERE THE LAST BANG WAS (task 123 round 3). Karen: *"next flot comes without spook if
 	-- there wasant driver or shoot withing 5s otherwise running"*. An animal spawned inside
 	-- `PACE.SPOOK_MEMORY_SECONDS` of this did not exist to hear it, so `Runtime:spawn` hands it on.
@@ -2410,7 +2443,14 @@ function Runtime:hearShot(at: Vector3): number
 		local state = entry.brain:state()
 		-- The same three states `_hearSound` refuses: a carcass, a terminal boar and a crippled one.
 		if state ~= "DOWN" and state ~= "GONE" and state ~= "CRIPPLED" then
-			if (flatOf(Body.position(entry.body)) - flatOf(at)).Magnitude <= sense.SHOT_AUDIBLE_STUDS then
+			-- THE SAME TWO-CIRCLE RULE `Brain._hearSound` applies, so the count and the behaviour
+			-- cannot disagree about who heard it.
+			local where = flatOf(Body.position(entry.body))
+			local heard = (where - flatOf(at)).Magnitude <= sense.SHOT_AUDIBLE_STUDS
+			if not heard and impact ~= nil then
+				heard = (where - flatOf(impact)).Magnitude <= (sense.SHOT_AUDIBLE_FROM_IMPACT_STUDS or 0)
+			end
+			if heard then
 				told += 1
 			end
 		end

@@ -109,8 +109,8 @@ Weapon.HitReported = hitSignal.Event
 -- click publishes nothing. The name deliberately matches the remote: one fact, two audiences,
 -- exactly as `HitReported` sits beside the `HitMarker` remote.
 --
--- Its one listener is `MatchBoot`, which calls `Boar`'s `runtime:hearShot(muzzle)`: every boar
--- inside `SENSE.SHOT_AUDIBLE_STUDS` sprints. Neither owner requires the other.
+-- Its one listener is `MatchBoot`, which calls `Boar`'s `runtime:hearShot(muzzle, at)`: every boar
+-- inside either of `SENSE`'s two radii sprints. Neither owner requires the other.
 -- Design: docs/design/boar-behaviour.md section 4.5
 Weapon.ShotFired = shotSignal.Event
 -- (player, aim: Vector3 unit, muzzle: Vector3, stopAt: number) -- stopAt is studs from the muzzle to
@@ -794,9 +794,13 @@ local function onFireRequest(player: Player, req: any): string?
 	end
 
 	-- THE SHOT AS A FACT, FOR THE SERVER (task 118). It goes out beside the client remote below so
-	-- the two can never disagree about what counted as a shot, and it carries no impacts: what a
-	-- boar hears is a bang at a place.
-	shotSignal:Fire({ shooterUserId = player.UserId, muzzle = muzzle, ammo = ammo })
+	-- the two can never disagree about what counted as a shot.
+	--
+	-- ...AND IT CARRIES WHERE THE SHOT WENT (task 149b). Not the pellet pattern -- one point, the aim
+	-- ray's own impact, or the end of the range when it hit nothing. A boar hears a bang at a place,
+	-- and there are TWO places: the muzzle and the far end. Karen: *"I shoot and few run and next to
+	-- them another group walk"* -- the group beside the animal she hit is at `at`, not at `muzzle`.
+	shotSignal:Fire({ shooterUserId = player.UserId, muzzle = muzzle, at = aimPoint, ammo = ammo })
 
 	local points = {}
 	for _, impact in ipairs(impacts) do

@@ -585,6 +585,29 @@ return function()
 			)
 		end)
 
+		it("hears a shot from the IMPACT as well as from the shooter", function()
+			-- KAREN, 2026-10-10: *"I shoot and few run and next to them another group walk"*. The
+			-- group beside the animal she hit stood 200 studs from HER and a few studs from the
+			-- BULLET, and only the muzzle had a radius -- so they never heard it (task 149b).
+			--
+			-- DRIVEN THROUGH THE PURE RULE, with a boar at the origin and the shooter far away:
+			-- the shot is inaudible from the muzzle and audible from the strike.
+			local far = SENSE.SHOT_AUDIBLE_STUDS + 60
+			local brain = Brain.new(on, FIELD, START, Random.new(11))
+			for _ = 1, 10 do
+				brain:step(DT, obs(START, {}))
+			end
+			local shooter = START + Vector3.new(far, 0, 0)
+			local impact = START + Vector3.new(6, 0, 0)
+			-- the muzzle alone: too far, nothing happens
+			local quiet = brain:step(DT, obs(START, {}, { sounds = { { kind = "shot", position = shooter } } }))
+			expect(quiet.targetSpeed < CONFIG.SPRINT_SPEED).to.equal(true)
+			-- ...the same bang, now carrying where it landed
+			local loud =
+				brain:step(DT, obs(START, {}, { sounds = { { kind = "shot", position = shooter, impact = impact } } }))
+			expect(loud.targetSpeed >= CONFIG.SPRINT_SPEED).to.equal(true)
+		end)
+
 		it("runs every animal that HEARS a shot, not only the one that was hit", function()
 			-- KAREN: *"after shoot all run away"* (2026-10-05), and `Runtime:hearShot` hands the sound
 			-- to every live boar, so the RADIUS is the rule and this case is about the radius being
@@ -593,10 +616,26 @@ return function()
 			-- 350 WAS THE WHOLE FIELD, and Karen said so herself on 2026-10-09: *"once shoot they
 			-- have to run around so blast radius is a bit"*. The Forest Test is about 600 studs from
 			-- the spawn line to the exit, so one shot emptied every line in the world and there was
-			-- nothing left to watch. 120 is about twice the range she shoots at. Both sentences are
-			-- hers and they are not in conflict: everything that HEARS it runs, and a shot is no
-			-- longer heard three hundred studs away.
-			expect(SENSE.SHOT_AUDIBLE_STUDS).to.equal(120)
+			-- nothing left to watch. Both sentences are hers and they are not in conflict:
+			-- everything that HEARS it runs, and a shot is not heard three hundred studs away.
+			--
+			-- THE UNIT IS METRES AND THE STUDS MUST AGREE WITH THEM (task 149b). 120 studs was
+			-- written as "about twice the range she shoots at", which compared studs with metres --
+			-- it is 33.6 m against her 30-71 m shots. This is the assertion that would have caught
+			-- that: the two fields are two spellings of one number, so they cannot drift.
+			expect(SENSE.METRES_PER_STUD).to.equal(0.28)
+			expect(math.abs(SENSE.SHOT_AUDIBLE_STUDS * SENSE.METRES_PER_STUD - SENSE.SHOT_HEARD_FROM_SHOOTER_M) < 0.5).to.equal(
+				true
+			)
+			expect(
+				math.abs(SENSE.SHOT_AUDIBLE_FROM_IMPACT_STUDS * SENSE.METRES_PER_STUD - SENSE.SHOT_HEARD_FROM_IMPACT_M)
+					< 0.5
+			).to.equal(true)
+			-- ...AND THE IMPACT REACHES FURTHER THAN THE MUZZLE, because the animals are at the far
+			-- end of the shot and that is the whole point of the second circle.
+			expect(SENSE.SHOT_AUDIBLE_FROM_IMPACT_STUDS > SENSE.SHOT_AUDIBLE_STUDS).to.equal(true)
+			-- ...and it reaches past the longest shot Karen has been recorded taking (71 m).
+			expect(SENSE.SHOT_HEARD_FROM_IMPACT_M >= 60).to.equal(true)
 			local brain = Brain.new(on, FIELD, START, Random.new(3))
 			for _ = 1, 30 do
 				brain:step(DT, obs(START, {}))
