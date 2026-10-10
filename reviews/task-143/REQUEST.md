@@ -1,12 +1,12 @@
 # Task 143 - the rifle without a scope, and two defects from 142
 
 Task: 143
-Round: 1
+Round: 2
 Base: main (`54c7759`, task 142 merged as PR #125)
-Code commit: `3495fd6f72f175434375d9bb43afcdb350322cfe`
+Code commit: `b176f2f0401b01afdfb1f644c232d911bc5aaf3f`
 
 ```
-[harness] PASS: 33/33 checks @ 3495fd6f72f175434375d9bb43afcdb350322cfe (clean tree) scope=all
+[harness] PASS: 33/33 checks @ b176f2f0401b01afdfb1f644c232d911bc5aaf3f (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing in this diff touches `TWO_PLAYER_PATHS`.
@@ -16,6 +16,9 @@ then move to rifle without scope where aiming true nozzle"*. The Director's two 
 142 are **step 0** and are committed separately (`fcfce79`). Transcribed in `PLAYTEST.md`.
 **No Architect run:** no new owner and no new system — one more row in the weapon table the rifle
 already lives in, and one more branch in the geometry that already draws it.
+
+Round 1 passed with 14 notes. Nine of them were real and are fixed in `b176f2f`; the rest are queued
+as 143a. **Round 1 got one thing wrong and claim 1 below is the correction.**
 
 ## Step 0: both defects, measured off the model rather than moved by eye
 
@@ -33,10 +36,11 @@ z +0.55..+0.75   y[-0.0786,+0.1063]
    below it, which is exactly *"floats in the air"*. It is on the forend's measured centroid now,
    `(-0.013, +0.057, -0.55)`, and a live probe says the glove's box
    `x[-0.451,+0.425] y[-0.431,+0.545] z[-0.991,-0.108]` **encloses the wood in all three axes**.
-   The other half was the ROTATION, not the position: the shotgun's inherited twist of -150
-   presented the palm edge-on beside the barrel. Swept live with `pose.py` and looked at — -120 turns
-   the palm flat to the camera, **-90 wraps the hand round the forend**. All three poses (carry, aim,
-   cycle) carry the same rotation, so the glove does not turn between hip, aim and the bolt cycle.
+   The other half was the ROTATION, and the three poses did not agree with each other: `carry` and
+   `cycle` were the shotgun's inherited `pitch 80 / twist -150 / yaw 90` and `aim` was
+   `pitch 85 / twist 110 / yaw -165` — a palm presented edge-on beside the barrel, turning between
+   hip and aim. Swept live with `pose.py` and looked at — -120 turns the palm flat to the camera,
+   **-90 wraps the hand round the forend**. One rotation across all three now.
 
 2. **THE MAGAZINE.** It hung from the ACTION box's underside (-0.2058) — a quarter of a stud below
    the stock line — 0.21 deep and 0.52 long: a brick. Sized and seated off the **wood** now: 0.11
@@ -46,33 +50,39 @@ z +0.55..+0.75   y[-0.0786,+0.1063]
 
 ## The ten claims
 
-1. **WHAT THE MODEL HAS: no sights at all.** Measured over all twelve nodes — `Circle_Low` is a
-   138-triangle swivel on the LEFT FLANK of the action (`x -0.095..-0.078, z +0.11..+0.18`) and
-   `Safety_Low` is the safety on top at `z +0.77`. It is a scope-only rifle. So the front sight is
-   **drawn**, exactly as the shotgun's bead is and for the same reason: there is nothing in the file
-   to upload. **Verify:** `BEAD_DIAMETER`'s comment in `Rifle/Geometry.luau`.
+1. **WHAT THE MODEL HAS — AND ROUND 1 SAID "NO SIGHT AT ALL", WHICH IS WRONG.** Chasing the
+   Reviewer's note on `BARREL_TOP_Y` found it: `driven-hunt-runs/t143-muzzle3.py` fits the rings in
+   `Barrel_Low`'s own vertices and the muzzle face is **two stacked tubes, not one** — the barrel at
+   centre `(-0.0138, +0.0920)` r 0.0364, and **a second 0.0404-stud tube on top of it** at centre
+   `(-0.0150, +0.1634)`, running `z -2.200..-2.095`. That is the **band of a banded front sight**,
+   with no bead and no blade on it. The drawn bead sits ON that band. Also measured: the barrel is
+   tapered and its axis rises toward the receiver (`+0.092` at the muzzle, `+0.135` at z -0.25), so
+   the note was right to ask — `+0.1844` survives because it is the BAND's top at the bead's own z,
+   not because it is the node's maximum, and the constant is now `SIGHT_BAND_TOP_Y`.
+   **Verify:** that comment block in `Rifle/Geometry.luau`, and `t143-muzzle3.py`'s output in it.
 
-2. **The bead sits on the barrel's own measured top line.** `Barrel_Low` spans `y +0.0556..+0.1844`,
-   so `BARREL_TOP_Y = 0.1844`, one diameter back from the muzzle so it is not half in the air.
-   **Verify:** `rifle.spec`, "is the SAME rifle with the glass off" — the bead is within 0.1 of
-   `-HANDLE_SIZE.Z/2` and exactly on the centre line (`|x| < 1e-9`), so it looks where the barrel
-   points.
+2. **ONE EXPRESSION FOR THE BEAD.** `Geometry.beadOffset` is read by `Geometry.sight` AND by the
+   drawn `Bead` piece — the rule `Gun.beadOffset` already keeps for the shotgun. **Verify:**
+   `rifle.spec`, "is the SAME rifle with the glass off" asserts the drawn piece's own offset equals
+   `beadOffset(open)` and so does the sight, so a second copy could not pass.
 
 3. **ONE GUN, ONE GEOMETRY, AND THE ROW PICKS THE SIGHT.** `Geometry.pieces` filters its single list
    on `skipFor`/`onlyFor` and `Geometry.sight` answers with the ocular lens or the bead, so the two
-   rifles cannot drift into two piece lists. **Verify:** the same spec asserts the scoped row's
-   pieces contain `Scope` and no `Bead`, and the open row's the mirror — **from the same list**.
+   rifles cannot drift into two piece lists. `ShapeRifle` — the silhouette OTHER players see until
+   the uploads land — follows the same row: it no longer draws a scope tube on a rifle that has
+   none. **Verify:** the same spec, plus the new "reads any row written before this task as the
+   SCOPED rifle", which also pins `sightKind(nil) == "scope"`.
 
 4. **The aim is the shotgun's, by having no scope at all.** With `row.scope` nil, `Mode.fovFor` falls
    back to `FOV_AIM_DEG`, `Hud.scopeVisible` and `Hud.reticleVisible` are both false for want of an
    eyepiece, and `Viewmodel.hiddenByScope` never hides the gun. No overlay, no reticle, no sway, gun
-   and hands visible — and Karen's no-crosshair rule is untouched, because the crosshair is false in
-   first person whatever is in the hands. **MEASURED through the real hotbar keys:**
+   and hands visible — and Karen's no-crosshair rule is untouched. **RE-MEASURED after the round-2
+   changes, through the real hotbar keys and the right mouse button** (`t143-switch.py`):
 
    ```
    2 Rifle      aimed  fov 19.87  overlay true   reticle true   gun hidden (0 meshes)
    3 RifleOpen  aimed  fov 50.00  overlay false  reticle false  gun drawn  (5 meshes)
-   1 Shotgun    carry  readout 'x[*] SLUG 24'
+   1 Shotgun    aimed  fov 50.00  overlay false  reticle false  gun drawn  (4 meshes)
    ```
 
 5. **It is the SAME gun, asserted field by field.** Range, pellets, spread, ammo, reserve, chambers,
@@ -80,14 +90,17 @@ z +0.55..+0.75   y[-0.0786,+0.1063]
    are all `==` the scoped rifle's row. **Three things differ and all three are the sight:** no
    `scope` block, one fewer `ASSET_KEYS` (never `rifle.scope`), and `SIGHT = "bead"`.
 
-6. **THE THIRD TOOL BROKE THE CLIENT'S REPLICA, and my own task surfaced it.** The server publishes
-   PER TOOL, so a switch sends two snapshots — the gun going away (`equipped = false`) and the gun
-   coming out — and the client kept ONE variable, so the last to arrive won. Measured: switching to
-   slot 3 left `Weapon.get()` holding the rifle's un-equipped snapshot, **the readout went blank and
-   the aim source refused to aim** — for the open rifle AND for the shotgun after it. With two
-   weapons the ordering happened to come out right, which is why task 142 never saw it. There is one
-   snapshot per weapon id now and `Weapon.get()` answers with the one that says it is equipped.
-   **Verify:** `byWeapon` in `src/client/Weapon/init.luau`.
+6. **THE THIRD TOOL BROKE THE CLIENT'S REPLICA, and the fix is now an ORDERING rule.** The server
+   publishes PER TOOL, so a switch sends two snapshots and the client kept ONE variable: switching to
+   slot 3 left `Weapon.get()` holding the rifle's un-equipped snapshot, the readout went blank and
+   the aim refused — for the open rifle AND for the shotgun after it. Round 1 fixed it with a `pairs`
+   scan for `equipped`, which the Reviewer was right to call random during the instant both say so.
+   It is `Weapon.heldFrom(replicas, heldId, newest)` now: **the gun whose NEWEST snapshot claimed the
+   hand**, so a stale `equipped` from a dropped un-equip cannot win either. **Verify:**
+   `weapon_client.spec`, "answers with the gun whose newest snapshot claimed the hand" — driven as a
+   function because keys 1/2/3 cannot be replayed at all (`VirtualInput` refuses them).
+   **MEASURED live in both directions**, 1→2→3→1→3→2→1, readout following the gun every time:
+   `3/3 .416 9` for either rifle, `x[*] SLUG 24` for the shotgun.
 
 7. **The eye relief is the open rifle's own, and both wrong answers were looked at.** It started at
    the shotgun's 3.2, which on a 4.4-stud rifle whose bead is at the muzzle put the eye **inside the
@@ -96,17 +109,22 @@ z +0.55..+0.75   y[-0.0786,+0.1063]
    (`.screenshots/t143-relief-5.4.png`). At **4.6** the cheek is on the stock, the barrel runs away
    to the bead, and the bead is dead centre.
 
-8. **Slot 3, behind the same flag.** `Weapons.ORDER` is `{shotgun, rifle, rifle_open}` and
-   `loadoutFor(true)` returns all three, so the hotbar reads **1 Shotgun, 2 Rifle, 3 RifleOpen** —
-   measured off the CoreGui hotbar itself. The shop decides who owns which later.
+8. **Slot 3, behind the same flag, and the bag order is a case now.** `Weapons.ORDER` is
+   `{shotgun, rifle, rifle_open}` and `loadoutFor(true)` returns all three, so the hotbar reads
+   **1 Shotgun, 2 Rifle, 3 RifleOpen**. Round 1 only pasted that measurement; `weapon_equip.spec`'s
+   order case now hands over `Weapons.loadoutFor(true)` itself — three Tools — so weapon four joins
+   it the day it joins `Weapons.ORDER`.
 
-9. **The report calls it `RIFLE (OPEN)`**, through the same `Weapons.row(id).label` the kill line and
-   the drive report's GUN column already read; nothing in `HitLog` or `ReportPanel` changed.
+9. **The report calls it `RIFLE (OPEN)` and the column fits it.** Twelve characters in a nine-wide
+   field pushed HITS three right of its header (the Reviewer's note). `%-12s` now — **and the RANGE
+   column gained the second space it had owed since task 140**, which had every column after it one
+   character left of its own heading. **Verify:** `rifle_client.spec` asserts, for every label in
+   `Weapons.ids()`, that the gun word starts exactly at the header's `GUN` and that the row is the
+   header's own length.
 
-10. **The validator stopped naming two weapons.** `Viewmodel.validate`'s structural loop walks what
-    the file actually carries, so a set nobody listed is checked rather than skipped; the
-    must-exist list is still explicit (and gained `rifle_open`) because `Viewmodel` is the shared
-    module the weapon table reaches through — a require back the other way is a cycle.
+10. **A validator that throws is the failure it exists to prevent.** `Viewmodel.validate`'s
+    structural loop walks what the file actually carries, so a set nobody listed is checked rather
+    than skipped — and a non-table member is now REPORTED instead of erroring out of the loop.
 
 ## The frames, looked at (rule 5)
 
@@ -118,11 +136,14 @@ z +0.55..+0.75   y[-0.0786,+0.1063]
 | `t143-scope-aim.png` | The scoped rifle, unchanged by this task: black mask, round eyepiece, duplex and red dot, no gun |
 | `t143-open-carry.png` | The open rifle carried: **no scope tube**, the mount rings still on the action, the bolt handle, the walnut, the small magazine under the receiver |
 
-## Standing rule A, Forest Test, 85 s, with RIFLE ON
+Round 2 changed no drawn number — `beadOffset` returns the same vector the two copies did — so the
+frames above are still what the gun looks like. The report's row is text and is asserted, not shot.
+
+## Standing rule A, Forest Test, 85 s, with RIFLE ON — re-run on `b176f2f`
 
 * the Tool is in the CHARACTER at 15 s and at 85 s (`gun in hand @15s=1 @85s=1`)
 * **0 "Stack Begin" and 0 error lines** in the whole console
-* **five waves released**, worst 1 boar sound at once over 10 s with 25 boars alive
+* **five waves released**, worst 2 boar sounds at once over 10 s with 29 boars alive
 
 ## What I could not finish, and what is a dial
 
@@ -134,11 +155,14 @@ z +0.55..+0.75   y[-0.0786,+0.1063]
   off still has its mounts. If Karen dislikes it, it is an upload, not an edit.
 * **The left glove's WRAP is first-pass and is the thing I would put next.** It is measurably on the
   wood and no longer floating, and at hip it reads as a hand; from the aim angle it reads as a block.
-  I swept the aim pose's twist at -40 and +10 as well and neither beat -90 (-40 reads as a floating
-  forearm), so all three poses keep one rotation and the glove does not jump. It is content-lane data
-  (`weapons.rifle_open.aim.left`), which is exactly what `tools/pose.py` exists to tune live.
-* **Nobody has heard the open rifle's sounds either** — it shares the scoped rifle's `SOUND` block,
-  so task 142's disclosure stands unchanged.
-* **The open rifle has no spec of its own on the client.** `rifle.spec` drives the row, the pieces
-  and the sight on the server; that the aimed FOV is 50 and no overlay appears is the pasted
-  measurement above, not a case. Queued.
+  I swept the aim pose's twist at -40 and +10 as well and neither beat -90, so all three poses keep
+  one rotation. It is content-lane data (`weapons.rifle_open.aim.left`), which is what `pose.py` is
+  for.
+* **Nobody has heard the open rifle's sounds** — it shares the scoped rifle's `SOUND` block, so task
+  142's disclosure stands unchanged.
+* **The live key sweep FIRES THE GUN.** `t141-oskeys.ps1` must left-click into the viewport to get
+  keyboard focus, so every hotbar press costs a round — which is why the readout above walks
+  `3/3 -> 2/3` and `x[*] -> x[x]`. It is the measuring instrument, not the game; and the first probe
+  of the sweep read `held=none` because the Tool had not reached the hand yet.
+* **`docs/design/rifle.md` is stale** (`slot: 1 or 2`, `ORDER = { "shotgun", "rifle" }`). Folded into
+  the Architect refresh already queued as 142a, per the Reviewer's own note.
