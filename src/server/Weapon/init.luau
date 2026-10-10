@@ -137,8 +137,13 @@ function Weapon.setDriveLineProvider(provider: Shotgun.DriveLineProvider?)
 	driveLineProvider = provider
 end
 
-function Weapon.setArmingPolicy(policy: ((Player) -> boolean)?)
+-- ...AND IT HANDS BACK THE ONE IT IS REPLACING (task 150), so a caller that needs the policy for the
+-- length of one test can put the real one back without knowing who installed it or what it was.
+-- `ForestTestBoot` and `MatchBoot` ignore the return and are unchanged.
+function Weapon.setArmingPolicy(policy: ((Player) -> boolean)?): ((Player) -> boolean)?
+	local previous = armingPolicy
 	armingPolicy = policy
+	return previous
 end
 
 local function mayArm(player: Player): boolean

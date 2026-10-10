@@ -386,32 +386,38 @@ return function()
 			-- re-dresses on its own quarter-second staleness tick. So this waits for the thing the
 			-- rule is about -- every downloaded piece drawn as itself -- and only then asserts, which
 			-- is the same claim with a deadline instead of a guess.
+			-- THE VIEWMODEL IS NIL WHILE IT RE-DRESSES, which the two-player run showed as well: a
+			-- reading taken on one of those frames has no model to compare against and says nothing,
+			-- so only a reading WITH a model is kept.
 			local ready, drawn, missing = 0, 0, {}
 			local model = nil
+			local sawModel = false
 			local deadline = os.clock() + 8
 			repeat
 				frames(15)
-				model = Camera.Viewmodel.current()
-				local worn: { [string]: boolean } = {}
-				if model ~= nil then
-					for _, part in ipairs((model :: Model):GetDescendants()) do
+				local current = Camera.Viewmodel.current()
+				if current ~= nil then
+					model = current
+					sawModel = true
+					local worn: { [string]: boolean } = {}
+					for _, part in ipairs((current :: Model):GetDescendants()) do
 						if part:IsA("MeshPart") then
 							worn[part.Name] = true
 						end
 					end
-				end
-				ready, drawn, missing = 0, 0, {}
-				for _, template in ipairs(folder:GetChildren()) do
-					if Camera.Viewmodel.meshReady(template) then
-						ready += 1
-						if worn[template.Name] then
-							drawn += 1
-						else
-							table.insert(missing, template.Name)
+					ready, drawn, missing = 0, 0, {}
+					for _, template in ipairs(folder:GetChildren()) do
+						if Camera.Viewmodel.meshReady(template) then
+							ready += 1
+							if worn[template.Name] then
+								drawn += 1
+							else
+								table.insert(missing, template.Name)
+							end
 						end
 					end
 				end
-			until (model ~= nil and ready > 0 and drawn == ready) or os.clock() >= deadline
+			until (sawModel and ready > 0 and drawn == ready) or os.clock() >= deadline
 			expect(model).to.be.ok()
 			TestKit.note(
 				string.format(

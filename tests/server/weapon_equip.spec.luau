@@ -65,30 +65,24 @@ local PROBE_NAME = "SpecEquipProbe"
 -- one-player run always found the hunter and a two-player run found whichever client connected
 -- first. Every case in this file is about what the weapon system does to an ARMED player.
 --
--- AND THE WEAPON'S OWN POLICY IS THE ANSWER, not the team. The team was the first guess and the
--- two-player run refused it too (`[harness2] FAIL: 31/35`, the same three assertions): `Match`
--- decides who may carry through an arming POLICY that `Weapon` reads, and what that policy says
--- depends on the drive's phase as well as the roster -- so "not on the Drivers team" is not the same
--- question as "the weapon system will arm this player", and only the second one is what every case
--- in this file is about. `Weapon.mayArmForTests` is that exact answer, exported for exactly this
--- (TASKS.md 32a(d)) -- it decides nothing and writes nothing.
---
--- A ONE-PLAYER SESSION IS UNCHANGED: the Director's decision F makes the lone player a Shooter, the
--- policy says yes, and the first live character is returned as it always was.
+-- ...AND IT PREFERS A SHOOTER. With two players one of them is a DRIVER and carries no gun
+-- (`Match.CONFIG.DRIVERS_MAY_SHOOT = false`), and `Players:GetPlayers()` is in join order, so a
+-- one-player run always found the hunter and a two-player run found whichever client connected
+-- first. The team is the same server-authoritative fact `tests/client/Role.luau` resolves a client's
+-- own role from. A driver is still better than nobody: with the policy override below every case
+-- here is about the weapon OWNER, and the owner behaves the same for either player.
 local function somebody(): Player?
+	local fallback = nil
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player.Character ~= nil and player.Character:FindFirstChildOfClass("Humanoid") ~= nil then
-			if Weapon.mayArmForTests(player) then
+			local team = player.Team
+			if team == nil or team.Name ~= "Drivers" then
 				return player
 			end
+			fallback = fallback or player
 		end
 	end
-	-- NOBODY THE POLICY WILL ARM answers nil, exactly as an empty server does, and each case's own
-	-- `if player == nil` guard notes it and returns. That is this file's existing behaviour for
-	-- "there is nobody here to arm" and it is not widened here: a world with no armable player is a
-	-- world where these claims have no subject, and inventing a failure out of it would be a
-	-- different claim than the one the case makes.
-	return nil
+	return fallback
 end
 
 -- A Tool this spec can hand to a humanoid: a real handle, because a handleless one is equipped and
@@ -150,6 +144,34 @@ local function restore(player: Player, gun: Tool?)
 end
 
 return function()
+	-- EVERY CASE IN THIS FILE IS ABOUT THE WEAPON OWNER, NOT ABOUT WHO THE DRIVE LETS CARRY (task 150).
+	--
+	-- `Match` decides who may carry through an arming POLICY that `Weapon` reads, and its answer
+	-- depends on the drive's PHASE as well as on the roster -- so in a two-player run it can be true
+	-- when a case starts and false by the time the case tidies up, and `refreshArming` then correctly
+	-- leaves the player with nothing. MEASURED: `[harness2] FAIL: 31/35` three times running, always
+	-- the same three assertions, always `#Hardware.toolsOf(player) == #Weapons.loadout()` at the END
+	-- of a case. The owner was right and the subject had changed underneath it.
+	--
+	-- SO THE POLICY IS THE ONE-PLAYER POLICY FOR THE LENGTH OF EACH CASE, and the real one goes back
+	-- afterwards -- `Weapon.setArmingPolicy` hands back the one it replaced, so this restores whatever
+	-- the place installed without knowing which place it is. `zz_drive_boundary.spec` is where the
+	-- POLICY itself is tested, and it is untouched by this.
+	local previousPolicy: ((Player) -> boolean)? = nil
+	local overridden = false
+	beforeEach(function()
+		previousPolicy = Weapon.setArmingPolicy(function()
+			return true
+		end)
+		overridden = true
+	end)
+	afterEach(function()
+		if overridden then
+			Weapon.setArmingPolicy(previousPolicy)
+			overridden = false
+		end
+	end)
+
 	describe("the gun ends up in the hand", function()
 		it("reports the OUTCOME of an equip, not the fact that it called EquipTool", function()
 			local player = somebody()
