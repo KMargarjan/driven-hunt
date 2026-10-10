@@ -1100,8 +1100,9 @@ return function()
 			-- drew its spine 4.4 degrees off world up -- a dead boar on its feet, made of two correct
 			-- rotations composing. So exactly one of the two may do the falling.
 			--
-			-- A MODEL WITH A DEATH TRACK: the clip does it, and `Body.collapse` anchors the box at
-			-- the moment of death so that gravity cannot add a second rotation to the first.
+			-- A MODEL WITH A DEATH TRACK: the clip does it, and `Body.collapse` keeps the box's upright
+			-- constraint ON -- so gravity still drops the carcass to the ground, as the case below
+			-- waits for, but it can never add a second rotation to the clip's own.
 			expect(Boar.boxFalls(true, true)).to.equal(false)
 			-- NO MODEL AT ALL: the box does it, exactly as it has since task 28.
 			expect(Boar.boxFalls(false, false)).to.equal(true)

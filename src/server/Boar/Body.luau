@@ -1875,7 +1875,8 @@ end
 -- bind pose for the whole `CARCASS_SECONDS`.
 --
 -- SO: no visual, or no death track for THIS rig, and the box does the falling exactly as it has
--- since task 28. Otherwise the clip does it, and `Body.collapse` anchors the box so that it cannot.
+-- since task 28. Otherwise the clip does it, and `Body.collapse` keeps the box's upright constraint
+-- ON so that gravity can still drop it to the ground but can never roll it.
 function Body.boxFalls(hasVisual: boolean, hasDeathTrack: boolean): boolean
 	return not hasVisual or not hasDeathTrack
 end
@@ -1896,7 +1897,6 @@ function Body.collapse(handle, config, full)
 
 	handle.mover.PlaneVelocity = Vector2.zero
 	handle.mover.Enabled = false
-	handle.upright.Enabled = false
 
 	local part = handle.part
 	part:SetAttribute("Damageable", false)
@@ -1924,24 +1924,25 @@ function Body.collapse(handle, config, full)
 	-- has been photographing -- a carcass with a model, an upright box and no clip on it, standing in
 	-- its bind pose. Asking here also LOADS the track, so the death below plays off the same one.
 	local hasTrack = full ~= nil and trackFor(handle, (Body.deathClips(full)), full) ~= nil
-	if Body.boxFalls(handle.visual ~= nil, hasTrack) then
+	local boxFalls = Body.boxFalls(handle.visual ~= nil, hasTrack)
+
+	-- THE UPRIGHT CONSTRAINT ONLY LETS GO WHEN THE BOX IS THE THING THAT FALLS (task 150). Until this
+	-- task it was switched off for every death, so gravity could ROLL the trunk while the clip was
+	-- laying the rig down inside it -- and the two rotations COMPOSE: measured on a real kill, a
+	-- carcass whose box had tumbled to -90.2 degrees while the death paddle played drew its spine
+	-- **4.4 degrees off world up**, which is a live standing boar's own figure. A dead boar standing
+	-- on its feet, made of two correct rotations.
+	--
+	-- IT STILL FALLS TO THE GROUND. `AlignOrientation` holds the ORIENTATION and nothing else, so an
+	-- animal that died in the air still drops the `SPAWN_CLEARANCE` or the slope under it -- which is
+	-- what `boar_model.spec`'s "the box's bottom is still on the ground" waits for -- it just arrives
+	-- the way up, which is the frame the death clip was authored against.
+	handle.upright.Enabled = not boxFalls
+
+	if boxFalls then
 		Body.topple(handle, config)
 		return
 	end
-
-	-- ...AND WHEN THE CLIP IS DOING THE FALLING, THE BOX IS HELD STILL -- which task 120 said and
-	-- nothing enforced (task 150). Disabling the upright constraint above hands the trunk to GRAVITY,
-	-- and a tumble COMPOSES with the clip's own rotation: measured on a real kill, a carcass whose box
-	-- had rolled to -90.2 degrees while the paddle played drew its spine 4.4 degrees off world up,
-	-- which is a live standing boar's own figure. Anchoring at the moment of death is one write, it is
-	-- what `stepCarcass` would have done within four seconds anyway, and it makes the drawn pose a
-	-- function of the clip alone.
-	--
-	-- IT DOES NOT NEED TO FALL TO THE GROUND AFTERWARDS: the death clip is authored from a STANDING
-	-- rig and ends with the body on the floor in that rig's own frame -- measured in task 120 at 0.02
-	-- studs off the ground with the box upright. The box stays where the animal was standing when it
-	-- died, which is exactly the frame the clip was built against.
-	part.Anchored = true
 
 	-- ...AND WHEN THERE IS SOMETHING DRAWN, THE CLIP THAT DOES THE FALLING OVERSHOOTS ON A SMALL
 	-- ANIMAL (task 120). Karen, 2026-10-04: "when shoot cub he is gone not remaining". The cub was
