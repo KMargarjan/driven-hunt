@@ -1,6 +1,6 @@
-# Task 149b - the shot radius, the crossing, and two things I got wrong last round
+# Task 150 (was 149b) - the shot radius, the crossing, and two things I got wrong last round
 
-Task: 149b
+Task: 150
 Round: 1
 Base: main (`c114359`, task 149 item 0 merged as PR #132)
 Code commit: `8468e383e653ca63bbf83c0796da6751a832225a`
