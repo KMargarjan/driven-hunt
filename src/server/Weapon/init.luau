@@ -182,7 +182,11 @@ local function watchTool(player: Player, tool: Tool, id: string)
 		previous:Disconnect()
 	end
 	watchers[id] = tool.AncestryChanged:Connect(function()
-		if tool.Parent ~= nil then
+		-- ...AND "LOST" IS NOT ONLY `Parent == nil` (task 144). A respawn DETACHES the old Backpack
+		-- -- sets its own Parent to nil -- without destroying it, so a Tool sitting in it keeps a
+		-- perfectly non-nil Parent and this handler used to return here for ever. `Weapon.reachable`
+		-- asks the question that matters instead: can the PLAYER get at it.
+		if Weapon.reachable(tool, player) then
 			return -- equipping moves it Backpack -> Character; that is not losing it
 		end
 		if toolsOfPlayer(player)[id] == tool then
@@ -191,17 +195,48 @@ local function watchTool(player: Player, tool: Tool, id: string)
 	end)
 end
 
+-- CAN THE PLAYER ACTUALLY GET AT THIS TOOL? PURE, and public so a spec can drive the one shape no
+-- session reproduces on demand (task 144).
+--
+-- "HAS A PARENT" IS NOT THE SAME QUESTION, AND THE DIFFERENCE COST A HUNTER HIS SHOTGUN. Measured in
+-- the Forest Test, 10 double-deaths: die once, then again inside `AUTO_EQUIP_DELAY_SECONDS`, and the
+-- player comes back with `bag=[Rifle,RifleOpen]` and EMPTY HANDS -- and stays that way through the
+-- next respawn and the one after. A census of the whole DataModel found only TWO of our Tools: the
+-- shotgun was not under `game` at all. That is the shape. A respawn DETACHES the old Backpack --
+-- `Parent = nil` on the Backpack, which takes it out of the tree -- but does not DESTROY it, so the
+-- Tool inside keeps a non-nil Parent indefinitely. The old rule read that as "he is holding it", the
+-- grant was skipped, and `watchTool`'s `Parent ~= nil` guard meant the record was never cleared
+-- either. Nothing re-granted until the engine got round to destroying the detached Backpack, which
+-- is why Task 141 saw it only in a long session and could not reproduce it on a fresh one.
+--
+-- THE LIVE CONTAINERS ARE THE ANSWER, and they are the same two `Hardware.toolsOf` already walks:
+-- the Backpack the player has NOW and the character they are wearing NOW. Nothing else can be
+-- reached, whatever its Parent says.
+function Weapon.reachable(tool: Instance?, player: Player): boolean
+	if tool == nil then
+		return false
+	end
+	local parent = (tool :: Instance).Parent
+	if parent == nil then
+		return false
+	end
+	return parent == player:FindFirstChildOfClass("Backpack") or parent == player.Character
+end
+
 -- Does this player HOLD a gun, rather than: is one recorded against their name? A Tool goes with
 -- the character it is equipped on, so a respawn -- which the drive performs on every placement --
--- destroys it, and a Tool that never reached a Backpack is parented to nil from the start. Either
--- way the record is stale, and believing it leaves the player unarmed for the rest of the drive
--- with nothing ever re-granting (Task 34).
+-- destroys it, and a Tool that never reached a Backpack is parented to nil from the start. Since
+-- task 144 it also goes with a Backpack that was merely DETACHED. Every one of those is a stale
+-- record, and believing it leaves the player unarmed with nothing ever re-granting (Task 34).
+--
+-- THE RECORD IS CORRECTED ON EVERY READ, which is what makes the arming sweep a repair rather than
+-- a re-statement of the same wrong answer: drop it here and the next `armingAction` says "grant".
 local function holdsTool(player: Player, id: string): boolean
 	local tool = toolsOfPlayer(player)[id]
 	if tool == nil then
 		return false
 	end
-	if tool.Parent == nil then
+	if not Weapon.reachable(tool, player) then
 		toolsOfPlayer(player)[id] = nil
 		return false
 	end
