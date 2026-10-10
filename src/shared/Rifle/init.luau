@@ -299,7 +299,11 @@ Rifle.CONFIG = {
 			rimThickDeg = 1.69,
 			-- ...and it is dark grey rather than black, because a black ring against a black mask is
 			-- one shape. Sampled from the reference: the tube reads around 60/60/62.
-			rimColor = Color3.fromRGB(60, 60, 62),
+			-- NEAR-BLACK, NOT GREY (task 147). Karen, after playing task 146: the tube read as a light
+			-- grey band. Sampled off her own reference again, in the shadowed part of the body rather
+			-- than the lit top edge: the scope is a dark object with a highlight on it, and one flat
+			-- UI colour has to pick the body rather than the highlight.
+			rimColor = Color3.fromRGB(22, 22, 24),
 			maskColor = Color3.fromRGB(0, 0, 0),
 			-- THE WORLD OUTSIDE SURVIVES (task 146). In her frame the grass and trunks past the tube
 			-- are plainly there, just dark. 0.45 keeps about half of them; 0 is task 141's solid
