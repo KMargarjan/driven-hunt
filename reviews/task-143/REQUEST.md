@@ -1,7 +1,7 @@
 # Task 143 - the rifle without a scope, and two defects from 142
 
 Task: 143
-Round: 2
+Round: 1
 Base: main (`54c7759`, task 142 merged as PR #125)
 Code commit: `b176f2f0401b01afdfb1f644c232d911bc5aaf3f`
 
@@ -17,8 +17,13 @@ then move to rifle without scope where aiming true nozzle"*. The Director's two 
 **No Architect run:** no new owner and no new system — one more row in the weapon table the rifle
 already lives in, and one more branch in the geometry that already draws it.
 
-Round 1 passed with 14 notes. Nine of them were real and are fixed in `b176f2f`; the rest are queued
-as 143a. **Round 1 got one thing wrong and claim 1 below is the correction.**
+**WHY THIS IS STILL `Round: 1`, AND WHAT IT IS A VERDICT ON.** `reviews/task-143/RESULT.md` passed
+`7769468`. Nine of its fourteen notes were real -- the report's columns are what Karen reads, and the
+replica's tie-break is what the hand holds -- so they are fixed in `b176f2f`, which is AFTER the
+commit that was passed. That means the verdict no longer covers the code (git workflow step 4), so
+this asks for one that does. `tools/agents.py` counts the round from the committed verdict and a PASS
+does not consume one, so it refuses anything but `Round: 1` here; this is that run. **Round 1 also
+got one thing wrong, and claim 1 below is the correction.**
 
 ## Step 0: both defects, measured off the model rather than moved by eye
 
