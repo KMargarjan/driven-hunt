@@ -432,6 +432,42 @@ return function()
 			expect(math.abs(beadSight.Z - (-open.HANDLE_SIZE.Z / 2)) < 0.1).to.equal(true)
 			-- ...on the gun's own centre line, so it looks exactly where the barrel points.
 			expect(math.abs(beadSight.X) < 1e-9).to.equal(true)
+			-- ...AND IT IS THE SAME EXPRESSION THE DRAWN BEAD USES, not a copy of it (the Reviewer's
+			-- round-1 note, and the rule `Gun.beadOffset` already keeps for the shotgun).
+			local drawn = nil
+			for _, piece in ipairs(geometry.pieces(open)) do
+				if piece.name == "Bead" then
+					drawn = piece.offset.Position
+				end
+			end
+			expect(drawn).to.be.ok()
+			expect((drawn :: Vector3) - geometry.beadOffset(open)).to.equal(Vector3.zero)
+			expect(beadSight.Position).to.equal(geometry.beadOffset(open))
+		end)
+
+		it("reads any row written before this task as the SCOPED rifle", function()
+			-- `SIGHT` is a field task 143 added, so every row and every caller that predates it has
+			-- nil there -- and nil must mean the gun this repo already had, never a rifle that
+			-- silently lost its scope. The Reviewer asked for this one by name.
+			local geometry = Weapons.geometry("rifle")
+			expect(geometry.sightKind(nil)).to.equal("scope")
+			expect(geometry.sightKind({})).to.equal("scope")
+			expect(geometry.sightKind({ SIGHT = "bead" })).to.equal("bead")
+			expect(geometry.sightKind(Weapons.ROWS.rifle)).to.equal("scope")
+			expect(geometry.sightKind(Weapons.ROWS.rifle_open)).to.equal("bead")
+			-- ...AND THE WORLD GUN OTHER PLAYERS SEE FOLLOWS IT. The fallback silhouette is what is
+			-- drawn until the uploads land, so a scope tube on the open-sighted rifle would be a gun
+			-- that changes shape as it loads.
+			local function tubed(row): boolean
+				for _, piece in ipairs(Shapes.for_(row.id).pieces(row)) do
+					if piece.name == "RifleScope" then
+						return true
+					end
+				end
+				return false
+			end
+			expect(tubed(Weapons.ROWS.rifle)).to.equal(true)
+			expect(tubed(Weapons.ROWS.rifle_open)).to.equal(false)
 		end)
 
 		it("gives the rifle a cycle group that SLIDES, and the shotgun one that hinges", function()

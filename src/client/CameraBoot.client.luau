@@ -153,11 +153,13 @@ if weaponModule then
 	-- ...AND THE MAGAZINE (task 142), which is the SERVER'S OWN STEP and not a count of rounds.
 	--
 	-- ROUND 1 COUNTED LIVE CHAMBERS AND ROUND 2 COUNTED THEM PER WEAPON, and the Reviewer was right
-	-- both times: `Weapon.get()` is one variable holding whichever gun was published last, so a
-	-- SWITCH stepped the count and fired the sound; and keying it per weapon still fires on a
-	-- RE-GRANT, where a fresh full magazine steps the stored count with no magazine changed. A round
-	-- count is simply not the question. `snapshot.action` IS the question, it has been on the wire
-	-- since this task, and the edge into `"Magazine"` is exactly one magazine change.
+	-- both times: a SWITCH stepped the count and fired the sound, because at the time `Weapon.get()`
+	-- was one variable holding whichever gun was published last; and keying it per weapon still
+	-- fires on a RE-GRANT, where a fresh full magazine steps the stored count with no magazine
+	-- changed. Task 143 gave the replica one snapshot per weapon, which kills the first of those two
+	-- and leaves the second exactly as it was: A ROUND COUNT IS SIMPLY NOT THE QUESTION.
+	-- `snapshot.action` IS the question, it has been on the wire since task 142, and the edge into
+	-- `"Magazine"` is exactly one magazine change.
 	local wasAction: string? = nil
 	Camera.setBreakSource({
 		state = function()

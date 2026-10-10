@@ -51,8 +51,10 @@ Geometry.BODY_NAME = "RifleBody"
 Geometry.CYCLE_GROUP_NAME = "Bolt"
 Geometry.CYCLE_KIND = "slide"
 
--- The same four keys the WORLD rifle wears (`Weapons.ROWS.rifle.ASSET_KEYS`): unlike model B, which
--- has a world gun and a viewmodel gun, this rifle is ONE model and both draw it.
+-- The same four keys the WORLD rifle wears (`Weapons.ROWS.rifle.ASSET_KEYS` -- the SCOPED row):
+-- unlike model B, which has a world gun and a viewmodel gun, this rifle is ONE model and both draw
+-- it. THE OPEN-SIGHTED ROW WEARS THREE OF THEM (task 143): the viewmodel folder still publishes all
+-- four, and `rifle_open` simply never clones `rifle.scope`.
 Geometry.ASSET_KEYS = table.freeze({ "rifle.action", "rifle.stock", "rifle.bolt", "rifle.scope" })
 
 Geometry.MESH_KEYS = table.freeze({
@@ -74,18 +76,35 @@ local SCOPE_AXIS_Y = 0.2972
 -- the magazine well: at z +0.35..+0.55 the stock's underside is -0.0659 and at +0.55..+0.75 it is
 -- -0.0786. A real bolt-action box sits NEARLY FLUSH -- a few hundredths proud of that line -- so the
 -- box is 0.11 deep and its floor lands at -0.145, which is 0.072 below the wood instead of 0.28.
--- THE FRONT SIGHT IS DRAWN, BECAUSE THE MODEL HAS NONE (task 143). Karen asked for a rifle
--- *"where aiming true nozzle"* -- down the barrel to a front sight -- and the Rigby's twelve nodes
--- carry no sight at all: `Circle_Low` is a 138-triangle swivel on the LEFT FLANK of the action
--- (x -0.095..-0.078, z +0.11..+0.18) and `Safety_Low` is the safety on top at z +0.77. It is a
--- scope-only rifle. So the bead is a drawn ball, exactly as the shotgun's is (`Gun.pieces`'s `Bead`),
--- and for the same reason: there is nothing in the file to upload.
+
+-- THE BEAD IS DRAWN, BECAUSE THE MODEL HAS A BAND AND NO BEAD ON IT (task 143). Karen asked for a
+-- rifle *"where aiming true nozzle"* -- down the barrel to a front sight -- and the Rigby's twelve
+-- nodes carry no sight NODE at all: `Circle_Low` is a 138-triangle swivel on the LEFT FLANK of the
+-- action (x -0.095..-0.078, z +0.11..+0.18) and `Safety_Low` is the safety on top at z +0.77. It is
+-- a scope-only rifle as it ships. What it DOES have is inside `Barrel_Low` itself, and round 1 of
+-- this task missed it: a small tube on top of the barrel at the muzzle -- the band of a banded front
+-- sight, measured below. So the bead is a drawn ball ON that band, exactly as the shotgun's is
+-- (`Gun.pieces`'s `Bead`), and for the same reason: there is nothing in the file to upload.
 --
--- MEASURED: `Barrel_Low` spans y +0.0556..+0.1844, so its TOP LINE is +0.1844 and the bore axis is
--- the plan's own `boreUpStuds` = 0.12. The bead sits on the top line, one diameter back from the
--- muzzle so it is not half in the air.
+-- MEASURED AT THE MUZZLE, NOT OVER THE WHOLE NODE (the Reviewer's round-1 note: a tapered barrel
+-- would put a bead placed from the node's maximum proud of the muzzle's own top line). The barrel IS
+-- tapered and its axis also rises toward the receiver -- `driven-hunt-runs/t143-muzzle.py` slices
+-- `Barrel_Low`'s 598 vertices and `t143-muzzle3.py` fits the rings:
+--
+--   the barrel's own tube at the muzzle   centre (-0.0138, +0.0920)  r 0.0364  -> its top is +0.1284
+--   the barrel further back, z -1.0..-0.7 centre (-0.0141, +0.1162)  r 0.0364
+--   A SECOND, SMALLER TUBE ON TOP OF IT   centre (-0.0150, +0.1634)  r 0.0202, z -2.200..-2.095
+--
+-- So the model is NOT bare at the muzzle after all: it carries a 0.040-stud (10 mm) tube, 0.105
+-- studs (26 mm) long, ending flush with the muzzle -- the BAND of a banded front sight, with no
+-- bead and no blade on it. +0.1844 is the top of THAT, at the bead's own z, and it is also where the
+-- node's maximum comes from. The bead is drawn sitting on the band, which is where a bead belongs.
+--
+-- IT IS DRAWN ON THE HANDLE'S CENTRE LINE (x = 0) rather than on the band's x = -0.015, because the
+-- bullet leaves at x = 0 (`Rifle.CONFIG.MUZZLE_OFFSET`) and a sight that disagrees with the bore is
+-- a sight that lies. The 3.5 mm is the MESH sitting off-centre in the Handle, not an aiming error.
 local BEAD_DIAMETER = 0.055
-local BARREL_TOP_Y = 0.1844
+local SIGHT_BAND_TOP_Y = 0.1844 -- the band's top at the bead's own z, NOT the barrel's
 local STOCK_UNDERSIDE_AT_WELL = -0.0725 -- the mean of the two measured slices
 local MAGAZINE_DROP = 0.11 -- how deep the box is, not how far it hangs
 local MAGAZINE_PROUD = 0.072 -- how far its floor sits below the wood
@@ -133,7 +152,7 @@ function Geometry.layout(config)
 		bolt = { size = Vector3.new(boltW, boltH, boltL), at = Vector3.new(boltX, boltY, boltZ) },
 		scope = { size = Vector3.new(scopeW, scopeH, scopeL), at = Vector3.new(scopeX, scopeY, scopeZ) },
 		-- The drawn front sight, on the barrel's measured top line (task 143).
-		beadY = BARREL_TOP_Y * k,
+		beadY = SIGHT_BAND_TOP_Y * k,
 		beadDiameter = BEAD_DIAMETER * k,
 		-- THE MAGAZINE IS DRAWN, BECAUSE THE MODEL HAS NONE (task 142). The Rigby's four groups are
 		-- stock, action, bolt and scope -- there is no detachable box in the file to upload, so this
@@ -168,6 +187,15 @@ function Geometry.sightKind(config): string
 	return (config and config.SIGHT) or "scope"
 end
 
+-- WHERE THE BEAD SITS, AND THE ONE PLACE THAT DECIDES IT -- the Reviewer's round-1 note, and the rule
+-- the shotgun already keeps: `Gun.beadOffset` is read by `Gun.sight` AND by the drawn `Bead` piece,
+-- so the point the eye is laid on and the thing the eye sees cannot drift apart. Two copies of this
+-- expression would drift silently, because nothing in the game compares them.
+function Geometry.beadOffset(config): Vector3
+	local at = Geometry.layout(config)
+	return Vector3.new(0, at.beadY, at.muzzleZ + at.beadDiameter)
+end
+
 -- WHERE THE EYE LOOKS, and that is the whole difference between the two rifles.
 --
 -- FOR THE SCOPE it is the OCULAR lens rather than a bead: the aim pose puts this point
@@ -183,7 +211,7 @@ function Geometry.sight(config): CFrame
 	if Geometry.sightKind(config) == "bead" then
 		-- Identity rotation: (0, 0, -1) is already the muzzle direction in this frame and the bead is
 		-- on the gun's centre line, so the sight looks exactly where the barrel points.
-		return CFrame.new(0, at.beadY, at.muzzleZ + at.beadDiameter)
+		return CFrame.new(Geometry.beadOffset(config))
 	end
 	return CFrame.new(0, at.scopeAxisY, at.scopeOcularZ)
 end
@@ -311,7 +339,8 @@ function Geometry.pieces(config): { Piece }
 			onlyFor = "bead",
 			group = "body" :: Gun.Group,
 			size = Vector3.new(at.beadDiameter, at.beadDiameter, at.beadDiameter),
-			offset = CFrame.new(0, at.beadY, at.muzzleZ + at.beadDiameter),
+			-- `Geometry.beadOffset`, the same expression `Geometry.sight` aims with. Not a copy of it.
+			offset = CFrame.new(Geometry.beadOffset(config)),
 			color = look.bead or Color3.fromRGB(214, 176, 96),
 			material = Enum.Material.Metal,
 			shape = Enum.PartType.Ball,

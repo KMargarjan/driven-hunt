@@ -330,7 +330,7 @@ function ReportPanel.listRowText(rank: number, row: any, points: number?): strin
 end
 
 function ReportPanel.detailHeaderText(): string
-	return "ANIMAL   RESULT   ZONE     RANGE  GUN       HITS"
+	return "ANIMAL   RESULT   ZONE     RANGE  GUN          HITS"
 end
 
 -- ONE ANIMAL'S LINE. `result` is the record's own word: "down" is a carcass, "wounded" is Karen's
@@ -347,7 +347,15 @@ function ReportPanel.detailRowText(row: any): string
 	-- zone, the range and the gun are the three facts about the SHOT, and the hit count is a fact
 	-- about the animal.
 	return string.format(
-		"%-8s %-8s %-8s %3d m %-9s %4d",
+		-- THE GUN COLUMN IS 12 WIDE, NOT 9 (task 143): `RIFLE (OPEN)` is twelve characters, and in a
+		-- nine-wide field every open-rifle row pushed HITS three characters right of its own header
+		-- (the Reviewer's round-1 note). `detailHeaderText` above moves with it, which is the whole
+		-- point of the two being read together -- and the RANGE column gained the second space it
+		-- always owed, because `%3d m` is five wide against a six-character "RANGE  ", which had
+		-- every column after it sitting one character left of its own heading since task 140.
+		-- `rifle_client.spec` asserts the alignment for every label the weapon table carries, so
+		-- the next long one fails a case instead of reaching Karen's screen.
+		"%-8s %-8s %-8s %3d m  %-12s %4d",
 		kind,
 		result,
 		tostring((row and row.zone) or "-"),

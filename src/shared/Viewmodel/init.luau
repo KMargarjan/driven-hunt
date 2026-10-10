@@ -325,6 +325,14 @@ function Viewmodel.validate(data: any): { string }
 	-- ...AND THE STRUCTURAL CHECK WALKS WHAT THE FILE ACTUALLY CARRIES, so a set nobody listed above
 	-- is still checked rather than skipped (task 143).
 	for id, set in pairs(data.weapons) do
+		if type(set) ~= "table" then
+			-- A VALIDATOR THAT THROWS IS THE ONE FAILURE MODE IT EXISTS TO PREVENT (the Reviewer's
+			-- round-1 note). A listed id is protected by the `#problems > 0` return above, but an
+			-- UNLISTED non-table member -- `weapons.notes = "..."` in a hand-edited file -- used to
+			-- error out of this loop instead of being reported as the problem it is.
+			table.insert(problems, "weapons." .. tostring(id) .. " is not a table")
+			continue
+		end
 		local hasReload = type(set.reload) == "table"
 		local hasCycle = type(set.cycle) == "table"
 		if hasReload and hasCycle then

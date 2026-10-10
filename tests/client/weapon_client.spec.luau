@@ -496,6 +496,45 @@ return function()
 			end).to.throw()
 		end)
 
+		-- THREE TOOLS BROKE THIS REPLICA, and the fix is an ordering rule (task 143). The server
+		-- publishes PER TOOL, so one keypress sends TWO snapshots -- the gun being put away and the
+		-- gun being taken out -- and with one variable the last to arrive won. Measured in the
+		-- Forest Test: switching to slot 3 left `Weapon.get()` holding the rifle's un-equipped
+		-- snapshot, the readout went blank and the aim source refused to aim, for the open rifle AND
+		-- for the shotgun after it. With two weapons the ordering happened to come out right.
+		--
+		-- DRIVEN AS A FUNCTION, NOT AS A SESSION: the hotbar keys 1/2/3 cannot be replayed at all
+		-- (`VirtualInput`: "permanently bound to a CoreGUI core action", task 141), so the orderings
+		-- below are the real ones written down rather than hoped for.
+		it("answers with the gun whose newest snapshot claimed the hand", function()
+			local function snap(id, equipped)
+				return Shotgun.deepFreeze({ weapon = id, equipped = equipped })
+			end
+			local shotgun, rifle = snap("shotgun", false), snap("rifle", false)
+			local openRifle, openHeld = snap("rifle_open", false), snap("rifle_open", true)
+			local rifleHeld = snap("rifle", true)
+
+			-- the switch to slot 3, in the order the server sends it: the new gun's equip, then the
+			-- old gun's un-equip. The un-equip arrives LAST and must not win.
+			local replicas = { rifle = rifleHeld, rifle_open = openHeld }
+			expect(Weapon.heldFrom(replicas, "rifle_open", rifle).weapon).to.equal("rifle_open")
+			-- ...and the other order, where the un-equip comes first
+			replicas = { rifle = rifle, rifle_open = openHeld }
+			expect(Weapon.heldFrom(replicas, "rifle_open", openHeld).weapon).to.equal("rifle_open")
+			-- A STALE `equipped` CANNOT WIN. The rifle's un-equip was dropped, so its own replica
+			-- still says it is held -- but the open rifle claimed the hand after it.
+			replicas = { rifle = rifleHeld, rifle_open = openHeld }
+			expect(Weapon.heldFrom(replicas, "rifle_open", openHeld).weapon).to.equal("rifle_open")
+			-- nothing holds the hand: the newest snapshot of any weapon, which is what every caller
+			-- written before three weapons got
+			replicas = { shotgun = shotgun, rifle = rifle, rifle_open = openRifle }
+			expect(Weapon.heldFrom(replicas, nil, shotgun).weapon).to.equal("shotgun")
+			expect(Weapon.heldFrom(replicas, "rifle", rifle).weapon).to.equal("rifle")
+			-- ...and an empty replica set is nil rather than an error
+			expect(Weapon.heldFrom({}, nil, nil)).to.equal(nil)
+			expect(Weapon.heldFrom({}, "rifle", nil)).to.equal(nil)
+		end)
+
 		it("exposes the aim seam the camera task will attach to", function()
 			expect(typeof(Weapon.Input.AimChanged)).to.equal("RBXScriptSignal")
 			expect(type(Weapon.Input.isAiming())).to.equal("boolean")

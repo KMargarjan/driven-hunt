@@ -38,6 +38,8 @@ local snapshot: Shotgun.WeaponSnapshot? = nil
 -- and `CameraBoot`'s aim source refused to aim, for the open rifle AND for the shotgun after it.
 -- With two weapons the ordering happened to come out right, which is why task 142 never saw it.
 local byWeapon: { [string]: Shotgun.WeaponSnapshot } = {}
+-- The id of the weapon whose newest snapshot claimed the hand. See `Weapon.get`.
+local heldId: string? = nil
 local signal = Instance.new("BindableEvent")
 Weapon.Changed = signal.Event
 
@@ -53,23 +55,34 @@ local started = false
 
 -- THE GUN IN THE PLAYER'S HANDS, which is the question every caller is really asking: the Hud's
 -- readout, the aim source, the break source and the magazine edge all mean "the one I am holding".
--- A weapon that says `equipped` is that one; with none equipped the newest snapshot is the honest
--- answer, which is also what every caller written before three weapons got.
-function Weapon.get(): Shotgun.WeaponSnapshot?
-	for _, held in pairs(byWeapon) do
-		if held.equipped then
-			return held
-		end
+-- The weapon whose newest snapshot said `equipped` is that one; with none equipped the newest
+-- snapshot of any weapon is the honest answer, which is also what every caller written before three
+-- weapons got.
+-- ...AND THE CHOICE ITSELF IS PURE, so the two orderings a real switch produces can be driven by a
+-- case instead of being hoped for in a session (`weapon_client.spec`, "answers with the gun whose
+-- newest snapshot claimed the hand"). Pressing 1/2/3 cannot be replayed at all -- `VirtualInput`
+-- refuses those keys, "permanently bound to a CoreGUI core action" (task 141) -- so a function is
+-- the only honest way to pin it.
+function Weapon.heldFrom(
+	replicas: { [string]: Shotgun.WeaponSnapshot },
+	id: string?,
+	newest: Shotgun.WeaponSnapshot?
+): Shotgun.WeaponSnapshot?
+	-- THE ONE THAT SAID SO LAST, not whichever `pairs` reaches first (the Reviewer's note, round 1).
+	-- A switch sends two snapshots and for the instant between them BOTH can say `equipped`, so an
+	-- unordered scan answers at random; and a dropped un-equip -- `publish(..., "equip")` spends
+	-- `EQUIP_RATE_LIMIT` per second and a switch costs two -- would leave a stale `equipped = true`
+	-- that an unordered scan could keep choosing for ever. `id` is overwritten by every arriving
+	-- snapshot that claims the hand, so the newest claim wins and a stale one is simply passed over.
+	local held = if id ~= nil then replicas[id] else nil
+	if held ~= nil and held.equipped then
+		return held
 	end
-	return snapshot
+	return newest
 end
 
--- One named weapon's own replica, for a caller that means a specific gun rather than the held one.
-function Weapon.getFor(id: string?): Shotgun.WeaponSnapshot?
-	if id == nil then
-		return nil
-	end
-	return byWeapon[id]
+function Weapon.get(): Shotgun.WeaponSnapshot?
+	return Weapon.heldFrom(byWeapon, heldId, snapshot)
 end
 
 function Weapon.start()
@@ -87,6 +100,11 @@ function Weapon.start()
 		-- keep the two guns apart rather than to name one.
 		if snapshot ~= nil and snapshot.weapon ~= nil then
 			byWeapon[snapshot.weapon] = snapshot
+			if snapshot.equipped then
+				heldId = snapshot.weapon
+			elseif heldId == snapshot.weapon then
+				heldId = nil
+			end
 		end
 		signal:Fire(Weapon.get())
 	end)
