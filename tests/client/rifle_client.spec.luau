@@ -637,6 +637,21 @@ return function()
 			expect((string.find(header, "GUN", 1, true) :: number) > (string.find(header, "RANGE", 1, true) :: number)).to.equal(
 				true
 			)
+			-- ...AND EVERY COLUMN STANDS UNDER ITS OWN HEADING, for every label the weapon table
+			-- carries (the Reviewer's round-1 note: `RIFLE (OPEN)` is twelve characters and the
+			-- field was nine, so every open-rifle row pushed HITS three characters right). A case
+			-- rather than an eye, so weapon four's label fails here and not on Karen's screen.
+			for _, id in ipairs(Weapons.ids()) do
+				local one = table.clone(row)
+				one.weapon = id
+				local line = Report.detailRowText(one)
+				local word = (Weapons.row(id) :: any).label
+				expect(string.find(line, word, 1, true)).to.equal(string.find(header, "GUN", 1, true))
+				-- ...and the HITS column is the right-hand edge of both, which is what makes the
+				-- count readable: `%4d` ends where `HITS` ends.
+				expect(#line).to.equal(#header)
+			end
+
 			-- A RECORD FROM BEFORE THE RIFLE NAMES NO GUN, and prints no word rather than "nil".
 			local old = table.clone(row)
 			old.weapon = nil

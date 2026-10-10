@@ -77,6 +77,12 @@ export type Piece = {
 	-- only that group's own and sits at the group's centre.
 	meshKey: string?,
 	meshOffset: CFrame?,
+	-- WHICH SIGHT THIS PIECE BELONGS TO (task 143). `skipFor` drops the piece for a weapon whose row
+	-- names that sight and `onlyFor` keeps it just for that one, so the scoped rifle and the
+	-- open-sighted one are the SAME piece list with the glass on or off rather than two lists that
+	-- drift apart. Both nil on every piece of the shotgun, which has one sight and always had.
+	skipFor: string?,
+	onlyFor: string?,
 }
 
 -- ---------------------------------------------------------------- the numbers

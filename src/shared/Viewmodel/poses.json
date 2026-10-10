@@ -23,14 +23,14 @@
         "eyeReliefStuds": 0.9,
         "left": {
           "pos": {
-            "x": -0.04,
-            "y": -0.17,
-            "z": -1.0
+            "x": -0.013,
+            "y": 0.057,
+            "z": -0.55
           },
           "rot": {
-            "pitch": 85.0,
-            "twist": 110.0,
-            "yaw": -165.0
+            "pitch": 80.0,
+            "twist": -90.0,
+            "yaw": 90.0
           }
         },
         "right": {
@@ -61,14 +61,14 @@
         },
         "left": {
           "pos": {
-            "x": -0.06,
-            "y": -0.16,
-            "z": -1.05
+            "x": -0.013,
+            "y": 0.057,
+            "z": -0.55
           },
           "rot": {
             "pitch": 80.0,
-            "twist": -150.0,
-            "yaw": 90.0002
+            "twist": -90.0,
+            "yaw": 90.0
           }
         },
         "right": {
@@ -121,14 +121,269 @@
         },
         "left": {
           "pos": {
-            "x": -0.06,
-            "y": -0.16,
-            "z": -1.05
+            "x": -0.013,
+            "y": 0.057,
+            "z": -0.55
           },
           "rot": {
             "pitch": 80.0,
-            "twist": -150.0,
-            "yaw": 90.0002
+            "twist": -90.0,
+            "yaw": 90.0
+          }
+        },
+        "liftDeg": 60.0,
+        "liftFraction": 0.35,
+        "load": {
+          "above": {
+            "pos": {
+              "x": -0.05,
+              "y": 0.34,
+              "z": 0.1
+            },
+            "rot": {
+              "pitch": -85.0,
+              "twist": 0.0,
+              "yaw": 0.0
+            }
+          },
+          "carrySeconds": 0.17,
+          "fetch": {
+            "pos": {
+              "x": -0.34,
+              "y": -0.62,
+              "z": 1.15
+            },
+            "rot": {
+              "pitch": -60.0,
+              "twist": 0.0,
+              "yaw": 40.0
+            }
+          },
+          "fetchSeconds": 0.15,
+          "returnSeconds": 0.12,
+          "seat": {
+            "pos": {
+              "x": -0.05,
+              "y": 0.1,
+              "z": 0.02
+            },
+            "rot": {
+              "pitch": -85.0,
+              "twist": 0.0,
+              "yaw": 0.0
+            }
+          },
+          "seatSeconds": 0.13,
+          "shellInHand": {
+            "x": 0.16,
+            "y": 0.0,
+            "z": 0.0
+          }
+        },
+        "magazine": {
+          "dropStuds": 0.42,
+          "hand": {
+            "pos": {
+              "x": 0.0,
+              "y": -0.3,
+              "z": 0.33
+            },
+            "rot": {
+              "pitch": 70.0,
+              "twist": 95.0,
+              "yaw": -140.0
+            }
+          },
+          "inShare": 0.4,
+          "outShare": 0.38,
+          "seconds": 1.35
+        },
+        "openDeg": 0.0,
+        "openSeconds": 0.18,
+        "right": {
+          "pos": {
+            "x": 0.0,
+            "y": -0.22,
+            "z": 1.1
+          },
+          "rot": {
+            "pitch": -12.0,
+            "twist": 60.0,
+            "yaw": 115.0
+          }
+        },
+        "shells": {
+          "ejectRiseStuds": 0.18,
+          "ejectSeconds": 0.35,
+          "feedFromStuds": 0.4,
+          "feedSeconds": 0.3
+        }
+      },
+      "fire": {
+        "camPitchDeg": 3.15,
+        "dampingRatio": 0.78,
+        "flash": {
+          "colorEnd": {
+            "b": 40.0,
+            "g": 120.0,
+            "r": 255.0
+          },
+          "colorStart": {
+            "b": 110.0,
+            "g": 190.0,
+            "r": 255.0
+          },
+          "forwardStuds": 0.12,
+          "lightBrightness": 3.0,
+          "lightRange": 10.0,
+          "seconds": 0.035,
+          "sizeStuds": 0.35
+        },
+        "frequencyHz": 2.8,
+        "gunBackStuds": 0.42,
+        "gunPitchDeg": 12.0,
+        "maxCamPitchDeg": 3.5,
+        "maxGunBackStuds": 0.45,
+        "maxGunPitchDeg": 12.5,
+        "smoke": {
+          "burstSeconds": 0.07,
+          "color": {
+            "b": 185.0,
+            "g": 190.0,
+            "r": 190.0
+          },
+          "rate": 30.0,
+          "riseStuds": 0.4,
+          "seconds": 1.6,
+          "sizeStuds": 1.2,
+          "spreadDeg": 25.0,
+          "transparency": 0.75
+        },
+        "volume": {
+          "close": 0.6,
+          "open": 0.35,
+          "shot": 0.95
+        }
+      },
+      "raise": {
+        "easing": "quadOut",
+        "keyframes": [],
+        "lowerSeconds": 0.2,
+        "raiseSeconds": 0.25
+      }
+    },
+    "rifle_open": {
+      "aim": {
+        "cheekDeg": 1.2,
+        "eyeReliefStuds": 4.6,
+        "left": {
+          "pos": {
+            "x": -0.013,
+            "y": 0.057,
+            "z": -0.55
+          },
+          "rot": {
+            "pitch": 80.0,
+            "twist": -90.0,
+            "yaw": 90.0
+          }
+        },
+        "right": {
+          "pos": {
+            "x": 0.0,
+            "y": -0.22,
+            "z": 1.1
+          },
+          "rot": {
+            "pitch": -12.0,
+            "twist": 60.0,
+            "yaw": 115.0
+          }
+        }
+      },
+      "carry": {
+        "gun": {
+          "pos": {
+            "x": -0.6,
+            "y": -0.62,
+            "z": -2.0
+          },
+          "rot": {
+            "x": 23.9,
+            "y": 45.7,
+            "z": -10.0
+          }
+        },
+        "left": {
+          "pos": {
+            "x": -0.013,
+            "y": 0.057,
+            "z": -0.55
+          },
+          "rot": {
+            "pitch": 80.0,
+            "twist": -90.0,
+            "yaw": 90.0
+          }
+        },
+        "right": {
+          "pos": {
+            "x": -0.0456,
+            "y": -0.1976,
+            "z": 0.992
+          },
+          "rot": {
+            "pitch": -24.4176,
+            "twist": -35.5376,
+            "yaw": -103.1991
+          }
+        }
+      },
+      "cycle": {
+        "closeSeconds": 0.14,
+        "drawStuds": 0.42,
+        "gun": {
+          "pos": {
+            "x": -0.6,
+            "y": -0.62,
+            "z": -2.0
+          },
+          "rot": {
+            "x": 23.9,
+            "y": 45.7,
+            "z": -10.0
+          }
+        },
+        "hand": {
+          "grip": {
+            "pos": {
+              "x": 0.14,
+              "y": 0.07,
+              "z": 0.2
+            },
+            "rot": {
+              "pitch": -8.0,
+              "twist": 25.0,
+              "yaw": 150.0
+            }
+          },
+          "reachShare": 0.22
+        },
+        "hingeStuds": {
+          "x": 0.0,
+          "y": 0.11,
+          "z": 0.0
+        },
+        "left": {
+          "pos": {
+            "x": -0.013,
+            "y": 0.057,
+            "z": -0.55
+          },
+          "rot": {
+            "pitch": 80.0,
+            "twist": -90.0,
+            "yaw": 90.0
           }
         },
         "liftDeg": 60.0,

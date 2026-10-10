@@ -7,7 +7,8 @@
 -- THREE BOXES AND A TUBE, NOT THE SHOTGUN'S TEN. This is what another player sees when the rifle's
 -- uploaded meshes have not loaded: enough that it reads as a scoped rifle at thirty studs, and
 -- deliberately NOT the shotgun's parts list -- a wrong gun that measures perfectly is the failure
--- `docs/PROJECT_CONTEXT.md` opens with.
+-- `docs/PROJECT_CONTEXT.md` opens with. THE TUBE IS THE ROW'S (task 143): the open-sighted rifle's
+-- fallback is three boxes, because it has no scope to be seen with.
 --
 -- The proportions are the model's own, measured in the Handle's frame by `tools/gltf_split.py probe`
 -- and written down in `Rifle.Geometry` (the FIRST-person gun). This file reads them from there
@@ -35,7 +36,15 @@ function ShapeRifle.pieces(config): { Piece }
 	local at = Geometry.layout(config)
 	local look = (config and config.LOOK) or { barrel = Color3.fromRGB(58, 60, 64) }
 	local lying = CFrame.Angles(0, math.pi / 2, 0) -- a Cylinder's length runs along its own X
-	return {
+	-- NO TUBE ON A RIFLE THAT HAS NO SCOPE (task 143, the Reviewer's round-1 note). This is the
+	-- silhouette OTHER players see until the uploads land, so drawing the scope unconditionally put a
+	-- scope on the open-sighted rifle for exactly those seconds -- and then `Hardware.upgrade` took
+	-- it off again when the scope-less mesh arrived, which is a gun that changes shape as it loads.
+	-- The bead is NOT added here: at the thirty studs this list exists for, a 0.055-stud ball is
+	-- less than a pixel, and `Hardware.removeParts` walks whatever `pieces(row)` returns, so the
+	-- two rows stay symmetric without one.
+	local scoped = Geometry.sightKind(config) ~= "bead"
+	local pieces: { Piece } = {
 		{
 			name = "RifleStock",
 			size = at.stock.size,
@@ -62,15 +71,18 @@ function ShapeRifle.pieces(config): { Piece }
 			material = Enum.Material.SmoothPlastic,
 			shape = Enum.PartType.Block,
 		},
-		{
+	}
+	if scoped then
+		table.insert(pieces, {
 			name = "RifleScope",
 			size = Vector3.new(at.scope.size.Z, at.scope.size.Y * 0.62, at.scope.size.Y * 0.62),
 			offset = CFrame.new(0, at.scopeAxisY, at.scope.at.Z) * lying,
 			color = look.scope or Color3.fromRGB(42, 43, 46),
 			material = Enum.Material.SmoothPlastic,
 			shape = Enum.PartType.Cylinder,
-		},
-	}
+		})
+	end
+	return pieces
 end
 
 -- WHERE THE EYE LOOKS. The same answer the drawn rifle gives, from the same module: the ocular lens.

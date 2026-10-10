@@ -175,8 +175,9 @@ Flags.DEFAULTS = {
 		owner = "ReplicatedStorage.Weapons",
 		born = "2026-10-09 task 140",
 		expires = "2026-10-30", -- 21 days: the ceiling in feature-flags.md section 12
-		why = "A bolt-action rifle with a telescopic sight, carried beside the shotgun and selected "
-			.. "with 2. OFF is exactly the game before it: one Tool, the shotgun, in the hand.",
+		why = "A bolt-action rifle, carried beside the shotgun: slot 2 with its telescopic sight and "
+			.. "slot 3 with the glass off, over open sights (task 143). OFF is exactly the game "
+			.. "before it: one Tool, the shotgun, in the hand.",
 	} :: FlagRow,
 	FIRST_PERSON = {
 		-- BORN OFF on 2026-09-27, ON SINCE TASK 98 (2026-10-01). Karen's word was "start": first

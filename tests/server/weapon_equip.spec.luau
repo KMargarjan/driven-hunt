@@ -212,13 +212,18 @@ return function()
 			)
 		end)
 
-		it("hands TWO Tools over in order, and the hand comes last", function()
-			-- THE ORDER ITSELF, with two Tools, in the world the gate actually runs in (the
-			-- Reviewer's note, round 2). `Weapons.loadout()` is one weapon here because the gate
-			-- refuses to start with a flag override set -- so the loadout is passed as a PARAMETER
-			-- instead, which is the same rule `Weapon.equipDelayFor` follows and the same rule
-			-- CLAUDE.md states for anything behind a flag. The rifle's row, geometry and meshes all
-			-- exist with the flag off; only the loadout is shorter.
+		it("hands the WHOLE flag-on loadout over in order, and the hand comes last", function()
+			-- THE ORDER ITSELF, in the world the gate actually runs in (the Reviewer's note, round
+			-- 2 of task 141). `Weapons.loadout()` is one weapon here because the gate refuses to
+			-- start with a flag override set -- so the loadout is passed as a PARAMETER instead,
+			-- which is the same rule `Weapon.equipDelayFor` follows and the same rule CLAUDE.md
+			-- states for anything behind a flag. Every row, geometry and mesh exists with the flag
+			-- off; only the loadout is shorter.
+			--
+			-- IT IS THE FLAG-ON LOADOUT ITSELF SINCE TASK 143, not a hand-written pair: that is
+			-- THREE Tools now, and `1 Shotgun, 2 Rifle, 3 RifleOpen` was only ever a measurement
+			-- pasted into a review request (the Reviewer's round-1 note). A fourth weapon lands in
+			-- this case the day it joins `Weapons.ORDER`.
 			--
 			-- This is the case that fails if the equip moves back inside `Weapon.grant`.
 			local player = somebody()
@@ -227,7 +232,8 @@ return function()
 			end
 			local backpack = player:FindFirstChildOfClass("Backpack") :: Backpack
 			local character = player.Character :: Model
-			local both = { "shotgun", "rifle" }
+			local both = Weapons.loadoutFor(true)
+			expect(#both).to.equal(#Weapons.ORDER)
 
 			type Arrival = { where: string, name: string, at: number }
 			local order: { Arrival } = {}
@@ -253,7 +259,7 @@ return function()
 				-- whole fix in one line, at the only moment it is visible.
 				expect(Weapon.heldId(player)).to.equal(nil)
 				expect(waitUntil(6, function()
-					return #Hardware.toolsOf(player) >= 2
+					return #Hardware.toolsOf(player) >= #both
 				end)).to.equal(true)
 				expect(waitUntil(4, function()
 					for _, entry in ipairs(order) do
@@ -267,8 +273,8 @@ return function()
 				for _, entry in ipairs(order) do
 					table.insert(shown, string.format("%s:%s@%.2f", entry.where, entry.name, entry.at))
 				end
-				TestKit.note("weapon-equip: two-Tool arrivals " .. table.concat(shown, " "))
-				-- BOTH BAGS BEFORE THE FIRST HAND, and in `Weapons.ORDER` -- which is what the
+				TestKit.note("weapon-equip: whole-loadout arrivals " .. table.concat(shown, " "))
+				-- EVERY BAG BEFORE THE FIRST HAND, and in `Weapons.ORDER` -- which is what the
 				-- engine's hotbar reads, because it numbers a slot the first time it sees a Tool.
 				local bagged = {}
 				local firstHand, lastBag = nil, nil
@@ -283,9 +289,10 @@ return function()
 				expect(firstHand).to.be.ok()
 				expect(lastBag).to.be.ok()
 				expect((lastBag :: number) < (firstHand :: number)).to.equal(true)
-				expect(#bagged).to.equal(2)
-				expect(bagged[1]).to.equal((Weapons.row("shotgun") :: any).toolName)
-				expect(bagged[2]).to.equal((Weapons.row("rifle") :: any).toolName)
+				expect(#bagged).to.equal(#both)
+				for index, id in ipairs(both) do
+					expect(bagged[index]).to.equal((Weapons.row(id) :: any).toolName)
+				end
 				-- ...AND THE HAND WAITED THE DELAY the two-Tool loadout asks for.
 				local gap = order[firstHand :: number].at - order[lastBag :: number].at
 				expect(gap >= Weapon.equipDelayFor(both) * 0.9).to.equal(true)

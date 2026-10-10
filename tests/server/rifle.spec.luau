@@ -30,11 +30,14 @@ end
 
 return function()
 	describe("the weapon table", function()
-		it("holds exactly the two weapons, in hotbar order, frozen all the way down", function()
+		it("holds exactly the three weapons, in hotbar order, frozen all the way down", function()
 			local ids = Weapons.ids()
-			expect(#ids).to.equal(2)
+			-- THREE SINCE TASK 143: the shotgun, the rifle with its scope, and the same rifle with
+			-- the glass off. The ORDER is the hotbar's (task 141).
+			expect(#ids).to.equal(3)
 			expect(ids[1]).to.equal("shotgun")
 			expect(ids[2]).to.equal("rifle")
+			expect(ids[3]).to.equal("rifle_open")
 			expect(Weapons.row("nope")).to.equal(nil)
 			expect(Weapons.row(nil)).to.equal(nil)
 			expect(Weapons.PRIMARY).to.equal("shotgun")
@@ -53,8 +56,11 @@ return function()
 			expect(#off).to.equal(1)
 			expect(off[1]).to.equal("shotgun")
 			local on = Weapons.loadoutFor(true)
-			expect(#on).to.equal(2)
+			-- THREE SINCE TASK 143: the flag carries the scoped rifle AND the open-sighted one, which
+			-- is how Karen gets at slot 3 for testing before a shop exists to sell either.
+			expect(#on).to.equal(3)
 			expect(on[2]).to.equal("rifle")
+			expect(on[3]).to.equal("rifle_open")
 			expect(Weapons.FLAG).to.equal("RIFLE")
 		end)
 
@@ -365,6 +371,103 @@ return function()
 			-- back to the shotgun's parts list: that is a wrong gun that measures perfectly.
 			expect(Shapes.for_("rifle")).never.to.equal(Shapes.for_("shotgun"))
 			expect(Weapons.geometry("rifle")).never.to.equal(Weapons.geometry("shotgun"))
+		end)
+
+		it("is the SAME rifle with the glass off, and three things differ", function()
+			-- Karen: *"and also we need to have option rifle without scope ... where aiming true
+			-- nozzle"*. Everything that is not about the SIGHT must be the scoped rifle's, or it is
+			-- a second gun rather than the same one carried differently.
+			local scoped = Weapons.ROWS.rifle
+			local open = Weapons.ROWS.rifle_open
+			for _, key in ipairs({
+				"RANGE_STUDS",
+				"PELLETS",
+				"SPREAD_FULL_DEG",
+				"AMMO_KINDS",
+				"START_RESERVE",
+				"BARRELS",
+				"BARREL_DELAY",
+				"CYCLE",
+				"CYCLE_TOTAL",
+				"CYCLE_EJECTS",
+				"RELOAD",
+				"MAGAZINE",
+				"READOUT",
+				"HANDLE_SIZE",
+				"SOUND",
+			}) do
+				expect((open :: any)[key]).to.equal((scoped :: any)[key])
+			end
+			-- ...AND THE THREE THAT DO. (1) no scope at all, which is what hands it the shotgun's
+			-- bead zoom with no reticle, no mask and no sway.
+			expect(scoped.scope).to.be.ok()
+			expect(open.scope).to.equal(nil)
+			-- (2) it does not wear the scope's upload.
+			expect(#open.ASSET_KEYS).to.equal(#scoped.ASSET_KEYS - 1)
+			for _, key in ipairs(open.ASSET_KEYS) do
+				expect(key).never.to.equal("rifle.scope")
+			end
+			-- (3) its geometry draws a BEAD instead of the tube.
+			expect(open.SIGHT).to.equal("bead")
+			expect(scoped.SIGHT).to.equal("scope")
+			local geometry = Weapons.geometry("rifle_open")
+			local names = {}
+			for _, piece in ipairs(geometry.pieces(open)) do
+				names[piece.name] = true
+			end
+			expect(names.Bead).to.equal(true)
+			expect(names.Scope).to.equal(nil)
+			-- ...and the scoped one is the mirror of that, from the SAME piece list.
+			local scopedNames = {}
+			for _, piece in ipairs(geometry.pieces(scoped)) do
+				scopedNames[piece.name] = true
+			end
+			expect(scopedNames.Scope).to.equal(true)
+			expect(scopedNames.Bead).to.equal(nil)
+			-- THE EYE LOOKS SOMEWHERE ELSE, and that is the whole of "aiming true nozzle": down the
+			-- barrel to a bead at the muzzle instead of into an ocular lens at the back.
+			local beadSight = geometry.sight(open)
+			local scopeSight = geometry.sight(scoped)
+			expect(beadSight.Z < scopeSight.Z).to.equal(true)
+			expect(math.abs(beadSight.Z - (-open.HANDLE_SIZE.Z / 2)) < 0.1).to.equal(true)
+			-- ...on the gun's own centre line, so it looks exactly where the barrel points.
+			expect(math.abs(beadSight.X) < 1e-9).to.equal(true)
+			-- ...AND IT IS THE SAME EXPRESSION THE DRAWN BEAD USES, not a copy of it (the Reviewer's
+			-- round-1 note, and the rule `Gun.beadOffset` already keeps for the shotgun).
+			local drawn = nil
+			for _, piece in ipairs(geometry.pieces(open)) do
+				if piece.name == "Bead" then
+					drawn = piece.offset.Position
+				end
+			end
+			expect(drawn).to.be.ok()
+			expect((drawn :: Vector3) - geometry.beadOffset(open)).to.equal(Vector3.zero)
+			expect(beadSight.Position).to.equal(geometry.beadOffset(open))
+		end)
+
+		it("reads any row written before this task as the SCOPED rifle", function()
+			-- `SIGHT` is a field task 143 added, so every row and every caller that predates it has
+			-- nil there -- and nil must mean the gun this repo already had, never a rifle that
+			-- silently lost its scope. The Reviewer asked for this one by name.
+			local geometry = Weapons.geometry("rifle")
+			expect(geometry.sightKind(nil)).to.equal("scope")
+			expect(geometry.sightKind({})).to.equal("scope")
+			expect(geometry.sightKind({ SIGHT = "bead" })).to.equal("bead")
+			expect(geometry.sightKind(Weapons.ROWS.rifle)).to.equal("scope")
+			expect(geometry.sightKind(Weapons.ROWS.rifle_open)).to.equal("bead")
+			-- ...AND THE WORLD GUN OTHER PLAYERS SEE FOLLOWS IT. The fallback silhouette is what is
+			-- drawn until the uploads land, so a scope tube on the open-sighted rifle would be a gun
+			-- that changes shape as it loads.
+			local function tubed(row): boolean
+				for _, piece in ipairs(Shapes.for_(row.id).pieces(row)) do
+					if piece.name == "RifleScope" then
+						return true
+					end
+				end
+				return false
+			end
+			expect(tubed(Weapons.ROWS.rifle)).to.equal(true)
+			expect(tubed(Weapons.ROWS.rifle_open)).to.equal(false)
 		end)
 
 		it("gives the rifle a cycle group that SLIDES, and the shotgun one that hinges", function()
