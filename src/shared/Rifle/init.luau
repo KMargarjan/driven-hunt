@@ -262,13 +262,27 @@ Rifle.CONFIG = {
 		-- WHAT A SCOPE ACTUALLY LOOKS LIKE (task 141). The Director, testing task 140 in the Forest
 		-- Test: the drawn scope's own tube was in front of the eye with the reticle painted over it,
 		-- which is what you see when you hold a rifle up to your face and look PAST the glass. A
-		-- sight picture is the other thing: the gun is gone, everything outside the eyepiece is
-		-- black, and the magnified world sits in a circle with the reticle on it.
+		-- sight picture is the other thing: the gun is gone, the world outside the tube is darkened
+		-- down (task 146: Karen's reference keeps it visible), and the magnified world sits in a
+		-- circle with the reticle on it.
 		--
-		-- 17.6 degrees of the 19.87 the scope renders is 0.886 of the screen's height -- MEASURED off
-		-- Karen's own reference frame (`<assets-dir>/references/rifle/karen-scope-target.jpg`, task
-		-- 146), where the clear glass is 960 px of a 1080-high frame: 0.889. Task 141 shipped 17.0
-		-- (0.855) from the same reasoning and a different picture.
+		-- `diameterDeg` IS THE OUTER CIRCLE, AND THE GLASS IS WHAT IS LEFT INSIDE THE TUBE. The rim is
+		-- drawn INWARD from this edge (`Hud.layoutScope`: `inner = diameter - 2 * rimPx`), so the
+		-- clear lens is `diameterDeg - 2 * rimThickDeg` -- and that, not this number, is what has to
+		-- match the reference. Round 1 of task 146 missed it: at the hairline `rimThickDeg = 0.45`
+		-- the two were nearly the same number, and at 1.69 they are not (the Reviewer's finding 1).
+		--
+		-- MEASURED off Karen's own frame (`<assets-dir>/references/rifle/karen-scope-target.jpg`):
+		-- the clear glass is 960 px of a 1080-high frame, 0.889 of the height, and the tube around it
+		-- is 92 px. So the glass wants 0.889 * 19.87 = 17.66 degrees and the whole circle wants that
+		-- plus both walls: 17.66 + 2 * 1.69 = 21.04.
+		--
+		--   glass = 21.0 - 2 * 1.69 = 17.62 deg = 0.887 of the height   (hers: 0.889)
+		--
+		-- THE TUBE THEREFORE RUNS OFF THE TOP AND BOTTOM OF THE SCREEN, which is exactly what her
+		-- frame shows -- the scope body is cut by the frame edge, not floating inside it.
+		-- `Hud.layoutScope` bounds the GLASS to the screen's short side rather than the whole
+		-- circle, so this stays true at any aspect ratio.
 		--
 		-- `atBlend` IS 0.98 AS A TOLERANCE, NOT AS A THRESHOLD, and round 2's comment here had the
 		-- reason wrong (the Reviewer caught it): `Mode.step` raises the blend LINEARLY --
@@ -278,7 +292,7 @@ Rifle.CONFIG = {
 		-- either way. The Director asked for "snaps in when blend ~ 1" and that is what it does.
 		eyepiece = {
 			atBlend = 0.98,
-			diameterDeg = 17.6,
+			diameterDeg = 21.0,
 			-- THE TUBE IS THICK, AND THAT IS THE SECOND THING HER FRAME SHOWS. The scope body around
 			-- the glass is 92 px of 1080 in it -- 0.085 of the height, which at this FOV is 1.69
 			-- degrees. Task 141's 0.45 was a hairline bevel, not a scope body.

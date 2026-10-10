@@ -244,10 +244,16 @@ return function()
 			expect(eye.maskTransparency).to.be.ok()
 			expect((eye.maskTransparency :: number) > 0).to.equal(true)
 			expect((eye.maskTransparency :: number) < 1).to.equal(true)
-			-- ...and the glass is most of the screen's height, which is what looking through a scope
-			-- held correctly gives you: 17.6 of 19.87 is 0.886, against 0.889 in her frame.
-			expect(eye.diameterDeg / Rifle.CONFIG.scope.aimFovDeg > 0.85).to.equal(true)
-			expect(eye.diameterDeg / Rifle.CONFIG.scope.aimFovDeg < 1.0).to.equal(true)
+			-- ...AND THE NUMBER THAT MATTERS IS THE GLASS, NOT THE CIRCLE ROUND IT (the Reviewer's
+			-- finding 1, round 1). `diameterDeg` is the OUTER edge and the tube is drawn inward from
+			-- it, so what the eye looks through is `diameterDeg - 2 * rimThickDeg`. Asserting the
+			-- outer circle is what let round 1 ship a 0.716 lens while claiming 0.886.
+			local glass = (eye.diameterDeg - 2 * eye.rimThickDeg) / Rifle.CONFIG.scope.aimFovDeg
+			-- 0.889 is Karen's own frame: 960 px of clear glass in a 1080-high picture.
+			expect(math.abs(glass - 0.889) < 0.02).to.equal(true)
+			-- ...and the WHOLE circle is wider than the screen is tall, which is why her tube is cut
+			-- off at the top and bottom instead of floating inside the frame.
+			expect(eye.diameterDeg / Rifle.CONFIG.scope.aimFovDeg > 1.0).to.equal(true)
 		end)
 	end)
 

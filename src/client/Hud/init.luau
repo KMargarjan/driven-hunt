@@ -276,8 +276,8 @@ local function build(): ScreenGui
 	-- THE SCOPE'S RETICLE: the INSTANCES for every element any scope in this game draws -- a ring,
 	-- a thin cross and four thick outer posts -- of which each one is drawn only if the weapon's own
 	-- data carries it (task 146: Karen's cross has neither ring nor posts). Built from UI primitives
-	-- with NO upload, exactly as the drive report's
-	-- silhouette is. A SIBLING of the crosshair and of the hit marker, for the reason the hit marker
+	-- with NO upload, exactly as the drive report's silhouette is.
+	-- A SIBLING of the crosshair and of the hit marker, for the reason the hit marker
 	-- is one: three marks, three questions, and no predicate that answers two of them.
 	--
 	-- EVERY SIZE IS IN DEGREES AND IS CONVERTED ONCE (`Hud.reticleDegToPx`). Roblox's field of view
@@ -1001,13 +1001,17 @@ function Hud.layoutScope(overlay: Frame, optics: any, fovDeg: number)
 		return
 	end
 	lastScopeFov, lastScopeX, lastScopeY, lastScopeSpec = fovDeg, viewport.X, viewport.Y, spec
-	-- NEVER WIDER THAN THE SCREEN'S SHORT SIDE: a circle that ran off the edges would be a black
-	-- border rather than an eyepiece, and the duplex's degrees would then lie about where the edge is.
+	-- THE CLAMP IS ON THE GLASS, NOT ON THE WHOLE CIRCLE (task 146, the Reviewer's finding 1). What
+	-- must never run off the screen is the part you LOOK THROUGH -- a lens wider than the viewport
+	-- would put the reticle's degrees somewhere off the edge and make the sight picture a lie. The
+	-- SCOPE BODY around it may run off, and in Karen's own reference frame it does: the tube is cut
+	-- by the top and bottom of the picture rather than floating inside it. Before this task the two
+	-- were the same clamp, because the rim was a 0.45-degree hairline and the difference was a pixel.
+	local rimPx = math.max(1, Hud.reticleDegToPx(spec.rimThickDeg, fovDeg, viewport.Y))
 	local diameter = math.max(
 		2,
-		math.min(Hud.reticleDegToPx(spec.diameterDeg, fovDeg, viewport.Y), math.min(viewport.X, viewport.Y))
+		math.min(Hud.reticleDegToPx(spec.diameterDeg, fovDeg, viewport.Y), math.min(viewport.X, viewport.Y) + 2 * rimPx)
 	)
-	local rimPx = math.max(1, Hud.reticleDegToPx(spec.rimThickDeg, fovDeg, viewport.Y))
 	local mask = overlay:FindFirstChild("Mask")
 	if mask and mask:IsA("Frame") then
 		mask.Size = UDim2.fromOffset(diameter, diameter)
@@ -1197,9 +1201,14 @@ function Hud.layoutReticle(reticle: Frame, optics: any, fovDeg: number)
 	-- gap is zero, because a hair that stops short of the middle is a duplex and she asked for the
 	-- other thing.
 	local crossArm, crossGap = spec.crossArmDeg, spec.crossGapDeg
-	if spec.spanLens and eyepiece ~= nil then
-		crossArm = math.max(0.01, eyepiece.diameterDeg / 2 - (eyepiece.rimThickDeg or 0))
+	if spec.spanLens then
 		crossGap = 0
+		-- NO EYEPIECE, NO LENS TO CUT TO -- but a reticle that asked to span one must still draw a
+		-- cross rather than nothing (the Reviewer's note, round 1). Half the field of view reaches
+		-- the edge of any screen, which is what "spans it" means with no glass in the way.
+		crossArm = if eyepiece ~= nil
+			then math.max(0.01, eyepiece.diameterDeg / 2 - (eyepiece.rimThickDeg or 0))
+			else fovDeg / 2
 	end
 	place("CrossTop", true, -1, spec.crossThickDeg, crossArm, crossGap)
 	place("CrossBottom", true, 1, spec.crossThickDeg, crossArm, crossGap)

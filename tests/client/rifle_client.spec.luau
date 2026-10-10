@@ -214,6 +214,16 @@ return function()
 			-- MEASURED AGAINST THE LIVE VIEWPORT, not against 1080: a Studio Play window is nowhere
 			-- near it, and a fixed pixel count there would be a looser claim.
 			expect(math.abs(cross.AbsoluteSize.Y - wanted) <= 2).to.equal(true)
+			-- ...AND THE DRAWN GLASS IS KAREN'S 0.889 OF THE VIEWPORT (the Reviewer's finding 1).
+			-- This is the assertion that would have caught round 1: it reads the RIM frame, which is
+			-- the clear lens itself, off the live screen rather than trusting a config number.
+			Hud.layoutScope(Hud.scopeOverlay() :: Frame, scope, scope.aimFovDeg)
+			frames(1)
+			local lens = (Hud.scopeOverlay() :: Frame):FindFirstChild("Rim") :: Frame
+			expect(lens).to.be.ok()
+			local share = lens.AbsoluteSize.Y / viewportY
+			TestKit.note(string.format("rifle: clear glass %.3f of the viewport (Karen's frame: 0.889)", share))
+			expect(math.abs(share - 0.889) < 0.03).to.equal(true)
 			-- ...and it starts AT the centre: no gap, which is the whole difference from a duplex.
 			expect(math.abs(math.abs(cross.Position.Y.Offset) - wanted / 2) <= 2).to.equal(true)
 			-- ...and it is a hair across, not a bar.
