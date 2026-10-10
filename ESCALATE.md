@@ -1503,3 +1503,37 @@ touch `tools/boar_prep.py` and does not fix this line. It cannot merge before 11
 Karen answered, verbatim: "yes". So Task 117 may run **round 4, and round 4 only**, with
 `DIRECTOR_MAX_ROUNDS=4` set for that one review and never committed. A failing round 4 is a new entry,
 not a request for round 5.
+
+## NEEDS KAREN - the rifle's scope mount rings (task 146, 2026-10-10)
+
+Karen, playing: *"when aiming without scope remove righs (scope holding rings)"*. With the open
+sights (key 3) the front mount ring sits DEAD CENTRE of the sight picture -- `.screenshots/
+t146-open-aim.png` -- so it frames the view she is trying to aim through.
+
+**IT CANNOT BE DONE IN CODE OR DATA.** The rings are inside the uploaded `rifle.action` mesh. The
+split plan (`tools/gltf_split.py`, plan `rigby`) reads:
+
+    stock  <- Wood_Low
+    action <- Midden2_Low, Barrel_Low, Circle_Low, Vijsjes_Low, Trigger_Low, Safety_Low, TriggerHandle_Low
+    bolt   <- Midden1_Low
+    scope  <- Scope_Low, ScopeKnop_Low
+
+`Vijsjes_Low` is 3196 triangles reaching `y +0.2916` -- scope height -- and it is in the **action**
+group, which both rifles wear. Nothing in the viewmodel can hide part of a MeshPart.
+
+**THE FIX IS ONE LINE AND TWO UPLOADS.** Move `Vijsjes_Low` from the `action` group to the `scope`
+group and re-split: the SCOPED rifle wears action + scope and looks exactly as it does today, and the
+open-sighted rifle wears the action alone and has no rings. It costs the screws elsewhere on the open
+rifle (trigger-guard pins), which are a few pixels.
+
+**THE CLICKS, IN ORDER:**
+
+1. The Builder re-splits and produces the two new `.glb` files (no approval needed -- they are
+   written outside the repo).
+2. **Karen says OK to the upload** -- `assets/uploads.json` records her words, per CLAUDE.md.
+3. `tools/roblox_upload.py` uploads the new `rifle.action` and `rifle.scope`, and the manifest rows
+   in `src/serverstorage/Assets/init.luau` take the new ids.
+4. A moderation wait, then a look at both rifles.
+
+Everything else in task 146 shipped without it.
+
