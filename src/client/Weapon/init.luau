@@ -31,6 +31,13 @@ Weapon.Effects = Effects
 Weapon.Sound = SoundOwner
 
 local snapshot: Shotgun.WeaponSnapshot? = nil
+-- ...AND ONE PER WEAPON BESIDE IT (task 143). The server publishes PER TOOL, so a switch sends two
+-- snapshots -- the gun being put away (`equipped = false`) and the gun being taken out -- and with
+-- one variable the LAST one to arrive wins. MEASURED in the Forest Test with three Tools: switching
+-- to slot 3 left `Weapon.get()` holding the rifle's un-equipped snapshot, so the readout went blank
+-- and `CameraBoot`'s aim source refused to aim, for the open rifle AND for the shotgun after it.
+-- With two weapons the ordering happened to come out right, which is why task 142 never saw it.
+local byWeapon: { [string]: Shotgun.WeaponSnapshot } = {}
 local signal = Instance.new("BindableEvent")
 Weapon.Changed = signal.Event
 
@@ -44,8 +51,25 @@ Weapon.Fired = firedSignal.Event
 
 local started = false
 
+-- THE GUN IN THE PLAYER'S HANDS, which is the question every caller is really asking: the Hud's
+-- readout, the aim source, the break source and the magazine edge all mean "the one I am holding".
+-- A weapon that says `equipped` is that one; with none equipped the newest snapshot is the honest
+-- answer, which is also what every caller written before three weapons got.
 function Weapon.get(): Shotgun.WeaponSnapshot?
+	for _, held in pairs(byWeapon) do
+		if held.equipped then
+			return held
+		end
+	end
 	return snapshot
+end
+
+-- One named weapon's own replica, for a caller that means a specific gun rather than the held one.
+function Weapon.getFor(id: string?): Shotgun.WeaponSnapshot?
+	if id == nil then
+		return nil
+	end
+	return byWeapon[id]
 end
 
 function Weapon.start()
@@ -59,7 +83,12 @@ function Weapon.start()
 		-- Deep-frozen on arrival: a shallow freeze would leave state.barrels writable, which was
 		-- defect (b) of the Task 23 review.
 		snapshot = Shotgun.deepFreeze(state)
-		signal:Fire(snapshot)
+		-- `weapon` has been on the wire since task 140; this is the first reader that needs it to
+		-- keep the two guns apart rather than to name one.
+		if snapshot ~= nil and snapshot.weapon ~= nil then
+			byWeapon[snapshot.weapon] = snapshot
+		end
+		signal:Fire(Weapon.get())
 	end)
 	remotes.ShotFired.OnClientEvent:Connect(function(payload)
 		Effects.play(payload)

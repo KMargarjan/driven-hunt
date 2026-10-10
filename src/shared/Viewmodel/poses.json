@@ -275,7 +275,7 @@
     "rifle_open": {
       "aim": {
         "cheekDeg": 1.2,
-        "eyeReliefStuds": 3.2,
+        "eyeReliefStuds": 4.6,
         "left": {
           "pos": {
             "x": -0.013,
