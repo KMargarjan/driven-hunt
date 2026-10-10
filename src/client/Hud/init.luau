@@ -273,8 +273,10 @@ local function build(): ScreenGui
 		config.CROSSHAIR_COLOR
 	)
 
-	-- THE SCOPE'S RETICLE (task 140): a duplex -- a ring you look through, a thin cross and four
-	-- thick outer posts -- drawn from UI primitives with NO upload, exactly as the drive report's
+	-- THE SCOPE'S RETICLE: the INSTANCES for every element any scope in this game draws -- a ring,
+	-- a thin cross and four thick outer posts -- of which each one is drawn only if the weapon's own
+	-- data carries it (task 146: Karen's cross has neither ring nor posts). Built from UI primitives
+	-- with NO upload, exactly as the drive report's
 	-- silhouette is. A SIBLING of the crosshair and of the hit marker, for the reason the hit marker
 	-- is one: three marks, three questions, and no predicate that answers two of them.
 	--
@@ -1012,6 +1014,10 @@ function Hud.layoutScope(overlay: Frame, optics: any, fovDeg: number)
 		local edge = mask:FindFirstChild("Edge")
 		if edge and edge:IsA("UIStroke") then
 			edge.Color = spec.maskColor
+			-- ...AND IT IS NOT NECESSARILY OPAQUE (task 146). Karen's reference keeps the forest
+			-- outside the scope body visible, just dark. `maskTransparency` nil is task 141's solid
+			-- black, so every scope written before this task is unchanged.
+			edge.Transparency = spec.maskTransparency or 0
 			-- THE SCREEN'S DIAGONAL: the smallest thickness certain to reach every corner from the
 			-- circle's edge, whatever the aspect ratio.
 			edge.Thickness = math.ceil(math.sqrt(viewport.X * viewport.X + viewport.Y * viewport.Y))
@@ -1101,7 +1107,7 @@ function Hud.renderScope(CameraSystem)
 		local visible = Hud.reticleVisible(mode, optics, blend)
 		reticle.Visible = visible
 		if visible then
-			Hud.layoutReticle(reticle, optics.reticle, liveFov)
+			Hud.layoutReticle(reticle, optics, liveFov)
 		end
 	end
 end
@@ -1118,9 +1124,14 @@ end
 -- ...AND WHICH SPEC IT DREW, not only at what size (the Reviewer's note, round 1): two scopes at
 -- the same magnification with different reticles would otherwise reuse the first one's pixels.
 local lastReticleFov, lastReticleY, lastReticleSpec = -1, -1, nil :: any
-function Hud.layoutReticle(reticle: Frame, spec: any, fovDeg: number)
+-- `optics` IS THE WHOLE SCOPE BLOCK SINCE TASK 146, not just `optics.reticle`: Karen's cross runs
+-- from one side of the GLASS to the other, so the arms are a function of the eyepiece and the two
+-- cannot be given separately without letting them disagree.
+function Hud.layoutReticle(reticle: Frame, optics: any, fovDeg: number)
 	local camera = Workspace.CurrentCamera
 	local viewportY = if camera then camera.ViewportSize.Y else 0
+	local spec = if optics ~= nil then optics.reticle else nil
+	local eyepiece = if optics ~= nil then optics.eyepiece else nil
 	if viewportY <= 0 or spec == nil then
 		return
 	end
@@ -1132,14 +1143,20 @@ function Hud.layoutReticle(reticle: Frame, spec: any, fovDeg: number)
 		return Hud.reticleDegToPx(deg, fovDeg, viewportY)
 	end
 
+	-- A RETICLE DRAWS WHAT ITS DATA CARRIES (task 146). Karen's reference has no ring around the
+	-- centre, so her scope leaves `ringOuterDeg` out and this element simply is not there. The same
+	-- rule the dot has followed since task 142, applied to the rest of the furniture.
 	local ring = reticle:FindFirstChild("Ring")
 	if ring and ring:IsA("Frame") then
-		local outer = math.max(2, px(spec.ringOuterDeg))
-		ring.Size = UDim2.fromOffset(outer, outer)
-		local edge = ring:FindFirstChild("Edge")
-		if edge and edge:IsA("UIStroke") then
-			edge.Thickness = math.max(1, px(spec.ringThickDeg))
-			edge.Color = spec.color
+		ring.Visible = spec.ringOuterDeg ~= nil and spec.ringOuterDeg > 0
+		if ring.Visible then
+			local outer = math.max(2, px(spec.ringOuterDeg))
+			ring.Size = UDim2.fromOffset(outer, outer)
+			local edge = ring:FindFirstChild("Edge")
+			if edge and edge:IsA("UIStroke") then
+				edge.Thickness = math.max(1, px(spec.ringThickDeg or 0.1))
+				edge.Color = spec.color
+			end
 		end
 	end
 
@@ -1148,17 +1165,22 @@ function Hud.layoutReticle(reticle: Frame, spec: any, fovDeg: number)
 		name: string,
 		vertical: boolean,
 		sign: number,
-		thickDeg: number,
-		armDeg: number,
-		gapDeg: number
+		thickDeg: number?,
+		armDeg: number?,
+		gapDeg: number?
 	)
 		local bar = reticle:FindFirstChild(name)
 		if not (bar and bar:IsA("Frame")) then
 			return
 		end
+		if thickDeg == nil or thickDeg <= 0 or armDeg == nil or armDeg <= 0 then
+			bar.Visible = false -- the data does not carry this element (task 146)
+			return
+		end
+		bar.Visible = true
 		local thick = math.max(1, px(thickDeg))
 		local length = math.max(1, px(armDeg))
-		local gap = px(gapDeg)
+		local gap = px(gapDeg or 0)
 		bar.BackgroundColor3 = spec.color
 		if vertical then
 			bar.Size = UDim2.fromOffset(thick, length)
@@ -1169,13 +1191,24 @@ function Hud.layoutReticle(reticle: Frame, spec: any, fovDeg: number)
 		end
 	end
 
-	place("CrossTop", true, -1, spec.crossThickDeg, spec.crossArmDeg, spec.crossGapDeg)
-	place("CrossBottom", true, 1, spec.crossThickDeg, spec.crossArmDeg, spec.crossGapDeg)
-	place("CrossLeft", false, -1, spec.crossThickDeg, spec.crossArmDeg, spec.crossGapDeg)
-	place("CrossRight", false, 1, spec.crossThickDeg, spec.crossArmDeg, spec.crossGapDeg)
+	-- EDGE TO EDGE, CUT TO THE GLASS (task 146). The eyepiece's own radius minus the tube's
+	-- thickness is where the clear lens stops, so an arm of exactly that length starts at the centre
+	-- and ends against the inside of the scope body -- which is Karen's reference line for line. The
+	-- gap is zero, because a hair that stops short of the middle is a duplex and she asked for the
+	-- other thing.
+	local crossArm, crossGap = spec.crossArmDeg, spec.crossGapDeg
+	if spec.spanLens and eyepiece ~= nil then
+		crossArm = math.max(0.01, eyepiece.diameterDeg / 2 - (eyepiece.rimThickDeg or 0))
+		crossGap = 0
+	end
+	place("CrossTop", true, -1, spec.crossThickDeg, crossArm, crossGap)
+	place("CrossBottom", true, 1, spec.crossThickDeg, crossArm, crossGap)
+	place("CrossLeft", false, -1, spec.crossThickDeg, crossArm, crossGap)
+	place("CrossRight", false, 1, spec.crossThickDeg, crossArm, crossGap)
 	-- THE POSTS START WHERE THE THIN CROSS ENDS, which is what a duplex IS: a thick bar from the
-	-- edge of the view in to a point, and a hair from there to the centre.
-	local postGap = spec.crossGapDeg + spec.crossArmDeg
+	-- edge of the view in to a point, and a hair from there to the centre. A reticle with no posts
+	-- in its data has none drawn.
+	local postGap = (crossGap or 0) + (crossArm or 0)
 	-- THE DOT, IN THE SAME DEGREES (task 142). A weapon whose reticle carries no `dot` draws none,
 	-- which is what keeps this one conversion honest for a scope that is a plain duplex.
 	local function circle(name: string, deg: number?, color: Color3?, transparency: number)
@@ -1193,7 +1226,9 @@ function Hud.layoutReticle(reticle: Frame, spec: any, fovDeg: number)
 		node.BackgroundColor3 = color
 		node.BackgroundTransparency = transparency
 	end
-	local dot = spec.dot
+	-- `enabled = false` IS THE ONE LINE THAT TURNS IT OFF (task 146): Karen asked for the red dot
+	-- and the reference she then sent has none, so it is a data toggle and not an argument.
+	local dot = if spec.dot ~= nil and spec.dot.enabled ~= false then spec.dot else nil
 	circle("DotHalo", dot and dot.haloDeg, dot and dot.haloColor, (dot and dot.haloTransparency) or 0.5)
 	circle("Dot", dot and dot.deg, dot and dot.color, 0)
 

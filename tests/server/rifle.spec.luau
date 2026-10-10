@@ -204,26 +204,50 @@ return function()
 			expect(Weapons.ROWS.shotgun.scope).to.equal(nil)
 		end)
 
-		it("describes its reticle in DEGREES, every field", function()
+		it("describes its reticle in DEGREES, and is the CROSS Karen asked for", function()
 			local r = Rifle.CONFIG.scope.reticle
-			expect(r.kind).to.equal("duplex")
-			-- Every size is an angle, so one duplex is true at any screen size and any zoom.
-			for _, name in ipairs({
-				"ringOuterDeg",
-				"ringThickDeg",
-				"crossGapDeg",
-				"crossArmDeg",
-				"crossThickDeg",
-				"postArmDeg",
-				"postThickDeg",
-			}) do
-				expect(type((r :: any)[name])).to.equal("number")
-				expect((r :: any)[name] > 0).to.equal(true)
-			end
-			-- A DUPLEX IS THIN IN THE MIDDLE AND THICK AT THE EDGE; that is what makes it one.
-			expect(r.postThickDeg > r.crossThickDeg).to.equal(true)
-			-- ...and the ring is the thing you look THROUGH, so it is wider than the cross reaches.
-			expect(r.ringOuterDeg > 2 * (r.crossGapDeg + r.crossArmDeg)).to.equal(true)
+			local eye = Rifle.CONFIG.scope.eyepiece
+			-- KAREN, 2026-10-10: *"scope aiming has to be different cross look at the exaple I
+			-- attached"*. Her reference is two hairlines across the whole lens: no ring round the
+			-- centre, no duplex posts (task 146).
+			expect(r.kind).to.equal("crosshair")
+			expect(r.spanLens).to.equal(true)
+			expect(r.ringOuterDeg).to.equal(nil)
+			expect(r.postThickDeg).to.equal(nil)
+			expect(r.postArmDeg).to.equal(nil)
+			-- Every size that IS carried is an angle, so one reticle is true at any screen size and
+			-- any zoom.
+			expect(type(r.crossThickDeg)).to.equal("number")
+			expect(r.crossThickDeg > 0).to.equal(true)
+			-- A HAIR, NOT A BAR: `px = deg / fov * viewportY`, so at this scope's own FOV the line is
+			-- a few pixels on a 1080-high viewport, which is what her frame measures. The conversion
+			-- itself lives on the client (`Hud.reticleDegToPx`) and `rifle_client.spec` drives it;
+			-- this is the same arithmetic without requiring a client module from the server.
+			expect(r.crossThickDeg / Rifle.CONFIG.scope.aimFovDeg * 1080 < 6).to.equal(true)
+			-- ...AND THE CROSS IS CUT TO THE GLASS, not to a number of its own: `spanLens` makes
+			-- `Hud.layoutReticle` run the arms from the centre to the inside of the tube, so the
+			-- eyepiece is what decides how long they are.
+			expect(eye.diameterDeg / 2 > eye.rimThickDeg).to.equal(true)
+			-- THE DOT IS A TOGGLE, defaulting ON and small (task 146): she asked for it on
+			-- 2026-10-09 and the reference she sent has none.
+			expect((r.dot :: any).enabled).to.equal(true)
+			expect((r.dot :: any).deg < r.crossThickDeg * 2).to.equal(true)
+		end)
+
+		it("keeps the world outside the tube, and the tube is a scope body", function()
+			-- The other two halves of her frame (task 146): a THICK dark ring round the glass, and
+			-- the forest past it still visible rather than painted out.
+			local eye = Rifle.CONFIG.scope.eyepiece
+			-- 0.085 of a 1080-high frame is 92 px, measured off the reference; task 141 drew 0.45
+			-- degrees, a hairline bevel.
+			expect(eye.rimThickDeg > 1.0).to.equal(true)
+			expect(eye.maskTransparency).to.be.ok()
+			expect((eye.maskTransparency :: number) > 0).to.equal(true)
+			expect((eye.maskTransparency :: number) < 1).to.equal(true)
+			-- ...and the glass is most of the screen's height, which is what looking through a scope
+			-- held correctly gives you: 17.6 of 19.87 is 0.886, against 0.889 in her frame.
+			expect(eye.diameterDeg / Rifle.CONFIG.scope.aimFovDeg > 0.85).to.equal(true)
+			expect(eye.diameterDeg / Rifle.CONFIG.scope.aimFovDeg < 1.0).to.equal(true)
 		end)
 	end)
 

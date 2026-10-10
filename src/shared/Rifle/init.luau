@@ -38,20 +38,32 @@ export type Dot = {
 	haloDeg: number,
 	haloColor: Color3,
 	haloTransparency: number,
+	-- THE ONE LINE THAT TURNS IT OFF (task 146). Karen asked for the dot and her reference has
+	-- none, so this is a data toggle rather than an argument: nil or true draws it.
+	enabled: boolean?,
 }
 
+-- EVERY FIELD BUT THE FIRST THREE IS OPTIONAL SINCE TASK 146, and that is how the two reticles
+-- this game has ever drawn both stay expressible: a field left out is an element not drawn. Karen's
+-- own reference (`<assets-dir>/references/rifle/karen-scope-target.jpg`) has no ring and no posts,
+-- so her scope simply does not carry `ringOuterDeg` or `postThickDeg` -- rather than carrying a zero
+-- that every reader then has to know means "off".
 export type Reticle = {
 	kind: string,
-	dot: Dot,
-	ringOuterDeg: number,
-	ringThickDeg: number,
-	crossGapDeg: number,
-	crossArmDeg: number,
 	crossThickDeg: number,
-	postArmDeg: number,
-	postThickDeg: number,
 	color: Color3,
-	strokeColor: Color3,
+	-- THE CROSS SPANS THE WHOLE LENS when this is true (task 146): the arms are computed from the
+	-- EYEPIECE, so a change to the glass moves the hairs with it and the two can never disagree.
+	-- Without it the arms are `crossGapDeg`/`crossArmDeg`, which is the duplex task 141 drew.
+	spanLens: boolean?,
+	dot: Dot?,
+	ringOuterDeg: number?,
+	ringThickDeg: number?,
+	crossGapDeg: number?,
+	crossArmDeg: number?,
+	postArmDeg: number?,
+	postThickDeg: number?,
+	strokeColor: Color3?,
 }
 
 -- THE SIGHT PICTURE (task 141). Every length here is in DEGREES for the same reason the reticle's
@@ -65,6 +77,10 @@ export type Eyepiece = {
 	rimThickDeg: number,
 	rimColor: Color3,
 	maskColor: Color3,
+	-- HOW MUCH OF THE WORLD SURVIVES OUTSIDE THE TUBE (task 146). Karen: *"scope aiming has to be
+	-- different cross look at the exaple I attached"* -- and in that frame the forest outside the
+	-- scope body is dark but PRESENT, not painted out. 0 is the solid black task 141 shipped.
+	maskTransparency: number?,
 }
 
 -- WHAT A BOLT CYCLE DOES TO THE SIGHT PICTURE (task 142). `leaveScope` true drops the view out of
@@ -247,11 +263,12 @@ Rifle.CONFIG = {
 		-- Test: the drawn scope's own tube was in front of the eye with the reticle painted over it,
 		-- which is what you see when you hold a rifle up to your face and look PAST the glass. A
 		-- sight picture is the other thing: the gun is gone, everything outside the eyepiece is
-		-- black, and the magnified world sits in a circle with the duplex on it.
+		-- black, and the magnified world sits in a circle with the reticle on it.
 		--
-		-- 17 degrees of the 19.87 the scope renders is 0.86 of the screen's height -- a circle with
-		-- the ground visible past its edge, which is what looking through a scope held correctly
-		-- gives you.
+		-- 17.6 degrees of the 19.87 the scope renders is 0.886 of the screen's height -- MEASURED off
+		-- Karen's own reference frame (`<assets-dir>/references/rifle/karen-scope-target.jpg`, task
+		-- 146), where the clear glass is 960 px of a 1080-high frame: 0.889. Task 141 shipped 17.0
+		-- (0.855) from the same reasoning and a different picture.
 		--
 		-- `atBlend` IS 0.98 AS A TOLERANCE, NOT AS A THRESHOLD, and round 2's comment here had the
 		-- reason wrong (the Reviewer caught it): `Mode.step` raises the blend LINEARLY --
@@ -261,37 +278,50 @@ Rifle.CONFIG = {
 		-- either way. The Director asked for "snaps in when blend ~ 1" and that is what it does.
 		eyepiece = {
 			atBlend = 0.98,
-			diameterDeg = 17.0,
-			rimThickDeg = 0.45,
-			rimColor = Color3.fromRGB(26, 26, 28),
+			diameterDeg = 17.6,
+			-- THE TUBE IS THICK, AND THAT IS THE SECOND THING HER FRAME SHOWS. The scope body around
+			-- the glass is 92 px of 1080 in it -- 0.085 of the height, which at this FOV is 1.69
+			-- degrees. Task 141's 0.45 was a hairline bevel, not a scope body.
+			rimThickDeg = 1.69,
+			-- ...and it is dark grey rather than black, because a black ring against a black mask is
+			-- one shape. Sampled from the reference: the tube reads around 60/60/62.
+			rimColor = Color3.fromRGB(60, 60, 62),
 			maskColor = Color3.fromRGB(0, 0, 0),
+			-- THE WORLD OUTSIDE SURVIVES (task 146). In her frame the grass and trunks past the tube
+			-- are plainly there, just dark. 0.45 keeps about half of them; 0 is task 141's solid
+			-- black. ROBLOX UI CANNOT BLUR, so "softened" is darkened here and nothing else -- said
+			-- out loud because it is the one half of her note this cannot do.
+			maskTransparency = 0.45,
 		},
+		-- KAREN'S CROSS (task 146), verbatim: *"scope aiming has to be different cross look at the
+		-- exaple I attached"*. Her reference is two black hairlines running the FULL width and
+		-- height of the glass, edge to edge, with no ring and no duplex posts -- so the ring and the
+		-- posts are simply not in this table any more, and `Hud.layoutReticle` draws what it finds.
+		--
+		-- THE DOT IS STILL HERE AND IT IS A TOGGLE. She asked for a red dot on 2026-10-09 and her
+		-- example has none; `enabled` is the one line that settles it either way. It defaults ON and
+		-- SMALL -- 0.085 degrees is about 4.6 px on a 1080-high viewport -- so it reads as a lit dot
+		-- sitting on the cross rather than as a blob covering the animal.
 		reticle = {
-			kind = "duplex",
+			kind = "crosshair",
+			spanLens = true,
 			-- THE RED DOT. 0.085 degrees at this scope's 19.87 is about 4.6 px on a 1080-high
 			-- viewport: a dot you can hold on a boar's chest at 150 studs, and not a blob that
 			-- hides it. The halo is three times it at 0.55 transparency -- enough of an edge to
 			-- read against sky, snow or a pale trunk, which a bare red square does not.
 			dot = {
+				enabled = true,
 				deg = 0.085,
 				color = Color3.fromRGB(255, 48, 36),
 				haloDeg = 0.26,
 				haloColor = Color3.fromRGB(120, 0, 0),
 				haloTransparency = 0.55,
 			},
-			-- 4.0 degrees at FOV 19.87 is a fifth of the screen height: a ring you look THROUGH.
-			ringOuterDeg = 4.0,
-			ringThickDeg = 0.10,
-			-- 0.055 degrees is 1.2 px at 1080p and this FOV -- a hair, which is what a thin
-			-- crosshair is. The thick outer posts are four times it, which is what makes a duplex
-			-- read as a duplex.
-			crossGapDeg = 0.35,
-			crossArmDeg = 1.30,
-			crossThickDeg = 0.055,
-			postArmDeg = 1.50,
-			postThickDeg = 0.22,
-			color = Color3.fromRGB(16, 16, 16),
-			strokeColor = Color3.fromRGB(235, 235, 235),
+			-- 0.06 degrees is 3.3 px on a 1080-high viewport at this FOV, which is what the lines
+			-- in her reference measure. There is no gap and no arm length: `spanLens` runs them from
+			-- the inside of the tube, through the centre, to the inside of the tube.
+			crossThickDeg = 0.06,
+			color = Color3.fromRGB(10, 10, 10),
 		},
 	} :: Scope,
 }
