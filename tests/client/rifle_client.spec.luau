@@ -19,6 +19,8 @@ local Camera = require(scripts:WaitForChild("Camera"))
 local Hud = require(scripts:WaitForChild("Hud"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
+-- ...for ONE name: the shell template, which is never worn (see the case below).
+local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local Mode = Camera.Mode
@@ -407,7 +409,15 @@ return function()
 					end
 					ready, drawn, missing = 0, 0, {}
 					for _, template in ipairs(folder:GetChildren()) do
-						if Camera.Viewmodel.meshReady(template) then
+						-- THE SHELL IS NOT A PIECE OF THE GUN (task 150). It is a TEMPLATE the
+						-- viewmodel clones per barrel during a break-action reload, under its own
+						-- name -- `SpentShell1`, `FreshShell2` -- and `Viewmodel.clearShells` takes
+						-- them away again, so a gun at rest wears no part called `Shell` and never
+						-- should. This case read `shotgun wears 2 of 3 downloaded piece(s) missing
+						-- Shell` in a two-player run and passed in a one-player one for a reason
+						-- that is not about the rule: with one client the shell's mesh had not
+						-- finished downloading yet, so it was not counted as ready either.
+						if template.Name ~= Gun.SHELL_TEMPLATE_NAME and Camera.Viewmodel.meshReady(template) then
 							ready += 1
 							if worn[template.Name] then
 								drawn += 1
