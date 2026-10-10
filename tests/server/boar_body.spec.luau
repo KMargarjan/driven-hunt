@@ -424,6 +424,9 @@ return function()
 		-- the world, so counting them here is the one honest way to attribute them.
 		local pathCalls = {}
 
+		-- THE WIDEST GAP IN A GROUP, for the cases that want a number to LOOK at. It is not an
+		-- assertion about scattering: see "promotes a new leader and scatters" below, where 90 runs
+		-- of measurement say so.
 		local function spread(handles): number
 			local worst = 0
 			for i = 1, #handles do
@@ -646,6 +649,10 @@ return function()
 			local before = spread(live(group))
 			expect(herd:takeHit(leader.part, { ammo = "Slug", zone = "head", pellets = 1 })).to.equal(true)
 			expect(herd:stats().scatters >= 1).to.equal(true)
+			-- THE TIMER IS LATCHED TO THE DIAL, not merely truthy: a scatter that set a flag and no
+			-- clock would pass `scatterFor > 0` for ever (task 145).
+			local latched = herd:sounders()[1].scatterFor
+			expect(latched).to.equal(SETTINGS.SCATTER_SECONDS)
 			RunService.Heartbeat:Wait()
 			RunService.Heartbeat:Wait()
 
@@ -654,13 +661,51 @@ return function()
 			expect(view.leaderId).never.to.equal(leaderId)
 			expect(herd:stats().leaderPromotions).to.equal(1)
 			expect(view.scatterFor > 0).to.equal(true)
+			-- ...AND IT IS COUNTING DOWN. `_step` does `scatterFor = math.max(0, scatterFor - dt)`,
+			-- so two frames at ANY frame rate make it strictly smaller -- which is the one way to
+			-- tell a running clock from a latched flag without betting on wall time.
+			expect(view.scatterFor < latched).to.equal(true)
 			-- A dead member is out of the sounder (LEAVE_ON_MORTAL), carcass and all.
 			expect(#view.memberIds).to.equal(4)
 
+			-- WHAT THIS CASE USED TO ASSERT, AND WHY IT IS GONE (task 145). The last line was
+			-- `expect(spread(live(group)) > before).to.equal(true)` after 120 frames: the survivors
+			-- must be further apart than the group was before the shot. It failed intermittently on
+			-- identical code in tasks 130, 139, 140 and 141 -- two of four gate runs at 141's commit
+			-- -- and every red cost a full gate re-run.
+			--
+			-- IT WAS NOT A FLAKE. IT WAS NOT TRUE. `driven-hunt-runs/t145-scatter.luau` rebuilds this
+			-- exact world and repeats only this scenario, 30 runs per pass:
+			--
+			--   * as written (`before` over FIVE, `after` over the four survivors): FAILED 26 of 30.
+			--     The dead leader is one of the two extremes in 30 of 30, so dropping it from the set
+			--     removes about 5 studs of width before the survivors have moved at all.
+			--   * comparing the SAME four boars before and after: still failed 12 of 30.
+			--   * over the whole six-second scatter, sampled at 120 / 240 / 360 frames, the mean gap
+			--     between survivors ended SMALLER than it started in 14 of 27 runs, by as much as
+			--     4.70 studs. The nearest-neighbour gap and the widest gap are no better.
+			--
+			-- The reason is in `Brain._herdSteer`: scattering drops cohesion, alignment and the file
+			-- and triples SEPARATION -- but every member still carries its own `FLEE_WEIGHT` pull
+			-- toward the same `field.exitZ`. Five animals running at one line converge on it. "The
+			-- sounder scattered" has never meant "the bodies are further apart N frames later", and
+			-- no bound on that number would be honest -- it would only be a bound that happened to
+			-- hold on this machine.
+			--
+			-- SO THE CASE ASSERTS WHAT SCATTERING IS, exactly and with no clock to lose: the shot
+			-- latched `SCATTER_SECONDS`, the timer is counting down, the leader was promoted, and the
+			-- carcass left the sounder. The width is still MEASURED and reported, because the number
+			-- is worth seeing in the log -- it is just not a gate.
 			stepUntil(120, function()
 				return false
 			end)
-			expect(spread(live(group)) > before).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar sounder: scatter width %.1f -> %.1f studs over 120 frames (reported, not asserted: task 145)",
+					before,
+					spread(live(group))
+				)
+			)
 		end)
 
 		it("drops a member that has been too far away for too long", function()
