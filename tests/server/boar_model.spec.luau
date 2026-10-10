@@ -1083,6 +1083,59 @@ return function()
 			runtime:destroy()
 		end)
 
+		it("lets exactly ONE thing lay a carcass down", function()
+			-- KAREN, 2026-10-10 ~21:20, the third playtest running: *"still after animal died it
+			-- stands and stay still"*.
+			--
+			-- MEASURED on the client that draws them, over eight kills: seven lay on a flank (the
+			-- spine's up vector 86-102 degrees off world up, the spine 0.00-0.25 of a body-length
+			-- over the lowest hoof) and ONE stood at 4.9 degrees and 0.79 -- a LIVE standing boar's
+			-- own numbers -- with no animation track playing on it at all. The clip is what lays a
+			-- boar down, and a clip is not a guarantee: an Animator that never arrived, a
+			-- `LoadAnimation` that failed, an id that is not published. In each of those the animal
+			-- HAS a model, so the pre-150 rule left its box upright, and the model stood in its bind
+			-- pose for the whole `CARCASS_SECONDS`.
+			-- AND THE OTHER HALF, FROM THE OPPOSITE SIDE, measured on a real kill in the same runs: a
+			-- carcass whose box had tumbled to -90.2 degrees under physics WHILE the paddle played
+			-- drew its spine 4.4 degrees off world up -- a dead boar on its feet, made of two correct
+			-- rotations composing. So exactly one of the two may do the falling.
+			--
+			-- A MODEL WITH A DEATH TRACK: the clip does it, and `Body.collapse` anchors the box at
+			-- the moment of death so that gravity cannot add a second rotation to the first.
+			expect(Boar.boxFalls(true, true)).to.equal(false)
+			-- NO MODEL AT ALL: the box does it, exactly as it has since task 28.
+			expect(Boar.boxFalls(false, false)).to.equal(true)
+			-- A MODEL WHOSE RIG HAS NO DEATH TRACK -- an Animator that never arrived, a
+			-- `LoadAnimation` that failed, an id that is not published: the box does it. This is the
+			-- row that was missing, and it is one of the two Karen has been photographing: before
+			-- task 150 "there is a visual" was taken for "the clip will play", so nothing laid the
+			-- animal down and it stood in its bind pose for the whole CARCASS_SECONDS.
+			expect(Boar.boxFalls(true, false)).to.equal(true)
+		end)
+
+		it("says the death pose a second time, for a client that missed the first", function()
+			-- THE OTHER HALF OF KAREN'S STANDING BOAR, and it is not the boar's decision at all.
+			-- MEASURED over 60 kills in four runs, reading the drawn rig on the CLIENT and the same
+			-- rig on the SERVER: every carcass lies down on the server -- the fall and the paddle
+			-- playing on each -- and about one in ten stands on the CLIENT, with no animation track
+			-- on it there and its box at the server's own angle. The client missed the one `Play`
+			-- the death ever got, so it draws the bind pose, which is a boar standing up.
+			local w = CONFIG.WOUND
+			expect(Boar.shouldReassert(0, false, w)).to.equal(false)
+			expect(Boar.shouldReassert(w.CARCASS_REASSERT_SECONDS - 0.01, false, w)).to.equal(false)
+			expect(Boar.shouldReassert(w.CARCASS_REASSERT_SECONDS, false, w)).to.equal(true)
+			-- ...ONCE, because re-playing a clip is only free while it is being HELD.
+			expect(Boar.shouldReassert(60, true, w)).to.equal(false)
+			-- ...AND ONLY ONCE BOTH DEATH CLIPS HAVE ENDED, which is what makes re-stating the pose
+			-- invisible to a client that already has it: the track is held at its last frame, and it
+			-- is put back on that same frame.
+			local clips = CONFIG.MODEL.CLIPS
+			local both = clips.deathLeft.seconds + clips.deathPaddleLeft.seconds
+			expect(w.CARCASS_REASSERT_SECONDS > both).to.equal(true)
+			-- ...and long before the carcass is taken off the board.
+			expect(w.CARCASS_REASSERT_SECONDS < w.CARCASS_SECONDS).to.equal(true)
+		end)
+
 		it("decides to anchor on stillness, and on the backstop only when it is not falling", function()
 			-- The pure rule, because a spec cannot make a physics body topple on command. The thresholds
 			-- are 30x apart on purpose: a resting carcass measured 0.000-0.003 on both and one still

@@ -55,12 +55,34 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local PROBE_NAME = "SpecEquipProbe"
 
+-- WHOSE GUN THIS IS, AND NOT MERELY WHO IS HERE (task 150).
+--
+-- THE TWO-PLAYER RUN FAILED THREE CASES IN THIS FILE at `8468e38` -- `[harness2] FAIL: 31/35`, three
+-- "Expected true, got false" on the same assertion, `#Hardware.toolsOf(player) == #Weapons.loadout()`
+-- after a `Weapon.refreshArming(player)`. The assertion is right and the player was wrong: the drive
+-- makes one of two players a DRIVER, who carries no gun at all
+-- (`Match.CONFIG.DRIVERS_MAY_SHOOT = false`), and `Players:GetPlayers()` is in join order -- so a
+-- one-player run always found the hunter and a two-player run found whichever client connected
+-- first. Every case in this file is about what the weapon system does to an ARMED player.
+--
+-- THE TEAM IS THE ANSWER, because it is the same server-authoritative fact `tests/client/Role.luau`
+-- resolves a client's own role from (`Match.Body` is its one writer). A player with no team at all
+-- is a one-player session, where the Director's decision F makes the lone player a Shooter -- so an
+-- unteamed `Team == nil` counts as armed, which is exactly the world every case here was written in.
 local function somebody(): Player?
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player.Character ~= nil and player.Character:FindFirstChildOfClass("Humanoid") ~= nil then
-			return player
+			local team = player.Team
+			if team == nil or team.Name ~= "Drivers" then
+				return player
+			end
 		end
 	end
+	-- EVERY PLAYER ON THE DRIVING TEAM answers nil, exactly as an empty server does, and each case's
+	-- own `if player == nil` guard notes it and returns. That is this file's existing behaviour for
+	-- "there is nobody here to arm" and it is not widened here: a world with no armed player is a
+	-- world where these claims have no subject, and inventing a failure out of it would be a
+	-- different claim than the one the case makes.
 	return nil
 end
 

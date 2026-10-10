@@ -633,11 +633,17 @@ return function()
 				math.abs(SENSE.SHOT_AUDIBLE_FROM_IMPACT_STUDS * SENSE.METRES_PER_STUD - SENSE.SHOT_HEARD_FROM_IMPACT_M)
 					< 0.5
 			).to.equal(true)
-			-- ...AND THE IMPACT REACHES FURTHER THAN THE MUZZLE, because the animals are at the far
-			-- end of the shot and that is the whole point of the second circle.
-			expect(SENSE.SHOT_AUDIBLE_FROM_IMPACT_STUDS > SENSE.SHOT_AUDIBLE_STUDS).to.equal(true)
-			-- ...and it reaches past the longest shot Karen has been recorded taking (71 m).
-			expect(SENSE.SHOT_HEARD_FROM_IMPACT_M >= 60).to.equal(true)
+			-- ...AND THE IMPACT NEVER REACHES LESS FAR THAN THE MUZZLE, because the animals are at the
+			-- far end of the shot and that is the whole point of the second circle. It was a strict
+			-- `>` for one task, when the two were 60 m and 40 m; KAREN SET BOTH TO 100 m HERSELF on
+			-- 2026-10-10 (*"blast radius 100m around"*), so what has to hold is that the far circle
+			-- is never the smaller one.
+			expect(SENSE.SHOT_AUDIBLE_FROM_IMPACT_STUDS >= SENSE.SHOT_AUDIBLE_STUDS).to.equal(true)
+			-- ...AND BOTH ARE THE NUMBER SHE ASKED FOR, written as metres because that is the unit
+			-- she said it in. A change to either is a change to a thing she decided, and this is the
+			-- line that makes somebody say so.
+			expect(SENSE.SHOT_HEARD_FROM_IMPACT_M).to.equal(100)
+			expect(SENSE.SHOT_HEARD_FROM_SHOOTER_M).to.equal(100)
 			local brain = Brain.new(on, FIELD, START, Random.new(3))
 			for _ = 1, 30 do
 				brain:step(DT, obs(START, {}))

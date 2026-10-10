@@ -340,6 +340,11 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		flashFor = 0,
 		flashing = false,
 		collapsed = false,
+		-- HAS THE DEATH POSE BEEN STATED A SECOND TIME? (task 150). Once per carcass.
+		reasserted = false,
+		-- HAS THE BOX BEEN ROLLED? (task 150). One way, so the collapse and the backstop in
+		-- `stepCarcass` cannot roll the same carcass twice and stand it back up.
+		toppled = false,
 		collapsedFor = 0, -- seconds since it died; the carcass anchor reads it
 		stillFor = 0, -- seconds it has been at rest; likewise
 		bornAt = os.clock(),
@@ -1016,8 +1021,36 @@ function Body.stepVisual(handle, dt: number, info, config)
 		handle.hitFor = math.max(handle.hitFor - dt, 0)
 	end
 
+	if handle.collapsed and Body.shouldReassert(handle.deadFor + dt, handle.reasserted, config.WOUND) then
+		-- SAY IT AGAIN, ONCE (task 150). Measured: every carcass lies down on the SERVER and about one
+		-- in ten stands on the CLIENT, with no track on it there -- the client missed the one `Play`
+		-- the death ever got. By now the fall and the paddle have both ended and the track is held at
+		-- its last frame, so re-playing it and pinning it back to that frame changes nothing for a
+		-- client that already has the pose and is the whole of the pose for one that does not.
+		handle.reasserted = true
+		local name = handle.clip
+		local track = if name ~= nil then handle.tracks[name] else nil
+		local fall, paddle = Body.deathClips(config)
+		if track ~= nil and (name == fall or name == paddle) then
+			local at = track.TimePosition
+			track:Play(0, 1, 0)
+			track.TimePosition = at
+			track:AdjustSpeed(0)
+			-- the freeze's own bookkeeping: a held clip is never re-rated (`shouldAdjustRate`)
+			handle.heldClip = name
+		end
+	end
+
 	if handle.collapsed then
 		handle.deadFor += dt
+		-- THE BOX DID THE FALLING, SO THE CLIP MUST NOT DO IT AGAIN (task 150). `Body.topple` is only
+		-- reached when nothing was drawing the death; if the track becomes playable later -- a late
+		-- download, an Animator that arrives -- `clipFor` would answer the death for ever and lay an
+		-- already-rolled animal down a second time, which is task 120's buried-upside-down carcass
+		-- exactly (head 1.20 studs under the ground, hooves 0.85 above it).
+		if handle.toppled then
+			return
+		end
 	end
 
 	-- THE ACTIVITY CLOCK (task 117). `info.activity` is the Brain's answer this frame; when it
@@ -1819,6 +1852,42 @@ end
 -- there a death clip to fall with? -- and a caller that does not hand it over gets no lift, which
 -- is the pre-120 behaviour and the safe way round: a carcass that was never raised is a carcass
 -- lying where the clip left it, and a carcass raised with nothing to pull it down floats.
+-- THE ONE CFrame WRITE THAT LAYS A DEAD BOAR DOWN. Rolling the body past its tipping angle lets
+-- GRAVITY do the rest, which is the visible difference between "dropped" and "paused". It is called
+-- from exactly two places -- the collapse, and the backstop in `stepCarcass` -- and it is idempotent
+-- through `handle.toppled`, because a second roll would stand the animal back up on its other side.
+function Body.topple(handle, config)
+	if handle.toppled then
+		return
+	end
+	handle.toppled = true
+	handle.part.CFrame = handle.part.CFrame * CFrame.Angles(0, 0, math.rad(config.COLLAPSE_ROLL_DEG))
+end
+
+-- WHO LAYS THIS ANIMAL DOWN: the BOX, or the clip? (task 150). Pure, and the whole of the decision.
+--
+-- EXACTLY ONE OF THEM MAY DO IT, and that is the rule both of Karen's standing carcasses broke, from
+-- opposite sides. The clip rotates the rig inside the box; the box rotates everything welded to it.
+-- Do BOTH and they compose: measured on a real kill, a carcass whose box had tumbled to -90.2
+-- degrees under physics while the death paddle played drew its spine **4.4 degrees off world up** --
+-- a dead boar standing on its feet, made of two correct rotations. Do NEITHER -- a model with no
+-- loadable death track, which the box has left alone since task 120 -- and the rig stands in its
+-- bind pose for the whole `CARCASS_SECONDS`.
+--
+-- SO: no visual, or no death track for THIS rig, and the box does the falling exactly as it has
+-- since task 28. Otherwise the clip does it, and `Body.collapse` anchors the box so that it cannot.
+function Body.boxFalls(hasVisual: boolean, hasDeathTrack: boolean): boolean
+	return not hasVisual or not hasDeathTrack
+end
+
+-- WHETHER TO SAY THE DEATH POSE AGAIN (task 150). Pure, like every rule here, and once per carcass.
+function Body.shouldReassert(deadFor: number, reasserted: boolean, config): boolean
+	if reasserted or config.CARCASS_REASSERT_SECONDS == nil then
+		return false
+	end
+	return deadFor >= config.CARCASS_REASSERT_SECONDS
+end
+
 function Body.collapse(handle, config, full)
 	if handle.collapsed then
 		return
@@ -1849,10 +1918,30 @@ function Body.collapse(handle, config, full)
 	-- with the same carcass's box put back upright: the lowest bone sat at -0.02 of the ground and the
 	-- animal lay on its flank. So when a visual exists the clip does the falling and the box holds
 	-- still, and when it does not the box topples exactly as it has since Task 28.
-	if handle.visual == nil then
-		part.CFrame = part.CFrame * CFrame.Angles(0, 0, math.rad(config.COLLAPSE_ROLL_DEG))
+	-- ...OR WHEN THERE IS SOMETHING DRAWN BUT NOTHING TO DRAW THE FALL WITH (task 150). `trackFor`
+	-- is the question asked of THIS animal's own rig rather than of the config: it answers nil for a
+	-- model whose Animator never arrived and for an id that will not load, which is the case Karen
+	-- has been photographing -- a carcass with a model, an upright box and no clip on it, standing in
+	-- its bind pose. Asking here also LOADS the track, so the death below plays off the same one.
+	local hasTrack = full ~= nil and trackFor(handle, (Body.deathClips(full)), full) ~= nil
+	if Body.boxFalls(handle.visual ~= nil, hasTrack) then
+		Body.topple(handle, config)
 		return
 	end
+
+	-- ...AND WHEN THE CLIP IS DOING THE FALLING, THE BOX IS HELD STILL -- which task 120 said and
+	-- nothing enforced (task 150). Disabling the upright constraint above hands the trunk to GRAVITY,
+	-- and a tumble COMPOSES with the clip's own rotation: measured on a real kill, a carcass whose box
+	-- had rolled to -90.2 degrees while the paddle played drew its spine 4.4 degrees off world up,
+	-- which is a live standing boar's own figure. Anchoring at the moment of death is one write, it is
+	-- what `stepCarcass` would have done within four seconds anyway, and it makes the drawn pose a
+	-- function of the clip alone.
+	--
+	-- IT DOES NOT NEED TO FALL TO THE GROUND AFTERWARDS: the death clip is authored from a STANDING
+	-- rig and ends with the body on the floor in that rig's own frame -- measured in task 120 at 0.02
+	-- studs off the ground with the box upright. The box stays where the animal was standing when it
+	-- died, which is exactly the frame the clip was built against.
+	part.Anchored = true
 
 	-- ...AND WHEN THERE IS SOMETHING DRAWN, THE CLIP THAT DOES THE FALLING OVERSHOOTS ON A SMALL
 	-- ANIMAL (task 120). Karen, 2026-10-04: "when shoot cub he is gone not remaining". The cub was

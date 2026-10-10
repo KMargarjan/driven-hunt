@@ -444,6 +444,11 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- HAS IT PASSED THE GUNS? One way, set the first sense tick a threat is on the far side from the
 	-- exit, read by `_senseAware`'s row 10b (task 149b).
 	self._crossed = false
+	-- HAS IT HEARD A SHOT? One way, for the rest of its life here (task 150). Karen: *"once they
+	-- hear shoot they run and don't stop"*. Set by `spook` when the fright IS a bang; read by
+	-- `_flightActive`, `_settle`, `_senseAware`'s row 6b and the pace clamp, which between them are
+	-- every path that could slow this animal down or turn it round.
+	self._heardShot = false
 	self._carcassFor = 0
 	self._downedReported = false
 
@@ -461,6 +466,14 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	self._at = flat(start)
 	self._stuckTime = 0
 	self._stuckCount = 0
+	-- THE FAST WEDGE TEST (task 150), beside the two-second one above and measured the same way:
+	-- where the animal was when this window opened, and how long it has been open. `_wedgeFor` is
+	-- the seconds of sidestep still owed once the window has answered yes.
+	self._wedgeFrom = flat(start)
+	self._wedgeTime = 0
+	self._wedgeFor = 0
+	self._wedgeTurn = 0
+	self._wedgeCount = 0
 
 	-- WHICH WAY THIS ANIMAL GOES ROUND A TRUNK when both sides are equally clear (task 123 round 3).
 	-- Drawn ONCE, from the shared Random, and kept: a sign drawn per frame is a nose that hunts left
@@ -934,6 +947,62 @@ function Brain:_followerSpeed(position: Vector3, obs): number
 	return math.min((leader.speed or 0) * catchup, config.SPRINT_SPEED)
 end
 
+-- PINNED AGAINST SOMETHING, ANSWERED INSIDE A SECOND (task 150). Karen: *"still can see sometimes
+-- boar hit tree and wal in place so not avoiding tree"*.
+--
+-- TOLD TO MOVE AND NOT MOVING, which is the whole definition and is why both halves are needed: an
+-- animal standing still on purpose (ALERT, grazing, arrived at its ordered point) has a setpoint of
+-- zero and must not be sidestepped, and an animal crossing open ground has a setpoint AND ground
+-- under it. Only a boar being driven forward into something solid has one without the other.
+--
+-- IT ANSWERS TRUE ON EXACTLY ONE TICK -- the one the window closes on -- and that is the whole
+-- difference between a sidestep and a spin. The turn it asks for is 90 degrees applied to `_desired`
+-- AFTER the slew; applied again on the next frame, and the one after, it would be a rotation
+-- generator, which is the failure task 126's turn budget was abandoned for (the measurement is in
+-- `step`'s comment). So the firing tick turns, and `_wedgeFor` seconds of HOLD keep that line.
+--
+-- THE SIDE IS THE ANIMAL'S OWN `_whiskerSide`, drawn once when it was born, so two animals wedged on
+-- the same trunk do not cross in front of each other -- and the NEXT window flips it: a sidestep
+-- that did not work is worth trying the other way round rather than three more times the same way.
+function Brain:_updateWedge(dt: number, position: Vector3): boolean
+	local move = self._config.MOVE
+	if move == nil or move.ENABLED ~= true or move.WEDGE_SECONDS == nil then
+		return false
+	end
+	if self._wedgeFor > 0 then
+		-- ALREADY STEPPING ROUND ONE. No second turn, and no re-arming either: the window stays shut
+		-- until the hold ends, so the 0.6 s is spent going somewhere rather than turning again.
+		return false
+	end
+	if self._speed < (move.WEDGE_ORDERED_SPEED or 2) then
+		self._wedgeFrom = flat(position)
+		self._wedgeTime = 0
+		return false
+	end
+	self._wedgeTime += dt
+	if self._wedgeTime < move.WEDGE_SECONDS then
+		return false
+	end
+	local covered = flatDistance(position, self._wedgeFrom) / self._wedgeTime
+	self._wedgeFrom = flat(position)
+	self._wedgeTime = 0
+	if covered >= (move.WEDGE_SPEED or 0.5) then
+		self._wedgeCount = 0
+		return false
+	end
+	self._wedgeCount += 1
+	self._wedgeFor = move.WEDGE_HOLD_SECONDS or 0.6
+	-- the animal's own side first, then the other one, then back again
+	local side = if self._whiskerSide < 0 then -1 else 1
+	if self._wedgeCount % 2 == 0 then
+		side = -side
+	end
+	self._wedgeTurn = side * math.pi / 2
+	self._waypoints = nil -- whatever the route said, it leads into this
+	self._target = nil
+	return true
+end
+
 function Brain:_updateStuck(dt: number, position: Vector3): boolean
 	if self._speed <= 0 then
 		self._stuckFrom = flat(position)
@@ -1037,6 +1106,12 @@ end
 -- Calming down ends the flight and re-arms the edge check: an animal that has crossed, settled and
 -- meets another ride may stop and look at that one too.
 function Brain:_settle(position: Vector3)
+	-- AN ANIMAL THAT HEARD A SHOT NEVER CALMS DOWN AGAIN (task 150). This is the one function in the
+	-- file that turns a frightened animal back into a grazing one -- ALERT and AVOID time out
+	-- through it, and so does FLEE's calm counter -- so it is the one place the latch has to hold.
+	if self._heardShot then
+		return
+	end
 	if self._state == "ALERT" then
 		self._refractoryFor = self._config.SENSE.ALERT_REFRACTORY_SECONDS
 	end
@@ -1134,11 +1209,19 @@ function Brain:urge(seconds: number)
 	self._urgeFor = math.max(self._urgeFor, seconds)
 end
 
-function Brain:spook(from: Vector3?, seconds: number?)
+-- `shot` SAYS THE FRIGHT WAS A BANG, and only a bang latches the leave-and-never-stop of task 150.
+-- A beater pushing a wave is a fright too, and Karen's sentence is about shooting: *"once they hear
+-- shoot they run and don't stop"*. So the drive's own `Runtime:spook` passes nothing and behaves
+-- exactly as it did, while `_hearSound` -- and the wave released into a wood that has just been shot
+-- in -- passes true.
+function Brain:spook(from: Vector3?, seconds: number?, shot: boolean?)
 	local config = self._config
 	local state = self._state
 	if state == "GONE" or state == "DOWN" or state == "CRIPPLED" then
 		return false
+	end
+	if shot == true and config.SENSE ~= nil and config.SENSE.SHOT_FLIGHT_UNTIL_EXIT == true then
+		self._heardShot = true
 	end
 	self._boltFor = math.max(self._boltFor, seconds or config.SENSE.SHOT_SPRINT_SECONDS)
 	if from ~= nil then
@@ -1235,6 +1318,14 @@ function Brain:_flightActive(): boolean
 	local move = self._config.MOVE
 	if move == nil or move.ENABLED ~= true or self._flightHeading == nil then
 		return false
+	end
+	-- ...UNLESS IT WAS A SHOT, AND THEN IT DOES NOT END AT ALL (task 150). Karen: *"once they hear
+	-- shoot they run and don't stop"*. The distance cap and the seconds ceiling both answer "how
+	-- much of a fright is this worth"; a bang is worth all of it, and the animal is off the board
+	-- at `field.exitZ` either way. `_heardShot` is only ever set when `SENSE.SHOT_FLIGHT_UNTIL_EXIT`
+	-- is on, so with that off this line cannot fire and the cap is the cap.
+	if self._heardShot then
+		return true
 	end
 	return self._flightRun < move.FLIGHT_MIN_STUDS and self._flightFor > 0
 end
@@ -1346,7 +1437,7 @@ function Brain:_hearSound(sound, position: Vector3)
 	--
 	-- IT RUNS FROM THE NEARER BANG. An animal standing beside the one that was hit should break away
 	-- from the impact, not from a hunter 200 studs behind it.
-	self:spook(if fromImpact < fromShooter then sound.impact else sound.position)
+	self:spook(if fromImpact < fromShooter then sound.impact else sound.position, nil, true)
 end
 
 -- ONE SENSE TICK, with the flag ON: the precedence table of design section 3.2, rows 5 to 11, read
@@ -1365,6 +1456,17 @@ function Brain:_senseAware(position: Vector3, obs, perception, follower: boolean
 	-- bolt decides. Both are exactly what the old `elseif` said.
 	if state == "WOUNDED" or self._boltFor > 0 then
 		self._sinceCalm = 0
+		return
+	end
+
+	-- ROW 6b: IT HEARD A SHOT, SO IT IS LEAVING AND IT IS NOT COMING BACK (task 150). Karen:
+	-- *"after shoot they run then com closer to road and stay ... once they hear shoot they run and
+	-- don't stop"*. Above every row that could stop it -- the alert that makes it stand and look,
+	-- the avoid that makes it trot off at an angle, the calm counter that makes it graze -- because
+	-- each of those is something an animal does once it has decided it is safe, and this one has
+	-- not. Below the wound and the bolt, because those are already running it.
+	if self._heardShot then
+		self:_flush()
 		return
 	end
 
@@ -1542,6 +1644,7 @@ function Brain:step(dt: number, obs)
 	self._whiskerFor = math.max(0, self._whiskerFor - dt)
 	self._orderFor = math.max(0, self._orderFor - dt)
 	self._checkFor = math.max(0, self._checkFor - dt)
+	self._wedgeFor = math.max(0, self._wedgeFor - dt)
 	-- HOW FAR THE FLIGHT HAS RUN, which is what ends it: distance covered, never a clock.
 	if self._flightHeading ~= nil then
 		self._flightRun = flatDistance(position, self._flightFrom)
@@ -1693,6 +1796,8 @@ function Brain:step(dt: number, obs)
 
 	self._at = flat(position)
 	local stuck = self:_updateStuck(dt, position)
+	-- ...AND THE FAST ONE (task 150), which answers in 0.75 s where `_updateStuck` takes up to four.
+	local wedged = self:_updateWedge(dt, position)
 
 	local desiredDirection, desiredSpeed
 	local stuckTurn = nil :: number?
@@ -1861,7 +1966,12 @@ function Brain:step(dt: number, obs)
 			-- of a boar standing on the road, which is exactly what she saw.
 			--
 			-- The wound's `speedScale` is still what slows it down; what it now scales is a RUN.
-			local spooked = self._boltFor > 0 or perception.spook == true or self._state == "WOUNDED"
+			-- ...AND A HEARD SHOT IS A SPOOK UNTIL THE ANIMAL IS OFF THE BOARD (task 150). Without
+			-- this line the latch above keeps it in FLEE and pointed at the exit, and then the
+			-- `else` below clamps it to `WALK_SPEED` the moment the four-second bolt ends -- an
+			-- animal "fleeing" at a walking pace, which is Karen's *"they run then com closer to
+			-- road and stay"* with the running taken out.
+			local spooked = self._boltFor > 0 or perception.spook == true or self._state == "WOUNDED" or self._heardShot
 			if spooked then
 				-- A shot, a hit, or a man who is not driving: run, whatever the push said -- and
 				-- `_runSpeed` is what running is, which Karen slowed in round 4.
@@ -1961,6 +2071,16 @@ function Brain:step(dt: number, obs)
 		self._waypoints = nil -- whatever the route said, it leads into this
 	end
 
+	-- ...AND WHILE THE SIDESTEP IS HELD, THE LINE IT CHOSE IS THE STEERING TARGET (task 150). Every
+	-- branch above has just recomputed a direction from the same route, centroid or latched heading
+	-- that walked the animal into the trunk, and the whiskers have just deflected it by another 55
+	-- degrees -- so without this the next frame's blend pulls straight back into what it is stuck on
+	-- and the 90-degree turn is undone before the body has moved. `_desired` already holds the
+	-- sidestep, because it was applied after the slew on the firing tick.
+	if self._wedgeFor > 0 and not wedged then
+		desiredDirection = self._desired
+	end
+
 	-- HOW IT TURNS (task 123 round 3). Karen: *"they feels like walkin strange like with mouse
 	-- turning here there has to be more natural"*. MEASURED before this: a walking boar's facing
 	-- changed by up to 688 deg/s. Three things, all data in `Boar.CONFIG.PACE`, and all off with it:
@@ -2023,6 +2143,20 @@ function Brain:step(dt: number, obs)
 	-- with this measurement beside them so the next reader does not spend the round I spent.
 	self._desired = slew(self._desired, unit(desiredDirection, self._desired), turnRate * dt)
 
+	-- THE WEDGE SIDESTEP, AFTER THE SLEW AND AFTER THE OTHER ONE (task 150). It is applied to
+	-- `_desired` itself rather than to the steering target, for the reason review round 2 of task 123
+	-- wrote down: the slew moves the output by about 3.8 degrees a frame and the next frame
+	-- recomputes the target, so a turn asked for upstream is smoothed away before the animal has
+	-- moved. Held for `WEDGE_HOLD_SECONDS`, which is what makes it a step round the trunk rather
+	-- than one frame of flinch.
+	--
+	-- IT IS NOT GATED ON `ordered`. The slow sidestep is, because a line following a computed route
+	-- should not argue with it -- but an ordered animal pinned against a trunk is an ordered animal
+	-- that is not going anywhere, and task 127's own rule is that the drive re-orders every member
+	-- every Heartbeat, so one sidestep costs it nothing.
+	if wedged and self._wedgeTurn ~= 0 then
+		self._desired = unit(rotateY(self._desired, self._wedgeTurn), self._desired)
+	end
 	if stuckTurn then
 		self._desired = unit(rotateY(self._desired, stuckTurn), self._desired)
 	end
