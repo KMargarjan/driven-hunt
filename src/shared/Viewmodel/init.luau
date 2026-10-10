@@ -309,8 +309,9 @@ function Viewmodel.validate(data: any): { string }
 	-- EVERY WEAPON THE GAME CAN PUT IN A HAND MUST HAVE A SET, and the list is written out rather
 	-- than taken from `Weapons.ROWS` because this is a SHARED module that the weapon table itself
 	-- reaches through: a require back the other way is a cycle. The cost of the literal is that a
-	-- new weapon adds a line here, which is the line task 143 added for `rifle_open`.
-	for _, id in ipairs({ "shotgun", "rifle", "rifle_open" }) do
+	-- new weapon adds a line here. Task 143 added `rifle_open` and task 148 took it out again,
+	-- because Karen asked for the open-sighted rifle to wait.
+	for _, id in ipairs({ "shotgun", "rifle" }) do
 		if type(data.weapons[id]) ~= "table" then
 			table.insert(problems, "weapons." .. id .. " is missing")
 		end

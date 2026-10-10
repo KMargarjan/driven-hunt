@@ -510,24 +510,28 @@ return function()
 			local function snap(id, equipped)
 				return Shotgun.deepFreeze({ weapon = id, equipped = equipped })
 			end
+			-- THE THIRD ID IS FABRICATED, and since task 148 that is all it is: Karen retired the
+			-- open-sighted rifle, so `Weapons.ORDER` is two again -- but the ordering rule this case
+			-- exists for is about N replicas and not about which guns exist, and the day a third
+			-- weapon arrives it must already hold.
 			local shotgun, rifle = snap("shotgun", false), snap("rifle", false)
-			local openRifle, openHeld = snap("rifle_open", false), snap("rifle_open", true)
+			local openRifle, openHeld = snap("third", false), snap("third", true)
 			local rifleHeld = snap("rifle", true)
 
 			-- the switch to slot 3, in the order the server sends it: the new gun's equip, then the
 			-- old gun's un-equip. The un-equip arrives LAST and must not win.
-			local replicas = { rifle = rifleHeld, rifle_open = openHeld }
-			expect(Weapon.heldFrom(replicas, "rifle_open", rifle).weapon).to.equal("rifle_open")
+			local replicas = { rifle = rifleHeld, third = openHeld }
+			expect(Weapon.heldFrom(replicas, "third", rifle).weapon).to.equal("third")
 			-- ...and the other order, where the un-equip comes first
-			replicas = { rifle = rifle, rifle_open = openHeld }
-			expect(Weapon.heldFrom(replicas, "rifle_open", openHeld).weapon).to.equal("rifle_open")
+			replicas = { rifle = rifle, third = openHeld }
+			expect(Weapon.heldFrom(replicas, "third", openHeld).weapon).to.equal("third")
 			-- A STALE `equipped` CANNOT WIN. The rifle's un-equip was dropped, so its own replica
 			-- still says it is held -- but the open rifle claimed the hand after it.
-			replicas = { rifle = rifleHeld, rifle_open = openHeld }
-			expect(Weapon.heldFrom(replicas, "rifle_open", openHeld).weapon).to.equal("rifle_open")
+			replicas = { rifle = rifleHeld, third = openHeld }
+			expect(Weapon.heldFrom(replicas, "third", openHeld).weapon).to.equal("third")
 			-- nothing holds the hand: the newest snapshot of any weapon, which is what every caller
 			-- written before three weapons got
-			replicas = { shotgun = shotgun, rifle = rifle, rifle_open = openRifle }
+			replicas = { shotgun = shotgun, rifle = rifle, third = openRifle }
 			expect(Weapon.heldFrom(replicas, nil, shotgun).weapon).to.equal("shotgun")
 			expect(Weapon.heldFrom(replicas, "rifle", rifle).weapon).to.equal("rifle")
 			-- ...and an empty replica set is nil rather than an error

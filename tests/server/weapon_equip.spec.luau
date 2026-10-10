@@ -221,9 +221,10 @@ return function()
 			-- off; only the loadout is shorter.
 			--
 			-- IT IS THE FLAG-ON LOADOUT ITSELF SINCE TASK 143, not a hand-written pair: that is
-			-- THREE Tools now, and `1 Shotgun, 2 Rifle, 3 RifleOpen` was only ever a measurement
-			-- pasted into a review request (the Reviewer's round-1 note). A fourth weapon lands in
-			-- this case the day it joins `Weapons.ORDER`.
+			-- It was THREE Tools when this was written and it is two again since task 148 (Karen
+			-- retired the open-sighted rifle), which is the point: the case reads the loadout rather
+			-- than a list of its own, so the next weapon lands in it the day it joins
+			-- `Weapons.ORDER` and the last one left without an edit here.
 			--
 			-- This is the case that fails if the equip moves back inside `Weapon.grant`.
 			local player = somebody()
@@ -475,21 +476,24 @@ return function()
 			--
 			-- IT IS ALSO THE THREE-TOOL CASE (143a's top note): the loadout comes from
 			-- `Weapons.loadoutFor(true)` -- by PARAMETER, because the gate refuses to run with a
-			-- flag override set -- so a third Tool reaches a hand in a committed spec for the first
-			-- time.
+			-- flag override set. It was THREE Tools when this was written (task 144) and it is two
+			-- since task 148, when Karen retired the open-sighted rifle: the case reads the loadout
+			-- rather than a count of its own, so it followed her without an edit here beyond this
+			-- comment, and the next weapon lands in it the same way.
 			local player = somebody()
 			if player == nil then
 				error("no player with a character: this case needs the harness's own player", 0)
 			end
-			local three = Weapons.loadoutFor(true)
-			expect(#three).to.equal(3)
+			local armed = Weapons.loadoutFor(true)
+			expect(#armed).to.equal(#Weapons.ORDER)
+			expect(#armed > 1).to.equal(true) -- the case is about MORE THAN ONE Tool
 			local mine = realGunOf(player)
 			local detached = Instance.new("Backpack")
 
 			local ok, why = pcall(function()
-				Weapon.refreshArming(player, three)
+				Weapon.refreshArming(player, armed)
 				expect(waitUntil(6, function()
-					return #Hardware.toolsOf(player) >= #three
+					return #Hardware.toolsOf(player) >= #armed
 				end)).to.equal(true)
 				local primaryName = (Weapons.row(Weapons.PRIMARY) :: any).toolName
 				expect(waitUntil(4, function()
@@ -511,12 +515,12 @@ return function()
 				-- ...AND THE NEXT ARMING PASS MUST NOTICE. This is the assertion that fails before
 				-- the fix: `holdsTool` answered true from the record, `armingAction` answered nil,
 				-- and nothing was granted ever again.
-				Weapon.refreshArming(player, three)
+				Weapon.refreshArming(player, armed)
 				expect(waitUntil(6, function()
 					return #Hardware.toolsOf(player, Weapons.PRIMARY) > 0
 				end)).to.equal(true)
 				-- EVERY WEAPON IN THE LOADOUT IS BACK...
-				for _, id in ipairs(three) do
+				for _, id in ipairs(armed) do
 					expect(#Hardware.toolsOf(player, id)).to.equal(1)
 				end
 				-- ...AND THE SHOTGUN IS IN THE HAND, which is the half Karen sees.

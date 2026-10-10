@@ -1504,7 +1504,9 @@ Karen answered, verbatim: "yes". So Task 117 may run **round 4, and round 4 only
 `DIRECTOR_MAX_ROUNDS=4` set for that one review and never committed. A failing round 4 is a new entry,
 not a request for round 5.
 
-## NEEDS KAREN - the rifle's scope mount rings (task 146, 2026-10-10)
+## ~~NEEDS KAREN - the rifle's scope mount rings (task 146, 2026-10-10)~~ CLOSED, DROPPED BY KAREN (task 148, 2026-10-10)
+
+**No upload is needed.** Karen retired the open-sighted rifle itself -- *"please remove rifle without scope so we don't implement now"* -- so the gun whose sight picture the rings were framing no longer exists. The scoped rifle wears them as it always has, which is correct. The whole entry is kept below for the day the open-sighted rifle comes back (`backups/2026-10-10-rifle-open-sights.md`), and task 147's measurement stands: it needs face-level surgery and a cap in Blender, not a different split.
 
 Karen, playing: *"when aiming without scope remove righs (scope holding rings)"*. With the open
 sights (key 3) the front mount ring sits DEAD CENTRE of the sight picture -- `.screenshots/
