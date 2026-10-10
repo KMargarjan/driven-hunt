@@ -431,6 +431,121 @@ return function()
 		end)
 	end)
 
+	describe("a respawn hands the whole loadout back", function()
+		it("knows an unreachable Tool is not a Tool the player has", function()
+			-- PURE, AND IT IS THE WHOLE BUG (task 144). The old rule was `tool.Parent ~= nil`, and a
+			-- respawn DETACHES the old Backpack rather than destroying it -- so the Tool inside kept
+			-- a perfectly good Parent and the owner went on believing the player was armed.
+			local player = somebody()
+			if player == nil then
+				error("no player with a character: this case needs the harness's own player", 0)
+			end
+			local loose = probeTool("SpecLooseTool")
+			expect(Weapon.reachable(loose, player)).to.equal(false) -- parented to nil
+			-- ...the shape a respawn actually leaves behind: a Backpack out of the tree, with a Tool
+			-- still in it. `Parent ~= nil` says true here, which is the answer that cost the shotgun.
+			local detached = Instance.new("Backpack")
+			loose.Parent = detached
+			expect(loose.Parent).never.to.equal(nil)
+			expect(Weapon.reachable(loose, player)).to.equal(false)
+			-- ...and the two containers that ARE reachable
+			local backpack = player:FindFirstChildOfClass("Backpack")
+			expect(backpack).to.be.ok()
+			loose.Parent = backpack
+			expect(Weapon.reachable(loose, player)).to.equal(true)
+			loose.Parent = player.Character
+			expect(Weapon.reachable(loose, player)).to.equal(true)
+			expect(Weapon.reachable(nil, player)).to.equal(false)
+			loose:Destroy()
+			detached:Destroy()
+		end)
+
+		it("re-grants a gun that went with a detached Backpack, and puts the primary back in the hand", function()
+			-- THE DIRECTOR'S BUG, REPRODUCED WITHOUT A RESPAWN (task 144). MEASURED in the Forest
+			-- Test first: die once, then again inside `AUTO_EQUIP_DELAY_SECONDS`, and the player
+			-- comes back with `bag=[Rifle,RifleOpen]` and empty hands -- and stays like that through
+			-- the next respawn and the one after, because a census of the whole DataModel finds only
+			-- TWO of our Tools and the owner still thinks it granted three.
+			--
+			-- A SPEC CANNOT KILL THE HARNESS PLAYER -- every other case in this file needs him and
+			-- his own gun back -- so what is reproduced is the STATE a respawn leaves: the Tool is
+			-- moved into a Backpack that is not in the tree. That is the one fact the old rule got
+			-- wrong, and it is enough: before the fix this case ends with two Tools and an empty
+			-- hand, which is exactly what the Forest Test measured.
+			--
+			-- IT IS ALSO THE THREE-TOOL CASE (143a's top note): the loadout comes from
+			-- `Weapons.loadoutFor(true)` -- by PARAMETER, because the gate refuses to run with a
+			-- flag override set -- so a third Tool reaches a hand in a committed spec for the first
+			-- time.
+			local player = somebody()
+			if player == nil then
+				error("no player with a character: this case needs the harness's own player", 0)
+			end
+			local three = Weapons.loadoutFor(true)
+			expect(#three).to.equal(3)
+			local mine = realGunOf(player)
+			local detached = Instance.new("Backpack")
+
+			local ok, why = pcall(function()
+				Weapon.refreshArming(player, three)
+				expect(waitUntil(6, function()
+					return #Hardware.toolsOf(player) >= #three
+				end)).to.equal(true)
+				local primaryName = (Weapons.row(Weapons.PRIMARY) :: any).toolName
+				expect(waitUntil(4, function()
+					local held = player.Character and player.Character:FindFirstChild(primaryName)
+					return held ~= nil
+				end)).to.equal(true)
+
+				-- THE RESPAWN, as far as the arming owner can tell: the primary leaves with a
+				-- Backpack that is no longer in the tree.
+				local primary = nil
+				for _, tool in Hardware.toolsOf(player, Weapons.PRIMARY) do
+					primary = tool
+				end
+				expect(primary).to.be.ok();
+				(primary :: Tool).Parent = detached
+				expect((primary :: Tool).Parent).never.to.equal(nil) -- still parented: that is the trap
+				expect(#Hardware.toolsOf(player, Weapons.PRIMARY)).to.equal(0) -- and unreachable
+
+				-- ...AND THE NEXT ARMING PASS MUST NOTICE. This is the assertion that fails before
+				-- the fix: `holdsTool` answered true from the record, `armingAction` answered nil,
+				-- and nothing was granted ever again.
+				Weapon.refreshArming(player, three)
+				expect(waitUntil(6, function()
+					return #Hardware.toolsOf(player, Weapons.PRIMARY) > 0
+				end)).to.equal(true)
+				-- EVERY WEAPON IN THE LOADOUT IS BACK...
+				for _, id in ipairs(three) do
+					expect(#Hardware.toolsOf(player, id)).to.equal(1)
+				end
+				-- ...AND THE SHOTGUN IS IN THE HAND, which is the half Karen sees.
+				expect(waitUntil(4, function()
+					local held = player.Character and player.Character:FindFirstChild(primaryName)
+					return held ~= nil
+				end)).to.equal(true)
+				TestKit.note(
+					string.format(
+						"weapon-equip: after a detached Backpack, %d tool(s) and %s in hand",
+						#Hardware.toolsOf(player),
+						primaryName
+					)
+				)
+			end)
+
+			detached:Destroy()
+			-- BACK TO THIS WORLD'S OWN LOADOUT, like every other case here.
+			Weapon.refreshArming(player)
+			expect(waitUntil(4, function()
+				return #Hardware.toolsOf(player) == #Weapons.loadout()
+			end)).to.equal(true)
+			restore(player, realGunOf(player) or mine)
+			if not ok then
+				error(why, 0)
+			end
+		end)
+	end)
+
 	describe("a gun that gets its mesh late", function()
 		it("is put back in the hand by the upgrade, and not yanked back twice", function()
 			local player = somebody()
