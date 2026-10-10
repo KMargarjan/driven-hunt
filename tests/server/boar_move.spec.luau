@@ -70,6 +70,173 @@ local function run(brain, seconds: number, threats)
 end
 
 return function()
+	describe("a shot heard ends at the exit and nowhere else (task 150)", function()
+		-- KAREN, 2026-10-10 ~21:20: *"after shoot they run then com closer to road and stay / let's
+		-- make this way / once they hear shoot they run and don't stop"*.
+		--
+		-- WHAT SHE WATCHED WAS THE CONFIG DOING ITS JOB: `SHOT_SPRINT_SECONDS` of bolt (4) and
+		-- `FLIGHT_MIN_STUDS` of latched line (300), and then the pace clamp's `spooked` goes false,
+		-- the animal drops to `PACE.WALK_SPEED`, and `CALM_TIME` of quiet settles it into IDLE --
+		-- grazing, beside the road it has just walked back to.
+		--
+		-- THE TWO STATES ARE THE FLAG'S, which is the shape `docs/design/feature-flags.md` 13.3 asks
+		-- for: `SENSE.SHOT_FLIGHT_UNTIL_EXIT` on and off, with everything else identical.
+		local function flown(untilExit: boolean)
+			local config = moveConfig(true)
+			local sense = table.clone(config.SENSE)
+			sense.SHOT_FLIGHT_UNTIL_EXIT = untilExit
+			config.SENSE = sense
+			local brain = Brain.new(config, FIELD, START, Random.new(77))
+			-- the third argument is what says the fright was a BANG rather than a beater
+			brain:spook(Vector3.new(0, 0, 60), nil, true)
+			local position = START
+			local slowest, calmAt, goneAt = math.huge, nil, nil
+			local seconds = 40
+			for frame = 1, math.ceil(seconds / DT) do
+				local intent = brain:step(DT, obs(position, {}))
+				position += intent.targetVelocity * DT
+				-- STOP MEASURING WHEN IT HAS LEFT, and that was this case's own first mistake: an
+				-- animal that reaches `field.exitZ` goes GONE and publishes a zero velocity, so
+				-- "the slowest it ever went" came out 0.0 at 22.0 s -- the moment it SUCCEEDED.
+				if brain:state() == "GONE" then
+					goneAt = goneAt or frame * DT
+					break
+				end
+				-- past the ACCEL ramp, which is the only reason the first second is slow
+				if frame > math.ceil(1 / DT) then
+					local flat = Vector3.new(intent.targetVelocity.X, 0, intent.targetVelocity.Z)
+					slowest = math.min(slowest, flat.Magnitude)
+				end
+				if calmAt == nil and brain:state() == "IDLE" then
+					calmAt = frame * DT
+				end
+			end
+			return slowest, calmAt, goneAt
+		end
+
+		it("runs at a RUN until it is off the board, where the flag off slows to a walk", function()
+			local onSlowest, onCalm, onGone = flown(true)
+			local offSlowest, offCalm, offGone = flown(false)
+			TestKit.note(
+				string.format(
+					"shot flight: ON slowest %.1f studs/s, calm %s, gone at %s | OFF slowest %.1f, calm %s, gone %s",
+					onSlowest,
+					tostring(onCalm),
+					tostring(onGone),
+					offSlowest,
+					tostring(offCalm),
+					tostring(offGone)
+				)
+			)
+			-- ON: it leaves, it never stopped running on the way, and it was never IDLE.
+			expect(onGone).to.be.ok()
+			expect(onSlowest >= CONFIG.PACE.RUN_SPEED - 1e-3).to.equal(true)
+			expect(onCalm).to.equal(nil)
+			-- OFF: the same animal and the same bang drops below a trot -- `MOVE.FLIGHT_MIN_STUDS`
+			-- of line and `SENSE.SHOT_SPRINT_SECONDS` of bolt run out and the pace clamp puts it on
+			-- `PACE.WALK_SPEED`. That is the behaviour Karen described and what this flag ends.
+			expect(offSlowest < CONFIG.PACE.TROT_SPEED).to.equal(true)
+		end)
+	end)
+
+	describe("wedged against a trunk (task 150)", function()
+		-- KAREN, 2026-10-10 ~21:20, for the third playtest running: *"still can see sometimes boar
+		-- hit tree and wal in place so not avoiding tree"*.
+		--
+		-- THE WORLD IS THE TEST: the animal is handed the SAME position every frame, which is what
+		-- being pinned against a trunk looks like from inside the Brain -- a setpoint that says run
+		-- and ground that does not pass. Nothing else here is special.
+		-- IT IS LET GO FIRST, AND THAT WAS THIS CASE'S OWN FIRST MISTAKE. A freshly spooked animal
+		-- swings onto its latched flight line, which is up to 179 degrees of turn in the first half
+		-- second -- so a baseline taken on frame one measured the flight latch and not the sidestep,
+		-- and both worlds "turned" at 0.45 s. It runs for two seconds with the ground passing under
+		-- it, exactly as it would in the wood, and only then walks into something.
+		local SETTLE = 2
+		local function turnedAfter(seconds: number, wedge: boolean)
+			local config = moveConfig(true)
+			local move = table.clone(config.MOVE)
+			if not wedge then
+				move.WEDGE_SECONDS = nil -- the detector off, everything else identical
+			end
+			config.MOVE = move
+			local brain = Brain.new(config, FIELD, START, Random.new(97))
+			brain:spook(Vector3.new(0, 0, 60))
+			local position = START
+			for _ = 1, math.ceil(SETTLE / DT) do
+				local intent = brain:step(DT, obs(position, {}))
+				position += intent.targetVelocity * DT
+			end
+			-- ...and now the trunk: the same position every frame, for an animal still told to run.
+			local first, turnedAt = nil, nil
+			for frame = 1, math.ceil(seconds / DT) do
+				local intent = brain:step(DT, obs(position, {}))
+				local facing = intent.facing
+				if facing.Magnitude > 1e-6 then
+					local unit = facing.Unit
+					if first == nil then
+						first = unit
+					else
+						local dot = math.clamp(first:Dot(unit), -1, 1)
+						if turnedAt == nil and math.deg(math.acos(dot)) >= 60 then
+							turnedAt = frame * DT
+						end
+					end
+				end
+			end
+			return turnedAt
+		end
+
+		it("turns across the obstruction inside WEDGE_SECONDS, where before it pushed for two", function()
+			-- THE WINDOW IS 1.5 s ON PURPOSE. `STUCK_TIME` is 2 s and the old recovery fires on the
+			-- tick THAT window closes, so anything inside 1.5 s is the new detector and nothing
+			-- else: the comparison cannot be contaminated by the recovery it is replacing.
+			local withWedge = turnedAfter(1.5, true)
+			local without = turnedAfter(1.5, false)
+			TestKit.note(
+				string.format(
+					"wedge: turned 60 deg at %s s with the detector, %s without",
+					tostring(withWedge),
+					tostring(without)
+				)
+			)
+			expect(withWedge).to.be.ok()
+			expect((withWedge :: number) <= CONFIG.MOVE.WEDGE_SECONDS + 0.5).to.equal(true)
+			expect(without).to.equal(nil)
+		end)
+
+		it("never fires on an animal that is actually covering ground", function()
+			-- THE FALSE POSITIVE IS THE RISK, and this is the case that holds it down: the same
+			-- frightened animal, running the same latched line, with its position INTEGRATED from
+			-- its own intent so the ground really does pass under it. A detector that turned this
+			-- one would turn every boar in the wood ninety degrees every 0.75 s.
+			local brain = Brain.new(moveConfig(true), FIELD, START, Random.new(98))
+			brain:spook(Vector3.new(0, 0, 60))
+			local position = START
+			-- the same two seconds of settling as the case above, for the same reason
+			for _ = 1, math.ceil(SETTLE / DT) do
+				local intent = brain:step(DT, obs(position, {}))
+				position += intent.targetVelocity * DT
+			end
+			local first, worst = nil, 0
+			for _ = 1, math.ceil(3 / DT) do
+				local intent = brain:step(DT, obs(position, {}))
+				position += intent.targetVelocity * DT
+				local facing = intent.facing
+				if facing.Magnitude > 1e-6 then
+					if first == nil then
+						first = facing.Unit
+					else
+						local dot = math.clamp(first:Dot(facing.Unit), -1, 1)
+						worst = math.max(worst, math.deg(math.acos(dot)))
+					end
+				end
+			end
+			TestKit.note(string.format("wedge: a running boar turned at most %.1f deg in 3 s", worst))
+			expect(worst < 60).to.equal(true)
+			expect(Vector3.new(position.X - START.X, 0, position.Z - START.Z).Magnitude > 30).to.equal(true)
+		end)
+	end)
+
 	describe("the straight flight (MOVE on)", function()
 		it("holds ONE line past a threat that would otherwise bend it", function()
 			-- (see the case below for the shooter standing BETWEEN the animal and the way out)

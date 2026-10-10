@@ -204,7 +204,12 @@ Flags.DEFAULTS = {
 		-- reachable by parameter while the flag sits at one of them.
 		owner = "StarterPlayerScripts.Camera",
 		born = "2026-09-27 task 88 (the design); first code in task 89 (S1)",
-		expires = "2026-10-18", -- 21 days: the ceiling in feature-flags.md section 12
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS (task 149b -- the same fix task 149 made
+		-- for `RIFLE`, and the Reviewer flagged this row as carrying the same bomb). First
+		-- person has been lit since task 98 on Karen's own word, and the 21-day ceiling is for
+		-- a flag nobody has judged yet. On 2026-10-19 this date goes past and `flags.spec`'s
+		-- rot tripwire fails the harness, blocking whatever gate runs that day.
+		expires = "2026-12-31",
 		why = "The whole game is first person: the gun is carried low-left and aimed down the rib at the "
 			.. "bead, with no crosshair. OFF is the accepted over-the-shoulder third person with ADS.",
 	} :: FlagRow,

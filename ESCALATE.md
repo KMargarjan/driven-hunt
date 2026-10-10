@@ -1,5 +1,64 @@
 # Escalations
 
+## 2026-10-10 — Task 149b: the code is done and gated, and it cannot be reviewed. TWO BLOCKERS
+
+**The work itself is finished and measured.** `[harness] PASS: 33/33 checks @ 8468e38 (clean tree)
+scope=all`, smoke PASS, item 2 at 29% → 91% and item 3 at 60.7 s → 3.3 s dwell, both measured
+either side of the change. `reviews/task-149b/REQUEST.md` is written. **Neither blocker below is
+about the code**, and I have not worked around either of them.
+
+### BLOCKER 1 — for the DIRECTOR: this review folder has a name the gate cannot accept
+
+`tools/review.ps1 149b` answers `[agents] REFUSED: task number must be digits; got '149b'`, and
+with no argument `resolve_task` matches only `task-(\d+)`, so it picks the **already-merged**
+`reviews/task-149/REQUEST.md`. The review has therefore not run at all. The task number is the
+Director's to set, so I have changed nothing.
+
+**What I recommend, and will do in one paperwork commit on your word:** give this work the next free
+number — **150** — `git mv reviews/task-149b reviews/task-150`, `Task: 150`, `Round: 1`, and a
+line in the `149b` row of `TASKS.md` saying its review is filed as 150. That keeps
+`reviews/task-149/RESULT.md` exactly as PR #132 was merged on (rule 7: nothing is overwritten), and
+it starts this task's round count at 1, which is what it is.
+
+**The alternative I did not take:** reusing `reviews/task-149/` would make this `Round: 2` of a
+merged task and would overwrite the verdict that PR #132 was merged on.
+
+### BLOCKER 2 — NEEDS KAREN: the two-player run, one click
+
+The change touches `src/server/MatchBoot.server.luau` — **one line**, `runtime:hearShot(shot.muzzle,
+shot.at)`, passing the impact point through to the boar runtime exactly as `ForestTestBoot` does —
+and that file is in `TWO_PLAYER_PATHS` in `tools/agents.py`, so the gate refuses the review and the
+merge without a `[harness2]` line for the code commit:
+
+```
+[agents] REFUSED: this change touches src/server/MatchBoot.server.luau, which a one-player run
+cannot evidence. Paste the TWO-PLAYER line for the code commit as well.
+```
+
+I ran it. It posted F7 and **one Studio opened instead of three**, so nobody was playing:
+
+```
+[harness2] NEEDS KAREN: nobody pressed Start. Nothing was run and nothing is claimed.
+FAIL: 10/12 checks @ c4cda6d (clean tree)
+```
+
+**I am not claiming that run, and `reviews/task-149b/REQUEST.md` now says so in place of the "N/A"
+line it wrongly carried.**
+
+**THE EXACT CLICKS, in order.** Studio is already in Edit with two windows open (Driven Hunt DEV and
+Driven Hunt Forest Test) and nothing stray; the leftover `Server` window from my attempt is closed.
+
+1. In a terminal at the repo: `python tools/studio_mcp.py test2` — then leave it running and do 2–4
+   while it waits.
+2. In **Driven Hunt DEV**, menu bar → **Test** → **Clients and Servers**.
+3. Set **Players: 2**.
+4. Press **Start**. Leave both player windows alone — do not click into them, do not move them.
+5. When the harness prints its line, menu bar → **Test** → **End Session** (Alt+Shift+E) to close the
+   extra windows.
+
+Then paste the `[harness2] PASS: n/m checks @ 8468e38...` line into the request under the `[harness]`
+line, and the review can run.
+
 ## 2026-10-09 — Task 139 (Karen's five boar complaints): BLOCKER, and the measurements
 
 **ROUND 1 ONLY. Nothing was shipped in round 1: `src/` went back to `main` exactly and the only

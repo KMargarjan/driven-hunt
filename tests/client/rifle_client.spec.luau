@@ -19,6 +19,8 @@ local Camera = require(scripts:WaitForChild("Camera"))
 local Hud = require(scripts:WaitForChild("Hud"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
+-- ...for ONE name: the shell template, which is never worn (see the case below).
+local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local Mode = Camera.Mode
@@ -379,27 +381,54 @@ return function()
 				TestKit.note("rifle: " .. tostring((geometry :: any).FOLDER_NAME) .. " is not published in this place")
 				return
 			end
-			-- Give a late download the quarter-second the viewmodel's own staleness tick runs on.
-			frames(60)
-			local model = Camera.Viewmodel.current()
-			expect(model).to.be.ok()
-			local worn: { [string]: boolean } = {}
-			for _, part in ipairs((model :: Model):GetDescendants()) do
-				if part:IsA("MeshPart") then
-					worn[part.Name] = true
-				end
-			end
+			-- IT IS A RACE, AND THE TWO-PLAYER RUN IS WHAT SHOWED IT (task 150). With one client this
+			-- read `3 of 3`; with two it read `2 of 3` and failed, because a single `frames(60)` is
+			-- not a wait for anything in particular -- a template that finished downloading between
+			-- the two loops below counted as READY and could not yet be WORN, and the viewmodel only
+			-- re-dresses on its own quarter-second staleness tick. So this waits for the thing the
+			-- rule is about -- every downloaded piece drawn as itself -- and only then asserts, which
+			-- is the same claim with a deadline instead of a guess.
+			-- THE VIEWMODEL IS NIL WHILE IT RE-DRESSES, which the two-player run showed as well: a
+			-- reading taken on one of those frames has no model to compare against and says nothing,
+			-- so only a reading WITH a model is kept.
 			local ready, drawn, missing = 0, 0, {}
-			for _, template in ipairs(folder:GetChildren()) do
-				if Camera.Viewmodel.meshReady(template) then
-					ready += 1
-					if worn[template.Name] then
-						drawn += 1
-					else
-						table.insert(missing, template.Name)
+			local model = nil
+			local sawModel = false
+			local deadline = os.clock() + 8
+			repeat
+				frames(15)
+				local current = Camera.Viewmodel.current()
+				if current ~= nil then
+					model = current
+					sawModel = true
+					local worn: { [string]: boolean } = {}
+					for _, part in ipairs((current :: Model):GetDescendants()) do
+						if part:IsA("MeshPart") then
+							worn[part.Name] = true
+						end
+					end
+					ready, drawn, missing = 0, 0, {}
+					for _, template in ipairs(folder:GetChildren()) do
+						-- THE SHELL IS NOT A PIECE OF THE GUN (task 150). It is a TEMPLATE the
+						-- viewmodel clones per barrel during a break-action reload, under its own
+						-- name -- `SpentShell1`, `FreshShell2` -- and `Viewmodel.clearShells` takes
+						-- them away again, so a gun at rest wears no part called `Shell` and never
+						-- should. This case read `shotgun wears 2 of 3 downloaded piece(s) missing
+						-- Shell` in a two-player run and passed in a one-player one for a reason
+						-- that is not about the rule: with one client the shell's mesh had not
+						-- finished downloading yet, so it was not counted as ready either.
+						if template.Name ~= Gun.SHELL_TEMPLATE_NAME and Camera.Viewmodel.meshReady(template) then
+							ready += 1
+							if worn[template.Name] then
+								drawn += 1
+							else
+								table.insert(missing, template.Name)
+							end
+						end
 					end
 				end
-			end
+			until (sawModel and ready > 0 and drawn == ready) or os.clock() >= deadline
+			expect(model).to.be.ok()
 			TestKit.note(
 				string.format(
 					"rifle: %s wears %d of %d downloaded piece(s)%s",

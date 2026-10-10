@@ -55,13 +55,34 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local PROBE_NAME = "SpecEquipProbe"
 
+-- WHOSE GUN THIS IS, AND NOT MERELY WHO IS HERE (task 150).
+--
+-- THE TWO-PLAYER RUN FAILED THREE CASES IN THIS FILE at `8468e38` -- `[harness2] FAIL: 31/35`, three
+-- "Expected true, got false" on the same assertion, `#Hardware.toolsOf(player) == #Weapons.loadout()`
+-- after a `Weapon.refreshArming(player)`. The assertion is right and the player was wrong: the drive
+-- makes one of two players a DRIVER, who carries no gun at all
+-- (`Match.CONFIG.DRIVERS_MAY_SHOOT = false`), and `Players:GetPlayers()` is in join order -- so a
+-- one-player run always found the hunter and a two-player run found whichever client connected
+-- first. Every case in this file is about what the weapon system does to an ARMED player.
+--
+-- ...AND IT PREFERS A SHOOTER. With two players one of them is a DRIVER and carries no gun
+-- (`Match.CONFIG.DRIVERS_MAY_SHOOT = false`), and `Players:GetPlayers()` is in join order, so a
+-- one-player run always found the hunter and a two-player run found whichever client connected
+-- first. The team is the same server-authoritative fact `tests/client/Role.luau` resolves a client's
+-- own role from. A driver is still better than nobody: with the policy override below every case
+-- here is about the weapon OWNER, and the owner behaves the same for either player.
 local function somebody(): Player?
+	local fallback = nil
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player.Character ~= nil and player.Character:FindFirstChildOfClass("Humanoid") ~= nil then
-			return player
+			local team = player.Team
+			if team == nil or team.Name ~= "Drivers" then
+				return player
+			end
+			fallback = fallback or player
 		end
 	end
-	return nil
+	return fallback
 end
 
 -- A Tool this spec can hand to a humanoid: a real handle, because a handleless one is equipped and
@@ -123,6 +144,34 @@ local function restore(player: Player, gun: Tool?)
 end
 
 return function()
+	-- EVERY CASE IN THIS FILE IS ABOUT THE WEAPON OWNER, NOT ABOUT WHO THE DRIVE LETS CARRY (task 150).
+	--
+	-- `Match` decides who may carry through an arming POLICY that `Weapon` reads, and its answer
+	-- depends on the drive's PHASE as well as on the roster -- so in a two-player run it can be true
+	-- when a case starts and false by the time the case tidies up, and `refreshArming` then correctly
+	-- leaves the player with nothing. MEASURED: `[harness2] FAIL: 31/35` three times running, always
+	-- the same three assertions, always `#Hardware.toolsOf(player) == #Weapons.loadout()` at the END
+	-- of a case. The owner was right and the subject had changed underneath it.
+	--
+	-- SO THE POLICY IS THE ONE-PLAYER POLICY FOR THE LENGTH OF EACH CASE, and the real one goes back
+	-- afterwards -- `Weapon.setArmingPolicy` hands back the one it replaced, so this restores whatever
+	-- the place installed without knowing which place it is. `zz_drive_boundary.spec` is where the
+	-- POLICY itself is tested, and it is untouched by this.
+	local previousPolicy: ((Player) -> boolean)? = nil
+	local overridden = false
+	beforeEach(function()
+		previousPolicy = Weapon.setArmingPolicy(function()
+			return true
+		end)
+		overridden = true
+	end)
+	afterEach(function()
+		if overridden then
+			Weapon.setArmingPolicy(previousPolicy)
+			overridden = false
+		end
+	end)
+
 	describe("the gun ends up in the hand", function()
 		it("reports the OUTCOME of an equip, not the fact that it called EquipTool", function()
 			local player = somebody()

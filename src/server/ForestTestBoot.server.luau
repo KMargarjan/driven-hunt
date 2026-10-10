@@ -144,7 +144,9 @@ runtime:run()
 -- A shot is a sound, and a hit is a hit. Both lines are MatchBoot's, verbatim, because the weapon's
 -- contract does not change with the world.
 Weapon.ShotFired:Connect(function(shot)
-	runtime:hearShot(shot.muzzle)
+	-- BOTH ENDS OF THE SHOT (task 149b): the bang at the muzzle and the strike at the far end,
+	-- each with its own radius. `shot.at` is nil for any caller older than this task.
+	runtime:hearShot(shot.muzzle, shot.at)
 end)
 
 Weapon.HitReported:Connect(function(report)
