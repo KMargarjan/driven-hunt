@@ -90,11 +90,18 @@ return function()
 			-- the third argument is what says the fright was a BANG rather than a beater
 			brain:spook(Vector3.new(0, 0, 60), nil, true)
 			local position = START
-			local slowest, calmAt = math.huge, nil
+			local slowest, calmAt, goneAt = math.huge, nil, nil
 			local seconds = 40
 			for frame = 1, math.ceil(seconds / DT) do
 				local intent = brain:step(DT, obs(position, {}))
 				position += intent.targetVelocity * DT
+				-- STOP MEASURING WHEN IT HAS LEFT, and that was this case's own first mistake: an
+				-- animal that reaches `field.exitZ` goes GONE and publishes a zero velocity, so
+				-- "the slowest it ever went" came out 0.0 at 22.0 s -- the moment it SUCCEEDED.
+				if brain:state() == "GONE" then
+					goneAt = goneAt or frame * DT
+					break
+				end
 				-- past the ACCEL ramp, which is the only reason the first second is slow
 				if frame > math.ceil(1 / DT) then
 					local flat = Vector3.new(intent.targetVelocity.X, 0, intent.targetVelocity.Z)
@@ -104,27 +111,30 @@ return function()
 					calmAt = frame * DT
 				end
 			end
-			return slowest, calmAt, brain:state()
+			return slowest, calmAt, goneAt
 		end
 
-		it("never slows down and never calms down, where the flag off does both", function()
-			local onSlowest, onCalm, onState = flown(true)
-			local offSlowest, offCalm = flown(false)
+		it("runs at a RUN until it is off the board, where the flag off slows to a walk", function()
+			local onSlowest, onCalm, onGone = flown(true)
+			local offSlowest, offCalm, offGone = flown(false)
 			TestKit.note(
 				string.format(
-					"shot flight: ON slowest %.1f studs/s, calm at %s | OFF slowest %.1f, calm at %s",
+					"shot flight: ON slowest %.1f studs/s, calm %s, gone at %s | OFF slowest %.1f, calm %s, gone %s",
 					onSlowest,
 					tostring(onCalm),
+					tostring(onGone),
 					offSlowest,
-					tostring(offCalm)
+					tostring(offCalm),
+					tostring(offGone)
 				)
 			)
-			-- ON: forty seconds later it is still running, at a RUN, and it has never been IDLE.
+			-- ON: it leaves, it never stopped running on the way, and it was never IDLE.
+			expect(onGone).to.be.ok()
 			expect(onSlowest >= CONFIG.PACE.RUN_SPEED - 1e-3).to.equal(true)
 			expect(onCalm).to.equal(nil)
-			expect(onState).to.equal("FLEE")
-			-- OFF: the same animal, the same bang, drops below a trot inside the same forty seconds
-			-- -- which is the behaviour Karen was describing and is what this flag exists to end.
+			-- OFF: the same animal and the same bang drops below a trot -- `MOVE.FLIGHT_MIN_STUDS`
+			-- of line and `SENSE.SHOT_SPRINT_SECONDS` of bolt run out and the pace clamp puts it on
+			-- `PACE.WALK_SPEED`. That is the behaviour Karen described and what this flag ends.
 			expect(offSlowest < CONFIG.PACE.TROT_SPEED).to.equal(true)
 		end)
 	end)
@@ -136,6 +146,12 @@ return function()
 		-- THE WORLD IS THE TEST: the animal is handed the SAME position every frame, which is what
 		-- being pinned against a trunk looks like from inside the Brain -- a setpoint that says run
 		-- and ground that does not pass. Nothing else here is special.
+		-- IT IS LET GO FIRST, AND THAT WAS THIS CASE'S OWN FIRST MISTAKE. A freshly spooked animal
+		-- swings onto its latched flight line, which is up to 179 degrees of turn in the first half
+		-- second -- so a baseline taken on frame one measured the flight latch and not the sidestep,
+		-- and both worlds "turned" at 0.45 s. It runs for two seconds with the ground passing under
+		-- it, exactly as it would in the wood, and only then walks into something.
+		local SETTLE = 2
 		local function turnedAfter(seconds: number, wedge: boolean)
 			local config = moveConfig(true)
 			local move = table.clone(config.MOVE)
@@ -145,9 +161,15 @@ return function()
 			config.MOVE = move
 			local brain = Brain.new(config, FIELD, START, Random.new(97))
 			brain:spook(Vector3.new(0, 0, 60))
+			local position = START
+			for _ = 1, math.ceil(SETTLE / DT) do
+				local intent = brain:step(DT, obs(position, {}))
+				position += intent.targetVelocity * DT
+			end
+			-- ...and now the trunk: the same position every frame, for an animal still told to run.
 			local first, turnedAt = nil, nil
 			for frame = 1, math.ceil(seconds / DT) do
-				local intent = brain:step(DT, obs(START, {}))
+				local intent = brain:step(DT, obs(position, {}))
 				local facing = intent.facing
 				if facing.Magnitude > 1e-6 then
 					local unit = facing.Unit
@@ -190,6 +212,11 @@ return function()
 			local brain = Brain.new(moveConfig(true), FIELD, START, Random.new(98))
 			brain:spook(Vector3.new(0, 0, 60))
 			local position = START
+			-- the same two seconds of settling as the case above, for the same reason
+			for _ = 1, math.ceil(SETTLE / DT) do
+				local intent = brain:step(DT, obs(position, {}))
+				position += intent.targetVelocity * DT
+			end
 			local first, worst = nil, 0
 			for _ = 1, math.ceil(3 / DT) do
 				local intent = brain:step(DT, obs(position, {}))
