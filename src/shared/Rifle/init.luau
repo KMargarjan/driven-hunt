@@ -297,12 +297,19 @@ Rifle.CONFIG = {
 			-- the glass is 92 px of 1080 in it -- 0.085 of the height, which at this FOV is 1.69
 			-- degrees. Task 141's 0.45 was a hairline bevel, not a scope body.
 			rimThickDeg = 1.69,
-			-- ...and it is dark grey rather than black, because a black ring against a black mask is
-			-- one shape. Sampled from the reference: the tube reads around 60/60/62.
-			-- NEAR-BLACK, NOT GREY (task 147). Karen, after playing task 146: the tube read as a light
-			-- grey band. Sampled off her own reference again, in the shadowed part of the body rather
-			-- than the lit top edge: the scope is a dark object with a highlight on it, and one flat
-			-- UI colour has to pick the body rather than the highlight.
+			-- NEAR-BLACK (task 147), AND TASK 146 PUT IT AT 60/60/62 FOR A REASON THAT DID NOT SURVIVE
+			-- THE SCREEN: "a black ring against a black mask is one shape". That was true of task
+			-- 141's OPAQUE mask and is not true of this one -- the surround is 0.45 transparent now,
+			-- so it is dark WORLD rather than black, and the tube reads against it.
+			--
+			-- THE DIRECTOR ASKED FOR IT, NOT KAREN: her note of 2026-10-10 ~11:30 is the rings and
+			-- the bolt, and says nothing about the tube (`PLAYTEST.md`). The dispatch's words are
+			-- "near-black like Karen's reference, not light grey". Sampled off that reference again,
+			-- in the SHADOWED part of the body rather than the lit top edge: a scope is a dark object
+			-- with a highlight on it, and one flat UI colour has to pick the body.
+			--
+			-- IT MAY NOW BE TOO DARK -- `t147-ship-scope.png` has the tube nearly merging with the
+			-- darkened surround, which is the cost of having no highlight. Karen's eye owns that.
 			rimColor = Color3.fromRGB(22, 22, 24),
 			maskColor = Color3.fromRGB(0, 0, 0),
 			-- THE WORLD OUTSIDE SURVIVES (task 146). In her frame the grass and trunks past the tube

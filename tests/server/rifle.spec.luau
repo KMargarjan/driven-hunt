@@ -527,7 +527,7 @@ return function()
 	end)
 
 	describe("the drawn bolt, as data", function()
-		it("BRINGS THE RIFLE DOWN TO WORK THE BOLT, which it did not until task 147", function()
+		it("BRINGS THE RIFLE BACK AND ROLLS IT TO WORK THE BOLT, which it did not until task 147", function()
 			-- KAREN, 2026-10-10: *"after each shoot right hand has to reload like it does after 3
 			-- shoots"*. MEASURED FIRST, and the premise turned out to be wrong: the per-shot bolt and
 			-- the one that chambers after the magazine change are ONE definition and already
@@ -555,6 +555,9 @@ return function()
 			-- turns toward the camera instead of away from it.
 			expect(cycle.gun.rot.z < carry.gun.rot.z).to.equal(true)
 			expect(cycle.gun.rot.y > carry.gun.rot.y).to.equal(true)
+			-- THESE FOUR PIN THE DIRECTION AND NOT THE DISTANCE, on purpose: the pose is content-lane
+			-- data and the Director tunes it live, so a case that asserted the shipped numbers would
+			-- fail on every tune. What must not come back is the gun standing still.
 			-- BOTH RIFLES MOVE THE SAME WAY, for the same reason they share every other number.
 			local open = Viewmodel.DATA.weapons.rifle_open.cycle
 			for _, axis in ipairs({ "x", "y", "z" }) do
