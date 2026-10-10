@@ -56,8 +56,11 @@ return function()
 			expect(#off).to.equal(1)
 			expect(off[1]).to.equal("shotgun")
 			local on = Weapons.loadoutFor(true)
-			expect(#on).to.equal(2)
+			-- THREE SINCE TASK 143: the flag carries the scoped rifle AND the open-sighted one, which
+			-- is how Karen gets at slot 3 for testing before a shop exists to sell either.
+			expect(#on).to.equal(3)
 			expect(on[2]).to.equal("rifle")
+			expect(on[3]).to.equal("rifle_open")
 			expect(Weapons.FLAG).to.equal("RIFLE")
 		end)
 

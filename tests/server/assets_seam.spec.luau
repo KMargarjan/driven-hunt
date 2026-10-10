@@ -148,11 +148,19 @@ return function()
 			-- ...AND FOUR MORE SINCE TASK 140, each exactly once: the rifle is one model in four
 			-- groups and the WORLD tool wears all four, so all four are `runtime` keys. The count is
 			-- read off the weapon table rather than typed, so a third weapon moves it by itself.
-			local wanted = 0
+			-- DISTINCT KEYS, because a weapon may WEAR another's uploads (task 143): the open-sighted
+			-- rifle is the same gun with the glass off, so it reuses three of the rifle's four keys
+			-- and adds none of its own. Summing the rows counted those three twice and asked for 9
+			-- where the manifest rightly holds 6.
+			local seen, wanted = {}, 0
 			for _, id in ipairs(Weapons.ids()) do
 				for _, key in ipairs(Weapons.ROWS[id].ASSET_KEYS) do
+					-- ...and each is in the manifest EXACTLY ONCE however many weapons wear it.
 					expect(counted[key]).to.equal(1)
-					wanted += 1
+					if not seen[key] then
+						seen[key] = true
+						wanted += 1
+					end
 				end
 			end
 			expect(#keys).to.equal(wanted)
