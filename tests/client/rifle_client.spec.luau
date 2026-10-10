@@ -304,11 +304,17 @@ return function()
 			local viewport = Workspace.CurrentCamera.ViewportSize
 			local mask = (overlay :: Frame):FindFirstChild("Mask") :: Frame
 			expect(mask).to.be.ok()
+			-- THE CLAMP IS ON THE GLASS, NOT ON THE WHOLE CIRCLE (task 146): the tube may run off the
+			-- top and bottom -- it does in Karen's own reference -- and what may not leave the screen
+			-- is the lens, because the reticle's degrees are measured against it.
+			local rimPx = math.max(1, Hud.reticleDegToPx(scope.eyepiece.rimThickDeg, scope.aimFovDeg, viewport.Y))
 			local wanted = math.min(
 				Hud.reticleDegToPx(scope.eyepiece.diameterDeg, scope.aimFovDeg, viewport.Y),
-				math.min(viewport.X, viewport.Y)
+				math.min(viewport.X, viewport.Y) + 2 * rimPx
 			)
 			expect(math.abs(mask.AbsoluteSize.X - wanted) <= 2).to.equal(true)
+			-- ...and the glass inside it never does leave the screen.
+			expect(mask.AbsoluteSize.Y - 2 * rimPx <= math.min(viewport.X, viewport.Y) + 2).to.equal(true)
 			expect(math.abs(mask.AbsoluteSize.Y - mask.AbsoluteSize.X) <= 1).to.equal(true)
 			-- THE MASK REACHES EVERY CORNER. A stroke is drawn outward from the circle, so anything
 			-- short of the screen's own diagonal leaves a lit wedge at the corners.
