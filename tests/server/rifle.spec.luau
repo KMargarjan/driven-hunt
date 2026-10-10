@@ -527,16 +527,42 @@ return function()
 	end)
 
 	describe("the drawn bolt, as data", function()
-		it("holds the gun still while the bolt moves", function()
-			-- `Mode.viewmodelOffset` lerps the pose toward the action's pose by the cycle's progress,
-			-- and a lerp between EQUAL numbers is those numbers -- which is how the gun stays
-			-- shouldered with no new branch in the composition. Seeded equal; the Director may make
-			-- them differ later, and then this case is the thing that says so out loud.
+		it("BRINGS THE RIFLE BACK AND ROLLS IT TO WORK THE BOLT, which it did not until task 147", function()
+			-- KAREN, 2026-10-10: *"after each shoot right hand has to reload like it does after 3
+			-- shoots"*. MEASURED FIRST, and the premise turned out to be wrong: the per-shot bolt and
+			-- the one that chambers after the magazine change are ONE definition and already
+			-- identical -- `driven-hunt-runs/t147-bolt.luau` logged the right glove leaving the grip
+			-- by 0.817 / 0.816 / 0.817 studs over 0.65 s after each shot, against 0.824 studs over
+			-- 0.65 s after the magazine. Nor was recoil hiding it: the gun stops moving 0.23 s after
+			-- the shot and the bolt starts at 0.28.
+			--
+			-- WHAT WAS ACTUALLY WRONG IS IN THIS CASE'S OWN OLD COMMENT. `cycle.gun` was seeded
+			-- bit-for-bit equal to `carry.gun` -- "the Director may make them differ later, and then
+			-- this case is the thing that says so out loud" -- so the rifle did not move at all while
+			-- the bolt was worked, and all there was to see was a thumbnail-sized glove sliding ALONG
+			-- the gun's own axis, behind the scope, foreshortened into nothing. The magazine change
+			-- reads because the magazine drops 0.42 studs straight down into open space.
+			--
+			-- So the gun now comes back and rolls the action toward the eye for the cycle, which is
+			-- what a shooter does and what makes the hand's travel something the eye can follow. It
+			-- is the SAME pose for both bolts, because there is still only one of them.
 			local cycle = Viewmodel.DATA.weapons.rifle.cycle
 			local carry = Viewmodel.DATA.weapons.rifle.carry
+			-- IT COMES BACK TOWARD THE SHOOTER and up, out of the corner of the screen.
+			expect(cycle.gun.pos.z > carry.gun.pos.z).to.equal(true)
+			expect(cycle.gun.pos.y > carry.gun.pos.y).to.equal(true)
+			-- ...AND ROLLS, so the right side of the action -- the side the bolt handle is on --
+			-- turns toward the camera instead of away from it.
+			expect(cycle.gun.rot.z < carry.gun.rot.z).to.equal(true)
+			expect(cycle.gun.rot.y > carry.gun.rot.y).to.equal(true)
+			-- THESE FOUR PIN THE DIRECTION AND NOT THE DISTANCE, on purpose: the pose is content-lane
+			-- data and the Director tunes it live, so a case that asserted the shipped numbers would
+			-- fail on every tune. What must not come back is the gun standing still.
+			-- BOTH RIFLES MOVE THE SAME WAY, for the same reason they share every other number.
+			local open = Viewmodel.DATA.weapons.rifle_open.cycle
 			for _, axis in ipairs({ "x", "y", "z" }) do
-				expect(cycle.gun.pos[axis]).to.equal(carry.gun.pos[axis])
-				expect(cycle.gun.rot[axis]).to.equal(carry.gun.rot[axis])
+				expect(open.gun.pos[axis]).to.equal(cycle.gun.pos[axis])
+				expect(open.gun.rot[axis]).to.equal(cycle.gun.rot[axis])
 			end
 		end)
 
