@@ -53,8 +53,9 @@ Geometry.CYCLE_KIND = "slide"
 
 -- The same four keys the WORLD rifle wears (`Weapons.ROWS.rifle.ASSET_KEYS` -- the SCOPED row):
 -- unlike model B, which has a world gun and a viewmodel gun, this rifle is ONE model and both draw
--- it. THE OPEN-SIGHTED ROW WEARS THREE OF THEM (task 143): the viewmodel folder still publishes all
--- four, and `rifle_open` simply never clones `rifle.scope`.
+-- it. A ROW MAY WEAR FEWER: `Geometry.pieces` filters on the row's own `SIGHT`, so a rifle with no
+-- glass clones three of the four. Task 143 shipped such a row and task 148 retired it at Karen's
+-- word, but the filter stays -- it is how the next sight gets drawn without a second piece list.
 Geometry.ASSET_KEYS = table.freeze({ "rifle.action", "rifle.stock", "rifle.bolt", "rifle.scope" })
 
 Geometry.MESH_KEYS = table.freeze({

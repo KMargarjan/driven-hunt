@@ -221,9 +221,10 @@ return function()
 			-- off; only the loadout is shorter.
 			--
 			-- IT IS THE FLAG-ON LOADOUT ITSELF SINCE TASK 143, not a hand-written pair: that is
-			-- THREE Tools now, and `1 Shotgun, 2 Rifle, 3 RifleOpen` was only ever a measurement
-			-- pasted into a review request (the Reviewer's round-1 note). A fourth weapon lands in
-			-- this case the day it joins `Weapons.ORDER`.
+			-- It was THREE Tools when this was written and it is two again since task 148 (Karen
+			-- retired the open-sighted rifle), which is the point: the case reads the loadout rather
+			-- than a list of its own, so the next weapon lands in it the day it joins
+			-- `Weapons.ORDER` and the last one left without an edit here.
 			--
 			-- This is the case that fails if the equip moves back inside `Weapon.grant`.
 			local player = somebody()

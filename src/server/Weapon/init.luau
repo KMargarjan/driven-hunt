@@ -200,7 +200,8 @@ end
 --
 -- "HAS A PARENT" IS NOT THE SAME QUESTION, AND THE DIFFERENCE COST A HUNTER HIS SHOTGUN. Measured in
 -- the Forest Test, 10 double-deaths: die once, then again inside `AUTO_EQUIP_DELAY_SECONDS`, and the
--- player comes back with `bag=[Rifle,RifleOpen]` and EMPTY HANDS -- and stays that way through the
+-- player comes back with `bag=[Rifle,RifleOpen]` and EMPTY HANDS (that trace is from task 144,
+-- when the loadout still had the open-sighted rifle in it) -- and stays that way through the
 -- next respawn and the one after. A census of the whole DataModel found only TWO of our Tools: the
 -- shotgun was not under `game` at all. That is the shape. A respawn DETACHES the old Backpack --
 -- `Parent = nil` on the Backpack, which takes it out of the tree -- but does not DESTROY it, so the

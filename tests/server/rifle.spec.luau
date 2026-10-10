@@ -30,14 +30,15 @@ end
 
 return function()
 	describe("the weapon table", function()
-		it("holds exactly the three weapons, in hotbar order, frozen all the way down", function()
+		it("holds exactly the two weapons, in hotbar order, frozen all the way down", function()
 			local ids = Weapons.ids()
-			-- THREE SINCE TASK 143: the shotgun, the rifle with its scope, and the same rifle with
-			-- the glass off. The ORDER is the hotbar's (task 141).
-			expect(#ids).to.equal(3)
+			-- TWO AGAIN SINCE TASK 148. Task 143 added a third -- the same rifle with the glass off,
+			-- on slot 3 -- and Karen took it out: *"please remove rifle without scope so we don't
+			-- implement now"*. The ORDER is the hotbar's (task 141).
+			expect(#ids).to.equal(2)
 			expect(ids[1]).to.equal("shotgun")
 			expect(ids[2]).to.equal("rifle")
-			expect(ids[3]).to.equal("rifle_open")
+			expect(Weapons.row("rifle_open")).to.equal(nil)
 			expect(Weapons.row("nope")).to.equal(nil)
 			expect(Weapons.row(nil)).to.equal(nil)
 			expect(Weapons.PRIMARY).to.equal("shotgun")
@@ -56,11 +57,9 @@ return function()
 			expect(#off).to.equal(1)
 			expect(off[1]).to.equal("shotgun")
 			local on = Weapons.loadoutFor(true)
-			-- THREE SINCE TASK 143: the flag carries the scoped rifle AND the open-sighted one, which
-			-- is how Karen gets at slot 3 for testing before a shop exists to sell either.
-			expect(#on).to.equal(3)
+			-- TWO AGAIN SINCE TASK 148: the flag carries the scoped rifle and nothing else.
+			expect(#on).to.equal(2)
 			expect(on[2]).to.equal("rifle")
-			expect(on[3]).to.equal("rifle_open")
 			expect(Weapons.FLAG).to.equal("RIFLE")
 		end)
 
@@ -403,78 +402,6 @@ return function()
 			expect(Weapons.geometry("rifle")).never.to.equal(Weapons.geometry("shotgun"))
 		end)
 
-		it("is the SAME rifle with the glass off, and three things differ", function()
-			-- Karen: *"and also we need to have option rifle without scope ... where aiming true
-			-- nozzle"*. Everything that is not about the SIGHT must be the scoped rifle's, or it is
-			-- a second gun rather than the same one carried differently.
-			local scoped = Weapons.ROWS.rifle
-			local open = Weapons.ROWS.rifle_open
-			for _, key in ipairs({
-				"RANGE_STUDS",
-				"PELLETS",
-				"SPREAD_FULL_DEG",
-				"AMMO_KINDS",
-				"START_RESERVE",
-				"BARRELS",
-				"BARREL_DELAY",
-				"CYCLE",
-				"CYCLE_TOTAL",
-				"CYCLE_EJECTS",
-				"RELOAD",
-				"MAGAZINE",
-				"READOUT",
-				"HANDLE_SIZE",
-				"SOUND",
-			}) do
-				expect((open :: any)[key]).to.equal((scoped :: any)[key])
-			end
-			-- ...AND THE THREE THAT DO. (1) no scope at all, which is what hands it the shotgun's
-			-- bead zoom with no reticle, no mask and no sway.
-			expect(scoped.scope).to.be.ok()
-			expect(open.scope).to.equal(nil)
-			-- (2) it does not wear the scope's upload.
-			expect(#open.ASSET_KEYS).to.equal(#scoped.ASSET_KEYS - 1)
-			for _, key in ipairs(open.ASSET_KEYS) do
-				expect(key).never.to.equal("rifle.scope")
-			end
-			-- (3) its geometry draws a BEAD instead of the tube.
-			expect(open.SIGHT).to.equal("bead")
-			expect(scoped.SIGHT).to.equal("scope")
-			local geometry = Weapons.geometry("rifle_open")
-			local names = {}
-			for _, piece in ipairs(geometry.pieces(open)) do
-				names[piece.name] = true
-			end
-			expect(names.Bead).to.equal(true)
-			expect(names.Scope).to.equal(nil)
-			-- ...and the scoped one is the mirror of that, from the SAME piece list.
-			local scopedNames = {}
-			for _, piece in ipairs(geometry.pieces(scoped)) do
-				scopedNames[piece.name] = true
-			end
-			expect(scopedNames.Scope).to.equal(true)
-			expect(scopedNames.Bead).to.equal(nil)
-			-- THE EYE LOOKS SOMEWHERE ELSE, and that is the whole of "aiming true nozzle": down the
-			-- barrel to a bead at the muzzle instead of into an ocular lens at the back.
-			local beadSight = geometry.sight(open)
-			local scopeSight = geometry.sight(scoped)
-			expect(beadSight.Z < scopeSight.Z).to.equal(true)
-			expect(math.abs(beadSight.Z - (-open.HANDLE_SIZE.Z / 2)) < 0.1).to.equal(true)
-			-- ...on the gun's own centre line, so it looks exactly where the barrel points.
-			expect(math.abs(beadSight.X) < 1e-9).to.equal(true)
-			-- ...AND IT IS THE SAME EXPRESSION THE DRAWN BEAD USES, not a copy of it (the Reviewer's
-			-- round-1 note, and the rule `Gun.beadOffset` already keeps for the shotgun).
-			local drawn = nil
-			for _, piece in ipairs(geometry.pieces(open)) do
-				if piece.name == "Bead" then
-					drawn = piece.offset.Position
-				end
-			end
-			expect(drawn).to.be.ok()
-			expect((drawn :: Vector3) - geometry.beadOffset(open)).to.equal(Vector3.zero)
-			expect(beadSight.Position).to.equal(geometry.beadOffset(open))
-		end)
-
 		it("reads any row written before this task as the SCOPED rifle", function()
 			-- `SIGHT` is a field task 143 added, so every row and every caller that predates it has
 			-- nil there -- and nil must mean the gun this repo already had, never a rifle that
@@ -484,7 +411,10 @@ return function()
 			expect(geometry.sightKind({})).to.equal("scope")
 			expect(geometry.sightKind({ SIGHT = "bead" })).to.equal("bead")
 			expect(geometry.sightKind(Weapons.ROWS.rifle)).to.equal("scope")
-			expect(geometry.sightKind(Weapons.ROWS.rifle_open)).to.equal("bead")
+			-- ...AND THE BEAD BRANCH IS STILL REACHABLE BY PARAMETER, which is why it survives task
+			-- 148 taking the open-sighted ROW away: a table with `SIGHT = "bead"` is all it ever
+			-- needed, and the next sight Karen asks for arrives the same way.
+			expect(geometry.sightKind({ SIGHT = "bead" })).to.equal("bead")
 			-- ...AND THE WORLD GUN OTHER PLAYERS SEE FOLLOWS IT. The fallback silhouette is what is
 			-- drawn until the uploads land, so a scope tube on the open-sighted rifle would be a gun
 			-- that changes shape as it loads.
@@ -497,7 +427,11 @@ return function()
 				return false
 			end
 			expect(tubed(Weapons.ROWS.rifle)).to.equal(true)
-			expect(tubed(Weapons.ROWS.rifle_open)).to.equal(false)
+			-- ...and a row that carries a bead gets no tube, driven by parameter now that the
+			-- open-sighted row is gone (task 148).
+			local beaded = table.clone(Weapons.ROWS.rifle) :: any
+			beaded.SIGHT = "bead"
+			expect(tubed(beaded)).to.equal(false)
 		end)
 
 		it("gives the rifle a cycle group that SLIDES, and the shotgun one that hinges", function()
@@ -558,12 +492,11 @@ return function()
 			-- THESE FOUR PIN THE DIRECTION AND NOT THE DISTANCE, on purpose: the pose is content-lane
 			-- data and the Director tunes it live, so a case that asserted the shipped numbers would
 			-- fail on every tune. What must not come back is the gun standing still.
-			-- BOTH RIFLES MOVE THE SAME WAY, for the same reason they share every other number.
-			local open = Viewmodel.DATA.weapons.rifle_open.cycle
-			for _, axis in ipairs({ "x", "y", "z" }) do
-				expect(open.gun.pos[axis]).to.equal(cycle.gun.pos[axis])
-				expect(open.gun.rot[axis]).to.equal(cycle.gun.rot[axis])
-			end
+			-- `rot.x` IS THE ONE AXIS WITH NO ASSERTION, and that is a choice (the Reviewer's note,
+			-- task 147): the pitch is the same 23.9 in both poses, because bringing the rifle out of
+			-- the shoulder is a move and a roll rather than a tilt. If it ever needs to change, this
+			-- is where to say so.
+			expect(cycle.gun.rot.x).to.equal(carry.gun.rot.x)
 		end)
 
 		it("draws faster than the server's own steps, so the motion always finishes first", function()
