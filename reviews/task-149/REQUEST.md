@@ -3,10 +3,10 @@
 Task: 149
 Round: 1
 Base: main (`d83d3ed`, task 148 merged as PR #131)
-Code commit: `5f604e0f17c3c1a237800b4ae41f8cad64432568`
+Code commit: `856430a1a66f7f84d32a159a470c2de92b6d697d`
 
 ```
-[harness] PASS: 33/33 checks @ 5f604e0f17c3c1a237800b4ae41f8cad64432568 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 856430a1a66f7f84d32a159a470c2de92b6d697d (clean tree) scope=all
 ```
 
 `test2` is N/A: the diff is `Flags` and one client spec — nothing in `TWO_PLAYER_PATHS`.
@@ -19,6 +19,13 @@ when they cross another side they have to run away not stay and od circles"*. Tr
 
 **THIS REQUEST IS ITEM 0 ONLY.** Items 1, 2 and 3 are not in it, and claim 6 says why. **No Architect
 run:** a flag default and a spec bound.
+
+**WHY THIS IS STILL `Round: 1`.** The first verdict passed `c60eb9e` with seven notes. Two were
+must-fix in my judgement and are fixed in `d67c09f`, after the commit that was passed: the flag's
+`expires` was left at its 21-day ceiling, which would have failed `flags.spec`'s rot tripwire on
+2026-10-31 and blocked whatever gate ran that day; and **my own arithmetic in item 2 was wrong**, in
+three files. A PASS does not consume a round, so `tools/agents.py` refuses anything but `Round: 1`;
+claim 7 is what changed.
 
 ## The claims
 
@@ -114,3 +121,13 @@ Rule 5 screenshot: **N/A** — nothing drawn changed. The frames the dispatch as
   19 clips (`[BoarAssetsBoot] all 19 boar clips have an animation asset id`), so the obvious
   no-clip explanation is NOT this world's.
 * **Item 3 was not started at all.**
+
+7. **THE FIRST PASS CAUGHT A TIME BOMB AND A WRONG NUMBER OF MINE.** (a) `RIFLE.expires` stayed at
+   `2026-10-30`, the 21-day ceiling for a flag nobody has judged — but this one has been judged, and
+   `docs/design/feature-flags.md` section 11 step 6a says an accepted flag's date moves out to the
+   retirement task's. Left alone it fails the rot tripwire on the 31st and blocks that day's gate. It
+   is `2026-12-31` now, with the reason beside it, like the three other lit rows in the table.
+   (b) **Item 2's arithmetic was wrong and it is the number the whole hand-off rests on** — "a THIRD"
+   and "out by a factor of twelve" against the real 0.47-1.12 and 3.57 studs/m. Corrected here, in
+   `TASKS.md` and in `PLAYTEST.md`. (c) Two smaller ones the flip made false: a tautological
+   `carried >= 1`, and `Input.watchedTools`' header saying "One, normally".
