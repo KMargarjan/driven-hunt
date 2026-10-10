@@ -61,9 +61,14 @@ her kill line, task 148:   "60 m"     = 214 studs
 ```
 
 The comment above that constant reads *"120 is about twice the distance she shoots at (her hits in
-task 138 were at 30 to 71 m) so the pack she fires into always runs"*. **It is out by a factor of
-twelve: 120 studs is a THIRD of her typical shot, not twice it** — the sentence compares studs with
-metres. So the animals she is actually shooting at are usually OUTSIDE the bang's radius.
+task 138 were at 30 to 71 m) so the pack she fires into always runs"*. **It compares studs with
+metres.** 120 studs is **0.47 to 1.12** of her shot distance — at the short end the radius barely
+reaches the animal she hit, and at the long end it does not reach it at all. The factor the sentence
+is out by is **3.57 studs per metre**.
+
+**ROUND 1 OF THIS REQUEST SAID "a THIRD" AND "out by a factor of twelve", AND BOTH WERE WRONG** (the
+Reviewer's note): twelve is 3.57 squared, and a third is not what 0.47-1.12 is. The direction stands
+and so does everything the fix rests on; the numbers above are the corrected ones.
 
 And the radius is measured from one point only: `ForestTestBoot` and `MatchBoot` both call
 `runtime:hearShot(shot.muzzle)`, and `Brain._hearSound` refuses anything past
