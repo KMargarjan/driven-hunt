@@ -1,4 +1,4 @@
-# Task 147 - the rifle comes down to work the bolt, and the tube goes near-black
+# Task 147 - the rifle comes back and rolls to work the bolt, and the tube goes near-black
 
 Task: 147
 Round: 1
@@ -51,7 +51,7 @@ but `Round: 1` here; this asks for a verdict that covers the code. Claim 11 is w
    because the magazine drops 0.42 studs straight DOWN into open space. **Verify:** the frame
    `t147-bolt-0.png` from before the change, where the right hand is a pale smudge behind the scope.
 
-4. **SO THE GUN COMES DOWN TO WORK THE BOLT.** `cycle.gun` is now back 0.55 studs (`z -2.0 → -1.45`),
+4. **SO THE GUN COMES BACK AND ROLLS TO WORK THE BOLT** — out of the shoulder, not downward. `cycle.gun` is now back 0.55 studs (`z -2.0 → -1.45`),
    up 0.20 (`y -0.62 → -0.42`) and rolled 20 degrees (`rot.z -10 → -30`, `rot.y 45.7 → 56`), so the
    bolt side of the action turns toward the eye. `Mode.viewmodelOffset` lerps toward it by the
    cycle's own progress, which runs 0 → 1 → 0, so the rifle comes out of the shoulder, is worked,
@@ -62,7 +62,7 @@ but `Round: 1` here; this asks for a verdict that covers the code. Claim 11 is w
 5. **IT IS THE SAME POSE FOR BOTH BOLTS, because there is still only one of them.** Karen asked to
    keep the magazine change exactly as it is, and nothing in `RELOAD` changed — the bolt that
    chambers after it simply gets the same new motion. **Verify:** `rifle.spec`, "BRINGS THE RIFLE
-   DOWN TO WORK THE BOLT, which it did not until task 147", which also asserts `rifle_open`'s cycle
+   BACK AND ROLLS IT TO WORK THE BOLT, which it did not until task 147", which also asserts `rifle_open`'s cycle
    pose equals the rifle's, field by field.
 
 6. **THE CASE THAT USED TO ASSERT THE OPPOSITE NOW ASSERTS THIS.** It was "holds the gun still while
