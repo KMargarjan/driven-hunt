@@ -3,10 +3,10 @@
 Task: 147
 Round: 1
 Base: main (`809a290`, task 146 merged as PR #129)
-Code commit: `0445dea5a8be667af07bdc34d5bc53f0bd560ec4`
+Code commit: `4edf5fad9eb7c1cc80b0a02fc2dc0ee65940e7c2`
 
 ```
-[harness] PASS: 33/33 checks @ 0445dea5a8be667af07bdc34d5bc53f0bd560ec4 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 4edf5fad9eb7c1cc80b0a02fc2dc0ee65940e7c2 (clean tree) scope=all
 ```
 
 `test2` is N/A: the diff is `poses.json`, one colour in `Rifle.CONFIG` and one spec case — nothing in
@@ -18,6 +18,12 @@ change but after each shoot has to move right hand nad reload"*. Transcribed in 
 **No Architect run:** no new owner and no new system.
 
 **TWO OF HER THREE SHIPPED. THE RINGS DID NOT, AND THE REASON IS GEOMETRY** — claim 8.
+
+**WHY THIS IS STILL `Round: 1`.** `reviews/task-147/RESULT.md` passed `3856389`. Two of its six notes
+were text I had just shipped that misstated the record — one of them crediting Karen with words she
+did not say, which is the mistake task 142 corrected me on — so they are fixed in `e920aff`, after
+the commit that was passed. A PASS does not consume a round, so `tools/agents.py` refuses anything
+but `Round: 1` here; this asks for a verdict that covers the code. Claim 11 is what changed.
 
 ## The ten claims
 
@@ -48,8 +54,10 @@ change but after each shoot has to move right hand nad reload"*. Transcribed in 
 4. **SO THE GUN COMES DOWN TO WORK THE BOLT.** `cycle.gun` is now back 0.55 studs (`z -2.0 → -1.45`),
    up 0.20 (`y -0.62 → -0.42`) and rolled 20 degrees (`rot.z -10 → -30`, `rot.y 45.7 → 56`), so the
    bolt side of the action turns toward the eye. `Mode.viewmodelOffset` lerps toward it by the
-   cycle's own progress, which runs 0 → 1 → 0, so the rifle comes down, is worked, and goes back with
-   no new branch anywhere. **Tuned live with `pose.py` and looked at**, not calculated.
+   cycle's own progress, which runs 0 → 1 → 0, so the rifle comes out of the shoulder, is worked,
+   and goes back with no new branch anywhere. **Tuned live with `pose.py` and looked at**, not
+   calculated. (Two different turns, not one: a 20-degree ROLL about the gun's own axis and a
+   10.3-degree YAW.)
 
 5. **IT IS THE SAME POSE FOR BOTH BOLTS, because there is still only one of them.** Karen asked to
    keep the magazine change exactly as it is, and nothing in `RELOAD` changed — the bolt that
@@ -120,3 +128,18 @@ change but after each shoot has to move right hand nad reload"*. Transcribed in 
   and the two bolts share one definition, so a timing change would have altered the one she likes.
 * **Nobody has seen the open rifle's cycle pose from outside** — `pose.py inspect` holds `carry`,
   `raise`, `aim` and `reload`, not `cycle`.
+
+## Round 2 (still `Round: 1` by the counter): two comments that misstated the record
+
+11. **I SHIPPED TWO PIECES OF TEXT IN ROUND 1 THAT SAID THE WRONG THING, and the Reviewer caught
+    both.** (a) Task 146's reason for the grey tube — *"a black ring against a black mask is one
+    shape"* — was left standing in the present tense directly above `rimColor = 22, 22, 24`. It was
+    true of task 141's OPAQUE mask and stopped being true when task 146 made the surround 0.45
+    transparent; the comment now says that and marks the old reason as history. (b) *"Karen, after
+    playing task 146: the tube read as a light grey band"* **is not hers** — her note is the rings
+    and the bolt and says nothing about the tube. The words are the DISPATCH's, and the comment names
+    the Director now. **This is the same mistake task 142 corrected me on**, which is why it is fixed
+    here rather than queued. The comment also records that the tube may now be too dark, because
+    nobody in this toolchain can settle that and Karen's eye owns it.
+    Also: the spec's title said the rifle comes DOWN while its own first assertions say up and back,
+    and the four sign assertions now say out loud that they pin the direction and not the distance.
