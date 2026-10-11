@@ -58,6 +58,8 @@ end
 
 return function()
 	local testRoot, plate, toolRoot
+	-- The horn left RAISED by the blast case, checked back down by the last case in this file.
+	local lowering: any = nil
 
 	-- ONE plate for the whole file, as `boar_shot.spec` does: every case below either needs no world
 	-- at all or spawns its own runtime into its own folder under this root.
@@ -452,27 +454,15 @@ return function()
 
 			wire:Disconnect()
 			HornTool.setCarryPolicy(restore)
-			HornTool.revoke(player)
-			backpack:Destroy()
-		end)
 
-		it("comes back down after the blow", function()
-			local backpack = newBackpack()
-			local player = stubPlayer(backpack, nil, 152004)
-			local restore = HornTool.setCarryPolicy(function()
-				return true
-			end)
-			local tool = HornTool.grant(player) :: Tool
-			expect(HornTool.blow(player, 2000)).to.equal(true)
-			expect(tool.Grip).to.equal(CONFIG.GRIP_BLOW)
-			-- The one real wait in this spec, and it is for the one thing a number cannot prove: that
-			-- the restore actually fires. A horn stuck at the chin is what this case exists to catch.
-			task.wait(CONFIG.BLOW_SECONDS + 0.4)
-			expect(tool.Grip).to.equal(CONFIG.GRIP)
-
-			HornTool.setCarryPolicy(restore)
-			HornTool.revoke(player)
-			backpack:Destroy()
+			-- ...AND THE HORN IS LEFT RAISED, ON PURPOSE. Whether it comes back DOWN is the last case
+			-- in this file, because the restore is a `task.delay(BLOW_SECONDS)` -- three seconds of
+			-- wall clock that would otherwise be spent standing still. MEASURED why that matters: a
+			-- fixed 3.4 s wait here pushed the whole server suite past `TestKit.TOKEN_MAX_AGE`, and
+			-- `sync.spec` -- which runs after this file and asks whether the gate token is still
+			-- fresh -- failed with a stale one. The seconds pass during the live cases below instead,
+			-- and the assertion is exactly as strong.
+			lowering = { tool = tool, player = player, backpack = backpack }
 		end)
 
 		it("is not a weapon, so the first-person viewmodel will not draw a gun out of it", function()
@@ -627,7 +617,7 @@ return function()
 			local wasFrom = (flat2(start) - flat2(beater)).Magnitude
 			runtime:run()
 			expect(runtime:hearHorn(beater, Horn.spookStuds(CONFIG))).to.equal(1)
-			task.wait(2)
+			task.wait(1.5)
 			local moved = runtime:statusOf(id).position
 			local fromBeater = (flat2(moved) - flat2(beater)).Magnitude
 
@@ -639,7 +629,7 @@ return function()
 			expect(fromBeater > wasFrom).to.equal(true)
 			TestKit.note(
 				string.format(
-					"horn: pushed from %.0f to %.0f studs off the beater in 2 s (dx %+.0f, dz %+.0f)",
+					"horn: pushed from %.0f to %.0f studs off the beater in 1.5 s (dx %+.0f, dz %+.0f)",
 					wasFrom,
 					fromBeater,
 					moved.X - start.X,
@@ -661,6 +651,42 @@ return function()
 			expect(runtime:hearHorn(Vector3.new(0, GROUND_Y, 0), nil :: any)).to.equal(0)
 			runtime:clear("spec done")
 			runtime:destroy()
+		end)
+	end)
+
+	---------------------------------------------------------------- the horn comes back down
+
+	describe("after the blow", function()
+		-- THE LAST CASE IN THE FILE, and the seconds it needs have already passed during the live
+		-- cases above (the blast case says why). A horn stuck at the player's chin is what it exists
+		-- to catch, and nothing but real time can prove the `task.delay` fired at all.
+		it("lowers the horn again, and the clip is cut", function()
+			expect(lowering).to.be.ok()
+			local tool = lowering.tool :: Tool
+			local lowered = tool.Grip == CONFIG.GRIP
+			local deadline = os.clock() + CONFIG.BLOW_SECONDS + 1
+			while not lowered and os.clock() < deadline do
+				task.wait(0.1)
+				lowered = tool.Grip == CONFIG.GRIP
+			end
+			local left = deadline - os.clock()
+			-- ...and the clip stopped rather than running on for the rest of its sixty seconds.
+			local handle = tool:FindFirstChild("Handle") :: BasePart
+			local sound = handle:FindFirstChild(HornTool.SOUND_NAME) :: Sound
+			TestKit.note(
+				string.format(
+					"horn: lowered %s with %.1f s of the wait to spare; clip playing %s",
+					tostring(lowered),
+					left,
+					tostring(sound.IsPlaying)
+				)
+			)
+			expect(lowered).to.equal(true)
+			expect(sound.IsPlaying).to.equal(false)
+
+			HornTool.revoke(lowering.player)
+			lowering.backpack:Destroy()
+			lowering = nil
 		end)
 	end)
 end
