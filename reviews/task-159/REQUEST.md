@@ -3,24 +3,25 @@
 Task: 159
 Round: 1
 Base: `a0589f5` (main, #141 merged)
-Code commit: `3f4858c2d529f47583300b497dd17e7198d6219f`
+Code commit: `f70a1aa9209e481dacbe11cd17e31b1857585d98`
 
 Harness, one player, the FULL run, twice on the clean tree at the code commit:
 
 ```
-[harness] PASS: 33/33 checks @ 3f4858c2d529f47583300b497dd17e7198d6219f (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 3f4858c2d529f47583300b497dd17e7198d6219f (clean tree) scope=all
+[harness] PASS: 33/33 checks @ f70a1aa9209e481dacbe11cd17e31b1857585d98 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ f70a1aa9209e481dacbe11cd17e31b1857585d98 (clean tree) scope=all
 ```
 
 ```
-[harness2] NEEDS TEST2 159 3f4858c2d529f47583300b497dd17e7198d6219f
+[harness2] NEEDS TEST2 159 f70a1aa9209e481dacbe11cd17e31b1857585d98
 ```
 
 **`test2` IS REQUIRED AND THE BUILDER DID NOT RUN IT.** This change touches `TWO_PLAYER_PATHS`
 (`src/server/Match/`, `tests/server/zz_drive_boundary.spec.luau`, `tests/client/match_client.spec.luau`).
 The Director runs it (his own dispatch): *"before stopping, CLOSE the Forest Test Studio yourself so my
 test2 can run, and stop 'NEEDS TEST2 159 <sha>' with a [harness2] placeholder; I run test2 + the
-review."* The Forest Test Studio was left OPEN — see claim 10.
+review."* The Forest Test Studio was left OPEN — the Director's follow-up dispatch allows it
+(*"The Forest Test may stay open — I close it"*).
 
 ## What changed
 
@@ -106,17 +107,36 @@ it. No new phase, no second score, no new remote.
     `src/shared/Report/init.luau`, and the second screenshot,
     `.screenshots/20261011T230908Z-task159-results-scene.png` — the forest's own drive ending with the
     scene, the four posts, the feed line *"Drive over - the beaters are through"* and the
-    semi-transparent "DRIVE 1 RESULTS" table all on screen.
+    semi-transparent "DRIVE 1 RESULTS" table all on screen. (That frame is also where the Director
+    found the table unreadable — claim 11.)
+
+11. **The table is READABLE, and the defect behind that was mechanical.** The Director looked at the
+    first scene frame and the table could not be read. The cause was not a colour: task 141 raised the
+    SCORE PANEL and the START CARD to `Report.CONFIG.PANEL_Z_INDEX` (15) and left every label at the
+    default `ZIndex` 1, so both frames were drawing their own words **behind** their own translucent
+    dark background. `src/client/Hud/ReportPanel.luau`'s header records this repo paying for the
+    identical defect on 2026-10-05 (*"an EMPTY BLACK RECTANGLE … the text was being drawn BEHIND its
+    own background"*). Fixed with one `panelLabel` helper in `Hud.build`: every label of both frames is
+    built above its own panel's `ZIndex`, white, with the same 1 px black `UIStroke` the feed wears;
+    the title is 26 and **bold** through `FontFace` (the Code family is kept, because the columns are
+    aligned by `string.format`); the header is dimmer by TRANSPARENCY (0.25), not by a grey colour; the
+    panel stays see-through at 0.25. **The start card is fixed in the same commit** — one defect, two
+    instances, and the second is the card Karen reads for ten seconds at the start of every drive.
+    Verify: `match_client.spec`, "draws its text IN FRONT of its own panel, in white, with an outline
+    (task 159)" and "draws the card's text IN FRONT of the card, with an outline (task 159)" — the OLD
+    specs read every string back perfectly while the screen showed a grey rectangle, which is what
+    these two exist to stop. Looked at: `.screenshots/20261011T232238Z-task159-results-scene.png` (the
+    table: "DRIVE 1 RESULTS" bold and white, the header, the player's row, "NEXT DRIVE IN 21", forest
+    visible through the panel) and `...232414Z-task159-start-card.png` (the card reads, and the next
+    drive started normally with the hunter on the road, gun in hand).
 
 ## What I could not verify
 
 * **`test2`.** Not run (the Director's own instruction, above). The two-player claims this change
   touches are: two players standing on the ring rather than one, and the scene's hold over both
   rosters. The one-player gate covers everything else, twice.
-* **The LOOK.** Karen judges it in the morning. Two things I can see in the screenshot and will not
-  decide for her, both queued as TASKS.md row 159a: the results table reads faint over bright grass
-  (the panel is the 1.7b one at transparency 0.25, and its rows have no stroke), and **a solo beater is
-  all the beaters** — in the Forest Test her drive ended 35 seconds in, when she walked past the
+* **The LOOK.** Karen judges it in the morning. The one thing I can see and will not decide for her,
+  queued as TASKS.md row 159a: **a solo beater is all the beaters** — in the Forest Test her drive ended 35 seconds in, when she walked past the
   stands. That is her rule applied literally, and the two one-line answers (require two beaters, or
   only count a crossing after the first release) are hers to pick, not mine.
 * **The lamps in daylight.** They are four `PointLight`s in a bright wood; `Lighting` is untouched
