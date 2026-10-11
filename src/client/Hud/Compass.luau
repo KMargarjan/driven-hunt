@@ -200,6 +200,10 @@ local driveMark: Frame? = nil
 local driveLabel: TextLabel? = nil
 local started = false
 local bearing: number? = nil
+-- WHAT THE MARKER SAYS (task 153 round 2). It is held here rather than written straight to the
+-- label because `setBearing` may be called BEFORE `start` has built one -- the Hud sets the bearing
+-- from `whenReady`, which lands first in the common case -- and `render` applies it.
+local markerText: string = Compass.CONFIG.DRIVE_LABEL
 
 local stats = { renders = 0, pinned = 0 }
 
@@ -232,6 +236,14 @@ function Compass.driveMarkerX(): number?
 		return nil
 	end
 	return driveMark.Position.X.Offset
+end
+
+-- ...AND WHAT IT SAYS, for a spec: the word actually on the screen, or nil when there is no marker.
+function Compass.driveMarkerLabel(): string?
+	if driveLabel == nil or not driveLabel.Visible then
+		return nil
+	end
+	return driveLabel.Text
 end
 
 local function build(frame: Frame)
@@ -388,6 +400,11 @@ function Compass.render(headingDeg: number)
 	local x, onStrip = Compass.offsetPx(headingDeg, bearing, config)
 	mark.Visible = true
 	label.Visible = true
+	-- THE WORD FOLLOWS THE BEARING (task 153 round 2). Written only when it changes: this runs once
+	-- a frame, and a `Text` write fires the property's own signals whether or not the string differs.
+	if label.Text ~= markerText then
+		label.Text = markerText
+	end
 	-- The chevron rides the TOP half of the strip and the word sits under it, both inside the frame.
 	mark.Position = UDim2.new(0.5, math.round(x), 0, config.DRIVE_HEIGHT)
 	label.Position = UDim2.new(0.5, math.round(x), 1, 0)
@@ -401,17 +418,25 @@ end
 
 -- The world says where its drive comes from; this draws it. nil means "not stated", and then there
 -- is no marker at all.
-function Compass.setBearing(degrees: number?)
+--
+-- ...AND IT CARRIES ITS OWN WORD (task 153 round 2, the Reviewer's blocking finding). The marker is
+-- a chevron AND a label, and the label was written once at build time: so when a beater's marker was
+-- turned round to point at the road, the word under it still read DRIVE -- a compass telling her the
+-- drive is south while every animal she is pushing is north of her. One call sets both, because they
+-- are one fact; `nil` keeps `CONFIG.DRIVE_LABEL`, which is what every hunter and every other world
+-- gets.
+function Compass.setBearing(degrees: number?, label: string?)
 	bearing = degrees
+	markerText = label or Compass.CONFIG.DRIVE_LABEL
 end
 
-function Compass.start(frame: Frame, bearingDeg: number?)
+function Compass.start(frame: Frame, bearingDeg: number?, label: string?)
 	if started then
 		return
 	end
 	started = true
 	build(frame)
-	Compass.setBearing(bearingDeg)
+	Compass.setBearing(bearingDeg, label)
 	frame.Visible = true
 	Compass.render(0)
 end

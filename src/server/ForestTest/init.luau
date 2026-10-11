@@ -414,6 +414,8 @@ function ForestTest.stats()
 		-- TASK 127: what the line mode is doing, so the proof reads numbers rather than inferring them.
 		lines = #(state.lines or {}),
 		stuck = state.stuck or 0,
+		-- TASK 153: how many animals a real beater has walked up to and flushed out of a file.
+		flushed = state.flushed or 0,
 		active = #state.active,
 		boars = if state.runtime then state.runtime:count() else 0,
 	}
@@ -427,13 +429,62 @@ end
 -- `BOAR_BEHAVIOUR` on is noticed at 25 studs and flushes at 15, so a boar will not walk into him.
 -- What he must not do is push the wave: that is the beater's job, and a hunter who pushed would
 -- make the animals cross somewhere he is not.
+--
+-- ...AND A REAL BEATER IS (task 153). Karen: *"beater are behind animals and moving towards hunter
+-- line (road) like in real life ... we will try walk spook, use horn have that feeling"*. Every
+-- player in this world used to be a `shooter` whatever role they had asked for, so her walk SPOOKED
+-- the animals (`PACE.SPOOK_STUDS`, 30 studs, "a man who is not driving") instead of PUSHING them --
+-- which is the one thing a beater does. With `kind = "driver"` the Brain's existing branch takes
+-- over: a driver inside a flush radius moves the animal off at a walk or a trot, and only a REAL one
+-- inside `PACE.DRIVER_RUN_STUDS` (25) makes it run (`Boar.CONFIG.PACE`). Nothing new is invented
+-- here; the door was already open and this world was handing it the wrong word.
+-- EVERY REAL BEATER IN THIS WORLD: the players who asked to be one and have a body (task 153).
+-- One list, read by the two things that need it -- what a boar can perceive (`boarThreats`) and
+-- which animals a beater is close enough to flush (`stepLines`) -- so "who is pushing" is answered
+-- in one place and cannot be answered twice differently.
+function ForestTest.realBeaters(): { { id: string, position: Vector3 } }
+	local out = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		local character = player.Character
+		local root = character and character.PrimaryPart
+		if root ~= nil and ForestTest.roleOf(player.UserId) == "beater" then
+			table.insert(out, { id = tostring(player.UserId), position = (root :: BasePart).Position })
+		end
+	end
+	return out
+end
+
+-- PURE. The nearest of them to a point, flat, and how far away it is -- `nil, math.huge` for none.
+function ForestTest.nearestBeater(point: Vector3, beaters): (Vector3?, number)
+	local best, gap = nil, math.huge
+	for _, beater in ipairs(beaters) do
+		local away = Vector3.new(beater.position.X - point.X, 0, beater.position.Z - point.Z)
+		if away.Magnitude < gap then
+			best, gap = beater.position, away.Magnitude
+		end
+	end
+	return best, gap
+end
+
+-- THE LINE THE CONSOLE GETS WHEN A BEATER FLUSHES SOMETHING, taken once (task 153). The module
+-- never prints -- the boot prints what `step` returns -- and this keeps it that way.
+function ForestTest.takeFlushLine(): string?
+	local line = state.flushLine
+	state.flushLine = nil
+	return line
+end
+
 function ForestTest.boarThreats(now: number)
 	local out = {}
 	for _, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
 		local root = character and character.PrimaryPart
 		if root then
-			table.insert(out, { id = tostring(player.UserId), position = root.Position, kind = "shooter" })
+			table.insert(out, {
+				id = tostring(player.UserId),
+				position = root.Position,
+				kind = ForestTest.threatKind(ForestTest.roleOf(player.UserId)),
+			})
 		end
 	end
 	for _, wave in ipairs(state.active) do
@@ -707,12 +758,45 @@ function ForestTest.clearRole(userId: number)
 	state.roles[userId] = nil
 end
 
+-- WHAT A BOAR SEES WHEN IT LOOKS AT THIS PLAYER (task 153). PURE, and one line, because the whole
+-- point is that "which role has she asked for" and "what kind of stimulus is she" are the same fact
+-- in two vocabularies: a beater is a `driver` and anybody else is a `shooter`. The Brain's own
+-- comment names this string; `Match.Body.boarStimuli` is the DEV world's half of the same mapping,
+-- from a team instead of from a word.
+function ForestTest.threatKind(role: RoleWord?): string
+	return if role == "beater" then "driver" else "shooter"
+end
+
+-- WHICH ROLE A PLAYER STARTS AS, from the switch the Director sets (task 153). PURE: whatever the
+-- `ServerStorage` attribute holds, in; a role or nil for "nobody has said". Karen types
+-- `/beater` with a slash and the attribute is set without one, so both are read -- the point of the
+-- switch is that she never has to type anything.
+function ForestTest.startRole(value: any): RoleWord?
+	if typeof(value) ~= "string" then
+		return nil
+	end
+	local word = string.lower((string.gsub(value :: string, "%s", "")))
+	if string.sub(word, 1, 1) ~= "/" then
+		word = "/" .. word
+	end
+	return ForestTest.parseRole(word)
+end
+
 -- PULLS A LOCKED HUNTER BACK INSIDE HIS LEASH. Returns the position it moved him to, or nil.
 --
 -- IT PULLS, IT DOES NOT FREEZE. Karen: *"he can move few steps on each side max"* -- and *"I want
 -- tomorrow to test shooting and walking"*, so anchoring the character would break the thing she is
 -- testing. Walking out simply stops being possible at six studs.
 function ForestTest.leash(userId: number, root: BasePart): Vector3?
+	-- A BEATER IS NOT HELD TO A STAND (task 153), and without this line the whole task is dead on
+	-- arrival: a beater walks 240 studs south through the wood, and a six-stud leash round the stand
+	-- she locked as a hunter would drag her back to the road every heartbeat. The leash is the
+	-- HUNTER's rule -- Karen: *"hunter has square where can select stand within 10s and save then he
+	-- can move few steps"* -- and the role is read here rather than at the caller so there is one
+	-- answer to "may this player walk".
+	if ForestTest.roleOf(userId) ~= "hunter" then
+		return nil
+	end
 	local pick = state.picks[userId]
 	if pick == nil or (pick :: any).lockedAt == nil then
 		return nil
@@ -742,6 +826,9 @@ function ForestTest.start(runtime, now: number)
 	state.lines = {}
 	state.rng = Random.new()
 	state.stuck = 0
+	-- TASK 153: how many animals a real beater has walked up to, and the line the console gets.
+	state.flushed = 0
+	state.flushLine = nil
 end
 
 -- ONE TICK. Returns a line when something happened and nil otherwise, so the boot script can print
@@ -799,12 +886,16 @@ function ForestTest.step(now: number): string?
 	-- parts of them before.
 	if Data.LINE ~= nil and Data.LINE.enabled == true then
 		ForestTest.stepLines(now)
+		-- ONE LINE PER FLUSH (task 153), through the channel this module already answers on: the
+		-- boot prints whatever `step` returns, and "the beater had no visible effect" is the kind of
+		-- claim that needs a number beside it.
+		local flush = ForestTest.takeFlushLine()
 		if now < state.nextWaveAt then
-			return nil
+			return flush
 		end
 		state.nextWaveAt = now + Data.SCHEDULE.intervalSeconds
 		state.waveIndex += 1
-		return ForestTest.releaseLine(now)
+		return ForestTest.releaseLine(now) or flush
 	end
 
 	ForestTest.retire(now)
@@ -1248,9 +1339,44 @@ function ForestTest.stepLines(now: number)
 		-- The rejoin path is deleted; `backups/2026-10-09-line-rejoin-at-tail.md` keeps it.
 		line.gone = line.gone or {}
 		local live = {}
+		-- WHO IS PUSHING, THIS STEP (task 153). Karen, 2026-10-11: *"we will try walk spook, use horn
+		-- have that feeling"*.
+		--
+		-- AN ORDER OUTRANKS PERCEPTION, AND THAT IS WHY THIS LINE EXISTS. An ordered animal returns
+		-- from `Brain:step` before the pace clamp and before every mood (task 127: "a line crossing a
+		-- road does not stop to look at the edge"), so marking the player a `driver` in
+		-- `boarThreats` -- which is right, and is what the Brain branches on everywhere else --
+		-- changes NOTHING for an animal walking a trail. MEASURED in this place before the line was
+		-- written: she walked to within 8.9 studs of a file and every member kept its ordered walk
+		-- at 4.5 studs/s. The only things that take an animal out of a file are a flight and a
+		-- check, so a beater who has walked up to one asks for a flight, through `Runtime:spook` --
+		-- the same door the crossing shove below uses and the same one the horn uses.
+		--
+		-- THE NUMBER IS THE BOAR SYSTEM'S OWN: `PACE.DRIVER_RUN_STUDS` is "a REAL driver this close
+		-- makes it run", read off the RUNTIME's config like every other number this drive uses.
+		local beaters = ForestTest.realBeaters()
+		local flushStuds = boarConfig().PACE.DRIVER_RUN_STUDS or 0
 		for _, member in ipairs(line.members) do
 			local status = runtime:statusOf(member.id)
 			if status ~= nil and status.alive then
+				if #beaters > 0 and flushStuds > 0 then
+					local at, gap = ForestTest.nearestBeater(status.position, beaters)
+					if at ~= nil and gap <= flushStuds then
+						-- AWAY FROM HER, which is the whole point: `Brain:_latchFlight` takes its
+						-- heading from the point handed in, so an animal flushed by a beater
+						-- standing north of it runs SOUTH -- ahead of the push, over the road --
+						-- and not back past her.
+						if runtime:spook(member.id, at) then
+							state.flushed = (state.flushed or 0) + 1
+							state.flushLine = string.format(
+								"a beater flushed %s at %.0f studs (%d flushed so far)",
+								member.id,
+								gap,
+								state.flushed
+							)
+						end
+					end
+				end
 				local wound = runtime:woundOf(member.id)
 				local already = line.gone[member.id] == true
 				local flying = runtime:flying(member.id)
@@ -1512,6 +1638,85 @@ function ForestTest.spawnPosition(): Vector3
 	local hit = Workspace:Raycast(at + Vector3.new(0, 200, 0), Vector3.new(0, -400, 0), params)
 	local y = if hit then hit.Position.Y else at.Y
 	return Vector3.new(at.X, y + 4, at.Z)
+end
+
+-- ---------------------------------------------------------------- where a beater is put down
+--
+-- THE GROUND, ASKED OF THE TERRAIN ALONE (task 153). `Data.groundAt` excludes `OurForest`,
+-- `Foliage` and `Boars` -- and MEASURED in this place today, that is not every tree: 831 more trees
+-- and bushes live in two folders both called `Session` (771 and 60 children: "Mesh Tree", "Tree3",
+-- "Bush3"), so a downward ray there can stop on a canopy. For a boar that is a spawn a little high;
+-- for a character it is a 60-stud fall at the start of the walk Karen is here to feel. An INCLUDE
+-- filter of nothing but `Workspace.Terrain` cannot hit a tree at all, which is the honest question:
+-- where is the ground.
+function ForestTest.terrainYAt(x: number, z: number): number?
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { Workspace.Terrain }
+	params.IgnoreWater = true
+	local hit = Workspace:Raycast(Vector3.new(x, 600, z), Vector3.new(0, -1200, 0), params)
+	return if hit then hit.Position.Y else nil
+end
+
+-- IS THERE ROOM TO STAND HERE? Anything SOLID within `radius`, excluding the terrain she stands on,
+-- the animals and any character, means no.
+--
+-- `RespectCanCollide` IS THE WHOLE TEST (and it was measured before it was written): this forest is
+-- mostly ferns and leaf cards with `CanCollide = false` -- `Workspace.OurForest.SM_Lady_Fern_Var02`
+-- is the first part in the folder -- and a beater standing in a fern is standing in a forest. What
+-- she may not be standing in is a trunk, and a trunk collides.
+--   https://create.roblox.com/docs/reference/engine/classes/WorldRoot#GetPartBoundsInRadius
+function ForestTest.roomToStand(point: Vector3, radius: number): boolean
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore = { Workspace.Terrain :: Instance }
+	local boars = Workspace:FindFirstChild("Boars")
+	if boars then
+		table.insert(ignore, boars)
+	end
+	params.FilterDescendantsInstances = ignore
+	params.RespectCanCollide = true
+	params.MaxParts = 8
+	for _, part in ipairs(Workspace:GetPartBoundsInRadius(point, radius, params)) do
+		local model = part.Parent
+		-- A PLAYER IS NOT AN OBSTACLE: she may be standing on the road inside this radius already
+		-- when the point is computed, and refusing her own body would walk the search sideways for
+		-- no reason.
+		local isCharacter = model ~= nil and model:FindFirstChildOfClass("Humanoid") ~= nil
+		if not isCharacter then
+			return false
+		end
+	end
+	return true
+end
+
+-- WHERE A BEATER IS PUT DOWN: behind the line's own spawn, on the ground, clear of trunks (task 153).
+--
+-- THE PUSH LINE IS THE HUNTER'S STAND, which is the same x the drive releases its lines at
+-- (`releaseLine` crosses at `hunterStandX() + crossOffsets[...]`). So a beater standing behind that
+-- point is behind the animals and pushing toward the place they cross -- one geometry, not two.
+function ForestTest.beaterStartPosition(): Vector3
+	local beater = Data.BEATER
+	local standX = ForestTest.hunterStandX()
+	-- 0, +10, -10, +20, -20 ... : straight behind the crossing first, then the nearest clear spot
+	-- either side of it.
+	for try = 0, beater.sideTries do
+		local side = math.ceil(try / 2) * beater.sideStepStuds * (if try % 2 == 1 then 1 else -1)
+		local flat = Data.beaterStart(standX, side)
+		local ground = ForestTest.terrainYAt(flat.X, flat.Z)
+		if ground ~= nil then
+			local point = Vector3.new(flat.X, ground + beater.dropStuds, flat.Z)
+			if ForestTest.roomToStand(point, beater.clearStuds) then
+				return point
+			end
+		end
+	end
+	-- NOTHING CLEAR WAS FOUND, SO SHE GOES BEHIND THE CROSSING ANYWAY, on the ground. A playtest
+	-- that refuses to start is a playtest nobody runs (`Data.PICK.defaultIndex` is the same
+	-- reasoning); a beater beside a trunk can walk two steps and be free of it.
+	local flat = Data.beaterStart(standX, 0)
+	local ground = ForestTest.terrainYAt(flat.X, flat.Z) or Data.CENTRE.Y
+	return Vector3.new(flat.X, ground + beater.dropStuds, flat.Z)
 end
 
 -- THE ARITHMETIC IS REACHABLE ON ITS OWN, so `tests/server/forest_line.spec.luau` can drive the

@@ -237,15 +237,66 @@ return function()
 			Compass.render(0)
 			expect(Compass.driveMarkerX()).to.never.be.ok()
 		end)
+	end)
 
+	-- WHOSE DIRECTION THE MARKER IS (task 153). Karen, 2026-10-11: *"beater are behind animals and
+	-- moving towards hunter line (road) like in real life"* -- so for her the useful direction is the
+	-- one she is pushing, and for a hunter it is still the one the drive comes from.
+	describe("which way the drive marker points", function()
+		local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+
+		it("marks where the drive comes from for a hunter, and the road for a beater", function()
+			local hunterDeg, hunterLabel = Hud.driveBearing(data, "Shooters")
+			expect(hunterDeg).to.equal(data.DRIVE_BEARING_DEG)
+			-- nil means "the compass's own word", which is DRIVE.
+			expect(hunterLabel).to.equal(nil)
+			expect((Hud.driveBearing(data, nil))).to.equal(data.DRIVE_BEARING_DEG)
+			local beaterDeg, beaterLabel = Hud.driveBearing(data, data.PUSH_TEAM)
+			expect(beaterDeg).to.equal(data.PUSH_BEARING_DEG)
+			-- THE WORD COMES WITH THE BEARING (round 2, the Reviewer's blocking finding): a marker
+			-- turned round to point at the road, under a label still reading DRIVE, tells a beater
+			-- the drive is behind the animals she is pushing.
+			expect(beaterLabel).to.equal(data.PUSH_LABEL)
+			expect(beaterLabel).never.to.equal(Compass.CONFIG.DRIVE_LABEL)
+			-- The two are opposite, and the world derives the second from the first.
+			expect(math.abs(Compass.deltaDeg(data.DRIVE_BEARING_DEG, data.PUSH_BEARING_DEG))).to.be.near(180, 1e-6)
+		end)
+
+		it("draws the word the bearing came with, and goes back to DRIVE without one", function()
+			-- ON THE SCREEN, not in the table: `Compass.driveMarkerLabel` reads the live TextLabel.
+			Compass.setBearing(data.PUSH_BEARING_DEG, data.PUSH_LABEL)
+			Compass.render(data.PUSH_BEARING_DEG)
+			expect(Compass.driveMarkerLabel()).to.equal(data.PUSH_LABEL)
+			Compass.setBearing(data.DRIVE_BEARING_DEG, nil)
+			Compass.render(data.DRIVE_BEARING_DEG)
+			expect(Compass.driveMarkerLabel()).to.equal(Compass.CONFIG.DRIVE_LABEL)
+			-- No bearing, no marker and no word at all.
+			Compass.setBearing(nil)
+			Compass.render(0)
+			expect(Compass.driveMarkerLabel()).to.equal(nil)
+		end)
+
+		it("marks nothing at all in a world that has said nothing", function()
+			-- Every place but the Forest Test: a marker pointing at zero would be a lie in the shape
+			-- of a fact, which is what `Compass.setBearing(nil)` is for.
+			expect(Hud.driveBearing(nil, "Drivers")).to.equal(nil)
+			expect(Hud.driveBearing({}, "Drivers")).to.equal(nil)
+		end)
+	end)
+
+	describe("the strip is left as it was", function()
 		it("leaves the strip as this world had it", function()
 			local Map = require(ReplicatedStorage:WaitForChild("Map"))
-			local restore = nil
+			local restore, label = nil, nil
 			if Map.EXPECTED_WORLD == "forest-test" then
+				-- THIS PLAYER'S OWN BEARING, not the hunter's (task 153 round 2, the Reviewer's
+				-- note): restoring `DRIVE_BEARING_DEG` unconditionally left a BEATER's strip on the
+				-- hunter's marker after a harness run in her place, until her next team change.
 				local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-				restore = data.DRIVE_BEARING_DEG
+				local team = Players.LocalPlayer.Team
+				restore, label = Hud.driveBearing(data, if team then team.Name else nil)
 			end
-			Compass.setBearing(restore)
+			Compass.setBearing(restore, label)
 			expect(Compass.bearingDeg()).to.equal(restore)
 		end)
 	end)

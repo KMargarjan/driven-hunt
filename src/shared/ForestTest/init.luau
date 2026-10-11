@@ -107,6 +107,79 @@ function ForestTest.driverStart(index: number, count: number): Vector3
 	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x) + ForestTest.DRIVERS.startNorthStuds)
 end
 
+-- ---------------------------------------------------------------- starting AS a beater (task 153)
+--
+-- KAREN, 2026-10-11: *"how to start a game as a beter?"*, and then the decision --
+--   *"you start as a hunter then next round you are beater ... and yes beater are behind animals and
+--   moving towards hunter line (road) like in real life ... I think we need to focus now to be a
+--   beater / we will try walk spook, use horn have that feeling and improve"*.
+--
+-- SO A BEATER STARTS BEHIND THE ANIMALS, ON THE DRIVE SIDE, FACING THE ROAD. The rotation between
+-- the two roles is the NEXT task; this is the geometry of the experience.
+--
+-- IT IS DERIVED FROM THE LINE'S OWN START AND NOT CHOSEN. `LINE.spawnNorthStuds` (180) is where
+-- this world releases a line of boars; a beater `behindLineStuds` further north is therefore behind
+-- every animal the drive has just put on the ground, by construction rather than by a number that
+-- happens to be bigger. `DRIVERS.startNorthStuds` (700) is the OTHER drive-side point this world
+-- owns, and it is not this one: 700 studs is 44 s of walking before she reaches the boars at all,
+-- and two waves cross in that time -- the walk Karen wants to feel is the one that meets them.
+ForestTest.BEATER = {
+	behindLineStuds = 60,
+	-- HOW CLOSE A TRUNK MAY BE to where she is put down. A Roblox character is 2 studs across, so 6
+	-- is a body's width of clearance on every side: enough that she does not land inside a tree.
+	clearStuds = 6,
+	-- ...and how a clear spot is looked for when the straight-behind point is blocked: sideways,
+	-- alternating east and west, so the first answer is always the nearest one to the push line.
+	sideStepStuds = 10,
+	sideTries = 8,
+	-- How far above the ground she is put, so she drops onto it rather than into it -- the same 4
+	-- studs `ForestTest.spawnPosition` uses for a hunter.
+	dropStuds = 4,
+}
+
+-- WHICH WAY A BEATER IS PUSHING, as a compass bearing. `DRIVE_BEARING_DEG` is where the drive comes
+-- FROM (0, north) and that is what a hunter's compass marks; a beater walks the other way, so her
+-- marker is the road. Derived from the one fact above it, never written twice.
+ForestTest.PUSH_BEARING_DEG = (ForestTest.DRIVE_BEARING_DEG + 180) % 360
+
+-- ...AND THE WORD THAT GOES WITH IT (task 153 round 2, the Reviewer's blocking finding). The marker
+-- is a chevron and a label, and turning the chevron round without the label gave a beater a compass
+-- saying the DRIVE is south while every animal she is pushing is north of her. The hunter's word is
+-- the Hud's own `Compass.CONFIG.DRIVE_LABEL`; this is the beater's, and it lives beside the bearing
+-- it belongs to so the two can never be changed apart.
+ForestTest.PUSH_LABEL = "ROAD"
+
+-- WHICH TEAM IS DOING THE PUSHING, so the HUD never hard-codes a team name. The string itself is
+-- `Drive.TeamName`'s and the one translator from Karen's word to it is `Match.Body.ROLE_WORDS`;
+-- this is the world saying which of the two is the beater's, for a client that can only see
+-- `Player.Team`.
+ForestTest.PUSH_TEAM = "Drivers"
+
+-- THE START SWITCH (task 153). An attribute on `ServerStorage`, set in Edit mode, that says which
+-- role a player STARTS as in this place -- so Karen can press Play and already be a beater instead
+-- of typing `/beater` on the road. Default (no attribute) is the hunter this world has always
+-- started her as.
+--
+-- AN ATTRIBUTE AND NOT A FILE, for the same reason `tools/flags.py` uses one: it is a playtest
+-- setting, it must not show up in the git tree, and it survives into the Play session because Play
+-- copies the Edit DataModel. It is NOT a `DHFlag_*` name, so the harness's override guard -- which
+-- refuses to run while a flag override is set -- cannot see it and cannot be defeated by it.
+ForestTest.START_ROLE_ATTRIBUTE = "DHForestStartRole"
+
+-- WHERE A BEATER STARTS, as flat geometry: north of the line's own spawn, on the push line through
+-- `standX`. PURE -- the ground and the trunks are the server's to measure (`beaterStartPosition`).
+function ForestTest.beaterStart(standX: number, sideOffset: number?): Vector3
+	local x = standX + (sideOffset or 0)
+	local north = ForestTest.LINE.spawnNorthStuds + ForestTest.BEATER.behindLineStuds
+	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x) + north)
+end
+
+-- WHICH WAY SHE LOOKS: at the road, straight down the push. The point on the curve at her own x,
+-- which is also where the line she is behind is heading.
+function ForestTest.roadPointAt(x: number): Vector3
+	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x))
+end
+
 -- WHERE A BOAR IS GONE. South of every point of the road: the curve's lowest z is CENTRE.Z - 30, so
 -- 250 past that is clear of the whole length. `Brain:_outcome` despawns at `position.Z <= exitZ`.
 ForestTest.EXIT_Z = ForestTest.CENTRE.Z - ForestTest.ROAD.amplitudeStuds - 250

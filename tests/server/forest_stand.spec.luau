@@ -1,5 +1,8 @@
 -- forest_stand.spec: THE PLAYTEST WORLD'S OWN ARITHMETIC -- the road, the stands, the leash and the
--- phase a wave is in. Pure: no Workspace, no boars, no clock.
+-- phase a wave is in. Pure, with two named exceptions since task 153: `beaterStartPosition` raycasts
+-- `Workspace` (and in the DEV place, where there is no terrain under this world's coordinates, what
+-- that case proves is the FALLBACK), and the threat-kind case reads the live `Players` service and
+-- says so when there is nobody to read. No boars and no clock anywhere.
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 --
 -- IT EXISTS BECAUSE NOTHING COVERED ANY OF IT (task 122 round 2, the Reviewer's last note). The
@@ -201,6 +204,90 @@ return function()
 			expect(ForestTest.roleOf(userId)).to.equal("hunter")
 		end)
 
+		it("turns the role into what a boar actually sees (task 153)", function()
+			-- A BEATER IS A DRIVER AND ANYBODY ELSE IS A SHOOTER, which is the whole of task 153's
+			-- wiring: the Brain pushes an animal away from a `driver` and spooks it with anything
+			-- else (`Boar.CONFIG.PACE`), so before this the player's own walk SPOOKED the wave she
+			-- was supposed to be pushing.
+			expect(ForestTest.threatKind("beater")).to.equal("driver")
+			expect(ForestTest.threatKind("hunter")).to.equal("shooter")
+			expect(ForestTest.threatKind(nil)).to.equal("shooter")
+		end)
+
+		it("marks a REAL beater as a driver in the boar's own threat list (task 153)", function()
+			-- THE WIRING ITSELF, against the live `Players` service, because the kind is what the
+			-- Brain branches on: a `driver` PUSHES an animal (walk, or a trot inside
+			-- `PACE.TROT_WITHIN_STUDS`) and anything else SPOOKS it into a run inside
+			-- `PACE.SPOOK_STUDS`. Before this task every player in this world was a `shooter`
+			-- whatever role they had asked for.
+			local Players = game:GetService("Players")
+			local player = nil
+			for _, candidate in ipairs(Players:GetPlayers()) do
+				local character = candidate.Character
+				-- `boarThreats` reads `character.PrimaryPart`, so a player without one is not in
+				-- the list at all and is not the case this proves.
+				if character and character.PrimaryPart then
+					player = candidate
+					break
+				end
+			end
+			if player == nil then
+				-- NOT A PASS DRESSED AS ONE: with nobody in the world there is no real threat to
+				-- mark, and the pure half above is what still holds.
+				TestKit.note("forest-beater: no player with a character; the threat-list case did not run")
+				return
+			end
+			local before = ForestTest.roleOf(player.UserId)
+			local function kindOf()
+				for _, threat in ipairs(ForestTest.boarThreats(0)) do
+					if threat.id == tostring(player.UserId) then
+						return threat
+					end
+				end
+				return nil
+			end
+
+			ForestTest.setRole(player.UserId, "beater")
+			local asBeater = kindOf()
+			expect(asBeater).to.be.ok()
+			expect((asBeater :: any).kind).to.equal("driver")
+			-- ...AND NOT A PHANTOM. The drive marks its invented beaters `phantom = true` so that
+			-- `PACE.DRIVER_RUN_STUDS` cannot fire on one; a player standing there is real, and the
+			-- absence of the mark is what makes her walk count.
+			expect((asBeater :: any).phantom).to.equal(nil)
+
+			ForestTest.setRole(player.UserId, "hunter")
+			local asHunter = kindOf()
+			expect(asHunter).to.be.ok()
+			expect((asHunter :: any).kind).to.equal("shooter")
+
+			ForestTest.setRole(player.UserId, before)
+			TestKit.note(
+				string.format(
+					"forest-beater: %s is a %s as a beater and a %s as a hunter",
+					player.Name,
+					(asBeater :: any).kind,
+					(asHunter :: any).kind
+				)
+			)
+		end)
+
+		it("reads the start switch, with or without the slash Karen types (task 153)", function()
+			-- The attribute is set by hand -- `SetAttribute("DHForestStartRole", "beater")` -- so it
+			-- is a bare word; the chat command is `/beater`. Both mean the same role and anything
+			-- else means "nobody has said", which is the hunter this world has always started her as.
+			expect(ForestTest.startRole("beater")).to.equal("beater")
+			expect(ForestTest.startRole("/beater")).to.equal("beater")
+			expect(ForestTest.startRole(" Hunter ")).to.equal("hunter")
+			expect(ForestTest.startRole("driver")).to.equal(nil)
+			expect(ForestTest.startRole("")).to.equal(nil)
+			expect(ForestTest.startRole(nil)).to.equal(nil)
+			expect(ForestTest.startRole(7)).to.equal(nil)
+			expect(ForestTest.startRole(true)).to.equal(nil)
+			-- The attribute's NAME is the world's, so the Director and the server read one string.
+			expect(Data.START_ROLE_ATTRIBUTE).to.equal("DHForestStartRole")
+		end)
+
 		it("translates Karen's word through Match.Body, which is the one translator", function()
 			-- `ForestTest` answers in KAREN'S words and never in team names: the mapping lives in
 			-- `Match.Body.ROLE_WORDS` alone, so "beater means Drivers" is written down once.
@@ -209,6 +296,100 @@ return function()
 			expect(Body.teamForWord("beater")).to.equal("Drivers")
 			expect(Body.teamForWord("hunter")).to.equal("Shooters")
 			expect(Body.teamForWord("x")).to.equal(nil)
+		end)
+	end)
+
+	-- WHERE A BEATER STARTS, AND WHY SHE IS NOT HELD TO A STAND (task 153). Karen, 2026-10-11:
+	-- *"how to start a game as a beter?"*, and then *"beater are behind animals and moving towards
+	-- hunter line (road) like in real life ... we will try walk spook, use horn have that feeling"*.
+	describe("where a beater starts", function()
+		it("puts her behind the line's own spawn, on the push line, north of the road", function()
+			local standX = Data.standX(Data.PICK.defaultIndex)
+			local at = Data.beaterStart(standX)
+			-- BEHIND THE ANIMALS BY CONSTRUCTION: a line is released `LINE.spawnNorthStuds` north of
+			-- the road, so she is `BEATER.behindLineStuds` further north than every animal the drive
+			-- has just put down -- not a number that merely happens to be bigger.
+			local north = at.Z - Data.roadZ(at.X)
+			expect(north).to.be.near(Data.LINE.spawnNorthStuds + Data.BEATER.behindLineStuds, 1e-2)
+			expect(north > Data.LINE.spawnNorthStuds).to.equal(true)
+			expect(at.X).to.be.near(standX, 1e-6)
+			-- ...and a sidestep moves her sideways and nowhere else: still on the curve's own offset.
+			local beside = Data.beaterStart(standX, Data.BEATER.sideStepStuds)
+			expect(beside.X).to.be.near(standX + Data.BEATER.sideStepStuds, 1e-6)
+			expect(beside.Z - Data.roadZ(beside.X)).to.be.near(north, 1e-2)
+			TestKit.note(
+				string.format(
+					"forest-beater: start %.0f studs north of the road (line spawns at %.0f), road point z=%.1f",
+					north,
+					Data.LINE.spawnNorthStuds,
+					Data.roadPointAt(standX).Z
+				)
+			)
+		end)
+
+		it("looks AT the road, which is the way she is pushing", function()
+			local standX = Data.standX(Data.PICK.defaultIndex)
+			local at = Data.beaterStart(standX)
+			local road = Data.roadPointAt(at.X)
+			-- The point she faces is on the road curve at her own x, and it is SOUTH of her: the
+			-- compass bearing of that direction is `PUSH_BEARING_DEG`, which is 180 from the
+			-- direction the drive comes from.
+			expect(road.Z).to.be.near(Data.roadZ(at.X), 1e-6)
+			expect(road.Z < at.Z).to.equal(true)
+			expect(Data.PUSH_BEARING_DEG).to.equal((Data.DRIVE_BEARING_DEG + 180) % 360)
+			expect(Data.PUSH_TEAM).to.equal("Drivers")
+		end)
+
+		it("never answers nil or a point off the push line, whatever the ground says", function()
+			-- THIS RUNS IN THE DEV PLACE, where this world's coordinates have no terrain under them:
+			-- the fallback is therefore what is proved here, and what it must never do is answer nil
+			-- or a point off the push line. The live numbers -- her actual y and the nearest trunk --
+			-- are measured in the Forest Test place and written into the task's request.
+			local at = ForestTest.beaterStartPosition()
+			expect(at).to.be.ok()
+			local north = at.Z - Data.roadZ(at.X)
+			expect(north).to.be.near(Data.LINE.spawnNorthStuds + Data.BEATER.behindLineStuds, 1e-2)
+			expect(at.Y == at.Y).to.equal(true) -- not a NaN: the y comes from a measurement or a default
+		end)
+
+		it("finds the nearest beater, flat, and says so when there is none", function()
+			-- WHAT `stepLines` ASKS BEFORE IT FLUSHES AN ANIMAL. Flat, because the hill between the
+			-- line's spawn and the road climbs 16 studs in 240 and a beater uphill of a boar is not
+			-- further from it than one beside it.
+			local none, gap = ForestTest.nearestBeater(Vector3.new(0, 0, 0), {})
+			expect(none).to.equal(nil)
+			expect(gap).to.equal(math.huge)
+			local beaters = {
+				{ id = "a", position = Vector3.new(30, 0, 0) },
+				{ id = "b", position = Vector3.new(0, 90, 12) },
+			}
+			local at, near = ForestTest.nearestBeater(Vector3.new(0, 0, 0), beaters)
+			expect(at).to.be.ok()
+			expect((at :: Vector3).Z).to.be.near(12, 1e-6) -- the closer one FLAT, 90 studs up or not
+			expect(near).to.be.near(12, 1e-6)
+		end)
+
+		it("does not hold a beater to a stand", function()
+			-- WITHOUT THIS THE WHOLE TASK IS DEAD: she walks 240 studs south, and a hunter's
+			-- six-stud leash would drag her back to the road every heartbeat.
+			local userId = -153
+			local part = Instance.new("Part")
+			part.CFrame = CFrame.new(Data.standPosition(5) + Vector3.new(60, 0, 0))
+			ForestTest.openPick(userId, 0)
+			ForestTest.lockPick(userId, Data.standPosition(5), 0)
+
+			ForestTest.setRole(userId, "hunter")
+			expect(ForestTest.leash(userId, part)).to.be.ok() -- a hunter 60 studs out IS pulled back
+
+			part.CFrame = CFrame.new(Data.standPosition(5) + Vector3.new(60, 0, 0))
+			ForestTest.setRole(userId, "beater")
+			expect(ForestTest.leash(userId, part)).to.equal(nil)
+			-- ...and the part was not moved either: the leash is the one writer of that CFrame.
+			expect(part.Position.X).to.be.near(Data.standPosition(5).X + 60, 1e-3)
+
+			ForestTest.clearRole(userId)
+			ForestTest.clearPick(userId)
+			part:Destroy()
 		end)
 	end)
 end
