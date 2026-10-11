@@ -923,9 +923,27 @@ end
 
 function ForestTest.restSpot(standX: number, spec): Vector3?
 	local rest = Data.REST
-	-- WHERE SHE WILL BE STANDING, flat and pure (`Data.beaterStart`, not the measured
-	-- `beaterStartPosition`): this is a distance test and the ground does not change it, while the
-	-- measured version raycasts and would be asked once per candidate.
+	-- WHERE SHE ACTUALLY IS, NOT WHERE SHE SPAWNED (task 155, from task 154's review).
+	--
+	-- THIS WAS RIGHT FOR THE FIRST STOCK AND WRONG FOR THE RE-STOCK, which is the one Karen meets on
+	-- her second wave. `Data.beaterStart` is where a beater is PUT DOWN, 240 studs north of the road;
+	-- 15 s after she has emptied the wood she is at or past the road, 240 studs from that point --
+	-- and `REST.groups`'s last row (`offsetX -10, northStuds 55`) is then only ~56-61 studs from
+	-- her, inside `SPOOK.BEATER_STUDS` (89). So `spookNearBeaters` latched the group the heartbeat it
+	-- spawned: *"a wood she has already emptied by standing in it is not a wood"*, which is the
+	-- defect task 154 exists to fix, in a milder form.
+	--
+	-- THE LIVE POSITIONS WIN AND THE SPAWN POINT IS THE FALLBACK. `realBeaters` is empty before
+	-- anybody has a body -- which is exactly when the FIRST stock happens, during `beaterStartPosition`
+	-- (its own header: *"the wood would be full before she has finished falling onto the ground"*) --
+	-- and then the old answer is still the right one: she is about to be standing there.
+	--
+	-- READ ONCE, not per candidate: five groups by 33 candidates is 165 passes through this, and
+	-- `realBeaters` walks `Players:GetPlayers()`.
+	local beaters = ForestTest.realBeaters()
+	-- Flat and pure (`Data.beaterStart`, not the measured `beaterStartPosition`): this is a distance
+	-- test and the ground does not change it, while the measured version raycasts and would be asked
+	-- once per candidate.
 	local start = Data.beaterStart(standX, 0)
 	local keepAway = Data.beaterSpookStuds(Data.SPOOK) + rest.clearOfStartStuds
 	for ring = 0, rest.searchRings do
@@ -935,7 +953,16 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 			local radius = ring * rest.searchStepStuds
 			local at = Data.restPoint(standX, spec, math.cos(angle) * radius, math.sin(angle) * radius)
 			local dz = at.Z - Data.roadZ(at.X)
-			local fromStart = Vector3.new(at.X - start.X, 0, at.Z - start.Z).Magnitude
+			-- THE NEAREST REAL BEATER, or the spawn point when nobody has a body yet. `nearestBeater`
+			-- answers `math.huge` for an empty list, which would pass every keep-away test, so the
+			-- fallback is explicit rather than implied.
+			local fromStart
+			if #beaters > 0 then
+				local _, gap = ForestTest.nearestBeater(at, beaters)
+				fromStart = gap
+			else
+				fromStart = Vector3.new(at.X - start.X, 0, at.Z - start.Z).Magnitude
+			end
 			-- THE TERRAIN IS ASKED ONLY ONCE THE FLAT TESTS HAVE PASSED: two raycasts and an
 			-- overlap query per candidate, over five rings of eight, is the one place this search
 			-- could become expensive.

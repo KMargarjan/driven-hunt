@@ -729,8 +729,11 @@ SCOPE_SPECS = {
     "flags": ("tests/server/flags.spec.luau", "tests/client/flags_client.spec.luau",
               "tests/server/boar_model.spec.luau", "tests/server/boar_shot.spec.luau",
               "tests/server/boar_calm.spec.luau"),
+    # The map (task 155) is a module under the Hud -- `src/client/Hud/MapUi.luau` -- so
+    # `src/client/Hud/` already resolves to this scope and only the spec has to be named.
     "hud": ("tests/client/hit_marker.spec.luau", "tests/client/report_panel.spec.luau",
-            "tests/client/compass.spec.luau", "tests/client/hud_boot.spec.luau"),
+            "tests/client/compass.spec.luau", "tests/client/hud_boot.spec.luau",
+            "tests/client/map_ui.spec.luau"),
     # The report's geometry is asserted against `Boar.CONFIG`, so a boar zone box that moves reaches
     # this spec too -- which is why it is in the `boar` scope as well.
     "report": ("tests/server/report_silhouette.spec.luau", "tests/client/report_panel.spec.luau"),

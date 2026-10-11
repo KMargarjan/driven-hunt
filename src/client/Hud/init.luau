@@ -50,6 +50,14 @@ local ReportPanel = require(script.ReportPanel)
 -- ...and the compass strip (task 125). Same shape as the report panel: the Hud builds the frame
 -- with everything else, and `Compass` is the one writer of what goes inside it.
 local Compass = require(script.Compass)
+-- ...and the map (task 155). Karen: *"I am missing map, we need a map when click M"*. Same shape
+-- again: the Hud builds the two frames and the button, and `MapUi` is the one writer of everything
+-- inside them -- including their `Visible`, which is the ONE place this file does NOT copy the
+-- compass's two-writer arrangement (see `Hud.renderScope` and `docs/design/map-ui.md` section 3.3).
+--
+-- IT IS CALLED `MapUi` AND NOT `Map` because `Map` above is the WORLD contract
+-- (`ReplicatedStorage.Map`), and this file needs both at once. The world, and the picture of it.
+local MapUi = require(script.MapUi)
 
 local Hud = {}
 
@@ -88,6 +96,11 @@ local reportFrame: Frame? = nil
 local compassFrame: Frame? = nil
 -- Did the scope's own mask hide the compass strip? See `Hud.renderScope`.
 local compassHiddenByScope = false
+-- THE MAP'S THREE NODES (task 155). The Hud creates them and writes their size, position and
+-- `ZIndex`; `MapUi` writes everything inside them and their `Visible`.
+local miniMapFrame: Frame? = nil
+local fullMapFrame: Frame? = nil
+local mapButtonNode: TextButton? = nil
 local scoreTitle: TextLabel? = nil
 local scoreLines: { TextLabel } = {}
 local scoreFooter: TextLabel? = nil
@@ -146,6 +159,22 @@ end
 
 -- The panel module itself, for the same reason: the Hud starts it, so the Hud is where it is found.
 Hud.Report = ReportPanel
+
+-- THE MAP (task 155): its two frames and its button, so a spec reads them off the Hud instead of
+-- walking `PlayerGui` by name -- the `Hud.compass()` / `Hud.reportPanel()` shape.
+function Hud.minimap(): Frame?
+	return miniMapFrame
+end
+
+function Hud.fullMap(): Frame?
+	return fullMapFrame
+end
+
+function Hud.mapButton(): TextButton?
+	return mapButtonNode
+end
+
+Hud.MapUi = MapUi
 
 function Hud.isScorePanelVisible(): boolean
 	return scorePanel ~= nil and scorePanel.Visible
@@ -612,6 +641,92 @@ local function build(): ScreenGui
 	report.Visible = false
 	report.Parent = screen
 
+	-- THE MAP (task 155). Karen: *"small map in left or right corner circle like is on another
+	-- games"* and *"a map when click M"*. Two frames and a button, created empty and filled by
+	-- `MapUi` -- the same division the compass and the report panel already have.
+	--
+	-- THE ROUND ONE IS A SQUARE FRAME WITH A `UICorner` OF HALF ITS SIDE, which is how a circle is
+	-- drawn in Roblox GUI without an uploaded image. `ClipsDescendants` is what keeps the road
+	-- inside it; whether the engine clips to the ROUNDED rect or to the square is the one thing an
+	-- Architect run could not verify, so screenshot 1 of this task is the check (design section 17).
+	local miniMap = Instance.new("Frame")
+	miniMap.Name = "MiniMap"
+	miniMap.BackgroundColor3 = MapUi.CONFIG.BACKGROUND
+	miniMap.BackgroundTransparency = MapUi.CONFIG.MINIMAP_TRANSPARENCY
+	miniMap.BorderSizePixel = 0
+	miniMap.AnchorPoint = Vector2.new(1, 0)
+	miniMap.Position = UDim2.new(1, -MapUi.CONFIG.MINIMAP_MARGIN, 0, MapUi.CONFIG.MINIMAP_TOP)
+	miniMap.Size = UDim2.fromOffset(MapUi.CONFIG.MINIMAP_DIAMETER_PX, MapUi.CONFIG.MINIMAP_DIAMETER_PX)
+	miniMap.ZIndex = MapUi.CONFIG.Z_INDEX
+	miniMap.ClipsDescendants = true
+	miniMap.Visible = false
+	local miniCorner = Instance.new("UICorner")
+	miniCorner.CornerRadius = UDim.new(0.5, 0)
+	miniCorner.Parent = miniMap
+	local miniRim = Instance.new("UIStroke")
+	miniRim.Thickness = MapUi.CONFIG.RIM_THICKNESS
+	miniRim.Color = MapUi.CONFIG.RIM_COLOR
+	miniRim.Transparency = 0.25
+	miniRim.Parent = miniMap
+	miniMap.Parent = screen
+
+	-- THE FULL MAP, top-anchored at the same line as the minimap so it clears the compass above it
+	-- and the ammo readout below it at every viewport. Its size is written by `MapUi` from the
+	-- world's own span -- a wide, shallow world gets a wide, shallow panel -- so the offset here is
+	-- only what it starts at.
+	local fullMap = Instance.new("Frame")
+	fullMap.Name = "FullMap"
+	fullMap.BackgroundColor3 = MapUi.CONFIG.BACKGROUND
+	fullMap.BackgroundTransparency = MapUi.CONFIG.PANEL_TRANSPARENCY
+	fullMap.BorderSizePixel = 0
+	fullMap.AnchorPoint = Vector2.new(0.5, 0)
+	fullMap.Position = UDim2.new(0.5, 0, 0, MapUi.CONFIG.FULL_TOP)
+	fullMap.Size = UDim2.fromOffset(MapUi.CONFIG.FULL_MAX_WIDTH_PX, MapUi.CONFIG.FULL_MAX_HEIGHT_PX)
+	fullMap.ZIndex = MapUi.CONFIG.Z_INDEX
+	fullMap.Visible = false
+	local fullRim = Instance.new("UIStroke")
+	fullRim.Thickness = 1
+	fullRim.Color = MapUi.CONFIG.RIM_COLOR
+	fullRim.Transparency = 0.4
+	fullRim.Parent = fullMap
+	fullMap.Parent = screen
+
+	-- ...AND THE THUMB'S WAY IN, because Karen wants mobile in v1 and a phone has no M. Shown only
+	-- on a touch device (`MapUi.buttonVisible`), and it calls the SAME `MapUi.toggle` the key does.
+	local mapButton = Instance.new("TextButton")
+	mapButton.Name = "MapButton"
+	mapButton.BackgroundColor3 = MapUi.CONFIG.BACKGROUND
+	mapButton.BackgroundTransparency = MapUi.CONFIG.MINIMAP_TRANSPARENCY
+	mapButton.BorderSizePixel = 0
+	mapButton.AnchorPoint = Vector2.new(1, 0)
+	mapButton.Position = UDim2.new(
+		1,
+		-MapUi.CONFIG.MINIMAP_MARGIN,
+		0,
+		MapUi.CONFIG.MINIMAP_TOP + MapUi.CONFIG.MINIMAP_DIAMETER_PX + MapUi.CONFIG.BUTTON_GAP
+	)
+	mapButton.Size = UDim2.fromOffset(MapUi.CONFIG.BUTTON_PX, MapUi.CONFIG.BUTTON_PX)
+	mapButton.ZIndex = MapUi.CONFIG.Z_INDEX
+	mapButton.Font = Enum.Font.Code
+	mapButton.TextSize = MapUi.CONFIG.LABEL_SIZE
+	mapButton.TextColor3 = MapUi.CONFIG.TEXT_COLOR
+	mapButton.Text = "MAP"
+	mapButton.AutoButtonColor = true
+	mapButton.Visible = false
+	local buttonCorner = Instance.new("UICorner")
+	buttonCorner.CornerRadius = UDim.new(0.5, 0)
+	buttonCorner.Parent = mapButton
+	-- `Border` AND NOT THE DEFAULT. `UIStroke.ApplyStrokeMode` defaults to `Contextual`, which on a
+	-- TextButton outlines the TEXT; this stroke is the button's rim, so it says so. One stroke per
+	-- object, because a second would be a second writer of the same outline.
+	local buttonRim = Instance.new("UIStroke")
+	buttonRim.Thickness = 1
+	buttonRim.Color = MapUi.CONFIG.RIM_COLOR
+	buttonRim.Transparency = 0.25
+	buttonRim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	buttonRim.Parent = mapButton
+	mapButton.Parent = screen
+
 	local label = Instance.new("TextLabel")
 	label.Name = "Readout"
 	label.BackgroundTransparency = 1
@@ -640,6 +755,9 @@ local function build(): ScreenGui
 	scoreTitle = title
 	scoreFooter = footer
 	tiedBanner = tied
+	miniMapFrame = miniMap
+	fullMapFrame = fullMap
+	mapButtonNode = mapButton
 	return screen
 end
 
@@ -1106,6 +1224,20 @@ function Hud.renderScope(CameraSystem)
 				compass.Visible = true
 			end
 		end
+		-- THE MAP IS HIDDEN TOO, AND BY A DIFFERENT MECHANISM ON PURPOSE (task 155, design section
+		-- 3.3). The compass above needs the `compassHiddenByScope` flag because this file is a
+		-- SECOND writer of its `Visible` and has to put back exactly what it hid. The map does not
+		-- have that problem: this line STATES A NEED and `MapUi` performs the single write, which is
+		-- this repo's own `Camera.Cursor.requestFree` pattern (borrowed once already by
+		-- `Input.requestHold`). So `MapUi` stays the one writer of its own frames and nothing here
+		-- has to remember what it did.
+		--
+		-- WHY HIDE IT AT ALL, when the minimap is in the corner and the eyepiece is in the middle:
+		-- at 1080p the disc is well clear of the glass, but at 400 x 800 the eyepiece spans y
+		-- 200..600 and the disc's bottom edge is at 204 -- four pixels inside. A minimap with its
+		-- corner blacked out is worse than no minimap, and "is it outside the circle" is not
+		-- provable at every viewport.
+		MapUi.setSuppressed(scoped)
 	end
 	if reticle ~= nil then
 		local visible = Hud.reticleVisible(mode, optics, blend)
@@ -1490,39 +1622,80 @@ function Hud.start()
 		end)
 	end
 
+	-- THE MAP (task 155). Karen: *"I am missing map, we need a map when click M"*. It is started
+	-- BEFORE the bearing closure below, because that closure hands it the push direction.
+	--
+	-- IN THE DEV WORLD THE GEOMETRY IS READY NOW: `Map` is required synchronously at the top of this
+	-- file. In the Forest Test it arrives with `ForestTest`, through the same `whenReady` door the
+	-- compass's bearing uses -- `MapUi.setGeometry` is public exactly so it can be told later.
+	if miniMapFrame ~= nil and fullMapFrame ~= nil then
+		MapUi.start({
+			miniMap = miniMapFrame :: Frame,
+			fullMap = fullMapFrame :: Frame,
+			button = mapButtonNode,
+		}, {
+			-- FOR `viewHeadingDeg` ONLY, and it may be nil: then there is no facing wedge and the
+			-- rest of the map is unchanged. One-way, like every other thing the Hud reads.
+			Camera = CameraSystem,
+			-- READ, NEVER WRITTEN: `ReportPanel.isOpen()`, so two full-screen panels are never up at
+			-- once -- the reason `Hud.scorePanelVisible` already takes `reportOpen`.
+			Report = ReportPanel,
+			geometry = if Map.EXPECTED_WORLD == "forest-test"
+				then nil
+				else MapUi.geometryFor(Map.EXPECTED_WORLD, nil, Map),
+			userId = player.UserId,
+		})
+	end
+
+	-- THE WORLD'S DIRECTION AND ITS WORD, RESOLVED ONCE AND HANDED TO BOTH DRAWERS (task 155).
+	--
+	-- IT IS NO LONGER INSIDE `if compassFrame then`, and that is deliberate: this closure now feeds
+	-- the map as well, and a map whose push arrow only worked in a world that happens to have a
+	-- compass strip is the bug task 141 fixed for the scope (*"a scope that only worked in a world
+	-- with a compass strip is a bug waiting for the next place"*).
+	--
+	-- ONE RULE, ONE EVALUATION, TWO DRAWERS. `Hud.driveBearing` is called here and nowhere else:
+	-- two readers of one fact that could be handed different teams is how task 153 round 2's
+	-- finding (*"a marker that moved without its label told a beater the drive was south"*) comes
+	-- back.
+	local bearing = nil
+	-- ...and the WORD under the marker, which travels with it (task 153 round 2).
+	local bearingLabel = nil
+	if Map.EXPECTED_WORLD == "forest-test" then
+		-- WAITED FOR, FOR THE SAME REASON AS THE MATCH (task 134). This was the Hud's SECOND
+		-- `FindFirstChild` on a replicated module, found by the sweep this task asked for, and it
+		-- fails the same silent way: no `ForestTest` yet means no bearing, and a compass with no
+		-- DRIVE marker on it is the thing Karen asked for in task 125 -- *"we need to indicate
+		-- from what side drive is comming"* -- quietly not there. `Compass.setBearing` is public
+		-- exactly so it can be told later; in the common case this closure runs here and now, and
+		-- `Compass.start` further down sets the same number again.
+		-- ...AND A BEATER'S MARKER IS THE ROAD (task 153). Karen, 2026-10-11: *"beater are behind
+		-- animals and moving towards hunter line (road) like in real life"* -- so the direction
+		-- that matters to her is the one she is PUSHING, which is the opposite of the one the
+		-- drive comes from. `Hud.driveBearing` is the whole rule and it is pure.
+		--
+		-- `player.Team` IS THE ONE REPRESENTATION OF THE TEAM, which is the same door
+		-- `Match.myTeam` reads (and says so in its own header); the client match system does not
+		-- boot in this world at all, so there is nothing else to ask. Re-read on change, because
+		-- `/beater` switches the team mid-session and a marker that still pointed north would be
+		-- a lie in the shape of a fact.
+		Hud.whenReady(ReplicatedStorage, "ForestTest", function(module)
+			local data = require(module)
+			-- THE MAP'S GEOMETRY COMES OFF THE SAME MODULE, through the same door. `setGeometry` is
+			-- idempotent and builds once.
+			MapUi.setGeometry(MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map))
+			local function apply()
+				local team = player.Team
+				bearing, bearingLabel = Hud.driveBearing(data, if team then team.Name else nil)
+				Compass.setBearing(bearing, bearingLabel)
+				MapUi.setPush(bearing, bearingLabel)
+			end
+			apply()
+			player:GetPropertyChangedSignal("Team"):Connect(apply)
+		end)
+	end
+
 	if compassFrame then
-		local bearing = nil
-		-- ...and the WORD under the marker, which travels with it (task 153 round 2).
-		local bearingLabel = nil
-		if Map.EXPECTED_WORLD == "forest-test" then
-			-- WAITED FOR, FOR THE SAME REASON AS THE MATCH (task 134). This was the Hud's SECOND
-			-- `FindFirstChild` on a replicated module, found by the sweep this task asked for, and it
-			-- fails the same silent way: no `ForestTest` yet means no bearing, and a compass with no
-			-- DRIVE marker on it is the thing Karen asked for in task 125 -- *"we need to indicate
-			-- from what side drive is comming"* -- quietly not there. `Compass.setBearing` is public
-			-- exactly so it can be told later; in the common case this closure runs here and now, and
-			-- `Compass.start` two lines down sets the same number again.
-			-- ...AND A BEATER'S MARKER IS THE ROAD (task 153). Karen, 2026-10-11: *"beater are behind
-			-- animals and moving towards hunter line (road) like in real life"* -- so the direction
-			-- that matters to her is the one she is PUSHING, which is the opposite of the one the
-			-- drive comes from. `Hud.driveBearing` is the whole rule and it is pure.
-			--
-			-- `player.Team` IS THE ONE REPRESENTATION OF THE TEAM, which is the same door
-			-- `Match.myTeam` reads (and says so in its own header); the client match system does not
-			-- boot in this world at all, so there is nothing else to ask. Re-read on change, because
-			-- `/beater` switches the team mid-session and a marker that still pointed north would be
-			-- a lie in the shape of a fact.
-			Hud.whenReady(ReplicatedStorage, "ForestTest", function(module)
-				local data = require(module)
-				local function apply()
-					local team = player.Team
-					bearing, bearingLabel = Hud.driveBearing(data, if team then team.Name else nil)
-					Compass.setBearing(bearing, bearingLabel)
-				end
-				apply()
-				player:GetPropertyChangedSignal("Team"):Connect(apply)
-			end)
-		end
 		-- BOTH, OR `start` UNDOES THE WORD. In the common case the closure above has already run and
 		-- `Compass.start` sets the bearing a second time; passing only the number would put a
 		-- beater's marker back under the hunter's label on the first frame (task 153 round 2).
