@@ -524,6 +524,15 @@ function Match.isHeld(userId: number): boolean
 	return heldStill[userId] == true
 end
 
+-- WHICH SIDE THIS DRIVE PUTS A PLAYER ON, as the DRIVE sees it (task 159). Read-only, and it exists
+-- because "his team" has two representations -- `Player.Team`, which `Body.setTeam` writes for the
+-- engine to replicate, and `state.assignment`, which this system actually decides from -- and when a
+-- two-player failure says "one of them is held and should not be", the first question is whether
+-- those two agree. A spec can now print both instead of inferring one from the other.
+function Match.assignmentOf(userId: number): TeamName?
+	return state.assignment[userId]
+end
+
 -- WHAT THIS DRIVE HAS SHOT SO FAR, in order, as the results scene lays it out (task 159). A copy, so
 -- a caller cannot write the drive's record.
 function Match.driveKills(): { any }

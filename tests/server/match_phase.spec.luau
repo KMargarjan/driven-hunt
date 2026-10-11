@@ -441,6 +441,9 @@ return function()
 			expect(order[2]).to.equal("free")
 			expect(indexOf(order, "free") < indexOf(order, "placePlayers")).to.equal(true)
 			expect(indexOf(order, "free") < indexOf(order, "hold")).to.equal(true)
+			-- ...AND THE NEW HOLD IS APPLIED BEFORE THE RESPAWN (task 159, the two-player failure):
+			-- free everybody, assign the new teams, hold the new beaters, and only then place.
+			expect(indexOf(order, "hold") < indexOf(order, "placePlayers")).to.equal(true)
 			-- ...and the new hold is the START LINE's again: the beaters only.
 			for _, effect in ipairs(effects) do
 				if effect.kind == "hold" then
@@ -1380,14 +1383,24 @@ return function()
 			expect(state.phase).to.equal("Running")
 		end)
 
-		it("holds exactly the beaters at the line, and AFTER they have been placed", function()
+		it("holds exactly the beaters at the line, and BEFORE they are placed (task 159)", function()
 			local cfg = config(FOUR)
 			local _, effects = assigning(cfg)
 			expect(table.concat(heldIn(effects), ",")).to.equal("1,2")
-			-- AFTER `placePlayers` in the order the owner applies them, because the hold is a hold on
-			-- the character the placement is about to respawn.
+			-- **BEFORE** `placePlayers`, AND THE ORDER IS A MEASUREMENT (task 159). It was the other
+			-- way round until the Director's two-player run failed on it
+			-- (`[harness2] FAIL 33/35 @ 7ea945f`, zz_drive_boundary "took the scene down before the
+			-- next drive, and let everybody go", for the one player the roster had just made a
+			-- beater): `placePlayers` is the only effect in this list whose owner YIELDS
+			-- (`Player:LoadCharacter`), the drive is already in `Assigning` with its new number while
+			-- it yields, and the Heartbeat broadcasts that drive to every client before a `hold` at
+			-- the end of the list has been applied -- so for the length of a respawn a beater the
+			-- machine had decided to hold was not held, and nothing reading the drive could tell.
+			-- Holding first costs one frame of freezing a character that is about to be replaced, and
+			-- the character watch puts the freeze on the one that arrives, exactly as task 158
+			-- already relied on.
 			local list = kinds(effects)
-			expect(table.find(list, "hold") > table.find(list, "placePlayers")).to.equal(true)
+			expect(table.find(list, "hold") < table.find(list, "placePlayers")).to.equal(true)
 			expect(countKind(effects, "hold")).to.equal(1)
 		end)
 
@@ -1442,6 +1455,10 @@ return function()
 			expect(state.assignment[6]).to.equal("Drivers")
 			expect(table.concat(heldIn(effects), ",")).to.equal("6")
 			expect(state.phase).to.equal("Assigning")
+			-- ...and his hold comes BEFORE his placement too (task 159): one rule for every hold in
+			-- this machine, so the yielding respawn can never be the thing that defines it.
+			local joinOrder = kinds(effects)
+			expect(table.find(joinOrder, "hold") < table.find(joinOrder, "placePlayers")).to.equal(true)
 		end)
 
 		it("holds nobody who joins INSIDE the drive: the line is behind them by then", function()
@@ -1454,6 +1471,25 @@ return function()
 			state, effects = Phase.step(state, { kind = "join", userId = 7, name = "g" }, at, cfg)
 			expect(countKind(effects, "placePlayers")).to.equal(1)
 			expect(countKind(effects, "hold")).to.equal(0)
+		end)
+
+		it("puts a side-changer's hold or release before his placement too (task 159)", function()
+			-- THE THIRD PLACE THE SAME RULE APPLIES. `Match.requestTeam` is honoured inside the
+			-- countdown, and the effects it emits yield in the same way.
+			local cfg = config(FOUR)
+			local state = assigning(cfg)
+			-- userId 3 is a hunter in this roster; made a beater, he is held, and the hold is first.
+			local effects
+			state, effects = Phase.step(state, { kind = "team", userId = 3, team = "Drivers" }, 2, cfg)
+			local order = kinds(effects)
+			expect(table.find(order, "hold")).to.be.ok()
+			expect(table.find(order, "hold") < table.find(order, "placePlayers")).to.equal(true)
+			-- ...and made a hunter again, his release is first.
+			state, effects = Phase.step(state, { kind = "team", userId = 3, team = "Shooters" }, 3, cfg)
+			order = kinds(effects)
+			expect(table.find(order, "free")).to.be.ok()
+			expect(table.find(order, "free") < table.find(order, "placePlayers")).to.equal(true)
+			expect(state.assignment[3]).to.equal("Shooters")
 		end)
 
 		it("moves the hold with a player who changes sides inside the countdown", function()

@@ -29,6 +29,14 @@
 -- and `clearScene`, plus the `hold` that keeps everybody at the results scene -- the SAME hold task
 -- 158 built, applied to everybody instead of to the beaters.
 --
+-- ONE RULE ABOUT THE ORDER OF THESE EFFECTS, AND IT WAS PAID FOR TWICE: **a `hold` or a `free` is
+-- emitted BEFORE the `placePlayers` it goes with.** `placePlayers` is the only effect here whose
+-- owner YIELDS (`Player:LoadCharacter`), the drive is already in its new phase while it yields, and
+-- anything that looks at the drive in that window -- a client, a broadcast, a spec -- would
+-- otherwise see a started drive whose beaters are not yet held. Measured by the two-player run of
+-- task 159 (`[harness2] FAIL 33/35 @ 7ea945f`); invisible with one player, because a solo player is
+-- never a beater.
+--
 -- THE START OF A DRIVE IS `Assigning`, AND TASK 158 ADDED NO PHASE (Karen: *"timer when start,
 -- timer like 10s to find position to stand"*, *"Beater start in line with others and countdown when
 -- drive starts"*). The countdown IS this machine's existing intermission: one phase, one deadline,
@@ -398,15 +406,31 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	state.assignment = Roster.assign(userIds, state.previousAssignment, config)
 	table.insert(effects, { kind = "assignTeams", assignment = state.assignment })
 	table.insert(effects, { kind = "clearBoars" })
-	table.insert(effects, { kind = "placePlayers" })
-	-- AND THE BEATERS ARE HELD AT THE LINE for the length of this phase (task 158). AFTER
-	-- `placePlayers`, in the order the owner applies them, because the hold is a hold ON THE
-	-- CHARACTER the placement is about to respawn -- the owner's `hold` remembers the userId and the
-	-- character watch re-applies it to whatever character arrives, exactly as a tie survives a Reset.
+	-- AND THE BEATERS ARE HELD AT THE LINE for the length of this phase (task 158) -- **BEFORE**
+	-- `placePlayers`, AND THE ORDER IS A MEASUREMENT, NOT A PREFERENCE (task 159, the Director's
+	-- two-player run at `7ea945f`: `[harness2] FAIL 33/35`, zz_drive_boundary "took the scene down
+	-- before the next drive, and let everybody go", for the ONE player the roster had just made a
+	-- beater).
+	--
+	-- WHY THE OLD ORDER WAS WRONG: `placePlayers` is the one effect in this list that YIELDS -- the
+	-- owner's `applyPlace` calls `Player:LoadCharacter()`, once per player. The drive is already in
+	-- `Assigning` with its new number while that yields, so the Heartbeat's next step broadcasts the
+	-- new drive to every client (and to anything watching) BEFORE the `hold` at the end of this list
+	-- has been applied. For the seconds that takes, a beater the machine has decided to hold is not
+	-- held: he can walk off his line, and nothing reading the drive can see that he is supposed to
+	-- be held. With one player it is invisible, because a solo player is never a beater
+	-- (`ODD_PLAYER_TEAM`), which is why only the two-player run caught it.
+	--
+	-- HOLDING FIRST COSTS NOTHING AND CLOSES IT: the hold is remembered as a userId
+	-- (`Match`'s `heldStill`) before anything can yield, and the character watch puts the freeze on
+	-- whatever character the respawn then produces -- which is the mechanism task 158 already wrote
+	-- down and relied on ("IT REMEMBERS BEFORE IT WRITES"). Freezing the character that is about to
+	-- be replaced is wasted work for one frame and nothing else.
 	local heldIds = Phase.heldUserIds(state.assignment, config)
 	if #heldIds > 0 then
 		table.insert(effects, { kind = "hold", userIds = heldIds })
 	end
+	table.insert(effects, { kind = "placePlayers" })
 	table.insert(effects, { kind = "refreshArming", userIds = userIds })
 	feed(effects, { kind = "phase", text = "Drive " .. tostring(state.driveNumber), at = now })
 	table.insert(effects, { kind = "broadcast", force = true })
@@ -562,12 +586,14 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			local team = Roster.smallerTeam(Roster.counts(next_.assignment), config)
 			next_.assignment[event.userId] = team
 			table.insert(effects, { kind = "assignTeams", assignment = { [event.userId] = team } })
-			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
 			-- A BEATER WHO ARRIVES INSIDE THE COUNTDOWN IS HELD LIKE THE REST (task 158), and only
 			-- inside it: in `Running` the line is long behind the drive and nobody is held at all.
+			-- BEFORE `placePlayers`, for `enterAssigning`'s reason above (task 159): the placement
+			-- yields, and a hold decided before a yield must be recorded before it.
 			if next_.phase == "Assigning" and team == config.START_HOLD_TEAM then
 				table.insert(effects, { kind = "hold", userIds = { event.userId } })
 			end
+			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
 			table.insert(effects, { kind = "refreshArming", userIds = { event.userId } })
 		end
 		table.insert(effects, { kind = "broadcast" })
@@ -588,15 +614,16 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		then
 			next_.assignment[event.userId] = event.team
 			table.insert(effects, { kind = "assignTeams", assignment = { [event.userId] = event.team } })
-			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
 			-- ...AND THE HOLD FOLLOWS THE SIDE HE IS NOW ON, inside the countdown only (task 158):
 			-- made a beater, he is held at the line; made a hunter, he is let go, because the rest
 			-- of the countdown is his to walk to a stand with. `free` with one userId frees that one
 			-- and nobody else, so a role flip cannot release the whole line.
+			-- BEFORE `placePlayers`, for `enterAssigning`'s reason above (task 159).
 			if next_.phase == "Assigning" then
 				local kind_ = if event.team == config.START_HOLD_TEAM then "hold" else "free"
 				table.insert(effects, { kind = kind_, userIds = { event.userId } })
 			end
+			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
 			table.insert(effects, { kind = "refreshArming", userIds = { event.userId } })
 			-- NO FEED LINE, deliberately: the feed's kinds are a contract with the Hud's own
 			-- renderer (`join`, `leave`, `kill`, `escape`, `violation`, `phase`), and a dev command

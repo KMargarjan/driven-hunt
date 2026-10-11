@@ -186,6 +186,30 @@ hunters"*), and it may still not be what she wants on her own in a test world. T
 either of which is one line, are: require at least two beaters, or only count a crossing after the
 first release. Queued for her, not chosen here (TASKS.md row 159a).
 
+## 4c. The ordering rule the two-player run bought (MEASURED)
+
+The Director's `test2` at `7ea945f` failed 33/35 on this task's own case, for the one player the
+roster had just made a beater. **`placePlayers` is the only effect in `Phase`'s list whose owner
+yields** — `applyPlace` calls `Player:LoadCharacter`, once per player — and `hold` was emitted after
+it. The drive is already in `Assigning` with its new number while that yields, so the Heartbeat
+broadcasts the new drive to every client **before** the hold has been applied: for the length of a
+respawn a beater the machine had decided to hold is not held, and nothing reading the drive can tell.
+
+**The rule, now stated once in `Phase`'s header and applied in all three places** (`enterAssigning`,
+the `join` branch, the `team` branch): **a `hold` or a `free` is emitted BEFORE the `placePlayers` it
+goes with.** That is task 158's own mechanism used as it was written — the hold is remembered as a
+userId and the character watch freezes whatever character the respawn produces — and freezing a
+character that is about to be replaced costs one frame.
+
+**It is a game defect, not a test artefact:** a beater could walk off his line for the duration of his
+respawn, every drive.
+
+**Why one player could not see it:** a solo player's first drive makes him a hunter
+(`ODD_PLAYER_TEAM`), so `isHeld == false == (team == beaters)` passed either way. Reproduced here
+with one player by sampling the live owner from another coroutine while `Match.requestTeam` yields —
+**2 gaps with the old order, 0 with the fix** (`zz_drive_boundary`, "never shows a beater who is not
+yet held, mid-respawn").
+
 ## 5. The ownership, one writer each
 
 | Thing | Owner (the only writer) | Where |
