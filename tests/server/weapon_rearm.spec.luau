@@ -27,15 +27,20 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 
 local SWEEP_OBSERVATION = 6 -- seconds: the sweep runs every 2, so this sees at least two passes
+-- One fact, for one question: is this Tool a GUN? (task 152)
+local Weapons = require(game:GetService("ReplicatedStorage"):WaitForChild("Weapons"))
 
+-- A GUN, NOT JUST A TOOL (task 152). The beater's horn is a `Tool` too, so the first Tool in a
+-- container stopped being the gun the day beaters got one.
 local function gunOf(player: Player): Tool?
-	local backpack = player:FindFirstChildOfClass("Backpack")
-	local tool = backpack and backpack:FindFirstChildOfClass("Tool")
-	if tool then
-		return tool
+	for _, container in { player:FindFirstChildOfClass("Backpack"), player.Character } do
+		for _, child in ipairs(if container then container:GetChildren() else {}) do
+			if Weapons.isWeaponTool(child) then
+				return child :: Tool
+			end
+		end
 	end
-	local character = player.Character
-	return character and character:FindFirstChildOfClass("Tool")
+	return nil
 end
 
 return function()

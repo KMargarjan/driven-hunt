@@ -257,4 +257,26 @@ function Weapons.idForToolName(name: string?): WeaponId?
 	return Weapons.toolNames()[name]
 end
 
+-- IS THE THING IN THIS HAND A GUN? (task 152). Until the beater's horn there was only one kind of
+-- Tool in this game, so "a Tool in the character" and "a gun" were the same sentence and both camera
+-- modules said the second while meaning the first. MEASURED, Forest Test 2026-10-11: a beater
+-- holding a horn saw a SHOTGUN in first person -- `Viewmodel.update` took the horn's Handle, found
+-- no `DrivenHunt.Weapon` attribute on it and fell back to `Shotgun.CONFIG`, so the viewmodel drew
+-- the wrong object out of the right Handle.
+--
+-- IT ASKS TWICE AND THE ATTRIBUTE COMES FIRST, because that is the one `Hardware.build` writes and
+-- the one `Viewmodel.weaponId` already trusts ("the drawn gun follows the INSTANCE"). The NAME is
+-- the fallback, so a Tool granted by a server older than task 140 -- which has no attribute -- is
+-- still recognised as a gun rather than quietly becoming a horn.
+function Weapons.isWeaponTool(tool: Instance?): boolean
+	if tool == nil or not tool:IsA("Tool") then
+		return false
+	end
+	local id = (tool :: Tool):GetAttribute("DrivenHunt.Weapon")
+	if type(id) == "string" and Weapons.row(id :: string) ~= nil then
+		return true
+	end
+	return Weapons.isToolName((tool :: Tool).Name)
+end
+
 return Weapons

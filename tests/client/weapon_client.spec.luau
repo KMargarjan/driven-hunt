@@ -474,6 +474,71 @@ return function()
 		end)
 	end)
 
+	describe("a second Tool must not take the player's trigger", function()
+		-- THE BUG THIS CATCHES IS A GAME BUG AND IT WAS REACHABLE BY A PLAYER (task 152).
+		-- `Weapon.Input.watchTool` bound the four `DrivenHunt.Weapon.*` actions on a Tool's Equipped
+		-- and unbound on its Unequipped -- UNCONDITIONALLY, whichever Tool had just left, while
+		-- `forgetTool` right below it already guarded the same hazard with `boundTo == tool`.
+		--
+		-- With `RIFLE` on a player carries TWO Tools and Roblox's signals are DEFERRED, so on a
+		-- hotbar switch `Equipped(rifle)` can run before `Unequipped(shotgun)` -- and the unbind then
+		-- took the trigger that had just been bound for the rifle. No fire, no reload, no aim and no
+		-- ammo switch until the player equipped something again.
+		--
+		-- MEASURED before the fix, in a Play session: the four actions went from
+		-- `Aim,Fire,Reload,SelectAmmo` to `NONE` when a second weapon-named Tool was destroyed, with
+		-- the real gun still in the character. In `test2` it cost `zz_tie_to_a_tree` its shot twice:
+		-- `R` reached nothing, the gun stayed Spent/Spent, and no violation was ever judged.
+		local function weaponActions(): { string }
+			local names = {}
+			for name in pairs(ContextActionService:GetAllBoundActionInfo()) do
+				if string.find(name, "DrivenHunt.Weapon.", 1, true) then
+					table.insert(names, name)
+				end
+			end
+			table.sort(names)
+			return names
+		end
+
+		it("keeps the four actions bound when ANOTHER weapon-named Tool is equipped and destroyed", function()
+			if Role.isDriver() then
+				return -- a driver carries no gun, so there is no trigger here to lose
+			end
+			local character = player.Character
+			expect(character).to.be.ok()
+			local before = weaponActions()
+			-- The real gun has to be in hand for this to mean anything.
+			expect(#before).to.equal(4)
+
+			-- A SECOND Tool with a weapon's NAME, which is exactly what `watchTool` adopts.
+			local other = Instance.new("Tool")
+			other.Name = Weapons.ROWS.shotgun.toolName
+			other.RequiresHandle = false
+			other.Parent = character
+			task.wait(0.4)
+			other:Destroy()
+			task.wait(0.6)
+
+			local after = weaponActions()
+			if #after ~= #before then
+				error(
+					string.format(
+						"the player's trigger went with somebody else's Tool: %d action(s) bound before "
+							.. "(%s), %d after (%s) -- with the real gun still in the character",
+						#before,
+						table.concat(before, ","),
+						#after,
+						table.concat(after, ",")
+					),
+					0
+				)
+			end
+			TestKit.note(
+				string.format("weapon_client: trigger survived a second Tool -- %d action(s) still bound", #after)
+			)
+		end)
+	end)
+
 	describe("the client replica", function()
 		it("arrives, and is frozen all the way down", function()
 			if Role.isDriver() then
@@ -1044,16 +1109,28 @@ return function()
 		end)
 	else
 		describe("the driver's empty hands", function()
-			it("is never given a Tool, anywhere, at any point in the session", function()
+			it("is never given a WEAPON, anywhere, at any point in the session", function()
 				-- The whole replay reaches this client too since Task 36 -- Q, the clicks, R and X all
 				-- arrive -- so this is "every key a shooter uses was pressed here and produced nothing".
+				--
+				-- A GUN, NOT JUST A TOOL (task 152), and the title changed with it: a driver is given
+				-- the beater's HORN now, which is a `Tool`, so "no Tool anywhere" would be asserting
+				-- that the beater kit does not exist. What must still be true -- and is the whole
+				-- point of this case -- is that he is never given a WEAPON.
 				task.wait(5)
 				local backpack = player:FindFirstChildOfClass("Backpack")
 				expect(backpack).to.be.ok()
-				expect(backpack:FindFirstChildOfClass("Tool")).to.equal(nil)
 				local character = player.Character
 				expect(character).to.be.ok()
-				expect(character:FindFirstChildOfClass("Tool")).to.equal(nil)
+				local weaponsHeld = 0
+				for _, container in { backpack, character } do
+					for _, child in ipairs(container:GetChildren()) do
+						if Weapons.isWeaponTool(child) then
+							weaponsHeld += 1
+						end
+					end
+				end
+				expect(weaponsHeld).to.equal(0)
 				expect(Weapon.get()).to.equal(nil)
 			end)
 
@@ -1097,8 +1174,11 @@ return function()
 				channel.FireRequest:FireServer({ origin = Vector3.zero, direction = Vector3.new(0, 0, 1) })
 				task.wait(1)
 				expect(Weapon.get()).to.equal(nil)
+				-- A GUN, NOT JUST A TOOL (task 152): a driver carries the beater's horn now.
 				local backpack = player:FindFirstChildOfClass("Backpack")
-				expect(backpack and backpack:FindFirstChildOfClass("Tool")).to.equal(nil)
+				for _, child in ipairs(if backpack then backpack:GetChildren() else {}) do
+					expect(Weapons.isWeaponTool(child)).to.equal(false)
+				end
 				return
 			end
 

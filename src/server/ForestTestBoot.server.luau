@@ -19,6 +19,9 @@ if Map.EXPECTED_WORLD ~= "forest-test" then
 	return
 end
 
+-- THE HORN'S NUMBERS (task 152): how far a blast carries, and which team carries one. The behaviour
+-- is `Weapon.Horn`'s and the animals are `Boar`'s; this root only wires them together.
+local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
@@ -155,6 +158,26 @@ Weapon.ShotFired:Connect(function(shot)
 	runtime:hearShot(shot.muzzle, shot.at)
 end)
 
+-- A HORN IS A PUSH (task 152), and this line is `MatchBoot`'s verbatim, for the same reason the two
+-- above it are: the horn's contract does not change with the world. Karen plays in THIS place, so
+-- this is the wire her `/beater` blast actually travels down.
+Weapon.Horn.Blown:Connect(function(blast)
+	local pushed = runtime:hearHorn(blast.at, HornData.spookStuds(HornData.CONFIG))
+	-- ONE LINE PER BLAST, and it is the evidence. "The horn had no visible effect" is the kind of
+	-- claim that needs a number beside it, so the console says how many animals the blast reached.
+	print(
+		string.format(
+			"[ForestTest] horn blown at (%.0f, %.0f, %.0f): %d boar(s) pushed within %.0f studs (%d m)",
+			blast.at.X,
+			blast.at.Y,
+			blast.at.Z,
+			pushed,
+			HornData.spookStuds(HornData.CONFIG),
+			HornData.CONFIG.SPOOK_M
+		)
+	)
+end)
+
 Weapon.HitReported:Connect(function(report)
 	if report.target:IsA("BasePart") then
 		local shooter = report.shooter
@@ -238,8 +261,26 @@ Body.ensureTeams()
 local function applyRole(player: Player)
 	local role = ForestTest.roleOf(player.UserId)
 	Body.setTeam(player, Body.teamForWord(role), Match.CONFIG)
+	-- ...AND THE HORN FOLLOWS THE TEAM (task 152). `/beater` does not respawn anybody, so nothing
+	-- else would notice until the carry sweep came round two seconds later; this makes the switch
+	-- immediate. It is level-triggered and idempotent, so the spawn path below calling it as well
+	-- cannot hand out two.
+	Weapon.Horn.refreshCarry(player)
 	return role
 end
+
+-- EVERYONE IN THIS WORLD IS A BEATER IF THEY ASKED TO BE ONE. The same predicate as `MatchBoot`'s
+-- -- `Body.teamOf` reads `Player.Team`, which is what `applyRole` has just written -- so the horn
+-- and the orange vest can never disagree about whether Karen is a beater.
+--
+-- THE FLAG IS READ ONCE, HERE, exactly as `MatchBoot` reads it -- except that THIS world turns it ON
+-- the way it turns `BOAR_MODEL` and the rest on: Karen plays here to judge the thing, and a playtest
+-- world that hands her nothing to judge is no use. The DEV drive keeps the declared default.
+local hornOn = true
+Weapon.Horn.setCarryPolicy(function(player)
+	return HornData.carriesFor(hornOn, Body.teamOf(player))
+end)
+Weapon.Horn.start()
 
 Players.PlayerAdded:Connect(function(player)
 	player.Chatted:Connect(function(message)
@@ -262,15 +303,18 @@ Players.PlayerAdded:Connect(function(player)
 		-- ONE LINE PER SWITCH, and it is the evidence. A tool that requires this module over
 		-- StudioMCP gets a sandboxed copy with empty state (measured, task 122), so the console is
 		-- the only honest channel for "which role is he, and is he wearing it".
-		print(
-			string.format(
-				"[ForestTest] %s is now a %s (team=%s, %d outfit part(s))",
-				player.Name,
-				role,
-				tostring(Body.teamOf(player)),
-				worn
-			)
-		)
+		print(string.format(
+			"[ForestTest] %s is now a %s (team=%s, %d outfit part(s), horn=%s)",
+			player.Name,
+			role,
+			tostring(Body.teamOf(player)),
+			worn,
+			-- WHETHER HE IS ACTUALLY CARRYING ONE, read off the live tree and not off a table
+			-- (task 152): "he is a beater" and "he has a horn in his hand" are two facts, and
+			-- the only honest channel for the second one is this console (a tool that requires
+			-- this module over StudioMCP gets a sandboxed copy with empty state).
+			tostring(Weapon.Horn.held(player) ~= nil)
+		))
 	end)
 
 	player.CharacterAdded:Connect(function(character)

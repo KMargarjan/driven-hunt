@@ -29,6 +29,12 @@ local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local Cast = require(script.Cast)
 local Hardware = require(script.Hardware)
+-- THE BEATER'S HORN (task 152). It is in this system because the design puts it here -- *"worn is
+-- Body's; carried is Weapon's"* (docs/design/beater-kit.md section 16 item 1) -- and it is its own
+-- module because it shares no state with a gun. Nothing in this file calls into it: it is required
+-- here only so that the two composition roots reach it as `Weapon.Horn`, the way they already reach
+-- `Weapon.Hardware`.
+local Horn = require(script.Horn)
 local Hits = require(script.Hits)
 local Limits = require(script.Limits)
 local Pattern = require(script.Pattern)
@@ -58,6 +64,10 @@ Weapon.SafetyArc = SafetyArc
 Weapon.Cast = Cast
 Weapon.Hardware = Hardware
 Weapon.Shape = Shapes.BY_ID.shotgun
+-- ...and the horn, which is not a gun and is reached the same way (task 152). It has its own
+-- lifetime: `Horn.start()` is called by the composition root, not by `Weapon.start()`, because WHO
+-- may carry one is that root's decision and this owner's arming has nothing to say about it.
+Weapon.Horn = Horn
 
 local CONFIG = Shotgun.CONFIG
 

@@ -312,6 +312,151 @@ per-stimulus notice and flush radius, and a shot that is *"a sound, not a hit"* 
 stimulus path that exists. 152 should reuse it and must not add a second panic rule -- and the stimulus
 must be **real**, from the beater's own position, never a phantom.
 
+### 5.4 What Task 152 actually measured, 2026-10-11
+
+Section 5.2 left three things open and this is each of them, measured in the Forest Test.
+
+**1. The model route is shut, confirmed a second time.** Nothing changed: the geometry is built from
+parts (`src/shared/Horn/init.luau`, `Horn.pieces`) -- a nickel mouthpiece, three tube sections of
+growing bore, a flare and a bell, plus a leather carrying cord. Six pieces, six welds, no asset, no
+upload, no Robux.
+
+**2. The voice loads, and it is SIXTY SECONDS LONG.** `rbxassetid://9038902877` reports
+`IsLoaded = true` and **`TimeLength = 60.63`**. It is not one blast: it is a vintage recording of a
+hunting horn being blown over and over. Played whole, one click would sound a horn for a minute, so
+**the clip has to be cut, and the cut was measured rather than guessed.** `Sound.PlaybackLoudness`
+sampled at render rate for 14 s, peak per 0.1 s bucket:
+
+| Window | Peak loudness | What it is |
+|---|---|---|
+| 0.0 - 0.1 | 0 | the asset's own dead lead-in |
+| 0.2 - 4.0 | 43 - 453 | **the first call** -- a complete signal phrase |
+| 4.1 - 5.0 | 142 falling to 11 | its decay, into the clip's own silence |
+| 5.1 - 8.8 | 31 - 411 | the SECOND call |
+| 9.0 - 9.6 | 10 - 28 | silence again |
+| 10.0 - | 30 - 496 | the third call, and so on to 60.63 |
+
+So `SOUND_START = 0.12` (past the dead lead-in, so the horn sounds *on* the click) and
+`SOUND_CUT = 4.4` (inside the clip's own silence, so the stop cannot click, and before 5.1, so one
+blast is one signal and never two). **The one number this moved is the cooldown:** the dispatch's
+start value was 3 s, and a 3 s cooldown over a 4.0 s call chops the last note AND lets a beater
+clicking on the cooldown produce one continuous unbroken horn. `COOLDOWN = 5` is the smallest value
+that fits a whole call. All four are data and `tests/server/zz_horn.spec.luau` asserts only the
+relations between them, not the values.
+
+**Nobody has heard it yet.** Karen's ears decide, and every one of those numbers is one line.
+
+**3. The spook reuses the existing door, and "away from the beater" means what the drive already
+means by it.** `Runtime:hearHorn(at, radiusStuds)` sweeps its own animals and calls `Brain:spook(at)`
+-- the one door every fright comes through, the same one `ForestTest`'s phantom beaters use -- with
+the `shot` argument left nil, so the task 150 shot latch (`SENSE.SHOT_FLIGHT_UNTIL_EXIT`) does NOT
+fire and `_lastShotAt`/`_lastShotPos` are untouched. That matters: a beater walking a wood blowing
+every five seconds must not empty it, and an animal spawned later must not inherit a bang that was
+never fired.
+
+**What that door does with the direction is worth writing down, because "runs AWAY from the beater"
+reads as a straight line and is not one.** `Brain:_latchFlight` heads the animal for `field.exitZ`
+and makes the thing that frightened it a SWERVE -- *"the exit is the heading and the gun is a
+swerve ... driven game breaks PAST the guns"* (task 139, the Director's decision A, measured). A
+beater pushing animals toward the hunters' line is exactly what that rule is for, so the horn
+inherits it rather than inventing a second panic rule, which is what 5.3 asked for.
+
+**MEASURED, live, one beater and one blast each time:**
+
+| Trace | Inside 286 studs (80 m) | Outside it |
+|---|---|---|
+| first blast, 13 animals | **12 of 12 ran** at 21.3 - 23.0 studs/s, and **every one ended FARTHER from the beater** (+5 to +34 studs in 1.5 s) | none in the world |
+| a later blast, with a 1.5 s control window BEFORE it | 18 animals; **10 went from under 6 studs/s to 15.9 - 21.0**, the other 8 were already running | **7 animals at 295 - 341 studs: 0 started running.** Each was walking at 4.5 - 4.6 studs/s before the blast and 4.5 - 4.6 after |
+
+The radius boundary is visible in that second trace's own rows: the animal at **276 studs ran**, the
+one at **295 did not**.
+
+### 5.4b The horn is a COIL, and the first build was not (round 2)
+
+The first build laid the sections along a straight line and the Director was right about what that
+reads as: *"a straight brass tube / spyglass"*. A driven hunt's horn is **wound** -- a Fuerst-Pless
+or Parforce horn is a coiled brass tube with a bell, and section 5.1's own source (the Oldenburger
+Jagdcenter *Jagd-Signalhorn aus Messing*) is one. The note had the object right and the build had
+only its parts.
+
+**So the tube is bent round an arc**, and the construction is what makes it safe to change: five
+cylinders laid as **chords between points ON a 230-degree arc** of radius 0.38, so consecutive
+sections share an endpoint exactly and no joint can gap however the numbers move. The bore widens
+0.09 -> 0.22 section by section, a nickel cup sits tangent at the near end, a flare and a bell at the
+far one, and the carrying cord closes the C. Nine parts, no asset. Measured in the gate:
+`5 section(s) over a 230-degree arc of radius 0.38; total turn 184 degrees` -- a straight tube scores
+**0** on that number, which is the case that now fails if anybody straightens it again.
+
+**And the first-person carry was measured rather than reasoned about** (rule 5). The Director offered
+two answers for a horn that *"floats with no hands"*: hold it lower and to the right, or hide it
+until a blast. **This task holds it**, and the reason is ownership: hiding it until a blast would
+make `Camera.Rig`'s rule depend on the horn's per-player blast TIMING, so the camera would read
+weapon state every frame and the horn would pop in and out of the hand. The rule stays static -- a
+non-weapon Tool in the hand is visible -- and four candidate grips were set on a live horn and
+photographed:
+
+| `Tool.Grip` | What the frame showed |
+|---|---|
+| (-0.12, 0.42, 0.10) | fills the bottom-right, bell cut off |
+| (-0.18, -0.55, 0.10) | moved to the right edge but still large and cut |
+| (-0.30, -1.00, 0.45) | went UP the frame -- which is how the sign was settled: **positive Y lowers it** |
+| (-0.35, 0.95, 0.45) | dropped almost entirely below the bottom edge |
+| **(-0.80, 0.70, 0.45), roll 25** | **about a fifth of the coil in the bottom-right, view clear** |
+
+`GRIP_BLOW` (-0.42, 0.05, 0.40) with -55 degrees of pitch brings it up and inboard with the
+mouthpiece turned toward the face, photographed in the same session.
+
+**STILL FOR KAREN'S EYE:** under the DEV plate's bright sky the brass reads as **flat yellow**
+rather than metal. The same colour read as brass in the Forest Test's shade, so the two lighting
+environments disagree and the value is not changed on one of them -- it is `LOOK.brass`, one line.
+
+### 5.4c The one-player failure was not the horn: a drive that ends opens the report panel
+
+The gate failed a SECOND one-player run at the same commit with `match_client.spec` "Expected 2, got
+0" three times and `report_panel.spec` "Expected false, got true". One cause, not two:
+`Hud.renderScore` hides the score board while the report panel is open
+(`Hud.scorePanelVisible(snapshot, ReportPanel.isOpen())`), and `ReportPanel.onDriveChanged`
+**auto-opens the panel once when a drive closes**. A live drive ending part-way through a run
+therefore emptied the board under three cases that say nothing about the report, and broke
+`report_panel`'s *"not visible until something opens it"* -- because a drive report **is** something
+opening it.
+
+Both were unstated preconditions, and both now state themselves: `match_client`'s score describe
+closes the panel and puts it back, and `report_panel`'s case asks the panel's **own** `autoOpens`
+counter and still asserts the invariant that `Visible` agrees with `isOpen()`. **MEASURED, two
+consecutive one-player gate runs at `5946136`, both PASS 33/33 -- and the condition FIRED in both**
+(`report_panel: a drive report auto-opened the panel 9 time(s) before this case`), so the fix was
+exercised rather than dodged.
+
+### 5.5 The defect this task found by LOOKING, and it is the camera's
+
+**A beater holding the horn saw a SHOTGUN in first person.** The server said the character held the
+`Horn` and the Backpack held the gun; the frame said side-by-side shotgun. Karen plays in first
+person, so that frame was the whole of what she would have seen.
+
+The cause is one sentence that stopped being true. `Camera.Viewmodel`'s source is *"the Handle of the
+Tool in the local character"*, and until the horn there was only one kind of Tool in this game -- so
+it took the horn's Handle, `Viewmodel.weaponId()` found no `DrivenHunt.Weapon` attribute on it,
+`Weapons.row(nil) or Shotgun.CONFIG` answered the shotgun, and it drew the wrong object out of the
+right Handle. `Camera.Rig` has the same assumption written out in its own header -- *"In first person
+the viewmodel IS the gun"* -- and hides everything the character holds, Tool included.
+
+**The fix is one shared fact asked in two places.** `Weapons.isWeaponTool(tool)` (attribute first,
+name as the fallback for a Tool from a server older than task 140): `Viewmodel` draws nothing for a
+non-weapon Tool, and `Rig` leaves a non-weapon Tool VISIBLE. The two conditions are exact
+complements, so the thing in the hand is on screen exactly once -- as the viewmodel clone or as the
+real Tool, never twice (which is the "two shotguns on screen at once" Rig's header records) and never
+neither. The horn is therefore seen in first person as the real object, and
+`tests/client/camera_client.spec.luau` drives both halves against one probe.
+
+**What is NOT built, and is named rather than hidden:** there is no first-person horn *viewmodel*.
+The gun viewmodel poses hands, shells, a hinge and a sight around a gun, and none of that is a horn;
+the real Tool is drawn instead, so the horn is in view but **no hands are**, and the "raise to mouth"
+is a tilt of `Tool.Grip` with the ARM left where it is. Raising an arm means writing the character's
+Motor6Ds or playing a track on its Animator, which would be a second writer on a character that has
+exactly one per concern (CLAUDE.md rule 3). A posed first-person horn with hands is the camera
+system's own task.
+
 ---
 
 ## 6. Numeric targets
@@ -326,7 +471,11 @@ must be **real**, from the beater's own position, never a phantom.
 | orange, for the fallback plates | RGB(255, 112, 0) | unchanged, `Match.Body`'s existing `OUTFIT_COLOR` |
 | vest plates | 4, one per horizontal face | Task 82, and Texas's 144 in² front **and** back |
 | head, hair and the player's own hats | untouched | nothing asks for them, and the hat clears hair (Task 77) |
-| horn sound (152) | `rbxassetid://9038902877` | section 5.2, licensed, not yet load-measured |
+| horn sound (152) | `rbxassetid://9038902877` | section 5.2, licensed; **measured 2026-10-11: loads, 60.63 s** (5.4) |
+| horn clip window (152) | **0.12 - 4.4 s** of it | one complete call, cut inside the clip's own silence (5.4) |
+| horn cooldown (152) | **5 s** | the smallest that fits one 4.0 s call; the dispatch's 3 chopped it (5.4) |
+| horn spook radius (152) | **80 m = 286 studs** | the Director's value, written in both units like task 150's radii |
+| horn geometry (152) | **6 parts, 6 welds**, no asset | the model route is shut; parts, as the shotgun is (5.2, 5.4) |
 
 ---
 

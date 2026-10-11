@@ -1315,6 +1315,32 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 	end
 	local handle = cachedHandle
 
+	-- ...AND IT HAS TO BE A GUN (task 152). THE BEATER'S HORN IS A TOOL AND IS NOT A WEAPON, and
+	-- this module's source is "the Handle of the Tool in the local character" -- so a beater holding
+	-- a horn got the horn's Handle, `weaponId()` answered nil, `Weapons.row(nil) or Shotgun.CONFIG`
+	-- answered the shotgun, and the viewmodel drew A SHOTGUN out of the horn's Handle. MEASURED in
+	-- the Forest Test, 2026-10-11: the server said the character held the `Horn` and the Backpack
+	-- held the gun, and the first-person frame was a side-by-side shotgun. Karen plays in first
+	-- person, so that frame is the whole of what she would have seen.
+	--
+	-- A NON-WEAPON TOOL DRAWS NOTHING HERE, and `Camera.Rig` leaves the REAL one visible instead
+	-- (see its `trackHiddenPart`). The two conditions are exact complements -- this module draws it
+	-- or `Rig` shows it, never both and never neither -- which is what stops the "two shotguns on
+	-- screen at once" that Rig's own header records from happening with a horn.
+	--
+	-- IT REFUSES A NON-WEAPON TOOL, NOT "ANYTHING THAT IS NOT A GUN", and the gate taught the
+	-- difference: the first version asked `isWeaponTool(handle.Parent)` and so refused a Handle with
+	-- no Tool above it at all -- which is every Handle a SPEC injects through `setSource`, and three
+	-- `camera_client.spec` cases went from a posed viewmodel to nil. A Handle outside a Tool keeps
+	-- the behaviour it has always had (`weaponId()` answers nil and the shotgun is the fallback:
+	-- "the shotgun's when there is nothing to go on"). Only an actual Tool that is NOT a weapon is
+	-- refused, which is exactly the horn.
+	local tool = handle and handle.Parent
+	if tool ~= nil and tool:IsA("Tool") and not Weapons.isWeaponTool(tool) then
+		handle = nil
+		cachedHandle = nil
+	end
+
 	if not cam or not handle or (state.blend < config.VIEWMODEL_SHOW_BLEND and not config.FIRST_PERSON) then
 		if model then
 			model.Parent = nil

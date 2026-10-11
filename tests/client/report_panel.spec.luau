@@ -146,7 +146,29 @@ return function()
 		end)
 
 		it("is not visible until something opens it", function()
-			expect(Panel.isOpen()).to.equal(false)
+			-- ...AND A DRIVE THAT CLOSES *IS* SOMETHING OPENING IT (task 152, found by the gate).
+			-- `onDriveChanged` auto-opens this panel ONCE per drive, so in a run where a live drive
+			-- ended before this file ran, "closed" is the wrong claim and the right one is "closed
+			-- unless a drive report opened it". `stats().autoOpens` is the fact that tells the two
+			-- apart, and it is the panel's OWN counter -- not an inference from what is on screen.
+			--
+			-- NOTHING IS WEAKENED: whichever arm runs, the frame's `Visible` must agree with
+			-- `isOpen()`, which is the invariant this case is actually about.
+			local autoOpens = Panel.stats().autoOpens
+			local frame = Hud.reportPanel() :: Frame
+			if autoOpens > 0 then
+				TestKit.note(
+					string.format(
+						"report_panel: a drive report auto-opened the panel %d time(s) before this case",
+						autoOpens
+					)
+				)
+				expect(frame.Visible).to.equal(Panel.isOpen())
+				-- ...and the rest of this file starts from a known state either way.
+				Panel.setOpen(false)
+			else
+				expect(Panel.isOpen()).to.equal(false)
+			end
 			expect((Hud.reportPanel() :: Frame).Visible).to.equal(false)
 		end)
 	end)

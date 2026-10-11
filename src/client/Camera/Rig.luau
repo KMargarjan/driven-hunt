@@ -19,7 +19,13 @@
 -- Design: docs/design/camera.md (sections 3.1, 5.3, 10.1)
 -- Audit:  docs/architecture/audit-003.md (must-fix 2)
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+
+-- THE WEAPON TABLE, for one question and nothing else: is the Tool in the hand a GUN? (task 152).
+-- This module decides what the local player can see of their own character, and "a Tool" stopped
+-- meaning "a gun" the day the beater got a horn. It reads no weapon state and no weapon number.
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local Rig = {}
 
@@ -226,6 +232,23 @@ end
 -- is ~20 property sets and is not what cost 0.8 ms (that was `GetDescendants`). `Rig.reassertions()`
 -- counts the frames on which it had to, so "the stock controller is still fighting us" is a number
 -- somebody can read rather than a thing somebody remembers.
+-- THE TOOL THIS PART BELONGS TO, or nil for a part of the body itself. Walks up to the character
+-- rather than to the DataModel root, so a part outside the character answers nil in one step.
+-- Exported because `tests/client/camera_client.spec.luau` drives it with no live character.
+function Rig.toolAbove(part: Instance?): Tool?
+	local at = part
+	while at ~= nil do
+		if at:IsA("Tool") then
+			return at :: Tool
+		end
+		if at:FindFirstChildOfClass("Humanoid") ~= nil then
+			return nil -- reached the character: a part of the body, not of a Tool
+		end
+		at = at.Parent
+	end
+	return nil
+end
+
 local hiddenParts: { Instance } = {}
 local hiddenFor: Model? = nil
 local hiddenNow: boolean? = nil
@@ -239,6 +262,16 @@ local reassertions = 0
 -- first person the viewmodel IS the gun.
 local function trackHiddenPart(part: Instance)
 	if not (part:IsA("BasePart") or part:IsA("Decal")) then
+		return
+	end
+	-- ...EXCEPT WHAT IS IN THE HAND AND IS NOT A GUN (task 152). "In first person the viewmodel IS
+	-- the gun" is true of a gun and of nothing else: the beater's horn has no viewmodel, so hiding
+	-- it would leave a beater in first person holding nothing at all. `Camera.Viewmodel` refuses to
+	-- draw for a non-weapon Tool and this is its exact complement -- the thing in the hand is on
+	-- screen once, either as the viewmodel clone or as the real Tool, never twice and never not at
+	-- all.
+	local tool = Rig.toolAbove(part)
+	if tool ~= nil and not Weapons.isWeaponTool(tool) then
 		return
 	end
 	table.insert(hiddenParts, part)

@@ -162,6 +162,30 @@ Flags.DEFAULTS = {
 			.. "turns away or runs, sprints at a shot, and panics through its sounder. OFF is the "
 			.. "40-stud drivers-only flush of Milestone 1.2.",
 	} :: FlagRow,
+	HORN = {
+		-- BORN OFF (task 152, 2026-10-11). The beater's signal horn: a Tool in a beater's hand, a
+		-- 3D blast on a click, and a push that sends every boar within 80 m away from him. All three
+		-- are feel -- is it loud enough, is one call per five seconds right, does a drive actually
+		-- move when a beater blows -- so by CLAUDE.md's own rule ("a new feel-critical path is BORN
+		-- OFF") it merges dark and Karen judges it with `tools/flags.py set HORN on`.
+		--
+		-- IT WAS A MISS THAT THIS ROW DID NOT EXIST IN ROUND 1, and the Director's gate is what
+		-- showed why the rule is there: `test2` fails on this branch at `zz_tie_to_a_tree.spec`
+		-- while `main` passes, and with no switch the only A/B available was an uncommitted edit.
+		-- OFF, the drive is bit-for-bit the game before this task -- nobody is granted anything --
+		-- so the flag is also the isolation experiment and the rollback.
+		default = false,
+		-- The owner is the module that READS it, at its boundary: each composition root resolves
+		-- `Horn.carryPolicy(...)` ONCE and hands the result to `Weapon.Horn.setCarryPolicy`. Nothing
+		-- in the horn reads a flag, and `Horn.carriesFor(on, team)` is pure, so both worlds are
+		-- reachable by parameter while the flag sits at one of them.
+		owner = "ReplicatedStorage.Horn",
+		born = "2026-10-11 task 152",
+		expires = "2026-10-31",
+		why = "The beater's horn: the Tool, its voice and the blast that pushes boars away from the "
+			.. "beater who blew it. OFF is exactly the game before task 152 -- no beater carries "
+			.. "anything, and no blast reaches a boar.",
+	} :: FlagRow,
 	RIFLE = {
 		-- BORN OFF (task 140, 2026-10-09), ON SINCE TASK 149 (2026-10-10). Karen: *"afther this
 		-- fixes we need to add rifle with scope"*. A whole second weapon is feel-critical -- the

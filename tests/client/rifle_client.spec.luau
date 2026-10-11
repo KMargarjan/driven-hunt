@@ -740,6 +740,12 @@ return function()
 			local id = Camera.Viewmodel.weaponId()
 			local character = player.Character
 			local tool = character and character:FindFirstChildOfClass("Tool")
+			-- ...AND ONLY IF IT IS A GUN (task 152). The beater's horn is a `Tool` with no weapon
+			-- attribute, so `weaponId()` answers nil for one -- correctly -- and `Weapons.row(nil)`
+			-- below would then be asserted non-nil for a player holding a horn.
+			if tool ~= nil and not Weapons.isWeaponTool(tool) then
+				tool = nil
+			end
 			if tool ~= nil then
 				expect(id).to.equal(tool:GetAttribute("DrivenHunt.Weapon"))
 				expect(Weapons.row(id)).to.be.ok()

@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 
 local player = Players.LocalPlayer
@@ -207,7 +208,30 @@ return function()
 
 		-- Whatever this describe did, put the real snapshot back: another spec may read the Hud after
 		-- it, and the Heartbeat would fix it within 0.25 s anyway -- but "would" is not a test.
+		-- THE SCORE BOARD IS HIDDEN WHILE THE REPORT PANEL IS OPEN, and the report panel OPENS BY
+		-- ITSELF when a drive closes (`Hud.ReportPanel.onDriveChanged`, "auto-opens ONCE"). This
+		-- describe renders scripted snapshots and says nothing about the report, so that was an
+		-- unstated precondition -- and the gate found it: a live drive closed part-way through a
+		-- one-player run and all three cases below failed with an empty board
+		-- (`match_client.spec` "Expected 2, got 0", `report_panel.spec` "Expected false, got true").
+		--
+		-- STATING IT IS NOT WEAKENING ANYTHING: `Hud.scorePanelVisible(snapshot, reportOpen)` already
+		-- takes the report's state as an argument, and its own case still drives both values. This
+		-- only stops a drive that ended at the wrong moment from deciding what the board shows.
+		local reportWasOpen = false
+
+		beforeAll(function()
+			reportWasOpen = Hud.Report.isOpen()
+			if reportWasOpen then
+				TestKit.note("match_client: a drive report had auto-opened; closed for the score cases")
+				Hud.Report.setOpen(false)
+			end
+		end)
+
 		afterAll(function()
+			if reportWasOpen then
+				Hud.Report.setOpen(true)
+			end
 			Hud.renderScore(Match.get(), Match.secondsLeft())
 			Hud.renderTied(Match.isTied())
 		end)
