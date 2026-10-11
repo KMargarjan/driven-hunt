@@ -3950,10 +3950,15 @@ function Runtime:check(id: string, seconds: number?): boolean
 	return false
 end
 
-function Runtime:spook(id: string, from: Vector3?): boolean
+-- SOMETHING FRIGHTENED THIS ONE ANIMAL, and `from` is what. `untilExit` asks for the one-way latch
+-- of task 150 -- it runs the line it set off on, never settles, and is only over when it leaves at
+-- `field.exitZ` (task 154, Karen: *"they just run away without stop it's not like they cool down"*).
+-- Left nil it is the ordinary push this door has always been, so every caller written before today
+-- behaves exactly as it did.
+function Runtime:spook(id: string, from: Vector3?, untilExit: boolean?): boolean
 	for _, entry in ipairs(self._boars) do
 		if entry.id == id then
-			return entry.brain:spook(from) == true
+			return entry.brain:spook(from, nil, untilExit) == true
 		end
 	end
 	return false
@@ -3978,7 +3983,13 @@ end
 -- Returns how many live animals were pushed. The three states `_hearSound` and `hearShot` both
 -- refuse -- a carcass, a terminal boar and a crippled one -- are refused here too, by `Brain:spook`
 -- itself; they are skipped before the count so the number means "animals that ran".
-function Runtime:hearHorn(at: Vector3, radiusStuds: number): number
+-- ...AND `untilExit` IS TASK 154 (Karen, 2026-10-11: *"horn reach is further once they hear also
+-- run without stop"*). The paragraph above is still true of the SHOT path -- a heard shot sets
+-- `_lastShotAt`/`_lastShotPos`, which a boar spawned later inherits, and this does not -- so a horn
+-- is still not a shot. What the world may now ask for is the LATCH alone, per blast, which is why
+-- it is a parameter here and not a number in `Horn.CONFIG`: how long a fright lasts is the
+-- WORLD's to decide and the signal only says how far it carries.
+function Runtime:hearHorn(at: Vector3, radiusStuds: number, untilExit: boolean?): number
 	if self._destroyed then
 		return 0
 	end
@@ -3990,7 +4001,7 @@ function Runtime:hearHorn(at: Vector3, radiusStuds: number): number
 	for _, entry in ipairs(self._boars) do
 		local where = flatOf(Body.position(entry.body))
 		if (where - flatAt).Magnitude <= radiusStuds then
-			if entry.brain:spook(at) == true then
+			if entry.brain:spook(at, nil, untilExit) == true then
 				pushed += 1
 			end
 		end

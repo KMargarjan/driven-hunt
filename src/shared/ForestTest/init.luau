@@ -137,6 +137,46 @@ ForestTest.BEATER = {
 	dropStuds = 4,
 }
 
+-- HOW CLOSE SHE MAY GET BEFORE THEY GO, AND WHAT GOING MEANS (task 154).
+--
+-- KAREN, 2026-10-11, after the first beater playtest: *"so animals already there somewhere in
+-- bushes close to trees ect / once I get a bit closer they just run away without stop it's not like
+-- they cool down they spooked and run away / so from me direction they looking they run away / horn
+-- reach is further once they hear also run without stop"*.
+--
+-- TWO NUMBERS AND ONE RULE. The numbers are the two reaches -- how close she has to walk, and how
+-- far the horn carries -- and the rule is the SAME ONE for both, and the same one task 150 built
+-- for a heard shot: the fright latches, the animal keeps the line it set off on, it never settles,
+-- and the only thing that ends it is leaving at `EXIT_Z`. There is no second panic system, because
+-- two systems that both decide when an animal calms down is this project's named killer (rule 3).
+--
+-- IN METRES *AND* IN STUDS, which is task 150's lesson and `Horn.CONFIG`'s shape: a radius written
+-- in studs was compared against distances in metres for two tasks. Both spellings are here so a
+-- world or a spec may override either unit, and `forest_stand.spec` asserts they agree to the stud.
+--
+-- 25 m IS THE DIRECTOR'S START VALUE, and it is a real number for this animal rather than a round
+-- one: the flight-initiation distance of wild boar to a person on foot is tens of metres, not the
+-- 25 STUDS (7 m) this world used before today -- `PACE.DRIVER_RUN_STUDS`, which is "a driver this
+-- close makes it run" and was the whole of the beater's reach in task 153. At 7 m she was on top of
+-- them before anything moved, which is not what walking a wood is like.
+ForestTest.SPOOK = {
+	METRES_PER_STUD = 0.28, -- the same number `Horn.CONFIG`, `Report.CONFIG` and `Boar.CONFIG.SENSE` publish
+	BEATER_M = 25,
+	BEATER_STUDS = 89, -- 25 m / 0.28
+}
+
+-- THE REACH IN STUDS, from whichever unit the table carries. PURE, and the ONE place the conversion
+-- happens -- `Horn.spookStuds`'s rule, for the same reason: no caller multiplies by
+-- `METRES_PER_STUD` itself. The studs win when they are there, because a world that overrides the
+-- studs means the studs.
+function ForestTest.beaterSpookStuds(spook): number
+	local resolved = spook or ForestTest.SPOOK
+	if type(resolved.BEATER_STUDS) == "number" then
+		return resolved.BEATER_STUDS
+	end
+	return resolved.BEATER_M / resolved.METRES_PER_STUD
+end
+
 -- WHICH WAY A BEATER IS PUSHING, as a compass bearing. `DRIVE_BEARING_DEG` is where the drive comes
 -- FROM (0, north) and that is what a hunter's compass marks; a beater walks the other way, so her
 -- marker is the road. Derived from the one fact above it, never written twice.
@@ -415,6 +455,94 @@ ForestTest.LINE = {
 	-- 600 studs at a walk (4.5) is 130 s; this is the ceiling that stops a wedged wave living for ever.
 	maxSeconds = 150,
 }
+
+-- ---------------------------------------------------------------- the wood is already full (154)
+--
+-- KAREN, 2026-10-11, on her first beater playtest: *"didn;t see any animals probably need to wait
+-- 10s ?"* and then *"so animals already there somewhere in bushes close to trees ect"*.
+--
+-- SHE WAS RIGHT ABOUT THE WAIT AND THE DIRECTOR MEASURED IT: a wave is released every
+-- `SCHEDULE.intervalSeconds` (20 s), and a beater put down `BEATER.behindLineStuds` behind the
+-- line's own spawn walks the 240 studs to the road in about sixteen seconds at 15.7 studs/s -- so
+-- she arrived BEFORE THE FIRST WAVE EXISTED and the wood she walked through was empty.
+--
+-- A TIMER IS THE WRONG SHAPE FOR A BEATER, which is why this is not "release the first wave
+-- sooner". A hunter stands still and the drive comes to him, so a schedule is exactly right for
+-- him; a beater WALKS AT animals that are already lying up, and what she is testing is the moment
+-- she finds them. So in beater mode there is no schedule at all: the wood is STOCKED when she
+-- starts, and re-stocked `restockSeconds` after the last of them has left. `ForestTest.stepRest`
+-- is the whole of it.
+--
+-- THEY ARE RESTING, AND THAT IS NOTHING NEW EITHER. A sounder spawned and not ordered is an IDLE
+-- sounder, and `CALM.ENABLED` -- on in this world -- is already the graze/stand/lie repertoire
+-- (task 117). This file adds no behaviour; it only says where to put them.
+ForestTest.REST = {
+	-- WHERE A GROUP MAY BE PUT, as the band between her and the road. She starts at
+	-- `LINE.spawnNorthStuds + BEATER.behindLineStuds` = 240 studs north of it, so a group at 60-190
+	-- is in front of her and short of the road -- which is both "between her and the road" and far
+	-- enough from the verge that a hunter at a stand is not looking at a boar standing still.
+	nearRoadStuds = 40,
+	farRoadStuds = 160,
+
+	-- ...AND NOT ALREADY INSIDE HER REACH. MEASURED, first run of this task: the group nominally at
+	-- `offsetX +45, northStuds 185` is sqrt(45^2 + 55^2) = 71 studs from where a beater is put down,
+	-- which is INSIDE `SPOOK.BEATER_STUDS` (89) -- so it was latched and gone on the first heartbeat,
+	-- before she had taken a step. A wood she has already emptied by standing in it is not a wood.
+	-- One spook radius plus 30 studs is far enough that the nearest group is a walk away.
+	clearOfStartStuds = 30,
+
+	-- CLOSE TO A TRUNK, AND NOT INSIDE ONE. Karen: *"somewhere in bushes close to trees ect"*. A
+	-- spot is taken when the nearest SOLID thing is at least `clearStuds` away (nothing is spawned
+	-- inside a trunk) and at most `nearTrunkStuds` away (it is a spot in the trees and not out in
+	-- the open). `roomToStand`'s own header is why "solid" is the test and a fern is not.
+	clearStuds = 8,
+	nearTrunkStuds = 22,
+
+	-- ...AND ON THE GROUND. `Runtime:spawn` places every member at `world.groundAt`, which raycasts
+	-- past `OurForest`/`Foliage` but NOT past the two `Session` folders of 831 more trees (task 153
+	-- measured them) -- so that ray can stop on a canopy and drop a sounder out of a tree. A spot is
+	-- refused when the terrain's own answer and that one disagree by more than this.
+	canopySlackStuds = 6,
+
+	-- HOW A SPOT IS LOOKED FOR: the nominal point first, then rings of eight around it. Deterministic
+	-- on purpose -- the same wood gives the same answer twice, so a trace can be repeated.
+	searchRings = 4,
+	searchStepStuds = 16,
+
+	-- The ring `spawnSounder` may spread a group over; the same 90 the wave path passes, and for the
+	-- same reason (a sounder of 9 needs room not to spawn inside itself).
+	spreadStuds = 90,
+
+	-- ...AND HOW LONG AFTER THE WOOD IS EMPTY before it fills again. Long enough that she SEES it
+	-- emptied -- a wood that refills the instant the last animal crosses is a wood she can never
+	-- clear, which is the opposite of a drive.
+	restockSeconds = 15,
+
+	-- THE GROUPS, spread across her front. `composition` indexes `Boar.CONFIG.SOUNDER.COMPOSITIONS`
+	-- for the same reason the schedule does: who is in a flock is the boar system's fact and where
+	-- they are lying up is this world's. `offsetX` is relative to the stand the drive aims at --
+	-- which is the x she is standing behind -- so "110 studs west of me" means that wherever she is.
+	--
+	-- 27 ANIMALS IN FIVE GROUPS. Karen: *"make them a lot not too much to break but enough to test"*,
+	-- and `MAX_BOARS` is 60; a measured session has carried 32 at once in this place. Five groups
+	-- across +-120 studs at 60-185 studs out is several things to walk up on rather than one.
+	groups = {
+		{ offsetX = -115, northStuds = 150, composition = 1, note = "a mixed flock, west and far" },
+		{ offsetX = -40, northStuds = 105, composition = 5, note = "a sow and her young, west" },
+		{ offsetX = 55, northStuds = 140, composition = 4, note = "sows and piglets, east and far" },
+		{ offsetX = 125, northStuds = 95, composition = 2, note = "two males, east" },
+		{ offsetX = -10, northStuds = 55, composition = 6, note = "one big lone male, straight ahead" },
+	},
+}
+
+-- WHERE A RESTING GROUP IS NOMINALLY PUT, before the ground and the trunks are measured. PURE, the
+-- same division `wavePoint` has: the arithmetic here, the world's own answer in
+-- `ForestTest.restSpot`.
+function ForestTest.restPoint(standX: number, spec, sideOffset: number?, outOffset: number?): Vector3
+	local x = standX + (spec.offsetX or 0) + (sideOffset or 0)
+	local north = (spec.northStuds or 120) + (outOffset or 0)
+	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x) + north)
+end
 
 ForestTest.SCHEDULE = {
 	intervalSeconds = 20,

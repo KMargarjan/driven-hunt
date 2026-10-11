@@ -684,6 +684,51 @@ return function()
 			runtime:destroy()
 		end)
 
+		it("latches the flight only when the WORLD asks for it (task 154)", function()
+			-- KAREN, 2026-10-11: *"horn reach is further once they hear also run without stop"*.
+			-- `Runtime:hearHorn`'s third argument is the one-way flight of task 150, and it is the
+			-- WORLD's to decide: `ForestTestBoot` passes it, `MatchBoot` does not, so the drive's
+			-- own horn is exactly what task 152 shipped.
+			--
+			-- THE FLIGHT IS MADE SHORT so the case costs no wall clock: `FLIGHT_MAX_SECONDS` is 45
+			-- in the shipped config and the runtime is stepped by hand here, which is what makes a
+			-- flight that is meant to END observable at all. The number is the PARAMETER -- the
+			-- shape a flagged path must have -- and the latch is what this case is about.
+			local world = buildWorld("HornLatchBoars")
+			local move = table.clone(world.config.MOVE)
+			move.FLIGHT_MAX_SECONDS = 0.5
+			world.config = table.clone(world.config)
+			world.config.MOVE = move
+			local runtime = Boar.newRuntime(world)
+			local radius = Horn.spookStuds(CONFIG)
+
+			local function stillFlyingAfterTheFlight(untilExit: boolean?): boolean
+				local boar = runtime:spawn(Vector3.new(0, GROUND_Y, 40))
+				expect(boar).to.be.ok()
+				local id = (boar :: any).id
+				expect(runtime:hearHorn(Vector3.new(0, GROUND_Y, 0), radius, untilExit) >= 1).to.equal(true)
+				expect(runtime:flying(id)).to.equal(true)
+				-- Two seconds of simulated time, four times the flight's own ceiling.
+				for _ = 1, 120 do
+					runtime:step(1 / 60)
+				end
+				return runtime:flying(id)
+			end
+
+			-- Asked for: it is still running when the flight that would have ended has ended.
+			expect(stillFlyingAfterTheFlight(true)).to.equal(true)
+			runtime:clear("between the halves")
+			-- Not asked for: the flight runs out, which is what task 152 shipped and what
+			-- `MatchBoot` still gets.
+			expect(stillFlyingAfterTheFlight(nil)).to.equal(false)
+
+			TestKit.note(
+				"horn: hearHorn(at, r, true) holds the flight past FLIGHT_MAX_SECONDS; hearHorn(at, r) does not"
+			)
+			runtime:clear("spec done")
+			runtime:destroy()
+		end)
+
 		it("sends them away from the horn, and out of the wood", function()
 			-- WHAT "AWAY FROM THE BEATER" MEANS HERE, SAID PLAINLY, because it is not a straight
 			-- line away and the dispatch's wording could be read as one. `Brain:_latchFlight` --

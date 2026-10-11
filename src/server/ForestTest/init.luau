@@ -812,6 +812,373 @@ function ForestTest.leash(userId: number, root: BasePart): Vector3?
 	return to
 end
 
+-- ---------------------------------------------------------------- the wood a beater walks into
+--
+-- TASK 154. KAREN, 2026-10-11, after the first beater playtest:
+--   *"didn;t see any animals probably need to wait 10s ?"*
+--   *"so animals already there somewhere in bushes close to trees ect"*
+--   *"once I get a bit closer they just run away without stop it's not like they cool down they
+--    spooked and run away / so from me direction they looking they run away"*
+--   *"horn reach is further once they hear also run without stop"*
+--
+-- Three facts and three answers, and the data for all three is in `Data.REST` and `Data.SPOOK`.
+-- Nothing here writes a boar's position, its state or its path: the wood is stocked through
+-- `Runtime:spawnSounder` and emptied through `Runtime:spook`, which are the two doors the wave path
+-- has always used.
+
+-- IS ANYBODY IN THIS WORLD A BEATER? Read off the ROLE and not off a body, because the wood has to
+-- be full before she has finished falling onto the ground -- `ForestTest.realBeaters` needs a
+-- `PrimaryPart` and the role is set in `PlayerAdded`, a character earlier.
+function ForestTest.beaterMode(): boolean
+	for _, role in pairs(state.roles) do
+		if role == "beater" then
+			return true
+		end
+	end
+	return false
+end
+
+-- HOW FAR THE NEAREST SOLID THING IS from a point -- a trunk, a rock, a stand. `math.huge` for
+-- nothing within `radius`.
+--
+-- IT IS `roomToStand`'S TEST ASKED AS A DISTANCE instead of as a yes/no, and that function's header
+-- is the why: this forest is mostly ferns and leaf cards with `CanCollide = false`, so
+-- `RespectCanCollide` is what separates "in the trees" from "inside a tree". Characters and animals
+-- are not scenery.
+--   https://create.roblox.com/docs/reference/engine/classes/WorldRoot#GetPartBoundsInRadius
+function ForestTest.nearestSolid(point: Vector3, radius: number): number
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore = { Workspace.Terrain :: Instance }
+	local boars = Workspace:FindFirstChild("Boars")
+	if boars then
+		table.insert(ignore, boars)
+	end
+	params.FilterDescendantsInstances = ignore
+	params.RespectCanCollide = true
+	params.MaxParts = 24
+	local best = math.huge
+	for _, part in ipairs(Workspace:GetPartBoundsInRadius(point, radius, params)) do
+		local model = part.Parent
+		local isCharacter = model ~= nil and model:FindFirstChildOfClass("Humanoid") ~= nil
+		if not isCharacter then
+			local away = part.Position - point
+			local gap = Vector3.new(away.X, 0, away.Z).Magnitude
+			if gap < best then
+				best = gap
+			end
+		end
+	end
+	return best
+end
+
+-- WHERE ONE RESTING GROUP ACTUALLY GOES: the nominal point, then rings of eight around it, and the
+-- first spot that is in the trees, not inside one, and on the ground. Returns nil when the wood has
+-- no such spot -- a group that cannot be put down is simply not put down, which is the same answer
+-- `releaseLine` gives a line whose route cannot be computed.
+function ForestTest.restSpot(standX: number, spec): Vector3?
+	local rest = Data.REST
+	-- WHERE SHE WILL BE STANDING, flat and pure (`Data.beaterStart`, not the measured
+	-- `beaterStartPosition`): this is a distance test and the ground does not change it, while the
+	-- measured version raycasts and would be asked once per candidate.
+	local start = Data.beaterStart(standX, 0)
+	local keepAway = Data.beaterSpookStuds(Data.SPOOK) + rest.clearOfStartStuds
+	for ring = 0, rest.searchRings do
+		local tries = if ring == 0 then 1 else 8
+		for step = 1, tries do
+			local angle = (step - 1) * (math.pi * 2 / tries)
+			local radius = ring * rest.searchStepStuds
+			local at = Data.restPoint(standX, spec, math.cos(angle) * radius, math.sin(angle) * radius)
+			-- BETWEEN HER AND THE ROAD, whatever the search did to the point. A ring that walked a
+			-- group onto the verge, or back behind where she is standing, is not the group she
+			-- asked for.
+			local dz = at.Z - Data.roadZ(at.X)
+			local fromStart = Vector3.new(at.X - start.X, 0, at.Z - start.Z).Magnitude
+			if dz >= rest.nearRoadStuds and dz <= rest.farRoadStuds and fromStart >= keepAway then
+				local terrain = ForestTest.terrainYAt(at.X, at.Z)
+				local ground = Data.groundAt(at.X, at.Z)
+				-- ON THE GROUND AND NOT IN A TREE. `Runtime:spawn` places every member at
+				-- `world.groundAt`; the terrain's own answer is the truth, and when the two
+				-- disagree that ray stopped on a canopy -- see `REST.canopySlackStuds`.
+				if terrain ~= nil and ground ~= nil and math.abs(ground - terrain) <= rest.canopySlackStuds then
+					local gap = ForestTest.nearestSolid(Vector3.new(at.X, terrain + 2, at.Z), rest.nearTrunkStuds)
+					if gap >= rest.clearStuds and gap <= rest.nearTrunkStuds then
+						return Vector3.new(at.X, terrain, at.Z)
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- FILLS THE WOOD. One sounder per row of `REST.groups`, resting where it is put: nothing is
+-- ordered, no route is computed and no beater -- phantom or real -- is placed behind them, so the
+-- Brain's own calm repertoire (`CALM.ENABLED`, task 117) is what they do until she arrives.
+--
+-- Returns the console line, which is the evidence: where each group went, how far that is from the
+-- road, and how close the nearest trunk is.
+function ForestTest.stockWood(now: number): string?
+	local runtime = state.runtime
+	if runtime == nil then
+		return nil
+	end
+	local rest = Data.REST
+	local standX = ForestTest.hunterStandX()
+	local placed, groups = 0, 0
+	local parts = {}
+	for index, spec in ipairs(rest.groups) do
+		local composition = boarConfig().SOUNDER.COMPOSITIONS[spec.composition]
+		local wanted = if composition then Boar.compositionSize(composition) else 1
+		-- THE CAP IS CHECKED BEFORE THE SPAWN, exactly as `ForestTest.release` checks it and for the
+		-- same reason: `Runtime:spawn` ASSERTS at `maxBoars`, and an assert inside the Heartbeat
+		-- kills the step rather than the spawn.
+		local room = math.min(Data.MAX_BOARS, runtime:capacity()) - runtime:count()
+		local at = if wanted <= room then ForestTest.restSpot(standX, spec) else nil
+		if at ~= nil then
+			local handles = if wanted <= 1
+				then { runtime:spawn(at, "male") }
+				else runtime:spawnSounder(at, wanted, rest.spreadStuds, composition)
+			local made = 0
+			local ids = {}
+			for _, handle in ipairs(handles) do
+				if handle ~= nil then
+					made += 1
+					table.insert(ids, handle.id)
+				end
+			end
+			if made > 0 then
+				groups += 1
+				placed += made
+				table.insert(state.rest, { id = string.format("rest-%d", index), ids = ids, at = at, bornAt = now })
+				table.insert(
+					parts,
+					string.format(
+						"%s %d at %+d/%+d studs (trunk %.0f)",
+						spec.note,
+						made,
+						at.X - standX,
+						at.Z - Data.roadZ(at.X),
+						ForestTest.nearestSolid(at + Vector3.new(0, 2, 0), rest.nearTrunkStuds)
+					)
+				)
+			end
+		end
+	end
+	if placed == 0 then
+		return nil
+	end
+	state.released += placed
+	state.restEmptyAt = nil
+	return string.format(
+		"the wood is stocked: %d animal(s) in %d group(s) -- %s",
+		placed,
+		groups,
+		table.concat(parts, "; ")
+	)
+end
+
+-- HOW MANY OF THE STOCKED ANIMALS ARE STILL ON THEIR FEET. Dead, despawned and crossed-out animals
+-- all stop counting, which is what makes "the wood is empty" a fact rather than a timer.
+function ForestTest.restAlive(): number
+	local runtime = state.runtime
+	if runtime == nil then
+		return 0
+	end
+	local alive = 0
+	for _, group in ipairs(state.rest or {}) do
+		for _, id in ipairs(group.ids) do
+			local status = runtime:statusOf(id)
+			if status ~= nil and status.alive then
+				alive += 1
+			end
+		end
+	end
+	return alive
+end
+
+-- SHE WALKED UP ON THEM, SO THEY GO AND THEY DO NOT STOP.
+--
+-- ONE PASS OVER EVERY LIVE ANIMAL IN THE WORLD, resting or in a file, because "how close is too
+-- close" must have ONE answer (rule 3) -- task 153 put a copy of this inside `stepLines` when the
+-- lines were the only animals there were. An animal inside `SPOOK.BEATER_STUDS` of any real beater
+-- is spooked AWAY FROM HER: `Brain:_latchFlight` takes its heading from the point handed in, so one
+-- standing north of it runs SOUTH, ahead of the push and over the road, which is Karen's *"so from
+-- me direction they looking they run away"*. And the fright is LATCHED -- *"it's not like they cool
+-- down they spooked and run away"* -- which is the one-way rule task 150 built for a heard shot and
+-- not a second panic system.
+--
+-- ...AND SO DOES ITS SOUNDER. The Brain spreads panic member to member on its own
+-- (`SENSE.PANIC_DELAY_SECONDS`), but that spread is a plain flush and carries NO latch -- so half a
+-- group would run for ever and the other half would settle in the open. One group is one decision.
+--
+-- ONCE PER ANIMAL, which is what `state.latched` is for: re-spooking every heartbeat would re-enter
+-- `_latchFlight` sixty times a second to be refused by its own re-latch window, which is not a rule
+-- anybody can read.
+function ForestTest.spookNearBeaters(_now: number): string?
+	local runtime = state.runtime
+	if runtime == nil then
+		return nil
+	end
+	local beaters = ForestTest.realBeaters()
+	if #beaters == 0 then
+		return nil
+	end
+	local reach = Data.beaterSpookStuds(Data.SPOOK)
+	state.latched = state.latched or {}
+	local sent = {}
+	for _, handle in ipairs(runtime:boars()) do
+		if state.latched[handle.id] ~= true then
+			local at, gap = ForestTest.nearestBeater(handle.position(), beaters)
+			if at ~= nil and gap <= reach then
+				table.insert(sent, { id = handle.id, from = at, gap = gap })
+			end
+		end
+	end
+	local parts = {}
+	for _, row in ipairs(sent) do
+		-- THE WHOLE SOUNDER, from the same point, so the group leaves as a group.
+		local ids = { row.id }
+		local sounder = runtime:sounderOf(row.id)
+		if sounder ~= nil then
+			ids = sounder.memberIds
+		end
+		local went = 0
+		for _, id in ipairs(ids) do
+			if state.latched[id] ~= true and runtime:spook(id, row.from, true) then
+				state.latched[id] = true
+				went += 1
+			end
+		end
+		state.latched[row.id] = true
+		if went > 0 then
+			state.flushed = (state.flushed or 0) + went
+			table.insert(
+				parts,
+				string.format(
+					"%s at %.0f studs (%.0f m) took %d with it",
+					row.id,
+					row.gap,
+					row.gap * Data.SPOOK.METRES_PER_STUD,
+					went
+				)
+			)
+		end
+	end
+	if #parts == 0 then
+		return nil
+	end
+	return string.format("a beater spooked %s -- %d latched so far", table.concat(parts, "; "), state.flushed)
+end
+
+-- ONE TICK OF BEATER MODE: whether the wood needs filling. `spooked` is what
+-- `ForestTest.spookNearBeaters` said this step -- it is passed IN rather than asked for again,
+-- because `step` has already run that pass for both modes and running it twice would latch
+-- nothing and cost a scan of every animal in the world. Returns the one line the boot prints.
+function ForestTest.stepRest(now: number, spooked: string?): string?
+	if state.runtime == nil then
+		return nil
+	end
+	if #(state.rest or {}) == 0 then
+		-- NOTHING HAS EVER BEEN PUT DOWN: fill it now, on the first heartbeat after she becomes a
+		-- beater. Level-triggered rather than called from the boot, so a role set before the runtime
+		-- existed, a `/beater` typed mid-session and a respawn all end in the same place.
+		return ForestTest.stockWood(now) or spooked
+	end
+	if ForestTest.restAlive() > 0 then
+		state.restEmptyAt = nil
+		return spooked
+	end
+	-- EMPTY. She has pushed or shot the lot, so the wood fills again -- after a pause, so that she
+	-- sees it emptied (`REST.restockSeconds`).
+	if state.restEmptyAt == nil then
+		state.restEmptyAt = now
+		return spooked
+	end
+	if now - state.restEmptyAt < Data.REST.restockSeconds then
+		return spooked
+	end
+	state.rest = {}
+	state.restEmptyAt = nil
+	return ForestTest.stockWood(now) or spooked
+end
+
+-- WHAT EVERY STOCKED GROUP IS DOING, as one line each. The proof reads this: how far the nearest
+-- beater is, how fast they are moving, and whether they are moving AWAY from her.
+--
+-- "AWAY" IS MEASURED AND NOT ASSUMED: the dot of this step's movement with the direction away from
+-- the nearest beater, +1 for straight away and -1 for straight at her. The previous position is
+-- kept here rather than asked of the Brain, because what a hunter sees is where the body went and
+-- not what it was ordered to do.
+function ForestTest.restReport(_now: number): { string }
+	local runtime = state.runtime
+	if runtime == nil then
+		return {}
+	end
+	local beaters = ForestTest.realBeaters()
+	state.restTrace = state.restTrace or {}
+	local out = {}
+	for _, group in ipairs(state.rest or {}) do
+		local alive, speedSum, awaySum, counted, nearest = 0, 0, 0, 0, math.huge
+		-- `walk` COUNTS ONLY THE WALK-UP PASS, and the name says so: the horn latches an animal
+		-- through `Runtime:hearHorn` without this module ever seeing it, so a group running at
+		-- `RUN_SPEED` with `walk=0` is the horn's work and the mood column is what proves it ran.
+		local dzSum, walked = 0, 0
+		-- WHAT MOOD THEY ARE IN, counted (task 154). "They are resting" and "they are walking at 4.5
+		-- studs/s" are two different claims and the first one is the one Karen asked for, so the
+		-- state the Brain is actually in goes in the line beside the speed.
+		local states = {}
+		for _, id in ipairs(group.ids) do
+			local status = runtime:statusOf(id)
+			if status ~= nil and status.alive then
+				alive += 1
+				states[status.state] = (states[status.state] or 0) + 1
+				speedSum += status.speed
+				dzSum += status.position.Z - Data.roadZ(status.position.X)
+				if state.latched[id] == true then
+					walked += 1
+				end
+				local at, gap = ForestTest.nearestBeater(status.position, beaters)
+				if gap < nearest then
+					nearest = gap
+				end
+				local was = state.restTrace[id]
+				if was ~= nil and at ~= nil then
+					local moved = Vector3.new(status.position.X - was.X, 0, status.position.Z - was.Z)
+					local away = Vector3.new(status.position.X - at.X, 0, status.position.Z - at.Z)
+					if moved.Magnitude > 0.05 and away.Magnitude > 0.05 then
+						awaySum += moved.Unit:Dot(away.Unit)
+						counted += 1
+					end
+				end
+				state.restTrace[id] = status.position
+			end
+		end
+		if alive > 0 then
+			local moods = {}
+			for mood, count in pairs(states) do
+				table.insert(moods, string.format("%s*%d", tostring(mood), count))
+			end
+			table.sort(moods)
+			table.insert(
+				out,
+				string.format(
+					"%s alive=%d walk=%d %s dz=%.0f speed=%.1f nearest beater=%s away=%s",
+					group.id,
+					alive,
+					walked,
+					table.concat(moods, ","),
+					dzSum / alive,
+					speedSum / alive,
+					if nearest < math.huge then string.format("%.0f", nearest) else "none",
+					if counted > 0 then string.format("%+.2f", awaySum / counted) else "--"
+				)
+			)
+		end
+	end
+	return out
+end
+
 -- ---------------------------------------------------------------- the loop
 
 function ForestTest.start(runtime, now: number)
@@ -829,6 +1196,13 @@ function ForestTest.start(runtime, now: number)
 	-- TASK 153: how many animals a real beater has walked up to, and the line the console gets.
 	state.flushed = 0
 	state.flushLine = nil
+	-- TASK 154: the resting groups this world was stocked with, and when the wood last went empty.
+	-- `rest` holds one row per group that was actually placed; `latched` remembers which animals
+	-- have already been sent, so one walk past a sounder is one spook and not one per heartbeat.
+	state.rest = {}
+	state.restEmptyAt = nil
+	state.latched = {}
+	state.restTrace = {}
 end
 
 -- ONE TICK. Returns a line when something happened and nil otherwise, so the boot script can print
@@ -885,11 +1259,23 @@ function ForestTest.step(now: number): string?
 	-- phantom beaters below are untouched and come back with one word, because Karen has accepted
 	-- parts of them before.
 	if Data.LINE ~= nil and Data.LINE.enabled == true then
+		-- WHO HAS BEEN WALKED UP ON, BEFORE ANYTHING ELSE IS DECIDED (task 154). It runs in BOTH
+		-- modes and over every live animal, so a beater meeting a scheduled line and a beater
+		-- meeting a resting sounder get the same rule -- see `ForestTest.spookNearBeaters`.
+		local spooked = ForestTest.spookNearBeaters(now)
 		ForestTest.stepLines(now)
 		-- ONE LINE PER FLUSH (task 153), through the channel this module already answers on: the
 		-- boot prints whatever `step` returns, and "the beater had no visible effect" is the kind of
 		-- claim that needs a number beside it.
-		local flush = ForestTest.takeFlushLine()
+		local flush = ForestTest.takeFlushLine() or spooked
+		-- BEATER MODE HAS NO SCHEDULE (task 154). Karen walked the 240 studs to the road in about
+		-- sixteen seconds and the first wave was still four seconds away: *"didn;t see any animals
+		-- probably need to wait 10s ?"*. So nothing is released on a timer while she is a beater --
+		-- the wood is already full, and `stepRest` is what fills and re-fills it. A HUNTER's world
+		-- is untouched: he stands still and the drive comes to him, which is what a schedule is for.
+		if ForestTest.beaterMode() then
+			return ForestTest.stepRest(now, spooked) or flush
+		end
 		if now < state.nextWaveAt then
 			return flush
 		end
@@ -1339,44 +1725,25 @@ function ForestTest.stepLines(now: number)
 		-- The rejoin path is deleted; `backups/2026-10-09-line-rejoin-at-tail.md` keeps it.
 		line.gone = line.gone or {}
 		local live = {}
-		-- WHO IS PUSHING, THIS STEP (task 153). Karen, 2026-10-11: *"we will try walk spook, use horn
-		-- have that feeling"*.
+		-- A BEATER WALKING UP ON A FILE IS THE SAME RULE AS A BEATER WALKING UP ON A RESTING GROUP,
+		-- AND THERE IS NOW ONE PLACE THAT APPLIES IT: `ForestTest.spookNearBeaters`, which runs over
+		-- every live animal in the world once per step, before this loop. Task 153 put a copy of it
+		-- here because the lines were the only animals there were; task 154 stocks the wood with
+		-- resting sounders as well, and two copies of "how close is too close" is two answers.
 		--
-		-- AN ORDER OUTRANKS PERCEPTION, AND THAT IS WHY THIS LINE EXISTS. An ordered animal returns
-		-- from `Brain:step` before the pace clamp and before every mood (task 127: "a line crossing a
-		-- road does not stop to look at the edge"), so marking the player a `driver` in
-		-- `boarThreats` -- which is right, and is what the Brain branches on everywhere else --
-		-- changes NOTHING for an animal walking a trail. MEASURED in this place before the line was
-		-- written: she walked to within 8.9 studs of a file and every member kept its ordered walk
-		-- at 4.5 studs/s. The only things that take an animal out of a file are a flight and a
-		-- check, so a beater who has walked up to one asks for a flight, through `Runtime:spook` --
-		-- the same door the crossing shove below uses and the same one the horn uses.
-		--
-		-- THE NUMBER IS THE BOAR SYSTEM'S OWN: `PACE.DRIVER_RUN_STUDS` is "a REAL driver this close
-		-- makes it run", read off the RUNTIME's config like every other number this drive uses.
-		local beaters = ForestTest.realBeaters()
-		local flushStuds = boarConfig().PACE.DRIVER_RUN_STUDS or 0
+		-- WHAT THAT PASS DOES FOR A FILE IS UNCHANGED IN KIND AND CHANGED IN DEGREE: an ordered
+		-- animal returns from `Brain:step` before the pace clamp and before every mood (task 127: "a
+		-- line crossing a road does not stop to look at the edge"), so being marked a `driver` in
+		-- `boarThreats` changes nothing for an animal walking a trail -- MEASURED in this place: she
+		-- walked to within 8.9 studs of a file and every member kept its ordered walk at 4.5
+		-- studs/s. Only a flight takes an animal out of a file, and the pass asks for one. It now
+		-- asks at `SPOOK.BEATER_STUDS` (25 m) instead of `PACE.DRIVER_RUN_STUDS` (25 studs, 7 m),
+		-- and it asks for the LATCH -- Karen: *"it's not like they cool down they spooked and run
+		-- away"*. `Line.stillInFile` then drops the flying animal out of the file below, as it
+		-- always has.
 		for _, member in ipairs(line.members) do
 			local status = runtime:statusOf(member.id)
 			if status ~= nil and status.alive then
-				if #beaters > 0 and flushStuds > 0 then
-					local at, gap = ForestTest.nearestBeater(status.position, beaters)
-					if at ~= nil and gap <= flushStuds then
-						-- AWAY FROM HER, which is the whole point: `Brain:_latchFlight` takes its
-						-- heading from the point handed in, so an animal flushed by a beater
-						-- standing north of it runs SOUTH -- ahead of the push, over the road --
-						-- and not back past her.
-						if runtime:spook(member.id, at) then
-							state.flushed = (state.flushed or 0) + 1
-							state.flushLine = string.format(
-								"a beater flushed %s at %.0f studs (%d flushed so far)",
-								member.id,
-								gap,
-								state.flushed
-							)
-						end
-					end
-				end
 				local wound = runtime:woundOf(member.id)
 				local already = line.gone[member.id] == true
 				local flying = runtime:flying(member.id)

@@ -1541,4 +1541,47 @@ return function()
 			TestKit.note(string.format("boar-behaviour: %d sight rays over 10 s of stepping", calls))
 		end)
 	end)
+
+	---------------------------------------------------------------- past the guns (task 149b, 154)
+
+	describe("what counts as a threat the animal has gone past", function()
+		-- `PACE.LEAVE_AFTER_CROSSING` (task 149b): a stimulus on the FAR SIDE from the exit is one
+		-- the animal has walked past, so it keeps going instead of grazing beside the road it has
+		-- just crossed. It had NO coverage at all until task 154 found the hole by falling in it.
+		--
+		-- THE HOLE: a BEATER stands behind the animals -- that is what a beater is -- so with her in
+		-- the stimulus list every resting animal in the Forest Test read as "past the guns" on its
+		-- first sense tick and left at a walk with nothing having happened. MEASURED, 2026-10-11:
+		-- five resting sounders 112-181 studs from a motionless beater, all 27 members FLEE in the
+		-- first report, marching south for the whole session.
+		--
+		-- BOTH STIMULI ARE FAR ENOUGH AWAY TO BE NOTHING ELSE: 60 studs against a STANDING notice
+		-- radius of 25 and a flush of 15, so `reaction` is "none" for both of them and row 10b is
+		-- the only rule that can fire.
+		local function crossedWith(kind: string?): boolean
+			local config = paceConfig(true)
+			local brain = Brain.new(config, FIELD, START, Random.new(5))
+			-- NORTH of the animal, which is the far side from `FIELD.exitZ` (-190).
+			local behind = { { id = "t", position = Vector3.new(0, 0, 60), kind = kind, speed = 0 } }
+			local position = START
+			for _ = 1, math.ceil(2 / DT) do
+				local intent = brain:step(DT, obs(position, behind))
+				position += intent.targetVelocity * DT
+			end
+			return Brain.classOf(brain:state()) == "panicked"
+		end
+
+		it("counts a GUN it has walked past, and never the beater pushing it", function()
+			-- A shooter behind it: it has crossed, so it leaves.
+			expect(crossedWith("shooter")).to.equal(true)
+			-- A driver behind it: that is the drive, not a line it has broken through.
+			expect(crossedWith("driver")).to.equal(false)
+			-- ...and a stimulus with NO kind is a driver, the same reading `Brain.perceive` gives
+			-- it: that is what every stimulus was before kinds existed.
+			expect(crossedWith(nil)).to.equal(false)
+			TestKit.note(
+				"crossing latch: a shooter 60 studs behind crosses the animal, a driver and an unnamed stimulus do not"
+			)
+		end)
+	end)
 end

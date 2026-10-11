@@ -114,6 +114,39 @@ return function()
 			return slowest, calmAt, goneAt
 		end
 
+		it("latches on what the CALLER asked for, not on what frightened it (task 154)", function()
+			-- KAREN, 2026-10-11, about a beater and a horn and not about a gun: *"once I get a bit
+			-- closer they just run away without stop it's not like they cool down they spooked and
+			-- run away"* and *"horn reach is further once they hear also run without stop"*. So the
+			-- third argument is "this fright does not wear off" and NOT "this fright was a bang" --
+			-- which is why it is called `untilExit` since this task.
+			--
+			-- THE CONFIG IS THE SAME IN BOTH HALVES, which is the whole point: with
+			-- `SHOT_FLIGHT_UNTIL_EXIT` on, the ordinary push the drive has always made still wears
+			-- off, and only a fright that ASKS to latch latches.
+			local function latched(untilExit: boolean?): boolean
+				local brain = Brain.new(moveConfig(true), FIELD, START, Random.new(31))
+				brain:spook(Vector3.new(0, 0, 60), nil, untilExit)
+				local position = START
+				for _ = 1, math.ceil(40 / DT) do
+					local intent = brain:step(DT, obs(position, {}))
+					position += intent.targetVelocity * DT
+					if brain:state() == "GONE" then
+						return true -- it left, which is the only way a latched flight ends
+					end
+					if brain:state() == "IDLE" then
+						return false -- it settled
+					end
+				end
+				return false
+			end
+
+			expect(latched(true)).to.equal(true)
+			expect(latched(false)).to.equal(false)
+			expect(latched(nil)).to.equal(false)
+			TestKit.note("spook(from, nil, true) leaves and never settles; the drive's own push still calms down")
+		end)
+
 		it("runs at a RUN until it is off the board, where the flag off slows to a walk", function()
 			local onSlowest, onCalm, onGone = flown(true)
 			local offSlowest, offCalm, offGone = flown(false)
