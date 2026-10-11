@@ -1072,7 +1072,10 @@ local function watchCharacter(player: Player)
 		-- the drive with no vest while the shooters kept their hats, which is exactly what Karen
 		-- reported not seeing (PLAYTEST.md, 2026-09-27). One call, at the moment a character
 		-- arrives, from the module that owns what is written onto a character.
-		Body.dress(character, Body.teamOf(player), Match.CONFIG)
+		-- THROUGH THE APPEARANCE WINDOW SINCE TASK 151 (`docs/design/beater-kit.md` section 5): the
+		-- outfit now includes the base clothing COLOUR, and a colour is the half that a late
+		-- appearance load can overwrite. The welded hat cannot be; a `BodyColors` write can.
+		Body.dressWhenLoaded(player, character, Match.CONFIG)
 		local record = tied[player.UserId]
 		if not record then
 			return

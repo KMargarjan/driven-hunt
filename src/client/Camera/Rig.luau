@@ -203,11 +203,35 @@ end
 -- So the walk stays off the frame path, and `DescendantAdded` keeps the list true: a part that
 -- appears while the body is hidden is hidden as it arrives, and `DescendantRemoving` keeps the list
 -- from growing across a life of accessory churn.
+--
+-- AND IT IS RE-ASSERTED EVERY FRAME WHILE HIDDEN, BECAUSE THERE IS A SECOND WRITER WE CANNOT
+-- REMOVE (task 151 round 3). `Rig.acquire` already warns that this PlayerModule will not turn its
+-- cameras off -- *"this PlayerModule's GetCameras() has no Disable method"* -- and the stock
+-- `PlayerModule.CameraModule.TransparencyController` keeps running with them. It computes
+-- `LocalTransparencyModifier` from ITS OWN zoom distance, not from where the camera actually is,
+-- and this camera moves the eye to the head without touching that zoom -- so it decides the player
+-- is in third person and writes 0 over everything, every frame.
+--
+-- MEASURED in the Forest Test, 2026-10-11: `LocalTransparencyModifier = 1` written on all 18
+-- drawable parts of the local character, and **two seconds later only 2 were still 1**. The one
+-- that put them back names itself:
+-- `Players.<player>.PlayerScripts.PlayerModule.CameraModule.TransparencyController`.
+--
+-- Writing once on the CHANGE was therefore writing into a value something else overwrites on the
+-- next frame, and the symptom was the whole body on screen in first person: the player's own right
+-- arm as a tan block in the bottom-right, and -- once task 151 gave everybody one -- the brim of
+-- their own orange cap across the top.
+--
+-- The walk stays off the frame path; what is now per-frame is the WRITE over the cached list, which
+-- is ~20 property sets and is not what cost 0.8 ms (that was `GetDescendants`). `Rig.reassertions()`
+-- counts the frames on which it had to, so "the stock controller is still fighting us" is a number
+-- somebody can read rather than a thing somebody remembers.
 local hiddenParts: { Instance } = {}
 local hiddenFor: Model? = nil
 local hiddenNow: boolean? = nil
 local hiddenAdded: RBXScriptConnection? = nil
 local hiddenRemoving: RBXScriptConnection? = nil
+local reassertions = 0
 
 -- EVERYTHING the local character is wearing or holding, the Tool included. Two screenshots taught
 -- this: with accessories excluded the hair hung across the top of the ADS view, and with the Tool
@@ -219,9 +243,10 @@ local function trackHiddenPart(part: Instance)
 	end
 	table.insert(hiddenParts, part)
 	if hiddenNow then
-		-- It arrived while the body is hidden: hide it now, because the write loop below only runs
-		-- when the flag CHANGES and the flag is not going to change again until the player lowers
-		-- the gun.
+		-- It arrived while the body is hidden: hide it now rather than wait for the next frame's
+		-- re-assert, so a part is never drawn for the frame it appears in. (Since task 151 round 3
+		-- the hide IS written every frame -- see the header -- so this is one frame of latency
+		-- saved, not the only thing that would ever write it.)
 		(part :: any).LocalTransparencyModifier = 1
 	end
 end
@@ -279,14 +304,34 @@ function Rig.setLocalBodyHidden(hidden: boolean)
 	if hiddenFor ~= character then
 		watchCharacter(character)
 	end
-	if hiddenNow == hidden then
+	-- SHOWING AGAIN IS STILL WRITTEN ONCE, on the change: nothing else is trying to HIDE the local
+	-- body, so there is nobody to fight and a per-frame write would be a cost with no effect.
+	if hidden == false then
+		if hiddenNow == false then
+			return
+		end
+		hiddenNow = false
+		for _, part in ipairs(hiddenParts) do
+			(part :: any).LocalTransparencyModifier = 0
+		end
 		return
 	end
-	hiddenNow = hidden
-	local value = if hidden then 1 else 0
-	for _, part in ipairs(hiddenParts) do
-		(part :: any).LocalTransparencyModifier = value
+	-- HIDING IS WRITTEN EVERY FRAME, against the stock TransparencyController (see the header above).
+	if hiddenNow ~= true then
+		hiddenNow = true
+	else
+		reassertions += 1
 	end
+	for _, part in ipairs(hiddenParts) do
+		(part :: any).LocalTransparencyModifier = 1
+	end
+end
+
+-- How many frames this module has had to write the local body hidden AGAIN after the first one.
+-- Zero over a session would mean the second writer had gone away and the per-frame write could go
+-- with it; it is not zero today, and the number is how anybody would find out.
+function Rig.reassertions(): number
+	return reassertions
 end
 
 -- How many parts the local body's cache is holding, for the spec that proves a part arriving after

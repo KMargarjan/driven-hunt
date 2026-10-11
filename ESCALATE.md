@@ -1,5 +1,42 @@
 # Escalations
 
+## 2026-10-11 — Task 151: NEEDS TEST2, one click. Everything else is done and looked at
+
+**The work is finished and measured.** `[harness] PASS: 33/33 checks @ ab81e5b (clean tree)
+scope=all`, SMOKE PASS in the Forest Test (gun in hand at 15 s and 90 s, 0 stacks, 0 error lines,
+5 waves), and the beater wears the real hi-vis vest and an orange cap in
+`<runs-dir>/151-outfit-preview.png`.
+
+**The earlier entry here asked for a Rojo Connect in the Forest Test Studio. That was wrong and is
+withdrawn:** that place is Team Create, where `.Source` reads empty by design (the Director,
+2026-10-11), so judging its sync by `#Source == 0` was meaningless. Judged by PLAY instead, it is
+connected and running this branch's code — the `/beater` command works there and the console line is
+in the review request.
+
+### NEEDS TEST2 — the two-player run, for the review round AND the merge
+
+`src/server/Match/` is in `TWO_PLAYER_PATHS`, so `tools/review.ps1 151` refuses to start without a
+`[harness2]` line, and the PR to `main` needs one too. StudioMCP cannot start it: `start_stop_play`
+takes no player count. A `--scope auto` run cannot get round it either, and that was checked rather
+than assumed — `src/server/ForestTest/` is unmapped in `BLAST_RADIUS`, so `scope_for` on this
+branch's changed paths answers `['all']`, which is tagged `scope=all`, full evidence, and therefore
+still asks for `[harness2]`.
+
+In the **DEV** Studio, in Edit: **Test tab → Clients and Servers → Players: 2 → Start**, then leave
+the windows alone until the harness says to press **Cleanup**.
+
+### FOR KAREN, one thing that is hers
+
+**The bald heads.** Putting a real cap on means taking the avatar's own hair off: this avatar's hair
+is a 2.08 × 2.05 × 1.94 bowl and the cap is 0.93 tall, so with the hair on, the cap read as black
+with an orange peak. The Director has accepted it; one word from Karen and the hair stays and the
+raised grey-box hat comes back.
+
+*(The cap in first person is FIXED in round 3, not outstanding: the local body — cap and vest
+included — is hidden from its own client at every pitch. It was never only the cap: 16 of 20 local
+parts were drawn, because the stock `PlayerModule.CameraModule.TransparencyController` rewrites
+`LocalTransparencyModifier` every frame and `Camera.Rig` only wrote it on the change.)*
+
 ## 2026-10-10 — Task 149b: the code is done and gated, and it cannot be reviewed. TWO BLOCKERS
 
 **The work itself is finished and measured.** `[harness] PASS: 33/33 checks @ 8468e38 (clean tree)

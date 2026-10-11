@@ -214,6 +214,11 @@ Assets.KEYS = table.freeze({
 	boarGrazeStart = "boar.anim.calm.graze.start",
 	boarGrazeEnd = "boar.anim.calm.graze.end",
 	boarDigWalk = "boar.anim.calm.dig.walk",
+	-- THE BEATER KIT'S TWO WORN CATALOG ITEMS (task 151, round 2). They are the first rows in this
+	-- manifest that were neither uploaded by this project nor bought: they are ORDINARY CATALOG
+	-- ACCESSORIES, worn by the experience. See their rows for why that costs nobody anything.
+	outfitVest = "outfit.vest",
+	outfitCap = "outfit.cap",
 })
 
 -- WHICH KINDS `Loader` CAN TURN INTO AN INSTANCE, and therefore which ones `keysFor` may hand a boot
@@ -2184,6 +2189,120 @@ Assets.ROWS = {
 			.. "four whose preview reads exactly like the real thing. Every maker's mark it carried -- "
 			.. "the name, the 'Made in Austria' line, the serial and both bird logos -- is painted out "
 			.. "of the atlas; the magnification numerals are generic and were kept.",
+	},
+	-- ------------------------------------------------- the beater kit (task 151, round 2)
+	--
+	-- THE FIRST TWO ROWS IN THIS MANIFEST THAT NOBODY UPLOADED AND NOBODY BOUGHT. They are ordinary
+	-- Roblox CATALOG ACCESSORIES, and the whole point of them is a correction the Director made on
+	-- 2026-10-11, which round 1 of this task got wrong:
+	--
+	--   A CATALOG ITEM'S PRICE IS WHAT A PLAYER PAYS TO OWN IT ON THEIR OWN AVATAR. It is NOT a
+	--   price on an experience dressing a character in it. Every try-on and outfit game in Roblox
+	--   puts catalog accessories on characters at no cost to anyone, and round 1 read
+	--   `IsPublicDomain: false` and `PriceInRobux: 90` as "we cannot use this" -- which was simply
+	--   wrong, and is corrected in docs/research/2026-10-11-beater-kit.md section 4.2.
+	--
+	-- `kind = "model"` because that is what `InsertService:LoadAsset` answers with: a Model holding
+	-- one `Accessory`. `Assets.Loader` caches that container as the template and refuses it if it
+	-- carries a script, which is the one hazard a stranger's asset brings -- both were MEASURED
+	-- script-free on 2026-10-11 and the Loader checks it again on every boot anyway.
+	--
+	-- `bakedScale = true` AND IT MATTERS: design 6.1's rule is "the consumer sets Size, always", and
+	-- for a worn accessory that rule is wrong. The Humanoid welds the Handle by its own Attachment,
+	-- and a Size written onto it would move the mesh off that attachment and resize a garment that
+	-- is already cut for an R15 body. `sizeStuds` therefore RECORDS what the handle already
+	-- measures, exactly as the boar's rows do, and nothing writes it.
+	--
+	-- NO `sourceSha256` THAT MEANS ANYTHING: there is no file. The field is required by `AssetRow`,
+	-- so it carries the empty-string sentinel and says so rather than inventing a digest for bytes
+	-- this project has never held.
+	{
+		key = "outfit.vest",
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "outfit" :: string?,
+		-- The catalog id, which is not an Open Cloud upload: `assets/uploads.json` has no row for
+		-- this and must not gain one (it is one row per upload, and there was none).
+		modelId = 99269365249885,
+		displayName = "High Vis Vest Orange",
+		fileName = "",
+		sourceSha256 = "",
+		source = "roblox" :: Source,
+		-- The CATALOG CREATOR, by name, because there is no uploader userId of ours to record.
+		creator = "RP UGC",
+		licence = {
+			basis = "roblox-catalog-accessory",
+			quote = "A Roblox catalog accessory worn by the experience. The 50 Robux price is what "
+				.. "a PLAYER pays to own it on their own avatar; an experience dressing a character "
+				.. "in a public catalog accessory pays nothing and needs no licence of its own, "
+				.. "which is how every try-on and outfit game works. Nothing is uploaded, copied or "
+				.. "redistributed: the id is loaded from Roblox at run time and worn.",
+			quotedFrom = "Director's correction, 2026-10-11; docs/research/2026-10-11-beater-kit.md section 4.2",
+			readOn = "2026-10-11",
+			attribution = 'RP UGC, "High Vis Vest Orange" (99269365249885)',
+		},
+		added = "2026-10-11",
+		-- It is live in the catalog, which is the only moderation state available for an item that
+		-- is not ours: nothing here went through a moderation queue of ours.
+		moderation = "approved" :: Moderation,
+		-- NOT MEASURED, and the field is required. A stranger's mesh carries no triangle count this
+		-- project can read without a plugin, and nothing here decides anything on it.
+		trisDeclared = 0,
+		-- MEASURED off the loaded Handle in the DEV place, 2026-10-11.
+		sizeStuds = Vector3.new(2.0805, 1.898, 1.1093),
+		naturalSizeStuds = Vector3.new(2.0805, 1.898, 1.1093),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "LOOKED AT, front and back, on a green stand-in torso "
+			.. "(<runs-dir>/151-vest-check.png): the back is a plain orange panel with a reflective "
+			.. "band and the front has the V-neck, the zip and two bands -- so it WRAPS, and the "
+			.. "Task 82 back plate is not needed under it. One Accessory, MeshPart Handle, "
+			.. "BodyFrontAttachment, no scripts.",
+	},
+	{
+		key = "outfit.cap",
+		version = 1,
+		kind = "model" :: Kind,
+		scope = "outfit" :: string?,
+		modelId = 13724841516,
+		displayName = "Orange Cap",
+		fileName = "",
+		sourceSha256 = "",
+		source = "roblox" :: Source,
+		creator = "dvdko",
+		licence = {
+			basis = "roblox-catalog-accessory",
+			quote = "As the vest above: a catalog accessory worn by the experience. The 90 Robux "
+				.. "price is what a player pays to own it on their own avatar, not a cost to this "
+				.. "game for dressing a character in it.",
+			quotedFrom = "Director's correction, 2026-10-11; docs/research/2026-10-11-beater-kit.md section 4.2",
+			readOn = "2026-10-11",
+			attribution = 'dvdko, "Orange Cap" (13724841516)',
+		},
+		added = "2026-10-11",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 0,
+		sizeStuds = Vector3.new(2.0105, 0.9303, 1.4306),
+		naturalSizeStuds = Vector3.new(2.0105, 0.9303, 1.4306),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "A SOLID BLAZE-ORANGE BASEBALL CAP: curved peak, no branding, no black anywhere. "
+			.. "LOOKED AT (<runs-dir>/151-caps/cap-13724841516.png) and measured. THE FIRST PICK WAS "
+			.. "WRONG AND IT IS WORTH SAYING WHY: ten candidates were first rendered as floating "
+			.. "HANDLES in one row and the pixels of the row were measured by guessing each cap's x "
+			.. 'position in the frame -- which picked `6202417448` "Orange Trendy Cap" on a '
+			.. "reading of (201, 94, 0). Put on an actual head it rendered BLACK with an orange "
+			.. "trim. Re-measured one cap at a time, alone, on one fixed camera, that same cap is "
+			.. "(194, 147, 98): saturation 0.50 and a green/red ratio of 0.76, a washed-out tan. "
+			.. "A HANDLE IN A ROW IS NOT A HAT ON A HEAD, and a pixel sample at a guessed "
+			.. "coordinate is not a measurement. This cap measures (203, 97, 1): saturation 0.995, "
+			.. "green/red 0.478 against OUTFIT_COLOR's 0.439, and a DARK FRACTION OF 0.000 -- which "
+			.. "is the number that catches a black cap with an orange logo, and is 0.20 on the next "
+			.. "best beanie. One Accessory, MeshPart Handle, HatAttachment, no scripts.",
 	},
 } :: { AssetRow }
 
