@@ -1305,14 +1305,17 @@ local LATE_MODULE_SECONDS = 10
 -- watches; `PUSH_BEARING_DEG` is the way a beater walks, and the world derives the second from the
 -- first so they can never disagree. A world that has said neither gets no marker at all, which is
 -- what `Compass.setBearing(nil)` means and what every place but the Forest Test does.
-function Hud.driveBearing(data, team: string?): number?
+-- IT ANSWERS THE WORD TOO (task 153 round 2, the Reviewer's blocking finding): a marker that moved
+-- without its label told a beater the drive was south. nil for the label means "the compass's own
+-- word", which is what a hunter and every other world get.
+function Hud.driveBearing(data, team: string?): (number?, string?)
 	if data == nil then
-		return nil
+		return nil, nil
 	end
 	if team ~= nil and team == data.PUSH_TEAM then
-		return data.PUSH_BEARING_DEG
+		return data.PUSH_BEARING_DEG, data.PUSH_LABEL
 	end
-	return data.DRIVE_BEARING_DEG
+	return data.DRIVE_BEARING_DEG, nil
 end
 
 -- "NOT THERE YET" IS NOT "NOT THERE AT ALL", AND THAT WAS THE BUG (task 134).
@@ -1489,6 +1492,8 @@ function Hud.start()
 
 	if compassFrame then
 		local bearing = nil
+		-- ...and the WORD under the marker, which travels with it (task 153 round 2).
+		local bearingLabel = nil
 		if Map.EXPECTED_WORLD == "forest-test" then
 			-- WAITED FOR, FOR THE SAME REASON AS THE MATCH (task 134). This was the Hud's SECOND
 			-- `FindFirstChild` on a replicated module, found by the sweep this task asked for, and it
@@ -1511,14 +1516,17 @@ function Hud.start()
 				local data = require(module)
 				local function apply()
 					local team = player.Team
-					bearing = Hud.driveBearing(data, if team then team.Name else nil)
-					Compass.setBearing(bearing)
+					bearing, bearingLabel = Hud.driveBearing(data, if team then team.Name else nil)
+					Compass.setBearing(bearing, bearingLabel)
 				end
 				apply()
 				player:GetPropertyChangedSignal("Team"):Connect(apply)
 			end)
 		end
-		Compass.start(compassFrame, bearing)
+		-- BOTH, OR `start` UNDOES THE WORD. In the common case the closure above has already run and
+		-- `Compass.start` sets the bearing a second time; passing only the number would put a
+		-- beater's marker back under the hunter's label on the first frame (task 153 round 2).
+		Compass.start(compassFrame, bearing, bearingLabel)
 		-- ONCE A FRAME, because it tracks the view: everything else in this file is event-driven,
 		-- and a compass that updates on an event is a compass that lags the turn that caused it.
 		-- `RenderStepped` is the client's own draw tick and this writes nothing but its own frame.

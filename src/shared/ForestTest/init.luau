@@ -142,6 +142,13 @@ ForestTest.BEATER = {
 -- marker is the road. Derived from the one fact above it, never written twice.
 ForestTest.PUSH_BEARING_DEG = (ForestTest.DRIVE_BEARING_DEG + 180) % 360
 
+-- ...AND THE WORD THAT GOES WITH IT (task 153 round 2, the Reviewer's blocking finding). The marker
+-- is a chevron and a label, and turning the chevron round without the label gave a beater a compass
+-- saying the DRIVE is south while every animal she is pushing is north of her. The hunter's word is
+-- the Hud's own `Compass.CONFIG.DRIVE_LABEL`; this is the beater's, and it lives beside the bearing
+-- it belongs to so the two can never be changed apart.
+ForestTest.PUSH_LABEL = "ROAD"
+
 -- WHICH TEAM IS DOING THE PUSHING, so the HUD never hard-codes a team name. The string itself is
 -- `Drive.TeamName`'s and the one translator from Karen's word to it is `Match.Body.ROLE_WORDS`;
 -- this is the world saying which of the two is the beater's, for a client that can only see

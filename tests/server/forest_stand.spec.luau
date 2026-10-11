@@ -1,5 +1,8 @@
 -- forest_stand.spec: THE PLAYTEST WORLD'S OWN ARITHMETIC -- the road, the stands, the leash and the
--- phase a wave is in. Pure: no Workspace, no boars, no clock.
+-- phase a wave is in. Pure, with two named exceptions since task 153: `beaterStartPosition` raycasts
+-- `Workspace` (and in the DEV place, where there is no terrain under this world's coordinates, what
+-- that case proves is the FALLBACK), and the threat-kind case reads the live `Players` service and
+-- says so when there is nobody to read. No boars and no clock anywhere.
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 --
 -- IT EXISTS BECAUSE NOTHING COVERED ANY OF IT (task 122 round 2, the Reviewer's last note). The
@@ -337,7 +340,7 @@ return function()
 			expect(Data.PUSH_TEAM).to.equal("Drivers")
 		end)
 
-		it("measures the ground and the trunks, and always answers a point", function()
+		it("never answers nil or a point off the push line, whatever the ground says", function()
 			-- THIS RUNS IN THE DEV PLACE, where this world's coordinates have no terrain under them:
 			-- the fallback is therefore what is proved here, and what it must never do is answer nil
 			-- or a point off the push line. The live numbers -- her actual y and the nearest trunk --
