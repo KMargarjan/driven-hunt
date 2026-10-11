@@ -1,21 +1,21 @@
 # Task 157 — review request: the real drive runs in the forest
 
 Task: 157
-Round: 2
+Round: 3
 Base: `612dbf2` (`main`, #139 merged)
-Code commit: `bd0a61598d9ef2dc2e3cd8783dca2ac1bc40cac3`
+Code commit: `ae6d9f9d47d10dce1b7433839650451faedd7623`
 
 ```
-[harness] PASS: 33/33 checks @ 8d77d31c7b6ef00a8d6691e729370808cfa3ebbd (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 8d77d31c7b6ef00a8d6691e729370808cfa3ebbd (clean tree) scope=all
-[harness] PASS: 33/33 checks @ bd0a61598d9ef2dc2e3cd8783dca2ac1bc40cac3 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ bd0a61598d9ef2dc2e3cd8783dca2ac1bc40cac3 (clean tree)
+[harness] PASS: 33/33 checks @ ae6d9f9d47d10dce1b7433839650451faedd7623 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ ae6d9f9d47d10dce1b7433839650451faedd7623 (clean tree) scope=all
+[harness2] <PENDING — the Director runs it: one Studio, one human click>
 ```
 
-The last two lines are the Director's at the head `bd0a615` (only paperwork after `8d77d31`). Two clean one-player runs at the code commit **with the DEV Studio ALONE**
-(`<runs-dir>/gate-157-r2-1.log`, `gate-157-r2-2.log`) — the condition the Director's gates run in.
+Two clean one-player runs at the code commit **with the DEV Studio ALONE**
+(`<runs-dir>/gate-157-r3-1.log`, `gate-157-r3-2.log`) — the condition the Director's gates run in.
 **This change touches `src/server/Match/`, so it IS in `TWO_PLAYER_PATHS` and the merge needs
-`[harness2]` for this same sha** — the Director runs it (dispatch, 2026-10-11). Round 1's `[harness2] PASS: 35/35 @ 4dee920` is in `RESULT.md`'s round-1 evidence; this round's code is newer.
+`[harness2]` for this same sha** — the Director runs it. Rounds 1 and 2 each have a Director
+`[harness2] PASS: 35/35` in `RESULT.md`'s evidence; this round's code is newer than both.
 
 ## What changed
 
@@ -142,6 +142,30 @@ with an injected world. Note: `docs/research/2026-10-11-forest-drive.md`.
     and the two assertions that could not fail. **Queued, not fixed:** what the drive aims at when
     stand 5 itself is the refused one (with §17.3), the replay-ordering race, and design §13.5's
     stale markers-print line — that one is the Architect's file, so the Builder has not touched it.
+
+13. **THE HARNESS'S SCOPE MAP, NAMED AS ITS OWN CLAIM** (round 2 finding 1 and its last note: this
+    edit was in the diff and in none of the claims, which is how the finding went unverified).
+    `tools/studio_mcp.py` maps `src/server/ForestTest/`, `src/shared/ForestTest/` and
+    `src/server/ForestTestBoot.server.luau` to the `match` scope. **Mapping them moved them OFF the
+    fail-safe** — before, they matched no prefix and fell through to the whole suite — so the scope's
+    spec list has to name the forest module's own specs or a scoped run plays less than it claims.
+    It does now: `forest_stand.spec` and `forest_line.spec` are in the `match` tuple as well as in
+    `boar`'s (dual membership is this file's idiom — `zz_horn`, `boar_hit`, `boar_shot`,
+    `shoot_boar`), and the comment says why the claim is true.
+    *Verify:* `BLAST_RADIUS` and `SCOPE_SPECS["match"]` in `tools/studio_mcp.py`; and
+    **`python tools/studio_mcp.py selftest`**, which now has one case per prefix asserting the scope
+    name plus `forest_stand`, `forest_line` and `forest_markers` **by name** — measured here:
+    each of the three paths answers `['match']` with 15 specs including all three, and removing
+    `forest_stand` from the tuple in a scratch session turns the predicate false, so the case can
+    fail. `selftest` runs in CI.
+14. **ROUND 2's ONE-LINE NOTES, FIXED:** `readOnlyBoars`'s header said *"five reads and two
+    signals"* (it is two signals and three reads); `Body.settle` and `PLACEMENT_SETTLE_SECONDS` said
+    *"on the next frame"* where the code is `task.defer`, which resumes when the current resumption
+    cycle ends; the one-constant assertion in `forest_line.spec` is hoisted out of the nine-stand
+    loop; and the *"reads the live teams"* case now states what it proves (the no-argument call
+    reaches the live teams and does not error) and what it does not (the true branch, which the case
+    above it carries). **Queued, not fixed:** design §5.2 item 4's stale `takeRequest` sketch — the
+    code is the better half, and that file is the Architect's.
 
 ## Not verified / out of scope
 
