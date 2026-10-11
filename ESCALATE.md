@@ -1,5 +1,45 @@
 # Escalations
 
+## 2026-10-11 — Task 151: NEEDS KAREN, two clicks. The outfit is built, gated and looked at
+
+**The work itself is finished and measured.** `[harness] PASS: 33/33 checks @ 36fb2b1 (clean tree)
+scope=all`, smoke PASS in DEV (gun in hand at 15 s and 90 s, 0 stacks, 0 error lines), and the frame
+is in `<runs-dir>/151-outfit-preview.png` with hunter and beater, front and back, beside the live
+first-person sleeve. Neither click below is about the code, and I have worked around neither.
+
+### NEEDS KAREN 1 — Rojo **Connect** in the "Driven Hunt Forest Test" Studio
+
+Every script in that place reads `#Source == 0` — it holds the world and no game code, the state
+Task 122 last recorded. So the `/beater` chat command, which exists only in that world, **has never
+run**, and I am not claiming it has.
+
+What *is* proven without that place: the parser and the role store are specs
+(`tests/server/forest_stand.spec.luau`), and **`Player.Chatted` was measured to fire under
+`TextChatService`** — a client `RBXGeneral:SendAsync("/beater")` in a DEV Play session made the
+server hear `/beater` verbatim, so the design's `TextChatCommand` fallback is not needed. What is
+NOT proven is this task's own wiring in that place.
+
+**The clicks, in order:**
+
+1. Open the Studio window titled **Driven Hunt Forest Test** (placeId 130094961655666).
+2. Make sure it is in **Edit** mode (press Stop if a playtest is running).
+3. Rojo panel → **Connect** (`rojo serve` is already serving both place ids).
+4. Accept Rojo's confirmation dialog if it lists removals.
+5. Press **Play**, wait for the drive to put you on the road, then type **`/beater`** in the chat
+   and press Enter. Expect a console line:
+   `[ForestTest] <name> is now a beater (team=Drivers, 6 outfit part(s))`
+   and an orange vest plus the orange hat on your character. `/hunter` puts it back (2 parts).
+
+### NEEDS KAREN 2 — the two-player run, for the merge only
+
+`src/server/Match/` is in `TWO_PLAYER_PATHS`, so the PR to `main` needs
+`python tools/studio_mcp.py test2` as well. StudioMCP cannot start it: `start_stop_play` takes no
+player count. In the **DEV** Studio, in Edit: **Test tab → Clients and Servers → Players: 2 → Start**,
+then leave the windows alone until the harness says to press **Cleanup**.
+
+The review round itself does not need it — the one-player line above is full `scope=all` evidence —
+so the Reviewer can run now and this click is the Director's to schedule before merging.
+
 ## 2026-10-10 — Task 149b: the code is done and gated, and it cannot be reviewed. TWO BLOCKERS
 
 **The work itself is finished and measured.** `[harness] PASS: 33/33 checks @ 8468e38 (clean tree)
