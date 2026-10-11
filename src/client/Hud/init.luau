@@ -549,8 +549,42 @@ local function build(): ScreenGui
 		table.insert(feedLines, line)
 	end
 
+	-- EVERY LABEL OF A PANEL SITS ABOVE THE PANEL'S OWN ZINDEX, AND WEARS THE BLACK OUTLINE (task
+	-- 159). THE SECOND TIME THIS REPO HAS PAID FOR IT, and the first is written down six lines into
+	-- `src/client/Hud/ReportPanel.luau`: *"with the panel opaque at ZIndex 10 and its labels at the
+	-- default 1, the whole report came out as an EMPTY BLACK RECTANGLE -- the text was being drawn
+	-- BEHIND its own background"*. Task 141 raised the SCORE PANEL and the START CARD to
+	-- `Report.CONFIG.PANEL_Z_INDEX` (15) over the scope's mask and left their labels at 1, so both
+	-- have been drawing their text behind their own translucent dark background ever since -- which
+	-- is what `.screenshots/20261011T230613Z-task159-results-scene.png` and `...230908Z...` show:
+	-- the panel reads, the words do not.
+	--
+	-- One helper, so a third panel cannot be built without it. It works under either
+	-- `ScreenGui.ZIndexBehavior`: under `Global` the absolute numbers order the whole screen, under
+	-- `Sibling` these still order correctly among their own siblings
+	-- (https://create.roblox.com/docs/reference/engine/enums/ZIndexBehavior).
+	local function panelLabel(parent: Frame, name: string, size: number): TextLabel
+		local text = Instance.new("TextLabel")
+		text.Name = name
+		text.ZIndex = parent.ZIndex + 1
+		text.BackgroundTransparency = 1
+		text.Font = Enum.Font.Code
+		text.TextSize = size
+		text.TextColor3 = Drive.CONFIG.TEXT_COLOR
+		text.TextXAlignment = Enum.TextXAlignment.Left
+		text.Text = ""
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = Drive.CONFIG.SCORE_TEXT_STROKE
+		stroke.Color = Color3.new(0, 0, 0)
+		stroke.Parent = text
+		text.Parent = parent
+		return text
+	end
+
 	-- The score screen: a centred panel, hidden except in the Scoring phase. Built once, like
 	-- everything else here, and shown by renderScore -- the ONE writer of its visibility.
+	-- SINCE TASK 159 IT IS ALSO KAREN'S RESULTS TABLE, read over a sunlit wood at the end of every
+	-- drive, which is why every label below goes through `panelLabel`.
 	local rows = Drive.CONFIG.SCORE_ROWS_MAX
 	local rowHeight = Drive.CONFIG.SCORE_ROW_HEIGHT
 	local panel = Instance.new("Frame")
@@ -560,7 +594,7 @@ local function build(): ScreenGui
 	panel.BorderSizePixel = 0
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
-	panel.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH, 60 + rows * rowHeight + 30)
+	panel.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH, 64 + rows * rowHeight + 30)
 	-- OVER THE FEED AND THE BAR, because it is the thing to read -- AND OVER THE SCOPE'S MASK
 	-- (task 141): this is drawn at the centre of the screen, which is inside the eyepiece, so at the
 	-- old 5 a player who could still hold the aim in `Scoring` would read a board cut off at the
@@ -573,59 +607,37 @@ local function build(): ScreenGui
 	panel.Visible = false
 	panel.Parent = screen
 
-	local title = Instance.new("TextLabel")
-	title.Name = "Title"
-	title.BackgroundTransparency = 1
-	title.Font = Enum.Font.Code
-	title.TextSize = Drive.CONFIG.SCORE_TITLE_SIZE
-	title.TextColor3 = Drive.CONFIG.TEXT_COLOR
-	title.Position = UDim2.fromOffset(16, 10)
-	title.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, 28)
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Text = ""
-	title.Parent = panel
+	local title = panelLabel(panel, "Title", Drive.CONFIG.SCORE_TITLE_SIZE)
+	title.Position = UDim2.fromOffset(16, 8)
+	title.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, 30)
+	-- BOLD, through `FontFace` rather than a second font: `Font.fromEnum` keeps the Code family the
+	-- whole Hud is written in -- the columns below are aligned by `string.format`, so a
+	-- proportional title beside a monospace table would be two typefaces for one panel -- and the
+	-- weight is the one property that changes.
+	-- https://create.roblox.com/docs/reference/engine/datatypes/Font
+	local titleFace = Font.fromEnum(Enum.Font.Code)
+	titleFace.Weight = Enum.FontWeight.Bold
+	title.FontFace = titleFace
 
-	local header = Instance.new("TextLabel")
-	header.Name = "Header"
-	header.BackgroundTransparency = 1
-	header.Font = Enum.Font.Code
-	header.TextSize = Drive.CONFIG.SCORE_TEXT_SIZE
-	header.TextColor3 = Drive.CONFIG.TEXT_COLOR
-	header.TextTransparency = 0.4
-	header.Position = UDim2.fromOffset(16, 40)
+	local header = panelLabel(panel, "Header", Drive.CONFIG.SCORE_TEXT_SIZE)
+	-- DIMMER WHITE, not grey (see the contract's own comment).
+	header.TextTransparency = Drive.CONFIG.SCORE_HEADER_TRANSPARENCY
+	header.Position = UDim2.fromOffset(16, 42)
 	header.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, rowHeight)
-	header.TextXAlignment = Enum.TextXAlignment.Left
 	header.Text = "#  NAME             TEAM     KILLS  POINTS"
-	header.Parent = panel
 
 	table.clear(scoreLines)
 	for index = 1, rows do
-		local line = Instance.new("TextLabel")
-		line.Name = string.format("Row%d", index)
-		line.BackgroundTransparency = 1
-		line.Font = Enum.Font.Code
-		line.TextSize = Drive.CONFIG.SCORE_TEXT_SIZE
-		line.TextColor3 = Drive.CONFIG.TEXT_COLOR
-		line.TextXAlignment = Enum.TextXAlignment.Left
-		line.Position = UDim2.fromOffset(16, 60 + (index - 1) * rowHeight)
+		local line = panelLabel(panel, string.format("Row%d", index), Drive.CONFIG.SCORE_TEXT_SIZE)
+		line.Position = UDim2.fromOffset(16, 64 + (index - 1) * rowHeight)
 		line.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, rowHeight)
-		line.Text = ""
 		line.Visible = false
-		line.Parent = panel
 		table.insert(scoreLines, line)
 	end
 
-	local footer = Instance.new("TextLabel")
-	footer.Name = "Footer"
-	footer.BackgroundTransparency = 1
-	footer.Font = Enum.Font.Code
-	footer.TextSize = Drive.CONFIG.SCORE_TEXT_SIZE
-	footer.TextColor3 = Drive.CONFIG.TEXT_COLOR
-	footer.Position = UDim2.fromOffset(16, 60 + rows * rowHeight + 4)
+	local footer = panelLabel(panel, "Footer", Drive.CONFIG.SCORE_TEXT_SIZE)
+	footer.Position = UDim2.fromOffset(16, 64 + rows * rowHeight + 4)
 	footer.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, 22)
-	footer.TextXAlignment = Enum.TextXAlignment.Left
-	footer.Text = ""
-	footer.Parent = panel
 
 	-- THE START CARD (task 158), upper middle, up for the countdown and gone at GO. Karen: *"we just
 	-- need to at the begining what they can shoot and timer when start"* -- so: what may be shot,
@@ -647,46 +659,27 @@ local function build(): ScreenGui
 	card.Visible = false
 	card.Parent = screen
 
-	local cardTitle = Instance.new("TextLabel")
-	cardTitle.Name = "Title"
-	cardTitle.BackgroundTransparency = 1
-	cardTitle.Font = Enum.Font.Code
-	cardTitle.TextSize = Drive.CONFIG.START_CARD_TITLE_SIZE
-	cardTitle.TextColor3 = Drive.CONFIG.TEXT_COLOR
+	-- THE SAME DEFECT AND THE SAME FIX (task 159). The start card is the OTHER frame task 141 raised
+	-- to `PANEL_Z_INDEX` with its labels left at 1, so Karen has been reading her ten-second card
+	-- through its own panel too. It is fixed here, in the same commit, because it is one defect with
+	-- two instances and leaving the second would mean shipping a card nobody can read on purpose.
+	local cardTitle = panelLabel(card, "Title", Drive.CONFIG.START_CARD_TITLE_SIZE)
 	cardTitle.Position = UDim2.fromOffset(16, 10)
 	cardTitle.Size = UDim2.fromOffset(Drive.CONFIG.START_CARD_WIDTH - 32, 28)
-	cardTitle.TextXAlignment = Enum.TextXAlignment.Left
-	cardTitle.Text = ""
-	cardTitle.Parent = card
 
 	table.clear(startCardLines)
 	for index = 1, cardLines do
-		local line = Instance.new("TextLabel")
-		line.Name = string.format("Line%d", index)
-		line.BackgroundTransparency = 1
-		line.Font = Enum.Font.Code
-		line.TextSize = Drive.CONFIG.START_CARD_TEXT_SIZE
-		line.TextColor3 = Drive.CONFIG.TEXT_COLOR
-		line.TextXAlignment = Enum.TextXAlignment.Left
+		local line = panelLabel(card, string.format("Line%d", index), Drive.CONFIG.START_CARD_TEXT_SIZE)
 		line.Position = UDim2.fromOffset(16, 44 + (index - 1) * Drive.CONFIG.START_CARD_LINE_HEIGHT)
 		line.Size = UDim2.fromOffset(Drive.CONFIG.START_CARD_WIDTH - 32, Drive.CONFIG.START_CARD_LINE_HEIGHT)
-		line.Text = ""
 		line.Visible = false
-		line.Parent = card
 		table.insert(startCardLines, line)
 	end
 
-	local cardTimer = Instance.new("TextLabel")
-	cardTimer.Name = "Timer"
-	cardTimer.BackgroundTransparency = 1
-	cardTimer.Font = Enum.Font.Code
-	cardTimer.TextSize = Drive.CONFIG.START_CARD_TITLE_SIZE
+	local cardTimer = panelLabel(card, "Timer", Drive.CONFIG.START_CARD_TITLE_SIZE)
 	cardTimer.TextColor3 = Drive.CONFIG.START_CARD_TIMER_COLOR
 	cardTimer.Position = UDim2.fromOffset(16, 44 + cardLines * Drive.CONFIG.START_CARD_LINE_HEIGHT + 2)
 	cardTimer.Size = UDim2.fromOffset(Drive.CONFIG.START_CARD_WIDTH - 32, 28)
-	cardTimer.TextXAlignment = Enum.TextXAlignment.Left
-	cardTimer.Text = ""
-	cardTimer.Parent = card
 
 	-- The tied banner, for the local player alone and only while they are tied. The comedy is the
 	-- point and so is the teaching: it says what they did.

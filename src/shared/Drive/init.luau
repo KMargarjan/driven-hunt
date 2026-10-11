@@ -100,8 +100,17 @@ Drive.CONFIG = {
 	-- panel renders whatever rows arrive in the snapshot.
 	SCORE_PANEL_WIDTH = 480,
 	SCORE_ROW_HEIGHT = 22,
-	SCORE_TITLE_SIZE = 22,
+	-- 22 -> 26 AND BOLD (task 159, the Director on the scene frame: *"the table is UNREADABLE ...
+	-- make the table text WHITE (title larger and bold ...)"*). The title is the one line that says
+	-- what the panel IS, and at the end of a drive it is read over a bright wood.
+	SCORE_TITLE_SIZE = 26,
 	SCORE_TEXT_SIZE = 16,
+	-- THE HEADER IS DIMMER WHITE, not grey: a column heading should recede, and a GREY glyph over a
+	-- sunlit field recedes all the way out of sight. 0.4 -> 0.25.
+	SCORE_HEADER_TRANSPARENCY = 0.25,
+	-- THE BLACK OUTLINE EVERY OTHER LABEL IN THIS HUD WEARS (the feed's lines, the drive report's).
+	-- One pixel: enough to hold a thin Code glyph against grass, not enough to thicken it.
+	SCORE_TEXT_STROKE = 1,
 	SCORE_ROWS_MAX = 16, -- Match.CONFIG.MAX_PLAYERS; more rows than players can exist is harmless
 	-- THE RESULTS TABLE'S TITLE (task 159). Karen: *"showing image transperent with results table"*,
 	-- and the panel she is describing IS this one -- a semi-transparent centred panel, one row per

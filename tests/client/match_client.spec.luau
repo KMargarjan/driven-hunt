@@ -269,6 +269,59 @@ return function()
 			expect(panel.BackgroundTransparency < 1).to.equal(true)
 		end)
 
+		it("draws its text IN FRONT of its own panel, in white, with an outline (task 159)", function()
+			-- THE DEFECT THIS CASE EXISTS FOR, and it shipped twice before anybody looked: task 141
+			-- raised this panel to `Report.CONFIG.PANEL_Z_INDEX` (15) so it would not be cut off at
+			-- the scope's glass, and left every label at the default ZIndex 1 -- so the translucent
+			-- dark panel was drawn OVER its own words. `Hud.scoreRowText()` read them back perfectly
+			-- the whole time; the screen showed a grey rectangle
+			-- (.screenshots/20261011T230908Z-task159-results-scene.png). `ReportPanel` had already
+			-- paid for exactly this on 2026-10-05 ("an EMPTY BLACK RECTANGLE ... drawn BEHIND its own
+			-- background"), which is why the rule is now one helper and this is asserted.
+			Hud.renderScore(scoring(), 12)
+			local panel = Hud.scorePanel()
+			expect(panel).to.be.ok()
+			local checked = 0
+			for _, child in ipairs(panel:GetChildren()) do
+				if child:IsA("TextLabel") then
+					checked += 1
+					-- IN FRONT OF ITS OWN PANEL.
+					expect(child.ZIndex > panel.ZIndex).to.equal(true)
+					-- WHITE. The header is dimmer by TRANSPARENCY, not by a grey colour, and the
+					-- highlighted row is Karen's own gold.
+					local white = child.TextColor3 == Drive.CONFIG.TEXT_COLOR
+					local mine = child.TextColor3 == Drive.CONFIG.SCORE_HIGHLIGHT_COLOR
+					expect(white or mine).to.equal(true)
+					-- ...and not faded out of existence by its own transparency.
+					expect(child.TextTransparency < 0.5).to.equal(true)
+					-- THE OUTLINE every other label in this Hud wears: a thin Code glyph over sunlit
+					-- grass is the half of the text that disappears first.
+					local stroke = child:FindFirstChildOfClass("UIStroke")
+					expect(stroke).to.be.ok()
+					expect(stroke.Thickness).to.equal(Drive.CONFIG.SCORE_TEXT_STROKE)
+				end
+			end
+			-- Title, header, footer and every row slot.
+			expect(checked).to.equal(3 + Drive.CONFIG.SCORE_ROWS_MAX)
+			-- The title is the line that says what the panel is: bigger than a row, and BOLD.
+			local title = panel:FindFirstChild("Title")
+			expect(title.TextSize > Drive.CONFIG.SCORE_TEXT_SIZE).to.equal(true)
+			expect(title.TextSize).to.equal(Drive.CONFIG.SCORE_TITLE_SIZE)
+			expect(title.FontFace.Weight).to.equal(Enum.FontWeight.Bold)
+			-- ...and the panel is still see-through, which is what Karen asked for.
+			expect(Drive.CONFIG.SCORE_PANEL_TRANSPARENCY > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"match_client: results table -- panel z=%d labels z=%d title %d bold, stroke %d, panel alpha %.2f",
+					panel.ZIndex,
+					title.ZIndex,
+					title.TextSize,
+					Drive.CONFIG.SCORE_TEXT_STROKE,
+					panel.BackgroundTransparency
+				)
+			)
+		end)
+
 		it("shows this drive's points, one row per player, mine highlighted", function()
 			Hud.renderScore(scoring(), 12)
 			local rows = Hud.scoreRowText()
@@ -389,6 +442,25 @@ return function()
 			end
 			expect(node).to.equal(game)
 			expect(card.BackgroundTransparency < 1).to.equal(true)
+		end)
+
+		it("draws the card's text IN FRONT of the card, with an outline (task 159)", function()
+			-- THE SAME DEFECT AS THE RESULTS TABLE, in the other frame task 141 raised: Karen reads
+			-- this card for ten seconds at the start of every drive, through its own panel.
+			Hud.renderStartCard(starting(), "Shooters", 7)
+			local card = Hud.startCard()
+			expect(card).to.be.ok()
+			local checked = 0
+			for _, child in ipairs(card:GetChildren()) do
+				if child:IsA("TextLabel") then
+					checked += 1
+					expect(child.ZIndex > card.ZIndex).to.equal(true)
+					expect(child.TextTransparency < 0.5).to.equal(true)
+					local stroke = child:FindFirstChildOfClass("UIStroke")
+					expect(stroke).to.be.ok()
+				end
+			end
+			expect(checked).to.equal(2 + Drive.CONFIG.START_CARD_LINES_MAX)
 		end)
 
 		it("tells a HUNTER his role, what he may shoot, and how long he has to reach his stand", function()
