@@ -75,9 +75,18 @@ for _, report in ipairs(reports) do
 	if report.ok then
 		ok += 1
 	end
+	-- THE ELAPSED MILLISECONDS ARE PART OF THE EVIDENCE, not decoration: `Loader` gives this call
+	-- 15 seconds for all keys and 10 for any one of them, and a boot that shares the network with
+	-- the gun, the rifle and the boar can run out of either. A run that falls back to plates and a
+	-- run that loads in 400 ms look identical without this number.
 	table.insert(
 		lines,
-		string.format("%s=%s", report.key, if report.ok then "ok" else "FAILED:" .. tostring(report.reason))
+		string.format(
+			"%s=%s(%dms)",
+			report.key,
+			if report.ok then "ok" else "FAILED:" .. tostring(report.reason),
+			math.floor(report.elapsedMs or -1)
+		)
 	)
 end
 
@@ -108,7 +117,25 @@ print(
 -- `dressWhenLoaded` is idempotent by construction -- it destroys the folder and this module's own
 -- tagged accessories before it builds anything, so a re-dress cannot leave a player in two hats.
 -- A player with no team yet is a no-op here and is dressed when the drive gives them one.
-if ok > 0 then
+--
+-- IT IS A BOUNDED POLL AND NOT A SINGLE SHOT, for the case `Loader` itself documents: `preload`
+-- gives up WAITING at its deadline, but the abandoned load keeps running and `adopt` takes the
+-- template if it ever lands -- "a slow load is late rather than lost". A one-shot re-dress here
+-- would miss exactly that, and the symptom is a player in plates with the console claiming success.
+-- The poll runs in its own thread, so the boot never blocks on it.
+local REDRESS_WINDOW_S = 20
+local REDRESS_INTERVAL_S = 1
+
+local function everyTemplateIsHere(): boolean
+	for _, key in ipairs(keys) do
+		if Loader.template(key) == nil then
+			return false
+		end
+	end
+	return #keys > 0
+end
+
+local function redressEverybody(why: string)
 	local redressed = 0
 	for _, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
@@ -119,8 +146,39 @@ if ok > 0 then
 	end
 	print(
 		string.format(
-			"[OutfitAssetsBoot] re-dressed %d player(s) who were already on a team when the accessories landed",
-			redressed
+			"[OutfitAssetsBoot] re-dressed %d player(s) already on a team (%s); %d accessory(ies) worn, %d slot(s) on plates",
+			redressed,
+			why,
+			Body.accessoriesWorn(),
+			Body.slotsFellBack()
 		)
 	)
 end
+
+if ok > 0 then
+	redressEverybody("the preload returned")
+end
+
+task.spawn(function()
+	local deadline = os.clock() + REDRESS_WINDOW_S
+	while os.clock() < deadline do
+		if everyTemplateIsHere() then
+			if ok < #keys then
+				-- A load that `preload` had given up on has landed since. Nothing else would ever
+				-- ask again, so this is the only thing standing between a late template and a
+				-- player who wears plates for the rest of the session.
+				redressEverybody("a late template landed")
+			end
+			return
+		end
+		task.wait(REDRESS_INTERVAL_S)
+	end
+	if not everyTemplateIsHere() then
+		print(
+			string.format(
+				"[OutfitAssetsBoot] after %ds some accessory never arrived: those slots wear the grey-box plates.",
+				REDRESS_WINDOW_S
+			)
+		)
+	end
+end)

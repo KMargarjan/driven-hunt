@@ -946,6 +946,34 @@ return function()
 					Body.slotsFellBack()
 				)
 			)
+			-- WHY A SLOT FELL BACK, AS A NUMBER RATHER THAN A GUESS. "The player is in plates" has
+			-- two completely different causes -- the catalog load failed, or it succeeded and
+			-- nothing re-dressed him -- and they look identical on screen. This reads the loader's
+			-- own report for the two outfit keys, so every run says which one happened.
+			--
+			-- IT IS A READ AND NOT A DRIVE: the spec asks `Assets`/`Loader` what they already hold
+			-- and changes nothing. `ServerStorage` is reachable from a server spec, which is the
+			-- only reason this can be asked at all from here.
+			local ServerStorage = game:GetService("ServerStorage")
+			local assetsModule = ServerStorage:FindFirstChild("Assets")
+			if assetsModule then
+				local AssetsLive = require(assetsModule) :: any
+				local LoaderLive = require(assetsModule:FindFirstChild("Loader") :: any) :: any
+				local said = {}
+				for _, key in ipairs(AssetsLive.keysFor("outfit")) do
+					local template, report = LoaderLive.template(key)
+					table.insert(
+						said,
+						string.format(
+							"%s=%s%s",
+							key,
+							if template then "cached" else "MISSING",
+							if report and not report.ok then "(" .. tostring(report.reason) .. ")" else ""
+						)
+					)
+				end
+				TestKit.note("task151 outfit assets: " .. table.concat(said, " "))
+			end
 			if Match.CONFIG.OUTFITS_ENABLED then
 				expect(dressed).to.equal(teamed)
 			else
