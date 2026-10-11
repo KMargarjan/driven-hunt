@@ -712,6 +712,21 @@ return function()
 			--
 			-- `keyToggles` is incremented ONLY inside the bound action's `Begin`, so nothing a spec
 			-- calls can reach it. If the scenario's two presses do not arrive, this fails.
+			-- WHAT THE MODULE ACTUALLY SAW, as a note, because "the key did not arrive" and "the map
+			-- was not built when it arrived" are two different faults and task 157 had to tell them
+			-- apart (the DEV-alone gate failed here while a 2-Studio run passed).
+			local seen = MapUi.stats()
+			TestKit.note(
+				string.format(
+					"map keys: keyToggles=%d toggles=%d ticks=%d builtAt=%s now=%.1f bound=%d",
+					seen.keyToggles,
+					seen.toggles,
+					seen.ticks,
+					tostring(seen.builtAt),
+					os.clock(),
+					#MapUi.boundActions()
+				)
+			)
 			expect(MapUi.stats().keyToggles).to.equal(2)
 			-- ...and the binding is really there, under its own reserved name.
 			local actions = MapUi.boundActions()
