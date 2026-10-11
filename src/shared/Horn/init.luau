@@ -164,7 +164,14 @@ Horn.CONFIG = {
 	-- in and out of the hand. The rule stays static -- a non-weapon Tool in the hand is visible --
 	-- and the horn is simply carried where a carried thing hangs: below the hand and outboard of it,
 	-- so it sits in the bottom-right of a right-handed first-person view instead of across it.
-	GRIP = CFrame.new(-0.12, 0.42, 0.1) * CFrame.Angles(0, 0, math.rad(20)),
+	--
+	-- THE NUMBERS WERE LOOKED AT, NOT REASONED ABOUT (rule 5). Four candidates were set on a live
+	-- horn through `Tool.Grip` and photographed: (-0.12, 0.42, 0.10) filled the bottom-right corner
+	-- and cut the bell off; (-0.18, -0.55, 0.10) and (-0.30, -1.00, 0.45) went UP the frame, which
+	-- is how the sign of Grip's Y was settled -- POSITIVE Y lowers it; (-0.35, 0.95, 0.45) dropped it
+	-- almost entirely below the edge. This one shows about a fifth of the coil in the bottom-right
+	-- with the view clear, which is a thing carried at the side.
+	GRIP = CFrame.new(-0.8, 0.7, 0.45) * CFrame.Angles(0, 0, math.rad(25)),
 	-- ...AND THE SAME GRIP, TILTED UP, IS THE WHOLE "RAISE TO MOUTH" (the dispatch allows a tilt).
 	-- IT IS A GRIP AND NOT AN ANIMATION ON PURPOSE: raising the ARM means writing the character's
 	-- Motor6Ds or playing a track on its Animator, and the character already has exactly one writer
@@ -172,7 +179,9 @@ Horn.CONFIG = {
 	-- animated an arm would be a second one, which CLAUDE.md rule 3 forbids. `Tool.Grip` is the
 	-- Tool's own property, the engine rebuilds the grip weld when it changes, and `Weapon.Horn` is
 	-- the only thing that ever writes it.
-	GRIP_BLOW = CFrame.new(-0.12, 0.16, 0.26) * CFrame.Angles(math.rad(-60), 0, math.rad(20)),
+	-- ...and the raised pose brings it up and inboard with the mouthpiece turned toward the face.
+	-- Photographed the same way, on the same horn, in the same session.
+	GRIP_BLOW = CFrame.new(-0.42, 0.05, 0.4) * CFrame.Angles(math.rad(-55), 0, math.rad(25)),
 
 	-- THE HORN'S COLOURS. Director's pick and Karen's to change (her rule, 2026-09-26: styling never
 	-- blocks). Polished brass, raised well above a photographic albedo for the reason Task 22 and

@@ -371,6 +371,63 @@ inherits it rather than inventing a second panic rule, which is what 5.3 asked f
 The radius boundary is visible in that second trace's own rows: the animal at **276 studs ran**, the
 one at **295 did not**.
 
+### 5.4b The horn is a COIL, and the first build was not (round 2)
+
+The first build laid the sections along a straight line and the Director was right about what that
+reads as: *"a straight brass tube / spyglass"*. A driven hunt's horn is **wound** -- a Fuerst-Pless
+or Parforce horn is a coiled brass tube with a bell, and section 5.1's own source (the Oldenburger
+Jagdcenter *Jagd-Signalhorn aus Messing*) is one. The note had the object right and the build had
+only its parts.
+
+**So the tube is bent round an arc**, and the construction is what makes it safe to change: five
+cylinders laid as **chords between points ON a 230-degree arc** of radius 0.38, so consecutive
+sections share an endpoint exactly and no joint can gap however the numbers move. The bore widens
+0.09 -> 0.22 section by section, a nickel cup sits tangent at the near end, a flare and a bell at the
+far one, and the carrying cord closes the C. Nine parts, no asset. Measured in the gate:
+`5 section(s) over a 230-degree arc of radius 0.38; total turn 184 degrees` -- a straight tube scores
+**0** on that number, which is the case that now fails if anybody straightens it again.
+
+**And the first-person carry was measured rather than reasoned about** (rule 5). The Director offered
+two answers for a horn that *"floats with no hands"*: hold it lower and to the right, or hide it
+until a blast. **This task holds it**, and the reason is ownership: hiding it until a blast would
+make `Camera.Rig`'s rule depend on the horn's per-player blast TIMING, so the camera would read
+weapon state every frame and the horn would pop in and out of the hand. The rule stays static -- a
+non-weapon Tool in the hand is visible -- and four candidate grips were set on a live horn and
+photographed:
+
+| `Tool.Grip` | What the frame showed |
+|---|---|
+| (-0.12, 0.42, 0.10) | fills the bottom-right, bell cut off |
+| (-0.18, -0.55, 0.10) | moved to the right edge but still large and cut |
+| (-0.30, -1.00, 0.45) | went UP the frame -- which is how the sign was settled: **positive Y lowers it** |
+| (-0.35, 0.95, 0.45) | dropped almost entirely below the bottom edge |
+| **(-0.80, 0.70, 0.45), roll 25** | **about a fifth of the coil in the bottom-right, view clear** |
+
+`GRIP_BLOW` (-0.42, 0.05, 0.40) with -55 degrees of pitch brings it up and inboard with the
+mouthpiece turned toward the face, photographed in the same session.
+
+**STILL FOR KAREN'S EYE:** under the DEV plate's bright sky the brass reads as **flat yellow**
+rather than metal. The same colour read as brass in the Forest Test's shade, so the two lighting
+environments disagree and the value is not changed on one of them -- it is `LOOK.brass`, one line.
+
+### 5.4c The one-player failure was not the horn: a drive that ends opens the report panel
+
+The gate failed a SECOND one-player run at the same commit with `match_client.spec` "Expected 2, got
+0" three times and `report_panel.spec` "Expected false, got true". One cause, not two:
+`Hud.renderScore` hides the score board while the report panel is open
+(`Hud.scorePanelVisible(snapshot, ReportPanel.isOpen())`), and `ReportPanel.onDriveChanged`
+**auto-opens the panel once when a drive closes**. A live drive ending part-way through a run
+therefore emptied the board under three cases that say nothing about the report, and broke
+`report_panel`'s *"not visible until something opens it"* -- because a drive report **is** something
+opening it.
+
+Both were unstated preconditions, and both now state themselves: `match_client`'s score describe
+closes the panel and puts it back, and `report_panel`'s case asks the panel's **own** `autoOpens`
+counter and still asserts the invariant that `Visible` agrees with `isOpen()`. **MEASURED, two
+consecutive one-player gate runs at `5946136`, both PASS 33/33 -- and the condition FIRED in both**
+(`report_panel: a drive report auto-opened the panel 9 time(s) before this case`), so the fix was
+exercised rather than dodged.
+
 ### 5.5 The defect this task found by LOOKING, and it is the camera's
 
 **A beater holding the horn saw a SHOTGUN in first person.** The server said the character held the
