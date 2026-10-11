@@ -608,10 +608,17 @@ return function()
 			expect(live.QUICK_TEST_INTERMISSION_SECONDS < live.INTERMISSION_SECONDS).to.equal(true)
 			expect(live.QUICK_TEST_FIRST_RELEASE_SECONDS < live.FIRST_RELEASE_SECONDS).to.equal(true)
 			expect(live.QUICK_TEST_INTERVAL_SECONDS < live.RELEASE_INTERVAL_SECONDS).to.equal(true)
-			-- 40 seconds of waiting becomes 8, and that difference IS the task
+			-- THIRTY SECONDS OF WAITING BECOMES EIGHT, and that difference IS task 83.
+			--
+			-- THE FACTOR WAS 4 AND IS NOW 3, because task 158 cut the intermission from 20 to 10 at
+			-- Karen's word ("timer like 10s to find position to stand"): the real wait is 30 s rather
+			-- than 40, the quick wait is the same 8, and 8 * 4 = 32 is no longer under it. The claim
+			-- being made is "the quick test is MUCH faster", which at 3.75x it still is -- and the
+			-- honest way to keep a measured assertion true is to say what was measured, not to retune
+			-- a playtest number so an old multiple survives.
 			local realWait = live.INTERMISSION_SECONDS + live.FIRST_RELEASE_SECONDS
 			local quickWait = live.QUICK_TEST_INTERMISSION_SECONDS + live.QUICK_TEST_FIRST_RELEASE_SECONDS
-			expect(quickWait * 4 <= realWait).to.equal(true)
+			expect(quickWait * 3 <= realWait).to.equal(true)
 			TestKit.note(string.format("task83: %d s of waiting becomes %d s with the quick test", realWait, quickWait))
 		end)
 
