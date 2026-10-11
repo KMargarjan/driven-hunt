@@ -7,7 +7,7 @@ Code commit: 9527bc6aee0fbe2cb67f11c293a0d693d6d643b9
 
 ```
 [harness] PASS: 33/33 checks @ 9527bc6aee0fbe2cb67f11c293a0d693d6d643b9 (clean tree) scope=all
-RUN2
+[harness] PASS: 33/33 checks @ 18f4d4a31511f360185756c42973f03a1f728322 (clean tree) scope=all
 ```
 
 The gate is pasted **twice**, at the Director's instruction. The second line names the commit that
@@ -35,7 +35,8 @@ is a bug and gets reported). Four `test` runs were made at `9527bc6`, in this or
    question. **A harness fault, pre-existing, nothing to do with this change, and not fixed here**
    -- it is the gate's own fixture and this task may not quietly edit the gate. Full log:
    `<runs-dir>/t153-gate-r2a.log`. Queued as 153c.
-4. PASS, the line pasted above. Full log: `<runs-dir>/t153-gate-r2b.log`.
+4. PASS, the first line pasted above. Full log: `<runs-dir>/t153-gate-r2b.log`. The second line is a
+   fifth run, at the paperwork commit that carries this page: `<runs-dir>/t153-gate-r2c.log`.
 
 ## What changed
 
