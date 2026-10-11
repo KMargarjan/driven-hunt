@@ -1528,6 +1528,73 @@ return function()
 			expect(counted > 0).to.equal(true)
 		end)
 
+		-- ...BUT NOT WHAT IS IN THE HAND AND IS NOT A GUN (task 152). "In first person the viewmodel
+		-- IS the gun" is the sentence this module was written around, and it stopped being the whole
+		-- truth the day the beater got a horn: a horn has no viewmodel, so hiding it would leave a
+		-- beater holding nothing at all. MEASURED in the Forest Test, 2026-10-11, before the fix: the
+		-- server said the character held the `Horn` and the first-person frame was a SHOTGUN.
+		--
+		-- The two halves are complements and this case drives BOTH against the same probe: the gun's
+		-- part is hidden (the viewmodel draws it) and the horn's is not (nothing else will).
+		it("leaves a non-weapon Tool visible, and still hides a gun's", function()
+			local character = player.Character
+			expect(character).to.be.ok()
+
+			local function probeTool(name: string, weaponId: string?): (Tool, BasePart)
+				local tool = Instance.new("Tool")
+				tool.Name = name
+				tool.RequiresHandle = false
+				if weaponId then
+					tool:SetAttribute("DrivenHunt.Weapon", weaponId)
+				end
+				local part = Instance.new("Part")
+				part.Name = "Probe"
+				part.Size = Vector3.new(0.2, 0.2, 0.2)
+				part.Transparency = 1
+				part.Anchored = true
+				part.CanCollide = false
+				part.CanQuery = false
+				part.CanTouch = false
+				part.CFrame = character:GetPivot()
+				part.Parent = tool
+				tool.Parent = character
+				return tool, part
+			end
+
+			-- A horn is a Tool this camera must not hide; a shotgun is one it must.
+			local horn, hornPart = probeTool("Horn", nil)
+			local gun, gunPart = probeTool("Shotgun", "shotgun")
+
+			-- `DescendantAdded` is DEFERRED (the case above measured that), so the arrivals are given
+			-- the same bounded wait and the flag is re-asserted on every pass for the same reason.
+			local hornHidden, gunHidden = false, false
+			local deadline = os.clock() + 3
+			while os.clock() < deadline do
+				Camera.Rig.setLocalBodyHidden(true)
+				hornHidden = hornPart.LocalTransparencyModifier == 1
+				gunHidden = gunPart.LocalTransparencyModifier == 1
+				if gunHidden then
+					break
+				end
+				task.wait()
+			end
+			-- Read once more AFTER the gun is in the list: if the horn were being tracked it would
+			-- have been written on the same pass.
+			Camera.Rig.setLocalBodyHidden(true)
+			hornHidden = hornPart.LocalTransparencyModifier == 1
+			local toolAbove = Camera.Rig.toolAbove(hornPart)
+			horn:Destroy()
+			gun:Destroy()
+			Camera.Rig.setLocalBodyHidden(false)
+
+			expect(toolAbove).to.be.ok()
+			expect((toolAbove :: Tool).Name).to.equal("Horn")
+			-- A part of the BODY has no Tool above it, which is what stops this rule hiding nothing.
+			expect(Camera.Rig.toolAbove(character:FindFirstChild("HumanoidRootPart"))).to.equal(nil)
+			expect(gunHidden).to.equal(true)
+			expect(hornHidden).to.equal(false)
+		end)
+
 		-- THE STOCK TransparencyController IS A SECOND WRITER AND IT CANNOT BE REMOVED (task 151
 		-- round 3). `Rig.acquire` already warns that this PlayerModule will not turn its cameras
 		-- off -- "this PlayerModule's GetCameras() has no Disable method" -- and

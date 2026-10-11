@@ -2353,6 +2353,10 @@ function Boar.newRuntime(world)
 		alarms = 0,
 		alerts = 0,
 		avoids = 0,
+		-- TASK 152. Boars PUSHED by a beater's horn, counted the same way `shotsHeard` is: one per
+		-- (blast, animal inside the radius), so a blast that reaches nothing adds nothing and the
+		-- number cannot be read as "blasts blown".
+		hornsHeard = 0,
 	}
 
 	self.Despawned = self._signal.Event
@@ -3953,6 +3957,46 @@ function Runtime:spook(id: string, from: Vector3?): boolean
 		end
 	end
 	return false
+end
+
+-- A HORN WAS BLOWN AT `at`, AND EVERYTHING WITHIN `radiusStuds` OF IT RUNS AWAY (task 152). Karen,
+-- 2026-10-10: *"something that they can walk and make sound for spook"*.
+--
+-- IT IS A PUSH, NOT A SHOT, and that is the whole reason this is its own door rather than a second
+-- caller of `hearShot`. A heard shot latches one way for the rest of the animal's life in this world
+-- (`SENSE.SHOT_FLIGHT_UNTIL_EXIT`, task 150: *"once they hear shoot they run and don't stop"*) and
+-- sets `_lastShotAt`/`_lastShotPos`, which a boar spawned later inherits. A beater walking a wood
+-- blowing every three seconds must not empty the world: his animals run away from him and then
+-- settle under the rules they already have, which is exactly what a real driver's flush does here.
+--
+-- SO IT GOES THROUGH `Brain:spook` -- the ONE door every fright comes through, the same one
+-- `ForestTest`'s phantom beaters use -- with `from` set to the HORN, so `_latchFlight` takes the line
+-- away from the beater (blended toward `field.exitZ`, as every flight is) and `shot` left nil, so
+-- nothing latches. It adds NO boar rule and NO boar number: the radius belongs to the horn and is
+-- passed in (`Horn.spookStuds`), because how far a signal carries is a property of the signal.
+--
+-- Returns how many live animals were pushed. The three states `_hearSound` and `hearShot` both
+-- refuse -- a carcass, a terminal boar and a crippled one -- are refused here too, by `Brain:spook`
+-- itself; they are skipped before the count so the number means "animals that ran".
+function Runtime:hearHorn(at: Vector3, radiusStuds: number): number
+	if self._destroyed then
+		return 0
+	end
+	if typeof(at) ~= "Vector3" or type(radiusStuds) ~= "number" or radiusStuds <= 0 then
+		return 0
+	end
+	local flatAt = flatOf(at)
+	local pushed = 0
+	for _, entry in ipairs(self._boars) do
+		local where = flatOf(Body.position(entry.body))
+		if (where - flatAt).Magnitude <= radiusStuds then
+			if entry.brain:spook(at) == true then
+				pushed += 1
+			end
+		end
+	end
+	self._stats.hornsHeard += pushed
+	return pushed
 end
 
 function Runtime:_requestPath(entry, to: Vector3)

@@ -16,6 +16,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+-- THE HORN'S NUMBERS (task 152). The boot reads one of them -- how far a blast carries -- and the
+-- team that carries one; the behaviour is `Weapon.Horn`'s and the animals are `Boar`'s.
+local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
@@ -143,10 +146,32 @@ runtime.Downed:Connect(function(record)
 	end
 end)
 
+-- A HORN IS A PUSH (task 152): every boar within the horn's own radius runs away from the beater who
+-- blew it. The exact mirror of the `Weapon.ShotFired` line above -- the horn publishes one fact and
+-- the boar's owner decides what it means -- and the radius comes from the HORN, because how far a
+-- signal carries is a property of the signal (`Horn.spookStuds`).
+--
+-- IT IS NOT THE SHOT PATH. `runtime:hearHorn` goes through `Brain:spook`, the same door a real
+-- driver's flush uses, so nothing latches and the animals settle afterwards under the rules they
+-- already have (docs/research/2026-10-11-beater-kit.md section 5.3).
+Weapon.Horn.Blown:Connect(function(blast)
+	runtime:hearHorn(blast.at, HornData.spookStuds(HornData.CONFIG))
+end)
+
 -- The drive answers two questions for the weapon and writes none of its state: who may carry a gun,
 -- and where the drive line is. The weapon still decides and still writes (design section 8.5).
 Weapon.setArmingPolicy(Match.mayCarryWeapon)
 Weapon.setDriveLineProvider(Match.driveLine)
+
+-- ...AND A THIRD, FOR THE HORN: who is a beater. `Match.Body.teamOf` reads `Player.Team` -- the same
+-- fact the outfit is chosen from -- so a beater's horn and a beater's vest can never disagree about
+-- whether he is one. The horn still decides and still writes; this root only answers the question.
+-- The drive respawns players to place them, which destroys the Tool, and `Horn.start`'s own sweep is
+-- what notices -- so the match needs no new call and `src/server/Match/` is untouched by this task.
+Weapon.Horn.setCarryPolicy(function(player)
+	return Match.Body.teamOf(player) == HornData.TEAM
+end)
+Weapon.Horn.start()
 
 Match.start({
 	boars = runtime, -- the Match calls spawn/clear and reads handles; it never writes a boar
