@@ -36,6 +36,14 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 -- ever disagrees with `src/server/Match/Body.luau`, the case below fails and says so.
 local OUTFIT_NAME = "HuntOutfit"
 local VEST_GAP = 0.12
+-- THE GREEN, by hand for the same reason (task 151). It is the median over 533,692 olive cuff pixels
+-- of the two glove albedo maps (docs/research/2026-10-11-beater-kit.md section 3); if the server's
+-- `Body.BASE_COLOR` ever stops being it, the case below fails on the client that has to look at it.
+local BASE_COLOR = Color3.fromRGB(86, 80, 56)
+local BASE_LIMBS = { "Torso", "LeftArm", "RightArm", "LeftLeg", "RightLeg" }
+local CLEAR_CLASSES = { "Shirt", "Pants", "ShirtGraphic" }
+-- What each role wears: a hunter the two hat parts, a beater those plus the four plates.
+local PART_COUNT = { Shooters = 2, Drivers = 6 }
 
 local AXES = { "X", "Y", "Z" }
 
@@ -111,6 +119,90 @@ return function()
 				expect(dressed).to.equal(0)
 				expect(#outfitParts()).to.equal(0)
 			end
+		end)
+
+		it("received the green: five limb colours, the player's own head, and no shirt", function()
+			-- THE HALF THAT MATTERS, on the side that matters. The server is the only writer, so
+			-- what a client can say about the outfit is what REACHED it -- and since task 151 the
+			-- outfit includes a colour, which is the half a late appearance load can overwrite. If
+			-- the engine's own appearance landed on top of ours, this case is where it shows.
+			local teamed, green, headKept, bare = 0, 0, 0, 0
+			local heads = {}
+			for _, player in ipairs(Players:GetPlayers()) do
+				local character = player.Character
+				if character and player.Team then
+					teamed += 1
+					local colors = character:FindFirstChildOfClass("BodyColors")
+					if colors then
+						local all = true
+						for _, stem in ipairs(BASE_LIMBS) do
+							if (colors :: any)[stem .. "Color3"] ~= BASE_COLOR then
+								all = false
+							end
+						end
+						if all then
+							green += 1
+						end
+						if (colors :: BodyColors).HeadColor3 ~= BASE_COLOR then
+							headKept += 1
+						end
+						table.insert(heads, tostring((colors :: BodyColors).HeadColor3))
+					end
+					local covered = false
+					for _, className in ipairs(CLEAR_CLASSES) do
+						if character:FindFirstChildOfClass(className) then
+							covered = true
+						end
+					end
+					if not covered then
+						bare += 1
+					end
+				end
+			end
+			TestKit.note(
+				string.format(
+					"outfit[client]: %d teamed, %d green, %d own head colour (%s), %d with no shirt/pants",
+					teamed,
+					green,
+					headKept,
+					table.concat(heads, " "),
+					bare
+				)
+			)
+			if Flags.isOn("ORANGE_OUTFITS") then
+				expect(green).to.equal(teamed)
+				expect(headKept).to.equal(teamed)
+				expect(bare).to.equal(teamed)
+			else
+				expect(green).to.equal(0)
+			end
+		end)
+
+		it("wears the right number of parts for its role: 2 for a hunter, 6 for a beater", function()
+			-- KAREN'S DOC, AS A COUNT (task 151): the hunter has the orange hat, the beater has the
+			-- orange hat AND the orange vest. Before this task a driver had four parts and no hat.
+			local checked = 0
+			local lines = {}
+			for _, player in ipairs(Players:GetPlayers()) do
+				local character = player.Character
+				local team = player.Team
+				local folder = character and character:FindFirstChild(OUTFIT_NAME)
+				if folder and team then
+					local worn = 0
+					for _, child in ipairs(folder:GetChildren()) do
+						if child:IsA("BasePart") then
+							worn += 1
+						end
+					end
+					local want = PART_COUNT[team.Name]
+					table.insert(lines, string.format("%s=%s:%d", player.Name, team.Name, worn))
+					if want then
+						checked += 1
+						expect(worn).to.equal(want)
+					end
+				end
+			end
+			TestKit.note(string.format("outfit[client]: %d role(s) counted (%s)", checked, table.concat(lines, " ")))
 		end)
 
 		it("shows the vest: every plate stands clear of the torso it is welded to", function()

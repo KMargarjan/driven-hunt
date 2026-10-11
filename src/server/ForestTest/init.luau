@@ -373,6 +373,12 @@ local state = {
 	waveIndex = 0,
 	active = {} :: { { centre: Vector3, handles: { any }, at: number, turnsBack: boolean, id: string } },
 	picks = {} :: { [number]: { index: number, lockedAt: number? } },
+	-- WHICH ROLE A PLAYER HAS ASKED FOR, in Karen's own words (task 151, beater-kit design section
+	-- 9). It sits beside `picks` because it is the same kind of fact -- what this player chose in
+	-- this playtest -- and it is a REQUEST and not the truth: `Player.Team`, written by
+	-- `Match.Body.setTeam`, is the truth, and `Body.teamOf` stays its one reader. This module writes
+	-- no Instance for it and does not require `Match`.
+	roles = {} :: { [number]: string },
 	released = 0,
 	-- TASK 127. Declared here rather than springing into existence in `start`, so `stats()` on a
 	-- module that has not been started -- which is exactly what a harness query gets, because MCP's
@@ -655,6 +661,50 @@ end
 
 function ForestTest.clearPick(userId: number)
 	state.picks[userId] = nil
+end
+
+-- ---------------------------------------------------------------- which role, in this world only
+--
+-- THE FOREST TEST HAS NO BEATERS: its drivers are phantom positions with nobody standing on them
+-- (`ForestTest.boarThreats`), and Karen tests alone. So that she can SEE a beater -- the thing task
+-- 151 built -- she asks for one by typing in the chat, and these four functions are the whole of
+-- "which role has this player asked for" (beater-kit design section 9).
+--
+-- IT ANSWERS IN KAREN'S WORDS, not in team names. `Match.Body.teamForWord` is the one translator
+-- from "beater" to "Drivers", and keeping it there is what stops this file becoming a second place
+-- where that mapping is written down.
+
+export type RoleWord = "hunter" | "beater"
+
+-- He spawns as a hunter, which is what this world has always put him down as.
+ForestTest.ROLE_DEFAULT = "hunter" :: RoleWord
+
+-- PURE. The role in a line of chat, or nil for anything else -- including an empty line and a word
+-- with no slash. Case- and whitespace-insensitive, because Karen types it while playing.
+function ForestTest.parseRole(text: string?): RoleWord?
+	if text == nil then
+		return nil
+	end
+	local word = string.lower((string.gsub(text, "%s", "")))
+	if word == "/beater" then
+		return "beater"
+	elseif word == "/hunter" then
+		return "hunter"
+	end
+	return nil
+end
+
+function ForestTest.roleOf(userId: number): RoleWord
+	return (state.roles[userId] :: any) or ForestTest.ROLE_DEFAULT
+end
+
+function ForestTest.setRole(userId: number, role: RoleWord): RoleWord
+	state.roles[userId] = role
+	return role
+end
+
+function ForestTest.clearRole(userId: number)
+	state.roles[userId] = nil
 end
 
 -- PULLS A LOCKED HUNTER BACK INSIDE HIS LEASH. Returns the position it moved him to, or nil.

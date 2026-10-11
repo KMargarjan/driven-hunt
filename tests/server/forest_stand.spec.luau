@@ -167,4 +167,48 @@ return function()
 			expect(ForestTest.beaterPosition(centre, ForestTest.WAVE.pushSeconds, false)).to.equal(nil)
 		end)
 	end)
+
+	-- THE ROLE KAREN ASKS FOR BY TYPING (task 151, docs/design/beater-kit.md section 9). This world
+	-- has no beaters -- its drivers are phantom positions with nobody standing on them -- so the only
+	-- way to SEE the beater outfit here is to ask for it. The chat itself cannot be driven by the
+	-- harness (`tests/client/input_scenarios.txt` expresses keys, mouse and gaps, not text), so what
+	-- is asserted here is the PARSER and the store, and the console line from the Forest Test place
+	-- is the other half of the evidence.
+	describe("which role the player has asked for", function()
+		it("reads the two commands, however they are typed", function()
+			expect(ForestTest.parseRole("/beater")).to.equal("beater")
+			expect(ForestTest.parseRole("/hunter")).to.equal("hunter")
+			expect(ForestTest.parseRole("  /BEATER ")).to.equal("beater")
+			expect(ForestTest.parseRole("/Hunter")).to.equal("hunter")
+			-- and nothing else is a role, including the horn that is task 152
+			expect(ForestTest.parseRole("/horn")).to.equal(nil)
+			expect(ForestTest.parseRole("beater")).to.equal(nil) -- no slash: ordinary chat
+			expect(ForestTest.parseRole("/beater now")).to.equal(nil)
+			expect(ForestTest.parseRole("")).to.equal(nil)
+			expect(ForestTest.parseRole(nil)).to.equal(nil)
+		end)
+
+		it("starts him as a hunter, remembers what he asked for, and forgets it", function()
+			local userId = -151 -- no player has a negative id, so this cannot touch the live one
+			expect(ForestTest.roleOf(userId)).to.equal("hunter")
+			expect(ForestTest.ROLE_DEFAULT).to.equal("hunter")
+			expect(ForestTest.setRole(userId, "beater")).to.equal("beater")
+			expect(ForestTest.roleOf(userId)).to.equal("beater")
+			expect(ForestTest.setRole(userId, "hunter")).to.equal("hunter")
+			expect(ForestTest.roleOf(userId)).to.equal("hunter")
+			ForestTest.setRole(userId, "beater")
+			ForestTest.clearRole(userId)
+			expect(ForestTest.roleOf(userId)).to.equal("hunter")
+		end)
+
+		it("translates Karen's word through Match.Body, which is the one translator", function()
+			-- `ForestTest` answers in KAREN'S words and never in team names: the mapping lives in
+			-- `Match.Body.ROLE_WORDS` alone, so "beater means Drivers" is written down once.
+			local Body = require(ServerScriptService:WaitForChild("Match")).Body
+			expect(Body.teamForWord(ForestTest.roleOf(-152))).to.equal("Shooters")
+			expect(Body.teamForWord("beater")).to.equal("Drivers")
+			expect(Body.teamForWord("hunter")).to.equal("Shooters")
+			expect(Body.teamForWord("x")).to.equal(nil)
+		end)
+	end)
 end

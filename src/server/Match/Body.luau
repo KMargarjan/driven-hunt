@@ -39,9 +39,18 @@
 -- gives it this owner precisely so it never gets two (not the Hud, which draws the screen and not
 -- the world; not the client, which cannot be trusted or screenshotted from the server).
 --
--- Design: docs/design/drive.md (sections 5.1, 5.3, 6.4, 8.4),
---         docs/design/map-generator.md (section 10)
--- Note:   docs/research/2026-09-25-drive.md
+-- SINCE TASK 151 THE OUTFIT HAS A BASE, AND EVERYBODY WEARS IT (beater-kit design sections 2-4).
+-- Karen's design doc "Driven Hunt v1": the hunter wears a green jacket and green trousers plus an
+-- orange hat; the beater wears the same green plus an orange hat AND an orange vest. So this module
+-- gained three more writes on the same signals -- the base COLOUR, the removal of the player's own
+-- clothing, and a short window that holds both against a late appearance load -- and it gained no
+-- second writer: `BodyColors` is written here and nowhere else in the repo, and nothing anywhere
+-- calls `Humanoid:ApplyDescription`, which would undo all of it from outside the owner.
+--
+-- Design: docs/design/beater-kit.md (THE design of what a character wears; it supersedes
+--         map-generator section 10 and drive.md section 5.4 where they disagree),
+--         docs/design/drive.md (sections 5.1, 5.3, 6.4, 8.4)
+-- Note:   docs/research/2026-10-11-beater-kit.md, docs/research/2026-09-25-drive.md
 local Players = game:GetService("Players")
 local Teams = game:GetService("Teams")
 local Workspace = game:GetService("Workspace")
@@ -50,9 +59,31 @@ local Body = {}
 
 export type TeamName = "Drivers" | "Shooters"
 
+-- THE BASE: a colour, which limbs take it, and what has to go so it can be seen (beater-kit
+-- design section 3). `limbs` holds BodyColors property STEMS, not limb names: the property written
+-- is `stem .. "Color3"`.
+export type BaseRow = {
+	color: Color3,
+	limbs: { string },
+	clearClasses: { string },
+	clearLayered: boolean,
+}
+
 -- What a tied player's humanoid was before it was frozen, keyed by userId so nothing here holds a
 -- Player (design section 7.2's discipline, applied to this table too). Written only by tie/untie.
 local held: { [number]: { walkSpeed: number, jumpHeight: number, jumpPower: number } } = {}
+
+-- ONE OPEN APPEARANCE WINDOW PER userId (beater-kit design section 5). Keyed by userId for the same
+-- reason `held` is: nothing here holds a Player. Written only by watchAppearance and Body.forget.
+local watching: {
+	[number]: { character: Model, connection: RBXScriptConnection, closed: boolean },
+} = {}
+
+-- THE PROOF, NOT A FEELING (design section 5's last paragraph). If `strayCleared` stays 0 on every
+-- run and Karen sees green, the window caught nothing and its five seconds can be shortened or
+-- dropped -- which is a number to read, not an opinion to hold.
+local strayCleared = 0
+local repaints = 0
 
 local TEAM_COLORS = {
 	Drivers = BrickColor.new("Bright blue"),
@@ -111,86 +142,171 @@ local VEST_THICKNESS = 0.22
 local VEST_GAP = 0.12
 local VEST_HEIGHT_FRACTION = 0.78 -- of the torso's height: a vest, not a barrel
 
-local OUTFITS = {
-	Shooters = {
-		{
-			name = "Hat", -- the brim
-			limb = "Head",
-			fallbackLimb = nil,
-			shape = Enum.PartType.Cylinder,
-			size = Vector3.new(0.35, 2.2, 2.2), -- world box 2.2 x 0.35 x 2.2 after the turn below
-			rotationDeg = Vector3.new(0, 0, 90),
-			offset = Vector3.new(0, 0.95, 0), -- above the Head's CENTRE, which is what a Position is
-			color = OUTFIT_COLOR,
-		},
-		{
-			name = "HatCrown",
-			limb = "Head",
-			fallbackLimb = nil,
-			shape = Enum.PartType.Cylinder,
-			size = Vector3.new(0.7, 1.35, 1.35),
-			rotationDeg = Vector3.new(0, 0, 90),
-			offset = Vector3.new(0, 1.42, 0),
-			color = OUTFIT_COLOR,
-		},
+-- THE GREEN, AND IT WAS MEASURED OFF THE SLEEVE'S OWN TEXTURE (research note section 3).
+--
+-- Karen, 2026-10-10 ~22:00, with a crop of her own first-person sleeve as the reference: "we need
+-- same color by default what is our arms not gloves but arms green or whatever color is so all
+-- clothe is that color". So the reference is an albedo, not an opinion -- and NOT the lit frame she
+-- sent, whose sleeve pixels read about (105, 100, 78) with the viewmodel's own light on them.
+--
+-- The sleeve belongs to the two glove models ("Brown leather glove, olive jacket cuff",
+-- src/serverstorage/Assets). Every used pixel of both prepped 1024x1024 `texture_baseColor.png`
+-- maps was classified by hue; hue 35-100 degrees at saturation > 0.08 is the olive cuff and hue
+-- 0-35 is the brown leather. THE TWO MAPS DISAGREE, because they were generated separately:
+--   right glove  267,953 olive px  median (74, 67, 47)
+--   left  glove  265,739 olive px  median (96, 92, 65)
+--   both         533,692 olive px  median (86, 80, 56)   <- this number
+-- Neither glove is "the" sleeve, so the base is the median over both. Matching the ALBEDO is the
+-- right target: under the same light, a surface with the sleeve's albedo renders as the sleeve.
+-- Karen's eye decides and this is one line (beater-kit design section 17 item 1).
+Body.BASE_COLOR = Color3.fromRGB(86, 80, 56)
+
+-- ONE BASE, AND BOTH ROLES POINT AT THIS TABLE (design section 3). Same identity, so "everyone
+-- wears the same green" is structural rather than six numbers written out twice -- and a team swap
+-- cannot re-decide the colour, because there is nothing to re-decide.
+--
+-- `limbs` are BodyColors property STEMS and `Head` IS DELIBERATELY ABSENT: the head keeps the
+-- player's own colour, so a dressed player reads as a person in a green outfit rather than as a
+-- green person.
+--
+-- `clearClasses` and `clearLayered` exist because A COLOUR WRITTEN ON A LIMB IS INVISIBLE UNDER
+-- ANYTHING DRAWN OVER THE LIMB: a classic Shirt/Pants is a texture on it, and a layered-clothing
+-- accessory is a MESH STANDING OFF it (Roblox's own appearance page, quoted in the note's section
+-- 4.1). Nothing is backed up and nothing is restored -- see `Body.strip`.
+local BASE: BaseRow = {
+	color = Body.BASE_COLOR,
+	limbs = { "Torso", "LeftArm", "RightArm", "LeftLeg", "RightLeg" },
+	clearClasses = { "Shirt", "Pants", "ShirtGraphic" },
+	clearLayered = true,
+}
+Body.BASE = BASE
+
+-- THE HEAD'S OWN THINGS ARE SPARED (design section 6). A hat, hair, a face, eyebrows and eyelashes
+-- are not what hides a torso, and taking a player's hair off to show a green chest would be a cost
+-- with no benefit. `Body.isLayered` checks this list FIRST.
+Body.SPARED_ACCESSORY_TYPES = {
+	Enum.AccessoryType.Hat,
+	Enum.AccessoryType.Hair,
+	Enum.AccessoryType.Face,
+	Enum.AccessoryType.Eyebrow,
+	Enum.AccessoryType.Eyelash,
+}
+
+-- HOW LONG THE WINDOW STAYS OPEN over one character (design section 5).
+--
+-- A character's APPEARANCE IS APPLIED ASYNCHRONOUSLY, after the model exists -- which is why
+-- `Player.CharacterAppearanceLoaded` and `Player:HasAppearanceLoaded()` exist at all. The welded
+-- parts survive whatever the engine does next; a `BodyColors` write and a destroyed `Shirt` do not,
+-- because the avatar's own shirt and body colours may land AFTER ours. So the dress is not ordered
+-- against that load at all: it happens at once, and then this window holds it.
+--
+-- NOT `CharacterAppearanceLoaded` AS THE TRIGGER, deliberately: `HasAppearanceLoaded()` is a
+-- PLAYER-level fact and the event can have fired before a handler connects, so either form of "wait
+-- for the event" can lose the very race the window cannot. The event could later close the window
+-- early -- an optimisation, never a correctness condition.
+local APPEARANCE_WATCH_SECONDS = 5
+
+-- THE HAT IS DECLARED ONCE AND WORN BY BOTH ROLES (design section 3). Karen's doc gives the hunter
+-- an orange hat and the beater an orange hat AND an orange vest, so a second copy of these two rows
+-- would be two answers to one question -- this project's named failure mode, in a table.
+local HAT = {
+	{
+		name = "Hat", -- the brim
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.35, 2.2, 2.2), -- world box 2.2 x 0.35 x 2.2 after the turn below
+		rotationDeg = Vector3.new(0, 0, 90),
+		offset = Vector3.new(0, 0.95, 0), -- above the Head's CENTRE, which is what a Position is
+		color = OUTFIT_COLOR,
 	},
-	-- FOUR PLATES, ONE PER HORIZONTAL FACE. `scale` is a multiple of the limb's own size, `pad` is
-	-- studs added to it, and `anchor` is which face to sit on in halves of the limb (so -1 on Z is
-	-- the -Z face). A character's front is its -Z, but the front and back plates are identical on
-	-- purpose: a wrap has no front, so nothing here depends on which way a limb happens to face.
-	Drivers = {
-		{
-			name = "VestFront",
-			limb = "UpperTorso",
-			fallbackLimb = "Torso",
-			shape = Enum.PartType.Block,
-			scale = Vector3.new(0.98, VEST_HEIGHT_FRACTION, 0),
-			pad = Vector3.new(0, 0, VEST_THICKNESS),
-			anchor = Vector3.new(0, 0, -1),
-			offset = Vector3.new(0, 0, -(VEST_THICKNESS / 2 + VEST_GAP)),
-			rotationDeg = Vector3.zero,
-			color = OUTFIT_COLOR,
-		},
-		{
-			name = "VestBack",
-			limb = "UpperTorso",
-			fallbackLimb = "Torso",
-			shape = Enum.PartType.Block,
-			scale = Vector3.new(0.98, VEST_HEIGHT_FRACTION, 0),
-			pad = Vector3.new(0, 0, VEST_THICKNESS),
-			anchor = Vector3.new(0, 0, 1),
-			offset = Vector3.new(0, 0, VEST_THICKNESS / 2 + VEST_GAP),
-			rotationDeg = Vector3.zero,
-			color = OUTFIT_COLOR,
-		},
-		{
-			-- The sides are as DEEP as the wrap needs to be closed: the limb plus both plates and
-			-- both gaps, so there is no orange-free corner to look at a driver through.
-			name = "VestLeftSide",
-			limb = "UpperTorso",
-			fallbackLimb = "Torso",
-			shape = Enum.PartType.Block,
-			scale = Vector3.new(0, VEST_HEIGHT_FRACTION, 1),
-			pad = Vector3.new(VEST_THICKNESS, 0, 2 * (VEST_THICKNESS + VEST_GAP)),
-			anchor = Vector3.new(-1, 0, 0),
-			offset = Vector3.new(-(VEST_THICKNESS / 2 + VEST_GAP), 0, 0),
-			rotationDeg = Vector3.zero,
-			color = OUTFIT_COLOR,
-		},
-		{
-			name = "VestRightSide",
-			limb = "UpperTorso",
-			fallbackLimb = "Torso",
-			shape = Enum.PartType.Block,
-			scale = Vector3.new(0, VEST_HEIGHT_FRACTION, 1),
-			pad = Vector3.new(VEST_THICKNESS, 0, 2 * (VEST_THICKNESS + VEST_GAP)),
-			anchor = Vector3.new(1, 0, 0),
-			offset = Vector3.new(VEST_THICKNESS / 2 + VEST_GAP, 0, 0),
-			rotationDeg = Vector3.zero,
-			color = OUTFIT_COLOR,
-		},
+	{
+		name = "HatCrown",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.7, 1.35, 1.35),
+		rotationDeg = Vector3.new(0, 0, 90),
+		offset = Vector3.new(0, 1.42, 0),
+		color = OUTFIT_COLOR,
 	},
 }
+
+-- FOUR PLATES, ONE PER HORIZONTAL FACE. `scale` is a multiple of the limb's own size, `pad` is
+-- studs added to it, and `anchor` is which face to sit on in halves of the limb (so -1 on Z is
+-- the -Z face). A character's front is its -Z, but the front and back plates are identical on
+-- purpose: a wrap has no front, so nothing here depends on which way a limb happens to face.
+--
+-- THE FIELD AGREES WITH THE FOUR PLATES, measured in a jurisdiction that writes it down: Texas
+-- requires 400 square inches of hunter orange with at least 144 of them on the CHEST and 144 on the
+-- BACK (research note section 2), arrived at for the reason Karen reported -- a beater is looked at
+-- from every side.
+local VEST = {
+	{
+		name = "VestFront",
+		limb = "UpperTorso",
+		fallbackLimb = "Torso",
+		shape = Enum.PartType.Block,
+		scale = Vector3.new(0.98, VEST_HEIGHT_FRACTION, 0),
+		pad = Vector3.new(0, 0, VEST_THICKNESS),
+		anchor = Vector3.new(0, 0, -1),
+		offset = Vector3.new(0, 0, -(VEST_THICKNESS / 2 + VEST_GAP)),
+		rotationDeg = Vector3.zero,
+		color = OUTFIT_COLOR,
+	},
+	{
+		name = "VestBack",
+		limb = "UpperTorso",
+		fallbackLimb = "Torso",
+		shape = Enum.PartType.Block,
+		scale = Vector3.new(0.98, VEST_HEIGHT_FRACTION, 0),
+		pad = Vector3.new(0, 0, VEST_THICKNESS),
+		anchor = Vector3.new(0, 0, 1),
+		offset = Vector3.new(0, 0, VEST_THICKNESS / 2 + VEST_GAP),
+		rotationDeg = Vector3.zero,
+		color = OUTFIT_COLOR,
+	},
+	{
+		-- The sides are as DEEP as the wrap needs to be closed: the limb plus both plates and
+		-- both gaps, so there is no orange-free corner to look at a driver through.
+		name = "VestLeftSide",
+		limb = "UpperTorso",
+		fallbackLimb = "Torso",
+		shape = Enum.PartType.Block,
+		scale = Vector3.new(0, VEST_HEIGHT_FRACTION, 1),
+		pad = Vector3.new(VEST_THICKNESS, 0, 2 * (VEST_THICKNESS + VEST_GAP)),
+		anchor = Vector3.new(-1, 0, 0),
+		offset = Vector3.new(-(VEST_THICKNESS / 2 + VEST_GAP), 0, 0),
+		rotationDeg = Vector3.zero,
+		color = OUTFIT_COLOR,
+	},
+	{
+		name = "VestRightSide",
+		limb = "UpperTorso",
+		fallbackLimb = "Torso",
+		shape = Enum.PartType.Block,
+		scale = Vector3.new(0, VEST_HEIGHT_FRACTION, 1),
+		pad = Vector3.new(VEST_THICKNESS, 0, 2 * (VEST_THICKNESS + VEST_GAP)),
+		anchor = Vector3.new(1, 0, 0),
+		offset = Vector3.new(VEST_THICKNESS / 2 + VEST_GAP, 0, 0),
+		rotationDeg = Vector3.zero,
+		color = OUTFIT_COLOR,
+	},
+}
+
+-- KAREN'S TWO SENTENCES, AS TWO ROWS (design section 3). "Hunter will have default green pens and
+-- jacket / Also will have orange hat / Beater will have orange hat and orange vest / Default also
+-- green pans and green jacket" -- so: hunter = base + hat, beater = base + hat + vest.
+local OUTFITS: { [string]: { base: BaseRow, parts: { { any } } } } = {
+	Shooters = { base = BASE, parts = { HAT } },
+	Drivers = { base = BASE, parts = { HAT, VEST } },
+}
+
+-- KAREN'S WORD -> THE TEAM NAME, in exactly one place (design section 3, "Naming"). She says beater
+-- and hunter; the code says `Drivers` and `Shooters`, and those strings reach `Match.Roster`,
+-- `tests/client/Role.luau`, the Hud's badge and a dozen specs. Renaming them is its own task
+-- (design section 17 item 5); until then this is the one translator and there is no second mapping.
+Body.ROLE_WORDS = { hunter = "Shooters", beater = "Drivers" }
 
 -- What every fitted plate keeps between itself and the limb's surface, published so a spec asserts
 -- the invariant rather than a number copied out of this file.
@@ -231,10 +347,157 @@ end
 -- the one boundary read (CLAUDE.md, "Feature flags"), and passing it inward as a parameter is what
 -- makes the ON branch reachable while the flag sits OFF.
 function Body.dressFor(team: TeamName?, config): { any }
-	if not team or not (config and config.OUTFITS_ENABLED) then
+	local outfit = Body.outfitFor(team, config)
+	if not outfit then
 		return {}
 	end
-	return OUTFITS[team] or {}
+	-- FLATTENED IN DECLARATION ORDER: the hat first, then the vest (design section 4). The groups
+	-- exist so the hat is declared once; a caller still sees one list of rows, which is why
+	-- `Body.dress` and every existing spec case are unchanged in shape.
+	local rows = {}
+	for _, group in ipairs(outfit.parts) do
+		for _, row in ipairs(group) do
+			table.insert(rows, row)
+		end
+	end
+	return rows
+end
+
+-- PURE. The whole outfit for a role -- its base and its part groups -- or nil when there is nothing
+-- to wear. The one place the flag and the team are turned into "is anybody being dressed", so
+-- `dressFor` and `baseFor` can never disagree about that answer.
+function Body.outfitFor(team: TeamName?, config): { base: BaseRow, parts: { { any } } }?
+	if not team or not (config and config.OUTFITS_ENABLED) then
+		return nil
+	end
+	return OUTFITS[team]
+end
+
+-- PURE. This role's base clothing, or nil. Both roles share ONE table, so this answers the same
+-- table for a hunter and a beater and a spec asserts that with `==`.
+function Body.baseFor(team: TeamName?, config): BaseRow?
+	local outfit = Body.outfitFor(team, config)
+	return if outfit then outfit.base else nil
+end
+
+-- PURE. Karen's word for a role -> the team name, or nil for anything else (design section 3). The
+-- ONE translator: no other file turns "beater" into "Drivers".
+function Body.teamForWord(word: string?): TeamName?
+	if not word then
+		return nil
+	end
+	return (Body.ROLE_WORDS[word] :: any) :: TeamName?
+end
+
+-- PURE. Would this instance hide a limb's colour? (design section 6)
+--
+-- IT ASKS FOR THE WRAP OBJECTS AND NOT FOR `AccessoryType`, and the reason is what layered clothing
+-- IS: a mesh standing off the limb's own surface, which is why no colour written to the limb can
+-- show through one (Roblox's appearance page, quoted in the note's section 4.1). `AccessoryType` is
+-- the catalog's taxonomy -- it is `Unknown` on anything a spec builds, and it was `Unknown` on every
+-- real catalog accessory probed for this task -- so it is used ONLY for the spare list below, where
+-- being wrong costs a hat rather than the design.
+--
+-- THE SPARE CHECK RUNS FIRST, so a hat that happens to carry a wrap is still spared: nothing in
+-- Karen's doc asks for hair or head accessories to go, and the orange hat was built to clear a
+-- default avatar's hair (Task 77).
+function Body.isLayered(instance: Instance): boolean
+	if not instance:IsA("Accoutrement") then
+		return false
+	end
+	if instance:IsA("Accessory") then
+		for _, spared in ipairs(Body.SPARED_ACCESSORY_TYPES) do
+			if instance.AccessoryType == spared then
+				return false
+			end
+		end
+	end
+	return instance:FindFirstChildWhichIsA("WrapTarget", true) ~= nil
+		or instance:FindFirstChildWhichIsA("WrapLayer", true) ~= nil
+end
+
+-- WRITES. Takes off whatever the player's own avatar was wearing that would hide the base, and
+-- returns how many instances it removed. A nil base removes nothing: with the flag off, nobody's own
+-- clothes are touched (design section 7).
+--
+-- NOTHING IS BACKED UP AND NOTHING IS RESTORED (design N4). A player's own clothes come back on
+-- their NEXT CHARACTER, because the engine loads the avatar's appearance onto a new one; within this
+-- character they are gone. That is the honest behaviour, and a saved copy would be a second
+-- representation of a fact the avatar already owns.
+function Body.strip(character: Model?, base: BaseRow?): number
+	if not character or not base then
+		return 0
+	end
+	local removed = 0
+	-- A COPY OF THE CHILD LIST, because destroying while iterating `GetChildren` is iterating a list
+	-- that is being rewritten. `GetChildren` already returns a fresh array, so this is that array.
+	for _, child in ipairs(character:GetChildren()) do
+		local clear = false
+		for _, className in ipairs(base.clearClasses) do
+			if child:IsA(className) then
+				clear = true
+				break
+			end
+		end
+		if not clear and base.clearLayered and Body.isLayered(child) then
+			clear = true
+		end
+		if clear then
+			child:Destroy()
+			removed += 1
+		end
+	end
+	return removed
+end
+
+-- WRITES THE GREEN. Finds or creates the character's ONE `BodyColors` and writes `base.limbs` to
+-- `base.color`. Never writes `HeadColor3`: the head is the player's own (design M5).
+--
+-- `BodyColors` HAS ONE PROPERTY PER R6 LIMB AND THE ENGINE MAPS THEM ONTO AN R15 RIG'S PARTS, so
+-- this is the same five writes on both rigs and a missing limb is NOT a miss here -- there is no
+-- limb to look for. It returns false only when it could not find or create the instance at all,
+-- which is the `Body.tie` discipline: false means "I failed to do something I should have".
+--
+-- FOUND-OR-CREATED RATHER THAN ALWAYS NEW, so dressing twice leaves one instance and a stray one
+-- the engine added later is written to rather than fought with.
+function Body.paint(character: Model?, base: BaseRow?): boolean
+	if not character or not base then
+		return false
+	end
+	local colors = character:FindFirstChildOfClass("BodyColors")
+	if not colors then
+		colors = Instance.new("BodyColors")
+		colors.Name = "BodyColors"
+		colors.Parent = character
+	end
+	if not colors or not colors.Parent then
+		return false
+	end
+	for _, stem in ipairs(base.limbs) do
+		(colors :: any)[stem .. "Color3"] = base.color
+	end
+	repaints += 1
+	return true
+end
+
+-- How many appearance windows are open. Must come back to 0: a window that never closed is a
+-- connection held against a character that is gone (design section 4's leak proof).
+function Body.appearanceWatching(): number
+	local n = 0
+	for _ in pairs(watching) do
+		n += 1
+	end
+	return n
+end
+
+-- How many of the player's own clothing instances arrived AFTER the dress and were taken off by the
+-- window, and how many paints have been done. Read by a spec and printed in the harness note.
+function Body.strayCleared(): number
+	return strayCleared
+end
+
+function Body.repaints(): number
+	return repaints
 end
 
 -- DRESSES ONE CHARACTER. Destroys any existing outfit first, so it is idempotent and a team swap is
@@ -267,6 +530,17 @@ function Body.dress(character: Model?, team: TeamName?, config): boolean
 	local existing = character:FindFirstChild(Body.OUTFIT_NAME)
 	if existing then
 		existing:Destroy()
+	end
+	-- THE BASE GOES ON FIRST, AND IT IS THE SAME WORK ON THE SAME SIGNAL (Task 151, design section
+	-- 4): take off what would hide it, then write the colour. `strip` and `paint` both answer
+	-- "nothing to do" for a nil base, so the flag-off branch below is reached with nobody's own
+	-- clothes touched.
+	local base = Body.baseFor(team, config)
+	Body.strip(character, base)
+	if base and not Body.paint(character, base) then
+		-- A base was wanted and the colour could not be written: that is a failure to do something
+		-- this module should have done, which is what a false return means here.
+		return false
 	end
 	local rows = Body.dressFor(team, config)
 	if #rows == 0 then
@@ -318,6 +592,77 @@ function Body.dress(character: Model?, team: TeamName?, config): boolean
 	return true
 end
 
+-- Closes this user's appearance window, if one is open. Idempotent.
+local function stopWatching(userId: number)
+	local row = watching[userId]
+	if not row then
+		return
+	end
+	row.closed = true
+	row.connection:Disconnect()
+	watching[userId] = nil
+end
+
+-- DRESS NOW, THEN HOLD IT (design section 5). This is the one path every production caller uses;
+-- `Body.dress` stays the single-shot the specs drive.
+--
+-- The window watches ONE character's children for `APPEARANCE_WATCH_SECONDS` and does exactly three
+-- things: paints a `BodyColors` the engine added, takes off a shirt or a layered garment the engine
+-- added, and ignores everything else. At its close it paints ONCE MORE, because the engine can
+-- MODIFY an existing `BodyColors` rather than add one -- and modifying fires no `ChildAdded`, so a
+-- window that only listened would miss exactly that case.
+--
+-- IT IS KEYED BY userId AND REPLACES ITSELF, so a player can never hold two windows, and every
+-- handler re-checks that this is still the player's current character: a window belonging to a dead
+-- character is inert as well as short-lived.
+function Body.dressWhenLoaded(player: Player, character: Model, config)
+	Body.dress(character, Body.teamOf(player), config)
+
+	local userId = player.UserId
+	stopWatching(userId)
+	local base = Body.baseFor(Body.teamOf(player), config)
+	if not base then
+		return -- nothing to hold: the flag is off, or this player has no team
+	end
+
+	local row
+	local connection = character.ChildAdded:Connect(function(child)
+		if not row or row.closed then
+			return
+		end
+		if player.Character ~= character or character.Parent == nil then
+			return
+		end
+		if child:IsA("BodyColors") then
+			Body.paint(character, base)
+			return
+		end
+		for _, className in ipairs(base.clearClasses) do
+			if child:IsA(className) then
+				child:Destroy()
+				strayCleared += 1
+				return
+			end
+		end
+		if base.clearLayered and Body.isLayered(child) then
+			child:Destroy()
+			strayCleared += 1
+		end
+	end)
+	row = { character = character, connection = connection, closed = false }
+	watching[userId] = row
+
+	task.delay(APPEARANCE_WATCH_SECONDS, function()
+		if watching[userId] ~= row then
+			return -- replaced by a later character, or forgotten
+		end
+		if player.Character == character and character.Parent ~= nil then
+			Body.paint(character, base)
+		end
+		stopWatching(userId)
+	end)
+end
+
 -- Creates the two teams once and returns them by name. Idempotent: a second call returns what is
 -- already there rather than making a duplicate (rule 7 -- nothing here ever deletes a Team either).
 function Body.ensureTeams(): { [string]: Team }
@@ -351,8 +696,12 @@ function Body.setTeam(player: Player, name: TeamName?, config)
 	-- not always come with a respawn, and a driver still wearing a shooter's hat is two answers to
 	-- one question -- this project's named failure mode. `config` is optional so a caller that does
 	-- not have one (a spec asserting only the Team field) is unchanged.
-	if config then
-		Body.dress(player.Character, name, config)
+	--
+	-- THROUGH THE WINDOW SINCE TASK 151, because a team swap writes the base as well as the parts
+	-- and the base is the half a late appearance load can undo.
+	local character = player.Character
+	if config and character then
+		Body.dressWhenLoaded(player, character, config)
 	end
 end
 
@@ -415,7 +764,9 @@ function Body.place(player: Player, cframe: CFrame?, config, onPlaced: ((boolean
 		-- DRESSED BEFORE THE EARLY RETURN, because a player who spawned with nowhere to stand is
 		-- still a player of a team (M2.8d). This handler is the design's first call site: it is the
 		-- one place that already knows a NEW character has arrived for a player whose team is set.
-		Body.dress(character, Body.teamOf(player), config)
+		-- A NEW CHARACTER IS EXACTLY WHERE THE APPEARANCE RACE LIVES (Task 151), so this is the one
+		-- call site that most needs the window rather than the single shot.
+		Body.dressWhenLoaded(player, character, config)
 		if not cframe then
 			finish(true) -- nowhere to put them: they spawned, and that is not a failure
 			return
@@ -533,8 +884,9 @@ function Body.tie(player: Player, tree: BasePart, config, parent: Instance?): bo
 	-- one person in the drive wearing nothing. It is on the PLAYER wrapper and not on
 	-- `tieCharacter`, because the team is a fact about the player and `tieCharacter` has only a
 	-- userId -- the seam a spec uses so it never freezes the one live player.
-	if ok then
-		Body.dress(player.Character, Body.teamOf(player), config)
+	local character = player.Character
+	if ok and character then
+		Body.dressWhenLoaded(player, character, config)
 	end
 	return ok
 end
@@ -606,6 +958,10 @@ end
 -- After this, no table in this module is keyed by that user.
 function Body.forget(userId: number)
 	held[userId] = nil
+	-- AND THE APPEARANCE WINDOW (Task 151). A player who leaves inside the five seconds would
+	-- otherwise leave a connection held against a character that is gone -- `Body.appearanceWatching`
+	-- is the number that proves this line works.
+	stopWatching(userId)
 end
 
 function Body.tracked(): number

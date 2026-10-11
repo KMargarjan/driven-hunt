@@ -24,6 +24,12 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
+-- THE OUTFIT (task 151). `Match.Body` is the one writer of what a character wears, in this world as
+-- in the real one, and `Match.CONFIG` is where the `ORANGE_OUTFITS` flag is read -- once, by its own
+-- owner. This root passes that config inward and never reads the flag itself: a second boundary read
+-- would be a second answer (`docs/design/beater-kit.md` section 9).
+local Match = require(ServerScriptService:WaitForChild("Match"))
+local Body = Match.Body
 -- THE HIT RECORD (task 124). It is wired here, at the composition root, exactly as the boar runtime
 -- and the weapon are: `HitLog` requires neither of them and neither requires it.
 local HitLog = require(ServerScriptService:WaitForChild("HitLog"))
@@ -215,10 +221,63 @@ local noDriveLine: Shotgun.DriveLineProvider = function()
 end
 Weapon.setDriveLineProvider(noDriveLine)
 
--- ---------------------------------------------------------------- the hunter's stand
+-- ---------------------------------------------------------------- the role, and the outfit
+--
+-- THE ONLY WAY TO SEE A BEATER IN THIS WORLD (task 151, beater-kit design section 9). It has no
+-- beaters -- its drivers are phantom positions with nobody standing on them -- so Karen asks for the
+-- role by typing `/beater` (and `/hunter` back) while she plays. It is a DEV COMMAND in a playtest
+-- world, not a game mechanic: server-only, no remote, no input binding, no client module, no camera.
+--
+-- `Body.ensureTeams()` first, because `Body.setTeam` writes `Player.Team` BY NAME and that name has
+-- to be a real `Team` for `Body.teamOf` to read it back. The real match's boot does this too; this
+-- world simply had no reason to before.
+Body.ensureTeams()
+
+-- Puts `player` into the role they have asked for, and dresses them for it. One function, so the
+-- spawn path and the chat command cannot drift apart.
+local function applyRole(player: Player)
+	local role = ForestTest.roleOf(player.UserId)
+	Body.setTeam(player, Body.teamForWord(role), Match.CONFIG)
+	return role
+end
 
 Players.PlayerAdded:Connect(function(player)
+	player.Chatted:Connect(function(message)
+		local role = ForestTest.parseRole(message)
+		if role == nil then
+			return
+		end
+		ForestTest.setRole(player.UserId, role)
+		applyRole(player)
+		local character = player.Character
+		local folder = character and character:FindFirstChild(Body.OUTFIT_NAME)
+		local worn = 0
+		if folder then
+			for _, child in ipairs(folder:GetChildren()) do
+				if child:IsA("BasePart") then
+					worn += 1
+				end
+			end
+		end
+		-- ONE LINE PER SWITCH, and it is the evidence. A tool that requires this module over
+		-- StudioMCP gets a sandboxed copy with empty state (measured, task 122), so the console is
+		-- the only honest channel for "which role is he, and is he wearing it".
+		print(
+			string.format(
+				"[ForestTest] %s is now a %s (team=%s, %d outfit part(s))",
+				player.Name,
+				role,
+				tostring(Body.teamOf(player)),
+				worn
+			)
+		)
+	end)
+
 	player.CharacterAdded:Connect(function(character)
+		-- DRESSED FIRST, before the root wait below: a player who asked to be a beater is a beater
+		-- from the first frame of the new character, and `Body.setTeam` -> `dressWhenLoaded` is what
+		-- holds the green against the appearance load that is still on its way.
+		applyRole(player)
 		local root = character:WaitForChild("HumanoidRootPart", 10)
 		if root == nil then
 			return
@@ -247,6 +306,11 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
 	ForestTest.clearPick(player.UserId)
+	-- AND THE TWO THINGS TASK 151 ADDED. `Match.forget` never runs in this world -- `MatchBoot`
+	-- stands aside here -- so without this line the role request and `Body`'s own appearance window
+	-- would be the one thing that leaks in the Forest Test (beater-kit design section 9 item 4).
+	ForestTest.clearRole(player.UserId)
+	Body.forget(player.UserId)
 end)
 
 -- ---------------------------------------------------------------- the loop
