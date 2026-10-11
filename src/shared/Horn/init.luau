@@ -76,7 +76,7 @@ Horn.CONFIG = {
 	-- and a beater clicking on it would produce one continuous unbroken horn -- which is the exact
 	-- thing a cooldown exists to prevent. 5 is the smallest number that fits a whole call with the
 	-- clip's own silence after it. It is DATA: one line for Karen or the Director to change, and
-	-- `tests/server/horn.spec.luau` only asserts that it is long enough for the cut.
+	-- `tests/server/zz_horn.spec.luau` only asserts that it is long enough for the cut.
 	COOLDOWN = 5,
 	-- How long the horn is held up to the mouth. Shorter than the call on purpose: the arm comes
 	-- down while the last note is still ringing, which is what a person does.
@@ -126,7 +126,7 @@ Horn.CONFIG = {
 	-- HOW FAR A BLAST PUSHES ANIMALS, IN METRES, with the conversion in the open -- the shape Task
 	-- 150 established after a radius written in studs had been compared against distances in metres
 	-- for two tasks ("at METRES_PER_STUD 0.28, 120 studs is 33.6 m"). The Director's start value.
-	-- Both spellings are written out and `tests/server/horn.spec.luau` asserts they agree to the
+	-- Both spellings are written out and `tests/server/zz_horn.spec.luau` asserts they agree to the
 	-- stud, so a world or a spec may override either unit and be read.
 	METRES_PER_STUD = 0.28, -- the same number `Report.CONFIG` and `Boar.CONFIG.SENSE` publish
 	SPOOK_M = 80,

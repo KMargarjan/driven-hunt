@@ -341,7 +341,7 @@ So `SOUND_START = 0.12` (past the dead lead-in, so the horn sounds *on* the clic
 blast is one signal and never two). **The one number this moved is the cooldown:** the dispatch's
 start value was 3 s, and a 3 s cooldown over a 4.0 s call chops the last note AND lets a beater
 clicking on the cooldown produce one continuous unbroken horn. `COOLDOWN = 5` is the smallest value
-that fits a whole call. All four are data and `tests/server/horn.spec.luau` asserts only the
+that fits a whole call. All four are data and `tests/server/zz_horn.spec.luau` asserts only the
 relations between them, not the values.
 
 **Nobody has heard it yet.** Karen's ears decide, and every one of those numbers is one line.

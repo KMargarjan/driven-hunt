@@ -703,7 +703,7 @@ SCOPE_SPECS = {
                "tests/client/weapon_client.spec.luau", "tests/client/hit_marker.spec.luau",
                "tests/client/rifle_client.spec.luau",
                "tests/client/shoot_boar.spec.luau",
-               "tests/server/horn.spec.luau"),
+               "tests/server/zz_horn.spec.luau"),
     "boar": ("tests/server/boar_behaviour.spec.luau", "tests/server/boar_behaviour_live.spec.luau",
              "tests/server/boar_body.spec.luau", "tests/server/boar_brain.spec.luau",
              "tests/server/boar_calm.spec.luau", "tests/server/boar_kinds.spec.luau",
@@ -714,7 +714,7 @@ SCOPE_SPECS = {
              "tests/server/boar_move.spec.luau", "tests/server/hitlog.spec.luau",
              "tests/server/report_silhouette.spec.luau",
              # A horn blast is a boar stimulus (task 152), so a change to either side reaches it.
-             "tests/server/horn.spec.luau",
+             "tests/server/zz_horn.spec.luau",
              "tests/client/shoot_boar.spec.luau"),
     "match": ("tests/server/match_live.spec.luau", "tests/server/match_outfit.spec.luau",
               "tests/server/match_phase.spec.luau", "tests/server/match_roster.spec.luau",

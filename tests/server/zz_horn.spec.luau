@@ -1,4 +1,12 @@
--- horn.spec: THE BEATER'S HORN (task 152) -- what it is made of, who carries it, what a click does,
+-- zz_horn.spec: THE BEATER'S HORN (task 152)
+--
+-- `zz_` BECAUSE IT SPENDS REAL SECONDS AND SOMETHING AFTER IT COUNTS THEM. TestEZ runs spec files
+-- in name order, `TestKit.TOKEN_MAX_AGE` is 120 s, and `sync.spec` asks whether the gate token is
+-- still fresh -- so a file that waits on wall clock and sorts before `s` spends the suite's own
+-- budget. MEASURED: as `horn.spec` this file's ~3.5 s of real waiting was enough to fail
+-- `sync.spec` with a stale token, so the margin on `main` was under that. It runs last now, with
+-- `zz_drive_boundary`, which reads `TestKit.runToken()` and is immune by construction. The budget
+-- itself is thin and is not this task's to widen -- it is reported, not quietly absorbed -- what it is made of, who carries it, what a click does,
 -- and what a blast does to the animals. Pattern: TestEZ describe/it/expect
 -- (https://roblox.github.io/testez/api-reference/).
 --
@@ -670,18 +678,30 @@ return function()
 				lowered = tool.Grip == CONFIG.GRIP
 			end
 			local left = deadline - os.clock()
-			-- ...and the clip stopped rather than running on for the rest of its sixty seconds.
+
+			-- ...AND THE CLIP IS CUT, WHICH HAPPENS LATER THAN THE ARM COMES DOWN -- `BLOW_SECONDS`
+			-- is 3 and the clip plays for `SOUND_CUT - SOUND_START`, 4.28. The first version of this
+			-- case asserted both at the same instant and the gate corrected it: "lowered true ...
+			-- clip playing true" is the horn working exactly as the data file describes it (*"the arm
+			-- comes down while the last note is still ringing, which is what a person does"*).
 			local handle = tool:FindFirstChild("Handle") :: BasePart
 			local sound = handle:FindFirstChild(HornTool.SOUND_NAME) :: Sound
+			local cutDeadline = os.clock() + Horn.playSeconds(CONFIG) + 1
+			while sound.IsPlaying and os.clock() < cutDeadline do
+				task.wait(0.1)
+			end
 			TestKit.note(
 				string.format(
-					"horn: lowered %s with %.1f s of the wait to spare; clip playing %s",
+					"horn: lowered %s with %.1f s to spare; clip stopped %s (cut at %.2f s of a %.1f s asset)",
 					tostring(lowered),
 					left,
-					tostring(sound.IsPlaying)
+					tostring(not sound.IsPlaying),
+					CONFIG.SOUND_CUT,
+					60.63
 				)
 			)
 			expect(lowered).to.equal(true)
+			-- Cut, and NOT left running for the rest of the asset's sixty seconds.
 			expect(sound.IsPlaying).to.equal(false)
 
 			HornTool.revoke(lowering.player)
