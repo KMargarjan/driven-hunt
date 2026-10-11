@@ -178,19 +178,41 @@ only what they mean.
 | Id | Name | Creator | Price to a player | `LoadAsset` in the DEV place, 2026-10-11 |
 |---|---|---|---|---|
 | **99269365249885** | **High Vis Vest Orange** | RP UGC | 50 R$ | one `Accessory`, `MeshPart` handle 2.08 x 1.90 x 1.11, `BodyFrontAttachment`, **no scripts** |
-| **6202417448** | **Orange Trendy Cap** | Ellzd | 90 R$ | one `Accessory`, `MeshPart` handle 1.45 x 0.90 x 2.00, `HatAttachment`, **no scripts** |
+| **13724841516** | **Orange Cap** | dvdko | 90 R$ | one `Accessory`, `MeshPart` handle 2.01 x 0.93 x 1.43, `HatAttachment`, **no scripts** |
 | 1043468 | Hunting Hat | Roblox | 99 R$ | loads; it is the "RobinHood" hat, not a cap |
 | 6037258153 | Hunting Cap | GuestCapone | 90 R$ | loads, and its own accessory is named **"Hunting Cap [Red]"** -- it is red |
 
-**The cap was chosen by looking, not by its name.** Seven candidates were loaded and rendered side by
-side in the DEV place and the frame was inspected
-(`<runs-dir>/151-cap-candidates.png`): a white logo patch (Classic Limiteds 138991964289771), two
-washed-out ambers (dvdko 13724841516, HulaHoopman6 13655567248), a flat-brim snapback (Bellzko
-72426675841683), a very short crown (Ellzd 4962838235) and one with a lighter inner (Verifly
-15507366160) were all rejected. **`6202417448` "Orange Trendy Cap"** is a saturated blaze orange with
-a **curved peak** and no branding, which is what a hunter's cap is; measured off that frame its lit
-crown is **(201, 94, 0)**, a green/red ratio of 0.47 against `OUTFIT_COLOR`'s 0.44 -- the closest of
-the seven.
+**The cap was chosen by measurement, after the first attempt picked a black one.** This is worth
+reading, because the first method looked rigorous and was not:
+
+* **What I did first, and why it was wrong.** Ten candidates were loaded, their *handles* floated in
+  one row, the row was photographed once, and each cap's colour was read from pixels at an x
+  coordinate I had *computed by assuming* where each cap landed in the frame. That picked
+  `6202417448` "Orange Trendy Cap" on a reading of (201, 94, 0). Put on an actual character it
+  rendered **black with an orange trim**. Two separate mistakes: a pixel sample at a guessed
+  coordinate is not a measurement, and **a handle in a row is not a hat on a head.**
+* **What settles it.** Each candidate alone, at the same place, on one fixed camera, measured over
+  the whole silhouette -- with a **dark fraction** beside the colour, which is the number that
+  catches a black cap with an orange logo:
+
+| Id | Name, creator | Median RGB | Saturation | Green/red | Dark fraction |
+|---|---|---|---|---|---|
+| **13724841516** | **"Orange Cap", dvdko** | **(203, 97, 1)** | **0.995** | **0.478** | **0.000** |
+| 72426675841683 | "Orange Cap", Bellzko | (207, 78, 3) | 0.986 | 0.377 | 0.001 |
+| 88028893591722 | "Worn Orange Beanie", BRNCO | (179, 91, 1) | 0.994 | 0.508 | **0.201** |
+| 14295768399 | "Simple Beanie - Orange", jdoggL | (214, 142, 33) | 0.846 | 0.664 | 0.000 |
+| 15507366160 | "P Baseball Cap - Orange", Verifly | (201, 137, 61) | 0.697 | 0.682 | 0.009 |
+| 4962838235 | "Orange Cap", Ellzd | (213, 151, 65) | 0.695 | 0.709 | 0.000 |
+| 13655567248 | "Cap Orange", HulaHoopman6 | (206, 141, 80) | 0.612 | 0.684 | 0.000 |
+| 138991964289771 | "Orange Cap", Classic Limiteds | (181, 138, 72) | 0.602 | 0.762 | 0.052 |
+| **6202417448** | "Orange Trendy Cap", Ellzd -- **the wrong first pick** | (194, 147, 98) | **0.495** | **0.758** | 0.000 |
+| 12326959807 | "Orange Beanie", wonderforge | (69, 17, 0) | 1.000 | 0.246 | **0.719** |
+
+`OUTFIT_COLOR` (255, 112, 0) is green/red **0.439** at saturation 1.0, so **`13724841516` is the
+closest fully saturated cap with no dark area at all** -- and looking at it
+(`<runs-dir>/151-caps/cap-13724841516.png`) confirms it: a solid blaze-orange baseball cap with a
+curved peak and no branding, which is what a hunter wears. Bellzko's is redder (0.377); the beanies
+are either a fifth black or a dark burnt orange.
 
 **The vest wraps, so no back plate is needed under it.** The Director asked specifically, because
 Karen once could not see a single-plate vest at all (PLAYTEST.md, 2026-09-27). Rendered on a
@@ -300,7 +322,7 @@ must be **real**, from the beater's own position, never a phantom.
 | hunter | base + orange hat | Karen's doc |
 | beater | base + orange hat + orange vest | Karen's doc |
 | beater vest | catalog `99269365249885` (RP UGC), plates as the fallback | section 4.2 |
-| hat, both roles | catalog `6202417448` (Ellzd), the two-part hat as the fallback | section 4.2 |
+| hat, both roles | catalog `13724841516` (dvdko), the two-part hat as the fallback | section 4.2 |
 | orange, for the fallback plates | RGB(255, 112, 0) | unchanged, `Match.Body`'s existing `OUTFIT_COLOR` |
 | vest plates | 4, one per horizontal face | Task 82, and Texas's 144 in² front **and** back |
 | head, hair and the player's own hats | untouched | nothing asks for them, and the hat clears hair (Task 77) |

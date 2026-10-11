@@ -2266,12 +2266,12 @@ Assets.ROWS = {
 		version = 1,
 		kind = "model" :: Kind,
 		scope = "outfit" :: string?,
-		modelId = 6202417448,
-		displayName = "Orange Trendy Cap",
+		modelId = 13724841516,
+		displayName = "Orange Cap",
 		fileName = "",
 		sourceSha256 = "",
 		source = "roblox" :: Source,
-		creator = "Ellzd",
+		creator = "dvdko",
 		licence = {
 			basis = "roblox-catalog-accessory",
 			quote = "As the vest above: a catalog accessory worn by the experience. The 90 Robux "
@@ -2279,25 +2279,30 @@ Assets.ROWS = {
 				.. "game for dressing a character in it.",
 			quotedFrom = "Director's correction, 2026-10-11; docs/research/2026-10-11-beater-kit.md section 4.2",
 			readOn = "2026-10-11",
-			attribution = 'Ellzd, "Orange Trendy Cap" (6202417448)',
+			attribution = 'dvdko, "Orange Cap" (13724841516)',
 		},
 		added = "2026-10-11",
 		moderation = "approved" :: Moderation,
 		trisDeclared = 0,
-		sizeStuds = Vector3.new(1.45, 0.9, 2.0),
-		naturalSizeStuds = Vector3.new(1.45, 0.9, 2.0),
+		sizeStuds = Vector3.new(2.0105, 0.9303, 1.4306),
+		naturalSizeStuds = Vector3.new(2.0105, 0.9303, 1.4306),
 		offsetStuds = Vector3.zero,
 		rotationDeg = Vector3.zero,
 		renderFidelity = "Automatic",
 		bakedScale = true,
-		notes = "CHOSEN BY LOOKING AT SEVEN CANDIDATES SIDE BY SIDE "
-			.. "(<runs-dir>/151-cap-candidates.png): a saturated blaze orange with a CURVED peak and "
-			.. "no branding, which is what a hunter's cap is. Measured off that frame, its lit crown "
-			.. "is (201, 94, 0) -- a green/red ratio of 0.47 against OUTFIT_COLOR's 0.44, the "
-			.. "closest of the seven. The rejected ones: a white logo patch (Classic Limiteds), two "
-			.. "washed-out ambers (dvdko, HulaHoopman6), a flat-brim snapback (Bellzko), a very "
-			.. "short crown (Ellzd 4962838235) and one with a lighter inner (Verifly). One "
-			.. "Accessory, MeshPart Handle, HatAttachment, no scripts.",
+		notes = "A SOLID BLAZE-ORANGE BASEBALL CAP: curved peak, no branding, no black anywhere. "
+			.. "LOOKED AT (<runs-dir>/151-caps/cap-13724841516.png) and measured. THE FIRST PICK WAS "
+			.. "WRONG AND IT IS WORTH SAYING WHY: ten candidates were first rendered as floating "
+			.. "HANDLES in one row and the pixels of the row were measured by guessing each cap's x "
+			.. 'position in the frame -- which picked `6202417448` "Orange Trendy Cap" on a '
+			.. "reading of (201, 94, 0). Put on an actual head it rendered BLACK with an orange "
+			.. "trim. Re-measured one cap at a time, alone, on one fixed camera, that same cap is "
+			.. "(194, 147, 98): saturation 0.50 and a green/red ratio of 0.76, a washed-out tan. "
+			.. "A HANDLE IN A ROW IS NOT A HAT ON A HEAD, and a pixel sample at a guessed "
+			.. "coordinate is not a measurement. This cap measures (203, 97, 1): saturation 0.995, "
+			.. "green/red 0.478 against OUTFIT_COLOR's 0.439, and a DARK FRACTION OF 0.000 -- which "
+			.. "is the number that catches a black cap with an orange logo, and is 0.20 on the next "
+			.. "best beanie. One Accessory, MeshPart Handle, HatAttachment, no scripts.",
 	},
 } :: { AssetRow }
 
