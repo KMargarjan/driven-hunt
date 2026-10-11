@@ -7,7 +7,7 @@ Code commit: 0577dc4e7d3e0e00f4e97b4337189203ed2edc3b
 
 ```
 [harness] PASS: 33/33 checks @ 0577dc4e7d3e0e00f4e97b4337189203ed2edc3b (clean tree) scope=all
-RUN2
+[harness] PASS: 33/33 checks @ 59315e77f392e789c8ddf0a6dbb4a5fd48bce0be (clean tree) scope=all
 ```
 
 The gate is pasted **twice**, at the Director's instruction. The second line names the commit that
