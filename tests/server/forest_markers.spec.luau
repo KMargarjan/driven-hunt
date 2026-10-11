@@ -18,7 +18,6 @@
 -- Note:   docs/research/2026-10-11-forest-drive.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
-local Workspace = game:GetService("Workspace")
 
 local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
@@ -188,7 +187,6 @@ return function()
 			expect(first).to.equal(Data.STAND_COUNT + 1) -- nine stands plus the beater pad
 			Markers.build(Data.standX(5), flat, flat)
 			expect(partsInFolder()).to.equal(first)
-			expect(#Workspace:GetChildren() > 0).to.equal(true)
 			Markers.clear()
 			expect(Markers.folder()).to.equal(nil)
 		end)

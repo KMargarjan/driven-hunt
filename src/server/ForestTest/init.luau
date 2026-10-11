@@ -745,7 +745,7 @@ end
 -- the other way (this file still does not require `Match`).
 --
 -- `roleOf`, `setRole`, `clearRole` and `state.roles` are gone, archived with a note at
--- `backups/2026-10-11_foresttest_roles.txt` (rule 7).
+-- `backups/2026-10-11_task157_forest_roles_and_placement.txt` (rule 7).
 -- Design: docs/design/forest-drive.md section 5.2
 
 export type RoleWord = "hunter" | "beater"
@@ -888,9 +888,25 @@ end
 -- `enterAssigning` emits `assignTeams` BEFORE `placePlayers`, so `Player.Team` is written one effect
 -- before the respawn that makes the character -- the same guarantee the old role table gave, now
 -- from the effect order (docs/design/forest-drive.md section 5.2).
-function ForestTest.beaterMode(): boolean
-	for _, player in ipairs(Players:GetPlayers()) do
-		if ForestTest.roleOfPlayer(player) == "beater" then
+--
+-- `teams` IS THE TEST SEAM AND IT IS THE REASON THIS SIGNATURE HAS AN ARGUMENT (round 1 finding 1).
+-- This predicate is the ONE switch between the two experiences Karen has accepted -- `ForestTest.step`
+-- takes `stepRest`'s stocked wood when it is true and the 20-second wave schedule when it is false --
+-- and the only spec that could reach it had to write `Player.Team` to drive the true branch, which is
+-- the second writer this task exists to remove. So the LIST OF TEAM NAMES may be handed in, exactly as
+-- `ForestTest.leash` takes the role, and the live call gathers it from `Players`. One loop, one
+-- translator (`roleFor`), both answers reachable without a player.
+function ForestTest.beaterMode(teams: { string }?): boolean
+	local list = teams
+	if list == nil then
+		list = {}
+		for _, player in ipairs(Players:GetPlayers()) do
+			local team = player.Team
+			table.insert(list, if team then team.Name else "")
+		end
+	end
+	for _, team in ipairs(list) do
+		if ForestTest.roleFor(team) == "beater" then
 			return true
 		end
 	end

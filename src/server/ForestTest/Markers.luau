@@ -211,7 +211,13 @@ function Markers.build(
 	-- drivers"*, i.e. its LookVector points at them. The beaters are north of every point of this
 	-- road (the curve's tangent swings only +-23 degrees), so one plane is the right answer here and
 	-- the design measures why (section 6.1).
-	local lineY = Markers.groundFor(Data.CENTRE.X, Data.roadZ(Data.CENTRE.X), groundReader, canopyReader)
+	-- THE LINE'S OWN READING COUNTS TOWARD `lastMaxDelta` TOO (round 1 note): a disagreement over
+	-- the line or over the beater pad can make `complete` false on its own, and a console number that
+	-- folded in only the nine posts would be silent about exactly that.
+	local lineY, lineDelta = Markers.groundFor(Data.CENTRE.X, Data.roadZ(Data.CENTRE.X), groundReader, canopyReader)
+	if lineDelta ~= nil then
+		stats.lastMaxDelta = math.max(stats.lastMaxDelta, lineDelta)
+	end
 	local line = if lineY ~= nil
 		then table.freeze({
 			position = Vector3.new(Data.CENTRE.X, lineY, Data.roadZ(Data.CENTRE.X)),
@@ -220,7 +226,10 @@ function Markers.build(
 		else nil
 
 	local flatStart = Data.beaterStart(standX, 0)
-	local startY = Markers.groundFor(flatStart.X, flatStart.Z, groundReader, canopyReader)
+	local startY, startDelta = Markers.groundFor(flatStart.X, flatStart.Z, groundReader, canopyReader)
+	if startDelta ~= nil then
+		stats.lastMaxDelta = math.max(stats.lastMaxDelta, startDelta)
+	end
 	local driverStart: BasePart? = nil
 	if startY ~= nil then
 		folder = folder or ensureFolder()

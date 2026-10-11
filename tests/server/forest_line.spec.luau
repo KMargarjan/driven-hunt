@@ -264,8 +264,9 @@ return function()
 				local road = Data.roadZ(x)
 				local start = Data.beaterStart(x, 0)
 				expect(start.Z > road).to.equal(true)
-				-- ...and the spawn the waves come from is north of the road as well.
-				expect(road + Data.LINE.spawnNorthStuds > road).to.equal(true)
+				-- ...and the spawn the waves come from is north of the road as well, which is the
+				-- same arithmetic said about a number rather than about itself.
+				expect(Data.LINE.spawnNorthStuds > 0).to.equal(true)
 			end
 			local swing = math.deg(math.atan(Data.ROAD.amplitudeStuds / Data.ROAD.wavelengthDivisor))
 			expect(swing < HALF).to.equal(true)

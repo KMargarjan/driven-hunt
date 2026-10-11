@@ -275,12 +275,6 @@ Weapon.setDriveLineProvider(Match.driveLine)
 -- THE FLAG IS READ ONCE, HERE, exactly as `MatchBoot` reads it -- except that THIS world turns it ON
 -- the way it turns `BOAR_MODEL` and the rest on: Karen plays here to judge the thing, and a playtest
 -- world that hands her nothing to judge is no use. The DEV drive keeps the declared default.
--- HOW LONG THE START LINE WAITS FOR THE RESPAWN TO SETTLE. `Body.place` pivots on
--- `CharacterAdded` and `Body.settle` pivots again on the next frame, so anything over a frame is
--- enough; one second is long enough to be obviously enough and short enough to read as "at the
--- start".
-local PLACEMENT_SETTLE_SECONDS = 1
-
 local hornOn = true
 Weapon.Horn.setCarryPolicy(function(player)
 	return HornData.carriesFor(hornOn, Body.teamOf(player))
@@ -449,6 +443,12 @@ Match.PhaseChanged:Connect(function(_before, phase)
 		)
 	)
 end)
+
+-- HOW LONG THE START LINE BELOW WAITS FOR THE RESPAWN TO SETTLE. `Body.place` pivots on
+-- `CharacterAdded` and `Body.settle` pivots again on the next frame, so anything over a frame is
+-- enough; one second is long enough to be obviously enough and short enough to read as "at the
+-- start".
+local PLACEMENT_SETTLE_SECONDS = 1
 
 -- ONE LINE PER START, AND IT IS PRINTED WHEN THE CHARACTER HAS ACTUALLY LANDED (task 157).
 --

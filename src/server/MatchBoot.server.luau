@@ -25,8 +25,9 @@ local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 -- THE HIT RECORD (task 124). Wired here for the same reason the boar runtime and the weapon are:
--- `HitLog` requires neither of them and neither requires it. The DEV world's drive boundary is
--- `Match.PhaseChanged`; the Forest Test latches on its own window.
+-- `HitLog` requires neither of them and neither requires it. `Match.PhaseChanged` is the record's
+-- window in BOTH worlds since task 157 -- the Forest Test's own Heartbeat latch is archived
+-- (`docs/design/forest-drive.md` section 7.1), and this comment used to say it still had one.
 local HitLog = require(ServerScriptService:WaitForChild("HitLog"))
 local TestArena = require(ServerScriptService:WaitForChild("TestArena"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))

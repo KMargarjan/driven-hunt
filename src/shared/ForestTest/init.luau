@@ -132,8 +132,10 @@ ForestTest.BEATER = {
 	-- alternating east and west, so the first answer is always the nearest one to the push line.
 	sideStepStuds = 10,
 	sideTries = 8,
-	-- How far above the ground she is put, so she drops onto it rather than into it -- the same 4
-	-- studs `ForestTest.spawnPosition` uses for a hunter.
+	-- How far above the ground she is put, so she drops onto it rather than into it. It used to be
+	-- *"the same 4 studs `ForestTest.spawnPosition` uses for a hunter"*, and task 157 archived that
+	-- function: a hunter is now put down by the drive, on the marker part `ForestTest.Markers` builds
+	-- at the ground `terrainYAt` measured, plus `Match.CONFIG.STAND_HEIGHT_STUDS`.
 	dropStuds = 4,
 }
 

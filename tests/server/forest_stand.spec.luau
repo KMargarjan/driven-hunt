@@ -347,10 +347,15 @@ return function()
 				return nil
 			end
 			local team = player.Team
-			local role = ForestTest.roleFor(if team then team.Name else nil)
+			local teamName = if team then team.Name else nil
+			-- SPELLED OUT HERE AND NOT DERIVED THE WAY `boarThreats` DERIVES IT (round 1's first
+			-- note): `threatKind(roleFor(teamName))` is exactly what the function under test does, so
+			-- asserting against it asserted nothing. A beater pushes and anybody else spooks, which
+			-- is the rule in the words the Brain branches on.
+			local wanted = if teamName == Data.PUSH_TEAM then "driver" else "shooter"
 			local threat = threatOf()
 			expect(threat).to.be.ok()
-			expect((threat :: any).kind).to.equal(ForestTest.threatKind(role))
+			expect((threat :: any).kind).to.equal(wanted)
 			-- ...AND NOT A PHANTOM. The drive marks its invented beaters `phantom = true` so that
 			-- `PACE.DRIVER_RUN_STUDS` cannot fire on one; a player standing there is real, and the
 			-- absence of the mark is what makes her walk count.
@@ -661,30 +666,43 @@ return function()
 			)
 		end)
 
-		it("asks the TEAMS who is a beater, and not a table of its own (task 157)", function()
-			-- It used to scan this module's own role table. It now scans the live players' teams,
-			-- which `Match.Body.setTeam` is the only writer of -- so "is anybody pushing" and "who
-			-- does the drive think is pushing" cannot answer differently. The timing property that
-			-- made the old table necessary survives: `assignTeams` is emitted BEFORE `placePlayers`,
-			-- so the team exists one effect before the character does.
+		it("is TRUE for a roster with a beater on it and FALSE without one (task 157 round 2)", function()
+			-- ROUND 1's FINDING 1, and it was right: the case here compared `beaterMode()` against a
+			-- loop that WAS `beaterMode()`, in a place where both answers are false -- so
+			-- `return false` would have passed it, and this predicate is the ONE switch between the
+			-- stocked resting wood and the 20-second wave schedule (`ForestTest.step`).
 			--
-			-- NOTHING IS STAGED HERE. Writing `Player.Team` from a spec would be the second writer
-			-- this task removed. So the assertion is that the two readings AGREE, in whatever state
-			-- this place happens to be in: in DEV the roster has the one player on `Shooters`, so
-			-- both answers are false.
+			-- SO THE ROSTER IS HANDED IN, as a list of team names, exactly as `ForestTest.leash`
+			-- takes the role -- because the alternative is a spec writing `Player.Team`, which is the
+			-- second writer this whole task removed. `Data.PUSH_TEAM` is the world's own name for the
+			-- pushing side, so neither this spec nor that function hard-codes "Drivers".
+			expect(ForestTest.beaterMode({ Data.PUSH_TEAM })).to.equal(true)
+			expect(ForestTest.beaterMode({ "Shooters", Data.PUSH_TEAM })).to.equal(true)
+			expect(ForestTest.beaterMode({ "Shooters" })).to.equal(false)
+			expect(ForestTest.beaterMode({ "Shooters", "Shooters" })).to.equal(false)
+			expect(ForestTest.beaterMode({})).to.equal(false)
+			-- ...and a player with NO team (between a join and the drive's first assignment) is not a
+			-- beater either, which is the state every session starts in.
+			expect(ForestTest.beaterMode({ "" })).to.equal(false)
+		end)
+
+		it("reads the live teams when it is handed nothing", function()
+			-- The production call takes no argument, so the gathering half is asserted too: whatever
+			-- this place's roster is, the answer is the one the live teams give. The TRUE branch is
+			-- the case above; this is the wiring, and the note says which state it ran in.
 			local Players = game:GetService("Players")
-			local anyBeater = false
+			local teams = {}
 			for _, player in ipairs(Players:GetPlayers()) do
-				if ForestTest.roleOfPlayer(player) == "beater" then
-					anyBeater = true
-				end
+				local team = player.Team
+				table.insert(teams, if team then team.Name else "")
 			end
-			expect(ForestTest.beaterMode()).to.equal(anyBeater)
+			expect(ForestTest.beaterMode()).to.equal(ForestTest.beaterMode(teams))
 			TestKit.note(
 				string.format(
-					"forest-beatermode: %d player(s), beaterMode=%s",
-					#Players:GetPlayers(),
-					tostring(anyBeater)
+					"forest-beatermode: %d player(s) on [%s], beaterMode=%s",
+					#teams,
+					table.concat(teams, ","),
+					tostring(ForestTest.beaterMode())
 				)
 			)
 		end)
