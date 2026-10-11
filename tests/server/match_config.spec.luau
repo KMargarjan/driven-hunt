@@ -77,11 +77,21 @@ return function()
 		it("refuses a block, because a wholesale replacement is nil for every number in it", function()
 			-- The evidence is in this repo: `Boar.newRuntime`'s merge replaces a nested block, which
 			-- cost `ForestTestBoot` five hand-written clones and `Boar.newRuntime` two special cases.
+			--
+			-- THE KEY HERE IS ONE THAT *IS* ALLOWED, because the allow-list is checked first: a block
+			-- off the list (`SOUNDER`) is refused by the other rule and would prove nothing about
+			-- this one. MEASURED: round 1 of this task asserted `SOUNDER` and read back the
+			-- allow-list's message.
 			local ok, err = pcall(function()
-				return Match.mergeConfig(Match.CONFIG, { SOUNDER = { ENABLED = true } })
+				return Match.mergeConfig(Match.CONFIG, { DRIVE_SECONDS = { 300 } })
 			end)
 			expect(ok).to.equal(false)
 			expect(string.find(tostring(err), "scalars only", 1, true) ~= nil).to.equal(true)
+			-- ...and a block that is ALSO off the list is still refused, by whichever rule gets there
+			-- first.
+			expect(pcall(function()
+				return Match.mergeConfig(Match.CONFIG, { SOUNDER = { ENABLED = true } })
+			end)).to.equal(false)
 		end)
 
 		it("keeps every rule number, every roster decision and every flag read OFF the allow-list", function()

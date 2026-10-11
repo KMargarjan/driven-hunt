@@ -1137,7 +1137,12 @@ return function()
 			-- 300 and not 600: the drive's length is the one number the forest overrides for feel.
 			state = (run(state, cfg, cfg.INTERMISSION_SECONDS + 1, cfg.DRIVE_SECONDS - 10, 0.5))
 			expect(state.phase).to.equal("Running")
-			state = (run(state, cfg, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS - 9, 15, 0.5))
+			-- OVER THE END AND NO FURTHER, measured off the machine's OWN deadline rather than off
+			-- arithmetic here: `phaseEndsAt` is the only clock this system has, and `Scoring` is only
+			-- `SCORE_SECONDS` long, so a window named in seconds either stops short of the boundary
+			-- or runs through it into the next `Assigning` (both happened in round 1).
+			local endsAt = state.phaseEndsAt
+			state = (run(state, cfg, endsAt - 1, 2, 0.25))
 			expect(state.phase).to.equal("Scoring")
 		end)
 	end)
@@ -1156,7 +1161,9 @@ return function()
 			local state = running(cfg)
 			expect(state.assignment[1]).to.equal("Shooters") -- ODD_PLAYER_TEAM
 			local effects
-			state, effects = Phase.step(state, { kind = "team", userId = 1, team = "Drivers" }, 100, cfg)
+			-- WELL INSIDE THE DRIVE: this spec's `DRIVE_SECONDS` is 60, so a step at t=100 would be
+			-- past the end and would carry `enterScoring`'s effects as well (measured, round 1).
+			state, effects = Phase.step(state, { kind = "team", userId = 1, team = "Drivers" }, 30, cfg)
 			expect(state.assignment[1]).to.equal("Drivers")
 			expect(table.concat(kinds(effects), ",")).to.equal("assignTeams,placePlayers,refreshArming,broadcast")
 			expect(state.phase).to.equal("Running")
@@ -1179,7 +1186,7 @@ return function()
 			local cfg = config({ BOARS_PER_DRIVE = 0 })
 			local state = running(cfg)
 			local effects
-			state, effects = Phase.step(state, { kind = "team", userId = 99, team = "Drivers" }, 100, cfg)
+			state, effects = Phase.step(state, { kind = "team", userId = 99, team = "Drivers" }, 30, cfg)
 			expect(state.assignment[99]).to.equal(nil)
 			expect(#effects).to.equal(0)
 		end)
@@ -1191,11 +1198,16 @@ return function()
 			-- next one off `previousAssignment`.
 			local cfg = config({ BOARS_PER_DRIVE = 0 })
 			local state = running(cfg)
-			state = (Phase.step(state, { kind = "team", userId = 1, team = "Drivers" }, 100, cfg))
+			state = (Phase.step(state, { kind = "team", userId = 1, team = "Drivers" }, 30, cfg))
 			expect(state.assignment[1]).to.equal("Drivers")
-			-- to the end of the drive, through Scoring, into the next Assigning
-			state = (run(state, cfg, 100, cfg.DRIVE_SECONDS + cfg.SCORE_SECONDS + 2, 0.5))
-			expect(state.phase).to.equal("Assigning")
+			-- TO THE NEXT DRIVE, AND THE ASSERTION IS THE DRIVE NUMBER RATHER THAN A PHASE: the
+			-- intermission is only `INTERMISSION_SECONDS` long, so which phase drive 2 is in depends
+			-- on how far the window ran. What this case is about is the roster's own answer.
+			local at = 30
+			while state.driveNumber < 2 and at < 30 + cfg.DRIVE_SECONDS + cfg.SCORE_SECONDS + 10 do
+				at += 0.5
+				state = (Phase.step(state, { kind = "tick", aliveBoars = 0 }, at, cfg))
+			end
 			expect(state.driveNumber).to.equal(2)
 			expect(state.assignment[1]).to.equal("Shooters")
 		end)
