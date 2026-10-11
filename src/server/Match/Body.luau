@@ -85,6 +85,12 @@ local watching: {
 local SETTLE_TOLERANCE_STUDS = 1
 local settled = 0
 
+-- HOW LONG A FRESHLY ADDED CHARACTER IS GIVEN TO BE PARENTED, and how many frames that has cost
+-- (task 157). It is a FRAME or two in the one place that needs it and zero in the other, and the
+-- ceiling is well inside `Match.CONFIG.PLACE_TIMEOUT` (5 s), which is what gives up on a placement.
+local PARENT_WAIT_SECONDS = 2
+local parentWaits = 0
+
 -- THE PROOF, NOT A FEELING (design section 5's last paragraph). If `strayCleared` stays 0 on every
 -- run and Karen sees green, the window caught nothing and its five seconds can be shortened or
 -- dropped -- which is a number to read, not an opinion to hold.
@@ -1034,6 +1040,12 @@ function Body.settled(): number
 	return settled
 end
 
+-- How many frames placements have spent waiting for a character to be parented. 0 where
+-- `CharacterAdded` already carries a parented character, which is the DEV place.
+function Body.parentWaits(): number
+	return parentWaits
+end
+
 -- Respawns `player` and puts them where `cframe` says. Returns a function the owner can call to give
 -- up waiting; `onPlaced(true/false)` is called exactly once.
 function Body.place(player: Player, cframe: CFrame?, config, onPlaced: ((boolean) -> ())?)
@@ -1069,6 +1081,23 @@ function Body.place(player: Player, cframe: CFrame?, config, onPlaced: ((boolean
 		if not root then
 			-- The character exists but its root has not replicated yet. One wait, then try again.
 			character:GetPropertyChangedSignal("PrimaryPart"):Wait()
+		end
+		-- ...AND IT MAY NOT BE PARENTED YET EITHER, WHICH IS MEASURED AND NOT DEFENSIVE (task 157).
+		--
+		-- In the place "Driven Hunt Forest Test", `CharacterAdded` fires with `character.Parent ==
+		-- nil`: a probe that ran this exact sequence in that session printed
+		-- `added parent=false root=true primary=true`, so the guard below was false, `PivotTo` never
+		-- ran, and every player stood where `LoadCharacter` had left them -- the place's own
+		-- SpawnLocation, on the road, while the drive had chosen a stand or a beater start 240 studs
+		-- north. The DEV place parents it first, which is why a hundred drives there never showed it.
+		--
+		-- THE GUARD ITSELF WAS NOT WRONG, it was ANSWERING TWO QUESTIONS: "has this character gone?"
+		-- and "has it arrived yet?" are not the same question, and only the first one deserves a
+		-- refusal. So this waits, bounded, for the one that is about to be true.
+		local waited = 0
+		while character.Parent == nil and waited < PARENT_WAIT_SECONDS do
+			parentWaits += 1
+			waited += task.wait()
 		end
 		if character.Parent then
 			character:PivotTo(cframe)
