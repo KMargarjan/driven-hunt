@@ -306,11 +306,12 @@ Weapon.Horn.start()
 -- Design: docs/design/forest-drive.md section 4.3
 local function placement(markers, team, index, cfg)
 	if team ~= Data.PUSH_TEAM then
-		-- NOTE: `placementFor` indexes `markers.posts` modulo how many there ARE, so if the ground
-		-- refused some stands (`ForestTest.Markers`), the nth post is not stand n. That is the
-		-- degraded case the console line reports; with nine posts it is exactly stand 5 for a solo
-		-- hunter.
-		return Body.placementFor(markers, team, ForestTest.standIndexFor(index), cfg)
+		-- THROUGH THE POST'S NAME AND NOT ITS PLACE IN THE LIST: a stand whose ground was refused is
+		-- not in `markers.posts` at all (MEASURED: one run came back `8/9 stands (1 refused)`), and
+		-- `placementFor` indexes modulo the length -- so the fifth entry of eight is not stand 5,
+		-- while the drive goes on aiming every wave at stand 5's x.
+		local stand = ForestTest.standIndexFor(index)
+		return Body.placementFor(markers, team, ForestTest.postIndexFor(markers.posts, stand), cfg)
 	end
 	local at = ForestTest.beaterStartPosition()
 	local road = Data.roadPointAt(at.X)

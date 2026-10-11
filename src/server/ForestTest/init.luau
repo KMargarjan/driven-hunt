@@ -2156,6 +2156,25 @@ function ForestTest.standIndexFor(index: number): number
 	return middle + step * side
 end
 
+-- WHICH ENTRY OF `markers.posts` IS STAND `index`. PURE.
+--
+-- IT EXISTS BECAUSE A STAND CAN BE REFUSED. `Body.placementFor` indexes the list modulo how many
+-- posts there ARE, which is right in a world whose posts are all there -- and MEASURED in this one,
+-- a run came back `8/9 stands (1 refused), max ground delta 6.99`, because `Data.groundAt`'s ray can
+-- stop on a canopy over one stand. With eight posts in the list, `posts[5]` is no longer stand 5,
+-- and the drive aims every wave at stand 5's x: the hunter would be standing somewhere the push is
+-- not. So the post is found by the NAME `ForestTest.Markers` gave it, and the modulo is the
+-- fallback for a world that names them differently (the DEV place, which never calls this).
+function ForestTest.postIndexFor(posts, index: number): number
+	local wanted = string.format("Stand%d", index)
+	for at, post in ipairs(posts or {}) do
+		if post.Name == wanted then
+			return at
+		end
+	end
+	return index
+end
+
 -- THE BOAR RUNTIME AS `Match` MAY SEE IT IN THIS WORLD: five reads and two signals, and NO `spawn`,
 -- `spawnSounder` or `clear` (task 157, design section 9.4).
 --

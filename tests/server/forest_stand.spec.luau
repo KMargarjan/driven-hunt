@@ -243,6 +243,30 @@ return function()
 			expect(ForestTest.standIndexFor(Data.STAND_COUNT + 1)).to.equal(ForestTest.standIndexFor(1))
 		end)
 
+		it("finds a stand by NAME, because a refused stand shortens the list (task 157)", function()
+			-- MEASURED in the Forest Test: `8/9 stands (1 refused), max ground delta 6.99`. With
+			-- eight posts in the list the fifth entry is not stand 5, and stand 5's x is where the
+			-- drive aims every wave -- so the post is found by the name the marker builder gave it.
+			local full = {}
+			for index = 1, Data.STAND_COUNT do
+				table.insert(full, { Name = string.format("Stand%d", index) })
+			end
+			expect(ForestTest.postIndexFor(full, 5)).to.equal(5)
+			-- stand 3 refused: stand 5 is now the FOURTH entry
+			local short = {}
+			for index = 1, Data.STAND_COUNT do
+				if index ~= 3 then
+					table.insert(short, { Name = string.format("Stand%d", index) })
+				end
+			end
+			expect(ForestTest.postIndexFor(short, 5)).to.equal(4)
+			expect(short[ForestTest.postIndexFor(short, 5)].Name).to.equal("Stand5")
+			-- a list that names them some other way falls back to the index, which is what the DEV
+			-- world's tagged posts are (and that world never calls this)
+			expect(ForestTest.postIndexFor({ { Name = "Post1" }, { Name = "Post2" } }, 2)).to.equal(2)
+			expect(ForestTest.postIndexFor({}, 7)).to.equal(7)
+		end)
+
 		it("hands the drive a boar view it cannot spawn or clear with (task 157)", function()
 			-- ONE OWNER OF THE ANIMALS, as a test rather than as a comment. `Match` scores kills and
 			-- escapes off the two signals; it has no door to release or wipe a wood that is this
