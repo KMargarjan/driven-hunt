@@ -3,17 +3,21 @@
 Task: 158
 Round: 1
 Base: `d6399f8` (main, #140 merged)
-Code commit: `8592ddfa586ae3e89adfe0d7be476879052efce8`
+Code commit: `f1e8c8ee6bdf14bf6f2752d339738023dde8256b`
 
 ```
-[harness] PASS: 33/33 checks @ 8592ddfa586ae3e89adfe0d7be476879052efce8 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 8592ddfa586ae3e89adfe0d7be476879052efce8 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ f1e8c8ee6bdf14bf6f2752d339738023dde8256b (clean tree) scope=all
+[harness] PASS: 33/33 checks @ f1e8c8ee6bdf14bf6f2752d339738023dde8256b (clean tree) scope=all
 [harness2] <NEEDS TEST2 -- the Director runs it; this touches TWO_PLAYER_PATHS>
 ```
 
-Two FULL one-player runs at the code commit, both PASS on a clean tree. `test2` is the Director's:
-`src/server/Match/`, `src/shared/Drive/` and `tests/client/match_client.spec.luau` are in
-`TWO_PLAYER_PATHS`. The review has not run yet, so this is still Round 1.
+Two FULL one-player runs at the code commit, both PASS on a clean tree (962 server cases, 43 spec
+files). `test2` is the Director's: `src/server/Match/`, `src/shared/Drive/` and
+`tests/client/match_client.spec.luau` are in `TWO_PLAYER_PATHS`. The review has not run yet, so this
+is still Round 1.
+
+**The Director's `test2` at `8f9f340` failed 33/35 on `match_live.spec:273`, and claim 11 is the
+answer: it was the TIE, not the hold.**
 
 ## What changed
 
@@ -92,10 +96,43 @@ number), and the card's life, the hunter's stand timer and the beaters' hold are
     `[report] drive 2 opened (300s windows)` and `markers: 9/9 stands (0 refused), max ground delta
     0.00, reads=3`, where the third read is the one at drive 2's start with the beater standing on
     the pad that used to be refused at 5.3 studs.
+11. **The two-player failure was the safety rule's own freeze, and the case was what was wrong.**
+    Diagnosed from the run's log, not guessed: the line that failed is `WalkSpeed > 0`, and the line
+    ABOVE it — `Match.isHeld(userId) == false` — PASSED for both players, so the hold was released
+    for everybody and nobody was stuck at GO. Three notes in that same run name the mechanism:
+    `match_teams: 1 driver(s), 1 shooter(s), 1 tied at the time of the check`, `zz_drive_boundary:
+    drive 1 had 3 row(s), 1 tied, … 1 rope(s)`, and `[shooter] weapon_client: this shooter is tied to
+    a tree`. `zz_tie_to_a_tree` ties a shooter on purpose in the two-player run, and a tied player
+    has WalkSpeed 0 and an anchored root BY DESIGN (Karen's rule, 1.7b). The case asserted that
+    nobody in a live drive is frozen, which the drive deliberately contradicts.
+    **It now accounts for both freezes, which is strictly more than before:** `isHeld == false` for
+    every player; NOT tied → `WalkSpeed > 0` and not anchored; tied → `WalkSpeed == 0` and anchored,
+    because a tie that left him walking would be the penalty not happening. It prints
+    team/held/tied/ws/anchored per player before asserting, so the next failure names the mechanism.
+    Verify: `match_live.spec` → "holds nobody once the drive is live, and every frozen player is
+    frozen BY THE TIE"; the one-player note reads
+    `match-live: in the drive -> <name>(Shooters) held=false tied=false ws=16 anchored=false`.
+12. **A restore will not hand back a WalkSpeed of zero** (the Director's point). `Body.defaultWalkSpeed()`
+    is `StarterPlayer.CharacterWalkSpeed` — the PLACE's number, not a literal — and `Body.rescued()`
+    counts every time the floor fires, which must stay 0. A saved zero is impossible as the module is
+    written: the save happens BEFORE the zero is written, and `Body` is the only writer of
+    `WalkSpeed` in `src/` (grepped, standing rule B — `Boar`'s two mentions are a comment and a
+    constant about the default 16). The failure it guards against is a player stuck for the rest of
+    the session with no rope, no banner and nothing on screen to say why. Verify:
+    `src/server/Match/Body.luau` (`defaultWalkSpeed`, `rescued`, `untieCharacter`).
+13. **The two-player ordering, reproduced with ONE player** (the Director asked to try before
+    spending another `test2`). `match_safety.spec` drives both freezes on one character: "a tie on
+    top of a hold gives back the REAL speed, not the hold's zero" (16, not 0 — the tie must not
+    re-save what it finds); "will not hand back a WalkSpeed of zero even if a row somehow holds one",
+    which FORCES the only route to a saved zero (`Body.forget` drops the row without restoring, then
+    a re-freeze saves the frozen body) and asserts the counter by delta; and "does not rescue
+    anything on an ordinary restore", so the floor cannot hide a real regression.
 
 ## What I could not verify, and what I found
 
-* **`test2` has not been run.** The Director runs it.
+* **`test2` has not been run SINCE THE FIX.** The Director runs it. The failure it found at
+  `8f9f340` is claim 11, and the thing no one-player run can show is still the same one: a REAL
+  second player, on the other team, tied by the safety rule inside a live drive.
 * **Karen has not seen it.** The wording, the colours and where the card sits are hers to judge.
 * **The drive report eats the first half of the card on drives 2+ in DEV.** Measured: hidden at
   `ASSIGNING 0:09` because the report had auto-opened, up at `0:04`. Both centred panels hide behind
