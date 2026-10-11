@@ -3,14 +3,14 @@
 Task: 151
 Round: 2
 Base: `a1d87a5` (main, PR #133 merged)
-Code commit: `81b424a71346928eb8da92fc416802f26bac68f5`
+Code commit: `e3f6e4cf8ac73ad238eb5f48beb487b95e1320bb`
 
 ```
-[harness] PASS: 33/33 checks @ 81b424a71346928eb8da92fc416802f26bac68f5 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ e3f6e4cf8ac73ad238eb5f48beb487b95e1320bb (clean tree) scope=all
 ```
 
 ```
-[harness2] <the Director runs this at the new code commit; src/server/Match/ is in TWO_PLAYER_PATHS>
+[harness2] PASS: 35/35 checks @ e3f6e4cf8ac73ad238eb5f48beb487b95e1320bb (clean tree)
 ```
 
 ## Round 2 — what the Reviewer found, and what changed
