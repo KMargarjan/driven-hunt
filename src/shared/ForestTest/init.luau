@@ -597,8 +597,44 @@ ForestTest.SCHEDULE = {
 -- `Runtime:spawn` now asks the world through `world.groundAt`, a seam the boar's own comment
 -- predicted and deferred. A world that does not supply one behaves exactly as before.
 --
--- IT IGNORES THE FOREST AND THE ANIMALS. A boar must be put on the GROUND, not on a fern or on the
--- back of the boar spawned a moment earlier.
+-- A PERSON IS NOT GROUND, AND IT IS THE SAME RULE `ForestTest.roomToStand` ALREADY MAKES
+-- (*"A PLAYER IS NOT AN OBSTACLE"*). One rule, one function, two callers: a question about a person
+-- answered twice is how two systems end up disagreeing about what a person is.
+--
+-- IT WALKS UP, because a hit is not always the character itself: a hat's `Handle` is parented to an
+-- `Accessory`, which is parented to the character, so the hit's immediate `Parent` has no Humanoid
+-- and a parent-only test would call a hat the ground.
+--
+-- Returns the character MODEL (what a raycast filter needs), or nil.
+function ForestTest.characterOf(instance: Instance?): Model?
+	local node: Instance? = instance
+	while node ~= nil and node ~= Workspace do
+		if node:IsA("Model") and node:FindFirstChildOfClass("Humanoid") ~= nil then
+			return node :: Model
+		end
+		node = node.Parent
+	end
+	return nil
+end
+
+-- HOW MANY BODIES ONE COLUMN MAY HOLD before this gives up and answers "no ground here". Eight is
+-- already absurd -- a drive is at most sixteen players and they are spread along a line -- and the
+-- bound exists so a raycast loop can never be unbounded, not because anybody expects to use it.
+ForestTest.MAX_BODIES_IN_A_COLUMN = 8
+
+-- IT IGNORES THE FOREST, THE ANIMALS AND THE PEOPLE. A boar must be put on the GROUND, not on a
+-- fern, not on the back of the boar spawned a moment earlier -- and not on a player's head.
+--
+-- THE LAST ONE IS MEASURED AND IT STOPPED A PLAYTEST (task 158a(f), fixed in task 158). The drive
+-- PUTS a beater on the beater pad and holds her there, and the next read of the markers cast this
+-- ray down the same column: it hit `<player>.Head` at y 161.09 where the terrain is 155.81, a
+-- 5.3-stud delta against `Markers.GROUND_TOLERANCE_STUDS` of 1 -- so `forest:beater-start` was
+-- refused, and the Forest Test sat in `Waiting` for ever after its first drive. A standing person
+-- must not change the world's answer about where the ground is.
+--
+-- A CHARACTER IS SKIPPED AND THE RAY CARRIES ON, rather than every character being excluded up
+-- front: this module is shared and knows nothing about `Players`, and the rule it applies is about
+-- what was HIT -- which covers a dog, an NPC or anything else with a Humanoid, the day one exists.
 function ForestTest.groundAt(x: number, z: number): number?
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -610,8 +646,19 @@ function ForestTest.groundAt(x: number, z: number): number?
 		end
 	end
 	params.FilterDescendantsInstances = ignore
-	local hit = Workspace:Raycast(Vector3.new(x, 600, z), Vector3.new(0, -1200, 0), params)
-	return if hit then hit.Position.Y else nil
+	for _ = 1, ForestTest.MAX_BODIES_IN_A_COLUMN + 1 do
+		local hit = Workspace:Raycast(Vector3.new(x, 600, z), Vector3.new(0, -1200, 0), params)
+		if hit == nil then
+			return nil
+		end
+		local character = ForestTest.characterOf(hit.Instance)
+		if character == nil then
+			return hit.Position.Y
+		end
+		table.insert(ignore, character)
+		params.FilterDescendantsInstances = ignore
+	end
+	return nil
 end
 
 -- HOW MANY BOARS MAY EXIST AT ONCE. Karen: *"make them a lot not too much to break but enough to

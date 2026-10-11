@@ -934,9 +934,9 @@ function ForestTest.nearestSolid(point: Vector3, radius: number): number
 	params.MaxParts = 24
 	local best = math.huge
 	for _, part in ipairs(Workspace:GetPartBoundsInRadius(point, radius, params)) do
-		local model = part.Parent
-		local isCharacter = model ~= nil and model:FindFirstChildOfClass("Humanoid") ~= nil
-		if not isCharacter then
+		-- THE SAME ONE RULE as `roomToStand` and `Data.groundAt` (task 158): a person is not an
+		-- obstacle, and "what is a person" is answered in exactly one place.
+		if Data.characterOf(part) == nil then
 			local away = part.Position - point
 			local gap = Vector3.new(away.X, 0, away.Z).Magnitude
 			if gap < best then
@@ -2254,12 +2254,15 @@ function ForestTest.roomToStand(point: Vector3, radius: number): boolean
 	params.RespectCanCollide = true
 	params.MaxParts = 8
 	for _, part in ipairs(Workspace:GetPartBoundsInRadius(point, radius, params)) do
-		local model = part.Parent
 		-- A PLAYER IS NOT AN OBSTACLE: she may be standing on the road inside this radius already
 		-- when the point is computed, and refusing her own body would walk the search sideways for
 		-- no reason.
-		local isCharacter = model ~= nil and model:FindFirstChildOfClass("Humanoid") ~= nil
-		if not isCharacter then
+		--
+		-- THROUGH `Data.characterOf` SINCE TASK 158, so "what is a person" is ONE rule and not two:
+		-- `Data.groundAt` asks the same question of a raycast hit, for the same reason, and the two
+		-- used to be able to disagree -- this one read only the hit part's immediate `Parent`, which
+		-- calls a hat an obstacle.
+		if Data.characterOf(part) == nil then
 			return false
 		end
 	end
