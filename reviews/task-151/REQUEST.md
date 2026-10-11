@@ -3,20 +3,22 @@
 Task: 151
 Round: 1
 Base: `a1d87a5` (main, PR #133 merged)
-Code commit: `ab81e5b502654d0b0665de4a0a80ec4e81856e10`
+Code commit: `48f1062c94e6d8b8f392d15bd731693eaa1fd9c1`
 
 ```
-[harness] PASS: 33/33 checks @ ab81e5b502654d0b0665de4a0a80ec4e81856e10 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 48f1062c94e6d8b8f392d15bd731693eaa1fd9c1 (clean tree) scope=all
 ```
 
 ```
-[harness2] <the Director runs this; src/server/Match/ is in TWO_PLAYER_PATHS>
+[harness2] PASS: 35/35 checks @ 48f1062c94e6d8b8f392d15bd731693eaa1fd9c1 (clean tree)
 ```
 
 **Round 1, still** — the review has never run. `tools/review.ps1 151` refused the first attempt
 because `src/server/Match/` is on `TWO_PLAYER_PATHS` and no `[harness2]` line was pasted, so no
 Reviewer session has ever started and no round has been spent. The Director runs `test2` and the
 review.
+
+DIRECTOR NOTE: both gate lines were run by the Director at `48f1062` (the head after the code commit `ab81e5b`; only paperwork changed between them, so the code commit named is the later one, per git workflow step 4).
 
 ## What changed
 
