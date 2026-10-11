@@ -1528,6 +1528,71 @@ return function()
 			expect(counted > 0).to.equal(true)
 		end)
 
+		-- THE STOCK TransparencyController IS A SECOND WRITER AND IT CANNOT BE REMOVED (task 151
+		-- round 3). `Rig.acquire` already warns that this PlayerModule will not turn its cameras
+		-- off -- "this PlayerModule's GetCameras() has no Disable method" -- and
+		-- `PlayerModule.CameraModule.TransparencyController` keeps running beside us, computing
+		-- `LocalTransparencyModifier` from its OWN zoom distance rather than from where this camera
+		-- actually put the eye. It decides the player is in third person and writes 0 over
+		-- everything, every frame.
+		--
+		-- MEASURED in the Forest Test before the fix: 1 written on all 18 drawable parts of the
+		-- local character, and TWO SECONDS LATER ONLY 2 WERE STILL 1. On screen that was the
+		-- player's own right arm as a tan block in the bottom-right and, once task 151 gave
+		-- everybody a cap, their own orange brim across the top of the view.
+		--
+		-- So hiding is re-asserted every frame, and this case is the one that would notice if that
+		-- stopped: it hides, waits long enough for the other writer to have had many frames, and
+		-- asks again WITHOUT hiding in between.
+		it("keeps the body hidden against the stock TransparencyController, which writes every frame", function()
+			local character = player.Character
+			expect(character).to.be.ok()
+
+			local before = Camera.Rig.reassertions()
+			Camera.Rig.setLocalBodyHidden(true)
+			-- the camera's own loop is what re-asserts; this only waits for it to run
+			task.wait(1.5)
+			local stillHidden, total = 0, 0
+			local visible = {}
+			for _, part in ipairs((character :: Model):GetDescendants()) do
+				if part:IsA("BasePart") then
+					total += 1
+					if part.LocalTransparencyModifier == 1 then
+						stillHidden += 1
+					else
+						table.insert(visible, part.Name)
+					end
+				end
+			end
+			local after = Camera.Rig.reassertions()
+			Camera.Rig.setLocalBodyHidden(false)
+
+			TestKit.note(
+				string.format(
+					"task151 camera: %d of %d local part(s) still hidden after 1.5 s; re-asserted %d frame(s)",
+					stillHidden,
+					total,
+					after - before
+				)
+			)
+			expect(total > 0).to.equal(true)
+			if stillHidden ~= total then
+				error(
+					string.format(
+						"%d of %d local part(s) came back visible while the body was hidden (%s): the stock "
+							.. "TransparencyController won, and the player sees their own arm and cap",
+						total - stillHidden,
+						total,
+						table.concat(visible, ", ")
+					),
+					0
+				)
+			end
+			-- ...and the re-assert actually happened, rather than the case passing because nothing
+			-- ever contested the value.
+			expect(after > before).to.equal(true)
+		end)
+
 		-- A DRIVER holds no Tool at all (Match.CONFIG.DRIVERS_MAY_SHOOT is false), so the Handle is
 		-- named as a case rather than promised: the claim is every part the character HAS.
 		it("hides every part the character has, the Tool's Handle among them when it holds one", function()
