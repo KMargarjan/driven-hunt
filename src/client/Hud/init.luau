@@ -996,7 +996,9 @@ function Hud.renderScore(snapshot, secondsLeft: number?)
 		return
 	end
 	if scoreTitle then
-		scoreTitle.Text = string.format("DRIVE %d   SCORE", snapshot.driveNumber)
+		-- THE WORDING IS THE CONTRACT'S, not this renderer's (task 159): Karen asked for a "results
+		-- table", and `Drive.CONFIG` is where every word this Hud draws is written down.
+		scoreTitle.Text = string.format(Drive.CONFIG.SCORE_TITLE_FORMAT, snapshot.driveNumber)
 	end
 	local me = Players.LocalPlayer.UserId
 	for index, line in ipairs(scoreLines) do

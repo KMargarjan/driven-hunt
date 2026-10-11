@@ -1232,6 +1232,9 @@ end
 -- "this cannot happen".
 local rescued = 0
 
+-- How many characters have been stood somewhere by `Body.standCharacter` (task 159).
+local stood = 0
+
 function Body.rescued(): number
 	return rescued
 end
@@ -1285,6 +1288,38 @@ end
 -- Whether this module is holding that character still -- a tie or a hold, which are the same freeze.
 function Body.isHolding(userId: number): boolean
 	return held[userId] ~= nil
+end
+
+-- HELD WHERE THE DRIVE SAYS, NOT WHERE HE IS: the hold plus a move, with no rope and no respawn
+-- (task 159, the results scene). It is `tieCharacter` without the tree -- the same `holdCharacter`
+-- freeze and the same `PivotTo` -- so this module stays the one writer of where a character stands
+-- and of whether it can move, and the scene decides only the CFrame.
+--
+-- WHY NOT `Body.place`: that is the drive's own placement and it calls `LoadCharacter`, which
+-- respawns the player -- a new character, a dropped Tool and a reset camera, three seconds after a
+-- drive in which she was holding a gun. The results scene moves the character she is already in.
+--
+-- `Anchored` IS WHY THE MOVE STICKS: a character's physics is owned by its own client, so a
+-- server-side pivot alone is a suggestion (see this module's header). `holdCharacter` anchors first
+-- and the pivot follows, which is the order the tie uses for the same reason.
+function Body.standCharacter(character: Model?, userId: number, cframe: CFrame): boolean
+	local root = Body.holdCharacter(character, userId)
+	if root == nil or character == nil then
+		return false
+	end
+	character:PivotTo(cframe)
+	stood += 1
+	return true
+end
+
+-- The player wrapper, for the same reason `Body.tie` and `Body.hold` have one.
+function Body.stand(player: Player, cframe: CFrame): boolean
+	return Body.standCharacter(player.Character, player.UserId, cframe)
+end
+
+-- How many characters this module has stood somewhere (the results scene's own number).
+function Body.stood(): number
+	return stood
 end
 
 -- The same work against a Model rather than a Player, which is the seam a spec uses: a live spec must

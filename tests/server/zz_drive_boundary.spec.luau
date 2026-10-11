@@ -71,6 +71,26 @@ local function ropes(): number
 	return if folder then #folder:GetChildren() else 0
 end
 
+-- THE RESULTS SCENE, COUNTED OFF THE WORLD (task 159): how many lamps and how many animals are
+-- standing in `Workspace.DriveScene` right now. It reads the folder the drive actually built rather
+-- than `Scene.stats()`, because a counter that says "I built four" is not the same claim as four
+-- lamps being in the world.
+local function sceneCounts(): (number, number)
+	local folder = Match.Scene.folder()
+	if not folder then
+		return 0, 0
+	end
+	local lamps, bodies = 0, 0
+	for _, child in ipairs(folder:GetChildren()) do
+		if string.find(child.Name, Match.Scene.LIGHT_PREFIX, 1, true) == 1 then
+			lamps += 1
+		elseif string.find(child.Name, Match.Scene.ANIMAL_PREFIX, 1, true) == 1 then
+			bodies += 1
+		end
+	end
+	return lamps, bodies
+end
+
 local function totalPoints(snapshot): number
 	local sum = 0
 	for _, row in ipairs(snapshot.rows) do
@@ -221,6 +241,72 @@ return function()
 			expect(#Match.snapshot().rows).to.equal(#before.rows)
 		end)
 
+		it("built the results scene: four lamps, this drive's animals, everybody held round them", function()
+			-- THE SCENE KAREN ASKED FOR, in the world, at the real boundary (task 159): *"all they
+			-- standing around the animals there is light on 4 corners"*. Nothing here is a pure
+			-- layout -- match_scene.spec owns the arithmetic; this is the claim that the drive
+			-- actually built it and actually moved the players who were standing in it.
+			expect(Match.phase()).to.equal("Scoring")
+			local lamps, bodies = sceneCounts()
+			local kills = Match.driveKills()
+			local spot = Match.gatherSpotFor(Match.Markers.read(), Match.CONFIG)
+			TestKit.note(
+				string.format(
+					"zz_drive_boundary: scene lamps=%d animals=%d kills=%d spot=%s | scenes=%d moved=%d nowhere=%d",
+					lamps,
+					bodies,
+					#kills,
+					tostring(spot),
+					Match.stats().scenes,
+					Match.stats().sceneMoved,
+					Match.stats().scenesNowhere
+				)
+			)
+			-- THE DEV MAP HAS STANDS, so there is somewhere to gather and the scene must exist. A
+			-- world with no stands is the `scenesNowhere` branch, and forest_markers.spec is where
+			-- that case lives.
+			expect(spot).to.be.ok()
+			expect(Match.stats().scenesNowhere).to.equal(0)
+			expect(Match.stats().scenes >= 1).to.equal(true)
+			expect(Match.Scene.folder()).to.be.ok()
+			expect(lamps).to.equal(4)
+			-- THE ROW IS THIS DRIVE'S OWN KILLS, capped -- not a number of its own. With one player
+			-- and no staged kill that is zero animals and four lamps, which is still the scene.
+			expect(bodies).to.equal(math.min(#kills, Match.CONFIG.SCENE.MAX_ANIMALS))
+
+			-- EVERYBODY IS HELD AND STANDING ROUND THE ANIMALS, which is the dispatch's item 3: the
+			-- hold is the SAME freeze task 158 built, so `isHeld` is the fact and the ring is where.
+			local radius = Match.CONFIG.SCENE.RING_RADIUS_STUDS
+			for _, player in ipairs(Players:GetPlayers()) do
+				expect(Match.isHeld(player.UserId)).to.equal(true)
+				local character = player.Character
+				local root = character and character.PrimaryPart
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				if humanoid then
+					expect(humanoid.WalkSpeed).to.equal(0)
+				end
+				if root then
+					expect(root.Anchored).to.equal(true)
+					-- ON THE RING, measured flat: the y is the drive's own stand height above the
+					-- gathering spot and the character's own root height on top of it, so the
+					-- horizontal distance is the honest assertion.
+					local flat = Vector3.new(root.Position.X - spot.X, 0, root.Position.Z - spot.Z)
+					TestKit.note(
+						string.format(
+							"zz_drive_boundary: %s stands %.1f studs from the gathering spot (ring %d)",
+							player.Name,
+							flat.Magnitude,
+							radius
+						)
+					)
+					-- A stud of tolerance either side: the character is anchored at the CFrame
+					-- `Scene.ringLayout` chose, and `Body.standCharacter` pivots the model's pivot.
+					expect(math.abs(flat.Magnitude - radius) <= 2).to.equal(true)
+				end
+			end
+			expect(Match.Body.stood() >= #Players:GetPlayers()).to.equal(true)
+		end)
+
 		it("starts the next drive, and TELLS the clients the new drive's rows", function()
 			expect(Match.advanceForTests(Match.CONFIG.SCORE_SECONDS + 1)).to.equal(true)
 			-- WAIT FOR THE PUSH, not just for the phase. `Phase.step` sets the phase and the owner
@@ -272,6 +358,25 @@ return function()
 			end
 			for _, player in ipairs(Players:GetPlayers()) do
 				expect(named[player.UserId]).to.equal(true)
+			end
+		end)
+
+		it("took the scene down before the next drive, and let everybody go", function()
+			-- The other half of the scene (task 159): `Phase.enterAssigning` emits `clearScene` and
+			-- `free` BEFORE anybody is placed, so the next drive does not start in last drive's
+			-- lamplight and nobody walks to a stand frozen.
+			expect(Match.phase()).to.equal("Assigning")
+			expect(Match.Scene.folder()).to.equal(nil)
+			local lamps, bodies = sceneCounts()
+			expect(lamps).to.equal(0)
+			expect(bodies).to.equal(0)
+			expect(Match.stats().scenesCleared >= 1).to.equal(true)
+			for _, player in ipairs(Players:GetPlayers()) do
+				-- A BEATER IS HELD AGAIN -- at the START LINE, which is task 158's hold and lasts the
+				-- countdown; a hunter is free to walk to his stand. So the claim is not "nobody is
+				-- held", it is "nobody is held who should not be".
+				local team = Match.Body.teamOf(player)
+				expect(Match.isHeld(player.UserId)).to.equal(team == Match.CONFIG.START_HOLD_TEAM)
 			end
 		end)
 

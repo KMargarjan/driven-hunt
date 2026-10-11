@@ -286,6 +286,14 @@ return function()
 			expect(theirs.TextColor3).to.equal(Drive.CONFIG.TEXT_COLOR)
 
 			expect(string.find(Hud.scoreTitleText(), "DRIVE 3", 1, true) ~= nil).to.equal(true)
+			-- THE RESULTS TABLE (task 159). Karen: *"showing image transperent with results table"* --
+			-- this panel IS that table, and it says so. The WORDING is the contract's, so the
+			-- assertion is against `Drive.CONFIG` and not against a string typed twice.
+			expect(Hud.scoreTitleText()).to.equal(string.format(Drive.CONFIG.SCORE_TITLE_FORMAT, 3))
+			expect(string.find(Hud.scoreTitleText(), "RESULTS", 1, true) ~= nil).to.equal(true)
+			-- ...and it is see-through, which is the other half of what she asked for.
+			expect(Drive.CONFIG.SCORE_PANEL_TRANSPARENCY > 0).to.equal(true)
+			expect(Hud.scorePanel().BackgroundTransparency).to.equal(Drive.CONFIG.SCORE_PANEL_TRANSPARENCY)
 			expect(Hud.scoreFooterText()).to.equal("NEXT DRIVE IN 12")
 		end)
 

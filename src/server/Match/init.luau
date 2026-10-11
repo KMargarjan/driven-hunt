@@ -17,6 +17,7 @@
 --   Score   pure: points
 --   Markers read-only: the CollectionService tags
 --   Body    the only writer of teams and of where a character stands
+--   Scene   the only writer of Workspace.DriveScene: the results scene's animals and lamps
 --
 -- MILESTONE 1.7b turned both switches on: SAFETY_ENABLED ties a shooter who fires at a driver to a
 -- tree for the rest of the drive, and Drive.CONFIG.SCOREBOARD_ENABLED shows the score screen. The
@@ -26,11 +27,21 @@
 -- TASK 158 ADDED THE START OF A DRIVE and no phase: the countdown IS the existing `Assigning`
 -- intermission, now 10 seconds, and the three things Karen asked for all read its one deadline --
 -- the start card ("what you can shoot" plus your role), the hunter's stand timer, and the beaters
--- held at their line until GO. Two effects (`hold`, `free`), one set (`heldAtLine`), one pure rule
+-- held at their line until GO. Two effects (`hold`, `free`), one set (`heldStill`), one pure rule
 -- each side: `Phase.heldUserIds` says who is held, `Match.quarryLines` says what may be shot.
 --
+-- TASK 159 ADDED THE END OF A DRIVE AND THE RESULTS SCENE, and no phase either. Karen: *"Timer or
+-- when all beaters cross line of hunters. And yes could be that all they standing around the animals
+-- there is light on 4 corners and then showing image transperent with results table"*. So:
+--   * a drive ends on the clock as it always did, OR earlier when every REAL beater is through the
+--     hunters' line -- `Match.crossedLine` measures it against the nearest stand, `Phase` decides;
+--   * the `Scoring` phase IS the scene: this drive's animals laid out in a row behind the middle
+--     stand (`Match.gatherSpotFor`), four lamps on the four corners, everybody held and stood round
+--     them (`Body.stand`), and the results table on screen -- which is the drive's own score panel
+--     reading the snapshot this owner already broadcasts. There is no second score and no new remote.
+--
 -- Design: docs/design/drive.md
--- Note:   docs/research/2026-09-25-drive.md
+-- Note:   docs/research/2026-09-25-drive.md, docs/research/2026-10-12-drive-end-and-results-scene.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -44,6 +55,7 @@ local Markers = require(script.Markers)
 local Penalty = require(script.Penalty)
 local Phase = require(script.Phase)
 local Roster = require(script.Roster)
+local Scene = require(script.Scene)
 local Score = require(script.Score)
 
 local Match = {}
@@ -55,6 +67,7 @@ Match.Score = Score
 Match.Markers = Markers
 Match.Penalty = Penalty
 Match.Body = Body
+Match.Scene = Scene
 
 -- THE QUICK TEST'S BOUNDARY READ, AND THE STUDIO GUARD IS PART OF IT (task 83). Pure and exported
 -- so the guard itself is testable: `quickTestEnabled(true, false)` is false, which is the assertion
@@ -78,7 +91,56 @@ Match.CONFIG = {
 	-- 20 -> 10: the old 20 was "long enough to read the teams and walk to your post", and Karen has
 	-- now named the number she wants. See backups/2026-10-11_task158_intermission_20s.txt.
 	INTERMISSION_SECONDS = 10, -- K
+	-- HOW LONG THE RESULTS SCENE IS UP (task 159): the Scoring phase, unchanged in length. Karen's
+	-- scene -- the animals laid out, the four lights, everybody standing round them and the results
+	-- table on screen -- lasts exactly this, and then the next drive starts as it always did.
 	SCORE_SECONDS = 25, -- K
+	-- THE SECOND WAY A DRIVE CAN END (task 159). Karen: *"Timer or when all beaters cross line of
+	-- hunters"*. The clock still ends every drive; this can only ever end one EARLIER, and only when
+	-- there is at least one real beater in it -- `Phase.beatersThrough` is the whole rule.
+	--
+	-- Not on `Match.WORLD_OVERRIDABLE`: whether a drive can end early is a RULE, like the safety
+	-- numbers, and one world answering it differently would be two answers to one rule in the world
+	-- Karen plays. It is still reachable by parameter from a spec, which is what the flag discipline
+	-- is actually for.
+	END_ON_BEATERS_CROSS = true, -- K, Karen's second ending
+	-- HOW FAR PAST THE HUNTERS' LINE "CROSSED" IS. Measured against the nearest STAND, not against
+	-- the line marker's own position, because the forest's road is a sine whose plane is up to 30
+	-- studs off the real road (`docs/design/forest-drive.md` section 6.1) -- so the stand a beater
+	-- walks past is the only honest reference. 10 studs is just past a hunter's own post: a beater
+	-- standing ON the line, or walking up to it and stopping, has not crossed it.
+	BEATER_CROSS_MARGIN_STUDS = 10, -- K
+
+	-- THE RESULTS SCENE (task 159). Karen: *"all they standing around the animals there is light on 4
+	-- corners and then showing image transperent with results table"*. `Match.Scene` is the only
+	-- writer of the Instances; these are its numbers, and every one of them is handed in as a
+	-- parameter so a pure spec can lay the scene out with no world.
+	--
+	-- THE TABLE ITSELF IS NOT HERE AND HAS NO NUMBER HERE: it is the drive's own score panel, drawn
+	-- by `src/client/Hud` from the snapshot this owner already broadcasts. One score, one wire.
+	SCENE = {
+		ENABLED = true,
+		-- HOW FAR BEHIND THE STANDS the animals are gathered, on the hunters' own side of the line --
+		-- in the forest that is the ground beside the road by the stands, which is where Karen's
+		-- beaters and hunters meet. Behind, never in front: the gathering spot must not be in the
+		-- corridor the drive comes down.
+		GATHER_BEHIND_STUDS = 24, -- K
+		SPACING_STUDS = 6, -- K, a boar's own width plus room to walk between them
+		MAX_ANIMALS = 12, -- a cap, so a long drive's row cannot run off into the wood
+		RING_RADIUS_STUDS = 14, -- K, close enough to see the animals, far enough not to stand on them
+		CORNER_STUDS = 16, -- K, the four lamps stand just outside the ring
+		-- The display animal: a boar-sized box, scaled per kind. The SCALES are data here rather than
+		-- a require of `Boar.CONFIG.KINDS`, because the scene must not learn what a boar is -- and
+		-- they are the same three numbers that config holds (male 1.0, female 0.85, cub 0.45).
+		ANIMAL_SIZE = Vector3.new(1.6, 1.4, 4.0),
+		ANIMAL_SCALES = { male = 1.0, female = 0.85, cub = 0.45 },
+		ANIMAL_COLOR = Color3.fromRGB(58, 48, 42),
+		POST_SIZE = Vector3.new(0.6, 10, 0.6),
+		POST_COLOR = Color3.fromRGB(70, 60, 50),
+		LIGHT_COLOR = Color3.fromRGB(255, 190, 120), -- K's "light on 4 corners", warm: it is dusk
+		LIGHT_BRIGHTNESS = 4,
+		LIGHT_RANGE_STUDS = 60,
+	},
 	-- DIRECTOR DECISION F (audit-003 must-fix 1), Milestone 1 only: ONE player is a drive. A solo
 	-- player is a SHOOTER and is armed, so the harness's single Play player keeps its gun and the
 	-- weapon and camera client specs stay green. Raise to 2 before release.
@@ -348,11 +410,17 @@ local names: { [number]: string } = {} -- userId -> name, for the feed and the b
 -- and the release effect empties it. The pure machine does not track it -- two writers of one fact is
 -- the failure docs/PROJECT_CONTEXT.md names three times.
 local tied: { [number]: { tree: BasePart, at: number } } = {}
--- WHO IS HELD AT THE START LINE, for the length of the countdown (task 158). The same shape as
--- `tied` above and for the same reason: the pure machine SAYS who must be held and this is the one
--- table that remembers it, so the character watch can put the hold back on the character
--- `placePlayers` is about to respawn. Emptied by `free`, which `Phase.enterRunning` always emits.
-local heldAtLine: { [number]: boolean } = {}
+-- WHO IS HELD STILL, AND THERE ARE TWO OCCASIONS NOW: the beaters at the start line for the length
+-- of the countdown (task 158), and EVERYBODY at the results scene for the length of Scoring (task
+-- 159). The same shape as `tied` above and for the same reason: the pure machine SAYS who must be
+-- held and this is the one table that remembers it, so the character watch can put the hold back on
+-- the character `placePlayers` is about to respawn. Emptied by `free`, which `Phase.enterRunning`,
+-- `Phase.enterAssigning` and `Phase.enterWaiting` all emit -- so a hold cannot outlive its phase.
+local heldStill: { [number]: boolean } = {}
+-- WHAT THIS DRIVE SHOT, in the order it was shot, for the results scene to lay out (task 159). It is
+-- NOT a second score: it carries the kind and the hit zone and no points at all, and the board
+-- (`Score`) is still the one answer to how the drive went. Cleared when a drive starts.
+local driveKills: { any } = {}
 local characterWatch: { [number]: RBXScriptConnection } = {}
 local pushCredit: { [string]: { [number]: number } } = {} -- boarId -> userId -> last time near
 local accumulator = 0
@@ -384,6 +452,16 @@ local stats = {
 	-- `placePlayers` respawns the player the hold is for.
 	holds = 0,
 	holdsReapplied = 0,
+	-- THE END OF A DRIVE AND THE RESULTS SCENE (task 159), as numbers rather than a feeling: how many
+	-- drives ended because the beaters were through rather than on the clock, how many scenes were
+	-- built and taken down, how many animals were laid out, how many players were stood round them,
+	-- and how many times a world had no stands to gather anything behind.
+	drivesEndedByBeaters = 0,
+	scenes = 0,
+	scenesCleared = 0,
+	scenesNowhere = 0,
+	sceneAnimals = 0,
+	sceneMoved = 0,
 	violations = 0,
 	safetySignalMissing = 0,
 	-- The release, counted three ways, because "six boars were released" can now mean two sounders
@@ -440,9 +518,16 @@ function Match.isTied(userId: number): boolean
 	return tied[userId] ~= nil
 end
 
--- Is this player held at the start line right now? The one public reader of `heldAtLine` (task 158).
+-- Is this player held still right now -- at the start line (task 158) or at the results scene (task
+-- 159)? The one public reader of `heldStill`.
 function Match.isHeld(userId: number): boolean
-	return heldAtLine[userId] == true
+	return heldStill[userId] == true
+end
+
+-- WHAT THIS DRIVE HAS SHOT SO FAR, in order, as the results scene lays it out (task 159). A copy, so
+-- a caller cannot write the drive's record.
+function Match.driveKills(): { any }
+	return table.clone(driveKills)
 end
 
 -- THE TEST SEAM: THE DRIVE'S OWN CLOCK, MOVED FORWARD (TASKS.md 38a(i)).
@@ -816,17 +901,18 @@ local function applyRelease()
 	table.clear(tied)
 end
 
--- THE BEATERS' HOLD AT THE START LINE (task 158). The machine has already decided WHO (the
--- `START_HOLD_TEAM` of this drive's assignment) and WHEN (entering `Assigning`); this performs it,
+-- THE HOLD (task 158 at the start line, task 159 at the results scene). The machine has already
+-- decided WHO -- the `START_HOLD_TEAM` of this drive's assignment entering `Assigning`, the whole
+-- roster entering `Scoring` -- and WHEN; this performs it,
 -- through `Body`, which is the only writer of whether a character can move.
 --
 -- IT REMEMBERS BEFORE IT WRITES, AND THAT ORDER IS THE WHOLE TRICK: `placePlayers` runs first and
--- calls `LoadCharacter`, so the character being held here is about to be destroyed. `heldAtLine` is
+-- calls `LoadCharacter`, so the character being held here is about to be destroyed. `heldStill` is
 -- what survives that, and `watchCharacter` puts the hold on the character that arrives -- exactly
 -- the way a tie survives the Reset button.
 local function applyHold(userIds: { number }?)
 	for _, userId in ipairs(userIds or {}) do
-		heldAtLine[userId] = true
+		heldStill[userId] = true
 		stats.holds += 1
 		local player = playersService():GetPlayerByUserId(userId)
 		if player then
@@ -835,26 +921,27 @@ local function applyHold(userIds: { number }?)
 	end
 end
 
--- GO, or one player changing sides inside the countdown. `userIds == nil` means EVERYBODY held,
--- which is what the start of a drive means.
+-- GO, one player changing sides inside the countdown, or the end of the results scene. `userIds ==
+-- nil` means EVERYBODY held, which is what the start of a drive and the end of the scene both mean.
 --
 -- A TIED PLAYER IS NEVER FREED HERE. A tie and a hold are the same freeze in `Body` (one `held`
 -- row), so freeing a tied player would hand back his WalkSpeed and leave the rope hanging on a man
--- who can walk. The two cannot overlap today -- ties only exist in `Running` and holds only in
--- `Assigning`, and `enterScoring`'s `release` empties the ties before `enterAssigning` holds
--- anybody -- so this guard is what keeps that true rather than what works around it being false.
+-- who can walk. The two still cannot overlap -- ties only exist in `Running`, holds only in
+-- `Assigning` and `Scoring`, and `enterScoring`'s `release` empties the ties BEFORE its own `hold`
+-- holds anybody -- so this guard is what keeps that true rather than what works around it being
+-- false.
 local function applyFree(userIds: { number }?)
 	local targets = userIds
 	if not targets then
 		targets = {}
-		for userId in pairs(heldAtLine) do
+		for userId in pairs(heldStill) do
 			table.insert(targets, userId)
 		end
 		table.sort(targets)
 	end
 	for _, userId in ipairs(targets :: { number }) do
-		if heldAtLine[userId] and not tied[userId] then
-			heldAtLine[userId] = nil
+		if heldStill[userId] and not tied[userId] then
+			heldStill[userId] = nil
 			local player = playersService():GetPlayerByUserId(userId)
 			if player then
 				Body.untie(player) -- the one restore: a hold is a tie without the rope
@@ -862,6 +949,48 @@ local function applyFree(userIds: { number }?)
 				Body.forget(userId)
 			end
 		end
+	end
+end
+
+-- ------------------------------------------------------------------ the results scene (task 159)
+--
+-- THE SCENE IS `Match.Scene`'S INSTANCES AND `Body`'S CHARACTERS, and this is the one place either is
+-- asked for: the spot and the facing are this owner's reading of the world's own geometry
+-- (`Match.gatherSpotFor` over the marker set), the animals are this drive's own kill record, and
+-- WHERE A PLAYER STANDS is still written by `Body` alone.
+--
+-- A WORLD THAT ANSWERS NOWHERE GETS NO SCENE AND ONE LINE SAYING SO, which is the same shape
+-- `applyPlace` already has: a drive whose markers have no stands has nothing to gather the animals
+-- behind, and that is a fact about the world, not an error.
+local function applyScene()
+	if not config.SCENE.ENABLED then
+		return
+	end
+	local spot, facing = Match.gatherSpotFor(markerSet, config)
+	if spot == nil or facing == nil then
+		stats.scenesNowhere += 1
+		print(
+			string.format("[match] nowhere to gather the drive: posts=%d", if markerSet then #markerSet.posts else -1)
+		)
+		return
+	end
+	stats.scenes += 1
+	stats.sceneAnimals += Scene.build(spot, facing, driveKills, config)
+
+	-- EVERYBODY STANDING ROUND THEM, in roster order so the ring is the same ring every drive.
+	local ids = Phase.participantIds(state)
+	local ring = Scene.ringLayout(spot, #ids, config)
+	for index, userId in ipairs(ids) do
+		local player = playersService():GetPlayerByUserId(userId)
+		if player and ring[index] and Body.stand(player, ring[index]) then
+			stats.sceneMoved += 1
+		end
+	end
+end
+
+local function applyClearScene()
+	if Scene.clear() then
+		stats.scenesCleared += 1
 	end
 end
 
@@ -886,6 +1015,10 @@ local function applyEffects(effects)
 			applyFree(effect.userIds)
 		elseif kind == "release" then
 			applyRelease()
+		elseif kind == "scene" then
+			applyScene()
+		elseif kind == "clearScene" then
+			applyClearScene()
 		elseif kind == "feed" then
 			publishFeed(effect.entry)
 		elseif kind == "broadcast" then
@@ -920,8 +1053,21 @@ local function dispatch(event)
 	if filled.boarCapacity == nil and world and world.boars and world.boars.capacity then
 		filled.boarCapacity = world.boars:capacity()
 	end
+	-- ...AND, WHILE A DRIVE IS RUNNING, HOW MANY BEATERS ARE THROUGH THE HUNTERS' LINE (task 159).
+	-- Measured here because the GEOMETRY is this owner's (the marker set) and the RULE is the pure
+	-- machine's (`Phase.beatersThrough`), which is the same split `aliveBoars` above has.
+	--
+	-- ONLY IN `Running`, which is the only phase that reads it: nothing else is in front of the line
+	-- to measure, and a crossing counted in `Assigning` would be a beater standing at his own start.
+	if filled.beaters == nil and state.phase == "Running" then
+		filled.beaters, filled.beatersAcross = Match.beaterCrossing()
+	end
+	local endedEarlyBefore = state.endedEarly
 	local holdbacksBefore = state.holdbacks
 	state, effects = Phase.step(state, filled, now(), config)
+	if state.endedEarly and not endedEarlyBefore then
+		stats.drivesEndedByBeaters += 1
+	end
 	snapshotCache = nil
 
 	-- A STALL IS VISIBLE, not folkloric: every hold-back is counted, and crossing HOLDBACK_WARN
@@ -953,6 +1099,7 @@ local function dispatch(event)
 		-- an event of its own, and a dispatch inside a dispatch would apply effects out of order.
 		markersStale = true
 		stats.drives += 1
+		table.clear(driveKills) -- the record is per drive, exactly as the board is (task 159)
 		board = Score.new() -- scores are per drive
 		for userId, name in pairs(names) do
 			board = Score.join(board, userId, name, state.assignment[userId])
@@ -998,6 +1145,77 @@ function Match.quickSpawnFor(line, posts, cfg): Vector3?
 		line.position.Y,
 		line.position.Z + cfg.QUICK_TEST_AHEAD_STUDS
 	)
+end
+
+-- HAS THIS BEATER CROSSED THE HUNTERS' LINE? (task 159). PURE and exported, so a spec drives both
+-- sides of the plane and the margin with hand-written Vector3s and no world -- the shape
+-- `Match.quickSpawnFor` already has.
+--
+-- THE LINE'S NORMAL POINTS AT THE BEATERS (`Markers.read`: *"the part's -Z faces the drivers"*, and
+-- the forest's own set is `Vector3.zAxis` for the same reason), so a beater who starts up the drive
+-- has a POSITIVE signed distance and crossing means going negative -- past the hunters and `margin`
+-- studs beyond them.
+--
+-- MEASURED AGAINST THE NEAREST STAND, NOT AGAINST THE LINE MARKER'S POSITION, and that is the whole
+-- reason this takes `posts`: the forest's line is ONE plane for a sine road whose real z wanders up
+-- to 30 studs either side of it (`docs/design/forest-drive.md` section 6.1), so a beater crossing
+-- the road 600 studs along it would be nowhere near the plane. The stands stand ON the road, so the
+-- nearest one sideways is where the line really is for this beater. With no posts at all the plane's
+-- own position is the reference, which is exactly the DEV arena's straight line.
+function Match.crossedLine(position: Vector3?, line, posts, marginStuds: number?): boolean
+	if typeof(position) ~= "Vector3" or not (line and typeof(line.normal) == "Vector3") then
+		return false
+	end
+	if line.normal.Magnitude < 1e-4 or typeof(line.position) ~= "Vector3" then
+		return false
+	end
+	local normal = line.normal.Unit
+	local at = position :: Vector3
+	local reference = line.position
+	local nearest = math.huge
+	for _, post in ipairs(posts or {}) do
+		if typeof(post.Position) == "Vector3" then
+			local delta = post.Position - at
+			-- The distance ALONG the line, with the across-the-line part taken out: "which stand is
+			-- this beater walking at", never "which stand is nearest", which would pick the one he
+			-- has already walked past.
+			local lateral = (delta - normal * delta:Dot(normal)).Magnitude
+			if lateral < nearest then
+				nearest, reference = lateral, post.Position
+			end
+		end
+	end
+	return (at - reference):Dot(normal) <= -(marginStuds or 0)
+end
+
+-- WHERE THE ANIMALS ARE GATHERED AND WHICH WAY THE SCENE FACES (task 159). PURE, and one rule for
+-- both worlds: `GATHER_BEHIND_STUDS` behind the MIDDLE stand, on the hunters' own side of the line.
+--
+-- In the forest that is the ground beside the road by the stands -- Karen's *"near the road by the
+-- stands"* -- and in DEV it is open ground just behind the shooter line. One rule, because both
+-- worlds already hand this owner the same two things: the stands and the line's normal.
+--
+-- THE Y IS THE STAND'S OWN GROUND, read off the post's bottom face rather than raycast: the post
+-- stands on the ground in both worlds (the forest measures its posts onto the terrain, task 157), so
+-- its underside IS the floor and the scene needs no second measurement of it.
+function Match.gatherSpotFor(markers, cfg): (Vector3?, Vector3?)
+	if not markers then
+		return nil, nil
+	end
+	local posts = markers.posts
+	if not posts or #posts == 0 then
+		return nil, nil
+	end
+	local middle = posts[math.ceil(#posts / 2)]
+	local line = markers.line
+	local normal = Vector3.zAxis
+	if line and typeof(line.normal) == "Vector3" and line.normal.Magnitude >= 1e-4 then
+		normal = Vector3.new(line.normal.X, 0, line.normal.Z)
+		normal = if normal.Magnitude < 1e-4 then Vector3.zAxis else normal.Unit
+	end
+	local ground = middle.Position.Y - middle.Size.Y / 2
+	local at = Vector3.new(middle.Position.X, ground, middle.Position.Z) - normal * cfg.SCENE.GATHER_BEHIND_STUDS
+	return at, normal
 end
 
 -- Drivers only. A shooter standing on a post must not push the boar back into the wood before it
@@ -1121,6 +1339,26 @@ local function driverPositions(): { Penalty.DriverPos }
 	return Match.playerDrivers(Match.driverThreats())
 end
 
+-- HOW MANY REAL BEATERS ARE IN THIS DRIVE, AND HOW MANY OF THEM ARE THROUGH THE HUNTERS' LINE (task
+-- 159). The owner's measurement; the RULE is `Phase.beatersThrough`, which only compares the two.
+--
+-- `driverPositions` IS THE READ, and it is the right one for exactly the reason the safety rule uses
+-- it: it is keyed by userId, so the quick test's phantom and the forest's wave beaters -- which carry
+-- non-numeric ids -- are filtered out by `Match.playerDrivers` and can never end a drive. Karen's
+-- rule is about the people walking up.
+function Match.beaterCrossing(): (number, number)
+	local beaters = driverPositions()
+	local line = if markerSet then markerSet.line else nil
+	local posts = if markerSet then markerSet.posts else nil
+	local across = 0
+	for _, beater in ipairs(beaters) do
+		if Match.crossedLine(beater.position, line, posts, config.BEATER_CROSS_MARGIN_STUDS) then
+			across += 1
+		end
+	end
+	return #beaters, across
+end
+
 -- THE WEAPON PUBLISHED A SHOT INTO THE DRIVE; this decides whether it endangered anybody. Four
 -- questions, and only the last one is Penalty's: is the drive live, is this shooter already tied, is
 -- the grace over, and did the shot pass close to a driver (design section 8.3).
@@ -1216,6 +1454,16 @@ local function onDowned(record)
 		scoredSignal:Fire(award)
 	end
 	pushCredit[record.id] = nil
+	-- THE RESULTS SCENE'S OWN ROW (task 159), and it is deliberately thin: what animal it was and
+	-- where it was hit. No points -- `Score` owns those and the panel reads them off the snapshot --
+	-- and no Instance and no position, because the carcass is about to be despawned and a world
+	-- point would then mean nothing (the rule `docs/design/drive-report.md` section 2 already sets).
+	table.insert(driveKills, {
+		kind = record.kind,
+		zone = record.killingZone,
+		byUserId = record.killedByUserId,
+		byName = record.killedByName,
+	})
 	dispatch({
 		kind = "kill",
 		userId = record.killedByUserId,
@@ -1341,12 +1589,12 @@ local function watchCharacter(player: Player)
 		-- would simply walk off before the countdown ended. The same shape as the tie below (wait
 		-- for the root, then check the fact is STILL true before writing), and it holds THIS
 		-- character rather than `player.Character`, which may be a newer one by then.
-		if heldAtLine[player.UserId] then
+		if heldStill[player.UserId] then
 			task.spawn(function()
 				if not character.PrimaryPart then
 					character:GetPropertyChangedSignal("PrimaryPart"):Wait()
 				end
-				if heldAtLine[player.UserId] and character.Parent and Body.holdCharacter(character, player.UserId) then
+				if heldStill[player.UserId] and character.Parent and Body.holdCharacter(character, player.UserId) then
 					stats.holdsReapplied += 1
 				end
 			end)
@@ -1380,7 +1628,7 @@ function Match.forget(player: Player)
 	names[userId] = nil
 	-- The hold goes with the player, exactly as the rope does: `Body.forget` below drops his saved
 	-- WalkSpeed row, so leaving this set would hold a userId nothing can ever free (task 158).
-	heldAtLine[userId] = nil
+	heldStill[userId] = nil
 	if tied[userId] then
 		-- The rope outlives nobody: the Instance goes with the player (design section 4.4).
 		untie(userId)
@@ -1471,6 +1719,7 @@ function Match.stop()
 	started = false
 	applyRelease() -- nobody stays frozen because a spec stopped the match
 	applyFree() -- ...and that includes a beater held at the start line (task 158)
+	applyClearScene() -- ...and no lamp or carcass is left standing in the world (task 159)
 	-- ...AND THE WORLD'S NUMBERS GO WITH THE WORLD. A spec that started a 300-second drive must not
 	-- leave the next require of this singleton reading 300.
 	config = Match.CONFIG
