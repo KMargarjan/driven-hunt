@@ -338,7 +338,9 @@ return function()
 			-- which the Director's gate is what showed: `test2` fails on this branch where `main`
 			-- passes, and with no switch the only A/B available was an uncommitted edit. OFF, nobody
 			-- is granted anything and the drive is bit-for-bit the game before this task.
-			expect(Flags.DEFAULTS[Horn.FLAG]).to.equal(false)
+			local row = Flags.DEFAULTS[Horn.FLAG]
+			expect(row).to.be.ok()
+			expect(row.default).to.equal(false)
 			-- ...and the predicate the composition roots call is PURE in the flag, so the ON world is
 			-- testable while the flag sits at OFF -- the only permitted shape.
 			expect(Horn.carriesFor(true, Horn.TEAM)).to.equal(true)
