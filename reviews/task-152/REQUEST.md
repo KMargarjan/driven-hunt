@@ -3,11 +3,11 @@
 Task: 152
 Round: 1
 Base: 0106c5e (main, after #134 merged)
-Code commit: 4c819f75182e7c3b500bb0297fc62cd7ae3da64d
+Code commit: 73a012cf7d7e0ce2e1c7fac659cfcbe695e06b9d
 
 ```
-[harness] PASS: 33/33 checks @ 4c819f75182e7c3b500bb0297fc62cd7ae3da64d (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 4c819f75182e7c3b500bb0297fc62cd7ae3da64d (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 73a012cf7d7e0ce2e1c7fac659cfcbe695e06b9d (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 73a012cf7d7e0ce2e1c7fac659cfcbe695e06b9d (clean tree) scope=all
 [harness2] <PENDING — the Director runs it; see "Needs test2" below>
 ```
 
@@ -114,6 +114,44 @@ first person) and one in six specs that equated "a Tool" with "a gun".
     WEAPON", because asserting "no Tool anywhere" would now assert the beater kit does not exist) and
     `rifle_client`.
 
+## A GAME BUG, and it is the headline of this round
+
+**The horn is exonerated** — the Director's isolation run fails with `HORN` OFF — and the note he
+asked for named the half: both barrels **Spent at the cue AND at the end**, so the tie scenario's own
+`R` never reloaded and **no shot was ever fired**. Nothing was judged because nothing was asked.
+
+**The cause is in `src/client/Weapon/Input.luau`, it is on `main`, and a player can reach it.** The
+four `DrivenHunt.Weapon.*` actions were unbound whenever a watched Tool left — `tool.Unequipped`
+unbound outright, and `forgetTool` unbound on `boundTo == tool` — **without either of them ever
+asking whether the player still had a weapon in hand.** With `RIFLE` on a player carries TWO Tools
+and Roblox's signals are DEFERRED (that file says so twice), so on a hotbar switch the unbind can
+take the trigger that was just bound for the other gun: **no fire, no reload, no aim and no ammo
+switch until the player equips something again.**
+
+MEASURED in a Play session, the four actions by name:
+
+```
+before a second weapon-named Tool   Aim,Fire,Reload,SelectAmmo
+it is equipped                      Aim,Fire,Reload,SelectAmmo
+it is destroyed                     NONE            <- the real gun still in the character
+...and after this fix               Aim,Fire,Reload,SelectAmmo
+```
+
+**The rule is now stated once and in both places: the actions belong to whatever weapon IS in the
+hand, and only a player holding none loses them.** Both paths need it — `forgetTool` also runs on
+`Destroying` and disconnects the hooks first, so the Tool's own `Unequipped` handler never gets to
+speak. I found that by measuring twice: the first fix (the `boundTo` guard alone) did **not** clear
+the symptom, and the second (rebind to the live weapon, in `Unequipped`) did not either until
+`forgetTool` got the same rule.
+
+**And my own spec was what pulled the trigger.** The camera case added in round 1 parented a Tool
+literally named `"Shotgun"` into the LIVE character and destroyed it — which `watchTool` adopts by
+NAME. It is `CameraSpecProbeGun` now and carries the weapon identity on the attribute, which is what
+`Weapons.isWeaponTool` reads first, so the camera's question is asked exactly as before and the probe
+no longer impersonates a weapon the server grants. `weapon_client.spec` carries the regression:
+with the gun in hand, another weapon-named Tool is equipped and destroyed, and all four actions must
+still be bound. Gate note: `trigger survived a second Tool -- 4 action(s) still bound`.
+
 ## The horn is BORN OFF, and that is also the isolation experiment
 
 `Flags.DEFAULTS.HORN` is `false`. CLAUDE.md says a new feel-critical path is born dark, and all
@@ -171,16 +209,13 @@ the thing — the same way that world turns `BOAR_MODEL`, `PACE`, `MOVE` and `LI
 - **`test2` has not been run.** Five changed files are in `TWO_PLAYER_PATHS`, checked against
   `tools/agents.py`'s own table: `src/server/MatchBoot.server.luau`, `match_live.spec`,
   `zz_drive_boundary.spec`, `zz_tie_to_a_tree.spec`, `match_client.spec`.
-  **NEEDS TEST2 152 4c819f75182e7c3b500bb0297fc62cd7ae3da64d.** `src/shared/Flags/init.luau`
+  **NEEDS TEST2 152 73a012cf7d7e0ce2e1c7fac659cfcbe695e06b9d.** `src/shared/Flags/init.luau`
   joins the five (it is not in `TWO_PLAYER_PATHS`; the five above are).
-- **`zz_tie_to_a_tree.spec:250` is still unexplained after two refuted hypotheses, and the next run
-  is set up to name it.** `violations=0` carried the whole story and cannot tell *"no shot was
-  fired"* from *"a shot was fired and was not judged"* — two defects in two different systems, and
-  it is what sent this task down both wrong paths. The spec's failure note now prints, **without
-  touching the assertion**: both players' positions NOW against where the shot was staged and the
-  drift of each; the `miss` against `SAFETY_MISS_STUDS` (12); and the gun's **barrels and reserve at
-  the cue against now**, which change on a shot and on nothing else. One run with the flag OFF and
-  one with it ON answers both the "is it the horn" question and the "was a shot fired" question.
+- **`zz_tie_to_a_tree` — the cause is now known and fixed (see the first section), but I have not
+  SEEN it pass, because that takes a `test2` I do not run.** The chain is measured end to end
+  everywhere I can reach it: a second weapon-named Tool unbound the trigger, so `R` reached nothing,
+  so the gun stayed Spent/Spent, so no shot was fired, so no violation was judged. What is left
+  unverified is only the last link — that the tie spec goes green once the trigger survives.
 - **Smoke in the Forest Test was NOT run, so nothing here says "ready for Karen".** The dispatch says
   that place is closed and must not be reopened. Standing rule A is therefore unmet by instruction,
   and the frames below are from a throwaway DEV Play session instead.
