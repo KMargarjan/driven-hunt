@@ -3,12 +3,13 @@
 Task: 157
 Round: 3
 Base: `612dbf2` (`main`, #139 merged)
-Code commit: `ae6d9f9d47d10dce1b7433839650451faedd7623`
+Code commit: `6d52b2e9f7997143b4c37ad77c95156156bb1123`
 
 ```
 [harness] PASS: 33/33 checks @ ae6d9f9d47d10dce1b7433839650451faedd7623 (clean tree) scope=all
 [harness] PASS: 33/33 checks @ ae6d9f9d47d10dce1b7433839650451faedd7623 (clean tree) scope=all
-[harness2] <PENDING — the Director runs it: one Studio, one human click>
+[harness] PASS: 33/33 checks @ 6d52b2e9f7997143b4c37ad77c95156156bb1123 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 6d52b2e9f7997143b4c37ad77c95156156bb1123 (clean tree)
 ```
 
 Two clean one-player runs at the code commit **with the DEV Studio ALONE**
