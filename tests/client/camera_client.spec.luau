@@ -85,6 +85,87 @@ local function waitUntil(seconds: number, predicate: () -> boolean): boolean
 	return predicate()
 end
 
+-- WHAT THE CAMERA PROMISES IS RENDERED TIME, NOT WALL TIME (task 156). `Mode.step` advances the
+-- blend by `dt / Mode.blendSeconds(...)` -- "frame-rate-independent blending", in the owner's own
+-- words at the top of Mode.luau -- so what it promises is that the move lands after that many
+-- seconds OF RENDERED TIME. A wall clock asserts one more thing on top: that this machine kept
+-- rendering through the window. The camera does not promise that and these cases are not about it;
+-- the client runs sixteen client specs while the harness replays 95 s of input into it, and
+-- `camera_client.spec:602` failed once in the task 155 gate (<runs-dir>/test-t155.log) and passed
+-- at the same commit on the re-run.
+--   FRAMES WITH NO LIVE CHARACTER DO NOT COUNT EITHER: `Mode.nextMode` holds the camera in Loading
+-- or Dead for as long as a respawn takes, and the blend clock is not running there.
+--   THE WALL-CLOCK CAP STAYS, far out, so a client that stops rendering FAILS rather than hangs.
+--   The second return value is the MEASUREMENT -- rendered, wall, frames, the longest single frame,
+-- the modes seen and the end state -- which is what makes the margin a number in the log instead of
+-- a guess in a comment.
+local function waitRendered(seconds: number, predicate: () -> boolean)
+	local rendered, gap, frames = 0, 0, 0
+	local modes, seen = {}, {}
+	local startedAt = os.clock()
+	local wallDeadline = startedAt + math.max(20, seconds * 20)
+	local function record()
+		local mode = Camera.getMode()
+		if not seen[mode] then
+			seen[mode] = true
+			table.insert(modes, mode)
+		end
+		return mode
+	end
+	record()
+	while rendered < seconds and os.clock() < wallDeadline do
+		if predicate() then
+			break
+		end
+		local dt = RunService.RenderStepped:Wait()
+		frames += 1
+		gap = math.max(gap, dt)
+		local mode = record()
+		if mode ~= "Loading" and mode ~= "Dead" then
+			rendered += dt
+		end
+	end
+	return predicate(),
+		{
+			rendered = rendered,
+			wall = os.clock() - startedAt,
+			frames = frames,
+			gap = gap,
+			modes = table.concat(modes, ","),
+			mode = Camera.getMode(),
+			blend = Camera.getBlend(),
+			fov = Workspace.CurrentCamera.FieldOfView,
+		}
+end
+
+-- THE BUDGET, ASKED OF THE SAME FUNCTION THE CAMERA ASKS, WITH THE SAME ARGUMENT (task 156). The
+-- cases below used to budget `Config.AIM_BLEND_SECONDS + 0.5` -- the THIRD-person number, 0.20 --
+-- for a move the live first-person camera makes in `AIM_RAISE_SECONDS` / `AIM_LOWER_SECONDS`
+-- (0.25 / 0.20, from poses.json). `Mode.blendSeconds` is the one site that answers "how long does
+-- this move take", `Camera.poseConfig()` is the very config `Camera.update` hands it every frame,
+-- and tests/server/camera_mode.spec.luau already pins that pairing. A spec that works the number
+-- out for itself is a second answer to a question with one owner.
+local function blendBudget(aiming: boolean): number
+	return Camera.Mode.blendSeconds(Camera.poseConfig(), aiming) + 0.5
+end
+
+-- One line per measured wait, so the next failure names its own cause instead of being re-guessed.
+local function describeWait(at, budget: number): string
+	return string.format(
+		"%.3f s rendered of %.3f budgeted, %.3f s on the clock over %d frame(s), longest frame %.3f s;"
+			.. " modes seen %s; ended mode=%s blend=%.3f fov=%.2f",
+		at.rendered,
+		budget,
+		at.wall,
+		at.frames,
+		at.gap,
+		at.modes,
+		at.mode,
+		at.blend,
+		at.fov
+	)
+end
+
 local function rootPart(): BasePart?
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -584,10 +665,13 @@ return function()
 		end)
 
 		it("zooms to the eye and back, on the real camera", function()
+			local raiseBudget = blendBudget(true)
 			fake.aiming = true
-			expect(waitUntil(Config.AIM_BLEND_SECONDS + 0.5, function()
+			local raised, raiseAt = waitRendered(raiseBudget, function()
 				return Camera.getMode() == "Aiming" and Camera.getBlend() >= 1
-			end)).to.equal(true)
+			end)
+			TestKit.note("camera_client: the raise took " .. describeWait(raiseAt, raiseBudget))
+			expect(raised).to.equal(true)
 			expect(math.abs(Workspace.CurrentCamera.FieldOfView - Config.FOV_AIM_DEG) < 0.01).to.equal(true)
 
 			local root = rootPart()
@@ -596,10 +680,13 @@ return function()
 			print(string.format("[camera_client] aimed camera is %.2f studs from the root", distance))
 			expect(distance < 2.5).to.equal(true)
 
+			local lowerBudget = blendBudget(false)
 			fake.aiming = false
-			expect(waitUntil(Config.AIM_BLEND_SECONDS + 0.5, function()
+			local lowered, lowerAt = waitRendered(lowerBudget, function()
 				return Camera.getMode() == "Third" and Camera.getBlend() <= 0
-			end)).to.equal(true)
+			end)
+			TestKit.note("camera_client: the lower took " .. describeWait(lowerAt, lowerBudget))
+			expect(lowered).to.equal(true)
 			expect(math.abs(Workspace.CurrentCamera.FieldOfView - Config.FOV_THIRD_DEG) < 0.01).to.equal(true)
 		end)
 
@@ -609,9 +696,10 @@ return function()
 				-- a driver aiming an empty pair of hands must get NO viewmodel -- not an empty Model,
 				-- and not somebody else's gun.
 				fake.aiming = true
-				expect(waitUntil(2, function()
+				local raisedForDriver = waitRendered(blendBudget(true), function()
 					return Camera.getBlend() >= 1
-				end)).to.equal(true)
+				end)
+				expect(raisedForDriver).to.equal(true)
 				-- ...AND THE CLAIM IS ASKED OF THE SAME FUNCTION THE CAMERA ASKS. `Role` is resolved
 				-- once, at require time, from the team this player was put on, and `test2` ends a
 				-- drive and respawns everybody -- so a client can be re-teamed under a role this file
@@ -655,15 +743,17 @@ return function()
 					expect(Camera.stats().viewmodelParented).to.equal(true)
 				end
 				fake.aiming = false
-				expect(waitUntil(2, function()
+				local loweredForDriver = waitRendered(blendBudget(false), function()
 					return Camera.getBlend() <= 0
-				end)).to.equal(true)
+				end)
+				expect(loweredForDriver).to.equal(true)
 				return
 			end
 			fake.aiming = true
-			expect(waitUntil(2, function()
+			local raisedForViewmodel = waitRendered(blendBudget(true), function()
 				return Camera.getBlend() >= 1
-			end)).to.equal(true)
+			end)
+			expect(raisedForViewmodel).to.equal(true)
 
 			local model = Camera.Viewmodel.current()
 			-- Unconditional (round 1, note): wrapping this in `if model then` meant the whole block
@@ -734,9 +824,10 @@ return function()
 			end
 
 			fake.aiming = false
-			expect(waitUntil(2, function()
+			local loweredForViewmodel = waitRendered(blendBudget(false), function()
 				return Camera.getBlend() <= 0
-			end)).to.equal(true)
+			end)
+			expect(loweredForViewmodel).to.equal(true)
 			waitFrames(3)
 			-- AND WHAT HAPPENS AT BLEND 0 IS THE BRANCH'S OWN ANSWER. With the flag off the clone is
 			-- UNPARENTED below `VIEWMODEL_SHOW_BLEND`, which is what makes a leak visible on screen
