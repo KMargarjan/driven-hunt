@@ -195,7 +195,12 @@ return function()
 			local model = MapUi.geometryFromForestTest(data)
 			expect(#model.road).to.equal(CONFIG.ROAD_SAMPLES)
 			for _, point in ipairs(model.road) do
-				expect(point.Y).to.be.near(data.roadZ(point.X), 1e-9)
+				-- 1e-3 STUDS AND NOT 1e-9, and the reason is the container and not the arithmetic:
+				-- a `Vector2` holds SINGLE-precision floats, so a z of -2069.768633 comes back as
+				-- -2069.768555 -- a relative error of 4e-11, which at this map's 0.6 px/stud is
+				-- 5e-5 of a pixel. MEASURED in task 155's first gate run, which is what a 1e-9
+				-- tolerance on a float32 round trip buys you.
+				expect(point.Y).to.be.near(data.roadZ(point.X), 1e-3)
 			end
 		end)
 
@@ -205,8 +210,9 @@ return function()
 			expect(#model.stands).to.equal(data.STAND_COUNT)
 			for index, point in ipairs(model.stands) do
 				local at = data.standPosition(index)
-				expect(point.X).to.be.near(at.X, 1e-9)
-				expect(point.Y).to.be.near(at.Z, 1e-9)
+				-- 1e-3, for the float32 reason the road's case above measures.
+				expect(point.X).to.be.near(at.X, 1e-3)
+				expect(point.Y).to.be.near(at.Z, 1e-3)
 			end
 			-- In x order, which is what "stand 1 is west of stand 9" means on the picture.
 			expect(model.stands[1].X < model.stands[#model.stands].X).to.equal(true)
@@ -241,7 +247,7 @@ return function()
 			expect(first < 0).to.equal(true)
 			expect(last > 0).to.equal(true)
 			local spacing = (data.STAND_COUNT - 1) * data.STAND_SPACING * view.pxPerStud
-			expect(last - first).to.be.near(spacing, 1e-6)
+			expect(last - first).to.be.near(spacing, 1e-3)
 			TestKit.note(
 				string.format(
 					"map: full view %.0f x %.0f studs at %.3f px/stud; %d stands span %.0f px",
@@ -525,8 +531,15 @@ return function()
 					expect(point.userId).to.equal(player.UserId)
 				end
 			end
-			-- One drawer is live at a time, so the local player is on screen once -- or not at all
-			-- if the harness runs before this client has a character.
+			-- ONE DRAWER IS LIVE AT A TIME, so the local player is on screen ONCE -- or not at all if
+			-- the harness runs before this client has a character.
+			--
+			-- THIS CASE CAUGHT A REAL BUG on its first run (task 155's first gate): the full map's
+			-- drawer draws into a CANVAS inside the panel, the canvas is always `Visible`, and the
+			-- module was asking the canvas instead of the panel -- so the CLOSED full map drew a
+			-- second copy of every marker and `mine` was 2. That is
+			-- `docs/PROJECT_CONTEXT.md`'s *"a visibility audit ignored parent visibility"*, found by
+			-- a spec rather than by Karen. `Drawer.gate` is the fix.
 			expect(mine <= 1).to.equal(true)
 			local character = player.Character
 			if character ~= nil and character.PrimaryPart ~= nil then
@@ -539,7 +552,12 @@ return function()
 			local before = MapUi.stats()
 			local started = os.clock()
 			local frames = 0
-			while os.clock() - started < 1 do
+			-- 0.6 s IS LONG ENOUGH AND NO LONGER. At 20 Hz that is ~12 ticks, which settles the
+			-- order of magnitude against a 60 Hz `RenderStepped` map by a factor of three -- and the
+			-- suite's own length is a constraint now, because the START gate is time-limited
+			-- (`TestKit.TOKEN_MAX_AGE`, 120 s) and this task's first gate run tipped
+			-- `tests/server/sync.spec.luau` over that line.
+			while os.clock() - started < 0.6 do
 				task.wait()
 				frames += 1
 			end

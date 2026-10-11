@@ -551,6 +551,14 @@ local localUserId = 0
 type Drawer = {
 	name: string,
 	frame: Frame, -- the clipped viewport: the disc, or the full map's canvas
+	-- THE FRAME WHOSE `Visible` DECIDES WHETHER THIS DRAWER IS ON SCREEN, which is NOT always
+	-- `frame` -- and that is the bug `docs/PROJECT_CONTEXT.md` names in so many words: *"a
+	-- visibility audit ignored parent visibility and certified a blank screen twice"*. The full
+	-- map's drawer draws into the CANVAS, a child of the panel; the canvas is always `Visible` and
+	-- the PANEL is what opens and closes. MEASURED, task 155's first gate run: `drawer.frame.Visible`
+	-- was true for both drawers at once, so the closed full map drew the local player a second time
+	-- and `map_ui.spec` caught two "mine" markers on a screen that only shows one.
+	gate: Frame,
 	inner: Frame?, -- the sliding geometry layer (the minimap only)
 	layerView: MapView?, -- the view the sliding layer was drawn in
 	view: MapView, -- the view markers are projected through
@@ -615,7 +623,7 @@ end
 function MapUi.markerPoints(): { MarkerPoint }
 	local out = {}
 	for _, drawer in ipairs(drawers) do
-		if not drawer.frame.Visible then
+		if not drawer.gate.Visible then
 			continue
 		end
 		local nodes = table.clone(drawer.markers)
@@ -716,7 +724,14 @@ end
 -- THE MARKERS, THE OWN MARKER, ITS WEDGE AND THE PUSH ARROW: built once per drawer, hidden until
 -- there is something to say. Nothing is cloned in the tick -- the pool is the shape `Hud.build`'s
 -- feed lines and score rows already have.
-local function buildDrawer(name: string, frame: Frame, inner: Frame?, view: MapView, layerView: MapView?): Drawer
+local function buildDrawer(
+	name: string,
+	frame: Frame,
+	gate: Frame,
+	inner: Frame?,
+	view: MapView,
+	layerView: MapView?
+): Drawer
 	local config = MapUi.CONFIG
 	local markers = {}
 	for index = 1, config.MAX_MARKERS do
@@ -790,6 +805,7 @@ local function buildDrawer(name: string, frame: Frame, inner: Frame?, view: MapV
 	return {
 		name = name,
 		frame = frame,
+		gate = gate,
 		inner = inner,
 		layerView = layerView,
 		view = view,
@@ -1036,7 +1052,7 @@ function MapUi.render()
 	-- EXACTLY ONE DRAWER IS LIVE: the minimap when the map is closed, the full map when it is open.
 	-- So the per-player work below happens once a tick, not twice.
 	for _, drawer in ipairs(drawers) do
-		if drawer.frame.Visible then
+		if drawer.gate.Visible then
 			renderDrawer(drawer, sources, me, headingDeg)
 		end
 	end
@@ -1208,10 +1224,11 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	barLabel.TextXAlignment = Enum.TextXAlignment.Left
 
 	table.clear(drawers)
-	table.insert(drawers, buildDrawer("minimap", mini, inner, miniView, layerView))
-	-- `buildDrawer` was handed the view table itself, so the minimap's centre is this one object and
-	-- `renderDrawer` moves it in place -- no second copy to get out of step.
-	table.insert(drawers, buildDrawer("full", canvas, nil, fullView, nil))
+	-- `buildDrawer` is handed the view table itself, so the minimap's centre is this one object and
+	-- `renderDrawer` moves it in place -- no second copy to get out of step. The minimap's own frame
+	-- IS its gate; the full map's gate is the PANEL, not the canvas it draws into.
+	table.insert(drawers, buildDrawer("minimap", mini, mini, inner, miniView, layerView))
+	table.insert(drawers, buildDrawer("full", canvas, full, nil, fullView, nil))
 
 	local camera = Workspace.CurrentCamera
 	lastViewport = if camera then camera.ViewportSize else Vector2.new(1920, 1080)
