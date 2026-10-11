@@ -20,6 +20,8 @@ local Map = require(game:GetService("ReplicatedStorage"):WaitForChild("Map"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+-- One fact, for one question: is the Tool in this player's hands a GUN? (task 152)
+local Weapons = require(game:GetService("ReplicatedStorage"):WaitForChild("Weapons"))
 local Markers = Match.Markers
 
 local function waitUntil(timeout: number, predicate: () -> boolean): boolean
@@ -95,13 +97,17 @@ return function()
 				expect(waitUntil(20, function()
 					return player.Team ~= nil
 				end)).to.equal(true)
+				-- A GUN, NOT JUST A TOOL (task 152). The beater's horn is a `Tool` too, and a DRIVER
+				-- -- the player who must NOT be armed -- is exactly the one who carries one.
 				local function holdsGun(): boolean
-					local backpack = player:FindFirstChildOfClass("Backpack")
-					if backpack and backpack:FindFirstChildOfClass("Tool") then
-						return true
+					for _, container in { player:FindFirstChildOfClass("Backpack"), player.Character } do
+						for _, child in ipairs(if container then container:GetChildren() else {}) do
+							if Weapons.isWeaponTool(child) then
+								return true
+							end
+						end
 					end
-					local character = player.Character
-					return character ~= nil and character:FindFirstChildOfClass("Tool") ~= nil
+					return false
 				end
 				-- RE-ASKED INSIDE THE WAIT, not captured before it: the answer can change while this
 				-- is waiting (a tie revokes the gun), and comparing against a stale answer would fail

@@ -34,6 +34,8 @@ local RunService = game:GetService("RunService")
 local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("InputReady"))
 local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+-- One fact, for one question: is the Tool in this player's hands a GUN? (task 152)
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -79,13 +81,17 @@ local function driver(): Player?
 	return nil
 end
 
+-- A GUN, NOT JUST A TOOL (task 152). The beater's horn is a `Tool` too, and this asks whether a
+-- tied DRIVER is armed -- which is exactly the player who now carries one.
 local function holdsGun(): boolean
-	local backpack = player:FindFirstChildOfClass("Backpack")
-	if backpack and backpack:FindFirstChildOfClass("Tool") then
-		return true
+	for _, container in { player:FindFirstChildOfClass("Backpack"), player.Character } do
+		for _, child in ipairs(if container then container:GetChildren() else {}) do
+			if Weapons.isWeaponTool(child) then
+				return true
+			end
+		end
 	end
-	local character = player.Character
-	return character ~= nil and character:FindFirstChildOfClass("Tool") ~= nil
+	return false
 end
 
 -- THE CUE. The harness cannot tell a spec "your scenario starts now" except through the input it

@@ -28,6 +28,8 @@ local Workspace = game:GetService("Workspace")
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+-- One fact, for one question: is the Tool in this player's hands a GUN? (task 152)
+local Weapons = require(game:GetService("ReplicatedStorage"):WaitForChild("Weapons"))
 
 -- How long to wait for every client to finish before disturbing the drive. Generous: a two-player
 -- client suite runs for minutes, and waiting costs a passing run nothing.
@@ -280,13 +282,19 @@ return function()
 				expect(waitUntil(PHASE_TIMEOUT, function()
 					return player.Team ~= nil
 				end)).to.equal(true)
+				-- A GUN, NOT JUST A TOOL (task 152). The beater's horn is a `Tool` too, and in a drive
+				-- the DRIVER -- the player who must NOT be armed -- is exactly the one who carries one,
+				-- so `FindFirstChildOfClass("Tool")` answered "he has a gun" for a man holding a horn.
+				-- MEASURED: this assertion failed on the first gate run of task 152.
 				local function holdsGun(): boolean
-					local backpack = player:FindFirstChildOfClass("Backpack")
-					if backpack and backpack:FindFirstChildOfClass("Tool") then
-						return true
+					for _, container in { player:FindFirstChildOfClass("Backpack"), player.Character } do
+						for _, child in ipairs(if container then container:GetChildren() else {}) do
+							if Weapons.isWeaponTool(child) then
+								return true
+							end
+						end
 					end
-					local character = player.Character
-					return character ~= nil and character:FindFirstChildOfClass("Tool") ~= nil
+					return false
 				end
 				local expected = Match.mayCarryWeapon(player)
 				expect(waitUntil(if expected then PHASE_TIMEOUT else 2, function()

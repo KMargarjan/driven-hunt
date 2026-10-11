@@ -1327,7 +1327,16 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 	-- (see its `trackHiddenPart`). The two conditions are exact complements -- this module draws it
 	-- or `Rig` shows it, never both and never neither -- which is what stops the "two shotguns on
 	-- screen at once" that Rig's own header records from happening with a horn.
-	if handle ~= nil and not Weapons.isWeaponTool(handle.Parent) then
+	--
+	-- IT REFUSES A NON-WEAPON TOOL, NOT "ANYTHING THAT IS NOT A GUN", and the gate taught the
+	-- difference: the first version asked `isWeaponTool(handle.Parent)` and so refused a Handle with
+	-- no Tool above it at all -- which is every Handle a SPEC injects through `setSource`, and three
+	-- `camera_client.spec` cases went from a posed viewmodel to nil. A Handle outside a Tool keeps
+	-- the behaviour it has always had (`weaponId()` answers nil and the shotgun is the fallback:
+	-- "the shotgun's when there is nothing to go on"). Only an actual Tool that is NOT a weapon is
+	-- refused, which is exactly the horn.
+	local tool = handle and handle.Parent
+	if tool ~= nil and tool:IsA("Tool") and not Weapons.isWeaponTool(tool) then
 		handle = nil
 		cachedHandle = nil
 	end

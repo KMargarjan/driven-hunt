@@ -1044,16 +1044,28 @@ return function()
 		end)
 	else
 		describe("the driver's empty hands", function()
-			it("is never given a Tool, anywhere, at any point in the session", function()
+			it("is never given a WEAPON, anywhere, at any point in the session", function()
 				-- The whole replay reaches this client too since Task 36 -- Q, the clicks, R and X all
 				-- arrive -- so this is "every key a shooter uses was pressed here and produced nothing".
+				--
+				-- A GUN, NOT JUST A TOOL (task 152), and the title changed with it: a driver is given
+				-- the beater's HORN now, which is a `Tool`, so "no Tool anywhere" would be asserting
+				-- that the beater kit does not exist. What must still be true -- and is the whole
+				-- point of this case -- is that he is never given a WEAPON.
 				task.wait(5)
 				local backpack = player:FindFirstChildOfClass("Backpack")
 				expect(backpack).to.be.ok()
-				expect(backpack:FindFirstChildOfClass("Tool")).to.equal(nil)
 				local character = player.Character
 				expect(character).to.be.ok()
-				expect(character:FindFirstChildOfClass("Tool")).to.equal(nil)
+				local weaponsHeld = 0
+				for _, container in { backpack, character } do
+					for _, child in ipairs(container:GetChildren()) do
+						if Weapons.isWeaponTool(child) then
+							weaponsHeld += 1
+						end
+					end
+				end
+				expect(weaponsHeld).to.equal(0)
 				expect(Weapon.get()).to.equal(nil)
 			end)
 
@@ -1097,8 +1109,11 @@ return function()
 				channel.FireRequest:FireServer({ origin = Vector3.zero, direction = Vector3.new(0, 0, 1) })
 				task.wait(1)
 				expect(Weapon.get()).to.equal(nil)
+				-- A GUN, NOT JUST A TOOL (task 152): a driver carries the beater's horn now.
 				local backpack = player:FindFirstChildOfClass("Backpack")
-				expect(backpack and backpack:FindFirstChildOfClass("Tool")).to.equal(nil)
+				for _, child in ipairs(if backpack then backpack:GetChildren() else {}) do
+					expect(Weapons.isWeaponTool(child)).to.equal(false)
+				end
 				return
 			end
 
