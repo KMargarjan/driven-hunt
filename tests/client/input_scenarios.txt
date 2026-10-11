@@ -70,6 +70,16 @@
 			]
 		},
 		{
+			"name": "map-toggle",
+			"spec": "ClientTests.map_ui.spec",
+			"steps": [
+				{ "device": "keyboard", "action": "keyPress", "key": "M" },
+				{ "device": "wait", "ms": 700 },
+				{ "device": "keyboard", "action": "keyPress", "key": "M" },
+				{ "device": "wait", "ms": 400 }
+			]
+		},
+		{
 			"name": "tie-the-driver",
 			"spec": "ClientTests.zz_tie_to_a_tree.spec",
 			"steps": [

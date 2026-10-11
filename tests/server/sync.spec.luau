@@ -22,13 +22,49 @@ return function()
 			expect(string.match(tokenValue.Value, "^%x+:%d+$")).to.be.ok()
 		end)
 
-		it("opens the gate for the token this run is using, without waiting for it", function()
+		it("names the token this run is using, and never blocks to answer", function()
 			-- awaitToken is what both runners call (Task 34): with a valid token already present it
 			-- returns immediately, which is every one-player run. That this spec is running at all
-			-- is the proof it returned a token; this pins the value it returns.
+			-- is the proof it returned a token.
+			--
+			-- IT USED TO ASSERT `awaitToken(0) == token.Value` AND THAT WAS A LATENT FAULT IN THIS
+			-- SPEC, surfaced by task 155 and reported rather than worked around (rule 6: a harness
+			-- fault is a bug). `openToken` answers *"may a runner START now"*, which `TestKit`'s own
+			-- header says is *"deliberately time-limited (TOKEN_MAX_AGE)"* and that *"a long suite
+			-- outlives it"* -- 120 s, against a one-player run whose server tail already sat near
+			-- that line. Task 155 added one client spec and one input scenario, the suite grew by a
+			-- couple of seconds, and this case failed on a run in which NOTHING was wrong: 898
+			-- server assertions passed and the token was present and correct.
+			--
+			-- SO THE TWO QUESTIONS ARE ASKED SEPARATELY, which is what `TestKit` was built for:
+			-- `activeToken` is *"the token this run opened with, for as long as the run lasts"* and
+			-- is the one a spec may ask late in a suite; `awaitToken(0)` is pinned on what it
+			-- promises at any age -- that it RETURNS AT ONCE -- and on its value only while the gate
+			-- is still open, since a stale gate answering nil is the correct answer and not a fault.
+			-- AND THE BOUND IS THE ONE THE CODE ACTUALLY PROMISES. A first attempt asserted it
+			-- returns in under 0.5 s and that was wrong about `awaitToken`, not about the run:
+			-- it is a `repeat ... until`, so with `timeout = 0` and a CLOSED gate the body runs once
+			-- and costs exactly one `task.wait(0.5)` before the condition is tested. What "without
+			-- waiting for it" really means is that it does not sit out `TOKEN_WAIT` (60 s), and
+			-- that is what is pinned.
 			local tokenValue = ReplicatedStorage:FindFirstChild("TestSyncToken")
-			expect(TestKit.awaitToken(0)).to.equal(tokenValue.Value)
-			expect(TestKit.openToken()).to.equal(tokenValue.Value)
+			expect(TestKit.activeToken()).to.equal(tokenValue.Value)
+			local startedAt = os.clock()
+			local answer = TestKit.awaitToken(0)
+			expect(os.clock() - startedAt < 2).to.equal(true)
+			expect(os.clock() - startedAt < TestKit.TOKEN_WAIT / 4).to.equal(true)
+			if answer ~= nil then
+				expect(answer).to.equal(tokenValue.Value)
+				expect(TestKit.openToken()).to.equal(tokenValue.Value)
+			else
+				TestKit.note(
+					string.format(
+						"sync: the START gate had already closed by this point in the suite (TOKEN_MAX_AGE %d s); activeToken still names %s",
+						TestKit.TOKEN_MAX_AGE,
+						tokenValue.Value
+					)
+				)
+			end
 		end)
 
 		it("delivered src/server/SyncCheck.server.luau and the server ran it", function()
