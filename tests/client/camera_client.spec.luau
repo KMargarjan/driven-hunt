@@ -1581,9 +1581,19 @@ return function()
 				return tool, part
 			end
 
-			-- A horn is a Tool this camera must not hide; a shotgun is one it must.
-			local horn, hornPart = probeTool("Horn", nil)
-			local gun, gunPart = probeTool("Shotgun", "shotgun")
+			-- A horn is a Tool this camera must not hide; a gun is one it must.
+			--
+			-- THE GUN PROBE IS NOT NAMED "Shotgun", AND THAT IS NOT COSMETIC. `Weapon.Input.watchTool`
+			-- adopts any Tool whose NAME is a weapon's, binds the four `DrivenHunt.Weapon.*` actions
+			-- on its Equipped and unbinds on its Unequipped -- so the first version of this case put
+			-- a second "Shotgun" in the LIVE character and destroyed it, which took the real
+			-- player's trigger away for the rest of the session. It cost `zz_tie_to_a_tree` its shot
+			-- in two `test2` runs. The game no longer unbinds for a Tool that is not the bound one
+			-- (that was a real bug and is fixed at its owner), and this probe no longer impersonates
+			-- a weapon the server grants: `Weapons.isWeaponTool` reads the ATTRIBUTE first, so the
+			-- camera's question is asked exactly as before while `Weapons.isToolName` stays false.
+			local horn, hornPart = probeTool("CameraSpecProbeHorn", nil)
+			local gun, gunPart = probeTool("CameraSpecProbeGun", "shotgun")
 
 			-- `DescendantAdded` is DEFERRED (the case above measured that), so the arrivals are given
 			-- the same bounded wait and the flag is re-asserted on every pass for the same reason.
@@ -1608,7 +1618,7 @@ return function()
 			Camera.Rig.setLocalBodyHidden(false)
 
 			expect(toolAbove).to.be.ok()
-			expect((toolAbove :: Tool).Name).to.equal("Horn")
+			expect((toolAbove :: Tool).Name).to.equal("CameraSpecProbeHorn")
 			-- A part of the BODY has no Tool above it, which is what stops this rule hiding nothing.
 			expect(Camera.Rig.toolAbove(character:FindFirstChild("HumanoidRootPart"))).to.equal(nil)
 			expect(gunHidden).to.equal(true)

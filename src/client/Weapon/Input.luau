@@ -153,6 +153,19 @@ end
 -- with it (review of Task 48).
 local boundTo: Instance? = nil
 
+-- THE WEAPON THE PLAYER IS ACTUALLY HOLDING, or nil. A Tool parented to the CHARACTER is an
+-- equipped one -- that is how Roblox equips -- so this is the live answer to "is there still a
+-- trigger to bind", read off the tree rather than off a table that can be a signal behind.
+local function equippedWeapon(): Tool?
+	local character = Players.LocalPlayer.Character
+	for _, child in ipairs(if character then character:GetChildren() else {}) do
+		if child:IsA("Tool") and Weapons.isToolName(child.Name) then
+			return child
+		end
+	end
+	return nil
+end
+
 local function bind(tool: Instance?)
 	boundTo = tool
 	if bound then
@@ -202,8 +215,20 @@ local function forgetTool(tool: Instance)
 	-- hands. It used to unbind unconditionally on the grounds that there is only ever one Tool; with
 	-- pruning below, a DEAD Tool can be forgotten while the live one is equipped, and unbinding then
 	-- would take the player's own trigger away.
+	--
+	-- ...AND "ONLY FOR THAT TOOL" IS NOT ENOUGH ON ITS OWN (task 152). This runs on `Destroying`
+	-- too, and it disconnects the hooks ABOVE -- so the Tool's own `Unequipped` handler never gets
+	-- to say "there is still a weapon in the hand". MEASURED: a second weapon-named Tool equipped
+	-- and destroyed took the four actions from `Aim,Fire,Reload,SelectAmmo` to `NONE` with the real
+	-- gun still in the player's character. The rule is the same one stated there: the actions belong
+	-- to whatever weapon IS in the hand, and only a player holding none loses them.
 	if boundTo == tool then
-		unbind()
+		local still = equippedWeapon()
+		if still ~= nil and still ~= tool then
+			bind(still)
+		else
+			unbind()
+		end
 	end
 end
 
@@ -260,7 +285,37 @@ local function watchTool(tool: Instance)
 			bind(tool)
 		end)
 	)
-	table.insert(hooks, tool.Unequipped:Connect(unbind))
+	-- ...AND IT UNBINDS ONLY FOR THE TOOL THE ACTIONS BELONG TO. This line used to be
+	-- `tool.Unequipped:Connect(unbind)`, which took ALL FOUR actions away whichever Tool had just
+	-- left -- the exact hazard `forgetTool` below already guards against, with a comment saying why,
+	-- written when there was only ever one Tool to lose.
+	--
+	-- IT IS REACHABLE BY A PLAYER, not only by a test. With `RIFLE` on (it is) a player carries two
+	-- Tools, and Roblox's signals are DEFERRED -- this file says so twice. On a hotbar switch, if
+	-- `Equipped(rifle)` runs before `Unequipped(shotgun)`, the unbind took the trigger that had just
+	-- been bound for the rifle: no fire, no reload, no aim and no ammo switch until the player
+	-- equipped something again.
+	--
+	-- MEASURED in a Play session, task 152 (the four `DrivenHunt.Weapon.*` actions, by name):
+	--     before a second weapon-named Tool   Aim,Fire,Reload,SelectAmmo
+	--     it is equipped                      Aim,Fire,Reload,SelectAmmo
+	--     it is destroyed                     NONE   <- with the real gun still in the character
+	-- and that is what cost `zz_tie_to_a_tree` its shot: `R` reached nothing, the gun stayed
+	-- Spent/Spent, no shot was fired and so no violation was ever judged.
+	table.insert(
+		hooks,
+		tool.Unequipped:Connect(function()
+			-- THE ACTIONS BELONG TO WHATEVER WEAPON IS STILL IN THE HAND, and that is the rule this
+			-- line now states. It used to be `tool.Unequipped:Connect(unbind)`, which took ALL FOUR
+			-- away whichever Tool had just left.
+			local still = equippedWeapon()
+			if still ~= nil then
+				bind(still)
+			elseif boundTo == tool then
+				unbind()
+			end
+		end)
+	)
 	-- Parent nil is how a Tool leaves: Hardware.destroy unparents and destroys it, and a respawn
 	-- takes the old one with the old character. ChildAdded watches it again if it ever comes back.
 	-- `Destroying` catches the destroy itself, and both are belt and braces over `pruneWatched`.
