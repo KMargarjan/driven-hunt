@@ -275,6 +275,12 @@ Weapon.setDriveLineProvider(Match.driveLine)
 -- THE FLAG IS READ ONCE, HERE, exactly as `MatchBoot` reads it -- except that THIS world turns it ON
 -- the way it turns `BOAR_MODEL` and the rest on: Karen plays here to judge the thing, and a playtest
 -- world that hands her nothing to judge is no use. The DEV drive keeps the declared default.
+-- HOW LONG THE START LINE WAITS FOR THE RESPAWN TO SETTLE. `Body.place` pivots on
+-- `CharacterAdded` and `Body.settle` pivots again on the next frame, so anything over a frame is
+-- enough; one second is long enough to be obviously enough and short enough to read as "at the
+-- start".
+local PLACEMENT_SETTLE_SECONDS = 1
+
 local hornOn = true
 Weapon.Horn.setCarryPolicy(function(player)
 	return HornData.carriesFor(hornOn, Body.teamOf(player))
@@ -426,26 +432,6 @@ Match.PhaseChanged:Connect(function(_before, phase)
 	end
 	for _, player in ipairs(Players:GetPlayers()) do
 		openPickFor(player)
-		-- ONE LINE PER START, and it is the evidence: which role the drive gave her, where it put her,
-		-- and how far that is from the road. A tool that requires this module over StudioMCP gets a
-		-- sandboxed copy with empty state (measured, task 122), so the console is the only honest
-		-- channel.
-		local character = player.Character
-		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if root then
-			local at = (root :: BasePart).Position
-			print(
-				string.format(
-					"[ForestTest] %s starts as a %s at (%.0f, %.0f, %.0f), %.0f studs from the road",
-					player.Name,
-					ForestTest.roleOfPlayer(player),
-					at.X,
-					at.Y,
-					at.Z,
-					at.Z - Data.roadZ(at.X)
-				)
-			)
-		end
 	end
 	-- WHAT THE MARKERS MEASURED, once per drive: nine stands or fewer, how many the ground refused,
 	-- and the worst disagreement between the two readings of it. This is the line that says "the drive
@@ -463,7 +449,43 @@ Match.PhaseChanged:Connect(function(_before, phase)
 	)
 end)
 
+-- ONE LINE PER START, AND IT IS PRINTED WHEN THE CHARACTER HAS ACTUALLY LANDED (task 157).
+--
+-- IT USED TO BE PRINTED FROM THE PHASE HANDLER, and round 1 of this task measured what that was
+-- worth: `Body.place` respawns her and pivots on `CharacterAdded`, so a line printed in the same
+-- frame reads the position of the character she is ABOUT TO LEAVE -- it said *"starts as a beater
+-- ... 0 studs from the road"* while the drive had chosen a point 240 studs north. The honest moment
+-- is after the respawn, so this waits for one.
+--
+-- IT WRITES NOTHING. `Match.Body` is still the only thing that moves a character; this reads the
+-- position it ended up in and says what the role was, which is the only channel a tool outside the
+-- server has (an MCP `require` of this module answers with a sandboxed copy -- measured, task 122).
+local function reportStart(player: Player, character: Model)
+	task.delay(PLACEMENT_SETTLE_SECONDS, function()
+		local root = character.PrimaryPart
+		if character.Parent == nil or root == nil then
+			return
+		end
+		local at = root.Position
+		print(
+			string.format(
+				"[ForestTest] %s is a %s at (%.0f, %.0f, %.0f), %.0f studs from the road (settled=%d)",
+				player.Name,
+				ForestTest.roleOfPlayer(player),
+				at.X,
+				at.Y,
+				at.Z,
+				at.Z - Data.roadZ(at.X),
+				Body.settled()
+			)
+		)
+	end)
+end
+
 Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function(character)
+		reportStart(player, character)
+	end)
 	-- WHICH ROLE SHE STARTS AS (task 153, and a request since 157). Karen: *"how to start a game as a
 	-- beter?"* -- so Play itself can put her on the drive side with nothing typed, when the Director
 	-- has set the switch. Nothing set means the hunter this world has always started her as, which is

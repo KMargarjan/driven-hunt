@@ -79,6 +79,12 @@ local watching: {
 	[number]: { character: Model, connection: RBXScriptConnection, closed: boolean },
 } = {}
 
+-- HOW FAR A FRESHLY PLACED CHARACTER MAY HAVE DRIFTED before `Body.settle` pivots it again, and
+-- how many times that has happened (task 157). One stud is inside a character's own width, so a
+-- settle can only ever mean "something else moved it", never "physics breathed".
+local SETTLE_TOLERANCE_STUDS = 1
+local settled = 0
+
 -- THE PROOF, NOT A FEELING (design section 5's last paragraph). If `strayCleared` stays 0 on every
 -- run and Karen sees green, the window caught nothing and its five seconds can be shortened or
 -- dropped -- which is a number to read, not an opinion to hold.
@@ -990,6 +996,44 @@ function Body.placementFor(markers, team: TeamName, index: number, config): CFra
 	return CFrame.lookAt(at, at + Vector3.new(0, 0, -1))
 end
 
+-- THE PIVOT AGAIN, ONE FRAME LATER, AND IT IS A MEASUREMENT AND NOT A BELT-AND-BRACES HABIT.
+--
+-- MEASURED in the place "Driven Hunt Forest Test" (task 157): a character placed by the lines above
+-- stayed exactly where `LoadCharacter` had put it -- the place's own `SpawnLocation`, on the road at
+-- (3000, -2109) -- while the `CFrame` the drive had chosen was 240 studs north. A direct `PivotTo`
+-- from a server query on the same character in the same session STUCK (dz 0 -> 240, still 240 two
+-- seconds later), so the engine was not refusing the move: the move was being OVERWRITTEN. That
+-- place has a `SpawnLocation` and the DEV place does not (its own was archived in task 22), which is
+-- why this never showed in a hundred DEV drives.
+--
+-- IT IS THE SAME FACT `ForestTestBoot` HAD ALREADY WRITTEN DOWN, in task 153's own comment:
+-- *"DEFERRED ... the spawn location has just put the character down and `CharacterAdded` runs inside
+-- that frame, so the move is made after it."* That boot deferred its own write for exactly this
+-- reason; `Body.place` did not, because it had never had to.
+--
+-- SO: pivot now (which is right in DEV and costs nothing), and once more on the next frame IF the
+-- character has drifted more than a stud from where it was put. `Body.settled()` counts how often
+-- the second one bit, so "it only matters in one world" is a number rather than a belief -- and
+-- there is still ONE writer of where a character stands.
+function Body.settle(character: Model, cframe: CFrame)
+	task.defer(function()
+		local root = character.PrimaryPart
+		if character.Parent == nil or root == nil then
+			return
+		end
+		if (root.Position - cframe.Position).Magnitude <= SETTLE_TOLERANCE_STUDS then
+			return
+		end
+		settled += 1
+		character:PivotTo(cframe)
+	end)
+end
+
+-- How many placements needed the second pivot. 0 in a DEV session; non-zero in the Forest Test.
+function Body.settled(): number
+	return settled
+end
+
 -- Respawns `player` and puts them where `cframe` says. Returns a function the owner can call to give
 -- up waiting; `onPlaced(true/false)` is called exactly once.
 function Body.place(player: Player, cframe: CFrame?, config, onPlaced: ((boolean) -> ())?)
@@ -1028,6 +1072,7 @@ function Body.place(player: Player, cframe: CFrame?, config, onPlaced: ((boolean
 		end
 		if character.Parent then
 			character:PivotTo(cframe)
+			Body.settle(character, cframe)
 			finish(true)
 		end
 	end
