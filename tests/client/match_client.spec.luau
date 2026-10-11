@@ -209,12 +209,14 @@ return function()
 
 		-- Whatever this describe did, put the real snapshot back: another spec may read the Hud after
 		-- it, and the Heartbeat would fix it within 0.25 s anyway -- but "would" is not a test.
-		-- THE SCORE BOARD IS HIDDEN WHILE THE REPORT PANEL IS OPEN, and the report panel OPENS BY
-		-- ITSELF when a drive closes (`Hud.ReportPanel.onDriveChanged`, "auto-opens ONCE"). This
-		-- describe renders scripted snapshots and says nothing about the report, so that was an
-		-- unstated precondition -- and the gate found it: a live drive closed part-way through a
-		-- one-player run and all three cases below failed with an empty board
-		-- (`match_client.spec` "Expected 2, got 0", `report_panel.spec` "Expected false, got true").
+		-- THE SCORE BOARD IS HIDDEN WHILE THE REPORT PANEL IS OPEN. Until task 159 the report also
+		-- OPENED BY ITSELF when a drive closed, and this describe -- which renders scripted snapshots
+		-- and says nothing about the report -- had that as an unstated precondition; the gate found
+		-- it, when a live drive closed part-way through a one-player run and all three cases below
+		-- failed with an empty board (`match_client.spec` "Expected 2, got 0", `report_panel.spec`
+		-- "Expected false, got true"). The auto-open is off now (the end of a drive is the results
+		-- scene), so the only way the panel is open here is another spec leaving it open -- and this
+		-- stays, because a precondition that is cheap to state should not depend on a default.
 		--
 		-- STATING IT IS NOT WEAKENING ANYTHING: `Hud.scorePanelVisible(snapshot, reportOpen)` already
 		-- takes the report's state as an argument, and its own case still drives both values. This
@@ -224,7 +226,7 @@ return function()
 		beforeAll(function()
 			reportWasOpen = Hud.Report.isOpen()
 			if reportWasOpen then
-				TestKit.note("match_client: a drive report had auto-opened; closed for the score cases")
+				TestKit.note("match_client: a drive report was open; closed for the score cases")
 				Hud.Report.setOpen(false)
 			end
 		end)
@@ -343,11 +345,11 @@ return function()
 		local reportWasOpen = false
 
 		beforeAll(function()
-			-- The same precondition the score cases state: the report auto-opens when a drive closes,
+			-- The same precondition the score cases state: a report left open hides this card too,
 			-- and both panels hide behind it on purpose.
 			reportWasOpen = Hud.Report.isOpen()
 			if reportWasOpen then
-				TestKit.note("match_client: a drive report had auto-opened; closed for the start-card cases")
+				TestKit.note("match_client: a drive report was open; closed for the start-card cases")
 				Hud.Report.setOpen(false)
 			end
 		end)

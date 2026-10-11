@@ -156,6 +156,36 @@ names, while Karen says hunter / beater. That vocabulary question is already ope
 (TASKS.md row 158a) and renaming half the Hud to settle it quietly is exactly what that row exists to
 prevent.
 
+## 4a. What the first screenshot found, and the third deviation (MEASURED)
+
+`.screenshots/20261011T230613Z-task159-results-scene.png`, the Forest Test's own drive ending with
+everything above built: **the scene was invisible and the results table never appeared.** The task-124
+report panel **opens itself when a drive closes** (`ReportPanel.onDriveChanged`,
+`docs/design/drive-report.md` section 1 item 6) and is a near-opaque full-screen panel — and
+`Hud.scorePanelVisible` refuses to draw the score board while it is open, on purpose (two centred
+panels is two panels nobody reads). So the end of a drive showed a dark rectangle over the one thing
+Karen asked to see.
+
+**The fix, named as a deviation from that design:** `Report.CONFIG.AUTO_OPEN_AT_DRIVE_END` is
+**false**. `Tab` still opens the report, it is still the only place a player sees where every shot
+landed, and **the auto-open is still implemented and still tested** — `ReportPanel.onDriveChanged`
+takes the config, so a spec drives both states while the shipped value sits at one of them. The
+second screenshot (`20261011T230908Z-task159-results-scene.png`) is the same ending with the scene,
+the four posts, the feed line *"Drive over - the beaters are through"* and the semi-transparent
+"DRIVE 1 RESULTS" table all on screen.
+
+**This is rule 5 doing its job**: every spec in this task passed, twice, against a screen that showed
+none of it.
+
+## 4b. One consequence for Karen to judge
+
+**A SOLO BEATER IS ALL THE BEATERS.** In the Forest Test Karen plays alone with
+`DHForestStartRole=beater`, so the moment she walks past the stands the drive ends — measured here at
+t+35 s of a 300-second drive. That is her rule applied literally (*"when all beaters cross line of
+hunters"*), and it may still not be what she wants on her own in a test world. The two cheap answers,
+either of which is one line, are: require at least two beaters, or only count a crossing after the
+first release. Queued for her, not chosen here (TASKS.md row 159a).
+
 ## 5. The ownership, one writer each
 
 | Thing | Owner (the only writer) | Where |
@@ -166,6 +196,7 @@ prevent.
 | `Workspace.DriveScene` — the animals and the four lamps | **`Match.Scene`**, new | `src/server/Match/Scene.luau` |
 | Where a character stands, and whether it can move | `Match.Body` — unchanged owner, one new function | `src/server/Match/Body.luau` |
 | The results table on screen | `src/client/Hud` — unchanged owner; the wording is `Drive.CONFIG`'s | `src/client/Hud/init.luau`, `src/shared/Drive/init.luau` |
+| Whether the drive REPORT opens itself at a drive's end | `src/client/Hud/ReportPanel.luau` — unchanged owner; the answer is `Report.CONFIG.AUTO_OPEN_AT_DRIVE_END`, now false (§4a) | `src/client/Hud/ReportPanel.luau`, `src/shared/Report/init.luau` |
 | The score in it | `Match.Score` — unchanged, and there is no second one | `src/server/Match/Score.luau` |
 
 ## 6. How it is tested

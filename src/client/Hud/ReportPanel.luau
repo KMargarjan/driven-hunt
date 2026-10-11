@@ -724,11 +724,19 @@ end
 
 -- ---------------------------------------------------------------- the drive boundary
 
+-- WHETHER THIS PANEL OPENS ITSELF WHEN A DRIVE CLOSES. PURE and exported, and it takes the config,
+-- so a spec drives BOTH states while the shipped value sits at one of them (task 159). It is FALSE
+-- today, and `Report.CONFIG.AUTO_OPEN_AT_DRIVE_END` carries the whole reason with a screenshot.
+function ReportPanel.autoOpensAtDriveEnd(cfg): boolean
+	return (cfg or Report.CONFIG).AUTO_OPEN_AT_DRIVE_END == true
+end
+
 -- A DRIVE CLOSES (design section 8.4): if the panel is already open it does NOT jump -- it re-asks for
 -- the same view, so the numbers settle into their final values and a player reading a detail stays in
--- it. If it is closed it auto-opens ONCE, and `autoOpenedFor` is why "once" is a fact: Karen closing
--- it must leave it closed.
-local function onDriveChanged(event: any)
+-- it. If it is closed it opens ONCE **only when the config says it may** (task 159: it does not, and
+-- the end of a drive is the results scene instead), and `autoOpenedFor` is why "once" is a fact:
+-- Karen closing it must leave it closed.
+local function onDriveChanged(event: any, cfg: any?)
 	local kind = type(event) == "table" and event.kind or ""
 	if kind == "driveClosed" then
 		if open then
@@ -737,7 +745,7 @@ local function onDriveChanged(event: any)
 			else
 				ask({ drive = event.drive, page = 1 })
 			end
-		elseif autoOpenedFor ~= event.drive then
+		elseif ReportPanel.autoOpensAtDriveEnd(cfg) and autoOpenedFor ~= event.drive then
 			autoOpenedFor = event.drive
 			stats.autoOpens += 1
 			view = "list"

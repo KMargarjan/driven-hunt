@@ -967,9 +967,12 @@ local function scoreRowText(rank: number, row): string
 	)
 end
 
--- WHETHER THE SCORE PANEL SHOWS, and the one new clause in it: NOT WHILE THE REPORT IS OPEN. Two
--- centred panels at once is two panels nobody can read, and the report is the one the player asked
--- for by pressing Tab. Pure and exported for the same reason the renderer below is -- a drive is 600
+-- WHETHER THE SCORE PANEL SHOWS -- which since task 159 is KAREN'S RESULTS TABLE, up for the whole of
+-- `Scoring` over the results scene. The one extra clause: NOT WHILE THE REPORT IS OPEN. Two centred
+-- panels at once is two panels nobody can read, and the report is the one the player asked for by
+-- pressing Tab -- which since task 159 is the ONLY way it opens (`Report.CONFIG`'s
+-- `AUTO_OPEN_AT_DRIVE_END`, false, with the screenshot that says why). Before that it opened itself
+-- when a drive closed, and this clause then hid the results table behind it every single time. Pure and exported for the same reason the renderer below is -- a drive is 600
 -- seconds long, so no harness run ever reaches the Scoring phase.
 function Hud.scorePanelVisible(snapshot, reportOpen: boolean?): boolean
 	return snapshot ~= nil and snapshot.phase == "Scoring" and Drive.CONFIG.SCOREBOARD_ENABLED and reportOpen ~= true
@@ -1049,8 +1052,8 @@ end
 -- the real transition and a spec has to be able to hand this the snapshot the wire would.
 --
 -- NOT WHILE THE REPORT IS OPEN, the same clause the score panel has: two panels at once is two
--- panels nobody reads, and the report auto-opens when a drive closes -- which is seconds before this
--- phase begins.
+-- panels nobody reads. Since task 159 the report opens on `Tab` and nowhere else, so this is the
+-- player's own choice rather than something that happened to him seconds before the drive started.
 function Hud.startCardVisible(snapshot, reportOpen: boolean?): boolean
 	return snapshot ~= nil and snapshot.phase == "Assigning" and reportOpen ~= true
 end
