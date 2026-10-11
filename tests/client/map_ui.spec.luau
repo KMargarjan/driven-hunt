@@ -183,10 +183,13 @@ return function()
 			--
 			-- `applyLayout` is public for exactly this: a spec cannot resize a Studio viewport.
 			local mini = Hud.minimap() :: Frame
-			local camera = workspace.CurrentCamera
-			local real = camera.ViewportSize
+			local real = workspace.CurrentCamera.ViewportSize
+			-- PINNED, NOT JUST APPLIED. The 20 Hz tick re-reads the real `ViewportSize` and would
+			-- undo this within 50 ms -- measured in this task's round 2, when the case read 150 px
+			-- back where it had asked for 96 because the tick landed between the call and the read.
 			local function renderedAt(x: number, y: number): number
 				MapUi.applyLayout(Vector2.new(x, y))
+				task.wait()
 				task.wait()
 				return mini.AbsoluteSize.X
 			end
@@ -196,9 +199,10 @@ return function()
 			expect(desktop).to.be.near(MapUi.diameterFor(1920, 1080), 1)
 			-- ...and square, so the disc stays a disc.
 			expect(mini.AbsoluteSize.Y).to.be.near(mini.AbsoluteSize.X, 1)
-			-- Put this screen back the way it was.
-			MapUi.applyLayout(real)
+			-- GIVE THE SCREEN BACK, and assert it was given back rather than assuming it.
+			MapUi.applyLayout(nil)
 			task.wait()
+			expect(MapUi.pinnedViewport()).to.equal(nil)
 			expect(mini.AbsoluteSize.X).to.be.near(MapUi.diameterFor(real.X, real.Y), 1)
 			TestKit.note(
 				string.format(
@@ -721,6 +725,9 @@ return function()
 			-- A harness run must never leave Karen's screen with a map open over her gun.
 			MapUi.setOpen(false)
 			MapUi.setSuppressed(false)
+			-- ...and the screen is this screen's, not a size some case pinned.
+			MapUi.applyLayout(nil)
+			expect(MapUi.pinnedViewport()).to.equal(nil)
 			if Map.EXPECTED_WORLD == "forest-test" then
 				local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 				local team = player.Team

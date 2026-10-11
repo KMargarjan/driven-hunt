@@ -583,6 +583,11 @@ type Drawer = {
 local drawers: { Drawer } = {}
 
 local lastViewport = Vector2.new(0, 0)
+-- A VIEWPORT A CALLER HAS PINNED, for as long as it holds it. A spec cannot resize a Studio window,
+-- and without this the 20 Hz tick reads the real `ViewportSize` within 50 ms and undoes whatever was
+-- laid out -- MEASURED, task 155 round 2: the case read 150 px back where it had asked for 96,
+-- because the tick landed between the call and the read. `applyLayout(nil)` gives the screen back.
+local viewportOverride: Vector2? = nil
 -- `keyToggles` IS COUNTED APART FROM `toggles`, AND THAT IS THE WHOLE POINT (task 155 round 1, the
 -- Reviewer's blocking finding). `toggles` counts every change, including a spec's own `setOpen`, so
 -- a case asserting `toggles >= 2` passes with the M binding DELETED -- it proved nothing about the
@@ -938,9 +943,18 @@ end
 -- way to prove the layout is right at a PHONE's width is to hand it one -- which is this repo's
 -- rule for every flagged or branched path: *"reachable by parameter as well as by flag, or its two
 -- states cannot be tested"*. The next real viewport change overwrites whatever a caller set.
-function MapUi.applyLayout(viewport: Vector2)
-	lastViewport = viewport
-	layoutFor(viewport)
+function MapUi.applyLayout(viewport: Vector2?)
+	viewportOverride = viewport
+	local camera = Workspace.CurrentCamera
+	local resolved = viewport or (if camera then camera.ViewportSize else lastViewport)
+	lastViewport = resolved
+	layoutFor(resolved)
+end
+
+-- What the layout is pinned to, or nil when it follows the real screen. Read by a spec so it can
+-- assert it gave the screen back rather than assuming it did.
+function MapUi.pinnedViewport(): Vector2?
+	return viewportOverride
 end
 
 -- ---------------------------------------------------------------- visibility: the one writer
@@ -1096,7 +1110,7 @@ function MapUi.render()
 	stats.elapsed = now - (firstTickAt :: number)
 
 	local camera = Workspace.CurrentCamera
-	local viewport = if camera then camera.ViewportSize else lastViewport
+	local viewport = viewportOverride or (if camera then camera.ViewportSize else lastViewport)
 	if viewport.X ~= lastViewport.X or viewport.Y ~= lastViewport.Y then
 		lastViewport = viewport
 		layoutFor(viewport)
