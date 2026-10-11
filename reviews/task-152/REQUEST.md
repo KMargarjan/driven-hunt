@@ -111,9 +111,13 @@ with "a gun" now ask it too.
 
 ## What I could not verify
 
-- **`test2` has not been run.** The change touches `src/server/MatchBoot.server.luau` and five
-  `TWO_PLAYER_PATHS` specs, so the two-player line is part of this task's gate and the dispatch
-  reserves that run for the Director. **NEEDS TEST2 152 8c01700b54cb69771408cd48e4430c574c63ca98.**
+- **`test2` has not been run.** Four of the changed files are in `TWO_PLAYER_PATHS` — checked
+  against `tools/agents.py`'s own table, not asserted: `src/server/MatchBoot.server.luau`,
+  `tests/server/match_live.spec.luau`, `tests/server/zz_drive_boundary.spec.luau` and
+  `tests/client/zz_tie_to_a_tree.spec.luau`. (The other three specs I narrowed in claim 10 —
+  `weapon_rearm`, `weapon_client`, `rifle_client` — are NOT in that list, and an earlier draft of
+  this line said "five specs", which was wrong.) So the two-player line is part of this task's gate
+  and the dispatch reserves that run for the Director. **NEEDS TEST2 152 8c01700b54cb69771408cd48e4430c574c63ca98.**
   Claims 2, 6 and 10 are the ones a second player could sharpen: everything above was measured with
   one player, where the beater is the local player rather than somebody else.
 - **Nobody has HEARD the horn.** No spec in this repo can load an audio asset, so `zz_horn.spec`
