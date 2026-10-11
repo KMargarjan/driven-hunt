@@ -41,11 +41,18 @@ return function()
 			-- is the one a spec may ask late in a suite; `awaitToken(0)` is pinned on what it
 			-- promises at any age -- that it RETURNS AT ONCE -- and on its value only while the gate
 			-- is still open, since a stale gate answering nil is the correct answer and not a fault.
+			-- AND THE BOUND IS THE ONE THE CODE ACTUALLY PROMISES. A first attempt asserted it
+			-- returns in under 0.5 s and that was wrong about `awaitToken`, not about the run:
+			-- it is a `repeat ... until`, so with `timeout = 0` and a CLOSED gate the body runs once
+			-- and costs exactly one `task.wait(0.5)` before the condition is tested. What "without
+			-- waiting for it" really means is that it does not sit out `TOKEN_WAIT` (60 s), and
+			-- that is what is pinned.
 			local tokenValue = ReplicatedStorage:FindFirstChild("TestSyncToken")
 			expect(TestKit.activeToken()).to.equal(tokenValue.Value)
 			local startedAt = os.clock()
 			local answer = TestKit.awaitToken(0)
-			expect(os.clock() - startedAt < 0.5).to.equal(true)
+			expect(os.clock() - startedAt < 2).to.equal(true)
+			expect(os.clock() - startedAt < TestKit.TOKEN_WAIT / 4).to.equal(true)
 			if answer ~= nil then
 				expect(answer).to.equal(tokenValue.Value)
 				expect(TestKit.openToken()).to.equal(tokenValue.Value)
