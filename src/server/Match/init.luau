@@ -311,6 +311,8 @@ local stats = {
 	releases = 0,
 	releasesDeferred = 0,
 	placementsMissed = 0,
+	-- How many times a world answered nil for where a player of this team stands (task 157).
+	placementsNowhere = 0,
 	emptyTeamDrives = 0,
 	unknownZoneKills = 0,
 	killSignalMissing = 0,
@@ -595,6 +597,24 @@ local function applyPlace(userIds: { number }?)
 			-- studs in 400: `placementFor`'s generic -Z look is up to 23 degrees off the push there.
 			local place = if world and world.placement then world.placement else Body.placementFor
 			local cframe = place(markerSet, team, indexWithinTeam(userId, team), config)
+			-- ONE LINE WHEN THERE IS NOWHERE TO PUT HIM, and it is here because the alternative is
+			-- what task 157 round 1 spent a measurement on: a player who spawns at the place's own
+			-- SpawnLocation looks exactly like a player whose pivot was overwritten, and neither the
+			-- harness nor a playtest can tell them apart from the outside. `Body.place` treats a nil
+			-- CFrame as "they spawned, and that is not a failure", so this is not an error -- it is
+			-- the drive saying which world gave it no answer.
+			if cframe == nil then
+				stats.placementsNowhere += 1
+				print(
+					string.format(
+						"[match] nowhere to place %s on %s: posts=%d driverStart=%s",
+						player.Name,
+						tostring(team),
+						#markerSet.posts,
+						tostring(markerSet.driverStart ~= nil)
+					)
+				)
+			end
 			Body.place(player, cframe, config, function(ok)
 				if not ok then
 					stats.placementsMissed += 1
