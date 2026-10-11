@@ -1,21 +1,20 @@
 # Task 157 — review request: the real drive runs in the forest
 
 Task: 157
-Round: 1
+Round: 2
 Base: `612dbf2` (`main`, #139 merged)
-Code commit: `4dee92048c26a4decc876543761b8ed04d4df9b0`
+Code commit: `8d77d31c7b6ef00a8d6691e729370808cfa3ebbd`
 
 ```
-[harness] PASS: 33/33 checks @ ea992d173ace928e6c45164c7ec6e9f8fdf9b84e (clean tree) scope=all
-[harness] PASS: 33/33 checks @ ea992d173ace928e6c45164c7ec6e9f8fdf9b84e (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 4dee92048c26a4decc876543761b8ed04d4df9b0 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 4dee92048c26a4decc876543761b8ed04d4df9b0 (clean tree)
+[harness] PASS: 33/33 checks @ 8d77d31c7b6ef00a8d6691e729370808cfa3ebbd (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 8d77d31c7b6ef00a8d6691e729370808cfa3ebbd (clean tree) scope=all
+[harness2] <PENDING — the Director runs it: one Studio, one human click>
 ```
 
-Two clean one-player runs at the code commit **with the DEV Studio ALONE** (`<runs-dir>/gate-157-6.log`,
-`gate-157-7.log`); the last two lines are the Director's at `4dee920` (the head; only paperwork after `ea992d1`), which is the condition the Director's gates ran in. **This change touches
-`src/server/Match/`, so it IS in `TWO_PLAYER_PATHS` and the merge needs `[harness2]` for this same
-sha** — the Director runs it (dispatch, 2026-10-11).
+Two clean one-player runs at the code commit **with the DEV Studio ALONE**
+(`<runs-dir>/gate-157-r2-1.log`, `gate-157-r2-2.log`) — the condition the Director's gates run in.
+**This change touches `src/server/Match/`, so it IS in `TWO_PLAYER_PATHS` and the merge needs
+`[harness2]` for this same sha** — the Director runs it (dispatch, 2026-10-11). Round 1's `[harness2] PASS: 35/35 @ 4dee920` is in `RESULT.md`'s round-1 evidence; this round's code is newer.
 
 ## What changed
 
@@ -64,6 +63,17 @@ with an injected world. Note: `docs/research/2026-10-11-forest-drive.md`.
    `roleFor`; the four `match_phase.spec` cases including "is not sticky: the next drive swaps her
    back"; `forest_stand.spec`'s request and `roleFor` cases. Removed code is archived at
    `backups/2026-10-11_task157_forest_roles_and_placement.txt` (rule 7).
+   **AND THE ONE SWITCH THAT ROLE DRIVES IS NOW TESTABLE ON BOTH ANSWERS (round 1, finding 1).**
+   `ForestTest.beaterMode(teams)` takes the roster as a list of TEAM NAMES, exactly as
+   `ForestTest.leash` takes the role, because the alternative is a spec writing `Player.Team` — the
+   second writer this task removed. The live call gathers the list from `Players` and delegates, so
+   there is one loop and one translator. *Verify:* `ForestTest.beaterMode`; in `forest_stand.spec`,
+   "is TRUE for a roster with a beater on it and FALSE without one" (`{PUSH_TEAM}` and
+   `{"Shooters", PUSH_TEAM}` true; `{"Shooters"}`, two Shooters, `{}` and a team-less player false —
+   so `return false` fails it) plus "reads the live teams when it is handed nothing" for the
+   gathering half, noting the state it ran in (`forest-beatermode: 1 player(s) on [Shooters],
+   beaterMode=false`). The live `boarThreats` kind assertion no longer derives the wanted kind the
+   way `boarThreats` derives it either.
 7. **`Body` is still the one writer of where a character stands.** `applyPlace` takes
    `world.placement` when one is injected and `Body.placementFor` otherwise — same argument order,
    same "nil means they spawned and that is not a failure" — and `Body.place` remains the only caller
@@ -118,8 +128,19 @@ with an injected world. Note: `docs/research/2026-10-11-forest-drive.md`.
     **The fix is a bounded wait in that case** (40 s), the idiom `weapon_client` and `match_teams`
     already use, and **the assertion is unchanged** (`keyToggles == 2`, moved only inside the bound
     action's `Begin`, so nothing a spec can call reaches it — task 155 round 1's rule-6 finding).
-    *Verify:* `waitForKeys` in `tests/client/map_ui.spec.luau`; the two passing runs' note —
-    **`map keys: keyToggles=2 after 4.9 s`** and **`after 4.7 s`** — which is the race, measured.
+    *Verify:* `waitForKeys` in `tests/client/map_ui.spec.luau`; this round's runs note
+    **`map keys: keyToggles=2 after 4.6 s`**, which is the race, measured. The Reviewer's note that
+    this spec is outside design §13.2 is accepted: the race itself is queued as its own row rather
+    than fixed here, and the assertion is untouched.
+
+12. **ROUND 1's NOTES, FIXED AT THEIR OWNERS:** the archive filename in `ForestTest`'s role header;
+    `BEATER.dropStuds` citing the archived `spawnPosition`; `MatchBoot`'s HitLog comment still
+    claiming the Forest Test latches on its own window; `PLACEMENT_SETTLE_SECONDS` sitting inside the
+    horn-flag paragraph; `Markers.build`'s `lastMaxDelta` folding in only the nine post deltas (the
+    line's and the beater pad's readings count now, and each can make `complete` false on its own);
+    and the two assertions that could not fail. **Queued, not fixed:** what the drive aims at when
+    stand 5 itself is the refused one (with §17.3), the replay-ordering race, and design §13.5's
+    stale markers-print line — that one is the Architect's file, so the Builder has not touched it.
 
 ## Not verified / out of scope
 
