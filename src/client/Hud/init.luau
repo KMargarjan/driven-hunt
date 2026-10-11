@@ -1298,6 +1298,23 @@ end
 -- Ten seconds, the same bound `CameraBoot` uses for the same race (task 133).
 local LATE_MODULE_SECONDS = 10
 
+-- WHICH BEARING THIS PLAYER'S COMPASS MARKS (task 153). PURE: the world's data and the team the
+-- player is on, in; the bearing the drive marker sits at, out.
+--
+-- TWO DIRECTIONS, ONE FACT. `DRIVE_BEARING_DEG` is where the drive comes FROM and is what a hunter
+-- watches; `PUSH_BEARING_DEG` is the way a beater walks, and the world derives the second from the
+-- first so they can never disagree. A world that has said neither gets no marker at all, which is
+-- what `Compass.setBearing(nil)` means and what every place but the Forest Test does.
+function Hud.driveBearing(data, team: string?): number?
+	if data == nil then
+		return nil
+	end
+	if team ~= nil and team == data.PUSH_TEAM then
+		return data.PUSH_BEARING_DEG
+	end
+	return data.DRIVE_BEARING_DEG
+end
+
 -- "NOT THERE YET" IS NOT "NOT THERE AT ALL", AND THAT WAS THE BUG (task 134).
 --
 -- `Hud.start` read `PlayerScripts.Match` with `FindFirstChild` -- on the line after it WAITED for
@@ -1480,10 +1497,25 @@ function Hud.start()
 			-- from what side drive is comming"* -- quietly not there. `Compass.setBearing` is public
 			-- exactly so it can be told later; in the common case this closure runs here and now, and
 			-- `Compass.start` two lines down sets the same number again.
+			-- ...AND A BEATER'S MARKER IS THE ROAD (task 153). Karen, 2026-10-11: *"beater are behind
+			-- animals and moving towards hunter line (road) like in real life"* -- so the direction
+			-- that matters to her is the one she is PUSHING, which is the opposite of the one the
+			-- drive comes from. `Hud.driveBearing` is the whole rule and it is pure.
+			--
+			-- `player.Team` IS THE ONE REPRESENTATION OF THE TEAM, which is the same door
+			-- `Match.myTeam` reads (and says so in its own header); the client match system does not
+			-- boot in this world at all, so there is nothing else to ask. Re-read on change, because
+			-- `/beater` switches the team mid-session and a marker that still pointed north would be
+			-- a lie in the shape of a fact.
 			Hud.whenReady(ReplicatedStorage, "ForestTest", function(module)
 				local data = require(module)
-				bearing = data and data.DRIVE_BEARING_DEG
-				Compass.setBearing(bearing)
+				local function apply()
+					local team = player.Team
+					bearing = Hud.driveBearing(data, if team then team.Name else nil)
+					Compass.setBearing(bearing)
+				end
+				apply()
+				player:GetPropertyChangedSignal("Team"):Connect(apply)
 			end)
 		end
 		Compass.start(compassFrame, bearing)

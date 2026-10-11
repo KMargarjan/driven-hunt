@@ -12,6 +12,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
+-- THE START SWITCH LIVES HERE (task 153): an attribute on `ServerStorage`, read once per join. See
+-- `ForestTest.START_ROLE_ATTRIBUTE` for why it is an attribute and not a file.
+local ServerStorage = game:GetService("ServerStorage")
 
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 
@@ -282,7 +285,87 @@ Weapon.Horn.setCarryPolicy(function(player)
 end)
 Weapon.Horn.start()
 
+-- WHERE THE ROLE PUTS HER, AND WHICH WAY SHE LOOKS (task 153).
+--
+-- KAREN, 2026-10-11: *"how to start a game as a beter?"* -- and the answer until today was that she
+-- could not. `/beater` dressed her and handed her the horn WHERE SHE STOOD, which is on the road,
+-- facing the drive, with every animal in the world walking at her. A beater stands BEHIND them:
+-- *"beater are behind animals and moving towards hunter line (road) like in real life"*.
+--
+-- THE POSITION IS THE WORLD'S AND THE ROTATION IS TOO. `ForestTest.beaterStartPosition` is derived
+-- from the line's own spawn and measures the ground and the trunks; the look is the point on the
+-- road curve at her own x, flattened to her own height so the character stands up rather than
+-- leaning down the hill.
+local function placeFor(root: BasePart, role): Vector3
+	if role == "beater" then
+		local at = ForestTest.beaterStartPosition()
+		local road = Data.roadPointAt(at.X)
+		root.CFrame = CFrame.lookAt(at, Vector3.new(road.X, at.Y, road.Z))
+		return at
+	end
+	-- FACING THE DRIVE. `CFrame.new(position)` carries no rotation, so the character landed looking
+	-- down -Z -- SOUTH, with his back to every animal in the world; the console's own camera line
+	-- said look z = -0.99. North is +Z here (a holding at `roadZ + northStuds` has the larger z), so
+	-- he is turned to face it.
+	local at = ForestTest.spawnPosition()
+	root.CFrame = CFrame.lookAt(at, at + Vector3.zAxis)
+	return at
+end
+
+-- THE START, FOR WHICHEVER ROLE SHE IS IN: put down, turned round, and -- for a hunter only -- given
+-- the ten seconds to choose a stand. One function, so a spawn and a `/beater` typed mid-session
+-- cannot drift apart.
+--
+-- A BEATER GETS NO PICK AND NO LEASH. The stand window and the six-stud leash are the hunter's rule
+-- (`ForestTest.leash` refuses a beater for the same reason), and a beater who was given one would be
+-- dragged back to the road the moment she walked.
+local function startAt(player: Player, root: BasePart, role)
+	local at = placeFor(root, role)
+	-- ONE LINE PER START, and it is the evidence: where she was put, how far that is from the road,
+	-- and which role put her there. A tool that requires this module over StudioMCP gets a sandboxed
+	-- copy with empty state (measured, task 122), so the console is the only honest channel.
+	print(
+		string.format(
+			"[ForestTest] %s starts as a %s at (%.0f, %.0f, %.0f), %.0f studs from the road",
+			player.Name,
+			tostring(role),
+			at.X,
+			at.Y,
+			at.Z,
+			at.Z - Data.roadZ(at.X)
+		)
+	)
+	if role ~= "hunter" then
+		return
+	end
+	ForestTest.openPick(player.UserId, os.clock())
+	-- He lands on the road at the default stand; where he WALKS in the next ten seconds is the
+	-- choice, and the timer below is the save.
+	task.delay(Data.PICK.seconds, function()
+		if player.Parent == nil or root.Parent == nil then
+			return
+		end
+		-- ...UNLESS HE ASKED TO BE A BEATER WHILE THE WINDOW RAN (task 153). Locking a stand for a
+		-- beater would put a hunter in `ForestTest.hunterStandX` who is not standing there, and the
+		-- drive aims every wave at that x.
+		if ForestTest.roleOf(player.UserId) ~= "hunter" then
+			return
+		end
+		local index = ForestTest.lockPick(player.UserId, root.Position, os.clock())
+		print(string.format("[ForestTest] %s took stand %d", player.Name, index))
+	end)
+end
+
 Players.PlayerAdded:Connect(function(player)
+	-- WHICH ROLE SHE STARTS AS (task 153). Karen: *"how to start a game as a beter?"* -- so Play
+	-- itself can put her on the drive side, without a word typed, when the Director has set the
+	-- switch. Nothing set means the hunter this world has always started her as.
+	local startRole = ForestTest.startRole(ServerStorage:GetAttribute(Data.START_ROLE_ATTRIBUTE))
+	if startRole ~= nil then
+		ForestTest.setRole(player.UserId, startRole)
+		print(string.format("[ForestTest] %s joins as a %s (start switch)", player.Name, startRole))
+	end
+
 	player.Chatted:Connect(function(message)
 		local role = ForestTest.parseRole(message)
 		if role == nil then
@@ -291,6 +374,15 @@ Players.PlayerAdded:Connect(function(player)
 		ForestTest.setRole(player.UserId, role)
 		applyRole(player)
 		local character = player.Character
+		-- SHE IS LEAVING THE STAND, WHICHEVER WAY SHE IS GOING (task 153): a beater has no stand at
+		-- all, and a hunter coming back picks one again from where he lands. Clearing it also keeps
+		-- `hunterStandX` -- which is where the drive aims every wave -- from naming a stand nobody
+		-- is on.
+		ForestTest.clearPick(player.UserId)
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if root then
+			startAt(player, root :: BasePart, role)
+		end
 		local folder = character and character:FindFirstChild(Body.OUTFIT_NAME)
 		local worn = 0
 		if folder then
@@ -321,29 +413,18 @@ Players.PlayerAdded:Connect(function(player)
 		-- DRESSED FIRST, before the root wait below: a player who asked to be a beater is a beater
 		-- from the first frame of the new character, and `Body.setTeam` -> `dressWhenLoaded` is what
 		-- holds the green against the appearance load that is still on its way.
-		applyRole(player)
+		local role = applyRole(player)
 		local root = character:WaitForChild("HumanoidRootPart", 10)
 		if root == nil then
 			return
 		end
-		ForestTest.openPick(player.UserId, os.clock())
-		-- He lands on the road at the default stand; where he WALKS in the next ten seconds is the
-		-- choice, and the timer below is the save.
+		-- DEFERRED, as it was before task 153: the spawn location has just put the character down
+		-- and `CharacterAdded` runs inside that frame, so the move is made after it.
 		task.defer(function()
-			-- FACING THE DRIVE. `CFrame.new(position)` carries no rotation, so the character landed
-			-- looking down -Z -- SOUTH, with his back to every animal in the world; the console's
-			-- own camera line said look z = -0.99. North is +Z here (a holding at
-			-- `roadZ + northStuds` has the larger z), so he is turned to face it.
-			local at = ForestTest.spawnPosition()
-			local root3 = root :: BasePart
-			root3.CFrame = CFrame.lookAt(at, at + Vector3.zAxis)
-		end)
-		task.delay(Data.PICK.seconds, function()
-			if player.Parent == nil or root.Parent == nil then
+			if root.Parent == nil then
 				return
 			end
-			local index = ForestTest.lockPick(player.UserId, (root :: BasePart).Position, os.clock())
-			print(string.format("[ForestTest] %s took stand %d", player.Name, index))
+			startAt(player, root :: BasePart, role)
 		end)
 	end)
 end)

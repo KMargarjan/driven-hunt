@@ -237,7 +237,31 @@ return function()
 			Compass.render(0)
 			expect(Compass.driveMarkerX()).to.never.be.ok()
 		end)
+	end)
 
+	-- WHOSE DIRECTION THE MARKER IS (task 153). Karen, 2026-10-11: *"beater are behind animals and
+	-- moving towards hunter line (road) like in real life"* -- so for her the useful direction is the
+	-- one she is pushing, and for a hunter it is still the one the drive comes from.
+	describe("which way the drive marker points", function()
+		local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+
+		it("marks where the drive comes from for a hunter, and the road for a beater", function()
+			expect(Hud.driveBearing(data, "Shooters")).to.equal(data.DRIVE_BEARING_DEG)
+			expect(Hud.driveBearing(data, nil)).to.equal(data.DRIVE_BEARING_DEG)
+			expect(Hud.driveBearing(data, data.PUSH_TEAM)).to.equal(data.PUSH_BEARING_DEG)
+			-- The two are opposite, and the world derives the second from the first.
+			expect(math.abs(Compass.deltaDeg(data.DRIVE_BEARING_DEG, data.PUSH_BEARING_DEG))).to.be.near(180, 1e-6)
+		end)
+
+		it("marks nothing at all in a world that has said nothing", function()
+			-- Every place but the Forest Test: a marker pointing at zero would be a lie in the shape
+			-- of a fact, which is what `Compass.setBearing(nil)` is for.
+			expect(Hud.driveBearing(nil, "Drivers")).to.equal(nil)
+			expect(Hud.driveBearing({}, "Drivers")).to.equal(nil)
+		end)
+	end)
+
+	describe("the strip is left as it was", function()
 		it("leaves the strip as this world had it", function()
 			local Map = require(ReplicatedStorage:WaitForChild("Map"))
 			local restore = nil
