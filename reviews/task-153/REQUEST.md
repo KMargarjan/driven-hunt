@@ -1,20 +1,41 @@
 # Task 153: START AS A BEATER in the Forest Test
 
 Task: 153
-Round: 1
+Round: 2
 Base: 495542b (main, after #135 merged)
-Code commit: 0577dc4e7d3e0e00f4e97b4337189203ed2edc3b
+Code commit: 9527bc6aee0fbe2cb67f11c293a0d693d6d643b9
 
 ```
-[harness] PASS: 33/33 checks @ 0577dc4e7d3e0e00f4e97b4337189203ed2edc3b (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 59315e77f392e789c8ddf0a6dbb4a5fd48bce0be (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 9527bc6aee0fbe2cb67f11c293a0d693d6d643b9 (clean tree) scope=all
+RUN2
 ```
 
 The gate is pasted **twice**, at the Director's instruction. The second line names the commit that
 carries this file: the first run named the code commit itself, and the only thing between them is
-this page (git workflow step 4). A third run, made between the two, is NOT pasted because it was
-not evidence and says so itself -- `(DIRTY TREE (1 paths) - NOT valid evidence)`, the one path being
-this uncommitted request.
+this page (git workflow step 4).
+
+**TWO RUNS AT THIS COMMIT FAILED AND I AM NOT HIDING THEM** (rule 8, and rule 6 -- a harness fault
+is a bug and gets reported). Four `test` runs were made at `9527bc6`, in this order:
+
+1. `FAIL: 4/5 checks @ 9527bc6 (clean tree) scope=all`, "phases, 0 s total" -- it stopped in the
+   Edit-place checks, seconds after the commit. **I did not capture which check**, and it has not
+   happened again in the three runs since; the likeliest reading is the sync comparison racing
+   Rojo's live write of files I had just saved, which is a known shape in this repo
+   (CLAUDE.md, "Run / test"). Recorded as unexplained rather than explained away.
+2. PASS (33/33, exit 0). Its final line was lost to a `grep` of my own; the run is named here for
+   completeness, not as evidence.
+3. `FAIL: 31/33 checks @ 9527bc6 (clean tree) scope=all` -- **`tests/server/sync.spec.luau`, the
+   case "opens the gate for the token this run is using"**: `TestKit.awaitToken(0)` answered nil
+   against the token in `ReplicatedStorage.TestSyncToken`. That assertion is **time-limited by
+   construction**: `TestKit.openToken` refuses a token older than `TOKEN_MAX_AGE` (120 s), the whole
+   run takes ~150 s, and this spec sits inside a server suite that starts ~35 s in -- so whether it
+   passes depends on how far the suite has got when it reaches it. TestKit's own header says exactly
+   this ("a long suite outlives it ... a seam that a spec uses at the END of a run cannot ask that
+   question", Task 41) and offers `TestKit.activeToken()`, which is not time-limited, as the right
+   question. **A harness fault, pre-existing, nothing to do with this change, and not fixed here**
+   -- it is the gate's own fixture and this task may not quietly edit the gate. Full log:
+   `<runs-dir>/t153-gate-r2a.log`. Queued as 153c.
+4. PASS, the line pasted above. Full log: `<runs-dir>/t153-gate-r2b.log`.
 
 ## What changed
 
@@ -64,8 +85,8 @@ nothing under `src/server/Match/`, `src/client/Match/` or `src/shared/Drive/` is
 3. **She faces the road.** `placeFor` in `ForestTestBoot` looks at `Data.roadPointAt(at.X)` flattened
    to her own height, so the character stands up instead of leaning down the hill. MEASURED live:
    `look=(-0.00,-0.00,-1.00)` -- due south, at the road. Screenshot: `.screenshots/t153-beater-start.png`
-   (first person, standing in the wood, the road visible in the middle distance, the DRIVE marker on
-   the compass at the middle of the strip between SE and SW).
+   (first person, standing in the wood, the road visible in the middle distance, the marker at the
+   middle of the strip between SE and SW).
 
 4. **Play itself can start her as a beater, and the default is still a hunter.**
    `ForestTest.startRole` reads the `DHForestStartRole` attribute (bare word or with Karen's slash);
@@ -115,12 +136,24 @@ nothing under `src/server/Match/`, `src/client/Match/` or `src/shared/Drive/` is
    286 studs (80 m)`, and 14 in another run. The instrument is
    `<runs-dir>/t153-walk.py` + `t153-report.py` (outside the repo).
 
-9. **The compass marks the push for a beater and the drive for a hunter.** `ForestTest.PUSH_BEARING_DEG`
-   is derived -- `(DRIVE_BEARING_DEG + 180) % 360` -- and `Hud.driveBearing` is the whole rule, pure.
-   The Hud reads `player.Team`, which is the one representation of the team (the same door
-   `Match.myTeam` reads), and re-reads it on change because `/beater` switches teams mid-session.
-   Verify: `tests/client/compass.spec.luau`, "marks where the drive comes from for a hunter, and the
-   road for a beater", and the screenshot in claim 3.
+9. **The compass marks the push for a beater and the drive for a hunter, WORD AND ALL.**
+   `ForestTest.PUSH_BEARING_DEG` is derived -- `(DRIVE_BEARING_DEG + 180) % 360` -- and
+   `Hud.driveBearing` is the whole rule, pure. The Hud reads `player.Team`, which is the one
+   representation of the team (the same door `Match.myTeam` reads), and re-reads it on change because
+   `/beater` switches teams mid-session.
+
+   **ROUND 2, the Reviewer's blocking finding, and it was right:** round 1 turned the chevron round
+   and left the label reading DRIVE, so a beater's compass said the drive was south while every
+   animal she was pushing was north of her. The word travels with the bearing now:
+   `Compass.setBearing(degrees, label)` takes both, `nil` keeps `CONFIG.DRIVE_LABEL` (every hunter,
+   every other world), `render` writes it only when it changes, and `Compass.start` carries it too --
+   without that the second `setBearing` inside `start` would put a beater's marker straight back under
+   the hunter's word on the first frame. `ForestTest.PUSH_LABEL = "ROAD"` sits beside the bearing it
+   belongs to. Verify: `tests/client/compass.spec.luau`, "marks where the drive comes from for a
+   hunter, and the road for a beater" (the pair) and "draws the word the bearing came with, and goes
+   back to DRIVE without one" (`Compass.driveMarkerLabel` reads the live `TextLabel`, not the table).
+   PHOTOGRAPHED in her place: `.screenshots/t153-beater-compass.png`, the red diamond at due south
+   reading **ROAD** (crop: `.screenshots/t153-compass-crop.png`).
 
 10. **Nothing outside the playtest world moved.** `src/server/Match/`, `src/client/Match/`,
     `src/shared/Drive/`, `tests/client/Role.luau` and the specs that test them are untouched
@@ -148,3 +181,13 @@ nothing under `src/server/Match/`, `src/client/Match/` or `src/shared/Drive/` is
   at all -- and fixing it changes what the WAVE mode does, which is another task. Queued as 153a.
 * **The DEV place's own drive** was not exercised by hand; the gate's match specs are what stands
   behind "nothing there moved".
+* **The hunter's compass was not re-photographed after the label change.** `Hud.driveBearing` returns
+  no label for a hunter and `setBearing(deg, nil)` restores `CONFIG.DRIVE_LABEL`, and the spec case
+  "draws the word the bearing came with, and goes back to DRIVE without one" asserts exactly that
+  against the live label -- but the picture I have of a hunter's strip is from before this change.
+* **Two of the Reviewer's round-1 notes are taken in this round** (the spec header that claimed to be
+  pure, and "leaves the strip as this world had it" restoring the hunter's bearing in a world where
+  the player may be a beater). The rest are queued in `TASKS.md` as **153b**, including the one I
+  think is the sharpest: `ForestTest.PUSH_TEAM` is a second literal of the team name outside
+  `Match.Body.ROLE_WORDS`, so renaming the team there would leave a beater's compass silently on the
+  hunter's bearing with every spec still green.
