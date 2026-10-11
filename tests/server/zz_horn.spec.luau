@@ -349,6 +349,35 @@ return function()
 			expect(Horn.carriesFor(true, nil)).to.equal(false)
 		end)
 
+		it("gives a beater the horn and NOT a gun, and everybody else the other way round", function()
+			-- KAREN, 2026-10-10: *"so horn will be default tool for beater"*. Task 154's measured
+			-- bug: in the Forest Test's first beater playtest she spawned
+			-- `tools=[HAND:Shotgun,BAG:Rifle,BAG:Horn]`, because the world's arming policy was
+			-- `return true` for everybody while the horn's carry policy already knew about teams.
+			-- Two policies answering "which role is this player" is how they came to disagree, so
+			-- `Horn.gunFor` is the exact complement of `Horn.carriesFor` and lives beside it.
+			-- NO `nil` IN THIS LIST, and that is deliberate rather than an omission: a trailing nil
+			-- in a Luau table literal is not an element -- the length is 3 -- so a case that put it
+			-- here would quietly test nothing. The no-team player is asserted on its own below.
+			for _, team in { Horn.TEAM, "Shooters", "Spectators" } do
+				-- With the flag ON the two are complements for every team: the horn XOR the gun.
+				expect(Horn.carriesFor(true, team)).to.equal(not Horn.gunFor(team))
+			end
+			expect(Horn.carriesFor(true, nil)).to.equal(not Horn.gunFor(nil))
+			expect(Horn.carriesFor(true, Horn.TEAM)).to.equal(true)
+			expect(Horn.gunFor(Horn.TEAM)).to.equal(false)
+			expect(Horn.gunFor("Shooters")).to.equal(true)
+			-- NO TEAM IS NOT A BEATER, so a player the drive has not placed yet carries a gun and
+			-- no horn, which is what this world did before task 152 and still does.
+			expect(Horn.gunFor(nil)).to.equal(true)
+
+			-- ...AND THE GUN DOES NOT FOLLOW THE FLAG. With the horn switched OFF a beater carries
+			-- no horn, and she still carries no gun: the flag decides whether the HORN exists, not
+			-- who is a beater. Otherwise turning the horn off would silently arm the drive.
+			expect(Horn.carriesFor(false, Horn.TEAM)).to.equal(false)
+			expect(Horn.gunFor(Horn.TEAM)).to.equal(false)
+		end)
+
 		it("holds a blast to the cooldown", function()
 			expect(HornTool.readyAt(nil, 100)).to.equal(true)
 			expect(HornTool.readyAt(100, 100)).to.equal(false)

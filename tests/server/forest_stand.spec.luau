@@ -509,6 +509,65 @@ return function()
 			expect(out.Z - Data.restPoint(standX, spec).Z).to.be.near(reach, 1e-3)
 		end)
 
+		it("takes a spot that is on the ground and in the trees, and refuses every other kind", function()
+			-- `ForestTest.restSpotOk` is the whole rule, pure: five measurements in, yes or no out.
+			-- `restSpot` takes the measurements and this decides. Hand-written numbers here, so the
+			-- rule is asserted in the DEV place where this world's terrain does not exist.
+			local rest = Data.REST
+			local keepAway = Data.beaterSpookStuds(Data.SPOOK) + rest.clearOfStartStuds
+			-- A spot that is right in every way: in the band, clear of her start, on terrain the
+			-- spawn ray agrees with, and a trunk's width away from a trunk.
+			local dz = (rest.nearRoadStuds + rest.farRoadStuds) / 2
+			local trunk = (rest.clearStuds + rest.nearTrunkStuds) / 2
+			local function ok(...)
+				return ForestTest.restSpotOk(...)
+			end
+			expect(ok(dz, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(true)
+
+			-- TOO NEAR THE ROAD, and too far from it: a boar standing on the verge in front of the
+			-- gun, and one behind where she starts.
+			expect(ok(rest.nearRoadStuds - 1, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(false)
+			expect(ok(rest.farRoadStuds + 1, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(false)
+			-- ...and the two boundaries themselves are IN, or the band is not the band it says.
+			expect(ok(rest.nearRoadStuds, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(true)
+			expect(ok(rest.farRoadStuds, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(true)
+
+			-- ALREADY INSIDE HER REACH: this task's own measured mistake, as an assertion.
+			expect(ok(dz, keepAway - 1, trunk, 140, 140, rest, keepAway)).to.equal(false)
+			expect(ok(dz, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(true)
+
+			-- INSIDE A TRUNK, and out in the open with nothing near: both are "no".
+			expect(ok(dz, keepAway, rest.clearStuds - 1, 140, 140, rest, keepAway)).to.equal(false)
+			expect(ok(dz, keepAway, rest.nearTrunkStuds + 1, 140, 140, rest, keepAway)).to.equal(false)
+			-- `nearestSolid` answers `math.huge` for nothing within its radius, which is the shape
+			-- the open-ground case actually arrives in.
+			expect(ok(dz, keepAway, math.huge, 140, 140, rest, keepAway)).to.equal(false)
+
+			-- THE SPAWN RAY STOPPED ON A CANOPY: the terrain says 140 and `groundAt` says 196, which
+			-- is 56 studs of tree (task 153 measured exactly that hill). A sounder dropped from
+			-- there falls out of a tree.
+			expect(ok(dz, keepAway, trunk, 140, 196, rest, keepAway)).to.equal(false)
+			expect(ok(dz, keepAway, trunk, 140, 140 + rest.canopySlackStuds, rest, keepAway)).to.equal(true)
+			expect(ok(dz, keepAway, trunk, 140, 140 + rest.canopySlackStuds + 1, rest, keepAway)).to.equal(false)
+
+			-- NO GROUND AT ALL is "no spot", never "close enough": off the edge of the terrain,
+			-- either ray can answer nil.
+			expect(ok(dz, keepAway, trunk, nil, 140, rest, keepAway)).to.equal(false)
+			expect(ok(dz, keepAway, trunk, 140, nil, rest, keepAway)).to.equal(false)
+
+			TestKit.note(
+				string.format(
+					"a resting spot: dz %d-%d, >= %.0f studs from her start, %d-%d studs from the nearest trunk, terrain and spawn ray within %d",
+					rest.nearRoadStuds,
+					rest.farRoadStuds,
+					keepAway,
+					rest.clearStuds,
+					rest.nearTrunkStuds,
+					rest.canopySlackStuds
+				)
+			)
+		end)
+
 		it("is in beater mode only while somebody has asked to be a beater", function()
 			local userId = -9154
 			expect(ForestTest.beaterMode()).to.equal(false)

@@ -529,7 +529,7 @@ ForestTest.REST = {
 	groups = {
 		{ offsetX = -115, northStuds = 150, composition = 1, note = "a mixed flock, west and far" },
 		{ offsetX = -40, northStuds = 105, composition = 5, note = "a sow and her young, west" },
-		{ offsetX = 55, northStuds = 140, composition = 4, note = "sows and piglets, east and far" },
+		{ offsetX = 55, northStuds = 108, composition = 4, note = "sows and piglets, east" },
 		{ offsetX = 125, northStuds = 95, composition = 2, note = "two males, east" },
 		{ offsetX = -10, northStuds = 55, composition = 6, note = "one big lone male, straight ahead" },
 	},

@@ -62,6 +62,22 @@ function Horn.carriesFor(on: boolean, team: string?): boolean
 	return on and team == Horn.TEAM
 end
 
+-- ...AND THE EXACT COMPLEMENT: WHO CARRIES A GUN (task 154). Karen, 2026-10-10: *"so horn will be
+-- default tool for beater"*, and the Director's reading of it -- guns come later, with a licence.
+--
+-- IT IS HERE, BESIDE `carriesFor`, SO THE TWO CANNOT DISAGREE. In the Forest Test's first beater
+-- playtest she spawned HOLDING THE SHOTGUN with the rifle and the horn in the bag (measured,
+-- 2026-10-11: `tools=[HAND:Shotgun,BAG:Rifle,BAG:Horn]`), because the world's arming policy was
+-- `return true` for everybody while the horn's carry policy already knew about teams. Two policies
+-- answering one question -- "which role is this player" -- is how they came to disagree, so the
+-- second answer is derived from the first and this file states both.
+--
+-- PURE, and a function of the team alone, so a spec can assert it without taking a live beater's
+-- horn away -- the shape `Horn.carriesFor` and `Weapon.armingAction` both already have.
+function Horn.gunFor(team: string?): boolean
+	return team ~= Horn.TEAM
+end
+
 export type Piece = {
 	name: string,
 	size: Vector3,

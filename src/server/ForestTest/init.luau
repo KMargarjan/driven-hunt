@@ -876,6 +876,51 @@ end
 -- first spot that is in the trees, not inside one, and on the ground. Returns nil when the wood has
 -- no such spot -- a group that cannot be put down is simply not put down, which is the same answer
 -- `releaseLine` gives a line whose route cannot be computed.
+-- IS THIS A SPOT A RESTING GROUP MAY GO? PURE -- five measurements in, yes or no out -- so the whole
+-- rule can be asserted with hand-written numbers instead of a terrain, which is what
+-- `forest_stand.spec` does. `restSpot` below is the only caller and does nothing but TAKE the five
+-- measurements; the division is `MapGen.Layout`/`MapGen.Props`'s and `Horn.pieces`/`Horn.build`'s.
+--
+-- FIVE RULES, AND EVERY ONE OF THEM IS KAREN'S SENTENCE OR THIS TASK'S OWN MEASUREMENT:
+--   `dz`         BETWEEN HER AND THE ROAD. Short of the verge and in front of where she starts; a
+--                ring of the search that walked a group onto the road is not the group she asked
+--                for. Karen: *"animals already there ... close to trees"*, on her side of the road.
+--   `fromStart`  NOT ALREADY INSIDE HER REACH. MEASURED, this task's own first build: a group 71
+--                studs from where a beater is put down is inside `SPOOK.BEATER_STUDS` (89), so it
+--                was latched and gone on the first heartbeat before she had taken a step.
+--   `terrainY`/`groundY`  ON THE GROUND AND NOT ON A CANOPY. `Runtime:spawn` places every member at
+--                `world.groundAt`, which rays past `OurForest`/`Foliage` but NOT past the two
+--                `Session` folders of 831 more trees (task 153 measured them). When the terrain's
+--                own answer and that one disagree, that ray stopped in a tree and the sounder would
+--                be dropped out of it. Either answer missing is "no spot", never "close enough".
+--   `trunkGap`   IN THE TREES AND NOT INSIDE ONE. Karen: *"somewhere in bushes close to trees ect"*.
+--                At least `clearStuds` from the nearest solid thing, and at most `nearTrunkStuds`
+--                from it -- a spot with nothing solid near it is out in the open, which is the
+--                other way to get this wrong. `nearestSolid` is why a fern does not count.
+function ForestTest.restSpotOk(
+	dz: number,
+	fromStart: number,
+	trunkGap: number,
+	terrainY: number?,
+	groundY: number?,
+	rest,
+	keepAway: number
+): boolean
+	if dz < rest.nearRoadStuds or dz > rest.farRoadStuds then
+		return false
+	end
+	if fromStart < keepAway then
+		return false
+	end
+	if terrainY == nil or groundY == nil then
+		return false
+	end
+	if math.abs((groundY :: number) - (terrainY :: number)) > rest.canopySlackStuds then
+		return false
+	end
+	return trunkGap >= rest.clearStuds and trunkGap <= rest.nearTrunkStuds
+end
+
 function ForestTest.restSpot(standX: number, spec): Vector3?
 	local rest = Data.REST
 	-- WHERE SHE WILL BE STANDING, flat and pure (`Data.beaterStart`, not the measured
@@ -889,23 +934,23 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 			local angle = (step - 1) * (math.pi * 2 / tries)
 			local radius = ring * rest.searchStepStuds
 			local at = Data.restPoint(standX, spec, math.cos(angle) * radius, math.sin(angle) * radius)
-			-- BETWEEN HER AND THE ROAD, whatever the search did to the point. A ring that walked a
-			-- group onto the verge, or back behind where she is standing, is not the group she
-			-- asked for.
 			local dz = at.Z - Data.roadZ(at.X)
 			local fromStart = Vector3.new(at.X - start.X, 0, at.Z - start.Z).Magnitude
+			-- THE TERRAIN IS ASKED ONLY ONCE THE FLAT TESTS HAVE PASSED: two raycasts and an
+			-- overlap query per candidate, over five rings of eight, is the one place this search
+			-- could become expensive.
+			local terrain = nil
+			local ground = nil
+			local gap = 0
 			if dz >= rest.nearRoadStuds and dz <= rest.farRoadStuds and fromStart >= keepAway then
-				local terrain = ForestTest.terrainYAt(at.X, at.Z)
-				local ground = Data.groundAt(at.X, at.Z)
-				-- ON THE GROUND AND NOT IN A TREE. `Runtime:spawn` places every member at
-				-- `world.groundAt`; the terrain's own answer is the truth, and when the two
-				-- disagree that ray stopped on a canopy -- see `REST.canopySlackStuds`.
-				if terrain ~= nil and ground ~= nil and math.abs(ground - terrain) <= rest.canopySlackStuds then
-					local gap = ForestTest.nearestSolid(Vector3.new(at.X, terrain + 2, at.Z), rest.nearTrunkStuds)
-					if gap >= rest.clearStuds and gap <= rest.nearTrunkStuds then
-						return Vector3.new(at.X, terrain, at.Z)
-					end
+				terrain = ForestTest.terrainYAt(at.X, at.Z)
+				ground = Data.groundAt(at.X, at.Z)
+				if terrain ~= nil then
+					gap = ForestTest.nearestSolid(Vector3.new(at.X, (terrain :: number) + 2, at.Z), rest.nearTrunkStuds)
 				end
+			end
+			if ForestTest.restSpotOk(dz, fromStart, gap, terrain, ground, rest, keepAway) then
+				return Vector3.new(at.X, terrain :: number, at.Z)
 			end
 		end
 	end

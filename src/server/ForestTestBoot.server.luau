@@ -237,7 +237,7 @@ end)
 -- which role this player is. There is still no roster and no drive here: a hunter carries, exactly
 -- as everybody did before today.
 Weapon.setArmingPolicy(function(player)
-	return Body.teamOf(player) ~= HornData.TEAM
+	return HornData.gunFor(Body.teamOf(player))
 end)
 
 -- THIS WORLD HAS NO DRIVE LINE, AND REGISTERING ONE CRASHED EVERY SHOT.
