@@ -3,16 +3,17 @@
 Task: 157
 Round: 1
 Base: `612dbf2` (`main`, #139 merged)
-Code commit: `ea992d173ace928e6c45164c7ec6e9f8fdf9b84e`
+Code commit: `4dee92048c26a4decc876543761b8ed04d4df9b0`
 
 ```
 [harness] PASS: 33/33 checks @ ea992d173ace928e6c45164c7ec6e9f8fdf9b84e (clean tree) scope=all
 [harness] PASS: 33/33 checks @ ea992d173ace928e6c45164c7ec6e9f8fdf9b84e (clean tree) scope=all
-[harness2] <PENDING — the Director runs it: one Studio, one human click>
+[harness] PASS: 33/33 checks @ 4dee92048c26a4decc876543761b8ed04d4df9b0 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 4dee92048c26a4decc876543761b8ed04d4df9b0 (clean tree)
 ```
 
 Two clean one-player runs at the code commit **with the DEV Studio ALONE** (`<runs-dir>/gate-157-6.log`,
-`gate-157-7.log`), which is the condition the Director's gates ran in. **This change touches
+`gate-157-7.log`); the last two lines are the Director's at `4dee920` (the head; only paperwork after `ea992d1`), which is the condition the Director's gates ran in. **This change touches
 `src/server/Match/`, so it IS in `TWO_PLAYER_PATHS` and the merge needs `[harness2]` for this same
 sha** — the Director runs it (dispatch, 2026-10-11).
 
