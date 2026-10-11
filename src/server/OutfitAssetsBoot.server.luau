@@ -118,11 +118,24 @@ print(
 -- tagged accessories before it builds anything, so a re-dress cannot leave a player in two hats.
 -- A player with no team yet is a no-op here and is dressed when the drive gives them one.
 --
--- IT IS A BOUNDED POLL AND NOT A SINGLE SHOT, for the case `Loader` itself documents: `preload`
--- gives up WAITING at its deadline, but the abandoned load keeps running and `adopt` takes the
--- template if it ever lands -- "a slow load is late rather than lost". A one-shot re-dress here
--- would miss exactly that, and the symptom is a player in plates with the console claiming success.
--- The poll runs in its own thread, so the boot never blocks on it.
+-- IT IS A BOUNDED POLL OVER THE PLAYERS STILL WEARING PLATES, and both halves of that were learned
+-- by measuring this very run:
+--
+--   * A ONE-SHOT RE-DRESS AT BOOT RE-DRESSES NOBODY. The harness Play session starts the server
+--     first and the player joins a second or two later, so `Players:GetPlayers()` is EMPTY when
+--     `preload` returns. Measured: the spec note said `outfit.vest=cached outfit.cap=cached` and the
+--     client said `hat=plates` in the same run -- the load worked perfectly and nothing ever asked
+--     again.
+--   * `preload` GIVING UP IS NOT THE LOAD FAILING. `Loader` documents it: the deadline stops this
+--     thread WAITING, the abandoned load keeps running, and `adopt` takes the template if it lands --
+--     "a slow load is late rather than lost". A template can therefore appear after the boot has
+--     finished, and only something that looks again will put it on anybody.
+--
+-- So: while the window is open, every second, re-dress exactly those players who are STILL wearing
+-- the grey-box plates (the `HuntOutfit` folder exists) now that every template is here. It is
+-- self-limiting -- a re-dressed character has no folder, so it is not picked up again -- and it costs
+-- nothing in the ordinary case, where the templates are cached before anybody joins and no character
+-- ever has a folder to find.
 local REDRESS_WINDOW_S = 20
 local REDRESS_INTERVAL_S = 1
 
@@ -135,41 +148,36 @@ local function everyTemplateIsHere(): boolean
 	return #keys > 0
 end
 
-local function redressEverybody(why: string)
-	local redressed = 0
-	for _, player in ipairs(Players:GetPlayers()) do
-		local character = player.Character
-		if character and player.Team then
-			Body.dressWhenLoaded(player, character, Match.CONFIG)
-			redressed += 1
-		end
-	end
-	print(
-		string.format(
-			"[OutfitAssetsBoot] re-dressed %d player(s) already on a team (%s); %d accessory(ies) worn, %d slot(s) on plates",
-			redressed,
-			why,
-			Body.accessoriesWorn(),
-			Body.slotsFellBack()
-		)
-	)
-end
-
-if ok > 0 then
-	redressEverybody("the preload returned")
-end
-
 task.spawn(function()
 	local deadline = os.clock() + REDRESS_WINDOW_S
+	local total = 0
 	while os.clock() < deadline do
 		if everyTemplateIsHere() then
-			if ok < #keys then
-				-- A load that `preload` had given up on has landed since. Nothing else would ever
-				-- ask again, so this is the only thing standing between a late template and a
-				-- player who wears plates for the rest of the session.
-				redressEverybody("a late template landed")
+			local waiting = {}
+			for _, player in ipairs(Players:GetPlayers()) do
+				local character = player.Character
+				if character and player.Team and character:FindFirstChild(Body.OUTFIT_NAME) then
+					table.insert(waiting, player)
+				end
 			end
-			return
+			for _, player in ipairs(waiting) do
+				local character = player.Character
+				if character then
+					Body.dressWhenLoaded(player, character, Match.CONFIG)
+					total += 1
+				end
+			end
+			if #waiting > 0 then
+				print(
+					string.format(
+						"[OutfitAssetsBoot] re-dressed %d player(s) who were wearing plates when the accessories landed;"
+							.. " %d accessory(ies) worn in all, %d slot(s) still on plates",
+						#waiting,
+						Body.accessoriesWorn(),
+						Body.slotsFellBack()
+					)
+				)
+			end
 		end
 		task.wait(REDRESS_INTERVAL_S)
 	end
@@ -180,5 +188,7 @@ task.spawn(function()
 				REDRESS_WINDOW_S
 			)
 		)
+	elseif total == 0 then
+		print("[OutfitAssetsBoot] nobody needed re-dressing: every accessory was cached before anyone was dressed.")
 	end
 end)
