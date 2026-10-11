@@ -172,6 +172,7 @@ return function()
 			boarsReleased = 2,
 			boarsLeft = 4,
 			waitingFor = {},
+			quarry = { "WILD BOAR: male, female, cub", "every one of them counts - no cub rule yet" },
 			rows = {},
 			tied = {},
 		}
@@ -294,6 +295,156 @@ return function()
 			Hud.renderScore(LIVE, 500)
 			expect(#Hud.scoreRowText()).to.equal(0)
 			expect(Hud.isScorePanelVisible()).to.equal(false)
+		end)
+	end)
+
+	-- THE START CARD (task 158). Karen: *"we just need to at the begining what they can shoot and
+	-- timer when start"*, *"Simple, readable, a few seconds, no tutorial"*.
+	--
+	-- SCRIPTED SNAPSHOTS, FOR THE SCORE PANEL'S OWN REASON: the card is up for the ten seconds of
+	-- `Assigning` and a one-player harness run reaches the specs well inside the drive, so the wire
+	-- will not show it here. `Hud.renderStartCard` is public for exactly this. The screenshot is
+	-- separate evidence and this does not replace it.
+	describe("the start card", function()
+		local CARD_QUARRY = { "WILD BOAR: male, female, cub", "every one of them counts - no cub rule yet" }
+
+		local function snapshotIn(phase: string)
+			local snapshot = {
+				phase = phase,
+				phaseEndsAt = 0,
+				driveNumber = 4,
+				boarsReleased = 0,
+				boarsLeft = 6,
+				waitingFor = {},
+				quarry = CARD_QUARRY,
+				rows = {},
+				tied = {},
+			}
+			return Drive.deepFreeze(snapshot)
+		end
+
+		-- The two phases these cases need by name: the countdown, and the drive that follows it.
+		local function starting()
+			return snapshotIn("Assigning")
+		end
+
+		local function running()
+			return snapshotIn("Running")
+		end
+
+		local reportWasOpen = false
+
+		beforeAll(function()
+			-- The same precondition the score cases state: the report auto-opens when a drive closes,
+			-- and both panels hide behind it on purpose.
+			reportWasOpen = Hud.Report.isOpen()
+			if reportWasOpen then
+				TestKit.note("match_client: a drive report had auto-opened; closed for the start-card cases")
+				Hud.Report.setOpen(false)
+			end
+		end)
+
+		afterAll(function()
+			if reportWasOpen then
+				Hud.Report.setOpen(true)
+			end
+			Hud.renderStartCard(Match.get(), Match.myTeam(), Match.secondsLeft())
+		end)
+
+		it("is hidden while the drive is running, and gone the moment it starts", function()
+			Hud.renderStartCard(starting(), "Shooters", 7)
+			expect(Hud.isStartCardVisible()).to.equal(true)
+			Hud.renderStartCard(running(), "Shooters", 300)
+			expect(Hud.isStartCardVisible()).to.equal(false)
+			-- Cleared, not just hidden: the next drive must not flash the last one's card.
+			expect(#Hud.startCardText()).to.equal(0)
+			expect(Hud.startCardTimerText()).to.equal("")
+		end)
+
+		it("is really on screen in Assigning: every ancestor present and visible", function()
+			Hud.renderStartCard(starting(), "Shooters", 9)
+			expect(Hud.isStartCardVisible()).to.equal(true)
+			local card = Hud.startCard()
+			expect(card).to.be.ok()
+			-- The ancestor walk, not just `Visible`: "a visibility audit ignored parent visibility and
+			-- certified a blank screen twice" (docs/PROJECT_CONTEXT.md).
+			local node: Instance? = card
+			while node and node ~= game do
+				if node:IsA("GuiObject") then
+					expect(node.Visible).to.equal(true)
+				elseif node:IsA("ScreenGui") then
+					expect(node.Enabled).to.equal(true)
+				end
+				node = node.Parent
+			end
+			expect(node).to.equal(game)
+			expect(card.BackgroundTransparency < 1).to.equal(true)
+		end)
+
+		it("tells a HUNTER his role, what he may shoot, and how long he has to reach his stand", function()
+			Hud.renderStartCard(starting(), "Shooters", 10)
+			local lines = Hud.startCardText()
+			print("[match_client] start card: " .. table.concat(lines, " / ") .. " / " .. Hud.startCardTimerText())
+			expect(lines[1]).to.equal("YOU ARE A HUNTER")
+			-- WHAT MAY BE SHOT IS THE SERVER'S WORDS, passed through: the client decides nothing
+			-- about what is legal.
+			expect(lines[2]).to.equal(CARD_QUARRY[1])
+			expect(lines[3]).to.equal(CARD_QUARRY[2])
+			expect(string.find(Hud.startCardTitleText(), "DRIVE 4", 1, true) ~= nil).to.equal(true)
+			expect(Hud.startCardTimerText()).to.equal("GET TO YOUR STAND  10")
+		end)
+
+		it("tells a BEATER the drive is what is counting down, not his walk", function()
+			Hud.renderStartCard(starting(), "Drivers", 3)
+			expect(Hud.startCardText()[1]).to.equal("YOU ARE A BEATER")
+			expect(Hud.startCardTimerText()).to.equal("DRIVE STARTS IN  3")
+		end)
+
+		it("rounds the countdown UP, so a player never reads 0 while he still has time", function()
+			-- `secondsLeft` is a float counted down locally from the server's timestamp; 9.2 seconds
+			-- left is "10" and 0.4 is "1", because the card is a countdown and not a stopwatch.
+			expect(Hud.startCardTimerFor("Shooters", 9.2)).to.equal("GET TO YOUR STAND  10")
+			expect(Hud.startCardTimerFor("Shooters", 0.4)).to.equal("GET TO YOUR STAND  1")
+			expect(Hud.startCardTimerFor("Shooters", 0)).to.equal("GET TO YOUR STAND  0")
+			expect(Hud.startCardTimerFor("Drivers", -5)).to.equal("DRIVE STARTS IN  0") -- never negative
+		end)
+
+		it("shows nothing at all with no drive, and no role line for a player on no team", function()
+			Hud.renderStartCard(nil, nil, 0)
+			expect(Hud.isStartCardVisible()).to.equal(false)
+			-- The lines themselves are pure, so the no-team case is one assertion: the quarry still
+			-- reads, because what may be shot does not depend on which side you are on.
+			local lines = Hud.startCardLines(starting(), nil)
+			expect(#lines).to.equal(2)
+			expect(lines[1]).to.equal(CARD_QUARRY[1])
+			expect(Hud.roleWord(nil)).to.equal("")
+			expect(Hud.roleWord("Shooters")).to.equal("HUNTER")
+			expect(Hud.roleWord("Drivers")).to.equal("BEATER")
+		end)
+
+		it("is only ever the start of a drive: no other phase shows it", function()
+			for _, phase in ipairs({ "Waiting", "Running", "Scoring" }) do
+				expect(Hud.startCardVisible(snapshotIn(phase), false)).to.equal(false)
+			end
+			expect(Hud.startCardVisible(starting(), false)).to.equal(true)
+			-- ...and not while the report is open: two panels at once is two panels nobody reads.
+			expect(Hud.startCardVisible(starting(), true)).to.equal(false)
+		end)
+
+		it("carries what the SERVER said may be shot, with no second copy on this side", function()
+			-- The snapshot really has the field (the live wire's own case is in match_live.spec), and
+			-- `Drive.CONFIG` holds the WORDING of the card but no rule: a client that knew which
+			-- animals were legal would be a second answer to one rule.
+			expect(waitUntil(30, function()
+				return Match.get() ~= nil
+			end)).to.equal(true)
+			local snapshot = Match.get()
+			expect(type(snapshot.quarry)).to.equal("table")
+			expect(#snapshot.quarry > 0).to.equal(true)
+			print("[match_client] the wire's quarry: " .. table.concat(snapshot.quarry, " | "))
+			for _, field in ipairs({ "QUARRY", "QUARRY_NOTE", "START_HOLD_TEAM" }) do
+				expect((Drive.CONFIG :: any)[field]).to.equal(nil)
+			end
 		end)
 	end)
 

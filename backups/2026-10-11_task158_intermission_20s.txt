@@ -1,0 +1,20 @@
+ARCHIVED VALUE, task 158 (2026-10-11): Match.CONFIG.INTERMISSION_SECONDS
+
+Was:
+    INTERMISSION_SECONDS = 20, -- K, long enough to read the teams and walk to your post
+
+Now:
+    INTERMISSION_SECONDS = 10, -- K
+
+WHY. Karen, 2026-10-10, on the start of a drive: "Don't need totural we just need to at the
+begining what they can shoot and timer when start, timer like 10s to find position to stand",
+"Hunter in position where can select within 10s treestand or just position", "Beater start in
+line with others and countdown when drive starts".
+
+The intermission is the window all three of those live in -- the start card, the hunter's stand
+timer and the beaters' hold at the line -- and she named the number: 10. Nothing else about the
+phase changed; `Phase.intermissionSeconds` still reads this key and the quick test still has its
+own 3 (QUICK_TEST_INTERMISSION_SECONDS).
+
+TO PUT IT BACK: one line in src/server/Match/init.luau (Match.CONFIG), plus the assertion in
+tests/server/match_live.spec.luau ("the drive's own numbers").

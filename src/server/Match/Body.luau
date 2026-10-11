@@ -1216,19 +1216,33 @@ function Body.tie(player: Player, tree: BasePart, config, parent: Instance?): bo
 	return ok
 end
 
--- The same work against a Model rather than a Player, which is the seam a spec uses: a live spec must
--- not freeze and move the one real player in a Play session, because half the client suite is
--- standing in it (a spec that revoked the live gun broke exactly that, Task 34).
-function Body.tieCharacter(character: Model?, userId: number, tree: BasePart, config, parent: Instance?): boolean
+-- HELD WHERE HE STANDS: the freeze alone, with no tree, no rope and no move (task 158). This is the
+-- beaters' hold at the start line while the countdown runs -- Karen: *"Beater start in line with
+-- others and countdown when drive starts"*.
+--
+-- IT IS THE TIE'S OWN FREEZE, FACTORED OUT AND NOT A SECOND ONE: the same three humanoid numbers,
+-- the same `held` table they are saved in and the same anchored root, so this module stays the ONE
+-- writer of whether a character can move and `Body.untie` restores either of them. A hold IS a tie
+-- without the rope and without the teleport, and writing it twice is how two systems end up
+-- disagreeing about who is frozen.
+--
+--   Humanoid.WalkSpeed  https://create.roblox.com/docs/reference/engine/classes/Humanoid#WalkSpeed
+--   BasePart.Anchored   https://create.roblox.com/docs/reference/engine/classes/BasePart#Anchored
+-- Returns the frozen character's root, or nil if nothing could be frozen -- which is what lets
+-- `tieCharacter` below reuse both the work and the refusals rather than repeating either.
+function Body.holdCharacter(character: Model?, userId: number): BasePart?
 	if not character or not character.Parent then
-		return false
+		return nil
 	end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
-	if not humanoid or not (root and root:IsA("BasePart")) then
-		return false
+	local found = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+	if not humanoid or not (found and found:IsA("BasePart")) then
+		return nil
 	end
+	local root = found :: BasePart
 
+	-- SAVED ONCE, WHATEVER FROZE HIM FIRST. A hold applied on top of a tie must not record
+	-- WalkSpeed 0 as "what he had before", which would leave a freed player unable to walk.
 	if not held[userId] then
 		held[userId] = {
 			walkSpeed = humanoid.WalkSpeed,
@@ -1239,8 +1253,30 @@ function Body.tieCharacter(character: Model?, userId: number, tree: BasePart, co
 	humanoid.WalkSpeed = 0
 	humanoid.JumpHeight = 0
 	humanoid.JumpPower = 0 -- for places on UseJumpPower; writing both costs nothing
-
 	root.Anchored = true
+	return root
+end
+
+-- The player wrapper, for the same reason `Body.tie` has one.
+function Body.hold(player: Player): boolean
+	return Body.holdCharacter(player.Character, player.UserId) ~= nil
+end
+
+-- Whether this module is holding that character still -- a tie or a hold, which are the same freeze.
+function Body.isHolding(userId: number): boolean
+	return held[userId] ~= nil
+end
+
+-- The same work against a Model rather than a Player, which is the seam a spec uses: a live spec must
+-- not freeze and move the one real player in a Play session, because half the client suite is
+-- standing in it (a spec that revoked the live gun broke exactly that, Task 34).
+function Body.tieCharacter(character: Model?, userId: number, tree: BasePart, config, parent: Instance?): boolean
+	-- THE FREEZE IS `holdCharacter`'S, AND SO ARE ITS REFUSALS: no character, no humanoid or no root
+	-- means no tie, exactly as before. What a tie adds is the move and the rope.
+	local root = Body.holdCharacter(character, userId)
+	if root == nil or character == nil then
+		return false
+	end
 	character:PivotTo(Body.tiePointFor(tree, root.Position, config))
 
 	local folder = parent or Body.driveMarkers()
@@ -1248,7 +1284,7 @@ function Body.tieCharacter(character: Model?, userId: number, tree: BasePart, co
 	if previous then
 		previous:Destroy() -- one rope per player, never two (it is re-tied after a respawn)
 	end
-	ropeFor(root :: BasePart, tree, userId, config, folder)
+	ropeFor(root, tree, userId, config, folder)
 	return true
 end
 

@@ -323,6 +323,103 @@ return function()
 		end)
 	end)
 
+	-- THE BEATERS' HOLD AT THE START LINE (task 158). Karen: *"Beater start in line with others and
+	-- countdown when drive starts"*.
+	--
+	-- IT IS THE TIE'S OWN FREEZE WITHOUT THE ROPE AND WITHOUT THE MOVE, and that is what these cases
+	-- check: the same three humanoid numbers and the same anchored root, nothing drawn, and the
+	-- character STILL WHERE IT STOOD -- a hold that teleported a beater would undo the placement that
+	-- put her on the line in the first place.
+	describe("Body.hold -- held where she stands", function()
+		local folder: Folder
+		local ropes: Folder
+		local character: Model
+		local AT = Vector3.new(0, 703, 60)
+		local USER = 900011
+
+		beforeAll(function()
+			folder = Instance.new("Folder")
+			folder.Name = "MatchHoldSpec"
+			ropes = Instance.new("Folder")
+			ropes.Name = "Ropes"
+			ropes.Parent = folder
+			character = rig("HeldRig", AT)
+			character.Parent = folder
+			folder.Parent = workspace
+		end)
+
+		afterAll(function()
+			Body.untieCharacter(character, USER, ropes)
+			Body.forget(USER)
+			folder:Destroy()
+		end)
+
+		it("freezes the humanoid and anchors the root, and does not move her an inch", function()
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			humanoid.WalkSpeed = 16
+			humanoid.JumpHeight = 7.2
+			humanoid.JumpPower = 50
+			local before = character:GetPivot().Position
+
+			local root = Body.holdCharacter(character, USER)
+			expect(root).to.be.ok()
+			expect(root).to.equal(character.PrimaryPart)
+
+			expect(humanoid.WalkSpeed).to.equal(0)
+			expect(humanoid.JumpHeight).to.equal(0)
+			expect(humanoid.JumpPower).to.equal(0)
+			expect(character.PrimaryPart.Anchored).to.equal(true)
+			-- WHERE SHE WAS PUT, to the stud: the drive's own placement chose the line.
+			local moved = (character:GetPivot().Position - before).Magnitude
+			print(string.format("[match_safety] held, moved %.4f studs", moved))
+			expect(moved < 0.01).to.equal(true)
+			expect(Body.isHolding(USER)).to.equal(true)
+		end)
+
+		it("draws nothing: a hold has no rope", function()
+			expect(ropes:FindFirstChild(Body.ropeName(USER))).to.equal(nil)
+			expect(#ropes:GetChildren()).to.equal(0)
+		end)
+
+		it("gives back exactly the numbers it took, through the one restore both freezes share", function()
+			Body.untieCharacter(character, USER, ropes)
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			expect(humanoid.WalkSpeed).to.equal(16)
+			expect(math.abs(humanoid.JumpHeight - 7.2) < 1e-4).to.equal(true)
+			expect(humanoid.JumpPower).to.equal(50)
+			expect(character.PrimaryPart.Anchored).to.equal(false)
+			expect(Body.isHolding(USER)).to.equal(false)
+		end)
+
+		it("saves what she had ONCE, so a hold on top of a hold cannot record WalkSpeed 0", function()
+			-- The failure this prevents: the second call reads 0 as "what she had before" and a freed
+			-- beater can never walk again. `applyHold` is re-applied on every respawn in a real
+			-- drive, so this happens on purpose and often.
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			humanoid.WalkSpeed = 16
+			expect(Body.holdCharacter(character, USER)).to.be.ok()
+			expect(Body.holdCharacter(character, USER)).to.be.ok()
+			Body.untieCharacter(character, USER, ropes)
+			expect(humanoid.WalkSpeed).to.equal(16)
+		end)
+
+		it("refuses what it cannot freeze, and says so with nil", function()
+			local naked = Instance.new("Model")
+			naked.Name = "NoHumanoidHold"
+			local part = Instance.new("Part")
+			part.Name = "HumanoidRootPart"
+			part.Anchored = true
+			part.Position = Vector3.new(40, 703, 40)
+			part.Parent = naked
+			naked.PrimaryPart = part
+			naked.Parent = folder
+			expect(Body.holdCharacter(naked, 900012)).to.equal(nil)
+			expect(Body.holdCharacter(nil, 900013)).to.equal(nil)
+			expect(Body.isHolding(900012)).to.equal(false)
+			naked:Destroy()
+		end)
+	end)
+
 	describe("Body.anchorFor -- which tree", function()
 		it("takes the nearest tree, falls back to a post, and returns nil with neither", function()
 			local folder = Instance.new("Folder")

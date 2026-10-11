@@ -15,6 +15,13 @@
 -- task.delay, no task.wait and no second timer in this system: a hitch cannot skip a phase, and a
 -- spec can run ten minutes in a few milliseconds of simulated dt.
 --
+-- THE START OF A DRIVE IS `Assigning`, AND TASK 158 ADDED NO PHASE (Karen: *"timer when start,
+-- timer like 10s to find position to stand"*, *"Beater start in line with others and countdown when
+-- drive starts"*). The countdown IS this machine's existing intermission: one phase, one deadline,
+-- and `phaseEndsAt` is still the only clock -- so the hunter's stand timer, the beater's countdown
+-- and the start card are all the SAME number counted down locally, and they cannot disagree. What is
+-- new is two effects, `hold` and `free`, and `Phase.heldUserIds` to say who.
+--
 -- Design: docs/design/drive.md (section 4)
 -- Note:   docs/research/2026-09-25-drive.md
 local Roster = require(script.Parent.Roster)
@@ -80,6 +87,8 @@ export type Effect = {
 	force: boolean?, -- "broadcast": a phase change, which no client may miss behind the throttle
 	assignment: { [number]: TeamName }?,
 	userId: number?, -- "freeze": the one player to tie to a tree
+	-- "refreshArming" / "placePlayers": whom. "hold": whom to hold at the start line. "free": whom
+	-- to let go, and NIL MEANS EVERYBODY HELD -- which is what the start of a drive means (task 158).
 	userIds: { number }?,
 	position: Vector3?,
 	size: number?, -- "spawnSounder": how many animals this release is
@@ -169,6 +178,25 @@ function Phase.waitingFor(state: State, config): { string }
 		end
 	end
 	return reasons
+end
+
+-- WHO IS HELD AT THE START LINE while the countdown runs (task 158). Karen: *"Beater start in line
+-- with others and countdown when drive starts"* -- so the beaters are held and let go at GO, and a
+-- HUNTER IS NEVER HELD, because the same ten seconds is the one he walks to his stand with
+-- (*"timer like 10s to find position to stand"*).
+--
+-- The team is `config.START_HOLD_TEAM`, not a literal: "who is held" is then one value a spec drives
+-- both ways, and this machine still knows nothing about what a beater is.
+-- Sorted, so the effect a drive emits is the same list every time.
+function Phase.heldUserIds(assignment: { [number]: TeamName }, config): { number }
+	local ids = {}
+	for userId, team in pairs(assignment) do
+		if team == config.START_HOLD_TEAM then
+			table.insert(ids, userId)
+		end
+	end
+	table.sort(ids)
+	return ids
 end
 
 -- ONE HASH IN THIS MODULE, and everything drawn is drawn from it: the jitter on the rhythm and the
@@ -300,6 +328,14 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	table.insert(effects, { kind = "assignTeams", assignment = state.assignment })
 	table.insert(effects, { kind = "clearBoars" })
 	table.insert(effects, { kind = "placePlayers" })
+	-- AND THE BEATERS ARE HELD AT THE LINE for the length of this phase (task 158). AFTER
+	-- `placePlayers`, in the order the owner applies them, because the hold is a hold ON THE
+	-- CHARACTER the placement is about to respawn -- the owner's `hold` remembers the userId and the
+	-- character watch re-applies it to whatever character arrives, exactly as a tie survives a Reset.
+	local heldIds = Phase.heldUserIds(state.assignment, config)
+	if #heldIds > 0 then
+		table.insert(effects, { kind = "hold", userIds = heldIds })
+	end
 	table.insert(effects, { kind = "refreshArming", userIds = userIds })
 	feed(effects, { kind = "phase", text = "Drive " .. tostring(state.driveNumber), at = now })
 	table.insert(effects, { kind = "broadcast", force = true })
@@ -308,6 +344,10 @@ end
 local function enterRunning(state: State, effects: { Effect }, now: number, config)
 	state.phase = "Running"
 	state.phaseEndsAt = now + config.DRIVE_SECONDS
+	-- GO. THE ONE PLACE THE HOLD ENDS, and `userIds = nil` means everybody held -- so a beater who
+	-- joined mid-countdown is let go by the same effect as the ones who were there at the start
+	-- (task 158). Assigning has exactly one exit, this one, so a hold cannot outlive the countdown.
+	table.insert(effects, { kind = "free" })
 	-- The FIRST release is exact; only the rhythm after it is jittered. The drive starts on time,
 	-- which is both truer to "the drivers are walking now" and the difference between a harness run
 	-- that can stage a shot at a boar and one that cannot: with the first release jittered by up to
@@ -424,6 +464,11 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			next_.assignment[event.userId] = team
 			table.insert(effects, { kind = "assignTeams", assignment = { [event.userId] = team } })
 			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
+			-- A BEATER WHO ARRIVES INSIDE THE COUNTDOWN IS HELD LIKE THE REST (task 158), and only
+			-- inside it: in `Running` the line is long behind the drive and nobody is held at all.
+			if next_.phase == "Assigning" and team == config.START_HOLD_TEAM then
+				table.insert(effects, { kind = "hold", userIds = { event.userId } })
+			end
 			table.insert(effects, { kind = "refreshArming", userIds = { event.userId } })
 		end
 		table.insert(effects, { kind = "broadcast" })
@@ -445,6 +490,14 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			next_.assignment[event.userId] = event.team
 			table.insert(effects, { kind = "assignTeams", assignment = { [event.userId] = event.team } })
 			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
+			-- ...AND THE HOLD FOLLOWS THE SIDE HE IS NOW ON, inside the countdown only (task 158):
+			-- made a beater, he is held at the line; made a hunter, he is let go, because the rest
+			-- of the countdown is his to walk to a stand with. `free` with one userId frees that one
+			-- and nobody else, so a role flip cannot release the whole line.
+			if next_.phase == "Assigning" then
+				local kind_ = if event.team == config.START_HOLD_TEAM then "hold" else "free"
+				table.insert(effects, { kind = kind_, userIds = { event.userId } })
+			end
 			table.insert(effects, { kind = "refreshArming", userIds = { event.userId } })
 			-- NO FEED LINE, deliberately: the feed's kinds are a contract with the Hud's own
 			-- renderer (`join`, `leave`, `kill`, `escape`, `violation`, `phase`), and a dev command

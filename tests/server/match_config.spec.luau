@@ -124,6 +124,58 @@ return function()
 		end)
 	end)
 
+	-- WHAT MAY BE SHOT, AS THE START CARD SAYS IT (task 158). `Match.quarryLines` is pure and
+	-- exported for exactly this: the rule is the server's and the card only lays it out, so the words
+	-- a player reads can be checked with no client, no drive and no world.
+	describe("the quarry lines", function()
+		it("names the species and its kinds, from the config and not from a literal", function()
+			local lines = Match.quarryLines({
+				QUARRY = { { species = "WILD BOAR", kinds = { "male", "female" } } },
+				QUARRY_NOTE = "a note",
+			})
+			expect(#lines).to.equal(2)
+			expect(lines[1]).to.equal("WILD BOAR: male, female")
+			expect(lines[2]).to.equal("a note")
+		end)
+
+		it("takes more than one species, which is what red deer will be", function()
+			local lines = Match.quarryLines({
+				QUARRY = {
+					{ species = "WILD BOAR", kinds = { "male", "female", "cub" } },
+					{ species = "RED DEER", kinds = { "stag" } },
+				},
+			})
+			expect(#lines).to.equal(2) -- no note: a config without one gets no empty line
+			expect(lines[2]).to.equal("RED DEER: stag")
+		end)
+
+		it("says nothing at all when nothing is named, rather than erroring", function()
+			expect(#Match.quarryLines({})).to.equal(0)
+		end)
+
+		it("SAYS WHAT THE RULE REALLY IS: a cub is legal, because nothing in the code refuses one", function()
+			-- Karen's words were "wild boar -- male, female; NOT piglets/cubs", and THE CODE DOES NOT
+			-- HAVE THAT RULE: `Boar.CONFIG.KINDS` distinguishes the three kinds and the drive spawns
+			-- all of them, but `POINTS.KILL` scores a kill by HIT ZONE alone -- there is no refusal,
+			-- no deduction and no report of a cub anywhere. A card that claimed otherwise would be
+			-- the card lying to the player, so it says today's rule and the cub rule is a decision
+			-- waiting for Karen (TASKS.md row 158a). THE DAY IT ARRIVES, THIS CASE FAILS -- which is
+			-- what makes it the reminder rather than a comment nobody reads.
+			local lines = Match.quarryLines(Match.CONFIG)
+			local joined = table.concat(lines, " | ")
+			expect(string.find(joined, "WILD BOAR", 1, true) ~= nil).to.equal(true)
+			expect(string.find(joined, "male", 1, true) ~= nil).to.equal(true)
+			expect(string.find(joined, "female", 1, true) ~= nil).to.equal(true)
+			expect(string.find(joined, "cub", 1, true) ~= nil).to.equal(true)
+			expect(string.find(joined, "no cub rule yet", 1, true) ~= nil).to.equal(true)
+			-- ...and the points table is the evidence for the claim: every zone, one number, no kind.
+			for _, zone in ipairs({ "head", "chest", "body", "legs" }) do
+				expect(type(Match.CONFIG.POINTS.KILL[zone])).to.equal("number")
+			end
+			TestKit.note("match-config: the start card's quarry lines -> " .. joined)
+		end)
+	end)
+
 	describe("the live config", function()
 		it("is the defaults in this place, which is how DEV proves it did not change", function()
 			-- The harness runs in the DEV place, where `MatchBoot` started the drive with no `config`

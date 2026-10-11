@@ -105,6 +105,11 @@ local scoreTitle: TextLabel? = nil
 local scoreLines: { TextLabel } = {}
 local scoreFooter: TextLabel? = nil
 local tiedBanner: TextLabel? = nil
+-- THE START CARD (task 158): built once with everything else, shown only by `Hud.renderStartCard`.
+local startCard: Frame? = nil
+local startCardTitle: TextLabel? = nil
+local startCardLines: { TextLabel } = {}
+local startCardTimer: TextLabel? = nil
 local started = false
 
 function Hud.gui(): ScreenGui?
@@ -209,6 +214,35 @@ end
 
 function Hud.tiedBannerText(): string
 	return if tiedBanner then tiedBanner.Text else ""
+end
+
+-- ------------------------------------------------------------------ the start card (task 158)
+
+function Hud.startCard(): Frame?
+	return startCard
+end
+
+function Hud.isStartCardVisible(): boolean
+	return startCard ~= nil and startCard.Visible
+end
+
+function Hud.startCardTitleText(): string
+	return if startCardTitle then startCardTitle.Text else ""
+end
+
+-- Only the lines actually showing something, in order -- the same shape as `Hud.scoreRowText`.
+function Hud.startCardText(): { string }
+	local out = {}
+	for _, line in ipairs(startCardLines) do
+		if line.Visible and line.Text ~= "" then
+			table.insert(out, line.Text)
+		end
+	end
+	return out
+end
+
+function Hud.startCardTimerText(): string
+	return if startCardTimer then startCardTimer.Text else ""
 end
 
 function Hud.isHitMarkVisible(): boolean
@@ -593,6 +627,67 @@ local function build(): ScreenGui
 	footer.Text = ""
 	footer.Parent = panel
 
+	-- THE START CARD (task 158), upper middle, up for the countdown and gone at GO. Karen: *"we just
+	-- need to at the begining what they can shoot and timer when start"* -- so: what may be shot,
+	-- your role, and one line counting down. Built once, like everything else here, and shown by
+	-- `Hud.renderStartCard` -- the ONE writer of its visibility and its text.
+	local cardLines = Drive.CONFIG.START_CARD_LINES_MAX
+	local cardHeight = 44 + cardLines * Drive.CONFIG.START_CARD_LINE_HEIGHT + 34
+	local card = Instance.new("Frame")
+	card.Name = "StartCard"
+	card.BackgroundColor3 = Drive.CONFIG.START_CARD_COLOR
+	card.BackgroundTransparency = Drive.CONFIG.START_CARD_TRANSPARENCY
+	card.BorderSizePixel = 0
+	card.AnchorPoint = Vector2.new(0.5, 0)
+	card.Position = UDim2.fromScale(0.5, Drive.CONFIG.START_CARD_TOP_SCALE)
+	card.Size = UDim2.fromOffset(Drive.CONFIG.START_CARD_WIDTH, cardHeight)
+	-- The score panel's own number, and for its reason: a panel the GAME put up outranks a sight
+	-- picture, so it is drawn over the scope's mask rather than cut off at the glass (task 141).
+	card.ZIndex = Report.CONFIG.PANEL_Z_INDEX
+	card.Visible = false
+	card.Parent = screen
+
+	local cardTitle = Instance.new("TextLabel")
+	cardTitle.Name = "Title"
+	cardTitle.BackgroundTransparency = 1
+	cardTitle.Font = Enum.Font.Code
+	cardTitle.TextSize = Drive.CONFIG.START_CARD_TITLE_SIZE
+	cardTitle.TextColor3 = Drive.CONFIG.TEXT_COLOR
+	cardTitle.Position = UDim2.fromOffset(16, 10)
+	cardTitle.Size = UDim2.fromOffset(Drive.CONFIG.START_CARD_WIDTH - 32, 28)
+	cardTitle.TextXAlignment = Enum.TextXAlignment.Left
+	cardTitle.Text = ""
+	cardTitle.Parent = card
+
+	table.clear(startCardLines)
+	for index = 1, cardLines do
+		local line = Instance.new("TextLabel")
+		line.Name = string.format("Line%d", index)
+		line.BackgroundTransparency = 1
+		line.Font = Enum.Font.Code
+		line.TextSize = Drive.CONFIG.START_CARD_TEXT_SIZE
+		line.TextColor3 = Drive.CONFIG.TEXT_COLOR
+		line.TextXAlignment = Enum.TextXAlignment.Left
+		line.Position = UDim2.fromOffset(16, 44 + (index - 1) * Drive.CONFIG.START_CARD_LINE_HEIGHT)
+		line.Size = UDim2.fromOffset(Drive.CONFIG.START_CARD_WIDTH - 32, Drive.CONFIG.START_CARD_LINE_HEIGHT)
+		line.Text = ""
+		line.Visible = false
+		line.Parent = card
+		table.insert(startCardLines, line)
+	end
+
+	local cardTimer = Instance.new("TextLabel")
+	cardTimer.Name = "Timer"
+	cardTimer.BackgroundTransparency = 1
+	cardTimer.Font = Enum.Font.Code
+	cardTimer.TextSize = Drive.CONFIG.START_CARD_TITLE_SIZE
+	cardTimer.TextColor3 = Drive.CONFIG.START_CARD_TIMER_COLOR
+	cardTimer.Position = UDim2.fromOffset(16, 44 + cardLines * Drive.CONFIG.START_CARD_LINE_HEIGHT + 2)
+	cardTimer.Size = UDim2.fromOffset(Drive.CONFIG.START_CARD_WIDTH - 32, 28)
+	cardTimer.TextXAlignment = Enum.TextXAlignment.Left
+	cardTimer.Text = ""
+	cardTimer.Parent = card
+
 	-- The tied banner, for the local player alone and only while they are tied. The comedy is the
 	-- point and so is the teaching: it says what they did.
 	local tied = Instance.new("TextLabel")
@@ -755,6 +850,9 @@ local function build(): ScreenGui
 	scoreTitle = title
 	scoreFooter = footer
 	tiedBanner = tied
+	startCard = card
+	startCardTitle = cardTitle
+	startCardTimer = cardTimer
 	miniMapFrame = miniMap
 	fullMapFrame = fullMap
 	mapButtonNode = mapButton
@@ -928,6 +1026,94 @@ function Hud.renderTied(isTied: boolean)
 	banner.Text = if isTied then Drive.CONFIG.TIED_TEXT else ""
 end
 
+-- ---------------------------------------------------------------- the start card (task 158)
+--
+-- KAREN'S WORDS FOR THE TWO SIDES, and this is the one place they are said. The drive bar still says
+-- SHOOTER / DRIVER, which are the TEAM names in `Match.CONFIG` and on the scoreboard; her design doc
+-- and every message she sends say hunter and beater. The card is the thing she asked for in those
+-- words, so it uses them -- and which vocabulary the whole Hud should speak is a Karen decision, not
+-- one to take quietly in a renderer (TASKS.md row 158a).
+function Hud.roleWord(team: string?): string
+	if team == "Shooters" then
+		return "HUNTER"
+	elseif team == "Drivers" then
+		return "BEATER"
+	end
+	return ""
+end
+
+-- WHETHER THE CARD SHOWS: the start of a drive is the `Assigning` phase and nothing else. Pure and
+-- exported for the score panel's own reason -- a drive is 600 seconds long, so no harness run sees
+-- the real transition and a spec has to be able to hand this the snapshot the wire would.
+--
+-- NOT WHILE THE REPORT IS OPEN, the same clause the score panel has: two panels at once is two
+-- panels nobody reads, and the report auto-opens when a drive closes -- which is seconds before this
+-- phase begins.
+function Hud.startCardVisible(snapshot, reportOpen: boolean?): boolean
+	return snapshot ~= nil and snapshot.phase == "Assigning" and reportOpen ~= true
+end
+
+-- THE CARD'S BODY, as pure text: your role, then what may be shot in the server's own words.
+-- `snapshot.quarry` is the rule and this does not interpret it -- a client that decided for itself
+-- what was legal would be a second answer to one rule.
+function Hud.startCardLines(snapshot, team: string?): { string }
+	local lines = {}
+	local role = Hud.roleWord(team)
+	if role ~= "" then
+		table.insert(lines, "YOU ARE A " .. role)
+	end
+	for _, line in ipairs((snapshot and snapshot.quarry) or {}) do
+		table.insert(lines, line)
+	end
+	return lines
+end
+
+-- THE ONE LINE THAT COUNTS DOWN, in the words of the role it is for. Karen: *"Get to your stand:
+-- 10..."* for a hunter, *"Drive starts in 10..."* for a beater -- and it is the SAME ten seconds,
+-- because both are this phase's own deadline.
+function Hud.startCardTimerFor(team: string?, secondsLeft: number?): string
+	local label = if team == "Drivers"
+		then Drive.CONFIG.START_CARD_BEATER_TIMER
+		else Drive.CONFIG.START_CARD_HUNTER_TIMER
+	return string.format("%s  %d", label, math.max(0, math.ceil(secondsLeft or 0)))
+end
+
+-- THE ONE WRITER of the start card. Public for the same reason `Hud.renderScore` is.
+function Hud.renderStartCard(snapshot, team: string?, secondsLeft: number?)
+	local cardFrame = startCard
+	if not cardFrame then
+		return
+	end
+	local show = Hud.startCardVisible(snapshot, ReportPanel.isOpen())
+	cardFrame.Visible = show
+	if not show then
+		-- Cleared, not just hidden: the next drive must not flash the last one's card for a frame.
+		if startCardTitle then
+			startCardTitle.Text = ""
+		end
+		if startCardTimer then
+			startCardTimer.Text = ""
+		end
+		for _, line in ipairs(startCardLines) do
+			line.Text = ""
+			line.Visible = false
+		end
+		return
+	end
+	if startCardTitle then
+		startCardTitle.Text = string.format("DRIVE %d   %s", snapshot.driveNumber, Drive.CONFIG.START_CARD_HEADING)
+	end
+	local lines = Hud.startCardLines(snapshot, team)
+	for index, label in ipairs(startCardLines) do
+		local text = lines[index]
+		label.Text = text or ""
+		label.Visible = text ~= nil
+	end
+	if startCardTimer then
+		startCardTimer.Text = Hud.startCardTimerFor(team, secondsLeft)
+	end
+end
+
 -- The bar's whole content. `MatchSystem` may be nil -- the Hud works with no drive at all, exactly
 -- as it works with no camera -- and then the bar is simply hidden.
 local function renderDrive(MatchSystem)
@@ -938,8 +1124,12 @@ local function renderDrive(MatchSystem)
 	local snapshot = if MatchSystem then MatchSystem.get() else nil
 	-- The score screen and the tied banner are driven from the same snapshot as the bar, in one pass,
 	-- so the three can never disagree about which phase it is.
-	Hud.renderScore(snapshot, if MatchSystem then MatchSystem.secondsLeft() else 0)
+	local left = if MatchSystem then MatchSystem.secondsLeft() else 0
+	Hud.renderScore(snapshot, left)
 	Hud.renderTied(MatchSystem ~= nil and MatchSystem.isTied())
+	-- IN THE SAME PASS, from the same snapshot and the same clock as the bar and the board: three
+	-- things that could disagree about which phase it is, drawn from one read (task 158).
+	Hud.renderStartCard(snapshot, if MatchSystem then MatchSystem.myTeam() else nil, left)
 	if not snapshot then
 		bar.Visible = false
 		bar.Text = ""

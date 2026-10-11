@@ -208,7 +208,10 @@ return function()
 	describe("the drive's own numbers", function()
 		it("are the ones the design fixed, and the 1.7b switches are off", function()
 			expect(Match.CONFIG.DRIVE_SECONDS).to.equal(600)
-			expect(Match.CONFIG.INTERMISSION_SECONDS).to.equal(20)
+			-- 20 -> 10 (task 158). Karen named the number: *"timer like 10s to find position to
+			-- stand"*. It is the start card's life, the hunter's stand timer and the beaters' hold,
+			-- which are one deadline. backups/2026-10-11_task158_intermission_20s.txt.
+			expect(Match.CONFIG.INTERMISSION_SECONDS).to.equal(10)
 			expect(Match.CONFIG.BOARS_PER_DRIVE).to.equal(6)
 			expect(Match.CONFIG.DRIVERS_MAY_SHOOT).to.equal(false)
 			expect(Match.CONFIG.SAFETY_ENABLED).to.equal(true) -- 1.7b: the penalty is live
@@ -231,6 +234,60 @@ return function()
 			expect(function()
 				(Match.CONFIG :: any).POINTS.KILL.head = 1
 			end).to.throw()
+		end)
+	end)
+
+	-- THE START OF A DRIVE, IN THE DRIVE THAT IS RUNNING NOW (task 158). The pure half -- who is held
+	-- and when -- is `match_phase.spec`; this is the half that only production can answer: the wire
+	-- really carries the quarry, and the owner really holds nobody once the drive is live.
+	describe("the start of a drive", function()
+		it("puts what may be shot on the wire, in the server's own words", function()
+			local snapshot = Match.snapshot()
+			expect(type(snapshot.quarry)).to.equal("table")
+			expect(#snapshot.quarry > 0).to.equal(true)
+			-- THE SERVER'S RULE, NOT A SECOND COPY: the snapshot's lines are `Match.quarryLines` of
+			-- the config this drive is running on, word for word.
+			local expected = Match.quarryLines(Match.config())
+			expect(#snapshot.quarry).to.equal(#expected)
+			for index, line in ipairs(expected) do
+				expect(snapshot.quarry[index]).to.equal(line)
+			end
+			-- ...and it is frozen all the way down, like every other field on it.
+			expect(table.isfrozen(snapshot.quarry)).to.equal(true)
+			TestKit.note("match-live: the start card reads -> " .. table.concat(snapshot.quarry, " | "))
+		end)
+
+		it("holds nobody once the drive is live, whatever it held during the countdown", function()
+			-- The hold is `Assigning` only and `Phase.enterRunning` always emits `free`, so by the
+			-- time the drive is running this session's player must be free to walk -- which is the
+			-- thing a stuck hold would break for Karen, and the thing no pure spec can see.
+			expect(waitUntil(25, function()
+				return Match.phase() == "Running"
+			end)).to.equal(true)
+			for _, player in ipairs(Players:GetPlayers()) do
+				expect(Match.isHeld(player.UserId)).to.equal(false)
+				local character = player.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				if humanoid then
+					-- The belt and the braces the hold writes, both back where they started.
+					expect(humanoid.WalkSpeed > 0).to.equal(true)
+					local root = character.PrimaryPart
+					if root then
+						expect(root.Anchored).to.equal(false)
+					end
+				end
+			end
+			TestKit.note(
+				string.format("match-live: holds=%d reapplied=%d", Match.stats().holds, Match.stats().holdsReapplied)
+			)
+		end)
+
+		it("names the beaters as the side held at the line, and does not let a world change it", function()
+			expect(Match.CONFIG.START_HOLD_TEAM).to.equal("Drivers")
+			-- NOT OVERRIDABLE: "who is held at the start of a drive" is one answer in the world Karen
+			-- plays, exactly like the safety numbers (docs/design/drive.md section 3.4).
+			expect(Match.WORLD_OVERRIDABLE.START_HOLD_TEAM).to.equal(nil)
+			expect(Match.WORLD_OVERRIDABLE.QUARRY).to.equal(nil)
 		end)
 	end)
 

@@ -101,7 +101,8 @@ Flags.DEFAULTS = {
 	QUICK_TEST = {
 		-- A PLAYTEST CONVENIENCE, AND IT IS STUDIO-ONLY TWICE OVER. Karen, 2026-09-27: "just for
 		-- testing could be much faster that they cross a line small group and then you can shoot" --
-		-- today a drive is 20 s of intermission plus 20 s before the first release, and the first
+		-- today a drive is 10 s of intermission plus 20 s before the first release (the intermission
+		-- was 20 until task 158, when Karen named ten), and the first
 		-- boars start 1,300 studs from the road. This is the only flag in the table whose value is
 		-- ANDed with `RunService:IsStudio()` at its boundary (`Match.quickTestEnabled`), so a live
 		-- server cannot run it even if the attribute somehow survived a publish.
@@ -111,7 +112,7 @@ Flags.DEFAULTS = {
 		expires = "2026-10-18", -- 21 days: the ceiling in feature-flags.md section 12
 		why = "Studio only: 3 s intermission, the first release immediately, 3 boars on the road in "
 			.. "front of the shooters. `python tools/flags.py set QUICK_TEST on`, play, then "
-			.. "`python tools/flags.py clear`. OFF is the real drive, 20 s + 20 s and boars at the "
+			.. "`python tools/flags.py clear`. OFF is the real drive, 10 s + 20 s and boars at the "
 			.. "far end.",
 	} :: FlagRow,
 	BOAR_MODEL = {
