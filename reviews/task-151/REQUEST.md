@@ -3,10 +3,10 @@
 Task: 151
 Round: 1
 Base: `a1d87a5` (main, PR #133 merged)
-Code commit: `035b5227cab9bbcfaed8459340dc4799995741d1`
+Code commit: `ab81e5b502654d0b0665de4a0a80ec4e81856e10`
 
 ```
-[harness] PASS: 33/33 checks @ 035b5227cab9bbcfaed8459340dc4799995741d1 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ ab81e5b502654d0b0665de4a0a80ec4e81856e10 (clean tree) scope=all
 ```
 
 ```
@@ -117,10 +117,10 @@ rather than a repaint; it is idempotent by construction, so it is "whatever is m
 and never a second hat.
 
 **9. Measured live at the code commit, on the server and on the client.**
-Verify: the run at `035b522` —
+Verify: the run at `ab81e5b` —
 `task151 outfit assets: outfit.vest=cached outfit.cap=cached`,
 `task151 live: 1 of 1 teamed character(s) green, 1 kept their own head colour, 1 with no shirt/pants`,
-`task151: appearanceWatching=0 (players 1) strayCleared=0 repaints=24`, and from the client
+`task151: appearanceWatching=0 (players 1) strayCleared=0 repaints=23`, and from the client
 `outfit[client]: 1 role(s) counted (Alhamdulilah824=Shooters[hat=accessory])`. The boot's own line,
 from a Play session in the Forest Test:
 `[OutfitAssetsBoot] 2 of 2 catalog accessory(ies) loaded: outfit.vest=ok(266ms) outfit.cap=ok(1052ms)`.
@@ -147,37 +147,86 @@ is correct and is the point**: both slots are wearing real accessories, so no pl
 `ChatVersion = Enum.ChatVersion.TextChatService`), so the design's `TextChatCommand` fallback is not
 built.
 
+**11. THE LOCAL BODY WAS NEVER HIDDEN IN FIRST PERSON, AND THE CAUSE IS A SECOND WRITER.**
+Verify: `src/client/Camera/Rig.luau` (`setLocalBodyHidden`, `Rig.reassertions`) and the new client
+case *"keeps the body hidden against the stock TransparencyController, which writes every frame"*.
+
+*What Karen would have seen:* her own right arm as a tan block in the bottom-right and, once this
+task gave everybody a cap, her own orange brim across the top.
+
+*Measured, in the Forest Test:* **16 of 20 parts of the local character were DRAWN** in first person
+(`LocalTransparencyModifier = 0`), the right arm at camera-relative (+1.00 right, −0.88 down, −0.91
+forward) and the cap Handle at (+0.01, +0.66 up, +0.23) with a half-depth of 0.71, so it reaches
+past the eye. Only the shotgun's own parts were hidden, and those by `Transparency`, not by this
+path.
+
+*The experiment that names the cause:* write `LocalTransparencyModifier = 1` on all 18 drawable
+parts of the local character, wait two seconds, read it back — **only 2 were still 1**. The writer
+that put them back names itself:
+`Players.<player>.PlayerScripts.PlayerModule.CameraModule.TransparencyController`. `Rig.acquire`
+**already warns about it**, in this place's own console: *"the stock cameras are not disabled: this
+PlayerModule's GetCameras() has no Disable method; the camera is still ours"*. It computes
+transparency from its **own zoom distance** rather than from where this camera put the eye, decides
+the player is in third person, and writes 0 over everything every frame.
+
+*So the owner was right and the write was not.* `Camera.Rig` is and stays the single writer of
+`LocalTransparencyModifier` on the local character, and it **already** tracked accessories — its own
+header says two screenshots taught it that. What was wrong is that it wrote **once, on the change**,
+into a value something else overwrites on the next frame. Hiding is now re-asserted every frame over
+the cached list; **showing** is still written once, because nothing else is trying to hide the body
+and a per-frame write there would be a cost with no effect. The `GetDescendants` walk — the 0.8 ms
+the header warns about — stays off the frame path; what is per-frame is ~20 property sets.
+
+*Measured after:* `task151 camera: 20 of 20 local part(s) still hidden after 1.5 s; re-asserted 91
+frame(s)` — in the gate run at the code commit. Both halves matter: all 20 stay hidden, and the
+count proves something really was contesting the value.
+
+**12. Nothing of the player's own body or outfit is in the first-person view, at three pitches, in
+both roles.**
+Verify: the six frames in `<runs-dir>/151-fp/`, and the count taken at each one:
+
+| | level | up 30° | down 45° |
+|---|---|---|---|
+| **hunter** | drawn **0/20** (pitch −0.1°) | drawn **0/20** (29.8°) | drawn **0/20** (−44.6°) |
+| **beater** | drawn **0/21** (−0.3°) | drawn **0/21** (29.8°) | drawn **0/21** (−44.6°) |
+
+The pitch was set through the camera owner's own door (`DHLookAt` → `Camera.lookAt`), not by writing
+the CFrame.
+
 ## Looked at (rule 5), described wrong-first
 
-**`<runs-dir>/151-outfit-preview.png`** — hunter front and back, beater front and back, beside the
-live first-person sleeve. Each figure is a clone of the character the server had just dressed; the
-beater was made by writing `Player.Team` and respawning, so the **dressing** is the production path
-(`Match.watchCharacter` → `dressWhenLoaded`) and only the team write is not. Measured off the frame:
-the sleeve reads (140, 141, 92) and the beater's leg (139, 131, 89) — within 10 on every channel.
+**The six first-person frames, `<runs-dir>/151-fp/151-fp-{hunter,beater}-{level,up30,down45}.png`.**
+I looked at all six. Every one shows the viewmodel — the shotgun's barrels, the brown glove, the
+sleeve — and **nothing else of the player**: no cap brim at the top at any pitch, no tan arm block in
+the bottom-right, no orange vest. Compare `<runs-dir>/151-forest-beater.png`, the round-2 frame, where
+the brim is a band across the top and the arm fills the bottom-right corner.
 
-**What is wrong with it, first:**
-* **The heads are bald.** Removing the avatar's own hair is what makes the cap readable (claim 7),
-  and it does make them look like mannequins. Karen's call: say the word and the hair stays and the
-  raised grey-box hat comes back instead.
-* **The clones are frozen mid-stride** and one leg is lifted — an artefact of anchoring a copied
-  character, not of the outfit.
-* The camera could not be orbited: the client owns it (`Camera.Rig`), so the clones are parked in
-  front of the real first-person camera rather than photographed from outside.
+**What is wrong with them, first:** the sleeve reads much paler in the forest (bright sun on a low
+dirt path) than it does in the DEV preview, so "the clothing matches the sleeve" is a claim about the
+*albedo* and about the DEV frame where both are in the same light — not something these six frames
+show. And **a pixel test I tried on them is reported as useless rather than as evidence**: an
+orange-fraction threshold returned 0.013 % of the frame for all six *and for the round-2 control*,
+which means it was measuring the HUD's small red DRIVE marker and never the cap. The count in
+claim 12 is the measurement that stands; that one does not.
 
-**`<runs-dir>/151-forest-beater.png`** — first person in the Forest Test, as a beater. **It shows a
-defect I am reporting rather than fixing:** the cap's brim hangs into the top of the first-person
-view as an orange band. It is this task's own cap doing it, it was not there with the grey-box hat
-(which sits higher and behind the eye), and hiding the local player's head accessories in first
-person is **client** work that belongs to the camera's owner, not to `Match.Body`. Named for the
-Director; not touched here.
+**`<runs-dir>/151-outfit-preview.png`, re-taken.** Hunter front and back, beater front and back,
+beside the live first-person sleeve: the orange cap on all four, the hi-vis vest with its reflective
+bands on the beater front and back, and the green consistent across torso, arms and legs. Sleeve
+(140, 141, 92) against the beater's leg (139, 131, 89) — within 10 on every channel.
 
-**`<runs-dir>/151-caps/cap-13724841516.png`** and **`<runs-dir>/151-vest-check.png`** — the cap alone
-and the vest front and back, both inspected, both described above.
+**It had to be re-taken, and that is itself a consequence worth naming:** `Clone()` copies
+`LocalTransparencyModifier`, so once the live character is correctly hidden from its own client, a
+straight copy of it is **invisible in the very picture that exists to show it**. The preview script
+resets the modifier on the copies; they are mannequins, not the local player.
+
+**Still wrong in it, first:** the heads are bald (accepted by the Director — it is what makes the cap
+readable), and the clones are frozen mid-stride with one leg lifted, an artefact of anchoring a
+copied character rather than anything about the outfit.
 
 ## Standing rule A — smoke, in the place Karen will use
 
-Forest Test, 90 s: `gun in hand @15s=1 @90s=1 | stacks=0 errorLines=0 | waves=5 | worst playing
-sounds over 10 s: 1 (boars=28)` → **SMOKE PASS**.
+Forest Test, 90 s, at the code commit: `gun in hand @15s=1 @90s=1 | stacks=0 errorLines=0 |
+waves=5 | worst playing sounds over 10 s: 1 (boars=28)` → **SMOKE PASS**.
 
 ## What I could not verify
 

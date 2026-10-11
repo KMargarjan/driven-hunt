@@ -2,7 +2,7 @@
 
 ## 2026-10-11 — Task 151: NEEDS TEST2, one click. Everything else is done and looked at
 
-**The work is finished and measured.** `[harness] PASS: 33/33 checks @ 035b522 (clean tree)
+**The work is finished and measured.** `[harness] PASS: 33/33 checks @ ab81e5b (clean tree)
 scope=all`, SMOKE PASS in the Forest Test (gun in hand at 15 s and 90 s, 0 stacks, 0 error lines,
 5 waves), and the beater wears the real hi-vis vest and an orange cap in
 `<runs-dir>/151-outfit-preview.png`.
@@ -25,14 +25,17 @@ still asks for `[harness2]`.
 In the **DEV** Studio, in Edit: **Test tab → Clients and Servers → Players: 2 → Start**, then leave
 the windows alone until the harness says to press **Cleanup**.
 
-### FOR KAREN, two things that are hers
+### FOR KAREN, one thing that is hers
 
-1. **The bald heads.** Putting a real cap on means taking the avatar's own hair off: this avatar's
-   hair is a 2.08 × 2.05 × 1.94 bowl and the cap is 0.93 tall, so with the hair on, the cap read as
-   black with an orange peak. One word and the hair stays and the raised grey-box hat comes back.
-2. **The cap in first person.** Its brim hangs into the top of the screen
-   (`<runs-dir>/151-forest-beater.png`). Hiding the local player's head accessories in first person
-   is client work owned by the camera, not by `Match.Body`, so it is not in this task.
+**The bald heads.** Putting a real cap on means taking the avatar's own hair off: this avatar's hair
+is a 2.08 × 2.05 × 1.94 bowl and the cap is 0.93 tall, so with the hair on, the cap read as black
+with an orange peak. The Director has accepted it; one word from Karen and the hair stays and the
+raised grey-box hat comes back.
+
+*(The cap in first person is FIXED in round 3, not outstanding: the local body — cap and vest
+included — is hidden from its own client at every pitch. It was never only the cap: 16 of 20 local
+parts were drawn, because the stock `PlayerModule.CameraModule.TransparencyController` rewrites
+`LocalTransparencyModifier` every frame and `Camera.Rig` only wrote it on the change.)*
 
 ## 2026-10-10 — Task 149b: the code is done and gated, and it cannot be reviewed. TWO BLOCKERS
 
