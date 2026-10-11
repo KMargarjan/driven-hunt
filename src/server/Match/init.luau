@@ -23,6 +23,12 @@
 -- penalty adds one pure module (Penalty) and two effects (`freeze`, `release`); nothing else about
 -- the machine changed.
 --
+-- TASK 158 ADDED THE START OF A DRIVE and no phase: the countdown IS the existing `Assigning`
+-- intermission, now 10 seconds, and the three things Karen asked for all read its one deadline --
+-- the start card ("what you can shoot" plus your role), the hunter's stand timer, and the beaters
+-- held at their line until GO. Two effects (`hold`, `free`), one set (`heldAtLine`), one pure rule
+-- each side: `Phase.heldUserIds` says who is held, `Match.quarryLines` says what may be shot.
+--
 -- Design: docs/design/drive.md
 -- Note:   docs/research/2026-09-25-drive.md
 local Players = game:GetService("Players")
@@ -64,7 +70,14 @@ end
 Match.CONFIG = {
 	-- the drive
 	DRIVE_SECONDS = 600, -- K, Karen: "10-minute drives"
-	INTERMISSION_SECONDS = 20, -- K, long enough to read the teams and walk to your post
+	-- THE START OF A DRIVE, AND IT IS ONE NUMBER FOR THREE THINGS (task 158). Karen: *"timer when
+	-- start, timer like 10s to find position to stand"*, *"Hunter in position where can select
+	-- within 10s"*, *"Beater start in line with others and countdown when drive starts"*. The start
+	-- card is up for this long, the hunter's stand timer counts this down, and the beaters are held
+	-- at their line for exactly it -- all three read `phaseEndsAt`, so they cannot disagree.
+	-- 20 -> 10: the old 20 was "long enough to read the teams and walk to your post", and Karen has
+	-- now named the number she wants. See backups/2026-10-11_task158_intermission_20s.txt.
+	INTERMISSION_SECONDS = 10, -- K
 	SCORE_SECONDS = 25, -- K
 	-- DIRECTOR DECISION F (audit-003 must-fix 1), Milestone 1 only: ONE player is a drive. A solo
 	-- player is a SHOOTER and is armed, so the harness's single Play player keeps its gun and the
@@ -76,6 +89,32 @@ Match.CONFIG = {
 	SWAP_TEAMS_EACH_DRIVE = true, -- K, everybody wants to shoot
 	DRIVERS_MAY_SHOOT = false, -- K, the brief: a switch, default OFF
 	END_ON_LAST_BOAR = false, -- K, a drive is ten minutes, not "until the boars run out"
+	-- WHO IS HELD AT THE START LINE while the countdown runs (task 158): the beaters, so they start
+	-- in a line together and go on GO. A HUNTER IS NOT HELD -- the same ten seconds is the one he
+	-- walks to his stand with. A team name and not a boolean, because `Phase.heldUserIds` then
+	-- answers "who is held" from one value a spec can point at either side.
+	START_HOLD_TEAM = "Drivers" :: any, -- K, Karen's beaters
+	-- WHAT HAPPENS AT 0 TO A HUNTER WHO IS NOT AT HIS STAND: NOTHING NEW, AND THAT IS DELIBERATE
+	-- (task 158). The drive has no rule for a hunter off his post and never has -- the only penalty
+	-- in this system is the safety one (firing toward the drive, `SAFETY_*` above). The 6-stud leash
+	-- Karen has felt is `ForestTest.leash`, which belongs to the Forest Test world, applies only to
+	-- a hunter who LOCKED a stand there, and opens on `Running` -- so it is untouched by this task
+	-- and still runs in that world. So at 0 the drive simply starts: a hunter still walking loses
+	-- shots and nothing else. Inventing a punishment for a ten-second timer is a Karen decision, not
+	-- a Builder one (TASKS.md row 158a).
+	-- WHAT YOU MAY SHOOT, AS THE RULE REALLY IS IN THE CODE (task 158). The start card asks "what
+	-- they can shoot", and Karen's words were *"wild boar -- male, female; NOT piglets/cubs"*.
+	--
+	-- THE CODE DOES NOT HAVE THAT RULE AND THIS CARD WILL NOT PRETEND IT DOES. `Boar.CONFIG.KINDS`
+	-- distinguishes male, female and cub and the drive spawns all three, but `POINTS.KILL` scores a
+	-- kill by HIT ZONE alone -- there is nothing anywhere that refuses a cub, deducts for one or
+	-- even names one as different. So the card states today's rule, and the rule Karen described is
+	-- a decision waiting for her (TASKS.md row 158a). The day a cub is protected, this row and the
+	-- thing that enforces it change together.
+	QUARRY = {
+		{ species = "WILD BOAR", kinds = { "male", "female", "cub" } },
+	},
+	QUARRY_NOTE = "every one of them counts - no cub rule yet",
 	PLACE_TIMEOUT = 5,
 	STAND_HEIGHT_STUDS = 3.5, -- how far above a post's top face a character is put down
 
@@ -243,6 +282,21 @@ Match.WORLD_OVERRIDABLE = table.freeze({
 	PLACE_TIMEOUT = true,
 })
 
+-- WHAT MAY BE SHOT, IN THE WORDS THE START CARD SHOWS (task 158). PURE and exported, so a spec
+-- reads the rule with no drive, no client and no world -- the same shape `Phase.waitingFor` already
+-- has: the SERVER states the rule in words and the Hud only lays them out, so there is one source
+-- for "what can I shoot" and the client holds no second copy of it.
+function Match.quarryLines(cfg): { string }
+	local lines = {}
+	for _, row in ipairs(cfg.QUARRY or {}) do
+		table.insert(lines, string.format("%s: %s", row.species, table.concat(row.kinds, ", ")))
+	end
+	if cfg.QUARRY_NOTE then
+		table.insert(lines, cfg.QUARRY_NOTE)
+	end
+	return lines
+end
+
 -- PURE, and exported so the spec drives every branch without a world (design section 4.2.2).
 --
 -- NO OVERRIDES MEANS THE DEFAULTS THEMSELVES, by identity -- that is what makes "DEV did not change"
@@ -294,6 +348,11 @@ local names: { [number]: string } = {} -- userId -> name, for the feed and the b
 -- and the release effect empties it. The pure machine does not track it -- two writers of one fact is
 -- the failure docs/PROJECT_CONTEXT.md names three times.
 local tied: { [number]: { tree: BasePart, at: number } } = {}
+-- WHO IS HELD AT THE START LINE, for the length of the countdown (task 158). The same shape as
+-- `tied` above and for the same reason: the pure machine SAYS who must be held and this is the one
+-- table that remembers it, so the character watch can put the hold back on the character
+-- `placePlayers` is about to respawn. Emptied by `free`, which `Phase.enterRunning` always emits.
+local heldAtLine: { [number]: boolean } = {}
 local characterWatch: { [number]: RBXScriptConnection } = {}
 local pushCredit: { [string]: { [number]: number } } = {} -- boarId -> userId -> last time near
 local accumulator = 0
@@ -320,6 +379,11 @@ local stats = {
 	testSeconds = 0, -- seconds of test time this owner has been given; 0 in every real session
 	ties = 0,
 	tiesWithoutAnchor = 0,
+	-- The start line (task 158): how many holds were applied, and how many were put back onto a
+	-- character that arrived after them -- which is every one of them in a real drive, because
+	-- `placePlayers` respawns the player the hold is for.
+	holds = 0,
+	holdsReapplied = 0,
 	violations = 0,
 	safetySignalMissing = 0,
 	-- The release, counted three ways, because "six boars were released" can now mean two sounders
@@ -374,6 +438,11 @@ end
 -- weapon's arming policy ask the same question of the same table.
 function Match.isTied(userId: number): boolean
 	return tied[userId] ~= nil
+end
+
+-- Is this player held at the start line right now? The one public reader of `heldAtLine` (task 158).
+function Match.isHeld(userId: number): boolean
+	return heldAtLine[userId] == true
 end
 
 -- THE TEST SEAM: THE DRIVE'S OWN CLOCK, MOVED FORWARD (TASKS.md 38a(i)).
@@ -495,6 +564,10 @@ function Match.snapshot()
 		boarsReleased = state.boarsReleased,
 		boarsLeft = math.max(0, config.BOARS_PER_DRIVE - state.boarsAccounted),
 		waitingFor = Phase.waitingFor(state, config),
+		-- WHAT MAY BE SHOT IN THIS DRIVE, in the server's own words (task 158): the start card's
+		-- quarry lines. The same shape as `waitingFor` right above it, and for the same reason --
+		-- the rule is the server's and the Hud only draws it.
+		quarry = Match.quarryLines(config),
 		rows = rows,
 		tied = tiedList,
 	})
@@ -743,6 +816,55 @@ local function applyRelease()
 	table.clear(tied)
 end
 
+-- THE BEATERS' HOLD AT THE START LINE (task 158). The machine has already decided WHO (the
+-- `START_HOLD_TEAM` of this drive's assignment) and WHEN (entering `Assigning`); this performs it,
+-- through `Body`, which is the only writer of whether a character can move.
+--
+-- IT REMEMBERS BEFORE IT WRITES, AND THAT ORDER IS THE WHOLE TRICK: `placePlayers` runs first and
+-- calls `LoadCharacter`, so the character being held here is about to be destroyed. `heldAtLine` is
+-- what survives that, and `watchCharacter` puts the hold on the character that arrives -- exactly
+-- the way a tie survives the Reset button.
+local function applyHold(userIds: { number }?)
+	for _, userId in ipairs(userIds or {}) do
+		heldAtLine[userId] = true
+		stats.holds += 1
+		local player = playersService():GetPlayerByUserId(userId)
+		if player then
+			Body.hold(player)
+		end
+	end
+end
+
+-- GO, or one player changing sides inside the countdown. `userIds == nil` means EVERYBODY held,
+-- which is what the start of a drive means.
+--
+-- A TIED PLAYER IS NEVER FREED HERE. A tie and a hold are the same freeze in `Body` (one `held`
+-- row), so freeing a tied player would hand back his WalkSpeed and leave the rope hanging on a man
+-- who can walk. The two cannot overlap today -- ties only exist in `Running` and holds only in
+-- `Assigning`, and `enterScoring`'s `release` empties the ties before `enterAssigning` holds
+-- anybody -- so this guard is what keeps that true rather than what works around it being false.
+local function applyFree(userIds: { number }?)
+	local targets = userIds
+	if not targets then
+		targets = {}
+		for userId in pairs(heldAtLine) do
+			table.insert(targets, userId)
+		end
+		table.sort(targets)
+	end
+	for _, userId in ipairs(targets :: { number }) do
+		if heldAtLine[userId] and not tied[userId] then
+			heldAtLine[userId] = nil
+			local player = playersService():GetPlayerByUserId(userId)
+			if player then
+				Body.untie(player) -- the one restore: a hold is a tie without the rope
+			else
+				Body.forget(userId)
+			end
+		end
+	end
+end
+
 local function applyEffects(effects)
 	for _, effect in ipairs(effects) do
 		local kind = effect.kind
@@ -758,6 +880,10 @@ local function applyEffects(effects)
 			applyClearBoars()
 		elseif kind == "freeze" then
 			applyFreeze(effect.userId)
+		elseif kind == "hold" then
+			applyHold(effect.userIds)
+		elseif kind == "free" then
+			applyFree(effect.userIds)
 		elseif kind == "release" then
 			applyRelease()
 		elseif kind == "feed" then
@@ -1209,6 +1335,22 @@ local function watchCharacter(player: Player)
 		-- outfit now includes the base clothing COLOUR, and a colour is the half that a late
 		-- appearance load can overwrite. The welded hat cannot be; a `BodyColors` write can.
 		Body.dressWhenLoaded(player, character, config)
+		-- AND THE START-LINE HOLD IS PUT BACK (task 158). THIS is the handler the drive's OWN
+		-- respawn reaches: `placePlayers` calls `LoadCharacter`, so the character `applyHold` froze
+		-- is already gone by the time the beater is standing on her line -- and an unheld beater
+		-- would simply walk off before the countdown ended. The same shape as the tie below (wait
+		-- for the root, then check the fact is STILL true before writing), and it holds THIS
+		-- character rather than `player.Character`, which may be a newer one by then.
+		if heldAtLine[player.UserId] then
+			task.spawn(function()
+				if not character.PrimaryPart then
+					character:GetPropertyChangedSignal("PrimaryPart"):Wait()
+				end
+				if heldAtLine[player.UserId] and character.Parent and Body.holdCharacter(character, player.UserId) then
+					stats.holdsReapplied += 1
+				end
+			end)
+		end
 		local record = tied[player.UserId]
 		if not record then
 			return
@@ -1236,6 +1378,9 @@ end
 function Match.forget(player: Player)
 	local userId = player.UserId
 	names[userId] = nil
+	-- The hold goes with the player, exactly as the rope does: `Body.forget` below drops his saved
+	-- WalkSpeed row, so leaving this set would hold a userId nothing can ever free (task 158).
+	heldAtLine[userId] = nil
 	if tied[userId] then
 		-- The rope outlives nobody: the Instance goes with the player (design section 4.4).
 		untie(userId)
@@ -1325,6 +1470,7 @@ function Match.stop()
 	end
 	started = false
 	applyRelease() -- nobody stays frozen because a spec stopped the match
+	applyFree() -- ...and that includes a beater held at the start line (task 158)
 	-- ...AND THE WORLD'S NUMBERS GO WITH THE WORLD. A spec that started a 300-second drive must not
 	-- leave the next require of this singleton reading 300.
 	config = Match.CONFIG

@@ -208,7 +208,10 @@ return function()
 	describe("the drive's own numbers", function()
 		it("are the ones the design fixed, and the 1.7b switches are off", function()
 			expect(Match.CONFIG.DRIVE_SECONDS).to.equal(600)
-			expect(Match.CONFIG.INTERMISSION_SECONDS).to.equal(20)
+			-- 20 -> 10 (task 158). Karen named the number: *"timer like 10s to find position to
+			-- stand"*. It is the start card's life, the hunter's stand timer and the beaters' hold,
+			-- which are one deadline. backups/2026-10-11_task158_intermission_20s.txt.
+			expect(Match.CONFIG.INTERMISSION_SECONDS).to.equal(10)
 			expect(Match.CONFIG.BOARS_PER_DRIVE).to.equal(6)
 			expect(Match.CONFIG.DRIVERS_MAY_SHOOT).to.equal(false)
 			expect(Match.CONFIG.SAFETY_ENABLED).to.equal(true) -- 1.7b: the penalty is live
@@ -231,6 +234,112 @@ return function()
 			expect(function()
 				(Match.CONFIG :: any).POINTS.KILL.head = 1
 			end).to.throw()
+		end)
+	end)
+
+	-- THE START OF A DRIVE, IN THE DRIVE THAT IS RUNNING NOW (task 158). The pure half -- who is held
+	-- and when -- is `match_phase.spec`; this is the half that only production can answer: the wire
+	-- really carries the quarry, and the owner really holds nobody once the drive is live.
+	describe("the start of a drive", function()
+		it("puts what may be shot on the wire, in the server's own words", function()
+			local snapshot = Match.snapshot()
+			expect(type(snapshot.quarry)).to.equal("table")
+			expect(#snapshot.quarry > 0).to.equal(true)
+			-- THE SERVER'S RULE, NOT A SECOND COPY: the snapshot's lines are `Match.quarryLines` of
+			-- the config this drive is running on, word for word.
+			local expected = Match.quarryLines(Match.config())
+			expect(#snapshot.quarry).to.equal(#expected)
+			for index, line in ipairs(expected) do
+				expect(snapshot.quarry[index]).to.equal(line)
+			end
+			-- ...and it is frozen all the way down, like every other field on it.
+			expect(table.isfrozen(snapshot.quarry)).to.equal(true)
+			TestKit.note("match-live: the start card reads -> " .. table.concat(snapshot.quarry, " | "))
+		end)
+
+		it("holds nobody once the drive is live, and every frozen player is frozen BY THE TIE", function()
+			-- THE CLAIM: the hold is `Assigning` only, `Phase.enterRunning` always emits `free`, and
+			-- by the time the drive is running nobody is held -- which is what a stuck hold would
+			-- break for Karen, and what no pure spec can see.
+			--
+			-- THE DRIVE HAS TWO FREEZES AND THIS ACCOUNTS FOR BOTH, which is what round 1's own
+			-- version got wrong: it asserted `WalkSpeed > 0` for EVERY player, and in the TWO-PLAYER
+			-- run `zz_tie_to_a_tree` ties a shooter to a tree on purpose -- so a player the game had
+			-- deliberately frozen, by the rule Karen asked for, failed a case about the hold
+			-- (`[harness2] FAIL 33/35 @ 8f9f340`, `match_live.spec:273`; `match_teams` and
+			-- `zz_drive_boundary` both noted `1 tied` in the same run, and `weapon_client` noted
+			-- "this shooter is tied to a tree"). The hold itself was released for both players:
+			-- `Match.isHeld` was false for everybody, which is the line above the one that failed.
+			--
+			-- So every player is now asserted on BOTH properties, each against its own rule -- the
+			-- tie must really hold a tied player, and nothing must hold anybody else. That is
+			-- strictly more than the old version checked, and it is what the two freezes mean.
+			expect(waitUntil(25, function()
+				return Match.phase() == "Running"
+			end)).to.equal(true)
+			local report = {}
+			for _, player in ipairs(Players:GetPlayers()) do
+				local held = Match.isHeld(player.UserId)
+				local tied = Match.isTied(player.UserId)
+				local character = player.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				local root = character and character.PrimaryPart
+				-- NAMED BEFORE IT IS ASSERTED, so a failure says which mechanism did it rather than
+				-- leaving the next reader to guess between the hold, the tie and a respawn.
+				table.insert(
+					report,
+					string.format(
+						"%s(%s) held=%s tied=%s ws=%s anchored=%s",
+						player.Name,
+						tostring(Match.Body.teamOf(player)),
+						tostring(held),
+						tostring(tied),
+						tostring(humanoid and humanoid.WalkSpeed),
+						tostring(root and root.Anchored)
+					)
+				)
+				-- THE HOLD IS OFF EVERYBODY. No exception, tied or not: a tie is not a hold.
+				expect(held).to.equal(false)
+				if humanoid then
+					if tied then
+						-- The safety rule's own freeze, and it must really be holding him: a tie
+						-- that left him walking would be the penalty not happening.
+						expect(humanoid.WalkSpeed).to.equal(0)
+						if root then
+							expect(root.Anchored).to.equal(true)
+						end
+					else
+						-- The belt and the braces the hold writes, both back where they started.
+						expect(humanoid.WalkSpeed > 0).to.equal(true)
+						if root then
+							expect(root.Anchored).to.equal(false)
+						end
+					end
+				end
+			end
+			TestKit.note("match-live: in the drive -> " .. table.concat(report, " | "))
+			TestKit.note(
+				string.format(
+					"match-live: holds=%d reapplied=%d walkSpeedsRescued=%d",
+					Match.stats().holds,
+					Match.stats().holdsReapplied,
+					Match.Body.rescued()
+				)
+			)
+			-- `walkSpeedsRescued` IS A DIAGNOSTIC HERE AND NOT AN ASSERTION, and the reason is worth
+			-- stating: `Body.untieCharacter` refuses to hand back a WalkSpeed of 0, so a rescue
+			-- leaves the player WALKING -- which is exactly what this case already checks, and
+			-- therefore something it cannot see. The number is printed so a human reading the run
+			-- would notice it move; what PROVES the floor is `match_safety.spec`, where the only
+			-- route to a saved zero is forced on a fixture and the counter is asserted by delta.
+		end)
+
+		it("names the beaters as the side held at the line, and does not let a world change it", function()
+			expect(Match.CONFIG.START_HOLD_TEAM).to.equal("Drivers")
+			-- NOT OVERRIDABLE: "who is held at the start of a drive" is one answer in the world Karen
+			-- plays, exactly like the safety numbers (docs/design/drive.md section 3.4).
+			expect(Match.WORLD_OVERRIDABLE.START_HOLD_TEAM).to.equal(nil)
+			expect(Match.WORLD_OVERRIDABLE.QUARRY).to.equal(nil)
 		end)
 	end)
 

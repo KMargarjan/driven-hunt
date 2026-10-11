@@ -59,6 +59,120 @@ local function partsInFolder(): number
 end
 
 return function()
+	-- A PERSON STANDING ON A MARKER'S SPOT DOES NOT MOVE THE GROUND (task 158a(f)).
+	--
+	-- THE DEFECT THIS FAILS ON, measured in the Forest Test on 2026-10-11: `Data.groundAt`'s ray
+	-- excluded `OurForest`, `Foliage` and `Boars` and NOTHING ELSE, so at the beater pad -- where the
+	-- drive PUTS a beater and now holds her -- it stopped on `<player>.Head` at y 161.09 while the
+	-- terrain was 155.81. `Markers.groundFor` compares the two readings against
+	-- `GROUND_TOLERANCE_STUDS` (1), so 5.3 studs refused `forest:beater-start`, and the world sat in
+	-- `Waiting` for ever after its first drive.
+	--
+	-- IT RUNS IN THE DEV PLACE, where there is no terrain under this world's coordinates, so the
+	-- fixture IS the ground: one anchored slab, and a rig standing on it. On the old code the first
+	-- case reads the rig's head; on this one it reads the slab.
+	describe("the ground, with somebody standing on it", function()
+		local folder: Folder
+		local SLAB_TOP = 140
+		local X, Z = 11000, 11000 -- far from anything this place holds, so the slab is the only hit
+
+		local function rig(at: Vector3): Model
+			local model = Instance.new("Model")
+			model.Name = "GroundRig"
+			local humanoid = Instance.new("Humanoid")
+			humanoid.Parent = model
+			local root = Instance.new("Part")
+			root.Name = "HumanoidRootPart"
+			root.Size = Vector3.new(2, 2, 1)
+			root.Position = at
+			root.Anchored = true
+			root.Parent = model
+			local head = Instance.new("Part")
+			head.Name = "Head"
+			head.Size = Vector3.new(2, 1, 1)
+			head.Position = at + Vector3.new(0, 1.5, 0)
+			head.Anchored = true
+			head.Parent = model
+			model.PrimaryPart = root
+			return model
+		end
+
+		beforeAll(function()
+			folder = Instance.new("Folder")
+			folder.Name = "ForestGroundSpec"
+			local slab = Instance.new("Part")
+			slab.Name = "Slab"
+			slab.Size = Vector3.new(40, 4, 40)
+			slab.Position = Vector3.new(X, SLAB_TOP - 2, Z) -- its TOP face is SLAB_TOP
+			slab.Anchored = true
+			slab.Parent = folder
+			folder.Parent = workspace
+		end)
+
+		afterAll(function()
+			folder:Destroy()
+		end)
+
+		it("reads the slab with nobody on it", function()
+			expect(Data.groundAt(X, Z)).to.equal(SLAB_TOP)
+		end)
+
+		it("STILL reads the slab with a character standing on it -- head, body and all", function()
+			local body = rig(Vector3.new(X, SLAB_TOP + 3, Z))
+			body.Parent = folder
+			local answer = Data.groundAt(X, Z)
+			print(string.format("[forest_markers] ground with a body on it: %s (slab %d)", tostring(answer), SLAB_TOP))
+			expect(answer).to.equal(SLAB_TOP)
+			body:Destroy()
+		end)
+
+		it("skips a HAT too, which a parent-only test would call the ground", function()
+			-- A hat's `Handle` is parented to an `Accessory`, which is parented to the character, so
+			-- the hit's immediate parent has no Humanoid. `Data.characterOf` walks up; the old
+			-- inline test did not.
+			local body = rig(Vector3.new(X, SLAB_TOP + 3, Z))
+			local accessory = Instance.new("Accessory")
+			local handle = Instance.new("Part")
+			handle.Name = "Handle"
+			handle.Size = Vector3.new(2, 1, 2)
+			handle.Position = Vector3.new(X, SLAB_TOP + 7, Z)
+			handle.Anchored = true
+			handle.Parent = accessory
+			accessory.Parent = body
+			body.Parent = folder
+			expect(Data.characterOf(handle)).to.equal(body)
+			expect(Data.groundAt(X, Z)).to.equal(SLAB_TOP)
+			body:Destroy()
+		end)
+
+		it("answers nil where there is nothing at all, which is what a refusal is made of", function()
+			expect(Data.groundAt(X + 5000, Z + 5000)).to.equal(nil)
+			-- ...and a ray that only ever finds bodies gives up rather than looping: the slab is not
+			-- under this column, so every hit is a character and the bound is what ends it.
+			local tower = {}
+			for index = 1, 3 do
+				local body = rig(Vector3.new(X + 5000, SLAB_TOP + index * 10, Z + 5000))
+				body.Parent = folder
+				table.insert(tower, body)
+			end
+			expect(Data.groundAt(X + 5000, Z + 5000)).to.equal(nil)
+			for _, body in ipairs(tower) do
+				body:Destroy()
+			end
+		end)
+
+		it("is the ONE rule: characterOf says no to the world and yes to a person", function()
+			expect(Data.characterOf(nil)).to.equal(nil)
+			expect(Data.characterOf(workspace.Terrain)).to.equal(nil)
+			local body = rig(Vector3.new(X, SLAB_TOP + 3, Z))
+			body.Parent = folder
+			expect(Data.characterOf(body.PrimaryPart)).to.equal(body)
+			expect(Data.characterOf(body)).to.equal(body)
+			body:Destroy()
+			TestKit.note("forest-markers: one rule for what a person is (Data.characterOf), three callers")
+		end)
+	end)
+
 	describe("it can say no", function()
 		it("refuses every stand where there is no ground, and builds nothing", function()
 			Markers.clear()

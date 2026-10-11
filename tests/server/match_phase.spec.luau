@@ -23,6 +23,7 @@ local CONFIG = {
 	MAX_PLAYERS = 16,
 	ODD_PLAYER_TEAM = "Shooters",
 	SWAP_TEAMS_EACH_DRIVE = true,
+	START_HOLD_TEAM = "Drivers", -- task 158: the beaters are held at their line for the countdown
 	BOARS_PER_DRIVE = 4,
 	FIRST_RELEASE_SECONDS = 5,
 	RELEASE_INTERVAL_SECONDS = 10,
@@ -607,10 +608,17 @@ return function()
 			expect(live.QUICK_TEST_INTERMISSION_SECONDS < live.INTERMISSION_SECONDS).to.equal(true)
 			expect(live.QUICK_TEST_FIRST_RELEASE_SECONDS < live.FIRST_RELEASE_SECONDS).to.equal(true)
 			expect(live.QUICK_TEST_INTERVAL_SECONDS < live.RELEASE_INTERVAL_SECONDS).to.equal(true)
-			-- 40 seconds of waiting becomes 8, and that difference IS the task
+			-- THIRTY SECONDS OF WAITING BECOMES EIGHT, and that difference IS task 83.
+			--
+			-- THE FACTOR WAS 4 AND IS NOW 3, because task 158 cut the intermission from 20 to 10 at
+			-- Karen's word ("timer like 10s to find position to stand"): the real wait is 30 s rather
+			-- than 40, the quick wait is the same 8, and 8 * 4 = 32 is no longer under it. The claim
+			-- being made is "the quick test is MUCH faster", which at 3.75x it still is -- and the
+			-- honest way to keep a measured assertion true is to say what was measured, not to retune
+			-- a playtest number so an old multiple survives.
 			local realWait = live.INTERMISSION_SECONDS + live.FIRST_RELEASE_SECONDS
 			local quickWait = live.QUICK_TEST_INTERMISSION_SECONDS + live.QUICK_TEST_FIRST_RELEASE_SECONDS
-			expect(quickWait * 4 <= realWait).to.equal(true)
+			expect(quickWait * 3 <= realWait).to.equal(true)
 			TestKit.note(string.format("task83: %d s of waiting becomes %d s with the quick test", realWait, quickWait))
 		end)
 
@@ -1144,6 +1152,160 @@ return function()
 			local endsAt = state.phaseEndsAt
 			state = (run(state, cfg, endsAt - 1, 2, 0.25))
 			expect(state.phase).to.equal("Scoring")
+		end)
+	end)
+
+	-- THE START OF A DRIVE (task 158). Karen: *"timer when start, timer like 10s to find position to
+	-- stand"*, *"Beater start in line with others and countdown when drive starts"*.
+	--
+	-- NO PHASE WAS ADDED, and that is what these cases are about. The countdown IS `Assigning`, so
+	-- every one of them is about the one deadline this machine already had plus the two effects that
+	-- say who is held and when they are let go.
+	describe("the start of a drive", function()
+		-- FOUR PLAYERS AND A ROSTER THAT WAITS FOR THEM, so the drive is ENTERED with both sides
+		-- full: `MIN_PLAYERS = 1` would start the drive on the first join and the other three would
+		-- arrive through the join branch, which is a different case (it has its own below).
+		-- `Roster.assign` sorts, so 1 and 2 are the beaters and 3 and 4 the hunters, every run.
+		local FOUR = { MIN_PLAYERS = 4 }
+
+		local function assigning(cfg)
+			local state = ready(cfg)
+			local effects
+			for userId = 1, 4 do
+				state, effects = Phase.step(state, { kind = "join", userId = userId, name = "p" .. userId }, 0, cfg)
+			end
+			expect(state.phase).to.equal("Assigning")
+			return state, effects
+		end
+
+		local function heldIn(effects): { number }
+			for _, effect in ipairs(effects) do
+				if effect.kind == "hold" then
+					return effect.userIds or {}
+				end
+			end
+			return {}
+		end
+
+		local function freedIn(effects)
+			for _, effect in ipairs(effects) do
+				if effect.kind == "free" then
+					return effect.userIds or "all"
+				end
+			end
+			return nil
+		end
+
+		it("is the intermission itself: ONE deadline, which is the timer every side counts down", function()
+			local cfg = config()
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			expect(state.phase).to.equal("Assigning")
+			-- THE ONE NUMBER: the hunter's stand timer, the beater's countdown and the card's life
+			-- are all this, counted down locally off `phaseEndsAt`. There is no second clock.
+			expect(state.phaseEndsAt).to.equal(cfg.INTERMISSION_SECONDS)
+			expect(Phase.intermissionSeconds(cfg)).to.equal(cfg.INTERMISSION_SECONDS)
+			state = (run(state, cfg, 0, cfg.INTERMISSION_SECONDS + 0.5, 0.25))
+			expect(state.phase).to.equal("Running")
+		end)
+
+		it("holds exactly the beaters at the line, and AFTER they have been placed", function()
+			local cfg = config(FOUR)
+			local _, effects = assigning(cfg)
+			expect(table.concat(heldIn(effects), ",")).to.equal("1,2")
+			-- AFTER `placePlayers` in the order the owner applies them, because the hold is a hold on
+			-- the character the placement is about to respawn.
+			local list = kinds(effects)
+			expect(table.find(list, "hold") > table.find(list, "placePlayers")).to.equal(true)
+			expect(countKind(effects, "hold")).to.equal(1)
+		end)
+
+		it("holds no hunter, because the same ten seconds is his to walk to his stand with", function()
+			local cfg = config(FOUR)
+			local state, effects = assigning(cfg)
+			for _, userId in ipairs(heldIn(effects)) do
+				expect(state.assignment[userId]).to.equal("Drivers")
+			end
+			expect(state.assignment[3]).to.equal("Shooters")
+			expect(state.assignment[4]).to.equal("Shooters")
+			expect(table.find(heldIn(effects), 3)).to.equal(nil)
+			expect(table.find(heldIn(effects), 4)).to.equal(nil)
+		end)
+
+		it("holds nobody when there is no beater, rather than an empty effect", function()
+			local cfg = config()
+			local state = ready(cfg)
+			local effects
+			-- ODD_PLAYER_TEAM is Shooters, so a solo player is a hunter and the line is empty.
+			state, effects = Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg)
+			expect(state.assignment[1]).to.equal("Shooters")
+			expect(countKind(effects, "hold")).to.equal(0)
+		end)
+
+		it("lets everybody go at GO, with one effect that names nobody", function()
+			local cfg = config({ MIN_PLAYERS = 4, BOARS_PER_DRIVE = 0 })
+			local state = assigning(cfg)
+			local effects
+			state, effects = Phase.step(state, { kind = "tick", aliveBoars = 0 }, cfg.INTERMISSION_SECONDS, cfg)
+			expect(state.phase).to.equal("Running")
+			expect(countKind(effects, "free")).to.equal(1)
+			-- NIL MEANS EVERYBODY HELD, so a beater who joined mid-countdown goes with the rest and
+			-- no list can go stale between the hold and GO.
+			expect(freedIn(effects)).to.equal("all")
+			-- Exactly once: nothing inside the drive frees anybody again.
+			local later
+			state, later = run(state, cfg, cfg.INTERMISSION_SECONDS, 20, 0.5)
+			expect(countKind(later, "free")).to.equal(0)
+		end)
+
+		it("holds a beater who arrives inside the countdown, and not a hunter", function()
+			local cfg = config(FOUR)
+			local state = assigning(cfg)
+			local effects
+			-- Both sides are 2/2, so the next joiner fills ODD_PLAYER_TEAM: a hunter, not held.
+			state, effects = Phase.step(state, { kind = "join", userId = 5, name = "e" }, 1, cfg)
+			expect(state.assignment[5]).to.equal("Shooters")
+			expect(countKind(effects, "hold")).to.equal(0)
+			-- ...and the one after him is a beater, who is.
+			state, effects = Phase.step(state, { kind = "join", userId = 6, name = "f" }, 2, cfg)
+			expect(state.assignment[6]).to.equal("Drivers")
+			expect(table.concat(heldIn(effects), ",")).to.equal("6")
+			expect(state.phase).to.equal("Assigning")
+		end)
+
+		it("holds nobody who joins INSIDE the drive: the line is behind them by then", function()
+			local cfg = config({ MIN_PLAYERS = 4, BOARS_PER_DRIVE = 0 })
+			local state = assigning(cfg)
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			expect(state.phase).to.equal("Running")
+			local effects
+			local at = cfg.INTERMISSION_SECONDS + 5
+			state, effects = Phase.step(state, { kind = "join", userId = 7, name = "g" }, at, cfg)
+			expect(countKind(effects, "placePlayers")).to.equal(1)
+			expect(countKind(effects, "hold")).to.equal(0)
+		end)
+
+		it("moves the hold with a player who changes sides inside the countdown", function()
+			local cfg = config(FOUR)
+			local state = assigning(cfg)
+			expect(state.assignment[1]).to.equal("Drivers")
+			expect(state.assignment[3]).to.equal("Shooters")
+			local effects
+			-- A hunter made a beater is held at the line.
+			state, effects = Phase.step(state, { kind = "team", userId = 3, team = "Drivers" }, 1, cfg)
+			expect(table.concat(heldIn(effects), ",")).to.equal("3")
+			-- A beater made a hunter is let go -- and ONLY him, so a role flip cannot release the
+			-- whole line.
+			state, effects = Phase.step(state, { kind = "team", userId = 1, team = "Shooters" }, 2, cfg)
+			expect(countKind(effects, "hold")).to.equal(0)
+			expect(table.concat(freedIn(effects) :: { number }, ",")).to.equal("1")
+		end)
+
+		it("asks the config who is held, so a spec can point it at either side", function()
+			local assignment = { [1] = "Drivers" :: any, [2] = "Shooters" :: any, [3] = "Drivers" :: any }
+			expect(table.concat(Phase.heldUserIds(assignment, { START_HOLD_TEAM = "Drivers" }), ",")).to.equal("1,3")
+			expect(table.concat(Phase.heldUserIds(assignment, { START_HOLD_TEAM = "Shooters" }), ",")).to.equal("2")
+			expect(#Phase.heldUserIds({}, { START_HOLD_TEAM = "Drivers" })).to.equal(0)
 		end)
 	end)
 

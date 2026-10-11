@@ -312,6 +312,23 @@ return function()
 			naked:Destroy()
 		end)
 
+		it("a tie on top of a hold gives back the REAL speed, not the hold's zero", function()
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			humanoid.WalkSpeed = 16
+			-- Held at the line...
+			expect(Body.holdCharacter(character, USER)).to.be.ok()
+			expect(humanoid.WalkSpeed).to.equal(0)
+			-- ...and then tied, which freezes the same character again through the same row. If the
+			-- tie re-saved what it found, it would record 0 and free him into a body that cannot
+			-- walk -- with no rope and nothing on screen to say why.
+			expect(Body.tieCharacter(character, USER, tree, CONFIG, ropes)).to.equal(true)
+			expect(humanoid.WalkSpeed).to.equal(0)
+			Body.untieCharacter(character, USER, ropes)
+			expect(humanoid.WalkSpeed).to.equal(16)
+			expect(Body.isHolding(USER)).to.equal(false)
+			expect(ropes:FindFirstChild(Body.ropeName(USER))).to.equal(nil)
+		end)
+
 		it("holds nothing after forget", function()
 			-- Body keys what it took by userId and never by Player, so forget is a table operation and
 			-- the count is how that is proved (design section 7.2's discipline, applied here too).
@@ -320,6 +337,143 @@ return function()
 			expect(Body.tracked()).to.equal(before + 1)
 			Body.forget(USER)
 			expect(Body.tracked()).to.equal(before)
+		end)
+	end)
+
+	-- THE BEATERS' HOLD AT THE START LINE (task 158). Karen: *"Beater start in line with others and
+	-- countdown when drive starts"*.
+	--
+	-- IT IS THE TIE'S OWN FREEZE WITHOUT THE ROPE AND WITHOUT THE MOVE, and that is what these cases
+	-- check: the same three humanoid numbers and the same anchored root, nothing drawn, and the
+	-- character STILL WHERE IT STOOD -- a hold that teleported a beater would undo the placement that
+	-- put her on the line in the first place.
+	describe("Body.hold -- held where she stands", function()
+		local folder: Folder
+		local ropes: Folder
+		local character: Model
+		local AT = Vector3.new(0, 703, 60)
+		local USER = 900011
+
+		beforeAll(function()
+			folder = Instance.new("Folder")
+			folder.Name = "MatchHoldSpec"
+			ropes = Instance.new("Folder")
+			ropes.Name = "Ropes"
+			ropes.Parent = folder
+			character = rig("HeldRig", AT)
+			character.Parent = folder
+			folder.Parent = workspace
+		end)
+
+		afterAll(function()
+			Body.untieCharacter(character, USER, ropes)
+			Body.forget(USER)
+			folder:Destroy()
+		end)
+
+		it("freezes the humanoid and anchors the root, and does not move her an inch", function()
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			humanoid.WalkSpeed = 16
+			humanoid.JumpHeight = 7.2
+			humanoid.JumpPower = 50
+			local before = character:GetPivot().Position
+
+			local root = Body.holdCharacter(character, USER)
+			expect(root).to.be.ok()
+			expect(root).to.equal(character.PrimaryPart)
+
+			expect(humanoid.WalkSpeed).to.equal(0)
+			expect(humanoid.JumpHeight).to.equal(0)
+			expect(humanoid.JumpPower).to.equal(0)
+			expect(character.PrimaryPart.Anchored).to.equal(true)
+			-- WHERE SHE WAS PUT, to the stud: the drive's own placement chose the line.
+			local moved = (character:GetPivot().Position - before).Magnitude
+			print(string.format("[match_safety] held, moved %.4f studs", moved))
+			expect(moved < 0.01).to.equal(true)
+			expect(Body.isHolding(USER)).to.equal(true)
+		end)
+
+		it("draws nothing: a hold has no rope", function()
+			expect(ropes:FindFirstChild(Body.ropeName(USER))).to.equal(nil)
+			expect(#ropes:GetChildren()).to.equal(0)
+		end)
+
+		it("gives back exactly the numbers it took, through the one restore both freezes share", function()
+			Body.untieCharacter(character, USER, ropes)
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			expect(humanoid.WalkSpeed).to.equal(16)
+			expect(math.abs(humanoid.JumpHeight - 7.2) < 1e-4).to.equal(true)
+			expect(humanoid.JumpPower).to.equal(50)
+			expect(character.PrimaryPart.Anchored).to.equal(false)
+			expect(Body.isHolding(USER)).to.equal(false)
+		end)
+
+		it("saves what she had ONCE, so a hold on top of a hold cannot record WalkSpeed 0", function()
+			-- The failure this prevents: the second call reads 0 as "what she had before" and a freed
+			-- beater can never walk again. `applyHold` is re-applied on every respawn in a real
+			-- drive, so this happens on purpose and often.
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			humanoid.WalkSpeed = 16
+			expect(Body.holdCharacter(character, USER)).to.be.ok()
+			expect(Body.holdCharacter(character, USER)).to.be.ok()
+			Body.untieCharacter(character, USER, ropes)
+			expect(humanoid.WalkSpeed).to.equal(16)
+		end)
+
+		-- WHAT A RESTORE MUST NEVER HAND BACK (task 158).
+		--
+		-- `[harness2] FAIL 33/35 @ 8f9f340` failed on a shooter `zz_tie_to_a_tree` had tied on
+		-- purpose: a drive holds beaters at the line and ties offenders to trees, and both are the
+		-- same `held` row in this module. These are the one-player reproduction of that ordering --
+		-- no second player needed, because the question is about one character.
+		it("will not hand back a WalkSpeed of zero even if a row somehow holds one", function()
+			-- THE ONLY ROUTE TO A SAVED ZERO, forced here: `Body.forget` drops the row WITHOUT
+			-- restoring, so a freeze applied after it reads the frozen body as "what he had". It
+			-- cannot happen in the drive -- `forget` is only called for a player who has LEFT, and
+			-- `Body` is the only writer of `WalkSpeed` in `src/` (grepped) -- which is exactly why
+			-- the floor is worth having: the failure it prevents is a player stuck for the rest of
+			-- the session with nothing on screen to explain it.
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			humanoid.WalkSpeed = 16
+			expect(Body.holdCharacter(character, USER)).to.be.ok()
+			expect(humanoid.WalkSpeed).to.equal(0)
+			Body.forget(USER) -- the row goes; the body is still frozen
+			local before = Body.rescued()
+			expect(Body.holdCharacter(character, USER)).to.be.ok() -- re-freezes, and saves the 0
+			Body.untieCharacter(character, USER, ropes)
+			expect(Body.rescued()).to.equal(before + 1)
+			-- The PLACE's own number, not a literal 16 here: a place that slows everybody down is
+			-- still right.
+			expect(humanoid.WalkSpeed).to.equal(Body.defaultWalkSpeed())
+			expect(humanoid.WalkSpeed > 0).to.equal(true)
+			print(string.format("[match_safety] rescued a saved zero -> %.1f", humanoid.WalkSpeed))
+			humanoid.WalkSpeed = 16
+		end)
+
+		it("does not rescue anything on an ordinary restore, which is the number that matters", function()
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			humanoid.WalkSpeed = 16
+			local before = Body.rescued()
+			expect(Body.holdCharacter(character, USER)).to.be.ok()
+			Body.untieCharacter(character, USER, ropes)
+			expect(humanoid.WalkSpeed).to.equal(16)
+			expect(Body.rescued()).to.equal(before)
+		end)
+
+		it("refuses what it cannot freeze, and says so with nil", function()
+			local naked = Instance.new("Model")
+			naked.Name = "NoHumanoidHold"
+			local part = Instance.new("Part")
+			part.Name = "HumanoidRootPart"
+			part.Anchored = true
+			part.Position = Vector3.new(40, 703, 40)
+			part.Parent = naked
+			naked.PrimaryPart = part
+			naked.Parent = folder
+			expect(Body.holdCharacter(naked, 900012)).to.equal(nil)
+			expect(Body.holdCharacter(nil, 900013)).to.equal(nil)
+			expect(Body.isHolding(900012)).to.equal(false)
+			naked:Destroy()
 		end)
 	end)
 

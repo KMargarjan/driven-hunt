@@ -49,6 +49,10 @@ export type MatchSnapshot = {
 	boarsReleased: number,
 	boarsLeft: number,
 	waitingFor: { string }, -- why it is Waiting: "players", or the missing tag names
+	-- WHAT MAY BE SHOT IN THIS DRIVE, in the server's own words -- the start card's lines
+	-- (task 158). The RULE is the server's (`Match.quarryLines`); this side only lays it out, so a
+	-- client holds no second copy of what is legal. Same shape as `waitingFor` above.
+	quarry: { string },
 	rows: { ScoreRow },
 	tied: { number },
 }
@@ -109,6 +113,28 @@ Drive.CONFIG = {
 	TIED_TEXT_SIZE = 24,
 	TIED_COLOR = Color3.fromRGB(255, 95, 75),
 	TIED_TOP_OFFSET = 44, -- just under the drive bar
+
+	-- THE START CARD (task 158). Karen: *"we just need to at the begining what they can shoot and
+	-- timer when start"*, *"Simple, readable, a few seconds, no tutorial"*. LAYOUT AND WORDING
+	-- ONLY: the quarry lines themselves arrive on the snapshot, because what is legal is a rule and
+	-- rules are the server's.
+	START_CARD_WIDTH = 440,
+	START_CARD_TITLE_SIZE = 24,
+	START_CARD_TEXT_SIZE = 18,
+	START_CARD_LINE_HEIGHT = 24,
+	-- One role line plus the quarry's own. Four is two more than today's rule needs, which is the
+	-- room red deer and a licence will want (Karen's doc) without a second layout.
+	START_CARD_LINES_MAX = 4,
+	START_CARD_COLOR = Color3.fromRGB(16, 18, 20),
+	START_CARD_TRANSPARENCY = 0.25,
+	-- UPPER MIDDLE, not dead centre: the centre of the screen is the crosshair and the sight
+	-- picture, and this is up for ten seconds while a hunter is walking to his stand.
+	START_CARD_TOP_SCALE = 0.22,
+	START_CARD_HEADING = "YOU MAY SHOOT",
+	-- The one line that counts down, in the words of the role it is for.
+	START_CARD_HUNTER_TIMER = "GET TO YOUR STAND",
+	START_CARD_BEATER_TIMER = "DRIVE STARTS IN",
+	START_CARD_TIMER_COLOR = Color3.fromRGB(255, 232, 150),
 
 	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
 	DRIVER_COLOR = Color3.fromRGB(90, 150, 255), -- Bright blue, the Drivers team colour
