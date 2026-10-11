@@ -1,44 +1,38 @@
 # Escalations
 
-## 2026-10-11 — Task 151: NEEDS KAREN, two clicks. The outfit is built, gated and looked at
+## 2026-10-11 — Task 151: NEEDS TEST2, one click. Everything else is done and looked at
 
-**The work itself is finished and measured.** `[harness] PASS: 33/33 checks @ 36fb2b1 (clean tree)
-scope=all`, smoke PASS in DEV (gun in hand at 15 s and 90 s, 0 stacks, 0 error lines), and the frame
-is in `<runs-dir>/151-outfit-preview.png` with hunter and beater, front and back, beside the live
-first-person sleeve. Neither click below is about the code, and I have worked around neither.
+**The work is finished and measured.** `[harness] PASS: 33/33 checks @ 035b522 (clean tree)
+scope=all`, SMOKE PASS in the Forest Test (gun in hand at 15 s and 90 s, 0 stacks, 0 error lines,
+5 waves), and the beater wears the real hi-vis vest and an orange cap in
+`<runs-dir>/151-outfit-preview.png`.
 
-### NEEDS KAREN 1 — Rojo **Connect** in the "Driven Hunt Forest Test" Studio
+**The earlier entry here asked for a Rojo Connect in the Forest Test Studio. That was wrong and is
+withdrawn:** that place is Team Create, where `.Source` reads empty by design (the Director,
+2026-10-11), so judging its sync by `#Source == 0` was meaningless. Judged by PLAY instead, it is
+connected and running this branch's code — the `/beater` command works there and the console line is
+in the review request.
 
-Every script in that place reads `#Source == 0` — it holds the world and no game code, the state
-Task 122 last recorded. So the `/beater` chat command, which exists only in that world, **has never
-run**, and I am not claiming it has.
+### NEEDS TEST2 — the two-player run, for the review round AND the merge
 
-What *is* proven without that place: the parser and the role store are specs
-(`tests/server/forest_stand.spec.luau`), and **`Player.Chatted` was measured to fire under
-`TextChatService`** — a client `RBXGeneral:SendAsync("/beater")` in a DEV Play session made the
-server hear `/beater` verbatim, so the design's `TextChatCommand` fallback is not needed. What is
-NOT proven is this task's own wiring in that place.
+`src/server/Match/` is in `TWO_PLAYER_PATHS`, so `tools/review.ps1 151` refuses to start without a
+`[harness2]` line, and the PR to `main` needs one too. StudioMCP cannot start it: `start_stop_play`
+takes no player count. A `--scope auto` run cannot get round it either, and that was checked rather
+than assumed — `src/server/ForestTest/` is unmapped in `BLAST_RADIUS`, so `scope_for` on this
+branch's changed paths answers `['all']`, which is tagged `scope=all`, full evidence, and therefore
+still asks for `[harness2]`.
 
-**The clicks, in order:**
+In the **DEV** Studio, in Edit: **Test tab → Clients and Servers → Players: 2 → Start**, then leave
+the windows alone until the harness says to press **Cleanup**.
 
-1. Open the Studio window titled **Driven Hunt Forest Test** (placeId 130094961655666).
-2. Make sure it is in **Edit** mode (press Stop if a playtest is running).
-3. Rojo panel → **Connect** (`rojo serve` is already serving both place ids).
-4. Accept Rojo's confirmation dialog if it lists removals.
-5. Press **Play**, wait for the drive to put you on the road, then type **`/beater`** in the chat
-   and press Enter. Expect a console line:
-   `[ForestTest] <name> is now a beater (team=Drivers, 6 outfit part(s))`
-   and an orange vest plus the orange hat on your character. `/hunter` puts it back (2 parts).
+### FOR KAREN, two things that are hers
 
-### NEEDS KAREN 2 — the two-player run, for the merge only
-
-`src/server/Match/` is in `TWO_PLAYER_PATHS`, so the PR to `main` needs
-`python tools/studio_mcp.py test2` as well. StudioMCP cannot start it: `start_stop_play` takes no
-player count. In the **DEV** Studio, in Edit: **Test tab → Clients and Servers → Players: 2 → Start**,
-then leave the windows alone until the harness says to press **Cleanup**.
-
-The review round itself does not need it — the one-player line above is full `scope=all` evidence —
-so the Reviewer can run now and this click is the Director's to schedule before merging.
+1. **The bald heads.** Putting a real cap on means taking the avatar's own hair off: this avatar's
+   hair is a 2.08 × 2.05 × 1.94 bowl and the cap is 0.93 tall, so with the hair on, the cap read as
+   black with an orange peak. One word and the hair stays and the raised grey-box hat comes back.
+2. **The cap in first person.** Its brim hangs into the top of the screen
+   (`<runs-dir>/151-forest-beater.png`). Hiding the local player's head accessories in first person
+   is client work owned by the camera, not by `Match.Body`, so it is not in this task.
 
 ## 2026-10-10 — Task 149b: the code is done and gated, and it cannot be reviewed. TWO BLOCKERS
 
