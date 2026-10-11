@@ -179,72 +179,144 @@ return function()
 	---------------------------------------------------------------- pure: the geometry
 
 	describe("what the horn is made of", function()
-		it("is a tube that widens from the mouthpiece to the bell", function()
-			local pieces = Horn.pieces(CONFIG)
-			local tubes = {}
+		-- A cylinder's length runs along its own X, so its two ends are its centre pushed half a
+		-- length each way along that axis. Everything below is measured off the piece list alone.
+		local function endsOf(piece): (Vector3, Vector3)
+			local half = piece.size.X / 2
+			return (piece.offset * CFrame.new(-half, 0, 0)).Position, (piece.offset * CFrame.new(half, 0, 0)).Position
+		end
+
+		local function byName(pieces)
+			local out = {}
 			for _, piece in ipairs(pieces) do
-				if piece.shape == Enum.PartType.Cylinder then
-					table.insert(tubes, piece)
+				out[piece.name] = piece
+			end
+			return out
+		end
+
+		local function tubes(pieces)
+			local out = {}
+			for index = 1, Horn.arc().segments do
+				local piece = byName(pieces)[string.format("Tube%d", index)]
+				expect(piece).to.be.ok()
+				table.insert(out, piece)
+			end
+			return out
+		end
+
+		it("is a COIL and not a straight tube", function()
+			-- KAREN'S CORRECTION, as a number (the Director, 2026-10-11: the first build *"reads as a
+			-- straight brass tube / spyglass"*). A real Fuerst-Pless or Parforce horn is a wound tube,
+			-- so the sections must actually TURN -- and this is the case that fails if somebody
+			-- straightens them again.
+			local arc = Horn.arc()
+			local sections = tubes(Horn.pieces(CONFIG))
+			expect(#sections).to.equal(arc.segments)
+
+			local turn = 0
+			local previous: Vector3? = nil
+			for _, piece in ipairs(sections) do
+				local a, b = endsOf(piece)
+				local dir = (b - a).Unit
+				if previous ~= nil then
+					local step = math.deg(math.acos(math.clamp((previous :: Vector3):Dot(dir), -1, 1)))
+					-- Every joint bends, and by the same amount: a 230-degree arc in 5 chords.
+					expect(math.abs(step - arc.degrees / arc.segments) < 1).to.equal(true)
+					turn += step
 				end
+				previous = dir
 			end
-			expect(#tubes >= 4).to.equal(true)
-			-- A SIGNAL HORN IS A TAPER, so every section is wider than the one behind it. The
-			-- mouthpiece is the exception and is excluded: it is a cup, wider than the throat it
-			-- feeds, which is what a mouthpiece is on the real instrument.
-			for index = 3, #tubes do
-				local previous = tubes[index - 1].size.Y
-				local current = tubes[index].size.Y
-				expect(current > previous).to.equal(true)
-			end
+			-- ...AND THE WHOLE THING TURNS MOST OF THE WAY ROUND. A straight tube scores 0 here.
+			expect(turn > 150).to.equal(true)
 			TestKit.note(
 				string.format(
-					"horn: %d piece(s), bore %.2f -> %.2f studs",
-					#pieces,
-					tubes[2].size.Y,
-					tubes[#tubes].size.Y
+					"horn: %d section(s) over a %d-degree arc of radius %.2f; total turn %.0f degrees",
+					arc.segments,
+					arc.degrees,
+					arc.radius,
+					turn
 				)
 			)
 		end)
 
-		it("lays the sections nose to tail with no gap and no overlap", function()
-			-- The lengths are the only numbers in `Horn.pieces`; each section starts where the last
-			-- one ended. If somebody replaces that with per-piece centres, this fails.
-			local pieces = Horn.pieces(CONFIG)
-			local z = CONFIG.HANDLE_SIZE.Z / 2
-			for _, piece in ipairs(pieces) do
-				if piece.shape == Enum.PartType.Cylinder then
-					local length = piece.size.X
-					local centre = piece.offset.Position.Z
-					expect(math.abs(centre - (z - length / 2)) < 1e-6).to.equal(true)
-					z -= length
+		it("rides one arc, nose to tail, with no gap at any joint", function()
+			-- Each section is a CHORD between two points ON the arc, so the joints cannot gap however
+			-- the numbers move. Both halves are asserted: consecutive ends meet, and every end is at
+			-- the arc's own radius from the Handle's origin.
+			local arc = Horn.arc()
+			local sections = tubes(Horn.pieces(CONFIG))
+			local previousEnd: Vector3? = nil
+			for _, piece in ipairs(sections) do
+				local a, b = endsOf(piece)
+				expect(math.abs(a.Magnitude - arc.radius) < 1e-5).to.equal(true)
+				expect(math.abs(b.Magnitude - arc.radius) < 1e-5).to.equal(true)
+				if previousEnd ~= nil then
+					expect(((previousEnd :: Vector3) - a).Magnitude < 1e-5).to.equal(true)
 				end
+				previousEnd = b
 			end
-			-- ...AND THE LAST FACE IS THE FRONT OF THE ENVELOPE: the sections together are exactly as
-			-- long as the Handle says the horn is, so the bell mouth is where `bellOffset` says.
-			expect(math.abs(z - (-CONFIG.HANDLE_SIZE.Z / 2)) < 1e-6).to.equal(true)
-			expect(Horn.bellOffset(CONFIG).Z).to.equal(-CONFIG.HANDLE_SIZE.Z / 2)
-			expect(math.abs(z - Horn.bellOffset(CONFIG).Z) < 1e-6).to.equal(true)
+			-- ...and the two ends of the run are the two ends the module publishes.
+			local firstA = select(1, endsOf(sections[1]))
+			expect((firstA - arc.from).Magnitude < 1e-5).to.equal(true)
+			expect(((previousEnd :: Vector3) - arc.to).Magnitude < 1e-5).to.equal(true)
 		end)
 
-		it("is brass with a nickel mouthpiece", function()
-			local byName = {}
-			for _, piece in ipairs(Horn.pieces(CONFIG)) do
-				byName[piece.name] = piece
+		it("widens from the mouthpiece to the bell", function()
+			local pieces = Horn.pieces(CONFIG)
+			local sections = tubes(pieces)
+			for index = 2, #sections do
+				expect(sections[index].size.Y > sections[index - 1].size.Y).to.equal(true)
 			end
-			expect(byName.Mouthpiece).to.be.ok()
-			expect(byName.Bell).to.be.ok()
-			expect(byName.Bell.color).to.equal(CONFIG.LOOK.brass)
-			expect(byName.Mouthpiece.color).to.equal(CONFIG.LOOK.mouthpiece)
+			-- ...AND THE BELL IS THE WIDEST THING ON IT, through a flare and not as a bare step.
+			local named = byName(pieces)
+			expect(named.Flare.size.Y > sections[#sections].size.Y).to.equal(true)
+			expect(named.Bell.size.Y > named.Flare.size.Y).to.equal(true)
+			TestKit.note(
+				string.format(
+					"horn: %d piece(s), bore %.2f -> %.2f studs, bell %.2f",
+					#pieces,
+					sections[1].size.Y,
+					sections[#sections].size.Y,
+					named.Bell.size.Y
+				)
+			)
+		end)
+
+		it("hangs the flare and the bell off the arc's far end, and the mouthpiece off its near one", function()
+			local arc = Horn.arc()
+			local named = byName(Horn.pieces(CONFIG))
+			-- The flare starts where the tube ends...
+			local flareA = select(1, endsOf(named.Flare))
+			expect((flareA - arc.to).Magnitude < 1e-5).to.equal(true)
+			-- ...the bell starts where the flare ends, and its outer face is what `bellOffset` says.
+			local flareB = select(2, endsOf(named.Flare))
+			local bellA, bellB = endsOf(named.Bell)
+			expect((bellA - flareB).Magnitude < 1e-5).to.equal(true)
+			expect((bellB - Horn.bellOffset(CONFIG)).Magnitude < 1e-5).to.equal(true)
+			-- ...and the cup sits just outside the near end, tangent to it.
+			local mouthB = select(2, endsOf(named.Mouthpiece))
+			expect((mouthB - arc.from).Magnitude < 0.06).to.equal(true)
+		end)
+
+		it("is brass with a nickel mouthpiece and a cloth cord", function()
+			local named = byName(Horn.pieces(CONFIG))
+			expect(named.Bell.color).to.equal(CONFIG.LOOK.brass)
+			expect(named.Mouthpiece.color).to.equal(CONFIG.LOOK.mouthpiece)
 			-- The one piece that is not the instrument, and it must not be metal.
-			expect(byName.Cord.material).to.equal(Enum.Material.Fabric)
+			expect(named.Cord.material).to.equal(Enum.Material.Fabric)
+			-- It closes the C: from the mouthpiece end to the bell end, which is how the real object
+			-- is carried and what stops the coil reading as a broken ring.
+			local arc = Horn.arc()
+			local a, b = endsOf(named.Cord)
+			expect(((a - arc.from).Magnitude < 1e-5 and (b - arc.to).Magnitude < 1e-5)).to.equal(true)
 		end)
 
 		it("points its bell away from the player", function()
-			-- -Z is the bell, which is what `GRIP` assumes: a horn held with the bell pointing at
-			-- the player's own face is a different object. The grip sits behind the middle.
+			-- -Z is forward, which is what `GRIP` assumes: a horn whose bell faces the player's own
+			-- face is a different object.
 			expect(Horn.bellOffset(CONFIG).Z < 0).to.equal(true)
-			expect(CONFIG.GRIP.Position.Z > 0).to.equal(true)
-			-- ...and the raised grip is a real tilt, not a copy of the resting one.
+			expect(Horn.arc().bellDir.Z < 0).to.equal(true)
+			-- ...and the raised grip is a real change, not a copy of the resting one.
 			expect(CONFIG.GRIP_BLOW).never.to.equal(CONFIG.GRIP)
 		end)
 	end)

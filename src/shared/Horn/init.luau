@@ -59,9 +59,25 @@ export type Piece = {
 	reflectance: number?,
 }
 
--- A real brass signal horn is about 0.35 m end to end, which is 1.25 studs at this game's
--- METRES_PER_STUD. 1.3 is that, rounded to the number the sections below divide cleanly.
-local TOTAL = 1.3
+-- THE HORN IS A COIL, NOT A TUBE, and that is Karen's correction after the first build (the
+-- Director, 2026-10-11: *"the horn reads as a straight brass tube / spyglass. A driven-hunt horn is
+-- CURVED (a Fuerst-Pless or Parforce horn: a coiled or half-moon brass tube with a bell)"*). He is
+-- right and the sources said so already: the Oldenburger Jagdcenter *Jagd-Signalhorn aus Messing*
+-- in the note's section 5.1 is a wound brass tube, and a Fuerst-Pless horn is one full turn of it.
+--
+-- SO THE TUBE IS BENT ROUND AN ARC. A real Fuerst-Pless coil is about 0.25 m across, which is 0.9
+-- studs at this game's `METRES_PER_STUD` -- so the arc's RADIUS is 0.38 and the coil is 0.76 studs
+-- across before the bell flares past it.
+local ARC_RADIUS = 0.38
+-- A C, not a closed ring: 230 degrees leaves the mouthpiece and the bell clearly apart, so the
+-- object reads as a horn from any angle instead of as a brass doughnut.
+local ARC_DEGREES = 230
+-- The Director asked for 4-6. Five chords of a 230-degree arc turn 46 degrees at each joint, which
+-- is a visible bend at this size and still cheap: nine parts in all.
+local ARC_SEGMENTS = 5
+-- The bore, mouthpiece end to bell end. A signal horn is conical for most of its length.
+local BORE_START = 0.09
+local BORE_END = 0.22
 
 Horn.CONFIG = {
 	-- ---------------------------------------------------------------- the blast
@@ -137,12 +153,18 @@ Horn.CONFIG = {
 	-- THE HANDLE IS THE ENVELOPE, NOT THE HORN, and it is invisible for the same reason the gun's is
 	-- (Task 71): the horn is the welded pieces below, so the Handle's own box would be a slab
 	-- through the middle of it. Set HANDLE_TRANSPARENCY to 0 to see the box they are laid out in.
-	HANDLE_SIZE = Vector3.new(0.3, 0.3, TOTAL),
+	HANDLE_SIZE = Vector3.new(0.5, 1.1, 1.1),
 	HANDLE_TRANSPARENCY = 1,
 	HANDLE_COLOR = Color3.fromRGB(205, 160, 60),
-	-- The hand grips just behind the middle, where a horn balances. -Z is the bell, so the bell
-	-- points away from the player and the mouthpiece is the end nearest him.
-	GRIP = CFrame.new(0, 0, 0.25),
+	-- LOWER AND TO THE RIGHT, which is the first of the two answers the Director offered for the
+	-- first-person view (*"hold it lower and to the right, as a hand would, or hide it in first
+	-- person until a blast"*). **This task picks HOLD IT**, and the reason is ownership rather than
+	-- taste: hiding it until a blast would make `Camera.Rig`'s rule depend on the horn's per-player
+	-- blast TIMING, so the camera would have to read weapon state every frame and the horn would pop
+	-- in and out of the hand. The rule stays static -- a non-weapon Tool in the hand is visible --
+	-- and the horn is simply carried where a carried thing hangs: below the hand and outboard of it,
+	-- so it sits in the bottom-right of a right-handed first-person view instead of across it.
+	GRIP = CFrame.new(-0.12, 0.42, 0.1) * CFrame.Angles(0, 0, math.rad(20)),
 	-- ...AND THE SAME GRIP, TILTED UP, IS THE WHOLE "RAISE TO MOUTH" (the dispatch allows a tilt).
 	-- IT IS A GRIP AND NOT AN ANIMATION ON PURPOSE: raising the ARM means writing the character's
 	-- Motor6Ds or playing a track on its Animator, and the character already has exactly one writer
@@ -150,7 +172,7 @@ Horn.CONFIG = {
 	-- animated an arm would be a second one, which CLAUDE.md rule 3 forbids. `Tool.Grip` is the
 	-- Tool's own property, the engine rebuilds the grip weld when it changes, and `Weapon.Horn` is
 	-- the only thing that ever writes it.
-	GRIP_BLOW = CFrame.Angles(math.rad(-55), 0, 0) * CFrame.new(0, 0, 0.25),
+	GRIP_BLOW = CFrame.new(-0.12, 0.16, 0.26) * CFrame.Angles(math.rad(-60), 0, math.rad(20)),
 
 	-- THE HORN'S COLOURS. Director's pick and Karen's to change (her rule, 2026-09-26: styling never
 	-- blocks). Polished brass, raised well above a photographic albedo for the reason Task 22 and
@@ -163,64 +185,137 @@ Horn.CONFIG = {
 	},
 }
 
--- EVERY PIECE OF THE HORN, in build order, for a Handle of `config.HANDLE_SIZE`. PURE: it creates no
--- Instance, reads no service and holds no state, so a spec can assert every proportion with no Tool,
--- no character and no physics. The same division this repo already uses twice -- a pure list plus
--- one builder: `Weapon.Shape` plus `Weapon.Hardware`, and `MapGen.Layout` plus `MapGen.Props`.
+-- EVERY PIECE OF THE HORN, in build order. PURE: it creates no Instance, reads no service and holds
+-- no state, so a spec can assert every proportion with no Tool, no character and no physics. The
+-- same division this repo already uses twice -- a pure list plus one builder: `Weapon.Shape` plus
+-- `Weapon.Hardware`, and `MapGen.Layout` plus `MapGen.Props`.
 --
--- A TAPERED TUBE AND A FLARED BELL, which is what a signal horn is: five sections of growing
--- diameter laid nose to tail along the Handle's own Z, the nickel mouthpiece at the +Z end nearest
--- the player and the bell mouth landing exactly on -Z half.
+-- A COILED TUBE WITH A FLARED BELL, which is what a hunting horn is. The tube is `ARC_SEGMENTS`
+-- straight cylinders laid along a `ARC_DEGREES` arc of radius `ARC_RADIUS` in the Handle's own YZ
+-- plane -- each one a CHORD between two points ON the arc, so consecutive sections share an endpoint
+-- exactly and the joints cannot gap however the numbers are changed. The bore widens section by
+-- section from `BORE_START` to `BORE_END`, the nickel mouthpiece sits tangent at the near end, the
+-- flare and bell tangent at the far end, and the carrying cord closes the C.
+--
+-- WHY THE ARC IS IN THE YZ PLANE: `ARC_NORMAL` is the Handle's X, so the coil lies in the plane a
+-- carried horn hangs in, and `CFrame.lookAt` below can take X as its up vector -- which it must,
+-- because a tangent of an arc in that plane is sometimes exactly the world up and `lookAt` is
+-- degenerate when the two are parallel.
+local ARC_NORMAL = Vector3.xAxis
+
+-- Where the tube's centreline is at angle `t` (radians), and which way it is going there. The bell
+-- is at `BELL_ANGLE`, where the tangent is the Handle's -Z -- so the bell faces FORWARD, away from
+-- the player, which is what `GRIP` assumes.
+local BELL_ANGLE = math.pi / 2
+
+local function arcPoint(t: number): Vector3
+	return Vector3.new(0, ARC_RADIUS * math.sin(t), ARC_RADIUS * math.cos(t))
+end
+
+-- A cylinder's length runs along its own X, so a section lying along `dir` is `lookAt` (whose
+-- LookVector is -Z) turned a quarter turn about Y. The same quarter turn `Weapon.Shape` uses for the
+-- gun's barrels, applied to a frame that is no longer axis-aligned.
+local function lyingAlong(centre: Vector3, dir: Vector3): CFrame
+	return CFrame.lookAt(centre, centre + dir, ARC_NORMAL) * CFrame.Angles(0, math.pi / 2, 0)
+end
+
 function Horn.pieces(config): { Piece }
 	local look = config.LOOK
-	local half = config.HANDLE_SIZE.Z / 2
-	-- A cylinder's length runs along its own X, so every section is turned a quarter turn to lie
-	-- along Z. The same `lying` rotation `Weapon.Shape` uses for the gun's barrels.
-	local lying = CFrame.Angles(0, math.pi / 2, 0)
+	local span = math.rad(ARC_DEGREES)
+	-- Travelling forward along the arc and ENDING at the bell, so the bell's tangent is -Z.
+	local from = BELL_ANGLE - span
 
 	local pieces: { Piece } = {}
-	-- Laid from the mouthpiece end forwards, each section starting where the last one ended, so the
-	-- LENGTHS are the only numbers: no section's centre is a second guess that could leave a gap or
-	-- an overlap. `z` tracks the near face of the next piece.
-	local z = half
-	local function tube(name: string, length: number, diameter: number, color: Color3)
+	local function add(name: string, centre: Vector3, dir: Vector3, length: number, diameter: number, color: Color3)
 		table.insert(pieces, {
 			name = name,
 			size = Vector3.new(length, diameter, diameter),
-			offset = CFrame.new(0, 0, z - length / 2) * lying,
+			offset = lyingAlong(centre, dir),
 			color = color,
 			material = Enum.Material.Metal,
 			shape = Enum.PartType.Cylinder,
 			reflectance = 0.15, -- polished
 		})
-		z -= length
 	end
 
-	tube("Mouthpiece", 0.14, 0.14, look.mouthpiece)
-	tube("Throat", 0.34, 0.1, look.brass)
-	tube("Tube", 0.36, 0.16, look.brass)
-	tube("Flare", 0.26, 0.28, look.brass)
-	tube("Bell", 0.2, 0.46, look.brass)
+	-- THE MOUTHPIECE, tangent at the near end and just short of it, so the cup reads as a separate
+	-- fitting rather than as the first section in a different colour.
+	local head = arcPoint(from)
+	local headDir = (arcPoint(from + 0.01) - head).Unit
+	add("Mouthpiece", head - headDir * 0.05, headDir, 0.1, 0.13, look.mouthpiece)
 
-	-- THE CARRYING CORD, the one piece that is not the instrument: a signal horn hangs on a cord
-	-- round the neck, and without it the object reads as a plumbing fitting. Cosmetic, one block,
-	-- slung under the tube.
+	-- THE TUBE: one chord per segment, each starting where the last one ended.
+	local last, lastDir = head, headDir
+	for index = 1, ARC_SEGMENTS do
+		local a = arcPoint(from + span * (index - 1) / ARC_SEGMENTS)
+		local b = arcPoint(from + span * index / ARC_SEGMENTS)
+		local chord = b - a
+		local dir = chord.Unit
+		-- The bore at the MIDDLE of this section, so the taper is even end to end.
+		local bore = BORE_START + (BORE_END - BORE_START) * ((index - 0.5) / ARC_SEGMENTS)
+		add(string.format("Tube%d", index), a + chord / 2, dir, chord.Magnitude, bore, look.brass)
+		last, lastDir = b, dir
+	end
+
+	-- THE FLARE AND THE BELL, tangent at the far end. Two pieces and not one, because a single wide
+	-- disc reads as a washer on the end of a pipe; a cone needs a step.
+	add("Flare", last + lastDir * 0.06, lastDir, 0.12, 0.3, look.brass)
+	add("Bell", last + lastDir * (Horn.BELL_REACH - 0.07), lastDir, 0.14, 0.46, look.brass)
+
+	-- THE CARRYING CORD, the one piece that is not the instrument: a signal horn hangs on a cord, and
+	-- here it closes the C between the mouthpiece end and the bell end -- which is both what the real
+	-- object looks like and what stops the coil reading as a broken ring.
+	local gap = last - head
 	table.insert(pieces, {
 		name = "Cord",
-		size = Vector3.new(0.04, 0.04, 0.52),
-		offset = CFrame.new(0, -0.1, 0.18),
+		size = Vector3.new(gap.Magnitude, 0.035, 0.035),
+		offset = lyingAlong(head + gap / 2, gap.Unit),
 		color = look.cord,
 		material = Enum.Material.Fabric,
-		shape = Enum.PartType.Block,
+		shape = Enum.PartType.Cylinder,
 	})
 
 	return pieces
 end
 
+-- WHERE THE ARC'S TWO ENDS ARE, exported so a spec can assert the shape without re-deriving it and
+-- so nothing else has to know the parametrisation. `bellTangent` is the direction the note leaves in.
+export type Arc = {
+	from: Vector3,
+	to: Vector3,
+	bellDir: Vector3,
+	radius: number,
+	degrees: number,
+	segments: number,
+}
+
+function Horn.arc(): Arc
+	local span = math.rad(ARC_DEGREES)
+	local to = arcPoint(BELL_ANGLE)
+	-- The LAST CHORD's direction, not the tangent at the end: the tube is a polyline, so the bell is
+	-- welded to the chord it grows out of. Re-derived from the same two points `pieces` uses.
+	local beforeLast = arcPoint(BELL_ANGLE - span / ARC_SEGMENTS)
+	return {
+		from = arcPoint(BELL_ANGLE - span),
+		to = to,
+		bellDir = (to - beforeLast).Unit,
+		radius = ARC_RADIUS,
+		degrees = ARC_DEGREES,
+		segments = ARC_SEGMENTS,
+	}
+end
+
+-- How far past the arc's end the bell's outer face sits. One number, read by `pieces` and by
+-- `bellOffset`, so the drawn bell and the published bell cannot drift apart.
+Horn.BELL_REACH = 0.26
+
 -- THE BELL MOUTH, in the Handle's own frame: where the note comes out, and the point a screenshot is
--- checked against. Derived from HANDLE_SIZE, so it cannot disagree with the `Bell` piece above.
-function Horn.bellOffset(config): Vector3
-	return Vector3.new(0, 0, -config.HANDLE_SIZE.Z / 2)
+-- checked against.
+function Horn.bellOffset(_config): Vector3
+	-- The bell's OUTER FACE, derived from the same parametrisation `pieces` uses, so the two cannot
+	-- disagree about where the note comes out.
+	local arc = Horn.arc()
+	return arc.to + arc.bellDir * Horn.BELL_REACH
 end
 
 -- THE SPOOK RADIUS IN STUDS, from whichever unit the config carries. PURE, and the ONE place the

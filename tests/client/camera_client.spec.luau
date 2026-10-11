@@ -24,6 +24,10 @@ local Config = Camera.Config
 local Hud = require(scripts:WaitForChild("Hud"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+-- One fact, for one question: is the Tool in the hand a GUN? (task 152) The owner asks it in
+-- `Camera.Viewmodel` and in `Camera.Rig`, and every case below that excludes a carried
+-- non-weapon Tool asks the SAME one -- never a looser test of its own.
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 -- THE GUN THE VIEWMODEL BUILDS (task 114): its piece list, its sight and its bead colour, so this
 -- file asserts against the one definition rather than against numbers it repeats.
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
@@ -617,6 +621,22 @@ return function()
 				-- the character separately can (measured: it did, twice).
 				local source = Camera.Viewmodel.getSource()
 				local handle = if source then source() else nil
+				-- ...AND A HANDLE IS NOT ENOUGH, SINCE TASK 152: the beater's HORN is a Tool in the
+				-- character, so the source hands one back for a driver who is carrying no gun at all.
+				-- A horn has no viewmodel -- `Camera.Viewmodel` refuses to draw for a non-weapon Tool,
+				-- which is the whole of the fix for "a beater saw a SHOTGUN in first person" -- so the
+				-- claim that applies to it is the EMPTY-HANDED one. The same shared fact the owner
+				-- asks, asked here, rather than a looser test of what is in the hand.
+				local tool = handle and handle.Parent
+				if tool ~= nil and tool:IsA("Tool") and not Weapons.isWeaponTool(tool) then
+					TestKit.note(
+						string.format(
+							"camera_client: this driver carries %s, which is not a weapon; no viewmodel is the claim",
+							(tool :: Tool).Name
+						)
+					)
+					handle = nil
+				end
 				if handle == nil then
 					expect(Camera.Viewmodel.current()).to.equal(nil)
 					expect(Camera.stats().viewmodelParented).to.equal(false)
@@ -1633,7 +1653,14 @@ return function()
 			local stillHidden, total = 0, 0
 			local visible = {}
 			for _, part in ipairs((character :: Model):GetDescendants()) do
-				if part:IsA("BasePart") then
+				-- EVERY PART OF THE BODY, AND NOT WHAT IS IN THE HAND AND IS NOT A GUN (task 152).
+				-- `Camera.Rig` leaves a non-weapon Tool visible ON PURPOSE -- the beater's horn has
+				-- no viewmodel, so hiding it would leave a beater holding nothing at all -- and the
+				-- exclusion here is the SAME shared fact the owner asks, naming exactly that Tool.
+				-- The body check itself is untouched: every other part must still be hidden.
+				local tool = if part:IsA("BasePart") then Camera.Rig.toolAbove(part) else nil
+				local carriedNonWeapon = tool ~= nil and not Weapons.isWeaponTool(tool)
+				if part:IsA("BasePart") and not carriedNonWeapon then
 					total += 1
 					if part.LocalTransparencyModifier == 1 then
 						stillHidden += 1
@@ -1682,16 +1709,32 @@ return function()
 			expect(character).to.be.ok()
 
 			Camera.Rig.setLocalBodyHidden(true)
-			local visible, total = {}, 0
+			local visible, total, carried = {}, 0, 0
 			for _, part in ipairs(character:GetDescendants()) do
 				if part:IsA("BasePart") then
-					total += 1
-					if part.LocalTransparencyModifier ~= 1 then
-						table.insert(visible, part:GetFullName())
+					-- ...EXCEPT WHAT IS IN THE HAND AND IS NOT A GUN (task 152): see the case above.
+					-- Counted rather than silently skipped, so "the horn is the only thing on screen"
+					-- is a number in the note and not an omission.
+					local tool = Camera.Rig.toolAbove(part)
+					if tool ~= nil and not Weapons.isWeaponTool(tool) then
+						carried += 1
+					else
+						total += 1
+						if part.LocalTransparencyModifier ~= 1 then
+							table.insert(visible, part:GetFullName())
+						end
 					end
 				end
 			end
 			Camera.Rig.setLocalBodyHidden(false)
+			if carried > 0 then
+				TestKit.note(
+					string.format(
+						"camera_client: %d part(s) of a carried non-weapon Tool stay drawn, by design",
+						carried
+					)
+				)
+			end
 
 			expect(total > 0).to.equal(true)
 			if #visible > 0 then
