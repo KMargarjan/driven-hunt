@@ -2191,7 +2191,7 @@ function ForestTest.postIndexFor(posts, index: number): number
 	return index
 end
 
--- THE BOAR RUNTIME AS `Match` MAY SEE IT IN THIS WORLD: five reads and two signals, and NO `spawn`,
+-- THE BOAR RUNTIME AS `Match` MAY SEE IT IN THIS WORLD: two signals and three reads, and NO `spawn`,
 -- `spawnSounder` or `clear` (task 157, design section 9.4).
 --
 -- IT IS HOW THE DRIVE SCORES WITHOUT OWNING THE ANIMALS. `Match` connects `Downed` and `Despawned`,

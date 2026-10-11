@@ -445,9 +445,9 @@ Match.PhaseChanged:Connect(function(_before, phase)
 end)
 
 -- HOW LONG THE START LINE BELOW WAITS FOR THE RESPAWN TO SETTLE. `Body.place` pivots on
--- `CharacterAdded` and `Body.settle` pivots again on the next frame, so anything over a frame is
--- enough; one second is long enough to be obviously enough and short enough to read as "at the
--- start".
+-- `CharacterAdded` and `Body.settle` pivots again when that resumption cycle ends (`task.defer`),
+-- so anything over a frame is enough; one second is long enough to be obviously enough and short
+-- enough to read as "at the start".
 local PLACEMENT_SETTLE_SECONDS = 1
 
 -- ONE LINE PER START, AND IT IS PRINTED WHEN THE CHARACTER HAS ACTUALLY LANDED (task 157).

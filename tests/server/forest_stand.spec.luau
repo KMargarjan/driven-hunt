@@ -686,10 +686,13 @@ return function()
 			expect(ForestTest.beaterMode({ "" })).to.equal(false)
 		end)
 
-		it("reads the live teams when it is handed nothing", function()
-			-- The production call takes no argument, so the gathering half is asserted too: whatever
-			-- this place's roster is, the answer is the one the live teams give. The TRUE branch is
-			-- the case above; this is the wiring, and the note says which state it ran in.
+		it("answers for the live roster when it is handed nothing, and does not error", function()
+			-- WHAT THIS PROVES AND WHAT IT DOES NOT (round 2's note, which is right): the gathering
+			-- branch builds its list with the same loop this case does, and in the only roster the
+			-- DEV place has -- one player on `Shooters` -- both sides are false, so `return false`
+			-- would pass it. The case above is what carries the function; this one says the
+			-- no-argument call reaches the live teams and does not error, and the note says which
+			-- state it ran in.
 			local Players = game:GetService("Players")
 			local teams = {}
 			for _, player in ipairs(Players:GetPlayers()) do

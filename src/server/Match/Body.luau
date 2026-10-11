@@ -1017,8 +1017,9 @@ end
 -- that frame, so the move is made after it."* That boot deferred its own write for exactly this
 -- reason; `Body.place` did not, because it had never had to.
 --
--- SO: pivot now (which is right in DEV and costs nothing), and once more on the next frame IF the
--- character has drifted more than a stud from where it was put. `Body.settled()` counts how often
+-- SO: pivot now (which is right in DEV and costs nothing), and once more as soon as this
+-- resumption cycle ends -- `task.defer`, not a frame -- IF the character has drifted more than a
+-- stud from where it was put. `Body.settled()` counts how often
 -- the second one bit, so "it only matters in one world" is a number rather than a belief -- and
 -- there is still ONE writer of where a character stands.
 function Body.settle(character: Model, cframe: CFrame)
