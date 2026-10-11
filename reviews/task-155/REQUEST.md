@@ -1,17 +1,62 @@
 # Task 155 — review request: the map (full map on M, round minimap)
 
 Task: 155
-Round: 1
+Round: 2
 Base: `14eb7e9` (main, after #137)
-Code commit: `ae1fdf786ba30d0b862ee595fe02da8a8d33edc1`
+Code commit: `0f5f9fe46fc6866e83cf03967ad4f80c915d8149`
 
 ```
-[harness] PASS: 33/33 checks @ ae1fdf786ba30d0b862ee595fe02da8a8d33edc1 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 0f5f9fe46fc6866e83cf03967ad4f80c915d8149 (clean tree) scope=all
 [harness2] N/A — nothing in TWO_PLAYER_PATHS is touched (see claim 9)
 ```
 
 The full `test` was run TWICE on this commit, both PASS 33/33 clean
 (`.agent-logs/task155-test1.log`, `task155-test2.log`).
+
+## Round 2 — both blocking findings fixed, and three of the notes
+
+**Finding 1 — the minimap was resized TWICE, and the Reviewer is right.** A `UIScale` scales the
+GuiObject it is parented to, not only its descendants, and **the same run already measured it**: the
+full map was built 984 x 700, `UIScale` 0.897, `AbsoluteSize` 883 x 628. So `layout` writing both
+`mini.Size` and the scale multiplied them, and a 96 px minimap at a 400 px viewport rendered at
+**61 px**, with the picture inside it — built in the fixed 150 px space, half-extent 75 — drawn at
+radius 48 inside a frame of radius 30 under `ClipsDescendants`: **a marker pinned to the rim was
+clipped out of existence**, which is the one thing the pin exists to prevent. Nothing in the run
+could see it, because at this PC's 969 x 784 the diameter is 150 and the scale is exactly 1.
+*Fixed:* the `Size` write is gone and the `UIScale` is the one writer, so
+`AbsoluteSize = MINIMAP_DIAMETER_PX * Scale = diameter` exactly; the button is placed from that same
+rendered diameter. *Pinned:* `MapUi.applyLayout(viewport)` is public, and `map_ui.spec` →
+*"RENDERS at that diameter, at a phone's viewport as well as at this one"* asserts the live
+`AbsoluteSize` at 400 x 800 and at 1920 x 1080. **Its note from this run:**
+`map: minimap renders 96 px at 400x800 (want 96) and 150 px at 1920x1080 (want 150)`.
+
+That case took a second go and the reason is worth having: `applyLayout` originally just laid out,
+and the 20 Hz tick re-read the real `ViewportSize` and undid it **within 50 ms, between the call and
+the read** — the case saw 150 where it had asked for 96. `applyLayout(v)` now **pins** the viewport
+until `applyLayout(nil)` gives the screen back, which is the same explicit-seam shape as the flag
+and pose overrides; `MapUi.pinnedViewport()` lets the case assert it gave it back.
+
+**Finding 2 — the toggle count proved nothing about the key, and the Reviewer is right.**
+`stats.toggles` counts every change including the spec's own `setOpen` calls, so `toggles >= 2`
+passed with the M binding deleted — and that case was the whole of "a real M arrives" (rule 6).
+*Fixed:* `stats.keyToggles` is incremented **only** inside the bound action's `Begin`, which nothing
+a caller can reach, and the case asserts it **equals** the scenario's two presses.
+
+**Three notes that were real defects rather than wording, fixed in the same round:**
+- `geometryFor` fell through to the DEV geometry for **any** unrecognised world, so the next place
+  id added to `Map.WORLD_BY_PLACE` would have drawn the DEV road over a place that never heard of
+  it — wrong rather than absent, the opposite of design section 5.4. It compares `EXPECTED_WORLD`
+  now, and the spec asserts `geometryFor("some-new-place", nil, Map) == nil`.
+- `markerPoints` read a team back as `""` where `pointsFor` answers `nil` (an attribute cannot hold
+  nil). One shape for one answer.
+- `stats.pinned` was cumulative while `stats.overflow` beside it was per tick. Per tick now.
+
+**The remaining notes are queued as 155c** in `TASKS.md`, including the two the Architect owns (the
+design's owner table gives the frames' sizing to `Hud.build` while `MapUi.layoutFor`/`setGeometry`
+write it, and section 5.2's bounds are stale by the road's amplitude — the live span is 1,720 x
+1,130, which the spec's own note prints). **REQUEST claim 7's wording was overstated and the
+Reviewer is right about that too:** the intersection case measures the minimap and the button, not
+the full map's panel; claim 7 below now says so.
 
 ## What changed
 
@@ -40,10 +85,15 @@ A new system, to `docs/design/map-ui.md` (Architect PASS, `ARCH_RESULT.md`), fro
    weighs three patterns with licence and maintenance status; `MapUi`'s header carries the fact and
    the link. No `ViewportFrame` and no image asset appear anywhere in the diff.
 
-2. **One owner, and `Hud` is still it.** `Hud.build` creates the three nodes and writes their size,
-   position and `ZIndex`; `MapUi` writes everything inside them **and their `Visible`**.
+2. **One owner, and `Hud` is still it.** `Hud.build` CREATES the three nodes and writes their
+   `ZIndex`, `ClipsDescendants`, colours and their starting size and position; `MapUi` writes
+   everything inside them, their `Visible`, and — from `layoutFor` and `setGeometry` — their live
+   size and position thereafter. **Round 1's wording said the sizing stays with `Hud.build` and the
+   Reviewer is right that it does not;** the code says so for the full map
+   (*"Its size is written by `MapUi` … the offset here is only what it starts at"*) and the design's
+   owner table does not, which is queued for the Architect as 155c.
    *Verify:* `Hud.build` — `miniMap`/`fullMap`/`mapButton`; the only writers of `.Visible` on those
-   frames are `MapUi.applyVisibility` and `layout`'s siblings. `grep -n "MiniMap\|FullMap" src/client/Hud/init.luau`.
+   frames are `MapUi.applyVisibility`. `grep -n "MiniMap\|FullMap" src/client/Hud/init.luau`.
 
 3. **The compass's two-writer arrangement is deliberately NOT copied.** `Hud.renderScope` states a
    need — `MapUi.setSuppressed(scoped)` — and `MapUi` performs the single write, which is
@@ -68,7 +118,9 @@ A new system, to `docs/design/map-ui.md` (Architect PASS, `ARCH_RESULT.md`), fro
    rule gives, with its word"*, which asserts a beater's `ROAD` differs from a hunter's `DRIVE`.
    **Measured live, as a beater:** `team=Drivers`, `arrow rot=180`, `word='ROAD'`.
 
-7. **Nothing the map draws overlaps anything already on screen, at any viewport.** *Verify:*
+7. **The minimap and the button overlap nothing already on screen.** (Round 1's wording said
+   "nothing the map draws", which overstated it: the full map's PANEL is intersected with nothing,
+   in any world — queued as 155c.) *Verify:*
    `map_ui.spec` → *"keeps the map clear of the drive bar, the tied banner, the compass and the
    readout"* makes each element visible and intersects their `AbsolutePosition`/`AbsoluteSize`
    rectangles — so it cannot hide the way task 125 round 2's defect hid. **Measured live** (viewport
@@ -134,10 +186,15 @@ A new system, to `docs/design/map-ui.md` (Architect PASS, `ARCH_RESULT.md`), fro
   world behind it. Karen's standing rule for this task; `docs/design/map-ui.md` section 20 lists
   them with the Director's start values.
 - **`MapUi.CONFIG.FULL_MIN_HEIGHT_PX`'s warning path** was not reached: this viewport is 784 px tall.
+- **The full map's panel at a phone viewport was not photographed**, only computed. The minimap's
+  rendered diameter IS now asserted at 400 x 800 (finding 1), but design section 16.5's fourth
+  screenshot — the device emulator at a phone profile — is still not taken, and it is the frame that
+  would have shown finding 1 by eye. Said plainly rather than implied.
 
 ## Evidence
 
-- Gate, twice on the code commit: `PASS: 33/33 ... @ ae1fdf78 ... scope=all`.
+- Gate, twice on the code commit: `PASS: 33/33 ... @ 0f5f9fe4 ... scope=all` (and twice again on
+  round 1's `ae1fdf78`).
 - Smoke in the Forest Test on this commit (`driven-hunt-runs/smoke.sh 85`):
   `gun in hand @15s=1 @85s=1 | stacks=0 errorLines=0 | boars=27` → **SMOKE PASS**.
 - **Two screenshots, inspected** (rule 5), both in the Forest Test as a beater,
@@ -148,5 +205,6 @@ A new system, to `docs/design/map-ui.md` (Architect PASS, `ARCH_RESULT.md`), fro
   stands, the own-marker north of it and a `100 m` scale bar.
 - M was pressed as a **real key** through StudioMCP: `before M: mini=true full=false` →
   `after M: mini=false full=true` → `after M again: mini=true full=false`.
-- Spec notes from the run: `map: full view 1720 x 1130 studs at 0.531 px/stud; 9 stands span 637 px`
+- Spec notes from the run: `map: minimap renders 96 px at 400x800 (want 96) and 150 px at
+  1920x1080 (want 150)`, `map: full view 1720 x 1130 studs at 0.531 px/stud; 9 stands span 637 px`
   and `map: 10 ticks in 0.62 s (16.2 Hz, target 20) against 37 frames`.
