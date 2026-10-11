@@ -786,7 +786,14 @@ local function buildDrawer(
 	-- a marker that moved without its label told a beater the drive was south.
 	local arrow = Instance.new("Frame")
 	arrow.Name = "PushArrow"
-	arrow.AnchorPoint = Vector2.new(0.5, 1)
+	-- CENTRED, AND THE SCREENSHOT IS WHY (rule 5, task 155). It was anchored at its BASE (0.5, 1) on
+	-- the reasoning that a bar rotated about its anchor swings about its foot. MEASURED in the Forest
+	-- Test, in both sizes at once: a beater's arrow pointed NORTH while her word `ROAD` and the road
+	-- itself were south. **`GuiObject.Rotation` pivots about the element's CENTRE**, not its
+	-- `AnchorPoint` -- so a 180-degree turn left a symmetric bar exactly where it was drawn, above
+	-- the player. The fix does not depend on the pivot at all: the bar is CENTRED half its own length
+	-- along the bearing, so it runs from the player outward whatever the rotation turns about.
+	arrow.AnchorPoint = Vector2.new(0.5, 0.5)
 	arrow.Size = UDim2.fromOffset(config.ARROW_PX, config.ARROW_LENGTH_PX)
 	arrow.Position = UDim2.fromScale(0.5, 0.5)
 	arrow.BackgroundColor3 = MapUi.COLORS.arrow
@@ -1001,7 +1008,10 @@ local function renderDrawer(drawer: Drawer, sources: { MarkerSource }, me: Vecto
 		return
 	end
 	local bearing = (pushBearing :: number) % 360
-	arrow.Position = UDim2.new(0.5, math.round(point.u), 0.5, math.round(point.v))
+	-- HALF A LENGTH ALONG THE BEARING, so the bar's near end sits on the player and its far end
+	-- points the way to go. See the arrow's own comment in `buildDrawer` for the measurement.
+	local du, dv = MapUi.facingOffsetPx(bearing, config.ARROW_LENGTH_PX / 2)
+	arrow.Position = UDim2.new(0.5, math.round(point.u + du), 0.5, math.round(point.v + dv))
 	arrow.Rotation = bearing
 	arrow.Visible = true
 	local au, av = MapUi.facingOffsetPx(bearing, config.ARROW_LENGTH_PX + 10)

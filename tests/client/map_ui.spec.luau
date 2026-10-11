@@ -606,6 +606,35 @@ return function()
 			expect(beaterBearing).never.to.equal(hunterBearing)
 		end)
 
+		it("runs the push arrow FROM the player TOWARD the way to go", function()
+			-- THE SCREENSHOT CAUGHT THIS AND NO NUMBER DID (rule 5). The arrow was anchored at its
+			-- base on the reasoning that `GuiObject.Rotation` pivots about the `AnchorPoint`; it
+			-- pivots about the element's CENTRE, so a beater's arrow pointed NORTH while her word
+			-- `ROAD` and the road itself were south. This case is the number that would have.
+			local bearing = MapUi.pushBearingDeg()
+			if bearing == nil then
+				return
+			end
+			MapUi.setOpen(false)
+			MapUi.setSuppressed(false)
+			MapUi.render()
+			local mini = Hud.minimap() :: Frame
+			local own = mini:FindFirstChild("Own") :: Frame
+			local arrow = mini:FindFirstChild("PushArrow") :: Frame
+			expect(own.Visible).to.equal(true)
+			expect(arrow.Visible).to.equal(true)
+			local du, dv = MapUi.facingOffsetPx(bearing :: number, CONFIG.ARROW_LENGTH_PX / 2)
+			expect(arrow.Position.X.Offset - own.Position.X.Offset).to.equal(math.round(du))
+			expect(arrow.Position.Y.Offset - own.Position.Y.Offset).to.equal(math.round(dv))
+			-- ...and the WORD is further out along the SAME line, never on the other side of the
+			-- player from the arrow (task 153 round 2's finding, in two dimensions).
+			local word = mini:FindFirstChild("PushWord") :: TextLabel
+			local wu, wv = MapUi.facingOffsetPx(bearing :: number, CONFIG.ARROW_LENGTH_PX + 10)
+			expect(word.Position.X.Offset - own.Position.X.Offset).to.equal(math.round(wu))
+			expect(word.Position.Y.Offset - own.Position.Y.Offset).to.equal(math.round(wv))
+			expect(math.abs(wv) > math.abs(dv) or math.abs(wu) > math.abs(du)).to.equal(true)
+		end)
+
 		it("draws no arrow and no word when the world has stated no direction", function()
 			local was, wasLabel = MapUi.pushBearingDeg(), MapUi.pushLabel()
 			MapUi.setPush(nil, nil)
