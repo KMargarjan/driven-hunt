@@ -195,6 +195,20 @@ local function fakeAccessoryTemplate(attachmentName: string): Model
 	return model
 end
 
+-- A player's OWN accessory, hanging on a named attachment: hair, a hat, whatever their avatar came
+-- with. It carries no `ACCESSORY_TAG`, which is exactly what makes it theirs and not ours.
+local function ownAccessory(name: string, attachmentName: string): Accessory
+	local accessory = Instance.new("Accessory")
+	accessory.Name = name
+	local handle = Instance.new("MeshPart")
+	handle.Name = "Handle"
+	handle.Parent = accessory
+	local attachment = Instance.new("Attachment")
+	attachment.Name = attachmentName
+	attachment.Parent = handle
+	return accessory
+end
+
 -- Every accessory THIS MODULE put on, by its slot. The attribute is what tells ours from a player's
 -- own hat, which `Body.strip` deliberately spares.
 local function wornAccessories(character: Model): { [string]: Instance }
@@ -871,6 +885,68 @@ return function()
 				hum2.Parent = angry
 				expect(Body.dress(angry, "Shooters", ON)).to.equal(true)
 				expect(#outfitParts(angry)).to.equal(HUNTER_PART_COUNT)
+			end)
+			Body.setAccessorySource(saved)
+			if not ok then
+				error(err, 0)
+			end
+		end)
+
+		it("clears the hair a real cap would hide under, and ONLY when the cap actually goes on", function()
+			-- MEASURED, AND IT IS WHY THIS EXISTS (task 151 round 2). The preview showed a hunter in
+			-- a BLACK cap with an orange peak. He was not: our cap was on correctly -- 2.01 x 0.93 x
+			-- 1.43 studs on `HatAttachment` -- and the black was the avatar's OWN hair, 2.08 x 2.05
+			-- x 1.94 on `HairAttachment`, a bowl twice the cap's height in the same place. The
+			-- grey-box hat never had the problem because Task 77 RAISED its crown; a catalog
+			-- accessory hangs where its own attachment puts it and cannot be raised.
+			local saved = Body.accessorySource()
+			local ok, err = pcall(function()
+				Body.setAccessorySource(function(slot)
+					return fakeAccessoryTemplate(if slot == "hat" then "HatAttachment" else "BodyFrontAttachment")
+				end)
+				local character = newRig("Task151Clears")
+				local humanoid = Instance.new("Humanoid")
+				humanoid.Parent = character
+				local hair = ownAccessory("OwnHair", "HairAttachment")
+				hair.Parent = character
+				local ownHat = ownAccessory("OwnHat", "HatAttachment")
+				ownHat.Parent = character
+				-- NOT on an attachment the hat clears, so it must survive: this is the line that
+				-- says the rule is narrow and not "take everything off".
+				local back = ownAccessory("OwnBackpack", "BodyBackAttachment")
+				back.Parent = character
+
+				expect(Body.dress(character, "Shooters", ON)).to.equal(true)
+				expect(wornAccessories(character)["hat"]).to.be.ok()
+				expect(hair.Parent).to.equal(nil)
+				expect(ownHat.Parent).to.equal(nil)
+				-- the hunter's outfit has no vest group, so nothing cleared the back attachment
+				expect(back.Parent).to.equal(character)
+			end)
+			Body.setAccessorySource(saved)
+			if not ok then
+				error(err, 0)
+			end
+		end)
+
+		it("keeps the player's own hair when the slot falls back to plates", function()
+			-- THE OTHER HALF, and it is the half that makes the rule honest: the plates were BUILT
+			-- to live with hair (Task 77 raised the crown for exactly that), so nothing is taken off
+			-- to make room for something that is not coming. A character that loses its hair and
+			-- then gets no cap would be strictly worse than before this task.
+			local saved = Body.accessorySource()
+			local ok, err = pcall(function()
+				Body.setAccessorySource(function(_slot): Instance?
+					return nil
+				end)
+				local character = newRig("Task151KeepsHair")
+				local humanoid = Instance.new("Humanoid")
+				humanoid.Parent = character
+				local hair = ownAccessory("OwnHair", "HairAttachment")
+				hair.Parent = character
+				expect(Body.dress(character, "Shooters", ON)).to.equal(true)
+				expect(#outfitParts(character)).to.equal(HUNTER_PART_COUNT)
+				expect(hair.Parent).to.equal(character)
 			end)
 			Body.setAccessorySource(saved)
 			if not ok then

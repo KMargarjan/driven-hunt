@@ -307,11 +307,28 @@ local VEST_ROWS = {
 -- KAREN'S TWO SENTENCES, AS TWO ROWS (design section 3). "Hunter will have default green pens and
 -- jacket / Also will have orange hat / Beater will have orange hat and orange vest / Default also
 -- green pans and green jacket" -- so: hunter = base + hat, beater = base + hat + vest.
--- A GROUP: one worn thing, its slot, and the parts to build when no accessory is available.
-export type Group = { slot: string, rows: { any } }
+-- A GROUP: one worn thing, its slot, the parts to build when no accessory is available, and which
+-- of the character's OWN attachments the real accessory needs cleared.
+export type Group = { slot: string, rows: { any }, clears: { string } }
 
-local HAT: Group = { slot = "hat", rows = HAT_ROWS }
-local VEST: Group = { slot = "vest", rows = VEST_ROWS }
+-- A REAL CAP IS SWALLOWED BY A BIG HAIR MESH, AND THIS IS THE MEASUREMENT (task 151 round 2).
+-- Looked at the preview and the hunter was wearing a BLACK cap with an orange peak. He was not: our
+-- cap was on correctly -- `SolidCap`, 2.01 x 0.93 x 1.43 studs, on `HatAttachment` -- and the black
+-- was the avatar's OWN hair, 2.08 x 2.05 x 1.94 studs on `HairAttachment`, a bowl twice the cap's
+-- height sitting in the same place. Only the orange peak came out of it.
+--
+-- The grey-box hat never had this problem because Task 77 RAISED its crown to clear a default
+-- avatar's hair (see the OUTFITS header). A catalog accessory cannot be raised: it hangs where its
+-- own attachment puts it, which is the whole reason the engine welds it rather than us.
+--
+-- So each group names the attachments its real accessory needs clear, and `wearAccessory` takes off
+-- the character's own accessories on those -- AND ONLY WHEN A REAL ACCESSORY IS ACTUALLY WORN.
+-- With the plates, hair stays: they were built to live with it. This is a narrower rule than
+-- `Body.strip`'s spare list and it does not change it -- strip still never touches a hat or hair.
+local HAT: Group = { slot = "hat", rows = HAT_ROWS, clears = { "HatAttachment", "HairAttachment" } }
+-- The vest hangs off the torso's front; a player's own front or back torso accessory would fight it
+-- for the same space. Nothing on the head or the limbs is touched.
+local VEST: Group = { slot = "vest", rows = VEST_ROWS, clears = { "BodyFrontAttachment", "BodyBackAttachment" } }
 
 local OUTFITS: { [string]: { base: BaseRow, parts: { Group } } } = {
 	Shooters = { base = BASE, parts = { HAT } },
@@ -614,7 +631,32 @@ end
 -- IT NEEDS A HUMANOID, and that is why the plates can never go away: `AddAccessory` is a Humanoid
 -- method, and the rigs every spec in this file builds have none. A character with no Humanoid wears
 -- the fallback, which is the same answer it has always had.
-local function wearAccessory(character: Model, slot: string): boolean
+-- The character's OWN accessories hanging on any of `attachments`, destroyed. It never touches one
+-- of ours -- those carry `ACCESSORY_TAG` and are removed by `undressAccessories` instead -- and it
+-- is called only when a real accessory is about to take that place, so nothing is removed to make
+-- room for something that then fails to arrive.
+local function clearAttachments(character: Model, attachments: { string }): number
+	local removed = 0
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("Accoutrement") and child:GetAttribute(ACCESSORY_TAG) == nil then
+			local handle = child:FindFirstChild("Handle")
+			local attachment = handle and handle:FindFirstChildWhichIsA("Attachment")
+			if attachment then
+				for _, name in ipairs(attachments) do
+					if attachment.Name == name then
+						child:Destroy()
+						removed += 1
+						break
+					end
+				end
+			end
+		end
+	end
+	return removed
+end
+
+local function wearAccessory(character: Model, group: Group): boolean
+	local slot = group.slot
 	local source = accessorySource
 	if not source then
 		return false
@@ -652,6 +694,10 @@ local function wearAccessory(character: Model, slot: string): boolean
 			d.Massless = true
 		end
 	end
+	-- MAKE ROOM ONLY NOW, with the accessory built and about to go on: if anything above had failed
+	-- the character would still be wearing their own hair and the plates would be built over it,
+	-- exactly as before this task.
+	clearAttachments(character, group.clears)
 	local worked = pcall(function()
 		humanoid:AddAccessory(accessory)
 	end)
@@ -695,7 +741,7 @@ function Body.dress(character: Model?, team: TeamName?, config): boolean
 	-- thing a spec can assert.
 	local rows = {}
 	for _, group in ipairs(outfit.parts) do
-		if wearAccessory(character, group.slot) then
+		if wearAccessory(character, group) then
 			continue
 		end
 		slotsFellBack += 1
