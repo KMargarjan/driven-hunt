@@ -23,6 +23,7 @@
 --
 -- Design: docs/design/beater-kit.md (sections 2, 3), docs/design/asset-pipeline.md (sections 5, 6)
 -- Note:   docs/research/2026-10-11-beater-kit.md section 4.2
+local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 
@@ -93,3 +94,33 @@ print(
 		if ok < #keys then " -- the rest wear the grey-box plates" else ""
 	)
 )
+
+-- AND RE-DRESS WHOEVER WAS ALREADY DRESSED, which is the line that makes the whole thing visible.
+--
+-- MEASURED, 2026-10-11, and without this the feature did not reach the screen at all: the boot wires
+-- the source in its first millisecond and `preload` hits the network, while `CharacterAdded` fires
+-- a second or two into the session -- so the FIRST dress always wins the race and
+-- `Loader.template` still answers nil at that moment. The console said
+-- "2 of 2 catalog accessory(ies) loaded" and the player stood there in grey-box plates.
+-- "A late arrival is late, not lost" is only true if something asks again.
+--
+-- It is one loop in the composition root and no new owner: `Match.Body` still does every write, and
+-- `dressWhenLoaded` is idempotent by construction -- it destroys the folder and this module's own
+-- tagged accessories before it builds anything, so a re-dress cannot leave a player in two hats.
+-- A player with no team yet is a no-op here and is dressed when the drive gives them one.
+if ok > 0 then
+	local redressed = 0
+	for _, player in ipairs(Players:GetPlayers()) do
+		local character = player.Character
+		if character and player.Team then
+			Body.dressWhenLoaded(player, character, Match.CONFIG)
+			redressed += 1
+		end
+	end
+	print(
+		string.format(
+			"[OutfitAssetsBoot] re-dressed %d player(s) who were already on a team when the accessories landed",
+			redressed
+		)
+	)
+end
