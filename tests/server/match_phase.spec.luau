@@ -1097,4 +1097,107 @@ return function()
 			expect(elapsed < 200).to.equal(true)
 		end)
 	end)
+	---------------------------------------------------------------- the forest's drive (task 157)
+
+	describe("a world that owns its own animals", function()
+		-- THE FOREST TEST'S CONFIG, which is `Match.CONFIG` with two scalars overridden at the
+		-- composition root (`Match.WORLD_OVERRIDABLE`): its own drive length, and NO releases --
+		-- the wood there is `ForestTest`'s and the drive must never spawn into it or clear it.
+		local function forest()
+			return config({ DRIVE_SECONDS = 300, BOARS_PER_DRIVE = 0 })
+		end
+
+		it("never asks for an animal, over a whole simulated drive", function()
+			local cfg = forest()
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			expect(state.phase).to.equal("Assigning")
+			local collected
+			-- the intermission plus the whole 300-second drive plus the scoring
+			state, collected = run(state, cfg, 0, 340, 0.25)
+			expect(countKind(collected, "spawnSounder")).to.equal(0)
+			expect(state.boarsReleased).to.equal(0)
+			expect(state.soundersReleased).to.equal(0)
+			-- AND NOT ONE HOLD-BACK EITHER: `maybeRelease` returns on its FIRST predicate
+			-- (`boarsReleased >= BOARS_PER_DRIVE`, true at 0), so there is no retry loop and no
+			-- warning -- which is the whole reason the switch is this number and not a new branch.
+			expect(state.holdbacks).to.equal(0)
+			TestKit.note(
+				string.format("match_phase forest: %d effects over 340 s, 0 spawnSounder, 0 holdbacks", #collected)
+			)
+		end)
+
+		it("still runs every phase, on the forest's own clock", function()
+			local cfg = forest()
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			expect(state.phase).to.equal("Assigning")
+			state = (run(state, cfg, 0, cfg.INTERMISSION_SECONDS + 1, 0.25))
+			expect(state.phase).to.equal("Running")
+			-- 300 and not 600: the drive's length is the one number the forest overrides for feel.
+			state = (run(state, cfg, cfg.INTERMISSION_SECONDS + 1, cfg.DRIVE_SECONDS - 10, 0.5))
+			expect(state.phase).to.equal("Running")
+			state = (run(state, cfg, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS - 9, 15, 0.5))
+			expect(state.phase).to.equal("Scoring")
+		end)
+	end)
+
+	describe("a world asks for one player to change sides", function()
+		local function running(cfg)
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			state = (run(state, cfg, 0, cfg.INTERMISSION_SECONDS + 1, 0.25))
+			expect(state.phase).to.equal("Running")
+			return state
+		end
+
+		it("reassigns exactly that player, with the three effects a join gets", function()
+			local cfg = config({ BOARS_PER_DRIVE = 0 })
+			local state = running(cfg)
+			expect(state.assignment[1]).to.equal("Shooters") -- ODD_PLAYER_TEAM
+			local effects
+			state, effects = Phase.step(state, { kind = "team", userId = 1, team = "Drivers" }, 100, cfg)
+			expect(state.assignment[1]).to.equal("Drivers")
+			expect(table.concat(kinds(effects), ",")).to.equal("assignTeams,placePlayers,refreshArming,broadcast")
+			expect(state.phase).to.equal("Running")
+			-- NO FEED LINE: the feed's kinds are a contract with the Hud's renderer, and a dev
+			-- command in a playtest world is not an announcement.
+			expect(countKind(effects, "feed")).to.equal(0)
+		end)
+
+		it("does nothing at all outside a drive", function()
+			local cfg = config({ BOARS_PER_DRIVE = 0 })
+			local state = ready(cfg)
+			local effects
+			state, effects = Phase.step(state, { kind = "team", userId = 1, team = "Drivers" }, 0, cfg)
+			expect(state.phase).to.equal("Waiting")
+			expect(state.assignment[1]).to.equal(nil)
+			expect(#effects).to.equal(0)
+		end)
+
+		it("ignores a request for a player who is not in the drive", function()
+			local cfg = config({ BOARS_PER_DRIVE = 0 })
+			local state = running(cfg)
+			local effects
+			state, effects = Phase.step(state, { kind = "team", userId = 99, team = "Drivers" }, 100, cfg)
+			expect(state.assignment[99]).to.equal(nil)
+			expect(#effects).to.equal(0)
+		end)
+
+		it("is not sticky: the next drive swaps her back", function()
+			-- Karen, 2026-10-11: *"you start as a hunter then next round you are beater"*. The
+			-- rotation is `SWAP_TEAMS_EACH_DRIVE`, and a request that outlived its drive would pin
+			-- her on one side for ever. The request moves THIS drive; the roster still decides the
+			-- next one off `previousAssignment`.
+			local cfg = config({ BOARS_PER_DRIVE = 0 })
+			local state = running(cfg)
+			state = (Phase.step(state, { kind = "team", userId = 1, team = "Drivers" }, 100, cfg))
+			expect(state.assignment[1]).to.equal("Drivers")
+			-- to the end of the drive, through Scoring, into the next Assigning
+			state = (run(state, cfg, 100, cfg.DRIVE_SECONDS + cfg.SCORE_SECONDS + 2, 0.5))
+			expect(state.phase).to.equal("Assigning")
+			expect(state.driveNumber).to.equal(2)
+			expect(state.assignment[1]).to.equal("Shooters")
+		end)
+	end)
 end

@@ -1,0 +1,279 @@
+# Archived 2026-10-11, Task 157: the Forest Test's own role, placement and report window
+
+Rule 7 (never delete). Taken verbatim from commit 612dbf2 (`main`, before task 157).
+
+WHY IT WENT. The real `Match` now runs in the Forest Test place (`docs/design/forest-drive.md`), and
+with it come the things each of these did for itself:
+
+* **the role.** `ForestTest.roleOf`/`setRole`/`clearRole` + `applyRole` wrote `Player.Team` at the
+  boot. That was not merely a second DECIDER of one fact -- it did not WORK once the drive was there:
+  `Match` reads `state.assignment`, not `Player.Team`, so a player dressed as a beater was still a
+  shooter to the drive (armed, push-credited, unprotected by the safety rule). Replaced by
+  `ForestTest.requestRole`/`takeRequest` (a one-shot request) plus `Match.requestTeam`, with
+  `Match.Body.setTeam` the one writer and `ForestTest.roleFor(team)` the one reader
+  (design section 5.2).
+* **the placement.** `placeFor`/`startAt` wrote `root.CFrame` directly and `spawnPosition` chose the
+  hunter's spot. `Match.Body.place` is the one writer of where a character stands in both worlds now;
+  the arithmetic survives as `ForestTestBoot`'s `placement` provider (design section 4.3), and the
+  hunter's stand comes from the marker parts `ForestTest.Markers` builds at measured ground.
+* **the drive line.** `noDriveLine` returned nil with a comment saying *"there are no drivers in this
+  world"*. That sentence stopped being true the moment the real drive ran there, so both went and
+  `Weapon.setDriveLineProvider(Match.driveLine)` took their place (design section 6.2).
+* **the report window.** The Heartbeat latch on `ForestTest.drive(...).index` is now
+  `Match.PhaseChanged`, in both worlds -- one window owner (design section 7.1). `ForestTest.drive`
+  and `driveIndexAt` are retained as the pure arithmetic their spec drives; this is only the latch.
+
+Nothing here is lost: the rollback in design section 14 is this file plus the one `Match.start(...)`
+call in `ForestTestBoot`.
+
+---
+
+## ForestTest.roleOf / setRole / clearRole, and `state.roles` (src/server/ForestTest/init.luau)
+
+```luau
+function ForestTest.roleOf(userId: number): RoleWord
+	return (state.roles[userId] :: any) or ForestTest.ROLE_DEFAULT
+end
+
+function ForestTest.setRole(userId: number, role: RoleWord): RoleWord
+	state.roles[userId] = role
+	return role
+end
+
+function ForestTest.clearRole(userId: number)
+	state.roles[userId] = nil
+end
+
+	roles = {} :: { [number]: string },
+```
+
+## ForestTest.spawnPosition (src/server/ForestTest/init.luau)
+
+```luau
+-- Where a hunter who has not picked yet should be put: on the road, at the default stand.
+function ForestTest.spawnPosition(): Vector3
+	local at = Data.standPosition(Data.PICK.defaultIndex)
+	-- A little above the road so the character drops onto it rather than into it.
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { Workspace:FindFirstChild("Boars") }
+	local hit = Workspace:Raycast(at + Vector3.new(0, 200, 0), Vector3.new(0, -400, 0), params)
+	local y = if hit then hit.Position.Y else at.Y
+	return Vector3.new(at.X, y + 4, at.Z)
+end
+```
+
+## ForestTestBoot.applyRole (src/server/ForestTestBoot.server.luau)
+
+```luau
+local function applyRole(player: Player)
+	local role = ForestTest.roleOf(player.UserId)
+	Body.setTeam(player, Body.teamForWord(role), Match.CONFIG)
+	-- ...AND THE HORN FOLLOWS THE TEAM (task 152). `/beater` does not respawn anybody, so nothing
+	-- else would notice until the carry sweep came round two seconds later; this makes the switch
+	-- immediate. It is level-triggered and idempotent, so the spawn path below calling it as well
+	-- cannot hand out two.
+	Weapon.Horn.refreshCarry(player)
+	-- ...AND SO DO THE GUNS (task 154), through the arming policy just above. The weapon system has
+	-- its own sweep as well, so this only decides whether she stands there armed for two seconds
+	-- after typing `/beater`. Level-triggered and idempotent, exactly like the line above it.
+	Weapon.refreshArming(player)
+	return role
+end
+```
+
+## ForestTestBoot.placeFor and startAt (src/server/ForestTestBoot.server.luau)
+
+```luau
+local function placeFor(root: BasePart, role): Vector3
+	if role == "beater" then
+		local at = ForestTest.beaterStartPosition()
+		local road = Data.roadPointAt(at.X)
+		root.CFrame = CFrame.lookAt(at, Vector3.new(road.X, at.Y, road.Z))
+		return at
+	end
+	-- FACING THE DRIVE. `CFrame.new(position)` carries no rotation, so the character landed looking
+	-- down -Z -- SOUTH, with his back to every animal in the world; the console's own camera line
+	-- said look z = -0.99. North is +Z here (a holding at `roadZ + northStuds` has the larger z), so
+	-- he is turned to face it.
+	local at = ForestTest.spawnPosition()
+	root.CFrame = CFrame.lookAt(at, at + Vector3.zAxis)
+	return at
+end
+
+local function startAt(player: Player, root: BasePart, role)
+	local at = placeFor(root, role)
+	-- ONE LINE PER START, and it is the evidence: where she was put, how far that is from the road,
+	-- and which role put her there. A tool that requires this module over StudioMCP gets a sandboxed
+	-- copy with empty state (measured, task 122), so the console is the only honest channel.
+	print(
+		string.format(
+			"[ForestTest] %s starts as a %s at (%.0f, %.0f, %.0f), %.0f studs from the road",
+			player.Name,
+			tostring(role),
+			at.X,
+			at.Y,
+			at.Z,
+			at.Z - Data.roadZ(at.X)
+		)
+	)
+	if role ~= "hunter" then
+		return
+	end
+	ForestTest.openPick(player.UserId, os.clock())
+	-- He lands on the road at the default stand; where he WALKS in the next ten seconds is the
+	-- choice, and the timer below is the save.
+	task.delay(Data.PICK.seconds, function()
+		if player.Parent == nil or root.Parent == nil then
+			return
+		end
+		-- ...UNLESS HE ASKED TO BE A BEATER WHILE THE WINDOW RAN (task 153). Locking a stand for a
+		-- beater would put a hunter in `ForestTest.hunterStandX` who is not standing there, and the
+		-- drive aims every wave at that x.
+		if ForestTest.roleOf(player.UserId) ~= "hunter" then
+			return
+		end
+		local index = ForestTest.lockPick(player.UserId, root.Position, os.clock())
+		print(string.format("[ForestTest] %s took stand %d", player.Name, index))
+	end)
+end
+```
+
+## ForestTestBoot's noDriveLine (src/server/ForestTestBoot.server.luau)
+
+```luau
+-- THIS WORLD HAS NO DRIVE LINE, AND REGISTERING ONE CRASHED EVERY SHOT.
+--
+-- The first version returned `{ from, to }`. `Shotgun.DriveLine` is `{ position, normal }`, so
+-- `line.normal` was nil and every single shot died in the safety arc:
+--
+--   ServerScriptService.Weapon.SafetyArc:15: attempt to index nil with 'Magnitude'
+--   Script 'ServerScriptService.Weapon', Line 462 - function onFireRequest
+--
+-- It was also wrong for a second and better reason, which is why this is a deletion and not a
+-- repair. THE SAFETY ARC EXISTS TO PROTECT DRIVERS. There are no drivers in this world -- the
+-- beaters are phantoms with nobody standing on them -- and a line whose normal pointed north would
+-- flag every shot at the boars Karen is here to shoot. The old comment claimed the opposite ("every
+-- shot reads as safe, which would make the one thing Karen wants to test test nothing"); that was
+-- reasoning about a drive this place does not have.
+--
+-- `Weapon.setDriveLineProvider` takes `Shotgun.DriveLineProvider`, which may answer nil, and the
+-- weapon already treats "no line" as "nothing to be unsafe toward". The annotation is deliberate:
+-- the wrong shape was a runtime crash and should have been a type error.
+local noDriveLine: Shotgun.DriveLineProvider = function()
+	return nil
+end
+Weapon.setDriveLineProvider(noDriveLine)
+```
+
+## ForestTestBoot's own HitLog window latch, inside the Heartbeat (src/server/ForestTestBoot.server.luau)
+
+```luau
+-- WHICH REPORTING PERIOD THE RECORD IS IN (task 124). This world has no phase signal to listen to, so
+-- the root latches on `ForestTest.drive`'s own window: when the index moves, the old drive closes and
+-- a new one opens. It moves nothing else -- see `ForestTest.DRIVE`.
+local lastDriveIndex = 0
+
+RunService.Heartbeat:Connect(function()
+	local now = os.clock()
+	local drive = ForestTest.drive(now)
+	if drive.index ~= lastDriveIndex then
+		if lastDriveIndex > 0 then
+			HitLog.closeDrive(now)
+		end
+		lastDriveIndex = drive.index
+		HitLog.openDrive(drive.index, now)
+		-- ONE LINE PER DRIVE, which in this world is one per five minutes. It is the only way anybody
+		-- outside the server can see that the reporting window rolled over: a tool that `require`s
+		-- this module over StudioMCP gets a SANDBOXED COPY with empty state (measured, task 122), so
+		-- the console is the only honest channel for "what is the record doing".
+		print(string.format("[report] drive %d opened (%ds windows)", drive.index, Data.DRIVE.seconds))
+	end
+	local line = ForestTest.step(now)
+```
+
+## ForestTestBoot's player wiring: PlayerAdded / Chatted / CharacterAdded / PlayerRemoving (src/server/ForestTestBoot.server.luau)
+
+```luau
+Players.PlayerAdded:Connect(function(player)
+	-- WHICH ROLE SHE STARTS AS (task 153). Karen: *"how to start a game as a beter?"* -- so Play
+	-- itself can put her on the drive side, without a word typed, when the Director has set the
+	-- switch. Nothing set means the hunter this world has always started her as.
+	local startRole = ForestTest.startRole(ServerStorage:GetAttribute(Data.START_ROLE_ATTRIBUTE))
+	if startRole ~= nil then
+		ForestTest.setRole(player.UserId, startRole)
+		print(string.format("[ForestTest] %s joins as a %s (start switch)", player.Name, startRole))
+	end
+
+	player.Chatted:Connect(function(message)
+		local role = ForestTest.parseRole(message)
+		if role == nil then
+			return
+		end
+		ForestTest.setRole(player.UserId, role)
+		applyRole(player)
+		local character = player.Character
+		-- SHE IS LEAVING THE STAND, WHICHEVER WAY SHE IS GOING (task 153): a beater has no stand at
+		-- all, and a hunter coming back picks one again from where he lands. Clearing it also keeps
+		-- `hunterStandX` -- which is where the drive aims every wave -- from naming a stand nobody
+		-- is on.
+		ForestTest.clearPick(player.UserId)
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if root then
+			startAt(player, root :: BasePart, role)
+		end
+		local folder = character and character:FindFirstChild(Body.OUTFIT_NAME)
+		local worn = 0
+		if folder then
+			for _, child in ipairs(folder:GetChildren()) do
+				if child:IsA("BasePart") then
+					worn += 1
+				end
+			end
+		end
+		-- ONE LINE PER SWITCH, and it is the evidence. A tool that requires this module over
+		-- StudioMCP gets a sandboxed copy with empty state (measured, task 122), so the console is
+		-- the only honest channel for "which role is he, and is he wearing it".
+		print(string.format(
+			"[ForestTest] %s is now a %s (team=%s, %d outfit part(s), horn=%s)",
+			player.Name,
+			role,
+			tostring(Body.teamOf(player)),
+			worn,
+			-- WHETHER HE IS ACTUALLY CARRYING ONE, read off the live tree and not off a table
+			-- (task 152): "he is a beater" and "he has a horn in his hand" are two facts, and
+			-- the only honest channel for the second one is this console (a tool that requires
+			-- this module over StudioMCP gets a sandboxed copy with empty state).
+			tostring(Weapon.Horn.held(player) ~= nil)
+		))
+	end)
+
+	player.CharacterAdded:Connect(function(character)
+		-- DRESSED FIRST, before the root wait below: a player who asked to be a beater is a beater
+		-- from the first frame of the new character, and `Body.setTeam` -> `dressWhenLoaded` is what
+		-- holds the green against the appearance load that is still on its way.
+		local role = applyRole(player)
+		local root = character:WaitForChild("HumanoidRootPart", 10)
+		if root == nil then
+			return
+		end
+		-- DEFERRED, as it was before task 153: the spawn location has just put the character down
+		-- and `CharacterAdded` runs inside that frame, so the move is made after it.
+		task.defer(function()
+			if root.Parent == nil then
+				return
+			end
+			startAt(player, root :: BasePart, role)
+		end)
+	end)
+end)
+...
+Players.PlayerRemoving:Connect(function(player)
+	ForestTest.clearPick(player.UserId)
+	-- AND THE TWO THINGS TASK 151 ADDED. `Match.forget` never runs in this world -- `MatchBoot`
+	-- stands aside here -- so without this line the role request and `Body`'s own appearance window
+	-- would be the one thing that leaks in the Forest Test (beater-kit design section 9 item 4).
+	ForestTest.clearRole(player.UserId)
+	Body.forget(player.UserId)
+end)
+```

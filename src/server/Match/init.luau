@@ -182,7 +182,9 @@ Match.CONFIG = {
 	SAFETY_GRACE_SECONDS = 0, -- K, no grace: the rule is the rule from the first second
 	-- THE ONLY PERMITTED SHAPE for a flagged value: a read, never a literal beside a flag of the
 	-- same name. There is still one source of truth (Flags.DEFAULTS, reviewed in git) and
-	-- Match.CONFIG is still the one table the drive reads. Penalty.expired is untouched: it already
+	-- Match.CONFIG is still the one table the drive's DEFAULTS live in -- and this key is not on
+	-- `Match.WORLD_OVERRIDABLE`, so no world can give the rule a second value (task 157,
+	-- docs/design/forest-drive.md section 4.2.3). Penalty.expired is untouched: it already
 	-- takes `config`, which is what lets a spec exercise BOTH states without touching this one.
 	-- K, Karen's rule as written; flag: docs/design/feature-flags.md
 	TIE_UNTIL_DRIVE_END = Flags.isOn("TIE_UNTIL_DRIVE_END"),
@@ -207,11 +209,80 @@ Match.CONFIG = {
 
 Drive.deepFreeze(Match.CONFIG)
 
+-- ------------------------------------------------------------------ the config THIS drive runs on
+--
+-- `Match.CONFIG` above is the frozen DEFAULTS and stays exported, because every spec reads it. This
+-- is the table the drive is actually running on, and in the DEV place it IS that table -- the same
+-- object, by identity, so `Match.config() == Match.CONFIG` is the whole proof that a world which
+-- injects nothing changed nothing (docs/design/forest-drive.md section 4.2.5).
+--
+-- A WORLD MAY OVERRIDE A FEW SCALARS AT THE COMPOSITION ROOT, and nothing else may write this:
+-- `Match.start` sets it from `world.config` and `Match.stop` puts it back. Every read inside this
+-- file goes through it, so a drive whose clock says 300 cannot have a safety grace that says 600.
+local config = Match.CONFIG
+
+-- WHICH KEYS A WORLD MAY OVERRIDE, AND THE LIST IS THE WHOLE GUARD (design section 4.2.3). It is an
+-- ALLOW-list rather than a deny-list because the refusals are the point: the safety and tie numbers
+-- are not replicated precisely so a client cannot dodge the rule by eye (docs/design/drive.md
+-- section 3.4), and a per-world value for one of them would be a second answer to one rule IN THE
+-- WORLD KAREN ACTUALLY PLAYS. The roster five (MIN_PLAYERS, MAX_PLAYERS, ODD_PLAYER_TEAM,
+-- SWAP_TEAMS_EACH_DRIVE, DRIVERS_MAY_SHOOT) are the Director's decisions 1 and 7 themselves: a world
+-- that could change them could silently make a solo player a beater. Flag-derived keys
+-- (OUTFITS_ENABLED, QUICK_TEST*) stay out because a second value for a flag is a second boundary
+-- read (docs/design/feature-flags.md). Everything else is simply unasked-for, and an untested
+-- override is worse than none.
+Match.WORLD_OVERRIDABLE = table.freeze({
+	DRIVE_SECONDS = true,
+	INTERMISSION_SECONDS = true,
+	SCORE_SECONDS = true,
+	BOARS_PER_DRIVE = true,
+	FIRST_RELEASE_SECONDS = true,
+	RELEASE_INTERVAL_SECONDS = true,
+	MAX_ALIVE_BOARS = true,
+	STAND_HEIGHT_STUDS = true,
+	PLACE_TIMEOUT = true,
+})
+
+-- PURE, and exported so the spec drives every branch without a world (design section 4.2.2).
+--
+-- NO OVERRIDES MEANS THE DEFAULTS THEMSELVES, by identity -- that is what makes "DEV did not change"
+-- one assertion instead of a list of thirty numbers.
+--
+-- TABLES ARE REFUSED, and the evidence for that is in this repo: `Boar.newRuntime`'s merge replaces a
+-- nested block wholesale, which cost `ForestTestBoot` five hand-written `table.clone`s and
+-- `Boar.newRuntime` two key-by-key special cases, each with a comment about what nil-for-every-number
+-- did. One refusal here is cheaper than three repairs there.
+function Match.mergeConfig(defaults, overrides)
+	if overrides == nil or next(overrides) == nil then
+		return defaults
+	end
+	-- `table.clone` of a frozen table returns an UNFROZEN copy (the idiom `Flags.resolve` uses), so
+	-- the defaults are never mutated.
+	local merged = table.clone(defaults)
+	for key, value in pairs(overrides) do
+		assert(
+			Match.WORLD_OVERRIDABLE[key] == true,
+			string.format("Match.start: a world may not override %s (see Match.WORLD_OVERRIDABLE)", tostring(key))
+		)
+		assert(
+			type(value) ~= "table",
+			string.format("Match.start: %s is a block; a world may override scalars only", tostring(key))
+		)
+		merged[key] = value
+	end
+	return Drive.deepFreeze(merged)
+end
+
+-- The table this drive is running on. `== Match.CONFIG` in the DEV place, and a spec says so.
+function Match.config()
+	return config
+end
+
 type TeamName = Roster.TeamName
 
 local world: any = nil
 local started = false
-local state = Phase.initial(Match.CONFIG)
+local state = Phase.initial(config)
 local board = Score.new()
 local markerSet: any = nil
 local connections: { RBXScriptConnection } = {}
@@ -420,8 +491,8 @@ function Match.snapshot()
 		-- The WIRE IS UNCHANGED (design decision L: no sounder field on it). A player is told how
 		-- many ANIMALS have been released, which is the number that was always meant.
 		boarsReleased = state.boarsReleased,
-		boarsLeft = math.max(0, Match.CONFIG.BOARS_PER_DRIVE - state.boarsAccounted),
-		waitingFor = Phase.waitingFor(state, Match.CONFIG),
+		boarsLeft = math.max(0, config.BOARS_PER_DRIVE - state.boarsAccounted),
+		waitingFor = Phase.waitingFor(state, config),
 		rows = rows,
 		tied = tiedList,
 	})
@@ -433,7 +504,7 @@ local function broadcast(force: boolean?)
 		return
 	end
 	local at = now()
-	if not force and at - lastBroadcast < Match.CONFIG.STATE_MIN_INTERVAL then
+	if not force and at - lastBroadcast < config.STATE_MIN_INTERVAL then
 		return
 	end
 	lastBroadcast = at
@@ -480,7 +551,7 @@ local function applyAssignTeams(assignment)
 		if player then
 			-- CONFIG GOES WITH THE TEAM so the outfit follows it in the same call (M2.8d): an
 			-- assignment that swaps two players does not always come with a respawn.
-			Body.setTeam(player, team, Match.CONFIG)
+			Body.setTeam(player, team, config)
 		end
 		board = Score.setTeam(board, userId, team)
 	end
@@ -515,8 +586,16 @@ local function applyPlace(userIds: { number }?)
 		local player = playersService():GetPlayerByUserId(userId)
 		local team = state.assignment[userId]
 		if player and team and markerSet then
-			local cframe = Body.placementFor(markerSet, team, indexWithinTeam(userId, team), Match.CONFIG)
-			Body.place(player, cframe, Match.CONFIG, function(ok)
+			-- WHERE a player of this team stands may be the WORLD's answer; putting him there is
+			-- still `Body`'s and only `Body`'s (design section 4.3.1). The default IS
+			-- `Body.placementFor`, with the same argument order, so a world that injects nothing
+			-- takes exactly the line this file has always taken.
+			--
+			-- The Forest Test needs it because its road is a sine curve over ground that climbs 56
+			-- studs in 400: `placementFor`'s generic -Z look is up to 23 degrees off the push there.
+			local place = if world and world.placement then world.placement else Body.placementFor
+			local cframe = place(markerSet, team, indexWithinTeam(userId, team), config)
+			Body.place(player, cframe, config, function(ok)
 				if not ok then
 					stats.placementsMissed += 1
 				end
@@ -598,7 +677,7 @@ local function applyFreeze(userId: number)
 	-- but never the -50 -- a listener rebuilding the drive from that signal alone would have missed
 	-- every penalty.
 	local awards
-	board, awards = Score.violation(board, userId, Match.CONFIG)
+	board, awards = Score.violation(board, userId, config)
 	for _, award in ipairs(awards) do
 		scoredSignal:Fire(award)
 	end
@@ -609,7 +688,7 @@ local function applyFreeze(userId: number)
 	-- Only the rope, the freeze and the revoked gun need somewhere to tie him. The half-state the
 	-- review found was Punished going missing with them, so a listener saw a feed line and no event.
 	local tree = if markerSet then Body.anchorFor(markerSet, characterPosition(player)) else nil
-	if not tree or not Body.tie(player, tree, Match.CONFIG) then
+	if not tree or not Body.tie(player, tree, config) then
 		-- Never a nil CFrame, which would silently teleport him to the origin (design section 8.4).
 		stats.tiesWithoutAnchor += 1
 		snapshotCache = nil
@@ -696,14 +775,14 @@ local function dispatch(event)
 		filled.boarCapacity = world.boars:capacity()
 	end
 	local holdbacksBefore = state.holdbacks
-	state, effects = Phase.step(state, filled, now(), Match.CONFIG)
+	state, effects = Phase.step(state, filled, now(), config)
 	snapshotCache = nil
 
 	-- A STALL IS VISIBLE, not folkloric: every hold-back is counted, and crossing HOLDBACK_WARN
 	-- warns ONCE (on the crossing tick, not on every one after it).
 	if state.holdbacks > holdbacksBefore then
 		stats.sounderHoldbacks += state.holdbacks - holdbacksBefore
-		if state.holdbacks == Match.CONFIG.SOUNDER.HOLDBACK_WARN then
+		if state.holdbacks == config.SOUNDER.HOLDBACK_WARN then
 			warn(
 				string.format(
 					"[match] a release has been held back %d times in a row: %d alive, %d entries, capacity %s",
@@ -759,8 +838,8 @@ Match.quickTestEnabled = quickTestEnabled
 -- so a sounder at the line's centre can be 560 studs from the only shooter, and in the capture at
 -- t+13 s and again at t+36 s there was nothing to see. `Body.placementFor` puts shooter number one
 -- on `posts[1]`, so that is the post this stands in front of: the same list, the same index.
-function Match.quickSpawnFor(line, posts, config): Vector3?
-	if not (config and config.QUICK_TEST and line and typeof(line.position) == "Vector3") then
+function Match.quickSpawnFor(line, posts, cfg): Vector3?
+	if not (cfg and cfg.QUICK_TEST and line and typeof(line.position) == "Vector3") then
 		return nil
 	end
 	local x = line.position.X
@@ -769,9 +848,9 @@ function Match.quickSpawnFor(line, posts, config): Vector3?
 		x = first.Position.X
 	end
 	return Vector3.new(
-		x + (config.QUICK_TEST_SIDE_STUDS or 0),
+		x + (cfg.QUICK_TEST_SIDE_STUDS or 0),
 		line.position.Y,
-		line.position.Z + config.QUICK_TEST_AHEAD_STUDS
+		line.position.Z + cfg.QUICK_TEST_AHEAD_STUDS
 	)
 end
 
@@ -819,7 +898,6 @@ end
 -- Nil unless the quick test is on, the drive is running, its first seconds have not passed, and
 -- there is a spawn to stand behind. Exported so the spec can drive all four of those.
 function Match.quickTestPhantom(at: number): Vector3?
-	local config = Match.CONFIG
 	if not config.QUICK_TEST or state.phase ~= "Running" or not state.quickSpawn then
 		return nil
 	end
@@ -846,7 +924,29 @@ function Match.mayCarryWeapon(player: Player): boolean
 	if team == "Shooters" then
 		return true
 	end
-	return team == "Drivers" and Match.CONFIG.DRIVERS_MAY_SHOOT
+	return team == "Drivers" and config.DRIVERS_MAY_SHOOT
+end
+
+-- A WORLD ASKS FOR ONE PLAYER TO CHANGE SIDES, AND THIS OWNER STILL DECIDES (task 157, design
+-- section 5.2). It exists for exactly one caller: the Forest Test's `/beater` command and its start
+-- switch, which used to write `Player.Team` at its own composition root -- and that did not merely
+-- make two deciders, it did not WORK: this system reads `state.assignment`, not `Player.Team`, so a
+-- player who had been dressed as a beater was still a shooter to the drive (armed, push-credited,
+-- unprotected by the safety rule).
+--
+-- IT IS NOT A STICKY PREFERENCE. The roster is untouched, so the next drive's swap happens as it
+-- would have: the request moves this drive, and `SWAP_TEAMS_EACH_DRIVE` keeps the rotation Karen
+-- asked for. Honoured only in `Assigning` and `Running` -- in `Waiting` and `Scoring` there is no
+-- drive to move somebody inside of, and the answer is false.
+--
+-- Returns whether it was honoured, read off the assignment the machine has just written rather than
+-- predicted here: the decision is `Phase`'s.
+function Match.requestTeam(player: Player, team: TeamName?): boolean
+	if team == nil then
+		return false
+	end
+	dispatch({ kind = "team", userId = player.UserId, name = player.Name, team = team })
+	return state.assignment[player.UserId] == team
 end
 
 -- ------------------------------------------------------------------------------ the safety rule
@@ -883,7 +983,7 @@ end
 -- taking that cone as the verdict would tie everybody in the first minute, because a shooter on a post
 -- faces the drive.
 local function onSafetyViolation(player: Player, aim: Vector3, muzzle: Vector3, stopAt: number?)
-	if not Match.CONFIG.SAFETY_ENABLED then
+	if not config.SAFETY_ENABLED then
 		return
 	end
 	if not Phase.isLive(state) then
@@ -894,18 +994,18 @@ local function onSafetyViolation(player: Player, aim: Vector3, muzzle: Vector3, 
 	end
 	local at = now()
 	-- The drive's own start, derived rather than stored: phaseEndsAt is the only clock in this system.
-	local driveStartedAt = state.phaseEndsAt - Match.CONFIG.DRIVE_SECONDS
-	if at - driveStartedAt < Match.CONFIG.SAFETY_GRACE_SECONDS then
+	local driveStartedAt = state.phaseEndsAt - config.DRIVE_SECONDS
+	if at - driveStartedAt < config.SAFETY_GRACE_SECONDS then
 		return
 	end
 	local shot: Penalty.Shot = {
 		userId = player.UserId,
 		muzzle = muzzle,
 		aim = aim,
-		stopAt = stopAt or Match.CONFIG.SAFETY_RANGE_STUDS,
+		stopAt = stopAt or config.SAFETY_RANGE_STUDS,
 		at = at,
 	}
-	local guilty = Penalty.judge(shot, driverPositions(), Match.CONFIG)
+	local guilty = Penalty.judge(shot, driverPositions(), config)
 	if not guilty then
 		return
 	end
@@ -934,7 +1034,7 @@ local function samplePush()
 			pushCredit[handle.id] = credit
 		end
 		for _, driver in ipairs(drivers) do
-			if (driver.position - boarPosition).Magnitude <= Match.CONFIG.POINTS.PUSH_RADIUS then
+			if (driver.position - boarPosition).Magnitude <= config.POINTS.PUSH_RADIUS then
 				credit[driver.userId] = at
 			end
 		end
@@ -949,7 +1049,7 @@ local function creditFor(boarId: string?): { [number]: number }
 	end
 	local at = now()
 	for userId, seen in pairs(credit) do
-		if at - seen <= Match.CONFIG.POINTS.PUSH_WINDOW then
+		if at - seen <= config.POINTS.PUSH_WINDOW then
 			out[userId] = seen
 		end
 	end
@@ -961,11 +1061,11 @@ local function onDowned(record)
 		return -- a shot at a carcass between drives scores nothing
 	end
 	stats.kills += 1
-	if record.killingZone == nil or Match.CONFIG.POINTS.KILL[record.killingZone] == nil then
+	if record.killingZone == nil or config.POINTS.KILL[record.killingZone] == nil then
 		stats.unknownZoneKills += 1
 	end
 	local awards
-	board, awards = Score.kill(board, record, creditFor(record.id), Match.CONFIG)
+	board, awards = Score.kill(board, record, creditFor(record.id), config)
 	for _, award in ipairs(awards) do
 		scoredSignal:Fire(award)
 	end
@@ -988,7 +1088,7 @@ local function onDespawned(record)
 	end
 	stats.escapes += 1
 	local awards
-	board, awards = Score.escape(board, record, Match.CONFIG)
+	board, awards = Score.escape(board, record, config)
 	for _, award in ipairs(awards) do
 		scoredSignal:Fire(award)
 	end
@@ -999,7 +1099,20 @@ end
 -- ------------------------------------------------------------------------------------ lifecycle
 
 local function readMarkers()
-	markerSet = if world.markers then world.markers else Markers.read(world.collection)
+	-- A WORLD MAY HAND OVER A SET, OR A FUNCTION THAT MEASURES ONE (design section 4.1.6). The
+	-- Forest Test's geometry is raycast off its own terrain, so its set has to be built rather than
+	-- held: a table captured once at boot would be a measurement taken before the place had
+	-- finished loading. Every existing caller passes a table and is bit-identical.
+	--
+	-- It is re-read on exactly the two occasions a TAGGED world is re-read, and no others: once a
+	-- second while `Waiting`, and once on entering `Assigning` (`markersStale`).
+	if type(world.markers) == "function" then
+		markerSet = world.markers()
+	elseif world.markers then
+		markerSet = world.markers
+	else
+		markerSet = Markers.read(world.collection)
+	end
 	dispatch({
 		kind = "markers",
 		complete = markerSet.complete,
@@ -1007,7 +1120,7 @@ local function readMarkers()
 		boarSpawns = markerSet.boarSpawns,
 		-- The quick test's own spawn point, computed HERE because this owner is the one that reads
 		-- the markers; `Phase` gets a Vector3 like every other position it is given.
-		quickSpawn = Match.quickSpawnFor(markerSet.line, markerSet.posts, Match.CONFIG),
+		quickSpawn = Match.quickSpawnFor(markerSet.line, markerSet.posts, config),
 	})
 end
 
@@ -1031,11 +1144,11 @@ function Match:step(dt: number)
 	end
 	-- TIE_SECONDS, and only when TIE_UNTIL_DRIVE_END is false. With Karen's value (true) Penalty.expired
 	-- is always false and this loop never frees anybody -- the drive's `release` effect does.
-	if not Match.CONFIG.TIE_UNTIL_DRIVE_END and next(tied) ~= nil then
+	if not config.TIE_UNTIL_DRIVE_END and next(tied) ~= nil then
 		local at = now()
 		local freed = false
 		for userId, record in pairs(tied) do
-			if Penalty.expired(record.at, at, Match.CONFIG) then
+			if Penalty.expired(record.at, at, config) then
 				untie(userId)
 				freed = true
 			end
@@ -1045,8 +1158,8 @@ function Match:step(dt: number)
 		end
 	end
 
-	local interval = 1 / Match.CONFIG.MATCH_STEP_HZ
-	if sinceSample >= 1 / Match.CONFIG.PUSH_SAMPLE_HZ then
+	local interval = 1 / config.MATCH_STEP_HZ
+	if sinceSample >= 1 / config.PUSH_SAMPLE_HZ then
 		sinceSample = 0
 		samplePush()
 	end
@@ -1055,7 +1168,7 @@ function Match:step(dt: number)
 	end
 	accumulator = 0
 	dispatch({ kind = "tick", aliveBoars = boarsAlive() })
-	if now() - lastBroadcast >= Match.CONFIG.STATE_HEARTBEAT then
+	if now() - lastBroadcast >= config.STATE_HEARTBEAT then
 		broadcast(true)
 	end
 end
@@ -1075,7 +1188,7 @@ local function watchCharacter(player: Player)
 		-- THROUGH THE APPEARANCE WINDOW SINCE TASK 151 (`docs/design/beater-kit.md` section 5): the
 		-- outfit now includes the base clothing COLOUR, and a colour is the half that a late
 		-- appearance load can overwrite. The welded hat cannot be; a `BodyColors` write can.
-		Body.dressWhenLoaded(player, character, Match.CONFIG)
+		Body.dressWhenLoaded(player, character, config)
 		local record = tied[player.UserId]
 		if not record then
 			return
@@ -1085,7 +1198,7 @@ local function watchCharacter(player: Player)
 				character:GetPropertyChangedSignal("PrimaryPart"):Wait()
 			end
 			if tied[player.UserId] == record and record.tree.Parent then
-				Body.tie(player, record.tree, Match.CONFIG)
+				Body.tie(player, record.tree, config)
 				refreshArmingFor(player)
 			end
 		end)
@@ -1124,7 +1237,11 @@ function Match.start(injected)
 	assert(not started, "Match.start() called twice")
 	started = true
 	world = injected or {}
-	state = Phase.initial(Match.CONFIG)
+	-- THE WORLD'S OWN NUMBERS, MERGED BEFORE THE FIRST STATE EXISTS (design section 4.2.1):
+	-- `Phase.initial` seeds `seed` from the config, so merging after it would seed the state from the
+	-- wrong table. With no `config` field this is `Match.CONFIG` itself, by identity.
+	config = Match.mergeConfig(Match.CONFIG, world.config)
+	state = Phase.initial(config)
 	board = Score.new()
 	table.clear(names)
 	table.clear(tied)
@@ -1157,7 +1274,7 @@ function Match.start(injected)
 	-- weapon writes nothing about the penalty and knows nothing about it (design section 8.2).
 	if world.weapon and world.weapon.SafetyViolated then
 		table.insert(connections, world.weapon.SafetyViolated:Connect(onSafetyViolation))
-	elseif Match.CONFIG.SAFETY_ENABLED then
+	elseif config.SAFETY_ENABLED then
 		-- A number in the harness report, not a safety rule that silently never fires.
 		stats.safetySignalMissing += 1
 		warn("[match] the weapon has no SafetyViolated signal: the safety rule cannot fire")
@@ -1188,6 +1305,9 @@ function Match.stop()
 	end
 	started = false
 	applyRelease() -- nobody stays frozen because a spec stopped the match
+	-- ...AND THE WORLD'S NUMBERS GO WITH THE WORLD. A spec that started a 300-second drive must not
+	-- leave the next require of this singleton reading 300.
+	config = Match.CONFIG
 	if heartbeat then
 		heartbeat:Disconnect()
 		heartbeat = nil

@@ -691,6 +691,11 @@ BLAST_RADIUS = (
     ("src/client/Match/", "match"),
     ("src/server/Match/", "match"),
     ("src/shared/Drive/", "match"),
+    # The playtest world (task 157): the real `Match` runs there on `ForestTest`'s geometry, so a
+    # change to either half reaches the drive's specs as well as the forest's own.
+    ("src/server/ForestTest/", "match"),
+    ("src/shared/ForestTest/", "match"),
+    ("src/server/ForestTestBoot.server.luau", "match"),
     ("src/server/Boar/", "boar"),
     ("src/server/BoarAssetsBoot.server.luau", "boar"),
     ("src/shared/Map/", "map"),
@@ -728,7 +733,11 @@ SCOPE_SPECS = {
              # A horn blast is a boar stimulus (task 152), so a change to either side reaches it.
              "tests/server/zz_horn.spec.luau",
              "tests/client/shoot_boar.spec.luau"),
-    "match": ("tests/server/match_live.spec.luau", "tests/server/match_outfit.spec.luau",
+    # The real drive runs in TWO places since task 157 (the DEV world and the Forest Test), so the
+    # per-world config merge and the forest's own marker set are this scope's as well:
+    # `src/server/Match/` and `src/server/ForestTest/` are what either of them can break.
+    "match": ("tests/server/match_config.spec.luau", "tests/server/forest_markers.spec.luau",
+              "tests/server/match_live.spec.luau", "tests/server/match_outfit.spec.luau",
               "tests/server/match_phase.spec.luau", "tests/server/match_roster.spec.luau",
               "tests/server/match_safety.spec.luau", "tests/server/match_score.spec.luau",
               "tests/server/match_teams.spec.luau", "tests/server/zz_drive_boundary.spec.luau",

@@ -32,6 +32,10 @@ local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 
 local Line = require(script.Line)
+-- THE MARKER SET THIS WORLD HANDS THE DRIVE (task 157). A child module, like `Line`: it writes
+-- `Workspace.ForestMarkers` and nothing else, and it requires this module back in no way at all --
+-- its two ground readers are injected at the bottom of this file.
+local Markers = require(script.Markers)
 
 local ForestTest = {}
 ForestTest.Data = Data
@@ -373,12 +377,14 @@ local state = {
 	waveIndex = 0,
 	active = {} :: { { centre: Vector3, handles: { any }, at: number, turnsBack: boolean, id: string } },
 	picks = {} :: { [number]: { index: number, lockedAt: number? } },
-	-- WHICH ROLE A PLAYER HAS ASKED FOR, in Karen's own words (task 151, beater-kit design section
-	-- 9). It sits beside `picks` because it is the same kind of fact -- what this player chose in
-	-- this playtest -- and it is a REQUEST and not the truth: `Player.Team`, written by
-	-- `Match.Body.setTeam`, is the truth, and `Body.teamOf` stays its one reader. This module writes
-	-- no Instance for it and does not require `Match`.
-	roles = {} :: { [number]: string },
+	-- WHICH ROLE A PLAYER HAS ASKED FOR AND NOT YET BEEN GIVEN, in Karen's own words (task 151,
+	-- beater-kit design section 9; task 157 made it a one-shot). It sits beside `picks` because it is
+	-- the same kind of fact -- what this player chose in this playtest -- and it is A REQUEST AND NOT
+	-- THE TRUTH: `Player.Team`, written by `Match.Body.setTeam` from the drive's own roster, is the
+	-- truth, and `ForestTest.roleFor` reads it. It is CLEARED when it is honoured, so it can never
+	-- defeat the drive's rotation. This module writes no Instance for it and does not require
+	-- `Match`.
+	requests = {} :: { [number]: string },
 	released = 0,
 	-- TASK 127. Declared here rather than springing into existence in `start`, so `stats()` on a
 	-- module that has not been started -- which is exactly what a harness query gets, because MCP's
@@ -447,7 +453,7 @@ function ForestTest.realBeaters(): { { id: string, position: Vector3 } }
 	for _, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
 		local root = character and character.PrimaryPart
-		if root ~= nil and ForestTest.roleOf(player.UserId) == "beater" then
+		if root ~= nil and ForestTest.roleOfPlayer(player) == "beater" then
 			table.insert(out, { id = tostring(player.UserId), position = (root :: BasePart).Position })
 		end
 	end
@@ -483,7 +489,7 @@ function ForestTest.boarThreats(now: number)
 			table.insert(out, {
 				id = tostring(player.UserId),
 				position = root.Position,
-				kind = ForestTest.threatKind(ForestTest.roleOf(player.UserId)),
+				kind = ForestTest.threatKind(ForestTest.roleOfPlayer(player)),
 			})
 		end
 	end
@@ -513,6 +519,13 @@ end
 
 -- THE LIVE READER over this world's own start time (task 124). It lives below `state` because that is
 -- where `state` exists; the arithmetic above it is pure and testable without one.
+--
+-- SINCE TASK 157 IT HAS NO PRODUCTION CALLER, and that is said here rather than left to be
+-- discovered: the report's window is now the real drive's own phases (`Match.PhaseChanged`, in both
+-- worlds, docs/design/forest-drive.md section 7.1). This and `driveIndexAt` are RETAINED as the pure
+-- window arithmetic `forest_stand.spec` drives, and `Data.DRIVE.seconds` is still the one home of the
+-- number the forest's `DRIVE_SECONDS` override is read from. If nothing claims them by the next
+-- audit they are archived with a note (rule 7) -- a function nothing reads is the next reader's trap.
 function ForestTest.drive(now: number)
 	-- `state.startedAt` IS A NUMBER, ALWAYS: it is initialised to 0 and `ForestTest.start` sets it
 	-- before the first heartbeat. The `or now` that used to be here could never fire -- 0 is truthy
@@ -716,14 +729,24 @@ end
 
 -- ---------------------------------------------------------------- which role, in this world only
 --
--- THE FOREST TEST HAS NO BEATERS: its drivers are phantom positions with nobody standing on them
--- (`ForestTest.boarThreats`), and Karen tests alone. So that she can SEE a beater -- the thing task
--- 151 built -- she asks for one by typing in the chat, and these four functions are the whole of
--- "which role has this player asked for" (beater-kit design section 9).
+-- THE FOREST TEST HAS NO BEATERS OF ITS OWN: its drive's beaters are phantom positions with nobody
+-- standing on them (`ForestTest.boarThreats`), and Karen tests alone. So that she can BE one she
+-- asks for it -- by typing in the chat, or through the Director's start switch.
 --
--- IT ANSWERS IN KAREN'S WORDS, not in team names. `Match.Body.teamForWord` is the one translator
--- from "beater" to "Drivers", and keeping it there is what stops this file becoming a second place
--- where that mapping is written down.
+-- SINCE TASK 157 THAT ASK IS A REQUEST AND NOT THE TRUTH, and the change is not cosmetic. The real
+-- `Match` runs in this place now, and it reads `state.assignment` -- not `Player.Team`. So the old
+-- `setRole` + `Body.setTeam` pair did not merely make two deciders of one fact: it did not WORK. A
+-- player dressed as a beater was still a SHOOTER to the drive -- armed, push-credited and
+-- unprotected by the safety rule.
+--
+-- SO: the request is recorded here, `Match.requestTeam` is what honours it, `Match.Body.setTeam`
+-- stays the one writer of `Player.Team`, and every reader below asks THE TEAM. `roleFor` is the one
+-- translation from a team to Karen's word, and `Match.Body.teamForWord` remains the one translation
+-- the other way (this file still does not require `Match`).
+--
+-- `roleOf`, `setRole`, `clearRole` and `state.roles` are gone, archived with a note at
+-- `backups/2026-10-11_foresttest_roles.txt` (rule 7).
+-- Design: docs/design/forest-drive.md section 5.2
 
 export type RoleWord = "hunter" | "beater"
 
@@ -745,17 +768,45 @@ function ForestTest.parseRole(text: string?): RoleWord?
 	return nil
 end
 
-function ForestTest.roleOf(userId: number): RoleWord
-	return (state.roles[userId] :: any) or ForestTest.ROLE_DEFAULT
+-- WHICH ROLE A TEAM IS, IN KAREN'S WORDS. PURE, and the one translation from the fact the engine
+-- replicates (`Player.Team`, written only by `Match.Body.setTeam`) to the word this world speaks.
+-- `Data.PUSH_TEAM` already exists so that nothing hard-codes a team name here.
+function ForestTest.roleFor(team: string?): RoleWord
+	return if team == Data.PUSH_TEAM then "beater" else ForestTest.ROLE_DEFAULT
 end
 
-function ForestTest.setRole(userId: number, role: RoleWord): RoleWord
-	state.roles[userId] = role
+-- A player's role, read off the live `Player.Team`. Not a second answer: the drive writes that field
+-- and this reads it, exactly as the client's own `Match.myTeam()` does (`docs/design/drive.md`
+-- section 9.3: *"From Player.Team, NOT from the snapshot"*).
+function ForestTest.roleOfPlayer(player: Player): RoleWord
+	local team = player.Team
+	return ForestTest.roleFor(if team then team.Name else nil)
+end
+
+-- ONE PENDING REQUEST PER PLAYER, and it is consumed when it is honoured.
+--
+-- ONE-SHOT ON PURPOSE (design section 5.3): a request that stuck would defeat the rotation Karen
+-- asked for -- *"you start as a hunter then next round you are beater"* -- which is
+-- `SWAP_TEAMS_EACH_DRIVE`'s job and not this table's. The start switch therefore only decides the
+-- parity of the first drive.
+function ForestTest.requestRole(userId: number, role: RoleWord): RoleWord
+	state.requests[userId] = role
 	return role
 end
 
-function ForestTest.clearRole(userId: number)
-	state.roles[userId] = nil
+-- Returns the request AND clears it, so a caller cannot honour the same ask twice.
+function ForestTest.takeRequest(userId: number): RoleWord?
+	local role = state.requests[userId]
+	state.requests[userId] = nil
+	return (role :: any) :: RoleWord?
+end
+
+function ForestTest.pendingRequest(userId: number): RoleWord?
+	return (state.requests[userId] :: any) :: RoleWord?
+end
+
+function ForestTest.clearRequest(userId: number)
+	state.requests[userId] = nil
 end
 
 -- WHAT A BOAR SEES WHEN IT LOOKS AT THIS PLAYER (task 153). PURE, and one line, because the whole
@@ -787,14 +838,18 @@ end
 -- IT PULLS, IT DOES NOT FREEZE. Karen: *"he can move few steps on each side max"* -- and *"I want
 -- tomorrow to test shooting and walking"*, so anchoring the character would break the thing she is
 -- testing. Walking out simply stops being possible at six studs.
-function ForestTest.leash(userId: number, root: BasePart): Vector3?
+function ForestTest.leash(userId: number, root: BasePart, role: RoleWord?): Vector3?
 	-- A BEATER IS NOT HELD TO A STAND (task 153), and without this line the whole task is dead on
 	-- arrival: a beater walks 240 studs south through the wood, and a six-stud leash round the stand
 	-- she locked as a hunter would drag her back to the road every heartbeat. The leash is the
 	-- HUNTER's rule -- Karen: *"hunter has square where can select stand within 10s and save then he
-	-- can move few steps"* -- and the role is read here rather than at the caller so there is one
-	-- answer to "may this player walk".
-	if ForestTest.roleOf(userId) ~= "hunter" then
+	-- can move few steps"*.
+	--
+	-- THE ROLE IS A PARAMETER SINCE TASK 157, because the truth of it is now `Player.Team` and the
+	-- caller is the one holding the `Player` -- this module keys by `userId` and never holds one
+	-- (the discipline `picks` and `requests` both follow). `nil` means "nobody said", which is the
+	-- hunter this world starts her as.
+	if (role or ForestTest.ROLE_DEFAULT) ~= "hunter" then
 		return nil
 	end
 	local pick = state.picks[userId]
@@ -826,12 +881,16 @@ end
 -- `Runtime:spawnSounder` and emptied through `Runtime:spook`, which are the two doors the wave path
 -- has always used.
 
--- IS ANYBODY IN THIS WORLD A BEATER? Read off the ROLE and not off a body, because the wood has to
--- be full before she has finished falling onto the ground -- `ForestTest.realBeaters` needs a
--- `PrimaryPart` and the role is set in `PlayerAdded`, a character earlier.
+-- IS ANYBODY IN THIS WORLD A BEATER? Read off the TEAM and not off a body, because the wood has to
+-- be full before she has finished falling onto the ground.
+--
+-- THE TIMING PROPERTY SURVIVES TASK 157's CHANGE, and that is why it is safe to read the team here:
+-- `enterAssigning` emits `assignTeams` BEFORE `placePlayers`, so `Player.Team` is written one effect
+-- before the respawn that makes the character -- the same guarantee the old role table gave, now
+-- from the effect order (docs/design/forest-drive.md section 5.2).
 function ForestTest.beaterMode(): boolean
-	for _, role in pairs(state.roles) do
-		if role == "beater" then
+	for _, player in ipairs(Players:GetPlayers()) do
+		if ForestTest.roleOfPlayer(player) == "beater" then
 			return true
 		end
 	end
@@ -2067,16 +2126,59 @@ function ForestTest.stepLines(now: number)
 	end
 end
 
--- Where a hunter who has not picked yet should be put: on the road, at the default stand.
-function ForestTest.spawnPosition(): Vector3
-	local at = Data.standPosition(Data.PICK.defaultIndex)
-	-- A little above the road so the character drops onto it rather than into it.
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { Workspace:FindFirstChild("Boars") }
-	local hit = Workspace:Raycast(at + Vector3.new(0, 200, 0), Vector3.new(0, -400, 0), params)
-	local y = if hit then hit.Position.Y else at.Y
-	return Vector3.new(at.X, y + 4, at.Z)
+-- `ForestTest.spawnPosition` IS ARCHIVED (task 157, rule 7:
+-- `backups/2026-10-11_task157_forest_roles_and_placement.txt`). It put a hunter on the road at the
+-- default stand, and the real drive does that now: `ForestTest.Markers` builds a marker part per
+-- stand at measured ground and `Match.Body.place` -- the one writer of where a character stands --
+-- puts her on the one `ForestTest.standIndexFor` names. It is archived rather than retained because
+-- the thing it measured is measured in two better places already; `drive`/`driveIndexAt` above are
+-- retained instead, because their arithmetic has a spec and this had none.
+
+-- WHICH STAND A HUNTER GETS, from her index within the team. PURE.
+--
+-- CENTRE-OUT -- 5, 4, 6, 3, 7, 2, 8, 1, 9 -- AND THE FIRST ANSWER IS THE WHOLE POINT: a solo hunter
+-- gets stand 5, which is `Data.PICK.defaultIndex`, which is the x `ForestTest.hunterStandX()` aims
+-- every wave at. `Body.placementFor` would hand her `posts[1]` -- 600 studs west of where the drive
+-- is pushing -- and whether she ever got a crossing would be luck again, which is the defect task
+-- 123 round 8 measured and fixed.
+--
+-- IT WRAPS, like `placementFor` does (`% #posts`), so a tenth hunter shares stand 5. With
+-- `MAX_PLAYERS` 16 and a balanced split there are at most 8 shooters, so the wrap is unreachable in
+-- production -- and asserted anyway, because unreachable is a claim and not a guarantee.
+-- Pattern: Quake III's `SelectSpawnPoint` family -- the mode chooses AMONG the points the world
+-- placed (docs/design/forest-drive.md section 11.5).
+function ForestTest.standIndexFor(index: number): number
+	local count = Data.STAND_COUNT
+	local zero = (math.max(1, math.floor(index)) - 1) % count -- 0, 1, 2, ...
+	local middle = math.ceil(count / 2) -- 5 of 9
+	local step = math.ceil(zero / 2) -- 0, 1, 1, 2, 2, 3, 3, ...
+	local side = if zero % 2 == 1 then -1 else 1 -- 5, 4, 6, 3, 7, ...
+	return middle + step * side
+end
+
+-- THE BOAR RUNTIME AS `Match` MAY SEE IT IN THIS WORLD: five reads and two signals, and NO `spawn`,
+-- `spawnSounder` or `clear` (task 157, design section 9.4).
+--
+-- IT IS HOW THE DRIVE SCORES WITHOUT OWNING THE ANIMALS. `Match` connects `Downed` and `Despawned`,
+-- so kills, escapes, assists and a beater's PUSH points all work; and because the view has no
+-- `clear`, `Match`'s own `applyClearBoars` -- which is already written as
+-- `if world.boars and world.boars.clear` -- does nothing at a drive boundary, so the wood this world
+-- stocked is never wiped by the drive. One owner of "when an animal exists", enforced by the shape of
+-- the table rather than by a comment.
+function ForestTest.readOnlyBoars(runtime)
+	return {
+		Downed = runtime.Downed,
+		Despawned = runtime.Despawned,
+		boars = function(_self)
+			return runtime:boars()
+		end,
+		count = function(_self)
+			return runtime:count()
+		end,
+		capacity = function(_self)
+			return runtime:capacity()
+		end,
+	}
 end
 
 -- ---------------------------------------------------------------- where a beater is put down
@@ -2161,5 +2263,15 @@ end
 -- THE ARITHMETIC IS REACHABLE ON ITS OWN, so `tests/server/forest_line.spec.luau` can drive the
 -- rules a line stands on with hand-written tables instead of a running world.
 ForestTest.Line = Line
+
+-- THE DRIVE'S GEOMETRY IN THIS WORLD (task 157), the same shape `Line` has: a child module, exported
+-- here, reachable by a spec on its own. `ForestTest.Markers.build` is what `ForestTestBoot` hands to
+-- `Match` through `world.markers`.
+--
+-- ITS TWO GROUND READERS ARE HANDED OVER HERE rather than required there, because a child requiring
+-- its parent is a cycle -- and a third copy of the two rays would be two definitions of "where is
+-- the ground", which is this project's named failure mode. One home, passed once.
+Markers.setReaders(ForestTest.terrainYAt, Data.groundAt)
+ForestTest.Markers = Markers
 
 return ForestTest

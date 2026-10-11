@@ -193,17 +193,86 @@ return function()
 			expect(ForestTest.parseRole(nil)).to.equal(nil)
 		end)
 
-		it("starts him as a hunter, remembers what he asked for, and forgets it", function()
-			local userId = -151 -- no player has a negative id, so this cannot touch the live one
-			expect(ForestTest.roleOf(userId)).to.equal("hunter")
+		it("reads the role off the TEAM, which is the drive's own answer (task 157)", function()
+			-- `roleOf(userId)` is gone: the real `Match` runs in that world now and it reads
+			-- `state.assignment`, so a role table of this module's own would have been a second
+			-- answer -- and the one the drive did not believe.
 			expect(ForestTest.ROLE_DEFAULT).to.equal("hunter")
-			expect(ForestTest.setRole(userId, "beater")).to.equal("beater")
-			expect(ForestTest.roleOf(userId)).to.equal("beater")
-			expect(ForestTest.setRole(userId, "hunter")).to.equal("hunter")
-			expect(ForestTest.roleOf(userId)).to.equal("hunter")
-			ForestTest.setRole(userId, "beater")
-			ForestTest.clearRole(userId)
-			expect(ForestTest.roleOf(userId)).to.equal("hunter")
+			expect(ForestTest.roleFor(Data.PUSH_TEAM)).to.equal("beater")
+			expect(ForestTest.roleFor("Shooters")).to.equal("hunter")
+			expect(ForestTest.roleFor(nil)).to.equal("hunter")
+			expect(ForestTest.roleFor("something else")).to.equal("hunter")
+		end)
+
+		it("holds a role ASK as a one-shot request, so it cannot defeat the rotation (task 157)", function()
+			local userId = -151 -- no player has a negative id, so this cannot touch the live one
+			ForestTest.clearRequest(userId)
+			expect(ForestTest.pendingRequest(userId)).to.equal(nil)
+			expect(ForestTest.requestRole(userId, "beater")).to.equal("beater")
+			expect(ForestTest.pendingRequest(userId)).to.equal("beater")
+			-- TAKEN ONCE. Karen asked for hunter-then-beater-then-hunter
+			-- (`SWAP_TEAMS_EACH_DRIVE`), and a request that stuck would pin her on one side for
+			-- ever -- so honouring it consumes it.
+			expect(ForestTest.takeRequest(userId)).to.equal("beater")
+			expect(ForestTest.takeRequest(userId)).to.equal(nil)
+			expect(ForestTest.pendingRequest(userId)).to.equal(nil)
+			ForestTest.requestRole(userId, "hunter")
+			ForestTest.clearRequest(userId)
+			expect(ForestTest.pendingRequest(userId)).to.equal(nil)
+		end)
+
+		it("gives a solo hunter the stand the drive aims at, centre-out (task 157)", function()
+			-- `Body.placementFor` would hand her `posts[1]` -- 600 studs west of the push -- and
+			-- whether she ever got a crossing would be luck again (the defect task 123 round 8
+			-- measured). `standIndexFor(1)` is the default stand, which is the x `hunterStandX()`
+			-- aims every wave at.
+			expect(ForestTest.standIndexFor(1)).to.equal(Data.PICK.defaultIndex)
+			expect(ForestTest.standIndexFor(1)).to.equal(5)
+			local order = {}
+			for index = 1, Data.STAND_COUNT do
+				local stand = ForestTest.standIndexFor(index)
+				expect(stand >= 1 and stand <= Data.STAND_COUNT).to.equal(true)
+				expect(order[stand]).to.equal(nil) -- every stand once: nine hunters, nine stands
+				order[stand] = index
+			end
+			expect(ForestTest.standIndexFor(2)).to.equal(4)
+			expect(ForestTest.standIndexFor(3)).to.equal(6)
+			-- ...and a tenth hunter wraps onto the middle stand rather than onto nothing. With
+			-- `MAX_PLAYERS` 16 and a balanced split there are at most 8 shooters, so this is
+			-- unreachable in production -- which is a claim, so it is asserted.
+			expect(ForestTest.standIndexFor(Data.STAND_COUNT + 1)).to.equal(ForestTest.standIndexFor(1))
+		end)
+
+		it("hands the drive a boar view it cannot spawn or clear with (task 157)", function()
+			-- ONE OWNER OF THE ANIMALS, as a test rather than as a comment. `Match` scores kills and
+			-- escapes off the two signals; it has no door to release or wipe a wood that is this
+			-- world's. `applyClearBoars` is already written as `if world.boars.clear`, so the absence
+			-- IS the guard.
+			local fake = {
+				Downed = "downed-signal" :: any,
+				Despawned = "despawned-signal" :: any,
+				boars = function()
+					return { "a", "b" }
+				end,
+				count = function()
+					return 2
+				end,
+				capacity = function()
+					return 60
+				end,
+				clear = function() end,
+				spawn = function() end,
+				spawnSounder = function() end,
+			}
+			local view = ForestTest.readOnlyBoars(fake)
+			expect(view.clear).to.equal(nil)
+			expect(view.spawn).to.equal(nil)
+			expect(view.spawnSounder).to.equal(nil)
+			expect(view.Downed).to.equal("downed-signal")
+			expect(view.Despawned).to.equal("despawned-signal")
+			expect(#view:boars()).to.equal(2)
+			expect(view:count()).to.equal(2)
+			expect(view:capacity()).to.equal(60)
 		end)
 
 		it("turns the role into what a boar actually sees (task 153)", function()
@@ -239,8 +308,13 @@ return function()
 				TestKit.note("forest-beater: no player with a character; the threat-list case did not run")
 				return
 			end
-			local before = ForestTest.roleOf(player.UserId)
-			local function kindOf()
+			-- NOTHING IS WRITTEN HERE SINCE TASK 157, and that is deliberate: `Player.Team` has one
+			-- writer (`Match.Body.setTeam`, from the drive's own roster), and a spec that wrote it to
+			-- stage a case would be the second writer this whole task exists to remove -- in the
+			-- middle of a harness run where other specs are reading the same field. So the live half
+			-- asserts the WIRING -- the kind this player is reported as is the kind her team says --
+			-- and the pure half above asserts both answers.
+			local function threatOf()
 				for _, threat in ipairs(ForestTest.boarThreats(0)) do
 					if threat.id == tostring(player.UserId) then
 						return threat
@@ -248,28 +322,21 @@ return function()
 				end
 				return nil
 			end
-
-			ForestTest.setRole(player.UserId, "beater")
-			local asBeater = kindOf()
-			expect(asBeater).to.be.ok()
-			expect((asBeater :: any).kind).to.equal("driver")
+			local team = player.Team
+			local role = ForestTest.roleFor(if team then team.Name else nil)
+			local threat = threatOf()
+			expect(threat).to.be.ok()
+			expect((threat :: any).kind).to.equal(ForestTest.threatKind(role))
 			-- ...AND NOT A PHANTOM. The drive marks its invented beaters `phantom = true` so that
 			-- `PACE.DRIVER_RUN_STUDS` cannot fire on one; a player standing there is real, and the
 			-- absence of the mark is what makes her walk count.
-			expect((asBeater :: any).phantom).to.equal(nil)
-
-			ForestTest.setRole(player.UserId, "hunter")
-			local asHunter = kindOf()
-			expect(asHunter).to.be.ok()
-			expect((asHunter :: any).kind).to.equal("shooter")
-
-			ForestTest.setRole(player.UserId, before)
+			expect((threat :: any).phantom).to.equal(nil)
 			TestKit.note(
 				string.format(
-					"forest-beater: %s is a %s as a beater and a %s as a hunter",
+					"forest-beater: %s is on %s, so a boar sees a %s",
 					player.Name,
-					(asBeater :: any).kind,
-					(asHunter :: any).kind
+					tostring(if team then team.Name else nil),
+					(threat :: any).kind
 				)
 			)
 		end)
@@ -294,7 +361,8 @@ return function()
 			-- `ForestTest` answers in KAREN'S words and never in team names: the mapping lives in
 			-- `Match.Body.ROLE_WORDS` alone, so "beater means Drivers" is written down once.
 			local Body = require(ServerScriptService:WaitForChild("Match")).Body
-			expect(Body.teamForWord(ForestTest.roleOf(-152))).to.equal("Shooters")
+			expect(Body.teamForWord(ForestTest.roleFor(nil))).to.equal("Shooters")
+			expect(Body.teamForWord(ForestTest.roleFor(Data.PUSH_TEAM))).to.equal(Data.PUSH_TEAM)
 			expect(Body.teamForWord("beater")).to.equal("Drivers")
 			expect(Body.teamForWord("hunter")).to.equal("Shooters")
 			expect(Body.teamForWord("x")).to.equal(nil)
@@ -380,16 +448,17 @@ return function()
 			ForestTest.openPick(userId, 0)
 			ForestTest.lockPick(userId, Data.standPosition(5), 0)
 
-			ForestTest.setRole(userId, "hunter")
-			expect(ForestTest.leash(userId, part)).to.be.ok() -- a hunter 60 studs out IS pulled back
+			-- THE ROLE IS A PARAMETER SINCE TASK 157: its truth is `Player.Team`, and the caller is
+			-- what holds the `Player` -- this module keys by `userId` and never holds one.
+			expect(ForestTest.leash(userId, part, "hunter")).to.be.ok() -- 60 studs out IS pulled back
 
 			part.CFrame = CFrame.new(Data.standPosition(5) + Vector3.new(60, 0, 0))
-			ForestTest.setRole(userId, "beater")
-			expect(ForestTest.leash(userId, part)).to.equal(nil)
+			expect(ForestTest.leash(userId, part, "beater")).to.equal(nil)
 			-- ...and the part was not moved either: the leash is the one writer of that CFrame.
 			expect(part.Position.X).to.be.near(Data.standPosition(5).X + 60, 1e-3)
+			-- `nil` means "nobody said", which is the hunter this world starts her as.
+			expect(ForestTest.leash(userId, part, nil)).to.be.ok()
 
-			ForestTest.clearRole(userId)
 			ForestTest.clearPick(userId)
 			part:Destroy()
 		end)
@@ -568,15 +637,32 @@ return function()
 			)
 		end)
 
-		it("is in beater mode only while somebody has asked to be a beater", function()
-			local userId = -9154
-			expect(ForestTest.beaterMode()).to.equal(false)
-			ForestTest.setRole(userId, "hunter")
-			expect(ForestTest.beaterMode()).to.equal(false)
-			ForestTest.setRole(userId, "beater")
-			expect(ForestTest.beaterMode()).to.equal(true)
-			ForestTest.clearRole(userId)
-			expect(ForestTest.beaterMode()).to.equal(false)
+		it("asks the TEAMS who is a beater, and not a table of its own (task 157)", function()
+			-- It used to scan this module's own role table. It now scans the live players' teams,
+			-- which `Match.Body.setTeam` is the only writer of -- so "is anybody pushing" and "who
+			-- does the drive think is pushing" cannot answer differently. The timing property that
+			-- made the old table necessary survives: `assignTeams` is emitted BEFORE `placePlayers`,
+			-- so the team exists one effect before the character does.
+			--
+			-- NOTHING IS STAGED HERE. Writing `Player.Team` from a spec would be the second writer
+			-- this task removed. So the assertion is that the two readings AGREE, in whatever state
+			-- this place happens to be in: in DEV the roster has the one player on `Shooters`, so
+			-- both answers are false.
+			local Players = game:GetService("Players")
+			local anyBeater = false
+			for _, player in ipairs(Players:GetPlayers()) do
+				if ForestTest.roleOfPlayer(player) == "beater" then
+					anyBeater = true
+				end
+			end
+			expect(ForestTest.beaterMode()).to.equal(anyBeater)
+			TestKit.note(
+				string.format(
+					"forest-beatermode: %d player(s), beaterMode=%s",
+					#Players:GetPlayers(),
+					tostring(anyBeater)
+				)
+			)
 		end)
 	end)
 end
