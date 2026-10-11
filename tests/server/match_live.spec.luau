@@ -216,6 +216,14 @@ return function()
 			expect(Match.CONFIG.END_ON_LAST_BOAR).to.equal(false)
 		end)
 
+		it("are the table the LIVE drive is running on, by identity (task 157)", function()
+			-- THE WHOLE PROOF THAT THE DEV DRIVE DID NOT CHANGE when the Forest Test gained one.
+			-- `Match.start` merges `world.config` over the defaults, and `MatchBoot` -- the boot that
+			-- ran in this place -- passes none, so `mergeConfig` returns the defaults THEMSELVES.
+			-- One assertion covers every number, because there is only one table.
+			expect(Match.config()).to.equal(Match.CONFIG)
+		end)
+
 		it("is frozen, so nothing can retune the drive at run time", function()
 			expect(function()
 				(Match.CONFIG :: any).DRIVE_SECONDS = 1

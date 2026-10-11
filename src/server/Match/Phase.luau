@@ -53,9 +53,11 @@ export type State = {
 }
 
 export type Event = {
-	kind: string, -- "tick" | "join" | "leave" | "kill" | "gone" | "violation" | "markers"
+	kind: string, -- "tick" | "join" | "leave" | "kill" | "gone" | "violation" | "markers" | "team"
 	userId: number?,
 	name: string?,
+	-- "team": the side a world has asked this player to be on (task 157). Read by that branch only.
+	team: TeamName?,
 	record: any?,
 	at: number?,
 	aliveBoars: number?,
@@ -425,6 +427,31 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			table.insert(effects, { kind = "refreshArming", userIds = { event.userId } })
 		end
 		table.insert(effects, { kind = "broadcast" })
+	elseif kind == "team" and event.userId and event.team then
+		-- ONE PLAYER CHANGES SIDES INSIDE A LIVE DRIVE (task 157, docs/design/forest-drive.md
+		-- section 5.2). It is the `join` branch's shape with no participant added: the same three
+		-- effects, in the same order, for the one userId.
+		--
+		-- ONLY INSIDE A DRIVE, and only for somebody who is in it. In `Waiting` and `Scoring` there
+		-- is nothing to move him inside of, and the roster's own `enterAssigning` is what decides
+		-- the next drive -- so a request outside a drive changes nothing and emits nothing. That is
+		-- what makes it a request for THIS drive rather than a preference this machine has to
+		-- remember, which would be a second roster.
+		if
+			(next_.phase == "Running" or next_.phase == "Assigning")
+			and next_.participants[event.userId] ~= nil
+			and next_.assignment[event.userId] ~= event.team
+		then
+			next_.assignment[event.userId] = event.team
+			table.insert(effects, { kind = "assignTeams", assignment = { [event.userId] = event.team } })
+			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
+			table.insert(effects, { kind = "refreshArming", userIds = { event.userId } })
+			-- NO FEED LINE, deliberately: the feed's kinds are a contract with the Hud's own
+			-- renderer (`join`, `leave`, `kill`, `escape`, `violation`, `phase`), and a dev command
+			-- in a playtest world is not a thing to announce to everybody. The broadcast carries the
+			-- new team on this player's own row.
+			table.insert(effects, { kind = "broadcast" })
+		end
 	elseif kind == "leave" and event.userId then
 		next_.participants[event.userId] = nil
 		next_.assignment[event.userId] = nil

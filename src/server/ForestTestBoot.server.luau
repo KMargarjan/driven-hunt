@@ -25,7 +25,6 @@ end
 -- THE HORN'S NUMBERS (task 152): how far a blast carries, and which team carries one. The behaviour
 -- is `Weapon.Horn`'s and the animals are `Boar`'s; this root only wires them together.
 local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
-local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
@@ -223,78 +222,55 @@ end)
 
 -- ---------------------------------------------------------------- the gun
 
--- A HUNTER CARRIES AND A BEATER DOES NOT (task 154). Karen, 2026-10-10: *"so horn will be default
--- tool for beater"*, and the Director's reading of it -- guns come later, with a licence.
+-- A HUNTER CARRIES AND A BEATER DOES NOT, AND SINCE TASK 157 THE DRIVE IS WHAT SAYS SO.
 --
--- IT WAS `return true` AND THAT WAS MEASURED WRONG. In this world's first beater playtest she
--- spawned HOLDING THE SHOTGUN with the rifle and the horn in the bag (server query, 2026-10-11:
--- `tools=[HAND:Shotgun,BAG:Rifle,BAG:Horn]`), because `Weapon.refreshArming` auto-equips the
--- PRIMARY and the horn's own equip then lost the race. A beater with a shotgun in her hands is not
--- a beater.
+-- IT WAS `HornData.gunFor(Body.teamOf(player))`, and for these two teams that is the same answer
+-- `Match.mayCarryWeapon` gives (a Shooter carries; a Driver carries only if `DRIVERS_MAY_SHOOT`,
+-- which is false). What the drive knows and `gunFor` cannot is the other two halves of the question:
+-- nobody is armed in `Waiting` -- before a drive exists -- and a hunter who has been TIED to her
+-- stand loses her gun until the drive ends. Two policies answering one question is the bug task 154
+-- was fixing when it wrote this line (`Horn.gunFor`'s own header says so), so there is one now.
 --
--- THE PREDICATE IS THE HORN'S OWN TEAM, which is the same fact `Horn.setCarryPolicy` below reads
--- and the same `Body.teamOf` both of them ask -- so the gun and the horn can never disagree about
--- which role this player is. There is still no roster and no drive here: a hunter carries, exactly
--- as everybody did before today.
-Weapon.setArmingPolicy(function(player)
-	return HornData.gunFor(Body.teamOf(player))
-end)
+-- `HornData.gunFor` keeps its file and its spec; this world simply stops calling it. The horn's carry
+-- policy below still reads `Player.Team`, which the drive writes.
+-- Design: docs/design/forest-drive.md section 8.1
+Weapon.setArmingPolicy(Match.mayCarryWeapon)
 
--- THIS WORLD HAS NO DRIVE LINE, AND REGISTERING ONE CRASHED EVERY SHOT.
+-- ...AND THIS WORLD HAS A DRIVE LINE NOW, which is `MatchBoot`'s line verbatim.
 --
--- The first version returned `{ from, to }`. `Shotgun.DriveLine` is `{ position, normal }`, so
--- `line.normal` was nil and every single shot died in the safety arc:
+-- WHAT WENT, AND WHY THE OLD COMMENT WAS RIGHT UNTIL TODAY: `noDriveLine` returned nil because *"the
+-- safety arc exists to protect drivers. There are no drivers in this world -- the beaters are
+-- phantoms with nobody standing on them"*. The real drive puts REAL beaters here, so that sentence is
+-- gone rather than left standing (archived with the rest of it in
+-- `backups/2026-10-11_task157_forest_roles_and_placement.txt`).
 --
---   ServerScriptService.Weapon.SafetyArc:15: attempt to index nil with 'Magnitude'
---   Script 'ServerScriptService.Weapon', Line 462 - function onFireRequest
---
--- It was also wrong for a second and better reason, which is why this is a deletion and not a
--- repair. THE SAFETY ARC EXISTS TO PROTECT DRIVERS. There are no drivers in this world -- the
--- beaters are phantoms with nobody standing on them -- and a line whose normal pointed north would
--- flag every shot at the boars Karen is here to shoot. The old comment claimed the opposite ("every
--- shot reads as safe, which would make the one thing Karen wants to test test nothing"); that was
--- reasoning about a drive this place does not have.
---
--- `Weapon.setDriveLineProvider` takes `Shotgun.DriveLineProvider`, which may answer nil, and the
--- weapon already treats "no line" as "nothing to be unsafe toward". The annotation is deliberate:
--- the wrong shape was a runtime crash and should have been a type error.
-local noDriveLine: Shotgun.DriveLineProvider = function()
-	return nil
-end
-Weapon.setDriveLineProvider(noDriveLine)
+-- IT CANNOT COST KAREN A SHOT WHILE SHE PLAYS ALONE. The arc only PUBLISHES -- `Weapon` fires
+-- `SafetyViolated` and `Match.Penalty.judge` then has to find a REAL driver within
+-- `SAFETY_MISS_STUDS` of the shot's own path, and `Match.playerDrivers` filters every phantom out by
+-- its non-numeric id. With nobody else in the world the verdict is always "no".
+-- Design: docs/design/forest-drive.md section 6.2
+Weapon.setDriveLineProvider(Match.driveLine)
 
 -- ---------------------------------------------------------------- the role, and the outfit
 --
--- THE ONLY WAY TO SEE A BEATER IN THIS WORLD (task 151, beater-kit design section 9). It has no
--- beaters -- its drivers are phantom positions with nobody standing on them -- so Karen asks for the
--- role by typing `/beater` (and `/hunter` back) while she plays. It is a DEV COMMAND in a playtest
--- world, not a game mechanic: server-only, no remote, no input binding, no client module, no camera.
+-- KAREN ASKS FOR A ROLE AND THE DRIVE GIVES IT (task 157). She types `/beater` (and `/hunter` back),
+-- or the Director sets `DHForestStartRole` before she presses Play. It is still a DEV COMMAND in a
+-- playtest world: server-only, no remote, no input binding, no client module, no camera.
 --
--- `Body.ensureTeams()` first, because `Body.setTeam` writes `Player.Team` BY NAME and that name has
--- to be a real `Team` for `Body.teamOf` to read it back. The real match's boot does this too; this
--- world simply had no reason to before.
-Body.ensureTeams()
+-- WHAT CHANGED IS WHO HONOURS IT. Until today this root called `Body.setTeam` itself, which with the
+-- real drive here would not merely be a second decider -- it would not WORK: `Match` reads
+-- `state.assignment`, not `Player.Team`, so a player dressed as a beater would still be a shooter to
+-- the drive (armed, push-credited, unprotected by the safety rule). So the ask is recorded as a
+-- one-shot REQUEST (`ForestTest.requestRole`) and `Match.requestTeam` is what moves her -- which
+-- respawns her at the beater start, dresses her, hands her the horn and takes her gun, all through
+-- the drive's own effects.
+-- Design: docs/design/forest-drive.md section 5.2
+--
+-- `Body.ensureTeams()` is gone from here: `Match.start` does it, idempotently.
 
--- Puts `player` into the role they have asked for, and dresses them for it. One function, so the
--- spawn path and the chat command cannot drift apart.
-local function applyRole(player: Player)
-	local role = ForestTest.roleOf(player.UserId)
-	Body.setTeam(player, Body.teamForWord(role), Match.CONFIG)
-	-- ...AND THE HORN FOLLOWS THE TEAM (task 152). `/beater` does not respawn anybody, so nothing
-	-- else would notice until the carry sweep came round two seconds later; this makes the switch
-	-- immediate. It is level-triggered and idempotent, so the spawn path below calling it as well
-	-- cannot hand out two.
-	Weapon.Horn.refreshCarry(player)
-	-- ...AND SO DO THE GUNS (task 154), through the arming policy just above. The weapon system has
-	-- its own sweep as well, so this only decides whether she stands there armed for two seconds
-	-- after typing `/beater`. Level-triggered and idempotent, exactly like the line above it.
-	Weapon.refreshArming(player)
-	return role
-end
-
--- EVERYONE IN THIS WORLD IS A BEATER IF THEY ASKED TO BE ONE. The same predicate as `MatchBoot`'s
--- -- `Body.teamOf` reads `Player.Team`, which is what `applyRole` has just written -- so the horn
--- and the orange vest can never disagree about whether Karen is a beater.
+-- EVERYONE IN THIS WORLD IS A BEATER IF THE DRIVE SAYS THEY ARE. `Body.teamOf` reads `Player.Team`,
+-- which `Match.Body.setTeam` is still the only writer of -- so the horn and the orange vest can
+-- never disagree about whether Karen is a beater.
 --
 -- THE FLAG IS READ ONCE, HERE, exactly as `MatchBoot` reads it -- except that THIS world turns it ON
 -- the way it turns `BOAR_MODEL` and the rest on: Karen plays here to judge the thing, and a playtest
@@ -305,85 +281,220 @@ Weapon.Horn.setCarryPolicy(function(player)
 end)
 Weapon.Horn.start()
 
--- WHERE THE ROLE PUTS HER, AND WHICH WAY SHE LOOKS (task 153).
+-- WHERE EACH ROLE STANDS, AND WHICH WAY SHE LOOKS -- as an ANSWER, not as a write (task 157).
 --
--- KAREN, 2026-10-11: *"how to start a game as a beter?"* -- and the answer until today was that she
--- could not. `/beater` dressed her and handed her the horn WHERE SHE STOOD, which is on the road,
--- facing the drive, with every animal in the world walking at her. A beater stands BEHIND them:
--- *"beater are behind animals and moving towards hunter line (road) like in real life"*.
+-- `Match.Body.place` is the one writer of where a character stands, in this world as in the DEV one;
+-- this closure only chooses the spot, and it is handed to `Match.start` as `world.placement`. Task
+-- 153's geometry is kept byte for byte: it is the same `beaterStartPosition` (which measures the
+-- ground with `terrainYAt` and the trunks with `roomToStand`) and the same look down the push at the
+-- road.
 --
--- THE POSITION IS THE WORLD'S AND THE ROTATION IS TOO. `ForestTest.beaterStartPosition` is derived
--- from the line's own spawn and measures the ground and the trunks; the look is the point on the
--- road curve at her own x, flattened to her own height so the character stands up rather than
--- leaning down the hill.
-local function placeFor(root: BasePart, role): Vector3
-	if role == "beater" then
-		local at = ForestTest.beaterStartPosition()
-		local road = Data.roadPointAt(at.X)
-		root.CFrame = CFrame.lookAt(at, Vector3.new(road.X, at.Y, road.Z))
-		return at
+-- A HUNTER GOES THROUGH `Body.placementFor`, so `STAND_HEIGHT_STUDS`, the post's own half-height and
+-- the facing (+Z, north, up the drive) are one rule in both worlds. What this adds is WHICH post:
+-- `ForestTest.standIndexFor` is centre-out, so a solo hunter gets stand 5 -- the stand
+-- `hunterStandX()` aims every wave at -- instead of `posts[1]`, 600 studs west of the push.
+--
+-- WHY A BEATER DOES NOT GO THROUGH IT: `placementFor` faces a driver straight -Z, and this road is a
+-- sine whose tangent swings +-23 degrees (`atan(30/70)`), so the generic look would be up to 23
+-- degrees off the push.
+-- Design: docs/design/forest-drive.md section 4.3
+local function placement(markers, team, index, cfg)
+	if team ~= Data.PUSH_TEAM then
+		-- THROUGH THE POST'S NAME AND NOT ITS PLACE IN THE LIST: a stand whose ground was refused is
+		-- not in `markers.posts` at all (MEASURED: one run came back `8/9 stands (1 refused)`), and
+		-- `placementFor` indexes modulo the length -- so the fifth entry of eight is not stand 5,
+		-- while the drive goes on aiming every wave at stand 5's x.
+		local stand = ForestTest.standIndexFor(index)
+		return Body.placementFor(markers, team, ForestTest.postIndexFor(markers.posts, stand), cfg)
 	end
-	-- FACING THE DRIVE. `CFrame.new(position)` carries no rotation, so the character landed looking
-	-- down -Z -- SOUTH, with his back to every animal in the world; the console's own camera line
-	-- said look z = -0.99. North is +Z here (a holding at `roadZ + northStuds` has the larger z), so
-	-- he is turned to face it.
-	local at = ForestTest.spawnPosition()
-	root.CFrame = CFrame.lookAt(at, at + Vector3.zAxis)
-	return at
+	local at = ForestTest.beaterStartPosition()
+	local road = Data.roadPointAt(at.X)
+	return CFrame.lookAt(at, Vector3.new(road.X, at.Y, road.Z))
 end
 
--- THE START, FOR WHICHEVER ROLE SHE IS IN: put down, turned round, and -- for a hunter only -- given
--- the ten seconds to choose a stand. One function, so a spawn and a `/beater` typed mid-session
--- cannot drift apart.
+-- ---------------------------------------------------------------- the drive
+
+-- THE REAL DRIVE, IN THIS WORLD, ON THIS WORLD'S GEOMETRY (task 157). The pattern is "the world
+-- provides; the owner decides", and `Match` decides everything it decided before:
 --
--- A BEATER GETS NO PICK AND NO LEASH. The stand window and the six-stud leash are the hunter's rule
--- (`ForestTest.leash` refuses a beater for the same reason), and a beater who was given one would be
--- dragged back to the road the moment she walked.
-local function startAt(player: Player, root: BasePart, role)
-	local at = placeFor(root, role)
-	-- ONE LINE PER START, and it is the evidence: where she was put, how far that is from the road,
-	-- and which role put her there. A tool that requires this module over StudioMCP gets a sandboxed
-	-- copy with empty state (measured, task 122), so the console is the only honest channel.
-	print(
-		string.format(
-			"[ForestTest] %s starts as a %s at (%.0f, %.0f, %.0f), %.0f studs from the road",
-			player.Name,
-			tostring(role),
-			at.X,
-			at.Y,
-			at.Z,
-			at.Z - Data.roadZ(at.X)
-		)
-	)
-	if role ~= "hunter" then
-		return
+--   markers   a FUNCTION, because this geometry is raycast off the terrain: a table captured at boot
+--             would be a measurement taken before the place had finished loading. `Match` calls it
+--             on exactly the two occasions it re-reads tags in DEV -- once a second while `Waiting`,
+--             and once on entering `Assigning`.
+--   placement the closure above.
+--   config    two scalars off `Match.WORLD_OVERRIDABLE`: this world's own drive length, and NO
+--             RELEASES -- `BOARS_PER_DRIVE = 0` makes `Phase.maybeRelease` return on its first
+--             predicate, so the drive asks for no animal and `ForestTest` stays the one owner of
+--             when one exists.
+--   boars     a READ-ONLY view (`ForestTest.readOnlyBoars`): the two signals and three counts, with
+--             no `spawn`, `spawnSounder` or `clear`. That is what lets the drive SCORE the animals it
+--             does not own -- and what stops `applyClearBoars` wiping the wood at a drive boundary,
+--             because its `if world.boars.clear` is simply false.
+Match.start({
+	boars = ForestTest.readOnlyBoars(runtime),
+	weapon = Weapon,
+	markers = function()
+		return ForestTest.Markers.build(ForestTest.hunterStandX())
+	end,
+	placement = placement,
+	config = {
+		DRIVE_SECONDS = Data.DRIVE.seconds,
+		BOARS_PER_DRIVE = 0,
+	},
+	now = function()
+		return os.clock()
+	end,
+})
+
+-- THE REPORTING WINDOW IS THE DRIVE, in this world as in the DEV one (task 157): `MatchBoot`'s two
+-- lines verbatim. The Heartbeat latch on `ForestTest.drive(...).index` is archived with the rest.
+-- Both `HitLog` calls are idempotent at the other end, so a phase that fires twice cannot open two
+-- drives.
+Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
+	if phase == "Assigning" then
+		HitLog.openDrive(driveNumber or 1, os.clock())
+		print(string.format("[report] drive %d opened (%ds windows)", driveNumber or 1, Data.DRIVE.seconds))
+	elseif phase == "Scoring" then
+		HitLog.closeDrive(os.clock())
+	end
+end)
+
+-- THE STAND PICK IS THE HUNTER'S TEN SECONDS, and it opens when the DRIVE starts (task 157).
+--
+-- It used to open on `CharacterAdded`, which is now the drive's own respawn -- and opening it there
+-- would start the clock while the intermission still ran. On entering `Running` everybody has been
+-- placed, so the window is the first ten seconds of the drive: she lands on her stand, walks a few
+-- steps, and whatever she is standing on at the end is hers.
+local function openPickFor(player: Player)
+	if ForestTest.roleOfPlayer(player) ~= "hunter" then
+		return -- a beater has no stand, and no leash (`ForestTest.leash` refuses her for the same reason)
 	end
 	ForestTest.openPick(player.UserId, os.clock())
-	-- He lands on the road at the default stand; where he WALKS in the next ten seconds is the
-	-- choice, and the timer below is the save.
 	task.delay(Data.PICK.seconds, function()
-		if player.Parent == nil or root.Parent == nil then
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if player.Parent == nil or root == nil then
 			return
 		end
-		-- ...UNLESS HE ASKED TO BE A BEATER WHILE THE WINDOW RAN (task 153). Locking a stand for a
-		-- beater would put a hunter in `ForestTest.hunterStandX` who is not standing there, and the
-		-- drive aims every wave at that x.
-		if ForestTest.roleOf(player.UserId) ~= "hunter" then
+		-- ...UNLESS THE DRIVE HAS MOVED HER SINCE. Locking a stand for a beater would put a hunter in
+		-- `ForestTest.hunterStandX` who is not standing there, and the drive aims every wave at it.
+		if ForestTest.roleOfPlayer(player) ~= "hunter" then
 			return
 		end
-		local index = ForestTest.lockPick(player.UserId, root.Position, os.clock())
+		local index = ForestTest.lockPick(player.UserId, (root :: BasePart).Position, os.clock())
 		print(string.format("[ForestTest] %s took stand %d", player.Name, index))
 	end)
 end
 
+-- HONOURS A PENDING ROLE REQUEST, through the drive. One-shot: `takeRequest` clears it, so the same
+-- ask cannot be honoured twice and cannot defeat the next drive's swap.
+local function honour(player: Player)
+	local word = ForestTest.pendingRequest(player.UserId)
+	if word == nil then
+		return
+	end
+	if ForestTest.roleOfPlayer(player) == word then
+		ForestTest.takeRequest(player.UserId) -- she is already on that side; nothing to ask for
+		return
+	end
+	if Match.requestTeam(player, Body.teamForWord(word)) then
+		ForestTest.takeRequest(player.UserId)
+		ForestTest.clearPick(player.UserId)
+		print(string.format("[ForestTest] %s is now a %s (team=%s)", player.Name, word, tostring(Body.teamOf(player))))
+	end
+end
+
+-- ONE HANDLER FOR THE DRIVE'S OWN BOUNDARIES: what a new intermission drops, and what the start of a
+-- drive opens.
+Match.PhaseChanged:Connect(function(_before, phase)
+	if phase == "Assigning" then
+		-- EVERY PICK IS DROPPED AT THE START OF AN INTERMISSION: teams have just been swapped, so a
+		-- stand locked by somebody who is now a beater would aim every wave at a stand nobody is on.
+		for _, player in ipairs(Players:GetPlayers()) do
+			ForestTest.clearPick(player.UserId)
+		end
+		return
+	end
+	if phase ~= "Running" then
+		return
+	end
+	-- A REQUEST MADE BETWEEN DRIVES IS HONOURED HERE, not in `Assigning`: that phase respawns
+	-- everybody already, and honouring inside it would be a second `LoadCharacter` for the same
+	-- player in the same intermission. The cost is one extra respawn for the player who asked, at the
+	-- instant the drive starts, and it is stated rather than discovered.
+	for _, player in ipairs(Players:GetPlayers()) do
+		honour(player)
+	end
+	for _, player in ipairs(Players:GetPlayers()) do
+		openPickFor(player)
+	end
+	-- WHAT THE MARKERS MEASURED, once per drive: nine stands or fewer, how many the ground refused,
+	-- and the worst disagreement between the two readings of it. This is the line that says "the drive
+	-- is standing on this world" rather than hoping it is.
+	local stats = ForestTest.Markers.stats()
+	print(
+		string.format(
+			"[ForestTestBoot] markers: %d/%d stands (%d refused), max ground delta %.2f, reads=%d",
+			stats.posts,
+			Data.STAND_COUNT,
+			stats.refused,
+			stats.lastMaxDelta,
+			stats.reads
+		)
+	)
+end)
+
+-- HOW LONG THE START LINE BELOW WAITS FOR THE RESPAWN TO SETTLE. `Body.place` pivots on
+-- `CharacterAdded` and `Body.settle` pivots again when that resumption cycle ends (`task.defer`),
+-- so anything over a frame is enough; one second is long enough to be obviously enough and short
+-- enough to read as "at the start".
+local PLACEMENT_SETTLE_SECONDS = 1
+
+-- ONE LINE PER START, AND IT IS PRINTED WHEN THE CHARACTER HAS ACTUALLY LANDED (task 157).
+--
+-- IT USED TO BE PRINTED FROM THE PHASE HANDLER, and round 1 of this task measured what that was
+-- worth: `Body.place` respawns her and pivots on `CharacterAdded`, so a line printed in the same
+-- frame reads the position of the character she is ABOUT TO LEAVE -- it said *"starts as a beater
+-- ... 0 studs from the road"* while the drive had chosen a point 240 studs north. The honest moment
+-- is after the respawn, so this waits for one.
+--
+-- IT WRITES NOTHING. `Match.Body` is still the only thing that moves a character; this reads the
+-- position it ended up in and says what the role was, which is the only channel a tool outside the
+-- server has (an MCP `require` of this module answers with a sandboxed copy -- measured, task 122).
+local function reportStart(player: Player, character: Model)
+	task.delay(PLACEMENT_SETTLE_SECONDS, function()
+		local root = character.PrimaryPart
+		if character.Parent == nil or root == nil then
+			return
+		end
+		local at = root.Position
+		print(
+			string.format(
+				"[ForestTest] %s is a %s at (%.0f, %.0f, %.0f), %.0f studs from the road (settled=%d)",
+				player.Name,
+				ForestTest.roleOfPlayer(player),
+				at.X,
+				at.Y,
+				at.Z,
+				at.Z - Data.roadZ(at.X),
+				Body.settled()
+			)
+		)
+	end)
+end
+
 Players.PlayerAdded:Connect(function(player)
-	-- WHICH ROLE SHE STARTS AS (task 153). Karen: *"how to start a game as a beter?"* -- so Play
-	-- itself can put her on the drive side, without a word typed, when the Director has set the
-	-- switch. Nothing set means the hunter this world has always started her as.
+	player.CharacterAdded:Connect(function(character)
+		reportStart(player, character)
+	end)
+	-- WHICH ROLE SHE STARTS AS (task 153, and a request since 157). Karen: *"how to start a game as a
+	-- beter?"* -- so Play itself can put her on the drive side with nothing typed, when the Director
+	-- has set the switch. Nothing set means the hunter this world has always started her as, which is
+	-- also what the roster gives a solo player (`ODD_PLAYER_TEAM`).
 	local startRole = ForestTest.startRole(ServerStorage:GetAttribute(Data.START_ROLE_ATTRIBUTE))
 	if startRole ~= nil then
-		ForestTest.setRole(player.UserId, startRole)
-		print(string.format("[ForestTest] %s joins as a %s (start switch)", player.Name, startRole))
+		ForestTest.requestRole(player.UserId, startRole)
+		print(string.format("[ForestTest] %s asked to join as a %s (start switch)", player.Name, startRole))
 	end
 
 	player.Chatted:Connect(function(message)
@@ -391,77 +502,35 @@ Players.PlayerAdded:Connect(function(player)
 		if role == nil then
 			return
 		end
-		ForestTest.setRole(player.UserId, role)
-		applyRole(player)
-		local character = player.Character
-		-- SHE IS LEAVING THE STAND, WHICHEVER WAY SHE IS GOING (task 153): a beater has no stand at
-		-- all, and a hunter coming back picks one again from where he lands. Clearing it also keeps
-		-- `hunterStandX` -- which is where the drive aims every wave -- from naming a stand nobody
-		-- is on.
-		ForestTest.clearPick(player.UserId)
-		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if root then
-			startAt(player, root :: BasePart, role)
+		ForestTest.requestRole(player.UserId, role)
+		-- HONOURED NOW IF THERE IS A DRIVE TO HONOUR IT IN, and otherwise at the next `Running`. The
+		-- answer comes from the drive, so a request typed in `Waiting` is not silently lost and not
+		-- silently applied either.
+		honour(player)
+		if ForestTest.pendingRequest(player.UserId) ~= nil then
+			print(
+				string.format(
+					"[ForestTest] %s asked to be a %s; the drive is %s, so it happens when the next one starts",
+					player.Name,
+					role,
+					Match.phase()
+				)
+			)
 		end
-		local folder = character and character:FindFirstChild(Body.OUTFIT_NAME)
-		local worn = 0
-		if folder then
-			for _, child in ipairs(folder:GetChildren()) do
-				if child:IsA("BasePart") then
-					worn += 1
-				end
-			end
-		end
-		-- ONE LINE PER SWITCH, and it is the evidence. A tool that requires this module over
-		-- StudioMCP gets a sandboxed copy with empty state (measured, task 122), so the console is
-		-- the only honest channel for "which role is he, and is he wearing it".
-		print(string.format(
-			"[ForestTest] %s is now a %s (team=%s, %d outfit part(s), horn=%s)",
-			player.Name,
-			role,
-			tostring(Body.teamOf(player)),
-			worn,
-			-- WHETHER HE IS ACTUALLY CARRYING ONE, read off the live tree and not off a table
-			-- (task 152): "he is a beater" and "he has a horn in his hand" are two facts, and
-			-- the only honest channel for the second one is this console (a tool that requires
-			-- this module over StudioMCP gets a sandboxed copy with empty state).
-			tostring(Weapon.Horn.held(player) ~= nil)
-		))
-	end)
-
-	player.CharacterAdded:Connect(function(character)
-		-- DRESSED FIRST, before the root wait below: a player who asked to be a beater is a beater
-		-- from the first frame of the new character, and `Body.setTeam` -> `dressWhenLoaded` is what
-		-- holds the green against the appearance load that is still on its way.
-		local role = applyRole(player)
-		local root = character:WaitForChild("HumanoidRootPart", 10)
-		if root == nil then
-			return
-		end
-		-- DEFERRED, as it was before task 153: the spawn location has just put the character down
-		-- and `CharacterAdded` runs inside that frame, so the move is made after it.
-		task.defer(function()
-			if root.Parent == nil then
-				return
-			end
-			startAt(player, root :: BasePart, role)
-		end)
 	end)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
 	ForestTest.clearPick(player.UserId)
-	-- AND THE TWO THINGS TASK 151 ADDED. `Match.forget` never runs in this world -- `MatchBoot`
-	-- stands aside here -- so without this line the role request and `Body`'s own appearance window
-	-- would be the one thing that leaks in the Forest Test (beater-kit design section 9 item 4).
-	ForestTest.clearRole(player.UserId)
-	Body.forget(player.UserId)
+	-- THE REQUEST GOES WITH THE PLAYER. `Body.forget` is no longer called here: `Match.forget` runs
+	-- in this world now and calls it, so one caller instead of two.
+	ForestTest.clearRequest(player.UserId)
 end)
 
 -- ---------------------------------------------------------------- the loop
 
--- ONE HEARTBEAT FOR BOTH JOBS: the schedule and the leash. The boar runtime runs its own; this is
--- only the playtest's own clock.
+-- ONE HEARTBEAT FOR BOTH JOBS: the schedule and the leash. The boar runtime runs its own, and the
+-- drive runs its own; this is only the playtest's own clock.
 --
 -- THE WAVE REPORT GOES TO THE CONSOLE, and that is not decoration. A tool connected over StudioMCP
 -- cannot read this module's state: its `require` returns ITS OWN instance of the module, with an
@@ -469,26 +538,9 @@ end)
 -- in the world. The console comes from the server that is actually running, so it is the only
 -- honest channel for "what is the push doing".
 local lastReportAt = 0
--- WHICH REPORTING PERIOD THE RECORD IS IN (task 124). This world has no phase signal to listen to, so
--- the root latches on `ForestTest.drive`'s own window: when the index moves, the old drive closes and
--- a new one opens. It moves nothing else -- see `ForestTest.DRIVE`.
-local lastDriveIndex = 0
 
 RunService.Heartbeat:Connect(function()
 	local now = os.clock()
-	local drive = ForestTest.drive(now)
-	if drive.index ~= lastDriveIndex then
-		if lastDriveIndex > 0 then
-			HitLog.closeDrive(now)
-		end
-		lastDriveIndex = drive.index
-		HitLog.openDrive(drive.index, now)
-		-- ONE LINE PER DRIVE, which in this world is one per five minutes. It is the only way anybody
-		-- outside the server can see that the reporting window rolled over: a tool that `require`s
-		-- this module over StudioMCP gets a SANDBOXED COPY with empty state (measured, task 122), so
-		-- the console is the only honest channel for "what is the record doing".
-		print(string.format("[report] drive %d opened (%ds windows)", drive.index, Data.DRIVE.seconds))
-	end
 	local line = ForestTest.step(now)
 	if line then
 		print("[ForestTest] " .. line)
@@ -510,7 +562,9 @@ RunService.Heartbeat:Connect(function()
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		if root then
-			ForestTest.leash(player.UserId, root :: BasePart)
+			-- THE ROLE IS PASSED IN SINCE TASK 157: the truth of it is `Player.Team`, and this loop is
+			-- what holds the `Player` -- `ForestTest` keys by `userId` and never holds one.
+			ForestTest.leash(player.UserId, root :: BasePart, ForestTest.roleOfPlayer(player))
 		end
 	end
 end)

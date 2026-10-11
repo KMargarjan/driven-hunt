@@ -14,6 +14,10 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
 local Line = ForestTest.Line
+-- The world's own data (the road curve, the stands, the push line), for the drive-line case
+-- task 157 added at the bottom.
+local Data = ForestTest.Data
+local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 
 -- A straight trail east along +X, one crumb a stud, then a right-angle turn south along -Z.
 local function elbow()
@@ -217,6 +221,56 @@ return function()
 			expect(Line.leaderSpeed(18, 24, 12, 0.45) < 18 * 0.46).to.equal(true)
 			-- ...and she never stops dead, which would open a hole in the file.
 			expect(Line.leaderSpeed(18, 400, 12, 0.45) > 0).to.equal(true)
+		end)
+	end)
+	---------------------------------------------------------------- the drive line (task 157)
+
+	describe("one plane for a curved road", function()
+		-- THE FOREST HANDS THE WEAPON ONE `{ position, normal }` for a road that is a SINE: the plane
+		-- is up to `ROAD.amplitudeStuds` (30) studs off the real road in z, and a hunter at stand 1 or
+		-- 9 stands 600 studs from its position along x. This is the case that says why that costs
+		-- nothing -- and it is an argument about WHICH FIELD IS READ, not an estimate.
+		local SafetyArc = require(ServerScriptService:WaitForChild("Weapon")).SafetyArc
+		local HALF = 45 -- Shotgun.CONFIG.SAFETY_ARC_HALF_DEG
+
+		it("is invariant to where the plane SITS, because the arc reads the normal only", function()
+			local north = Vector3.new(0, 0, 1)
+			local away = Vector3.new(0, 0, -1)
+			local base = { position = Data.CENTRE, normal = Vector3.zAxis }
+			local moved = {
+				position = Data.CENTRE + Vector3.new(600, 0, Data.ROAD.amplitudeStuds),
+				normal = Vector3.zAxis,
+			}
+			local far = {
+				position = Data.CENTRE - Vector3.new(600, 0, Data.ROAD.amplitudeStuds),
+				normal = Vector3.zAxis,
+			}
+			for _, line in ipairs({ base, moved, far }) do
+				expect(SafetyArc.isForbidden(north, line, HALF)).to.equal(true)
+				expect(SafetyArc.isForbidden(away, line, HALF)).to.equal(false)
+			end
+			-- A shot along the road is outside a 45-degree half-cone about +Z, wherever the plane is.
+			for _, line in ipairs({ base, moved, far }) do
+				expect(SafetyArc.isForbidden(Vector3.new(1, 0, 0), line, HALF)).to.equal(false)
+			end
+		end)
+
+		it("has the beaters north of every point of this road", function()
+			-- What WOULD matter is north ceasing to be the drive side. The road's tangent swings only
+			-- atan(30/70) = 23 degrees, so every stand has the push line to its north -- which is why
+			-- one plane with a +Z normal is the right answer here.
+			for index = 1, Data.STAND_COUNT do
+				local x = Data.standX(index)
+				local road = Data.roadZ(x)
+				local start = Data.beaterStart(x, 0)
+				expect(start.Z > road).to.equal(true)
+			end
+			-- ...and the spawn the waves come from is north of the road too, said ONCE rather than
+			-- nine times inside the loop above.
+			expect(Data.LINE.spawnNorthStuds > 0).to.equal(true)
+			local swing = math.deg(math.atan(Data.ROAD.amplitudeStuds / Data.ROAD.wavelengthDivisor))
+			expect(swing < HALF).to.equal(true)
+			TestKit.note(string.format("forest-line: the road's tangent swings %.1f degrees", swing))
 		end)
 	end)
 end

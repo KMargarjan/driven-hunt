@@ -691,6 +691,15 @@ BLAST_RADIUS = (
     ("src/client/Match/", "match"),
     ("src/server/Match/", "match"),
     ("src/shared/Drive/", "match"),
+    # The playtest world (task 157): the real `Match` runs there on `ForestTest`'s geometry, so a
+    # change to either half reaches the drive's specs as well as the forest's own -- which is only
+    # TRUE because `forest_stand.spec` and `forest_line.spec` are named in the `match` tuple below as
+    # well as in `boar`'s (round 2, finding 1: before that these three prefixes matched nothing and
+    # fell through to the whole suite, so mapping them NARROWED what a scoped run played, past the
+    # forest module's own specs).
+    ("src/server/ForestTest/", "match"),
+    ("src/shared/ForestTest/", "match"),
+    ("src/server/ForestTestBoot.server.luau", "match"),
     ("src/server/Boar/", "boar"),
     ("src/server/BoarAssetsBoot.server.luau", "boar"),
     ("src/shared/Map/", "map"),
@@ -728,7 +737,16 @@ SCOPE_SPECS = {
              # A horn blast is a boar stimulus (task 152), so a change to either side reaches it.
              "tests/server/zz_horn.spec.luau",
              "tests/client/shoot_boar.spec.luau"),
-    "match": ("tests/server/match_live.spec.luau", "tests/server/match_outfit.spec.luau",
+    # The real drive runs in TWO places since task 157 (the DEV world and the Forest Test), so the
+    # per-world config merge and the forest's own marker set are this scope's as well:
+    # `src/server/Match/` and `src/server/ForestTest/` are what either of them can break.
+    "match": ("tests/server/match_config.spec.luau", "tests/server/forest_markers.spec.luau",
+              # DUAL MEMBERSHIP, the idiom `zz_horn`, `boar_hit`, `boar_shot` and `shoot_boar`
+              # already use: these two are the forest module's OWN specs (the stand, the pick, the
+              # leash, the rest, the threats, the line) and they belong to `boar` as well. A
+              # ForestTest edit now plays them, which is what this scope claims to do.
+              "tests/server/forest_stand.spec.luau", "tests/server/forest_line.spec.luau",
+              "tests/server/match_live.spec.luau", "tests/server/match_outfit.spec.luau",
               "tests/server/match_phase.spec.luau", "tests/server/match_roster.spec.luau",
               "tests/server/match_safety.spec.luau", "tests/server/match_score.spec.luau",
               "tests/server/match_teams.spec.luau", "tests/server/zz_drive_boundary.spec.luau",
@@ -4599,6 +4617,18 @@ def selftest():
     ok("a Windows path still scopes to its area",
        scope_for([r"src\server\Match\init.luau"])[0] == ["match"],
        repr(scope_for([r"src\server\Match\init.luau"])[0]))
+    # A MAPPED PREFIX MUST PLAY THAT MODULE'S OWN SPECS, and this is the case round 2's finding 1
+    # is about: mapping a path that used to fall through to the whole suite NARROWS the run, so the
+    # narrowing has to be checked against the module's own specs by name.
+    for path in ("src/server/ForestTest/init.luau", "src/shared/ForestTest/init.luau",
+                 "src/server/ForestTestBoot.server.luau"):
+        names, specs = scope_for([path])
+        ok("a %s change plays the forest's own specs" % path,
+           names == ["match"]
+           and "tests/server/forest_stand.spec.luau" in specs
+           and "tests/server/forest_line.spec.luau" in specs
+           and "tests/server/forest_markers.spec.luau" in specs,
+           repr((names, sorted(specs))))
     # EVERY SPEC IN THE REPO IS MAPPED. A new spec nobody added to SCOPE_SPECS would otherwise sit
     # outside every scope, and `--scope auto` would call its area covered when it is not.
     mapped = set()

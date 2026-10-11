@@ -17,6 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Match = require(ServerScriptService:WaitForChild("Match"))
+local Body = Match.Body
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local ASSIGN_TIMEOUT = 30 -- the drive assigns on entering Assigning, which follows the first join
@@ -143,6 +144,65 @@ return function()
 					tiedCount
 				)
 			)
+		end)
+	end)
+	describe("the second pivot (task 157)", function()
+		-- MEASURED IN THE FOREST TEST PLACE: a character placed by `Body.place` stayed where
+		-- `LoadCharacter` had put it -- that place's own `SpawnLocation`, on the road -- while the
+		-- drive's chosen point was 240 studs north; a direct `PivotTo` on the same character in the
+		-- same session STUCK. So the move was being overwritten, inside the frame `CharacterAdded`
+		-- runs in, which is the fact task 153's boot had already written down for its own write. The
+		-- DEV place has no `SpawnLocation` (archived in task 22), which is why a hundred DEV drives
+		-- never showed it.
+		--
+		-- NO PLAYER AND NO RESPAWN HERE: the rule is about a Model and a CFrame, so it is asserted on
+		-- a Model and a CFrame.
+		local function model(at: Vector3): Model
+			local character = Instance.new("Model")
+			local root = Instance.new("Part")
+			root.Name = "HumanoidRootPart"
+			root.Size = Vector3.new(2, 2, 1)
+			root.Anchored = true
+			root.Position = at
+			root.Parent = character
+			character.PrimaryPart = root
+			character.Parent = workspace
+			return character
+		end
+
+		it("pivots again when something moved the character away", function()
+			local target = CFrame.new(Vector3.new(0, 50, 0))
+			local character = model(Vector3.new(0, 50, 0))
+			local before = Body.settled()
+			-- something else puts it back where it spawned
+			local root = character.PrimaryPart :: BasePart
+			root.Position = Vector3.new(0, 50, 240)
+			Body.settle(character, target)
+			task.wait(0.2)
+			expect(root.Position.Z).to.be.near(0, 0.01)
+			expect(Body.settled()).to.equal(before + 1)
+			character:Destroy()
+		end)
+
+		it("does nothing when the character is where it was put", function()
+			local target = CFrame.new(Vector3.new(0, 50, 0))
+			local character = model(Vector3.new(0, 50, 0.25)) -- inside the one-stud tolerance
+			local before = Body.settled()
+			Body.settle(character, target)
+			task.wait(0.2)
+			local root = character.PrimaryPart :: BasePart
+			expect(root.Position.Z).to.be.near(0.25, 0.01)
+			expect(Body.settled()).to.equal(before)
+			character:Destroy()
+		end)
+
+		it("does nothing for a character that has gone", function()
+			local character = model(Vector3.new(0, 50, 240))
+			local before = Body.settled()
+			character:Destroy()
+			Body.settle(character, CFrame.new(Vector3.new(0, 50, 0)))
+			task.wait(0.2)
+			expect(Body.settled()).to.equal(before)
 		end)
 	end)
 end
