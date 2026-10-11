@@ -577,7 +577,7 @@ return function()
 			-- THE HEAD IS UNTOUCHED, which is what makes a dressed player a person in a green
 			-- outfit rather than a green person.
 			expect(colors.HeadColor3).to.equal(head)
-			-- painting twice leaves ONE instance: found-or-created, never appended
+			-- painting twice leaves ONE instance: an existing one is written to, never appended to
 			expect(Body.paint(character, Body.BASE)).to.equal(true)
 			local count = 0
 			for _, child in ipairs(character:GetChildren()) do
@@ -699,12 +699,20 @@ return function()
 			expect(late.Parent).to.equal(nil)
 			expect(Body.strayCleared()).to.equal(strayBefore) -- strip itself does not count strays
 
-			-- ...and a BodyColors the engine adds later is painted rather than fought with.
+			-- ...and a BodyColors the engine adds later is painted rather than fought with -- INCLUDING
+			-- when ours is already there, which is the case the first version of `paint` got wrong:
+			-- `FindFirstChildOfClass` answers whichever of the two comes first in child order, and
+			-- the engine honours whichever it honours. Every one of them is painted, so the answer
+			-- does not depend on an order nothing here controls.
+			local ours = character:FindFirstChildOfClass("BodyColors")
+			expect(ours).to.be.ok()
 			local engineColors = Instance.new("BodyColors")
 			engineColors.TorsoColor3 = Color3.fromRGB(255, 0, 0)
 			engineColors.Parent = character
 			expect(Body.paint(character, base)).to.equal(true)
 			expect(engineColors.TorsoColor3).to.equal(BASE_COLOR)
+			expect((ours :: BodyColors).TorsoColor3).to.equal(BASE_COLOR)
+			engineColors:Destroy()
 
 			-- AT MOST ONE WINDOW PER PLAYER, which is exactly what "keyed by userId and replaced by
 			-- the next character" guarantees -- and a window left behind by a player who has left,

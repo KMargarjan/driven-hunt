@@ -460,24 +460,37 @@ end
 --
 -- FOUND-OR-CREATED RATHER THAN ALWAYS NEW, so dressing twice leaves one instance and a stray one
 -- the engine added later is written to rather than fought with.
+--
+-- IT PAINTS EVERY `BodyColors` ON THE CHARACTER, NOT THE FIRST ONE, and that is not tidiness -- it is
+-- the bug the first version of this function shipped with, caught by its own spec on the gate's first
+-- run. A character that already carries ours and is then handed one by the appearance load has TWO,
+-- and `FindFirstChildOfClass` answers whichever comes first in child order; the engine honours
+-- whichever it honours. Painting all of them makes the answer the same either way, which is the only
+-- form of this write that cannot depend on an order nothing here controls.
 function Body.paint(character: Model?, base: BaseRow?): boolean
 	if not character or not base then
 		return false
 	end
-	local colors = character:FindFirstChildOfClass("BodyColors")
-	if not colors then
-		colors = Instance.new("BodyColors")
+	local painted = 0
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("BodyColors") then
+			for _, stem in ipairs(base.limbs) do
+				(child :: any)[stem .. "Color3"] = base.color
+			end
+			painted += 1
+		end
+	end
+	if painted == 0 then
+		local colors = Instance.new("BodyColors")
 		colors.Name = "BodyColors"
+		for _, stem in ipairs(base.limbs) do
+			(colors :: any)[stem .. "Color3"] = base.color
+		end
 		colors.Parent = character
-	end
-	if not colors or not colors.Parent then
-		return false
-	end
-	for _, stem in ipairs(base.limbs) do
-		(colors :: any)[stem .. "Color3"] = base.color
+		painted = 1
 	end
 	repaints += 1
-	return true
+	return painted > 0
 end
 
 -- How many appearance windows are open. Must come back to 0: a window that never closed is a
