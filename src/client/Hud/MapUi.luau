@@ -520,7 +520,19 @@ function MapUi.geometryFor(world: string, forestTest: any?, map: any?): MapGeome
 		end
 		return MapUi.geometryFromForestTest(forestTest)
 	end
-	if map ~= nil and map.ROAD ~= nil and map.FIELD ~= nil and map.FIELD.bounds ~= nil then
+	-- THE WORLD MUST BE THE ONE THE MAP MODULE IS ABOUT (task 155 round 1, the Reviewer's note).
+	-- Without this compare, ANY unrecognised world fell through to the DEV geometry and would have
+	-- drawn the DEV road over a place that has never heard of it -- a map that is wrong rather than
+	-- absent, which is the opposite of design section 5.4's rule. Unreachable today, because
+	-- `Map.EXPECTED_WORLD` is `WORLD_BY_PLACE[game.PlaceId] or DEFAULT_WORLD` and so is always one of
+	-- the two; the next place id added to that table is when it would have mattered.
+	if
+		map ~= nil
+		and map.EXPECTED_WORLD == world
+		and map.ROAD ~= nil
+		and map.FIELD ~= nil
+		and map.FIELD.bounds ~= nil
+	then
 		return MapUi.geometryFromMap(map)
 	end
 	return nil
@@ -571,7 +583,23 @@ type Drawer = {
 local drawers: { Drawer } = {}
 
 local lastViewport = Vector2.new(0, 0)
-local stats = { ticks = 0, toggles = 0, pinned = 0, overflow = 0, builtAt = nil :: number?, elapsed = 0 }
+-- `keyToggles` IS COUNTED APART FROM `toggles`, AND THAT IS THE WHOLE POINT (task 155 round 1, the
+-- Reviewer's blocking finding). `toggles` counts every change, including a spec's own `setOpen`, so
+-- a case asserting `toggles >= 2` passes with the M binding DELETED -- it proved nothing about the
+-- key. This one is incremented only on the bound action's `Begin`, so it is evidence that a real M
+-- arrived, which is rule 6: test the player's path, not the harness's.
+--
+-- `pinned` IS PER TICK, like `overflow` beside it, and is reset at the top of `render`: one name
+-- must not answer "now" for one field and "since boot" for another.
+local stats = {
+	ticks = 0,
+	toggles = 0,
+	keyToggles = 0,
+	pinned = 0,
+	overflow = 0,
+	builtAt = nil :: number?,
+	elapsed = 0,
+}
 local firstTickAt: number? = nil
 
 function MapUi.stats()
@@ -630,13 +658,17 @@ function MapUi.markerPoints(): { MarkerPoint }
 		table.insert(nodes, drawer.own)
 		for _, marker in ipairs(nodes) do
 			if marker.Visible then
+				local team = marker:GetAttribute("Team") :: string?
 				table.insert(out, {
 					userId = (marker:GetAttribute("UserId") :: number?) or 0,
 					u = marker.Position.X.Offset,
 					v = marker.Position.Y.Offset,
 					pinned = marker.BackgroundTransparency > 0,
 					mine = marker.Name == "Own",
-					team = marker:GetAttribute("Team") :: string?,
+					-- ONE SHAPE FOR ONE ANSWER (task 155 round 1, the Reviewer's note). The
+					-- attribute cannot hold nil, so `renderDrawer` writes `""` for a player with no
+					-- team; reading it straight back gave `""` here against `pointsFor`'s `nil`.
+					team = if team == "" then nil else team,
 				})
 			end
 		end
@@ -833,15 +865,29 @@ end
 -- IT WRITES SIZES AND TWO `UIScale`S AND NOTHING ELSE. Because each drawer's pixel space is fixed,
 -- no view moves and no geometry is redrawn here: that is the whole reason for building in a fixed
 -- space (see the header).
-local function layout(viewport: Vector2)
+local function layoutFor(viewport: Vector2)
 	local config = MapUi.CONFIG
 	local mini, full = miniFrame, fullFrame
 	if mini == nil or full == nil then
 		return
 	end
 
+	-- ONE WRITER OF THE RENDERED DIAMETER, AND IT IS THE `UIScale` (task 155 round 1, the Reviewer's
+	-- blocking finding). This used to write `mini.Size` AS WELL as the scale, and the two multiply:
+	-- **a `UIScale` scales the GuiObject it is parented to, not only its descendants** -- MEASURED on
+	-- the full map in the same run, 984 x 700 built, `UIScale` 0.897, `AbsoluteSize` 883 x 628. So a
+	-- 96 px minimap at a 400 px viewport rendered at 96 x 96/150 = 61 px, and the picture inside it
+	-- -- built in the fixed 150 px space with a half-extent of 75 -- was drawn at radius 48 inside a
+	-- frame of radius 30, under `ClipsDescendants`: a marker PINNED TO THE RIM was clipped out of
+	-- existence, which is the one thing the pin exists to prevent.
+	--
+	-- NOTHING IN THE RUN COULD SEE IT: `diameterFor(969, 784)` is 150, so the scale was exactly 1 for
+	-- both gate runs and both screenshots. `map_ui.spec` asserts it at a phone-sized viewport now,
+	-- which is what `MapUi.applyLayout` is public for.
+	--
+	-- The frame's own `Size` is `MINIMAP_DIAMETER_PX` and stays there (written once by `Hud.build`),
+	-- so `AbsoluteSize` is `MINIMAP_DIAMETER_PX * Scale` = `diameter`, exactly.
 	local diameter = MapUi.diameterFor(viewport.X, viewport.Y)
-	mini.Size = UDim2.fromOffset(diameter, diameter)
 	mini.Position = UDim2.new(1, -config.MINIMAP_MARGIN, 0, config.MINIMAP_TOP)
 	local miniUiScale = miniScale
 	if miniUiScale ~= nil then
@@ -850,6 +896,8 @@ local function layout(viewport: Vector2)
 
 	local button = mapButton
 	if button ~= nil then
+		-- FROM THE RENDERED DIAMETER, which is what `diameter` is now that the `UIScale` is the one
+		-- writer of it: the button sits under the disc at every viewport, not only at this one.
 		button.Size = UDim2.fromOffset(config.BUTTON_PX, config.BUTTON_PX)
 		button.Position = UDim2.new(1, -config.MINIMAP_MARGIN, 0, config.MINIMAP_TOP + diameter + config.BUTTON_GAP)
 	end
@@ -884,6 +932,15 @@ local function layout(viewport: Vector2)
 			)
 		)
 	end
+end
+
+-- PUBLIC AND BY PARAMETER (task 155 round 1). A spec cannot resize a Studio viewport, so the one
+-- way to prove the layout is right at a PHONE's width is to hand it one -- which is this repo's
+-- rule for every flagged or branched path: *"reachable by parameter as well as by flag, or its two
+-- states cannot be tested"*. The next real viewport change overwrites whatever a caller set.
+function MapUi.applyLayout(viewport: Vector2)
+	lastViewport = viewport
+	layoutFor(viewport)
 end
 
 -- ---------------------------------------------------------------- visibility: the one writer
@@ -1031,6 +1088,7 @@ function MapUi.render()
 		return
 	end
 	stats.ticks += 1
+	stats.pinned = 0
 	local now = os.clock()
 	if firstTickAt == nil then
 		firstTickAt = now
@@ -1041,7 +1099,7 @@ function MapUi.render()
 	local viewport = if camera then camera.ViewportSize else lastViewport
 	if viewport.X ~= lastViewport.X or viewport.Y ~= lastViewport.Y then
 		lastViewport = viewport
-		layout(viewport)
+		layoutFor(viewport)
 	end
 
 	MapUi.applyVisibility()
@@ -1242,11 +1300,19 @@ function MapUi.setGeometry(next_: MapGeometry?)
 
 	local camera = Workspace.CurrentCamera
 	lastViewport = if camera then camera.ViewportSize else Vector2.new(1920, 1080)
-	layout(lastViewport)
+	layoutFor(lastViewport)
 
 	-- M IS BOUND ONLY ONCE THERE IS A MAP TO OPEN. An M that opens an empty panel is worse than an M
 	-- that does nothing (design section 5.4).
-	ContextActionService:BindAction(TOGGLE, on(MapUi.toggle), false, config.TOGGLE_KEY)
+	ContextActionService:BindAction(
+		TOGGLE,
+		on(function()
+			stats.keyToggles += 1
+			MapUi.toggle()
+		end),
+		false,
+		config.TOGGLE_KEY
+	)
 	MapUi.applyVisibility()
 	MapUi.render()
 end

@@ -170,6 +170,46 @@ return function()
 		it("never goes below the readable minimum", function()
 			expect(MapUi.diameterFor(100, 100)).to.equal(CONFIG.MINIMAP_MIN_PX)
 		end)
+
+		it("RENDERS at that diameter, at a phone's viewport as well as at this one", function()
+			-- THIS CASE EXISTS BECAUSE THE RUN COULD NOT SEE THE BUG (task 155 round 1, the
+			-- Reviewer's blocking finding). The layout wrote the frame's `Size` AND a `UIScale`, and
+			-- the two MULTIPLY -- a `UIScale` scales the GuiObject it is parented to, not only its
+			-- descendants -- so a 96 px minimap at 400 px rendered at 96 x 96/150 = 61 px, and the
+			-- picture inside it, built in the fixed 150 px space, was clipped: a marker pinned to
+			-- the rim disappeared, which is the one thing the pin prevents. At THIS PC's 969 x 784
+			-- the diameter is 150 and the scale is exactly 1, so nothing in the gate or in either
+			-- screenshot could show it.
+			--
+			-- `applyLayout` is public for exactly this: a spec cannot resize a Studio viewport.
+			local mini = Hud.minimap() :: Frame
+			local camera = workspace.CurrentCamera
+			local real = camera.ViewportSize
+			local function renderedAt(x: number, y: number): number
+				MapUi.applyLayout(Vector2.new(x, y))
+				task.wait()
+				return mini.AbsoluteSize.X
+			end
+			local phone = renderedAt(400, 800)
+			expect(phone).to.be.near(MapUi.diameterFor(400, 800), 1)
+			local desktop = renderedAt(1920, 1080)
+			expect(desktop).to.be.near(MapUi.diameterFor(1920, 1080), 1)
+			-- ...and square, so the disc stays a disc.
+			expect(mini.AbsoluteSize.Y).to.be.near(mini.AbsoluteSize.X, 1)
+			-- Put this screen back the way it was.
+			MapUi.applyLayout(real)
+			task.wait()
+			expect(mini.AbsoluteSize.X).to.be.near(MapUi.diameterFor(real.X, real.Y), 1)
+			TestKit.note(
+				string.format(
+					"map: minimap renders %.0f px at 400x800 (want %d) and %.0f px at 1920x1080 (want %d)",
+					phone,
+					MapUi.diameterFor(400, 800),
+					desktop,
+					MapUi.diameterFor(1920, 1080)
+				)
+			)
+		end)
 	end)
 
 	describe("the scale bar", function()
@@ -281,6 +321,11 @@ return function()
 			expect(MapUi.geometryFor("forest-test", nil, nil)).to.equal(nil)
 			expect(MapUi.geometryFor("something-else", nil, nil)).to.equal(nil)
 			expect(MapUi.geometryFor("something-else", nil, {})).to.equal(nil)
+			-- ...AND A REAL `Map` DOES NOT ANSWER FOR A WORLD IT IS NOT ABOUT (task 155 round 1, the
+			-- Reviewer's note). Without the `EXPECTED_WORLD` compare this returned the DEV road for
+			-- any unrecognised place -- a map that is WRONG rather than absent.
+			expect(MapUi.geometryFor("some-new-place", nil, Map)).to.equal(nil)
+			expect(MapUi.geometryFor(Map.EXPECTED_WORLD, nil, Map)).to.be.ok()
 		end)
 
 		it("picks the Forest Test's geometry in that world and the Map's elsewhere", function()
@@ -289,9 +334,13 @@ return function()
 			expect(forest).to.be.ok()
 			expect((forest :: any).world).to.equal(data.WORLD)
 			expect(#(forest :: any).stands).to.equal(data.STAND_COUNT)
-			local dev = MapUi.geometryFor(Map.DEFAULT_WORLD, data, Map)
-			expect(dev).to.be.ok()
-			expect(#(dev :: any).stands).to.equal(0)
+			-- `Map.EXPECTED_WORLD` AND NOT `DEFAULT_WORLD`: since the fall-through was closed, a `Map`
+			-- only answers for the world it is about, and in the Forest Test place those two differ.
+			if Map.EXPECTED_WORLD ~= "forest-test" then
+				local dev = MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map)
+				expect(dev).to.be.ok()
+				expect(#(dev :: any).stands).to.equal(0)
+			end
 		end)
 	end)
 
@@ -650,13 +699,20 @@ return function()
 	end)
 
 	describe("M really arrives from a real key", function()
-		it("counted at least two toggles from the input scenario", function()
-			-- `tests/client/input_scenarios.txt` presses M twice. This proves the KEY reaches us, not
-			-- just that `MapUi.toggle()` works when called -- which is rule 6, the player's path.
+		it("counted two toggles that came from the KEY, not from a caller", function()
+			-- `tests/client/input_scenarios.txt` presses M twice. This is rule 6 -- the player's
+			-- path, not the harness's -- and the FIRST version of this case did not test it (task
+			-- 155 round 1, the Reviewer's blocking finding): it asserted `stats().toggles >= 2`,
+			-- and `toggles` counts every change including this spec's own `setOpen` calls, so the
+			-- case passed with the M binding deleted.
 			--
-			-- The scenario is replayed before the specs run, and the cases above also toggle, so the
-			-- floor is what the scenario alone guarantees.
-			expect(MapUi.stats().toggles >= 2).to.equal(true)
+			-- `keyToggles` is incremented ONLY inside the bound action's `Begin`, so nothing a spec
+			-- calls can reach it. If the scenario's two presses do not arrive, this fails.
+			expect(MapUi.stats().keyToggles).to.equal(2)
+			-- ...and the binding is really there, under its own reserved name.
+			local actions = MapUi.boundActions()
+			expect(#actions).to.equal(1)
+			expect(ContextActionService:GetAllBoundActionInfo()[actions[1]]).to.be.ok()
 		end)
 	end)
 
