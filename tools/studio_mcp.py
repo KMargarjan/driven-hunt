@@ -514,6 +514,18 @@ Feature flags, and the two checks they add (Task 52)
   of them. `flags` does the same through `studio_for_role(studio, "edit")`, since `flags clear` is
   most wanted exactly while a session is still open.
 
+  AND THE DEFAULT IS PINNED AT STARTUP FROM ANY LISTING THAT NAMES THE HARNESS PLACE, INCLUDING A
+  ONE-ENTRY ONE (Task 156). Studio polls localhost every ~5 s and each open place attaches on its
+  own clock, so the first non-empty `list_roblox_studios` can hold one of two open places;
+  `_choose_default_studio` used to give up on that and pin nothing, and the second place then
+  attached and the next unscoped call was refused as "This call is missing the required studio_id
+  argument" -- a FAIL with nothing wrong in the repository, five times on this machine (tasks 36,
+  50, 52, 80 and <runs-dir>/flake-1.log). It now pins the editor the moment it can be identified by
+  `game.PlaceId`, a lone Studio included; a lone Studio that is NOT this place still pins nothing
+  and the report's place check is what says so. And `_call` closes the class: a call that named
+  nothing and was refused for naming nothing re-resolves the default and goes again, the same way
+  the "not connected" recovery does. `selftest` case 9c proves both against a scripted StudioMCP.
+
   TWO NEW CHECKS, in both `test` and `test2`:
     "No flag override is set"                -- before the token is written and before Play (in
                                                 `test2`, before Karen's click, so a refusal never
@@ -1584,6 +1596,17 @@ class Studio:
         lists what it found, because running the suite against the wrong place would produce a PASS
         that means nothing. `run_test2` still sets `default_studio_id` itself, and an explicit
         `studio_id` always wins.
+
+        AND IT PINS FROM A ONE-ENTRY LISTING TOO (task 156). Studio polls localhost every ~5 s and
+        each open place attaches on ITS OWN clock -- and drops out of the listing for a moment while
+        it re-registers -- so the first non-empty answer can hold one of two open places. This used
+        to give up on a one-entry listing and pin nothing; the second place then attached and
+        StudioMCP refused the very next unscoped call with "This call is missing the required
+        studio_id argument", which reads as a broken harness. That ended five runs on this machine
+        (tasks 36, 50, 52, 80 and `<runs-dir>/flake-1.log`, 2026-10-11, which died 2 s in at the
+        first `get_studio_state` with no "Studios connected" line above it). Pinning the editor the
+        moment it can be IDENTIFIED costs nothing and takes the whole class away, and it is where
+        `_scoped` says every unscoped Edit call means to go anyway.
         """
         if self.default_studio_id:
             return
@@ -1593,7 +1616,7 @@ class Studio:
                 studios = json.loads(self._call("list_roblox_studios")).get("studios", [])
             except (ValueError, RuntimeError):
                 return
-            if len(studios) <= 1:
+            if not studios:
                 return
             seen = studios
             for studio in studios:
@@ -1615,10 +1638,16 @@ class Studio:
                     # next call goes.
                     self.default_studio_name = studio.get("name") or ("place " + place)
                     print(
-                        "[harness] %d Studios connected; unscoped calls default to %s"
-                        % (len(studios), self.default_studio_name)
+                        "[harness] %d Studio%s connected; unscoped calls default to %s"
+                        % (len(studios), "" if len(studios) == 1 else "s", self.default_studio_name)
                     )
                     return
+            if len(studios) <= 1:
+                # ONE STUDIO THAT DID NOT ANSWER: pin nothing, exactly as before, and let the
+                # report's "comes from the DEV place" check be the thing that says so. Sitting in
+                # the retry loop would cost every single-Studio run 24 s to learn nothing, and with
+                # one Studio connected StudioMCP accepts an unscoped call anyway.
+                return
             time.sleep(2)
         names = "; ".join((s.get("name") or s.get("id", "?")[:8]) for s in seen)
         sys.exit(
@@ -1673,7 +1702,14 @@ class Studio:
             # Test place right after a solo Play stopped. The id a caller is holding is then wrong
             # through no fault of its own, so the default is dropped and resolved once more before
             # the call is given up on.
-            if chosen and "not connected" in text.lower() and tool not in self.UNSCOPED_TOOLS:
+            #
+            # AND A CALL THAT NAMED NOTHING AND WAS REFUSED FOR NAMING NOTHING recovers the same
+            # way (task 156). A second place can attach at ANY moment, including between the
+            # listing this run resolved its default from and the next call, so the refusal is not
+            # only an init-time race. Re-resolving names the editor and the call goes again.
+            missing_id = "studio_id" in text and "missing" in text.lower()
+            recoverable = (chosen and "not connected" in text.lower()) or (not chosen and missing_id)
+            if recoverable and tool not in self.UNSCOPED_TOOLS:
                 self.default_studio_id = None
                 self.default_studio_name = None
                 self._choose_default_studio()
@@ -4587,6 +4623,86 @@ def selftest():
     ok("a hand-named scope carries no prefix", scope_tag("gun", ["gun"]) == "gun")
     ok("--scope auto that resolves to the whole suite is tagged scope=all, not auto:all",
        scope_tag("auto", [SCOPE_ALL]) == "all", scope_tag("auto", [SCOPE_ALL]))
+
+    # 9c. THE DEFAULT STUDIO IS PINNED FROM ANY LISTING THAT NAMES THE HARNESS PLACE, INCLUDING A
+    # ONE-ENTRY ONE, and a call refused for naming no studio_id re-resolves and goes again (task
+    # 156). Studio polls localhost every ~5 s and each open place attaches on its own clock, so the
+    # first non-empty listing can hold one of two. The resolver used to give up on a one-entry
+    # listing and pin nothing; the second place then attached and StudioMCP refused the next
+    # unscoped call with "This call is missing the required studio_id argument". That killed runs in
+    # tasks 36, 50, 52 and 80, and `<runs-dir>/flake-1.log` on 2026-10-11. Driven here because
+    # reproducing it needs a second place to attach between two calls, which no run can arrange.
+    DEV = "dev-id"
+    OTHER = "forest-id"
+
+    class ListingStudio(FakeStudio):
+        """A scripted StudioMCP: a queue of listings, a place id per studio, and a switch that
+        refuses unscoped calls the way a second connected Studio makes it refuse them."""
+
+        def __init__(self, listings, places):
+            FakeStudio.__init__(self)
+            self.listings = [list(entry) for entry in listings]
+            self.places = places
+            self.refuse_unscoped = False
+            self.scoped_as = []   # the studio_id every non-listing call carried
+
+        def _call(self, tool, args=None, studio_id=None):
+            if tool == "list_roblox_studios":
+                at = self.listings.pop(0) if len(self.listings) > 1 else self.listings[0]
+                return json.dumps({"studios": at})
+            return Studio._call(self, tool, args, studio_id)
+
+        def _rpc(self, _method, params):
+            name, arguments = params["name"], params["arguments"]
+            asked = arguments.get("studio_id")
+            self.scoped_as.append((name, asked))
+            if name == "execute_luau" and arguments.get("code") == QUERY_PLACE_ID:
+                return {"content": [{"text": self.places.get(asked, "")}]}
+            if self.refuse_unscoped and not asked:
+                return {"isError": True, "content": [{"text":
+                    "This call is missing the required `studio_id` argument. Call "
+                    "`list_roblox_studios` to get the connected instance ids."}]}
+            return {"content": [{"text": "ok"}]}
+
+    # NAMELESS ENTRIES on purpose: StudioMCP returns those for seconds after a Play session ends, so
+    # this proves the PLACE query is what identifies the editor and not the label.
+    nameless = {"dev": {"id": DEV, "name": ""}, "other": {"id": OTHER, "name": ""}}
+    places = {DEV: HARNESS_PLACE_ID, OTHER: "999999"}
+
+    one = ListingStudio([[nameless["dev"]]], places)
+    one._choose_default_studio()
+    ok("a lone Studio that IS the harness place is pinned", one.default_studio_id == DEV,
+       repr(one.default_studio_id))
+    one.refuse_unscoped = True   # the second place has now attached
+    try:
+        answered = one._call("get_studio_state")
+    except RuntimeError as refused:
+        answered = f"<refused: {refused}>"
+    ok("...so a later unscoped call carries it and is not refused", answered == "ok", repr(answered))
+    ok("...and it went to the editor", one.scoped_as[-1] == ("get_studio_state", DEV),
+       repr(one.scoped_as[-1]))
+
+    began = time.time()
+    other = ListingStudio([[nameless["other"]]], places)
+    other._choose_default_studio()
+    ok("a lone Studio that is NOT the harness place pins nothing", other.default_studio_id is None,
+       repr(other.default_studio_id))
+    ok("...and costs no retry loop", time.time() - began < 1.0, f"{time.time() - began:.1f} s")
+
+    # The race itself: one entry at init, two by the time the next call goes out.
+    late = ListingStudio([[nameless["other"]], [nameless["other"], nameless["dev"]]], places)
+    late._choose_default_studio()
+    ok("the listing that holds only the other place pins nothing", late.default_studio_id is None,
+       repr(late.default_studio_id))
+    late.refuse_unscoped = True
+    try:
+        answered = late._call("get_studio_state")
+    except RuntimeError as refused:
+        answered = f"<refused: {refused}>"
+    ok("a refusal for a missing studio_id re-resolves and the call goes again", answered == "ok",
+       repr(answered))
+    ok("...and the retry named the harness place", late.default_studio_id == DEV,
+       repr(late.default_studio_id))
 
     # 10. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):
