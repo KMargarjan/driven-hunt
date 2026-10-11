@@ -3,17 +3,17 @@
 Task: 159
 Round: 1
 Base: `a0589f5` (main, #141 merged)
-Code commit: `f70a1aa9209e481dacbe11cd17e31b1857585d98`
+Code commit: `b9795f65ce9c40d0db950037f2649d8290284283`
 
 Harness, one player, the FULL run, twice on the clean tree at the code commit:
 
 ```
-[harness] PASS: 33/33 checks @ f70a1aa9209e481dacbe11cd17e31b1857585d98 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ f70a1aa9209e481dacbe11cd17e31b1857585d98 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ b9795f65ce9c40d0db950037f2649d8290284283 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ b9795f65ce9c40d0db950037f2649d8290284283 (clean tree) scope=all
 ```
 
 ```
-[harness2] NEEDS TEST2 159 f70a1aa9209e481dacbe11cd17e31b1857585d98
+[harness2] NEEDS TEST2 159 b9795f65ce9c40d0db950037f2649d8290284283
 ```
 
 **`test2` IS REQUIRED AND THE BUILDER DID NOT RUN IT.** This change touches `TWO_PLAYER_PATHS`
@@ -130,11 +130,40 @@ it. No new phase, no second score, no new remote.
     visible through the panel) and `...232414Z-task159-start-card.png` (the card reads, and the next
     drive started normally with the hunter on the road, gun in hand).
 
+12. **THE DIRECTOR'S `test2` FOUND A REAL ORDERING DEFECT, and it is fixed at the owner.**
+    `[harness2] FAIL 33/35 @ 7ea945f`, on this task's own case, for the one player the roster had just
+    made a beater. **`placePlayers` is the only effect in `Phase`'s list whose owner YIELDS** —
+    `applyPlace` calls `Player:LoadCharacter`, once per player — and `hold` was emitted **after** it.
+    The drive is already in `Assigning` with its new number while that yields, so the Heartbeat
+    broadcasts the new drive to every client before the hold is applied: for the length of a respawn a
+    beater the machine has decided to hold **is not held**, and nothing reading the drive can tell. It
+    is a game defect, not a test artefact — he can walk off his line, every drive.
+    **The rule now, stated once in `Phase`'s header and applied in all three places**
+    (`enterAssigning`, the `join` branch, the `team` branch): a `hold` or a `free` is emitted BEFORE
+    the `placePlayers` it goes with — which is task 158's own mechanism used as it was documented
+    (the userId is remembered and the character watch freezes whatever character the respawn
+    produces). Verify: `match_phase.spec` — "holds exactly the beaters at the line, and BEFORE they are
+    placed (task 159)", "puts a side-changer's hold or release before his placement too (task 159)",
+    the join-branch clause, and the boundary case's `hold < placePlayers`.
+
+13. **The one-player run can now catch it, and the case is PROVED falsifying.**
+    `zz_drive_boundary` — "never shows a beater who is not yet held, mid-respawn (the two-player
+    failure)" — samples the live owner from another coroutine while `Match.requestTeam` (the same
+    branch, the same placement) yields, and states the invariant: *while the countdown runs, the drive
+    never calls somebody a beater without holding him*. **Measured both ways by putting the old order
+    back for one run: 2 gaps at 0.000 s and 0.006 s with the old order (`zz_drive_boundary.spec:494`,
+    "Expected 0, got 2"), 0 gaps with the fix.** The existing case keeps its assertion **unweakened**
+    and now prints every freeze per player first (`team` / the drive's own `assignment` / `isHeld` /
+    `Body.isHolding` / `tied` / WalkSpeed), and asserts that the two representations of a side agree —
+    `Match.assignmentOf` was added for exactly that, so a future failure names which one is wrong.
+
 ## What I could not verify
 
-* **`test2`.** Not run (the Director's own instruction, above). The two-player claims this change
-  touches are: two players standing on the ring rather than one, and the scene's hold over both
-  rosters. The one-player gate covers everything else, twice.
+* **`test2`.** Not run (the Director's own instruction, above) — and it is the run that found claim
+  12, so it is the one that matters here. What the one-player gate CAN now prove about it is in claim
+  13: the invariant is sampled live, and the sampler was shown to fail on the old order. What is still
+  two-player-only: two players standing on the ring rather than one, and the roster's own swap making
+  somebody a beater at a boundary without a spec asking for it. The one-player gate covers everything else, twice.
 * **The LOOK.** Karen judges it in the morning. The one thing I can see and will not decide for her,
   queued as TASKS.md row 159a: **a solo beater is all the beaters** — in the Forest Test her drive ended 35 seconds in, when she walked past the
   stands. That is her rule applied literally, and the two one-line answers (require two beaters, or
