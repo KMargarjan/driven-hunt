@@ -3,17 +3,18 @@
 Task: 157
 Round: 1
 Base: `612dbf2` (`main`, #139 merged)
-Code commit: `bdf56898bb0fe1c44716d80d7346602587fb6178`
+Code commit: `ea992d173ace928e6c45164c7ec6e9f8fdf9b84e`
 
 ```
-[harness] PASS: 33/33 checks @ bdf56898bb0fe1c44716d80d7346602587fb6178 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ bdf56898bb0fe1c44716d80d7346602587fb6178 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ ea992d173ace928e6c45164c7ec6e9f8fdf9b84e (clean tree) scope=all
+[harness] PASS: 33/33 checks @ ea992d173ace928e6c45164c7ec6e9f8fdf9b84e (clean tree) scope=all
 [harness2] <PENDING — the Director runs it: one Studio, one human click>
 ```
 
-Two clean one-player runs at the code commit (`<runs-dir>/gate-157-4.log`, `gate-157-5.log`). **This
-change touches `src/server/Match/` and `MatchBoot`-adjacent wiring, so it IS in `TWO_PLAYER_PATHS`
-and the merge needs `[harness2]` for this same sha** — the Director runs it (dispatch, 2026-10-11).
+Two clean one-player runs at the code commit **with the DEV Studio ALONE** (`<runs-dir>/gate-157-6.log`,
+`gate-157-7.log`), which is the condition the Director's gates ran in. **This change touches
+`src/server/Match/`, so it IS in `TWO_PLAYER_PATHS` and the merge needs `[harness2]` for this same
+sha** — the Director runs it (dispatch, 2026-10-11).
 
 ## What changed
 
@@ -96,6 +97,28 @@ with an injected world. Note: `docs/research/2026-10-11-forest-drive.md`.
     `Session` folders of 831 more trees, so one stand is refused in some runs (delta 6.99 studs). The
     drive runs on eight stands and says so; the fix is either excluding those folders or raising
     `GROUND_TOLERANCE_STUDS`, and it is the Director's call rather than this task's.
+
+11. **THE DIRECTOR'S GATES FAILED AT `e2b0ae3` ON `map_ui.spec`'s M CASE, AND THE CAUSE IS A RACE
+    THAT HAS BEEN LATENT SINCE TASK 155 — not the drive, and not the key.** Reproduced with DEV
+    alone (`<runs-dir>/repro-157-1.log`, `repro-157-2.log`) and measured three ways:
+    - the case's own note read `keyToggles=0 toggles=8 ticks=742 builtAt=…` — the map had been
+      **built 45 s earlier** and was ticking, so the map was there and the presses had not arrived;
+    - a probe in a bare DEV Play session sent a replayed M and watched `FullMap` go
+      **false → true → false**, so the key path and the binding both work;
+    - a second probe forced a respawn and read `GetAllBoundActionInfo()` either side of it:
+      `DrivenHunt.Map.Toggle` **survives a respawn**, so nothing unbinds it.
+
+    The harness replays only once every input spec has published readiness, so the replay starts at
+    about the moment TestEZ starts running cases; `map-toggle` is the **fifth of six** scenarios
+    (~25 s into a 43 s replay) while `map_ui.spec` is the **ninth of sixteen** client specs
+    alphabetically — so the case could read the counter before the presses were sent, which asserts
+    the replay's schedule and not the player's path. It only ever passed because the suite happened
+    to be slower; my first two runs had a second Studio open.
+    **The fix is a bounded wait in that case** (40 s), the idiom `weapon_client` and `match_teams`
+    already use, and **the assertion is unchanged** (`keyToggles == 2`, moved only inside the bound
+    action's `Begin`, so nothing a spec can call reaches it — task 155 round 1's rule-6 finding).
+    *Verify:* `waitForKeys` in `tests/client/map_ui.spec.luau`; the two passing runs' note —
+    **`map keys: keyToggles=2 after 4.9 s`** and **`after 4.7 s`** — which is the race, measured.
 
 ## Not verified / out of scope
 
