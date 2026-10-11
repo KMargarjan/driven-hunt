@@ -175,6 +175,41 @@ local function layeredAccessory(name: string, kind: Enum.AccessoryType?): Access
 	return accessory
 end
 
+-- A FAKE CATALOG ACCESSORY, the shape `InsertService:LoadAsset` really answers with: a Model
+-- holding one `Accessory` whose `Handle` is a MeshPart carrying the attachment the Humanoid welds
+-- by. Built here rather than loaded, so these cases never touch the network and never depend on a
+-- stranger's asset still existing.
+local function fakeAccessoryTemplate(attachmentName: string): Model
+	local model = Instance.new("Model")
+	model.Name = "FakeCatalogAccessory"
+	local accessory = Instance.new("Accessory")
+	accessory.Name = "FakeAccessory"
+	local handle = Instance.new("MeshPart")
+	handle.Name = "Handle"
+	handle.Size = Vector3.new(1, 1, 1)
+	handle.Parent = accessory
+	local attachment = Instance.new("Attachment")
+	attachment.Name = attachmentName
+	attachment.Parent = handle
+	accessory.Parent = model
+	return model
+end
+
+-- Every accessory THIS MODULE put on, by its slot. The attribute is what tells ours from a player's
+-- own hat, which `Body.strip` deliberately spares.
+local function wornAccessories(character: Model): { [string]: Instance }
+	local out = {}
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("Accoutrement") then
+			local slot = child:GetAttribute(Body.ACCESSORY_TAG)
+			if slot ~= nil then
+				out[tostring(slot)] = child
+			end
+		end
+	end
+	return out
+end
+
 local function partNamed(character: Model, name: string): BasePart?
 	for _, part in ipairs(outfitParts(character)) do
 		if part.Name == name then
@@ -733,19 +768,151 @@ return function()
 			expect(Body.appearanceWatching() <= players).to.equal(true)
 		end)
 
+		it("wears the REAL accessory when one is loaded, and builds no plates for that slot", function()
+			-- THE SOURCE IS A MODULE-LEVEL SEAM THE LIVE SERVER HAS ALREADY WIRED, so it is put back
+			-- before this case can return by any route. A spec that left a fake source in place
+			-- would dress the next respawning player in a 1x1 cube.
+			local saved = Body.accessorySource()
+			local asked = {}
+			Body.setAccessorySource(function(slot)
+				table.insert(asked, slot)
+				return fakeAccessoryTemplate(if slot == "hat" then "HatAttachment" else "BodyFrontAttachment")
+			end)
+			local ok, err = pcall(function()
+				-- A HUMANOID IS WHAT `AddAccessory` NEEDS, so this rig has one. Every other rig in
+				-- this file has none, which is exactly why the plates can never be deleted.
+				local character = newRig("Task151Accessory")
+				local humanoid = Instance.new("Humanoid")
+				humanoid.Parent = character
+
+				expect(Body.dress(character, "Drivers", ON)).to.equal(true)
+				local worn = wornAccessories(character)
+				expect(worn["hat"]).to.be.ok()
+				expect(worn["vest"]).to.be.ok()
+				-- ...and NOT the plates as well: one worn thing per slot, never two.
+				expect(#outfitParts(character)).to.equal(0)
+				expect(character:FindFirstChild(Body.OUTFIT_NAME)).to.equal(nil)
+				expect(#asked).to.equal(2)
+
+				-- A pellet must not stop on a vest: the same rule the plates carry.
+				for _, accessory in pairs(worn) do
+					for _, d in ipairs((accessory :: Instance):GetDescendants()) do
+						if d:IsA("BasePart") then
+							expect(d.CanQuery).to.equal(false)
+							expect(d.CanTouch).to.equal(false)
+							expect(d.CanCollide).to.equal(false)
+							expect(d.Massless).to.equal(true)
+						end
+					end
+				end
+
+				-- DRESSING TWICE IS STILL ONE HAT. The accessories live on the CHARACTER, not in the
+				-- folder, so destroying the folder does not reach them -- this is the line that
+				-- stops a re-dress leaving a player in two.
+				expect(Body.dress(character, "Drivers", ON)).to.equal(true)
+				local count = 0
+				for _, child in ipairs(character:GetChildren()) do
+					if child:IsA("Accoutrement") and child:GetAttribute(Body.ACCESSORY_TAG) ~= nil then
+						count += 1
+					end
+				end
+				expect(count).to.equal(2)
+
+				-- A team swap takes the vest off and leaves the hat: still one worn thing per slot.
+				expect(Body.dress(character, "Shooters", ON)).to.equal(true)
+				local after = wornAccessories(character)
+				expect(after["hat"]).to.be.ok()
+				expect(after["vest"]).to.equal(nil)
+			end)
+			Body.setAccessorySource(saved)
+			if not ok then
+				error(err, 0)
+			end
+		end)
+
+		it("falls back to the plates when the slot has no accessory, or the rig cannot wear one", function()
+			local saved = Body.accessorySource()
+			local ok, err = pcall(function()
+				-- ONE slot answers, the other does not: the answering slot wears its accessory and
+				-- the silent one builds its plates. Both halves, one character.
+				Body.setAccessorySource(function(slot)
+					if slot == "vest" then
+						return fakeAccessoryTemplate("BodyFrontAttachment")
+					end
+					return nil
+				end)
+				local mixed = newRig("Task151Mixed")
+				local humanoid = Instance.new("Humanoid")
+				humanoid.Parent = mixed
+				expect(Body.dress(mixed, "Drivers", ON)).to.equal(true)
+				expect(wornAccessories(mixed)["vest"]).to.be.ok()
+				expect(wornAccessories(mixed)["hat"]).to.equal(nil)
+				local parts = outfitParts(mixed)
+				expect(#parts).to.equal(#HAT_PARTS) -- the hat's plates, and nothing of the vest's
+				expect(partNamed(mixed, "Hat")).to.be.ok()
+				expect(partNamed(mixed, "VestFront")).to.equal(nil)
+
+				-- NO HUMANOID, so nothing can be worn at all and every slot falls back. This is the
+				-- case every other rig in this file is in, and it is why the plates stay.
+				Body.setAccessorySource(function(slot)
+					return fakeAccessoryTemplate(if slot == "hat" then "HatAttachment" else "BodyFrontAttachment")
+				end)
+				local bare = newRig("Task151NoHumanoid")
+				expect(Body.dress(bare, "Drivers", ON)).to.equal(true)
+				expect(next(wornAccessories(bare))).to.equal(nil)
+				expect(#outfitParts(bare)).to.equal(BEATER_PART_COUNT)
+
+				-- A SOURCE THAT THROWS is a failed load, not a crash: the plates are built.
+				Body.setAccessorySource(function(_slot): Instance?
+					error("the catalog is on fire")
+				end)
+				local angry = newRig("Task151AngrySource")
+				local hum2 = Instance.new("Humanoid")
+				hum2.Parent = angry
+				expect(Body.dress(angry, "Shooters", ON)).to.equal(true)
+				expect(#outfitParts(angry)).to.equal(HUNTER_PART_COUNT)
+			end)
+			Body.setAccessorySource(saved)
+			if not ok then
+				error(err, 0)
+			end
+		end)
+
+		it("names one slot per group, and the composition root is the only thing that maps them", function()
+			-- `Match.Body` knows the slots it dresses and must never learn an asset key: the mapping
+			-- from "hat" to "outfit.cap" lives in `ServerScriptService.OutfitAssetsBoot` alone.
+			local hunter = Body.outfitFor("Shooters", ON)
+			local beater = Body.outfitFor("Drivers", ON)
+			expect(#(hunter :: any).parts).to.equal(1)
+			expect((hunter :: any).parts[1].slot).to.equal(Body.SLOTS.hat)
+			expect(#(beater :: any).parts).to.equal(2)
+			expect((beater :: any).parts[1].slot).to.equal(Body.SLOTS.hat)
+			expect((beater :: any).parts[2].slot).to.equal(Body.SLOTS.vest)
+			-- the hat GROUP is the same table for both roles, not just its rows
+			expect((beater :: any).parts[1]).to.equal((hunter :: any).parts[1])
+		end)
+
 		it("dresses the live server, because the flag is ON now", function()
 			-- THE ASSERTION THAT BITES TODAY, turned over by task 82. Everything above drives both
 			-- branches with a table of its own; this one asks what the RUNNING server did with the
 			-- real flag. A player with a team must be dressed -- and every plate of the vest he is
 			-- wearing must stand clear of the torso it is welded to, which is the half no spec
 			-- checked before Karen played it (77a(d)).
+			-- SINCE TASK 151 ROUND 2 "DRESSED" IS NOT "HAS A FOLDER". A slot whose real catalog
+			-- accessory loaded wears that instead, and a character wearing both accessories has no
+			-- `HuntOutfit` folder at all -- so the folder test would have called a correctly
+			-- dressed beater undressed. What is asserted is one WORN THING PER SLOT, by whichever
+			-- of the two routes it arrived.
 			local dressed, teamed, plates, worst = 0, 0, 0, math.huge
 			for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
 				local character = player.Character
 				if character and player.Team then
 					teamed += 1
-					local folder = character:FindFirstChild(Body.OUTFIT_NAME)
-					if folder then
+					local accessories = wornAccessories(character)
+					local hat = accessories["hat"] ~= nil or partNamed(character, "Hat") ~= nil
+					local vest = accessories["vest"] ~= nil or partNamed(character, "VestFront") ~= nil
+					local needsVest = player.Team.Name == "Drivers"
+					if hat and (vest or not needsVest) then
 						dressed += 1
 					end
 					for _, part in ipairs(outfitParts(character)) do
@@ -766,6 +933,17 @@ return function()
 					dressed,
 					plates,
 					if worst == math.huge then "none" else string.format("%.3f", worst)
+				)
+			)
+			-- WHICH ROUTE THE LIVE SERVER ACTUALLY TOOK. If `accessoriesWorn` is 0 on a run, the
+			-- catalog load failed and everybody is in grey-box plates that look deliberate -- which
+			-- is playable, and is exactly the difference nobody can see in a console screenshot
+			-- unless it is printed.
+			TestKit.note(
+				string.format(
+					"task151 accessories: %d worn, %d slot(s) fell back to plates",
+					Body.accessoriesWorn(),
+					Body.slotsFellBack()
 				)
 			)
 			if Match.CONFIG.OUTFITS_ENABLED then

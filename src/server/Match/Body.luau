@@ -209,7 +209,17 @@ local APPEARANCE_WATCH_SECONDS = 5
 -- THE HAT IS DECLARED ONCE AND WORN BY BOTH ROLES (design section 3). Karen's doc gives the hunter
 -- an orange hat and the beater an orange hat AND an orange vest, so a second copy of these two rows
 -- would be two answers to one question -- this project's named failure mode, in a table.
-local HAT = {
+-- EACH GROUP NOW CARRIES A SLOT NAME (task 151 round 2). A slot is a thing a character wears, in
+-- THIS module's own vocabulary -- "hat", "vest" -- and never an asset key or an id: `Match.Body`
+-- must not learn what `ServerStorage.Assets` calls anything. The composition root translates, which
+-- is the same seam `Boar.setModelSource` uses for what a boar looks like.
+--
+-- THE ROWS BELOW ARE THE FALLBACK, NOT THE DEFAULT. If a real catalog accessory is loaded for a
+-- slot, it is worn and these rows are not built; if the load failed, or nobody wired a source, or
+-- the character has no Humanoid to hang an accessory on, they are built exactly as before. Karen
+-- has seen these plates read on a player (PLAYTEST.md 2026-09-27), so the fallback is a known-good
+-- picture rather than a guess.
+local HAT_ROWS = {
 	{
 		name = "Hat", -- the brim
 		limb = "Head",
@@ -241,7 +251,7 @@ local HAT = {
 -- requires 400 square inches of hunter orange with at least 144 of them on the CHEST and 144 on the
 -- BACK (research note section 2), arrived at for the reason Karen reported -- a beater is looked at
 -- from every side.
-local VEST = {
+local VEST_ROWS = {
 	{
 		name = "VestFront",
 		limb = "UpperTorso",
@@ -297,10 +307,20 @@ local VEST = {
 -- KAREN'S TWO SENTENCES, AS TWO ROWS (design section 3). "Hunter will have default green pens and
 -- jacket / Also will have orange hat / Beater will have orange hat and orange vest / Default also
 -- green pans and green jacket" -- so: hunter = base + hat, beater = base + hat + vest.
-local OUTFITS: { [string]: { base: BaseRow, parts: { { any } } } } = {
+-- A GROUP: one worn thing, its slot, and the parts to build when no accessory is available.
+export type Group = { slot: string, rows: { any } }
+
+local HAT: Group = { slot = "hat", rows = HAT_ROWS }
+local VEST: Group = { slot = "vest", rows = VEST_ROWS }
+
+local OUTFITS: { [string]: { base: BaseRow, parts: { Group } } } = {
 	Shooters = { base = BASE, parts = { HAT } },
 	Drivers = { base = BASE, parts = { HAT, VEST } },
 }
+
+-- THE SLOT NAMES, published so the composition root and a spec name them from one place rather than
+-- typing a literal each (the `Map.TAGS` rule).
+Body.SLOTS = table.freeze({ hat = "hat", vest = "vest" })
 
 -- KAREN'S WORD -> THE TEAM NAME, in exactly one place (design section 3, "Naming"). She says beater
 -- and hunter; the code says `Drivers` and `Shooters`, and those strings reach `Match.Roster`,
@@ -356,7 +376,7 @@ function Body.dressFor(team: TeamName?, config): { any }
 	-- `Body.dress` and every existing spec case are unchanged in shape.
 	local rows = {}
 	for _, group in ipairs(outfit.parts) do
-		for _, row in ipairs(group) do
+		for _, row in ipairs(group.rows) do
 			table.insert(rows, row)
 		end
 	end
@@ -536,6 +556,113 @@ end
 -- `src/server/Boar/Body.luau` says so where it uses one, and `Weapon.Hardware` uses a legacy Weld
 -- instead precisely because its Tool is not parented anywhere yet. Here the character IS live, so
 -- the design's WeldConstraint is the right one and the order is what makes it work.
+-- ------------------------------------------------- the real catalog accessories (task 151 round 2)
+--
+-- WHERE A SLOT'S TEMPLATE COMES FROM, injected by the composition root and nil until it is. This
+-- module must not require `ServerStorage.Assets`: an owner requiring another owner is what
+-- `Boar.setModelSource` exists to avoid, and the mapping from a slot ("hat") to an asset key
+-- ("outfit.cap") belongs in the boot script that knows both.
+--
+-- The function is handed a SLOT and answers a TEMPLATE to clone, or nil. nil is not an error: it
+-- means "wear the grey box", which is `Assets.Loader.template`'s own contract and is why the plates
+-- below are kept rather than deleted.
+local accessorySource: ((string) -> Instance?)? = nil
+
+function Body.setAccessorySource(fn: ((string) -> Instance?)?)
+	accessorySource = fn
+end
+
+function Body.accessorySource(): ((string) -> Instance?)?
+	return accessorySource
+end
+
+-- How many real accessories have been put on a character, and how many slots fell back to plates.
+-- Numbers rather than a feeling: if `accessoriesWorn` is 0 on a live run, the catalog load failed
+-- and the game is wearing grey boxes that look deliberate.
+local accessoriesWorn = 0
+local slotsFellBack = 0
+
+function Body.accessoriesWorn(): number
+	return accessoriesWorn
+end
+
+function Body.slotsFellBack(): number
+	return slotsFellBack
+end
+
+-- THE ACCESSORIES THIS MODULE PUT ON, AND ONLY THOSE. `Humanoid:AddAccessory` parents the accessory
+-- to the CHARACTER, not into `HuntOutfit`, so the folder's destroy-and-rebuild does not clean them
+-- up and a re-dress would leave a player in two hats. Every one we add carries this attribute, and
+-- `undressAccessories` destroys exactly the children that carry it -- so a player's OWN hat, which
+-- `Body.strip` deliberately spares, can never be taken off by this path either.
+local ACCESSORY_TAG = "HuntOutfitAccessory"
+Body.ACCESSORY_TAG = ACCESSORY_TAG
+
+local function undressAccessories(character: Model): number
+	local removed = 0
+	for _, child in ipairs(character:GetChildren()) do
+		if child:IsA("Accoutrement") and child:GetAttribute(ACCESSORY_TAG) ~= nil then
+			child:Destroy()
+			removed += 1
+		end
+	end
+	return removed
+end
+
+-- Puts one slot's real accessory on `character`, or returns false so the caller builds the plates.
+--
+-- IT NEEDS A HUMANOID, and that is why the plates can never go away: `AddAccessory` is a Humanoid
+-- method, and the rigs every spec in this file builds have none. A character with no Humanoid wears
+-- the fallback, which is the same answer it has always had.
+local function wearAccessory(character: Model, slot: string): boolean
+	local source = accessorySource
+	if not source then
+		return false
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return false
+	end
+	local ok, template = pcall(source, slot)
+	if not ok or template == nil then
+		return false
+	end
+	-- The template is whatever `InsertService:LoadAsset` answered with -- a Model holding one
+	-- Accessory -- or an Accessory already. Both are accepted, so the boot may hand over either.
+	local clone = (template :: Instance):Clone()
+	local accessory = if clone:IsA("Accoutrement") then clone else clone:FindFirstChildWhichIsA("Accoutrement")
+	if not accessory then
+		clone:Destroy()
+		return false
+	end
+	if accessory ~= clone then
+		accessory.Parent = nil
+		clone:Destroy()
+	end
+	accessory:SetAttribute(ACCESSORY_TAG, slot)
+	-- THE SAME FOUR PROPERTIES THE PLATES CARRY, for the same reasons (design section 10.2). The one
+	-- that is not tidiness is `CanQuery = false`: a vest that stops a pellet changes what the shot
+	-- hit, and what the shot hit is what `Match.Penalty.judge` reads through the weapon's report.
+	for _, d in ipairs(accessory:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.CanQuery = false
+			d.CanTouch = false
+			d.CanCollide = false
+			d.CastShadow = false
+			d.Massless = true
+		end
+	end
+	local worked = pcall(function()
+		humanoid:AddAccessory(accessory)
+	end)
+	if not worked or accessory.Parent == nil then
+		accessory:Destroy()
+		return false
+	end
+	accessoriesWorn += 1
+	return true
+end
+
 function Body.dress(character: Model?, team: TeamName?, config): boolean
 	if not character or not character.Parent then
 		return false
@@ -544,6 +671,10 @@ function Body.dress(character: Model?, team: TeamName?, config): boolean
 	if existing then
 		existing:Destroy()
 	end
+	-- AND THE REAL ACCESSORIES THIS MODULE PUT ON LAST TIME (task 151 round 2). They live on the
+	-- character rather than in the folder, so destroying the folder does not reach them and a
+	-- re-dress would be a second hat.
+	undressAccessories(character)
 	-- THE BASE GOES ON FIRST, AND IT IS THE SAME WORK ON THE SAME SIGNAL (Task 151, design section
 	-- 4): take off what would hide it, then write the colour. `strip` and `paint` both answer
 	-- "nothing to do" for a nil base, so the flag-off branch below is reached with nobody's own
@@ -555,9 +686,25 @@ function Body.dress(character: Model?, team: TeamName?, config): boolean
 		-- this module should have done, which is what a false return means here.
 		return false
 	end
-	local rows = Body.dressFor(team, config)
-	if #rows == 0 then
+	local outfit = Body.outfitFor(team, config)
+	if not outfit then
 		return true -- nothing to wear: the flag is off, or this player has no team
+	end
+	-- EACH GROUP IS ONE WORN THING: the real catalog accessory if one is loaded and this character
+	-- can take it, and otherwise the plates. Never both, which is what makes the count per role a
+	-- thing a spec can assert.
+	local rows = {}
+	for _, group in ipairs(outfit.parts) do
+		if wearAccessory(character, group.slot) then
+			continue
+		end
+		slotsFellBack += 1
+		for _, row in ipairs(group.rows) do
+			table.insert(rows, row)
+		end
+	end
+	if #rows == 0 then
+		return true -- every slot is wearing a real accessory, so there are no plates to build
 	end
 	local folder = Instance.new("Folder")
 	folder.Name = Body.OUTFIT_NAME

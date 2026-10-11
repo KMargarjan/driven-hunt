@@ -37,7 +37,7 @@ named turns out to be partly shut, which 152 should not have to discover for its
 | A **hunter** adds an orange hat | the doc: *"Also will have orange hat"* |
 | A **beater** adds an orange hat **and** an orange vest | the doc: *"Beater will have orange hat and orange vest"* |
 | The colour **matches**, not approximates | *"same color by default what is our arms"*; the Director: a catalog jacket in "some green" is not acceptable |
-| No upload, no Robux | *"we can buy or find online"*, cut by the Director to the free library only |
+| No upload, no Robux | *"we can buy or find online"*; the Director's cut is the Roblox library, worn by the experience |
 | Karen can **see a beater** in the Forest Test, which has no beaters | she tests alone in that place |
 
 Out of this task, named so they are not forgotten: the beater line and the countdown, the compass that
@@ -156,34 +156,71 @@ than a texture on it, so no colour written to the limb can show through one. Hea
 are **left alone**: nothing in Karen's doc asks for them to go, and the hat was designed to clear a
 default avatar's hair in Task 77.
 
-### 4.2 The catalog items the dispatch named are NOT free, and nothing free fits -- measured
+### 4.2 The catalog accessories ARE usable, and round 1 said the opposite -- the correction
 
-The dispatch asked for the catalog item *"High Vis Vest Orange"* (99269365249885, RP UGC) through
-`HumanoidDescription`, an orange catalog cap, and to *"check each id loads and is public"*. Checked
-2026-10-11 with `MarketplaceService:GetProductInfo` and `InsertService:LoadAsset` in the DEV place:
+**ROUND 1 OF THIS NOTE WAS WRONG, and the error was mine.** It measured the three candidate catalog
+items, read `PriceInRobux: 50` and `IsPublicDomain: false`, and concluded that the catalog route was
+"measured shut". The measurements were right; **the conclusion drawn from them was not**, and the
+Director corrected it on 2026-10-11:
 
-| Id | Name | Creator | Price | `IsPublicDomain` | `LoadAsset` |
-|---|---|---|---|---|---|
-| 99269365249885 | High Vis Vest Orange | RP UGC | **50 R$** | **false** | loads: one `Accessory`, `MeshPart` handle 2.08 x 1.90 x 1.11, `BodyFrontAttachment`, **no scripts** |
-| 1043468 | Hunting Hat | Roblox | **99 R$** | **false** | loads: `Accessory` "RobinHood", `HatAttachment`, no scripts |
-| 6037258153 | Hunting Cap | GuestCapone | **90 R$** | **false** | loads: `Accessory` **"Hunting Cap [Red]"** -- it is red, not orange |
+> A catalog item's price is what a **player** pays to **own** it on their own avatar. An experience
+> may put **any** public catalog accessory on characters at no cost to anyone -- that is how every
+> try-on and outfit game works. The vest LOADS, one Accessory, no scripts. So it IS usable for free,
+> which is exactly what Karen asked for.
 
-All three are **paid** and none is public domain. The free pool was then searched directly, with
-`AvatarEditorService:SearchCatalog` and `CatalogSearchParams.MaxPrice = 0`, over six keywords -- *high
-vis vest*, *safety vest*, *hunting vest*, *orange cap*, *orange beanie*, *hunter orange hat*. **No free
-blaze-orange hi-vis vest and no free orange hunting cap exist in it.** What comes back is unrelated
-UGC: OCSO police vests, military camo vests, a Taro life vest, an adidas crop top, beanies in brown,
-grey and green, an *Orange Safari Hat*, a *Mushroom Hat - Soft Orange*. The lists are in the task's
-review request.
+That is right, and round 1's own evidence already showed it: the vest and both hats **loaded** when
+`InsertService:LoadAsset` was called on them. `IsPublicDomain` means *free to take onto an avatar*,
+not *usable by an experience*; I read it as the second. Nothing about the earlier numbers changes --
+only what they mean.
 
-**Conclusion, and it is the dispatch's own fallback promoted to the lead: the orange hat and the orange
-vest stay the parts the repo already builds** (`Match.Body`'s `OUTFITS`). They cost nothing, they are
-already the right orange, Karen has seen the hat read as a hat, and the four-plate vest exists because
-she could not see the single-plate one (PLAYTEST.md, 2026-09-27). Buying the 50 R$ vest is **Karen's**
-decision, not the Builder's; when she makes it, the row above is the id and the measurement.
+**So the catalog route is the LEAD, and the grey-box plates are the fallback.**
 
-One more reason to prefer parts here, which the measurement in section 5.2 makes concrete: a catalog
-accessory is a **mesh somebody else can take down**. A grey-box part cannot stop loading.
+| Id | Name | Creator | Price to a player | `LoadAsset` in the DEV place, 2026-10-11 |
+|---|---|---|---|---|
+| **99269365249885** | **High Vis Vest Orange** | RP UGC | 50 R$ | one `Accessory`, `MeshPart` handle 2.08 x 1.90 x 1.11, `BodyFrontAttachment`, **no scripts** |
+| **6202417448** | **Orange Trendy Cap** | Ellzd | 90 R$ | one `Accessory`, `MeshPart` handle 1.45 x 0.90 x 2.00, `HatAttachment`, **no scripts** |
+| 1043468 | Hunting Hat | Roblox | 99 R$ | loads; it is the "RobinHood" hat, not a cap |
+| 6037258153 | Hunting Cap | GuestCapone | 90 R$ | loads, and its own accessory is named **"Hunting Cap [Red]"** -- it is red |
+
+**The cap was chosen by looking, not by its name.** Seven candidates were loaded and rendered side by
+side in the DEV place and the frame was inspected
+(`<runs-dir>/151-cap-candidates.png`): a white logo patch (Classic Limiteds 138991964289771), two
+washed-out ambers (dvdko 13724841516, HulaHoopman6 13655567248), a flat-brim snapback (Bellzko
+72426675841683), a very short crown (Ellzd 4962838235) and one with a lighter inner (Verifly
+15507366160) were all rejected. **`6202417448` "Orange Trendy Cap"** is a saturated blaze orange with
+a **curved peak** and no branding, which is what a hunter's cap is; measured off that frame its lit
+crown is **(201, 94, 0)**, a green/red ratio of 0.47 against `OUTFIT_COLOR`'s 0.44 -- the closest of
+the seven.
+
+**The vest wraps, so no back plate is needed under it.** The Director asked specifically, because
+Karen once could not see a single-plate vest at all (PLAYTEST.md, 2026-09-27). Rendered on a
+stand-in torso in the base green, front and back, and inspected
+(`<runs-dir>/151-vest-check.png`): the **back is a plain orange panel with a reflective band** and
+the front has the V-neck, the zip and two bands. Both sides are orange.
+
+**What the free-pool search in round 1 still tells us, and it is no longer a blocker:**
+`AvatarEditorService:SearchCatalog` with `MaxPrice = 0` over *high vis vest*, *safety vest*,
+*hunting vest*, *orange cap*, *orange beanie* and *hunter orange hat* returns no blaze-orange hi-vis
+vest and no orange hunting cap. That is now only a fact about the **free** pool, which this project
+has no reason to restrict itself to.
+
+**The plates are KEPT as the fallback, and that is not hedging.** A catalog accessory is a mesh that
+belongs to somebody else: it can be taken down, moderated, or simply fail to load inside
+`Loader.CONFIG.LOAD_TIMEOUT_S`. `Match.Body` wears the accessory when one is available and builds
+the Task 77 hat and the Task 82 four-plate vest when it is not -- a known-good picture Karen has
+already seen read on a player, rather than a bare character. `Body.accessoriesWorn()` and
+`Body.slotsFellBack()` say on every run which of the two happened, because a beater in four orange
+boxes and a beater in a real hi-vis vest look equally deliberate in a console log.
+
+**Still not measured, and it matters for the published game:** both items load in **Studio**. A live
+(non-Studio) server's `InsertService:LoadAsset` has its own ownership rules, and this project has not
+run a published server. If it refuses there, the fallback above is what players see -- which is why
+the fallback exists and why the boot prints which route it took.
+
+**Nothing is uploaded and nothing is bought.** No `assets/uploads.json` row (that file is one row per
+Open Cloud upload, and there was none), no Robux spent, and the two manifest rows in
+`src/serverstorage/Assets/init.luau` carry `basis = "roblox-catalog-accessory"` with this correction
+quoted in them.
 
 ---
 
@@ -262,7 +299,9 @@ must be **real**, from the beater's own position, never a phantom.
 | base clothing colour | **RGB(86, 80, 56)** | median of both sleeve albedo maps, section 3 |
 | hunter | base + orange hat | Karen's doc |
 | beater | base + orange hat + orange vest | Karen's doc |
-| orange | RGB(255, 112, 0) | unchanged, `Match.Body`'s existing `OUTFIT_COLOR` |
+| beater vest | catalog `99269365249885` (RP UGC), plates as the fallback | section 4.2 |
+| hat, both roles | catalog `6202417448` (Ellzd), the two-part hat as the fallback | section 4.2 |
+| orange, for the fallback plates | RGB(255, 112, 0) | unchanged, `Match.Body`'s existing `OUTFIT_COLOR` |
 | vest plates | 4, one per horizontal face | Task 82, and Texas's 144 in² front **and** back |
 | head, hair and the player's own hats | untouched | nothing asks for them, and the hat clears hair (Task 77) |
 | horn sound (152) | `rbxassetid://9038902877` | section 5.2, licensed, not yet load-measured |
@@ -275,6 +314,6 @@ must be **real**, from the beater's own position, never a phantom.
 * **The compass** pointing a beater at the hunters' line -- later, per the Director's cut.
 * **The beater line and the countdown**, money per drive, the weapon licence, spooking with a weapon --
   all in Karen's doc, all their own tasks.
-* **Buying the 50 R$ catalog vest** -- Karen's call; section 4.2 is the measurement she would need.
+* **Buying either item** -- nobody needs to: an experience wears a catalog accessory at no cost (section 4.2).
 * **A classic Shirt/Pants upload** -- it would match exactly, it needs an upload OK, and route 2 gets
   the same colour without one.
