@@ -35,6 +35,21 @@ local MapUi = Hud.MapUi
 local Compass = Hud.Compass
 local CONFIG = MapUi.CONFIG
 
+-- HOW LONG THE M CASE WAITS FOR THE REPLAY TO REACH IT. The whole replay is ~43 s of scenario gaps
+-- and `map-toggle` is the fifth of six, so 40 s is past the last press and still well inside the
+-- harness's own 300 s wait for this report.
+local KEY_TIMEOUT_SECONDS = 40
+
+-- Returns how long it waited. `os.clock()`, like every other wait in the client specs.
+local function waitForKeys(seconds: number, wanted: number): number
+	local started = os.clock()
+	local deadline = started + seconds
+	while os.clock() < deadline and MapUi.stats().keyToggles < wanted do
+		task.wait(0.05)
+	end
+	return os.clock() - started
+end
+
 -- A VIEW WITH ROUND NUMBERS, so every expectation below is arithmetic a reader can check: 2 px per
 -- stud, 100 px to the edge, so 50 studs is the whole half-width.
 local function rectView()
@@ -712,19 +727,38 @@ return function()
 			--
 			-- `keyToggles` is incremented ONLY inside the bound action's `Begin`, so nothing a spec
 			-- calls can reach it. If the scenario's two presses do not arrive, this fails.
-			-- WHAT THE MODULE ACTUALLY SAW, as a note, because "the key did not arrive" and "the map
-			-- was not built when it arrived" are two different faults and task 157 had to tell them
-			-- apart (the DEV-alone gate failed here while a 2-Studio run passed).
+			-- IT WAITS FOR THE KEY, AND THAT IS THE WHOLE OF TASK 157's FIX HERE.
+			--
+			-- THE CASE AND THE REPLAY RACE, and until this task the race happened to land the right
+			-- way. The harness replays only once every input spec has published readiness -- so the
+			-- replay STARTS at about the moment TestEZ starts running cases -- and `map-toggle` is
+			-- the FIFTH of six scenarios, about 25 s into a 43 s replay (`input_scenarios.txt`:
+			-- `key-mouse-order`, `weapon-fire-reload-ammo`, `aim-hold`, `shoot-the-boar`, then this
+			-- one). `map_ui.spec` is the NINTH of sixteen client specs alphabetically, so TestEZ can
+			-- reach this case well before the M presses are sent. Reading the counter at that moment
+			-- asserts the replay's SCHEDULE, not the player's path.
+			--
+			-- MEASURED, task 157: with only the DEV Studio open the case ran first and read 0
+			-- (`keyToggles=0 toggles=8 ticks=742 builtAt=…` -- the map had been built 45 s earlier
+			-- and the binding was there), while a run with a second Studio open was slow enough that
+			-- the presses arrived first and it read 2. A probe in a bare Play session proved the key
+			-- path itself: a replayed M flipped `FullMap` false -> true -> false, and a respawn does
+			-- not clear the binding.
+			--
+			-- SO IT WAITS, bounded, exactly as `weapon_client` and `match_teams` wait for what the
+			-- replay sends them. THE ASSERTION IS UNCHANGED: `keyToggles` is incremented only inside
+			-- the bound action's `Begin`, so nothing this spec does can move it (task 155 round 1,
+			-- the Reviewer's rule-6 finding), and a key that never arrives still fails here.
+			local arrived = waitForKeys(KEY_TIMEOUT_SECONDS, 2)
 			local seen = MapUi.stats()
 			TestKit.note(
 				string.format(
-					"map keys: keyToggles=%d toggles=%d ticks=%d builtAt=%s now=%.1f bound=%d",
+					"map keys: keyToggles=%d after %.1f s (toggles=%d ticks=%d builtAt=%s)",
 					seen.keyToggles,
+					arrived,
 					seen.toggles,
 					seen.ticks,
-					tostring(seen.builtAt),
-					os.clock(),
-					#MapUi.boundActions()
+					tostring(seen.builtAt)
 				)
 			)
 			expect(MapUi.stats().keyToggles).to.equal(2)
