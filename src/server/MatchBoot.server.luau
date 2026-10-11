@@ -18,6 +18,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 -- THE HORN'S NUMBERS (task 152). The boot reads one of them -- how far a blast carries -- and the
 -- team that carries one; the behaviour is `Weapon.Horn`'s and the animals are `Boar`'s.
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 
@@ -168,10 +169,17 @@ Weapon.setDriveLineProvider(Match.driveLine)
 -- whether he is one. The horn still decides and still writes; this root only answers the question.
 -- The drive respawns players to place them, which destroys the Tool, and `Horn.start`'s own sweep is
 -- what notices -- so the match needs no new call and `src/server/Match/` is untouched by this task.
+--
+-- THE FLAG IS READ ONCE, HERE, AT THE BOUNDARY, and the value is passed inward -- the only permitted
+-- shape (CLAUDE.md, "Feature flags"). `Horn.carriesFor(on, team)` is pure, so both worlds are
+-- reachable in a spec while the flag sits at one of them, and OFF nobody is granted anything: the
+-- drive is bit-for-bit the game before task 152.
+local hornOn = Flags.isOn(HornData.FLAG)
 Weapon.Horn.setCarryPolicy(function(player)
-	return Match.Body.teamOf(player) == HornData.TEAM
+	return HornData.carriesFor(hornOn, Match.Body.teamOf(player))
 end)
 Weapon.Horn.start()
+print(string.format("[MatchBoot] horn=%s", if hornOn then "on" else "off (born dark, task 152)"))
 
 Match.start({
 	boars = runtime, -- the Match calls spawn/clear and reads handles; it never writes a boar

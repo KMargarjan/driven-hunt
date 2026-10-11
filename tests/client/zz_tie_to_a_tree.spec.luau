@@ -56,6 +56,31 @@ local cuedAt: number? = nil
 local stagedFrom: Vector3? = nil
 local stagedDistance: number? = nil
 local violations = {}
+-- WHAT THE GUN LOOKED LIKE WHEN THE SHOT WAS STAGED (task 152). When this spec fails it says
+-- `violations=0`, and that one number cannot tell "the shot was never fired" from "the shot was
+-- fired and the Match did not judge it" -- which are different defects in different systems. The
+-- barrels and the reserve change on a shot and on nothing else, so the pair splits it.
+local stagedGun: string? = nil
+local stagedTheirs: Vector3? = nil
+
+local function gunPrint(): string
+	local snap = Weapon.get()
+	if snap == nil then
+		return "<no state>"
+	end
+	local barrels = {}
+	for _, barrel in ipairs(snap.barrels) do
+		table.insert(barrels, tostring(barrel))
+	end
+	return string.format(
+		"eq=%s b=%s ammo=%s res=%s busy=%.2f",
+		tostring(snap.equipped),
+		table.concat(barrels, "/"),
+		tostring(snap.ammo),
+		tostring(snap.reserve[snap.ammo]),
+		snap.busyFor
+	)
+end
 
 -- The feed is the "visible to everyone" half of Karen's rule, and it fades after FEED_SECONDS, so it
 -- is recorded as it arrives rather than read later.
@@ -124,6 +149,8 @@ local function onCue(_name: string, state: Enum.UserInputState)
 		character:PivotTo(CFrame.lookAt(at, theirs.Position))
 		stagedFrom = at
 		stagedDistance = STAND_BEHIND
+		stagedTheirs = theirs.Position
+		stagedGun = gunPrint()
 	end
 	return Enum.ContextActionResult.Pass
 end
@@ -236,7 +263,29 @@ return function()
 				return Match.isTied()
 			end)
 			if not tied then
+				-- EVERY FACT THE NEXT READER NEEDS, and it is here because `violations=0` alone sent
+				-- task 152 down two wrong paths: where BOTH players actually are now against where
+				-- they were when the shot was staged, and whether the gun fired at all.
 				local snapshot = Match.get()
+				local target = driver()
+				local theirsNow = if target then rootOf(target) else nil
+				local meNow = rootOf(player)
+				local drift = if theirsNow and stagedTheirs
+					then (theirsNow.Position - (stagedTheirs :: Vector3)).Magnitude
+					else -1
+				local myDrift = if meNow and stagedFrom
+					then (meNow.Position - (stagedFrom :: Vector3)).Magnitude
+					else -1
+				-- How far the driver is off the line this shot was staged on: `miss` in Penalty's own
+				-- terms, against `SAFETY_MISS_STUDS` (12).
+				local miss = -1
+				if theirsNow and meNow then
+					local aim = theirsNow.Position - meNow.Position
+					if aim.Magnitude > 1e-6 then
+						local toward = (theirsNow.Position - meNow.Position)
+						miss = (toward - aim.Unit * toward:Dot(aim.Unit)).Magnitude
+					end
+				end
 				TestKit.note(
 					string.format(
 						"zz_tie: NOT tied. phase=%s holdsGun=%s from=%s violations=%d",
@@ -246,6 +295,23 @@ return function()
 						#violations
 					)
 				)
+				TestKit.note(
+					string.format(
+						"zz_tie: driver staged at %s, now %s (drift %.1f); me staged %s, now %s (drift %.1f); miss %.1f of %d",
+						tostring(stagedTheirs),
+						tostring(theirsNow and theirsNow.Position),
+						drift,
+						tostring(stagedFrom),
+						tostring(meNow and meNow.Position),
+						myDrift,
+						miss,
+						12
+					)
+				)
+				-- THE ONE THAT SPLITS THE PROBLEM: the gun at the cue against the gun now. If the
+				-- barrels and the reserve are unchanged, NO SHOT WAS FIRED and the Match was never
+				-- asked anything -- which is a weapon/input defect and not a penalty one.
+				TestKit.note(string.format("zz_tie: gun at cue [%s] -> now [%s]", tostring(stagedGun), gunPrint()))
 			end
 			expect(tied).to.equal(true)
 

@@ -49,6 +49,19 @@ Horn.LABEL = "HORN"
 -- `Match.Body.teamOf` answers and what both composition roots compare against.
 Horn.TEAM = "Drivers"
 
+-- THE ONE FLAG THIS SYSTEM HAS, and it is read at the composition root and nowhere else. A new
+-- feel-critical path is BORN OFF (CLAUDE.md, "Feature flags"), and all three of this one's halves
+-- are feel: how loud a blast is, how often a beater may blow, and whether a drive visibly moves when
+-- he does. OFF, nobody is granted a horn and no blast reaches a boar, so the game is bit-for-bit
+-- what it was before task 152.
+Horn.FLAG = "HORN"
+
+-- WHO CARRIES ONE, as a pure function of the two facts it depends on -- so both worlds are reachable
+-- in a spec while the flag sits at one of them, which is the only permitted shape (CLAUDE.md).
+function Horn.carriesFor(on: boolean, team: string?): boolean
+	return on and team == Horn.TEAM
+end
+
 export type Piece = {
 	name: string,
 	size: Vector3,

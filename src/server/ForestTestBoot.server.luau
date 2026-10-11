@@ -272,8 +272,13 @@ end
 -- EVERYONE IN THIS WORLD IS A BEATER IF THEY ASKED TO BE ONE. The same predicate as `MatchBoot`'s
 -- -- `Body.teamOf` reads `Player.Team`, which is what `applyRole` has just written -- so the horn
 -- and the orange vest can never disagree about whether Karen is a beater.
+--
+-- THE FLAG IS READ ONCE, HERE, exactly as `MatchBoot` reads it -- except that THIS world turns it ON
+-- the way it turns `BOAR_MODEL` and the rest on: Karen plays here to judge the thing, and a playtest
+-- world that hands her nothing to judge is no use. The DEV drive keeps the declared default.
+local hornOn = true
 Weapon.Horn.setCarryPolicy(function(player)
-	return Body.teamOf(player) == HornData.TEAM
+	return HornData.carriesFor(hornOn, Body.teamOf(player))
 end)
 Weapon.Horn.start()
 

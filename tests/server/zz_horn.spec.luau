@@ -38,6 +38,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -330,6 +331,20 @@ return function()
 			-- The two no-ops, which is what makes the sweep idempotent.
 			expect(HornTool.carryAction(true, true)).to.equal(nil)
 			expect(HornTool.carryAction(false, false)).to.equal(nil)
+		end)
+
+		it("is born OFF, and both worlds are reachable by parameter", function()
+			-- A NEW FEEL-CRITICAL PATH IS BORN OFF (CLAUDE.md), and this one was not in round 1 --
+			-- which the Director's gate is what showed: `test2` fails on this branch where `main`
+			-- passes, and with no switch the only A/B available was an uncommitted edit. OFF, nobody
+			-- is granted anything and the drive is bit-for-bit the game before this task.
+			expect(Flags.DEFAULTS[Horn.FLAG]).to.equal(false)
+			-- ...and the predicate the composition roots call is PURE in the flag, so the ON world is
+			-- testable while the flag sits at OFF -- the only permitted shape.
+			expect(Horn.carriesFor(true, Horn.TEAM)).to.equal(true)
+			expect(Horn.carriesFor(false, Horn.TEAM)).to.equal(false)
+			expect(Horn.carriesFor(true, "Shooters")).to.equal(false)
+			expect(Horn.carriesFor(true, nil)).to.equal(false)
 		end)
 
 		it("holds a blast to the cooldown", function()
