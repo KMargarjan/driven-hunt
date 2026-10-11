@@ -3,15 +3,16 @@
 Task: 157
 Round: 2
 Base: `612dbf2` (`main`, #139 merged)
-Code commit: `8d77d31c7b6ef00a8d6691e729370808cfa3ebbd`
+Code commit: `bd0a61598d9ef2dc2e3cd8783dca2ac1bc40cac3`
 
 ```
 [harness] PASS: 33/33 checks @ 8d77d31c7b6ef00a8d6691e729370808cfa3ebbd (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 8d77d31c7b6ef00a8d6691e729370808cfa3ebbd (clean tree) scope=all
-[harness2] <PENDING — the Director runs it: one Studio, one human click>
+[harness] PASS: 33/33 checks @ bd0a61598d9ef2dc2e3cd8783dca2ac1bc40cac3 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ bd0a61598d9ef2dc2e3cd8783dca2ac1bc40cac3 (clean tree)
 ```
 
-Two clean one-player runs at the code commit **with the DEV Studio ALONE**
+The last two lines are the Director's at the head `bd0a615` (only paperwork after `8d77d31`). Two clean one-player runs at the code commit **with the DEV Studio ALONE**
 (`<runs-dir>/gate-157-r2-1.log`, `gate-157-r2-2.log`) — the condition the Director's gates run in.
 **This change touches `src/server/Match/`, so it IS in `TWO_PLAYER_PATHS` and the merge needs
 `[harness2]` for this same sha** — the Director runs it (dispatch, 2026-10-11). Round 1's `[harness2] PASS: 35/35 @ 4dee920` is in `RESULT.md`'s round-1 evidence; this round's code is newer.
