@@ -3,17 +3,20 @@
 Task: 152
 Round: 1
 Base: 0106c5e (main, after #134 merged)
-Code commit: 73a012cf7d7e0ce2e1c7fac659cfcbe695e06b9d
+Code commit: 61d9a730c7fcf6ccf61f5a3d4f069439842eaefb
 
 ```
 [harness] PASS: 33/33 checks @ 73a012cf7d7e0ce2e1c7fac659cfcbe695e06b9d (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 73a012cf7d7e0ce2e1c7fac659cfcbe695e06b9d (clean tree) scope=all
-[harness2] <PENDING — the Director runs it; see "Needs test2" below>
+[harness] PASS: 33/33 checks @ 61d9a730c7fcf6ccf61f5a3d4f069439842eaefb (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 61d9a730c7fcf6ccf61f5a3d4f069439842eaefb (clean tree)
 ```
 
 The one-player gate is pasted **twice** on purpose: the Director's own second run at the previous
 head failed where mine had passed, so a single green run was not evidence. Both of these are at this
 commit, consecutive, on a clean tree.
+
+DIRECTOR NOTE: the last two lines are the Director's, at `61d9a73` (the head; only paperwork after the code commit `73a012c`), so the code commit named is `61d9a73` per git workflow step 4.
 
 ## What changed
 
