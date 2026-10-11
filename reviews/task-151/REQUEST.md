@@ -1,24 +1,33 @@
 # Task 151 — review request
 
 Task: 151
-Round: 1
+Round: 2
 Base: `a1d87a5` (main, PR #133 merged)
-Code commit: `48f1062c94e6d8b8f392d15bd731693eaa1fd9c1`
+Code commit: `81b424a71346928eb8da92fc416802f26bac68f5`
 
 ```
-[harness] PASS: 33/33 checks @ 48f1062c94e6d8b8f392d15bd731693eaa1fd9c1 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 81b424a71346928eb8da92fc416802f26bac68f5 (clean tree) scope=all
 ```
 
 ```
-[harness2] PASS: 35/35 checks @ 48f1062c94e6d8b8f392d15bd731693eaa1fd9c1 (clean tree)
+[harness2] <the Director runs this at the new code commit; src/server/Match/ is in TWO_PLAYER_PATHS>
 ```
 
-**Round 1, still** — the review has never run. `tools/review.ps1 151` refused the first attempt
-because `src/server/Match/` is on `TWO_PLAYER_PATHS` and no `[harness2]` line was pasted, so no
-Reviewer session has ever started and no round has been spent. The Director runs `test2` and the
-review.
+## Round 2 — what the Reviewer found, and what changed
 
-DIRECTOR NOTE: both gate lines were run by the Director at `48f1062` (the head after the code commit `ab81e5b`; only paperwork changed between them, so the code commit named is the later one, per git workflow step 4).
+**Finding 1 was right, and the reason I gave for not testing the window was false.** The case titled
+*"holds the green against a late appearance load, and closes its window"* opened **no window**: it
+called `Body.strip` and `Body.paint` by hand, asserted that `strayCleared` had **not** moved, and its
+leak check (`appearanceWatching() <= players`) was satisfied by zero windows ever existing. It would
+have passed unchanged with `dressWhenLoaded` reduced to `Body.dress`. The comment claiming
+*"`dressWhenLoaded` needs a real Player"* was simply wrong — `player: Player` is a type annotation,
+and the only things read off it are `UserId`, `Character` and `Team.Name`, which is exactly the stub
+seam `docs/design/beater-kit.md` section 15 item 9 named. Claims 13 and 14 are the fix.
+
+**Every non-blocking note is fixed, not queued** — all eight were cheap and true. Two of them were
+real latent defects, not tidying: the `ChildAdded` handler could destroy an accessory this module had
+just put on, and `clearAttachments` read only the first attachment under a handle. Claim 15 lists
+them.
 
 ## What changed
 
@@ -87,8 +96,10 @@ single-plate vest (PLAYTEST.md, 2026-09-27).
 kept for reasons, not as hedging.**
 Verify: `Group` in `Body.luau` (`slot`, `rows`, `clears`), `OUTFITS`, and the `wearAccessory`-or-build
 loop in `Body.dress`. Three ways a slot falls back, each with a spec case: no template (the load
-failed or has not landed), no Humanoid on the character (every rig in `match_outfit.spec` is in this
-case, which is why the plates can never be deleted), and a source that throws. A catalog accessory
+failed or has not landed), no Humanoid on the character, and a source that throws. **The middle one
+is why the plates can never be deleted** — though the round-1 request overstated it as "every rig in
+`match_outfit.spec`" (the Reviewer's note): five of the newer rigs are given a Humanoid precisely so
+the accessory path can be driven, and the rigs without one are the ones that prove the fallback. A catalog accessory
 is somebody else's mesh and can be taken down. The accessories carry the `HuntOutfitAccessory`
 attribute so a re-dress removes ours and **never** a player's own hat.
 
@@ -180,8 +191,13 @@ and a per-frame write there would be a cost with no effect. The `GetDescendants`
 the header warns about — stays off the frame path; what is per-frame is ~20 property sets.
 
 *Measured after:* `task151 camera: 20 of 20 local part(s) still hidden after 1.5 s; re-asserted 91
-frame(s)` — in the gate run at the code commit. Both halves matter: all 20 stay hidden, and the
-count proves something really was contesting the value.
+frame(s)` — in the gate run at the code commit. **The `20 of 20` is the half that bites.** Round 1's
+request said the count "proves something really was contesting the value"; it does not, and the
+Reviewer was right to say so — `Camera.step` calls `setLocalBodyHidden(true)` every frame in first
+person, so the counter rises whether or not anything overwrote it. What proves contention is the
+pre-fix experiment above. The spec's comment now says exactly that, and the case is gated on
+`Config.FIRST_PERSON`, because with the flag off `hideBody` is blend-driven and it would have failed
+for a reason that is not a defect.
 
 **12. Nothing of the player's own body or outfit is in the first-person view, at three pitches, in
 both roles.**
@@ -194,6 +210,54 @@ Verify: the six frames in `<runs-dir>/151-fp/`, and the count taken at each one:
 
 The pitch was set through the camera owner's own door (`DHLookAt` → `Camera.lookAt`), not by writing
 the CFrame.
+
+**13. THE APPEARANCE WINDOW IS NOW DRIVEN BY A TEST, AND IT ASSERTS THE DESIGN'S LIST.**
+Verify: `tests/server/match_outfit.spec.luau`, *"holds the green and the outfit against a late
+appearance load, then closes its window"*. It calls `Body.dressWhenLoaded(stub, character, ON)`
+against a rig with a Humanoid and a stub player `{ UserId, Character, Team = { Name } }`, then
+asserts, in order:
+
+| # | What | How it is driven |
+|---|---|---|
+| 1 | a `Shirt` landing **inside** the window is removed **and `strayCleared` increments** | parent one, wait for the deferred `ChildAdded` |
+| 2 | the player's **own hat is kept** | an untagged `Accessory` with no wrap |
+| 3 | a `BodyColors` added later is **painted** | parent a red one, read it back as the base green |
+| 4 | the **close puts back** what the appearance load took off | destroy our own cap after the dress, wait out the window, assert it is back |
+| 5 | **after** the close a new `Shirt` survives, and `strayCleared` does not move | the window is bounded, not a permanent guard |
+| 6 | `isWatching(userId)` false **and `appearanceWatching()` exactly 0** | section 13's number |
+
+Row 4 is claim 8(b) reproduced deliberately: the Forest Test player who came out *green and
+bare-headed*. The wait uses `Body.APPEARANCE_WATCH_SECONDS`, published for this, so the case cannot
+go quietly wrong the day the number moves. **Measured in the gate run:**
+`task151 window: strayCleared 0 -> 1, repaints now 24, watching 0`.
+
+**14. `Body.setTeam` has a case too — it had none, and it is the path `/beater` uses.**
+Verify: *"setTeam dresses through the window, swaps without leaving two, and forget closes it"*. It
+asserts the team is written and read back through `Body.teamOf`, that `Neutral` follows, that a
+window opens, that a **team swap replaces the window rather than adding one** (the whole point of
+keying by userId), that the vest goes with the team while the hat stays, and that **`Body.forget`
+closes the window** — the line the Forest Test boot calls because `Match.forget` never runs there.
+
+**15. Every non-blocking note is fixed. Two were real defects.**
+Verify, in order of what they would have cost:
+* **`Body.dressWhenLoaded`'s `ChildAdded` handler could destroy an accessory this module had just put
+  on.** The close calls `Body.dress` *before* `stopWatching`, so `AddAccessory` fires into a live
+  handler, and `Body.isLayered` is true of any wrap-carrying catalog garment. Guarded on
+  `ACCESSORY_TAG`. Today's cap and vest are rigid so it never bit; a catalog **jacket** is exactly
+  where it would have.
+* **`Body.clearAttachments` read only the first attachment under a handle** — it iterates all of them
+  now, so an accessory offering more than one slot cannot slip past the name the group asked to clear.
+* **The boot's re-dress loop** now remembers who it has offered one (`redressedOnce`): a slot that
+  keeps falling back could otherwise re-dress that player once a second for the whole 20 s, each pass
+  destroying and re-adding the slot that *did* work.
+* `camera_client.spec`'s case gated on `Config.FIRST_PERSON`, and its contention claim corrected
+  (claim 11).
+* `Rig.trackHiddenPart`'s stale comment ("the write loop only runs when the flag CHANGES").
+* `GAME_DESIGN.md`'s owners row now names `clearAttachments` and the four attachments it clears.
+* **TASKS.md row 151 now records the SECOND Architect deviation**: `beater-kit.md` M5 and section 6
+  say *"hair and head accessories are left alone"*, and the accessory route takes the player's own hat
+  and hair off. Named rather than silently contradicted.
+* The round-1 request's "every rig in `match_outfit.spec` has no Humanoid" (claim 6) corrected.
 
 ## Looked at (rule 5), described wrong-first
 
