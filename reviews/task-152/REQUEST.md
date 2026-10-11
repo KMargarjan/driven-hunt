@@ -3,11 +3,11 @@
 Task: 152
 Round: 1
 Base: 0106c5e (main, after #134 merged)
-Code commit: 9a51002904871af06f35789da39fc2ba3a6a5172
+Code commit: 4c819f75182e7c3b500bb0297fc62cd7ae3da64d
 
 ```
-[harness] PASS: 33/33 checks @ 9a51002904871af06f35789da39fc2ba3a6a5172 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 9a51002904871af06f35789da39fc2ba3a6a5172 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 4c819f75182e7c3b500bb0297fc62cd7ae3da64d (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 4c819f75182e7c3b500bb0297fc62cd7ae3da64d (clean tree) scope=all
 [harness2] <PENDING — the Director runs it; see "Needs test2" below>
 ```
 
@@ -37,9 +37,10 @@ first person) and one in six specs that equated "a Tool" with "a gun".
    horn from parts" asserts **zero** `MeshPart`/`SpecialMesh`. Gate note: `5 section(s) over a
    230-degree arc of radius 0.38; total turn 184 degrees`, `9 piece(s), bore 0.10 -> 0.21`.
 
-2. **It is the beater's DEFAULT tool, in the hand, and hunters never get it.**
-   `Weapon.Horn.setCarryPolicy` is injected at each composition root as
-   `Body.teamOf(player) == Horn.TEAM` — the same fact the outfit is chosen from — with a 2 s
+2. **It is the beater's DEFAULT tool, in the hand, and hunters never get it — behind `HORN`, born
+   OFF.** `Weapon.Horn.setCarryPolicy` is injected at each composition root as
+   `Horn.carriesFor(Flags.isOn(Horn.FLAG), Body.teamOf(player))` — the flag read ONCE at the
+   boundary, the team the same fact the outfit is chosen from — with a 2 s
    level-triggered sweep for the measured reason the gun has one (Task 34: the drive respawns players
    to place them). Verify: `zz_horn.spec` — "gives one horn and only one, and takes it back",
    "gives nobody a horn when no policy is wired" (the safe default, a revoke on a non-beater, and a
@@ -113,7 +114,26 @@ first person) and one in six specs that equated "a Tool" with "a gun".
     WEAPON", because asserting "no Tool anywhere" would now assert the beater kit does not exist) and
     `rifle_client`.
 
-## The two gate failures the Director reported, and what each was
+## The horn is BORN OFF, and that is also the isolation experiment
+
+`Flags.DEFAULTS.HORN` is `false`. CLAUDE.md says a new feel-critical path is born dark, and all
+three of this one's halves are feel — how loud a blast is, whether one call per five seconds is
+right, whether a drive visibly moves when a beater blows. **Not having this row in round 1 was a
+miss**, and the Director's gate is what showed why the rule exists: `test2` fails on this branch
+where `main` passes, and with no switch the only A/B available was an uncommitted edit.
+
+The flag is read **once**, at each composition root, and the value passed inward;
+`Horn.carriesFor(on, team)` is pure, so both worlds are reachable in a spec while the flag sits at
+one of them. **OFF, nobody is granted anything and the drive is bit-for-bit the game before this
+task** — so the next `test2` *is* experiment (3):
+
+- **it passes** → the horn's GRANT causes `zz_tie_to_a_tree:250`, and the bisect is next;
+- **it fails** → the horn is exonerated and the cause is elsewhere on this branch.
+
+The Forest Test keeps it on (`hornOn = true` in its own root), because Karen plays there to judge
+the thing — the same way that world turns `BOAR_MODEL`, `PACE`, `MOVE` and `LINE` on.
+
+## The gate failures the Director reported, and what each was
 
 - **`[harness2]` 31/35 — the driver's camera.** Claim 9. `Rig` leaves the horn visible on purpose and
   three specs asserted "nothing of the local body draws". Decided at the owner (the rule stays
@@ -127,23 +147,40 @@ first person) and one in six specs that equated "a Tool" with "a gun".
   unstated preconditions and both now state themselves. **MEASURED: two consecutive runs at this
   commit, both PASS, and the condition FIRED in the second** (`report_panel: a drive report
   auto-opened the panel 9 time(s) before this case`) — so the fix was exercised, not dodged.
-- **`[shooter] zz_tie_to_a_tree.spec:250` — I cannot explain it and I am not claiming to.** See below.
+- **`[shooter] zz_tie_to_a_tree.spec:250` — still failing, and TWO of the three mechanisms are now
+  REFUTED BY EXPERIMENT rather than by reading.** I ran the server's own judgement in a live Play
+  session with a real horn on a stub driver as the only variable — the horn built by its own owner,
+  `Body.driverPositions` with a stub players service, and `Penalty.judge` with its real arguments:
+
+  ```
+  NO HORN    drivers=1  firstHit=StubDriver.HumanoidRootPart @24.50  stopAt=24.50 reach=28.50 along=25.00  GUILTY=true
+  WITH HORN  drivers=1  firstHit=StubDriver.HumanoidRootPart @24.50  stopAt=24.50 reach=28.50 along=25.00  GUILTY=true
+  ```
+
+  and, read off the live Instances rather than off the source, **all ten horn parts are
+  `CanQuery=false CanTouch=false CanCollide=false Massless=true`**, with the character's
+  `PrimaryPart` intact. So: the horn blocks no ray and shortens no `stopAt` (hypothesis 1 refuted);
+  `driverPositions` finds the driver either way and nothing about him moved (hypothesis 2 refuted);
+  and `SAFETY_GRACE_SECONDS` is **0**, so the grace is not it either. My earlier guess
+  (`camera_client:634` leaving the driver aiming) was refuted by the Director's own run. **I do not
+  have the mechanism, and I am not going to assert one.** What this round does instead is make the
+  next run answer it — see the next two sections.
 
 ## What I could not verify
 
 - **`test2` has not been run.** Five changed files are in `TWO_PLAYER_PATHS`, checked against
   `tools/agents.py`'s own table: `src/server/MatchBoot.server.luau`, `match_live.spec`,
   `zz_drive_boundary.spec`, `zz_tie_to_a_tree.spec`, `match_client.spec`.
-  **NEEDS TEST2 152 9a51002904871af06f35789da39fc2ba3a6a5172.**
-- **`zz_tie_to_a_tree.spec:250` is unexplained, and the honest answer is a hypothesis, not a cause.**
-  The shooter's unsafe shot was never judged a violation (`violations=0`, `staged=25 cued=true`).
-  I checked the mechanism rather than guessing: **nothing in the penalty path reads a Tool** —
-  `Match.Body.driverPositions` reads `character.PrimaryPart`, and `Penalty.luau` and `SafetyArc.luau`
-  contain no reference to `Tool`, `Backpack` or a weapon at all — so the horn cannot change who is
-  judged a driver or where he stands. My hypothesis is that the DRIVER client's three camera failures
-  perturbed that run (`camera_client.spec:634` fails before `fake.aiming = false`, leaving that
-  client in the aim state for the rest of its session), and that a clean driver client restores the
-  timeline. **That is a prediction, not a finding**, and the next `test2` tests it.
+  **NEEDS TEST2 152 4c819f75182e7c3b500bb0297fc62cd7ae3da64d.** `src/shared/Flags/init.luau`
+  joins the five (it is not in `TWO_PLAYER_PATHS`; the five above are).
+- **`zz_tie_to_a_tree.spec:250` is still unexplained after two refuted hypotheses, and the next run
+  is set up to name it.** `violations=0` carried the whole story and cannot tell *"no shot was
+  fired"* from *"a shot was fired and was not judged"* — two defects in two different systems, and
+  it is what sent this task down both wrong paths. The spec's failure note now prints, **without
+  touching the assertion**: both players' positions NOW against where the shot was staged and the
+  drift of each; the `miss` against `SAFETY_MISS_STUDS` (12); and the gun's **barrels and reserve at
+  the cue against now**, which change on a shot and on nothing else. One run with the flag OFF and
+  one with it ON answers both the "is it the horn" question and the "was a shot fired" question.
 - **Smoke in the Forest Test was NOT run, so nothing here says "ready for Karen".** The dispatch says
   that place is closed and must not be reopened. Standing rule A is therefore unmet by instruction,
   and the frames below are from a throwaway DEV Play session instead.
