@@ -243,9 +243,10 @@ local function trackHiddenPart(part: Instance)
 	end
 	table.insert(hiddenParts, part)
 	if hiddenNow then
-		-- It arrived while the body is hidden: hide it now, because the write loop below only runs
-		-- when the flag CHANGES and the flag is not going to change again until the player lowers
-		-- the gun.
+		-- It arrived while the body is hidden: hide it now rather than wait for the next frame's
+		-- re-assert, so a part is never drawn for the frame it appears in. (Since task 151 round 3
+		-- the hide IS written every frame -- see the header -- so this is one frame of latency
+		-- saved, not the only thing that would ever write it.)
 		(part :: any).LocalTransparencyModifier = 1
 	end
 end

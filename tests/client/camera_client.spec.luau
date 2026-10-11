@@ -1545,6 +1545,17 @@ return function()
 		-- stopped: it hides, waits long enough for the other writer to have had many frames, and
 		-- asks again WITHOUT hiding in between.
 		it("keeps the body hidden against the stock TransparencyController, which writes every frame", function()
+			-- GATED ON THE FLAG (review round 1, note). This case leans on the camera's own loop to
+			-- re-assert, and that loop only hides the body unconditionally in first person: with
+			-- `FIRST_PERSON` back at false -- the one-line rollback the flag exists for -- `hideBody`
+			-- is `blend > BODY_HIDE_BLEND` and the step writes 0 once, so the case would fail for a
+			-- reason that is not a defect.
+			if not Config.FIRST_PERSON then
+				TestKit.note(
+					"task151 camera: FIRST_PERSON is off, so the body is hidden by blend and this case is skipped"
+				)
+				return
+			end
 			local character = player.Character
 			expect(character).to.be.ok()
 
@@ -1588,8 +1599,12 @@ return function()
 					0
 				)
 			end
-			-- ...and the re-assert actually happened, rather than the case passing because nothing
-			-- ever contested the value.
+			-- ...and the camera's own loop really did run over this window. THIS DOES NOT PROVE
+			-- CONTENTION, and round 1's request said it did -- wrongly (the Reviewer's note):
+			-- `Camera.step` calls `setLocalBodyHidden(true)` every frame in first person, so the
+			-- counter rises whether or not anything overwrote the value. What proves contention is
+			-- the pre-fix experiment recorded in `Rig`'s header -- 1 written on all 18 parts, only 2
+			-- still 1 two seconds later. What bites here is the `20 of 20` above.
 			expect(after > before).to.equal(true)
 		end)
 

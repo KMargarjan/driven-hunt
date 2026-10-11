@@ -148,6 +148,13 @@ local function everyTemplateIsHere(): boolean
 	return #keys > 0
 end
 
+-- WHO HAS ALREADY BEEN OFFERED ONE, by userId. Without it the loop is only self-limiting while
+-- every slot succeeds: a player whose vest keeps falling back (say `AddAccessory` refuses it) keeps
+-- the `HuntOutfit` folder, and would be re-dressed once a second for the whole window -- each pass
+-- destroying and re-adding the slot that DID work and opening a fresh appearance window. One
+-- re-dress each is all this is for (review round 1, note).
+local redressedOnce: { [number]: boolean } = {}
+
 task.spawn(function()
 	local deadline = os.clock() + REDRESS_WINDOW_S
 	local total = 0
@@ -156,7 +163,13 @@ task.spawn(function()
 			local waiting = {}
 			for _, player in ipairs(Players:GetPlayers()) do
 				local character = player.Character
-				if character and player.Team and character:FindFirstChild(Body.OUTFIT_NAME) then
+				if
+					character
+					and player.Team
+					and character:FindFirstChild(Body.OUTFIT_NAME)
+					and not redressedOnce[player.UserId]
+				then
+					redressedOnce[player.UserId] = true
 					table.insert(waiting, player)
 				end
 			end

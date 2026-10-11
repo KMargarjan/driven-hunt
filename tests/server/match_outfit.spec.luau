@@ -11,10 +11,11 @@
 --
 -- WHY THE WINDOW HAS CASES AT ALL: a character's appearance is applied asynchronously, after the
 -- model exists, so the avatar's own shirt and body colours can land AFTER ours. Welded parts survive
--- that; a colour does not. The window is the fix, and the leak check is that it never holds more
--- windows than there are players -- a bound and not 0, because the running server legitimately holds
--- one for each player it dressed in the last five seconds and a spec demanding 0 would be asserting
--- on the clock.
+-- that; a colour does not. The window is the fix, and since review round 1 it has its OWN case,
+-- driven through `Body.dressWhenLoaded` against a rig and a STUB PLAYER -- the seam the design named
+-- (beater-kit.md section 15 item 9). The leak proof is `isWatching(userId)` false AND
+-- `appearanceWatching()` back to **0**, which is section 13's number: the old bound "no more windows
+-- than players" was satisfied by zero windows ever opening, which is exactly what the old case did.
 --
 -- WHAT CHANGED IN TASK 82. `ORANGE_OUTFITS` is ON by default now (Karen's OK, PLAYTEST.md
 -- 2026-09-27), so the live case at the bottom is no longer "nobody is dressed": it is "everybody
@@ -729,57 +730,150 @@ return function()
 			expect(keep.Parent).to.equal(off)
 		end)
 
-		it("holds the green against a late appearance load, and closes its window", function()
-			-- THE RACE, DRIVEN BY HAND. A real engine appearance load is asynchronous and arrives
-			-- when it arrives; what is asserted here is that whenever it arrives inside the window,
-			-- the window answers it -- and that the window then closes rather than leaking a
-			-- connection against a character that is gone.
+		it("holds the green and the outfit against a late appearance load, then closes its window", function()
+			-- THE WINDOW'S OWN CASE, AND ROUND 1 DID NOT HAVE ONE. The Reviewer was right: the case
+			-- that stood here called `Body.strip` and `Body.paint` by hand, opened no window, and
+			-- would have passed unchanged with `dressWhenLoaded` reduced to `Body.dress` -- so the
+			-- `ChildAdded` handler, `strayCleared`'s only increment path, `stopWatching` and the
+			-- full re-dress at the close had no coverage at all. This drives the real function.
+			--
+			-- A STUB PLAYER IS THE SEAM THE DESIGN NAMED (beater-kit.md section 15 item 9), and the
+			-- old comment claiming `dressWhenLoaded` "needs a real Player" was simply wrong:
+			-- `player: Player` is a type annotation, and the only things read off it are `UserId`,
+			-- `Character` and `Team.Name`. A table with those three satisfies every one -- which is
+			-- also what keeps this case away from the live player, whom half the client suite is
+			-- standing in (the Task 34 lesson).
+			local userId = -1511
+			local saved = Body.accessorySource()
 			local character = newRig("Task151Window")
-			local base = Body.BASE
-			expect(Body.dress(character, "Shooters", ON)).to.equal(true)
+			local humanoid = Instance.new("Humanoid")
+			humanoid.Parent = character
+			local stub = { UserId = userId, Character = character, Team = { Name = "Drivers" } }
 
-			-- A shirt that lands AFTER the dress is taken off...
-			local strayBefore = Body.strayCleared()
-			local late = Instance.new("Shirt")
-			late.Parent = character
-			-- ...the stray handler is driven through `strip` here, because `dressWhenLoaded` needs a
-			-- real Player and this spec must never touch the one live player (the Task 34 lesson).
-			expect(Body.strip(character, base)).to.equal(1)
-			expect(late.Parent).to.equal(nil)
-			expect(Body.strayCleared()).to.equal(strayBefore) -- strip itself does not count strays
+			Body.setAccessorySource(function(slot)
+				return fakeAccessoryTemplate(if slot == "hat" then "HatAttachment" else "BodyFrontAttachment")
+			end)
+			local ok, err = pcall(function()
+				local strayBefore = Body.strayCleared()
+				Body.dressWhenLoaded(stub :: any, character, ON)
+				expect(Body.isWatching(userId)).to.equal(true)
+				expect(wornAccessories(character)["hat"]).to.be.ok()
 
-			-- ...and a BodyColors the engine adds later is painted rather than fought with -- INCLUDING
-			-- when ours is already there, which is the case the first version of `paint` got wrong:
-			-- `FindFirstChildOfClass` answers whichever of the two comes first in child order, and
-			-- the engine honours whichever it honours. Every one of them is painted, so the answer
-			-- does not depend on an order nothing here controls.
-			local ours = character:FindFirstChildOfClass("BodyColors")
-			expect(ours).to.be.ok()
-			local engineColors = Instance.new("BodyColors")
-			engineColors.TorsoColor3 = Color3.fromRGB(255, 0, 0)
-			engineColors.Parent = character
-			expect(Body.paint(character, base)).to.equal(true)
-			expect(engineColors.TorsoColor3).to.equal(BASE_COLOR)
-			expect((ours :: BodyColors).TorsoColor3).to.equal(BASE_COLOR)
-			engineColors:Destroy()
+				-- (1) A SHIRT THAT LANDS INSIDE THE WINDOW IS TAKEN OFF, and counted. `ChildAdded`
+				-- is deferred, so this waits for the engine rather than for a number of frames.
+				local shirt = Instance.new("Shirt")
+				shirt.Parent = character
+				task.wait(0.3)
+				expect(shirt.Parent).to.equal(nil)
+				expect(Body.strayCleared()).to.equal(strayBefore + 1)
 
-			-- AT MOST ONE WINDOW PER PLAYER, which is exactly what "keyed by userId and replaced by
-			-- the next character" guarantees -- and a window left behind by a player who has left,
-			-- or a second one held for a player who respawned, breaks this count. It is written as a
-			-- bound rather than as 0 on purpose: the running server legitimately holds one for each
-			-- player it dressed in the last five seconds, and a spec that demanded 0 would be
-			-- asserting on the clock.
-			local players = #game:GetService("Players"):GetPlayers()
-			TestKit.note(
-				string.format(
-					"task151: appearanceWatching=%d (players %d) strayCleared=%d repaints=%d",
-					Body.appearanceWatching(),
-					players,
-					Body.strayCleared(),
-					Body.repaints()
+				-- (2) THE PLAYER'S OWN HAT IS KEPT. It carries no wrap, so it is not what hides a
+				-- limb's colour, and nothing in Karen's doc asks for it to go.
+				local ownHat = ownAccessory("OwnHatLate", "SomeOtherAttachment")
+				ownHat.Parent = character
+				task.wait(0.3)
+				expect(ownHat.Parent).to.equal(character)
+
+				-- (3) A `BodyColors` THE ENGINE ADDS LATER IS PAINTED, not fought with.
+				local engineColors = Instance.new("BodyColors")
+				engineColors.TorsoColor3 = Color3.fromRGB(255, 0, 0)
+				engineColors.Parent = character
+				task.wait(0.3)
+				expect(engineColors.TorsoColor3).to.equal(BASE_COLOR)
+
+				-- (4) THE CLOSE PUTS BACK WHAT THE APPEARANCE LOAD TOOK OFF. This is the case
+				-- claim 8(b) is about: in the Forest Test a spawned player came out green and
+				-- BARE-HEADED, because the load applies the avatar's whole look and takes a
+				-- freshly welded accessory with it. Destroying ours here is that, exactly.
+				local hat = wornAccessories(character)["hat"]
+				expect(hat).to.be.ok();
+				(hat :: Instance):Destroy()
+				expect(wornAccessories(character)["hat"]).to.equal(nil)
+
+				-- ...and the window closes on its own clock, which is the module's own number and
+				-- not a 5 copied into this file.
+				task.wait(Body.APPEARANCE_WATCH_SECONDS + 1)
+				expect(Body.isWatching(userId)).to.equal(false)
+				expect(wornAccessories(character)["hat"]).to.be.ok()
+
+				-- (5) AFTER THE CLOSE, A NEW SHIRT SURVIVES. The window is bounded: it is not a
+				-- permanent guard on the character, and a spec that did not check this could not
+				-- tell a closed window from a leaked one.
+				local strayAfterClose = Body.strayCleared()
+				local late = Instance.new("Shirt")
+				late.Parent = character
+				task.wait(0.3)
+				expect(late.Parent).to.equal(character)
+				expect(Body.strayCleared()).to.equal(strayAfterClose)
+
+				-- (6) AND NOTHING IS LEAKED. The design's section 13 says 0, and 0 is what this
+				-- asserts; `isWatching` above is the per-user half, which cannot be satisfied by
+				-- somebody else's window.
+				TestKit.note(
+					string.format(
+						"task151 window: strayCleared %d -> %d, repaints now %d, watching %d",
+						strayBefore,
+						Body.strayCleared(),
+						Body.repaints(),
+						Body.appearanceWatching()
+					)
 				)
-			)
-			expect(Body.appearanceWatching() <= players).to.equal(true)
+				expect(Body.appearanceWatching()).to.equal(0)
+			end)
+			Body.setAccessorySource(saved)
+			Body.forget(userId)
+			if not ok then
+				error(err, 0)
+			end
+		end)
+
+		it("setTeam dresses through the window, swaps without leaving two, and forget closes it", function()
+			-- `Body.setTeam` IS CALLED BY NO OTHER SPEC (the Reviewer's finding), and it is the call
+			-- site the Forest Test's `/beater` uses -- so the one path Karen drives by hand had no
+			-- test behind it.
+			local userId = -1512
+			local saved = Body.accessorySource()
+			Body.ensureTeams() -- idempotent; `setTeam` writes the team BY NAME and needs it to exist
+			local character = newRig("Task151SetTeam")
+			local humanoid = Instance.new("Humanoid")
+			humanoid.Parent = character
+			local stub = { UserId = userId, Character = character, Team = nil :: any, Neutral = true }
+
+			Body.setAccessorySource(function(slot)
+				return fakeAccessoryTemplate(if slot == "hat" then "HatAttachment" else "BodyFrontAttachment")
+			end)
+			local ok, err = pcall(function()
+				Body.setTeam(stub :: any, "Drivers", ON)
+				expect(Body.teamOf(stub :: any)).to.equal("Drivers")
+				expect(stub.Neutral).to.equal(false)
+				expect(Body.isWatching(userId)).to.equal(true)
+				local worn = wornAccessories(character)
+				expect(worn["hat"]).to.be.ok()
+				expect(worn["vest"]).to.be.ok()
+
+				-- A TEAM SWAP REPLACES THE WINDOW, it does not add one: the row is keyed by userId,
+				-- which is the whole reason a player can never hold two.
+				local open = Body.appearanceWatching()
+				Body.setTeam(stub :: any, "Shooters", ON)
+				expect(Body.teamOf(stub :: any)).to.equal("Shooters")
+				expect(Body.appearanceWatching()).to.equal(open)
+				expect(Body.isWatching(userId)).to.equal(true)
+				-- ...and the vest is gone with the team, while the hat stays
+				local after = wornAccessories(character)
+				expect(after["hat"]).to.be.ok()
+				expect(after["vest"]).to.equal(nil)
+
+				-- `Body.forget` CLOSES IT. Without this line a player who leaves inside the five
+				-- seconds leaves a connection held against a character that is gone -- and in the
+				-- Forest Test `Match.forget` never runs at all, so that boot calls this itself.
+				Body.forget(userId)
+				expect(Body.isWatching(userId)).to.equal(false)
+			end)
+			Body.setAccessorySource(saved)
+			Body.forget(userId)
+			if not ok then
+				error(err, 0)
+			end
 		end)
 
 		it("wears the REAL accessory when one is loaded, and builds no plates for that slot", function()

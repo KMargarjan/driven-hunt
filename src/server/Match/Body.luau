@@ -205,6 +205,10 @@ Body.SPARED_ACCESSORY_TYPES = {
 -- for the event" can lose the very race the window cannot. The event could later close the window
 -- early -- an optimisation, never a correctness condition.
 local APPEARANCE_WATCH_SECONDS = 5
+-- PUBLISHED so a spec waits THIS and not a 5 copied out of here. Review round 1, finding 1: the
+-- window had no test at all, and a test that hard-codes the number it is waiting for goes quietly
+-- wrong the day the number moves.
+Body.APPEARANCE_WATCH_SECONDS = APPEARANCE_WATCH_SECONDS
 
 -- THE HAT IS DECLARED ONCE AND WORN BY BOTH ROLES (design section 3). Karen's doc gives the hunter
 -- an orange hat and the beater an orange hat AND an orange vest, so a second copy of these two rows
@@ -530,6 +534,13 @@ function Body.paint(character: Model?, base: BaseRow?): boolean
 	return painted > 0
 end
 
+-- Is THIS user's appearance window open? Exact, and unlike the count below it cannot be answered
+-- by somebody else's window -- which is what a spec needs when a live server is dressing real
+-- players beside it (review round 1, finding 1).
+function Body.isWatching(userId: number): boolean
+	return watching[userId] ~= nil
+end
+
 -- How many appearance windows are open. Must come back to 0: a window that never closed is a
 -- connection held against a character that is gone (design section 4's leak proof).
 function Body.appearanceWatching(): number
@@ -640,14 +651,28 @@ local function clearAttachments(character: Model, attachments: { string }): numb
 	for _, child in ipairs(character:GetChildren()) do
 		if child:IsA("Accoutrement") and child:GetAttribute(ACCESSORY_TAG) == nil then
 			local handle = child:FindFirstChild("Handle")
-			local attachment = handle and handle:FindFirstChildWhichIsA("Attachment")
-			if attachment then
-				for _, name in ipairs(attachments) do
-					if attachment.Name == name then
-						child:Destroy()
-						removed += 1
+			-- EVERY attachment on the handle, not the first one (review round 1, note). An
+			-- accessory may carry several -- that is how one mesh is offered for more than one
+			-- slot -- and asking only `FindFirstChildWhichIsA` would miss the one this group named
+			-- whenever it is not the first child.
+			if handle then
+				local hit = false
+				for _, inner in ipairs(handle:GetChildren()) do
+					if inner:IsA("Attachment") then
+						for _, name in ipairs(attachments) do
+							if inner.Name == name then
+								hit = true
+								break
+							end
+						end
+					end
+					if hit then
 						break
 					end
+				end
+				if hit then
+					child:Destroy()
+					removed += 1
 				end
 			end
 		end
@@ -849,6 +874,14 @@ function Body.dressWhenLoaded(player: Player, character: Model, config)
 				strayCleared += 1
 				return
 			end
+		end
+		-- NEVER ONE OF OURS (review round 1, note). The close calls `Body.dress` BEFORE
+		-- `stopWatching`, so `humanoid:AddAccessory` fires `ChildAdded` straight into this live
+		-- handler -- and a catalog garment that carries a `WrapTarget`/`WrapLayer` is exactly what
+		-- `Body.isLayered` answers true for. Today's cap and vest are rigid and do not bite; a
+		-- catalog JACKET would have been destroyed by the window that had just put it on.
+		if child:GetAttribute(ACCESSORY_TAG) ~= nil then
+			return
 		end
 		if base.clearLayered and Body.isLayered(child) then
 			child:Destroy()
