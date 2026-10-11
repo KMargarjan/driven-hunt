@@ -863,7 +863,18 @@ function Body.dressWhenLoaded(player: Player, character: Model, config)
 			return -- replaced by a later character, or forgotten
 		end
 		if player.Character == character and character.Parent ~= nil then
-			Body.paint(character, base)
+			-- A FULL RE-DRESS AT THE CLOSE, NOT JUST A REPAINT, and the Forest Test measured why.
+			-- A player who spawned there came out GREEN AND BARE-HEADED: the colour had survived
+			-- (this window repaints it) and the cap had not. The appearance load does not only add
+			-- a `BodyColors` and a `Shirt` -- it applies the avatar's whole look, and an accessory
+			-- we welded on a moment earlier can go with it. Typing `/beater` afterwards put both
+			-- the cap and the vest on correctly, which is what said the dressing was fine and the
+			-- TIMING was not.
+			--
+			-- `dress` is idempotent by construction -- it destroys the folder and this module's own
+			-- tagged accessories first -- so this is "whatever is missing, put it back" and not a
+			-- second hat. It subsumes the repaint, because `dress` paints.
+			Body.dress(character, Body.teamOf(player), config)
 		end
 		stopWatching(userId)
 	end)
