@@ -19,8 +19,10 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
+local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 return function()
@@ -390,6 +392,191 @@ return function()
 			ForestTest.clearRole(userId)
 			ForestTest.clearPick(userId)
 			part:Destroy()
+		end)
+	end)
+
+	---------------------------------------------------------------- the wood a beater walks into
+
+	describe("how close she may get, and how far the horn reaches (task 154)", function()
+		it("writes the beater's reach in metres AND in studs, and the two agree to the stud", function()
+			-- TASK 150'S LESSON, pinned here as it is pinned in `zz_horn.spec`: a radius written in
+			-- studs was compared against distances in metres for two tasks.
+			local derived = Data.SPOOK.BEATER_M / Data.SPOOK.METRES_PER_STUD
+			expect(math.abs(Data.SPOOK.BEATER_STUDS - derived) <= 1).to.equal(true)
+			-- ONE CONVERSION IN THE REPO, not one per system.
+			expect(Data.SPOOK.METRES_PER_STUD).to.equal(Boar.CONFIG.SENSE.METRES_PER_STUD)
+			expect(Data.SPOOK.METRES_PER_STUD).to.equal(Horn.CONFIG.METRES_PER_STUD)
+			TestKit.note(
+				string.format(
+					"beater reach %d m = %.1f studs, written as %d",
+					Data.SPOOK.BEATER_M,
+					derived,
+					Data.SPOOK.BEATER_STUDS
+				)
+			)
+		end)
+
+		it("resolves the reach from either unit, like the horn's", function()
+			expect(Data.beaterSpookStuds(Data.SPOOK)).to.equal(Data.SPOOK.BEATER_STUDS)
+			-- A world that overrides the STUDS means the studs...
+			expect(Data.beaterSpookStuds({ BEATER_STUDS = 40, BEATER_M = 999, METRES_PER_STUD = 0.28 })).to.equal(40)
+			-- ...and one that gives only metres gets them converted here, in the one place that does it.
+			expect(math.abs(Data.beaterSpookStuds({ BEATER_M = 28, METRES_PER_STUD = 0.28 }) - 100) < 1e-6).to.equal(
+				true
+			)
+		end)
+
+		it("makes the horn reach further than her own feet do", function()
+			-- KAREN, 2026-10-11: *"horn reach is further once they hear also run without stop"*. The
+			-- horn's whole reason to exist against a 25 m walk-up is that it covers ground she
+			-- cannot.
+			expect(Horn.spookStuds(Horn.CONFIG) > Data.beaterSpookStuds(Data.SPOOK)).to.equal(true)
+			TestKit.note(string.format("horn %d m vs beater %d m", Horn.CONFIG.SPOOK_M, Data.SPOOK.BEATER_M))
+		end)
+	end)
+
+	describe("where the resting groups go (task 154)", function()
+		local standX = Data.standX(Data.PICK.defaultIndex)
+
+		it("puts every group between her and the road, and none of them inside her reach", function()
+			-- KAREN: *"so animals already there somewhere in bushes close to trees ect"* -- which
+			-- means in front of her and short of the road.
+			--
+			-- ...AND NOT ALREADY INSIDE IT, which is this task's own measured mistake: the first
+			-- layout put a group 71 studs from where she is put down, inside `BEATER_STUDS` (89), so
+			-- it was latched and gone on the first heartbeat before she had taken a step.
+			local start = Data.beaterStart(standX, 0)
+			local keepAway = Data.beaterSpookStuds(Data.SPOOK) + Data.REST.clearOfStartStuds
+			local closest, nearestRoad, farthestRoad = math.huge, math.huge, 0
+			for _, spec in ipairs(Data.REST.groups) do
+				local at = Data.restPoint(standX, spec)
+				local dz = at.Z - Data.roadZ(at.X)
+				expect(dz >= Data.REST.nearRoadStuds).to.equal(true)
+				expect(dz <= Data.REST.farRoadStuds).to.equal(true)
+				nearestRoad = math.min(nearestRoad, dz)
+				farthestRoad = math.max(farthestRoad, dz)
+				local gap = Vector3.new(at.X - start.X, 0, at.Z - start.Z).Magnitude
+				expect(gap >= keepAway).to.equal(true)
+				closest = math.min(closest, gap)
+			end
+			-- ...and the band itself has to be north of the road, or "between her and the road" is
+			-- a group standing on it.
+			expect(Data.REST.nearRoadStuds > Data.ROAD.halfWidthStuds).to.equal(true)
+			TestKit.note(
+				string.format(
+					"%d resting groups at %.0f-%.0f studs from the road; the nearest is %.0f studs from her start (reach %d + %d)",
+					#Data.REST.groups,
+					nearestRoad,
+					farthestRoad,
+					closest,
+					Data.beaterSpookStuds(Data.SPOOK),
+					Data.REST.clearOfStartStuds
+				)
+			)
+		end)
+
+		it("names a real composition for every group, and asks for fewer animals than the world holds", function()
+			-- WHO IS IN A FLOCK IS THE BOAR SYSTEM'S FACT, so an index that names nothing would
+			-- silently stock the wood with lone males.
+			local total = 0
+			for _, spec in ipairs(Data.REST.groups) do
+				local composition = Boar.CONFIG.SOUNDER.COMPOSITIONS[spec.composition]
+				expect(composition).to.be.ok()
+				total += Boar.compositionSize(composition)
+				expect(type(spec.note)).to.equal("string")
+			end
+			-- Karen: *"make them a lot not too much to break but enough to test"*.
+			expect(total <= Data.MAX_BOARS).to.equal(true)
+			expect(total > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"the wood is stocked with %d animals in %d groups (cap %d)",
+					total,
+					#Data.REST.groups,
+					Data.MAX_BOARS
+				)
+			)
+		end)
+
+		it("searches sideways and outward without ever leaving the band", function()
+			-- `restSpot` walks rings around the nominal point; `restPoint` is the pure half it walks,
+			-- and a ring that put a group on the road would be a boar standing in front of the gun.
+			local spec = Data.REST.groups[1]
+			local reach = Data.REST.searchRings * Data.REST.searchStepStuds
+			local moved = Data.restPoint(standX, spec, reach, 0)
+			expect(math.abs(moved.X - Data.restPoint(standX, spec).X)).to.be.near(reach, 1e-3)
+			local out = Data.restPoint(standX, spec, 0, reach)
+			expect(out.Z - Data.restPoint(standX, spec).Z).to.be.near(reach, 1e-3)
+		end)
+
+		it("takes a spot that is on the ground and in the trees, and refuses every other kind", function()
+			-- `ForestTest.restSpotOk` is the whole rule, pure: five measurements in, yes or no out.
+			-- `restSpot` takes the measurements and this decides. Hand-written numbers here, so the
+			-- rule is asserted in the DEV place where this world's terrain does not exist.
+			local rest = Data.REST
+			local keepAway = Data.beaterSpookStuds(Data.SPOOK) + rest.clearOfStartStuds
+			-- A spot that is right in every way: in the band, clear of her start, on terrain the
+			-- spawn ray agrees with, and a trunk's width away from a trunk.
+			local dz = (rest.nearRoadStuds + rest.farRoadStuds) / 2
+			local trunk = (rest.clearStuds + rest.nearTrunkStuds) / 2
+			local function ok(...)
+				return ForestTest.restSpotOk(...)
+			end
+			expect(ok(dz, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(true)
+
+			-- TOO NEAR THE ROAD, and too far from it: a boar standing on the verge in front of the
+			-- gun, and one behind where she starts.
+			expect(ok(rest.nearRoadStuds - 1, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(false)
+			expect(ok(rest.farRoadStuds + 1, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(false)
+			-- ...and the two boundaries themselves are IN, or the band is not the band it says.
+			expect(ok(rest.nearRoadStuds, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(true)
+			expect(ok(rest.farRoadStuds, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(true)
+
+			-- ALREADY INSIDE HER REACH: this task's own measured mistake, as an assertion.
+			expect(ok(dz, keepAway - 1, trunk, 140, 140, rest, keepAway)).to.equal(false)
+			expect(ok(dz, keepAway, trunk, 140, 140, rest, keepAway)).to.equal(true)
+
+			-- INSIDE A TRUNK, and out in the open with nothing near: both are "no".
+			expect(ok(dz, keepAway, rest.clearStuds - 1, 140, 140, rest, keepAway)).to.equal(false)
+			expect(ok(dz, keepAway, rest.nearTrunkStuds + 1, 140, 140, rest, keepAway)).to.equal(false)
+			-- `nearestSolid` answers `math.huge` for nothing within its radius, which is the shape
+			-- the open-ground case actually arrives in.
+			expect(ok(dz, keepAway, math.huge, 140, 140, rest, keepAway)).to.equal(false)
+
+			-- THE SPAWN RAY STOPPED ON A CANOPY: the terrain says 140 and `groundAt` says 196, which
+			-- is 56 studs of tree (task 153 measured exactly that hill). A sounder dropped from
+			-- there falls out of a tree.
+			expect(ok(dz, keepAway, trunk, 140, 196, rest, keepAway)).to.equal(false)
+			expect(ok(dz, keepAway, trunk, 140, 140 + rest.canopySlackStuds, rest, keepAway)).to.equal(true)
+			expect(ok(dz, keepAway, trunk, 140, 140 + rest.canopySlackStuds + 1, rest, keepAway)).to.equal(false)
+
+			-- NO GROUND AT ALL is "no spot", never "close enough": off the edge of the terrain,
+			-- either ray can answer nil.
+			expect(ok(dz, keepAway, trunk, nil, 140, rest, keepAway)).to.equal(false)
+			expect(ok(dz, keepAway, trunk, 140, nil, rest, keepAway)).to.equal(false)
+
+			TestKit.note(
+				string.format(
+					"a resting spot: dz %d-%d, >= %.0f studs from her start, %d-%d studs from the nearest trunk, terrain and spawn ray within %d",
+					rest.nearRoadStuds,
+					rest.farRoadStuds,
+					keepAway,
+					rest.clearStuds,
+					rest.nearTrunkStuds,
+					rest.canopySlackStuds
+				)
+			)
+		end)
+
+		it("is in beater mode only while somebody has asked to be a beater", function()
+			local userId = -9154
+			expect(ForestTest.beaterMode()).to.equal(false)
+			ForestTest.setRole(userId, "hunter")
+			expect(ForestTest.beaterMode()).to.equal(false)
+			ForestTest.setRole(userId, "beater")
+			expect(ForestTest.beaterMode()).to.equal(true)
+			ForestTest.clearRole(userId)
+			expect(ForestTest.beaterMode()).to.equal(false)
 		end)
 	end)
 end

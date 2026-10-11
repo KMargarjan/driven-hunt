@@ -1209,18 +1209,28 @@ function Brain:urge(seconds: number)
 	self._urgeFor = math.max(self._urgeFor, seconds)
 end
 
--- `shot` SAYS THE FRIGHT WAS A BANG, and only a bang latches the leave-and-never-stop of task 150.
--- A beater pushing a wave is a fright too, and Karen's sentence is about shooting: *"once they hear
--- shoot they run and don't stop"*. So the drive's own `Runtime:spook` passes nothing and behaves
--- exactly as it did, while `_hearSound` -- and the wave released into a wood that has just been shot
--- in -- passes true.
-function Brain:spook(from: Vector3?, seconds: number?, shot: boolean?)
+-- `untilExit` SAYS THIS FRIGHT DOES NOT WEAR OFF: the leave-and-never-stop latch of task 150. The
+-- caller says so; this file only holds it.
+--
+-- IT WAS CALLED `shot` UNTIL TASK 154, AND THE RENAME IS THE WHOLE OF KAREN'S CORRECTION. She said
+-- it first about a bang -- *"once they hear shoot they run and don't stop"* -- and then, on
+-- 2026-10-11, about a beater and a horn: *"once I get a bit closer they just run away without stop
+-- it's not like they cool down they spooked and run away ... horn reach is further once they hear
+-- also run without stop"*. Three frights, one rule. A second panic system beside this one would be
+-- two owners of "when does an animal calm down", which is the failure this project is named after
+-- (CLAUDE.md rule 3), so the door is the same door and the only new thing is who may knock on it.
+--
+-- `SENSE.SHOT_FLIGHT_UNTIL_EXIT` IS STILL THE SWITCH, and it keeps the name it was born with
+-- because it is still ONE switch for the one latch -- a world that turns it off gets the old
+-- run-then-settle for every fright, which is exactly the second state a flagged path must have.
+-- The drive's ordinary push (`Runtime:spook` with no latch asked for) behaves exactly as it did.
+function Brain:spook(from: Vector3?, seconds: number?, untilExit: boolean?)
 	local config = self._config
 	local state = self._state
 	if state == "GONE" or state == "DOWN" or state == "CRIPPLED" then
 		return false
 	end
-	if shot == true and config.SENSE ~= nil and config.SENSE.SHOT_FLIGHT_UNTIL_EXIT == true then
+	if untilExit == true and config.SENSE ~= nil and config.SENSE.SHOT_FLIGHT_UNTIL_EXIT == true then
 		self._heardShot = true
 	end
 	self._boltFor = math.max(self._boltFor, seconds or config.SENSE.SHOT_SPRINT_SECONDS)
@@ -1476,11 +1486,25 @@ function Brain:_senseAware(position: Vector3, obs, perception, follower: boolean
 	-- which is what "the other side of the road" means to an animal that has no idea where the road
 	-- is (task 149b). Latched one way: an animal cannot un-cross, so a hunter wandering south later
 	-- does not put it back in the drive.
+	--
+	-- ...AND A DRIVER IS NOT A THREAT YOU CAN GO PAST (task 154), which is the whole correction. A
+	-- beater stands BEHIND the animals -- that is what a beater IS -- so with her in the list every
+	-- resting animal in the wood read as "past the guns" on its first sense tick and left at a walk
+	-- with nothing having happened. MEASURED in the Forest Test, 2026-10-11: five resting sounders
+	-- spawned 112-181 studs from a motionless beater, all 27 members `FLEE` in the first report,
+	-- marching south at `WALK_SPEED` for the whole session. Karen's wood -- *"so animals already
+	-- there somewhere in bushes close to trees"* -- emptied itself before she took a step.
+	--
+	-- A NIL KIND IS A DRIVER, the same reading `Brain.perceive` gives it two screens above: that is
+	-- what every stimulus was before kinds existed. So the test is "a GUN I have gone past", which
+	-- is what the paragraph above it always meant, and the hunter's world is unchanged -- in the
+	-- drive and in the playtest world alike, the only stimulus south of an approaching animal is a
+	-- shooter.
 	local pace = config.PACE
 	if not self._crossed and pace ~= nil and pace.LEAVE_AFTER_CROSSING == true then
 		local toExit = self._field.exitZ - position.Z
 		for _, threat in ipairs(obs.threats or {}) do
-			if (threat.position.Z - position.Z) * toExit < 0 then
+			if (threat.kind or "driver") ~= "driver" and (threat.position.Z - position.Z) * toExit < 0 then
 				self._crossed = true
 				break
 			end

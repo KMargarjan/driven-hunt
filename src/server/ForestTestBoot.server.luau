@@ -165,7 +165,13 @@ end)
 -- above it are: the horn's contract does not change with the world. Karen plays in THIS place, so
 -- this is the wire her `/beater` blast actually travels down.
 Weapon.Horn.Blown:Connect(function(blast)
-	local pushed = runtime:hearHorn(blast.at, HornData.spookStuds(HornData.CONFIG))
+	-- ...AND IN THIS WORLD IT LATCHES (task 154). Karen, 2026-10-11: *"horn reach is further once
+	-- they hear also run without stop"*. The `true` is the one-way flight of task 150 -- the same
+	-- one a beater's own walk now asks for (`ForestTest.spookNearBeaters`) and the same one a heard
+	-- shot has always asked for -- and it is decided HERE, at the composition root, because how
+	-- long a fright lasts is the WORLD's question: `MatchBoot` does not pass it, so the drive's own
+	-- horn is bit-for-bit what task 152 shipped until the rotation task says otherwise.
+	local pushed = runtime:hearHorn(blast.at, HornData.spookStuds(HornData.CONFIG), true)
 	-- ONE LINE PER BLAST, and it is the evidence. "The horn had no visible effect" is the kind of
 	-- claim that needs a number beside it, so the console says how many animals the blast reached.
 	print(
@@ -217,11 +223,21 @@ end)
 
 -- ---------------------------------------------------------------- the gun
 
--- EVERYONE IN THIS WORLD CARRIES. There is no roster here and no drive to be on the wrong side of:
--- Karen is testing shooting alone. `Match.mayCarryWeapon` would have refused everybody, because it
--- answers a question about a drive that is not running.
-Weapon.setArmingPolicy(function(_player)
-	return true
+-- A HUNTER CARRIES AND A BEATER DOES NOT (task 154). Karen, 2026-10-10: *"so horn will be default
+-- tool for beater"*, and the Director's reading of it -- guns come later, with a licence.
+--
+-- IT WAS `return true` AND THAT WAS MEASURED WRONG. In this world's first beater playtest she
+-- spawned HOLDING THE SHOTGUN with the rifle and the horn in the bag (server query, 2026-10-11:
+-- `tools=[HAND:Shotgun,BAG:Rifle,BAG:Horn]`), because `Weapon.refreshArming` auto-equips the
+-- PRIMARY and the horn's own equip then lost the race. A beater with a shotgun in her hands is not
+-- a beater.
+--
+-- THE PREDICATE IS THE HORN'S OWN TEAM, which is the same fact `Horn.setCarryPolicy` below reads
+-- and the same `Body.teamOf` both of them ask -- so the gun and the horn can never disagree about
+-- which role this player is. There is still no roster and no drive here: a hunter carries, exactly
+-- as everybody did before today.
+Weapon.setArmingPolicy(function(player)
+	return HornData.gunFor(Body.teamOf(player))
 end)
 
 -- THIS WORLD HAS NO DRIVE LINE, AND REGISTERING ONE CRASHED EVERY SHOT.
@@ -269,6 +285,10 @@ local function applyRole(player: Player)
 	-- immediate. It is level-triggered and idempotent, so the spawn path below calling it as well
 	-- cannot hand out two.
 	Weapon.Horn.refreshCarry(player)
+	-- ...AND SO DO THE GUNS (task 154), through the arming policy just above. The weapon system has
+	-- its own sweep as well, so this only decides whether she stands there armed for two seconds
+	-- after typing `/beater`. Level-triggered and idempotent, exactly like the line above it.
+	Weapon.refreshArming(player)
 	return role
 end
 
@@ -477,6 +497,13 @@ RunService.Heartbeat:Connect(function()
 		lastReportAt = now
 		for _, report in ipairs(ForestTest.waveReport(now)) do
 			print("[wave] " .. report)
+		end
+		-- ...AND WHAT THE RESTING GROUPS ARE DOING (task 154). Same channel and same reason as the
+		-- wave report above it: "they ran away from her and did not stop" is the kind of claim that
+		-- needs a number beside it, and a tool that requires this module over StudioMCP gets a
+		-- sandboxed copy with empty state (measured, task 122).
+		for _, report in ipairs(ForestTest.restReport(now)) do
+			print("[rest] " .. report)
 		end
 	end
 	for _, player in ipairs(Players:GetPlayers()) do

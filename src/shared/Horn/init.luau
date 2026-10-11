@@ -62,6 +62,22 @@ function Horn.carriesFor(on: boolean, team: string?): boolean
 	return on and team == Horn.TEAM
 end
 
+-- ...AND THE EXACT COMPLEMENT: WHO CARRIES A GUN (task 154). Karen, 2026-10-10: *"so horn will be
+-- default tool for beater"*, and the Director's reading of it -- guns come later, with a licence.
+--
+-- IT IS HERE, BESIDE `carriesFor`, SO THE TWO CANNOT DISAGREE. In the Forest Test's first beater
+-- playtest she spawned HOLDING THE SHOTGUN with the rifle and the horn in the bag (measured,
+-- 2026-10-11: `tools=[HAND:Shotgun,BAG:Rifle,BAG:Horn]`), because the world's arming policy was
+-- `return true` for everybody while the horn's carry policy already knew about teams. Two policies
+-- answering one question -- "which role is this player" -- is how they came to disagree, so the
+-- second answer is derived from the first and this file states both.
+--
+-- PURE, and a function of the team alone, so a spec can assert it without taking a live beater's
+-- horn away -- the shape `Horn.carriesFor` and `Weapon.armingAction` both already have.
+function Horn.gunFor(team: string?): boolean
+	return team ~= Horn.TEAM
+end
+
 export type Piece = {
 	name: string,
 	size: Vector3,
@@ -100,16 +116,18 @@ Horn.CONFIG = {
 	-- thing standing between one beater and a continuous horn -- the same reasoning as
 	-- `Shotgun.CONFIG`'s own rate limits.
 	--
-	-- THE DIRECTOR'S START VALUE WAS 3, AND THE CLIP SAYS 5 (measured in this task, below): one
-	-- click plays one complete CALL of 4.0 s, so a cooldown of 3 would chop the last note in half
-	-- and a beater clicking on it would produce one continuous unbroken horn -- which is the exact
-	-- thing a cooldown exists to prevent. 5 is the smallest number that fits a whole call with the
-	-- clip's own silence after it. It is DATA: one line for Karen or the Director to change, and
-	-- `tests/server/zz_horn.spec.luau` only asserts that it is long enough for the cut.
-	COOLDOWN = 5,
+	-- 1.5, AND IT FOLLOWS THE CUT (task 154). KAREN, 2026-10-11, after hearing it: *"horn sound: -
+	-- should be short one like beeep"*. Task 152 played a whole four-note CALL of 4.0 s and set the
+	-- cooldown to 5 so that one click could not run into the next; the call is now ONE NOTE of 1.00
+	-- s (`SOUND_START`/`SOUND_CUT` below), so the cooldown comes down with it. The rule it has to
+	-- keep is unchanged and `tests/server/zz_horn.spec.luau` is what keeps it: a blast must FINISH
+	-- before the next may start, or a beater clicking on the cooldown produces one continuous
+	-- unbroken horn -- which is the exact thing a cooldown exists to prevent. 1.5 is the Director's
+	-- start value and it clears the 1.00 s note by half a second.
+	COOLDOWN = 1.5,
 	-- How long the horn is held up to the mouth. Shorter than the call on purpose: the arm comes
 	-- down while the last note is still ringing, which is what a person does.
-	BLOW_SECONDS = 3,
+	BLOW_SECONDS = 0.9,
 
 	-- ---------------------------------------------------------------- the voice
 	--
@@ -119,22 +137,33 @@ Horn.CONFIG = {
 	-- rbxassetid://9120675895, 1.0 s -- the whistle the same sources list beside the horn.
 	SOUND_ID = "rbxassetid://9038902877",
 	VOLUME = 1,
-	-- ...AND IT IS SIXTY SECONDS LONG, WHICH THE RESEARCH NOTE COULD NOT KNOW AND THIS TASK
+	-- ...AND IT IS SIXTY SECONDS LONG, WHICH THE RESEARCH NOTE COULD NOT KNOW AND TASK 152
 	-- MEASURED. `Sound.TimeLength` is **60.63 s**: the asset is not one blast, it is a vintage
 	-- recording of a hunting horn being blown over and over. Played whole, one click would sound a
 	-- horn for a minute.
 	--
-	-- SO THE CLIP IS CUT, AND THE CUT IS MEASURED RATHER THAN GUESSED. `Sound.PlaybackLoudness`
-	-- sampled at render rate for 14 s, peak per 0.1 s bucket, in the Forest Test on 2026-10-11:
-	--     0.0-0.1  silence (0)              the asset's own lead-in
-	--     0.2-4.0  the FIRST CALL (43-453)   a complete four-note signal phrase
-	--     4.1-5.0  decaying to silence (142 -> 11)
-	--     5.1-8.8  the second call           (so a cut later than 5.1 plays the signal TWICE)
-	--     9.0-9.6  silence again, 10.0-     the third call
-	-- `SOUND_CUT` is therefore 4.4 -- inside the clip's OWN silence, so the stop cannot click, and
-	-- before the second call, so one blast is one signal. `SOUND_START` skips the dead lead-in, so
-	-- the horn sounds on the click rather than a fifth of a second after it.
-	SOUND_START = 0.12,
+	-- SO THE CLIP IS CUT. TASK 152 CUT IT TO ONE CALL; TASK 154 CUTS IT TO ONE NOTE, because Karen
+	-- heard the call and said *"horn sound: - should be short one like beeep"* -- and a four-note
+	-- signal phrase is not a beep.
+	--
+	-- THE WHOLE CUT IS MEASURED, TWICE, OFF THE ASSET'S OWN LOUDNESS. `Sound.PlaybackLoudness`
+	-- sampled at render rate in a Play session of the Forest Test, 2026-10-11, peak per bucket --
+	-- 0.05 s over the first 5.2 s, then 0.02 s over the two candidate windows:
+	--     0.00-0.15  silence (0)                    the asset's own lead-in
+	--     0.20-3.36  EIGHT separate notes (39-453), each 0.2-0.5 s with a valley between
+	--     3.38-3.40  a valley (54, 36)              the gap before the phrase's last note
+	--     3.42-3.58  the LAST NOTE's attack (95 -> 381)
+	--     3.58-4.38  its long natural decay (381 -> 23)
+	--     4.40-5.08  the clip's own silence (9-17)
+	--     5.10-      the second call starts again (302, 338)
+	--
+	-- SO THE NOTE IS 3.40 -> 4.40: ONE note, one second, with the phrase's full tail on it. It is
+	-- the only single note in the clip that reaches the Director's 0.5-1 s -- the eight before it
+	-- measure 0.39-0.50 s and the loudest of them (peak 453 at 2.40) is 0.40 s nose to tail -- and
+	-- it is the only one whose end is REAL SILENCE rather than the next note's attack, so the stop
+	-- cannot click and no cut-off is audible. `SOUND_START` sits 0.02 s before the attack, so the
+	-- horn sounds on the click.
+	SOUND_START = 3.4,
 	SOUND_CUT = 4.4,
 	-- 3D, SO EVERYBODY NEARBY HEARS IT FROM WHERE IT WAS BLOWN. The Sound hangs on the Handle, so
 	-- the engine positions it and these three numbers are the only thing deciding how far it
@@ -157,9 +186,15 @@ Horn.CONFIG = {
 	-- for two tasks ("at METRES_PER_STUD 0.28, 120 studs is 33.6 m"). The Director's start value.
 	-- Both spellings are written out and `tests/server/zz_horn.spec.luau` asserts they agree to the
 	-- stud, so a world or a spec may override either unit and be read.
+	-- 100 m AND NOT 80 (task 154). KAREN, 2026-10-11: *"horn reach is further once they hear also
+	-- run without stop"* -- the horn's whole point against a beater's own 25 m
+	-- (`ForestTest.SPOOK.BEATER_M`) is that it reaches four times as far, and 100 m is both the
+	-- Director's start value and the distance a gunshot already carries in this game
+	-- (`Boar.CONFIG.SENSE.SHOT_HEARD_FROM_SHOOTER_M`). It is also exactly `ROLLOFF_MAX_STUDS`, so
+	-- the animals that run are the animals that could hear it.
 	METRES_PER_STUD = 0.28, -- the same number `Report.CONFIG` and `Boar.CONFIG.SENSE` publish
-	SPOOK_M = 80,
-	SPOOK_STUDS = 286, -- 80 m / 0.28
+	SPOOK_M = 100,
+	SPOOK_STUDS = 357, -- 100 m / 0.28
 
 	-- ---------------------------------------------------------------- the hardware
 	--
