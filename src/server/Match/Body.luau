@@ -52,6 +52,7 @@
 --         docs/design/drive.md (sections 5.1, 5.3, 6.4, 8.4)
 -- Note:   docs/research/2026-10-11-beater-kit.md, docs/research/2026-09-25-drive.md
 local Players = game:GetService("Players")
+local StarterPlayer = game:GetService("StarterPlayer")
 local Teams = game:GetService("Teams")
 local Workspace = game:GetService("Workspace")
 
@@ -1216,6 +1217,25 @@ function Body.tie(player: Player, tree: BasePart, config, parent: Instance?): bo
 	return ok
 end
 
+-- HOW FAST A PLAYER WALKS WHEN NOTHING IS HOLDING HIM, asked of the PLACE and not written down
+-- here: `StarterPlayer.CharacterWalkSpeed` is what every new character of this place is born with,
+-- so a place that slows everybody down is still right. 16 is Roblox's own default, and the fallback
+-- for a context with no StarterPlayer.
+--   https://create.roblox.com/docs/reference/engine/classes/StarterPlayer#CharacterWalkSpeed
+function Body.defaultWalkSpeed(): number
+	local speed = StarterPlayer and StarterPlayer.CharacterWalkSpeed
+	return if type(speed) == "number" and speed > 0 then speed else 16
+end
+
+-- HOW MANY TIMES A RESTORE REFUSED TO HAND BACK A ZERO. It must stay 0 for ever; see
+-- `Body.untieCharacter`. A number rather than a belief, which is this repo's habit for
+-- "this cannot happen".
+local rescued = 0
+
+function Body.rescued(): number
+	return rescued
+end
+
 -- HELD WHERE HE STANDS: the freeze alone, with no tree, no rope and no move (task 158). This is the
 -- beaters' hold at the start line while the countdown runs -- Karen: *"Beater start in line with
 -- others and countdown when drive starts"*.
@@ -1288,8 +1308,18 @@ function Body.tieCharacter(character: Model?, userId: number, tree: BasePart, co
 	return true
 end
 
--- Frees a tied player: the humanoid gets back exactly the numbers it had, the root is unanchored and
--- the rope is destroyed. Safe to call on somebody who was never tied.
+-- Frees a tied or held player: the humanoid gets back exactly the numbers it had, the root is
+-- unanchored and the rope is destroyed. Safe to call on somebody who was never frozen.
+--
+-- EXCEPT THAT IT WILL NOT HAND BACK A WALKSPEED OF ZERO, and the reason is the failure it would be:
+-- a player who cannot walk and has nothing holding him is stuck for the rest of the session, with
+-- no rope, no banner and nothing on screen to say why -- the worst kind of bug, and the one Karen
+-- would feel first. A saved zero is impossible as this module is written (the save happens BEFORE
+-- the zero is written, and `Body` is the only writer of `WalkSpeed` in `src/` -- grepped, task 158),
+-- so this is a floor under a thing that cannot happen: `Body.rescued()` counts it, and if that
+-- number is ever not 0 then something cleared a `held` row out from under a frozen character and
+-- THAT is the bug to fix. Jump is deliberately not floored: a place may really want nobody jumping,
+-- and being unable to jump strands nobody.
 function Body.untie(player: Player, parent: Instance?)
 	Body.untieCharacter(player.Character, player.UserId, parent)
 end
@@ -1300,7 +1330,12 @@ function Body.untieCharacter(character: Model?, userId: number, parent: Instance
 	if character and character.Parent then
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid and saved then
-			humanoid.WalkSpeed = saved.walkSpeed
+			local walkSpeed = saved.walkSpeed
+			if not (type(walkSpeed) == "number" and walkSpeed > 0) then
+				rescued += 1
+				walkSpeed = Body.defaultWalkSpeed()
+			end
+			humanoid.WalkSpeed = walkSpeed
 			humanoid.JumpHeight = saved.jumpHeight
 			humanoid.JumpPower = saved.jumpPower
 		end

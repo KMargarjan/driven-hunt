@@ -312,6 +312,23 @@ return function()
 			naked:Destroy()
 		end)
 
+		it("a tie on top of a hold gives back the REAL speed, not the hold's zero", function()
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			humanoid.WalkSpeed = 16
+			-- Held at the line...
+			expect(Body.holdCharacter(character, USER)).to.be.ok()
+			expect(humanoid.WalkSpeed).to.equal(0)
+			-- ...and then tied, which freezes the same character again through the same row. If the
+			-- tie re-saved what it found, it would record 0 and free him into a body that cannot
+			-- walk -- with no rope and nothing on screen to say why.
+			expect(Body.tieCharacter(character, USER, tree, CONFIG, ropes)).to.equal(true)
+			expect(humanoid.WalkSpeed).to.equal(0)
+			Body.untieCharacter(character, USER, ropes)
+			expect(humanoid.WalkSpeed).to.equal(16)
+			expect(Body.isHolding(USER)).to.equal(false)
+			expect(ropes:FindFirstChild(Body.ropeName(USER))).to.equal(nil)
+		end)
+
 		it("holds nothing after forget", function()
 			-- Body keys what it took by userId and never by Player, so forget is a table operation and
 			-- the count is how that is proved (design section 7.2's discipline, applied here too).
@@ -401,6 +418,46 @@ return function()
 			expect(Body.holdCharacter(character, USER)).to.be.ok()
 			Body.untieCharacter(character, USER, ropes)
 			expect(humanoid.WalkSpeed).to.equal(16)
+		end)
+
+		-- WHAT A RESTORE MUST NEVER HAND BACK (task 158).
+		--
+		-- `[harness2] FAIL 33/35 @ 8f9f340` failed on a shooter `zz_tie_to_a_tree` had tied on
+		-- purpose: a drive holds beaters at the line and ties offenders to trees, and both are the
+		-- same `held` row in this module. These are the one-player reproduction of that ordering --
+		-- no second player needed, because the question is about one character.
+		it("will not hand back a WalkSpeed of zero even if a row somehow holds one", function()
+			-- THE ONLY ROUTE TO A SAVED ZERO, forced here: `Body.forget` drops the row WITHOUT
+			-- restoring, so a freeze applied after it reads the frozen body as "what he had". It
+			-- cannot happen in the drive -- `forget` is only called for a player who has LEFT, and
+			-- `Body` is the only writer of `WalkSpeed` in `src/` (grepped) -- which is exactly why
+			-- the floor is worth having: the failure it prevents is a player stuck for the rest of
+			-- the session with nothing on screen to explain it.
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			humanoid.WalkSpeed = 16
+			expect(Body.holdCharacter(character, USER)).to.be.ok()
+			expect(humanoid.WalkSpeed).to.equal(0)
+			Body.forget(USER) -- the row goes; the body is still frozen
+			local before = Body.rescued()
+			expect(Body.holdCharacter(character, USER)).to.be.ok() -- re-freezes, and saves the 0
+			Body.untieCharacter(character, USER, ropes)
+			expect(Body.rescued()).to.equal(before + 1)
+			-- The PLACE's own number, not a literal 16 here: a place that slows everybody down is
+			-- still right.
+			expect(humanoid.WalkSpeed).to.equal(Body.defaultWalkSpeed())
+			expect(humanoid.WalkSpeed > 0).to.equal(true)
+			print(string.format("[match_safety] rescued a saved zero -> %.1f", humanoid.WalkSpeed))
+			humanoid.WalkSpeed = 16
+		end)
+
+		it("does not rescue anything on an ordinary restore, which is the number that matters", function()
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			humanoid.WalkSpeed = 16
+			local before = Body.rescued()
+			expect(Body.holdCharacter(character, USER)).to.be.ok()
+			Body.untieCharacter(character, USER, ropes)
+			expect(humanoid.WalkSpeed).to.equal(16)
+			expect(Body.rescued()).to.equal(before)
 		end)
 
 		it("refuses what it cannot freeze, and says so with nil", function()
