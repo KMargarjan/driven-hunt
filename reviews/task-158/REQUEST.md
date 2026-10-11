@@ -3,12 +3,18 @@
 Task: 158
 Round: 1
 Base: `d6399f8` (main, #140 merged)
-Code commit: `f1e8c8ee6bdf14bf6f2752d339738023dde8256b`
+Code commit: `6c48aaf8d2c6f27a929c1c421018ed05cf38ea8b`
 
 ```
 [harness] PASS: 33/33 checks @ f1e8c8ee6bdf14bf6f2752d339738023dde8256b (clean tree) scope=all
 [harness] PASS: 33/33 checks @ f1e8c8ee6bdf14bf6f2752d339738023dde8256b (clean tree) scope=all
-[harness2] <NEEDS TEST2 -- the Director runs it; this touches TWO_PLAYER_PATHS>
+[harness] PASS: 33/33 checks @ 6c48aaf8d2c6f27a929c1c421018ed05cf38ea8b (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 6c48aaf8d2c6f27a929c1c421018ed05cf38ea8b (clean tree)
+```
+
+DIRECTOR NOTE: the previous test2 at this same commit FAILED 33/35 on `boar_body.spec:731/740` ("attempt to index nil with memberIds": the sounder had already dissolved) -- a spec this task does not touch (last changed in Task 145); the immediate re-run passed. Logged as a two-player flake, <runs-dir>/test2-t158b.log, queued for a flake task. match_live passed both times.
+
+```
 ```
 
 Two FULL one-player runs at the code commit, both PASS on a clean tree (962 server cases, 43 spec
