@@ -7,6 +7,7 @@
 -- Design: docs/design/drive.md (sections 9.1, 9.3, 12.7)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
 local Workspace = game:GetService("Workspace")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
@@ -634,6 +635,53 @@ return function()
 			expect(Hud.feedTextFor({ kind = "signal", text = "end", at = 0 })).to.equal(nil)
 			-- ...while the phase line beside it is still a line, so the feed did not go quiet.
 			expect(Hud.feedTextFor({ kind = "phase", text = "Drive on", at = 0 })).to.equal("Drive on")
+		end)
+
+		-- TASK 163a(a), THE REVIEWER'S FIRST NOTE AND THE ONE WITH A CONSEQUENCE KAREN WOULD HEAR.
+		-- The voice used to be created at the first cue, so the download started when the drive did
+		-- and the only budget against it was a 2 s wait -- and `TimePosition` on an unloaded Sound
+		-- is not kept, so a lost race plays the clip from 0, where the eight SHORT notes are. It is
+		-- made and preloaded at MODULE LOAD now, and this case is what says so.
+		it("has its Sound made and configured BEFORE the first cue, and preloaded", function()
+			-- A FACT ABOUT LOAD TIME, not about now: once a drive has signalled, "it existed before
+			-- the cue" cannot be read off the Instance, so the module records it.
+			local made = (Sound.signalReady())
+			expect(made).to.equal(true)
+			-- The preload is a thread, so it is waited for rather than asserted on sight.
+			expect(waitUntil(20, function()
+				local _, done = Sound.signalReady()
+				return done
+			end)).to.equal(true)
+
+			local voice = Sound.signalVoice()
+			expect(voice).to.be.ok()
+			local sound = voice :: Sound
+			expect(sound:IsA("Sound")).to.equal(true)
+			expect(sound.Name).to.equal("DriveSignal")
+			-- AT THE EAR, NOT IN THE WORLD: parented to SoundService and to no part, which is what
+			-- makes it 2-D -- the whole reason a drive-wide signal is drawn from the client.
+			expect(sound.Parent).to.equal(SoundService)
+			expect(sound.SoundId).to.equal(Horn.CONFIG.SOUND_ID)
+			expect(sound.Volume).to.equal(Horn.CONFIG.SIGNAL.VOLUME)
+			expect(sound.Looped).to.equal(false)
+
+			-- ...AND THE ASSET IS REALLY HERE, which is the point of the preload: the cut can only
+			-- play the measured note if the clip is loaded and long enough to hold it.
+			expect(waitUntil(20, function()
+				return sound.IsLoaded
+			end)).to.equal(true)
+			expect(sound.TimeLength > Horn.CONFIG.SIGNAL.CUT).to.equal(true)
+			TestKit.note(
+				string.format(
+					"drive signal: voice made at load=%s, preload returned=%s, IsLoaded=%s, clip %.2f s, cut %.2f-%.2f",
+					tostring(made),
+					tostring(select(2, Sound.signalReady())),
+					tostring(sound.IsLoaded),
+					sound.TimeLength,
+					Horn.CONFIG.SIGNAL.START,
+					Horn.CONFIG.SIGNAL.CUT
+				)
+			)
 		end)
 
 		it("sounds once per cue, and refuses a second signal while one is sounding", function()
