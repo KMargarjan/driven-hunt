@@ -367,6 +367,10 @@ Bots.start({
 			return Weapon.Horn.giveTo(rig)
 		end,
 		blow = Weapon.Horn.blowTool,
+		-- HOW LONG A BLAST HOLDS THE HORN AT THE MOUTH (task 166). The HORN's own number, handed to
+		-- the bots with the rest of its seam, so the arm raise and the Tool's `GRIP_BLOW` tilt are
+		-- the same length by construction and not by two numbers agreeing.
+		blowSeconds = HornData.CONFIG.BLOW_SECONDS,
 	},
 	groundAt = Data.groundAt,
 	roomToStand = ForestTest.roomToStand,
@@ -430,7 +434,7 @@ end)
 -- steps, and whatever she is standing on at the end is hers.
 local function openPickFor(player: Player)
 	if ForestTest.roleOfPlayer(player) ~= "hunter" then
-		return -- a beater has no stand, and no leash (`ForestTest.leash` refuses her for the same reason)
+		return -- a beater has no stand, and no boundary (`ForestTest.boundary` refuses her for the same reason)
 	end
 	ForestTest.openPick(player.UserId, os.clock())
 	task.delay(Data.PICK.seconds, function()
@@ -445,7 +449,18 @@ local function openPickFor(player: Player)
 			return
 		end
 		local index = ForestTest.lockPick(player.UserId, (root :: BasePart).Position, os.clock())
-		print(string.format("[ForestTest] %s took stand %d", player.Name, index))
+		-- HIS EDGE, DRAWN (task 166). The boundary opens the moment the pick locks, so the ring that
+		-- shows where it is goes up in the same breath -- and `Markers` is the one writer of it.
+		local segments = ForestTest.Markers.ring(index, Data.PICK.standRadiusStuds)
+		print(
+			string.format(
+				"[ForestTest] %s took stand %d (edge ring %d studs, %d segments)",
+				player.Name,
+				index,
+				Data.PICK.standRadiusStuds,
+				segments
+			)
+		)
 	end)
 end
 
@@ -476,6 +491,9 @@ Match.PhaseChanged:Connect(function(_before, phase)
 		for _, player in ipairs(Players:GetPlayers()) do
 			ForestTest.clearPick(player.UserId)
 		end
+		-- ...AND THE RINGS GO WITH THE PICKS (task 166): an edge drawn round a stand nobody is held
+		-- to is a line that means nothing, and the next lock draws its own.
+		ForestTest.Markers.clearRings()
 		return
 	end
 	if phase ~= "Running" then
@@ -584,6 +602,13 @@ Players.PlayerAdded:Connect(function(player)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
+	-- HIS RING GOES WITH HIS PICK (round 1's note). An edge drawn round a stand nobody is held to is
+	-- a line that means nothing, and without this it stayed until the next intermission cleared all
+	-- of them. The index has to be read BEFORE the pick is dropped.
+	local pick = ForestTest.pickOf(player.UserId)
+	if pick ~= nil then
+		ForestTest.Markers.clearRing(pick.index)
+	end
 	ForestTest.clearPick(player.UserId)
 	-- THE REQUEST GOES WITH THE PLAYER. `Body.forget` is no longer called here: `Match.forget` runs
 	-- in this world now and calls it, so one caller instead of two.
@@ -592,7 +617,7 @@ end)
 
 -- ---------------------------------------------------------------- the loop
 
--- ONE HEARTBEAT FOR BOTH JOBS: the schedule and the leash. The boar runtime runs its own, and the
+-- ONE HEARTBEAT FOR BOTH JOBS: the schedule and the stand boundary. The boar runtime runs its own, and the
 -- drive runs its own; this is only the playtest's own clock.
 --
 -- THE WAVE REPORT GOES TO THE CONSOLE, and that is not decoration. A tool connected over StudioMCP
@@ -627,7 +652,7 @@ RunService.Heartbeat:Connect(function()
 		if root then
 			-- THE ROLE IS PASSED IN SINCE TASK 157: the truth of it is `Player.Team`, and this loop is
 			-- what holds the `Player` -- `ForestTest` keys by `userId` and never holds one.
-			ForestTest.leash(player.UserId, root :: BasePart, ForestTest.roleOfPlayer(player))
+			ForestTest.boundary(player.UserId, root :: BasePart, ForestTest.roleOfPlayer(player))
 		end
 	end
 end)

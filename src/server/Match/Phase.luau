@@ -382,9 +382,10 @@ end
 -- is exactly that: no line, one sound. A second RemoteEvent for one word would be a second wire
 -- answering a question this one already answers.
 --
--- `which` is "start" or "end" -- the WORD and nothing else. How long a note is, how many there are
--- and how far apart they sit are `Horn.CONFIG.SIGNAL`'s, read by the one client-side owner that
--- plays them, so this machine stays pure and holds no sound numbers at all.
+-- `which` is "start" or "end" -- the WORD and nothing else, and since task 166 it is also the KEY:
+-- `Horn.CONFIG.SIGNAL.PHRASES` is keyed by these two words, so which asset sounds and which cut of
+-- it is read by the one client-side owner that plays them. This machine stays pure and holds no
+-- sound numbers at all.
 local function signal(effects: { Effect }, now: number, config, which: string)
 	if not config.SIGNAL_ENABLED then
 		return

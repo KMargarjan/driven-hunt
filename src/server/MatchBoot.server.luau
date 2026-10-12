@@ -225,6 +225,10 @@ Bots.start({
 			return Weapon.Horn.giveTo(rig)
 		end,
 		blow = Weapon.Horn.blowTool,
+		-- HOW LONG A BLAST HOLDS THE HORN AT THE MOUTH (task 166). The HORN's own number, handed to
+		-- the bots with the rest of its seam, so the arm raise and the Tool's `GRIP_BLOW` tilt are
+		-- the same length by construction and not by two numbers agreeing.
+		blowSeconds = HornData.CONFIG.BLOW_SECONDS,
 	},
 	now = function()
 		return os.clock()

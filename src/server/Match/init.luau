@@ -134,11 +134,12 @@ Match.CONFIG = {
 	-- standing ON the line, or walking up to it and stopping, has not crossed it.
 	BEATER_CROSS_MARGIN_STUDS = 10, -- K
 
-	-- THE DRIVE'S OWN HORN SIGNAL (task 163). KAREN, 2026-10-12 ~10:40: *"when hunt starts 3 longer
-	-- horn calls and when ends the same"*.
+	-- THE DRIVE'S OWN HORN SIGNAL (task 163; the SOUND of it replaced in 166). KAREN, 2026-10-12
+	-- ~10:40: *"when hunt starts 3 longer horn calls and when ends the same"*, and ~16:00, having
+	-- heard it: *"for start and end of drive has to be tuturutu tu tu different one"*.
 	--
-	-- WHETHER THE DRIVE SIGNALS IS THIS TABLE'S; WHAT THE SIGNAL SOUNDS LIKE IS NOT. The three
-	-- notes, their cut out of the asset and their gaps are `Horn.CONFIG.SIGNAL` -- shared, because
+	-- WHETHER THE DRIVE SIGNALS IS THIS TABLE'S; WHAT THE SIGNAL SOUNDS LIKE IS NOT. The two
+	-- phrases and their cuts out of their own assets are `Horn.CONFIG.SIGNAL` -- shared, because
 	-- the client is what plays them -- and a client that knows how long a horn note is learns
 	-- nothing it is not already being told. This boolean is the drive's half of it: the phase
 	-- machine emits one `signal` feed entry at GO and one at the end, and with this false it emits
@@ -230,8 +231,8 @@ Match.CONFIG = {
 	START_HOLD_TEAM = "Drivers" :: any, -- K, Karen's beaters
 	-- WHAT HAPPENS AT 0 TO A HUNTER WHO IS NOT AT HIS STAND: NOTHING NEW, AND THAT IS DELIBERATE
 	-- (task 158). The drive has no rule for a hunter off his post and never has -- the only penalty
-	-- in this system is the safety one (firing toward the drive, `SAFETY_*` above). The 6-stud leash
-	-- Karen has felt is `ForestTest.leash`, which belongs to the Forest Test world, applies only to
+	-- in this system is the safety one (firing toward the drive, `SAFETY_*` above). The stand boundary
+	-- Karen has felt is `ForestTest.boundary`, which belongs to the Forest Test world, applies only to
 	-- a hunter who LOCKED a stand there, and opens on `Running` -- so it is untouched by this task
 	-- and still runs in that world. So at 0 the drive simply starts: a hunter still walking loses
 	-- shots and nothing else. Inventing a punishment for a ten-second timer is a Karen decision, not

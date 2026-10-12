@@ -428,6 +428,23 @@ return function()
 					end
 				end
 			until (sawModel and ready > 0 and drawn == ready) or os.clock() >= deadline
+
+			-- ...AND A TIED PLAYER HAS NO VIEWMODEL AT ALL, which is the game's own rule and not
+			-- this case's failure (task 166). The safety penalty takes the Tool away and
+			-- `TIE_UNTIL_DRIVE_END` keeps it until the drive ends, so a shooter tied earlier in the
+			-- run reaches here with nothing drawn -- `Expected nil to be non-nil`, which is what one
+			-- of the two `test2` runs of task 166 read here. The guard is `weapon_client`'s, with
+			-- its reasoning: NOT a skip, because `Match.isTied()` is the server's replicated answer
+			-- and the claim asserted instead is the tie's own -- no gun, so no drawn gun.
+			if not sawModel then
+				local matchModule = scripts:FindFirstChild("Match")
+				local Match = if matchModule then require(matchModule) else nil
+				if Match ~= nil and Match.isTied() then
+					TestKit.note("rifle: this shooter is tied to a tree, so there is no gun to draw")
+					expect(Camera.Viewmodel.current()).to.equal(nil)
+					return
+				end
+			end
 			expect(model).to.be.ok()
 			TestKit.note(
 				string.format(

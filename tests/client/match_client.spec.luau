@@ -623,10 +623,12 @@ return function()
 			expect(node).to.equal(game)
 		end)
 	end)
-	-- TASK 163. KAREN, 2026-10-12: *"when hunt starts 3 longer horn calls and when ends the same"*.
-	-- The server's half is `match_phase.spec` (one entry at GO, one at the end) and the DATA's half
-	-- is `zz_horn.spec` (three notes, the cut, the gaps). This is the client's half: the entry draws
-	-- no line, and the sound owner sounds it once.
+	-- TASK 163, REDONE IN 166. KAREN, 2026-10-12: *"when hunt starts 3 longer horn calls and when ends
+	-- the same"*, and then, having heard it: *"for start and end of drive has to be tuturutu tu tu
+	-- different one"*. So the cue is a BUGLE FANFARE now, one phrase per cue out of its own asset.
+	-- The server's half is `match_phase.spec` (one entry at GO, one at the end) and the DATA's half is
+	-- `zz_horn.spec` (the two cuts, measured). This is the client's half: the entry draws no line,
+	-- the sound owner has a loaded voice for EACH cue before the first one, and it sounds once.
 	describe("the drive's horn signal", function()
 		it("draws NO feed line, so the feed never prints the bare word", function()
 			-- `Hud.feedTextFor` is the one place that decides what a feed entry reads as, and a
@@ -639,12 +641,13 @@ return function()
 
 		-- TASK 163a(a), THE REVIEWER'S FIRST NOTE AND THE ONE WITH A CONSEQUENCE KAREN WOULD HEAR.
 		-- The voice used to be created at the first cue, so the download started when the drive did
-		-- and the only budget against it was a 2 s wait -- and `TimePosition` on an unloaded Sound
-		-- is not kept, so a lost race plays the clip from 0, where the eight SHORT notes are. It is
-		-- made and preloaded at MODULE LOAD now, and this case is what says so.
-		it("has its Sound made and configured BEFORE the first cue, and preloaded", function()
-			-- A FACT ABOUT LOAD TIME, not about now: once a drive has signalled, "it existed before
-			-- the cue" cannot be read off the Instance, so the module records it.
+		-- and the only budget against it was a 2 s wait -- and `TimePosition` on an unloaded Sound is
+		-- not kept, so a lost race plays the clip from 0. With task 166's bugle calls that is the
+		-- asset's own lead-in silence followed by half a phrase. There is now ONE VOICE PER CUE and
+		-- both are made and preloaded at module load; this case is what says so.
+		it("has a Sound per cue, made and configured BEFORE the first cue, and preloaded", function()
+			-- A FACT ABOUT LOAD TIME, not about now: once a drive has signalled, "they existed
+			-- before the cue" cannot be read off the Instances, so the module records it.
 			local made = (Sound.signalReady())
 			expect(made).to.equal(true)
 			-- The preload is a thread, so it is waited for rather than asserted on sight.
@@ -653,33 +656,52 @@ return function()
 				return done
 			end)).to.equal(true)
 
-			local voice = Sound.signalVoice()
-			expect(voice).to.be.ok()
-			local sound = voice :: Sound
-			expect(sound:IsA("Sound")).to.equal(true)
-			expect(sound.Name).to.equal("DriveSignal")
-			-- AT THE EAR, NOT IN THE WORLD: parented to SoundService and to no part, which is what
-			-- makes it 2-D -- the whole reason a drive-wide signal is drawn from the client.
-			expect(sound.Parent).to.equal(SoundService)
-			expect(sound.SoundId).to.equal(Horn.CONFIG.SOUND_ID)
-			expect(sound.Volume).to.equal(Horn.CONFIG.SIGNAL.VOLUME)
-			expect(sound.Looped).to.equal(false)
+			local lines = {}
+			for _, word in ipairs(Horn.signalWords()) do
+				local phrase = Horn.signalPhrase(word, Horn.CONFIG)
+				local voice = Sound.signalVoice(word)
+				expect(voice).to.be.ok()
+				local sound = voice :: Sound
+				expect(sound:IsA("Sound")).to.equal(true)
+				-- ONE NAME PER CUE, so two voices in SoundService are tellable apart by eye in the
+				-- Explorer as well as by this spec.
+				expect(sound.Name).to.equal("DriveSignal_" .. word)
+				-- AT THE EAR, NOT IN THE WORLD: parented to SoundService and to no part, which is
+				-- what makes it 2-D -- the whole reason a drive-wide signal is drawn from the client.
+				expect(sound.Parent).to.equal(SoundService)
+				expect(sound.SoundId).to.equal(phrase.SOUND_ID)
+				expect(sound.Volume).to.equal(Horn.CONFIG.SIGNAL.VOLUME)
+				expect(sound.Looped).to.equal(false)
 
-			-- ...AND THE ASSET IS REALLY HERE, which is the point of the preload: the cut can only
-			-- play the measured note if the clip is loaded and long enough to hold it.
-			expect(waitUntil(20, function()
-				return sound.IsLoaded
-			end)).to.equal(true)
-			expect(sound.TimeLength > Horn.CONFIG.SIGNAL.CUT).to.equal(true)
+				-- ...AND THE ASSET IS REALLY HERE, which is the point of the preload: the cut can
+				-- only play the measured phrase if the clip is loaded and long enough to hold it.
+				expect(waitUntil(20, function()
+					return sound.IsLoaded
+				end)).to.equal(true)
+				expect(sound.TimeLength > phrase.CUT).to.equal(true)
+				table.insert(
+					lines,
+					string.format(
+						"%s=%s %.2f s (cut %.2f-%.2f)",
+						word,
+						tostring(sound.IsLoaded),
+						sound.TimeLength,
+						phrase.FROM,
+						phrase.CUT
+					)
+				)
+			end
+			-- THE TWO VOICES ARE SEPARATE INSTANCES, which is what makes "a signal is already
+			-- sounding" a fact about `Sound.isSignalling` and not about one shared Sound.
+			expect(Sound.signalVoice("start")).never.to.equal(Sound.signalVoice("end"))
+			-- The default is the drive's first cue, so an old caller with no word still gets one.
+			expect(Sound.signalVoice()).to.equal(Sound.signalVoice("start"))
 			TestKit.note(
 				string.format(
-					"drive signal: voice made at load=%s, preload returned=%s, IsLoaded=%s, clip %.2f s, cut %.2f-%.2f",
+					"drive signal: made at load=%s, preload returned=%s, %s",
 					tostring(made),
 					tostring(select(2, Sound.signalReady())),
-					tostring(sound.IsLoaded),
-					sound.TimeLength,
-					Horn.CONFIG.SIGNAL.START,
-					Horn.CONFIG.SIGNAL.CUT
+					table.concat(lines, ", ")
 				)
 			)
 		end)
@@ -688,7 +710,7 @@ return function()
 			-- A LIVE DRIVE MAY BE SIGNALLING RIGHT NOW -- this spec runs inside a real session, and
 			-- the drive's own GO sounds the horn -- so wait for the horn to finish before claiming
 			-- anything about a fresh one.
-			local whole = Horn.signalSeconds(Horn.CONFIG)
+			local whole = Horn.signalSeconds("start", Horn.CONFIG)
 			expect(waitUntil(whole + 3, function()
 				return not Sound.isSignalling()
 			end)).to.equal(true)
@@ -708,21 +730,79 @@ return function()
 
 			TestKit.note(
 				string.format(
-					"drive signal: %d sounded, %d refused as busy, %.2f s each, note %.2f-%.2f",
+					"drive signal: %d sounded, %d refused as busy, start %.2f s, end %.2f s",
 					Sound.stats().signal,
 					Sound.stats().signalBusy,
 					whole,
-					Horn.CONFIG.SIGNAL.START,
-					Horn.CONFIG.SIGNAL.CUT
+					Horn.signalSeconds("end", Horn.CONFIG)
 				)
 			)
 		end)
 
+		it("plays the END cue's own phrase, not the start one", function()
+			-- *"for start and end of drive has to be ... different one"* -- the two cues really are
+			-- two phrases now, so the end cue has to reach its own voice and its own cut.
+			local phrase = Horn.signalPhrase("end", Horn.CONFIG)
+			local voice = Sound.signalVoice("end") :: Sound
+			expect(voice.SoundId).to.equal(phrase.SOUND_ID)
+			-- WAITED FOR BEFORE THE CUE, NOT AFTER IT. `driveSignal` has a bounded 2 s `IsLoaded`
+			-- backstop of its own and sounds the signal either way, so a cue given while the asset
+			-- is still arriving can spend that whole budget before it plays -- which would race any
+			-- window this case opened afterwards. The preload has had the client's whole boot; this
+			-- is only the proof that it landed.
+			expect(waitUntil(20, function()
+				return voice.IsLoaded
+			end)).to.equal(true)
+
+			local whole = Horn.signalSeconds("start", Horn.CONFIG)
+			expect(waitUntil(whole + 3, function()
+				return not Sound.isSignalling()
+			end)).to.equal(true)
+			expect(Sound.driveSignal("end")).to.equal(true)
+			expect(Sound.lastSignal()).to.equal("end")
+			-- IT IS THE END VOICE THAT IS PLAYING, from the end phrase's own offset -- and the
+			-- offset is read INSIDE the window, because `Stop` puts `TimePosition` back to 0 and the
+			-- cut is only 1.68 s long.
+			--
+			-- `TimePosition > 0` IS PART OF THE PREDICATE AND NOT A TIDINESS, AND THE FIRST RUN OF
+			-- THIS CASE IS WHY: `IsPlaying` goes true on the `Play` call, and a poll landing in that
+			-- same frame reads the position the previous `Stop` left behind -- 0 -- before the engine
+			-- has started the clip.
+			--
+			-- AND THE POSITION IS COMPARED WITH A TOLERANCE, which the SECOND run is why, and the
+			-- reason is worth writing down: `Sound.TimePosition` is a 32-bit float, so the 0.32 this
+			-- code writes reads back as 0.3199999928 -- and a poll that lands before the first
+			-- advance reads exactly that, which is NOT `>= 0.32` in Luau's doubles. It failed by
+			-- 7e-9. Measured in the same session, the normal first readable value is 0.341 and it
+			-- climbs ~0.10 per 0.1 s; the offset itself was measured to survive three Play/Stop
+			-- cycles (0.341 on the first frame of each), so what is tested here is real and only the
+			-- comparison was wrong.
+			local heardAt = -1
+			expect(waitUntil(6, function()
+				if voice.IsPlaying and voice.TimePosition > 0 then
+					heardAt = voice.TimePosition
+					return true
+				end
+				return false
+			end)).to.equal(true)
+			expect(heardAt >= phrase.FROM - 1e-3).to.equal(true)
+			-- ...AND BELOW THE CUT, PLUS ONE POLL. The sounding thread stops the voice at `CUT`, and
+			-- this poll can be up to its own 0.05 s interval behind, so the window has to allow one.
+			expect(heardAt <= phrase.CUT + 0.1).to.equal(true)
+			TestKit.note(string.format("drive signal: the END cue sounded, first readable position %.4f s", heardAt))
+		end)
+
 		it("plays the data's plan and holds no schedule of its own", function()
-			-- The client walks `Horn.signalPlan`; it does not know how many notes there are.
-			local plan = Horn.signalPlan(Horn.CONFIG)
-			expect(#plan).to.equal(Horn.CONFIG.SIGNAL.NOTES)
-			expect(plan[1].seconds).to.equal(Horn.CONFIG.SIGNAL.CUT - Horn.CONFIG.SIGNAL.START)
+			-- The client walks `Horn.signalPlan`; it does not know how many soundings there are or
+			-- which asset they come from.
+			for _, word in ipairs(Horn.signalWords()) do
+				local plan = Horn.signalPlan(word, Horn.CONFIG)
+				local phrase = Horn.signalPhrase(word, Horn.CONFIG)
+				expect(#plan).to.equal(1)
+				expect(plan[1].seconds).to.equal(phrase.CUT - phrase.FROM)
+				expect(plan[1].from).to.equal(phrase.FROM)
+				expect(plan[1].soundId).to.equal(phrase.SOUND_ID)
+			end
 		end)
 	end)
 end

@@ -173,6 +173,9 @@ type Bot = {
 	lastMoveAt: number,
 	lastHornAt: number?,
 	hornDueAt: number?,
+	-- WHEN THIS BOT'S RAISED HORN COMES DOWN (task 166). Stamped by `Bots.blowFor` off the blast it
+	-- just made, so the arm and the sound cannot disagree about how long a blast is.
+	blowUntil: number?,
 	movedAt: number,
 	movedFrom: Vector3?,
 	arrived: boolean,
@@ -213,6 +216,9 @@ local stats = {
 	dressed = 0,
 	dressFailed = 0,
 	hornsGiven = 0,
+	-- HOW MANY TIMES A BOT'S ARM WENT UP OR CAME DOWN (task 166). `Rig.blow` returns whether it
+	-- CHANGED, so this counts poses and not steps -- the discipline `toolPosed` already follows.
+	blowPosed = 0,
 	blasts = 0,
 	blastsRefused = 0,
 	walking = 0,
@@ -529,6 +535,21 @@ end
 -- *"all they standing around the animals"*. It STOPS the walk: an anchored body on a ring CFrame.
 function Bots.gather(ring: { CFrame }, from: number): number
 	released = false
+	-- THE HORNS COME DOWN AT THE DRIVE'S END, IN THIS SAME DISPATCH (round 1 finding 1). The step's
+	-- level-trigger would catch it on its next tick anyway, but the results scene begins HERE -- the
+	-- rigs are placed into the ring in the lines below -- and a beater that arrives in that ring with
+	-- the horn still at its face is the picture Karen would be looking at. So the window is closed
+	-- and the pose taken down before anybody is placed, for EVERY bot and not only the ones the ring
+	-- has room for.
+	for _, id in ipairs(order) do
+		local bot = bots[id]
+		if bot ~= nil then
+			bot.blowUntil = nil
+			if Rig.blow(bot.clips, false) then
+				stats.blowPosed += 1
+			end
+		end
+	end
 	local index = from
 	local moved = 0
 	for _, id in ipairs(order) do
@@ -579,6 +600,8 @@ local PER_DRIVE_STATS = {
 	-- `12` on drive 3, and the one question it exists to answer ("did the horn pose apply THIS
 	-- drive") could not be read off it. Exactly the fault this list's header describes.
 	"toolPosed",
+	-- `toolPosed`'s reason, for the same kind of counter: "did a bot raise its horn THIS drive".
+	"blowPosed",
 	"stepMsMax",
 }
 
@@ -713,11 +736,28 @@ function Bots.blowFor(id: string, at: number, config: any?): boolean
 	if world.horn.blow(bot.horn, bot.id, nil, at) then
 		bot.lastHornAt = at
 		bot.hornDueAt = Bots.hornDue(bot, at, cfg)
+		-- THE ARM GOES UP FOR EXACTLY AS LONG AS THE HORN IS AT THE MOUTH, and that length is the
+		-- HORN's (`Horn.CONFIG.BLOW_SECONDS`), handed in at the composition root with the rest of
+		-- the horn seam. A world that has not wired it gets no raise rather than a number invented
+		-- here -- which would be a second answer to "how long is a blast", the failure this repo is
+		-- named after.
+		local seconds = world.horn.blowSeconds
+		bot.blowUntil = if type(seconds) == "number" then at + seconds else nil
 		stats.blasts += 1
 		return true
 	end
 	stats.blastsRefused += 1
 	return false
+end
+
+-- IS THIS BOT'S HORN AT ITS MOUTH RIGHT NOW? PURE in the bot's own stamp and the clock, so a spec
+-- drives the raise, the hold and the lower without waiting for a blast or hearing one.
+function Bots.blowing(bot: Bot?, at: number): boolean
+	if bot == nil then
+		return false
+	end
+	local until_ = bot.blowUntil
+	return until_ ~= nil and at < (until_ :: number)
 end
 
 -- ------------------------------------------------------------------ the step
@@ -857,6 +897,25 @@ function Bots.step(_dt: number?, clock: number?, roomToStand: any?)
 					Bots.blowFor(bot.id, at, config)
 				end
 			end
+		end
+		-- THE HORN AT THE MOUTH (task 166), LEVEL-TRIGGERED FOR EVERY BOT AND OUTSIDE EVERY GUARD
+		-- ABOVE -- which is round 1's blocking finding 1 and the comment that used to be here was
+		-- false. It sat inside `bot.to ~= nil and released` and `bot.horn ~= nil`, and `Bots.gather`
+		-- -- the drive's own end, through `Match.applyScene` -- sets `released = false` as its first
+		-- line. So a beater that was mid-blast when the drive ended was never asked again: there was
+		-- no next step for it, `gather`'s own `Rig.playClip(clips, "idle")` stops only the gait
+		-- (`playClip` iterates `Rig.CLIPS`, which the blow track is not in), and the pose is a
+		-- LOOPING clip at `Action` priority -- so it outranks the idle it is standing in and holds
+		-- the horn at its face for the whole results scene Karen signed off. One drive in eight with
+		-- four beaters, at `HORN.EVERY_SECONDS` against `BLOW_SECONDS`.
+		--
+		-- HERE IT IS ASKED OF EVERY BOT THAT HAS A BODY, every step, off the one window
+		-- `Bots.blowing` answers -- so the ONLY way an arm can be up is that this bot's blast has
+		-- not finished, and no path through this file can leave one up. A bot that has never blown
+		-- costs one table read: `Rig.blow` returns false without touching the Animator when the
+		-- answer it is given is the one already in force.
+		if Rig.blow(bot.clips, Bots.blowing(bot, at)) then
+			stats.blowPosed += 1
 		end
 	end
 	stats.walking = walking

@@ -84,7 +84,7 @@ function Markers.setReaders(ground: ((number, number) -> number?)?, canopy: ((nu
 	defaultGround, defaultCanopy = ground, canopy
 end
 
-local stats = { posts = 0, refused = 0, reads = 0, lastMaxDelta = 0 }
+local stats = { posts = 0, refused = 0, reads = 0, lastMaxDelta = 0, rings = 0, lastRingSegments = 0 }
 
 -- What the last build measured: how many stands it placed, how many it refused, how many builds
 -- there have been, and the worst disagreement between the two ground readings. The console prints it
@@ -135,6 +135,142 @@ local function marker(name: string, position: Vector3, size: Vector3, parent: Fo
 	part.Transparency = 1
 	part.Parent = parent
 	return part
+end
+
+-- ---------------------------------------------------------------- the stand's edge (task 166)
+--
+-- KAREN, 2026-10-12: *"we need boundries but not put back where it started"*. A boundary a player
+-- cannot see is a wall in the dark, so the circle he may walk in is DRAWN -- one thin ring laid on
+-- the ground at exactly `ForestTest.PICK.standRadiusStuds`, which is the same number
+-- `ForestTest.boundaryPoint` clamps to, passed in rather than read here because this module decides
+-- nothing (the discipline `build` already follows with `standX`).
+--
+-- WHY THIS MODULE DRAWS IT: it is the one writer of `Workspace.ForestMarkers` (rule 3), the stands
+-- themselves are its parts, and it already owns the two ground readers a ring has to sit on. The
+-- boot says WHEN -- one ring when a pick locks, all of them cleared when the next intermission drops
+-- the picks -- and that is the same split the markers have.
+--
+-- WHY TWENTY BOXES AND NOT ONE PART: there is no ring primitive. A Cylinder is a disc, a torus needs
+-- a mesh (nothing is uploaded for this), and a decal needs an image. Twenty chords of a 12-stud
+-- circle are 3.8 studs each and read as a circle from standing height; each one is placed on its own
+-- ground reading, so the ring follows the lane instead of floating over it.
+Markers.RING_PREFIX = "StandRing"
+
+Markers.RING = table.freeze({
+	-- Twenty chords: the gap between a chord's middle and the true circle is r*(1-cos(pi/20)) =
+	-- 0.15 studs at r=12, which is less than the ring's own thickness, so the shape does not read as
+	-- a polygon.
+	SEGMENTS = 20,
+	THICKNESS_STUDS = 0.5,
+	HEIGHT_STUDS = 0.12,
+	-- Just clear of the ground, so z-fighting cannot make it flicker as the camera moves.
+	LIFT_STUDS = 0.08,
+	-- SUBTLE, which is the dispatch's word: a line you notice when you look down and not a fence.
+	TRANSPARENCY = 0.45,
+	-- Neon so it reads in the wood's shade without a light. A muted hunting-orange, the colour this
+	-- game already uses for "this is yours" (the beater's vest, the hunter's cap).
+	COLOR = Color3.fromRGB(235, 150, 60),
+})
+
+-- The ring's container name for one stand, so no caller spells it twice.
+function Markers.ringName(standIndex: number): string
+	return string.format("%s%d", Markers.RING_PREFIX, standIndex)
+end
+
+-- One stand's ring, gone. Returns whether there was one, so the owner can count it.
+function Markers.clearRing(standIndex: number): boolean
+	local folder = Markers.folder()
+	local existing = folder and folder:FindFirstChild(Markers.ringName(standIndex))
+	if existing == nil then
+		return false
+	end
+	existing:Destroy()
+	return true
+end
+
+-- Every ring, gone. Returns how many there were.
+function Markers.clearRings(): number
+	local folder = Markers.folder()
+	if folder == nil then
+		return 0
+	end
+	local removed = 0
+	for _, child in ipairs(folder:GetChildren()) do
+		if string.match(child.Name, "^" .. Markers.RING_PREFIX .. "%d+$") then
+			child:Destroy()
+			removed += 1
+		end
+	end
+	return removed
+end
+
+-- DRAWS ONE STAND'S EDGE, replacing whatever was there (the `Body.OUTFIT_NAME` discipline, so a
+-- re-lock cannot leave two rings on one stand). Returns how many segments it placed: `SEGMENTS` on
+-- clear ground, fewer where the two ground readings disagree, and 0 for a stand whose own ground
+-- cannot be read at all -- which is the same refusal `build` makes, counted rather than guessed at.
+function Markers.ring(
+	standIndex: number,
+	radiusStuds: number,
+	ground: ((number, number) -> number?)?,
+	canopy: ((number, number) -> number?)?
+): number
+	local groundReader = ground or defaultGround
+	local canopyReader = canopy or defaultCanopy
+	Markers.clearRing(standIndex)
+	if radiusStuds <= 0 then
+		return 0
+	end
+	local home = Data.standPosition(standIndex)
+	local config = Markers.RING
+	local step = 2 * math.pi / config.SEGMENTS
+	-- The chord between two adjacent points ON the circle, so consecutive segments share an endpoint
+	-- exactly and the ring cannot gap however `SEGMENTS` is changed (`Horn.pieces`' own rule).
+	local chord = 2 * radiusStuds * math.sin(step / 2)
+	local folder: Folder? = nil
+	local placed = 0
+	for index = 1, config.SEGMENTS do
+		local a = (index - 1) * step
+		local b = index * step
+		local from = Vector2.new(home.X + math.cos(a) * radiusStuds, home.Z + math.sin(a) * radiusStuds)
+		local to = Vector2.new(home.X + math.cos(b) * radiusStuds, home.Z + math.sin(b) * radiusStuds)
+		local midX, midZ = (from.X + to.X) / 2, (from.Y + to.Y) / 2
+		local y = Markers.groundFor(midX, midZ, groundReader, canopyReader)
+		if y ~= nil then
+			if folder == nil then
+				local made = Instance.new("Folder")
+				made.Name = Markers.ringName(standIndex)
+				made.Parent = ensureFolder()
+				folder = made
+			end
+			local part = Instance.new("Part")
+			part.Name = string.format("Seg%d", index)
+			part.Size = Vector3.new(chord, config.HEIGHT_STUDS, config.THICKNESS_STUDS)
+			part.Anchored = true
+			-- `CanQuery = false` IS LOAD-BEARING here for the same reason it is on every other marker
+			-- in this file: a slab that stops a pellet changes what the shot hit.
+			part.CanCollide = false
+			part.CanQuery = false
+			part.CanTouch = false
+			part.CastShadow = false
+			part.Material = Enum.Material.Neon
+			part.Color = config.COLOR
+			part.Transparency = config.TRANSPARENCY
+			-- Lying along the chord: the box's own X is its length, so the frame looks along the
+			-- chord and then turns a quarter turn, exactly as `Horn.pieces` lays its tube sections.
+			local centre = Vector3.new(midX, (y :: number) + config.LIFT_STUDS, midZ)
+			local along = Vector3.new(to.X - from.X, 0, to.Y - from.Y)
+			part.CFrame = CFrame.lookAt(centre, centre + along.Unit, Vector3.yAxis) * CFrame.Angles(0, math.pi / 2, 0)
+			part.Parent = folder
+			placed += 1
+		end
+	end
+	-- COUNTED ONLY WHEN THERE IS A RING (round 1's note): a build that could read no ground drew
+	-- nothing, and a counter that moved anyway would count attempts under a name that says rings.
+	if placed > 0 then
+		stats.rings += 1
+	end
+	stats.lastRingSegments = placed
+	return placed
 end
 
 -- WHERE THE GROUND IS, OR NIL, asking both readers and refusing a disagreement. Pure given its two
