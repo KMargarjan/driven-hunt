@@ -513,14 +513,21 @@ return function()
 			local clips = Bots.clipsOf("bot-beater-1") :: any
 			expect(clips.playing).to.equal("walk")
 			local _, nominal = Rig.gait(Bots.CONFIG.WALK_SPEED, "walk")
-			expect(clips.rate).to.equal(nominal)
+			expect(math.abs(clips.rate - nominal) < Rig.GAIT.RATE_EPSILON).to.equal(true)
+			expect(nominal < Rig.GAIT.MAX_RATE).to.equal(true) -- the slide: it used to be 1.000
 
 			-- HALF THE PACE OVER THE NEXT STEP -> half the rate. 0.5 studs in 0.2 s is 2.5 studs/s.
 			local here = Rig.positionOf(body) :: Vector3
 			Rig.place(body, CFrame.new(here + Vector3.new(0, 0, -0.5)), false)
 			Bots.step(0.2, 5000.2)
+			-- TO A TOLERANCE, not to the bit: the step measures 0.5 studs over 0.2 s of a float
+			-- clock, so 2.5 arrives as 2.4999999999999996 and the two divisions differ in the last
+			-- place. `RATE_EPSILON` is the resolution the owner itself acts on, so anything inside
+			-- it is the same rate as far as the Animator is ever told.
 			local _, half = Rig.gait(2.5, "walk")
-			expect((Bots.clipsOf("bot-beater-1") :: any).rate).to.equal(half)
+			local got = (Bots.clipsOf("bot-beater-1") :: any).rate
+			expect(math.abs(got - half) < Rig.GAIT.RATE_EPSILON).to.equal(true)
+			expect(math.abs(got - nominal / 2) < Rig.GAIT.RATE_EPSILON).to.equal(true)
 
 			-- AND A BOT THAT IS NOT MOVING STANDS STILL instead of churning its legs on the spot,
 			-- which is the other half of "odd": the body is not moved at all over this step.
