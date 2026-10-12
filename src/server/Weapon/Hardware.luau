@@ -178,7 +178,19 @@ end
 -- function: the shotgun's barrels are the second of its two keys, and the rifle's stock, bolt and
 -- scope are the second, third and fourth of its four. Every piece of every weapon is welded by this
 -- one path, so "a gun handed out between two templates landing" is one rule rather than one per gun.
-function Hardware.addPieceMesh(handle: BasePart, key: string, name: string, size: Vector3, pose: CFrame): boolean
+-- `missingWarning` IS THE ONE THING THAT IS NOT A GUN'S (task 169). The beater's horn is welded on
+-- by this same function -- it is one uploaded MeshPart on a Handle, which is exactly what this does
+-- -- but "the gun wears its body alone and cannot break open" is not true of a horn, and a warning
+-- that describes the wrong object is worse than none. The default is the gun's own sentence, so
+-- every call written before this one says what it always said.
+function Hardware.addPieceMesh(
+	handle: BasePart,
+	key: string,
+	name: string,
+	size: Vector3,
+	pose: CFrame,
+	missingWarning: string?
+): boolean
 	if handle:FindFirstChild(name) ~= nil then
 		return true
 	end
@@ -191,9 +203,10 @@ function Hardware.addPieceMesh(handle: BasePart, key: string, name: string, size
 			pieceWarned[key] = true
 			warn(
 				string.format(
-					"[Weapon] no %s template (%s); the gun wears its body alone and cannot break open",
+					"[Weapon] no %s template (%s); %s",
 					key,
-					if typeof(report) == "table" and report.reason then report.reason else "not preloaded"
+					if typeof(report) == "table" and report.reason then report.reason else "not preloaded",
+					missingWarning or "the gun wears its body alone and cannot break open"
 				)
 			)
 		end

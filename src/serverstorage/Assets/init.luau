@@ -35,6 +35,10 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- of it -- the rule `Gun.beadOffset` and `Shape.beadOffset` already follow one layer over.
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
+-- THE HORN'S OWN GEOMETRY (task 169), for the four numbers that say how big the uploaded horn is,
+-- which way round it goes and where in the hand it sits. They live in the horn's own data file for
+-- the reason `RifleGeometry` is read here and not copied: one number, one home.
+local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
 
 local Assets = {}
 
@@ -355,6 +359,27 @@ local RIGBY_LICENCE = {
 		.. "(https://sketchfab.com/3d-models/dae-rigby-hunting-rifle-game-ready-asset-"
 		.. "e77855f0c3ea4340a4d67a4ece4b87ac) by Martijn Vaes (https://sketchfab.com/MartijnVaes) "
 		.. "licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+}
+
+-- THE HORN'S LICENCE (task 169). Karen found the model herself on 2026-10-12 after saying *"We need
+-- better horn"*, and gave the upload OK the same evening: *"Yes, upload it"*. CC-BY-4.0, the same
+-- basis as the shotgun's and the rifle's, and the same one duty: the author is credited, in
+-- `CREDITS.md` and here.
+--
+-- NOTHING WAS PAINTED OUT OF THIS ONE. The rifle's atlas carried a maker's trademarks, which CC-BY
+-- does not license; this horn carries only the artist's own "R4VL" mark engraved on a band, which is
+-- his signature on his own work and is left exactly where he put it.
+local HORN_LICENCE = {
+	basis = "cc-by-4.0",
+	quote = "Model License: license type: CC-BY-4.0 "
+		.. "(http://creativecommons.org/licenses/by/4.0/); requirements: Author must be "
+		.. "credited. Commercial use is allowed.",
+	quotedFrom = "license.txt, shipped with the Sketchfab download of the model",
+	readOn = "2026-10-12",
+	attribution = 'This work is based on "Horn" '
+		.. "(https://sketchfab.com/3d-models/horn-c60fda73ef37454a8b49c244af87550c) by r4ulp3rcy "
+		.. "(https://sketchfab.com/r4ulp3rcy) licensed under CC-BY-4.0 "
+		.. "(http://creativecommons.org/licenses/by/4.0/)",
 }
 
 local BOAR_MALE_SIZE = Vector3.new(1.4011, 3.2573, 5.5)
@@ -2303,6 +2328,51 @@ Assets.ROWS = {
 			.. "green/red 0.478 against OUTFIT_COLOR's 0.439, and a DARK FRACTION OF 0.000 -- which "
 			.. "is the number that catches a black cap with an orange logo, and is 0.20 on the next "
 			.. "best beanie. One Accessory, MeshPart Handle, HatAttachment, no scripts.",
+	},
+	-- ------------------------------------------------- the beater's horn (task 169)
+	--
+	-- KAREN, 2026-10-12 ~21:45: *"We need better horn"* -- the LOOK. Task 152 built the horn out of
+	-- nine welded cylinders, and its own header says why: it MEASURED that the two plausible free
+	-- Creator Store horns answer `LoadAsset` with "User is not authorized to access Asset". She then
+	-- found one herself, a real natural signal horn with two silver bands, and gave the upload OK.
+	--
+	-- ONE MESHPART AND ONE MATERIAL, and the second half of that is new work rather than luck: the
+	-- download carries TWO material slots ("horn" and "metal") over ONE set of three images, and
+	-- `tools/asset_prep_blender.py:collapse_materials` merges them. Without it the export reaches
+	-- Roblox as two materials and comes back with a second, blank `SurfaceAppearance` -- the exact
+	-- defect task 75 measured on asset 140422686530548.
+	--
+	-- THE PARTS HORN IS STILL THERE AND IS STILL THE FALLBACK (`Horn.pieces`). A row that will not
+	-- load means a beater holding nine brass cylinders, never a beater holding nothing.
+	{
+		key = "horn.body",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 105611404389014,
+		displayName = "Driven Hunt beater horn r1",
+		fileName = "model.fbx",
+		sourceSha256 = "7f7f78c92104d71d838f02539e3c9971204210efbd462331ccd71801c70bbe84",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = HORN_LICENCE,
+		added = "2026-10-13",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 1920,
+		texturePx = 1024,
+		sizeStuds = HornData.MESH.SIZE_STUDS,
+		naturalSizeStuds = HornData.MESH.NATURAL_SIZE_STUDS,
+		offsetStuds = HornData.MESH.OFFSET_STUDS,
+		rotationDeg = HornData.MESH.ROTATION_DEG,
+		fallbackColor = HornData.MESH.FALLBACK_COLOR,
+		renderFidelity = "Automatic",
+		notes = "A natural signal horn: ivory, curved, tapering from a narrow mouthpiece to an open "
+			.. "bell, with two pierced silver bands round it. Looked at before it was called done "
+			.. "(render_side.png, render_three-quarter.png, render_top.png): the horn body is a warm "
+			.. "cream with the grain of real horn in it and the bands read as silver scrollwork. The "
+			.. "artist's own maps at 1024, the packed ORM split into the two single-channel maps "
+			.. "Roblox reads, metalness written down to 0.10 and roughness to 0.50 so it does not "
+			.. "mirror the sky; NO base colour was recoloured, and the two material slots over one "
+			.. "texture set were collapsed into one.",
 	},
 } :: { AssetRow }
 

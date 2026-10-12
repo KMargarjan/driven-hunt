@@ -73,6 +73,38 @@ What was changed, and nothing else was:
   220 pixels below it. The scope's magnification numerals are generic and were kept. The original
   download is untouched and is proved so by a hash manifest in the task's own request.
 
+### Horn — r4ulp3rcy (CC-BY-4.0)
+
+The beater's signal horn since task 169 (2026-10-13): one natural horn, ivory and curved, with two
+pierced silver bands. Karen found the model herself after saying *"We need better horn"*, and gave
+the upload OK the same evening: *"Yes, upload it"*. Before it, the horn was nine brass cylinders
+built in code (`Horn.pieces`), which is still what a beater carries if the asset will not load.
+
+> This work is based on ["Horn"](https://sketchfab.com/3d-models/horn-c60fda73ef37454a8b49c244af87550c)
+> by [r4ulp3rcy](https://sketchfab.com/r4ulp3rcy) licensed under
+> [CC-BY-4.0](http://creativecommons.org/licenses/by/4.0/)
+
+The licence's own words, from the `license.txt` shipped with the download: *"license type: CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/); requirements: Author must be credited. Commercial use
+is allowed."*
+
+What was changed, and nothing else was:
+
+- `tools/asset_prep.py` (the new `horn` preset) shaded it smooth by angle at 35 degrees, resized the
+  three 2048 maps to 1024, split the packed occlusion-roughness-metalness map into the two
+  single-channel maps Roblox reads, and wrote metalness down to 0.10 with roughness 0.50 — the same
+  measured correction the shotgun and the rifle needed, for the same reason (Roblox's environment
+  over a field is the sky, and a conductor at metalness 0.98 mirrors it).
+- The download's **two material slots** (`horn` and `metal`) address **one** set of three images, so
+  `tools/asset_prep_blender.py:collapse_materials` merged them into one. No pixel and no face
+  changed hands: the two slots were two names for the same material.
+- **Every base colour is the artist's and none was recoloured.** His own mark, "R4VL" engraved on a
+  band, is his signature on his own work and is left exactly where he put it; nothing was painted
+  out of this atlas.
+- No vertex was added, moved relative to its neighbours, or removed. The horn's size in the game
+  (1.25 studs over all) is set by the consumer at run time from `Horn.MESH.SIZE_STUDS`, not baked
+  into the geometry.
+
 ### Boar Family — RedDeer (Fab Standard License)
 
 The wild boar since task 115 (2026-10-03): the male's skinned mesh, its three colour maps and the ten

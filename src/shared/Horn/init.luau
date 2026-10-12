@@ -45,6 +45,63 @@ local Horn = {}
 Horn.TOOL_NAME = "Horn"
 Horn.LABEL = "HORN"
 
+-- ---------------------------------------------------------------- the uploaded horn (task 169)
+--
+-- KAREN, 2026-10-12 ~21:45: *"We need better horn"* -- and the thing she meant is the LOOK. Task 152
+-- built the horn out of nine welded cylinders because it had MEASURED that the free library has no
+-- horn this place can load (see `pieces` below, which is still the fallback and still the thing a
+-- spec asserts the proportions of). She then went and found one herself: "Horn" by r4ulp3rcy,
+-- CC-BY-4.0, which is a real natural signal horn with two silver bands -- ivory, curved, tapering
+-- from a narrow mouthpiece to an open bell -- and gave the upload OK the same evening.
+--
+-- THE KEY, AND IT IS THE ONLY THING `Weapon.Horn` NEEDS OUT OF THIS SECTION. Every other number
+-- below is read by the MANIFEST (`ServerStorage.Assets`), which is where the asset pipeline keeps
+-- what an upload is -- and `Weapon.Horn` reads them back through the template provider's row, the
+-- same route `Weapon.Hardware` already takes for the gun. So there is exactly one copy of each
+-- number, and the file it lives in is the horn's.
+Horn.ASSET_KEY = "horn.body"
+
+-- WHAT THE UPLOAD IS, AS THE MANIFEST ROW STATES IT. `ServerStorage.Assets` holds the id, the
+-- licence and the provenance; these are the four GEOMETRY numbers, and they are here because they
+-- are facts about the horn rather than about the upload -- how big it is, which way round it goes,
+-- and where in the hand it sits. A screenshot is what decides them (rule 5) and changing one is a
+-- line here, with no re-upload.
+Horn.MESH = table.freeze({
+	-- 1.25 STUDS LONG, which is 0.35 m at this game's `METRES_PER_STUD` -- a real natural signal
+	-- horn, and the top of the Director's "~25-35 cm across". The two other numbers are not a
+	-- choice at all: they are 1.25 times the model's OWN aspect (0.34696 and 0.19174, measured off
+	-- the prepared mesh's bounding box, below), so the horn is scaled UNIFORMLY. A non-uniform fit
+	-- is a squashed horn that measures perfectly -- `Weapon.Hardware.addMesh`'s own warning.
+	SIZE_STUDS = Vector3.new(1.25, 0.4337, 0.2397),
+	-- WHAT IT MEASURES BEFORE ANYTHING RESIZES IT, so `Assets.Loader`'s aspect check has something
+	-- to compare the arriving template against rather than a hope. Measured off the prepared
+	-- model's own bounding box (11.6478 x 4.0413 x 2.2334 Blender units), which Roblox's FBX import
+	-- lands at a hundred times over: (long, curve-height, thickness).
+	NATURAL_SIZE_STUDS = Vector3.new(1164.78, 404.13, 223.34),
+	-- A QUARTER TURN ABOUT Y, which lays the mesh's own long axis along the Handle's Z -- the axis
+	-- the coil's bell already pointed down (`BELL_ANGLE` below puts it at -Z, "forward, away from
+	-- the player"). The mesh's curve stays in the Handle's YZ plane, which is the plane a carried
+	-- horn hangs in, so `GRIP` and `GRIP_BLOW` mean the same thing for both builds.
+	--
+	-- MINUS 90 AND NOT PLUS, AND A SCREENSHOT IS THE ONLY THING THAT COULD SAY SO (rule 5). The
+	-- mouthpiece is at the file's own -X and the bell at its +X -- measured off the glTF, where the
+	-- cross-section grows from 0.72 to 2.23 units along it -- so +90 should have put the bell
+	-- forward. It did the opposite: photographed in the raise, the horn hung BELL DOWN AT THE CHEST
+	-- with the tip pointing up past the head (`.screenshots/...-t169-horn-raised-close.png`). That
+	-- is task 107's measurement arriving again -- "the Blender export plus the Roblox import reverse
+	-- the model along its own long axis" -- and it is why `Gun.MESH_ROTATION_DEG` carries the same
+	-- correction. Flipped live and re-photographed: mouthpiece at the face, bell up and forward past
+	-- the head, which is how a horn is blown.
+	ROTATION_DEG = Vector3.new(0, -90, 0),
+	-- WHERE IT SITS IN THE HANDLE. The Handle is the envelope and the mesh is centred in it.
+	OFFSET_STUDS = Vector3.zero,
+	-- THE COLOUR IT FALLS BACK TO WHEN THE TEXTURE DOES NOT DRAW, measured rather than guessed: the
+	-- median of the prepared base-colour atlas over its used pixels is RGB(171, 149, 99), a warm
+	-- bone. Task 99's lesson, where a glove whose colour map failed rendered as Roblox's default
+	-- grey and Karen saw a white hand.
+	FALLBACK_COLOR = Color3.fromRGB(171, 149, 99),
+})
+
 -- WHICH TEAM CARRIES IT. The beater's -- and `Match.Body.ROLE_WORDS` is the one translator from
 -- Karen's word ("beater") to this team name, so this constant is the TEAM, because that is what
 -- `Match.Body.teamOf` answers and what both composition roots compare against.
@@ -340,7 +397,16 @@ Horn.CONFIG = {
 	-- the only thing that ever writes it.
 	-- ...and the raised pose brings it up and inboard with the mouthpiece turned toward the face.
 	-- Photographed the same way, on the same horn, in the same session.
-	GRIP_BLOW = CFrame.new(-0.42, 0.05, 0.4) * CFrame.Angles(math.rad(-55), 0, math.rad(25)),
+	-- ...AND Y COMES UP FROM 0.05 TO -0.22 FOR THE UPLOADED HORN (task 169). The coil was 0.76 studs
+	-- across and the new horn is 1.25 long, so the same Grip holds a mouthpiece that is now a third
+	-- of a stud further down the object: photographed raised at 0.05, it sat at the CHEST with the
+	-- bell across the face. POSITIVE Y LOWERS IT (the `GRIP` note above measured that), so -0.22
+	-- lifts the whole horn by 0.27 and puts the mouthpiece at the chin with the bell up and forward
+	-- past the head -- photographed, `.screenshots/...-t169-grip-a.png`. Z comes in with it, 0.4 to
+	-- 0.3, because that is the pose that was photographed and a number nobody looked at is not a
+	-- measurement. Whether the mouthpiece is at her lips or an inch under them is Karen's eye, and
+	-- it is one number here.
+	GRIP_BLOW = CFrame.new(-0.42, -0.22, 0.3) * CFrame.Angles(math.rad(-55), 0, math.rad(25)),
 
 	-- THE HORN'S COLOURS. Director's pick and Karen's to change (her rule, 2026-09-26: styling never
 	-- blocks). Polished brass, raised well above a photographic albedo for the reason Task 22 and

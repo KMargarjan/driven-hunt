@@ -37,6 +37,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
+local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
@@ -476,6 +477,69 @@ return function()
 
 	---------------------------------------------------------------- pure: the two decisions
 
+	-- ---------------------------------------------------------------- the uploaded horn (task 169)
+	describe("the uploaded horn", function()
+		it("has a manifest row, approved, under the key the horn names", function()
+			local row = Assets.byKey(Horn.ASSET_KEY)
+			expect(row).to.be.ok()
+			local found = row :: any
+			expect(found.kind).to.equal("meshpart")
+			expect(found.moderation).to.equal("approved")
+			expect(found.modelId > 0).to.equal(true)
+			-- ONE COPY OF EACH NUMBER. The row reads its geometry out of `Horn.MESH`, so a tweak to
+			-- the horn's own data file cannot leave the manifest describing a different horn.
+			expect(found.sizeStuds).to.equal(Horn.MESH.SIZE_STUDS)
+			expect(found.naturalSizeStuds).to.equal(Horn.MESH.NATURAL_SIZE_STUDS)
+			expect(found.rotationDeg).to.equal(Horn.MESH.ROTATION_DEG)
+			expect(found.offsetStuds).to.equal(Horn.MESH.OFFSET_STUDS)
+		end)
+
+		it("is scaled UNIFORMLY, so the horn in the hand is the horn that was looked at", function()
+			-- A NON-UNIFORM FIT IS A SQUASHED HORN THAT MEASURES PERFECTLY (`Hardware.addMesh`'s own
+			-- warning). The consumer writes `Size = sizeStuds` onto a MeshPart, which scales the mesh
+			-- to that box per axis -- so the three ratios have to be the mesh's own three ratios.
+			local natural = Horn.MESH.NATURAL_SIZE_STUDS
+			local size = Horn.MESH.SIZE_STUDS
+			--
+			-- RELATIVELY, AND THAT IS THE WHOLE OF ROUND 1'S FINDING. The scale here is
+			-- 1.25 / 1164.78 = 0.00107, so an ABSOLUTE tolerance of 1e-3 on it is no tolerance at
+			-- all: it admitted a Y/Z swap -- the horn squashed to 55 % in one axis and stretched
+			-- 81 % in the other -- with room to spare. The repo's own version of this check
+			-- (`assets_seam.spec`, "keeps the gun's LENGTH and does not squash it") compares at
+			-- 0.45 % of its factor, so this compares at 0.01 % of its own: the committed numbers
+			-- deviate by 7e-9 and 8.9e-8 relative, four orders of magnitude inside it.
+			local scale = size.X / natural.X
+			expect(math.abs(size.Y / natural.Y / scale - 1) < 1e-4).to.equal(true)
+			expect(math.abs(size.Z / natural.Z / scale - 1) < 1e-4).to.equal(true)
+			-- ...AND IT IS A REAL HORN. The Director asked for ~25-35 cm across; `METRES_PER_STUD` is
+			-- the conversion this game publishes, so the check is in metres rather than in studs.
+			local metres = size.X * CONFIG.METRES_PER_STUD
+			expect(metres >= 0.2).to.equal(true)
+			expect(metres <= 0.4).to.equal(true)
+			TestKit.note(
+				string.format(
+					"horn mesh: %.2f studs (%.2f m), natural %s, uniform x%.5f",
+					size.X,
+					metres,
+					tostring(natural),
+					scale
+				)
+			)
+		end)
+
+		it("credits its author, which is the whole of what its licence asks", function()
+			-- CC-BY-4.0: "Author must be credited. Commercial use is allowed." A credit that lives
+			-- only in CREDITS.md is one a code change can quietly outlive, so the row carries it and
+			-- this case is what keeps it there.
+			local licence = (Assets.byKey(Horn.ASSET_KEY) :: any).licence
+			expect(licence).to.be.ok()
+			expect(licence.basis).to.equal("cc-by-4.0")
+			expect(typeof(licence.attribution)).to.equal("string")
+			expect(string.find(licence.attribution, "r4ulp3rcy", 1, true) ~= nil).to.equal(true)
+			expect(string.find(licence.attribution, "CC-BY-4.0", 1, true) ~= nil).to.equal(true)
+		end)
+	end)
+
 	describe("who carries one, and when it may sound", function()
 		it("grants to a beater who has none and revokes from anyone else who has one", function()
 			expect(HornTool.carryAction(true, false)).to.equal("grant")
@@ -569,8 +633,37 @@ return function()
 			return backpack
 		end
 
-		it("builds a horn from parts, with no asset and no upload", function()
-			local tool = HornTool.build()
+		-- THE TEMPLATE SEAM, BORROWED AND PUT BACK (task 169). `Hardware.setTemplateProvider` is
+		-- global and the running server's own horns are built through it, so a spec that leaves it
+		-- nil leaves every later grant wearing the parts horn for the rest of the session --
+		-- `WeaponBoot`'s own header measured that exact failure on the gun (task 76). Save, set,
+		-- restore, and rethrow afterwards.
+		local function withProvider(fn, body)
+			local live = Hardware.getTemplateProvider()
+			Hardware.setTemplateProvider(fn)
+			local ok, why = pcall(body)
+			Hardware.setTemplateProvider(live)
+			if not ok then
+				error(why, 0)
+			end
+		end
+
+		-- ONE FAKE UPLOAD, SIZED AS THE MANIFEST SAYS THE REAL ONE ARRIVES. `assets_seam.spec` builds
+		-- its gun templates this way for the reason this one does: a spec may not reach the network,
+		-- and what is being asserted is what the CONSUMER does with a template, not that Roblox can
+		-- hand one over.
+		local function fakeTemplate(): (MeshPart, any)
+			local row = Assets.byKey(Horn.ASSET_KEY)
+			local template = Instance.new("MeshPart")
+			template.Size = (row :: any).naturalSizeStuds
+			return template, row
+		end
+
+		it("builds a horn from parts when there is no uploaded horn to wear", function()
+			local tool
+			withProvider(nil, function()
+				tool = HornTool.build()
+			end)
 			expect(tool:IsA("Tool")).to.equal(true)
 			expect(tool.Name).to.equal(Horn.TOOL_NAME)
 			expect(tool.RequiresHandle).to.equal(true)
@@ -600,6 +693,76 @@ return function()
 			end
 			expect(meshes).to.equal(0)
 			tool:Destroy()
+		end)
+
+		it("wears the uploaded horn when the template is there, and no parts under it", function()
+			local template, row = fakeTemplate()
+			local tool
+			withProvider(function()
+				return template, { row = row }
+			end, function()
+				tool = HornTool.build()
+			end)
+			local handle = tool:FindFirstChild("Handle") :: BasePart
+			local worn = handle:FindFirstChild(HornTool.MESH_NAME) :: BasePart
+			expect(worn).to.be.ok()
+			-- THE CONSUMER SETS THE SIZE (design 6.1), from the row and not from the template.
+			expect(worn.Size).to.equal(Horn.MESH.SIZE_STUDS)
+			-- Scenery, exactly as the gun's mesh is: nothing a ray can hit, nothing with mass.
+			expect(worn.CanQuery).to.equal(false)
+			expect(worn.CanCollide).to.equal(false)
+			expect(worn.Massless).to.equal(true)
+			expect(handle:FindFirstChild(HornTool.MESH_NAME .. "Weld")).to.be.ok()
+			-- ...AND THE FALLBACK IS NOT ALSO THERE. Nine brass cylinders inside an ivory horn is
+			-- the one shape this seam exists to make impossible.
+			for _, piece in ipairs(Horn.pieces(CONFIG)) do
+				expect(handle:FindFirstChild(piece.name)).to.equal(nil)
+			end
+			tool:Destroy()
+			template:Destroy()
+		end)
+
+		it("upgrades a parts horn into the mesh when the template lands later", function()
+			-- A HORN BUILT BEFORE THE PRELOAD LANDED, which is not a corner case: `WeaponBoot` starts
+			-- the systems BEFORE it preloads, on purpose, so a player who joins in that window is
+			-- handed one of these.
+			local tool
+			withProvider(nil, function()
+				tool = HornTool.build()
+			end)
+			local handle = tool:FindFirstChild("Handle") :: BasePart
+			expect(handle:FindFirstChild(HornTool.MESH_NAME)).to.equal(nil)
+			expect(handle:FindFirstChild("Bell")).to.be.ok()
+
+			local template, row = fakeTemplate()
+			withProvider(function()
+				return template, { row = row }
+			end, function()
+				expect(HornTool.addMesh(handle)).to.equal(true)
+				-- ...and the fallback comes off, BY NAME, and only the fallback.
+				expect(HornTool.removeParts(handle) > 0).to.equal(true)
+				-- IDEMPOTENT: asking again welds no second horn on.
+				expect(HornTool.addMesh(handle)).to.equal(true)
+			end)
+			local worn = handle:FindFirstChild(HornTool.MESH_NAME) :: BasePart
+			expect(worn).to.be.ok()
+			expect(worn.Size).to.equal(Horn.MESH.SIZE_STUDS)
+			local models = 0
+			for _, child in ipairs(handle:GetChildren()) do
+				if child.Name == HornTool.MESH_NAME then
+					models += 1
+				end
+			end
+			expect(models).to.equal(1)
+			for _, piece in ipairs(Horn.pieces(CONFIG)) do
+				expect(handle:FindFirstChild(piece.name)).to.equal(nil)
+				expect(handle:FindFirstChild(piece.name .. "Weld")).to.equal(nil)
+			end
+			-- The voice survives the upgrade: it is not a piece of the horn and is not named by the
+			-- pure list, so `removeParts` must not be able to reach it.
+			expect(handle:FindFirstChild(HornTool.SOUND_NAME)).to.be.ok()
+			tool:Destroy()
+			template:Destroy()
 		end)
 
 		it("hangs its voice on the Handle, so the blast is 3D", function()

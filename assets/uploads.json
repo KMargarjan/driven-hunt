@@ -618,5 +618,25 @@
     "pollSeconds": 19.9,
     "polls": 9,
     "karenOk": "2026-10-09 it's in download you upload your self"
+  },
+  {
+    "tool": "roblox-upload/1",
+    "at": "2026-10-12T22:30:59Z",
+    "assetId": "105611404389014",
+    "assetType": "Model",
+    "displayName": "Driven Hunt beater horn r1",
+    "description": "Natural signal horn for the beater in Driven Hunt. Based on 'Horn' by r4ulp3rcy (Sketchfab), CC-BY-4.0. Prepared by tools/asset_prep.py: 1,920 triangles, 1024 maps, packed ORM split, metalness 0.10 / roughness 0.50.",
+    "creatorUserId": "8167651842",
+    "file": "model.fbx",
+    "sourceFolder": "prep-169-horn",
+    "bytes": 3527964,
+    "sha256": "7f7f78c92104d71d838f02539e3c9971204210efbd462331ccd71801c70bbe84",
+    "contentType": "model/fbx",
+    "operation": "operations/bc3d485b-84a9-4f87-b1c7-58c16e95cc59",
+    "moderationState": "Approved",
+    "moderationStateFrom": "response.moderationResult.moderationState",
+    "pollSeconds": 6.7,
+    "polls": 3,
+    "karenOk": "2026-10-12 Karen: \"Yes, upload it\" -- the horn model she downloaded herself for task 169"
   }
 ]
