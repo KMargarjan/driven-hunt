@@ -30,6 +30,9 @@ local CONFIG = {
 	RELEASE_JITTER_SECONDS = 0, -- jitter has its own test; every other one wants exact times
 	MAX_ALIVE_BOARS = 2,
 	SEED = 7,
+	-- TASK 163: the drive's horn signal, ON here so this file drives the live shape rather than a
+	-- quieter one. Every case that reads the feed therefore has to say WHICH entry it means.
+	SIGNAL_ENABLED = true,
 }
 
 local SPAWNS = { Vector3.new(-40, 0, 120), Vector3.new(40, 0, 120) }
@@ -58,6 +61,28 @@ local function countKind(effects, kind: string): number
 		end
 	end
 	return n
+end
+
+-- HOW MANY FEED ENTRIES OF ONE KIND (task 163). The feed carries more than lines now -- a `signal`
+-- entry is a sound and has no words -- so a case that means "the drive's horn" asks for it by name.
+local function countFeed(effects, entryKind: string): number
+	local n = 0
+	for _, effect in ipairs(effects) do
+		if effect.kind == "feed" and effect.entry ~= nil and effect.entry.kind == entryKind then
+			n += 1
+		end
+	end
+	return n
+end
+
+-- The `text` of the one feed entry of a kind, or nil.
+local function feedText(effects, entryKind: string): string?
+	for _, effect in ipairs(effects) do
+		if effect.kind == "feed" and effect.entry ~= nil and effect.entry.kind == entryKind then
+			return effect.entry.text
+		end
+	end
+	return nil
 end
 
 -- A state with markers present, so a drive can start at all.
@@ -342,12 +367,10 @@ return function()
 			state, effects = Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 0 }, endOfDrive, cfg)
 			expect(state.phase).to.equal("Scoring")
 			expect(state.endedEarly).to.equal(false)
-			-- The feed line is the plain one: nothing happened except the clock.
-			for _, effect in ipairs(effects) do
-				if effect.kind == "feed" then
-					expect(effect.entry.text).to.equal("Drive over")
-				end
-			end
+			-- The feed LINE is the plain one: nothing happened except the clock. Asked of the
+			-- `phase` entry by name, because the same effects also carry the drive's horn (task
+			-- 163), whose `text` is the word "end" and is never read as a line.
+			expect(feedText(effects, "phase")).to.equal("Drive over")
 		end)
 
 		it("ends EARLY when every beater is through the line, and names that in the feed", function()
@@ -365,7 +388,7 @@ return function()
 			expect(state.phaseEndsAt).to.equal(at + 1 + cfg.SCORE_SECONDS)
 			local said = false
 			for _, effect in ipairs(effects) do
-				if effect.kind == "feed" then
+				if effect.kind == "feed" and effect.entry.kind == "phase" then
 					said = string.find(effect.entry.text, "beaters", 1, true) ~= nil
 				end
 			end
@@ -1579,6 +1602,103 @@ return function()
 			end
 			expect(state.driveNumber).to.equal(2)
 			expect(state.assignment[1]).to.equal("Shooters")
+		end)
+	end)
+	-- TASK 163. KAREN, 2026-10-12: *"when hunt starts 3 longer horn calls and when ends the same"*.
+	-- The machine's whole share of that is ONE feed entry at GO and ONE at the end, whichever of the
+	-- two endings it was -- the notes are `Horn.CONFIG.SIGNAL`'s and the sound is `Hud.Sound`'s.
+	describe("the drive's horn signal", function()
+		local function started(cfg)
+			local state = ready(cfg)
+			local effects
+			state, effects = Phase.step(state, { kind = "join", userId = 1, name = "hunter" }, 0, cfg)
+			-- The countdown does NOT signal: the horn goes at GO, not at the card.
+			expect(countFeed(effects, "signal")).to.equal(0)
+			state, effects = Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg)
+			expect(state.phase).to.equal("Running")
+			return state, effects
+		end
+
+		it("sounds exactly once at GO, and says which signal it is", function()
+			local cfg = config()
+			local _, effects = started(cfg)
+			expect(countFeed(effects, "signal")).to.equal(1)
+			expect(feedText(effects, "signal")).to.equal("start")
+		end)
+
+		it("does not sound again on any later tick of the same drive", function()
+			local cfg = config()
+			local state = started(cfg)
+			local collected
+			state, collected = run(state, cfg, cfg.INTERMISSION_SECONDS, cfg.DRIVE_SECONDS - 1, 0.25)
+			expect(state.phase).to.equal("Running")
+			expect(countFeed(collected, "signal")).to.equal(0)
+		end)
+
+		it("sounds exactly once when the clock ends the drive", function()
+			local cfg = config({ END_ON_BEATERS_CROSS = true })
+			local state = started(cfg)
+			local effects
+			state, effects = Phase.step(
+				state,
+				{ kind = "tick", beaters = 2, beatersAcross = 0 },
+				cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS,
+				cfg
+			)
+			expect(state.phase).to.equal("Scoring")
+			expect(state.endedEarly).to.equal(false)
+			expect(countFeed(effects, "signal")).to.equal(1)
+			expect(feedText(effects, "signal")).to.equal("end")
+		end)
+
+		it("sounds exactly once when the BEATERS end the drive -- the other ending, same signal", function()
+			local cfg = config({ END_ON_BEATERS_CROSS = true })
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "hunter" }, 0, cfg))
+			state = (Phase.step(state, { kind = "join", userId = 2, name = "beater" }, 0, cfg))
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			local at = cfg.INTERMISSION_SECONDS + 5
+			local effects
+			state, effects = Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at, cfg)
+			expect(state.phase).to.equal("Scoring")
+			expect(state.endedEarly).to.equal(true)
+			expect(countFeed(effects, "signal")).to.equal(1)
+			-- THE SAME WORD AS THE CLOCK'S ENDING, which is the decision: Karen said *"when ends the
+			-- same"*, so the two endings are one signal and `reason` is not read.
+			expect(feedText(effects, "signal")).to.equal("end")
+		end)
+
+		it("sounds once per drive and no more, across two whole drives", function()
+			local cfg = config()
+			local state = started(cfg)
+			local collected
+			-- The rest of drive 1, the whole results scene, drive 2's countdown, drive 2 and its end.
+			state, collected = run(
+				state,
+				cfg,
+				cfg.INTERMISSION_SECONDS,
+				cfg.DRIVE_SECONDS + cfg.SCORE_SECONDS + cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS,
+				0.25,
+				0
+			)
+			expect(state.driveNumber).to.equal(2)
+			-- drive 1's end, drive 2's GO, drive 2's end.
+			expect(countFeed(collected, "signal")).to.equal(3)
+		end)
+
+		it("is silent with SIGNAL_ENABLED false, so both states are reachable by parameter", function()
+			local cfg = config({ SIGNAL_ENABLED = false })
+			local state = ready(cfg)
+			local effects
+			state, effects = Phase.step(state, { kind = "join", userId = 1, name = "hunter" }, 0, cfg)
+			state, effects = Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg)
+			expect(state.phase).to.equal("Running")
+			expect(countFeed(effects, "signal")).to.equal(0)
+			-- ...and the phase LINE is untouched: the switch is the horn's and nothing else's.
+			expect(feedText(effects, "phase")).to.equal("Drive on")
+			state, effects = Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS, cfg)
+			expect(state.phase).to.equal("Scoring")
+			expect(countFeed(effects, "signal")).to.equal(0)
 		end)
 	end)
 end

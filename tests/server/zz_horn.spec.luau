@@ -177,6 +177,97 @@ return function()
 		end)
 	end)
 
+	---------------------------------------------------------------- pure: the drive's signal
+
+	-- TASK 163. KAREN, 2026-10-12: *"when hunt starts 3 longer horn calls and when ends the same"*.
+	-- The drive's own signal is cut from the SAME asset as the beater's beep, so its numbers live
+	-- beside the beep's and are checked here. Every case is pure: no Tool, no sound, no drive.
+	describe("the drive's own signal", function()
+		local SIGNAL = CONFIG.SIGNAL
+
+		it("is three notes, which is the number Karen asked for", function()
+			expect(SIGNAL.NOTES).to.equal(3)
+			expect(#Horn.signalPlan(CONFIG)).to.equal(3)
+		end)
+
+		it("cuts the ONE sustained note in the clip, 23.36 -> 26.3", function()
+			-- MEASURED, 2026-10-12, the whole 60.63 s of the asset at 0.05 s and the candidates at
+			-- 0.02 s (`docs/research/2026-10-12-drive-signals.md` section 5). The note attacks at
+			-- 23.38, peaks 214 at 23.70 and decays smoothly with NO second attack to 50 at 25.90;
+			-- the clip's own silence is 26.30-28.00 and the next phrase starts at 28.05.
+			expect(SIGNAL.START).to.equal(23.36) -- 0.02 s before the attack: it sounds on the cue
+			expect(SIGNAL.CUT).to.equal(26.3) -- inside the clip's own silence: the stop cannot click
+			-- A cut at or past 28.05 would play the NEXT phrase as well, which is the mistake these
+			-- two numbers exist to prevent -- the same one `SOUND_CUT` prevents for the beep.
+			expect(SIGNAL.CUT < 28.05).to.equal(true)
+			expect(SIGNAL.CUT < 60.63).to.equal(true) -- and inside the asset at all
+			expect(Horn.signalNoteSeconds(CONFIG)).to.equal(SIGNAL.CUT - SIGNAL.START)
+		end)
+
+		it("is LONGER than the beater's beep, which is the whole of what Karen asked for", function()
+			-- *"3 longer horn calls"*. The Tool's blast is one short note (*"short one like beeep"*,
+			-- task 154); a drive signal that was no longer than it would not read as a signal.
+			expect(Horn.signalNoteSeconds(CONFIG) > Horn.playSeconds(CONFIG)).to.equal(true)
+			TestKit.note(
+				string.format(
+					"horn: beep %.2f s (%.2f-%.2f), signal %d x %.2f s (%.2f-%.2f) + %.2f s gaps = %.2f s",
+					Horn.playSeconds(CONFIG),
+					CONFIG.SOUND_START,
+					CONFIG.SOUND_CUT,
+					SIGNAL.NOTES,
+					Horn.signalNoteSeconds(CONFIG),
+					SIGNAL.START,
+					SIGNAL.CUT,
+					SIGNAL.GAP,
+					Horn.signalSeconds(CONFIG)
+				)
+			)
+		end)
+
+		it("lays the notes out with the gaps BETWEEN them and no gap after the last", function()
+			local plan = Horn.signalPlan(CONFIG)
+			local note = Horn.signalNoteSeconds(CONFIG)
+			expect(plan[1].at).to.equal(0) -- the first note is on the cue
+			for index, row in ipairs(plan) do
+				expect(row.seconds).to.equal(note)
+				expect(row.at).to.equal((index - 1) * (note + SIGNAL.GAP))
+			end
+			-- The length of the signal is the last note's END, so no silence is counted as signal.
+			expect(Horn.signalSeconds(CONFIG)).to.equal(plan[3].at + note)
+			-- ...and that is three notes and two gaps. To a tolerance, because the plan ADDS its
+			-- way along and this multiplies: two routes to the same number in floating point.
+			expect(math.abs(Horn.signalSeconds(CONFIG) - (3 * note + 2 * SIGNAL.GAP)) < 1e-9).to.equal(true)
+		end)
+
+		it("fits inside both of the phases it is played at the edge of", function()
+			-- The start signal begins as `Assigning` ends and the end signal as `Scoring` begins, so
+			-- a signal longer than a drive's intermission or its results scene would still be
+			-- sounding when the next thing happens. 9.22 s against 15 s and 25 s.
+			local Match = require(ServerScriptService:WaitForChild("Match"))
+			expect(Horn.signalSeconds(CONFIG) < Match.CONFIG.INTERMISSION_SECONDS).to.equal(true)
+			expect(Horn.signalSeconds(CONFIG) < Match.CONFIG.SCORE_SECONDS).to.equal(true)
+		end)
+
+		it("is clamped, so a crossed-over cut cannot ask for a negative wait", function()
+			-- The shape `Horn.playSeconds` already has: a world or a spec may override either number
+			-- and the player must not be handed a negative `task.wait`.
+			local crossed = { SIGNAL = { NOTES = 3, START = 9, CUT = 1, GAP = 0.2, VOLUME = 1 } }
+			expect(Horn.signalNoteSeconds(crossed)).to.equal(0)
+			expect(Horn.signalSeconds(crossed)).to.equal(0.4) -- the two gaps and no sound
+			-- ...and NOTES = 0 is a signal that does not sound, not an error.
+			local none = { SIGNAL = { NOTES = 0, START = 23.36, CUT = 26.3, GAP = 0.2, VOLUME = 1 } }
+			expect(#Horn.signalPlan(none)).to.equal(0)
+			expect(Horn.signalSeconds(none)).to.equal(0)
+		end)
+
+		it("is heard at a volume of its own, because the note is quieter than the beep", function()
+			-- MEASURED: this note peaks at 214 of 1000 and the beep's at 418, so the signal needs
+			-- more Volume than the Hud's other cues to be as present (research note section 5).
+			expect(SIGNAL.VOLUME > 0).to.equal(true)
+			expect(SIGNAL.VOLUME <= 1).to.equal(true)
+		end)
+	end)
+
 	---------------------------------------------------------------- pure: the geometry
 
 	describe("what the horn is made of", function()

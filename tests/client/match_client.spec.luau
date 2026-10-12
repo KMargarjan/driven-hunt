@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 
@@ -17,6 +18,8 @@ local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
 local Match = require(scripts:WaitForChild("Match"))
 local Hud = require(scripts:WaitForChild("Hud"))
+-- The Hud's own 2-D sound owner, reached the same way: through PlayerScripts, never the template.
+local Sound = require(scripts:WaitForChild("Hud"):WaitForChild("Sound"))
 
 local function waitUntil(seconds: number, predicate: () -> boolean): boolean
 	local deadline = os.clock() + seconds
@@ -617,6 +620,61 @@ return function()
 				node = node.Parent
 			end
 			expect(node).to.equal(game)
+		end)
+	end)
+	-- TASK 163. KAREN, 2026-10-12: *"when hunt starts 3 longer horn calls and when ends the same"*.
+	-- The server's half is `match_phase.spec` (one entry at GO, one at the end) and the DATA's half
+	-- is `zz_horn.spec` (three notes, the cut, the gaps). This is the client's half: the entry draws
+	-- no line, and the sound owner sounds it once.
+	describe("the drive's horn signal", function()
+		it("draws NO feed line, so the feed never prints the bare word", function()
+			-- `Hud.feedTextFor` is the one place that decides what a feed entry reads as, and a
+			-- `signal` entry's text is the server's word ("start" / "end"), not something to read.
+			expect(Hud.feedTextFor({ kind = "signal", text = "start", at = 0 })).to.equal(nil)
+			expect(Hud.feedTextFor({ kind = "signal", text = "end", at = 0 })).to.equal(nil)
+			-- ...while the phase line beside it is still a line, so the feed did not go quiet.
+			expect(Hud.feedTextFor({ kind = "phase", text = "Drive on", at = 0 })).to.equal("Drive on")
+		end)
+
+		it("sounds once per cue, and refuses a second signal while one is sounding", function()
+			-- A LIVE DRIVE MAY BE SIGNALLING RIGHT NOW -- this spec runs inside a real session, and
+			-- the drive's own GO sounds the horn -- so wait for the horn to finish before claiming
+			-- anything about a fresh one.
+			local whole = Horn.signalSeconds(Horn.CONFIG)
+			expect(waitUntil(whole + 3, function()
+				return not Sound.isSignalling()
+			end)).to.equal(true)
+
+			local before = Sound.stats()
+			expect(Sound.driveSignal("start")).to.equal(true)
+			expect(Sound.stats().signal).to.equal(before.signal + 1)
+			expect(Sound.lastSignal()).to.equal("start")
+			expect(Sound.isSignalling()).to.equal(true)
+
+			-- THE REFUSAL IS THE RULE: two signals on top of each other read as one louder horn,
+			-- not as two signals.
+			expect(Sound.driveSignal("end")).to.equal(false)
+			expect(Sound.stats().signalBusy).to.equal(before.signalBusy + 1)
+			expect(Sound.stats().signal).to.equal(before.signal + 1)
+			expect(Sound.lastSignal()).to.equal("start") -- the refused one changed nothing
+
+			TestKit.note(
+				string.format(
+					"drive signal: %d sounded, %d refused as busy, %.2f s each, note %.2f-%.2f",
+					Sound.stats().signal,
+					Sound.stats().signalBusy,
+					whole,
+					Horn.CONFIG.SIGNAL.START,
+					Horn.CONFIG.SIGNAL.CUT
+				)
+			)
+		end)
+
+		it("plays the data's plan and holds no schedule of its own", function()
+			-- The client walks `Horn.signalPlan`; it does not know how many notes there are.
+			local plan = Horn.signalPlan(Horn.CONFIG)
+			expect(#plan).to.equal(Horn.CONFIG.SIGNAL.NOTES)
+			expect(plan[1].seconds).to.equal(Horn.CONFIG.SIGNAL.CUT - Horn.CONFIG.SIGNAL.START)
 		end)
 	end)
 end

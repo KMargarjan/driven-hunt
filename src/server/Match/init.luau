@@ -105,9 +105,15 @@ Match.CONFIG = {
 	-- within 10s"*, *"Beater start in line with others and countdown when drive starts"*. The start
 	-- card is up for this long, the hunter's stand timer counts this down, and the beaters are held
 	-- at their line for exactly it -- all three read `phaseEndsAt`, so they cannot disagree.
-	-- 20 -> 10: the old 20 was "long enough to read the teams and walk to your post", and Karen has
-	-- now named the number she wants. See backups/2026-10-11_task158_intermission_20s.txt.
-	INTERMISSION_SECONDS = 10, -- K
+	-- 20 -> 10 -> 15. The old 20 was "long enough to read the teams and walk to your post"; 10 was
+	-- the number Karen named in task 158; 15 is the number she named after playing it (2026-10-12
+	-- ~10:40: *"for hunter a bit more time like 15s to find a place"*).
+	-- IT IS STILL ONE NUMBER FOR ALL THREE, which is task 158's decision and nothing in her words
+	-- asks to split it: the hunter gets his 15 s to pick a stand, the start card is up for the same
+	-- 15 s (longer, so no less readable), and the beaters stand at their line 5 s longer -- against
+	-- the two-minute walk task 162 measured, that is 4% of a drive.
+	-- backups/2026-10-11_task158_intermission_20s.txt, backups/2026-10-12_task163_intermission_10s.txt.
+	INTERMISSION_SECONDS = 15, -- K
 	-- HOW LONG THE RESULTS SCENE IS UP (task 159): the Scoring phase, unchanged in length. Karen's
 	-- scene -- the animals laid out, the four lights, everybody standing round them and the results
 	-- table on screen -- lasts exactly this, and then the next drive starts as it always did.
@@ -127,6 +133,22 @@ Match.CONFIG = {
 	-- walks past is the only honest reference. 10 studs is just past a hunter's own post: a beater
 	-- standing ON the line, or walking up to it and stopping, has not crossed it.
 	BEATER_CROSS_MARGIN_STUDS = 10, -- K
+
+	-- THE DRIVE'S OWN HORN SIGNAL (task 163). KAREN, 2026-10-12 ~10:40: *"when hunt starts 3 longer
+	-- horn calls and when ends the same"*.
+	--
+	-- WHETHER THE DRIVE SIGNALS IS THIS TABLE'S; WHAT THE SIGNAL SOUNDS LIKE IS NOT. The three
+	-- notes, their cut out of the asset and their gaps are `Horn.CONFIG.SIGNAL` -- shared, because
+	-- the client is what plays them -- and a client that knows how long a horn note is learns
+	-- nothing it is not already being told. This boolean is the drive's half of it: the phase
+	-- machine emits one `signal` feed entry at GO and one at the end, and with this false it emits
+	-- neither, so both states are reachable by parameter from a pure spec.
+	--
+	-- A PLAIN BOOLEAN AND NOT A FLAG ROW, the same call task 159 made for `SCENE.ENABLED`: this is
+	-- not an experiment whose default has to be decided, it is a thing Karen asked for in her own
+	-- words, and the client half cannot read a flag anyway (an override is an attribute on
+	-- ServerStorage, which no client sees).
+	SIGNAL_ENABLED = true, -- K
 
 	-- THE RESULTS SCENE (task 159). Karen: *"all they standing around the animals there is light on 4
 	-- corners and then showing image transperent with results table"*. `Match.Scene` is the only

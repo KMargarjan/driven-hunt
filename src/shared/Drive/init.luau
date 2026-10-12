@@ -58,7 +58,12 @@ export type MatchSnapshot = {
 }
 
 export type FeedEntry = {
-	kind: string, -- "kill" | "escape" | "violation" | "phase" | "join" | "leave"
+	-- "kill" | "escape" | "violation" | "phase" | "join" | "leave" | "signal"
+	-- "signal" IS THE ONE KIND THAT IS NOT A LINE (task 163): its `text` is "start" or "end" and the
+	-- Hud answers it with the drive's horn instead of a word. The channel is reused on purpose --
+	-- `MatchEvent` already reaches every client once per event, and the Hud already has the rule
+	-- that an entry with no text draws nothing (`Hud.feedTextFor`).
+	kind: string,
 	userId: number?,
 	name: string?,
 	zone: string?,

@@ -78,6 +78,8 @@ function Horn.gunFor(team: string?): boolean
 	return team ~= Horn.TEAM
 end
 
+export type SignalNote = { at: number, seconds: number }
+
 export type Piece = {
 	name: string,
 	size: Vector3,
@@ -178,6 +180,68 @@ Horn.CONFIG = {
 	-- / 0.28. A horn is made to be heard across a drive, so it carries at least as far as a gun --
 	-- a beater nobody can hear is not a signal.
 	ROLLOFF_MAX_STUDS = 357,
+
+	-- ------------------------------------------------------------- the drive's signal
+	--
+	-- KAREN, 2026-10-12 ~10:40: *"when hunt starts 3 longer horn calls and when ends the same"*.
+	--
+	-- WHAT SHE IS DESCRIBING IS A REAL THING AND IT HAS A NAME. A German drive is opened with the
+	-- horn signal *Anblasen des Treibens*, blown so that every hunter and every beater in the wood
+	-- hears the same thing at the same moment -- it is one of the *Jagdleitsignale*, the signals a
+	-- hunt is actually COMMANDED with, and two of the three sources call it safety-relevant. The end
+	-- of the hunt has its own: *Sammeln der Jaeger* and *Jagd vorbei und Halali*.
+	--   https://waidwissen.com/lexikon/jagdleitsignale
+	--   https://www.jaegerschmiede.de/jagdlexikon/jagdsignale/
+	--   https://www.hegering-hitzacker.de/jagdhornsignale.php
+	-- NONE OF THE THREE GIVES A NOTE LENGTH, so "three long notes" is a stylisation of the form and
+	-- not a transcription of the signal -- `docs/research/2026-10-12-drive-signals.md` section 2
+	-- says so in as many words, and the length below comes from the asset rather than from a source.
+	--
+	-- SO IT IS THREE LONG NOTES, AND NOT THE BEATER'S BEEP. The beater's own blast
+	-- (`SOUND_START`/`SOUND_CUT` above) is ONE short note of 1.00 s, because Karen asked for
+	-- *"short one like beeep"* -- that is a man signalling his line. This is the DRIVE signalling
+	-- everybody, so it is longer, there are three of it, and it is heard at the ear by all players
+	-- rather than from where somebody is standing (`Hud.Sound` plays it 2-D; the Tool's is 3-D).
+	--
+	-- THE NOTE IS MEASURED OFF THE SAME ASSET'S OWN LOUDNESS, the same way task 154 measured the
+	-- beep, and the whole 60.63 s was swept this time rather than its first 5.2 s.
+	-- `Sound.PlaybackLoudness` at render rate in a Play session of the DEV place, 2026-10-12, peak
+	-- per bucket -- 0.05 s over all 60.63 s, then 0.02 s over the four longest candidates. THE CLIP
+	-- HOLDS EXACTLY ONE TRULY SUSTAINED NOTE and this is it:
+	--     23.00-23.36  two short notes dying away (177 -> 27)   the end of the previous phrase
+	--     23.38-23.40  the attack (48 -> 128)
+	--     23.44-23.70  the note comes up to its peak (147 -> 214)
+	--     23.70-25.90  ONE SMOOTH DECAY, no second attack anywhere in it (214 -> 50)
+	--     25.90-26.30  the last of the tail (50 -> 11)
+	--     26.30-28.00  the clip's own silence (6-11)
+	--     28.05-       the next phrase starts (202)
+	-- Every other long run in the clip wobbles -- 13.10-15.35 dips to 119 and 162 twice, 45.32-46.20
+	-- has two more attacks inside it -- so they are slurred notes, not one note. The loudest single
+	-- note in the whole clip (peak 517 at 17.80) is 0.85 s long, which is no longer than the beep.
+	--
+	-- SO THE CUT IS 23.36 -> 26.30, AND THE DISPATCH'S "1.5-2 s" MOVED TO 2.94 (said plainly, the
+	-- way task 152 said the cooldown moved). The note is 2.6 s of sound plus its tail, and the two
+	-- ways to make it shorter are both worse: stopping at 25.2 cuts it where it is still at 44% of
+	-- its peak, which clicks -- the one thing `SOUND_CUT` above exists to avoid -- and fading it out
+	-- means a second writer ramping the Volume of a sound this module owns. 26.30 is inside the
+	-- clip's own silence, so the stop cannot be heard, and it is before 28.05, so one note is never
+	-- two.
+	--
+	-- NOT HEARD, AND SAID SO (rule 8): these numbers are measured, not listened to. Whether three
+	-- notes of this length feel right at the start of a drive is Karen's judgement.
+	SIGNAL = {
+		-- Three, which is her word and the signal's own form.
+		NOTES = 3,
+		START = 23.36,
+		CUT = 26.3,
+		-- BETWEEN THE NOTES, on top of the ~0.4 s of tail each one already ends with -- so what is
+		-- heard between two notes is about half a second. "Short gaps", per the dispatch.
+		GAP = 0.2,
+		-- 2-D AT THE EAR, so this is the whole of how loud it is. The note peaks at 214 of 1000
+		-- against the beep's 418, so the signal is quieter than the Tool's blast at the same
+		-- Volume -- which is why this is 1 and not the hit tick's 0.35.
+		VOLUME = 1,
+	},
 
 	-- ---------------------------------------------------------------- the spook
 	--
@@ -392,6 +456,40 @@ end
 function Horn.playSeconds(config): number
 	local resolved = config or Horn.CONFIG
 	return math.max(resolved.SOUND_CUT - resolved.SOUND_START, 0)
+end
+
+-- ONE NOTE OF THE DRIVE'S SIGNAL, in seconds. The same shape `Horn.playSeconds` has for the Tool's
+-- own blast, and clamped the same way, so a config that crosses its two numbers over cannot ask for
+-- a negative wait.
+function Horn.signalNoteSeconds(config): number
+	local signal = (config or Horn.CONFIG).SIGNAL
+	return math.max(signal.CUT - signal.START, 0)
+end
+
+-- THE WHOLE SIGNAL AS A PLAN, AND IT IS PURE: one row per note, each with the offset from the cue at
+-- which that note starts and how long it sounds. The client walks it (`Hud.Sound.driveSignal`) and
+-- holds no schedule of its own, so "three notes, this long, this far apart" is one statement in one
+-- place and a spec can assert it with no sound, no drive and no player.
+function Horn.signalPlan(config): { SignalNote }
+	local resolved = config or Horn.CONFIG
+	local seconds = Horn.signalNoteSeconds(resolved)
+	local plan: { SignalNote } = {}
+	local at = 0
+	for _ = 1, math.max(resolved.SIGNAL.NOTES, 0) do
+		table.insert(plan, { at = at, seconds = seconds })
+		-- THE GAP GOES BETWEEN NOTES AND NEVER AFTER THE LAST ONE, which is what makes
+		-- `Horn.signalSeconds` the length of the signal rather than the length of the signal plus a
+		-- silence nobody hears.
+		at += seconds + resolved.SIGNAL.GAP
+	end
+	return plan
+end
+
+-- How long the whole signal lasts, from the cue to the end of its last note.
+function Horn.signalSeconds(config): number
+	local plan = Horn.signalPlan(config)
+	local last = plan[#plan]
+	return if last == nil then 0 else last.at + last.seconds
 end
 
 -- Is this the name of the Tool this system owns? Answered off the constant, so no caller carries the

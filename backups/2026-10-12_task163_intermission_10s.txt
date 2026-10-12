@@ -1,0 +1,21 @@
+ARCHIVED VALUE, task 163 (2026-10-12): Match.CONFIG.INTERMISSION_SECONDS
+
+Was:
+    INTERMISSION_SECONDS = 10, -- K
+
+Now:
+    INTERMISSION_SECONDS = 15, -- K
+
+WHY. Karen, 2026-10-12 ~10:40, after playing the 10: "for hunter a bit more time like 15s to
+find a place".
+
+It is still ONE number for three things, which is task 158's decision: the start card's life,
+the hunter's stand timer and the beaters' hold at their line all count the same `phaseEndsAt`
+down. Nothing in her sentence asks to split them, and the two side effects of not splitting
+them are both harmless -- the start card is up 5 s LONGER (so no less readable), and a beater
+stands at his line 5 s longer against the 120 s walk task 162 measured.
+
+The previous value's own note is backups/2026-10-11_task158_intermission_20s.txt (20 -> 10).
+
+TO PUT IT BACK: one line in src/server/Match/init.luau (Match.CONFIG), plus the assertion in
+tests/server/match_live.spec.luau ("the drive's own numbers").

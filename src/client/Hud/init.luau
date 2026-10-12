@@ -1249,6 +1249,12 @@ function Hud.feedTextFor(entry): string?
 		return string.format("%s joined", who)
 	elseif entry.kind == "leave" then
 		return string.format("%s left", who)
+	elseif entry.kind == "signal" then
+		-- THE DRIVE'S HORN DRAWS NO LINE (task 163). Its `text` is the server's word for WHICH
+		-- signal it is ("start" / "end") and not something to read: `Hud.Sound.driveSignal` answers
+		-- it, and the phase entry beside it ("Drive on", "Drive over") is what the feed says in
+		-- words. Without this the feed would print the bare word "start".
+		return nil
 	end
 	return tostring(entry.text or entry.kind)
 end
@@ -1742,6 +1748,12 @@ function Hud.useMatch(MatchSystem): boolean
 		renderDrive(MatchSystem)
 	end)
 	MatchSystem.Feed:Connect(function(entry)
+		-- THE DRIVE'S HORN (task 163): a `signal` entry is a SOUND, and `Hud.Sound` is the one
+		-- writer of it. No early return -- `feedTextFor` answers nil for it on its own, so the "no
+		-- text, no line" rule below stays the only place that decides what is drawn.
+		if entry.kind == "signal" then
+			Sound.driveSignal(entry.text)
+		end
 		-- NO TEXT, NO LINE: `feedTextFor` answers nil for an entry another owner now draws.
 		local text = Hud.feedTextFor(entry)
 		if text ~= nil then

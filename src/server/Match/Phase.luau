@@ -373,6 +373,25 @@ local function feed(effects: { Effect }, entry)
 	table.insert(effects, { kind = "feed", entry = entry })
 end
 
+-- THE DRIVE'S OWN HORN, AS ONE FEED ENTRY (task 163). Karen, 2026-10-12: *"when hunt starts 3 longer
+-- horn calls and when ends the same"*.
+--
+-- IT RIDES THE FEED AND ADDS NO WIRE, which is the decision. `MatchEvent` is already a server ->
+-- client one-shot channel that every client hears, the Hud already has the rule "an entry whose
+-- `feedTextFor` is nil draws no line" (task 124 round 3, for `HitLog`'s kills), and a `signal` entry
+-- is exactly that: no line, one sound. A second RemoteEvent for one word would be a second wire
+-- answering a question this one already answers.
+--
+-- `which` is "start" or "end" -- the WORD and nothing else. How long a note is, how many there are
+-- and how far apart they sit are `Horn.CONFIG.SIGNAL`'s, read by the one client-side owner that
+-- plays them, so this machine stays pure and holds no sound numbers at all.
+local function signal(effects: { Effect }, now: number, config, which: string)
+	if not config.SIGNAL_ENABLED then
+		return
+	end
+	feed(effects, { kind = "signal", text = which, at = now })
+end
+
 -- Entering Assigning: teams once, everybody placed, guns re-evaluated, the last drive's boars gone,
 -- the scores zeroed by the owner. One broadcast, not one per step -- and a FORCED one, like every
 -- other phase entry: STATE_MIN_INTERVAL exists to stop a busy drive pushing faster than 4 Hz, and a
@@ -450,6 +469,11 @@ local function enterRunning(state: State, effects: { Effect }, now: number, conf
 	-- (measured, twice). reviews/task-32/DESIGN_DELTA.md records it.
 	state.nextReleaseAt = now + Phase.firstReleaseSeconds(config)
 	feed(effects, { kind = "phase", text = "Drive on", at = now })
+	-- ANBLASEN (task 163). Karen: *"when hunt starts 3 longer horn calls and when ends the same"*.
+	-- ONE ENTRY, HERE AND NOWHERE ELSE: `Assigning` has exactly one exit and this is it, so the
+	-- signal cannot sound twice for one drive however many ticks arrive -- the same argument the
+	-- `free` above rests on. The entry carries the WORD and no numbers; `Hud.Sound` owns the sound.
+	signal(effects, now, config, "start")
 	table.insert(effects, { kind = "broadcast", force = true })
 end
 
@@ -485,6 +509,13 @@ local function enterScoring(state: State, effects: { Effect }, now: number, conf
 		text = if state.endedEarly then "Drive over - the beaters are through" else "Drive over",
 		at = now,
 	})
+	-- THE END SIGNAL (task 163) -- and the sources name no "Abblasen des Treibens", so it is not
+	-- called one here (the research note says which signals they DO name). IT COVERS BOTH ENDINGS
+	-- BECAUSE THERE IS ONLY ONE DOOR. The clock and
+	-- the beaters' crossing both come through `enterScoring`, so one emit here is one signal per
+	-- drive end whichever of the two it was -- which is also why `reason` is not read: the signal is
+	-- the same signal either way, exactly as the scene is.
+	signal(effects, now, config, "end")
 	table.insert(effects, { kind = "broadcast", force = true })
 end
 

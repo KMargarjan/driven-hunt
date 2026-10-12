@@ -208,10 +208,14 @@ return function()
 	describe("the drive's own numbers", function()
 		it("are the ones the design fixed, and the 1.7b switches are off", function()
 			expect(Match.CONFIG.DRIVE_SECONDS).to.equal(600)
-			-- 20 -> 10 (task 158). Karen named the number: *"timer like 10s to find position to
-			-- stand"*. It is the start card's life, the hunter's stand timer and the beaters' hold,
-			-- which are one deadline. backups/2026-10-11_task158_intermission_20s.txt.
-			expect(Match.CONFIG.INTERMISSION_SECONDS).to.equal(10)
+			-- 20 -> 10 (task 158) -> 15 (task 163). Karen named 10 and then, after playing it,
+			-- named 15: *"for hunter a bit more time like 15s to find a place"*. It is the start
+			-- card's life, the hunter's stand timer and the beaters' hold, which are one deadline.
+			-- backups/2026-10-11_task158_intermission_20s.txt,
+			-- backups/2026-10-12_task163_intermission_10s.txt.
+			expect(Match.CONFIG.INTERMISSION_SECONDS).to.equal(15)
+			-- TASK 163: the drive signals, and the drive it is signalling is this one.
+			expect(Match.CONFIG.SIGNAL_ENABLED).to.equal(true)
 			expect(Match.CONFIG.BOARS_PER_DRIVE).to.equal(6)
 			expect(Match.CONFIG.DRIVERS_MAY_SHOOT).to.equal(false)
 			expect(Match.CONFIG.SAFETY_ENABLED).to.equal(true) -- 1.7b: the penalty is live
