@@ -3,12 +3,13 @@
 Task: 161
 Round: 1
 Base: `87dbccb` (main, PR #143 merged)
-Code commit: `7b23fddd51ea1c27e33ce1cefdd6e02333aacadb`
+Code commit: `7d69a4e97ff31cd25aedf50b5db9214a68eb26c9`
 
 ```
 [harness] PASS: 33/33 checks @ 7b23fddd51ea1c27e33ce1cefdd6e02333aacadb (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 7b23fddd51ea1c27e33ce1cefdd6e02333aacadb (clean tree) scope=all
-[harness2] NEEDS TEST2 161 7b23fddd51ea1c27e33ce1cefdd6e02333aacadb
+[harness] PASS: 33/33 checks @ 7d69a4e97ff31cd25aedf50b5db9214a68eb26c9 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 7d69a4e97ff31cd25aedf50b5db9214a68eb26c9 (clean tree)
 ```
 
 **The two-player run is the Director's, by the dispatch** ("stop `NEEDS TEST2 161 <sha>` with a
