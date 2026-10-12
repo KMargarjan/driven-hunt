@@ -953,17 +953,27 @@ end
 --     ioquake3's `CalculateRanks` read the other way round: *"we are tied with the previous client"*
 --     sets `rank | RANK_TIED_FLAG` on both rows (code/game/g_main.c, GPL-2.0;
 --     docs/research/2026-10-12-scoring.md section 2.1).
---   * the leader has scored NOTHING. On an all-noughts board -- which is every board for the first
+--   * NOBODY HAS SCORED AT ALL. On an all-noughts board -- which is every board for the first
 --     minute of every drive -- `Score.leaderboard`'s last tiebreak is `userId`, so a badge on row 1
 --     would crown whoever joined the server first. ioquake3 flags a lone playing client as tied for
 --     the same reason: being the only one there is not winning.
+--
+-- THE SECOND TEST IS "AHEAD OF THE SECOND ROW", NOT "ABOVE ZERO" (round 1, note 2). It was the
+-- leader's own points against 0, which made the function disagree with itself: a leader on 0 ahead
+-- of a second on -10 got no badge while a leader on -10 ahead of -20 got one, though both are a man
+-- clear at the top of a board where something has happened. Being ahead of the field IS first
+-- place, whatever the sign; the zero test is now only what it was always for -- the board where
+-- nothing has happened yet -- and so it is asked ONLY of the row that has nobody behind it.
 function Hud.firstPlaceRank(rows): number?
 	local first = rows and rows[1]
-	if first == nil or (first.points or 0) == 0 then
+	if first == nil then
 		return nil
 	end
 	local second = rows[2]
-	if second ~= nil and (second.points or 0) >= (first.points or 0) then
+	if second == nil then
+		return if (first.points or 0) == 0 then nil else 1
+	end
+	if (second.points or 0) >= (first.points or 0) then
 		return nil
 	end
 	return 1

@@ -493,6 +493,35 @@ return function()
 			local before = Match.stats().hornCredits
 			expect(Match.creditPush(12345678, { "Boar1" })).to.equal(0) -- nobody by that id is driving here
 			expect(Match.stats().hornCredits).to.equal(before)
+
+			-- ...AND THE WRITE ITSELF, WHICH NO REFUSAL CAN REACH (round 1 finding 1). Every
+			-- assertion above is a `== 0`, so they are all satisfied by a `creditPush` that does
+			-- nothing at all. `Match.writePushCredit` is the loop `creditPush` runs once it has
+			-- decided to pay, and `Match.pushCreditWithin` is the read `onDowned` hands to
+			-- `Score.kill` -- both pure, both driven here with their own table and no drive, so
+			-- deleting the write fails this case.
+			local credits = {}
+			expect(Match.writePushCredit(credits, 42, { "A", "B", 7, false :: any }, 100)).to.equal(2)
+			expect(credits.A[42]).to.equal(100)
+			expect(credits.B[42]).to.equal(100)
+			expect(credits[7]).to.equal(nil) -- a non-string id is SKIPPED, never `credits[nil]`
+			-- A SECOND BLAST AT THE SAME ANIMAL REFRESHES THE TIMESTAMP AND ADDS NO CREDIT (round 1,
+			-- note 4): the write is idempotent, so the tally `stats().hornCredits` keeps must be too.
+			expect(Match.writePushCredit(credits, 42, { "A" }, 140)).to.equal(0)
+			expect(credits.A[42]).to.equal(140)
+			-- ...and a second BEATER on the same animal is a second credit.
+			expect(Match.writePushCredit(credits, 43, { "A" }, 150)).to.equal(1)
+			expect(Match.writePushCredit(credits, 42, nil, 160)).to.equal(0)
+
+			-- THE READ, with the window the drive uses: inside it pays, outside it does not, and an
+			-- animal nobody pushed answers an empty table rather than nil.
+			local window = Match.CONFIG.POINTS.PUSH_WINDOW
+			local inWindow = Match.pushCreditWithin(credits, "A", 150 + window, window)
+			expect(inWindow[43]).to.equal(150)
+			expect(inWindow[42]).to.equal(nil) -- 140 is older than the window at this instant
+			expect(next(Match.pushCreditWithin(credits, "A", 150 + window + 1, window))).to.equal(nil)
+			expect(next(Match.pushCreditWithin(credits, "nobody", 150, window))).to.equal(nil)
+			expect(next(Match.pushCreditWithin(credits, nil, 150, window))).to.equal(nil)
 			local threats = Match.driverThreats()
 			for _, threat in ipairs(threats) do
 				expect(tonumber(threat.id)).never.to.equal(nil)

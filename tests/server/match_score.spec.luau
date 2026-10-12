@@ -163,6 +163,21 @@ return function()
 			expect(empty.rows[2]).to.equal(nil)
 		end)
 
+		-- ASSIST AND BEATER_PUSH ARE BOTH 3 IN PRODUCTION (round 1, note 3), so every case above
+		-- would pass with the two config keys swapped inside `Score.kill`. This is the one case
+		-- that tells them apart: a config where they differ, one record that earns both, and each
+		-- award read off its own key.
+		it("reads BEATER_PUSH and not ASSIST, which production happens to set to the same number", function()
+			local distinct = { POINTS = table.clone(CONFIG.POINTS) }
+			distinct.POINTS.ASSIST = 5
+			distinct.POINTS.BEATER_PUSH = 9
+			local board = (Score.kill(Score.new(), killRecord("male", 1, { [2] = 40 }), { [3] = 18 }, distinct))
+			expect(pointsOf(board, 2)).to.equal(5) -- the assist
+			expect(board.rows[2].assists).to.equal(1)
+			expect(pointsOf(board, 3)).to.equal(9) -- the push
+			expect(board.rows[3].pushes).to.equal(1)
+		end)
+
 		it("is worth less than the animal, and switches off at 0", function()
 			expect(CONFIG.POINTS.BEATER_PUSH < CONFIG.POINTS.KIND.male).to.equal(true)
 			local off = { POINTS = table.clone(CONFIG.POINTS) }

@@ -1558,36 +1558,74 @@ function Match.creditPush(userId: number?, boarIds): number
 	then
 		return 0
 	end
-	local at = now()
-	local credited = 0
-	for _, id in ipairs(boarIds or {}) do
-		if type(id) == "string" then
-			local credit = pushCredit[id]
-			if not credit then
-				credit = {}
-				pushCredit[id] = credit
-			end
-			credit[userId] = at
-			credited += 1
-		end
-	end
+	local credited = Match.writePushCredit(pushCredit, userId :: number, boarIds, now())
 	stats.hornCredits += credited
 	return credited
 end
 
-local function creditFor(boarId: string?): { [number]: number }
+-- THE WRITE ITSELF, PURE AND EXPORTED, and it is split out for the reason `pushCreditable` was
+-- (round 1 finding 1): every assertion about the horn's door was a REFUSAL, so
+-- `function Match.creditPush() return 0 end` passed the whole gate and the lines that actually pay
+-- a beater -- the loop, the id filter, the write `creditFor` later reads -- were never run. This is
+-- those lines, in a function a spec drives with its own table, no drive and no clock.
+--
+-- `credits` IS MUTATED, deliberately and alone: it is the owner's own `pushCredit`, which lives for
+-- a drive and is keyed by boar id. Everything else here is a parameter.
+--
+-- IT COUNTS NEW CREDITS, NOT IDS (round 1, note 4). `credit[userId] = at` is idempotent, so a
+-- beater who blasts the same animal twice inside the window holds ONE credit -- and the old
+-- `credited += 1` per id said two, which made `stats().hornCredits` a lie about the thing its own
+-- comment claims to count. The refresh still happens (the timestamp moves, which is what decides
+-- who pays under `latestPushers`); only the tally is honest.
+--
+-- A NON-STRING ID IS SKIPPED, not an error: this list comes off a signal payload through a
+-- composition root, and `pushCredit[nil]` is the "table index is nil" that took out every step of
+-- every quick-test session in task 83.
+function Match.writePushCredit(credits, userId: number, boarIds, at: number): number
+	local credited = 0
+	for _, id in ipairs(boarIds or {}) do
+		if type(id) == "string" then
+			local credit = credits[id]
+			if not credit then
+				credit = {}
+				credits[id] = credit
+			end
+			if credit[userId] == nil then
+				credited += 1
+			end
+			credit[userId] = at
+		end
+	end
+	return credited
+end
+
+-- ...AND THE READ, equally pure and equally exported, for the same reason: this is the function
+-- `onDowned` hands to `Score.kill`, so a spec that drives it is driving the real path from "a horn
+-- was blown" to "a beater was paid" rather than a copy of it.
+function Match.pushCreditWithin(credits, boarId: string?, at: number, window: number): { [number]: number }
 	local out = {}
-	local credit = if boarId then pushCredit[boarId] else nil
+	local credit = if boarId then credits[boarId] else nil
 	if not credit then
 		return out
 	end
-	local at = now()
 	for userId, seen in pairs(credit) do
-		if at - seen <= config.POINTS.PUSH_WINDOW then
+		if at - seen <= window then
 			out[userId] = seen
 		end
 	end
 	return out
+end
+
+local function creditFor(boarId: string?): { [number]: number }
+	return Match.pushCreditWithin(pushCredit, boarId, now(), config.POINTS.PUSH_WINDOW)
+end
+
+-- WHAT THE OWNER'S OWN CREDIT TABLE SAYS ABOUT ONE ANIMAL, as a copy, with no setter. It follows
+-- `Runtime:perceptionOf` and `Runtime:woundOf` exactly: nothing in the game reads it, and it exists
+-- so a live spec can prove that a horn's credit really landed where `Score.kill` will look for it,
+-- instead of inferring it from a return value (round 1 finding 1).
+function Match.pushCreditFor(boarId: string?): { [number]: number }
+	return creditFor(boarId)
 end
 
 local function onDowned(record)

@@ -164,8 +164,8 @@ end)
 -- reached, and the DRIVE decides what that is worth. None of the three knows the other two's rule,
 -- and the ids never travel further than this line.
 Weapon.Horn.Blown:Connect(function(blast)
-	local _, pushed = runtime:hearHorn(blast.at, HornData.spookStuds(HornData.CONFIG))
-	Match.creditPush(blast.blowerUserId, pushed)
+	local _, ids = runtime:hearHorn(blast.at, HornData.spookStuds(HornData.CONFIG))
+	Match.creditPush(blast.blowerUserId, ids)
 end)
 
 -- The drive answers two questions for the weapon and writes none of its state: who may carry a gun,

@@ -382,6 +382,11 @@ return function()
 			expect(Hud.firstPlaceRank(nil)).to.equal(nil)
 			-- ...and a board everybody is penalised on still has a leader: -10 beats -20.
 			expect(Hud.firstPlaceRank(board(-10, -20))).to.equal(1)
+			-- AND SO DOES A LEADER ON 0 OVER A SECOND ON -10 (round 1, note 2). The zero test used
+			-- to be asked of the leader's own points, so these two boards -- a man clear at the top
+			-- of each -- disagreed with each other. It is now asked only of the row with nobody
+			-- behind it, which is the board it was always for: the one where nothing has happened.
+			expect(Hud.firstPlaceRank(board(0, -10))).to.equal(1)
 		end)
 
 		it("puts the badge on the drawn row, on the leader's row only", function()
