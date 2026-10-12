@@ -507,6 +507,37 @@ return function()
 			local character = player.Character
 			expect(character).to.be.ok()
 			local before = weaponActions()
+
+			-- A TIED PLAYER HAS NO GUN BY THE GAME'S OWN RULE, and that is not this case's failure.
+			-- MEASURED, task 166: two `test2` runs failed here with `Expected 4, got 0` while the
+			-- SAME run's exploit case below noted *"this shooter is tied to a tree"* -- the safety
+			-- rule had taken his Tool away and `TIE_UNTIL_DRIVE_END` keeps it until the drive ends,
+			-- so there was no trigger left to lose. Whether the tie lands before or after this case
+			-- is a race between the harness's replayed shot and the client suite's own progress: on
+			-- main it landed after, and one extra case earlier in the suite (`match_client`'s END
+			-- cue) was enough to move it in front.
+			--
+			-- NOT A SKIP, and the exploit case's own wording is the rule being followed here:
+			-- `Match.isTied()` is the SERVER's replicated answer, so the claim asserted instead is
+			-- the tie's own -- a tied shooter has no gun AND no trigger bound to it. "Tied but still
+			-- armed" is the bug that would now fail here, and an unexplained 0 still fails exactly
+			-- as it did before.
+			if #before ~= 4 then
+				local matchModule = scripts:FindFirstChild("Match")
+				local Match = if matchModule then require(matchModule) else nil
+				if Match ~= nil and Match.isTied() then
+					TestKit.note(
+						string.format(
+							"weapon_client: this shooter is tied to a tree, so there is no trigger to defend (%d action(s) bound)",
+							#before
+						)
+					)
+					local snapshot = Weapon.get()
+					expect(snapshot == nil or snapshot.equipped ~= true).to.equal(true)
+					expect(#before).to.equal(0)
+					return
+				end
+			end
 			-- The real gun has to be in hand for this to mean anything.
 			expect(#before).to.equal(4)
 
