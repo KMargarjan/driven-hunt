@@ -243,6 +243,14 @@ local function finishBuild(bot: Bot, model: Model, config, builtAt: number)
 	local folder = Rig.folder()
 	model.Parent = folder
 	local humanoid = Rig.prepare(model, config, teamWalks(bot))
+	if humanoid == nil then
+		-- A BODY WITH NO HUMANOID CAN NEVER WALK, so it is a build FAILURE and not a bot. Kept as a
+		-- slot it would sit in `stats.walking` for the rest of the drive while `stepWalker` returned
+		-- at once -- a number that says four bots are walking when none is (round 2 note).
+		model:Destroy()
+		stats.buildsFailed += 1
+		return
+	end
 	bot.model = model
 	bot.humanoid = humanoid
 	stats.built += 1
@@ -276,7 +284,13 @@ local function finishBuild(bot: Bot, model: Model, config, builtAt: number)
 	local clips, loaded = Rig.loadClips(humanoid)
 	bot.clips = clips
 	stats.clipsLoaded += loaded
-	stats.clipsFailed += 2 - loaded
+	-- COUNTED OFF THE TABLE, not off a 2 written here (round 2 note): a third clip would otherwise
+	-- make `clipsFailed` go NEGATIVE, which is a number nobody would believe and nobody would check.
+	local wanted = 0
+	for _ in pairs(Rig.CLIPS) do
+		wanted += 1
+	end
+	stats.clipsFailed += wanted - loaded
 	-- A STANDER IS IDLE FROM THE MOMENT IT EXISTS: it never reaches the step loop's walk branch,
 	-- because only a walker is stepped.
 	if not teamWalks(bot) then
@@ -441,10 +455,6 @@ function Bots.go(): number
 		end
 	end
 	return n
-end
-
-function Bots.hold()
-	released = false
 end
 
 function Bots.released(): boolean

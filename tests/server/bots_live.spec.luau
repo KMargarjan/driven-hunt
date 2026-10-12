@@ -564,6 +564,102 @@ return function()
 		end)
 	end)
 
+	describe("drive 2 (round 2, finding 1 -- the bug Karen would have hit)", function()
+		afterEach(function()
+			Bots.clear()
+			Bots.setRigSource(nil)
+		end)
+
+		it("is the first Assigning tick of a drive that rebuilds, and only that", function()
+			-- EDGE, NOT LEVEL. `Assigning` lasts ten seconds and `syncBots` runs on every dispatch,
+			-- so a rule keyed on the phase would destroy and rebuild eight bodies four times a
+			-- second; and a bot mid-walk must never be teleported back to the line.
+			expect(Match.botsNeedRebuild("Assigning", 1, nil)).to.equal(true)
+			expect(Match.botsNeedRebuild("Assigning", 1, 1)).to.equal(false) -- the same drive, again
+			expect(Match.botsNeedRebuild("Assigning", 2, 1)).to.equal(true) -- the next drive
+			expect(Match.botsNeedRebuild("Running", 2, 1)).to.equal(false)
+			expect(Match.botsNeedRebuild("Scoring", 2, 1)).to.equal(false)
+			expect(Match.botsNeedRebuild("Waiting", 2, 1)).to.equal(false)
+		end)
+
+		it("puts every bot back on the start line, and drive 2 does not end before they walk", function()
+			-- THE WHOLE OF FINDING 1. `Bots.fill` only re-places a slot whose BASE MOVED, and a base
+			-- does not move between drives -- `Body.placementFor` is a pure function of the marker
+			-- and the index, and `botSlotsFor` asks for the same index every time. So before this
+			-- fix, drive 2 began with every bot exactly where the results scene had stood it:
+			-- `gathered` still true, so none of them ever walked again, and all of them standing
+			-- PAST the hunters' line, which ended drive 2 on its first `Running` tick. For ever.
+			--
+			-- THE BOUNDARY BELOW IS `syncBots`'S OWN, through the same exported rule, so deleting
+			-- that rule makes this case fail rather than quietly pass.
+			local slots = slotsFor(0, 4)
+			local starts = {}
+			for _, slot in ipairs(slots) do
+				starts[slot.id] = Bots.laneOf(slot, Bots.CONFIG).Position
+			end
+
+			Bots.setRigSource(fakeRig)
+			-- ---- drive 1 -------------------------------------------------------------------
+			local rebuiltFor: number? = nil
+			if Match.botsNeedRebuild("Assigning", 1, rebuiltFor) then
+				Bots.clear()
+				rebuiltFor = 1
+			end
+			Bots.fill(slots)
+			stepUntilBuilt(4)
+			expect(Bots.count("Drivers")).to.equal(4)
+			local _, aloneAcross = Match.beaterCrossing()
+			for _, beater in ipairs(Bots.beaters()) do
+				expect((beater.position - starts[beater.id]).Magnitude < 1).to.equal(true)
+			end
+
+			-- ...it walks, and the results scene stands it in the ring. FAR south of the arena's
+			-- line, which is what makes the next two numbers mean something: a bot in the ring is a
+			-- bot the drive counts as THROUGH.
+			Bots.go()
+			local ring = {}
+			for index = 1, 4 do
+				ring[index] = CFrame.new(index * 20 - 50, 10, -5000)
+			end
+			expect(Bots.gather(ring, 1)).to.equal(4)
+			local inRing, ringAcross = Match.beaterCrossing()
+			expect(inRing >= 4).to.equal(true)
+			expect(ringAcross).to.equal(aloneAcross + 4) -- all four are "through", standing still
+
+			-- ---- the drive boundary, exactly as `syncBots` does it ---------------------------
+			if Match.botsNeedRebuild("Assigning", 2, rebuiltFor) then
+				Bots.clear()
+				rebuiltFor = 2
+			end
+			Bots.fill(slots) -- the SAME slots: the geometry has not moved, which was the whole trap
+			stepUntilBuilt(4)
+
+			-- ---- drive 2 --------------------------------------------------------------------
+			expect(Bots.count("Drivers")).to.equal(4)
+			local backAt = Bots.beaters()
+			expect(#backAt).to.equal(4)
+			for _, beater in ipairs(backAt) do
+				-- BACK ON THE START LINE, not in last drive's ring. Without the rebuild this is
+				-- 5,000 studs out.
+				expect((beater.position - starts[beater.id]).Magnitude < 1).to.equal(true)
+			end
+			-- ...AND THE DRIVE DOES NOT END BEFORE THEY WALK: nobody is through, so
+			-- `Phase.beatersThrough` -- which is untouched and only compares two numbers -- cannot
+			-- fire on the first `Running` tick.
+			local beaters, across = Match.beaterCrossing()
+			expect(beaters >= 4).to.equal(true)
+			expect(across).to.equal(aloneAcross)
+			expect(Match.Phase.beatersThrough({ beaters = beaters, beatersAcross = across }, Match.CONFIG)).to.equal(
+				false
+			)
+
+			-- ...and they are walkers again, not statues standing in a ring that is gone.
+			Bots.go()
+			Bots.step(0.2, 9000)
+			expect(Bots.stats().walking).to.equal(4)
+		end)
+	end)
+
 	describe("the switch is off, and off means the drive before task 161", function()
 		it("ships with the flag off, so the drive never asks the bots anything", function()
 			expect(Match.CONFIG.BOTS.ENABLED).to.equal(false)

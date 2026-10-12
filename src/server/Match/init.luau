@@ -605,6 +605,9 @@ local stats = {
 	botsWanted = 0,
 	botsFilled = 0,
 	botSyncs = 0,
+	-- HOW MANY TIMES THE DRIVE BOUNDARY REBUILT THE BOTS. It must equal the number of drives that
+	-- have had bots in them -- round 2 finding 1 was this number being 0 from drive 2 on.
+	botRebuilds = 0,
 	sceneBotsMoved = 0,
 	violations = 0,
 	safetySignalMissing = 0,
@@ -1217,6 +1220,11 @@ end
 -- AFTER `applyEffects`, NOT BEFORE: `placePlayers` respawns the real players in that list, and the
 -- fill has to be measured against the roster the drive has just applied rather than against the one
 -- it is leaving.
+-- WHICH DRIVE'S BOTS HAVE BEEN BUILT. `nil` means none, which is what `Match.start`, `Match.stop`
+-- and `Waiting` all put it back to. It is the only state the bot boundary keeps, and it is a number
+-- rather than a boolean so that a drive whose rebuild was missed cannot look done.
+local botsRebuiltForDrive: number? = nil
+
 local function syncBots()
 	if not (world and world.bots) then
 		return
@@ -1232,12 +1240,39 @@ local function syncBots()
 	local phase = state.phase
 	if phase == "Waiting" then
 		bots.clear()
+		botsRebuiltForDrive = nil
 		stats.botsWanted = 0
 		stats.botsFilled = 0
 		return
 	end
 	if phase ~= "Assigning" and phase ~= "Running" then
 		return
+	end
+	-- EVERY DRIVE REBUILDS ITS BOTS FROM SCRATCH, ONCE, ON ITS FIRST `Assigning` TICK.
+	--
+	-- ROUND 2 FINDING 1, AND IT WAS A GAME BUG KAREN WOULD HAVE HIT ON DRIVE 2. `Bots.fill` only
+	-- re-places a slot whose BASE MOVED, and a base does not move between drives: `Body.placementFor`
+	-- is a pure function of the marker and the index, and `botSlotsFor` always asks for the same
+	-- index. So from drive 2 every bot stayed exactly where the results scene had stood it --
+	-- `gathered` still true, so none of them ever walked again, and `Bots.beaters()` still reported
+	-- them, in a ring that is 10 to 38 studs PAST the hunters' line. `Match.beaterCrossing` therefore
+	-- answered "all of them are through" on the first `Running` tick and `Phase.beatersThrough` ended
+	-- the drive instantly, for the rest of the session.
+	--
+	-- `Waiting` IS NOT THE BOUNDARY, which is what hid it: `Phase.step` goes `Scoring` -> `Assigning`
+	-- directly whenever there are enough players and the markers are complete, and `MIN_PLAYERS` is
+	-- 1 -- so the one branch that cleared the rigs was never reached between two drives.
+	--
+	-- THE RULE IS THE DESIGN'S OWN (`docs/design/bots.md` section 8: *"Every rig is rebuilt here"*,
+	-- *"removed and re-placed every drive ... and no pool"*), and it is EDGE-triggered on the drive
+	-- NUMBER rather than on the phase, because `Assigning` lasts ten seconds and this function runs
+	-- on every dispatch -- clearing on the level would destroy and rebuild eight bodies four times a
+	-- second. `Match.botsNeedRebuild` is that edge, pure and exported so a spec can state it.
+	local drive = state.driveNumber
+	if Match.botsNeedRebuild(phase, drive, botsRebuiltForDrive) then
+		bots.clear()
+		botsRebuiltForDrive = drive
+		stats.botRebuilds += 1
 	end
 	stats.botSyncs += 1
 	local counts = Roster.counts(state.assignment)
@@ -1683,6 +1718,17 @@ end
 -- the ground and the trunks for it) and asking for it four times would be four measurements of one
 -- fact. The lane offsets are along the base's own `RightVector`, so a sine road carries the whole
 -- line with it, and lane 0 is left empty for the people.
+-- IS THIS THE FIRST `Assigning` TICK OF A DRIVE WHOSE BOTS HAVE NOT BEEN REBUILT YET? PURE and
+-- exported, so `bots_live.spec` can state the rule with four calls and no drive at all -- and so
+-- that a spec driving two drives by hand uses THIS answer rather than a copy of it.
+--
+-- TRUE EXACTLY ONCE PER DRIVE. `Running` never rebuilds (a bot mid-walk must not be teleported back
+-- to the line four times a second), and a second `Assigning` tick of the same drive never rebuilds
+-- (the countdown is ten seconds long and this runs on every dispatch).
+function Match.botsNeedRebuild(phase: string, driveNumber: number, lastRebuilt: number?): boolean
+	return phase == "Assigning" and lastRebuilt ~= driveNumber
+end
+
 function Match.botSlotsFor(markers, place, real, want, cfg): { any }
 	local slots = {}
 	if place == nil then
@@ -2124,6 +2170,7 @@ function Match.start(injected)
 	table.clear(characterWatch)
 	table.clear(pushCredit)
 	snapshotCache = nil
+	botsRebuiltForDrive = nil
 
 	if world.remotes ~= false then
 		remotes = world.remotes or Drive.remotes()
@@ -2188,6 +2235,7 @@ function Match.stop()
 		-- leave eight rigs standing in the wood for the next one to find.
 		world.bots.clear()
 	end
+	botsRebuiltForDrive = nil
 	-- ...AND THE WORLD'S NUMBERS GO WITH THE WORLD. A spec that started a 300-second drive must not
 	-- leave the next require of this singleton reading 300.
 	config = Match.CONFIG
