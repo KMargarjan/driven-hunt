@@ -99,19 +99,20 @@ return function()
 			local asked = {}
 			local function place(_markers, team, index)
 				table.insert(asked, { team = team, index = index })
-				local x = Forest.beaterLaneOffset(index)
-				return CFrame.new(x, 10, 240)
+				-- One lane per post of this hand-written line, which is what the forest's own
+				-- `laneSpacingStuds = STAND_SPACING` makes true of the real one.
+				return CFrame.new(-60 + (index - 1) * 60, 10, 240)
 			end
 			local slots = Match.botSlotsFor(
 				{ posts = CURVED_POSTS, line = LINE },
 				place,
 				{ hunters = 0, beaters = 0 },
-				{ hunters = 0, beaters = 4 },
+				{ hunters = 0, beaters = 3 },
 				Match.CONFIG
 			)
-			expect(#slots).to.equal(4)
+			expect(#slots).to.equal(3)
 			-- ONE PLACEMENT PER LANE, by index, exactly as a hunter's stand is asked for.
-			expect(#asked).to.equal(4)
+			expect(#asked).to.equal(3)
 			local seen = {}
 			for _, slot in ipairs(slots) do
 				expect(slot.team).to.equal("Drivers")
@@ -370,25 +371,29 @@ return function()
 			end
 		end)
 
-		it("takes the beaters' base ONCE, however many of them there are", function()
-			-- This world's beater placement is a single MEASURED point (the forest reads the ground
-			-- and the trunks for it), so asking for it four times would be four measurements of one
-			-- fact -- and could answer differently each time.
-			local calls = 0
-			local place = function(_markers, team)
+		it("asks the world for ONE PLACEMENT PER LANE, by index, as it does for a hunter's stand", function()
+			-- IT USED TO TAKE THE BASE ONCE (task 161), on the grounds that this world's beater
+			-- placement is a single MEASURED point and four asks would be four measurements of one
+			-- fact. Task 167 is the other side of that: a line has to span the hunters' front, and
+			-- the only thing that can measure a lane's own ground, trunks and goal is the world --
+			-- which `ForestTest.beaterStartPosition(index)` now does per lane. Karen: *"and seem like
+			-- all bots came to me"*.
+			local asked = {}
+			local place = function(_markers, team, index)
 				if team == "Drivers" then
-					calls += 1
+					table.insert(asked, index)
 				end
-				return CFrame.new(0, 10, 240)
+				return CFrame.new(index * 150 - 450, 10, 240)
 			end
-			Match.botSlotsFor(
+			local slots = Match.botSlotsFor(
 				{ posts = POSTS, line = LINE },
 				place,
 				{ hunters = 0, beaters = 0 },
 				{ hunters = 0, beaters = 4 },
 				Match.CONFIG
 			)
-			expect(calls).to.equal(1)
+			expect(#slots).to.equal(4)
+			expect(table.concat(asked, ",")).to.equal("1,2,3,4")
 		end)
 
 		it("makes a bot beater a STANDER in a world with no drive line, rather than walk it nowhere", function()
