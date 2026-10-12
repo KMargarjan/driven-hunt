@@ -944,18 +944,47 @@ local function clockText(seconds: number): string
 	return string.format("%d:%02d", math.floor(whole / 60), whole % 60)
 end
 
-local function scoreRowText(rank: number, row): string
+-- WHICH ROW IS FIRST PLACE, AS A RULE AND NOT AS "ROW 1" (task 160). Karen, 2026-10-11: *"first
+-- place ofc more"*. Pure and exported, like every other string this panel draws, because no harness
+-- run ever reaches the `Scoring` phase.
+--
+-- `nil` MEANS NOBODY IS FIRST, and both cases that return it are the point of the function:
+--   * the top two are LEVEL. A tie at the top is not a first place -- it is a tie. This is
+--     ioquake3's `CalculateRanks` read the other way round: *"we are tied with the previous client"*
+--     sets `rank | RANK_TIED_FLAG` on both rows (code/game/g_main.c, GPL-2.0;
+--     docs/research/2026-10-12-scoring.md section 2.1).
+--   * the leader has scored NOTHING. On an all-noughts board -- which is every board for the first
+--     minute of every drive -- `Score.leaderboard`'s last tiebreak is `userId`, so a badge on row 1
+--     would crown whoever joined the server first. ioquake3 flags a lone playing client as tied for
+--     the same reason: being the only one there is not winning.
+function Hud.firstPlaceRank(rows): number?
+	local first = rows and rows[1]
+	if first == nil or (first.points or 0) == 0 then
+		return nil
+	end
+	local second = rows[2]
+	if second ~= nil and (second.points or 0) >= (first.points or 0) then
+		return nil
+	end
+	return 1
+end
+
+local function scoreRowText(rank: number, row, first: boolean?): string
 	local team = if row.team == "Drivers" then "DRIVER" elseif row.team == "Shooters" then "SHOOTER" else "-"
 	-- `left` is a fact the board carries; a leaver's row stays on this drive's screen (drive design
 	-- section 4.4), and a trailing "*" is how the reader knows why they are not in the next drive.
 	local gone = if row.left then " *" else ""
+	-- AFTER THE POINTS AND BEFORE THE LEAVER'S STAR, so the badge sits against the number it was
+	-- earned with and a first-placed leaver still reads as one.
+	local badge = if first then "  " .. Drive.CONFIG.SCORE_FIRST_BADGE else ""
 	return string.format(
-		"%-2d %-16s %-8s %5d %7d%s",
+		"%-2d %-16s %-8s %5d %7d%s%s",
 		rank,
 		string.sub(tostring(row.name or "?"), 1, 16),
 		team,
 		row.kills,
 		row.points,
+		badge,
 		gone
 	)
 end
@@ -997,10 +1026,14 @@ function Hud.renderScore(snapshot, secondsLeft: number?)
 		scoreTitle.Text = string.format(Drive.CONFIG.SCORE_TITLE_FORMAT, snapshot.driveNumber)
 	end
 	local me = Players.LocalPlayer.UserId
+	-- ONE READ FOR THE WHOLE BOARD, outside the loop: the badge is a property of the BOARD (is the
+	-- top row clear of the second?), not of a row, and asking it per row would be the same question
+	-- answered sixteen times.
+	local firstRank = Hud.firstPlaceRank(snapshot.rows)
 	for index, line in ipairs(scoreLines) do
 		local row = snapshot.rows[index]
 		if row then
-			line.Text = scoreRowText(index, row)
+			line.Text = scoreRowText(index, row, index == firstRank)
 			line.TextColor3 = if row.userId == me then Drive.CONFIG.SCORE_HIGHLIGHT_COLOR else Drive.CONFIG.TEXT_COLOR
 			line.Visible = true
 		else

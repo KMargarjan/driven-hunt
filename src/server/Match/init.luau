@@ -167,12 +167,13 @@ Match.CONFIG = {
 	-- WHAT YOU MAY SHOOT, AS THE RULE REALLY IS IN THE CODE (task 158). The start card asks "what
 	-- they can shoot", and Karen's words were *"wild boar -- male, female; NOT piglets/cubs"*.
 	--
-	-- THE CODE DOES NOT HAVE THAT RULE AND THIS CARD WILL NOT PRETEND IT DOES. `Boar.CONFIG.KINDS`
-	-- distinguishes male, female and cub and the drive spawns all three, but `POINTS.KILL` scores a
-	-- kill by HIT ZONE alone -- there is nothing anywhere that refuses a cub, deducts for one or
-	-- even names one as different. So the card states today's rule, and the rule Karen described is
-	-- a decision waiting for her (TASKS.md row 158a). The day a cub is protected, this row and the
-	-- thing that enforces it change together.
+	-- THE CODE STILL DOES NOT HAVE THAT RULE AND THIS CARD STILL WILL NOT PRETEND IT DOES. What
+	-- changed in task 160 is that a cub is now NAMED as different -- `POINTS.KIND.cub` is 2 against
+	-- a male's 10, so shooting one is a poor trade instead of an identical one -- but it is still not
+	-- REFUSED and there is still no deduction. So the card states today's rule: `QUARRY_NOTE` below,
+	-- and each kind's price beside it (`Match.quarryLines`). The rule Karen described, *"NOT
+	-- piglets/cubs"*, is still a decision waiting for her (TASKS.md row 158a), and the day a cub is
+	-- protected this row, that note and `POINTS.KIND.cub` change together.
 	QUARRY = {
 		{ species = "WILD BOAR", kinds = { "male", "female", "cub" } },
 	},
@@ -258,16 +259,71 @@ Match.CONFIG = {
 	QUICK_TEST_PUSH_BEHIND_STUDS = 30,
 	QUICK_TEST_PUSH_SECONDS = 25, -- after this the phantom is gone and the drive is the real drive
 
-	-- points (design section 7.1)
+	-- points (design section 7.1 -- STALE since task 160, which retuned this table whole; the
+	-- Architect owns that file and the Builder does not write designs. Note:
+	-- docs/research/2026-10-12-scoring.md. The table it replaced, with its rollback:
+	-- backups/2026-10-12_task-160_points-by-hit-zone.txt)
 	POINTS = {
-		KILL = { head = 100, chest = 80, body = 50, legs = 30, unknown = 50 }, -- K
-		ASSIST = 10, -- K
+		-- WHAT AN ANIMAL IS WORTH, AND IT IS THE ANIMAL AND NOTHING ELSE (task 160). Karen's answer
+		-- in her own design doc, 2026-10-10: *"How many shoot and male is more worth then famale"*,
+		-- and 2026-10-11: *"first place ofc more legendary more ect"*.
+		--
+		-- THIS IS THE ROW TASK 158 SAID WAS MISSING. Its start card refused to pretend the rule
+		-- existed -- *"`POINTS.KILL` scores a kill by HIT ZONE alone"* -- and left it as a decision
+		-- waiting for Karen. This is that decision: `Score.kill` reads `record.kind`, the field the
+		-- kill record has carried since task 120 (*"WHICH ANIMAL DIED"*), and reads nothing else.
+		--
+		-- THE HIT ZONE IS NOT GONE FROM THE GAME, ONLY FROM THE MONEY. It still decides whether the
+		-- animal dies and how far it runs (`Boar.Wound`), it is still on the kill record, still
+		-- drawn on the drive report's silhouette in its own ring colour and still printed in that
+		-- report's ZONE column. What it no longer does is set a price.
+		KIND = {
+			male = 10, -- K, the unit of this game's currency: every other number is read against it
+			female = 6, -- K, *"male is more worth then famale"* -- and a sow is still worth shooting
+			-- SMALL, AND NEVER ZERO, because today's rule is `QUARRY_NOTE` two screens up: *"every
+			-- one of them counts - no cub rule yet"*. The day Karen protects cubs (her doc says
+			-- *"NOT piglets/cubs"*) this row goes to 0 or negative and that sentence changes in the
+			-- same commit -- which is exactly what that comment promises.
+			cub = 2, -- K
+			-- A DATA ROW WITH NO ANIMAL BEHIND IT (task 160, Karen: *"more legendary more"*).
+			-- `Boar.CONFIG.KINDS` has no "legendary", nothing spawns one and no spec asks for one in
+			-- the world: this is the price waiting for the animal, so that the day one exists the
+			-- scoring half is already done and reviewed. It is NOT dead code -- `Score.kill` reads
+			-- this table by key, so the row is live the instant a kind by that name dies.
+			legendary = 25, -- K
+			-- An unnamed kind: never free, and counted by the owner as `stats().unknownKindKills`.
+			-- A kind typo must show up as a NUMBER rather than as an animal that quietly scores
+			-- nothing -- the same discipline the retired `KILL.unknown` kept for zones.
+			unknown = 6,
+		},
+		-- RESCALED WITH THE KILL ROW, and it is scale and not taste (note section 4): against a
+		-- 100-point head shot this was a tenth, and against a 10-point male the old 10 would make an
+		-- assist worth a whole animal. The ratio Karen approved is what was kept. It reads as the
+		-- same thing a push reads as, which is what an assist IS: you moved it or you hurt it and
+		-- somebody else finished it.
+		ASSIST = 3, -- K
 		ASSIST_MIN_DAMAGE = 25, -- K, a quarter of Boar.CONFIG.WOUND.LETHAL: one pellet is not an assist
-		PUSH = 25, -- K, to a driver who was the reason it ran
+		-- WHAT A BEATER EARNS FOR AN ANIMAL HE PUSHED THAT SOMEBODY THEN SHOT (task 160). Karen,
+		-- 2026-10-10: *"beater ranking also is cool"*. It was `PUSH = 25`, which paid EVERY driver
+		-- inside `PUSH_RADIUS`; it now pays the animal's LAST credit before it died, which is
+		-- ioquake3's own rule for a support action (`g_team.h`: *"awarded for returning a flag that
+		-- causes a capture to happen almost immediately"*, GPL-2.0, quoted in the note).
+		--
+		-- 3 AND NOT 1, against that source's own tenth: a beater's drive is six animals at best, so
+		-- at a tenth his column is noughts and the ranking Karen asked for cannot be read. At 3, a
+		-- beater who walks four animals onto the guns (12) is level with a hunter who shot a male
+		-- and a cub (12) -- the two jobs in one currency, which is the whole reason this award
+		-- exists (`Score`'s own header). `BEATER_PUSH = 0` switches the idea off, as `PUSH = 0` did.
+		BEATER_PUSH = 3, -- K
 		PUSH_RADIUS = 60, -- K, 1.5x Boar.CONFIG.DETECT_RADIUS
 		PUSH_WINDOW = 20, -- K, seconds before the kill
 		ESCAPE_WOUNDED = 0, -- K, "take the shot you can make"
-		SAFETY_PENALTY = -50, -- K, 1.7b
+		-- RESCALED FOR THE SAME REASON AS `ASSIST`, and this one matters most: -50 was half a good
+		-- kill, and against a 10-point male it would be FIVE animals -- more than a good drive
+		-- earns, so one violation would end a player's board irrecoverably. -10 is one whole animal,
+		-- which is a harder penalty than the old half and still survivable. The real punishment is
+		-- unchanged and is Karen's: you are tied to a tree for the rest of the drive.
+		SAFETY_PENALTY = -10, -- K, 1.7b
 	},
 	PUSH_SAMPLE_HZ = 2,
 
@@ -348,10 +404,34 @@ Match.WORLD_OVERRIDABLE = table.freeze({
 -- reads the rule with no drive, no client and no world -- the same shape `Phase.waitingFor` already
 -- has: the SERVER states the rule in words and the Hud only lays them out, so there is one source
 -- for "what can I shoot" and the client holds no second copy of it.
+-- ...AND SINCE TASK 160 EACH KIND CARRIES WHAT IT IS WORTH, off `POINTS.KIND` and no second copy of
+-- it. Karen asked *"How many shoot and male is more worth then famale"*, and the one screen that
+-- answers "what may I shoot" is the one place that answer belongs -- so the card reads
+-- `WILD BOAR: male 10, female 6, cub 2` and a player learns the price before the drive starts
+-- instead of inferring it from the board afterwards.
+--
+-- `QUARRY` STILL SAYS WHICH ANIMALS ARE IN THE DRIVE AND `POINTS.KIND` SAYS WHAT EACH IS WORTH, and
+-- the two tables are not merged: `POINTS.KIND` carries a `legendary` row with no animal behind it
+-- and an `unknown` fallback, and neither of those is quarry. A kind the points table has no row for
+-- is printed with no number rather than with a wrong one.
 function Match.quarryLines(cfg): { string }
 	local lines = {}
+	local prices = (cfg.POINTS or {}).KIND or {}
 	for _, row in ipairs(cfg.QUARRY or {}) do
-		table.insert(lines, string.format("%s: %s", row.species, table.concat(row.kinds, ", ")))
+		local priced = {}
+		local anyPriced = false
+		for _, kind in ipairs(row.kinds) do
+			local points = prices[kind]
+			if points ~= nil then
+				anyPriced = true
+			end
+			table.insert(priced, if points ~= nil then string.format("%s %d", kind, points) else kind)
+		end
+		-- THE WORD ONLY WHEN THERE IS A NUMBER UNDER IT. A card reading "POINTS:" over three bare
+		-- kind names would be a label for something that is not there -- which is the same lie task
+		-- 158 refused to print about the cub rule.
+		local label = if anyPriced then string.format("%s, POINTS", row.species) else row.species
+		table.insert(lines, string.format("%s: %s", label, table.concat(priced, ", ")))
 	end
 	if cfg.QUARRY_NOTE then
 		table.insert(lines, cfg.QUARRY_NOTE)
@@ -441,7 +521,14 @@ local stats = {
 	-- How many times a world answered nil for where a player of this team stands (task 157).
 	placementsNowhere = 0,
 	emptyTeamDrives = 0,
-	unknownZoneKills = 0,
+	-- A KILL WHOSE ANIMAL THIS TABLE HAS NO PRICE FOR (task 160; it was `unknownZoneKills`, the same
+	-- diagnostic pointed at the retired zone table). It is the kind, not the zone, that now decides
+	-- what a kill pays, so it is a kind typo that must show up here as a number.
+	unknownKindKills = 0,
+	-- How many (animal, beater) credits the horn has written this session (task 160). It is the one
+	-- number that says the second door into push credit is actually open, and a drive where a beater
+	-- blew a horn at a sounder and this stayed 0 is a defect.
+	hornCredits = 0,
 	killSignalMissing = 0,
 	broadcasts = 0,
 	testSeconds = 0, -- seconds of test time this owner has been given; 0 in every real session
@@ -1434,6 +1521,60 @@ local function samplePush()
 	end
 end
 
+-- MAY THIS MAN BE CREDITED FOR AN ANIMAL HE PUSHED? PURE, and exported so a spec drives both
+-- branches with no drive and no world -- the shape `Phase.waitingFor` and `Horn.carriesFor` already
+-- have (task 160). Three facts and no state: there is a userId at all (a phantom beater has none),
+-- the drive is live, and he is a beater OF THIS DRIVE.
+function Match.pushCreditable(userId: any, team: any, live: boolean?): boolean
+	return type(userId) == "number" and live == true and team == "Drivers"
+end
+
+-- THE SECOND DOOR INTO PUSH CREDIT, AND IT IS THE HORN (task 160). Karen, 2026-10-10:
+-- *"beater ranking also is cool"*.
+--
+-- WHY IT HAS TO EXIST: `samplePush` above measures PROXIMITY -- 60 studs, twice a second -- and a
+-- horn carries `Horn.spookStuds`, which is far further than that. So the one push a beater makes
+-- deliberately, from where he is standing, in the one way Karen designed for him, earned him
+-- nothing at all: the animals ran, a hunter shot one, and the man who flushed it was out of radius.
+--
+-- WHO SAYS WHICH ANIMALS WERE PUSHED IS THE BOAR'S OWNER, not this one. `Runtime:hearHorn` returns
+-- the ids it actually pushed (task 160), because "did this blast reach that animal" is a question
+-- about the boar world -- a second radius test here would be two systems deciding one fact, which
+-- is the failure docs/PROJECT_CONTEXT.md names. This function turns an answer into credit and
+-- nothing more: no radius, no distance, no ray.
+--
+-- ONLY A BEATER OF THIS DRIVE, and only while it is live. `Horn.carriesFor` already grants the tool
+-- to nobody else, so this is the belt to that braces: beater points are for beaters, read off
+-- `state.assignment` -- the same fact `samplePush` filters on, which is why a phantom beater (the
+-- quick test's, the forest's wave) can never earn one. It has no userId to credit and never reaches
+-- this door at all.
+function Match.creditPush(userId: number?, boarIds): number
+	if
+		not Match.pushCreditable(
+			userId,
+			if type(userId) == "number" then state.assignment[userId] else nil,
+			Phase.isLive(state)
+		)
+	then
+		return 0
+	end
+	local at = now()
+	local credited = 0
+	for _, id in ipairs(boarIds or {}) do
+		if type(id) == "string" then
+			local credit = pushCredit[id]
+			if not credit then
+				credit = {}
+				pushCredit[id] = credit
+			end
+			credit[userId] = at
+			credited += 1
+		end
+	end
+	stats.hornCredits += credited
+	return credited
+end
+
 local function creditFor(boarId: string?): { [number]: number }
 	local out = {}
 	local credit = if boarId then pushCredit[boarId] else nil
@@ -1454,8 +1595,8 @@ local function onDowned(record)
 		return -- a shot at a carcass between drives scores nothing
 	end
 	stats.kills += 1
-	if record.killingZone == nil or config.POINTS.KILL[record.killingZone] == nil then
-		stats.unknownZoneKills += 1
+	if record.kind == nil or config.POINTS.KIND[record.kind] == nil then
+		stats.unknownKindKills += 1
 	end
 	local awards
 	board, awards = Score.kill(board, record, creditFor(record.id), config)

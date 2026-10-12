@@ -185,7 +185,11 @@ return function()
 					userId = player.UserId,
 					name = player.Name,
 					team = "Shooters",
-					points = 180,
+					-- A MALE AND A FEMALE, PRICED BY TASK 160's TABLE (10 + 6). It was 180 -- two head
+					-- shots at the retired zone table's 100 and 80 -- and the row is rescaled with it
+					-- so that a fixture nobody re-reads cannot keep showing Karen a number the game
+					-- can no longer produce.
+					points = 16,
 					kills = 2,
 					assists = 0,
 					pushes = 0,
@@ -196,7 +200,7 @@ return function()
 					userId = player.UserId + 1,
 					name = "Mila",
 					team = "Drivers",
-					points = 25,
+					points = 3, -- one animal pushed onto the guns: POINTS.BEATER_PUSH
 					kills = 0,
 					assists = 0,
 					pushes = 1,
@@ -328,7 +332,7 @@ return function()
 			print("[match_client] score row 1: " .. (rows[1] or "<none>"))
 			expect(#rows).to.equal(2)
 			expect(string.find(rows[1], player.Name, 1, true) ~= nil).to.equal(true)
-			expect(string.find(rows[1], "180", 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[1], "16", 1, true) ~= nil).to.equal(true)
 			expect(string.find(rows[1], "SHOOTER", 1, true) ~= nil).to.equal(true)
 			expect(string.find(rows[2], "Mila", 1, true) ~= nil).to.equal(true)
 			expect(string.find(rows[2], "DRIVER", 1, true) ~= nil).to.equal(true)
@@ -352,6 +356,49 @@ return function()
 			expect(Hud.scoreFooterText()).to.equal("NEXT DRIVE IN 12")
 		end)
 
+		-- THE FIRST-PLACE BADGE (task 160). Karen, 2026-10-11: *"first place ofc more"*. The rule
+		-- itself is `Hud.firstPlaceRank` and is pure, so every case below is a table rather than a
+		-- rendered frame -- and the two cases that matter are the ones where the badge must NOT
+		-- appear, because a wrong badge names a winner who did not win.
+		it("marks the leader 1st, and marks nobody when the top two are level", function()
+			local function board(first: number, second: number?)
+				local rows = { { userId = 1, name = "one", team = "Shooters", points = first, kills = 1 } }
+				if second ~= nil then
+					table.insert(rows, { userId = 2, name = "two", team = "Drivers", points = second, kills = 0 })
+				end
+				return rows
+			end
+			expect(Hud.firstPlaceRank(board(16, 3))).to.equal(1)
+			expect(Hud.firstPlaceRank(board(16))).to.equal(1) -- alone, but he shot something
+			-- A TIE AT THE TOP IS NOT A FIRST PLACE, it is a tie: ioquake3's `RANK_TIED_FLAG`
+			-- (docs/research/2026-10-12-scoring.md section 2.1).
+			expect(Hud.firstPlaceRank(board(16, 16))).to.equal(nil)
+			-- NOBODY HAS SCORED YET, which is every board for the first minute of every drive. The
+			-- order there is `Score.leaderboard`'s last tiebreak -- userId -- so a badge would crown
+			-- whoever joined the server first.
+			expect(Hud.firstPlaceRank(board(0, 0))).to.equal(nil)
+			expect(Hud.firstPlaceRank(board(0))).to.equal(nil)
+			expect(Hud.firstPlaceRank({})).to.equal(nil)
+			expect(Hud.firstPlaceRank(nil)).to.equal(nil)
+			-- ...and a board everybody is penalised on still has a leader: -10 beats -20.
+			expect(Hud.firstPlaceRank(board(-10, -20))).to.equal(1)
+		end)
+
+		it("puts the badge on the drawn row, on the leader's row only", function()
+			Hud.renderScore(scoring(), 12)
+			local rows = Hud.scoreRowText()
+			print("[match_client] badged row 1: " .. (rows[1] or "<none>"))
+			local badge = Drive.CONFIG.SCORE_FIRST_BADGE
+			expect(string.find(rows[1], badge, 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[2], badge, 1, true) == nil).to.equal(true)
+			-- AFTER THE POINTS, not before them: the badge belongs against the number it was earned
+			-- with, and a reader scanning the POINTS column must not find a word in it.
+			expect(string.find(rows[1], badge, 1, true) > (string.find(rows[1], "16", 1, true) :: number)).to.equal(
+				true
+			)
+			TestKit.note("match_client: first place -> " .. rows[1])
+		end)
+
 		it("clears the board when the next drive starts, so nothing stale flashes", function()
 			Hud.renderScore(scoring(), 12)
 			expect(#Hud.scoreRowText()).to.equal(2)
@@ -369,7 +416,11 @@ return function()
 	-- will not show it here. `Hud.renderStartCard` is public for exactly this. The screenshot is
 	-- separate evidence and this does not replace it.
 	describe("the start card", function()
-		local CARD_QUARRY = { "WILD BOAR: male, female, cub", "every one of them counts - no cub rule yet" }
+		-- THE SERVER'S WORDS, AS THE SERVER NOW SAYS THEM (task 160): each kind with what it is
+		-- worth, off `Match.CONFIG.POINTS.KIND`. The Hud passes this through and decides nothing
+		-- about it, which is the whole point of the last case in this describe.
+		local CARD_QUARRY =
+			{ "WILD BOAR, POINTS: male 10, female 6, cub 2", "every one of them counts - no cub rule yet" }
 
 		local function snapshotIn(phase: string)
 			local snapshot = {

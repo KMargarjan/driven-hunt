@@ -232,7 +232,7 @@ return function()
 				(Match.CONFIG :: any).DRIVE_SECONDS = 1
 			end).to.throw()
 			expect(function()
-				(Match.CONFIG :: any).POINTS.KILL.head = 1
+				(Match.CONFIG :: any).POINTS.KIND.male = 1
 			end).to.throw()
 		end)
 	end)
@@ -475,6 +475,24 @@ return function()
 			expect(people[1].userId).to.equal(12345)
 			expect(people[1].position).to.equal(Vector3.new(1, 0, 2))
 			expect(#Match.playerDrivers({})).to.equal(0)
+
+			-- ...AND THE SAME RULE AT THE HORN'S DOOR (task 160). Karen asked for a beater ranking,
+			-- so a blast now credits the man who blew it for the animals it pushed -- and a phantom
+			-- beater (the quick test's, the forest's wave) must earn nothing by construction, not by
+			-- a filter somebody remembers to apply. `Match.pushCreditable` is pure, so both branches
+			-- are one line each with no drive running.
+			expect(Match.pushCreditable(12345, "Drivers", true)).to.equal(true)
+			expect(Match.pushCreditable(12345, "Shooters", true)).to.equal(false) -- a hunter is not a beater
+			expect(Match.pushCreditable(12345, "Drivers", false)).to.equal(false) -- no live drive to score in
+			expect(Match.pushCreditable(12345, nil, true)).to.equal(false) -- not in this drive at all
+			expect(Match.pushCreditable(nil, "Drivers", true)).to.equal(false) -- the phantom: no userId
+			expect(Match.pushCreditable("quick-test", "Drivers", true)).to.equal(false)
+			-- ...and the real owner, in this place, refuses every one of them: nothing is credited.
+			expect(Match.creditPush(nil, { "Boar1" })).to.equal(0)
+			expect(Match.creditPush("quick-test" :: any, { "Boar1" })).to.equal(0)
+			local before = Match.stats().hornCredits
+			expect(Match.creditPush(12345678, { "Boar1" })).to.equal(0) -- nobody by that id is driving here
+			expect(Match.stats().hornCredits).to.equal(before)
 			local threats = Match.driverThreats()
 			for _, threat in ipairs(threats) do
 				expect(tonumber(threat.id)).never.to.equal(nil)

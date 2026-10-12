@@ -8,11 +8,17 @@
 --
 -- WHY DRIVERS SCORE AT ALL, since it is the one thing here worth arguing about: if only the killer
 -- scores then half the players end a ten-minute drive with an empty line, and with teams swapping
--- they waited ten minutes for their turn. PUSH makes driving a scoring activity in the same
--- currency, off one number (PUSH = 0 switches the whole idea off).
+-- they waited ten minutes for their turn. BEATER_PUSH makes driving a scoring activity in the same
+-- currency, off one number (BEATER_PUSH = 0 switches the whole idea off). Karen, 2026-10-10:
+-- *"beater ranking also is cool"*.
 --
--- Design: docs/design/drive.md (sections 7.1, 7.2, 7.3)
--- Note:   docs/research/2026-09-25-drive.md
+-- WHAT A KILL IS WORTH IS THE ANIMAL, since task 160: `POINTS.KIND` off `record.kind`, not
+-- `POINTS.KILL` off the hit zone. Karen: *"male is more worth then famale"*. The retired table and
+-- its rollback are in backups/2026-10-12_task-160_points-by-hit-zone.txt.
+--
+-- Design: docs/design/drive.md (sections 7.1, 7.2, 7.3 -- 7.1's table is STALE since task 160: the
+--         Architect owns that file and the Builder does not write designs)
+-- Note:   docs/research/2026-09-25-drive.md, and docs/research/2026-10-12-scoring.md for the points
 local Score = {}
 
 export type TeamName = "Drivers" | "Shooters"
@@ -119,21 +125,60 @@ function Score.setTeam(board: Board, userId: number, team: TeamName?): Board
 	return withRows(board, { [userId] = row })
 end
 
-local function pointsForZone(zone: string?, config): (number, boolean)
-	local table_ = config.POINTS.KILL
-	local known = zone ~= nil and table_[zone] ~= nil
+-- WHAT THE ANIMAL WAS WORTH (task 160). Karen, 2026-10-10: *"How many shoot and male is more worth
+-- then famale"* -- so the kill's price comes off the KIND and off nothing else: no zone multiplier,
+-- no range bonus, no streak. One table, one lookup, `multiplied/added by nothing`.
+--
+-- It replaced `pointsForZone`, which read `POINTS.KILL[record.killingZone]` and could not express
+-- Karen's rule at all because it did not know what it shot
+-- (backups/2026-10-12_task-160_points-by-hit-zone.txt).
+local function pointsForKind(kind: string?, config): (number, boolean)
+	local table_ = config.POINTS.KIND
+	local known = kind ~= nil and table_[kind] ~= nil
 	if known then
-		return table_[zone :: string], true
+		return table_[kind :: string], true
 	end
-	-- Never free, and counted by the owner as unknownZoneKills: an attribute typo must show up as a
-	-- number rather than as a zone that quietly scores nothing.
+	-- Never free, and counted by the owner as unknownKindKills: a kind typo must show up as a number
+	-- rather than as an animal that quietly scores nothing.
 	return table_.unknown, false
 end
 
--- `record` is the boar's KillRecord (docs/design/hit-zones.md section 8.1): killedByUserId,
--- killingZone, contributors (userId -> damage points).
--- `pushCredit` is userId -> the last time that DRIVER was near this boar, already filtered by the
--- owner to the drivers inside PUSH_RADIUS within PUSH_WINDOW.
+-- WHO GETS THE BEATER'S POINTS FOR THIS ANIMAL (task 160), out of the credit the owner measured.
+--
+-- `pushCredit` is userId -> the instant that beater last pushed this boar, already filtered by the
+-- owner to the window before the kill. THE LATEST CREDIT IS THE ONE THAT PAYS -- ioquake3's support
+-- rule, which awards an assist only for the action that caused the score *"almost immediately"*
+-- (code/game/g_team.h, GPL-2.0; docs/research/2026-10-12-scoring.md section 2.2). A beater who
+-- walked past this animal nineteen seconds ago and then left it to somebody else does not collect
+-- for the other man's work.
+--
+-- A TIE PAYS EVERYBODY TIED, and that is a decision rather than an oversight. Credit is sampled at
+-- `PUSH_SAMPLE_HZ` (2 Hz), so two beaters walking the same animal up are written in the SAME tick
+-- and hold IDENTICAL timestamps -- "the last one" would then be decided by `pairs` order or by
+-- userId, which is a coin flip the loser watches happen. Two men pushed it; two men are paid.
+local function latestPushers(pushCredit: { [number]: number }?): { number }
+	local best, out = -math.huge, {}
+	for userId, seen in pairs(pushCredit or {}) do
+		if seen > best then
+			best, out = seen, { userId }
+		elseif seen == best then
+			table.insert(out, userId)
+		end
+	end
+	-- Sorted, so the awards this function feeds come out in a stable order for the same reason
+	-- `Score.leaderboard`'s last tiebreak exists: a feed that reorders between two identical kills
+	-- is this project's "a marker wandering the screen" in a new place.
+	table.sort(out)
+	return out
+end
+
+-- `record` is the boar's KillRecord (docs/design/hit-zones.md section 8.1): killedByUserId, kind,
+-- killingZone, contributors (userId -> damage points). `kind` is what the kill is PRICED by (task
+-- 160); `killingZone` is still on the record and is still what the report draws, and this module no
+-- longer reads it at all.
+-- `pushCredit` is userId -> the last time that BEATER pushed this boar, already filtered by the
+-- owner to the window before the kill. Two doors feed it and the owner knows about both: standing
+-- inside PUSH_RADIUS (sampled at PUSH_SAMPLE_HZ) and blowing a horn the animal heard.
 function Score.kill(board: Board, record, pushCredit: { [number]: number }?, config): (Board, { Award })
 	local awards: { Award } = {}
 	local updates: { [number]: Row } = {}
@@ -149,11 +194,11 @@ function Score.kill(board: Board, record, pushCredit: { [number]: number }?, con
 	end
 
 	local killer = record.killedByUserId
-	local zone = record.killingZone
-	local killPoints, knownZone = pointsForZone(zone, config)
+	local kind = record.kind
+	local killPoints, knownKind = pointsForKind(kind, config)
 
 	if killer then
-		credit(killer, killPoints, if knownZone then "kill-" .. tostring(zone) else "kill-unknown", function(row)
+		credit(killer, killPoints, if knownKind then "kill-" .. tostring(kind) else "kill-unknown", function(row)
 			row.kills += 1
 			if row.firstKillAt == nil then
 				row.firstKillAt = record.at
@@ -171,9 +216,9 @@ function Score.kill(board: Board, record, pushCredit: { [number]: number }?, con
 		end
 	end
 
-	for userId in pairs(pushCredit or {}) do
+	for _, userId in ipairs(latestPushers(pushCredit)) do
 		if userId ~= killer then
-			credit(userId, config.POINTS.PUSH, "push", function(row)
+			credit(userId, config.POINTS.BEATER_PUSH, "push", function(row)
 				row.pushes += 1
 			end)
 		end

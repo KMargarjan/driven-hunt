@@ -3989,25 +3989,38 @@ end
 -- is still not a shot. What the world may now ask for is the LATCH alone, per blast, which is why
 -- it is a parameter here and not a number in `Horn.CONFIG`: how long a fright lasts is the
 -- WORLD's to decide and the signal only says how far it carries.
-function Runtime:hearHorn(at: Vector3, radiusStuds: number, untilExit: boolean?): number
+-- ...AND IT ALSO SAYS WHICH ANIMALS THOSE WERE (task 160), as a second return value beside the
+-- count. Karen asked for a beater ranking, and a beater is paid for an animal he pushed that
+-- somebody then shot -- so the drive has to know WHICH animals a blast reached. That is a question
+-- about the boar world and it is answered here, by the owner, rather than by a second radius test in
+-- `Match`: two systems deciding one fact is the failure docs/PROJECT_CONTEXT.md names. The drive
+-- turns the list into points (`Match.creditPush`) and this module still knows nothing about them.
+--
+-- THE FIRST RETURN IS UNCHANGED, which is why every caller written before today is untouched: a
+-- second return value is inert to `local n = runtime:hearHorn(...)` and to `expect(...)`.
+function Runtime:hearHorn(at: Vector3, radiusStuds: number, untilExit: boolean?): (number, { string })
 	if self._destroyed then
-		return 0
+		return 0, {}
 	end
 	if typeof(at) ~= "Vector3" or type(radiusStuds) ~= "number" or radiusStuds <= 0 then
-		return 0
+		return 0, {}
 	end
 	local flatAt = flatOf(at)
 	local pushed = 0
+	local ids: { string } = {}
 	for _, entry in ipairs(self._boars) do
 		local where = flatOf(Body.position(entry.body))
 		if (where - flatAt).Magnitude <= radiusStuds then
 			if entry.brain:spook(at, nil, untilExit) == true then
 				pushed += 1
+				table.insert(ids, entry.id)
 			end
 		end
 	end
 	self._stats.hornsHeard += pushed
-	return pushed
+	-- The ids of the animals that RAN, not of the animals in radius: a carcass, a terminal boar and a
+	-- crippled one are refused by `Brain:spook` itself, and nobody is paid for pushing a dead pig.
+	return pushed, ids
 end
 
 function Runtime:_requestPath(entry, to: Vector3)

@@ -518,7 +518,12 @@ return function()
 			expect(Match.CONFIG.TIE_GAP_STUDS).to.equal(CONFIG.TIE_GAP_STUDS)
 			expect(Match.CONFIG.ROPE_COLOR).to.equal(CONFIG.ROPE_COLOR)
 			expect(Match.CONFIG.ROPE_THICKNESS).to.equal(CONFIG.ROPE_THICKNESS)
-			expect(Match.CONFIG.POINTS.SAFETY_PENALTY).to.equal(-50)
+			-- -10 SINCE TASK 160, and it is one whole animal rather than half a head shot: the kill
+			-- table is priced by kind now (male 10), so the old -50 would have cost five animals --
+			-- more than a good drive earns. The real punishment is unchanged and is Karen's rule:
+			-- tied to a tree for the rest of the drive. backups/2026-10-12_task-160_points-by-hit-zone.txt
+			expect(Match.CONFIG.POINTS.SAFETY_PENALTY).to.equal(-10)
+			expect(-Match.CONFIG.POINTS.SAFETY_PENALTY).to.equal(Match.CONFIG.POINTS.KIND.male)
 		end)
 
 		it("keeps SAFETY_RANGE_STUDS at the slug's own range, so one cannot drift from the other", function()

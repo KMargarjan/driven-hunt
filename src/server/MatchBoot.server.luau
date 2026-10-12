@@ -156,8 +156,16 @@ end)
 -- IT IS NOT THE SHOT PATH. `runtime:hearHorn` goes through `Brain:spook`, the same door a real
 -- driver's flush uses, so nothing latches and the animals settle afterwards under the rules they
 -- already have (docs/research/2026-10-11-beater-kit.md section 5.3).
+-- ...AND THE BEATER WHO BLEW IT IS PAID FOR THE ANIMALS IT PUSHED, if a hunter then shoots one
+-- inside `POINTS.PUSH_WINDOW` (task 160). Karen, 2026-10-10: *"beater ranking also is cool"*.
+--
+-- THE SPLIT IS THE SAME ONE AS THE LINE ABOVE and that is the whole reason this root exists: the
+-- HORN publishes one fact (who blew it, and where), the BOAR's owner answers which animals it
+-- reached, and the DRIVE decides what that is worth. None of the three knows the other two's rule,
+-- and the ids never travel further than this line.
 Weapon.Horn.Blown:Connect(function(blast)
-	runtime:hearHorn(blast.at, HornData.spookStuds(HornData.CONFIG))
+	local _, pushed = runtime:hearHorn(blast.at, HornData.spookStuds(HornData.CONFIG))
+	Match.creditPush(blast.blowerUserId, pushed)
 end)
 
 -- The drive answers two questions for the weapon and writes none of its state: who may carry a gun,
