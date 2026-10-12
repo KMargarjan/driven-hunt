@@ -500,9 +500,17 @@ return function()
 			-- to that box per axis -- so the three ratios have to be the mesh's own three ratios.
 			local natural = Horn.MESH.NATURAL_SIZE_STUDS
 			local size = Horn.MESH.SIZE_STUDS
+			--
+			-- RELATIVELY, AND THAT IS THE WHOLE OF ROUND 1'S FINDING. The scale here is
+			-- 1.25 / 1164.78 = 0.00107, so an ABSOLUTE tolerance of 1e-3 on it is no tolerance at
+			-- all: it admitted a Y/Z swap -- the horn squashed to 55 % in one axis and stretched
+			-- 81 % in the other -- with room to spare. The repo's own version of this check
+			-- (`assets_seam.spec`, "keeps the gun's LENGTH and does not squash it") compares at
+			-- 0.45 % of its factor, so this compares at 0.01 % of its own: the committed numbers
+			-- deviate by 7e-9 and 8.9e-8 relative, four orders of magnitude inside it.
 			local scale = size.X / natural.X
-			expect(math.abs(size.Y / natural.Y - scale) < 1e-3).to.equal(true)
-			expect(math.abs(size.Z / natural.Z - scale) < 1e-3).to.equal(true)
+			expect(math.abs(size.Y / natural.Y / scale - 1) < 1e-4).to.equal(true)
+			expect(math.abs(size.Z / natural.Z / scale - 1) < 1e-4).to.equal(true)
 			-- ...AND IT IS A REAL HORN. The Director asked for ~25-35 cm across; `METRES_PER_STUD` is
 			-- the conversion this game publishes, so the check is in metres rather than in studs.
 			local metres = size.X * CONFIG.METRES_PER_STUD

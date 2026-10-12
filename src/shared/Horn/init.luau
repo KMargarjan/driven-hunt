@@ -398,8 +398,8 @@ Horn.CONFIG = {
 	-- ...and the raised pose brings it up and inboard with the mouthpiece turned toward the face.
 	-- Photographed the same way, on the same horn, in the same session.
 	-- ...AND Y COMES UP FROM 0.05 TO -0.22 FOR THE UPLOADED HORN (task 169). The coil was 0.76 studs
-	-- across and the new horn is 1.25 long, so the same Grip holds it two thirds of a stud lower
-	-- down its own length: photographed raised at 0.05, the mouthpiece sat at the CHEST with the
+	-- across and the new horn is 1.25 long, so the same Grip holds a mouthpiece that is now a third
+	-- of a stud further down the object: photographed raised at 0.05, it sat at the CHEST with the
 	-- bell across the face. POSITIVE Y LOWERS IT (the `GRIP` note above measured that), so -0.22
 	-- lifts the whole horn by 0.27 and puts the mouthpiece at the chin with the bell up and forward
 	-- past the head -- photographed, `.screenshots/...-t169-grip-a.png`. Z comes in with it, 0.4 to
