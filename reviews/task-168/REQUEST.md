@@ -3,7 +3,7 @@
 Task: 168
 Round: 2
 Base: `37d8ba0` (main, #151 merged)
-Code commit: `62b7ce4`
+Code commit: `2ea68b1bef40fb05da1dcb24a568898f72a025ca`
 
 Harness, the clean tree, TWICE at the code commit:
 
@@ -13,7 +13,8 @@ Harness, the clean tree, TWICE at the code commit:
 ```
 
 ```
-[harness2] NEEDS TEST2 168 62b7ce4379a4130025460a608ecb1822b64cb473
+[harness] PASS: 33/33 checks @ 2ea68b1bef40fb05da1dcb24a568898f72a025ca (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 2ea68b1bef40fb05da1dcb24a568898f72a025ca (clean tree)
 ```
 
 ROUND 1's gate lines, for the record, were `[harness] PASS: 33/33` and `[harness2] PASS: 35/35` at
