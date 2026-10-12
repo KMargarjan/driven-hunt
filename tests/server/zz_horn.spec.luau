@@ -911,6 +911,13 @@ return function()
 			table.insert(built, folder)
 			local tool = HornTool.build()
 			tool.Parent = folder
+			-- ANCHORED AND SOMEWHERE RECOGNISABLE, for the two reasons the player's own case above
+			-- gives: a horn in a Folder rather than in a hand is an unanchored part that FALLS (the
+			-- gate measured this one drifting between the blast and the read), and "it published the
+			-- horn's own position" has to be a real assertion rather than a comparison of two zeroes.
+			local handle = tool:FindFirstChild("Handle") :: BasePart
+			handle.Anchored = true
+			handle.CFrame = CFrame.new(31, GROUND_Y, -44)
 
 			local blasts = {}
 			local connection = HornTool.Blown:Connect(function(blast)
@@ -938,8 +945,7 @@ return function()
 				expect(typeof(blast.at)).to.equal("Vector3")
 			end
 			-- ...and it is published from the HORN's own handle, never from an approximate position.
-			local handle = tool:FindFirstChild("Handle") :: BasePart
-			expect((blasts[1].at - handle.Position).Magnitude < 0.01).to.equal(true)
+			expect((blasts[1].at - handle.Position).Magnitude < 1e-3).to.equal(true)
 		end)
 
 		it("refuses a blast with no tool at all, rather than publishing from nowhere", function()
