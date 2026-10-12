@@ -3,12 +3,13 @@
 Task: 161
 Round: 3
 Base: `87dbccb` (main, PR #143 merged)
-Code commit: `30fac01c5819aee779af4273c5341e3a5a970a0c`
+Code commit: `d2b64b4113e2341b10835555573b08435b977718`
 
 ```
 [harness] PASS: 33/33 checks @ 30fac01c5819aee779af4273c5341e3a5a970a0c (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 30fac01c5819aee779af4273c5341e3a5a970a0c (clean tree) scope=all
-[harness2] NEEDS TEST2 161 30fac01c5819aee779af4273c5341e3a5a970a0c
+[harness] PASS: 33/33 checks @ d2b64b4113e2341b10835555573b08435b977718 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ d2b64b4113e2341b10835555573b08435b977718 (clean tree)
 ```
 
 Logs `<runs-dir>/t161-r3-gate-1.log` and `t161-r3-gate-2.log`, both in the **DEV** Studio alone —
