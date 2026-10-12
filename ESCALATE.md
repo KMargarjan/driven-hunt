@@ -9,7 +9,14 @@ bot beaters stood abreast at ±18 and ±36 studs about their base, walked 240 st
 goal still 18 studs apart, blew the real horn nine times with **0 credited** every time, and left no
 error line in the console. The numbers are in `reviews/task-161/REQUEST.md`.
 
-### 1. NEEDS TEST2 161 `7b23fddd51ea1c27e33ce1cefdd6e02333aacadb`
+### 1. NEEDS TEST2 161 `66e7ddf2d16923b845dc7f36c9eef9b923897f7d`  (ROUND 2)
+
+**Round 2 superseded the sha below.** All three of round 1's findings are fixed at their owners and
+the Director's walk-animation item is in: the gate is `PASS 33/33 @ 66e7ddf` twice, clean tree,
+scope=all, run in DEV alone with the Forest Test closed. Everything in this entry still stands,
+against the new commit.
+
+### 1a. the original entry
 
 The dispatch assigned this one to the Director (*"stop `NEEDS TEST2 161 <sha>` with a `[harness2]`
 placeholder; I run test2 + the review"*). `src/server/Match/` is in `TWO_PLAYER_PATHS`, so
@@ -25,7 +32,11 @@ the windows alone until the harness says to press **Cleanup**.
 
 ### 2. NEEDS KAREN — the one picture, and it is the one thing a number cannot answer
 
-**I could not take it, and I am not pretending otherwise.** I captured four frames in the Forest
+**I could not take it, and I am not pretending otherwise. Round 2 did not try again** -- the Forest
+Test Studio is closed and the dispatch said not to reopen it -- **and round 2 made this picture
+matter MORE, not less**: the bots now carry Roblox's own default R15 walk and idle clips, the gate
+proves those load (`clipsFailed == 0`), and whether they make a bot read as a man walking rather
+than a statue sliding is the one question only an eye answers. I captured four frames in the Forest
 Test with the bots on and looked at all four; **none of them has a bot in it**. The reason is a
 harness fact rather than a guess: during Play, `screen_capture` returns the PLAYER'S OWN first-person
 view and the `camera_position` / `look_at_position` arguments have no effect, because the client owns
