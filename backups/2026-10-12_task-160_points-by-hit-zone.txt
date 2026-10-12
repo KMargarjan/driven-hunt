@@ -1,0 +1,89 @@
+ARCHIVED 2026-10-12, task 160. Rule 7: never delete.
+
+WHAT THIS IS: the whole of the drive's scoring table as it stood from task 23 (milestone 1.7a,
+2026-09-25) until task 160, and in particular `POINTS.KILL` -- the rule that a kill was worth what
+the HIT ZONE was worth, with the animal itself playing no part at all.
+
+----------------------------------------------------------------- src/server/Match/init.luau
+
+	-- points (design section 7.1)
+	POINTS = {
+		KILL = { head = 100, chest = 80, body = 50, legs = 30, unknown = 50 }, -- K
+		ASSIST = 10, -- K
+		ASSIST_MIN_DAMAGE = 25, -- K, a quarter of Boar.CONFIG.WOUND.LETHAL: one pellet is not an assist
+		PUSH = 25, -- K, to a driver who was the reason it ran
+		PUSH_RADIUS = 60, -- K, 1.5x Boar.CONFIG.DETECT_RADIUS
+		PUSH_WINDOW = 20, -- K, seconds before the kill
+		ESCAPE_WOUNDED = 0, -- K, "take the shot you can make"
+		SAFETY_PENALTY = -50, -- K, 1.7b
+	},
+
+	-- ...and the owner's diagnostic that went with it, in Match's `onDowned`:
+	if record.killingZone == nil or config.POINTS.KILL[record.killingZone] == nil then
+		stats.unknownZoneKills += 1
+	end
+
+----------------------------------------------------------------- src/server/Match/Score.luau
+
+local function pointsForZone(zone: string?, config): (number, boolean)
+	local table_ = config.POINTS.KILL
+	local known = zone ~= nil and table_[zone] ~= nil
+	if known then
+		return table_[zone :: string], true
+	end
+	-- Never free, and counted by the owner as unknownZoneKills: an attribute typo must show up as a
+	-- number rather than as a zone that quietly scores nothing.
+	return table_.unknown, false
+end
+
+	-- ...and its one caller, inside Score.kill:
+	local killPoints, knownZone = pointsForZone(zone, config)
+	if killer then
+		credit(killer, killPoints, if knownZone then "kill-" .. tostring(zone) else "kill-unknown", function(row)
+			...
+		end)
+	end
+
+	-- ...and the push award, which paid EVERY credited driver:
+	for userId in pairs(pushCredit or {}) do
+		if userId ~= killer then
+			credit(userId, config.POINTS.PUSH, "push", function(row)
+				row.pushes += 1
+			end)
+		end
+	end
+
+----------------------------------------------------------------- WHY IT WAS RETIRED
+
+Karen, 2026-10-10, answering her own design doc's question about how a kill is scored:
+*"How many shoot and male is more worth then famale"*. And 2026-10-11: *"first place ofc more
+legendary more ect"*.
+
+A zone table cannot express that rule, because it does not know what it shot. Task 158 had already
+found and written this down in `Match.CONFIG` -- *"THE CODE DOES NOT HAVE THAT RULE AND THIS CARD
+WILL NOT PRETEND IT DOES ... `POINTS.KILL` scores a kill by HIT ZONE alone"* -- and left it as a
+decision waiting for her. Task 160 is that decision arriving: a kill is scored by `POINTS.KIND`
+(male 10, female 6, cub 2, legendary 25), off `record.kind`, and by nothing else.
+
+THE HIT ZONE IS NOT GONE FROM THE GAME, only from the money. It still decides whether the animal
+dies and how far it runs (`Boar.Wound`, `Boar.CONFIG.ZONES`), it is still on the kill record, still
+drawn on the drive report's silhouette with its own ring colour, and still printed in the report's
+ZONE column. What it no longer does is set a price.
+
+THE REST OF THE TABLE MOVED WITH IT, and the reason is scale, not taste: against a 100-point head
+shot, `ASSIST = 10` was a tenth and `SAFETY_PENALTY = -50` was half. Against a 10-point male they
+would be a whole animal and five animals -- so one safety violation would cost more than a good
+drive earns and end a player's board irrecoverably. The ratios Karen approved are what was kept:
+ASSIST 3 (30% of a kill, the same as a push, which is what an assist is) and SAFETY_PENALTY -10
+(one whole animal, on top of being tied to a tree). `PUSH = 25` became `BEATER_PUSH = 3` and changed
+rule as well as number: it now pays the animal's LAST credit before it died, and the horn is a
+second door into that credit.
+
+HOW TO ROLL IT BACK: put the block above back in `Match.CONFIG.POINTS`, restore `pointsForZone` and
+its two call sites in `Match.Score`, and point the owner's diagnostic at `POINTS.KILL` again. The
+kind table and the beater-credit changes are independent of each other and of the rescale, so any
+one of the three can go back alone.
+
+Note:   docs/research/2026-10-12-scoring.md
+Design: docs/design/drive.md section 7.1 (STALE after task 160: it still documents this table.
+        Queued in TASKS.md for the Architect, who owns that file)

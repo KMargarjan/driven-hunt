@@ -683,9 +683,21 @@ return function()
 			expect(far).to.be.ok()
 
 			local before = runtime:stats().hornsHeard
-			local pushed = runtime:hearHorn(Vector3.new(0, GROUND_Y, 0), radius)
+			local pushed, ids = runtime:hearHorn(Vector3.new(0, GROUND_Y, 0), radius)
 			expect(pushed).to.equal(2)
 			expect(runtime:stats().hornsHeard - before).to.equal(2)
+
+			-- ...AND IT SAYS WHICH ANIMALS THOSE WERE (task 160), which is what pays the beater who
+			-- blew it (`Match.creditPush`). The ids are the ones that RAN -- the owner answers "did
+			-- this blast reach that animal" so the drive never runs a second radius test of its own.
+			expect(#ids).to.equal(2)
+			local pushedIds = {}
+			for _, id in ipairs(ids) do
+				pushedIds[id] = true
+			end
+			expect(pushedIds[(near :: any).id]).to.equal(true)
+			expect(pushedIds[(edge :: any).id]).to.equal(true)
+			expect(pushedIds[(far :: any).id]).to.equal(nil)
 
 			-- WHAT "PUSHED" MEANS, asserted rather than assumed: the two inside are in flight and
 			-- the one outside is not.
@@ -820,6 +832,12 @@ return function()
 			expect(runtime:hearHorn(Vector3.new(0, GROUND_Y, 0), -5)).to.equal(0)
 			expect(runtime:hearHorn(nil :: any, 100)).to.equal(0)
 			expect(runtime:hearHorn(Vector3.new(0, GROUND_Y, 0), nil :: any)).to.equal(0)
+			-- ...AND THE SECOND RETURN IS AN EMPTY LIST AND NOT `nil` (task 160), because
+			-- `Match.creditPush` iterates it: a refused blast must credit nobody, not throw in the
+			-- composition root that forwards it.
+			local _, noIds = runtime:hearHorn(nil :: any, 100)
+			expect(type(noIds)).to.equal("table")
+			expect(#noIds).to.equal(0)
 			runtime:clear("spec done")
 			runtime:destroy()
 		end)

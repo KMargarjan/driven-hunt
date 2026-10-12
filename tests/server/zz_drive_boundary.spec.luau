@@ -205,6 +205,89 @@ return function()
 			end
 		end)
 
+		-- THE HORN'S DOOR, PAYING SOMEBODY, THROUGH THE REAL OWNER (round 1 finding 1). Every other
+		-- assertion about `Match.creditPush` in the suite is a REFUSAL, so `function Match.creditPush()
+		-- return 0 end` passed the whole gate and the lines that actually pay a beater were never run.
+		-- This is the live half: a real drive, a real player really made a beater, real boar ids in,
+		-- credit out -- and then the credit read back through the very function `onDowned` hands to
+		-- `Score.kill`, so the chain is proved where the game reads it and not beside it.
+		--
+		-- IT IS LAST OF THE `Running` CASES on purpose: `Phase`'s `team` branch emits `placePlayers`,
+		-- which respawns him, and the three gun cases above must not meet that. The side is put back
+		-- before this case ends.
+		it("pays a beater through the live owner, and the credit is where Score.kill will read it", function()
+			expect(Match.phase()).to.equal("Running")
+			local player = Players:GetPlayers()[1]
+			if not player then
+				TestKit.note("zz_drive_boundary: no player; the horn's credit door was not driven live")
+				return
+			end
+			local was = Match.assignmentOf(player.UserId)
+			local userId = player.UserId
+			-- A HUNTER EARNS NO BEATER POINTS, asserted through the OWNER and not only through the pure
+			-- predicate: this is the `state.assignment` read, which nothing reached before.
+			if was ~= "Drivers" then
+				expect(Match.creditPush(userId, { "zzBoarA" })).to.equal(0)
+				expect(Match.requestTeam(player, "Drivers")).to.equal(true)
+			end
+			expect(Match.assignmentOf(userId)).to.equal("Drivers")
+
+			-- TWO ANIMALS AND ONE PIECE OF RUBBISH: the list comes off a signal payload through a
+			-- composition root, so a non-string id is skipped and never indexes the table with nil
+			-- (task 83's "table index is nil", which took out every step of every quick-test session).
+			local creditsBefore = Match.stats().hornCredits
+			expect(Match.creditPush(userId, { "zzBoarA", "zzBoarB", 7 })).to.equal(2)
+			expect(Match.stats().hornCredits - creditsBefore).to.equal(2)
+
+			-- WHERE `Score.kill` WILL LOOK: `Match.pushCreditFor` IS `creditFor`, the function `onDowned`
+			-- passes straight into `Score.kill`. So this is the real read of the real write.
+			local credit = Match.pushCreditFor("zzBoarA")
+			expect(type(credit[userId])).to.equal("number")
+			expect(next(Match.pushCreditFor("zzBoarB"))).to.be.ok()
+			expect(next(Match.pushCreditFor("zzBoarNeverTouched"))).to.equal(nil)
+
+			-- ...AND IT REALLY TURNS INTO POINTS. The same board, the same scoring function the drive
+			-- calls, with the credit this door just wrote: the beater is paid `BEATER_PUSH` for an animal
+			-- a DIFFERENT player shot. This is the sentence the whole beater half of task 160 is.
+			local board = Match.Score.join(Match.Score.new(), userId, player.Name, "Drivers")
+			local record = {
+				id = "zzBoarA",
+				at = 1,
+				kind = "male",
+				killingZone = "chest",
+				killedByUserId = userId + 1,
+				killedByName = "somebody else",
+				contributors = {},
+			}
+			board = (Match.Score.kill(board, record, credit, Match.CONFIG))
+			expect(board.rows[userId].points).to.equal(Match.CONFIG.POINTS.BEATER_PUSH)
+			expect(board.rows[userId].pushes).to.equal(1)
+			TestKit.note(
+				string.format(
+					"zz_drive_boundary: horn credit -> 2 animal(s), hornCredits +%d, beater paid %d point(s)",
+					Match.stats().hornCredits - creditsBefore,
+					board.rows[userId].points
+				)
+			)
+
+			-- A SECOND BLAST AT THE SAME ANIMAL IS STILL ONE CREDIT (round 1, note 4): the write is
+			-- idempotent, so the tally must not say two.
+			local again = Match.stats().hornCredits
+			expect(Match.creditPush(userId, { "zzBoarA" })).to.equal(0)
+			expect(Match.stats().hornCredits).to.equal(again)
+
+			-- PUT HIM BACK on the side the drive gave him, so the cases after this see the player they
+			-- expect. The ids above are not a boar's and no boar will ever be downed under them, so the
+			-- credit they left behind can never pay anybody.
+			if was ~= "Drivers" and was ~= nil then
+				Match.requestTeam(player, was)
+				expect(Match.assignmentOf(userId)).to.equal(was)
+				expect(waitUntil(PHASE_TIMEOUT, function()
+					return Match.Body.teamOf(player) == was
+				end)).to.equal(true)
+			end
+		end)
+
 		it("ends the drive: Running -> Scoring, every tie freed and every rope gone", function()
 			expect(Match.phase()).to.equal("Running")
 			before = Match.snapshot()

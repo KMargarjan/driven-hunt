@@ -125,6 +125,12 @@ Drive.CONFIG = {
 	SCORE_PANEL_COLOR = Color3.fromRGB(16, 18, 20),
 	SCORE_PANEL_TRANSPARENCY = 0.25,
 	SCORE_HIGHLIGHT_COLOR = Color3.fromRGB(255, 232, 150), -- your own row
+	-- THE FIRST-PLACE BADGE (task 160). Karen, 2026-10-11: *"first place ofc more"*. Here rather
+	-- than in the renderer for the stated reason the whole of this block is here: every word the Hud
+	-- draws is written down in one file. ASCII, like `TIED_TEXT` and every other string in this
+	-- repo, and it is worn by at most one row -- `Hud.firstPlaceRank` decides which, and answers
+	-- "nobody" for a tie at the top.
+	SCORE_FIRST_BADGE = "1st",
 
 	-- The tied banner (design section 9.3 item 4), for the local player only. ASCII, like everything
 	-- else drawn in this repo, and it says WHY -- the penalty is also the teaching mechanism.

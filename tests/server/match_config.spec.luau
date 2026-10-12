@@ -138,6 +138,35 @@ return function()
 			expect(lines[2]).to.equal("a note")
 		end)
 
+		-- ...AND WHAT EACH KIND IS WORTH, OFF `POINTS.KIND` AND NOT OFF A SECOND COPY OF IT (task
+		-- 160). Karen asked *"How many shoot and male is more worth then famale"*, and the screen
+		-- that answers "what may I shoot" is where that answer belongs.
+		it("prices each kind from POINTS.KIND, and says the word POINTS when it has one", function()
+			local lines = Match.quarryLines({
+				QUARRY = { { species = "WILD BOAR", kinds = { "male", "female", "cub" } } },
+				POINTS = { KIND = { male = 10, female = 6, cub = 2 } },
+			})
+			expect(lines[1]).to.equal("WILD BOAR, POINTS: male 10, female 6, cub 2")
+		end)
+
+		it("prints a kind the table has no price for with no number, rather than a wrong one", function()
+			local lines = Match.quarryLines({
+				QUARRY = { { species = "WILD BOAR", kinds = { "male", "yearling" } } },
+				POINTS = { KIND = { male = 10, unknown = 6 } },
+			})
+			-- `unknown` is a FALLBACK and not a price for this animal: the card does not claim a
+			-- yearling is worth 6 when nobody decided that it is.
+			expect(lines[1]).to.equal("WILD BOAR, POINTS: male 10, yearling")
+		end)
+
+		it("leaves the word POINTS off entirely when no kind on the line has one", function()
+			local lines = Match.quarryLines({
+				QUARRY = { { species = "RED DEER", kinds = { "stag" } } },
+				POINTS = { KIND = { male = 10 } },
+			})
+			expect(lines[1]).to.equal("RED DEER: stag")
+		end)
+
 		it("takes more than one species, which is what red deer will be", function()
 			local lines = Match.quarryLines({
 				QUARRY = {
@@ -156,11 +185,11 @@ return function()
 		it("SAYS WHAT THE RULE REALLY IS: a cub is legal, because nothing in the code refuses one", function()
 			-- Karen's words were "wild boar -- male, female; NOT piglets/cubs", and THE CODE DOES NOT
 			-- HAVE THAT RULE: `Boar.CONFIG.KINDS` distinguishes the three kinds and the drive spawns
-			-- all of them, but `POINTS.KILL` scores a kill by HIT ZONE alone -- there is no refusal,
-			-- no deduction and no report of a cub anywhere. A card that claimed otherwise would be
-			-- the card lying to the player, so it says today's rule and the cub rule is a decision
-			-- waiting for Karen (TASKS.md row 158a). THE DAY IT ARRIVES, THIS CASE FAILS -- which is
-			-- what makes it the reminder rather than a comment nobody reads.
+			-- all of them, and since task 160 `POINTS.KIND` NAMES a cub as worth less than a male --
+			-- but there is still no refusal and still no deduction. A card that claimed otherwise
+			-- would be the card lying to the player, so it says today's rule and the cub rule is a
+			-- decision waiting for Karen (TASKS.md row 158a). THE DAY IT ARRIVES, THIS CASE FAILS --
+			-- which is what makes it the reminder rather than a comment nobody reads.
 			local lines = Match.quarryLines(Match.CONFIG)
 			local joined = table.concat(lines, " | ")
 			expect(string.find(joined, "WILD BOAR", 1, true) ~= nil).to.equal(true)
@@ -168,10 +197,16 @@ return function()
 			expect(string.find(joined, "female", 1, true) ~= nil).to.equal(true)
 			expect(string.find(joined, "cub", 1, true) ~= nil).to.equal(true)
 			expect(string.find(joined, "no cub rule yet", 1, true) ~= nil).to.equal(true)
-			-- ...and the points table is the evidence for the claim: every zone, one number, no kind.
-			for _, zone in ipairs({ "head", "chest", "body", "legs" }) do
-				expect(type(Match.CONFIG.POINTS.KILL[zone])).to.equal("number")
+			-- ...and the points table is the evidence for the claim: every KIND the drive spawns has
+			-- a price, the cub's is the lowest of the three and it is not zero -- which is "it
+			-- counts, and it counts for less" and is not "it is refused".
+			local kinds = Match.CONFIG.POINTS.KIND
+			for _, kind in ipairs({ "male", "female", "cub" }) do
+				expect(type(kinds[kind])).to.equal("number")
 			end
+			expect(kinds.cub > 0).to.equal(true)
+			expect(kinds.cub < kinds.female).to.equal(true)
+			expect(kinds.female < kinds.male).to.equal(true)
 			TestKit.note("match-config: the start card's quarry lines -> " .. joined)
 		end)
 	end)

@@ -170,18 +170,24 @@ Weapon.Horn.Blown:Connect(function(blast)
 	-- shot has always asked for -- and it is decided HERE, at the composition root, because how
 	-- long a fright lasts is the WORLD's question: `MatchBoot` does not pass it, so the drive's own
 	-- horn is bit-for-bit what task 152 shipped until the rotation task says otherwise.
-	local pushed = runtime:hearHorn(blast.at, HornData.spookStuds(HornData.CONFIG), true)
+	local pushed, ids = runtime:hearHorn(blast.at, HornData.spookStuds(HornData.CONFIG), true)
+	-- ...AND THE BEATER IS PAID FOR THEM IF ONE IS SHOT INSIDE THE WINDOW (task 160). Karen plays
+	-- in THIS place, so a beater ranking that only worked in the DEV drive would be a beater ranking
+	-- she never sees. `Match.creditPush` is the drive's own door and refuses everything that is not
+	-- a beater of a live drive, so in a Forest Test session with no drive running it is a no-op.
+	local credited = Match.creditPush(blast.blowerUserId, ids)
 	-- ONE LINE PER BLAST, and it is the evidence. "The horn had no visible effect" is the kind of
 	-- claim that needs a number beside it, so the console says how many animals the blast reached.
 	print(
 		string.format(
-			"[ForestTest] horn blown at (%.0f, %.0f, %.0f): %d boar(s) pushed within %.0f studs (%d m)",
+			"[ForestTest] horn blown at (%.0f, %.0f, %.0f): %d boar(s) pushed within %.0f studs (%d m), %d credited",
 			blast.at.X,
 			blast.at.Y,
 			blast.at.Z,
 			pushed,
 			HornData.spookStuds(HornData.CONFIG),
-			HornData.CONFIG.SPOOK_M
+			HornData.CONFIG.SPOOK_M,
+			credited
 		)
 	)
 end)
