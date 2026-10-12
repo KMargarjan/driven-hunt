@@ -1,34 +1,39 @@
 # Task 160 — scoring by the animal, a beater's push, and a first place
 
 Task: 160
-Round: 1
+Round: 2
 Base: `94fc315` (main, #142 merged)
-Code commit: `b35e9d1d5b6fcca4e192baf7af67a0467b944254`
+Code commit: `38b88536e81d3295aef5d3fae09b904fa6da2975`
 
-Harness, one player, the FULL run, twice on the clean tree at the code commit:
-
-```
-[harness] PASS: 33/33 checks @ 58a4ca3dc50f70d8ee8628bd3c5ee5892d61253d (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 58a4ca3dc50f70d8ee8628bd3c5ee5892d61253d (clean tree) scope=all
-```
+Harness, one player, the FULL run, twice on the clean tree at the code commit (DEV alone — the
+Forest Test Studio is closed):
 
 ```
-[harness] PASS: 33/33 checks @ b35e9d1d5b6fcca4e192baf7af67a0467b944254 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ b35e9d1d5b6fcca4e192baf7af67a0467b944254 (clean tree)
+[harness] PASS: 33/33 checks @ 38b88536e81d3295aef5d3fae09b904fa6da2975 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 38b88536e81d3295aef5d3fae09b904fa6da2975 (clean tree) scope=all
+```
+
+```
+[harness2] <placeholder — NEEDS TEST2 160 38b88536e81d3295aef5d3fae09b904fa6da2975>
 ```
 
 **`test2` IS REQUIRED AND THE BUILDER DID NOT RUN IT.** This change touches `TWO_PLAYER_PATHS`
 (`src/server/Match/`, `src/server/MatchBoot.server.luau`, `tests/server/match_*.spec.luau`,
-`tests/client/match_client.spec.luau`). The Director runs it, per his own dispatch: *"stop 'NEEDS
-TEST2 160 <sha>' with a [harness2] placeholder; I run test2 + the review."* **The Forest Test Studio
-was left OPEN but its Play session was STOPPED and it is back in Edit mode** (verified: `forest mode:
-Edit`), so `test2` is free to use it.
+`zz_drive_boundary.spec.luau`, `tests/client/match_client.spec.luau`). The Director runs it, per his
+own dispatch: *"Stop 'NEEDS TEST2 160 <sha>'."* Round 1's `[harness2] PASS: 35/35 @ b35e9d1` does
+**not** carry over — that was a different commit, and this round changes `src/`.
 
 ## What changed
 
 A kill is scored by the **animal** instead of by the hit zone; a **beater** earns for an animal he
-pushed that somebody then shot, and the horn is now a door into that credit; the results table marks
-a **first place**. Points only — no money (step 3b). One score owner, no second score, no new remote.
+pushed that somebody then shot, and the horn is a second door into that credit; the results table
+marks a **first place**. Points only — no money (step 3b). One score owner, no second score, no new
+remote.
+
+**Round 1 was FINDINGS (1 blocking) and it was right:** every assertion about `Match.creditPush` was
+a refusal, so `function Match.creditPush() return 0 end` passed the whole gate. Claims 5–7 below are
+what changed; claims 1–4 and 8–10 are unchanged from round 1 and are restated so this page is the
+final state, not a history.
 
 Note: `docs/research/2026-10-12-scoring.md`. Archive: `backups/2026-10-12_task-160_points-by-hit-zone.txt`.
 
@@ -42,99 +47,118 @@ Note: `docs/research/2026-10-12-scoring.md`. Archive: `backups/2026-10-12_task-1
    the same animal"**, which is the retired rule asserted as retired: without it, putting the zone
    table back would pass. The award's reason is now `kill-<kind>` / `kill-unknown`.
 
-2. **The hit zone is retired from scoring and from nowhere else.** Grep `POINTS.KILL` in `src/`:
-   the only hits are comments naming it as retired. The zone still decides whether the animal dies
+2. **The hit zone is retired from scoring and from nowhere else.** Grep `POINTS.KILL` in `src/`: the
+   only hits are comments naming it as retired. The zone still decides whether the animal dies
    (`Boar.Wound`), is still on the kill record (`Match`'s `driveKills` keeps `zone`), still drawn on
    the report's silhouette (`ReportPanel`'s `RING`/`drawDots`) and still printed in its ZONE column
-   (`ReportPanel.detailRowText`). Rule 7: the whole old table, `pointsForZone`, its call sites and the
-   old diagnostic are in `backups/2026-10-12_task-160_points-by-hit-zone.txt` with a rollback
-   paragraph, and a row is in `backups/README.md`.
+   (`ReportPanel.detailRowText`). Rule 7: the old table, `pointsForZone`, its call sites and the old
+   diagnostic are in `backups/2026-10-12_task-160_points-by-hit-zone.txt` with a rollback paragraph,
+   and a row is in `backups/README.md`.
 
 3. **The owner's unknown-kill diagnostic followed the rule it guards.** `stats.unknownZoneKills`
    became `stats.unknownKindKills` and `Match`'s `onDowned` tests `config.POINTS.KIND[record.kind]`.
-   Verify: grep `unknownZoneKills` — no hits in `src/` or `tests/` outside the archive and two
-   history comments. A zone typo can no longer misprice a kill; a KIND typo can, and that is what is
-   counted.
+   Verify: grep `unknownZoneKills` — no hits in `src/` or `tests/` outside the archive and two history
+   comments.
 
 4. **A beater is paid for the animal's LAST credit before it died, and a tie pays everybody tied.**
    `Match.Score.latestPushers` takes the max timestamp in `pushCredit` and returns every userId at it,
    sorted. Verify: `match_score.spec`, describe "the beater's push" — "pays the beater whose credit is
-   the LAST one before the kill" (3 at t=9 earns nothing, 5 at t=18 earns 3), "pays everybody tied on
-   the latest credit, because 2 Hz sampling ties them", "never pays the shooter who killed it a push
-   as well", "pays nobody at all when nothing pushed it", "is worth less than the animal, and switches
-   off at 0" (with `BEATER_PUSH = 0` the row still counts the push and the points are 0).
-   The tie rule is a **judgement call against the dispatch's "the beater who caused it", stated**:
-   `PUSH_SAMPLE_HZ` is 2, so two beaters walking one animal up are written in the same tick with
-   identical timestamps, and "the last one" would then be `pairs` order or `userId` — a coin flip the
-   loser watches.
+   the LAST one before the kill", "pays everybody tied on the latest credit, because 2 Hz sampling
+   ties them", "never pays the shooter who killed it a push as well", "pays nobody at all when nothing
+   pushed it", and **(new, round 1 note 3)** "reads BEATER_PUSH and not ASSIST, which production
+   happens to set to the same number": both are 3 in production, so every other case passed with the
+   two config keys swapped inside `Score.kill`; this one drives a config where they differ (5 and 9)
+   and reads each award off its own key.
 
-5. **The horn is a second door into push credit, and the BOAR's owner decides which animals it
-   reached.** `Runtime:hearHorn` returns `(count, ids)` — the ids of the animals that actually RAN,
-   so a carcass, a terminal boar and a crippled one (all refused by `Brain:spook`) are not in it. The
-   first return is unchanged, which is why every older caller is untouched. Verify: `zz_horn.spec`,
-   "pushes every live boar inside the radius and nothing outside it" (the two inside are in `ids`, the
-   far one is not) and "ignores a nonsense blast rather than erroring on it" (the second return is an
-   empty table, never `nil`, because `Match.creditPush` iterates it).
+5. **THE FIX FOR ROUND 1's BLOCKING FINDING: the write and the read are pure, exported, and used by
+   the owner itself.** `Match.writePushCredit(credits, userId, boarIds, at)` is the loop `creditPush`
+   runs once it has decided to pay; `Match.pushCreditWithin(credits, boarId, at, window)` is what the
+   local `creditFor` — the function `onDowned` hands straight to `Score.kill` — now *is*, not a copy
+   of. `Match.pushCreditFor(boarId)` reads the owner's own table as a copy with no setter, the
+   discipline `Runtime:perceptionOf` and `Runtime:woundOf` already follow. Verify: read
+   `Match.creditPush`, `Match.writePushCredit`, `Match.pushCreditWithin`, `creditFor`, `onDowned` in
+   `src/server/Match/init.luau` — `creditFor` is three lines and delegates.
 
-6. **Only a beater of a live drive is credited, and a phantom beater earns nothing by
-   construction.** `Match.pushCreditable(userId, team, live)` is pure: a number userId, a live drive,
-   `team == "Drivers"`. A phantom (the quick test's `"quick-test"`, the forest's wave beaters) has no
-   userId and cannot reach it. Verify: `match_live.spec`, in the task-83 phantom case — six
-   `pushCreditable` assertions covering every branch, then the real owner refusing all three
-   (`creditPush(nil, …) == 0`, `creditPush("quick-test", …) == 0`, `creditPush(<stranger>, …) == 0`
-   with `stats().hornCredits` unchanged).
+6. **The write is now proved POSITIVELY, twice, and both cases fail if it is deleted.**
+   * **Pure, no drive** — `match_live.spec`, continuing the task-83 phantom case:
+     `writePushCredit(credits, 42, {"A", "B", 7, false}, 100) == 2`, `credits.A[42] == 100`,
+     `credits[7] == nil` (a non-string id is skipped, never `credits[nil]` — task 83's "table index
+     is nil"), a second blast at the same animal returns 0 and *refreshes* the timestamp to 140, a
+     second BEATER on it returns 1, a nil list returns 0; then `pushCreditWithin` including at
+     `seen + window` and excluding at `seen + window + 1`, and answering an empty table for an
+     unknown or nil boar id.
+   * **Live, through the real owner** — `zz_drive_boundary.spec`, "pays a beater through the live
+     owner, and the credit is where Score.kill will read it": in a real `Running` drive, a HUNTER is
+     refused (`creditPush(userId, {"zzBoarA"}) == 0` — the `state.assignment` read nothing reached
+     before); the same player is made a beater with `Match.requestTeam`; `creditPush(userId,
+     {"zzBoarA", "zzBoarB", 7}) == 2`; `stats().hornCredits` rises by exactly 2; the credit reads back
+     through `Match.pushCreditFor`; `Score.kill` then pays him `BEATER_PUSH` for an animal a
+     **different** userId shot; a second blast at the same animal returns 0 and leaves `hornCredits`
+     alone. His side is put back at the end. The harness note from the run:
+     `zz_drive_boundary: horn credit -> 2 animal(s), hornCredits +2, beater paid 3 point(s)`.
+   * **Still only negative:** `creditPush` with `nil`, with `"quick-test"` and with a stranger's
+     userId, plus the six pure `pushCreditable` branches (`match_live.spec`).
 
-7. **Both worlds' composition roots wire it, and neither learns the other's rule.**
-   `MatchBoot.server.luau` and `ForestTestBoot.server.luau` each take `blast.blowerUserId` (which
-   `Weapon/Horn.luau` has always published) and the ids from `hearHorn`, and hand both to
-   `Match.creditPush`. The horn publishes a fact, the boar owner answers which animals it reached, the
-   drive decides what it is worth. Verify: read the two `Weapon.Horn.Blown:Connect` blocks. The forest's
-   console line now ends `…, %d credited`.
+7. **The horn is that door's one caller, and the BOAR's owner decides which animals it reached.**
+   `Runtime:hearHorn` returns `(count, ids)` — the ids of the animals that actually RAN, so a carcass,
+   a terminal boar and a crippled one (all refused by `Brain:spook`) are not in it; the first return
+   is unchanged, which is why every older caller is untouched. Both composition roots take
+   `blast.blowerUserId` (which `Weapon/Horn.luau` has always published) plus those ids and hand them
+   to `Match.creditPush`. Verify: `zz_horn.spec` ("pushes every live boar inside the radius and
+   nothing outside it" asserts the two inside are in `ids` and the far one is not; "ignores a nonsense
+   blast" asserts the second return is an empty table, never `nil`), and read the two
+   `Weapon.Horn.Blown:Connect` blocks — **round 1 note 1 is fixed: `MatchBoot`'s binding is `ids`,
+   not `pushed`**, which is what `ForestTestBoot`'s `pushed` already means beside it.
 
 8. **The results table marks a first place, and marks nobody when it would be a lie.**
-   `Hud.firstPlaceRank(rows)` returns 1 only when the top row has scored something AND is strictly
-   ahead of the second. Verify: `match_client.spec`, "marks the leader 1st, and marks nobody when the
-   top two are level" — clear leader → 1; alone having scored → 1; **tie at the top → nil**;
-   all-noughts board (two rows and one) → nil; empty and nil → nil; all-negative board with a
-   least-negative leader → 1. And "puts the badge on the drawn row, on the leader's row only": the
-   badge is in row 1 and not in row 2, and it sits AFTER the points. The sort and the rank themselves
-   are not new — `Score.leaderboard` → `Match.snapshot` already ordered the board by points, and
-   `match_score.spec` "sorts by points, then kills, then the earliest first kill, then userId" is
-   rewritten for the new scale (three players tied on 12, separated by kill count then first-kill
-   time). Hunters and beaters are in ONE table, as dispatched; the split is `TASKS.md` 160a(c).
+   `Hud.firstPlaceRank(rows)` returns 1 when the top row is strictly ahead of the second; with only
+   one row it also requires that the row has scored something. **Round 1 note 2 is fixed:** the zero
+   test used to be asked of the leader's own points, so a leader on 0 ahead of −10 got no badge while
+   a leader on −10 ahead of −20 got one — the function disagreed with itself about the same shape of
+   board. Verify: `match_client.spec`, "marks the leader 1st, and marks nobody when the top two are
+   level" — clear leader → 1; alone having scored → 1; tie at the top → nil; all-noughts board (two
+   rows, and one) → nil; empty and nil → nil; (−10, −20) → 1; **(0, −10) → 1**. And "puts the badge on
+   the drawn row, on the leader's row only": the badge is in row 1, not in row 2, and sits AFTER the
+   points. The sort and the rank are not new — `Score.leaderboard` → `Match.snapshot` already ordered
+   by points — and `match_score.spec`'s order case is rewritten for the new scale (three players tied
+   on 12, separated by kill count then first-kill time). Hunters and beaters are in ONE table, as
+   dispatched; the split is `TASKS.md` 160a(c).
 
 9. **The start card reads the same points table, with no second copy.** `Match.quarryLines` prices
    each kind from `cfg.POINTS.KIND`, prints a kind with no row with no number rather than a wrong one,
    and leaves the word POINTS off a line where nothing is priced. Verify: `match_config.spec`,
    describe "the quarry lines" — three new cases plus the pre-existing cub-rule case, whose evidence
-   is now `KIND` (`cub > 0`, `cub < female < male`). The live note from the harness run:
+   is now `KIND` (`cub > 0`, `cub < female < male`). The live note from the run:
    `match-config: the start card's quarry lines -> WILD BOAR, POINTS: male 10, female 6, cub 2 | every
    one of them counts - no cub rule yet`.
 
-10. **The rest of `POINTS` was rescaled for scale, not taste, and the scale is asserted.**
-    `ASSIST` 10 → 3, `SAFETY_PENALTY` −50 → −10. Against a 10-point male the old numbers were one
-    animal and five, so one safety violation would have ended a board irrecoverably. Verify:
-    `match_score.spec`'s last describe — "are the numbers production ships" now asserts **both
-    directions** of `POINTS.KIND` (no production kind without an asserted price) and that
-    `POINTS.KILL` and `POINTS.PUSH` are **gone**, not merely unread; and "costs one animal and not a
-    whole drive" (`-SAFETY_PENALTY == KIND.male`, and less than a whole drive's six animals).
-    `match_safety.spec` asserts the live −10 and that it equals one male; its second case now reads
-    the number off the config instead of typing it a second time (that duplication is what the first
-    gate run caught).
+10. **The rest of `POINTS` was rescaled for scale, not taste, and both the scale and the retirement
+    are asserted.** `ASSIST` 10 → 3, `SAFETY_PENALTY` −50 → −10: against a 10-point male the old
+    numbers were one animal and five, so one violation would have ended a board irrecoverably. Verify:
+    `match_score.spec`'s last describe asserts **both directions** of `POINTS.KIND` (no production
+    kind without an asserted price) and that `POINTS.KILL` and `POINTS.PUSH` are **gone**, not merely
+    unread; "costs one animal and not a whole drive"; and `match_safety.spec` asserts the live −10,
+    that it equals one male, and reads the number off the config in its second case rather than typing
+    it twice. **Round 1 note 4 is also fixed here:** `stats().hornCredits` counted every id, so a
+    beater blasting one animal twice inside the window read as two credits though `credit[userId] =
+    at` is idempotent; `writePushCredit` counts NEW credits and its comment is true again.
 
 ## What I could not verify
 
-* **The horn → credit → points chain end to end.** Every link has a spec (claims 5, 6, 4), but no
-  spec reaches a beater blowing a horn at a sounder that a hunter then shoots: that needs a live
-  drive with two roles and a kill. `TASKS.md` 160a(d).
-* **A BADGED row on a screen.** The screenshot (rule 5, inspected:
+* **A beater actually blowing a horn.** Every link of horn → credit → points now has a spec (claims
+  6 and 7), including the live owner paying a beater, but no spec reaches `Weapon.Horn.Blown` firing
+  from a horn in a hand: that needs a live drive with a horn. `TASKS.md` 160a(d), corrected this round
+  (the round-1 wording claimed `creditPush` was called with a hunter's userId; it was not then, and it
+  is now).
+* **A BADGED row on a screen.** The screenshot (rule 5, inspected,
   `.screenshots/20261012T005515Z-task160-results-table-forest.png`) is the results table at the end of
-  a real 300-second Forest Test drive — `DRIVE 1 RESULTS`, the header, `1  Alhamdulilah824  DRIVER
-  0  0`, `NEXT DRIVE IN 24`. Nobody fired a shot in that solo session, so the board is all noughts
-  and there is correctly **no badge**. The badge's own text and position are asserted by
-  `match_client.spec` (`1  Alhamdulilah824  SHOOTER      2      16  1st`), not seen on a screen.
+  a real 300-second Forest Test drive, all noughts and correctly **no** badge. The badge's text and
+  position are asserted by `match_client.spec` (`1  Alhamdulilah824  SHOOTER      2      16  1st`).
+* **The new start-card line on a screen** (round 1's last note): 43 characters in a 408 px label at
+  size 18, against a 41-character line that already rendered in task 158's frame. The Forest Test
+  Studio is closed and this dispatch forbids reopening it, so no frame was taken. `TASKS.md` 160a(h).
 * **Every number in `POINTS` is Karen's and she has seen none of them.** `TASKS.md` 160a(a).
-* **`docs/design/drive.md` section 7.1 is now stale** (it documents the zone table, `PUSH = 25` and
-  `unknownZoneKills`). The Architect owns that file; flagged in the code, the note and 160a(b), not
-  edited by the Builder.
+* **Three design places are stale** — `drive.md` §7.1, `drive.md`'s `stats` comment, and
+  `forest-drive.md`'s `samplePush` row. The Architect owns them; `TASKS.md` 160a(b), widened this
+  round with the two the Reviewer found.
 * **`test2`**, above.
