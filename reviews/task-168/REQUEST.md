@@ -3,17 +3,17 @@
 Task: 168
 Round: 1
 Base: `37d8ba0` (main, #151 merged)
-Code commit: `f807806`
+Code commit: `2f68eb9`
 
 Harness, the clean tree, TWICE at the code commit:
 
 ```
-[harness] PASS: 33/33 checks @ f80780606800d7d052d96c55b504d222fb94337c (clean tree) scope=all
-[harness] PASS: 33/33 checks @ f80780606800d7d052d96c55b504d222fb94337c (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 2f68eb9f69e04ff74de943c95a5d6720f9f8605e (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 2f68eb9f69e04ff74de943c95a5d6720f9f8605e (clean tree) scope=all
 ```
 
 ```
-[harness2] NEEDS TEST2 168 f80780606800d7d052d96c55b504d222fb94337c
+[harness2] NEEDS TEST2 168 2f68eb9f69e04ff74de943c95a5d6720f9f8605e
 ```
 
 `TWO_PLAYER_PATHS` is touched (`src/server/Match/`, `src/client/Match/`, `src/shared/Drive/`,
@@ -24,9 +24,17 @@ measurement.
 Smoke, the Forest Test, 90 s, after everything below was in:
 
 ```
-gun in hand @15s=1 @90s=1 | stacks=0 errorLines=0 | waves=5 | worst playing sounds over 10 s: 2 (boars=9)
+gun in hand @15s=1 @90s=1 | stacks=0 errorLines=0 | waves=5 | worst playing sounds over 10 s: 2 (boars=6)
 SMOKE PASS
 ```
+
+**AND THE SMOKE EARNED ITS KEEP THIS ROUND:** the first version of the sweep called
+`ForestTest.lineFrontAt` where it had to call `Data.lineFrontAt` -- the server module and the shared
+data module are both named `ForestTest` -- so `spookNearBeaters` errored every tick, the wood never
+re-stocked, and the live count came back a beautiful **0 behind the line** because almost nothing was
+alive to be behind it. `SMOKE FAIL ... Stack Begin ... attempt to call a nil value` is what found it.
+Neither `selene` nor a spec could: it is a table index, and no spec drives `spookNearBeaters` against
+a live runtime. The numbers below are from after the fix.
 
 Karen, 2026-10-12 ~21:45 and ~21:50, is quoted in full in `PLAYTEST.md` and in the task row. Five of
 her six items are here; the horn MODEL is a separate asset task and is not.
@@ -152,19 +160,45 @@ hunter, a phantom, a beater who is through, and both off states.
 `forest_stand.spec` → *"spawns NOTHING behind the beaters' line"*: the resting band's far edge and
 every resting group and every ambient wave are nearer the road than a beater's own start. Harness
 note: `task 168: a beater starts 580 studs north of the road; the deepest spawn of any kind is 460`.
+**And nothing is RE-STOCKED behind it either** (the Director's second pass): `restSpot` refuses, on a
+first pass, any candidate the sweep would catch -- the same pure rule the flush asks -- and falls back
+to today's search when the whole wood is behind the line, because a refusal with no fallback would
+leave the wood empty until the next drive, which is a feel decision nobody has made.
+`forest_stand.spec` → *"refuses a RE-STOCK spot the line has reached or passed"*.
+
+**11. The line SWEEPS what it passes, so nothing is LEFT behind it either** (the Director's second
+pass; this is Karen's item 5 and not a note). The flush stopped being a row of circles: the front is
+a LINE (`ForestTest.lineFrontAt`, the beaters' own z interpolated across it, so coverage is gapless by
+construction and there is no gap between two lanes to tune), the depth is DERIVED from the lane
+spacing (`sqrt(BEATER_STUDS^2 - (laneSpacing/2)^2)` = 47.9 studs -- the depth the old circle really
+had at the worst place on the front, promoted to the whole front, so the band is no weaker than the
+circles anywhere), and **everything behind the front is swept with no limit**. The point an animal
+runs FROM is still a real body: the front decides WHO is flushed, a man decides WHICH WAY.
+`forest_stand.spec` has four cases -- the front's interpolation, clamping and sort; the derivation and
+its floor; what the band catches in front, at the front and behind it; and the whole wood walked down
+a tick at a time with `missed 0, ticks behind the line uncaught 0`. Harness note: `task 168 sweep: 6
+resting groups, front depth 47.9 studs (lanes 150 apart, reach 89) -- missed 0, ticks behind the line
+uncaught 0`.
 
 ---
 
 ## What could not be verified, and what is not fixed
 
-**(a) The live "behind the line" count is NOT 0, and the dispatch asked for 0.** Measured in a real
-drive in the Forest Test (27 animals, 4 beater bodies, 100 samples over 50 s): **13 animals ended up
-behind the line WITHOUT EVER MOVING** -- the line walked past them, because a beater flushes at 89
-studs (`ForestTest.SPOOK.BEATER_STUDS`) and the lanes are 150 studs apart, so a group between two
-lanes is never touched. **One** more moved a single stud north at the instant a beater walked level
-with it, which is a body settling rather than a chosen heading. The rule this task was asked for
-(*"an animal never moves to the beaters' side"*) is proved in simulation at 0; the gap is that the
-line does not sweep what it passes, which a direction constraint cannot close. Queued as **168a**.
+**(a) The live count: 0 animals are LEFT behind the line, and 7 of 30 were momentarily behind it.**
+Measured after the sweep went in, same place, same bots, **220 samples over 110 s, 30 animals**:
+
+```
+EVER behind the front = 7, of which NEVER RAN AFTERWARDS = 0 | deepest behind: front 55 studs
+```
+
+against **13 of 27 behind and standing still** before it. **The exception, named:** those seven are a
+re-stocked group that the fallback placed behind the line -- the fallback is deliberate, because
+refusing every spot once the line is at the road would leave the wood empty until the next drive --
+and the sweep took them on the next tick and they all ran out. The console carries that group going:
+`-76 ahead of the front, took 9 with it`. So **nothing is left behind**, which is the Director's own
+wording, and the residual is "a group can exist behind the line for one tick of the push before it is
+swept". Closing even that means refusing the fallback and letting the wood empty, which is Karen's
+call and not mine.
 
 **(b) The first-person raise was measured but not photographed.** `tools/studio_mcp.py capture`
 cannot move a camera during Play -- `Camera.Rig` owns `CurrentCamera` and overwrites a foreign write
