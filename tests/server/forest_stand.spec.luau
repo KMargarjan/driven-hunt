@@ -710,6 +710,37 @@ return function()
 			)
 		end)
 
+		it("spawns NOTHING behind the beaters' line, which is the other half of task 168's rule", function()
+			-- KAREN, 2026-10-12 ~21:55: *"so animals in map already and once beater push they go or
+			-- turn around but not after beaters ahead and they come from backs"*.
+			--
+			-- `Boar.CONFIG.BEATER_WALL` stops an animal MOVING behind the line. This is the claim that
+			-- none is ever PUT there, and it is a property of the two tables rather than a new rule:
+			-- the resting band's far edge is `farRoadStuds` from the road and a beater is put down at
+			-- `beaterStart`, which is further. Stated as a case because it is load-bearing for the
+			-- wall -- an animal spawned behind the line would be walled on the wrong side of it.
+			local start = Data.beaterStart(standX, 0)
+			local startNorth = start.Z - Data.roadZ(start.X)
+			expect(Data.REST.farRoadStuds < startNorth).to.equal(true)
+			for _, spec in ipairs(Data.REST.groups) do
+				local at = Data.restPoint(standX, spec)
+				expect(at.Z - Data.roadZ(at.X) < startNorth).to.equal(true)
+			end
+			-- ...AND THE AMBIENT WAVES ARE IN FRONT OF HER TOO: they cross her front, so a wave
+			-- released behind her would walk the wrong way through the line.
+			for _, wave in ipairs(Data.SCHEDULE.cycle) do
+				local at = Data.wavePoint(standX, wave)
+				expect(at.Z - Data.roadZ(at.X) < startNorth).to.equal(true)
+			end
+			TestKit.note(
+				string.format(
+					"task 168: a beater starts %.0f studs north of the road; the deepest spawn of any kind is %.0f",
+					startNorth,
+					Data.REST.farRoadStuds
+				)
+			)
+		end)
+
 		it("takes the band as deep as the keep-away allows, so none of the walk is empty", function()
 			-- TASK 162. The walk is 580 studs now (`BEATER.behindLineStuds` 400 +
 			-- `LINE.spawnNorthStuds` 180), and the band this table may put a group in is the ONLY

@@ -46,6 +46,19 @@ local blownSignal = Instance.new("BindableEvent")
 Horn.Blown = blownSignal.Event
 
 local carryPolicy: ((Player) -> boolean)? = nil
+-- MAY THIS HORN SOUND AT ALL? (task 168). KAREN, 2026-10-12 ~21:45: *"when beater cross the line of
+-- hunter it's done for him cant use sound anymore"*.
+--
+-- THE SAME SHAPE AS `carryPolicy` RIGHT ABOVE IT, and for the same reason: WHO may blow is not this
+-- module's decision -- it is the drive's, because "has he crossed the hunters' line" is a fact about
+-- the drive's own geometry (`Match.mayBlowHorn`). Injected at the composition root; with no policy
+-- injected EVERYBODY may blow, which is this file before task 168 by every branch and is what keeps
+-- every existing spec and the Forest Test's own `/beater` honest.
+--
+-- IT IS KEYED, NOT PLAYER'D, so one policy covers a player and a bot: the key is `Horn.keyFor(userId)`
+-- for a person and the bot's own slot id for a rig, which is exactly how the one cooldown table is
+-- keyed. A bot that has walked through the line therefore falls silent by the same predicate.
+local blowPolicy: ((string) -> boolean)? = nil
 local started = false
 -- One horn per player. The Tool is the state -- these tables are a record of it, and every read
 -- below corrects itself off the live Instance (`Horn.held`), which is the lesson Task 34 and Task
@@ -69,6 +82,9 @@ local stats = {
 	blasts = 0,
 	refusedCooldown = 0,
 	refusedNoHorn = 0,
+	refusedThrough = 0, -- blasts refused because the blower is through the hunters' line (task 168)
+	raised = 0, -- how many times an arm went up to the mouth (task 168)
+	raisesMissed = 0, -- ...and how many times there was no clip or no Animator to do it with
 	equippedNow = 0,
 	equippedLate = 0,
 	equipGaveUp = 0,
@@ -328,6 +344,133 @@ function Horn.revoke(player: Player): number
 	return removed
 end
 
+-- ---------------------------------------------------------------- who may still blow (task 168)
+
+-- Returns the policy it replaced, exactly as `Horn.setCarryPolicy` does, so a spec can put the
+-- world's own back when it is finished.
+function Horn.setBlowPolicy(fn: ((string) -> boolean)?): ((string) -> boolean)?
+	local previous = blowPolicy
+	blowPolicy = fn
+	return previous
+end
+
+-- MAY THE BODY HOLDING THIS KEY SOUND A HORN NOW? No policy means yes, which is this file before
+-- task 168. A policy that throws is treated as a YES and says so in the console: a drive whose
+-- predicate errored must not silence every horn in the wood, and a silent horn with no reason on
+-- screen is the worst of the two failures (`Horn.mayCarry` makes the same call the other way, where
+-- the conservative answer is "no horn").
+function Horn.mayBlow(key: string): boolean
+	local policy = blowPolicy
+	if policy == nil then
+		return true
+	end
+	local ok, answer = pcall(policy, key)
+	if not ok then
+		warn(string.format("[horn] blow policy errored for %s: %s", key, tostring(answer)))
+		return true
+	end
+	return answer ~= false
+end
+
+-- ---------------------------------------------------------------- the arm raise (task 168)
+--
+-- THE HORN COMES UP TO THE MOUTH, ON WHOEVER BLEW IT. KAREN, 2026-10-12 ~21:45: *"we need when I am
+-- playing beater to make animation when raising horn to face and blow"*.
+--
+-- THIS MODULE OWNS IT FOR A PLAYER and `Bots.Rig` owns it for a rig, which is one writer each of one
+-- Animator each -- the pose, the sequence and the registered id are all `Horn.BLOW_POSE`'s, in
+-- `src/shared/Horn`, so there is one definition of the gesture and two players of it. Everything
+-- about WHY it is a registered `KeyframeSequence` is written down there.
+--
+-- A RIG IS LEFT ALONE HERE, AND THE CALLER IS WHAT DECIDES THAT -- not a test of the body. `Bots.Rig`
+-- plays the clip itself off the bot's own `blowUntil` clock, so a raise started here as well would be
+-- two tracks of one pose on one Animator. So only `Horn.blow`, the PLAYER's door, asks for the raise;
+-- `Horn.blowTool`, which is what the bots call, does not.
+--
+-- ONE TRACK PER CHARACTER, CACHED, because `LoadAnimation` is a call per blast otherwise and a
+-- beater blows every few seconds for ten minutes. The cache is dropped when the character goes
+-- (`Horn.forget`, and a respawn makes a new Model so the old row is never found again).
+-- WEAK-KEYED ON THE CHARACTER, so a row goes when the body does: a player who respawns twenty times
+-- in a session leaves twenty dead Models behind otherwise, each holding a track.
+--   https://create.roblox.com/docs/luau/metatables (`__mode = "k"`)
+local raiseTracks: { [Model]: AnimationTrack } = setmetatable({}, { __mode = "k" }) :: any
+
+local function raiseTrackFor(character: Model): AnimationTrack?
+	-- CACHED PER CHARACTER, AND THE TEST IS THE CHARACTER'S OWN PARENT -- never the TRACK's.
+	-- MEASURED in a live Play session (2026-10-12): `Animator:LoadAnimation` returns a track whose
+	-- `Parent` is nil, so `existing.Parent ~= nil` was false on every blast and this loaded a second
+	-- track for the same pose every time -- the live probe caught the same clip playing twice.
+	local existing = raiseTracks[character]
+	if existing ~= nil and character.Parent ~= nil then
+		return existing
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid == nil then
+		return nil
+	end
+	local id = Data.blowAnimationId(Data.BLOW_POSE)
+	if id == nil then
+		return nil
+	end
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if animator == nil then
+		animator = Instance.new("Animator");
+		(animator :: Animator).Parent = humanoid
+	end
+	local animation = Instance.new("Animation")
+	animation.AnimationId = id
+	animation.Parent = humanoid
+	local ok, track = pcall(function()
+		return (animator :: Animator):LoadAnimation(animation)
+	end)
+	if not ok or track == nil then
+		animation:Destroy()
+		return nil
+	end
+	-- `Action` OUTRANKS THE STOCK `Animate` SCRIPT'S WALK AND IDLE, which is the whole reason the arm
+	-- moves at all: the player's own animator re-solves the shoulder from the playing tracks every
+	-- frame, so only a higher-priority track can take it. Set here and not trusted to the registered
+	-- sequence's stored priority, exactly as `Bots.Rig.loadClips` does not trust an asset's.
+	pcall(function()
+		(track :: AnimationTrack).Priority = Enum.AnimationPriority.Action
+	end)
+	raiseTracks[character] = track
+	return track
+end
+
+-- UP NOW, DOWN AFTER `seconds`. Returns whether the arm really went up, so the caller counts poses
+-- and not attempts.
+--
+-- THE LOWER IS A `task.delay` AND IT CHECKS BEFORE IT ACTS, exactly as the `GRIP_BLOW` restore below
+-- does and for the same reason: the cooldown is longer than a blast, so in practice nothing overlaps,
+-- and the guard is what keeps that true if a shorter cooldown one day makes it untrue.
+function Horn.raise(character: Model?, seconds: number?): boolean
+	if character == nil or character.Parent == nil then
+		return false
+	end
+	local track = raiseTrackFor(character)
+	if track == nil then
+		stats.raisesMissed += 1
+		return false
+	end
+	local pose = Data.BLOW_POSE
+	track:Play(pose.RAISE_SECONDS)
+	stats.raised += 1
+	task.delay(seconds or Data.CONFIG.BLOW_SECONDS, function()
+		-- `IsPlaying` AND NOTHING ELSE, which is a MEASUREMENT and not a simplification: this line
+		-- first read `track.Parent ~= nil and track.IsPlaying`, and in a live Play session of the
+		-- Forest Test (2026-10-12) the arm stayed up for ever -- `Animator:LoadAnimation` returns a
+		-- track whose `Parent` is nil, so the guard was false on every blast and the `Stop` never
+		-- ran. The horn's own `GRIP` came back on time (that restore has no such guard), which is
+		-- what made it look like a half-fixed pose rather than a dead line. `Bots.Rig.blow` never
+		-- had the guard, which is why a bot's arm always came down.
+		if track.IsPlaying then
+			track:Stop(pose.LOWER_SECONDS)
+		end
+	end)
+	return true
+end
+
 -- Re-evaluate now, and grant or revoke to match. Level-triggered: the Forest Test's `/beater` calls
 -- it on the switch, the drive's own respawns are caught by the sweep, and calling it twice does
 -- nothing the first call did not.
@@ -390,6 +533,18 @@ function Horn.blowTool(tool: Tool?, key: string, blowerUserId: number?, now: num
 		stats.refusedCooldown += 1
 		return false
 	end
+	-- HE IS THROUGH THE LINE: HIS DRIVE IS OVER AND SO IS HIS HORN (task 168). Karen: *"when beater
+	-- cross the line of hunter it's done for him cant use sound anymore"*.
+	--
+	-- REFUSED HERE, which is the one door every blast comes through -- a player's click
+	-- (`Horn.blow`), a bot's rhythm (`Bots.blowFor`) and a spec's call all land on this line, so
+	-- "may he blow" cannot be answered in two places. AFTER the cooldown and BEFORE anything is
+	-- written: a refused blast does not take the cooldown, does not sound, does not tilt the Tool
+	-- and publishes no `Blown`, so it cannot move an animal either.
+	if not Horn.mayBlow(key) then
+		stats.refusedThrough += 1
+		return false
+	end
 	local handle = tool:FindFirstChild("Handle")
 	if handle == nil or not handle:IsA("BasePart") then
 		stats.refusedNoHorn += 1
@@ -435,10 +590,19 @@ function Horn.blowTool(tool: Tool?, key: string, blowerUserId: number?, now: num
 	return true
 end
 
--- THE PLAYER'S DOOR INTO THE ONE BLAST ABOVE. Its behaviour is unchanged: the horn she is holding,
--- her own cooldown row, her own userId on the signal.
+-- THE PLAYER'S DOOR INTO THE ONE BLAST ABOVE: the horn she is holding, her own cooldown row, her own
+-- userId on the signal.
+--
+-- ...AND HER ARM GOES UP WITH IT (task 168). Karen: *"we need when I am playing beater to make
+-- animation when raising horn to face and blow"*. Only on an ACCEPTED blast -- a click inside the
+-- cooldown, or one from a beater who is through the line, raises nothing -- and only here, because a
+-- bot's raise is its own rig's (`Bots.Rig.blow`, off the same shared pose).
 function Horn.blow(player: Player, now: number?): boolean
-	return Horn.blowTool(Horn.held(player), Horn.keyFor(player.UserId), player.UserId, now)
+	if not Horn.blowTool(Horn.held(player), Horn.keyFor(player.UserId), player.UserId, now) then
+		return false
+	end
+	Horn.raise(player.Character, Data.CONFIG.BLOW_SECONDS)
+	return true
 end
 
 -- A HORN IN A BOT'S HAND (task 161). The Tool is the horn's and the body is `Bots.Rig`'s -- the same
@@ -497,6 +661,13 @@ function Horn.forget(player: Player)
 	connections[player] = nil
 	tools[player] = nil
 	lastBlast[Horn.keyFor(player.UserId)] = nil
+	-- The raise track goes with the body it was loaded onto (task 168). A respawn makes a new Model,
+	-- so the old row could never be found again anyway; this is what stops the table growing by one
+	-- character per life for the session.
+	local character = player.Character
+	if character ~= nil then
+		raiseTracks[character] = nil
+	end
 end
 
 local function watchPlayer(player: Player)

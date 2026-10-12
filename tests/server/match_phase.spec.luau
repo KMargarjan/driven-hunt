@@ -1531,6 +1531,164 @@ return function()
 			expect(table.concat(freedIn(effects) :: { number }, ",")).to.equal("1")
 		end)
 
+		-- ---------------------------------------------------------------- task 168: GO is the fanfare's end
+		--
+		-- KAREN, 2026-10-12 ~21:45: *"you can't move as a beater before horn made signal and there
+		-- should be countdown"*. Both states are driven here by PARAMETER (`GO_HOLD_SECONDS`), which
+		-- is why none of the cases above had to change: with it unset the machine frees at GO exactly
+		-- as task 158 wrote it.
+		it("holds the line through the start fanfare and lets it go at the end of the phrase", function()
+			local cfg = config({ MIN_PLAYERS = 4, BOARS_PER_DRIVE = 0, GO_HOLD_SECONDS = 2 })
+			local state = assigning(cfg)
+			-- Two beaters and two hunters, and the beaters are held by the countdown.
+			local effects
+			state, effects = Phase.step(state, { kind = "tick", aliveBoars = 0 }, cfg.INTERMISSION_SECONDS, cfg)
+			expect(state.phase).to.equal("Running")
+			-- GO SOUNDS THE HORN AND FREES NOBODY. This is the whole of the fix: before task 168 the
+			-- `free` and the `signal` were in this same effect list.
+			expect(feedText(effects, "signal")).to.equal("start")
+			expect(countKind(effects, "free")).to.equal(0)
+			expect(state.goFreed).to.equal(false)
+			expect(state.goFreeAt).to.equal(cfg.INTERMISSION_SECONDS + 2)
+
+			-- ...AND STILL NOBODY, A WHOLE SECOND AND A HALF LATER.
+			local during
+			state, during = run(state, cfg, cfg.INTERMISSION_SECONDS, 1.5, 0.25)
+			expect(countKind(during, "free")).to.equal(0)
+			expect(state.goFreed).to.equal(false)
+
+			-- THEN, PAST THE PHRASE, ONE `free` THAT NAMES NOBODY -- so a beater who joined inside
+			-- the countdown goes with the rest.
+			local after
+			state, after = run(state, cfg, cfg.INTERMISSION_SECONDS + 1.5, 1, 0.25)
+			expect(countKind(after, "free")).to.equal(1)
+			expect(freedIn(after)).to.equal("all")
+			expect(state.goFreed).to.equal(true)
+			-- EXACTLY ONCE, however many ticks arrive: `goFreed` is the latch, not the time.
+			local later
+			state, later = run(state, cfg, cfg.INTERMISSION_SECONDS + 2.5, 20, 0.5)
+			expect(countKind(later, "free")).to.equal(0)
+			-- ...AND THE TIME STAYS ON THE STATE, because a beater's screen says `GO` for five
+			-- seconds afterwards and works that out from the age of this timestamp.
+			expect(state.goFreeAt).to.equal(cfg.INTERMISSION_SECONDS + 2)
+			TestKit.note(
+				string.format(
+					"match_phase: GO hold %.2f s, freed at %.2f, drive still Running=%s",
+					Phase.goHoldSeconds(cfg),
+					state.goFreeAt,
+					tostring(state.phase == "Running")
+				)
+			)
+		end)
+
+		it("holds a PLAYER beater, not just a bot: the hold is the roster's and names her userId", function()
+			-- The hold has nothing to do with bots -- `Phase` has never heard of one. This states it
+			-- as a case, because Karen reported being able to walk as a beater and the first question
+			-- was whether the machine held a person at all.
+			local cfg = config({ MIN_PLAYERS = 4, BOARS_PER_DRIVE = 0, GO_HOLD_SECONDS = 2 })
+			local state = ready(cfg)
+			-- THE HOLD IS IN THE JOIN THAT COMPLETES THE ROSTER, not in the tick after it: the fourth
+			-- join starts the drive on its own step (`Phase.step` runs time whatever the event was),
+			-- which is the property "a join that completes the roster starts the drive".
+			local effects
+			for userId = 1, 4 do
+				state, effects = Phase.step(state, { kind = "join", userId = userId, name = "p" .. userId }, 0, cfg)
+			end
+			expect(state.phase).to.equal("Assigning")
+			local held = heldIn(effects)
+			expect(#held > 0).to.equal(true)
+			for _, userId in ipairs(held) do
+				expect(state.assignment[userId]).to.equal(cfg.START_HOLD_TEAM)
+			end
+			-- Through the countdown AND through the fanfare, nothing frees her.
+			local collected
+			state, collected = run(state, cfg, 0, cfg.INTERMISSION_SECONDS + 1.5, 0.25)
+			expect(state.phase).to.equal("Running")
+			expect(countKind(collected, "free")).to.equal(0)
+		end)
+
+		it("takes the fanfare hold off the horn's own measured phrase, not a number of its own", function()
+			-- `Match.CONFIG.GO_HOLD_SECONDS` is `Horn.signalSeconds("start")`: the drive holds the
+			-- line for exactly as long as the asset sounds, so a new phrase moves the hold with it.
+			local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
+			local phrase = HornData.signalSeconds("start", HornData.CONFIG)
+			expect(math.abs(Match.CONFIG.GO_HOLD_SECONDS - phrase) < 1e-9).to.equal(true)
+			expect(phrase > 1).to.equal(true) -- a real phrase, not a rounding of zero
+			expect(Phase.goHoldSeconds(Match.CONFIG)).to.equal(phrase)
+			-- ZERO IS THIS FILE BEFORE TASK 168, and it is reachable by parameter.
+			expect(Phase.goHoldSeconds({ GO_HOLD_SECONDS = 0 })).to.equal(0)
+			expect(Phase.goHoldSeconds({})).to.equal(0)
+		end)
+
+		it("does not carry a pending hold into the results scene or the next drive", function()
+			local cfg = config({ MIN_PLAYERS = 4, BOARS_PER_DRIVE = 0, GO_HOLD_SECONDS = 2, DRIVE_SECONDS = 1 })
+			local state = assigning(cfg)
+			-- The drive is one second long, so it ends INSIDE its own fanfare -- the pathological
+			-- case, and the one that would otherwise free the ring at the gathering.
+			local collected
+			state, collected = run(state, cfg, cfg.INTERMISSION_SECONDS, 2, 0.25)
+			expect(state.phase).to.equal("Scoring")
+			expect(state.goFreed).to.equal(true)
+			expect(state.goFreeAt).to.equal(math.huge)
+			-- AND THE PENDING HOLD IS DROPPED RATHER THAN HANDED BACK: `Scoring` holds EVERYBODY for
+			-- the results scene, so a `free` arriving here -- which is what a `goFreeAt` left standing
+			-- would have emitted a quarter of a second later -- would let the ring wander off.
+			local order = kinds(collected)
+			expect(countKind(collected, "free")).to.equal(0)
+			local releaseAt, holdAt = table.find(order, "release"), table.find(order, "hold")
+			expect(releaseAt).to.be.ok()
+			expect(holdAt).to.be.ok()
+			-- The ties are released BEFORE the scene's hold, which is the order `enterScoring` has
+			-- always had (a rope on a man standing at the gathering is two freezes on one character).
+			expect((releaseAt :: number) < (holdAt :: number)).to.equal(true)
+			-- And the next drive starts with nothing pending.
+			state = (select(1, run(state, cfg, cfg.INTERMISSION_SECONDS + 2, cfg.SCORE_SECONDS + 1, 0.25)))
+			expect(state.phase).to.equal("Assigning")
+			expect(state.goFreeAt).to.equal(math.huge)
+			expect(state.goFreed).to.equal(true)
+		end)
+
+		it("holds a player who is MADE a beater at GO, which is how the Forest Test does it", function()
+			-- THE BUG KAREN REPORTED, AS A CASE. In the Forest Test the role switch is honoured on the
+			-- `Running` transition (`ForestTestBoot`, task 157: the intermission has already respawned
+			-- everybody once), so she became a beater one step AFTER `Assigning` -- and the old rule
+			-- held somebody only DURING `Assigning`. MEASURED live, 2026-10-12: `team=Drivers
+			-- walkSpeed=16 anchored=false` from the moment she was made one.
+			local cfg = config({ MIN_PLAYERS = 4, BOARS_PER_DRIVE = 0, GO_HOLD_SECONDS = 2 })
+			local state = assigning(cfg)
+			local effects
+			-- GO.
+			state, effects = Phase.step(state, { kind = "tick", aliveBoars = 0 }, cfg.INTERMISSION_SECONDS, cfg)
+			expect(state.phase).to.equal("Running")
+			expect(Phase.lineHeld(state)).to.equal(true)
+			-- A HUNTER IS MADE A BEATER INSIDE THE FANFARE: held, before the placement that moves her.
+			local at = cfg.INTERMISSION_SECONDS + 0.2
+			state, effects = Phase.step(state, { kind = "team", userId = 3, team = "Drivers" }, at, cfg)
+			expect(state.assignment[3]).to.equal("Drivers")
+			expect(table.concat(heldIn(effects), ",")).to.equal("3")
+			local order = kinds(effects)
+			expect((table.find(order, "hold") :: number) < (table.find(order, "placePlayers") :: number)).to.equal(true)
+			-- ...AND LET GO WITH EVERYBODY ELSE AT THE END OF THE PHRASE, by the one `free`.
+			local after
+			state, after = run(state, cfg, at, 2, 0.25)
+			expect(countKind(after, "free")).to.equal(1)
+			expect(freedIn(after)).to.equal("all")
+			expect(Phase.lineHeld(state)).to.equal(false)
+
+			-- A MINUTE INTO THE DRIVE NOBODY IS HELD, which is task 158's rule and is unchanged: a
+			-- beater made then is far behind the line already.
+			local late
+			state, late = Phase.step(state, { kind = "team", userId = 4, team = "Drivers" }, at + 60, cfg)
+			expect(state.assignment[4]).to.equal("Drivers")
+			expect(countKind(late, "hold")).to.equal(0)
+			-- ...AND A JOINER IS THE SAME RULE, through the same predicate.
+			expect(Phase.lineHeld({ phase = "Assigning" } :: any)).to.equal(true)
+			expect(Phase.lineHeld({ phase = "Running", goFreed = false } :: any)).to.equal(true)
+			expect(Phase.lineHeld({ phase = "Running", goFreed = true } :: any)).to.equal(false)
+			expect(Phase.lineHeld({ phase = "Scoring", goFreed = false } :: any)).to.equal(false)
+			expect(Phase.lineHeld({ phase = "Waiting", goFreed = false } :: any)).to.equal(false)
+		end)
+
 		it("asks the config who is held, so a spec can point it at either side", function()
 			local assignment = { [1] = "Drivers" :: any, [2] = "Shooters" :: any, [3] = "Drivers" :: any }
 			expect(table.concat(Phase.heldUserIds(assignment, { START_HOLD_TEAM = "Drivers" }), ",")).to.equal("1,3")

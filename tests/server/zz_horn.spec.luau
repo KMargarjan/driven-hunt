@@ -458,6 +458,19 @@ return function()
 			expect(Horn.arc().bellDir.Z < 0).to.equal(true)
 			-- ...and the raised grip is a real change, not a copy of the resting one.
 			expect(CONFIG.GRIP_BLOW).never.to.equal(CONFIG.GRIP)
+
+			-- ...AND THE ARM POSE IS THE OTHER HALF OF THE SAME GESTURE, and lives here with it since
+			-- task 168 so that a player and a bot raise one arm and not two (`Bots.Rig.BLOW` is an
+			-- alias of this). The pose tree is asserted in `bots_lane.spec`, which drove it when it
+			-- was `Rig`'s; what this states is that the two files are looking at ONE table.
+			local Rig = require(ServerScriptService:WaitForChild("Bots")).Rig
+			expect(Rig.BLOW).to.equal(Horn.BLOW_POSE)
+			expect(Rig.blowSequence).to.equal(Horn.blowSequence)
+			expect(Horn.BLOW_POSE.RAISE_SECONDS > 0).to.equal(true)
+			expect(Horn.BLOW_POSE.LOWER_SECONDS > Horn.BLOW_POSE.RAISE_SECONDS).to.equal(true)
+			-- THE WHOLE RAISE FITS INSIDE A BLAST: the arm is up, held and down again before the
+			-- cooldown lets him blow a second time, which is what stops a horn stuck at the chin.
+			expect(Horn.BLOW_POSE.RAISE_SECONDS + Horn.BLOW_POSE.LOWER_SECONDS < CONFIG.COOLDOWN).to.equal(true)
 		end)
 	end)
 
@@ -673,6 +686,143 @@ return function()
 			expect(HornTool.mayCarry(player)).to.equal(false)
 
 			HornTool.setCarryPolicy(restore)
+			backpack:Destroy()
+		end)
+
+		-- ---------------------------------------------------------------- task 168: through the line
+		--
+		-- KAREN, 2026-10-12 ~21:45: *"when beater cross the line of hunter it's done for him cant use
+		-- sound anymore"*. WHO has crossed is the drive's question and is injected
+		-- (`Match.mayBlowHorn`); what this file owns is that a "no" really stops a blast, for a
+		-- player and for a bot, and takes nothing with it.
+		it("refuses a blast from a beater who is through the line, and keeps the horn in his hand", function()
+			local backpack = newBackpack()
+			local player = stubPlayer(backpack, nil, 152008)
+			local restoreCarry = HornTool.setCarryPolicy(function()
+				return true
+			end)
+			local tool = HornTool.grant(player) :: Tool
+			local handle = tool:FindFirstChild("Handle") :: BasePart
+			handle.CFrame = CFrame.new(31, GROUND_Y, -41)
+
+			local heard = {}
+			local wire = HornTool.Blown:Connect(function(blast)
+				table.insert(heard, blast)
+			end)
+			-- THE DRIVE SAYS HE IS THROUGH, keyed exactly as the cooldown table is keyed.
+			local through: { [string]: boolean } = {}
+			local restoreBlow = HornTool.setBlowPolicy(function(key: string): boolean
+				return through[key] ~= true
+			end)
+			local key = HornTool.keyFor(152008)
+
+			local t0 = 3000
+			-- Before he is through, the horn sounds as it always did.
+			expect(HornTool.mayBlow(key)).to.equal(true)
+			expect(HornTool.blow(player, t0)).to.equal(true)
+			task.wait()
+			expect(#heard).to.equal(1)
+
+			-- NOW HE IS THROUGH. The click does nothing: no `Blown`, so nothing moves an animal.
+			through[key] = true
+			expect(HornTool.mayBlow(key)).to.equal(false)
+			local before = HornTool.stats().refusedThrough
+			expect(HornTool.blow(player, t0 + CONFIG.COOLDOWN)).to.equal(false)
+			task.wait()
+			expect(#heard).to.equal(1)
+			expect(HornTool.stats().refusedThrough).to.equal(before + 1)
+			-- ...AND THE TOOL IS STILL IN HIS HAND, which is the half of the rule that is a choice:
+			-- a Tool vanishing out of a hand mid-drive has nothing on screen to say why.
+			expect(HornTool.held(player)).to.equal(tool)
+			expect(tool.Parent).to.equal(backpack)
+
+			-- A REFUSAL TAKES NO COOLDOWN EITHER, so a man walking back north is not also serving a
+			-- three-second penalty for the click that was refused.
+			through[key] = nil
+			expect(HornTool.blow(player, t0 + CONFIG.COOLDOWN)).to.equal(true)
+			task.wait()
+			expect(#heard).to.equal(2)
+
+			-- A BOT IS HELD BY THE SAME PREDICATE AND THE SAME TABLE, through `blowTool` -- which is
+			-- the one door every blast comes through.
+			through["bot-beater-3"] = true
+			expect(HornTool.blowTool(tool, "bot-beater-3", nil, t0 + 100)).to.equal(false)
+			task.wait()
+			expect(#heard).to.equal(2)
+			expect(HornTool.blowTool(tool, "bot-beater-4", nil, t0 + 100)).to.equal(true)
+			task.wait()
+			expect(#heard).to.equal(3)
+
+			-- NO POLICY MEANS EVERYBODY MAY BLOW, which is this file before task 168 and is what the
+			-- Forest Test's own `/beater` relies on before a drive is running.
+			HornTool.setBlowPolicy(nil)
+			expect(HornTool.mayBlow(key)).to.equal(true)
+			-- ...AND A POLICY THAT THROWS IS A "YES", the opposite call from `mayCarry`: a drive whose
+			-- predicate errored must not silence every horn in the wood with nothing on screen.
+			HornTool.setBlowPolicy(function(): boolean
+				error("policy blew up")
+			end)
+			expect(HornTool.mayBlow(key)).to.equal(true)
+
+			wire:Disconnect()
+			HornTool.setBlowPolicy(restoreBlow)
+			HornTool.setCarryPolicy(restoreCarry)
+			HornTool.revoke(player)
+			backpack:Destroy()
+			TestKit.note(
+				string.format(
+					"zz_horn: refusedThrough=%d (task 168), blasts=%d",
+					HornTool.stats().refusedThrough,
+					HornTool.stats().blasts
+				)
+			)
+		end)
+
+		it("raises a PLAYER's arm to the mouth on an accepted blast, and only on an accepted one", function()
+			-- KAREN, 2026-10-12 ~21:45: *"we need when I am playing beater to make animation when
+			-- raising horn to face and blow"*. Task 166 did it for bots; the pose is one definition
+			-- now (`Horn.BLOW_POSE`) and this is the player's half of it.
+			--
+			-- A REAL R15 CHARACTER IS NOT BUILT HERE: `Players:CreateHumanoidModelFromDescription`
+			-- is a web call. What is asserted is the STATE MACHINE -- it tries on an accepted blast,
+			-- it does not try on a refused one, and a body with no Humanoid is a miss and not an
+			-- error. Whether the arm LOOKS right is a screenshot (rule 5), and task 168 took one.
+			local backpack = newBackpack()
+			local body = Instance.new("Model")
+			body.Name = "HornSpecBody"
+			body.Parent = toolRoot
+			local player = stubPlayer(backpack, body, 152009)
+			local restoreCarry = HornTool.setCarryPolicy(function()
+				return true
+			end)
+			local tool = HornTool.grant(player) :: Tool
+			local handle = tool:FindFirstChild("Handle") :: BasePart
+			handle.CFrame = CFrame.new(51, GROUND_Y, -61)
+
+			-- NO HUMANOID: the raise is a MISS, counted, and the blast still happens -- a cosmetic
+			-- must never be able to swallow the signal.
+			local missed = HornTool.stats().raisesMissed
+			local t0 = 4000
+			expect(HornTool.blow(player, t0)).to.equal(true)
+			expect(HornTool.stats().raisesMissed).to.equal(missed + 1)
+			expect(HornTool.raise(nil, 0.1)).to.equal(false)
+			expect(HornTool.raise(body, 0.1)).to.equal(false)
+
+			-- A REFUSED BLAST RAISES NOTHING AT ALL -- not even an attempt, because the raise is
+			-- asked for only after the blast is accepted.
+			local restoreBlow = HornTool.setBlowPolicy(function(): boolean
+				return false
+			end)
+			missed = HornTool.stats().raisesMissed
+			local raised = HornTool.stats().raised
+			expect(HornTool.blow(player, t0 + CONFIG.COOLDOWN)).to.equal(false)
+			expect(HornTool.stats().raisesMissed).to.equal(missed)
+			expect(HornTool.stats().raised).to.equal(raised)
+
+			HornTool.setBlowPolicy(restoreBlow)
+			HornTool.setCarryPolicy(restoreCarry)
+			HornTool.revoke(player)
+			body:Destroy()
 			backpack:Destroy()
 		end)
 

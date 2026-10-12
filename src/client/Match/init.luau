@@ -56,6 +56,49 @@ function Match.myTeam(): string?
 	return if team then team.Name else nil
 end
 
+-- SECONDS UNTIL THE BEATERS MAY WALK, computed locally from the server timestamp exactly as
+-- `Match.secondsLeft` is (task 168). 0 whenever nobody is being held -- which is every phase but the
+-- start of a drive, and the whole of a drive once the fanfare has finished.
+--
+-- KAREN, 2026-10-12 ~21:45: *"you can't move as a beater before horn made signal and there should be
+-- countdown"*. The SERVER holds the line (`Match.Phase`'s `goFreeAt`); this is only how the screen
+-- says so.
+function Match.holdSecondsLeft(): number
+	local current = snapshot
+	if not current or (current.holdUntil or 0) <= 0 then
+		return 0
+	end
+	return math.max(0, current.holdUntil - Workspace:GetServerTimeNow())
+end
+
+-- HOW LONG AGO THE LINE WAS LET GO, or nil for "it has not been" (task 168). The one thing that makes
+-- `GO` a moment rather than a label: `holdUntil` stays on the snapshot for the whole drive, so the
+-- age of it is a local subtraction and needs no second field and no event.
+function Match.goAgeSeconds(): number?
+	local current = snapshot
+	if not current or (current.holdUntil or 0) <= 0 then
+		return nil
+	end
+	local age = Workspace:GetServerTimeNow() - current.holdUntil
+	return if age >= 0 then age else nil
+end
+
+-- IS THIS PLAYER THROUGH THE HUNTERS' LINE? (task 168). Karen: *"when beater cross the line of hunter
+-- it's done for him cant use sound anymore"*. The SERVER refuses the blast (`Match.mayBlowHorn`);
+-- this is so his own screen can say why, and it is `Match.isTied` right below it with another list.
+function Match.isThrough(): boolean
+	local current = snapshot
+	if not current then
+		return false
+	end
+	for _, userId in ipairs(current.through or {}) do
+		if userId == Players.LocalPlayer.UserId then
+			return true
+		end
+	end
+	return false
+end
+
 function Match.isTied(): boolean
 	local current = snapshot
 	if not current then

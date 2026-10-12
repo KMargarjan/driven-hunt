@@ -82,6 +82,19 @@ export type State = {
 	-- through the hunters' line before the clock ran out. It is the feed line's own word and nothing
 	-- else reads it -- the results scene is the same scene either way.
 	endedEarly: boolean,
+	-- WHEN THE BEATERS ARE LET GO, AND IT IS AFTER GO (task 168). KAREN, 2026-10-12 ~21:45: *"you
+	-- can't move as a beater before horn made signal"* -- so GO is the END of the start fanfare and
+	-- not the instant the drive's clock starts. The second deadline in this state, on exactly the
+	-- `nextReleaseAt` pattern: a time in the state, read by `Phase.step`'s own time section, so
+	-- there is still no `task.delay` in this system and a spec can run the whole thing in
+	-- milliseconds. `math.huge` means "nobody is waiting to be let go".
+	goFreeAt: number,
+	-- WHETHER THE `free` FOR IT HAS ALREADY BEEN EMITTED. It is a second field and not `goFreeAt =
+	-- math.huge` for one reason, and it is the screen: `Match`'s snapshot publishes `goFreeAt` as
+	-- `holdUntil`, and a beater's own Hud says `GO - push to the road` for five seconds AFTER the
+	-- line walks -- which it works out from the AGE of that timestamp (`Match.goAgeSeconds`). Wiping
+	-- the time would be wiping the only record of when GO was.
+	goFreed: boolean,
 	seed: number,
 }
 
@@ -167,6 +180,8 @@ function Phase.initial(config): State
 		nextReleaseAt = math.huge,
 		boarsAccounted = 0,
 		endedEarly = false,
+		goFreeAt = math.huge,
+		goFreed = true,
 		seed = config.SEED or 1,
 	})
 end
@@ -215,6 +230,46 @@ function Phase.waitingFor(state: State, config): { string }
 		end
 	end
 	return reasons
+end
+
+-- IS THE LINE STILL BEING HELD? (task 168) -- the countdown, OR the fanfare that follows it, which
+-- is the window in which a beater may not walk.
+--
+-- IT EXISTS BECAUSE OF A MEASURED BUG, and the measurement is in the request: in the Forest Test a
+-- player who asks to BE a beater is moved at the instant the drive starts
+-- (`ForestTestBoot`'s `PhaseChanged -> Running` honours the request there on purpose, task 157: the
+-- intermission has already respawned everybody once and honouring inside it would be a second
+-- `LoadCharacter`). So she arrived on the beaters' side one step AFTER `Assigning` had ended --
+-- and the `team` branch below only held somebody during `Assigning`. MEASURED in a live Play session
+-- of the Forest Test, 2026-10-12: `team=Drivers walkSpeed=16 anchored=false` from the moment she was
+-- made a beater, which is Karen's own complaint (*"you can't move as a beater before horn made
+-- signal"*) with its mechanism attached.
+--
+-- SO "HELD" IS THE WINDOW AND NOT THE PHASE. A beater who arrives while the fanfare is still
+-- sounding is held for the rest of it and let go by the same `free` as everybody else; one who
+-- arrives a minute into the drive is not held at all, which is the rule task 158 wrote (*"in
+-- `Running` the line is long behind the drive and nobody is held"*) and is unchanged.
+function Phase.lineHeld(state: State): boolean
+	if state.phase == "Assigning" then
+		return true
+	end
+	return state.phase == "Running" and state.goFreed ~= true
+end
+
+-- HOW LONG AFTER THE DRIVE'S CLOCK STARTS THE BEATERS ARE STILL HELD (task 168). KAREN, 2026-10-12
+-- ~21:45: *"you can't move as a beater before horn made signal and there should be countdown"*.
+--
+-- GO IS THE END OF THE FANFARE. Task 163 sounds the start signal at the instant `Running` begins and
+-- task 158 let the beaters go at the same instant, so the line was walking THROUGH its own fanfare.
+-- This is the gap between the two, and it is the fanfare's own length -- `Match.CONFIG` reads it off
+-- `Horn.CONFIG.SIGNAL` (`Horn.signalSeconds("start")`), so "how long is the fanfare" stays one
+-- number in the file that owns the sound and this machine holds no sound numbers at all.
+--
+-- ZERO IS A REAL VALUE AND IT IS THIS FILE BEFORE TASK 168: `enterRunning` then frees at GO exactly
+-- as it always did, which is what makes both behaviours reachable by parameter from a pure spec.
+function Phase.goHoldSeconds(config): number
+	local seconds = config.GO_HOLD_SECONDS
+	return if type(seconds) == "number" and seconds > 0 then seconds else 0
 end
 
 -- WHO IS HELD AT THE START LINE while the countdown runs (task 158). Karen: *"Beater start in line
@@ -409,6 +464,10 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	-- anybody.
 	table.insert(effects, { kind = "clearScene" })
 	table.insert(effects, { kind = "free" })
+	-- Task 168: the countdown's own hold is `Assigning`'s own deadline, so nothing is pending here --
+	-- and the last drive's GO must not still be on a beater's screen when the next one is counting in.
+	state.goFreeAt = math.huge
+	state.goFreed = true
 	state.phaseEndsAt = now + Phase.intermissionSeconds(config)
 	state.driveNumber += 1
 	state.boarsReleased = 0
@@ -459,10 +518,20 @@ end
 local function enterRunning(state: State, effects: { Effect }, now: number, config)
 	state.phase = "Running"
 	state.phaseEndsAt = now + config.DRIVE_SECONDS
-	-- GO. THE ONE PLACE THE HOLD ENDS, and `userIds = nil` means everybody held -- so a beater who
-	-- joined mid-countdown is let go by the same effect as the ones who were there at the start
-	-- (task 158). Assigning has exactly one exit, this one, so a hold cannot outlive the countdown.
-	table.insert(effects, { kind = "free" })
+	-- GO, AND SINCE TASK 168 GO IS THE END OF THE FANFARE. Karen: *"you can't move as a beater
+	-- before horn made signal"*. The signal is emitted below, at this instant; the beaters are let
+	-- go `Phase.goHoldSeconds` later, by the time section's own check -- so the line stands still
+	-- for the whole phrase and then walks.
+	--
+	-- `userIds = nil` MEANS EVERYBODY HELD either way, so a beater who joined mid-countdown is let
+	-- go by the same effect as the ones who were there at the start (task 158). `Assigning` has
+	-- exactly one exit, this one, so a hold cannot outlive the countdown however many ticks arrive.
+	local hold = Phase.goHoldSeconds(config)
+	state.goFreeAt = now + hold
+	state.goFreed = hold <= 0
+	if state.goFreed then
+		table.insert(effects, { kind = "free" })
+	end
 	-- The FIRST release is exact; only the rhythm after it is jittered. The drive starts on time,
 	-- which is both truer to "the drivers are walking now" and the difference between a harness run
 	-- that can stage a shot at a boar and one that cannot: with the first release jittered by up to
@@ -493,6 +562,11 @@ local function enterScoring(state: State, effects: { Effect }, now: number, conf
 	state.phaseEndsAt = now + config.SCORE_SECONDS
 	state.previousAssignment = state.assignment
 	state.nextReleaseAt = math.huge
+	-- NOBODY IS WAITING TO BE LET GO AT THE END OF A DRIVE: the scene holds everybody anyway, and a
+	-- pending `goFreeAt` would emit a `free` into the results scene and let the ring wander off (task
+	-- 168). The next drive's own `enterAssigning` frees them.
+	state.goFreeAt = math.huge
+	state.goFreed = true
 	state.endedEarly = reason == "beaters"
 	-- Everyone tied to a tree is freed, and whatever is still standing in the drive is removed.
 	table.insert(effects, { kind = "release" })
@@ -524,6 +598,8 @@ local function enterWaiting(state: State, effects: { Effect }, now: number)
 	state.phase = "Waiting"
 	state.phaseEndsAt = math.huge
 	state.nextReleaseAt = math.huge
+	state.goFreeAt = math.huge
+	state.goFreed = true
 	state.assignment = {}
 	-- THE OTHER WAY OUT OF `Scoring` (task 159), and it must take the scene down too: a server that
 	-- empties out after a drive would otherwise sit there lit, with the last drive's animals laid out
@@ -618,11 +694,13 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			local team = Roster.smallerTeam(Roster.counts(next_.assignment), config)
 			next_.assignment[event.userId] = team
 			table.insert(effects, { kind = "assignTeams", assignment = { [event.userId] = team } })
-			-- A BEATER WHO ARRIVES INSIDE THE COUNTDOWN IS HELD LIKE THE REST (task 158), and only
-			-- inside it: in `Running` the line is long behind the drive and nobody is held at all.
+			-- A BEATER WHO ARRIVES WHILE THE LINE IS STILL HELD IS HELD LIKE THE REST (task 158),
+			-- and only then: a minute into `Running` the line is long behind the drive and nobody is
+			-- held at all. Since task 168 that window is the countdown PLUS the fanfare
+			-- (`Phase.lineHeld`), because GO is the end of the phrase and not the start of it.
 			-- BEFORE `placePlayers`, for `enterAssigning`'s reason above (task 159): the placement
 			-- yields, and a hold decided before a yield must be recorded before it.
-			if next_.phase == "Assigning" and team == config.START_HOLD_TEAM then
+			if Phase.lineHeld(next_) and team == config.START_HOLD_TEAM then
 				table.insert(effects, { kind = "hold", userIds = { event.userId } })
 			end
 			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
@@ -646,12 +724,14 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		then
 			next_.assignment[event.userId] = event.team
 			table.insert(effects, { kind = "assignTeams", assignment = { [event.userId] = event.team } })
-			-- ...AND THE HOLD FOLLOWS THE SIDE HE IS NOW ON, inside the countdown only (task 158):
-			-- made a beater, he is held at the line; made a hunter, he is let go, because the rest
-			-- of the countdown is his to walk to a stand with. `free` with one userId frees that one
-			-- and nobody else, so a role flip cannot release the whole line.
+			-- ...AND THE HOLD FOLLOWS THE SIDE HE IS NOW ON, while the line is held (task 158, and
+			-- the window widened to include the fanfare in task 168 -- `Phase.lineHeld`, whose own
+			-- comment carries the live measurement that made it necessary): made a beater, he is
+			-- held at the line; made a hunter, he is let go, because the rest of the countdown is
+			-- his to walk to a stand with. `free` with one userId frees that one and nobody else, so
+			-- a role flip cannot release the whole line.
 			-- BEFORE `placePlayers`, for `enterAssigning`'s reason above (task 159).
-			if next_.phase == "Assigning" then
+			if Phase.lineHeld(next_) then
 				local kind_ = if event.team == config.START_HOLD_TEAM then "hold" else "free"
 				table.insert(effects, { kind = kind_, userIds = { event.userId } })
 			end
@@ -706,6 +786,15 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			enterRunning(next_, effects, now, config)
 		end
 	elseif next_.phase == "Running" then
+		-- THE FANFARE HAS FINISHED: THE LINE GOES (task 168). Checked BEFORE the two endings, so a
+		-- drive that somehow ended inside its own fanfare still hands the hold back -- `enterScoring`
+		-- holds everybody for the scene one effect later, and the order (free, then hold) is the one
+		-- `enterAssigning` already relies on.
+		if not next_.goFreed and now >= next_.goFreeAt then
+			next_.goFreed = true
+			table.insert(effects, { kind = "free" })
+			table.insert(effects, { kind = "broadcast", force = true })
+		end
 		-- TWO ENDINGS, THE CLOCK FIRST (task 159). The clock is checked first because it is the rule
 		-- that has always held and the one a drive cannot run past; the beaters' crossing can only
 		-- ever end a drive EARLIER, never extend one.

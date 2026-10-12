@@ -32,6 +32,7 @@
 -- Note:   docs/research/2026-10-11-beater-kit.md (section 5)
 -- Design: docs/design/beater-kit.md (section 16 item 1: carried, not worn, so its owner is
 --         ServerScriptService.Weapon and never Match.Body)
+local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
@@ -568,6 +569,147 @@ end
 -- literal "Horn" again -- the shape `Weapons.isToolName` already has.
 function Horn.isToolName(name: string?): boolean
 	return name == Horn.TOOL_NAME
+end
+
+-- ---------------------------------------------------------------- the horn at the mouth
+--
+-- THE ARM RAISE, AND IT LIVES HERE SO THERE IS EXACTLY ONE OF IT (task 168).
+--
+-- KAREN, 2026-10-12 ~21:45, verbatim: *"We need better horn and we need when I am playing beater to
+-- make animation when raising horn to face and blow"*. Task 166 built this pose for the BOTS and put
+-- it in `Bots.Rig`, where a player cannot reach it; task 168 moved the numbers and the sequence here,
+-- to the file that already owns the other half of the same gesture (`CONFIG.GRIP_BLOW`, the Tool's
+-- own tilt). `Bots.Rig.BLOW` and `Bots.Rig.blowSequence` are now aliases of these, so the bots play
+-- the pose they played before and nothing is written twice.
+--
+-- WHO PLAYS IT ON WHAT, because that is the ownership question and it has two answers and no overlap:
+--   * a BOT's rig  -- `Bots.Rig`, which owns every clip on a rig's own `Animator` (its gait, its
+--     tool pose and this). Unchanged by task 168.
+--   * a PLAYER's character -- `Weapon.Horn`, which owns the horn and is the one thing that performs
+--     a blast. Nothing else in this repo writes a player character's `Animator` at all, so this is a
+--     first writer and not a second one (`Match.Body` dresses the character and stands it somewhere;
+--     `Camera.Rig` hides it in first person; neither animates it).
+-- IT IS PLAYED ON THE SERVER, which is what makes the two the same mechanism: an animation played on
+-- a character's `Animator` server-side replicates to every client, so the other players see the arm
+-- come up AND the blower sees it in first person -- where `Camera.Rig` hides the body but deliberately
+-- NOT a non-weapon Tool (*"the beater's horn has no viewmodel"*), so what he sees rise into frame is
+-- the real horn on the real hand.
+--   Animator:LoadAnimation   https://create.roblox.com/docs/reference/engine/classes/Animator
+--   KeyframeSequenceProvider https://create.roblox.com/docs/reference/engine/classes/KeyframeSequenceProvider
+--
+-- WHY A SEQUENCE BUILT IN CODE AND NOT AN UPLOADED CLIP: an animation asset id can only be made by
+-- hand in Studio's Animation Editor (`tools/boar_prep.py`'s header says so), and
+-- `KeyframeSequenceProvider:RegisterKeyframeSequence` is the engine's documented way to make a usable
+-- content id without one. Task 166 MEASURED it working here, and measured the three alternatives
+-- failing: an `AnimationConstraint.Transform` write moved the hand 0.01 studs, the same write every
+-- Heartbeat moved it 0.12, and the rig attachment's own CFrame 0.3 -- because the animator re-solves
+-- the joint from the playing tracks every frame. Only another ANIMATION, at a priority above the
+-- gait, poses an arm that is already being animated.
+Horn.BLOW_POSE = table.freeze({
+	-- THE POSE, IN DEGREES. The arm swings forward and in at the shoulder and folds hard at the
+	-- elbow, which is what brings the hand up in front of the face -- a bugler's pose. Chosen off a
+	-- measured sweep of ten candidates (task 166: this pair put the horn's own mouthpiece nearest
+	-- the head) and then LOOKED AT in a screenshot, which is the only thing that settles a pose.
+	SHOULDER_DEG = { x = -120, y = 0, z = 15 },
+	ELBOW_DEG = { x = -150, y = 0, z = 0 },
+	-- UP QUICKLY, DOWN A LITTLE SLOWER, because that is what a person does with an instrument. They
+	-- are `AnimationTrack:Play`/`Stop` FADE times and not a hand-rolled ramp: the engine blends the
+	-- pose in and out, so "a short raise, a hold, a lower" costs two calls and no per-frame work.
+	RAISE_SECONDS = 0.2,
+	LOWER_SECONDS = 0.35,
+})
+
+-- THE SEQUENCE, BUILT FROM THE NUMBERS. Pure in the sense that matters -- it reads no rig, no
+-- service and no state, so a spec can assert the whole pose tree, the weights and the two angles
+-- without a character, an Animator or a Play session.
+--
+-- TWO IDENTICAL KEYFRAMES AND `Loop = true`: a one-keyframe sequence has no length, and a held pose
+-- is a loop of one pose. The second keyframe's time is what gives the clip a duration at all.
+--
+-- ONLY THE SHOULDER AND THE ELBOW ARE OURS. Every other pose carries `Weight = 0`, so the clip says
+-- nothing about the torso, the legs or the wrist: the gait keeps the walk, the tool clip keeps the
+-- grip, and `Action` priority buys exactly two joints. A sequence that wrote identity over the torso
+-- at `Action` would freeze a walking beater's lean for the length of every blast.
+--
+-- R15 JOINT NAMES, which is what both bodies in this game are: `Bots.Rig` builds R15 rigs, and the
+-- place's own avatar type is R15 (MEASURED in a Play session, task 168). A `Pose` is matched by its
+-- place in the rig's hierarchy, so on an R6 character these names match nothing and the clip simply
+-- poses nothing -- no error and no half-raised arm, which is the right failure for a cosmetic.
+function Horn.blowSequence(config): KeyframeSequence
+	local blow = config or Horn.BLOW_POSE
+	local sequence = Instance.new("KeyframeSequence")
+	sequence.Loop = true
+	sequence.Priority = Enum.AnimationPriority.Action
+	local shoulder = blow.SHOULDER_DEG
+	local elbow = blow.ELBOW_DEG
+	for _, at in ipairs({ 0, 0.5 }) do
+		local keyframe = Instance.new("Keyframe")
+		keyframe.Time = at
+		-- THE CHAIN FROM THE ROOT, because a `Pose` is found by its place in the rig's hierarchy and
+		-- not by name alone. Everything above the shoulder carries no weight (see above).
+		local parent: Instance = keyframe
+		for _, name in ipairs({ "HumanoidRootPart", "LowerTorso", "UpperTorso" }) do
+			local pose = Instance.new("Pose")
+			pose.Name = name
+			pose.CFrame = CFrame.identity
+			pose.Weight = 0
+			pose.Parent = parent
+			parent = pose
+		end
+		local upperArm = Instance.new("Pose")
+		upperArm.Name = "RightUpperArm"
+		upperArm.CFrame = CFrame.Angles(math.rad(shoulder.x), math.rad(shoulder.y), math.rad(shoulder.z))
+		upperArm.Weight = 1
+		upperArm.Parent = parent
+		local lowerArm = Instance.new("Pose")
+		lowerArm.Name = "RightLowerArm"
+		lowerArm.CFrame = CFrame.Angles(math.rad(elbow.x), math.rad(elbow.y), math.rad(elbow.z))
+		lowerArm.Weight = 1
+		lowerArm.Parent = upperArm
+		-- THE WRIST IS THE TOOL CLIP'S, so this pose exists only to close the chain and says
+		-- nothing about the hand.
+		local hand = Instance.new("Pose")
+		hand.Name = "RightHand"
+		hand.CFrame = CFrame.identity
+		hand.Weight = 0
+		hand.Parent = lowerArm
+		keyframe.Parent = sequence
+	end
+	return sequence
+end
+
+-- THE REGISTERED ID, MADE ONCE PER SESSION AND SHARED BY EVERY BODY THAT BLOWS A HORN -- bots and
+-- players both, which is the point of it living here. Registering is a service call, the sequence is
+-- the same for everybody, and the id is a string, so one registration serves eight bots and a player.
+--
+-- A FAILURE IS REMEMBERED, NOT RETRIED. `RegisterKeyframeSequence` is not documented to fail here,
+-- but if it ever does -- a future security-context change is the obvious way -- a retry per body per
+-- blast would be a service call per body for ever. One attempt, and the arms stay down.
+--
+-- ITS ONE DOCUMENTED LIMIT IS THAT THE ID IS TEMPORARY AND LOCAL TO THE SESSION, which is exactly
+-- what this needs: the pose is rebuilt from the numbers above every time the place runs, so those
+-- numbers ARE the animation and there is no asset to keep in step with them.
+local blowAnimationId: string? = nil
+local blowRegisterTried = false
+
+function Horn.blowAnimationId(config): string?
+	if blowAnimationId ~= nil then
+		return blowAnimationId
+	end
+	if blowRegisterTried then
+		return nil
+	end
+	blowRegisterTried = true
+	local sequence = Horn.blowSequence(config)
+	local ok, id = pcall(function()
+		return KeyframeSequenceProvider:RegisterKeyframeSequence(sequence)
+	end)
+	sequence:Destroy()
+	if not ok or type(id) ~= "string" then
+		return nil
+	end
+	blowAnimationId = id :: string
+	return blowAnimationId
 end
 
 Shotgun.deepFreeze(Horn.CONFIG)

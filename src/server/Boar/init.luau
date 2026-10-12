@@ -1009,6 +1009,58 @@ Boar.CONFIG.LINE = {
 	TURN_SCALE = 1.6,
 }
 
+-- THE BEATERS' LINE IS A WALL (task 168). KAREN, 2026-10-12 ~21:50, verbatim: *"and another thing /
+-- animals can't come behind beaters"*, and ~21:55, clarifying: *"so animals in map already and once
+-- beater push they go or turn around but not after beaters ahead and they come from backs"*.
+--
+-- WHAT A DRIVE IS, AND WHY THIS IS NOT ONE MORE STEERING TERM. A driven hunt works because the line
+-- of beaters is a line: the animals in front of it are pushed, and they either go forward to the guns
+-- or break sideways. What they do NOT do is slip between two beaters and come out behind them, and
+-- until this task they did -- on a wedge turn, on a lateral swerve near the line, on a spook from the
+-- side, and on an AVOID that simply turned away from the nearest man. Every one of those is a
+-- correct behaviour with no knowledge of the line, which is exactly the shape of bug
+-- `docs/PROJECT_CONTEXT.md` names: two correct pieces of code disagreeing.
+--
+-- SO IT IS A CONSTRAINT AND NOT A FORCE, applied ONCE, to the direction the Brain has already
+-- decided -- after the route, after the whiskers, after the sidesteps, after the slew. Adding a
+-- "stay in front" steering vector would have been a fourth thing pulling on the heading and would
+-- have lost every argument with the three that were already there; a constraint cannot be outvoted.
+--
+-- THE PATTERN IS `PM_ClipVelocity`, which is Quake III's own answer to "you may not go through this
+-- plane": take the component of the motion INTO the plane away and keep the rest, so the body slides
+-- along the surface instead of stopping dead or bouncing.
+--   ioquake3, code/game/bg_pmove.c (`PM_ClipVelocity`, `PM_SlideMove`), GPL-2.0, maintained
+--     https://github.com/ioquake/ioq3
+--   Reynolds, "Steering Behaviors For Autonomous Characters" (GDC 1999), `containment`
+--     https://www.red3d.com/cwr/steer/gdc99/
+-- Both are read-and-borrow, no code taken. The repo already borrows from both of them elsewhere
+-- (`Boar.Brain`'s header, `Match.Scene`'s intermission).
+--
+-- IT IS ON, AND THAT IS NOT A FLAG OVERSIGHT. The three blocks above are EXPERIMENTS, born off and
+-- switched on by the world that wanted them; this is a RULE of the game, asked for in Karen's own
+-- words, the same call `Match.CONFIG.END_ON_BEATERS_CROSS` and `SCENE.ENABLED` already are. Both
+-- states are still reachable from a spec by parameter, which is what the flag discipline is for.
+--
+-- Note: docs/research/2026-10-12-beater-line-and-gathering.md
+Boar.CONFIG.BEATER_WALL = {
+	ENABLED = true,
+
+	-- HOW FAR IN FRONT OF A BEATER THE WALL STANDS. Not zero, and the reason is the step size: an
+	-- animal at `PACE.RUN_SPEED` 24 studs/s covers 1.6 studs in a 15 Hz step and `MOVE.SPRINT_SPEED`
+	-- more, so a wall exactly on the man would be crossed between two ticks by an animal running
+	-- hard at him. 10 studs is six ticks of a sprint, and it is also about the distance at which an
+	-- animal would be climbing over him anyway -- `PACE.SPOOK_STUDS` is 30, so an animal this close
+	-- to a beater is already fleeing.
+	MARGIN_STUDS = 10,
+
+	-- A BEATER LEVEL WITH THE ANIMAL STILL WALLS IT. Without this an animal exactly abreast of a
+	-- beater is walled by nobody -- the test "is he behind me" is false by a stud -- and that is the
+	-- one moment it could swing round him. A stride of slack closes it, and it costs nothing: a
+	-- beater who is really ahead of the animal (he has crossed, he is walking back) is still not a
+	-- wall, which is what keeps a finished beater from pinning the wood.
+	LEVEL_SLACK_STUDS = 4,
+}
+
 -- HOW A DRIVEN SOUNDER MOVES (task 126). Karen, 2026-10-05, in one sentence: *"so they comming we
 -- can hear them as now is / then they can stop before entering the road or walk or trot if there are
 -- spook or shoot they run and run straigh like in real life"*. That is four states -- approach,

@@ -55,6 +55,17 @@ export type MatchSnapshot = {
 	quarry: { string },
 	rows: { ScoreRow },
 	tied: { number },
+	-- WHEN THE BEATERS ARE LET GO, IN SERVER TIME, or 0 for "nobody is waiting" (task 168). KAREN,
+	-- 2026-10-12: *"you can't move as a beater before horn made signal and there should be
+	-- countdown"* -- so the drive's clock starts, the fanfare sounds, and the line stands still for
+	-- the length of the phrase. A beater's screen counts this down locally, exactly as it counts
+	-- `phaseEndsAt` down: one timestamp, no second wire and no per-second push.
+	holdUntil: number,
+	-- WHICH BEATERS ARE THROUGH THE HUNTERS' LINE (task 168). KAREN: *"when beater cross the line of
+	-- hunter it's done for him cant use sound anymore"*. The SERVER refuses the blast
+	-- (`Match.mayBlowHorn`); this list is so the man's own screen can say why, and it is the same
+	-- shape as `tied` right above it, for the same reason.
+	through: { number },
 }
 
 export type FeedEntry = {
