@@ -194,6 +194,9 @@ type Bot = {
 	-- one.
 	gaitFrom: Vector3?,
 	gaitAt: number?,
+	-- WHERE IT WAS WHEN IT ARRIVED (task 167), stamped on the arriving step: the results scene moves
+	-- every rig into a ring before the report prints, so the position at report time is the ring's.
+	arrivedX: number?,
 }
 
 local started = false
@@ -494,6 +497,7 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 				walkStartedAt = nil,
 				gaitFrom = nil,
 				gaitAt = nil,
+				arrivedX = nil,
 				gathered = false,
 				index = madeIndex,
 			}
@@ -508,6 +512,7 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 			bot.to = to
 			if moved and bot.model ~= nil then
 				bot.arrived = false
+				bot.arrivedX = nil
 				bot.walkStartedAt = nil -- a bot put somewhere else starts its walk again
 				-- ...AND ITS GAIT SAMPLE GOES WITH IT (round 1 note). `Rig.place` below teleports
 				-- the body, so a sample taken before the move would be differenced across the
@@ -806,6 +811,12 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand)
 	if Lane.arrived(here, goal, config.ARRIVE_STUDS) then
 		bot.arrived = true
 		bot.arrivedAt = at
+		-- WHERE IT ARRIVED, STAMPED NOW AND NOT READ LATER (task 167). The first run of this task
+		-- read the body's position at REPORT time and printed three bots at x 3020 against goals of
+		-- 3030, 2880 and 3330 -- because the report prints at `Scoring`, by which time `applyScene`
+		-- has gathered every rig into the results RING behind the middle stand. The lane's arrival
+		-- and the ring are two different facts and the measurement needs the first one.
+		bot.arrivedX = here.X
 		stats.arrived += 1
 		stats.walkSeconds = math.max(stats.walkSeconds, at - (bot.walkStartedAt :: number))
 		Rig.playClip(bot.clips, "idle") -- it is standing at the line now, not walking at it
@@ -1037,18 +1048,29 @@ function Bots.laneReport(driveNumber: number): string
 	for _, id in ipairs(order) do
 		local bot = bots[id]
 		if bot ~= nil and bot.to ~= nil then
-			local at = if bot.model ~= nil and bot.model.PrimaryPart ~= nil
-				then bot.model.PrimaryPart.Position.X
-				else bot.from.Position.X
+			-- THE ARRIVAL IS THE STAMP, not a late read of the body: by the time this prints, the
+			-- results scene has GATHERED every rig into its ring, so the body's position then is the
+			-- ring's and not the lane's. The first run of this task printed three bots at x 3020
+			-- against goals of 3030, 2880 and 3330 for exactly that reason.
+			--
+			-- A BOT THAT NEVER ARRIVED REPORTS WHERE IT IS, and `nil` once it has been gathered --
+			-- because there is no honest answer then and a number that looks like one is this
+			-- project's named failure mode.
+			local at: number? = bot.arrivedX
+			if at == nil and not bot.gathered then
+				at = if bot.model ~= nil and bot.model.PrimaryPart ~= nil
+					then bot.model.PrimaryPart.Position.X
+					else bot.from.Position.X
+			end
 			table.insert(
 				rows,
 				string.format(
-					"%d: %.0f -> %.0f, at %.0f%s",
+					"%d: %.0f -> %.0f, at %s%s",
 					bot.lane,
 					bot.from.Position.X,
 					(bot.to :: Vector3).X,
-					at,
-					if bot.arrived then " (arrived)" else ""
+					if at ~= nil then string.format("%.0f", at) else "?",
+					if bot.arrived then " (arrived)" elseif bot.gathered then " (gathered first)" else " (still walking)"
 				)
 			)
 		end

@@ -591,7 +591,11 @@ return function()
 			-- condition: `AVOID_HZ` evaluations, each one forward sweep plus at most `AVOID_CASTS`.
 			expect(move.AVOID_HZ > 0).to.equal(true)
 			expect(move.AVOID_CASTS > 0).to.equal(true)
-			expect(move.AVOID_HZ * (move.AVOID_CASTS + 1) <= 60).to.equal(true)
+			-- One forward sweep plus up to `AVOID_CASTS` at the far horizon and `AVOID_CASTS` at the
+			-- nearer one: 104 swept casts a second for an animal running at a wall of trunks, against
+			-- the 180 rays a second the three 9-stud whiskers beside it already cost at 60 Hz.
+			expect(move.AVOID_NEAR_SCALE > 0 and move.AVOID_NEAR_SCALE < 1).to.equal(true)
+			expect(move.AVOID_HZ * (2 * move.AVOID_CASTS + 1) <= 120).to.equal(true)
 			-- ...and the measurement that says whether any of it worked is on.
 			expect(move.COUNT_CONTACTS).to.equal(true)
 		end)

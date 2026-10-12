@@ -1228,6 +1228,19 @@ Boar.CONFIG.MOVE = {
 	-- every frame. `WHISKER_HOLD_SECONDS` (0.6) commits the SIDE on top of that.
 	AVOID_HZ = 8,
 	AVOID_CASTS = 6,
+	-- ...AND A NEARER HORIZON WHEN NOTHING IS CLEAR AT THE FAR ONE, which is a MEASUREMENT and not a
+	-- refinement. The first run of this fan in the Forest Test found **344 of 1,402 evaluations
+	-- "boxed in"** -- a quarter of them -- and that is the whole of what was left of the contacts: a
+	-- 26-stud clear corridor simply does not exist in standing wood, so the fan gave up and the
+	-- animal ran on its old heading into the trunk it had just seen. Asking for 26 studs of room or
+	-- nothing is the wrong question.
+	--
+	-- SO IT ASKS AGAIN AT HALF THE REACH: "if you cannot find 26 studs of room, find 13". That is
+	-- `Lane.clearAim`'s own fallback shape (borrowed from inside this repo, rule 2) and it is
+	-- Reynolds' point that the probe is as long as the urgency -- a trunk 13 studs off still gets a
+	-- turn, just a later and sharper one. The budget below is PER PASS, so the worst case is
+	-- `1 + 2 x AVOID_CASTS` swept casts per evaluation.
+	AVOID_NEAR_SCALE = 0.5,
 	-- AND THE NUMBER THAT SAYS WHETHER ANY OF IT WORKED, counted in the engine rather than in a
 	-- trace: every time a boar's collision body TOUCHES something solid that is not another animal,
 	-- a person or the ground, while it is going at `AVOID_FROM_SPEED` or more. One count per (animal,
@@ -2440,6 +2453,10 @@ function Boar.newRuntime(world)
 		avoidBoxedIn = 0,
 		trunkContacts = 0,
 		runSeconds = 0,
+		-- ...and the two NOT-MOVING detectors' findings, counted so *"no new stuck events"* is a
+		-- number: `wedges` is task 150's fast 0.75-second test and `stuck` the slow four-second one.
+		wedges = 0,
+		stuckReports = 0,
 	}
 
 	self.Despawned = self._signal.Event
@@ -4288,10 +4305,23 @@ function Runtime:_avoidTurnFor(entry, position: Vector3, nose: Vector3, config):
 		entry.avoidDeg = nil
 		return nil
 	end
-	local turn, casts = Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, entry.brain:avoidSide(), function(degrees: number)
-		return sweep(eye, turnFlat(nose, math.rad(degrees)), reach, radius)
-	end, move.AVOID_CASTS)
+	local side = entry.brain:avoidSide()
+	local function blockedAt(length: number)
+		return function(degrees: number)
+			return sweep(eye, turnFlat(nose, math.rad(degrees)), length, radius)
+		end
+	end
+	local turn, casts = Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, side, blockedAt(reach), move.AVOID_CASTS)
 	self._stats.avoidCasts += casts
+	if turn == nil then
+		-- NOTHING AT THE FAR HORIZON: ask again at a nearer one. MEASURED -- a quarter of the first
+		-- run's evaluations were "boxed in" at the full reach, in wood where a 26-stud corridor does
+		-- not exist, and every one of those was an animal running on into what it had just seen.
+		local near = reach * (move.AVOID_NEAR_SCALE or 0.5)
+		local closer, moreCasts = Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, side, blockedAt(near), move.AVOID_CASTS)
+		self._stats.avoidCasts += moreCasts
+		turn = closer
+	end
 	if turn == nil then
 		-- BOXED IN. Say so by leaving the whiskers to it: they turn harder when both sides are
 		-- blocked, and the wedge detector is what clears an animal that is really pinned. This
@@ -4489,6 +4519,17 @@ function Runtime:step(dt: number)
 				self._stats.avoids += 1
 			end
 			entry.lastState = intent.state
+		end
+
+		-- THE TWO NOT-MOVING DETECTORS' FINDINGS (task 167), counted here because both are EDGES at
+		-- the Brain and this is the one place every intent passes through. *"No new stuck events"* is
+		-- a condition on the trunk-avoidance work, and before this nothing outside the Brain could
+		-- see either answer.
+		if intent.stuck then
+			self._stats.stuckReports += 1
+		end
+		if intent.wedged then
+			self._stats.wedges += 1
 		end
 
 		if intent.downed then

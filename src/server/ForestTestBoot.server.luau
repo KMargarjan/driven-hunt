@@ -444,14 +444,17 @@ Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
 		if boar.runSeconds > 0 or boar.trunkContacts > 0 then
 			print(
 				string.format(
-					"[trees] drive %d: %d trunk contacts in %.1fs of running (%.1f/100s) | avoid %d turns, %d boxed in, %d casts",
+					"[trees] drive %d: %d trunk contacts in %.1fs of running (%.1f/100s) | avoid %d turns, %d boxed in,"
+						.. " %d casts | %d wedged, %d stuck",
 					driveNumber or 1,
 					boar.trunkContacts,
 					boar.runSeconds,
 					boar.trunkContacts / math.max(boar.runSeconds, 1e-6) * 100,
 					boar.avoidTurns,
 					boar.avoidBoxedIn,
-					boar.avoidCasts
+					boar.avoidCasts,
+					boar.wedges,
+					boar.stuckReports
 				)
 			)
 		end

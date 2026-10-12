@@ -1696,6 +1696,13 @@ function Brain:step(dt: number, obs)
 		activity = nil :: string?,
 		-- ...and WHICH draw it is, so `Body` can tell a new activity from the same one continuing.
 		activityDraw = nil :: number?,
+		-- WHAT THE TWO NOT-MOVING DETECTORS FOUND THIS TICK (task 167), published so the Runtime can
+		-- COUNT them: *"no new stuck events"* is a condition on this task and nothing outside this
+		-- module could see either answer. Both are EDGES -- `_updateStuck` and `_updateWedge` answer
+		-- true only on the tick their window closes on a finding -- so a count is a count of findings
+		-- and not of frames.
+		stuck = false,
+		wedged = false,
 	}
 
 	if self._state == "GONE" then
@@ -1900,6 +1907,8 @@ function Brain:step(dt: number, obs)
 	local stuck = self:_updateStuck(dt, position)
 	-- ...AND THE FAST ONE (task 150), which answers in 0.75 s where `_updateStuck` takes up to four.
 	local wedged = self:_updateWedge(dt, position)
+	intent.stuck = stuck
+	intent.wedged = wedged
 
 	local desiredDirection, desiredSpeed
 	local stuckTurn = nil :: number?
