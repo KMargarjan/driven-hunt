@@ -9,7 +9,18 @@ bot beaters stood abreast at ±18 and ±36 studs about their base, walked 240 st
 goal still 18 studs apart, blew the real horn nine times with **0 credited** every time, and left no
 error line in the console. The numbers are in `reviews/task-161/REQUEST.md`.
 
-### 1. NEEDS TEST2 161 `66e7ddf2d16923b845dc7f36c9eef9b923897f7d`  (ROUND 2)
+### 1. NEEDS TEST2 161 `30fac01c5819aee779af4273c5341e3a5a970a0c`  (ROUND 3 -- THE LAST ROUND)
+
+**Round 3 superseded the shas below, and it is round 3 of a maximum of 3.** Round 2's finding 1 was
+a real game bug -- from drive 2 on, every bot stayed where the results scene stood it, never walked
+again, and ended the drive on its first `Running` tick, for the rest of the session. It is fixed at
+the owner with the design's own rule (every drive rebuilds its bots once, at the `Assigning` edge),
+and a two-drive spec case fails on the old code. Gate `PASS 33/33 @ 30fac01` twice, clean tree,
+scope=all, DEV alone with the Forest Test closed. Everything in this entry still stands, against the
+new commit. **If round 3's review finds anything blocking, `tools/review.ps1` will refuse a round 4
+and this becomes an `ESCALATE` decision for the Director.**
+
+### 1a. the round-2 entry
 
 **Round 2 superseded the sha below.** All three of round 1's findings are fixed at their owners and
 the Director's walk-animation item is in: the gate is `PASS 33/33 @ 66e7ddf` twice, clean tree,

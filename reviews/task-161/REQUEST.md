@@ -1,21 +1,20 @@
 # Task 161 — review request: bots fill the drive
 
 Task: 161
-Round: 2
+Round: 3
 Base: `87dbccb` (main, PR #143 merged)
-Code commit: `9d20c376e63704d5296092ca6cdbaee126c9df49`
+Code commit: `30fac01c5819aee779af4273c5341e3a5a970a0c`
 
 ```
-[harness] PASS: 33/33 checks @ 66e7ddf2d16923b845dc7f36c9eef9b923897f7d (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 66e7ddf2d16923b845dc7f36c9eef9b923897f7d (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 9d20c376e63704d5296092ca6cdbaee126c9df49 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 9d20c376e63704d5296092ca6cdbaee126c9df49 (clean tree)
+[harness] PASS: 33/33 checks @ 30fac01c5819aee779af4273c5341e3a5a970a0c (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 30fac01c5819aee779af4273c5341e3a5a970a0c (clean tree) scope=all
+[harness2] NEEDS TEST2 161 30fac01c5819aee779af4273c5341e3a5a970a0c
 ```
 
-Logs `<runs-dir>/t161-r2-gate-2.log` and `t161-r2-gate-3.log`, both in the **DEV** Studio alone — the
-Forest Test is closed and was not reopened. The two-player run is the Director's, by the dispatch;
-this change touches `src/server/Match/`, which is in `TWO_PLAYER_PATHS`. No flag or pose override is
-set, so `test2` will start.
+Logs `<runs-dir>/t161-r3-gate-1.log` and `t161-r3-gate-2.log`, both in the **DEV** Studio alone —
+the Forest Test is closed and was not reopened. The two-player run is the Director's, by the
+dispatch; this change touches `src/server/Match/`, which is in `TWO_PLAYER_PATHS`. No flag or pose
+override is set, so `test2` will start.
 
 ## What changed
 
@@ -141,20 +140,53 @@ brief `reviews/task-161/BRIEF.md`, design `docs/design/bots.md` (Architect **PAS
     scope in `BLAST_RADIUS`/`SCOPE_SPECS` with its three specs, also in the `match` tuple.
     `tools/agents.py` is deliberately **unchanged**: `src/server/Bots/` is not in `TWO_PLAYER_PATHS`
     — a bot is not a player, and the fill count per real-player count is a pure function.
-    `Bots.clear()` resets the per-drive counters, so `[bots] drive N` no longer prints lifetime
-    totals; `desired` counts by `slot.team`, so a world with no drive line stops reporting
-    `0/4 hunters, 4/0 beaters`.
+    `Bots.clear()` resets the per-drive counters — and **round 2's request overstated that**, which
+    the Reviewer was right about: `clear()` was only ever reached in `Waiting`, so between drives it
+    never fired and `[bots] drive 2` still printed drive 1 plus drive 2. Claim 12's boundary is what
+    makes the sentence true. `desired` counts by `slot.team`, so a world with no drive line stops
+    reporting `0/4 hunters, 4/0 beaters`.
     *Verify:* `python tools/studio_mcp.py selftest` and `python tools/agents.py selftest`, both
     green; `bots_live.spec`'s "resets the per-drive counters when the drive's rigs go" (and that the
     lifetime ones stay); `docs/design/bots.md` §15 for the `TWO_PLAYER_PATHS` reason.
+
+12. **Every drive rebuilds its bots, ONCE, on its first `Assigning` tick — which is the drive-2 bug
+    round 2 found.** `Bots.fill` only re-places a slot whose base MOVED, and a base does not move
+    between drives (`Body.placementFor` is a pure function of the marker and the index, and
+    `botSlotsFor` asks for the same index every time); the one branch that destroyed rigs ran only
+    in `Waiting`, and `Phase.step` goes `Scoring` → `Assigning` directly with `MIN_PLAYERS = 1`, so
+    `Waiting` is never visited between drives. Every bot therefore stayed where the results scene
+    stood it — `gathered` true, so none ever walked again, all of them standing past the hunters'
+    line — and `Match.beaterCrossing` answered "all through" on drive 2's first `Running` tick, for
+    the rest of the session. The rule is now the design's own (§8: *"Every rig is rebuilt here"*),
+    **edge-triggered on the drive NUMBER**: `Assigning` lasts ten seconds and `syncBots` runs on
+    every dispatch, so a level rule would rebuild eight bodies four times a second, and a `Running`
+    rule would teleport a walking bot back to the line.
+    *Verify:* `Match.botsNeedRebuild` (pure, exported) and its one call in `syncBots`, plus
+    `botsRebuiltForDrive`, which `Match.start`, `Match.stop` and `Waiting` all put back to `nil`.
+    `bots_live.spec`'s **"drive 2"** describe: one case states the edge four ways; the other **runs
+    two drives** — fill, go, gather into a ring 5,000 studs past the line (where `beaterCrossing`
+    counts all four as through), then the boundary **through that same exported rule**, then every
+    bot back within a stud of its own lane start, `across` back to the players' own number,
+    `Phase.beatersThrough` false, and `stats.walking == 4` again. **Delete the rule and the bots stay
+    in the ring, 5,000 studs out, and the case fails.** `stats.botRebuilds` is the number that must
+    equal the drives that had bots in them.
 
 ## Queued, not fixed (TASKS.md 161a)
 
 The two stale **design** lines (§6.3's view list, §6.6's reader list — the Builder does not write
 designs); the §16.3 additions to `match_live`/`match_score`/`match_scene`/`match_config` that were
-not made, so the end-to-end early end with a bot line is untested; `restSpot` as a third reader of
-`realBeaters`, which shrinks the rest-spot search by a measurement nobody has taken; `Bots.start`
-connecting a Heartbeat with the flag off; and `syncBots` running per tick rather than per boundary.
+not made, so the early end is proved at the `Bots` and `Match.beaterCrossing` level rather than
+through a real `Phase` transition; `restSpot` as a third reader of `realBeaters`, which shrinks the
+rest-spot search by a measurement nobody has taken; `Bots.start` connecting a Heartbeat with the
+flag off; and `syncBots` running per tick rather than per boundary (the REBUILD is now per boundary,
+but the fill below it is still level-triggered per dispatch, which is what the design asks for and
+what catches a mid-drive join).
+
+**Round 2's other three notes were cheap and true, so they are fixed, not queued:** `clipsFailed`
+counts `Rig.CLIPS` instead of a hard-coded 2 (a third clip would have made it negative); a body that
+comes back with no `Humanoid` is destroyed and counted as a build failure instead of sitting in
+`stats.walking` for the rest of the drive; and `Bots.hold` is dropped — added this task, no caller
+anywhere (grepped, rule B), and `clear()` already clears `released`.
 
 ## What I could NOT verify (rule 8)
 
