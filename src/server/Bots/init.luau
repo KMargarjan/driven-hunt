@@ -68,19 +68,57 @@ export type Slot = {
 Bots.CONFIG = {
 	-- A WALK, NOT A JOG. `Body.defaultWalkSpeed()` is 16, which reads as a man in a hurry; a beater
 	-- walks the wood. K: Karen's eye decides and it is one line.
-	WALK_SPEED = 9, -- K
+	--
+	-- 9 -> 5, AND IT IS KAREN'S TWO MINUTES (task 162). Karen, 2026-10-12: *"can we make drive
+	-- longer, it's to fast / good for testing but now need longer walk for beaters let's say 2
+	-- min"*. A bot line ENDS the drive (`Match.beaterCrossing` counts bots into the line), so this
+	-- number and where the line starts ARE the length of a drive, and the pair has to make 120 s:
+	--
+	--   (ForestTest.LINE.spawnNorthStuds 180 + ForestTest.BEATER.behindLineStuds 400
+	--    + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS 20) / 5 = 120.0 s
+	--
+	-- `bots_lane.spec` asserts that relation rather than leaving it in a comment, because the two
+	-- numbers live in two files that nobody changes together.
+	--
+	-- 5 STUDS/S IS 1.40 m/s at `ForestTest.SPOOK.METRES_PER_STUD` (0.28), which is a real walking
+	-- pace for a man working a wood -- the Director's band was 1.2-1.5 m/s. 9 was 2.52 m/s, which is
+	-- a jog, and it is why a drive ended at 0:29 (TASKS.md 161a(e)).
+	--
+	-- KEEPING 9 WAS MEASURED AND REFUSED: 120 s at 9 studs/s needs 1,060 studs of wood north of the
+	-- road, and MEASURED in the Forest Test on 2026-10-12 the trees run out at 775-850 studs
+	-- (terrain carries on past 1,000, bare). The wood cannot hold a two-minute walk at a jog, so the
+	-- pace had to come down -- see `ForestTest.BEATER.behindLineStuds` for the other half.
+	--
+	-- A REAL PLAYER IS NOT SLOWED BY THIS. Nothing in this module writes a player's `WalkSpeed` --
+	-- `Match.Body` is the only writer of that and still hands out `Body.defaultWalkSpeed()` (16) --
+	-- so Karen walking as a beater still covers the 580 studs in ~36 s and then waits for the bot
+	-- line, because *"all beaters cross"* is the line and not the first of it.
+	WALK_SPEED = 5, -- K
 	-- THIS SYSTEM'S OWN CLOCK, declared rather than discovered. The drive's is 4
 	-- (`MATCH_STEP_HZ`) and the boar runtime has its own; this is a third.
 	STEP_HZ = 5,
 	-- WELL INSIDE THE ENGINE'S DOCUMENTED 8-SECOND `MoveTo` TIMEOUT. Roblox: if the goal is not
 	-- reached within 8 seconds the humanoid STOPS WALKING and `MoveToFinished` fires with
 	-- `reached = false`; the timeout is reset by calling `MoveTo` again inside the window, which is
-	-- what the vendor's own sample does. A beater has ~260 studs to cross at 9 studs/s, which is
-	-- half a minute, so ONE `MoveTo` could never do it whatever route it followed.
+	-- what the vendor's own sample does. A beater has ~600 studs to cross at 5 studs/s, which is two
+	-- minutes (task 162), so ONE `MoveTo` could never do it whatever route it followed.
 	--   https://create.roblox.com/docs/reference/engine/classes/Humanoid#MoveTo
 	MOVE_REISSUE_SECONDS = 2,
-	-- 1.3 SECONDS OF WALKING at `WALK_SPEED`, so the aim point is always still ahead of the bot when
+	-- 2.4 SECONDS OF WALKING at `WALK_SPEED`, so the aim point is always still ahead of the bot when
 	-- the next re-issue comes round.
+	--
+	-- AND SINCE TASK 162 THE ARITHMETIC BEHIND THAT SENTENCE HOLDS, which it did not before: the aim
+	-- point has to be at least `WALK_SPEED * MOVE_REISSUE_SECONDS` studs out, or the bot can reach
+	-- it and have nothing to walk at until the next re-issue. At `WALK_SPEED` 9 that product was 18
+	-- against these 12; at 5 it is 10, inside them. `bots_lane.spec` asserts the relation rather
+	-- than this comment claiming it.
+	--
+	-- WHAT IS NOT CLAIMED, because it was not measured: that the old pace was actually clamped by
+	-- the cadence. Task 161's own run printed `walkSeconds 30.0` for a 260-stud walk, which is 8.7
+	-- studs/s -- not the 6 a hard clamp would give -- so the engine evidently carries a humanoid
+	-- past a reached point somehow. Task 162 fixes the relation because it should hold, not because
+	-- a measurement said it was biting; the number that decides the length of a drive is the
+	-- MEASURED `walkSeconds`, printed by `[bots]` every drive.
 	AHEAD_STUDS = 12,
 	-- A CHARACTER'S OWN WIDTH: "it is standing on the goal", not "its root is on the point".
 	ARRIVE_STUDS = 4,
@@ -96,7 +134,7 @@ Bots.CONFIG = {
 	SIDE_TRIES = 4,
 	-- `ForestTest.BEATER.dropStuds`: dropped onto the ground, not into it.
 	DROP_STUDS = 4,
-	-- A BOT THAT HAS NOT MOVED THIS FAR IN THIS LONG IS STUCK. At 9 studs/s four seconds is 36
+	-- A BOT THAT HAS NOT MOVED THIS FAR IN THIS LONG IS STUCK. At 5 studs/s four seconds is 20
 	-- studs, so 3 is unambiguously "not walking". It side-steps and the count is PRINTED -- which is
 	-- what opens the research note's escape hatch (SimplePath) with a number rather than a feeling.
 	STUCK_SECONDS = 4,

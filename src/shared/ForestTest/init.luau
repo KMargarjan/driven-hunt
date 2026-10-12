@@ -117,14 +117,40 @@ end
 -- SO A BEATER STARTS BEHIND THE ANIMALS, ON THE DRIVE SIDE, FACING THE ROAD. The rotation between
 -- the two roles is the NEXT task; this is the geometry of the experience.
 --
--- IT IS DERIVED FROM THE LINE'S OWN START AND NOT CHOSEN. `LINE.spawnNorthStuds` (180) is where
--- this world releases a line of boars; a beater `behindLineStuds` further north is therefore behind
--- every animal the drive has just put on the ground, by construction rather than by a number that
--- happens to be bigger. `DRIVERS.startNorthStuds` (700) is the OTHER drive-side point this world
--- owns, and it is not this one: 700 studs is 44 s of walking before she reaches the boars at all,
--- and two waves cross in that time -- the walk Karen wants to feel is the one that meets them.
+-- IT IS MEASURED FROM THE LINE'S OWN START. `LINE.spawnNorthStuds` (180) is where this world
+-- releases a line of boars; a beater `behindLineStuds` further north is therefore behind every
+-- animal the drive has just put on the ground. `DRIVERS.startNorthStuds` (700) is the OTHER
+-- drive-side point this world owns, and it is not this one.
+--
+-- 60 -> 400, AND THE REASON CHANGED WITH IT (task 162). KAREN, 2026-10-12: *"can we make drive
+-- longer, it's to fast / good for testing but now need longer walk for beaters let's say 2 min"*.
+-- Until today this number only had to CLEAR the line's animals, and 60 studs did; now it has to
+-- make a two-minute walk at the bot pace, so it is chosen by the walk and being behind the line is
+-- a CHECKED CONSEQUENCE (`forest_stand.spec`) rather than the reason.
+--
+--   (spawnNorthStuds 180 + behindLineStuds 400 + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS 20)
+--     / Bots.CONFIG.WALK_SPEED 5  =  120.0 s
+--
+-- A BOT LINE IS WHAT ENDS A DRIVE HERE (`Match.beaterCrossing` counts bots into the line), so that
+-- product IS the length of a drive, and `bots_lane.spec` asserts it against `DRIVE.seconds` (300).
+--
+-- 580 IS WHAT THE WOOD HOLDS, MEASURED in this place on 2026-10-12 (`test`'s own Edit session, nine
+-- stand columns from x 2430 to 3630, sampled every 25 studs out to 1,000):
+--   * TERRAIN carries on past 1,000 studs north at every one of the nine, with no gap;
+--   * TREES -- a colliding part within 25 studs -- run out at 775-850 studs depending on x, and
+--     past that it is bare hillside. So the WOOD is about 775 studs deep and a start at 580 is
+--     inside it with room to spare;
+--   * the ground rises from y 140 at the road to y 234 at 575 studs north and falls away beyond
+--     600, so 580 puts the line ON the crest, looking down the hill at the road;
+--   * the ground path from the pad at the middle stand down to the road is 611.6 studs against 580
+--     flat, so the real walk is ~126 s rather than 120 -- longer, never shorter;
+--   * the pad column itself (x 3030): terrain 234.1, `groundAt` 234.1 (delta 0.00, so
+--     `Markers.groundFor` builds `BeaterStart` and the drive starts), `roomToStand` true at
+--     `clearStuds`, nearest trunk 12.4 studs -- in the trees, not inside one.
+-- 700 WOULD ALSO FIT THE WOOD. It is not taken because the pair has to make 120 s and 580 is the
+-- half of it that leaves the pace realistic (`Bots.CONFIG.WALK_SPEED`, 1.40 m/s).
 ForestTest.BEATER = {
-	behindLineStuds = 60,
+	behindLineStuds = 400,
 	-- HOW CLOSE A TRUNK MAY BE to where she is put down. A Roblox character is 2 studs across, so 6
 	-- is a body's width of clearance on every side: enough that she does not land inside a tree.
 	clearStuds = 6,
@@ -465,8 +491,10 @@ ForestTest.LINE = {
 --
 -- SHE WAS RIGHT ABOUT THE WAIT AND THE DIRECTOR MEASURED IT: a wave is released every
 -- `SCHEDULE.intervalSeconds` (20 s), and a beater put down `BEATER.behindLineStuds` behind the
--- line's own spawn walks the 240 studs to the road in about sixteen seconds at 15.7 studs/s -- so
--- she arrived BEFORE THE FIRST WAVE EXISTED and the wood she walked through was empty.
+-- line's own spawn walked the 240 studs to the road in about sixteen seconds at 15.7 studs/s -- so
+-- she arrived BEFORE THE FIRST WAVE EXISTED and the wood she walked through was empty. (That 240 is
+-- 580 since task 162 and the arithmetic is 37 s, which does not change the finding: a timer is
+-- still the wrong shape for somebody who walks at the animals.)
 --
 -- A TIMER IS THE WRONG SHAPE FOR A BEATER, which is why this is not "release the first wave
 -- sooner". A hunter stands still and the drive comes to him, so a schedule is exactly right for
@@ -480,11 +508,22 @@ ForestTest.LINE = {
 -- (task 117). This file adds no behaviour; it only says where to put them.
 ForestTest.REST = {
 	-- WHERE A GROUP MAY BE PUT, as the band between her and the road. She starts at
-	-- `LINE.spawnNorthStuds + BEATER.behindLineStuds` = 240 studs north of it, so a group at 60-190
+	-- `LINE.spawnNorthStuds + BEATER.behindLineStuds` = 580 studs north of it, so a group at 55-440
 	-- is in front of her and short of the road -- which is both "between her and the road" and far
 	-- enough from the verge that a hunter at a stand is not looking at a boar standing still.
+	--
+	-- `farRoadStuds` 160 -> 460 IS DERIVED, NOT CHOSEN (task 162). The band's far edge is as deep as
+	-- the keep-away below allows, and that is the whole of it:
+	--
+	--   behindLineStuds 400 + spawnNorthStuds 180 - (SPOOK.BEATER_STUDS 89 + clearOfStartStuds 30)
+	--     = 461, taken down to 460
+	--
+	-- so the deepest spot the search may answer is still one spook radius plus 30 studs from where
+	-- she is put down. A band that stopped at 160 would have left her walking 420 studs of empty
+	-- wood before she met anything, which is the defect this whole section exists to prevent -- in a
+	-- new form. `forest_stand.spec` asserts the relation.
 	nearRoadStuds = 40,
-	farRoadStuds = 160,
+	farRoadStuds = 460,
 
 	-- ...AND NOT ALREADY INSIDE HER REACH. MEASURED, first run of this task: the group nominally at
 	-- `offsetX +45, northStuds 185` is sqrt(45^2 + 55^2) = 71 studs from where a beater is put down,
@@ -525,15 +564,39 @@ ForestTest.REST = {
 	-- they are lying up is this world's. `offsetX` is relative to the stand the drive aims at --
 	-- which is the x she is standing behind -- so "110 studs west of me" means that wherever she is.
 	--
-	-- 27 ANIMALS IN FIVE GROUPS. Karen: *"make them a lot not too much to break but enough to test"*,
-	-- and `MAX_BOARS` is 60; a measured session has carried 32 at once in this place. Five groups
-	-- across +-120 studs at 60-185 studs out is several things to walk up on rather than one.
+	-- 28 ANIMALS IN SIX GROUPS. Karen: *"make them a lot not too much to break but enough to test"*,
+	-- and `MAX_BOARS` is 60; a measured session has carried 32 at once in this place.
+	--
+	-- SPREAD DOWN THE WHOLE DEPTH OF THE WALK (task 162), not across one band at the end of it. The
+	-- walk is 580 studs now, so five groups between 55 and 150 studs out would all have been in the
+	-- last quarter of it: the deepest row is the first thing she meets and the shallowest is at the
+	-- verge. The band is listed deepest-first for exactly that reason -- the order is the order she
+	-- walks into them.
+	--
+	-- AND NEVER TWO AT ONCE, which is what the depths AND the offsets are spaced for:
+	-- `SPOOK.BEATER_STUDS` is 89 and the fright LATCHES, so two groups inside 89 studs of each other
+	-- both bolt on one approach and six groups give her three events. MEASURED over all fifteen
+	-- pairs in the world frame -- which is not the same as the depth difference, because the road is
+	-- a sine and `restPoint` adds `roadZ(x)`: the closest pair is 121.7 studs (the last two). The
+	-- first layout of this table had them 94.7 apart, 5.7 studs clear of the reach, which the ring
+	-- search could have closed on its own; the two offsets were widened for that and nothing else.
+	-- `forest_stand.spec` asserts no pair is inside the reach.
+	--
+	-- ONE GROUP MORE AND ONE ANIMAL MORE than task 154's five -- not a fuller wood, a longer one.
+	-- Six rows over 385 studs of depth is an encounter about every 80 studs she walks; making the
+	-- wood denser is adding rows to this table and nothing else, if Karen asks for it.
+	--
+	-- EVERY ROW WAS MEASURED AGAINST THE LIVE WOOD (2026-10-12, this place, Edit): each nominal
+	-- point finds a legal spot within search ring 0 or 1 of four -- on the terrain, off a canopy, and
+	-- 9.6 to 18.7 studs from the nearest trunk, which is `clearStuds` 8 to `nearTrunkStuds` 22. So
+	-- none of the six is a group the wood cannot hold.
 	groups = {
-		{ offsetX = -115, northStuds = 150, composition = 1, note = "a mixed flock, west and far" },
-		{ offsetX = -40, northStuds = 105, composition = 5, note = "a sow and her young, west" },
-		{ offsetX = 55, northStuds = 108, composition = 4, note = "sows and piglets, east" },
-		{ offsetX = 125, northStuds = 95, composition = 2, note = "two males, east" },
-		{ offsetX = -10, northStuds = 55, composition = 6, note = "one big lone male, straight ahead" },
+		{ offsetX = -25, northStuds = 440, composition = 6, note = "a lone big male, the first thing she meets" },
+		{ offsetX = 95, northStuds = 355, composition = 2, note = "two males, east and deep" },
+		{ offsetX = -110, northStuds = 280, composition = 1, note = "a mixed flock, west, half way down" },
+		{ offsetX = 60, northStuds = 200, composition = 4, note = "sows and piglets, east" },
+		{ offsetX = -70, northStuds = 120, composition = 5, note = "a sow and her young, west" },
+		{ offsetX = 50, northStuds = 55, composition = 6, note = "one big lone male, close to the road" },
 	},
 }
 
