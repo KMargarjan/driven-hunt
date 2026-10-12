@@ -3,12 +3,13 @@
 Task: 166
 Round: 2
 Base: `13fc0f0` (main, #149 merged)
-Code commit: `74b83cba7759ca931a0ae077725e2e602c760185`
+Code commit: `a1ed4a1f56811c836f3e7697b774ff572b3333e0`
 
 ```
 [harness] PASS: 33/33 checks @ 74b83cba7759ca931a0ae077725e2e602c760185 (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 74b83cba7759ca931a0ae077725e2e602c760185 (clean tree) scope=all
-[harness2] <NEEDS TEST2 166 74b83cba7759ca931a0ae077725e2e602c760185 -- the Director runs it>
+[harness] PASS: 33/33 checks @ a1ed4a1f56811c836f3e7697b774ff572b3333e0 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ a1ed4a1f56811c836f3e7697b774ff572b3333e0 (clean tree)
 ```
 
 **THE TWO-PLAYER LINE IS THE DIRECTOR'S.** Three `TWO_PLAYER_PATHS` entries are touched:
