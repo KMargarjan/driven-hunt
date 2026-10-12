@@ -294,6 +294,91 @@ return function()
 		end)
 	end)
 
+	-- TASK 166. KAREN, 2026-10-12: *"we need boundries but not put back where it started"*. A
+	-- boundary a player cannot see is a wall in the dark, so the circle he may walk in is DRAWN at
+	-- exactly the radius `ForestTest.boundaryPoint` clamps to. These cases hold the ring to that
+	-- radius, to its own ground readings, and to being replaced rather than stacked.
+	describe("the stand's edge ring", function()
+		local function ringOf(standIndex: number): Instance?
+			local folder = Markers.folder()
+			return folder and folder:FindFirstChild(Markers.ringName(standIndex))
+		end
+
+		it("lays its segments ON the circle, at the radius the boundary clamps to", function()
+			Markers.build(Data.standX(5), flat, flat)
+			local radius = Data.PICK.standRadiusStuds
+			local placed = Markers.ring(4, radius, flat, flat)
+			expect(placed).to.equal(Markers.RING.SEGMENTS)
+
+			local ring = ringOf(4)
+			expect(ring).to.be.ok()
+			local home = Data.standPosition(4)
+			local segments = 0
+			for _, part in ipairs((ring :: Instance):GetChildren()) do
+				expect(part:IsA("BasePart")).to.equal(true)
+				local box = part :: BasePart
+				segments += 1
+				-- THE MIDDLE OF A CHORD IS SLIGHTLY INSIDE THE CIRCLE, and by a known amount:
+				-- r*(1-cos(pi/n)) = 0.148 studs at r=12, n=20. So "on the circle" is asserted to
+				-- that tolerance and not to a guess.
+				local flatOut = Vector3.new(box.Position.X - home.X, 0, box.Position.Z - home.Z)
+				local sag = radius * (1 - math.cos(math.pi / Markers.RING.SEGMENTS))
+				expect(flatOut.Magnitude).to.be.near(radius - sag, 1e-3)
+				-- ON ITS OWN GROUND READING, lifted clear of it so it cannot z-fight.
+				expect(box.Position.Y).to.be.near(FLAT_Y + Markers.RING.LIFT_STUDS, 1e-3)
+				-- A PELLET MUST PASS THROUGH IT -- the rule every marker in this folder follows,
+				-- because what a shot hit is what the safety rule and the hit record read.
+				expect(box.CanQuery).to.equal(false)
+				expect(box.CanCollide).to.equal(false)
+				expect(box.Anchored).to.equal(true)
+				-- VISIBLE, which is the whole point of it, and subtle rather than a fence.
+				expect(box.Transparency < 1).to.equal(true)
+			end
+			expect(segments).to.equal(Markers.RING.SEGMENTS)
+			TestKit.note(
+				string.format(
+					"stand ring: %d segments at r=%.0f, chord %.2f studs, lift %.2f, transparency %.2f",
+					segments,
+					radius,
+					2 * radius * math.sin(math.pi / Markers.RING.SEGMENTS),
+					Markers.RING.LIFT_STUDS,
+					Markers.RING.TRANSPARENCY
+				)
+			)
+		end)
+
+		it("is replaced and not stacked, and goes when it is cleared", function()
+			Markers.build(Data.standX(5), flat, flat)
+			Markers.ring(2, Data.PICK.standRadiusStuds, flat, flat)
+			local first = #((ringOf(2) :: Instance):GetChildren())
+			-- A RE-LOCK DRAWS AGAIN: one ring per stand, however many times it is asked for.
+			Markers.ring(2, Data.PICK.standRadiusStuds, flat, flat)
+			expect(#((ringOf(2) :: Instance):GetChildren())).to.equal(first)
+
+			-- A SECOND STAND IS A SECOND RING, so two hunters each see their own edge.
+			Markers.ring(7, Data.PICK.standRadiusStuds, flat, flat)
+			expect(ringOf(7)).to.be.ok()
+			expect(Markers.clearRings()).to.equal(2)
+			expect(ringOf(2)).to.equal(nil)
+			expect(ringOf(7)).to.equal(nil)
+			-- ...AND THE STANDS THEMSELVES ARE UNTOUCHED BY ALL OF IT: the ring is a child folder,
+			-- so the folder still holds exactly the nine posts and the pad.
+			expect(partsInFolder()).to.equal(Data.STAND_COUNT + 1)
+			expect(Markers.clearRings()).to.equal(0)
+		end)
+
+		it("refuses the ground it cannot read, and draws nothing at all for a radius of zero", function()
+			Markers.build(Data.standX(5), flat, flat)
+			-- THE SAME REFUSAL `build` MAKES: where the two readings disagree there is no segment,
+			-- counted rather than guessed at. Nothing readable anywhere means no ring and no folder.
+			expect(Markers.ring(3, Data.PICK.standRadiusStuds, nothing, nothing)).to.equal(0)
+			expect(ringOf(3)).to.equal(nil)
+			expect(Markers.ring(3, 0, flat, flat)).to.equal(0)
+			expect(ringOf(3)).to.equal(nil)
+			Markers.clearRings()
+		end)
+	end)
+
 	describe("the folder", function()
 		it("is rebuilt and never grows, and `clear` leaves nothing behind", function()
 			Markers.build(Data.standX(5), flat, flat)

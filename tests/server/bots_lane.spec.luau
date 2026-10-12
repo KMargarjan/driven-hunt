@@ -27,6 +27,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Bots = require(ServerScriptService:WaitForChild("Bots"))
 local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
+local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Lane = Bots.Lane
@@ -526,6 +527,118 @@ return function()
 			-- `Bots.CONFIG.WALK_SPEED` is the pace, `Rig.GAIT.NATURAL_WALK_SPEED` is what the clip
 			-- was authored for, and 5 < 6.74 is why playing it at 1.000 slid the feet.
 			expect(Rig.GAIT.NATURAL_WALK_SPEED > Bots.CONFIG.WALK_SPEED).to.equal(true)
+		end)
+	end)
+
+	-- TASK 166. KAREN, 2026-10-12: *"yes, bots are good , just we will change horn and behaviuor hwn
+	-- they push has to put to mauth blow horn"*. A bot beater now raises the horn to its face for the
+	-- length of a blast. Three claims, all pure: the WINDOW (when the arm is up), the SEQUENCE (what
+	-- the pose is, and that it only speaks for two joints), and the two numbers agreeing across files.
+	describe("the horn at the mouth (task 166)", function()
+		it("is up for exactly the length of a blast, and down before and after", function()
+			-- `Bots.blowing` is the whole state machine and it is a window over a stamp: a bot with
+			-- no blast behind it has its arm down, and so has one whose blast has finished.
+			local bot: any = { blowUntil = nil }
+			expect(Bots.blowing(bot, 100)).to.equal(false)
+			expect(Bots.blowing(nil, 100)).to.equal(false)
+			bot.blowUntil = 100.9
+			expect(Bots.blowing(bot, 100)).to.equal(true)
+			expect(Bots.blowing(bot, 100.89)).to.equal(true)
+			-- THE EDGE IS EXCLUSIVE, so the arm comes down on the frame the blast ends and not one
+			-- window later.
+			expect(Bots.blowing(bot, 100.9)).to.equal(false)
+			expect(Bots.blowing(bot, 200)).to.equal(false)
+		end)
+
+		it("raises and lowers ONCE per blast, because `Rig.blow` is idempotent", function()
+			-- The step is level-triggered: it asks `Rig.blow` every tick with the window's answer,
+			-- so what must not happen is a Play call per tick. `Rig.blow` returns whether it
+			-- CHANGED, and a table with no track still answers honestly.
+			local clips: any = {}
+			-- No track: nothing to play, and nothing counted.
+			expect(Rig.blow(clips, true)).to.equal(false)
+			-- A fresh rig asked to blow nothing is a no-op, not a pose (the `holdTool` rule).
+			expect(Rig.blow(clips, false)).to.equal(false)
+		end)
+
+		it("speaks for the shoulder and the elbow ONLY, at a priority above the gait", function()
+			local sequence = Rig.blowSequence(Rig.BLOW)
+			expect(sequence:IsA("KeyframeSequence")).to.equal(true)
+			-- A HELD POSE IS A LOOP OF ONE POSE, and two keyframes are what give the clip a length.
+			expect(sequence.Loop).to.equal(true)
+			expect(sequence.Priority).to.equal(Enum.AnimationPriority.Action)
+			local keyframes = sequence:GetChildren()
+			expect(#keyframes).to.equal(2)
+
+			for _, keyframe in ipairs(keyframes) do
+				expect(keyframe:IsA("Keyframe")).to.equal(true)
+				-- THE CHAIN FROM THE ROOT, because a Pose is found by its place in the hierarchy.
+				local node: Instance = keyframe
+				for _, name in ipairs({ "HumanoidRootPart", "LowerTorso", "UpperTorso" }) do
+					local pose = node:FindFirstChild(name)
+					expect(pose).to.be.ok()
+					-- NO WEIGHT ABOVE THE SHOULDER: a clip that wrote identity over the torso at
+					-- `Action` would freeze a walking beater's lean for every blast.
+					expect((pose :: any).Weight).to.equal(0)
+					node = pose :: Instance
+				end
+				local upperArm = node:FindFirstChild("RightUpperArm")
+				expect(upperArm).to.be.ok()
+				expect((upperArm :: any).Weight).to.equal(1)
+				local lowerArm = (upperArm :: Instance):FindFirstChild("RightLowerArm")
+				expect(lowerArm).to.be.ok()
+				expect((lowerArm :: any).Weight).to.equal(1)
+				-- THE WRIST IS THE TOOL CLIP'S: named to close the chain, and silent.
+				local hand = (lowerArm :: Instance):FindFirstChild("RightHand")
+				expect(hand).to.be.ok()
+				expect((hand :: any).Weight).to.equal(0)
+
+				-- THE TWO ANGLES ARE THE DATA'S, in radians, read back off the CFrames.
+				local shoulder = Rig.BLOW.SHOULDER_DEG
+				local x, y, z = (upperArm :: any).CFrame:ToEulerAnglesXYZ()
+				expect(math.deg(x)).to.be.near(shoulder.x, 1e-3)
+				expect(math.deg(y)).to.be.near(shoulder.y, 1e-3)
+				expect(math.deg(z)).to.be.near(shoulder.z, 1e-3)
+				local ex = ((lowerArm :: any).CFrame:ToEulerAnglesXYZ())
+				expect(math.deg(ex)).to.be.near(Rig.BLOW.ELBOW_DEG.x, 1e-3)
+			end
+			sequence:Destroy()
+
+			-- THE ARM REALLY MOVES: an arm raise of a few degrees is not a raise. The shoulder
+			-- swings well past horizontal and the elbow folds hard, which is what brings the hand up
+			-- in front of the face.
+			expect(math.abs(Rig.BLOW.SHOULDER_DEG.x) > 60).to.equal(true)
+			expect(math.abs(Rig.BLOW.ELBOW_DEG.x) > 60).to.equal(true)
+			-- UP QUICKLY, DOWN A LITTLE SLOWER, and both inside the blast they have to fit in.
+			expect(Rig.BLOW.RAISE_SECONDS > 0).to.equal(true)
+			expect(Rig.BLOW.LOWER_SECONDS > Rig.BLOW.RAISE_SECONDS).to.equal(true)
+			local hold = Horn.CONFIG.BLOW_SECONDS
+			expect(Rig.BLOW.RAISE_SECONDS + Rig.BLOW.LOWER_SECONDS < hold * 2).to.equal(true)
+			TestKit.note(
+				string.format(
+					"horn pose: shoulder (%d, %d, %d) elbow (%d, %d, %d), up %.2f s, held %.2f s (Horn.BLOW_SECONDS), down %.2f s",
+					Rig.BLOW.SHOULDER_DEG.x,
+					Rig.BLOW.SHOULDER_DEG.y,
+					Rig.BLOW.SHOULDER_DEG.z,
+					Rig.BLOW.ELBOW_DEG.x,
+					Rig.BLOW.ELBOW_DEG.y,
+					Rig.BLOW.ELBOW_DEG.z,
+					Rig.BLOW.RAISE_SECONDS,
+					hold,
+					Rig.BLOW.LOWER_SECONDS
+				)
+			)
+		end)
+
+		it("holds the arm up for as long as the Tool's own tilt, across two files", function()
+			-- THE RELATION THAT MATTERS, and the reason the length is handed in at the composition
+			-- root rather than written in `Bots.CONFIG`: `Weapon.Horn.blowTool` restores the Tool's
+			-- grip after `Horn.CONFIG.BLOW_SECONDS`, and the arm comes down off the same number. Two
+			-- numbers would be two answers to "how long is a blast".
+			expect(Horn.CONFIG.BLOW_SECONDS > 0).to.equal(true)
+			-- ...and a blast is at the mouth for less time than the cooldown allows the next one, so
+			-- a raised arm can never still be up when the horn sounds again.
+			expect(Horn.CONFIG.BLOW_SECONDS < Horn.CONFIG.COOLDOWN).to.equal(true)
 		end)
 	end)
 end

@@ -69,10 +69,31 @@ end
 -- few steps on each side max"*.
 ForestTest.PICK = {
 	seconds = 10,
-	-- HOW FAR HE MAY THEN MOVE. "a few steps" -- a Roblox character walks 16 studs a second, so 6
-	-- studs is about a third of a second of walking: enough to turn and shift his feet, not enough
-	-- to leave the stand or crowd his neighbour.
-	leashStuds = 6,
+	-- HOW FAR HE MAY THEN MOVE, AND IT IS NOW A BOUNDARY RATHER THAN A LEASH (task 166).
+	--
+	-- KAREN, 2026-10-12 ~16:00, having played it: *"yes inaught but it always put me at the same
+	-- place even I moved a bit we need boundries but not put back where it started"*.
+	--
+	-- WHAT WAS PUTTING HER BACK WAS MEASURED, not guessed, because three things could have done it
+	-- (the Forest Test's own hold, `Match.Body.settle`'s drift re-pivot, or the stand placement
+	-- re-pivoting). In a Play session of the Forest Test on 2026-10-12, with stand 5 locked, the
+	-- character was moved 20 studs north of its stand and its distance from the stand sampled every
+	-- Heartbeat for four seconds:
+	--     0.0s 20.00   0.1s 6.00   0.2s 6.00   ... 4.0s 6.00
+	-- ONE Heartbeat, 20 studs -> 6.000, and 6.000 for every sample after it. So it is this number
+	-- and the hold that reads it, and nothing else: `Body.settle` fires once per placement and
+	-- would have landed her at 0.00, and no re-pivot ran at all.
+	--
+	-- 6 STUDS WAS 1.7 METRES. At `Report.CONFIG`'s 0.28 m per stud a hunter could stand up and shift
+	-- his feet and nothing more, and every step past it was written back to exactly 6.000 -- at 16
+	-- studs a second that is a correction every frame, which is the rubber band she felt and
+	-- described as being put back where she started.
+	--
+	-- 12 IS THE DIRECTOR'S START VALUE AND IT IS 3.4 METRES: a stand's own platform is 6 studs
+	-- across (`Markers.POST_SIZE`), so 12 studs of radius is a circle four platform-widths wide --
+	-- room to walk off the post, turn, and take a step to either side for a shot, which is what a
+	-- hunter on a stand actually does. It is one line, and Karen's to change.
+	standRadiusStuds = 12,
 	-- If he picks nothing, he gets one anyway. A playtest that begins by refusing to start is a
 	-- playtest nobody runs.
 	defaultIndex = 5,

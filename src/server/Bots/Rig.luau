@@ -19,6 +19,7 @@
 --
 -- Design: docs/design/bots.md (sections 3.2, 11)
 -- Note:   docs/research/2026-10-12-bots.md (sections 2.2, 2.5)
+local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
@@ -269,13 +270,150 @@ Rig.GAIT = table.freeze({
 	FADE_SECONDS = 0.2,
 })
 
+-- ------------------------------------------------------------------ the horn at the mouth (task 166)
+--
+-- KAREN, 2026-10-12 ~16:00, after watching the bot beaters push: *"yes, bots are good , just we will
+-- change horn and behaviuor hwn they push has to put to mauth blow horn"*.
+--
+-- SO A BOT RAISES THE HORN TO ITS FACE WHILE IT BLOWS: up over `RAISE_SECONDS`, held for as long as
+-- the blast lasts, down over `LOWER_SECONDS`. The Tool's own tilt was already there -- `Weapon.Horn`
+-- writes `GRIP_BLOW` for the length of `Horn.CONFIG.BLOW_SECONDS`, for a bot exactly as for a player
+-- -- but a tilt at the end of an arm hanging by the hip is a horn held at the hip, which is what she
+-- was looking at.
+--
+-- WHY AN ANIMATION AND NOT A JOINT WRITE, AND IT IS MEASURED (2026-10-12, in a Play session of the
+-- Forest Test, against a live bot beater). THREE mechanisms were tried on the rig's own shoulder:
+--   1. `AnimationConstraint.Transform`, written once -- the hand moved 0.01 studs. The animator
+--      re-solves the joint every frame from the playing tracks, so the write is gone before it is
+--      drawn.
+--   2. The same write, repeated EVERY Heartbeat for 40 frames -- the hand moved 0.12 studs. Same
+--      reason: the animator steps after this and wins.
+--   3. The arm-side rig ATTACHMENT's CFrame (the composition trick that works on a Motor6D's C0)
+--      -- 0.3 studs for a 60-degree turn. These rigs are joined by `AnimationConstraint` plus a
+--      `BallSocketConstraint`, not by `Motor6D`, so there is no C0/C1 to compose with and the
+--      solver pulls the limb back to the animation's target.
+-- With every track STOPPED, a single `Transform` write did stick (the hand moved 1.6 studs) -- so
+-- the only thing that poses one of these arms while a gait is playing is another ANIMATION, at a
+-- priority that outranks it.
+--
+-- WHY A SEQUENCE BUILT IN CODE AND NOT AN UPLOADED CLIP. An animation asset id can only be made by
+-- hand in Studio's Animation Editor (`tools/boar_prep.py`'s own header says so, and it is why that
+-- tool writes one FBX per clip for Karen to import). `KeyframeSequenceProvider` is the engine's
+-- documented way to turn a `KeyframeSequence` into a usable content id without one, and it was
+-- MEASURED to work here: registered on the server in a live session, loaded onto a bot's `Animator`,
+-- and ten candidate poses each moved the hand 1-3 studs to a different, repeatable place.
+--   https://create.roblox.com/docs/reference/engine/classes/KeyframeSequenceProvider
+-- Its one documented limit is that the id is temporary and local to the session, which is exactly
+-- what this needs: the pose is rebuilt from the numbers below every time the place runs, so those
+-- numbers ARE the animation and there is no asset to keep in step with them.
+--
+-- ONLY THE SHOULDER AND THE ELBOW ARE OURS. Every other pose in the sequence carries `Weight = 0`,
+-- so the clip says nothing about the torso, the legs or the wrist: the gait keeps the walk, the tool
+-- clip keeps the grip, and `Action` priority buys exactly two joints. A sequence that wrote identity
+-- over the torso at `Action` would freeze a walking beater's lean for the length of every blast.
+Rig.BLOW = table.freeze({
+	-- THE POSE, IN DEGREES, AND THESE TWO ARE THE ONES KAREN LOOKS AT. The arm swings forward and
+	-- in at the shoulder and folds hard at the elbow, which is what brings the hand up in front of
+	-- the face -- a bugler's pose. Chosen off the measured sweep above (ten candidates; this pair
+	-- put the horn's own mouthpiece nearest the head of all of them) and then LOOKED AT in a
+	-- screenshot, which is the only thing that settles a pose (rule 5).
+	SHOULDER_DEG = { x = -120, y = 0, z = 15 },
+	ELBOW_DEG = { x = -150, y = 0, z = 0 },
+	-- UP QUICKLY, DOWN A LITTLE SLOWER, because that is what a person does with an instrument. They
+	-- are `AnimationTrack:Play`/`Stop` FADE times and not a hand-rolled ramp: the engine blends the
+	-- pose in and out, so "a short raise, a hold, a lower" costs two calls and no per-frame work.
+	RAISE_SECONDS = 0.2,
+	LOWER_SECONDS = 0.35,
+})
+
+-- THE SEQUENCE, BUILT FROM THE NUMBERS. Pure in the sense that matters -- it reads no rig, no
+-- service and no state, so a spec can assert the whole pose tree, the weights and the two angles
+-- without a bot, an Animator or a Play session.
+--
+-- TWO IDENTICAL KEYFRAMES AND `Loop = true`: a one-keyframe sequence has no length, and a held pose
+-- is a loop of one pose. The second keyframe's time is what gives the clip a duration at all.
+function Rig.blowSequence(config): KeyframeSequence
+	local blow = config or Rig.BLOW
+	local sequence = Instance.new("KeyframeSequence")
+	sequence.Loop = true
+	sequence.Priority = Enum.AnimationPriority.Action
+	local shoulder = blow.SHOULDER_DEG
+	local elbow = blow.ELBOW_DEG
+	for _, at in ipairs({ 0, 0.5 }) do
+		local keyframe = Instance.new("Keyframe")
+		keyframe.Time = at
+		-- THE CHAIN FROM THE ROOT, because a `Pose` is found by its place in the rig's hierarchy and
+		-- not by name alone. Everything above the shoulder carries no weight (see the header).
+		local parent: Instance = keyframe
+		for _, name in ipairs({ "HumanoidRootPart", "LowerTorso", "UpperTorso" }) do
+			local pose = Instance.new("Pose")
+			pose.Name = name
+			pose.CFrame = CFrame.identity
+			pose.Weight = 0
+			pose.Parent = parent
+			parent = pose
+		end
+		local upperArm = Instance.new("Pose")
+		upperArm.Name = "RightUpperArm"
+		upperArm.CFrame = CFrame.Angles(math.rad(shoulder.x), math.rad(shoulder.y), math.rad(shoulder.z))
+		upperArm.Weight = 1
+		upperArm.Parent = parent
+		local lowerArm = Instance.new("Pose")
+		lowerArm.Name = "RightLowerArm"
+		lowerArm.CFrame = CFrame.Angles(math.rad(elbow.x), math.rad(elbow.y), math.rad(elbow.z))
+		lowerArm.Weight = 1
+		lowerArm.Parent = upperArm
+		-- THE WRIST IS THE TOOL CLIP'S, so this pose exists only to close the chain and says
+		-- nothing about the hand.
+		local hand = Instance.new("Pose")
+		hand.Name = "RightHand"
+		hand.CFrame = CFrame.identity
+		hand.Weight = 0
+		hand.Parent = lowerArm
+		keyframe.Parent = sequence
+	end
+	return sequence
+end
+
+-- THE REGISTERED ID, MADE ONCE PER SESSION AND SHARED BY EVERY RIG. Registering is a service call,
+-- the sequence is the same for every bot, and the id is a string -- so one registration is one call
+-- and eight bots cost nothing more.
+--
+-- A FAILURE IS REMEMBERED, NOT RETRIED. `RegisterKeyframeSequence` is not documented to fail here,
+-- but if it ever does -- a future security-context change is the obvious way -- a retry per bot per
+-- drive would be a service call per bot for ever. One attempt, and the bots keep their arms down.
+local blowAnimationId: string? = nil
+local blowRegisterTried = false
+
+function Rig.blowAnimationId(config): string?
+	if blowAnimationId ~= nil then
+		return blowAnimationId
+	end
+	if blowRegisterTried then
+		return nil
+	end
+	blowRegisterTried = true
+	local sequence = Rig.blowSequence(config)
+	local ok, id = pcall(function()
+		return KeyframeSequenceProvider:RegisterKeyframeSequence(sequence)
+	end)
+	sequence:Destroy()
+	if not ok or type(id) ~= "string" then
+		return nil
+	end
+	blowAnimationId = id :: string
+	return blowAnimationId
+end
+
 export type Clips = {
 	walk: AnimationTrack?,
 	idle: AnimationTrack?,
 	tool: AnimationTrack?,
+	blow: AnimationTrack?,
 	playing: string?,
 	rate: number?,
 	holding: boolean?,
+	blowing: boolean?,
 }
 
 -- PURE: a ground speed and what is playing now -> the clip to play, and the rate to play it at.
@@ -316,6 +454,14 @@ function Rig.loadClips(humanoid: Humanoid?): (Clips, number, number)
 	for name, id in pairs(Rig.CLIPS) do
 		wanted[name] = id
 	end
+	-- THE HORN-TO-MOUTH POSE (task 166), when the session has an id for it. It is asked for here
+	-- rather than at the blast so that a bot's first blow is not the first time the clip is loaded,
+	-- and it is CONDITIONAL because `Rig.blowAnimationId` can answer nil -- in which case this rig
+	-- loads what it always loaded and `tried` does not count a clip nobody asked for.
+	local blowId = Rig.blowAnimationId(Rig.BLOW)
+	if blowId ~= nil then
+		wanted.blow = blowId
+	end
 	local clips: Clips = {}
 	local loaded = 0
 	local tried = 0
@@ -341,6 +487,16 @@ function Rig.loadClips(humanoid: Humanoid?): (Clips, number, number)
 	if tool ~= nil then
 		pcall(function()
 			(tool :: AnimationTrack).Priority = Enum.AnimationPriority.Idle
+		end)
+	end
+	-- ...AND THE BLOW POSE OUTRANKS BOTH (task 166). `Action` is above `Idle` and `Core`, which is
+	-- the whole reason this clip can take the arm from the gait and the tool pose for the length of
+	-- a blast. Set here and not trusted to the registered sequence's own stored priority, exactly as
+	-- the line above does not trust the asset's.
+	local blow = clips.blow
+	if blow ~= nil then
+		pcall(function()
+			(blow :: AnimationTrack).Priority = Enum.AnimationPriority.Action
 		end)
 	end
 	return clips, loaded, tried
@@ -398,6 +554,33 @@ function Rig.holdTool(clips: Clips?, holding: boolean): boolean
 		track:Stop(Rig.GAIT.FADE_SECONDS)
 	end
 	clips.holding = holding
+	return true
+end
+
+-- THE HORN RAISED TO THE MOUTH, on or off (task 166). ON TOP of whatever gait is playing, so it is
+-- not routed through `playClip` either -- it outranks the gait by PRIORITY and not by stopping it,
+-- which is what keeps a blowing beater walking.
+--
+-- THE RAISE AND THE LOWER ARE THE FADES. `Play(RAISE_SECONDS)` blends the pose in, the loop holds
+-- it, `Stop(LOWER_SECONDS)` blends it out: three phases, two calls, no per-frame work and no state
+-- here but the flag. Idempotent, and it returns whether it CHANGED so the owner can count poses
+-- rather than steps.
+function Rig.blow(clips: Clips?, on: boolean): boolean
+	-- `on == true` RATHER THAN `on`, for `holdTool`'s reason: a fresh rig asked to blow nothing is a
+	-- no-op and is not counted as a pose.
+	if clips == nil or (clips.blowing == true) == on then
+		return false
+	end
+	local track = clips.blow
+	if track == nil then
+		return false
+	end
+	if on then
+		track:Play(Rig.BLOW.RAISE_SECONDS)
+	else
+		track:Stop(Rig.BLOW.LOWER_SECONDS)
+	end
+	clips.blowing = on
 	return true
 end
 

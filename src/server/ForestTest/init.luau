@@ -344,12 +344,35 @@ function ForestTest.waveAt(index: number)
 	return cycle[((index - 1) % #cycle) + 1]
 end
 
--- WHERE A HUNTER IS PUT when he picks stand `index`, and whether a position is still within his
--- leash. Pure, so the leash is one rule and not one rule per caller.
-function ForestTest.withinLeash(position: Vector3, standIndex: number): boolean
+-- IS THIS POSITION INSIDE THE STAND'S CIRCLE? Pure, so the boundary is one rule and not one rule
+-- per caller. FLAT: the Y is ignored, because a hunter standing on his post is a stud above the
+-- ground he picked it from and that is not leaving the stand.
+function ForestTest.withinStand(position: Vector3, standIndex: number): boolean
 	local home = Data.standPosition(standIndex)
 	local flat = Vector3.new(position.X - home.X, 0, position.Z - home.Z)
-	return flat.Magnitude <= Data.PICK.leashStuds
+	return flat.Magnitude <= Data.PICK.standRadiusStuds
+end
+
+-- WHERE THE WALL IS FOR THIS POSITION: nil inside the circle, and ON the circle outside it -- at the
+-- SAME BEARING from the stand, keeping the position's own height (task 166).
+--
+-- THE POINT OF THE SIGNATURE IS WHAT IT CANNOT RETURN. Karen: *"we need boundries but not put back
+-- where it started"*. The only value this function ever gives back is a point at EXACTLY
+-- `standRadiusStuds` from the stand on the ray the player walked out along, so "put back to the
+-- middle" is not expressible -- and `forest_stand.spec` asserts that for a ring of bearings and for
+-- a player 200 studs away, which is the one claim a clamp has to keep.
+--
+-- PURE, so the whole rule is drivable with hand-written numbers: no character, no physics, no drive.
+function ForestTest.boundaryPoint(position: Vector3, standIndex: number): Vector3?
+	if ForestTest.withinStand(position, standIndex) then
+		return nil
+	end
+	local home = Data.standPosition(standIndex)
+	local flat = Vector3.new(position.X - home.X, 0, position.Z - home.Z)
+	-- `withinStand` was false, so the flat distance is strictly greater than the radius and the
+	-- radius is positive: `Unit` cannot be asked of a zero vector here.
+	local on = home + flat.Unit * Data.PICK.standRadiusStuds
+	return Vector3.new(on.X, position.Y, on.Z)
 end
 
 -- THE NEAREST STAND to a position, which is how a hunter picks one: he walks to it. Karen asked for
@@ -912,16 +935,30 @@ function ForestTest.startRole(value: any): RoleWord?
 	return ForestTest.parseRole(word)
 end
 
--- PULLS A LOCKED HUNTER BACK INSIDE HIS LEASH. Returns the position it moved him to, or nil.
+-- HOLDS A LOCKED HUNTER INSIDE HIS STAND'S CIRCLE. Returns the position it stopped him at, or nil.
 --
--- IT PULLS, IT DOES NOT FREEZE. Karen: *"he can move few steps on each side max"* -- and *"I want
--- tomorrow to test shooting and walking"*, so anchoring the character would break the thing she is
--- testing. Walking out simply stops being possible at six studs.
-function ForestTest.leash(userId: number, root: BasePart, role: RoleWord?): Vector3?
+-- IT IS A WALL, NOT A LEASH, AND TASK 166 IS THAT CHANGE. Karen, 2026-10-12: *"it always put me at
+-- the same place even I moved a bit we need boundries but not put back where it started"*. The
+-- circle is four times bigger (`Data.PICK.standRadiusStuds`, measured and reasoned about there) and
+-- the two writes below are what make the edge read as a wall instead of as a tug:
+--
+--   1. THE POSITION IS CLAMPED ONTO THE CIRCLE and never anywhere else -- `ForestTest.boundaryPoint`
+--      is pure and is the only thing that decides where, so this function cannot teleport anybody to
+--      the middle of his stand.
+--   2. THE OUTWARD VELOCITY IS REMOVED. This is the new half. Clamping alone leaves a player who is
+--      holding W pushing into the wall at full speed, so he is written back every single frame and
+--      what he feels is a rubber band; taking the outward part of the assembly's velocity away once
+--      he reaches the edge makes him STOP there. Only the component pointing away from the stand
+--      goes: sideways motion along the circle and the whole of the vertical stay, so he can still
+--      walk around the edge and still falls normally.
+--
+-- IT STILL DOES NOT FREEZE HIM. *"I want tomorrow to test shooting and walking"* -- anchoring the
+-- character would break the thing she is testing, so walking out simply stops being possible.
+function ForestTest.boundary(userId: number, root: BasePart, role: RoleWord?): Vector3?
 	-- A BEATER IS NOT HELD TO A STAND (task 153), and without this line the whole task is dead on
 	-- arrival: a beater walks 580 studs south through the wood (240 when task 153 wrote this line),
-	-- and a six-stud leash round the stand
-	-- she locked as a hunter would drag her back to the road every heartbeat. The leash is the
+	-- and a circle round the stand
+	-- she locked as a hunter would drag her back to the road every heartbeat. The boundary is the
 	-- HUNTER's rule -- Karen: *"hunter has square where can select stand within 10s and save then he
 	-- can move few steps"*.
 	--
@@ -936,15 +973,27 @@ function ForestTest.leash(userId: number, root: BasePart, role: RoleWord?): Vect
 	if pick == nil or (pick :: any).lockedAt == nil then
 		return nil
 	end
-	if ForestTest.withinLeash(root.Position, pick.index) then
+	local to = ForestTest.boundaryPoint(root.Position, pick.index)
+	if to == nil then
 		return nil
 	end
+	local at = to :: Vector3
+	root.CFrame = CFrame.new(at) * (root.CFrame - root.CFrame.Position)
+	-- THE OUTWARD PART OF THE VELOCITY, GONE. `AssemblyLinearVelocity` is the whole character's, not
+	-- one part's, which is what a walking Humanoid has (the engine welds the rig into one assembly).
+	--   https://create.roblox.com/docs/reference/engine/classes/BasePart#AssemblyLinearVelocity
+	-- `outward` is flat, so this subtraction never touches the fall.
 	local home = Data.standPosition(pick.index)
-	local flat = Vector3.new(root.Position.X - home.X, 0, root.Position.Z - home.Z)
-	local pulled = home + flat.Unit * Data.PICK.leashStuds
-	local to = Vector3.new(pulled.X, root.Position.Y, pulled.Z)
-	root.CFrame = CFrame.new(to) * (root.CFrame - root.CFrame.Position)
-	return to
+	local outward = Vector3.new(at.X - home.X, 0, at.Z - home.Z)
+	if outward.Magnitude > 0 then
+		local away = outward.Unit
+		local velocity = root.AssemblyLinearVelocity
+		local radial = velocity:Dot(away)
+		if radial > 0 then
+			root.AssemblyLinearVelocity = velocity - away * radial
+		end
+	end
+	return at
 end
 
 -- ---------------------------------------------------------------- the wood a beater walks into
@@ -974,7 +1023,7 @@ end
 -- takes `stepRest`'s stocked wood when it is true and the 20-second wave schedule when it is false --
 -- and the only spec that could reach it had to write `Player.Team` to drive the true branch, which is
 -- the second writer this task exists to remove. So the LIST OF TEAM NAMES may be handed in, exactly as
--- `ForestTest.leash` takes the role, and the live call gathers it from `Players`. One loop, one
+-- `ForestTest.boundary` takes the role, and the live call gathers it from `Players`. One loop, one
 -- translator (`roleFor`), both answers reachable without a player.
 function ForestTest.beaterMode(teams: { string }?): boolean
 	local list = teams

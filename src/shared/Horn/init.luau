@@ -78,7 +78,17 @@ function Horn.gunFor(team: string?): boolean
 	return team ~= Horn.TEAM
 end
 
-export type SignalNote = { at: number, seconds: number }
+-- ONE SOUNDING OF THE DRIVE'S SIGNAL: when it starts relative to the cue, how long it sounds, and
+-- which cut of which asset it is. `soundId`/`from` are carried in the row rather than read from the
+-- config again by the client, so the plan is the whole instruction.
+export type SignalNote = { at: number, seconds: number, soundId: string, from: number }
+
+-- ONE PHRASE OF THE DRIVE'S SIGNAL, as data: the asset, the cut, and the asset's measured length so
+-- a spec can prove the cut lies inside it.
+export type SignalPhrase = { SOUND_ID: string, FROM: number, CUT: number, CLIP_SECONDS: number }
+
+-- WHICH PHRASE AN UNKNOWN CUE GETS. The drive's own first word, so a signal is never silent.
+Horn.SIGNAL_DEFAULT = "start"
 
 export type Piece = {
 	name: string,
@@ -184,63 +194,99 @@ Horn.CONFIG = {
 	-- ------------------------------------------------------------- the drive's signal
 	--
 	-- KAREN, 2026-10-12 ~10:40: *"when hunt starts 3 longer horn calls and when ends the same"*.
+	-- AND THEN, 2026-10-12 ~16:00, AFTER HEARING IT: *"no it's not / for beater yes it's ok / for
+	-- start and end of drive has to be tuturutu tu tu different one"*.
 	--
-	-- WHAT SHE IS DESCRIBING IS A REAL THING AND IT HAS A NAME. A German drive is opened with the
-	-- horn signal *Anblasen des Treibens*, blown so that every hunter and every beater in the wood
-	-- hears the same thing at the same moment -- it is one of the *Jagdleitsignale*, the signals a
-	-- hunt is actually COMMANDED with, and two of the three sources call it safety-relevant. The end
-	-- of the hunt has its own: *Sammeln der Jaeger* and *Jagd vorbei und Halali*.
+	-- SO TASK 163 GOT TWO THINGS RIGHT AND ONE WRONG, AND THIS IS THE CORRECTION. The beater's own
+	-- blast is RIGHT and nothing above this line moves. What was wrong is this signal: task 163
+	-- played THREE LONG NOTES cut out of the beater's own 60 s recording -- her words were "3 longer
+	-- horn calls" and that is what it built -- and three long notes of one pitch is a drone, not a
+	-- signal. *"tuturutu tu tu"* is a MELODY: a few quick notes and then held ones, and it has to be
+	-- a DIFFERENT sound from the horn a beater carries.
+	--
+	-- WHICH IS WHAT THE REAL SIGNAL IS. A German drive is opened with *Anblasen des Treibens* and
+	-- closed with *Jagd vorbei und Halali* -- *Jagdleitsignale*, the signals a hunt is COMMANDED
+	-- with, and two of the three sources call them safety-relevant. They are blown on a
+	-- Fuerst-Pless horn, which is a VALVELESS brass signal horn: its notes are the natural
+	-- harmonics, which is exactly what a military bugle is and why a bugle call is the same kind of
+	-- object and not an approximation.
 	--   https://waidwissen.com/lexikon/jagdleitsignale
 	--   https://www.jaegerschmiede.de/jagdlexikon/jagdsignale/
 	--   https://www.hegering-hitzacker.de/jagdhornsignale.php
-	-- NONE OF THE THREE GIVES A NOTE LENGTH, so "three long notes" is a stylisation of the form and
-	-- not a transcription of the signal -- `docs/research/2026-10-12-drive-signals.md` section 2
-	-- says so in as many words, and the length below comes from the asset rather than from a source.
+	-- NONE OF THE THREE GIVES A NOTE LENGTH (task 163 said so too), so the shape below comes from
+	-- the asset's own loudness and not from a transcription.
 	--
-	-- SO IT IS THREE LONG NOTES, AND NOT THE BEATER'S BEEP. The beater's own blast
-	-- (`SOUND_START`/`SOUND_CUT` above) is ONE short note of 1.00 s, because Karen asked for
-	-- *"short one like beeep"* -- that is a man signalling his line. This is the DRIVE signalling
-	-- everybody, so it is longer, there are three of it, and it is heard at the ear by all players
-	-- rather than from where somebody is standing (`Hud.Sound` plays it 2-D; the Tool's is 3-D).
+	-- A LIBRARY SOUND, NOT A BUILT MELODY, AND THAT WAS THE TASK'S OWN CHOICE OF TWO. The dispatch
+	-- allowed either a free public library fanfare or a melody assembled out of the beater's single
+	-- note by pitch-shifting it per note. The library won on a measurement: the Creator Store audio
+	-- search has a whole set of SHORT bugle calls from APMOfficial -- Roblox's own licensed KPM
+	-- catalogue, the same creator as the beater's "Hunting Horn" -- every one `IsPublicDomain: true`
+	-- and every one of the nine candidates MEASURED TO LOAD in this place (2026-10-12; the note
+	-- lists all nine with their lengths). A pitch-shifted single note would have been one timbre
+	-- played at three speeds, which is a kazoo rather than a horn, and it would have put a melody's
+	-- worth of timing in code to avoid using an asset that already is one.
 	--
-	-- THE NOTE IS MEASURED OFF THE SAME ASSET'S OWN LOUDNESS, the same way task 154 measured the
-	-- beep, and the whole 60.63 s was swept this time rather than its first 5.2 s.
-	-- `Sound.PlaybackLoudness` at render rate in a Play session of the DEV place, 2026-10-12, peak
-	-- per bucket -- 0.05 s over all 60.63 s, then 0.02 s over the four longest candidates. THE CLIP
-	-- HOLDS EXACTLY ONE TRULY SUSTAINED NOTE and this is it:
-	--     23.00-23.36  two short notes dying away (177 -> 27)   the end of the previous phrase
-	--     23.38-23.40  the attack (48 -> 128)
-	--     23.44-23.70  the note comes up to its peak (147 -> 214)
-	--     23.70-25.90  ONE SMOOTH DECAY, no second attack anywhere in it (214 -> 50)
-	--     25.90-26.30  the last of the tail (50 -> 11)
-	--     26.30-28.00  the clip's own silence (6-11)
-	--     28.05-       the next phrase starts (202)
-	-- Every other long run in the clip wobbles -- 13.10-15.35 dips to 119 and 162 twice, 45.32-46.20
-	-- has two more attacks inside it -- so they are slurred notes, not one note. The loudest single
-	-- note in the whole clip (peak 517 at 17.80) is 0.85 s long, which is no longer than the beep.
+	-- THE TWO PHRASES ARE MEASURED OFF THEIR OWN LOUDNESS, the way task 152 and 154 measured the
+	-- beep. `Sound.PlaybackLoudness` sampled at Heartbeat rate in a Play session, peak per 0.05 s
+	-- bucket, over the whole of each clip (Volume 0.0001: the loudness is the source's own and is
+	-- not scaled by it).
 	--
-	-- SO THE CUT IS 23.36 -> 26.30, AND THE DISPATCH'S "1.5-2 s" MOVED TO 2.94 (said plainly, the
-	-- way task 152 said the cooldown moved). The note is 2.6 s of sound plus its tail, and the two
-	-- ways to make it shorter are both worse: stopping at 25.2 cuts it where it is still at 44% of
-	-- its peak, which clicks -- the one thing `SOUND_CUT` above exists to avoid -- and fading it out
-	-- means a second writer ramping the Volume of a sound this module owns. 26.30 is inside the
-	-- clip's own silence, so the stop cannot be heard, and it is before 28.05, so one note is never
-	-- two.
+	-- "Bugle Call (a)", 1842335206, 4.06 s -- THE START.
+	--     0.00-0.40  silence                                    the asset's own lead-in
+	--     0.45-0.55  note (31, 38, 23)              \
+	--     0.70-1.05  two notes (21, 47, 27, 43, 30)  |  SIX QUICK NOTES -- the "tuturutu"
+	--     1.20-1.55  two notes (37, 48, 25, 20, 27)  |
+	--     1.70-1.85  note (26, 19)                  /
+	--     1.95-2.40  ONE HELD NOTE (44, 56, 51, 53, 55, 40, 35, 32, 17) -- the "tu tu"
+	--     2.45-4.06  the clip's own silence (2, 1, 0...)
+	--   So the cut is 0.42 -> 2.60: the whole phrase, 2.18 s, ending inside the clip's own silence
+	--   so the stop cannot click. 0.42 is 0.03 s before the first attack, so it sounds on the cue.
 	--
-	-- NOT HEARD, AND SAID SO (rule 8): these numbers are measured, not listened to. Whether three
-	-- notes of this length feel right at the start of a drive is Karen's judgement.
+	-- "Bugle Call (c)", 1842368482, 2.84 s -- THE END, and it is a VARIATION rather than the same
+	-- phrase, which is the one liberty this task takes with *"when ends the same"*: the two are the
+	-- same instrument and the same shape, and a drive that ends on a shorter, lower figure says
+	-- "over" rather than "go".
+	--     0.00-0.30  silence
+	--     0.35-0.50  note (34, 31)                   \
+	--     0.60-0.95  two notes (37, 45, 17, 31, 34)   |  FOUR QUICK NOTES
+	--     1.10-1.35  two notes (35, 36, 28, 33)      /
+	--     1.40-1.85  ONE HELD NOTE (33, 40, 33, 30, 28, 24, 24, 22, 18, 9)
+	--     1.90-2.84  the clip's own silence
+	--   Cut 0.32 -> 2.00: 1.68 s.
+	--
+	-- NOT HEARD, AND SAID SO (rule 8): these are measurements, not a listening. Whether the two
+	-- phrases feel right at the two ends of a drive is Karen's judgement, and both are one line.
 	SIGNAL = {
-		-- Three, which is her word and the signal's own form.
-		NOTES = 3,
-		START = 23.36,
-		CUT = 26.3,
-		-- BETWEEN THE NOTES, on top of the ~0.4 s of tail each one already ends with -- so what is
-		-- heard between two notes is about half a second. "Short gaps", per the dispatch.
-		GAP = 0.2,
-		-- 2-D AT THE EAR, so this is the whole of how loud it is. The note peaks at 214 of 1000
-		-- against the beep's 418, so the signal is quieter than the Tool's blast at the same
-		-- Volume -- which is why this is 1 and not the hit tick's 0.35.
-		VOLUME = 1,
+		-- LOUDER THAN THE OLD NOTE WAS, BECAUSE THE RECORDING IS QUIETER, and that is a measurement
+		-- too: the bugle's held note peaks at 56 of 1000 against the hunting-horn note's 214 and the
+		-- beater's beep's 418, all three sampled the same way. At Volume 1 it would arrive about a
+		-- quarter as loud as the signal Karen heard this morning, so this is 3 -- which is the ratio
+		-- rounded down rather than up, because a 2-D cue at the ear startles more easily than a
+		-- sound in the world. Hers to change, and one line.
+		VOLUME = 3,
+		-- KEYED BY THE SERVER'S OWN WORD. `Match.Phase` emits a `signal` feed entry whose text is
+		-- "start" or "end" and nothing else; this table is keyed by exactly those two words, so the
+		-- client's owner looks the phrase up instead of branching on it, and a third cue one day is
+		-- a row here and no code anywhere.
+		PHRASES = {
+			start = {
+				-- "Bugle Call (a)", APMOfficial, IsPublicDomain true, KPM 1000 LP Series,
+				-- "Military bugles". Measured to load in this place, 2026-10-12.
+				SOUND_ID = "rbxassetid://1842335206",
+				FROM = 0.42,
+				CUT = 2.6,
+				-- The whole asset, measured (`Sound.TimeLength`), so a spec can prove the cut is
+				-- inside the clip instead of taking the two numbers on trust.
+				CLIP_SECONDS = 4.062,
+			},
+			["end"] = {
+				-- "Bugle Call (c)", the same creator, the same library, the same licence.
+				SOUND_ID = "rbxassetid://1842368482",
+				FROM = 0.32,
+				CUT = 2,
+				CLIP_SECONDS = 2.843,
+			},
+		},
 	},
 
 	-- ---------------------------------------------------------------- the spook
@@ -458,38 +504,44 @@ function Horn.playSeconds(config): number
 	return math.max(resolved.SOUND_CUT - resolved.SOUND_START, 0)
 end
 
--- ONE NOTE OF THE DRIVE'S SIGNAL, in seconds. The same shape `Horn.playSeconds` has for the Tool's
--- own blast, and clamped the same way, so a config that crosses its two numbers over cannot ask for
--- a negative wait.
-function Horn.signalNoteSeconds(config): number
-	local signal = (config or Horn.CONFIG).SIGNAL
-	return math.max(signal.CUT - signal.START, 0)
+-- WHICH PHRASE A CUE SOUNDS. The server's word in, one row of `SIGNAL.PHRASES` out -- and an
+-- unknown word, or none at all, is the START phrase rather than nil: a cue that reached this far is
+-- a drive asking to be signalled, and a silent drive would be a worse answer than the wrong phrase.
+-- PURE, so `zz_horn.spec` drives both words and the unknown one with no sound and no drive.
+function Horn.signalPhrase(which: string?, config): SignalPhrase
+	local phrases = (config or Horn.CONFIG).SIGNAL.PHRASES
+	local row = if which ~= nil then phrases[which] else nil
+	return row or phrases[Horn.SIGNAL_DEFAULT]
 end
 
--- THE WHOLE SIGNAL AS A PLAN, AND IT IS PURE: one row per note, each with the offset from the cue at
--- which that note starts and how long it sounds. The client walks it (`Hud.Sound.driveSignal`) and
--- holds no schedule of its own, so "three notes, this long, this far apart" is one statement in one
--- place and a spec can assert it with no sound, no drive and no player.
-function Horn.signalPlan(config): { SignalNote }
-	local resolved = config or Horn.CONFIG
-	local seconds = Horn.signalNoteSeconds(resolved)
-	local plan: { SignalNote } = {}
-	local at = 0
-	for _ = 1, math.max(resolved.SIGNAL.NOTES, 0) do
-		table.insert(plan, { at = at, seconds = seconds })
-		-- THE GAP GOES BETWEEN NOTES AND NEVER AFTER THE LAST ONE, which is what makes
-		-- `Horn.signalSeconds` the length of the signal rather than the length of the signal plus a
-		-- silence nobody hears.
-		at += seconds + resolved.SIGNAL.GAP
-	end
-	return plan
+-- HOW LONG ONE PHRASE SOUNDS, from `FROM` to `CUT`. Clamped exactly as `Horn.playSeconds` is, so a
+-- row whose two numbers are crossed over cannot ask for a negative wait.
+function Horn.signalSeconds(which: string?, config): number
+	local phrase = Horn.signalPhrase(which, config)
+	return math.max(phrase.CUT - phrase.FROM, 0)
 end
 
--- How long the whole signal lasts, from the cue to the end of its last note.
-function Horn.signalSeconds(config): number
-	local plan = Horn.signalPlan(config)
-	local last = plan[#plan]
-	return if last == nil then 0 else last.at + last.seconds
+-- THE PHRASE AS A PLAN, AND IT IS PURE: one row per sounding, each with the offset from the cue at
+-- which it starts, how long it sounds, which asset it comes out of and where in that asset. The
+-- client walks it (`Hud.Sound.driveSignal`) and holds no schedule of its own.
+--
+-- ONE ROW TODAY, AND THE SHAPE IS STILL A LIST ON PURPOSE. Task 163's signal was three notes this
+-- code assembled; this one is a RECORDED PHRASE -- *"tuturutu tu tu"* is six quick notes and a held
+-- one, played by a bugler, not by us -- so the plan has one entry and the melody is in the asset
+-- where a melody belongs. A cue that one day wants a phrase twice, or two phrases back to back, is
+-- rows here and no change to the client.
+function Horn.signalPlan(which: string?, config): { SignalNote }
+	local phrase = Horn.signalPhrase(which, config)
+	local seconds = Horn.signalSeconds(which, config)
+	return { { at = 0, seconds = seconds, soundId = phrase.SOUND_ID, from = phrase.FROM } }
+end
+
+-- EVERY DISTINCT ASSET THE SIGNAL CAN ASK FOR, in a stable order, so the one client-side owner can
+-- make and PRELOAD its voices at module load without knowing how many cues there are (task 163a(a)'s
+-- fix, kept: a voice created at the cue plays the clip from 0, because `TimePosition` on an unloaded
+-- Sound is not kept).
+function Horn.signalWords(): { string }
+	return { "start", "end" }
 end
 
 -- Is this the name of the Tool this system owns? Answered off the constant, so no caller carries the

@@ -100,13 +100,16 @@ Objective.CONFIG = {
 
 	-- ---------------- arrival
 	--
-	-- IN AT 12 STUDS, OUT AT 18, AND THE DEAD BAND IS THE POINT. `ForestTest.PICK.leashStuds` is 6 --
-	-- a hunter may legally shuffle 6 studs on his stand -- so 12 is twice that, and a 6-stud band
-	-- means standing on the stand cannot flicker the chevron on and off. Arrived means no chevron and
-	-- no compass takeover: the strip goes back to saying where the drive comes FROM, which is what a
-	-- hunter standing on his stand is actually watching.
-	ARRIVED_IN_STUDS = 12,
-	ARRIVED_OUT_STUDS = 18,
+	-- IN AT 24 STUDS, OUT AT 30, AND THE DEAD BAND IS THE POINT. `ForestTest.PICK.standRadiusStuds`
+	-- is 12 since task 166 -- a hunter may legally walk anywhere within 12 studs of his stand -- so
+	-- 24 is twice that, and a 6-stud band means walking about ON the stand cannot flicker the chevron
+	-- on and off. BOTH NUMBERS FOLLOWED THE RADIUS when it went from 6 to 12 (they were 12 and 18):
+	-- an "arrived" ring INSIDE the circle a hunter may legally walk in would flicker at exactly the
+	-- place he is meant to be standing. Arrived means no chevron and no compass takeover: the strip
+	-- goes back to saying where the drive comes FROM, which is what a hunter standing on his stand is
+	-- actually watching.
+	ARRIVED_IN_STUDS = 24,
+	ARRIVED_OUT_STUDS = 30,
 
 	-- ---------------- the words
 	--
@@ -317,7 +320,7 @@ function Objective.distanceStuds(target: Target?, me: Vector3?): number?
 end
 
 -- HAS THE PLAYER ARRIVED? Hysteresis: in at `ARRIVED_IN_STUDS`, out at `ARRIVED_OUT_STUDS`, so a
--- hunter shuffling the 6 studs his leash allows cannot flicker the chevron.
+-- hunter walking the 12 studs his stand allows cannot flicker the chevron.
 function Objective.arrived(distanceStuds: number?, wasArrived: boolean): boolean
 	local config = Objective.CONFIG
 	if distanceStuds == nil then

@@ -173,6 +173,9 @@ type Bot = {
 	lastMoveAt: number,
 	lastHornAt: number?,
 	hornDueAt: number?,
+	-- WHEN THIS BOT'S RAISED HORN COMES DOWN (task 166). Stamped by `Bots.blowFor` off the blast it
+	-- just made, so the arm and the sound cannot disagree about how long a blast is.
+	blowUntil: number?,
 	movedAt: number,
 	movedFrom: Vector3?,
 	arrived: boolean,
@@ -213,6 +216,9 @@ local stats = {
 	dressed = 0,
 	dressFailed = 0,
 	hornsGiven = 0,
+	-- HOW MANY TIMES A BOT'S ARM WENT UP OR CAME DOWN (task 166). `Rig.blow` returns whether it
+	-- CHANGED, so this counts poses and not steps -- the discipline `toolPosed` already follows.
+	blowPosed = 0,
 	blasts = 0,
 	blastsRefused = 0,
 	walking = 0,
@@ -579,6 +585,8 @@ local PER_DRIVE_STATS = {
 	-- `12` on drive 3, and the one question it exists to answer ("did the horn pose apply THIS
 	-- drive") could not be read off it. Exactly the fault this list's header describes.
 	"toolPosed",
+	-- `toolPosed`'s reason, for the same kind of counter: "did a bot raise its horn THIS drive".
+	"blowPosed",
 	"stepMsMax",
 }
 
@@ -713,11 +721,28 @@ function Bots.blowFor(id: string, at: number, config: any?): boolean
 	if world.horn.blow(bot.horn, bot.id, nil, at) then
 		bot.lastHornAt = at
 		bot.hornDueAt = Bots.hornDue(bot, at, cfg)
+		-- THE ARM GOES UP FOR EXACTLY AS LONG AS THE HORN IS AT THE MOUTH, and that length is the
+		-- HORN's (`Horn.CONFIG.BLOW_SECONDS`), handed in at the composition root with the rest of
+		-- the horn seam. A world that has not wired it gets no raise rather than a number invented
+		-- here -- which would be a second answer to "how long is a blast", the failure this repo is
+		-- named after.
+		local seconds = world.horn.blowSeconds
+		bot.blowUntil = if type(seconds) == "number" then at + seconds else nil
 		stats.blasts += 1
 		return true
 	end
 	stats.blastsRefused += 1
 	return false
+end
+
+-- IS THIS BOT'S HORN AT ITS MOUTH RIGHT NOW? PURE in the bot's own stamp and the clock, so a spec
+-- drives the raise, the hold and the lower without waiting for a blast or hearing one.
+function Bots.blowing(bot: Bot?, at: number): boolean
+	if bot == nil then
+		return false
+	end
+	local until_ = bot.blowUntil
+	return until_ ~= nil and at < (until_ :: number)
 end
 
 -- ------------------------------------------------------------------ the step
@@ -855,6 +880,12 @@ function Bots.step(_dt: number?, clock: number?, roomToStand: any?)
 					bot.hornDueAt = Bots.hornDue(bot, at, config)
 				elseif at >= (bot.hornDueAt :: number) then
 					Bots.blowFor(bot.id, at, config)
+				end
+				-- THE HORN AT THE MOUTH (task 166). Level-triggered off the one window
+				-- `Bots.blowing` answers, so a missed step cannot leave an arm up: the next step
+				-- asks again and `Rig.blow` is idempotent.
+				if Rig.blow(bot.clips, Bots.blowing(bot, at)) then
+					stats.blowPosed += 1
 				end
 			end
 		end

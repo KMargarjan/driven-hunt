@@ -72,18 +72,75 @@ return function()
 		end)
 	end)
 
-	describe("the leash and the pick", function()
-		it("holds a hunter inside his own leash and lets him go nowhere else", function()
+	describe("the stand's boundary and the pick", function()
+		it("holds a hunter inside his own stand's circle and lets him go nowhere else", function()
 			local home = Data.standPosition(4)
-			expect(ForestTest.withinLeash(home, 4)).to.equal(true)
+			expect(ForestTest.withinStand(home, 4)).to.equal(true)
 			-- Inside and outside, either side of the one number the rule is made of.
-			local inside = home + Vector3.new(Data.PICK.leashStuds - 1, 0, 0)
-			local outside = home + Vector3.new(Data.PICK.leashStuds + 1, 0, 0)
-			expect(ForestTest.withinLeash(inside, 4)).to.equal(true)
-			expect(ForestTest.withinLeash(outside, 4)).to.equal(false)
-			-- HEIGHT DOES NOT COUNT: the leash is a circle on the ground, so a hunter on a rise is
-			-- not dragged off his stand by the terrain.
-			expect(ForestTest.withinLeash(home + Vector3.new(0, 50, 0), 4)).to.equal(true)
+			local inside = home + Vector3.new(Data.PICK.standRadiusStuds - 1, 0, 0)
+			local outside = home + Vector3.new(Data.PICK.standRadiusStuds + 1, 0, 0)
+			expect(ForestTest.withinStand(inside, 4)).to.equal(true)
+			expect(ForestTest.withinStand(outside, 4)).to.equal(false)
+			-- HEIGHT DOES NOT COUNT: the boundary is a circle on the ground, so a hunter on a rise
+			-- is not pulled off his stand by the terrain.
+			expect(ForestTest.withinStand(home + Vector3.new(0, 50, 0), 4)).to.equal(true)
+		end)
+
+		-- TASK 166. KAREN, 2026-10-12: *"it always put me at the same place even I moved a bit we
+		-- need boundries but not put back where it started"*. These two cases are that sentence:
+		-- the first says the wall is where it says it is, the second says it is the ONLY place the
+		-- clamp can ever put anybody.
+		it("clamps a hunter ONTO the circle, at the bearing he walked out along", function()
+			local home = Data.standPosition(6)
+			local radius = Data.PICK.standRadiusStuds
+			-- Inside is nil: there is no wall until you reach it.
+			expect(ForestTest.boundaryPoint(home, 6)).to.equal(nil)
+			expect(ForestTest.boundaryPoint(home + Vector3.new(radius - 0.5, 0, 0), 6)).to.equal(nil)
+			-- A RING OF BEARINGS, and a player 200 studs away as well as one a step outside: every
+			-- one of them lands at EXACTLY the radius, on his own bearing, at his own height.
+			for degrees = 0, 350, 10 do
+				local radians = math.rad(degrees)
+				local out = Vector3.new(math.cos(radians), 0, math.sin(radians))
+				for _, distance in ipairs({ radius + 0.1, radius + 4, 200 }) do
+					local from = home + out * distance + Vector3.new(0, 7, 0)
+					local to = ForestTest.boundaryPoint(from, 6)
+					expect(to).to.be.ok()
+					local at = to :: Vector3
+					local flat = Vector3.new(at.X - home.X, 0, at.Z - home.Z)
+					expect(flat.Magnitude).to.be.near(radius, 1e-3)
+					-- THE SAME BEARING, so he is stopped where he is and not slid round the circle.
+					expect(flat.Unit:Dot(out)).to.be.near(1, 1e-4)
+					-- HIS OWN HEIGHT, so the clamp cannot drop him through the ground or lift him.
+					expect(at.Y).to.be.near(from.Y, 1e-6)
+				end
+			end
+		end)
+
+		it("can NEVER put him back at the middle of his stand, which is Karen's actual complaint", function()
+			-- The one thing the old leash did that she felt: it wrote a position every frame while
+			-- she pushed against it, 6 studs from the post, which read as being put back where she
+			-- started. The radius is twice as far now AND this is the structural half: the only
+			-- value this function returns is a point ON the circle, so "back to the centre" is not
+			-- expressible at all.
+			local home = Data.standPosition(3)
+			local radius = Data.PICK.standRadiusStuds
+			for degrees = 0, 330, 30 do
+				local radians = math.rad(degrees)
+				local out = Vector3.new(math.cos(radians), 0, math.sin(radians))
+				local to = ForestTest.boundaryPoint(home + out * (radius * 3), 3) :: Vector3
+				local flat = Vector3.new(to.X - home.X, 0, to.Z - home.Z)
+				expect(flat.Magnitude > radius - 1e-3).to.equal(true)
+			end
+			-- AND THE CIRCLE IS THE ONE KAREN ASKED FOR: 12 studs, which at `Report.CONFIG`'s 0.28 m
+			-- per stud is 3.4 m -- room to walk about on the stand, where 6 studs (1.7 m) was not.
+			expect(radius).to.equal(12)
+			TestKit.note(
+				string.format(
+					"stand boundary: radius %.0f studs (%.1f m), was 6 (1.7 m); measured 2026-10-12, the old leash wrote 20.00 -> 6.000 studs in ONE Heartbeat and 6.000 every sample after",
+					radius,
+					radius * 0.28
+				)
+			)
 		end)
 
 		it("picks the stand a hunter is standing on, and his neighbour's when he walks there", function()
@@ -471,7 +528,7 @@ return function()
 
 		it("does not hold a beater to a stand", function()
 			-- WITHOUT THIS THE WHOLE TASK IS DEAD: she walks 580 studs south (240 when task 153
-			-- wrote this), and a hunter's six-stud leash would drag her back to the road every
+			-- wrote this), and a hunter's stand circle would pull her back to the road every
 			-- heartbeat.
 			local userId = -153
 			local part = Instance.new("Part")
@@ -481,14 +538,72 @@ return function()
 
 			-- THE ROLE IS A PARAMETER SINCE TASK 157: its truth is `Player.Team`, and the caller is
 			-- what holds the `Player` -- this module keys by `userId` and never holds one.
-			expect(ForestTest.leash(userId, part, "hunter")).to.be.ok() -- 60 studs out IS pulled back
+			expect(ForestTest.boundary(userId, part, "hunter")).to.be.ok() -- 60 studs out IS stopped
 
 			part.CFrame = CFrame.new(Data.standPosition(5) + Vector3.new(60, 0, 0))
-			expect(ForestTest.leash(userId, part, "beater")).to.equal(nil)
-			-- ...and the part was not moved either: the leash is the one writer of that CFrame.
+			expect(ForestTest.boundary(userId, part, "beater")).to.equal(nil)
+			-- ...and the part was not moved either: the boundary is the one writer of that CFrame.
 			expect(part.Position.X).to.be.near(Data.standPosition(5).X + 60, 1e-3)
 			-- `nil` means "nobody said", which is the hunter this world starts her as.
-			expect(ForestTest.leash(userId, part, nil)).to.be.ok()
+			expect(ForestTest.boundary(userId, part, nil)).to.be.ok()
+
+			ForestTest.clearPick(userId)
+			part:Destroy()
+		end)
+
+		-- TASK 166, THE LIVE HALF: what the wall does to a character that walks into it. The pure
+		-- half above says WHERE; these say that the two writes happen, that they happen only to a
+		-- locked hunter, and that a player inside his circle is not written at all.
+		it("stops a hunter at the edge and takes away only his OUTWARD speed", function()
+			local userId = -166
+			local home = Data.standPosition(5)
+			local radius = Data.PICK.standRadiusStuds
+			local part = Instance.new("Part")
+			ForestTest.openPick(userId, 0)
+			ForestTest.lockPick(userId, home, 0)
+
+			-- He is 40 studs out, running straight out at 16 studs/s with 10 of sideways and a
+			-- fall of -30 on him.
+			part.CFrame = CFrame.new(home + Vector3.new(40, 3, 0)) * CFrame.Angles(0, math.rad(35), 0)
+			local facing = part.CFrame.LookVector
+			part.AssemblyLinearVelocity = Vector3.new(16, -30, 10)
+			local to = ForestTest.boundary(userId, part, "hunter")
+			expect(to).to.be.ok()
+
+			-- ON THE CIRCLE, and his height and his facing are his own.
+			local flat = Vector3.new(part.Position.X - home.X, 0, part.Position.Z - home.Z)
+			expect(flat.Magnitude).to.be.near(radius, 1e-3)
+			expect(part.Position.Y).to.be.near(home.Y + 3, 1e-3)
+			expect(part.CFrame.LookVector:Dot(facing)).to.be.near(1, 1e-4)
+
+			-- THE OUTWARD PART OF THE VELOCITY IS GONE -- that is what makes the edge a wall rather
+			-- than a rubber band -- and NOTHING ELSE IS. He walked out along +X, so +X goes and the
+			-- sideways 10 and the falling -30 stay.
+			local velocity = part.AssemblyLinearVelocity
+			expect(velocity.X).to.be.near(0, 1e-4)
+			expect(velocity.Z).to.be.near(10, 1e-4)
+			expect(velocity.Y).to.be.near(-30, 1e-4)
+
+			-- INSIDE THE CIRCLE NOTHING IS WRITTEN AT ALL: he keeps walking, at speed.
+			part.CFrame = CFrame.new(home + Vector3.new(radius - 2, 3, 0))
+			part.AssemblyLinearVelocity = Vector3.new(16, 0, 0)
+			expect(ForestTest.boundary(userId, part, "hunter")).to.equal(nil)
+			expect(part.AssemblyLinearVelocity.X).to.be.near(16, 1e-4)
+			expect(part.Position.X).to.be.near(home.X + radius - 2, 1e-3)
+
+			-- ...AND A HUNTER WALKING ALONG THE EDGE KEEPS THAT SPEED. Only the component pointing
+			-- away from the stand is removed, so he can circle his own stand.
+			part.CFrame = CFrame.new(home + Vector3.new(radius + 1, 3, 0))
+			part.AssemblyLinearVelocity = Vector3.new(0, 0, 14)
+			expect(ForestTest.boundary(userId, part, "hunter")).to.be.ok()
+			expect(part.AssemblyLinearVelocity.Z).to.be.near(14, 1e-4)
+
+			-- AND AN UNLOCKED PICK IS NOT BOUNDED: the ten seconds are for walking to a stand.
+			ForestTest.clearPick(userId)
+			ForestTest.openPick(userId, 0)
+			part.CFrame = CFrame.new(home + Vector3.new(40, 3, 0))
+			expect(ForestTest.boundary(userId, part, "hunter")).to.equal(nil)
+			expect(part.Position.X).to.be.near(home.X + 40, 1e-3)
 
 			ForestTest.clearPick(userId)
 			part:Destroy()
@@ -751,7 +866,7 @@ return function()
 			-- `return false` would have passed it, and this predicate is the ONE switch between the
 			-- stocked resting wood and the 20-second wave schedule (`ForestTest.step`).
 			--
-			-- SO THE ROSTER IS HANDED IN, as a list of team names, exactly as `ForestTest.leash`
+			-- SO THE ROSTER IS HANDED IN, as a list of team names, exactly as `ForestTest.boundary`
 			-- takes the role -- because the alternative is a spec writing `Player.Team`, which is the
 			-- second writer this whole task removed. `Data.PUSH_TEAM` is the world's own name for the
 			-- pushing side, so neither this spec nor that function hard-codes "Drivers".

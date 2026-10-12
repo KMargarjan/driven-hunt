@@ -230,8 +230,8 @@ Match.CONFIG = {
 	START_HOLD_TEAM = "Drivers" :: any, -- K, Karen's beaters
 	-- WHAT HAPPENS AT 0 TO A HUNTER WHO IS NOT AT HIS STAND: NOTHING NEW, AND THAT IS DELIBERATE
 	-- (task 158). The drive has no rule for a hunter off his post and never has -- the only penalty
-	-- in this system is the safety one (firing toward the drive, `SAFETY_*` above). The 6-stud leash
-	-- Karen has felt is `ForestTest.leash`, which belongs to the Forest Test world, applies only to
+	-- in this system is the safety one (firing toward the drive, `SAFETY_*` above). The stand boundary
+	-- Karen has felt is `ForestTest.boundary`, which belongs to the Forest Test world, applies only to
 	-- a hunter who LOCKED a stand there, and opens on `Running` -- so it is untouched by this task
 	-- and still runs in that world. So at 0 the drive simply starts: a hunter still walking loses
 	-- shots and nothing else. Inventing a punishment for a ten-second timer is a Karen decision, not
