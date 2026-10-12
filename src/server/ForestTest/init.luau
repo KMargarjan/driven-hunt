@@ -919,7 +919,8 @@ end
 -- testing. Walking out simply stops being possible at six studs.
 function ForestTest.leash(userId: number, root: BasePart, role: RoleWord?): Vector3?
 	-- A BEATER IS NOT HELD TO A STAND (task 153), and without this line the whole task is dead on
-	-- arrival: a beater walks 240 studs south through the wood, and a six-stud leash round the stand
+	-- arrival: a beater walks 580 studs south through the wood (240 when task 153 wrote this line),
+	-- and a six-stud leash round the stand
 	-- she locked as a hunter would drag her back to the road every heartbeat. The leash is the
 	-- HUNTER's rule -- Karen: *"hunter has square where can select stand within 10s and save then he
 	-- can move few steps"*.
@@ -1080,12 +1081,13 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- WHERE SHE ACTUALLY IS, NOT WHERE SHE SPAWNED (task 155, from task 154's review).
 	--
 	-- THIS WAS RIGHT FOR THE FIRST STOCK AND WRONG FOR THE RE-STOCK, which is the one Karen meets on
-	-- her second wave. `Data.beaterStart` is where a beater is PUT DOWN, 240 studs north of the road;
-	-- 15 s after she has emptied the wood she is at or past the road, 240 studs from that point --
-	-- and `REST.groups`'s last row (`offsetX -10, northStuds 55`) is then only ~56-61 studs from
-	-- her, inside `SPOOK.BEATER_STUDS` (89). So `spookNearBeaters` latched the group the heartbeat it
-	-- spawned: *"a wood she has already emptied by standing in it is not a wood"*, which is the
-	-- defect task 154 exists to fix, in a milder form.
+	-- her second wave. `Data.beaterStart` is where a beater is PUT DOWN, 580 studs north of the road
+	-- (240 when this was written, task 162 deepened it); 15 s after she has emptied the wood she is
+	-- at or past the road, that whole distance from the point -- and `REST.groups`'s last row
+	-- (today `offsetX 35, northStuds 55`) is then only ~60-70 studs from her, inside
+	-- `SPOOK.BEATER_STUDS` (89). So `spookNearBeaters` latched the group the heartbeat it spawned:
+	-- *"a wood she has already emptied by standing in it is not a wood"*, which is the defect task
+	-- 154 exists to fix, in a milder form.
 	--
 	-- THE LIVE POSITIONS WIN AND THE SPAWN POINT IS THE FALLBACK. `realBeaters` is empty before
 	-- anybody has a body -- which is exactly when the FIRST stock happens, during `beaterStartPosition`
@@ -1494,8 +1496,8 @@ function ForestTest.step(now: number): string?
 		-- boot prints whatever `step` returns, and "the beater had no visible effect" is the kind of
 		-- claim that needs a number beside it.
 		local flush = ForestTest.takeFlushLine() or spooked
-		-- BEATER MODE HAS NO SCHEDULE (task 154). Karen walked the 240 studs to the road in about
-		-- sixteen seconds and the first wave was still four seconds away: *"didn;t see any animals
+		-- BEATER MODE HAS NO SCHEDULE (task 154). Karen walked the then 240 studs to the road in
+		-- about sixteen seconds and the first wave was still four seconds away: *"didn;t see any animals
 		-- probably need to wait 10s ?"*. So nothing is released on a timer while she is a beater --
 		-- the wood is already full, and `stepRest` is what fills and re-fills it. A HUNTER's world
 		-- is untouched: he stands still and the drive comes to him, which is what a schedule is for.

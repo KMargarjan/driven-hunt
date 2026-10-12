@@ -452,8 +452,9 @@ return function()
 		end)
 
 		it("finds the nearest beater, flat, and says so when there is none", function()
-			-- WHAT `stepLines` ASKS BEFORE IT FLUSHES AN ANIMAL. Flat, because the hill between the
-			-- line's spawn and the road climbs 16 studs in 240 and a beater uphill of a boar is not
+			-- WHAT `stepLines` ASKS BEFORE IT FLUSHES AN ANIMAL. Flat, because the hill between a
+			-- beater's start and the road climbs 94 studs in 580 (MEASURED in the place, task 162;
+			-- it was 16 in 240 before the start was deepened) and a beater uphill of a boar is not
 			-- further from it than one beside it.
 			local none, gap = ForestTest.nearestBeater(Vector3.new(0, 0, 0), {})
 			expect(none).to.equal(nil)
@@ -469,8 +470,9 @@ return function()
 		end)
 
 		it("does not hold a beater to a stand", function()
-			-- WITHOUT THIS THE WHOLE TASK IS DEAD: she walks 240 studs south, and a hunter's
-			-- six-stud leash would drag her back to the road every heartbeat.
+			-- WITHOUT THIS THE WHOLE TASK IS DEAD: she walks 580 studs south (240 when task 153
+			-- wrote this), and a hunter's six-stud leash would drag her back to the road every
+			-- heartbeat.
 			local userId = -153
 			local part = Instance.new("Part")
 			part.CFrame = CFrame.new(Data.standPosition(5) + Vector3.new(60, 0, 0))
@@ -569,6 +571,83 @@ return function()
 					closest,
 					Data.beaterSpookStuds(Data.SPOOK),
 					Data.REST.clearOfStartStuds
+				)
+			)
+		end)
+
+		it("takes the band as deep as the keep-away allows, so none of the walk is empty", function()
+			-- TASK 162. The walk is 580 studs now (`BEATER.behindLineStuds` 400 +
+			-- `LINE.spawnNorthStuds` 180), and the band this table may put a group in is the ONLY
+			-- thing that decides whether she meets anything on the way down. Leaving it at 160 would
+			-- have put every group in the last quarter of the walk and the first 420 studs would have
+			-- been empty wood -- which is the defect task 154 exists to prevent, in a new form.
+			--
+			-- SO `farRoadStuds` IS DERIVED: as deep as the keep-away permits and no deeper. The
+			-- keep-away is one spook reach plus `clearOfStartStuds`, so a group at the far edge is
+			-- still outside her reach when she is put down.
+			local start = Data.LINE.spawnNorthStuds + Data.BEATER.behindLineStuds
+			local keepAway = Data.beaterSpookStuds(Data.SPOOK) + Data.REST.clearOfStartStuds
+			expect(Data.REST.farRoadStuds + keepAway <= start).to.equal(true)
+			-- ...AND NO SHALLOWER THAN THAT EITHER, within a stud of rounding: a band that stopped
+			-- short would be empty wood nobody chose. This is the half that would have failed before
+			-- task 162 (160 + 119 against 240 passes the line above and leaves 80 studs unused).
+			expect(start - (Data.REST.farRoadStuds + keepAway) < 2).to.equal(true)
+			-- The band covers most of the walk, which is the sentence the two bounds add up to.
+			local covered = (Data.REST.farRoadStuds - Data.REST.nearRoadStuds) / start
+			expect(covered > 0.6).to.equal(true)
+			TestKit.note(
+				string.format(
+					"the resting band is %d-%d studs of a %d-stud walk (%.0f%% of it); keep-away %d",
+					Data.REST.nearRoadStuds,
+					Data.REST.farRoadStuds,
+					start,
+					covered * 100,
+					keepAway
+				)
+			)
+		end)
+
+		it("never puts two resting groups inside one spook reach of each other", function()
+			-- WHY THE DEPTHS ARE SPACED THE WAY THEY ARE (task 162). `SPOOK.BEATER_STUDS` is 89, and
+			-- the fright LATCHES -- `ForestTest.SPOOK`'s own header: *"the animal keeps the line it
+			-- set off on, it never settles"*. So two groups inside 89 studs of each other both bolt
+			-- on one approach and six groups become three events. A walk down a deep wood is only a
+			-- walk if the wood gives them up one at a time.
+			--
+			-- THE PAIRS ARE MEASURED FLAT in the stand's own frame, which is what `restPoint` returns
+			-- before the ground is read: the x is `offsetX` from her line and the z is the depth, and
+			-- the ground does not change a horizontal distance.
+			local reach = Data.beaterSpookStuds(Data.SPOOK)
+			local worst, deepest, shallowest = math.huge, 0, math.huge
+			local groups = Data.REST.groups
+			for i = 1, #groups do
+				local here = Data.restPoint(standX, groups[i])
+				local dz = here.Z - Data.roadZ(here.X)
+				deepest = math.max(deepest, dz)
+				shallowest = math.min(shallowest, dz)
+				for j = i + 1, #groups do
+					local there = Data.restPoint(standX, groups[j])
+					local gap = Vector3.new(here.X - there.X, 0, here.Z - there.Z).Magnitude
+					worst = math.min(worst, gap)
+				end
+			end
+			-- WITH MARGIN, not by a stud: the ring search may move a spot up to `searchRings *
+			-- searchStepStuds` (64) from its nominal point, so a pair that clears the reach by five
+			-- studs on paper does not clear it in the wood. The first layout of this table was 94.7
+			-- apart against a reach of 89 and the offsets were widened for exactly this assertion.
+			expect(worst > reach + 25).to.equal(true)
+			-- ...and they are spread down the walk rather than stacked in one band: the deepest and
+			-- the shallowest are more than half the walk apart.
+			expect(deepest - shallowest > (Data.LINE.spawnNorthStuds + Data.BEATER.behindLineStuds) / 2).to.equal(true)
+			TestKit.note(
+				string.format(
+					"%d groups over %.0f studs of depth (%.0f to %.0f); closest pair %.0f studs, reach %.0f",
+					#groups,
+					deepest - shallowest,
+					shallowest,
+					deepest,
+					worst,
+					reach
 				)
 			)
 		end)

@@ -12,13 +12,23 @@
 -- task 161) and `Match.beaterGoalFor`, with hand-written posts -- including the forest's case, where
 -- the nearest stand LATERALLY is not the nearest stand overall.
 --
+-- ...AND SINCE TASK 162 THE LENGTH OF THE WALK, which is the one claim here made of SHIPPED numbers
+-- rather than hand-written ones -- because it is a relation BETWEEN THREE FILES nobody changes
+-- together: `Bots.CONFIG.WALK_SPEED`, the forest's own `BEATER.behindLineStuds` plus
+-- `LINE.spawnNorthStuds`, and `Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS`. A bot line ENDS a drive
+-- (`Match.beaterCrossing` counts bots into the line), so their quotient IS how long a drive lasts,
+-- and Karen asked for it in minutes: *"need longer walk for beaters let's say 2 min"* (2026-10-12).
+--
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Design: docs/design/bots.md (section 9.1)
 -- Note:   docs/research/2026-10-12-bots.md (sections 2.3, 2.4, 3)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Bots = require(ServerScriptService:WaitForChild("Bots"))
+local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Lane = Bots.Lane
 
 -- This spec's own numbers, the shape `Bots.CONFIG` is.
@@ -358,6 +368,82 @@ return function()
 			expect(
 				#Match.botSlotsFor({ posts = POSTS, line = LINE }, nil, {}, { hunters = 4, beaters = 4 }, Match.CONFIG)
 			).to.equal(0)
+		end)
+	end)
+
+	-- -------------------------------------------------------------- how long the walk is (task 162)
+	describe("the length of the walk", function()
+		-- EVERY NUMBER BELOW IS THE SHIPPED ONE. That is the point of this block: the walk is a
+		-- quotient of three configs in three files, and until task 162 it was only ever written in a
+		-- comment -- so a drive ran for 29 seconds and nothing failed.
+		local function travelStuds(): number
+			return Forest.LINE.spawnNorthStuds + Forest.BEATER.behindLineStuds + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS
+		end
+
+		it("takes about two minutes at the bot pace, and that is Karen's number", function()
+			local seconds = travelStuds() / Bots.CONFIG.WALK_SPEED
+			-- KAREN: *"need longer walk for beaters let's say 2 min"*. +-15 s is the tolerance on
+			-- "let's say", and it is deliberately not +-1: the pair is two round numbers and the
+			-- ground is a hill, so the exact quotient is not the thing being claimed.
+			expect(seconds > 105).to.equal(true)
+			expect(seconds < 135).to.equal(true)
+			TestKit.note(
+				string.format(
+					"a bot beater walks %.0f studs at %.1f studs/s = %.1f s (flat; the measured ground path from the middle stand's pad is 612 studs, so ~%.0f s)",
+					travelStuds(),
+					Bots.CONFIG.WALK_SPEED,
+					seconds,
+					(612 + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS) / Bots.CONFIG.WALK_SPEED
+				)
+			)
+		end)
+
+		it("finishes well inside the drive clock, so the clock is still the backstop", function()
+			-- THE CLOCK STILL ENDS EVERY DRIVE and the crossing can only ever end one EARLIER
+			-- (`Match.CONFIG.END_ON_BEATERS_CROSS`'s own comment). If the walk ever grew past the
+			-- forest's clock, the early end would stop happening at all and Karen's
+			-- *"Timer or when all beaters cross line of hunters"* would quietly become "timer".
+			local seconds = travelStuds() / Bots.CONFIG.WALK_SPEED
+			expect(seconds < Forest.DRIVE.seconds).to.equal(true)
+			-- ...with room for the hill, the trunks and the side-steps: the walk is measured flat and
+			-- the ground is not. A third of the clock is the margin.
+			expect(Forest.DRIVE.seconds - seconds > Forest.DRIVE.seconds / 3).to.equal(true)
+		end)
+
+		it("walks at a real walking pace, in metres", function()
+			-- `SPOOK.METRES_PER_STUD` is the one conversion in this world (0.28), the same number
+			-- `Horn.CONFIG`, `Report.CONFIG` and `Boar.CONFIG.SENSE` publish. A man working a wood
+			-- does 1.2-1.5 m/s; the 9 studs/s this shipped with was 2.52 m/s, which is a jog.
+			local metresPerSecond = Bots.CONFIG.WALK_SPEED * Forest.SPOOK.METRES_PER_STUD
+			expect(metresPerSecond >= 1.2).to.equal(true)
+			expect(metresPerSecond <= 1.5).to.equal(true)
+		end)
+
+		it("keeps the aim point ahead of the bot between re-issues", function()
+			-- `AHEAD_STUDS`'s own comment claims the aim point is "always still ahead of the bot when
+			-- the next re-issue comes round", and that is only true while the bot cannot COVER it in
+			-- `MOVE_REISSUE_SECONDS`. At `WALK_SPEED` 9 the product was 18 against 12, so the comment
+			-- was false; at 5 it is 10. Asserted rather than commented, because both numbers are
+			-- feel dials somebody will turn.
+			expect(Bots.CONFIG.AHEAD_STUDS >= Bots.CONFIG.WALK_SPEED * Bots.CONFIG.MOVE_REISSUE_SECONDS).to.equal(true)
+		end)
+
+		it("does not slow a real beater down, and says what that costs", function()
+			-- TASK 162's DISPATCH, SPELLED OUT: nothing in `Bots` writes a player's `WalkSpeed` --
+			-- `Match.Body` is the only writer of it -- so a real beater still walks at this world's
+			-- own `DRIVERS.walkSpeed` and reaches the road long before the bot line does. The drive
+			-- ends when ALL beaters are through, so what she gets is a wait, not a short drive.
+			expect(Forest.DRIVERS.walkSpeed > Bots.CONFIG.WALK_SPEED).to.equal(true)
+			local hers = travelStuds() / Forest.DRIVERS.walkSpeed
+			local theirs = travelStuds() / Bots.CONFIG.WALK_SPEED
+			TestKit.note(
+				string.format(
+					"a real beater walks it in %.0f s at %d studs/s and then waits %.0f s for the bot line",
+					hers,
+					Forest.DRIVERS.walkSpeed,
+					theirs - hers
+				)
+			)
 		end)
 	end)
 end

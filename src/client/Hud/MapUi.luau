@@ -456,7 +456,8 @@ function MapUi.geometryFromForestTest(data: any): MapGeometry
 
 	-- THE BOUNDS HOLD EVERYTHING THIS WORLD STATES. South is where a boar is gone (`EXIT_Z`, which
 	-- already has the road's amplitude in it); north is the LARGER of the two drive-side starts --
-	-- the drivers' 700 and a beater's own `LINE.spawnNorthStuds + BEATER.behindLineStuds` (240) --
+	-- the drivers' 700 and a beater's own `LINE.spawnNorthStuds + BEATER.behindLineStuds` (580 since
+	-- task 162; 700 is still the larger, so these bounds are unchanged by it) --
 	-- because a driver walking in from 700 studs is one of the *"other players moving"* Karen asked
 	-- to see, and a map that cuts him off has lost him.
 	local beaterNorth = data.LINE.spawnNorthStuds + data.BEATER.behindLineStuds
