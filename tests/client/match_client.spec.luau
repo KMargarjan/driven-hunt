@@ -742,20 +742,37 @@ return function()
 		it("plays the END cue's own phrase, not the start one", function()
 			-- *"for start and end of drive has to be ... different one"* -- the two cues really are
 			-- two phrases now, so the end cue has to reach its own voice and its own cut.
+			local phrase = Horn.signalPhrase("end", Horn.CONFIG)
+			local voice = Sound.signalVoice("end") :: Sound
+			expect(voice.SoundId).to.equal(phrase.SOUND_ID)
+			-- WAITED FOR BEFORE THE CUE, NOT AFTER IT. `driveSignal` has a bounded 2 s `IsLoaded`
+			-- backstop of its own and sounds the signal either way, so a cue given while the asset
+			-- is still arriving can spend that whole budget before it plays -- which would race any
+			-- window this case opened afterwards. The preload has had the client's whole boot; this
+			-- is only the proof that it landed.
+			expect(waitUntil(20, function()
+				return voice.IsLoaded
+			end)).to.equal(true)
+
 			local whole = Horn.signalSeconds("start", Horn.CONFIG)
 			expect(waitUntil(whole + 3, function()
 				return not Sound.isSignalling()
 			end)).to.equal(true)
 			expect(Sound.driveSignal("end")).to.equal(true)
 			expect(Sound.lastSignal()).to.equal("end")
-			local voice = Sound.signalVoice("end") :: Sound
-			-- IT IS THE END VOICE THAT IS PLAYING, and from the end phrase's own offset. Read
-			-- immediately, because the cut is only 1.68 s long.
-			expect(voice.SoundId).to.equal(Horn.signalPhrase("end", Horn.CONFIG).SOUND_ID)
-			expect(waitUntil(2, function()
-				return voice.IsPlaying
+			-- IT IS THE END VOICE THAT IS PLAYING, from the end phrase's own offset -- and the
+			-- offset is read INSIDE the window, because `Stop` puts `TimePosition` back to 0 and the
+			-- cut is only 1.68 s long.
+			local heardAt = -1
+			expect(waitUntil(6, function()
+				if voice.IsPlaying then
+					heardAt = voice.TimePosition
+					return true
+				end
+				return false
 			end)).to.equal(true)
-			expect(voice.TimePosition >= Horn.signalPhrase("end", Horn.CONFIG).FROM).to.equal(true)
+			expect(heardAt >= phrase.FROM).to.equal(true)
+			expect(heardAt <= phrase.CUT).to.equal(true)
 		end)
 
 		it("plays the data's plan and holds no schedule of its own", function()

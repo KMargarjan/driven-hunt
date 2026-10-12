@@ -449,6 +449,13 @@ return function()
 			for _ in pairs(Rig.CLIPS) do
 				perBody += 1
 			end
+			-- ...AND A FOURTH SINCE TASK 166, the horn-to-mouth pose, when this session managed to
+			-- register one. `Rig.blowAnimationId` is memoised, so asking costs nothing, and asking
+			-- rather than adding 1 keeps the count honest in a session where the registration failed
+			-- -- the one case where a bot really does load three clips and not four.
+			if Rig.blowAnimationId(Rig.BLOW) ~= nil then
+				perBody += 1
+			end
 			expect(s.clipsLoaded + s.clipsFailed).to.equal(perBody * 2)
 			expect(s.clipsFailed).to.equal(0)
 

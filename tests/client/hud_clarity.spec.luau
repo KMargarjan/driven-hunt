@@ -276,15 +276,23 @@ return function()
 		end)
 
 		it("latches ARRIVED with a dead band, so the chevron cannot flicker", function()
-			-- IN at 12, and not back OUT until 18 -- both directions, which is what proves the
-			-- hysteresis exists rather than one threshold written twice.
-			expect(Objective.arrived(13, false)).to.equal(false)
-			expect(Objective.arrived(12, false)).to.equal(true)
-			expect(Objective.arrived(13, true)).to.equal(true)
-			expect(Objective.arrived(17.9, true)).to.equal(true)
-			expect(Objective.arrived(18, true)).to.equal(false)
+			-- IN at 24, and not back OUT until 30 -- both directions, which is what proves the
+			-- hysteresis exists rather than one threshold written twice. Driven off the config, so
+			-- the next time the band follows the stand's radius this case follows it too.
+			local inAt = CONFIG.ARRIVED_IN_STUDS
+			local outAt = CONFIG.ARRIVED_OUT_STUDS
+			expect(Objective.arrived(inAt + 1, false)).to.equal(false)
+			expect(Objective.arrived(inAt, false)).to.equal(true)
+			expect(Objective.arrived(inAt + 1, true)).to.equal(true)
+			expect(Objective.arrived(outAt - 0.1, true)).to.equal(true)
+			expect(Objective.arrived(outAt, true)).to.equal(false)
 			expect(Objective.arrived(nil, true)).to.equal(false)
-			expect(CONFIG.ARRIVED_OUT_STUDS > CONFIG.ARRIVED_IN_STUDS).to.equal(true)
+			expect(outAt > inAt).to.equal(true)
+			-- TASK 166: THE BAND IS OUTSIDE THE CIRCLE A HUNTER MAY LEGALLY WALK IN. The stand's
+			-- radius went 6 -> 12, and an "arrived" ring inside 12 would flicker at exactly the
+			-- place he is meant to be standing. 24 is twice the radius, with the same 6-stud band.
+			expect(inAt).to.equal(24)
+			expect(outAt).to.equal(30)
 		end)
 
 		it("writes the distance in METRES, through the one conversion", function()
