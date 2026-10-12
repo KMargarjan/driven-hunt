@@ -14,6 +14,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -162,6 +163,17 @@ return function()
 						wanted += 1
 					end
 				end
+			end
+			-- ...AND ONE MORE SINCE TASK 169: THE BEATER'S HORN, counted beside the guns and not
+			-- through them. It is a `runtime` key for the guns' own reason -- the server has to have
+			-- it before it can hand a beater one -- but it is NOT a row in `Weapons.ROWS`, because
+			-- that table's type is a GUN's (ranges, pellets, ammo kinds, a cycle) and a horn has
+			-- none of them (`Horn`'s own header says so). Walking the weapons alone therefore asks
+			-- for 6 where the manifest rightly holds 7.
+			expect(counted[Horn.ASSET_KEY]).to.equal(1)
+			if not seen[Horn.ASSET_KEY] then
+				seen[Horn.ASSET_KEY] = true
+				wanted += 1
 			end
 			expect(#keys).to.equal(wanted)
 			-- ...and there is no second id table: MapGen's is still empty (map-generator 12.2).

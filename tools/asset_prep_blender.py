@@ -76,7 +76,53 @@ def import_model(path):
         bpy.ops.object.join()
         meshes = [bpy.context.view_layer.objects.active]
         REPORT["warnings"].append("%d mesh objects were joined into one" % len(meshes))
+    REPORT["collapsedMaterials"] = collapse_materials(meshes[0])
     return meshes[0]
+
+
+def collapse_materials(ob):
+    """ONE MATERIAL, when the slots are the SAME texture set. Task 169.
+
+    EVERYTHING DOWNSTREAM READS `ob.data.materials[0]` AND NOTHING ELSE: the base colour, the packed
+    ORM split and the two data maps are all written into that one node tree. A second slot therefore
+    reaches the export UNTOUCHED, and Roblox builds a `SurfaceAppearance` per material -- task 75
+    measured what that ships (asset 140422686530548 came back with FOUR SurfaceAppearance children,
+    one with the maps and three empty, and "a blank SurfaceAppearance on a held weapon is a gun that
+    may render untextured for reasons nobody can see").
+
+    IT ONLY COLLAPSES WHAT IS PROVABLY ONE MATERIAL: every slot must link the SAME set of image
+    datablocks. Sketchfab's horn is two slots, "horn" and "metal", over one base-colour, one packed
+    ORM and one normal map -- two names for one material. Slots over DIFFERENT images are a model
+    with real materials and are left exactly as they were, reported rather than merged, because
+    merging those would paint one artist's two surfaces with one atlas.
+
+    Returns None when there was nothing to decide (0 or 1 slot).
+    """
+    mesh = ob.data
+    slots = list(mesh.materials)
+    if len(slots) < 2:
+        return None
+
+    def images_of(material):
+        if material is None or not material.node_tree:
+            return None
+        return tuple(sorted(node.image.name for node in material.node_tree.nodes
+                            if node.type == "TEX_IMAGE" and node.image))
+
+    sets = [images_of(material) for material in slots]
+    names = [material.name if material else None for material in slots]
+    if sets[0] is None or any(one != sets[0] for one in sets):
+        REPORT["warnings"].append(
+            "%d material slots over DIFFERENT images (%s); left alone, and only the first one's "
+            "maps are written" % (len(slots), ", ".join(str(name) for name in names)))
+        return {"collapsed": False, "slots": names,
+                "images": [list(one) if one else None for one in sets]}
+    for polygon in mesh.polygons:
+        polygon.material_index = 0
+    for index in range(len(slots) - 1, 0, -1):
+        mesh.materials.pop(index=index)
+    mesh.update()
+    return {"collapsed": True, "slots": names, "kept": names[0], "images": list(sets[0])}
 
 
 def triangles(ob):

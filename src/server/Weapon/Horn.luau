@@ -35,6 +35,11 @@ local Horn = {}
 -- The sound's Instance name, and the only child of the Handle that is not a piece of the horn.
 Horn.SOUND_NAME = "Blast"
 
+-- THE WORN MESH'S Instance NAME (task 169), and `Hardware.MODEL_NAME`'s own value for the gun's --
+-- so "does this Handle wear the uploaded horn" is one `FindFirstChild` and one name, which is what
+-- `addMesh`, `upgradeLook` and the spec all ask.
+Horn.MESH_NAME = Hardware.MODEL_NAME
+
 -- ({ blowerUserId: number, at: Vector3 }) -- A HORN WAS BLOWN, and where. Fired once per ACCEPTED
 -- blast, so a click inside the cooldown, from a player holding nothing, or from a horn whose Handle
 -- has gone publishes nothing. The same contract as `Weapon.ShotFired`: one fact, and the owner that
@@ -90,6 +95,9 @@ local stats = {
 	equipGaveUp = 0,
 	sweeps = 0,
 	repairs = 0,
+	wearsMesh = 0, -- horns built wearing the uploaded model (task 169)
+	wearsParts = 0, -- ...and horns built out of `Data.pieces` because it was not there yet
+	upgraded = 0, -- ...and parts horns the mesh reached later, in the hand they were already in
 }
 
 -- Seconds between carry sweeps. THE SAME NUMBER AND THE SAME MEASURED REASON AS THE GUN'S
@@ -199,6 +207,113 @@ end
 -- list and `Hardware.addPiece` -- which is generic over any Handle and any piece -- welds each one
 -- on, so the geometry comes from numbers in a reviewable file and the weld carries the offset as
 -- data (the property `Hardware.addPiece`'s own header establishes).
+-- THE UPLOADED HORN, WELDED TO THE HANDLE (task 169). Returns false when there is nothing to wear,
+-- which is not an error: the caller builds `Data.pieces` instead and the beater is never empty-handed.
+--
+-- IT BORROWS `Hardware.addPieceMesh` RATHER THAN REPEATING IT (rule 2). That function is already
+-- generic over "one uploaded MeshPart, sized by the row, welded to a Handle at a pose" -- it is how
+-- the shotgun wears its barrels and how the rifle wears its stock, bolt and scope -- and a horn is
+-- exactly that and nothing more. What is NOT borrowed is the gun's seam either side of it: no
+-- `Muzzle`, no sight, no second piece, no hinge.
+--
+-- THE THREE NUMBERS COME FROM THE MANIFEST ROW, never from this file: `sizeStuds` (the consumer sets
+-- Size, design 6.1), `rotationDeg` and `offsetStuds`. They are stated in `Horn.MESH` and the row
+-- reads them from there, so a screenshot that disagrees is one line in the horn's own data file.
+function Horn.addMesh(handle: BasePart): boolean
+	local provider = Hardware.getTemplateProvider()
+	if provider == nil then
+		return false
+	end
+	local _, report = provider(Data.ASSET_KEY)
+	local row = if typeof(report) == "table" then report.row else nil
+	if typeof(row) ~= "table" then
+		return false
+	end
+	local size = if typeof(row.sizeStuds) == "Vector3" then row.sizeStuds else Data.MESH.SIZE_STUDS
+	local rotation = if typeof(row.rotationDeg) == "Vector3" then row.rotationDeg else Vector3.zero
+	local offset = if typeof(row.offsetStuds) == "Vector3" then row.offsetStuds else Vector3.zero
+	local pose = CFrame.new(offset) * CFrame.Angles(math.rad(rotation.X), math.rad(rotation.Y), math.rad(rotation.Z))
+	local worn = Hardware.addPieceMesh(
+		handle,
+		Data.ASSET_KEY,
+		Horn.MESH_NAME,
+		size,
+		pose,
+		"the beater blows the parts horn instead"
+	)
+	if not worn then
+		return false
+	end
+	-- THE ROW'S MEASURED COLOUR, AND ONLY WHEN THE TEXTURE IS NOT THERE. A `SurfaceAppearance` is
+	-- what carries this model's ivory, and a MeshPart's `Color` under one of those does nothing; a
+	-- clone that arrived WITHOUT one has lost its maps, and task 99's lesson is that the honest
+	-- answer then is the thing's own measured colour rather than Roblox's default grey -- Karen saw
+	-- that grey as a white glove and said so.
+	local mesh = handle:FindFirstChild(Horn.MESH_NAME)
+	if mesh and mesh:IsA("BasePart") and mesh:FindFirstChildOfClass("SurfaceAppearance") == nil then
+		local fallback = row.fallbackColor
+		if typeof(fallback) == "Color3" then
+			mesh.Color = fallback
+		end
+	end
+	return true
+end
+
+-- TASK 152'S HORN, AS ONE CALL, and `removeParts` below is its exact opposite -- the same pairing
+-- `Hardware.addParts`/`Hardware.removeParts` has, and for its reason: what the parts horn is made of
+-- is walked in ONE place, forwards and backwards, out of the one pure list.
+function Horn.addParts(handle: BasePart)
+	for _, piece in ipairs(Data.pieces(Data.CONFIG)) do
+		Hardware.addPiece(handle, piece)
+	end
+end
+
+-- THE FALLBACK COMES OFF, AND ONLY THE FALLBACK. By NAME, from the same one list `addParts` builds
+-- from, so the Handle, the `Blast` sound and the worn mesh cannot be caught by it. Not a "destroy
+-- every child but the sound" sweep: that would be a second, looser idea of what a horn is made of.
+function Horn.removeParts(handle: BasePart): number
+	local removed = 0
+	for _, piece in ipairs(Data.pieces(Data.CONFIG)) do
+		local part = handle:FindFirstChild(piece.name)
+		if part and part:IsA("BasePart") then
+			part:Destroy()
+			removed += 1
+		end
+		local weld = handle:FindFirstChild(piece.name .. "Weld")
+		if weld then
+			weld:Destroy()
+		end
+	end
+	return removed
+end
+
+-- EVERY HORN THAT WAS HANDED OUT BEFORE THE MESH LANDED, UPGRADED IN THE HAND IT IS ALREADY IN
+-- (task 169). `WeaponBoot` starts the systems BEFORE it preloads -- deliberately, so a player who
+-- joins in that window gets a horn rather than nothing -- and the gun needed exactly this call for
+-- exactly this reason: Karen played a session where the barrels landed 2096 ms after the gun was
+-- handed out. Idempotent: a horn already wearing the mesh is left alone, because `addPieceMesh`
+-- answers true the moment the Handle has the child.
+--
+-- IT NEVER TOUCHES THE `Tool`, ONLY ITS HANDLE'S CHILDREN, so a horn in the hand stays in the hand
+-- and a horn in the Backpack stays there -- which is the bug `Weapon.upgradeLook` was written to
+-- stop being (task 123 round 9, *"There is no weapon something is broken"*).
+function Horn.upgradeLook(): number
+	local upgraded = 0
+	for _, player in ipairs(Players:GetPlayers()) do
+		for _, tool in ipairs(Horn.toolsOf(player)) do
+			local handle = tool:FindFirstChild("Handle")
+			if handle and handle:IsA("BasePart") and handle:FindFirstChild(Horn.MESH_NAME) == nil then
+				if Horn.addMesh(handle) then
+					Horn.removeParts(handle)
+					stats.upgraded += 1
+					upgraded += 1
+				end
+			end
+		end
+	end
+	return upgraded
+end
+
 function Horn.build(): Tool
 	local config = Data.CONFIG
 	local tool = Instance.new("Tool")
@@ -224,8 +339,11 @@ function Horn.build(): Tool
 	handle.BottomSurface = Enum.SurfaceType.Smooth
 	handle.Parent = tool
 
-	for _, piece in ipairs(Data.pieces(config)) do
-		Hardware.addPiece(handle, piece)
+	if Horn.addMesh(handle) then
+		stats.wearsMesh += 1
+	else
+		Horn.addParts(handle)
+		stats.wearsParts += 1
 	end
 
 	-- THE VOICE HANGS ON THE HANDLE, which is what makes it 3D: the engine positions a Sound by its
@@ -704,6 +822,11 @@ function Horn.start()
 		while started do
 			task.wait(CARRY_SWEEP_SECONDS)
 			stats.sweeps += 1
+			-- ...AND THE LOOK, ON THE SAME BEAT (task 169). The mesh can land after the horns have
+			-- been handed out -- `WeaponBoot` starts the systems before it preloads, on purpose --
+			-- and `refreshCarry` would never notice, because the beater IS holding a horn. One call,
+			-- and it does nothing at all once every horn wears the mesh.
+			pcall(Horn.upgradeLook)
 			for _, player in ipairs(Players:GetPlayers()) do
 				-- COUNTED BEFORE IT IS FIXED: "a beater who should be holding a horn and is not" is
 				-- the one number that says this system is failing, and a repair that is silently

@@ -699,12 +699,86 @@ MODEL_B_FRAME_RECIPE = _model_b_steel(
     (78, 79, 82), "the frame group: the action, trigger, guard, lever and safety")
 
 
+# THE HORN PRESET (task 169). Karen, 2026-10-12 ~21:45: *"We need better horn"* -- the LOOK. The
+# horn had been nine welded cylinders built in code (`Horn.pieces`, task 152) because the free
+# library had no loadable horn model; she then found one herself and it is a real artist's work:
+# "Horn" by r4ulp3rcy, CC-BY-4.0, 1,920 triangles over 2048 base-colour, packed-ORM and normal maps.
+#
+# IT IS THE `model-b` JOB WITHOUT THE SPLIT, and that is the whole preset. What this model needs is
+# exactly the two things the shotgun's own professional model needed:
+#   1. THE TEXTURES DOWN TO 1024 and the packed ORM SPLIT into the two single-channel maps Roblox's
+#      `SurfaceAppearance` reads (G is roughness, B is metalness, per the glTF spec).
+#   2. THE SHINE WRITTEN DOWN. The artist's ORM map is a studio-lit brass; Roblox's environment over
+#      a field is THE SKY, and task 105 measured on the shotgun what an untouched metalness map does
+#      there -- "the barrels as a WHITE mirror filling the lower half". The numbers are that task's,
+#      for its measured reasons: metalness 0.10 so a trace of the conductor tint survives and the
+#      artist's own albedo does the work, roughness 0.50 so the sky spreads into a broad sheen
+#      instead of a hard reflection.
+# NOTHING IS RECOLOURED. Karen picked this model by looking at it, so every pixel of its base colour
+# is `skip`ped -- the gun preset's colour targets exist because Meshy's output needed them.
+#
+# ONE REGION, AND IT IS THE CATCH-ALL, which is `hand`'s shape and the honest one for an asset that
+# is one texture set: the file carries two material SLOTS ("horn" and "metal") over the same three
+# images, and `import_model` collapses them for that reason -- one material, or Roblox hands back a
+# mesh with a second, blank `SurfaceAppearance` on it (task 75, measured on asset 140422686530548).
+#
+# 35 DEGREES, THE GUN'S NUMBER AND NOT THE HAND'S 70. A horn is a smooth tube with REAL rims -- the
+# bell's lip, the ferrules, the mouthpiece's cup -- and 35 is what keeps an edge like that while
+# rounding the tube a player sees against the sky.
+#
+# NOTHING IS MOVED OR SCALED HERE, because this tool measures and never moves (see the header). The
+# horn reaches the game at the size and in the orientation the `Assets` row's `sizeStuds`,
+# `offsetStuds` and `rotationDeg` state, which is the rifle's own route (task 140) and is where a
+# number a screenshot disagrees with can be changed without a re-upload.
+HORN_RECIPE = {
+    "tool": TOOL_VERSION,
+    # 1,920 triangles against Roblox's 20,000 per mesh: there is nothing to decimate.
+    "targetTriangles": None,
+    "smoothAngleDeg": 35,
+    "rebuildBarrels": None,
+    "workPx": 1024,
+    "renderPx": 1100,
+    "renderSamples": 32,
+    "maskDilatePx": 4,
+    "regionColorSpace": "linear",
+    "frontAtMin": None,
+    "regionSmoothRounds": 3,
+    "maxRegionSpeckle": 0.01,
+    "maxSurfaceDrift": 45,
+    "renderSource": True,
+    "maxEdgeDensityRatio": 1.25,
+    "maskFeatherPx": 6,
+    "regionPlan": [
+        {"name": "horn"},
+    ],
+    # FOUR CAMERAS, named for where they stand. The horn arrives with its long axis on the file's X
+    # and its curve in the file's XZ plane once Blender's importer has made the file Z-up, so "side"
+    # is the view that shows the curve and "top" the one that shows how thin it is.
+    "views": [
+        {"name": "side", "dir": [0.0, -1.0, 0.06], "distanceSpan": 1.2},
+        {"name": "side-back", "dir": [0.0, 1.0, 0.06], "distanceSpan": 1.2},
+        {"name": "top", "dir": [0.0, -0.02, 1.0], "distanceSpan": 1.2},
+        {"name": "three-quarter", "dir": [-0.7, -1.0, 0.38], "distanceSpan": 1.0},
+    ],
+    "regions": {
+        "horn": {
+            "baseColor": {"skip": True},
+            "metallic": 0.10,
+            "roughness": 0.50,
+        },
+    },
+    "channelWeight": {"metallic": 1.0, "roughness": 0.85},
+    "maxShineDrift": 0.08,
+}
+
+
 PRESETS = {"gun": DEFAULT_RECIPE, "animal": ANIMAL_RECIPE, "hand": HAND_RECIPE,
            # `model-b` itself recolours nothing and is what the SHELL uses: a brass head is already
            # brass, and the only thing it needed was the metalness written down.
            "model-b": MODEL_B_RECIPE,
            "model-b-barrels": MODEL_B_BARRELS_RECIPE,
-           "model-b-frame": MODEL_B_FRAME_RECIPE}
+           "model-b-frame": MODEL_B_FRAME_RECIPE,
+           "horn": HORN_RECIPE}
 
 
 def glb_triangles(path):
