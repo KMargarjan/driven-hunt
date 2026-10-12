@@ -1675,10 +1675,13 @@ return function()
 			expect(freedIn(after)).to.equal("all")
 			expect(Phase.lineHeld(state)).to.equal(false)
 
-			-- A MINUTE INTO THE DRIVE NOBODY IS HELD, which is task 158's rule and is unchanged: a
-			-- beater made then is far behind the line already.
+			-- WELL INTO THE DRIVE NOBODY IS HELD, which is task 158's rule and is unchanged: a beater
+			-- made then is far behind the line already. HALF A MINUTE AND NOT A WHOLE ONE, because
+			-- this spec's `DRIVE_SECONDS` is 60 and a step at `at + 60` lands in `Scoring`, where the
+			-- `team` branch does nothing at all -- which would be a case passing for the wrong reason.
 			local late
-			state, late = Phase.step(state, { kind = "team", userId = 4, team = "Drivers" }, at + 60, cfg)
+			state, late = Phase.step(state, { kind = "team", userId = 4, team = "Drivers" }, at + 30, cfg)
+			expect(state.phase).to.equal("Running")
 			expect(state.assignment[4]).to.equal("Drivers")
 			expect(countKind(late, "hold")).to.equal(0)
 			-- ...AND A JOINER IS THE SAME RULE, through the same predicate.
