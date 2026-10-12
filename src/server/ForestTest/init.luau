@@ -1151,38 +1151,68 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- once per candidate.
 	local start = Data.beaterStart(standX, 0)
 	local keepAway = Data.beaterSpookStuds(Data.SPOOK) + rest.clearOfStartStuds
-	for ring = 0, rest.searchRings do
-		local tries = if ring == 0 then 1 else 8
-		for step = 1, tries do
-			local angle = (step - 1) * (math.pi * 2 / tries)
-			local radius = ring * rest.searchStepStuds
-			local at = Data.restPoint(standX, spec, math.cos(angle) * radius, math.sin(angle) * radius)
-			local dz = at.Z - Data.roadZ(at.X)
-			-- THE NEAREST REAL BEATER, or the spawn point when nobody has a body yet. `nearestBeater`
-			-- answers `math.huge` for an empty list, which would pass every keep-away test, so the
-			-- fallback is explicit rather than implied.
-			local fromStart
-			if #beaters > 0 then
-				local _, gap = ForestTest.nearestBeater(at, beaters)
-				fromStart = gap
-			else
-				fromStart = Vector3.new(at.X - start.X, 0, at.Z - start.Z).Magnitude
-			end
-			-- THE TERRAIN IS ASKED ONLY ONCE THE FLAT TESTS HAVE PASSED: two raycasts and an
-			-- overlap query per candidate, over five rings of eight, is the one place this search
-			-- could become expensive.
-			local terrain = nil
-			local ground = nil
-			local gap = 0
-			if dz >= rest.nearRoadStuds and dz <= rest.farRoadStuds and fromStart >= keepAway then
-				terrain = ForestTest.terrainYAt(at.X, at.Z)
-				ground = Data.groundAt(at.X, at.Z)
-				if terrain ~= nil then
-					gap = ForestTest.nearestSolid(Vector3.new(at.X, (terrain :: number) + 2, at.Z), rest.nearTrunkStuds)
+	-- ...AND NOT BEHIND THE LINE EITHER (task 168, the Director's second pass). KAREN: *"animals
+	-- can't come behind beaters"*, and the dispatch: *"Nothing ever spawns or rests behind the
+	-- line"*.
+	--
+	-- THE FIRST STOCK WAS ALREADY SAFE and the RE-STOCK was not, which is the same split the
+	-- paragraph above is about: the band this searches in is measured from the ROAD (55-440 studs),
+	-- the beaters start at 580, so at the first stock everything is in front of them -- but fifteen
+	-- seconds after the wood is empty the line is deep in it, and a spot 440 studs from the road can
+	-- be north of the front. MEASURED, a live drive: **7 animals of 25 appeared up to 31 studs behind
+	-- the front**; the sweep caught them on the next tick and they ran out, but a group that has to
+	-- be swept the instant it exists is a group Karen saw come from behind.
+	--
+	-- SO THE SWEEP'S OWN RULE DECIDES: a candidate the line would catch -- inside the band or behind
+	-- it -- is refused on the first pass. `Data.sweepCatches` is the same pure function
+	-- `spookNearBeaters` asks, so "behind the line" cannot be answered twice differently.
+	--
+	-- TWO PASSES, AND THE SECOND ONE IS TODAY'S SEARCH. Once the line is at the road the whole wood
+	-- is behind it, and a refusal with no fallback would leave the wood empty until the next drive --
+	-- which is a feel decision nobody has made. So: prefer a spot the line has not reached; if the
+	-- whole search finds none, place it anyway and let the sweep do its job, exactly as before this
+	-- task.
+	local sweepDepth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
+	for pass = 1, 2 do
+		local avoidSweep = pass == 1 and #beaters > 0
+		for ring = 0, rest.searchRings do
+			local tries = if ring == 0 then 1 else 8
+			for step = 1, tries do
+				local angle = (step - 1) * (math.pi * 2 / tries)
+				local radius = ring * rest.searchStepStuds
+				local at = Data.restPoint(standX, spec, math.cos(angle) * radius, math.sin(angle) * radius)
+				local dz = at.Z - Data.roadZ(at.X)
+				local frontZ = if avoidSweep then Data.lineFrontAt(beaters, at.X) else nil
+				local swept = frontZ ~= nil and Data.sweepCatches((frontZ :: number) - at.Z, sweepDepth, Data.SPOOK)
+				-- THE NEAREST REAL BEATER, or the spawn point when nobody has a body yet. `nearestBeater`
+				-- answers `math.huge` for an empty list, which would pass every keep-away test, so the
+				-- fallback is explicit rather than implied.
+				local fromStart
+				if #beaters > 0 then
+					local _, gap = ForestTest.nearestBeater(at, beaters)
+					fromStart = gap
+				else
+					fromStart = Vector3.new(at.X - start.X, 0, at.Z - start.Z).Magnitude
 				end
-			end
-			if ForestTest.restSpotOk(dz, fromStart, gap, terrain, ground, rest, keepAway) then
-				return Vector3.new(at.X, terrain :: number, at.Z)
+				-- THE TERRAIN IS ASKED ONLY ONCE THE FLAT TESTS HAVE PASSED: two raycasts and an
+				-- overlap query per candidate, over five rings of eight, is the one place this search
+				-- could become expensive.
+				local terrain = nil
+				local ground = nil
+				local gap = 0
+				if not swept and dz >= rest.nearRoadStuds and dz <= rest.farRoadStuds and fromStart >= keepAway then
+					terrain = ForestTest.terrainYAt(at.X, at.Z)
+					ground = Data.groundAt(at.X, at.Z)
+					if terrain ~= nil then
+						gap = ForestTest.nearestSolid(
+							Vector3.new(at.X, (terrain :: number) + 2, at.Z),
+							rest.nearTrunkStuds
+						)
+					end
+				end
+				if not swept and ForestTest.restSpotOk(dz, fromStart, gap, terrain, ground, rest, keepAway) then
+					return Vector3.new(at.X, terrain :: number, at.Z)
+				end
 			end
 		end
 	end
@@ -1301,14 +1331,31 @@ function ForestTest.spookNearBeaters(_now: number): string?
 	if #beaters == 0 then
 		return nil
 	end
-	local reach = Data.beaterSpookStuds(Data.SPOOK)
+	-- THE FRONT, NOT A ROW OF CIRCLES (task 168, the Director's second pass). The band is
+	-- `Data.sweepAheadStuds` deep in front of the line's own interpolated front and unlimited behind
+	-- it, so the line SWEEPS what it reaches and leaves nothing behind -- which the circle did not:
+	-- a live drive left 13 of 27 animals standing where they were while the line walked past them.
+	-- Both numbers and both rules are `src/shared/ForestTest`'s, pure and asserted there.
+	--
+	-- THE POINT IT RUNS FROM IS STILL A REAL BODY -- the nearest beater -- and never the interpolated
+	-- front: `Brain:_latchFlight` takes the animal's heading away from the point it is handed, and the
+	-- note's one requirement for this stimulus is that it be somewhere somebody is standing. The
+	-- front decides WHO is flushed; a man decides WHICH WAY.
+	local depth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
 	state.latched = state.latched or {}
 	local sent = {}
 	for _, handle in ipairs(runtime:boars()) do
 		if state.latched[handle.id] ~= true then
-			local at, gap = ForestTest.nearestBeater(handle.position(), beaters)
-			if at ~= nil and gap <= reach then
-				table.insert(sent, { id = handle.id, from = at, gap = gap })
+			local at = handle.position()
+			local frontZ = Data.lineFrontAt(beaters, at.X)
+			-- SOUTH IS THE ROAD AND IS A SMALLER z (`Data.beaterStart` is `roadZ + north`), so an
+			-- animal IN FRONT of the line has the smaller z and `ahead` is positive.
+			local ahead = if frontZ ~= nil then (frontZ :: number) - at.Z else math.huge
+			if frontZ ~= nil and Data.sweepCatches(ahead, depth, Data.SPOOK) then
+				local from, gap = ForestTest.nearestBeater(at, beaters)
+				if from ~= nil then
+					table.insert(sent, { id = handle.id, from = from, gap = gap, ahead = ahead })
+				end
 			end
 		end
 	end
@@ -1333,10 +1380,11 @@ function ForestTest.spookNearBeaters(_now: number): string?
 			table.insert(
 				parts,
 				string.format(
-					"%s at %.0f studs (%.0f m) took %d with it",
+					"%s at %.0f studs (%.0f m), %.0f ahead of the front, took %d with it",
 					row.id,
 					row.gap,
 					row.gap * Data.SPOOK.METRES_PER_STUD,
+					row.ahead,
 					went
 				)
 			)

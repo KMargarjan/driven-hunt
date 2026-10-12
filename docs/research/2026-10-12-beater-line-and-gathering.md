@@ -246,11 +246,43 @@ behind every wave, and a wall there would pin every animal to the spot it was st
 `boar_brain.spec` drives 3,600 ticks against a line of three beaters walking at 5 studs/s, with a
 flank spook every ten seconds: **faced back 0 times, worst backward step 0.0000 studs**.
 
-A live drive in the Forest Test (27 animals, 4 beater bodies, 50 s sampled twice a second) found **one**
-boar of 27 that moved 1 stud north at the moment a beater walked level with it -- a body settling, not
-a chosen heading -- and **13** that ended up behind the line WITHOUT MOVING, because the line walked
-past them: the beaters flush at 89 studs (`SPOOK.BEATER_STUDS`) and the lanes are 150 studs apart, so a
-group in between is never touched. **That is a real gap and it is not one a direction constraint can
-close** -- it needs the push to be wider or the line to sweep what it passes. Queued as 168a. Nothing
-SPAWNS behind the line: the resting band's far edge is 460 studs from the road and a beater starts at
-580, which `forest_stand.spec` now asserts rather than assumes.
+A live drive in the Forest Test (27 animals, 4 beater bodies, 50 s sampled twice a second) found **13
+animals behind the line that had never moved**, because the line walked past them: the beaters flushed
+within 89 studs (`SPOOK.BEATER_STUDS`) of a BODY, and that circle's depth tapers to nothing sideways,
+so the ground midway between two lanes 150 studs apart was barely covered. **A direction constraint
+cannot close that** -- which is section 6.
+
+### 6. ...and the line SWEEPS what it passes (the Director's second pass)
+
+The constraint stops an animal PUTTING ITSELF behind the line; it cannot push one the line never
+reached. So the flush stopped being a row of circles and became a FRONT:
+
+* **`ForestTest.lineFrontAt`** interpolates the beaters' own z across the front, so every x has a
+  front and there is no gap between two lanes to tune -- the coverage is continuous by construction.
+  Clamped past either end, sorted here because the live list is players-then-bots.
+* **`ForestTest.sweepAheadStuds`** is the DEPTH, and it is derived rather than chosen:
+  `sqrt(BEATER_STUDS^2 - (laneSpacing/2)^2)` = **47.9 studs** -- the depth the old circle really had
+  at the worst place on the front, promoted to the whole front. So the band is no weaker than the
+  circles anywhere and strictly stronger between them. `MIN_AHEAD_STUDS` 30 is the floor for a line
+  whose lanes are two reaches apart, where the formula answers zero.
+* **everything BEHIND the front is swept, with no limit** -- an animal the line has passed is exactly
+  the animal Karen is complaining about, so it can be behind the front for one tick and no longer.
+* **and nothing is RE-STOCKED behind it.** The resting band is measured from the ROAD (55-440 studs)
+  and the beaters start at 580, so the FIRST stock was always in front of them -- but fifteen seconds
+  after the wood is emptied the line is deep in it. `restSpot` now refuses, on a first pass, any
+  candidate the sweep would catch, and falls back to today's search if the whole wood is behind the
+  line: a refusal with no fallback would leave the wood empty until the next drive, which is a feel
+  decision nobody has made.
+
+**Measured, same place, same bots, 220 samples over 110 s:** `EVER behind the front = 0` on the first
+attempt -- which was **WRONG and the smoke caught it**: `spookNearBeaters` was calling
+`ForestTest.lineFrontAt` instead of `Data.lineFrontAt` (the server module and the shared data module
+are both called `ForestTest`), so the flush errored every tick, the wood never re-stocked, and
+"nothing behind the line" was true because almost nothing was alive. After the fix, on a full wood of
+30 animals: **7 were EVER behind the front, deepest 55 studs, and 0 of them were still there** -- the
+console carries the sweep catching one of those groups at `-76 ahead of the front, took 9 with it`.
+Those seven are the re-stock fallback placing a group behind the line when the wood in front of it is
+full or unreachable, and the sweep takes them on the next tick.
+
+Nothing SPAWNS behind the line at the first stock either: the resting band's far edge is 460 studs
+from the road and a beater starts at 580, which `forest_stand.spec` asserts rather than assumes.
