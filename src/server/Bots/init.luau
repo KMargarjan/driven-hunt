@@ -659,6 +659,13 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand)
 	-- the arithmetic Karen's end-of-drive decision rests on) was a measurement of the wrong thing.
 	if bot.walkStartedAt == nil then
 		bot.walkStartedAt = at
+		-- ...AND THE STUCK WINDOW STARTS WITH THE WALK, not when the body landed. `finishBuild`
+		-- stamps `movedAt` at the moment the rig is placed, which is during the COUNTDOWN -- and a
+		-- bot standing at the start line because it has been told to is not stuck. Without this
+		-- reset a ten-second countdown spends the whole stuck window before the first step, and the
+		-- first thing a released bot does is side-step for no reason.
+		bot.movedAt = at
+		bot.movedFrom = here
 	end
 	if Lane.arrived(here, goal, config.ARRIVE_STUDS) then
 		bot.arrived = true

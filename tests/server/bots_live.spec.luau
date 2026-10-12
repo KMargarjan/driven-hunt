@@ -382,20 +382,22 @@ return function()
 			-- never print as more than about four. That number is the one Karen's end-of-drive
 			-- decision rests on (`docs/design/bots.md` section 5.2).
 			Bots.setRigSource(fakeRig)
-			-- A slot whose start IS its goal, so it arrives the first time it is looked at...
-			Bots.fill({
-				{
-					id = "bot-beater-1",
-					team = "Drivers",
-					from = CFrame.new(0, 10, 0),
-					to = Vector3.new(0, 10, 0),
-					lane = 1,
-				},
-			})
+			Bots.fill(walkerSlot())
 			Bots.step(0.2, 2000)
 			Bots.go()
 			Bots.step(0.2, 2000) -- the first released step stamps the walk's start
-			-- ...but not until thirty seconds of clock have passed, three stuck windows deep.
+
+			-- THIRTY SECONDS LATER it reaches the goal -- seven stuck windows deep, which is the
+			-- whole point: the old maths could not have reported more than one of them. The move is
+			-- made through `Bots.Rig.place`, the one writer of a bot's body, rather than by poking
+			-- the part.
+			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder
+			local body = folder:FindFirstChild("bot-beater-1") :: Model
+			expect(body).to.be.ok()
+			-- AT THE LANE'S OWN GOAL, not at the base's: `Bots.fill` spreads the slot through
+			-- `Bots.Lane`, so lane 1's goal is 18 studs to the side of the one the drive handed over.
+			local goal = Bots.Lane.goalFor(Vector3.new(0, 10, -20), CFrame.new(0, 10, 240), 1, Bots.CONFIG)
+			Rig.place(body, CFrame.new(goal), false)
 			Bots.step(0.2, 2030)
 			local walked = Bots.stats().walkSeconds
 			expect(walked >= 29).to.equal(true)
