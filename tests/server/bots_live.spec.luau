@@ -440,9 +440,16 @@ return function()
 			Bots.fill(slotsFor(1, 1))
 			stepUntilBuilt(2)
 			local s = Bots.stats()
-			-- TWO CLIPS PER BODY, and a failure shows as a NUMBER rather than as a statue nobody can
-			-- explain. If `clipsFailed` is ever non-zero the ids in `Rig.CLIPS` are what to look at.
-			expect(s.clipsLoaded + s.clipsFailed).to.equal(4)
+			-- THREE CLIPS PER BODY SINCE TASK 164 -- the gait pair plus the tool pose -- and a
+			-- failure shows as a NUMBER rather than as a statue nobody can explain. If `clipsFailed`
+			-- is ever non-zero the ids in `Rig.CLIPS` and `Rig.TOOL_CLIP` are what to look at, and
+			-- the count comes from what `Rig.loadClips` says it TRIED rather than from a literal
+			-- here, so the next clip does not need this line changed.
+			local perBody = 1
+			for _ in pairs(Rig.CLIPS) do
+				perBody += 1
+			end
+			expect(s.clipsLoaded + s.clipsFailed).to.equal(perBody * 2)
 			expect(s.clipsFailed).to.equal(0)
 
 			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder
@@ -472,6 +479,127 @@ return function()
 			Bots.fill(slotsFor(1, 0))
 			stepUntilBuilt(1)
 			expect((Bots.clipsOf("bot-hunter-1") :: any).playing).to.equal("idle")
+		end)
+
+		it("gives a WALKER idle from the moment it exists too, which is the whole countdown", function()
+			-- TASK 164. A walker only reaches the step loop's gait branch once the drive is
+			-- RELEASED, and that is 15 s of countdown (task 163) in which it had no clip playing at
+			-- all -- four beaters on the start line with their arms in the rig's bind pose. Karen
+			-- sees that at the top of every drive. `Bots.go()` is deliberately NOT called here:
+			-- this is the countdown.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(slotsFor(0, 1))
+			stepUntilBuilt(1)
+			expect((Bots.clipsOf("bot-beater-1") :: any).playing).to.equal("idle")
+			-- ...and stepping it while the drive has not started changes nothing.
+			Bots.step(0.2, 1000)
+			expect((Bots.clipsOf("bot-beater-1") :: any).playing).to.equal("idle")
+		end)
+
+		it("scales the walk's playback rate to the speed it is actually making", function()
+			-- THE SLIDE (task 164). Measured in Karen's Forest Test: four beaters covering
+			-- 4.70-5.00 studs/s with the walk clip at rate 1.000, which is the rate for a 6.74
+			-- studs/s gait. Here the fake body is MOVED BY HAND between steps, so the rate the step
+			-- picks is a measurement of that movement and not of `WALK_SPEED`.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(slotsFor(0, 1))
+			stepUntilBuilt(1)
+			Bots.go()
+			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder
+			local body = folder:FindFirstChild("bot-beater-1") :: Model
+
+			-- First step: no previous sample, so the pace it was TOLD to walk at.
+			Bots.step(0.2, 5000)
+			local clips = Bots.clipsOf("bot-beater-1") :: any
+			expect(clips.playing).to.equal("walk")
+			local _, nominal = Rig.gait(Bots.CONFIG.WALK_SPEED, "walk")
+			expect(math.abs(clips.rate - nominal) < Rig.GAIT.RATE_EPSILON).to.equal(true)
+			expect(nominal < Rig.GAIT.MAX_RATE).to.equal(true) -- the slide: it used to be 1.000
+
+			-- HALF THE PACE OVER THE NEXT STEP -> half the rate. 0.5 studs in 0.2 s is 2.5 studs/s.
+			local here = Rig.positionOf(body) :: Vector3
+			Rig.place(body, CFrame.new(here + Vector3.new(0, 0, -0.5)), false)
+			Bots.step(0.2, 5000.2)
+			-- TO A TOLERANCE, not to the bit: the step measures 0.5 studs over 0.2 s of a float
+			-- clock, so 2.5 arrives as 2.4999999999999996 and the two divisions differ in the last
+			-- place. `RATE_EPSILON` is the resolution the owner itself acts on, so anything inside
+			-- it is the same rate as far as the Animator is ever told.
+			local _, half = Rig.gait(2.5, "walk")
+			local got = (Bots.clipsOf("bot-beater-1") :: any).rate
+			expect(math.abs(got - half) < Rig.GAIT.RATE_EPSILON).to.equal(true)
+			expect(math.abs(got - nominal / 2) < Rig.GAIT.RATE_EPSILON).to.equal(true)
+
+			-- AND A BOT THAT IS NOT MOVING STANDS STILL instead of churning its legs on the spot,
+			-- which is the other half of "odd": the body is not moved at all over this step.
+			Bots.step(0.2, 5000.4)
+			expect((Bots.clipsOf("bot-beater-1") :: any).playing).to.equal("idle")
+		end)
+
+		it("counts the tool pose PER DRIVE, because the line that prints it says `drive N`", function()
+			-- ROUND 1'S BLOCKING FINDING. `toolPosed` was added to `stats` and printed under
+			-- `[bots] drive %d` but left out of `PER_DRIVE_STATS`, so four beaters would have read
+			-- `4 tool-posed` on drive 1, `8` on drive 2 and `12` on drive 3 -- a lifetime total
+			-- under a per-drive heading, which is the exact fault that list's own header describes.
+			--
+			-- ASSERTED AS MEMBERSHIP rather than by zeroing a counter this suite cannot raise (the
+			-- `HORN` flag is off, so no bot in it is ever handed a Tool -- see the next case). That
+			-- is also the GENERAL form of the finding: the list is now readable, so the next counter
+			-- cannot be added to the line and forgotten here.
+			local listed = {}
+			for _, name in ipairs(Bots.PER_DRIVE_STATS) do
+				listed[name] = true
+			end
+			expect(listed.toolPosed).to.equal(true)
+			-- ...and every name in it is really a counter, so the list cannot rot the other way.
+			local s = Bots.stats() :: any
+			for _, name in ipairs(Bots.PER_DRIVE_STATS) do
+				expect(type(s[name])).to.equal("number")
+			end
+			-- The reset itself, through the one door that does it.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(slotsFor(0, 1))
+			stepUntilBuilt(1)
+			Bots.clear()
+			expect((Bots.stats() :: any).toolPosed).to.equal(0)
+		end)
+
+		it("holds a carried tool like a player does -- on top of the gait, not instead of it", function()
+			-- MEASURED BOTH WAYS on 2026-10-12: a player holding a Tool plays `ToolNoneAnim`
+			-- (507768375) at priority `Idle` AT THE SAME TIME as its walk at priority `Core`, and
+			-- every bot beater in Karen's place was playing the walk ALONE with a Horn in its hand.
+			-- So the horn rode a freely swinging arm.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(slotsFor(1, 0))
+			stepUntilBuilt(1)
+			local clips = Bots.clipsOf("bot-hunter-1") :: any
+			-- The clip is on every rig, loaded; a bot hunter carries nothing, so it is not POSED.
+			-- THIS IS THE HALF OF `finishBuild`'S WIRING THE SUITE CAN REACH (round 1 note): with
+			-- the `HORN` flag off, `world.horn.give` hands no bot a Tool, so `bot.horn` is nil and
+			-- the owner's call is `Rig.holdTool(clips, false)`. That the TRUE branch reaches a real
+			-- beater is evidence from the live probe instead -- 507768375 at weight 1.00 on all four
+			-- beaters of a real drive (`docs/research/2026-10-12-bots.md` section 8.6) -- and the
+			-- request says so rather than claiming a spec covers it.
+			expect(clips.tool).to.be.ok()
+			expect(clips.holding).to.never.equal(true)
+			expect((Bots.stats() :: any).toolPosed).to.equal(0)
+
+			-- Asking for nothing twice is a no-op, so the owner's count cannot be inflated by a rig
+			-- that carries nothing.
+			expect(Rig.holdTool(clips, false)).to.equal(false)
+
+			-- Turning it on plays it and LEAVES THE GAIT ALONE -- that is the whole of the pattern.
+			expect(Rig.holdTool(clips, true)).to.equal(true)
+			expect(clips.holding).to.equal(true)
+			expect(clips.playing).to.equal("idle")
+			expect((clips.idle :: AnimationTrack).IsPlaying).to.equal(true)
+			expect((clips.tool :: AnimationTrack).IsPlaying).to.equal(true)
+			-- Idempotent, so a 5 Hz step can call it.
+			expect(Rig.holdTool(clips, true)).to.equal(false)
+
+			-- And a gait change does not take the tool pose down with it.
+			Rig.playClip(clips, "walk", 0.5)
+			expect(clips.playing).to.equal("walk")
+			expect((clips.tool :: AnimationTrack).IsPlaying).to.equal(true)
 		end)
 	end)
 
@@ -685,6 +813,8 @@ return function()
 			expect(string.find(line, "%[bots%] drive 1")).to.be.ok()
 			expect(string.find(line, "step")).to.be.ok()
 			expect(string.find(line, "arrived in")).to.be.ok()
+			-- ...and the field task 164 added, so the line and the counters cannot drift apart.
+			expect(string.find(line, "tool%-posed")).to.be.ok()
 			expect(Bots.stats().stepMsAvg >= 0).to.equal(true)
 		end)
 	end)
