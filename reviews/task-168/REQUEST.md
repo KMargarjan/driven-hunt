@@ -3,7 +3,7 @@
 Task: 168
 Round: 1
 Base: `37d8ba0` (main, #151 merged)
-Code commit: `2f68eb9`
+Code commit: `28ed6a64a19328383f1700b7a745937dd88dcf4f`
 
 Harness, the clean tree, TWICE at the code commit:
 
@@ -13,7 +13,8 @@ Harness, the clean tree, TWICE at the code commit:
 ```
 
 ```
-[harness2] NEEDS TEST2 168 2f68eb9f69e04ff74de943c95a5d6720f9f8605e
+[harness] PASS: 33/33 checks @ 28ed6a64a19328383f1700b7a745937dd88dcf4f (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 28ed6a64a19328383f1700b7a745937dd88dcf4f (clean tree)
 ```
 
 `TWO_PLAYER_PATHS` is touched (`src/server/Match/`, `src/client/Match/`, `src/shared/Drive/`,
