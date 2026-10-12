@@ -765,11 +765,18 @@ return function()
 			-- cut is only 1.68 s long.
 			--
 			-- `TimePosition > 0` IS PART OF THE PREDICATE AND NOT A TIDINESS, AND THE FIRST RUN OF
-			-- THIS CASE IS WHY: `IsPlaying` goes true on the `Play` call, and a poll that lands in
-			-- that same frame reads the position the previous `Stop` left behind -- 0 -- before the
-			-- engine has started the clip. Measured in the same session: one frame later it reads
-			-- 0.34 and climbs ~0.10 per 0.1 s. The clip only ever advances, so any positive reading
-			-- is a reading of this cut.
+			-- THIS CASE IS WHY: `IsPlaying` goes true on the `Play` call, and a poll landing in that
+			-- same frame reads the position the previous `Stop` left behind -- 0 -- before the engine
+			-- has started the clip.
+			--
+			-- AND THE POSITION IS COMPARED WITH A TOLERANCE, which the SECOND run is why, and the
+			-- reason is worth writing down: `Sound.TimePosition` is a 32-bit float, so the 0.32 this
+			-- code writes reads back as 0.3199999928 -- and a poll that lands before the first
+			-- advance reads exactly that, which is NOT `>= 0.32` in Luau's doubles. It failed by
+			-- 7e-9. Measured in the same session, the normal first readable value is 0.341 and it
+			-- climbs ~0.10 per 0.1 s; the offset itself was measured to survive three Play/Stop
+			-- cycles (0.341 on the first frame of each), so what is tested here is real and only the
+			-- comparison was wrong.
 			local heardAt = -1
 			expect(waitUntil(6, function()
 				if voice.IsPlaying and voice.TimePosition > 0 then
@@ -778,10 +785,11 @@ return function()
 				end
 				return false
 			end)).to.equal(true)
-			expect(heardAt >= phrase.FROM).to.equal(true)
+			expect(heardAt >= phrase.FROM - 1e-3).to.equal(true)
 			-- ...AND BELOW THE CUT, PLUS ONE POLL. The sounding thread stops the voice at `CUT`, and
 			-- this poll can be up to its own 0.05 s interval behind, so the window has to allow one.
 			expect(heardAt <= phrase.CUT + 0.1).to.equal(true)
+			TestKit.note(string.format("drive signal: the END cue sounded, first readable position %.4f s", heardAt))
 		end)
 
 		it("plays the data's plan and holds no schedule of its own", function()
