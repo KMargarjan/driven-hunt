@@ -890,4 +890,101 @@ return function()
 			lowering = nil
 		end)
 	end)
+
+	describe("a blast with no player behind it (task 161)", function()
+		-- THE BOTS BLOW THE REAL HORN, through the real door. `Horn.blowTool` is `Horn.blow`'s body,
+		-- factored out and keyed by a string, so what a blast IS is written once: one cooldown table,
+		-- one measured cut of the asset, one `GRIP_BLOW` tilt, one `Blown` signal. These cases are
+		-- what stops that becoming two blast paths.
+		local built: { Instance } = {}
+
+		afterEach(function()
+			for _, instance in ipairs(built) do
+				instance:Destroy()
+			end
+			built = {}
+		end)
+
+		it("sounds once for a key, and the real cooldown refuses the second", function()
+			local folder = Instance.new("Folder")
+			folder.Parent = workspace
+			table.insert(built, folder)
+			local tool = HornTool.build()
+			tool.Parent = folder
+			-- ANCHORED AND SOMEWHERE RECOGNISABLE, for the two reasons the player's own case above
+			-- gives: a horn in a Folder rather than in a hand is an unanchored part that FALLS (the
+			-- gate measured this one drifting between the blast and the read), and "it published the
+			-- horn's own position" has to be a real assertion rather than a comparison of two zeroes.
+			local handle = tool:FindFirstChild("Handle") :: BasePart
+			handle.Anchored = true
+			handle.CFrame = CFrame.new(31, GROUND_Y, -44)
+
+			local blasts = {}
+			local connection = HornTool.Blown:Connect(function(blast)
+				table.insert(blasts, blast)
+			end)
+			local at = os.clock()
+			expect(HornTool.blowTool(tool, "bot-beater-1", nil, at)).to.equal(true)
+			-- INSIDE the cooldown: refused, by the same table and the same number that holds a player.
+			expect(HornTool.blowTool(tool, "bot-beater-1", nil, at + CONFIG.COOLDOWN - 0.01)).to.equal(false)
+			-- ...and past it, allowed.
+			expect(HornTool.blowTool(tool, "bot-beater-1", nil, at + CONFIG.COOLDOWN)).to.equal(true)
+			-- A DIFFERENT BOT IS A DIFFERENT ROW: four beaters are four horns, not one.
+			expect(HornTool.blowTool(tool, "bot-beater-2", nil, at)).to.equal(true)
+
+			-- A `BindableEvent:Fire` IS DEFERRED, exactly as the player's own case above records
+			-- being measured: the listener has not run when `blowTool` returns, so every read of
+			-- `blasts` is after one resumption.
+			task.wait()
+			connection:Disconnect()
+			expect(#blasts).to.equal(3)
+			-- `blowerUserId` IS NIL for a bot, which is what makes `Match.creditPush` refuse it -- so a
+			-- bot's blast pays nobody and cannot appear in a beater ranking.
+			for _, blast in ipairs(blasts) do
+				expect(blast.blowerUserId).to.equal(nil)
+				expect(typeof(blast.at)).to.equal("Vector3")
+			end
+			-- ...and it is published from the HORN's own handle, never from an approximate position.
+			expect((blasts[1].at - handle.Position).Magnitude < 1e-3).to.equal(true)
+		end)
+
+		it("refuses a blast with no tool at all, rather than publishing from nowhere", function()
+			expect(HornTool.blowTool(nil, "bot-beater-9", nil, os.clock())).to.equal(false)
+		end)
+
+		it("puts a real horn in a rig's hand, once", function()
+			local folder = Instance.new("Folder")
+			folder.Parent = workspace
+			table.insert(built, folder)
+			local rig = Instance.new("Model")
+			local root = Instance.new("Part")
+			root.Name = "HumanoidRootPart"
+			root.Parent = rig
+			rig.PrimaryPart = root
+			local humanoid = Instance.new("Humanoid")
+			humanoid.Parent = rig
+			rig.Parent = folder
+
+			local tool = HornTool.giveTo(rig)
+			expect(tool).to.be.ok()
+			expect((tool :: Tool).Name).to.equal(Horn.TOOL_NAME)
+			expect((tool :: Tool):IsDescendantOf(rig)).to.equal(true)
+			-- IDEMPOTENT: a re-dress or a second fill must not be two horns in one hand.
+			expect(HornTool.giveTo(rig)).to.equal(tool)
+			local horns = 0
+			for _, child in ipairs(rig:GetChildren()) do
+				if child:IsA("Tool") then
+					horns += 1
+				end
+			end
+			expect(horns).to.equal(1)
+		end)
+
+		it("refuses a body that is not a body", function()
+			expect(HornTool.giveTo(nil)).to.equal(nil)
+			local orphan = Instance.new("Model") -- no parent, no Humanoid
+			expect(HornTool.giveTo(orphan)).to.equal(nil)
+			orphan:Destroy()
+		end)
+	end)
 end

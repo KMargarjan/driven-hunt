@@ -52,7 +52,12 @@ local started = false
 -- 144 both paid for on the gun: a respawn destroys the character's Tool and merely DETACHES the
 -- Backpack, so "has a Parent" is not "the player can reach it".
 local tools: { [Player]: Tool } = {}
-local lastBlast: { [number]: number } = {}
+-- KEYED BY A STRING, NOT BY A userId (task 161). A player's key is `tostring(player.UserId)` and a
+-- bot's is its own slot id ("bot-beater-3"), so ONE cooldown table holds everybody who can sound a
+-- horn and a bot is held to the real `Horn.CONFIG.COOLDOWN` by the same row a player is. A second
+-- table for the bots would be a second answer to "is this horn ready", which is this project's named
+-- failure mode.
+local lastBlast: { [string]: number } = {}
 local lifeWatchers: { [Player]: RBXScriptConnection } = {}
 local connections: { [Player]: { RBXScriptConnection } } = {}
 
@@ -347,24 +352,41 @@ function Horn.readyAt(lastAt: number?, now: number): boolean
 	return now - lastAt >= Data.CONFIG.COOLDOWN
 end
 
-function Horn.ready(player: Player, now: number?): boolean
-	return Horn.readyAt(lastBlast[player.UserId], now or os.clock())
+-- THE KEY A PLAYER'S COOLDOWN IS HELD UNDER. One function, so a userId is turned into a key in
+-- exactly one place and `Horn.blow`, `Horn.ready` and `Horn.forget` cannot disagree about it.
+function Horn.keyFor(userId: number): string
+	return tostring(userId)
 end
 
--- ONE BLAST. Returns true when it actually sounded.
+function Horn.ready(player: Player, now: number?): boolean
+	return Horn.readyAt(lastBlast[Horn.keyFor(player.UserId)], now or os.clock())
+end
+
+-- ONE BLAST, FROM A TOOL AND A KEY -- the whole of what a blast IS, and the only place it is
+-- written (task 161). `Horn.blow` below is the player's two-line door into it.
 --
--- THE ORDER MATTERS AND IT IS: hold the player to the cooldown, find out WHERE the horn is, then
+-- THE ORDER MATTERS AND IT IS: hold the blower to the cooldown, find out WHERE the horn is, then
 -- sound it and publish. A blast that cannot be located is refused rather than published from the
 -- character's root -- the note's one requirement for this stimulus is that it be REAL, from the
 -- beater's own position, never a phantom (section 5.3).
-function Horn.blow(player: Player, now: number?): boolean
-	local tool = Horn.held(player)
+--
+-- WHY THIS EXISTS RATHER THAN A SECOND BLAST PATH FOR THE BOTS (docs/design/bots.md section 9.3):
+-- `Horn.blow` takes a `Player` and a held `Tool`, and a bot beater has neither -- but what a blast
+-- is must not be written twice. So there is ONE cooldown table, ONE measured 1.0 s cut of the asset,
+-- ONE `GRIP_BLOW` tilt and ONE `Blown` signal, and a bot reaches all four through this function with
+-- its own slot id as the key.
+--
+-- `blowerUserId` IS NIL FOR A BOT, and the drive already refuses it: `Match.creditPush(nil, ids)`
+-- asks `Match.pushCreditable(nil, ...)`, whose first test is `type(userId) == "number"`. So a bot's
+-- blast travels the exact wire Karen's own `/beater` blast travels, with the real reach, and pays
+-- nobody.
+function Horn.blowTool(tool: Tool?, key: string, blowerUserId: number?, now: number?): boolean
 	if tool == nil then
 		stats.refusedNoHorn += 1
 		return false
 	end
 	local at = now or os.clock()
-	if not Horn.readyAt(lastBlast[player.UserId], at) then
+	if not Horn.readyAt(lastBlast[key], at) then
 		stats.refusedCooldown += 1
 		return false
 	end
@@ -375,7 +397,7 @@ function Horn.blow(player: Player, now: number?): boolean
 	end
 	local where = (handle :: BasePart).Position
 
-	lastBlast[player.UserId] = at
+	lastBlast[key] = at
 	stats.blasts += 1
 
 	local sound = handle:FindFirstChild(Horn.SOUND_NAME)
@@ -391,7 +413,7 @@ function Horn.blow(player: Player, now: number?): boolean
 			-- another has been accepted since, that one owns the sound and this stop stands down.
 			-- The cooldown is longer than the cut, so in practice nothing overlaps -- this is what
 			-- makes that an invariant of the DATA rather than of the code.
-			if lastBlast[player.UserId] == at and sound.Parent ~= nil then
+			if lastBlast[key] == at and sound.Parent ~= nil then
 				(sound :: Sound):Stop()
 			end
 		end)
@@ -409,8 +431,51 @@ function Horn.blow(player: Player, now: number?): boolean
 		end
 	end)
 
-	blownSignal:Fire({ blowerUserId = player.UserId, at = where })
+	blownSignal:Fire({ blowerUserId = blowerUserId, at = where })
 	return true
+end
+
+-- THE PLAYER'S DOOR INTO THE ONE BLAST ABOVE. Its behaviour is unchanged: the horn she is holding,
+-- her own cooldown row, her own userId on the signal.
+function Horn.blow(player: Player, now: number?): boolean
+	return Horn.blowTool(Horn.held(player), Horn.keyFor(player.UserId), player.UserId, now)
+end
+
+-- A HORN IN A BOT'S HAND (task 161). The Tool is the horn's and the body is `Bots.Rig`'s -- the same
+-- split a player has, where `Match.Body` owns the character and this module owns the Tool in its
+-- hand. No Backpack is involved, because a rig has none: `Humanoid:EquipTool` parents the Tool to
+-- the character directly.
+--   https://create.roblox.com/docs/reference/engine/classes/Humanoid#EquipTool
+--
+-- WHO MAY CARRY ONE IS NOT DECIDED HERE and is not a new rule: the caller asks `Data.carriesFor`,
+-- the same pure function and the same single boundary read of the same `HORN` flag that decides for
+-- a player, so with the flag off a bot beater carries nothing and blows nothing.
+--
+-- NO `Tool.Activated` CONNECTION, deliberately: a bot has no click, and its rhythm is `Bots`'s.
+function Horn.giveTo(character: Model?): Tool?
+	if character == nil or character.Parent == nil then
+		return nil
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid == nil then
+		return nil
+	end
+	local existing = character:FindFirstChild(Data.TOOL_NAME)
+	if existing ~= nil and existing:IsA("Tool") then
+		return existing :: Tool
+	end
+	local tool = Horn.build()
+	tool.Parent = character
+	local worked = pcall(function()
+		(humanoid :: Humanoid):EquipTool(tool)
+	end)
+	if not worked or tool.Parent == nil then
+		tool:Destroy()
+		stats.grantsMissed += 1
+		return nil
+	end
+	stats.granted += 1
+	return tool
 end
 
 -- ---------------------------------------------------------------- lifetime
@@ -431,7 +496,7 @@ function Horn.forget(player: Player)
 	end
 	connections[player] = nil
 	tools[player] = nil
-	lastBlast[player.UserId] = nil
+	lastBlast[Horn.keyFor(player.UserId)] = nil
 end
 
 local function watchPlayer(player: Player)

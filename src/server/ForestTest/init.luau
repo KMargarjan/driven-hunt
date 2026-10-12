@@ -448,6 +448,41 @@ end
 -- One list, read by the two things that need it -- what a boar can perceive (`boarThreats`) and
 -- which animals a beater is close enough to flush (`stepLines`) -- so "who is pushing" is answered
 -- in one place and cannot be answered twice differently.
+-- THE BOTS' THREATS, AS ONE INJECTED SOURCE (task 161). Set once at the composition root to
+-- `Bots.threats`; nil until then, and nil is "there are no bots", which is this file before task 161
+-- by every branch.
+--
+-- INJECTED RATHER THAN REQUIRED, because no owner requires another owner -- the rule this world's
+-- boot and `MatchBoot` are both written to. It is the same shape `Boar.setModelSource`,
+-- `Body.setAccessorySource` and `Markers.setReaders` already have in this repo.
+local botThreatSource: (() -> { { id: string, position: Vector3, kind: string } })? = nil
+
+function ForestTest.setBotThreats(fn: (() -> { { id: string, position: Vector3, kind: string } })?)
+	botThreatSource = fn
+end
+
+-- What that source answers NOW, or an empty list. Never cached: a rig that has just been built or
+-- just destroyed must change this answer on the next heartbeat, which is what makes the phantom
+-- suppression in `boarThreats` level-triggered rather than a boolean somebody remembered to pass.
+function ForestTest.botThreats(): { { id: string, position: Vector3, kind: string } }
+	local source = botThreatSource
+	if source == nil then
+		return {}
+	end
+	local ok, out = pcall(source)
+	if not ok or type(out) ~= "table" then
+		return {}
+	end
+	return out
+end
+
+-- EVERY BEATER IN THIS WORLD WITH A BODY -- and "real" has always meant *as against a phantom*, which
+-- is exactly what a bot is not: somebody IS standing there. So since task 161 this list has two
+-- sources, the players who asked to be beaters and the bot beaters, and it is still ONE list -- read
+-- by the two things that need it (`boarThreats` and `stepLines`'s flush, through
+-- `spookNearBeaters`), so "who is pushing" is answered in one place and cannot be answered twice
+-- differently. A bot's walk therefore flushes a file through the SAME door a player's walk does,
+-- with no second push mechanism and no new rule.
 function ForestTest.realBeaters(): { { id: string, position: Vector3 } }
 	local out = {}
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -455,6 +490,11 @@ function ForestTest.realBeaters(): { { id: string, position: Vector3 } }
 		local root = character and character.PrimaryPart
 		if root ~= nil and ForestTest.roleOfPlayer(player) == "beater" then
 			table.insert(out, { id = tostring(player.UserId), position = (root :: BasePart).Position })
+		end
+	end
+	for _, threat in ipairs(ForestTest.botThreats()) do
+		if threat.kind == "driver" then
+			table.insert(out, { id = threat.id, position = threat.position })
 		end
 	end
 	return out
@@ -480,6 +520,36 @@ function ForestTest.takeFlushLine(): string?
 	return line
 end
 
+-- WHICH WAVES GET A PHANTOM BEATER THIS TICK, and it is the whole of the "one push source" rule
+-- (task 161). PURE: a wave list in, a wave list out, so `forest_stand.spec` drives BOTH states with
+-- hand-written tables -- which is what round 1 found the old shape could not do, because nothing in
+-- the spec place ever fills `state.active` and the assertion "no phantom" was true with the rule
+-- deleted.
+--
+-- THE RULE: while any bot beater is pushing, NO wave gets a phantom. A body Karen can SEE pushes; an
+-- invented position 11 studs behind the herd must not push at the same time, or the animals are
+-- moved by something nobody is standing on and the thing she is watching is not the cause.
+--
+-- OFF A LIVE FACT RATHER THAN A BOOLEAN PASSED IN, and decided by the owner of the phantoms rather
+-- than by the composition root: a drive whose flag is on but whose first rig is not built yet still
+-- gets its phantoms, so the push never gaps. With no bots this returns the list it was given, which
+-- is this file before task 161.
+--
+-- IT CANNOT STALL THE DRIVE, and that is worth saying because it is the obvious fear: a released
+-- line does not MOVE because of the phantom. `Boar.CONFIG.LINE` is the mode in which an animal stops
+-- deciding and walks to the point it was given (`releaseLine` computes the route and the crossing),
+-- and this world turns that mode on at its own boot. The phantom's job was to make a herd RUN rather
+-- than graze -- which is now a bot's job, through the same `PACE` and flush doors and from a body
+-- that is really there (`realBeaters`).
+function ForestTest.wavesToPush(waves, bots)
+	for _, threat in ipairs(bots or {}) do
+		if threat.kind == "driver" then
+			return {}
+		end
+	end
+	return waves or {}
+end
+
 function ForestTest.boarThreats(now: number)
 	local out = {}
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -493,7 +563,16 @@ function ForestTest.boarThreats(now: number)
 			})
 		end
 	end
-	for _, wave in ipairs(state.active) do
+	-- THE BOTS, AS THEY ARE (task 161): real bodies, each carrying its own kind and NO `phantom`
+	-- mark, because somebody IS standing there.
+	local bots = ForestTest.botThreats()
+	for _, threat in ipairs(bots) do
+		table.insert(out, threat)
+	end
+	-- ...AND THE PHANTOMS STAND DOWN WHILE A BOT BEATER IS PUSHING. The RULE is
+	-- `ForestTest.wavesToPush`, pure and just above, so a spec drives both states with a hand-written
+	-- wave list; this is the one call of it.
+	for _, wave in ipairs(ForestTest.wavesToPush(state.active, bots)) do
 		local centre = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
 			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
