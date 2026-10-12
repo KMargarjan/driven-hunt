@@ -626,8 +626,10 @@ local tied: { [number]: { tree: BasePart, at: number } } = {}
 -- of the countdown (task 158), and EVERYBODY at the results scene for the length of Scoring (task
 -- 159). The same shape as `tied` above and for the same reason: the pure machine SAYS who must be
 -- held and this is the one table that remembers it, so the character watch can put the hold back on
--- the character `placePlayers` is about to respawn. Emptied by `free`, which `Phase.enterRunning`,
--- `Phase.enterAssigning` and `Phase.enterWaiting` all emit -- so a hold cannot outlive its phase.
+-- the character `placePlayers` is about to respawn. Emptied by `free`, which `Phase.enterAssigning`
+-- and `Phase.enterWaiting` emit, and which the time section emits once `goFreeAt` has passed -- so a
+-- hold cannot outlive its phase. SINCE TASK 168 `enterRunning` EMITS IT ONLY WHEN `goHoldSeconds` IS
+-- ZERO, because GO is the end of the start fanfare and the line stands still for the length of it.
 local heldStill: { [number]: boolean } = {}
 -- WHO IS THROUGH THE HUNTERS' LINE, keyed the way a horn's cooldown is keyed -- `tostring(userId)`
 -- for a player, the slot id for a bot (task 168). KAREN, 2026-10-12 ~21:45: *"when beater cross the
@@ -1412,7 +1414,10 @@ local function syncBots()
 		local made = bots.fill(slots, nil)
 		stats.botsFilled = made.hunters + made.beaters
 	end
-	if phase == "Running" then
+	-- ...AND THE BOT LINE GOES WHEN THE PLAYERS DO, AND NOT 2.18 SECONDS EARLIER (task 168, round 1
+	-- finding 1). `Match.botsMayGo` is the one rule and `syncBots` runs on every dispatch, so the
+	-- bots are released on the SAME dispatch as the `free` that lets the people walk.
+	if Match.botsMayGo(state) then
 		bots.go()
 	end
 end
@@ -1857,6 +1862,25 @@ function Match.throughUserIds(): { number }
 	end
 	table.sort(out)
 	return out
+end
+
+-- MAY THE BOT LINE WALK YET? (task 168, round 1 finding 1.) PURE in the state, and exported so
+-- `bots_live.spec` states the rule this owner acts on rather than restating it.
+--
+-- KAREN'S RULE IS ONE GO FOR EVERYBODY -- the dispatch's own words, *"a beater (player AND bot)
+-- cannot move until the START FANFARE has sounded"*. The task deferred the PLAYERS' release by
+-- `Phase.goHoldSeconds` and left this call on the phase, so for 2.18 s a player beater stood
+-- anchored at the line while the bot line beside her walked off and blew -- which is the visible
+-- half of the thing Karen complained about, in the world she actually plays (`DRIVE_BOTS` on).
+--
+-- `Phase.lineHeld` IS THE SAME PREDICATE THE PLAYERS' HOLD USES, so there is one answer to "has the
+-- line been let go" and the two cannot drift: the dispatch that emits `free` is the dispatch on
+-- which this first answers true, because `Phase.step` clears `goFreed` in the same step.
+function Match.botsMayGo(driveState): boolean
+	if driveState == nil or driveState.phase ~= "Running" then
+		return false
+	end
+	return not Phase.lineHeld(driveState)
 end
 
 -- HOW MANY BOT RIGS EXIST, read-only, for the report and for a spec. 0 with no bots injected, which

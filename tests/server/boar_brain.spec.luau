@@ -789,6 +789,9 @@ return function()
 			local worst = -math.huge
 			local position = Vector3.new(0, 0, 0)
 			local facedBack = 0
+			-- HOW MANY TICKS THE CONSTRAINT ACTUALLY RAN ON, so "it never moved backward" is a claim
+			-- about ticks that were constrained rather than about an empty set.
+			local constrained = 0
 			-- HOW FAR THE ANIMAL ITSELF EVER MOVED BACKWARD while the line was within reach of it.
 			-- This is the measurement and not "where is it relative to the man", because the LINE
 			-- ADVANCES: a beater walking at 5 studs/s overtakes an animal that has stopped, and an
@@ -806,10 +809,15 @@ return function()
 				local before = position
 				position += Vector3.new(velocity.X, 0, velocity.Z) * DT
 				-- Backward is +z in this field, because the exit is at -190.
-				-- MEASURED ON THE TICK THAT STARTED INSIDE THE MARGIN, because that is the tick the
-				-- constraint was applied on: the Brain was handed `before`, so `before` is what
-				-- decides whether this frame's heading was clipped.
-				if (before.Z - beaterZ) * SIGN <= CONFIG.BEATER_WALL.MARGIN_STUDS then
+				-- MEASURED ONLY ON A TICK THE RULE REALLY RAN ON, which is round 1's note and it was
+				-- right: once the line has walked PAST the animal there is no beater behind it,
+				-- `Brain.beaterWallZ` answers nil, nothing is constrained at all -- and a `backward`
+				-- of 0 over those ticks would be the seed's luck rather than the rule. So the gate is
+				-- the rule's own two questions, asked of the state the Brain was handed (`before`):
+				-- is a beater behind me, and am I inside the margin.
+				local wallZ = Brain.beaterWallZ(line, before, SIGN, CONFIG)
+				if wallZ ~= nil and (before.Z - (wallZ :: number)) * SIGN <= CONFIG.BEATER_WALL.MARGIN_STUDS then
+					constrained += 1
 					backward = math.max(backward, position.Z - before.Z)
 				end
 				-- THE MEASUREMENT: how far past the wall the animal ever gets, and whether it ever
@@ -827,16 +835,19 @@ return function()
 			-- which is the dispatch's measurement stated against the thing the animal controls: *"an
 			-- animal never moves to the beaters' side of the line"*. Not one tick of one frame.
 			expect(backward <= 0).to.equal(true)
-			-- `worst` is reported rather than asserted, and the reason is in the comment above: the
-			-- line WALKS, so an animal the beaters have overtaken reads as "behind" one without ever
+			-- ...OVER A REAL NUMBER OF TICKS. Without this the case above could pass by measuring
+			-- nothing at all, which is what round 1's note is about.
+			expect(constrained > 100).to.equal(true)
+			-- `worst` is REPORTED and not asserted, and the reason is in the comment above: the line
+			-- WALKS, so an animal the beaters have overtaken reads as "behind" one without ever
 			-- having moved. It is in the note so the number is visible either way.
-			expect(worst > -math.huge).to.equal(true)
 			-- THE MEASUREMENT IS THE EVIDENCE, so it goes into the harness's report rather than into
 			-- a console nobody keeps.
 			TestKit.note(
 				string.format(
-					"task 168: 3600 ticks against a walking line -- faced back %d times, worst backward"
-						.. " step %.4f studs, deepest %.1f past the man (margin %d)",
+					"task 168: 3600 ticks against a walking line -- %d of them constrained, faced back %d"
+						.. " times, worst backward step %.4f studs, deepest %.1f past the man (margin %d)",
+					constrained,
 					facedBack,
 					backward,
 					worst,

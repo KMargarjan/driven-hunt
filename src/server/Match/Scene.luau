@@ -123,11 +123,16 @@ function Scene.animalSize(kind: string?, cfg): Vector3
 	return scene.ANIMAL_SIZE * scale
 end
 
--- HOW MANY TO A ROW, never less than one. A `PER_ROW` of 0 or nil in a world's config would divide
--- the layout by zero and lay every animal on top of its neighbour, so the floor is here and not at
--- three call sites.
+-- HOW MANY TO A ROW, never less than one. A `PER_ROW` of 0 in a world's config would divide the
+-- layout by zero and lay every animal on top of its neighbour, so the floor is here and not at three
+-- call sites.
+--
+-- ...AND THE MISSING-VALUE CASE IS 1 AND NOT `math.huge` (round 1's note, which was right): a nil
+-- `PER_ROW` made this `inf`, so `rowCount` was `ceil(count/inf)` = 0 and `rowLayout`'s `inRow -
+-- middle` was `inf - inf` -- a row of NaN positions. Unreachable today, because every `SCENE` table
+-- in the repo sets `PER_ROW`; what was wrong was the CLAIM above it, and now both are true.
 function Scene.perRow(cfg): number
-	return math.max(1, math.floor((cfg.SCENE.PER_ROW or math.huge) :: number))
+	return math.max(1, math.floor((cfg.SCENE.PER_ROW or 1) :: number))
 end
 
 -- HOW MANY ROWS `count` ANIMALS MAKE. PURE, and the one answer: the row layout, the extent and the

@@ -812,10 +812,15 @@ return function()
 				for _, animal in ipairs(animals) do
 					local frontZ = Data.lineFrontAt(line, animal.x) :: number
 					local ahead = frontZ - animal.z
+					local caughtBefore = animal.caught
 					if not animal.caught and Data.sweepCatches(ahead, depth, Data.SPOOK) then
 						animal.caught = true
 					end
-					if ahead < 0 and not animal.caught then
+					-- `passedUncaught` IS A GUARD ON THE GUARD, and round 1's note was right that it
+					-- cannot fire while `sweepCatches` catches everything behind the front: it is
+					-- checked BEFORE this tick's catch instead, so it would count an animal the band
+					-- had let past on the PREVIOUS tick. `missed` is the assertion doing the work.
+					if ahead < 0 and not caughtBefore then
 						passedUncaught += 1
 					end
 				end

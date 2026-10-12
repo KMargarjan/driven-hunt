@@ -79,6 +79,15 @@ the Forest Test (2026-10-12), both now with a case in `match_phase.spec`:
 After both: `t=7.62 Drivers ws=16`, `t=7.90 ws=0 anchored=true`, `t=9.79 ws=16` -- held from the
 respawn to GO + 2.18 s, then let go with everybody.
 
+### ...AND THE BOTS ARE THE SAME LINE (round 1, finding 1)
+
+The hold was built for the people and `syncBots` was left releasing the bots on the phase
+(`if phase == "Running" then bots.go() end`), so for the length of the fanfare a player beater stood
+anchored at her line while the bot line beside her walked off and blew. `Bots.go` sets one boolean
+and `Bots.step` gates both the walk and the horn on it, so the fix is WHEN it is called:
+`Match.botsMayGo` asks the players' own predicate (`Phase.lineHeld`) and `syncBots` runs on every
+dispatch, so the bots are released on the same dispatch as the `free`. One GO, one source.
+
 ### The numbers
 
 | Number | Value | Why |

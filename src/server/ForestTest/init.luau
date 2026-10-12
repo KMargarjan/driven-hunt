@@ -1173,7 +1173,10 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- whole search finds none, place it anyway and let the sweep do its job, exactly as before this
 	-- task.
 	local sweepDepth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
-	for pass = 1, 2 do
+	-- ONE PASS WHEN THERE IS NOBODY PUSHING (round 1's note): with no beaters there is no front, so
+	-- the first pass refuses nothing and the second would repeat all 41 candidates' raycasts and
+	-- overlap queries for the same answer. That is the FIRST stock, every time.
+	for pass = 1, (if #beaters > 0 then 2 else 1) do
 		local avoidSweep = pass == 1 and #beaters > 0
 		for ring = 0, rest.searchRings do
 			local tries = if ring == 0 then 1 else 8

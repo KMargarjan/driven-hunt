@@ -657,10 +657,6 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- Drawn ONCE, from the shared Random, and kept: a sign drawn per frame is a nose that hunts left
 	-- and right in front of the same tree, which is the "mouse turning" this round is about.
 	self._whiskerSide = if rng:NextNumber() < 0.5 then -1 else 1
-	-- WHERE THE BEATERS' LINE WAS LAST TIME IT WALLED THIS ANIMAL, or nil (task 168). Declared here
-	-- rather than springing into existence in `step`, which is this file's habit for every other
-	-- field: it is published on the intent and nothing decides on it.
-	self._walledFrom = nil :: number?
 	-- ...and which side THIS obstacle is being passed on, held for `MOVE.WHISKER_HOLD_SECONDS` so a
 	-- flickering cast cannot swap it every frame (task 126).
 	self._whiskerPick = self._whiskerSide
@@ -2414,17 +2410,10 @@ function Brain:step(dt: number, obs)
 		if wallZ ~= nil then
 			local ahead = (position.Z - (wallZ :: number)) * exitSign
 			self._desired = Brain.forwardOfWall(self._desired, ahead, exitSign, config, self._whiskerSide)
-			self._walledFrom = wallZ
-		else
-			self._walledFrom = nil
 		end
 	end
 
 	intent.state = self._state
-	-- WHERE THE WALL WAS, for the report and for a live probe: nil when no beater is behind this
-	-- animal (task 168). It is published and never read back -- `Boar.Runtime` counts it, nothing
-	-- decides on it.
-	intent.walledFrom = self._walledFrom
 	-- WHAT A CALM BOAR IS DOING (task 117), published only while IDLE so every other state draws
 	-- exactly what it drew before. `Body` turns it into a clip; nothing else reads it.
 	intent.activity = if self._state == "IDLE" and self._calm then self._calm.name else nil
