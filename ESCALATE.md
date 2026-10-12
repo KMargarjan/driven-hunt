@@ -1,5 +1,70 @@
 # Escalations
 
+## 2026-10-12 — Task 161: NEEDS TEST2, and one picture only a person can frame
+
+**The work is finished and measured.** Two clean-tree full runs at the code commit,
+`[harness] PASS: 33/33 checks @ 7b23fddd51ea1c27e33ce1cefdd6e02333aacadb (clean tree) scope=all`
+(twice), Architect **PASS** on `docs/design/bots.md`, and a live Forest Test session in which four
+bot beaters stood abreast at ±18 and ±36 studs about their base, walked 240 studs, arrived at the
+goal still 18 studs apart, blew the real horn nine times with **0 credited** every time, and left no
+error line in the console. The numbers are in `reviews/task-161/REQUEST.md`.
+
+### 1. NEEDS TEST2 161 `7b23fddd51ea1c27e33ce1cefdd6e02333aacadb`
+
+The dispatch assigned this one to the Director (*"stop `NEEDS TEST2 161 <sha>` with a `[harness2]`
+placeholder; I run test2 + the review"*). `src/server/Match/` is in `TWO_PLAYER_PATHS`, so
+`tools/review.ps1 161` refuses to start without a `[harness2]` line and the PR to `main` needs one
+too; StudioMCP cannot start it, because `start_stop_play` takes no player count.
+
+Both Studios are open and in **Edit**, and **no flag or pose override is set** — I set
+`DHFlag_DRIVE_BOTS` for the playtest above and cleared it again, and `python tools/flags.py` shows
+`DRIVE_BOTS off / none / off`. So `test2` will start.
+
+In the **DEV** Studio, in Edit: **Test tab → Clients and Servers → Players: 2 → Start**, then leave
+the windows alone until the harness says to press **Cleanup**.
+
+### 2. NEEDS KAREN — the one picture, and it is the one thing a number cannot answer
+
+**I could not take it, and I am not pretending otherwise.** I captured four frames in the Forest
+Test with the bots on and looked at all four; **none of them has a bot in it**. The reason is a
+harness fact rather than a guess: during Play, `screen_capture` returns the PLAYER'S OWN first-person
+view and the `camera_position` / `look_at_position` arguments have no effect, because the client owns
+the camera and `Camera` is its one writer. The player is a beater standing in lane 0, so the bots are
+either exactly to her left and right at ±18 and ±36 studs — just outside a 70° field of view — or 240
+studs down the drive behind trees. Moving her camera from here would make me a second writer of it,
+which is the one thing this project does not do.
+
+**THE EXACT CLICKS, in the "Driven Hunt Forest Test" Studio (one Play session, one mouse drag):**
+
+1. `python tools/flags.py set DRIVE_BOTS on` **will not work** — it writes to whichever Studio is
+   pinned, which is DEV. Either close the DEV Studio first and then run it, or run this one line
+   from the repo root, which aims the harness's own flag write at the Forest Test:
+   `python C:/Users/karen/Desktop/driven-hunt-runs/ftplay.py edit <a file holding>`
+   `local SS=game:GetService("ServerStorage") SS:SetAttribute("DHFlag_DRIVE_BOTS", true) return "on"`
+2. In the Forest Test Studio press **Play** (the ▶ button, not Run).
+3. **Wait about 12 seconds** — the countdown is 10 and the bots are built during it.
+4. **Turn around.** You spawn as a beater in the middle of the line; the four bots are abreast of
+   you, two on each side, 18 and 36 studs out. Look left and right along the line.
+5. **Three things to look at, not measure** (they are all that is open):
+   * four beaters **abreast in orange**, not four bodies in one place and not a straggling file;
+   * the bot hunters standing on the stands beside yours (walk south to the road to see them);
+   * **do they look like people walking, or like statues sliding?** This is the real question.
+     A rig built by the engine carries no walk animation — see TASKS.md **161a(c)** — and the fix
+     is one line plus an asset check, but only an eye can say whether it reads wrong.
+6. **Stop**, then clear the override before anybody runs the harness again:
+   `python tools/flags.py clear` (in DEV) **and** the same `SetAttribute(..., nil)` line in the
+   Forest Test. `test` and `test2` both refuse to start while one is set.
+
+### 3. FOR KAREN — six numbers that are the Director's guesses, and one that is big
+
+All in TASKS.md **161a(e)**, none of them blocking, each one line. The one that is not small:
+**with bots on, a drive in the Forest Test ends at about 0:29 against its 300-second clock**, because
+a drive now ends when the LINE is through and a 240-stud walk at 9 studs/s is 29 seconds. That is
+Karen's own two sentences composed — *"Timer or when all beaters cross line of hunters"* plus a line
+of bots to walk it — and it is the fix for her 159a(f) complaint that a solo beater ends the drive
+the instant she crosses. But it is a **feel** number and she has not seen it. The three dials are
+where the line starts, `Bots.CONFIG.WALK_SPEED` (9), and `Match.CONFIG.END_ON_BEATERS_CROSS`.
+
 ## 2026-10-11 — Task 151: NEEDS TEST2, one click. Everything else is done and looked at
 
 **The work is finished and measured.** `[harness] PASS: 33/33 checks @ ab81e5b (clean tree)
