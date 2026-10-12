@@ -3,7 +3,7 @@
 Task: 159
 Round: 1
 Base: `a0589f5` (main, #141 merged)
-Code commit: `b9795f65ce9c40d0db950037f2649d8290284283`
+Code commit: `3bcdeda112477980168a5b1781811af7e7cb67cd`
 
 Harness, one player, the FULL run, twice on the clean tree at the code commit:
 
@@ -13,7 +13,8 @@ Harness, one player, the FULL run, twice on the clean tree at the code commit:
 ```
 
 ```
-[harness2] NEEDS TEST2 159 b9795f65ce9c40d0db950037f2649d8290284283
+[harness] PASS: 33/33 checks @ 3bcdeda112477980168a5b1781811af7e7cb67cd (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 3bcdeda112477980168a5b1781811af7e7cb67cd (clean tree)
 ```
 
 **`test2` IS REQUIRED AND THE BUILDER DID NOT RUN IT.** This change touches `TWO_PLAYER_PATHS`
