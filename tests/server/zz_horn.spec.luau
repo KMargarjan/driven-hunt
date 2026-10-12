@@ -925,6 +925,10 @@ return function()
 			-- A DIFFERENT BOT IS A DIFFERENT ROW: four beaters are four horns, not one.
 			expect(HornTool.blowTool(tool, "bot-beater-2", nil, at)).to.equal(true)
 
+			-- A `BindableEvent:Fire` IS DEFERRED, exactly as the player's own case above records
+			-- being measured: the listener has not run when `blowTool` returns, so every read of
+			-- `blasts` is after one resumption.
+			task.wait()
 			connection:Disconnect()
 			expect(#blasts).to.equal(3)
 			-- `blowerUserId` IS NIL for a bot, which is what makes `Match.creditPush` refuse it -- so a
