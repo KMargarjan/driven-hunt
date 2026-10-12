@@ -3,11 +3,11 @@
 Task: 167
 Round: 1
 Base: `9a6f210` (main, #150 merged)
-Code commit: `b6f11a4` (to be re-stated if the Director's `[harness2]` lands on a later commit)
+Code commit: `e89847a6bd624f2c0fbbb5efbaa3fb026104dffb`
 
 ```
-[harness] PASS: 33/33 checks @ <run 1, pasted below> (clean tree) scope=all
-[harness] PASS: 33/33 checks @ <run 2, pasted below> (clean tree) scope=all
+[harness] PASS: 33/33 checks @ e89847a6bd624f2c0fbbb5efbaa3fb026104dffb (clean tree) scope=all
+[harness] PASS: 33/33 checks @ e89847a6bd624f2c0fbbb5efbaa3fb026104dffb (clean tree) scope=all
 [harness2] <THE DIRECTOR'S: see below>
 ```
 
@@ -15,7 +15,7 @@ Code commit: `b6f11a4` (to be re-stated if the Director's `[harness2]` lands on 
 `src/server/Match/init.luau` is in `TWO_PLAYER_PATHS` (`src/server/Match/`), because
 `Match.botSlotsFor` -- the drive's own translation from its geometry to a bot slot -- is where a
 lane's start and goal are now decided. `tools/agents.py` therefore refuses this round until the
-`[harness2] PASS ... @ b6f11a4` line is pasted above. Nothing else here touches that list: the boar,
+`[harness2] PASS ... @ e89847a` line is pasted above. Nothing else here touches that list: the boar,
 the bots and the world are all one-player paths.
 
 ## What changed
@@ -147,9 +147,23 @@ one in the drive's geometry and one in the animal's steering.
     sweep comes back clear -- so the animal threads the trees and comes out on the line it set off on.
     Nothing in this task touches `_latchFlight`, `_flightActive`, `FLIGHT_MAX_SECONDS` or
     `Line.crossedOut`.
-    *Verify:* `git diff 9a6f210..b6f11a4 -- src/server/Boar/Brain.luau` -- the flight branch is
+    *Verify:* `git diff 9a6f210..e89847a -- src/server/Boar/Brain.luau` -- the flight branch is
     untouched; the only changes are `clearTurnDeg`, the `clearDeg` branch of `steerAroundTrunk`,
     `avoidSide`, the committed side, and the two intent fields.
+
+## The Play evidence (standing rule A)
+
+A fresh 90 s Play of the Forest Test on this tree, in the place Karen uses:
+
+```
+gun in hand @15s=1 @90s=1 | stacks=0 errorLines=0 | waves=5 | worst playing sounds over 10 s: 2 (boars=10)
+SMOKE PASS
+```
+
+So: the Tool is in the CHARACTER at 15 s and at the end; the whole server + client console has no
+"Stack Begin", no "attempt to", no "invalid argument" and no error line; and the features this task
+changed really ran -- the 180 s session above printed both `[lanes]` (four lanes, four different
+arrivals) and `[trees]` (1,144 avoid turns, 9,987 casts), which is what those two lines exist to say.
 
 ## What I could NOT verify, and one thing I did not change
 
