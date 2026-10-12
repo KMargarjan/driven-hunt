@@ -20,7 +20,6 @@
 local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
@@ -421,10 +420,11 @@ return function()
 			expect(MapUi.minimapVisible(false, false, true, true)).to.equal(false)
 		end)
 
-		it("shows the mobile button only on a touch device", function()
-			expect(MapUi.buttonVisible(true)).to.equal(CONFIG.BUTTON_ENABLED)
-			expect(MapUi.buttonVisible(false)).to.equal(false)
-		end)
+		-- THE MOBILE-BUTTON CASE IS GONE WITH THE BUTTON (task 165). `MapUi.buttonVisible` was
+		-- `touchEnabled and BUTTON_ENABLED`, which is exactly why Karen never saw a map button on her
+		-- PC and asked for *"buttons on the side for M - map ect"*. The button is `Hud.Rail`'s first
+		-- one now and `tests/client/hud_clarity.spec.luau` owns its cases, including that pressing it
+		-- opens THIS module's map. Archived: `backups/2026-10-12_mapui-touch-button.txt`.
 	end)
 
 	describe("the picture, on the real Hud", function()
@@ -476,10 +476,23 @@ return function()
 			end
 		end)
 
-		it("shows the button exactly when this device has a touchscreen", function()
-			local button = Hud.mapButton()
-			expect(button).to.be.ok()
-			expect((button :: TextButton).Visible).to.equal(MapUi.buttonVisible(UserInputService.TouchEnabled))
+		it("has NO button of its own any more, and the rail's one opens this map", function()
+			-- THE REPLACEMENT, ASSERTED RATHER THAN ASSUMED (task 165). The old touch button is gone
+			-- from the Hud entirely, and the thing that replaced it drives `MapUi.toggle` -- so the
+			-- removal cannot have quietly taken the feature with it.
+			expect(Hud.mapButton).to.equal(nil)
+			local rail = Hud.rail()
+			expect(rail).to.be.ok()
+			local mapButton = Hud.Rail.button("MAP")
+			expect(mapButton).to.be.ok()
+			local was = MapUi.isOpen()
+			local keyToggles = MapUi.stats().keyToggles
+			expect(Hud.Rail.press("MAP")).to.equal(true)
+			expect(MapUi.isOpen()).to.equal(not was)
+			MapUi.setOpen(was)
+			-- ...and it is NOT counted as a key press: `keyToggles` is the evidence that a real M
+			-- arrived, which is what task 155 round 1 made it a separate counter for.
+			expect(MapUi.stats().keyToggles).to.equal(keyToggles)
 		end)
 	end)
 
@@ -491,9 +504,13 @@ return function()
 			-- are made visible for the measurement and put back exactly as they were.
 			local screen = Hud.gui() :: ScreenGui
 			local mini = Hud.minimap() :: Frame
-			local button = Hud.mapButton() :: TextButton
+			-- THE RAIL TOOK THE BUTTON'S PLACE IN THIS CASE (task 165), and it is a stricter check:
+			-- the old button was one 48 px circle and the rail is a 216 px column, under the same
+			-- disc. `ObjectiveLine` is in the list of others because the whole top band moved to make
+			-- room for it.
+			local rail = Hud.rail() :: Frame
 			local others = {}
-			for _, name in ipairs({ "DriveBar", "TiedBanner", "Compass", "Readout" }) do
+			for _, name in ipairs({ "DriveBar", "TiedBanner", "Compass", "Readout", "ObjectiveLine" }) do
 				local node = screen:FindFirstChild(name)
 				if node ~= nil and node:IsA("GuiObject") then
 					table.insert(others, { node = node :: GuiObject, was = (node :: GuiObject).Visible })
@@ -503,9 +520,9 @@ return function()
 				entry.node.Visible = true
 			end
 			local wasMini = mini.Visible
-			local wasButton = button.Visible
+			local wasRail = rail.Visible
 			mini.Visible = true
-			button.Visible = true
+			rail.Visible = true
 			-- One frame, so the engine has computed `AbsolutePosition` for what was just shown.
 			task.wait()
 			local clashes = {}
@@ -513,12 +530,12 @@ return function()
 				if overlaps(mini, entry.node) then
 					table.insert(clashes, "minimap/" .. entry.node.Name)
 				end
-				if overlaps(button, entry.node) then
-					table.insert(clashes, "button/" .. entry.node.Name)
+				if overlaps(rail, entry.node) then
+					table.insert(clashes, "rail/" .. entry.node.Name)
 				end
 			end
 			mini.Visible = wasMini
-			button.Visible = wasButton
+			rail.Visible = wasRail
 			for _, entry in ipairs(others) do
 				entry.node.Visible = entry.was
 			end
@@ -651,12 +668,34 @@ return function()
 		end)
 
 		it("shows the push direction the HUD's own rule gives, with its word", function()
+			-- THE RULE CHANGED IN TASK 165 AND THIS CASE CHANGED WITH IT. The arrow used to be the
+			-- WORLD's bearing, full stop; it is now `Hud.markerFor`'s answer -- the bearing to this
+			-- player's own TARGET when there is one, and the world's when there is not. That is what
+			-- makes the strip, the minimap and the waypoint chevron agree, and it is why a DEV world
+			-- that states no drive direction now HAS an arrow: it points at the hunter's own line.
+			--
+			-- ASSERTED AS AN INVARIANT rather than by re-deriving the target, because re-deriving it
+			-- here would be a second copy of the renderer's rule. If there is a target the arrow is
+			-- the bearing TO it and wears its word; if there is none the arrow is the world's answer.
+			local target, targetWord = MapUi.target()
+			if target ~= nil then
+				local at = target :: Vector2
+				local root = player.Character and player.Character.PrimaryPart
+				expect(MapUi.pushLabel()).to.equal(targetWord)
+				if root ~= nil then
+					local me = (root :: BasePart).Position
+					local wanted = (math.deg(math.atan2(at.X - me.X, at.Y - me.Z)) + 360) % 360
+					-- Within a degree: the pass that set the bearing and this read are different
+					-- frames, and the player may have moved a stud between them.
+					expect(MapUi.pushBearingDeg()).to.be.near(wanted, 1)
+				end
+				return
+			end
 			local data = if Map.EXPECTED_WORLD == "forest-test"
 				then require(ReplicatedStorage:WaitForChild("ForestTest"))
 				else nil
 			if data == nil then
-				-- Every other world states no direction, and then there is no arrow and no word --
-				-- `Compass.setBearing(nil)`'s rule.
+				-- No target and no world direction: no arrow and no word -- `Compass.setBearing(nil)`.
 				expect(MapUi.pushBearingDeg()).to.equal(nil)
 				return
 			end

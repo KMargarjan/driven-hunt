@@ -779,7 +779,11 @@ SCOPE_SPECS = {
     # `src/client/Hud/` already resolves to this scope and only the spec has to be named.
     "hud": ("tests/client/hit_marker.spec.luau", "tests/client/report_panel.spec.luau",
             "tests/client/compass.spec.luau", "tests/client/hud_boot.spec.luau",
-            "tests/client/map_ui.spec.luau"),
+            "tests/client/map_ui.spec.luau",
+            # Task 165: the objective line, the waypoint and the button rail. It asserts the WHOLE
+            # top band's rectangles -- the bar's and the banner's offsets (`src/shared/Drive/`), the
+            # compass's TOP, the minimap's and the rail's -- so a band that moves anywhere plays it.
+            "tests/client/hud_clarity.spec.luau"),
     # The report's geometry is asserted against `Boar.CONFIG`, so a boar zone box that moves reaches
     # this spec too -- which is why it is in the `boar` scope as well.
     "report": ("tests/server/report_silhouette.spec.luau", "tests/client/report_panel.spec.luau"),

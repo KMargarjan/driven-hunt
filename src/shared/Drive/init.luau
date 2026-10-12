@@ -96,7 +96,14 @@ Drive.CONFIG = {
 	FEED_SECONDS = 8,
 
 	BAR_TEXT_SIZE = 20,
-	BAR_TOP_OFFSET = 8,
+	-- 8 -> 44 (task 165). THE OBJECTIVE LINE TOOK THE TOP LINE and everything in the top band moved
+	-- down one band: objective 8..40, bar 44..70, tied banner 74..104, compass 108..134, map 140.
+	-- Karen, 2026-10-12: *"we need to improve design that it will be clear to understand what
+	-- happening"*, and what she was reading at y 8 was a row of FACTS. The instruction is the
+	-- headline now, and the facts are the line under it. The whole band is `docs/design/hud-clarity.md`
+	-- section 3, which is also where the one rule about it lives: nothing may overlap anything at
+	-- 400 x 800, asserted arithmetically by `tests/client/hud_clarity.spec.luau`.
+	BAR_TOP_OFFSET = 44,
 	FEED_TEXT_SIZE = 16,
 	FEED_LEFT_OFFSET = 16,
 	FEED_BOTTOM_OFFSET = 16,
@@ -142,7 +149,7 @@ Drive.CONFIG = {
 	TIED_TEXT = "TIED TO A TREE - you fired toward the drive",
 	TIED_TEXT_SIZE = 24,
 	TIED_COLOR = Color3.fromRGB(255, 95, 75),
-	TIED_TOP_OFFSET = 44, -- just under the drive bar
+	TIED_TOP_OFFSET = 74, -- just under the drive bar, which moved to 44..70 (task 165)
 
 	-- THE START CARD (task 158). Karen: *"we just need to at the begining what they can shoot and
 	-- timer when start"*, *"Simple, readable, a few seconds, no tutorial"*. LAYOUT AND WORDING
