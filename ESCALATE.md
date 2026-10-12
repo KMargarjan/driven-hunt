@@ -1722,3 +1722,34 @@ rifle (trigger-guard pins), which are a few pixels.
 
 Everything else in task 146 shipped without it.
 
+
+---
+
+## 2026-10-12 — Task 163: `NEEDS KAREN` — the Forest Test place is not open, so its smoke did not run
+
+The Director's task 163 dispatch asked for a **smoke in the Forest Test** and for that place to be
+left open for him to run `test2` in. **It is not open.** `list_roblox_studios` saw it at the start of
+this session (`7d5ee361-…`, placeId 130094961655666) and sees only `Driven Hunt DEV` now, so the
+window was closed part-way through. I cannot open a place: launching Studio on one is a click.
+
+**WHAT WAS RUN INSTEAD, so this is not a gap in the evidence, only in the place.** A full Play
+session of **DEV** (Edit confirmed first, per standing rule C), with the live drive, and the signal
+measured off the real Instance the client created:
+
+* `SoundService.DriveSignal` appeared **11.6 s after the client came up** — the drive's GO.
+* `SoundId = rbxassetid://9038902877`, `Volume = 1`, `IsLoaded = true`, `TimeLength = 60.63`.
+* **THREE notes, each from `TimePosition` 23.360 to 26.21, then stopped**, ~0.27 s apart, the third
+  ending 9.63 s after the first began (the plan says 9.22 s and the sampler's own step is 0.25 s).
+* `PlaybackLoudness` through a note: **195, 187, 167, 162, 128, 114, 97, 94, 82, 48, 15** — the
+  smooth single-note decay the cut was chosen for, so what sounded was the note that was measured.
+* **Console: 21 lines, zero errors** — no "Stack Begin", no "attempt to", no "invalid argument".
+
+**THE CLICKS, IN ORDER:**
+
+1. Open **Driven Hunt Forest Test** (placeId 130094961655666) in Studio, in **Edit** mode.
+2. Rojo **Connect** (the plugin's button, if the harness is to be run there).
+3. Leave its playtest settings alone — `DHFlag_DRIVE_BOTS=true`, `DHForestStartRole=hunter` on
+   `ServerStorage`, which is what the dispatch says.
+
+Then the Director's own `test2` for **NEEDS TEST2 163 `d3791cb21fc6482878c1e5d6b50bca9f04626a9e`**,
+which costs a human click of its own and which this Builder does not run.
