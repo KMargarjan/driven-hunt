@@ -1,9 +1,9 @@
 # Task 169 -- the beater's horn gets a real model
 
 Task: 169
-Round: 1
+Round: 2
 Base: main @ 4be5455 (PR #152 merged)
-Code commit: 009ddd453d9c4eca55a4ba8c6397cf1f07705ad3
+Code commit: daed44a319b9218c14185691cfc713bd6e3b51f4
 
 KAREN, 2026-10-12 ~21:45: *"We need better horn"* -- the LOOK. Task 152 built the horn out of nine
 welded cylinders and its own header says why (the two plausible free Creator Store horns answer
@@ -13,9 +13,17 @@ OK the same evening: *"Yes, upload it"*. It is now asset **105611404389014**, ap
 Harness, FULL, twice, both on the clean tree at the code commit:
 
 ```
-[harness] PASS: 33/33 checks @ 009ddd453d9c4eca55a4ba8c6397cf1f07705ad3 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 009ddd453d9c4eca55a4ba8c6397cf1f07705ad3 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ daed44a319b9218c14185691cfc713bd6e3b51f4 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ daed44a319b9218c14185691cfc713bd6e3b51f4 (clean tree) scope=all
 ```
+
+**Round 1's one blocking finding is fixed, and it was right.** The uniformity guard compared an
+absolute 1e-3 against a scale of 1.25 / 1164.78 = 0.00107, so it was no guard at all -- the
+Reviewer's own counter-example, a Y/Z swap (the horn squashed to 55 % in one axis and stretched 81 %
+in the other), passed both lines. It compares RELATIVELY now, at 1e-4, which the committed numbers
+clear by four orders of magnitude (7e-9 and 8.9e-8). Claim 5 below is that case. One sentence of
+`GRIP_BLOW`'s comment that disagreed with itself went with it (round 1's last note); the shipped
+value is unchanged and is still the photographed one. The other four notes are queued as **169a**.
 
 `test2` is **N/A**: no path in `TWO_PLAYER_PATHS` is touched (the change is `src/server/Weapon/`,
 `src/serverstorage/Assets/`, `src/shared/Horn/`, two server specs and two prep tools -- no `Match`,
