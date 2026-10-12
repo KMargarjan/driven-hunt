@@ -1,28 +1,34 @@
 # Task 168: the beater's drive and the gathering
 
 Task: 168
-Round: 1
+Round: 2
 Base: `37d8ba0` (main, #151 merged)
-Code commit: `28ed6a64a19328383f1700b7a745937dd88dcf4f`
+Code commit: `62b7ce4`
 
 Harness, the clean tree, TWICE at the code commit:
 
 ```
-[harness] PASS: 33/33 checks @ 2f68eb9f69e04ff74de943c95a5d6720f9f8605e (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 2f68eb9f69e04ff74de943c95a5d6720f9f8605e (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 62b7ce4379a4130025460a608ecb1822b64cb473 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 62b7ce4379a4130025460a608ecb1822b64cb473 (clean tree) scope=all
 ```
 
 ```
-[harness] PASS: 33/33 checks @ 28ed6a64a19328383f1700b7a745937dd88dcf4f (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 28ed6a64a19328383f1700b7a745937dd88dcf4f (clean tree)
+[harness2] NEEDS TEST2 168 62b7ce4379a4130025460a608ecb1822b64cb473
 ```
+
+ROUND 1's gate lines, for the record, were `[harness] PASS: 33/33` and `[harness2] PASS: 35/35` at
+`28ed6a6` -- the Director ran the two-player one.
 
 `TWO_PLAYER_PATHS` is touched (`src/server/Match/`, `src/client/Match/`, `src/shared/Drive/`,
 `tests/server/match_*.spec.luau`), and the Director runs `test2` and this review -- his own
-instruction in the dispatch. The placeholder above is the only line in this file that is not a
-measurement.
+instruction in the dispatch. **Every other line in this file is a measurement; the `NEEDS TEST2` line
+is the one placeholder** (round 1's copy of this sentence went stale the moment the Director pasted
+the real `[harness2]` line into it, which is round 1's last note).
 
-Smoke, the Forest Test, 90 s, after everything below was in:
+Smoke, the Forest Test, 90 s, taken in ROUND 1 and NOT re-run in round 2 -- the Director's dispatch
+closed that place for this round (*"DEV alone; the Forest Test is CLOSED, do not reopen it"*). What
+round 2 changes is one call site in `syncBots`, which the DEV gate covers and `bots_live.spec`
+measures:
 
 ```
 gun in hand @15s=1 @90s=1 | stacks=0 errorLines=0 | waves=5 | worst playing sounds over 10 s: 2 (boars=6)
@@ -181,6 +187,16 @@ a tick at a time with `missed 0, ticks behind the line uncaught 0`. Harness note
 resting groups, front depth 47.9 studs (lanes 150 apart, reach 89) -- missed 0, ticks behind the line
 uncaught 0`.
 
+**12. The BOT line is held through the fanfare too, and goes on the same dispatch as the players**
+(round 1, finding 1, blocking). `Match.botsMayGo` is the one rule and it is the players' own --
+`state.phase == "Running" and not Phase.lineHeld(state)` -- so the two cannot drift: `syncBots` runs
+on every dispatch, and the dispatch on which this first answers true is the dispatch that emits the
+`free`. `bots_live.spec` → *"is held through the START FANFARE too, and goes on the same dispatch as
+the players"*: the rule's five states (and `nil`), then the consequence with real rigs -- **0 walking
+and 0 blasts over 10 s of steps while held, 2 walking on GO**. The case **fails on the old code**,
+where `Match.botsMayGo` did not exist. `Bots.go`'s header claimed the bots were *"held through the
+countdown exactly as a player is"* and was false; it now says when the drive says go and why.
+
 ---
 
 ## What could not be verified, and what is not fixed
@@ -220,7 +236,21 @@ and whether a walled drive feels right are Karen's. One screenshot of the gather
 inspected (`.screenshots/20261012T204820Z-t168-gathering2.png`): twelve animals in two rows, two
 torches burning in frame, the ring clear of the bodies.
 
-**(e) Two defects in this task's own new code were found by measuring it, not by reading it**, and
+**(e) Round 1's notes: six fixed, one queued.** Fixed -- `intent.walledFrom` was published with a
+comment claiming the runtime counted it and nothing read it (the field, its backing and the sentence
+are gone); `Scene.perRow`'s claim about a nil `PER_ROW` was false (`math.floor(math.huge)` is `inf`,
+which makes `rowCount` 0 and the layout NaN -- unreachable today, so the defect was the claim, and
+`or 1` makes both true); `Match`'s `heldStill` header still said `enterRunning` always emits the
+`free`; `forest_stand.spec`'s `passedUncaught` could not fire because the catch ran earlier in the
+same iteration (it is asked of the previous tick's state now); `boar_brain.spec` measured "never
+moved backward" over ticks where no beater was behind the animal and nothing was constrained at all
+(it asks `Brain.beaterWallZ` first and now asserts the constraint really ran -- **168 ticks of
+3,600** -- and the assertion that asserted nothing is gone); and `restSpot` ran its second pass with
+no beaters. **Queued as 168d:** `lineFrontAt` clamps to the outermost beater past either end, so the
+flush band widens laterally without limit -- harmless in this world's geometry, and a widening the
+round-1 request did not name.
+
+**(f) Two defects in this task's own new code were found by measuring it, not by reading it**, and
 both are recorded where they were fixed: `AnimationTrack.Parent` is nil for a track from
 `Animator:LoadAnimation`, so a `Parent`-guarded `Stop` never ran (the arm stayed up for ever) and the
 same guard on the per-character cache loaded a second track on every blast.
