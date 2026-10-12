@@ -3,7 +3,7 @@
 Task: 160
 Round: 2
 Base: `94fc315` (main, #142 merged)
-Code commit: `38b88536e81d3295aef5d3fae09b904fa6da2975`
+Code commit: `f4ec27f66a1f4b98267259294f133b696433c1cf`
 
 Harness, one player, the FULL run, twice on the clean tree at the code commit (DEV alone — the
 Forest Test Studio is closed):
@@ -14,7 +14,8 @@ Forest Test Studio is closed):
 ```
 
 ```
-[harness2] <placeholder — NEEDS TEST2 160 38b88536e81d3295aef5d3fae09b904fa6da2975>
+[harness] PASS: 33/33 checks @ f4ec27f66a1f4b98267259294f133b696433c1cf (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ f4ec27f66a1f4b98267259294f133b696433c1cf (clean tree)
 ```
 
 **`test2` IS REQUIRED AND THE BUILDER DID NOT RUN IT.** This change touches `TWO_PLAYER_PATHS`
