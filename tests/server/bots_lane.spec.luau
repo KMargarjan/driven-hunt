@@ -506,8 +506,8 @@ return function()
 			expect(Rig.GAIT.WALK_ABOVE_STUDS > Rig.GAIT.IDLE_BELOW_STUDS).to.equal(true)
 
 			-- AND IT ACTUALLY STOPS THE FLICKER, counted rather than argued: a speed wobbling
-			-- across the band 20 times switches clip ONCE at most (the first entry), where a single
-			-- threshold would switch on every crossing.
+			-- inside the band 20 times switches clip NOT ONCE, where a single threshold at either
+			-- edge would switch on all 20 crossings.
 			local playing: string? = "walk"
 			local switches = 0
 			for i = 1, 20 do
@@ -521,7 +521,7 @@ return function()
 			expect(switches).to.equal(0)
 		end)
 
-		it("is set up so a bot at its own walking pace is never at full rate", function()
+		it("holds the relation between the bot's pace and the clip's own, across two files", function()
 			-- THE RELATION THAT MADE THE SLIDE, asserted between the two files that hold it:
 			-- `Bots.CONFIG.WALK_SPEED` is the pace, `Rig.GAIT.NATURAL_WALK_SPEED` is what the clip
 			-- was authored for, and 5 < 6.74 is why playing it at 1.000 slid the feet.

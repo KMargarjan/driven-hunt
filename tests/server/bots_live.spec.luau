@@ -535,6 +535,34 @@ return function()
 			expect((Bots.clipsOf("bot-beater-1") :: any).playing).to.equal("idle")
 		end)
 
+		it("counts the tool pose PER DRIVE, because the line that prints it says `drive N`", function()
+			-- ROUND 1'S BLOCKING FINDING. `toolPosed` was added to `stats` and printed under
+			-- `[bots] drive %d` but left out of `PER_DRIVE_STATS`, so four beaters would have read
+			-- `4 tool-posed` on drive 1, `8` on drive 2 and `12` on drive 3 -- a lifetime total
+			-- under a per-drive heading, which is the exact fault that list's own header describes.
+			--
+			-- ASSERTED AS MEMBERSHIP rather than by zeroing a counter this suite cannot raise (the
+			-- `HORN` flag is off, so no bot in it is ever handed a Tool -- see the next case). That
+			-- is also the GENERAL form of the finding: the list is now readable, so the next counter
+			-- cannot be added to the line and forgotten here.
+			local listed = {}
+			for _, name in ipairs(Bots.PER_DRIVE_STATS) do
+				listed[name] = true
+			end
+			expect(listed.toolPosed).to.equal(true)
+			-- ...and every name in it is really a counter, so the list cannot rot the other way.
+			local s = Bots.stats() :: any
+			for _, name in ipairs(Bots.PER_DRIVE_STATS) do
+				expect(type(s[name])).to.equal("number")
+			end
+			-- The reset itself, through the one door that does it.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(slotsFor(0, 1))
+			stepUntilBuilt(1)
+			Bots.clear()
+			expect((Bots.stats() :: any).toolPosed).to.equal(0)
+		end)
+
 		it("holds a carried tool like a player does -- on top of the gait, not instead of it", function()
 			-- MEASURED BOTH WAYS on 2026-10-12: a player holding a Tool plays `ToolNoneAnim`
 			-- (507768375) at priority `Idle` AT THE SAME TIME as its walk at priority `Core`, and
@@ -545,8 +573,15 @@ return function()
 			stepUntilBuilt(1)
 			local clips = Bots.clipsOf("bot-hunter-1") :: any
 			-- The clip is on every rig, loaded; a bot hunter carries nothing, so it is not POSED.
+			-- THIS IS THE HALF OF `finishBuild`'S WIRING THE SUITE CAN REACH (round 1 note): with
+			-- the `HORN` flag off, `world.horn.give` hands no bot a Tool, so `bot.horn` is nil and
+			-- the owner's call is `Rig.holdTool(clips, false)`. That the TRUE branch reaches a real
+			-- beater is evidence from the live probe instead -- 507768375 at weight 1.00 on all four
+			-- beaters of a real drive (`docs/research/2026-10-12-bots.md` section 8.6) -- and the
+			-- request says so rather than claiming a spec covers it.
 			expect(clips.tool).to.be.ok()
 			expect(clips.holding).to.never.equal(true)
+			expect((Bots.stats() :: any).toolPosed).to.equal(0)
 
 			-- Asking for nothing twice is a no-op, so the owner's count cannot be inflated by a rig
 			-- that carries nothing.
@@ -778,6 +813,8 @@ return function()
 			expect(string.find(line, "%[bots%] drive 1")).to.be.ok()
 			expect(string.find(line, "step")).to.be.ok()
 			expect(string.find(line, "arrived in")).to.be.ok()
+			-- ...and the field task 164 added, so the line and the counters cannot drift apart.
+			expect(string.find(line, "tool%-posed")).to.be.ok()
 			expect(Bots.stats().stepMsAvg >= 0).to.equal(true)
 		end)
 	end)

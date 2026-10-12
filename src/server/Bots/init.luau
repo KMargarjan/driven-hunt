@@ -230,7 +230,7 @@ local stats = {
 	-- TRIED, so a clip added there can never make it go negative (task 164).
 	clipsLoaded = 0,
 	clipsFailed = 0,
-	-- THE TOOL POSE (task 164). A bot beater carrying the horn plays Roblox's own `ToolNoneAmin`
+	-- THE TOOL POSE (task 164). A bot beater carrying the horn plays Roblox's own `ToolNoneAnim`
 	-- over the gait, exactly as a player's `Animate` does -- without it the horn rides a freely
 	-- swinging arm, which is what the probe measured on every beater in Karen's place.
 	toolPosed = 0,
@@ -492,6 +492,11 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 			if moved and bot.model ~= nil then
 				bot.arrived = false
 				bot.walkStartedAt = nil -- a bot put somewhere else starts its walk again
+				-- ...AND ITS GAIT SAMPLE GOES WITH IT (round 1 note). `Rig.place` below teleports
+				-- the body, so a sample taken before the move would be differenced across the
+				-- teleport and feed `Rig.gait` a speed of hundreds of studs/s for one step.
+				bot.gaitFrom = nil
+				bot.gaitAt = nil
 				bot.gathered = false
 				Rig.place(bot.model, Bots.groundedFrom(from, cfg), bot.to == nil)
 			end
@@ -568,8 +573,20 @@ local PER_DRIVE_STATS = {
 	"gathered",
 	"clipsLoaded",
 	"clipsFailed",
+	-- ROUND 1'S BLOCKING FINDING: `toolPosed` is printed under `[bots] drive N`, and
+	-- `Match.syncBots` clears on every drive edge while `finishBuild` re-poses every rebuilt
+	-- beater -- so without this row four beaters read `4 tool-posed` on drive 1, `8` on drive 2 and
+	-- `12` on drive 3, and the one question it exists to answer ("did the horn pose apply THIS
+	-- drive") could not be read off it. Exactly the fault this list's header describes.
+	"toolPosed",
 	"stepMsMax",
 }
+
+-- READABLE FOR SPECS ONLY, the way `Bots.Fill`, `Bots.Lane` and `Bots.Rig` are, and round 1's
+-- blocking finding is why: a counter can be ADDED to `stats` and PRINTED under `[bots] drive N`
+-- while being left out of this list, and nothing then says so. `bots_live.spec` asserts membership
+-- and that every name here is really a counter, so the list cannot quietly rot either.
+Bots.PER_DRIVE_STATS = PER_DRIVE_STATS
 
 function Bots.clear(): number
 	epoch += 1
@@ -759,10 +776,17 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand)
 	-- `config.WALK_SPEED` IS THE FALLBACK FOR THE FIRST STEP ONLY, when there is no previous sample
 	-- to difference. It is the pace it was told to walk at, which is the best answer available
 	-- before it has moved at all.
+	-- HORIZONTAL, AND THAT IS NOT TIDINESS (round 1 note). Both numbers this speed is compared
+	-- against were measured off a HORIZONTAL speed -- `NATURAL_WALK_SPEED` 6.74 off the engine's
+	-- own rate sweep, `WALK_ABOVE_STUDS` 0.75 off `Animate`'s switch -- and the Forest Test's walk
+	-- climbs y 140 -> 234 over ~575 studs, with a drop of `DROP_STUDS` at the start on top. A 3-D
+	-- displacement counts that climb as ground speed and reads 5.18 studs/s for a bot walking at 5,
+	-- which is a rate lead nobody could trace.
 	local measured: number? = nil
 	local gaitFrom, gaitAt = bot.gaitFrom, bot.gaitAt
 	if gaitFrom ~= nil and gaitAt ~= nil and at > gaitAt then
-		measured = (here - (gaitFrom :: Vector3)).Magnitude / (at - (gaitAt :: number))
+		local went = here - (gaitFrom :: Vector3)
+		measured = Vector3.new(went.X, 0, went.Z).Magnitude / (at - (gaitAt :: number))
 	end
 	bot.gaitFrom = here
 	bot.gaitAt = at

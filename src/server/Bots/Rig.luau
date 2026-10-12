@@ -176,7 +176,7 @@ end
 -- EVERY NUMBER BELOW WAS THEN MEASURED OFF THE ENGINE ITSELF rather than reasoned about. The probe
 -- read a real player's own `Animate` script and its playing `AnimationTrack`s through StudioMCP,
 -- and read the live bots in Karen's Forest Test place the same way
--- (`docs/research/2026-10-12-bots.md` section 7 records both runs, with the raw lines).
+-- (`docs/research/2026-10-12-bots.md` section 8 records both runs, with the raw lines).
 --
 -- THE CLIPS ARE ROBLOX'S OWN DEFAULTS, AND SINCE TASK 164 THEY ARE THE ONES A PLAYER ACTUALLY
 -- PLAYS. Task 161 took the ids from the older R15 set; the probe read what the engine itself put in
@@ -205,6 +205,12 @@ end
 --
 -- A FAILURE HERE CANNOT STOP A BOT WALKING. Every load is pcall'd and counted; a bot with no clips
 -- is exactly the bot task 161 round 1 shipped.
+--
+-- WHAT `clipsFailed` DOES NOT CATCH, said here because round 1 found the claim overstated elsewhere:
+-- it moves only when `LoadAnimation` THROWS. A well-formed id that points at nothing, or at an
+-- animation Roblox has changed, still returns a track and still counts as loaded. So the counter is
+-- evidence that the call succeeded, NOT that the legs are moving -- which is why the ids above are
+-- recorded with the date they were read and why a look at a drive is still the thing that says so.
 Rig.CLIPS = table.freeze({
 	walk = "rbxassetid://913402848",
 	idle = "rbxassetid://507766666",
@@ -244,11 +250,14 @@ Rig.TOOL_CLIP = "rbxassetid://507768375"
 -- below it. And the ws=2 sample sitting 3.6% ABOVE the straight line is that script's own rate floor
 -- beginning to bite, so `MIN_RATE` is 0.30 rather than a number chosen here.
 --
--- `IDLE_BELOW_STUDS` IS THE ONE INVENTED NUMBER AND IT IS A DEAD BAND, not a threshold: with a
--- single threshold a bot sitting at 0.75 studs/s -- which is what a bot shouldering a trunk does --
--- flips clip every step at 5 Hz, and that is the stop-start the dispatch asks about. Walk above
--- 0.75, idle below 0.50, and BETWEEN THEM KEEP WHAT IS PLAYING. Ordinary hysteresis, and `Rig.gait`
--- is pure so `bots_lane.spec` drives the band rather than this comment claiming it.
+-- `IDLE_BELOW_STUDS` IS THE ONE SPEED HERE THAT IS NOT A MEASUREMENT, AND IT IS A DEAD BAND rather
+-- than a threshold: with a single threshold a bot sitting at 0.75 studs/s -- which is what a bot
+-- shouldering a trunk does -- flips clip every step at 5 Hz, and that is the stop-start the dispatch
+-- asks about. Walk above 0.75, idle below 0.50, and BETWEEN THEM KEEP WHAT IS PLAYING. Ordinary
+-- hysteresis, and `Rig.gait` is pure so `bots_lane.spec` drives the band rather than this comment
+-- claiming it. (`RATE_EPSILON` and `FADE_SECONDS` are not measurements either -- round 1's note on
+-- the word "only" -- but they are a call budget and a crossfade, not speeds, and each carries its
+-- reason where it stands.)
 Rig.GAIT = table.freeze({
 	NATURAL_WALK_SPEED = 6.74,
 	WALK_ABOVE_STUDS = 0.75,
