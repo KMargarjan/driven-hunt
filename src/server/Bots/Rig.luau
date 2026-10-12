@@ -448,8 +448,9 @@ function Rig.loadClips(humanoid: Humanoid?): (Clips, number, number)
 		animator = Instance.new("Animator");
 		(animator :: Animator).Parent = humanoid
 	end
-	-- EVERY RIG LOADS ALL THREE, a stander included. One extra `LoadAnimation` against a uniform
-	-- count is worth more than a per-team branch nobody can read the report of.
+	-- EVERY RIG LOADS ALL FOUR, a stander included (three before task 166 added the blow pose). One
+	-- extra `LoadAnimation` against a uniform count is worth more than a per-team branch nobody can
+	-- read the report of.
 	local wanted: { [string]: string } = { tool = Rig.TOOL_CLIP }
 	for name, id in pairs(Rig.CLIPS) do
 		wanted[name] = id

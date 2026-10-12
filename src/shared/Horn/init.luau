@@ -536,12 +536,32 @@ function Horn.signalPlan(which: string?, config): { SignalNote }
 	return { { at = 0, seconds = seconds, soundId = phrase.SOUND_ID, from = phrase.FROM } }
 end
 
--- EVERY DISTINCT ASSET THE SIGNAL CAN ASK FOR, in a stable order, so the one client-side owner can
--- make and PRELOAD its voices at module load without knowing how many cues there are (task 163a(a)'s
--- fix, kept: a voice created at the cue plays the clip from 0, because `TimePosition` on an unloaded
+-- EVERY CUE THE SIGNAL HAS, in a stable order, so the one client-side owner can make and PRELOAD a
+-- voice for each of them at module load without knowing how many there are (task 163a(a)'s fix,
+-- kept: a voice created at the cue plays the clip from 0, because `TimePosition` on an unloaded
 -- Sound is not kept).
-function Horn.signalWords(): { string }
-	return { "start", "end" }
+--
+-- DERIVED FROM `SIGNAL.PHRASES` AND NOT WRITTEN OUT (round 1's note, and it was right): a hardcoded
+-- pair made `PHRASES`' own claim -- *"a third cue one day is a row here and no code anywhere"* --
+-- false, because a third row would never have been made or preloaded. STABLE because the order is
+-- decided rather than taken from `pairs`: the drive's own first cue leads, the rest follow sorted.
+function Horn.signalWords(config): { string }
+	local phrases = (config or Horn.CONFIG).SIGNAL.PHRASES
+	local rest = {}
+	for word in pairs(phrases) do
+		if word ~= Horn.SIGNAL_DEFAULT then
+			table.insert(rest, word)
+		end
+	end
+	table.sort(rest)
+	local words = {}
+	if phrases[Horn.SIGNAL_DEFAULT] ~= nil then
+		table.insert(words, Horn.SIGNAL_DEFAULT)
+	end
+	for _, word in ipairs(rest) do
+		table.insert(words, word)
+	end
+	return words
 end
 
 -- Is this the name of the Tool this system owns? Answered off the constant, so no caller carries the

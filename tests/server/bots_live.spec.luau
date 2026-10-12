@@ -22,6 +22,7 @@ local Workspace = game:GetService("Workspace")
 local Bots = require(ServerScriptService:WaitForChild("Bots"))
 local HornData = require(game:GetService("ReplicatedStorage"):WaitForChild("Horn"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
+local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 local Rig = Bots.Rig
 
 -- A BODY WITH ENOUGH OF A BODY IN IT: a Humanoid, a root, and the two limbs the outfit hangs on
@@ -607,6 +608,73 @@ return function()
 			Rig.playClip(clips, "walk", 0.5)
 			expect(clips.playing).to.equal("walk")
 			expect((clips.tool :: AnimationTrack).IsPlaying).to.equal(true)
+		end)
+
+		it("raises the horn on top of the gait, and the drive's end takes it down again", function()
+			-- TASK 166, AND BOTH HALVES OF IT ARE ROUND 1'S FINDINGS.
+			--
+			-- THE PLAYING HALF OF `Rig.blow` WAS ASSERTED NOWHERE (finding 2): the only case named
+			-- for it drove a clips table with no track, so both answers came from `if track == nil`
+			-- and deleting the idempotence guard, the Play/Stop calls and the `blowing` write all
+			-- left it green. This is `holdTool`'s own idiom, on a real rig, for the same contract.
+			--
+			-- AND A BEATER MID-BLAST WHEN THE DRIVE ENDED KEPT THE HORN AT ITS FACE FOR THE WHOLE
+			-- RESULTS SCENE (finding 1). `Bots.gather` -- `Match.applyScene`'s own call at the drive
+			-- end -- sets `released = false`, and the only thing that lowered the arm sat behind that
+			-- flag, so there was no next step to ask again; `gather`'s `Rig.playClip(clips, "idle")`
+			-- stops only the gait, and the pose is a LOOPING clip at `Action`, which outranks it.
+			-- This case fails on that code at the `gather` line below.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(slotsFor(0, 1))
+			stepUntilBuilt(1)
+			local clips = Bots.clipsOf("bot-beater-1") :: any
+			expect(clips).to.be.ok()
+			if clips.blow == nil then
+				-- A session whose `RegisterKeyframeSequence` failed has no pose to take down, and
+				-- that is the one state where "the arm never goes up" is correct rather than a bug.
+				TestKit.note("bots: no blow clip registered in this session, so there is no pose to raise")
+				expect(Rig.blow(clips, true)).to.equal(false)
+				return
+			end
+
+			-- The gait is what a walking beater is doing while it blows, and it has to survive.
+			Rig.playClip(clips, "walk", 0.6)
+			expect(clips.playing).to.equal("walk")
+
+			-- UP: it plays, it records, and it does NOT take the gait down with it -- that is the
+			-- whole of the pattern, and it is why the clip is `Action` over the walk's `Core`.
+			expect(Rig.blow(clips, true)).to.equal(true)
+			expect(clips.blowing).to.equal(true)
+			expect((clips.blow :: AnimationTrack).IsPlaying).to.equal(true)
+			expect((clips.walk :: AnimationTrack).IsPlaying).to.equal(true)
+			expect(clips.playing).to.equal("walk")
+			-- IDEMPOTENT, which is what stops a 5 Hz step re-playing the 0.2 s fade every tick.
+			expect(Rig.blow(clips, true)).to.equal(false)
+
+			-- DOWN, through the owner's own door: the drive ends and the bots are gathered into the
+			-- results ring. One ring entry is enough -- this is about the horn, not the placement.
+			local posed = (Bots.stats() :: any).blowPosed
+			Bots.gather({ CFrame.new(0, 10, 0) }, 1)
+			expect(clips.blowing).to.equal(false)
+			expect((Bots.stats() :: any).blowPosed > posed).to.equal(true)
+			-- The TRACK follows over its own fade, so this is waited for rather than read on sight.
+			local stopped = false
+			for _ = 1, 40 do
+				if not (clips.blow :: AnimationTrack).IsPlaying then
+					stopped = true
+					break
+				end
+				task.wait(0.05)
+			end
+			expect(stopped).to.equal(true)
+
+			-- ...AND THE STEP WOULD HAVE TAKEN IT DOWN TOO, which is the half that makes it
+			-- level-triggered: `released` is false now and this bot has been gathered, so an arm put
+			-- up here is behind every guard the old call sat behind.
+			expect(Rig.blow(clips, true)).to.equal(true)
+			Bots.step(0.2, 9000)
+			expect(clips.blowing).to.equal(false)
+			TestKit.note("bots: the blow pose plays over the gait and is down again after gather and after a step")
 		end)
 	end)
 

@@ -550,15 +550,21 @@ return function()
 			expect(Bots.blowing(bot, 200)).to.equal(false)
 		end)
 
-		it("raises and lowers ONCE per blast, because `Rig.blow` is idempotent", function()
-			-- The step is level-triggered: it asks `Rig.blow` every tick with the window's answer,
-			-- so what must not happen is a Play call per tick. `Rig.blow` returns whether it
-			-- CHANGED, and a table with no track still answers honestly.
+		it("is a no-op for a rig with no blow clip, so a failed registration costs nothing", function()
+			-- ROUND 1 FINDING 2: this case used to be named for idempotence and proved none of it --
+			-- both answers below come from `if track == nil then return false end`, so the guard,
+			-- the Play/Stop calls and the `blowing` write were all unasserted. It keeps the claim it
+			-- really makes, and the PLAYING half is `bots_live.spec`'s "raises the horn on top of
+			-- the gait, and the drive's end takes it down again", on a real rig.
 			local clips: any = {}
-			-- No track: nothing to play, and nothing counted.
+			-- No track: nothing to play, and nothing counted -- which is the state of every rig in a
+			-- session where `Rig.blowAnimationId` could not register the pose.
 			expect(Rig.blow(clips, true)).to.equal(false)
+			expect(clips.blowing).to.equal(nil)
 			-- A fresh rig asked to blow nothing is a no-op, not a pose (the `holdTool` rule).
 			expect(Rig.blow(clips, false)).to.equal(false)
+			-- ...and nil is not a rig.
+			expect(Rig.blow(nil, true)).to.equal(false)
 		end)
 
 		it("speaks for the shoulder and the elbow ONLY, at a priority above the gait", function()

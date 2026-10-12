@@ -134,11 +134,12 @@ Match.CONFIG = {
 	-- standing ON the line, or walking up to it and stopping, has not crossed it.
 	BEATER_CROSS_MARGIN_STUDS = 10, -- K
 
-	-- THE DRIVE'S OWN HORN SIGNAL (task 163). KAREN, 2026-10-12 ~10:40: *"when hunt starts 3 longer
-	-- horn calls and when ends the same"*.
+	-- THE DRIVE'S OWN HORN SIGNAL (task 163; the SOUND of it replaced in 166). KAREN, 2026-10-12
+	-- ~10:40: *"when hunt starts 3 longer horn calls and when ends the same"*, and ~16:00, having
+	-- heard it: *"for start and end of drive has to be tuturutu tu tu different one"*.
 	--
-	-- WHETHER THE DRIVE SIGNALS IS THIS TABLE'S; WHAT THE SIGNAL SOUNDS LIKE IS NOT. The three
-	-- notes, their cut out of the asset and their gaps are `Horn.CONFIG.SIGNAL` -- shared, because
+	-- WHETHER THE DRIVE SIGNALS IS THIS TABLE'S; WHAT THE SIGNAL SOUNDS LIKE IS NOT. The two
+	-- phrases and their cuts out of their own assets are `Horn.CONFIG.SIGNAL` -- shared, because
 	-- the client is what plays them -- and a client that knows how long a horn note is learns
 	-- nothing it is not already being told. This boolean is the drive's half of it: the phase
 	-- machine emits one `signal` feed entry at GO and one at the end, and with this false it emits

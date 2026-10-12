@@ -602,6 +602,13 @@ Players.PlayerAdded:Connect(function(player)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
+	-- HIS RING GOES WITH HIS PICK (round 1's note). An edge drawn round a stand nobody is held to is
+	-- a line that means nothing, and without this it stayed until the next intermission cleared all
+	-- of them. The index has to be read BEFORE the pick is dropped.
+	local pick = ForestTest.pickOf(player.UserId)
+	if pick ~= nil then
+		ForestTest.Markers.clearRing(pick.index)
+	end
 	ForestTest.clearPick(player.UserId)
 	-- THE REQUEST GOES WITH THE PLAYER. `Body.forget` is no longer called here: `Match.forget` runs
 	-- in this world now and calls it, so one caller instead of two.

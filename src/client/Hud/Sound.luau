@@ -199,7 +199,10 @@ function Sound.driveSignal(which: string?): boolean
 		return false
 	end
 	signalling = true
-	lastSignal = which
+	-- THE WORD THAT WAS SOUNDED, NOT THE WORD THAT WAS ASKED FOR (round 1's note): an unknown cue
+	-- sounds the start phrase, and recording the raw word would have `lastSignal` naming a phrase
+	-- nobody heard.
+	lastSignal = word
 	played.signal += 1
 
 	-- NORMALLY THIS IS THE VOICE MADE AT MODULE LOAD, loaded long before the first cue. It is

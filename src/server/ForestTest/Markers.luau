@@ -156,7 +156,7 @@ end
 -- ground reading, so the ring follows the lane instead of floating over it.
 Markers.RING_PREFIX = "StandRing"
 
-Markers.RING = {
+Markers.RING = table.freeze({
 	-- Twenty chords: the gap between a chord's middle and the true circle is r*(1-cos(pi/20)) =
 	-- 0.15 studs at r=12, which is less than the ring's own thickness, so the shape does not read as
 	-- a polygon.
@@ -170,7 +170,7 @@ Markers.RING = {
 	-- Neon so it reads in the wood's shade without a light. A muted hunting-orange, the colour this
 	-- game already uses for "this is yours" (the beater's vest, the hunter's cap).
 	COLOR = Color3.fromRGB(235, 150, 60),
-}
+})
 
 -- The ring's container name for one stand, so no caller spells it twice.
 function Markers.ringName(standIndex: number): string
@@ -264,7 +264,11 @@ function Markers.ring(
 			placed += 1
 		end
 	end
-	stats.rings += 1
+	-- COUNTED ONLY WHEN THERE IS A RING (round 1's note): a build that could read no ground drew
+	-- nothing, and a counter that moved anyway would count attempts under a name that says rings.
+	if placed > 0 then
+		stats.rings += 1
+	end
 	stats.lastRingSegments = placed
 	return placed
 end
