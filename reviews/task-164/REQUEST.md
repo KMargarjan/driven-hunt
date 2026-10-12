@@ -24,7 +24,7 @@ Harness, FULL run, twice on the clean tree (`.agent-logs/task164-r2-test1.log`, 
 
 Everything numeric came out of two StudioMCP probes, recorded in
 `docs/research/2026-10-12-bots.md` section 8 (8.1 method, 8.2 the engine's own numbers, 8.3 the
-defects, 8.4 the sources, 8.5 the one invented number, 8.6 the verification):
+defects, 8.4 the sources, 8.5 the one number that is not measured, 8.6 the verification):
 
 1. **A real player, DEV place.** Read the animation ids out of the engine's own `Character.Animate`,
    then held `W` through the harness's own `user_keyboard_input` and read
@@ -62,7 +62,7 @@ now that id.
 that the id is good** — round 1 was right that the earlier wording overstated it: the counter moves
 only when `LoadAnimation` throws, and a well-formed id pointing at nothing still returns a track.
 `Rig.loadClips`'s header and note 8.4 now say that. What says the legs move is the live probe
-(claim 9).
+(claim 12).
 
 ### 4. The horn rode a freely swinging arm; it is now held like a player's tool
 Measured: every bot beater had `tool=Horn` in its hand and the gait clip **alone** in its track list.
@@ -94,8 +94,9 @@ asserting `playing == "idle"`.
 Walk above **0.75** studs/s (the engine's own `onRunning` switch), idle below **0.50**, and between
 them keep what is playing. `IDLE_BELOW_STUDS` is the only **speed** in `Rig.GAIT` that is not a
 measurement (round 1 was right that "the only invented number" was a count that is off —
-`RATE_EPSILON` and `FADE_SECONDS` are a call budget and a crossfade, each with its reason beside it): with one threshold a bot sitting at 0.75 studs/s flips clip every step at `STEP_HZ` 5,
-which is the stop-start the dispatch asks about.
+`RATE_EPSILON` and `FADE_SECONDS` are a call budget and a crossfade, each with its reason beside
+it): with one threshold a bot sitting at 0.75 studs/s flips clip every step at `STEP_HZ` 5, which is
+the stop-start the dispatch asks about.
 *Verify:* `bots_lane.spec`, *"cannot flicker"* — a speed wobbling across the band 20 times is
 **counted** and must switch clip 0 times; and `WALK_ABOVE_STUDS > IDLE_BELOW_STUDS` is asserted, so
 the band cannot collapse to one number.
