@@ -39,7 +39,7 @@ which is the one thing this project does not do.
 1. `python tools/flags.py set DRIVE_BOTS on` **will not work** — it writes to whichever Studio is
    pinned, which is DEV. Either close the DEV Studio first and then run it, or run this one line
    from the repo root, which aims the harness's own flag write at the Forest Test:
-   `python C:/Users/karen/Desktop/driven-hunt-runs/ftplay.py edit <a file holding>`
+   `python <runs-dir>/ftplay.py edit <a file holding>`
    `local SS=game:GetService("ServerStorage") SS:SetAttribute("DHFlag_DRIVE_BOTS", true) return "on"`
 2. In the Forest Test Studio press **Play** (the ▶ button, not Run).
 3. **Wait about 12 seconds** — the countdown is 10 and the bots are built during it.
