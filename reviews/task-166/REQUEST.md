@@ -3,18 +3,30 @@
 Task: 166
 Round: 1
 Base: `13fc0f0` (main, #149 merged)
-Code commit: `688a78ff775f391da577cc7e85c38b72a7108f5a`
+Code commit: `c2734d3e960aa41691f616479b27eadc5bf1471b`
 
 ```
-[harness] PASS: 33/33 checks @ 688a78ff775f391da577cc7e85c38b72a7108f5a (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 688a78ff775f391da577cc7e85c38b72a7108f5a (clean tree) scope=all
-[harness2] <NEEDS TEST2 166 688a78ff775f391da577cc7e85c38b72a7108f5a -- the Director runs it>
+[harness] PASS: 33/33 checks @ c2734d3e960aa41691f616479b27eadc5bf1471b (clean tree) scope=all
+[harness] PASS: 33/33 checks @ c2734d3e960aa41691f616479b27eadc5bf1471b (clean tree) scope=all
+[harness2] <NEEDS TEST2 166 c2734d3e960aa41691f616479b27eadc5bf1471b -- the Director runs it>
 ```
 
 **THE TWO-PLAYER LINE IS THE DIRECTOR'S.** This change touches three `TWO_PLAYER_PATHS` entries:
 `tests/client/match_client.spec.luau` (the drive signal's client cases had to change -- the voice is no
 longer the beater's asset), `src/server/MatchBoot.server.luau` (one line: the horn seam hands the bots
-`blowSeconds`) and one stale comment in `src/server/Match/init.luau`. Per the dispatch I stop here.
+`blowSeconds`) and one stale comment in `src/server/Match/init.luau`. Claim 10's two files
+(`weapon_client`, `rifle_client`) are NOT in that list, which is exactly why a one-player run could
+never have found what they assumed. Per the dispatch I stop here.
+
+**THE DIRECTOR'S TWO FAILING `test2` RUNS AT `1f6fbe8` ARE DIAGNOSED AND FIXED, AND THE CAUSE WAS NOT A
+GAME DEFECT.** `weapon_client.spec:511` read `Expected 4, got 0` and `rifle_client.spec:431`
+`Expected nil to be non-nil` on the SHOOTER client. **The shooter was tied to a tree:** the same run's
+exploit case notes *"this shooter is tied to a tree, so he has no gun to forge against"* -- and
+`test2-t165.log`, the run on main that PASSED 35/35, carries that identical note at line 381. So the tie
+happens in both runs and the only difference is whether it lands BEFORE or AFTER these two cases, which
+is a race between the harness's replayed shot and the client suite's own progress. This branch adds one
+case to `match_client`, which runs before both of them, and the margin was about two seconds. The fix is
+claim 10; neither case is skipped and neither is weakened.
 
 ## What changed
 
@@ -57,7 +69,10 @@ and the cleared-up screen are ACCEPTED; three things change. Note:
    `ForestTest.boundaryPoint` is pure: nil inside, and outside a point at exactly `standRadiusStuds` on
    the caller's own bearing at the caller's own height. Verify: `tests/server/forest_stand.spec.luau`,
    "clamps a hunter ONTO the circle, at the bearing he walked out along" (36 bearings x 3 distances,
-   including 200 studs out) and "can NEVER put him back at the middle of his stand".
+   including 200 studs out) and "can NEVER put him back at the middle of his stand". **The HUD's arrival
+   band followed the radius, 12/18 -> 24/30**: an "arrived" ring inside the circle a hunter may legally
+   walk in would flicker exactly where he is meant to stand (`tests/client/hud_clarity.spec.luau`,
+   "latches ARRIVED with a dead band").
 
 7. **The edge is a wall, not a tug: only the OUTWARD velocity is removed.** `ForestTest.boundary` writes
    the clamped CFrame and subtracts the radial component of `AssemblyLinearVelocity` when it points away
@@ -85,9 +100,15 @@ and the cleared-up screen are ACCEPTED; three things change. Note:
    coming from a hanging arm to **-0.20, -0.20, -0.18, -0.17 studs relative to the head**. **And looked at
    (rule 5):** `.screenshots/t166-bot-blow-crop.png` -- a vested beater with the brass horn up at its face.
 
-10. **The HUD's arrival band followed the radius, 12/18 -> 24/30.** An "arrived" ring inside the circle a
-    hunter may legally walk in would flicker exactly where he is meant to stand. Verify:
-    `tests/client/hud_clarity.spec.luau`, "latches ARRIVED with a dead band".
+10. **Two client cases that assumed the shooter still had a gun now assert the TIE's own claim instead.**
+    `weapon_client`'s "a second Tool must not take the player's trigger" and `rifle_client`'s "wears a
+    mesh for every piece this client has actually downloaded" take the guard the exploit case in the same
+    file already uses, with its wording: `Match.isTied()` is the SERVER's replicated answer, so a tied
+    shooter is asserted to have **no gun equipped, no trigger bound and nothing drawn**. "Tied but still
+    armed" now FAILS where before it could not be reached, and an unexplained 0 still fails exactly as it
+    did. Verify: the two cases, and that neither has a `return` that is not preceded by an `expect`.
+    **It cannot be reproduced with one player** -- the tie needs a driver in the arc, so the one-player
+    run has nobody to tie this shooter.
 
 ## What could not be verified
 
