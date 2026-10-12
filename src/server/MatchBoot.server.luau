@@ -252,7 +252,10 @@ Match.start({
 -- no numbers in it at all, and the walk's own seconds, because the drive now ends when the line is
 -- through.
 Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
-	if phase == "Scoring" then
+	-- ONLY WHEN THERE ARE BOTS (round 1 note). With the flag off this system builds nothing, and a
+	-- `[bots]` line on every drive of today's game would be a visible exception to "off is today's
+	-- game bit for bit" -- a line in Karen's console about a feature that is not running.
+	if phase == "Scoring" and Bots.count() + Bots.desired() > 0 then
 		print(Bots.report(driveNumber or 1))
 	end
 end)

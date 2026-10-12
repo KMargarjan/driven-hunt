@@ -416,7 +416,9 @@ Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
 		-- nothing else can answer -- the step's own cost, because the vendor's performance page has
 		-- no numbers in it at all, and the walk's own seconds, because a drive now ENDS when the line
 		-- is through.
-		print(Bots.report(driveNumber or 1))
+		if Bots.count() + Bots.desired() > 0 then
+			print(Bots.report(driveNumber or 1))
+		end
 	end
 end)
 

@@ -164,6 +164,70 @@ return function()
 		end)
 	end)
 
+	describe("the aim, and the stuck nudge (round 2, finding 1)", function()
+		-- `Lane.clearAim` is the WHOLE aim decision, pure in the world's clearance reader -- which is
+		-- what lets these four cases exist at all. Round 1 shipped the decision inline in
+		-- `Bots.stepWalker` behind `if room or forced > 0`, where the stuck nudge was reachable only
+		-- when the reader said BLOCKED: in the one world that has trunks, a bot pinned against
+		-- something whose aim point happened to be clear was counted and never moved.
+		local at = Vector3.new(0, 10, 240)
+		local goal = Vector3.new(0, 10, -20)
+		local function always(value: boolean)
+			return function()
+				return value
+			end
+		end
+
+		it("walks straight down the lane when the way is clear and it is not stuck", function()
+			local aim, stepped = Lane.clearAim(at, goal, 0, always(true), CONFIG)
+			expect(stepped).to.equal(0)
+			expect(aim).to.equal(Lane.aimFor(at, goal, CONFIG.AHEAD_STUDS))
+		end)
+
+		it("NUDGES A STUCK BOT EVEN WHEN THE READER SAYS THE WAY IS CLEAR", function()
+			-- THIS IS THE CASE ROUND 1 COULD NOT REACH, and it is the one that matters: a bot is
+			-- stuck BECAUSE the thing holding it is not where the 12-stud whisker is looking -- its
+			-- shoulder, a root under its feet, another bot. "The aim looks fine" is the stuck case,
+			-- not an exemption from it. Delete the `forced` branch in `Lane.clearAim` and this fails.
+			local aim, stepped = Lane.clearAim(at, goal, 1, always(true), CONFIG)
+			expect(stepped).to.equal(1)
+			expect(aim).never.to.equal(Lane.aimFor(at, goal, CONFIG.AHEAD_STUDS))
+			-- ...and it is the FIRST side candidate, nearest first.
+			expect(aim).to.equal(Lane.sideStep(Lane.aimFor(at, goal, CONFIG.AHEAD_STUDS), at, goal, 1, CONFIG))
+		end)
+
+		it("nudges round a blocked point even when the bot is moving fine", function()
+			-- Blocked straight ahead, clear 10 studs to the side: the ordinary trunk case.
+			local plain = Lane.aimFor(at, goal, CONFIG.AHEAD_STUDS)
+			local first = Lane.sideStep(plain, at, goal, 1, CONFIG)
+			local reader = function(point: Vector3)
+				return (point - plain).Magnitude > 0.01
+			end
+			local aim, stepped = Lane.clearAim(at, goal, 0, reader, CONFIG)
+			expect(stepped).to.equal(1)
+			expect(aim).to.equal(first)
+		end)
+
+		it("walks at the lane point anyway when nothing within SIDE_TRIES is clear", function()
+			-- A bot that refuses to move is worse than a bot that bumps a trunk, and the stuck
+			-- counter is what says so -- the same reasoning `beaterStartPosition` gives for putting a
+			-- beater down behind the crossing when no clear spot was found.
+			local aim, stepped = Lane.clearAim(at, goal, 1, always(false), CONFIG)
+			expect(stepped).to.equal(0)
+			expect(aim).to.equal(Lane.aimFor(at, goal, CONFIG.AHEAD_STUDS))
+		end)
+
+		it("treats a world with no clearance reader as all clear, which is the DEV arena", function()
+			local aim, stepped = Lane.clearAim(at, goal, 0, nil, CONFIG)
+			expect(stepped).to.equal(0)
+			expect(aim).to.equal(Lane.aimFor(at, goal, CONFIG.AHEAD_STUDS))
+			-- ...but a stuck bot still gets its nudge there.
+			local nudged, steps = Lane.clearAim(at, goal, 1, nil, CONFIG)
+			expect(steps).to.equal(1)
+			expect(nudged).never.to.equal(aim)
+		end)
+	end)
+
 	describe("where the hunters' line is, for this beater", function()
 		it("is the nearest stand LATERALLY on a curved road, not the nearest stand overall", function()
 			-- A beater walking down x = 60 on the forest's curve. Stand 3 stands 30 studs north of the

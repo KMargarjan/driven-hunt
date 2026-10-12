@@ -750,26 +750,56 @@ return function()
 			-- file through the same rule a player's walk does, with no second push mechanism.
 		end)
 
-		it("silences the phantoms while a bot beater is pushing, and brings them back when it is not", function()
+		it("DECIDES WHICH WAVES GET A PHANTOM, and the rule is what is asserted", function()
+			-- ROUND 1'S FINDING 2: the old case asserted `phantoms == 0` out of `boarThreats`, and
+			-- `state.active` is only ever filled by a running wave -- which nothing in the spec place
+			-- does, because `ForestTestBoot` returns at once anywhere but the Forest Test and no spec
+			-- calls `ForestTest.start`. So the assertion was true with the suppression DELETED.
+			--
+			-- `ForestTest.wavesToPush` is that choice, factored out and pure, so both states are
+			-- stated with a hand-written wave list and no world at all. Delete the rule and the first
+			-- expectation below fails.
+			local waves = { { id = "wave-1" }, { id = "wave-2" } }
+
+			-- NO BOTS: every wave gets its phantom, which is this file before task 161.
+			expect(#ForestTest.wavesToPush(waves, {})).to.equal(2)
+			expect(#ForestTest.wavesToPush(waves, nil)).to.equal(2)
+			expect(ForestTest.wavesToPush(waves, {})[1].id).to.equal("wave-1")
+
+			-- A BOT BEATER IS PUSHING: no wave gets one. One push source, and it is the body Karen
+			-- can see.
+			expect(#ForestTest.wavesToPush(waves, { BOT_BEATER })).to.equal(0)
+			expect(#ForestTest.wavesToPush(waves, { BOT_HUNTER, BOT_BEATER })).to.equal(0)
+
+			-- A BOT HUNTER IS NOT PUSHING ANYTHING: the phantoms stay.
+			expect(#ForestTest.wavesToPush(waves, { BOT_HUNTER })).to.equal(2)
+
+			-- NO WAVES AT ALL is not an error, and it is the state the spec place is really in.
+			expect(#ForestTest.wavesToPush({}, { BOT_BEATER })).to.equal(0)
+			expect(#ForestTest.wavesToPush(nil, {})).to.equal(0)
+		end)
+
+		it("routes boarThreats through that rule, and carries the bots themselves", function()
 			local now = os.clock()
 			ForestTest.setBotThreats(function()
 				return { BOT_BEATER }
 			end)
 			local withBots = ForestTest.boarThreats(now)
-			local phantoms, bots = 0, 0
+			local bots = 0
 			for _, threat in ipairs(withBots) do
-				if (threat :: any).phantom == true then
-					phantoms += 1
-				end
 				if threat.id == BOT_BEATER.id then
 					bots += 1
+					expect(threat.kind).to.equal("driver")
 					-- NO MARK: somebody IS standing there, which is what makes `Boar.CONFIG.PACE`'s
 					-- real-driver branch apply -- the whole point of a visible beater.
 					expect((threat :: any).phantom).to.equal(nil)
 				end
 			end
-			expect(phantoms).to.equal(0)
 			expect(bots).to.equal(1)
+			-- WHAT THIS CASE DOES NOT PROVE, said out loud rather than counted as if it did: there
+			-- are no phantoms in `withBots`, and there would be none with the suppression deleted
+			-- either -- `state.active` is empty in the place the specs run in. The RULE is the case
+			-- above; this one proves the WIRING, that `boarThreats` carries the bots and asks it.
 
 			-- A BOT HUNTER DOES NOT SILENCE THEM: it is not pushing anything.
 			ForestTest.setBotThreats(function()
@@ -793,7 +823,8 @@ return function()
 			expect(stillThere).to.equal(false)
 			TestKit.note(
 				string.format(
-					"forest-bots: threats with a bot beater=%d (phantoms=0), with a bot hunter=%d, with none=%d",
+					"forest-bots: threats with a bot beater=%d, with a bot hunter=%d, with none=%d"
+						.. " (no waves run in this place, so the phantom COUNT here is not evidence -- the rule's own case is)",
 					#withBots,
 					#hunterOnly,
 					#plain

@@ -116,4 +116,37 @@ function Lane.sideStep(aim: Vector3, at: Vector3, goal: Vector3, try: number, co
 	return aim + side * step
 end
 
+-- WHERE THIS BOT ACTUALLY AIMS THIS STEP: the lane's next point, nudged aside if it is blocked OR if
+-- the bot is STUCK. PURE in its arguments -- `roomToStand` is the world's own clearance reader,
+-- passed in, so `bots_live.spec` drives every branch with a function of its own and no world.
+-- Returns the aim and how many side-steps it took (0 or 1), which is the number the report prints.
+--
+-- THE `forced` BRANCH IS NOT AN OPTIMISATION, IT IS THE WHOLE STUCK RULE, and round 1 of this task
+-- found it inverted: the nudge used to be reachable only when the clearance reader said the aim was
+-- BLOCKED, so in the one world that has trunks a bot pinned against something whose 12-stud-ahead
+-- point happened to be clear got counted and never moved. A stuck bot is stuck BECAUSE the thing
+-- stopping it is not where the whisker is looking -- its shoulder, its own feet on a root, another
+-- bot -- so "the aim looks fine" is exactly the case the nudge exists for. `forced > 0` therefore
+-- side-steps whatever the reader answers.
+--
+-- WITH NO READER (the DEV arena, flat and empty) every point is clear, so an unforced step never
+-- nudges and a forced one takes the first candidate. That is this world before the stuck window.
+function Lane.clearAim(here: Vector3, goal: Vector3, forced: number, roomToStand, config): (Vector3, number)
+	local aim = Lane.aimFor(here, goal, config.AHEAD_STUDS)
+	local clear = if roomToStand ~= nil then roomToStand(aim, config.LANE_CLEAR_STUDS) == true else true
+	if clear and forced <= 0 then
+		return aim, 0
+	end
+	for try = 1, config.SIDE_TRIES do
+		local candidate = Lane.sideStep(aim, here, goal, try, config)
+		if roomToStand == nil or roomToStand(candidate, config.LANE_CLEAR_STUDS) == true then
+			return candidate, 1
+		end
+	end
+	-- Nothing within `SIDE_TRIES` was clear: walk at the lane point anyway and let the stuck counter
+	-- say so. A bot that refuses to move is worse than a bot that bumps a trunk -- the same reasoning
+	-- `ForestTest.beaterStartPosition` gives for putting her down behind the crossing anyway.
+	return aim, 0
+end
+
 return Lane

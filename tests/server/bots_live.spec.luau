@@ -330,6 +330,149 @@ return function()
 		end)
 	end)
 
+	describe("a stuck bot, and the walk clock (round 2, findings 1 and 3)", function()
+		afterEach(function()
+			Bots.clear()
+			Bots.setRigSource(nil)
+		end)
+
+		-- A FAKE RIG DOES NOT WALK: it is a Part with a Humanoid and nothing to stand on, so it stays
+		-- exactly where it was placed. That makes it the perfect STUCK bot, and the two optional
+		-- arguments on `Bots.step` -- the clock and the clearance reader -- are what let this case
+		-- exist without spending `STUCK_SECONDS` of real time in the suite's own budget.
+		local function walkerSlot()
+			return {
+				{
+					id = "bot-beater-1",
+					team = "Drivers",
+					from = CFrame.new(0, 10, 240),
+					to = Vector3.new(0, 10, -20),
+					lane = 1,
+				},
+			}
+		end
+
+		it("nudges a bot that has stopped moving, WITH A READER THAT SAYS THE WAY IS CLEAR", function()
+			-- THE END-TO-END OF ROUND 1'S FINDING 1. In the Forest Test `roomToStand` is injected, so
+			-- `room` was true and the forced branch was dead: a stuck bot was counted and never
+			-- moved. Here the reader answers `true` for every point -- the inverted case -- and the
+			-- side-step must still fire.
+			local clear = function()
+				return true
+			end
+			Bots.setRigSource(fakeRig)
+			Bots.fill(walkerSlot())
+			Bots.step(0.2, 1000, clear)
+			Bots.go()
+			local stuckBefore = Bots.stats().stuck
+			local stepsBefore = Bots.stats().sideSteps
+			Bots.step(0.2, 1001, clear) -- inside the stuck window: nothing yet
+			expect(Bots.stats().stuck).to.equal(stuckBefore)
+			expect(Bots.stats().sideSteps).to.equal(stepsBefore)
+
+			-- ...and past `STUCK_SECONDS`, having moved nowhere.
+			Bots.step(0.2, 1001 + Bots.CONFIG.STUCK_SECONDS + 0.1, clear)
+			expect(Bots.stats().stuck).to.equal(stuckBefore + 1)
+			expect(Bots.stats().sideSteps).to.equal(stepsBefore + 1)
+		end)
+
+		it("measures the WALK, not the stuck window", function()
+			-- ROUND 1'S FINDING 3: the arrival measured `at - bot.movedAt`, and `movedAt` is the
+			-- stuck window's own stamp, re-set every `STUCK_SECONDS` -- so a 29-second walk could
+			-- never print as more than about four. That number is the one Karen's end-of-drive
+			-- decision rests on (`docs/design/bots.md` section 5.2).
+			Bots.setRigSource(fakeRig)
+			-- A slot whose start IS its goal, so it arrives the first time it is looked at...
+			Bots.fill({
+				{
+					id = "bot-beater-1",
+					team = "Drivers",
+					from = CFrame.new(0, 10, 0),
+					to = Vector3.new(0, 10, 0),
+					lane = 1,
+				},
+			})
+			Bots.step(0.2, 2000)
+			Bots.go()
+			Bots.step(0.2, 2000) -- the first released step stamps the walk's start
+			-- ...but not until thirty seconds of clock have passed, three stuck windows deep.
+			Bots.step(0.2, 2030)
+			local walked = Bots.stats().walkSeconds
+			expect(walked >= 29).to.equal(true)
+			expect(walked <= 31).to.equal(true)
+			-- The bug it replaces could not have exceeded this.
+			expect(walked > Bots.CONFIG.STUCK_SECONDS + 1).to.equal(true)
+			expect(string.find(Bots.report(1), "arrived in 30.0s")).to.be.ok()
+		end)
+
+		it("resets the per-drive counters when the drive's rigs go", function()
+			-- The line says `[bots] drive N`, so a lifetime total under it reads as a measurement and
+			-- is not one (round 1 note).
+			Bots.setRigSource(fakeRig)
+			Bots.fill(slotsFor(0, 1))
+			stepUntilBuilt(1)
+			Bots.go()
+			Bots.step(0.2, 3000)
+			Bots.step(0.2, 3000 + Bots.CONFIG.STUCK_SECONDS + 0.1)
+			expect(Bots.stats().stuck > 0).to.equal(true)
+			Bots.clear()
+			expect(Bots.stats().stuck).to.equal(0)
+			expect(Bots.stats().walkSeconds).to.equal(0)
+			expect(Bots.stats().arrived).to.equal(0)
+			-- ...and the LIFETIME ones stay, because they answer a question about the session.
+			expect(Bots.stats().built > 0).to.equal(true)
+		end)
+	end)
+
+	describe("the legs move (round 2, Director item -- 161a(c) closed)", function()
+		afterEach(function()
+			Bots.clear()
+			Bots.setRigSource(nil)
+		end)
+
+		it("loads Roblox's own default R15 walk and idle onto every bot", function()
+			-- WITHOUT THIS A BOT SLIDES: a rig built by the engine carries no `Animate` script, which
+			-- comes from `StarterCharacterScripts` and only a PLAYER's character gets one. This is
+			-- the first thing Karen would see.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(slotsFor(1, 1))
+			stepUntilBuilt(2)
+			local s = Bots.stats()
+			-- TWO CLIPS PER BODY, and a failure shows as a NUMBER rather than as a statue nobody can
+			-- explain. If `clipsFailed` is ever non-zero the ids in `Rig.CLIPS` are what to look at.
+			expect(s.clipsLoaded + s.clipsFailed).to.equal(4)
+			expect(s.clipsFailed).to.equal(0)
+
+			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder
+			for _, child in ipairs(folder:GetChildren()) do
+				local humanoid = (child :: Model):FindFirstChildOfClass("Humanoid")
+				expect(humanoid:FindFirstChildOfClass("Animator")).to.be.ok()
+			end
+		end)
+
+		it("plays walk while walking and idle once it is standing", function()
+			Bots.setRigSource(fakeRig)
+			Bots.fill(slotsFor(0, 1))
+			stepUntilBuilt(1)
+			Bots.go()
+			Bots.step(0.2, 4000)
+			local clips = Bots.clipsOf("bot-beater-1")
+			expect(clips).to.be.ok()
+			expect((clips :: any).playing).to.equal("walk")
+
+			-- Stood in the results ring: it is standing, not walking.
+			Bots.gather(Match.Scene.ringLayout(Vector3.new(0, 10, 0), 2, Match.CONFIG), 1)
+			expect((Bots.clipsOf("bot-beater-1") :: any).playing).to.equal("idle")
+		end)
+
+		it("gives a stander idle from the moment it exists", function()
+			Bots.setRigSource(fakeRig)
+			Bots.fill(slotsFor(1, 0))
+			stepUntilBuilt(1)
+			expect((Bots.clipsOf("bot-hunter-1") :: any).playing).to.equal("idle")
+		end)
+	end)
+
 	describe("the horn", function()
 		it("blows far less often than the horn's own cooldown allows", function()
 			-- ASSERTED, NOT TRUSTED: the rhythm is Karen's *"now and then"* and the cooldown is the

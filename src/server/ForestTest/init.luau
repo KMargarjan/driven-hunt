@@ -520,6 +520,36 @@ function ForestTest.takeFlushLine(): string?
 	return line
 end
 
+-- WHICH WAVES GET A PHANTOM BEATER THIS TICK, and it is the whole of the "one push source" rule
+-- (task 161). PURE: a wave list in, a wave list out, so `forest_stand.spec` drives BOTH states with
+-- hand-written tables -- which is what round 1 found the old shape could not do, because nothing in
+-- the spec place ever fills `state.active` and the assertion "no phantom" was true with the rule
+-- deleted.
+--
+-- THE RULE: while any bot beater is pushing, NO wave gets a phantom. A body Karen can SEE pushes; an
+-- invented position 11 studs behind the herd must not push at the same time, or the animals are
+-- moved by something nobody is standing on and the thing she is watching is not the cause.
+--
+-- OFF A LIVE FACT RATHER THAN A BOOLEAN PASSED IN, and decided by the owner of the phantoms rather
+-- than by the composition root: a drive whose flag is on but whose first rig is not built yet still
+-- gets its phantoms, so the push never gaps. With no bots this returns the list it was given, which
+-- is this file before task 161.
+--
+-- IT CANNOT STALL THE DRIVE, and that is worth saying because it is the obvious fear: a released
+-- line does not MOVE because of the phantom. `Boar.CONFIG.LINE` is the mode in which an animal stops
+-- deciding and walks to the point it was given (`releaseLine` computes the route and the crossing),
+-- and this world turns that mode on at its own boot. The phantom's job was to make a herd RUN rather
+-- than graze -- which is now a bot's job, through the same `PACE` and flush doors and from a body
+-- that is really there (`realBeaters`).
+function ForestTest.wavesToPush(waves, bots)
+	for _, threat in ipairs(bots or {}) do
+		if threat.kind == "driver" then
+			return {}
+		end
+	end
+	return waves or {}
+end
+
 function ForestTest.boarThreats(now: number)
 	local out = {}
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -535,32 +565,14 @@ function ForestTest.boarThreats(now: number)
 	end
 	-- THE BOTS, AS THEY ARE (task 161): real bodies, each carrying its own kind and NO `phantom`
 	-- mark, because somebody IS standing there.
-	local pushingBot = false
-	for _, threat in ipairs(ForestTest.botThreats()) do
+	local bots = ForestTest.botThreats()
+	for _, threat in ipairs(bots) do
 		table.insert(out, threat)
-		if threat.kind == "driver" then
-			pushingBot = true
-		end
 	end
-	-- ...AND THE PHANTOMS STAND DOWN WHILE A BOT BEATER IS PUSHING, so there is ONE push source and
-	-- not two. A body Karen can SEE pushes; an invented position 11 studs behind the herd does not
-	-- push at the same time, because then the animals would be moved by something nobody is standing
-	-- on and the thing she is watching would not be the cause.
-	--
-	-- DECIDED HERE, BY THE OWNER OF THE PHANTOMS, and off a LIVE fact rather than a boolean passed in:
-	-- the phantoms are this world's own invention, so only this file may retire them -- and a drive
-	-- whose flag is on but whose first rig is not built yet still gets them, so the push never gaps.
-	-- With no bots, `botThreats()` is empty, `pushingBot` is false and the loop below is this file
-	-- before task 161.
-	--
-	-- IT CANNOT STALL THE DRIVE, and that is the thing worth saying because it would be the obvious
-	-- fear: a released line does not MOVE because of the phantom. `Boar.CONFIG.LINE` is the mode in
-	-- which an animal stops deciding and walks to the point it was given (`releaseLine` computes the
-	-- route and the crossing), and this world turns that mode on at its own boot. The phantom's job
-	-- was to make a herd RUN rather than graze -- which is now the bots' job, through the same
-	-- `PACE`/flush doors and from a body that is really there (`realBeaters` above).
-	local waves = if pushingBot then {} else state.active
-	for _, wave in ipairs(waves) do
+	-- ...AND THE PHANTOMS STAND DOWN WHILE A BOT BEATER IS PUSHING. The RULE is
+	-- `ForestTest.wavesToPush`, pure and just above, so a spec drives both states with a hand-written
+	-- wave list; this is the one call of it.
+	for _, wave in ipairs(ForestTest.wavesToPush(state.active, bots)) do
 		local centre = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
 			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)

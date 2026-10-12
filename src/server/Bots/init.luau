@@ -130,6 +130,7 @@ type Bot = {
 	model: Model?,
 	humanoid: Humanoid?,
 	horn: any?,
+	clips: any?,
 	building: boolean,
 	lastMoveAt: number,
 	lastHornAt: number?,
@@ -138,6 +139,7 @@ type Bot = {
 	movedFrom: Vector3?,
 	arrived: boolean,
 	arrivedAt: number?,
+	walkStartedAt: number?,
 	gathered: boolean,
 	index: number,
 }
@@ -175,6 +177,13 @@ local stats = {
 	sideSteps = 0,
 	groundMissing = 0,
 	gathered = 0,
+	-- THE WALK ANIMATION (round 2). A rig built by the engine carries no `Animate` script -- that
+	-- comes from `StarterCharacterScripts`, which only a PLAYER's character gets -- so without this
+	-- a bot slides upright, which is the first thing Karen would see. These two say whether the
+	-- clips actually loaded, because a `LoadAnimation` that fails must show as a NUMBER rather than
+	-- as a statue nobody can explain.
+	clipsLoaded = 0,
+	clipsFailed = 0,
 	steps = 0,
 	stepMsTotal = 0,
 	stepMsMax = 0,
@@ -262,6 +271,18 @@ local function finishBuild(bot: Bot, model: Model, config, builtAt: number)
 		end
 	end
 
+	-- THE LEGS (round 2). Loaded once per body, counted either way, and a failure cannot stop the
+	-- bot walking -- it just slides, which is what every bot did before this.
+	local clips, loaded = Rig.loadClips(humanoid)
+	bot.clips = clips
+	stats.clipsLoaded += loaded
+	stats.clipsFailed += 2 - loaded
+	-- A STANDER IS IDLE FROM THE MOMENT IT EXISTS: it never reaches the step loop's walk branch,
+	-- because only a walker is stepped.
+	if not teamWalks(bot) then
+		Rig.playClip(clips, "idle")
+	end
+
 	bot.movedAt = builtAt
 	bot.movedFrom = Rig.positionOf(model)
 	bot.lastMoveAt = 0
@@ -326,7 +347,11 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 	local counts = { hunters = 0, beaters = 0 }
 	for _, slot in ipairs(slots) do
 		wanted[slot.id] = slot
-		if slot.to ~= nil then
+		-- BY TEAM, NOT BY WALK-OR-STAND (round 1 note). In a world whose markers have no drive line
+		-- `botSlotsFor` makes a bot BEATER a stander (`to = nil`), and counting by `to` then printed
+		-- `0/4 hunters, 4/0 beaters` -- the report lying about which side is short. `Bots.count(team)`
+		-- was already keyed by team; these two now agree.
+		if slot.team == "Drivers" then
 			counts.beaters += 1
 		else
 			counts.hunters += 1
@@ -370,6 +395,7 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 				model = nil,
 				humanoid = nil,
 				horn = nil,
+				clips = nil,
 				building = false,
 				lastMoveAt = 0,
 				lastHornAt = nil,
@@ -378,6 +404,7 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 				movedFrom = nil,
 				arrived = false,
 				arrivedAt = nil,
+				walkStartedAt = nil,
 				gathered = false,
 				index = madeIndex,
 			}
@@ -392,6 +419,7 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 			bot.to = to
 			if moved and bot.model ~= nil then
 				bot.arrived = false
+				bot.walkStartedAt = nil -- a bot put somewhere else starts its walk again
 				bot.gathered = false
 				Rig.place(bot.model, Bots.groundedFrom(from, cfg), bot.to == nil)
 			end
@@ -440,6 +468,7 @@ function Bots.gather(ring: { CFrame }, from: number): number
 			break
 		end
 		if Rig.place(bot.model, cframe, true) then
+			Rig.playClip(bot.clips, "idle") -- standing in the ring, not walking in it
 			bot.gathered = true
 			moved += 1
 			stats.gathered += 1
@@ -449,9 +478,37 @@ function Bots.gather(ring: { CFrame }, from: number): number
 	return moved
 end
 
+-- THE PER-DRIVE COUNTERS, and they are reset by `clear()` because the line that prints them says
+-- `[bots] drive N` (round 1 note). A lifetime total under a per-drive heading is a number that
+-- reads as a measurement and is not one. The LIFETIME ones -- `fills`, `built`, `destroyed`,
+-- `steps`, `stepMsTotal`, `epoch` -- are not in this list: they answer "has this system ever gone
+-- wrong", which is a question about the session.
+local PER_DRIVE_STATS = {
+	"buildsFailed",
+	"staleBuilds",
+	"dressed",
+	"dressFailed",
+	"hornsGiven",
+	"blasts",
+	"blastsRefused",
+	"walking",
+	"arrived",
+	"walkSeconds",
+	"stuck",
+	"sideSteps",
+	"groundMissing",
+	"gathered",
+	"clipsLoaded",
+	"clipsFailed",
+	"stepMsMax",
+}
+
 function Bots.clear(): number
 	epoch += 1
 	released = false
+	for _, key in ipairs(PER_DRIVE_STATS) do
+		(stats :: any)[key] = 0
+	end
 	local n = 0
 	for _, id in ipairs(order) do
 		local bot = bots[id]
@@ -580,7 +637,7 @@ end
 
 -- ------------------------------------------------------------------ the step
 
-local function stepWalker(bot: Bot, at: number, config)
+local function stepWalker(bot: Bot, at: number, config, roomToStand)
 	local model = bot.model
 	local humanoid = bot.humanoid
 	local goal = bot.to
@@ -595,15 +652,23 @@ local function stepWalker(bot: Bot, at: number, config)
 	if bot.arrived then
 		return
 	end
+	-- WHEN THIS WALK BEGAN, stamped on the first released step and nowhere else. Round 1 found the
+	-- arrival measuring `at - bot.movedAt`, and `movedAt` is the STUCK WINDOW's own stamp, re-set
+	-- every `STUCK_SECONDS` a few lines below -- so a 29-second walk could never print as more than
+	-- about four, and the one number this system exists to print (`docs/design/bots.md` section 5.2,
+	-- the arithmetic Karen's end-of-drive decision rests on) was a measurement of the wrong thing.
+	if bot.walkStartedAt == nil then
+		bot.walkStartedAt = at
+	end
 	if Lane.arrived(here, goal, config.ARRIVE_STUDS) then
 		bot.arrived = true
 		bot.arrivedAt = at
 		stats.arrived += 1
-		if bot.movedAt > 0 then
-			stats.walkSeconds = math.max(stats.walkSeconds, at - bot.movedAt)
-		end
+		stats.walkSeconds = math.max(stats.walkSeconds, at - (bot.walkStartedAt :: number))
+		Rig.playClip(bot.clips, "idle") -- it is standing at the line now, not walking at it
 		return
 	end
+	Rig.playClip(bot.clips, "walk")
 
 	-- STUCK: it has not moved `STUCK_STUDS` in `STUCK_SECONDS`. One forced side-step and a count --
 	-- the count is what opens the note's escape hatch with a number rather than a feeling.
@@ -621,21 +686,11 @@ local function stepWalker(bot: Bot, at: number, config)
 		bot.movedFrom = here
 	end
 
-	local aim = Lane.aimFor(here, goal, config.AHEAD_STUDS)
-	local room = world ~= nil and world.roomToStand ~= nil
-	if room or forced > 0 then
-		local clear = if room then world.roomToStand(aim, config.LANE_CLEAR_STUDS) else false
-		if not clear then
-			for try = forced > 0 and forced or 1, config.SIDE_TRIES do
-				local candidate = Lane.sideStep(aim, here, goal, try, config)
-				if not room or world.roomToStand(candidate, config.LANE_CLEAR_STUDS) then
-					aim = candidate
-					stats.sideSteps += 1
-					break
-				end
-			end
-		end
-	end
+	-- THE WHOLE AIM DECISION IS `Lane.clearAim`'S, and it is pure in the world's clearance reader so
+	-- `bots_live.spec` drives every branch -- including the stuck one with a reader that answers
+	-- "clear", which is the case round 1 found unreachable.
+	local aim, stepped = Lane.clearAim(here, goal, forced, roomToStand, config)
+	stats.sideSteps += stepped
 
 	if at - bot.lastMoveAt >= config.MOVE_REISSUE_SECONDS then
 		bot.lastMoveAt = at
@@ -643,9 +698,15 @@ local function stepWalker(bot: Bot, at: number, config)
 	end
 end
 
-function Bots.step(_dt: number?)
+-- ONE TICK. `at` and `roomToStand` are the TWO TEST SEAMS and production passes neither: the
+-- Heartbeat below calls `Bots.step(dt)`, so the clock is the world's and the clearance reader is the
+-- world's. A spec passes them to drive the stuck window without spending four real seconds of the
+-- suite's budget (the trap `zz_horn`'s own `zz_` prefix exists for), and to drive the stuck nudge
+-- against a reader that answers "clear" -- the branch round 1 found unreachable.
+function Bots.step(_dt: number?, clock: number?, roomToStand: any?)
 	local config = Bots.CONFIG
-	local at = now()
+	local at = clock or now()
+	local clearance = if roomToStand ~= nil then roomToStand else (world ~= nil and world.roomToStand or nil)
 	local began = os.clock()
 	stats.steps += 1
 
@@ -665,7 +726,7 @@ function Bots.step(_dt: number?)
 		end
 		if bot.to ~= nil and released then
 			walking += 1
-			stepWalker(bot, at, config)
+			stepWalker(bot, at, config, clearance)
 			if bot.horn ~= nil then
 				if bot.hornDueAt == nil then
 					bot.hornDueAt = Bots.hornDue(bot, at, config)
@@ -716,6 +777,13 @@ function Bots.stop()
 		heartbeat = nil
 	end
 	world = nil
+end
+
+-- WHICH CLIP THIS BOT IS PLAYING, for a spec. Read-only: the tracks are `Bots.Rig`'s and nothing
+-- outside this module may start or stop one.
+function Bots.clipsOf(id: string)
+	local bot = bots[id]
+	return bot and bot.clips
 end
 
 function Bots.stats()
