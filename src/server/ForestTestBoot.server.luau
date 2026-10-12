@@ -318,7 +318,12 @@ local function placement(markers, team, index, cfg)
 		local stand = ForestTest.standIndexFor(index)
 		return Body.placementFor(markers, team, ForestTest.postIndexFor(markers.posts, stand), cfg)
 	end
-	local at = ForestTest.beaterStartPosition()
+	-- BY INDEX SINCE TASK 167, exactly as a hunter's stand is. Karen: *"and seem like all bots came
+	-- to me"* -- every beater was put on the one push line, so the bot line converged on her stand.
+	-- `beaterStartPosition(index)` spreads them across the hunters' front and measures the ground and
+	-- the trunks at each lane's own x; the look is still straight down the push at the road AT THAT
+	-- x, so each of them walks its own lane and not a shared one.
+	local at = ForestTest.beaterStartPosition(index)
 	local road = Data.roadPointAt(at.X)
 	return CFrame.lookAt(at, Vector3.new(road.X, at.Y, road.Z))
 end
@@ -422,6 +427,33 @@ Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
 		-- is through.
 		if Bots.count() + Bots.desired() > 0 then
 			print(Bots.report(driveNumber or 1))
+			-- WHERE THE LINE WAS, AS THREE NUMBERS PER LANE (task 167), because Karen's *"all bots
+			-- came to me"* is a claim about exactly those and nothing printed them.
+			local lanes = Bots.laneReport(driveNumber or 1)
+			if lanes ~= "" then
+				print(lanes)
+			end
+		end
+		-- ONE LINE PER DRIVE SAYING WHETHER THE ANIMALS MISSED THE TREES (task 167), on the same
+		-- channel and for the same reason. Karen has said *"boar hit tree"* on three playtests
+		-- running, and the number this task is judged on is contacts per 100 s OF RUNNING -- so both
+		-- halves of it are printed, plus what the sweep fan spent to get them. The module never
+		-- prints: a tool that `require`s it over StudioMCP gets a sandboxed copy with empty state
+		-- (measured, task 122).
+		local boar = runtime:stats()
+		if boar.runSeconds > 0 or boar.trunkContacts > 0 then
+			print(
+				string.format(
+					"[trees] drive %d: %d trunk contacts in %.1fs of running (%.1f/100s) | avoid %d turns, %d boxed in, %d casts",
+					driveNumber or 1,
+					boar.trunkContacts,
+					boar.runSeconds,
+					boar.trunkContacts / math.max(boar.runSeconds, 1e-6) * 100,
+					boar.avoidTurns,
+					boar.avoidBoxedIn,
+					boar.avoidCasts
+				)
+			)
 		end
 	end
 end)

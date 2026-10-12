@@ -2404,9 +2404,17 @@ end
 -- THE PUSH LINE IS THE HUNTER'S STAND, which is the same x the drive releases its lines at
 -- (`releaseLine` crosses at `hunterStandX() + crossOffsets[...]`). So a beater standing behind that
 -- point is behind the animals and pushing toward the place they cross -- one geometry, not two.
-function ForestTest.beaterStartPosition(): Vector3
+--
+-- ...AND `index` IS WHICH LANE OF THE LINE IT IS (task 167). Karen, 2026-10-12: *"and seem like all
+-- bots came to me"*. Every beater used to be put on the push line itself, so the whole bot line
+-- arrived at the one stand she was standing on. `Data.beaterLaneOffset` deals the indices out across
+-- the hunters' front (0, +-150, +-300 ...) and this measures the ground and the trunks at the lane's
+-- OWN x -- so the search is still "the nearest clear spot to where this body belongs", which is now
+-- a different place for each of them. `nil` is index 1, the push line, which is what every caller
+-- before this task meant.
+function ForestTest.beaterStartPosition(index: number?): Vector3
 	local beater = Data.BEATER
-	local standX = ForestTest.hunterStandX()
+	local standX = ForestTest.hunterStandX() + Data.beaterLaneOffset(index)
 	-- 0, +10, -10, +20, -20 ... : straight behind the crossing first, then the nearest clear spot
 	-- either side of it.
 	for try = 0, beater.sideTries do

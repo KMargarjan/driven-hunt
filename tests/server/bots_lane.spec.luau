@@ -35,7 +35,6 @@ local Rig = Bots.Rig
 
 -- This spec's own numbers, the shape `Bots.CONFIG` is.
 local CONFIG = {
-	LANE_SPACING_STUDS = 18,
 	SIDE_STEP_STUDS = 10,
 	SIDE_TRIES = 4,
 	ARRIVE_STUDS = 4,
@@ -63,79 +62,134 @@ end
 
 return function()
 	describe("the lanes", function()
-		it("alternates outward from the middle, nearest first, and never issues lane 0", function()
-			expect(Lane.offsetFor(1, CONFIG)).to.equal(18)
-			expect(Lane.offsetFor(2, CONFIG)).to.equal(-18)
-			expect(Lane.offsetFor(3, CONFIG)).to.equal(36)
-			expect(Lane.offsetFor(4, CONFIG)).to.equal(-36)
-			-- LANE 0 IS THE MIDDLE AND IT IS THE PEOPLE'S: the forest puts every real beater on one
-			-- measured point, on the push line through the stand the drive aims at, so the bots flank
-			-- rather than stand on top of her.
-			expect(Lane.offsetFor(0, CONFIG)).to.equal(0)
+		-- TASK 167. Karen, 2026-10-12 ~16:10, having played as a hunter with the bots on: *"and seem
+		-- like all bots came to me"*. The line used to be spread by `Bots.Lane` at +-18 and +-36
+		-- studs about ONE base, and in this world that base is the stand the drive aims at -- hers.
+		-- The spread is the WORLD's now (it is the only owner that can see the hunters' front) and
+		-- the goals are the DRIVE's, one per lane. The archived functions and the two reasons are in
+		-- `backups/2026-10-12-bots-lane-offsets.md`.
+		it("deals the beaters across the hunters' front, alternating, with index 1 on the push line", function()
+			expect(Forest.beaterLaneOffset(1)).to.equal(0)
+			expect(Forest.beaterLaneOffset(2)).to.equal(150)
+			expect(Forest.beaterLaneOffset(3)).to.equal(-150)
+			expect(Forest.beaterLaneOffset(4)).to.equal(300)
+			expect(Forest.beaterLaneOffset(5)).to.equal(-300)
+			-- nil is index 1, which is what every caller before task 167 meant.
+			expect(Forest.beaterLaneOffset(nil)).to.equal(0)
+			-- INDEX 1 IS THE PUSH LINE AND IT IS THE PEOPLE'S: a real beater is index 1, so she
+			-- keeps the middle and the bots flank her. That is the property the archived
+			-- `Lane.offsetFor` existed for, kept.
+			-- ...AND THE SPACING IS THE STAND GRID, which is why a lane's goal is straight ahead of
+			-- it: `Match.beaterGoalFor` and `Match.crossedLine` both take the post NEAREST the
+			-- lane, so a lane on a stand's own x makes them pick the same post.
+			expect(Forest.BEATER.laneSpacingStuds).to.equal(Forest.STAND_SPACING)
 		end)
 
-		it("leaves lane 0 empty for the real beaters, in the slots the drive actually issues", function()
-			-- The drive's own slot list, so the claim is about what SHIPS and not about the helper.
-			local base = CFrame.new(0, 10, 240)
-			local place = function()
-				return base
+		it("spans 600 studs of front with four bots, not 72", function()
+			local span = Forest.beaterLaneOffset(4) - Forest.beaterLaneOffset(5)
+			expect(span).to.equal(600)
+			-- Four lanes on the stand grid cover four stand spacings, so the line is as wide as the
+			-- stands it is pushing at rather than as wide as one of them.
+			expect(span / Forest.STAND_SPACING).to.equal(4)
+		end)
+
+		it("gives every bot beater its OWN start and its OWN goal, from the world, by index", function()
+			-- The drive's own slot list, so the claim is about what SHIPS. `place` is this world's
+			-- shape: a point per index, spread by the same `beaterLaneOffset` the forest uses.
+			local asked = {}
+			local function place(_markers, team, index)
+				table.insert(asked, { team = team, index = index })
+				local x = Forest.beaterLaneOffset(index)
+				return CFrame.new(x, 10, 240)
 			end
 			local slots = Match.botSlotsFor(
-				{ posts = POSTS, line = LINE },
+				{ posts = CURVED_POSTS, line = LINE },
 				place,
 				{ hunters = 0, beaters = 0 },
 				{ hunters = 0, beaters = 4 },
 				Match.CONFIG
 			)
 			expect(#slots).to.equal(4)
+			-- ONE PLACEMENT PER LANE, by index, exactly as a hunter's stand is asked for.
+			expect(#asked).to.equal(4)
+			local seen = {}
 			for _, slot in ipairs(slots) do
-				expect(slot.lane > 0).to.equal(true)
 				expect(slot.team).to.equal("Drivers")
-				-- THE BASE AND THE LANE NUMBER, not the lane's own point: spreading the line is
-				-- `Bots.Lane`'s job, because `Match` must not require `Bots`.
-				expect(slot.from).to.equal(base)
+				expect(slot.lane > 0).to.equal(true)
+				expect(seen[slot.from.Position.X]).to.equal(nil)
+				seen[slot.from.Position.X] = true
+				expect(slot.to).to.be.ok()
+			end
+			-- ...AND NO TWO LANES SHARE A GOAL, which is the whole of her complaint: four goals
+			-- translated off one base goal all sat in front of the one stand she was standing on.
+			local goals = {}
+			for _, slot in ipairs(slots) do
+				local key = string.format("%.2f,%.2f", (slot.to :: Vector3).X, (slot.to :: Vector3).Z)
+				expect(goals[key]).to.equal(nil)
+				goals[key] = true
 			end
 		end)
 
-		it("spreads a straight line along world X, four bots over 72 studs", function()
-			local base = CFrame.new(0, 10, 240)
-			local xs = {}
-			for lane = 1, 4 do
-				table.insert(xs, Lane.startFor(base, lane, CONFIG).Position.X)
+		it("puts each lane's goal STRAIGHT AHEAD on a curved road, so arriving IS crossing", function()
+			local function place(_markers, _team, index)
+				-- The lanes sit on the stand grid: these posts are 60 studs apart and wander +-30 in
+				-- z, which is the forest's sine in miniature.
+				return CFrame.new(-60 + (index - 1) * 60, 10, 240)
 			end
-			table.sort(xs)
-			expect(xs[1]).to.equal(-36)
-			expect(xs[4]).to.equal(36)
-			expect(xs[4] - xs[1]).to.equal(72)
-			-- ...and they all look the same way, down the push.
-			expect(Lane.startFor(base, 3, CONFIG).LookVector.Z).to.equal(base.LookVector.Z)
+			local slots = Match.botSlotsFor(
+				{ posts = CURVED_POSTS, line = LINE },
+				place,
+				{ hunters = 0, beaters = 0 },
+				{ hunters = 0, beaters = 3 },
+				Match.CONFIG
+			)
+			expect(#slots).to.equal(3)
+			for _, slot in ipairs(slots) do
+				local goal = slot.to :: Vector3
+				-- STRAIGHT AHEAD: the goal is on the lane's own x, not translated off a shared one.
+				expect(near(goal.X, slot.from.Position.X)).to.equal(true)
+				-- ...and it is PAST the line as `Match.crossedLine` measures it, against the same
+				-- post. A goal that is not past the line is a bot that never crosses, and a drive
+				-- that can only end on the timer.
+				expect(Match.crossedLine(goal, LINE, CURVED_POSTS, Match.CONFIG.BEATER_CROSS_MARGIN_STUDS)).to.equal(
+					true
+				)
+			end
 		end)
 
-		it("spreads along the BASE's own right on a rotated base, so a sine road stays square", function()
-			-- The forest's look is at the road point under the beater, so the base can be rotated by
-			-- up to 23 degrees. A line laid out on world X would not be square to the push.
-			local base = CFrame.Angles(0, math.rad(90), 0) + Vector3.new(0, 10, 240)
-			local one = Lane.startFor(base, 1, CONFIG).Position
-			local two = Lane.startFor(base, 2, CONFIG).Position
-			-- Rotated 90 degrees, "right" is -X... whichever way it points, the two lanes are 36
-			-- studs apart ALONG THAT AXIS and the same distance from the base.
-			expect(near((one - two).Magnitude, 36)).to.equal(true)
-			expect(near((one - base.Position).Magnitude, 18)).to.equal(true)
-			expect(near((two - base.Position).Magnitude, 18)).to.equal(true)
-			-- ...and the offset really is along the base's right, not along world X.
-			expect(near((one - base.Position):Dot(base.RightVector), 18)).to.equal(true)
+		it("asks for the indices AFTER the real beaters, so the people keep the middle", function()
+			local asked = {}
+			local function place(_markers, _team, index)
+				table.insert(asked, index)
+				return CFrame.new(Forest.beaterLaneOffset(index), 10, 240)
+			end
+			local slots = Match.botSlotsFor(
+				{ posts = POSTS, line = LINE },
+				place,
+				{ hunters = 0, beaters = 1 },
+				{ hunters = 0, beaters = 4 },
+				Match.CONFIG
+			)
+			expect(#slots).to.equal(4)
+			expect(table.concat(asked, ",")).to.equal("2,3,4,5")
+			for _, slot in ipairs(slots) do
+				-- Nobody is on the push line: index 1 is hers.
+				expect(slot.from.Position.X ~= 0).to.equal(true)
+			end
 		end)
 
-		it("offsets the GOAL by the same amount, so a line that sets off abreast arrives abreast", function()
-			local base = CFrame.new(0, 10, 240)
-			local baseGoal = Vector3.new(0, 10, -20)
-			for lane = 1, 4 do
-				local start = Lane.startFor(base, lane, CONFIG).Position
-				local goal = Lane.goalFor(baseGoal, base, lane, CONFIG)
-				-- The sideways offset is identical at both ends, so the walk is parallel to the push.
-				expect(near(goal.X, start.X)).to.equal(true)
-				expect(goal.Y).to.equal(baseGoal.Y)
-			end
+		it("is the identity in `Bots.laneOf`, because the lane's points are the drive's now", function()
+			local from = CFrame.new(150, 10, 240)
+			local to = Vector3.new(150, 10, -20)
+			local gotFrom, gotTo =
+				Bots.laneOf({ id = "bot-beater-1", team = "Drivers", from = from, to = to, lane = 1 })
+			expect(gotFrom).to.equal(from)
+			expect(gotTo).to.equal(to)
+			-- A STANDER keeps its post and gets no goal.
+			local standFrom, standTo =
+				Bots.laneOf({ id = "bot-hunter-1", team = "Shooters", from = from, to = nil, lane = 0 })
+			expect(standFrom).to.equal(from)
+			expect(standTo).to.equal(nil)
 		end)
 	end)
 

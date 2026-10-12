@@ -337,6 +337,15 @@ function Brain.steerAroundTrunk(direction: Vector3, whisker, config, prefer: num
 	if pace == nil or pace.ENABLED ~= true or whisker == nil then
 		return direction
 	end
+	-- THE MEASURED TURN WINS, AND IT IS THE WHOLE OF TASK 167's HALF 2 (see `Brain.clearTurnDeg`).
+	-- `clearDeg` is the SMALLEST deflection the Runtime's sweep fan could find clear room on, at a
+	-- lookahead that scales with speed -- so it is an avoidance rather than a reflex: far off a
+	-- trunk it is a few degrees, close to one it is most of a right angle, and it ends as soon as the
+	-- sweep comes back clear. The fixed `WHISKER_TURN_DEG` below stays for the walk, where the 9-stud
+	-- whiskers are what task 123 measured and Karen accepted.
+	if whisker.clearDeg ~= nil then
+		return rotateY(direction, math.rad(whisker.clearDeg))
+	end
 	if not (whisker.ahead or whisker.left or whisker.right) then
 		return direction
 	end
@@ -365,6 +374,64 @@ function Brain.steerAroundTrunk(direction: Vector3, whisker, config, prefer: num
 		turn *= 0.5
 	end
 	return rotateY(direction, side * turn)
+end
+
+-- THE SMALLEST TURN THAT CLEARS A TRUNK AHEAD, found by trying candidate headings (task 167). PURE:
+-- `blocked(angleDeg) -> boolean` is the caller's cast and this is the decision, so
+-- `boar_move.spec` drives every branch -- the clear side, the boxed-in case and the budget -- with a
+-- function of its own and no world.
+--
+-- KAREN, 2026-10-12 ~16:10: *"also when boars running sometimes hit the tree"*. The third time she
+-- has said it (2026-10-09 *"not hitting the trees and hang"*, 2026-10-10 *"still can see sometimes
+-- boar hit tree"*), and the two fixes before this one were both RECOVERIES: task 150's wedge
+-- detector turns an animal that has already stopped, and task 139's honest clip stopped it
+-- galloping on the spot. Neither is avoidance.
+--
+-- WHY THE EXISTING WHISKERS CANNOT DO IT, in numbers: they are three rays at a flat 9 studs
+-- (`MOVE.WHISKER_SECONDS` is 0) and they deflect by a FIXED `WHISKER_TURN_DEG` (55). At
+-- `PACE.RUN_SPEED` 24 studs/s, 9 studs is 0.37 s of warning from the body's CENTRE -- about 0.26 s
+-- from its nose -- and one 55-degree slam is both too late and far more turn than passing a 2-stud
+-- trunk needs. Task 126 already tried the other half on its own: a lookahead that scaled with speed,
+-- MEASURED at 24 trunk contacts against 24, with the turning UP, because a longer whisker fires the
+-- same 55 degrees far more often in a wood. The reach was left in the config at 0 with that
+-- measurement beside it.
+--
+-- SO BOTH HALVES TOGETHER, WHICH IS THE PATTERN THE LITERATURE ACTUALLY DESCRIBES: look ahead by a
+-- TIME, then turn by the MINIMUM that clears. Craig Reynolds, *Steering Behaviors For Autonomous
+-- Characters* (GDC 1999), "obstacle avoidance": a probe of the volume the character will sweep, and
+-- a lateral steering force only as large as the intrusion into it -- not a fixed deflection.
+--   https://www.red3d.com/cwr/steer/gdc99/
+-- OpenSteer's `steerToAvoidObstacles` (MIT, archived) is the same thing in code. What is borrowed is
+-- the shape; what is changed is that the probe is a SWEEP of candidate headings rather than a force,
+-- because this animal is steered by a direction and a speed and not by an accumulated force, and
+-- because a swept sphere is the one cast that answers "will my BODY fit through there" -- which a
+-- ray from the centre of a 5.5 x 2.6-stud boar cannot.
+--
+-- THE SEARCH ORDER IS THE ANIMAL'S OWN SIDE FIRST, at each magnitude in turn: prefer, then the
+-- other, then wider. So the smallest clear turn wins; its own side breaks a tie; and both sides are
+-- tried before it gives up, because committing to a blocked side is how an animal walks into a tree.
+-- `nil` means nothing in `angles` was clear -- the caller then keeps the behaviour it had, and the
+-- wedge detector is what catches an animal that really is boxed in.
+--
+-- THE BUDGET IS A CEILING ON CASTS, not on angles: `maxCasts` stops the fan dead, so the worst case
+-- per evaluation is a number the config states rather than a product of two tables.
+function Brain.clearTurnDeg(angles: { number }, prefer: number, blocked, maxCasts: number?): (number?, number)
+	local side = if prefer < 0 then -1 else 1
+	local budget = maxCasts or math.huge
+	local casts = 0
+	for _, magnitude in ipairs(angles) do
+		for _, which in ipairs({ side, -side }) do
+			if casts >= budget then
+				return nil, casts
+			end
+			local candidate = magnitude * which
+			casts += 1
+			if blocked(candidate) ~= true then
+				return candidate, casts
+			end
+		end
+	end
+	return nil, casts
 end
 
 -- WHERE AN AVOID GOES: away from the cause, rotated by a fixed angle, clamped inside the field.
@@ -573,6 +640,17 @@ end
 
 -- A COPY of the last perception, or nil before the first step. No setter, and nothing in the game
 -- reads it: `Runtime:perceptionOf` hands it to a live spec so that "why" is observable (section 7.2).
+-- WHICH WAY ROUND THIS ANIMAL WOULD GO, for the Runtime's sweep fan to try FIRST (task 167).
+-- Read-only, and it is the side the animal is already committed to while a deflection is being held
+-- -- so the fan cannot answer "left" on one tick and "right" on the next and leave it turning on the
+-- spot, which is the defect task 126 measured at 1,385 degrees in ten seconds.
+function Brain:avoidSide(): number
+	if self._whiskerFor > 0 then
+		return self._whiskerPick
+	end
+	return self._whiskerSide
+end
+
 function Brain:perception()
 	if self._perception == nil then
 		return nil
@@ -2058,12 +2136,18 @@ function Brain:step(dt: number, obs)
 		-- deflection every frame and leave the animal turning on the spot.
 		local move = config.MOVE
 		local hold = move ~= nil and move.ENABLED == true
-		local sees = (obs.whisker.ahead or obs.whisker.left or obs.whisker.right) == true
+		local sees = (obs.whisker.ahead or obs.whisker.left or obs.whisker.right or obs.whisker.clearDeg ~= nil) == true
 		if hold and sees then
 			if self._whiskerFor <= 0 then
 				-- A NEW OBSTACLE: choose the clear side now, and commit to it.
-				self._whiskerPick = if obs.whisker.left and not obs.whisker.right
-					then 1
+				--
+				-- THE SWEEP FAN'S ANSWER IS THE FIRST ONE ASKED (task 167): it is a measurement of
+				-- where the BODY fits, taken at a lookahead that scales with speed, against three
+				-- 9-stud rays from the animal's centre. Its sign is the side it found room on, so
+				-- committing to it is what makes the next few ticks keep going that way round.
+				self._whiskerPick = if obs.whisker.clearDeg ~= nil
+					then (if obs.whisker.clearDeg < 0 then -1 else 1)
+					elseif obs.whisker.left and not obs.whisker.right then 1
 					elseif obs.whisker.right and not obs.whisker.left then -1
 					else self._whiskerSide
 			end

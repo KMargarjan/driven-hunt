@@ -1736,11 +1736,34 @@ end
 -- which in the Forest Test is `ForestTest.standIndexFor`'s centre-out order, so the bots take the
 -- stands beside the player's rather than the far end of the road.
 --
--- THE BOT BEATERS SHARE ONE BASE, taken ONCE from `place`, and `Bots.Lane` spreads them from it.
--- That is deliberate: this world's own beater placement is a single MEASURED point (the forest reads
--- the ground and the trunks for it) and asking for it four times would be four measurements of one
--- fact. The lane offsets are along the base's own `RightVector`, so a sine road carries the whole
--- line with it, and lane 0 is left empty for the people.
+-- EVERY BOT BEATER ASKS FOR ITS OWN LANE, BY INDEX, AND WALKS TO ITS OWN GOAL (task 167).
+--
+-- KAREN, 2026-10-12 ~16:10, after playing a drive as a hunter with the bots on: *"and seem like all
+-- bots came to me"*. Until this task the drive took ONE base from `place` and `Bots.Lane` spread the
+-- four of them +-18 and +-36 studs about it, with all four goals translated sideways off the one
+-- base goal. Both halves of that were wrong once the base was her own stand:
+--
+--   * 72 studs of total front is not a drive line, it is four men walking at one stand -- and the
+--     base IS the stand she locked, because that is the push line this world releases its waves on;
+--   * a goal translated sideways off one base goal is not on the road. The road is a sine 30 studs
+--     deep (`ForestTest.ROAD`), `GOAL_PAST_LINE_STUDS` is 20, and the lateral translation keeps the
+--     BASE's z -- so at any real width a lane's goal can land NORTH of the road, the bot stops short
+--     of the line, `Match.crossedLine` never counts it and the drive can only ever end on the timer.
+--
+-- SO THE LANE IS THE WORLD'S GEOMETRY, asked for the same way a hunter's stand is: `place(markers,
+-- "Drivers", realBeaters + lane, cfg)`. The forest spreads those indices across the hunters' front
+-- (`ForestTest.beaterLaneOffset`, 0 / +-150 / +-300 -- the stand grid) and measures the ground and
+-- the trunks at each one; the DEV arena's `Body.placementFor` already spread drivers across its pad
+-- by index and needed no change at all. Index 1 is the push line, so a real beater keeps it and the
+-- bots flank her -- the property `Bots.Lane.offsetFor` was written for, kept, and moved to the only
+-- owner that can know how wide a front is.
+--
+-- AND THE GOAL IS MEASURED FROM THE LANE'S OWN START, by the same `Match.beaterGoalFor` that always
+-- took a start and answered with the post nearest it: straight ahead down the push, on the road,
+-- 20 studs past the same post `Match.crossedLine` will measure it against. Arriving IS crossing.
+--
+-- `Bots` STILL READS NO MARKER, TAG OR PLAYER, and still spreads nothing it cannot see: it is
+-- handed a start and a goal per bot and walks between them.
 -- IS THIS THE FIRST `Assigning` TICK OF A DRIVE WHOSE BOTS HAVE NOT BEEN REBUILT YET? PURE and
 -- exported, so `bots_live.spec` can state the rule with four calls and no drive at all -- and so
 -- that a spec driving two drives by hand uses THIS answer rather than a copy of it.
@@ -1770,30 +1793,23 @@ function Match.botSlotsFor(markers, place, real, want, cfg): { any }
 		end
 	end
 	local wantBeaters = want.beaters or 0
-	if wantBeaters > 0 then
-		local base = place(markers, "Drivers", (real.beaters or 0) + 1, cfg)
-		if base ~= nil then
-			local line = if markers then markers.line else nil
-			local posts = if markers then markers.posts else nil
-			local baseGoal = Match.beaterGoalFor((base :: CFrame).Position, line, posts, cfg.BOTS.GOAL_PAST_LINE_STUDS)
-			for lane = 1, wantBeaters do
-				-- THE BASE AND THE LANE NUMBER, NOT THE LANE'S OWN POINT. Spreading the line is
-				-- `Bots.Lane`'s job and the spacing is `Bots.CONFIG`'s number, and THIS OWNER MUST
-				-- NOT REQUIRE THAT ONE: no owner requires another owner (the rule both composition
-				-- roots are written to). So the drive states the measured base and which lane this
-				-- bot is, and the bots lay the line out.
-				--
-				-- NO LINE MEANS NO WALK, NOT A WALK TO NOWHERE: `to = nil` makes a bot beater a
-				-- stander on the start line. A world whose markers have no drive line is a fact
-				-- about the world, which is the shape `applyPlace` and `applyScene` already have.
-				table.insert(slots, {
-					id = string.format("bot-beater-%d", lane),
-					team = "Drivers",
-					from = base,
-					to = baseGoal,
-					lane = lane,
-				})
-			end
+	local line = if markers then markers.line else nil
+	local posts = if markers then markers.posts else nil
+	for lane = 1, wantBeaters do
+		-- ITS OWN LANE, MEASURED BY THE WORLD, AND ITS OWN GOAL ON THE ROAD IN FRONT OF IT.
+		--
+		-- NO LINE MEANS NO WALK, NOT A WALK TO NOWHERE: `to = nil` makes a bot beater a stander on
+		-- the start line. A world whose markers have no drive line is a fact about the world, which
+		-- is the shape `applyPlace` and `applyScene` already have.
+		local from = place(markers, "Drivers", (real.beaters or 0) + lane, cfg)
+		if from ~= nil then
+			table.insert(slots, {
+				id = string.format("bot-beater-%d", lane),
+				team = "Drivers",
+				from = from,
+				to = Match.beaterGoalFor((from :: CFrame).Position, line, posts, cfg.BOTS.GOAL_PAST_LINE_STUDS),
+				lane = lane,
+			})
 		end
 	end
 	return slots

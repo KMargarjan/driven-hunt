@@ -1182,6 +1182,65 @@ Boar.CONFIG.MOVE = {
 	WHISKER_MIN_STUDS = 9, -- never shorter than what task 123 measured and Karen accepted
 	WHISKER_MAX_STUDS = 22,
 
+	-- ---------------------------------------------------------------- avoidance BEFORE the contact
+	--
+	-- KAREN, 2026-10-12 ~16:10, playing the Forest Test: *"also when boars running sometimes hit the
+	-- tree"*. The third time, and the two fixes before it were both RECOVERIES -- task 150's wedge
+	-- detector turns an animal that has ALREADY stopped, task 139's honest clip stopped a pinned one
+	-- galloping on the spot. A running animal needs to miss the trunk, not to recover from it.
+	--
+	-- WHAT IS NEW IS THE TURN, NOT THE REACH, and that distinction is the measurement above: a
+	-- speed-scaled reach ON ITS OWN was built, measured at 24 trunk contacts against 24 and left off
+	-- (`WHISKER_SECONDS` 0), because `Brain.steerAroundTrunk` answers every whisker with the same
+	-- fixed 55 degrees and a longer whisker fires it far more often. `Brain.clearTurnDeg` answers
+	-- with the SMALLEST deflection that has room -- Reynolds' obstacle avoidance, where the steering
+	-- is only as large as the intrusion -- so the longer reach becomes an early, gentle turn instead
+	-- of an early slam.
+	AVOID_ENABLED = true,
+	-- FROM A TROT UP. `PACE.TROT_SPEED` is 11 and `RUN_SPEED` is 24; below a trot the 9-stud
+	-- whiskers have a second of warning and are what Karen has already accepted, so this leaves the
+	-- walk exactly as it is and takes the gaits that have no time to react.
+	AVOID_FROM_SPEED = 11,
+	-- THE LOOKAHEAD IS A TIME, which is what a braking distance is: 0.9 s is 21.6 studs at
+	-- `RUN_SPEED` 24 and 9.9 at a trot, and the clamps keep it inside the band task 123 measured and
+	-- the length a swept cast can stay cheap at.
+	AVOID_SECONDS = 0.9,
+	AVOID_MIN_STUDS = 10,
+	AVOID_MAX_STUDS = 26,
+	-- HOW WIDE THE SWEPT BODY IS. `BODY_SIZE` is 2 x 3 x 5.5, so 1 stud is its own half-width and
+	-- the remaining 0.6 is the clearance it keeps: a ray from the centre of an animal that wide
+	-- cannot answer "will my body fit", and this is the one cast shape that can.
+	AVOID_RADIUS_STUDS = 1.6,
+	-- THE CANDIDATE HEADINGS, smallest first. A 2-stud trunk 20 studs ahead needs about 11 degrees
+	-- to pass with a body's clearance and one 6 studs ahead needs about 40 -- so the fan is dense
+	-- where the answers are and coarse where they are desperate. The last one is near a right angle,
+	-- which is where the wedge detector's own sidestep begins.
+	AVOID_ANGLES_DEG = { 12, 22, 35, 50, 70, 85 },
+	-- THE CAST BUDGET, AND IT IS PER ANIMAL PER SECOND (the Director's own condition). The fan is
+	-- evaluated at most `AVOID_HZ` times a second per animal and spends at most `AVOID_CASTS` casts
+	-- plus the one forward sweep that opens it, so the ceiling is 8 x 7 = 56 swept casts a second
+	-- for an animal that is running at a wall of trunks, and 8 for one running in the open. The
+	-- three 9-stud whiskers beside it already cost 180 rays a second at 60 Hz, so this is a fraction
+	-- of what the same animal already pays.
+	--
+	-- THE ANSWER IS HELD BETWEEN EVALUATIONS, which is the other half of the budget and also what
+	-- keeps the turn smooth: 0.125 s of the same deflection, re-measured, rather than a new answer
+	-- every frame. `WHISKER_HOLD_SECONDS` (0.6) commits the SIDE on top of that.
+	AVOID_HZ = 8,
+	AVOID_CASTS = 6,
+	-- AND THE NUMBER THAT SAYS WHETHER ANY OF IT WORKED, counted in the engine rather than in a
+	-- trace: every time a boar's collision body TOUCHES something solid that is not another animal,
+	-- a person or the ground, while it is going at `AVOID_FROM_SPEED` or more. One count per (animal,
+	-- thing) pair, so an animal leaning on one trunk for a second is one contact and not sixty, and
+	-- `runSeconds` beside it is how long the population being measured was actually running -- which
+	-- is what makes "contacts per 100 s of running" a comparable number between two runs of different
+	-- lengths.
+	--
+	-- IT STAYS ON, because *"boar hit tree"* is now the third playtest in a row Karen has said it on
+	-- (2026-10-09, 2026-10-10, 2026-10-12) and a regression in it is invisible without this. It is
+	-- one `Touched` connection per animal, which the engine fires anyway.
+	COUNT_CONTACTS = true,
+
 	-- ---------------------------------------------------------------- wedged against a trunk
 	--
 	-- KAREN, 2026-10-10 ~21:20, for the third playtest running: *"still can see sometimes boar hit
@@ -2145,6 +2204,21 @@ function Boar.defaultWorld(field)
 			return Workspace:Raycast(from, direction.Unit * length, params) ~= nil
 		end,
 
+		-- ...AND THE SAME QUESTION ASKED OF THE WHOLE BODY (task 167): is there room for something
+		-- `radius` wide to travel `length` that way. One cast, the engine's own swept sphere, with
+		-- the SAME `RaycastParams` the ray above uses -- so "solid things only" is one rule and not
+		-- two, and leaves still answer for nothing.
+		--   https://create.roblox.com/docs/reference/engine/classes/WorldRoot#Spherecast
+		-- It exists as a second seam rather than a widened `probe` because `probe` answers "can I see
+		-- it" for the sight test as well, and a sight line is a line.
+		sweep = function(from: Vector3, direction: Vector3, length: number, radius: number): boolean
+			if direction.Magnitude < 1e-6 or length <= 0 or radius <= 0 then
+				return false
+			end
+			params.FilterDescendantsInstances = if world.folder then { world.folder } else {}
+			return Workspace:Spherecast(from, radius, direction.Unit * length, params) ~= nil
+		end,
+
 		-- One Path object per agent, created once and reused, with Path.Blocked connected to it
 		-- (design section 6). Never called from inside a step: ComputeAsync yields. `done` is
 		-- invoked on a later frame and the Runtime hands the result to the Brain on the next tick.
@@ -2357,6 +2431,15 @@ function Boar.newRuntime(world)
 		-- (blast, animal inside the radius), so a blast that reaches nothing adds nothing and the
 		-- number cannot be read as "blasts blown".
 		hornsHeard = 0,
+		-- TASK 167, and all five are about trunks. `avoidCasts` is every swept cast the fan spent
+		-- (the budget's own meter), `avoidTurns` is how many of its evaluations ended in a
+		-- deflection, `avoidBoxedIn` how many found no clear candidate at all; `trunkContacts` is
+		-- the measurement the task is judged on and `runSeconds` is the denominator for it.
+		avoidCasts = 0,
+		avoidTurns = 0,
+		avoidBoxedIn = 0,
+		trunkContacts = 0,
+		runSeconds = 0,
 	}
 
 	self.Despawned = self._signal.Event
@@ -3791,7 +3874,7 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 		end,
 	}
 
-	table.insert(self._boars, {
+	local entry = {
 		id = id,
 		body = body,
 		brain = brain,
@@ -3820,7 +3903,15 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 		-- sounderId and slot stay nil for a lone boar, which is what makes obs.sounder nil and
 		-- every existing code path apply to it unchanged.
 		awayFor = 0,
-	})
+		-- TASK 167: the sweep fan's held answer and when it was last measured, and the distinct
+		-- things this animal has been counted as touching while running.
+		avoidDeg = nil :: number?,
+		avoidAt = nil :: number?,
+		contacts = nil :: { [Instance]: boolean }?,
+		contactConn = nil :: RBXScriptConnection?,
+	}
+	table.insert(self._boars, entry)
+	self:_watchContacts(entry, config)
 	self._stats.spawned += 1
 
 	-- A WAVE RELEASED JUST AFTER A SHOT ARRIVES RUNNING (task 123 round 3), and one released into a
@@ -4076,6 +4167,11 @@ end
 
 function Runtime:_despawn(entry, index: number, reason: string, position: Vector3)
 	entry.dead = true
+	-- The contact meter's one connection goes with the body it was watching (task 167).
+	if entry.contactConn ~= nil then
+		entry.contactConn:Disconnect()
+		entry.contactConn = nil
+	end
 	Body.destroy(entry.body)
 	table.remove(self._boars, index)
 	if self._world.releasePath then
@@ -4103,6 +4199,111 @@ function Runtime:_despawn(entry, index: number, reason: string, position: Vector
 		wounds = entry.wound.wounds,
 		contributors = entry.wound.contributors,
 	})
+end
+
+-- WHAT A RUNNING ANIMAL ACTUALLY HIT (task 167). Karen has said *"boar hit tree"* on three
+-- playtests running, so the fix needs a number that can be compared between runs -- and a 60 Hz
+-- trace of every animal's clearance is the kind of evidence this project has been burned by. The
+-- engine already knows: `BasePart.Touched` fires on a real collision, and the boar's collision body
+-- is a `CanCollide = true` part in its own collision group (`Body.useCollisionGroup`), so animals do
+-- not touch each other and do not pollute this.
+--   https://create.roblox.com/docs/reference/engine/classes/BasePart#Touched
+--
+-- FOUR THINGS ARE NOT A TRUNK CONTACT: another boar (excluded by the folder as well as by the
+-- collision group), the terrain it is walking on, a person, and anything non-colliding -- the wood is
+-- mostly ferns and leaf cards with `CanCollide = false` (`Boar.defaultWorld`'s own measurement: 4.3 %
+-- of casts hit something against 2.2 % that hit something solid).
+--
+-- ONE PER (ANIMAL, THING) PAIR, and only while the animal is going at `AVOID_FROM_SPEED` or more:
+-- the question is "did a RUNNING animal run into a tree", and an animal that leans on one trunk for
+-- a second is one contact, not sixty frames of one.
+function Runtime:_watchContacts(entry, config)
+	local move = config.MOVE
+	if move == nil or move.COUNT_CONTACTS ~= true then
+		return
+	end
+	local part = entry.body.part
+	if part == nil then
+		return
+	end
+	local seen: { [Instance]: boolean } = {}
+	entry.contacts = seen
+	entry.contactConn = part.Touched:Connect(function(hit: BasePart)
+		if hit == nil or seen[hit] or not hit.CanCollide then
+			return
+		end
+		if hit:IsA("Terrain") or hit.Parent == nil then
+			return
+		end
+		if self._folder ~= nil and hit:IsDescendantOf(self._folder) then
+			return
+		end
+		local model = hit:FindFirstAncestorWhichIsA("Model")
+		if model ~= nil and model:FindFirstChildWhichIsA("Humanoid") ~= nil then
+			return -- a person, or a bot beater: that is a push, not a tree
+		end
+		if flatOf(Body.velocity(entry.body)).Magnitude < move.AVOID_FROM_SPEED then
+			return
+		end
+		seen[hit] = true
+		self._stats.trunkContacts += 1
+	end)
+end
+
+-- THE SWEEP FAN, RATIONED (task 167). Returns the signed degrees the Brain should deflect by, or nil
+-- for "nothing is in the way" -- and the answer is remembered on the entry between evaluations, so
+-- this costs `AVOID_HZ` forward sweeps a second per animal and no more while the road is clear.
+--
+-- IT ANSWERS nil FOR A WALKING ANIMAL, which leaves the nine-stud whiskers and their fixed 55
+-- degrees exactly as task 123 measured them and Karen accepted them: this is for the gaits that have
+-- no time to react.
+--
+-- NO `sweep` SEAM MEANS NO FAN. The DEV arena is flat and empty and every pure spec injects its own
+-- world, so both pay nothing and behave as they did before this task.
+function Runtime:_avoidTurnFor(entry, position: Vector3, nose: Vector3, config): number?
+	local move = config.MOVE
+	if move == nil or move.ENABLED ~= true or move.AVOID_ENABLED ~= true or self._world.sweep == nil then
+		return nil
+	end
+	local speed = flatOf(Body.velocity(entry.body)).Magnitude
+	if speed < move.AVOID_FROM_SPEED then
+		entry.avoidDeg = nil
+		return nil
+	end
+	local now = os.clock()
+	local due = (entry.avoidAt or 0) + 1 / math.max(move.AVOID_HZ, 1)
+	if now < due then
+		return entry.avoidDeg
+	end
+	entry.avoidAt = now
+
+	-- THE EYE IS THE BODY'S MIDDLE, the same origin `Brain.sees` casts from: a sweep from the ground
+	-- would catch every root and ridge the animal walks over.
+	local eye = position + Vector3.new(0, config.BODY_SIZE.Y / 2, 0)
+	local reach = math.clamp(speed * move.AVOID_SECONDS, move.AVOID_MIN_STUDS, move.AVOID_MAX_STUDS)
+	local radius = move.AVOID_RADIUS_STUDS
+	local sweep = self._world.sweep
+	self._stats.avoidCasts += 1
+	if sweep(eye, nose, reach, radius) ~= true then
+		entry.avoidDeg = nil
+		return nil
+	end
+	local turn, casts = Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, entry.brain:avoidSide(), function(degrees: number)
+		return sweep(eye, turnFlat(nose, math.rad(degrees)), reach, radius)
+	end, move.AVOID_CASTS)
+	self._stats.avoidCasts += casts
+	if turn == nil then
+		-- BOXED IN. Say so by leaving the whiskers to it: they turn harder when both sides are
+		-- blocked, and the wedge detector is what clears an animal that is really pinned. This
+		-- function never has to solve a dead end, only not to run into a trunk -- which is
+		-- `Brain.steerAroundTrunk`'s own sentence, kept.
+		entry.avoidDeg = nil
+		self._stats.avoidBoxedIn += 1
+		return nil
+	end
+	entry.avoidDeg = turn
+	self._stats.avoidTurns += 1
+	return turn
 end
 
 function Runtime:step(dt: number)
@@ -4171,6 +4372,14 @@ function Runtime:step(dt: number)
 		-- ceiling for exactly that case, and it lives in Wound.advance with the rest of the model.
 		local moved = (position - entry.lastPosition) * Vector3.new(1, 0, 1)
 		entry.lastPosition = position
+		-- HOW LONG THE POPULATION BEING MEASURED WAS ACTUALLY RUNNING (task 167): the denominator
+		-- for `trunkContacts`, measured off the ground the animal COVERED rather than off the
+		-- setpoint it was given -- a boar pinned against a trunk is told to run and is not running.
+		if config.MOVE ~= nil and config.MOVE.COUNT_CONTACTS == true and dt > 0 then
+			if moved.Magnitude / dt >= config.MOVE.AVOID_FROM_SPEED then
+				self._stats.runSeconds += dt
+			end
+		end
 		local collapse = false
 		if not entry.body.collapsed then
 			-- A carcass has nothing left to run out, and advancing it would allocate and re-freeze a
@@ -4210,6 +4419,16 @@ function Runtime:step(dt: number)
 					left = self._world.probe(position, turnFlat(nose, -sweep), reach),
 					right = self._world.probe(position, turnFlat(nose, sweep), reach),
 				}
+				-- AVOIDANCE BEFORE THE CONTACT, FOR AN ANIMAL AT SPEED (task 167). Karen: *"also
+				-- when boars running sometimes hit the tree"*. The Runtime casts because it owns the
+				-- world seam; `Brain.clearTurnDeg` decides, and the whole of WHY it is a swept fan
+				-- rather than a longer whisker is written there.
+				--
+				-- RATIONED AND HELD: at most `AVOID_HZ` evaluations a second per animal, each
+				-- costing one forward sweep plus up to `AVOID_CASTS` of the fan, and the answer is
+				-- carried on the entry in between -- so the deflection is steady for an eighth of a
+				-- second instead of being re-drawn every frame.
+				whisker.clearDeg = self:_avoidTurnFor(entry, position, nose, config)
 			end
 		end
 
@@ -4426,6 +4645,10 @@ function Runtime:destroy()
 	end
 	for _, entry in ipairs(self._boars) do
 		entry.dead = true
+		if entry.contactConn ~= nil then
+			entry.contactConn:Disconnect() -- task 167's contact meter, one connection per body
+			entry.contactConn = nil
+		end
 		Body.destroy(entry.body)
 		if self._world.releasePath then
 			self._world.releasePath(entry.id)
