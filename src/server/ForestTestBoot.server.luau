@@ -27,6 +27,11 @@ end
 local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+-- THE BOTS THAT FILL THE DRIVE (task 161). Karen plays HERE and she plays SOLO, so this is the world
+-- the feature exists for: without it a drive is one person in an empty wood. A fourth owner, wired
+-- here exactly as the boar runtime and the weapon are -- `Bots` requires no owner and no owner
+-- requires it.
+local Bots = require(ServerScriptService:WaitForChild("Bots"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
 -- THE OUTFIT (task 151). `Match.Body` is the one writer of what a character wears, in this world as
@@ -336,8 +341,50 @@ end
 --             no `spawn`, `spawnSounder` or `clear`. That is what lets the drive SCORE the animals it
 --             does not own -- and what stops `applyClearBoars` wiping the wood at a drive boundary,
 --             because its `if world.boars.clear` is simply false.
+-- THE BOTS (task 161), started BEFORE the drive, because `Match.start` dispatches its first phase
+-- and the drive's `syncBots` runs at the end of it.
+--
+-- FOUR SEAMS IN THIS WORLD, AND THE TWO EXTRA ONES ARE THIS WORLD'S OWN SINGLE READERS: its terrain
+-- climbs 56 studs in 400 and it is mostly ferns and leaf cards with `CanCollide = false`, so
+-- "where is the ground" is `Data.groundAt` and "is there room for a body" is
+-- `ForestTest.roomToStand` -- the same two functions this file already hands to `Markers.setReaders`
+-- and the boar world. A third copy of either would be two definitions of one fact, which is this
+-- project's named failure mode.
+--
+-- `dress` is `Match.Body.dress` -- the ONE owner of what a character wears, in this world as in the
+-- real one -- and `horn` is `Weapon.Horn`'s, with `give` asking the horn's own `carriesFor` so who
+-- carries one is not a new rule, and `blow` being `Horn.blowTool`, the one implementation of what a
+-- blast is. A bot's blast therefore travels the exact wire Karen's `/beater` blast travels, with the
+-- real reach and the real cooldown, and pays nobody (`blowerUserId = nil`).
+Bots.start({
+	dress = Body.dress,
+	dressConfig = Match.CONFIG,
+	horn = {
+		give = function(rig, team)
+			if not HornData.carriesFor(hornOn, team) then
+				return nil
+			end
+			return Weapon.Horn.giveTo(rig)
+		end,
+		blow = Weapon.Horn.blowTool,
+	},
+	groundAt = Data.groundAt,
+	roomToStand = ForestTest.roomToStand,
+	now = function()
+		return os.clock()
+	end,
+})
+
+-- WHAT A BOAR IN THIS WORLD CAN PERCEIVE ABOUT THE BOTS, as ONE injected source (task 161).
+-- `ForestTest.boarThreats` appends it and decides the phantom suppression itself, off that live fact
+-- -- so this root passes no new argument, its `world.threats` closure above is unchanged, and the
+-- phantoms are retired only by the file that invented them.
+ForestTest.setBotThreats(Bots.threats)
+
 Match.start({
 	boars = ForestTest.readOnlyBoars(runtime),
+	-- THE BOTS THAT FILL THIS DRIVE (task 161): a read-only view, the same one `MatchBoot` hands over.
+	bots = Bots.view(),
 	weapon = Weapon,
 	markers = function()
 		return ForestTest.Markers.build(ForestTest.hunterStandX())
@@ -362,6 +409,14 @@ Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
 		print(string.format("[report] drive %d opened (%ds windows)", driveNumber or 1, Data.DRIVE.seconds))
 	elseif phase == "Scoring" then
 		HitLog.closeDrive(os.clock())
+		-- ONE LINE PER DRIVE SAYING WHAT THE BOTS DID (task 161), on the same channel and for the
+		-- same reason as `[wave]` and `[rest]` above: the module never prints, a tool that `require`s
+		-- it over StudioMCP gets a sandboxed copy with empty state (measured, task 122), and "the
+		-- bots walked fine" is the kind of claim that needs numbers beside it. It carries the two
+		-- nothing else can answer -- the step's own cost, because the vendor's performance page has
+		-- no numbers in it at all, and the walk's own seconds, because a drive now ENDS when the line
+		-- is through.
+		print(Bots.report(driveNumber or 1))
 	end
 end)
 

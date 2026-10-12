@@ -23,6 +23,11 @@ local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+-- THE BOTS THAT FILL THE DRIVE (task 161). A fourth owner, wired here exactly as the boar runtime
+-- and the weapon are: `Bots` requires no owner and no owner requires it. The drive is handed a narrow
+-- VIEW of it (`Bots.view()`), the `ForestTest.readOnlyBoars` idiom -- no `step`, no `start`, no rig
+-- and no setter.
+local Bots = require(ServerScriptService:WaitForChild("Bots"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 -- THE HIT RECORD (task 124). Wired here for the same reason the boar runtime and the weapon are:
 -- `HitLog` requires neither of them and neither requires it. `Match.PhaseChanged` is the record's
@@ -190,12 +195,64 @@ end)
 Weapon.Horn.start()
 print(string.format("[MatchBoot] horn=%s", if hornOn then "on" else "off (born dark, task 152)"))
 
+-- THE BOTS (task 161), started BEFORE the drive, because `Match.start` dispatches its first phase
+-- and `syncBots` runs at the end of it.
+--
+-- TWO SEAMS AND NOTHING ELSE. `dress` is `Match.Body.dress`, so a rig is dressed by the ONE owner of
+-- what a character wears, with the drive's own config -- no second dressing path and no copy of the
+-- outfit rows. `horn` is `Weapon.Horn`'s, and WHO may carry one is not a new rule: `give` asks
+-- `HornData.carriesFor(hornOn, team)`, the same pure function and the same single boundary read of
+-- the same flag that decides for a player, so with `HORN` off a bot beater carries nothing and blows
+-- nothing. `blow` is `Horn.blowTool`, the ONE implementation of what a blast is -- one cooldown
+-- table, one measured cut of the asset, one `Blown` signal -- so a bot's blast travels the exact wire
+-- a player's does, carrying `blowerUserId = nil`, which `Match.creditPush` already refuses.
+--
+-- NO `groundAt` AND NO `roomToStand` IN THIS WORLD: the arena is flat at one `groundY` and has no
+-- trunks, so a lane point keeps its base's Y and every point is clear -- which is this world exactly.
+-- The Forest Test injects both (its own single readers), because its terrain climbs 56 studs in 400.
+Bots.start({
+	dress = Match.Body.dress,
+	-- `Match.CONFIG` AND NOT `Match.config()`: the outfit's own switch (`OUTFITS_ENABLED`) is a
+	-- FLAG-derived key and is deliberately not on `Match.WORLD_OVERRIDABLE`, so the frozen defaults
+	-- are the one answer to "is anybody dressed" in either world -- and this line runs before
+	-- `Match.start`, where the live config is still that same table by identity.
+	dressConfig = Match.CONFIG,
+	horn = {
+		give = function(rig, team)
+			if not HornData.carriesFor(hornOn, team) then
+				return nil
+			end
+			return Weapon.Horn.giveTo(rig)
+		end,
+		blow = Weapon.Horn.blowTool,
+	},
+	now = function()
+		return os.clock()
+	end,
+})
+
 Match.start({
 	boars = runtime, -- the Match calls spawn/clear and reads handles; it never writes a boar
 	-- The weapon, for two things and nothing else: refreshArming (the Tool is granted or revoked by
 	-- its own owner) and SafetyViolated, the signal the drive judges (design sections 8.2, 8.5).
 	weapon = Weapon,
+	-- THE BOTS THAT FILL THIS DRIVE (task 161): a read-only view. The drive asks it four things at
+	-- its own phase boundaries (fill, go, gather, clear) and reads two (who the bot beaters are, and
+	-- what a boar can perceive). It owns no rig and has no clock of its own for them.
+	bots = Bots.view(),
 	now = function()
 		return os.clock()
 	end,
 })
+
+-- ONE LINE PER DRIVE SAYING WHAT THE BOTS DID (task 161), printed by the root because the module
+-- never prints: a tool that `require`s it over StudioMCP gets a sandboxed copy with empty state
+-- (measured, task 122), so the server's own console is the only honest channel. It carries the two
+-- numbers nothing else can answer -- the step's own cost, because the vendor's performance page has
+-- no numbers in it at all, and the walk's own seconds, because the drive now ends when the line is
+-- through.
+Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
+	if phase == "Scoring" then
+		print(Bots.report(driveNumber or 1))
+	end
+end)

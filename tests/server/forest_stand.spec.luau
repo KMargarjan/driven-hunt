@@ -710,4 +710,107 @@ return function()
 			)
 		end)
 	end)
+
+	describe("the bots replace the phantom beaters (task 161)", function()
+		-- ONE PUSH SOURCE. This world invents a phantom beater 11 studs behind each herd, and a body
+		-- Karen can SEE must not push at the same time as a position nobody is standing on -- or the
+		-- thing she is watching is not the cause of what the animals do.
+		--
+		-- THE SOURCE IS INJECTED, so this spec drives both states with a table and the phantoms come
+		-- straight back when it is cleared. `ForestTestBoot` sets it to `Bots.threats`; in the DEV
+		-- place nothing sets it at all, which is the `nil` case below.
+		local BOT_BEATER = { id = "bot-beater-1", position = Vector3.new(3030, 140, -1850), kind = "driver" }
+		local BOT_HUNTER = { id = "bot-hunter-1", position = Vector3.new(3030, 142, -2100), kind = "shooter" }
+
+		afterEach(function()
+			ForestTest.setBotThreats(nil)
+		end)
+
+		it("answers no bots at all until a world injects a source", function()
+			ForestTest.setBotThreats(nil)
+			expect(#ForestTest.botThreats()).to.equal(0)
+		end)
+
+		it("puts a bot beater into the one list that says who is pushing", function()
+			local before = #ForestTest.realBeaters()
+			ForestTest.setBotThreats(function()
+				return { BOT_BEATER, BOT_HUNTER }
+			end)
+			local after = ForestTest.realBeaters()
+			expect(#after).to.equal(before + 1) -- the beater, not the hunter
+			local found = false
+			for _, beater in ipairs(after) do
+				if beater.id == BOT_BEATER.id then
+					found = true
+					expect(beater.position).to.equal(BOT_BEATER.position)
+				end
+			end
+			expect(found).to.equal(true)
+			-- THAT LIST IS THE DOOR. `spookNearBeaters` reads exactly it, so a bot's walk flushes a
+			-- file through the same rule a player's walk does, with no second push mechanism.
+		end)
+
+		it("silences the phantoms while a bot beater is pushing, and brings them back when it is not", function()
+			local now = os.clock()
+			ForestTest.setBotThreats(function()
+				return { BOT_BEATER }
+			end)
+			local withBots = ForestTest.boarThreats(now)
+			local phantoms, bots = 0, 0
+			for _, threat in ipairs(withBots) do
+				if (threat :: any).phantom == true then
+					phantoms += 1
+				end
+				if threat.id == BOT_BEATER.id then
+					bots += 1
+					-- NO MARK: somebody IS standing there, which is what makes `Boar.CONFIG.PACE`'s
+					-- real-driver branch apply -- the whole point of a visible beater.
+					expect((threat :: any).phantom).to.equal(nil)
+				end
+			end
+			expect(phantoms).to.equal(0)
+			expect(bots).to.equal(1)
+
+			-- A BOT HUNTER DOES NOT SILENCE THEM: it is not pushing anything.
+			ForestTest.setBotThreats(function()
+				return { BOT_HUNTER }
+			end)
+			local hunterOnly = ForestTest.boarThreats(now)
+			local stillThere = false
+			for _, threat in ipairs(hunterOnly) do
+				if threat.id == BOT_HUNTER.id then
+					expect(threat.kind).to.equal("shooter")
+				end
+			end
+			-- ...and with the source cleared the file is this file before task 161, by every branch.
+			ForestTest.setBotThreats(nil)
+			local plain = ForestTest.boarThreats(now)
+			for _, threat in ipairs(plain) do
+				if string.find(threat.id, "bot%-") then
+					stillThere = true
+				end
+			end
+			expect(stillThere).to.equal(false)
+			TestKit.note(
+				string.format(
+					"forest-bots: threats with a bot beater=%d (phantoms=0), with a bot hunter=%d, with none=%d",
+					#withBots,
+					#hunterOnly,
+					#plain
+				)
+			)
+		end)
+
+		it("survives a source that errors, rather than taking the whole threat list down with it", function()
+			ForestTest.setBotThreats(function(): any
+				error("the bots are on fire")
+			end)
+			expect(#ForestTest.botThreats()).to.equal(0)
+			-- ...and the phantoms are therefore NOT silenced: no bot is pushing, so the push does not
+			-- gap. That is the same reason the rule reads a live fact instead of a boolean.
+			expect(function()
+				ForestTest.boarThreats(os.clock())
+			end).never.to.throw()
+		end)
+	end)
 end

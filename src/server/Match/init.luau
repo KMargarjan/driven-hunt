@@ -40,8 +40,25 @@
 --     them (`Body.stand`), and the results table on screen -- which is the drive's own score panel
 --     reading the snapshot this owner already broadcasts. There is no second score and no new remote.
 --
--- Design: docs/design/drive.md
--- Note:   docs/research/2026-09-25-drive.md, docs/research/2026-10-12-drive-end-and-results-scene.md
+-- TASK 161 FILLED THE DRIVE WITH BOTS, and this owner gained no rig and no clock for it. Karen's v1
+-- rule: *"Let's make 4 hunters 4 beaters"*, and she plays solo. `ServerScriptService.Bots` owns every
+-- rig, its movement and its horn; this owner is injected with a narrow VIEW of it (`world.bots`, the
+-- `ForestTest.readOnlyBoars` idiom) and asks it four things at its own phase boundaries -- fill,
+-- go, gather, clear -- plus two readings: who the bot beaters are, and what a boar can perceive.
+-- A world that injects no `bots` is this file before task 161, by every branch.
+--
+-- WHAT THE BOTS CHANGED INSIDE THIS FILE, and it is deliberately small: `Match.CONFIG.BOTS` (the one
+-- flag read and the targets), `Match.beaterCrossing` counts the bot beaters into the LINE so a SOLO
+-- beater no longer ends a drive by herself (Karen's own complaint, TASKS.md 159a(f)),
+-- `Match.boarThreats` appends them as real bodies with no `phantom` mark, `applyScene` widens the
+-- ring so they stand round the animals too, and `syncBots` is the one level-triggered call site.
+-- `Phase` learns NOTHING about bots -- `beatersThrough` still only compares two numbers -- and
+-- `Match.driverThreats`, `playerDrivers`, `samplePush`, `pushCreditable` and `Penalty` are untouched,
+-- because a bot has no userId and all five are keyed by one.
+--
+-- Design: docs/design/drive.md, docs/design/bots.md
+-- Note:   docs/research/2026-09-25-drive.md, docs/research/2026-10-12-drive-end-and-results-scene.md,
+--         docs/research/2026-10-12-bots.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -141,6 +158,39 @@ Match.CONFIG = {
 		LIGHT_BRIGHTNESS = 4,
 		LIGHT_RANGE_STUDS = 60,
 	},
+	-- ------------------------------------------------------------ the bots (task 161)
+	--
+	-- HOW MANY BODIES A DRIVE HAS, AND WHETHER ANY OF THEM ARE FAKE. Karen's v1 rule, 2026-10-11:
+	-- *"Let's make 4 hunters 4 beaters"* -- and she plays SOLO, so without this a drive is one person
+	-- in an empty wood. Every slot no real player fills is a visible R15 rig: a beater in the orange
+	-- vest walking the wood and blowing the real horn, a hunter standing on a free stand.
+	--
+	-- THIS TABLE IS "HOW MANY AND WHETHER", WHICH IS THE DRIVE'S QUESTION. How a bot BEHAVES -- its
+	-- pace, its lanes, its horn rhythm, its own clock -- is `Bots.CONFIG`, because it is the bots'
+	-- question. Two tables, disjoint facts: the split `Match.CONFIG.SOUNDER` and `Boar.CONFIG.SOUNDER`
+	-- already have.
+	--
+	-- `ENABLED` IS THE ONLY PERMITTED SHAPE for a flagged value: one read, at this boundary, passed
+	-- inward as `config` -- so `Bots.Fill.counts` drives both states from a table while the flag
+	-- itself sits at OFF. BOTS is a nested TABLE and `Match.mergeConfig` refuses tables, so it is not
+	-- on `Match.WORLD_OVERRIDABLE` and no world can give it a second value.
+	-- Flag: docs/design/feature-flags.md. Design: docs/design/bots.md section 13.
+	BOTS = {
+		ENABLED = Flags.isOn("DRIVE_BOTS"),
+		-- K, Karen's sentence taken literally. A target of 0 for a side is that side off, which is
+		-- ioquake3's own `bot_minplayers <= 0` switch per team rather than a second boolean.
+		TARGET = { hunters = 4, beaters = 4 },
+		-- The two targets summed: a ceiling that holds whatever the targets say. `bots_fill.spec`
+		-- asserts `TARGET.hunters + TARGET.beaters <= MAX_BOTS`, the
+		-- `MAX_ALIVE_BOARS >= SOUNDER.MAX_SIZE` idiom -- so the trim inside `Fill.counts` is
+		-- unreachable with the shipped numbers as a CHECKED claim, not as a coincidence.
+		MAX_BOTS = 8,
+		-- HOW FAR PAST THE HUNTERS' LINE A BOT BEATER WALKS. Twice `BEATER_CROSS_MARGIN_STUDS`, so a
+		-- bot that reaches its goal has crossed WITH MARGIN and the drive's end does not turn on one
+		-- stud of float error.
+		GOAL_PAST_LINE_STUDS = 20,
+	},
+
 	-- DIRECTOR DECISION F (audit-003 must-fix 1), Milestone 1 only: ONE player is a drive. A solo
 	-- player is a SHOOTER and is armed, so the harness's single Play player keeps its gun and the
 	-- weapon and camera client specs stay green. Raise to 2 before release.
@@ -549,6 +599,13 @@ local stats = {
 	scenesNowhere = 0,
 	sceneAnimals = 0,
 	sceneMoved = 0,
+	-- THE BOTS (task 161), and these two are the gap that makes a failure visible: how many rigs the
+	-- drive asked for at this boundary, and how many of them the results scene actually stood in the
+	-- ring. A build that failed is `botsWanted > botsFilled`, not silence.
+	botsWanted = 0,
+	botsFilled = 0,
+	botSyncs = 0,
+	sceneBotsMoved = 0,
 	violations = 0,
 	safetySignalMissing = 0,
 	-- The release, counted three ways, because "six boars were released" can now mean two sounders
@@ -1074,13 +1131,23 @@ local function applyScene()
 	stats.sceneAnimals += Scene.build(spot, facing, driveKills, config)
 
 	-- EVERYBODY STANDING ROUND THEM, in roster order so the ring is the same ring every drive.
+	--
+	-- ...AND THE BOTS ARE IN IT (task 161). Karen: *"all they standing around the animals"* -- with
+	-- one real player that was a ring of one, and the bots that walked the drive are the rest of the
+	-- people who were in it. The ring is widened by the rig COUNT, players take slots 1..#ids exactly
+	-- as they did, and the bots take what is left: `Scene.ringLayout` already took a count, so this
+	-- is one argument and one call, and `Body.stand` is still the only thing that moves a PLAYER.
 	local ids = Phase.participantIds(state)
-	local ring = Scene.ringLayout(spot, #ids, config)
+	local botCount = Match.botCount()
+	local ring = Scene.ringLayout(spot, #ids + botCount, config)
 	for index, userId in ipairs(ids) do
 		local player = playersService():GetPlayerByUserId(userId)
 		if player and ring[index] and Body.stand(player, ring[index]) then
 			stats.sceneMoved += 1
 		end
+	end
+	if botCount > 0 and world and world.bots then
+		stats.sceneBotsMoved += world.bots.gather(ring, #ids + 1)
 	end
 end
 
@@ -1124,6 +1191,81 @@ local function applyEffects(effects)
 			-- client showing the wrong drive (Phase.enterAssigning).
 			broadcast(effect.force == true)
 		end
+	end
+end
+
+-- ------------------------------------------------------------------ the bots (task 161)
+--
+-- LEVEL-TRIGGERED AND IDEMPOTENT, called once at the end of every `dispatch` AFTER `applyEffects` --
+-- the `Horn.refreshCarry` / `Weapon.refreshArming` discipline, because every edge-triggered grant in
+-- this repo has been measured missing one. It reads the phase, this drive's roster and the marker
+-- set, and does exactly one thing per phase:
+--
+--   Waiting    clear. No drive, no roster, nothing to fill -- and a server that empties out is not
+--              left with eight rigs standing in the wood (`enterWaiting`'s own `clearScene` reason).
+--   Assigning  fill. The roster for THIS drive has just been decided by `Roster.assign`, which is
+--              ioquake3's *"if (level.intermissiontime) return"* read forwards: never fill while the
+--              roster is unknown. Every rig is rebuilt here, so a bot cannot be left on a stand a
+--              real hunter now owns.
+--   Running    the same fill, and GO. A join, a leave or a `Match.requestTeam` inside the drive
+--              changes a side's real count, and the fill is symmetric -- one call site for all four
+--              events. `go()` is what releases the walkers, which is how a bot is "held through the
+--              countdown exactly as a player is" without ever touching `Body`'s userId-keyed `held`.
+--   Scoring    nothing. The rigs are already standing in the ring, moved by `applyScene`'s `gather`
+--              inside this same dispatch; the next `Assigning` rebuilds them from scratch.
+--
+-- AFTER `applyEffects`, NOT BEFORE: `placePlayers` respawns the real players in that list, and the
+-- fill has to be measured against the roster the drive has just applied rather than against the one
+-- it is leaving.
+local function syncBots()
+	if not (world and world.bots) then
+		return
+	end
+	-- OFF MEANS NOT ONE CALL, which is the strongest form of "today's game bit for bit": with the
+	-- flag off this function returns here on every dispatch, so nothing is built, nothing is
+	-- destroyed, and `Bots` is never even asked a question. The flag is resolved once per process
+	-- (`Flags`), so this cannot change mid-session and leave rigs behind.
+	if config.BOTS.ENABLED ~= true then
+		return
+	end
+	local bots = world.bots
+	local phase = state.phase
+	if phase == "Waiting" then
+		bots.clear()
+		stats.botsWanted = 0
+		stats.botsFilled = 0
+		return
+	end
+	if phase ~= "Assigning" and phase ~= "Running" then
+		return
+	end
+	stats.botSyncs += 1
+	local counts = Roster.counts(state.assignment)
+	local real = { hunters = counts.Shooters or 0, beaters = counts.Drivers or 0 }
+	local posts = if markerSet then markerSet.posts else nil
+	-- HOW MANY STANDS NO REAL HUNTER IS ON. `nil` means "this caller did not measure the stands"
+	-- (the pure specs and any world with no post list), which is NOT the same fact as "there are no
+	-- stands" -- so only a real number clamps. The subtraction is `Bots.Fill.standsFree`'s and is
+	-- reached through the view, because this owner must not require that one.
+	local standsFree = if posts ~= nil then bots.standsFree(#posts, real.hunters) else nil
+	local want = bots.fillCounts(real, config, standsFree)
+	stats.botsWanted = want.hunters + want.beaters
+	if want.hunters + want.beaters == 0 then
+		-- NOT A NO-OP: the flag may have gone off, or real players may have taken every slot, and
+		-- the fill is symmetric. An empty slot list is what hands the bodies back.
+		bots.fill({}, nil)
+		stats.botsFilled = 0
+	else
+		-- THE SAME PLACEMENT SEAM `applyPlace` USES, with the same default and the same argument
+		-- order -- so a bot stands where this world says a player of that team stands, and there is
+		-- one answer to "where does a hunter stand" rather than two.
+		local place = if world.placement then world.placement else Body.placementFor
+		local slots = Match.botSlotsFor(markerSet, place, real, want, config)
+		local made = bots.fill(slots, nil)
+		stats.botsFilled = made.hunters + made.beaters
+	end
+	if phase == "Running" then
+		bots.go()
 	end
 end
 
@@ -1208,6 +1350,7 @@ local function dispatch(event)
 	end
 
 	applyEffects(effects)
+	syncBots()
 	if state.phase ~= before or state.driveNumber ~= driveBefore then
 		phaseSignal:Fire(before, state.phase, state.driveNumber)
 	end
@@ -1258,12 +1401,31 @@ end
 -- the road 600 studs along it would be nowhere near the plane. The stands stand ON the road, so the
 -- nearest one sideways is where the line really is for this beater. With no posts at all the plane's
 -- own position is the reference, which is exactly the DEV arena's straight line.
+--
+-- THE REFERENCE AND THE NORMAL ARE `Match.lineReferenceFor`'S, FACTORED OUT IN TASK 161 and not
+-- reimplemented: `Match.beaterGoalFor` has to answer the same question from the other side ("walk to
+-- 20 studs PAST the line"), and two readings of "where is the line for this beater" would be exactly
+-- the drift this project is a document about. This function's behaviour and signature are unchanged.
 function Match.crossedLine(position: Vector3?, line, posts, marginStuds: number?): boolean
-	if typeof(position) ~= "Vector3" or not (line and typeof(line.normal) == "Vector3") then
+	local reference, normal = Match.lineReferenceFor(position, line, posts)
+	if reference == nil or normal == nil then
 		return false
 	end
+	return ((position :: Vector3) - (reference :: Vector3)):Dot(normal :: Vector3) <= -(marginStuds or 0)
+end
+
+-- WHERE THE HUNTERS' LINE IS, FOR THIS BEATER: the stand nearest him LATERALLY and the line's own
+-- unit normal, or `(line.position, normal)` when there are no posts -- which is exactly the DEV
+-- arena's straight line. `nil, nil` when there is no line to measure from.
+--
+-- PURE, and the one answer to that question: `Match.crossedLine` asks it to decide whether a beater
+-- is through, and `Match.beaterGoalFor` asks it to decide where a bot beater walks TO.
+function Match.lineReferenceFor(position: Vector3?, line, posts): (Vector3?, Vector3?)
+	if typeof(position) ~= "Vector3" or not (line and typeof(line.normal) == "Vector3") then
+		return nil, nil
+	end
 	if line.normal.Magnitude < 1e-4 or typeof(line.position) ~= "Vector3" then
-		return false
+		return nil, nil
 	end
 	local normal = line.normal.Unit
 	local at = position :: Vector3
@@ -1281,7 +1443,21 @@ function Match.crossedLine(position: Vector3?, line, posts, marginStuds: number?
 			end
 		end
 	end
-	return (at - reference):Dot(normal) <= -(marginStuds or 0)
+	return reference, normal
+end
+
+-- WHERE A BOT BEATER WALKS TO (task 161): `marginStuds` past the reference above, along the normal,
+-- at the reference's own Y -- so arriving at the goal means CROSSED with margin and the drive's end
+-- is not a coin flip on one stud. PURE; `nil` when there is no line.
+--
+-- IT MEASURES FROM `from`, the lane's own start, for the same reason `crossedLine` does: the stand
+-- this beater is walking at is the only honest reference on a curved road.
+function Match.beaterGoalFor(from: Vector3?, line, posts, marginStuds: number?): Vector3?
+	local reference, normal = Match.lineReferenceFor(from, line, posts)
+	if reference == nil or normal == nil then
+		return nil
+	end
+	return (reference :: Vector3) + (normal :: Vector3) * -(marginStuds or 0)
 end
 
 -- WHERE THE ANIMALS ARE GATHERED AND WHICH WAY THE SCENE FACES (task 159). PURE, and one rule for
@@ -1351,6 +1527,16 @@ function Match.boarThreats()
 		-- the same reason -- `Boar.CONFIG.PACE` runs a herd from a REAL driver this close, and there
 		-- is nobody standing on this one.
 		table.insert(out, { id = "quick-test", position = phantom, kind = "driver", phantom = true })
+	end
+	-- ...AND THE BOTS, EACH WITH ITS OWN KIND AND NO `phantom` MARK (task 161). The mark exists to
+	-- tell `Boar.CONFIG.PACE` that a "driver" this close is NOBODY; a bot is somebody standing there,
+	-- which is the whole point of a visible beater. A bot hunter is a `shooter`, exactly as
+	-- `Body.boarStimuli` maps a real one -- noticed at 25 studs, flushing only at 15 -- so a boar can
+	-- still come down the corridor to the line.
+	if world and world.bots then
+		for _, threat in ipairs(world.bots.threats()) do
+			table.insert(out, threat)
+		end
 	end
 	return out
 end
@@ -1442,8 +1628,25 @@ end
 -- it: it is keyed by userId, so the quick test's phantom and the forest's wave beaters -- which carry
 -- non-numeric ids -- are filtered out by `Match.playerDrivers` and can never end a drive. Karen's
 -- rule is about the people walking up.
+--
+-- ...AND SINCE TASK 161 THE LINE IS REAL BEATERS PLUS BOT BEATERS, which is the fix for Karen's own
+-- open complaint (TASKS.md 159a(f)): with only real beaters counted, a SOLO beater ends the drive the
+-- moment she crosses the road. Her rule is *"Timer or when all beaters cross line of hunters"*, and
+-- with a line of bots walking beside her *"all beaters"* is the LINE -- so she crossing first ends
+-- nothing and the drive ends when the last of the line is past.
+--
+-- A BOT IS COUNTED HERE AND NOWHERE ELSE, and that asymmetry is the design: `driverPositions` --
+-- which the safety rule and push credit read -- still means "a driver who is a person", because a bot
+-- has no userId and `Match.playerDrivers` filters it out by exactly that. This function asks a
+-- different question ("how long is the beater line and how much of it is through"), so it asks the
+-- bots directly and measures them with the SAME `Match.crossedLine` predicate.
 function Match.beaterCrossing(): (number, number)
 	local beaters = driverPositions()
+	if world and world.bots then
+		for _, bot in ipairs(world.bots.beaters()) do
+			table.insert(beaters, bot)
+		end
+	end
 	local line = if markerSet then markerSet.line else nil
 	local posts = if markerSet then markerSet.posts else nil
 	local across = 0
@@ -1453,6 +1656,78 @@ function Match.beaterCrossing(): (number, number)
 		end
 	end
 	return #beaters, across
+end
+
+-- HOW MANY BOT RIGS EXIST, read-only, for the report and for a spec. 0 with no bots injected, which
+-- is every DEV drive with the flag off and every pure spec.
+function Match.botCount(): number
+	if world and world.bots then
+		return world.bots.count()
+	end
+	return 0
+end
+
+-- THE SLOT LIST, WHICH IS THE WHOLE OF WHAT THE DRIVE TELLS THE BOTS (task 161). PURE given
+-- `place`, so `bots_lane.spec` drives it with hand-written posts and a hand-written placement
+-- function -- no markers, no world and no rig.
+--
+-- `Bots` NEVER READS A MARKER, A TAG OR A PLAYER. This is the one translation between the drive's
+-- geometry and a bot: an id, a team, where it starts, and (for a beater) where it walks to.
+--
+-- A BOT HUNTER GETS A POST OF ITS OWN, by asking `place` for the index AFTER the real hunters --
+-- which in the Forest Test is `ForestTest.standIndexFor`'s centre-out order, so the bots take the
+-- stands beside the player's rather than the far end of the road.
+--
+-- THE BOT BEATERS SHARE ONE BASE, taken ONCE from `place`, and `Bots.Lane` spreads them from it.
+-- That is deliberate: this world's own beater placement is a single MEASURED point (the forest reads
+-- the ground and the trunks for it) and asking for it four times would be four measurements of one
+-- fact. The lane offsets are along the base's own `RightVector`, so a sine road carries the whole
+-- line with it, and lane 0 is left empty for the people.
+function Match.botSlotsFor(markers, place, real, want, cfg): { any }
+	local slots = {}
+	if place == nil then
+		return slots
+	end
+	for index = 1, (want.hunters or 0) do
+		local at = place(markers, "Shooters", (real.hunters or 0) + index, cfg)
+		if at ~= nil then
+			table.insert(slots, {
+				id = string.format("bot-hunter-%d", index),
+				team = "Shooters",
+				from = at,
+				to = nil,
+				lane = 0,
+			})
+		end
+	end
+	local wantBeaters = want.beaters or 0
+	if wantBeaters > 0 then
+		local base = place(markers, "Drivers", (real.beaters or 0) + 1, cfg)
+		if base ~= nil then
+			local line = if markers then markers.line else nil
+			local posts = if markers then markers.posts else nil
+			local baseGoal = Match.beaterGoalFor((base :: CFrame).Position, line, posts, cfg.BOTS.GOAL_PAST_LINE_STUDS)
+			for lane = 1, wantBeaters do
+				-- THE BASE AND THE LANE NUMBER, NOT THE LANE'S OWN POINT. Spreading the line is
+				-- `Bots.Lane`'s job and the spacing is `Bots.CONFIG`'s number, and THIS OWNER MUST
+				-- NOT REQUIRE THAT ONE: no owner requires another owner (the rule both composition
+				-- roots are written to). So the drive states the measured base and which lane this
+				-- bot is, and the bots lay the line out.
+				--
+				-- NO LINE MEANS NO WALK, NOT A WALK TO NOWHERE: `to = nil` makes a bot beater a
+				-- stander on the start line. A world whose markers have no drive line is a fact
+				-- about the world, which is the shape `applyPlace` and `applyScene` already have.
+				table.insert(slots, {
+					id = string.format("bot-beater-%d", lane),
+					team = "Drivers",
+					from = base,
+					to = baseGoal,
+					lane = lane,
+				})
+			end
+		end
+	end
+	return slots
 end
 
 -- THE WEAPON PUBLISHED A SHOT INTO THE DRIVE; this decides whether it endangered anybody. Four
@@ -1908,6 +2183,11 @@ function Match.stop()
 	applyRelease() -- nobody stays frozen because a spec stopped the match
 	applyFree() -- ...and that includes a beater held at the start line (task 158)
 	applyClearScene() -- ...and no lamp or carcass is left standing in the world (task 159)
+	if world and world.bots then
+		-- ...AND NO BOT (task 161), for exactly the same reason: a spec that stops the drive must not
+		-- leave eight rigs standing in the wood for the next one to find.
+		world.bots.clear()
+	end
 	-- ...AND THE WORLD'S NUMBERS GO WITH THE WORLD. A spec that started a 300-second drive must not
 	-- leave the next require of this singleton reading 300.
 	config = Match.CONFIG

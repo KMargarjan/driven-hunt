@@ -1,7 +1,22 @@
 --!strict
--- Match.Body: the only writer of a player's TEAM and of where their character stands. Named after
+-- Match.Body: the only writer of a PLAYER's TEAM and of where their character stands. Named after
 -- Boar/Body.luau, which has exactly this role for the boar: the module that touches Instances so
 -- that nothing else in the system has to.
+--
+-- THE BOUNDARY IS THE PLAYER, AND SINCE TASK 161 THAT WORD IS LOAD-BEARING. `ServerScriptService.Bots`
+-- is the only writer of a BOT RIG's Instances -- its `WalkSpeed`, its `Anchored` and its `CFrame` --
+-- so the older reading of this sentence ("the only writer of WalkSpeed in src/, grepped", task 158)
+-- is restated here rather than left standing to be found false:
+--   * THIS module owns a PLAYER's character: its team, its position, its freeze, its clothes, and the
+--     one `held` table, which is keyed by userId and which a bot therefore cannot even appear in.
+--   * `Bots.Rig` owns a BOT's body. It never calls `Body.place`, `Body.hold`, `Body.stand`,
+--     `Body.tie` or `Body.dressWhenLoaded` -- all five take a `Player`.
+--   * THE ONE THING THEY SHARE IS THE OUTFIT, AND IT IS THIS MODULE'S. `Body.dress` takes a `Model`,
+--     not a `Player`, so a bot rig is dressed by the one owner of dressing through the seam
+--     `Bots.start{ dress = Match.Body.dress }` -- one dressing path, no copy of the outfit rows.
+--     The accepted side effect, stated rather than discovered: `Body.accessoriesWorn()`,
+--     `Body.slotsFellBack()` and `Body.repaints()` now count bots as well as players, and
+--     `Bots.stats()` counts its own dressings separately so the two questions stay separable.
 --
 -- It decides NOTHING. Every team, every position and every timing arrives as an argument.
 --

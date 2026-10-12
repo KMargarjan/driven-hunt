@@ -700,6 +700,10 @@ BLAST_RADIUS = (
     ("src/server/ForestTest/", "match"),
     ("src/shared/ForestTest/", "match"),
     ("src/server/ForestTestBoot.server.luau", "match"),
+    # The bots that fill the drive (task 161): their own scope, because `Bots` is its own owner with
+    # its own clock -- and the three specs below are in the `match` tuple as well, because
+    # `src/server/Match/` is what calls the view and is what can break it.
+    ("src/server/Bots/", "bots"),
     ("src/server/Boar/", "boar"),
     ("src/server/BoarAssetsBoot.server.luau", "boar"),
     ("src/shared/Map/", "map"),
@@ -751,10 +755,19 @@ SCOPE_SPECS = {
               # Task 159: the end of a drive and the results scene -- the crossing predicate, the
               # gathering spot and the scene's layout, all of it `src/server/Match/`'s.
               "tests/server/match_scene.spec.luau",
+              # Task 161: the drive calls `world.bots` at its own phase boundaries and
+              # `Match.beaterCrossing` counts the bot beaters into the line, so a `src/server/Match/`
+              # edit plays the bots' specs too. The dual membership `zz_horn`, `boar_hit` and
+              # `shoot_boar` already use.
+              "tests/server/bots_fill.spec.luau", "tests/server/bots_lane.spec.luau",
+              "tests/server/bots_live.spec.luau",
               "tests/server/match_safety.spec.luau", "tests/server/match_score.spec.luau",
               "tests/server/match_teams.spec.luau", "tests/server/zz_drive_boundary.spec.luau",
               "tests/client/match_client.spec.luau", "tests/client/outfit_client.spec.luau",
               "tests/client/zz_tie_to_a_tree.spec.luau"),
+    # The bots (task 161): the fill arithmetic, the lane geometry, and the rigs themselves.
+    "bots": ("tests/server/bots_fill.spec.luau", "tests/server/bots_lane.spec.luau",
+             "tests/server/bots_live.spec.luau"),
     "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau"),
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).

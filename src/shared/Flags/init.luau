@@ -238,6 +238,30 @@ Flags.DEFAULTS = {
 		why = "The whole game is first person: the gun is carried low-left and aimed down the rib at the "
 			.. "bead, with no crosshair. OFF is the accepted over-the-shoulder third person with ADS.",
 	} :: FlagRow,
+	DRIVE_BOTS = {
+		-- BORN OFF on 2026-10-12 (task 161). Karen's v1 rule: "Let's make 4 hunters 4 beaters", and
+		-- she plays SOLO -- so a drive with one person in it is one person in an empty wood. ON, every
+		-- slot no real player fills is a visible R15 rig: beaters in the orange vest walking the wood
+		-- abreast and blowing the real horn, hunters standing on the free stands.
+		--
+		-- IT IS BORN OFF BECAUSE IT CHANGES WHEN A DRIVE ENDS, which is the loudest thing in it: with
+		-- a line of bots walking, "all beaters are through" is the LINE, so a 240-stud walk at 9
+		-- studs/s ends a Forest Test drive at about 0:29 against its 300-second clock
+		-- (docs/design/bots.md section 5.2 has the arithmetic). That is Karen's own two sentences
+		-- composed and it is a FEEL number, so it waits for her eye behind this row.
+		default = false,
+		-- The owner is the module that READS it at its boundary (`Match.CONFIG.BOTS.ENABLED`) and
+		-- passes it inward as `config` -- the only permitted shape, and what keeps both branches
+		-- reachable by parameter while the flag sits at one of them. `ServerScriptService.Bots` never
+		-- reads a flag: it is handed the targets.
+		owner = "ServerScriptService.Match",
+		born = "2026-10-12 task 161",
+		expires = "2026-11-02", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "A drive is always 4 hunters and 4 beaters: every slot no real player fills is a visible "
+			.. "R15 bot -- beaters in orange vests walking the wood and blowing the horn, hunters "
+			.. "standing on the stands. OFF is exactly the game before task 161: nobody is built, the "
+			.. "Forest Test's phantom beaters push as they do today, and only real beaters can end a drive.",
+	} :: FlagRow,
 }
 
 -- deepFreeze, REQUIRED and not copied: table.freeze is shallow, and this repo has already paid for
