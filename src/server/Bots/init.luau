@@ -180,6 +180,13 @@ type Bot = {
 	walkStartedAt: number?,
 	gathered: boolean,
 	index: number,
+	-- THE GAIT SAMPLE (task 164): where this bot was at the last step and when, so the step can
+	-- measure the GROUND SPEED it actually made rather than the speed it was told to make. The
+	-- stuck window's own `movedFrom`/`movedAt` pair cannot answer this -- it is re-stamped only
+	-- every `STUCK_SECONDS`, so it measures over four seconds and a gait needs the last fifth of
+	-- one.
+	gaitFrom: Vector3?,
+	gaitAt: number?,
 }
 
 local started = false
@@ -219,9 +226,14 @@ local stats = {
 	-- comes from `StarterCharacterScripts`, which only a PLAYER's character gets -- so without this
 	-- a bot slides upright, which is the first thing Karen would see. These two say whether the
 	-- clips actually loaded, because a `LoadAnimation` that fails must show as a NUMBER rather than
-	-- as a statue nobody can explain.
+	-- as a statue nobody can explain. `clipsFailed` is counted off what `Rig.loadClips` says it
+	-- TRIED, so a clip added there can never make it go negative (task 164).
 	clipsLoaded = 0,
 	clipsFailed = 0,
+	-- THE TOOL POSE (task 164). A bot beater carrying the horn plays Roblox's own `ToolNoneAmin`
+	-- over the gait, exactly as a player's `Animate` does -- without it the horn rides a freely
+	-- swinging arm, which is what the probe measured on every beater in Karen's place.
+	toolPosed = 0,
 	steps = 0,
 	stepMsTotal = 0,
 	stepMsMax = 0,
@@ -319,20 +331,26 @@ local function finishBuild(bot: Bot, model: Model, config, builtAt: number)
 
 	-- THE LEGS (round 2). Loaded once per body, counted either way, and a failure cannot stop the
 	-- bot walking -- it just slides, which is what every bot did before this.
-	local clips, loaded = Rig.loadClips(humanoid)
+	local clips, loaded, tried = Rig.loadClips(humanoid)
 	bot.clips = clips
 	stats.clipsLoaded += loaded
-	-- COUNTED OFF THE TABLE, not off a 2 written here (round 2 note): a third clip would otherwise
-	-- make `clipsFailed` go NEGATIVE, which is a number nobody would believe and nobody would check.
-	local wanted = 0
-	for _ in pairs(Rig.CLIPS) do
-		wanted += 1
-	end
-	stats.clipsFailed += wanted - loaded
-	-- A STANDER IS IDLE FROM THE MOMENT IT EXISTS: it never reaches the step loop's walk branch,
-	-- because only a walker is stepped.
-	if not teamWalks(bot) then
-		Rig.playClip(clips, "idle")
+	-- COUNTED OFF WHAT `Rig.loadClips` TRIED, not off a number written here (round 2's note, and
+	-- task 164 made it structural): the tool clip was the third one, and with a 2 at this call site
+	-- it would have made `clipsFailed` go NEGATIVE -- a number nobody would believe and nobody
+	-- would check.
+	stats.clipsFailed += tried - loaded
+	-- EVERY BOT IS IDLE FROM THE MOMENT IT EXISTS, a walker included, and task 164 is why the
+	-- walker was added. A stander never reaches the step loop's gait branch because only a walker
+	-- is stepped -- but a WALKER does not reach it either until the drive is RELEASED, and that is
+	-- the whole countdown: 15 s (task 163) of four beaters standing on the start line with no clip
+	-- playing at all, arms hanging in the rig's bind pose. Karen sees that at the top of every
+	-- drive, and it costs one line not to.
+	Rig.playClip(clips, "idle")
+
+	-- AND IF IT IS CARRYING SOMETHING, IT HOLDS IT LIKE A PLAYER. After the horn, because the pose
+	-- is about there being a Tool in the hand and `bot.horn` is what says so.
+	if Rig.holdTool(clips, bot.horn ~= nil) then
+		stats.toolPosed += 1
 	end
 
 	bot.movedAt = builtAt
@@ -457,6 +475,8 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 				arrived = false,
 				arrivedAt = nil,
 				walkStartedAt = nil,
+				gaitFrom = nil,
+				gaitAt = nil,
 				gathered = false,
 				index = madeIndex,
 			}
@@ -723,7 +743,31 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand)
 		Rig.playClip(bot.clips, "idle") -- it is standing at the line now, not walking at it
 		return
 	end
-	Rig.playClip(bot.clips, "walk")
+
+	-- THE GAIT, FROM THE GROUND SPEED THIS BOT ACTUALLY MADE (task 164). Karen: *"bots looks odd
+	-- improve waliking"*. Measured in her own Forest Test on 2026-10-12, four beaters were covering
+	-- 4.70-5.00 studs/s while their walk clip ran at rate 1.000 -- the rate for a 6.74 studs/s gait
+	-- (`Rig.GAIT`, every number of it read off the engine's own `Animate` script). So the feet
+	-- turned over 35% faster than the ground went by, which is a slide.
+	--
+	-- MEASURED, NOT ASSUMED, and the difference is the whole point: `config.WALK_SPEED` is what the
+	-- bot was TOLD to walk at, and a bot shouldering a trunk or climbing a slope is not making it.
+	-- Two steps' positions over the gap between them is its real speed, and `Rig.gait` turns that
+	-- into the clip AND the rate -- so a bot that is blocked stands still properly instead of
+	-- churning its legs on the spot, which is the other half of "odd".
+	--
+	-- `config.WALK_SPEED` IS THE FALLBACK FOR THE FIRST STEP ONLY, when there is no previous sample
+	-- to difference. It is the pace it was told to walk at, which is the best answer available
+	-- before it has moved at all.
+	local measured: number? = nil
+	local gaitFrom, gaitAt = bot.gaitFrom, bot.gaitAt
+	if gaitFrom ~= nil and gaitAt ~= nil and at > gaitAt then
+		measured = (here - (gaitFrom :: Vector3)).Magnitude / (at - (gaitAt :: number))
+	end
+	bot.gaitFrom = here
+	bot.gaitAt = at
+	local clip, rate = Rig.gait(measured or config.WALK_SPEED, bot.clips and bot.clips.playing)
+	Rig.playClip(bot.clips, clip, rate)
 
 	-- STUCK: it has not moved `STUCK_STUDS` in `STUCK_SECONDS`. One forced side-step and a count --
 	-- the count is what opens the note's escape hatch with a number rather than a feeling.
@@ -861,7 +905,8 @@ function Bots.report(driveNumber: number): string
 	local s = Bots.stats()
 	return string.format(
 		"[bots] drive %d: %d/%d hunters, %d/%d beaters (%d failed, %d stale) | %d walking, %d arrived in %.1fs"
-			.. " | %d stuck, %d side-steps, %d no-ground | %d blasts (%d refused) | step %.2f ms avg, %.2f ms max",
+			.. " | %d stuck, %d side-steps, %d no-ground | %d blasts (%d refused) | %d tool-posed"
+			.. " | step %.2f ms avg, %.2f ms max",
 		driveNumber,
 		Bots.count("Shooters"),
 		desired.hunters,
@@ -877,6 +922,7 @@ function Bots.report(driveNumber: number): string
 		s.groundMissing,
 		s.blasts,
 		s.blastsRefused,
+		s.toolPosed,
 		s.stepMsAvg,
 		s.stepMsMax
 	)

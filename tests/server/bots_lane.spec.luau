@@ -30,6 +30,7 @@ local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Lane = Bots.Lane
+local Rig = Bots.Rig
 
 -- This spec's own numbers, the shape `Bots.CONFIG` is.
 local CONFIG = {
@@ -444,6 +445,87 @@ return function()
 					theirs - hers
 				)
 			)
+		end)
+	end)
+	-- ---------------------------------------------------------------- the gait (task 164)
+	--
+	-- KAREN, 2026-10-12: *"bots looks odd improve waliking"*. `Rig.gait` is the whole of the answer
+	-- that is not an Instance: a ground speed in, a clip name and a playback rate out. Every number
+	-- it holds was MEASURED off the engine's own `Animate` script (`Rig.GAIT`'s header carries the
+	-- table of WalkSpeed against track Speed), so these cases are that measurement asserted rather
+	-- than a comment claiming it.
+	describe("the gait", function()
+		it("plays the walk at the rate the engine itself plays it at", function()
+			-- MEASURED: a real player at WalkSpeed 5, holding W, played the walk clip at Speed
+			-- 0.7411 (and 0.7473 on a second run). The law behind the whole sweep is
+			-- `speed / NATURAL_WALK_SPEED`, so this is the engine's own number reproduced from our
+			-- own constant, to within the sampling noise of the measurement.
+			local clip, rate = Rig.gait(5, nil)
+			expect(clip).to.equal("walk")
+			expect(near(rate, 0.7411, 0.01)).to.equal(true)
+
+			-- ...and at the pace a bot is actually SET to walk at, which is the defect: the clip was
+			-- running at 1.000 while the body made 5 studs/s.
+			local _, atPace = Rig.gait(Bots.CONFIG.WALK_SPEED, nil)
+			expect(atPace < 1).to.equal(true)
+		end)
+
+		it("scales with the ground speed, and never past either end", function()
+			-- The sweep's own shape: double the speed, double the rate.
+			local _, slow = Rig.gait(2.5, nil)
+			local _, fast = Rig.gait(5, nil)
+			expect(near(fast, slow * 2, 0.02)).to.equal(true)
+
+			-- 1.0 IS THE CEILING, because above `NATURAL_WALK_SPEED` the engine stops speeding the
+			-- walk up and fades the RUN clip in by weight instead -- measured, and a run clip is not
+			-- a thing a beater has.
+			local _, quick = Rig.gait(40, nil)
+			expect(quick).to.equal(Rig.GAIT.MAX_RATE)
+			-- ...and the floor is the engine's own, so a bot inching along is not slow motion.
+			local _, crawl = Rig.gait(Rig.GAIT.WALK_ABOVE_STUDS + 0.001, nil)
+			expect(crawl).to.equal(Rig.GAIT.MIN_RATE)
+		end)
+
+		it("idles when it is not moving", function()
+			local clip, rate = Rig.gait(0, "walk")
+			expect(clip).to.equal("idle")
+			expect(rate).to.equal(1)
+		end)
+
+		it("cannot flicker: the dead band keeps whatever is playing", function()
+			-- A BOT SHOULDERING A TRUNK sits at a fraction of a stud per second, and with ONE
+			-- threshold it would change clip every step at `STEP_HZ` 5 -- the stop-start the
+			-- dispatch asks about. Inside the band the answer is "what you are already doing".
+			local middle = (Rig.GAIT.IDLE_BELOW_STUDS + Rig.GAIT.WALK_ABOVE_STUDS) / 2
+			expect((Rig.gait(middle, "walk"))).to.equal("walk")
+			expect((Rig.gait(middle, "idle"))).to.equal("idle")
+			-- Nothing playing yet inside the band: stand, do not start a walk nobody asked for.
+			expect((Rig.gait(middle, nil))).to.equal("idle")
+
+			-- THE BAND IS REAL -- a band and not two names for one number.
+			expect(Rig.GAIT.WALK_ABOVE_STUDS > Rig.GAIT.IDLE_BELOW_STUDS).to.equal(true)
+
+			-- AND IT ACTUALLY STOPS THE FLICKER, counted rather than argued: a speed wobbling
+			-- across the band 20 times switches clip ONCE at most (the first entry), where a single
+			-- threshold would switch on every crossing.
+			local playing: string? = "walk"
+			local switches = 0
+			for i = 1, 20 do
+				local speed = if i % 2 == 0 then Rig.GAIT.IDLE_BELOW_STUDS + 0.01 else Rig.GAIT.WALK_ABOVE_STUDS - 0.01
+				local clip = (Rig.gait(speed, playing))
+				if clip ~= playing then
+					switches += 1
+				end
+				playing = clip
+			end
+			expect(switches).to.equal(0)
+		end)
+
+		it("is set up so a bot at its own walking pace is never at full rate", function()
+			-- THE RELATION THAT MADE THE SLIDE, asserted between the two files that hold it:
+			-- `Bots.CONFIG.WALK_SPEED` is the pace, `Rig.GAIT.NATURAL_WALK_SPEED` is what the clip
+			-- was authored for, and 5 < 6.74 is why playing it at 1.000 slid the feet.
+			expect(Rig.GAIT.NATURAL_WALK_SPEED > Bots.CONFIG.WALK_SPEED).to.equal(true)
 		end)
 	end)
 end
