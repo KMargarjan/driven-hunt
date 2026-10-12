@@ -140,16 +140,23 @@ return function()
 		it("FITS a phone's screen, measured by the engine and not by a font guess", function()
 			-- THE ENGINE MEASURES IT. `TextFits` is the only honest answer to "does this sentence fit
 			-- 400 px", because a width computed from a character count assumes a font's metrics.
+			--
+			-- ON A CLONE, NOT ON THE REAL LABEL, AND THE FIRST ROUND OF THIS TASK IS WHY. Measuring
+			-- needs a frame to pass (`TextFits` is a layout result), and `Hud.renderObjective` writes
+			-- that label's `Text` AND its `TextSize` EVERY frame -- so the save-and-restore idiom
+			-- `map_ui.spec` uses for a `Visible` does not work for a property with a live writer: the
+			-- run came back with all eight sentences "too long" because what was measured was the
+			-- renderer's own 24 px text in a 368 px box. A clone in the same `ScreenGui` carries the
+			-- same font, size and width and has no writer but this case.
 			local label = Hud.objectiveLine()
 			expect(label).to.be.ok()
-			local node = label :: TextLabel
-			local wasText, wasSize, wasVisible = node.Text, node.TextSize, node.Visible
-			local wasSizeUDim = node.Size
-			-- Save-and-restore, which is `map_ui.spec`'s own overlap-case idiom.
+			local node = (label :: TextLabel):Clone()
+			node.Name = "SpecProbe"
 			local _, _, width, height = Objective.lineRect(Vector2.new(400, 800))
 			node.Size = UDim2.fromOffset(width, height)
 			node.TextSize = Objective.textSizeFor(400)
 			node.Visible = true
+			node.Parent = (label :: TextLabel).Parent
 			local tooLong = {}
 			local longest = 0
 			for _, team in ipairs({ "Shooters", "Drivers" }) do
@@ -163,10 +170,7 @@ return function()
 					end
 				end
 			end
-			node.Text = wasText
-			node.TextSize = wasSize
-			node.Size = wasSizeUDim
-			node.Visible = wasVisible
+			node:Destroy()
 			expect(table.concat(tooLong, ", ")).to.equal("")
 			-- The design's numeric target, so a rewrite that breaks it says so here.
 			expect(longest <= 32).to.equal(true)
@@ -301,23 +305,80 @@ return function()
 			expect(onScreen).to.equal(true)
 		end)
 
-		it("AGREES with Hud.reticleDegToPx, which is an independent expression of the same relation", function()
+		it("is a PERSPECTIVE projection, which four properties pin down and no copy of the formula does", function()
 			-- TASK 129 SPENT THREE ROUNDS on a case that copied the expression under test into itself
-			-- and *"agreed with the wrong one"*. `Hud.reticleDegToPx` converts degrees to pixels for
-			-- the scope's duplex off the SAME vertical-fov fact, so the two are compared.
+			-- and *"agreed with the wrong one"*, so this case asserts PROPERTIES instead. Each of the
+			-- four is a consequence of `px = f * x / -z` with `f = (Y/2)/tan(fov/2)` that a wrong
+			-- formula does not have -- in particular the LINEAR form `Y * deg / fov` fails (1) and (3).
 			local fov, viewportY = 70, 1080
 			local viewport = Vector2.new(1920, viewportY)
 			local view = CFrame.new(Vector3.new(0, 0, 0))
-			for _, deg in ipairs({ 1, 5, 10 }) do
+			local function atDeg(deg: number, fovDeg: number, port: Vector2): number
 				local radians = math.rad(deg)
-				-- A point `deg` to the RIGHT of straight ahead, 1000 studs out.
-				local point = Vector3.new(math.sin(radians) * 1000, 0, -math.cos(radians) * 1000)
-				local u = Objective.project(point, view, fov, viewport)
-				local wanted = Hud.reticleDegToPx(deg, fov, viewportY)
-				-- Within a pixel: `reticleDegToPx` is the small-angle linear form and this is the
-				-- exact tangent, so they diverge slowly with the angle.
-				expect(u).to.be.near(wanted, 1 + deg * 0.2)
+				local u = Objective.project(
+					Vector3.new(math.sin(radians) * 1000, 0, -math.cos(radians) * 1000),
+					view,
+					fovDeg,
+					port
+				)
+				return u
 			end
+			-- (1) THE TANGENT LAW. Doubling the angle multiplies the pixels by tan(2d)/tan(d), which
+			-- is more than 2 -- a linear mapping would give exactly 2.
+			local one, two = atDeg(5, fov, viewport), atDeg(10, fov, viewport)
+			expect(two / one).to.be.near(math.tan(math.rad(10)) / math.tan(math.rad(5)), 1e-6)
+			expect(two / one > 2).to.equal(true)
+			-- (2) DISTANCE DOES NOT MATTER. Twice as far along the same ray is the same pixel.
+			local near = Objective.project(Vector3.new(50, 20, -100), view, fov, viewport)
+			local far = Objective.project(Vector3.new(100, 40, -200), view, fov, viewport)
+			expect(near).to.be.near(far, 1e-6)
+			-- (3) HALVING THE FIELD OF VIEW MAGNIFIES BY tan(fov/2)/tan(fov'/2), which is what makes
+			-- one reticle true at any magnification. 70 -> 35 is 2.22x, not 2x.
+			local zoomed = atDeg(5, 35, viewport)
+			expect(zoomed / one).to.be.near(math.tan(math.rad(35)) / math.tan(math.rad(17.5)), 1e-6)
+			-- (4) TWICE THE VIEWPORT HEIGHT IS TWICE THE PIXELS, because the fov is VERTICAL.
+			local tall = atDeg(5, fov, Vector2.new(1920, 2 * viewportY))
+			expect(tall / one).to.be.near(2, 1e-6)
+		end)
+
+		it("DIFFERS from Hud.reticleDegToPx by 15 per cent, and that is reported rather than asserted", function()
+			-- A MEASUREMENT, NOT A CLAIM OF AGREEMENT (rule 8). The design asked for this projection to
+			-- be compared against `Hud.reticleDegToPx` as *"an INDEPENDENT expression of the same
+			-- relation"*. IT IS NOT THE SAME RELATION, and the number is worth writing down: the
+			-- scope's conversion is the LINEAR screen mapping `viewportY * deg / fov`, while a
+			-- perspective camera puts an angle at `f * tan(deg)`. At the screen centre the ratio is
+			-- `2 * tan(fov/2) / fov_in_radians`, which at fov 70 is 1.146 -- so the duplex's elements
+			-- are drawn about 15 % further from the centre than the world behind them is.
+			--
+			-- NOTHING HERE DEPENDS ON IT and nothing in this task changes it: the scope was tuned and
+			-- photographed against its own conversion (task 141), the reticle is a mark on glass
+			-- rather than a thing registered to the world, and `src/client/Camera` is out of this
+			-- task's scope. It is queued as a finding so the next scope task knows the number.
+			local fov, viewportY = 70, 1080
+			local viewport = Vector2.new(1920, viewportY)
+			local view = CFrame.new(Vector3.new(0, 0, 0))
+			local radians = math.rad(1)
+			local exact = Objective.project(
+				Vector3.new(math.sin(radians) * 1000, 0, -math.cos(radians) * 1000),
+				view,
+				fov,
+				viewport
+			)
+			local linear = Hud.reticleDegToPx(1, fov, viewportY)
+			local predicted = 2 * math.tan(math.rad(fov / 2)) / math.rad(fov)
+			expect(linear / exact).to.be.near(predicted, 0.01)
+			TestKit.note(
+				string.format(
+					"projection: 1 deg is %.2f px exact against %.2f px by Hud.reticleDegToPx "
+						.. "(ratio %.3f, predicted %.3f) at fov %d, viewportY %d",
+					exact,
+					linear,
+					linear / exact,
+					predicted,
+					fov,
+					viewportY
+				)
+			)
 		end)
 
 		it("puts up UP and right RIGHT", function()

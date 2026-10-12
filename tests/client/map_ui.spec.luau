@@ -668,12 +668,34 @@ return function()
 		end)
 
 		it("shows the push direction the HUD's own rule gives, with its word", function()
+			-- THE RULE CHANGED IN TASK 165 AND THIS CASE CHANGED WITH IT. The arrow used to be the
+			-- WORLD's bearing, full stop; it is now `Hud.markerFor`'s answer -- the bearing to this
+			-- player's own TARGET when there is one, and the world's when there is not. That is what
+			-- makes the strip, the minimap and the waypoint chevron agree, and it is why a DEV world
+			-- that states no drive direction now HAS an arrow: it points at the hunter's own line.
+			--
+			-- ASSERTED AS AN INVARIANT rather than by re-deriving the target, because re-deriving it
+			-- here would be a second copy of the renderer's rule. If there is a target the arrow is
+			-- the bearing TO it and wears its word; if there is none the arrow is the world's answer.
+			local target, targetWord = MapUi.target()
+			if target ~= nil then
+				local at = target :: Vector2
+				local root = player.Character and player.Character.PrimaryPart
+				expect(MapUi.pushLabel()).to.equal(targetWord)
+				if root ~= nil then
+					local me = (root :: BasePart).Position
+					local wanted = (math.deg(math.atan2(at.X - me.X, at.Y - me.Z)) + 360) % 360
+					-- Within a degree: the pass that set the bearing and this read are different
+					-- frames, and the player may have moved a stud between them.
+					expect(MapUi.pushBearingDeg()).to.be.near(wanted, 1)
+				end
+				return
+			end
 			local data = if Map.EXPECTED_WORLD == "forest-test"
 				then require(ReplicatedStorage:WaitForChild("ForestTest"))
 				else nil
 			if data == nil then
-				-- Every other world states no direction, and then there is no arrow and no word --
-				-- `Compass.setBearing(nil)`'s rule.
+				-- No target and no world direction: no arrow and no word -- `Compass.setBearing(nil)`.
 				expect(MapUi.pushBearingDeg()).to.equal(nil)
 				return
 			end
