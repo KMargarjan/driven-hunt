@@ -3,13 +3,17 @@
 Task: 165
 Round: 1
 Base: `9d73341` (main, #148 merged)
-Code commit: `0a14dd5285774a7cd67d0bab955cd1db6bed782b`
+Code commit: `0bf68fa16356fd5469e24d52b2eb9d963f3ef7f5`
 Branch: `task-165-clear-hud`
 
 ```
 [harness] PASS: 33/33 checks @ 0a14dd5285774a7cd67d0bab955cd1db6bed782b (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 0a14dd5285774a7cd67d0bab955cd1db6bed782b (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 0bf68fa16356fd5469e24d52b2eb9d963f3ef7f5 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 0bf68fa16356fd5469e24d52b2eb9d963f3ef7f5 (clean tree)
 ```
+
+DIRECTOR NOTE: the last two lines are the Director's at the head `0bf68fa` (only paperwork after `0a14dd5`), so the code commit named is the head.
 
 Two full runs, `.agent-logs/task165-test1.log` and `task165-test2.log`.
 **`[harness2]` IS OUTSTANDING AND IT IS A HUMAN CLICK.** `src/shared/Drive/init.luau` is in
