@@ -763,16 +763,25 @@ return function()
 			-- IT IS THE END VOICE THAT IS PLAYING, from the end phrase's own offset -- and the
 			-- offset is read INSIDE the window, because `Stop` puts `TimePosition` back to 0 and the
 			-- cut is only 1.68 s long.
+			--
+			-- `TimePosition > 0` IS PART OF THE PREDICATE AND NOT A TIDINESS, AND THE FIRST RUN OF
+			-- THIS CASE IS WHY: `IsPlaying` goes true on the `Play` call, and a poll that lands in
+			-- that same frame reads the position the previous `Stop` left behind -- 0 -- before the
+			-- engine has started the clip. Measured in the same session: one frame later it reads
+			-- 0.34 and climbs ~0.10 per 0.1 s. The clip only ever advances, so any positive reading
+			-- is a reading of this cut.
 			local heardAt = -1
 			expect(waitUntil(6, function()
-				if voice.IsPlaying then
+				if voice.IsPlaying and voice.TimePosition > 0 then
 					heardAt = voice.TimePosition
 					return true
 				end
 				return false
 			end)).to.equal(true)
 			expect(heardAt >= phrase.FROM).to.equal(true)
-			expect(heardAt <= phrase.CUT).to.equal(true)
+			-- ...AND BELOW THE CUT, PLUS ONE POLL. The sounding thread stops the voice at `CUT`, and
+			-- this poll can be up to its own 0.05 s interval behind, so the window has to allow one.
+			expect(heardAt <= phrase.CUT + 0.1).to.equal(true)
 		end)
 
 		it("plays the data's plan and holds no schedule of its own", function()
