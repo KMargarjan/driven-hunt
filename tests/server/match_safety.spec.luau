@@ -538,7 +538,10 @@ return function()
 			board = Match.Score.join(board, SHOOTER, "Karen", "Shooters")
 			local awards
 			board, awards = Match.Score.violation(board, SHOOTER, Match.CONFIG)
-			expect(board.rows[SHOOTER].points).to.equal(-50)
+			-- THE NUMBER IS READ OFF THE CONFIG and not typed twice: this case is about `violation`
+			-- taking the penalty and counting it, and the penalty's own value is asserted once, in
+			-- the contract case above (-10 since task 160).
+			expect(board.rows[SHOOTER].points).to.equal(Match.CONFIG.POINTS.SAFETY_PENALTY)
 			expect(board.rows[SHOOTER].violations).to.equal(1)
 			expect(#awards).to.equal(1)
 			expect(awards[1].reason).to.equal("safety")
